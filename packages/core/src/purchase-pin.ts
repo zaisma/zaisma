@@ -1,9 +1,20 @@
-// A player's purchase PIN (the Zaisma buy sheet): an optional way to confirm saved-card buys on a device, beside a
-// passkey or the password. It only confirms purchases, so it's hashed like a password and locks after 5 wrong tries
+// A player's purchase PIN (the Zaisma buy sheet): an optional lock on saved-card buys, confirmed on a device with it,
+// a passkey or the password. It only confirms purchases, so it's hashed like a password and locks after 5 wrong tries
 // until a password confirm resets the count (docs/DECISIONS.md, "One Zaisma buy sheet").
 
-/** What a purchase PIN takes, and how long one confirm lasts on a device. */
-export const PURCHASE_PIN_LIMITS = { minimumPinLength: 6, maximumPinLength: 64, maximumFailedTryCount: 5, confirmationDurationMin: 15 } as const;
+/**
+ * What a purchase PIN takes, and when a saved-card buy asks the player to confirm it's them: always with a PIN set
+ * (one confirm, one buy); otherwise only after a sign-in older than signInMaximumAgeDays, or when a day's buying would
+ * pass dailySpendLimitUsdMinorUnits (US cents). Such a confirm lasts confirmationDurationMin minutes on that device.
+ */
+export const PURCHASE_PIN_LIMITS = {
+  minimumPinLength: 6,
+  maximumPinLength: 64,
+  maximumFailedTryCount: 5,
+  confirmationDurationMin: 15,
+  signInMaximumAgeDays: 30,
+  dailySpendLimitUsdMinorUnits: 10_000,
+} as const;
 
 const PBKDF2_ITERATION_COUNT = 210_000;
 const SALT_BYTE_COUNT = 16;

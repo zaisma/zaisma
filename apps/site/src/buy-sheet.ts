@@ -1,33 +1,28 @@
 import { html, pageData, type Raw } from "./html.ts";
 import { pageScript } from "./page-scripts.ts";
 import type { Env } from "./env.ts";
-import { cutButton, runButton, textButton } from "./components/actions.ts";
+import { cardRow, cutButton, runButton, textButton } from "./components/actions.ts";
 import { doneState, loadingState, problemState } from "./components/data.ts";
 import { cutField } from "./components/fields.ts";
-import { stack } from "./components/layout.ts";
-import { sheet } from "./components/panes.ts";
-import { facts } from "./components/reading.ts";
+import { row, stack } from "./components/layout.ts";
+import { storeItem, storePanel } from "./components/panes.ts";
 import { isLocalPreview } from "./stripe.ts";
 
 /**
- * The buy sheet (docs/DECISIONS.md, "One Zaisma buy sheet; we own the buying experience, not the money."): it rises over the running
- * game when the game asks to buy an item (Zaisma.items.buy, a zaisma:buy message), and stands alone in a zaisma.com window for games on
- * their own sites (/buy/<slug>/<item_name>). It's one sheet whose parts the script shows by the moment: the item and its price, the saved
- * card, confirming it's you, entering a card, Apple Pay or Google Pay, a guest's way to an account, and how it ended. Nothing in it is about
- * one player, so the page around it stays cacheable: everything personal comes from /api/buy (buy.ts) once the sheet opens.
+ * The buy sheet (docs/DECISIONS.md, "One Zaisma buy sheet; we own the buying experience, not the money."): a store panel that rises over the
+ * running game when the game asks to buy an item (Zaisma.items.buy, a zaisma:buy message), and stands alone in a zaisma.com window for games
+ * on their own sites (/buy/<slug>/<item_name>). The game's own cover is across its top; below it the item, its price and one quiet line on who
+ * sells it; pinned at its foot the saved card and Buy, carrying the price. Pressing Buy is the confirmation: only when the start answer says
+ * why (confirmation_reason) does the panel ask the player to confirm it's them first, in the same place. The script shows the parts by the
+ * moment: the item, the saved card, confirming it's you, entering a card, Apple Pay or Google Pay, a guest's way to an account, and how it
+ * ended. Nothing in it is about one player, so the page around it stays cacheable: everything personal comes from /api/buy (buy.ts) once the
+ * sheet opens.
  */
-export function buySheet(options: { joinHref: string; signInHref: string }): Raw {
+export function buySheet(options: { joinHref: string; signInHref: string; coverUrl?: string | null }): Raw {
   const body = stack({
     items: [
+      { kind: "block", markup: storeItem({ id: "buy-item", imageUrl: options.coverUrl ?? null, name: "", priceText: "" }) },
       { kind: "block", id: "buy-loading", markup: loadingState({ label: "Getting the price" }) },
-      { kind: "words", id: "buy-about", isHidden: true, markup: html`<p id="buy-description"></p>` },
-      {
-        kind: "words",
-        id: "buy-facts",
-        isHidden: true,
-        markup: facts({ arrangement: "down", label: "What you're buying", facts: [{ label: "Price", text: "" }, { label: "Sold by", text: "" }, { label: "Pay with", text: "" }, { label: "Refunds", text: "" }] }),
-      },
-      { kind: "words", id: "buy-other-card", isHidden: true, markup: textButton("Use another card", { type: "button" }) },
       {
         kind: "block",
         id: "buy-card",
@@ -68,26 +63,22 @@ export function buySheet(options: { joinHref: string; signInHref: string }): Raw
       { kind: "words", id: "buy-message", isHidden: true, markup: html`<p></p>` },
       { kind: "block", id: "buy-problem", isHidden: true, markup: problemState({ title: "", text: "" }) },
       { kind: "block", id: "buy-done", isHidden: true, markup: doneState({ title: "Bought", text: "" }) },
+    ],
+  });
+  // The foot stays in view while the body scrolls: Apple Pay or Google Pay when offered, the saved card, the line the EU's law asks for, and Buy.
+  const foot = stack({
+    items: [
       { kind: "block", id: "buy-wallet", isHidden: true, markup: html`<div id="buy-wallet-element"></div>` },
       { kind: "control", id: "buy-wallet-stand-in", isHidden: true, markup: cutButton("Apple Pay", { type: "button", isFullWidth: true }) },
+      { kind: "control", id: "buy-other-card", isHidden: true, markup: cardRow("", { type: "button", hiddenText: "Use another card" }) },
       // Digital content delivered at once loses the 14-day withdrawal right only with the buyer's acknowledgement, said before they buy.
       { kind: "words", id: "buy-eu", isHidden: true, markup: html`<p>You get it now, so you can't cancel it in the next 14 days.</p>` },
+      { kind: "control", markup: runButton("Buy", { id: "buy-go", type: "button", busyLabel: "Buying", isFullWidth: true, trailingText: "", isHidden: true }) },
+      { kind: "block", id: "buy-guest-buttons", isHidden: true, markup: row({ widths: "equal", items: [{ kind: "control", markup: cutButton("Sign in", { id: "buy-sign-in", href: options.signInHref, dataAttributes: { "buy-sign-in": "/signin" } }) }, { kind: "control", markup: runButton("Make an account", { id: "buy-join", href: options.joinHref, dataAttributes: { "buy-sign-in": "/join" } }) }] }) },
+      { kind: "control", markup: cutButton("Back to the game", { id: "buy-back", type: "submit", formMethod: "dialog", isFullWidth: true, isHidden: true }) },
     ],
   });
-  return sheet({
-    id: "buy-sheet",
-    title: "Buy",
-    closeLabel: "Close",
-    placement: "foot",
-    body,
-    buttons: [
-      cutButton("Cancel", { id: "buy-cancel", type: "submit", formMethod: "dialog" }),
-      cutButton("Back to the game", { id: "buy-back", type: "submit", formMethod: "dialog", isHidden: true }),
-      cutButton("Sign in", { id: "buy-sign-in", href: options.signInHref, dataAttributes: { "buy-sign-in": "/signin" }, isHidden: true }),
-      runButton("Make an account", { id: "buy-join", href: options.joinHref, dataAttributes: { "buy-sign-in": "/join" }, isHidden: true }),
-      runButton("Buy", { id: "buy-go", type: "button", busyLabel: "Buying" }),
-    ],
-  });
+  return storePanel({ id: "buy-sheet", title: "Buy", closeLabel: "Close", body, foot });
 }
 
 /** What the sheet's script needs from the page that holds it (pageData "buy-sheet-data"). */
@@ -118,12 +109,11 @@ const byId = (id) => document.getElementById(id);
 const title = byId("buy-sheet-title");
 const go = byId("buy-go");
 const goLabel = go.querySelector(".label-idle");
-const cancel = byId("buy-cancel");
+const goPrice = go.querySelector(".run-trailing");
 const back = byId("buy-back");
-const signIn = byId("buy-sign-in");
-const join = byId("buy-join");
-const factRows = byId("buy-facts").querySelectorAll(".fact");
-const CELLS = ["buy-loading", "buy-about", "buy-facts", "buy-other-card", "buy-card", "buy-confirm", "buy-guest", "buy-message", "buy-problem", "buy-done", "buy-wallet", "buy-wallet-stand-in", "buy-eu"];
+const itemWords = byId("buy-item-words");
+// The body's moments and the foot's parts, each shown or hidden by showCells.
+const CELLS = ["buy-loading", "buy-card", "buy-confirm", "buy-guest", "buy-message", "buy-problem", "buy-done", "buy-wallet", "buy-wallet-stand-in", "buy-other-card", "buy-eu", "buy-guest-buttons"];
 // The developer's mistakes, which the game hears as an error once the player closes the sheet; the player only sees it can't be bought.
 const DEVELOPER_MISTAKES = ["no_game", "bad_item_name", "no_item", "not_for_sale", "stripe_not_connected", "stripe_cannot_take_payments", "bad_item_count", "bad_game_account_id"];
 const BOUGHT_SHOWN_MS = 1800;
@@ -138,6 +128,8 @@ let asking = null;
 let sale = null;
 let moment = "closed";
 let confirmMethod = null;
+// Whether pressing Buy has opened the confirm step (only when the start answer gave a confirmation_reason).
+let isAsking = false;
 let cardForm = null;
 let wallet = null;
 let isBusy = false;
@@ -150,17 +142,23 @@ function tell(asked, status, extra) {
   asked.tell(Object.assign({ type: "zaisma:buy", requestNumber: asked.requestNumber, status: status }, extra || {}));
 }
 function setText(id, text) { byId(id).querySelector("p").textContent = text; }
-function showCells(shown) { for (const id of CELLS) byId(id).hidden = !shown.includes(id); }
+function showCells(shown, isItemShown) {
+  for (const id of CELLS) byId(id).hidden = !shown.includes(id);
+  // The cover stays across the top in every moment; the item's words show once the price is known and there is something to buy.
+  itemWords.hidden = !isItemShown;
+}
 function showButtons(buttons) {
-  cancel.hidden = !buttons.includes("cancel");
+  const wasGoHidden = go.hidden;
   back.hidden = !buttons.includes("back");
   go.hidden = !buttons.includes("go");
-  signIn.hidden = join.hidden = !buttons.includes("sign_in");
-  if (buttons.includes("go")) holdBuy();
+  if (buttons.includes("go") && wasGoHidden) holdBuy();
   syncGo();
 }
-// Whether Buy can be pressed: not while paying, not in its first moments on screen, and not before a confirm method exists.
-function syncGo() { go.disabled = isBusy || isHeld || (moment === "ready" && sale.is_confirmation_needed && !confirmMethod); }
+// Whether Buy can be pressed: not while paying, not in its first moments on screen, and not once the confirm step is open with no way to confirm.
+function syncGo() { go.disabled = isBusy || isHeld || (moment === "confirm" && !confirmMethod); }
+// Whether this buy must be confirmed first. The start answer's confirmation_reason says why, or is null when pressing Buy is enough; an older
+// answer without one, or the pay call asking again, still needs it when is_confirmation_needed says so.
+const needsConfirm = () => sale.is_confirmation_needed && sale.confirmation_reason !== null;
 function holdBuy() {
   isHeld = true;
   clearTimeout(holdTimer);
@@ -170,10 +168,6 @@ function busy(isOn) {
   isBusy = isOn;
   syncGo();
   if (isOn) go.setAttribute("aria-busy", "true"); else go.removeAttribute("aria-busy");
-}
-function setFact(factIndex, text) {
-  factRows[factIndex].hidden = !text;
-  factRows[factIndex].querySelector("dd").textContent = text || "";
 }
 async function call(path, body, method) {
   try {
@@ -218,10 +212,11 @@ async function start() {
   ended = { status: "cancelled", purchase: null, error: null };
   latestPurchase = null;
   moment = "loading";
+  isAsking = false;
   title.textContent = "Buy";
   busy(false);
-  showCells(["buy-loading"]);
-  showButtons(["cancel"]);
+  showCells(["buy-loading"], false);
+  showButtons([]);
   const body = { item_name: asked.itemName, item_count: asked.itemCount, game_account_id: asked.gameAccountId };
   if (buyData.tester_token) body.tester_token = buyData.tester_token;
   if (buyData.is_preview && /^[A-Z]{2}$/.test(query.get("preview_country") || "")) body.preview_country_code = query.get("preview_country");
@@ -229,11 +224,11 @@ async function start() {
   if (asking !== asked) return;
   if (answer.error) return refused(answer.error);
   sale = answer;
-  title.textContent = sale.item.title + (sale.item_count > 1 ? " × " + sale.item_count : "");
-  byId("buy-description").textContent = sale.item.description || "";
-  setFact(0, sale.price.price_text);
-  setFact(1, sale.seller.business_name);
-  setFact(3, sale.refund_policy_words);
+  byId("buy-item-name").textContent = sale.item.title + (sale.item_count > 1 ? " × " + sale.item_count : "");
+  byId("buy-item-price").textContent = sale.price.price_text;
+  byId("buy-item-description").textContent = sale.item.description || "";
+  byId("buy-item-note").textContent = ["Sold by " + sale.seller.business_name + ".", sale.refund_policy_words].filter(Boolean).join(" ");
+  goPrice.textContent = sale.price.price_text;
   sale.saved_card ? ready() : enterCard();
 }
 
@@ -244,19 +239,19 @@ function refused(error) {
     ended.error = { code: error.code, message: error.message, fix: error.fix || null };
     title.textContent = "This item can't be bought right now.";
     setText("buy-message", "Nothing was charged.");
-    showCells(["buy-message"]);
+    showCells(["buy-message"], false);
     return showButtons(["back"]);
   }
   if (error.code === "game_unavailable") {
     title.textContent = "This game isn't available in your country";
     setText("buy-message", error.message + " Nothing was charged.");
-    showCells(["buy-message"]);
+    showCells(["buy-message"], false);
     return showButtons(["back"]);
   }
   if (error.code === "already_owned") {
     title.textContent = "Already yours";
     setText("buy-message", error.message + " Nothing was charged.");
-    showCells(["buy-message"]);
+    showCells(["buy-message"], false);
     return showButtons(["back"]);
   }
   problem("Couldn't open the purchase", error.message);
@@ -267,9 +262,10 @@ function problem(problemTitle, problemText) {
   busy(false);
   byId("buy-problem").querySelector(".state-title").textContent = problemTitle;
   byId("buy-problem").querySelector(".state-text").textContent = problemText;
-  showCells(["buy-problem"]);
+  showCells(["buy-problem"], false);
   goLabel.textContent = "Try again";
-  showButtons(["cancel", "go"]);
+  goPrice.textContent = sale ? sale.price.price_text : "";
+  showButtons(["go"]);
 }
 
 // A guest makes a free account or signs in, in a new tab on the game page (the game keeps running, as Zaisma.player.signIn does), and
@@ -278,8 +274,8 @@ function guest() {
   moment = "guest";
   title.textContent = "Make a free account to buy";
   byId("buy-guest-text").textContent = "Your game keeps running while you make one or sign in, and you come back to this.";
-  showCells(["buy-guest"]);
-  showButtons(["sign_in"]);
+  showCells(["buy-guest", "buy-guest-buttons"], false);
+  showButtons([]);
 }
 document.querySelectorAll("[data-buy-sign-in]").forEach((link) => link.addEventListener("click", (event) => {
   if (buyData.place !== "game_page") return;
@@ -295,13 +291,14 @@ try { new BroadcastChannel("zaisma").addEventListener("message", (event) => even
 const BRANDS = { visa: "Visa", mastercard: "Mastercard", amex: "American Express", discover: "Discover", jcb: "JCB", diners: "Diners Club", unionpay: "UnionPay", cartes_bancaires: "Cartes Bancaires" };
 const cardWords = (card) => (BRANDS[card.card_brand] || "Card") + " ending " + card.card_last_digits;
 
-// The saved card: Buy, after confirming it's you once on this device in 15 minutes.
+// The saved card and Buy: pressing Buy is the confirmation, so the confirm step opens (isAsking) only once Buy is pressed and the start
+// answer said why. Wallets and EU wording sit with it in the foot.
 function ready(confirmProblem) {
-  moment = "ready";
+  moment = isAsking ? "confirm" : "ready";
   busy(false);
-  setFact(2, cardWords(sale.saved_card));
-  const shown = ["buy-about", "buy-facts", "buy-other-card"];
-  if (sale.is_confirmation_needed) {
+  byId("buy-other-card").querySelector(".face > span").textContent = cardWords(sale.saved_card);
+  const shown = ["buy-other-card"];
+  if (isAsking) {
     shown.push("buy-confirm");
     pickConfirm(confirmMethod);
     const problemCell = byId("buy-confirm-problem");
@@ -310,23 +307,33 @@ function ready(confirmProblem) {
   }
   showWallet(shown);
   if (sale.is_eu_withdrawal_line_shown) shown.push("buy-eu");
-  if (!sale.item.description) shown.splice(shown.indexOf("buy-about"), 1);
-  showCells(shown);
+  showCells(shown, true);
   goLabel.textContent = "Buy";
-  showButtons(["cancel", "go"]);
+  showButtons(["go"]);
+  if (isAsking) revealConfirm();
+}
+// The confirm step opens under the item, below the fold on a short screen: bring it into view, and the field into reach.
+function revealConfirm() {
+  byId("buy-confirm").scrollIntoView({ block: "nearest" });
+  const field = confirmMethod === "purchase_pin" ? byId("buy-pin-field") : confirmMethod === "password" ? byId("buy-password-field") : null;
+  if (field) field.focus({ preventScroll: true });
 }
 
+// Why the player is asked to confirm it's them, in the start answer's words (an older answer, or the pay call asking, has no reason).
+const REASON_WORDS = {
+  purchase_pin: "Your account asks for your purchase PIN for every buy.",
+  old_sign_in: "It's been a while since you signed in here. Confirm it's you to buy.",
+  big_spend: "That's a lot for one day. Confirm it's you to buy.",
+};
 // How Buy confirms it's you: a passkey, then the purchase PIN, then the password; the player can switch to the password.
 function pickConfirm(method) {
   const methods = sale.confirmation_methods;
   const can = { passkey: methods.has_passkey, purchase_pin: methods.has_purchase_pin && !methods.is_purchase_pin_locked, password: methods.has_password };
   confirmMethod = method && can[method] ? method : ["passkey", "purchase_pin", "password"].find((each) => can[each]) || null;
-  const words = {
-    passkey: "Buy asks for your passkey, once. Then buying here is one tap for 15 minutes.",
-    purchase_pin: "Enter your purchase PIN, once. Then buying here is one tap for 15 minutes.",
-    password: "Enter your password, once. Then buying here is one tap for 15 minutes.",
-  };
-  byId("buy-confirm-text").textContent = confirmMethod ? words[confirmMethod] : "To buy with your saved card, add a passkey or a purchase PIN in your account first. Apple Pay and Google Pay work without one.";
+  const reason = sale.confirmation_reason;
+  // A purchase PIN's sentence is about the PIN; confirming another way, the account only asks to confirm.
+  const why = reason === "purchase_pin" && confirmMethod !== "purchase_pin" ? "Your account asks you to confirm every buy." : REASON_WORDS[reason] || "Confirm it's you to buy.";
+  byId("buy-confirm-text").textContent = confirmMethod ? why + (confirmMethod === "passkey" ? " Use your passkey." : "") : "To buy with your saved card, add a passkey or a purchase PIN in your account first. Apple Pay and Google Pay work without one.";
   byId("buy-pin").hidden = confirmMethod !== "purchase_pin";
   byId("buy-password").hidden = confirmMethod !== "password";
   const other = confirmMethod !== "password" && can.password ? "password" : confirmMethod === "password" && can.purchase_pin ? "purchase_pin" : confirmMethod === "password" && can.passkey ? "passkey" : null;
@@ -357,8 +364,10 @@ async function confirmIt() {
 }
 
 async function buyWithSavedCard() {
+  // Pressing Buy asks first only when the start answer said why; the next press confirms and pays.
+  if (needsConfirm() && !isAsking) { isAsking = true; return ready(); }
   busy(true);
-  if (sale.is_confirmation_needed) {
+  if (needsConfirm()) {
     const confirmProblem = await confirmIt();
     if (confirmProblem) return ready(confirmProblem);
   }
@@ -367,7 +376,7 @@ async function buyWithSavedCard() {
 
 async function paid(answer) {
   if (answer.error) {
-    if (answer.error.code === "purchase_confirmation_needed") { sale.is_confirmation_needed = true; return ready(answer.error.message); }
+    if (answer.error.code === "purchase_confirmation_needed") { sale.is_confirmation_needed = true; isAsking = true; return ready(answer.error.message); }
     if (answer.error.code === "payment_declined") return declined(answer.error.message);
     return problem("Couldn't buy it", answer.error.message);
   }
@@ -390,8 +399,8 @@ async function paid(answer) {
 function waiting(words) {
   moment = "waiting";
   byId("buy-loading").querySelector(".loading-label").textContent = words;
-  showCells(["buy-loading"]);
-  showButtons(["cancel", "go"]);
+  showCells(["buy-loading"], true);
+  showButtons(["go"]);
   busy(true);
 }
 
@@ -427,7 +436,7 @@ function bought(purchase) {
   busy(false);
   ended = { status: "bought", purchase: purchase || null, error: null };
   byId("buy-done").querySelector(".state-text").textContent = sale.item.title + " is yours. The receipt is on its way by email.";
-  showCells(["buy-done"]);
+  showCells(["buy-done"], false);
   showButtons(["back"]);
   setTimeout(() => { if (moment === "bought" && buySheet.open) buySheet.close(); }, BOUGHT_SHOWN_MS);
 }
@@ -436,18 +445,17 @@ function bought(purchase) {
 // paid with like any saved card.
 function enterCard() {
   moment = "card";
+  isAsking = false;
   busy(false);
-  const shown = ["buy-about", "buy-facts", "buy-card"];
-  setFact(2, "");
+  const shown = ["buy-card"];
   byId("buy-card-form").hidden = buyData.stripe_mode !== "stripe";
   byId("buy-test-card").hidden = buyData.stripe_mode !== "stand_in";
   showWallet(shown);
   if (sale.is_eu_withdrawal_line_shown) shown.push("buy-eu");
-  if (!sale.item.description) shown.splice(shown.indexOf("buy-about"), 1);
-  showCells(shown);
+  showCells(shown, true);
   goLabel.textContent = "Buy";
   // The stand-in has no form: its test card button saves a card, and Buy is the saved card's.
-  showButtons(buyData.stripe_mode === "stripe" ? ["cancel", "go"] : ["cancel"]);
+  showButtons(buyData.stripe_mode === "stripe" ? ["go"] : []);
   if (buyData.stripe_mode === "stripe" && !cardForm) {
     cardForm = stripeFor(null).then((stripe) => {
       const elements = stripe.elements({ mode: "setup", currency: sale.price.currency_code, paymentMethodTypes: ["card"], appearance: stripeLook() });
@@ -477,8 +485,8 @@ async function saveCard() {
   const saved = await call("/api/payment-methods/saved", { setup_intent_id: setup.setup_intent_id });
   if (saved.error) return problem("Couldn't save your card", saved.error.message);
   sale.saved_card = saved.saved_card;
-  // Saved: Buy takes it from here, confirming it's you once if this device hasn't in 15 minutes.
-  if (sale.is_confirmation_needed) return ready();
+  // Saved: Buy was pressed for it, so it takes it from here, asking first only when the start answer said why.
+  if (needsConfirm()) { isAsking = true; return ready(); }
   buyWithSavedCard();
 }
 byId("buy-test-card").querySelector("button").addEventListener("click", () => saveCard());
@@ -497,7 +505,7 @@ function showWallet(shown) {
     element.on("ready", (event) => {
       if (!event.availablePaymentMethods || sale !== forSale) return;
       wallet.isAvailable = true;
-      if (moment === "ready" || moment === "card") byId("buy-wallet").hidden = false;
+      if (moment === "ready" || moment === "confirm" || moment === "card") byId("buy-wallet").hidden = false;
     });
     element.on("confirm", async () => {
       waiting("Paying");
@@ -517,7 +525,7 @@ byId("buy-wallet-stand-in").querySelector("button").addEventListener("click", ()
 
 go.addEventListener("click", () => {
   if (isBusy || isHeld) return;
-  if (moment === "ready") return buyWithSavedCard();
+  if (moment === "ready" || moment === "confirm") return buyWithSavedCard();
   if (moment === "card") return saveCard();
   if (moment === "problem") return start();
 });
@@ -572,6 +580,10 @@ if (buyData.is_preview) {
     if (name === "open") return open({ requestNumber: 0, itemName: itemName, itemCount: 1, gameAccountId: null, tell: () => {} });
     if (name === "declined") return declined("Your card was declined.");
     if (name === "three_d_secure") return waiting("Your bank asks you to confirm");
+    // Buy pressed once, as a player would: it opens the confirm step where the account asks for one (and charges at once where it doesn't, so
+    // the check only presses it for an account that asks). A first card is saved with the stand-in's test card first.
+    if (name === "press_buy") { isHeld = false; syncGo(); return go.click(); }
+    if (name === "save_test_card") return byId("buy-test-card").querySelector("button").click();
   };
 }
 })();`);

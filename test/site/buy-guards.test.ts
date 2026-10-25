@@ -264,7 +264,6 @@ describe("the total and Stripe's answers (review 17)", () => {
   it("fails the sale on a really declined card, but not when Stripe itself is in trouble: that can be tried again", async () => {
     await setItem("revive", revive);
     await saveCard();
-    await confirmed();
     const purchaseId = await started();
     charge = { status: "succeeded", failure: "stripe" };
     const trouble = await player(`/api/buy/purchases/${purchaseId}/pay-with-saved-card`, { method: "POST" });

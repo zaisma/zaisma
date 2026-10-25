@@ -166,6 +166,9 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
   // Checked browsers with the game on screen, and everyone in its rooms (who may have come in another way): the larger.
   const playingNowPlayerCount = Math.max(playingNow.get(game.id) ?? 0, live ? live.playing.playerCount : 0);
   const shots = pictures.results.map((picture) => `/img/${picture.id}`);
+  // The game's own cover, across the top of the buy sheet (items have no pictures of their own); null where the developer has none yet.
+  const coverPicture = pictures.results.find((picture) => picture.kind === "cover");
+  const coverUrl = coverPicture ? `/img/${coverPicture.id}` : null;
   const more = [...others.filter((otherGame) => otherGame.slug !== game.slug && otherGame.owner_id && otherGame.owner_id === game.owner_id), ...others.filter((otherGame) => otherGame.slug !== game.slug && (!otherGame.owner_id || otherGame.owner_id !== game.owner_id))].slice(0, 4);
   const purchaseLabel = await purchaseLabelFor(env.DB, game);
   const refundWords = refundPolicyWords(purchaseSettingsOf(game));
@@ -354,7 +357,7 @@ ${saves ? playingCard({ id: "save-toast", body: stack({ items: [{ kind: "words",
 ${signInCard}
 ${multiplayer ? stillThereCard() : ""}
 ${leavingCard(game.title)}
-${isClosed ? "" : buySheet({ joinHref: joinHere, signInHref: signinHere })}
+${isClosed ? "" : buySheet({ joinHref: joinHere, signInHref: signinHere, coverUrl })}
 ${shareDialog(game.title, !tester)}
 ${tester && !multiplayer ? "" : playingCheck("play-check")}
 ${pageData("game-page-data", {

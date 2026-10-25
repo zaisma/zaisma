@@ -14,6 +14,8 @@ export const ICONS = {
   megaphone: stroke("0 0 20 20", '<path d="M3 8v4h3l7 4V4L6 8z"/><path d="M6 12l1.4 4.4h2.2L8.6 12.6M15.6 7.6a3.2 3.2 0 0 1 0 4.8"/>'),
   clock: stroke("0 0 16 16", '<circle cx="8" cy="8" r="5.8"/><path d="M8 4.8V8l2.2 1.5"/>', ' stroke-width="1.28"'),
   calendar: stroke("0 0 20 20", '<path d="M3.5 5h13v11.5h-13z"/><path d="M3.5 8.6h13M7 3.2v3.4M13 3.2v3.4"/>'),
+  // A bank card, for the card a buy is paid with.
+  card: stroke("0 0 20 20", '<path d="M2.5 5h15v10h-15z"/><path d="M2.5 8.6h15M5.4 12.2h3"/>'),
   lock: stroke("0 0 20 20", '<path d="M4.5 9h11v8.5h-11z"/><path d="M7 9V6.6a3 3 0 0 1 6 0V9"/><path d="M10 12.4v2"/>'),
   mail: stroke("0 0 20 20", '<path d="M3 5h14v10.5H3z"/><path d="M3.4 5.6 10 11l6.6-5.4"/>'),
   gear: stroke(

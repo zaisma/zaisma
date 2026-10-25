@@ -58,6 +58,11 @@ export interface RunButtonOptions extends ButtonTarget {
   state?: ButtonState;
   /** Not shown for now: a page script shows it (the buy sheet's Make an account, for a guest). */
   isHidden?: boolean;
+  /**
+   * Words at the button's other end, the label staying at its start, in place of the arrow: a buy button's price ("Buy" … "$19.99").
+   * Left out, the label leads and the arrow follows. An empty string keeps the place for a script to fill (it takes no room until it has words).
+   */
+  trailingText?: string;
 }
 
 /** The runner button: a raised orange slab, the same height as the other buttons, lit along its edges. It lifts, leans toward the pointer and catches the light; pressing sinks it into the glass. */
@@ -65,7 +70,9 @@ export function runButton(label: string, options: RunButtonOptions = {}): Contro
   // The label's span has no class of its own: html.ts's account link finds it as the header's runner's span without one.
   const words = options.busyLabel ? html`<span class="label-idle">${label}</span><span class="label-busy">${options.busyLabel}</span>` : html`<span>${label}</span>`;
   const shell = classes("run-wrap", options.isFullWidth && "is-full", options.state);
-  return controlMarkup(html`${opening(shell, options, options.isBusy, html`${disabledAttribute(options)}${options.isHidden ? raw(" hidden") : ""}`)}<span class="${options.isBig ? "face run big" : "face run"} cut-raised" data-cut-line="${options.isBig ? 14 : 12}">${CUT_LINE}${loader()}${options.icon ? icon(options.icon) : ""}${words}${options.icon ? "" : ARROW}</span>${closing(options)}`, options.isBig ? "big" : "regular");
+  const hasTrailing = options.trailingText !== undefined;
+  const ending = hasTrailing ? html`<span class="run-trailing">${options.trailingText}</span>` : options.icon ? "" : ARROW;
+  return controlMarkup(html`${opening(shell, options, options.isBusy, html`${disabledAttribute(options)}${options.isHidden ? raw(" hidden") : ""}`)}<span class="${options.isBig ? "face run big" : "face run"}${hasTrailing ? " has-trailing" : ""} cut-raised" data-cut-line="${options.isBig ? 14 : 12}">${CUT_LINE}${loader()}${options.icon ? icon(options.icon) : ""}${words}${ending}</span>${closing(options)}`, options.isBig ? "big" : "regular");
 }
 
 export interface CutButtonOptions extends ButtonTarget {
@@ -257,6 +264,11 @@ const RUN_STYLES = `
 /* Its edge light: bright where the light lands on its top and leading edges, its own orange's shade along its foot. */
 .run.cut-raised > .cut-line { --band-top: rgba(255,240,214,0.85); --band-left: rgba(255,226,180,0.55); --band-right: rgba(150,72,0,0.32); --band-bottom: rgba(130,60,0,0.55); }
 .is-full > .run { width: 100%; justify-content: center; }
+/* With words at its far end (a price): the label leads from the start and the words close it at the end, nothing between but the room. */
+.is-full > .run.has-trailing { justify-content: flex-start; }
+.run.has-trailing > :is(span:not([class]), .label-idle, .label-busy) { flex: 1 1 auto; text-align: start; }
+.run-trailing { flex: none; font-variant-numeric: tabular-nums; }
+.run-trailing:empty { display: none; }
 .run.big { --control-height: var(--control-height-big); justify-content: center; padding: 0 30px 0 26px; font-size: 19px; gap: 12px; }
 /* The reflection of a fixed light: a soft band that slides the opposite way to the pointer. */
 .run::before { content: ""; position: absolute; inset: 0; background: linear-gradient(105deg, rgba(255,255,255,0) calc(var(--refl) - 22%), rgba(255,255,255,0.2) var(--refl), rgba(255,255,255,0) calc(var(--refl) + 22%)); opacity: 0; transition: opacity 0.6s; }
@@ -329,6 +341,8 @@ component({
     { label: "Can't press yet", markup: runButton("Next", { type: "button", isDisabled: true }), isStill: true },
     { label: "Big, with Play", markup: runButton("Play", { type: "button", isBig: true, icon: "play" }) },
     { label: "Big and full width, as on Sign in", markup: html`<div style="${COLUMN}">${runButton("Sign in", { type: "button", isFullWidth: true, isBig: true })}</div>` },
+    { label: "With its price at the other end (a buy button)", markup: html`<div style="${COLUMN}">${runButton("Buy", { type: "button", isFullWidth: true, trailingText: "$19.99" })}</div>` },
+    { label: "With its price, busy", markup: html`<div style="${COLUMN}">${runButton("Buy", { type: "button", isFullWidth: true, trailingText: "$19.99", isBusy: true, busyLabel: "Buying" })}</div>`, isStill: true },
     { label: "Long words: one line, ending in an ellipsis", markup: html`<div style="${COLUMN}">${runButton("Play Ashen Crown: The Long Night of the Iron Vigil", { type: "button", isFullWidth: true, isBig: true, icon: "play" })}</div>` },
   ],
 });
@@ -419,6 +433,48 @@ component({
     { label: "Full width", markup: html`<div style="width:min(380px,100%)">${cutButton("Make an account", { type: "button", isFullWidth: true })}</div>` },
     { label: "A delete", markup: cutButton("Delete this game", { type: "button" }) },
     { label: "Long words: one line, ending in an ellipsis", markup: html`<div style="${COLUMN}">${cutButton("Make an account and keep your progress in Ashen Crown", { type: "button", isFullWidth: true })}</div>` },
+  ],
+});
+
+export interface CardRowOptions extends ButtonTarget {
+  /** What a screen reader says after the card's words, for what pressing it does: "Use another card". */
+  hiddenText?: string;
+  state?: ButtonState;
+  /** Not shown for now: a page script shows it (the buy sheet, once a saved card is known). */
+  isHidden?: boolean;
+}
+
+/**
+ * A card row: the card a buy is paid with as one full-width row (a card mark, its words, a chevron). Pressing it changes the card. It is a
+ * cut button in a row's clothes, a field's height, with its words lined up with a pane's words as a field's are.
+ */
+export function cardRow(label: string, options: CardRowOptions = {}): ControlMarkup {
+  const extra = html`${options.isHidden ? raw(" hidden") : ""}`;
+  return controlMarkup(
+    html`${opening(classes("cut-btn", "card-row", "is-full", options.state), options, undefined, extra)}<span class="face cut-raised" data-cut-line="10">${CUT_LINE}${icon("card")}<span>${label}</span>${options.hiddenText ? html`<span class="sr">. ${options.hiddenText}</span>` : ""}<span class="card-row-go" aria-hidden="true">${icon("chevron-right")}</span></span>${closing(options)}`,
+    "field",
+  );
+}
+
+component({
+  name: "Card row",
+  slug: "card-row",
+  group: "actions",
+  summary: "The card a buy is paid with, as one row you can press to change it: a card mark, its words (\"Visa ending 4242\") and a chevron. It sits above the buy button in a store panel's foot.",
+  styles: `
+/* A card row: a cut button at a field's height, its words starting where a pane's words do (as a field's do), the chevron at its far end. */
+.cut-btn.card-row { --control-height: var(--control-height-field); }
+.cut-btn.card-row > .face { justify-content: flex-start; --face-padding: var(--pad-inside-words); }
+.cut-btn.card-row > .face > span:not([class]) { flex: 1 1 auto; text-align: start; }
+.card-row-go { flex: none; display: inline-flex; color: var(--muted); transition: transform 0.45s cubic-bezier(.2,.7,.2,1), color 0.2s; }
+.card-row-go > .ico { width: 8px; height: 13px; stroke-width: 2.2; }
+.cut-btn.card-row:hover .card-row-go, .cut-btn.card-row.is-pointed .card-row-go { transform: translateX(2px); color: var(--ink); }
+@media (prefers-reduced-motion: reduce) { .card-row-go { transition: none; } }
+`,
+  render: cardRow,
+  examples: [
+    ...stateExamples((state) => cardRow("Visa ending 4242", { type: "button", hiddenText: "Use another card", state }), "cut", true),
+    { label: "Long words: one line, ending in an ellipsis", markup: html`<div style="${COLUMN}">${cardRow("American Express ending 1005 for the household budget", { type: "button", hiddenText: "Use another card" })}</div>` },
   ],
 });
 

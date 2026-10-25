@@ -44,17 +44,17 @@ const b64url = (given: ArrayBuffer | string) =>
     .replace(/=+$/, "");
 
 /** A signed-in session's cookie, as Supabase would sign it, with its own session ID. */
-async function accessToken(accountId: string, sessionId: string, email = `${accountId}@example.com`): Promise<string> {
+async function accessToken(accountId: string, sessionId: string, email = `${accountId}@example.com`, signedInAtMs: number | null = Date.now()): Promise<string> {
   const nowSec = Math.floor(Date.now() / 1000);
   const header = b64url(JSON.stringify({ alg: "ES256", kid: "buy-test-key", typ: "JWT" }));
-  const claims = b64url(JSON.stringify({ sub: accountId, email, session_id: sessionId, aud: "authenticated", iss: `${SUPABASE}/auth/v1`, exp: nowSec + 3600, iat: nowSec, amr: [{ method: "password", timestamp: nowSec }] }));
+  const claims = b64url(JSON.stringify({ sub: accountId, email, session_id: sessionId, aud: "authenticated", iss: `${SUPABASE}/auth/v1`, exp: nowSec + 3600, iat: nowSec, amr: signedInAtMs === null ? [] : [{ method: "password", timestamp: Math.floor(signedInAtMs / 1000) }] }));
   const signature = await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, signingKeys.privateKey, new TextEncoder().encode(`${header}.${claims}`));
   return `${header}.${claims}.${b64url(signature)}`;
 }
 
 /** A signed-in session's cookie. email "<id>@no-mail.zaisma.com" is an account that never added an email. */
-async function sessionCookie(accountId: string, sessionId = `session-${accountId}`, email?: string): Promise<string> {
-  return `__Host-zaisma=${await accessToken(accountId, sessionId, email)}~r-${accountId}`;
+async function sessionCookie(accountId: string, sessionId = `session-${accountId}`, email?: string, signedInAtMs: number | null = Date.now()): Promise<string> {
+  return `__Host-zaisma=${await accessToken(accountId, sessionId, email, signedInAtMs)}~r-${accountId}`;
 }
 
 /**
@@ -93,14 +93,14 @@ async function tool(name: string, toolArguments: Record<string, unknown>): Promi
 }
 
 /** A call from zaisma.com's own pages, signed in as accountId (or a guest with null). */
-async function player(path: string, init: { method?: string; body?: unknown; accountId?: string | null; origin?: string; sessionId?: string; email?: string; country?: string | null; bindings?: Record<string, unknown>; cookie?: string } = {}) {
+async function player(path: string, init: { method?: string; body?: unknown; accountId?: string | null; origin?: string; sessionId?: string; email?: string; country?: string | null; bindings?: Record<string, unknown>; cookie?: string; signedInAtMs?: number | null } = {}) {
   const accountId = init.accountId === undefined ? "player-1" : init.accountId;
   const method = init.method ?? (init.body ? "POST" : "GET");
   const country = init.country === undefined ? "DE" : init.country;
   const request = new Request(`${SITE}${path}`, {
     method,
     headers: {
-      ...(accountId || init.cookie ? { cookie: [accountId ? await sessionCookie(accountId, init.sessionId, init.email) : "", init.cookie ?? ""].filter(Boolean).join("; ") } : {}),
+      ...(accountId || init.cookie ? { cookie: [accountId ? await sessionCookie(accountId, init.sessionId, init.email, init.signedInAtMs) : "", init.cookie ?? ""].filter(Boolean).join("; ") } : {}),
       ...(method !== "GET" ? { origin: init.origin ?? SITE } : {}),
       ...(init.body ? { "content-type": "application/json" } : {}),
       ...(country ? { "cf-ipcountry": country } : {}),
@@ -166,7 +166,7 @@ beforeEach(async () => {
     if (path.startsWith("/v1/payment_methods/") && path.endsWith("/detach")) return Response.json({ id: path.split("/")[3] });
     if (path === "/v1/payment_intents" && charge.declined) return Response.json({ error: { type: "card_error", code: "card_declined", decline_code: "insufficient_funds", message: "Your card has insufficient funds." } }, { status: 402 });
     if (path === "/v1/payment_intents") {
-      return Response.json({ id: "pi_test_sale", status: charge.status, amount: charge.amount ?? Number(form.get("amount")), currency: form.get("currency"), client_secret: "pi_test_sale_secret" });
+      return Response.json({ id: `pi_test_${headers.get("idempotency-key") ?? "sale"}`, status: charge.status, amount: charge.amount ?? Number(form.get("amount")), currency: form.get("currency"), client_secret: "pi_test_sale_secret" });
     }
     if (path.startsWith("/v1/payment_intents/") && path.endsWith("/cancel")) return Response.json({ id: path.split("/")[3], status: "canceled" });
     if (path.startsWith("/v1/payment_intents/")) return Response.json({ id: path.split("/").at(-1), status: charge.status, amount: charge.amount ?? 199, currency: "eur", latest_charge: { billing_details: { email: "wallet@example.com" } } });
@@ -333,7 +333,8 @@ describe("opening the sheet", () => {
       refund_policy: "unused_within_14_days",
       is_eu_withdrawal_line_shown: true,
       saved_card: null,
-      is_confirmation_needed: true,
+      is_confirmation_needed: false,
+      confirmation_reason: null,
       wallet: { publishable_key: "pk_test_zaisma", stripe_account_id: ACCOUNT },
     });
     const sale = await env.DB.prepare("SELECT * FROM purchases WHERE id = ?").bind(answer.purchase_id).first<any>();
@@ -444,22 +445,145 @@ describe("paying with the saved card", () => {
     expect((await player(`/api/buy/purchases/${purchaseId}/pay-with-saved-card`, { method: "POST" })).answer.error.code).toBe("already_paid");
   });
 
-  it("keeps a confirm for 15 minutes: one tap at 14, a confirm again at 16", async () => {
-    const asked = () => player("/api/buy/tiny-farm/start", { body: { item_name: "revive" } });
-    await confirmedAt(Date.now() - 14 * MINUTE_MS);
-    const within = await asked();
-    expect(within.answer.is_confirmation_needed).toBe(false);
-    const paid = await player(`/api/buy/purchases/${within.answer.purchase_id}/pay-with-saved-card`, { method: "POST" });
-    expect(paid.answer).toMatchObject({ status: "completed" });
-    expect(stripeCalls.filter((call) => call.path === "/v1/payment_intents")).toHaveLength(1);
+  const DAY_MS = 86_400_000;
+  const payUrl = (purchaseId: string) => `/api/buy/purchases/${purchaseId}/pay-with-saved-card`;
+  const paymentCount = () => stripeCalls.filter((call) => call.path === "/v1/payment_intents").length;
+  const confirmationCount = async () => (await env.DB.prepare("SELECT COUNT(*) AS confirmation_count FROM purchase_confirmations").first<{ confirmation_count: number }>())!.confirmation_count;
+  /** A sale of this player's in the money the sheet counts, made some time ago. */
+  const earlierSale = (id: string, status: string, paidMinorUnits: number, ageMs: number, extra: { currencyCode?: string; paymentIntentId?: string | null; source?: string } = {}) =>
+    env.DB.prepare("INSERT INTO purchases (id, game_id, item_name, item_kind, item_count, player_id, purchase_source, purchase_status, paid_minor_units, currency_code, stripe_account_id, stripe_payment_intent_id, created_at_ms, is_eu_withdrawal_line_shown) SELECT ?, id, 'revive', 'consumable', 1, ?, ?, ?, ?, ?, ?, ?, ?, 0 FROM games WHERE slug = 'tiny-farm'")
+      .bind(`purchase_${id}`, playerId, extra.source ?? "sale", status, paidMinorUnits, extra.currencyCode ?? "eur", ACCOUNT, extra.paymentIntentId ?? null, Date.now() - ageMs)
+      .run();
+  const startRevive = (init: Parameters<typeof player>[1] = {}, itemCount = 1) => player("/api/buy/tiny-farm/start", { ...init, body: { item_name: "revive", item_count: itemCount } });
 
-    await confirmedAt(Date.now() - 16 * MINUTE_MS);
-    const late = await asked();
-    expect(late.answer.is_confirmation_needed).toBe(true);
-    const refused = await player(`/api/buy/purchases/${late.answer.purchase_id}/pay-with-saved-card`, { method: "POST" });
+  it("buys with one press when there's no PIN, the sign-in is recent and the spending is small", async () => {
+    const opened = await startRevive();
+    expect(opened.answer).toMatchObject({ is_confirmation_needed: false, confirmation_reason: null });
+    const paid = await player(payUrl(opened.answer.purchase_id), { method: "POST" });
+    expect(paid.answer).toMatchObject({ status: "completed" });
+    expect(await confirmationCount()).toBe(0);
+    // A second buy right after is the same, and 29 days since the sign-in is still recent.
+    const second = await startRevive({ signedInAtMs: Date.now() - 29 * DAY_MS });
+    expect(second.answer).toMatchObject({ is_confirmation_needed: false, confirmation_reason: null });
+    expect((await player(payUrl(second.answer.purchase_id), { method: "POST", signedInAtMs: Date.now() - 29 * DAY_MS })).answer.status).toBe("completed");
+    expect(paymentCount()).toBe(2);
+  });
+
+  it("asks for the PIN on every buy with a PIN set, and a confirm covers exactly one buy", async () => {
+    await setPin();
+    const first = await startRevive();
+    expect(first.answer).toMatchObject({ is_confirmation_needed: true, confirmation_reason: "purchase_pin" });
+    const refused = await player(payUrl(first.answer.purchase_id), { method: "POST" });
     expect(refused).toMatchObject({ status: 403, answer: { error: { code: "purchase_confirmation_needed" } } });
-    expect(stripeCalls.filter((call) => call.path === "/v1/payment_intents")).toHaveLength(1);
+    expect(refused.answer.error.message).toContain("purchase PIN");
+    expect(paymentCount()).toBe(0);
+
+    expect((await player("/api/buy/confirm", { body: { purchase_pin: "482917" } })).answer).toEqual({ is_confirmed: true });
+    expect((await player(payUrl(first.answer.purchase_id), { method: "POST" })).answer.status).toBe("completed");
+    // Used up by that buy.
+    expect(await confirmationCount()).toBe(0);
+    const second = await startRevive();
+    expect(second.answer).toMatchObject({ is_confirmation_needed: true, confirmation_reason: "purchase_pin" });
+    expect((await player(payUrl(second.answer.purchase_id), { method: "POST" })).answer.error.code).toBe("purchase_confirmation_needed");
+    expect(paymentCount()).toBe(1);
+    // A fresh confirm buys the next one.
+    await player("/api/buy/confirm", { body: { purchase_pin: "482917" } });
+    expect((await player(payUrl(second.answer.purchase_id), { method: "POST" })).answer.status).toBe("completed");
+    expect(paymentCount()).toBe(2);
+  });
+
+  it("doesn't let one PIN confirm pay two buys opened together, or one left for over 15 minutes pay at all", async () => {
+    await setPin();
+    const [one, two] = [await started(), await started()];
+    await confirmedAt(Date.now());
+    const answers = await Promise.all([player(payUrl(one), { method: "POST" }), player(payUrl(two), { method: "POST" })]);
+    expect(answers.map((answer) => answer.answer.status ?? answer.answer.error.code).sort()).toEqual(["completed", "purchase_confirmation_needed"]);
+    expect(paymentCount()).toBe(1);
+    await confirmedAt(Date.now() - 16 * MINUTE_MS);
+    const late = await startRevive();
+    expect(late.answer).toMatchObject({ is_confirmation_needed: true, confirmation_reason: "purchase_pin" });
+    expect((await player(payUrl(late.answer.purchase_id), { method: "POST" })).answer.error.code).toBe("purchase_confirmation_needed");
+    expect(paymentCount()).toBe(1);
+  });
+
+  it("asks to confirm after a sign-in over 30 days old or unknown, and then not again for 15 minutes", async () => {
+    const old = { signedInAtMs: Date.now() - 31 * DAY_MS };
+    const opened = await startRevive(old);
+    expect(opened.answer).toMatchObject({ is_confirmation_needed: true, confirmation_reason: "old_sign_in" });
+    const refused = await player(payUrl(opened.answer.purchase_id), { method: "POST", ...old });
+    expect(refused).toMatchObject({ status: 403, answer: { error: { code: "purchase_confirmation_needed" } } });
+    expect(refused.answer.error.message).toContain("30 days");
+    expect(paymentCount()).toBe(0);
+    // A sign-in Supabase didn't date counts as old.
+    expect((await startRevive({ signedInAtMs: null })).answer).toMatchObject({ is_confirmation_needed: true, confirmation_reason: "old_sign_in" });
+
+    await confirmedAt(Date.now() - 14 * MINUTE_MS);
+    expect((await player(payUrl(opened.answer.purchase_id), { method: "POST", ...old })).answer.status).toBe("completed");
+    // The confirm stays: the second buy within the 15 minutes asks for nothing.
+    const second = await startRevive(old);
+    expect(second.answer).toMatchObject({ is_confirmation_needed: false, confirmation_reason: null });
+    expect((await player(payUrl(second.answer.purchase_id), { method: "POST", ...old })).answer.status).toBe("completed");
+    expect(paymentCount()).toBe(2);
+    // At 16 minutes it asks again.
+    await confirmedAt(Date.now() - 16 * MINUTE_MS);
+    const late = await startRevive(old);
+    expect(late.answer).toMatchObject({ is_confirmation_needed: true, confirmation_reason: "old_sign_in" });
+    expect((await player(payUrl(late.answer.purchase_id), { method: "POST", ...old })).answer.error.code).toBe("purchase_confirmation_needed");
+    expect(paymentCount()).toBe(2);
     expect(await statusOf(late.answer.purchase_id)).toBe("pending");
+  });
+
+  it("asks to confirm when a day's buying would pass USD 100.00, then not again for 15 minutes", async () => {
+    // 40 Revive is EUR 79.60, about USD 91.54: under. A second 40 would be about USD 183.
+    const first = await startRevive({}, 40);
+    expect(first.answer).toMatchObject({ price: { price_minor_units: 7960 }, is_confirmation_needed: false, confirmation_reason: null });
+    expect((await player(payUrl(first.answer.purchase_id), { method: "POST" })).answer.status).toBe("completed");
+
+    const second = await startRevive({}, 40);
+    expect(second.answer).toMatchObject({ is_confirmation_needed: true, confirmation_reason: "big_spend" });
+    const refused = await player(payUrl(second.answer.purchase_id), { method: "POST" });
+    expect(refused).toMatchObject({ status: 403, answer: { error: { code: "purchase_confirmation_needed" } } });
+    expect(refused.answer.error.message).toContain("USD 100.00");
+    expect(paymentCount()).toBe(1);
+
+    await confirmedAt(Date.now() - 5 * MINUTE_MS);
+    expect((await player(payUrl(second.answer.purchase_id), { method: "POST" })).answer.status).toBe("completed");
+    const third = await startRevive({}, 40);
+    expect(third.answer).toMatchObject({ is_confirmation_needed: false, confirmation_reason: null });
+    expect((await player(payUrl(third.answer.purchase_id), { method: "POST" })).answer.status).toBe("completed");
+    expect(paymentCount()).toBe(3);
+  });
+
+  it("counts only sales that are paid or being paid, in the last 24 hours, in their own currencies", async () => {
+    // None of these is spending: an abandoned sheet, a failed or refunded sale, a grant, a sale over a day old.
+    await earlierSale("abandoned1", "pending", 9000, 5 * MINUTE_MS);
+    await earlierSale("failed1", "failed", 9000, 5 * MINUTE_MS);
+    await earlierSale("refunded1", "refunded", 9000, 5 * MINUTE_MS);
+    await earlierSale("granted1", "completed", 9000, 5 * MINUTE_MS, { source: "grant" });
+    await earlierSale("yesterday1", "completed", 9000, 25 * 60 * MINUTE_MS);
+    expect((await startRevive({}, 40)).answer).toMatchObject({ is_confirmation_needed: false, confirmation_reason: null });
+    // A paid one and one being paid count: EUR 40.00 (about USD 46) twice, so 1 Revive still fits and 5 take it past USD 100.
+    await earlierSale("paid1", "completed", 4000, 5 * MINUTE_MS);
+    await earlierSale("paying1", "pending", 4000, 5 * MINUTE_MS, { paymentIntentId: "pi_test_paying" });
+    expect((await startRevive({}, 1)).answer.is_confirmation_needed).toBe(false);
+    expect((await startRevive({}, 5)).answer).toMatchObject({ is_confirmation_needed: true, confirmation_reason: "big_spend" });
+  });
+
+  it("counts every currency at about its dollar worth", async () => {
+    // ¥12,000 is about USD 84; with Revive at EUR 1.99 (about USD 2.29) it's under, and with 20 of them (about USD 46) over.
+    await earlierSale("yen1", "completed", 12_000, MINUTE_MS, { currencyCode: "jpy" });
+    expect((await startRevive({}, 1)).answer.is_confirmation_needed).toBe(false);
+    expect((await startRevive({}, 20)).answer).toMatchObject({ is_confirmation_needed: true, confirmation_reason: "big_spend" });
+  });
+
+  it("asks for the PIN before any other reason, and a PIN confirm doesn't cover an old sign-in's extra buys", async () => {
+    await setPin();
+    const old = { signedInAtMs: Date.now() - 40 * DAY_MS };
+    expect((await startRevive(old, 40)).answer.confirmation_reason).toBe("purchase_pin");
+    const opened = await startRevive(old);
+    await confirmedAt(Date.now());
+    expect((await player(payUrl(opened.answer.purchase_id), { method: "POST", ...old })).answer.status).toBe("completed");
+    expect((await startRevive(old)).answer.confirmation_reason).toBe("purchase_pin");
   });
 
   it("unlocks a locked PIN with the password, and the count goes back to 0", async () => {

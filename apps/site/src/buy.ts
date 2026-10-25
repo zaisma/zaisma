@@ -3,6 +3,7 @@ import {
   ITEM_LIMITS,
   PURCHASE_PIN_LIMITS,
   accountById,
+  approximateUsdMinorUnits,
   countryName,
   gameById,
   gameBySlug,
@@ -58,7 +59,7 @@ import type { Env } from "./env.ts";
  * developer API. Every answer that refuses is { error: { code, message } }.
  *
  *   POST   /api/buy/:slug/start                           { item_name, item_count, game_account_id, tester_token } → the sheet
- *   POST   /api/buy/confirm                               { passkey_tap | purchase_pin | password }: 15 minutes of one-tap buys here
+ *   POST   /api/buy/confirm                               { passkey_tap | purchase_pin | password }: confirms it's them, when the sheet asked
  *   POST   /api/buy/purchases/:purchase_id/pay-with-saved-card  → completed, or action_needed (3-D Secure)
  *   POST   /api/buy/purchases/:purchase_id/wallet-intent  → what Apple Pay or Google Pay pays
  *   GET    /api/buy/purchases/:purchase_id                the purchase, asking Stripe while it's pending
@@ -68,11 +69,23 @@ import type { Env } from "./env.ts";
  *   PUT    /api/account/purchase-pin                      { purchase_pin, password }
  *   DELETE /api/account/purchase-pin
  *
- * The 15 minutes live on the session (purchase_confirmations), so they're per device and end at sign-out. Apple Pay
- * and Google Pay skip Zaisma's confirm: the wallet asks for Face ID or a fingerprint itself.
+ * Pressing Buy is the confirmation. A saved-card buy asks the player to confirm it's them (confirmation_reason on the
+ * sheet's answer) only when:
+ *   purchase_pin  the account has a purchase PIN: every buy asks, like a lock on a shared computer. The confirm covers
+ *                 one buy: the pay call uses it up. It is good for 15 minutes unused, so none is left lying about.
+ *   old_sign_in   they last signed in over 30 days ago on this session (signedInAtMs; 0 when unknown).
+ *   big_spend     this buy would take the last 24 hours of buying past USD 100.00 (about: purchases are priced in
+ *                 their currency, counted at APPROXIMATE_USD_PER_CURRENCY_UNIT). Abandoned sheets don't count: a
+ *                 pending sale counts once its payment has started.
+ * The last two last 15 minutes (purchase_confirmations, on the session), so they're per device, end at sign-out, and
+ * the player isn't asked twice in a row. The pay call applies the same rule: the sheet is never trusted. Apple Pay
+ * and Google Pay skip Zaisma's confirm (the wallet asks for Face ID or a fingerprint itself), and so does a new card
+ * typed into Stripe's form.
  */
 
 const CONFIRMATION_DURATION_MS = PURCHASE_PIN_LIMITS.confirmationDurationMin * 60_000;
+const SIGN_IN_MAXIMUM_AGE_MS = PURCHASE_PIN_LIMITS.signInMaximumAgeDays * 86_400_000;
+const SPEND_PERIOD_MS = 86_400_000;
 const MAXIMUM_BODY_SIZE_BYTES = 8192;
 
 type Refusal = { httpStatus: number; code: string; message: string; fix?: string };
@@ -190,11 +203,51 @@ function refuseIfBlocked(game: Parameters<typeof isBlockedInCountry>[0], country
   if (isBlockedInCountry(game, countryCode)) refuse(451, "game_unavailable", `A legal notice under your country's law (${countryName(countryCode!)}) blocks this game here. It's still available everywhere else.`);
 }
 
-/** Whether this session confirmed a buy in the last 15 minutes. */
+/** Whether this session confirmed a buy in the last 15 minutes (and, for a purchase PIN account, hasn't spent it on a buy yet). */
 async function isConfirmedHere(env: Env, session: Session, accountId: string, nowMs: number): Promise<boolean> {
   if (!session.sessionId) return false;
   const row = await env.DB.prepare("SELECT confirmed_at_ms FROM purchase_confirmations WHERE session_id = ? AND account_id = ?").bind(session.sessionId, accountId).first<{ confirmed_at_ms: number }>();
   return Boolean(row && nowMs - row.confirmed_at_ms < CONFIRMATION_DURATION_MS);
+}
+
+/** Why a saved-card buy asks the player to confirm it's them: the sheet's confirmation_reason. */
+type ConfirmationReason = "purchase_pin" | "old_sign_in" | "big_spend";
+
+/**
+ * About how much the player's buying in the last 24 hours comes to, in US cents, with the sale being bought now:
+ * completed sales, and pending ones whose payment has started (an abandoned sheet is not spending). Other sales of this
+ * one aren't counted twice. A currency Zaisma has no rate for counts as past any limit.
+ */
+async function spendInLastDayUsdMinorUnits(env: Env, playerId: string, sale: { id: string; currencyCode: string; paidMinorUnits: number }, nowMs: number): Promise<number> {
+  const { results } = await env.DB.prepare(
+    "SELECT currency_code, SUM(paid_minor_units) AS paid_minor_units FROM purchases WHERE player_id = ? AND purchase_source = 'sale' AND id != ? AND created_at_ms > ? AND (purchase_status = 'completed' OR (purchase_status = 'pending' AND stripe_payment_intent_id IS NOT NULL)) GROUP BY currency_code",
+  )
+    .bind(playerId, sale.id, nowMs - SPEND_PERIOD_MS)
+    .all<{ currency_code: string | null; paid_minor_units: number | null }>();
+  let spendUsdMinorUnits = approximateUsdMinorUnits(sale.currencyCode, sale.paidMinorUnits) ?? Infinity;
+  for (const row of results) spendUsdMinorUnits += row.currency_code === null ? 0 : (approximateUsdMinorUnits(row.currency_code, row.paid_minor_units ?? 0) ?? Infinity);
+  return spendUsdMinorUnits;
+}
+
+/**
+ * The one rule for a saved-card buy, for the sheet's answer and for the pay call alike: why the player must confirm
+ * it's them first (a purchase PIN on the account, then a sign-in over 30 days old, then a day's buying past USD 100.00),
+ * or null when pressing Buy is enough, or when they already confirmed here (see the comment at the top).
+ */
+async function confirmationReasonFor(env: Env, session: Session, account: Account, hasPurchasePin: boolean, sale: { id: string; currencyCode: string; paidMinorUnits: number }, nowMs: number): Promise<ConfirmationReason | null> {
+  let reason: ConfirmationReason | null = null;
+  if (hasPurchasePin) reason = "purchase_pin";
+  else if (session.signedInAtMs === 0 || nowMs - session.signedInAtMs > SIGN_IN_MAXIMUM_AGE_MS) reason = "old_sign_in";
+  else if ((await spendInLastDayUsdMinorUnits(env, account.player_id, sale, nowMs)) > PURCHASE_PIN_LIMITS.dailySpendLimitUsdMinorUnits) reason = "big_spend";
+  if (reason && (await isConfirmedHere(env, session, account.id, nowMs))) return null;
+  return reason;
+}
+
+/** What the pay call says when it refuses for a missing confirm: why, and how to confirm. */
+function confirmationNeededMessage(reason: ConfirmationReason): string {
+  if (reason === "purchase_pin") return "Your account has a purchase PIN, so every buy needs it. Confirm it's you first, with your purchase PIN, passkey or password.";
+  if (reason === "old_sign_in") return `You last signed in more than ${PURCHASE_PIN_LIMITS.signInMaximumAgeDays} days ago. Confirm it's you first, with your passkey or password.`;
+  return `This buy would take your buying in the last 24 hours past USD ${(PURCHASE_PIN_LIMITS.dailySpendLimitUsdMinorUnits / 100).toFixed(2)}. Confirm it's you first, with your passkey or password.`;
 }
 
 interface SavedCard {
@@ -250,6 +303,7 @@ async function startBuying(request: Request, env: Env, slug: string, body: Recor
     nowMs,
   );
   const [card, passkeys, pin] = await Promise.all([savedCardOf(env, account.id), passkeysFor(env.DB, account.id), pinOf(env, account.id)]);
+  const confirmationReason = await confirmationReasonFor(env, session, account, Boolean(pin?.purchase_pin_hash), { id: purchaseId, currencyCode: price.currencyCode, paidMinorUnits: totalMinorUnits }, nowMs);
   return {
     purchase_id: purchaseId,
     item: { item_name: gameItem.item_name, title: gameItem.title, description: gameItem.description, item_kind: gameItem.item_kind, item_category: gameItem.item_category },
@@ -260,7 +314,8 @@ async function startBuying(request: Request, env: Env, slug: string, body: Recor
     refund_policy_words: refundPolicyWords(purchaseSettingsOf(game)),
     is_eu_withdrawal_line_shown: isEuWithdrawalLineShown,
     saved_card: card ? { card_brand: card.card_brand, card_last_digits: card.card_last_digits } : null,
-    is_confirmation_needed: !(await isConfirmedHere(env, session, account.id, nowMs)),
+    is_confirmation_needed: confirmationReason !== null,
+    confirmation_reason: confirmationReason,
     confirmation_methods: {
       has_passkey: passkeys.length > 0,
       has_purchase_pin: Boolean(pin?.purchase_pin_hash),
@@ -276,8 +331,10 @@ const pinOf = (env: Env, accountId: string) =>
   env.DB.prepare("SELECT purchase_pin_hash, purchase_pin_failed_count FROM accounts WHERE id = ?").bind(accountId).first<{ purchase_pin_hash: string | null; purchase_pin_failed_count: number }>();
 
 /**
- * Confirms saved-card buys on this device for 15 minutes, with a passkey, the purchase PIN or the password. A wrong
- * PIN counts toward 5; at 5 the PIN is refused until a password confirm resets the count. Answers cookies to set.
+ * Confirms it's the player, with a passkey, the purchase PIN or the password, when the sheet's confirmation_reason asked
+ * (confirmationReasonFor). The confirm is kept on this device for 15 minutes: it covers every buy in them for an old
+ * sign-in or a big spend, and exactly one buy for a purchase PIN account (the pay call uses it up). A wrong PIN counts
+ * toward 5; at 5 the PIN is refused until a password confirm resets the count. Answers cookies to set.
  */
 async function confirmBuying(request: Request, env: Env, session: Session, account: Account, body: Record<string, unknown>, nowMs: number): Promise<string[]> {
   const given = ["passkey_tap", "purchase_pin", "password"].filter((name) => body[name] !== undefined);
@@ -332,15 +389,24 @@ async function pendingCheck(sale: Sale): Promise<void> {
 }
 
 /**
- * Pays with the saved card: needs a confirm on this device in the last 15 minutes. The card is cloned onto the
- * developer's account for this purchase only, and charged once (its idempotency key is the purchase's ID).
+ * Pays with the saved card. Applies the sheet's rule itself (confirmationReasonFor): a purchase PIN account needs a
+ * confirm on this device for this buy, which is used up here; an old sign-in or a big spend needs one in the last 15
+ * minutes; otherwise pressing Buy is enough. The card is cloned onto the developer's account for this purchase only,
+ * and charged once (its idempotency key is the purchase's ID).
  */
 async function payWithSavedCard(request: Request, env: Env, session: Session, account: Account, sale: Sale, body: Record<string, unknown>, nowMs: number) {
   await pendingCheck(sale);
   await refuseIfSaleBlocked(env, request, body, sale);
-  if (!(await isConfirmedHere(env, session, account.id, nowMs))) return refuse(403, "purchase_confirmation_needed", "Confirm it's you first, with your passkey, purchase PIN or password.");
+  const hasPurchasePin = Boolean((await pinOf(env, account.id))?.purchase_pin_hash);
+  const confirmationReason = await confirmationReasonFor(env, session, account, hasPurchasePin, { id: sale.id, currencyCode: sale.currency_code!, paidMinorUnits: sale.paid_minor_units! }, nowMs);
+  if (confirmationReason) return refuse(403, "purchase_confirmation_needed", confirmationNeededMessage(confirmationReason));
   const card = await savedCardOf(env, account.id);
   if (!card) return refuse(409, "no_saved_card", "You have no saved card. Add one, or pay with Apple Pay or Google Pay.");
+  if (hasPurchasePin) {
+    // One confirm, one buy: taken in one statement, so two pay calls at once can't both spend it.
+    const taken = await env.DB.prepare("DELETE FROM purchase_confirmations WHERE session_id = ? AND account_id = ? AND confirmed_at_ms > ?").bind(session.sessionId, account.id, nowMs - CONFIRMATION_DURATION_MS).run();
+    if (!taken.meta.changes) return refuse(403, "purchase_confirmation_needed", confirmationNeededMessage("purchase_pin"));
+  }
   const customer = await playerCustomerFor(env, account.id);
   const stripeAccountId = sale.stripe_account_id!;
   const clone = await clonePaymentMethod(env, card.stripe_payment_method_id, customer, stripeAccountId, sale.id);
@@ -562,13 +628,15 @@ export async function buyWindowPage(env: Env, request: Request, slug: string, it
   const query = new URLSearchParams(url.searchParams);
   if (openerOrigin) query.set("opener_origin", openerOrigin);
   const here = `/buy/${game.slug}/${encodeURIComponent(itemName)}?${query}`;
+  // The game's own cover across the sheet's top, as on its page.
+  const cover = await env.DB.prepare("SELECT id FROM game_images WHERE game_id = ? AND kind = 'cover' AND review_status = 'approved' ORDER BY created_at_ms DESC LIMIT 1").bind(game.id).first<{ id: string }>();
   return layout(env, {
     title: `Buy from ${game.title} · Zaisma`,
     checkedPage: "Buy window",
     isBare: true,
     isPrivate: true,
     hasStripePayments: true,
-    body: html`${buySheet({ joinHref: `/join?next=${encodeURIComponent(here)}`, signInHref: `/signin?next=${encodeURIComponent(here)}` })}
+    body: html`${buySheet({ joinHref: `/join?next=${encodeURIComponent(here)}`, signInHref: `/signin?next=${encodeURIComponent(here)}`, coverUrl: cover ? `/img/${cover.id}` : null })}
 ${buySheetData({
       slug: game.slug,
       tester_token: null,

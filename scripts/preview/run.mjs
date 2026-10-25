@@ -660,8 +660,8 @@ Zaisma preview is running. Nothing here touches the live site.
   Who can publish ${SITE}/dashboard  (as Moss_Runner: Publishing opens with the beta; as Preview_Studio: as before) and
                   ${SITE}/admin/publishing  (who Julius added; add Moss_Runner there and its Your games can make games)
   Buy sheet       ${SITE}/g/tiny-farm?play  (its shop buttons call Zaisma.items.buy: Revive $1.99 (R$ 9,90 in Brazil), Straw Hat $4.99, Spring Valley $19.99, and Founders Badge,
-                  given and never sold; Preview_Studio's Stripe is connected (${STRIPE_TEST_VARS ? "connect your own Stripe test account on the dashboard" : "the stand-in's"}); as Card_Keeper (saved card, owns Straw Hat),
-                  Pin_Keeper (purchase PIN ${PURCHASE_PIN}), Moss_Runner (neither) or Saved_Farmer (no email or passkey); as a guest the sheet asks to sign in)
+                  given and never sold; Preview_Studio's Stripe is connected (${STRIPE_TEST_VARS ? "connect your own Stripe test account on the dashboard" : "the stand-in's"}); as Card_Keeper (saved card, owns Straw Hat: buys with one press),
+                  Pin_Keeper (purchase PIN ${PURCHASE_PIN}: every saved-card buy asks for it), Moss_Runner (neither) or Saved_Farmer (no email or passkey); as a guest the sheet asks to sign in)
                   ${SITE}/g/seaside-stand?play  (its developer has no Stripe connected: its Extra Lemons answer stripe_not_connected)
   Leaving Zaisma  ${SITE}/g/tiny-farm?play  (its link buttons: Seed shop and Patreon open for everyone, Discord only
                   for signed-in adults, Free prize for nobody; its links are on ${SITE}/dashboard/tiny-farm/details#links)

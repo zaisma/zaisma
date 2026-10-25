@@ -158,8 +158,10 @@ export interface SheetMarkupOptions {
   buttons?: ControlMarkup[];
   /** Where its form posts when a button sends it. Without one, a button that sends it only closes it. */
   action?: string;
-  /** "center" over the dimmed page; "foot" risen from the screen's foot over a running game, not dimming it. */
-  placement?: "center" | "foot";
+  /** Controls pinned at its foot in place of buttons (a stack of them), in view while the body scrolls: a store panel's card row and Buy. */
+  foot?: Raw;
+  /** "center" over the dimmed page; "foot" risen from the screen's foot over a running game, not dimming it; "side" a tall panel at the screen's right edge over the game (a store panel). */
+  placement?: "center" | "foot" | "side";
   /** Shown in place, not over the page: the gallery's still copies. */
   isShown?: boolean;
   /** On a wide screen, a narrow sheet with its gaps closed up, so it reads as a dropdown (the share sheet's QR code and link); on a phone it's like any sheet. */
@@ -176,10 +178,10 @@ export function sheetMarkup(options: SheetMarkupOptions): Raw {
   const parts = paneParts({
     head: { words: html`<h2 class="sheet-title" id="${options.id}-title">${options.title}</h2>`, end: options.closeButton },
     body: html`<div class="sheet-scroll"><div class="sheet-body">${options.body}</div></div>`,
-    foot: buttons.length ? { start: { kind: "block", markup: row({ widths: "equal", items: buttons.map((button) => ({ kind: "control" as const, markup: button })) }) } } : undefined,
+    foot: options.foot ? { start: { kind: "block", markup: options.foot } } : buttons.length ? { start: { kind: "block", markup: row({ widths: "equal", items: buttons.map((button) => ({ kind: "control" as const, markup: button })) }) } } : undefined,
   });
   const form = options.action === undefined ? html`<form class="sheet-in" method="dialog">${parts}</form>` : html`<form class="sheet-in" method="post" action="${options.action}">${parts}</form>`;
-  return html`<dialog class="sheet glass${options.placement === "foot" ? " placement-foot" : ""}${options.isCompact ? " is-compact" : ""}${options.isShown ? " in-place" : ""}" id="${options.id}" aria-labelledby="${options.id}-title" data-glass data-glass-corners="pane"${options.isShown ? raw(" open") : ""}>${EDGE}${form}</dialog>`;
+  return html`<dialog class="sheet glass${options.placement === "foot" ? " placement-foot" : options.placement === "side" ? " placement-side" : ""}${options.isCompact ? " is-compact" : ""}${options.isShown ? " in-place" : ""}" id="${options.id}" aria-labelledby="${options.id}-title" data-glass data-glass-corners="pane"${options.isShown ? raw(" open") : ""}>${EDGE}${form}</dialog>`;
 }
 
 /** An outline for a cut field or button (GLASS_SCRIPT draws it), and a slab's drawn rim. */
