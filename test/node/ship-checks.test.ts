@@ -39,6 +39,12 @@ describe("siteHeaderProblems", () => {
     expect(siteHeaderProblems(siteHeaders())).toEqual([]);
     expect(siteHeaderProblems(siteHeaders({ "content-security-policy": GAME_PAGE_POLICY }))).toEqual([]);
   });
+  it("allows Stripe.js only where the buy sheet is (a game's page), never on the rest of zaisma.com", () => {
+    const withStripe = siteHeaders({ "content-security-policy": SITE_POLICY.replace("script-src 'self'", "script-src 'self' https://js.stripe.com") });
+    expect(siteHeaderProblems(withStripe, { isStripeAllowed: true })).toEqual([]);
+    expect(siteHeaderProblems(withStripe)).toContain("script-src allows https://js.stripe.com");
+    expect(siteHeaderProblems(siteHeaders({ "content-security-policy": SITE_POLICY.replace("script-src 'self'", "script-src 'self' https://evil.example") }), { isStripeAllowed: true })).toContain("script-src allows https://evil.example");
+  });
   it("names what slipped", () => {
     const without = siteHeaders();
     without.delete("strict-transport-security");
