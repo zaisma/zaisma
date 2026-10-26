@@ -23,7 +23,7 @@ export const ONLY_ON_ZAISMA = {
 };
 
 /** The frame and the game's origin, as the game page's script names them for the buy sheet's script (/bench/frame.js). */
-export const frameScriptSource = (gamePort) => `var frame = document.getElementById("game");\nvar gameOrigin = "http://" + location.hostname + ":${Number(gamePort)}";\n`;
+export const frameScriptSource = (gamePort) => `var frame = document.getElementById("game");\nvar gameOrigin = location.protocol + "//" + location.hostname + ":${Number(gamePort)}";\n`;
 
 /** The script, for a game on these ports. config: gameSlug, gamePort. */
 export const benchScriptSource = (config) => `const ONLY_ON_ZAISMA = ${JSON.stringify(ONLY_ON_ZAISMA)};\n(${benchScript.toString()})(${JSON.stringify(config)});\n`;
@@ -31,7 +31,7 @@ export const benchScriptSource = (config) => `const ONLY_ON_ZAISMA = ${JSON.stri
 /** The page's script, run in the browser. It is written as a function so it stays real code; the bench serves its text. */
 function benchScript(config) {
   const frame = document.getElementById("game");
-  const gameOrigin = `http://${location.hostname}:${config.gamePort}`;
+  const gameOrigin = `${location.protocol}//${location.hostname}:${config.gamePort}`;
   const query = new URLSearchParams(location.search);
   let playerNumber = Number(query.get("player")) || 0;
   let state = null;

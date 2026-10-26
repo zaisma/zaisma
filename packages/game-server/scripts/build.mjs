@@ -18,7 +18,7 @@ const tsc = join(repositoryDir, "node_modules/typescript/bin/tsc");
 execFileSync(process.execPath, [tsc, "-p", join(packageDir, "tsconfig.build.json")], { cwd: packageDir, stdio: "inherit" });
 
 // The runner and its parts import the source by its TypeScript file names; built, those are JavaScript.
-for (const file of ["node.js", "node-parts.js", "node.d.ts", "local-play.js", "local-play-bench.js", "local-play-runner.js", "local-play.d.ts", "local-play-bench.d.ts"]) {
+for (const file of ["node.js", "node-parts.js", "node.d.ts", "local-play.js", "local-play-bench.js", "local-play-runner.js", "local-play-certificate.js", "local-play.d.ts", "local-play-bench.d.ts"]) {
   const text = readFileSync(join(packageDir, "bin", file), "utf8");
   writeFileSync(join(distDir, "bin", file), text.replace(/(\.\.\/src\/[a-z-]+)\.ts"/g, '$1.js"'));
 }

@@ -11,6 +11,9 @@
 // Everything it keeps is in <folder>/.zaisma-local/. Nothing here changes the game server: it checks the
 // stand-in passes the way it checks Zaisma's, against the keys the stand-in rooms publishes.
 import { createServer, request as httpRequest } from "node:http";
+import { createServer as createSecureServer } from "node:https";
+import { createServer as createSocketServer } from "node:net";
+import { hostname as computerName } from "node:os";
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, watch, writeFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
@@ -21,6 +24,7 @@ import { WebSocket, WebSocketServer } from "ws";
 import { BUSY_CLOSE_CODE, GameServerError, PASS_VERSION_NUMBER, RECEIPT_TOKEN_TYPE, RECEIPT_VERSION_NUMBER, generateSigningKey, guestName, jwks, loadSigningKey, roomCode, signPass, verifyPass } from "../src/internal.ts";
 import { qrCodeModules, qrCodeSvg } from "../src/qr-code.ts";
 import { FRAME_ALLOW, FRAME_SANDBOX, benchScriptSource, frameScriptSource } from "./local-play-bench.js";
+import { isCertificateGood, makeCertificate } from "./local-play-certificate.js";
 
 /** The first of the four ports. */
 export const DEFAULT_PORT_NUMBER = 4800;
@@ -299,10 +303,23 @@ export async function startLocalPlay(givenOptions) {
   // --- Origins: the browser reaches them by whatever address it was given (localhost, or the computer's address on the network) ---
   const localhostOrigin = (portNumber) => `http://localhost:${portNumber}`;
   const issuerUrl = localhostOrigin(ports.rooms);
-  const originAt = (hostname, portNumber) => `http://${hostname}:${portNumber}`;
+  // Over the network the bench speaks HTTPS too (a phone's browser may insist), on the same ports: each origin is the scheme the request came by.
+  const schemeOf = (request) => (request.socket.encrypted ? "https" : "http");
+  const originFor = (request, portNumber) => `${schemeOf(request)}://${hostnameOf(request)}:${portNumber}`;
   const hostnameOf = (request) => /^(\[[^\]]+\]|[^:]+)/.exec(request.headers.host ?? "localhost")?.[1] ?? "localhost";
-  const isGameOrigin = (origin) => typeof origin === "string" && URL.canParse(origin) && new URL(origin).port === String(ports.game) && new URL(origin).protocol === "http:";
+  const isGameOrigin = (origin) => typeof origin === "string" && URL.canParse(origin) && new URL(origin).port === String(ports.game) && ["http:", "https:"].includes(new URL(origin).protocol);
   const addresses = isOnNetwork ? networkAddresses() : [];
+  const networkOrigin = addresses.length ? `https://${addresses[0]}:${ports.bench}` : null;
+
+  // The bench's own certificate, made on this computer for its names and addresses and kept until they change or it nears its end.
+  let certificate = null;
+  if (isOnNetwork) {
+    const certificateFile = join(localFolder, "certificate.json");
+    const names = [...new Set(["localhost", "127.0.0.1", "::1", computerName(), `${computerName().split(".")[0]}.local`, ...addresses])].filter((each) => /^[A-Za-z0-9.:-]+$/.test(each));
+    const kept = existsSync(certificateFile) ? JSON.parse(readFileSync(certificateFile, "utf8")) : null;
+    certificate = kept && isCertificateGood(kept, names) ? kept : makeCertificate(names);
+    if (certificate !== kept) writeFileSync(certificateFile, JSON.stringify(certificate, null, 2));
+  }
 
   // --- Passes and receipts ---
   const guests = new Map(); // tab -> its guest, so a reload of the pass is the same guest
@@ -445,7 +462,7 @@ export async function startLocalPlay(givenOptions) {
   /** What a tab's page and sheets show: its player, the bench's players, items and log, and the room it's in. */
   function viewFor(request, url) {
     const playerNumber = Number(url.searchParams.get("player")) || 0;
-    const benchOrigin = originAt(hostnameOf(request), ports.bench);
+    const benchOrigin = originFor(request, ports.bench);
     const code = url.searchParams.get("room");
     const tracked = code ? roomsTracked.get(code) : null;
     const nameOfPlayer = (playerId) => accountOfPlayer(playerId)?.username ?? [...guests.values()].find((guest) => guest.id === playerId)?.name ?? "A player";
@@ -456,7 +473,7 @@ export async function startLocalPlay(givenOptions) {
       items: state.items.map((listedItem) => ({ itemName: listedItem.itemName, title: listedItem.title, itemKind: listedItem.itemKind, priceText: listedItem.priceMinorUnits === null || !listedItem.currencyCode ? "only granted" : priceText(listedItem.currencyCode, listedItem.priceMinorUnits) })),
       itemsNote: state.itemsCopiedAt ? `${gameSlug}'s items on Zaisma, brought in ${state.itemsCopiedAt.slice(0, 16).replace("T", " ")} UTC.` : givenSlug ? `Set ZAISMA_KEY to a key for ${gameSlug} and start the bench again to bring in its items from Zaisma.` : "Start the bench with --game <slug> and ZAISMA_KEY set to bring in the game's items from Zaisma.",
       room: code && /^[A-Z0-9]{6}$/.test(code) ? { code, link: `${benchOrigin}/g/${gameSlug}?room=${code}`, playerNames: tracked ? [...new Set([...tracked.sockets].filter((each) => !each.isSpectator && each.playerId).map((each) => nameOfPlayer(each.playerId)))] : [] } : null,
-      networkUrl: addresses.length ? `${originAt(addresses[0], ports.bench)}/g/${gameSlug}` : null,
+      networkUrl: networkOrigin ? `${networkOrigin}/g/${gameSlug}` : null,
       logLines: [...reportedTypes].map((text) => `Only on Zaisma: ${text}`),
     };
   }
@@ -649,13 +666,12 @@ export async function startLocalPlay(givenOptions) {
   });
 
   // --- The game's site ---
-  const connectOriginsFor = (hostname) => [originAt(hostname, ports.rooms), originAt(hostname, ports.rooms).replace(/^http/, "ws"), originAt(hostname, ports.bench), originAt(hostname, ports.game)];
+  const connectOriginsFor = (request) => [originFor(request, ports.rooms), originFor(request, ports.rooms).replace(/^http/, "ws"), originFor(request, ports.bench), originFor(request, ports.game)];
   const gameServer = createServer(async (request, response) => {
     try {
       const url = new URL(request.url ?? "/", "http://game");
-      const hostname = hostnameOf(request);
-      const benchOrigin = originAt(hostname, ports.bench);
-      const headersFor = (contentType, cacheControl = "no-cache") => ({ ...localGameHeaders(contentType, benchOrigin, connectOriginsFor(hostname)), "Cache-Control": cacheControl });
+      const benchOrigin = originFor(request, ports.bench);
+      const headersFor = (contentType, cacheControl = "no-cache") => ({ ...localGameHeaders(contentType, benchOrigin, connectOriginsFor(request)), "Cache-Control": cacheControl });
       const send = (status, contentType, body, cacheControl) => {
         response.writeHead(status, headersFor(contentType, cacheControl));
         response.end(request.method === "HEAD" ? undefined : body);
@@ -669,12 +685,12 @@ export async function startLocalPlay(givenOptions) {
       if (path.startsWith("_zaisma/")) {
         const js = "text/javascript; charset=utf-8";
         if (path === "_zaisma/v1.js") {
-          const config = { rooms: originAt(hostname, ports.rooms), game: gameSlug, site: benchOrigin, version: LOCAL_VERSION_ID, purchaseDelivery: state.purchaseDelivery };
+          const config = { rooms: originFor(request, ports.rooms), game: gameSlug, site: benchOrigin, version: LOCAL_VERSION_ID, purchaseDelivery: state.purchaseDelivery };
           return send(200, js, withSetup("__ZAISMA__", config, sdkText("zaisma.js")));
         }
         if (path === BENCH_PAGE_PATH) return send(200, "text/html; charset=utf-8", BENCH_PAGE);
         if (path === "_zaisma/v1.d.ts") return send(200, "text/plain; charset=utf-8", sdkText("zaisma.d.ts"));
-        if (path === "_zaisma/relay.js") return send(200, js, withSetup("__ZAISMA_RELAY__", { rooms: originAt(hostname, ports.rooms), game: gameSlug, site: benchOrigin, ownRelayHosts: [], fetchEarly: false }, sdkText("relay.js")));
+        if (path === "_zaisma/relay.js") return send(200, js, withSetup("__ZAISMA_RELAY__", { rooms: originFor(request, ports.rooms), game: gameSlug, site: benchOrigin, ownRelayHosts: [], fetchEarly: false }, sdkText("relay.js")));
         if (path === "_zaisma/picture.js") return send(200, js, withSetup("__ZAISMA_PICTURE__", { site: benchOrigin }, sdkText("picture.js")));
         if (path === "_zaisma/saves.js") {
           const versionId = url.searchParams.get("version_id");
@@ -729,7 +745,6 @@ export async function startLocalPlay(givenOptions) {
     const origin = request.headers.origin;
     const url = new URL(request.url ?? "/", "http://rooms");
     const path = url.pathname;
-    const hostname = hostnameOf(request);
     const cors = isGameOrigin(origin) ? { "Access-Control-Allow-Origin": origin, Vary: "Origin" } : {};
     const reply = (status, body, headers = {}) => {
       response.writeHead(status, { "Content-Type": "application/json", "Cache-Control": "no-store", ...cors, ...headers });
@@ -759,7 +774,7 @@ export async function startLocalPlay(givenOptions) {
       if (playerMatch && request.method === "GET") {
         const account = accountOfPlayer(playerMatch[1]);
         if (!account) return fail(404, "no_player", "No stand-in account has that player ID. Guests have no profile.");
-        return reply(200, { player: roomsProfile(account, originAt(hostname, ports.bench)) }, { "Access-Control-Allow-Origin": "*" });
+        return reply(200, { player: roomsProfile(account, originFor(request, ports.bench)) }, { "Access-Control-Allow-Origin": "*" });
       }
       // The developer API the game server calls to hand over purchases (game_server delivery), stood in for.
       const developerMatch = /^\/api\/dev\/games\/([a-z0-9-]{1,40})(\/.*)?$/.exec(path);
@@ -853,7 +868,7 @@ export async function startLocalPlay(givenOptions) {
         const listed = [...roomsTracked].filter(([, room]) => room.isListed && [...room.sockets].some((each) => !each.isSpectator));
         const rooms = listed.map(([code, room]) => ({
           roomCode: code, playerCount: [...room.sockets].filter((each) => !each.isSpectator).length, heldSeatCount: 0, maximumPlayerCount: room.maximumPlayerCount, spectatorCount: [...room.sockets].filter((each) => each.isSpectator).length,
-          maximumSpectatorCount: 0, isOpen: room.isOpen, location: null, isNear: true, name: room.name, labels: room.labels, isKept: false, inviteUrl: `${originAt(hostname, ports.bench)}/g/${gameSlug}?room=${code}`,
+          maximumSpectatorCount: 0, isOpen: room.isOpen, location: null, isNear: true, name: room.name, labels: room.labels, isKept: false, inviteUrl: `${originFor(request, ports.bench)}/g/${gameSlug}?room=${code}`,
         }));
         let totalPlayerCount = 0;
         for (const room of rooms) totalPlayerCount += room.playerCount;
@@ -1063,24 +1078,44 @@ export async function startLocalPlay(givenOptions) {
   }
 
   // --- Start everything ---
+  // On the network each port takes both: a connection that opens with TLS's handshake (its first byte, 0x16) goes to HTTPS with the
+  // bench's certificate, any other to plain http, so this computer keeps http://localhost and a phone that asks for HTTPS gets it.
+  const secureServers = [];
+  const fronts = [];
+  const frontFor = (server) => {
+    if (!certificate) return server;
+    const secure = createSecureServer({ cert: certificate.certificatePem, key: certificate.keyPem });
+    for (const event of ["request", "upgrade"]) for (const listener of server.listeners(event)) secure.on(event, listener);
+    secureServers.push(secure);
+    const front = createSocketServer((socket) => {
+      socket.once("data", (firstChunk) => {
+        socket.pause();
+        socket.unshift(firstChunk);
+        (firstChunk[0] === 0x16 ? secure : server).emit("connection", socket);
+        process.nextTick(() => socket.resume());
+      });
+      socket.on("error", () => socket.destroy());
+    });
+    fronts.push(front);
+    return front;
+  };
   const listen = (server, portNumber) =>
     new Promise((done, failed) => {
       server.once("error", (error) => failed(error?.code === "EADDRINUSE" ? new GameServerError("bad_option", "port", `Port ${portNumber} is already in use.`, `Stop what's using ports ${port} to ${port + 3}, or give another first port: --port ${port + 10}.`) : error));
       server.listen(portNumber, host, () => done());
     });
+  const listening = [[benchServer, ports.bench], [gameServer, ports.game], [roomsServer, ports.rooms]].map(([server, portNumber]) => [frontFor(server), portNumber]);
   try {
-    await listen(benchServer, ports.bench);
-    await listen(gameServer, ports.game);
-    await listen(roomsServer, ports.rooms);
+    for (const [server, portNumber] of listening) await listen(server, portNumber);
   } catch (error) {
-    for (const server of [benchServer, gameServer, roomsServer]) if (server.listening) server.close();
+    for (const [server] of listening) if (server.listening) server.close();
     watcher?.close();
     throw error;
   }
   await startRunner();
 
   const benchUrl = localhostOrigin(ports.bench);
-  const networkUrl = addresses.length ? originAt(addresses[0], ports.bench) : null;
+  const networkUrl = networkOrigin;
   return {
     benchUrl,
     gameSiteUrl: localhostOrigin(ports.game),
@@ -1095,7 +1130,8 @@ export async function startLocalPlay(givenOptions) {
       watcher?.close();
       await restartChain.catch(() => {});
       await stopRunner();
-      await Promise.all([benchServer, gameServer, roomsServer].map((server) => new Promise((done) => {
+      for (const front of fronts) front.close();
+      await Promise.all([benchServer, gameServer, roomsServer, ...secureServers].map((server) => new Promise((done) => {
         server.close(() => done());
         server.closeAllConnections();
       })));

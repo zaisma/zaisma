@@ -1,4 +1,5 @@
 import { createServer, type Server } from "node:http";
+import { request as secureRequest } from "node:https";
 import { appendFileSync, cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { stripTypeScriptTypes } from "node:module";
 import { tmpdir } from "node:os";
@@ -158,6 +159,30 @@ describe("play-locally", () => {
     const [first, second] = await Promise.all([claim(), claim()]);
     expect(first.body.playerNumber).not.toBe(second.body.playerNumber);
   });
+
+  it("speaks HTTPS too on the network, with a certificate of its own, and http still on this computer", async () => {
+    const onNetwork = await startLocalPlay({ gameFolder: folder, port: port + 40, gameSlug: SLUG, isOnNetwork: true, log: () => {} });
+    try {
+      const { certificatePem } = JSON.parse(readFileSync(join(folder, ".zaisma-local", "certificate.json"), "utf8"));
+      const overHttps = (portNumber: number, path: string) =>
+        new Promise<string>((done, failed) => {
+          secureRequest({ host: "localhost", port: portNumber, path, ca: certificatePem }, (response) => {
+            let text = "";
+            response.on("data", (chunk) => (text += chunk));
+            response.on("end", () => done(text));
+          }).on("error", failed).end();
+        });
+      expect(await overHttps(port + 40, "/?player=1")).toContain('class="playing-bar');
+      // The game's site over HTTPS names the bench and the rooms over HTTPS, so the page's frame and calls stay secure.
+      const sdk = await overHttps(port + 41, "/_zaisma/v1.js");
+      expect(sdk).toContain(`"site":"https://localhost:${port + 40}"`);
+      expect(sdk).toContain(`"rooms":"https://localhost:${port + 42}"`);
+      expect(await (await fetch(`http://localhost:${port + 40}/?player=1`)).text()).toContain('class="playing-bar');
+      if (onNetwork.networkUrl) expect(onNetwork.networkUrl).toMatch(/^https:\/\//);
+    } finally {
+      await onNetwork.close();
+    }
+  }, 30_000);
 
   it("answers a call it has no stand-in for with not_local", async () => {
     const answer = await rooms("/v1/relay", { gameSlug: SLUG });

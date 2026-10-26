@@ -151,7 +151,7 @@ function sheetMarkup(name: SheetName, view: BenchView): Raw {
     return stack({
       items: [
         { kind: "block", markup: qrCode({ id: "bench-phone-qr", label: "The bench's address", caption: view.networkUrl, imageUrl: `/bench/qr.svg?text=${encodeURIComponent(view.networkUrl)}` }) },
-        words("Over the home network the bench is plain http, so the camera, microphone and other features a browser allows only on secure pages won't work on the phone."),
+        words("Heads up: the phone's browser will say the connection isn't private. That's expected here: the bench made its own certificate on this computer, and no one else vouches for it. Open the details and go on to the site, once."),
       ],
     });
   }

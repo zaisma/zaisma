@@ -394,7 +394,7 @@ Your game opens in the browser on a test bench: Zaisma's game page as players pl
 | `[folder]` | The game's folder; this one unless given |
 | `--port <port>` | The first of four ports, `4800` unless given: the bench, the game's site, the stand-in rooms and your game server take it and the next three |
 | `--game <slug>` | The game's slug; with `ZAISMA_KEY` set to a key for it, each start brings in the game's items from Zaisma, the ones its code buys (the bench makes none up; offline it keeps the last ones). The Items sheet says which accounts own each |
-| `--on-network` | Let a phone on the same Wi-Fi open the bench too: it prints the address and a QR code. Over the home network the bench is plain http, so the camera, microphone and other features browsers allow only on secure pages won't work on the phone |
+| `--on-network` | Let a phone on the same Wi-Fi open the bench too: it prints the address and a QR code. There the bench speaks HTTPS with a certificate it makes on your computer, so the phone's browser warns once that the connection isn't private; open the details and go on to the site. On this computer it stays `http://localhost` |
 | `--no-open` | Don't open the bench in the browser |
 | `--json` | Print `{ bench_url, game_site_url, rooms_url, network_url }` once it's listening |
 
