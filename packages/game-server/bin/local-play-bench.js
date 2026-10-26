@@ -36,6 +36,7 @@ function benchScript(config) {
   let playerNumber = Number(query.get("player")) || 0;
   let state = null;
   let roomCode = /^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$/.test(query.get("room") || "") ? query.get("room") : null;
+  let isRoomOpen = true;
   const reported = new Set();
 
   const byId = (id) => document.getElementById(id);
@@ -89,11 +90,16 @@ function benchScript(config) {
     const who = byId("bench-who");
     const label = who && who.querySelector(".face > span:not([class])");
     if (label) label.textContent = account ? account.username : "Guest";
+    // A new tab claims its own player number as it opens, so the link only carries the room.
     const add = byId("bench-add");
     if (add) {
-      add.href = `${location.pathname}?player=${state.nextPlayerNumber}${roomCode ? `&room=${roomCode}` : ""}`;
+      add.href = `${location.pathname}${roomCode ? `?room=${roomCode}` : ""}`;
       add.target = "_blank";
     }
+    // The room's code in the bar, as the game page shows it; a room that takes nobody new says so.
+    const room = byId("bench-room-open");
+    const roomLabel = room && room.querySelector(".face > span:not([class])");
+    if (roomLabel) roomLabel.textContent = roomCode ? (isRoomOpen ? roomCode : `${roomCode}, closed`) : "Room";
     document.title = `Player ${playerNumber}, ${account ? account.username : "guest"}: test bench for ${config.gameSlug}`;
   }
   async function refreshSheet(name) {
@@ -196,6 +202,7 @@ function benchScript(config) {
     switch (message.type) {
       case "zaisma:room":
         if (typeof message.code === "string" && /^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$/.test(message.code)) {
+          if (message.code !== roomCode) isRoomOpen = true;
           roomCode = message.code;
           keepAddress();
           renderBar();
@@ -208,7 +215,12 @@ function benchScript(config) {
           renderBar();
         }
         return;
+      // Who's in the room, and whether it takes others by its code.
       case "zaisma:players":
+        if (message.code === roomCode && typeof message.isOpen === "boolean") {
+          isRoomOpen = message.isOpen;
+          renderBar();
+        }
         return;
       case "zaisma:room-key": {
         const given = await call(`/bench/key?player=${playerNumber}`);
@@ -268,9 +280,11 @@ function benchScript(config) {
     state = await call(`/bench/state${playerNumber ? `?player=${playerNumber}` : ""}`);
     // A tab with no player in its address takes the first number nobody holds, so a shared room link opens as someone new.
     if (!playerNumber) {
-      playerNumber = state.nextPlayerNumber;
+      playerNumber = (await call("/bench/claim", { method: "POST" })).playerNumber;
       keepAddress();
     }
+    // Closing the tab gives its number back at once.
+    addEventListener("pagehide", () => navigator.sendBeacon(`/bench/leave?player=${playerNumber}`));
     // About once a second: the bar's state, that this tab is open, and whether a game file changed (reloadNumber).
     let reloadNumber = state.reloadNumber;
     setInterval(async () => {

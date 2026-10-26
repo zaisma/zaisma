@@ -353,9 +353,10 @@ export async function startLocalPlay(givenOptions) {
   }
 
   // --- The bench page's own calls, on the bench origin ---
-  // Each tab asks for the state about once a second, which says it's open: a tab not heard from for a few seconds is closed.
-  // (Polling, not a held-open stream per tab: a browser holds at most six connections to one address.)
-  const PLAYER_OPEN_MS = 4000;
+  // Each tab asks for the state about once a second, which says it's open, and says when it closes. One not heard from for 70 seconds is
+  // closed too: a browser slows a background tab's timers to once a minute. (Polling, not a held-open stream per tab: a browser holds at
+  // most six connections to one address.)
+  const PLAYER_OPEN_MS = 70_000;
   const heardAtMs = new Map(); // player number -> when its tab last asked
   let reloadNumber = 0;
   /** Tell every tab to reload its game, at its next ask. */
@@ -552,6 +553,16 @@ export async function startLocalPlay(givenOptions) {
       const playerNumber = Number(url.searchParams.get("player"));
       if (Number.isInteger(playerNumber) && playerNumber > 0) heardAtMs.set(playerNumber, now());
       return reply(200, benchStatePublic());
+    }
+    // A new tab takes the first number nobody holds, at once, so two tabs opened together are two players.
+    if (path === "/bench/claim" && request.method === "POST") {
+      const playerNumber = nextPlayerNumber();
+      heardAtMs.set(playerNumber, now());
+      return reply(200, { playerNumber });
+    }
+    if (path === "/bench/leave" && request.method === "POST") {
+      heardAtMs.delete(Number(url.searchParams.get("player")));
+      return reply(200, { isLeft: true });
     }
     if (path === "/bench/state" && request.method === "POST") {
       const change = await readJson();

@@ -54,10 +54,11 @@ const playingName = (view: BenchView) => (view.playingAs === "guest" ? "Guest" :
 export async function benchPageHtml(view: BenchView, frame: FrameAttributes): Promise<string> {
   const controls = [
     cutButton(playingName(view), { id: "bench-who", type: "button", icon: "person", isSmall: true, controls: "bench-who-menu", isExpanded: false }),
-    cutButton("Add a player", { id: "bench-add", href: `/?player=${view.nextPlayerNumber}`, icon: "plus", isLabelHidden: true, isSmall: true }),
+    cutButton("Add a player", { id: "bench-add", href: view.room ? `/?room=${view.room.code}` : "/", icon: "plus", isLabelHidden: true, isSmall: true }),
     cutButton("Friends and blocks", { id: "bench-friends-open", type: "button", icon: "friends", isLabelHidden: true, isSmall: true, controls: "bench-friends" }),
     cutButton("Items", { id: "bench-items-open", type: "button", icon: "card", isLabelHidden: true, isSmall: true, controls: "bench-items" }),
-    cutButton("Room", { id: "bench-room-open", type: "button", icon: "hash", isLabelHidden: true, isSmall: true, controls: "bench-room" }),
+    // The room's code, as the game page's bar shows it once the player is in one.
+    cutButton(view.room ? view.room.code : "Room", { id: "bench-room-open", type: "button", icon: "hash", isSmall: true, controls: "bench-room" }),
     cutButton("Phone", { id: "bench-phone-open", type: "button", icon: "phone", isLabelHidden: true, isSmall: true, controls: "bench-phone" }),
     cutButton("Log", { id: "bench-log-open", type: "button", icon: "info", isLabelHidden: true, isSmall: true, controls: "bench-log", reactionCount: view.logLines.length }),
   ];
@@ -151,6 +152,7 @@ function sheetMarkup(name: SheetName, view: BenchView): Raw {
     if (!view.room) return stack({ items: [{ kind: "block", markup: emptyState({ title: "Not in a room", text: "Join or make a room in the game, and its link shows here." }) }] });
     return stack({
       items: [
+        { kind: "block", markup: codeField({ label: "This room", code: view.room.code, id: "bench-room-code" }) },
         words("Anyone on this computer joins by opening this link, as the next player."),
         { kind: "block", markup: codeField({ label: "Room link", code: view.room.link, id: "bench-room-link" }) },
         { kind: "words", markup: html`<h3>In the room</h3><p>${view.room.playerNames.length ? view.room.playerNames.join(", ") : "Only you so far."}</p>` },

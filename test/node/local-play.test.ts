@@ -139,6 +139,12 @@ describe("play-locally", () => {
     expect(friends).not.toContain("&lt;");
   }, 20_000);
 
+  it("gives two tabs opened together two players", async () => {
+    const claim = () => fetch(`${play.benchUrl}/bench/claim`, { method: "POST" }).then(json);
+    const [first, second] = await Promise.all([claim(), claim()]);
+    expect(first.body.playerNumber).not.toBe(second.body.playerNumber);
+  });
+
   it("answers a call it has no stand-in for with not_local", async () => {
     const answer = await rooms("/v1/relay", { gameSlug: SLUG });
     expect(answer.status).toBe(404);
