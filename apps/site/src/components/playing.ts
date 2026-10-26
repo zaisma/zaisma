@@ -221,7 +221,8 @@ html.is-leaving body > main > :not(.playing-bar, .playing-card, .playing-check, 
 .screenshot:hover img { transform: scale(1.03); }
 .screenshot:focus-visible { outline: none; }
 .screenshot:focus-visible > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
-.screenshot-large { display: block; width: min(1280px, calc(100vw - 6 * var(--pad-pane))); max-height: 70dvh; object-fit: contain; }
+/* As wide as a picture's sheet goes, less its frame: up to --size-sheet-picture, and the screen less its margins. */
+.screenshot-large { display: block; width: min(calc(var(--size-sheet-picture) - 2 * var(--pad-frame)), calc(100vw - 2 * var(--pad-pane) - 2 * var(--pad-frame))); max-height: 70dvh; object-fit: contain; }
 @media (prefers-reduced-motion: reduce) { .screenshot img { transition: none; } }
 
 /* Cloudflare's check: unseen; if it ever needs a tap, at the foot of the screen, over the page or the game. */
@@ -243,7 +244,7 @@ component({
   styles: "",
   render: screenshot,
   examples: [
-    { label: "In a row: press it to open it large", markup: html`<div style="width:280px">${screenshot({ imageUrl: "/design/covers/neon-drift.webp", label: "Screenshot 1 of 3", sheetId: "example-screenshot" })}</div>${sheet({ id: "example-screenshot", title: "Neon Drift, screenshot 1 of 3", body: screenshotLarge("/design/covers/neon-drift.webp", "Neon Drift, screenshot 1"), closeLabel: "Close" })}` },
+    { label: "In a row: press it to open it large", markup: html`<div style="width:280px">${screenshot({ imageUrl: "/design/covers/neon-drift.webp", label: "Screenshot 1 of 3", sheetId: "example-screenshot" })}</div>${sheet({ id: "example-screenshot", title: "Neon Drift, screenshot 1 of 3", body: screenshotLarge("/design/covers/neon-drift.webp", "Neon Drift, screenshot 1"), closeLabel: "Close", isPicture: true })}` },
   ],
 });
 

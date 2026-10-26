@@ -2,6 +2,7 @@ import { html, type Raw } from "../markup.ts";
 import { pageScript, pageScriptPath } from "../page-scripts.ts";
 import { component } from "./component.ts";
 import { glassPane, tag } from "./foundations.ts";
+import { sheet } from "./panes.ts";
 import { cutButton, runButton, textLink } from "./actions.ts";
 import { cutField } from "./inputs.ts";
 import { checkField } from "./choices.ts";
@@ -56,15 +57,17 @@ export function screens(options: ScreensOptions): Raw {
   const names = options.screenNames ?? LOCAL_SCREEN_NAMES;
   const shownSizes = [...SCREEN_SIZES].reverse().filter((screenSize) => names.includes(screenSize.name));
   const shown = SCREEN_THEMES.flatMap((theme) => shownSizes.map((screenSize) => ({ theme, screenSize })));
+  // One sheet for the page's screens, which Larger fills with the screen pressed.
+  const largeId = `${options.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}-screen-large`;
   return html`<div class="screens" data-screens${options.stepsToTake ? html` data-steps-to-take="${JSON.stringify(options.stepsToTake)}"` : ""} data-measure-script="${pageScriptPath(LAYOUT_MEASURE_SCRIPT)}" data-inspect-script="${pageScriptPath(LAYOUT_INSPECT_SCRIPT)}"><div class="screens-in">${shown.map(({ theme, screenSize }) => {
     const name = `${screenSize.name}, ${theme}`;
     return html`<figure class="screen" data-screen data-width-px="${String(screenSize.widthPx)}" data-height-px="${String(screenSize.heightPx)}" data-screen-theme="${theme}">
 <div class="screen-view" data-cut-line="0"><iframe src="${options.path}" title="${options.title}: ${name}" width="${String(screenSize.widthPx)}" height="${String(screenSize.heightPx)}" loading="lazy"></iframe><div class="screen-pointer" hidden></div></div>
-<figcaption class="screen-caption"><span>${name} · ${String(screenSize.widthPx)} × ${String(screenSize.heightPx)}</span><span data-screen-verdict>${tag("Measuring", "count")}</span></figcaption>
+<figcaption class="screen-caption"><span>${name} · ${String(screenSize.widthPx)} × ${String(screenSize.heightPx)}</span><span data-screen-verdict>${tag("Measuring", "count")}</span>${cutButton(`${name}, larger`, { type: "button", icon: "full-screen", isLabelHidden: true, isSmall: true, controls: largeId })}</figcaption>
 <ul class="screen-problems" data-screen-problems hidden></ul>
 <p class="screen-pointed" data-screen-pointed hidden></p>
 </figure>`;
-  })}</div></div>`;
+  })}</div>${sheet({ id: largeId, title: options.title, body: html`<div class="screen-large" data-screen-large></div>`, closeLabel: "Close", isPicture: true })}</div>`;
 }
 
 /** The Screens page's first pane: what it is, the pages the check measures in Zaisma's branches, and any page to show, on the screens picked. */
@@ -185,18 +188,19 @@ export const SCREENS_SCRIPT = pageScript("screens", String.raw`(function () {
     if (doc.querySelector('script[src="' + src + '"]')) return done();
     var script = doc.createElement("script"); script.src = src; script.onload = done; doc.head.append(script);
   }
-  document.querySelectorAll("[data-screen]").forEach(function (figure) {
-    var view = figure.querySelector(".screen-view"), frame = view.querySelector("iframe"), pointer = view.querySelector(".screen-pointer");
-    var verdict = figure.querySelector("[data-screen-verdict]"), problems = figure.querySelector("[data-screen-problems]"), pointed = figure.querySelector("[data-screen-pointed]");
-    var widthPx = Number(figure.dataset.widthPx), heightPx = Number(figure.dataset.heightPx), theme = figure.dataset.screenTheme, scale = 1;
-    var scripts = figure.closest("[data-screens]").dataset;
-    // A state only forms and links reach: each step is taken once its page is there, and the last one's answer is measured.
-    var steps = scripts.stepsToTake ? JSON.parse(scripts.stepsToTake) : [], stepIndex = 0;
-    function takeStep(doc) {
+  // A state only forms and links reach (checked-pages.ts): each step is taken in a frame once its page is there, and ready(doc) runs on the
+  // last one's answer, or with what went wrong.
+  function stepsOf(figure) { var holder = figure.closest("[data-screens]").dataset; return holder.stepsToTake ? JSON.parse(holder.stepsToTake) : []; }
+  function stepThrough(frame, steps, ready) {
+    var stepIndex = 0;
+    frame.addEventListener("load", function () {
+      var doc = null; try { doc = frame.contentDocument; } catch (error) {}
+      if (!doc || !doc.documentElement) return ready(null, "Not a page on this site");
+      if (stepIndex >= steps.length) return ready(doc, null);
       var step = steps[stepIndex++];
       if (step.path) { frame.contentWindow.location.assign(step.path); return; }
       var found = Array.prototype.find.call(doc.querySelectorAll("form"), function (each) { return each.getAttribute("action") === step.formAction; });
-      if (!found) { verdict.textContent = "Couldn't send the form for " + step.formAction; return; }
+      if (!found) return ready(null, "Couldn't send the form for " + step.formAction);
       var word = Math.random().toString(36).slice(2, 10);
       Object.keys(step.fieldValues).forEach(function (name) {
         var field = found.elements.namedItem(name);
@@ -205,7 +209,13 @@ export const SCREENS_SCRIPT = pageScript("screens", String.raw`(function () {
       });
       // As a browser without the page's scripts would send it (checked-pages.ts, FormToSend): its answer loads whole, and measures.
       HTMLFormElement.prototype.submit.call(found);
-    }
+    });
+  }
+  document.querySelectorAll("[data-screen]").forEach(function (figure) {
+    var view = figure.querySelector(".screen-view"), frame = view.querySelector("iframe"), pointer = view.querySelector(".screen-pointer");
+    var verdict = figure.querySelector("[data-screen-verdict]"), problems = figure.querySelector("[data-screen-problems]"), pointed = figure.querySelector("[data-screen-pointed]");
+    var widthPx = Number(figure.dataset.widthPx), heightPx = Number(figure.dataset.heightPx), theme = figure.dataset.screenTheme, scale = 1;
+    var scripts = figure.closest("[data-screens]").dataset;
     function fit() { scale = Math.min(1, view.clientWidth / widthPx); frame.style.transform = "scale(" + scale + ")"; view.style.height = Math.round(heightPx * scale) + "px"; }
     fit(); window.zaismaWatch.size(view, fit);
     function found(failures) {
@@ -216,11 +226,9 @@ export const SCREENS_SCRIPT = pageScript("screens", String.raw`(function () {
     }
     // What's pointed at shows under its screen only while something is: the page says once, at its top, that pointing tells you.
     function hide() { pointer.hidden = true; pointed.hidden = true; }
-    frame.addEventListener("load", ready);
-    function ready() {
-      var doc = null; try { doc = frame.contentDocument; } catch (error) {}
-      if (!doc || !doc.documentElement) { verdict.textContent = "Not a page on this site"; return; }
-      if (stepIndex < steps.length) { takeStep(doc); return; }
+    stepThrough(frame, stepsOf(figure), ready);
+    function ready(doc, problem) {
+      if (!doc) { verdict.textContent = problem; return; }
       // A page that needs an account sends a signed-out browser to sign in: its pane says so once, with the way to sign in and come back.
       if (frame.contentWindow.location.pathname === "/signin" && new URL(frame.getAttribute("src"), location.href).pathname !== "/signin") {
         figure.closest(".glass-pane").querySelector("[data-screens-signed-out]").hidden = false;
@@ -245,6 +253,37 @@ export const SCREENS_SCRIPT = pageScript("screens", String.raw`(function () {
       });
     }
   });
+  // Larger: the screen's page again, live, in a picture's sheet, at the screen's own size scaled to all the room the sheet has in the window.
+  var EDGE_PX = 24, shownLarge = null;
+  // The sheet as wide as it goes for a moment gives the room across, and what's left of the window's height under its head the room down;
+  // the screen is scaled to fit both, and the sheet fits it again. Again whenever the window changes.
+  function fitLarge() {
+    if (!shownLarge || !shownLarge.sheet.open) return;
+    var large = shownLarge.sheet, box = shownLarge.box;
+    box.style.width = ""; box.style.height = "0px"; large.style.width = "100%";
+    var tallestPx = Math.min(window.innerHeight - 2 * EDGE_PX, parseFloat(getComputedStyle(large).maxHeight) || Infinity);
+    var scale = Math.min(box.clientWidth / shownLarge.widthPx, (tallestPx - large.offsetHeight) / shownLarge.heightPx, 2);
+    large.style.width = "";
+    box.style.width = Math.floor(shownLarge.widthPx * scale) + "px"; box.style.height = Math.floor(shownLarge.heightPx * scale) + "px"; shownLarge.frame.style.transform = "scale(" + scale + ")";
+  }
+  window.addEventListener("resize", fitLarge);
+  document.addEventListener("click", function (event) {
+    var button = event.target.closest && event.target.closest(".screen-caption [aria-controls]");
+    if (!button) return;
+    var figure = button.closest("[data-screen]"), large = document.getElementById(button.getAttribute("aria-controls")), box = large && large.querySelector("[data-screen-large]");
+    if (!box) return;
+    var widthPx = Number(figure.dataset.widthPx), heightPx = Number(figure.dataset.heightPx), small = figure.querySelector(".screen-view > iframe");
+    large.querySelector(".sheet-title").textContent = small.title;
+    var frame = document.createElement("iframe"); frame.title = small.title; frame.width = String(widthPx); frame.height = String(heightPx);
+    box.replaceChildren(frame);
+    shownLarge = { sheet: large, box: box, frame: frame, widthPx: widthPx, heightPx: heightPx };
+    // Once it's open.
+    setTimeout(fitLarge);
+    stepThrough(frame, stepsOf(figure), function (doc) { if (doc) doc.documentElement.setAttribute("data-theme-choice", figure.dataset.screenTheme); frame.classList.add("is-shown"); });
+    frame.src = small.getAttribute("src");
+  });
+  // Closed, the page in it goes.
+  document.addEventListener("close", function (event) { if (shownLarge && event.target === shownLarge.sheet) { shownLarge.box.replaceChildren(); shownLarge = null; } }, true);
 })();
 `);
 
@@ -262,10 +301,14 @@ component({
 .screens-in { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, ${SCREEN_SIZES[0].widthPx}px), 1fr)); gap: var(--gap-block-block); align-items: start; }
 .screen { margin: 0; min-width: 0; display: flex; flex-direction: column; gap: var(--gap-words-control); }
 .screen-view { position: relative; overflow: hidden; background: var(--well); box-shadow: var(--well-shade); clip-path: var(--cut-shape); }
-.screen-view > iframe { position: absolute; left: 0; top: 0; border: 0; transform-origin: 0 0; background: var(--page); visibility: hidden; }
-.screen-view > iframe.is-shown { visibility: visible; }
+.screen-view > iframe, .screen-large > iframe { position: absolute; left: 0; top: 0; border: 0; transform-origin: 0 0; background: var(--page); visibility: hidden; }
+.screen-view > iframe.is-shown, .screen-large > iframe.is-shown { visibility: visible; }
+/* Larger: a screen's page in a picture's sheet, sized by the script to the screen's shape, scaled to fit. */
+.screen-large { position: relative; max-width: 100%; overflow: hidden; background: var(--well); }
 /* What's pointed at, outlined in the runner's orange over the frame. */
 .screen-pointer { position: absolute; pointer-events: none; box-shadow: inset 0 0 0 2px var(--run); }
+/* Larger sits at the caption's end. */
+.screen-caption > :last-child { margin-inline-start: auto; }
 .screen-caption { display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-words-words); padding-inline: var(--pad-words); font: var(--type-facts); color: var(--ink-2); }
 .screen-problems { margin: 0; padding: 0 var(--pad-words); list-style: none; display: flex; flex-direction: column; gap: var(--gap-words-words); font: var(--type-note); color: var(--ink-2); }
 .screen-pointed { margin: 0; padding-inline: var(--pad-words); font: var(--type-note); color: var(--muted); }

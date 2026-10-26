@@ -221,6 +221,7 @@ A pane over the page has a ceiling by its kind, in `rem` so it grows with its wo
 | A select's list | Its field | `--size-menu-height` |
 | A compact sheet | `--size-sheet-compact` (20rem) | The screen less its margins |
 | A sheet | `--size-sheet` (36rem) | The screen less its margins (78% of a phone's) |
+| A picture's sheet (a screenshot, or a screen on Screens, large) | `--size-sheet-picture` (80rem) | The screen less its margins (78% of a phone's) |
 | A store panel | `--size-sheet-side` (23.75rem) | The screen less its margins |
 
 ### Screens
@@ -410,7 +411,7 @@ Every component, with the call that makes it and its options, is in the catalog 
 - **Game cover** (`gameCover(options: GameCoverOptions)`, `panes.ts`): A game in a list: the studio's art, bare, set in a carved well, with only what concerns you under it. Zaisma's mark stands in while the art loads, and for a game with none yet.
   - `options`: `title: string`, `imageUrl: string | null`, `href: string`, `facts: GlanceFacts`, `isCurrent?: boolean`, `isEager?: boolean`, `hasHighPriority?: boolean`, `isTitleShown?: boolean`
 - **Sheet** (`sheet(options: SheetOptions)`, `panes.ts`): A task that comes and goes over the page: report a game, block someone, add a key. Opened by a button that names it: on a phone it rises from the foot, on a wide screen it hangs from that button like a dropdown, under it or above it; Esc, its close button or a press beside it close it, and it drops away as it goes in every browser (it stays open while it leaves, so no browser drops it early or draws it out of place). Its title, Close and its buttons stay in view while the rest scrolls.
-  - `options`: `id: string`, `title: string`, `body: Raw`, `closeLabel: string`, `buttons?: ControlMarkup[]`, `action?: string`, `placement?: "center" | "foot" | "middle"`, `isShown?: boolean`, `isCompact?: boolean`
+  - `options`: `id: string`, `title: string`, `body: Raw`, `closeLabel: string`, `buttons?: ControlMarkup[]`, `action?: string`, `placement?: "center" | "foot" | "middle"`, `isShown?: boolean`, `isCompact?: boolean`, `isPicture?: boolean`
 - **Store item** (`storeItem(options: StoreItemOptions)`, `panes.ts`): What a store panel sells: the game's own cover across the top, then the item's name, its price large under it, what it is, and one quiet line on who sells it and what refunds there are. Items have no pictures of their own, so the cover is the developer's image, bare; with none, Zaisma's mark stands in.
   - `options`: `id: string`, `imageUrl: string | null`, `name: string`, `priceText: string`, `description?: string`, `noteText?: string`
 - **Store panel** (`storePanel(options: StorePanelOptions)`, `panes.ts`): Where a player buys: a tall panel at the screen's right edge over the running game, which keeps its middle (on a phone, a sheet risen from the foot, nearly the screen's height). A slim head with Close, the item with the game's cover across its top, and pinned at its foot the card row and the buy button carrying the price; Apple Pay and Google Pay sit with them when offered. Pressing Buy is the confirmation: only when Zaisma needs to know it's them does the panel ask first, in the same place.

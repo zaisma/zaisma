@@ -243,10 +243,10 @@ html { -webkit-tap-highlight-color: transparent; }
   --size-page-reading: 820px; --size-page-wide: 1680px;
   /* Pane sizes: the most a pane over the page takes, by its kind, before what's in it scrolls inside it (docs/DESIGN.md, Pane sizes). In rem,
      so a pane grows with its words as controls do; each also stops at the screen less its margins. A menu (a dropdown) and a select's list
-     (as wide as its field) at most --size-menu-height tall; a compact sheet a dropdown's width; any other sheet --size-sheet; the store panel
-     its own column at the screen's edge. */
+     (as wide as its field) at most --size-menu-height tall; a compact sheet a dropdown's width; any other sheet --size-sheet; a picture's
+     sheet (a screenshot, or a screen, large) --size-sheet-picture; the store panel its own column at the screen's edge. */
   --size-menu: 20rem; --size-menu-height: 30rem;
-  --size-sheet-compact: 20rem; --size-sheet: 36rem; --size-sheet-side: 23.75rem;
+  --size-sheet-compact: 20rem; --size-sheet: 36rem; --size-sheet-picture: 80rem; --size-sheet-side: 23.75rem;
   /* A figure's least width in Numbers: two side by side on a phone. */
   --size-number: 96px;
   /* Type (docs/DESIGN.md, Type): every word outside a control's own inside takes one of these whole fonts, picked by what the words are. */

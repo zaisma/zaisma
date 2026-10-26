@@ -528,6 +528,8 @@ export interface SheetOptions {
   isShown?: boolean;
   /** On a wide screen, a narrow sheet with its gaps closed up, so it reads as a dropdown (the share sheet's QR code and link); on a phone it's like any sheet. */
   isCompact?: boolean;
+  /** A picture large (a screenshot, a screen on Screens): as wide as the screen allows, up to --size-sheet-picture, rather than --size-sheet. */
+  isPicture?: boolean;
 }
 
 /**
@@ -604,8 +606,8 @@ export const SHEET_SCRIPT = `/* sheets */(function () {
   }
   function hold(sheet) {
     var opener = pressed && performance.now() - pressed.at < 2000 && pressed.button.isConnected ? pressed.button : null;
-    // A store panel stands at the screen's edge whatever opened it, and a sheet in place stays where it is.
-    if (!opener || sheet.matches(".in-place, .placement-side, .placement-middle") || opener.closest("[popover]") || sheet.contains(opener)) return;
+    // A store panel stands at the screen's edge whatever opened it, a picture large in the middle, and a sheet in place stays where it is.
+    if (!opener || sheet.matches(".in-place, .placement-side, .placement-middle, .is-picture") || opener.closest("[popover]") || sheet.contains(opener)) return;
     anchors.set(sheet, { opener: opener, rect: opener.getBoundingClientRect() });
     sheet.classList.add("is-anchored");
     // What loads in it after it opens (a screenshot) changes its size: it's placed again, so it stays inside the window.
@@ -670,6 +672,8 @@ const SHEET_STYLES = `
 .sheet { width: fit-content; max-width: min(var(--size-sheet), calc(100% - 2 * var(--pad-pane))); max-height: calc(100dvh - 2 * var(--pad-pane)); margin: auto; padding: 0; border: 0; overflow: visible; color: var(--ink);
   --glass-tint: var(--glass-dropdown);
   transition: var(--glass-transition), opacity 0.25s, transform 0.3s cubic-bezier(.2,.8,.2,1), overlay 0.3s allow-discrete, display 0.3s allow-discrete; }
+/* A picture's sheet: as wide as the screen allows, up to its own size, so a screenshot or a screen shows large. */
+.sheet.is-picture { max-width: min(var(--size-sheet-picture), calc(100% - 2 * var(--pad-pane))); }
 /* Over the page, fixed to the window whether it's opening, open or closing (it stops being :modal the moment it starts to close). */
 .sheet:not(.in-place) { position: fixed; inset: 0; z-index: 40; }
 /* The sheet itself takes the focus when a press opened it (SHEET_SCRIPT): no ring, a ring is for the keyboard. */
