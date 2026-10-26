@@ -359,8 +359,8 @@ export function startServer(options) {
       if (room.timer) return;
       let lastTickAtMs = Date.now();
       room.core.savedAtMs ??= lastTickAtMs;
-      // A tick slower than the probe interval can't probe on time (the player's game reconnects after 8 seconds of silence): probe on a timer of its own.
-      if (1000 / definition.ticksPerSec > ROOM_TUNING.probeIntervalSec * 1000) room.probeTimer = setInterval(() => room.core.probeDue(), ROOM_TUNING.probeIntervalSec * 1000);
+      // A tick slower than the probe interval can't probe on time (the player's game reconnects after 8 seconds of silence): check twice an interval on a timer of its own, so a probe is never a whole interval late.
+      if (1000 / definition.ticksPerSec > ROOM_TUNING.probeIntervalSec * 1000) room.probeTimer = setInterval(() => room.core.probeDue(), (ROOM_TUNING.probeIntervalSec * 1000) / 2);
       room.timer = setInterval(() => {
         const nowMs = Date.now();
         room.core.tick((nowMs - lastTickAtMs) / 1000);

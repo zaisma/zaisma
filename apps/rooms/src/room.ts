@@ -1435,11 +1435,11 @@ export class Room extends DurableObject<Env> {
     this.stateCopiedAtMs = Date.now();
     let isCopying = false;
     const server = this.server as SandboxServer | null;
-    // A tick slower than the probe interval can't probe on time (the player's game reconnects after 8 seconds of silence), so the room probes on its own timer.
+    // A tick slower than the probe interval can't probe on time (the player's game reconnects after 8 seconds of silence), so the room checks twice an interval on its own timer, and probes each player once the interval has passed.
     if (1000 / core.server.ticksPerSec! > ROOM_TUNING.probeIntervalSec * 1000) {
       this.probeTimer = setInterval(() => {
         if (!core.ended) core.probeDue();
-      }, ROOM_TUNING.probeIntervalSec * 1000);
+      }, (ROOM_TUNING.probeIntervalSec * 1000) / 2);
     }
     this.timer = setInterval(() => {
       const nowMs = Date.now();
