@@ -212,7 +212,7 @@ export const REVIEW_CODES = {
   api_key_in_files: {
     meaning: "A Zaisma API key was in the game's files, so Zaisma turned it off: anyone who plays the game could have read it.",
     contentRule: null,
-    fix: "Take the key out of the file and upload a new version. Games never need an API key; make a new one on zaisma.com/account for your AI tool or the upload command.",
+    fix: "Take the key out of the file and upload a new version. Games never need an API key; make a new one on zaisma.com/dashboard/settings for your AI tool or the upload command.",
   },
 
   // Checks that couldn't finish: no rule is broken, and a person looks instead

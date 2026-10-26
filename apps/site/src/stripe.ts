@@ -118,7 +118,7 @@ export async function customerFor(env: Env, ownerId: string): Promise<string> {
  */
 export async function topUpCheckout(env: Env, ownerId: string, amountCents: number): Promise<{ checkoutUrl: string; expiresAtMs: number }> {
   const customer = await customerFor(env, ownerId);
-  const backUrl = `${env.SITE_ORIGIN}/developer/settings#credit`;
+  const backUrl = `${env.SITE_ORIGIN}/dashboard/settings#hosting`;
   const session = await stripeCall(env, "POST", "/checkout/sessions", {
     mode: "payment",
     customer,
@@ -140,7 +140,7 @@ export async function topUpCheckout(env: Env, ownerId: string, amountCents: numb
 export async function proCheckout(env: Env, ownerId: string): Promise<{ checkoutUrl: string; expiresAtMs: number }> {
   if (!env.STRIPE_PRO_PRICE_ID) throw unavailable("this Zaisma has no Zaisma Pro price set up.");
   const customer = await customerFor(env, ownerId);
-  const backUrl = `${env.SITE_ORIGIN}/developer/settings#pro`;
+  const backUrl = `${env.SITE_ORIGIN}/dashboard/settings#pro`;
   const session = await stripeCall(env, "POST", "/checkout/sessions", {
     mode: "subscription",
     customer,
@@ -281,6 +281,55 @@ export function detailsOf(account: Record<string, unknown>): ConnectedAccountDet
     businessName: profile.name || dashboard.display_name || null,
     supportEmail: profile.support_email || (typeof account.email === "string" ? account.email : null),
   };
+}
+
+/** A connected account's money as Stripe reports it, never a sum of Zaisma's. */
+export interface StripeBalance {
+  currencyCode: string | null;
+  availableMinorUnits: number;
+  pendingMinorUnits: number;
+  otherCurrencyBalances: { currencyCode: string; availableMinorUnits: number; pendingMinorUnits: number }[];
+  /** The soonest payout on its way, or null when none is scheduled (manual payouts). */
+  nextPayout: { amountMinorUnits: number; currencyCode: string; arrivesAtMs: number } | null;
+}
+
+const BALANCE_TIMEOUT_MS = 3000;
+
+/**
+ * The connected account's balance and its next payout, read live from its Stripe (the Stripe-Account header). Null when Stripe
+ * doesn't answer within 3 seconds or refuses, so a slow Stripe never holds the page or the rest of an answer.
+ */
+export async function getStripeBalance(env: Env, stripeAccountId: string, defaultCurrencyCode: string | null): Promise<StripeBalance | null> {
+  try {
+    const timeout = new Promise<never>((_, reject) => setTimeout(() => reject(new Error("Stripe's balance took more than 3 seconds.")), BALANCE_TIMEOUT_MS));
+    const [balance, payouts] = await Promise.race([Promise.all([stripeCall(env, "GET", "/balance", {}, undefined, stripeAccountId), stripeCall(env, "GET", "/payouts", { limit: 10 }, undefined, stripeAccountId)]), timeout]);
+    const listOf = (listValue: unknown): Record<string, unknown>[] => (Array.isArray(listValue) ? (listValue as Record<string, unknown>[]) : []);
+    const sums = new Map<string, { availableMinorUnits: number; pendingMinorUnits: number }>();
+    for (const [field, list] of [["availableMinorUnits", balance.available], ["pendingMinorUnits", balance.pending]] as const) {
+      for (const each of listOf(list)) {
+        const minorUnits = each["amount"];
+        const currencyCode = each["currency"];
+        if (typeof minorUnits !== "number" || typeof currencyCode !== "string") continue;
+        const sum = sums.get(currencyCode) ?? { availableMinorUnits: 0, pendingMinorUnits: 0 };
+        sum[field] += minorUnits;
+        sums.set(currencyCode, sum);
+      }
+    }
+    const mainCurrency = defaultCurrencyCode && sums.has(defaultCurrencyCode) ? defaultCurrencyCode : defaultCurrencyCode ?? [...sums.keys()][0] ?? null;
+    const coming = listOf(payouts.data)
+      .filter((payout) => (payout["status"] === "pending" || payout["status"] === "in_transit") && typeof payout["amount"] === "number" && typeof payout["currency"] === "string" && typeof payout["arrival_date"] === "number")
+      .sort((first, second) => (first["arrival_date"] as number) - (second["arrival_date"] as number))[0];
+    return {
+      currencyCode: mainCurrency,
+      availableMinorUnits: mainCurrency ? sums.get(mainCurrency)?.availableMinorUnits ?? 0 : 0,
+      pendingMinorUnits: mainCurrency ? sums.get(mainCurrency)?.pendingMinorUnits ?? 0 : 0,
+      otherCurrencyBalances: [...sums].filter(([currencyCode, sum]) => currencyCode !== mainCurrency && (sum.availableMinorUnits !== 0 || sum.pendingMinorUnits !== 0)).map(([currencyCode, sum]) => ({ currencyCode, ...sum })),
+      nextPayout: coming ? { amountMinorUnits: coming["amount"] as number, currencyCode: coming["currency"] as string, arrivesAtMs: (coming["arrival_date"] as number) * 1000 } : null,
+    };
+  } catch (error) {
+    console.error("Couldn't read a connected account's balance:", error);
+    return null;
+  }
 }
 
 /** Lets Apple Pay and Google Pay show on zaisma.com for payments on the connected account. Already there counts as done. */

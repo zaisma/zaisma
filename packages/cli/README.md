@@ -8,7 +8,7 @@ Before anything else, `zaisma check ./build` lists anything in the game Zaisma w
 
 To play a multiplayer game on your own computer before uploading it, run `zaisma play-locally` in its folder: the game and its game server run here, and the test bench's Add a player opens another tab as a new player, each on Zaisma's own game page. It needs no key and no internet.
 
-1. Make an API key at https://zaisma.com/account, under Game developers, and set it: `export ZAISMA_KEY=zsk_…`
+1. Make an API key at https://zaisma.com/dashboard/settings, under Keys, and set it: `export ZAISMA_KEY=zsk_…`
 2. Make a game: `zaisma new "Sky Hopper"`
 3. Upload your build folder (the one with `index.html`): `zaisma upload ./build --game sky-hopper --patch-notes "First version"`. Only new or changed files are sent. It runs the check first, and in what it sends (never in your folder) it downloads scripts, styles and fonts the game loads from other sites and unpacks pre-compressed builds (`.gz`, `.br`, `.unityweb`), then says what it changed. Once the scan passes you get a private preview link.
 4. Publish it: `zaisma publish sky-hopper <version_id>`, then show it to everyone: `zaisma visibility sky-hopper listed`

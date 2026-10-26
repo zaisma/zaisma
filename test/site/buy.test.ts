@@ -33,6 +33,11 @@ let stripeCalls: { host: string; path: string; form: URLSearchParams; stripeAcco
 let emails: { to: string; subject: string; text: string }[] = [];
 let charge: { status: string; amount?: number; declined?: boolean } = { status: "succeeded" };
 let connectedAccount: Record<string, unknown> = {};
+/** What the stand-in answers for the connected account's money; null makes it not answer in time. */
+let stripeBalance: Record<string, unknown> | null = null;
+let stripePayouts: Record<string, unknown>[] = [];
+/** With no balance set, the stand-in never answers /v1/balance, as a Stripe that hangs. */
+let isStripeSilent = false;
 /** What Stripe answers when the saved-card setup is read back, and the password Supabase's stand-in accepts. */
 let setupAnswer: Record<string, unknown> = {};
 const RIGHT_PASSWORD = "a good password";
@@ -158,6 +163,8 @@ beforeEach(async () => {
     if (path === "/oauth/token") return Response.json({ stripe_user_id: ACCOUNT });
     if (path === "/oauth/deauthorize") return Response.json({ stripe_user_id: ACCOUNT });
     if (path === `/v1/accounts/${ACCOUNT}`) return Response.json(connectedAccount);
+    if (path === "/v1/balance") return stripeBalance ? Response.json(stripeBalance) : isStripeSilent ? new Promise<Response>(() => {}) : new Response("busy", { status: 503 });
+    if (path === "/v1/payouts") return Response.json({ object: "list", data: stripePayouts });
     if (path === "/v1/payment_method_domains") return Response.json({ id: "pmd_test" });
     if (path === "/v1/customers") return Response.json({ id: "cus_test_player" });
     if (path === "/v1/payment_methods") return Response.json({ id: "pm_test_clone" });
@@ -235,8 +242,37 @@ describe("a developer's Stripe account", () => {
   it("starts unconnected, and connecting needs the developer's passkey on zaisma.com", async () => {
     expect((await tool("get_stripe_account", {})).stripe_account).toMatchObject({ is_connected: false, stripe_account_id: null, can_take_payments: false });
     const refused = await tool("connect_stripe_account", {});
-    expect(refused).toMatchObject({ code: "confirmation_needed", confirm_url: `${SITE}/developer/settings#payments` });
+    expect(refused).toMatchObject({ code: "confirmation_needed", confirm_url: `${SITE}/dashboard/settings#payments` });
     expect((await tool("update_stripe_account", { is_stripe_tax_used: true })).code).toBe("stripe_not_connected");
+  });
+
+  it("shows Stripe's own balance and next payout, and nothing when Stripe doesn't answer", async () => {
+    const caller = (await callerFor(env, new Request(SITE), "dev-1"))!;
+    expect((await tool("get_stripe_account", {})).stripe_account.balance).toBeNull();
+    await env.DB.prepare("UPDATE owners SET stripe_account_id = ?, can_take_stripe_payments = 1, stripe_default_currency_code = 'eur' WHERE id = ?").bind(ACCOUNT, caller.ownerId).run();
+    stripeBalance = { available: [{ amount: 31240, currency: "eur" }, { amount: 8000, currency: "usd" }], pending: [{ amount: 4800, currency: "eur" }] };
+    const arrival = Math.floor(Date.now() / 1000) + 3 * 86400;
+    stripePayouts = [{ status: "paid", amount: 99, currency: "eur", arrival_date: arrival - 9 * 86400 }, { status: "in_transit", amount: 31240, currency: "eur", arrival_date: arrival + 86400 }, { status: "pending", amount: 12000, currency: "eur", arrival_date: arrival }];
+    expect((await tool("get_stripe_account", {})).stripe_account.balance).toEqual({
+      currency_code: "eur",
+      available_minor_units: 31240,
+      pending_minor_units: 4800,
+      other_currency_balances: [{ currency_code: "usd", available_minor_units: 8000, pending_minor_units: 0 }],
+      next_payout: { amount_minor_units: 12000, currency_code: "eur", arrives_at: new Date(arrival * 1000).toISOString() },
+    });
+    expect(stripeCalls.filter((call) => call.path === "/v1/balance").every((call) => call.stripeAccount === ACCOUNT)).toBe(true);
+    // Manual payouts have none coming; a Stripe that doesn't answer leaves balance null and the rest as it was.
+    stripePayouts = [];
+    expect((await tool("get_stripe_account", {})).stripe_account.balance.next_payout).toBeNull();
+    stripeBalance = null;
+    expect((await tool("get_stripe_account", {})).stripe_account).toMatchObject({ is_connected: true, balance: null });
+    // A Stripe that never answers is given up on after 3 seconds, and the rest of the answer is as usual.
+    isStripeSilent = true;
+    const startedAtMs = Date.now();
+    expect((await tool("get_stripe_account", {})).stripe_account).toMatchObject({ is_connected: true, business_name: null, balance: null });
+    expect(Date.now() - startedAtMs).toBeLessThan(4500);
+    isStripeSilent = false;
+    await env.DB.prepare("UPDATE owners SET stripe_account_id = NULL, can_take_stripe_payments = 0, stripe_default_currency_code = NULL WHERE id = ?").bind(caller.ownerId).run();
   });
 
   it("connects through Stripe's page with a link bound to the owner who asked, once", async () => {
@@ -252,7 +288,7 @@ describe("a developer's Stripe account", () => {
     await createAccount(env.DB, { id: "dev-2", username: "Other_Dev", ageBand: "18+" });
     await personOwner(env.DB, "dev-2");
     const elsewhere = await SELF.fetch(`${SITE}/stripe/connect-return?state=${state}&code=ac_test`, { headers: { cookie: await sessionCookie("dev-2") }, redirect: "manual" });
-    expect(elsewhere.headers.get("location")).toBe(`${SITE}/developer/settings?stripe=link_expired#payments`);
+    expect(elsewhere.headers.get("location")).toBe(`${SITE}/dashboard/settings?stripe=link_expired#payments`);
     // And it worked once: the state is gone now.
     const again = await SELF.fetch(`${SITE}/stripe/connect-return?state=${state}&code=ac_test`, { headers: { cookie: await sessionCookie("dev-1") }, redirect: "manual" });
     expect(again.headers.get("location")).toContain("stripe=link_expired");
@@ -260,7 +296,7 @@ describe("a developer's Stripe account", () => {
     const [fresh] = (await stripeAccountRoute(env, "/stripe-account/connection-links", "POST", {}, { ...caller, isSpendingConfirmed: true })) as [any];
     const freshState = new URL(fresh.connect_url).searchParams.get("state")!;
     const back = await SELF.fetch(`${SITE}/stripe/connect-return?state=${freshState}&code=ac_test`, { headers: { cookie: await sessionCookie("dev-1") }, redirect: "manual" });
-    expect(back.headers.get("location")).toBe(`${SITE}/developer/settings?stripe=connected#payments`);
+    expect(back.headers.get("location")).toBe(`${SITE}/dashboard/settings?stripe=connected#payments`);
     expect(stripeCalls.find((call) => call.path === "/v1/payment_method_domains")).toMatchObject({ stripeAccount: ACCOUNT });
     expect((await tool("get_stripe_account", {})).stripe_account).toMatchObject({ is_connected: true, stripe_account_id: ACCOUNT, can_take_payments: true, country_code: "DE", default_currency_code: "eur", business_name: "Pixel Smith Games", support_email: "help@pixelsmith.example", is_stripe_tax_used: false });
     expect(await env.DB.prepare("SELECT kind FROM security_events WHERE account_id = 'dev-1' AND kind = 'stripe_account_connected'").first()).not.toBeNull();
@@ -272,7 +308,7 @@ describe("a developer's Stripe account", () => {
     const state = new URL(link.connect_url).searchParams.get("state")!;
     await env.DB.prepare("UPDATE stripe_connect_states SET expires_at_ms = ? WHERE state = ?").bind(Date.now() - 1, state).run();
     const back = await SELF.fetch(`${SITE}/stripe/connect-return?state=${state}&code=ac_test`, { headers: { cookie: await sessionCookie("dev-1") }, redirect: "manual" });
-    expect(back.headers.get("location")).toBe(`${SITE}/developer/settings?stripe=link_expired#payments`);
+    expect(back.headers.get("location")).toBe(`${SITE}/dashboard/settings?stripe=link_expired#payments`);
     expect(stripeCalls.filter((call) => call.path === "/oauth/token")).toEqual([]);
     expect((await tool("get_stripe_account", {})).stripe_account.is_connected).toBe(false);
     // The link is used up either way.

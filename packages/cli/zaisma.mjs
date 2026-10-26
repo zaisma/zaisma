@@ -472,7 +472,7 @@ function helpText() {
     "Exit codes:",
     ...Object.values(EXIT_CODES).map((exit) => `  ${exit.exitCode}  ${exit.meaning}`),
     "",
-    "Set ZAISMA_KEY to an API key from https://zaisma.com/account (under Game developers).",
+    "Set ZAISMA_KEY to an API key from https://zaisma.com/dashboard/settings (under Keys).",
     "Without installing: npx @zaisma/cli <command>. Installed (npm i -g @zaisma/cli): zaisma <command>.",
   );
   return lines.join("\n");
@@ -503,7 +503,7 @@ function helpAnswer() {
 }
 
 async function api(method, path, body) {
-  if (!KEY) refuse("no_key", { message: "ZAISMA_KEY isn't set.", field: "ZAISMA_KEY", fix: "Make an API key at https://zaisma.com/account (under Game developers) and set it: export ZAISMA_KEY=zsk_…" }, EXIT_CODES.failed);
+  if (!KEY) refuse("no_key", { message: "ZAISMA_KEY isn't set.", field: "ZAISMA_KEY", fix: "Make an API key at https://zaisma.com/dashboard/settings (under Keys) and set it: export ZAISMA_KEY=zsk_…" }, EXIT_CODES.failed);
   let response;
   try {
     response = await fetch(`${API}/api/dev${path}`, {
@@ -1493,7 +1493,7 @@ async function exportGame({ slug }, flags) {
   const folder = flags.folder ?? `${slug}-export`;
   const there = await readdir(folder).catch(() => null);
   if (there?.length) refuse("folder_not_empty", { message: `${folder} isn't empty.`, field: "folder", fix: "Give a new or empty folder with --folder, or move what's in it." });
-  if (!KEY) refuse("no_key", { message: "ZAISMA_KEY isn't set.", field: "ZAISMA_KEY", fix: "Make an API key at https://zaisma.com/account (under Game developers) and set it: export ZAISMA_KEY=zsk_…" }, EXIT_CODES.failed);
+  if (!KEY) refuse("no_key", { message: "ZAISMA_KEY isn't set.", field: "ZAISMA_KEY", fix: "Make an API key at https://zaisma.com/dashboard/settings (under Keys) and set it: export ZAISMA_KEY=zsk_…" }, EXIT_CODES.failed);
   let response;
   try {
     response = await fetch(`${API}/api/dev/games/${encodeURIComponent(slug)}/export/download`, { headers: { authorization: `Bearer ${KEY}`, "x-zaisma-client": "cli", "user-agent": `zaisma-cli/${CLI_VERSION}` } });

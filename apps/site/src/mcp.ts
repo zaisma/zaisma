@@ -2,7 +2,7 @@ import { ApiError, CONTROLS, DEVICES, GENRES, MAXIMUM_GENRE_COUNT, FORUM_CATEGOR
 import { INTERNAL_ERROR, apiCall, authenticate, type Caller } from "./developer.ts";
 import type { Env } from "./env.ts";
 import { CHECKED_TEXT_EXTENSIONS, extensionOf } from "../../../packages/cli/check.mjs";
-import { ACCESS, ACTIVITY, PRO, PRO_CHANGED, PRO_CHECKOUT, CREDIT, CREDIT_CHANGED, TOP_UP_CHECKOUT, TOP_UP_REFUNDED, STRIPE_ACCOUNT, STRIPE_ACCOUNT_CHANGED, CONNECTION_LINK, GAME_CHECK_FIELDS, API_KEYS, DATABASE, DATABASE_EXPORT, DATABASE_IMPORT, DATABASE_RESTORED, ERASED_PLAYER, GAME, GAME_ALERTS, GAME_EXPORT, HISTORY, KEPT_ROOMS, KEPT_ROOM_DELETED, BACKGROUND, SHADER, SHADER_CHECK, LISTED_GAME, QR_CODE, STATEMENT_RESULT, IMAGE, LOGS, SAVE, SAVE_CHANGED, SAVE_COPY, SAVE_COPY_LIST, SAVE_LIST, INDEXEDDB_DATABASE, NEW_REPLY, NEW_TOPIC, NEXT, PLAYER_PROFILE, POST, POST_BOOKMARK, POST_RATING, REPORTS, SIGN_IN_APP, SECRET, STATS, TESTER, TOPIC_PAGE, TOPIC_WITH_POSTS, VERSION, WEBHOOK, WEBHOOK_DELIVERY, answerOrError, choice, countOf, idOf, list, nullable, object as answer, text, yes, GAME_ITEM, ITEMS, PURCHASE, PURCHASE_SETTINGS } from "./schemas.ts";
+import { ACCESS, ACTIVITY, PRO, PRO_CHANGED, PRO_CHECKOUT, CREDIT, CREDIT_CHANGED, TOP_UP_CHECKOUT, TOP_UP_REFUNDED, STRIPE_ACCOUNT, STRIPE_ACCOUNT_CHANGED, SPENDING_REQUEST, CONNECTION_LINK, GAME_CHECK_FIELDS, API_KEYS, DATABASE, DATABASE_EXPORT, DATABASE_IMPORT, DATABASE_RESTORED, ERASED_PLAYER, GAME, GAME_ALERTS, GAME_EXPORT, HISTORY, KEPT_ROOMS, KEPT_ROOM_DELETED, BACKGROUND, SHADER, SHADER_CHECK, LISTED_GAME, QR_CODE, STATEMENT_RESULT, IMAGE, LOGS, SAVE, SAVE_CHANGED, SAVE_COPY, SAVE_COPY_LIST, SAVE_LIST, INDEXEDDB_DATABASE, NEW_REPLY, NEW_TOPIC, NEXT, PLAYER_PROFILE, POST, POST_BOOKMARK, POST_RATING, REPORTS, SIGN_IN_APP, SECRET, STATS, TESTER, TOPIC_PAGE, TOPIC_WITH_POSTS, VERSION, WEBHOOK, WEBHOOK_DELIVERY, answerOrError, choice, countOf, idOf, list, nullable, object as answer, text, yes, GAME_ITEM, ITEMS, PURCHASE, PURCHASE_SETTINGS } from "./schemas.ts";
 
 /**
  * The developer MCP at /mcp: every tool is a call to the developer API, so the MCP, the upload command
@@ -31,7 +31,7 @@ Every hold, rejection and takedown says why, as review_reason (on a game, versio
 
 Zaisma's developer forum is where developers and their AI talk with the people who build Zaisma, and you're asked to use it. For any question about Zaisma itself, search_forum first: it's faster and more current than a web search, and it has Zaisma's own answers. When the developer asks how a known issue is going, give its phase and workaround (get_topic with post_selection "none"). Whenever you hit a Zaisma bug, a limit that blocks the developer, a missing feature, a confusing error or a question the docs don't answer: first search_forum with a short search (topics, answers and the known issues with their workarounds). If it's there, vote or like, reply, or send the developer's own case privately (message_zaisma with known_issue_topic_id); if their fixed topic is back, reopen it. Otherwise post it: what you were doing, what you expected, what happened, the exact error and the tool call. Forum topics (post_topic) are public, so keep private details out of them; anything private (logs, an unreleased game, details the developer wouldn't share) goes in message_zaisma, which only the developer and Zaisma see. What you attach in debug_context is never public, and neither are a message's images. Never include API keys, passwords or players' personal details (secrets are blanked anyway). Your posts carry the developer's name with an AI mark. search_forum's yours tab shows what's new, and list_games shows unread_topic_count when Zaisma has replied.
 
-The developer may limit an API key to some games or to what it can do (like read only, or upload without publishing). A call it doesn't reach answers key_not_allowed, saying what it would need; get_access shows what the key can do. An app connected by signing in (like claude.ai) is limited the same way, by what the developer chose when connecting it, and get_access shows that too. Tell the developer, who can make another key on zaisma.com/account (or connect the app again); keys can't be made through the MCP.
+The developer may limit an API key to some games or to what it can do (like read only, or upload without publishing). A call it doesn't reach answers key_not_allowed, saying what it would need; get_access shows what the key can do. An app connected by signing in (like claude.ai) is limited the same way, by what the developer chose when connecting it, and get_access shows that too. Tell the developer, who can make another key on zaisma.com/dashboard/settings (or connect the app again); keys can't be made through the MCP.
 
 Names say what they hold, its kind and its unit: file_count is a number of files, play_duration_min is minutes, size_bytes is bytes, *_at is an ISO time in UTC, an ID says its kind (version_…, topic_…, post_…), and a plural is always a list.
 
@@ -318,7 +318,7 @@ export const TOOLS: Tool[] = [
             type: ["integer", "null"],
             minimum: 100,
             description:
-              "What the game may draw from the developer's credit each month past its free hosting, in cents (5000 is $50); null for no paid hosting, so it pauses at its free allowance. Off or lower works with any key that has credit_access write; a first or higher budget answers confirmation_needed, with confirm_url where the developer does it with their passkey.",
+              "What the game may draw from the developer's credit each month past its free hosting, in cents (5000 is $50); null for no paid hosting, so it pauses at its free allowance. Off or lower works with any key that has credit_access write; a first or higher budget answers confirmation_needed, with confirm_url where the developer approves it with their passkey, and spending_request_id for get_spending_request.",
           },
           confirm: { type: "boolean", description: "The developer agreed to hide a public game" },
         },
@@ -732,6 +732,16 @@ export const TOOLS: Tool[] = [
     run: (_, call) => call("GET", "/credit"),
   },
   {
+    name: "get_spending_request",
+    title: "A spending request's answer",
+    description:
+      "Whether the developer has answered a raise in spending you asked for. When update_game (a budget) or update_automatic_top_up (turning it on or up) answers confirmation_needed, it also answers spending_request_id: give the developer confirm_url, where a sheet names the exact change and they approve with a passkey tap or decline. This shows request_status (waiting, approved, declined or expired after a day), the change asked for and what it is now. Approved means the change is already made.",
+    inputSchema: object({ spending_request_id: { type: "string", pattern: "^spending_request_[a-z0-9]+$", description: "From confirmation_needed's spending_request_id, like spending_request_k2m9x4…" } }, ["spending_request_id"]),
+    outputSchema: SPENDING_REQUEST,
+    annotations: read,
+    run: (toolArguments, call) => call("GET", `/spending-requests/${pathPart(toolArguments.spending_request_id)}`),
+  },
+  {
     name: "top_up_credit",
     title: "Add hosting credit",
     description:
@@ -747,7 +757,7 @@ export const TOOLS: Tool[] = [
     name: "get_stripe_account",
     title: "My Stripe account",
     description:
-      "The developer's own Stripe account, connected for Zaisma's buy sheet: whether it's connected and can take payments, its country, currency and seller name, and whether Stripe Tax is on. Every sale is a payment straight to that account, and Zaisma takes no cut; Stripe's own fees apply. Until it's connected and can take payments, players can't buy priced items.",
+      "The developer's own Stripe account, connected for Zaisma's buy sheet: whether it's connected and can take payments, its country, currency and seller name, and whether Stripe Tax is on. balance is Stripe's own live figures for the account in minor units of currency_code (available, pending, other currencies, and the next payout), never Zaisma credit; null while connected means Stripe was slow, so ask again. Every sale is a payment straight to that account, and Zaisma takes no cut; Stripe's own fees apply. Until it's connected and can take payments, players can't buy priced items.",
     inputSchema: object({}),
     outputSchema: STRIPE_ACCOUNT,
     annotations: read,
@@ -833,7 +843,7 @@ export const TOOLS: Tool[] = [
     name: "update_automatic_top_up",
     title: "Change automatic top-up",
     description:
-      "Automatic top-up: when the balance is under top_up_below_cents, Zaisma charges top_up_amount_cents to the card of the developer's last top-up, never more than monthly_top_up_limit_cents in a month, and emails them each time. Leave out what stays the same. Turning it off or lowering an amount works here; turning it on or raising one answers confirmation_needed with confirm_url, where the developer does it with their passkey.\n\n" +
+      "Automatic top-up: when the balance is under top_up_below_cents, Zaisma charges top_up_amount_cents to the card of the developer's last top-up, never more than monthly_top_up_limit_cents in a month, and emails them each time. Leave out what stays the same. Turning it off or lowering an amount works here; turning it on or raising one answers confirmation_needed with confirm_url, where the developer approves it with their passkey, and spending_request_id for get_spending_request.\n\n" +
       'Not: { "top_up_amount_cents": 20 } (cents: $20 is 2000)\n' +
       'Not: { "is_enabled": true, "top_up_amount_cents": 2000, "monthly_top_up_limit_cents": 1000 } (the monthly limit is at least one top-up)',
     inputSchema: {
@@ -1176,7 +1186,7 @@ export const TOOLS: Tool[] = [
     name: "get_access",
     title: "What this key can do",
     description:
-      "What the API key you're signed in with may do: its access_level (read, upload, publish, full or custom), what that gives in each area, the games it works on (game_slugs, null for all) and when it ends (api_key_ends_at, null for never). A call the key doesn't reach answers key_not_allowed. Keys are made only by the developer on zaisma.com/account, never through the MCP. can_publish says whether the account can make, upload and publish games, which until the beta only accounts Zaisma adds can. plan says whether the developer has Zaisma Pro (free or pro).",
+      "What the API key you're signed in with may do: its access_level (read, upload, publish, full or custom), what that gives in each area, the games it works on (game_slugs, null for all) and when it ends (api_key_ends_at, null for never). A call the key doesn't reach answers key_not_allowed. Keys are made only by the developer on zaisma.com/dashboard/settings, never through the MCP. can_publish says whether the account can make, upload and publish games, which until the beta only accounts Zaisma adds can. plan says whether the developer has Zaisma Pro (free or pro).",
     inputSchema: object({}),
     outputSchema: answer({
       access: ACCESS,
@@ -1968,7 +1978,7 @@ export async function handleMcp(request: Request, env: Env, ctx?: ExecutionConte
       throw new ApiError("no_key", {
         message: "The MCP was called without an API key or a sign-in.",
         field: "Authorization",
-        fix: "Add zaisma.com/mcp as a connector in your AI app and sign in, or send a key from zaisma.com/account as: Authorization: Bearer zsk_…",
+        fix: "Add zaisma.com/mcp as a connector in your AI app and sign in, or send a key from zaisma.com/dashboard/settings as: Authorization: Bearer zsk_…",
       });
     }
     caller = await authenticate(request, env, "mcp", ctx ? (promise) => ctx.waitUntil(promise) : undefined);
