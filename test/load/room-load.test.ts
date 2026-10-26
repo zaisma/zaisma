@@ -29,8 +29,8 @@ const MAXIMUM_LAST_PING_DURATION_MS = 500;
 const MINIMUM_TICK_SHARE = 0.8;
 // A game server whose tick takes longer than a sixtieth of a second (18 ms against 16.7): it can't make 60 ticks a second, so the room makes as
 // many as the game server's own pace allows, and must still answer, settle and keep every player. That pace is the 18 ms plus the runner's
-// own time for a tick and its 100 broadcasts: 10 to 18 ms on GitHub's runners, 554 to 711 ticks (46 to 59%) in 34 runs there on game
-// server 1.3.0, and 525 to 576 on 1.2.0's slower rooms. At 42% (504 ticks) a room fails once its ticks take 40 ms,
+// own time for a tick and its 100 broadcasts: 10 to 18 ms on GitHub's runners, 554 to 711 ticks (46 to 59%) in 22 runs there on game
+// server 1.3.0, and 525 to 576 in 12 on 1.2.0's slower rooms. At 42% (504 ticks) a room fails once its ticks take 40 ms,
 // 30% longer than the median runner's 31 ms.
 const BUSY_TICK_WORK_DURATION_MS = 18;
 const BUSY_MINIMUM_TICK_SHARE = 0.42;
