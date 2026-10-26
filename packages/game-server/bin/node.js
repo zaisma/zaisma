@@ -23,7 +23,11 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { resolve } from "node:path";
 import { realpathSync } from "node:fs";
 import { BUSY_CLOSE_CODE, ENDED_CLOSE_CODE, ERROR_TEXT, NO_ANSWER_CLOSE_CODE, PASS_ISSUER_URL, PassError, ReceiptError, REMOVED_CLOSE_CODE, REQUEST_ERROR_HTTP_STATUS, REQUEST_LIMITS, ROOM_LIMITS, ROOM_TUNING, WEBHOOK_LIMITS, GameServerError, RoomCore, restoreInfoOf, passesAreFriends, passesHaveBlockBetween, answerRequest, startSchedules, checkRoomData, clientIdle, defineGameServer, errorMessage, isRoomCode, readRequestBody, relay, requestError, runWebhook, tidyRoomInfo, verifyPass, verifyReceipt, verifyWebhook } from "../src/internal.ts";
+import { OutsideCallError } from "../src/outside-calls.ts";
 import { checkedStartServerOptions, localDatabase, localRoomStates, passKeysFrom, profilesFrom, receiptKeysFrom, secretsFromEnvironment } from "./node-parts.js";
+
+// Code that names OutsideCallError, as Zaisma's sandbox lets it, moves unchanged: nothing here refuses a call, so instanceof is simply false.
+globalThis.OutsideCallError ??= OutsideCallError;
 
 const HELLO_MS = 5000;
 /**
@@ -447,7 +451,7 @@ export function startServer(options) {
     const helloTimer = setTimeout(() => playerId || refuse("no_hello"), HELLO_MS);
     ws.zaismaSeenAtMs = Date.now();
 
-    ws.on("message", async (received, isBinary) => {
+    const onMessage = async (received, isBinary) => {
       const text = isBinary ? null : received.toString();
       ws.zaismaSeenAtMs = Date.now();
       // Games ping every 25 seconds or so, so a connection that stops answering can be dropped.
@@ -518,6 +522,13 @@ export function startServer(options) {
       playerId = player.id;
       room.waiting = false;
       pace(code, room);
+    };
+    // Whatever a message hits, it ends that connection or that message, never the process and the matches on it.
+    ws.on("message", (received, isBinary) => {
+      onMessage(received, isBinary).catch((error) => {
+        console.error("Couldn't handle a message:", error);
+        if (!playerId) refuse("busy");
+      });
     });
 
     // A frame over the size limit (or a broken one) is an error on this one socket: it closes and the close handler below takes it out, the runner keeps going.

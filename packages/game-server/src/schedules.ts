@@ -184,7 +184,9 @@ const MAXIMUM_TIMER_MS = 24 * 3_600_000;
 export function startSchedules(handler: ScheduleHandler, server: Server, onFailure: (run: ScheduledRun, failure: string) => void): { stop(): void } {
   const timers = new Set<ReturnType<typeof setTimeout>>();
   let isStopped = false;
-  for (const schedule of handler.schedules ?? []) {
+  // Run from the checked list, so run.cron is the tidied cron on every runtime (get_stats lists it that way too).
+  const read = readSchedules(handler.schedules, typeof handler.onSchedule === "function");
+  for (const schedule of "schedules" in read ? read.schedules : []) {
     const plan = (afterMs: number) => {
       const atMs = nextRunAtMs(schedule.cron, afterMs);
       if (atMs === null || isStopped) return;
