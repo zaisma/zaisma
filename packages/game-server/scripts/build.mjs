@@ -18,10 +18,13 @@ const tsc = join(repositoryDir, "node_modules/typescript/bin/tsc");
 execFileSync(process.execPath, [tsc, "-p", join(packageDir, "tsconfig.build.json")], { cwd: packageDir, stdio: "inherit" });
 
 // The runner and its parts import the source by its TypeScript file names; built, those are JavaScript.
-for (const file of ["node.js", "node-parts.js", "node.d.ts"]) {
+for (const file of ["node.js", "node-parts.js", "node.d.ts", "local-play.js", "local-play-bench.js", "local-play-runner.js", "local-play.d.ts", "local-play-bench.d.ts"]) {
   const text = readFileSync(join(packageDir, "bin", file), "utf8");
   writeFileSync(join(distDir, "bin", file), text.replace(/(\.\.\/src\/[a-z-]+)\.ts"/g, '$1.js"'));
 }
+// play-locally serves the same SDK as Zaisma: its files go beside bin/, where bin/local-play.js looks for them.
+mkdirSync(join(distDir, "sdk"), { recursive: true });
+for (const file of ["zaisma.js", "zaisma.d.ts", "saves.js", "relay.js", "picture.js"]) copyFileSync(join(repositoryDir, "packages/sdk", file), join(distDir, "sdk", file));
 copyFileSync(join(packageDir, "README.md"), join(distDir, "README.md"));
 copyFileSync(join(repositoryDir, "LICENSE"), join(distDir, "LICENSE"));
 

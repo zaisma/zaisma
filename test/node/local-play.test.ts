@@ -1,0 +1,163 @@
+import { appendFileSync, cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { stripTypeScriptTypes } from "node:module";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { WebSocket } from "ws";
+import { passesAreFriends, passesHaveBlockBetween, verifyPass, verifyReceipt, type PassClaims, type PublicKey } from "../../packages/game-server/src/index.ts";
+import { startLocalPlay, type LocalPlay } from "../../packages/game-server/bin/local-play.js";
+
+// Playing a multiplayer game on your own computer (packages/game-server/bin/local-play.js): four in a row, its
+// game server and the bench, with real passes and receipts from the stand-in rooms, played by two clients.
+
+const EXAMPLE = join(import.meta.dirname, "../../examples/four-in-a-row");
+const SLUG = "four-in-a-row";
+const port = 20_000 + Math.floor(Math.random() * 4_000) * 4;
+let folder = "";
+let play: LocalPlay;
+
+const json = async (response: Response) => ({ status: response.status, body: (await response.json()) as Record<string, any> });
+const bench = (path: string, body?: unknown) => fetch(`${play.benchUrl}${path}`, body === undefined ? {} : { method: "POST", body: JSON.stringify(body) }).then(json);
+const rooms = (path: string, body: unknown) => fetch(`${play.roomsUrl}${path}`, { method: "POST", headers: { origin: play.gameSiteUrl, "content-type": "text/plain" }, body: JSON.stringify(body) }).then(json);
+const keysAt = async (path: string) => ((await (await fetch(`${play.roomsUrl}${path}`)).json()) as { keys: PublicKey[] }).keys;
+
+async function passOf(playerNumber: number): Promise<{ pass: string; claims: PassClaims }> {
+  const key = (await bench(`/bench/key?player=${playerNumber}`)).body.key;
+  const answer = await rooms("/v1/pass", { gameSlug: SLUG, roomKey: key });
+  expect(answer.status).toBe(200);
+  return { pass: answer.body.pass, claims: await verifyPass(answer.body.pass, await keysAt("/.well-known/jwks.json"), { gameSlug: SLUG, issuerUrl: play.roomsUrl }) };
+}
+
+/** A client in a room: its welcome, and the newest players list it heard. */
+function joinRoom(code: string, pass: string): Promise<{ socket: WebSocket; welcome: any; players: () => any[] }> {
+  return new Promise((resolve, reject) => {
+    const socket = new WebSocket(`${play.roomsUrl.replace(/^http/, "ws")}/v1/rooms/${SLUG}/${code}`, { headers: { origin: play.gameSiteUrl } });
+    let players: any[] = [];
+    socket.on("open", () => socket.send(JSON.stringify({ type: "hello", protocolVersionNumber: 1, pass, room: {} })));
+    socket.on("message", (data, isBinary) => {
+      if (isBinary) return;
+      const message = JSON.parse(data.toString());
+      if (message.type === "welcome") {
+        players = message.players;
+        resolve({ socket, welcome: message, players: () => players });
+      }
+      if (message.type === "players") players = message.players;
+      if (message.type === "error") reject(new Error(message.message));
+    });
+    socket.on("error", reject);
+  });
+}
+const until = async (isDone: () => boolean, timeoutMs = 10_000) => {
+  const startedAtMs = Date.now();
+  while (!isDone()) {
+    if (Date.now() - startedAtMs > timeoutMs) throw new Error("timed out");
+    await new Promise((done) => setTimeout(done, 50));
+  }
+};
+
+describe("play-locally", () => {
+  beforeAll(async () => {
+    // The example as a developer uploads it: the game at the top, its game server as zaisma-server.js.
+    folder = mkdtempSync(join(tmpdir(), "zaisma-local-play-"));
+    cpSync(join(EXAMPLE, "game"), folder, { recursive: true });
+    writeFileSync(join(folder, "zaisma-server.js"), stripTypeScriptTypes(readFileSync(join(EXAMPLE, "server.ts"), "utf8")));
+    play = await startLocalPlay({ gameFolder: folder, port, gameSlug: SLUG, log: () => {} });
+  }, 30_000);
+
+  afterAll(async () => {
+    await play?.close();
+    rmSync(folder, { recursive: true, force: true });
+  });
+
+  it("gives each tab a pass the game server's own check accepts: a guest first, then the accounts", async () => {
+    const first = await passOf(1);
+    const second = await passOf(2);
+    expect(first.claims.kind).toBe("guest");
+    expect(typeof first.claims.name).toBe("string");
+    expect(second.claims.kind).toBe("account");
+    expect(second.claims.sub).toMatch(/^player_[a-z0-9]+$/);
+    expect(second.claims.player_tag_id).toMatch(/^player_tag_/);
+    const profile = await fetch(`${play.roomsUrl}/v1/players/${second.claims.sub}`).then(json);
+    expect(profile.body.player.name).toBe("Anna");
+  }, 20_000);
+
+  it("lets two players into one room on the game server", async () => {
+    const code = (await rooms("/v1/rooms", { gameSlug: SLUG })).body.roomCode;
+    expect(code).toMatch(/^[A-Z0-9]{6}$/);
+    const first = await joinRoom(code, (await passOf(1)).pass);
+    const second = await joinRoom(code, (await passOf(2)).pass);
+    await until(() => first.players().length === 2);
+    expect(second.players().map((player: { name: string }) => player.name)).toContain("Anna");
+    first.socket.close();
+    second.socket.close();
+  }, 20_000);
+
+  it("puts the bench's friends, blocks and items in the next passes, and grants items with receipts", async () => {
+    expect((await bench("/bench/state", { op: "set-friend", first: "anna", second: "ben", isFriend: true })).status).toBe(200);
+    let anna = await passOf(2);
+    let ben = await passOf(3);
+    expect(passesAreFriends(anna.claims, ben.claims)).toBe(true);
+    expect(passesHaveBlockBetween(anna.claims, ben.claims)).toBe(false);
+    await bench("/bench/state", { op: "set-block", blocker: "ben", blocked: "anna", isBlocked: true });
+    anna = await passOf(2);
+    ben = await passOf(3);
+    expect(passesHaveBlockBetween(anna.claims, ben.claims)).toBe(true);
+
+    await bench("/bench/state", { op: "set-item", item: { itemName: "gold-board", title: "Gold board", priceMinorUnits: 199, itemKind: "permanent" } });
+    const bought = await bench("/bench/buy", { playerNumber: 2, itemName: "gold-board", itemCount: 1 });
+    expect(bought.status).toBe(200);
+    const receipt = await verifyReceipt(bought.body.purchase.receipt, await keysAt("/.well-known/receipt-jwks.json"), { gameSlug: SLUG, issuerUrl: `${play.roomsUrl}/receipts` });
+    expect(receipt).toMatchObject({ sub: anna.claims.sub, item_name: "gold-board", purchase_status: "completed", purchase_source: "grant" });
+    expect((await passOf(2)).claims.owned_item_names).toEqual(["gold-board"]);
+    // A guest's tab can't buy: buying is for accounts.
+    expect((await bench("/bench/buy", { playerNumber: 1, itemName: "gold-board", itemCount: 1 })).body.error.code).toBe("account_needed");
+  }, 20_000);
+
+  it("answers a call it has no stand-in for with not_local", async () => {
+    const answer = await rooms("/v1/relay", { gameSlug: SLUG });
+    expect(answer.status).toBe(404);
+    expect(answer.body.error.code).toBe("not_local");
+    // The chat filter is Zaisma's: the bench says it let the text through unchecked.
+    expect((await rooms("/v1/filter", { gameSlug: SLUG, text: "hello" })).body).toMatchObject({ isAllowed: true, text: "hello", is_stand_in: true });
+  }, 20_000);
+
+  it("serves the game with the SDK set up for the bench, and never its server or the bench's folder", async () => {
+    const sdk = await (await fetch(`${play.gameSiteUrl}/_zaisma/v1.js`)).text();
+    expect(sdk).toContain(`"rooms":"http://localhost:${port + 2}"`);
+    expect(sdk).toContain(`"site":"http://localhost:${port}"`);
+    expect((await fetch(`${play.gameSiteUrl}/zaisma-server.js`)).status).toBe(404);
+    expect((await fetch(`${play.gameSiteUrl}/.zaisma-local/keys.json`)).status).toBe(404);
+    expect((await fetch(`${play.gameSiteUrl}/../keys.json`)).status).toBe(404);
+    const page = await fetch(`${play.gameSiteUrl}/`);
+    expect(page.headers.get("content-security-policy")).toContain(`frame-ancestors http://localhost:${port}`);
+    expect(await page.text()).toContain("/_zaisma/saves.js");
+  }, 20_000);
+
+  it("starts the game server again when its file changes, with the room still there", async () => {
+    const code = (await rooms("/v1/rooms", { gameSlug: SLUG })).body.roomCode;
+    const anna = await passOf(2);
+    const before = await joinRoom(code, anna.pass);
+    const startCount = play.runnerStartCount;
+    appendFileSync(join(folder, "zaisma-server.js"), "\n// changed\n");
+    await until(() => play.runnerStartCount > startCount, 15_000);
+    await until(() => before.socket.readyState === WebSocket.CLOSED, 15_000);
+    let after: Awaited<ReturnType<typeof joinRoom>> | null = null;
+    await until(() => {
+      if (!after) joinRoom(code, anna.pass).then((joined) => (after = joined), () => {});
+      return after !== null;
+    }, 15_000);
+    expect(after!.welcome.me.id).toBe(anna.claims.sub);
+    after!.socket.close();
+  }, 40_000);
+
+  it("keeps an account's save and the bench's players across a restart", async () => {
+    const saveText = '{"save_format_version_number":1,"local_storage_items":{"level":"3"},"indexeddb_databases":[]}';
+    expect((await fetch(`${play.benchUrl}/bench/saves/anna`, { method: "PUT", body: JSON.stringify({ saveText }) })).status).toBe(200);
+    const annaId = (await passOf(2)).claims.sub;
+    await play.close();
+    play = await startLocalPlay({ gameFolder: folder, port, gameSlug: SLUG, log: () => {} });
+    expect((await bench("/bench/saves/anna")).body.saveText).toBe(saveText);
+    expect((await passOf(2)).claims.sub).toBe(annaId);
+    expect(existsSync(join(folder, ".zaisma-local", "keys.json"))).toBe(true);
+  }, 30_000);
+});

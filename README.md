@@ -379,6 +379,27 @@ npx @zaisma/cli secrets set <slug> DISCORD_WEBHOOK_URL   # asks for the value; n
 - **Secrets:** names like `DISCORD_WEBHOOK_URL` (capitals, digits and underscores) with up to 8 KB of text, up to 50 a game, set with `set_secret`, the API or the upload command and never shown again, to anyone. Your game server reads them as `server.secrets` in `onRequest` and `onSchedule` and `room.secrets` in rooms; running rooms get a new value within a minute. Since your code reads them, anyone who can publish the game's code can use them. Never put a secret in the game's own files: players can read those.
 - **On your own server** the Node runner calls out freely, and `server.secrets` is its environment variables, so the same code runs with `DISCORD_WEBHOOK_URL=… npx @zaisma/game-server …`.
 
+#### Play it on your own computer
+
+Before you upload, play your multiplayer game on your own computer, with no Zaisma account, key or internet, and no change to its code. In your game's folder (the one with `index.html` at the top):
+
+```sh
+npx @zaisma/cli play-locally
+```
+
+Your game opens in the browser in a test bench: the game framed exactly as Zaisma's game page frames it, with one thin bar. Its game server runs beside it (`zaisma-server/index.js` or `zaisma-server.js` in the folder, as uploads find it, else the relay), and `Zaisma.joinRoom()` reaches it there. **Add a player** in the bar opens another tab as the next player, so two tabs play together; the room's link does the same for anyone on this computer. Players are guests or made-up accounts (Anna, Ben, Carla) whose passes are real, signed with a key the bench makes on its first run and checked by your game server exactly as Zaisma's are: switch who a tab plays as in the player menu, make accounts friends or have one block another, give them items, and set who each lets chat with them. A buy (`Zaisma.items.buy`) opens a test sheet that grants the item at no cost, with a receipt your game server can check. Accounts' saved progress is kept per account, so each tab plays with its own. A change to a game file reloads the game; a change to the game server starts it again, with its rooms as they were.
+
+| Flag | What it does |
+| --- | --- |
+| `[folder]` | The game's folder; this one unless given |
+| `--port <port>` | The first of four ports, `4800` unless given: the bench, the game's site, the stand-in rooms and your game server take it and the next three |
+| `--game <slug>` | The game's slug; with `ZAISMA_KEY` set, the first start copies the game's real items in, once |
+| `--on-network` | Let a phone on the same Wi-Fi open the bench too: it prints the address and a QR code. Over the home network the bench is plain http, so the camera, microphone and other features browsers allow only on secure pages won't work on the phone |
+| `--no-open` | Don't open the bench in the browser |
+| `--json` | Print `{ bench_url, game_site_url, rooms_url, network_url }` once it's listening |
+
+Only on Zaisma, and so not here: the chat filter (`Zaisma.filter` answers every text unchanged, with `is_stand_in: true`), reports (printed in the terminal, never sent), earlier versions of saves, registered links, regions in room lists and performance measuring. The bench's log says so the first time the game asks for one. Everything the bench keeps (its keys, players, saves and the game's database) is in `.zaisma-local/` in the game's folder: add it to your `.gitignore`. Upload and check skip it. It's the game server package's command (`npx @zaisma/game-server@1 play-locally`), which `zaisma play-locally` runs for you.
+
 #### Run your game server yourself
 
 The same game server runs on your own machine with Node 22.18 or later:
