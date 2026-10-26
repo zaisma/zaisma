@@ -30,7 +30,7 @@ const PIN_DIGIT_COUNT = PURCHASE_PIN_LIMITS.pinDigitCount;
 const SWITCH_WORDS: Record<ConfirmMethod, string> = { passkey: "Use your passkey instead", purchase_pin: "Use your purchase PIN instead", password: "Use your password instead" };
 
 /**
- * Confirm it's you: a small glass dialog that opens over anything (the store panel's Buy, later a key's Make) and asks the player to prove it's
+ * Confirm it's you: a small glass dialog that opens over anything (the store panel's Buy, the account page's changes, a key's Make) and asks the player to prove it's
  * them, in a way that suits what they're doing: a passkey, their purchase PIN (for a purchase only) or their password. The page opens it with
  * its own methods, its reason and the function that sends the proof (zaismaConfirmItsYou, CONFIRM_ITS_YOU_SCRIPT); when the proof is right the
  * dialog closes itself and the page goes on at once, so the press that asked is the only press. A purchase PIN is six boxes (the PIN field), and
@@ -209,11 +209,11 @@ component({
   group: "panes",
   summary: "A small dialog that opens over anything and asks the player to prove it's them, the way that suits what they're doing: a passkey, their purchase PIN (for a purchase only) or their password. The page says why in one sentence and gives it the function that sends the proof; a right proof closes it and the page goes on by itself, so the button that asked is pressed once. In the middle of a wide screen, risen from the foot on a phone.",
   styles: `
-/* Confirm it's you: a sheet that stays in the middle of a wide screen whatever opened it (SHEET_SCRIPT), as wide as the store panel. */
+/* Confirm it's you: a sheet that stays in the middle of a wide screen whatever opened it (SHEET_SCRIPT), wide enough for "Use your passkey" in half its foot. */
 @media (min-width: 761px) {
-  .sheet.placement-middle:not(.in-place) { width: min(380px, calc(100% - 2 * var(--pad-pane))); }
+  .sheet.placement-middle:not(.in-place) { width: min(480px, calc(100% - 2 * var(--pad-pane))); }
 }
-.sheet.placement-middle.in-place { width: min(380px, 100%); }
+.sheet.placement-middle.in-place { width: min(480px, 100%); }
 /* What went wrong is a warning, never the runner's orange. */
 .confirm-problem { margin: 0; font: var(--type-words); color: var(--warning); }
 `,

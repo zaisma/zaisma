@@ -17,7 +17,7 @@ import { authUserEmail, connectionAddressOf, realEmail } from "./auth.ts";
 import { sendAlert } from "./email.ts";
 import { deliverEmail, securityAlertEmail } from "./email-codes.ts";
 import type { Env } from "./env.ts";
-import { html, type Raw } from "./html.ts";
+import { html, raw, type Raw } from "./html.ts";
 import { activityEventJson, eventTitle, keptWhere, whereText, type SecurityEventRow } from "./security-log.ts";
 import { tellSecurityAlert } from "./webhooks.ts";
 
@@ -151,9 +151,9 @@ export function emailAskBox(options: { isConfirmed: boolean; backTo: "/account" 
   const skip = html`<form method="post" action="/account/email-ask/skip"><input type="hidden" name="next" value="${options.backTo}"><button class="btn ghost" type="submit">Skip</button></form>`;
   return html`<div class="note" id="email-ask"><p><strong>Where should we tell you if someone else uses your account?</strong></p>
 <p class="hint">Only for alerts like this and getting back in. Never shown to anyone.</p>
-${options.isConfirmed
-    ? html`<div class="row"><form class="row" method="post" action="/account/email"><input type="email" name="email" autocomplete="email" required aria-label="Email" placeholder="Email"><button class="btn" type="submit">Add</button></form> ${skip}</div>`
-    : html`<div class="row"><a class="btn" href="/account?confirm-first#confirm">Add an email</a> ${skip}</div>`}</div>`;
+${options.isConfirmed || options.backTo === "/account"
+    ? html`<div class="row"><form class="row" method="post" action="/account/email"${options.isConfirmed ? "" : raw(' data-confirm="strong"')}><input type="email" name="email" autocomplete="email" required aria-label="Email" placeholder="Email"><button class="btn" type="submit">Add</button></form> ${skip}</div>`
+    : html`<div class="row"><a class="btn" href="/account?confirm-first#email">Add an email</a> ${skip}</div>`}</div>`;
 }
 
 // --- Spikes across Zaisma ------------------------------------------------------------

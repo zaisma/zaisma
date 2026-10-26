@@ -32,7 +32,6 @@ import { confirmationOf, recordProof } from "./session-proofs.ts";
  *   POST /api/passkeys/signin/options   a challenge for signing in
  *   POST /api/passkeys/signin           { id, clientDataJSON, authenticatorData, signature, next }
  *   POST /api/passkeys/tap/options      a challenge for a tap, for "confirm" (Confirm it's you), "key" (making an API key) or "purchase" (confirming saved-card buys, buy.ts)
- *   POST /api/passkeys/confirm          a tap made for "confirm": this session has proved it's them
  *   POST /api/passkeys/add/options      what the browser needs to make one (signed in, proven in the last 10 minutes)
  *   POST /api/passkeys/add              { id, clientDataJSON, authenticatorData, publicKey, alg }
  *   POST /account/passkeys/:id/remove
@@ -114,8 +113,6 @@ export async function checkPasskeyTap(request: Request, env: Env, accountId: str
   return passkey;
 }
 
-const SIGN_IN_PASSKEY_FAILED = "That passkey didn't work. Try again, or use another one.";
-
 export async function handlePasskeys(request: Request, env: Env, path: string): Promise<Response | null> {
   const remove = path.match(/^\/account\/passkeys\/([A-Za-z0-9_-]{1,400})\/remove$/);
   if (!path.startsWith("/api/passkeys/") && !remove) return null;
@@ -178,15 +175,6 @@ export async function handlePasskeys(request: Request, env: Env, path: string): 
     if (!allowed.length) return json({ error: purpose === "key" ? keyRefusal(keys) : "Add a passkey first." }, 400, session.cookies);
     const challenge = newChallenge();
     return json({ challenge, rpId, allow: allowed.map((passkey) => passkey.id) }, 200, [...session.cookies, await challengeCookie(env, purpose, challenge, account.id)]);
-  }
-
-  if (path === "/api/passkeys/confirm") {
-    if (env.SIGNIN_LIMIT && !(await env.SIGNIN_LIMIT.limit({ key: request.headers.get("cf-connecting-ip") ?? "local" })).success) return json({ error: "Too many tries. Wait a minute and try again." }, 429, session.cookies);
-    const body = await readJson(request);
-    const passkey = await checkPasskeyTap(request, env, account.id, "confirm", { id: asText(body.id), clientDataJSON: asText(body.clientDataJSON), authenticatorData: asText(body.authenticatorData), signature: asText(body.signature), userHandle: asText(body.userHandle) });
-    if (!passkey) return json({ error: SIGN_IN_PASSKEY_FAILED }, 400, [...session.cookies, used]);
-    await recordProof(env, session, "passkey", passkey.id);
-    return json({ next: "/account?confirmed#signing-in" }, 200, [...session.cookies, used]);
   }
 
   if (path === "/api/passkeys/add/options") {
@@ -319,7 +307,7 @@ export const PASSKEY_SIGN_IN_SCRIPT = pageScript("passkey-sign-in", `(() => {
   if (go.hasAttribute("data-autofill") && PublicKeyCredential.isConditionalMediationAvailable) PublicKeyCredential.isConditionalMediationAvailable().then((ok) => ok && zaismaPasskeySignIn(next, true).then(show));
 })();`);
 
-/** Add a passkey, on the account page. */
+/** Add a passkey, on the account page: the #passkey-add button, after Confirm it's you when it asks. */
 export const PASSKEY_ADD_SCRIPT = pageScript("passkey-add", `(() => {
   const row = document.getElementById("passkey-add-row");
   if (!window.PublicKeyCredential) {
@@ -327,6 +315,8 @@ export const PASSKEY_ADD_SCRIPT = pageScript("passkey-add", `(() => {
     return;
   }
   document.getElementById("passkey-add").onclick = async () => {
+    // Confirm it's you first, in the popup, when the last proof ran out: the same press carries on (account.ts, ACCOUNT_CONFIRM_SCRIPT).
+    if (window.zaismaAskAccountConfirm && !(await window.zaismaAskAccountConfirm("add"))) return;
     const error = await zaismaAddPasskey();
     if (!error) return (location.href = "/account?passkey-added#passkeys");
     // Added without an older passkey's approval: it can make keys and approve changes a day later.
@@ -336,21 +326,6 @@ export const PASSKEY_ADD_SCRIPT = pageScript("passkey-add", `(() => {
     const p = document.getElementById("passkey-error");
     p.textContent = error;
     p.hidden = false;
-  };
-})();`);
-
-/** Confirm it's you with a passkey, on the account page: the #passkey-confirm button taps one, then goes on. */
-export const PASSKEY_CONFIRM_SCRIPT = pageScript("passkey-confirm", `(() => {
-  const button = document.getElementById("passkey-confirm");
-  const show = (text) => { const p = document.getElementById("passkey-confirm-error"); p.textContent = text; p.hidden = false; };
-  if (!window.PublicKeyCredential) return show("This browser can't use passkeys. Use the password below.");
-  button.onclick = async () => {
-    const tapped = await zaismaPasskeyTap("confirm");
-    if (tapped.error) return show(tapped.error);
-    const t = tapped.tap;
-    const res = await pkPost("/api/passkeys/confirm", { id: t.passkey_id, clientDataJSON: t.client_data_json, authenticatorData: t.authenticator_data, signature: t.signature, userHandle: t.user_handle });
-    if (!res.ok) return show(res.data.error || "That passkey didn't work. Try again, or use another one.");
-    location.href = res.data.next;
   };
 })();`);
 
