@@ -31,13 +31,15 @@ export const ARRIVE_SCRIPT_SOURCE = `(function () {
 `;
 
 /**
- * The bench's sign-in page: whose sign-in it is, when its address didn't say. It opens in the player's tab or in a tab the game page opened,
- * and both hold the player's number the dev page keeps in sessionStorage (a tab opened by a page starts with a copy of the page's).
+ * The bench's players pages: whose sign-in it is, when their address didn't say. They open in the player's tab or in a tab the game page
+ * opened, and both hold the player's number the dev page keeps in sessionStorage (a tab opened by a page starts with a copy of the page's).
  */
 export const SIGN_IN_SCRIPT_SOURCE = `(function () {
-  var field = document.getElementById("bench-sign-in-player");
-  if (!field || field.value !== "0") return;
-  try { field.value = sessionStorage.getItem("zaisma-bench:player") || "0"; } catch (error) {}
+  var kept = "0";
+  try { kept = sessionStorage.getItem("zaisma-bench:player") || "0"; } catch (error) {}
+  if (kept === "0") return;
+  document.querySelectorAll('input[name="player"]').forEach(function (field) { if (field.value === "0") field.value = kept; });
+  document.querySelectorAll('a[href*="player=0"]').forEach(function (link) { link.href = link.href.replace(/([?&])player=0(&|$)/, "$1player=" + kept + "$2"); });
 })();
 `;
 
@@ -65,16 +67,8 @@ function devScript() {
   // Whatever opens a sheet (a bar button, the Add a player menu's On a phone) draws it afresh.
   document.addEventListener("click", (event) => {
     const opener = event.target instanceof Element ? event.target.closest('[aria-controls^="bench-"]') : null;
-    const name = opener ? /^bench-(friends|phone|log)$/.exec(opener.getAttribute("aria-controls") ?? "")?.[1] : null;
+    const name = opener ? /^bench-(phone|log)$/.exec(opener.getAttribute("aria-controls") ?? "")?.[1] : null;
     if (name) refresh(name);
-  });
-
-  document.addEventListener("change", (event) => {
-    const box = event.target;
-    if (!(box instanceof HTMLInputElement) || box.name !== "bench-friend") return;
-    fetch("/bench/state", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ op: "set-friend", playerNumber, friendAccountId: box.value, isFriend: box.checked }) })
-      .then(() => refresh("friends"))
-      .catch(() => {});
   });
 
   // About once a second: the player is still here, a game file changed (reload the game), and the room they're in (Add a player joins it).
