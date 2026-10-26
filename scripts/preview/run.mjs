@@ -712,12 +712,13 @@ Zaisma preview is running. Nothing here touches the live site.
                   the admin MCP's list_security_spikes and list_blocked_scripts have this hour's
   Who and where   ${SITE}/dashboard/shard-dodge  (Recent history: a key's upload from a new place) and
                   ${SITE}/dashboard/tiny-farm  (Your AI's database writes, folded)
-  Confirm it's you  ${SITE}/account#developer  (as Key_Maker, no passkey yet: Make an API key opens on First, add a passkey;
-                  the browser pane may not offer one, so use Touch ID in your own browser), ${SITE}/account#signing-in
-                  (as Preview_Studio: only a passkey confirms, with Lost your passkeys? for the password, which adds
-                  one that waits a day), ${SITE}/account#passkeys and ${SITE}/account#developer (as Waiting_Key: its
-                  newest passkey waits; waiting@example.test got the email in the mailbox) and ${SITE}/account#delete-account
-                  (the delete form is behind Confirm it's you)
+  Confirm it's you  ${SITE}/account#signing-in  (the popup, over the account page: press Change on Password, Add on Email, Download your
+                  data or Delete my account once and it asks for the password, then goes on by itself. As Preview_Studio it
+                  asks for a passkey only, so check it on your own device), ${SITE}/account#developer (as Key_Maker, no passkey
+                  yet: Make an API key opens on First, add a passkey; the browser pane may not offer one, so use Touch ID in
+                  your own browser. With a passkey, Make the key opens the popup and the browser asks at once),
+                  ${SITE}/account#passkeys (as Waiting_Key: its newest passkey waits; waiting@example.test got the email in the
+                  mailbox; Add a passkey asks for the passkey or the password, and a password's passkey waits a day)
   Friends         ${SITE}/friends  (friends online: Moss_Runner playing Shard Dodge, Kit_Spark in a
                   full Four in a Row room, Quiet_Comet on a game that isn't out yet, Swift_Otter in a private Arena
                   room, Red_Lantern in Cave Crew, which doesn't take joins; Appear offline at the top;
@@ -1988,7 +1989,7 @@ async function seedConfirmItsYou() {
     // A new browser with only the password: it can add a passkey after confirming, but that one waits.
     const again = poster("198.51.100.242");
     await again("/signin", { username: "Waiting_Key", password: PASSWORD, turnstile_token: TURNSTILE_TOKEN });
-    await again("/account/confirm", { password: PASSWORD });
+    await again("/api/account/confirm", JSON.stringify({ password: PASSWORD }));
     await addSoftwarePasskey(again, newSoftwarePasskey(new URL(SITE).hostname, SITE));
   }
   if (!(await isMade("New_Passkey"))) {

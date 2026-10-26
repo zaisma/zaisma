@@ -50,6 +50,8 @@ export interface Confirmation {
   isConfirmed: boolean;
   /** The account has a passkey that can approve, so only a tap on one of them confirms. */
   isPasskeyNeeded: boolean;
+  /** How many milliseconds the recent proof has left (the 10 minutes it lets someone change how the account signs in), 0 without one. */
+  remainingMs: number;
 }
 
 export async function confirmationOf(env: Env, session: Session, accountId: string, nowMs = Date.now()): Promise<Confirmation> {
@@ -60,7 +62,7 @@ export async function confirmationOf(env: Env, session: Session, accountId: stri
   const isProven = Boolean(proof) && nowMs - proof!.proved_at_ms < RECENT_PROOF_MS;
   const isPasskeyNeeded = approving.length > 0;
   const isConfirmed = isProven && (!isPasskeyNeeded || (proof!.proof_kind === "passkey" && approving.some((passkey) => passkey.id === proof!.passkey_id)));
-  return { isProven, isConfirmed, isPasskeyNeeded };
+  return { isProven, isConfirmed, isPasskeyNeeded, remainingMs: isProven ? RECENT_PROOF_MS - (nowMs - proof!.proved_at_ms) : 0 };
 }
 
 /** Once a day: proofs of sessions long gone. */
