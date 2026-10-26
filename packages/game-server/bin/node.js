@@ -761,7 +761,7 @@ async function playLocally(argumentList) {
     say(terminalQr(running.networkUrl));
     say("Over the home network the bench is plain http, so the camera, microphone and other features a browser allows only on secure pages won't work on the phone.");
   }
-  if (given.isOpening && !given.isJson) {
+  if (given.isOpening) {
     const { spawn } = await import("node:child_process");
     const opener = process.platform === "darwin" ? ["open", [running.benchUrl]] : process.platform === "win32" ? ["cmd", ["/c", "start", "", running.benchUrl]] : ["xdg-open", [running.benchUrl]];
     spawn(opener[0], opener[1], { stdio: "ignore", detached: true }).on("error", () => {}).unref();

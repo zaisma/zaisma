@@ -2179,10 +2179,13 @@ async function playLocally(values, flags) {
   const local = process.env.ZAISMA_GAME_SERVER_BIN;
   const [file, list] = local ? [process.execPath, [local, "play-locally", ...given]] : [process.platform === "win32" ? "npx.cmd" : "npx", ["--yes", "@zaisma/game-server@1", "play-locally", ...given]];
   const child = spawn(file, list, { stdio: "inherit" });
-  for (const signal of ["SIGINT", "SIGTERM"]) process.on(signal, () => child.kill(signal));
+  // Ctrl-C reaches the child from the terminal by itself; a SIGTERM sent to this command alone is passed on.
+  process.on("SIGINT", () => {});
+  process.on("SIGTERM", () => child.kill("SIGTERM"));
   const exitCode = await new Promise((done) => {
     child.on("error", () => done(null));
-    child.on("exit", (code) => done(code));
+    // Stopped by a signal (Ctrl-C) is a stop, not a failure.
+    child.on("exit", (code, signal) => done(code ?? (signal ? 0 : 1)));
   });
   if (exitCode === null) refuse("game_server_not_run", { message: "npx couldn't run @zaisma/game-server.", fix: "Check that Node 22.18 or newer and npm are installed, and that npm can reach its registry once to download the package." }, EXIT_CODES.failed);
   return exitCode === 0 ? EXIT_CODES.done : { exitCode, meaning: "play-locally stopped" };

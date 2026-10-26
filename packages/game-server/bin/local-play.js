@@ -27,7 +27,7 @@ export const DEFAULT_PORT_NUMBER = 4800;
 export const LOCAL_VERSION_ID = "version_local";
 /** The folder in the game's folder that holds what the bench keeps. */
 export const LOCAL_FOLDER = ".zaisma-local";
-/** Every _zaisma/ file the games Worker serves, split by whether the game's site serves it here too (test/node/local-play-parity.test.ts holds this to apps/games/src/index.ts). */
+/** Every _zaisma/ file the games Worker serves, split by whether it works here or only loads and does nothing (test/node/local-play-parity.test.ts holds this to apps/games/src/index.ts). */
 export const SERVED_ZAISMA_PATHS = ["_zaisma/v1.js", "_zaisma/v1.d.ts", "_zaisma/relay.js", "_zaisma/picture.js", "_zaisma/saves.js", "_zaisma/restore"];
 export const ONLY_ON_ZAISMA_PATHS = ["_zaisma/performance.js", "_zaisma/warm", "_zaisma/warm.json", "_zaisma/warm.js"];
 /** The bench's own page on the game's site, which every frame load goes through: Zaisma has none. */
@@ -162,7 +162,11 @@ export function serverEntryOf(gameFolder) {
   return null;
 }
 
-const isServerFile = (relativePath) => relativePath === "zaisma-server.js" || relativePath.startsWith("zaisma-server/");
+/** Whether a path in the folder is the game server's, in any case: macOS and Windows find zaisma-server.js as ZAISMA-SERVER.JS too. */
+const isServerFile = (relativePath) => {
+  const lowered = relativePath.toLowerCase();
+  return lowered === "zaisma-server.js" || lowered.startsWith("zaisma-server/");
+};
 
 function sourceOf(gameFolder) {
   const found = [];
@@ -540,14 +544,17 @@ export async function startLocalPlay(givenOptions) {
           return send(200, js, withSetup("__ZAISMA_SAVES__", { site: benchOrigin, saveLimitBytes: SAVE_LIMIT_BYTES, versionId: versionId === LOCAL_VERSION_ID ? versionId : null }, sdkText("saves.js")));
         }
         if (path === "_zaisma/restore") return send(200, "text/html; charset=utf-8", `<!doctype html><meta charset="utf-8"><title>Loading</title><body style="margin:0;background:#000"><script src="saves.js?v=${SCRIPTS_VERSION_NUMBER}&version_id=${LOCAL_VERSION_ID}"></script>`);
-        if (ONLY_ON_ZAISMA_PATHS.includes(path)) return send(404, "text/plain; charset=utf-8", `${path} is only on Zaisma: it measures how the game runs for players there.`);
+        // Zaisma's measuring of how the game runs, and its warm-up before Play: here they load and do nothing.
+        if (path === "_zaisma/performance.js" || path === "_zaisma/warm.js") return send(200, js, `// ${path} is only on Zaisma: it does nothing here.\n`);
+        if (path === "_zaisma/warm") return send(200, "text/html; charset=utf-8", "<!doctype html><title>Only on Zaisma</title>");
+        if (path === "_zaisma/warm.json") return send(200, "application/json", "[]");
         return send(404, "text/plain; charset=utf-8", "Not found.");
       }
       const relative = path === "" || path.endsWith("/") ? `${path}index.html` : path;
       const file = resolve(gameFolder, relative);
       const inside = file === gameFolder || file.startsWith(gameFolder + sep);
-      // The bench's own folder and the game server's files are never served, as on Zaisma.
-      if (!inside || relative.split("/")[0] === LOCAL_FOLDER || isServerFile(relative)) return send(404, "text/plain; charset=utf-8", "File not found: this game is missing a file.");
+      // The bench's own folder (its signing keys) and the game server's files are never served, as on Zaisma, in any case.
+      if (!inside || relative.split("/")[0].toLowerCase() === LOCAL_FOLDER || isServerFile(relative)) return send(404, "text/plain; charset=utf-8", "File not found: this game is missing a file.");
       let target = file;
       if (existsSync(target) && statSync(target).isDirectory()) target = join(target, "index.html");
       if (!existsSync(target)) return send(404, "text/plain; charset=utf-8", "File not found: this game is missing a file.");
@@ -807,14 +814,17 @@ export async function startLocalPlay(givenOptions) {
   // --- The game server: the Node runner, as its own process, so a change starts it again with fresh code ---
   let runner = null;
   let runnerStartCount = 0;
+  // The game server's source as the running one started with it: a change event with nothing changed (a late or repeated one) starts nothing.
+  let runnerSource = null;
   let isClosing = false;
   const runnerFile = join(here, "local-play-runner.js");
   const entry = () => serverEntryOf(gameFolder);
   const roomsAddress = () => issuerUrl;
   function startRunner() {
     return new Promise((done) => {
+      runnerSource = sourceOf(gameFolder);
       const config = { entry: entry(), gameSlug, port: ports.runner, origin: localhostOrigin(ports.game), issuerUrl: roomsAddress(), databaseFile: join(localFolder, "database.sqlite"), roomStateFile: join(localFolder, "room-states.sqlite"), developerApiUrl: `${roomsAddress()}/api/dev`, zaismaKey: LOCAL_RUNNER_KEY };
-      const child = spawn(process.execPath, ["--disable-warning=ExperimentalWarning", runnerFile, JSON.stringify(config)], { stdio: ["ignore", "pipe", "pipe"], env: { ...process.env } });
+      const child = spawn(process.execPath, ["--disable-warning=ExperimentalWarning", runnerFile, JSON.stringify(config)], { stdio: ["pipe", "pipe", "pipe"], env: { ...process.env } });
       let isReady = false;
       const timeout = setTimeout(() => {
         if (!isReady) {
@@ -891,7 +901,7 @@ export async function startLocalPlay(givenOptions) {
         const wasServerChanged = isServerChanged;
         const wasOtherChanged = isOtherChanged;
         isServerChanged = isOtherChanged = false;
-        if (wasServerChanged) {
+        if (wasServerChanged && sourceOf(gameFolder) !== runnerSource) {
           log("Your game server changed: starting it again.");
           void restartRunner();
         }

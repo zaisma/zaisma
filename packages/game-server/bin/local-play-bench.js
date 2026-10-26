@@ -17,6 +17,10 @@ export const ONLY_ON_ZAISMA = {
   "zaisma:reload": "reloads the game at a newer version",
   "zaisma:connection": "shows a weak connection beside the game",
   "zaisma:account-offer": "shows the Keep your progress card to a guest",
+  "zaisma:report": "opens Zaisma's report sheet for a player, which goes to Zaisma's moderators (Room.report's own reports are printed in the terminal here)",
+  "zaisma:performance": "sends how the game runs (load time, frame rate, crashes) to the developer's stats",
+  "zaisma:alive": "tells the page the game is still running, for its performance stats",
+  "zaisma:still-there": "shows the Still there? card beside the game (the game draws its own here)",
 };
 
 const STYLE = `
@@ -431,7 +435,7 @@ function benchScript(config) {
       }
       default:
         if (ONLY_ON_ZAISMA[message.type] || message.type.startsWith("zaisma:")) {
-          onlyOnZaisma(message.type, ONLY_ON_ZAISMA[message.type] || `answers ${message.type}`);
+          onlyOnZaisma(message.type, ONLY_ON_ZAISMA[message.type] || `answers ${message.type}, which the bench doesn't know`);
           if (message.type === "zaisma:link") post({ type: "zaisma:link", requestNumber: message.requestNumber, status: "error", code: "unknown_link", message: "The bench has no registered links: Zaisma.links.open works on Zaisma." });
           if (message.type === "zaisma:account-offer") post({ type: "zaisma:account-offer", status: "cloud_saves_not_here" });
         }

@@ -28,20 +28,22 @@ async function passOf(playerNumber: number): Promise<{ pass: string; claims: Pas
   return { pass: answer.body.pass, claims: await verifyPass(answer.body.pass, await keysAt("/.well-known/jwks.json"), { gameSlug: SLUG, issuerUrl: play.roomsUrl }) };
 }
 
-/** A client in a room: its welcome, and the newest players list it heard. */
-function joinRoom(code: string, pass: string): Promise<{ socket: WebSocket; welcome: any; players: () => any[] }> {
+/** A client in a room: its welcome, the newest players list it heard, and the game's messages to it. */
+function joinRoom(code: string, pass: string): Promise<{ socket: WebSocket; welcome: any; players: () => any[]; messages: any[] }> {
   return new Promise((resolve, reject) => {
     const socket = new WebSocket(`${play.roomsUrl.replace(/^http/, "ws")}/v1/rooms/${SLUG}/${code}`, { headers: { origin: play.gameSiteUrl } });
     let players: any[] = [];
+    const messages: any[] = [];
     socket.on("open", () => socket.send(JSON.stringify({ type: "hello", protocolVersionNumber: 1, pass, room: {} })));
     socket.on("message", (data, isBinary) => {
       if (isBinary) return;
       const message = JSON.parse(data.toString());
       if (message.type === "welcome") {
         players = message.players;
-        resolve({ socket, welcome: message, players: () => players });
+        resolve({ socket, welcome: message, players: () => players, messages });
       }
       if (message.type === "players") players = message.players;
+      if (message.type === "message") messages.push(message.data);
       if (message.type === "error") reject(new Error(message.message));
     });
     socket.on("error", reject);
@@ -127,28 +129,39 @@ describe("play-locally", () => {
     expect(sdk).toContain(`"site":"http://localhost:${port}"`);
     expect((await fetch(`${play.gameSiteUrl}/zaisma-server.js`)).status).toBe(404);
     expect((await fetch(`${play.gameSiteUrl}/.zaisma-local/keys.json`)).status).toBe(404);
+    // In any case: macOS and Windows find .zaisma-local as .ZAISMA-LOCAL too, and it holds the signing keys.
+    expect((await fetch(`${play.gameSiteUrl}/.ZAISMA-LOCAL/keys.json`)).status).toBe(404);
+    expect((await fetch(`${play.gameSiteUrl}/ZAISMA-SERVER.JS`)).status).toBe(404);
     expect((await fetch(`${play.gameSiteUrl}/../keys.json`)).status).toBe(404);
     const page = await fetch(`${play.gameSiteUrl}/`);
     expect(page.headers.get("content-security-policy")).toContain(`frame-ancestors http://localhost:${port}`);
     expect(await page.text()).toContain("/_zaisma/saves.js");
   }, 20_000);
 
-  it("starts the game server again when its file changes, with the room still there", async () => {
+  it("starts the game server again when its file changes, with the room's match as it was", async () => {
     const code = (await rooms("/v1/rooms", { gameSlug: SLUG })).body.roomCode;
     const anna = await passOf(2);
-    const before = await joinRoom(code, anna.pass);
+    const ben = await passOf(3);
+    const first = await joinRoom(code, anna.pass);
+    const second = await joinRoom(code, ben.pass);
+    await until(() => first.players().length === 2);
+    // Anna has the first seat, and drops a piece in column 3: the bottom row's fourth cell.
+    first.socket.send(JSON.stringify({ type: "message", data: { column: 3 } }));
+    const hasPiece = (messages: any[]) => messages.some((message) => Array.isArray(message?.board) && message.board[38] === 1);
+    await until(() => hasPiece(second.messages));
     const startCount = play.runnerStartCount;
     appendFileSync(join(folder, "zaisma-server.js"), "\n// changed\n");
     await until(() => play.runnerStartCount > startCount, 15_000);
-    await until(() => before.socket.readyState === WebSocket.CLOSED, 15_000);
-    let after: Awaited<ReturnType<typeof joinRoom>> | null = null;
+    await until(() => first.socket.readyState === WebSocket.CLOSED && second.socket.readyState === WebSocket.CLOSED, 15_000);
+    let back: Awaited<ReturnType<typeof joinRoom>> | null = null;
     await until(() => {
-      if (!after) joinRoom(code, anna.pass).then((joined) => (after = joined), () => {});
-      return after !== null;
+      if (!back) joinRoom(code, anna.pass).then((joined) => (back = joined), () => {});
+      return back !== null;
     }, 15_000);
-    expect(after!.welcome.me.id).toBe(anna.claims.sub);
-    after!.socket.close();
-  }, 40_000);
+    // Back in the room the restart brought back: the board still has her piece.
+    await until(() => hasPiece(back!.messages), 10_000);
+    back!.socket.close();
+  }, 60_000);
 
   it("keeps an account's save and the bench's players across a restart", async () => {
     const saveText = '{"save_format_version_number":1,"local_storage_items":{"level":"3"},"indexeddb_databases":[]}';
