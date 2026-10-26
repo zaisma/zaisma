@@ -583,6 +583,7 @@ seedLeakedKeys();
 await seedSecurityAlerts();
 // Two accounts for Confirm it's you: one that can't make a key until it adds a passkey, and one whose newest passkey waits a day.
 await seedConfirmItsYou();
+seedDeveloperSettings();
 // A developer whose account can be deleted with its games, made again once it's gone.
 await seedDeletingDeveloper();
 stepDone("account states");
@@ -703,6 +704,7 @@ Zaisma preview is running. Nothing here touches the live site.
                   account deletes both, and their links never go to another game. Made again at the next start)
   Activity        ${SITE}/account#activity  (as Preview_Studio: a new device in Manchester, keys made and used from a new
                   place, an AI connected; as Moss_Runner: Keep where my account is used from is off)
+  Developer settings ${SITE}/dashboard/settings  (as Preview_Studio: hosting with automatic top-up on, a webhook with three failed deliveries, ${SITE}/dashboard/settings?spending_request=spending_request_preview0waiting asks to raise Arena's budget to $40, ...0expired is no longer waiting, Payments connected on the stand-in with a balance and a next payout)
   Leaked keys     ${SITE}/account#developer  (as Preview_Studio: three key rows, one working with a last use and an end date, one
                   turned off after GitHub found it, one that ended yesterday; Make an API key shows the Ends choice) and
                   ${SITE}/account#activity  (Zaisma turned off an API key found in public)
@@ -1980,6 +1982,27 @@ function seedLeakedKeys() {
  * every run keeps that newest passkey waiting. New_Passkey's only passkey waits a day every run, so the connect page
  * for AI apps says when it can connect them.
  */
+/**
+ * Developer settings (docs: /dashboard/settings): Preview_Studio's automatic top-up on, a waiting and an expired spending request,
+ * a webhook with three failed deliveries and Zaisma Pro cancelled (it ends in 12 days). Idempotent, so it holds on every run.
+ */
+function seedDeveloperSettings() {
+  const now = Date.now();
+  const owner = "(SELECT owners.id FROM owners JOIN accounts ON accounts.id = owners.account_id WHERE accounts.username = 'Preview_Studio')";
+  const account = "(SELECT id FROM accounts WHERE username = 'Preview_Studio')";
+  runSql([
+    `UPDATE owners SET pro_until_ms = ${now + 12 * 86400_000}, is_pro_cancelled = 1 WHERE id = ${owner}`,
+    `UPDATE owners SET automatic_top_up_enabled = 1, top_up_below_cents = 500, top_up_amount_cents = 2000, monthly_top_up_limit_cents = 6000 WHERE id = ${owner}`,
+    "DELETE FROM spending_requests WHERE id LIKE 'spending_request_preview%'",
+    `INSERT INTO spending_requests (id, account_id, request_kind, game_id, monthly_budget_cents, created_at_ms, expires_at_ms) SELECT 'spending_request_preview0waiting', ${account}, 'game_budget', id, 4000, ${now - 600_000}, ${now + 85_800_000} FROM games WHERE slug = 'arena'`,
+    `INSERT INTO spending_requests (id, account_id, request_kind, game_id, monthly_budget_cents, created_at_ms, expires_at_ms) SELECT 'spending_request_preview0expired', ${account}, 'game_budget', id, 9000, ${now - 100_000_000}, ${now - 13_600_000} FROM games WHERE slug = 'star-haul'`,
+    "DELETE FROM webhooks WHERE id LIKE 'webhook_preview%'",
+    `INSERT INTO webhooks (id, owner_id, destination_kind, endpoint_url, event_kinds, game_slugs, signing_secret, created_at_ms, updated_at_ms) VALUES ('webhook_previewdiscord001', ${owner}, 'endpoint_url', 'https://discord.example.test/api/webhooks/preview', '["bug_reported","player_reported"]', NULL, 'whsec_preview', ${now - 9 * 86400_000}, ${now - 9 * 86400_000})`,
+    `INSERT INTO webhooks (id, owner_id, destination_kind, endpoint_url, event_kinds, game_slugs, signing_secret, created_at_ms, updated_at_ms) VALUES ('webhook_previewserver0001', ${owner}, 'game_server', NULL, '["live_version_changed"]', '["arena"]', 'whsec_preview2', ${now - 5 * 86400_000}, ${now - 5 * 86400_000})`,
+    ...[1, 2, 3].map((index) => `INSERT OR REPLACE INTO webhook_deliveries (webhook_id, webhook_event_id, owner_id, event_json, delivery_status, attempt_count, next_attempt_at_ms, last_attempt_at_ms, last_http_status_code, failure_message, created_at_ms) VALUES ('webhook_previewdiscord001', 'webhook_event_preview00000${index}', ${owner}, '{"kind":"bug_reported"}', 'failed', 6, NULL, ${now - index * 3600_000}, 500, 'The address answered 500.', ${now - index * 3700_000})`),
+  ].join("; "));
+}
+
 async function seedConfirmItsYou() {
   const isMade = async (username) => !(await (await fetch(`${SITE}/api/username-check?username=${username}`)).json()).is_available;
   if (!(await isMade("Key_Maker"))) await signedIn({ name: "Key_Maker", email: "keys@example.test", year: "1991" }, "198.51.100.240");
@@ -2013,7 +2036,7 @@ async function makeKeyWithPasskey(post, passkey, fields) {
   const tap = await passkey.tap(options.challenge);
   const form = new URLSearchParams(fields);
   for (const [name, value] of Object.entries({ passkey_id: tap.id, client_data_json: tap.clientDataJSON, authenticator_data: tap.authenticatorData, signature: tap.signature, user_handle: "" })) form.set(name, value);
-  return post("/account/keys", form.toString());
+  return post("/dashboard/settings/keys", form.toString());
 }
 
 /** The code in the newest email the stand-in mailbox has for this address. */

@@ -5,6 +5,7 @@ import { handleAccount } from "./account.ts";
 import { DAILY_SIGN_IN_SWEEP_MS, RECENT_SIGN_IN_SWEEP_MS, dailyCleanup, deleteAbandonedSignIns, publishDue } from "./cleanup.ts";
 import { handleAdmin } from "./admin.ts";
 import { handleDashboard } from "./dashboard.ts";
+import { handleDeveloperSettings } from "./developer-settings.ts";
 import { handleDeveloper } from "./developer.ts";
 import type { Env } from "./env.ts";
 import { SPECULATION_RULES, SPECULATION_RULES_PATH, message } from "./html.ts";
@@ -113,6 +114,10 @@ async function route(request: Request, env: Env, ctx: ExecutionContext): Promise
   // /api/saves/<game>, its /copies, one copy (any ID: an unknown one answers no_save_copy) and its /restore.
   const save = path.match(/^\/api\/saves\/([a-z0-9-]+)(\/copies(?:\/([^/]{1,100})(\/restore)?)?)?$/);
   if (save) return handleSaves(request, env, save[1]!, save[2] ? { saveCopyId: save[3] ?? null, isRestore: Boolean(save[4]) } : null);
+
+  // Before the dashboard's /dashboard/<game>: settings is no game's slug.
+  const developerSettings = await handleDeveloperSettings(request, env, path);
+  if (developerSettings) return developerSettings;
 
   const dashboard = await handleDashboard(request, env, path);
   if (dashboard) return dashboard;

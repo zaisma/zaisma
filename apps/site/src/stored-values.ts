@@ -46,6 +46,7 @@ const FORUM_NEW = "page:GET /forum/new";
 const FORUM_TOPIC = "page:/forum/(topic_[a-z0-9]{1,40})(?:/(reply|vote|follow|answer|misplaced|still-happening|rate|bookmark|report))?";
 const FORUM_NEW_MESSAGE = "page:/forum/messages/new";
 const ACCOUNT = "page:GET /account";
+const SETTINGS = "page:/dashboard/settings";
 const ADMIN_GAME = "page:/admin/games/([a-z0-9_]+)";
 const ADMIN_REPORTS = "page:/admin/reports";
 
@@ -54,8 +55,8 @@ const DETAILS = checkedIn("packages/core/src/developers.ts", "checkDetails");
 
 export const STORED_VALUES: readonly StoredValue[] = [
   // A game, as its developer sets it.
-  { stored: "games.slug", format: "pattern_name", source: "developer", checked_by: checkedIn("packages/core/src/slug.ts", "checkSlug"), saved_by_door_ids: ["api:POST /games", "page:POST /dashboard/new"], shown_on_door_ids: ["page:/admin", "page:/admin/audit", ACCOUNT, "page:GET /dashboard"] },
-  { stored: "games.title", format: "shown_text", source: "developer", checked_by: DETAILS, saved_by_door_ids: ["api:POST /games", "api:PATCH /games/:slug", "page:POST /dashboard/new"], shown_on_door_ids: [PROFILE, "page:/admin", ADMIN_GAME, ADMIN_REPORTS, DASHBOARD, GAME_PAGE, HOME, ACCOUNT, "page:GET /dashboard"] },
+  { stored: "games.slug", format: "pattern_name", source: "developer", checked_by: checkedIn("packages/core/src/slug.ts", "checkSlug"), saved_by_door_ids: ["api:POST /games", "page:POST /dashboard/new"], shown_on_door_ids: ["page:/admin", "page:/admin/audit", ACCOUNT, "page:GET /dashboard", SETTINGS] },
+  { stored: "games.title", format: "shown_text", source: "developer", checked_by: DETAILS, saved_by_door_ids: ["api:POST /games", "api:PATCH /games/:slug", "page:POST /dashboard/new"], shown_on_door_ids: [PROFILE, "page:/admin", ADMIN_GAME, ADMIN_REPORTS, DASHBOARD, GAME_PAGE, HOME, ACCOUNT, "page:GET /dashboard", SETTINGS] },
   { stored: "games.description", format: "shown_text_block", source: "developer", checked_by: DETAILS, saved_by_door_ids: ["api:POST /games", "api:PATCH /games/:slug"], shown_on_door_ids: ["page:/admin", ADMIN_GAME, GAME_PAGE] },
   { stored: "games.details_waiting_for_review.title", format: "shown_text", source: "developer", checked_by: DETAILS, saved_by_door_ids: ["api:PATCH /games/:slug"], shown_on_door_ids: ["page:/admin", DASHBOARD] },
   { stored: "games.details_waiting_for_review.description", format: "shown_text_block", source: "developer", checked_by: DETAILS, saved_by_door_ids: ["api:PATCH /games/:slug"], shown_on_door_ids: ["page:/admin", DASHBOARD] },
@@ -90,9 +91,9 @@ export const STORED_VALUES: readonly StoredValue[] = [
   // The copy 0134 kept when it made game_images again: never read or shown.
   { stored: "game_shaders.review_reason", format: "escaped_text", source: "outside", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },
   { stored: "tester_links.name", format: "shown_text", source: "developer", checked_by: checkedIn("apps/site/src/developer.ts", "readTesterName"), saved_by_door_ids: ["api:POST /games/:slug/testers", "api:PATCH /games/:slug/testers/:tester_id"], shown_on_door_ids: [DASHBOARD] },
-  { stored: "sign_in_apps.name", format: "shown_text", source: "developer", checked_by: checkedIn("packages/core/src/sign-in-apps.ts", "checkSignInAppName"), saved_by_door_ids: ["api:POST /sign-in-apps", "api:PATCH /sign-in-apps/:sign_in_app_id"], shown_on_door_ids: ["page:/oauth/authorize"] },
-  { stored: "sign_in_apps.redirect_urls[]", format: "web_address", source: "developer", checked_by: checkedIn("packages/core/src/sign-in-apps.ts", "checkRedirectUrl"), saved_by_door_ids: ["api:POST /sign-in-apps", "api:PATCH /sign-in-apps/:sign_in_app_id"], shown_on_door_ids: [] },
-  { stored: "webhooks.endpoint_url", format: "web_address", source: "developer", checked_by: checkedIn("packages/core/src/webhooks.ts", "checkEndpointUrl"), saved_by_door_ids: ["api:POST /webhooks", "api:PATCH /webhooks/:webhook_id"], shown_on_door_ids: [] },
+  { stored: "sign_in_apps.name", format: "shown_text", source: "developer", checked_by: checkedIn("packages/core/src/sign-in-apps.ts", "checkSignInAppName"), saved_by_door_ids: ["api:POST /sign-in-apps", "api:PATCH /sign-in-apps/:sign_in_app_id"], shown_on_door_ids: ["page:/oauth/authorize", SETTINGS] },
+  { stored: "sign_in_apps.redirect_urls[]", format: "web_address", source: "developer", checked_by: checkedIn("packages/core/src/sign-in-apps.ts", "checkRedirectUrl"), saved_by_door_ids: ["api:POST /sign-in-apps", "api:PATCH /sign-in-apps/:sign_in_app_id"], shown_on_door_ids: [SETTINGS] },
+  { stored: "webhooks.endpoint_url", format: "web_address", source: "developer", checked_by: checkedIn("packages/core/src/webhooks.ts", "checkEndpointUrl"), saved_by_door_ids: ["api:POST /webhooks", "api:PATCH /webhooks/:webhook_id"], shown_on_door_ids: [SETTINGS] },
   { stored: "webhook_deliveries.failure_message", format: "escaped_text", source: "outside", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },
   { stored: "game_server_errors.message", format: "escaped_text", source: "outside", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [DASHBOARD] },
   { stored: "game_server_schedules.schedule_name", format: "escaped_text", source: "outside", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [DASHBOARD] },
@@ -116,11 +117,11 @@ export const STORED_VALUES: readonly StoredValue[] = [
   { stored: "accounts.profile_held_reason", format: "escaped_text", source: "outside", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },
   { stored: "accounts.social_stopped_reason", format: "escaped_text", source: "outside", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },
   { stored: "passkeys.name", format: "escaped_text", source: "player", checked_by: null, saved_by_door_ids: ["page:POST /api/passkeys/add"], shown_on_door_ids: [ACCOUNT] },
-  { stored: "api_keys.name", format: "escaped_text", source: "developer", checked_by: null, saved_by_door_ids: ["page:POST /account/keys"], shown_on_door_ids: [ACCOUNT] },
+  { stored: "api_keys.name", format: "escaped_text", source: "developer", checked_by: null, saved_by_door_ids: ["page:POST /dashboard/settings/keys"], shown_on_door_ids: [SETTINGS] },
   { stored: "api_keys.found_at_url", format: "escaped_text", source: "outside", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },
-  { stored: "api_keys.last_used_device", format: "escaped_text", source: "outside", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [ACCOUNT] },
-  { stored: "api_keys.last_used_network_name", format: "escaped_text", source: "outside", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [ACCOUNT] },
-  { stored: "api_keys.last_used_city_name", format: "escaped_text", source: "outside", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [ACCOUNT] },
+  { stored: "api_keys.last_used_device", format: "escaped_text", source: "outside", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [SETTINGS] },
+  { stored: "api_keys.last_used_network_name", format: "escaped_text", source: "outside", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [SETTINGS] },
+  { stored: "api_keys.last_used_city_name", format: "escaped_text", source: "outside", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [SETTINGS] },
   { stored: "api_keys.last_used_region_name", format: "escaped_text", source: "outside", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },
   { stored: "api_keys.connected_app_host", format: "escaped_text", source: "outside", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },
   { stored: "security_events.subject_name", format: "escaped_text", source: "outside", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [DASHBOARD] },
