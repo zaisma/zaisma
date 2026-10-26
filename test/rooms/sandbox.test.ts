@@ -681,12 +681,14 @@ describe("sandboxed game servers", () => {
     const a = await join("closing", "ABCDEF");
     expect(await a.next()).toEqual({ type: "message", data: { endsAt: null }, fromPlayerId: null });
     await e.DB.prepare("INSERT INTO game_hosting_months (game_id, month_start_date, used_cents, paused_at_ms, paused_reason) VALUES ('gclosing', ?, 500, ?, 'free_used')").bind(monthStartDateOf(), Date.now()).run();
-    // Make the room's 5-minute check on the game's hosting due now.
+    // Make the room's 5-minute check on the game's hosting due now, and its alarm: the room sets its own only after the welcome, once
+    // it settled, and runDurableObjectAlarm runs nothing when none is set yet.
     const stub = e.ROOMS.get(e.ROOMS.idFromName("closing:ABCDEF"));
-    await runInDurableObject(stub, (room: Room) => {
+    await runInDurableObject(stub, async (room: Room, state) => {
       (room as any).hostingCheckedAtMs = 0;
+      await state.storage.setAlarm(Date.now());
     });
-    await runDurableObjectAlarm(stub);
+    await runDurableObjectAlarm(stub); // Due now, so it may already have run by itself.
     const ending = await a.next();
     expect(ending.type).toBe("ending");
     expect(Date.parse(ending.endsAt) - Date.now()).toBeGreaterThan(3500_000);
