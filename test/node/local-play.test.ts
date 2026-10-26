@@ -194,7 +194,8 @@ describe("play-locally", () => {
     expect(scripted.body).toMatchObject({ player: { id: carlaId, kind: "account" }, rooms_url: play.roomsUrl, game_site_url: play.gameSiteUrl });
     // What the bench has, in one call.
     const bench = await api("GET", "");
-    expect(bench.body.players.map((player: { name: string }) => player.name)).toEqual(expect.arrayContaining(["Anna", "Ben", "Carla"]));
+    // By name, whoever played last.
+    expect(bench.body.players.map((player: { name: string }) => player.name)).toEqual(["Anna", "Ben", "Carla"]);
     expect(bench.body.items.map((listedItem: { item_name: string }) => listedItem.item_name)).toEqual(["gold-board"]);
     // The Players panel draws the same players, and a player's tabs.
     const panel = await (await fetch(`${play.benchUrl}/bench/panel?player=${young}`)).text();

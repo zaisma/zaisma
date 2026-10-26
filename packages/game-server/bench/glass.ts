@@ -138,7 +138,7 @@ export interface DevView {
   tabName: string;
   /** The room the player is in, or null. */
   roomCode: string | null;
-  /** The bench's players, for the player menu: the most recent first, and whether another tab plays as them too. */
+  /** The bench's players, for the player menu: by name, and whether another tab plays as them too. */
   players: { playerId: string; name: string; isThisTab: boolean; isInAnotherTab: boolean }[];
   /** The bench's address for a phone on the same Wi-Fi, null when it answers only on this computer. */
   networkUrl: string | null;

@@ -477,12 +477,13 @@ export async function startLocalPlay(givenOptions) {
   }
   /** A tab's name: the account it plays as, or the name the game gives its guest. */
   const tabNameOf = (playerNumber) => playingAccount(playerNumber)?.username ?? guestOf(playerNumber).name;
-  /** Signs a player (tab) in as an account, most recent first in the player menu. */
+  /** The bench's players, by name: the order every list of them keeps, whoever played last. */
+  const playersByName = () => [...state.accounts].sort((first, second) => first.username.localeCompare(second.username, "en", { sensitivity: "base" }));
+  /** Signs a player (tab) in as an account. */
   function signInAs(playerNumber, account) {
     const before = tabNameOf(playerNumber);
     const isAlready = asOf(playerNumber) === account.id;
     state.tabs[playerNumber] = account.id;
-    state.accounts = [account, ...state.accounts.filter((each) => each.id !== account.id)];
     saveState();
     if (isAlready) return;
     log(`${before} signed in as ${account.username}.`);
@@ -513,7 +514,7 @@ export async function startLocalPlay(givenOptions) {
     const account = playingAccount(playerNumber);
     return {
       gameSlug, playerNumber, accountName: account?.username ?? null, tabName: tabNameOf(playerNumber), roomCode: roomOfPlayerId(playerIdOf(playerNumber)),
-      players: state.accounts.map((each) => ({ playerId: each.playerId, name: each.username, isThisTab: each.id === account?.id, isInAnotherTab: openPlayerNumbers().some((openNumber) => openNumber !== playerNumber && asOf(openNumber) === each.id) })),
+      players: playersByName().map((each) => ({ playerId: each.playerId, name: each.username, isThisTab: each.id === account?.id, isInAnotherTab: openPlayerNumbers().some((openNumber) => openNumber !== playerNumber && asOf(openNumber) === each.id) })),
       networkUrl: networkOrigin, logLines: [...logLines],
     };
   }
@@ -551,13 +552,13 @@ export async function startLocalPlay(givenOptions) {
     if (path === "/bench/api" && method === "GET") {
       return reply(200, {
         game_slug: gameSlug, bench_url: localhostOrigin(ports.bench), network_url: networkOrigin, game_site_url: localhostOrigin(ports.game), rooms_url: issuerUrl,
-        players: state.accounts.map(apiPlayer), open_players: openPlayerNumbers().map(apiOpenPlayer),
+        players: playersByName().map(apiPlayer), open_players: openPlayerNumbers().map(apiOpenPlayer),
         rooms: [...roomsTracked].map(([code, room]) => ({ room_code: code, player_count: [...room.sockets].filter((each) => !each.isSpectator).length })),
         items: state.items.map((listedItem) => ({ item_name: listedItem.itemName, title: listedItem.title, item_kind: listedItem.itemKind, price_text: listedItem.priceMinorUnits === null || !listedItem.currencyCode ? null : priceText(listedItem.currencyCode, listedItem.priceMinorUnits) })),
       });
     }
     if (path === "/bench/api/log" && method === "GET") return reply(200, { log_lines: [...logLines] });
-    if (path === "/bench/api/players" && method === "GET") return reply(200, { players: state.accounts.map(apiPlayer) });
+    if (path === "/bench/api/players" && method === "GET") return reply(200, { players: playersByName().map(apiPlayer) });
     // A new player: any of a name, an age band and a social mode, each left out taking the next example name and Zaisma's defaults.
     if (path === "/bench/api/players" && method === "POST") {
       const ageBand = body.age_band ?? "18+";
@@ -697,7 +698,7 @@ export async function startLocalPlay(givenOptions) {
     const account = view === "player" ? accountOfPlayer(url.searchParams.get("player_id") ?? "") : null;
     if (view === "new") return glass.newPlayerPanelHtml({ suggestedName: suggestedName() });
     if (!account) {
-      return glass.playersPanelHtml(place, { players: state.accounts.filter((each) => matches(searchText, each.username)).map(panelPlayer), currentPlayerId: current?.playerId ?? null, searchText, totalCount: state.accounts.length });
+      return glass.playersPanelHtml(place, { players: playersByName().filter((each) => matches(searchText, each.username)).map(panelPlayer), currentPlayerId: current?.playerId ?? null, searchText, totalCount: state.accounts.length });
     }
     const tab = url.searchParams.get("tab") === "items" ? "items" : "profile";
     const named = (ids) => ids.map((id) => accountOf(id)).filter(Boolean).map((other) => ({ playerId: other.playerId, name: other.username }));
