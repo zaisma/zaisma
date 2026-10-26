@@ -139,8 +139,8 @@ declare namespace Zaisma {
    * refused (the game server's canJoin said no; the message is its refusalMessage), hosting_paused (the
    * game's hosting is paused this month: its free allowance or its developer's budget or credit is used). No player pass: unchecked, or account_needed for a
    * guest when the game needs accounts (see Zaisma.player.getPass()). The
-   * call is set up wrong: unknown_option, bad_room_code, bad_server_url, not_on_zaisma (no serverUrl
-   * outside Zaisma). Or connection_closed (the connection closed first, say the game left or the player
+   * call is set up wrong: unknown_option, bad_room_code, bad_server_url, not_on_zaisma (the game isn't hosted
+   * on Zaisma, serverUrl or not; serverUrl points a game hosted on Zaisma at your own server). Or connection_closed (the connection closed first, say the game left or the player
    * joined from another tab) and request_failed (Zaisma didn't answer). {@link ErrorCode} has them all.
    *
    * @example
@@ -740,6 +740,7 @@ declare namespace Zaisma {
     /**
      * Query parameters added to the link's address, like { item: "sword", player: "player_8f3k2m" }:
      * up to 20, each text of up to 500 characters (numbers as String(3)). Never one the link's own address sets.
+     * The whole opened address is at most 2,000 characters and each parameter name at most 100.
      */
     queryParameters?: Record<string, string>;
     /**
@@ -915,8 +916,8 @@ declare namespace Zaisma {
      * seconds; you see why with the game server's errors), hosting_paused (the game's hosting
      * on Zaisma is paused this month: its free allowance or its developer's budget or credit is used), too_big, bad_request (not plain JSON), slow_down
      * (over about 120 a minute from one address), bad_pass, account_needed, unchecked,
-     * game_unavailable, bad_origin, busy, bad_server_url, not_on_zaisma (no serverUrl outside
-     * Zaisma), unknown_option and request_failed.
+     * game_unavailable, bad_origin, busy, bad_server_url, not_on_zaisma (the game isn't hosted
+     * on Zaisma, serverUrl or not), unknown_option and request_failed.
      *
      * @example
      * const top = await Zaisma.server.request({ type: "leaderboard" });

@@ -160,7 +160,7 @@ The bar: a model that has never seen Zaisma gets the call right the first time f
 Good examples go in the input schema's `examples`, with realistic values (real-looking slugs, prefixed IDs, ISO times). Bad examples go at the end of the tool's description, one line each, with the reason:
 
 ```
-Not: { "at": 1792012345678 } (publish_at takes an ISO time like "2026-11-01T17:00:00Z")
+Not: { "at": 1792012345678 } (scheduled_publish_at takes an ISO time like "2026-11-01T17:00:00Z")
 ```
 
 A mistake that keeps showing up in MCP errors becomes a bad example.
@@ -177,7 +177,7 @@ A mistake that keeps showing up in MCP errors becomes a bad example.
 Every error, in the API and the MCP, has the same shape:
 
 ```json
-{ "error": { "code": "bad_time", "message": "publish_at is in the past.", "field": "publish_at", "fix": "Give an ISO time from 5 minutes to 90 days ahead, like \"2026-11-01T17:00:00Z\".", "retry_after_sec": null } }
+{ "error": { "code": "bad_time", "message": "scheduled_publish_at is in the past.", "field": "scheduled_publish_at", "fix": "Give an ISO time from 5 minutes to 90 days ahead, like \"2026-11-01T17:00:00Z\".", "retry_after_sec": null } }
 ```
 
 - `code`: stable, lowercase snake_case, one problem per code, never reused for another.
@@ -303,8 +303,8 @@ One name per concept. The API and MCP column is snake_case; the SDK and game ser
 | Why Zaisma held, rejected or took down a game, version or image | `review_reason`: `{ code, message, content_rule, fix }`, its `code` from `REVIEW_CODES` | |
 | The countries a game is blocked in on a notice under their law | `country_blocks`, each `{ country_code, country_name, review_reason, blocked_at }`; the `game_blocked_in_country` alert, the `country_blocks_changed` webhook. Inside: `games.country_blocks`, each `blocked_at_ms` | |
 | Why a cover or a title keeps a game off Zaisma's lists, or held it for a fake reward ("No slop") | `listing_reason` on an image, `title_listing_reason` on a game, shaped like `review_reason`; the `game_off_lists` alert. Inside: `cleared_at_ms` on an image and `cleared_title` on a game (a person cleared it), `listing_check_requested_at_ms`, `listing_checked_at_ms` | |
-| What needs a developer's attention in a game | `alerts`, each `{ kind, message, fix, version_id }`, `kind` one of `game_removed`, `game_held`, `version_rejected`, `version_held`, `link_flagged`, `game_off_lists`, `hosting_paused`, `database_full`, `hosting_nearly_paused`, `hosting_budget_nearly_used`, `database_nearly_full`, `player_erase_failed`, `reports_open`; a heads-up is its paused or full kind with `nearly` (`nearly_used` for a budget) | |
-| A content rule, as a hold or takedown names it | `content_rule`: `child_safety`, `sexual`, `malware`, `illegal`, `real_people`, `copyright`, `defamation`, `personal_details`, `chat`, `crypto`, `faked_plays` (the same words as a report's `reason` where they mean the same) | |
+| What needs a developer's attention in a game | `alerts`, each `{ kind, message, fix, version_id }`, `kind` one of `game_removed`, `game_held`, `game_blocked_in_country`, `version_rejected`, `version_held`, `link_flagged`, `game_off_lists`, `hosting_paused`, `database_full`, `hosting_nearly_paused`, `hosting_budget_nearly_used`, `database_nearly_full`, `player_erase_failed`, `reports_open`; a heads-up is its paused or full kind with `nearly` (`nearly_used` for a budget) | |
+| A content rule, as a hold or takedown names it | `content_rule`: `child_safety`, `sexual`, `malware`, `illegal`, `real_people`, `copyright`, `defamation`, `personal_details`, `chat`, `crypto`, `purchases`, `faked_plays` (the same words as a report's `reason` where they mean the same) | |
 | Who can see a game | `visibility`: `draft`, `listed`, `unlisted`, `private` | |
 | Where to continue a list | `cursor` in, `next_cursor` out | |
 | A game server's logs, and where to read on from | `log_lines`, each `{ logged_at, level, text, source_kind, room_code, version_id }`; `level` a console method (`debug`, `log`, `info`, `warn`, `error`), `source_kind` `room`, `request`, `schedule` or `webhook`; filters `minimum_level`, `search_text`, `maximum_line_count`; `cursor` in and `next_cursor` out go back, `new_lines_cursor` in and out goes forward | `LOG_LIMITS`, `StoredLogLine`, `LogWriter` |
@@ -350,7 +350,7 @@ One name per concept. The API and MCP column is snake_case; the SDK and game ser
 | A player back after walking away, and whether their seat was still held | | the `"back"` event `{ roomCode, isSeatHeld, rejoin() }` |
 | Reliable sends waiting while a room isn't reachable | | `MAXIMUM_QUEUED_SEND_COUNT` (60, the SDK's); error `code` `send_queue_full` |
 | How a room checks and paces its connections (not limits a game sets) | | `ROOM_TUNING`: `probeIntervalSec`, `probeAnswerTimeoutSec`, `probeSentSizeBytes`, `maximumUnansweredSentSizeBytes`, `maximumUnansweredProbeCount`, `backedUpSizeBytes`, `backedUpDelayMs` |
-| Why a room closed a connection | | `REMOVED_CLOSE_CODE` (4001: refused, removed or replaced), `BUSY_CLOSE_CODE` (1013) |
+| Why a room closed a connection | | `ENDED_CLOSE_CODE` (4000: the match ended), `REMOVED_CLOSE_CODE` (4001: refused, removed or replaced), `SEAT_GONE_CLOSE_CODE` (4002: the seat is no longer held), `NO_ANSWER_CLOSE_CODE` (4003: no answer or too far behind), `VERSION_UPDATE_CLOSE_CODE` (4004: the match switches to a version published now), `BUSY_CLOSE_CODE` (1013) |
 | What a player's game brings into a room, and what a room another room made starts with | | `joinData`, `setupData` |
 | How a player came into a room, and why they left or walked away | | `joinInfo: { fromRoomCode, isReturning, isSpectator }`; `leaveInfo: { reason }`, `reason` one of `left`, `lost`, `idle`, `hidden`, `kicked`; `onAway(state, player, room, awayInfo)` with `awayInfo: { reason }` (`AwayInfo`), `reason` one of `idle`, `hidden`, `lost` |
 | Words a person reads about what happened: an error's, a kick's, a refusal's, a match's end | `message` | `message`; `refusalMessage` in what `canJoin` answers (`true`, `false` or `{ refusalMessage }`; answering nothing or anything else turns the player away and is logged as `bad_handler_answer`) |
