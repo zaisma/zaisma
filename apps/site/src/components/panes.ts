@@ -795,9 +795,9 @@ component({
 .store-item { display: flex; flex-direction: column; gap: var(--gap-block-block); min-width: 0; }
 .store-picture { position: relative; display: block; aspect-ratio: 16 / 9; overflow: hidden; clip-path: var(--cut-shape);
   background: url("/zaisma-mark-metal.svg") center / auto 50% no-repeat var(--well); box-shadow: var(--well-shade); }
-/* On a short screen (a Steam Deck, a phone on its side) the picture gives way, at most a quarter of the screen's height, its art still covering
-   it: the item's words and Buy fit beside it rather than scroll by a sliver. */
-.sheet:not(.in-place) .store-picture { max-height: 25dvh; }
+/* On a short screen (a Steam Deck, a phone on its side, a laptop at a large text size) the picture over the game is shorter, its art still covering
+   it, so the item's words and Buy have room rather than the panel scrolling by a sliver. */
+@media (max-height: 52em) { .sheet:not(.in-place) .store-picture { max-height: min(9rem, 30dvh); } }
 .store-picture-art { position: absolute; inset: 2px; display: block; overflow: hidden; clip-path: var(--cut-shape); }
 .store-picture img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
 .store-item-words { display: flex; flex-direction: column; gap: var(--gap-words-words); min-width: 0; }
