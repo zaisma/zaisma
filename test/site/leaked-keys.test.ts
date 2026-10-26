@@ -226,7 +226,7 @@ describe("GitHub's secret scanning", () => {
       code: "key_turned_off",
       field: "Authorization",
       message: expect.stringContaining("found in public at github.com/sam/space-game/blob/main/.mcp.json and turned off on "),
-      fix: expect.stringContaining("Make a new key on zaisma.com/account"),
+      fix: expect.stringContaining("Make a new key on zaisma.com/dashboard/settings"),
     });
     const viaTool = await toolRefused(token);
     expect(viaTool.error.data.error.code).toBe("key_turned_off");

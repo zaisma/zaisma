@@ -1101,6 +1101,69 @@ export function sectionTabs(options: SectionTabsOptions): Raw {
   return html`<nav class="section-tabs" aria-label="${options.label}">${tabSwitch({ label: options.label, switchSize: "big", isFramed: true, tabs: options.tabs })}</nav>`;
 }
 
+export interface SidePlacesOptions {
+  /** What the places are, for a screen reader: "Developer settings". */
+  label: string;
+  /** The page's own places, in order, each a link to a section of it (#hosting) with an icon; one is current. */
+  places: (SectionTab & { icon: IconName })[];
+  /** The page itself: its sections, one under another. */
+  body: Raw;
+}
+
+/**
+ * A page's own places down its side, beside the page: a vertical switch on a pane that stays in view while the page scrolls by, and the
+ * page at most a column's width (--size-column) beside it. Where both can't have room, the places are the section tabs at the top of the page.
+ */
+export function sidePlaces(options: SidePlacesOptions): Raw {
+  return html`<div class="side-places"><div class="side-places-in"><nav class="side-places-side" aria-label="${options.label}">${glassPane({ paneWidth: "fit", body: tabSwitch({ label: options.label, switchSize: "big", isVertical: true, tabs: options.places }) })}</nav><div class="side-places-top">${sectionTabs({ label: options.label, tabs: options.places.map((place) => ({ label: place.label, href: place.href, isCurrent: place.isCurrent, badgeCount: place.badgeCount, state: place.state })) })}</div><div class="side-places-body">${options.body}</div></div></div>`;
+}
+
+/** The least room for the places beside the page: below it, they are the tabs at the top (a container query can't read a token). */
+const SIDE_PLACES_LEAST_PX = 760;
+
+component({
+  name: "Side places",
+  slug: "side-places",
+  group: "layout",
+  summary: "A page's own places down its side, beside the page: a vertical switch on a pane that stays in view while the page scrolls, like Developer settings' Hosting, Pro and Keys. The page runs a column's width at most beside it. Where both can't have room, the places become the section tabs at the top of the page.",
+  styles: `
+/* Side places: the places on a pane beside the page, which stays in view under the header while the page scrolls; the page is at most a
+   column's width, and the two sit in the middle of the room. Narrower than both need, the places are the section tabs at the page's top. */
+.side-places { container-type: inline-size; width: 100%; min-width: 0; }
+.side-places-in { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--gap-block-block); align-items: start; }
+.side-places-side { display: none; }
+.side-places-top { display: flex; justify-content: center; min-width: 0; }
+.side-places-body { min-width: 0; }
+@container (min-width: ${SIDE_PLACES_LEAST_PX}px) {
+  .side-places-in { grid-template-columns: auto minmax(0, var(--size-column)); justify-content: center; }
+  .side-places-side { display: block; position: sticky; top: var(--header-room, var(--pad-pane)); }
+  .side-places-top { display: none; }
+}
+`,
+  render: sidePlaces,
+  examples: [
+    {
+      label: "Developer settings' places beside its panes",
+      isWide: true,
+      markup: sidePlaces({
+        label: "Settings",
+        places: [
+          { label: "Hosting", icon: "gauge", href: "#side-places", isCurrent: true },
+          { label: "Pro", icon: "plus", href: "#side-places", isCurrent: false },
+          { label: "Payments", icon: "card", href: "#side-places", isCurrent: false },
+          { label: "Keys", icon: "key", href: "#side-places", isCurrent: false },
+        ],
+        body: stack({
+          items: [
+            { kind: "block", markup: glassPane({ paneWidth: "full", label: "Hosting", body: stack({ items: [{ kind: "words", markup: html`<h2>Hosting</h2>` }, { kind: "words", markup: html`<p>$18.40 of credit. Each game's first share of hosting is free every month.</p>` }] }) }) },
+            { kind: "block", markup: glassPane({ paneWidth: "full", label: "Keys", body: stack({ items: [{ kind: "words", markup: html`<h2>Keys</h2>` }, { kind: "words", markup: html`<p>A key lets your AI tool or the upload command work on your games.</p>` }] }) }) },
+          ],
+        }),
+      }),
+    },
+  ],
+});
+
 const DASHBOARD_SECTIONS = ["Overview", "Versions", "Players", "Rooms", "Saves", "Reports", "Stats", "Settings"];
 const PROFILE_SECTIONS = ["Games", "Friends", "Forum posts", "Saves", "Rooms"];
 

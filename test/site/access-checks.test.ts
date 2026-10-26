@@ -229,6 +229,7 @@ const SAMPLES: Record<string, (world: World) => Sample> = {
   "GET /credit": () => ({}),
   "POST /credit/top-ups": () => ({ body: { amount_cents: 2000 } }),
   "GET /pro": () => ({}),
+  "GET /spending-requests/:spending_request_id": () => ({}),
   "POST /pro/checkout": () => ({}),
   "POST /pro/cancel": () => ({}),
   "POST /pro/resume": () => ({}),
@@ -421,6 +422,8 @@ async function makeWorld(): Promise<World> {
     post(publicPostId, publicTopicId, accountIdOf("helper"), "passed"),
   ]);
   await env.GAMES.put(forumMediaKey(mediaId), png(400, 300));
+  const spendingRequestId = newId("spending_request");
+  await env.DB.prepare("INSERT INTO spending_requests (id, account_id, request_kind, game_id, monthly_budget_cents, created_at_ms, expires_at_ms) VALUES (?, ?, 'game_budget', ?, 4000, ?, ?)").bind(spendingRequestId, accountIdOf("victim"), game.id, nowMs, nowMs + 86_400_000).run();
 
   return {
     n,
@@ -429,6 +432,7 @@ async function makeWorld(): Promise<World> {
     strangerAccountId: accountIdOf("stranger"),
     values: {
       top_up_id: topUpId,
+      spending_request_id: spendingRequestId,
       slug: game.slug,
       image_id: image.id,
       shader_id: shader.id,
@@ -553,7 +557,7 @@ beforeAll(async () => {
 afterAll(async () => {
   globalThis.fetch = realFetch;
   await env.DB.exec(
-    "DELETE FROM kept_rooms; DELETE FROM purchases; DELETE FROM game_items; DELETE FROM forum_media; DELETE FROM forum_follows; DELETE FROM forum_votes; DELETE FROM forum_post_ratings; DELETE FROM forum_bookmarks; DELETE FROM forum_reports; DELETE FROM forum_misplaced_flags; DELETE FROM forum_posts; DELETE FROM forum_topic_tags; DELETE FROM forum_topics; DELETE FROM webhook_deliveries; DELETE FROM webhooks; DELETE FROM sign_in_apps; DELETE FROM save_history; DELETE FROM saves; DELETE FROM tester_links; DELETE FROM game_backgrounds; DELETE FROM game_shaders; DELETE FROM game_images; DELETE FROM owned_blobs; DELETE FROM blobs; DELETE FROM api_keys; DELETE FROM security_events; DELETE FROM security_places; DELETE FROM audit_log; DELETE FROM versions; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM credit_entries; DELETE FROM owners; DELETE FROM accounts;",
+    "DELETE FROM kept_rooms; DELETE FROM purchases; DELETE FROM game_items; DELETE FROM forum_media; DELETE FROM forum_follows; DELETE FROM forum_votes; DELETE FROM forum_post_ratings; DELETE FROM forum_bookmarks; DELETE FROM forum_reports; DELETE FROM forum_misplaced_flags; DELETE FROM forum_posts; DELETE FROM forum_topic_tags; DELETE FROM forum_topics; DELETE FROM webhook_deliveries; DELETE FROM webhooks; DELETE FROM sign_in_apps; DELETE FROM save_history; DELETE FROM saves; DELETE FROM tester_links; DELETE FROM game_backgrounds; DELETE FROM game_shaders; DELETE FROM game_images; DELETE FROM owned_blobs; DELETE FROM blobs; DELETE FROM api_keys; DELETE FROM security_events; DELETE FROM security_places; DELETE FROM audit_log; DELETE FROM versions; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM credit_entries; DELETE FROM spending_requests; DELETE FROM owners; DELETE FROM accounts;",
   );
 });
 

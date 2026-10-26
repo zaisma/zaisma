@@ -6,7 +6,7 @@ const RESERVED = new Set([
   "checkout", "store", "shop", "rooms", "cdn", "docs", "dev", "creators", "official", "staff",
   "mod", "mods", "moderator", "smtp", "ftp", "ns1", "ns2", "email",
   // Dashboard pages beside the games: /dashboard/feedback.
-  "feedback",
+  "feedback", "settings",
 ]);
 
 /** Slugs double as subdomains (<slug>.zaismausercontent.com), so keep them DNS-safe. */

@@ -429,8 +429,7 @@ async function gamesPage(env: Env, call: Call, account: Account | null, error?: 
 <input name="title" maxlength="80" required placeholder="Your game's name" aria-label="Your game's name" value="${title}">
 ${metalButton("Make a game", { type: "submit" })}
 </form>`;
-  // Developer settings takes this place when it lands; until then API keys are all there is.
-  const settings = html`<a class="btn ghost" href="/account#developer">API keys</a>`;
+  const settings = html`<a class="btn ghost" href="/dashboard/settings">Settings</a>`;
   return page(
     env,
     "Your games",
@@ -465,7 +464,7 @@ ${canPublish
 <div class="way"><h3>Your terminal</h3><p class="muted">Upload a build folder; only changed files are sent.</p>
 <pre>npx @zaisma/cli upload ./build --game your-game</pre></div>
 </div>
-<p class="muted">Both need an API key: <a href="/account#developer">make one on your account page</a> and set it as ZAISMA_KEY.</p>`
+<p class="muted">Both need an API key: <a href="/dashboard/settings#keys">make one on Developer settings</a> and set it as ZAISMA_KEY.</p>`
       : ""}`,
     200,
     account,

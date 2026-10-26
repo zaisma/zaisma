@@ -261,7 +261,7 @@ export const dollars = (cents: number) => `$${(cents / 100).toFixed(cents % 100 
 /** A hosting email: a game's meter reaching a line, or the developer's credit. Plain words, the next step last. */
 export function hostingEmail(env: Env, kind: HostingEmailKind, details: HostingEmailDetails): { subject: string; text: string; html: string } {
   const site = env.SITE_ORIGIN.replace(/^https?:\/\//, "");
-  const settings = `${site}/developer/settings#credit`;
+  const settings = `${site}/dashboard/settings#hosting`;
   const game = details.gameTitle ?? "Your game";
   const [subject, first, second]: [string, string, string] = (() => {
     switch (kind) {

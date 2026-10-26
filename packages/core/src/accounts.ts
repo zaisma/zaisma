@@ -393,6 +393,7 @@ export async function markPasswordChanged(database: D1Database, id: string): Pro
 export async function deleteAccount(database: D1Database, id: string): Promise<void> {
   const owner = await database.prepare("SELECT id FROM owners WHERE account_id = ?").bind(id).first<{ id: string }>();
   await database.batch([
+    database.prepare("DELETE FROM spending_requests WHERE account_id = ?").bind(id),
     ...(owner
       ? [
           // Their sign-in apps go, with every player's yes to them and their codes not yet used.

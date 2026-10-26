@@ -161,6 +161,8 @@ const CHECKED_PAGE_LIST = [
   { name: "Pick a username", area: "Signing in", path: "/join", ...CITY, stepsToTake: [{ formAction: "/join/age", fieldValues: ADULT_BIRTHDAY }, { path: "/signin/with/google" }] },
   { name: "How do you play", area: "Signing in", path: "/join/play", account: "Moss_Runner", ...CITY },
   { name: "You're in", area: "Signing in", path: "/account/kept", account: "Moss_Runner", ...CITY },
+  { name: "Developer settings", area: "Developers", path: "/dashboard/settings", account: "Preview_Studio", mainActionShows: "nowhere" },
+  { name: "Developer settings, a spending request", area: "Developers", path: "/dashboard/settings?spending_request=spending_request_preview0waiting", account: "Preview_Studio", mainActionShows: "nowhere", stateBeforeSetUp: "Developer settings", setUp: `(async () => { await new Promise((done) => setTimeout(done, 600)); return Boolean(document.getElementById("spending-request")?.open); })()` },
   { name: "Background guide", area: "Developers", path: "/developers/backgrounds", mainActionShows: "nowhere" },
   { name: "Example page", area: "Gallery", path: "/design/example", mainActionShows: "everywhere" },
   { name: "Connect an app", area: "Signing in", path: "/mcp-start", isOnSignInSite: true, account: "Preview_Studio", mainActionShows: "everywhere" },

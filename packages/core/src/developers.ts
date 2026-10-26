@@ -65,7 +65,7 @@ export interface ApiKey {
   last_used_region_name: string | null;
   /** The country (two letters) the key was last used from. */
   last_used_country_code: string | null;
-  /** api_key: made on zaisma.com/account. connected_app: an AI app connected by signing in (OAuth), which works only at the MCP. */
+  /** api_key: made on Developer settings. connected_app: an AI app connected by signing in (OAuth), which works only at the MCP. */
   kind: ApiKeyKind;
   /** The connected app's OAuth client_id (an mcp_client_… ID or its metadata document's URL); null for an API key. */
   mcp_client_id: string | null;

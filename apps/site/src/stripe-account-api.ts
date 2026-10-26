@@ -1,7 +1,7 @@
 import { ApiError, accountById, iso, randomKey } from "@zaisma/core";
 import { currentSession } from "./auth.ts";
 import { logAccountChange, logCallerEvent } from "./security-log.ts";
-import { accountDetails, connectUrl, disconnect, finishConnect, registerPaymentDomain, type ConnectedAccountDetails } from "./stripe.ts";
+import { accountDetails, connectUrl, disconnect, finishConnect, getStripeBalance, registerPaymentDomain, type ConnectedAccountDetails, type StripeBalance } from "./stripe.ts";
 import type { Caller, NextStep } from "./developer.ts";
 import type { Env } from "./env.ts";
 
@@ -56,6 +56,24 @@ export function stripeAccountJson(row: StripeAccountRow | null) {
   };
 }
 
+/** The balance answer: Stripe's own figures for the connected account. */
+export function stripeBalanceJson(balance: StripeBalance | null) {
+  if (!balance) return null;
+  return {
+    currency_code: balance.currencyCode,
+    available_minor_units: balance.availableMinorUnits,
+    pending_minor_units: balance.pendingMinorUnits,
+    other_currency_balances: balance.otherCurrencyBalances.map((other) => ({ currency_code: other.currencyCode, available_minor_units: other.availableMinorUnits, pending_minor_units: other.pendingMinorUnits })),
+    next_payout: balance.nextPayout ? { amount_minor_units: balance.nextPayout.amountMinorUnits, currency_code: balance.nextPayout.currencyCode, arrives_at: iso(balance.nextPayout.arrivesAtMs) } : null,
+  };
+}
+
+/** The stripe_account answer with its balance, read live from Stripe (null when not connected or Stripe doesn't answer in 3 seconds). */
+export async function stripeAccountWithBalance(env: Env, row: StripeAccountRow | null) {
+  const balance = row?.stripe_account_id ? stripeBalanceJson(await getStripeBalance(env, row.stripe_account_id, row.stripe_default_currency_code)) : null;
+  return { ...stripeAccountJson(row), balance };
+}
+
 /** Saves what Stripe says about a connected account, wherever it's connected (the return, or account.updated). */
 export async function saveAccountDetails(env: Env, stripeAccountId: string, details: ConnectedAccountDetails): Promise<void> {
   await env.DB.prepare("UPDATE owners SET can_take_stripe_payments = ?, stripe_country_code = ?, stripe_default_currency_code = ?, stripe_business_name = ?, stripe_support_email = ? WHERE stripe_account_id = ?")
@@ -73,7 +91,7 @@ export async function forgetStripeAccount(env: Env, stripeAccountId: string): Pr
 }
 
 /** Where the developer connects Stripe with their passkey: the payments settings on zaisma.com. */
-const confirmUrlOf = (env: Env) => `${env.SITE_ORIGIN}/developer/settings#payments`;
+const confirmUrlOf = (env: Env) => `${env.SITE_ORIGIN}/dashboard/settings#payments`;
 
 /** One call, once the router (developer.ts, checkCall) has checked the key. */
 export async function stripeAccountRoute(env: Env, path: string, method: string, body: Record<string, unknown>, caller: Caller, nowMs = Date.now()): Promise<[unknown, number?]> {
@@ -81,7 +99,7 @@ export async function stripeAccountRoute(env: Env, path: string, method: string,
   const row = await stripeAccountRow(env, ownerId);
   const answered = (nextSteps: NextStep[] = []) => ({ stripe_account: stripeAccountJson(row), next_steps: nextSteps });
 
-  if (path === "/stripe-account" && method === "GET") return [{ stripe_account: stripeAccountJson(row) }];
+  if (path === "/stripe-account" && method === "GET") return [{ stripe_account: await stripeAccountWithBalance(env, row) }];
 
   if (path === "/stripe-account/connection-links" && method === "POST") {
     if (!caller.isSpendingConfirmed) {
@@ -131,7 +149,7 @@ export async function stripeAccountRoute(env: Env, path: string, method: string,
  */
 export async function handleConnectReturn(request: Request, env: Env, nowMs = Date.now()): Promise<Response> {
   const url = new URL(request.url);
-  const back = (outcome: string) => Response.redirect(`${env.SITE_ORIGIN}/developer/settings?stripe=${outcome}#payments`, 303);
+  const back = (outcome: string) => Response.redirect(`${env.SITE_ORIGIN}/dashboard/settings?stripe=${outcome}#payments`, 303);
   const session = await currentSession(request, env);
   if (!session) return back("signed_out");
   const state = url.searchParams.get("state") ?? "";
