@@ -58,7 +58,7 @@ export function screens(options: ScreensOptions): Raw {
 <div class="screen-view" data-cut-line="0"><iframe src="${options.path}" title="${options.title}: ${name}" width="${String(screenSize.widthPx)}" height="${String(screenSize.heightPx)}" loading="lazy"></iframe><div class="screen-pointer" hidden></div></div>
 <figcaption class="screen-caption"><span>${name} · ${String(screenSize.widthPx)} × ${String(screenSize.heightPx)}</span><span data-screen-verdict>${tag("Measuring", "count")}</span></figcaption>
 <ul class="screen-problems" data-screen-problems hidden></ul>
-<p class="screen-pointed" data-screen-pointed>Point at or tap anything to see what it is and what placed it.</p>
+<p class="screen-pointed" data-screen-pointed hidden></p>
 </figure>`;
   })}</div></div>`;
 }
@@ -183,7 +183,7 @@ export const SCREENS_SCRIPT = pageScript("screens", String.raw`(function () {
     var view = figure.querySelector(".screen-view"), frame = view.querySelector("iframe"), pointer = view.querySelector(".screen-pointer");
     var verdict = figure.querySelector("[data-screen-verdict]"), problems = figure.querySelector("[data-screen-problems]"), pointed = figure.querySelector("[data-screen-pointed]");
     var widthPx = Number(figure.dataset.widthPx), heightPx = Number(figure.dataset.heightPx), theme = figure.dataset.screenTheme, scale = 1;
-    var scripts = figure.closest("[data-screens]").dataset, idle = pointed.textContent;
+    var scripts = figure.closest("[data-screens]").dataset;
     // A state only forms and links reach: each step is taken once its page is there, and the last one's answer is measured.
     var steps = scripts.stepsToTake ? JSON.parse(scripts.stepsToTake) : [], stepIndex = 0;
     function takeStep(doc) {
@@ -208,7 +208,8 @@ export const SCREENS_SCRIPT = pageScript("screens", String.raw`(function () {
       problems.replaceChildren.apply(problems, failures.map(function (failure) { var item = document.createElement("li"); item.textContent = failure.check + ": " + failure.element + ", " + failure.said; return item; }));
       problems.hidden = !failures.length;
     }
-    function hide() { pointer.hidden = true; pointed.textContent = idle; }
+    // What's pointed at shows under its screen only while something is: the page says once, at its top, that pointing tells you.
+    function hide() { pointer.hidden = true; pointed.hidden = true; }
     frame.addEventListener("load", ready);
     function ready() {
       var doc = null; try { doc = frame.contentDocument; } catch (error) {}
@@ -227,6 +228,7 @@ export const SCREENS_SCRIPT = pageScript("screens", String.raw`(function () {
           var at = inside.zaismaInspect(event.target), r = at.element.getBoundingClientRect();
           pointer.hidden = false;
           pointer.style.left = r.left * scale + "px"; pointer.style.top = r.top * scale + "px"; pointer.style.width = r.width * scale + "px"; pointer.style.height = r.height * scale + "px";
+          pointed.hidden = false;
           pointed.textContent = [(at.component || "Words") + (at.label ? ' "' + at.label + '"' : ""), at.layoutRule].filter(Boolean).join(" · ");
         }, { passive: true }); });
         doc.documentElement.addEventListener("mouseleave", hide);
