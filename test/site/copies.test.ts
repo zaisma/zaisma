@@ -29,6 +29,14 @@ const PNG_HEAD = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 /** A picture's bytes: a PNG header and something to tell them apart. */
 const picture = (name: string) => new Uint8Array([...PNG_HEAD, ...enc(name)]);
 
+/** A whole PNG of about dataLength bytes, as an engine stores one inside its pack. */
+const png = (dataLength: number) => {
+  const chunk = (type: string, length: number) => [(length >>> 24) & 255, (length >>> 16) & 255, (length >>> 8) & 255, length & 255, ...enc(type), ...Array(length).fill(7), 0, 0, 0, 0];
+  return new Uint8Array([...PNG_HEAD, ...chunk("IHDR", 13), ...chunk("IDAT", dataLength), ...chunk("IEND", 0)]);
+};
+/** A pack with a picture between other data. */
+const packWith = (picture: Uint8Array) => new Uint8Array([...enc("GDPC"), ...Array(300).fill(1), ...picture, ...Array(300).fill(2)]);
+
 const tokens = new Map<string, string>();
 const emails: { to: string; subject: string; text: string }[] = [];
 const authEmails = new Map<string, string>(); // account id -> email Supabase knows
@@ -121,15 +129,33 @@ describe("an update scans only what changed", () => {
   });
 
   it("finds hidden pictures once, and doesn't read files again that aren't pictures", async () => {
-    await push("dev-1", "hop", { "index.html": "<!doctype html>", "data/level.bin": enc("level one"), "data/hidden.bin": picture("hidden") });
+    await push("dev-1", "hop", { "index.html": "<!doctype html>", "data/level.hdr": enc("level one"), "data/hidden.bin": picture("hidden") });
     expect(sentPaths).toEqual(["data/hidden.bin"]);
     const notMedia = await env.DB.prepare("SELECT is_media, provider FROM checked_files WHERE sha256 = ?").bind(await sha256Hex(enc("level one"))).first();
     expect(notMedia).toEqual({ is_media: 0, provider: null });
 
     sentPaths = [];
-    const second = await push("dev-1", "hop", { "index.html": "<!doctype html>", "data/level.bin": enc("level one"), "data/hidden.bin": picture("hidden") });
+    const second = await push("dev-1", "hop", { "index.html": "<!doctype html>", "data/level.hdr": enc("level one"), "data/hidden.bin": picture("hidden") });
     expect(sentPaths).toEqual([]);
     expect(second.report.images.reused_media_count).toBe(1);
+  });
+
+  it("matches pictures stored inside a pack, and doesn't search a cleared pack again", async () => {
+    const pack = packWith(png(1500));
+    await push("dev-1", "hop", { "index.html": "<!doctype html>", "index.pck": pack });
+    expect(sentPaths).toEqual(["index.pck (picture 1 inside)"]);
+
+    sentPaths = [];
+    const second = await push("dev-1", "hop", { "index.html": "<!doctype html>", "index.pck": pack });
+    expect(sentPaths).toEqual([]);
+    expect(second.report.images.reused_media_count).toBe(1);
+  });
+
+  it("holds a version whose pack holds a known picture", async () => {
+    flaggedPaths = ["game.data (picture 1 inside)"];
+    const held = await push("dev-1", "hop", { "index.html": "<!doctype html>", "game.data": packWith(png(2000)) });
+    expect(held.report.decision).toBe("held");
+    expect(held.report.findings.some((finding) => finding.code === KNOWN_IMAGE_CODE)).toBe(true);
   });
 
   it("never remembers a match, so it's found again", async () => {

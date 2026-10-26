@@ -219,6 +219,7 @@ export const REVIEW_CODES = {
   too_much_code: { meaning: "The game has more code than the review reads (about 19 MB of text), so a person at Zaisma looks first.", contentRule: null, fix: `${PERSON_LOOKS} Leaving unused files out keeps the next version under the limit.` },
   too_many_files_to_check: { meaning: "The game has more files than the scan checks for hidden pictures (5,000), so a person at Zaisma looks at the rest.", contentRule: null, fix: PERSON_LOOKS },
   too_many_images_to_check: { meaning: "The game has more pictures and videos than image matching checks (5,000), so a person at Zaisma looks at the rest.", contentRule: null, fix: PERSON_LOOKS },
+  too_many_pictures_inside_packs: { meaning: "The game's packs hold more pictures than image matching checks inside them (10,000), so the first 10,000 were matched.", contentRule: null, fix: "Nothing to change: nothing is held, this is a note." },
   image_matching_off: { meaning: "Image matching isn't connected, so a person at Zaisma approves each version.", contentRule: null, fix: PERSON_LOOKS },
   image_matching_failed: { meaning: "Image matching couldn't check every picture and video, so a person at Zaisma looks first.", contentRule: null, fix: PERSON_LOOKS },
   ai_review_off: { meaning: "AI review isn't set up, so a person at Zaisma approves each version.", contentRule: null, fix: PERSON_LOOKS },
