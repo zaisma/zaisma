@@ -43,6 +43,9 @@ import {
   KNOWN_IMAGE_CODE,
   MATCH_TYPES,
   MATROSKA_HEAD_BYTES,
+  MINIMUM_PACK_PICTURE_SIZE_BYTES,
+  PACK_EXTENSIONS,
+  PACK_WINDOW_SIZE_BYTES,
   SNIFF_BYTES,
   approveDraft,
   arachnidShield,
@@ -52,6 +55,7 @@ import {
   type PhotoDnaService,
   embeddedMedia,
   matroskaHasVideo,
+  picturesInside,
   sniffMedia,
   type MediaForMatching,
   blobKey,
@@ -83,6 +87,8 @@ const MAXIMUM_STATIC_TEXT_SIZE_BYTES = 40 * 1024 * 1024;
 export const MAXIMUM_MATCHED_MEDIA_COUNT = 5000;
 /** Most other files whose first bytes are read, to find pictures and videos under other names. More are held for a person. */
 export const MAXIMUM_SNIFFED_FILE_COUNT = 5000;
+/** Most pictures found inside packs that are matched per version; the rest pass, with a note. */
+export const MAXIMUM_PACK_PICTURE_COUNT = 10_000;
 
 export interface ScanDeps {
   images: ImageMatcher;
@@ -641,7 +647,8 @@ export type MediaMatchResult = ImageMatchResult & { reusedMediaCount: number };
  * called (a picture renamed .bin), and written into code as base64. Files are streamed from storage, so
  * a big video never sits in memory. Audio-only WebM files aren't sent. A file cleared in the last 30 days
  * by every matcher connected now isn't sent again, and one whose first bytes said it's no picture isn't
- * read again (checked_files), so an update sends only what changed.
+ * read again (checked_files), so an update sends only what changed. Pictures stored inside packs (Godot .pck,
+ * .glb, Emscripten .data, .wasm) are found and matched too; a pack whose pictures all cleared isn't searched again.
  */
 export async function matchMedia(env: Env, files: StoredFile[], texts: { path: string; text: string }[], disguised: MediaForMatching[], matcher: ImageMatcher, nowMs = Date.now()): Promise<MediaMatchResult> {
   if (matcher === notConnected) return { ...(await matcher.check([])), reusedMediaCount: 0 };
@@ -668,10 +675,22 @@ export async function matchMedia(env: Env, files: StoredFile[], texts: { path: s
   disguised.forEach(add);
   const stored = (file: StoredFile, type: string): MediaForMatching => ({ path: file.path, type, id: file.key, ...(file.sha256 ? { sha256: file.sha256 } : {}), body: () => streamFile(env, file.key) });
   const sniffedNotMedia: string[] = [];
+  const packs: StoredFile[] = [];
   let sniffedFileCount = 0;
   for (const file of files) {
     const extension = extensionOf(file.path);
     if (TEXT_EXTENSIONS.has(extension)) continue; // Read in full already.
+    if (PACK_EXTENSIONS.has(extension) && file.sizeBytes >= 4) {
+      // A pack is never remembered as "no picture": an old row like that is ignored, so it's searched inside once.
+      if (isCleared(file.sha256)) {
+        reusedMediaCount++;
+        continue;
+      }
+      const type = sniffMedia(await readStart(env, file.key, SNIFF_BYTES));
+      if (type && (type !== "video/webm" || matroskaHasVideo(await readStart(env, file.key, MATROSKA_HEAD_BYTES)))) media.push(stored(file, type));
+      else if (file.sizeBytes >= MINIMUM_PACK_PICTURE_SIZE_BYTES) packs.push(file);
+      continue;
+    }
     const named = MATCH_TYPES[extension];
     if (named && named !== "video/webm") {
       add(stored(file, named));
@@ -694,10 +713,56 @@ export async function matchMedia(env: Env, files: StoredFile[], texts: { path: s
   if (sniffedFileCount > MAXIMUM_SNIFFED_FILE_COUNT) findings.push({ stage: "images", severity: "hold", code: "too_many_files_to_check", message: `More than ${MAXIMUM_SNIFFED_FILE_COUNT} files that aren't code or pictures: the first ${MAXIMUM_SNIFFED_FILE_COUNT} were checked for hidden pictures, and a person should look at the rest.` });
   embedded.forEach(add);
   if (media.length > MAXIMUM_MATCHED_MEDIA_COUNT) findings.push({ stage: "images", severity: "hold", code: "too_many_images_to_check", message: `More than ${MAXIMUM_MATCHED_MEDIA_COUNT} pictures and videos: the first ${MAXIMUM_MATCHED_MEDIA_COUNT} were matched, and a person should look at the rest.` });
-  const sent = media.slice(0, MAXIMUM_MATCHED_MEDIA_COUNT);
+  const inside = await mediaInsidePacks(env, packs, isCleared);
+  reusedMediaCount += inside.reusedMediaCount;
+  if (inside.isCapped) findings.push({ stage: "images", severity: "info", code: "too_many_pictures_inside_packs", message: `More than ${MAXIMUM_PACK_PICTURE_COUNT} pictures inside packs: the first ${MAXIMUM_PACK_PICTURE_COUNT} were matched.` });
+  const sent = [...media.slice(0, MAXIMUM_MATCHED_MEDIA_COUNT), ...inside.media];
   const matchResult = await matcher.check(sent);
-  await saveCheckedFiles(env, sent, sniffedNotMedia, matchResult, nowMs);
+  const clearedPackHashes = isMatchFinished(matchResult) && !inside.isCapped ? packs.filter((pack) => pack.sha256 && !matchResult.findings.some((finding) => finding.path?.startsWith(`${pack.path} (picture `))).map((pack) => pack.sha256!) : [];
+  await saveCheckedFiles(env, sent, sniffedNotMedia, matchResult, nowMs, clearedPackHashes);
   return { ...matchResult, findings: [...findings, ...matchResult.findings], reusedMediaCount };
+}
+
+/**
+ * The pictures stored inside packs, read a window at a time so a big pack never sits in memory whole. Each is
+ * hashed while its window is read and read back by range when it's sent; one cleared earlier isn't sent again.
+ */
+async function mediaInsidePacks(env: Env, packs: StoredFile[], isCleared: (sha256: string | undefined) => boolean): Promise<{ media: MediaForMatching[]; reusedMediaCount: number; isCapped: boolean }> {
+  const media: MediaForMatching[] = [];
+  const seenHashes = new Set<string>();
+  let reusedMediaCount = 0;
+  for (const pack of packs) {
+    let pictureNumber = 0;
+    let windowStartIndex = 0;
+    while (windowStartIndex < pack.sizeBytes) {
+      const bytes = await readRange(env, pack.key, windowStartIndex, Math.min(PACK_WINDOW_SIZE_BYTES, pack.sizeBytes - windowStartIndex));
+      if (bytes.length === 0) break;
+      const { pictures, unfinishedStartIndex } = picturesInside(bytes);
+      for (const picture of pictures) {
+        const sizeBytes = picture.endIndex - picture.startIndex;
+        if (sizeBytes < MINIMUM_PACK_PICTURE_SIZE_BYTES) continue;
+        pictureNumber++;
+        const sha256 = await sha256Hex(bytes.subarray(picture.startIndex, picture.endIndex));
+        if (seenHashes.has(sha256)) continue;
+        seenHashes.add(sha256);
+        if (isCleared(sha256)) {
+          reusedMediaCount++;
+          continue;
+        }
+        if (media.length >= MAXIMUM_PACK_PICTURE_COUNT) return { media, reusedMediaCount, isCapped: true };
+        const pictureStartIndex = windowStartIndex + picture.startIndex;
+        media.push({ path: `${pack.path} (picture ${pictureNumber} inside)`, type: picture.type, id: `${pack.key}#${pictureStartIndex}`, sha256, body: () => readRange(env, pack.key, pictureStartIndex, sizeBytes) });
+      }
+      if (windowStartIndex + bytes.length >= pack.sizeBytes) break;
+      windowStartIndex += unfinishedStartIndex === null ? bytes.length : Math.max(1, unfinishedStartIndex);
+    }
+  }
+  return { media, reusedMediaCount, isCapped: false };
+}
+
+/** Whether every connected matcher finished: no finding about matching itself, only about pictures. */
+function isMatchFinished(matchResult: ImageMatchResult): boolean {
+  return matchResult.isConnected && !matchResult.findings.some((finding) => finding.stage === "images" && finding.severity !== "info" && !finding.path);
 }
 
 interface CheckedFileRow {
@@ -724,13 +789,13 @@ async function checkedFiles(env: Env, hashes: (string | undefined)[], nowMs: num
 
 /**
  * Remembers what this scan cleared: every picture and video sent that no finding names, when the matchers
- * finished, and every file whose first bytes said it's no picture. A known match is never recorded, so it's
- * always found again.
+ * finished, every pack whose pictures all cleared (as a cleared picture, so it isn't searched again), and every
+ * file whose first bytes said it's no picture. A known match is never recorded, so it's always found again.
  */
-async function saveCheckedFiles(env: Env, sent: MediaForMatching[], sniffedNotMedia: string[], matchResult: ImageMatchResult, nowMs: number): Promise<void> {
-  const isFinished = matchResult.isConnected && !matchResult.findings.some((finding) => finding.stage === "images" && finding.severity !== "info" && !finding.path);
+async function saveCheckedFiles(env: Env, sent: MediaForMatching[], sniffedNotMedia: string[], matchResult: ImageMatchResult, nowMs: number, clearedPackHashes: string[] = []): Promise<void> {
+  const isFinished = isMatchFinished(matchResult);
   const flaggedHashes = new Set(sent.filter((sentMedia) => matchResult.findings.some((finding) => finding.path === sentMedia.path)).map((sentMedia) => sentMedia.sha256));
-  const cleared = isFinished ? [...new Set(sent.map((sentMedia) => sentMedia.sha256).filter((hash): hash is string => !!hash && !flaggedHashes.has(hash)))] : [];
+  const cleared = isFinished ? [...new Set([...sent.map((sentMedia) => sentMedia.sha256).filter((hash): hash is string => !!hash && !flaggedHashes.has(hash)), ...clearedPackHashes])] : [];
   const upsert = "INSERT INTO checked_files (sha256, is_media, provider, checked_at_ms) VALUES (?, ?, ?, ?) ON CONFLICT (sha256) DO UPDATE SET is_media = excluded.is_media, provider = excluded.provider, checked_at_ms = excluded.checked_at_ms";
   const statements = [
     ...cleared.map((sha256) => env.DB.prepare(upsert).bind(sha256, 1, matchResult.provider, nowMs)),
@@ -749,7 +814,11 @@ async function streamFile(env: Env, key: string): Promise<ReadableStream> {
 }
 
 async function readStart(env: Env, key: string, sizeBytes: number): Promise<Uint8Array> {
-  const object = await env.GAMES.get(key, { range: { offset: 0, length: sizeBytes } });
+  return readRange(env, key, 0, sizeBytes);
+}
+
+async function readRange(env: Env, key: string, startIndex: number, sizeBytes: number): Promise<Uint8Array> {
+  const object = await env.GAMES.get(key, { range: { offset: startIndex, length: sizeBytes } });
   return object ? new Uint8Array(await object.arrayBuffer()) : new Uint8Array();
 }
 

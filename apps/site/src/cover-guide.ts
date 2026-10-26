@@ -62,7 +62,7 @@ ${figure("lava-leap-overlay.webp", "A shop panel, a Play button and an arrow lai
 </div>
 
 <h3>3. No fake rewards</h3>
-<p>Nothing promising free Robux, V-Bucks, gift cards or cash, on a cover, a screenshot or in the title. This one holds the game until a person looks.</p>
+<p>Nothing promising free Robux, V-Bucks, gift cards or cash, on a cover, a screenshot, or in the title or description. This one holds the game until a person looks.</p>
 <div class="guide-pair">
 ${figure("lava-leap-fake-reward.webp", "“FREE” and “5,000 ROBUX”: the game is held.", "not-fine")}
 </div>

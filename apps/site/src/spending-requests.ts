@@ -43,7 +43,7 @@ export async function askForSpending(env: Env, accountId: string, change: Spendi
   const statements = [
     env.DB.prepare("DELETE FROM spending_requests WHERE account_id = ? AND request_status = 'waiting' AND request_kind = ? AND game_id IS ?").bind(accountId, change.requestKind, gameId),
     // The most waiting at once: the 21st replaces the oldest.
-    env.DB.prepare("DELETE FROM spending_requests WHERE account_id = ? AND request_status = 'waiting' AND id IN (SELECT id FROM spending_requests WHERE account_id = ? AND request_status = 'waiting' ORDER BY created_at_ms DESC LIMIT -1 OFFSET ?)").bind(accountId, accountId, MAXIMUM_WAITING_COUNT - 1),
+    env.DB.prepare("DELETE FROM spending_requests WHERE account_id = ? AND request_status = 'waiting' AND id IN (SELECT id FROM spending_requests WHERE account_id = ? AND request_status = 'waiting' ORDER BY created_at_ms DESC, rowid DESC LIMIT -1 OFFSET ?)").bind(accountId, accountId, MAXIMUM_WAITING_COUNT - 1),
     env.DB.prepare(
       "INSERT INTO spending_requests (id, account_id, request_kind, game_id, monthly_budget_cents, is_automatic_top_up_enabled, top_up_below_cents, top_up_amount_cents, monthly_top_up_limit_cents, created_at_ms, expires_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     ).bind(

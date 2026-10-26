@@ -44,30 +44,40 @@ const PHONE_HOST = process.env.PREVIEW_PHONE_HOST || "";
 // Where the preview listens: this Mac only. Tailscale Serve holds the same ports on the Mac's tailnet address.
 const LOOPBACK = ["127.0.0.1", "::1"];
 const browserOrigin = (localHost, port) => (PHONE_HOST ? `https://${PHONE_HOST}:${port}` : `http://${localHost}:${port}`);
+const localOrigin = (localHost, port) => `http://${localHost}:${port}`;
 const SITE = browserOrigin("localhost", PORTS.site);
+const LOCAL_SITE = localOrigin("localhost", PORTS.site);
 // Games on another site than Zaisma's pages, as in production (zaisma.com and the game domain): 127.0.0.1 isn't localhost to a browser, so
 // a game or its background runs in a process of its own, and nothing it does can stall the page round it, here as for players.
 // On a phone they share the tailnet name, another origin on another port but the same site.
 const GAMES = browserOrigin("127.0.0.1", PORTS.games);
+const LOCAL_GAMES = localOrigin("127.0.0.1", PORTS.games);
 const ROOMS = browserOrigin("localhost", PORTS.rooms);
+const LOCAL_ROOMS = localOrigin("localhost", PORTS.rooms);
 // The rooms' own name in the passes they sign, which game servers on this Mac check (isZaismaIssuer): always this Mac's.
 const ROOMS_ISSUER = `http://localhost:${PORTS.rooms}`;
 // The stand-in mailbox the site sends email codes to (fake-mail.mjs): open it to read them.
 const MAIL = browserOrigin("localhost", PORTS.mail);
-// This script's own calls (test data, waiting for the servers) go straight to the servers here, not round the tailnet: the
-// router sees every request as sent to the phone address anyway. They're marked as this script's (the router's
-// PREVIEW_SCRIPT_HEADER), so their answers name the tailnet address, as a browser there sees them, not localhost.
+// On the tailnet, a browser on this Mac can open the preview at localhost too (a session's checks in the app's browser pane,
+// which asks before every step anywhere else): a request sent there gets these settings in place of the tailnet's
+// (workers/addresses.mjs), so its links, redirects, frames and rooms stay on localhost, the games on 127.0.0.1.
+const localSettings = (settings) => (PHONE_HOST ? { PREVIEW_LOCAL_SETTINGS: JSON.stringify(settings) } : {});
+// This script's own calls (test data, waiting for the servers) go straight to the servers here, not round the tailnet. Those
+// that name the tailnet address, as most do, are marked as this script's (the router's PREVIEW_SCRIPT_HEADER), so their
+// answers name the tailnet address, as a browser there sees them; one sent to localhost (Sky Hopper's) is answered at localhost.
 if (PHONE_HOST) {
   const fetchHere = globalThis.fetch;
   const PREVIEW_SCRIPT_HEADER = "x-preview-script";
+  const TAILNET = `https://${PHONE_HOST}:`;
   globalThis.fetch = (input, init) => {
+    const headers = new Headers(input instanceof Request ? input.headers : init?.headers);
+    const isTailnet = String(input instanceof Request ? input.url : input).startsWith(TAILNET) || Boolean(headers.get("origin")?.startsWith(TAILNET));
     if (input instanceof Request) {
-      input.headers.set(PREVIEW_SCRIPT_HEADER, "1");
+      if (isTailnet) input.headers.set(PREVIEW_SCRIPT_HEADER, "1");
       return fetchHere(input, init);
     }
-    const headers = new Headers(init?.headers);
-    headers.set(PREVIEW_SCRIPT_HEADER, "1");
-    return fetchHere(String(input).replace(`https://${PHONE_HOST}:`, "http://localhost:"), { ...init, headers });
+    if (isTailnet) headers.set(PREVIEW_SCRIPT_HEADER, "1");
+    return fetchHere(String(input).replace(TAILNET, "http://localhost:"), { ...init, headers });
   };
 }
 // The feedback layer on every page (feedback-server.mjs): the site's preview entry sends /__preview/feedback/* here.
@@ -112,7 +122,7 @@ if (!existsSync(signInKeyFile)) {
   writeFileSync(signInKeyFile, JSON.stringify({ kty, n, e, d, p, q, dp, dq, qi }));
 }
 const siteSettings = {
-  SITE_ORIGIN: SITE, SIGN_IN_SIGNING_KEY: readFileSync(signInKeyFile, "utf8"), GAME_ORIGIN: GAMES, GAME_HOST_MODE: "path", GAME_DOMAIN: "", DEV_ADMIN: "1", SUPABASE_URL: `http://localhost:${PORTS.auth}`, SUPABASE_SECRET_KEY: "preview", KEEP_OFFER_SECONDS: "20", TOO_YOUNG_BLOCK_SECONDS: "0",
+  SITE_ORIGIN: SITE, ...localSettings({ SITE_ORIGIN: LOCAL_SITE, GAME_ORIGIN: LOCAL_GAMES }), SIGN_IN_SIGNING_KEY: readFileSync(signInKeyFile, "utf8"), GAME_ORIGIN: GAMES, GAME_HOST_MODE: "path", GAME_DOMAIN: "", DEV_ADMIN: "1", SUPABASE_URL: `http://localhost:${PORTS.auth}`, SUPABASE_SECRET_KEY: "preview", KEEP_OFFER_SECONDS: "20", TOO_YOUNG_BLOCK_SECONDS: "0",
   // Runs in Chrome wait 30 seconds for a first frame, not 120: the local Chrome can't start a threaded game at all (its game frame
   // can't be isolated), and every engine sample that can start draws within 5 on GitHub's runners.
   PERFORMANCE_CHECK_MAXIMUM_RUN_DURATION_SEC: "30",
@@ -136,7 +146,7 @@ const siteSettings = {
     STRIPE_CONNECT_CLIENT_ID: "ca_test_preview", STRIPE_CONNECT_EVENTS_SECRET: "whsec_test_connect_preview", STRIPE_PRO_PRICE_ID: "price_test_preview",
   }),
 };
-const gamesSettings = { SITE_ORIGIN: SITE, GAME_HOST_MODE: "path", GAME_DOMAIN: "", ROOMS_ORIGIN: ROOMS };
+const gamesSettings = { SITE_ORIGIN: SITE, GAME_HOST_MODE: "path", GAME_DOMAIN: "", ROOMS_ORIGIN: ROOMS, ...localSettings({ SITE_ORIGIN: LOCAL_SITE, ROOMS_ORIGIN: LOCAL_ROOMS }) };
 // Multiplayer rooms, with their own pass and receipt signing keys kept between runs so passes and receipts stay valid.
 async function keptSigningKey(file) {
   if (!existsSync(file)) {
@@ -149,7 +159,7 @@ async function keptSigningKey(file) {
 // And the key for the opaque player tags in passes, kept between runs so tags stay the same.
 const playerTagKeyFile = join(STATE, "rooms-player-tag-key.txt");
 if (!existsSync(playerTagKeyFile)) writeFileSync(playerTagKeyFile, Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64"));
-const roomsSettings = { ISSUER: ROOMS_ISSUER, SITE_ORIGIN: SITE, GAME_HOST_MODE: "path", GAME_ORIGIN: GAMES, GAME_DOMAIN: "", PASS_SIGNING_KEY: await keptSigningKey(join(STATE, "rooms-key.json")), RECEIPT_SIGNING_KEY: await keptSigningKey(join(STATE, "receipt-key.json")), PLAYER_TAG_KEY: readFileSync(playerTagKeyFile, "utf8") };
+const roomsSettings = { ISSUER: ROOMS_ISSUER, SITE_ORIGIN: SITE, GAME_HOST_MODE: "path", GAME_ORIGIN: GAMES, GAME_DOMAIN: "", ...localSettings({ SITE_ORIGIN: LOCAL_SITE, GAME_ORIGIN: LOCAL_GAMES }), PASS_SIGNING_KEY: await keptSigningKey(join(STATE, "rooms-key.json")), RECEIPT_SIGNING_KEY: await keptSigningKey(join(STATE, "receipt-key.json")), PLAYER_TAG_KEY: readFileSync(playerTagKeyFile, "utf8") };
 
 const children = [];
 const stop = () => {
@@ -452,14 +462,15 @@ startFakeDns(PORTS.dns);
 startFakeMail(PORTS.mail, STATE);
 startFakeTurnstile(PORTS.turnstile);
 if (!STRIPE_TEST_VARS) startFakeStripe(PORTS.stripe);
-startFakeSite(PORTS.signInSite, SITE, SIGN_IN_APP_ID, SIGN_IN_APP_SECRET, MCP_CLIENT_ID);
+// Sky Hopper is on this Mac only (its port isn't on the tailnet), so it signs in at localhost.
+startFakeSite(PORTS.signInSite, LOCAL_SITE, SIGN_IN_APP_ID, SIGN_IN_APP_SECRET, MCP_CLIENT_ID);
 writeFileSync(join(STATE, "feedback.log"), "");
 // workers/router.mjs comes first in the one wrangler dev and sends each port's requests to its Worker.
 const routerConfig = writeConfig("router", {
   name: "zaisma-preview-router",
   main: join(ROOT, "scripts/preview/workers/router.mjs"),
   compatibility_date: "2026-10-01",
-  vars: { SITE_PORT: String(PORTS.site), GAMES_PORT: String(PORTS.games), ROOMS_PORT: String(PORTS.rooms), MAIL_PORT: String(PORTS.mail), PHONE_HOST },
+  vars: { SITE_PORT: String(PORTS.site), GAMES_PORT: String(PORTS.games), ROOMS_PORT: String(PORTS.rooms), PHONE_HOST },
   services: [{ binding: "SITE", service: "zaisma-site" }, { binding: "GAMES", service: "zaisma-games" }, { binding: "ROOMS", service: "zaisma-rooms" }],
 });
 const configs = [routerConfig, previewConfig("site", siteSettings), previewConfig("games", gamesSettings), previewConfig("rooms", roomsSettings), previewConfig("compress", {})];
@@ -714,12 +725,13 @@ Zaisma preview is running. Nothing here touches the live site.
                   the admin MCP's list_security_spikes and list_blocked_scripts have this hour's
   Who and where   ${SITE}/dashboard/shard-dodge  (Recent history: a key's upload from a new place) and
                   ${SITE}/dashboard/tiny-farm  (Your AI's database writes, folded)
-  Confirm it's you  ${SITE}/account#developer  (as Key_Maker, no passkey yet: Make an API key opens on First, add a passkey;
-                  the browser pane may not offer one, so use Touch ID in your own browser), ${SITE}/account#signing-in
-                  (as Preview_Studio: only a passkey confirms, with Lost your passkeys? for the password, which adds
-                  one that waits a day), ${SITE}/account#passkeys and ${SITE}/account#developer (as Waiting_Key: its
-                  newest passkey waits; waiting@example.test got the email in the mailbox) and ${SITE}/account#delete-account
-                  (the delete form is behind Confirm it's you)
+  Confirm it's you  ${SITE}/account#signing-in  (the popup, over the account page: press Change on Password, Add on Email, Download your
+                  data or Delete my account once and it asks for the password, then goes on by itself. As Preview_Studio it
+                  asks for a passkey only, so check it on your own device), ${SITE}/account#developer (as Key_Maker, no passkey
+                  yet: Make an API key opens on First, add a passkey; the browser pane may not offer one, so use Touch ID in
+                  your own browser. With a passkey, Make the key opens the popup and the browser asks at once),
+                  ${SITE}/account#passkeys (as Waiting_Key: its newest passkey waits; waiting@example.test got the email in the
+                  mailbox; Add a passkey asks for the passkey or the password, and a password's passkey waits a day)
   Friends         ${SITE}/friends  (friends online: Moss_Runner playing Shard Dodge, Kit_Spark in a
                   full Four in a Row room, Quiet_Comet on a game that isn't out yet, Swift_Otter in a private Arena
                   room, Red_Lantern in Cave Crew, which doesn't take joins; Appear offline at the top;
@@ -2047,7 +2059,7 @@ async function seedConfirmItsYou() {
     // A new browser with only the password: it can add a passkey after confirming, but that one waits.
     const again = poster("198.51.100.242");
     await again("/signin", { username: "Waiting_Key", password: PASSWORD, turnstile_token: TURNSTILE_TOKEN });
-    await again("/account/confirm", { password: PASSWORD });
+    await again("/api/account/confirm", JSON.stringify({ password: PASSWORD }));
     await addSoftwarePasskey(again, newSoftwarePasskey(new URL(SITE).hostname, SITE));
   }
   if (!(await isMade("New_Passkey"))) {

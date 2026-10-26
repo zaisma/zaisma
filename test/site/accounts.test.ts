@@ -3098,10 +3098,15 @@ async function tapFor(b: Browser, device: Device, purpose: "confirm" | "key") {
   return device.get(String(options.data.challenge));
 }
 
-/** Confirm it's you with a tap, as the account page's button does. */
+/** A tap as the popup sends it (components/confirm-its-you.ts): snake_case, in passkey_tap. */
+const tapBody = (tap: { id: string; clientDataJSON: string; authenticatorData: string; signature: string }) => ({
+  passkey_tap: { passkey_id: tap.id, client_data_json: tap.clientDataJSON, authenticator_data: tap.authenticatorData, signature: tap.signature, user_handle: "" },
+});
+
+/** Confirm it's you with a tap, as the account page's popup does. */
 async function confirmWith(b: Browser, device: Device) {
   const tap = await tapFor(b, device, "confirm");
-  return api(b, "/api/passkeys/confirm", { ...tap, userHandle: "" });
+  return api(b, "/api/account/confirm", tapBody(tap));
 }
 
 /** Make an API key as the account page does: a tap made for the key, sent with the form. */
@@ -3201,19 +3206,27 @@ describe("passkeys", () => {
     await join(b);
     await signIn(b, { username: "Night_Owl", password: PASSWORD });
     await ageProofs();
+    // Every action is on the page, its button asking in the popup when pressed, with the password for the way (no passkey on the account).
     const page = await (await b.go("/account")).text();
-    expect(page).toContain('action="/account/confirm"');
-    expect(page).toContain('autocomplete="current-password"');
-    expect(page).not.toContain('id="passkey-add"');
-    expect(page).not.toContain('action="/account/password"');
+    expect(page).toContain('id="account-confirm"');
+    expect(page).toContain('"strong_methods":["password"]');
+    expect(page).toContain('"is_confirmed_for_ms":0');
+    expect(page).toMatch(/<form[^>]*action="\/account\/password"[^>]*data-confirm="strong"/);
+    expect(page).toMatch(/<form[^>]*action="\/account\/delete"[^>]*data-confirm="strong"/);
+    expect(page).toMatch(/<a[^>]*href="\/account\/data\.zip"[^>]*data-confirm="strong"/);
+    expect(page).toContain('id="passkey-add"');
+    expect(page).not.toContain('action="/account/confirm"');
     expect((await api(b, "/api/passkeys/add/options")).data).toMatchObject({ confirm: true });
     for (const [path, form] of [["/account/password", { password: "another fine password" }], ["/account/email", { email: "new@example.com" }], ["/account/email/remove", {}]] as const) {
       expect((await b.go(path, form)).headers.get("location")).toBe("/account?confirm-first#signing-in");
     }
 
-    expect(await (await b.go("/account/confirm", { password: "not my password" })).text()).toContain("That password isn&#39;t right.");
-    expect((await b.go("/account/confirm", { password: PASSWORD })).headers.get("location")).toBe("/account?confirmed#signing-in");
-    expect(await (await b.go("/account?confirmed")).text()).toContain("Thanks, that&#39;s you.");
+    expect(await api(b, "/api/account/confirm", { password: "not my password" })).toEqual({ status: 403, data: { error: "That password isn't right." } });
+    expect(await api(b, "/api/account/confirm", {})).toEqual({ status: 400, data: { error: "Send a passkey_tap or a password." } });
+    expect(await api(b, "/api/account/confirm", { password: PASSWORD })).toEqual({ status: 200, data: { is_confirmed: true } });
+    // The page now holds what the proof has left, so the popup stays shut for the next press.
+    expect(await (await b.go("/account")).text()).toMatch(/"is_confirmed_for_ms":(5\d{5}|6\d{5})/);
+    expect((await b.go("/account/password", { password: "another fine password" })).headers.get("location")).toBe("/account?password-saved#signing-in");
     await addPasskey(b);
   });
 
@@ -3288,16 +3301,17 @@ describe("Confirm it's you", () => {
     expect(await env.DB.prepare("SELECT COUNT(*) AS passkey_count FROM passkeys").first()).toEqual({ passkey_count: 1 });
     expect(await env.DB.prepare("SELECT COUNT(*) AS account_count FROM accounts").first()).toEqual({ account_count: 1 });
     const page = await (await other.go("/account")).text();
-    expect(page).toContain('id="passkey-confirm"');
-    expect(page).toContain("Lost your passkeys?");
-    expect(page).not.toContain('action="/account/delete"');
-    expect(page).toContain("Confirm it's you above");
+    // The passkey is the way for what's risky; the password only for adding a passkey (which waits a day).
+    expect(page).toContain('"strong_methods":["passkey"]');
+    expect(page).toContain('"add_methods":["passkey","password"]');
+    expect(page).toMatch(/<form[^>]*action="\/account\/delete"[^>]*data-confirm="strong"/);
+    expect(page).not.toContain('id="confirm"');
   });
 
   it("a passkey tap confirms it, for 10 minutes", async () => {
     const { device, other } = await accountWithPasskey();
     const confirmed = await confirmWith(other, device);
-    expect(confirmed).toEqual({ status: 200, data: { next: "/account?confirmed#signing-in" } });
+    expect(confirmed).toEqual({ status: 200, data: { is_confirmed: true } });
     expect((await other.go("/account/password", { password: "another fine password" })).headers.get("location")).toBe("/account?password-saved#signing-in");
     await ageProofs();
     expect((await other.go("/account/password", { password: "one more fine password" })).headers.get("location")).toBe(confirmFirst);
@@ -3307,14 +3321,14 @@ describe("Confirm it's you", () => {
     const { b, device, other } = await accountWithPasskey();
     // A tap made for a key isn't one for confirming it's you.
     const forKey = await tapFor(other, device, "key");
-    expect((await api(other, "/api/passkeys/confirm", { ...forKey, userHandle: "" })).status).toBe(400);
+    expect((await api(other, "/api/account/confirm", tapBody(forKey))).status).toBe(403);
     expect((await other.go("/account/password", { password: "another fine password" })).headers.get("location")).toBe(confirmFirst);
 
     // A challenge works once.
     const tap = await tapFor(other, device, "confirm");
-    expect((await api(other, "/api/passkeys/confirm", { ...tap, userHandle: "" })).status).toBe(200);
+    expect((await api(other, "/api/account/confirm", tapBody(tap))).status).toBe(200);
     await ageProofs();
-    expect((await api(other, "/api/passkeys/confirm", { ...tap, userHandle: "" })).status).toBe(400);
+    expect((await api(other, "/api/account/confirm", tapBody(tap))).status).toBe(403);
     expect((await other.go("/account/password", { password: "another fine password" })).headers.get("location")).toBe(confirmFirst);
 
     // A passkey of another account signs this account's challenge.
@@ -3323,7 +3337,7 @@ describe("Confirm it's you", () => {
     const strangerDevice = await addPasskey(stranger);
     const { data } = await api(other, "/api/passkeys/tap/options", { purpose: "confirm" });
     const wrong = await strangerDevice.get(String(data.challenge));
-    expect((await api(other, "/api/passkeys/confirm", { ...wrong, userHandle: "" })).status).toBe(400);
+    expect((await api(other, "/api/account/confirm", tapBody(wrong))).status).toBe(403);
     expect((await other.go("/account/password", { password: "another fine password" })).headers.get("location")).toBe(confirmFirst);
     // And the signed-in browser's own proof still works for it.
     expect((await confirmWith(b, device)).status).toBe(200);
@@ -3370,6 +3384,8 @@ describe("Confirm it's you", () => {
     expect(ready).toContain('data-tap="key"');
     expect(ready).toContain('name="passkey_id"');
     expect(ready).not.toContain("Making a key needs your passkey");
+    // Make the key asks for the passkey in the Confirm it's you popup.
+    expect(ready).toContain('id="settings-confirm"');
     expect(await (await makeKey(b, device)).text()).toContain("Your new key");
   });
 
@@ -3387,8 +3403,8 @@ describe("Confirm it's you", () => {
   it("a passkey added through the password after losing them waits a day, and the email is told", async () => {
     const { device: oldDevice, other } = await accountWithPasskey();
     // The password only lets this browser add a passkey, and the page says so.
-    expect((await other.go("/account/confirm", { password: PASSWORD })).headers.get("location")).toBe("/account?confirmed-to-add#passkeys");
-    expect(await (await other.go("/account?confirmed-to-add")).text()).toContain("It can make API keys and change how you sign in from tomorrow.");
+    expect(await api(other, "/api/account/confirm", { password: PASSWORD })).toEqual({ status: 200, data: { is_confirmed: true } });
+    for (const [path, form] of RISKY) expect((await other.go(path, form)).headers.get("location"), path).toBe(confirmFirst);
     const emailCount = emails.length;
     const newDevice = await addPasskey(other, new Device(), true);
     const waiting = await env.DB.prepare("SELECT approves_from_at_ms FROM passkeys WHERE id = ?").bind(passkeyIdOf(newDevice)).first<{ approves_from_at_ms: number }>();
@@ -3547,7 +3563,7 @@ describe("Confirm it's you", () => {
     await signInByEmail(viaCode, "owl@example.com", back);
     const page = await (await viaCode.go(back)).text();
     expect(page).not.toContain('<dialog id="new-password"');
-    expect(page).toContain('id="passkey-confirm"');
+    expect(page).toContain('"strong_methods":["passkey"]');
     expect((await viaCode.go("/account/password", { password: "a brand new password" })).headers.get("location")).toBe(confirmFirst);
   });
 
@@ -3857,14 +3873,16 @@ describe("protect your account", () => {
     expect(page).not.toContain(PROTECT_LINE);
   });
 
-  it("says where to confirm when adding has to wait for Confirm it's you", async () => {
+  it("shows adding a passkey and an email asking in the popup when the proof ran out", async () => {
     const b = new Browser();
     await join(b, null);
     const id = await idOf("Night_Owl");
     await env.DB.prepare("UPDATE session_proofs SET proved_at_ms = 0 WHERE account_id = ?").bind(id).run();
     const page = await (await b.go("/account")).text();
-    expect(page).toContain('id="confirm"');
-    expect(page.match(/<a href="#confirm">Confirm it's you<\/a> above to add one\./g)).toHaveLength(2);
+    expect(page).toContain('id="passkey-add"');
+    expect(page).toContain('"add_methods":["password"]');
+    expect(page).toMatch(/<form[^>]*action="\/account\/email"[^>]*data-confirm="strong"/);
+    expect(page).not.toContain("Confirm it's you</a> above to add one.");
   });
 });
 
@@ -4136,7 +4154,7 @@ describe("security alerts on the account page and dashboard", () => {
     await createApiKey(env.DB, id, "CI");
     await ageProofs();
     const page = await (await owner.go("/account")).text();
-    expect(page).toMatch(/id="email-ask"[\s\S]*href="\/account\?confirm-first#confirm"/);
+    expect(page).toMatch(/id="email-ask"[\s\S]*action="\/account\/email"[^>]*data-confirm="strong"/);
   });
 });
 
@@ -4221,8 +4239,8 @@ describe("download your data", () => {
     await ageProofs();
     expect((await b.go("/account/data.zip")).headers.get("location")).toBe("/account?confirm-first#signing-in");
     const page = await (await b.go("/account")).text();
-    expect(page).not.toContain('href="/account/data.zip"');
-    expect(page).toContain("then you can download your data here");
+    // The link is there, and pressing it asks in the popup first.
+    expect(page).toMatch(/<a[^>]*href="\/account\/data\.zip"[^>]*data-confirm="strong"/);
     expect((await new Browser().go("/account/data.zip")).headers.get("location")).toMatch(/^\/signin/);
   });
 

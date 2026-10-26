@@ -126,7 +126,7 @@ describe("the site's script files", () => {
 
   it("are each loaded by some page", () => {
     // A script no page loads is left over; pages behind a sign-in load the rest, in accounts.test.ts.
-    const signedInOnly = ["developer-settings", "payments-amounts", "access-choices", "connect-app", "keys-check", "new-password", "passkey-add", "passkey-confirm", "social-settings", "local-times", "upload", "friends", "joined", "back-to-app", "show-password", "username-check", "protect-account", "qr-png", "background-preview"];
+    const signedInOnly = ["developer-settings", "payments-amounts", "access-choices", "connect-app", "keys-check", "new-password", "passkey-add", "account-confirm", "social-settings", "local-times", "upload", "friends", "joined", "back-to-app", "show-password", "username-check", "protect-account", "qr-png", "background-preview"];
     // Screens (components/screens.ts) puts these in each page it shows, rather than a page linking them.
     const putInByScreens = ["layout-measure", "layout-inspect"];
     const names = new Set([...loaded].map((path) => path.slice("/js/".length).replace(/\.[0-9a-f]{16}\.js$/, "")));

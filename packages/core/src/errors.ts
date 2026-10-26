@@ -234,7 +234,7 @@ export const ERROR_CODES = {
   no_post: { httpStatus: 404, meaning: "There's no post with that ID you can see in the topic." },
   no_known_issue: { httpStatus: 404, meaning: "There's no known issue with that ID." },
   no_media: { httpStatus: 404, meaning: "There's no image there you can see." },
-  bad_tab: { httpStatus: 400, meaning: "tab isn't latest, top, unanswered, known, yours or messages." },
+  bad_tab: { httpStatus: 400, meaning: "tab isn't latest, top, unanswered, known, yours, messages or bookmarks." },
   bad_section: { httpStatus: 400, meaning: "section isn't one of the forum's sections." },
   bad_category: { httpStatus: 400, meaning: "category isn't one of the forum's categories." },
   no_category: { httpStatus: 400, meaning: "A public topic was sent without its category." },

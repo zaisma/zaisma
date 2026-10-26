@@ -1,9 +1,11 @@
 // The site Worker as the preview runs it: unchanged, except database calls are tried again when
-// another preview server has the database locked (retry-when-locked.mjs), developers' calls
+// another preview server has the database locked (retry-when-locked.mjs), a request at localhost gets the site's
+// settings at localhost (addresses.mjs), developers' calls
 // (DEV_LIMIT, FILE_LIMIT) have no rate limit, so seeding the test data never waits on a 429, the Brotli
 // jobs it queues are noted (notingCompressJobs, below), and every page gets the feedback overlay (withFeedback). Production keeps its limits and never has the
 // overlay: this file is only the preview's entry.
 import site from "../../../apps/site/src/index.ts";
+import { environmentAt } from "./addresses.mjs";
 import { workerRetryingWhenLocked } from "./retry-when-locked.mjs";
 
 export * from "../../../apps/site/src/index.ts";
@@ -66,7 +68,7 @@ async function withFeedback(request, environment, answerPage, answer) {
 export default workerRetryingWhenLocked({
   ...site,
   fetch: (request, environment, context) => {
-    const answer = (asked) => site.fetch(asked, unlimitedDeveloperCalls(environment), context);
+    const answer = (asked) => site.fetch(asked, unlimitedDeveloperCalls(environmentAt(asked, environment)), context);
     return withFeedback(request, environment, () => answer(request), answer);
   },
 });

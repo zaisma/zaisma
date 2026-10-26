@@ -35,12 +35,12 @@
     "@puppeteer/browsers": "3.2.5"
   },
   "devDependencies": {
-    "@cloudflare/vitest-plugin": "^1.4.0",
+    "@cloudflare/vitest-plugin": "^1.4.8",
     "@cloudflare/workers-types": "^5.20261011.1",
     "@types/ws": "8.18.1",
     "esbuild": "^0.28.2",
     "typescript": "^5.9.3",
-    "vitest": "^4.1.11",
-    "wrangler": "^4.149.0"
+    "vitest": "^4.1.12",
+    "wrangler": "^4.153.0"
   }
 }

@@ -2505,6 +2505,27 @@ describe("mistakes in a game server's code are coded errors", () => {
     }
   });
 
+  it("runs stateView with a copy of the viewer and a room that changes nothing", () => {
+    const { t, sent } = transport();
+    const game = defineGameServer({
+      setup: () => ({}),
+      stateSyncEnabled: true,
+      stateView: (_state, viewer, room) => {
+        (viewer as { name: string }).name = "changed";
+        for (const run of [() => room.broadcast("x"), () => room.kick("bo"), () => room.end("bye")]) thrownBy(run);
+        return {};
+      },
+      onMessage: () => {},
+    });
+    const room = new RoomCore(game, t);
+    room.join(player("ana"));
+    room.join(player("bo"));
+    room.receive("ana", msg("go"));
+    expect(sent.ana!.some((message) => message.type === "message" || message.type === "ended" || message.type === "kicked")).toBe(false);
+    expect(sent.bo!.some((message) => message.type === "kicked" || message.type === "ended")).toBe(false);
+    expect(room.players.get("ana")!.name).toBe(player("ana").name);
+  });
+
   it("cut room.end's message to the kick message limit", () => {
     const { t, sent } = transport();
     const room = new RoomCore(defineGameServer({ setup: () => ({}), onMessage: (_state, _player, room) => room.end("x".repeat(500)) }), t);

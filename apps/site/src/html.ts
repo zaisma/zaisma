@@ -451,7 +451,9 @@ main.steel > .page-action { display: flex; justify-content: flex-end; margin: 0 
  * one with not-steel) gets them all.
  */
 export const SITE_STYLE = pageStyle("site", () => COMPONENT_STYLES().replace(/\/\*[\s\S]*?\*\//g, "") + SHELL_STYLES);
-export const STEEL_SITE_STYLE = pageStyle("site-steel", () => SYSTEM_STYLES() + SHELL_STYLES + STEEL_STYLES);
+/** A component placed in an old body (not-steel) keeps its own look: Steel's headings carry a shadow and a letter spacing it never asked for. */
+const NOT_STEEL_RESETS = ".not-steel :is(h1, h2, h3) { text-shadow: none; letter-spacing: normal; }";
+export const STEEL_SITE_STYLE = pageStyle("site-steel", () => SYSTEM_STYLES() + SHELL_STYLES + STEEL_STYLES + NOT_STEEL_RESETS);
 
 /** Whether a page's markup has Steel in it: a body not rebuilt yet (class steel), or a component placed in one (not-steel). */
 export const hasSteel = (markup: string): boolean => /\bclass="[^"]*\b(?:not-)?steel\b/.test(markup);
