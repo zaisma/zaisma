@@ -71,7 +71,7 @@ export async function benchPageHtml(view: BenchView, frame: FrameAttributes): Pr
       ...view.accounts.map((account) => ({ label: account.username, href: "#", icon: "person" as const, isCurrent: view.playingAs === account.id, dataAttributes: { "bench-as": account.id } })),
     ],
   });
-  const benchSheet = (id: string, title: string, name: SheetName) => sheet({ id, title, closeLabel: "Close", placement: "foot", body: html`<div id="${id}-body">${sheetMarkup(name, view)}</div>` });
+  const benchSheet = (id: string, title: string, name: SheetName) => sheet({ id, title, closeLabel: "Close", placement: "foot", isCompact: true, body: html`<div id="${id}-body">${sheetMarkup(name, view)}</div>` });
   // As on the game page: the bar, menus and sheets in <main>, the game's frame beside it in the body (the playing styles show those alone).
   const body = html`<main>${playingBar({ title: `${view.gameSlug}: test bench`, controls })}
 ${whoMenu}
