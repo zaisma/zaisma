@@ -278,6 +278,8 @@ interface ListRowParts {
   lead?: Raw;
   /** What sits at its end: a Tag (a version's state is VERSION_STATE_TAGS') or a few words. */
   end?: Raw | string;
+  /** A Usage meter's track under its lines, its numbers said in the detail: a game's hosting this month. */
+  meter?: UsageMeterOptions;
   /** The gallery's fixed states. */
   state?: "is-pointed" | "is-pressed" | "is-focused";
   /**
@@ -303,7 +305,7 @@ export function listRows(options: { rows: ListRow[]; id?: string; label?: string
   const cap = options.shownRowCount ? html` style="--shown-row-count:${String(options.shownRowCount)}"` : "";
   return html`<ul class="list-rows${options.shownRowCount ? " is-capped" : ""}"${cap}${options.id ? html` id="${options.id}"` : ""}${options.label ? html` aria-label="${options.label}"` : ""}>${options.rows.map((row) => {
     const details = [row.detail, row.secondDetail].filter((line): line is string => Boolean(line));
-    const inside = html`${row.lead ? html`<span class="list-row-lead">${row.lead}</span>` : ""}<span class="list-row-words"><span class="list-row-title">${row.title}</span>${details.map((line) => html`<span class="list-row-detail">${factLine(line, "list-row-fact")}</span>`)}</span>${row.end !== undefined ? html`<span class="list-row-end">${row.end}</span>` : ""}`;
+    const inside = html`${row.lead ? html`<span class="list-row-lead">${row.lead}</span>` : ""}<span class="list-row-words"><span class="list-row-title">${row.title}</span>${details.map((line) => html`<span class="list-row-detail">${factLine(line, "list-row-fact")}</span>`)}${row.meter ? html`<span class="list-row-meter">${usageTrack(row.meter)}</span>` : ""}</span>${row.end !== undefined ? html`<span class="list-row-end">${row.end}</span>` : ""}`;
     return html`<li${row.isHidden ? raw(" hidden") : ""}>${row.href
       ? html`<a class="list-row is-link${row.state ? ` ${row.state}` : ""}" href="${row.href}"${row.isNewTab ? raw(' target="_blank" rel="noopener noreferrer"') : ""} data-cut-line="8">${CUT_LINE}${inside}<span class="list-row-go${row.isNewTab ? " is-new-tab" : ""}" aria-hidden="true">${icon(row.isNewTab ? "out-of-page" : "chevron-right")}</span></a>`
       : html`<div class="list-row">${inside}${row.action ? html`<span class="list-row-action">${Array.isArray(row.action) ? rowOf(row.action) : row.action}</span>` : ""}</div>`}</li>`;
@@ -333,18 +335,21 @@ component({
 .list-rows.is-capped { --list-row-height: 65px; max-height: calc((var(--shown-row-count) + 0.5) * var(--list-row-height)); overflow-y: auto; }
 /* With its rail showing (the rail lies along its right edge), the rows keep clear of it, so a row's button never sits against the rail. */
 .list-rows.is-capped.shows-rail { padding-right: calc(var(--pad-frame) + 8px); }
-.list-row { position: relative; display: flex; align-items: center; gap: var(--gap-words-control); min-height: 60px; padding: 10px var(--pad-inside-words); color: var(--ink); text-decoration: none; }
+.list-row { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-words-control); min-height: 60px; padding: 10px var(--pad-inside-words); color: var(--ink); text-decoration: none; }
 .list-row.is-link { --face-color: transparent; background: var(--face-color); clip-path: var(--cut-shape); transition: --face-color 0.15s; -webkit-tap-highlight-color: transparent; }
 .list-row > :not(.cut-line) { position: relative; z-index: 2; }
 .list-row-lead { flex: none; display: inline-flex; color: var(--ink-2); }
 .list-row-lead > .ico { width: 20px; height: 20px; }
-.list-row-words { display: grid; gap: var(--gap-words-words); min-width: 0; flex: 1; }
-/* A long title wraps rather than being cut short. */
-.list-row-title { font: var(--type-label); color: var(--ink); overflow-wrap: break-word; }
+/* The words keep a card's width at least: where the buttons don't fit beside that, they go under the words, at the row's end. */
+.list-row-words { display: grid; gap: var(--gap-words-words); min-width: 0; flex: 1 1 min(100%, var(--size-card)); }
+/* A long title wraps rather than being cut short, a web address anywhere. */
+.list-row-title { font: var(--type-label); color: var(--ink); overflow-wrap: anywhere; }
 .list-row-detail { font: var(--type-facts); color: var(--muted); }
+/* A meter under its lines: only the track, its numbers in the detail above. */
+.list-row-meter { display: grid; padding-top: var(--gap-words-words); }
 .list-row-fact { display: inline-block; max-width: 100%; }
 .list-row-end { flex: none; display: inline-flex; align-items: center; gap: var(--gap-words-words); font: var(--type-facts); color: var(--ink-2); }
-.list-row-action { flex: none; display: inline-flex; }
+.list-row-action { flex: none; display: inline-flex; margin-left: auto; }
 .list-row-go { flex: none; display: inline-flex; color: var(--muted); transition: transform 0.45s cubic-bezier(.2,.7,.2,1), color 0.2s; }
 .list-row-go > .ico { width: 8px; height: 13px; stroke-width: 2.2; }
 /* A row that opens a new tab ends in the out-of-the-page arrow, which steps up and out as you point. */
@@ -390,6 +395,14 @@ component({
       markup: listPane([
         { lead: icon("passkey"), title: "MacBook Pro", detail: "iCloud Keychain · added Oct 2", secondDetail: "Used today", action: cutButton("Remove", ROW_BUTTON) },
         { lead: icon("key"), title: "Claude", detail: "Reads, uploads · made Oct 12", secondDetail: "Used an hour ago", action: cutButton("Remove", ROW_BUTTON) },
+      ]),
+    },
+    {
+      label: "With a meter under its lines: games' hosting this month",
+      isWide: true,
+      markup: listPane([
+        { title: "Ashen Crown", detail: "Free part used · $3.54 of its $5 budget · Resets Nov 1", meter: { label: "Ashen Crown", usedNumber: 242, limitNumber: 300, warnFromNumber: 260, unit: "", isFullFine: true }, action: cutButton("Budget", ROW_BUTTON) },
+        { title: "Kestrel", detail: "All of this month's free hosting · Resets Nov 1", secondDetail: "No budget: it stops at its free allowance.", end: tag("Paused", "warning"), meter: { label: "Kestrel", usedNumber: 100, limitNumber: 100, unit: "%" }, action: cutButton("Budget", ROW_BUTTON) },
       ]),
     },
     {
@@ -1025,20 +1038,36 @@ export interface UsageMeterOptions {
   isFullFine?: boolean;
 }
 
+/** How full a meter is, and its tone: amber from its warning point, striped when all used. */
+function meterState(options: UsageMeterOptions) {
+  const sharePct = Math.min(100, (options.usedNumber / Math.max(options.limitNumber, 1)) * 100);
+  const isAllUsed = options.usedNumber >= options.limitNumber && !options.isFullFine;
+  const warnFromPct = options.warnFromNumber === undefined ? 80 : (options.warnFromNumber / Math.max(options.limitNumber, 1)) * 100;
+  const tone = isAllUsed ? " is-full" : sharePct >= warnFromPct ? " is-near" : options.usedNumber > 0 ? " is-used" : "";
+  return { sharePct, isAllUsed, tone };
+}
+
+/** A meter's track alone, in its tone, for a list row whose lines say its numbers. */
+function usageTrack(options: UsageMeterOptions): Raw {
+  const { sharePct, tone } = meterState(options);
+  return html`<span class="usage${tone}">${meterTrack(options, sharePct)}</span>`;
+}
+
+function meterTrack(options: UsageMeterOptions, sharePct: number): Raw {
+  return html`<div class="usage-track cut-carved" data-cut-line="6" role="meter" aria-label="${options.label}" aria-valuemin="0" aria-valuemax="${options.limitNumber}" aria-valuenow="${Math.min(options.usedNumber, options.limitNumber)}">${CUT_LINE}<span class="usage-fill" data-cut-line="4" style="width:${sharePct.toFixed(2)}%"></span></div>`;
+}
+
 /**
  * A usage meter: its label, its numbers under it, then a carved track filling in quiet ink, amber from 80%. Any use at all shows as a
  * sliver, never as an empty track. All used, it's unmistakable: the fill is striped amber across the whole track, a warning mark leads its
  * label, and its numbers end in "all used", or in how far over it is.
  */
 export function usageMeter(options: UsageMeterOptions): Raw {
-  const sharePct = Math.min(100, (options.usedNumber / Math.max(options.limitNumber, 1)) * 100);
-  const isAllUsed = options.usedNumber >= options.limitNumber && !options.isFullFine;
-  const warnFromPct = options.warnFromNumber === undefined ? 80 : (options.warnFromNumber / Math.max(options.limitNumber, 1)) * 100;
-  const tone = isAllUsed ? " is-full" : sharePct >= warnFromPct ? " is-near" : options.usedNumber > 0 ? " is-used" : "";
+  const { sharePct, isAllUsed, tone } = meterState(options);
   const overNumber = options.usedNumber - options.limitNumber;
   const allUsedWords = overNumber > 0 ? `, ${chartWords(overNumber)} ${options.unit} over` : ", all used";
   const resetWords = options.resetDate ? `Resets ${new Date(`${options.resetDate}T00:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}.` : "";
-  return html`<div class="usage${tone}"><span class="usage-label">${isAllUsed ? icon("warning") : ""}${options.label}</span><p class="usage-numbers"><span class="usage-fact">${options.shownWords ?? html`${chartWords(options.usedNumber)} of ${chartWords(options.limitNumber)}\u00a0${options.unit}`}${isAllUsed ? html`<b>${allUsedWords}</b>` : ""}${resetWords ? "\u00a0·" : ""}</span>${resetWords ? html` <span class="usage-fact">${resetWords}</span>` : ""}</p><div class="usage-track cut-carved" data-cut-line="6" role="meter" aria-label="${options.label}" aria-valuemin="0" aria-valuemax="${options.limitNumber}" aria-valuenow="${Math.min(options.usedNumber, options.limitNumber)}">${CUT_LINE}<span class="usage-fill" data-cut-line="4" style="width:${sharePct.toFixed(2)}%"></span></div></div>`;
+  return html`<div class="usage${tone}"><span class="usage-label">${isAllUsed ? icon("warning") : ""}${options.label}</span><p class="usage-numbers"><span class="usage-fact">${options.shownWords ?? html`${chartWords(options.usedNumber)} of ${chartWords(options.limitNumber)}\u00a0${options.unit}`}${isAllUsed ? html`<b>${allUsedWords}</b>` : ""}${resetWords ? "\u00a0·" : ""}</span>${resetWords ? html` <span class="usage-fact">${resetWords}</span>` : ""}</p>${meterTrack(options, sharePct)}</div>`;
 }
 
 const meterPane = (options: UsageMeterOptions) => glassPane({ paneWidth: "fit", body: usageMeter(options) });

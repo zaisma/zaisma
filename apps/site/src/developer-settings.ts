@@ -4,7 +4,7 @@ import { AREA_LABELS, CHOICE_LABELS, LEVEL_LABELS, keyMakingState, keyScopeFromF
 import { apiCall, callerFor, hostingUseJson, type Caller } from "./developer.ts";
 import { withSpendingConfirmation } from "./credit-api.ts";
 import type { Env } from "./env.ts";
-import { esc, html, layout, openingScriptTags, raw, scriptTags, type Raw } from "./html.ts";
+import { html, layout, openingScriptTags, raw, scriptTags, type Raw } from "./html.ts";
 import { pageScript } from "./page-scripts.ts";
 import { PASSKEY_SCRIPT, checkPasskeyTap, keyRefusal, usedChallengeCookie } from "./passkeys.ts";
 import { logAccountChange, seedKeyPlace } from "./security-log.ts";
@@ -12,14 +12,15 @@ import { recordProof } from "./session-proofs.ts";
 import { answerSpendingRequest, spendingRequestAnswer } from "./spending-requests.ts";
 import { stripeAccountRow, stripeAccountWithBalance } from "./stripe-account-api.ts";
 import { waitEndsText } from "./email-codes.ts";
-import { cutButton, deleteButton, runButton, textButton, textLink } from "./components/actions.ts";
+import { cutButton, runButton, textLink } from "./components/actions.ts";
 import { glassPane, icon, tag } from "./components/foundations.ts";
-import { row, stack, type LayoutItem } from "./components/layout.ts";
+import { paneParts, stack, type LayoutItem } from "./components/layout.ts";
+import type { ControlMarkup } from "./components/control-markup.ts";
 import { sidePlaces } from "./components/navigation.ts";
-import { banner, confirmSheet, notice, sheet } from "./components/panes.ts";
+import { confirmSheet, dropdown, notice, sheet } from "./components/panes.ts";
 import { checkField, choiceCards, codeField, cutField, longField, selectField, toggle } from "./components/inputs.ts";
-import { emptyState, listRows, numbers, problemState, table, usageMeter, type ListRow } from "./components/data.ts";
-import { facts, foldedPart } from "./components/reading.ts";
+import { emptyState, listRows, numbers, table, type ListRow, type UsageMeterOptions } from "./components/data.ts";
+import { foldedPart } from "./components/reading.ts";
 
 /**
  * Developer settings, /dashboard/settings (docs/DECISIONS.md, "The dashboard is three kinds of page"): what applies across a developer's
@@ -192,28 +193,85 @@ const form = (action: string, items: LayoutItem[], attributes: { tap?: "confirm"
 
 const words = (markup: Raw | string): LayoutItem => ({ kind: "words", markup: typeof markup === "string" ? html`<p>${markup}</p>` : markup });
 const block = (markup: Raw): LayoutItem => ({ kind: "block", markup });
-const control = (markup: ReturnType<typeof runButton>): LayoutItem => ({ kind: "control", markup });
+/**
+ * A sheet or a menu a pane holds: it takes no place in the pane's stack, so a closed one leaves no gap, and it's put at the end of the page,
+ * outside the side places' container, which a menu's place on the screen is measured from otherwise.
+ */
+const LAYERS = new WeakSet<LayoutItem>();
+const PANE_LAYERS = new WeakMap<LayoutItem, Raw>();
+const layer = (markup: Raw): LayoutItem => {
+  const item = block(markup);
+  LAYERS.add(item);
+  return item;
+};
+const heading = (text: string, id?: string): LayoutItem => ({ kind: "words", markup: id ? html`<h3 id="${id}">${text}</h3>` : html`<h3>${text}</h3>` });
 
-/** A pane: its heading and what's in it, one scroll of them. */
-const settingsPane = (id: string, heading: string, items: LayoutItem[]): LayoutItem =>
-  block(html`<section id="${id}" data-settings-pane>${glassPane({ paneWidth: "full", label: heading, body: stack({ items: [{ kind: "words", markup: html`<h2>${heading}</h2>` }, ...items] }) })}</section>${id === "payments" ? openingScriptTags(AMOUNTS_SCRIPT) : ""}`);
+/**
+ * A pane: its heading with the one thing to make or start in its corner, then what's in it. Sections with figures lead with them; every
+ * setting is a row, its words beside the small button that changes it, and what's done less often under the row's ⋯.
+ */
+function settingsPane(id: string, title: string, items: LayoutItem[], corner?: { end?: ControlMarkup; foot?: ControlMarkup }): LayoutItem {
+  const pane = block(
+    html`<section id="${id}" data-settings-pane>${glassPane({ paneWidth: "full", label: title, body: paneParts({ head: { words: html`<h2>${title}</h2>`, end: corner?.end }, body: stack({ items: items.filter((item) => !LAYERS.has(item)) }), foot: corner?.foot ? { end: corner.foot } : undefined }) })}</section>${id === "payments" ? openingScriptTags(AMOUNTS_SCRIPT) : ""}`,
+  );
+  PANE_LAYERS.set(pane, html`${items.filter((item) => LAYERS.has(item)).map((item) => item.markup)}`);
+  return pane;
+}
+
+/** A row's small button that opens a sheet. */
+const opens = (label: string, sheetId: string): ControlMarkup => cutButton(label, { type: "button", isSmall: true, controls: sheetId });
+/** A row's ⋯, hanging a dropdown of what's done less often. */
+const more = (what: string, menuId: string): ControlMarkup => cutButton(`More for ${what}`, { type: "button", isSmall: true, icon: "more", isLabelHidden: true, controls: menuId, isExpanded: false });
 
 /** A button that opens a sheet which posts (a confirm, with its sentence). */
 const askSheet = (id: string, title: string, text: string, action: string, confirmLabel: string) => confirmSheet({ id, title, text, action, confirmLabel });
+
+/** A confirm that taps the passkey before it posts: connecting Stripe. */
+const tapSheet = (id: string, title: string, text: string, action: string, confirmLabel: string) =>
+  sheet({
+    id,
+    title,
+    closeLabel: "Close",
+    action,
+    body: html`<div data-tap="confirm" data-tap-always="yes">${stack({ items: [words(text), { kind: "words", markup: html`<p class="field-error" data-tap-error hidden role="alert"></p>` }] })}</div>`,
+    buttons: [cutButton("Cancel", { type: "submit", formMethod: "dialog" }), runButton(confirmLabel, { type: "submit" })],
+  });
+
+/** "Nov 1", for when a month's hosting starts again. */
+const monthDay = (dateText: string) => new Date(`${dateText}T00:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
 
 /* ---- Hosting ---- */
 
 function hostingPane(settings: Settings): LayoutItem {
   const { credit, gameHostings } = settings;
   const automatic = credit.automatic_top_up;
-  const items: LayoutItem[] = [];
-
-  // The balance and Add credit.
-  items.push(
-    block(numbers({ items: [{ label: "Hosting credit", figure: dollars(credit.balance_cents) }] })),
-    words(credit.balance_cents === 0 ? "Hosting is free up to each game's monthly allowance. Credit pays for what goes past it, only in games you give a budget." : "Credit pays for hosting past each game's free allowance, only in games you give a budget."),
-    control(cutButton("Add credit", { type: "button", icon: "plus", controls: "add-credit" })),
+  const spentCents = gameHostings.reduce((sum, each) => sum + each.hosting.spent_from_credit_cents, 0);
+  const items: LayoutItem[] = [
     block(
+      numbers({
+        items: [
+          { label: "Hosting credit", figure: dollars(credit.balance_cents) },
+          { label: "Spent from credit this month", figure: dollars(spentCents) },
+          ...(automatic.is_enabled ? [{ label: `Topped up this month, of ${dollars(automatic.monthly_top_up_limit_cents ?? 0)}`, figure: dollars(automatic.topped_up_this_month_cents) }] : []),
+        ],
+      }),
+    ),
+    words(credit.balance_cents === 0 ? "Hosting is free up to each game's monthly allowance. Credit pays for what goes past it, only in games you give a budget." : "Credit pays for hosting past each game's free allowance, only in games you give a budget."),
+    block(
+      listRows({
+        label: "Automatic top-up",
+        rows: [
+          {
+            title: "Automatic top-up",
+            detail: automatic.is_enabled
+              ? `On · below ${dollars(automatic.top_up_below_cents ?? 0)}, add ${dollars(automatic.top_up_amount_cents ?? 0)} · at most ${dollars(automatic.monthly_top_up_limit_cents ?? 0)} a month`
+              : "Off · it adds credit by itself when it runs low, to the card of your last top-up",
+            action: automatic.is_enabled ? [opens("Change", "automatic-top-up"), more("automatic top-up", "automatic-more")] : opens("Turn on", "automatic-top-up"),
+          },
+        ],
+      }),
+    ),
+    layer(
       sheet({
         id: "add-credit",
         title: "Add credit",
@@ -228,21 +286,15 @@ function hostingPane(settings: Settings): LayoutItem {
         buttons: [cutButton("Cancel", { type: "submit", formMethod: "dialog" }), runButton("Pay on Stripe", { type: "submit" })],
       }),
     ),
-  );
+  ];
 
-  // Automatic top-up.
-  const automaticWords = automatic.is_enabled
-    ? `Automatic top-up is on: when credit drops below ${dollars(automatic.top_up_below_cents ?? 0)}, add ${dollars(automatic.top_up_amount_cents ?? 0)}, at most ${dollars(automatic.monthly_top_up_limit_cents ?? 0)} a month (${dollars(automatic.topped_up_this_month_cents)} so far this month).`
-    : "Automatic top-up is off. It adds credit by itself when it runs low, to the card of your last top-up.";
   const automaticFields = (belowCents: number, amountCents: number, limitCents: number | null): LayoutItem[] => [
     { kind: "control", markup: cutField({ id: "automatic-below", name: "below_dollars", label: "When credit drops below ($)", type: "text", icon: "card", inputMode: "numeric", text: String(belowCents / 100), isRequired: true }) },
     { kind: "control", markup: cutField({ id: "automatic-amount", name: "amount_dollars", label: "Add ($)", type: "text", icon: "card", inputMode: "numeric", text: String(amountCents / 100), isRequired: true }) },
     { kind: "control", markup: cutField({ id: "automatic-limit", name: "limit_dollars", label: "Most to add in a month ($)", type: "text", icon: "card", inputMode: "numeric", text: limitCents === null ? "" : String(limitCents / 100), isRequired: true, hint: "Type the most you're willing to spend on top-ups in a month." }) },
   ];
   items.push(
-    words(automaticWords),
-    control(cutButton(automatic.is_enabled ? "Change automatic top-up" : "Turn on automatic top-up", { type: "button", controls: "automatic-top-up" })),
-    block(
+    layer(
       sheet({
         id: "automatic-top-up",
         title: "Automatic top-up",
@@ -254,33 +306,34 @@ function hostingPane(settings: Settings): LayoutItem {
     ),
   );
   if (automatic.is_enabled) {
-    items.push(control(cutButton("Turn off automatic top-up", { type: "button", controls: "automatic-off" })), block(askSheet("automatic-off", "Turn off automatic top-up?", "Credit won't be added by itself any more. Your balance stays.", `${PAGE}/credit/automatic-off`, "Turn off")));
+    items.push(
+      layer(dropdown({ id: "automatic-more", label: "Automatic top-up", items: [{ label: "Turn off automatic top-up", icon: "pause", confirmSheetId: "automatic-off" }] })),
+      layer(askSheet("automatic-off", "Turn off automatic top-up?", "Credit won't be added by itself any more. Your balance stays.", `${PAGE}/credit/automatic-off`, "Turn off")),
+    );
   }
 
-  // Games.
+  // Only games with something to say: they play online, used some of their free hosting, have a budget, are paused, or ran past free last month.
   const hostingGames = gameHostings.filter((game) => game.game.multiplayer_mode !== "none" || game.hosting.free_used_pct > 0 || game.hosting.monthly_budget_cents !== null || game.hosting.is_paused || game.lastMonthBeyondFreeCents > 0);
   if (hostingGames.length) {
-    items.push({ kind: "words", markup: html`<h3>Your games this month</h3>` });
-    // Only games with something to say: they play online, used some of their free hosting, have a budget, or are paused.
-    for (const each of hostingGames) items.push(block(gameHosting(each)));
+    items.push(heading("Your games this month"), block(listRows({ label: "Your games this month", rows: hostingGames.map(gameRow) })), ...hostingGames.flatMap(gameSheets));
   }
 
   // Top-ups.
   const topUps = credit.top_ups.filter((topUp) => topUp.refundable_cents > 0);
   if (topUps.length) {
     items.push(
-      { kind: "words", markup: html`<h3>Top-ups you can still refund</h3>` },
+      heading("Top-ups you can still refund"),
       block(
         listRows({
           label: "Top-ups",
           rows: topUps.map((topUp): ListRow => ({
             title: `${dollars(topUp.amount_cents)} added ${shownDate(topUp.created_at)}`,
             detail: `${dollars(topUp.refundable_cents)} refundable until ${shownDate(topUp.refund_ends_at)}`,
-            action: cutButton("Refund", { type: "button", isSmall: true, controls: `refund-${topUp.id}` }),
+            action: opens("Refund", `refund-${topUp.id}`),
           })),
         }),
       ),
-      ...topUps.map((topUp) => block(askSheet(`refund-${topUp.id}`, `Refund ${dollars(topUp.refundable_cents)}?`, "It goes back to the card it came from, and that credit is gone.", `${PAGE}/credit/refund/${topUp.id}`, "Refund"))),
+      ...topUps.map((topUp) => layer(askSheet(`refund-${topUp.id}`, `Refund ${dollars(topUp.refundable_cents)}?`, "It goes back to the card it came from, and that credit is gone.", `${PAGE}/credit/refund/${topUp.id}`, "Refund"))),
     );
   }
 
@@ -302,65 +355,69 @@ function hostingPane(settings: Settings): LayoutItem {
       ),
     );
   }
-  return settingsPane("hosting", "Hosting", items);
+  return settingsPane("hosting", "Hosting", items, { end: cutButton("Add credit", { type: "button", icon: "plus", isSmall: true, controls: "add-credit" }) });
 }
 
 const ENTRY_WORDS: Record<string, string> = { top_up: "Credit added", hosting_charge: "Hosting", refund: "Refunded", written_off: "Written off by Zaisma" };
 
-/** One game: its free meter (and budget on the same track), its budget and last month. */
-function gameHosting(each: GameHosting): Raw {
+/** One game's row: its free allowance and budget on one meter, what it says about them, and its budget's button. */
+function gameRow(each: GameHosting): ListRow {
   const { game, hosting } = each;
   const budgetCents = hosting.monthly_budget_cents;
   const freePct = hosting.free_used_pct;
-  const meter =
+  const budgetPct = budgetCents === null ? 0 : Math.min(100, Math.round((hosting.spent_from_credit_cents / Math.max(budgetCents, 1)) * 100));
+  const meter: UsageMeterOptions =
     budgetCents === null
-      ? usageMeter({ label: game.title, usedNumber: freePct, limitNumber: 100, unit: "%", resetDate: hosting.resets_on_date, shownWords: `${freePct}% of this month's free hosting` })
-      : (() => {
-          const budgetPct = Math.min(100, Math.round((hosting.spent_from_credit_cents / Math.max(budgetCents, 1)) * 100));
-          return usageMeter({
-            label: game.title,
-            usedNumber: Math.min(100, freePct) + budgetPct * 2,
-            limitNumber: 300,
-            warnFromNumber: 260,
-            unit: "",
-            resetDate: hosting.resets_on_date,
-            isFullFine: budgetPct < 100,
-            shownWords: freePct >= 100 ? `Free part used. ${dollars(hosting.spent_from_credit_cents)} of ${dollars(budgetCents)} budget` : `${freePct}% of the free part, then a ${dollars(budgetCents)} budget`,
-          });
-        })();
+      ? { label: game.title, usedNumber: freePct, limitNumber: 100, unit: "%" }
+      : { label: game.title, usedNumber: Math.min(100, freePct) + budgetPct * 2, limitNumber: 300, warnFromNumber: 260, unit: "", isFullFine: budgetPct < 100 };
+  const meterWords = budgetCents === null ? `${freePct}% of this month's free hosting` : freePct >= 100 ? `Free part used · ${dollars(hosting.spent_from_credit_cents)} of its ${dollars(budgetCents)} budget` : `${freePct}% of the free part, then a ${dollars(budgetCents)} budget`;
   const pausedWords =
     hosting.paused_reason === "budget_used" ? "This month's budget is used. Raise it to start again." : hosting.paused_reason === "credit_used" ? "Your credit ran out. Add credit to start again." : `This month's free hosting is used. It's back on ${shownDate(hosting.resets_on_date)}, or sooner with credit and a budget.`;
+  const budgetWords = budgetCents === null ? (each.lastMonthBeyondFreeCents > 0 ? `Last month's use past the free allowance would have cost ${dollars(each.lastMonthBeyondFreeCents)} at today's prices.` : "No budget: it stops at its free allowance.") : null;
+  const usedBy = hosting.shares.length ? `Used by ${hosting.shares.map((share) => `${SHARE_WORDS[share.kind]} ${share.share_pct}%`).join(", ")}` : null;
   const idBase = `budget-${game.slug}`;
-  const noBudgetWords = each.lastMonthBeyondFreeCents > 0 ? `Last month's use past the free allowance would have cost ${dollars(each.lastMonthBeyondFreeCents)} at today's prices.` : "No budget: it stops at its free allowance.";
-  return html`${stack({
-    items: [
-      block(meter),
-      ...(hosting.is_paused ? [block(banner({ text: `Hosting is paused. ${pausedWords}`, icon: "pause", tone: "warning" }))] : []),
-      words(budgetCents === null ? noBudgetWords : `Monthly budget ${dollars(budgetCents)}; ${dollars(hosting.spent_from_credit_cents)} spent from credit this month.`),
-      ...(hosting.shares.length ? [block(foldedPart({ title: "What used it", body: html`<p>${hosting.shares.map((share) => `${SHARE_WORDS[share.kind]} ${share.share_pct}%`).join(", ")}</p>` }))] : []),
-      control(cutButton(budgetCents === null ? "Give it a budget" : "Change budget", { type: "button", controls: idBase })),
-      ...(budgetCents === null ? [] : [control(cutButton("Turn off paid hosting", { type: "button", controls: `${idBase}-off` })), block(askSheet(`${idBase}-off`, `Turn off paid hosting for ${game.title}?`, "It stops at its free allowance each month. Nothing is charged past it.", `${PAGE}/games/${game.slug}/budget-off`, "Turn off"))]),
-      block(
-        sheet({
-          id: idBase,
-          title: `${game.title}'s monthly budget`,
-          closeLabel: "Close",
-          action: `${PAGE}/games/${game.slug}/budget`,
-          body: html`<div data-tap="confirm" data-tap-over='${JSON.stringify({ monthly_budget_dollars: budgetCents ?? 0 })}'>${stack({
-            items: [
-              { kind: "words", markup: html`<p>The most credit this game may use each month, past its free hosting. At least $1.</p>` },
-              { kind: "control", markup: cutField({ id: `${idBase}-field`, name: "monthly_budget_dollars", label: "Monthly budget ($)", type: "text", icon: "card", inputMode: "numeric", text: budgetCents === null ? "" : String(budgetCents / 100), isRequired: true, hint: budgetCents === null && each.lastMonthBeyondFreeCents > 0 ? `Last month's use past free: ${dollars(each.lastMonthBeyondFreeCents)}.` : undefined }) },
-              { kind: "words", markup: html`<p class="field-error" data-tap-error hidden role="alert"></p>` },
-            ],
-          })}</div>`,
-          buttons: [cutButton("Cancel", { type: "submit", formMethod: "dialog" }), runButton("Save budget", { type: "submit" })],
-        }),
-      ),
-    ],
-  })}`;
+  return {
+    title: game.title,
+    detail: `${meterWords} · Resets ${monthDay(hosting.resets_on_date)}`,
+    secondDetail: [hosting.is_paused ? pausedWords : budgetWords, usedBy].filter((line): line is string => Boolean(line)).join(" · ") || undefined,
+    end: hosting.is_paused ? tag("Paused", "warning") : undefined,
+    meter,
+    action: budgetCents === null ? opens("Give it a budget", idBase) : [opens("Change budget", idBase), more(game.title, `${idBase}-more`)],
+  };
 }
 
-const SHARE_WORDS: Record<string, string> = { room_play: "Rooms", game_server_cpu: "Game server CPU", relayed_data: "Relay", database: "Database", requests: "Requests" };
+/** A game's budget sheet, and the turn-off confirm under its ⋯. */
+function gameSheets(each: GameHosting): LayoutItem[] {
+  const { game, hosting } = each;
+  const budgetCents = hosting.monthly_budget_cents;
+  const idBase = `budget-${game.slug}`;
+  return [
+    layer(
+      sheet({
+        id: idBase,
+        title: `${game.title}'s monthly budget`,
+        closeLabel: "Close",
+        action: `${PAGE}/games/${game.slug}/budget`,
+        body: html`<div data-tap="confirm" data-tap-over='${JSON.stringify({ monthly_budget_dollars: budgetCents ?? 0 })}'>${stack({
+          items: [
+            { kind: "words", markup: html`<p>The most credit this game may use each month, past its free hosting. At least $1.</p>` },
+            { kind: "control", markup: cutField({ id: `${idBase}-field`, name: "monthly_budget_dollars", label: "Monthly budget ($)", type: "text", icon: "card", inputMode: "numeric", text: budgetCents === null ? "" : String(budgetCents / 100), isRequired: true, hint: budgetCents === null && each.lastMonthBeyondFreeCents > 0 ? `Last month's use past free: ${dollars(each.lastMonthBeyondFreeCents)}.` : undefined }) },
+            { kind: "words", markup: html`<p class="field-error" data-tap-error hidden role="alert"></p>` },
+          ],
+        })}</div>`,
+        buttons: [cutButton("Cancel", { type: "submit", formMethod: "dialog" }), runButton("Save budget", { type: "submit" })],
+      }),
+    ),
+    ...(budgetCents === null
+      ? []
+      : [
+          layer(dropdown({ id: `${idBase}-more`, label: game.title, items: [{ label: "Turn off paid hosting", icon: "pause", confirmSheetId: `${idBase}-off` }] })),
+          layer(askSheet(`${idBase}-off`, `Turn off paid hosting for ${game.title}?`, "It stops at its free allowance each month. Nothing is charged past it.", `${PAGE}/games/${game.slug}/budget-off`, "Turn off")),
+        ]),
+  ];
+}
+
+const SHARE_WORDS: Record<string, string> = { room_play: "rooms", game_server_cpu: "game server CPU", relayed_data: "relay", database: "database", requests: "requests" };
 
 /* ---- Pro ---- */
 
@@ -369,6 +426,7 @@ function proPane(settings: Settings): LayoutItem {
   const isPro = pro.plan === "pro";
   const limitRow = (label: string, key: string, usedKey: string | null): string[] => [label, String(pro.limits.free[key]), String(pro.limits.pro[key]), usedKey ? String(pro.used_today[usedKey]) : ""];
   const items: LayoutItem[] = [
+    block(numbers({ items: [{ label: isPro ? (pro.is_pro_cancelled ? `Your plan, until ${shownDate(pro.pro_ends_at)}` : `Your plan, renews ${shownDate(pro.pro_ends_at)}`) : "Your plan", figure: isPro ? "Pro" : "Free" }] })),
     words(isPro ? (pro.is_pro_cancelled ? `You have Zaisma Pro until ${shownDate(pro.pro_ends_at)}. It won't renew.` : `You have Zaisma Pro. It renews ${shownDate(pro.pro_ends_at)}.`) : `Zaisma Pro raises your daily limits for ${dollars(PRO_PRICE_CENTS_PER_MONTH)} a month on your card. It's separate from hosting credit.`),
     block(
       table({
@@ -379,10 +437,18 @@ function proPane(settings: Settings): LayoutItem {
       }),
     ),
   ];
-  if (!isPro) items.push(control(cutButton("Get Zaisma Pro", { type: "button", controls: "pro-start" })), block(askSheet("pro-start", "Get Zaisma Pro?", `${dollars(PRO_PRICE_CENTS_PER_MONTH)} a month. You pay on Stripe's page.`, `${PAGE}/pro/checkout`, "Continue to Stripe")));
-  else if (pro.is_pro_cancelled) items.push(control(cutButton("Keep Zaisma Pro", { type: "button", controls: "pro-resume" })), block(askSheet("pro-resume", "Keep Zaisma Pro?", "It renews as before.", `${PAGE}/pro/resume`, "Keep it")));
-  else items.push(control(cutButton("Cancel Zaisma Pro", { type: "button", controls: "pro-cancel" })), block(askSheet("pro-cancel", "Cancel Zaisma Pro?", `You keep it until ${shownDate(pro.pro_ends_at)}, then the free limits apply.`, `${PAGE}/pro/cancel`, "Cancel Pro")));
-  return settingsPane("pro", "Zaisma Pro", items);
+  let end: ControlMarkup;
+  if (!isPro) {
+    end = cutButton("Get Pro", { type: "button", isSmall: true, controls: "pro-start" });
+    items.push(layer(askSheet("pro-start", "Get Zaisma Pro?", `${dollars(PRO_PRICE_CENTS_PER_MONTH)} a month. You pay on Stripe's page.`, `${PAGE}/pro/checkout`, "Continue to Stripe")));
+  } else if (pro.is_pro_cancelled) {
+    end = cutButton("Keep Pro", { type: "button", isSmall: true, controls: "pro-resume" });
+    items.push(layer(askSheet("pro-resume", "Keep Zaisma Pro?", "It renews as before.", `${PAGE}/pro/resume`, "Keep it")));
+  } else {
+    end = cutButton("Cancel Pro", { type: "button", isSmall: true, controls: "pro-cancel" });
+    items.push(layer(askSheet("pro-cancel", "Cancel Zaisma Pro?", `You keep it until ${shownDate(pro.pro_ends_at)}, then the free limits apply.`, `${PAGE}/pro/cancel`, "Cancel Pro")));
+  }
+  return settingsPane("pro", "Zaisma Pro", items, { end });
 }
 
 /* ---- Payments ---- */
@@ -395,45 +461,62 @@ const shownAmount = (shown: string): Raw => html`<span data-amount="${shown}">${
 function paymentsPane(settings: Settings): LayoutItem {
   const stripe: StripeJson = settings.stripe;
   if (!stripe.is_connected) {
-    return settingsPane("payments", "Payments", [
-      words("Players buy in your games and the money goes straight to your own Stripe account. Zaisma takes no cut."),
-      block(form(`${PAGE}/payments/connect`, [control(runButton("Connect Stripe", { type: "submit" }))], { tap: "confirm" })),
-    ]);
+    return settingsPane(
+      "payments",
+      "Payments",
+      [
+        words("Players buy in your games and the money goes straight to your own Stripe account. Zaisma takes no cut."),
+        layer(tapSheet("payments-connect", "Connect Stripe?", "Tap your passkey, then finish on Stripe's page. Players' money goes straight to your Stripe account.", `${PAGE}/payments/connect`, "Continue to Stripe")),
+      ],
+      { end: cutButton("Connect", { type: "button", isSmall: true, controls: "payments-connect" }) },
+    );
   }
   const balance = stripe.balance;
   const items: LayoutItem[] = [];
   if (balance) {
     const code = balance.currency_code;
     items.push(
-      block(numbers({ items: [{ label: "In your Stripe account", figure: money(balance.available_minor_units + balance.pending_minor_units, code) }] })),
-      ...(balance.next_payout ? [words(html`<p>${shownAmount(money(balance.next_payout.amount_minor_units, balance.next_payout.currency_code))} on its way · next payout ${shownDate(balance.next_payout.arrives_at)}</p>`)] : []),
+      block(
+        numbers({
+          items: [
+            { label: "In your Stripe account", figure: money(balance.available_minor_units + balance.pending_minor_units, code) },
+            ...(balance.next_payout ? [{ label: `Next payout, ${shownDate(balance.next_payout.arrives_at)}`, figure: money(balance.next_payout.amount_minor_units, balance.next_payout.currency_code) }] : []),
+          ],
+        }),
+      ),
       ...(balance.other_currency_balances.length ? [words(html`<p>Also: ${balance.other_currency_balances.map((other, index) => html`${index ? ", " : ""}${shownAmount(money(other.available_minor_units + other.pending_minor_units, other.currency_code))}`)}</p>`)] : []),
-      control(cutButton("Hide amounts", { type: "button", icon: "eye", isPressed: false, dataAttributes: { "amounts-toggle": "" } })),
     );
   }
+  const rows: ListRow[] = [];
   if (!stripe.can_take_payments) {
-    items.push(block(banner({ text: "Stripe isn't ready to take payments yet. Finish setting up your account on Stripe.", icon: "warning", tone: "warning" })), block(form(`${PAGE}/payments/connect`, [control(cutButton("Finish on Stripe", { type: "submit" }))], { tap: "confirm" })));
+    rows.push({ title: "Finish setting up", detail: "Stripe isn't ready to take payments yet", end: tag("Not ready", "warning"), action: opens("Finish on Stripe", "payments-finish") });
+    items.push(layer(tapSheet("payments-finish", "Finish on Stripe?", "Tap your passkey, then finish setting up your account on Stripe's page.", `${PAGE}/payments/connect`, "Continue to Stripe")));
   }
+  rows.push(
+    {
+      title: stripe.business_name ?? "No seller name yet",
+      detail: `${stripe.support_email ?? "No support email"} · ${stripe.country_code ?? ""} · ${(stripe.default_currency_code ?? "").toUpperCase()}`,
+      action: cutButton("Change on Stripe", { href: "https://dashboard.stripe.com/settings/account", icon: "out-of-page", isSmall: true }),
+    },
+    { title: "Stripe Tax", detail: `${stripe.is_stripe_tax_used ? "On" : "Off"} · Stripe calculates and records the tax inside each price · prices never change`, action: opens("Change", "payments-tax") },
+    ...(balance ? [{ title: "Amounts", detail: "Hide them on this device, for when someone's looking", action: cutButton("Hide amounts", { type: "button", icon: "eye", isSmall: true, isPressed: false, dataAttributes: { "amounts-toggle": "" } }) }] : []),
+    { title: "Disconnect Stripe", detail: "Players can't buy in your games until you connect again · past sales stay", action: opens("Disconnect", "payments-disconnect") },
+  );
   items.push(
-    words(
-      facts({
-        arrangement: "down",
-        facts: [
-          { label: "Seller name", text: stripe.business_name ?? "Not set" },
-          { label: "Support email", text: stripe.support_email ?? "Not set" },
-          { label: "Country", text: stripe.country_code ?? "" },
-          { label: "Currency", text: (stripe.default_currency_code ?? "").toUpperCase() },
-        ],
+    block(listRows({ label: "Payments settings", rows })),
+    layer(
+      sheet({
+        id: "payments-tax",
+        title: "Stripe Tax",
+        closeLabel: "Close",
+        action: `${PAGE}/payments/tax`,
+        body: toggle({ id: "stripe-tax", name: "is_stripe_tax_used", label: "Stripe Tax", isOn: stripe.is_stripe_tax_used, hint: "Stripe calculates and records the tax inside each price. Prices never change." }),
+        buttons: [cutButton("Cancel", { type: "submit", formMethod: "dialog" }), runButton("Save", { type: "submit" })],
       }),
     ),
-    control(cutButton("Change on Stripe", { href: "https://dashboard.stripe.com/settings/account", icon: "out-of-page" })),
-    block(form(`${PAGE}/payments/tax`, [{ kind: "block", markup: toggle({ id: "stripe-tax", name: "is_stripe_tax_used", label: "Stripe Tax", isOn: stripe.is_stripe_tax_used, hint: "Stripe calculates and records the tax inside each price. Prices never change." }) }, control(cutButton("Save", { type: "submit" }))])),
-    control(cutButton("Open Stripe", { href: "https://dashboard.stripe.com", icon: "out-of-page" })),
-    control(textButton("Disconnect Stripe", { type: "button" })),
+    layer(askSheet("payments-disconnect", "Disconnect Stripe?", "Players can't buy in any of your games until you connect again. Past sales stay.", `${PAGE}/payments/disconnect`, "Disconnect")),
   );
-  // The quiet button above opens its confirm.
-  items.splice(items.length - 1, 1, control(cutButton("Disconnect Stripe", { type: "button", controls: "payments-disconnect" })), block(askSheet("payments-disconnect", "Disconnect Stripe?", "Players can't buy in any of your games until you connect again. Past sales stay.", `${PAGE}/payments/disconnect`, "Disconnect")));
-  return settingsPane("payments", "Payments", items);
+  return settingsPane("payments", "Payments", items, { end: cutButton("Open Stripe", { href: "https://dashboard.stripe.com", icon: "out-of-page", isSmall: true }) });
 }
 
 /* ---- Webhooks ---- */
@@ -449,54 +532,64 @@ function webhooksPane(settings: Settings, state: PageState, deliveries: Delivery
     games.length
       ? [{ kind: "words", markup: html`<p>Only these games (none ticked: all of them)</p>` }, ...games.map((game): LayoutItem => ({ kind: "block", markup: checkField({ id: `${idBase}-game-${game.slug}`, name: "game_slugs", checkValue: game.slug, label: game.title, isChecked: picked?.includes(game.slug) }) }))]
       : [];
+  const whereOf = (webhook: WebhookJson) => (webhook.destination_kind === "game_server" ? `${webhook.game_slugs?.map((slug) => games.find((game) => game.slug === slug)?.title ?? slug).join(", ") ?? ""}'s game server` : webhook.endpoint_url ?? "");
 
   if (!webhooks.length) items.push(block(emptyState({ title: "No webhooks yet", text: "A webhook sends your server a signed event when something happens in your games." })));
-  for (const webhook of webhooks) {
-    const where = webhook.destination_kind === "game_server" ? `${webhook.game_slugs?.map((slug) => games.find((game) => game.slug === slug)?.title ?? slug).join(", ") ?? ""}'s game server` : webhook.endpoint_url ?? "";
-    const trouble = webhook.failed_delivery_count > 0 || webhook.pending_delivery_count > 0;
-    const idBase = `webhook-${webhook.id}`;
-    const isOpen = state.deliveriesOf?.webhookId === webhook.id;
+  else {
     items.push(
       block(
-        html`${stack({
+        listRows({
+          label: "Webhooks",
+          rows: webhooks.map((webhook): ListRow => {
+            const where = whereOf(webhook);
+            const trouble = [webhook.failed_delivery_count ? `${webhook.failed_delivery_count} failed` : "", webhook.pending_delivery_count ? `${webhook.pending_delivery_count} retrying` : ""].filter(Boolean).join(", ");
+            return {
+              title: where,
+              detail: `${webhook.event_kinds.map((kind) => EVENT_WORDS[kind as keyof typeof EVENT_WORDS] ?? kind).join(", ")}${webhook.destination_kind === "endpoint_url" && webhook.game_slugs ? ` · only ${webhook.game_slugs.join(", ")}` : ""}`,
+              end: trouble ? tag(trouble, "warning") : undefined,
+              action: [opens("Change", `webhook-${webhook.id}-edit`), more(where, `webhook-${webhook.id}-more`)],
+            };
+          }),
+        }),
+      ),
+    );
+  }
+  const open = state.deliveriesOf ? webhooks.find((webhook) => webhook.id === state.deliveriesOf!.webhookId) : undefined;
+  if (open && deliveries) items.push(heading(`Deliveries to ${whereOf(open)}`, "webhook-deliveries"), block(deliveriesTable(open.id, deliveries, nextCursor)));
+  for (const webhook of webhooks) {
+    const where = whereOf(webhook);
+    const idBase = `webhook-${webhook.id}`;
+    items.push(
+      layer(
+        dropdown({
+          id: `${idBase}-more`,
+          label: where,
           items: [
-            { kind: "words", markup: html`<h3>${where}</h3>` },
-            words(`${webhook.event_kinds.map((kind) => EVENT_WORDS[kind as keyof typeof EVENT_WORDS] ?? kind).join(", ")}${webhook.destination_kind === "endpoint_url" && webhook.game_slugs ? ` · ${webhook.game_slugs.join(", ")}` : ""}`),
-            ...(trouble ? [block(banner({ text: `${webhook.failed_delivery_count ? `${webhook.failed_delivery_count} failed` : ""}${webhook.failed_delivery_count && webhook.pending_delivery_count ? ", " : ""}${webhook.pending_delivery_count ? `${webhook.pending_delivery_count} waiting to retry` : ""}.`, icon: "warning", tone: "warning" }))] : []),
-            block(
-              row({
-                widths: "equal",
-                items: [
-                  { kind: "control", markup: cutButton("Change", { type: "button", controls: `${idBase}-edit` }) },
-                  { kind: "control", markup: cutButton("Send a test", { type: "button", controls: `${idBase}-test` }) },
-                  { kind: "control", markup: cutButton("New secret", { type: "button", controls: `${idBase}-secret` }) },
-                  { kind: "control", markup: deleteButton("Delete", { action: `${PAGE}/webhooks/${webhook.id}/delete`, confirmLabel: "Delete webhook", confirmText: "It stops receiving events, and what was on its way to it is dropped.", id: `${idBase}-delete` }) },
-                ],
-              }),
-            ),
-            block(
-              foldedPart({
-                id: `${idBase}-deliveries`,
-                title: "Deliveries",
-                isOpen,
-                body: isOpen && deliveries ? deliveriesTable(webhook.id, deliveries, nextCursor) : html`<p>${textLink("Show the last 30 days", `${PAGE}?deliveries=${webhook.id}#${idBase}-deliveries`)}</p>`,
-              }),
-            ),
+            { label: "Send a test", icon: "send", confirmSheetId: `${idBase}-test` },
+            { label: "Deliveries", icon: "clock", href: `${PAGE}?deliveries=${webhook.id}#webhook-deliveries` },
+            { label: "New signing secret", icon: "key", confirmSheetId: `${idBase}-secret` },
+            { kind: "rule" },
+            { label: "Delete", icon: "trash", confirmSheetId: `${idBase}-delete` },
           ],
-        })}${sheet({
+        }),
+      ),
+      layer(
+        sheet({
           id: `${idBase}-edit`,
           title: "Change this webhook",
           closeLabel: "Close",
           action: `${PAGE}/webhooks/${webhook.id}`,
           body: stack({ items: [...(webhook.destination_kind === "endpoint_url" ? [{ kind: "control" as const, markup: cutField({ id: `${idBase}-url`, name: "endpoint_url", label: "Address", type: "text", icon: "link", text: webhook.endpoint_url ?? "", isRequired: true }) }] : []), ...eventFields(idBase, webhook.event_kinds), ...gameFields(idBase, webhook.game_slugs)] }),
           buttons: [cutButton("Cancel", { type: "submit", formMethod: "dialog" }), runButton("Save", { type: "submit" })],
-        })}${askSheet(`${idBase}-test`, "Send a test event?", `Zaisma sends a test event to ${where} now and tells you how it went.`, `${PAGE}/webhooks/${webhook.id}/test`, "Send test")}${askSheet(`${idBase}-secret`, "Replace the signing secret?", "The old secret stops working at once. You'll see the new one once.", `${PAGE}/webhooks/${webhook.id}/secret`, "Replace it")}`,
+        }),
       ),
+      layer(askSheet(`${idBase}-test`, "Send a test event?", `Zaisma sends a test event to ${where} now and tells you how it went.`, `${PAGE}/webhooks/${webhook.id}/test`, "Send test")),
+      layer(askSheet(`${idBase}-secret`, "Replace the signing secret?", "The old secret stops working at once. You'll see the new one once.", `${PAGE}/webhooks/${webhook.id}/secret`, "Replace it")),
+      layer(askSheet(`${idBase}-delete`, "Delete this webhook?", "It stops receiving events, and what was on its way to it is dropped.", `${PAGE}/webhooks/${webhook.id}/delete`, "Delete webhook")),
     );
   }
   items.push(
-    control(cutButton("Add a webhook", { type: "button", controls: "webhook-add" })),
-    block(
+    layer(
       sheet({
         id: "webhook-add",
         title: "Add a webhook",
@@ -509,8 +602,7 @@ function webhooksPane(settings: Settings, state: PageState, deliveries: Delivery
   );
   if (games.length) {
     items.push(
-      control(cutButton("Send to a game server", { type: "button", controls: "webhook-server-add" })),
-      block(
+      layer(
         sheet({
           id: "webhook-server-add",
           title: "Send events to a game server",
@@ -529,7 +621,10 @@ function webhooksPane(settings: Settings, state: PageState, deliveries: Delivery
       ),
     );
   }
-  return settingsPane("webhooks", "Webhooks", items);
+  return settingsPane("webhooks", "Webhooks", items, {
+    end: cutButton("Add", { type: "button", icon: "plus", isSmall: true, controls: "webhook-add" }),
+    foot: games.length ? cutButton("Send to a game server", { type: "button", isSmall: true, controls: "webhook-server-add" }) : undefined,
+  });
 }
 
 function deliveriesTable(webhookId: string, deliveries: DeliveryJson[], nextCursor: string | null): Raw {
@@ -540,7 +635,7 @@ function deliveriesTable(webhookId: string, deliveries: DeliveryJson[], nextCurs
     columns: [{ label: "When" }, { label: "Event" }, { label: "Result" }, { label: "Tries", isNumeric: true }],
     rows: deliveries.map((delivery) => [shownDate(delivery.created_at), String(delivery.webhook_event.kind ?? ""), delivery.delivery_status === "delivered" ? "Delivered" : delivery.delivery_status === "pending" ? `Retrying${delivery.failure_message ? `: ${delivery.failure_message}` : ""}` : `Failed${delivery.failure_message ? `: ${delivery.failure_message}` : ""}`, String(delivery.attempt_count)]),
     rowsPlaceholder: deliveries.length ? undefined : emptyState({ title: "Nothing sent yet", text: "Events appear here as they're sent." }),
-  })}${nextCursor ? html`<p>${textLink("Older deliveries", `${PAGE}?deliveries=${webhookId}&cursor=${encodeURIComponent(nextCursor)}#webhook-${webhookId}-deliveries`)}</p>` : ""}`;
+  })}${nextCursor ? html`<p>${textLink("Older deliveries", `${PAGE}?deliveries=${webhookId}&cursor=${encodeURIComponent(nextCursor)}#webhook-deliveries`)}</p>` : ""}`;
 }
 
 /* ---- Sign-in apps ---- */
@@ -553,32 +648,39 @@ function signInAppsPane(settings: Settings): LayoutItem {
     { kind: "block", markup: longField({ id: `${idBase}-urls`, name: "redirect_urls", label: "Redirect addresses, one a line", rowCount: 3, text: (given?.redirect_urls ?? []).join("\n"), isRequired: true }) },
   ];
   if (!signInApps.length) items.push(block(emptyState({ title: "No sign-in apps yet", text: "Sign in with Zaisma lets players use their Zaisma account on your own site." })));
-  for (const app of signInApps) {
-    const idBase = `app-${app.id}`;
+  else {
     items.push(
+      words(`Issuer: ${signInApps[0]!.issuer_url}`),
       block(
-        html`${stack({
-          items: [
-            { kind: "words", markup: html`<h3>${app.name}</h3>` },
-            words(facts({ arrangement: "down", facts: [{ label: "Kind", text: app.kind === "confidential" ? "Confidential (has a secret)" : "Public (no secret)" }, { label: "Client ID", text: app.id }, { label: "Issuer", text: app.issuer_url }, { label: "Redirects", text: app.redirect_urls.join(", ") }] })),
-            block(
-              row({
-                widths: "equal",
-                items: [
-                  { kind: "control", markup: cutButton("Change", { type: "button", controls: `${idBase}-edit` }) },
-                  ...(app.kind === "confidential" ? [{ kind: "control" as const, markup: cutButton("New secret", { type: "button", controls: `${idBase}-secret` }) }] : []),
-                  { kind: "control", markup: deleteButton("Delete", { action: `${PAGE}/sign-in-apps/${app.id}/delete`, confirmLabel: "Delete sign-in app", confirmText: "Players' yes to it is deleted with it. Sites that use it stop working.", id: `${idBase}-delete` }) },
-                ],
-              }),
-            ),
-          ],
-        })}${sheet({ id: `${idBase}-edit`, title: "Change this app", closeLabel: "Close", action: `${PAGE}/sign-in-apps/${app.id}`, body: stack({ items: fields(idBase, app) }), buttons: [cutButton("Cancel", { type: "submit", formMethod: "dialog" }), runButton("Save", { type: "submit" })] })}${app.kind === "confidential" ? askSheet(`${idBase}-secret`, "Replace the client secret?", "The old secret stops working at once. You'll see the new one once.", `${PAGE}/sign-in-apps/${app.id}/secret`, "Replace it") : ""}`,
+        listRows({
+          label: "Sign-in apps",
+          rows: signInApps.map((app): ListRow => ({
+            title: app.name,
+            detail: `${app.kind === "confidential" ? "Confidential, with a secret" : "Public, no secret"} · client ID ${app.id}`,
+            secondDetail: `Sends players back to ${app.redirect_urls.join(", ")}`,
+            action: [opens("Change", `app-${app.id}-edit`), more(app.name, `app-${app.id}-more`)],
+          })),
+        }),
       ),
     );
   }
+  for (const app of signInApps) {
+    const idBase = `app-${app.id}`;
+    items.push(
+      layer(
+        dropdown({
+          id: `${idBase}-more`,
+          label: app.name,
+          items: [...(app.kind === "confidential" ? [{ label: "New client secret", icon: "key" as const, confirmSheetId: `${idBase}-secret` }, { kind: "rule" as const }] : []), { label: "Delete", icon: "trash", confirmSheetId: `${idBase}-delete` }],
+        }),
+      ),
+      layer(sheet({ id: `${idBase}-edit`, title: "Change this app", closeLabel: "Close", action: `${PAGE}/sign-in-apps/${app.id}`, body: stack({ items: fields(idBase, app) }), buttons: [cutButton("Cancel", { type: "submit", formMethod: "dialog" }), runButton("Save", { type: "submit" })] })),
+      ...(app.kind === "confidential" ? [layer(askSheet(`${idBase}-secret`, "Replace the client secret?", "The old secret stops working at once. You'll see the new one once.", `${PAGE}/sign-in-apps/${app.id}/secret`, "Replace it"))] : []),
+      layer(askSheet(`${idBase}-delete`, "Delete this sign-in app?", "Players' yes to it is deleted with it. Sites that use it stop working.", `${PAGE}/sign-in-apps/${app.id}/delete`, "Delete sign-in app")),
+    );
+  }
   items.push(
-    control(cutButton("Make a sign-in app", { type: "button", controls: "app-add" })),
-    block(
+    layer(
       sheet({
         id: "app-add",
         title: "Make a sign-in app",
@@ -594,7 +696,7 @@ function signInAppsPane(settings: Settings): LayoutItem {
       }),
     ),
   );
-  return settingsPane("sign-in-apps", "Sign-in apps", items);
+  return settingsPane("sign-in-apps", "Sign-in apps", items, { end: cutButton("Make", { type: "button", icon: "plus", isSmall: true, controls: "app-add" }) });
 }
 
 /* ---- Keys ---- */
@@ -615,21 +717,21 @@ function keysPane(keys: ApiKey[], games: { slug: string; title: string }[], maki
         listRows({
           label: "Keys",
           rows: keys.map((key): ListRow => ({
+            lead: icon("key"),
             title: key.name,
             detail: keyDetail(key, games),
             end: key.kind === "connected_app" ? tag("AI app", "plain") : undefined,
-            action: cutButton("Remove", { type: "button", isSmall: true, controls: `key-remove-${key.id}` }),
+            action: opens("Remove", `key-remove-${key.id}`),
           })),
         }),
       ),
-      ...keys.map((key) => block(askSheet(`key-remove-${key.id}`, `Remove ${key.name}?`, "Whatever uses it stops working at once.", `${PAGE}/keys/${key.id}/remove`, "Remove"))),
+      ...keys.map((key) => layer(askSheet(`key-remove-${key.id}`, `Remove ${key.name}?`, "Whatever uses it stops working at once.", `${PAGE}/keys/${key.id}/remove`, "Remove"))),
     );
   }
   const canMake = making.passkeyState === "ready";
-  items.push(control(cutButton("Make an API key", { type: "button", controls: "key-add" })));
   const levelChoices = ACCESS_LEVELS.map((level) => ({ label: LEVEL_LABELS[level][0], choiceValue: level, text: LEVEL_LABELS[level][1] }));
   items.push(
-    block(
+    layer(
       sheet({
         id: "key-add",
         title: "Make an API key",
@@ -657,7 +759,7 @@ function keysPane(keys: ApiKey[], games: { slug: string; title: string }[], maki
       }),
     ),
   );
-  return settingsPane("keys", "Keys", items);
+  return settingsPane("keys", "Keys", items, { end: cutButton("Make", { type: "button", icon: "plus", isSmall: true, controls: "key-add" }) });
 }
 
 /* ---- The page ---- */
@@ -811,18 +913,16 @@ async function settingsPage(env: Env, request: Request, session: SignedIn, calle
         ? html`${notice({ text: "That request isn't waiting any more. It was answered, it expired after a day, or it isn't yours.", tone: "problem", isInPlace: false })}`
         : raw("");
 
-  const panes = stack({
-    items: [
-      ...topNotes,
-      hostingPane(settings),
-      proPane(settings),
-      paymentsPane(settings),
-      webhooksPane(settings, state, deliveries?.deliveries ?? null, deliveries?.next_cursor ?? null),
-      signInAppsPane(settings),
-      keysPane(keys, settings.games.map((game) => ({ slug: game.slug, title: game.title })), making),
-    ],
-  });
-  const body = html`<h1 class="sr">Developer settings</h1>${sidePlaces({ label: "Developer settings", places: TAB_PANES.map((pane, index) => ({ label: pane.label, icon: pane.icon, href: `#${pane.id}`, isCurrent: index === 0 })), body: panes })}${spendingSheet}${state.done && DONE_WORDS[state.done] ? notice({ text: DONE_WORDS[state.done]!, tone: "done" }) : ""}${state.problem ? notice({ text: state.problem, tone: "problem" }) : ""}${scriptTags(PASSKEY_SCRIPT, SETTINGS_SCRIPT)}`;
+  const paneItems = [
+    hostingPane(settings),
+    proPane(settings),
+    paymentsPane(settings),
+    webhooksPane(settings, state, deliveries?.deliveries ?? null, deliveries?.next_cursor ?? null),
+    signInAppsPane(settings),
+    keysPane(keys, settings.games.map((game) => ({ slug: game.slug, title: game.title })), making),
+  ];
+  const panes = stack({ items: [...topNotes, ...paneItems] });
+  const body = html`<h1 class="sr">Developer settings</h1>${sidePlaces({ label: "Developer settings", places: TAB_PANES.map((pane, index) => ({ label: pane.label, icon: pane.icon, href: `#${pane.id}`, isCurrent: index === 0 })), body: panes })}${paneItems.map((item) => PANE_LAYERS.get(item) ?? "")}${spendingSheet}${state.done && DONE_WORDS[state.done] ? notice({ text: DONE_WORDS[state.done]!, tone: "done" }) : ""}${state.problem ? notice({ text: state.problem, tone: "problem" }) : ""}${scriptTags(PASSKEY_SCRIPT, SETTINGS_SCRIPT)}`;
   const response = layout(env, { title: "Developer settings · Zaisma", body, checkedPage: "Developer settings", nav: "developer", viewer: { account }, isPrivate: true });
   const answered = new Response(response.body, { status: httpStatus, headers: response.headers });
   for (const cookie of session.cookies) answered.headers.append("Set-Cookie", cookie);
