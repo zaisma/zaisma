@@ -180,7 +180,8 @@ describe("game server schedules around a publish and a month's turn", () => {
   });
 
   it("count a run that waits on a timer as close to no CPU", async () => {
-    const { gameId } = await addGame("sleepy", `export default { schedules: [{ name: "nap", cron: "* * * * *" }], async onSchedule() { await new Promise((resolve) => setTimeout(resolve, 1500)); } };`);
+    // Once a year, so only runDue runs it: one every minute would run again by itself when the test crosses a minute.
+    const { gameId } = await addGame("sleepy", `export default { schedules: [{ name: "nap", cron: "0 0 1 1 *" }], async onSchedule() { await new Promise((resolve) => setTimeout(resolve, 1500)); } };`);
     await syncSchedules(e);
     const startedAtMs = Date.now();
     await runDue(gameId);

@@ -1951,11 +1951,13 @@ describe("rooms keep their promises under load, sleep and restarts", () => {
     const pausedAtMs = Date.now();
     await e.DB.prepare("INSERT INTO game_hosting_months (game_id, month_start_date, used_cents, paused_at_ms, paused_reason) VALUES (?, ?, 500, ?, 'free_used')").bind(id, monthStartDateOf(), pausedAtMs).run();
     const stub = e.ROOMS.get(e.ROOMS.idFromName("busy-hosting:BSYHST"));
-    // The game server never goes idle: settling waits for it for good, as a busy ticking room's did.
+    // The game server never goes idle: settling waits for it for good, as a busy ticking room's did. The alarm is set here: the
+    // room sets its own only after the welcome, once it settled, and runDurableObjectAlarm runs nothing when none is set yet.
     await runInDurableObject(stub, async (room: Room, state) => {
       (room as any).hostingCheckedAtMs = 0;
       await state.storage.put("hostingCheckedAtMs", 0);
       (room as any).core.settled = () => new Promise<void>((resolve) => ((globalThis as any).releaseSettled = resolve));
+      await state.storage.setAlarm(Date.now());
     });
     const alarm = runDurableObjectAlarm(stub);
     const ending = await until(a, (m) => m.type === "ending");
