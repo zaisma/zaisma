@@ -196,6 +196,8 @@ main > .dropdown { z-index: 5; }
 .bp-line > :first-child { flex: 1; min-width: 0; }
 .bp-note { font-size: 11px; color: #afa9ec; }
 .bp-error { font-size: 12px; color: #f5c4b3; }
+.bp-item { padding: 6px 10px; border-top: 1px solid #26215c; display: grid; gap: 3px; }
+.bp-purchase { padding-left: 10px; border-left: 2px solid #3c3489; }
 .bp-foot { display: flex; align-items: center; gap: 6px; padding: 8px 10px; border-top: 1px solid #2f2a66; margin-top: auto; }
 .bp-foot span { flex: 1; font-size: 11px; color: #afa9ec; }
 .bp-empty { padding: 12px 10px; color: #afa9ec; }
@@ -349,27 +351,27 @@ export function newPlayerPanelHtml(input: { suggestedName: string }): string {
 <button class="bp-btn" type="button" data-bench-make>Make player</button></div>`);
 }
 
-export type PanelTab = "profile" | "items" | "purchases";
+export type PanelTab = "profile" | "items";
 
-/** One of the game's items, as a player's Items tab lists it. */
+/** One of a player's purchases of an item, newest first. */
+export interface PanelPurchase {
+  purchaseId: string;
+  /** "Test card × 3", "Granted"; the date and whether the game has handled it. */
+  detail: string;
+  isRefunded: boolean;
+}
+
+/** One of the game's items, as a player's Items tab lists it: whether they own it, and their purchases of it. */
 export interface PanelItem {
   itemName: string;
   title: string;
   itemKind: string;
   priceText: string;
   isOwned: boolean;
+  purchases: PanelPurchase[];
 }
 
-/** One of a player's purchases, newest first. */
-export interface PanelPurchase {
-  purchaseId: string;
-  title: string;
-  /** "Test card", "Granted"; the date and whether the game has handled it. */
-  detail: string;
-  isRefunded: boolean;
-}
-
-/** One player in the Players panel: their profile, friends and blocks; their items; their purchases. Every change saves at once. */
+/** One player in the Players panel: their profile, friends and blocks; the game's items, with their purchases of each. Every change saves at once. */
 export function playerPanelHtml(
   place: PanelPlace,
   input: {
@@ -381,7 +383,6 @@ export function playerPanelHtml(
     blockedBy: string[];
     others: { playerId: string; name: string }[];
     items: PanelItem[];
-    purchases: PanelPurchase[];
     searchText: string;
   },
 ): string {
@@ -408,26 +409,23 @@ ${input.blockedBy.length ? html`<p class="bp-note">Blocked by ${input.blockedBy.
 ${pick(input.blocked, "+ Block a player", "blocks")}
 <p class="bp-note">A change reaches the game with ${player.name}'s next pass: the next time they join a room.</p>
 <div class="bp-line"><span></span><button class="bp-link" type="button" data-bench-delete="${here}" data-player-name="${player.name}">Delete ${player.name}</button></div></div>`;
-  } else if (input.tab === "items") {
+  } else {
+    // Each of the game's items: whether they own it, Grant or Take away, and under it their purchases of it, each with Refund.
+    const purchaseLine = (purchase: PanelPurchase) =>
+      html`<div class="bp-line bp-purchase"><span class="bp-meta">${purchase.detail}</span>${purchase.isRefunded ? "" : html`<button class="bp-link" type="button"${call("POST", `${here}/purchases/${purchase.purchaseId}/refund`)}>Refund</button>`}</div>`;
     section = html`<input class="bp-search" type="search" placeholder="Find an item" aria-label="Find an item" value="${input.searchText}" data-bench-search>
 ${input.items.length
-      ? input.items.map((gameItem) => html`<div class="bp-row"><span class="bp-who" style="flex:1"><b>${gameItem.title}</b><span class="bp-meta">${[gameItem.itemKind, gameItem.priceText, ...(gameItem.isOwned ? ["owned"] : [])].join(" · ")}</span></span>${
+      ? input.items.map((gameItem) => html`<div class="bp-item"><div class="bp-line"><span class="bp-who"><b>${gameItem.title}</b><span class="bp-meta">${[gameItem.itemKind, gameItem.priceText, ...(gameItem.isOwned ? ["owned"] : [])].join(" · ")}</span></span>${
           gameItem.isOwned && gameItem.itemKind === "permanent"
             ? html`<button class="bp-ghost" type="button"${call("DELETE", `${here}/items/${gameItem.itemName}`)}>Take away</button>`
             : html`<button class="bp-ghost" type="button"${call("POST", `${here}/items`, { item_name: gameItem.itemName })}>${gameItem.itemKind === "consumable" ? "Grant 1" : "Grant"}</button>`
-        }</div>`)
+        }</div>${gameItem.purchases.map(purchaseLine)}</div>`)
       : html`<p class="bp-empty">${input.searchText ? "No item by that name." : "No items: they're set on Zaisma, and the bench brings them in with --game and ZAISMA_KEY."}</p>`}
-<p class="bp-note" style="padding:8px 10px">A grant is a purchase the game gets as Zaisma would send it.</p>`;
-  } else {
-    section = html`<input class="bp-search" type="search" placeholder="Find a purchase" aria-label="Find a purchase" value="${input.searchText}" data-bench-search>
-${input.purchases.length
-      ? input.purchases.map((purchase) => html`<div class="bp-row"><span class="bp-who" style="flex:1"><b>${purchase.title}</b><span class="bp-meta">${purchase.detail}</span></span>${purchase.isRefunded ? "" : html`<button class="bp-ghost" type="button"${call("POST", `${here}/purchases/${purchase.purchaseId}/refund`)}>Refund</button>`}</div>`)
-      : html`<p class="bp-empty">${input.searchText ? "No purchase of that." : "No purchases yet. Buying in the game, or granting an item, adds one."}</p>`}
-<p class="bp-note" style="padding:8px 10px">Newest first. A refund reaches the game as Zaisma's would.</p>`;
+<p class="bp-note" style="padding:8px 10px">A grant is a purchase the game gets as Zaisma would send it, and a refund reaches it as Zaisma's would. "Waiting for the game" is one it hasn't handled yet.</p>`;
   }
   return String(html`<div class="bp-head"><button class="bp-link" type="button" data-bench-view="list" aria-label="Back to players">‹</button>${face(player.name)}<b>${player.name}</b>${input.isCurrent ? html`<span class="bp-tag">this tab</span>` : html`<button class="bp-btn" type="button" data-bench-play-as="${player.playerId}">Play as ${player.name}</button>`}</div>
 <p class="bp-note" style="padding:6px 10px 0">${describe(player)}${player.openPlayerNumbers.length ? ` · open as player ${player.openPlayerNumbers.join(", ")}` : ""}</p>
-<div class="bp-tabs" role="tablist">${tabButton("profile", "Profile")}${tabButton("items", "Items")}${tabButton("purchases", "Purchases")}</div>
+<div class="bp-tabs" role="tablist">${tabButton("profile", "Profile")}${tabButton("items", "Items")}</div>
 ${section}`);
 }
 

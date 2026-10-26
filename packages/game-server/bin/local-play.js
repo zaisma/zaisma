@@ -690,26 +690,29 @@ export async function startLocalPlay(givenOptions) {
     if (!account) {
       return glass.playersPanelHtml(place, { players: state.accounts.filter((each) => matches(searchText, each.username)).map(panelPlayer), currentPlayerId: current?.playerId ?? null, searchText, totalCount: state.accounts.length });
     }
-    const tab = ["items", "purchases"].includes(url.searchParams.get("tab")) ? url.searchParams.get("tab") : "profile";
+    const tab = url.searchParams.get("tab") === "items" ? "items" : "profile";
     const named = (ids) => ids.map((id) => accountOf(id)).filter(Boolean).map((other) => ({ playerId: other.playerId, name: other.username }));
     const owned = new Set(ownedNamesOf(account.id));
     return glass.playerPanelHtml(place, {
       player: panelPlayer(account), isCurrent: current?.id === account.id, tab,
       friends: named(friendIdsOf(account.id)), blocked: named(blockedIdsOf(account)), blockedBy: named(blockerIdsOf(account)).map((other) => other.name),
       others: state.accounts.filter((other) => other.id !== account.id).map((other) => ({ playerId: other.playerId, name: other.username })),
+      // The game's items, owned first, each with this player's purchases of it, newest first.
       items: state.items
         .filter((listedItem) => matches(searchText, listedItem.title, listedItem.itemName))
-        .map((listedItem) => ({ itemName: listedItem.itemName, title: listedItem.title, itemKind: listedItem.itemKind, priceText: listedItem.priceMinorUnits === null || !listedItem.currencyCode ? "only granted" : priceText(listedItem.currencyCode, listedItem.priceMinorUnits), isOwned: owned.has(listedItem.itemName) }))
-        .sort((first, second) => Number(second.isOwned) - Number(first.isOwned)),
-      purchases: state.purchases
-        .filter((purchase) => purchase.accountId === account.id && matches(searchText, titleOf(purchase.itemName), purchase.itemName))
-        .reverse()
-        .map((purchase) => ({
-          purchaseId: purchase.id,
-          title: `${titleOf(purchase.itemName)}${purchase.itemCount > 1 ? ` × ${purchase.itemCount}` : ""}`,
-          detail: [purchase.source === "bought" ? "Test card" : "Granted", purchase.purchasedAt.slice(0, 16).replace("T", " "), purchase.isHandled ? "handled" : "waiting for the game", ...(purchase.refundedAt ? ["refunded"] : [])].join(" · "),
-          isRefunded: Boolean(purchase.refundedAt),
-        })),
+        .map((listedItem) => ({
+          itemName: listedItem.itemName, title: listedItem.title, itemKind: listedItem.itemKind,
+          priceText: listedItem.priceMinorUnits === null || !listedItem.currencyCode ? "only granted" : priceText(listedItem.currencyCode, listedItem.priceMinorUnits), isOwned: owned.has(listedItem.itemName),
+          purchases: state.purchases
+            .filter((purchase) => purchase.accountId === account.id && purchase.itemName === listedItem.itemName)
+            .reverse()
+            .map((purchase) => ({
+              purchaseId: purchase.id,
+              detail: [`${purchase.source === "bought" ? "Test card" : "Granted"}${purchase.itemCount > 1 ? ` × ${purchase.itemCount}` : ""}`, purchase.purchasedAt.slice(0, 16).replace("T", " "), purchase.isHandled ? "handled" : "waiting for the game", ...(purchase.refundedAt ? ["refunded"] : [])].join(" · "),
+              isRefunded: Boolean(purchase.refundedAt),
+            })),
+        }))
+        .sort((first, second) => Number(second.isOwned) - Number(first.isOwned) || second.purchases.length - first.purchases.length),
       searchText,
     });
   }
