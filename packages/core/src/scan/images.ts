@@ -112,6 +112,133 @@ export function embeddedMedia(text: string): { type: string; bytes: Uint8Array }
   return out;
 }
 
+/** Engine packs and binaries searched for pictures stored inside them (Godot .pck, .glb models, Emscripten .data, assets compiled into .wasm). */
+export const PACK_EXTENSIONS = new Set(["pck", "glb", "data", "dat", "bin", "wasm"]);
+/** How much of a pack is read at a time; a picture bigger than this inside one isn't matched. */
+export const PACK_WINDOW_SIZE_BYTES = 32 * 1024 * 1024;
+/** Pictures inside packs smaller than this aren't sent: too small to show anything. */
+export const MINIMUM_PACK_PICTURE_SIZE_BYTES = 1024;
+
+/** A whole picture found inside a pack: its bytes are startIndex up to (not including) endIndex. */
+export interface PictureInside {
+  startIndex: number;
+  endIndex: number;
+  type: string;
+}
+
+/**
+ * The whole PNG, JPEG, GIF and WebP files stored inside a pack's bytes, found by their signatures and walked
+ * to their ends. GPU textures and encrypted packs hold none it can read, and pass. unfinishedStartIndex is
+ * where a picture starts that runs past the end of these bytes (read on from there), or null. One claiming
+ * more than PACK_WINDOW_SIZE_BYTES is skipped, so reading on from it always gets all of it in one window.
+ */
+export function picturesInside(bytes: Uint8Array): { pictures: PictureInside[]; unfinishedStartIndex: number | null } {
+  const pictures: PictureInside[] = [];
+  let index = 0;
+  while (index < bytes.length) {
+    const firstByte = bytes[index];
+    const isCandidate = firstByte === 0x89 || firstByte === 0xff || firstByte === 0x47 || firstByte === 0x52;
+    if (isCandidate && bytes.length - index < 16) return { pictures, unfinishedStartIndex: index };
+    const walked = firstByte === 0x89 ? pngEnd(bytes, index) : firstByte === 0xff ? jpegEnd(bytes, index) : firstByte === 0x47 ? gifEnd(bytes, index) : firstByte === 0x52 ? webpEnd(bytes, index) : null;
+    if (walked === "unfinished") return { pictures, unfinishedStartIndex: index };
+    if (walked) {
+      pictures.push({ startIndex: index, endIndex: walked.endIndex, type: walked.type });
+      index = walked.endIndex;
+    } else index++;
+  }
+  return { pictures, unfinishedStartIndex: null };
+}
+
+type Walked = { endIndex: number; type: string } | "unfinished" | null;
+
+const uint32 = (bytes: Uint8Array, index: number) => ((bytes[index]! << 24) | (bytes[index + 1]! << 16) | (bytes[index + 2]! << 8) | bytes[index + 3]!) >>> 0;
+const ascii = (bytes: Uint8Array, index: number, text: string) => [...text].every((character, characterIndex) => bytes[index + characterIndex] === character.charCodeAt(0));
+
+function pngEnd(bytes: Uint8Array, startIndex: number): Walked {
+  if (!ascii(bytes, startIndex + 1, "PNG\r\n\x1a\n") || uint32(bytes, startIndex + 8) !== 13 || !ascii(bytes, startIndex + 12, "IHDR")) return null;
+  let index = startIndex + 8;
+  while (true) {
+    if (index + 8 > bytes.length) return "unfinished";
+    const chunkSizeBytes = uint32(bytes, index);
+    if (chunkSizeBytes > 0x7fffffff) return null;
+    const isEnd = ascii(bytes, index + 4, "IEND");
+    index += 12 + chunkSizeBytes;
+    if (index - startIndex > PACK_WINDOW_SIZE_BYTES) return null;
+    if (index > bytes.length) return "unfinished";
+    if (isEnd) return { endIndex: index, type: "image/png" };
+  }
+}
+
+function jpegEnd(bytes: Uint8Array, startIndex: number): Walked {
+  if (bytes[startIndex + 1] !== 0xd8 || bytes[startIndex + 2] !== 0xff) return null;
+  const firstMarkerByte = bytes[startIndex + 3]!;
+  if (!((firstMarkerByte >= 0xe0 && firstMarkerByte <= 0xef) || firstMarkerByte === 0xdb || firstMarkerByte === 0xfe || (firstMarkerByte >= 0xc0 && firstMarkerByte <= 0xcf))) return null;
+  let index = startIndex + 2;
+  while (true) {
+    if (index + 4 > bytes.length) return "unfinished";
+    if (bytes[index] !== 0xff) return null;
+    const markerByte = bytes[index + 1]!;
+    if (markerByte === 0xd9) return { endIndex: index + 2, type: "image/jpeg" };
+    if (markerByte === 0xff) {
+      index++;
+      continue;
+    }
+    if ((markerByte >= 0xd0 && markerByte <= 0xd7) || markerByte === 0x01) {
+      index += 2;
+      continue;
+    }
+    const segmentSizeBytes = (bytes[index + 2]! << 8) | bytes[index + 3]!;
+    if (segmentSizeBytes < 2) return null;
+    index += 2 + segmentSizeBytes;
+    if (index - startIndex > PACK_WINDOW_SIZE_BYTES) return null;
+    if (markerByte !== 0xda) continue;
+    // Scan data runs to the next markerByte that isn't a stuffed byte (FF 00) or a restart (FF D0-D7).
+    while (true) {
+      if (index - startIndex > PACK_WINDOW_SIZE_BYTES) return null;
+      if (index + 1 >= bytes.length) return "unfinished";
+      if (bytes[index] === 0xff && bytes[index + 1] !== 0x00 && !(bytes[index + 1]! >= 0xd0 && bytes[index + 1]! <= 0xd7)) break;
+      index++;
+    }
+  }
+}
+
+function gifEnd(bytes: Uint8Array, startIndex: number): Walked {
+  if (!ascii(bytes, startIndex, "GIF87a") && !ascii(bytes, startIndex, "GIF89a")) return null;
+  const subBlocks = (fromIndex: number): number | "unfinished" | null => {
+    let index = fromIndex;
+    while (true) {
+      if (index - startIndex > PACK_WINDOW_SIZE_BYTES) return null;
+      if (index >= bytes.length) return "unfinished";
+      const subBlockSizeBytes = bytes[index]!;
+      index += 1 + subBlockSizeBytes;
+      if (subBlockSizeBytes === 0) return index;
+    }
+  };
+  const colorTableSize = (packedByte: number) => (packedByte & 0x80 ? 3 * (1 << ((packedByte & 0x07) + 1)) : 0);
+  let index = startIndex + 13 + colorTableSize(bytes[startIndex + 10]!);
+  while (true) {
+    if (index >= bytes.length) return "unfinished";
+    const blockByte = bytes[index]!;
+    if (blockByte === 0x3b) return { endIndex: index + 1, type: "image/gif" };
+    let next: number | "unfinished" | null;
+    if (blockByte === 0x21) next = subBlocks(index + 2);
+    else if (blockByte === 0x2c) {
+      if (index + 10 > bytes.length) return "unfinished";
+      next = subBlocks(index + 10 + colorTableSize(bytes[index + 9]!) + 1);
+    } else return null;
+    if (next === "unfinished" || next === null) return next;
+    index = next;
+  }
+}
+
+function webpEnd(bytes: Uint8Array, startIndex: number): Walked {
+  if (!ascii(bytes, startIndex, "RIFF") || !ascii(bytes, startIndex + 8, "WEBPVP8")) return null;
+  const riffSizeBytes = (bytes[startIndex + 4]! | (bytes[startIndex + 5]! << 8) | (bytes[startIndex + 6]! << 16) | (bytes[startIndex + 7]! << 24)) >>> 0;
+  const endIndex = startIndex + 8 + riffSizeBytes + (riffSizeBytes % 2);
+  if (endIndex - startIndex > PACK_WINDOW_SIZE_BYTES) return null;
+  return endIndex > bytes.length ? "unfinished" : { endIndex, type: "image/webp" };
+}
+
 /** The code on a finding for a picture that matched known abuse material. The scan holds the version, keeps everything and alerts. */
 export const KNOWN_IMAGE_CODE = "known_illegal_image";
 
