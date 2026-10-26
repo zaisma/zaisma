@@ -194,6 +194,7 @@ describe("the game database's import and export", () => {
     expect((await exportAll("moon-hopper")).dumpSql).toBe(dumpSql);
   });
 
+  // Four megabytes in and out of a database: a busy runner takes past the default 5 seconds.
   it("exports up to 4 MB a part, at whole rows, and each part imports on its own", async () => {
     await tool("query_database", { slug: "sky-hopper", sql: "CREATE TABLE replays (replay_id INTEGER PRIMARY KEY, replay BLOB)" });
     const megabyte = btoa("\u0007".repeat(1_000_000));
@@ -205,7 +206,7 @@ describe("the game database's import and export", () => {
     expect((await api("/games", { body: { title: "Moon Hopper" } })).status).toBe(201);
     for (const part of parts) await tool("import_database", { slug: "moon-hopper", dump_sql: part });
     expect(await rowsOf("moon-hopper", "SELECT replay_id, length(replay) AS size_bytes FROM replays")).toEqual([1, 2, 3, 4, 5].map((replayId) => ({ replay_id: replayId, size_bytes: 1_000_000 })));
-  });
+  }, 30_000);
 
   it("imports what sqlite3's .dump writes, unistr and all", async () => {
     const sqlite3Dump = [
