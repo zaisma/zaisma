@@ -141,10 +141,10 @@ function screensPage(env: Env, url: URL): Response {
   const states = url.searchParams.getAll("state").flatMap((name) => CHECKED_PAGES.filter((page) => page.name === name && !page.isOnSignInSite));
   const asked = url.searchParams.getAll("page").map((path) => path.trim()).filter(isSitePath);
   const titleOf = (path: string) => CHECKED_PAGES.find((page) => page.path === path && !page.stepsToTake)?.name ?? path;
-  const shown = [...states.map((page) => ({ path: page.path, title: page.name, stepsToTake: page.stepsToTake })), ...asked.map((path) => ({ path, title: titleOf(path) }))];
+  const shown = [...states.map((page) => ({ path: page.path, title: page.name, stepsToTake: page.stepsToTake, account: page.account })), ...asked.map((path) => ({ path, title: titleOf(path) }))];
   const panes = shown.length ? shown : [{ path: "/design/example", title: titleOf("/design/example") }];
   // The picker and each page's screens, one under another a block's gap apart (a Stack), never set down side by side by hand.
-  const main = html`<h1 class="group-name">Screens</h1>${stack({ items: [screensPicker(panes[0]!.path, screenNamesOf(url)), ...panes.map((pane) => screensPane({ ...pane, screenNames: screenNamesOf(url) }))].map((markup) => ({ kind: "block" as const, markup })) })}`;
+  const main = html`<h1 class="group-name">Screens</h1>${stack({ items: [screensPicker(panes[0]!.path, screenNamesOf(url)), ...panes.map((pane) => screensPane({ ...pane, screenNames: screenNamesOf(url), screensPath: `${url.pathname}${url.search}` }))].map((markup) => ({ kind: "block" as const, markup })) })}`;
   return galleryPage(env, { group: "layout", theme, path: `${url.pathname}${url.search}`, title: "Screens", checkedPage: "Screens", main, frames: ["'self'"], isIndexHidden: true });
 }
 

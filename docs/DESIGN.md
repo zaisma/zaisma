@@ -320,7 +320,7 @@ Every component, with the call that makes it and its options, is in the catalog 
 - **Pane parts** (`paneParts(options: PanePartsOptions)`, `layout.ts`): A pane's places: its head (words, and one control in its top corner), its body and its foot (something at the start, one control in its bottom corner). A corner control sits in the corner and takes its cut.
   - `options`: `head?: { words: Raw; end?: LayoutControl }`, `body: Raw`, `foot?: { start?: LayoutItem; end?: LayoutControl }`
 - **Screens** (`screens(options: ScreensOptions)`, `screens.ts`): One page on the screens players bring (a phone and a laptop to start; a big phone, a phone on its side, an iPad, a Steam Deck and a 2560 desktop as asked), light and dark, side by side, each with what the measuring check finds. Point at or tap anything in a screen to see what it is and which rule placed it. It's where a page is reviewed, never made: the Screens page shows any page this way on a local preview.
-  - `options`: `path: string`, `title: string`, `stepsToTake?: readonly StepToTake[]`, `screenNames?: readonly ScreenName[]`
+  - `options`: `path: string`, `title: string`, `stepsToTake?: readonly StepToTake[]`, `screenNames?: readonly ScreenName[]`, `screensPath?: string`, `account?: string`
 
 ### Actions
 

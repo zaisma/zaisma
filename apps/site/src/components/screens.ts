@@ -36,6 +36,10 @@ export interface ScreensOptions {
   stepsToTake?: readonly StepToTake[];
   /** The screens it's shown on (checked-pages.ts's SCREEN_SIZES, by name): a phone and a laptop when left out. */
   screenNames?: readonly ScreenName[];
+  /** The Screens page's own address, to come back to after signing in when the page needs an account. */
+  screensPath?: string;
+  /** The test account a state is seen as (checked-pages.ts): the screens show whoever this browser is signed in as, so its pane says who. */
+  account?: string;
 }
 
 /** The screens asked for in the address (?screen=, more than once for several), as the check names them; a phone and a laptop when none is. */
@@ -111,7 +115,9 @@ export function screensPane(options: ScreensOptions): Raw {
   return glassPane({
     paneWidth: "full",
     label: options.title,
-    body: paneParts({ head: { words: html`<h2>${options.title}</h2><p>${options.path}</p>`, end: cutButton("Open it", { href: options.path }) }, body: screens(options) }),
+    body: paneParts({ head: { words: html`<h2>${options.title}</h2><p>${options.path}</p>
+${options.account ? html`<p>Seen as ${options.account}: the screens show whoever this browser is signed in as.</p>` : ""}
+<p data-screens-signed-out hidden>It needs an account, and the screens show it as this browser sees it, signed out. ${textLink(options.account ? `Sign in as ${options.account}` : "Sign in", `/signin?next=${encodeURIComponent(options.screensPath ?? SCREENS_PATH)}`)} to see it.</p>`, end: cutButton("Open it", { href: options.path }) }, body: screens(options) }),
   });
 }
 
@@ -215,6 +221,10 @@ export const SCREENS_SCRIPT = pageScript("screens", String.raw`(function () {
       var doc = null; try { doc = frame.contentDocument; } catch (error) {}
       if (!doc || !doc.documentElement) { verdict.textContent = "Not a page on this site"; return; }
       if (stepIndex < steps.length) { takeStep(doc); return; }
+      // A page that needs an account sends a signed-out browser to sign in: its pane says so once, with the way to sign in and come back.
+      if (frame.contentWindow.location.pathname === "/signin" && new URL(frame.getAttribute("src"), location.href).pathname !== "/signin") {
+        figure.closest(".glass-pane").querySelector("[data-screens-signed-out]").hidden = false;
+      }
       var inside = frame.contentWindow;
       doc.documentElement.setAttribute("data-theme-choice", theme);
       frame.classList.add("is-shown");
