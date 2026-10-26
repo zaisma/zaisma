@@ -356,10 +356,12 @@ export async function checkPages({ site, signInSite, pages = LAYOUT_CHECK_PAGES,
         const tooSlow = runLooks.map(() => [{ check: "the page didn't settle in time", element: "", said: `nothing measured within ${(RUN_TIME_LIMIT_MS * runLooks.length) / 1000}s` }]);
         const startedMs = Date.now();
         // A page that sends forms gets a browser of its own, so what its answers leave (a cookie that says too young) reaches no other page.
-        const contextId = page.stepsToTake ? await newContext(page.account) : await contextFor(page.account);
+        // A page on a developer's site signs in again just before it's opened: connecting an app asks for a recent sign-in, and a long run outlasts one.
+        const isOwnContext = Boolean(page.stepsToTake) || Boolean(page.isOnSignInSite && page.account);
+        const contextId = isOwnContext ? await newContext(page.account) : await contextFor(page.account);
         const pictureOf = picturesFolder ? (size, theme, jpegBase64) => { if (!picturesByPage.has(page.name)) picturesByPage.set(page.name, []); picturesByPage.get(page.name).push({ size, theme, jpegBase64 }); } : null;
         const foundByLook = await Promise.race([checkPage(chrome, contextId, url, runLooks, { ...page, pictureOf }), wait(RUN_TIME_LIMIT_MS * runLooks.length).then(() => tooSlow)]);
-        if (page.stepsToTake) await chrome.send("Target.disposeBrowserContext", { browserContextId: contextId }).catch(() => {});
+        if (isOwnContext) await chrome.send("Target.disposeBrowserContext", { browserContextId: contextId }).catch(() => {});
         secondsByPage[page.name] = Math.round(((secondsByPage[page.name] ?? 0) + (Date.now() - startedMs) / 1000) * 10) / 10;
         foundByRun[runIndex] = runLooks.flatMap(({ size, theme: lookTheme }, lookIndex) => foundByLook[lookIndex].map((failure) => ({ page: page.name, path: page.path, size: size.name, theme: lookTheme, ...failure })));
         for (const [lookIndex, { size, theme: lookTheme }] of runLooks.entries()) onPage(page, size, lookTheme, foundByLook[lookIndex]);

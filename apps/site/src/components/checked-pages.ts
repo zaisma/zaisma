@@ -167,6 +167,7 @@ const CHECKED_PAGE_LIST = [
   { name: "Buy window", area: "Playing", path: "/buy/tiny-farm/revive", mainActionShows: "nowhere" },
   { name: "Games", area: "Playing", path: "/games", mainActionShows: "nowhere", isCoverAboveFold: true },
   { name: "Games, signed in", area: "Playing", path: "/games", account: "Moss_Runner", mainActionShows: "nowhere", isCoverAboveFold: true },
+  ...STRESS_ACCOUNTS.map(({ account, nameEnding }) => ({ name: `Games, ${nameEnding}` as const, area: "Playing" as const, path: "/games", account, shownStateName: "Games, signed in", mainActionShows: "nowhere" as const, isCoverAboveFold: true })),
   { name: "Games, one genre", area: "Playing", path: "/games?filter=strategy", mainActionShows: "nowhere", isCoverAboveFold: true },
   { name: "Games, multiplayer", area: "Playing", path: "/games?filter=multiplayer", mainActionShows: "nowhere", isCoverAboveFold: true },
   { name: "Games, a search", area: "Playing", path: "/games?search_text=farm", mainActionShows: "nowhere", isCoverAboveFold: true },

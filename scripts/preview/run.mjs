@@ -1166,12 +1166,6 @@ async function seed() {
   stepDone("stress accounts");
 }
 
-/** The longest each field allows (packages/core: a display name, a bio; the developer API: a game's title and description). */
-const LONGEST_DISPLAY_NAME = "Bartholomew Montgomery-Whitfo";
-const LONGEST_BIO = "Speedrunner, puzzle builder and collector of very long names. I write long reviews, longer bios, and the longest game titles a field will take, ever.";
-const LONGEST_GAME_TITLE = "The Extraordinarily Long Chronicles of the Wandering Lighthouse Keeper, Volume I";
-const LONGEST_GAME_DESCRIPTION = "A lighthouse keeper walks the coast at night with a lantern, mending broken lamps before the ships come in. Each lamp is a small puzzle of mirrors, gears and weather; each night the sea rises a little higher and the fog comes in a little thicker. Keep the light burning through forty storms, meet the fishers, smugglers and gulls who share the shore, and learn why the old keeper left. Plays with a keyboard, a controller or a touch screen, in short nights of ten minutes or long ones that last until dawn.";
-
 /**
  * The stress accounts (sign-ins.mjs; docs/DESIGN.md, Pages under stress), which the layout check signs in as on the pages that list things:
  * Longest_Names_Here with every name at its field's longest and one unlisted game named so; Empty_Handed with nothing at all; Many_Things
@@ -1180,6 +1174,11 @@ const LONGEST_GAME_DESCRIPTION = "A lighthouse keeper walks the coast at night w
  * Unlisted, so no other page's look changes.
  */
 async function seedStressAccounts(go, form) {
+  /** The longest each field allows (packages/core: a display name, a bio; the developer API: a game's title and description). */
+  const LONGEST_DISPLAY_NAME = "Bartholomew Montgomery-Whitfo";
+  const LONGEST_BIO = "Speedrunner, puzzle builder and collector of very long names. I write long reviews, longer bios, and the longest game titles a field will take, ever.";
+  const LONGEST_GAME_TITLE = "The Extraordinarily Long Chronicles of the Wandering Lighthouse Keeper, Volume I";
+  const LONGEST_GAME_DESCRIPTION = "A lighthouse keeper walks the coast at night with a lantern, mending broken lamps before the ships come in. Each lamp is a small puzzle of mirrors, gears and weather; each night the sea rises a little higher and the fog comes in a little thicker. Keep the light burning through forty storms, meet the fishers, smugglers and gulls who share the shore, and learn why the old keeper left. Plays with a keyboard, a controller or a touch screen, in short nights of ten minutes or long ones that last until dawn.";
   const longest = await signedIn({ name: "Longest_Names_Here", year: "1990" }, "203.0.113.1");
   await longest("/@Longest_Names_Here/edit", { display_name: LONGEST_DISPLAY_NAME, bio: LONGEST_BIO });
   await signedIn({ name: "Empty_Handed", year: "1990" }, "203.0.113.2");

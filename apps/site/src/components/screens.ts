@@ -96,6 +96,7 @@ export function screensPicker(path: string, screenNames: readonly ScreenName[] =
             items: [
               { kind: "words", markup: html`<h2>On these screens</h2>` },
               { kind: "block", markup: grid({ itemSize: "figure", label: "Screens", items: SCREEN_SIZES.map((screenSize) => ({ kind: "block" as const, markup: checkField({ id: `screens-screen-${screenSize.name.toLowerCase().replace(/ /g, "-")}`, name: "screen", checkValue: screenSize.name, label: `${screenSize.name}, ${screenSize.widthPx} × ${screenSize.heightPx}`, isChecked: screenNames.includes(screenSize.name) }) })) }) },
+              { kind: "words", markup: html`<h2>The page</h2>` },
               { kind: "block", markup: row({ widths: "lead-fills", items: [{ kind: "control", markup: cutField({ id: "screens-page", name: "page", label: "Page", type: "text", icon: "globe", text: path, placeholder: "/signin" }) }, { kind: "control", markup: runButton("Show", { type: "submit" }) }] }) },
             ],
           })}</form>`,

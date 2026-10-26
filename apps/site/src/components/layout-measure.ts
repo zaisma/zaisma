@@ -57,6 +57,8 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
       return null;
     }
     function roomOf(pane) {
+      // In the browser's top layer (a sheet opened over the page, a popover), the window is its room, whatever holds it.
+      if (pane.matches(":modal, :popover-open")) return { left: 0, top: 0, right: innerWidth, bottom: innerHeight };
       for (var walk = pane.parentElement; walk && walk !== document.documentElement; walk = walk.parentElement) {
         var css = getComputedStyle(walk);
         if (css.transform !== "none" || css.filter !== "none" || /paint|layout|strict|content/.test(css.contain || "")) return walk.getBoundingClientRect();
@@ -463,17 +465,16 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
     }
   }
   // A line of words runs at most 75 characters of its font (a "0" in it): --size-reading is 60ch, and 75 leaves room for a wide pane's short lines.
-  var LONGEST_LINE_CHARACTER_COUNT = 75, zeroWidths = new Map();
-  function zeroWidthPx(el) {
-    var font = getComputedStyle(el).font;
-    if (!zeroWidths.has(font)) { var probe = document.createElement("span"); probe.style.cssText = "position:absolute;visibility:hidden;white-space:pre;font:" + font; probe.textContent = "0000000000"; document.body.appendChild(probe); zeroWidths.set(font, probe.getBoundingClientRect().width / 10); probe.remove(); }
-    return zeroWidths.get(font);
-  }
+  var LONGEST_LINE_CHARACTER_COUNT = 75;
+  // 75ch in the words' own font, as the browser works ch out: a probe inside the element takes its width.
   Array.prototype.forEach.call(document.querySelectorAll("main p, main li, dialog p"), function (el) {
     if (!isShown(el) || el.closest(SKIPPED + ", pre, code, table, .list-rows, .dropdown, .tab-switch, .steps, .step-line, nav") || el.querySelector("p, li")) return;
+    // One line that's cut off at its end (a note in a row, ending in an ellipsis) isn't read as a line of a paragraph.
+    if (/^(nowrap|pre)$/.test(getComputedStyle(el).whiteSpace) || getComputedStyle(el).textOverflow === "ellipsis") return;
     var range = document.createRange(); range.selectNodeContents(el);
-    var longestPx = Array.prototype.reduce.call(range.getClientRects(), function (most, glyphs) { return Math.max(most, glyphs.width); }, 0), mostPx = LONGEST_LINE_CHARACTER_COUNT * zeroWidthPx(el);
-    if (longestPx > mostPx + TOLERANCE_PX) report("a line of words longer than the reading width", el, "a line " + round(longestPx) + "px long, at most " + round(mostPx) + "px (" + LONGEST_LINE_CHARACTER_COUNT + " characters)");
+    var longestPx = Array.prototype.reduce.call(range.getClientRects(), function (most, glyphs) { return Math.max(most, glyphs.width); }, 0), mostPx = lengthPx(LONGEST_LINE_CHARACTER_COUNT + "ch", el);
+    // Half a character's room for a glyph that reaches past its advance at a line's end.
+    if (longestPx > mostPx + Math.max(TOLERANCE_PX, mostPx / LONGEST_LINE_CHARACTER_COUNT / 2)) report("a line of words longer than the reading width", el, "a line " + round(longestPx) + "px long, at most " + round(mostPx) + "px (" + LONGEST_LINE_CHARACTER_COUNT + " characters)");
   });
 
   measurePanes();
@@ -542,6 +543,8 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
   // Choices are buttons and a switch's buttons; fields side by side (a PIN's boxes) aren't, and a switch of places (links) is a way round, not a choice.
   Array.prototype.forEach.call(document.querySelectorAll(".layout-row[data-control-height], .tab-switch:not(.vertical)"), function (group) {
     if (!isOwn(group)) return;
+    // A framed switch is a strip that scrolls sideways (filters, places), read as one control.
+    if (group.matches(".tab-switch.framed")) return;
     var choices = group.matches(".tab-switch") ? group.querySelectorAll(":scope > button") : Array.prototype.filter.call(group.querySelectorAll(":scope > .row-cell.is-control"), function (cell) { return cell.querySelector(":scope > .shell, :scope > .run-wrap"); });
     var shownCount = Array.prototype.filter.call(choices, isShown).length;
     if (shownCount > MAXIMUM_EQUAL_CHOICE_COUNT) report("too many equal choices", group, shownCount + " side by side, at most " + MAXIMUM_EQUAL_CHOICE_COUNT);
@@ -561,6 +564,17 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
       else if (el.matches(FIELDS) && !el.parentElement.closest(FIELDS) && isShown(el) && ++run > MAXIMUM_UNBROKEN_FIELD_COUNT) { report("a long form in one piece", el, run + " fields with no heading between them, at most " + MAXIMUM_UNBROKEN_FIELD_COUNT); break; }
     }
   });
+  // Two panes side by side or one over the other keep a block's gap between them (a layout component puts it there): never touching, never
+  // overlapping. Panes over the page (a sheet, a menu) and a pane inside another are left out.
+  var blockGapPx = lengthPx("var(--gap-block-block)");
+  var pagePanes = Array.prototype.filter.call(document.querySelectorAll(".glass-pane, .tray, .foot, header.top"), function (pane) { return isShown(pane) && !isOnFixed(pane) && !pane.closest(EXAMPLE + ", " + OVER_PAGE) && !(pane.parentElement && pane.parentElement.closest(".glass-pane, .tray")); });
+  for (var p1 = 0; p1 < pagePanes.length; p1++) for (var p2 = p1 + 1; p2 < pagePanes.length; p2++) {
+    var one = pagePanes[p1].getBoundingClientRect(), two = pagePanes[p2].getBoundingClientRect();
+    var acrossPx = Math.min(one.right, two.right) - Math.max(one.left, two.left), downPx = Math.min(one.bottom, two.bottom) - Math.max(one.top, two.top);
+    // Beside each other in one direction, the space between them in the other.
+    var apartPx = acrossPx > TOLERANCE_PX ? -downPx : downPx > TOLERANCE_PX ? -acrossPx : Infinity;
+    if (apartPx < blockGapPx - TOLERANCE_PX) report(apartPx < -TOLERANCE_PX ? "two panes overlapping" : "two panes closer than a block's gap", pagePanes[p2], (apartPx < 0 ? "over " : round(apartPx) + "px from ") + describe(pagePanes[p1]) + (apartPx < 0 ? " by " + round(-apartPx) + "px" : ", a block's gap is " + round(blockGapPx) + "px"));
+  }
   var pageWidthPx = document.scrollingElement.scrollWidth;
   if (pageWidthPx > innerWidth + 1) report("the page scrolls sideways", document.body, pageWidthPx + "px wide in a " + innerWidth + "px window");
   return failures;
