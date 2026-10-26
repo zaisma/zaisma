@@ -29,8 +29,8 @@ export type TranscriptStep = {
   note?: string;
   /** Who the step is about, a label like "a". Not needed for an action. */
   client?: string;
-  /** Open a connection: to the game's room, from a site the game isn't on, or to a game that doesn't exist. */
-  connect?: "room" | "other_site" | "unknown_game";
+  /** Open a connection: to the game's room, to a second room of the same game, from a site the game isn't on, or to a game that doesn't exist. */
+  connect?: "room" | "other_room" | "other_site" | "unknown_game";
   /** Send this JSON message (with "<pass:a>" in a hello's pass swapped for the real pass). */
   send?: unknown;
   /** Send these bytes as a binary frame. */
@@ -161,7 +161,8 @@ export async function playTranscript(driver: TranscriptDriver): Promise<{ stepCo
       }
       const label = step.client!;
       if (step.connect) {
-        connections.set(label, await driver.connect(step.connect, roomCode));
+        // A second room of the game is the next scene's room code, which no scene is using while this one plays.
+        connections.set(label, step.connect === "other_room" ? await driver.connect("room", TRANSCRIPT_ROOM_CODES[sceneIndex + 1]!) : await driver.connect(step.connect, roomCode));
         continue;
       }
       const connection = connections.get(label);

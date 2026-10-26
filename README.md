@@ -199,6 +199,8 @@ room.on("move", (move) => { room.leave(); move.join(); });  // in the game: go t
 
 The new room runs the same game server, and its `setup(setupData)` gets your setup data, so it can start the match already set up (players can read it but can't change it; up to 4 KB). It's ready before anyone hears its code, only the players named can join it (it's a closed room, until your server opens it), and it's hidden from room lists unless you pass `isListed: true` (with a `name` and `labels` if you like). To send players to a room that's already running instead, like the next area of an open world, use `room.moveTo(roomCode, { playerIds, joinData })`: the other room's `canJoin` decides, and `onMoved(state, moveResult, room)` hears `{ roomCode, movedPlayers, refusals }`. A room can reserve up to 20 rooms a minute. See `examples/four-in-a-row`: its "Find an opponent" waits in a lobby room until there's someone to play.
 
+**One room at a time.** A player sits in one of your game's rooms at a time, as on Steam: when they join another room, their seat in the first closes with "Joined from somewhere else" and your game server's `onLeave` runs there with reason `"left"`. Moving a player (`room.moveTo`, `room.reserve`) and watching (`isSpectator`) never close a seat. A game that keeps players in more than one room, like a hangout hub beside its matches, raises `maximumRoomCountPerPlayer` (up to 10): a join past it closes the oldest seat. "Playing now" counts each player once.
+
 **Kept rooms** are for worlds that last, like a survival server: a kept room doesn't end when everyone leaves, but sleeps with its state saved, costs nothing while it sleeps, and wakes as it was when someone joins, a day or a month later.
 
 ```ts
@@ -267,6 +269,7 @@ export default {
   idleTimeoutSec: 300,       // seconds without input before "Still there?" (default 600)
   seatHoldDurationSec: 120,  // seconds a seat stays held (default 300, up to 1800; 0 for none)
   reconnectTimeoutSec: 30,   // seconds a player whose connection dropped stays in the match (default 30, up to 300; 0 to take them out at once)
+  maximumRoomCountPerPlayer: 1,  // rooms of your game one player sits in at once (default 1, up to 10; see "Lobbies and matches")
   awayMode: "lobby",         // send players who walk away back to the room that made this one (room.reserve); "hold" is the default
   onAway(state, player, room, awayInfo) {},  // awayInfo.reason "idle", "hidden" or "lost"; for idle and hidden, the player stays and you kick, move or keep them
   onBack(state, player, room) {},          // a player onAway kept, or whose connection dropped, came back: send them the full state

@@ -7,6 +7,7 @@ import {
   PassError,
   REMOVED_CLOSE_CODE,
   ROOM_LIMITS,
+  ROOM_TUNING,
   VERSION_UPDATE_CLOSE_CODE,
   RoomCore,
   addTraffic,
@@ -210,6 +211,10 @@ export class Room extends DurableObject<Env> {
   private lastCheckAtMs = 0;
   private lastTesterCheckAtMs = 0;
   private timer: ReturnType<typeof setInterval> | null = null;
+  /** A room that ticks slower than it probes probes on this timer too, so its players hear from it every probe interval. */
+  private probeTimer: ReturnType<typeof setInterval> | null = null;
+  /** The seat registry call for the game's object failed and was logged, so a lasting failure logs once. */
+  private hasLoggedSeatFailure = false;
   /** The game's room browsing setting, read with its status; null until read since waking. */
   private browsing: string | null = null;
   /** What the game needs an account for, read with its status: guests can't join unless it's none. */
@@ -218,6 +223,8 @@ export class Room extends DurableObject<Env> {
   private minimumPlayerAgeYears = 13;
   /** What this room last wrote to live_rooms ("" for no row), so unchanged rooms don't write again. */
   private listedAs: string | undefined = undefined;
+  /** The seats this room last told its game's object (who is in the match, who is playing), so unchanged ones aren't sent again; undefined when it doesn't know. */
+  private syncedSeatsAs: string | undefined = undefined;
   /** The accounts this room last wrote to room_players, sorted; undefined when it doesn't know (it rewrites them all). */
   private seatedPlayerIds: string[] | undefined = undefined;
   /** This room told the game a player came in through quickJoin (noteQuickJoin); once is enough while it's awake. */
@@ -292,6 +299,7 @@ export class Room extends DurableObject<Env> {
     // Another room of the same game reserving this one (only rooms can reach this; players' requests are WebSockets).
     if (request.method === "POST" && new URL(request.url).pathname === "/reserve") return this.reserved(request);
     if (request.method === "POST" && new URL(request.url).pathname === "/expect") return this.expecting(request);
+    if (request.method === "POST" && new URL(request.url).pathname === "/unseat") return this.unseating(request);
     if (request.method === "POST" && new URL(request.url).pathname === "/version-update") return this.versionUpdating(request);
     if (request.method === "POST" && new URL(request.url).pathname === "/delete") return this.deleting(request);
     if (request.method === "POST" && new URL(request.url).pathname === "/backup") return this.backingUp(request);
@@ -349,8 +357,11 @@ export class Room extends DurableObject<Env> {
     if (Date.now() - this.lastCheckAtMs > CHECK_MS && !(await this.gameStillLive())) return;
     if (Date.now() - this.lastTesterCheckAtMs > TESTER_CHECK_MS) await this.testerLinksStillOn();
     if ((socket.deserializeAttachment() as Attachment).stage !== "in") return;
+    const startedCount = core.handlerStartCount;
     const errorCode = typeof message === "string" ? core.receive(attachment.id, message) : core.receiveBytes(attachment.id, new Uint8Array(message));
     if (errorCode) socket.send(errorMessage(errorCode));
+    // A ticking room whose game server only queues input: plain input and probe answers start no handler, and the next tick applies them, so each need not wait on a busy room.
+    if (core.queuesInput && core.handlerStartCount === startedCount) return;
     await this.settle(core);
   }
 
@@ -398,10 +409,9 @@ export class Room extends DurableObject<Env> {
         await this.finish();
         return;
       }
+      // The checks first, then the wait for the game server: a busy ticking room's handlers can run long, and must not hold back the hosting check, the usage or the hourly check-in.
       if (core && !this.hasEnded) {
         core.sweep();
-        await this.settle(core);
-        if (this.isRowStale) await this.list();
         if (Date.now() - this.hostingCheckedAtMs >= HOSTING_CHECK_MS) await this.checkHosting(core);
       }
       if (this.hasUnrecordedError) {
@@ -418,6 +428,10 @@ export class Room extends DurableObject<Env> {
         // Also when the room has no row to touch (everyone walked away).
         this.checkedInAtMs = Date.now();
         await this.ctx.storage.put("checkedInAtMs", this.checkedInAtMs);
+      }
+      if (core && !this.hasEnded) {
+        await this.settle(core);
+        if (this.isRowStale) await this.list();
       }
       return;
     }
@@ -515,6 +529,7 @@ export class Room extends DurableObject<Env> {
       name: start.name,
       labels: start.labels,
       knownPlayerIds: start.playerIds,
+      reservedPlayerIds: start.playerIds,
       setupData: start.setupData ?? null,
       ...(start.keptOut ? { keptOut: start.keptOut } : {}),
       ...(typeof start.lobbyRoomCode === "string" && start.lobbyRoomCode ? { lobbyRoomCode: start.lobbyRoomCode } : {}),
@@ -543,7 +558,64 @@ export class Room extends DurableObject<Env> {
     this.savedRoom = core.saved;
     await this.ctx.storage.put("room", this.savedRoom);
     await this.save();
+    // The seat held for them counts towards how full the room looks, now.
+    await this.list();
     return Response.json(answer);
+  }
+
+  /**
+   * The game's object says this player joined another room of the game past what the game allows
+   * (maximumRoomCountPerPlayer): their seat here is given up, and they hear "Joined from somewhere else".
+   * A player this room doesn't have is no mistake: it answers 200 and does nothing.
+   */
+  private async unseating(request: Request): Promise<Response> {
+    const ok = () => new Response(null, { status: 200 });
+    if (!this.meta?.roomCode || this.hasEnded || this.meta.gameId !== request.headers.get("x-game-id")) return ok();
+    const asked = (await request.json().catch(() => null)) as { playerId?: unknown } | null;
+    if (typeof asked?.playerId !== "string") return new Response("Bad request", { status: 400 });
+    const playerId = asked.playerId;
+    const playerSockets = this.sockets(playerId).filter((socket) => !(socket.deserializeAttachment() as Attachment & { stage: "in" }).isSpectator);
+    if (!playerSockets.length && !this.core) return ok();
+    // Built while their sockets still count, as a sleeping room is rebuilt from its connections.
+    if (!(await this.load())) return ok();
+    const core = this.room();
+    if (!core) return ok();
+    for (const socket of playerSockets) {
+      this.retire(socket);
+      try {
+        socket.close(REMOVED_CLOSE_CODE, "Joined from somewhere else");
+      } catch {
+        // Already closed.
+      }
+    }
+    // They chose to go: no seat is held for them here.
+    core.leave(playerId, "left");
+    if (this.playerSockets().length === 0) this.dismissSpectators();
+    if (this.sockets().length === 0) {
+      await core.settled();
+      await this.emptied();
+    } else await this.settle(core);
+    return ok();
+  }
+
+  /**
+   * A player came into this room on their own: tell the game's object, which closes their seat in the
+   * game's other rooms past what the game allows. It never holds up their welcome, and a failure leaves
+   * them seated (a join must not fail on bookkeeping; the connection limits are the backstop).
+   */
+  private async takeSeat(playerId: string, maximumRoomCountPerPlayer: number): Promise<void> {
+    const meta = this.meta;
+    if (!meta?.roomCode) return;
+    try {
+      const { roomCodesToLeave } = await this.env.GAME_SERVER_OBJECTS.get(this.env.GAME_SERVER_OBJECTS.idFromName(meta.gameId)).seat(meta.gameId, meta.roomCode, playerId, maximumRoomCountPerPlayer);
+      await Promise.all(
+        roomCodesToLeave.map((roomCode) =>
+          this.env.ROOMS.get(this.env.ROOMS.idFromName(`${meta.slug}:${roomCode}`)).fetch("https://room/unseat", { method: "POST", headers: { "x-game-id": meta.gameId }, body: JSON.stringify({ playerId }) }),
+        ),
+      );
+    } catch (error) {
+      console.error("Couldn't give up the player's other seats:", error);
+    }
   }
 
   private async hello(socket: WebSocket, text: string): Promise<void> {
@@ -618,12 +690,14 @@ export class Room extends DurableObject<Env> {
     // Blocks between this account and the players the room remembers, found afresh, so one taken back since is gone.
     // Spectators send nothing, so nothing of theirs reaches a player to block.
     if (player.kind === "account" && core.known.size > 0 && !isSpectator) {
-      const blocks = await blocksAmong(this.env.DB, player.id, [...core.known]);
+      // The players in the match first: the lookups take the first 100, and a big room remembers more than that.
+      const knownPlayerIds = [...core.players.keys(), ...[...core.known].filter((playerId) => !core.players.has(playerId))];
+      const blocks = await blocksAmong(this.env.DB, player.id, knownPlayerIds);
       // quickJoin prefers rooms without anyone the player blocked, and comes back here only when nothing else fits.
       if (avoidsBlockedPlayers && blocks.some((block) => block.blocker_player_id === player.id && core.players.has(block.blocked_player_id))) return this.refuse(socket, "blocked_player_here");
       core.setAccountBlocks(player.id, blocks.map((block) => (block.blocker_player_id === player.id ? block.blocked_player_id : block.blocker_player_id)));
       // And friends among them, for the game server's room.areFriends.
-      core.setFriends(player.id, await friendsAmong(this.env.DB, player.id, [...core.known]));
+      core.setFriends(player.id, await friendsAmong(this.env.DB, player.id, knownPlayerIds));
     }
     // The room's rules and the game's canJoin, before anyone hears about this player.
     const admitted = await core.admit(player, made.joinData, { isSpectator });
@@ -644,8 +718,11 @@ export class Room extends DurableObject<Env> {
     const nowMs = Date.now();
     socket.serializeAttachment({ stage: "in", id: player.id, name: player.name, kind: player.kind, joinedAtMs: nowMs, seenAtMs: nowMs, ...(tester ? { tester } : {}), clientIdle: made.clientIdle ?? {}, ...(isSpectator ? { isSpectator: true as const } : {}) } satisfies Attachment);
     this.socketIndex = null;
+    // Players who come on their own take a seat; those the game moved here (or reserved this room for), reconnects and spectators don't.
+    const takesSeat = !isSpectator && !core.players.has(player.id) && !core.isArrivingByMove(player.id);
     const joined = core.join(player, { ...made, isSpectator });
     if (!joined.isAllowed) return this.refuse(socket, joined.code, joined.message);
+    if (takesSeat) this.ctx.waitUntil(this.takeSeat(player.id, core.maximumRoomCountPerPlayer));
     if (isQuickJoin && !this.isQuickJoinNoted) {
       this.isQuickJoinNoted = true;
       // Only a line of copy rides on it, so a busy database never holds up the player.
@@ -676,6 +753,8 @@ export class Room extends DurableObject<Env> {
 
   /** A player's connection closed: they left, or it was lost (the room then holds their seat a while). */
   private async left(socket: WebSocket, why: "left" | "lost"): Promise<void> {
+    // A sleeping room is rebuilt from its connected sockets: build it while this player still counts as one, so the game hears them go.
+    if ((socket.deserializeAttachment() as Attachment).stage === "in" && !this.core && (await this.load())) this.room();
     const attachment = this.retire(socket);
     if (attachment.stage !== "in") return;
     const core = this.sockets(attachment.id).length === 0 && (await this.load()) ? this.room() : null;
@@ -730,10 +809,11 @@ export class Room extends DurableObject<Env> {
         this.savedRoom = this.core.saved;
         await this.ctx.storage.put("room", this.savedRoom);
         await this.wakeForReconnects(this.core);
-      }
+      } else this.forgetCore();
       return;
     }
     await this.unlist();
+    await this.syncCoreSeats();
     await this.ctx.storage.put("emptiedAtMs", Date.now());
     await this.setAlarm(Date.now() + KEEP_EMPTY_MS);
     // Players whose connection dropped are still in the match: the room keeps them, and wakes when their time runs out.
@@ -741,7 +821,21 @@ export class Room extends DurableObject<Env> {
       this.savedRoom = this.core.saved;
       await this.ctx.storage.put("room", this.savedRoom);
       await this.wakeForReconnects(this.core);
-    }
+    } else this.forgetCore();
+  }
+
+  /**
+   * An emptied room forgets its running match once it's saved, so every rejoin wakes it from the save
+   * (onRestored, as on your own server), whether the object stayed in memory or not. A state that
+   * wasn't saved (too big) stays, since waking from nothing would start the match over.
+   */
+  private forgetCore(): void {
+    const core = this.core;
+    if (!core || core.ended || this.hasEnded || this.saved === undefined) return;
+    this.savedRoom = core.saved;
+    void this.ctx.storage.put("room", this.savedRoom);
+    this.core = null;
+    this.socketIndex = null;
   }
 
   /**
@@ -792,6 +886,7 @@ export class Room extends DurableObject<Env> {
     await this.recordUsage();
     await this.logs?.write();
     await this.unlist();
+    await this.syncSeats([], []);
     // An ended kept room is gone for good: its world goes with the day's cleanup like any room's.
     if (this.isKept) await this.unkeepRow();
     const chunkKeys = Array.from({ length: this.stateChunkCount }, (_, index) => stateChunkKey(index));
@@ -809,6 +904,12 @@ export class Room extends DurableObject<Env> {
    * Writes only when something changed, or to check in (touch).
    */
   private async list(touch = false): Promise<void> {
+    await this.writeRow(touch);
+    // After the row, so the bookkeeping for the game's object never holds up what the room lists.
+    await this.syncCoreSeats(touch);
+  }
+
+  private async writeRow(touch: boolean): Promise<void> {
     const core = this.core;
     const meta = this.meta;
     if (!core || !meta?.roomCode) return;
@@ -882,6 +983,31 @@ export class Room extends DurableObject<Env> {
   private async touchSeats(): Promise<void> {
     if (!this.meta?.roomCode || !this.seatedPlayerIds?.length) return;
     await this.env.DB.prepare("UPDATE room_players SET updated_at_ms = ? WHERE game_id = ? AND room_code = ? AND server_url IS NULL").bind(Date.now(), this.meta.gameId, this.meta.roomCode).run();
+  }
+
+  /** Tell the game's object who sits in this room and who is playing, when that changed (or at the hourly check-in): its one-room rule and its count of players playing now read it. */
+  private async syncSeats(seatedPlayerIds: string[], playingPlayerIds: string[], isForced = false): Promise<void> {
+    const meta = this.meta;
+    if (!meta?.roomCode) return;
+    const as = JSON.stringify([[...seatedPlayerIds].sort(), [...playingPlayerIds].sort()]);
+    if (as === this.syncedSeatsAs && !isForced) return;
+    try {
+      await this.env.GAME_SERVER_OBJECTS.get(this.env.GAME_SERVER_OBJECTS.idFromName(meta.gameId)).syncSeats(meta.gameId, meta.roomCode, seatedPlayerIds, playingPlayerIds);
+      this.syncedSeatsAs = as;
+      this.hasLoggedSeatFailure = false;
+    } catch (error) {
+      // Tried again with the next row write.
+      this.syncedSeatsAs = undefined;
+      if (!this.hasLoggedSeatFailure) console.error("Couldn't tell the game's object who sits in this room:", error);
+      this.hasLoggedSeatFailure = true;
+    }
+  }
+
+  /** The players the room has in its match and the ones playing, to the game's object. */
+  private async syncCoreSeats(isForced = false): Promise<void> {
+    const core = this.core;
+    if (!core) return;
+    await this.syncSeats([...core.players.keys()], [...core.players.keys()].filter((playerId) => !core.kept.has(playerId)), isForced);
   }
 
   private async unlist(): Promise<void> {
@@ -1068,6 +1194,8 @@ export class Room extends DurableObject<Env> {
   private stopTicking(): void {
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
+    if (this.probeTimer) clearInterval(this.probeTimer);
+    this.probeTimer = null;
   }
 
   /** Move what the room and its game server used since last time into this.usage: messages, traffic and CPU. */
@@ -1229,7 +1357,9 @@ export class Room extends DurableObject<Env> {
     // here), and onRestored runs. Either way, the room stays as listed or hidden, and open or closed, as it was.
     // A turn-based room comes back the same way after switching versions (match_update_mode "now").
     const isVersionSwitch = this.savedVersionId !== undefined && this.savedVersionId !== this.meta?.versionId;
-    if ((server.ticksPerSec || isVersionSwitch) && this.saved !== undefined && this.savedAtMs !== undefined && !this.hasEnded) {
+    // A turn-based room that wakes with none of its match's players connected was restarted (every connection closed), and comes back the same way. Dropped players it's waiting on stay as they were saved.
+    const isRestarted = !server.ticksPerSec && this.matchPlayers.length > 0 && !this.matchPlayers.some((matchPlayer) => players.some((connected) => connected.id === matchPlayer.id)) && !Object.keys(this.savedRoom?.reconnecting ?? {}).length;
+    if ((server.ticksPerSec || isVersionSwitch || isRestarted) && this.saved !== undefined && this.savedAtMs !== undefined && !this.hasEnded) {
       const lostPlayers = this.matchPlayers.filter((player) => !players.some((connected) => connected.id === player.id));
       // A sandboxed game server starts from the saved state with its next call, which is onRestored.
       void (server as SandboxServer).restore?.(this.saved);
@@ -1305,6 +1435,12 @@ export class Room extends DurableObject<Env> {
     this.stateCopiedAtMs = Date.now();
     let isCopying = false;
     const server = this.server as SandboxServer | null;
+    // A tick slower than the probe interval can't probe on time (the player's game reconnects after 8 seconds of silence), so the room checks twice an interval on its own timer, and probes each player once the interval has passed.
+    if (1000 / core.server.ticksPerSec! > ROOM_TUNING.probeIntervalSec * 1000) {
+      this.probeTimer = setInterval(() => {
+        if (!core.ended) core.probeDue();
+      }, (ROOM_TUNING.probeIntervalSec * 1000) / 2);
+    }
     this.timer = setInterval(() => {
       const nowMs = Date.now();
       core.tick((nowMs - lastTickAtMs) / 1000);
@@ -1482,7 +1618,14 @@ export class Room extends DurableObject<Env> {
     this.takeUse();
     core.dirty = false;
     this.saved = core.state;
-    await this.ctx.storage.put("saved", { state: core.state, usage: this.usage } satisfies Saved);
+    // With who was in the match and when, so a room that wakes without any of them (Zaisma restarted its rooms) brings them back as dropped players.
+    const savedAtMs = Date.now();
+    const matchPlayers = [...core.players.values()];
+    const versionId = this.meta?.versionId;
+    await this.ctx.storage.put("saved", { state: core.state, usage: this.usage, savedAtMs, matchPlayers, ...(versionId ? { versionId } : {}) } satisfies Saved);
+    this.savedAtMs = savedAtMs;
+    this.matchPlayers = matchPlayers;
+    this.savedVersionId = versionId;
   }
 
   /** The rooms Worker says the game published a version "now" (room-updates.ts): start moving to it. */

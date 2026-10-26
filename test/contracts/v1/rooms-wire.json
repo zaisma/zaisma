@@ -86,6 +86,8 @@
       "maximumSeatHoldDurationSec": 1800,
       "defaultReconnectTimeoutSec": 30,
       "maximumReconnectTimeoutSec": 300,
+      "defaultMaximumRoomCountPerPlayer": 1,
+      "maximumRoomCountPerPlayer": 10,
       "defaultStateSaveIntervalSec": 5,
       "minimumStateSaveIntervalSec": 1,
       "maximumStateSaveIntervalSec": 60,

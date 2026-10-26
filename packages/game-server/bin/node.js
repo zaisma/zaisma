@@ -284,14 +284,15 @@ export function startServer(options) {
             .catch((error) => console.error("Couldn't move players:", error));
         },
       },
-      // As in Zaisma's rooms: a room that ticks comes back with its state and onRestored, its match's players away until they
-      // reconnect; a turn-based room comes back with its state and its room settings alone.
-      saved ? { state: saved.state, room: saved.savedRoom, ...(definition.ticksPerSec ? { restoreInfo: restoreInfoOf(saved.savedAtMs, Date.now(), null, saved.isSavedEmpty), lostPlayers: saved.matchPlayers } : {}) } : { start },
+      // As in Zaisma's rooms: a room that ticks, or a turn-based one that had players in its match, comes back with its state and
+      // onRestored, its match's players away until they reconnect; a turn-based room nobody was in comes back with its state and its room settings alone.
+      saved ? { state: saved.state, room: saved.savedRoom, ...(definition.ticksPerSec || saved.matchPlayers?.length ? { restoreInfo: restoreInfoOf(saved.savedAtMs, Date.now(), null, saved.isSavedEmpty), lostPlayers: saved.matchPlayers } : {}) } : { start },
     );
     if (saved) core.savedAtMs = saved.savedAtMs;
     // passes: each player's checked pass, newest, for the blocks and friendships between them (passesHaveBlockBetween, passesAreFriends).
     // savedStateKey: what the room last saved (its state and its match's players), so an unchanged one isn't written again.
-    room = { core, sockets, passes: new Map(), timer: null, waiting: false, savedStateKey: saved ? stateKeyOf(saved.stateJson, saved.matchPlayers, saved.savedRoom.isKept === true) : null, hasReportedStateSize: false };
+    // seatedAtMs: when each player came into this room on their own, for the game's one-room rule (the oldest seat closes first).
+    room = { core, sockets, passes: new Map(), seatedAtMs: new Map(), timer: null, probeTimer: null, waiting: false, savedStateKey: saved ? stateKeyOf(saved.stateJson, saved.matchPlayers, saved.savedRoom.isKept === true) : null, hasReportedStateSize: false };
     rooms.set(code, room);
     return room;
   }
@@ -358,6 +359,8 @@ export function startServer(options) {
       if (room.timer) return;
       let lastTickAtMs = Date.now();
       room.core.savedAtMs ??= lastTickAtMs;
+      // A tick slower than the probe interval can't probe on time (the player's game reconnects after 8 seconds of silence): check twice an interval on a timer of its own, so a probe is never a whole interval late.
+      if (1000 / definition.ticksPerSec > ROOM_TUNING.probeIntervalSec * 1000) room.probeTimer = setInterval(() => room.core.probeDue(), (ROOM_TUNING.probeIntervalSec * 1000) / 2);
       room.timer = setInterval(() => {
         const nowMs = Date.now();
         room.core.tick((nowMs - lastTickAtMs) / 1000);
@@ -365,9 +368,36 @@ export function startServer(options) {
         if (nowMs - room.core.savedAtMs >= stateSaveIntervalMs) saveRoom(code, room);
       }, 1000 / definition.ticksPerSec);
     } else if (room.timer) {
-      clearInterval(room.timer);
-      room.timer = null;
+      stopTimers(room);
       saveRoom(code, room);
+    }
+  }
+
+  function stopTimers(room) {
+    if (room.timer) clearInterval(room.timer);
+    if (room.probeTimer) clearInterval(room.probeTimer);
+    room.timer = null;
+    room.probeTimer = null;
+  }
+
+  /**
+   * A player came into a room on their own: their seats in the game's other rooms here past maximumRoomCountPerPlayer, the oldest
+   * first, are given up as in Zaisma's rooms. They hear "Joined from somewhere else", and the game's onLeave runs with reason "left".
+   */
+  function takeSeat(playerId, code, room) {
+    room.seatedAtMs.set(playerId, Date.now());
+    const others = [...rooms]
+      .filter(([otherCode, other]) => otherCode !== code && !other.core.ended && other.core.players.has(playerId))
+      .sort(([, first], [, second]) => (first.seatedAtMs.get(playerId) ?? 0) - (second.seatedAtMs.get(playerId) ?? 0));
+    for (const [otherCode, other] of others.slice(0, Math.max(0, others.length - (room.core.maximumRoomCountPerPlayer - 1)))) {
+      const ws = other.sockets.get(playerId);
+      other.sockets.delete(playerId);
+      other.seatedAtMs.delete(playerId);
+      other.core.leave(playerId, "left");
+      ws?.close(REMOVED_CLOSE_CODE, "Joined from somewhere else");
+      dismissSpectatorsIfAlone(other);
+      pace(otherCode, other);
+      closeIfEmpty(otherCode, other);
     }
   }
 
@@ -398,7 +428,7 @@ export function startServer(options) {
   // One that empties keeps its saved state for a day (a kept one until it ends); one that ended keeps none.
   function closeIfEmpty(code, room) {
     if (rooms.get(code) !== room || room.waiting || (!room.core.ended && (room.sockets.size > 0 || room.core.heldSeatCount > 0 || room.core.nextReconnectDeadlineMs() !== null))) return;
-    if (room.timer) clearInterval(room.timer);
+    stopTimers(room);
     rooms.delete(code);
     try {
       if (room.core.ended) roomStates?.remove(code);
@@ -513,6 +543,8 @@ export function startServer(options) {
         room.core.setFriends(player.id, [...room.passes].filter(([id, other]) => id !== player.id && passesAreFriends(claims, other)).map(([id]) => id));
       }
       // Rooms here aren't in Zaisma's room lists, but listed, open and closed work the same for the game.
+      // Players who come on their own take a seat; those the game moved here (or reserved this room for), reconnects and spectators don't.
+      const takesSeat = !isSpectator && !room.core.players.has(player.id) && !room.core.isArrivingByMove(player.id);
       const joined = room.core.join(player, { ...made, isSpectator });
       if (!joined.isAllowed) {
         room.sockets.delete(player.id);
@@ -521,6 +553,7 @@ export function startServer(options) {
       }
       playerId = player.id;
       room.waiting = false;
+      if (takesSeat) takeSeat(player.id, code, room);
       pace(code, room);
     };
     // Whatever a message hits, it ends that connection or that message, never the process and the matches on it.
@@ -554,7 +587,7 @@ export function startServer(options) {
       clearInterval(catcher);
       schedules.stop();
       for (const [code, room] of rooms) {
-        if (room.timer) clearInterval(room.timer);
+        stopTimers(room);
         saveRoom(code, room);
       }
       // Players' games hear a restart (1012) and reconnect, to the same room once this server is back.
