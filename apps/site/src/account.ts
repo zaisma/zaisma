@@ -1332,6 +1332,16 @@ const AREA_SHORT_LABELS: Record<AccessArea, string> = { game_access: "games", ve
 /** The common words for each choice, as GitHub's tokens say them. */
 export const CHOICE_LABELS: Record<string, string> = { none: "No access", read: "Read-only", write: "Read and write", upload: "Upload", publish: "Upload and publish" };
 
+/** How a key stands: when it was made and last used (with what and from where), or why it stopped working. */
+export function keyStandingText(key: ApiKey): string {
+  const state = keyStateOf(key);
+  if (state === "turned_off") return `Turned off ${day(key.turned_off_at_ms!)}: ${foundWords(key)}. Make a new key and remove this one.`;
+  if (state === "ended") return `Ended ${day(key.ends_at_ms!)}. Make a new key and remove this one.`;
+  const place = whereText({ device: null, network_name: key.last_used_network_name, city_name: key.last_used_city_name, region_name: key.last_used_region_name, country_code: key.last_used_country_code });
+  const lastUsed = key.last_used_at_ms ? `last used ${day(key.last_used_at_ms)}${key.last_used_device ? ` with ${key.last_used_device}` : ""}${place ? ` · ${place}` : ""}` : "not used yet";
+  return `${key.kind === "connected_app" ? "Connected" : "Made"} ${day(key.created_at_ms)} · ${lastUsed}${key.ends_at_ms ? ` · ends ${day(key.ends_at_ms)}` : ""}`;
+}
+
 /** What a key can do and on which games, in a few words, for the list of keys. */
 /**
  * One key in a list: its name and what it can do, then how it stands. A key that works says when it was made,
@@ -1340,21 +1350,14 @@ export const CHOICE_LABELS: Record<string, string> = { none: "No access", read: 
  */
 function keyRow(key: ApiKey, games: { slug: string; title: string }[], buttons: Raw): Raw {
   const state = keyStateOf(key);
-  let standing: string;
-  if (state === "turned_off") standing = `Turned off ${day(key.turned_off_at_ms!)}: ${foundWords(key)}. Make a new key and remove this one.`;
-  else if (state === "ended") standing = `Ended ${day(key.ends_at_ms!)}. Make a new key and remove this one.`;
-  else {
-    const place = whereText({ device: null, network_name: key.last_used_network_name, city_name: key.last_used_city_name, region_name: key.last_used_region_name, country_code: key.last_used_country_code });
-    const lastUsed = key.last_used_at_ms ? `last used ${day(key.last_used_at_ms)}${key.last_used_device ? ` with ${key.last_used_device}` : ""}${place ? ` · ${place}` : ""}` : "not used yet";
-    standing = `${key.kind === "connected_app" ? "Connected" : "Made"} ${day(key.created_at_ms)} · ${lastUsed}${key.ends_at_ms ? ` · ends ${day(key.ends_at_ms)}` : ""}`;
-  }
+  const standing = keyStandingText(key);
   // A connected app (an AI app that signed in, mcp-sign-in.ts) is listed with the keys, saying where it sends you back.
   const kindNote = key.kind === "connected_app" ? html` <span class="muted small">connected app · ${key.connected_app_host ?? ""}</span>` : "";
   return html`<li${state === "on" ? "" : raw(' class="off"')}><span><span class="key-name">${key.name}</span>${kindNote} <span class="why muted small">${keyScopeText(key, games)}</span><span class="why muted small">${standing}</span></span>
 ${buttons}</li>`;
 }
 
-function keyScopeText(key: ApiKey, games: { slug: string; title: string }[]): string {
+export function keyScopeText(key: ApiKey, games: { slug: string; title: string }[]): string {
   const access = keyAccess(key);
   const titles = access.gameSlugs?.map((slug) => games.find((game) => game.slug === slug)?.title ?? slug);
   const where = titles ? (titles.length === 1 ? `only ${titles[0]}` : `only ${titles.slice(0, -1).join(", ")} and ${titles.at(-1)}`) : "all games";

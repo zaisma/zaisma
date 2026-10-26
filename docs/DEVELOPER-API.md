@@ -229,11 +229,11 @@ The HTTP status goes with the code, as listed. The list lives in `ERROR_CODES` (
 | Code | HTTP | Meaning |
 | --- | --- | --- |
 | `hosting_paused` | 429 | The game's hosting is paused this month: its free allowance, its budget or its developer's credit is used. It starts again when the month resets, the budget is raised or credit is added. |
-| `no_spending_request` | 404 | You have no spending request with that ID. |
 | `confirmation_needed` | 403 | This needs the developer's passkey on zaisma.com (turning spending on or up, or connecting a Stripe account): confirm_url is where they do it. |
 | `bad_monthly_budget_cents` | 400 | monthly_budget_cents isn't a whole number of cents of at least 100 ($1), or null for no paid hosting. |
 | `bad_top_up_amount` | 400 | amount_cents isn't a whole number of cents from 1,000 ($10) to 100,000 ($1,000). |
 | `no_top_up` | 404 | You have no top-up with that ID. |
+| `no_spending_request` | 404 | You have no spending request with that ID. |
 | `top_up_not_refundable` | 409 | The top-up has nothing left to refund: it's spent, refunded, or over 180 days old. |
 | `bad_automatic_top_up` | 400 | The automatic top-up's amounts aren't whole cents that fit: a top-up of at least $10, and a monthly limit of at least one top-up. |
 | `already_pro` | 409 | The developer already has a Zaisma Pro subscription (running, cancelled until the month ends, or a renewal Stripe is retrying), so there's nothing to start. |

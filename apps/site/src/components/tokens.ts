@@ -235,6 +235,8 @@ html { -webkit-tap-highlight-color: transparent; }
   /* The named sizes, the only widths a layout takes (layout.ts): a cell's least width in a grid, by what it holds; and the widest a
      paragraph runs in a pane that fits what's in it, for reading. */
   --size-cover: 180px; --size-card: 280px; --size-figure: 150px; --size-reading: 60ch;
+  /* The widest a page's sections run beside its places down the side (Side places), so a settings page's panes don't stretch across a desktop. */
+  --size-column: 820px;
   /* A figure's least width in Numbers: two side by side on a phone. */
   --size-number: 96px;
   /* Type (docs/DESIGN.md, Type): every word outside a control's own inside takes one of these whole fonts, picked by what the words are. */

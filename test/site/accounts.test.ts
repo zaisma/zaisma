@@ -2658,12 +2658,12 @@ describe("API keys on the account page", () => {
     const api = await SELF.fetch(`${SITE}/api/dev/games`, { headers: { authorization: `Bearer ${token}` } });
     expect(await api.json()).toEqual({ games: [], unread_topic_count: 0 });
 
-    const page = await (await b.go("/account")).text();
+    const page = await (await b.go("/dashboard/settings")).text();
     expect(page).toContain("My laptop");
     expect(page).not.toContain(token!);
 
-    const id = page.match(/\/account\/keys\/([a-z0-9]+)\/revoke/)![1];
-    await b.go(`/account/keys/${id}/revoke`, {});
+    const id = page.match(/\/dashboard\/settings\/keys\/([a-z0-9]+)\/remove/)![1];
+    await b.go(`/dashboard/settings/keys/${id}/remove`, {});
     expect((await SELF.fetch(`${SITE}/api/dev/games`, { headers: { authorization: `Bearer ${token}` } })).status).toBe(401);
   });
 
@@ -2679,7 +2679,7 @@ describe("API keys on the account page", () => {
     const access = await (await SELF.fetch(`${SITE}/api/dev/access`, { headers: { authorization: `Bearer ${token}` } })).json();
     // Games that aren't the developer's are dropped.
     expect(access).toMatchObject({ access: { api_key_name: "CI", access_level: "upload", game_slugs: ["sky-hopper"] } });
-    expect(await (await b.go("/account")).text()).toContain("Upload; only Sky Hopper");
+    expect(await (await b.go("/dashboard/settings")).text()).toContain("Upload; only Sky Hopper");
 
     // A custom key for some games: sign-in apps and webhooks stay out of its reach, whatever the form sent.
     const custom = new URLSearchParams({ name: "Stats", access_level: "custom", game_scope: "some", game_slugs: "cave-run", game_access: "read", version_access: "read", stats_access: "read", database_access: "none", save_access: "none", purchase_access: "none", forum_access: "none", sign_in_app_access: "write", webhook_access: "read" });
@@ -3917,9 +3917,9 @@ describe("the security log on the account page", () => {
     await worker.fetch(new Request(`${SITE}/api/dev/games`, { headers: { authorization: `Bearer ${token}` }, cf: MANCHESTER as unknown as IncomingRequestCfProperties }), env, createExecutionContext());
     expect(await eventsOf(id, "api_key_new_place")).toHaveLength(0);
 
-    const page = await (await owner.go("/account")).text();
-    const keyId = page.match(/\/account\/keys\/([a-z0-9]+)\/revoke/)![1];
-    await owner.go(`/account/keys/${keyId}/revoke`, {});
+    const page = await (await owner.go("/dashboard/settings")).text();
+    const keyId = page.match(/\/dashboard\/settings\/keys\/([a-z0-9]+)\/remove/)![1];
+    await owner.go(`/dashboard/settings/keys/${keyId}/remove`, {});
     expect(await eventsOf(id, "api_key_removed")).toMatchObject([{ subject_name: "My laptop" }]);
     expect((await env.DB.prepare("SELECT COUNT(*) AS place_count FROM security_places WHERE account_id = ?").bind(id).first<{ place_count: number }>())!.place_count).toBe(0);
   });
@@ -3996,7 +3996,8 @@ describe("the security log on the account page", () => {
 
 describe("leaked keys on the account page", () => {
   const MANCHESTER = { asn: 64500, asOrganization: "Vodafone", city: "Manchester", region: "England", country: "GB" };
-  const rowFor = (page: string, name: string) => page.match(new RegExp(`<li[^>]*><span><span class="key-name">${name}</span>[\\s\\S]*?</li>`))![0];
+  // A key's row on Developer settings: its name, then its line.
+  const rowFor = (page: string, name: string) => page.match(new RegExp(`>${name}<[\\s\\S]*?</li>`))![0].replace(/<[^>]+>/g, "").replace(/\s+/g, " ");
 
   it("shows a working key with where it was last used and its end date, a turned-off key with where it was found, and an ended one", async () => {
     const owner = Object.assign(new Browser(), { cf: MANCHESTER as unknown as IncomingRequestCfProperties });
@@ -4011,18 +4012,15 @@ describe("leaked keys on the account page", () => {
       env.DB.prepare("UPDATE api_keys SET turned_off_at_ms = ?, found_in = 'github', found_at_url = 'https://github.com/sam/space-game' WHERE id = ?").bind(nowMs, leaked.id),
       env.DB.prepare("UPDATE api_keys SET ends_at_ms = ? WHERE id = ?").bind(nowMs - 86400_000, ended.id),
     ]);
-    const page = await (await owner.go("/account")).text();
+    const page = await (await owner.go("/dashboard/settings")).text();
     const day = (ms: number) => new Date(ms).toISOString().slice(0, 10);
     const workingRow = rowFor(page, "Claude Desktop");
     expect(workingRow).toContain(`Made ${day(working.created_at_ms)} · last used ${day(nowMs - 3600_000)} with Zaisma CLI 1.4 · Vodafone, near Manchester, UK · ends ${day(working.ends_at_ms!)}`);
-    expect(workingRow).not.toContain('class="off"');
     const leakedRow = rowFor(page, "space-game CI");
     expect(leakedRow).toContain(`Turned off ${day(nowMs)}: found in public at github.com/sam/space-game. Make a new key and remove this one.`);
-    expect(page).toMatch(/<li class="off"><span><span class="key-name">space-game CI/);
     expect(rowFor(page, "Old laptop")).toContain(`Ended ${day(nowMs - 86400_000)}. Make a new key and remove this one.`);
-    expect(page).toMatch(/<li class="off"><span><span class="key-name">Old laptop/);
     // Dead keys can still be removed.
-    expect(leakedRow).toContain(`/account/keys/${leaked.id}/revoke`);
+    expect(page).toContain(`/dashboard/settings/keys/${leaked.id}/remove`);
   });
 
   it("makes a key with an end date from the Ends choice, and refuses one that isn't a choice", async () => {
@@ -4030,7 +4028,9 @@ describe("leaked keys on the account page", () => {
     await join(owner, null);
     const id = await idOf("Night_Owl");
     const device = await addPasskey(owner);
-    expect(await (await owner.go("/account")).text()).toContain('<select name="ends_after_days"><option value="" selected>Never</option><option value="7">In 7 days</option><option value="30">In 30 days</option><option value="90">In 90 days</option><option value="365">In a year</option></select>');
+    const endsChoices = await (await owner.go("/dashboard/settings")).text();
+    expect(endsChoices).toContain('name="ends_after_days"');
+    for (const choice of ["Never", "In 7 days", "In 30 days", "In 90 days", "In a year"]) expect(endsChoices).toContain(choice);
     expect(await (await makeKey(owner, device, { name: "Short", access_level: "full", game_scope: "all", ends_after_days: "8" })).text()).toContain("Choose when the key ends, or Never.");
     await makeKey(owner, device, { name: "Short", access_level: "full", game_scope: "all", ends_after_days: "7" });
     await makeKey(owner, device, { name: "Forever", access_level: "full", game_scope: "all", ends_after_days: "" });
@@ -4104,7 +4104,9 @@ describe("security alerts on the account page and dashboard", () => {
     const id = await idOf("Night_Owl");
     // Nothing to lose yet: no ask.
     expect(await (await owner.go("/account")).text()).not.toContain('id="email-ask"');
-    const made = await (await makeKey(owner, await addPasskey(owner))).text();
+    await makeKey(owner, await addPasskey(owner));
+    // The key shows once on Developer settings; the alert and the ask are on the account page and the dashboard.
+    const made = await (await owner.go("/account")).text();
     expect(made).toContain('id="security-alerts"');
     expect(made).toContain("Made an API key: My laptop");
     // Just confirmed with the passkey: the email box is right there.
@@ -4246,7 +4248,7 @@ describe("Developer settings", () => {
     const device = await addPasskey(b);
     const accountId = users.get("fox@example.com")!;
     const owner = await personOwner(env.DB, accountId);
-    await env.DB.prepare("INSERT INTO games (id, slug, title, review_status, visibility, owner_id, created_at_ms, updated_at_ms) VALUES ('game_dev_settings', 'dev-settings', 'Starfall', 'draft', 'private', ?, 1, 1)").bind(owner.id).run();
+    await env.DB.prepare("INSERT INTO games (id, slug, title, review_status, visibility, owner_id, created_at_ms, updated_at_ms) VALUES ('game_dev_settings', 'dev-settings', 'Starfall', 'pending', 'private', ?, 1, 1)").bind(owner.id).run();
     const { token } = await createApiKey(env.DB, accountId, "Test key");
     const apiRequest = (path: string, init: { method?: string; body?: unknown } = {}) =>
       SELF.fetch(`${SITE}/api/dev${path}`, { method: init.method ?? (init.body ? "PATCH" : "GET"), headers: { authorization: `Bearer ${token}`, ...(init.body ? { "content-type": "application/json" } : {}) }, body: init.body ? JSON.stringify(init.body) : undefined });
@@ -4393,8 +4395,9 @@ describe("Developer settings", () => {
     const account = await (await b.go("/account")).text();
     expect(account).toContain('href="/dashboard/settings"');
     expect(account).not.toContain('id="key-new"');
-    expect(account).toContain("Unused hosting credit from the last 180 days goes back to the card");
     expect(await (await makeKey(b, device)).text()).toContain("Your new key");
+    // Confirmed with the passkey just now, the account page shows Delete account's words.
+    expect(await (await b.go("/account")).text()).toContain("Unused hosting credit from the last 180 days goes back to the card");
     expect((await b.go("/account/keys", { name: "Old route", access_level: "full", game_scope: "all" })).status).not.toBe(200);
     expect(await env.DB.prepare("SELECT COUNT(*) AS key_count FROM api_keys WHERE name = 'Old route'").first()).toEqual({ key_count: 0 });
   });

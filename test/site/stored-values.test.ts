@@ -334,6 +334,7 @@ async function pagesToOpen(): Promise<{ doorId: string; url: string; cookie?: st
     { doorId: "page:GET /dashboard", url: `${SITE}/dashboard`, cookie },
     ...[gameSlug, liveSlug].flatMap((slug) => ["", "/versions", "/details", "/players", "/database"].map((sub) => ({ doorId: "page:/dashboard/([a-z0-9-]+)(/.*)?", url: `${SITE}/dashboard/${slug}${sub}`, cookie }))),
     { doorId: "page:GET /account", url: `${SITE}/account`, cookie },
+    { doorId: "page:/dashboard/settings", url: `${SITE}/dashboard/settings`, cookie },
     { doorId: "page:GET /friends", url: `${SITE}/friends`, cookie },
     { doorId: "page:/oauth/authorize", url: `${SITE}${authorize(signInAppId, "https://stored.example.test/back")}`, cookie },
     { doorId: "page:/oauth/authorize", url: `${SITE}${authorize(String(world.mcp_client_id), "https://claude.ai/api/mcp/auth_callback")}`, cookie },

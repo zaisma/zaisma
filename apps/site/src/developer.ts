@@ -869,7 +869,9 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
     return answer({ access: accessJson(caller.access), can_publish: caller.canPublish, credit_balance_cents: creditBalanceCents, plan: await planFor(env.DB, caller.ownerId) });
   }
   if (apiRoute.path === "/pro" || apiRoute.path.startsWith("/pro/")) return answer(...(await proRoute(env, apiRoute.path, method, caller)));
-  if (apiRoute.path === "/credit" || apiRoute.path.startsWith("/credit/") || apiRoute.path.startsWith("/spending-requests/")) return answer(...(await creditRoute(env, apiRoute.path, method, checked.body, caller)));
+  if (apiRoute.path === "/credit" || apiRoute.path.startsWith("/credit/")) return answer(...(await creditRoute(env, apiRoute.path, method, checked.body, caller)));
+  // With its ID in the path, so the route reads the real path rather than the call's pattern.
+  if (apiRoute.path.startsWith("/spending-requests/")) return answer(...(await creditRoute(env, path, method, checked.body, caller)));
   if (apiRoute.path === "/stripe-account" || apiRoute.path.startsWith("/stripe-account/")) return answer(...(await stripeAccountRoute(env, apiRoute.path, method, checked.body, caller)));
   if (path === "/check" && method === "POST") return answer(await checkRoute(env, checked));
   if (path === "/api-keys" && method === "GET") return answer(await apiKeysAnswer(env, caller));

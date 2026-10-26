@@ -1,11 +1,11 @@
-import { ApiError, CREDIT_LIMITS, PRO_PRICE_CENTS_PER_MONTH, accountById, gameBySlug, hostingUseThisMonth, gameHostingMonth, apiKeysFor, createApiKey, checkKeyScope, revokeApiKey, passkeysFor, liveApiKeyCount, MAXIMUM_API_KEY_COUNT, keyStateOf, keyAccess, ACCESS_AREAS, ACCESS_LEVELS, AREA_ACCESS_CHOICES, WEBHOOK_EVENT_KINDS, type Account, type ApiKey, type Game } from "@zaisma/core";
+import { ApiError, CREDIT_LIMITS, PRO_PRICE_CENTS_PER_MONTH, accountById, gameBySlug, hostingUseThisMonth, gameHostingMonth, apiKeysFor, createApiKey, checkKeyScope, revokeApiKey, passkeysFor, liveApiKeyCount, MAXIMUM_API_KEY_COUNT, ACCESS_AREAS, ACCESS_LEVELS, AREA_ACCESS_CHOICES, WEBHOOK_EVENT_KINDS, type Account, type ApiKey, type Game } from "@zaisma/core";
 import { currentSession } from "./auth.ts";
-import { AREA_LABELS, CHOICE_LABELS, LEVEL_LABELS, keyMakingState, keyScopeFromForm, passkeyTapFromForm } from "./account.ts";
+import { AREA_LABELS, CHOICE_LABELS, LEVEL_LABELS, keyMakingState, keyScopeFromForm, keyScopeText, keyStandingText, passkeyTapFromForm } from "./account.ts";
 import { apiCall, callerFor, hostingUseJson, type Caller } from "./developer.ts";
 import { withSpendingConfirmation } from "./credit-api.ts";
 import type { Env } from "./env.ts";
-import { esc, html, layout, raw, scriptTags, type Raw } from "./html.ts";
-import { pageScript, pageScriptPath } from "./page-scripts.ts";
+import { esc, html, layout, openingScriptTags, raw, scriptTags, type Raw } from "./html.ts";
+import { pageScript } from "./page-scripts.ts";
 import { PASSKEY_SCRIPT, checkPasskeyTap, keyRefusal, usedChallengeCookie } from "./passkeys.ts";
 import { logAccountChange, seedKeyPlace } from "./security-log.ts";
 import { recordProof } from "./session-proofs.ts";
@@ -15,7 +15,7 @@ import { waitEndsText } from "./email-codes.ts";
 import { cutButton, deleteButton, runButton, textButton, textLink } from "./components/actions.ts";
 import { glassPane, icon, tag } from "./components/foundations.ts";
 import { row, stack, type LayoutItem } from "./components/layout.ts";
-import { sectionTabs } from "./components/navigation.ts";
+import { sidePlaces } from "./components/navigation.ts";
 import { banner, confirmSheet, notice, sheet } from "./components/panes.ts";
 import { checkField, choiceCards, codeField, cutField, longField, selectField, toggle } from "./components/inputs.ts";
 import { emptyState, listRows, numbers, problemState, table, usageMeter, type ListRow } from "./components/data.ts";
@@ -30,12 +30,12 @@ import { facts, foldedPart } from "./components/reading.ts";
 
 const PAGE = "/dashboard/settings";
 const TAB_PANES = [
-  { id: "hosting", label: "Hosting" },
-  { id: "pro", label: "Pro" },
-  { id: "payments", label: "Payments" },
-  { id: "webhooks", label: "Webhooks" },
-  { id: "sign-in-apps", label: "Sign-in apps" },
-  { id: "keys", label: "Keys" },
+  { id: "hosting", label: "Hosting", icon: "gauge" },
+  { id: "pro", label: "Pro", icon: "plus" },
+  { id: "payments", label: "Payments", icon: "card" },
+  { id: "webhooks", label: "Webhooks", icon: "bell" },
+  { id: "sign-in-apps", label: "Sign-in apps", icon: "person" },
+  { id: "keys", label: "Keys", icon: "key" },
 ] as const;
 
 /** What the page tells the developer after a change, by the key its redirect carries. */
@@ -196,7 +196,7 @@ const control = (markup: ReturnType<typeof runButton>): LayoutItem => ({ kind: "
 
 /** A pane: its heading and what's in it, one scroll of them. */
 const settingsPane = (id: string, heading: string, items: LayoutItem[]): LayoutItem =>
-  block(html`<section id="${id}" data-settings-pane>${glassPane({ paneWidth: "full", label: heading, body: stack({ items: [{ kind: "words", markup: html`<h2>${heading}</h2>` }, ...items] }) })}</section>${id === "payments" ? html`<script src="${pageScriptPath(AMOUNTS_SCRIPT)}"></script>` : ""}`);
+  block(html`<section id="${id}" data-settings-pane>${glassPane({ paneWidth: "full", label: heading, body: stack({ items: [{ kind: "words", markup: html`<h2>${heading}</h2>` }, ...items] }) })}</section>${id === "payments" ? openingScriptTags(AMOUNTS_SCRIPT) : ""}`);
 
 /** A button that opens a sheet which posts (a confirm, with its sentence). */
 const askSheet = (id: string, title: string, text: string, action: string, confirmLabel: string) => confirmSheet({ id, title, text, action, confirmLabel });
@@ -599,15 +599,9 @@ function signInAppsPane(settings: Settings): LayoutItem {
 
 /* ---- Keys ---- */
 
+/** What a key can do and how it stands, as the account page said it: a connected AI app also says where it sends you back. */
 function keyDetail(key: ApiKey, games: { slug: string; title: string }[]): string {
-  const state = keyStateOf(key);
-  if (state === "turned_off") return `Turned off ${day(key.turned_off_at_ms!)}. Make a new key and remove this one.`;
-  if (state === "ended") return `Ended ${day(key.ends_at_ms!)}. Make a new key and remove this one.`;
-  const access = keyAccess(key);
-  const titles = access.gameSlugs?.map((slug) => games.find((game) => game.slug === slug)?.title ?? slug);
-  const where = titles ? `only ${titles.join(", ")}` : "all games";
-  const what = access.accessLevel === "custom" ? `Custom: ${ACCESS_AREAS.filter((area) => access.areaAccess[area] !== "none").map((area) => `${AREA_LABELS[area][0].toLowerCase()} ${CHOICE_LABELS[access.areaAccess[area]]!.toLowerCase()}`).join(", ")}` : LEVEL_LABELS[access.accessLevel][0];
-  return `${what}; ${where} · ${key.kind === "connected_app" ? "connected" : "made"} ${day(key.created_at_ms)} · ${key.last_used_at_ms ? `last used ${day(key.last_used_at_ms)}` : "not used yet"}${key.ends_at_ms ? ` · ends ${day(key.ends_at_ms)}` : ""}`;
+  return `${keyScopeText(key, games)}${key.kind === "connected_app" ? ` · connected app · ${key.connected_app_host ?? ""}` : ""} · ${keyStandingText(key)}`;
 }
 
 function keysPane(keys: ApiKey[], games: { slug: string; title: string }[], making: Awaited<ReturnType<typeof keyMakingState>>): LayoutItem {
@@ -703,21 +697,23 @@ const AMOUNTS_SCRIPT = pageScript(
 const SETTINGS_SCRIPT = pageScript(
   "developer-settings",
   String.raw`(function () {
-  // The jump tabs light up for the pane in view.
+  // The places down the side (and the tabs on a phone) light up for the pane in view.
   var panes = document.querySelectorAll("[data-settings-pane]");
-  var tabs = document.querySelector(".section-tabs .tab-switch");
-  if (tabs && "IntersectionObserver" in window && panes.length) {
-    var link = function (id) { return tabs.querySelector('a[href="#' + id + '"]'); };
+  var switches = document.querySelectorAll(".side-places .tab-switch");
+  if (switches.length && "IntersectionObserver" in window && panes.length) {
     var seen = {};
     var io = new IntersectionObserver(function (entries) {
       entries.forEach(function (entry) { seen[entry.target.id] = entry.isIntersecting ? entry.boundingClientRect.top : null; });
       var shown = null;
       panes.forEach(function (pane) { if (shown === null && seen[pane.id] !== null && seen[pane.id] !== undefined) shown = pane; });
-      var tab = shown && link(shown.id);
-      if (!tab || tab.getAttribute("aria-current") === "page") return;
-      tabs.querySelectorAll("a").forEach(function (each) { each.removeAttribute("aria-current"); });
-      tab.setAttribute("aria-current", "page");
-      if (tabs.pickTab) tabs.pickTab(tab);
+      if (!shown) return;
+      switches.forEach(function (tabs) {
+        var tab = tabs.querySelector('a[href="#' + shown.id + '"]');
+        if (!tab || tab.getAttribute("aria-current") === "page") return;
+        tabs.querySelectorAll("a").forEach(function (each) { each.removeAttribute("aria-current"); });
+        tab.setAttribute("aria-current", "page");
+        if (tabs.pickTab) tabs.pickTab(tab);
+      });
     }, { rootMargin: "-20% 0px -60% 0px" });
     panes.forEach(function (pane) { io.observe(pane); });
   }
@@ -815,10 +811,8 @@ async function settingsPage(env: Env, request: Request, session: SignedIn, calle
         ? html`${notice({ text: "That request isn't waiting any more. It was answered, it expired after a day, or it isn't yours.", tone: "problem", isInPlace: false })}`
         : raw("");
 
-  const body = html`${stack({
+  const panes = stack({
     items: [
-      { kind: "words", markup: html`<h1 class="sr">Developer settings</h1>` },
-      block(sectionTabs({ label: "Developer settings", tabs: TAB_PANES.map((pane, index) => ({ label: pane.label, href: `#${pane.id}`, isCurrent: index === 0 })) })),
       ...topNotes,
       hostingPane(settings),
       proPane(settings),
@@ -827,7 +821,8 @@ async function settingsPage(env: Env, request: Request, session: SignedIn, calle
       signInAppsPane(settings),
       keysPane(keys, settings.games.map((game) => ({ slug: game.slug, title: game.title })), making),
     ],
-  })}${spendingSheet}${state.done && DONE_WORDS[state.done] ? notice({ text: DONE_WORDS[state.done]!, tone: "done" }) : ""}${state.problem ? notice({ text: state.problem, tone: "problem" }) : ""}${scriptTags(PASSKEY_SCRIPT, SETTINGS_SCRIPT)}`;
+  });
+  const body = html`<h1 class="sr">Developer settings</h1>${sidePlaces({ label: "Developer settings", places: TAB_PANES.map((pane, index) => ({ label: pane.label, icon: pane.icon, href: `#${pane.id}`, isCurrent: index === 0 })), body: panes })}${spendingSheet}${state.done && DONE_WORDS[state.done] ? notice({ text: DONE_WORDS[state.done]!, tone: "done" }) : ""}${state.problem ? notice({ text: state.problem, tone: "problem" }) : ""}${scriptTags(PASSKEY_SCRIPT, SETTINGS_SCRIPT)}`;
   const response = layout(env, { title: "Developer settings · Zaisma", body, checkedPage: "Developer settings", nav: "developer", viewer: { account }, isPrivate: true });
   const answered = new Response(response.body, { status: httpStatus, headers: response.headers });
   for (const cookie of session.cookies) answered.headers.append("Set-Cookie", cookie);
@@ -852,7 +847,9 @@ function spendingChangeWords(request: NonNullable<Awaited<ReturnType<typeof spen
 const bodyField = (form: FormData, name: string, maximumCharacterCount = 2000) => String(form.get(name) ?? "").trim().slice(0, maximumCharacterCount);
 
 export async function handleDeveloperSettings(request: Request, env: Env, path: string): Promise<Response | null> {
-  if (path !== PAGE && !path.startsWith(`${PAGE}/`)) return null;
+  // Its paths written out, as the security map reads them (scripts/security-map/doors.mjs).
+  if (path !== "/dashboard/settings" && !path.startsWith("/dashboard/settings/")) return null;
+  const isPage = path === "/dashboard/settings";
   const isPost = request.method === "POST";
   if (!isPost && request.method !== "GET" && request.method !== "HEAD") return new Response("Method not allowed", { status: 405 });
   if (isPost && request.headers.get("origin") && request.headers.get("origin") !== new URL(request.url).origin) return new Response("Bad origin", { status: 403 });
@@ -866,7 +863,7 @@ export async function handleDeveloperSettings(request: Request, env: Env, path: 
   const url = new URL(request.url);
 
   if (!isPost) {
-    if (path !== PAGE) return redirect(PAGE, session.cookies);
+    if (!isPage) return redirect(PAGE, session.cookies);
     const spendingRequestId = url.searchParams.get("spending_request") ?? undefined;
     const deliveriesOfId = url.searchParams.get("deliveries");
     return settingsPage(env, request, session, caller, account, {
@@ -997,7 +994,7 @@ export async function handleDeveloperSettings(request: Request, env: Env, path: 
       return back("app", "sign-in-apps");
     }
     // Keys: made only here, with a tap on a passkey made for keys.
-    if (sub === "keys") {
+    if (path === "/dashboard/settings/keys" && isPost) {
       const name = field("name", 40) || "My key";
       if ((await liveApiKeyCount(env.DB, account.id)) >= MAXIMUM_API_KEY_COUNT) return settingsPage(env, request, session, caller, account, { problem: `You can have up to ${MAXIMUM_API_KEY_COUNT} keys. Remove one first.` }, 400);
       const ownSlugs = new Set((await env.DB.prepare("SELECT slug FROM games WHERE owner_id = ?").bind(caller.ownerId).all<{ slug: string }>()).results.map((game) => game.slug));

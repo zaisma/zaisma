@@ -167,7 +167,7 @@ describe("automatic top-up and budgets", () => {
     const on = { is_enabled: true, top_up_below_cents: 500, top_up_amount_cents: 2000, monthly_top_up_limit_cents: 6000 };
     const refused = await api("/credit/automatic-top-up", { method: "PATCH", body: on });
     expect(refused.status).toBe(403);
-    expect(refused.answer.error).toMatchObject({ code: "confirmation_needed", confirm_url: `${SITE}/dashboard/settings#hosting` });
+    expect(refused.answer.error).toMatchObject({ code: "confirmation_needed", confirm_url: expect.stringContaining(`${SITE}/dashboard/settings?spending_request=spending_request_`) });
     expect((await creditOf(env.DB, ownerId)).automaticTopUp.isEnabled).toBe(false);
 
     // Our own page, with a passkey tapped in the last 10 minutes (withSpendingConfirmation).

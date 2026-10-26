@@ -490,7 +490,7 @@ describe("tokens", () => {
 
   it("never let a connected app make a key or approve another connection", async () => {
     const { accessToken, clientId } = await connectedTokens();
-    const keys = await SELF.fetch(`${SITE}/account/keys`, { method: "POST", headers: { authorization: `Bearer ${accessToken}`, origin: SITE, "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ name: "sneaky", access_level: "full", game_scope: "all" }), redirect: "manual" });
+    const keys = await SELF.fetch(`${SITE}/dashboard/settings/keys`, { method: "POST", headers: { authorization: `Bearer ${accessToken}`, origin: SITE, "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ name: "sneaky", access_level: "full", game_scope: "all" }), redirect: "manual" });
     expect(keys.status).toBe(303);
     expect(keys.headers.get("location")).toContain("/signin");
     const approve = await SELF.fetch(`${SITE}/oauth/authorize`, { method: "POST", headers: { authorization: `Bearer ${accessToken}`, origin: SITE, "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ ...authorizeFields(clientId), decision: "allow" }), redirect: "manual" });
@@ -517,8 +517,8 @@ describe("the keys list", () => {
       ["Claude", "connected_app", "claude.test"],
       ["laptop", "api_key", null],
     ]);
-    const page = await (await browser.go("/account")).text();
-    expect(page).toContain("connected app · claude.test");
+    const page = await (await browser.go("/dashboard/settings")).text();
+    expect(page.replace(/<[^>]+>/g, "").replace(/\s+/g, " ")).toContain("connected app · claude.test");
   });
 
   it("never lets an API key's shape reach a connection's row", async () => {
