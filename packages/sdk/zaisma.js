@@ -6,7 +6,8 @@
  * together; test/node/sdk-types.test.ts checks that they match.
  *
  * On Zaisma, the games Worker defines __ZAISMA__ before this file with the rooms address, the game and
- * the site. Anywhere else, games pass { serverUrl } themselves.
+ * the site. A game that isn't hosted on Zaisma gets "not_on_zaisma" for online play, serverUrl or not; serverUrl points a
+ * game hosted on Zaisma at your own server.
  */
 (function () {
   "use strict";
@@ -1275,7 +1276,7 @@
 
   function connect(roomCode, joinOptions, isRetry) {
     var serverUrl = joinOptions.serverUrl ? String(joinOptions.serverUrl).replace(/\/+$/, "") : null;
-    if (!serverUrl && !config.rooms) return Promise.reject(notOnZaisma("Player passes come from Zaisma, so rooms work only in games played on Zaisma, in Zaisma rooms or on your own server (serverUrl)."));
+    if (!serverUrl && !config.rooms) return Promise.reject(notOnZaisma("Player passes come from Zaisma, so rooms work only in games hosted on Zaisma, in Zaisma rooms or on your own server (serverUrl)."));
     var idleTimeoutSec = joinOptions.idleTimeoutSec;
     if (idleTimeoutSec !== undefined && !(typeof idleTimeoutSec === "number" && idleTimeoutSec >= MINIMUM_IDLE_TIMEOUT_SEC && idleTimeoutSec <= MAXIMUM_IDLE_TIMEOUT_SEC)) return Promise.reject(codedError("bad_idle_timeout", "idleTimeoutSec runs from " + MINIMUM_IDLE_TIMEOUT_SEC + " to " + MAXIMUM_IDLE_TIMEOUT_SEC + "."));
     if (serverUrl && !SERVER_URL.test(serverUrl)) return Promise.reject(codedError("bad_server_url", "serverUrl takes a full address starting with wss://, ws://, https:// or http://, like \"wss://play.example.com\"."));
@@ -1520,7 +1521,7 @@
     var refused = unknownOption(requestOptions, REQUEST_OPTIONS, "Zaisma.server.request");
     if (refused) return Promise.reject(refused);
     var serverUrl = requestOptions && requestOptions.serverUrl ? String(requestOptions.serverUrl).replace(/\/+$/, "") : null;
-    if (!serverUrl && !config.rooms) return Promise.reject(notOnZaisma("Outside Zaisma, Zaisma.server.request needs your own game server's address, like { serverUrl: \"https://play.example.com\" }."));
+    if (!serverUrl && !config.rooms) return Promise.reject(notOnZaisma("Player passes come from Zaisma, so Zaisma.server.request works only in games hosted on Zaisma, to Zaisma's servers or to your own (serverUrl)."));
     if (serverUrl && !SERVER_URL.test(serverUrl)) return Promise.reject(codedError("bad_server_url", "serverUrl takes a full address starting with https://, http://, wss:// or ws://, like \"https://play.example.com\"."));
     var requestText;
     try {
