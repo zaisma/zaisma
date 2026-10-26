@@ -203,7 +203,7 @@ export type GridOptions = {
  * shows in its place while it has none (whenEmpty, an Empty state), a page script's cells included.
  */
 export function grid(options: GridOptions): Raw {
-  return html`<div class="layout-grid item-${options.itemSize}"${options.id ? html` id="${options.id}"` : ""}${groupLabel(options.label)}>${options.items.map((layoutItem) => html`<div class="grid-cell is-${layoutItem.kind}"${placeAttributes(layoutItem)}>${layoutItem.markup}</div>`)}</div>${options.whenEmpty ? html`<div class="when-empty">${options.whenEmpty}</div>` : ""}`;
+  return html`<div class="layout-grid item-${options.itemSize}"${options.id ? html` id="${options.id}"` : ""}${groupLabel(options.label)}>${options.items.map((layoutItem) => html`<div class="grid-cell is-${layoutItem.kind}"${placeAttributes(layoutItem)}>${layoutItem.markup}</div>`)}</div>${options.whenEmpty ? html`<div class="when-empty"${options.items.some((layoutItem) => !layoutItem.isHidden) ? raw(" hidden") : ""}>${options.whenEmpty}</div>` : ""}`;
 }
 
 export interface TrackOptions {
@@ -220,7 +220,7 @@ export interface TrackOptions {
 
 /** A row of cells of one size that scrolls sideways, fading at an edge with more past it: a row of covers, with Row arrows for a mouse. */
 export function track(options: TrackOptions): Raw {
-  return html`<div class="layout-track item-${options.itemSize}" id="${options.id}" data-fades-sideways${groupLabel(options.label)}>${options.items.map((layoutItem) => layoutItem.markup)}</div><div class="when-empty">${options.whenEmpty}</div>`;
+  return html`<div class="layout-track item-${options.itemSize}" id="${options.id}" data-fades-sideways${groupLabel(options.label)}>${options.items.map((layoutItem) => layoutItem.markup)}</div><div class="when-empty"${options.items.length ? raw(" hidden") : ""}>${options.whenEmpty}</div>`;
 }
 
 export interface ColumnsOptions {
@@ -416,9 +416,10 @@ ${edgeRows("bottom")} { align-items: flex-end; }
  * it, the other way round. By what's in it, so a list a page script fills or empties shows the right one with no script of its own.
  */
 export const WHEN_EMPTY_STYLES = `
-/* A list and its empty state: one shows. */
+/* A list and its empty state: one shows. The empty state comes hidden when the list has things; a page script's list that empties shows it again. */
 :is(.list-rows:not(:has(> li:not([hidden]))), .layout-grid:not(:has(> .grid-cell:not([hidden]))), .layout-track:not(:has(> :not([hidden])))) { display: none; }
 :is(.list-rows:has(> li:not([hidden])), .layout-grid:has(> .grid-cell:not([hidden])), .layout-track:has(> :not([hidden]))) + .when-empty { display: none; }
+:is(.list-rows:not(:has(> li:not([hidden]))), .layout-grid:not(:has(> .grid-cell:not([hidden]))), .layout-track:not(:has(> :not([hidden])))) + .when-empty[hidden] { display: flex !important; }
 .when-empty { display: flex; flex-direction: column; min-width: 0; }
 `;
 

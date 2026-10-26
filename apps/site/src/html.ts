@@ -433,7 +433,9 @@ html { background: var(--backdrop-edge, var(--page)); }
 body { position: relative; margin: 0; min-height: 100vh; display: flex; flex-direction: column; font: var(--type-reading); color: var(--ink); background: var(--backdrop-edge, var(--page));
   padding-top: var(--header-room); }
 body > main { position: relative; flex: 1 0 auto; width: 100%; }
-/* A rebuilt page's width is its shape's (PAGE_SHAPE_STYLES, layout.ts). The footer keeps a block's gap above it itself. */
+/* A rebuilt page's width is its shape's (PAGE_SHAPE_STYLES, layout.ts). The footer keeps a block's gap above it itself. A Steel page, until it's
+   rebuilt, keeps its header and footer at Steel's own width over its band. */
+html:not([data-page-shape]) body > :is(.top, .foot) { width: min(1240px, calc(100% - 2 * var(--pad-pane))); }
 main.steel, .game-steel { position: relative; }
 .game-steel { flex: 1 0 auto; }
 main.steel { padding: 32px max(24px, calc((100% - 1240px) / 2 + 24px)) 72px; }

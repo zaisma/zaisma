@@ -78,6 +78,8 @@ export interface CheckedPage {
   setUp?: string;
   /** With setUp: the state the page says it is at its address, before setUp opens what it hides. */
   stateBeforeSetUp?: string;
+  /** The state the page says it is when that's another entry's: the same page seen as a stress account (STRESS_ACCOUNTS). */
+  shownStateName?: string;
   /** The test account it's seen signed in as (scripts/preview/sign-ins.mjs). */
   account?: string;
   /** The gallery takes light or dark from its address. */
@@ -89,6 +91,18 @@ export interface CheckedPage {
 }
 
 const CITY = { mainActionShows: "desktop" } as const;
+
+/**
+ * The stress accounts (scripts/preview/sign-ins.mjs), and the words each adds to a page's name: every name at its field's longest, nothing at
+ * all, and a great many things. A page that lists what depends on who's looking is listed as each of them too (the layout check fails one that isn't).
+ */
+export const STRESS_ACCOUNTS = [
+  { account: "Longest_Names_Here", nameEnding: "long names" },
+  { account: "Empty_Handed", nameEnding: "empty" },
+  { account: "Many_Things", nameEnding: "full" },
+] as const;
+/** The page's name its stress entries start with: a signed-in state's without its ", signed in". */
+export const stressBaseName = (name: string): string => name.replace(/, signed in$/, "");
 
 /** The Players sheet, opened from the playing bar's Players button. */
 const OPEN_PLAYERS_SHEET = `(async () => { document.querySelector('[aria-controls="players"]').click(); await new Promise((done) => setTimeout(done, 600)); return true; })()`;
@@ -132,8 +146,13 @@ const WRONG_SIGN_IN = { username: "Nobody_Here", password: "not the password", .
 const CHECKED_PAGE_LIST = [
   { name: "Home", area: "Playing", path: "/", mainActionShows: "nowhere", isCoverAboveFold: true },
   { name: "Home, signed in", area: "Playing", path: "/", account: "Moss_Runner", mainActionShows: "nowhere", isCoverAboveFold: true },
+  { name: "Home, long names", area: "Playing", path: "/", account: "Longest_Names_Here", shownStateName: "Home, signed in", mainActionShows: "nowhere", isCoverAboveFold: true },
+  { name: "Home, empty", area: "Playing", path: "/", account: "Empty_Handed", shownStateName: "Home, signed in", mainActionShows: "nowhere", isCoverAboveFold: true },
+  { name: "Home, full", area: "Playing", path: "/", account: "Many_Things", shownStateName: "Home, signed in", mainActionShows: "nowhere", isCoverAboveFold: true },
   { name: "Game page", area: "Playing", path: "/g/cave-crew", mainActionShows: "everywhere" },
   { name: "Game page, no rooms", area: "Playing", path: "/g/shard-dodge", mainActionShows: "everywhere" },
+  // The longest title and description a game can have, and every name on its page at its longest.
+  { name: "Game page, long names", area: "Playing", path: "/g/wandering-lighthouse-keeper", account: "Longest_Names_Here", shownStateName: "Game page, no rooms", mainActionShows: "everywhere" },
   { name: "Tester link", area: "Playing", path: "/t/7e57ed00dcafe0a1b2c3", mainActionShows: "everywhere" },
   { name: "Playing a game, the players sheet", area: "Playing", path: "/g/cave-crew?play", mainActionShows: "nowhere", setUp: OPEN_PLAYERS_SHEET, stateBeforeSetUp: "Game page" },
   { name: "Playing a game, asked to sign in", area: "Playing", path: "/g/tiny-farm?play", mainActionShows: "nowhere", setUp: SHOW_PLAYING_CARDS, stateBeforeSetUp: "Game page, no rooms" },
@@ -176,6 +195,7 @@ const CHECKED_PAGE_LIST = [
   { name: "How do you play", area: "Signing in", path: "/join/play", account: "Moss_Runner", ...CITY },
   { name: "You're in", area: "Signing in", path: "/account/kept", account: "Moss_Runner", ...CITY },
   { name: "Developer settings", area: "Developers", path: "/dashboard/settings", account: "Preview_Studio", mainActionShows: "nowhere" },
+  ...STRESS_ACCOUNTS.map(({ account, nameEnding }) => ({ name: `Developer settings, ${nameEnding}` as const, area: "Developers" as const, path: "/dashboard/settings", account, shownStateName: "Developer settings", mainActionShows: "nowhere" as const })),
   { name: "Developer settings, a spending request", area: "Developers", path: "/dashboard/settings?spending_request=spending_request_preview0waiting", account: "Preview_Studio", mainActionShows: "nowhere", stateBeforeSetUp: "Developer settings", setUp: `(async () => { await new Promise((done) => setTimeout(done, 600)); return Boolean(document.getElementById("spending-request")?.open); })()` },
   { name: "Background guide", area: "Developers", path: "/developers/backgrounds", mainActionShows: "nowhere" },
   { name: "Example page", area: "Gallery", path: "/design/example", mainActionShows: "everywhere" },

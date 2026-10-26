@@ -4,7 +4,7 @@ import type { ControlMarkup } from "./control-markup.ts";
 import { cutButton, runButton, textLink } from "./actions.ts";
 import { CUT_LINE, EDGE, logo } from "./foundations.ts";
 import { grid, row, stack } from "./layout.ts";
-import { gameCover, type GameCoverOptions } from "./panes.ts";
+import { gameCover, sheet, type GameCoverOptions } from "./panes.ts";
 
 /*
  * A game's page: its screenshots, the game cards of every list of games (Browse, More from a developer), and playing it. Playing is the page once Play is pressed. The game fills the screen; Zaisma keeps one slim bar of glass beside it (above it, or down
@@ -243,7 +243,7 @@ component({
   styles: "",
   render: screenshot,
   examples: [
-    { label: "In a row", markup: html`<div style="width:280px">${screenshot({ imageUrl: "/design/covers/neon-drift.webp", label: "Screenshot 1 of 3", sheetId: "example-screenshot" })}</div>` },
+    { label: "In a row: press it to open it large", markup: html`<div style="width:280px">${screenshot({ imageUrl: "/design/covers/neon-drift.webp", label: "Screenshot 1 of 3", sheetId: "example-screenshot" })}</div>${sheet({ id: "example-screenshot", title: "Neon Drift, screenshot 1 of 3", body: screenshotLarge("/design/covers/neon-drift.webp", "Neon Drift, screenshot 1"), closeLabel: "Close" })}` },
   ],
 });
 

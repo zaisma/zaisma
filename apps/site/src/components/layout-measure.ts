@@ -56,14 +56,21 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
       }
       return null;
     }
+    function roomOf(pane) {
+      for (var walk = pane.parentElement; walk && walk !== document.documentElement; walk = walk.parentElement) {
+        var css = getComputedStyle(walk);
+        if (css.transform !== "none" || css.filter !== "none" || /paint|layout|strict|content/.test(css.contain || "")) return walk.getBoundingClientRect();
+      }
+      return { left: 0, top: 0, right: innerWidth, bottom: innerHeight };
+    }
     var overPanes = Array.prototype.filter.call(document.querySelectorAll(".dropdown:not(.shut), dialog.sheet[open], .sheet.in-place, :popover-open, .notice, .playing-card"), function (pane) { return isShown(pane); });
     overPanes.forEach(function (pane) {
       var r = pane.getBoundingClientRect(), kind = paneKind(pane), isInPlace = pane.matches(".in-place");
       if (kind && r.width > kind.widthPx + TOLERANCE_PX) report("a pane wider than its kind allows", pane, round(r.width) + "px wide, " + kind.name + " at most " + round(kind.widthPx) + "px");
       if (isInPlace || pane.closest(EXAMPLE + " .in-place")) return;
       if (kind && r.height > kind.heightPx + TOLERANCE_PX) report("a pane taller than its kind allows", pane, round(r.height) + "px tall, " + kind.name + " at most " + round(kind.heightPx) + "px");
-      var past = [["left", -r.left], ["right", r.right - innerWidth], ["top", -r.top], ["bottom", r.bottom - innerHeight]].find(function (side) { return side[1] > TOLERANCE_PX; });
-      if (past) report("a pane past the screen", pane, "its " + past[0] + " edge " + round(past[1]) + "px past the window's");
+      var room = roomOf(pane), past = [["left", room.left - r.left], ["right", r.right - room.right], ["top", room.top - r.top], ["bottom", r.bottom - room.bottom]].find(function (side) { return side[1] > TOLERANCE_PX; });
+      if (past) report("a pane past the screen", pane, "its " + past[0] + " edge " + round(past[1]) + "px past the " + (room.width === undefined ? "window's" : "frame's it opens in"));
       // Everything in it shows inside it, or inside something in it that scrolls.
       var spill = 0;
       Array.prototype.forEach.call(pane.querySelectorAll("*"), function (el) {
@@ -477,7 +484,10 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
   // Proximity: a heading is nearer what it names (what follows it) than the block before it.
   Array.prototype.forEach.call(document.querySelectorAll("h2, h3, h4"), function (heading) {
     if (!isOwn(heading)) return;
-    var cell = heading.closest(".stack-cell") || heading, before = cell.previousElementSibling, after = cell.nextElementSibling;
+    // A heading that's a cell of a stack, beside the cells it sits between (one inside a pane's head or a component places itself).
+    var cell = heading.parentElement;
+    if (!cell || !cell.matches(".stack-cell") || cell.children.length !== 1) return;
+    var before = cell.previousElementSibling, after = cell.nextElementSibling;
     while (before && !isShown(before)) before = before.previousElementSibling;
     while (after && !isShown(after)) after = after.nextElementSibling;
     if (!before || !after) return;
@@ -529,9 +539,10 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
   });
   // Hick's law and choice overload: few equal choices in a row, and a long menu in groups.
   var MAXIMUM_EQUAL_CHOICE_COUNT = 5, MAXIMUM_UNGROUPED_MENU_ITEM_COUNT = 9;
+  // Choices are buttons and a switch's buttons; fields side by side (a PIN's boxes) aren't, and a switch of places (links) is a way round, not a choice.
   Array.prototype.forEach.call(document.querySelectorAll(".layout-row[data-control-height], .tab-switch:not(.vertical)"), function (group) {
     if (!isOwn(group)) return;
-    var choices = group.matches(".tab-switch") ? group.querySelectorAll(":scope > a, :scope > button") : group.querySelectorAll(":scope > .row-cell.is-control");
+    var choices = group.matches(".tab-switch") ? group.querySelectorAll(":scope > button") : Array.prototype.filter.call(group.querySelectorAll(":scope > .row-cell.is-control"), function (cell) { return cell.querySelector(":scope > .shell, :scope > .run-wrap"); });
     var shownCount = Array.prototype.filter.call(choices, isShown).length;
     if (shownCount > MAXIMUM_EQUAL_CHOICE_COUNT) report("too many equal choices", group, shownCount + " side by side, at most " + MAXIMUM_EQUAL_CHOICE_COUNT);
   });

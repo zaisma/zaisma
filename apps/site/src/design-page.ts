@@ -177,7 +177,8 @@ body.gallery { margin: 0; min-height: 100vh; font: var(--type-reading); }
 .examples { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: var(--gap-block-block); padding-bottom: var(--pad-words); }
 .example { margin: 0; min-width: 0; display: flex; flex-direction: column; }
 .example.wide { grid-column: 1 / -1; }
-.example-stage > * { max-width: 100%; }
+/* A sheet keeps its own cap (Pane sizes): the stage never widens it. */
+.example-stage > :not(.sheet) { max-width: 100%; }
 /* What the example is: a few quiet words just under it. */
 .example { gap: var(--gap-words-control); }
 .example-name { margin: 0; padding-inline: var(--pad-words); font: var(--type-facts); color: var(--muted); }

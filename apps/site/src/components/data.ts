@@ -306,11 +306,14 @@ const rowOf = (actions: ControlMarkup[]) => row({ widths: "fit", items: actions.
  */
 export function listRows(options: { rows: ListRow[]; whenEmpty: Raw; id?: string; label?: string; shownRowCount?: number }): Raw {
   const cap = options.shownRowCount ? html` style="--shown-row-count:${String(options.shownRowCount)}"` : "";
-  return html`${listMarkup(options, cap)}${whenEmptyMarkup(options.whenEmpty)}`;
+  return html`${listMarkup(options, cap)}${whenEmptyMarkup(options.whenEmpty, options.rows.some((row) => !row.isHidden))}`;
 }
 
-/** What shows in a list's place while it has nothing in it: right after the list, which hides itself while it's empty (WHEN_EMPTY_STYLES). */
-const whenEmptyMarkup = (whenEmpty: Raw): Raw => html`<div class="when-empty">${whenEmpty}</div>`;
+/**
+ * What shows in a list's place while it has nothing in it: right after the list, which hides itself while it's empty (WHEN_EMPTY_STYLES).
+ * Hidden while the list has things, so the layout's edge rules see the list as what ends its pane.
+ */
+const whenEmptyMarkup = (whenEmpty: Raw, isListShown: boolean): Raw => html`<div class="when-empty"${isListShown ? raw(" hidden") : ""}>${whenEmpty}</div>`;
 
 function listMarkup(options: { rows: ListRow[]; id?: string; label?: string; shownRowCount?: number }, cap: Raw | ""): Raw {
   return html`<ul class="list-rows${options.shownRowCount ? " is-capped" : ""}"${cap}${options.id ? html` id="${options.id}"` : ""}${options.label ? html` aria-label="${options.label}"` : ""}>${options.rows.map((row) => {

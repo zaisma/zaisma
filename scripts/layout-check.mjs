@@ -33,7 +33,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { fetchChrome, findChrome, openChrome } from "./chrome.mjs";
 import { PASSWORD } from "./preview/sign-ins.mjs";
 import { MEASURE_LAYOUT_SOURCE } from "../apps/site/src/components/layout-measure.ts";
-import { CHECKED_PAGES, LOCAL_SCREEN_NAMES, SCREEN_SIZES, SCREEN_THEMES, TEXT_SCREEN_NAMES, UNIQUE_WORD } from "../apps/site/src/components/checked-pages.ts";
+import { CHECKED_PAGES, LOCAL_SCREEN_NAMES, SCREEN_SIZES, SCREEN_THEMES, STRESS_ACCOUNTS, TEXT_SCREEN_NAMES, UNIQUE_WORD, stressBaseName } from "../apps/site/src/components/checked-pages.ts";
 import { mkdirSync, writeFileSync } from "node:fs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -232,7 +232,13 @@ async function checkPage(chrome, contextId, url, looks, options) {
       const found = exceptionDetails ? [{ check: "the check couldn't measure the page", element: "", said: exceptionDetails.exception?.description ?? exceptionDetails.text }] : result.value;
       // The entry's address must show the state it's named for (checked-pages.ts), so a list that drifts from the pages fails here.
       const state = await said();
-      if (!options.markup && state !== (options.stateBeforeSetUp ?? options.name)) {
+      // A page that lists what depends on who's looking is listed as each stress account too (Long and empty and full states).
+      const isStressed = options.account && !options.isGallery && !options.setUp && !options.stepsToTake && !STRESS_ACCOUNTS.some((stress) => stress.account === options.account);
+      if (isStressed && lookIndex === 0 && (await send("Runtime.evaluate", { expression: "Boolean(document.querySelector('main .when-empty'))", returnByValue: true })).result?.value) {
+        const missing = STRESS_ACCOUNTS.map((stress) => `${stressBaseName(options.name)}, ${stress.nameEnding}`).filter((name) => !LAYOUT_CHECK_PAGES.some((page) => page.name === name));
+        if (missing.length) found.push({ check: "a list without its long, empty and full states", element: "", said: `it lists things that depend on who's looking, and CHECKED_PAGES has no ${missing.map((name) => `"${name}"`).join(", ")} (checked-pages.ts, STRESS_ACCOUNTS)` });
+      }
+      if (!options.markup && state !== (options.stateBeforeSetUp ?? options.shownStateName ?? options.name)) {
         const address = (await send("Runtime.evaluate", { expression: "location.pathname + location.search", returnByValue: true })).result?.value;
         found.push({ check: "the page isn't the state it's listed as", element: "", said: `${state === null ? "it names no state (a page built in Zaisma's look names one: html.ts, checkedPage)" : `it says it's "${state}"`}, at ${address}` });
       }
@@ -242,7 +248,7 @@ async function checkPage(chrome, contextId, url, looks, options) {
         found.push(...(panes.exceptionDetails ? [{ check: "the check couldn't open the gallery's panes", element: "", said: panes.exceptionDetails.exception?.description ?? panes.exceptionDetails.text }] : panes.result.value));
       }
       // Every press that answers in the page answers within 400 ms (the Doherty threshold), on a laptop, once: a press changes the page.
-      if (size.name === "Laptop" && theme === "light" && !options.stepsToTake && !options.setUp && !options.markup) {
+      if (size.name === "Laptop" && theme === "light" && !options.stepsToTake && !options.setUp) {
         const answers = await send("Runtime.evaluate", { expression: PRESS_EVERY_ANSWER, awaitPromise: true, returnByValue: true });
         found.push(...(answers.exceptionDetails ? [{ check: "the check couldn't press the page's buttons", element: "", said: answers.exceptionDetails.exception?.description ?? answers.exceptionDetails.text }] : answers.result.value));
       }

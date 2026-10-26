@@ -40,7 +40,7 @@ export interface ScreensOptions {
 
 /** The screens asked for in the address (?screen=, more than once for several), as the check names them; a phone and a laptop when none is. */
 export const screenNamesOf = (url: URL): ScreenName[] => {
-  const asked = url.searchParams.getAll("screen").flatMap((name) => SCREEN_SIZES.filter((size) => size.name === name).map((size) => size.name));
+  const asked = url.searchParams.getAll("screen").flatMap((name) => SCREEN_SIZES.filter((screenSize) => screenSize.name === name).map((screenSize) => screenSize.name));
   return asked.length ? asked : [...LOCAL_SCREEN_NAMES];
 };
 
@@ -50,8 +50,8 @@ export const LAYOUT_MEASURE_SCRIPT = pageScript("layout-measure", `window.zaisma
 /** One page on its screens, the widest first, light over dark, each with what the measuring check finds under it. */
 export function screens(options: ScreensOptions): Raw {
   const names = options.screenNames ?? LOCAL_SCREEN_NAMES;
-  const sizes = [...SCREEN_SIZES].reverse().filter((size) => names.includes(size.name));
-  const shown = SCREEN_THEMES.flatMap((theme) => sizes.map((screenSize) => ({ theme, screenSize })));
+  const shownSizes = [...SCREEN_SIZES].reverse().filter((screenSize) => names.includes(screenSize.name));
+  const shown = SCREEN_THEMES.flatMap((theme) => shownSizes.map((screenSize) => ({ theme, screenSize })));
   return html`<div class="screens" data-screens${options.stepsToTake ? html` data-steps-to-take="${JSON.stringify(options.stepsToTake)}"` : ""} data-measure-script="${pageScriptPath(LAYOUT_MEASURE_SCRIPT)}" data-inspect-script="${pageScriptPath(LAYOUT_INSPECT_SCRIPT)}"><div class="screens-in">${shown.map(({ theme, screenSize }) => {
     const name = `${screenSize.name}, ${theme}`;
     return html`<figure class="screen" data-screen data-width-px="${String(screenSize.widthPx)}" data-height-px="${String(screenSize.heightPx)}" data-screen-theme="${theme}">
@@ -94,9 +94,9 @@ export function screensPicker(path: string, screenNames: readonly ScreenName[] =
           kind: "block",
           markup: html`<form method="get" action="${SCREENS_PATH}">${stack({
             items: [
+              { kind: "words", markup: html`<h2>On these screens</h2>` },
+              { kind: "block", markup: grid({ itemSize: "figure", label: "Screens", items: SCREEN_SIZES.map((screenSize) => ({ kind: "block" as const, markup: checkField({ id: `screens-screen-${screenSize.name.toLowerCase().replace(/ /g, "-")}`, name: "screen", checkValue: screenSize.name, label: `${screenSize.name}, ${screenSize.widthPx} × ${screenSize.heightPx}`, isChecked: screenNames.includes(screenSize.name) }) })) }) },
               { kind: "block", markup: row({ widths: "lead-fills", items: [{ kind: "control", markup: cutField({ id: "screens-page", name: "page", label: "Page", type: "text", icon: "globe", text: path, placeholder: "/signin" }) }, { kind: "control", markup: runButton("Show", { type: "submit" }) }] }) },
-              { kind: "words", markup: html`<h3>On these screens</h3>` },
-              { kind: "block", markup: grid({ itemSize: "figure", label: "Screens", items: SCREEN_SIZES.map((size) => ({ kind: "block" as const, markup: checkField({ id: `screens-screen-${size.name.toLowerCase().replace(/ /g, "-")}`, name: "screen", checkValue: size.name, label: `${size.name}, ${size.widthPx} × ${size.heightPx}`, isChecked: screenNames.includes(size.name) }) })) }) },
             ],
           })}</form>`,
         },

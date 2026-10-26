@@ -297,6 +297,9 @@ ${WORDS_SURFACES.join(", ")} { padding: var(--pad-frame); --pad-words: var(--pad
 /* Headings and paragraphs keep the margin at their sides wherever they sit in it (layout.ts's edge rules give their top and bottom); inside
    anything with an edge of its own there's none (a slab of glass sets --pad-words to nothing), and any component's own padding wins. */
 :where(${WORDS_HOLDERS.join(", ")}) :where(h1, h2, h3, h4, p) { padding-inline: var(--pad-words); }
+/* A line of words runs at most 75 characters of its own font, however wide its surface (the layout check's "a line of words longer than the
+   reading width"); a pane that fits what's in it stops its paragraphs sooner, at --size-reading. */
+:where(${WORDS_HOLDERS.join(", ")}) :where(p, li) { max-width: 75ch; }
 /* Bare groups (BARE_GROUPS above): a game card, a person. The unit takes the margin as a whole, at its sides here and its top and bottom in layout.ts. */${BARE_GROUPS_STYLES}
 .glass { position: relative; color: var(--ink); --glass-shown-tint: var(--glass-tint); background-color: var(--glass-shown-tint); background-image: var(--glass-layer, linear-gradient(transparent, transparent)), var(--glass-wash), var(--glass-sheen);
   -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate)); backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
