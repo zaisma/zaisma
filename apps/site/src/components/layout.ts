@@ -388,6 +388,8 @@ ${GAP_TOKENS.map((gap) => `.layout-row > .row-cell.gap-end-${gap} { margin-inlin
 .row-cell.fills > .shell { display: flex; }
 .row-cell.fills > .shell > .face { width: 100%; justify-content: center; }
 .row-cell:not(.fills) { flex: none; }
+/* Words that don't fit the line beside what's before them wrap inside their cell rather than run past the row's end. */
+.row-cell.is-words:not(.fills) { flex: 0 1 auto; min-width: 0; }
 /* An equal row's cells each take its widest one's width at least (ROW_LAYOUT_SCRIPT), so they're equal in a pane that fits what's in it
    too; while the script measures, each is its own width. */
 .layout-row.widths-equal > .row-cell.fills { min-width: var(--equal-cell-width, auto); }
@@ -469,6 +471,8 @@ export const PANE_PARTS_STYLES = `
 .pane-head-words > * { grid-column: 1 / -1; min-width: 0; padding-inline-start: var(--head-inset); }
 .pane-head-words > * + * { margin-top: var(--gap-words-words); }
 .pane-head:has(> .pane-head-end) > .pane-head-words > :first-child { grid-column: 1; grid-row: 1; }
+/* A heading beside its corner control never runs under it: a word longer than the room left (at a large text size) breaks, hyphenated where it can. */
+.pane-head:has(> .pane-head-end) > .pane-head-words > :first-child { overflow-wrap: break-word; hyphens: auto; }
 .pane-head:not([data-control-height]) > .pane-head-words > :first-child { padding-top: var(--head-inset); }
 .pane-head > .pane-head-end { grid-column: 2; grid-row: 1; }
 .pane-foot { display: flex; gap: var(--gap-words-control); min-width: 0; align-items: flex-end; }

@@ -115,6 +115,8 @@ const SHOW_PLAYING_CARDS = `(async () => {
     if (id === "save-toast") card.querySelector("p").textContent = "Progress saves to your account.";
     card.hidden = false;
     card.style.top = top + "px";
+    // One that wouldn't fit under the one before (a phone on its side) stays hidden: over a game they come one at a time.
+    if (top + card.getBoundingClientRect().height > innerHeight - 8 && top > 70) { card.hidden = true; continue; }
     top += 20 + card.getBoundingClientRect().height;
   }
   await new Promise((done) => setTimeout(done, 600));

@@ -13,7 +13,8 @@ import * as data from "../../apps/site/src/components/data.ts";
 import * as layoutComponents from "../../apps/site/src/components/layout.ts";
 import { COLUMNS_STYLES, COLUMN_LEAST_PX, GRID_STYLES, PANE_PARTS_STYLES, ROW_STYLES, STACK_STYLES, TRACK_STYLES, columns, grid, paneParts, row, stack, type LayoutItem } from "../../apps/site/src/components/layout.ts";
 import { pageStyles } from "../../apps/site/src/page-styles.ts";
-import { CHECKED_PAGES, UNIQUE_WORD, type StepToTake } from "../../apps/site/src/components/checked-pages.ts";
+import { CHECKED_PAGES, LOCAL_SCREEN_NAMES, SCREEN_SIZES, STRESS_ACCOUNTS, TEXT_SCREEN_NAMES, UNIQUE_WORD, type StepToTake } from "../../apps/site/src/components/checked-pages.ts";
+import { layout, type LayoutOptions } from "../../apps/site/src/html.ts";
 import { PAGE_SHEETS, STEEL_PAGE_SHEETS, UNSTYLED_HOOKS, pageProblems } from "./page-rules.ts";
 import { BACKDROP_SCRIPT, glassPane, pageSettingsAttributes } from "../../apps/site/src/components/foundations.ts";
 import { GLASS_LIGHT_PASS, MOST_GLASS_PANE_COUNT } from "../../apps/site/src/components/shaders.ts";
@@ -831,6 +832,46 @@ describe("pages", () => {
 });
 
 describe("layout", () => {
+  it("makes a rebuilt page say its shape: the compiler refuses one without it", () => {
+    // @ts-expect-error: a page that names its state is rebuilt, and a rebuilt page names its shape.
+    const withoutShape: LayoutOptions = { title: "A page", body: html`<p>Hi</p>`, checkedPage: "Example page" };
+    const withShape: LayoutOptions = { title: "A page", body: html`<p>Hi</p>`, checkedPage: "Example page", pageShape: "reading" };
+    expect(withoutShape.title).toBe(withShape.title);
+    expect(typeof layout).toBe("function");
+  });
+
+  it("sets no words in px: type and controls grow with the browser's text size", () => {
+    // A picture's initials are sized to the picture, which doesn't grow: the one font in px.
+    const IN_PX = new Set([".frame.xs .av::first-letter"]);
+    const problems = [...COMPONENT_STYLES().matchAll(/([^{}]+)\{([^{}]*)\}/g)].flatMap(([, selectors = "", declarations = ""]) => {
+      const selector = selectors.replace(/\/\*[\s\S]*?\*\//g, "").trim().split("\n").pop()!.trim();
+      return [...declarations.matchAll(/(?:^|[;\s])(font(?:-size)?|--type-[a-z]+|--control-height-[a-z]+):\s*([^;}]+)/g)].filter(([, , value = ""]) => /\d(px)/.test(value) && !IN_PX.has(selector)).map(([, property, value]) => `${selector} | ${property}: ${value!.trim()}`);
+    });
+    expect(problems).toEqual([]);
+  });
+
+  it("names the old column width nowhere: a page's widths are its shape's", () => {
+    expect(COMPONENT_STYLES()).not.toContain("--size-column");
+    for (const source of [layoutSource, navigationSource, panesSource, tokensSource]) expect(source).not.toContain("--size-column");
+  });
+
+  it("measures on seven screens, each named once, and runs the screens a run starts with and its 200% text on screens from that list", () => {
+    const names = SCREEN_SIZES.map((size) => size.name);
+    expect(new Set(names).size).toBe(7);
+    for (const name of [...LOCAL_SCREEN_NAMES, ...TEXT_SCREEN_NAMES]) expect(names).toContain(name);
+  });
+
+  it("lists each stress state with a page it's of: the same page, as a stress account", () => {
+    for (const page of CHECKED_PAGES.filter((each) => STRESS_ACCOUNTS.some((stress) => stress.account === each.account))) {
+      const stress = STRESS_ACCOUNTS.find((each) => each.account === page.account)!;
+      expect(page.name.endsWith(`, ${stress.nameEnding}`), page.name).toBe(true);
+      expect(CHECKED_PAGES.some((each) => each.name === page.shownStateName), page.name).toBe(true);
+      // Its siblings are there too: long names, empty and full together.
+      const base = page.name.slice(0, -`, ${stress.nameEnding}`.length);
+      for (const other of STRESS_ACCOUNTS) expect(CHECKED_PAGES.some((each) => each.name === `${base}, ${other.nameEnding}`), `${base}, ${other.nameEnding}`).toBe(true);
+    }
+  });
+
   const words = (text: string): LayoutItem => ({ kind: "words", markup: html`<p>${text}</p>` });
   const block = (text: string): LayoutItem => ({ kind: "block", markup: html`<div>${text}</div>` });
   const control = (markup: ReturnType<typeof actions.cutButton>): LayoutItem => ({ kind: "control", markup });

@@ -6,7 +6,7 @@ import { gameFrameSource, type Env } from "./env.ts";
 import { pageScript, pageScriptPath, type PageScript } from "./page-scripts.ts";
 import { pageStyle, pageStylePath, type PageStyle } from "./page-styles.ts";
 import { COMPONENT_SCRIPT, COMPONENT_STYLES, HEADER_SCRIPT } from "./components/index.ts";
-import { footer, header, rail, type HeaderTab } from "./components/navigation.ts";
+import { HEADER_TWO_ROWS_MEDIA, footer, header, rail, type HeaderTab } from "./components/navigation.ts";
 import { cutButton, runButton } from "./components/actions.ts";
 import { pictureFrame, problemState } from "./components/data.ts";
 import { backdrop, glassPane } from "./components/foundations.ts";
@@ -427,7 +427,7 @@ const SHELL_STYLES = `
 /* The room the floating header takes at the top: its inset, its height (the header's own --header-height, worked out from its rows) and a
    block's gap, so the page starts a block's gap below it, and a link to a part of the page stops there. */
 :root { --header-room: calc(var(--pad-pane) + var(--header-height, 68px) + var(--gap-block-block)); scroll-padding-top: var(--header-room); }
-@media (max-width: 760px) { :root { --header-room: calc(var(--pad-pane) + env(safe-area-inset-top, 0px) + var(--header-height, 110px) + var(--gap-block-block)); } }
+@media ${HEADER_TWO_ROWS_MEDIA} { :root { --header-room: calc(var(--pad-pane) + env(safe-area-inset-top, 0px) + var(--header-height, 110px) + var(--gap-block-block)); } }
 /* The page's own color behind the backdrop; a game's background sets --backdrop-edge to its own color (BACKDROP_SCRIPT), so a strip a phone's browser bars uncover at an edge is that color. */
 html { background: var(--backdrop-edge, var(--page)); }
 body { position: relative; margin: 0; min-height: 100vh; display: flex; flex-direction: column; font: var(--type-reading); color: var(--ink); background: var(--backdrop-edge, var(--page));

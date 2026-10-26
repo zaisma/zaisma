@@ -353,7 +353,7 @@ type PressState = "is-pointed" | "is-pressed" | "is-focused";
  * unseen strip across the line, centered on it, or the line itself when it's taller.
  */
 const TOUCH_ROOM = (selector: string) =>
-  `@media (pointer: coarse) { ${selector}::before { content: ""; position: absolute; inset: min(0px, calc(50% - var(--control-height-regular) / 2)) 0; } }`;
+  `@media (pointer: coarse) { ${selector}::before { content: ""; position: absolute; inset: min(0px, calc(50% - var(--touch-target) / 2)) 0; } }`;
 
 export interface CheckFieldOptions {
   name: string;

@@ -181,6 +181,7 @@ export const DROPDOWN_SCRIPT = `/* menus */(function () {
     // Placed once at its whole height, then again once it knows the room on the side it opened to: a long menu stops at the screen's edge and
     // scrolls inside itself (--menu-room; --size-menu-height caps it too).
     menu.style.removeProperty("--menu-room");
+    menu.style.setProperty("--menu-room-width", Math.max(0, end - start - 2 * edgePx) + "px");
     var spot = window.zaismaPlace(anchor, { width: menu.offsetWidth, height: menu.offsetHeight }, { roomRect: room, gapPx: gapPx, edgePx: edgePx, isAlwaysBelow: !!slab });
     menu.style.setProperty("--menu-room", Math.max(0, spot.isAbove ? anchor.top - gapPx - top - edgePx : foot - anchor.bottom - gapPx - edgePx) + "px");
     spot = window.zaismaPlace(anchor, { width: menu.offsetWidth, height: menu.offsetHeight }, { roomRect: room, gapPx: gapPx, edgePx: edgePx, isAlwaysBelow: !!slab });
@@ -226,13 +227,16 @@ export const DROPDOWN_SCRIPT = `/* menus */(function () {
 const DROPDOWN_STYLES = `
 /* A dropdown: a pane of the glass hanging just under its button (above it, is-above, where PLACE_SCRIPT puts it there), as wide as what's in it,
    holding a short list of choices. It's never wider than a menu (--size-menu) or the screen, nor taller than a menu (--size-menu-height) or the
-   room DROPDOWN_SCRIPT finds beside its button (--menu-room): past that its choices scroll inside it, never the page. It grows from the button's end, or from its start when it hangs from there (from-start). */
-.dropdown { position: fixed; z-index: 11; width: max-content; max-width: min(var(--size-menu), calc(100vw - 2 * var(--pad-frame))); max-height: min(var(--size-menu-height), var(--menu-room, calc(100dvh - 2 * var(--pad-frame)))); padding: var(--pad-inner-pane); --pad-words: var(--pad-inside-words); --glass-tint: var(--glass-dropdown);
+   room DROPDOWN_SCRIPT finds beside its button (--menu-room, and --menu-room-width across): past that its choices scroll inside it, never the page. It grows from the button's end, or from its start when it hangs from there (from-start). */
+.dropdown { position: fixed; z-index: 11; width: max-content; max-width: min(var(--size-menu), var(--menu-room-width, calc(100vw - 2 * var(--pad-frame)))); max-height: min(var(--size-menu-height), var(--menu-room, calc(100dvh - 2 * var(--pad-frame)))); padding: var(--pad-inner-pane); --pad-words: var(--pad-inside-words); --glass-tint: var(--glass-dropdown);
   display: flex; flex-direction: column; gap: 2px;
   transform-origin: top right; transition: var(--glass-transition), opacity 0.25s, transform 0.35s cubic-bezier(.2,.8,.2,1); }
 .dropdown.from-start { transform-origin: top left; }
 /* Its choices, under its head: what doesn't fit its height scrolls here, so the head and the glass's edge stay put. */
 .dropdown-in { display: flex; flex-direction: column; gap: 2px; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+/* A choice keeps its height while the list scrolls: nothing in a menu shrinks to fit it. */
+.dropdown > *, .dropdown-in > * { flex: none; }
+.dropdown > .dropdown-in { flex: 0 1 auto; }
 .dropdown.shut { opacity: 0; transform: translateY(-6px) scale(0.98); pointer-events: none; visibility: hidden; transition: var(--glass-transition), opacity 0.25s, transform 0.35s cubic-bezier(.2,.8,.2,1), visibility 0s 0.35s; }
 .dropdown.is-above { transform-origin: bottom right; }
 .dropdown.is-above.from-start { transform-origin: bottom left; }
@@ -603,6 +607,8 @@ export const SHEET_SCRIPT = `/* sheets */(function () {
     if (!opener || sheet.matches(".in-place, .placement-side, .placement-middle") || opener.closest("[popover]") || sheet.contains(opener)) return;
     anchors.set(sheet, { opener: opener, rect: opener.getBoundingClientRect() });
     sheet.classList.add("is-anchored");
+    // What loads in it after it opens (a screenshot) changes its size: it's placed again, so it stays inside the window.
+    if (resized) resized.observe(sheet);
   }
   function place(sheet) {
     var held = anchors.get(sheet);
@@ -618,12 +624,14 @@ export const SHEET_SCRIPT = `/* sheets */(function () {
     sheet.classList.toggle("is-above", spot.isAbove); sheet.classList.toggle("is-at-end", spot.isAtEnd);
   }
   function placeAll() { anchors.forEach(function (held, sheet) { place(sheet); }); }
+  var resized = window.ResizeObserver ? new ResizeObserver(function (entries) { entries.forEach(function (entry) { if (anchors.has(entry.target)) place(entry.target); }); }) : null;
   window.addEventListener("resize", placeAll);
   window.addEventListener("scroll", placeAll, { passive: true, capture: true });
   document.addEventListener("close", function (event) {
     var sheet = event.target;
     if (!anchors.has(sheet)) return;
     anchors.delete(sheet);
+    if (resized) resized.unobserve(sheet);
     sheet.classList.remove("is-anchored", "is-above", "is-at-end");
     sheet.style.removeProperty("--sheet-left"); sheet.style.removeProperty("--sheet-top"); sheet.style.removeProperty("--sheet-max-height");
   }, true);
@@ -650,7 +658,7 @@ export const SHEET_SCRIPT = `/* sheets */(function () {
 
 /** On a touch screen, a button shorter than a regular control reaches past its own box to a regular control's height, unseen: for `scope`'s buttons. */
 const touchReach = (scope: string) => `@media (pointer: coarse) {
-  ${scope} .shell::after { content: ""; position: absolute; left: 0; right: 0; top: min(0px, calc((100% - var(--control-height-regular)) / 2)); bottom: min(0px, calc((100% - var(--control-height-regular)) / 2)); }
+  ${scope} .shell::after { content: ""; position: absolute; left: 0; right: 0; top: min(0px, calc((100% - var(--touch-target)) / 2)); bottom: min(0px, calc((100% - var(--touch-target)) / 2)); }
 }`;
 
 const SHEET_STYLES = `
@@ -1215,7 +1223,8 @@ component({
 .step-line > li:first-child .step-mark { clip-path: polygon(var(--corner-start) 0, 100% 0, calc(100% - 3px) 100%, calc(var(--corner-start) - 4px) 100%); }
 .step-line > li:last-child .step-mark { clip-path: polygon(3px 0, calc(100% - var(--corner-end)) 0, calc(100% - var(--corner-end) + 4px) 100%, 0 100%); }
 .step-line > li:only-child .step-mark { clip-path: polygon(var(--corner-start) 0, calc(100% - var(--corner-end)) 0, calc(100% - var(--corner-end) + 4px) 100%, calc(var(--corner-start) - 4px) 100%); }
-.step-label { padding-inline-start: var(--pad-words); }
+/* A step's name keeps the margin at both ends, the last one's at the pane's edge too, and breaks a word that's longer than its room (at a large text size). */
+.step-label { padding-inline: var(--pad-words); overflow-wrap: break-word; }
 .step-fill { position: absolute; inset: 0; background: linear-gradient(90deg, #E9820C, var(--run)); transform: scaleX(0); transform-origin: left; transition: transform 0.6s cubic-bezier(.2,.8,.2,1); }
 /* The light at the leading end of the step you're on is a layer of its own over the fill, fading in and out, so it moves from line to line
    smoothly as you go on or back. */

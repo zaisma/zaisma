@@ -95,8 +95,8 @@ export function playersSheet(options: { gameOrigin: string; slug: string; title:
   const body = stack({
     items: [
       words(html`<h3 id="players-room-title">In this room<span id="players-count"></span></h3>`),
-      { kind: "block", markup: listRows({ whenEmpty: emptyState({ title: "Nobody here yet", text: "Players show here as they join your room." }), rows: [], id: "players-list", label: "In this room" }) },
-      words(html`<p id="players-note" hidden></p>`),
+      // While nobody's listed, the note says why (the page's script writes it): the list's empty state.
+      { kind: "block", markup: listRows({ whenEmpty: html`<p id="players-note" hidden></p>`, rows: [], id: "players-list", label: "In this room" }) },
       words(html`<p id="players-watching" hidden></p>`),
       {
         kind: "block",

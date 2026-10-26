@@ -75,7 +75,7 @@ component({
 .slider-fill { width: calc((100% - var(--thumb)) * var(--fill)); height: 6px; top: calc(50% - 3px); background: var(--run); }
 .slider-input { position: absolute; inset: 0; z-index: 3; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; -webkit-appearance: none; appearance: none; }
 /* On a phone the track takes a whole control's height (--control-height-regular) to touch, centered on it. */
-@media (pointer: coarse) { .slider-input { inset: min(0px, calc(50% - var(--control-height-regular) / 2)) 0; height: auto; } }
+@media (pointer: coarse) { .slider-input { inset: min(0px, calc(50% - var(--touch-target) / 2)) 0; height: auto; } }
 .slider-input::-webkit-slider-thumb { -webkit-appearance: none; width: var(--thumb); height: var(--thumb); }
 .slider-input::-moz-range-thumb { width: var(--thumb); height: var(--thumb); border: 0; }
 .slider-thumb { position: absolute; z-index: 2; top: 0; left: calc((100% - var(--thumb)) * var(--fill)); width: var(--thumb); height: var(--thumb); pointer-events: none;
@@ -343,7 +343,7 @@ component({
 .code-field.is-masked .code-text { color: transparent; text-shadow: 0 0 10px var(--ink); cursor: pointer; }
 .field.code:has(:focus-visible) > .cut-line polygon, .field.code.is-focused > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 /* On a phone, Copy takes a whole control's height (--control-height-regular, 44px) to touch. */
-@media (pointer: coarse) { .field.code > .cut-btn::before { content: ""; position: absolute; inset: calc((var(--control-height-small) - var(--control-height-regular)) / 2); } }
+@media (pointer: coarse) { .field.code > .cut-btn::before { content: ""; position: absolute; inset: calc((var(--control-height-small) - var(--touch-target)) / 2); } }
 `,
   render: codeField,
   examples: [
@@ -390,13 +390,14 @@ component({
    the room allows up to 220px; its line under it in the label's words. Masked, it blurs until the page shows it. */
 .qr-code { display: grid; justify-items: center; gap: var(--gap-words-control); margin: 0; min-width: 0; }
 .qr-picture { display: block; width: min(220px, 100%); height: auto; aspect-ratio: 1; background: #fff; transition: filter 0.25s; }
-.qr-caption { font: var(--type-label); color: var(--ink); text-align: center; }
+/* Its words keep the margin inside it, as a field's do, however wide they run (a masked code's caption, at a large text size). */
+.qr-caption { font: var(--type-label); color: var(--ink); text-align: center; padding-inline: var(--pad-inside-words); }
 .qr-code.is-masked > .qr-picture { filter: blur(8px); }
 /* Compact, on a wide screen: smaller, with its line beside it, the width of what a compact sheet holds. */
 @media (min-width: 761px) {
   .qr-code.is-compact { grid-template-columns: auto 1fr; justify-items: start; align-items: center; column-gap: var(--gap-block-block); }
   .qr-code.is-compact > .qr-picture { width: 104px; }
-  .qr-code.is-compact > .qr-caption { text-align: start; padding-inline-end: var(--pad-words); }
+  .qr-code.is-compact > .qr-caption { text-align: start; padding-inline: 0 var(--pad-words); }
 }
 `,
   render: qrCode,

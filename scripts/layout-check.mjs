@@ -50,7 +50,8 @@ export function layoutCheckScreens(names = LOCAL_SCREEN_NAMES, textPercent = nul
   const picked = isAll ? SCREEN_SIZES : names.map((name) => SCREEN_SIZES.find((size) => size.name === name) ?? (() => { throw new Error(`No screen is called ${name}. The screens are ${SCREEN_SIZES.map((size) => size.name).join(", ")}.`); })());
   const atText = isAll || textPercent ? TEXT_SCREEN_NAMES.map((name) => SCREEN_SIZES.find((size) => size.name === name)) : [];
   const percent = textPercent ?? TEXT_PERCENTS[0];
-  return [...picked.map((size) => ({ ...size, textPercent: 100 })), ...atText.map((size) => ({ ...size, name: `${size.name} at ${percent}% text`, textPercent: percent }))];
+  // At larger text the runner may fall below the fold: what's held there is that nothing is lost or cut, not the first view.
+  return [...picked.map((size) => ({ ...size, textPercent: 100 })), ...atText.map((size) => ({ ...size, name: `${size.name} at ${percent}% text`, textPercent: percent, isRunnerChecked: false }))];
 }
 /** The screens every page is measured at unless told otherwise, and the pages: the same Screens shows (checked-pages.ts). */
 export const LAYOUT_CHECK_SIZES = layoutCheckScreens();

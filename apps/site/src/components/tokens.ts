@@ -232,6 +232,8 @@ html { -webkit-tap-highlight-color: transparent; }
   /* A control's height by its size class: each control sets --control-height from one of these, and a row sets every control in it to its
      tallest's (layout.ts). In rem, as type is, so a control grows with its words when the browser's text is set larger (36, 44, 52 and 56px at
      the browser's own 16px). */
+  /* The least a finger needs to land on, which a small control's hit area reaches to on a touch screen: in px, as fingers don't grow with the text. */
+  --touch-target: 44px;
   --control-height-small: 2.25rem; --control-height-regular: 2.75rem; --control-height-field: 3.25rem; --control-height-big: 3.5rem;
   /* The named sizes, the only widths a layout takes (layout.ts): a cell's least width in a grid, by what it holds; and the widest a
      paragraph runs in a pane that fits what's in it, for reading. */

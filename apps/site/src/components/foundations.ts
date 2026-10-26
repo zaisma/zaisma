@@ -219,10 +219,10 @@ component({
 /* The swatches have edges, so they sit at the frame gap (the first takes the pane's corner); each one's name and use are words beside it, its
    name on the swatch's top line. */
 .swatches { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--size-figure), 1fr)); gap: var(--gap-block-block); }
-.swatches li { display: grid; grid-template-columns: 36px 1fr; grid-template-rows: auto auto; column-gap: var(--gap-words-words); align-items: start; font: var(--type-facts); }
+.swatches li { display: grid; grid-template-columns: 2.25rem 1fr; grid-template-rows: auto auto; column-gap: var(--gap-words-words); align-items: start; font: var(--type-facts); }
 .swatches li > :not(.chip-swatch) { padding-inline-end: var(--pad-words); }
 /* A swatch is cut by the edge rule like everything else: square in the pane's middle, following its corner where it sits in one. */
-.swatches .chip-swatch { position: relative; grid-row: span 2; width: 36px; height: 36px; clip-path: var(--cut-shape); }
+.swatches .chip-swatch { position: relative; grid-row: span 2; align-self: stretch; width: 2.25rem; min-height: 2.25rem; clip-path: var(--cut-shape); }
 .swatches .chip-swatch > .cut-line polygon { stroke: var(--line); }
 .swatches code { font: var(--type-code); }
 .divider-sample { display: grid; padding: var(--pad-words); }
@@ -516,7 +516,7 @@ component({
 .logo svg { height: var(--logo-height); width: auto; display: block; transition: height 0.45s cubic-bezier(.2,.8,.2,1), color 0.3s; }
 .logo:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 /* On a touch screen it's a control's height to press, whatever its size. */
-@media (pointer: coarse) { .logo { position: relative; } .logo::before { content: ""; position: absolute; inset: min(0px, calc((var(--control-height-regular) - 100%) / -2)) 0; } }
+@media (pointer: coarse) { .logo { position: relative; } .logo::before { content: ""; position: absolute; inset: min(0px, calc((var(--touch-target) - 100%) / -2)) 0; } }
 @media (prefers-reduced-motion: reduce) { .logo svg { transition: none; } }
 `,
   render: logo,

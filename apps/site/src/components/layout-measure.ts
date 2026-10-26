@@ -162,7 +162,12 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
     framed.forEach(function (el) {
       if (isScrolledAway(el, pane)) return;
       var r = el.getBoundingClientRect(), d = distances(r);
-      ["left", "right", "top", "bottom"].forEach(function (side) {
+      // Inside what scrolls with its rail showing, the rail's room at the right is part of the gap there.
+      var railed = el.closest(".shows-rail"), railPx = railed && pane.contains(railed) ? Math.max(0, parseFloat(getComputedStyle(railed).paddingRight) - gap.right) : 0;
+      if (railPx) d = { left: d.left, right: Math.max(gap.right, d.right - railPx), top: d.top, bottom: d.bottom };
+      // In a list that scrolls up and down inside the pane (a long menu's choices), what shows sits wherever it's scrolled to: only its sides are measured.
+      var holdingScroller = scrollerIn(el, pane), isInScrolledList = holdingScroller && !holdingScroller.matches(".pane-in, .sheet-in") && holdingScroller.scrollHeight > holdingScroller.clientHeight + 1;
+      (isInScrolledList ? ["left", "right"] : ["left", "right", "top", "bottom"]).forEach(function (side) {
         if (d[side] < gap[side] - TOLERANCE_PX) {
           if (d[side] < -TOLERANCE_PX && (side === "left" || side === "right" || !isScrolling)) report("spills out of its pane", el, side + " edge " + round(-d[side]) + "px past the pane's");
           else report("closer to the pane's edge than the frame gap", el, round(d[side]) + "px from the " + side + " edge, expected " + round(gap[side]) + "px");
@@ -237,8 +242,9 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
         // Words beside a control sit on its center line rather than at the margin above or below them (checked below), and words beside
         // anything else with an edge (a swatch, a box) line up with it the same way.
         var isBesideFramed = framed.some(function (f) { var o = f.getBoundingClientRect(); return (o.right <= r.left + TOLERANCE_PX || o.left >= r.right - TOLERANCE_PX) && Math.min(o.bottom, r.bottom) - Math.max(o.top, r.top) > TOLERANCE_PX; });
-        // A notice is one centered line, as tall as a small control and its room: its words keep the margin at the sides only.
-        var sides = el.closest(BESIDE_CONTROLS_WORDS) || isBesideFramed || pane.matches(".notice") ? ["left", "right"] : ["left", "right", "top", "bottom"];
+        // A notice is one centered line, as tall as a small control and its room: its words keep the margin at the sides only. Words in what
+        // scrolls sideways run under its fading edge, so only their top and bottom are measured there.
+        var sides = el.closest(BESIDE_CONTROLS_WORDS) || isBesideFramed || pane.matches(".notice") ? ["left", "right"] : scroller && scroller.scrollWidth > scroller.clientWidth + 1 ? ["top", "bottom"] : ["left", "right", "top", "bottom"];
         var side = sides.find(function (each) { return d[each] < wordsAt[each] - TOLERANCE_PX; });
         if (side) { flagged.add(el); report("words closer to the pane's edge than its margin", el, round(d[side]) + "px from the " + side + " edge of " + describe(pane) + ", the words margin is " + round(wordsAt[side]) + "px"); return true; }
         // What's scrolled out of its box (the buy sheet's body, scrolled to its confirm step) isn't under the words: it isn't shown there.

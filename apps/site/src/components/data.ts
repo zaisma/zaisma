@@ -556,7 +556,7 @@ export interface TableOptions {
   hasRowHeads?: boolean;
   /** Closer rows, for long lists (logs, requests). */
   isCompact?: boolean;
-  /** At most this many rows show at once, the next peeking in; the rest scroll under the header. Left out, rows show up to 640px or three quarters of the screen. */
+  /** At most this many rows show at once, the next peeking in; the rest scroll under the header. Left out, rows show up to 40rem (640px at the browser's own text size) or three quarters of the screen. */
   shownRowCount?: number;
   /** In place of the rows while they come or can't: a Loading state or a Problem state, under the header. */
   rowsPlaceholder?: Raw;
@@ -621,11 +621,12 @@ component({
    column that names the rows stays at the left; it turns to denser glass only once the rest of the rows slide under it, and until then
    reads as part of its row. A row under the pointer brightens a little, its head too, like a list row. */
 /* How tall its header and a row stand (a row holding a tag), for a capped table's height. */
-.table { display: grid; gap: var(--gap-words-control); min-width: 0; --table-head-height: 37px; --table-row-height: 51px; }
-.table:has(.compact) { --table-head-height: 33px; --table-row-height: 34px; }
+/* A row's height is its padding and a line of its words, which grow with the browser's text size: 37px and 51px at the browser's own 16px, 33px and 34px compact. */
+.table { display: grid; gap: var(--gap-words-control); min-width: 0; --table-head-height: calc(16px + 1.3125rem); --table-row-height: calc(28px + 1.4375rem); }
+.table:has(.compact) { --table-head-height: calc(16px + 1.0625rem); --table-row-height: calc(16px + 1.125rem); }
 .table-caption { margin: 0; padding-inline: var(--pad-words); font: var(--type-label); color: var(--ink); }
 .table-scroll { position: relative; max-width: 100%; clip-path: var(--cut-shape); }
-.table-scroll[data-fades-sideways] { overflow-y: auto; max-height: min(640px, 75dvh); }
+.table-scroll[data-fades-sideways] { overflow-y: auto; max-height: min(40rem, 75dvh); }
 /* Capped: its rows down to the given count show, half the next peeking in under them. */
 .table-scroll[data-fades-sideways].is-capped { max-height: calc(var(--table-head-height) + (var(--shown-row-count) + 0.5) * var(--table-row-height)); }
 /* A capped table's rows fade out under its head and over its foot while there's more that way (SCROLL_FADE_SCRIPT, from its head's height,
