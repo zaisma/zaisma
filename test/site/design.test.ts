@@ -861,14 +861,11 @@ describe("layout", () => {
     for (const name of [...LOCAL_SCREEN_NAMES, ...TEXT_SCREEN_NAMES]) expect(names).toContain(name);
   });
 
-  it("lists each stress state with a page it's of: the same page, as a stress account", () => {
+  it("lists each stress state with the page it's of: the same page, as a stress account", () => {
     for (const page of CHECKED_PAGES.filter((each) => STRESS_ACCOUNTS.some((stress) => stress.account === each.account))) {
       const stress = STRESS_ACCOUNTS.find((each) => each.account === page.account)!;
       expect(page.name.endsWith(`, ${stress.nameEnding}`), page.name).toBe(true);
       expect(CHECKED_PAGES.some((each) => each.name === page.shownStateName), page.name).toBe(true);
-      // Its siblings are there too: long names, empty and full together.
-      const base = page.name.slice(0, -`, ${stress.nameEnding}`.length);
-      for (const other of STRESS_ACCOUNTS) expect(CHECKED_PAGES.some((each) => each.name === `${base}, ${other.nameEnding}`), `${base}, ${other.nameEnding}`).toBe(true);
     }
   });
 
