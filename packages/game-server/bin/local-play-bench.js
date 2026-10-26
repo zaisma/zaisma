@@ -50,16 +50,9 @@ function devScript() {
     // Storage off: the tab is a new player each time it comes to /.
   }
   const frame = document.getElementById("bench-player");
-  const add = document.getElementById("bench-add");
+  const addTab = document.getElementById("bench-add-tab");
   let reloadNumber = null;
   let roomCode = null;
-
-  // Each new player is a new tab: the bench claims it a number as it opens.
-  add.addEventListener("click", (event) => {
-    event.preventDefault();
-    // A tab of its own, with nothing of this one's: a new player.
-    window.open(add.href, "_blank", "noopener");
-  });
 
   const refresh = (name) =>
     fetch(`/bench/sheet/${name}?player=${playerNumber}`)
@@ -69,7 +62,12 @@ function devScript() {
         if (body) body.innerHTML = text;
       })
       .catch(() => {});
-  for (const name of ["friends", "phone", "log"]) document.getElementById(`bench-${name}-open`)?.addEventListener("click", () => refresh(name));
+  // Whatever opens a sheet (a bar button, the Add a player menu's On a phone) draws it afresh.
+  document.addEventListener("click", (event) => {
+    const opener = event.target instanceof Element ? event.target.closest('[aria-controls^="bench-"]') : null;
+    const name = opener ? /^bench-(friends|phone|log)$/.exec(opener.getAttribute("aria-controls") ?? "")?.[1] : null;
+    if (name) refresh(name);
+  });
 
   document.addEventListener("change", (event) => {
     const box = event.target;
@@ -88,7 +86,8 @@ function devScript() {
         reloadNumber = answer.reloadNumber;
         if (answer.roomCode !== roomCode) {
           roomCode = answer.roomCode;
-          add.href = roomCode ? `/?room=${roomCode}` : "/";
+          // A new tab is a new player (a link to a new tab starts with nothing of this one's), into this room.
+          addTab.href = roomCode ? `/?room=${roomCode}` : "/";
         }
       })
       .catch(() => {});
