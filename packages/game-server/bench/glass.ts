@@ -12,13 +12,10 @@ import { friendsHere } from "../../../apps/site/src/friends-now.ts";
 import { pageScriptResponse } from "../../../apps/site/src/page-scripts.ts";
 import { pageStyleResponse } from "../../../apps/site/src/page-styles.ts";
 import { cutButton, runButton } from "../../../apps/site/src/components/actions.ts";
-import { cutField, searchField } from "../../../apps/site/src/components/fields.ts";
-import { sectionTabs } from "../../../apps/site/src/components/navigation.ts";
 import { SOCIAL_MODE_LABELS } from "../../../apps/site/src/account.ts";
 import { glassPane, type IconName } from "../../../apps/site/src/components/foundations.ts";
 import { icon } from "../../../apps/site/src/components/icons.ts";
-import { banner, confirmSheet, dropdown, sheet } from "../../../apps/site/src/components/panes.ts";
-import { selectField } from "../../../apps/site/src/components/choices.ts";
+import { banner, dropdown, sheet } from "../../../apps/site/src/components/panes.ts";
 import { qrCode } from "../../../apps/site/src/components/inputs.ts";
 import { emptyState, listRows } from "../../../apps/site/src/components/data.ts";
 import { row, stack, type LayoutItem } from "../../../apps/site/src/components/layout.ts";
@@ -145,7 +142,7 @@ export interface DevView {
   /** The room the player is in, or null. */
   roomCode: string | null;
   /** The bench's players, for the player menu: the most recent first. */
-  players: { id: string; username: string; isThisTab: boolean }[];
+  players: { playerId: string; name: string; isThisTab: boolean }[];
   /** The bench's address for a phone on the same Wi-Fi, null when it answers only on this computer. */
   networkUrl: string | null;
   /** What the bench said, newest last. */
@@ -154,48 +151,86 @@ export interface DevView {
 
 export type DevSheetName = "phone" | "log";
 
-// The dev bar's own look: a slim flat strip in a color none of Zaisma's pages use, with words for its buttons, so it never reads as part of
-// what a player sees. It's the bench's, not a page of zaisma.com's, so it has its own few styles here. The playing styles lay out the body
-// as the game page's: this strip, then the frame below it, in a column on every screen.
-const DEV_BAR_STYLE = `html.is-playing body { flex-direction: column; }
+// The bench's own look, for its dev bar and its Players panel: flat, in deep violets none of Zaisma's pages use, so nothing of the bench reads
+// as part of what a player sees. It's the bench's, not a page of zaisma.com's, so it has its own few styles here. The playing styles lay out
+// the body as the game page's: the strip, then the stage below it (the panel, when it's open, beside the player's page).
+const BENCH_STYLE = `html.is-playing body { flex-direction: column; }
 .bench-bar { flex: none; display: flex; align-items: center; gap: 4px; min-height: 30px; padding: 0 8px; padding-top: env(safe-area-inset-top, 0); background: #26215c; color: #cecbf6; font: 500 13px/1 Jost, system-ui, sans-serif; overflow-x: auto; scrollbar-width: none; white-space: nowrap; }
 .bench-bar::-webkit-scrollbar { display: none; }
 .bench-bar .bench-name { padding-right: 6px; color: #afa9ec; }
 .bench-bar .bench-fill { flex: 1; }
 .bench-bar .bench-tool { display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 8px; border: 0; border-radius: 6px; background: none; color: inherit; font: inherit; text-decoration: none; cursor: pointer; }
-.bench-bar .bench-tool:hover, .bench-bar .bench-tool:focus-visible { background: #3c3489; color: #eeedfe; outline: none; }
+.bench-bar .bench-tool:hover, .bench-bar .bench-tool:focus-visible, .bench-bar .bench-tool[aria-pressed="true"] { background: #3c3489; color: #eeedfe; outline: none; }
 .bench-bar .bench-tool.bench-player { background: #3c3489; color: #eeedfe; }
 .bench-bar svg { width: 15px; height: 15px; flex: none; }
 main > .dropdown { z-index: 5; }
-@media (max-width: 600px) { .bench-bar .bench-name, .bench-bar .bench-tool:not(.bench-player) .bench-words { display: none; } }`;
+.bench-stage { flex: 1; display: flex; min-height: 0; position: relative; }
+.bench-panel { flex: none; width: 290px; display: flex; flex-direction: column; overflow-y: auto; background: #1c1840; color: #cecbf6; border-right: 1px solid #3c3489; font: 400 13px/1.35 Jost, system-ui, sans-serif; }
+.bench-panel[hidden] { display: none; }
+.bench-panel.is-page { width: auto; max-width: 420px; margin: 0 auto; min-height: 100vh; border-left: 1px solid #3c3489; }
+.bench-panel button, .bench-panel input, .bench-panel select { font: inherit; color: inherit; }
+.bp-head { display: flex; align-items: center; gap: 6px; padding: 8px 10px; border-bottom: 1px solid #2f2a66; }
+.bp-head b { flex: 1; font-weight: 500; color: #eeedfe; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bp-btn, .bp-ghost, .bp-link { border-radius: 6px; padding: 3px 8px; cursor: pointer; white-space: nowrap; font-size: 12px; }
+.bp-btn { border: 0; background: #534ab7; color: #eeedfe; }
+.bp-ghost { border: 1px solid #534ab7; background: none; }
+.bp-link { border: 0; background: none; color: #afa9ec; }
+.bp-btn:hover, .bp-ghost:hover, .bp-link:hover { background: #3c3489; color: #eeedfe; }
+.bp-search, .bp-input, .bp-select { width: 100%; box-sizing: border-box; border: 0; border-radius: 6px; padding: 5px 8px; background: #26215c; color: #eeedfe; }
+.bp-search { margin: 8px 10px; width: calc(100% - 20px); }
+.bp-row { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-top: 1px solid #26215c; }
+.bp-row.is-current { background: #26215c; }
+.bp-open { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; border: 0; background: none; padding: 0; text-align: left; cursor: pointer; }
+.bp-face { width: 22px; height: 22px; flex: none; border-radius: 50%; background: #534ab7; color: #eeedfe; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 500; }
+.bp-who { min-width: 0; }
+.bp-who b { display: block; font-weight: 500; color: #eeedfe; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bp-meta { font-size: 11px; color: #afa9ec; }
+.bp-tag { font-size: 10px; border-radius: 5px; padding: 1px 6px; background: #afa9ec; color: #26215c; white-space: nowrap; }
+.bp-tabs { display: flex; gap: 4px; padding: 6px 10px; border-bottom: 1px solid #2f2a66; }
+.bp-tabs button { border: 0; background: none; border-radius: 6px; padding: 3px 9px; color: #afa9ec; cursor: pointer; }
+.bp-tabs button[aria-current="page"] { background: #3c3489; color: #eeedfe; }
+.bp-section { padding: 8px 10px; display: grid; gap: 6px; }
+.bp-section h3 { margin: 4px 0 0; font-size: 11px; font-weight: 500; color: #7f77dd; }
+.bp-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.bp-line { display: flex; align-items: center; gap: 6px; }
+.bp-line > :first-child { flex: 1; min-width: 0; }
+.bp-note { font-size: 11px; color: #afa9ec; }
+.bp-error { font-size: 12px; color: #f5c4b3; }
+.bp-foot { display: flex; align-items: center; gap: 6px; padding: 8px 10px; border-top: 1px solid #2f2a66; margin-top: auto; }
+.bp-foot span { flex: 1; font-size: 11px; color: #afa9ec; }
+.bp-empty { padding: 12px 10px; color: #afa9ec; }
+@media (max-width: 600px) {
+  .bench-bar .bench-name, .bench-bar .bench-tool:not(.bench-player) .bench-words { display: none; }
+  .bench-stage > .bench-panel:not(.is-page) { position: absolute; inset: 0; width: auto; z-index: 3; }
+}`;
 
-/** One of the dev bar's buttons: it opens its sheet, or its menu (a dropdown, which says whether it's open). */
-const devTool = (label: string, iconName: IconName | null, target: { id: string; controls: string; isMenu?: boolean; className?: string }): Raw =>
-  html`<button class="bench-tool${target.className ? ` ${target.className}` : ""}" id="${target.id}" type="button" aria-controls="${target.controls}"${target.isMenu ? raw(' aria-expanded="false"') : ""} aria-label="${label}">${iconName ? icon(iconName) : ""}<span class="bench-words">${label}</span>${target.isMenu && !iconName ? icon("chevron-down") : ""}</button>`;
+/** One of the dev bar's buttons: it opens its sheet or its menu (a dropdown, which says whether it's open), or toggles the Players panel. */
+const devTool = (label: string, iconName: IconName | null, target: { id: string; controls?: string; isMenu?: boolean; isToggle?: boolean; className?: string }): Raw =>
+  html`<button class="bench-tool${target.className ? ` ${target.className}` : ""}" id="${target.id}" type="button"${target.controls ? html` aria-controls="${target.controls}"` : ""}${target.isMenu ? raw(' aria-expanded="false"') : ""}${target.isToggle ? raw(' aria-pressed="false"') : ""} aria-label="${label}">${iconName ? icon(iconName) : ""}<span class="bench-words">${label}</span>${target.isMenu && !iconName ? icon("chevron-down") : ""}</button>`;
 
-/** How many of the bench's players the player menu lists; the rest are in Manage players. */
+/** How many of the bench's players the player menu lists; the rest are in the Players panel. */
 const PLAYER_MENU_COUNT = 8;
 
-/** The dev page: the bench's bar above the player's page, which frames the game. */
+/** The dev page: the bench's bar above the stage, which holds the Players panel (when it's open) and the player's page, which frames the game. */
 export async function devPage(places: BenchPlaces, view: DevView, frame: { path: string; allow: string }): Promise<BenchPage> {
   const who = `Player ${view.playerNumber}${view.accountName ? `, ${view.accountName}` : ", a guest"}`;
   const bar = html`<div class="bench-bar" role="toolbar" aria-label="Test bench">
 <span class="bench-name">Test bench</span>
 ${devTool(who, null, { id: "bench-who", controls: "bench-who-menu", isMenu: true, className: "bench-player" })}
 <span class="bench-fill"></span>
+${devTool("Players", "people", { id: "bench-players-open", isToggle: true })}
 ${devTool("Add a player", "plus", { id: "bench-add", controls: "bench-add-menu", isMenu: true })}
 ${devTool(view.logLines.length ? `Log ${view.logLines.length}` : "Log", "info", { id: "bench-log-open", controls: "bench-log" })}
 </div>`;
-  // Who this tab plays as: switch to another of the bench's players, manage them all, or sign out to a new guest. The game starts again.
-  const back = encodeURIComponent(`/?player=${view.playerNumber}`);
+  // Who this tab plays as: switch to another of the bench's players, all of them in the Players panel, or sign out to a new guest.
   const whoMenu = dropdown({
     id: "bench-who-menu",
     label: who,
     head: { title: `Player ${view.playerNumber}`, note: "Who this tab plays as. The game starts again as them." },
     items: [
-      ...view.players.slice(0, PLAYER_MENU_COUNT).map((player) => ({ label: player.username, icon: "person" as const, isCurrent: player.isThisTab, action: `/bench/sign-in?player=${view.playerNumber}&account=${encodeURIComponent(player.id)}&next=${back}` })),
+      ...view.players.slice(0, PLAYER_MENU_COUNT).map((player) => ({ label: player.name, icon: "person" as const, isCurrent: player.isThisTab, action: `/bench/sign-in?player=${view.playerNumber}&player_id=${encodeURIComponent(player.playerId)}` })),
       ...(view.players.length ? [{ kind: "rule" as const }] : []),
-      { label: view.players.length ? "Manage players" : "Make a player", icon: "people", href: `/bench/players?player=${view.playerNumber}` },
+      { label: view.players.length ? "All players" : "Make a player", icon: "people", href: "#", dataAttributes: { "bench-panel": "open" } },
       ...(view.accountName ? [{ label: "Sign out, as a new guest", icon: "sign-out" as const, action: `/bench/sign-out?player=${view.playerNumber}` }] : []),
     ],
   });
@@ -210,14 +245,15 @@ ${devTool(view.logLines.length ? `Log ${view.logLines.length}` : "Log", "info", 
     ],
   });
   const devSheet = (name: DevSheetName, title: string) => sheet({ id: `bench-${name}`, title, closeLabel: "Close", placement: "foot", isCompact: true, body: html`<div id="bench-${name}-body">${devSheetMarkup(name, view)}</div>` });
-  // The strip first, then <main> with the menus and sheets, then the player's page in the frame: the playing styles show those alone.
-  const body = html`<style>${raw(DEV_BAR_STYLE)}</style>
+  // The strip first, then <main> with the menus and sheets, then the stage: the playing styles show those alone.
+  const body = html`<style>${raw(BENCH_STYLE)}</style>
 ${bar}
 <main>${whoMenu}
 ${addMenu}
 ${devSheet("phone", "Add a player on a phone")}
 ${devSheet("log", "Log")}</main>
-<iframe class="game-frame" id="bench-player" src="${frame.path}" title="${who}: the game page on Zaisma" allow="${frame.allow}" allowfullscreen></iframe>
+<div class="bench-stage"><aside class="bench-panel" id="bench-panel" aria-label="Players" hidden></aside>
+<iframe class="game-frame" id="bench-player" src="${frame.path}" title="${who}: the game page on Zaisma" allow="${frame.allow}" allowfullscreen></iframe></div>
 <script src="/bench/dev.js?player=${String(view.playerNumber)}" defer></script>`;
   const page = await pageOf(layout(benchEnv(places), { title: `${who}: test bench for ${view.gameSlug}`, checkedPage: "Game page", isBare: true, frames: ["'self'"], body }));
   return { ...page, body: page.body.replace('<html lang="en"', '<html lang="en" class="is-playing"') };
@@ -263,89 +299,60 @@ export function chatOf(ageBand: AgeBand, socialMode: SocialMode): { whoCanChat: 
   return { whoCanChat, bandGroup: chatBandGroup({ who_can_chat: whoCanChat, age_band: ageBand }) };
 }
 
-/** One of the bench's players, as its pages show them. */
-export interface BenchPlayer {
-  id: string;
-  username: string;
+/** One of the bench's players, as the Players panel shows them. */
+export interface PanelPlayer {
+  playerId: string;
+  name: string;
   ageBand: AgeBand;
   socialMode: SocialMode;
   /** The players (tab numbers) open as them now. */
   openPlayerNumbers: number[];
 }
 
-/** Where a players page was opened from: the player (tab) it's for, and where to go once someone's picked (the game page's next). */
-export interface PlayersPlace {
+/** Whose panel it is: the player (tab) it plays for, and whether it's a page of its own (a sign-in the game page opened). */
+export interface PanelPlace {
   playerNumber: number;
-  nextPath: string;
+  isPage: boolean;
 }
 
-const keep = (place: PlayersPlace, extra: Record<string, string> = {}) => ({ player: String(place.playerNumber), ...(place.nextPath ? { next: place.nextPath } : {}), ...extra });
-const query = (fields: Record<string, string>) => new URLSearchParams(fields).toString();
-const hiddenFields = (fields: Record<string, string>) => html`${Object.entries(fields).map(([name, fieldText]) => html`<input type="hidden" name="${name}" value="${fieldText}">`)}`;
-const describe = (player: BenchPlayer) => [AGE_BAND_WORDS[player.ageBand], SOCIAL_MODE_LABELS[player.socialMode], ...player.openPlayerNumbers.map((playerNumber) => `open as player ${playerNumber}`)].join(" · ");
-const benchPane = (places: BenchPlaces, title: string, body: Raw) =>
-  pageOf(layout(benchEnv(places), { title: `${title}: test bench`, checkedPage: "A message", body: html`${glassPane({ paneWidth: "fit", label: title, body })}<script src="/bench/sign-in.js" defer></script>` }));
+const face = (name: string) => html`<span class="bp-face" aria-hidden="true">${name.slice(0, 1).toUpperCase()}</span>`;
+const describe = (player: PanelPlayer) => `${AGE_BAND_WORDS[player.ageBand]} · ${SOCIAL_MODE_LABELS[player.socialMode]}`;
+const call = (method: string, path: string, body: Record<string, unknown> = {}) => html` data-bench-call="${method} ${path}" data-bench-body="${JSON.stringify(body)}"`;
+const playerPath = (playerId: string) => `/bench/api/players/${encodeURIComponent(playerId)}`;
+const ageSelect = (ageBand: AgeBand, attributes: Raw | "" = "") =>
+  html`<select class="bp-select" name="age_band" aria-label="Age"${attributes}>${AGE_BANDS.map((each) => html`<option value="${each}"${each === ageBand ? raw(" selected") : ""}>${AGE_BAND_WORDS[each]}</option>`)}</select>`;
+const socialSelect = (socialMode: SocialMode, attributes: Raw | "" = "") =>
+  html`<select class="bp-select" name="social_mode" aria-label="How they play"${attributes}>${SOCIAL_MODES.map((each) => html`<option value="${each}"${each === socialMode ? raw(" selected") : ""}>${SOCIAL_MODE_LABELS[each]}</option>`)}</select>`;
 
-/** Who's playing: every player made on this computer, a row each, to sign in as; a new one; or staying a guest. Where Zaisma's sign-in and Make an account go. */
-export async function playersPage(places: BenchPlaces, place: PlayersPlace, input: { players: BenchPlayer[]; searchText: string; shownCount: number; totalCount: number }): Promise<BenchPage> {
-  const shown = input.players.slice(0, input.shownCount);
-  const rows = shown.map((player) => ({
-    title: player.username,
-    detail: describe(player),
-    action: [
-      cutButton("Sign in", { type: "submit", name: "account", buttonValue: player.id, isSmall: true }),
-      cutButton(`${player.username}'s details`, { href: `/bench/players/${encodeURIComponent(player.id)}?${query(keep(place))}`, icon: "chevron-right", isLabelHidden: true, isSmall: true }),
-    ],
-  }));
-  const list: LayoutItem = rows.length
-    ? { kind: "block", markup: listRows({ label: "Players", rows }) }
-    : { kind: "block", markup: emptyState({ title: input.searchText ? "No one by that name" : "No players yet", text: input.searchText ? "Clear the search, or make them." : "Make one, or press Quick player for one with the next name and the defaults." }) };
-  // The search is a form of its own; every row's Sign in and Quick player are one form that signs this tab in.
-  const picking = html`<form method="post" action="/bench/sign-in">${hiddenFields(keep(place))}${stack({ items: [
-    { kind: "block", markup: row({ widths: "fit", items: [{ kind: "control", markup: cutButton("Quick player", { type: "submit", name: "quick", buttonValue: "yes", icon: "plus", isSmall: true }) }] }) },
-    list,
-    ...(input.players.length > shown.length ? [{ kind: "control" as const, markup: cutButton("Show more", { href: `/bench/players?${query(keep(place, { search: input.searchText, shown: String(input.shownCount + 20) }))}` }) }] : []),
-  ] })}</form>`;
-  const items: LayoutItem[] = [
-    { kind: "words", markup: html`<h1>Who's playing?</h1><p>The players made on this computer. Sign in as one, or make a new one: the bench keeps them, with their saves, items, friends and blocks.</p>` },
-    {
-      kind: "block",
-      markup: row({
-        widths: "lead-fills",
-        label: "Find or make a player",
-        items: [
-          { kind: "control", markup: searchField({ action: "/bench/players", name: "search", searchText: input.searchText, placeholder: "Find a player", label: "Find a player", keep: keep(place) }) },
-          { kind: "control", markup: cutButton("New player", { href: `/bench/players/new?${query(keep(place))}`, isSmall: true }) },
-        ],
-      }),
-    },
-    { kind: "block", markup: picking },
-    { kind: "block", markup: row({ widths: "lead-fills", items: [{ kind: "words", markup: html`<p>${input.totalCount === 1 ? "1 player" : `${input.totalCount} players`} on this computer</p>` }, { kind: "control", markup: cutButton("Stay a guest", { href: place.playerNumber ? `/?player=${place.playerNumber}` : "/", isSmall: true }) }] }) },
-  ];
-  return benchPane(places, "Who's playing", stack({ items }));
+/** The Players panel's list: every player made on this computer, to play as, open, or make; and playing as a guest. */
+export function playersPanelHtml(place: PanelPlace, input: { players: PanelPlayer[]; currentPlayerId: string | null; searchText: string; totalCount: number }): string {
+  const rows = input.players.map((player) => {
+    const isCurrent = player.playerId === input.currentPlayerId;
+    const elsewhere = player.openPlayerNumbers.filter((openNumber) => openNumber !== place.playerNumber);
+    return html`<div class="bp-row${isCurrent ? " is-current" : ""}"><button class="bp-open" type="button" data-bench-view="player" data-player-id="${player.playerId}">${face(player.name)}<span class="bp-who"><b>${player.name}</b><span class="bp-meta">${describe(player)}</span></span></button>${
+      isCurrent ? html`<span class="bp-tag">this tab</span>` : html`${elsewhere.length ? html`<span class="bp-tag">player ${elsewhere[0]}</span>` : ""}<button class="bp-ghost" type="button" data-bench-play-as="${player.playerId}">Play as</button>`
+    }</div>`;
+  });
+  return String(html`<div class="bp-head"><b>Players</b><button class="bp-btn" type="button"${call("POST", "/bench/api/players")}>+ Quick</button><button class="bp-ghost" type="button" data-bench-view="new">New</button>${place.isPage ? "" : html`<button class="bp-link" type="button" data-bench-panel="close" aria-label="Close the panel">✕</button>`}</div>
+<input class="bp-search" type="search" placeholder="Find a player" aria-label="Find a player" value="${input.searchText}" data-bench-search>
+${rows.length ? rows : html`<p class="bp-empty">${input.searchText ? "No one by that name." : "No players yet. + Quick makes one with the next name and the defaults."}</p>`}
+<div class="bp-foot"><span>${input.totalCount === 1 ? "1 player" : `${input.totalCount} players`} on this computer</span><button class="bp-ghost" type="button" data-bench-play-as="guest">Play as a guest</button></div>`);
 }
 
-const ageChoices = AGE_BANDS.map((ageBand) => ({ label: AGE_BAND_WORDS[ageBand], choiceValue: ageBand }));
-const socialChoices = SOCIAL_MODES.map((socialMode) => ({ label: SOCIAL_MODE_LABELS[socialMode], choiceValue: socialMode }));
-/** Age and how they play, side by side. */
-const profileChoices = (ageBand: AgeBand, socialMode: SocialMode) =>
-  row({ widths: "equal", items: [{ kind: "control", markup: selectField({ name: "age_band", label: "Age", choices: ageChoices, pickedValue: ageBand }) }, { kind: "control", markup: selectField({ name: "social_mode", label: "How they play", choices: socialChoices, pickedValue: socialMode }) }] });
-
-/** A new player: a name, an age band and a social mode, with Zaisma's limits (13–15 is never open and social). */
-export async function newPlayerPage(places: BenchPlaces, place: PlayersPlace, input: { name: string; ageBand: AgeBand; socialMode: SocialMode; error: string | null }): Promise<BenchPage> {
-  const items: LayoutItem[] = [
-    { kind: "words", markup: html`<h1>New player</h1><p>Made on this computer, with the same age and social rules as a Zaisma account, so the game's passes carry what a real account's would.</p>` },
-    { kind: "control", markup: cutField({ name: "name", label: "Name", type: "text", icon: "person", text: input.name, autocomplete: "off", error: input.error ?? undefined }) },
-    { kind: "block", markup: profileChoices(input.ageBand, input.socialMode) },
-    { kind: "block", markup: row({ widths: "equal", items: [{ kind: "control", markup: cutButton("Back", { href: `/bench/players?${query(keep(place))}` }) }, { kind: "control", markup: runButton(place.nextPath ? "Make and sign in" : "Make player", { type: "submit" }) }] }) },
-  ];
-  return benchPane(places, "New player", html`<form method="post" action="/bench/players/new">${hiddenFields(keep(place))}${stack({ items })}</form>`);
+/** The Players panel's New player: a name, an age band and a social mode. */
+export function newPlayerPanelHtml(input: { suggestedName: string }): string {
+  return String(html`<div class="bp-head"><button class="bp-link" type="button" data-bench-view="list" aria-label="Back to players">‹</button><b>New player</b></div>
+<div class="bp-section" data-bench-form><input class="bp-input" name="name" value="${input.suggestedName}" maxlength="20" aria-label="Name">
+<div class="bp-pair">${ageSelect("18+")}${socialSelect(startingSocialMode("18+"))}</div>
+<p class="bp-note">Zaisma's own age and social rules: 13–15 is never open and social.</p>
+<p class="bp-error" data-bench-error hidden></p>
+<button class="bp-btn" type="button" data-bench-make>Make player</button></div>`);
 }
 
-export type PlayerTab = "profile" | "items" | "purchases";
+export type PanelTab = "profile" | "items" | "purchases";
 
 /** One of the game's items, as a player's Items tab lists it. */
-export interface PlayerItem {
+export interface PanelItem {
   itemName: string;
   title: string;
   itemKind: string;
@@ -354,89 +361,82 @@ export interface PlayerItem {
 }
 
 /** One of a player's purchases, newest first. */
-export interface PlayerPurchase {
-  id: string;
+export interface PanelPurchase {
+  purchaseId: string;
   title: string;
-  /** "Bought for $1.99", "Granted"; the date and whether the game has handled it. */
+  /** "Test card", "Granted"; the date and whether the game has handled it. */
   detail: string;
   isRefunded: boolean;
 }
 
-/** One player's details: their profile, friends and blocks; their items; their purchases. Every change posts and comes back here. */
-export async function playerDetailsPage(
-  places: BenchPlaces,
-  place: PlayersPlace,
+/** One player in the Players panel: their profile, friends and blocks; their items; their purchases. Every change saves at once. */
+export function playerPanelHtml(
+  place: PanelPlace,
   input: {
-    player: BenchPlayer;
-    tab: PlayerTab;
-    friends: { id: string; username: string }[];
-    blocked: { id: string; username: string }[];
+    player: PanelPlayer;
+    isCurrent: boolean;
+    tab: PanelTab;
+    friends: { playerId: string; name: string }[];
+    blocked: { playerId: string; name: string }[];
     blockedBy: string[];
-    others: { id: string; username: string }[];
-    items: PlayerItem[];
-    purchases: PlayerPurchase[];
+    others: { playerId: string; name: string }[];
+    items: PanelItem[];
+    purchases: PanelPurchase[];
     searchText: string;
-    shownCount: number;
-    error: string | null;
   },
-): Promise<BenchPage> {
+): string {
   const { player } = input;
-  const here = `/bench/players/${encodeURIComponent(player.id)}`;
-  const tabHref = (tab: PlayerTab) => `${here}?${query(keep(place, { tab }))}`;
-  const changeForm = (body: Raw) => html`<form method="post" action="${here}">${hiddenFields(keep(place, { tab: input.tab }))}${body}</form>`;
-  const change = (label: string, changeText: string, isQuiet = true) => cutButton(label, { type: "submit", name: "change", buttonValue: changeText, isSmall: isQuiet });
-  const words = (text: string): LayoutItem => ({ kind: "words", markup: html`<p>${text}</p>` });
-  const head: LayoutItem[] = [
-    { kind: "block", markup: row({ widths: "fit", items: [{ kind: "control", markup: cutButton("Players", { href: `/bench/players?${query(keep(place))}`, icon: "arrow-back", isSmall: true }) }] }) },
-    { kind: "words", markup: html`<h1>${player.username}</h1><p>${describe(player)}</p><p>A change here reaches the game with ${player.username}'s next pass: the next time they join a room, or as the game asks for one.</p>` },
-    ...(input.error ? [{ kind: "block" as const, markup: banner({ text: input.error, icon: "warning", tone: "warning" }) }] : []),
-    { kind: "block", markup: html`<form method="post" action="/bench/sign-in">${hiddenFields(keep(place))}${row({ widths: "fit", items: [{ kind: "control", markup: runButton(`Sign in as ${player.username}`, { type: "submit", name: "account", buttonValue: player.id }) }, { kind: "control", markup: cutButton("Delete", { type: "button", icon: "trash", controls: "bench-delete", isSmall: true }) }] })}</form>` },
-    { kind: "block", markup: sectionTabs({ label: `${player.username}'s details`, tabs: [{ label: "Profile", href: tabHref("profile"), isCurrent: input.tab === "profile" }, { label: "Items", href: tabHref("items"), isCurrent: input.tab === "items" }, { label: "Purchases", href: tabHref("purchases"), isCurrent: input.tab === "purchases" }] }) },
-  ];
-  const others = (except: { id: string }[]) => input.others.filter((other) => !except.some((each) => each.id === other.id)).map((other) => ({ label: other.username, choiceValue: other.id }));
-  let tabItems: LayoutItem[];
+  const here = playerPath(player.playerId);
+  const tabButton = (tab: PanelTab, label: string) => html`<button type="button" data-bench-tab="${tab}"${tab === input.tab ? raw(' aria-current="page"') : ""}>${label}</button>`;
+  const pick = (list: { playerId: string; name: string }[], label: string, kind: "friends" | "blocks") => {
+    const choices = input.others.filter((other) => !list.some((each) => each.playerId === other.playerId));
+    return choices.length
+      ? html`<select class="bp-select" aria-label="${label}" data-bench-add="${here}/${kind}/"><option value="">${label}</option>${choices.map((other) => html`<option value="${other.playerId}">${other.name}</option>`)}</select>`
+      : "";
+  };
+  let section: Raw;
   if (input.tab === "profile") {
-    const friendChoices = others(input.friends);
-    const blockChoices = others(input.blocked);
-    tabItems = [
-      { kind: "block", markup: changeForm(stack({ items: [
-        { kind: "words", markup: html`<h2>Profile</h2>` },
-        { kind: "control", markup: cutField({ name: "name", label: "Name", type: "text", icon: "person", text: player.username, autocomplete: "off" }) },
-        { kind: "block", markup: profileChoices(player.ageBand, player.socialMode) },
-        { kind: "block", markup: row({ widths: "fit", items: [{ kind: "control", markup: change("Save", "profile") }] }) },
-      ] })) },
-      { kind: "block", markup: changeForm(stack({ items: [
-        { kind: "words", markup: html`<h2>Friends</h2>` },
-        input.friends.length ? { kind: "block", markup: listRows({ label: "Friends", rows: input.friends.map((friend) => ({ title: friend.username, action: change("Remove", `unfriend:${friend.id}`) })) }) } : words("No friends yet."),
-        ...(friendChoices.length ? [{ kind: "block" as const, markup: row({ widths: "lead-fills", items: [{ kind: "control", markup: selectField({ name: "friend", label: "Add a friend", choices: friendChoices, placeholder: "Pick a player" }) }, { kind: "control", markup: change("Add", "friend", false) }] }) }] : []),
-      ] })) },
-      { kind: "block", markup: changeForm(stack({ items: [
-        { kind: "words", markup: html`<h2>Blocks</h2>` },
-        input.blocked.length ? { kind: "block", markup: listRows({ label: `Blocked by ${player.username}`, rows: input.blocked.map((other) => ({ title: other.username, action: change("Unblock", `unblock:${other.id}`) })) }) } : words(`${player.username} hasn't blocked anyone.`),
-        ...(input.blockedBy.length ? [words(`Blocked by: ${input.blockedBy.join(", ")}. A block holds both ways in the game's passes.`)] : []),
-        ...(blockChoices.length ? [{ kind: "block" as const, markup: row({ widths: "lead-fills", items: [{ kind: "control", markup: selectField({ name: "block", label: "Block a player", choices: blockChoices, placeholder: "Pick a player" }) }, { kind: "control", markup: change("Block", "block", false) }] }) }] : []),
-      ] })) },
-    ];
+    section = html`<div class="bp-section"><input class="bp-input" name="name" value="${player.name}" maxlength="20" aria-label="Name" data-bench-field="${here}">
+<div class="bp-pair">${ageSelect(player.ageBand, html` data-bench-field="${here}"`)}${socialSelect(player.socialMode, html` data-bench-field="${here}"`)}</div>
+<p class="bp-error" data-bench-error hidden></p>
+<h3>Friends</h3>
+${input.friends.length ? input.friends.map((friend) => html`<div class="bp-line"><span>${friend.name}</span><button class="bp-link" type="button"${call("DELETE", `${here}/friends/${friend.playerId}`)}>Remove</button></div>`) : html`<p class="bp-note">No friends yet.</p>`}
+${pick(input.friends, "+ Add a friend", "friends")}
+<h3>Blocks</h3>
+${input.blocked.length ? input.blocked.map((other) => html`<div class="bp-line"><span>${other.name}</span><button class="bp-link" type="button"${call("DELETE", `${here}/blocks/${other.playerId}`)}>Unblock</button></div>`) : html`<p class="bp-note">${player.name} hasn't blocked anyone.</p>`}
+${input.blockedBy.length ? html`<p class="bp-note">Blocked by ${input.blockedBy.join(", ")}. A block holds both ways in the game's passes.</p>` : ""}
+${pick(input.blocked, "+ Block a player", "blocks")}
+<p class="bp-note">A change reaches the game with ${player.name}'s next pass: the next time they join a room.</p>
+<div class="bp-line"><span></span><button class="bp-link" type="button" data-bench-delete="${here}" data-player-name="${player.name}">Delete ${player.name}</button></div></div>`;
+  } else if (input.tab === "items") {
+    section = html`<input class="bp-search" type="search" placeholder="Find an item" aria-label="Find an item" value="${input.searchText}" data-bench-search>
+${input.items.length
+      ? input.items.map((gameItem) => html`<div class="bp-row"><span class="bp-who" style="flex:1"><b>${gameItem.title}</b><span class="bp-meta">${[gameItem.itemKind, gameItem.priceText, ...(gameItem.isOwned ? ["owned"] : [])].join(" · ")}</span></span>${
+          gameItem.isOwned && gameItem.itemKind === "permanent"
+            ? html`<button class="bp-ghost" type="button"${call("DELETE", `${here}/items/${gameItem.itemName}`)}>Take away</button>`
+            : html`<button class="bp-ghost" type="button"${call("POST", `${here}/items`, { item_name: gameItem.itemName })}>${gameItem.itemKind === "consumable" ? "Grant 1" : "Grant"}</button>`
+        }</div>`)
+      : html`<p class="bp-empty">${input.searchText ? "No item by that name." : "No items: they're set on Zaisma, and the bench brings them in with --game and ZAISMA_KEY."}</p>`}
+<p class="bp-note" style="padding:8px 10px">A grant is a purchase the game gets as Zaisma would send it.</p>`;
   } else {
-    const isItems = input.tab === "items";
-    const search: LayoutItem = { kind: "control", markup: searchField({ action: here, name: "search", searchText: input.searchText, placeholder: isItems ? "Find an item" : "Find a purchase", label: isItems ? "Find an item" : "Find a purchase", keep: keep(place, { tab: input.tab }) }) };
-    const list: LayoutItem = isItems
-      ? input.items.length
-        ? { kind: "block", markup: listRows({ label: "Items", rows: input.items.slice(0, input.shownCount).map((gameItem) => ({ title: gameItem.title, detail: [gameItem.itemName, gameItem.itemKind, gameItem.priceText, ...(gameItem.isOwned ? ["owned"] : [])].join(" · "), action: gameItem.isOwned && gameItem.itemKind === "permanent" ? change("Take away", `take:${gameItem.itemName}`) : change(gameItem.itemKind === "consumable" ? "Grant 1" : "Grant", `grant:${gameItem.itemName}`) })) }) }
-        : { kind: "block", markup: emptyState({ title: input.searchText ? "No item by that name" : "No items", text: "A game's items are set on Zaisma; start the bench with --game and ZAISMA_KEY to bring them in." }) }
-      : input.purchases.length
-        ? { kind: "block", markup: listRows({ label: "Purchases", rows: input.purchases.slice(0, input.shownCount).map((purchase) => ({ title: purchase.title, detail: purchase.detail, action: purchase.isRefunded ? undefined : change("Refund", `refund:${purchase.id}`) })) }) }
-        : { kind: "block", markup: emptyState({ title: input.searchText ? "No purchase of that" : "No purchases yet", text: "Buying in the game, or granting an item here, adds one." }) };
-    const listedCount = isItems ? input.items.length : input.purchases.length;
-    tabItems = [
-      { kind: "words", markup: isItems ? html`<p>Granting one is a purchase the game gets as Zaisma would send it: at once while it runs, or as unhandled the next time.</p>` : html`<p>Newest first. A refund reaches the game as Zaisma's would.</p>` },
-      search,
-      { kind: "block", markup: changeForm(stack({ items: [list] })) },
-      ...(listedCount > input.shownCount ? [{ kind: "control" as const, markup: cutButton("Show more", { href: `${here}?${query(keep(place, { tab: input.tab, search: input.searchText, shown: String(input.shownCount + 20) }))}` }) }] : []),
-    ];
+    section = html`<input class="bp-search" type="search" placeholder="Find a purchase" aria-label="Find a purchase" value="${input.searchText}" data-bench-search>
+${input.purchases.length
+      ? input.purchases.map((purchase) => html`<div class="bp-row"><span class="bp-who" style="flex:1"><b>${purchase.title}</b><span class="bp-meta">${purchase.detail}</span></span>${purchase.isRefunded ? "" : html`<button class="bp-ghost" type="button"${call("POST", `${here}/purchases/${purchase.purchaseId}/refund`)}>Refund</button>`}</div>`)
+      : html`<p class="bp-empty">${input.searchText ? "No purchase of that." : "No purchases yet. Buying in the game, or granting an item, adds one."}</p>`}
+<p class="bp-note" style="padding:8px 10px">Newest first. A refund reaches the game as Zaisma's would.</p>`;
   }
-  const deleteSheet = confirmSheet({ id: "bench-delete", title: `Delete ${player.username}?`, text: "Their saves, items, purchases, friends and blocks on the bench go too.", action: `${here}?${query(keep(place, { change: "delete" }))}`, confirmLabel: "Delete" });
-  return benchPane(places, player.username, html`${stack({ items: [...head, ...tabItems] })}${deleteSheet}`);
+  return String(html`<div class="bp-head"><button class="bp-link" type="button" data-bench-view="list" aria-label="Back to players">‹</button>${face(player.name)}<b>${player.name}</b>${input.isCurrent ? html`<span class="bp-tag">this tab</span>` : html`<button class="bp-btn" type="button" data-bench-play-as="${player.playerId}">Play as ${player.name}</button>`}</div>
+<p class="bp-note" style="padding:6px 10px 0">${describe(player)}${player.openPlayerNumbers.length ? ` · open as player ${player.openPlayerNumbers.join(", ")}` : ""}</p>
+<div class="bp-tabs" role="tablist">${tabButton("profile", "Profile")}${tabButton("items", "Items")}${tabButton("purchases", "Purchases")}</div>
+${section}`);
+}
+
+/** The Players panel as a page of its own: where the game page's sign-in and Make an account go, in a tab it opened or its own. */
+export async function panelPage(places: BenchPlaces, place: PanelPlace, panelHtml: string): Promise<BenchPage> {
+  const body = html`<style>${raw(BENCH_STYLE)}body { background: #120f2e; }</style>
+<aside class="bench-panel is-page" id="bench-panel" aria-label="Players" data-bench-page>${raw(panelHtml)}</aside>
+<script src="/bench/dev.js?player=${String(place.playerNumber)}&page=players" defer></script>`;
+  return pageOf(layout(benchEnv(places), { title: "Players: test bench", checkedPage: "A message", isBare: true, body }));
 }
 
 /** Where a sign-in ends (/account/kept): it tells the game page it's signed in, then closes or goes back to the player's game. */

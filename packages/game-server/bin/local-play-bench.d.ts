@@ -6,5 +6,3 @@ export function devScriptSource(): string;
 export const KEPT_SCRIPT_SOURCE: string;
 /** Where a tab arrives: its own player number again, or a new player's. */
 export const ARRIVE_SCRIPT_SOURCE: string;
-/** The bench's sign-in page: whose sign-in it is, from the tab. */
-export const SIGN_IN_SCRIPT_SOURCE: string;

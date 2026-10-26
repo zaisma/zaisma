@@ -25,7 +25,7 @@ import { fileURLToPath } from "node:url";
 import { WebSocket, WebSocketServer } from "ws";
 import { BUSY_CLOSE_CODE, GameServerError, PASS_VERSION_NUMBER, RECEIPT_TOKEN_TYPE, RECEIPT_VERSION_NUMBER, generateSigningKey, guestName, jwks, loadSigningKey, roomCode, signPass, verifyPass } from "../src/internal.ts";
 import { qrCodeModules, qrCodeSvg } from "../src/qr-code.ts";
-import { ARRIVE_SCRIPT_SOURCE, FRAME_ALLOW, KEPT_SCRIPT_SOURCE, SIGN_IN_SCRIPT_SOURCE, devScriptSource } from "./local-play-bench.js";
+import { ARRIVE_SCRIPT_SOURCE, FRAME_ALLOW, KEPT_SCRIPT_SOURCE, devScriptSource } from "./local-play-bench.js";
 import { isCertificateGood, makeCertificate } from "./local-play-certificate.js";
 
 /** The first of the four ports. */
@@ -510,107 +510,208 @@ export async function startLocalPlay(givenOptions) {
     };
   }
 
-  /** A player as the players pages show them. */
-  const benchPlayerOf = (account) => ({ id: account.id, username: account.username, ageBand: account.ageBand, socialMode: account.socialMode, openPlayerNumbers: openPlayerNumbers().filter((each) => asOf(each) === account.id) });
   const matches = (searchText, ...texts) => !searchText || texts.some((text) => text.toLowerCase().includes(searchText.toLowerCase()));
-  const shownCountOf = (url) => Math.min(Math.max(Number(url.searchParams.get("shown")) || 20, 20), 1000);
-  /** A player's details: their profile, friends and blocks, the game's items and their purchases. */
-  async function detailsPage(request, url, place, account, error = null) {
-    const tab = ["items", "purchases"].includes(url.searchParams.get("tab")) ? url.searchParams.get("tab") : "profile";
-    const searchText = (url.searchParams.get("search") ?? "").slice(0, 100);
-    const named = (ids) => ids.map((id) => accountOf(id)).filter(Boolean).map((other) => ({ id: other.id, username: other.username }));
-    const owned = new Set(ownedNamesOf(account.id));
-    const items = state.items
-      .filter((listedItem) => matches(searchText, listedItem.title, listedItem.itemName))
-      .map((listedItem) => ({ itemName: listedItem.itemName, title: listedItem.title, itemKind: listedItem.itemKind, priceText: listedItem.priceMinorUnits === null || !listedItem.currencyCode ? "only granted" : priceText(listedItem.currencyCode, listedItem.priceMinorUnits), isOwned: owned.has(listedItem.itemName) }))
-      .sort((first, second) => Number(second.isOwned) - Number(first.isOwned));
-    const titleOf = (itemName) => state.items.find((listedItem) => listedItem.itemName === itemName)?.title ?? itemName;
-    const purchases = state.purchases
-      .filter((purchase) => purchase.accountId === account.id && matches(searchText, titleOf(purchase.itemName), purchase.itemName))
-      .reverse()
-      .map((purchase) => ({
-        id: purchase.id,
-        title: `${titleOf(purchase.itemName)}${purchase.itemCount > 1 ? ` × ${purchase.itemCount}` : ""}`,
-        detail: [purchase.source === "bought" ? "Bought with the test card" : "Granted", purchase.purchasedAt.slice(0, 16).replace("T", " "), purchase.isHandled ? "handled by the game" : "waiting for the game", ...(purchase.refundedAt ? ["refunded"] : [])].join(" · "),
-        isRefunded: Boolean(purchase.refundedAt),
-      }));
-    const blockedIds = state.blocks.filter((block) => block.blocker === account.id).map((block) => block.blocked);
-    const blockedBy = state.blocks.filter((block) => block.blocked === account.id).map((block) => accountOf(block.blocker)?.username).filter(Boolean);
-    return glass.playerDetailsPage(placesFor(request), place, {
-      player: benchPlayerOf(account), tab, friends: named(friendIdsOf(account.id)), blocked: named(blockedIds), blockedBy,
-      others: state.accounts.filter((other) => other.id !== account.id).map((other) => ({ id: other.id, username: other.username })),
-      items, purchases, searchText, shownCount: shownCountOf(url), error,
-    });
+  const titleOf = (itemName) => state.items.find((listedItem) => listedItem.itemName === itemName)?.title ?? itemName;
+  const openNumbersOf = (account) => openPlayerNumbers().filter((each) => asOf(each) === account.id);
+  const blockedIdsOf = (account) => state.blocks.filter((block) => block.blocker === account.id).map((block) => block.blocked);
+  const blockerIdsOf = (account) => state.blocks.filter((block) => block.blocked === account.id).map((block) => block.blocker);
+  const playerIdsOf = (accountIds) => accountIds.map((id) => accountOf(id)?.playerId).filter(Boolean);
+
+  // --- The bench's API: everything the Players panel and the dev bar do, as JSON, for the developer's AI as much as for the panel ---
+  // Players are named by their player_id, the ID games see. Answers and errors are shaped as Zaisma's developer API's.
+  const apiPlayer = (account) => ({
+    player_id: account.playerId, name: account.username, age_band: account.ageBand, social_mode: account.socialMode, who_can_chat: glass.chatOf(account.ageBand, account.socialMode).whoCanChat,
+    open_player_numbers: openNumbersOf(account), friend_player_ids: playerIdsOf(friendIdsOf(account.id)), block_player_ids: playerIdsOf(blockedIdsOf(account)),
+    blocked_by_player_ids: playerIdsOf(blockerIdsOf(account)), owned_item_names: ownedNamesOf(account.id),
+  });
+  const apiPurchase = (purchase) => ({
+    purchase_id: purchase.id, player_id: purchase.playerId, item_name: purchase.itemName, item_count: purchase.itemCount, purchase_source: purchase.source === "bought" ? "test_card" : "grant",
+    purchased_at: purchase.purchasedAt, is_handled: purchase.isHandled, refunded_at: purchase.refundedAt ?? null,
+  });
+  const apiOpenPlayer = (playerNumber) => ({ player_number: playerNumber, player_id: playingAccount(playerNumber)?.playerId ?? null, kind: playingAccount(playerNumber) ? "account" : "guest", room_code: roomOfPlayerId(playerIdOf(playerNumber)), url: `${localhostOrigin(ports.bench)}/?player=${playerNumber}` });
+
+  async function answerApi(request, response, url) {
+    const reply = (status, body, headers = {}) => {
+      response.writeHead(status, { "Content-Type": "application/json", "Cache-Control": "no-store", ...headers });
+      response.end(JSON.stringify(body));
+    };
+    const fail = (status, code, message, fix) => reply(status, { error: { code, message, fix } });
+    const path = url.pathname.replace(/\/+$/, "");
+    const method = request.method;
+    const body = method === "GET" || method === "DELETE" ? {} : await readJson(request);
+    const noPlayer = () => fail(404, "no_player", "The bench has no player with that player_id.", "GET /bench/api/players lists them.");
+    if (path === "/bench/api" && method === "GET") {
+      return reply(200, {
+        game_slug: gameSlug, bench_url: localhostOrigin(ports.bench), network_url: networkOrigin, game_site_url: localhostOrigin(ports.game), rooms_url: issuerUrl,
+        players: state.accounts.map(apiPlayer), open_players: openPlayerNumbers().map(apiOpenPlayer),
+        rooms: [...roomsTracked].map(([code, room]) => ({ room_code: code, player_count: [...room.sockets].filter((each) => !each.isSpectator).length })),
+        items: state.items.map((listedItem) => ({ item_name: listedItem.itemName, title: listedItem.title, item_kind: listedItem.itemKind, price_text: listedItem.priceMinorUnits === null || !listedItem.currencyCode ? null : priceText(listedItem.currencyCode, listedItem.priceMinorUnits) })),
+      });
+    }
+    if (path === "/bench/api/log" && method === "GET") return reply(200, { log_lines: [...logLines] });
+    if (path === "/bench/api/players" && method === "GET") return reply(200, { players: state.accounts.map(apiPlayer) });
+    // A new player: any of a name, an age band and a social mode, each left out taking the next example name and Zaisma's defaults.
+    if (path === "/bench/api/players" && method === "POST") {
+      const ageBand = body.age_band ?? "18+";
+      const socialMode = body.social_mode ?? (AGE_BANDS.includes(ageBand) ? glass.startingSocialMode(ageBand) : "friends_focused");
+      const username = typeof body.name === "string" ? body.name.trim() : suggestedName();
+      const refused = profileRefusal(username, ageBand, socialMode);
+      if (refused) return fail(400, "bad_player", refused, "Give a name of 1 to 20 letters, digits, spaces, hyphens or underscores, an age_band (13-15, 16-17, 18+) and a social_mode the band can choose.");
+      const account = makeAccount(username, ageBand, socialMode);
+      saveState();
+      log(`Made ${username}.`);
+      return reply(201, { player: apiPlayer(account) });
+    }
+    if (path === "/bench/api/open-players" && method === "GET") return reply(200, { open_players: openPlayerNumbers().map(apiOpenPlayer) });
+    // A new player (tab) for the AI or a script to open: as a guest, or signed in as one of the bench's players; in a room when it names one.
+    if (path === "/bench/api/open-players" && method === "POST") {
+      const account = body.player_id ? accountOfPlayer(body.player_id) : null;
+      if (body.player_id && !account) return noPlayer();
+      const playerNumber = claimPlayer();
+      if (account) signInAs(playerNumber, account);
+      const room = typeof body.room_code === "string" && /^[A-Z0-9]{6}$/.test(body.room_code) ? body.room_code : null;
+      return reply(201, { ...apiOpenPlayer(playerNumber), url: `${localhostOrigin(ports.bench)}/?player=${playerNumber}${room ? `&room=${room}` : ""}` });
+    }
+    const openMatch = /^\/bench\/api\/open-players\/([1-9][0-9]{0,3})(\/pass)?$/.exec(path);
+    if (openMatch) {
+      const playerNumber = Number(openMatch[1]);
+      // A pass for the player, as the game gets one: for a script that joins the game server's rooms itself, over a WebSocket with the game site's Origin.
+      if (openMatch[2] && method === "POST") {
+        const given = await passFor(asOf(playerNumber), playerNumber);
+        return reply(200, { pass: given.pass, player: given.player, expires_at: given.expiresAt, game_slug: gameSlug, rooms_url: issuerUrl, game_site_url: localhostOrigin(ports.game) });
+      }
+      // Who this player plays as: one of the bench's players, or null for a new guest.
+      if (!openMatch[2] && method === "PUT") {
+        if (body.player_id === null) {
+          state.tabs[playerNumber] = "guest";
+          delete state.guests[playerNumber];
+          saveState();
+          log(`Player ${playerNumber} signed out.`);
+        } else {
+          const account = accountOfPlayer(body.player_id);
+          if (!account) return noPlayer();
+          signInAs(playerNumber, account);
+        }
+        heardAtMs.set(playerNumber, now());
+        return reply(200, apiOpenPlayer(playerNumber), { "Set-Cookie": signedInCookie(playerNumber) });
+      }
+    }
+    const playerMatch = /^\/bench\/api\/players\/(player_[a-z0-9]{1,40})(\/.*)?$/.exec(path);
+    if (!playerMatch) return fail(404, "not_local", `${method} ${path} isn't a call of the bench's API.`, "GET /bench/api says what the bench has; the README's \"Play it on your own computer\" lists every call.");
+    const account = accountOfPlayer(playerMatch[1]);
+    if (!account) return noPlayer();
+    const rest = playerMatch[2] ?? "";
+    const done = () => {
+      saveState();
+      return reply(200, { player: apiPlayer(account) });
+    };
+    if (rest === "" && method === "GET") return reply(200, { player: apiPlayer(account), purchases: state.purchases.filter((purchase) => purchase.accountId === account.id).map(apiPurchase) });
+    if (rest === "" && method === "PATCH") {
+      const username = typeof body.name === "string" ? body.name.trim() : account.username;
+      const ageBand = body.age_band ?? account.ageBand;
+      // A band that can't keep the social mode takes the band's starting one, as Zaisma's account page does.
+      const socialMode = body.social_mode ?? (glass.isSocialModeAllowed(ageBand, account.socialMode) ? account.socialMode : glass.startingSocialMode(ageBand));
+      const refused = profileRefusal(username, ageBand, socialMode, account.id);
+      if (refused) return fail(400, "bad_player", refused, "Give a name of 1 to 20 letters, digits, spaces, hyphens or underscores, an age_band (13-15, 16-17, 18+) and a social_mode the band can choose.");
+      Object.assign(account, { username, ageBand, socialMode });
+      return done();
+    }
+    if (rest === "" && method === "DELETE") {
+      state.accounts = state.accounts.filter((each) => each.id !== account.id);
+      state.friends = state.friends.filter((pair) => !pair.includes(account.id));
+      state.blocks = state.blocks.filter((block) => block.blocker !== account.id && block.blocked !== account.id);
+      state.purchases = state.purchases.filter((purchase) => purchase.accountId !== account.id);
+      delete state.ownedItems[account.id];
+      for (const [playerNumber, as] of Object.entries(state.tabs)) if (as === account.id) state.tabs[playerNumber] = "guest";
+      rmSync(saveFileOf(account.id), { force: true });
+      saveState();
+      log(`Deleted ${account.username}.`);
+      return reply(200, { is_deleted: true });
+    }
+    const pairMatch = /^\/(friends|blocks)\/(player_[a-z0-9]{1,40})$/.exec(rest);
+    if (pairMatch && (method === "PUT" || method === "DELETE")) {
+      const other = accountOfPlayer(pairMatch[2]);
+      if (!other || other.id === account.id) return fail(404, "no_player", "That's not another of the bench's players.", "GET /bench/api/players lists them.");
+      if (pairMatch[1] === "friends") {
+        state.friends = state.friends.filter((pair) => !isPair(pair, account.id, other.id));
+        if (method === "PUT") {
+          if (state.blocks.some((block) => isPair([block.blocker, block.blocked], account.id, other.id))) return fail(409, "blocked_pair", `${account.username} and ${other.username} can't be friends while one blocks the other.`, "Remove the block first: DELETE .../blocks/<player_id>.");
+          state.friends.push([account.id, other.id]);
+        }
+      } else {
+        state.blocks = state.blocks.filter((block) => !(block.blocker === account.id && block.blocked === other.id));
+        if (method === "PUT") {
+          // A block ends a friendship too, as on Zaisma.
+          state.friends = state.friends.filter((pair) => !isPair(pair, account.id, other.id));
+          state.blocks.push({ blocker: account.id, blocked: other.id });
+        }
+      }
+      return done();
+    }
+    // Grant one of the game's items: a purchase the game gets as Zaisma would send it.
+    if (rest === "/items" && method === "POST") {
+      const listedItem = state.items.find((each) => each.itemName === body.item_name);
+      if (!listedItem) return fail(404, "no_item", `The game has no item named ${String(body.item_name)} on Zaisma.`, "GET /bench/api lists its items.");
+      const itemCount = Number.isInteger(body.item_count) && body.item_count > 0 ? body.item_count : 1;
+      const purchase = await addPurchase(account, listedItem, itemCount, typeof body.game_account_id === "string" ? body.game_account_id : null, "grant");
+      log(`Granted ${listedItem.title} to ${account.username}.`);
+      return reply(201, { purchase: apiPurchase(purchase), player: apiPlayer(account) });
+    }
+    const itemMatch = /^\/items\/([^/]{1,100})$/.exec(rest);
+    if (itemMatch && method === "DELETE") {
+      state.ownedItems[account.id] = ownedNamesOf(account.id).filter((itemName) => itemName !== decodeURIComponent(itemMatch[1]));
+      return done();
+    }
+    if (rest === "/purchases" && method === "GET") return reply(200, { purchases: state.purchases.filter((purchase) => purchase.accountId === account.id).map(apiPurchase) });
+    const refundMatch = /^\/purchases\/(purchase_[a-z0-9]+)\/refund$/.exec(rest);
+    if (refundMatch && method === "POST") {
+      const purchase = state.purchases.find((each) => each.id === refundMatch[1] && each.accountId === account.id);
+      if (!purchase) return fail(404, "no_purchase", "This player has no purchase with that ID.", "GET .../purchases lists them.");
+      if (purchase.refundedAt) return fail(409, "already_refunded", "It was refunded already.", "Nothing to do.");
+      // The game hears it as Zaisma's refund: the purchase again, refunded, and a permanent item no longer owned.
+      purchase.refundedAt = isoOf(now());
+      purchase.isHandled = false;
+      if (purchase.itemKind === "permanent") state.ownedItems[account.id] = ownedNamesOf(account.id).filter((itemName) => itemName !== purchase.itemName);
+      saveState();
+      log(`Refunded ${account.username}'s ${purchase.itemName}.`);
+      return reply(200, { purchase: apiPurchase(purchase), player: apiPlayer(account) });
+    }
+    return fail(404, "not_local", `${method} ${path} isn't a call of the bench's API.`, "The README's \"Play it on your own computer\" lists every call.");
   }
 
-  /** A change from a player's details, or why it can't be. */
-  function changePlayer(account, form) {
-    const change = form.get("change") ?? "";
-    const [kind, target = ""] = change.split(/:(.*)/s);
-    const other = accountOf(target || form.get(kind === "friend" ? "friend" : "block") || "");
-    switch (kind) {
-      case "profile": {
-        const username = (form.get("name") ?? "").trim();
-        const refused = profileRefusal(username, form.get("age_band"), form.get("social_mode"), account.id);
-        if (refused) return refused;
-        Object.assign(account, { username, ageBand: form.get("age_band"), socialMode: form.get("social_mode") });
-        break;
-      }
-      case "friend": {
-        if (!other || other.id === account.id) return "Pick a player to add.";
-        if (state.blocks.some((block) => isPair([block.blocker, block.blocked], account.id, other.id))) return `${account.username} and ${other.username} can't be friends while one blocks the other.`;
-        if (!state.friends.some((pair) => isPair(pair, account.id, other.id))) state.friends.push([account.id, other.id]);
-        break;
-      }
-      case "unfriend":
-        state.friends = state.friends.filter((pair) => !isPair(pair, account.id, target));
-        break;
-      case "block": {
-        if (!other || other.id === account.id) return "Pick a player to block.";
-        // A block ends a friendship too, as on Zaisma.
-        state.friends = state.friends.filter((pair) => !isPair(pair, account.id, other.id));
-        if (!state.blocks.some((block) => block.blocker === account.id && block.blocked === other.id)) state.blocks.push({ blocker: account.id, blocked: other.id });
-        break;
-      }
-      case "unblock":
-        state.blocks = state.blocks.filter((block) => !(block.blocker === account.id && block.blocked === target));
-        break;
-      case "grant": {
-        const listedItem = state.items.find((each) => each.itemName === target);
-        if (!listedItem) return "The game has no item by that name.";
-        void addPurchase(account, listedItem, 1, null, "grant");
-        log(`Granted ${listedItem.title} to ${account.username}.`);
-        return null;
-      }
-      case "take":
-        state.ownedItems[account.id] = ownedNamesOf(account.id).filter((itemName) => itemName !== target);
-        break;
-      case "refund": {
-        const purchase = state.purchases.find((each) => each.id === target && each.accountId === account.id);
-        if (!purchase || purchase.refundedAt) return "That purchase isn't there to refund.";
-        // The game hears it as Zaisma's refund: the purchase again, refunded, and a permanent item no longer owned.
-        purchase.refundedAt = isoOf(now());
-        purchase.isHandled = false;
-        if (purchase.itemKind === "permanent") state.ownedItems[account.id] = ownedNamesOf(account.id).filter((itemName) => itemName !== purchase.itemName);
-        log(`Refunded ${account.username}'s ${purchase.itemName}.`);
-        break;
-      }
-      case "delete": {
-        state.accounts = state.accounts.filter((each) => each.id !== account.id);
-        state.friends = state.friends.filter((pair) => !pair.includes(account.id));
-        state.blocks = state.blocks.filter((block) => block.blocker !== account.id && block.blocked !== account.id);
-        state.purchases = state.purchases.filter((purchase) => purchase.accountId !== account.id);
-        delete state.ownedItems[account.id];
-        for (const [playerNumber, as] of Object.entries(state.tabs)) if (as === account.id) state.tabs[playerNumber] = "guest";
-        rmSync(saveFileOf(account.id), { force: true });
-        log(`Deleted ${account.username}.`);
-        break;
-      }
-      default:
-        return "That isn't a change the bench makes.";
+  /** A part of the Players panel, drawn afresh after every change: the list, New player, or one player's tab. */
+  function panelHtml(url, place) {
+    const view = url.searchParams.get("view") ?? "list";
+    const searchText = (url.searchParams.get("search") ?? "").slice(0, 100);
+    const current = playingAccount(place.playerNumber);
+    const panelPlayer = (account) => ({ playerId: account.playerId, name: account.username, ageBand: account.ageBand, socialMode: account.socialMode, openPlayerNumbers: openNumbersOf(account) });
+    const account = view === "player" ? accountOfPlayer(url.searchParams.get("player_id") ?? "") : null;
+    if (view === "new") return glass.newPlayerPanelHtml({ suggestedName: suggestedName() });
+    if (!account) {
+      return glass.playersPanelHtml(place, { players: state.accounts.filter((each) => matches(searchText, each.username)).map(panelPlayer), currentPlayerId: current?.playerId ?? null, searchText, totalCount: state.accounts.length });
     }
-    saveState();
-    return null;
+    const tab = ["items", "purchases"].includes(url.searchParams.get("tab")) ? url.searchParams.get("tab") : "profile";
+    const named = (ids) => ids.map((id) => accountOf(id)).filter(Boolean).map((other) => ({ playerId: other.playerId, name: other.username }));
+    const owned = new Set(ownedNamesOf(account.id));
+    return glass.playerPanelHtml(place, {
+      player: panelPlayer(account), isCurrent: current?.id === account.id, tab,
+      friends: named(friendIdsOf(account.id)), blocked: named(blockedIdsOf(account)), blockedBy: named(blockerIdsOf(account)).map((other) => other.name),
+      others: state.accounts.filter((other) => other.id !== account.id).map((other) => ({ playerId: other.playerId, name: other.username })),
+      items: state.items
+        .filter((listedItem) => matches(searchText, listedItem.title, listedItem.itemName))
+        .map((listedItem) => ({ itemName: listedItem.itemName, title: listedItem.title, itemKind: listedItem.itemKind, priceText: listedItem.priceMinorUnits === null || !listedItem.currencyCode ? "only granted" : priceText(listedItem.currencyCode, listedItem.priceMinorUnits), isOwned: owned.has(listedItem.itemName) }))
+        .sort((first, second) => Number(second.isOwned) - Number(first.isOwned)),
+      purchases: state.purchases
+        .filter((purchase) => purchase.accountId === account.id && matches(searchText, titleOf(purchase.itemName), purchase.itemName))
+        .reverse()
+        .map((purchase) => ({
+          purchaseId: purchase.id,
+          title: `${titleOf(purchase.itemName)}${purchase.itemCount > 1 ? ` × ${purchase.itemCount}` : ""}`,
+          detail: [purchase.source === "bought" ? "Test card" : "Granted", purchase.purchasedAt.slice(0, 16).replace("T", " "), purchase.isHandled ? "handled" : "waiting for the game", ...(purchase.refundedAt ? ["refunded"] : [])].join(" · "),
+          isRefunded: Boolean(purchase.refundedAt),
+        })),
+      searchText,
+    });
   }
 
   const placesFor = (request) => ({ localSiteOrigin: localhostOrigin(ports.bench), gameOrigin: originFor(request, ports.game), roomsOrigin: originFor(request, ports.rooms) });
@@ -637,14 +738,6 @@ export async function startLocalPlay(givenOptions) {
     const headers = Object.fromEntries(page.headers.filter(([name]) => !["link", "speculation-rules", "cache-control"].includes(name.toLowerCase())));
     response.writeHead(httpStatus, { ...headers, "Cache-Control": "no-store", ...extraHeaders });
     response.end(page.body);
-  };
-  /** Sign a player in and go back where they came from: the end of a sign-in in its own tab, the dev page, or the player's dev page and game in the room it named. */
-  const signInAndGo = (response, playerNumber, account, next) => {
-    signInAs(playerNumber, account);
-    const nextRoom = /[?&]room=([A-Z0-9]{6})(&|$)/.exec(next)?.[1] ?? null;
-    const location = next.startsWith("/account/kept") ? `${next}${next.includes("?") ? "&" : "?"}player=${playerNumber}` : `/?player=${playerNumber}${nextRoom ? `&room=${nextRoom}` : ""}`;
-    response.writeHead(303, { Location: location, "Set-Cookie": signedInCookie(playerNumber), "Cache-Control": "no-store" });
-    response.end();
   };
   const signedInCookie = (playerNumber) => (playingAccount(playerNumber) ? `zaisma_in=1; Path=/p/${playerNumber}; SameSite=Lax` : `zaisma_in=; Path=/p/${playerNumber}; SameSite=Lax; Max-Age=0`);
 
@@ -857,80 +950,42 @@ export async function startLocalPlay(givenOptions) {
       return reply(404, { error: { code: "unknown_link", message: "The bench has none of the game's registered links: they're set on Zaisma." } });
     }
 
-    // Signing in: Zaisma's sign-in and Make an account go to the bench's players, made on this computer.
-    const place = { playerNumber: Number(url.searchParams.get("player")) > 0 ? Number(url.searchParams.get("player")) : playerNumber, nextPath: url.searchParams.get("next") ?? "" };
-    const playersOf = (searchText) => state.accounts.filter((account) => matches(searchText, account.username)).map(benchPlayerOf);
-    if ((path === "/signin" || path === "/join" || path === "/bench/players") && request.method === "GET") {
-      const searchText = (url.searchParams.get("search") ?? "").slice(0, 100);
-      return sendPage(response, await glass.playersPage(placesFor(request), place, { players: playersOf(searchText), searchText, shownCount: shownCountOf(url), totalCount: state.accounts.length }));
+    // Signing in: Zaisma's sign-in and Make an account go to the bench's Players panel, as a page of its own.
+    if ((path === "/signin" || path === "/join") && request.method === "GET") {
+      const place = { playerNumber, isPage: true };
+      return sendPage(response, await glass.panelPage(placesFor(request), place, panelHtml(new URL("/bench/panel", url), place)));
     }
-    if (path === "/bench/players/new") {
-      if (request.method === "GET") return sendPage(response, await glass.newPlayerPage(placesFor(request), place, { name: suggestedName(), ageBand: "18+", socialMode: glass.startingSocialMode("18+"), error: null }));
-      const form = new URLSearchParams((await readText(request)) ?? "");
-      const formPlace = { playerNumber: Number(form.get("player")) || 0, nextPath: form.get("next") ?? "" };
-      const username = (form.get("name") ?? "").trim();
-      const refused = profileRefusal(username, form.get("age_band"), form.get("social_mode"));
-      if (refused) return sendPage(response, await glass.newPlayerPage(placesFor(request), formPlace, { name: username, ageBand: AGE_BANDS.includes(form.get("age_band")) ? form.get("age_band") : "18+", socialMode: form.get("social_mode") ?? "friends_focused", error: refused }), {}, 400);
-      const account = makeAccount(username, form.get("age_band"), form.get("social_mode"));
-      saveState();
-      log(`Made ${username}.`);
-      // From a sign-in, making a player signs in as them; from Manage players, it's back to the list.
-      if (formPlace.nextPath && formPlace.playerNumber) return signInAndGo(response, formPlace.playerNumber, account, formPlace.nextPath);
-      response.writeHead(303, { Location: `/bench/players?${new URLSearchParams({ player: String(formPlace.playerNumber) })}`, "Cache-Control": "no-store" });
-      return response.end();
+    if (path === "/bench/panel" && request.method === "GET") {
+      const askedNumber = Number(url.searchParams.get("player"));
+      const place = { playerNumber: Number.isInteger(askedNumber) && askedNumber > 0 ? askedNumber : playerNumber, isPage: url.searchParams.get("page") === "yes" };
+      response.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
+      return response.end(panelHtml(url, place));
     }
-    const detailsMatch = /^\/bench\/players\/([a-z0-9-]{1,40})$/.exec(path);
-    if (detailsMatch) {
-      const account = accountOf(detailsMatch[1]);
-      if (!account) {
-        response.writeHead(303, { Location: `/bench/players?player=${place.playerNumber}`, "Cache-Control": "no-store" });
-        return response.end();
-      }
-      if (request.method === "GET") return sendPage(response, await detailsPage(request, url, place, account, url.searchParams.get("error")));
-      const form = new URLSearchParams((await readText(request)) ?? "");
-      for (const [name, given] of url.searchParams) if (!form.has(name)) form.set(name, given);
-      const refused = changePlayer(account, form);
-      const back = new URLSearchParams({ player: form.get("player") ?? "0", ...(form.get("next") ? { next: form.get("next") } : {}), ...(form.get("tab") ? { tab: form.get("tab") } : {}), ...(refused ? { error: refused } : {}) });
-      response.writeHead(303, { Location: form.get("change") === "delete" && !refused ? `/bench/players?player=${form.get("player") ?? 0}` : `${path}?${back}`, "Cache-Control": "no-store" });
-      return response.end();
-    }
-    if (isPost && path === "/bench/sign-in") {
-      const form = new URLSearchParams((await readText(request)) ?? "");
-      for (const [name, given] of url.searchParams) if (!form.has(name)) form.set(name, given);
-      const signingNumber = Number(form.get("player"));
-      if (!Number.isInteger(signingNumber) || signingNumber < 1) return sendPage(response, await glass.playersPage(placesFor(request), { playerNumber: 0, nextPath: "" }, { players: playersOf(""), searchText: "", shownCount: 20, totalCount: state.accounts.length }), {}, 400);
-      let chosen = form.get("account") ? accountOf(form.get("account")) : null;
-      // Quick player: the next example name, a grown-up with the starting social mode, in one press.
-      if (form.get("quick") === "yes") {
-        chosen = makeAccount(suggestedName());
-        log(`Made ${chosen.username}.`);
-      }
-      if (!chosen) {
-        response.writeHead(303, { Location: `/bench/players?${new URLSearchParams({ player: String(signingNumber), next: form.get("next") ?? "" })}`, "Cache-Control": "no-store" });
-        return response.end();
-      }
-      return signInAndGo(response, signingNumber, chosen, form.get("next") ?? "");
-    }
-    // Sign out, from the dev bar: the tab plays as a new guest.
-    if (isPost && path === "/bench/sign-out") {
+    if (path === "/bench/api" || path.startsWith("/bench/api/")) return answerApi(request, response, url);
+    // The dev bar's player menu: play as one of the bench's players, or sign out to a new guest. Back to the player's dev page.
+    if (isPost && (path === "/bench/sign-in" || path === "/bench/sign-out")) {
       await readText(request);
-      const signingOutNumber = Number(url.searchParams.get("player"));
-      if (Number.isInteger(signingOutNumber) && signingOutNumber > 0) {
-        state.tabs[signingOutNumber] = "guest";
-        delete state.guests[signingOutNumber];
-        saveState();
-        log(`Player ${signingOutNumber} signed out.`);
+      const menuNumber = Number(url.searchParams.get("player"));
+      const account = path === "/bench/sign-in" ? accountOfPlayer(url.searchParams.get("player_id") ?? "") : null;
+      if (Number.isInteger(menuNumber) && menuNumber > 0) {
+        if (account) signInAs(menuNumber, account);
+        else {
+          state.tabs[menuNumber] = "guest";
+          delete state.guests[menuNumber];
+          saveState();
+          log(`Player ${menuNumber} signed out.`);
+        }
       }
-      response.writeHead(303, { Location: `/?player=${signingOutNumber || ""}`, "Set-Cookie": signedInCookie(signingOutNumber), "Cache-Control": "no-store" });
+      response.writeHead(303, { Location: `/?player=${menuNumber || ""}`, "Set-Cookie": signedInCookie(menuNumber), "Cache-Control": "no-store" });
       return response.end();
     }
     if (path === "/account/kept" && request.method === "GET") {
       const keptNumber = Number(url.searchParams.get("player")) || 0;
       return sendPage(response, await glass.keptPage(placesFor(request), playingAccount(keptNumber)?.username ?? null, keptNumber));
     }
-    if (path === "/bench/kept.js" || path === "/bench/sign-in.js") {
+    if (path === "/bench/kept.js") {
       response.writeHead(200, { "Content-Type": "text/javascript; charset=utf-8", "Cache-Control": "no-store" });
-      return response.end(path === "/bench/kept.js" ? KEPT_SCRIPT_SOURCE : SIGN_IN_SCRIPT_SOURCE);
+      return response.end(KEPT_SCRIPT_SOURCE);
     }
     return null;
   }
@@ -998,7 +1053,7 @@ export async function startLocalPlay(givenOptions) {
         const framePath = `/p/${givenNumber}/g/${gameSlug}${room ? `?room=${room}` : "?play"}`;
         return sendPage(response, await glass.devPage(placesFor(request), devViewFor(givenNumber), { path: framePath, allow: FRAME_ALLOW }));
       }
-      if (url.pathname.startsWith("/bench/") && !/^\/bench\/(sign-in|sign-out|sign-in\.js|kept\.js|players)(\/|$)/.test(url.pathname)) return await answerBench(request, response, url);
+      if (url.pathname.startsWith("/bench/") && !/^\/bench\/(sign-in|sign-out|kept\.js|panel|api)(\/|$)/.test(url.pathname)) return await answerBench(request, response, url);
       const answered = await answerSite(request, response, url);
       if (answered !== null || response.headersSent) return;
       // Logos, favicons, the loader and the font, from the brand folder as the site serves it.

@@ -4,7 +4,7 @@
 /** What the dev page's frame lets the player's page pass on to the game: the game page's own list (apps/site/src/pages.ts; test/node/local-play-parity.test.ts holds the two together). */
 export const FRAME_ALLOW = "fullscreen; gamepad; autoplay; web-share; clipboard-write; cross-origin-isolated";
 
-/** The dev page's script: it keeps the player's place, reloads the game when a file changes, and draws the bar's sheets afresh. */
+/** The dev page's script: it keeps the player's place, reloads the game when a file changes, draws the bar's sheets afresh and runs the Players panel. */
 export const devScriptSource = () => `(${devScript.toString()})();\n`;
 
 /**
@@ -30,28 +30,21 @@ export const ARRIVE_SCRIPT_SOURCE = `(function () {
 })();
 `;
 
-/**
- * The bench's players pages: whose sign-in it is, when their address didn't say. They open in the player's tab or in a tab the game page
- * opened, and both hold the player's number the dev page keeps in sessionStorage (a tab opened by a page starts with a copy of the page's).
- */
-export const SIGN_IN_SCRIPT_SOURCE = `(function () {
-  var kept = "0";
-  try { kept = sessionStorage.getItem("zaisma-bench:player") || "0"; } catch (error) {}
-  if (kept === "0") return;
-  document.querySelectorAll('input[name="player"]').forEach(function (field) { if (field.value === "0") field.value = kept; });
-  document.querySelectorAll('a[href*="player=0"]').forEach(function (link) { link.href = link.href.replace(/([?&])player=0(&|$)/, "$1player=" + kept + "$2"); });
-})();
-`;
-
 /** Run in the browser. Written as a function so it stays real code; the bench serves its text. */
 function devScript() {
-  const playerNumber = Number(new URL(document.currentScript.src).searchParams.get("player")) || 0;
+  const scriptUrl = new URL(document.currentScript.src);
+  const isPage = scriptUrl.searchParams.get("page") === "players";
+  let playerNumber = Number(scriptUrl.searchParams.get("player")) || 0;
   try {
-    sessionStorage.setItem("zaisma-bench:player", String(playerNumber));
+    // The Players page a sign-in opened knows its player from the tab (a tab opened by a page starts with a copy of the page's storage).
+    if (isPage && !playerNumber) playerNumber = Number(sessionStorage.getItem("zaisma-bench:player")) || 0;
+    else sessionStorage.setItem("zaisma-bench:player", String(playerNumber));
   } catch {
     // Storage off: the tab is a new player each time it comes to /.
   }
   const frame = document.getElementById("bench-player");
+  const panel = document.getElementById("bench-panel");
+  const playersButton = document.getElementById("bench-players-open");
   const addTab = document.getElementById("bench-add-tab");
   let reloadNumber = null;
   let roomCode = null;
@@ -64,6 +57,113 @@ function devScript() {
         if (body) body.innerHTML = text;
       })
       .catch(() => {});
+
+  // --- The Players panel: drawn by the bench, and every change through the bench's API, the same calls a developer's AI makes ---
+  let panelView = { view: "list", playerId: "", tab: "profile", search: "" };
+  const drawPanel = (changes = {}) => {
+    panelView = { ...panelView, ...changes };
+    const query = new URLSearchParams({ player: String(playerNumber), view: panelView.view, player_id: panelView.playerId, tab: panelView.tab, search: panelView.search, page: isPage ? "yes" : "" });
+    return fetch(`/bench/panel?${query}`)
+      .then((response) => response.text())
+      .then((text) => {
+        panel.innerHTML = text;
+        const search = panel.querySelector("[data-bench-search]");
+        if (search && panelView.search) {
+          search.focus();
+          search.setSelectionRange(search.value.length, search.value.length);
+        }
+      })
+      .catch(() => {});
+  };
+  const showPanel = (isShown) => {
+    if (!panel || isPage) return;
+    panel.hidden = !isShown;
+    playersButton?.setAttribute("aria-pressed", String(isShown));
+    if (isShown) drawPanel();
+  };
+  const api = (method, path, body) =>
+    fetch(path, { method, headers: { "content-type": "application/json" }, ...(method === "GET" || method === "DELETE" ? {} : { body: JSON.stringify(body ?? {}) }) }).then(async (response) => ({ isOk: response.ok, answer: await response.json().catch(() => ({})) }));
+  const showError = (answer) => {
+    const line = panel.querySelector("[data-bench-error]");
+    if (line && answer?.error) {
+      line.textContent = answer.error.message;
+      line.hidden = false;
+    }
+  };
+  // Playing as someone starts the game again as them: here the dev page comes back with the game; on the page a sign-in opened, the
+  // game page hears it as zaisma.com's own end of a sign-in, and the page closes or goes back to the player's game.
+  const playAs = (playerId) =>
+    api("PUT", `/bench/api/open-players/${playerNumber}`, { player_id: playerId === "guest" ? null : playerId }).then(({ isOk }) => {
+      if (!isOk) return;
+      if (!isPage) return location.assign(`/?player=${playerNumber}`);
+      try {
+        new BroadcastChannel("zaisma").postMessage("signed-in");
+      } catch {
+        // No channel: the game page checks again as its tab comes back into view.
+      }
+      if (window.opener) window.close();
+      else location.assign(`/?player=${playerNumber}`);
+    });
+  if (panel) {
+    panel.addEventListener("click", (event) => {
+      const target = event.target instanceof Element ? event.target : null;
+      const closer = target?.closest("[data-bench-panel]");
+      if (closer) return showPanel(false);
+      const viewer = target?.closest("[data-bench-view]");
+      if (viewer) return drawPanel({ view: viewer.dataset.benchView, playerId: viewer.dataset.playerId ?? panelView.playerId, tab: "profile", search: "" });
+      const tab = target?.closest("[data-bench-tab]");
+      if (tab) return drawPanel({ tab: tab.dataset.benchTab, search: "" });
+      const player = target?.closest("[data-bench-play-as]");
+      if (player) return playAs(player.dataset.benchPlayAs);
+      const caller = target?.closest("[data-bench-call]");
+      if (caller) {
+        const [method, path] = caller.dataset.benchCall.split(" ");
+        return api(method, path, JSON.parse(caller.dataset.benchBody || "{}")).then(({ isOk, answer }) => (isOk ? drawPanel() : showError(answer)));
+      }
+      const maker = target?.closest("[data-bench-make]");
+      if (maker) {
+        const form = maker.closest("[data-bench-form]");
+        const field = (name) => form.querySelector(`[name="${name}"]`).value;
+        return api("POST", "/bench/api/players", { name: field("name"), age_band: field("age_band"), social_mode: field("social_mode") }).then(({ isOk, answer }) =>
+          isOk ? drawPanel({ view: "player", playerId: answer.player.player_id, tab: "profile", search: "" }) : showError(answer),
+        );
+      }
+      const deleter = target?.closest("[data-bench-delete]");
+      if (deleter && confirm(`Delete ${deleter.dataset.playerName}? Their saves, items, purchases, friends and blocks on the bench go too.`)) {
+        return api("DELETE", deleter.dataset.benchDelete).then(() => drawPanel({ view: "list", playerId: "" }));
+      }
+    });
+    // A profile's fields save as they change; picking a friend or a block adds them.
+    panel.addEventListener("change", (event) => {
+      const field = event.target;
+      if (!(field instanceof HTMLInputElement || field instanceof HTMLSelectElement)) return;
+      if (field.dataset.benchField) {
+        api("PATCH", field.dataset.benchField, { [field.name]: field.value }).then(({ isOk, answer }) => (isOk ? drawPanel() : showError(answer)));
+      } else if (field.dataset.benchAdd && field.value) {
+        api("PUT", `${field.dataset.benchAdd}${field.value}`).then(({ isOk, answer }) => (isOk ? drawPanel() : showError(answer)));
+      }
+    });
+    let searchTimer = null;
+    panel.addEventListener("input", (event) => {
+      if (!(event.target instanceof HTMLInputElement) || !event.target.hasAttribute("data-bench-search")) return;
+      const search = event.target.value;
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(() => drawPanel({ search }), 200);
+    });
+  }
+  playersButton?.addEventListener("click", () => showPanel(panel.hidden));
+  // The player menu's All players opens the panel.
+  document.addEventListener("click", (event) => {
+    const opener = event.target instanceof Element ? event.target.closest('[data-bench-panel="open"]') : null;
+    if (!opener) return;
+    event.preventDefault();
+    showPanel(true);
+  });
+  if (isPage) {
+    drawPanel();
+    return;
+  }
+
   // Whatever opens a sheet (a bar button, the Add a player menu's On a phone) draws it afresh.
   document.addEventListener("click", (event) => {
     const opener = event.target instanceof Element ? event.target.closest('[aria-controls^="bench-"]') : null;
@@ -88,4 +188,5 @@ function devScript() {
   check();
   setInterval(check, 1000);
   addEventListener("pagehide", () => navigator.sendBeacon(`/bench/leave?player=${playerNumber}`));
+  if (new URLSearchParams(location.search).get("panel") === "players") showPanel(true);
 }

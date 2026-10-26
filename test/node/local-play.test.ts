@@ -32,13 +32,14 @@ const fromPage = (playerNumber: number, path: string, body?: unknown, method = b
 const keysAt = async (path: string) => ((await (await fetch(`${play.roomsUrl}${path}`)).json()) as { keys: PublicKey[] }).keys;
 /** A new tab: a new player, a guest. */
 const newPlayer = async (): Promise<number> => (await bench("/bench/claim", {})).body.playerNumber;
-const form = (path: string, fields: Record<string, string>) =>
-  fetch(`${play.benchUrl}${path}`, { method: "POST", redirect: "manual", headers: { "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams(fields) });
-/** The bench's New player, from a sign-in the game page asked for: a name, an age and a social mode make the player and sign the tab in. */
-const signInAsNew = (playerNumber: number, name: string, ageBand = "18+", socialMode = "open_and_social") =>
-  form("/bench/players/new", { player: String(playerNumber), next: `/account/kept?game=${SLUG}`, name, age_band: ageBand, social_mode: socialMode });
-/** A change from a player's details. */
-const changePlayer = (accountId: string, fields: Record<string, string>) => form(`/bench/players/${accountId}`, { player: "0", ...fields });
+/** A call of the bench's API, as the Players panel and a developer's AI make them. */
+const api = (method: string, path: string, body?: unknown) =>
+  fetch(`${play.benchUrl}/bench/api${path}`, { method, headers: { "content-type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }).then(json);
+const makePlayer = (name: string, ageBand = "18+", socialMode = "open_and_social") => api("POST", "/players", { name, age_band: ageBand, social_mode: socialMode });
+/** Play an open player (a tab) as one of the bench's players, or as a new guest with null. */
+const playAs = (playerNumber: number, playerId: string | null) => api("PUT", `/open-players/${playerNumber}`, { player_id: playerId });
+let annaId = "";
+let benId = "";
 let guest = 0;
 let anna = 0;
 let ben = 0;
@@ -98,7 +99,10 @@ describe("play-locally", () => {
     guest = await newPlayer();
     anna = await newPlayer();
     ben = await newPlayer();
-    for (const [playerNumber, name] of [[anna, "Anna"], [ben, "Ben"]] as const) expect((await signInAsNew(playerNumber, name)).status).toBe(303);
+    annaId = (await makePlayer("Anna")).body.player.player_id;
+    benId = (await makePlayer("Ben")).body.player.player_id;
+    expect((await playAs(anna, annaId)).status).toBe(200);
+    expect((await playAs(ben, benId)).status).toBe(200);
   }, 30_000);
 
   afterAll(async () => {
@@ -136,7 +140,7 @@ describe("play-locally", () => {
   }, 20_000);
 
   it("puts friends from a player's details and blocks from the game page in the next passes, and grants items with receipts", async () => {
-    expect((await changePlayer("anna", { change: "friend", friend: "ben" })).status).toBe(303);
+    expect((await api("PUT", `/players/${annaId}/friends/${benId}`)).body.player.friend_player_ids).toEqual([benId]);
     let annaPass = await passOf(anna);
     let benPass = await passOf(ben);
     expect(passesAreFriends(annaPass.claims, benPass.claims)).toBe(true);
@@ -166,35 +170,46 @@ describe("play-locally", () => {
     // A guest can't buy: the sheet asks them to sign in.
     expect((await json(await fromPage(guest, `/api/buy/${SLUG}/start`, { item_name: "gold-board", item_count: 1, game_account_id: null }))).body.error.code).toBe("account_needed");
     // Refunded from Anna's details: the game gets the purchase again, refunded, and she no longer owns the board.
-    expect((await changePlayer("anna", { change: `refund:${started.body.purchase_id}`, tab: "purchases" })).status).toBe(303);
+    expect((await api("POST", `/players/${annaId}/purchases/${started.body.purchase_id}/refund`)).body.purchase).toMatchObject({ purchase_source: "test_card", refunded_at: expect.any(String) });
     const unhandled = await rooms("/v1/items/unhandled", { gameSlug: SLUG, pass: (await passOf(anna)).pass });
     expect(unhandled.body.purchases.find((purchase: { id: string }) => purchase.id === started.body.purchase_id)).toMatchObject({ purchaseStatus: "refunded" });
     expect((await passOf(anna)).claims.owned_item_names).toEqual([]);
     // Granted from her details: a purchase the game gets, and the board hers again.
-    expect((await changePlayer("anna", { change: "grant:gold-board", tab: "items" })).status).toBe(303);
+    expect((await api("POST", `/players/${annaId}/items`, { item_name: "gold-board" })).body.purchase).toMatchObject({ purchase_source: "grant", is_handled: false });
     expect((await passOf(anna)).claims.owned_item_names).toEqual(["gold-board"]);
   }, 20_000);
 
-  it("makes players with Zaisma's age and social rules, and manages them", async () => {
+  it("makes and manages players through the bench's API, with Zaisma's age and social rules, as the panel and an AI do", async () => {
     // 13–15 is never open and social, as on Zaisma; solo-focused chats with nobody.
-    const young = await newPlayer();
-    expect((await signInAsNew(young, "Carla", "13-15", "open_and_social")).status).toBe(400);
-    expect((await signInAsNew(young, "Carla", "13-15", "solo_focused")).status).toBe(303);
+    expect((await makePlayer("Carla", "13-15", "open_and_social")).body.error.code).toBe("bad_player");
+    const carlaId = (await makePlayer("Carla", "13-15", "solo_focused")).body.player.player_id;
+    // An AI opens a player for Carla: a tab's address, and a pass for a script that joins rooms itself.
+    const opened = await api("POST", "/open-players", { player_id: carlaId });
+    expect(opened.body).toMatchObject({ player_id: carlaId, kind: "account", url: expect.stringMatching(/\/\?player=\d+$/) });
+    const young = opened.body.player_number;
     const carla = await passOf(young);
     expect(carla.claims).toMatchObject({ kind: "account", who_can_chat: "nobody" });
     expect(carla.claims.chat_group_id).toBeUndefined();
-    // Who's playing lists them all, with their age and social mode, and a player's details their tabs.
-    const players = await (await fetch(`${play.benchUrl}/bench/players?player=${young}`)).text();
-    for (const words of ["playing?</h1>", "Anna", "Ben", "Carla", "13–15", "Solo-focused"]) expect(players).toContain(words);
-    const details = await (await fetch(`${play.benchUrl}/bench/players/carla?player=${young}&tab=items`)).text();
-    expect(details).toContain("Gold board");
-    // Quick player and the dev bar's sign-out.
-    expect((await form("/bench/sign-in", { player: String(young), quick: "yes" })).headers.get("location")).toBe(`/?player=${young}`);
-    expect((await form(`/bench/sign-out?player=${young}`, {})).status).toBe(303);
+    const scripted = await api("POST", `/open-players/${young}/pass`);
+    expect(scripted.body).toMatchObject({ player: { id: carlaId, kind: "account" }, rooms_url: play.roomsUrl, game_site_url: play.gameSiteUrl });
+    // What the bench has, in one call.
+    const bench = await api("GET", "");
+    expect(bench.body.players.map((player: { name: string }) => player.name)).toEqual(expect.arrayContaining(["Anna", "Ben", "Carla"]));
+    expect(bench.body.items.map((listedItem: { item_name: string }) => listedItem.item_name)).toEqual(["gold-board"]);
+    // The Players panel draws the same players, and a player's tabs.
+    const panel = await (await fetch(`${play.benchUrl}/bench/panel?player=${young}`)).text();
+    for (const words of ["Anna", "Ben", "Carla", "13–15 · Solo-focused", "this tab"]) expect(panel).toContain(words);
+    expect(await (await fetch(`${play.benchUrl}/bench/panel?player=${young}&view=player&player_id=${carlaId}&tab=items`)).text()).toContain("Gold board");
+    // A change to the band keeps the social mode within it.
+    expect((await api("PATCH", `/players/${carlaId}`, { age_band: "18+", social_mode: "open_and_social" })).body.player).toMatchObject({ age_band: "18+", who_can_chat: "anyone" });
+    // Quick player: the next example name and the defaults.
+    expect((await api("POST", "/players", {})).body.player).toMatchObject({ name: expect.any(String), age_band: "18+", social_mode: "friends_focused" });
+    // Signed out: a new guest. Deleted: gone, and from everyone's friends.
+    expect((await playAs(young, null)).body.kind).toBe("guest");
     expect((await passOf(young)).claims.kind).toBe("guest");
-    // Deleted: gone from the list, and from the friends of anyone.
-    expect((await changePlayer("carla", { change: "delete" })).status).toBe(303);
-    expect(await (await fetch(`${play.benchUrl}/bench/players?player=${young}`)).text()).not.toContain("Carla");
+    expect((await api("DELETE", `/players/${carlaId}`)).body.is_deleted).toBe(true);
+    expect((await api("GET", "/players")).body.players.map((player: { name: string }) => player.name)).not.toContain("Carla");
+    expect((await api("GET", "/players/player_nobody")).body.error.code).toBe("no_player");
   }, 20_000);
 
   it("frames each player's page, zaisma.com's game page drawn by the site's own code, under the dev bar", async () => {
@@ -203,6 +218,7 @@ describe("play-locally", () => {
     expect(dev).not.toContain('class="playing-bar');
     expect(dev).toContain(`src="/p/${anna}/g/${SLUG}?play"`);
     expect(dev).toContain('id="bench-who-menu"');
+    expect(dev).toContain('id="bench-panel"');
     const response = await fetch(`${play.benchUrl}/p/${anna}/g/${SLUG}?play`);
     // Signed in: the readable cookie the page's scripts look for, for this player's page alone.
     expect(response.headers.get("set-cookie")).toBe(`zaisma_in=1; Path=/p/${anna}; SameSite=Lax`);
@@ -220,7 +236,8 @@ describe("play-locally", () => {
     expect((await fetch(`${play.benchUrl}/README.md`)).status).toBe(404);
     // A guest's page drops the cookie; the sign-in is a bench page of its own.
     expect((await fetch(`${play.benchUrl}/p/${guest}/g/${SLUG}?play`)).headers.get("set-cookie")).toContain("Max-Age=0");
-    expect(await (await fromPage(guest, `/signin?next=%2Faccount%2Fkept`)).text()).toContain(`name="player" value="${guest}"`);
+    // Zaisma's sign-in, from the game page, is the bench's Players panel as a page of its own.
+    expect(await (await fromPage(guest, `/signin?next=%2Faccount%2Fkept`)).text()).toContain('id="bench-panel"');
     // A link from the page to the game page (Join a friend) stays this player's.
     expect((await fetch(`${play.benchUrl}/g/${SLUG}?room=ABC234`, { redirect: "manual", headers: { referer: `${play.benchUrl}/p/${anna}/g/${SLUG}`, "sec-fetch-dest": "iframe" } })).headers.get("location")).toBe(`/p/${anna}/g/${SLUG}?room=ABC234`);
     expect((await fetch(`${play.benchUrl}/g/${SLUG}?room=ABC234`, { redirect: "manual", headers: { referer: `${play.benchUrl}/p/${anna}/g/${SLUG}`, "sec-fetch-dest": "document" } })).headers.get("location")).toBe(`/?player=${anna}&room=ABC234`);

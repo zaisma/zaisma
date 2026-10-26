@@ -25,7 +25,7 @@ How publishing works:
 
 Ask the developer before making a game private or a draft again (players lose access), and show them the preview link before publishing.
 
-To try online play before uploading, run \`npx @zaisma/cli play-locally\` in the game's folder: it runs the game and its game server on the developer's computer with no key or internet, and the bench's Add a player opens a second player in another tab.
+To try online play before uploading, run \`npx @zaisma/cli play-locally\` in the game's folder: it runs the game and its game server on the developer's computer with no key or internet, and the bench's Add a player opens a second player in another tab. You can test it there yourself: run it with --no-open --json in the background, and the bench's API at http://localhost:4800/bench/api makes and sets up players (age, social mode, friends, blocks, items, refunds), opens them for your browser, gives passes for scripts that join rooms, and reads the game server's log (README, "The bench's API, for your AI").
 
 Every hold, rejection and takedown says why, as review_reason (on a game, version or image, and in get_history) and as a version's findings: a code, a plain message, the content_rule it's about (null when it breaks none) and a fix. Tell the developer the message and the fix, and do what the fix says; never guess beyond them. search_forum with the code finds others who had it.
 

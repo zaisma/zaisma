@@ -398,6 +398,27 @@ Your game opens in the browser on a test bench. Each player plays on Zaisma's ow
 | `--no-open` | Don't open the bench in the browser |
 | `--json` | Print `{ bench_url, game_site_url, rooms_url, network_url }` once it's listening |
 
+### The bench's API, for your AI
+
+Everything the dev bar and the Players panel do is a call of the bench's own API, so an AI working on your game can test it the same way: start the bench in the background (`npx @zaisma/cli play-locally --no-open --json` prints its addresses), set up players, open them in its browser to play and check its changes (a saved file reloads the game), and read the game server's output. It's JSON at `http://localhost:4800/bench/api`; errors are `{ error: { code, message, fix } }`, as in Zaisma's developer API, and players are named by their `player_id`, the ID games see.
+
+| Call | What it does |
+| --- | --- |
+| `GET /bench/api` | The game, the bench's addresses, its players, the players open now with their rooms, the rooms and the game's items |
+| `GET /bench/api/log` | What the bench and your game server said: `{ log_lines }` |
+| `GET, POST /bench/api/players` | List the players, or make one: `{ name, age_band, social_mode }`, each optional (the next example name, `18+` and Zaisma's starting social mode). `age_band` is `13-15`, `16-17` or `18+`; `social_mode` is `solo_focused`, `friends_focused` or `open_and_social`, which `13-15` can't be, as on Zaisma |
+| `GET, PATCH, DELETE /bench/api/players/<player_id>` | One player (with their purchases), a change to their `name`, `age_band` or `social_mode`, or deleting them with their saves, items, purchases, friends and blocks |
+| `PUT, DELETE /bench/api/players/<player_id>/friends/<player_id>` | Make two players friends, or not |
+| `PUT, DELETE /bench/api/players/<player_id>/blocks/<player_id>` | Block a player, which ends a friendship, or unblock them |
+| `POST /bench/api/players/<player_id>/items` | Grant one of the game's items, `{ item_name, item_count }`: a purchase the game gets as Zaisma would send it |
+| `DELETE /bench/api/players/<player_id>/items/<item_name>` | Take a permanent item away |
+| `GET /bench/api/players/<player_id>/purchases`, `POST .../purchases/<purchase_id>/refund` | A player's purchases, and refunding one, which the game gets as Zaisma's refund |
+| `GET, POST /bench/api/open-players` | The players open now, or open a new one, `{ player_id, room_code }` (a guest without `player_id`): its `url` is the dev page to open in a browser |
+| `PUT /bench/api/open-players/<player_number>` | Who an open player plays as, `{ player_id }`, or `{ player_id: null }` for a new guest |
+| `POST /bench/api/open-players/<player_number>/pass` | That player's pass, as the game gets one, with `rooms_url` and `game_site_url`: a script joins a room at `<rooms_url as ws>/v1/rooms/<game>/<room code>` with `Origin: <game_site_url>` and sends `{ type: "hello", protocolVersionNumber: 1, pass }`, to test the game server without a browser |
+
+Changes to a player reach the game with their next pass: the next time they join a room.
+
 Only on Zaisma, and so not here: the chat filter (`Zaisma.filter` answers every text unchanged, with `is_stand_in: true`), reports (printed in the terminal, never sent), earlier versions of saves, registered links, profiles, regions in room lists and performance measuring. The dev bar's log says so the first time a page asks for one. Everything the bench keeps (its keys, players, saves and the game's database) is in `.zaisma-local/` in the game's folder: add it to your `.gitignore`. Upload and check skip it. It's the game server package's command (`npx @zaisma/game-server@1 play-locally`), which `zaisma play-locally` runs for you.
 
 #### Run your game server yourself
