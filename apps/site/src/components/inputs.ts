@@ -304,13 +304,14 @@ export const COPY_SCRIPT = `/* code fields */(function () {
     if (!copy) return;
     var text = document.getElementById(copy.getAttribute("aria-controls")), holder = copy.closest(".code-field"), said = holder && holder.querySelector(".code-copied");
     if (!text || !said) return;
-    function done() {
-      said.textContent = "Copied"; holder.classList.add("is-copied");
+    function saying(words) {
+      said.textContent = words; holder.classList.add("is-copied");
       clearTimeout(said.timer); said.timer = setTimeout(function () { said.textContent = ""; holder.classList.remove("is-copied"); }, 1600);
     }
-    // Where the clipboard isn't open to the page, the code is selected and copied the old way.
-    function byHand() { selectAll(text); try { if (document.execCommand("copy")) done(); } catch (error) {} }
-    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text.getAttribute("data-code") || text.textContent).then(done, byHand);
+    // Where the clipboard isn't open to the page, the code is selected and copied the old way; selected is all it says when that fails too.
+    function byHand() { selectAll(text); var isCopied = false; try { isCopied = document.execCommand("copy"); } catch (error) {} saying(isCopied ? "Copied" : "Selected"); }
+    // The press answers at once: the clipboard can take its time, and only says otherwise when it refuses.
+    if (navigator.clipboard && navigator.clipboard.writeText) { saying("Copied"); navigator.clipboard.writeText(text.getAttribute("data-code") || text.textContent).catch(byHand); }
     else byHand();
   });
 })();
