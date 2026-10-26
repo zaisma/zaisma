@@ -27,8 +27,6 @@ export const ACCESS_LOGIN_PREFIX = "https://zaisma.cloudflareaccess.com/cdn-cgi/
 export const ACCESS_RESOURCE_METADATA_PREFIX = `${SITE_URL}/.well-known/cloudflare-access-protected-resource/`;
 export const TRANSPORT_SECURITY_MINIMUM_MAX_AGE_SEC = 31_536_000;
 export const ALLOWED_SITE_SCRIPT_SOURCES = ["'self'", "https://challenges.cloudflare.com"];
-/** Stripe.js, which Stripe serves only from its own origin: allowed on the pages with the buy sheet (a game's page, the buy window), never on the rest. */
-export const STRIPE_SCRIPT_SOURCE = "https://js.stripe.com";
 export const NPM_REGISTRY_URL = "https://registry.npmjs.org";
 export const PUBLISH_CLI_WORKFLOW_URL = "https://github.com/zaisma/zaisma/actions/workflows/publish-cli.yml";
 export const PUBLISH_GAME_SERVER_WORKFLOW_URL = "https://github.com/zaisma/zaisma/actions/workflows/publish-game-server.yml";
@@ -75,7 +73,7 @@ function nosniffProblems(headers) {
   return asHeaders(headers).get("x-content-type-options")?.toLowerCase() === "nosniff" ? [] : ["X-Content-Type-Options isn't nosniff"];
 }
 
-export function siteHeaderProblems(headers, { isStripeAllowed = false } = {}) {
+export function siteHeaderProblems(headers) {
   const problems = transportSecurityProblems(headers);
   const policyText = asHeaders(headers).get("content-security-policy");
   if (!policyText) return [...problems, "no Content-Security-Policy", ...nosniffProblems(headers)];
@@ -84,8 +82,7 @@ export function siteHeaderProblems(headers, { isStripeAllowed = false } = {}) {
   if (!scriptSources) problems.push("no script-src");
   else {
     if (!scriptSources.includes("'self'")) problems.push("script-src lacks 'self'");
-    const allowed = isStripeAllowed ? [...ALLOWED_SITE_SCRIPT_SOURCES, STRIPE_SCRIPT_SOURCE] : ALLOWED_SITE_SCRIPT_SOURCES;
-    for (const source of scriptSources) if (!allowed.includes(source)) problems.push(`script-src allows ${source}`);
+    for (const source of scriptSources) if (!ALLOWED_SITE_SCRIPT_SOURCES.includes(source)) problems.push(`script-src allows ${source}`);
   }
   problems.push(...exactDirectiveProblem(policy, "frame-ancestors", "'none'"), ...exactDirectiveProblem(policy, "object-src", "'none'"), ...exactDirectiveProblem(policy, "base-uri", "'none'"), ...nosniffProblems(headers));
   return problems;
@@ -259,7 +256,7 @@ export async function checkSecurityAddresses({ zaismaKey, attemptCount = ATTEMPT
   const headerCheck = (findHeaderProblems) => (response) => (response.status === 200 ? findHeaderProblems(response.headers) : [`answered ${response.status}`]);
   return Promise.all([
     checkUrl("zaisma.com headers", `${SITE_URL}/`, {}, headerCheck(siteHeaderProblems), security),
-    checkUrl("game page headers", `${SITE_URL}/g/${CHECK_GAME_SLUG}`, {}, headerCheck((headers) => siteHeaderProblems(headers, { isStripeAllowed: true })), security),
+    checkUrl("game page headers", `${SITE_URL}/g/${CHECK_GAME_SLUG}`, {}, headerCheck(siteHeaderProblems), security),
     // The game's page, at its version's own address.
     checkUrl("game domain headers", CHECK_GAME_URL, {}, headerCheck(gameHeaderProblems), { ...security, isSameOriginRedirectFollowed: true }),
     checkUrl("zaisma.com over http", `http://zaisma.com/g/${CHECK_GAME_SLUG}?from=ship`, {}, (response) => httpsRedirectProblems(response, `${SITE_URL}/g/${CHECK_GAME_SLUG}?from=ship`), security),

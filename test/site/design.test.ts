@@ -33,6 +33,7 @@ import inputsSource from "../../apps/site/src/components/inputs.ts?raw";
 import navigationSource from "../../apps/site/src/components/navigation.ts?raw";
 import panesSource from "../../apps/site/src/components/panes.ts?raw";
 import confirmItsYouSource from "../../apps/site/src/components/confirm-its-you.ts?raw";
+import stripeFrameSource from "../../apps/site/src/components/stripe-frame.ts?raw";
 import dataSource from "../../apps/site/src/components/data.ts?raw";
 import layoutSource from "../../apps/site/src/components/layout.ts?raw";
 import layoutGallerySource from "../../apps/site/src/components/layout-gallery.ts?raw";
@@ -47,7 +48,7 @@ import galleryPageSource from "../../apps/site/src/design-page.ts?raw";
 /** The gallery's own source, to check it draws nothing by hand. */
 const SOURCES: Record<string, string> = {
   "components/foundations.ts": foundationsSource, "components/tokens.ts": tokensSource, "components/icons.ts": iconsSource, "components/glass-script.ts": glassScriptSource, 
-  "components/backdrop-script.ts": backdropScriptSource, "components/actions.ts": actionsSource, "components/fields.ts": fieldsSource, "components/switch.ts": switchSource, "components/choices.ts": choicesSource, "components/example-pane.ts": examplePaneSource, "components/inputs.ts": inputsSource, "components/navigation.ts": navigationSource, "components/panes.ts": panesSource, "components/confirm-its-you.ts": confirmItsYouSource, "components/data.ts": dataSource,
+  "components/backdrop-script.ts": backdropScriptSource, "components/actions.ts": actionsSource, "components/fields.ts": fieldsSource, "components/switch.ts": switchSource, "components/choices.ts": choicesSource, "components/example-pane.ts": examplePaneSource, "components/inputs.ts": inputsSource, "components/navigation.ts": navigationSource, "components/panes.ts": panesSource, "components/confirm-its-you.ts": confirmItsYouSource, "components/stripe-frame.ts": stripeFrameSource, "components/data.ts": dataSource,
   "components/layout.ts": layoutSource, "components/layout-gallery.ts": layoutGallerySource, "components/control-markup.ts": controlMarkupSource, "components/city.ts": citySource, "components/screens.ts": screensSource, "components/playing.ts": playingSource,
   "components/reading.ts": readingSource, "components/people.ts": peopleSource,
   "design-page.ts": galleryPageSource,
