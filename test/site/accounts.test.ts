@@ -4382,8 +4382,8 @@ describe("Developer settings", () => {
     expect(connected).toContain("Change on Stripe");
     expect(connected).toContain("Open Stripe");
     expect(pageProblems(connected)).toEqual([]);
-    // The tap is in the Finish on Stripe form too, since it asks for a fresh connect_url.
-    expect(connected).toMatch(/<form method="post" action="\/dashboard\/settings\/payments\/connect" data-tap="confirm">/);
+    // The tap is in the Finish on Stripe form too, since it asks for a fresh connect_url: its sheet posts to connect, tapping the passkey first.
+    expect(connected).toMatch(/action="\/dashboard\/settings\/payments\/connect"[\s\S]*?data-tap="confirm"/);
     // Stripe Tax needs no tap.
     expect((await b.go("/dashboard/settings/payments/tax", { is_stripe_tax_used: "on" })).status).toBe(303);
     expect(await env.DB.prepare("SELECT is_stripe_tax_used FROM owners WHERE id = ?").bind(owner.id).first()).toEqual({ is_stripe_tax_used: 1 });
