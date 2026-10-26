@@ -87,6 +87,15 @@ describe("a game server's schedules", () => {
 describe("schedules on the developer's own server", () => {
   afterEach(() => vi.useRealTimers());
 
+  it("hand onSchedule the cron as Zaisma gives it, trimmed and single-spaced", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"], now: at("2026-10-16T13:45:30Z") });
+    const runs: ScheduledRun[] = [];
+    const running = startSchedules({ schedules: [{ name: "tick", cron: "  * *   * * *  " }], onSchedule: (run: ScheduledRun) => void runs.push(run) }, {} as Server, () => {});
+    await vi.advanceTimersByTimeAsync(31_000);
+    running.stop();
+    expect(runs).toEqual([{ name: "tick", cron: "* * * * *", scheduledAt: "2026-10-16T13:46:00.000Z" }]);
+  });
+
   it("run at their minutes with the database, and say when a run fails", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"], now: at("2026-10-16T23:58:30Z") });
     const runs: ScheduledRun[] = [];

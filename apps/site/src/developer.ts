@@ -1741,7 +1741,12 @@ async function statsFor(env: Env, game: Game, periodDurationDays: number) {
   ]);
   // The game's own game server runs on Zaisma for its rooms, or for requests and schedules, which any game's can have.
   const hasOwnServer =
-    game.multiplayer_mode === "own" || monthRequestCount > 0 || schedules.length > 0 || roomDays.some((day) => day.game_server_request_count > 0 || day.game_server_scheduled_run_count > 0);
+    game.multiplayer_mode === "own" ||
+    monthRequestCount > 0 ||
+    schedules.length > 0 ||
+    // A game server that didn't start counts no request and lists no schedule, but its errors say why.
+    errors.length > 0 ||
+    roomDays.some((day) => day.game_server_request_count > 0 || day.game_server_scheduled_run_count > 0 || day.game_server_crash_count > 0 || day.game_server_stopped_count > 0);
   return {
     period_duration_days: dayCount,
     play_stats: gamePlayStats,

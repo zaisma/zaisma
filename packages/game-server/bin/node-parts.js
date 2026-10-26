@@ -12,14 +12,29 @@ const MAXIMUM_PROFILE_COUNT = 10_000;
 /** The format the runner's saved room states are written in. A file with another is dropped, and rooms start fresh. */
 const ROOM_STATES_FORMAT_VERSION_NUMBER = 1;
 
-/** Fetch the public keys a JWKS URL publishes, caching them for an hour (fetched again at once when asked to refresh). */
+/** A refresh asked for by a pass with a key ID not in the cache waits this long after the last fetch, so passes with made-up key IDs can't make this fetch on every hello. */
+const MINIMUM_REFRESH_INTERVAL_MS = 30_000;
+
+/**
+ * Fetch the public keys a JWKS URL publishes, caching them for an hour (fetched again at once when asked to refresh,
+ * at most once in MINIMUM_REFRESH_INTERVAL_MS). A fetch that fails keeps answering with the keys already held.
+ */
 function keysFrom(jwksUrl) {
   let cache = null;
+  let fetchedAtMs = 0;
   return async (isRefreshing = false) => {
-    if (cache && !isRefreshing && Date.now() - cache.fetchedAtMs < KEYS_KEPT_MS) return cache.keys;
-    const response = await fetch(jwksUrl);
-    if (!response.ok) throw new Error(`Couldn't load Zaisma's keys from ${jwksUrl}`);
-    cache = { fetchedAtMs: Date.now(), keys: (await response.json()).keys };
+    const nowMs = Date.now();
+    if (cache && !isRefreshing && nowMs - cache.fetchedAtMs < KEYS_KEPT_MS) return cache.keys;
+    if (cache && isRefreshing && nowMs - fetchedAtMs < MINIMUM_REFRESH_INTERVAL_MS) return cache.keys;
+    fetchedAtMs = nowMs;
+    try {
+      const response = await fetch(jwksUrl);
+      if (!response.ok) throw new Error(`Couldn't load Zaisma's keys from ${jwksUrl}`);
+      cache = { fetchedAtMs: nowMs, keys: (await response.json()).keys };
+    } catch (error) {
+      if (cache) return cache.keys;
+      throw error;
+    }
     return cache.keys;
   };
 }
