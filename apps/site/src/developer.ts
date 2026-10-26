@@ -1214,6 +1214,17 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
         fix: "Remove those shaders with remove_shader first, or send them again without it.",
       });
     }
+    // A listed game keeps at least one screenshot, as when it became listed.
+    if (game.visibility === "listed" && image.kind === "screenshot" && image.review_status !== "rejected") {
+      const other = await env.DB.prepare("SELECT id FROM game_images WHERE game_id = ? AND kind = 'screenshot' AND review_status != 'rejected' AND id != ? LIMIT 1").bind(game.id, image.id).first();
+      if (!other) {
+        throw new ApiError("screenshot_needed", {
+          message: `${game.slug} is listed and this is its last screenshot.`,
+          field: "image_id",
+          fix: "Add another screenshot with add_image (kind screenshot) first, or set visibility unlisted.",
+        });
+      }
+    }
     await env.GAMES.delete([imageKey(image), ...imageCopyKeys(image)]);
     await dropChosenBackground(env.DB, game.id, { imageId: image.id });
     await deleteImageRow(env.DB, image.id);
