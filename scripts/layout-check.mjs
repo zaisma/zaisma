@@ -104,7 +104,8 @@ export function layoutCheckShard(pages, shard) {
 
 /** Waits until the page has drawn: loaded, its fonts in, the gallery's skipped sections laid out, the edge rule's shapes drawn. */
 const SETTLE = `(async () => {
-  if (document.readyState !== "complete") await new Promise((done) => addEventListener("load", done, { once: true }));
+  // The page's load, or 15 seconds: a game's frame on a busy machine may never finish loading, and the page is measured all the same.
+  if (document.readyState !== "complete") await Promise.race([new Promise((done) => addEventListener("load", done, { once: true })), new Promise((done) => setTimeout(done, 15000))]);
   if (document.fonts) await document.fonts.ready;
   document.querySelectorAll(".component-section").forEach((section) => { section.style.contentVisibility = "visible"; });
   for (let frame = 0; frame < 4; frame++) await new Promise((done) => requestAnimationFrame(done));
