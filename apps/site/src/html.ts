@@ -511,6 +511,8 @@ export const isLocalSite = (env: Env): boolean => env.SITE_ORIGIN.startsWith("ht
  */
 const STRIPE_SCRIPT_ORIGIN = "https://js.stripe.com";
 const STRIPE_FRAME_ORIGINS = ["https://js.stripe.com", "https://hooks.stripe.com"];
+/** Stripe.js, from Stripe's own origin as Stripe requires: only the buy sheet's Stripe frame (/buy/stripe-frame) loads it. */
+export const STRIPE_SCRIPT_TAG = raw(`<script src="${STRIPE_SCRIPT_ORIGIN}/v3/" defer></script>`);
 const STRIPE_API_ORIGIN = "https://api.stripe.com";
 
 /**

@@ -28,8 +28,8 @@ async function checkPage(url: string): Promise<{ status: number; page: string }>
   expect(response.status, url).toBeLessThan(500);
   if (!(response.headers.get("content-type") ?? "").startsWith("text/html")) return { status: response.status, page };
   expect(strictScriptProblems(page, response.headers.get("content-security-policy")), url).toEqual([]);
-  // And Zaisma's own scrollbar, never the browser's.
-  expect(defaultScrollbarProblems(page), url).toEqual([]);
+  // And Zaisma's own scrollbar, never the browser's; the buy sheet's Stripe frame never scrolls (it's as tall as what Stripe draws).
+  if (!url.endsWith("/buy/stripe-frame")) expect(defaultScrollbarProblems(page), url).toEqual([]);
   for (const path of pageScriptPaths(page)) loaded.add(path);
   return { status: response.status, page };
 }
@@ -80,7 +80,7 @@ describe("every page runs only the site's own script files", () => {
   });
 
   it("signing in, making an account, profiles, the forum, the rules and the design gallery", async () => {
-    for (const path of ["/games", "/signin", "/signin?next=%2Fg%2Fstrict-solo", "/signin/email", "/join", "/@Strict_Dev", "/forum", `/forum/${topicId}`, "/forum/out?to=https%3A%2F%2Fexample.com%2Fpage", "/forum/out?to=javascript%3Aalert(1)", "/legal/content-rules", "/legal/privacy", "/legal/dmca", "/legal/security", "/no-such-page", "/dashboard", "/friends", "/design", "/design/actions", "/design/layout", "/design/panes?theme=dark"]) {
+    for (const path of ["/games", "/signin", "/signin?next=%2Fg%2Fstrict-solo", "/signin/email", "/join", "/@Strict_Dev", "/forum", `/forum/${topicId}`, "/forum/out?to=https%3A%2F%2Fexample.com%2Fpage", "/forum/out?to=javascript%3Aalert(1)", "/legal/content-rules", "/legal/privacy", "/legal/dmca", "/legal/security", "/no-such-page", "/dashboard", "/friends", "/design", "/design/actions", "/design/layout", "/design/panes?theme=dark", "/buy/stripe-frame"]) {
       await checkPage(`${SITE}${path}`);
     }
   });

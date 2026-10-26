@@ -76,6 +76,8 @@ export function strictScriptProblems(page: string, contentSecurityPolicy: string
       }
       continue;
     }
+    // Stripe.js, from Stripe's own origin as Stripe requires: only the buy sheet's Stripe frame loads it (html.ts's STRIPE_SCRIPT_TAG).
+    if (src === `${STRIPE_SCRIPT_ORIGIN}/v3/` && !content.trim()) continue;
     if (src === undefined || !/^\/js\/[a-z]+(-[a-z]+)*\.[0-9a-f]{16}\.js$/.test(src)) problems.push(`a script that isn't one of the site's files: ${whole}${content.slice(0, 120)}`);
     else if (content.trim()) problems.push(`a script file with text inside its tag: ${whole}${content.slice(0, 120)}`);
   }

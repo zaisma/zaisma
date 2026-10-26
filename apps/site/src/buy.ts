@@ -29,7 +29,7 @@ import { tryPassword } from "./account.ts";
 import { currentSession, realEmail, sessionCookies, type Session } from "./auth.ts";
 import { BUY_SHEET_SCRIPT, STRIPE_FRAME_SCRIPT, buySheet, buySheetData, buySheetStripe } from "./buy-sheet.ts";
 import { isOpenHere } from "./game-links.ts";
-import { glassMessage, html, layout, pageData, scriptTags, securityHeaders } from "./html.ts";
+import { glassMessage, html, layout, pageData, scriptTags, securityHeaders, STRIPE_SCRIPT_TAG } from "./html.ts";
 import { viewerOf } from "./viewer.ts";
 import { PASSKEY_SCRIPT } from "./passkeys.ts";
 import { purchaseJson, withReceipts } from "./items-api.ts";
@@ -651,9 +651,9 @@ export function stripeFramePage(env: Env): Response {
   const body = html`<!doctype html>
 <html lang="en">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex"><title>Stripe</title></head>
-<body style="margin:0;background:transparent"><div id="stripe-mount"></div>
+<body style="margin:0;background:transparent;overflow:hidden"><div id="stripe-mount"></div>
 ${pageData("stripe-frame-data", { stripe_publishable_key: stripePublishableKey })}
-<script src="https://js.stripe.com/v3/" defer></script>
+${STRIPE_SCRIPT_TAG}
 ${scriptTags(STRIPE_FRAME_SCRIPT)}
 </body>
 </html>`;
