@@ -248,3 +248,39 @@ describe("listing a game", () => {
     expect((await api("/games/sky-hopper", { method: "PATCH", body: { visibility: "listed" } })).answer.game.visibility).toBe("listed");
   });
 });
+
+describe("removing a screenshot", () => {
+  const listAndSend = async (screenshotCount: number) => {
+    await env.DB.prepare("UPDATE games SET visibility = 'listed' WHERE slug = 'sky-hopper'").run();
+    const ids: string[] = [];
+    for (let index = 0; index < screenshotCount; index++) ids.push((await api("/games/sky-hopper/images?kind=screenshot", { bytes: png(1920, 1080) })).answer.image.id);
+    return ids;
+  };
+
+  it("is refused for the last screenshot of a listed game, and leaves the image", async () => {
+    const [only] = await listAndSend(1);
+    const refused = await api(`/games/sky-hopper/images/${only}`, { method: "DELETE" });
+    expect(refused.status).toBe(409);
+    expect(refused.answer.error).toMatchObject({ code: "screenshot_needed", field: "image_id" });
+    expect(await env.DB.prepare("SELECT id FROM game_images WHERE id = ?").bind(only).first()).not.toBeNull();
+  });
+
+  it("goes through with another screenshot left, for an unlisted game, and for a cover", async () => {
+    const [first, second] = await listAndSend(2);
+    expect((await api(`/games/sky-hopper/images/${first}`, { method: "DELETE" })).status).toBe(200);
+    expect((await api(`/games/sky-hopper/images/${second}`, { method: "DELETE" })).status).toBe(409);
+    await env.DB.prepare("UPDATE games SET visibility = 'unlisted' WHERE slug = 'sky-hopper'").run();
+    expect((await api(`/games/sky-hopper/images/${second}`, { method: "DELETE" })).status).toBe(200);
+    await env.DB.prepare("UPDATE games SET visibility = 'listed' WHERE slug = 'sky-hopper'").run();
+    const [lone] = await listAndSend(1);
+    const cover = (await api("/games/sky-hopper/images?kind=cover", { bytes: png(1280, 720) })).answer.image.id;
+    expect((await api(`/games/sky-hopper/images/${cover}`, { method: "DELETE" })).status).toBe(200);
+    expect(lone).toBeTruthy();
+  });
+
+  it("doesn't count a rejected screenshot as the one that's left", async () => {
+    const [first, second] = await listAndSend(2);
+    await env.DB.prepare("UPDATE game_images SET review_status = 'rejected' WHERE id = ?").bind(second).run();
+    expect((await api(`/games/sky-hopper/images/${first}`, { method: "DELETE" })).status).toBe(409);
+  });
+});

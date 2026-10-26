@@ -64,6 +64,8 @@ describe("Node runner webhooks", () => {
       const at = `http://localhost:${(own.httpServer.address() as { port: number }).port}/v1/webhooks`;
       const bare = await fetch(at, { method: "POST", body: JSON.stringify(EVENT) });
       expect([bare.status, await bare.text()]).toEqual([401, expect.stringContaining("webhook-id")]);
+      // It closes the connection it didn't read, and says so, so the next POST opens a new one.
+      expect(bare.headers.get("connection")).toBe("close");
       const huge = await fetch(at, { method: "POST", headers: { "webhook-id": EVENT.id, "webhook-timestamp": String(Math.floor(Date.now() / 1000)), "webhook-signature": "v1,AAAA" }, body: "x".repeat(17 * 1024 * 1024) }).catch(() => null);
       if (huge) expect(huge.status).toBe(413);
       expect(handledCount).toBe(0);

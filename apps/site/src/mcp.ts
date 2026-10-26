@@ -1513,7 +1513,7 @@ export const TOOLS: Tool[] = [
     name: "list_kept_rooms",
     title: "List a game's kept rooms",
     description:
-      "A game's kept rooms: rooms its game server kept with room.setKept(true), like a survival world or a persistent server, which sleep with their world saved when everyone leaves and wake when someone joins. Each with its code, name, saved size and when it was last saved and played, most recently played first; and the game's storage, its database and kept rooms together, against the free 500 MB. Listed kept rooms show on the game page's Rooms tab even with nobody in them.",
+      "A game's kept rooms: rooms its game server kept with room.setKept(true), like a survival world or a persistent server, which sleep with their world saved when everyone leaves and wake when someone joins. Each with its code, name, saved size and when it was last saved and played, most recently played first; and the game's storage, its database and kept rooms together, against the free 500 MB and the 10 GB a game can keep (`maximum_storage_size_bytes`). Listed kept rooms show on the game page's Rooms tab even with nobody in them.",
     inputSchema: object({ slug }, ["slug"]),
     outputSchema: KEPT_ROOMS,
     annotations: read,

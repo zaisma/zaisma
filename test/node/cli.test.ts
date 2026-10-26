@@ -93,6 +93,27 @@ const commandFlags = (command: string) => help.commands.find((entry) => entry.co
 const game = { slug: "sky-hopper", title: "Sky Hopper", visibility: "draft", review_status: "pending", review_reason: null, page_url: "https://zaisma.test/g/sky-hopper" };
 const version = (scanStatus: string) => ({ id: "version_8f3k2m9q1x7c4v6b", scan_status: scanStatus, is_live: false, preview_url: scanStatus === "approved" ? "https://sky-hopper--secret.zaismausercontent.test/" : null, review_reason: null, findings: scanStatus === "approved" || scanStatus === "scanning" ? [] : [{ code: "hidden_iframe", severity: "hold", message: "A hidden frame.", content_rule: null, path: "index.html", fix: "Remove the hidden frame." }], scheduled_publish_at: null });
 
+describe("the upload command's table in docs/DEVELOPER-API.md", () => {
+  it("lists the commands and flags the command has, and only those", () => {
+    const doc = readFileSync(join(ROOT, "docs/DEVELOPER-API.md"), "utf8");
+    const table = doc.slice(doc.indexOf("## The upload command")).split("\n").filter((line) => line.startsWith("| `zaisma "));
+    const documented = table.map((line) => {
+      const cell = line.split(/(?<!\\)\|/)[1]!.trim().replace(/^`|`$/g, "").replace(/\\\|/g, "|");
+      const words = cell.split(" ").slice(1).filter((word) => /^[a-z-]+$/.test(word) && !word.startsWith("-"));
+      return { command: words[0]!, subcommand: words[1], flags: [...cell.matchAll(/--[a-z-]+/g)].map((match) => match[0]) };
+    });
+    const commandNames = help.commands.map((entry) => entry.command);
+    for (const row of documented) {
+      const full = commandNames.find((name) => name === [row.command, row.subcommand].filter(Boolean).join(" ")) ?? row.command;
+      expect(commandNames, full).toContain(full);
+      const flags = help.commands.find((entry) => entry.command === full)!.flags.map((entry) => entry.flag);
+      for (const flag of row.flags) expect(flags, `${full} ${flag}`).toContain(flag);
+    }
+    const documentedCommands = new Set(documented.map((row) => commandNames.find((name) => name === [row.command, row.subcommand].filter(Boolean).join(" ")) ?? row.command));
+    for (const name of commandNames.filter((name) => name !== "help")) expect(documentedCommands, name).toContain(name);
+  });
+});
+
 describe("closed flags", () => {
   it("refuses a flag the command doesn't take, with the ones it does, and sends nothing", async () => {
     const result = await zaisma(["upload", "./build", "--game", "sky-hopper", "--patch-note", "Faster"]);

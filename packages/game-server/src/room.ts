@@ -2745,7 +2745,7 @@ export class RoomCore<S = any> {
     const viewerIds = this.stateViewerIds();
     const stateView = this.server.stateView;
     const state = this.state;
-    const round = tracker.round(state, viewerIds, stateView ? (viewerId) => stateView(state, (this.players.get(viewerId) ?? this.spectators.get(viewerId))!, this.stateViewRoom) : null, this.backedUpViewers(viewerIds));
+    const round = tracker.round(state, viewerIds, stateView ? (viewerId) => stateView(state, { ...(this.players.get(viewerId) ?? this.spectators.get(viewerId))! }, this.stateViewRoom) : null, this.backedUpViewers(viewerIds));
     for (const problem of round.problems) console.error(`Game server error: ${problem}`);
     for (const { playerIds, frame } of round.frames) this.sendState(playerIds, frame);
   }
