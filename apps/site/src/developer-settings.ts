@@ -258,7 +258,7 @@ function hostingPane(settings: Settings): LayoutItem {
     ),
     words(credit.balance_cents === 0 ? "Hosting is free up to each game's monthly allowance. Credit pays for what goes past it, only in games you give a budget." : "Credit pays for hosting past each game's free allowance, only in games you give a budget."),
     block(
-      listRows({
+      listRows({ whenEmpty: emptyState({ title: "Nothing to change", text: "Credit's settings show here." }),
         label: "Automatic top-up",
         rows: [
           {
@@ -315,7 +315,7 @@ function hostingPane(settings: Settings): LayoutItem {
   // Only games with something to say: they play online, used some of their free hosting, have a budget, are paused, or ran past free last month.
   const hostingGames = gameHostings.filter((game) => game.game.multiplayer_mode !== "none" || game.hosting.free_used_pct > 0 || game.hosting.monthly_budget_cents !== null || game.hosting.is_paused || game.lastMonthBeyondFreeCents > 0);
   if (hostingGames.length) {
-    items.push(heading("Your games this month"), block(listRows({ label: "Your games this month", rows: hostingGames.map(gameRow) })), ...hostingGames.flatMap(gameSheets));
+    items.push(heading("Your games this month"), block(listRows({ whenEmpty: emptyState({ title: "No games online yet", text: "Games that play online, or use their free hosting, show here." }), label: "Your games this month", rows: hostingGames.map(gameRow) })), ...hostingGames.flatMap(gameSheets));
   }
 
   // Top-ups.
@@ -324,7 +324,7 @@ function hostingPane(settings: Settings): LayoutItem {
     items.push(
       heading("Top-ups you can still refund"),
       block(
-        listRows({
+        listRows({ whenEmpty: emptyState({ title: "No top-ups to refund", text: "Top-ups you can still refund show here." }),
           label: "Top-ups",
           rows: topUps.map((topUp): ListRow => ({
             title: `${dollars(topUp.amount_cents)} added ${shownDate(topUp.created_at)}`,
@@ -344,7 +344,7 @@ function hostingPane(settings: Settings): LayoutItem {
         foldedPart({
           title: "The last 90 days",
           entryCount: credit.entries.length,
-          body: table({
+          body: table({ whenEmpty: emptyState({ title: "No credit entries", text: "Nothing was added to or spent from your credit in the last 90 days." }),
             caption: "Credit entries",
             isCompact: true,
             shownRowCount: 8,
@@ -429,7 +429,7 @@ function proPane(settings: Settings): LayoutItem {
     block(numbers({ items: [{ label: isPro ? (pro.is_pro_cancelled ? `Your plan, until ${shownDate(pro.pro_ends_at)}` : `Your plan, renews ${shownDate(pro.pro_ends_at)}`) : "Your plan", figure: isPro ? "Pro" : "Free" }] })),
     words(isPro ? (pro.is_pro_cancelled ? `You have Zaisma Pro until ${shownDate(pro.pro_ends_at)}. It won't renew.` : `You have Zaisma Pro. It renews ${shownDate(pro.pro_ends_at)}.`) : `Zaisma Pro raises your daily limits for ${dollars(PRO_PRICE_CENTS_PER_MONTH)} a month on your card. It's separate from hosting credit.`),
     block(
-      table({
+      table({ whenEmpty: emptyState({ title: "No limits", text: "Your daily limits show here." }),
         caption: "Daily limits",
         isCompact: true,
         columns: [{ label: "Limit" }, { label: "Free", isNumeric: true }, { label: "Pro", isNumeric: true }, { label: "Used today", isNumeric: true }],
@@ -503,7 +503,7 @@ function paymentsPane(settings: Settings): LayoutItem {
     { title: "Disconnect Stripe", detail: "Players can't buy in your games until you connect again · past sales stay", action: opens("Disconnect", "payments-disconnect") },
   );
   items.push(
-    block(listRows({ label: "Payments settings", rows })),
+    block(listRows({ whenEmpty: emptyState({ title: "Nothing to change", text: "Stripe's settings show here once it's connected." }), label: "Payments settings", rows })),
     layer(
       sheet({
         id: "payments-tax",
@@ -538,7 +538,7 @@ function webhooksPane(settings: Settings, state: PageState, deliveries: Delivery
   else {
     items.push(
       block(
-        listRows({
+        listRows({ whenEmpty: emptyState({ title: "No webhooks yet", text: "A webhook sends your server a signed event when something happens in your games." }),
           label: "Webhooks",
           rows: webhooks.map((webhook): ListRow => {
             const where = whereOf(webhook);
@@ -628,7 +628,7 @@ function webhooksPane(settings: Settings, state: PageState, deliveries: Delivery
 }
 
 function deliveriesTable(webhookId: string, deliveries: DeliveryJson[], nextCursor: string | null): Raw {
-  return html`${table({
+  return html`${table({ whenEmpty: emptyState({ title: "No deliveries yet", text: "Each event sent to this webhook shows here, with what your server answered." }),
     caption: "Deliveries",
     isCompact: true,
     shownRowCount: 8,
@@ -652,7 +652,7 @@ function signInAppsPane(settings: Settings): LayoutItem {
     items.push(
       words(`Issuer: ${signInApps[0]!.issuer_url}`),
       block(
-        listRows({
+        listRows({ whenEmpty: emptyState({ title: "No sign-in apps yet", text: "Sign in with Zaisma lets players use their Zaisma account on your own site." }),
           label: "Sign-in apps",
           rows: signInApps.map((app): ListRow => ({
             title: app.name,
@@ -714,7 +714,7 @@ function keysPane(keys: ApiKey[], games: { slug: string; title: string }[], maki
   else {
     items.push(
       block(
-        listRows({
+        listRows({ whenEmpty: emptyState({ title: "No keys yet", text: "Make one for your AI tool, or connect an AI app by signing in." }),
           label: "Keys",
           rows: keys.map((key): ListRow => ({
             lead: icon("key"),
@@ -923,7 +923,7 @@ async function settingsPage(env: Env, request: Request, session: SignedIn, calle
   ];
   const panes = stack({ items: [...topNotes, ...paneItems] });
   const body = html`<h1 class="sr">Developer settings</h1>${sidePlaces({ label: "Developer settings", places: TAB_PANES.map((pane, index) => ({ label: pane.label, icon: pane.icon, href: `#${pane.id}`, isCurrent: index === 0 })), body: panes })}${paneItems.map((paneItem) => PANE_LAYERS.get(paneItem) ?? "")}${spendingSheet}${state.done && DONE_WORDS[state.done] ? notice({ text: DONE_WORDS[state.done]!, tone: "done" }) : ""}${state.problem ? notice({ text: state.problem, tone: "problem" }) : ""}${scriptTags(PASSKEY_SCRIPT, SETTINGS_SCRIPT)}`;
-  const response = layout(env, { title: "Developer settings · Zaisma", body, checkedPage: "Developer settings", nav: "developer", viewer: { account }, isPrivate: true });
+  const response = layout(env, { title: "Developer settings · Zaisma", body, checkedPage: "Developer settings", pageShape: "reading", nav: "developer", viewer: { account }, isPrivate: true });
   const answered = new Response(response.body, { status: httpStatus, headers: response.headers });
   for (const cookie of session.cookies) answered.headers.append("Set-Cookie", cookie);
   return answered;

@@ -3,11 +3,25 @@
  * no imports, so the check reads it in Node as it is.
  */
 
-/** The screens every page is shown and measured on: Julius's phone, and a desktop. scripts/layout-check.mjs measures at the same. */
+/**
+ * The screens every page is measured on, the ones players bring (docs/DESIGN.md, Screens): a small phone and a common one, a phone on its side,
+ * an iPad, a Steam Deck, a laptop and a 1440p monitor. A phone is drawn at twice its pixels as a mobile browser; a touch screen is held to 44px
+ * targets; the runner is held above the fold except on a phone on its side, which scrolls.
+ */
 export const SCREEN_SIZES = [
-  { name: "Phone", widthPx: 320, heightPx: 667, isPhone: true },
-  { name: "Desktop", widthPx: 1440, heightPx: 900, isPhone: false },
+  { name: "Phone", widthPx: 320, heightPx: 667, isPhone: true, hasTouch: true, isRunnerChecked: true },
+  { name: "Big phone", widthPx: 390, heightPx: 844, isPhone: true, hasTouch: true, isRunnerChecked: true },
+  { name: "Landscape phone", widthPx: 844, heightPx: 390, isPhone: true, hasTouch: true, isRunnerChecked: false },
+  { name: "Tablet", widthPx: 820, heightPx: 1180, isPhone: false, hasTouch: true, isRunnerChecked: true },
+  { name: "Steam Deck", widthPx: 1280, heightPx: 800, isPhone: false, hasTouch: true, isRunnerChecked: true },
+  { name: "Laptop", widthPx: 1440, heightPx: 900, isPhone: false, hasTouch: false, isRunnerChecked: true },
+  { name: "Desktop", widthPx: 2560, heightPx: 1440, isPhone: false, hasTouch: false, isRunnerChecked: true },
 ] as const;
+export type ScreenName = (typeof SCREEN_SIZES)[number]["name"];
+/** What a run checks unless told otherwise (npm run layout:check -- --screens): Julius's phone and a laptop, so a build's runs stay quick. GitHub's check runs all seven. */
+export const LOCAL_SCREEN_NAMES: readonly ScreenName[] = ["Phone", "Laptop"];
+/** The screens a run at 200% text checks (--text 200): a laptop and an iPad. A phone at 320 is already checked to reflow. */
+export const TEXT_SCREEN_NAMES: readonly ScreenName[] = ["Tablet", "Laptop"];
 export const SCREEN_THEMES = ["light", "dark"] as const;
 
 /**

@@ -186,18 +186,24 @@ export const ROW_LAYOUT_SCRIPT = `/* row layout */(function () {
 })();
 `;
 
-export interface GridOptions {
+export type GridOptions = {
   items: LayoutItem[];
-  /** What a cell holds, which names its least width: a cover, a card, a figure. Cells share the width equally, as many as fit. */
-  itemSize: "cover" | "card" | "figure";
   label?: string;
   /** Unique on the page, for Load more to add the next page's cells to it (navigation.ts, loadMore's listIds). */
   id?: string;
-}
+} & (
+  /** What a cell holds, which names its least width: a cover, a card, a figure. Cells share the width equally, as many as fit. */
+  | { itemSize: "cover" | "card"; whenEmpty: Raw }
+  /** Pictures or fields that are always there: no empty state. */
+  | { itemSize: "figure"; whenEmpty?: never }
+);
 
-/** Cells of one size, as many to a line as fit their least width, folding to one column where two can't fit. */
+/**
+ * Cells of one size, as many to a line as fit their least width, folding to one column where two can't fit. A grid of covers or cards says what
+ * shows in its place while it has none (whenEmpty, an Empty state), a page script's cells included.
+ */
 export function grid(options: GridOptions): Raw {
-  return html`<div class="layout-grid item-${options.itemSize}"${options.id ? html` id="${options.id}"` : ""}${groupLabel(options.label)}>${options.items.map((layoutItem) => html`<div class="grid-cell is-${layoutItem.kind}"${placeAttributes(layoutItem)}>${layoutItem.markup}</div>`)}</div>`;
+  return html`<div class="layout-grid item-${options.itemSize}"${options.id ? html` id="${options.id}"` : ""}${groupLabel(options.label)}>${options.items.map((layoutItem) => html`<div class="grid-cell is-${layoutItem.kind}"${placeAttributes(layoutItem)}>${layoutItem.markup}</div>`)}</div>${options.whenEmpty ? html`<div class="when-empty">${options.whenEmpty}</div>` : ""}`;
 }
 
 export interface TrackOptions {
@@ -208,11 +214,13 @@ export interface TrackOptions {
   /** What a cell holds, which names its width: a cover. */
   itemSize: "cover";
   label?: string;
+  /** What shows in its place while it has no covers (an Empty state), a page script's included. */
+  whenEmpty: Raw;
 }
 
 /** A row of cells of one size that scrolls sideways, fading at an edge with more past it: a row of covers, with Row arrows for a mouse. */
 export function track(options: TrackOptions): Raw {
-  return html`<div class="layout-track item-${options.itemSize}" id="${options.id}" data-fades-sideways${groupLabel(options.label)}>${options.items.map((layoutItem) => layoutItem.markup)}</div>`;
+  return html`<div class="layout-track item-${options.itemSize}" id="${options.id}" data-fades-sideways${groupLabel(options.label)}>${options.items.map((layoutItem) => layoutItem.markup)}</div><div class="when-empty">${options.whenEmpty}</div>`;
 }
 
 export interface ColumnsOptions {
@@ -403,6 +411,17 @@ ${edgeRows("bottom")} { align-items: flex-end; }
 .row-cell:has(> [hidden]:only-child) { display: none; }
 `;
 
+/**
+ * A list with nothing in it shows what it says in its place (whenEmpty, right after it), and the list itself takes no room; with something in
+ * it, the other way round. By what's in it, so a list a page script fills or empties shows the right one with no script of its own.
+ */
+export const WHEN_EMPTY_STYLES = `
+/* A list and its empty state: one shows. */
+:is(.list-rows:not(:has(> li:not([hidden]))), .layout-grid:not(:has(> .grid-cell:not([hidden]))), .layout-track:not(:has(> :not([hidden])))) { display: none; }
+:is(.list-rows:has(> li:not([hidden])), .layout-grid:has(> .grid-cell:not([hidden])), .layout-track:has(> :not([hidden]))) + .when-empty { display: none; }
+.when-empty { display: flex; flex-direction: column; min-width: 0; }
+`;
+
 export const GRID_STYLES = `
 /* A grid: cells of one size, as many to a line as their least width allows (a named size, by what they hold), sharing the width; one
    column where two can't fit, by the grid's own width. */
@@ -464,4 +483,51 @@ export const PANE_PARTS_STYLES = `
 .pane-head-end.is-words { padding: var(--pad-words) var(--pad-words) 0 0; }
 .pane-foot-end.is-words { padding: 0 var(--pad-words) var(--pad-words) 0; }
 .pane-body { display: flex; flex-direction: column; gap: var(--gap-block-block); min-width: 0; }
+`;
+
+/** The page shapes (html.ts's PageShape), in the order the gallery draws them. */
+export const PAGE_SHAPES = ["reading", "wide", "full"] as const;
+
+/** The screens the gallery draws the shapes on (checked-pages.ts's Desktop and Laptop), and the widths the shapes' tokens give: tokens.ts. */
+const DRAWN_SCREENS = [
+  { screenName: "2560 desktop", widthPx: 2560, heightPx: 1440 },
+  { screenName: "Laptop", widthPx: 1440, heightPx: 900 },
+] as const;
+const PAGE_WIDE_PX = 1680;
+const PAGE_READING_PX = 820;
+const PAGE_MARGIN_PX = 24;
+
+/** One page shape drawn small on a screen: the world behind, the header and footer in the wide frame, and what the page holds at its width. */
+export function pageShapeDrawing(options: { pageShape: (typeof PAGE_SHAPES)[number]; screenName: (typeof DRAWN_SCREENS)[number]["screenName"] }): Raw {
+  const screenSlug = options.screenName === "Laptop" ? "laptop" : "desktop";
+  return html`<div class="shape-drawing on-${screenSlug} shape-${options.pageShape}" data-cut-line="0" role="img" aria-label="A ${options.pageShape} page on a ${options.screenName}"><span class="shape-world"></span><span class="shape-bar"></span><span class="shape-page"><span class="shape-pane"></span><span class="shape-pane"></span></span><span class="shape-bar is-foot"></span></div>`;
+}
+
+/** A screen's frame and reading column, as shares of its width, for the drawings. */
+const shareOf = (widthPx: number, screenWidthPx: number) => `${Math.round((Math.min(widthPx, screenWidthPx - 2 * PAGE_MARGIN_PX) / screenWidthPx) * 1000) / 10}%`;
+
+export const PAGE_SHAPE_STYLES = `
+/* Page shapes: a rebuilt page says what it is (html.ts's pageShape, data-page-shape on the page), and that sets how wide it runs, so nothing
+   stretches across a big screen. The header, the footer and a wide or full page's panes sit in the wide frame (--size-page-wide); a reading
+   page is one column (--size-page-reading) centered under the header, or its places down the side beside that column, the pair centered in
+   the frame. A full page's world (its backdrop or stage) runs to the screen's edges behind. On a phone every shape is the screen less its margins. */
+html[data-page-shape] body > main { width: min(var(--size-page-wide), calc(100% - 2 * var(--pad-pane))); margin: 0 auto; }
+html[data-page-shape="reading"] body > main:not(:has(> .side-places)) { width: min(var(--size-page-reading), calc(100% - 2 * var(--pad-pane))); }
+/* The drawings in the gallery: a screen in its proportions, its world, the header and footer in the frame, and the page's panes at its width. */
+.shape-drawing { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: space-evenly; width: 100%; aspect-ratio: 16 / 9; overflow: hidden; background: var(--well); box-shadow: var(--well-shade); clip-path: var(--cut-shape); }
+.shape-drawing.on-laptop { aspect-ratio: 16 / 10; }
+.shape-world { position: absolute; inset: 0; background: linear-gradient(135deg, color-mix(in srgb, var(--run) 18%, transparent), transparent 60%); }
+/* A full page's world runs to the screen's edges, bright; behind a reading or wide page it's quieter, the frame being what counts. */
+.shape-drawing:is(.shape-reading, .shape-wide) .shape-world { opacity: 0.35; }
+.shape-drawing.shape-full .shape-world { opacity: 1; }
+.shape-bar, .shape-page { position: relative; display: flex; }
+.shape-bar { height: 7%; background: var(--slab); box-shadow: var(--slab-shade); }
+.shape-bar.is-foot { height: 5%; }
+.shape-page { height: 62%; flex-direction: column; justify-content: space-between; }
+.shape-pane { height: 46%; background: var(--slab); box-shadow: var(--slab-shade); }
+${DRAWN_SCREENS.map((screen) => {
+  const slug = screen.screenName === "Laptop" ? "laptop" : "desktop";
+  return `.shape-drawing.on-${slug} > .shape-bar, .shape-drawing.on-${slug} > .shape-page { width: ${shareOf(PAGE_WIDE_PX, screen.widthPx)}; }
+.shape-drawing.on-${slug}.shape-reading > .shape-page { width: ${shareOf(PAGE_READING_PX, screen.widthPx)}; }`;
+}).join("\n")}
 `;

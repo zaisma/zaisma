@@ -303,7 +303,7 @@ describe("the gallery", () => {
       for (const holder of elementTree((await page(groupPath(group))).text)) {
         const children = holder.children.filter((child) => child.tag !== "svg" && child.tag !== "template");
         // A control's own parts (a switch's tabs, the row arrows' two slabs, a dropdown's choices) are its inside, not controls beside each other.
-        if (holder.classes.includes("shell") || holder.attributes.includes(" data-cut-line") || holder.attributes.includes(' role="menu"') || holder.attributes.includes(' role="listbox"')) continue;
+        if (holder.classes.includes("shell") || holder.attributes.includes(" data-cut-line") || holder.attributes.includes(' role="menu"') || holder.classes.includes("dropdown-in") || holder.attributes.includes(' role="listbox"')) continue;
         // A compact choice list's cards are its own inside, down its carved well like a vertical switch's places.
         if (holder.classes.includes("choice-list-in")) continue;
         if (children.length < 2 || !children.every((child) => child.classes.includes("shell") || child.attributes.includes(" data-cut-line"))) continue;
@@ -460,13 +460,13 @@ describe("components", () => {
   });
 
   it("head a table's columns for screen readers and line its numbers up on the right", () => {
-    const markup = data.table({ caption: "Versions", columns: [{ label: "Version" }, { label: "Files", isNumeric: true }], rows: [["Version 14", "312"]] }).html;
+    const markup = data.table({ whenEmpty: html`<p>No rows yet.</p>`, caption: "Versions", columns: [{ label: "Version" }, { label: "Files", isNumeric: true }], rows: [["Version 14", "312"]] }).html;
     expect(markup).toContain('<p class="table-caption" id="table-versions-caption">Versions</p>');
     expect(markup).toContain('aria-labelledby="table-versions-caption"');
     expect(markup).toContain('<th scope="col" class="glass">Version</th><th scope="col" class="glass num">Files</th>');
     expect(markup).toContain('<td>Version 14</td><td class="num">312</td>');
     // A first column that names the rows is each row's head.
-    expect(data.table({ caption: "Versions", hasRowHeads: true, columns: [{ label: "Version" }, { label: "Files", isNumeric: true }], rows: [["Version 14", "312"]] }).html).toContain('<th scope="row" class="glass">Version 14</th><td class="num">312</td>');
+    expect(data.table({ whenEmpty: html`<p>No rows yet.</p>`, caption: "Versions", hasRowHeads: true, columns: [{ label: "Version" }, { label: "Files", isNumeric: true }], rows: [["Version 14", "312"]] }).html).toContain('<th scope="row" class="glass">Version 14</th><td class="num">312</td>');
   });
 
   it("give a chart's numbers to screen readers as a table of the same values", () => {
@@ -688,7 +688,7 @@ const NOT_SPACING = new Set<string>([
   ".choice-cards > .choice-card:not(:last-child) | margin-inline-end",
   // A control's own parts: a well's inset round its slab, the birthday's wheels, and a list of places, one control its slab glides along.
   ".tab-switch | padding", ".tab-switch.small | padding", ".color-well | padding", ".steps | padding", ".wheels | gap", ".wheels | padding",
-  ".dropdown | gap",
+  ".dropdown | gap", ".dropdown-in | gap",
   // Room to scroll, or for a scrollbar or a page's rail.
   ".wheel | padding", "html | scroll-padding-top", ".gallery-layout | padding-right",
   ".choice-list-in.own-scroll.shows-rail | padding-right", ".sheet-in.own-scroll.shows-rail | padding-right", ".sheet-body.own-scroll.shows-rail | padding-right",
@@ -875,7 +875,7 @@ describe("layout", () => {
   });
 
   it("takes only named sizes: a grid's cells, a track's covers, columns' halves, never a number of a page's", () => {
-    expect(grid({ itemSize: "cover", items: [block("a")] }).html).toContain('class="layout-grid item-cover"');
+    expect(grid({ whenEmpty: html`<p>No games here yet.</p>`, itemSize: "cover", items: [block("a")] }).html).toContain('class="layout-grid item-cover"');
     // Every width, height, basis or template in the layout components is a named size or a share: no pane has a width of its own.
     const SIZE_PROPERTY = /(?:^|[;\s{])((?:min-|max-)?(?:width|height)|flex-basis|flex|grid-template-columns):\s*([^;}]+)/g;
     // A length, other than a share (%), a fraction or a flex number, is a named one: a size token, or a track's cover.

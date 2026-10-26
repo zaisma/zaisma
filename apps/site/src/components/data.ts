@@ -3,7 +3,7 @@ import { component } from "./component.ts";
 import { cutButton, runButton, textLink } from "./actions.ts";
 import type { ControlMarkup } from "./control-markup.ts";
 import { CUT_LINE, MINUTE_MS, ago, glassPane, icon, tag, type IconName, type TagTone } from "./foundations.ts";
-import { row } from "./layout.ts";
+import { WHEN_EMPTY_STYLES, row } from "./layout.ts";
 
 /*
  * Data: an account's picture in its cut frame, and the glance list, one line per fact, each in its own look.
@@ -300,9 +300,19 @@ export type ListRow = ListRowParts & ({ href: string; action?: never } | { href?
 /** A row's buttons side by side, slanting toward each other. */
 const rowOf = (actions: ControlMarkup[]) => row({ widths: "fit", items: actions.map((markup) => ({ kind: "control" as const, markup })) });
 
-/** List rows: a list on glass, one thing a row with hairlines between (versions, keys, topics, players); a row with an address is a link as a whole. */
-export function listRows(options: { rows: ListRow[]; id?: string; label?: string; shownRowCount?: number }): Raw {
+/**
+ * List rows: a list on glass, one thing a row with hairlines between (versions, keys, topics, players); a row with an address is a link as a whole.
+ * whenEmpty (an Empty state) shows in its place while it has no rows shown, a page script's rows included (WHEN_EMPTY_STYLES).
+ */
+export function listRows(options: { rows: ListRow[]; whenEmpty: Raw; id?: string; label?: string; shownRowCount?: number }): Raw {
   const cap = options.shownRowCount ? html` style="--shown-row-count:${String(options.shownRowCount)}"` : "";
+  return html`${listMarkup(options, cap)}${whenEmptyMarkup(options.whenEmpty)}`;
+}
+
+/** What shows in a list's place while it has nothing in it: right after the list, which hides itself while it's empty (WHEN_EMPTY_STYLES). */
+const whenEmptyMarkup = (whenEmpty: Raw): Raw => html`<div class="when-empty">${whenEmpty}</div>`;
+
+function listMarkup(options: { rows: ListRow[]; id?: string; label?: string; shownRowCount?: number }, cap: Raw | ""): Raw {
   return html`<ul class="list-rows${options.shownRowCount ? " is-capped" : ""}"${cap}${options.id ? html` id="${options.id}"` : ""}${options.label ? html` aria-label="${options.label}"` : ""}>${options.rows.map((row) => {
     const details = [row.detail, row.secondDetail].filter((line): line is string => Boolean(line));
     const inside = html`${row.lead ? html`<span class="list-row-lead">${row.lead}</span>` : ""}<span class="list-row-words"><span class="list-row-title">${row.title}</span>${details.map((line) => html`<span class="list-row-detail">${factLine(line, "list-row-fact")}</span>`)}${row.meter ? html`<span class="list-row-meter">${usageTrack(row.meter)}</span>` : ""}</span>${row.end !== undefined ? html`<span class="list-row-end">${row.end}</span>` : ""}`;
@@ -317,7 +327,7 @@ const VERSION_LIST_ROWS: ListRow[] = [
   { title: "Version 14", detail: "2 days ago · 312 files · 48.1 MB", href: "#list-rows", end: VERSION_STATE_TAGS.live },
   { title: "Version 13", detail: "5 days ago · 309 files · 47.6 MB", href: "#list-rows", end: VERSION_STATE_TAGS.replaced },
 ];
-const listPane = (rows: ListRow[]) => glassPane({ paneWidth: "fit", body: listRows({ rows }) });
+const listPane = (rows: ListRow[]) => glassPane({ paneWidth: "fit", body: listRows({ rows, whenEmpty: html`<p>No versions yet.</p>` }) });
 const ROW_BUTTON = { type: "button", isSmall: true } as const;
 
 component({
@@ -455,7 +465,7 @@ component({
   slug: "empty-state",
   group: "data",
   summary: "Where a list has nothing yet: what will be here, how it gets here, and the button that starts it. In the voice, never a picture.",
-  styles: STATE_STYLES,
+  styles: STATE_STYLES + WHEN_EMPTY_STYLES,
   render: emptyState,
   examples: [
     { label: "With what starts it", markup: glassPane({ paneWidth: "fit", body: emptyState({ title: "No games yet", text: "Make one from your AI, or upload a folder with an index.html from your terminal.", action: runButton("Make a game", { type: "button", isFullWidth: true }) }) }) },
@@ -545,8 +555,10 @@ export interface TableOptions {
   isCompact?: boolean;
   /** At most this many rows show at once, the next peeking in; the rest scroll under the header. Left out, rows show up to 640px or three quarters of the screen. */
   shownRowCount?: number;
-  /** In place of the rows while there are none, under the header: a Loading state while they come, an Empty state or a Problem state. */
+  /** In place of the rows while they come or can't: a Loading state or a Problem state, under the header. */
   rowsPlaceholder?: Raw;
+  /** In place of the rows while there are none: an Empty state, under the header. */
+  whenEmpty: Raw;
   /** Unique on the page. Defaults to a slug of its caption. */
   id?: string;
 }
@@ -569,8 +581,9 @@ export function table(options: TableOptions): Raw {
     isRowHead(columnIndex)
       ? html`<th scope="row" class="glass">${content}</th>`
       : html`<td${cellClass(columnIndex)}>${options.columns[columnIndex]?.isActions ? html`<div class="control-row">${content}</div>` : content}</td>`;
-  const body = options.rowsPlaceholder
-    ? html`<tr><td class="table-placeholder" colspan="${String(options.columns.length)}"><div class="table-placeholder-in">${options.rowsPlaceholder}</div></td></tr>`
+  const placeholder = options.rowsPlaceholder ?? (options.rows.length ? null : options.whenEmpty);
+  const body = placeholder
+    ? html`<tr><td class="table-placeholder" colspan="${String(options.columns.length)}"><div class="table-placeholder-in">${placeholder}</div></td></tr>`
     : options.rows.map((row) => html`<tr>${row.map(cell)}</tr>`);
   const cap = options.shownRowCount ? html` style="--shown-row-count:${String(options.shownRowCount)}"` : "";
   return html`<div class="table"><p class="table-caption" id="${id}-caption">${options.caption}</p><div class="table-scroll${options.shownRowCount ? " is-capped" : ""}"${cap} data-fades-sideways data-side-rail${options.shownRowCount ? "" : raw(" data-scroll-box")} data-cut-line="8"><table class="data-table${options.isCompact ? " compact" : ""}${options.hasRowHeads ? " has-row-heads" : ""}" aria-labelledby="${id}-caption"><thead><tr>${options.columns.map(
@@ -592,7 +605,7 @@ const REQUEST_ROWS: (Raw | string)[][] = Array.from({ length: 30 }, (_, rowIndex
   const clock = [Math.floor(secondCount / 3600), Math.floor(secondCount / 60) % 60, secondCount % 60].map((clockPartNumber) => String(clockPartNumber).padStart(2, "0")).join(":");
   return [clock, html`<code>${REQUEST_ROUTES[rowIndex % REQUEST_ROUTES.length]}</code>`, rowIndex % 9 === 2 ? "409" : rowIndex % 11 === 4 ? "429" : "200", `${(rowIndex * 7) % 40 + 2} ms`];
 });
-const tablePane = (options: TableOptions) => glassPane({ paneWidth: "full", body: table(options) });
+const tablePane = (options: Omit<TableOptions, "whenEmpty">) => glassPane({ paneWidth: "full", body: table({ whenEmpty: emptyState({ title: "No rows yet", text: "Rows show here as they come." }), ...options }) });
 
 component({
   name: "Table",

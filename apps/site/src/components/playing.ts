@@ -257,7 +257,7 @@ component({
   examples: [
     {
       label: "In a list",
-      markup: grid({
+      markup: grid({ whenEmpty: html`<p>No games here yet.</p>`,
         itemSize: "cover",
         items: [
           { kind: "block", markup: gameCard({ title: "Kestrel", imageUrl: "/design/covers/kestrel.webp", href: "#kestrel", facts: { playerCount: 12480 } }) },

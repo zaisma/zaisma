@@ -224,7 +224,7 @@ component({
 .tab-switch .ghost { background: var(--ghost); opacity: 0; }
 .tab-switch.pointing .ghost { opacity: 1; }
 .tab-switch > a, .tab-switch > button { position: relative; z-index: 2; display: grid; place-content: center; padding: 0 var(--tab-room); border: 0; background: none; cursor: pointer;
-  font: 500 15px var(--display); color: var(--ink-2); text-decoration: none; white-space: nowrap; }
+  font: 500 0.9375rem var(--display); color: var(--ink-2); text-decoration: none; white-space: nowrap; }
 .tab-switch.big > a, .tab-switch.big > button { flex: 1 1 0; }
 /* The one you're on is marked by its slab and full ink, at the same weight as the others, so its words never move as it's chosen. */
 .tab-switch [aria-current="page"], .tab-switch [aria-pressed="true"] { color: var(--ink); }
@@ -262,7 +262,7 @@ component({
 .tab-switch.small { --control-height: var(--control-height-small); --tab-room: 14px; padding: 3px; clip-path: var(--cut-shape); }
 .tab-switch.small .slab, .tab-switch.small .ghost { top: 3px; bottom: 3px; transition-duration: 0.4s, 0.4s, 0.3s; }
 /* Its tabs keep their own widths, and share out any room past them evenly (a sort filling its line under a heading on a phone). */
-.tab-switch.small > a, .tab-switch.small > button { flex: 1 1 auto; font-size: 14px; }
+.tab-switch.small > a, .tab-switch.small > button { flex: 1 1 auto; font-size: 0.875rem; }
 /* The first and last tabs shown sit against the switch's cut corners, which eat into them at its ends: they take a slant's more room there.
    A folded tab isn't shown, so the ends are the first and last tabs that aren't folded (the cut line, slab, ghost and ring are hidden from readers, so they never count). */
 .tab-switch:not(.vertical) > :nth-child(1 of :not(.folded):not([aria-hidden])) { padding-inline-start: calc(var(--tab-room) + var(--control-slant) / 2); }

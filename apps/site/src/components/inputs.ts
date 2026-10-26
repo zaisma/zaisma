@@ -332,7 +332,7 @@ component({
 .field.code { height: auto; min-height: var(--control-height-field); align-items: stretch; }
 /* Each line is as tall as Copy's half and the gap round it, so the first line sits on Copy's center line and the second clears it. */
 /* One long token (a key, an address) breaks at a line's end, or at a slash or hyphen where one is near it. */
-.code-text { position: relative; z-index: 2; flex: 1; min-width: 0; padding: 14px var(--pad-inside-words); font: 500 15px/24px ui-monospace, Menlo, monospace; color: var(--ink);
+.code-text { position: relative; z-index: 2; flex: 1; min-width: 0; padding: 14px var(--pad-inside-words); font: 500 0.9375rem/1.5rem ui-monospace, Menlo, monospace; color: var(--ink);
   overflow-wrap: anywhere; cursor: text; background: var(--well); box-shadow: var(--well-shade); clip-path: var(--cut-shape); }
 /* Only the first line keeps clear of Copy (and its gap); the lines under it run the field's whole width. */
 .code-text::before { content: ""; float: right; width: 48px; height: 24px; }

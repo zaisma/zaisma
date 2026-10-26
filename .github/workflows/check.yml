@@ -275,12 +275,12 @@ jobs:
       - if: failure()
         run: tail -n 80 .wrangler/preview-run/preview.log .wrangler/preview/servers.log || true
 
-  # The measuring check (npm run layout:check): every page in headless Chrome at 320 x 667 and 1440 x 900, light and dark,
-  # on the preview with its stand-ins and test data (test/layout/layout-check.test.ts), each runner its share of the pages
+  # The measuring check (npm run layout:check -- --screens all): every page in headless Chrome on all seven screens and at 200% text,
+  # light and dark, on the preview with its stand-ins and test data (test/layout/layout-check.test.ts), each runner its share of the pages
   # (LAYOUT_CHECK_SHARD, scripts/layout-check.mjs). The preview starts from the snapshot in seconds and applies this branch's
   # own migrations, as it does on any start.
   layout:
-    name: Layout check (${{ matrix.shard }} of 2)
+    name: Layout check (${{ matrix.shard }} of 4)
     needs: [changes, seed]
     if: ${{ !cancelled() && needs.changes.outputs.is_code_changed == 'true' && needs.changes.outputs.is_checked_in_queue != 'true' && (needs.seed.result == 'success' || needs.seed.result == 'skipped') }}
     runs-on: ubuntu-latest
@@ -288,7 +288,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2]
+        shard: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -312,7 +312,8 @@ jobs:
       - run: npx vitest run --project layout
         env:
           LAYOUT_CHECK: "1"
-          LAYOUT_CHECK_SHARD: ${{ matrix.shard }}/2
+          LAYOUT_CHECK_SHARD: ${{ matrix.shard }}/4
+          LAYOUT_CHECK_SCREENS: all
       - if: failure()
         run: tail -n 80 .wrangler/preview-run/preview.log .wrangler/preview/servers.log || true
 

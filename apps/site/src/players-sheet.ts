@@ -3,7 +3,7 @@ import { currentSession } from "./auth.ts";
 import type { Env } from "./env.ts";
 import { cutButton, textLink } from "./components/actions.ts";
 import type { ControlMarkup } from "./components/control-markup.ts";
-import { listRows, pictureFrame } from "./components/data.ts";
+import { listRows, pictureFrame, emptyState } from "./components/data.ts";
 import { stack, type LayoutItem } from "./components/layout.ts";
 import { sheet } from "./components/panes.ts";
 import { joinPath } from "./friends-now.ts";
@@ -70,7 +70,7 @@ const ROOM_CODE = /^[A-Z0-9]{6}$/;
  */
 function friendRows(slug: string, friends: Awaited<ReturnType<typeof friendsInGameOf>>): Raw {
   if (!friends.length) return html`<p class="sheet-text">None of your friends are playing this right now.</p>`;
-  return listRows({
+  return listRows({ whenEmpty: emptyState({ title: "No friends playing", text: "None of your friends are playing this right now." }),
     label: "Friends playing",
     rows: friends.map((friend) => {
       const join = friend.join_refusal === "friend_not_in_room" || (!friend.room_code && !friend.join_refusal) ? null : { room_code: friend.room_code ?? "", server_url: friend.server_url, refusal: friend.join_refusal, refusing_friend_names: [friend.username] };
@@ -95,7 +95,7 @@ export function playersSheet(options: { gameOrigin: string; slug: string; title:
   const body = stack({
     items: [
       words(html`<h3 id="players-room-title">In this room<span id="players-count"></span></h3>`),
-      { kind: "block", markup: listRows({ rows: [], id: "players-list", label: "In this room" }) },
+      { kind: "block", markup: listRows({ whenEmpty: emptyState({ title: "Nobody here yet", text: "Players show here as they join your room." }), rows: [], id: "players-list", label: "In this room" }) },
       words(html`<p id="players-note" hidden></p>`),
       words(html`<p id="players-watching" hidden></p>`),
       {
@@ -116,7 +116,7 @@ export function playersSheet(options: { gameOrigin: string; slug: string; title:
     ],
   });
   const rowButton = { type: "button", isSmall: true } as const;
-  const rowTemplate = listRows({ rows: [{ lead: pictureFrame("?", "md"), title: "?", detail: "?", action: [cutButton("Mute", { ...rowButton, dataAttributes: { "player-action": "mute" } }), cutButton("More", { ...rowButton, icon: "more", isLabelHidden: true, controls: "players-player", dataAttributes: { "player-action": "more" } })] }] });
+  const rowTemplate = listRows({ whenEmpty: emptyState({ title: "Nobody here yet", text: "Players show here as they join your room." }), rows: [{ lead: pictureFrame("?", "md"), title: "?", detail: "?", action: [cutButton("Mute", { ...rowButton, dataAttributes: { "player-action": "mute" } }), cutButton("More", { ...rowButton, icon: "more", isLabelHidden: true, controls: "players-player", dataAttributes: { "player-action": "more" } })] }] });
   return html`${sheet({ id: "players", title: "Players", body, closeLabel: "Close", placement: "foot" })}
 ${sheet({ id: "players-player", title: "Player", body: playerBody, closeLabel: "Close", placement: "foot" })}
 <template id="players-row">${rowTemplate}</template>

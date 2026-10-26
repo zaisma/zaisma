@@ -4,6 +4,7 @@ import { html, layout, scriptTags, type Raw } from "./html.ts";
 import type { Viewer } from "./viewer.ts";
 import { textLink } from "./components/actions.ts";
 import { STAND_IN_BACKGROUNDS_SCRIPT, gameBackgroundFrame, glassPane, tray } from "./components/foundations.ts";
+import { emptyState } from "./components/data.ts";
 import { grid, stack } from "./components/layout.ts";
 import { readingText } from "./components/reading.ts";
 import { SHADER_HELPERS, STAND_IN_BACKGROUNDS, type StandInBackground } from "./components/shaders.ts";
@@ -110,7 +111,7 @@ export function backgroundGuideBody(): Raw {
       items: [
         {
           kind: "block",
-          markup: grid({
+          markup: grid({ whenEmpty: emptyState({ title: "No stand-in worlds", text: "The stand-in worlds are on their way back." }),
             itemSize: "card",
             items: STAND_IN_BACKGROUNDS.map((background) => ({
               kind: "block" as const,
@@ -137,7 +138,7 @@ export function backgroundGuideBody(): Raw {
 
 export function backgroundGuidePage(env: Env, viewer: Viewer): Response {
   // The worlds' shaders come from a cached script, too long to write into the page.
-  const response = layout(env, { title: `${BACKGROUND_GUIDE.title} · Zaisma`, body: html`${backgroundGuideBody()}${scriptTags(STAND_IN_BACKGROUNDS_SCRIPT)}`, nav: "developer", viewer, checkedPage: "Background guide" });
+  const response = layout(env, { title: `${BACKGROUND_GUIDE.title} · Zaisma`, body: html`${backgroundGuideBody()}${scriptTags(STAND_IN_BACKGROUNDS_SCRIPT)}`, nav: "developer", viewer, pageShape: "reading", checkedPage: "Background guide" });
   for (const cookie of viewer.cookies) response.headers.append("Set-Cookie", cookie);
   return response;
 }

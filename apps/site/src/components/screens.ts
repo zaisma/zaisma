@@ -4,15 +4,16 @@ import { component } from "./component.ts";
 import { glassPane, tag } from "./foundations.ts";
 import { cutButton, runButton, textLink } from "./actions.ts";
 import { cutField } from "./inputs.ts";
+import { checkField } from "./choices.ts";
 import { grid, paneParts, row, stack } from "./layout.ts";
 import { MEASURE_LAYOUT_SOURCE } from "./layout-measure.ts";
-import { CHECKED_PAGES, SCREEN_SIZES, SCREEN_THEMES, type CheckedPage, type StepToTake, UNIQUE_WORD } from "./checked-pages.ts";
+import { CHECKED_PAGES, LOCAL_SCREEN_NAMES, SCREEN_SIZES, SCREEN_THEMES, type CheckedPage, type ScreenName, type StepToTake, UNIQUE_WORD } from "./checked-pages.ts";
 
 /** Zaisma's branches, in the order Screens shows them. */
 const AREAS: CheckedPage["area"][] = ["Playing", "Signing in", "Developers", "Gallery"];
 
 /*
- * Screens: one page on Julius's phone and on a desktop, light and dark, side by side, each measured by the layout check. It's where a
+ * Screens: one page on Julius's phone and a laptop (or any of the seven screens the check measures), light and dark, side by side, each measured by the layout check. It's where a
  * page's look is reviewed, never made: AI builds pages from the components and the layout, the check holds them to the rules, and a
  * person judges what they see here. Pointing at anything in a screen says what it is and which rule placed it, so feedback names the
  * rule (a token, an option, a check) and holds on every page. The Screens page is /design/screens?page=…, on a local preview only.
@@ -33,14 +34,24 @@ export interface ScreensOptions {
   title: string;
   /** Taken in each screen once its page loads, to show a state only forms and links reach (checked-pages.ts). */
   stepsToTake?: readonly StepToTake[];
+  /** The screens it's shown on (checked-pages.ts's SCREEN_SIZES, by name): a phone and a laptop when left out. */
+  screenNames?: readonly ScreenName[];
 }
+
+/** The screens asked for in the address (?screen=, more than once for several), as the check names them; a phone and a laptop when none is. */
+export const screenNamesOf = (url: URL): ScreenName[] => {
+  const asked = url.searchParams.getAll("screen").flatMap((name) => SCREEN_SIZES.filter((size) => size.name === name).map((size) => size.name));
+  return asked.length ? asked : [...LOCAL_SCREEN_NAMES];
+};
 
 /** The measuring check, as a script each screen puts in its page to run once it has drawn (scripts/layout-check.mjs runs the same). */
 export const LAYOUT_MEASURE_SCRIPT = pageScript("layout-measure", `window.zaismaMeasureLayout = ${MEASURE_LAYOUT_SOURCE};`);
 
-/** One page on the four screens: a desktop beside a phone, light over dark, each with what the measuring check finds under it. */
+/** One page on its screens, the widest first, light over dark, each with what the measuring check finds under it. */
 export function screens(options: ScreensOptions): Raw {
-  const shown = SCREEN_THEMES.flatMap((theme) => [SCREEN_SIZES[1], SCREEN_SIZES[0]].map((screenSize) => ({ theme, screenSize })));
+  const names = options.screenNames ?? LOCAL_SCREEN_NAMES;
+  const sizes = [...SCREEN_SIZES].reverse().filter((size) => names.includes(size.name));
+  const shown = SCREEN_THEMES.flatMap((theme) => sizes.map((screenSize) => ({ theme, screenSize })));
   return html`<div class="screens" data-screens${options.stepsToTake ? html` data-steps-to-take="${JSON.stringify(options.stepsToTake)}"` : ""} data-measure-script="${pageScriptPath(LAYOUT_MEASURE_SCRIPT)}" data-inspect-script="${pageScriptPath(LAYOUT_INSPECT_SCRIPT)}"><div class="screens-in">${shown.map(({ theme, screenSize }) => {
     const name = `${screenSize.name}, ${theme}`;
     return html`<figure class="screen" data-screen data-width-px="${String(screenSize.widthPx)}" data-height-px="${String(screenSize.heightPx)}" data-screen-theme="${theme}">
@@ -52,19 +63,19 @@ export function screens(options: ScreensOptions): Raw {
   })}</div></div>`;
 }
 
-/** The Screens page's first pane: what it is, the pages the check measures in Zaisma's branches, and any page to show. */
-export function screensPicker(path: string): Raw {
+/** The Screens page's first pane: what it is, the pages the check measures in Zaisma's branches, and any page to show, on the screens picked. */
+export function screensPicker(path: string, screenNames: readonly ScreenName[] = LOCAL_SCREEN_NAMES): Raw {
   const ownPages = CHECKED_PAGES.filter((page) => !page.isOnSignInSite && !page.isOffScreens && !page.path.startsWith(SCREENS_PATH));
   return glassPane({
     paneWidth: "full",
     label: "Pick a page",
     body: stack({
       items: [
-        { kind: "words", markup: html`<p>A page on a phone at 320 × 667 and a desktop at 1440 × 900, light and dark, each measured by the layout check. Point at or tap anything in a screen to see what it is and what placed it.</p>` },
+        { kind: "words", markup: html`<p>A page on the screens you pick, a phone and a laptop to start, light and dark, each measured by the layout check. Point at or tap anything in a screen to see what it is and what placed it.</p>` },
         // The pages the check measures, in Zaisma's branches: each branch's name over its pages.
         {
           kind: "block",
-          markup: grid({
+          markup: grid({ whenEmpty: html`<p>No pages are measured yet.</p>`,
             itemSize: "card",
             label: "Pages the check measures",
             items: AREAS.filter((area) => ownPages.some((page) => page.area === area)).map((area) => ({
@@ -81,7 +92,13 @@ export function screensPicker(path: string): Raw {
         },
         {
           kind: "block",
-          markup: html`<form method="get" action="${SCREENS_PATH}">${row({ widths: "lead-fills", items: [{ kind: "control", markup: cutField({ id: "screens-page", name: "page", label: "Page", type: "text", icon: "globe", text: path, placeholder: "/signin" }) }, { kind: "control", markup: runButton("Show", { type: "submit" }) }] })}</form>`,
+          markup: html`<form method="get" action="${SCREENS_PATH}">${stack({
+            items: [
+              { kind: "block", markup: row({ widths: "lead-fills", items: [{ kind: "control", markup: cutField({ id: "screens-page", name: "page", label: "Page", type: "text", icon: "globe", text: path, placeholder: "/signin" }) }, { kind: "control", markup: runButton("Show", { type: "submit" }) }] }) },
+              { kind: "words", markup: html`<h3>On these screens</h3>` },
+              { kind: "block", markup: grid({ itemSize: "figure", label: "Screens", items: SCREEN_SIZES.map((size) => ({ kind: "block" as const, markup: checkField({ id: `screens-screen-${size.name.toLowerCase().replace(/ /g, "-")}`, name: "screen", checkValue: size.name, label: `${size.name}, ${size.widthPx} × ${size.heightPx}`, isChecked: screenNames.includes(size.name) }) })) }) },
+            ],
+          })}</form>`,
         },
       ],
     }),
@@ -222,15 +239,14 @@ component({
   name: "Screens",
   slug: "screens",
   group: "layout",
-  summary: "One page on a phone at 320 × 667 and a desktop at 1440 × 900, light and dark, side by side, each with what the measuring check finds. Point at or tap anything in a screen to see what it is and which rule placed it. It's where a page is reviewed, never made: the Screens page shows any page this way on a local preview.",
+  summary: "One page on the screens players bring (a phone and a laptop to start; a big phone, a phone on its side, an iPad, a Steam Deck and a 2560 desktop as asked), light and dark, side by side, each with what the measuring check finds. Point at or tap anything in a screen to see what it is and which rule placed it. It's where a page is reviewed, never made: the Screens page shows any page this way on a local preview.",
   styles: `
 /* Screens: a desktop beside a phone (the phone at its own size), light over dark; one under the other where the desktop would get less
    than a phone's width. Each frame is carved into the pane and cut by the edge rule, scaled down to fit its cell, so the page inside keeps
    the screen's size; it shows once it has taken its light or dark. */
 /* Its words at its foot keep the pane's margin, --pad-words under them. */
 .screens { container-type: inline-size; padding-bottom: var(--pad-words); }
-.screens-in { display: grid; grid-template-columns: minmax(0, 1fr) ${SCREEN_SIZES[0].widthPx}px; gap: var(--gap-block-block); align-items: start; }
-@container (max-width: ${2 * SCREEN_SIZES[0].widthPx + 24}px) { .screens-in { grid-template-columns: minmax(0, 1fr); } }
+.screens-in { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, ${SCREEN_SIZES[0].widthPx}px), 1fr)); gap: var(--gap-block-block); align-items: start; }
 .screen { margin: 0; min-width: 0; display: flex; flex-direction: column; gap: var(--gap-words-control); }
 .screen-view { position: relative; overflow: hidden; background: var(--well); box-shadow: var(--well-shade); clip-path: var(--cut-shape); }
 .screen-view > iframe { position: absolute; left: 0; top: 0; border: 0; transform-origin: 0 0; background: var(--page); visibility: hidden; }
@@ -242,5 +258,5 @@ component({
 .screen-pointed { margin: 0; padding-inline: var(--pad-words); font: var(--type-note); color: var(--muted); }
 `,
   render: screens,
-  examples: [{ label: "The example page on the four screens", isWide: true, markup: screensPane({ path: "/design/example", title: "Example page" }) }],
+  examples: [{ label: "The example page on a phone and a laptop", isWide: true, markup: screensPane({ path: "/design/example", title: "Example page" }) }],
 });

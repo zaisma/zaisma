@@ -118,7 +118,7 @@ const HEADER_STYLES = `
    It's adaptive glass: --glass-top sets its tint and thickness, and smoked glass (dark, or .smoke) gives it light words. */
 .top {
   position: fixed; z-index: 10; top: var(--pad-pane); left: 50%; transform: translateX(-50%);
-  width: min(1240px, calc(100% - 2 * var(--pad-pane))); height: var(--header-height);
+  width: min(var(--size-page-wide), calc(100% - 2 * var(--pad-pane))); height: var(--header-height);
   display: flex; align-items: center; gap: 0; padding: 0 var(--pad-inner-pane);
   --glass-tint: var(--glass-top);
   clip-path: ${cutPolygon("header")};
@@ -177,7 +177,7 @@ const HEADER_STYLES = `
   /* The first row is small controls, so it shares Zaisma, search and Sign in or you on the narrowest phones; Sign in is the compact runner, or
      a small cut button beside the page's own runner. */
   .top .end > .run-wrap > .run, .top .end > .cut-btn { --control-height: var(--control-height-small); }
-  .top .end .run { padding: 0 16px 0 14px; font-size: 14px; gap: 6px; }
+  .top .end .run { padding: 0 16px 0 14px; font-size: 0.875rem; gap: 6px; }
   /* The picture is as tall as the search button beside it, at rest or compact. */
   .top .me, .top.is-compact .me { --frame: var(--control-height-small); }
   /* The search button and Sign in are a row of two controls, slanting toward each other; beside your picture, which never slants, it keeps a control's gap. */
@@ -812,7 +812,7 @@ component({
    it, so they keep a pane's margin from its edge. */
 .foot {
   position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-block-block);
-  width: min(1240px, calc(100% - 2 * var(--pad-pane))); margin: var(--gap-block-block) auto var(--pad-pane); padding: var(--pad-pane);
+  width: min(var(--size-page-wide), calc(100% - 2 * var(--pad-pane))); margin: var(--gap-block-block) auto var(--pad-pane); padding: var(--pad-pane);
   color: var(--muted); font: var(--type-note); --glass-tint: var(--glass-top);
   clip-path: ${cutPolygon("header")};
   transition: var(--glass-transition);
@@ -1020,7 +1020,7 @@ export function shelf(options: ShelfOptions): Raw {
         : { kind: "words", markup: title },
       isEmpty
         ? { kind: "words", markup: html`<p class="shelf-note">${options.emptyText}</p>` }
-        : { kind: "block", markup: track({ id: options.trackId, itemSize: "cover", items: options.items }) },
+        : { kind: "block", markup: track({ whenEmpty: html`<p class="shelf-note">${options.emptyText}</p>`, id: options.trackId, itemSize: "cover", items: options.items }) },
     ],
   })}</section>`;
 }
@@ -1112,7 +1112,7 @@ export interface SidePlacesOptions {
 
 /**
  * A page's own places down its side, beside the page: a vertical switch on a pane that stays in view while the page scrolls by, and the
- * page at most a column's width (--size-column) beside it. Where both can't have room, the places are the section tabs at the top of the page.
+ * page at most a reading page's column (--size-page-reading) beside it, the pair centered in the wide frame (a reading page: Page shape). Where both can't have room, the places are the section tabs at the top of the page.
  */
 export function sidePlaces(options: SidePlacesOptions): Raw {
   return html`<div class="side-places"><div class="side-places-in"><nav class="side-places-side" aria-label="${options.label}">${glassPane({ paneWidth: "fit", body: tabSwitch({ label: options.label, switchSize: "big", isVertical: true, tabs: options.places }) })}</nav><div class="side-places-top">${sectionTabs({ label: options.label, tabs: options.places.map((place) => ({ label: place.label, href: place.href, isCurrent: place.isCurrent, badgeCount: place.badgeCount, state: place.state })) })}</div><div class="side-places-body">${options.body}</div></div></div>`;
@@ -1135,7 +1135,7 @@ component({
 .side-places-top { display: flex; justify-content: center; min-width: 0; }
 .side-places-body { min-width: 0; }
 @container (min-width: ${SIDE_PLACES_LEAST_PX}px) {
-  .side-places-in { grid-template-columns: auto minmax(0, var(--size-column)); justify-content: center; }
+  .side-places-in { grid-template-columns: auto minmax(0, var(--size-page-reading)); justify-content: center; }
   .side-places-side { display: block; position: sticky; top: var(--header-room, var(--pad-pane)); }
   .side-places-top { display: none; }
 }
@@ -1299,18 +1299,18 @@ component({
 `,
   render: loadMore,
   examples: [
-    { label: "Under a list: try it, to the last page", isWide: true, markup: glassPane({ paneWidth: "full", body: html`${listRows({ id: "example-load-more-list", rows: LOADED_ROWS })}${loadMore({ href: "/design/examples/older-versions?page=2", label: "Show older versions", listId: "example-load-more-list" })}` }) },
+    { label: "Under a list: try it, to the last page", isWide: true, markup: glassPane({ paneWidth: "full", body: html`${listRows({ whenEmpty: html`<p>No older versions yet.</p>`, id: "example-load-more-list", rows: LOADED_ROWS })}${loadMore({ href: "/design/examples/older-versions?page=2", label: "Show older versions", listId: "example-load-more-list" })}` }) },
     { label: "Busy", markup: html`<div style="width:min(340px,100%)">${cutButton("Show older versions", { href: "#load-more", isFullWidth: true, isBusy: true })}</div>`, isStill: true },
     {
       label: "After a failed load: press it again",
       isWide: true,
       isStill: true,
-      markup: glassPane({ paneWidth: "full", body: html`${listRows({ id: "example-load-failed-list", rows: LOADED_ROWS })}${loadMore({ href: "#load-more", label: "Show older versions", listId: "example-load-failed-list", isFailed: true })}` }),
+      markup: glassPane({ paneWidth: "full", body: html`${listRows({ whenEmpty: html`<p>No older versions yet.</p>`, id: "example-load-failed-list", rows: LOADED_ROWS })}${loadMore({ href: "#load-more", label: "Show older versions", listId: "example-load-failed-list", isFailed: true })}` }),
     },
     {
       label: "At the end of the list",
       isWide: true,
-      markup: glassPane({ paneWidth: "full", body: html`${listRows({ id: "example-load-end-list", rows: LOADED_ROWS })}${loadMore({ label: "Show older versions", listId: "example-load-end-list", endText: "That's every version." })}` }),
+      markup: glassPane({ paneWidth: "full", body: html`${listRows({ whenEmpty: html`<p>No older versions yet.</p>`, id: "example-load-end-list", rows: LOADED_ROWS })}${loadMore({ label: "Show older versions", listId: "example-load-end-list", endText: "That's every version." })}` }),
     },
   ],
 });

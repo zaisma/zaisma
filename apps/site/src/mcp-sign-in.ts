@@ -371,6 +371,7 @@ async function connectPage(env: Env, checked: Allowed, account: Account, error?:
     title: `Connect ${name} to your games · Zaisma`,
     isPrivate: true,
     checkedPage: "Connect an app",
+    pageShape: "reading",
     viewer: { account },
     // The answer goes on to the app, which a page's form-action has to allow.
     formTargets: [backTo.origin],

@@ -625,6 +625,7 @@ export async function buyWindowPage(env: Env, request: Request, slug: string, it
   return layout(env, {
     title: `Buy from ${game.title} · Zaisma`,
     checkedPage: "Buy window",
+    pageShape: "reading",
     isBare: true,
     isPrivate: true,
     hasStripeFrame: true,

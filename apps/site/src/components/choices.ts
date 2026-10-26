@@ -78,7 +78,7 @@ const LONG_STYLES = `
 .field.long { height: auto; align-items: stretch; }
 /* It fills a pane's width; in a pane that fits what's in it, its words run a reading width (--size-reading), or what room there is. */
 .field.long textarea { position: relative; z-index: 2; display: block; flex: 1; min-width: 0; width: var(--size-reading); max-width: 100%; padding: 14px var(--pad-inside-words); resize: none; overflow-y: auto;
-  font: 400 16px/1.5 var(--body); color: var(--ink); caret-color: var(--run-lo);
+  font: 400 1rem/1.5 var(--body); color: var(--ink); caret-color: var(--run-lo);
   --face-color: var(--field-face); background: var(--face-color); border: 0; border-radius: 0; box-shadow: var(--field-shade);
   clip-path: var(--cut-shape); transition: --face-color 0.25s; }
 .field.long:not(.is-disabled):hover textarea { --face-color: var(--field-hover); }
@@ -282,9 +282,9 @@ component({
    Its list is a pane of the menus' glass hanging just under the field, as wide as it, its choices on the switch's slabs: a faint one under
    the pointer or the arrow keys, the white one with the orange line on the picked. */
 .select-button { position: relative; z-index: 2; flex: 1; min-width: 0; width: 100%; height: 100%; padding: 0 calc(var(--pad-inside-words) + 24px) 0 calc(var(--pad-inside-words) + 34px); border: 0; border-radius: 0; cursor: pointer; text-align: left;
-  font: 500 18px var(--display); color: var(--ink);
+  font: 500 1.125rem var(--display); color: var(--ink);
   --face-color: var(--field-face); background: var(--face-color); box-shadow: var(--field-shade); clip-path: var(--cut-shape); transition: --face-color 0.25s; }
-@media (max-width: 760px) { .select-button { font-size: 16px; } }
+@media (max-width: 760px) { .select-button { font-size: 1rem; } }
 .field.select.no-icon .select-button { padding-left: var(--pad-inside-words); }
 .select-value { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .select-value.is-placeholder { color: var(--muted); }
@@ -303,7 +303,7 @@ component({
 .field.select.is-disabled .select-chev { color: var(--muted); }
 /* The list: the popover's own place is the window, so it's set just under the field by SELECT_SCRIPT. Its choices sit close to its edge,
    inset like a well's slabs, so their words start where the field's do. */
-.select-list { position: fixed; inset: auto; margin: 0; max-height: min(320px, 50vh); padding: 4px; border: 0; color: var(--ink);
+.select-list { position: fixed; inset: auto; margin: 0; max-height: min(var(--size-menu-height), 50vh); padding: 4px; border: 0; color: var(--ink);
   display: flex; flex-direction: column; --glass-tint: var(--glass-dropdown);
   transition: var(--glass-transition), opacity 0.2s, transform 0.3s cubic-bezier(.2,.8,.2,1), overlay 0.3s allow-discrete, display 0.3s allow-discrete; }
 /* A browser that can't keep it in the top layer while it fades (Safari) would let it fall under what follows it on the page: it goes at once. */

@@ -127,9 +127,7 @@ export function roomsPanel(game: Pick<Game, "slug">, list: RoomPage, picked: Rec
         ? `No open rooms in ${region?.name ?? "that region"} right now. Pick another region, or press Play to start.`
         : "Nobody's in an open room right now. Press Play to start.";
   items.push(
-    list.rooms.length
-      ? { kind: "block", markup: listRows({ id: ROOMS_LIST_ID, label: "Open rooms", shownRowCount: SHOWN_ROOM_COUNT, rows: list.rooms.map((room) => roomRow(slug, room)) }) }
-      : { kind: "block", markup: emptyState({ title: "No open rooms", text: empty }) },
+    { kind: "block", markup: listRows({ id: ROOMS_LIST_ID, label: "Open rooms", shownRowCount: SHOWN_ROOM_COUNT, rows: list.rooms.map((room) => roomRow(slug, room)), whenEmpty: emptyState({ title: "No open rooms", text: empty }) }) },
   );
   if (list.nextCursor) items.push({ kind: "block", markup: moreRooms(slug, list, picked) });
   return stack({ items, dataAttributes: { count: String(tabCount(list)), playing: String(Math.max(playerCount, ticketPlayerCount)), shown: shownKey(list.region, picked, roomOrder, isHidingFullRooms) } });
@@ -197,7 +195,7 @@ export async function roomsFragment(env: Env, slug: string, request: Request): P
   const cursor = query.get("cursor");
   if (cursor !== null) {
     const next = await pageRooms(env, game, request, { region: query.get("region"), labels: picked, ...readRoomPick(query), cursor });
-    const rows = listRows({ id: ROOMS_LIST_ID, label: "Open rooms", rows: next.rooms.map((room) => roomRow(slug, room)) });
+    const rows = listRows({ whenEmpty: emptyState({ title: "No more rooms", text: "That's every open room." }), id: ROOMS_LIST_ID, label: "Open rooms", rows: next.rooms.map((room) => roomRow(slug, room)) });
     return new Response(String(html`${rows}${next.nextCursor ? moreRooms(slug, next, picked) : ""}`), { headers });
   }
   const shownRowCount = Math.floor(Number(query.get("shown_row_count")));
