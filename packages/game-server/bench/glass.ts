@@ -1,162 +1,231 @@
-// The test bench's page in Glass (bin/local-play.js serves it): the site's own components, layout and buy sheet, taken from apps/site's
-// source when the package is built (scripts/bench.mjs bundles this file) and when the repository runs the bench, so the bench is never a
-// copy of the design that can go stale. The page is the game page as a player plays on it: the playing bar beside the game, with the bench's
-// own buttons in it, and the real buy sheet, whose calls the bench stands in for. Nothing here runs in a game or on Zaisma's servers.
-import { html, layout, scriptTags, type Raw } from "../../../apps/site/src/html.ts";
+// The test bench's pages in Glass (bin/local-play.js serves them), taken from apps/site's source when the package is built (scripts/bench.mjs
+// bundles this file) and when the repository runs the bench, so nothing here is a copy of Zaisma that can go stale. Two layers:
+//   - the dev page: the bench's own bar (add a player, friends, a phone, the log) above one frame;
+//   - the player page in that frame: zaisma.com's game page, drawn by the site's own gamePageResponse from the bench's stand-ins, with
+//     its bar, sheets, cards and page scripts, framing the game. The bench answers its calls; nothing here runs on Zaisma's servers.
+import type { Account, FriendInGame, FriendsInGame, Game, ItemCategory } from "@zaisma/core";
+import { html, layout, type Raw } from "../../../apps/site/src/html.ts";
 import type { Env } from "../../../apps/site/src/env.ts";
+import { gamePageResponse } from "../../../apps/site/src/pages.ts";
+import { friendRows } from "../../../apps/site/src/players-sheet.ts";
+import { friendsHere } from "../../../apps/site/src/friends-now.ts";
 import { pageScriptResponse } from "../../../apps/site/src/page-scripts.ts";
 import { pageStyleResponse } from "../../../apps/site/src/page-styles.ts";
-import { BUY_SHEET_SCRIPT, buySheet, buySheetData } from "../../../apps/site/src/buy-sheet.ts";
 import { playingBar } from "../../../apps/site/src/components/playing.ts";
-import { cutButton } from "../../../apps/site/src/components/actions.ts";
-import { banner, dropdown, sheet } from "../../../apps/site/src/components/panes.ts";
-import { checkField, selectField } from "../../../apps/site/src/components/choices.ts";
-import { codeField, qrCode } from "../../../apps/site/src/components/inputs.ts";
+import { cutButton, runButton } from "../../../apps/site/src/components/actions.ts";
+import { cutField } from "../../../apps/site/src/components/fields.ts";
+import { glassPane } from "../../../apps/site/src/components/foundations.ts";
+import { banner, sheet } from "../../../apps/site/src/components/panes.ts";
+import { checkField } from "../../../apps/site/src/components/choices.ts";
+import { qrCode } from "../../../apps/site/src/components/inputs.ts";
 import { emptyState, listRows } from "../../../apps/site/src/components/data.ts";
-import { stack, type LayoutItem } from "../../../apps/site/src/components/layout.ts";
+import { row, stack, type LayoutItem } from "../../../apps/site/src/components/layout.ts";
 
-/** What the bench knows when it draws a tab's page or one of its sheets. */
-export interface BenchView {
+/** Where the bench is, as the browser reached it: the site's settings the pages read, for the bench's origins. */
+export interface BenchPlaces {
+  /** The bench's own address on this computer (http://localhost:4800): it says to the site's code that this is a local preview. */
+  localSiteOrigin: string;
+  /** The game's site as this browser reaches it (http://localhost:4801, or the computer's address from a phone). */
+  gameOrigin: string;
+  roomsOrigin: string;
+}
+
+// The site Worker's settings the pages read. The bench stands in for sign-in, payments and saves itself, so those read as set; Turnstile,
+// which checks a real browser for Zaisma, has no site key, so a play goes ahead without it.
+const benchEnv = (places: BenchPlaces) =>
+  ({
+    SITE_ORIGIN: places.localSiteOrigin,
+    GAME_ORIGIN: places.gameOrigin,
+    ROOMS_ORIGIN: places.roomsOrigin,
+    GAME_HOST_MODE: "path",
+    GAME_DOMAIN: "",
+    SUPABASE_URL: `${places.localSiteOrigin}/stand-in`,
+    SUPABASE_SECRET_KEY: "stand-in",
+    STRIPE_API_ORIGIN: `${places.localSiteOrigin}/stand-in`,
+    KEEP_OFFER_SECONDS: "300",
+  }) as unknown as Env;
+
+/** A page as the bench sends it. */
+export interface BenchPage {
+  httpStatus: number;
+  headers: [string, string][];
+  body: string;
+}
+
+const pageOf = async (response: Response): Promise<BenchPage> => ({ httpStatus: response.status, headers: [...response.headers.entries()], body: await response.text() });
+
+/** What a player's page shows. */
+export interface PlayerPageInput {
+  places: BenchPlaces;
   gameSlug: string;
-  /** The tab's player number, 0 before the page has given it one. */
+  gameTitle: string;
+  /** The page's address, /p/<player number>/g/<slug> with its query. */
+  pageUrl: string;
+  /** The account the player signed in to, or null for a guest. */
+  account: { id: string; username: string } | null;
+  purchaseDelivery: Game["purchase_delivery"];
+  /** The categories of the items the game sells, for the purchase label. */
+  soldCategories: ItemCategory[];
+}
+
+/** The game as zaisma.com would hold it: an unlisted live game on Zaisma's rooms, with cloud saves, that anyone can play. */
+function benchGame(input: PlayerPageInput): Game {
+  return {
+    id: "game_local", slug: input.gameSlug, title: input.gameTitle, description: "", review_status: "live", review_reason: null, live_version_id: "version_local",
+    multiplayer_mode: "relay", built_in_server: null, own_server_urls: "[]", owner_id: null, cloud_saves_enabled: 1, account_offer_enabled: 1,
+    deleted_account_erase_enabled: 0, friend_joins_enabled: 1, performance_measuring_enabled: 0, monthly_budget_cents: null, quick_joined_at_ms: null,
+    game_server_allowed_hosts: "[]", links: "[]", links_checked_at_ms: null, secrets_changed_at_ms: null, visibility: "unlisted", devices: "", genres: "",
+    controls: "", screen_orientation: "", play_modes: "", room_browsing: "off", account_requirement: "none", minimum_player_age_years: 13, entry_signing_key: "",
+    is_off_shelves: 0, details_waiting_for_review: null, title_listing_reason: null, country_blocks: "[]", cleared_title: null, listing_check_requested_at_ms: null,
+    listing_checked_at_ms: null, glass_tint_color: null, refund_policy: null, refund_policy_text: null, own_payment_categories: "[]",
+    purchase_delivery: input.purchaseDelivery, live_version_match_update_mode: "next_match", live_version_published_at_ms: null,
+    has_live_version_game_file_changes: 0, created_at_ms: 0, updated_at_ms: 0,
+  };
+}
+
+/** A player's page: zaisma.com's game page for the game, drawn by the site's own code, as this player sees it. */
+export async function playerPage(input: PlayerPageInput): Promise<BenchPage> {
+  // Only what the game page reads of an account: who they are, a grown-up's band, their own light or dark left to the system.
+  const account = input.account ? ({ id: input.account.id, username: input.account.username, age_band: "18+", is_streamer_mode_on: 0, color_theme: "system" } as unknown as Account) : null;
+  return pageOf(gamePageResponse(benchEnv(input.places), {
+    game: benchGame(input),
+    pageUrl: new URL(input.pageUrl, input.places.localSiteOrigin),
+    tester: null,
+    testerVersionId: null,
+    viewer: { ageFloorYears: 18, account, email: null, cookies: [] },
+    developer: null,
+    pictures: [],
+    updates: [],
+    otherGames: [],
+    liveRooms: null,
+    checkedPlayerCount: 0,
+    hasThreads: false,
+    purchaseLabel: { categories: input.soldCategories, has_own_payments: false },
+    background: { source: "zaisma", glassTintColor: null },
+    head: undefined,
+    isFramedBySelf: true,
+    isShownInLists: false,
+  }));
+}
+
+/** A friend playing the game now, as the bench knows them. */
+export interface FriendPlaying {
+  playerId: string;
+  username: string;
+  /** Their room, for Join; null when they're in none. */
+  roomCode: string | null;
+}
+
+/** Under the game's title (#friends-here): the friends playing it, with Join. Empty with none. */
+export function friendsHereHtml(gameSlug: string, friends: FriendPlaying[]): string {
+  if (!friends.length) return "";
+  const room = friends.find((friend) => friend.roomCode)?.roomCode ?? null;
+  const here = {
+    friends: friends.map((friend) => ({ player_id: friend.playerId, name: friend.username })),
+    join: room ? { room_code: room, server_url: null, refusal: null, refusing_friend_names: [] } : null,
+    watch: null,
+  } as unknown as FriendsInGame;
+  return String(friendsHere(gameSlug, here));
+}
+
+/** The players sheet's friends part: the friends playing the game outside this room, with Join. */
+export function friendRowsHtml(gameSlug: string, friends: FriendPlaying[]): string {
+  const rows: FriendInGame[] = friends.map((friend) => ({ player_id: friend.playerId, username: friend.username, room_code: friend.roomCode, server_url: null, join_refusal: friend.roomCode ? null : "friend_not_in_room", watch: null }));
+  return String(friendRows(gameSlug, rows));
+}
+
+/** What the dev page and its sheets show. */
+export interface DevView {
+  gameSlug: string;
   playerNumber: number;
-  /** Who the tab plays as: "guest" or an account's id. */
-  playingAs: string;
-  accounts: { id: string; username: string; whoCanChat: string }[];
-  friends: [string, string][];
-  blocks: { blocker: string; blocked: string }[];
-  items: { itemName: string; title: string; itemKind: string; priceText: string }[];
-  ownedItems: Record<string, string[]>;
-  purchaseDelivery: string;
-  /** Where the items came from and when, or how to bring them in. */
-  itemsNote: string;
-  nextPlayerNumber: number;
-  /** The room the tab is in, its link and who's in it; null when it's in none. */
-  room: { code: string; link: string; playerNames: string[] } | null;
+  /** The account the player signed in to, or null for a guest. */
+  accountName: string | null;
+  /** The room the player is in, or null. */
+  roomCode: string | null;
+  /** The other accounts, and whether each is this player's friend; empty for a guest. */
+  friendChoices: { accountId: string; username: string; isFriend: boolean }[];
   /** The bench's address for a phone on the same Wi-Fi, null when it answers only on this computer. */
   networkUrl: string | null;
-  /** What the bench said, newest last: "Only on Zaisma" lines, once each. */
+  /** What the bench said, newest last. */
   logLines: string[];
 }
 
-/** The frame's sandbox and permissions, the game page's (local-play-bench.js holds them to apps/site/src/pages.ts). */
-export interface FrameAttributes {
-  sandbox: string;
-  allow: string;
-}
+export type DevSheetName = "friends" | "phone" | "log";
 
-// layout() reads a few of the site Worker's settings; the bench is none of them, so these keep it to the page alone.
-const BENCH_ENV = { SITE_ORIGIN: "http://localhost", GAME_ORIGIN: "http://localhost", ROOMS_ORIGIN: "http://localhost", GAME_HOST_MODE: "path", GAME_DOMAIN: "" } as unknown as Env;
-
-const nameOf = (view: BenchView, id: string) => view.accounts.find((account) => account.id === id)?.username ?? id;
-const playingName = (view: BenchView) => (view.playingAs === "guest" ? "Guest" : nameOf(view, view.playingAs));
-
-/** The page for a tab: the game page while playing, with the bench's buttons in its bar. */
-export async function benchPageHtml(view: BenchView, frame: FrameAttributes): Promise<string> {
+/** The dev page: the bench's bar above the player's page, which frames the game. */
+export async function devPage(places: BenchPlaces, view: DevView, frame: { path: string; allow: string }): Promise<BenchPage> {
+  const addHref = view.roomCode ? `/?room=${view.roomCode}` : "/";
   const controls = [
-    cutButton(playingName(view), { id: "bench-who", type: "button", icon: "person", isSmall: true, controls: "bench-who-menu", isExpanded: false }),
-    cutButton("Add a player", { id: "bench-add", href: view.room ? `/?room=${view.room.code}` : "/", icon: "plus", isLabelHidden: true, isSmall: true }),
-    cutButton("Friends and blocks", { id: "bench-friends-open", type: "button", icon: "friends", isLabelHidden: true, isSmall: true, controls: "bench-friends" }),
-    cutButton("Items", { id: "bench-items-open", type: "button", icon: "card", isLabelHidden: true, isSmall: true, controls: "bench-items" }),
-    // The room's code, as the game page's bar shows it once the player is in one.
-    cutButton(view.room ? view.room.code : "Room", { id: "bench-room-open", type: "button", icon: "hash", isSmall: true, controls: "bench-room" }),
+    cutButton("Add a player", { id: "bench-add", href: addHref, icon: "plus", isSmall: true }),
+    cutButton("Friends", { id: "bench-friends-open", type: "button", icon: "friends", isLabelHidden: true, isSmall: true, controls: "bench-friends" }),
     cutButton("Phone", { id: "bench-phone-open", type: "button", icon: "phone", isLabelHidden: true, isSmall: true, controls: "bench-phone" }),
-    cutButton("Log", { id: "bench-log-open", type: "button", icon: "info", isLabelHidden: true, isSmall: true, controls: "bench-log", reactionCount: view.logLines.length }),
+    cutButton("Log", { id: "bench-log-open", type: "button", icon: "info", isLabelHidden: true, isSmall: true, controls: "bench-log" }),
   ];
-  const whoMenu = dropdown({
-    id: "bench-who-menu",
-    label: "Play as",
-    head: { title: view.playerNumber ? `Player ${view.playerNumber}` : "This tab", note: "Who this tab plays as. The game starts again as them." },
-    items: [
-      { label: "Guest", href: "#", icon: "person", isCurrent: view.playingAs === "guest", dataAttributes: { "bench-as": "guest" } },
-      ...view.accounts.map((account) => ({ label: account.username, href: "#", icon: "person" as const, isCurrent: view.playingAs === account.id, dataAttributes: { "bench-as": account.id } })),
-    ],
-  });
-  const benchSheet = (id: string, title: string, name: SheetName) => sheet({ id, title, closeLabel: "Close", placement: "foot", isCompact: true, body: html`<div id="${id}-body">${sheetMarkup(name, view)}</div>` });
-  // As on the game page: the bar, menus and sheets in <main>, the game's frame beside it in the body (the playing styles show those alone).
-  const body = html`<main>${playingBar({ title: `${view.gameSlug}: test bench`, controls })}
-${whoMenu}
-${benchSheet("bench-friends", "Friends and blocks", "friends")}
-${benchSheet("bench-items", "Items", "items")}
-${benchSheet("bench-room", "Room", "room")}
-${benchSheet("bench-phone", "Open it on a phone", "phone")}
-${benchSheet("bench-log", "Log", "log")}
-${buySheet({ joinHref: "#", signInHref: "#", coverUrl: null })}
-${buySheetData({ slug: view.gameSlug, tester_token: null, place: "game_page", stripe_mode: "stand_in", stripe_publishable_key: null, is_preview: false, asked: null, opener_origin: null })}</main>
-<iframe class="game-frame" id="game" title="${view.gameSlug}" sandbox="${frame.sandbox}" allow="${frame.allow}" allowfullscreen referrerpolicy="no-referrer"></iframe>
-<script src="/bench/frame.js" defer></script>
-${scriptTags(BUY_SHEET_SCRIPT)}
-<script src="/bench/bench.js" defer></script>`;
-  const page = await layout(BENCH_ENV, { title: `Player ${view.playerNumber || ""}: test bench for ${view.gameSlug}`.replace("Player : ", ""), checkedPage: "Game page", isBare: true, body }).text();
-  // Playing from the start: the page shows the bar and the game, as the game page does once Play is pressed.
-  return page.replace("<html lang=\"en\"", "<html lang=\"en\" class=\"is-playing\"");
+  const devSheet = (name: DevSheetName, title: string) => sheet({ id: `bench-${name}`, title, closeLabel: "Close", placement: "foot", isCompact: true, body: html`<div id="bench-${name}-body">${devSheetMarkup(name, view)}</div>` });
+  const who = `Player ${view.playerNumber}${view.accountName ? `, ${view.accountName}` : ", a guest"}`;
+  // The bar and its sheets in <main>, the player's page in the frame beside it in the body: the playing styles lay out those alone.
+  const body = html`<main>${playingBar({ title: who, controls })}
+${devSheet("friends", "Friends")}
+${devSheet("phone", "Open it on a phone")}
+${devSheet("log", "Log")}</main>
+<iframe class="game-frame" id="bench-player" src="${frame.path}" title="${who}: the game page on Zaisma" allow="${frame.allow}" allowfullscreen></iframe>
+<script src="/bench/dev.js?player=${String(view.playerNumber)}" defer></script>`;
+  const page = await pageOf(layout(benchEnv(places), { title: `${who}: test bench for ${view.gameSlug}`, checkedPage: "Game page", isBare: true, frames: ["'self'"], body }));
+  return { ...page, body: page.body.replace('<html lang="en"', '<html lang="en" class="is-playing"') };
 }
 
-export type SheetName = "friends" | "items" | "room" | "phone" | "log";
-
-/** One of the bench's sheets, drawn afresh from the bench's state each time it opens or changes. */
-export function benchSheetBody(name: SheetName, view: BenchView): string {
-  return String(sheetMarkup(name, view));
+/** One of the dev page's sheets, drawn afresh each time it opens or changes. */
+export function devSheetBody(name: DevSheetName, view: DevView): string {
+  return String(devSheetMarkup(name, view));
 }
 
-function sheetMarkup(name: SheetName, view: BenchView): Raw {
+function devSheetMarkup(name: DevSheetName, view: DevView): Raw {
   const words = (text: string): LayoutItem => ({ kind: "words", markup: html`<p>${text}</p>` });
   if (name === "friends") {
-    const items: LayoutItem[] = [words("Between the bench's made-up accounts. A game sees only what Zaisma gives it: each account's pass lists its friends and blocks as player tags, never names.")];
-    const me = view.accounts.find((account) => account.id === view.playingAs);
-    if (me) {
-      items.push({
-        kind: "control",
-        markup: selectField({ name: "bench-chat", id: "bench-chat", label: `${me.username} lets chat with`, pickedValue: me.whoCanChat, dataAttributes: { "bench-account": me.id }, choices: [{ choiceValue: "nobody", label: "Nobody" }, { choiceValue: "friends", label: "Friends" }, { choiceValue: "anyone", label: "Anyone" }] }),
-      });
-    }
-    view.accounts.forEach((first, firstIndex) => {
-      for (const second of view.accounts.slice(firstIndex + 1)) {
-        const isFriend = view.friends.some((pair) => pair.includes(first.id) && pair.includes(second.id));
-        const blocks = (blocker: string, blocked: string) => view.blocks.some((block) => block.blocker === blocker && block.blocked === blocked);
-        items.push({ kind: "words", markup: html`<h3>${first.username} and ${second.username}</h3>` });
-        items.push({ kind: "block", markup: checkField({ name: "bench-friend", id: `bench-friend-${first.id}-${second.id}`, checkValue: `${first.id}:${second.id}`, label: "Friends", isChecked: isFriend }) });
-        items.push({ kind: "block", markup: checkField({ name: "bench-block", id: `bench-block-${first.id}-${second.id}`, checkValue: `${first.id}:${second.id}`, label: `${first.username} blocks ${second.username}`, isChecked: blocks(first.id, second.id) }) });
-        items.push({ kind: "block", markup: checkField({ name: "bench-block", id: `bench-block-${second.id}-${first.id}`, checkValue: `${second.id}:${first.id}`, label: `${second.username} blocks ${first.username}`, isChecked: blocks(second.id, first.id) }) });
-      }
-    });
-    items.push(words("A pass is made when a player joins: reload a player's game, or leave and join the room again, to bring a change into it."));
-    return stack({ items });
-  }
-  if (name === "items") {
-    // The game's own items, as it has them on Zaisma: here only who owns what changes.
-    const items: LayoutItem[] = [words(view.itemsNote), words(view.purchaseDelivery === "game_server" ? "Purchases go to your game server's onPurchase." : "Purchases come to the game's Zaisma.items events.")];
-    if (!view.items.length) items.push({ kind: "block", markup: emptyState({ title: "No items", text: "A game's items are set on Zaisma (the dashboard, zaisma items set or set_item), and the game buys them with Zaisma.items.buy()." }) });
-    for (const listedItem of view.items) {
-      items.push({ kind: "words", markup: html`<h3>${listedItem.title}</h3><p>${listedItem.itemName}, ${listedItem.itemKind}, ${listedItem.priceText}</p>` });
-      for (const account of view.accounts) {
-        items.push({ kind: "block", markup: checkField({ name: "bench-owned", id: `bench-owned-${account.id}-${listedItem.itemName}`, checkValue: `${account.id}:${listedItem.itemName}`, label: `${account.username} owns it`, isChecked: (view.ownedItems[account.id] ?? []).includes(listedItem.itemName) }) });
-      }
-    }
-    return stack({ items });
-  }
-  if (name === "room") {
-    if (!view.room) return stack({ items: [{ kind: "block", markup: emptyState({ title: "Not in a room", text: "Join or make a room in the game, and its link shows here." }) }] });
+    if (!view.accountName) return stack({ items: [words("Friends are between accounts. Sign in from the game, and the players who have signed in on the bench show here.")] });
+    if (!view.friendChoices.length) return stack({ items: [words(`No one else has signed in on the bench yet. Add a player, sign them in, and they show here as ${view.accountName}'s friends to pick.`)] });
     return stack({
       items: [
-        { kind: "block", markup: codeField({ label: "This room", code: view.room.code, id: "bench-room-code" }) },
-        words("Anyone on this computer joins by opening this link, as the next player."),
-        { kind: "block", markup: codeField({ label: "Room link", code: view.room.link, id: "bench-room-link" }) },
-        { kind: "words", markup: html`<h3>In the room</h3><p>${view.room.playerNames.length ? view.room.playerNames.join(", ") : "Only you so far."}</p>` },
+        words(`Who ${view.accountName} is friends with. A game learns only which of its own players are friends, through their passes.`),
+        ...view.friendChoices.map((choice): LayoutItem => ({ kind: "block", markup: checkField({ name: "bench-friend", id: `bench-friend-${choice.accountId}`, checkValue: choice.accountId, label: choice.username, isChecked: choice.isFriend }) })),
+        words("A pass is made as a player joins a room: join again to bring a change into the game."),
       ],
     });
   }
   if (name === "phone") {
     if (!view.networkUrl) return stack({ items: [words("The bench answers only on this computer. To play on a phone on the same Wi-Fi, stop it and start it again with --on-network.")] });
+    const target = view.roomCode ? `${view.networkUrl}/?room=${view.roomCode}` : `${view.networkUrl}/`;
     return stack({
       items: [
-        { kind: "block", markup: qrCode({ id: "bench-phone-qr", label: "The bench's address", caption: view.networkUrl, imageUrl: `/bench/qr.svg?text=${encodeURIComponent(view.networkUrl)}` }) },
+        { kind: "block", markup: qrCode({ id: "bench-phone-qr", label: view.roomCode ? "A new player, into this room" : "A new player", caption: target, imageUrl: `/bench/qr.svg?text=${encodeURIComponent(target)}` }) },
         { kind: "block", markup: banner({ text: "Your phone will say the connection isn't private, because the bench signs its own certificate. Continue to the site.", icon: "warning", tone: "warning" }) },
       ],
     });
   }
-  if (!view.logLines.length) return stack({ items: [{ kind: "block", markup: emptyState({ title: "Nothing yet", text: "What Zaisma does that the bench doesn't shows up here, once each." }) }] });
+  if (!view.logLines.length) return stack({ items: [{ kind: "block", markup: emptyState({ title: "Nothing yet", text: "What the bench and your game server say shows up here." }) }] });
   return listRows({ label: "Log", rows: view.logLines.map((line) => ({ title: line })) });
+}
+
+/** The bench's sign-in, where /signin and /join go: a name alone makes an account on this computer. */
+export async function signInPage(places: BenchPlaces, input: { playerNumber: number; nextPath: string; suggestedName: string; freeAccounts: { id: string; username: string }[]; error: string | null }): Promise<BenchPage> {
+  const items: LayoutItem[] = [
+    { kind: "words", markup: html`<h1>Sign in</h1><p>On the test bench a name is enough: the bench makes the account on this computer, with no password.</p>` },
+    ...(input.freeAccounts.length
+      ? [{ kind: "block" as const, markup: row({ widths: "fit", label: "Accounts on the bench", items: input.freeAccounts.map((account) => ({ kind: "control" as const, markup: cutButton(`Sign in as ${account.username}`, { type: "submit", name: "account", buttonValue: account.id }) })) }) }]
+      : []),
+    { kind: "control", markup: cutField({ name: "name", label: input.freeAccounts.length ? "Or a new player" : "Your name", type: "text", icon: "person", text: input.suggestedName, autocomplete: "off", error: input.error ?? undefined }) },
+    { kind: "control", markup: runButton("Sign in", { type: "submit", isFullWidth: true }) },
+  ];
+  // Laid out as the site lays out a message: a pane of glass on the page, under the site's header.
+  const body = glassPane({ paneWidth: "fit", label: "Sign in", body: html`<form method="post" action="/bench/sign-in"><input type="hidden" name="player" id="bench-sign-in-player" value="${String(input.playerNumber)}"><input type="hidden" name="next" value="${input.nextPath}">${stack({ items })}</form>` });
+  return pageOf(layout(benchEnv(places), { title: "Sign in: test bench", checkedPage: "A message", body: html`${body}<script src="/bench/sign-in.js" defer></script>` }));
+}
+
+/** Where a sign-in ends (/account/kept): it tells the game page it's signed in, then closes or goes back to the player's game. */
+export async function keptPage(places: BenchPlaces, username: string | null, playerNumber: number): Promise<BenchPage> {
+  const text = username ? `You're signed in as ${username}. The game picks it up where you left it.` : "Sign in from a player's game page.";
+  const body = html`${glassPane({ paneWidth: "fit", label: "Signed in", body: stack({ items: [{ kind: "words", markup: html`<h1>You're in</h1><p>${text}</p>` }] }) })}<script src="/bench/kept.js?player=${String(playerNumber)}" defer></script>`;
+  return pageOf(layout(benchEnv(places), { title: "Signed in: test bench", checkedPage: "A message", body }));
 }
 
 /** The site's stylesheet, scripts and font by the paths the page names, or null for a path that isn't one of them. */

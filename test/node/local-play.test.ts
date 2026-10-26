@@ -10,7 +10,8 @@ import { passesAreFriends, passesHaveBlockBetween, verifyPass, verifyReceipt, ty
 import { startLocalPlay, type LocalPlay } from "../../packages/game-server/bin/local-play.js";
 
 // Playing a multiplayer game on your own computer (packages/game-server/bin/local-play.js): four in a row, its
-// game server and the bench, with real passes and receipts from the stand-in rooms, played by two clients.
+// game server and the bench, with real passes and receipts from the stand-in rooms, played by two clients. Each
+// player's page is zaisma.com's game page, so these call the bench as that page's scripts do.
 
 const EXAMPLE = join(import.meta.dirname, "../../examples/four-in-a-row");
 const SLUG = "four-in-a-row";
@@ -25,12 +26,22 @@ const startPlay = () => startLocalPlay({ gameFolder: folder, port, gameSlug: SLU
 const json = async (response: Response) => ({ status: response.status, body: (await response.json()) as Record<string, any> });
 const bench = (path: string, body?: unknown) => fetch(`${play.benchUrl}${path}`, body === undefined ? {} : { method: "POST", body: JSON.stringify(body) }).then(json);
 const rooms = (path: string, body: unknown) => fetch(`${play.roomsUrl}${path}`, { method: "POST", headers: { origin: play.gameSiteUrl, "content-type": "text/plain" }, body: JSON.stringify(body) }).then(json);
-/** A call of the buy sheet's script, from a tab's page: its address, with ?player=, is the referrer. */
-const buySheet = (playerNumber: number, path: string, body: unknown) => fetch(`${play.benchUrl}${path}`, { method: "POST", headers: { referer: `${play.benchUrl}/?player=${playerNumber}`, "content-type": "application/json" }, body: JSON.stringify(body) }).then(json);
+/** A call of the game page's scripts, from a player's page: its address (/p/<number>/g/<slug>) is the referrer. */
+const fromPage = (playerNumber: number, path: string, body?: unknown, method = body === undefined ? "GET" : "POST") =>
+  fetch(`${play.benchUrl}${path}`, { method, headers: { referer: `${play.benchUrl}/p/${playerNumber}/g/${SLUG}?play`, "content-type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
 const keysAt = async (path: string) => ((await (await fetch(`${play.roomsUrl}${path}`)).json()) as { keys: PublicKey[] }).keys;
+/** A new tab: a new player, a guest. */
+const newPlayer = async (): Promise<number> => (await bench("/bench/claim", {})).body.playerNumber;
+/** The bench's sign-in, as its page sends it: a name makes the account, or is the account of that name again. */
+const signIn = (playerNumber: number, name: string) =>
+  fetch(`${play.benchUrl}/bench/sign-in`, { method: "POST", redirect: "manual", headers: { "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ player: String(playerNumber), next: `/account/kept?game=${SLUG}`, name }) });
+let guest = 0;
+let anna = 0;
+let ben = 0;
 
 async function passOf(playerNumber: number): Promise<{ pass: string; claims: PassClaims }> {
-  const key = (await bench(`/bench/key?player=${playerNumber}`)).body.key;
+  // Play hands the page a room key, which the game swaps for the player's pass.
+  const key = (await json(await fromPage(playerNumber, `/api/plays/${SLUG}`, {}))).body.key;
   const answer = await rooms("/v1/pass", { gameSlug: SLUG, roomKey: key });
   expect(answer.status).toBe(200);
   return { pass: answer.body.pass, claims: await verifyPass(answer.body.pass, await keysAt("/.well-known/jwks.json"), { gameSlug: SLUG, issuerUrl: play.roomsUrl }) };
@@ -78,6 +89,10 @@ describe("play-locally", () => {
     });
     await new Promise<void>((done) => developerApi.listen(0, "127.0.0.1", () => done()));
     play = await startPlay();
+    guest = await newPlayer();
+    anna = await newPlayer();
+    ben = await newPlayer();
+    for (const [playerNumber, name] of [[anna, "Anna"], [ben, "Ben"]] as const) expect((await signIn(playerNumber, name)).status).toBe(303);
   }, 30_000);
 
   afterAll(async () => {
@@ -86,9 +101,9 @@ describe("play-locally", () => {
     rmSync(folder, { recursive: true, force: true });
   });
 
-  it("gives each tab a pass the game server's own check accepts: a guest first, then the accounts", async () => {
-    const first = await passOf(1);
-    const second = await passOf(2);
+  it("gives each player a pass the game server's own check accepts: a guest, and an account once they sign in", async () => {
+    const first = await passOf(guest);
+    const second = await passOf(anna);
     expect(first.claims.kind).toBe("guest");
     expect(typeof first.claims.name).toBe("string");
     expect(second.claims.kind).toBe("account");
@@ -96,74 +111,100 @@ describe("play-locally", () => {
     expect(second.claims.player_tag_id).toMatch(/^player_tag_/);
     const profile = await fetch(`${play.roomsUrl}/v1/players/${second.claims.sub}`).then(json);
     expect(profile.body.player.name).toBe("Anna");
+    // The page asks whose it is after a sign-in, as zaisma.com's does: the account, with a key for its pass.
+    expect((await json(await fromPage(anna, `/api/plays/${SLUG}/account`, {}))).body).toMatchObject({ player: { name: "Anna", kind: "account" }, playerKind: "account" });
+    expect((await fromPage(guest, `/api/plays/${SLUG}/account`, {})).status).toBe(401);
   }, 20_000);
 
   it("lets two players into one room on the game server", async () => {
     const code = (await rooms("/v1/rooms", { gameSlug: SLUG })).body.roomCode;
     expect(code).toMatch(/^[A-Z0-9]{6}$/);
-    const first = await joinRoom(code, (await passOf(1)).pass);
-    const second = await joinRoom(code, (await passOf(2)).pass);
+    const first = await joinRoom(code, (await passOf(guest)).pass);
+    const second = await joinRoom(code, (await passOf(anna)).pass);
     await until(() => first.players().length === 2);
     expect(second.players().map((player: { name: string }) => player.name)).toContain("Anna");
+    // The dev page learns the room, for Add a player.
+    expect((await bench(`/bench/state?player=${anna}`)).body.roomCode).toBe(code);
     first.socket.close();
     second.socket.close();
   }, 20_000);
 
-  it("puts the bench's friends, blocks and items in the next passes, and grants items with receipts", async () => {
-    expect((await bench("/bench/state", { op: "set-friend", first: "anna", second: "ben", isFriend: true })).status).toBe(200);
-    let anna = await passOf(2);
-    let ben = await passOf(3);
-    expect(passesAreFriends(anna.claims, ben.claims)).toBe(true);
-    expect(passesHaveBlockBetween(anna.claims, ben.claims)).toBe(false);
-    await bench("/bench/state", { op: "set-block", blocker: "ben", blocked: "anna", isBlocked: true });
-    anna = await passOf(2);
-    ben = await passOf(3);
-    expect(passesHaveBlockBetween(anna.claims, ben.claims)).toBe(true);
+  it("puts friends from the dev bar and blocks from the game page in the next passes, and grants items with receipts", async () => {
+    expect((await bench("/bench/state", { op: "set-friend", playerNumber: anna, friendAccountId: "ben", isFriend: true })).status).toBe(200);
+    let annaPass = await passOf(anna);
+    let benPass = await passOf(ben);
+    expect(passesAreFriends(annaPass.claims, benPass.claims)).toBe(true);
+    // The players sheet's Friend marks, as the page asks for them.
+    expect((await json(await fromPage(anna, `/friends/among?player_ids=${benPass.claims.sub}`))).body.players).toEqual([{ player_id: benPass.claims.sub, name: "Ben", is_friend: true }]);
+    // A friend's never set by the dev bar for a guest.
+    expect((await bench("/bench/state", { op: "set-friend", playerNumber: guest, friendAccountId: "ben", isFriend: true })).body.error.code).toBe("bad_change");
+    // Anna blocks Ben from the block sheet: a block ends the friendship, and holds in their passes.
+    expect((await json(await fromPage(anna, `/friends/blocks/${benPass.claims.sub}`))).body).toMatchObject({ player: { name: "Ben" }, is_friend: true, is_blocked: false });
+    expect((await fromPage(anna, `/friends/blocks/${benPass.claims.sub}`, undefined, "POST")).status).toBe(200);
+    annaPass = await passOf(anna);
+    benPass = await passOf(ben);
+    expect(passesHaveBlockBetween(annaPass.claims, benPass.claims)).toBe(true);
+    expect(passesAreFriends(annaPass.claims, benPass.claims)).toBe(false);
 
     // The game's own items, brought in from Zaisma as the bench started; the bench makes none up.
-    expect((await bench("/bench/state")).body.items.map((listedItem: { itemName: string }) => listedItem.itemName)).toEqual(["gold-board"]);
-    expect((await bench("/bench/state", { op: "set-item", item: { itemName: "made-up" } })).body.error.code).toBe("bad_change");
-    // As the buy sheet does it: its start (the price and the saved test card), then paying with that card, from player 2's page.
-    const started = await buySheet(2, "/api/buy/four-in-a-row/start", { item_name: "gold-board", item_count: 1, game_account_id: null });
+    // As the buy sheet does it: its start (the price and the saved test card), then paying with that card, from Anna's page.
+    const started = await json(await fromPage(anna, `/api/buy/${SLUG}/start`, { item_name: "gold-board", item_count: 1, game_account_id: null }));
     expect(started.body).toMatchObject({ item: { title: "Gold board" }, price: { price_text: "$1.99" }, saved_card: { card_brand: "visa", card_last_digits: "4242" } });
-    const bought = await buySheet(2, `/api/buy/purchases/${started.body.purchase_id}/pay-with-saved-card`, {});
+    expect((await json(await fromPage(anna, `/api/buy/${SLUG}/start`, { item_name: "made-up", item_count: 1, game_account_id: null }))).body.error.code).toBe("no_item");
+    const bought = await json(await fromPage(anna, `/api/buy/purchases/${started.body.purchase_id}/pay-with-saved-card`, {}));
     expect(bought.body.status).toBe("completed");
     const receipt = await verifyReceipt(bought.body.purchase.receipt, await keysAt("/.well-known/receipt-jwks.json"), { gameSlug: SLUG, issuerUrl: `${play.roomsUrl}/receipts` });
-    expect(receipt).toMatchObject({ sub: anna.claims.sub, item_name: "gold-board", purchase_status: "completed", purchase_source: "grant" });
-    expect((await passOf(2)).claims.owned_item_names).toEqual(["gold-board"]);
-    // A guest's tab can't buy: buying is for accounts.
-    expect((await buySheet(1, "/api/buy/four-in-a-row/start", { item_name: "gold-board", item_count: 1, game_account_id: null })).body.error.code).toBe("account_needed");
+    expect(receipt).toMatchObject({ sub: annaPass.claims.sub, item_name: "gold-board", purchase_status: "completed", purchase_source: "grant" });
+    expect((await passOf(anna)).claims.owned_item_names).toEqual(["gold-board"]);
+    // A guest can't buy: the sheet asks them to sign in.
+    expect((await json(await fromPage(guest, `/api/buy/${SLUG}/start`, { item_name: "gold-board", item_count: 1, game_account_id: null }))).body.error.code).toBe("account_needed");
   }, 20_000);
 
-  it("draws the game page from the site's own Glass: the playing bar, the real buy sheet, its stylesheet and the brand files", async () => {
-    const page = await (await fetch(`${play.benchUrl}/?player=1`)).text();
-    expect(page).toContain('class="is-playing"');
-    expect(page).toContain('class="playing-bar');
-    expect(page).toContain('id="buy-sheet"');
-    expect(page).toContain('id="bench-friends-body"');
+  it("frames each player's page, zaisma.com's game page drawn by the site's own code, under the dev bar", async () => {
+    const dev = await (await fetch(`${play.benchUrl}/?player=${anna}`)).text();
+    expect(dev).toContain('class="playing-bar');
+    expect(dev).toContain(`src="/p/${anna}/g/${SLUG}?play"`);
+    expect(dev).toContain('id="bench-friends-body"');
+    const response = await fetch(`${play.benchUrl}/p/${anna}/g/${SLUG}?play`);
+    // Signed in: the readable cookie the page's scripts look for, for this player's page alone.
+    expect(response.headers.get("set-cookie")).toBe(`zaisma_in=1; Path=/p/${anna}; SameSite=Lax`);
+    expect(response.headers.get("content-security-policy")).toContain("frame-ancestors 'self'");
+    const page = await response.text();
+    for (const id of ["game-page-data", "buy-sheet", "players", "share-dialog", "room-dialog", "report"]) expect(page).toContain(`id="${id}"`);
+    expect(page).toContain(`src="${play.gameSiteUrl}/${SLUG}/"`);
     const stylesheet = /href="(\/css\/site\.[a-z0-9]+\.css)"/.exec(page)?.[1];
     expect(stylesheet).toBeTruthy();
     expect((await fetch(`${play.benchUrl}${stylesheet}`)).status).toBe(200);
+    for (const script of page.matchAll(/src="(\/js\/[a-z-]+\.[a-z0-9]+\.js)"/g)) expect((await fetch(`${play.benchUrl}${script[1]}`)).status).toBe(200);
     const font = /href="(\/fonts\/[a-z0-9.]+\.woff2)"/.exec(page)?.[1];
     expect((await fetch(`${play.benchUrl}${font}`)).headers.get("content-type")).toBe("font/woff2");
     expect((await fetch(`${play.benchUrl}/zaisma-mark-metal.svg`)).status).toBe(200);
     expect((await fetch(`${play.benchUrl}/README.md`)).status).toBe(404);
-    // The sheets are the components' markup, drawn from the bench's state.
-    const friends = await (await fetch(`${play.benchUrl}/bench/sheet/friends?player=2`)).text();
+    // A guest's page drops the cookie; the sign-in is a bench page of its own.
+    expect((await fetch(`${play.benchUrl}/p/${guest}/g/${SLUG}?play`)).headers.get("set-cookie")).toContain("Max-Age=0");
+    expect(await (await fromPage(guest, `/signin?next=%2Faccount%2Fkept`)).text()).toContain(`name="player" id="bench-sign-in-player" value="${guest}"`);
+    // A link from the page to the game page (Join a friend) stays this player's.
+    expect((await fetch(`${play.benchUrl}/g/${SLUG}?room=ABC234`, { redirect: "manual", headers: { referer: `${play.benchUrl}/p/${anna}/g/${SLUG}`, "sec-fetch-dest": "iframe" } })).headers.get("location")).toBe(`/p/${anna}/g/${SLUG}?room=ABC234`);
+    expect((await fetch(`${play.benchUrl}/g/${SLUG}?room=ABC234`, { redirect: "manual", headers: { referer: `${play.benchUrl}/p/${anna}/g/${SLUG}`, "sec-fetch-dest": "document" } })).headers.get("location")).toBe(`/?player=${anna}&room=ABC234`);
+    // The dev bar's sheets are the components' markup, drawn from the bench's state.
+    const friends = await (await fetch(`${play.benchUrl}/bench/sheet/friends?player=${anna}`)).text();
     expect(friends).toContain('name="bench-friend"');
     expect(friends).not.toContain("&lt;");
   }, 20_000);
 
-  it("gives two tabs opened together two players", async () => {
-    const claim = () => fetch(`${play.benchUrl}/bench/claim`, { method: "POST" }).then(json);
-    const [first, second] = await Promise.all([claim(), claim()]);
-    expect(first.body.playerNumber).not.toBe(second.body.playerNumber);
+  it("gives two tabs opened together two players, and a tab its own player again", async () => {
+    const [first, second] = await Promise.all([newPlayer(), newPlayer()]);
+    expect(first).not.toBe(second);
+    expect((await bench("/bench/claim", { keptPlayerNumber: anna })).body.playerNumber).toBe(anna);
   });
 
   it("speaks HTTPS too on the network, with a certificate of its own, and http still on this computer", async () => {
-    const onNetwork = await startLocalPlay({ gameFolder: folder, port: port + 40, gameSlug: SLUG, isOnNetwork: true, log: () => {} });
+    // A folder of its own: two benches on one folder would share its game server's saved rooms.
+    const networkFolder = mkdtempSync(join(tmpdir(), "zaisma-local-play-network-"));
+    cpSync(folder, networkFolder, { recursive: true, filter: (source) => !source.includes(".zaisma-local") });
+    const onNetwork = await startLocalPlay({ gameFolder: networkFolder, port: port + 40, gameSlug: SLUG, isOnNetwork: true, log: () => {} });
     try {
-      const { certificatePem } = JSON.parse(readFileSync(join(folder, ".zaisma-local", "certificate.json"), "utf8"));
+      const { certificatePem } = JSON.parse(readFileSync(join(networkFolder, ".zaisma-local", "certificate.json"), "utf8"));
       const overHttps = (portNumber: number, path: string) =>
         new Promise<string>((done, failed) => {
           secureRequest({ host: "localhost", port: portNumber, path, ca: certificatePem }, (response) => {
@@ -172,15 +213,16 @@ describe("play-locally", () => {
             response.on("end", () => done(text));
           }).on("error", failed).end();
         });
-      expect(await overHttps(port + 40, "/?player=1")).toContain('class="playing-bar');
+      expect(await overHttps(port + 40, "/?player=1")).toContain('id="bench-player"');
       // The game's site over HTTPS names the bench and the rooms over HTTPS, so the page's frame and calls stay secure.
       const sdk = await overHttps(port + 41, "/_zaisma/v1.js");
       expect(sdk).toContain(`"site":"https://localhost:${port + 40}"`);
       expect(sdk).toContain(`"rooms":"https://localhost:${port + 42}"`);
-      expect(await (await fetch(`http://localhost:${port + 40}/?player=1`)).text()).toContain('class="playing-bar');
+      expect(await (await fetch(`http://localhost:${port + 40}/?player=1`)).text()).toContain('id="bench-player"');
       if (onNetwork.networkUrl) expect(onNetwork.networkUrl).toMatch(/^https:\/\//);
     } finally {
       await onNetwork.close();
+      rmSync(networkFolder, { recursive: true, force: true });
     }
   }, 30_000);
 
@@ -209,14 +251,18 @@ describe("play-locally", () => {
     const page = await fetch(`${play.gameSiteUrl}/`);
     expect(page.headers.get("content-security-policy")).toContain(`frame-ancestors http://localhost:${port}`);
     expect(await page.text()).toContain("/_zaisma/saves.js");
+    // At /<slug>/ too, where the game page frames it, as Zaisma's games Worker serves a game by path.
+    expect((await fetch(`${play.gameSiteUrl}/${SLUG}/`)).status).toBe(200);
+    expect(await (await fetch(`${play.gameSiteUrl}/${SLUG}/_zaisma/v1.js`)).text()).toContain(`"game":"${SLUG}"`);
+    expect((await fetch(`${play.gameSiteUrl}/${SLUG}/zaisma-server.js`)).status).toBe(404);
   }, 20_000);
 
   it("starts the game server again when its file changes, with the room's match as it was", async () => {
     const code = (await rooms("/v1/rooms", { gameSlug: SLUG })).body.roomCode;
-    const anna = await passOf(2);
-    const ben = await passOf(3);
-    const first = await joinRoom(code, anna.pass);
-    const second = await joinRoom(code, ben.pass);
+    const annaPass = await passOf(anna);
+    const guestPass = await passOf(guest);
+    const first = await joinRoom(code, annaPass.pass);
+    const second = await joinRoom(code, guestPass.pass);
     await until(() => first.players().length === 2);
     // Anna has the first seat, and drops a piece in column 3: the bottom row's fourth cell.
     first.socket.send(JSON.stringify({ type: "message", data: { column: 3 } }));
@@ -228,7 +274,7 @@ describe("play-locally", () => {
     await until(() => first.socket.readyState === WebSocket.CLOSED && second.socket.readyState === WebSocket.CLOSED, 15_000);
     let back: Awaited<ReturnType<typeof joinRoom>> | null = null;
     await until(() => {
-      if (!back) joinRoom(code, anna.pass).then((joined) => (back = joined), () => {});
+      if (!back) joinRoom(code, annaPass.pass).then((joined) => (back = joined), () => {});
       return back !== null;
     }, 15_000);
     // Back in the room the restart brought back: the board still has her piece.
@@ -236,14 +282,21 @@ describe("play-locally", () => {
     back!.socket.close();
   }, 60_000);
 
-  it("keeps an account's save and the bench's players across a restart", async () => {
-    const saveText = '{"save_format_version_number":1,"local_storage_items":{"level":"3"},"indexeddb_databases":[]}';
-    expect((await fetch(`${play.benchUrl}/bench/saves/anna`, { method: "PUT", body: JSON.stringify({ saveText }) })).status).toBe(200);
-    const annaId = (await passOf(2)).claims.sub;
+  it("keeps an account's cloud save and the bench's players across a restart", async () => {
+    const saveData = { save_format_version_number: 1, local_storage_items: { level: "3" }, indexeddb_databases: [] };
+    // As the page's saves script does: a save on version 0, then one that's behind is refused.
+    const saved = await json(await fromPage(anna, `/api/saves/${SLUG}`, { base_version_number: 0, save_json: JSON.stringify(saveData), version_id: "version_local" }, "PUT"));
+    expect(saved.body.version_number).toBe(1);
+    expect((await fromPage(anna, `/api/saves/${SLUG}`, { base_version_number: 0, save_json: "{}", version_id: "version_local" }, "PUT")).status).toBe(409);
+    expect((await fromPage(guest, `/api/saves/${SLUG}`)).status).toBe(401);
+    const annaId = (await passOf(anna)).claims.sub;
+    const guestId = (await passOf(guest)).claims.sub;
     await play.close();
     play = await startPlay();
-    expect((await bench("/bench/saves/anna")).body.saveText).toBe(saveText);
-    expect((await passOf(2)).claims.sub).toBe(annaId);
+    expect((await json(await fromPage(anna, `/api/saves/${SLUG}`))).body).toMatchObject({ version_number: 1, save_data: saveData });
+    expect((await passOf(anna)).claims.sub).toBe(annaId);
+    // A guest's tab keeps its guest's pass, so the bench keeps the guest too.
+    expect((await passOf(guest)).claims.sub).toBe(guestId);
     expect(existsSync(join(folder, ".zaisma-local", "keys.json"))).toBe(true);
   }, 30_000);
 });

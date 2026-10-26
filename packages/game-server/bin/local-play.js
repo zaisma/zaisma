@@ -3,11 +3,12 @@
 //
 //   zaisma-game-server play-locally [folder] [--port 4800] [--game <slug>] [--on-network]
 //
-// It starts four things on consecutive ports from --port: the test bench (4800), a page with the game in a frame
-// and one thin bar; the game's site (4801), your folder served as Zaisma serves it, with the SDK set up; the
-// stand-in rooms (4802), which answers the calls the SDK makes to Zaisma's rooms and signs real player passes
+// It starts four things on consecutive ports from --port: the test bench (4800), whose dev page has the bench's own bar
+// above a frame of the player's page, zaisma.com's game page drawn by the site's own code, with the bench answering its
+// calls; the game's site (4801), your folder served as Zaisma serves it, with the SDK set up, framed by the player's
+// page; the stand-in rooms (4802), which answers the calls the SDK makes to Zaisma's rooms and signs real player passes
 // and receipts with keys made on the first run; and your game server (4803), the Node runner, as its own process.
-// Different ports are different origins, so the game is on another origin from the bench, as on Zaisma.
+// Different ports are different origins, so the game is on another origin from its page, as on Zaisma.
 // Everything it keeps is in <folder>/.zaisma-local/. Nothing here changes the game server: it checks the
 // stand-in passes the way it checks Zaisma's, against the keys the stand-in rooms publishes.
 import { createServer, request as httpRequest } from "node:http";
@@ -15,6 +16,7 @@ import { createServer as createSecureServer } from "node:https";
 import { createServer as createSocketServer } from "node:net";
 import { hostname as computerName } from "node:os";
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, watch, writeFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { networkInterfaces } from "node:os";
@@ -23,7 +25,7 @@ import { fileURLToPath } from "node:url";
 import { WebSocket, WebSocketServer } from "ws";
 import { BUSY_CLOSE_CODE, GameServerError, PASS_VERSION_NUMBER, RECEIPT_TOKEN_TYPE, RECEIPT_VERSION_NUMBER, generateSigningKey, guestName, jwks, loadSigningKey, roomCode, signPass, verifyPass } from "../src/internal.ts";
 import { qrCodeModules, qrCodeSvg } from "../src/qr-code.ts";
-import { FRAME_ALLOW, FRAME_SANDBOX, benchScriptSource, frameScriptSource } from "./local-play-bench.js";
+import { ARRIVE_SCRIPT_SOURCE, FRAME_ALLOW, KEPT_SCRIPT_SOURCE, SIGN_IN_SCRIPT_SOURCE, devScriptSource } from "./local-play-bench.js";
 import { isCertificateGood, makeCertificate } from "./local-play-certificate.js";
 
 /** The first of the four ports. */
@@ -35,38 +37,6 @@ export const LOCAL_FOLDER = ".zaisma-local";
 /** Every _zaisma/ file the games Worker serves, split by whether it works here or only loads and does nothing (test/node/local-play-parity.test.ts holds this to apps/games/src/index.ts). */
 export const SERVED_ZAISMA_PATHS = ["_zaisma/v1.js", "_zaisma/v1.d.ts", "_zaisma/relay.js", "_zaisma/picture.js", "_zaisma/saves.js", "_zaisma/restore"];
 export const ONLY_ON_ZAISMA_PATHS = ["_zaisma/performance.js", "_zaisma/warm", "_zaisma/warm.json", "_zaisma/warm.js"];
-/** The bench's own page on the game's site, which every frame load goes through: Zaisma has none. */
-export const BENCH_PAGE_PATH = "_zaisma/bench";
-
-/**
- * The SDK keeps a tab's pass in sessionStorage and checks only its kind, and on Zaisma a tab's account changes only
- * through signing in. The bench switches a tab between accounts at will, so the frame opens here first, with who it
- * plays as (?playing=guest or an account's id): a pass and session blocks kept for someone else are dropped, then it
- * goes on to the game (?then=game) or, for an account, to the restore page that puts its save back (?then=restore),
- * with the game's own query in the hash, as the restore page takes it.
- */
-const BENCH_PAGE = `<!doctype html><meta charset="utf-8"><title>Loading</title><body style="margin:0;background:#000"><script>
-(function () {
-  var given = new URLSearchParams(location.search);
-  var playing = given.get("playing") || "guest";
-  try {
-    if (sessionStorage.getItem("zaisma-bench:playing") !== playing) {
-      for (var i = sessionStorage.length - 1; i >= 0; i--) {
-        var key = sessionStorage.key(i);
-        if (key.indexOf("zaisma:pass:") === 0 || key.indexOf("zaisma:blocked:") === 0) sessionStorage.removeItem(key);
-      }
-      sessionStorage.setItem("zaisma-bench:playing", playing);
-    }
-  } catch (error) {
-    // Storage off: the SDK keeps no pass either.
-  }
-  var query = decodeURIComponent(location.hash.slice(1));
-  // Any query the game takes, never a path: it's resolved against the game's own root.
-  if (!/^(\\?[^#\\s]*)?$/.test(query)) query = "";
-  location.replace(given.get("then") === "restore" ? "restore#" + encodeURIComponent(query) : new URL("../" + query, location.href).href);
-})();
-</script>`;
-
 const OPTION_NAMES = ["gameFolder", "port", "isOnNetwork", "gameSlug", "zaismaKey", "developerApiUrl", "log"];
 const SAVE_LIMIT_BYTES = 5 * 1024 * 1024;
 const PASS_DURATION_SEC = 24 * 3600;
@@ -166,13 +136,14 @@ const randomText = (characterCount) => Array.from(crypto.getRandomValues(new Uin
 const now = () => Date.now();
 const isoOf = (ms) => new Date(ms).toISOString();
 
-/** The accounts a fresh bench starts with: made-up players with the accounts' passes, friends and blocks between them. */
+/** A fresh bench: no players yet. Accounts are made as players sign in, and kept with their friends, blocks and items. */
 function defaultState() {
-  const account = (id, username) => ({ id, username, playerId: `player_${randomText(10)}`, playerTagId: `player_tag_${randomText(12)}`, whoCanChat: "anyone" });
   return {
-    accounts: [account("anna", "Anna"), account("ben", "Ben"), account("carla", "Carla")],
-    // Who each tab plays as: its number to "guest" or an account's id. A tab not named is a guest.
-    tabs: { 1: "guest", 2: "anna", 3: "ben", 4: "carla" },
+    accounts: [],
+    // Who each player is: their number to "guest" or an account's id.
+    tabs: {},
+    // Each player's guest, while they play as one: { id, name }.
+    guests: {},
     friends: [],
     blocks: [],
     ownedItems: {},
@@ -251,9 +222,23 @@ function checkedOptions(options) {
  * close() }: close() saves every room first and finishes once everything has stopped.
  */
 export async function startLocalPlay(givenOptions) {
-  const { gameFolder, port, isOnNetwork, gameSlug: givenSlug, zaismaKey, developerApiUrl, log } = checkedOptions(givenOptions);
+  const { gameFolder, port, isOnNetwork, gameSlug: givenSlug, zaismaKey, developerApiUrl, log: printLine } = checkedOptions(givenOptions);
+  // Everything the bench says goes to the terminal, and the last of it to the dev page's Log.
+  const logLines = [];
+  const log = (line) => {
+    logLines.push(line);
+    if (logLines.length > 200) logLines.shift();
+    printLine(line);
+  };
   if (!existsSync(gameFolder) || !statSync(gameFolder).isDirectory()) throw new GameServerError("bad_option", "gameFolder", `${gameFolder} isn't a folder.`, "Give the folder of your game, the one with index.html at the top.");
   const gameSlug = givenSlug ?? (basename(gameFolder).toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "my-game");
+  // The game page's title: the one the game's own page has, else its slug.
+  let gameTitle = gameSlug;
+  try {
+    gameTitle = /<title[^>]*>([^<]{1,80})<\/title>/i.exec(readFileSync(join(gameFolder, "index.html"), "utf8"))?.[1].trim() || gameSlug;
+  } catch {
+    // No index.html yet: the game's site says it's missing.
+  }
   const ports = { bench: port, game: port + 1, rooms: port + 2, runner: port + 3 };
   const host = isOnNetwork ? undefined : "127.0.0.1";
   const localFolder = join(gameFolder, LOCAL_FOLDER);
@@ -322,11 +307,14 @@ export async function startLocalPlay(givenOptions) {
   }
 
   // --- Passes and receipts ---
-  const guests = new Map(); // tab -> its guest, so a reload of the pass is the same guest
   const roomKeys = new Map(); // key -> { playerNumber, as }
   const guestOf = (playerNumber) => {
-    if (!guests.has(playerNumber)) guests.set(playerNumber, { id: `player_${randomText(10)}`, name: guestName() });
-    return guests.get(playerNumber);
+    // Kept with the bench, as the tab keeps its guest's pass: a restart, or the tab coming back, is the same guest.
+    if (!state.guests[playerNumber]) {
+      state.guests[playerNumber] = { id: `player_${randomText(10)}`, name: guestName() };
+      saveState();
+    }
+    return state.guests[playerNumber];
   };
   const tagsOf = (accountIds) => accountIds.map((id) => accountOf(id)?.playerTagId).filter(Boolean);
   const friendIdsOf = (accountId) => state.friends.filter((pair) => pair.includes(accountId)).map((pair) => pair.find((id) => id !== accountId));
@@ -375,14 +363,18 @@ export async function startLocalPlay(givenOptions) {
     }
   }
 
-  // --- The bench page's own calls, on the bench origin ---
-  // Each tab asks for the state about once a second, which says it's open, and says when it closes. One not heard from for 70 seconds is
-  // closed too: a browser slows a background tab's timers to once a minute. (Polling, not a held-open stream per tab: a browser holds at
-  // most six connections to one address.)
+  // --- Players: every tab or phone that opens the bench is a new player, numbered as it arrives, a guest until it signs in ---
+  // A player's page is /p/<number>/g/<slug>, so the requests its page makes say whose they are: same-origin requests carry the page as their
+  // referrer. The readable sign-in cookie the page's scripts look for is set for that path alone, so each player's page reads its own.
+  // The dev page asks for the state about once a second, which says the player is still here, and says when it closes. One not heard from
+  // for 70 seconds is gone too: a browser slows a background tab's timers to once a minute. (Polling, not a held-open stream per tab: a
+  // browser holds at most six connections to one address.)
   const PLAYER_OPEN_MS = 70_000;
-  const heardAtMs = new Map(); // player number -> when its tab last asked
+  const PLAYER_PATH = /^\/p\/([1-9][0-9]{0,3})(?=\/|$)/;
+  const heardAtMs = new Map(); // player number -> when its dev page last asked
+  const lastRoomCodes = new Map(); // player number -> the room it was last seen in, to go back to after a sign-in that left the page
   let reloadNumber = 0;
-  /** Tell every tab to reload its game, at its next ask. */
+  /** Tell every dev page to reload its game, at its next ask. */
   const tell = (event) => {
     if (event === "reload") reloadNumber++;
   };
@@ -393,64 +385,85 @@ export async function startLocalPlay(givenOptions) {
     while (alive.has(playerNumber)) playerNumber++;
     return playerNumber;
   };
+  /**
+   * A tab's player. A tab keeps its number (the dev page keeps it in sessionStorage, as the game keeps its pass there), so coming back is the
+   * same player. A new tab takes the first number nobody holds, at once, so two tabs opened together are two players, and starts as a new guest.
+   */
+  const claimPlayer = (keptNumber) => {
+    if (Number.isInteger(keptNumber) && keptNumber > 0 && keptNumber <= 9999) {
+      heardAtMs.set(keptNumber, now());
+      return keptNumber;
+    }
+    const playerNumber = nextPlayerNumber();
+    heardAtMs.set(playerNumber, now());
+    state.tabs[playerNumber] = "guest";
+    delete state.guests[playerNumber];
+    saveState();
+    return playerNumber;
+  };
   const roomsTracked = new Map(); // code -> { sockets: Set<{ isSpectator, playerId }>, isListed, name, labels, maximumPlayerCount, isOpen }
   const ownRooms = new Map(); // player id -> { roomCode, friendJoinsEnabled }
-  const reportedTypes = new Set();
+  const saidOnce = new Set();
+  const logOnce = (line) => {
+    if (saidOnce.has(line)) return;
+    saidOnce.add(line);
+    log(line);
+  };
 
-  const benchStatePublic = () => ({
-    gameSlug, ports, accounts: state.accounts, tabs: state.tabs, friends: state.friends, blocks: state.blocks, ownedItems: state.ownedItems, items: state.items,
-    purchaseDelivery: state.purchaseDelivery, reloadNumber, openPlayerNumbers: openPlayerNumbers(), nextPlayerNumber: nextPlayerNumber(), addresses, isOnNetwork,
-    rooms: [...roomsTracked].map(([code, room]) => ({ code, playerCount: [...room.sockets].filter((each) => !each.isSpectator).length })),
-  });
+  /** The player a request is from: its own path (/p/<number>/...), or the page it was made on, theirs or their dev page (/?player=). 0 for none. */
+  const playerNumberOf = (request, url) => {
+    const own = PLAYER_PATH.exec(url.pathname);
+    if (own) return Number(own[1]);
+    const referrer = request.headers.referer;
+    if (!referrer || !URL.canParse(referrer)) return 0;
+    const from = new URL(referrer);
+    const page = PLAYER_PATH.exec(from.pathname);
+    if (page) return Number(page[1]);
+    const devNumber = from.pathname === "/" ? Number(from.searchParams.get("player")) : 0;
+    return Number.isInteger(devNumber) && devNumber > 0 && devNumber <= 9999 ? devNumber : 0;
+  };
+  const playingAccount = (playerNumber) => (asOf(playerNumber) === "guest" ? null : accountOf(asOf(playerNumber)));
+  const playerIdOf = (playerNumber) => playingAccount(playerNumber)?.playerId ?? state.guests[playerNumber]?.id ?? null;
+  const roomOfPlayerId = (playerId) => (playerId ? ([...roomsTracked].find(([, room]) => [...room.sockets].some((each) => each.playerId === playerId && !each.isSpectator))?.[0] ?? null) : null);
 
-  function changeState(change) {
-    const fail = (message) => ({ error: { code: "bad_change", message, fix: "Use the bench's bar to change this." } });
-    const accountId = typeof change.account === "string" ? change.account : "";
-    switch (change.op) {
-      case "set-tab": {
-        if (!Number.isInteger(change.playerNumber) || change.playerNumber < 1 || (change.as !== "guest" && !accountOf(change.as))) return fail("That isn't a tab or a player.");
-        state.tabs[change.playerNumber] = change.as;
-        break;
-      }
-      case "set-friend": {
-        if (!accountOf(change.first) || !accountOf(change.second) || change.first === change.second) return fail("Friends are two different accounts.");
-        state.friends = state.friends.filter((pair) => !isPair(pair, change.first, change.second));
-        if (change.isFriend === true) state.friends.push([change.first, change.second]);
-        break;
-      }
-      case "set-block": {
-        if (!accountOf(change.blocker) || !accountOf(change.blocked) || change.blocker === change.blocked) return fail("A block is between two different accounts.");
-        state.blocks = state.blocks.filter((block) => !(block.blocker === change.blocker && block.blocked === change.blocked));
-        if (change.isBlocked === true) state.blocks.push({ blocker: change.blocker, blocked: change.blocked });
-        break;
-      }
-      case "set-chat": {
-        const account = accountOf(accountId);
-        if (!account || !["nobody", "friends", "anyone"].includes(change.whoCanChat)) return fail("Who can chat is nobody, friends or anyone.");
-        account.whoCanChat = change.whoCanChat;
-        break;
-      }
-      case "set-owned": {
-        if (!accountOf(accountId) || typeof change.itemName !== "string") return fail("That isn't an account or an item.");
-        const owned = new Set(ownedNamesOf(accountId));
-        if (change.isOwned === true) owned.add(change.itemName);
-        else owned.delete(change.itemName);
-        state.ownedItems[accountId] = [...owned];
-        break;
-      }
-      default:
-        return fail(`${String(change.op)} isn't a change the bench makes.`);
-    }
-    saveState();
-    return null;
+  /** A friend's account's friends playing the game now, as on Zaisma: a player open as them, or a room they're in. */
+  function friendsPlaying(accountId) {
+    const playingIds = new Set(openPlayerNumbers().map((playerNumber) => asOf(playerNumber)));
+    return friendIdsOf(accountId).map((id) => accountOf(id)).filter(Boolean).flatMap((friend) => {
+      const code = roomOfPlayerId(friend.playerId);
+      const ownRoom = ownRooms.get(friend.playerId) ?? null;
+      if (!code && !ownRoom && !playingIds.has(friend.id)) return [];
+      return [{ playerId: friend.playerId, username: friend.username, roomCode: code ?? (ownRoom?.friendJoinsEnabled ? ownRoom.roomCode : null), ownRoom }];
+    });
+  }
+
+  /** A room key for the player, as Zaisma hands one to the page as Play is pressed: the stand-in rooms swaps it for the player's pass. */
+  function roomKeyFor(playerNumber) {
+    const as = asOf(playerNumber);
+    const key = `local_key_${randomText(24)}`;
+    roomKeys.set(key, { playerNumber, as });
+    return { key, playerKind: as === "guest" ? "guest" : "account" };
+  }
+
+  // Accounts are made as players sign in, with any name: the bench has no passwords. A name signed in before is that account again.
+  const EXAMPLE_NAMES = ["Anna", "Ben", "Carla", "David", "Emma", "Felix", "Grace", "Henry", "Iris", "Jonas", "Lena", "Max"];
+  const suggestedName = () => EXAMPLE_NAMES.find((name) => !state.accounts.some((account) => account.username === name)) ?? `Player ${state.accounts.length + 1}`;
+  function accountNamed(username) {
+    const found = state.accounts.find((account) => account.username.toLowerCase() === username.toLowerCase());
+    if (found) return found;
+    const base = username.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 30) || "player";
+    let id = base;
+    for (let suffixNumber = 2; accountOf(id); suffixNumber++) id = `${base}-${suffixNumber}`;
+    const account = { id, username, playerId: `player_${randomText(10)}`, playerTagId: `player_tag_${randomText(12)}`, whoCanChat: "anyone" };
+    state.accounts.push(account);
+    return account;
   }
 
   async function buy(playerNumber, itemName, itemCount, gameAccountId, purchaseId = `purchase_${randomText(12)}`) {
     const listedItem = state.items.find((each) => each.itemName === itemName);
-    if (!listedItem) return { error: { code: "no_item", message: `The bench has no item named ${itemName}.`, fix: "Add it in the bench's bar, under Items." } };
-    const as = asOf(playerNumber);
-    const account = as === "guest" ? null : accountOf(as);
-    if (!account) return { error: { code: "account_needed", message: "Buying is for players signed in, and this tab is a guest.", fix: "Switch this tab to an account in the player menu." } };
+    if (!listedItem) return { error: { code: "no_item", message: `The game has no item named ${itemName} on Zaisma.`, fix: "Set it on Zaisma (zaisma items set), then start the bench again." } };
+    const account = playingAccount(playerNumber);
+    if (!account) return { error: { code: "account_needed", message: "Buying is for players signed in, and this player is a guest.", fix: "Sign in from the buy sheet." } };
     const deliveredItemCount = listedItem.itemKind === "consumable" ? itemCount : 1;
     const purchase = { id: purchaseId, playerId: account.playerId, accountId: account.id, itemName, itemKind: listedItem.itemKind, itemCount: deliveredItemCount, gameAccountId: gameAccountId ?? null, purchasedAt: isoOf(now()), isHandled: false };
     state.purchases.push(purchase);
@@ -459,55 +472,58 @@ export async function startLocalPlay(givenOptions) {
     return { purchase: await purchaseFor(purchase) };
   }
 
-  /** What a tab's page and sheets show: its player, the bench's players, items and log, and the room it's in. */
-  function viewFor(request, url) {
-    const playerNumber = Number(url.searchParams.get("player")) || 0;
-    const benchOrigin = originFor(request, ports.bench);
-    const code = url.searchParams.get("room");
-    const tracked = code ? roomsTracked.get(code) : null;
-    const nameOfPlayer = (playerId) => accountOfPlayer(playerId)?.username ?? [...guests.values()].find((guest) => guest.id === playerId)?.name ?? "A player";
+  /** What the dev page and its sheets show for a player. */
+  function devViewFor(playerNumber) {
+    const account = playingAccount(playerNumber);
+    const friendIds = new Set(account ? friendIdsOf(account.id) : []);
     return {
-      gameSlug, playerNumber, playingAs: playerNumber ? asOf(playerNumber) : "guest",
-      accounts: state.accounts.map((account) => ({ id: account.id, username: account.username, whoCanChat: account.whoCanChat })),
-      friends: state.friends, blocks: state.blocks, ownedItems: state.ownedItems, purchaseDelivery: state.purchaseDelivery, nextPlayerNumber: nextPlayerNumber(),
-      items: state.items.map((listedItem) => ({ itemName: listedItem.itemName, title: listedItem.title, itemKind: listedItem.itemKind, priceText: listedItem.priceMinorUnits === null || !listedItem.currencyCode ? "only granted" : priceText(listedItem.currencyCode, listedItem.priceMinorUnits) })),
-      itemsNote: state.itemsCopiedAt ? `${gameSlug}'s items on Zaisma, brought in ${state.itemsCopiedAt.slice(0, 16).replace("T", " ")} UTC.` : givenSlug ? `Set ZAISMA_KEY to a key for ${gameSlug} and start the bench again to bring in its items from Zaisma.` : "Start the bench with --game <slug> and ZAISMA_KEY set to bring in the game's items from Zaisma.",
-      room: code && /^[A-Z0-9]{6}$/.test(code) ? { code, link: `${benchOrigin}/g/${gameSlug}?room=${code}`, playerNames: tracked ? [...new Set([...tracked.sockets].filter((each) => !each.isSpectator && each.playerId).map((each) => nameOfPlayer(each.playerId)))] : [] } : null,
-      networkUrl: networkOrigin ? `${networkOrigin}/g/${gameSlug}` : null,
-      logLines: [...reportedTypes].map((text) => `Only on Zaisma: ${text}`),
+      gameSlug, playerNumber, accountName: account?.username ?? null, roomCode: roomOfPlayerId(playerIdOf(playerNumber)),
+      friendChoices: account ? state.accounts.filter((other) => other.id !== account.id).map((other) => ({ accountId: other.id, username: other.username, isFriend: friendIds.has(other.id) })) : [],
+      networkUrl: networkOrigin, logLines: [...logLines],
     };
   }
 
-  // The buy sheet's calls (apps/site/src/buy.ts), stood in for: the price, a saved test card, and paying with it grants the item. Which tab
-  // asks comes from the page's address (?player=), which its requests carry as their referrer.
+  const placesFor = (request) => ({ localSiteOrigin: localhostOrigin(ports.bench), gameOrigin: originFor(request, ports.game), roomsOrigin: originFor(request, ports.rooms) });
+  const readText = async (request) => {
+    const chunks = [];
+    let sizeBytes = 0;
+    for await (const chunk of request) {
+      sizeBytes += chunk.length;
+      if (sizeBytes > SAVE_LIMIT_BYTES * 2) return null;
+      chunks.push(chunk);
+    }
+    return Buffer.concat(chunks).toString("utf8");
+  };
+  const readJson = async (request) => {
+    const text = await readText(request);
+    try {
+      const body = JSON.parse(text || "{}");
+      return body && typeof body === "object" && !Array.isArray(body) ? body : {};
+    } catch {
+      return {};
+    }
+  };
+  const sendPage = (response, page, extraHeaders = {}, httpStatus = page.httpStatus) => {
+    const headers = Object.fromEntries(page.headers.filter(([name]) => !["link", "speculation-rules", "cache-control"].includes(name.toLowerCase())));
+    response.writeHead(httpStatus, { ...headers, "Cache-Control": "no-store", ...extraHeaders });
+    response.end(page.body);
+  };
+  const signedInCookie = (playerNumber) => (playingAccount(playerNumber) ? `zaisma_in=1; Path=/p/${playerNumber}; SameSite=Lax` : `zaisma_in=; Path=/p/${playerNumber}; SameSite=Lax; Max-Age=0`);
+
+  // The buy sheet's calls (apps/site/src/buy.ts), stood in for: the price, a saved test card, and paying with it grants the item.
   const pendingSales = new Map(); // purchase id -> { playerNumber, itemName, itemCount, gameAccountId }
   const grantedPurchases = new Map(); // purchase id -> the purchase as the sheet gets it
-  const playerNumberOf = (request) => {
-    const referrer = request.headers.referer;
-    return referrer && URL.canParse(referrer) ? Number(new URL(referrer).searchParams.get("player")) || 0 : 0;
-  };
   const sheetPurchase = (given) => ({ id: given.id, item_name: given.itemName, item_kind: given.itemKind, item_count: given.itemCount, purchase_source: given.purchaseSource, purchase_status: given.purchaseStatus, game_account_id: given.gameAccountId, paid_minor_units: given.paidMinorUnits, currency_code: given.currencyCode, purchased_at: given.purchasedAt, refunded_at: given.refundedAt, receipt: given.receipt });
-  async function answerBuy(request, response, url) {
-    const reply = (status, body) => {
-      response.writeHead(status, { "Content-Type": "application/json", "Cache-Control": "no-store" });
-      response.end(JSON.stringify(body));
-    };
+  async function answerBuy(request, response, url, reply) {
     const fail = (status, code, message) => reply(status, { error: { code, message } });
-    const chunks = [];
-    for await (const chunk of request) chunks.push(chunk);
-    let body = {};
-    try {
-      body = JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}") ?? {};
-    } catch {
-      body = {};
-    }
+    const body = await readJson(request);
     const path = url.pathname;
     if (request.method === "POST" && path === `/api/buy/${gameSlug}/start`) {
-      const playerNumber = playerNumberOf(request);
+      const playerNumber = playerNumberOf(request, url);
       const listedItem = state.items.find((each) => each.itemName === body.item_name);
       if (!listedItem) return fail(404, "no_item", `This game has no item named ${String(body.item_name)} on Zaisma. Set it there (zaisma items set), then start the bench again.`);
       if (listedItem.priceMinorUnits === null || !listedItem.currencyCode) return fail(400, "not_for_sale", `${listedItem.title} isn't for sale: it's only granted.`);
-      if (!playerNumber || asOf(playerNumber) === "guest") return fail(403, "account_needed", "Buying needs an account.");
+      if (!playingAccount(playerNumber)) return fail(403, "account_needed", "Buying needs an account.");
       const itemCount = listedItem.itemKind === "consumable" && Number.isInteger(body.item_count) && body.item_count > 0 ? body.item_count : 1;
       const purchaseId = `purchase_${randomText(12)}`;
       pendingSales.set(purchaseId, { playerNumber, itemName: listedItem.itemName, itemCount, gameAccountId: typeof body.game_account_id === "string" ? body.game_account_id : null });
@@ -548,82 +564,241 @@ export async function startLocalPlay(givenOptions) {
     return fail(404, "not_local", `${request.method} ${path} is a part of Zaisma's buy sheet the bench has no stand-in for.`);
   }
 
+  // Cloud saves (apps/site/src/saves.ts), stood in for: one save per account, kept in .zaisma-local/saves/, with its version number.
+  const saveFileOf = (accountId) => join(localFolder, "saves", `${accountId}.json`);
+  const savedRowOf = (accountId) => {
+    try {
+      const row = JSON.parse(readFileSync(saveFileOf(accountId), "utf8"));
+      return Number.isInteger(row?.version_number) ? row : null;
+    } catch {
+      return null;
+    }
+  };
+  async function answerSaves(request, url, reply, playerNumber) {
+    const account = playingAccount(playerNumber);
+    if (!account) return reply(401, { error: "Sign in to keep your progress." });
+    const rest = url.pathname.slice(`/api/saves/${gameSlug}`.length);
+    const row = savedRowOf(account.id);
+    if (rest === "/copies" && request.method === "GET") return reply(200, { save_copies: [] });
+    if (rest.startsWith("/copies/")) return reply(404, { error: { code: "no_save_copy", message: "The bench keeps one save per account, with no earlier versions." } });
+    if (rest !== "") return reply(404, { error: { code: "not_local", message: "Not a saves call." } });
+    if (request.method === "GET") {
+      if (url.searchParams.has("version")) return reply(200, { version_number: row?.version_number ?? 0, saved_at: row?.saved_at ?? null, changed_by_kind: row ? "player" : null });
+      const tag = createHash("sha256").update(`${account.id}:${gameSlug}`).digest("hex").slice(0, 16);
+      if (!row) return reply(200, { tag, version_number: 0 });
+      return reply(200, { tag, version_number: row.version_number, sha256: row.sha256, saved_at: row.saved_at, changed_by_kind: "player", save_data: row.save_data });
+    }
+    if (request.method !== "PUT") return reply(405, { error: "PUT or GET." });
+    const text = await readText(request);
+    let body = {};
+    try {
+      body = JSON.parse(text ?? "") ?? {};
+    } catch {
+      body = {};
+    }
+    if (typeof body.save_json !== "string") return reply(400, { error: "save_json is missing." });
+    if (Buffer.byteLength(body.save_json) > SAVE_LIMIT_BYTES) return reply(413, { error: "Over 5 MB." });
+    let saveData;
+    try {
+      saveData = JSON.parse(body.save_json);
+    } catch {
+      return reply(400, { error: "save_json isn't JSON." });
+    }
+    if (body.keep === true) return reply(200, { save_copy_id: `save_copy_${randomText(12)}` });
+    const currentNumber = row?.version_number ?? 0;
+    if (body.replace !== true && Number(body.base_version_number) !== currentNumber) return reply(409, { error: "Played on another device.", version_number: currentNumber, saved_at: row?.saved_at ?? null, changed_by_kind: "player" });
+    const saved = { version_number: currentNumber + 1, sha256: createHash("sha256").update(body.save_json).digest("hex"), saved_at: isoOf(now()), save_data: saveData };
+    writeFileSync(saveFileOf(account.id), JSON.stringify(saved));
+    return reply(200, { version_number: saved.version_number, sha256: saved.sha256, saved_at: saved.saved_at, kept_save_copy_id: null });
+  }
+
+  /** The calls zaisma.com's game page makes, stood in for (apps/site/src/pages.ts and the scripts and sheets it holds). */
+  async function answerSite(request, response, url) {
+    const reply = (status, body, headers = {}) => {
+      response.writeHead(status, { "Content-Type": "application/json", "Cache-Control": "no-store", ...headers });
+      response.end(body === null ? undefined : JSON.stringify(body));
+    };
+    const noContent = () => {
+      response.writeHead(204, { "Cache-Control": "no-store" });
+      response.end();
+    };
+    const fragment = (markup) => {
+      response.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
+      response.end(markup);
+    };
+    const path = url.pathname;
+    const playerNumber = playerNumberOf(request, url);
+    const account = playingAccount(playerNumber);
+    const isPost = request.method === "POST";
+    const game = `/g/${gameSlug}`;
+
+    // The player's page: the game page as zaisma.com draws it for them.
+    const page = PLAYER_PATH.exec(path);
+    if (page && path === `/p/${playerNumber}${game}` && request.method === "GET") {
+      const pageUrl = `${game}${url.search}`;
+      const soldCategories = [...new Set(state.items.filter((listedItem) => listedItem.priceMinorUnits !== null && listedItem.currencyCode).map((listedItem) => listedItem.itemCategory))];
+      const drawn = await glass.playerPage({ places: placesFor(request), gameSlug, gameTitle, pageUrl, account: account ? { id: account.id, username: account.username } : null, purchaseDelivery: state.purchaseDelivery, soldCategories });
+      return sendPage(response, drawn, { "Set-Cookie": signedInCookie(playerNumber) });
+    }
+    if (page) return reply(404, { error: { code: "not_local", message: "A player's address holds only their game page." } });
+    // A link to the game page (Join a friend, a room's link) reaches the player's own page. The game page sends its links to the top
+    // window when it's framed, as in Zaisma's home, so a top-level one comes back to the player's dev page; with no player, a new one's.
+    if ((path === game || path === `${game}/`) && request.method === "GET") {
+      const room = /^[A-Z0-9]{6}$/.test(url.searchParams.get("room") ?? "") ? url.searchParams.get("room") : null;
+      const devPath = `/?${playerNumber ? `player=${playerNumber}` : ""}${room ? `${playerNumber ? "&" : ""}room=${room}` : ""}`;
+      const isFramed = request.headers["sec-fetch-dest"] === "iframe";
+      response.writeHead(302, { Location: isFramed && playerNumber ? `/p/${playerNumber}${game}${url.search}` : devPath, "Cache-Control": "no-store" });
+      return response.end();
+    }
+    if (path.startsWith("/api/buy/")) return answerBuy(request, response, url, reply);
+    if (path === `/api/saves/${gameSlug}` || path.startsWith(`/api/saves/${gameSlug}/`)) return answerSaves(request, url, reply, playerNumber);
+
+    // Play: a ticket for the time reports (which go nowhere here) and the room key. A tester link's play isn't on the bench.
+    if (isPost && path === `/api/plays/${gameSlug}`) {
+      const body = await readJson(request);
+      if (body.ticket !== undefined || body.tester !== undefined || !playerNumber) return noContent();
+      return reply(200, { ticket: `ticket_local_${randomText(12)}`, ...roomKeyFor(playerNumber) });
+    }
+    // A guest who signed in while playing: the account, and a room key for its pass.
+    if (isPost && path === `/api/plays/${gameSlug}/account`) {
+      await readJson(request);
+      if (!account) return reply(401, { error: { code: "not_signed_in", message: "Not signed in." } });
+      return reply(200, { player: { id: account.playerId, name: account.username, kind: "account" }, ...roomKeyFor(playerNumber) });
+    }
+    // Where friends see what a player plays, and what they played: only on Zaisma.
+    if (isPost && (path === `/api/me/played/${gameSlug}` || path === "/api/presence" || path === "/csp-reports")) {
+      await readText(request);
+      return noContent();
+    }
+    if (request.method === "GET" && path === `${game}/live-version`) return reply(200, { live_version_id: LOCAL_VERSION_ID, live_version_match_update_mode: "next_match" });
+    if (request.method === "GET" && path === `${game}/qr-code.svg`) {
+      const code = /^[A-Z0-9]{6}$/.test(url.searchParams.get("room") ?? "") ? url.searchParams.get("room") : null;
+      const target = `${networkOrigin ?? originFor(request, ports.bench)}/${code ? `?room=${code}` : ""}`;
+      response.writeHead(200, { "Content-Type": "image/svg+xml", "Cache-Control": "no-store" });
+      return response.end(qrCodeSvg(target));
+    }
+
+    // Friends: who's playing, the Friend marks in the players sheet, and blocks.
+    if (request.method === "GET" && path === `${game}/friends`) return fragment(account ? glass.friendsHereHtml(gameSlug, friendsPlaying(account.id)) : "");
+    if (request.method === "GET" && path === `${game}/players/friends`) {
+      if (!account) return reply(401, { error: { code: "not_signed_in", message: "Sign in to see your friends." } });
+      const room = (url.searchParams.get("room") ?? "").toUpperCase();
+      return fragment(glass.friendRowsHtml(gameSlug, friendsPlaying(account.id).filter((friend) => friend.roomCode !== room)));
+    }
+    if (request.method === "GET" && path === "/friends/among") {
+      const given = (url.searchParams.get("player_ids") ?? "").split(",").filter(Boolean);
+      if (given.length > 50 || given.some((playerId) => !/^player_[a-z0-9]{1,40}$/.test(playerId))) return reply(400, { error: { code: "bad_player_ids", message: "player_ids takes up to 50 player IDs, separated by commas." } });
+      const friendIds = new Set(account ? friendIdsOf(account.id) : []);
+      const players = given.map((playerId) => accountOfPlayer(playerId)).filter((other) => other && other.id !== account?.id).map((other) => ({ player_id: other.playerId, name: other.username, is_friend: friendIds.has(other.id) }));
+      return reply(200, { players });
+    }
+    const blockMatch = /^\/friends\/blocks\/(player_[a-z0-9]{1,40})$/.exec(path);
+    if (blockMatch) {
+      const target = accountOfPlayer(blockMatch[1]);
+      if (!account || !target || target.id === account.id) return reply(404, { error: { code: "no_player", message: "No account to block there." } });
+      if (isPost) {
+        await readText(request);
+        // A block ends a friendship too, and holds in every game's passes from the next one on.
+        state.friends = state.friends.filter((pair) => !isPair(pair, account.id, target.id));
+        if (!state.blocks.some((block) => block.blocker === account.id && block.blocked === target.id)) state.blocks.push({ blocker: account.id, blocked: target.id });
+        saveState();
+        log(`${account.username} blocked ${target.username}.`);
+        return reply(200, { is_blocked: true });
+      }
+      return reply(200, { player: { player_id: target.playerId, name: target.username }, is_friend: friendIdsOf(account.id).includes(target.id), is_blocked: state.blocks.some((block) => block.blocker === account.id && block.blocked === target.id) });
+    }
+    // A report goes to Zaisma's moderators, or the game's developer: here the terminal says what it would send.
+    if (isPost && path === `${game}/report`) {
+      const body = await readJson(request);
+      log(`Report (not sent anywhere): ${JSON.stringify({ reason: body.reason, details: body.details, room: body.room, player: body.player?.name ?? null, hasPicture: typeof body.picture === "string" })}`);
+      return reply(200, { is_game_hidden: false, is_update_paused: false });
+    }
+    if (isPost && path === `/api/links/${gameSlug}`) {
+      await readText(request);
+      logOnce("Only on Zaisma: the game's registered links (Zaisma.links.open). They're set on Zaisma, which opens them there.");
+      return reply(404, { error: { code: "unknown_link", message: "The bench has none of the game's registered links: they're set on Zaisma." } });
+    }
+
+    // Signing in: a name alone, on the bench.
+    if ((path === "/signin" || path === "/join") && request.method === "GET") {
+      const freeAccounts = state.accounts.filter((other) => !openPlayerNumbers().some((each) => each !== playerNumber && asOf(each) === other.id)).map((other) => ({ id: other.id, username: other.username }));
+      const nextPath = url.searchParams.get("next") ?? "";
+      return sendPage(response, await glass.signInPage(placesFor(request), { playerNumber, nextPath, suggestedName: suggestedName(), freeAccounts, error: null }));
+    }
+    if (isPost && path === "/bench/sign-in") {
+      const form = new URLSearchParams((await readText(request)) ?? "");
+      const signingNumber = Number(form.get("player"));
+      const name = (form.get("name") ?? "").trim();
+      const chosen = form.get("account") ? accountOf(form.get("account")) : /^[\p{L}\p{N} _-]{1,20}$/u.test(name) ? accountNamed(name) : null;
+      if (!Number.isInteger(signingNumber) || signingNumber < 1 || !chosen) {
+        return sendPage(response, await glass.signInPage(placesFor(request), { playerNumber: signingNumber || 0, nextPath: form.get("next") ?? "", suggestedName: suggestedName(), freeAccounts: [], error: signingNumber ? "A name is 1 to 20 letters, digits, spaces, hyphens or underscores." : "Open sign-in from a player's game page." }), {}, 400);
+      }
+      state.tabs[signingNumber] = chosen.id;
+      saveState();
+      log(`Player ${signingNumber} signed in as ${chosen.username}.`);
+      const next = form.get("next") ?? "";
+      // Back to where the page asked: the end of a sign-in in its own tab, or the player's dev page and game, in the room it named.
+      const nextRoom = /[?&]room=([A-Z0-9]{6})(&|$)/.exec(next)?.[1] ?? null;
+      const location = next.startsWith("/account/kept") ? `${next}${next.includes("?") ? "&" : "?"}player=${signingNumber}` : `/?player=${signingNumber}${nextRoom ? `&room=${nextRoom}` : ""}`;
+      response.writeHead(303, { Location: location, "Set-Cookie": signedInCookie(signingNumber), "Cache-Control": "no-store" });
+      return response.end();
+    }
+    if (path === "/account/kept" && request.method === "GET") {
+      const keptNumber = Number(url.searchParams.get("player")) || 0;
+      return sendPage(response, await glass.keptPage(placesFor(request), playingAccount(keptNumber)?.username ?? null, keptNumber));
+    }
+    if (path === "/bench/kept.js" || path === "/bench/sign-in.js") {
+      response.writeHead(200, { "Content-Type": "text/javascript; charset=utf-8", "Cache-Control": "no-store" });
+      return response.end(path === "/bench/kept.js" ? KEPT_SCRIPT_SOURCE : SIGN_IN_SCRIPT_SOURCE);
+    }
+    return null;
+  }
+
+  /** The dev page's own calls. */
   async function answerBench(request, response, url) {
     const reply = (status, body, headers = {}) => {
       response.writeHead(status, { "Content-Type": "application/json", "Cache-Control": "no-store", ...headers });
       response.end(JSON.stringify(body));
     };
-    const readJson = async () => {
-      const chunks = [];
-      for await (const chunk of request) chunks.push(chunk);
-      try {
-        return JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}");
-      } catch {
-        return null;
-      }
-    };
     const path = url.pathname;
+    const givenNumber = Number(url.searchParams.get("player"));
+    const playerNumber = Number.isInteger(givenNumber) && givenNumber > 0 ? givenNumber : 0;
     if (path === "/bench/state" && request.method === "GET") {
-      const playerNumber = Number(url.searchParams.get("player"));
-      if (Number.isInteger(playerNumber) && playerNumber > 0) heardAtMs.set(playerNumber, now());
-      return reply(200, benchStatePublic());
-    }
-    // A new tab takes the first number nobody holds, at once, so two tabs opened together are two players.
-    if (path === "/bench/claim" && request.method === "POST") {
-      const playerNumber = nextPlayerNumber();
-      heardAtMs.set(playerNumber, now());
-      return reply(200, { playerNumber });
-    }
-    if (path === "/bench/leave" && request.method === "POST") {
-      heardAtMs.delete(Number(url.searchParams.get("player")));
-      return reply(200, { isLeft: true });
+      if (playerNumber) heardAtMs.set(playerNumber, now());
+      const roomCode = playerNumber ? roomOfPlayerId(playerIdOf(playerNumber)) : null;
+      if (roomCode) lastRoomCodes.set(playerNumber, roomCode);
+      return reply(200, { reloadNumber, roomCode, openPlayerNumbers: openPlayerNumbers() });
     }
     if (path === "/bench/state" && request.method === "POST") {
-      const change = await readJson();
-      const refused = change ? changeState(change) : { error: { code: "bad_change", message: "The change isn't JSON.", fix: "Use the bench's bar." } };
-      return refused ? reply(400, refused) : reply(200, benchStatePublic());
+      const change = await readJson(request);
+      const account = Number.isInteger(change.playerNumber) ? playingAccount(change.playerNumber) : null;
+      const friend = accountOf(change.friendAccountId);
+      if (change.op !== "set-friend" || !account || !friend || friend.id === account.id || typeof change.isFriend !== "boolean") return reply(400, { error: { code: "bad_change", message: "The bench changes only friends, between two accounts.", fix: "Tick a friend in the dev bar's Friends." } });
+      state.friends = state.friends.filter((pair) => !isPair(pair, account.id, friend.id));
+      if (change.isFriend) state.friends.push([account.id, friend.id]);
+      saveState();
+      return reply(200, { isFriend: change.isFriend });
     }
-    if (path === "/bench/key" && request.method === "GET") {
-      const playerNumber = Number(url.searchParams.get("player"));
-      if (!Number.isInteger(playerNumber) || playerNumber < 1) return reply(400, { error: { code: "bad_player_number", message: "player isn't a tab's number.", fix: "Open the bench with ?player=1." } });
-      const as = asOf(playerNumber);
-      const key = `local_key_${randomText(24)}`;
-      roomKeys.set(key, { playerNumber, as });
-      return reply(200, { key, playerKind: as === "guest" ? "guest" : "account" });
+    if (path === "/bench/claim" && request.method === "POST") {
+      const given = await readJson(request);
+      return reply(200, { playerNumber: claimPlayer(given.keptPlayerNumber) });
     }
-    const sheetMatch = /^\/bench\/sheet\/(friends|items|room|phone|log)$/.exec(path);
+    if (path === "/bench/arrive.js") {
+      response.writeHead(200, { "Content-Type": "text/javascript; charset=utf-8", "Cache-Control": "no-store" });
+      return response.end(ARRIVE_SCRIPT_SOURCE);
+    }
+    if (path === "/bench/leave" && request.method === "POST") {
+      heardAtMs.delete(playerNumber);
+      return reply(200, { isLeft: true });
+    }
+    const sheetMatch = /^\/bench\/sheet\/(friends|phone|log)$/.exec(path);
     if (sheetMatch && request.method === "GET") {
       response.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
-      return response.end(glass.benchSheetBody(sheetMatch[1], viewFor(request, url)));
+      return response.end(glass.devSheetBody(sheetMatch[1], devViewFor(playerNumber)));
     }
-    if (path === "/bench/frame.js") {
+    if (path === "/bench/dev.js") {
       response.writeHead(200, { "Content-Type": "text/javascript; charset=utf-8", "Cache-Control": "no-store" });
-      return response.end(frameScriptSource(ports.game));
-    }
-    if (path === "/bench/bench.js") {
-      response.writeHead(200, { "Content-Type": "text/javascript; charset=utf-8", "Cache-Control": "no-store" });
-      return response.end(benchScriptSource({ gameSlug, gamePort: ports.game }));
-    }
-    const savesMatch = /^\/bench\/saves\/([a-z0-9_-]{1,40})$/.exec(path);
-    if (savesMatch) {
-      const file = join(localFolder, "saves", `${savesMatch[1]}.json`);
-      if (!accountOf(savesMatch[1])) return reply(404, { error: { code: "no_player", message: "No stand-in account has that ID.", fix: "Use an account's ID from the bench." } });
-      if (request.method === "GET") return reply(200, { saveText: existsSync(file) ? readFileSync(file, "utf8") : null });
-      if (request.method === "PUT") {
-        const given = await readJson();
-        if (!given || typeof given.saveText !== "string" || given.saveText.length > SAVE_LIMIT_BYTES) return reply(400, { error: { code: "bad_save", message: "The save isn't text within 5 MB.", fix: "Send { saveText }." } });
-        writeFileSync(file, given.saveText);
-        return reply(200, { isSaved: true });
-      }
-    }
-    if (path === "/bench/report" && request.method === "POST") {
-      const given = await readJson();
-      // Once each, however many tabs ask.
-      if (given?.kind === "only-on-zaisma" && typeof given.text === "string" && !reportedTypes.has(given.text)) {
-        reportedTypes.add(given.text);
-        log(`Only on Zaisma: ${given.text}`);
-      }
-      return reply(200, { isLogged: true });
+      return response.end(devScriptSource());
     }
     if (path === "/bench/qr.svg") {
       const target = url.searchParams.get("text") ?? "";
@@ -637,13 +812,24 @@ export async function startLocalPlay(givenOptions) {
   const benchServer = createServer(async (request, response) => {
     try {
       const url = new URL(request.url ?? "/", "http://bench");
-      if (url.pathname.startsWith("/bench/")) return await answerBench(request, response, url);
-      if (url.pathname.startsWith("/api/buy/")) return await answerBuy(request, response, url);
-      if (url.pathname === "/" || url.pathname === `/g/${gameSlug}`) {
-        // Its own requests carry the page's address (and so its ?player=) to the bench, and nowhere else.
-        response.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", "Referrer-Policy": "same-origin", "X-Content-Type-Options": "nosniff" });
-        return response.end(await glass.benchPageHtml(viewFor(request, url), { sandbox: FRAME_SANDBOX, allow: FRAME_ALLOW }));
+      // The dev page: a new player gets their number first, then the page frames their game page.
+      if (url.pathname === "/" && request.method === "GET") {
+        const givenNumber = Number(url.searchParams.get("player"));
+        let room = /^[A-Z0-9]{6}$/.test(url.searchParams.get("room") ?? "") ? url.searchParams.get("room") : null;
+        if (!Number.isInteger(givenNumber) || givenNumber < 1 || givenNumber > 9999) {
+          response.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
+          return response.end(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Test bench</title><body style="margin:0;background:#000"><script src="/bench/arrive.js"></script>`);
+        }
+        heardAtMs.set(givenNumber, now());
+        // Back from a sign-in that left the page: into the room the player was in, while it's still going.
+        const lastRoom = lastRoomCodes.get(givenNumber);
+        if (!room && lastRoom && roomsTracked.has(lastRoom)) room = lastRoom;
+        const framePath = `/p/${givenNumber}/g/${gameSlug}${room ? `?room=${room}` : "?play"}`;
+        return sendPage(response, await glass.devPage(placesFor(request), devViewFor(givenNumber), { path: framePath, allow: FRAME_ALLOW }));
       }
+      if (url.pathname.startsWith("/bench/") && !["/bench/sign-in", "/bench/sign-in.js", "/bench/kept.js"].includes(url.pathname)) return await answerBench(request, response, url);
+      const answered = await answerSite(request, response, url);
+      if (answered !== null || response.headersSent) return;
       // Logos, favicons, the loader and the font, from the brand folder as the site serves it.
       const brand = brandFile(url.pathname);
       if (brand) {
@@ -656,8 +842,9 @@ export async function startLocalPlay(givenOptions) {
         response.writeHead(asset.httpStatus, asset.headers);
         return response.end(asset.body);
       }
+      logOnce(`Only on Zaisma: ${request.method} ${url.pathname}`);
       response.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
-      response.end("Not found. The bench is at /.");
+      response.end(`${url.pathname} is only on Zaisma. The bench is at /.`);
     } catch (error) {
       log(`The bench couldn't answer ${request.url}: ${error instanceof Error ? error.message : error}`);
       if (!response.headersSent) response.writeHead(500);
@@ -682,13 +869,18 @@ export async function startLocalPlay(givenOptions) {
       } catch {
         return send(400, "text/plain; charset=utf-8", "Bad address.");
       }
+      // The game page frames the game at /<slug>/, as Zaisma's games Worker serves a game by path.
+      if (path === gameSlug) {
+        response.writeHead(301, { Location: `/${gameSlug}/${url.search}` });
+        return response.end();
+      }
+      if (path.startsWith(`${gameSlug}/`)) path = path.slice(gameSlug.length + 1);
       if (path.startsWith("_zaisma/")) {
         const js = "text/javascript; charset=utf-8";
         if (path === "_zaisma/v1.js") {
           const config = { rooms: originFor(request, ports.rooms), game: gameSlug, site: benchOrigin, version: LOCAL_VERSION_ID, purchaseDelivery: state.purchaseDelivery };
           return send(200, js, withSetup("__ZAISMA__", config, sdkText("zaisma.js")));
         }
-        if (path === BENCH_PAGE_PATH) return send(200, "text/html; charset=utf-8", BENCH_PAGE);
         if (path === "_zaisma/v1.d.ts") return send(200, "text/plain; charset=utf-8", sdkText("zaisma.d.ts"));
         if (path === "_zaisma/relay.js") return send(200, js, withSetup("__ZAISMA_RELAY__", { rooms: originFor(request, ports.rooms), game: gameSlug, site: benchOrigin, ownRelayHosts: [], fetchEarly: false }, sdkText("relay.js")));
         if (path === "_zaisma/picture.js") return send(200, js, withSetup("__ZAISMA_PICTURE__", { site: benchOrigin }, sdkText("picture.js")));
@@ -826,16 +1018,8 @@ export async function startLocalPlay(givenOptions) {
         if (path === "/v1/friends") {
           if (claims.kind !== "account") return fail(403, "account_needed", "Friends are for players signed in to Zaisma. Ask a guest to sign in first (Zaisma.player.signIn).");
           const me = accountOfPlayer(claims.sub);
-          // Friends playing the game now, as on Zaisma: a tab open as them, or a room they're in. Join's answer, or why not.
-          const playingIds = new Set(openPlayerNumbers().map((playerNumber) => asOf(playerNumber)));
-          const friends = friendIdsOf(me?.id ?? "").map((id) => accountOf(id)).filter(Boolean).flatMap((friend) => {
-            const inRoom = [...roomsTracked].find(([, room]) => [...room.sockets].some((each) => each.playerId === friend.playerId && !each.isSpectator));
-            const ownRoom = ownRooms.get(friend.playerId);
-            if (!inRoom && !ownRoom && !playingIds.has(friend.id)) return [];
-            const roomCodeShown = inRoom?.[0] ?? (ownRoom?.friendJoinsEnabled ? ownRoom.roomCode : null);
-            const refusal = roomCodeShown ? null : ownRoom ? "private_room" : "friend_not_in_room";
-            return [{ player_id: friend.playerId, username: friend.username, room_code: roomCodeShown, server_url: null, join_refusal: refusal }];
-          });
+          // Friends playing the game now, as on the game page: Join's room, or why not.
+          const friends = friendsPlaying(me?.id ?? "").map((friend) => ({ player_id: friend.playerId, username: friend.username, room_code: friend.roomCode, server_url: null, join_refusal: friend.roomCode ? null : friend.ownRoom ? "private_room" : "friend_not_in_room" }));
           return reply(200, { friends });
         }
         // /v1/items/unhandled and /v1/items/handled, as apps/rooms answers them. Guests own nothing.

@@ -30,7 +30,6 @@ export interface LocalPlay {
 }
 
 export const DEFAULT_PORT_NUMBER: number;
-export const BENCH_PAGE_PATH: string;
 export const LOCAL_VERSION_ID: string;
 export const LOCAL_FOLDER: string;
 export const SERVED_ZAISMA_PATHS: string[];

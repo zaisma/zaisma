@@ -3,10 +3,10 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { gameHeaders } from "../../packages/core/src/index.ts";
 import { localGameHeaders, ONLY_ON_ZAISMA_PATHS, SERVED_ZAISMA_PATHS } from "../../packages/game-server/bin/local-play.js";
-import { FRAME_ALLOW, FRAME_SANDBOX } from "../../packages/game-server/bin/local-play-bench.js";
+import { FRAME_ALLOW } from "../../packages/game-server/bin/local-play-bench.js";
 
-// The bench (packages/game-server/bin/local-play.js) serves and frames the game as Zaisma does: the same _zaisma/
-// files, the same headers and the same sandbox, held here to the games Worker and the game page so they can't drift.
+// The bench (packages/game-server/bin/local-play.js) serves the game as Zaisma does: the same _zaisma/ files and the same
+// headers, held here to the games Worker so they can't drift. The game page that frames it is zaisma.com's own.
 
 const ROOT = join(import.meta.dirname, "../..");
 const read = (path: string) => readFileSync(join(ROOT, path), "utf8");
@@ -17,10 +17,8 @@ describe("the bench matches Zaisma", () => {
     expect([...SERVED_ZAISMA_PATHS, ...ONLY_ON_ZAISMA_PATHS].sort()).toEqual([...worker].sort());
   });
 
-  it("frames the game with the game page's sandbox and permissions", () => {
-    const page = read("apps/site/src/pages.ts");
-    expect(page).toContain(`sandbox="${FRAME_SANDBOX}"`);
-    expect(page).toContain(`allow="${FRAME_ALLOW}"`);
+  it("lets the player's page pass on the game page's permissions to the game", () => {
+    expect(read("apps/site/src/pages.ts")).toContain(`allow="${FRAME_ALLOW}"`);
   });
 
   it("gives the game's files the games Worker's headers", () => {

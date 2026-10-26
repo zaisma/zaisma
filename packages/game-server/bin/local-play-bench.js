@@ -1,291 +1,98 @@
-// The test bench page's own script (local-play.js serves it as /bench/bench.js). The page itself is Glass, drawn from the site's components
-// (bench/glass.ts): the game page while playing, with the bench's buttons in its bar and the real buy sheet. This script answers the frame's
-// zaisma: messages the way the game page does, for the players the bench makes up, and keeps the bench's sheets up to date.
+// The dev page's own scripts (local-play.js serves them as /bench/dev.js and /bench/kept.js). The dev page is the bench's: its bar
+// (bench/glass.ts) and one frame, the player's page, which is zaisma.com's game page with its own scripts. These never reach into it.
 
-/** The frame's sandbox and permissions, exactly the game page's (apps/site/src/pages.ts; test/node/local-play-parity.test.ts holds the two together). */
-export const FRAME_SANDBOX = "allow-scripts allow-same-origin allow-pointer-lock";
+/** What the dev page's frame lets the player's page pass on to the game: the game page's own list (apps/site/src/pages.ts; test/node/local-play-parity.test.ts holds the two together). */
 export const FRAME_ALLOW = "fullscreen; gamepad; autoplay; web-share; clipboard-write; cross-origin-isolated";
 
-/** What the frame's messages that the bench has no stand-in for do on Zaisma, said once each in the bench's log. */
-export const ONLY_ON_ZAISMA = {
-  "zaisma:link": "opens the game's registered links (Zaisma.links.open)",
-  "zaisma:picture": "hands the game's picture to a player's report",
-  "zaisma:version": "tells the page which version runs, so it can offer an update",
-  "zaisma:version-ready": "answers whether the game takes a newer version by itself",
-  "zaisma:version-update": "shows that a newer version is coming",
-  "zaisma:reload": "reloads the game at a newer version",
-  "zaisma:connection": "shows a weak connection beside the game",
-  "zaisma:account-offer": "shows the Keep your progress card to a guest",
-  "zaisma:report": "opens Zaisma's report sheet for a player, which goes to Zaisma's moderators (Room.report's own reports are printed in the terminal here)",
-  "zaisma:performance": "sends how the game runs (load time, frame rate, crashes) to the developer's stats",
-  "zaisma:alive": "tells the page the game is still running, for its performance stats",
-  "zaisma:still-there": "shows the Still there? card beside the game (the game draws its own here)",
-};
+/** The dev page's script: it keeps the player's place, reloads the game when a file changes, and draws the bar's sheets afresh. */
+export const devScriptSource = () => `(${devScript.toString()})();\n`;
 
-/** The frame and the game's origin, as the game page's script names them for the buy sheet's script (/bench/frame.js). */
-export const frameScriptSource = (gamePort) => `var frame = document.getElementById("game");\nvar gameOrigin = location.protocol + "//" + location.hostname + ":${Number(gamePort)}";\n`;
+/**
+ * The end of a sign-in on the bench (/account/kept): it tells the open game pages, as zaisma.com's own page does. Opened as a tab of its own,
+ * it closes; reached in the player's own tab (a blocked pop-up sends the sign-in there), it goes back to the player's dev page and game.
+ */
+export const KEPT_SCRIPT_SOURCE = `try { new BroadcastChannel("zaisma").postMessage("signed-in"); } catch {}
+var keptPlayerNumber = Number(new URL(document.currentScript.src).searchParams.get("player")) || 0;
+setTimeout(function () {
+  if (window.opener) window.close();
+  else location.replace(keptPlayerNumber ? "/?player=" + keptPlayerNumber : "/");
+}, 800);
+`;
 
-/** The script, for a game on these ports. config: gameSlug, gamePort. */
-export const benchScriptSource = (config) => `const ONLY_ON_ZAISMA = ${JSON.stringify(ONLY_ON_ZAISMA)};\n(${benchScript.toString()})(${JSON.stringify(config)});\n`;
+/** Where a tab arrives (/ with no player): the tab's own player number again, or a new player's, then the dev page. */
+export const ARRIVE_SCRIPT_SOURCE = `(function () {
+  var kept = null;
+  try { kept = Number(sessionStorage.getItem("zaisma-bench:player")) || null; } catch (error) {}
+  var room = /^[A-Z0-9]{6}$/.test(new URLSearchParams(location.search).get("room") || "") ? new URLSearchParams(location.search).get("room") : null;
+  fetch("/bench/claim", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ keptPlayerNumber: kept }) })
+    .then(function (response) { return response.json(); })
+    .then(function (answer) { location.replace("/?player=" + answer.playerNumber + (room ? "&room=" + room : "")); });
+})();
+`;
 
-/** The page's script, run in the browser. It is written as a function so it stays real code; the bench serves its text. */
-function benchScript(config) {
-  const frame = document.getElementById("game");
-  const gameOrigin = `${location.protocol}//${location.hostname}:${config.gamePort}`;
-  const query = new URLSearchParams(location.search);
-  let playerNumber = Number(query.get("player")) || 0;
-  let state = null;
-  let roomCode = /^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$/.test(query.get("room") || "") ? query.get("room") : null;
-  let isRoomOpen = true;
-  const reported = new Set();
+/**
+ * The bench's sign-in page: whose sign-in it is, when its address didn't say. It opens in the player's tab or in a tab the game page opened,
+ * and both hold the player's number the dev page keeps in sessionStorage (a tab opened by a page starts with a copy of the page's).
+ */
+export const SIGN_IN_SCRIPT_SOURCE = `(function () {
+  var field = document.getElementById("bench-sign-in-player");
+  if (!field || field.value !== "0") return;
+  try { field.value = sessionStorage.getItem("zaisma-bench:player") || "0"; } catch (error) {}
+})();
+`;
 
-  const byId = (id) => document.getElementById(id);
-  const post = (message) => frame.contentWindow && frame.contentWindow.postMessage(message, gameOrigin);
-  const call = async (path, options) => (await fetch(path, options)).json();
-  const change = async (body) => {
-    const answer = await call("/bench/state", { method: "POST", body: JSON.stringify(body) });
-    if (!answer.error) state = answer;
-    return answer;
-  };
-  const accountOfTab = () => (state && state.tabs[playerNumber] && state.tabs[playerNumber] !== "guest" ? state.accounts.find((account) => account.id === state.tabs[playerNumber]) : null);
-  const accountOfPlayer = (playerId) => (state ? state.accounts.find((account) => account.playerId === playerId) : null);
-  const onlyOnZaisma = (type, what) => {
-    if (reported.has(type)) return;
-    reported.add(type);
-    call("/bench/report", { method: "POST", body: JSON.stringify({ kind: "only-on-zaisma", text: what }) }).catch(() => {});
-  };
-  // Session blocks, per tab as the game page keeps them: a guest's, or of a guest, for as long as the tab is open.
-  const sessionKey = () => `zaisma-bench:blocked:${playerNumber}`;
-  const sessionBlocks = () => {
-    try { return new Set(JSON.parse(sessionStorage.getItem(sessionKey()) || "[]")); } catch { return new Set(); }
-  };
-  const keepSessionBlocks = (blocked) => {
-    try { sessionStorage.setItem(sessionKey(), JSON.stringify([...blocked])); } catch { /* fine: kept for this page only */ }
-  };
-
-  // --- The frame: through the bench's page on the game's site, which drops a pass kept for someone else, and for an account through the
-  // restore page that puts its save back (local-play.js, BENCH_PAGE) ---
-  function frameQuery() {
-    const kept = new URLSearchParams(location.search);
-    kept.delete("player");
-    const text = kept.toString();
-    return text ? `?${text}` : "";
+/** Run in the browser. Written as a function so it stays real code; the bench serves its text. */
+function devScript() {
+  const playerNumber = Number(new URL(document.currentScript.src).searchParams.get("player")) || 0;
+  try {
+    sessionStorage.setItem("zaisma-bench:player", String(playerNumber));
+  } catch {
+    // Storage off: the tab is a new player each time it comes to /.
   }
-  function loadFrame() {
-    const account = accountOfTab();
-    frame.src = `${gameOrigin}/_zaisma/bench?playing=${account ? account.id : "guest"}&then=${account ? "restore" : "game"}#${encodeURIComponent(frameQuery())}`;
-  }
-  function keepAddress() {
-    const next = new URLSearchParams(location.search);
-    next.set("player", String(playerNumber));
-    if (roomCode) next.set("room", roomCode);
-    else next.delete("room");
-    history.replaceState(null, "", `${location.pathname}?${next}`);
-  }
+  const frame = document.getElementById("bench-player");
+  const add = document.getElementById("bench-add");
+  let reloadNumber = null;
+  let roomCode = null;
 
-  // --- The bar and the sheets, drawn by the bench from Glass's components ---
-  function renderBar() {
-    if (!state) return;
-    const account = accountOfTab();
-    const who = byId("bench-who");
-    const label = who && who.querySelector(".face > span:not([class])");
-    if (label) label.textContent = account ? account.username : "Guest";
-    // A new tab claims its own player number as it opens, so the link only carries the room.
-    const add = byId("bench-add");
-    if (add) {
-      add.href = `${location.pathname}${roomCode ? `?room=${roomCode}` : ""}`;
-      add.target = "_blank";
-    }
-    // The room's code in the bar, as the game page shows it; a room that takes nobody new says so.
-    const room = byId("bench-room-open");
-    const roomLabel = room && room.querySelector(".face > span:not([class])");
-    if (roomLabel) roomLabel.textContent = roomCode ? (isRoomOpen ? roomCode : `${roomCode}, closed`) : "Room";
-    document.title = `Player ${playerNumber}, ${account ? account.username : "guest"}: test bench for ${config.gameSlug}`;
-  }
-  async function refreshSheet(name) {
-    const body = byId(`bench-${name}-body`);
-    if (!body) return;
-    const response = await fetch(`/bench/sheet/${name}?player=${playerNumber}${roomCode ? `&room=${roomCode}` : ""}`);
-    if (response.ok) body.innerHTML = await response.text();
-  }
-  const openSheetNames = () => ["friends", "items", "room", "phone", "log"].filter((name) => { const sheet = byId(`bench-${name}`); return sheet && sheet.open; });
-  // A sheet's button opens it (the components' own script); it's drawn afresh as it opens.
-  document.addEventListener("click", (event) => {
-    const opener = event.target.closest && event.target.closest("[aria-controls^='bench-']");
-    if (opener) refreshSheet(opener.getAttribute("aria-controls").replace(/^bench-/, ""));
-  }, true);
-  // Changes in the sheets: friends, blocks, who can chat and owned items.
-  document.addEventListener("change", async (event) => {
-    const input = event.target;
-    if (!input || !input.name || !input.name.startsWith("bench-")) return;
-    const [first, second] = String(input.value).split(":");
-    if (input.name === "bench-friend") await change({ op: "set-friend", first, second, isFriend: input.checked });
-    else if (input.name === "bench-block") await change({ op: "set-block", blocker: first, blocked: second, isBlocked: input.checked });
-    else if (input.name === "bench-owned") await change({ op: "set-owned", account: first, itemName: second, isOwned: input.checked });
-    else if (input.name === "bench-chat") await change({ op: "set-chat", account: input.dataset.benchAccount, whoCanChat: input.value });
-    else return;
-    openSheetNames().forEach(refreshSheet);
+  // Each new player is a new tab: the bench claims it a number as it opens.
+  add.addEventListener("click", (event) => {
+    event.preventDefault();
+    // A tab of its own, with nothing of this one's: a new player.
+    window.open(add.href, "_blank", "noopener");
   });
-  document.addEventListener("click", async (event) => {
-    const target = event.target.closest ? event.target : null;
-    if (!target) return;
-    // Who this tab plays as: the page opens again as them, in the same room.
-    const as = target.closest("[data-bench-as]");
-    if (as) {
-      event.preventDefault();
-      await change({ op: "set-tab", playerNumber, as: as.dataset.benchAs });
-      keepAddress();
-      return location.reload();
-    }
-    // The buy sheet's Sign in and Make an account, for a guest: here the tab plays as an account at once, and the sheet goes on.
-    if (target.closest("#buy-guest-buttons a, [data-buy-sign-in]")) {
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      await signIn(false);
-    }
-  }, true);
 
-  // --- What the frame says ---
-  async function answerSaves(message) {
-    const account = accountOfTab();
-    if (!account) return;
-    if (message.step === "hello" && message.phase === "restore") {
-      const saved = (await call(`/bench/saves/${account.id}`)).saveText;
-      post(saved ? { type: "zaisma:saves", step: "restore", action: "use-cloud", data: JSON.parse(saved) } : { type: "zaisma:saves", step: "restore", action: "keep" });
-    } else if (message.step === "hello" && message.phase === "game") {
-      post({ type: "zaisma:saves", step: "sync", text: (await call(`/bench/saves/${account.id}`)).saveText });
-    } else if (message.step === "save" && typeof message.text === "string") {
-      await call(`/bench/saves/${account.id}`, { method: "PUT", body: JSON.stringify({ saveText: message.text }) });
-    }
-  }
-  function answerSavesRequest(message) {
-    const reply = (body) => post(Object.assign({ type: "zaisma:saves-answer", requestNumber: message.requestNumber }, body));
-    if (message.request === "listen") return;
-    reply({ status: "asking" });
-    onlyOnZaisma("saves-copies", "keeps earlier versions of a player's save (Zaisma.saves.listCopies, getCopy, restoreCopy)");
-    if (!accountOfTab()) return reply({ error: { code: "account_needed", message: "Earlier versions are kept for players signed in to Zaisma: a guest's progress stays in this browser. Ask the player to sign in first (Zaisma.player.signIn)." } });
-    if (message.request === "list_copies") return reply({ answer: [] });
-    reply({ error: { code: "no_save_copy", message: `The player has no earlier version ${message.saveCopyId} in this game: the bench keeps only the latest save.` } });
-  }
+  const refresh = (name) =>
+    fetch(`/bench/sheet/${name}?player=${playerNumber}`)
+      .then((response) => response.text())
+      .then((text) => {
+        const body = document.getElementById(`bench-${name}-body`);
+        if (body) body.innerHTML = text;
+      })
+      .catch(() => {});
+  for (const name of ["friends", "phone", "log"]) document.getElementById(`bench-${name}-open`)?.addEventListener("click", () => refresh(name));
 
-  // Signing in while the game runs: the tab plays as the first account no other open tab plays as, and the game hears who it is now.
-  async function signIn(isAskedByGame) {
-    if (isAskedByGame) post({ type: "zaisma:sign-in", status: "asking" });
-    const inUse = new Set(Object.entries(state.tabs).filter(([tab]) => Number(tab) !== playerNumber && state.openPlayerNumbers.includes(Number(tab))).map(([, as]) => as));
-    const account = state.accounts.find((each) => !inUse.has(each.id)) || state.accounts[0];
-    await change({ op: "set-tab", playerNumber, as: account.id });
-    renderBar();
-    post({ type: "zaisma:signed-in", player: { id: account.playerId, name: account.username } });
-    // The buy sheet goes on once the player is signed in, as on Zaisma (its script checks the cookie and listens on this channel).
-    document.cookie = "zaisma_in=1; path=/; SameSite=Lax";
-    try { new BroadcastChannel("zaisma").postMessage("signed-in"); } catch { /* fine: it checks again on focus */ }
-  }
+  document.addEventListener("change", (event) => {
+    const box = event.target;
+    if (!(box instanceof HTMLInputElement) || box.name !== "bench-friend") return;
+    fetch("/bench/state", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ op: "set-friend", playerNumber, friendAccountId: box.value, isFriend: box.checked }) })
+      .then(() => refresh("friends"))
+      .catch(() => {});
+  });
 
-  async function onMessage(event) {
-    if (event.origin !== gameOrigin || event.source !== frame.contentWindow || !event.data || typeof event.data.type !== "string") return;
-    const message = event.data;
-    if (!state) state = await call(`/bench/state?player=${playerNumber}`);
-    switch (message.type) {
-      case "zaisma:room":
-        if (typeof message.code === "string" && /^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$/.test(message.code)) {
-          if (message.code !== roomCode) isRoomOpen = true;
-          roomCode = message.code;
-          keepAddress();
-          renderBar();
+  // About once a second: the player is still here, a game file changed (reload the game), and the room they're in (Add a player joins it).
+  const check = () =>
+    fetch(`/bench/state?player=${playerNumber}`)
+      .then((response) => response.json())
+      .then((answer) => {
+        if (reloadNumber !== null && answer.reloadNumber !== reloadNumber) frame.contentWindow?.location.reload();
+        reloadNumber = answer.reloadNumber;
+        if (answer.roomCode !== roomCode) {
+          roomCode = answer.roomCode;
+          add.href = roomCode ? `/?room=${roomCode}` : "/";
         }
-        return;
-      case "zaisma:left":
-        if (message.code === roomCode) {
-          roomCode = null;
-          keepAddress();
-          renderBar();
-        }
-        return;
-      // Who's in the room, and whether it takes others by its code.
-      case "zaisma:players":
-        if (message.code === roomCode && typeof message.isOpen === "boolean") {
-          isRoomOpen = message.isOpen;
-          renderBar();
-        }
-        return;
-      case "zaisma:room-key": {
-        const given = await call(`/bench/key?player=${playerNumber}`);
-        post({ type: "zaisma:room-key", key: given.key, playerKind: given.playerKind });
-        return;
-      }
-      case "zaisma:saves": return answerSaves(message);
-      case "zaisma:saves-request": return answerSavesRequest(message);
-      // The real buy sheet, as on the game page; the bench stands in for its calls, with a test card.
-      case "zaisma:buy":
-        if (typeof message.requestNumber === "number" && typeof message.itemName === "string" && window.askBuy) window.askBuy(message);
-        return;
-      case "zaisma:sign-in": return signIn(true);
-      case "zaisma:share":
-      case "zaisma:players-open":
-        byId("bench-room-open").click();
-        if (message.type === "zaisma:share" && typeof message.requestNumber === "number") post({ type: "zaisma:share-answer", requestNumber: message.requestNumber, isOpened: true });
-        return;
-      // As the game page's blocks (apps/site/src/blocks.ts): between two accounts the block lasts and reaches the next passes;
-      // anyone else is blocked for this tab's session, at once. The game asks only which of the players it names this session blocked.
-      case "zaisma:block": {
-        if (!message.player || typeof message.player.id !== "string") return;
-        const playerId = message.player.id;
-        post({ type: "zaisma:block", status: "asking", playerId });
-        const mine = accountOfTab();
-        const other = accountOfPlayer(playerId);
-        if (mine && other && message.playerKind === "account" && message.player.kind === "account") {
-          await change({ op: "set-block", blocker: mine.id, blocked: other.id, isBlocked: true });
-          return post({ type: "zaisma:block", status: "blocked", playerId, isLasting: true });
-        }
-        const blocked = sessionBlocks();
-        blocked.add(playerId);
-        keepSessionBlocks(blocked);
-        return post({ type: "zaisma:block", status: "blocked", playerId, isLasting: false });
-      }
-      case "zaisma:unblock": {
-        if (typeof message.playerId !== "string") return;
-        const blocked = sessionBlocks();
-        blocked.delete(message.playerId);
-        keepSessionBlocks(blocked);
-        return;
-      }
-      case "zaisma:blocks-among": {
-        const blocked = sessionBlocks();
-        const playerIds = Array.isArray(message.playerIds) ? message.playerIds.slice(0, 64).filter((playerId) => typeof playerId === "string" && blocked.has(playerId)) : [];
-        if (playerIds.length) post({ type: "zaisma:blocks-among", playerIds });
-        return;
-      }
-      default:
-        onlyOnZaisma(message.type, ONLY_ON_ZAISMA[message.type] || `answers ${message.type}, which the bench doesn't know`);
-        if (message.type === "zaisma:link") post({ type: "zaisma:link", requestNumber: message.requestNumber, status: "error", code: "unknown_link", message: "The bench has no registered links: Zaisma.links.open works on Zaisma." });
-        if (message.type === "zaisma:account-offer") post({ type: "zaisma:account-offer", status: "cloud_saves_not_here" });
-    }
-  }
-
-  async function start() {
-    state = await call(`/bench/state${playerNumber ? `?player=${playerNumber}` : ""}`);
-    // A tab with no player in its address takes the first number nobody holds, so a shared room link opens as someone new.
-    if (!playerNumber) {
-      playerNumber = (await call("/bench/claim", { method: "POST" })).playerNumber;
-      keepAddress();
-    }
-    // Closing the tab gives its number back at once.
-    addEventListener("pagehide", () => navigator.sendBeacon(`/bench/leave?player=${playerNumber}`));
-    // About once a second: the bar's state, that this tab is open, and whether a game file changed (reloadNumber).
-    let reloadNumber = state.reloadNumber;
-    setInterval(async () => {
-      const fresh = await call(`/bench/state?player=${playerNumber}`).catch(() => null);
-      if (!fresh) return;
-      state = fresh;
-      renderBar();
-      if (fresh.reloadNumber !== reloadNumber) {
-        reloadNumber = fresh.reloadNumber;
-        loadFrame();
-      }
-    }, 1000);
-    addEventListener("message", onMessage);
-    renderBar();
-    loadFrame();
-  }
-  start();
+      })
+      .catch(() => {});
+  check();
+  setInterval(check, 1000);
+  addEventListener("pagehide", () => navigator.sendBeacon(`/bench/leave?player=${playerNumber}`));
 }
