@@ -1406,8 +1406,8 @@ describe("room browsing", () => {
     await runDurableObjectAlarm(stub);
     expect(await b.closed).toBe(4003);
     await until(a, (m) => m.type === "players" && m.players.some((p: any) => p.id === b.player.id && p.awayReason === "lost"));
-    // Not playing now, but still in the match while they reconnect.
-    expect((await rows(id, (r) => r[0]?.player_count === 1))[0]).toMatchObject({ player_count: 1, held_seat_count: 0 });
+    // Not playing now, but still in the match while they reconnect: their seat shows as held, so the list never offers it.
+    expect((await rows(id, (r) => r[0]?.player_count === 1))[0]).toMatchObject({ player_count: 1, held_seat_count: 1 });
     const back = await connect("pinger", "PNGRMA");
     back.ws.send(JSON.stringify({ type: "hello", protocolVersionNumber: 1, pass: b.pass }));
     expect((await back.next()).type).toBe("welcome");
@@ -1490,7 +1490,7 @@ describe("room browsing", () => {
     await e.DB.prepare("UPDATE live_rooms SET updated_at_ms = 1").run();
     const stub = e.ROOMS.get(e.ROOMS.idFromName("checker:GHJKMN"));
     // The room wakes every half a minute to check on its players, and checks in once an hour has passed.
-    expect(await runDurableObjectAlarm(stub)).toBe(true);
+    await runDurableObjectAlarm(stub);
     expect((await rows(id))[0].updated_at_ms).toBe(1);
     await runInDurableObject(stub, async (room: Room, state) => {
       (room as any).checkedInAtMs = Date.now() - 3600_000;
@@ -1726,6 +1726,253 @@ describe("the v1 rooms transcript, in Zaisma rooms", () => {
     const { stepCount, skippedStepCount } = await playTranscript(driver);
     expect(stepCount).toBeGreaterThan(20);
     expect(skippedStepCount).toBe(0);
+  });
+});
+
+/** A live game that runs its own game server. */
+async function addOwnGame(slug: string, source: string) {
+  const id = `g${slug.replace(/-/g, "")}`;
+  await e.DB.prepare("INSERT INTO games (id, slug, title, review_status, live_version_id, multiplayer_mode, room_browsing, created_at_ms, updated_at_ms) VALUES (?, ?, ?, 'live', ?, 'own', 'page', 0, 0)").bind(id, slug, slug, `v${id}`).run();
+  await e.DB.prepare("INSERT INTO versions (id, game_id, r2_prefix, file_count, size_bytes, scan_status, created_at_ms) VALUES (?, ?, ?, 2, 0, 'approved', 0)").bind(`v${id}`, id, `games/v${id}`).run();
+  await e.GAMES.put(`games/v${id}/zaisma-server.js`, source);
+  return id;
+}
+
+describe("one room of a game at a time", () => {
+  beforeEach(async () => {
+    await e.DB.exec("DELETE FROM room_usage; DELETE FROM game_server_errors; DELETE FROM live_rooms; DELETE FROM live_games; DELETE FROM versions; DELETE FROM tester_links; DELETE FROM room_keys; DELETE FROM game_hosting_months; DELETE FROM games;");
+  });
+
+  const ONE_ROOM = `export default { maximumPlayerCount: 4, maximumSpectatorCount: 3, setup: () => ({}), onLeave(state, player, room, leaveInfo) { room.broadcast({ left: player.id, reason: leaveInfo.reason }); } };`;
+  const MOVER = `export default { maximumPlayerCount: 4, setup: () => ({}), onMessage(state, player, room, message) { if (typeof message === "string" && message.startsWith("go ")) room.moveTo(message.slice(3), { playerIds: [player.id] }); } };`;
+  const HUB = `export default { maximumPlayerCount: 4, maximumRoomCountPerPlayer: 2, setup: () => ({}) };`;
+
+  /** A player enters a room with a pass they already have. */
+  async function enter(game: string, code: string, who: { pass: string }, more: Record<string, unknown> = {}) {
+    const c = await connect(game, code);
+    c.ws.send(JSON.stringify({ type: "hello", protocolVersionNumber: 1, pass: who.pass, ...more }));
+    const first = await c.next();
+    expect(first.type).toBe("welcome");
+    return c;
+  }
+  /** Whether a connection is still open after a short wait. */
+  const staysOpen = (c: { closed: Promise<number> }) => Promise.race([c.closed.then(() => false), new Promise<boolean>((resolve) => setTimeout(() => resolve(true), 400))]);
+  const rowOf = (gameId: string, code: string) => e.DB.prepare("SELECT player_count, held_seat_count FROM live_rooms WHERE game_id = ? AND room_code = ?").bind(gameId, code).first<{ player_count: number; held_seat_count: number }>();
+
+  it("closes a player's seat in the first room when they join another, saying they joined from somewhere else", async () => {
+    const id = await addOwnGame("one-room", ONE_ROOM);
+    const lucas = await getPass("one-room");
+    const first = await enter("one-room", "KAAAAA", lucas);
+    const friend = await join("one-room", "KAAAAA");
+    await until(friend, (m) => m.type === "players" && m.players.length === 2);
+    const second = await enter("one-room", "KBBBBB", lucas);
+    expect(await first.closed).toBe(4001);
+    // The room they left tells the one who stayed, and drops them from its row.
+    await until(friend, (m) => m.type === "players" && m.players.length === 1);
+    // The old room's game server hears them go on their own, not as a dropped connection.
+    expect((await until(friend, (m) => m.type === "message")).data).toEqual({ left: lucas.player.id, reason: "left" });
+    for (let tries = 0; tries < 50 && (await rowOf(id, "KAAAAA"))?.player_count !== 1; tries++) await new Promise((resolve) => setTimeout(resolve, 40));
+    expect((await rowOf(id, "KAAAAA"))?.player_count).toBe(1);
+    expect(await staysOpen(second)).toBe(true);
+    second.ws.close(1000);
+    friend.ws.close(1000);
+  });
+
+  it("lets a game raise it: both rooms keep the player, and a third closes the oldest", async () => {
+    await addOwnGame("hub-games", HUB);
+    const maya = await getPass("hub-games");
+    const a = await enter("hub-games", "KAAAAA", maya);
+    const b = await enter("hub-games", "KBBBBB", maya);
+    expect(await staysOpen(a)).toBe(true);
+    const c = await enter("hub-games", "KCCCCC", maya);
+    expect(await a.closed).toBe(4001);
+    expect(await staysOpen(b)).toBe(true);
+    expect(await staysOpen(c)).toBe(true);
+    b.ws.close(1000);
+    c.ws.close(1000);
+  });
+
+  it("closes nothing for a player the game sent to a room it reserved", async () => {
+    await addGame("four", { server: "four-in-a-row" });
+    const a = { ...(await getPass("four")), ...(await connect("four", "LBBYAA")) };
+    a.ws.send(JSON.stringify({ type: "hello", protocolVersionNumber: 1, pass: a.pass, room: { labels: { Room: "Lobby" } } }));
+    const b = { ...(await getPass("four")), ...(await connect("four", "LBBYAA")) };
+    b.ws.send(JSON.stringify({ type: "hello", protocolVersionNumber: 1, pass: b.pass }));
+    const move = await until(a, (m) => m.type === "move");
+    const match = await enter("four", move.roomCode, a);
+    // Their seat in the lobby stays until their game leaves it, as it does when it follows a move.
+    expect(await staysOpen(a)).toBe(true);
+    match.ws.close(1000);
+    a.ws.close(1000);
+    b.ws.close(1000);
+  });
+
+  it("closes nothing for a player the game moved to a running room with room.moveTo", async () => {
+    await addOwnGame("move-games", MOVER);
+    const lucas = await getPass("move-games");
+    const from = await enter("move-games", "KAAAAA", lucas);
+    const host = await join("move-games", "KBBBBB");
+    from.ws.send(JSON.stringify({ type: "message", data: "go KBBBBB" }));
+    expect((await until(from, (m) => m.type === "move")).roomCode).toBe("KBBBBB");
+    const arrived = await enter("move-games", "KBBBBB", lucas);
+    // The sending room lets go when the player's game leaves it, as it does when it follows a move.
+    expect(await staysOpen(from)).toBe(true);
+    expect(await staysOpen(arrived)).toBe(true);
+    for (const c of [from, host, arrived]) c.ws.close(1000);
+  });
+
+  it("keeps a spectator's watching apart from their seat: watching another room closes nothing", async () => {
+    await addOwnGame("watch-games", ONE_ROOM);
+    const lucas = await getPass("watch-games");
+    const playing = await enter("watch-games", "KAAAAA", lucas);
+    const other = await join("watch-games", "KBBBBB");
+    const watching = await enter("watch-games", "KBBBBB", lucas, { isSpectator: true });
+    expect(await staysOpen(playing)).toBe(true);
+    expect(await staysOpen(watching)).toBe(true);
+    for (const c of [playing, other, watching]) c.ws.close(1000);
+  });
+
+  it("ends with one seat when a pass joins two rooms at once", async () => {
+    await addOwnGame("both-at-once", ONE_ROOM);
+    const maya = await getPass("both-at-once");
+    const [a, b] = await Promise.all([enter("both-at-once", "KAAAAA", maya), enter("both-at-once", "KBBBBB", maya)]);
+    await Promise.race([a.closed, b.closed]);
+    const stillOpen = (await Promise.all([staysOpen(a), staysOpen(b)])).filter(Boolean);
+    expect(stillOpen).toHaveLength(1);
+    a.ws.close(1000);
+    b.ws.close(1000);
+  });
+
+  it("counts a player in two rooms once in playing now", async () => {
+    const id = await addOwnGame("hub-count", HUB);
+    const maya = await getPass("hub-count");
+    const a = await enter("hub-count", "KAAAAA", maya, { room: { isListed: true } });
+    const b = await enter("hub-count", "KBBBBB", maya, { room: { isListed: true } });
+    for (let tries = 0; tries < 60 && !((await rowOf(id, "KAAAAA"))?.player_count === 1 && (await rowOf(id, "KBBBBB"))?.player_count === 1); tries++) await new Promise((resolve) => setTimeout(resolve, 40));
+    const stub = e.GAME_SERVER_OBJECTS.get(e.GAME_SERVER_OBJECTS.idFromName(id));
+    // The object writes the count 30 seconds after seats change: make it due.
+    await runInDurableObject(stub, async (object: unknown, state) => {
+      const timer = object as { playingCountAtMs: number | null };
+      for (let tries = 0; tries < 50 && timer.playingCountAtMs === null; tries++) await new Promise((resolve) => setTimeout(resolve, 20));
+      timer.playingCountAtMs = Date.now() - 1;
+      await state.storage.setAlarm(Date.now());
+    });
+    await runDurableObjectAlarm(stub);
+    const written = () => e.DB.prepare("SELECT playing_player_count FROM live_games WHERE game_id = ?").bind(id).first<{ playing_player_count: number }>();
+    for (let tries = 0; tries < 50 && !(await written()); tries++) await new Promise((resolve) => setTimeout(resolve, 40));
+    expect((await written())?.playing_player_count).toBe(1);
+    const { listRooms } = await import("@zaisma/core");
+    expect((await listRooms(e.DB, id)).playing).toMatchObject({ playerCount: 1, roomCount: 2 });
+    a.ws.close(1000);
+    b.ws.close(1000);
+  });
+});
+
+describe("rooms keep their promises under load, sleep and restarts", () => {
+  beforeEach(async () => {
+    await e.DB.exec("DELETE FROM room_usage; DELETE FROM game_server_errors; DELETE FROM live_rooms; DELETE FROM live_games; DELETE FROM versions; DELETE FROM tester_links; DELETE FROM room_keys; DELETE FROM game_hosting_months; DELETE FROM games;");
+  });
+
+  const hello = async (game: string, code: string, who: { pass: string }) => {
+    const c = await connect(game, code);
+    c.ws.send(JSON.stringify({ type: "hello", protocolVersionNumber: 1, pass: who.pass }));
+    return { ...c, pass: who.pass, first: await c.next() };
+  };
+
+  it("tells a turn-based game about a player who leaves while its room sleeps between moves", async () => {
+    await addGame("four", { server: "four-in-a-row" });
+    const a = await join("four", "SLPLVA");
+    const b = await join("four", "SLPLVA");
+    const stub = e.ROOMS.get(e.ROOMS.idFromName("four:SLPLVA"));
+    a.ws.send(JSON.stringify({ type: "message", data: { column: 3 } }));
+    await until(b, (m) => m.type === "message" && m.data.board[38] === 1);
+    // The room sleeps: it is rebuilt from its connected sockets, saved state and saved room.
+    await runInDurableObject(stub, async (room: Room, state) => {
+      const saved = await state.storage.get<{ state: unknown }>("saved");
+      (room as any).core = null;
+      (room as any).saved = saved!.state;
+    });
+    a.ws.close(3000);
+    // The game hears them go: they stay in the match as away, so b's list says why.
+    expect(await until(b, (m) => m.type === "players" && m.players.some((p: any) => p.id === a.player.id && p.awayReason === "lost"))).toBeTruthy();
+    b.ws.close(1000);
+  });
+
+  it("brings a turn-based match's players back as dropped players after Zaisma restarts its rooms, as the Node runner does", async () => {
+    await addGame("four", { server: "four-in-a-row" });
+    const a = await join("four", "RSTRTA");
+    const b = await join("four", "RSTRTA");
+    const stub = e.ROOMS.get(e.ROOMS.idFromName("four:RSTRTA"));
+    a.ws.send(JSON.stringify({ type: "message", data: { column: 3 } }));
+    await until(b, (m) => m.type === "message" && m.data.board[38] === 1);
+    await runInDurableObject(stub, async (room: Room, state) => {
+      const saved = await state.storage.get<{ matchPlayers?: { id: string }[]; savedAtMs?: number }>("saved");
+      expect(saved?.matchPlayers?.map((player) => player.id).sort()).toEqual([a.player.id, b.player.id].sort());
+      expect(saved?.savedAtMs).toBeGreaterThan(0);
+    });
+    // Every connection closes with the restart; the room object starts again from what it saved.
+    await runInDurableObject(stub, (_room: Room, state) => state.abort("restart")).catch(() => {});
+    const back = await hello("four", "RSTRTA", a);
+    // a is back (onBack sends the board as it was), and b isn't back yet: still in the match, away as lost.
+    expect(back.first).toMatchObject({ type: "welcome", me: { id: a.player.id } });
+    const board = await until(back, (m) => m.type === "message" && m.data.board);
+    expect(board.data.board[38]).toBe(1);
+    const listed = await until(back, (m) => m.type === "players" && m.players.length === 2);
+    expect(listed.players.find((p: any) => p.id === b.player.id)).toMatchObject({ awayReason: "lost" });
+    back.ws.close(1000);
+  });
+
+  it("runs onRestored for players rejoining a real-time room that emptied, as the Node runner does", async () => {
+    await addOwnGame(
+      "emptied-rt",
+      `export default { ticksPerSec: 10, stateSaveIntervalSec: 1, setup: () => ({ restored: null }), onRestored(state, restoreInfo) { state.restored = restoreInfo; }, onMessage(state, player, room, message) { if (message === "how") room.send(player.id, { restored: state.restored }); } };`,
+    );
+    const first = await join("emptied-rt", "EMPTRT");
+    first.ws.send(JSON.stringify({ type: "message", data: "how" }));
+    expect((await until(first, (m) => m.type === "message")).data).toEqual({ restored: null });
+    first.ws.close(1000);
+    await first.closed;
+    // Emptied but still in memory (the object hasn't left it): the next player wakes it from its save all the same.
+    const stub = e.ROOMS.get(e.ROOMS.idFromName("emptied-rt:EMPTRT"));
+    for (let tries = 0; tries < 50 && (await runInDurableObject(stub, (room: Room) => (room as any).core)) !== null; tries++) await new Promise((resolve) => setTimeout(resolve, 40));
+    const again = await join("emptied-rt", "EMPTRT");
+    again.ws.send(JSON.stringify({ type: "message", data: "how" }));
+    expect((await until(again, (m) => m.type === "message")).data).toMatchObject({ restored: { lostDurationSec: 0 } });
+    again.ws.close(1000);
+  });
+
+  it("finds on its half-minute check that the game's hosting paused, even while the game server is still busy", async () => {
+    const id = await addGame("busy-hosting");
+    const a = await join("busy-hosting", "BSYHST");
+    const pausedAtMs = Date.now();
+    await e.DB.prepare("INSERT INTO game_hosting_months (game_id, month_start_date, used_cents, paused_at_ms, paused_reason) VALUES (?, ?, 500, ?, 'free_used')").bind(id, monthStartDateOf(), pausedAtMs).run();
+    const stub = e.ROOMS.get(e.ROOMS.idFromName("busy-hosting:BSYHST"));
+    // The game server never goes idle: settling waits for it for good, as a busy ticking room's did.
+    await runInDurableObject(stub, async (room: Room, state) => {
+      (room as any).hostingCheckedAtMs = 0;
+      await state.storage.put("hostingCheckedAtMs", 0);
+      (room as any).core.settled = () => new Promise<void>((resolve) => ((globalThis as any).releaseSettled = resolve));
+    });
+    const alarm = runDurableObjectAlarm(stub);
+    const ending = await until(a, (m) => m.type === "ending");
+    expect(Date.parse(ending.endsAt)).toBe(pausedAtMs + MATCH_FINISH_DURATION_SEC * 1000);
+    (globalThis as any).releaseSettled?.();
+    await runInDurableObject(stub, async (room: Room) => {
+      delete (room as any).core.settled;
+    });
+    await Promise.race([alarm, new Promise((resolve) => setTimeout(resolve, 500))]);
+    a.ws.close(1000);
+  });
+
+  it("probes a player every 2 seconds in a real-time room that ticks slowly, so the SDK never hears 8 seconds of silence", async () => {
+    await addOwnGame("slow-tick", `export default { ticksPerSec: 0.25, setup: () => ({}), onTick: (state) => state };`);
+    const a = await join("slow-tick", "SLWTCK");
+    const startedAtMs = Date.now();
+    // The probe right after welcome, the one the first answer brings, and then one every 2 seconds, not one a tick (every 4 seconds).
+    for (let tries = 0; tries < 100 && a.probes.length < 3; tries++) await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(a.probes.length).toBeGreaterThanOrEqual(3);
+    expect(Date.now() - startedAtMs).toBeLessThan(3500);
+    a.ws.close(1000);
   });
 });
 

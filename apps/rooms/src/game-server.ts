@@ -51,6 +51,13 @@ const PAUSE_WINDOW_MS = 10 * 60_000;
 /** A game server that didn't start is tried again after this for requests, and after SCHEDULE_RETRY_MS for its schedules. */
 const RETRY_START_MS = 60_000;
 const SCHEDULE_RETRY_MS = 15 * 60_000;
+/** A change in who sits in which room is written to live_games this long after, not once per join. */
+const PLAYING_COUNT_DELAY_MS = 30_000;
+/** live_games is written again at least this often while it holds a count, and again this long after a write that failed. */
+const PLAYING_COUNT_CHECK_IN_MS = 60 * 60_000;
+const PLAYING_COUNT_RETRY_MS = 60_000;
+/** A room's seats the room hasn't confirmed for this long belong to a room that stopped without saying so (rooms confirm hourly). */
+const SEAT_STALE_MS = 2 * 60 * 60_000;
 
 class TimedOut extends Error {}
 
@@ -64,9 +71,13 @@ class TimedOut extends Error {}
  * are capped by their shape: up to 10, at most once a minute. The rooms Worker checks the player's pass before it asks, and the site that the webhook's
  * owner owns the game; nothing here trusts the request or the event.
  *
- * Its one alarm does four things: the next schedule due, recording stats about a minute after use,
- * trying again a game server that didn't start, and writing what the game server printed to the game's
- * logs (logs.ts). The rooms Worker's cron (index.ts) tells it to read
+ * It also keeps who sits in which of the game's rooms (room_seats, in its own SQLite storage): one room per
+ * player at a time unless the game allows more (maximumRoomCountPerPlayer), and the count of distinct
+ * players playing now (live_games). Being one single-threaded object per game, two joins at once can't both pass.
+ *
+ * Its one alarm does five things: the next schedule due, recording stats about a minute after use,
+ * trying again a game server that didn't start, writing what the game server printed to the game's
+ * logs (logs.ts), and writing the playing count. The rooms Worker's cron (index.ts) tells it to read
  * the schedules again when the live version changes (syncSchedules).
  */
 export class GameServerObject extends DurableObject<Env> {
@@ -87,9 +98,15 @@ export class GameServerObject extends DurableObject<Env> {
   private logsWriteAtMs: number | null = null;
   /** Whether the game's hosting was paused when last read, and when: in memory only, read again after HOSTING_CHECK_MS. */
   private hosting: { isPaused: boolean; readAtMs: number } | null = null;
+  /** When the playing count is next written to live_games (kept in storage, so a restart still writes it), and what was last written. */
+  private playingCountAtMs: number | null;
+  private writtenPlayingCount: { playerCount: number; atMs: number } | null;
+  private isSeatTableMade = false;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
+    this.playingCountAtMs = ctx.storage.kv.get<number>("playing_count_at_ms") ?? null;
+    this.writtenPlayingCount = ctx.storage.kv.get<{ playerCount: number; atMs: number }>("written_playing_count") ?? null;
     this.unrecorded = ctx.storage.kv.get<Unrecorded>("unrecorded") ?? null;
     // Saved before schedules counted runs, or CPU outside rooms was counted.
     if (this.unrecorded) {
@@ -116,6 +133,99 @@ export class GameServerObject extends DurableObject<Env> {
     this.server = null;
     this.logs = null;
     this.logsWriteAtMs = null;
+    this.playingCountAtMs = null;
+    this.writtenPlayingCount = null;
+    this.isSeatTableMade = false;
+  }
+
+  /** The seat registry's table, made when first used (deleteStorage drops it with everything else). */
+  private seatTable(): SqlStorage {
+    const sql = this.ctx.storage.sql;
+    if (!this.isSeatTableMade) {
+      sql.exec("CREATE TABLE IF NOT EXISTS room_seats (room_code TEXT NOT NULL, player_id TEXT NOT NULL, is_playing INTEGER NOT NULL, seated_at_ms INTEGER NOT NULL, synced_at_ms INTEGER NOT NULL, PRIMARY KEY (room_code, player_id))");
+      sql.exec("CREATE INDEX IF NOT EXISTS room_seats_player ON room_seats (player_id)");
+      this.isSeatTableMade = true;
+    }
+    return sql;
+  }
+
+  /**
+   * A player joined a room of this game on their own (not sent by another room): their seat there is the
+   * newest, and their seats in other rooms past maximumRoomCountPerPlayer - 1 (the oldest first) are given up. Answers which
+   * rooms to close their seat in; the rows are gone already.
+   */
+  async seat(gameId: string, roomCode: string, playerId: string, maximumRoomCountPerPlayer: number): Promise<{ roomCodesToLeave: string[] }> {
+    this.knowGame(gameId);
+    const sql = this.seatTable();
+    const nowMs = Date.now();
+    const others = this.ctx.storage.transactionSync(() => {
+      sql.exec("INSERT INTO room_seats (room_code, player_id, is_playing, seated_at_ms, synced_at_ms) VALUES (?, ?, 1, ?, ?) ON CONFLICT (room_code, player_id) DO UPDATE SET is_playing = 1, synced_at_ms = excluded.synced_at_ms", roomCode, playerId, nowMs, nowMs);
+      const otherRoomCodes = sql.exec<{ room_code: string }>("SELECT room_code FROM room_seats WHERE player_id = ? AND room_code != ? ORDER BY seated_at_ms, room_code", playerId, roomCode).toArray().map((row) => row.room_code);
+      const roomCodesToLeave = otherRoomCodes.slice(0, Math.max(0, otherRoomCodes.length - Math.max(0, maximumRoomCountPerPlayer - 1)));
+      for (const otherRoomCode of roomCodesToLeave) sql.exec("DELETE FROM room_seats WHERE room_code = ? AND player_id = ?", otherRoomCode, playerId);
+      return roomCodesToLeave;
+    });
+    this.planPlayingCount();
+    return { roomCodesToLeave: others };
+  }
+
+  /**
+   * A room tells who sits in it now (every player in its match, guests too) and which of them are playing
+   * (not away): its rows are replaced, keeping when each was first seated. Nobody seated removes them all.
+   */
+  async syncSeats(gameId: string, roomCode: string, seatedPlayerIds: string[], playingPlayerIds: string[]): Promise<void> {
+    this.knowGame(gameId);
+    const sql = this.seatTable();
+    const nowMs = Date.now();
+    const playing = new Set(playingPlayerIds);
+    this.ctx.storage.transactionSync(() => {
+      const seated = new Set(seatedPlayerIds);
+      const rows = sql.exec<{ player_id: string }>("SELECT player_id FROM room_seats WHERE room_code = ?", roomCode).toArray();
+      for (const row of rows) if (!seated.has(row.player_id)) sql.exec("DELETE FROM room_seats WHERE room_code = ? AND player_id = ?", roomCode, row.player_id);
+      for (const playerId of seatedPlayerIds) {
+        sql.exec(
+          "INSERT INTO room_seats (room_code, player_id, is_playing, seated_at_ms, synced_at_ms) VALUES (?, ?, ?, ?, ?) ON CONFLICT (room_code, player_id) DO UPDATE SET is_playing = excluded.is_playing, synced_at_ms = excluded.synced_at_ms",
+          roomCode,
+          playerId,
+          playing.has(playerId) ? 1 : 0,
+          nowMs,
+          nowMs,
+        );
+      }
+    });
+    this.planPlayingCount();
+  }
+
+  /** Write the playing count soon, unless that's already planned. */
+  private planPlayingCount(): void {
+    if (this.playingCountAtMs !== null) return;
+    this.playingCountAtMs = Date.now() + PLAYING_COUNT_DELAY_MS;
+    this.ctx.storage.kv.put("playing_count_at_ms", this.playingCountAtMs);
+    this.planAlarm();
+  }
+
+  /** Seats of rooms that stopped without saying so are dropped, then the count of different players playing is written to live_games when it changed or is an hour old. */
+  private async writePlayingCount(): Promise<void> {
+    this.playingCountAtMs = null;
+    this.ctx.storage.kv.delete("playing_count_at_ms");
+    if (!this.gameId) return;
+    const sql = this.seatTable();
+    const nowMs = Date.now();
+    sql.exec("DELETE FROM room_seats WHERE synced_at_ms < ?", nowMs - SEAT_STALE_MS);
+    const playerCount = sql.exec<{ player_count: number }>("SELECT COUNT(DISTINCT player_id) AS player_count FROM room_seats WHERE is_playing = 1").one().player_count;
+    const written = this.writtenPlayingCount;
+    if (written && written.playerCount === playerCount && nowMs - written.atMs < PLAYING_COUNT_CHECK_IN_MS) return;
+    try {
+      await this.env.DB.prepare("INSERT INTO live_games (game_id, playing_player_count, updated_at_ms) VALUES (?, ?, ?) ON CONFLICT(game_id) DO UPDATE SET playing_player_count = excluded.playing_player_count, updated_at_ms = excluded.updated_at_ms")
+        .bind(this.gameId, playerCount, nowMs)
+        .run();
+      this.writtenPlayingCount = { playerCount, atMs: nowMs };
+      this.ctx.storage.kv.put("written_playing_count", this.writtenPlayingCount);
+    } catch (error) {
+      console.error("Couldn't write the game's playing count:", error);
+      this.playingCountAtMs = nowMs + PLAYING_COUNT_RETRY_MS;
+      this.ctx.storage.kv.put("playing_count_at_ms", this.playingCountAtMs);
+    }
   }
 
   async request(gameId: string, versionId: string, player: Player, request: unknown): Promise<RequestOutcome> {
@@ -448,7 +558,7 @@ export class GameServerObject extends DurableObject<Env> {
 
   /** The one alarm, at whatever's next: a schedule due, recording the stats, or trying a game server again. */
   private planAlarm(): void {
-    const times = [this.recordAtMs, this.scheduleRetryAtMs, this.logsWriteAtMs, ...(this.schedules?.schedules.map((schedule) => schedule.nextRunAtMs) ?? [])].filter((atMs): atMs is number => atMs !== null);
+    const times = [this.recordAtMs, this.scheduleRetryAtMs, this.logsWriteAtMs, this.playingCountAtMs, ...(this.schedules?.schedules.map((schedule) => schedule.nextRunAtMs) ?? [])].filter((atMs): atMs is number => atMs !== null);
     if (times.length) void this.ctx.storage.setAlarm(Math.min(...times));
     else void this.ctx.storage.deleteAlarm();
   }
@@ -460,6 +570,7 @@ export class GameServerObject extends DurableObject<Env> {
     if (this.logs?.hasWaitingLines) await this.logs.write();
     const isRetryDue = this.scheduleRetryAtMs !== null && this.scheduleRetryAtMs <= nowMs;
     const isRunDue = this.schedules?.schedules.some((schedule) => schedule.nextRunAtMs <= nowMs) ?? false;
+    if (this.playingCountAtMs !== null && this.playingCountAtMs <= nowMs) await this.writePlayingCount();
     if (isRetryDue) await this.readSchedules();
     else if (isRunDue) await this.runDue();
     // Recorded when this alarm was for it, with a schedule's alarm a little before (so a schedule every

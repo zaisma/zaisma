@@ -152,6 +152,7 @@ interface Settings {
   awayMode?: unknown;
   seatHoldDurationSec?: unknown;
   reconnectTimeoutSec?: unknown;
+  maximumRoomCountPerPlayer?: unknown;
   stateSaveIntervalSec?: unknown;
   stateSyncEnabled?: unknown;
   /** As plain JSON; the game's object checks them (checkSchedules). */
@@ -410,6 +411,7 @@ class Session extends RpcTarget {
       awayMode: server.awayMode,
       seatHoldDurationSec: server.seatHoldDurationSec,
       reconnectTimeoutSec: server.reconnectTimeoutSec,
+      maximumRoomCountPerPlayer: server.maximumRoomCountPerPlayer,
       stateSaveIntervalSec: server.stateSaveIntervalSec,
       stateSyncEnabled: server.stateSyncEnabled,
       schedules: plain(server.schedules),
@@ -966,6 +968,7 @@ export async function wrapSession(open: (secrets: Record<string, string>) => Pro
     ...(settings.awayMode !== undefined ? { awayMode: settings.awayMode as GameServer["awayMode"] } : {}),
     ...(settings.seatHoldDurationSec !== undefined ? { seatHoldDurationSec: settings.seatHoldDurationSec as number } : {}),
     ...(settings.reconnectTimeoutSec !== undefined ? { reconnectTimeoutSec: settings.reconnectTimeoutSec as number } : {}),
+    ...(settings.maximumRoomCountPerPlayer !== undefined ? { maximumRoomCountPerPlayer: settings.maximumRoomCountPerPlayer as number } : {}),
     ...(settings.stateSaveIntervalSec !== undefined ? { stateSaveIntervalSec: settings.stateSaveIntervalSec as number } : {}),
     ...(settings.stateSyncEnabled !== undefined ? { stateSyncEnabled: settings.stateSyncEnabled as boolean } : {}),
     // The sandbox runs the game's stateView itself; this stands in for it, so its options are checked like any game server's.

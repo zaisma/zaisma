@@ -427,6 +427,13 @@ export interface GameServer<S = any> {
    */
   reconnectTimeoutSec?: number;
   /**
+   * How many of your game's rooms one player may sit in at once: 1 to 10, 1 by default, as on Steam. When
+   * a player joins another room of the game, their seat in the oldest is closed ("Joined from somewhere
+   * else") and the room's onLeave runs with reason "left". Raise it for a hangout hub beside matches.
+   * Moving a player (room.moveTo, room.reserve) and watching (isSpectator) never close a seat.
+   */
+  maximumRoomCountPerPlayer?: number;
+  /**
    * Send each player the state, then only what changes: a full copy when they join (and after their
    * connection was backed up), then the changes after each tick, or after each handler in a turn-based
    * game. Their game reads it as room.state, or room.smoothedState() to move evenly between updates.
@@ -646,6 +653,7 @@ export const GAME_SERVER_OPTIONS = [
   "seatHoldDurationSec",
   "stateSyncEnabled",
   "reconnectTimeoutSec",
+  "maximumRoomCountPerPlayer",
   "stateSaveIntervalSec",
   "setup",
   "onJoin",
@@ -711,6 +719,9 @@ export const ROOM_LIMITS = {
   /** How long a player whose connection dropped stays in the match by default, and at most (reconnectTimeoutSec). */
   defaultReconnectTimeoutSec: 30,
   maximumReconnectTimeoutSec: 300,
+  /** Rooms of one game a player sits in at once by default, and at most (maximumRoomCountPerPlayer); a newer seat past it closes the oldest. */
+  defaultMaximumRoomCountPerPlayer: 1,
+  maximumRoomCountPerPlayer: 10,
   /** How often a real-time room saves its state by default, and the range (stateSaveIntervalSec). */
   defaultStateSaveIntervalSec: 5,
   minimumStateSaveIntervalSec: 1,
@@ -827,7 +838,7 @@ export function defineGameServer<S>(server: GameServer<S>): GameServer<S> {
     }
   }
   checkSchedules(server.schedules, typeof server.onSchedule === "function");
-  const { maximumPlayerCount, maximumSpectatorCount, ticksPerSec, hostControlsEnabled, idleCheck, idleTimeoutSec, awayMode, seatHoldDurationSec, reconnectTimeoutSec, stateSaveIntervalSec } = server;
+  const { maximumPlayerCount, maximumSpectatorCount, ticksPerSec, hostControlsEnabled, idleCheck, idleTimeoutSec, awayMode, seatHoldDurationSec, reconnectTimeoutSec, maximumRoomCountPerPlayer, stateSaveIntervalSec } = server;
   if (maximumPlayerCount !== undefined && !(Number.isInteger(maximumPlayerCount) && maximumPlayerCount >= 1 && maximumPlayerCount <= ROOM_LIMITS.maximumPlayerCount)) {
     throw bad("maximumPlayerCount", `maximumPlayerCount is ${JSON.stringify(maximumPlayerCount)}.`, `Give a whole number from 1 to ${ROOM_LIMITS.maximumPlayerCount}, like 8.`);
   }
@@ -852,6 +863,9 @@ export function defineGameServer<S>(server: GameServer<S>): GameServer<S> {
   }
   if (reconnectTimeoutSec !== undefined && !(typeof reconnectTimeoutSec === "number" && reconnectTimeoutSec >= 0 && reconnectTimeoutSec <= ROOM_LIMITS.maximumReconnectTimeoutSec)) {
     throw bad("reconnectTimeoutSec", `reconnectTimeoutSec is ${JSON.stringify(reconnectTimeoutSec)}.`, `Give seconds from 0 (leave at once) to ${ROOM_LIMITS.maximumReconnectTimeoutSec}, like 30.`);
+  }
+  if (maximumRoomCountPerPlayer !== undefined && !(Number.isInteger(maximumRoomCountPerPlayer) && (maximumRoomCountPerPlayer as number) >= 1 && (maximumRoomCountPerPlayer as number) <= ROOM_LIMITS.maximumRoomCountPerPlayer)) {
+    throw bad("maximumRoomCountPerPlayer", `maximumRoomCountPerPlayer is ${JSON.stringify(maximumRoomCountPerPlayer)}.`, `Give an integer from 1 to ${ROOM_LIMITS.maximumRoomCountPerPlayer}; leave it out for ${ROOM_LIMITS.defaultMaximumRoomCountPerPlayer}.`);
   }
   if (stateSaveIntervalSec !== undefined && !(typeof stateSaveIntervalSec === "number" && stateSaveIntervalSec >= ROOM_LIMITS.minimumStateSaveIntervalSec && stateSaveIntervalSec <= ROOM_LIMITS.maximumStateSaveIntervalSec)) {
     throw bad("stateSaveIntervalSec", `stateSaveIntervalSec is ${JSON.stringify(stateSaveIntervalSec)}.`, `Give a number of seconds from ${ROOM_LIMITS.minimumStateSaveIntervalSec} to ${ROOM_LIMITS.maximumStateSaveIntervalSec}, like ${ROOM_LIMITS.defaultStateSaveIntervalSec}, or leave it out for ${ROOM_LIMITS.defaultStateSaveIntervalSec}.`);
@@ -1064,6 +1078,8 @@ export interface SavedRoom extends RoomSettings {
   expected?: Record<string, Expected>;
   held?: Record<string, Held>;
   kept?: Record<string, AwayReason>;
+  /** Players a reserved room was made for who haven't arrived yet: the room keeps remembering them. */
+  reservedPlayerIds?: string[];
   /** Players whose connection dropped, with when their time to come back runs out (reconnectTimeoutSec). */
   reconnecting?: Record<string, Reconnecting>;
   lobbyRoomCode?: string;
@@ -1321,6 +1337,9 @@ function messageTypeOf(messageData: unknown): string {
 /** How many past players a room remembers, so they can come back to a closed room, and how many it keeps out: at least everyone a full room can hold, so blocks and friends are found among all of them. */
 const REMEMBERED_PLAYER_COUNT = ROOM_LIMITS.maximumPlayerCount;
 
+/** How many players a room keeps out (keepOut) for the match: well past what a full room can hold, since a kicked player must stay out for the rest of it. */
+const KEPT_OUT_PLAYER_COUNT = ROOM_LIMITS.maximumPlayerCount * 10;
+
 const NOBODY_JOINED: JoinInfo = { fromRoomCode: null, isReturning: false, isSpectator: false };
 const WATCHING: JoinInfo = { fromRoomCode: null, isReturning: false, isSpectator: true };
 
@@ -1364,6 +1383,8 @@ export class RoomCore<S = any> {
   listingChanged = false;
   /** Players who have been in this room, newest last: they may come back after it closes. */
   readonly known = new Set<string>();
+  /** Players a reserved room was made for who haven't arrived: never forgotten until they do. */
+  private readonly reservedPlayerIds = new Set<string>();
   /** Players kicked and kept out for the rest of the match, with the message they were given. */
   readonly keptOut = new Map<string, string>();
   /** Players other rooms are sending here (room.moveTo), with a seat each until they arrive. */
@@ -1417,6 +1438,15 @@ export class RoomCore<S = any> {
    * one after another, each with the state the last one left.
    */
   private queue: Promise<void> | null = null;
+  /** Handlers queued so far, to tell the work a handler scheduled itself from the ticks and messages queued later (settled). */
+  private linkCount = 0;
+  /** The queued handler running now, so what it schedules as it ends knows whose it is. */
+  private runningLinkIndex = 0;
+  private isFlushing = false;
+  /** Handlers the room has started, so a runtime can tell whether a message started one. */
+  private startedCount = 0;
+  /** Handlers a handler scheduled itself (a kicked player's onLeave), until they finish: settled waits for those of the handlers it waits for. */
+  private readonly followUps = new Set<{ link: Promise<void>; linkIndex: number; parentLinkIndex: number }>();
   /** Handlers waiting in the queue, so ticks don't pile up behind a slow game server. */
   private waitingCount = 0;
   /** Handlers running right now, and what waits for them to finish (a kicked player's onLeave). */
@@ -1477,6 +1507,7 @@ export class RoomCore<S = any> {
       this.name = saved.name ?? null;
       this.labels = saved.labels ?? {};
       for (const id of saved.knownPlayerIds ?? []) this.known.add(id);
+      for (const id of saved.reservedPlayerIds ?? []) this.reservedPlayerIds.add(id);
       this.setupData = saved.setupData ?? null;
       this.keepOut(saved.keptOut);
       for (const [id, expected] of Object.entries(saved.expected ?? {})) this.expected.set(id, expected);
@@ -1505,7 +1536,10 @@ export class RoomCore<S = any> {
       this.friendJoinsEnabled = start.friendJoinsEnabled !== false;
       this.name = start.name;
       this.labels = start.labels;
-      for (const id of start.playerIds) this.known.add(id);
+      for (const id of start.playerIds) {
+        this.known.add(id);
+        this.reservedPlayerIds.add(id);
+      }
       this.setupData = start.setupData ?? null;
       this.keepOut(start.keptOut);
       this.lobbyRoomCode = start.lobbyRoomCode ?? null;
@@ -1645,6 +1679,7 @@ export class RoomCore<S = any> {
     return {
       ...this.settings(),
       knownPlayerIds: [...this.known],
+      ...(this.reservedPlayerIds.size ? { reservedPlayerIds: [...this.reservedPlayerIds] } : {}),
       ...(this.setupData !== null ? { setupData: this.setupData } : {}),
       ...(this.keptOut.size ? { keptOut: Object.fromEntries(this.keptOut) } : {}),
       ...(this.expected.size ? { expected: Object.fromEntries(this.expected) } : {}),
@@ -1759,19 +1794,59 @@ export class RoomCore<S = any> {
     return this.players.size - this.kept.size;
   }
 
-  /** Seats the room holds for players on their way (room.moveTo) or out of the match for now. */
+  /**
+   * Seats the room holds for players on their way (room.moveTo) and for players out of the match for now,
+   * and the seats of players it keeps (dropped, or kept by onAway), who are in players but not in
+   * playingCount: playingCount + heldSeatCount is exactly what door() counts, so a room list never offers a seat the door refuses.
+   */
   get heldSeatCount(): number {
-    return this.countHeldSeats();
+    return this.countHeldSeats() + this.kept.size;
   }
 
-  /** Resolves once every handler started so far has finished (at once for game servers that answer at once). */
+  /** How many game server handlers this room has started. */
+  get handlerStartCount(): number {
+    return this.startedCount;
+  }
+
+  /** Whether the game server only queues players' input for its next call (a real-time game in a sandbox), so input starts no handler. */
+  get queuesInput(): boolean {
+    return (this.server as { [QUEUES_INPUT]?: boolean })[QUEUES_INPUT] === true;
+  }
+
+  /** How many of the game's rooms a player may sit in at once (the option, or one). */
+  get maximumRoomCountPerPlayer(): number {
+    return this.server.maximumRoomCountPerPlayer ?? ROOM_LIMITS.defaultMaximumRoomCountPerPlayer;
+  }
+
+  /** Whether a player comes here because the game sent them (room.moveTo) or reserved this room for them: their seat elsewhere stays. */
+  isArrivingByMove(playerId: string): boolean {
+    return this.seat(playerId) !== null || this.reservedPlayerIds.has(playerId);
+  }
+
+  /**
+   * Resolves once every handler started so far has finished, and the work they scheduled themselves
+   * (a kicked player's onLeave, purchase hand-overs), not the ticks and messages queued after the call:
+   * a ticking room whose game server takes longer than a tick never goes idle. At once for game servers that answer at once.
+   */
   async settled(): Promise<void> {
-    while (this.queue || this.purchaseDeliveries.size) {
+    let horizonLinkIndex = this.linkCount;
+    const waited = new Set<Promise<void>>();
+    const tail = this.queue;
+    for (;;) {
       if (this.purchaseDeliveries.size) await Promise.all([...this.purchaseDeliveries]);
-      const queued = this.queue;
-      if (!queued) continue;
-      await queued;
-      if (this.queue === queued && !this.purchaseDeliveries.size) return;
+      const links: Promise<void>[] = [];
+      if (tail && !waited.has(tail)) links.push(tail);
+      for (const followUp of this.followUps) {
+        if (followUp.parentLinkIndex > horizonLinkIndex || waited.has(followUp.link)) continue;
+        links.push(followUp.link);
+        horizonLinkIndex = Math.max(horizonLinkIndex, followUp.linkIndex);
+      }
+      if (!links.length) {
+        if (!this.purchaseDeliveries.size) return;
+        continue;
+      }
+      for (const link of links) waited.add(link);
+      await Promise.all(links);
     }
   }
 
@@ -1880,7 +1955,11 @@ export class RoomCore<S = any> {
   private seat(id: string): Expected | null {
     const expected = this.expected.get(id);
     if (expected && expected.untilMs > this.now()) return expected;
-    if (expected) this.expected.delete(id);
+    if (expected) {
+      this.expected.delete(id);
+      this.listingChanged = true;
+      this.dirty = true;
+    }
     return null;
   }
 
@@ -1910,7 +1989,10 @@ export class RoomCore<S = any> {
         answer.movedPlayerIds.push(player.id);
       } else answer.refusals.push({ playerId: player.id, code: verdict.code, message: verdict.message || ERROR_TEXT[verdict.code] });
     }
-    if (answer.movedPlayerIds.length) this.dirty = true;
+    if (answer.movedPlayerIds.length) {
+      this.dirty = true;
+      this.listingChanged = true;
+    }
     return answer;
   }
 
@@ -2122,6 +2204,7 @@ export class RoomCore<S = any> {
       this.listingChanged = true;
       this.dirty = true;
       this.run(() => this.server.onAway!(this.state, player, this.api, { reason }), "onAway");
+      this.broadcastPlayers();
       return;
     }
     this.out(playerId);
@@ -2204,8 +2287,16 @@ export class RoomCore<S = any> {
       if (idleTimeoutSec !== null && nowMs - presence.seenAtMs >= idleTimeoutSec * 1000 + IDLE_ASK_MS + IDLE_GRACE_MS) this.walkAway(id, "idle");
       else if (this.ticking && presence.hiddenAtMs !== undefined && nowMs - presence.hiddenAtMs >= ROOM_LIMITS.hiddenTimeoutSec * 1000) this.walkAway(id, "hidden");
     }
-    // Rooms that don't tick check their probes here.
-    for (const id of [...this.presence.keys()]) this.checkAnswers(id);
+    // Rooms that don't tick check their probes here, and tell players a ping they haven't heard yet.
+    for (const [id, presence] of [...this.presence]) {
+      this.checkAnswers(id);
+      if (presence.isPingStale && !this.kept.has(id)) {
+        presence.pingProbeAtMs = nowMs;
+        this.probe(id);
+      }
+    }
+    // Seats held for players on their way that ran out leave the room's row.
+    for (const id of [...this.expected.keys()]) this.seat(id);
     for (const [id, held] of [...this.held]) {
       if (held.untilMs > nowMs) continue;
       this.held.delete(id);
@@ -2546,13 +2637,13 @@ export class RoomCore<S = any> {
     });
   }
 
-  /** Keep players out, newest last, up to as many as the room remembers. */
+  /** Keep players out, newest last, up to KEPT_OUT_PLAYER_COUNT: well past a full room, so nobody kicked for the match is let back by the cap. */
   private keepOut(players: Record<string, string> | undefined): void {
     for (const [id, message] of Object.entries(players ?? {})) {
       if (typeof message !== "string") continue;
       this.keptOut.delete(id);
       this.keptOut.set(id, message.slice(0, ROOM_LIMITS.maximumKickMessageCharacterCount));
-      if (this.keptOut.size > REMEMBERED_PLAYER_COUNT) this.keptOut.delete(this.keptOut.keys().next().value!);
+      if (this.keptOut.size > KEPT_OUT_PLAYER_COUNT) this.keptOut.delete(this.keptOut.keys().next().value!);
     }
   }
 
@@ -2563,20 +2654,23 @@ export class RoomCore<S = any> {
   }
 
   private flush(): void {
-    while (!this.depth && this.afterHandler.length) this.afterHandler.shift()!();
+    const wasFlushing = this.isFlushing;
+    this.isFlushing = true;
+    try {
+      while (!this.depth && this.afterHandler.length) this.afterHandler.shift()!();
+    } finally {
+      this.isFlushing = wasFlushing;
+    }
   }
 
   private remember(id: string): void {
     this.known.delete(id);
     this.known.add(id);
-    // Forget the oldest who isn't here or holding a seat, so no player in the match drops out of what the room knows of them.
-    if (this.known.size > REMEMBERED_PLAYER_COUNT) {
-      for (const oldest of this.known) {
-        if (oldest === id || this.players.has(oldest) || this.holding(oldest) !== null) continue;
-        this.known.delete(oldest);
-        break;
-      }
-    }
+    this.reservedPlayerIds.delete(id);
+    if (this.known.size <= REMEMBERED_PLAYER_COUNT) return;
+    // Only players who left are forgotten, the oldest first, past REMEMBERED_PLAYER_COUNT of them: nobody in the match, holding a seat, expected or reserved for drops out of what the room knows of them.
+    const gone = [...this.known].filter((other) => other !== id && !this.players.has(other) && !this.reservedPlayerIds.has(other) && this.holding(other) === null && this.seat(other) === null);
+    for (const other of gone.slice(0, Math.max(0, gone.length - REMEMBERED_PLAYER_COUNT))) this.known.delete(other);
   }
 
   tick(tickDurationSec: number): void {
@@ -2661,7 +2755,7 @@ export class RoomCore<S = any> {
     if (!this.server.stateSyncEnabled || this.ended) return;
     const syncs = (this.server as { [SYNCS_STATE]?: (state: S, room: Room) => HandlerResult<S> })[SYNCS_STATE];
     if (syncs) return this.run(() => syncs(this.state, this.api), "stateSync");
-    if (this.queue) this.queue = this.queue.then(() => this.syncState());
+    if (this.queue) this.chain(() => this.syncState());
     else this.soon(() => this.syncState());
   }
 
@@ -2852,13 +2946,17 @@ export class RoomCore<S = any> {
     if (presence.unansweredProbes.size > ROOM_TUNING.maximumUnansweredProbeCount) presence.unansweredProbes.delete(presence.unansweredProbes.keys().next().value!);
     presence.lastProbeAtMs = nowMs;
     presence.lastProbeSentByteCount = presence.sentByteCount;
+    presence.isPingStale = false;
     const text = JSON.stringify({ type: "probe", probeNumber, serverTimeMs: nowMs, pingDurationMs: presence.pingDurationMs } satisfies ServerMessage);
     this.transport.send(playerId, text);
     this.countTraffic("outbound", ZAISMA_MESSAGE_TYPE, 1, text.length);
   }
 
-  /** A ticking room probes each player in the match, and each spectator, every ROOM_TUNING.probeIntervalSec, and drops those who stopped answering. */
-  private probeDue(): void {
+  /**
+   * A ticking room probes each player in the match, and each spectator, every ROOM_TUNING.probeIntervalSec, and drops those who stopped answering.
+   * The runtime calls this on its own 2-second timer when the room ticks slower than that, so its players never hear 8 seconds of silence.
+   */
+  probeDue(): void {
     const nowMs = this.now();
     for (const id of this.everyone()) {
       const presence = this.presence.get(id);
@@ -2886,6 +2984,14 @@ export class RoomCore<S = any> {
     for (const number of [...presence.unansweredProbes.keys()]) if (number <= (probeNumber as number)) presence.unansweredProbes.delete(number);
     // The first measurement: probe again at once, so the player's game hears its ping too, even in a room that doesn't tick.
     if (previousMs === null) this.probe(playerId);
+    else if (!this.ticking && presence.pingDurationMs !== previousMs) {
+      // A room that doesn't tick has no regular probes, so tell their game the new ping: now, at most once every probe interval, and the sweep sends the rest.
+      const nowMs = this.now();
+      if (nowMs - presence.pingProbeAtMs >= ROOM_TUNING.probeIntervalSec * 1000) {
+        presence.pingProbeAtMs = nowMs;
+        this.probe(playerId);
+      } else presence.isPingStale = true;
+    }
     // An answer is when a backed-up connection shows it caught up.
     this.soon(() => this.catchUp());
     return true;
@@ -3025,6 +3131,7 @@ export class RoomCore<S = any> {
    * round follows a turn-based room's handlers and a real-time room's tick (isTick).
    */
   private run(handler: () => HandlerResult<S> | Promise<HandlerResult<S>>, handlerName: string, isTick = false): void {
+    this.startedCount++;
     const isSyncing = this.stateTracker !== null && (isTick || !this.ticking);
     if (!this.queue) {
       let next: HandlerResult<S> | Promise<HandlerResult<S>>;
@@ -3050,7 +3157,7 @@ export class RoomCore<S = any> {
       handler = () => started;
     }
     this.waitingCount++;
-    this.queue = this.queue.then(async () => {
+    this.chain(async () => {
       this.depth++;
       try {
         const next = await handler();
@@ -3065,6 +3172,21 @@ export class RoomCore<S = any> {
         this.flush();
       }
     });
+  }
+
+  /** Queue work after the handlers already queued. Work queued as a handler ends is that handler's own (settled waits for it). */
+  private chain(work: () => Promise<void> | void): void {
+    const linkIndex = ++this.linkCount;
+    const link = this.queue!.then(() => {
+      this.runningLinkIndex = linkIndex;
+      return work();
+    });
+    if (this.isFlushing) {
+      const followUp = { link, linkIndex, parentLinkIndex: this.runningLinkIndex };
+      this.followUps.add(followUp);
+      void link.then(() => this.followUps.delete(followUp));
+    }
+    this.queue = link;
   }
 }
 
@@ -3121,11 +3243,15 @@ interface Presence {
   unansweredProbes: Map<number, { sentAtMs: number; sentByteCount: number }>;
   /** Their smoothed round trip in milliseconds (room.pingDurationMs), or null until they answer a probe. */
   pingDurationMs: number | null;
+  /** When a probe last went out only to tell their game a changed ping (a room that doesn't tick). */
+  pingProbeAtMs: number;
+  /** Their ping changed and their game hasn't heard it yet: the sweep probes them. */
+  isPingStale: boolean;
 }
 
 /** A player's presence as they come in: nothing sent and nothing measured yet. A room waking from sleep starts its probes afresh. */
 function newPresence(seenAtMs: number, clientIdle: ClientIdle): Presence {
-  return { seenAtMs, clientIdle, sentByteCount: 0, answeredSentByteCount: 0, lastProbeSentByteCount: 0, lastProbeAtMs: 0, unansweredProbes: new Map(), pingDurationMs: null };
+  return { seenAtMs, clientIdle, sentByteCount: 0, answeredSentByteCount: 0, lastProbeSentByteCount: 0, lastProbeAtMs: 0, unansweredProbes: new Map(), pingDurationMs: null, pingProbeAtMs: Number.NEGATIVE_INFINITY, isPingStale: false };
 }
 
 /** A game's message or bytes on their way out: the text or binary frame, and its type for the traffic counts. */

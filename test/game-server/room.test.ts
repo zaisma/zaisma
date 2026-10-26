@@ -355,7 +355,7 @@ describe("RoomCore", () => {
     expect(refusal).toBeInstanceOf(GameServerError);
     expect(refusal).toMatchObject({ code: "unknown_option", field: "tickRate" });
     expect(refusal!.message).toBe(
-      "tickRate isn't a game server option. A game server takes: maximumPlayerCount, maximumSpectatorCount, ticksPerSec, hostControlsEnabled, idleCheck, idleTimeoutSec, awayMode, seatHoldDurationSec, stateSyncEnabled, reconnectTimeoutSec, stateSaveIntervalSec, setup, onJoin, canJoin, onMoved, onLeave, onSpectatorJoin, onSpectatorLeave, onAway, onBack, onMessage, onBytes, onPurchase, onRefund, onTick, onEnding, onRestored, stateView, onVersionUpdate, onRequest, schedules, onSchedule, onWebhook. (unknown_option)",
+      "tickRate isn't a game server option. A game server takes: maximumPlayerCount, maximumSpectatorCount, ticksPerSec, hostControlsEnabled, idleCheck, idleTimeoutSec, awayMode, seatHoldDurationSec, stateSyncEnabled, reconnectTimeoutSec, maximumRoomCountPerPlayer, stateSaveIntervalSec, setup, onJoin, canJoin, onMoved, onLeave, onSpectatorJoin, onSpectatorLeave, onAway, onBack, onMessage, onBytes, onPurchase, onRefund, onTick, onEnding, onRestored, stateView, onVersionUpdate, onRequest, schedules, onSchedule, onWebhook. (unknown_option)",
     );
   });
 
@@ -901,7 +901,8 @@ describe("players who walk away", () => {
     room.leave("a", "lost");
     room.receive("b", say("idle"));
     const woke = new RoomCore(keeper, t, { state: room.state, players: [{ id: "b", name: "B", kind: "guest" }], room: room.saved });
-    expect(woke.heldSeatCount).toBe(1);
+    // A's held seat and B's, kept by onAway: both are seats someone is coming back to.
+    expect(woke.heldSeatCount).toBe(2);
     expect(woke.playingCount).toBe(0);
     expect(await woke.admit({ id: "a", name: "A", kind: "guest" })).toEqual({ isAllowed: true });
   });
@@ -2510,5 +2511,234 @@ describe("mistakes in a game server's code are coded errors", () => {
     room.join(player("ana"));
     room.receive("ana", msg("end"));
     expect(sent.ana!.at(-1)).toMatchObject({ type: "ended", message: "x".repeat(ROOM_LIMITS.maximumKickMessageCharacterCount) });
+  });
+});
+
+describe("Beta hardening: rooms", () => {
+  const person = (id: string) => ({ id, name: id.toUpperCase(), kind: "guest" as const });
+  const say = (type: string, more: object = {}) => JSON.stringify({ type, ...more });
+  const recording = () => {
+    const sent: Record<string, any[]> = {};
+    const closed: [string, number][] = [];
+    const t: Transport = { roomCode: "K7Q2MX", send: (id, text) => (sent[id] ??= []).push(JSON.parse(text)), close: (id, closeCode) => closed.push([id, closeCode]) };
+    return { t, sent, closed };
+  };
+  const bigRoom = (overrides: Partial<GameServer> = {}) => defineGameServer({ maximumPlayerCount: ROOM_LIMITS.maximumPlayerCount, setup: () => ({}), ...overrides } as GameServer);
+  const names = (count: number) => Array.from({ length: count }, (_, index) => `p${index}`);
+
+  describe("maximumRoomCountPerPlayer", () => {
+    it("takes an integer from 1 to 10 and refuses the rest, saying the fix", () => {
+      for (const given of [0, 11, 1.5, "2", -1]) {
+        let refusal: GameServerError | undefined;
+        try {
+          defineGameServer({ maximumRoomCountPerPlayer: given, setup: () => ({}) } as never);
+        } catch (error) {
+          refusal = error as GameServerError;
+        }
+        expect(refusal, String(given)).toBeInstanceOf(GameServerError);
+        expect(refusal).toMatchObject({ code: "bad_option", field: "maximumRoomCountPerPlayer", fix: "Give an integer from 1 to 10; leave it out for 1." });
+      }
+      expect(() => defineGameServer({ maximumRoomCountPerPlayer: 10, setup: () => ({}) })).not.toThrow();
+      expect(() => defineGameServer({ maximumRoomCountPerPlayer: 1, setup: () => ({}) })).not.toThrow();
+    });
+
+    it("is one by default, and the room says what the game chose", () => {
+      expect(ROOM_LIMITS).toMatchObject({ maximumRoomCountPerPlayer: 10, defaultMaximumRoomCountPerPlayer: 1 });
+      expect(new RoomCore(bigRoom(), recording().t).maximumRoomCountPerPlayer).toBe(1);
+      expect(new RoomCore(bigRoom({ maximumRoomCountPerPlayer: 4 }), recording().t).maximumRoomCountPerPlayer).toBe(4);
+    });
+
+    it("sees a player the game moved here or reserved this room for as arriving by a move, and a stranger not", async () => {
+      const room = new RoomCore(bigRoom(), recording().t, { start: { playerIds: ["reserved"], setupData: null, isListed: false, name: null, labels: {} } });
+      expect(room.isArrivingByMove("reserved")).toBe(true);
+      expect(room.isArrivingByMove("stranger")).toBe(false);
+      await room.expect({ fromRoomCode: "AAAAAA", players: [person("moved")], joinData: null });
+      expect(room.isArrivingByMove("moved")).toBe(true);
+      room.join(person("reserved"));
+      expect(room.isArrivingByMove("reserved")).toBe(false);
+    });
+  });
+
+  describe("seats being kept count as full", () => {
+    it("counts a dropped player within their reconnect time and an onAway-kept player, so the list never offers the seat the door refuses", async () => {
+      const server = defineGameServer({ maximumPlayerCount: 3, reconnectTimeoutSec: 30, onAway: () => {}, setup: () => ({}) });
+      const room = new RoomCore(server, recording().t);
+      for (const id of ["a", "b", "c"]) room.join(person(id));
+      expect(room.playingCount + room.heldSeatCount).toBe(3);
+      room.leave("a", "lost");
+      room.receive("b", say("idle"));
+      expect(room.playingCount).toBe(1);
+      expect(room.heldSeatCount).toBe(2);
+      expect(room.playingCount + room.heldSeatCount).toBe(3);
+      expect(await room.admit(person("d"))).toEqual({ isAllowed: false, code: "room_full" });
+    });
+
+    it("tells the room's row when a seat is held for a moved player, and when it runs out", async () => {
+      let now = 1_000_000;
+      const room = new RoomCore(bigRoom(), recording().t, { now: () => now });
+      room.join(person("a"));
+      room.listingChanged = false;
+      await room.expect({ fromRoomCode: "AAAAAA", players: [person("moved")], joinData: null });
+      expect(room.listingChanged).toBe(true);
+      expect(room.heldSeatCount).toBe(1);
+      room.listingChanged = false;
+      now += 61_000;
+      expect(room.heldSeatCount).toBe(0);
+      expect(room.listingChanged).toBe(true);
+    });
+
+    it("tells the room's row when a dropped player's time runs out", () => {
+      let now = 1_000_000;
+      const room = new RoomCore(defineGameServer({ reconnectTimeoutSec: 10, seatHoldDurationSec: 0, setup: () => ({}) }), recording().t, { now: () => now });
+      room.join(person("a"));
+      room.join(person("b"));
+      room.leave("a", "lost");
+      expect(room.listingChanged).toBe(true);
+      room.listingChanged = false;
+      now += 11_000;
+      room.sweep();
+      expect(room.players.has("a")).toBe(false);
+      expect(room.listingChanged).toBe(true);
+    });
+
+    it("shows a player onAway keeps as away in every player's list", () => {
+      const { t, sent } = recording();
+      const room = new RoomCore(defineGameServer({ onAway: () => {}, setup: () => ({}) }), t);
+      room.join(person("a"));
+      room.join(person("b"));
+      room.receive("a", say("idle"));
+      expect(sent.b!.at(-1)).toMatchObject({ type: "players", players: [{ id: "a", awayReason: "idle" }, { id: "b", awayReason: null }] });
+    });
+  });
+
+  describe("a full room remembers everyone", () => {
+    it("lets back every player who was in a closed 100-player room", async () => {
+      const room = new RoomCore(bigRoom(), recording().t);
+      for (const id of names(100)) room.join(person(id));
+      room.isOpen = false;
+      for (const id of names(100)) room.leave(id);
+      for (const id of names(100)) expect(await room.admit(person(id)), id).toEqual({ isAllowed: true });
+    });
+
+    it("keeps every player it kicked with keepOut out for the rest of the match", async () => {
+      const room = new RoomCore(bigRoom(), recording().t);
+      const kicked = names(100);
+      for (const id of [...kicked, "last"]) room.join(person(id));
+      for (const id of kicked) room.kick(id, { keepOut: true });
+      for (const id of kicked) expect(await room.admit(person(id)), id).toMatchObject({ isAllowed: false, code: "kept_out" });
+    });
+
+    it("lets a player in a big room block another who joined early", () => {
+      const { t } = recording();
+      const room = new RoomCore(bigRoom(), t);
+      for (const id of names(100)) room.join(person(id));
+      expect(room.receive("p99", say("block", { playerId: "p0" }))).toBeNull();
+      expect(room.hasBlockBetween("p99", "p0")).toBe(true);
+    });
+
+    it("takes every player a lobby reserved a match room for, whatever order they arrive in", async () => {
+      const ids = names(100);
+      const room = new RoomCore(bigRoom(), recording().t, { start: { playerIds: ids, setupData: null, isListed: false, name: null, labels: {} } });
+      for (const id of [...ids].reverse()) {
+        expect(await room.admit(person(id)), id).toEqual({ isAllowed: true });
+        expect(room.join(person(id))).toMatchObject({ isAllowed: true });
+      }
+      expect(room.players.size).toBe(100);
+      // The ones past the first 64 leave the closed room and are let back too.
+      for (const id of ids) room.leave(id);
+      for (const id of ids) expect(await room.admit(person(id)), id).toEqual({ isAllowed: true });
+    });
+
+    it("keeps a reserved player who hasn't arrived through a sleep", async () => {
+      const first = new RoomCore(bigRoom(), recording().t, { start: { playerIds: ["x", "y"], setupData: null, isListed: false, name: null, labels: {} } });
+      expect(first.saved.reservedPlayerIds).toEqual(["x", "y"]);
+      first.join(person("x"));
+      expect(first.saved.reservedPlayerIds).toEqual(["y"]);
+      const woke = new RoomCore(bigRoom(), recording().t, { state: first.state, players: [person("x")], room: first.saved });
+      expect(woke.isArrivingByMove("y")).toBe(true);
+    });
+  });
+
+  describe("probes and pings", () => {
+    it("probes every 2 seconds from its own timer in a room that ticks slower, whatever its tick", () => {
+      let now = 1_000_000;
+      const { t, sent } = recording();
+      const room = new RoomCore(defineGameServer({ ticksPerSec: 0.1, onTick: () => {}, setup: () => ({}) }), t, { now: () => now });
+      room.join(person("a"));
+      const probes = () => sent.a!.filter((message) => message.type === "probe").length;
+      const answerAll = () => {
+        for (const probe of sent.a!.filter((message) => message.type === "probe" && !message.isAnswered)) (probe.isAnswered = true), room.receive("a", say("probe_answer", { probeNumber: probe.probeNumber }));
+      };
+      answerAll();
+      const before = probes();
+      for (let second = 0; second < 8; second++) {
+        now += 1000;
+        room.probeDue();
+        answerAll();
+      }
+      expect(probes() - before).toBe(4);
+    });
+
+    it("tells a turn-based room's player the ping the game server reads, after every answer", () => {
+      let now = 1_000_000;
+      const { t, sent } = recording();
+      const room = new RoomCore(defineGameServer({ setup: () => ({}) }), t, { now: () => now });
+      room.join(person("a"));
+      const probes = () => sent.a!.filter((message) => message.type === "probe");
+      const answerLast = (afterMs: number) => {
+        const last = probes().at(-1)!;
+        now += afterMs;
+        room.receive("a", say("probe_answer", { probeNumber: last.probeNumber }));
+      };
+      answerLast(80);
+      answerLast(120);
+      answerLast(40);
+      const pingOf = (room as unknown as { presence: Map<string, { pingDurationMs: number | null }> }).presence.get("a")!.pingDurationMs;
+      // The second answer moved the ping and the player heard it; the third came within the interval, so the sweep carries it.
+      expect(probes().at(-1)!.pingDurationMs).not.toBe(pingOf);
+      now += 31_000;
+      room.sweep();
+      expect(probes().at(-1)!.pingDurationMs).toBe(pingOf);
+    });
+  });
+
+  describe("settled()", () => {
+    it("returns in a busy ticking room whose game server takes longer than a tick", async () => {
+      const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+      const server = defineGameServer({ ticksPerSec: 60, setup: () => ({}), onTick: async () => void (await sleep(40)), onMessage: async () => void (await sleep(5)) });
+      const room = new RoomCore(server, recording().t);
+      room.join(person("a"));
+      const ticker = setInterval(() => room.tick(1 / 60), 16);
+      try {
+        await sleep(100);
+        room.receive("a", JSON.stringify({ type: "message", data: 1 }));
+        const outcome = await Promise.race([room.settled().then(() => "settled"), sleep(2000).then(() => "still waiting")]);
+        expect(outcome).toBe("settled");
+      } finally {
+        clearInterval(ticker);
+      }
+    });
+
+    it("waits for what the handlers it waits for scheduled themselves, like a kicked player's onLeave", async () => {
+      const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+      const left: string[] = [];
+      const server = defineGameServer({
+        setup: () => ({}),
+        onMessage: async (_state, _player, room) => {
+          await sleep(10);
+          room.kick("b");
+        },
+        onLeave: async (_state, player) => {
+          await sleep(10);
+          left.push(player.id);
+        },
+      });
+      const room = new RoomCore(server, recording().t);
+      room.join(person("a"));
+      room.join(person("b"));
+      room.receive("a", JSON.stringify({ type: "message", data: 1 }));
+      await room.settled();
+      expect(left).toEqual(["b"]);
+    });
   });
 });

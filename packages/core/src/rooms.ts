@@ -243,10 +243,14 @@ async function readRooms(database: D1Database, gameId: string, options: RoomList
   if (hit) return hit.json();
 
   // A kept room with nobody in it sleeps without checking in, so its row never goes stale.
-  const { results } = await database
-    .prepare("SELECT * FROM live_rooms WHERE game_id = ? AND (updated_at_ms > ? OR (is_kept = 1 AND player_count = 0))")
-    .bind(gameId, (options.nowMs ?? Date.now()) - ROOM_STALE_MS)
-    .all<LiveRoom>();
+  const nowMs = options.nowMs ?? Date.now();
+  // The game's count of distinct players comes with its rooms: a player in two rooms (a game that allows it) counts once.
+  const [roomRows, gameRows] = await database.batch([
+    database.prepare("SELECT * FROM live_rooms WHERE game_id = ? AND (updated_at_ms > ? OR (is_kept = 1 AND player_count = 0))").bind(gameId, nowMs - ROOM_STALE_MS),
+    database.prepare("SELECT playing_player_count, updated_at_ms FROM live_games WHERE game_id = ?").bind(gameId),
+  ]);
+  const results = roomRows!.results as unknown as LiveRoom[];
+  const liveGame = (gameRows!.results[0] ?? null) as { playing_player_count: number; updated_at_ms: number } | null;
   // Rooms someone is in, for "playing now": an empty kept room isn't playing.
   const playingRows = results.filter((row) => row.player_count > 0 || row.is_kept !== 1);
   const continent = (row: LiveRoom) => (row.continent && CONTINENTS[row.continent] ? row.continent : null);
@@ -308,7 +312,12 @@ async function readRooms(database: D1Database, gameId: string, options: RoomList
   const shown = page ? inRegion.slice(page.startIndex, page.startIndex + page.pageRoomCount) : inRegion.slice(0, MAXIMUM_SHOWN_ROOM_COUNT);
   const list: RoomList = {
     rooms: shown,
-    playing: { playerCount: results.reduce((totalPlayerCount, row) => totalPlayerCount + row.player_count, 0), roomCount: playingRows.length, closedRoomCount: all.filter((room) => !room.isOpen).length },
+    // The game's distinct players while its record is fresh; otherwise the rooms' counts added up.
+    playing: {
+      playerCount: liveGame && liveGame.updated_at_ms > nowMs - ROOM_STALE_MS ? liveGame.playing_player_count : results.reduce((totalPlayerCount, row) => totalPlayerCount + row.player_count, 0),
+      roomCount: playingRows.length,
+      closedRoomCount: all.filter((room) => !room.isOpen).length,
+    },
     joinableRoomCount: all.filter(hasSpace).length,
     openRoomCount: matching.filter((room) => room.isOpen).length,
     regions: [...regions.values()].sort((first, second) => second.playerCount - first.playerCount || second.roomCount - first.roomCount),

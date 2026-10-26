@@ -27,9 +27,13 @@ const MAXIMUM_LAST_PING_DURATION_MS = 500;
 // The share of 60 ticks a second the room makes. Its timer doesn't catch up a late tick, and on GitHub's 4-core runners the players
 // here take cores of their own: 88 to 99% in 60 runs there. A room whose ticks got a fifth slower still fails.
 const MINIMUM_TICK_SHARE = 0.8;
+// A game server whose tick takes longer than a sixtieth of a second (18 ms against 16.7): it can't make 60 ticks a second, so the room makes as
+// many as the game server's own pace allows (about 1000 / 26 ms, measured here), and must still answer, settle and keep every player.
+const BUSY_TICK_WORK_DURATION_MS = 18;
+const BUSY_MINIMUM_TICK_SHARE = 0.5;
 
 // Each player's position as the game server broadcasts it, about 20 bytes a player: 2 KB a tick for 100.
-const WORLD = `
+const world = (tickWorkDurationMs: number) => `
 export default {
   maximumPlayerCount: ${PLAYER_COUNT},
   ticksPerSec: ${TICKS_PER_SEC},
@@ -40,7 +44,8 @@ export default {
     const position = state.positions[player.id];
     if (position && message && typeof message.x === "number") { position[0] = message.x; position[1] = message.y; }
   },
-  onTick(state, tickDurationSec, room) {
+  ${tickWorkDurationMs ? `async onTick(state, tickDurationSec, room) {
+    await new Promise((resolve) => setTimeout(resolve, ${tickWorkDurationMs}));` : `onTick(state, tickDurationSec, room) {`}
     state.tickNumber++;
     room.broadcast({ type: "world", tickNumber: state.tickNumber, positions: Object.values(state.positions) });
   },
@@ -70,9 +75,12 @@ beforeAll(async () => {
   );
   database = (await rooms.getD1Database("DB")) as unknown as D1Database;
   for (const migration of await readD1Migrations("migrations")) await database.batch(migration.queries.map((query) => database.prepare(query)));
-  await database.prepare("INSERT INTO games (id, slug, title, review_status, live_version_id, multiplayer_mode, room_browsing, created_at_ms, updated_at_ms) VALUES ('gfullworld', 'full-world', 'full-world', 'live', 'vfullworld', 'own', 'page', 0, 0)").run();
-  await database.prepare("INSERT INTO versions (id, game_id, r2_prefix, file_count, size_bytes, scan_status, created_at_ms) VALUES ('vfullworld', 'gfullworld', 'games/vfullworld', 2, 0, 'approved', 0)").run();
-  await (await rooms.getR2Bucket("GAMES")).put("games/vfullworld/zaisma-server.js", WORLD);
+  for (const [slug, tickWorkDurationMs] of [["full-world", 0], ["busy-world", BUSY_TICK_WORK_DURATION_MS]] as const) {
+    const gameId = `g${slug.replace("-", "")}`;
+    await database.prepare("INSERT INTO games (id, slug, title, review_status, live_version_id, multiplayer_mode, room_browsing, created_at_ms, updated_at_ms) VALUES (?, ?, ?, 'live', ?, 'own', 'page', 0, 0)").bind(gameId, slug, slug, `v${gameId.slice(1)}`).run();
+    await database.prepare("INSERT INTO versions (id, game_id, r2_prefix, file_count, size_bytes, scan_status, created_at_ms) VALUES (?, ?, ?, 2, 0, 'approved', 0)").bind(`v${gameId.slice(1)}`, gameId, `games/v${gameId.slice(1)}`).run();
+    await (await rooms.getR2Bucket("GAMES")).put(`games/v${gameId.slice(1)}/zaisma-server.js`, world(tickWorkDurationMs));
+  }
 }, 120_000);
 
 afterAll(async () => {
@@ -83,10 +91,10 @@ let address = 0;
 const nextAddress = () => `198.51.${++address % 250}.${address % 200}`;
 
 /** A player in the room who counts the world broadcasts they get, answers probes as the SDK does, and keeps the room's measured round trip. */
-async function player() {
-  const passAnswer = await rooms.dispatchFetch(`${R}/v1/pass`, { method: "POST", headers: { Origin: ORIGIN, "Content-Type": "text/plain", "cf-connecting-ip": nextAddress() }, body: JSON.stringify({ gameSlug: "full-world", roomKey: await issueRoomKey(database, "gfullworld") }) });
+async function player(slug: string) {
+  const passAnswer = await rooms.dispatchFetch(`${R}/v1/pass`, { method: "POST", headers: { Origin: ORIGIN, "Content-Type": "text/plain", "cf-connecting-ip": nextAddress() }, body: JSON.stringify({ gameSlug: slug, roomKey: await issueRoomKey(database, `g${slug.replace("-", "")}`) }) });
   const { pass } = (await passAnswer.json()) as { pass: string };
-  const up = await rooms.dispatchFetch(`${R}/v1/rooms/full-world/WRLDAA`, { headers: { Upgrade: "websocket", Origin: ORIGIN, "cf-connecting-ip": nextAddress() } });
+  const up = await rooms.dispatchFetch(`${R}/v1/rooms/${slug}/WRLDAA`, { headers: { Upgrade: "websocket", Origin: ORIGIN, "cf-connecting-ip": nextAddress() } });
   expect(up.status).toBe(101);
   const ws = up.webSocket as unknown as ClientSocket;
   ws.accept();
@@ -113,9 +121,12 @@ async function player() {
 }
 
 describe("a full room at full speed", () => {
-  it(`carries ${PLAYER_COUNT} players at ${TICKS_PER_SEC} ticks a second, each sending ${MESSAGES_PER_SEC} messages a second, and keeps up`, async () => {
+  it.each([
+    ["full-world", MINIMUM_TICK_SHARE],
+    ["busy-world", BUSY_MINIMUM_TICK_SHARE],
+  ])(`carries ${PLAYER_COUNT} players at ${TICKS_PER_SEC} ticks a second, each sending ${MESSAGES_PER_SEC} messages a second, and keeps up (%s)`, async (slug, minimumTickShare) => {
     const players: Awaited<ReturnType<typeof player>>[] = [];
-    for (let i = 0; i < PLAYER_COUNT; i++) players.push(await player());
+    for (let i = 0; i < PLAYER_COUNT; i++) players.push(await player(slug));
     for (let i = 0; i < 250 && players.some((each) => !each.got.isWelcomed); i++) await new Promise((r) => setTimeout(r, 20));
     expect(players.filter((each) => each.got.isWelcomed)).toHaveLength(PLAYER_COUNT);
 
@@ -155,7 +166,7 @@ describe("a full room at full speed", () => {
     expect(summary.errors).toEqual([]);
     expect(summary.lastPingDurationMs).not.toBeNull();
     expect(summary.lastPingDurationMs!).toBeLessThan(MAXIMUM_LAST_PING_DURATION_MS);
-    expect(tickCount).toBeGreaterThanOrEqual(TICKS_PER_SEC * DURATION_SEC * MINIMUM_TICK_SHARE);
+    expect(tickCount).toBeGreaterThanOrEqual(TICKS_PER_SEC * DURATION_SEC * minimumTickShare);
     expect(summary.fewestReceived).toBeGreaterThanOrEqual(tickCount * 0.9);
     for (const each of players) {
       each.got.isLeaving = true;

@@ -524,6 +524,96 @@ describe("Node runner", () => {
     await second.own.close();
   });
 
+  it("brings a turn-based match's players back as dropped players after a restart: onRestored, then onBack, and no second onJoin", async () => {
+    const file = join(mkdtempSync(join(tmpdir(), "zaisma-turn-based-restart-")), "rooms.sqlite");
+    const events: string[] = [];
+    const turnBased = defineGameServer({
+      setup: () => ({ moves: 0 }),
+      onJoin: (_state, player) => void events.push(`join ${player.id}`),
+      onRestored: (_state, restoreInfo, room) => void events.push(`restored ${room.players.map((player) => `${player.id}:${room.awayReason(player.id)}`).join(",")} ${restoreInfo.lostDurationSec >= 0}`),
+      onBack: (_state, player) => void events.push(`back ${player.id}`),
+      onMessage: (state, player, room) => ((state.moves += 1), room.send(player.id, { moves: state.moves })),
+    });
+    const start = async () => {
+      const own = startServer({ gameServer: turnBased as never, gameSlug: "arena", port: 0, origins: [ORIGIN], issuerUrl: ISS, loadPassKeys: async () => [signing.publicKey], roomStateFile: file });
+      await new Promise((r) => own.httpServer.once("listening", r));
+      return { own, at: (own.httpServer.address() as { port: number }).port };
+    };
+    const first = await start();
+    const players = await Promise.all(["lucas", "maya"].map(async (id) => ({ id, client: connect(ORIGIN, "/v1/rooms/arena/TRNRST", first.at), pass: await pass(id) })));
+    for (const { client, pass: passText } of players) {
+      await client.open;
+      client.say({ type: "hello", protocolVersionNumber: 1, pass: passText });
+      await until(client, "welcome");
+    }
+    players[0]!.client.say({ type: "message", data: "move" });
+    expect((await until(players[0]!.client, "message")).data).toEqual({ moves: 1 });
+    // The server stops with both in the match.
+    await first.own.close();
+    await Promise.all(players.map(({ client }) => client.closed));
+    const second = await start();
+    const back = connect(ORIGIN, "/v1/rooms/arena/TRNRST", second.at);
+    await back.open;
+    back.say({ type: "hello", protocolVersionNumber: 1, pass: players[0]!.pass });
+    await until(back, "welcome");
+    expect(events).toEqual(["join lucas", "join maya", "restored lucas:lost,maya:lost true", "back lucas"]);
+    back.say({ type: "message", data: "move" });
+    expect((await until(back, "message")).data).toEqual({ moves: 2 });
+    back.ws.close(1000);
+    await second.own.close();
+  });
+
+  it("gives a player one room of the game at a time: joining another closes the first, and onLeave hears \"left\"", async () => {
+    const left: string[] = [];
+    const { own, at } = await serve(defineGameServer({ setup: () => ({}), onLeave: (_state, player, _room, leaveInfo) => void left.push(`${player.id} ${leaveInfo.reason}`) }));
+    const lucas = await pass("lucas");
+    const maya = await pass("maya");
+    const hello = async (code: string, passText: string) => {
+      const client = connect(ORIGIN, `/v1/rooms/arena/${code}`, at);
+      await client.open;
+      client.say({ type: "hello", protocolVersionNumber: 1, pass: passText });
+      await until(client, "welcome");
+      return client;
+    };
+    const first = await hello("RMAAAA", lucas);
+    const friend = await hello("RMAAAA", maya);
+    const second = await hello("RMBBBB", lucas);
+    expect(await first.closed).toBe(4001);
+    expect(left).toEqual(["lucas left"]);
+    // The room they left lists them gone to the one who stayed.
+    expect((await until(friend, "players")).players.map((player: { id: string }) => player.id)).toContain("maya");
+    // The newer room keeps them, and a second tab of the same room still replaces the connection, as before.
+    const again = await hello("RMBBBB", lucas);
+    expect(await second.closed).toBe(4001);
+    expect(left).toEqual(["lucas left"]);
+    again.ws.close(1000);
+    friend.ws.close(1000);
+    await own.close();
+  });
+
+  it("lets a game raise maximumRoomCountPerPlayer: both rooms keep the player, and a third closes the oldest", async () => {
+    const left: string[] = [];
+    const { own, at } = await serve(defineGameServer({ maximumRoomCountPerPlayer: 2, setup: () => ({}), onLeave: (_state, _player, room, leaveInfo) => void left.push(`${room.roomCode} ${leaveInfo.reason}`) }));
+    const lucas = await pass("lucas");
+    const hello = async (code: string) => {
+      const client = connect(ORIGIN, `/v1/rooms/arena/${code}`, at);
+      await client.open;
+      client.say({ type: "hello", protocolVersionNumber: 1, pass: lucas });
+      await until(client, "welcome");
+      return client;
+    };
+    const a = await hello("RMDDDD");
+    const b = await hello("RMEEEE");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(left).toEqual([]);
+    const c = await hello("RMFFFF");
+    expect(await a.closed).toBe(4001);
+    expect(left).toEqual(["RMDDDD left"]);
+    b.ws.close(1000);
+    c.ws.close(1000);
+    await own.close();
+  });
+
   it("starts from the command line through a symlink, as npm's bin is, and prints usage for an unknown flag", async () => {
     const folder = mkdtempSync(join(tmpdir(), "zaisma-bin-"));
     const link = join(folder, "zaisma-game-server");
