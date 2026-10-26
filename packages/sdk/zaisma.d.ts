@@ -361,11 +361,31 @@ declare namespace Zaisma {
      */
     list(): Promise<ItemForSale[]>;
     /**
-     * Listen for a purchase on its way to the game (the {@link ItemsEvents}), when the game's purchase
+     * Buy an item through Zaisma's buy sheet: on the game's zaisma.com page it slides up over the game, which
+     * keeps running; on your own site a zaisma.com window opens. The player pays you through your own Stripe
+     * account (get_stripe_account), with no cut. Call it from a tap or key press handler. Every player outcome
+     * resolves: "bought" (the player's pass owns it at once; pass purchase.receipt to your server to check),
+     * "cancelled" (nothing was charged: the player closed the sheet, or already owned the item) or "failed"
+     * (declined, or still settling when the sheet closed: a "purchase" event follows if it completes later).
+     * Fails with error.code needs_player_tap, bad_item_name, no_item, no_game, not_for_sale,
+     * stripe_not_connected, stripe_cannot_take_payments, bad_item_count, bad_game_account_id, unknown_option,
+     * not_on_zaisma and request_failed: your mistakes, never the player's; for the ones Zaisma finds,
+     * error.message ends with the fix (finish setting up Stripe, connect_stripe_account, set_item).
+     *
+     * @example
+     * buyButton.onclick = async () => {
+     *   const bought = await Zaisma.items.buy("revive");
+     *   if (bought.status === "bought") revivePlayer();
+     * };
+     */
+    buy(itemName: string, buyOptions?: BuyOptions): Promise<BuyResult>;
+    /**
+     * Listen for the buy sheet opening and closing, and for a purchase on its way to the game (the
+     * {@link ItemsEvents}). Purchases come when the game's purchase
      * settings say purchase_delivery "game": the game calls {@link Items.markHandled} first, then hands it
      * over, so a second tab, which gets "already_handled", skips it and it comes once. Each one waiting comes once the game listens, and each new one after the
      * buy sheet completes it. A wrong name fails with error.code "unknown_event". With "game_server",
-     * the game server's onPurchase takes purchases instead, and these never fire.
+     * the game server's onPurchase takes purchases instead, and "purchase" and "refund" never fire.
      *
      * @example
      * Zaisma.items.on("purchase", async (purchase) => {
@@ -404,9 +424,41 @@ declare namespace Zaisma {
      * take back, after marking it handled. A permanent item leaves {@link Items.owned} by itself.
      */
     refund: (purchase: Purchase) => void;
+    /** The buy sheet opened over the game, which keeps running: pause it here if it shouldn't. */
+    sheetOpen: (sheet: SheetEvent) => void;
+    /** The buy sheet closed, bought or not; {@link Items.buy} says how it ended. */
+    sheetClose: (sheet: SheetEvent) => void;
   }
 
-  /** A purchase on its way to the game ({@link ItemsEvents}), as the API's purchase in camelCase. */
+  /** Which item the buy sheet is for ({@link ItemsEvents}). */
+  interface SheetEvent {
+    itemName: string;
+  }
+
+  /** How {@link Items.buy} buys. */
+  interface BuyOptions {
+    /** How many of a consumable item, from 1 (1 unless you say). A permanent item is always 1. */
+    itemCount?: number;
+    /** Your game's own account ID for the player, kept on the purchase and its receipt; null unless you say. */
+    gameAccountId?: string | null;
+  }
+
+  /** How a buy ended ({@link Items.buy}). */
+  interface BuyResult {
+    /**
+     * bought: the player paid. cancelled: nothing was charged (the player closed the sheet before paying, or
+     * already owned the item). failed: the payment was declined, or was still settling when the sheet closed;
+     * if it completes later, the "purchase" event fires for it.
+     */
+    status: "bought" | "cancelled" | "failed";
+    /**
+     * The same {@link Purchase} the "purchase" event hands over, with its receipt when bought. On failed it's
+     * the purchase when there is one (purchaseStatus "pending" or "failed", receipt ""); null on cancelled.
+     */
+    purchase: Purchase | null;
+  }
+
+  /** A purchase on its way to the game ({@link ItemsEvents}), and the one a {@link BuyResult} carries, as the API's purchase in camelCase. */
   interface Purchase {
     /** Like "purchase_8f2k1x". */
     id: string;
@@ -416,7 +468,8 @@ declare namespace Zaisma {
     itemCount: number;
     /** sale: bought on the buy sheet. grant: given by the developer (grant_item). */
     purchaseSource: "sale" | "grant";
-    purchaseStatus: "completed" | "refunded" | "charged_back";
+    /** "pending" and "failed" appear only on a failed {@link BuyResult}'s purchase; the events carry the rest. */
+    purchaseStatus: "completed" | "refunded" | "charged_back" | "pending" | "failed";
     /** The game's own account ID for the player, when the game gave one to buy or grant_item; else null. */
     gameAccountId: string | null;
     /** What it paid, in the currency's minor units (cents); null for a grant. */
@@ -425,9 +478,13 @@ declare namespace Zaisma {
     currencyCode: string | null;
     /** When it was bought or granted, an ISO time. */
     purchasedAt: string | null;
-    /** When it was refunded or charged back, an ISO time; null for "purchase". */
+    /**
+     * When the item was taken back, an ISO time: a full refund or a chargeback (purchaseStatus "refunded" or
+     * "charged_back"); null otherwise. A partial refund leaves the player owning the item and shows only in
+     * the API's refunded_minor_units, so test purchaseStatus, not just refundedAt, for what the player owns.
+     */
     refundedAt: string | null;
-    /** The signed receipt, for a server of the game's own to check (verifyReceipt in @zaisma/game-server). */
+    /** The signed receipt, for a server of the game's own to check (verifyReceipt in @zaisma/game-server). "" on a failed {@link BuyResult}'s purchase, which never completed. */
     receipt: string;
   }
 
@@ -1492,6 +1549,7 @@ declare namespace Zaisma {
    * - bad_region: a region that isn't a continent code ({@link Region}).
    * - bad_idle_timeout: an idleTimeoutSec that isn't from 30 to 86400.
    * - request_failed: Zaisma didn't answer (no connection, or a problem on Zaisma's side); try again.
+   * - no_game: {@link Items.buy} named a game that isn't open to play here.
    * - And a request's ({@link RequestErrorCode}).
    *
    * More values may come; treat an unknown one as "request_failed".
@@ -1533,6 +1591,13 @@ declare namespace Zaisma {
     | "bad_link_query"
     | "bad_own_site_url"
     | "needs_player_tap"
+    | "no_game"
+    | "no_item"
+    | "not_for_sale"
+    | "stripe_not_connected"
+    | "stripe_cannot_take_payments"
+    | "bad_item_count"
+    | "bad_game_account_id"
     | "connection_closed"
     | "request_failed";
 

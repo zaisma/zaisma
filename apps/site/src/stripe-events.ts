@@ -6,7 +6,7 @@ import type { Env } from "./env.ts";
 /** Stripe's events are small; anything bigger isn't one. */
 const MAXIMUM_EVENT_SIZE_BYTES = 256 * 1024;
 
-type StripeEvent = { id: string; type: string; data: { object: Record<string, unknown> & { id: string } } };
+export type StripeEvent = { id: string; type: string; data: { object: Record<string, unknown> & { id: string } } };
 
 /**
  * POST /stripe/events: Stripe tells Zaisma a top-up was paid, an automatic one failed, a payment was refunded, or a

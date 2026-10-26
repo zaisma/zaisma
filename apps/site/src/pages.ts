@@ -1,5 +1,9 @@
 import {
   ALLOWED_CONTENT,
+  purchaseLabelFor,
+  purchaseSettingsOf,
+  refundPolicyWords,
+  type PurchaseLabel,
   canOpenLink,
   CONTENT_RULES,
   CONTENT_RULE_DETAILS,
@@ -53,6 +57,8 @@ import { profilePath } from "./profiles.ts";
 import { MAXIMUM_REFRESHED_ROOM_COUNT, codeBox, pageRooms, readRoomPick, roomsOnPage, roomsPanel, tabCount } from "./rooms.ts";
 import { checkPreviewLinkToken, readPreviewLinkToken } from "./preview-links.ts";
 import { GAME_LINKS_SCRIPT, developerLinks, leavingCard } from "./game-links.ts";
+import { BUY_SHEET_SCRIPT, buySheet, buySheetData, buySheetStripe } from "./buy-sheet.ts";
+import { PASSKEY_SCRIPT } from "./passkeys.ts";
 import { STILL_THERE_SCRIPT, stillThereCard } from "./still-there.ts";
 import { gamePageHead, shareDialog } from "./share-cards.ts";
 import { DISCLOSURE_WAIT_DAYS, FIX_WITHIN_DAYS, REPLY_WITHIN_DAYS, SECURITY_ADVISORY_URL, SECURITY_REPORT_EMAIL, SECURITY_TEXT_FILE_PATH } from "./security-policy.ts";
@@ -84,6 +90,15 @@ const isPhoneRequest = (request: Request) => /iPhone|iPod|Android.*Mobile|Mobi/.
 
 /** The game's own servers in the ⋯ menu, in neutral words: "Online play runs on the developer's own server: play.example.com". */
 const ownServersLine = (hosts: string[]) => `Online play runs on the developer's own ${hosts.length === 1 ? "server" : "servers"}: ${hosts.join(", ")}`;
+
+const PURCHASE_CATEGORY_WORDS: Record<PurchaseLabel["categories"][number], string> = { cosmetic: "cosmetic items", gameplay: "items that help you play", content: "more of the game", currency: "in-game currency" };
+
+/** A game page's purchase label: what the game sells through Zaisma and its own payments, and that some goes past Zaisma. */
+function purchaseWords(purchaseLabel: PurchaseLabel): string {
+  if (!purchaseLabel.categories.length) return "No in-game purchases";
+  const sold = purchaseLabel.categories.map((category) => PURCHASE_CATEGORY_WORDS[category]).join(", ");
+  return `${sold.charAt(0).toUpperCase()}${sold.slice(1)}${purchaseLabel.has_own_payments ? "; some handled by the developer, not Zaisma" : ""}`;
+}
 
 export async function gamePage(env: Env, slug: string, request: Request, tester?: TesterLink): Promise<Response> {
   const url = new URL(request.url);
@@ -151,7 +166,12 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
   // Checked browsers with the game on screen, and everyone in its rooms (who may have come in another way): the larger.
   const playingNowPlayerCount = Math.max(playingNow.get(game.id) ?? 0, live ? live.playing.playerCount : 0);
   const shots = pictures.results.map((picture) => `/img/${picture.id}`);
+  // The game's own cover, across the top of the buy sheet (items have no pictures of their own); null where the developer has none yet.
+  const coverPicture = pictures.results.find((picture) => picture.kind === "cover");
+  const coverUrl = coverPicture ? `/img/${coverPicture.id}` : null;
   const more = [...others.filter((otherGame) => otherGame.slug !== game.slug && otherGame.owner_id && otherGame.owner_id === game.owner_id), ...others.filter((otherGame) => otherGame.slug !== game.slug && (!otherGame.owner_id || otherGame.owner_id !== game.owner_id))].slice(0, 4);
+  const purchaseLabel = await purchaseLabelFor(env.DB, game);
+  const refundWords = refundPolicyWords(purchaseSettingsOf(game));
   const devices = game.devices ? game.devices.split(",") : [];
   const controls = game.controls ? game.controls.split(",") : [];
   const playModes = readPlayModes(game.play_modes);
@@ -159,6 +179,11 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
   const gameFacts = [
     ...(describedModes.length ? [{ label: "Players", entries: describedModes.map((playMode) => ({ text: playMode.playerCount ? `${playMode.label}, ${playMode.playerCount}` : playMode.label, icon: MODE_ICON_NAMES[playMode.mode] })) }] : []),
     ...(devices.length ? [{ label: "Works on", entries: devices.map((device) => ({ text: DEVICE_LABELS[device] ?? device, icon: DEVICE_ICON_NAMES[device] ?? ("computer" as const) })) }] : []),
+  ];
+  // What the game sells, before anyone plays ("Every game that sells something states its refund policy"), under About.
+  const purchaseFacts = [
+    { label: "Purchases", text: purchaseWords(purchaseLabel) },
+    ...(purchaseLabel.categories.length && refundWords ? [{ label: "Refunds", text: refundWords }] : []),
   ];
   const isSignedInAdult = viewer.account?.age_band === "18+";
   const pageLinks = linksOf(game).filter((link) => link.is_on_game_page && canOpenLink(link, isSignedInAdult));
@@ -222,6 +247,7 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
       : []),
     section("about", "About", [
       { kind: "block", markup: readingText({ markup: description ? paragraphs(description) : html`<p>The developer hasn't written about this game yet.</p>` }) },
+      { kind: "words", markup: facts({ facts: purchaseFacts, arrangement: "down", label: "Purchases and refunds" }) },
       ...(developer ? [{ kind: "block" as const, markup: person({ username: developer.name, href: profilePath(developer.name), note: developer.game_count === 1 ? "1 game on Zaisma" : `${developer.game_count} games on Zaisma` }) }] : []),
       ...(pageLinks.length ? [{ kind: "block" as const, markup: html`${developerLinks(pageLinks)}` }] : []),
     ]),
@@ -313,6 +339,7 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
     hasTurnstileCheck: (!tester || multiplayer) && !isClosed && Boolean(env.TURNSTILE_SITE_KEY),
     // What a page for older players shows depends on who's looking, so no cache keeps it.
     isPrivate: game.minimum_player_age_years > 13,
+    hasStripePayments: !isClosed,
     body: html`${stack({ items: [{ kind: "block", markup: gamePane }, ...sections] })}
 ${screenshotSheets}
 ${playingBar({ title: game.title, controls: barControls })}
@@ -330,6 +357,7 @@ ${saves ? playingCard({ id: "save-toast", body: stack({ items: [{ kind: "words",
 ${signInCard}
 ${multiplayer ? stillThereCard() : ""}
 ${leavingCard(game.title)}
+${isClosed ? "" : buySheet({ joinHref: joinHere, signInHref: signinHere, coverUrl })}
 ${shareDialog(game.title, !tester)}
 ${tester && !multiplayer ? "" : playingCheck("play-check")}
 ${pageData("game-page-data", {
@@ -359,6 +387,7 @@ ${pageData("game-page-data", {
       // A room link is an invitation into a match already underway, and ?play comes from a Play button elsewhere: both skip the details.
       autoplay: autoplay ? (accountRequirement === "whole_game" || (accountRequirement === "multiplayer" && inRoom) ? "when_signed_in" : "always") : "never",
     })}
+${isClosed ? "" : buySheetData({ slug: game.slug, tester_token: tester?.token ?? null, place: "game_page", ...buySheetStripe(env), asked: null, opener_origin: null })}
 ${saves && !isClosed ? pageData("saves-data", { api: `/api/saves/${game.slug}`, root: gameUrl(env, game.slug), query: roomQuery, frameOrigin: gameOrigin, slug: game.slug, offerAfter: (Number(env.KEEP_OFFER_SECONDS) || 300) * 1000, isAccountOfferEnabled: Boolean(game.account_offer_enabled) }) : ""}
 ${isClosed
       ? scriptTags(GAME_PAGE_SCRIPT, GAME_EMBEDDED_SCRIPT)
@@ -370,6 +399,8 @@ ${isClosed
           ...(canSignIn ? [SIGN_IN_WHILE_PLAYING_SCRIPT] : []),
           ...(multiplayer ? [STILL_THERE_SCRIPT] : []),
           GAME_LINKS_SCRIPT,
+          PASSKEY_SCRIPT,
+          BUY_SHEET_SCRIPT,
           GAME_EMBEDDED_SCRIPT,
           GAME_UPDATES_SCRIPT,
           GAME_AUTOPLAY_SCRIPT,
@@ -564,6 +595,8 @@ const PRIVACY = `
 <h2>Games</h2>
 <p>Games run on a separate domain and can't see your account, email or cookies. Our content rules don't allow games to ask for your personal details.</p>
 <p>Some games run online play on their developer's own servers, named in the game's menu. Those servers see your connection address, as any website you visit does, and what the game sends them. They never get your email or your age.</p>
+<h2>Buying in games</h2>
+<p>When you buy something in a game, payment goes through Stripe. When you save a card, Stripe keeps it and Zaisma keeps its brand, its last four digits and the email for receipts; the developer you buy from gets the payment, never a card they can charge again. We keep what you bought and when, so it stays yours on any device.</p>
 <h2>If you make games</h2>
 <p>What you and your API keys do to your games (uploads, publishes, database and save changes, secrets and the rest) is kept in each game's history for as long as the game, with who did it and from where, so you can see it. Each change also keeps its connection address for 90 days, shown only to you, so a report of illegal material can be traced to whoever uploaded it. Keep where my account is used from turns that off, except for uploads: a version's or an image's upload keeps its address for 90 days either way. To tell you when a key is used from somewhere new, we keep a fingerprint of each network and country it's used from, never shown, until it's gone unused for 90 days.</p>
 <h2>Backups</h2>
@@ -572,6 +605,7 @@ const PRIVACY = `
 <ul>
 <li><strong>Cloudflare</strong> runs our servers, stores games, sends the email codes you ask for, and checks that a real browser opened a game's page, made an account, typed a password on a new device or asked for an email code. It sees your connection address to deliver pages and stop abuse; we keep it only where this page says. The check is Cloudflare Turnstile, covered by its <a href="https://www.cloudflare.com/turnstile-privacy-policy/" target="_blank" rel="noopener">Turnstile Privacy Addendum</a>.</li>
 <li><strong>Supabase</strong> handles sign-in: it checks your password, keeping only a hash, and holds your email if you added one. When you sign in, we pass it your connection address, so its limits on tries count you and not everyone at once, and it keeps that address with each sign-in. Your browser never talks to it directly.</li>
+<li><strong>Stripe</strong> takes payments when you buy something in a game, and keeps the cards you save. The developer you buy from gets the payment through their own Stripe account, with the email for receipts.</li>
 <li><strong>Anthropic</strong> reviews uploaded games for safety. It sees game files, never players.</li>
 <li><strong>Backblaze</strong> keeps Zaisma's nightly backup, in the United States. It only stores the copies, encrypted.</li>
 </ul>
@@ -1005,6 +1039,8 @@ addEventListener("message", (e) => {
   if (d && d.type === "zaisma:sign-in" && window.askSignIn) askSignIn();
   // The game asks to open one of its registered links (Zaisma.links.open).
   if (d && d.type === "zaisma:link" && typeof d.requestNumber === "number" && typeof d.linkName === "string") askLink(d);
+  // The game asks to buy one of its items (Zaisma.items.buy): the buy sheet rises over it.
+  if (d && d.type === "zaisma:buy" && typeof d.requestNumber === "number" && typeof d.itemName === "string" && window.askBuy) askBuy(d);
   // The game's own save screens (Zaisma.saves) and its moment for "Keep your progress" (Zaisma.player.offerAccount),
   // answered by the saves script; a game without cloud saves here has none: cloud_saves_not_here when the game has
   // them on but this page can't (a tester link, or no accounts), cloud_saves_off when the game has them off.

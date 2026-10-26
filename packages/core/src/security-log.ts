@@ -40,6 +40,9 @@ export const SECURITY_EVENT_DESCRIPTIONS = {
   pro_checkout_started: "Started Zaisma Pro",
   pro_cancelled: "Cancelled Zaisma Pro",
   pro_resumed: "Took back cancelling Zaisma Pro",
+  stripe_account_connected: "Connected a Stripe account for sales",
+  stripe_account_changed: "Turned Stripe Tax on or off",
+  stripe_account_disconnected: "Disconnected the Stripe account sales go to",
   account_data_downloaded: "Downloaded your data",
   // A game's, in the words its history has always used.
   game_created: "Made the game",
@@ -119,6 +122,9 @@ export const ACCOUNT_EVENT_KINDS: readonly SecurityEventKind[] = [
   "pro_checkout_started",
   "pro_cancelled",
   "pro_resumed",
+  "stripe_account_connected",
+  "stripe_account_changed",
+  "stripe_account_disconnected",
 ];
 
 /** Belong to the whole account, so they show in every game's history for a key that isn't limited to some games. */
@@ -182,6 +188,9 @@ export const ADDRESS_KEEPING_EVENT_KINDS: readonly SecurityEventKind[] = [
   "pro_checkout_started",
   "pro_cancelled",
   "pro_resumed",
+  "stripe_account_connected",
+  "stripe_account_changed",
+  "stripe_account_disconnected",
   "webhook_created",
   "webhook_changed",
   "webhook_deleted",
@@ -230,6 +239,7 @@ export const SECURITY_ALERT_WORDS = {
   ai_connected: { subject: "An AI was connected to your Zaisma account", ifNotYou: "remove the key under Game developers and change your password" },
   connected_app_added: { subject: "An app was connected to your Zaisma account", ifNotYou: "remove the app under Game developers and change your password" },
   account_data_downloaded: { subject: "Your Zaisma data was downloaded", ifNotYou: "sign out on every device and change your password" },
+  stripe_account_connected: { subject: "A Stripe account was connected to your Zaisma games", ifNotYou: "disconnect it under Game developers and change your password" },
   connected_app_removed: { subject: "Zaisma disconnected an app from your account", ifNotYou: "connect the app again, and change your password" },
 } as const satisfies Partial<Record<SecurityEventKind, { subject: string; ifNotYou: string }>>;
 export type SecurityAlertKind = keyof typeof SECURITY_ALERT_WORDS;
@@ -248,6 +258,7 @@ export const SECURITY_ALERT_EVENT_KINDS: readonly SecurityEventKind[] = [
   "ai_connected",
   "connected_app_added",
   "account_data_downloaded",
+  "stripe_account_connected",
 ];
 
 /** Whether an event is a security alert. isNewPlace: for a sign-in, from a network the account hasn't used. */

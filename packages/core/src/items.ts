@@ -90,6 +90,51 @@ export const CURRENCY_MINIMUM_PRICES: Readonly<Record<string, number>> = {
 /** Currencies Stripe counts in whole units (500 is ¥500), from the same page; every other one here has two decimals. */
 export const ZERO_DECIMAL_CURRENCIES: readonly string[] = ["bif", "clp", "djf", "gnf", "jpy", "kmf", "krw", "mga", "pyg", "rwf", "vnd", "vuv", "xaf", "xof", "xpf"];
 
+/**
+ * About how many US dollars one whole unit of each priced currency is worth, rounded up a little (read Oct 25, 2026).
+ * Only for a safety rule that compares a day's buying with a dollar limit (PURCHASE_PIN_LIMITS), never a price or a
+ * charge: Stripe converts nothing here, and a rate that drifts moves the limit by a few percent.
+ */
+export const APPROXIMATE_USD_PER_CURRENCY_UNIT: Readonly<Record<string, number>> = {
+  usd: 1,
+  aed: 0.28,
+  ars: 0.002,
+  aud: 0.67,
+  brl: 0.19,
+  cad: 0.74,
+  chf: 1.15,
+  cop: 0.0003,
+  czk: 0.045,
+  dkk: 0.16,
+  eur: 1.15,
+  gbp: 1.35,
+  hkd: 0.13,
+  huf: 0.003,
+  idr: 0.00007,
+  ils: 0.28,
+  inr: 0.012,
+  jpy: 0.007,
+  krw: 0.0008,
+  mxn: 0.055,
+  myr: 0.23,
+  nok: 0.1,
+  nzd: 0.62,
+  php: 0.018,
+  pln: 0.27,
+  ron: 0.23,
+  rub: 0.012,
+  sgd: 0.78,
+  sek: 0.1,
+  thb: 0.03,
+  zar: 0.06,
+};
+
+/** About how many US cents an amount in a priced currency is worth (see APPROXIMATE_USD_PER_CURRENCY_UNIT), or null for a currency Zaisma doesn't price in. */
+export function approximateUsdMinorUnits(currencyCode: string, minorUnits: number): number | null {
+  const usdRateNumber = APPROXIMATE_USD_PER_CURRENCY_UNIT[currencyCode.toLowerCase()];
+  return usdRateNumber === undefined ? null : Math.ceil((minorUnits / minorUnitCountPerUnit(currencyCode.toLowerCase())) * usdRateNumber * 100);
+}
+
 /** The currency a player in each country pays in, for the countries whose currency Zaisma prices in (ISO 3166 codes, as Cloudflare's CF-IPCountry gives them). */
 export const COUNTRY_CURRENCIES: Readonly<Record<string, string>> = {
   US: "usd",
@@ -585,6 +630,32 @@ export async function takeBack(database: D1Database, purchaseId: string, purchas
     .bind(purchaseStatus, nowMs, purchaseId)
     .run();
   return changed.meta.changes > 0;
+}
+
+/** A game's refund policy in players' words, for the buy sheet, the game page and receipts. Null when it states none. */
+export function refundPolicyWords(game: { refund_policy: RefundPolicy | null; refund_policy_text: string | null }): string | null {
+  if (game.refund_policy === "no_refunds") return "No refunds.";
+  if (game.refund_policy === "unused_within_14_days") return "Refunds for items you haven't used yet, within 14 days.";
+  if (game.refund_policy === "within_14_days") return "Refunds within 14 days.";
+  if (game.refund_policy === "own_words") return game.refund_policy_text;
+  return null;
+}
+
+/**
+ * Where a player gives up the 14-day right to cancel digital content only by agreeing to get it at once: the EU,
+ * the rest of the EEA and the UK. The buy sheet shows them the line above Buy, and the receipt repeats it.
+ */
+export const WITHDRAWAL_LINE_COUNTRY_CODES: readonly string[] = [
+  "AT", "BE", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR", "DE", "GR", "HU", "IE", "IT", "LV", "LT", "LU", "MT", "NL", "PL", "PT", "RO", "SK", "SI", "ES", "SE",
+  "IS", "LI", "NO", "GB",
+];
+
+/** The line, in the sheet and on the receipt. */
+export const WITHDRAWAL_LINE_TEXT = "You get it now, so you can't cancel it in the next 14 days.";
+
+/** Whether a player in this country sees the withdrawal line. Unknown countries don't. */
+export function isWithdrawalLineShownFor(countryCode: string | null | undefined): boolean {
+  return Boolean(countryCode && WITHDRAWAL_LINE_COUNTRY_CODES.includes(countryCode.toUpperCase()));
 }
 
 /**

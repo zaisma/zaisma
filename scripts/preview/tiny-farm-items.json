@@ -1,22 +1,42 @@
 [
   {
+    "item_name": "revive",
+    "title": "Revive",
+    "description": "Bring the farm back after a bad harvest.",
+    "item_kind": "consumable",
+    "item_category": "gameplay",
+    "price_minor_units": 199,
+    "currency_code": "usd",
+    "local_prices": [{ "currency_code": "brl", "price_minor_units": 990 }]
+  },
+  {
     "item_name": "straw_hat",
     "title": "Straw Hat",
     "description": "A wide straw hat for sunny harvests.",
     "item_kind": "permanent",
     "item_category": "cosmetic",
-    "price_minor_units": 299,
+    "price_minor_units": 499,
     "currency_code": "usd",
-    "local_prices": [{ "currency_code": "eur", "price_minor_units": 279 }]
+    "local_prices": [{ "currency_code": "eur", "price_minor_units": 459 }]
   },
   {
-    "item_name": "golden_seeds",
-    "title": "Golden Seeds",
-    "description": "A bag of golden seeds: ten carrots at once.",
-    "item_kind": "consumable",
-    "item_category": "gameplay",
-    "price_minor_units": 99,
+    "item_name": "spring_valley",
+    "title": "Spring Valley",
+    "description": "A new valley to farm, with six new crops and a river.",
+    "item_kind": "permanent",
+    "item_category": "content",
+    "price_minor_units": 1999,
     "currency_code": "usd",
+    "local_prices": []
+  },
+  {
+    "item_name": "founders_badge",
+    "title": "Founders Badge",
+    "description": "Given by the developer to the first players, never sold.",
+    "item_kind": "permanent",
+    "item_category": "cosmetic",
+    "price_minor_units": null,
+    "currency_code": null,
     "local_prices": []
   }
 ]

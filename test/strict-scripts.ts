@@ -2,7 +2,7 @@
  * Strict scripts on zaisma.com (docs/DECISIONS.md): what's wrong with a page the site served, one line
  * per problem, [] when nothing is. A page runs only the site's own script files, so it fails on:
  *
- * - a Content-Security-Policy whose script-src allows more than 'self' (and Cloudflare's check),
+ * - a Content-Security-Policy whose script-src allows more than 'self' (and Cloudflare's check, and Stripe.js on the buy sheet's pages),
  *   like 'unsafe-inline', 'unsafe-eval', a nonce, a hash or another site,
  * - a <script> that isn't one of the site's files under /js/ (with nothing inside) or a
  *   <script type="application/json"> block (with valid JSON and no src),
@@ -11,6 +11,7 @@
  */
 
 const CHECK_ORIGIN = "https://challenges.cloudflare.com";
+const STRIPE_SCRIPT_ORIGIN = "https://js.stripe.com";
 
 /** A start tag: its name and its attributes as written, quoted values included. */
 const START_TAG = /<([a-zA-Z][a-zA-Z0-9-]*)((?:\s+[^\s"'>/=]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'=<>`]+))?)*)\s*\/?>/g;
@@ -41,7 +42,7 @@ export function scriptPolicyProblems(contentSecurityPolicy: string | null): stri
     .find(([name]) => name === "script-src")
     ?.slice(1);
   if (!scriptSources) return ["the Content-Security-Policy has no script-src"];
-  return scriptSources.filter((source) => source !== "'self'" && source !== CHECK_ORIGIN).map((source) => `script-src allows ${source}`);
+  return scriptSources.filter((source) => source !== "'self'" && source !== CHECK_ORIGIN && source !== STRIPE_SCRIPT_ORIGIN).map((source) => `script-src allows ${source}`);
 }
 
 /** The /js/ files a page loads, to fetch and check they're served. */

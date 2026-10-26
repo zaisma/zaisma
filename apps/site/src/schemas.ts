@@ -428,6 +428,7 @@ export const ACCESS = object({
       forum_access: choice(AREA_ACCESS_CHOICES.forum_access, "read: search and read. write: post, reply, vote, follow and message Zaisma, in the developer's name."),
       sign_in_app_access: choice(AREA_ACCESS_CHOICES.sign_in_app_access, "Sign-in apps; none for keys limited to some games."),
       webhook_access: choice(AREA_ACCESS_CHOICES.webhook_access, "Webhooks; none for keys limited to some games."),
+      stripe_account_access: choice(AREA_ACCESS_CHOICES.stripe_account_access, "The developer's connected Stripe account for the buy sheet; none for keys limited to some games. read: the connection. write: also ask for a link to connect (the developer connects with their passkey on zaisma.com), turn Stripe Tax on or off, and disconnect."),
       credit_access: choice(AREA_ACCESS_CHOICES.credit_access, "Hosting credit; none for keys limited to some games. read: balance, top-ups and spending. write: also start a top-up, refund one, and turn spending off or down (on or up needs the developer's passkey on zaisma.com). Also Zaisma Pro: read the plan; write: start, cancel or resume it."),
     },
     "What the key may do in each area.",
@@ -648,6 +649,26 @@ export const PRO_CHECKOUT = object({
 export const TOP_UP_CHECKOUT = object({
   checkout_url: url("Stripe's page where the developer pays. Only a person can pay there."),
   expires_at: isoTime("When the page stops taking payment."),
+  next_steps: NEXT,
+});
+/** The developer's own Stripe account, connected for the buy sheet (get_stripe_account). */
+export const STRIPE_ACCOUNT_FIELDS = {
+  is_connected: yes("Whether a Stripe account is connected. Until it is, players can't buy priced items."),
+  stripe_account_id: nullable(describe({ type: "string", pattern: "^acct_" }, "Stripe's ID for the connected account, like acct_1Pq…; null when none is.")),
+  can_take_payments: yes("Whether Stripe lets the account take payments now. A new account may need details on Stripe first."),
+  country_code: nullable(text("The account's country, as an ISO 3166 code like DE.")),
+  default_currency_code: nullable(text("The account's own currency, lowercase like eur.")),
+  business_name: nullable(text("The name players see as the seller, on the sheet and the receipt.")),
+  support_email: nullable(text("Where players' questions about a purchase go, as the receipt says.")),
+  is_stripe_tax_used: yes("Whether Stripe Tax calculates and records tax inside each price. Prices never change with it."),
+  connected_at: nullable(isoTime("When it was connected.")),
+};
+export const STRIPE_ACCOUNT = object({ stripe_account: object(STRIPE_ACCOUNT_FIELDS) });
+export const STRIPE_ACCOUNT_CHANGED = object({ stripe_account: object(STRIPE_ACCOUNT_FIELDS), next_steps: NEXT });
+/** Stripe's page to connect an account on (connect_stripe_account). */
+export const CONNECTION_LINK = object({
+  connect_url: url("Stripe's page where the developer connects or makes their account. Only a person can connect there."),
+  expires_at: isoTime("When the link stops working: 10 minutes."),
   next_steps: NEXT,
 });
 /** A refund of a top-up (refund_top_up). */
@@ -983,7 +1004,7 @@ export const PURCHASE = object({
   currency_code: nullable(text("The currency paid in; null for a grant.")),
   refunded_minor_units: countOf("How much was given back, in the same currency's smallest unit; 0 for a grant."),
   purchased_at: nullable(isoTime("When it was bought or granted; null while paying, or when it failed.")),
-  refunded_at: nullable(isoTime()),
+  refunded_at: nullable(isoTime("When the item was taken back: a full refund or a chargeback. null otherwise; a partial refund shows only in refunded_minor_units, and purchase_status says what the player owns.")),
   handled_at: nullable(isoTime("When the game, its game server or your own server took it (purchase_delivery); null until then.")),
   refund_handled_at: nullable(isoTime("When it was told the purchase was refunded or charged back; null until then, and for one never refunded.")),
   receipt: nullable(

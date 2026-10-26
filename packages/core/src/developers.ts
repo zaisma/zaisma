@@ -123,6 +123,9 @@ export function apiKeyTokensIn(text: string): string[] {
  *   webhook_access      webhooks (the whole account's)
  *   credit_access       hosting credit (the whole account's). read: balance, top-ups and spending. write: also start a top-up,
  *                       refund one, and turn automatic top-up off or down (on or up needs the developer's passkey on zaisma.com)
+ *   stripe_account_access  the Stripe account sales go to (the whole account's). read: whether it's connected and can take
+ *                       payments. write: also turn Stripe Tax on or off, disconnect, and ask for a connection link (connecting
+ *                       itself needs the developer's passkey on zaisma.com)
  */
 export const AREA_ACCESS_CHOICES = {
   game_access: ["read", "write"],
@@ -135,12 +138,13 @@ export const AREA_ACCESS_CHOICES = {
   sign_in_app_access: ["none", "read", "write"],
   webhook_access: ["none", "read", "write"],
   credit_access: ["none", "read", "write"],
+  stripe_account_access: ["none", "read", "write"],
 } as const satisfies Record<string, readonly string[]>;
 export type AccessArea = keyof typeof AREA_ACCESS_CHOICES;
 export type AreaAccess = { [Area in AccessArea]: (typeof AREA_ACCESS_CHOICES)[Area][number] };
 export const ACCESS_AREAS = Object.keys(AREA_ACCESS_CHOICES) as AccessArea[];
 /** Areas that belong to the whole account, not to games, so only keys for every game reach them. */
-export const ACCOUNT_AREAS: readonly AccessArea[] = ["sign_in_app_access", "webhook_access", "credit_access"];
+export const ACCOUNT_AREAS: readonly AccessArea[] = ["sign_in_app_access", "webhook_access", "credit_access", "stripe_account_access"];
 
 /** The four fixed levels, the same words as the Teams roles, and custom: a choice per area. */
 export const ACCESS_LEVELS = ["read", "upload", "publish", "full", "custom"] as const;
@@ -148,10 +152,10 @@ export type AccessLevel = (typeof ACCESS_LEVELS)[number];
 
 /** What each fixed level gives. Read and upload keys read the forum but don't post in the developer's name. */
 export const AREA_ACCESS_BY_LEVEL: Record<Exclude<AccessLevel, "custom">, AreaAccess> = {
-  read: { game_access: "read", version_access: "read", stats_access: "read", database_access: "read", save_access: "read", purchase_access: "read", forum_access: "read", sign_in_app_access: "read", webhook_access: "read", credit_access: "read" },
-  upload: { game_access: "read", version_access: "upload", stats_access: "read", database_access: "read", save_access: "read", purchase_access: "read", forum_access: "read", sign_in_app_access: "read", webhook_access: "read", credit_access: "read" },
-  publish: { game_access: "write", version_access: "publish", stats_access: "read", database_access: "read", save_access: "read", purchase_access: "read", forum_access: "write", sign_in_app_access: "read", webhook_access: "read", credit_access: "read" },
-  full: { game_access: "write", version_access: "publish", stats_access: "read", database_access: "write", save_access: "write", purchase_access: "write", forum_access: "write", sign_in_app_access: "write", webhook_access: "write", credit_access: "write" },
+  read: { game_access: "read", version_access: "read", stats_access: "read", database_access: "read", save_access: "read", purchase_access: "read", forum_access: "read", sign_in_app_access: "read", webhook_access: "read", credit_access: "read", stripe_account_access: "read" },
+  upload: { game_access: "read", version_access: "upload", stats_access: "read", database_access: "read", save_access: "read", purchase_access: "read", forum_access: "read", sign_in_app_access: "read", webhook_access: "read", credit_access: "read", stripe_account_access: "read" },
+  publish: { game_access: "write", version_access: "publish", stats_access: "read", database_access: "read", save_access: "read", purchase_access: "read", forum_access: "write", sign_in_app_access: "read", webhook_access: "read", credit_access: "read", stripe_account_access: "read" },
+  full: { game_access: "write", version_access: "publish", stats_access: "read", database_access: "write", save_access: "write", purchase_access: "write", forum_access: "write", sign_in_app_access: "write", webhook_access: "write", credit_access: "write", stripe_account_access: "write" },
 };
 
 /** What a caller may do: a key's access, or everything for the developer on our own pages. */
@@ -215,7 +219,7 @@ export function checkKeyScope(scope: KeyScope): string | null {
     if (!options.includes(scope.areaAccess[area])) return "Choose what the key can do in each area.";
   }
   if (scope.gameSlugs && ACCOUNT_AREAS.some((area) => scope.areaAccess![area] !== "none")) {
-    return "Sign-in apps, webhooks and hosting credit belong to your whole account, so only a key for all your games can reach them.";
+    return "Sign-in apps, webhooks, hosting credit and your Stripe account belong to your whole account, so only a key for all your games can reach them.";
   }
   return null;
 }

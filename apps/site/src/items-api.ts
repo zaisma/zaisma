@@ -34,6 +34,9 @@ import {
   type PurchaseStatus,
 } from "@zaisma/core";
 import type { Caller, CheckedCall, NextStep } from "./developer.ts";
+import { noteRefund, saleById } from "./sales.ts";
+import { refundOnAccount } from "./stripe.ts";
+import { stripeAccountRow } from "./stripe-account-api.ts";
 import type { Env } from "./env.ts";
 import { logCallerEvent } from "./security-log.ts";
 import { tellPurchase } from "./webhooks.ts";
@@ -73,7 +76,7 @@ export const itemJson = (gameItem: GameItem) => ({
   updated_at: iso(gameItem.updated_at_ms),
 });
 
-const purchaseJson = (purchase: Purchase, receipt: string | null) => ({
+export const purchaseJson = (purchase: Purchase, receipt: string | null) => ({
   id: purchase.id,
   item_name: purchase.item_name,
   item_kind: purchase.item_kind,
@@ -93,7 +96,7 @@ const purchaseJson = (purchase: Purchase, receipt: string | null) => ({
 });
 
 /** Purchases with their receipts: one for each that was bought or granted (pending and failed sales have none), signed in the rooms Worker in one call. */
-async function withReceipts(env: Env, game: Game, purchases: Purchase[]) {
+export async function withReceipts(env: Env, game: Game, purchases: Purchase[]) {
   const signed = purchases.filter((purchase) => purchase.purchase_status !== "pending" && purchase.purchase_status !== "failed");
   const receipts = new Map<string, string>();
   if (signed.length) {
@@ -152,7 +155,16 @@ export async function itemsRoute(request: Request, env: Env, game: Game, itemNam
     }
     await logCallerEvent(env, caller, "item_changed", { gameId: game.id, subjectName: itemName });
     const answered = (await itemByName(env.DB, game.id, itemName))!;
-    return [{ item: itemJson(answered), next_steps: [] satisfies NextStep[] }, existing ? 200 : 201];
+    const nextSteps: NextStep[] = [];
+    if (answered.price_minor_units !== null) {
+      const seller = game.owner_id ? await stripeAccountRow(env, game.owner_id) : null;
+      if (!seller?.stripe_account_id) {
+        nextSteps.push({ tool: "get_stripe_account", arguments: {}, after_sec: null, reason: "Players can buy priced items only once the developer connects their Stripe account; until then the buy sheet answers stripe_not_connected. connect_stripe_account gives the link." });
+      } else if (seller.can_take_stripe_payments !== 1) {
+        nextSteps.push({ tool: "get_stripe_account", arguments: {}, after_sec: null, reason: "The Stripe account is connected, but Stripe hasn't turned on payments for it yet, so the buy sheet answers stripe_cannot_take_payments. Finish setting it up on Stripe's dashboard; get_stripe_account shows can_take_payments true once it's ready." });
+      }
+    }
+    return [{ item: itemJson(answered), next_steps: nextSteps }, existing ? 200 : 201];
   }
 
   if (method === "DELETE") {
@@ -295,8 +307,9 @@ export async function purchasesRoute(request: Request, env: Env, game: Game, pur
     const alreadyRefunded = (takenBack: Purchase) =>
       new ApiError("already_refunded", { message: `${takenBack.id} was ${takenBack.purchase_status === "charged_back" ? "charged back" : "refunded"} already.`, field: "purchase_id", fix: "Nothing to do: the player no longer owns it." });
     if (purchase.purchase_status === "refunded" || purchase.purchase_status === "charged_back") throw alreadyRefunded(purchase);
-    if (purchase.purchase_source === "sale") {
-      throw new ApiError("stripe_not_connected", { message: "A sale is refunded through Stripe, which this game's developer hasn't connected.", field: "purchase_id", fix: "Sales come with Zaisma's buy sheet, which refunds them through Stripe; grants can be taken back now." });
+    if (purchase.purchase_source === "sale") return refundSale(env, game, purchase, caller, checked.body.amount_minor_units, nowMs);
+    if (checked.body.amount_minor_units !== undefined) {
+      throw new ApiError("bad_amount_minor_units", { message: "A grant was free, so it has no amount to refund.", field: "amount_minor_units", fix: "Leave amount_minor_units out to take the grant back." });
     }
     // Another refund took it back since it was read: this one changed nothing.
     if (!(await takeBack(env.DB, purchase.id, "refunded", nowMs))) throw alreadyRefunded((await purchaseById(env.DB, game.id, purchase.id))!);
@@ -319,7 +332,39 @@ export async function purchasesRoute(request: Request, env: Env, game: Game, pur
     return [{ purchase: answered, next_steps: [] satisfies NextStep[] }];
   }
 
-  throw new ApiError("bad_method", { message: `${method} isn't a call at /games/${game.slug}/purchases/${purchaseId}${purchaseAction ? `/${purchaseAction}` : ""}.`, fix: "GET gets a purchase; POST …/refund takes a grant back; POST …/handled marks it handled." });
+  throw new ApiError("bad_method", { message: `${method} isn't a call at /games/${game.slug}/purchases/${purchaseId}${purchaseAction ? `/${purchaseAction}` : ""}.`, fix: "GET gets a purchase; POST …/refund refunds a sale or takes a grant back; POST …/handled marks it handled." });
+}
+
+/**
+ * Refunds a sale through Stripe, on the developer's own account: the rest of it by default, or amount_minor_units of
+ * it. A full refund takes the item back now (Stripe's charge.refunded event does the same, once); a partial one is
+ * goodwill and leaves it. Two of the same call at once refund once: the idempotency key is the purchase, the amount
+ * and what was refunded before.
+ */
+async function refundSale(env: Env, game: Game, purchase: Purchase, caller: Caller, amount: unknown, nowMs: number): Promise<[unknown, number?]> {
+  const sale = (await saleById(env, purchase.id))!;
+  if (sale.purchase_status !== "completed" || !sale.stripe_payment_intent_id || !sale.stripe_account_id) {
+    throw new ApiError("purchase_not_paid", { message: `${sale.id} wasn't paid, so there's nothing to refund.`, field: "purchase_id", fix: "Only completed sales can be refunded; list_purchases shows each one's purchase_status." });
+  }
+  // After the developer disconnected Stripe (or removed Zaisma on Stripe's side) Zaisma can't refund for them: Stripe would only say no.
+  const seller = game.owner_id ? await stripeAccountRow(env, game.owner_id) : null;
+  if (!seller?.stripe_account_id || seller.stripe_account_id !== sale.stripe_account_id) {
+    throw new ApiError("stripe_not_connected", {
+      message: `${sale.id} was paid to Stripe account ${sale.stripe_account_id}, which isn't connected to Zaisma now, so Zaisma can't refund it.`,
+      field: "purchase_id",
+      fix: "Refund it in the Stripe dashboard (Payments, then Refund). The player keeps the item here until Stripe's refund event reaches Zaisma, which only happens while the account is connected: connect_stripe_account connects it again.",
+    });
+  }
+  const leftMinorUnits = sale.paid_minor_units! - sale.refunded_minor_units;
+  const refundMinorUnits = amount ?? leftMinorUnits;
+  if (!Number.isInteger(refundMinorUnits) || (refundMinorUnits as number) < 1 || (refundMinorUnits as number) > leftMinorUnits) {
+    throw new ApiError("bad_amount_minor_units", { message: `amount_minor_units is a whole number from 1 to ${leftMinorUnits}, what's left of this sale in ${sale.currency_code!.toUpperCase()} minor units.`, field: "amount_minor_units", fix: `Leave it out to refund all ${leftMinorUnits}, or send less for a partial refund (the player keeps the item).` });
+  }
+  await refundOnAccount(env, sale.stripe_account_id, sale.stripe_payment_intent_id, refundMinorUnits as number, `refund:${sale.id}:${sale.refunded_minor_units}:${refundMinorUnits}`);
+  await noteRefund(env, sale, sale.refunded_minor_units + (refundMinorUnits as number), nowMs);
+  await logCallerEvent(env, caller, "purchase_refunded", { gameId: game.id, subjectName: purchase.item_name });
+  const [answered] = await withReceipts(env, game, [(await purchaseById(env.DB, game.id, purchase.id))!]);
+  return [{ purchase: answered, next_steps: [] satisfies NextStep[] }];
 }
 
 /** The permanent items a player owns in the game, as their next pass will list them, and their purchases and refunds still to hand over, oldest first, at most 50. */

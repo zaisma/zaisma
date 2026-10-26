@@ -407,6 +407,7 @@ export async function deleteAccount(database: D1Database, id: string): Promise<v
           ...ownerGameDeletions(database, owner.id),
           // Their credit goes with them: the site refunds what still refunds first (credit-api.ts, refundForDeletion).
           database.prepare("DELETE FROM credit_entries WHERE owner_id = ?").bind(owner.id),
+          database.prepare("DELETE FROM stripe_connect_states WHERE owner_id = ?").bind(owner.id),
           database.prepare("DELETE FROM owners WHERE id = ?").bind(owner.id),
         ]
       : []),
@@ -416,6 +417,9 @@ export async function deleteAccount(database: D1Database, id: string): Promise<v
     database.prepare("DELETE FROM save_history WHERE account_id = ?").bind(id),
     database.prepare("DELETE FROM passkeys WHERE account_id = ?").bind(id),
     database.prepare("DELETE FROM session_proofs WHERE account_id = ?").bind(id),
+    // The buy sheet's: the saved card (the site removes it at Stripe first: buy.ts, forgetCardForDeletion) and buy confirms.
+    database.prepare("DELETE FROM saved_payment_methods WHERE account_id = ?").bind(id),
+    database.prepare("DELETE FROM purchase_confirmations WHERE account_id = ?").bind(id),
     // How it was signed in to: email codes on their way, device marks and wrong passwords.
     database.prepare("DELETE FROM email_codes WHERE account_id = ?").bind(id),
     database.prepare("DELETE FROM device_marks WHERE account_id = ?").bind(id),
@@ -435,6 +439,8 @@ export async function deleteAccount(database: D1Database, id: string): Promise<v
     // Where they were playing, and their friends, on both sides, with the invites they made.
     database.prepare("DELETE FROM presences WHERE account_id = ?").bind(id),
     database.prepare("DELETE FROM room_players WHERE player_id = (SELECT player_id FROM accounts WHERE id = ?)").bind(id),
+    // The email their purchases' receipts went to goes; the sale itself (amount, status) stays for the developer's records.
+    database.prepare("UPDATE purchases SET receipt_email = NULL WHERE player_id = (SELECT player_id FROM accounts WHERE id = ?)").bind(id),
     database.prepare("DELETE FROM friendships WHERE account_id = ? OR friend_account_id = ?").bind(id, id),
     database.prepare("DELETE FROM friend_invites WHERE account_id = ?").bind(id),
     // Their blocks, both the ones they made and the ones of them.

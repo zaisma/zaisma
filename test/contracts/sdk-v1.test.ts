@@ -36,6 +36,14 @@ const ROOM_TYPES = new Set(["Room", "Rooms"]);
  * come", so games written for v1 already treat it as something to expect.
  */
 const ALLOWED_OUTPUT_ADDITIONS: { union: string; value: string }[] = [
+  // Zaisma.items.buy, the buy sheet.
+  { union: "ErrorCode", value: "no_item" },
+  { union: "ErrorCode", value: "no_game" },
+  { union: "ErrorCode", value: "not_for_sale" },
+  { union: "ErrorCode", value: "stripe_not_connected" },
+  { union: "ErrorCode", value: "stripe_cannot_take_payments" },
+  { union: "ErrorCode", value: "bad_item_count" },
+  { union: "ErrorCode", value: "bad_game_account_id" },
   // Zaisma.items.markHandled and unhandled.
   { union: "ErrorCode", value: "bad_purchase_id" },
   { union: "ErrorCode", value: "no_purchase" },

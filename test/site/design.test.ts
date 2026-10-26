@@ -32,6 +32,7 @@ import examplePaneSource from "../../apps/site/src/components/example-pane.ts?ra
 import inputsSource from "../../apps/site/src/components/inputs.ts?raw";
 import navigationSource from "../../apps/site/src/components/navigation.ts?raw";
 import panesSource from "../../apps/site/src/components/panes.ts?raw";
+import confirmItsYouSource from "../../apps/site/src/components/confirm-its-you.ts?raw";
 import dataSource from "../../apps/site/src/components/data.ts?raw";
 import layoutSource from "../../apps/site/src/components/layout.ts?raw";
 import layoutGallerySource from "../../apps/site/src/components/layout-gallery.ts?raw";
@@ -46,7 +47,7 @@ import galleryPageSource from "../../apps/site/src/design-page.ts?raw";
 /** The gallery's own source, to check it draws nothing by hand. */
 const SOURCES: Record<string, string> = {
   "components/foundations.ts": foundationsSource, "components/tokens.ts": tokensSource, "components/icons.ts": iconsSource, "components/glass-script.ts": glassScriptSource, 
-  "components/backdrop-script.ts": backdropScriptSource, "components/actions.ts": actionsSource, "components/fields.ts": fieldsSource, "components/switch.ts": switchSource, "components/choices.ts": choicesSource, "components/example-pane.ts": examplePaneSource, "components/inputs.ts": inputsSource, "components/navigation.ts": navigationSource, "components/panes.ts": panesSource, "components/data.ts": dataSource,
+  "components/backdrop-script.ts": backdropScriptSource, "components/actions.ts": actionsSource, "components/fields.ts": fieldsSource, "components/switch.ts": switchSource, "components/choices.ts": choicesSource, "components/example-pane.ts": examplePaneSource, "components/inputs.ts": inputsSource, "components/navigation.ts": navigationSource, "components/panes.ts": panesSource, "components/confirm-its-you.ts": confirmItsYouSource, "components/data.ts": dataSource,
   "components/layout.ts": layoutSource, "components/layout-gallery.ts": layoutGallerySource, "components/control-markup.ts": controlMarkupSource, "components/city.ts": citySource, "components/screens.ts": screensSource, "components/playing.ts": playingSource,
   "components/reading.ts": readingSource, "components/people.ts": peopleSource,
   "design-page.ts": galleryPageSource,
@@ -595,6 +596,7 @@ const OWN_SVG = new Map<string, string>([
   ['<svg class="chart-drawing chart-area-drawing"', "the shade under a chart's line"],
   ['<svg class="ring-drawing"', "a ring chart's parts, drawn from its shares"],
   ['fill="#FFC107"', "Google's mark, as Google asks it to be shown"],
+  ["const cardBrandImage = ", "the card brands' marks on a card row (Visa, Mastercard and the rest), as their owners draw them"],
   ['class="one-color"', "Discord's mark, as Discord asks it to be shown"],
   ["cursor.innerHTML", "the gallery's loops' own pointer"],
   ["data-glass-play", "the Glass foundation's demo window's resize grip"],
@@ -762,7 +764,7 @@ describe("pages", () => {
   const needsStandIns = (each: (typeof CHECKED_PAGES)[number]) =>
     (each.stepsToTake ?? []).some((step) => ("fieldValues" in step ? "turnstile_token" in step.fieldValues : step.path.startsWith("/signin/with/")));
   // A game's pages show the preview's test games (scripts/preview), which this test doesn't make; npm run layout:check measures them there.
-  const needsPreviewGames = (each: (typeof CHECKED_PAGES)[number]) => each.path.startsWith("/g/") || each.path.startsWith("/t/");
+  const needsPreviewGames = (each: (typeof CHECKED_PAGES)[number]) => each.path.startsWith("/g/") || each.path.startsWith("/t/") || each.path.startsWith("/buy/");
   const PUBLIC_STATES = CHECKED_PAGES.filter((each) => !each.account && !each.isOnSignInSite && !each.isGallery && !needsStandIns(each) && !needsPreviewGames(each));
   const PUBLIC_PAGES = [...new Set(PUBLIC_STATES.filter((each) => !each.stepsToTake).map((each) => each.path))];
 

@@ -8,7 +8,7 @@
   html, body { margin: 0; height: 100%; background: #1d2b1f; color: #f3ecd2; font: 18px/1.4 system-ui, sans-serif; }
   main { height: 100%; display: grid; place-items: center; text-align: center; }
   .count { font-size: 64px; font-weight: 800; margin: 8px 0; }
-  .row { display: flex; gap: 12px; justify-content: center; }
+  .row { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
   button { font: inherit; padding: 12px 22px; border-radius: 10px; border: 0; background: #e9b949; color: #1d2b1f; font-weight: 700; cursor: pointer; }
   button.quiet { background: #34483a; color: #f3ecd2; }
   .note { opacity: .7; font-size: 14px; }
@@ -19,11 +19,15 @@
   <div>
     <div class="note">Carrots harvested</div>
     <div class="count" id="count">…</div>
+    <div class="note">Revives: <span id="revives">0</span></div>
     <div class="row"><button id="harvest">Harvest</button><button class="quiet" id="reset">Start over</button></div>
     <p class="note" id="saved">Loading your farm…</p>
     <p class="note"><button class="quiet" id="sign-in">Sign in</button> <span id="who"></span></p>
     <div class="row"><button class="quiet" data-link="store">Seed shop</button><button class="quiet" data-link="patreon">Patreon</button><button class="quiet" data-link="discord">Discord</button><button class="quiet" data-link="prize">Free prize</button></div>
     <p class="note" id="link-status"></p>
+    <div class="row" id="shop"><button class="quiet" data-item="revive">Revive, $1.99</button><button class="quiet" data-item="straw_hat">Straw Hat, $4.99</button><button class="quiet" data-item="spring_valley">Spring Valley, $19.99</button><button class="quiet" data-item="founders_badge">Founders Badge</button></div>
+    <p class="note" id="shop-status"></p>
+    <p class="note" id="owned"></p>
   </div>
 </main>
 <script src="_zaisma/v1.js"></script>
@@ -31,7 +35,7 @@
 // A preview test game that saves like a Unity or Godot web build: a file in an
 // Emscripten-style "/idbfs" IndexedDB database, plus a download cache that isn't progress.
 const FILE = "/idbfs/farm/save.dat";
-let db, farm = { carrots: 0 };
+let db, farm = { carrots: 0, revives: 0 };
 
 function openDb(name, version, upgrade) {
   return new Promise((ok, fail) => {
@@ -43,6 +47,7 @@ function openDb(name, version, upgrade) {
 }
 function show(text) {
   document.getElementById("count").textContent = farm.carrots;
+  document.getElementById("revives").textContent = farm.revives ?? 0;
   document.getElementById("saved").textContent = text;
 }
 function save() {
@@ -65,23 +70,57 @@ const loaded = (async () => {
 })();
 
 document.getElementById("harvest").onclick = () => { farm.carrots++; save(); };
-document.getElementById("reset").onclick = () => { farm = { carrots: 0 }; save(); };
+document.getElementById("reset").onclick = () => { farm = { carrots: 0, revives: 0 }; save(); };
 // Purchases come to the game itself (purchase_delivery "game"): marked handled first, so a second tab skips it.
 Zaisma.items.on("purchase", async (purchase) => {
   await Zaisma.items.markHandled(purchase.id);
   await loaded;
-  if (purchase.itemName === "golden_seeds") { farm.carrots += 10 * purchase.itemCount; save(); }
+  if (purchase.itemName === "revive") { farm.revives = (farm.revives ?? 0) + purchase.itemCount; save(); }
+  showOwned();
 });
 Zaisma.items.on("refund", async (purchase) => {
   await Zaisma.items.markHandled(purchase.id);
   await loaded;
-  if (purchase.itemName === "golden_seeds") { farm.carrots = Math.max(0, farm.carrots - 10 * purchase.itemCount); save(); }
+  if (purchase.itemName === "revive") { farm.revives = Math.max(0, (farm.revives ?? 0) - purchase.itemCount); save(); }
+  showOwned();
 });
+// The shop: Zaisma.items.buy opens the buy sheet over the game and says how it ended. It's called straight from the tap.
+const shopStatus = document.getElementById("shop-status");
+document.querySelectorAll("[data-item]").forEach((button) => button.onclick = async () => {
+  const itemName = button.dataset.item;
+  shopStatus.textContent = itemName + ": the sheet is open";
+  try {
+    const result = await Zaisma.items.buy(itemName);
+    shopStatus.textContent = itemName + ": " + result.status + (result.purchase ? " (" + result.purchase.purchaseStatus + ")" : "");
+  } catch (error) {
+    shopStatus.textContent = itemName + ": " + error.code + ": " + error.message;
+  }
+  showOwned();
+});
+Zaisma.items.on("sheetOpen", (sheet) => { shopStatus.textContent = sheet.itemName + ": the sheet is open"; });
+// What the player owns for good (their pass), and the shop's prices as this player pays them.
+async function showOwned() {
+  try {
+    const owned = await Zaisma.items.owned();
+    document.getElementById("owned").textContent = "Owns: " + (owned.length ? owned.join(", ") : "nothing yet");
+  } catch (error) {
+    document.getElementById("owned").textContent = "Owns: " + error.code;
+  }
+}
+(async () => {
+  try {
+    for (const item of await Zaisma.items.list()) {
+      const button = document.querySelector('[data-item="' + item.itemName + '"]');
+      if (button) button.textContent = item.title + ", " + item.priceText;
+    }
+  } catch (error) {}
+  showOwned();
+})();
 // Its registered links (Zaisma.links.open): Zaisma's page asks "You're leaving Zaisma" over the game.
 document.querySelectorAll("[data-link]").forEach((button) => button.onclick = async () => {
   const status = document.getElementById("link-status");
   try {
-    const linkStatus = await Zaisma.links.open(button.dataset.link, button.dataset.link === "store" ? { path: "/buy", queryParameters: { item: "golden-seeds" } } : undefined);
+    const linkStatus = await Zaisma.links.open(button.dataset.link, button.dataset.link === "store" ? { path: "/buy", queryParameters: { item: "revive" } } : undefined);
     status.textContent = button.textContent + ": " + linkStatus;
   } catch (error) {
     status.textContent = error.code + ": " + error.message;

@@ -92,6 +92,17 @@ const SHOW_PLAYING_CARDS = `(async () => {
   await new Promise((done) => setTimeout(done, 600));
   return true;
 })()`;
+/**
+ * The buy sheet over the game, opened for one item as a tap in the game would (buy-sheet.ts, preview only), and settled; then the moments
+ * it can't reach on its own (a decline), or the presses of a player who gets to the Confirm it's you dialog, each given a moment to settle.
+ */
+const openBuySheet = (itemName: string, ...moments: string[]) => `(async () => {
+  window.showBuyMoment("open", ${JSON.stringify(itemName)});
+  for (let tryIndex = 0; tryIndex < 50 && !document.getElementById("buy-loading").hidden; tryIndex += 1) await new Promise((done) => setTimeout(done, 100));
+  ${moments.map((moment) => `window.showBuyMoment(${JSON.stringify(moment)}); await new Promise((done) => setTimeout(done, 1500));`).join("\n  ")}
+  await new Promise((done) => setTimeout(done, 600));
+  return true;
+})()`;
 const GALLERY = { area: "Gallery", mainActionShows: "nowhere", isGallery: true } as const;
 /** A grown-up's birthday for the join steps, and one too young for an account. */
 const ADULT_BIRTHDAY = { birthday: "1990-04-12" } as const;
@@ -112,6 +123,15 @@ const CHECKED_PAGE_LIST = [
   { name: "Tester link", area: "Playing", path: "/t/7e57ed00dcafe0a1b2c3", mainActionShows: "everywhere" },
   { name: "Playing a game, the players sheet", area: "Playing", path: "/g/cave-crew?play", mainActionShows: "nowhere", setUp: OPEN_PLAYERS_SHEET, stateBeforeSetUp: "Game page" },
   { name: "Playing a game, asked to sign in", area: "Playing", path: "/g/tiny-farm?play", mainActionShows: "nowhere", setUp: SHOW_PLAYING_CARDS, stateBeforeSetUp: "Game page, no rooms" },
+  { name: "Buying, one press", area: "Playing", path: "/g/tiny-farm?play", account: "Card_Keeper", mainActionShows: "nowhere", setUp: openBuySheet("revive"), stateBeforeSetUp: "Game page, no rooms" },
+  // Pin_Keeper has a purchase PIN: Buy is pressed once, which opens the Confirm it's you dialog over the panel, asking for the PIN (the stand-in's test card is saved first where it has none).
+  { name: "Buying, confirm with a PIN", area: "Playing", path: "/g/tiny-farm?play", account: "Pin_Keeper", mainActionShows: "nowhere", setUp: openBuySheet("revive", "press_buy"), stateBeforeSetUp: "Game page, no rooms" },
+  { name: "Buying, a first card", area: "Playing", path: "/g/tiny-farm?play", account: "Moss_Runner", mainActionShows: "nowhere", setUp: openBuySheet("spring_valley"), stateBeforeSetUp: "Game page, no rooms" },
+  { name: "Buying, already owned", area: "Playing", path: "/g/tiny-farm?play", account: "Card_Keeper", mainActionShows: "nowhere", setUp: openBuySheet("straw_hat"), stateBeforeSetUp: "Game page, no rooms" },
+  { name: "Buying, can't be bought", area: "Playing", path: "/g/seaside-stand?play", mainActionShows: "nowhere", setUp: openBuySheet("extra_lemons"), stateBeforeSetUp: "Game page, no rooms" },
+  { name: "Buying, as a guest", area: "Playing", path: "/g/tiny-farm?play", mainActionShows: "nowhere", setUp: openBuySheet("revive"), stateBeforeSetUp: "Game page, no rooms" },
+  { name: "Buying, declined", area: "Playing", path: "/g/tiny-farm?play", account: "Card_Keeper", mainActionShows: "nowhere", setUp: openBuySheet("revive", "declined"), stateBeforeSetUp: "Game page, no rooms" },
+  { name: "Buy window", area: "Playing", path: "/buy/tiny-farm/revive", mainActionShows: "nowhere" },
   { name: "Games", area: "Playing", path: "/games", mainActionShows: "nowhere", isCoverAboveFold: true },
   { name: "Games, signed in", area: "Playing", path: "/games", account: "Moss_Runner", mainActionShows: "nowhere", isCoverAboveFold: true },
   { name: "Games, one genre", area: "Playing", path: "/games?filter=strategy", mainActionShows: "nowhere", isCoverAboveFold: true },

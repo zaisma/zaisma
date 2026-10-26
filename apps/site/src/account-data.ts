@@ -30,6 +30,7 @@ export const ACCOUNT_DATA_TABLES: Record<string, { file_path: string | null; rea
   room_players: { file_path: "games-played.json", reason: "The rooms the account is in right now." },
   purchases: { file_path: "games-played.json", reason: "Items bought or granted in games, with what was paid." },
   saves: { file_path: "saves/", reason: "Game saves, as files." },
+  saved_payment_methods: { file_path: "games-played.json", reason: "The card saved for buying in games: its brand, last digits and receipt email." },
   save_history: { file_path: "saves/", reason: "Earlier versions of each save, as files." },
   forum_topics: { file_path: "forum.json", reason: "Forum topics started." },
   forum_posts: { file_path: "forum.json", reason: "Forum posts." },
@@ -59,6 +60,8 @@ export const ACCOUNT_DATA_TABLES: Record<string, { file_path: string | null; rea
   passkey_challenges: { file_path: null, reason: "One-time passkey challenges, kept as fingerprints for minutes." },
   connected_app_codes: { file_path: null, reason: "One-time codes, kept as fingerprints for minutes." },
   session_proofs: { file_path: null, reason: "How each signed-in session last proved it's the owner, kept a day." },
+  purchase_confirmations: { file_path: null, reason: "When each signed-in session last confirmed a buy, kept a day." },
+  stripe_connect_states: { file_path: null, reason: "One-time links to connect a Stripe account, kept for minutes." },
   security_places: { file_path: null, reason: "Fingerprints of where API keys were used, never readable back." },
   room_keys: { file_path: null, reason: "Counts of room passes, kept a day." },
   player_erases: { file_path: null, reason: "Only exists once an account is deleted." },
@@ -72,6 +75,9 @@ export const ACCOUNT_COLUMNS_LEFT_OUT: Record<string, string> = {
   chat_stopped_until_ms: "A safety record: until when chat is paused.",
   chat_repeat_block_count: "The chat filter's counter.",
   chat_repeat_window_started_at_ms: "The chat filter's counter.",
+  purchase_pin_hash: "A fingerprint of the purchase PIN, never readable back.",
+  purchase_pin_failed_count: "The purchase PIN's counter of wrong tries.",
+  stripe_customer_id: "Zaisma's reference at Stripe for the saved card.",
 };
 
 const encoder = new TextEncoder();
@@ -172,9 +178,10 @@ async function* accountDataSources(env: Env, account: Account, nowMs: number): A
     rooms_now: await rows(env, "SELECT game.slug AS game_slug, room.room_code, room.server_url, room.joined_at_ms, room.updated_at_ms FROM room_players room JOIN games game ON game.id = room.game_id WHERE room.player_id = ?", account.player_id),
     purchases: await rows(
       env,
-      "SELECT COALESCE(game.slug, purchase.deleted_game_slug) AS game_slug, COALESCE(game.title, purchase.deleted_game_title) AS game_title, purchase.id, purchase.item_name, purchase.item_kind, purchase.item_count, purchase.purchase_source, purchase.purchase_status, purchase.paid_minor_units, purchase.currency_code, purchase.refunded_minor_units, purchase.purchased_at_ms, purchase.refunded_at_ms FROM purchases purchase LEFT JOIN games game ON game.id = purchase.game_id WHERE purchase.player_id = ? ORDER BY purchase.created_at_ms",
+      "SELECT COALESCE(game.slug, purchase.deleted_game_slug) AS game_slug, COALESCE(game.title, purchase.deleted_game_title) AS game_title, purchase.id, purchase.item_name, purchase.item_kind, purchase.item_count, purchase.purchase_source, purchase.purchase_status, purchase.paid_minor_units, purchase.currency_code, purchase.refunded_minor_units, purchase.receipt_email, purchase.purchased_at_ms, purchase.refunded_at_ms FROM purchases purchase LEFT JOIN games game ON game.id = purchase.game_id WHERE purchase.player_id = ? ORDER BY purchase.created_at_ms",
       account.player_id,
     ),
+    saved_card: (await rows(env, "SELECT card_brand, card_last_digits, created_at_ms FROM saved_payment_methods WHERE account_id = ?", id))[0] ?? null,
   });
 
   // --- saves/<game>/: each save and its earlier versions, in the shape the save API answers (as v1, read without writing back) ---

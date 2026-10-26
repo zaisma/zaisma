@@ -2,7 +2,7 @@ import { ApiError, CONTROLS, DEVICES, GENRES, MAXIMUM_GENRE_COUNT, FORUM_CATEGOR
 import { INTERNAL_ERROR, apiCall, authenticate, type Caller } from "./developer.ts";
 import type { Env } from "./env.ts";
 import { CHECKED_TEXT_EXTENSIONS, extensionOf } from "../../../packages/cli/check.mjs";
-import { ACCESS, ACTIVITY, PRO, PRO_CHANGED, PRO_CHECKOUT, CREDIT, CREDIT_CHANGED, TOP_UP_CHECKOUT, TOP_UP_REFUNDED, GAME_CHECK_FIELDS, API_KEYS, DATABASE, DATABASE_EXPORT, DATABASE_IMPORT, DATABASE_RESTORED, ERASED_PLAYER, GAME, GAME_ALERTS, GAME_EXPORT, HISTORY, KEPT_ROOMS, KEPT_ROOM_DELETED, BACKGROUND, SHADER, SHADER_CHECK, LISTED_GAME, QR_CODE, STATEMENT_RESULT, IMAGE, LOGS, SAVE, SAVE_CHANGED, SAVE_COPY, SAVE_COPY_LIST, SAVE_LIST, INDEXEDDB_DATABASE, NEW_REPLY, NEW_TOPIC, NEXT, PLAYER_PROFILE, POST, POST_BOOKMARK, POST_RATING, REPORTS, SIGN_IN_APP, SECRET, STATS, TESTER, TOPIC_PAGE, TOPIC_WITH_POSTS, VERSION, WEBHOOK, WEBHOOK_DELIVERY, answerOrError, choice, countOf, idOf, list, nullable, object as answer, text, yes, GAME_ITEM, ITEMS, PURCHASE, PURCHASE_SETTINGS } from "./schemas.ts";
+import { ACCESS, ACTIVITY, PRO, PRO_CHANGED, PRO_CHECKOUT, CREDIT, CREDIT_CHANGED, TOP_UP_CHECKOUT, TOP_UP_REFUNDED, STRIPE_ACCOUNT, STRIPE_ACCOUNT_CHANGED, CONNECTION_LINK, GAME_CHECK_FIELDS, API_KEYS, DATABASE, DATABASE_EXPORT, DATABASE_IMPORT, DATABASE_RESTORED, ERASED_PLAYER, GAME, GAME_ALERTS, GAME_EXPORT, HISTORY, KEPT_ROOMS, KEPT_ROOM_DELETED, BACKGROUND, SHADER, SHADER_CHECK, LISTED_GAME, QR_CODE, STATEMENT_RESULT, IMAGE, LOGS, SAVE, SAVE_CHANGED, SAVE_COPY, SAVE_COPY_LIST, SAVE_LIST, INDEXEDDB_DATABASE, NEW_REPLY, NEW_TOPIC, NEXT, PLAYER_PROFILE, POST, POST_BOOKMARK, POST_RATING, REPORTS, SIGN_IN_APP, SECRET, STATS, TESTER, TOPIC_PAGE, TOPIC_WITH_POSTS, VERSION, WEBHOOK, WEBHOOK_DELIVERY, answerOrError, choice, countOf, idOf, list, nullable, object as answer, text, yes, GAME_ITEM, ITEMS, PURCHASE, PURCHASE_SETTINGS } from "./schemas.ts";
 
 /**
  * The developer MCP at /mcp: every tool is a call to the developer API, so the MCP, the upload command
@@ -742,6 +742,46 @@ export const TOOLS: Tool[] = [
     run: (toolArguments, call) => call("POST", "/credit/top-ups", pick(toolArguments, ["amount_cents"])),
   },
   {
+    name: "get_stripe_account",
+    title: "My Stripe account",
+    description:
+      "The developer's own Stripe account, connected for Zaisma's buy sheet: whether it's connected and can take payments, its country, currency and seller name, and whether Stripe Tax is on. Every sale is a payment straight to that account, and Zaisma takes no cut; Stripe's own fees apply. Until it's connected and can take payments, players can't buy priced items.",
+    inputSchema: object({}),
+    outputSchema: STRIPE_ACCOUNT,
+    annotations: read,
+    run: (_, call) => call("GET", "/stripe-account"),
+  },
+  {
+    name: "connect_stripe_account",
+    title: "Connect a Stripe account",
+    description:
+      "Ask for the link the developer connects (or makes) their Stripe account on: answers connect_url, which works for 10 minutes and only for this developer signed in on zaisma.com; give them the link. Since it decides where players' money goes, an API key or connected app answers confirmation_needed with confirm_url, where the developer connects with their passkey instead. Once they have, get_stripe_account shows it.",
+    inputSchema: object({}),
+    outputSchema: CONNECTION_LINK,
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    run: (_, call) => call("POST", "/stripe-account/connection-links"),
+  },
+  {
+    name: "update_stripe_account",
+    title: "Turn Stripe Tax on or off",
+    description:
+      "Turn Stripe Tax on or off for the buy sheet's sales. On, Stripe Tax works out the tax inside each price for the player's country and records it on the developer's Stripe account (which needs Stripe Tax set up there); prices never change. Answers stripe_not_connected with no account.\n\n" +
+      'Not: { "is_stripe_tax_used": "yes" } (true or false)',
+    inputSchema: { ...object({ is_stripe_tax_used: { type: "boolean", description: "true to calculate and record tax with Stripe Tax." } }, ["is_stripe_tax_used"]), examples: [{ is_stripe_tax_used: true }] },
+    outputSchema: STRIPE_ACCOUNT_CHANGED,
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    run: (toolArguments, call) => call("PATCH", "/stripe-account", pick(toolArguments, ["is_stripe_tax_used"])),
+  },
+  {
+    name: "disconnect_stripe_account",
+    title: "Disconnect Stripe",
+    description: "Disconnect the developer's Stripe account from Zaisma: players can't buy priced items until one is connected again. Sales so far stay, and refunds of them go through the developer's Stripe dashboard. Ask the developer first.",
+    inputSchema: object({}),
+    outputSchema: STRIPE_ACCOUNT_CHANGED,
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+    run: (_, call) => call("DELETE", "/stripe-account"),
+  },
+  {
     name: "get_pro",
     title: "My plan",
     description:
@@ -1435,11 +1475,17 @@ export const TOOLS: Tool[] = [
   {
     name: "refund_purchase",
     title: "Refund a purchase",
-    description: "Take back a grant: the player no longer owns it from their next pass. Ask the developer first. Sales are refunded through Stripe, which comes with Zaisma's buy sheet.",
-    inputSchema: object({ slug, purchase_id: idInput("purchase", "A purchase's ID from list_purchases") }, ["slug", "purchase_id"]),
+    description:
+      "Refund a sale or take back a grant. A sale is refunded through the developer's Stripe account, all of what's left by default: then the player no longer owns it from their next pass. With amount_minor_units, only that much goes back (goodwill) and the player keeps the item. A grant is taken back. Ask the developer first.\n\n" +
+      'Not: { "amount_minor_units": 4.99 } (minor units, whole numbers: 4.99 euros is 499)\n' +
+      'Not: { "amount_minor_units": 0 } (leave it out to refund everything)',
+    inputSchema: {
+      ...object({ slug, purchase_id: idInput("purchase", "A purchase's ID from list_purchases"), amount_minor_units: { type: "integer", minimum: 1, description: "Sales only: how much to give back, in the sale's currency's minor units (499 is 4.99 euros). Leave it out for all of what's left." } }, ["slug", "purchase_id"]),
+      examples: [{ slug: "tiny-farm", purchase_id: "purchase_k2m9x4w7q1z8c3v5b6n0" }, { slug: "tiny-farm", purchase_id: "purchase_k2m9x4w7q1z8c3v5b6n0", amount_minor_units: 250 }],
+    },
     outputSchema: answer({ purchase: PURCHASE, next_steps: NEXT }),
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
-    run: (toolArguments, call) => call("POST", `/games/${pathPart(toolArguments.slug)}/purchases/${pathPart(toolArguments.purchase_id)}/refund`),
+    run: (toolArguments, call) => call("POST", `/games/${pathPart(toolArguments.slug)}/purchases/${pathPart(toolArguments.purchase_id)}/refund`, pick(toolArguments, ["amount_minor_units"])),
   },
   {
     name: "mark_purchase_handled",
@@ -1864,6 +1910,7 @@ const MEANT: Record<string, string> = {
   product_id: "item_name",
   quantity: "item_count",
   give_item: "grant_item",
+  stripe_connect: "connect_stripe_account",
   // add_shader's shape before buffers: the whole shader was one source.
   source: "image",
   // Tools of their own, for names an AI might try on update_game.
