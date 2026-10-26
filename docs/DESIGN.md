@@ -167,7 +167,7 @@ Say what each thing is, since the spacing and margins come from it (`LayoutItem`
 | `grid` | Cells of one size, as many to a line as fit their least width (`itemSize`: `cover`, `card`, `figure`) |
 | `track` | A row of covers that scrolls sideways; under a heading with its Row arrows it's a Shelf |
 | `columns` | Two halves of the width side by side, one over the other below two columns of 360px; one may stay in view while the other scrolls (`stickyColumn`) |
-| `sidePlaces` | A page's own places on a pane down its side, staying in view, beside the page at most `--size-column` wide; the section tabs at the top, staying there, where both can't have room |
+| `sidePlaces` | A page's own places on a pane down its side, staying in view, beside the page at most `--size-column` wide; the section tabs at the page's top where both can't have room |
 | `paneParts` | A pane's head, body and foot, with one control in its top or bottom end corner; the head's heading beside its control, its other words under both |
 
 - **A pane is `full` or `fit`.** Full is as wide as what holds it; fit is as wide as what's in it, its paragraphs running to a reading width at most (`--size-reading`, 60ch). A pane that should take half the screen is a column of `columns`. A sheet fits what's in it too.
@@ -216,7 +216,7 @@ Anything with a look of its own is a component in the gallery, or part of one, a
 - **Someone named on a page is a Person** (`person`, `people.ts`): their picture, their name a quiet Link, a line about them and at most one control. What they wrote is a Post; words to read are Reading text (`reading.ts`).
 - **A button with only an icon, a small button or a toggle is a Cut button** (`isLabelHidden`, `isSmall`, `isPressed`): the gallery's light and dark button, a password's Show.
 - **One of a few colors is a Color picker; one of a few options is a Switch.** The glass button's tint and the glass's hue are Color pickers; light or dark is a Switch.
-- **A page's own places down its side are a vertical Switch** (`tabSwitch` with `isVertical`): the same carved well, slab and ghost as the horizontal one, stacked, with an icon and a count per place. There's no sidebar of its own: beside a page's sections it's Side places (`sidePlaces`, `navigation.ts`), on a pane that stays in view while the page scrolls, and the section tabs at the top where there's no room beside.
+- **A page's own places down its side are a vertical Switch** (`tabSwitch` with `isVertical`): the same carved well, slab and ghost as the horizontal one, stacked, with an icon and a count per place. There's no sidebar of its own: beside a page's sections it's Side places (`sidePlaces`, `navigation.ts`), on a pane that stays in view while the page scrolls, and the section tabs at the page's top where there's no room beside.
 - **A short list hanging from a button is a Dropdown** (`dropdown`, `panes.ts`), with its own choices: the account menu is one.
 - **Zaisma's logo is the Logo** (`logo`, `foundations.ts`): the wordmark at the top of a page, the mark in the footer, always a link home.
 - **Waiting is the Loader** (`loader`): the Z building itself (`brand/loader/`). Every button shows it in place of its icon or arrow once it's pressed and waiting (`isBusy`, and `BUSY_SCRIPT` for a form sent or a page opening), and can't be pressed twice.
@@ -252,7 +252,7 @@ Every component, with the call that makes it and its options, is in the catalog 
 
 ### Layout
 
-- **Side places** (`sidePlaces(options: SidePlacesOptions)`, `navigation.ts`): A page's own places down its side, beside the page: a vertical switch on a pane that stays in view while the page scrolls, like Developer settings' Hosting, Pro and Keys. The page runs a column's width at most beside it. Where both can't have room, the places become the section tabs, staying at the top.
+- **Side places** (`sidePlaces(options: SidePlacesOptions)`, `navigation.ts`): A page's own places down its side, beside the page: a vertical switch on a pane that stays in view while the page scrolls, like Developer settings' Hosting, Pro and Keys. The page runs a column's width at most beside it. Where both can't have room, the places become the section tabs at the top of the page.
   - `options`: `label: string`, `places: (SectionTab & { icon: IconName })[]`, `body: Raw`
 - **Stack** (`stack(options: StackOptions)`, `layout.ts`): Things one under another: a pane's heading, its lines, its fields and its button. Each gap is picked from what's on each side, so you never pass one; say what each thing is (words, a control, a block) and the stack spaces it.
   - `options`: `items: LayoutItem[]`, `label?: string`, `dataAttributes?: Record<string, string>`

@@ -1112,7 +1112,7 @@ export interface SidePlacesOptions {
 
 /**
  * A page's own places down its side, beside the page: a vertical switch on a pane that stays in view while the page scrolls by, and the
- * page at most a column's width (--size-column) beside it. Where both can't have room, the places are the section tabs, staying at the top.
+ * page at most a column's width (--size-column) beside it. Where both can't have room, the places are the section tabs at the top of the page.
  */
 export function sidePlaces(options: SidePlacesOptions): Raw {
   return html`<div class="side-places"><div class="side-places-in"><nav class="side-places-side" aria-label="${options.label}">${glassPane({ paneWidth: "fit", body: tabSwitch({ label: options.label, switchSize: "big", isVertical: true, tabs: options.places }) })}</nav><div class="side-places-top">${sectionTabs({ label: options.label, tabs: options.places.map((place) => ({ label: place.label, href: place.href, isCurrent: place.isCurrent, badgeCount: place.badgeCount, state: place.state })) })}</div><div class="side-places-body">${options.body}</div></div></div>`;
@@ -1125,14 +1125,14 @@ component({
   name: "Side places",
   slug: "side-places",
   group: "layout",
-  summary: "A page's own places down its side, beside the page: a vertical switch on a pane that stays in view while the page scrolls, like Developer settings' Hosting, Pro and Keys. The page runs a column's width at most beside it. Where both can't have room, the places become the section tabs, staying at the top.",
+  summary: "A page's own places down its side, beside the page: a vertical switch on a pane that stays in view while the page scrolls, like Developer settings' Hosting, Pro and Keys. The page runs a column's width at most beside it. Where both can't have room, the places become the section tabs at the top of the page.",
   styles: `
 /* Side places: the places on a pane beside the page, which stays in view under the header while the page scrolls; the page is at most a
-   column's width, and the two sit in the middle of the room. Narrower than both need, the places are the section tabs, staying at the top. */
+   column's width, and the two sit in the middle of the room. Narrower than both need, the places are the section tabs at the page's top. */
 .side-places { container-type: inline-size; width: 100%; min-width: 0; }
 .side-places-in { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--gap-block-block); align-items: start; }
 .side-places-side { display: none; }
-.side-places-top { position: sticky; top: var(--header-room, var(--pad-pane)); z-index: 2; display: flex; justify-content: center; min-width: 0; }
+.side-places-top { display: flex; justify-content: center; min-width: 0; }
 .side-places-body { min-width: 0; }
 @container (min-width: ${SIDE_PLACES_LEAST_PX}px) {
   .side-places-in { grid-template-columns: auto minmax(0, var(--size-column)); justify-content: center; }
