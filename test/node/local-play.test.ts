@@ -223,6 +223,16 @@ describe("play-locally", () => {
     expect(dev).toContain(`data-bench-play-as="${benId}"`);
     expect(dev).toContain("<span>Ben</span>");
     expect(dev).not.toContain('class="dropdown');
+    // A tab goes by who it plays as, an account's name or the game's name for its guest, never a number.
+    expect(dev).toContain('aria-label="Anna"');
+    const guestName = (await api("POST", `/open-players/${guest}/pass`)).body.player.name;
+    expect(await (await fetch(`${play.benchUrl}/?player=${guest}`)).text()).toContain(`aria-label="${guestName}"`);
+    // The same account in two tabs, as on two devices: allowed, marked in the menu and said in the log.
+    const second = await newPlayer();
+    await playAs(second, annaId);
+    expect((await api("GET", "/log")).body.log_lines.some((line: string) => line.startsWith("Anna is open in 2 tabs"))).toBe(true);
+    expect(await (await fetch(`${play.benchUrl}/?player=${ben}`)).text()).toMatch(/<span>Anna<\/span><span class="bm-tag">in another tab<\/span>/);
+    await playAs(second, null);
     const response = await fetch(`${play.benchUrl}/p/${anna}/g/${SLUG}?play`);
     // Signed in: the readable cookie the page's scripts look for, for this player's page alone.
     expect(response.headers.get("set-cookie")).toBe(`zaisma_in=1; Path=/p/${anna}; SameSite=Lax`);

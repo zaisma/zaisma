@@ -475,12 +475,18 @@ export async function startLocalPlay(givenOptions) {
     if (!glass.isSocialModeAllowed(ageBand, socialMode)) return ageBand === "13-15" ? "13–15 can be solo-focused or friends-focused, as on Zaisma." : "Pick how they play.";
     return null;
   }
+  /** A tab's name: the account it plays as, or the name the game gives its guest. */
+  const tabNameOf = (playerNumber) => playingAccount(playerNumber)?.username ?? guestOf(playerNumber).name;
   /** Signs a player (tab) in as an account, most recent first in the player menu. */
   function signInAs(playerNumber, account) {
+    const before = tabNameOf(playerNumber);
     state.tabs[playerNumber] = account.id;
     state.accounts = [account, ...state.accounts.filter((each) => each.id !== account.id)];
     saveState();
-    log(`Player ${playerNumber} signed in as ${account.username}.`);
+    log(`${before} signed in as ${account.username}.`);
+    // As on Zaisma, the account can be open twice (a phone and a laptop): in a room, the newest connection takes over from the other.
+    const tabCount = openPlayerNumbers().filter((openNumber) => asOf(openNumber) === account.id).length + (openPlayerNumbers().includes(playerNumber) ? 0 : 1);
+    if (tabCount > 1) log(`${account.username} is open in ${tabCount} tabs now, as on two devices: in a room, the newest connection takes over and the other hears "Joined from somewhere else".`);
   }
 
   /** A purchase for an account: bought through the buy sheet with the test card, or granted from the player's details. */
@@ -504,8 +510,8 @@ export async function startLocalPlay(givenOptions) {
   function devViewFor(playerNumber) {
     const account = playingAccount(playerNumber);
     return {
-      gameSlug, playerNumber, accountName: account?.username ?? null, roomCode: roomOfPlayerId(playerIdOf(playerNumber)),
-      players: state.accounts.map((each) => ({ playerId: each.playerId, name: each.username, isThisTab: each.id === account?.id })),
+      gameSlug, playerNumber, accountName: account?.username ?? null, tabName: tabNameOf(playerNumber), roomCode: roomOfPlayerId(playerIdOf(playerNumber)),
+      players: state.accounts.map((each) => ({ playerId: each.playerId, name: each.username, isThisTab: each.id === account?.id, isInAnotherTab: openPlayerNumbers().some((openNumber) => openNumber !== playerNumber && asOf(openNumber) === each.id) })),
       networkUrl: networkOrigin, logLines: [...logLines],
     };
   }
@@ -583,10 +589,11 @@ export async function startLocalPlay(givenOptions) {
       // Who this player plays as: one of the bench's players, or null for a new guest.
       if (!openMatch[2] && method === "PUT") {
         if (body.player_id === null) {
+          const before = tabNameOf(playerNumber);
           state.tabs[playerNumber] = "guest";
           delete state.guests[playerNumber];
           saveState();
-          log(`Player ${playerNumber} signed out.`);
+          log(`${before} signed out: this tab is ${tabNameOf(playerNumber)}, a new guest.`);
         } else {
           const account = accountOfPlayer(body.player_id);
           if (!account) return noPlayer();

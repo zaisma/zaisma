@@ -134,10 +134,12 @@ export interface DevView {
   playerNumber: number;
   /** The account the player signed in to, or null for a guest. */
   accountName: string | null;
+  /** Who this tab plays as: the account's name, or the guest's name the game shows. */
+  tabName: string;
   /** The room the player is in, or null. */
   roomCode: string | null;
-  /** The bench's players, for the player menu: the most recent first. */
-  players: { playerId: string; name: string; isThisTab: boolean }[];
+  /** The bench's players, for the player menu: the most recent first, and whether another tab plays as them too. */
+  players: { playerId: string; name: string; isThisTab: boolean; isInAnotherTab: boolean }[];
   /** The bench's address for a phone on the same Wi-Fi, null when it answers only on this computer. */
   networkUrl: string | null;
   /** What the bench said, newest last. */
@@ -229,7 +231,8 @@ const benchMenu = (id: string, label: string, body: Raw) => html`<div class="ben
 
 /** The dev page: the bench's bar above the stage, which holds the Players panel (when it's open) and the player's page, which frames the game. */
 export async function devPage(places: BenchPlaces, view: DevView, frame: { path: string; allow: string }): Promise<BenchPage> {
-  const who = `Player ${view.playerNumber}${view.accountName ? `, ${view.accountName}` : ", a guest"}`;
+  // A tab goes by who it plays as: an account's name, or the name the game gives its guest.
+  const who = view.tabName;
   const bar = html`<div class="bench-bar" role="toolbar" aria-label="Test bench">
 <span class="bench-name">Test bench</span>
 ${devTool(who, null, { id: "bench-who", menu: "bench-who-menu", className: "bench-player" })}
@@ -239,8 +242,8 @@ ${devTool("Add a player", "plus", { id: "bench-add", menu: "bench-add-menu" })}
 ${devTool(view.logLines.length ? `Log ${view.logLines.length}` : "Log", "info", { id: "bench-log-open", menu: "bench-log-menu" })}
 </div>`;
   // Who this tab plays as: another of the bench's players, all of them in the Players panel, or a new guest. The game starts again.
-  const whoMenu = benchMenu("bench-who-menu", who, html`<p class="bm-head"><b>Player ${String(view.playerNumber)}</b><span>Who this tab plays as. The game starts again as them.</span></p>
-${view.players.slice(0, PLAYER_MENU_COUNT).map((player) => html`<button class="bm-item${player.isThisTab ? " is-current" : ""}" type="button" role="menuitem" data-bench-play-as="${player.playerId}">${icon("person")}<span>${player.name}</span>${player.isThisTab ? html`<span class="bm-tag">this tab</span>` : ""}</button>`)}
+  const whoMenu = benchMenu("bench-who-menu", who, html`<p class="bm-head"><b>${who}</b><span>${view.accountName ? "Who this tab plays as." : "A guest, for now."} Picking someone starts the game again as them.</span></p>
+${view.players.slice(0, PLAYER_MENU_COUNT).map((player) => html`<button class="bm-item${player.isThisTab ? " is-current" : ""}" type="button" role="menuitem" data-bench-play-as="${player.playerId}">${icon("person")}<span>${player.name}</span>${player.isThisTab ? html`<span class="bm-tag">this tab</span>` : player.isInAnotherTab ? html`<span class="bm-tag">in another tab</span>` : ""}</button>`)}
 ${view.players.length ? html`<hr class="bm-rule">` : ""}
 <button class="bm-item" type="button" role="menuitem" data-bench-panel="open">${icon("people")}<span>${view.players.length ? "All players" : "Make a player"}</span></button>
 ${view.accountName ? html`<button class="bm-item" type="button" role="menuitem" data-bench-play-as="guest">${icon("sign-out")}<span>Sign out, as a new guest</span></button>` : ""}`);
@@ -327,7 +330,7 @@ export function playersPanelHtml(place: PanelPlace, input: { players: PanelPlaye
     const isCurrent = player.playerId === input.currentPlayerId;
     const elsewhere = player.openPlayerNumbers.filter((openNumber) => openNumber !== place.playerNumber);
     return html`<div class="bp-row${isCurrent ? " is-current" : ""}"><button class="bp-open" type="button" data-bench-view="player" data-player-id="${player.playerId}">${face(player.name)}<span class="bp-who"><b>${player.name}</b><span class="bp-meta">${describe(player)}</span></span></button>${
-      isCurrent ? html`<span class="bp-tag">this tab</span>` : html`${elsewhere.length ? html`<span class="bp-tag">player ${elsewhere[0]}</span>` : ""}<button class="bp-ghost" type="button" data-bench-play-as="${player.playerId}">Play as</button>`
+      isCurrent ? html`<span class="bp-tag">this tab</span>` : html`${elsewhere.length ? html`<span class="bp-tag">in another tab</span>` : ""}<button class="bp-ghost" type="button" data-bench-play-as="${player.playerId}">Play as</button>`
     }</div>`;
   });
   return String(html`<div class="bp-head"><b>Players</b><button class="bp-btn" type="button"${call("POST", "/bench/api/players")}>+ Quick</button><button class="bp-ghost" type="button" data-bench-view="new">New</button>${place.isPage ? "" : html`<button class="bp-link" type="button" data-bench-panel="close" aria-label="Close the panel">✕</button>`}</div>
@@ -419,7 +422,7 @@ ${input.items.length
 <p class="bp-note" style="padding:8px 10px">A grant is a purchase the game gets as Zaisma would send it, and a refund reaches it as Zaisma's would. "Waiting for the game" is one it hasn't handled yet.</p>`;
   }
   return String(html`<div class="bp-head"><button class="bp-link" type="button" data-bench-view="list" aria-label="Back to players">‹</button>${face(player.name)}<b>${player.name}</b>${input.isCurrent ? html`<span class="bp-tag">this tab</span>` : html`<button class="bp-btn" type="button" data-bench-play-as="${player.playerId}">Play as ${player.name}</button>`}</div>
-<p class="bp-note" style="padding:6px 10px 0">${describe(player)}${player.openPlayerNumbers.length ? ` · open as player ${player.openPlayerNumbers.join(", ")}` : ""}</p>
+<p class="bp-note" style="padding:6px 10px 0">${describe(player)}${player.openPlayerNumbers.length ? ` · open in ${player.openPlayerNumbers.length === 1 ? "a tab" : `${player.openPlayerNumbers.length} tabs`}` : ""}</p>
 <div class="bp-tabs" role="tablist">${tabButton("profile", "Profile")}${tabButton("items", "Items")}</div>
 ${section}`);
 }
