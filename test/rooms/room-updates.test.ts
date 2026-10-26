@@ -87,6 +87,23 @@ const server = (versionLabel: string, holds: boolean) => `export default {
 const service = () => new GameRoomsService(createExecutionContext(), e);
 const roomStub = (slug: string, code: string) => e.ROOMS.get(e.ROOMS.idFromName(`${slug}:${code}`));
 
+/**
+ * The last players leave, and the test waits for the room to finish emptying: unlisting, telling the
+ * game's object nobody sits in it, then writing emptiedAtMs. A file that ends sooner closes its worker
+ * while that call is still on its way, and vitest fails the run for it.
+ */
+async function leaveRoom(slug: string, code: string, players: { ws: WebSocket; closed: Promise<number> }[]) {
+  const leftAtMs = Date.now();
+  for (const player of players) player.ws.close(1000);
+  await Promise.all(players.map((player) => player.closed));
+  for (let tries = 0; tries < 100; tries++) {
+    const emptiedAtMs = await runInDurableObject(roomStub(slug, code), (_room: Room, state) => state.storage.get<number>("emptiedAtMs"));
+    if (emptiedAtMs !== undefined && emptiedAtMs >= leftAtMs) return;
+    await new Promise((r) => setTimeout(r, 20));
+  }
+  throw new Error(`${slug}:${code} never emptied`);
+}
+
 describe("a match moving to a version published now", () => {
   beforeEach(async () => {
     await e.DB.exec("DELETE FROM room_usage; DELETE FROM game_server_errors; DELETE FROM live_rooms; DELETE FROM versions; DELETE FROM games;");
@@ -120,7 +137,7 @@ describe("a match moving to a version published now", () => {
     const how = (await back.until("message")).data;
     expect(how).toMatchObject({ version: "two", count: 2 });
     expect(how.restored).toMatchObject({ savedVersionId: "vholder1" });
-    back.ws.close(1000);
+    await leaveRoom("holder", "HLDRNW", [back]);
   });
 
   it("switches after its notice without onVersionUpdate, and finds a version it wasn't told about when it checks the game", async () => {
@@ -148,7 +165,7 @@ describe("a match moving to a version published now", () => {
     const back = await join("noticer", "NTCRNW", emma.pass);
     back.say("how");
     expect((await back.until("message")).data).toMatchObject({ version: "two", count: 2, restored: { savedVersionId: "vnoticer1" } });
-    back.ws.close(1000);
+    await leaveRoom("noticer", "NTCRNW", [back]);
   });
 
   it("moves an empty room at once, so whoever rejoins it gets the new version", async () => {
@@ -157,8 +174,7 @@ describe("a match moving to a version published now", () => {
     mia.say("add");
     mia.say("how");
     expect((await mia.until("message")).data).toMatchObject({ count: 1 });
-    mia.ws.close(1000);
-    await new Promise((r) => setTimeout(r, 100));
+    await leaveRoom("sleeper", "SLPRNW", [mia]);
     await addVersion(gameId, "vsleeper2", server("two", true));
     await runInDurableObject(roomStub("sleeper", "SLPRNW"), async (room: Room) => {
       await (room as any).startVersionUpdate("vsleeper2", false);
@@ -167,7 +183,7 @@ describe("a match moving to a version published now", () => {
     const back = await join("sleeper", "SLPRNW", mia.pass);
     back.say("how");
     expect((await back.until("message")).data).toMatchObject({ version: "two", count: 1, restored: { savedVersionId: "vsleeper1" } });
-    back.ws.close(1000);
+    await leaveRoom("sleeper", "SLPRNW", [back]);
   });
 });
 
@@ -218,7 +234,7 @@ describe("a room on another version than the player's game", () => {
     olivia.ws.close(1000);
     await olivia.closed;
     const back = await join("finisher", "FNSHRA", olivia.pass, { versionId: "vfinisher2" });
-    for (const player of [same, unsaid, back]) player.ws.close(1000);
+    await leaveRoom("finisher", "FNSHRA", [same, unsaid, back]);
   });
 
   it("writes the new version into its row when it switches, before anyone reloads", async () => {
@@ -240,6 +256,6 @@ describe("a room on another version than the player's game", () => {
     const ava = await join("relayer", "RLYRAB", undefined, { versionId: "vrelayer1" });
     const other = await join("relayer", "RLYRAB", undefined, { versionId: "vrelayer0" });
     expect(await roomRow("grelayer")).toEqual({ version_id: null });
-    for (const player of [ava, other]) player.ws.close(1000);
+    await leaveRoom("relayer", "RLYRAB", [ava, other]);
   });
 });

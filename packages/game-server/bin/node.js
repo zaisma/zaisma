@@ -178,18 +178,19 @@ export function startServer(options) {
   // for its own databases. Answers 204 when that and onWebhook finished, so Zaisma counts it delivered;
   // anything else is tried again later.
   function answerWebhook(request, response) {
-    const reply = (httpStatus, message) => {
-      response.writeHead(httpStatus, { "Content-Type": "text/plain", "Cache-Control": "no-store" });
+    const reply = (httpStatus, message, isClosing = false) => {
+      response.writeHead(httpStatus, { "Content-Type": "text/plain", "Cache-Control": "no-store", ...(isClosing ? { Connection: "close" } : {}) });
       response.end(message);
     };
     if (request.method !== "POST") return reply(405, "Webhooks are POSTed.");
     if (!webhookSigningSecret) return reply(503, "Set ZAISMA_WEBHOOK_SIGNING_SECRET to the webhook's signing_secret to take its events.");
     const header = (name) => (typeof request.headers[name] === "string" ? request.headers[name] : null);
     const headers = { webhookId: header("webhook-id"), webhookTimestamp: header("webhook-timestamp"), webhookSignature: header("webhook-signature") };
-    // A POST with no headers, or an old timestamp, is turned away before its body is read.
+    // A POST with no headers, or an old timestamp, is turned away before its body is read. Its connection
+    // closes, and says so, so the sender doesn't send its next request down a connection that's gone.
     const refuse = (httpStatus, error) => {
       response.once("finish", () => request.destroy());
-      reply(httpStatus, `${error.message} ${error.fix}`);
+      reply(httpStatus, `${error.message} ${error.fix}`, true);
     };
     const chunks = [];
     let sizeBytes = 0;
