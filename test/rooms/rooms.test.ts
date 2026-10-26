@@ -1390,7 +1390,8 @@ describe("room browsing", () => {
   it("answers pings without waking the room, and drops a connection that stops answering, holding its seat", async () => {
     const id = await addGame("pinger");
     const a = await join("pinger", "PNGRMA");
-    const b = await join("pinger", "PNGRMA");
+    // b answers no probes: an answer that came after the test backdated b's seenAtMs would count as b being seen, and keep b in.
+    const b = await join("pinger", "PNGRMA", { answersProbes: false });
     await until(a, (m) => m.type === "players" && m.players.length === 2);
     await rows(id, (r) => r[0]?.player_count === 2);
     a.ws.send("ping");
