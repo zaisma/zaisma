@@ -13,13 +13,14 @@
 import { createServer, request as httpRequest } from "node:http";
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, watch, writeFileSync } from "node:fs";
+import { pathToFileURL } from "node:url";
 import { networkInterfaces } from "node:os";
 import { basename, extname, isAbsolute, join, relative as relativePath, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocket, WebSocketServer } from "ws";
 import { BUSY_CLOSE_CODE, GameServerError, PASS_VERSION_NUMBER, RECEIPT_TOKEN_TYPE, RECEIPT_VERSION_NUMBER, generateSigningKey, guestName, jwks, loadSigningKey, roomCode, signPass, verifyPass } from "../src/internal.ts";
 import { qrCodeModules, qrCodeSvg } from "../src/qr-code.ts";
-import { benchPage } from "./local-play-bench.js";
+import { FRAME_ALLOW, FRAME_SANDBOX, benchScriptSource, frameScriptSource } from "./local-play-bench.js";
 
 /** The first of the four ports. */
 export const DEFAULT_PORT_NUMBER = 4800;
@@ -78,6 +79,38 @@ const TYPES = {
 };
 
 const here = fileURLToPath(new URL(".", import.meta.url));
+
+/**
+ * The bench's Glass (bench/glass.ts): the site's components, layout and buy sheet, bundled from apps/site's source. The published package
+ * carries the bundle (dist/bench/glass.js, made by scripts/build.mjs); in the repository it's bundled from the source as the bench starts,
+ * so it always draws the design as it is.
+ */
+async function loadGlass(localFolder) {
+  const built = join(here, "../bench/glass.js");
+  if (existsSync(built)) return import(pathToFileURL(built).href);
+  const { buildBenchGlass } = await import(pathToFileURL(join(here, "../scripts/bench.mjs")).href);
+  const bundled = join(localFolder, "bench-glass.mjs");
+  await buildBenchGlass(bundled);
+  return import(`${pathToFileURL(bundled).href}?at=${Date.now()}`);
+}
+
+/** The brand folder the site serves its logos, favicons, loader and font from: beside the bundle in the package, at the top of the repository. */
+const brandFolder = [join(here, "../bench/brand"), join(here, "../../../brand")].find((folder) => existsSync(folder)) ?? null;
+
+/** A file of the brand folder by the path the site serves it at, or null; never its design sources or notes (brand/.assetsignore). */
+function brandFile(path) {
+  if (!brandFolder) return null;
+  let decoded;
+  try {
+    decoded = decodeURIComponent(path).replace(/^\/+/, "");
+  } catch {
+    return null;
+  }
+  const file = resolve(brandFolder, decoded);
+  const inside = relativePath(brandFolder, file);
+  if (!decoded || inside.startsWith("..") || isAbsolute(inside) || /\.(afdesign|md)$/i.test(file) || !existsSync(file) || !statSync(file).isFile()) return null;
+  return file;
+}
 
 /** The SDK's served files: in the repository next to the package, in the published package beside bin/. */
 function sdkText(name) {
@@ -251,6 +284,7 @@ export async function startLocalPlay(givenOptions) {
       log(`Couldn't reach Zaisma to copy ${givenSlug}'s items, so the bench starts without them. Add items in the bench's bar.`);
     }
   }
+  const glass = await loadGlass(localFolder);
   const accountOf = (id) => state.accounts.find((account) => account.id === id) ?? null;
   const accountOfPlayer = (playerId) => state.accounts.find((account) => account.playerId === playerId) ?? null;
   const asOf = (playerNumber) => state.tabs[playerNumber] ?? "guest";
@@ -398,18 +432,105 @@ export async function startLocalPlay(givenOptions) {
     return null;
   }
 
-  async function buy(playerNumber, itemName, itemCount, gameAccountId) {
+  async function buy(playerNumber, itemName, itemCount, gameAccountId, purchaseId = `purchase_${randomText(12)}`) {
     const listedItem = state.items.find((each) => each.itemName === itemName);
     if (!listedItem) return { error: { code: "no_item", message: `The bench has no item named ${itemName}.`, fix: "Add it in the bench's bar, under Items." } };
     const as = asOf(playerNumber);
     const account = as === "guest" ? null : accountOf(as);
     if (!account) return { error: { code: "account_needed", message: "Buying is for players signed in, and this tab is a guest.", fix: "Switch this tab to an account in the player menu." } };
     const deliveredItemCount = listedItem.itemKind === "consumable" ? itemCount : 1;
-    const purchase = { id: `purchase_${randomText(12)}`, playerId: account.playerId, accountId: account.id, itemName, itemKind: listedItem.itemKind, itemCount: deliveredItemCount, gameAccountId: gameAccountId ?? null, purchasedAt: isoOf(now()), isHandled: false };
+    const purchase = { id: purchaseId, playerId: account.playerId, accountId: account.id, itemName, itemKind: listedItem.itemKind, itemCount: deliveredItemCount, gameAccountId: gameAccountId ?? null, purchasedAt: isoOf(now()), isHandled: false };
     state.purchases.push(purchase);
     if (listedItem.itemKind === "permanent") state.ownedItems[account.id] = [...new Set([...ownedNamesOf(account.id), itemName])];
     saveState();
     return { purchase: await purchaseFor(purchase) };
+  }
+
+  /** What a tab's page and sheets show: its player, the bench's players, items and log, and the room it's in. */
+  function viewFor(request, url) {
+    const playerNumber = Number(url.searchParams.get("player")) || 0;
+    const benchOrigin = originAt(hostnameOf(request), ports.bench);
+    const code = url.searchParams.get("room");
+    const tracked = code ? roomsTracked.get(code) : null;
+    const nameOfPlayer = (playerId) => accountOfPlayer(playerId)?.username ?? [...guests.values()].find((guest) => guest.id === playerId)?.name ?? "A player";
+    return {
+      gameSlug, playerNumber, playingAs: playerNumber ? asOf(playerNumber) : "guest",
+      accounts: state.accounts.map((account) => ({ id: account.id, username: account.username, whoCanChat: account.whoCanChat })),
+      friends: state.friends, blocks: state.blocks, ownedItems: state.ownedItems, purchaseDelivery: state.purchaseDelivery, nextPlayerNumber: nextPlayerNumber(),
+      items: state.items.map((listedItem) => ({ itemName: listedItem.itemName, title: listedItem.title, itemKind: listedItem.itemKind, priceText: priceText(listedItem.currencyCode, listedItem.priceMinorUnits) })),
+      room: code && /^[A-Z0-9]{6}$/.test(code) ? { code, link: `${benchOrigin}/g/${gameSlug}?room=${code}`, playerNames: tracked ? [...new Set([...tracked.sockets].filter((each) => !each.isSpectator && each.playerId).map((each) => nameOfPlayer(each.playerId)))] : [] } : null,
+      networkUrl: addresses.length ? `${originAt(addresses[0], ports.bench)}/g/${gameSlug}` : null,
+      logLines: [...reportedTypes].map((text) => `Only on Zaisma: ${text}`),
+    };
+  }
+
+  // The buy sheet's calls (apps/site/src/buy.ts), stood in for: the price, a saved test card, and paying with it grants the item. Which tab
+  // asks comes from the page's address (?player=), which its requests carry as their referrer.
+  const pendingSales = new Map(); // purchase id -> { playerNumber, itemName, itemCount, gameAccountId }
+  const grantedPurchases = new Map(); // purchase id -> the purchase as the sheet gets it
+  const playerNumberOf = (request) => {
+    const referrer = request.headers.referer;
+    return referrer && URL.canParse(referrer) ? Number(new URL(referrer).searchParams.get("player")) || 0 : 0;
+  };
+  const sheetPurchase = (given) => ({ id: given.id, item_name: given.itemName, item_kind: given.itemKind, item_count: given.itemCount, purchase_source: given.purchaseSource, purchase_status: given.purchaseStatus, game_account_id: given.gameAccountId, paid_minor_units: given.paidMinorUnits, currency_code: given.currencyCode, purchased_at: given.purchasedAt, refunded_at: given.refundedAt, receipt: given.receipt });
+  async function answerBuy(request, response, url) {
+    const reply = (status, body) => {
+      response.writeHead(status, { "Content-Type": "application/json", "Cache-Control": "no-store" });
+      response.end(JSON.stringify(body));
+    };
+    const fail = (status, code, message) => reply(status, { error: { code, message } });
+    const chunks = [];
+    for await (const chunk of request) chunks.push(chunk);
+    let body = {};
+    try {
+      body = JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}") ?? {};
+    } catch {
+      body = {};
+    }
+    const path = url.pathname;
+    if (request.method === "POST" && path === `/api/buy/${gameSlug}/start`) {
+      const playerNumber = playerNumberOf(request);
+      const listedItem = state.items.find((each) => each.itemName === body.item_name);
+      if (!listedItem) return fail(404, "no_item", `This game has no item named ${String(body.item_name)}. Add it in the bench's Items.`);
+      if (!playerNumber || asOf(playerNumber) === "guest") return fail(403, "account_needed", "Buying needs an account.");
+      const itemCount = listedItem.itemKind === "consumable" && Number.isInteger(body.item_count) && body.item_count > 0 ? body.item_count : 1;
+      const purchaseId = `purchase_${randomText(12)}`;
+      pendingSales.set(purchaseId, { playerNumber, itemName: listedItem.itemName, itemCount, gameAccountId: typeof body.game_account_id === "string" ? body.game_account_id : null });
+      const totalMinorUnits = listedItem.priceMinorUnits * itemCount;
+      return reply(200, {
+        purchase_id: purchaseId,
+        item: { title: listedItem.title, description: listedItem.description },
+        item_count: itemCount,
+        price: { price_text: priceText(listedItem.currencyCode, totalMinorUnits), price_minor_units: totalMinorUnits, currency_code: listedItem.currencyCode },
+        seller: { business_name: "the game's developer" },
+        refund_policy_words: "A test on this computer: the test card is never charged.",
+        // Stripe's test card, as the site's own local preview has it.
+        saved_card: { card_brand: "visa", card_last_digits: "4242" },
+        is_confirmation_needed: false,
+        confirmation_reason: null,
+        confirmation_methods: {},
+        has_account_email: true,
+        is_eu_withdrawal_line_shown: false,
+        wallet: null,
+      });
+    }
+    const payMatch = /^\/api\/buy\/purchases\/(purchase_[a-z0-9]+)\/pay-with-saved-card$/.exec(path);
+    if (request.method === "POST" && payMatch) {
+      const sale = pendingSales.get(payMatch[1]);
+      if (!sale) return fail(404, "no_purchase", "That purchase isn't waiting to be paid.");
+      pendingSales.delete(payMatch[1]);
+      const answer = await buy(sale.playerNumber, sale.itemName, sale.itemCount, sale.gameAccountId, payMatch[1]);
+      if ("error" in answer) return fail(400, answer.error.code, answer.error.message);
+      const purchase = sheetPurchase(answer.purchase);
+      grantedPurchases.set(purchase.id, purchase);
+      return reply(200, { status: "completed", purchase });
+    }
+    const purchaseMatch = /^\/api\/buy\/purchases\/(purchase_[a-z0-9]+)$/.exec(path);
+    if (request.method === "GET" && purchaseMatch) {
+      const purchase = grantedPurchases.get(purchaseMatch[1]);
+      return purchase ? reply(200, { purchase }) : fail(404, "no_purchase", "No purchase has that ID.");
+    }
+    return fail(404, "not_local", `${request.method} ${path} is a part of Zaisma's buy sheet the bench has no stand-in for.`);
   }
 
   async function answerBench(request, response, url) {
@@ -445,10 +566,18 @@ export async function startLocalPlay(givenOptions) {
       roomKeys.set(key, { playerNumber, as });
       return reply(200, { key, playerKind: as === "guest" ? "guest" : "account" });
     }
-    if (path === "/bench/buy" && request.method === "POST") {
-      const asked = await readJson();
-      const answer = asked ? await buy(Number(asked.playerNumber), String(asked.itemName), Number(asked.itemCount) || 1, asked.gameAccountId) : { error: { code: "bad_change", message: "The purchase isn't JSON.", fix: "Use the bench's test sheet." } };
-      return reply("error" in answer ? 400 : 200, answer);
+    const sheetMatch = /^\/bench\/sheet\/(friends|items|room|phone|log)$/.exec(path);
+    if (sheetMatch && request.method === "GET") {
+      response.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
+      return response.end(glass.benchSheetBody(sheetMatch[1], viewFor(request, url)));
+    }
+    if (path === "/bench/frame.js") {
+      response.writeHead(200, { "Content-Type": "text/javascript; charset=utf-8", "Cache-Control": "no-store" });
+      return response.end(frameScriptSource(ports.game));
+    }
+    if (path === "/bench/bench.js") {
+      response.writeHead(200, { "Content-Type": "text/javascript; charset=utf-8", "Cache-Control": "no-store" });
+      return response.end(benchScriptSource({ gameSlug, gamePort: ports.game }));
     }
     const savesMatch = /^\/bench\/saves\/([a-z0-9_-]{1,40})$/.exec(path);
     if (savesMatch) {
@@ -484,9 +613,23 @@ export async function startLocalPlay(givenOptions) {
     try {
       const url = new URL(request.url ?? "/", "http://bench");
       if (url.pathname.startsWith("/bench/")) return await answerBench(request, response, url);
+      if (url.pathname.startsWith("/api/buy/")) return await answerBuy(request, response, url);
       if (url.pathname === "/" || url.pathname === `/g/${gameSlug}`) {
-        response.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", "Referrer-Policy": "no-referrer", "X-Content-Type-Options": "nosniff" });
-        return response.end(benchPage({ gameSlug, benchPort: ports.bench, gamePort: ports.game, roomsPort: ports.rooms, isOnNetwork }));
+        // Its own requests carry the page's address (and so its ?player=) to the bench, and nowhere else.
+        response.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", "Referrer-Policy": "same-origin", "X-Content-Type-Options": "nosniff" });
+        return response.end(await glass.benchPageHtml(viewFor(request, url), { sandbox: FRAME_SANDBOX, allow: FRAME_ALLOW }));
+      }
+      // Logos, favicons, the loader and the font, from the brand folder as the site serves it.
+      const brand = brandFile(url.pathname);
+      if (brand) {
+        response.writeHead(200, { "Content-Type": TYPES[extname(brand).toLowerCase()] ?? "application/octet-stream", "Cache-Control": "no-cache" });
+        return response.end(readFileSync(brand));
+      }
+      // The site's stylesheet and scripts, by the paths its page names.
+      const asset = await glass.siteAsset(url.pathname);
+      if (asset) {
+        response.writeHead(asset.httpStatus, asset.headers);
+        return response.end(asset.body);
       }
       response.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
       response.end("Not found. The bench is at /.");

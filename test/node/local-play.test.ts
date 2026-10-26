@@ -19,6 +19,8 @@ let play: LocalPlay;
 const json = async (response: Response) => ({ status: response.status, body: (await response.json()) as Record<string, any> });
 const bench = (path: string, body?: unknown) => fetch(`${play.benchUrl}${path}`, body === undefined ? {} : { method: "POST", body: JSON.stringify(body) }).then(json);
 const rooms = (path: string, body: unknown) => fetch(`${play.roomsUrl}${path}`, { method: "POST", headers: { origin: play.gameSiteUrl, "content-type": "text/plain" }, body: JSON.stringify(body) }).then(json);
+/** A call of the buy sheet's script, from a tab's page: its address, with ?player=, is the referrer. */
+const buySheet = (playerNumber: number, path: string, body: unknown) => fetch(`${play.benchUrl}${path}`, { method: "POST", headers: { referer: `${play.benchUrl}/?player=${playerNumber}`, "content-type": "application/json" }, body: JSON.stringify(body) }).then(json);
 const keysAt = async (path: string) => ((await (await fetch(`${play.roomsUrl}${path}`)).json()) as { keys: PublicKey[] }).keys;
 
 async function passOf(playerNumber: number): Promise<{ pass: string; claims: PassClaims }> {
@@ -106,13 +108,35 @@ describe("play-locally", () => {
     expect(passesHaveBlockBetween(anna.claims, ben.claims)).toBe(true);
 
     await bench("/bench/state", { op: "set-item", item: { itemName: "gold-board", title: "Gold board", priceMinorUnits: 199, itemKind: "permanent" } });
-    const bought = await bench("/bench/buy", { playerNumber: 2, itemName: "gold-board", itemCount: 1 });
-    expect(bought.status).toBe(200);
+    // As the buy sheet does it: its start (the price and the saved test card), then paying with that card, from player 2's page.
+    const started = await buySheet(2, "/api/buy/four-in-a-row/start", { item_name: "gold-board", item_count: 1, game_account_id: null });
+    expect(started.body).toMatchObject({ item: { title: "Gold board" }, price: { price_text: "$1.99" }, saved_card: { card_brand: "visa", card_last_digits: "4242" } });
+    const bought = await buySheet(2, `/api/buy/purchases/${started.body.purchase_id}/pay-with-saved-card`, {});
+    expect(bought.body.status).toBe("completed");
     const receipt = await verifyReceipt(bought.body.purchase.receipt, await keysAt("/.well-known/receipt-jwks.json"), { gameSlug: SLUG, issuerUrl: `${play.roomsUrl}/receipts` });
     expect(receipt).toMatchObject({ sub: anna.claims.sub, item_name: "gold-board", purchase_status: "completed", purchase_source: "grant" });
     expect((await passOf(2)).claims.owned_item_names).toEqual(["gold-board"]);
     // A guest's tab can't buy: buying is for accounts.
-    expect((await bench("/bench/buy", { playerNumber: 1, itemName: "gold-board", itemCount: 1 })).body.error.code).toBe("account_needed");
+    expect((await buySheet(1, "/api/buy/four-in-a-row/start", { item_name: "gold-board", item_count: 1, game_account_id: null })).body.error.code).toBe("account_needed");
+  }, 20_000);
+
+  it("draws the game page from the site's own Glass: the playing bar, the real buy sheet, its stylesheet and the brand files", async () => {
+    const page = await (await fetch(`${play.benchUrl}/?player=1`)).text();
+    expect(page).toContain('class="is-playing"');
+    expect(page).toContain('class="playing-bar');
+    expect(page).toContain('id="buy-sheet"');
+    expect(page).toContain('id="bench-friends-body"');
+    const stylesheet = /href="(\/css\/site\.[a-z0-9]+\.css)"/.exec(page)?.[1];
+    expect(stylesheet).toBeTruthy();
+    expect((await fetch(`${play.benchUrl}${stylesheet}`)).status).toBe(200);
+    const font = /href="(\/fonts\/[a-z0-9.]+\.woff2)"/.exec(page)?.[1];
+    expect((await fetch(`${play.benchUrl}${font}`)).headers.get("content-type")).toBe("font/woff2");
+    expect((await fetch(`${play.benchUrl}/zaisma-mark-metal.svg`)).status).toBe(200);
+    expect((await fetch(`${play.benchUrl}/README.md`)).status).toBe(404);
+    // The sheets are the components' markup, drawn from the bench's state.
+    const friends = await (await fetch(`${play.benchUrl}/bench/sheet/friends?player=2`)).text();
+    expect(friends).toContain('name="bench-friend"');
+    expect(friends).not.toContain("&lt;");
   }, 20_000);
 
   it("answers a call it has no stand-in for with not_local", async () => {

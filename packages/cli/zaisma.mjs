@@ -136,7 +136,7 @@ const COMMANDS = {
   },
   "play-locally": {
     about:
-      "Play your game on this computer, with its game server and a test bench: Add a player opens another tab as someone else, so you play together, with made-up accounts, friends, blocks and items between them, and a test sheet that grants items at no cost; " +
+      "Play your game on this computer, with its game server and a test bench: Add a player opens another tab as someone else, so you play together, with made-up accounts, friends, blocks and items between them, and Zaisma's buy sheet with a test card that's never charged; " +
       "needs no key and no internet. A file change reloads the game; a change to the game server starts it again with its rooms kept. It runs @zaisma/game-server's play-locally",
     arguments: [{ name: "folder", isOptional: true }],
     flags: {
