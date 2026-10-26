@@ -480,9 +480,11 @@ export async function startLocalPlay(givenOptions) {
   /** Signs a player (tab) in as an account, most recent first in the player menu. */
   function signInAs(playerNumber, account) {
     const before = tabNameOf(playerNumber);
+    const isAlready = asOf(playerNumber) === account.id;
     state.tabs[playerNumber] = account.id;
     state.accounts = [account, ...state.accounts.filter((each) => each.id !== account.id)];
     saveState();
+    if (isAlready) return;
     log(`${before} signed in as ${account.username}.`);
     // As on Zaisma, the account can be open twice (a phone and a laptop): in a room, the newest connection takes over from the other.
     const tabCount = openPlayerNumbers().filter((openNumber) => asOf(openNumber) === account.id).length + (openPlayerNumbers().includes(playerNumber) ? 0 : 1);
