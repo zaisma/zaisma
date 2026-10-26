@@ -9,7 +9,7 @@ import { pageStyleResponse } from "../../../apps/site/src/page-styles.ts";
 import { BUY_SHEET_SCRIPT, buySheet, buySheetData } from "../../../apps/site/src/buy-sheet.ts";
 import { playingBar } from "../../../apps/site/src/components/playing.ts";
 import { cutButton } from "../../../apps/site/src/components/actions.ts";
-import { dropdown, sheet } from "../../../apps/site/src/components/panes.ts";
+import { banner, dropdown, sheet } from "../../../apps/site/src/components/panes.ts";
 import { checkField, selectField } from "../../../apps/site/src/components/choices.ts";
 import { codeField, qrCode } from "../../../apps/site/src/components/inputs.ts";
 import { emptyState, listRows } from "../../../apps/site/src/components/data.ts";
@@ -151,7 +151,7 @@ function sheetMarkup(name: SheetName, view: BenchView): Raw {
     return stack({
       items: [
         { kind: "block", markup: qrCode({ id: "bench-phone-qr", label: "The bench's address", caption: view.networkUrl, imageUrl: `/bench/qr.svg?text=${encodeURIComponent(view.networkUrl)}` }) },
-        words("Heads up: the phone's browser will say the connection isn't private. That's expected here: the bench made its own certificate on this computer, and no one else vouches for it. Open the details and go on to the site, once."),
+        { kind: "block", markup: banner({ text: "Your phone will say the connection isn't private, because the bench signs its own certificate. Continue to the site.", icon: "warning", tone: "warning" }) },
       ],
     });
   }

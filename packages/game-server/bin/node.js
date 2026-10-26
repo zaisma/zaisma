@@ -759,7 +759,7 @@ async function playLocally(argumentList) {
   if (running.networkUrl) {
     say(`On a phone on the same Wi-Fi: ${running.networkUrl}`);
     say(terminalQr(running.networkUrl));
-    say("Heads up: the phone's browser will say the connection isn't private. That's expected: the bench made its own certificate on this computer, and no one else vouches for it. Open the details and go on to the site, once.");
+    say("Your phone will say the connection isn't private, because the bench signs its own certificate. Continue to the site.");
   }
   if (given.isOpening) {
     const { spawn } = await import("node:child_process");
