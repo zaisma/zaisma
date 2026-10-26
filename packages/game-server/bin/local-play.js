@@ -505,7 +505,7 @@ export async function startLocalPlay(givenOptions) {
     const account = playingAccount(playerNumber);
     return {
       gameSlug, playerNumber, accountName: account?.username ?? null, roomCode: roomOfPlayerId(playerIdOf(playerNumber)),
-      players: state.accounts.map((each) => ({ id: each.id, username: each.username, isThisTab: each.id === account?.id })),
+      players: state.accounts.map((each) => ({ playerId: each.playerId, name: each.username, isThisTab: each.id === account?.id })),
       networkUrl: networkOrigin, logLines: [...logLines],
     };
   }
@@ -965,23 +965,6 @@ export async function startLocalPlay(givenOptions) {
       return response.end(panelHtml(url, place));
     }
     if (path === "/bench/api" || path.startsWith("/bench/api/")) return answerApi(request, response, url);
-    // The dev bar's player menu: play as one of the bench's players, or sign out to a new guest. Back to the player's dev page.
-    if (isPost && (path === "/bench/sign-in" || path === "/bench/sign-out")) {
-      await readText(request);
-      const menuNumber = Number(url.searchParams.get("player"));
-      const account = path === "/bench/sign-in" ? accountOfPlayer(url.searchParams.get("player_id") ?? "") : null;
-      if (Number.isInteger(menuNumber) && menuNumber > 0) {
-        if (account) signInAs(menuNumber, account);
-        else {
-          state.tabs[menuNumber] = "guest";
-          delete state.guests[menuNumber];
-          saveState();
-          log(`Player ${menuNumber} signed out.`);
-        }
-      }
-      response.writeHead(303, { Location: `/?player=${menuNumber || ""}`, "Set-Cookie": signedInCookie(menuNumber), "Cache-Control": "no-store" });
-      return response.end();
-    }
     if (path === "/account/kept" && request.method === "GET") {
       const keptNumber = Number(url.searchParams.get("player")) || 0;
       return sendPage(response, await glass.keptPage(placesFor(request), playingAccount(keptNumber)?.username ?? null, keptNumber));
@@ -1056,7 +1039,7 @@ export async function startLocalPlay(givenOptions) {
         const framePath = `/p/${givenNumber}/g/${gameSlug}${room ? `?room=${room}` : "?play"}`;
         return sendPage(response, await glass.devPage(placesFor(request), devViewFor(givenNumber), { path: framePath, allow: FRAME_ALLOW }));
       }
-      if (url.pathname.startsWith("/bench/") && !/^\/bench\/(sign-in|sign-out|kept\.js|panel|api)(\/|$)/.test(url.pathname)) return await answerBench(request, response, url);
+      if (url.pathname.startsWith("/bench/") && !/^\/bench\/(kept\.js|panel|api)(\/|$)/.test(url.pathname)) return await answerBench(request, response, url);
       const answered = await answerSite(request, response, url);
       if (answered !== null || response.headersSent) return;
       // Logos, favicons, the loader and the font, from the brand folder as the site serves it.

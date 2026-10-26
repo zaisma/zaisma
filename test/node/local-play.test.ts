@@ -219,6 +219,10 @@ describe("play-locally", () => {
     expect(dev).toContain(`src="/p/${anna}/g/${SLUG}?play"`);
     expect(dev).toContain('id="bench-who-menu"');
     expect(dev).toContain('id="bench-panel"');
+    // The player menu, in the bench's own look: the bench's players to play as, by their player_id.
+    expect(dev).toContain(`data-bench-play-as="${benId}"`);
+    expect(dev).toContain("<span>Ben</span>");
+    expect(dev).not.toContain('class="dropdown');
     const response = await fetch(`${play.benchUrl}/p/${anna}/g/${SLUG}?play`);
     // Signed in: the readable cookie the page's scripts look for, for this player's page alone.
     expect(response.headers.get("set-cookie")).toBe(`zaisma_in=1; Path=/p/${anna}; SameSite=Lax`);

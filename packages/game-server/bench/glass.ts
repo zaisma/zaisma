@@ -11,14 +11,9 @@ import { friendRows } from "../../../apps/site/src/players-sheet.ts";
 import { friendsHere } from "../../../apps/site/src/friends-now.ts";
 import { pageScriptResponse } from "../../../apps/site/src/page-scripts.ts";
 import { pageStyleResponse } from "../../../apps/site/src/page-styles.ts";
-import { cutButton, runButton } from "../../../apps/site/src/components/actions.ts";
 import { SOCIAL_MODE_LABELS } from "../../../apps/site/src/account.ts";
-import { glassPane, type IconName } from "../../../apps/site/src/components/foundations.ts";
+import type { IconName } from "../../../apps/site/src/components/foundations.ts";
 import { icon } from "../../../apps/site/src/components/icons.ts";
-import { banner, dropdown, sheet } from "../../../apps/site/src/components/panes.ts";
-import { qrCode } from "../../../apps/site/src/components/inputs.ts";
-import { emptyState, listRows } from "../../../apps/site/src/components/data.ts";
-import { row, stack, type LayoutItem } from "../../../apps/site/src/components/layout.ts";
 
 /** Where the bench is, as the browser reached it: the site's settings the pages read, for the bench's origins. */
 export interface BenchPlaces {
@@ -163,7 +158,24 @@ const BENCH_STYLE = `html.is-playing body { flex-direction: column; }
 .bench-bar .bench-tool:hover, .bench-bar .bench-tool:focus-visible, .bench-bar .bench-tool[aria-pressed="true"] { background: #3c3489; color: #eeedfe; outline: none; }
 .bench-bar .bench-tool.bench-player { background: #3c3489; color: #eeedfe; }
 .bench-bar svg { width: 15px; height: 15px; flex: none; }
-main > .dropdown { z-index: 5; }
+.bench-menu { position: fixed; z-index: 6; top: 32px; width: 270px; max-height: calc(100vh - 44px); overflow-y: auto; padding: 6px; border-radius: 8px; background: #26215c; color: #cecbf6; border: 1px solid #534ab7; box-shadow: 0 8px 24px rgb(0 0 0 / 40%); font: 400 13px/1.35 Jost, system-ui, sans-serif; }
+.bench-menu[hidden] { display: none; }
+.bench-menu svg { width: 15px; height: 15px; flex: none; vertical-align: -3px; }
+.bm-head { margin: 4px 8px 6px; display: grid; gap: 2px; }
+.bm-head b { font-weight: 500; color: #eeedfe; }
+.bm-head span, .bm-note, .bm-url { font-size: 11px; color: #afa9ec; }
+.bm-item { display: flex; align-items: center; gap: 8px; width: 100%; box-sizing: border-box; padding: 6px 8px; border: 0; border-radius: 6px; background: none; color: inherit; font: inherit; text-align: left; text-decoration: none; cursor: pointer; }
+.bm-item > span:first-of-type { flex: 1; }
+.bm-item:hover, .bm-item:focus-visible { background: #3c3489; color: #eeedfe; outline: none; }
+.bm-item.is-current { background: #3c3489; color: #eeedfe; }
+.bm-tag { font-size: 10px; border-radius: 5px; padding: 1px 6px; background: #afa9ec; color: #26215c; }
+.bm-rule { border: 0; border-top: 1px solid #3c3489; margin: 6px 4px; }
+.bm-label { margin: 4px 8px; color: #eeedfe; }
+.bm-note { margin: 4px 8px; }
+.bm-qr { display: block; margin: 6px auto; background: #fff; padding: 6px; border-radius: 6px; }
+.bm-url { margin: 0 8px 6px; text-align: center; word-break: break-all; }
+.bm-warn { margin: 6px 8px; font-size: 11px; color: #fac775; }
+.bm-log { margin: 0; padding: 0 8px 4px 24px; display: grid; gap: 4px; font-size: 12px; }
 .bench-stage { flex: 1; display: flex; min-height: 0; position: relative; }
 .bench-panel { flex: none; width: 290px; display: flex; flex-direction: column; overflow-y: auto; background: #1c1840; color: #cecbf6; border-right: 1px solid #3c3489; font: 400 13px/1.35 Jost, system-ui, sans-serif; }
 .bench-panel[hidden] { display: none; }
@@ -206,54 +218,44 @@ main > .dropdown { z-index: 5; }
   .bench-stage > .bench-panel:not(.is-page) { position: absolute; inset: 0; width: auto; z-index: 3; }
 }`;
 
-/** One of the dev bar's buttons: it opens its sheet or its menu (a dropdown, which says whether it's open), or toggles the Players panel. */
-const devTool = (label: string, iconName: IconName | null, target: { id: string; controls?: string; isMenu?: boolean; isToggle?: boolean; className?: string }): Raw =>
-  html`<button class="bench-tool${target.className ? ` ${target.className}` : ""}" id="${target.id}" type="button"${target.controls ? html` aria-controls="${target.controls}"` : ""}${target.isMenu ? raw(' aria-expanded="false"') : ""}${target.isToggle ? raw(' aria-pressed="false"') : ""} aria-label="${label}">${iconName ? icon(iconName) : ""}<span class="bench-words">${label}</span>${target.isMenu && !iconName ? icon("chevron-down") : ""}</button>`;
+const devTool = (label: string, iconName: IconName | null, target: { id: string; menu?: string; isToggle?: boolean; className?: string }): Raw =>
+  html`<button class="bench-tool${target.className ? ` ${target.className}` : ""}" id="${target.id}" type="button"${target.menu ? html` data-bench-menu="${target.menu}" aria-haspopup="true" aria-expanded="false"` : ""}${target.isToggle ? raw(' aria-pressed="false"') : ""} aria-label="${label}">${iconName ? icon(iconName) : ""}<span class="bench-words">${label}</span>${target.menu && !iconName ? icon("chevron-down") : ""}</button>`;
 
 /** How many of the bench's players the player menu lists; the rest are in the Players panel. */
 const PLAYER_MENU_COUNT = 8;
+
+/** One of the dev bar's menus, in the bench's look: hidden until its button opens it, under that button. */
+const benchMenu = (id: string, label: string, body: Raw) => html`<div class="bench-menu" id="${id}" role="menu" aria-label="${label}" hidden>${body}</div>`;
 
 /** The dev page: the bench's bar above the stage, which holds the Players panel (when it's open) and the player's page, which frames the game. */
 export async function devPage(places: BenchPlaces, view: DevView, frame: { path: string; allow: string }): Promise<BenchPage> {
   const who = `Player ${view.playerNumber}${view.accountName ? `, ${view.accountName}` : ", a guest"}`;
   const bar = html`<div class="bench-bar" role="toolbar" aria-label="Test bench">
 <span class="bench-name">Test bench</span>
-${devTool(who, null, { id: "bench-who", controls: "bench-who-menu", isMenu: true, className: "bench-player" })}
+${devTool(who, null, { id: "bench-who", menu: "bench-who-menu", className: "bench-player" })}
 <span class="bench-fill"></span>
 ${devTool("Players", "people", { id: "bench-players-open", isToggle: true })}
-${devTool("Add a player", "plus", { id: "bench-add", controls: "bench-add-menu", isMenu: true })}
-${devTool(view.logLines.length ? `Log ${view.logLines.length}` : "Log", "info", { id: "bench-log-open", controls: "bench-log" })}
+${devTool("Add a player", "plus", { id: "bench-add", menu: "bench-add-menu" })}
+${devTool(view.logLines.length ? `Log ${view.logLines.length}` : "Log", "info", { id: "bench-log-open", menu: "bench-log-menu" })}
 </div>`;
-  // Who this tab plays as: switch to another of the bench's players, all of them in the Players panel, or sign out to a new guest.
-  const whoMenu = dropdown({
-    id: "bench-who-menu",
-    label: who,
-    head: { title: `Player ${view.playerNumber}`, note: "Who this tab plays as. The game starts again as them." },
-    items: [
-      ...view.players.slice(0, PLAYER_MENU_COUNT).map((player) => ({ label: player.name, icon: "person" as const, isCurrent: player.isThisTab, action: `/bench/sign-in?player=${view.playerNumber}&player_id=${encodeURIComponent(player.playerId)}` })),
-      ...(view.players.length ? [{ kind: "rule" as const }] : []),
-      { label: view.players.length ? "All players" : "Make a player", icon: "people", href: "#", dataAttributes: { "bench-panel": "open" } },
-      ...(view.accountName ? [{ label: "Sign out, as a new guest", icon: "sign-out" as const, action: `/bench/sign-out?player=${view.playerNumber}` }] : []),
-    ],
-  });
-  // A new player comes in a tab of this browser, or on a phone; either way into the room this player is in.
-  const addMenu = dropdown({
-    id: "bench-add-menu",
-    label: "Add a player",
-    head: { title: "Add a player", note: "A new guest, in the room you're in." },
-    items: [
-      { id: "bench-add-tab", label: "In a new tab", icon: "plus", href: view.roomCode ? `/?room=${view.roomCode}` : "/", isNewTab: true },
-      { label: "On a phone", icon: "phone", confirmSheetId: "bench-phone" },
-    ],
-  });
-  const devSheet = (name: DevSheetName, title: string) => sheet({ id: `bench-${name}`, title, closeLabel: "Close", placement: "foot", isCompact: true, body: html`<div id="bench-${name}-body">${devSheetMarkup(name, view)}</div>` });
-  // The strip first, then <main> with the menus and sheets, then the stage: the playing styles show those alone.
+  // Who this tab plays as: another of the bench's players, all of them in the Players panel, or a new guest. The game starts again.
+  const whoMenu = benchMenu("bench-who-menu", who, html`<p class="bm-head"><b>Player ${String(view.playerNumber)}</b><span>Who this tab plays as. The game starts again as them.</span></p>
+${view.players.slice(0, PLAYER_MENU_COUNT).map((player) => html`<button class="bm-item${player.isThisTab ? " is-current" : ""}" type="button" role="menuitem" data-bench-play-as="${player.playerId}">${icon("person")}<span>${player.name}</span>${player.isThisTab ? html`<span class="bm-tag">this tab</span>` : ""}</button>`)}
+${view.players.length ? html`<hr class="bm-rule">` : ""}
+<button class="bm-item" type="button" role="menuitem" data-bench-panel="open">${icon("people")}<span>${view.players.length ? "All players" : "Make a player"}</span></button>
+${view.accountName ? html`<button class="bm-item" type="button" role="menuitem" data-bench-play-as="guest">${icon("sign-out")}<span>Sign out, as a new guest</span></button>` : ""}`);
+  // A new player, into the room this player is in: in a tab of this browser, or on a phone from the QR code drawn as the menu opens.
+  const addMenu = benchMenu("bench-add-menu", "Add a player", html`<p class="bm-head"><b>Add a player</b><span>A new guest, in the room you're in.</span></p>
+<a class="bm-item" id="bench-add-tab" role="menuitem" href="${view.roomCode ? `/?room=${view.roomCode}` : "/"}" target="_blank" rel="noopener">${icon("plus")}<span>In a new tab</span>${icon("out-of-page")}</a>
+<hr class="bm-rule">
+<div id="bench-phone-body">${raw(devSheetBody("phone", view))}</div>`);
+  const logMenu = benchMenu("bench-log-menu", "Log", html`<p class="bm-head"><b>Log</b><span>What the bench and your game server said, newest last.</span></p><div id="bench-log-body">${raw(devSheetBody("log", view))}</div>`);
+  // The strip and its menus first, then the stage: the playing styles show those alone.
   const body = html`<style>${raw(BENCH_STYLE)}</style>
 ${bar}
-<main>${whoMenu}
+${whoMenu}
 ${addMenu}
-${devSheet("phone", "Add a player on a phone")}
-${devSheet("log", "Log")}</main>
+${logMenu}
 <div class="bench-stage"><aside class="bench-panel" id="bench-panel" aria-label="Players" hidden></aside>
 <iframe class="game-frame" id="bench-player" src="${frame.path}" title="${who}: the game page on Zaisma" allow="${frame.allow}" allowfullscreen></iframe></div>
 <script src="/bench/dev.js?player=${String(view.playerNumber)}" defer></script>`;
@@ -261,25 +263,18 @@ ${devSheet("log", "Log")}</main>
   return { ...page, body: page.body.replace('<html lang="en"', '<html lang="en" class="is-playing"') };
 }
 
-/** One of the dev page's sheets, drawn afresh each time it opens or changes. */
+/** What a dev bar menu shows that changes while the bench runs: the phone's QR code for the room, or the log. Drawn afresh as it opens. */
 export function devSheetBody(name: DevSheetName, view: DevView): string {
-  return String(devSheetMarkup(name, view));
-}
-
-function devSheetMarkup(name: DevSheetName, view: DevView): Raw {
-  const words = (text: string): LayoutItem => ({ kind: "words", markup: html`<p>${text}</p>` });
   if (name === "phone") {
-    if (!view.networkUrl) return stack({ items: [words("The bench answers only on this computer. To play on a phone on the same Wi-Fi, stop it and start it again with --on-network.")] });
+    if (!view.networkUrl) return String(html`<p class="bm-note">${icon("phone")} On a phone: start the bench again with --on-network, and the QR code for a phone on the same Wi-Fi shows here.</p>`);
     const target = view.roomCode ? `${view.networkUrl}/?room=${view.roomCode}` : `${view.networkUrl}/`;
-    return stack({
-      items: [
-        { kind: "block", markup: qrCode({ id: "bench-phone-qr", label: view.roomCode ? "A new player, into this room" : "A new player", caption: target, imageUrl: `/bench/qr.svg?text=${encodeURIComponent(target)}` }) },
-        { kind: "block", markup: banner({ text: "Your phone will say the connection isn't private, because the bench signs its own certificate. Continue to the site.", icon: "warning", tone: "warning" }) },
-      ],
-    });
+    return String(html`<p class="bm-label">${icon("phone")} On a phone, on the same Wi-Fi</p>
+<img class="bm-qr" src="/bench/qr.svg?text=${encodeURIComponent(target)}" alt="A QR code for ${target}" width="150" height="150">
+<p class="bm-url">${target}</p>
+<p class="bm-warn">${icon("warning")} Your phone will say the connection isn't private, because the bench signs its own certificate. Continue to the site.</p>`);
   }
-  if (!view.logLines.length) return stack({ items: [{ kind: "block", markup: emptyState({ title: "Nothing yet", text: "What the bench and your game server say shows up here." }) }] });
-  return listRows({ label: "Log", rows: view.logLines.map((line) => ({ title: line })) });
+  if (!view.logLines.length) return String(html`<p class="bm-note">Nothing yet.</p>`);
+  return String(html`<ol class="bm-log">${view.logLines.map((line) => html`<li>${line}</li>`)}</ol>`);
 }
 
 // --- The bench's players: made on this computer, with Zaisma's own age bands and social modes ---
@@ -440,8 +435,10 @@ export async function panelPage(places: BenchPlaces, place: PanelPlace, panelHtm
 /** Where a sign-in ends (/account/kept): it tells the game page it's signed in, then closes or goes back to the player's game. */
 export async function keptPage(places: BenchPlaces, username: string | null, playerNumber: number): Promise<BenchPage> {
   const text = username ? `You're signed in as ${username}. The game picks it up where you left it.` : "Sign in from a player's game page.";
-  const body = html`${glassPane({ paneWidth: "fit", label: "Signed in", body: stack({ items: [{ kind: "words", markup: html`<h1>You're in</h1><p>${text}</p>` }] }) })}<script src="/bench/kept.js?player=${String(playerNumber)}" defer></script>`;
-  return pageOf(layout(benchEnv(places), { title: "Signed in: test bench", checkedPage: "A message", body }));
+  const body = html`<style>${raw(BENCH_STYLE)}body { background: #120f2e; }</style>
+<aside class="bench-panel is-page" aria-label="Signed in"><div class="bp-head"><b>You're in</b></div><p class="bp-empty">${text}</p></aside>
+<script src="/bench/kept.js?player=${String(playerNumber)}" defer></script>`;
+  return pageOf(layout(benchEnv(places), { title: "Signed in: test bench", checkedPage: "A message", isBare: true, body }));
 }
 
 /** The site's stylesheet, scripts and font by the paths the page names, or null for a path that isn't one of them. */

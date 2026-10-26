@@ -4,7 +4,7 @@
 /** What the dev page's frame lets the player's page pass on to the game: the game page's own list (apps/site/src/pages.ts; test/node/local-play-parity.test.ts holds the two together). */
 export const FRAME_ALLOW = "fullscreen; gamepad; autoplay; web-share; clipboard-write; cross-origin-isolated";
 
-/** The dev page's script: it keeps the player's place, reloads the game when a file changes, draws the bar's sheets afresh and runs the Players panel. */
+/** The dev page's script: it keeps the player's place, reloads the game when a file changes, runs the dev bar's menus and the Players panel. */
 export const devScriptSource = () => `(${devScript.toString()})();\n`;
 
 /**
@@ -113,8 +113,6 @@ function devScript() {
       if (viewer) return drawPanel({ view: viewer.dataset.benchView, playerId: viewer.dataset.playerId ?? panelView.playerId, tab: "profile", search: "" });
       const tab = target?.closest("[data-bench-tab]");
       if (tab) return drawPanel({ tab: tab.dataset.benchTab, search: "" });
-      const player = target?.closest("[data-bench-play-as]");
-      if (player) return playAs(player.dataset.benchPlayAs);
       const caller = target?.closest("[data-bench-call]");
       if (caller) {
         const [method, path] = caller.dataset.benchCall.split(" ");
@@ -152,24 +150,52 @@ function devScript() {
     });
   }
   playersButton?.addEventListener("click", () => showPanel(panel.hidden));
-  // The player menu's All players opens the panel.
+
+  // --- The dev bar's menus: each opens under its button, drawn afresh where it shows what changes, and closes on a pick, Escape or a click away ---
+  const closeMenus = () => {
+    for (const menu of document.querySelectorAll(".bench-menu")) menu.hidden = true;
+    for (const button of document.querySelectorAll("[data-bench-menu]")) button.setAttribute("aria-expanded", "false");
+  };
+  const openMenu = (button) => {
+    const menu = document.getElementById(button.dataset.benchMenu);
+    const wasOpen = !menu.hidden;
+    closeMenus();
+    if (wasOpen) return;
+    menu.hidden = false;
+    const buttonBox = button.getBoundingClientRect();
+    menu.style.left = `${Math.max(8, Math.min(buttonBox.left, innerWidth - menu.offsetWidth - 8))}px`;
+    button.setAttribute("aria-expanded", "true");
+    if (menu.id === "bench-add-menu") refresh("phone");
+    if (menu.id === "bench-log-menu") refresh("log");
+    menu.querySelector(".bm-item")?.focus();
+  };
   document.addEventListener("click", (event) => {
-    const opener = event.target instanceof Element ? event.target.closest('[data-bench-panel="open"]') : null;
-    if (!opener) return;
-    event.preventDefault();
-    showPanel(true);
+    const target = event.target instanceof Element ? event.target : null;
+    const menuButton = target?.closest("[data-bench-menu]");
+    if (menuButton) return openMenu(menuButton);
+    // Playing as someone, from the player menu or the Players panel.
+    const player = target?.closest("[data-bench-play-as]");
+    if (player) {
+      closeMenus();
+      return playAs(player.dataset.benchPlayAs);
+    }
+    // The player menu's All players opens the panel.
+    const opener = target?.closest('[data-bench-panel="open"]');
+    if (opener) {
+      event.preventDefault();
+      closeMenus();
+      return showPanel(true);
+    }
+    if (target?.closest(".bm-item")) return setTimeout(closeMenus, 0);
+    if (!target?.closest(".bench-menu")) closeMenus();
+  });
+  addEventListener("keydown", (event) => {
+    if (event.key === "Escape") closeMenus();
   });
   if (isPage) {
     drawPanel();
     return;
   }
-
-  // Whatever opens a sheet (a bar button, the Add a player menu's On a phone) draws it afresh.
-  document.addEventListener("click", (event) => {
-    const opener = event.target instanceof Element ? event.target.closest('[aria-controls^="bench-"]') : null;
-    const name = opener ? /^bench-(phone|log)$/.exec(opener.getAttribute("aria-controls") ?? "")?.[1] : null;
-    if (name) refresh(name);
-  });
 
   // About once a second: the player is still here, a game file changed (reload the game), and the room they're in (Add a player joins it).
   const check = () =>
