@@ -124,7 +124,7 @@ describe.skipIf(!sites)("the layout check", () => {
     const said = await brokenOnLaptop(tooWide + menu + spilling + wideSheet + touching);
     expect(said.some((line) => /two panes closer than a block's gap/.test(line) && /Touching below/.test(line)), said.join("\n")).toBe(true);
     expect(said.some((line) => /wider than its page's shape/.test(line)), said.join("\n")).toBe(true);
-    expect(said.some((line) => /taller than its kind allows/.test(line) && /Choice/.test(line)), said.join("\n")).toBe(true);
+    expect(said.some((line) => /taller than its kind allows/.test(line) && /Spilling menu/.test(line)), said.join("\n")).toBe(true);
     expect(said.some((line) => /a pane past the screen/.test(line)), said.join("\n")).toBe(true);
     expect(said.some((line) => /wider than its kind allows/.test(line) && /Too wide/.test(line)), said.join("\n")).toBe(true);
     // The fine menu scrolls inside itself: nothing names it.

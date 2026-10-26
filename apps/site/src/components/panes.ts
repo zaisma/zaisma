@@ -160,11 +160,12 @@ export const DROPDOWN_SCRIPT = `/* menus */(function () {
   var root = getComputedStyle(document.documentElement);
   // The gap under the button, and the least room kept from the screen's edges: two controls stacked, and the frame gap.
   function token(name, fallback) { return parseFloat(root.getPropertyValue(name)) || fallback; }
-  // Where a fixed menu's coordinates start: the viewport, or the nearest ancestor that holds fixed things (a transform or filter), like the gallery's frames.
+  // Where a fixed menu's coordinates start: the viewport, or the nearest ancestor that holds fixed things (a transform, a filter or a glass's
+  // backdrop blur, a container), like the gallery's frames or a pane the menu sits in.
   function fixedOrigin(el) {
     for (var p = el.parentElement; p && p !== document.documentElement; p = p.parentElement) {
       var style = getComputedStyle(p);
-      if (style.transform !== "none" || style.filter !== "none" || /paint|layout|strict|content/.test(style.contain || "")) return p.getBoundingClientRect();
+      if (style.transform !== "none" || style.filter !== "none" || (style.backdropFilter || "none") !== "none" || (style.containerType || "normal") !== "normal" || /transform|filter/.test(style.willChange || "") || /paint|layout|strict|content/.test(style.contain || "")) return p.getBoundingClientRect();
     }
     return { left: 0, top: 0 };
   }

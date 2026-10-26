@@ -61,7 +61,7 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
       if (pane.matches(":modal, :popover-open")) return { left: 0, top: 0, right: innerWidth, bottom: innerHeight };
       for (var walk = pane.parentElement; walk && walk !== document.documentElement; walk = walk.parentElement) {
         var css = getComputedStyle(walk);
-        if (css.transform !== "none" || css.filter !== "none" || /paint|layout|strict|content/.test(css.contain || "")) return walk.getBoundingClientRect();
+        if (css.transform !== "none" || css.filter !== "none" || (css.backdropFilter || "none") !== "none" || (css.containerType || "normal") !== "normal" || /transform|filter/.test(css.willChange || "") || /paint|layout|strict|content/.test(css.contain || "")) return walk.getBoundingClientRect();
       }
       return { left: 0, top: 0, right: innerWidth, bottom: innerHeight };
     }

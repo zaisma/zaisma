@@ -799,7 +799,8 @@ component({
 `,
   render: accountButton,
   examples: [
-    { label: "Rest", markup: accountButton({ ...STAND_IN_ACCOUNT, menuId: "example-me-menu" }) },
+    // Pressed, it opens its menu, as in the header.
+    { label: "Rest", markup: html`${accountButton({ ...STAND_IN_ACCOUNT, menuId: "example-me-menu-rest" })}${dropdown({ id: "example-me-menu-rest", label: "Your account", head: { title: STAND_IN_ACCOUNT.username, note: "Online" }, items: [{ label: "Your profile", href: "#account-button", icon: "person" }, { label: "Settings", href: "#account-button", icon: "gear" }] })}` },
     { label: "Pointed", markup: accountButton({ ...STAND_IN_ACCOUNT, menuId: "example-me-menu", state: "is-pointed" }), isStill: true },
     { label: "Pressed", markup: accountButton({ ...STAND_IN_ACCOUNT, menuId: "example-me-menu", state: "is-pressed" }), isStill: true },
     { label: "Menu open", markup: accountButton({ ...STAND_IN_ACCOUNT, menuId: "example-me-menu", isMenuOpen: true }), isStill: true },

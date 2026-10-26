@@ -140,16 +140,31 @@ const PRESS_EVERY_ANSWER = `(async () => {
   const pressed = [...document.querySelectorAll("[aria-controls]:not(a[href]:not([href^='#'])), [popovertarget], .tab-switch > button, details > summary")]
     .filter((el) => el.getClientRects().length && !el.closest(".steps, [inert], [hidden], dialog:not([open]), .dropdown.shut, template") && !el.disabled);
   const failures = [];
-  const describe = (el) => (el.getAttribute("aria-label") || el.textContent || el.className || el.tagName).trim().replace(/\s+/g, " ").slice(0, 48);
+  const describe = (el) => (el.getAttribute("aria-label") || el.textContent || el.className || el.tagName).trim().replace(/\\s+/g, " ").slice(0, 48);
   for (const el of pressed) {
     if (!el.isConnected || !el.getClientRects().length) continue;
     const startedMs = performance.now();
+    // What the press is about: the button's own state, what it names (aria-controls, popovertarget), the folded part it opens, and any sheet
+    // or popover opening. The page's other scripts change other things on a press (the pointer's light, focus marks), which aren't an answer.
+    const named = document.getElementById(el.getAttribute("aria-controls") || el.getAttribute("popovertarget") || "");
+    const layered = () => document.querySelectorAll("dialog[open], :popover-open").length;
+    const layeredBefore = layered();
     const answeredMs = await new Promise((done) => {
-      const observer = new MutationObserver(() => { observer.disconnect(); done(performance.now() - startedMs); });
-      observer.observe(document.documentElement, { subtree: true, childList: true, attributes: true, characterData: true });
+      let timer = 0;
+      const answer = () => { observer.disconnect(); clearInterval(timer); done(performance.now() - startedMs); };
+      // The glass's drawn edges and cut lines redraw on a press (the light follows the pointer): not an answer.
+      const observer = new MutationObserver((records) => { if (records.some((record) => !(record.target.closest ? record.target : record.target.parentElement)?.closest("svg.edge, .cut-line, svg.cut-line"))) answer(); });
+      // The press's own component, up to two levels round it (a field's Copy says Copied beside it), never the pane or layout cell it sits in.
+      const OUTSIDE = "[data-glass], .pane-in, .sheet-in, .stack-cell, .row-cell, .grid-cell, .example-stage, main, body";
+      const around = [el.parentElement?.parentElement, el.parentElement].find((each) => each && !each.matches(OUTSIDE)) ?? el;
+      observer.observe(around, { attributes: true, childList: true, subtree: true, characterData: true });
+      if (named) observer.observe(named, { attributes: true, childList: true, subtree: true, characterData: true });
+      if (el.closest("details")) observer.observe(el.closest("details"), { attributes: true });
+      const group = el.closest(".tab-switch");
+      if (group) observer.observe(group, { attributes: true, subtree: true });
+      timer = setInterval(() => { if (layered() !== layeredBefore) answer(); }, 20);
       el.click();
-      if (document.getAnimations().some((animation) => animation.playState === "running")) { observer.disconnect(); done(performance.now() - startedMs); }
-      setTimeout(() => { observer.disconnect(); done(null); }, ${MAXIMUM_ANSWER_MS});
+      setTimeout(() => { observer.disconnect(); clearInterval(timer); done(null); }, ${MAXIMUM_ANSWER_MS});
     });
     if (answeredMs === null) failures.push({ check: "no answer within 400 ms", element: describe(el), said: "pressed, nothing on the page changed within ${MAXIMUM_ANSWER_MS} ms" });
     document.querySelectorAll("dialog[open]").forEach((dialog) => dialog.close());
@@ -173,7 +188,7 @@ const openEveryPane = () => `(async () => {
     await new Promise((done) => setTimeout(done, 100));
     opener.click();
     await new Promise((done) => setTimeout(done, 450));
-    const label = (opener.getAttribute("aria-label") || opener.textContent || "").trim().replace(/\s+/g, " ").slice(0, 40);
+    const label = (opener.getAttribute("aria-label") || opener.textContent || "").trim().replace(/\\s+/g, " ").slice(0, 40);
     failures.push(...measure({ isPanesOnly: true }).map((failure) => ({ ...failure, element: failure.element + ", opened from " + JSON.stringify(label) })));
     document.querySelectorAll("dialog[open]").forEach((dialog) => dialog.close());
     document.querySelectorAll(":popover-open").forEach((popover) => popover.hidePopover());
@@ -335,6 +350,8 @@ export async function checkPages({ site, signInSite, pages = LAYOUT_CHECK_PAGES,
     const contexts = new Map();
     const newContext = async (account) => {
       const { browserContextId } = await chrome.send("Target.createBrowserContext");
+      // A Copy button answers once the clipboard takes the words, which headless Chrome holds behind a permission a person grants.
+      await chrome.send("Browser.grantPermissions", { permissions: ["clipboardReadWrite", "clipboardSanitizedWrite"], browserContextId }).catch(() => {});
       if (account) await signIn(chrome, browserContextId, site, account);
       return browserContextId;
     };
