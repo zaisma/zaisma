@@ -6,7 +6,7 @@ Run it with `npx @zaisma/cli <command>`, or install it once with `npm install -g
 
 Before anything else, `zaisma check ./build` lists anything in the game Zaisma would refuse or that won't work on Zaisma (threaded engine builds, `alert()`, forms, servers the game hasn't listed…), each with how to fix it. It needs no key and sends nothing.
 
-To play a multiplayer game on your own computer before uploading it, run `zaisma play-locally` in its folder: the game and its game server run here, and the test bench's Add a player opens another tab as someone else. It needs no key and no internet.
+To play a multiplayer game on your own computer before uploading it, run `zaisma play-locally` in its folder: the game and its game server run here, and the test bench's Add a player opens another tab as a new player, each on Zaisma's own game page. It needs no key and no internet.
 
 1. Make an API key at https://zaisma.com/account, under Game developers, and set it: `export ZAISMA_KEY=zsk_…`
 2. Make a game: `zaisma new "Sky Hopper"`

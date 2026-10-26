@@ -4,17 +4,17 @@
 //   - the player page in that frame: zaisma.com's game page, drawn by the site's own gamePageResponse from the bench's stand-ins, with
 //     its bar, sheets, cards and page scripts, framing the game. The bench answers its calls; nothing here runs on Zaisma's servers.
 import type { Account, FriendInGame, FriendsInGame, Game, ItemCategory } from "@zaisma/core";
-import { html, layout, type Raw } from "../../../apps/site/src/html.ts";
+import { html, layout, raw, type Raw } from "../../../apps/site/src/html.ts";
 import type { Env } from "../../../apps/site/src/env.ts";
 import { gamePageResponse } from "../../../apps/site/src/pages.ts";
 import { friendRows } from "../../../apps/site/src/players-sheet.ts";
 import { friendsHere } from "../../../apps/site/src/friends-now.ts";
 import { pageScriptResponse } from "../../../apps/site/src/page-scripts.ts";
 import { pageStyleResponse } from "../../../apps/site/src/page-styles.ts";
-import { playingBar } from "../../../apps/site/src/components/playing.ts";
 import { cutButton, runButton } from "../../../apps/site/src/components/actions.ts";
 import { cutField } from "../../../apps/site/src/components/fields.ts";
-import { glassPane } from "../../../apps/site/src/components/foundations.ts";
+import { glassPane, type IconName } from "../../../apps/site/src/components/foundations.ts";
+import { icon } from "../../../apps/site/src/components/icons.ts";
 import { banner, sheet } from "../../../apps/site/src/components/panes.ts";
 import { checkField } from "../../../apps/site/src/components/choices.ts";
 import { qrCode } from "../../../apps/site/src/components/inputs.ts";
@@ -152,20 +152,41 @@ export interface DevView {
 
 export type DevSheetName = "friends" | "phone" | "log";
 
+// The dev bar's own look: a slim flat strip in a color none of Zaisma's pages use, with words for its buttons, so it never reads as part of
+// what a player sees. It's the bench's, not a page of zaisma.com's, so it has its own few styles here. The playing styles lay out the body
+// as the game page's: this strip, then the frame below it, in a column on every screen.
+const DEV_BAR_STYLE = `html.is-playing body { flex-direction: column; }
+.bench-bar { flex: none; display: flex; align-items: center; gap: 4px; min-height: 30px; padding: 0 8px; padding-top: env(safe-area-inset-top, 0); background: #26215c; color: #cecbf6; font: 500 13px/1 Jost, system-ui, sans-serif; overflow-x: auto; scrollbar-width: none; white-space: nowrap; }
+.bench-bar::-webkit-scrollbar { display: none; }
+.bench-bar .bench-name { display: inline-flex; align-items: center; gap: 6px; padding-right: 6px; }
+.bench-bar .bench-player { padding: 3px 8px; border-radius: 6px; background: #3c3489; color: #eeedfe; }
+.bench-bar .bench-fill { flex: 1; }
+.bench-bar .bench-tool { display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 8px; border: 0; border-radius: 6px; background: none; color: inherit; font: inherit; text-decoration: none; cursor: pointer; }
+.bench-bar .bench-tool:hover, .bench-bar .bench-tool:focus-visible { background: #3c3489; color: #eeedfe; outline: none; }
+.bench-bar svg { width: 15px; height: 15px; flex: none; }
+@media (max-width: 600px) { .bench-bar .bench-name, .bench-bar .bench-tool .bench-words { display: none; } }`;
+
+/** One of the dev bar's buttons: a link (Add a player) or a button that opens its sheet. */
+const devTool = (label: string, iconName: IconName, target: { href: string; id: string } | { controls: string; id: string }): Raw =>
+  "href" in target
+    ? html`<a class="bench-tool" id="${target.id}" href="${target.href}" aria-label="${label}">${icon(iconName)}<span class="bench-words">${label}</span></a>`
+    : html`<button class="bench-tool" id="${target.id}" type="button" aria-controls="${target.controls}" aria-label="${label}">${icon(iconName)}<span class="bench-words">${label}</span></button>`;
+
 /** The dev page: the bench's bar above the player's page, which frames the game. */
 export async function devPage(places: BenchPlaces, view: DevView, frame: { path: string; allow: string }): Promise<BenchPage> {
-  const addHref = view.roomCode ? `/?room=${view.roomCode}` : "/";
-  const controls = [
-    cutButton("Add a player", { id: "bench-add", href: addHref, icon: "plus", isSmall: true }),
-    cutButton("Friends", { id: "bench-friends-open", type: "button", icon: "friends", isLabelHidden: true, isSmall: true, controls: "bench-friends" }),
-    cutButton("Phone", { id: "bench-phone-open", type: "button", icon: "phone", isLabelHidden: true, isSmall: true, controls: "bench-phone" }),
-    cutButton("Log", { id: "bench-log-open", type: "button", icon: "info", isLabelHidden: true, isSmall: true, controls: "bench-log" }),
-  ];
-  const devSheet = (name: DevSheetName, title: string) => sheet({ id: `bench-${name}`, title, closeLabel: "Close", placement: "foot", isCompact: true, body: html`<div id="bench-${name}-body">${devSheetMarkup(name, view)}</div>` });
   const who = `Player ${view.playerNumber}${view.accountName ? `, ${view.accountName}` : ", a guest"}`;
-  // The bar and its sheets in <main>, the player's page in the frame beside it in the body: the playing styles lay out those alone.
-  const body = html`<main>${playingBar({ title: who, controls })}
-${devSheet("friends", "Friends")}
+  const bar = html`<div class="bench-bar" role="toolbar" aria-label="Test bench">
+<span class="bench-name">${icon("gear")}Test bench</span><span class="bench-player">${who}</span><span class="bench-fill"></span>
+${devTool("Add a player", "plus", { id: "bench-add", href: view.roomCode ? `/?room=${view.roomCode}` : "/" })}
+${devTool("Friends", "friends", { id: "bench-friends-open", controls: "bench-friends" })}
+${devTool("Phone", "phone", { id: "bench-phone-open", controls: "bench-phone" })}
+${devTool(view.logLines.length ? `Log ${view.logLines.length}` : "Log", "info", { id: "bench-log-open", controls: "bench-log" })}
+</div>`;
+  const devSheet = (name: DevSheetName, title: string) => sheet({ id: `bench-${name}`, title, closeLabel: "Close", placement: "foot", isCompact: true, body: html`<div id="bench-${name}-body">${devSheetMarkup(name, view)}</div>` });
+  // The strip first, then <main> with the sheets, then the player's page in the frame: the playing styles show those alone.
+  const body = html`<style>${raw(DEV_BAR_STYLE)}</style>
+${bar}
+<main>${devSheet("friends", "Friends")}
 ${devSheet("phone", "Open it on a phone")}
 ${devSheet("log", "Log")}</main>
 <iframe class="game-frame" id="bench-player" src="${frame.path}" title="${who}: the game page on Zaisma" allow="${frame.allow}" allowfullscreen></iframe>

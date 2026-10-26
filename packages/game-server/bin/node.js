@@ -755,7 +755,7 @@ async function playLocally(argumentList) {
   for (const signal of ["SIGTERM", "SIGINT"]) process.once(signal, () => running.close().then(() => process.exit(0)));
   if (given.isJson) console.log(JSON.stringify({ bench_url: running.benchUrl, game_site_url: running.gameSiteUrl, rooms_url: running.roomsUrl, network_url: running.networkUrl }));
   say(`Playing ${given.gameSlug ?? "your game"} on this computer. The test bench is at ${running.benchUrl}`);
-  say("Add a player in the bench's bar to play with yourself in another tab. A change to a game file reloads the game, and a change to the game server starts it again with its rooms kept.");
+  say("Each player plays on Zaisma's own game page. Add a player in the dev bar to play with yourself in another tab. A change to a game file reloads the game, and a change to the game server starts it again with its rooms kept.");
   say("Nothing here talks to Zaisma. What the bench keeps is in .zaisma-local/ in the game's folder: add it to your .gitignore. Press Ctrl-C to stop.");
   if (running.networkUrl) {
     say(`On a phone on the same Wi-Fi: ${running.networkUrl}`);

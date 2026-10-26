@@ -66,6 +66,8 @@ function joinRoom(code: string, pass: string): Promise<{ socket: WebSocket; welc
       if (message.type === "error") reject(new Error(message.message));
     });
     socket.on("error", reject);
+    // Closed before its welcome (the game server was starting again): this try is over, and the next one can go.
+    socket.on("close", () => reject(new Error("closed before the welcome")));
   });
 }
 const until = async (isDone: () => boolean, timeoutMs = 10_000) => {
@@ -162,7 +164,8 @@ describe("play-locally", () => {
 
   it("frames each player's page, zaisma.com's game page drawn by the site's own code, under the dev bar", async () => {
     const dev = await (await fetch(`${play.benchUrl}/?player=${anna}`)).text();
-    expect(dev).toContain('class="playing-bar');
+    expect(dev).toContain('class="bench-bar"');
+    expect(dev).not.toContain('class="playing-bar');
     expect(dev).toContain(`src="/p/${anna}/g/${SLUG}?play"`);
     expect(dev).toContain('id="bench-friends-body"');
     const response = await fetch(`${play.benchUrl}/p/${anna}/g/${SLUG}?play`);
@@ -272,9 +275,14 @@ describe("play-locally", () => {
     appendFileSync(join(folder, "zaisma-server.js"), "\n// changed\n");
     await until(() => play.runnerStartCount > startCount, 15_000);
     await until(() => first.socket.readyState === WebSocket.CLOSED && second.socket.readyState === WebSocket.CLOSED, 15_000);
+    // One try at a time until the restarted game server takes her: a second connection as the same player would replace the first.
     let back: Awaited<ReturnType<typeof joinRoom>> | null = null;
+    let isTrying = false;
     await until(() => {
-      if (!back) joinRoom(code, annaPass.pass).then((joined) => (back = joined), () => {});
+      if (!back && !isTrying) {
+        isTrying = true;
+        joinRoom(code, annaPass.pass).then((joined) => (back = joined), () => {}).finally(() => (isTrying = false));
+      }
       return back !== null;
     }, 15_000);
     // Back in the room the restart brought back: the board still has her piece.

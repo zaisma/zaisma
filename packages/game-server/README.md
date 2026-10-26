@@ -2,7 +2,7 @@
 
 Write a game server once; run it in Zaisma's rooms or on your own Node server. Rooms, players, state sync, chat, the game's database and its requests behave the same in both.
 
-To play your multiplayer game on your own computer before you upload it, run `npx @zaisma/game-server@1 play-locally` in the game's folder (or `npx @zaisma/cli play-locally`, which runs it). It serves the game, runs its game server, and opens a test bench where Add a player opens another tab as someone else, with made-up accounts, friends, blocks and items between them and passes signed by a key of its own, so two tabs play together with no account, key or internet. Flags: `[folder]`, `--port 4800`, `--game <slug>`, `--on-network`, `--no-open`, `--json`; Zaisma's README has the whole of it under "Play it on your own computer".
+To play your multiplayer game on your own computer before you upload it, run `npx @zaisma/game-server@1 play-locally` in the game's folder (or `npx @zaisma/cli play-locally`, which runs it). It serves the game, runs its game server, and opens a test bench: each player on Zaisma's own game page, guests until they sign in with a name, and a dev bar whose Add a player opens another tab as a new player, with passes signed by a key of its own, so two tabs play together with no account, key or internet. Flags: `[folder]`, `--port 4800`, `--game <slug>`, `--on-network`, `--no-open`, `--json`; Zaisma's README has the whole of it under "Play it on your own computer".
 
 ```ts
 // server.ts
