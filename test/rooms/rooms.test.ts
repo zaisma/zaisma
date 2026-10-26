@@ -954,13 +954,15 @@ describe("rooms", () => {
     const pausedAtMs = Date.now();
     await e.DB.prepare("INSERT INTO game_hosting_months (game_id, month_start_date, used_cents, paused_at_ms, paused_reason) VALUES (?, ?, 500, ?, 'free_used')").bind(id, monthStartDateOf(), pausedAtMs).run();
     const stub = e.ROOMS.get(e.ROOMS.idFromName("finisher:FNSHRA"));
-    // Checked on a's join, before the pause; the next check, every 5 minutes, is due now.
+    // Checked on a's join, before the pause; the next check, every 5 minutes, is due now. The alarm too: the room sets its own only
+    // after the welcome, once it settled, and runDurableObjectAlarm runs nothing when none is set yet.
     await runInDurableObject(stub, async (room: Room, state) => {
       expect(await state.storage.get<number>("hostingCheckedAtMs")).toBeGreaterThan(Date.now() - 60_000);
       (room as any).hostingCheckedAtMs = 0;
       await state.storage.put("hostingCheckedAtMs", 0);
+      await state.storage.setAlarm(Date.now());
     });
-    await runDurableObjectAlarm(stub);
+    await runDurableObjectAlarm(stub); // Due now, so it may already have run by itself.
     const ending = await until(a, (m) => m.type === "ending");
     expect(Date.parse(ending.endsAt)).toBe(pausedAtMs + MATCH_FINISH_DURATION_SEC * 1000);
     // Kept for when the room wakes from hibernation, so the hour doesn't start again.
@@ -969,10 +971,11 @@ describe("rooms", () => {
     });
 
     // The hour is up: the next check ends the match and tells the players why.
-    await runInDurableObject(stub, async (room: Room) => {
+    await runInDurableObject(stub, async (room: Room, state) => {
       (room as any).core.endsAt = new Date(Date.now() - 1000).toISOString();
+      await state.storage.setAlarm(Date.now());
     });
-    await runDurableObjectAlarm(stub);
+    await runDurableObjectAlarm(stub); // Due now, so it may already have run by itself.
     expect(await until(a, (m) => m.type === "ended")).toEqual({ type: "ended", message: HOSTING_PAUSED_END_MESSAGE, endReason: "hosting_paused" });
     await a.closed;
     // The room is over for good, even for its own players.
