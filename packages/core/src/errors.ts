@@ -174,6 +174,7 @@ export const ERROR_CODES = {
   bad_monthly_budget_cents: { httpStatus: 400, meaning: "monthly_budget_cents isn't a whole number of cents of at least 100 ($1), or null for no paid hosting." },
   bad_top_up_amount: { httpStatus: 400, meaning: "amount_cents isn't a whole number of cents from 1,000 ($10) to 100,000 ($1,000)." },
   no_top_up: { httpStatus: 404, meaning: "You have no top-up with that ID." },
+  no_spending_request: { httpStatus: 404, meaning: "You have no spending request with that ID." },
   top_up_not_refundable: { httpStatus: 409, meaning: "The top-up has nothing left to refund: it's spent, refunded, or over 180 days old." },
   bad_automatic_top_up: { httpStatus: 400, meaning: "The automatic top-up's amounts aren't whole cents that fit: a top-up of at least $10, and a monthly limit of at least one top-up." },
   already_pro: { httpStatus: 409, meaning: "The developer already has a Zaisma Pro subscription (running, cancelled until the month ends, or a renewal Stripe is retrying), so there's nothing to start." },
@@ -338,11 +339,13 @@ export interface ErrorDetails {
   retryAfterSec?: number | null;
   /** Where the developer confirms it themselves on zaisma.com, for confirmation_needed alone. */
   confirmUrl?: string;
+  /** The request the developer approves at confirmUrl, for confirmation_needed when a spending request was made. */
+  spendingRequestId?: string;
 }
 
 /** An error answer: { "error": { code, message, field, fix, retry_after_sec } }, the same in the API and the MCP; confirmation_needed adds confirm_url. */
 export interface ErrorAnswer {
-  error: { code: ErrorCode; message: string; field: string | null; fix: string; retry_after_sec: number | null; confirm_url?: string };
+  error: { code: ErrorCode; message: string; field: string | null; fix: string; retry_after_sec: number | null; confirm_url?: string; spending_request_id?: string };
 }
 
 /** A refusal the developer API and MCP answer with, as docs/NAMING.md describes. */
@@ -352,6 +355,7 @@ export class ApiError extends Error {
   readonly fix: string;
   readonly retryAfterSec: number | null;
   readonly confirmUrl: string | null;
+  readonly spendingRequestId: string | null;
 
   constructor(
     readonly code: ErrorCode,
@@ -363,6 +367,7 @@ export class ApiError extends Error {
     this.fix = details.fix;
     this.retryAfterSec = details.retryAfterSec ?? null;
     this.confirmUrl = details.confirmUrl ?? null;
+    this.spendingRequestId = details.spendingRequestId ?? null;
   }
 
   /** What happened and what to do, for a page to show. */
@@ -371,7 +376,7 @@ export class ApiError extends Error {
   }
 
   toAnswer(): ErrorAnswer {
-    return { error: { code: this.code, message: this.message, field: this.field, fix: this.fix, retry_after_sec: this.retryAfterSec, ...(this.confirmUrl ? { confirm_url: this.confirmUrl } : {}) } };
+    return { error: { code: this.code, message: this.message, field: this.field, fix: this.fix, retry_after_sec: this.retryAfterSec, ...(this.confirmUrl ? { confirm_url: this.confirmUrl } : {}), ...(this.spendingRequestId ? { spending_request_id: this.spendingRequestId } : {}) } };
   }
 }
 

@@ -1,7 +1,8 @@
-import { ApiError, CREDIT_LIMITS, automaticTopUpsThisMonth, checkIdKind, creditOf, iso, monthStartDateOf, newId, refundableTopUps, type CreditEntryKind } from "@zaisma/core";
+import { ApiError, CREDIT_LIMITS, FREE_HOSTING_CENTS_PER_MONTH, automaticTopUpsThisMonth, checkIdKind, creditOf, iso, monthStartDateOf, newId, refundableTopUps, type CreditEntryKind } from "@zaisma/core";
 import { confirmationOf } from "./session-proofs.ts";
 import { logCallerEvent } from "./security-log.ts";
 import { refundCharge, topUpCheckout } from "./stripe.ts";
+import { askForSpending, spendingRequestAnswer, spendingRequestUrl, type SpendingChange } from "./spending-requests.ts";
 import type { Session } from "./auth.ts";
 import type { Caller, NextStep } from "./developer.ts";
 import type { Env } from "./env.ts";
@@ -23,8 +24,8 @@ import type { Env } from "./env.ts";
 const ENTRY_DURATION_DAYS = 90;
 const DAY_MS = 86_400_000;
 
-/** Where the developer confirms spending with their passkey: the credit settings on zaisma.com. */
-export const confirmUrlOf = (env: Env) => `${env.SITE_ORIGIN}/developer/settings#credit`;
+/** Where the developer confirms spending with their passkey: the hosting part of Developer settings on zaisma.com. */
+export const confirmUrlOf = (env: Env) => `${env.SITE_ORIGIN}/dashboard/settings#hosting`;
 
 /** Whether this caller may turn spending on or up: our own page, with a passkey tap in the last 10 minutes. */
 export async function withSpendingConfirmation(env: Env, caller: Caller, session: Session): Promise<Caller> {
@@ -33,19 +34,29 @@ export async function withSpendingConfirmation(env: Env, caller: Caller, session
   return { ...caller, isSpendingConfirmed: confirmation.isPasskeyNeeded && confirmation.isConfirmed };
 }
 
-/** Refuses turning spending on or up without the developer's passkey. */
-export function checkSpendingConfirmed(env: Env, caller: Caller, what: string): void {
+/**
+ * Refuses turning spending on or up without the developer's passkey. A key or an AI app that asks gets the change kept as a
+ * spending request: confirm_url opens a sheet naming it, where the developer approves with a passkey tap, and
+ * get_spending_request checks the answer.
+ */
+export async function checkSpendingConfirmed(env: Env, caller: Caller, what: string, change: SpendingChange): Promise<void> {
   if (caller.isSpendingConfirmed) return;
+  if (caller.via === "dashboard") {
+    throw new ApiError("confirmation_needed", { message: `${what} spends the developer's money, so it needs their passkey.`, fix: "Tap your passkey, then do it again.", confirmUrl: confirmUrlOf(env) });
+  }
+  const spendingRequestId = await askForSpending(env, caller.accountId, change);
   throw new ApiError("confirmation_needed", {
     message: `${what} spends the developer's money, so it needs their passkey on zaisma.com.`,
-    fix: "Send the developer to confirm_url to do it there with their passkey. A key can turn spending off or down on its own.",
-    confirmUrl: confirmUrlOf(env),
+    fix: "Give the developer confirm_url: it opens a sheet naming this exact change, where they approve with a passkey tap or decline. Check the answer with get_spending_request (spending_request_id). A key can turn spending off or down on its own.",
+    confirmUrl: spendingRequestUrl(env, spendingRequestId),
+    spendingRequestId,
   });
 }
 
 /** The credit_answer: everything about an owner's credit. */
 export async function creditAnswer(env: Env, ownerId: string, nowMs = Date.now()) {
   const sinceMs = nowMs - ENTRY_DURATION_DAYS * DAY_MS;
+  const lastMonthStartDate = monthStartDateOf(Date.parse(`${monthStartDateOf(nowMs)}T00:00:00Z`) - DAY_MS);
   const [credit, topUps, automatic, { results: entries }, { results: games }] = await Promise.all([
     creditOf(env.DB, ownerId),
     refundableTopUps(env.DB, ownerId, nowMs),
@@ -54,10 +65,10 @@ export async function creditAnswer(env: Env, ownerId: string, nowMs = Date.now()
       .bind(ownerId, sinceMs)
       .all<{ id: string; entry_kind: CreditEntryKind; amount_cents: number; game_slug: string | null; created_at_ms: number }>(),
     env.DB.prepare(
-      "SELECT games.slug, games.title, games.monthly_budget_cents, COALESCE(game_hosting_months.charged_cents, 0) AS charged_cents FROM games LEFT JOIN game_hosting_months ON game_hosting_months.game_id = games.id AND game_hosting_months.month_start_date = ? WHERE games.owner_id = ? AND (games.monthly_budget_cents IS NOT NULL OR game_hosting_months.charged_cents > 0) ORDER BY games.title",
+      "SELECT games.slug, games.title, games.monthly_budget_cents, COALESCE(game_hosting_months.charged_cents, 0) AS charged_cents, COALESCE(last_month.used_cents, 0) AS last_month_used_cents FROM games LEFT JOIN game_hosting_months ON game_hosting_months.game_id = games.id AND game_hosting_months.month_start_date = ? LEFT JOIN game_hosting_months AS last_month ON last_month.game_id = games.id AND last_month.month_start_date = ? WHERE games.owner_id = ? AND (games.monthly_budget_cents IS NOT NULL OR game_hosting_months.charged_cents > 0 OR last_month.used_cents > ?) ORDER BY games.title",
     )
-      .bind(monthStartDateOf(nowMs), ownerId)
-      .all<{ slug: string; title: string; monthly_budget_cents: number | null; charged_cents: number }>(),
+      .bind(monthStartDateOf(nowMs), lastMonthStartDate, ownerId, FREE_HOSTING_CENTS_PER_MONTH)
+      .all<{ slug: string; title: string; monthly_budget_cents: number | null; charged_cents: number; last_month_used_cents: number }>(),
   ]);
   return {
     balance_cents: credit.balanceCents,
@@ -71,7 +82,7 @@ export async function creditAnswer(env: Env, ownerId: string, nowMs = Date.now()
     top_ups: topUps
       .filter((topUp) => topUp.createdAtMs >= nowMs - CREDIT_LIMITS.refundableDurationDays * DAY_MS)
       .map((topUp) => ({ id: topUp.id, amount_cents: topUp.amountCents, refundable_cents: topUp.refundableCents, refund_ends_at: iso(topUp.refundableUntilMs), created_at: iso(topUp.createdAtMs) })),
-    games: games.map((game) => ({ slug: game.slug, title: game.title, monthly_budget_cents: game.monthly_budget_cents, spent_from_credit_this_month_cents: game.charged_cents })),
+    games: games.map((game) => ({ slug: game.slug, title: game.title, monthly_budget_cents: game.monthly_budget_cents, spent_from_credit_this_month_cents: game.charged_cents, last_month_beyond_free_cents: Math.max(0, Math.round(game.last_month_used_cents) - FREE_HOSTING_CENTS_PER_MONTH) })),
     entries: entries.map((entry) => ({ id: entry.id, entry_kind: entry.entry_kind, amount_cents: entry.amount_cents, game_slug: entry.game_slug, created_at: iso(entry.created_at_ms) })),
   };
 }
@@ -82,6 +93,15 @@ const wholeCents = (given: unknown) => typeof given === "number" && Number.isInt
 export async function creditRoute(env: Env, path: string, method: string, body: Record<string, unknown>, caller: Caller): Promise<[unknown, number?]> {
   const ownerId = caller.ownerId;
   if (path === "/credit" && method === "GET") return [{ credit: await creditAnswer(env, ownerId) }];
+
+  const spendingRequestMatch = path.match(/^\/spending-requests\/([^/]+)$/);
+  if (spendingRequestMatch && method === "GET") {
+    const id = spendingRequestMatch[1]!;
+    checkIdKind("spending_request", id, "spending_request_id", "A spending request's ID comes with confirmation_needed (spending_request_id).");
+    const answer = await spendingRequestAnswer(env, caller.accountId, ownerId, id);
+    if (!answer) throw new ApiError("no_spending_request", { message: `You have no spending request ${JSON.stringify(id.slice(0, 60))}.`, field: "spending_request_id", fix: "The ID comes with confirmation_needed (spending_request_id) when a raise needs the developer." });
+    return [{ spending_request: answer }];
+  }
 
   if (path === "/credit/top-ups" || path === "/credit/refunds") {
     if (env.CREDIT_LIMIT && !(await env.CREDIT_LIMIT.limit({ key: ownerId })).success) {
@@ -143,7 +163,7 @@ export async function creditRoute(env: Env, path: string, method: string, body: 
     }
     const isRaising =
       isEnabled && (!now.isEnabled || (amountCents ?? 0) > (now.topUpAmountCents ?? 0) || (belowCents ?? 0) > (now.topUpBelowCents ?? 0) || (limitCents ?? 0) > (now.monthlyTopUpLimitCents ?? 0));
-    if (isRaising) checkSpendingConfirmed(env, caller, now.isEnabled ? "Raising automatic top-up" : "Turning automatic top-up on");
+    if (isRaising) await checkSpendingConfirmed(env, caller, now.isEnabled ? "Raising automatic top-up" : "Turning automatic top-up on", { requestKind: "automatic_top_up", isEnabled, topUpBelowCents: belowCents!, topUpAmountCents: amountCents!, monthlyTopUpLimitCents: limitCents! });
     await env.DB.prepare("UPDATE owners SET automatic_top_up_enabled = ?, top_up_below_cents = ?, top_up_amount_cents = ?, monthly_top_up_limit_cents = ? WHERE id = ?")
       .bind(isEnabled ? 1 : 0, belowCents, amountCents, limitCents, ownerId)
       .run();

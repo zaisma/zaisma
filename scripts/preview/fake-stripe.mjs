@@ -104,6 +104,15 @@ export function startFakeStripe(port) {
       return { status: 200, body: keep({ id: newId("re"), object: "refund", status: "succeeded", amount: Number(form.amount ?? intent?.amount ?? 0), currency: intent?.currency ?? "usd", payment_intent: form.payment_intent ?? null, charge: intent?.charge_id ?? null, created: now() }) };
     }
 
+    // A connected account's money: the account's ID says which story the preview tells (manual payouts have no next payout, euro holds a second currency).
+    if (kind === "balance" && !id && method === "GET") {
+      const accountId = headers["stripe-account"] ?? "";
+      return { status: 200, body: { object: "balance", available: [{ amount: 31240, currency: "usd" }, ...(accountId.includes("euro") ? [{ amount: 8000, currency: "eur" }] : [])], pending: [{ amount: 4800, currency: "usd" }] } };
+    }
+    if (kind === "payouts" && !id && method === "GET") {
+      const accountId = headers["stripe-account"] ?? "";
+      return { status: 200, body: { object: "list", data: accountId.includes("manual") ? [] : [{ id: newId("po"), object: "payout", status: "in_transit", amount: 31240, currency: "usd", arrival_date: now() + 3 * 86400 }] } };
+    }
     if (kind === "accounts" && id && !action && method === "GET") return { status: 200, body: accountFor(id) };
     if (kind === "payment_method_domains" && !id && method === "POST") return { status: 200, body: keep({ id: newId("pmd"), object: "payment_method_domain", domain_name: form.domain_name ?? "", enabled: true, created: now() }) };
 

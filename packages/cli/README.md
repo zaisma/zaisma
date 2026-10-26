@@ -6,7 +6,7 @@ Run it with `npx @zaisma/cli <command>`, or install it once with `npm install -g
 
 Before anything else, `zaisma check ./build` lists anything in the game Zaisma would refuse or that won't work on Zaisma (threaded engine builds, `alert()`, forms, servers the game hasn't listed…), each with how to fix it. It needs no key and sends nothing.
 
-1. Make an API key at https://zaisma.com/account, under Game developers, and set it: `export ZAISMA_KEY=zsk_…`
+1. Make an API key at https://zaisma.com/dashboard/settings, under Keys, and set it: `export ZAISMA_KEY=zsk_…`
 2. Make a game: `zaisma new "Sky Hopper"`
 3. Upload your build folder (the one with `index.html`): `zaisma upload ./build --game sky-hopper --patch-notes "First version"`. Only new or changed files are sent. It runs the check first, and in what it sends (never in your folder) it downloads scripts, styles and fonts the game loads from other sites and unpacks pre-compressed builds (`.gz`, `.br`, `.unityweb`), then says what it changed. Once the scan passes you get a private preview link.
 4. Publish it: `zaisma publish sky-hopper <version_id>`, then show it to everyone: `zaisma visibility sky-hopper listed`

@@ -2658,12 +2658,12 @@ describe("API keys on the account page", () => {
     const api = await SELF.fetch(`${SITE}/api/dev/games`, { headers: { authorization: `Bearer ${token}` } });
     expect(await api.json()).toEqual({ games: [], unread_topic_count: 0 });
 
-    const page = await (await b.go("/account")).text();
+    const page = await (await b.go("/dashboard/settings")).text();
     expect(page).toContain("My laptop");
     expect(page).not.toContain(token!);
 
-    const id = page.match(/\/account\/keys\/([a-z0-9]+)\/revoke/)![1];
-    await b.go(`/account/keys/${id}/revoke`, {});
+    const id = page.match(/\/dashboard\/settings\/keys\/([a-z0-9]+)\/remove/)![1];
+    await b.go(`/dashboard/settings/keys/${id}/remove`, {});
     expect((await SELF.fetch(`${SITE}/api/dev/games`, { headers: { authorization: `Bearer ${token}` } })).status).toBe(401);
   });
 
@@ -2679,7 +2679,7 @@ describe("API keys on the account page", () => {
     const access = await (await SELF.fetch(`${SITE}/api/dev/access`, { headers: { authorization: `Bearer ${token}` } })).json();
     // Games that aren't the developer's are dropped.
     expect(access).toMatchObject({ access: { api_key_name: "CI", access_level: "upload", game_slugs: ["sky-hopper"] } });
-    expect(await (await b.go("/account")).text()).toContain("Upload; only Sky Hopper");
+    expect(await (await b.go("/dashboard/settings")).text()).toContain("Upload; only Sky Hopper");
 
     // A custom key for some games: sign-in apps and webhooks stay out of its reach, whatever the form sent.
     const custom = new URLSearchParams({ name: "Stats", access_level: "custom", game_scope: "some", game_slugs: "cave-run", game_access: "read", version_access: "read", stats_access: "read", database_access: "none", save_access: "none", purchase_access: "none", forum_access: "none", sign_in_app_access: "write", webhook_access: "read" });
@@ -3109,7 +3109,7 @@ async function makeKey(b: Browser, device: Device, fields: Record<string, string
   const tap = await tapFor(b, device, "key");
   const form = new URLSearchParams(fields);
   for (const [name, value] of Object.entries({ passkey_id: tap.id, client_data_json: tap.clientDataJSON, authenticator_data: tap.authenticatorData, signature: tap.signature, user_handle: "" })) form.set(name, value);
-  return b.go("/account/keys", form);
+  return b.go("/dashboard/settings/keys", form);
 }
 async function signInWith(device: Device, opts: { origin?: string; count?: number } = {}) {
   const b = new Browser();
@@ -3148,10 +3148,10 @@ describe("passkeys", () => {
     const keyForm = () => new URLSearchParams({ name: "My laptop", access_level: "full", game_scope: "all", passkey_id: tap.id, client_data_json: tap.clientDataJSON, authenticator_data: tap.authenticatorData, signature: tap.signature, user_handle: "" });
     const countKeys = async () => (await env.DB.prepare("SELECT COUNT(*) AS count FROM api_keys").first<{ count: number }>())!.count;
     const keysBefore = await countKeys();
-    await b.go("/account/keys", keyForm());
+    await b.go("/dashboard/settings/keys", keyForm());
     expect(await countKeys()).toBe(keysBefore + 1);
     b.jar.set(...keyCookie);
-    await b.go("/account/keys", keyForm());
+    await b.go("/dashboard/settings/keys", keyForm());
     expect(await countKeys()).toBe(keysBefore + 1);
 
     // And a challenge nobody asked this server for is no challenge: a cookie of the page's own making does nothing.
@@ -3336,40 +3336,40 @@ describe("Confirm it's you", () => {
     const keyCount = async () => (await env.DB.prepare("SELECT COUNT(*) AS key_count FROM api_keys").first<{ key_count: number }>())!.key_count;
 
     // No passkey yet: add one first.
-    expect(await (await b.go("/account/keys", form)).text()).toContain("Add a passkey first: making a key needs one.");
+    expect(await (await b.go("/dashboard/settings/keys", form)).text()).toContain("Add a passkey first: making a key needs one.");
     expect(await api(b, "/api/passkeys/tap/options", { purpose: "key" })).toEqual({ status: 400, data: { error: "Add a passkey first: making a key needs one." } });
     const device = await addPasskey(b);
     expect(await keyCount()).toBe(0);
 
     // No tap, a tap made for confirming, and a reused tap make nothing.
-    expect(await (await b.go("/account/keys", form)).text()).toContain("Making a key needs a tap on your passkey. Try again.");
+    expect(await (await b.go("/dashboard/settings/keys", form)).text()).toContain("Making a key needs a tap on your passkey. Try again.");
     const forConfirm = await tapFor(b, device, "confirm");
     const fields = (tap: Awaited<ReturnType<typeof tapFor>>) => ({ ...form, passkey_id: tap.id, client_data_json: tap.clientDataJSON, authenticator_data: tap.authenticatorData, signature: tap.signature, user_handle: "" });
-    expect(await (await b.go("/account/keys", fields(forConfirm))).text()).toContain("Making a key needs a tap");
+    expect(await (await b.go("/dashboard/settings/keys", fields(forConfirm))).text()).toContain("Making a key needs a tap");
     expect(await keyCount()).toBe(0);
     const tap = await tapFor(b, device, "key");
-    expect(await (await b.go("/account/keys", fields(tap))).text()).toContain("Your new key");
+    expect(await (await b.go("/dashboard/settings/keys", fields(tap))).text()).toContain("Your new key");
     expect(await keyCount()).toBe(1);
-    expect(await (await b.go("/account/keys", fields(tap))).text()).toContain("Making a key needs a tap");
+    expect(await (await b.go("/dashboard/settings/keys", fields(tap))).text()).toContain("Making a key needs a tap");
     expect(await keyCount()).toBe(1);
     // A signature that doesn't match is no tap either.
     const forged = await tapFor(b, device, "key");
-    expect(await (await b.go("/account/keys", { ...fields(forged), signature: b64url("not a signature") })).text()).toContain("Making a key needs a tap");
+    expect(await (await b.go("/dashboard/settings/keys", { ...fields(forged), signature: b64url("not a signature") })).text()).toContain("Making a key needs a tap");
     expect(await keyCount()).toBe(1);
   });
 
-  it("the key wizard asks for a passkey first, and knows when one is waiting", async () => {
+  it("Developer settings asks for a passkey first, and knows when one is waiting", async () => {
     const b = new Browser();
     await join(b);
-    const none = await (await b.go("/account")).text();
-    expect(none).toContain('data-passkey-state="none"');
-    expect(none).toContain("First, add a passkey");
-    expect(none).toContain('id="passkey-first"');
+    const none = await (await b.go("/dashboard/settings")).text();
+    expect(none).toContain("Making a key needs your passkey");
+    expect(none).toContain('href="/account#passkeys"');
+    expect(none).not.toContain('name="passkey_id"');
     const device = await addPasskey(b);
-    const ready = await (await b.go("/account?passkey-added&make-key")).text();
-    expect(ready).toContain('data-passkey-state="ready"');
-    expect(ready).toMatch(/id="key-new"[^>]*data-open/);
-    expect(ready).not.toContain('id="passkey-first"');
+    const ready = await (await b.go("/dashboard/settings")).text();
+    expect(ready).toContain('data-tap="key"');
+    expect(ready).toContain('name="passkey_id"');
+    expect(ready).not.toContain("Making a key needs your passkey");
     expect(await (await makeKey(b, device)).text()).toContain("Your new key");
   });
 
@@ -3430,8 +3430,7 @@ describe("Confirm it's you", () => {
     const waiting = await addPasskey(other, new Device(), true);
     // No email to tell, so none was sent.
     expect(emails).toHaveLength(0);
-    const page = await (await other.go("/account")).text();
-    expect(page).toContain('data-passkey-state="waiting"');
+    const page = await (await other.go("/dashboard/settings")).text();
     expect(page).toMatch(/Your new passkey can make keys from \w+ \d+ at [\d:]+ [AP]M UTC\./);
     expect(await api(other, "/api/passkeys/tap/options", { purpose: "key" })).toMatchObject({ status: 400, data: { error: expect.stringContaining("Your new passkey can make keys from") } });
   });
@@ -3772,7 +3771,7 @@ describe("pages behind a sign-in run only the site's script files", () => {
     const owner = await env.DB.prepare("INSERT INTO owners (id, kind, account_id, created_at_ms) VALUES ('owner_strict', 'person', ?, 1) ON CONFLICT (account_id) DO UPDATE SET kind = 'person' RETURNING id").bind(accountId).first<{ id: string }>();
     await env.DB.prepare("INSERT INTO games (id, slug, title, review_status, visibility, live_version_id, owner_id, created_at_ms, updated_at_ms) VALUES ('g-strict-own', 'strict-own', 'Own \"><img src=x onerror=alert(1)>', 'live', 'listed', 'v1', ?, 1, 1)").bind(owner!.id).run();
     const scriptsOf = async (path: string) => pageScriptNames(await (await b.go(path)).text());
-    expect(await scriptsOf("/account?welcome")).toEqual(expect.arrayContaining(["joined", "username-check", "social-settings", "passkeys", "passkey-add", "access-choices", "key-wizard", "bot-check"]));
+    expect(await scriptsOf("/account?welcome")).toEqual(expect.arrayContaining(["joined", "username-check", "social-settings", "passkeys", "passkey-add", "bot-check"]));
     expect(await scriptsOf("/account?new-password")).toEqual(expect.arrayContaining(["new-password", "show-password"]));
     expect(await scriptsOf("/friends")).toContain("friends");
     expect(await scriptsOf("/@Night_Owl")).toContain("profile");
@@ -3918,9 +3917,9 @@ describe("the security log on the account page", () => {
     await worker.fetch(new Request(`${SITE}/api/dev/games`, { headers: { authorization: `Bearer ${token}` }, cf: MANCHESTER as unknown as IncomingRequestCfProperties }), env, createExecutionContext());
     expect(await eventsOf(id, "api_key_new_place")).toHaveLength(0);
 
-    const page = await (await owner.go("/account")).text();
-    const keyId = page.match(/\/account\/keys\/([a-z0-9]+)\/revoke/)![1];
-    await owner.go(`/account/keys/${keyId}/revoke`, {});
+    const page = await (await owner.go("/dashboard/settings")).text();
+    const keyId = page.match(/\/dashboard\/settings\/keys\/([a-z0-9]+)\/remove/)![1];
+    await owner.go(`/dashboard/settings/keys/${keyId}/remove`, {});
     expect(await eventsOf(id, "api_key_removed")).toMatchObject([{ subject_name: "My laptop" }]);
     expect((await env.DB.prepare("SELECT COUNT(*) AS place_count FROM security_places WHERE account_id = ?").bind(id).first<{ place_count: number }>())!.place_count).toBe(0);
   });
@@ -3997,7 +3996,8 @@ describe("the security log on the account page", () => {
 
 describe("leaked keys on the account page", () => {
   const MANCHESTER = { asn: 64500, asOrganization: "Vodafone", city: "Manchester", region: "England", country: "GB" };
-  const rowFor = (page: string, name: string) => page.match(new RegExp(`<li[^>]*><span><span class="key-name">${name}</span>[\\s\\S]*?</li>`))![0];
+  // A key's row on Developer settings: its name, then its line.
+  const rowFor = (page: string, name: string) => page.match(new RegExp(`>${name}<[\\s\\S]*?</li>`))![0].replace(/<[^>]+>/g, "").replace(/\s+/g, " ");
 
   it("shows a working key with where it was last used and its end date, a turned-off key with where it was found, and an ended one", async () => {
     const owner = Object.assign(new Browser(), { cf: MANCHESTER as unknown as IncomingRequestCfProperties });
@@ -4012,18 +4012,15 @@ describe("leaked keys on the account page", () => {
       env.DB.prepare("UPDATE api_keys SET turned_off_at_ms = ?, found_in = 'github', found_at_url = 'https://github.com/sam/space-game' WHERE id = ?").bind(nowMs, leaked.id),
       env.DB.prepare("UPDATE api_keys SET ends_at_ms = ? WHERE id = ?").bind(nowMs - 86400_000, ended.id),
     ]);
-    const page = await (await owner.go("/account")).text();
+    const page = await (await owner.go("/dashboard/settings")).text();
     const day = (ms: number) => new Date(ms).toISOString().slice(0, 10);
     const workingRow = rowFor(page, "Claude Desktop");
     expect(workingRow).toContain(`Made ${day(working.created_at_ms)} · last used ${day(nowMs - 3600_000)} with Zaisma CLI 1.4 · Vodafone, near Manchester, UK · ends ${day(working.ends_at_ms!)}`);
-    expect(workingRow).not.toContain('class="off"');
     const leakedRow = rowFor(page, "space-game CI");
     expect(leakedRow).toContain(`Turned off ${day(nowMs)}: found in public at github.com/sam/space-game. Make a new key and remove this one.`);
-    expect(page).toMatch(/<li class="off"><span><span class="key-name">space-game CI/);
     expect(rowFor(page, "Old laptop")).toContain(`Ended ${day(nowMs - 86400_000)}. Make a new key and remove this one.`);
-    expect(page).toMatch(/<li class="off"><span><span class="key-name">Old laptop/);
     // Dead keys can still be removed.
-    expect(leakedRow).toContain(`/account/keys/${leaked.id}/revoke`);
+    expect(page).toContain(`/dashboard/settings/keys/${leaked.id}/remove`);
   });
 
   it("makes a key with an end date from the Ends choice, and refuses one that isn't a choice", async () => {
@@ -4031,7 +4028,9 @@ describe("leaked keys on the account page", () => {
     await join(owner, null);
     const id = await idOf("Night_Owl");
     const device = await addPasskey(owner);
-    expect(await (await owner.go("/account")).text()).toContain('<select name="ends_after_days"><option value="" selected>Never</option><option value="7">In 7 days</option><option value="30">In 30 days</option><option value="90">In 90 days</option><option value="365">In a year</option></select>');
+    const endsChoices = await (await owner.go("/dashboard/settings")).text();
+    expect(endsChoices).toContain('name="ends_after_days"');
+    for (const choice of ["Never", "In 7 days", "In 30 days", "In 90 days", "In a year"]) expect(endsChoices).toContain(choice);
     expect(await (await makeKey(owner, device, { name: "Short", access_level: "full", game_scope: "all", ends_after_days: "8" })).text()).toContain("Choose when the key ends, or Never.");
     await makeKey(owner, device, { name: "Short", access_level: "full", game_scope: "all", ends_after_days: "7" });
     await makeKey(owner, device, { name: "Forever", access_level: "full", game_scope: "all", ends_after_days: "" });
@@ -4105,7 +4104,9 @@ describe("security alerts on the account page and dashboard", () => {
     const id = await idOf("Night_Owl");
     // Nothing to lose yet: no ask.
     expect(await (await owner.go("/account")).text()).not.toContain('id="email-ask"');
-    const made = await (await makeKey(owner, await addPasskey(owner))).text();
+    await makeKey(owner, await addPasskey(owner));
+    // The key shows once on Developer settings; the alert and the ask are on the account page and the dashboard.
+    const made = await (await owner.go("/account")).text();
     expect(made).toContain('id="security-alerts"');
     expect(made).toContain("Made an API key: My laptop");
     // Just confirmed with the passkey: the email box is right there.
@@ -4234,5 +4235,187 @@ describe("download your data", () => {
     }
     expect(holding.filter((table) => !(table in ACCOUNT_DATA_TABLES)), "tables to add to ACCOUNT_DATA_TABLES in apps/site/src/account-data.ts").toEqual([]);
     expect(Object.keys(ACCOUNT_DATA_TABLES).filter((table) => !holding.includes(table)), "tables that are gone or hold no account").toEqual([]);
+  });
+});
+
+// --- Developer settings (apps/site/src/developer-settings.ts) ---
+
+describe("Developer settings", () => {
+  /** A signed-in developer with a passkey, a game of theirs and a full API key. */
+  async function developer() {
+    const b = new Browser();
+    await join(b);
+    const device = await addPasskey(b);
+    const accountId = users.get("fox@example.com")!;
+    const owner = await personOwner(env.DB, accountId);
+    await env.DB.prepare("INSERT INTO games (id, slug, title, review_status, visibility, owner_id, created_at_ms, updated_at_ms) VALUES ('game_dev_settings', 'dev-settings', 'Starfall', 'pending', 'private', ?, 1, 1)").bind(owner.id).run();
+    const { token } = await createApiKey(env.DB, accountId, "Test key");
+    const apiRequest = (path: string, init: { method?: string; body?: unknown } = {}) =>
+      SELF.fetch(`${SITE}/api/dev${path}`, { method: init.method ?? (init.body ? "PATCH" : "GET"), headers: { authorization: `Bearer ${token}`, ...(init.body ? { "content-type": "application/json" } : {}) }, body: init.body ? JSON.stringify(init.body) : undefined });
+    return { b, device, accountId, owner, apiRequest };
+  }
+  const budgetOf = async () => (await env.DB.prepare("SELECT monthly_budget_cents FROM games WHERE id = 'game_dev_settings'").first<{ monthly_budget_cents: number | null }>())!.monthly_budget_cents;
+
+  it("needs a sign-in, and sends a guest to it and back", async () => {
+    const res = await new Browser().go("/dashboard/settings");
+    expect(res.status).toBe(303);
+    expect(res.headers.get("location")).toBe("/signin?next=%2Fdashboard%2Fsettings");
+  });
+
+  it("shows every pane for a developer with a game and for one with none", async () => {
+    const { b } = await developer();
+    const page = await (await b.go("/dashboard/settings")).text();
+    for (const id of ["hosting", "pro", "payments", "webhooks", "sign-in-apps", "keys"]) expect(page).toContain(`id="${id}"`);
+    expect(page).toContain("Starfall");
+    expect(page).toContain("Connect Stripe");
+    expect(page).toContain("No webhooks yet");
+    expect(page).toContain("No sign-in apps yet");
+    expect(page).toContain('<meta name="checked-page" content="Developer settings">');
+    expect(pageProblems(page)).toEqual([]);
+    await env.DB.exec("DELETE FROM games");
+    const bare = await (await b.go("/dashboard/settings")).text();
+    for (const id of ["hosting", "pro", "payments", "webhooks", "sign-in-apps", "keys"]) expect(bare).toContain(`id="${id}"`);
+    expect(bare).not.toContain("Your games this month");
+  });
+
+  it("keeps a raise as a request the developer approves with a tap, and applies the same change a confirmed raise makes", async () => {
+    const { b, device, apiRequest } = await developer();
+    const asked = await apiRequest("/games/dev-settings", { body: { monthly_budget_cents: 4000 } });
+    expect(asked.status).toBe(403);
+    const { error } = (await asked.json()) as { error: { code: string; confirm_url: string; spending_request_id: string } };
+    expect(error.code).toBe("confirmation_needed");
+    expect(error.confirm_url).toBe(`${SITE}/dashboard/settings?spending_request=${error.spending_request_id}`);
+    const checked = (await (await apiRequest(`/spending-requests/${error.spending_request_id}`)).json()) as { spending_request: Record<string, unknown> };
+    expect(checked.spending_request).toMatchObject({ request_kind: "game_budget", game_slug: "dev-settings", request_status: "waiting", requested_change: { monthly_budget_cents: 4000 }, current_setting: { monthly_budget_cents: null } });
+
+    // A second ask for the same game replaces the first.
+    const again = ((await (await apiRequest("/games/dev-settings", { body: { monthly_budget_cents: 5000 } })).json()) as { error: { spending_request_id: string } }).error.spending_request_id;
+    expect((await apiRequest(`/spending-requests/${error.spending_request_id}`)).status).toBe(404);
+    expect(await env.DB.prepare("SELECT COUNT(*) AS waiting FROM spending_requests WHERE request_status = 'waiting'").first()).toEqual({ waiting: 1 });
+    // Another account sees none of it.
+    const stranger = new Browser();
+    await join(stranger, "other@example.com", "Other_Dev");
+    const strangerKey = (await createApiKey(env.DB, users.get("other@example.com")!, "Theirs")).token;
+    expect((await SELF.fetch(`${SITE}/api/dev/spending-requests/${again}`, { headers: { authorization: `Bearer ${strangerKey}` } })).status).toBe(404);
+
+    // The sheet names the exact change.
+    const sheet = await (await b.go(`/dashboard/settings?spending_request=${again}`)).text();
+    expect(sheet).toContain("Your AI asks");
+    expect(sheet).toContain("Starfall");
+    expect(sheet).toContain("none → $50");
+    expect(pageProblems(sheet)).toEqual([]);
+
+    // Approving without a fresh passkey tap is refused and changes nothing; declining changes nothing either.
+    const refused = await (await b.go(`/dashboard/settings/spending/${again}`, { answer: "approved" })).text();
+    expect(refused).toContain("passkey");
+    expect(await budgetOf()).toBeNull();
+    // With the tap, the change is made and the AI can see it.
+    expect((await confirmWith(b, device)).status).toBe(200);
+    expect((await b.go(`/dashboard/settings/spending/${again}`, { answer: "approved" })).status).toBe(303);
+    expect(await budgetOf()).toBe(5000);
+    expect(((await (await apiRequest(`/spending-requests/${again}`)).json()) as { spending_request: { request_status: string } }).spending_request.request_status).toBe("approved");
+    // An answered request can't be answered again.
+    expect(((await b.go(`/dashboard/settings/spending/${again}`, { answer: "declined" })).headers.get("location"))).toContain("spending_request=");
+  });
+
+  it("declines and expires without changing anything, and re-checks what an approval would make", async () => {
+    const { b, device, accountId, apiRequest } = await developer();
+    const idOf = async (cents: number) => ((await (await apiRequest("/games/dev-settings", { body: { monthly_budget_cents: cents } })).json()) as { error: { spending_request_id: string } }).error.spending_request_id;
+    await confirmWith(b, device);
+    const declined = await idOf(4000);
+    expect((await b.go(`/dashboard/settings/spending/${declined}`, { answer: "declined" })).headers.get("location")).toBe("/dashboard/settings?done=declined#hosting");
+    expect(await budgetOf()).toBeNull();
+    const expired = await idOf(6000);
+    await env.DB.prepare("UPDATE spending_requests SET expires_at_ms = ? WHERE id = ?").bind(Date.now() - 1, expired).run();
+    expect(((await (await apiRequest(`/spending-requests/${expired}`)).json()) as { spending_request: { request_status: string } }).spending_request.request_status).toBe("expired");
+    expect(await (await b.go(`/dashboard/settings?spending_request=${expired}`)).text()).toContain("isn&#39;t waiting any more");
+    expect((await b.go(`/dashboard/settings/spending/${expired}`, { answer: "approved" })).headers.get("location")).toContain("spending_request=");
+    expect(await budgetOf()).toBeNull();
+    // A budget below $1 is refused at approval, as a direct confirmed call would refuse it.
+    const small = await idOf(4000);
+    await env.DB.prepare("UPDATE spending_requests SET monthly_budget_cents = 50 WHERE id = ?").bind(small).run();
+    expect(await (await b.go(`/dashboard/settings/spending/${small}`, { answer: "approved" })).text()).toContain("isn&#39;t a budget");
+    expect(await budgetOf()).toBeNull();
+    expect(accountId).toBeTruthy();
+  });
+
+  it("asks for the tap to raise a budget on the page, and not to lower one", async () => {
+    const { b, device } = await developer();
+    await env.DB.prepare("UPDATE games SET monthly_budget_cents = 5000 WHERE id = 'game_dev_settings'").run();
+    // Lowering needs no tap.
+    expect((await b.go("/dashboard/settings/games/dev-settings/budget", { monthly_budget_dollars: "20" })).status).toBe(303);
+    expect(await budgetOf()).toBe(2000);
+    // Raising without one is refused; with a fresh tap it is made.
+    expect(await (await b.go("/dashboard/settings/games/dev-settings/budget", { monthly_budget_dollars: "80" })).text()).toContain("passkey");
+    expect(await budgetOf()).toBe(2000);
+    await confirmWith(b, device);
+    expect((await b.go("/dashboard/settings/games/dev-settings/budget", { monthly_budget_dollars: "80" })).status).toBe(303);
+    expect(await budgetOf()).toBe(8000);
+    // Turning paid hosting off needs none.
+    expect((await b.go("/dashboard/settings/games/dev-settings/budget-off", {})).status).toBe(303);
+    expect(await budgetOf()).toBeNull();
+  });
+
+  it("shows the money defaults: no top-up amount picked, automatic top-up starting at below $5 and add $20 with no monthly most", async () => {
+    const { b } = await developer();
+    await env.DB.prepare("INSERT INTO game_hosting_months (game_id, month_start_date, used_cents) VALUES ('game_dev_settings', ?, 940)").bind(new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth() - 1, 1)).toISOString().slice(0, 10)).run();
+    const page = await (await b.go("/dashboard/settings")).text();
+    expect(page).not.toMatch(/name="amount_cents"[^>]*checked/);
+    for (const cents of ["1000", "2500", "5000", "10000", "other"]) expect(page).toContain(`value="${cents}"`);
+    expect(page).toMatch(/name="below_dollars"[^>]*value="5"/);
+    expect(page).toMatch(/name="amount_dollars"[^>]*value="20"/);
+    expect(page).toMatch(/name="limit_dollars"[^>]*value=""|name="limit_dollars"(?![^>]*value=)/);
+    expect(page).toContain("Last month&#39;s use past the free allowance would have cost $4.40");
+  });
+
+  it("connects Stripe only with a fresh tap, and turns Stripe Tax and disconnecting without one", async () => {
+    const { b, device, owner } = await developer();
+    const notConnected = await (await b.go("/dashboard/settings")).text();
+    expect(notConnected).toContain("Connect Stripe");
+    expect(notConnected).toContain('data-tap="confirm"');
+    // Without a tap Zaisma refuses, in words.
+    expect(await (await b.go("/dashboard/settings/payments/connect", {})).text()).toContain("passkey");
+    await env.DB.prepare("UPDATE owners SET stripe_account_id = 'acct_test_settings', can_take_stripe_payments = 0, stripe_country_code = 'DE', stripe_default_currency_code = 'eur', stripe_business_name = 'Pixel Smith', stripe_support_email = 'help@pixel.example' WHERE id = ?").bind(owner.id).run();
+    const connected = await (await b.go("/dashboard/settings")).text();
+    expect(connected).toContain("Pixel Smith");
+    expect(connected).toContain("Finish on Stripe");
+    expect(connected).toContain("Change on Stripe");
+    expect(connected).toContain("Open Stripe");
+    expect(pageProblems(connected)).toEqual([]);
+    // The tap is in the Finish on Stripe form too, since it asks for a fresh connect_url: its sheet posts to connect, tapping the passkey first.
+    expect(connected).toMatch(/action="\/dashboard\/settings\/payments\/connect"[\s\S]*?data-tap="confirm"/);
+    // Stripe Tax needs no tap.
+    expect((await b.go("/dashboard/settings/payments/tax", { is_stripe_tax_used: "on" })).status).toBe(303);
+    expect(await env.DB.prepare("SELECT is_stripe_tax_used FROM owners WHERE id = ?").bind(owner.id).first()).toEqual({ is_stripe_tax_used: 1 });
+    expect(device).toBeTruthy();
+  });
+
+  it("makes keys only at its own route, and the account page links here", async () => {
+    const { b, device } = await developer();
+    const account = await (await b.go("/account")).text();
+    expect(account).toContain('href="/dashboard/settings"');
+    expect(account).not.toContain('id="key-new"');
+    expect(await (await makeKey(b, device)).text()).toContain("Your new key");
+    // Confirmed with the passkey just now, the account page shows Delete account's words.
+    expect(await (await b.go("/account")).text()).toContain("Unused hosting credit from the last 180 days goes back to the card");
+    expect((await b.go("/account/keys", { name: "Old route", access_level: "full", game_scope: "all" })).status).not.toBe(200);
+    expect(await env.DB.prepare("SELECT COUNT(*) AS key_count FROM api_keys WHERE name = 'Old route'").first()).toEqual({ key_count: 0 });
+  });
+
+  it("makes, changes and deletes a webhook and a sign-in app through the same API", async () => {
+    const { b } = await developer();
+    const made = await (await b.go("/dashboard/settings/webhooks", new URLSearchParams([["endpoint_url", "https://example.com/hook"], ["event_kinds", "bug_reported"]]))).text();
+    expect(made).toContain("signing secret");
+    expect(made).toMatch(/whsec_|code-text/);
+    const webhookId = (await env.DB.prepare("SELECT id FROM webhooks").first<{ id: string }>())!.id;
+    expect((await b.go(`/dashboard/settings/webhooks/${webhookId}`, new URLSearchParams([["endpoint_url", "https://example.com/other"], ["event_kinds", "player_reported"]]))).status).toBe(303);
+    expect(await env.DB.prepare("SELECT endpoint_url FROM webhooks").first()).toEqual({ endpoint_url: "https://example.com/other" });
+    expect((await b.go(`/dashboard/settings/webhooks/${webhookId}/delete`, {})).status).toBe(303);
+    expect(await env.DB.prepare("SELECT COUNT(*) AS webhook_count FROM webhooks").first()).toEqual({ webhook_count: 0 });
+    const app = await (await b.go("/dashboard/settings/sign-in-apps", new URLSearchParams([["name", "My site"], ["kind", "confidential"], ["redirect_urls", "https://example.com/callback"]]))).text();
+    expect(app).toContain("client secret");
+    const appId = (await env.DB.prepare("SELECT id FROM sign_in_apps").first<{ id: string }>())!.id;
+    expect((await b.go(`/dashboard/settings/sign-in-apps/${appId}/delete`, {})).status).toBe(303);
+    expect(await env.DB.prepare("SELECT COUNT(*) AS app_count FROM sign_in_apps").first()).toEqual({ app_count: 0 });
   });
 });

@@ -167,10 +167,11 @@ Say what each thing is, since the spacing and margins come from it (`LayoutItem`
 | `grid` | Cells of one size, as many to a line as fit their least width (`itemSize`: `cover`, `card`, `figure`) |
 | `track` | A row of covers that scrolls sideways; under a heading with its Row arrows it's a Shelf |
 | `columns` | Two halves of the width side by side, one over the other below two columns of 360px; one may stay in view while the other scrolls (`stickyColumn`) |
+| `sidePlaces` | A page's own places on a pane down its side, staying in view, beside the page at most `--size-column` wide; the section tabs at the page's top where both can't have room |
 | `paneParts` | A pane's head, body and foot, with one control in its top or bottom end corner; the head's heading beside its control, its other words under both |
 
 - **A pane is `full` or `fit`.** Full is as wide as what holds it; fit is as wide as what's in it, its paragraphs running to a reading width at most (`--size-reading`, 60ch). A pane that should take half the screen is a column of `columns`. A sheet fits what's in it too.
-- **Widths are named, never numbers:** a grid's `--size-cover`, `--size-card` and `--size-figure`, a track's covers, the reading width, and shares.
+- **Widths are named, never numbers:** a grid's `--size-cover`, `--size-card` and `--size-figure`, a track's covers, the reading width, a page's column beside its places (`--size-column`), and shares.
 - **`npm run layout:check`** opens every page in `CHECKED_PAGES` (`apps/site/src/components/checked-pages.ts`) in headless Chrome at 320 × 667 and 1440 × 900, light and dark, and measures it as a person would look at it: the two margins, rows of one height on one line, corner controls in their corners, bevels of at least 4px, nothing spilling or overlapping, the runner above the fold, no sideways scroll. Each failure names the page, the screen, the thing and what was measured. An entry's `stepsToTake` reaches a state only forms or an earlier page lead to (a wrong password, a code that didn't work, a join step): the check takes them once, then measures the answer at every screen; it also fails when the page doesn't name the entry's state. It opens a few pages at once (`--tabs`, one fewer than the cores, at most 4). It must pass for any page change, and GitHub's check runs it in full on every pull request; while you work, `--only <part of a path>` checks just the pages you changed, and the full run is once before you push.
 
 ### Screens
@@ -215,7 +216,7 @@ Anything with a look of its own is a component in the gallery, or part of one, a
 - **Someone named on a page is a Person** (`person`, `people.ts`): their picture, their name a quiet Link, a line about them and at most one control. What they wrote is a Post; words to read are Reading text (`reading.ts`).
 - **A button with only an icon, a small button or a toggle is a Cut button** (`isLabelHidden`, `isSmall`, `isPressed`): the gallery's light and dark button, a password's Show.
 - **One of a few colors is a Color picker; one of a few options is a Switch.** The glass button's tint and the glass's hue are Color pickers; light or dark is a Switch.
-- **A page's own places down its side are a vertical Switch** (`tabSwitch` with `isVertical`): the same carved well, slab and ghost as the horizontal one, stacked, with an icon and a count per place. There's no sidebar of its own.
+- **A page's own places down its side are a vertical Switch** (`tabSwitch` with `isVertical`): the same carved well, slab and ghost as the horizontal one, stacked, with an icon and a count per place. There's no sidebar of its own: beside a page's sections it's Side places (`sidePlaces`, `navigation.ts`), on a pane that stays in view while the page scrolls, and the section tabs at the page's top where there's no room beside.
 - **A short list hanging from a button is a Dropdown** (`dropdown`, `panes.ts`), with its own choices: the account menu is one.
 - **Zaisma's logo is the Logo** (`logo`, `foundations.ts`): the wordmark at the top of a page, the mark in the footer, always a link home.
 - **Waiting is the Loader** (`loader`): the Z building itself (`brand/loader/`). Every button shows it in place of its icon or arrow once it's pressed and waiting (`isBusy`, and `BUSY_SCRIPT` for a form sent or a page opening), and can't be pressed twice.
@@ -251,6 +252,8 @@ Every component, with the call that makes it and its options, is in the catalog 
 
 ### Layout
 
+- **Side places** (`sidePlaces(options: SidePlacesOptions)`, `navigation.ts`): A page's own places down its side, beside the page: a vertical switch on a pane that stays in view while the page scrolls, like Developer settings' Hosting, Pro and Keys. The page runs a column's width at most beside it. Where both can't have room, the places become the section tabs at the top of the page.
+  - `options`: `label: string`, `places: (SectionTab & { icon: IconName })[]`, `body: Raw`
 - **Stack** (`stack(options: StackOptions)`, `layout.ts`): Things one under another: a pane's heading, its lines, its fields and its button. Each gap is picked from what's on each side, so you never pass one; say what each thing is (words, a control, a block) and the stack spaces it.
   - `options`: `items: LayoutItem[]`, `label?: string`, `dataAttributes?: Record<string, string>`
 - **Row** (`row(options: RowOptions)`, `layout.ts`): Things side by side. Say how they share the width: equal, the lead fills (the others fit their words), or each fits at the start, the end, the middle or both ends. Controls in a row are always one height, the tallest one's, and slant toward each other.
@@ -404,7 +407,7 @@ Every component, with the call that makes it and its options, is in the catalog 
 - **Chart** (`chart(options: ChartOptions)`, `data.ts`): How something moved over time, drawn on the page with nothing to wait for: a line or bars on a hairline grid, the last point marked with its number, and any point's number where you point or step with the arrow keys. Or how a whole splits, as a ring with its key. Screen readers get the same numbers.
   - `options`: `label: string`, `points: ChartPoint[]`, `unit: string`, `chartKind?: "line" | "bars" | "ring"`, `pointedIndex?: number`
 - **Usage meter** (`usageMeter(options: UsageMeterOptions)`, `data.ts`): How much of an allowance is used: player-hours, requests, storage. A carved track fills in ink, turns amber from 80%, and says so when it's all used, or over.
-  - `options`: `label: string`, `usedNumber: number`, `limitNumber: number`, `unit: string`, `resetDate?: string`
+  - `options`: `label: string`, `usedNumber: number`, `limitNumber: number`, `unit: string`, `resetDate?: string`, `shownWords?: string`, `warnFromNumber?: number`, `isFullFine?: boolean`
 - **Screenshot** (`screenshot(options: ScreenshotOptions)`, `playing.ts`): A game's screenshot in its row of them, in a carved well cut like a game card's; it opens large in a sheet, whole, as big as the screen allows.
   - `options`: `imageUrl: string`, `label: string`, `sheetId: string`
 - **Reading text** (`readingText(options: ReadingTextOptions)`, `reading.ts`): Words to read: a forum post, the rules, a game's description, its patch notes. Paragraphs in the system's own face, each line at most a reading width long, with headings, lists, quotes, code and tables spaced by what's on each side.

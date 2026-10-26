@@ -411,7 +411,7 @@ export const PLAYER_PROFILE = object({
 
 /** What the caller's API key may do (docs/DECISIONS.md, "Developers hold the keys"). */
 export const ACCESS = object({
-  api_key_name: nullable(text("The key's name, as on zaisma.com/account; null when the call came from the developer's own signed-in pages.")),
+  api_key_name: nullable(text("The key's name, as on Developer settings; null when the call came from the developer's own signed-in pages.")),
   api_key_ends_at: nullable(isoTime("When the key stops working; null when it lasts until removed, and for a signed-in session.")),
   access_level: choice(
     Object.fromEntries(ACCESS_LEVELS.map((level) => [level, level === "custom" ? "a choice per area, in area_access" : "a fixed level; area_access shows what it gives"])),
@@ -456,7 +456,7 @@ const ERROR_FIELDS = object({
 });
 /** Every error, in the API and the MCP (docs/NAMING.md, Errors). confirm_url comes with confirmation_needed alone. */
 export const ERROR = object({
-  error: { ...ERROR_FIELDS, properties: { ...(ERROR_FIELDS.properties as Record<string, Schema>), confirm_url: url("confirmation_needed only: where the developer confirms with their passkey on zaisma.com.") } },
+  error: { ...ERROR_FIELDS, properties: { ...(ERROR_FIELDS.properties as Record<string, Schema>), confirm_url: url("confirmation_needed only: where the developer confirms with their passkey on zaisma.com."), spending_request_id: idOf("spending_request", "confirmation_needed only, for a raise in spending: the request the developer approves at confirm_url; get_spending_request checks it.") } },
 });
 
 /**
@@ -606,11 +606,33 @@ export const CREDIT = object({
       }),
       "The last 180 days' top-ups, newest first.",
     ),
-    games: list(object({ slug: text(), title: text(), monthly_budget_cents: nullable(countOf()), spent_from_credit_this_month_cents: countOf() }), "Games with a budget or spending this month."),
+    games: list(object({ slug: text(), title: text(), monthly_budget_cents: nullable(countOf()), spent_from_credit_this_month_cents: countOf(), last_month_beyond_free_cents: countOf("What last month's use past the free allowance would have cost at today's prices; 0 when it stayed inside the free allowance.") }), "Games with a budget, spending this month, or use past the free allowance last month."),
     entries: list(
       object({ id: { type: "string", pattern: "^top_up_[a-z0-9]+$|^credit_entry_[a-z0-9]+$", description: "A top-up's top_up_…, anything else's credit_entry_…." }, entry_kind: CREDIT_ENTRY_KIND, amount_cents: { type: "integer", description: "Positive adds, negative spends; a written_off entry's is what Zaisma took on, and never touched the balance." }, game_slug: nullable(text()), created_at: isoTime() }),
       "The last 90 days, newest first.",
     ),
+  }),
+});
+const SPENDING_CHANGE_FIELDS = {
+  monthly_budget_cents: nullable(countOf("A game's monthly budget; null: no paid hosting. Only for a game_budget request.")),
+  is_enabled: nullable(yes("Whether automatic top-up is on. Only for an automatic_top_up request; null for a game_budget one.")),
+  top_up_below_cents: nullable(countOf()),
+  top_up_amount_cents: nullable(countOf()),
+  monthly_top_up_limit_cents: nullable(countOf()),
+};
+/** A raise in spending the developer approves or declines on zaisma.com (get_spending_request). */
+export const SPENDING_REQUEST = object({
+  spending_request: object({
+    id: idOf("spending_request"),
+    request_kind: choice({ game_budget: "a game's monthly budget", automatic_top_up: "automatic top-up on or higher" }),
+    game_slug: nullable(text("The game, for a game_budget request.")),
+    game_title: nullable(text()),
+    requested_change: object(SPENDING_CHANGE_FIELDS, "The fields of this request_kind are filled; the other kind's are null."),
+    current_setting: object(SPENDING_CHANGE_FIELDS, "The same fields as they are now."),
+    request_status: choice({ waiting: "the developer hasn't answered", approved: "approved: the change is made", declined: "the developer declined", expired: "a day passed without an answer" }),
+    created_at: isoTime(),
+    expires_at: isoTime("A day after it was asked."),
+    answered_at: nullable(isoTime()),
   }),
 });
 const PLAN_CHOICES = choice({ free: "the free daily limits", pro: "Zaisma Pro: the higher daily limits, $10 a month" }, "The developer's plan.");
@@ -663,7 +685,18 @@ export const STRIPE_ACCOUNT_FIELDS = {
   is_stripe_tax_used: yes("Whether Stripe Tax calculates and records tax inside each price. Prices never change with it."),
   connected_at: nullable(isoTime("When it was connected.")),
 };
-export const STRIPE_ACCOUNT = object({ stripe_account: object(STRIPE_ACCOUNT_FIELDS) });
+const MINOR_UNITS = { type: "integer", description: "In the currency's smallest unit (cents for usd): 31240 is 312.40." };
+/** The connected account's money as Stripe reports it (get_stripe_account): never a sum Zaisma works out. */
+const STRIPE_BALANCE = nullable(
+  object({
+    currency_code: nullable(text("The account's default currency, lowercase like usd.")),
+    available_minor_units: MINOR_UNITS,
+    pending_minor_units: MINOR_UNITS,
+    other_currency_balances: list(object({ currency_code: text(), available_minor_units: MINOR_UNITS, pending_minor_units: MINOR_UNITS }), "Any other currency the account holds a balance in; [] when none."),
+    next_payout: nullable(object({ amount_minor_units: MINOR_UNITS, currency_code: text(), arrives_at: isoTime("When Stripe expects it to arrive.") }, "The soonest payout on its way; null when none is scheduled (manual payouts).")),
+  }, "Read live from the developer's Stripe. null when no account is connected, or when Stripe didn't answer within 3 seconds."),
+);
+export const STRIPE_ACCOUNT = object({ stripe_account: object({ ...STRIPE_ACCOUNT_FIELDS, balance: STRIPE_BALANCE }) });
 export const STRIPE_ACCOUNT_CHANGED = object({ stripe_account: object(STRIPE_ACCOUNT_FIELDS), next_steps: NEXT });
 /** Stripe's page to connect an account on (connect_stripe_account). */
 export const CONNECTION_LINK = object({
@@ -1179,8 +1212,8 @@ export const LOGS = object({
 export const API_KEYS = object({
   api_keys: list(
     object({
-      api_key_name: text("The key's name, as on zaisma.com/account; a connected app's is the app's own name."),
-      kind: choice({ api_key: "an API key made on zaisma.com/account", connected_app: "an AI app connected by signing in, like claude.ai" }),
+      api_key_name: text("The key's name, as on Developer settings; a connected app's is the app's own name."),
+      kind: choice({ api_key: "an API key made on Developer settings", connected_app: "an AI app connected by signing in, like claude.ai" }),
       connected_app_host: nullable(text("Where a connected app sends the developer back after signing in, like claude.ai; null for an API key.")),
       access_level: choice(ACCESS_LEVELS, "What the key can do: read, upload, publish, full, or custom (a choice per area, in area_access)."),
       area_access: (ACCESS.properties as Record<string, Schema>).area_access!,
