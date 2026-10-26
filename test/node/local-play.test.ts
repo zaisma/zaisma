@@ -1,3 +1,4 @@
+import { createServer, type Server } from "node:http";
 import { appendFileSync, cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { stripTypeScriptTypes } from "node:module";
 import { tmpdir } from "node:os";
@@ -15,6 +16,10 @@ const SLUG = "four-in-a-row";
 const port = 20_000 + Math.floor(Math.random() * 4_000) * 4;
 let folder = "";
 let play: LocalPlay;
+// Zaisma's developer API for the game's items, stood in for: the bench brings them in at every start with --game and a key.
+let developerApi: Server;
+const ITEMS = { "gold-board": { item_name: "gold-board", title: "Gold board", description: "A gold board for every match.", item_kind: "permanent", item_category: "cosmetic", price_minor_units: 199, currency_code: "usd" } };
+const startPlay = () => startLocalPlay({ gameFolder: folder, port, gameSlug: SLUG, zaismaKey: "zsk_test", developerApiUrl: `http://127.0.0.1:${(developerApi.address() as { port: number }).port}`, log: () => {} });
 
 const json = async (response: Response) => ({ status: response.status, body: (await response.json()) as Record<string, any> });
 const bench = (path: string, body?: unknown) => fetch(`${play.benchUrl}${path}`, body === undefined ? {} : { method: "POST", body: JSON.stringify(body) }).then(json);
@@ -65,11 +70,18 @@ describe("play-locally", () => {
     folder = mkdtempSync(join(tmpdir(), "zaisma-local-play-"));
     cpSync(join(EXAMPLE, "game"), folder, { recursive: true });
     writeFileSync(join(folder, "zaisma-server.js"), stripTypeScriptTypes(readFileSync(join(EXAMPLE, "server.ts"), "utf8")));
-    play = await startLocalPlay({ gameFolder: folder, port, gameSlug: SLUG, log: () => {} });
+    developerApi = createServer((request, response) => {
+      const isAsked = request.url === `/games/${SLUG}/items` && request.headers.authorization === "Bearer zsk_test";
+      response.writeHead(isAsked ? 200 : 404, { "Content-Type": "application/json" });
+      response.end(JSON.stringify(isAsked ? { items: ITEMS, purchase_delivery: "game" } : { error: { code: "no_game" } }));
+    });
+    await new Promise<void>((done) => developerApi.listen(0, "127.0.0.1", () => done()));
+    play = await startPlay();
   }, 30_000);
 
   afterAll(async () => {
     await play?.close();
+    developerApi?.close();
     rmSync(folder, { recursive: true, force: true });
   });
 
@@ -107,7 +119,9 @@ describe("play-locally", () => {
     ben = await passOf(3);
     expect(passesHaveBlockBetween(anna.claims, ben.claims)).toBe(true);
 
-    await bench("/bench/state", { op: "set-item", item: { itemName: "gold-board", title: "Gold board", priceMinorUnits: 199, itemKind: "permanent" } });
+    // The game's own items, brought in from Zaisma as the bench started; the bench makes none up.
+    expect((await bench("/bench/state")).body.items.map((listedItem: { itemName: string }) => listedItem.itemName)).toEqual(["gold-board"]);
+    expect((await bench("/bench/state", { op: "set-item", item: { itemName: "made-up" } })).body.error.code).toBe("bad_change");
     // As the buy sheet does it: its start (the price and the saved test card), then paying with that card, from player 2's page.
     const started = await buySheet(2, "/api/buy/four-in-a-row/start", { item_name: "gold-board", item_count: 1, game_account_id: null });
     expect(started.body).toMatchObject({ item: { title: "Gold board" }, price: { price_text: "$1.99" }, saved_card: { card_brand: "visa", card_last_digits: "4242" } });
@@ -202,7 +216,7 @@ describe("play-locally", () => {
     expect((await fetch(`${play.benchUrl}/bench/saves/anna`, { method: "PUT", body: JSON.stringify({ saveText }) })).status).toBe(200);
     const annaId = (await passOf(2)).claims.sub;
     await play.close();
-    play = await startLocalPlay({ gameFolder: folder, port, gameSlug: SLUG, log: () => {} });
+    play = await startPlay();
     expect((await bench("/bench/saves/anna")).body.saveText).toBe(saveText);
     expect((await passOf(2)).claims.sub).toBe(annaId);
     expect(existsSync(join(folder, ".zaisma-local", "keys.json"))).toBe(true);

@@ -141,7 +141,7 @@ const COMMANDS = {
     arguments: [{ name: "folder", isOptional: true }],
     flags: {
       port: { hasValue: true, placeholder: "<port>", about: "The first of four ports, 4800 unless given: the bench, the game's site, the stand-in rooms and your game server take it and the next three" },
-      game: { hasValue: true, placeholder: "<slug>", about: "The game's slug; with ZAISMA_KEY set, the first start copies its real items in once" },
+      game: { hasValue: true, placeholder: "<slug>", about: "The game's slug; with ZAISMA_KEY set, each start brings in the game's items from Zaisma" },
       "on-network": { hasValue: false, about: "Let a phone on the same Wi-Fi open the bench too; it prints the address and a QR code" },
       "no-open": { hasValue: false, about: "Don't open the bench in the browser" },
     },

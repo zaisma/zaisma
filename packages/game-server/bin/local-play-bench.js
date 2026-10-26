@@ -114,7 +114,7 @@ function benchScript(config) {
     const opener = event.target.closest && event.target.closest("[aria-controls^='bench-']");
     if (opener) refreshSheet(opener.getAttribute("aria-controls").replace(/^bench-/, ""));
   }, true);
-  // Changes in the sheets: friends, blocks, who can chat, owned items, and adding or removing items.
+  // Changes in the sheets: friends, blocks, who can chat and owned items.
   document.addEventListener("change", async (event) => {
     const input = event.target;
     if (!input || !input.name || !input.name.startsWith("bench-")) return;
@@ -129,20 +129,6 @@ function benchScript(config) {
   document.addEventListener("click", async (event) => {
     const target = event.target.closest ? event.target : null;
     if (!target) return;
-    const remove = target.closest("button[name=bench-remove-item]");
-    if (remove) {
-      await change({ op: "remove-item", itemName: remove.value });
-      return refreshSheet("items");
-    }
-    if (target.closest("#bench-item-add")) {
-      const nameField = byId("bench-item-name");
-      const answer = await change({ op: "set-item", item: { itemName: nameField.value.trim(), title: byId("bench-item-title").value.trim(), priceMinorUnits: Number(byId("bench-item-price").value), itemKind: document.querySelector("input[name=item_kind]").value, currencyCode: "usd" } });
-      if (answer.error) {
-        nameField.setCustomValidity(answer.error.message);
-        return nameField.reportValidity();
-      }
-      return refreshSheet("items");
-    }
     // Who this tab plays as: the page opens again as them, in the same room.
     const as = target.closest("[data-bench-as]");
     if (as) {

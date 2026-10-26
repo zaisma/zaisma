@@ -176,6 +176,7 @@ function defaultState() {
     purchases: [],
     purchaseDelivery: "game",
     isItemsCopied: false,
+    itemsCopiedAt: null,
   };
 }
 
@@ -240,7 +241,7 @@ function checkedOptions(options) {
 /**
  * Start the bench for a game folder. Options (all closed, as startServer's): gameFolder (required), port
  * (4800: the first of four), isOnNetwork (false: localhost only), gameSlug (by default the folder's name),
- * zaismaKey (an API key; with gameSlug, the first start copies the game's real items in once; by default the
+ * zaismaKey (an API key; with gameSlug, each start brings in the game's items from Zaisma; by default the
  * ZAISMA_KEY environment variable), developerApiUrl (where that copy is read from) and log (a function for lines
  * of text; by default the terminal). Answers { benchUrl, gameSiteUrl, roomsUrl, networkUrl, runnerStartCount,
  * close() }: close() saves every room first and finishes once everything has stopped.
@@ -269,19 +270,24 @@ export async function startLocalPlay(givenOptions) {
   const state = existsSync(stateFile) ? { ...defaultState(), ...JSON.parse(readFileSync(stateFile, "utf8")) } : defaultState();
   const saveState = () => writeFileSync(stateFile, JSON.stringify(state, null, 2));
   if (!existsSync(stateFile)) saveState();
-  if (givenSlug && zaismaKey && !state.isItemsCopied) {
+  // The game's items are the ones it has on Zaisma, brought in at every start with --game and a key: an item the bench made up would
+  // be one the game's code has never heard of. Offline, the bench keeps the ones it brought in last.
+  if (givenSlug && zaismaKey) {
     try {
       const response = await fetch(`${developerApiUrl}/games/${givenSlug}/items`, { headers: { authorization: `Bearer ${zaismaKey}` } });
       if (response.ok) {
         const answered = await response.json();
-        state.items = Object.values(answered.items ?? {}).map((listedItem) => ({ itemName: listedItem.item_name, title: listedItem.title, description: listedItem.description ?? "", itemKind: listedItem.item_kind, itemCategory: listedItem.item_category, priceMinorUnits: listedItem.price_minor_units ?? 0, currencyCode: listedItem.currency_code ?? "usd" }));
+        state.items = Object.values(answered.items ?? {}).map((listedItem) => ({ itemName: listedItem.item_name, title: listedItem.title, description: listedItem.description ?? "", itemKind: listedItem.item_kind, itemCategory: listedItem.item_category, priceMinorUnits: listedItem.price_minor_units ?? null, currencyCode: listedItem.currency_code ?? null }));
+        const itemNames = new Set(state.items.map((listedItem) => listedItem.itemName));
+        for (const [accountId, owned] of Object.entries(state.ownedItems)) state.ownedItems[accountId] = owned.filter((itemName) => itemNames.has(itemName));
         if (answered.purchase_delivery) state.purchaseDelivery = answered.purchase_delivery;
         state.isItemsCopied = true;
+        state.itemsCopiedAt = isoOf(now());
         saveState();
-        log(`Copied ${state.items.length} item${state.items.length === 1 ? "" : "s"} from ${givenSlug} on Zaisma, once. Change them in the bench's bar.`);
-      } else log(`Couldn't copy ${givenSlug}'s items from Zaisma (${response.status}), so the bench starts without them. Add items in the bench's bar.`);
+        log(`Brought in ${state.items.length} item${state.items.length === 1 ? "" : "s"} from ${givenSlug} on Zaisma.`);
+      } else log(`Couldn't bring in ${givenSlug}'s items from Zaisma (${response.status}): ${state.items.length ? "the bench keeps the ones it brought in last" : "the game has none here"}. Check ZAISMA_KEY reaches the game.`);
     } catch {
-      log(`Couldn't reach Zaisma to copy ${givenSlug}'s items, so the bench starts without them. Add items in the bench's bar.`);
+      log(`Couldn't reach Zaisma for ${givenSlug}'s items: ${state.items.length ? "the bench keeps the ones it brought in last" : "the game has none here"}.`);
     }
   }
   const glass = await loadGlass(localFolder);
@@ -415,17 +421,6 @@ export async function startLocalPlay(givenOptions) {
         state.ownedItems[accountId] = [...owned];
         break;
       }
-      case "set-item": {
-        const listedItem = change.item ?? {};
-        if (typeof listedItem.itemName !== "string" || !/^[a-z0-9_-]{1,40}$/.test(listedItem.itemName)) return fail("An item's name is 1 to 40 lowercase letters, digits, underscores or hyphens.");
-        const kept = { itemName: listedItem.itemName, title: String(listedItem.title || listedItem.itemName).slice(0, 60), description: String(listedItem.description ?? "").slice(0, 300), itemKind: listedItem.itemKind === "consumable" ? "consumable" : "permanent", itemCategory: String(listedItem.itemCategory || "gameplay"), priceMinorUnits: Math.max(0, Math.floor(Number(listedItem.priceMinorUnits) || 0)), currencyCode: String(listedItem.currencyCode || "usd").toLowerCase() };
-        state.items = [...state.items.filter((each) => each.itemName !== kept.itemName), kept];
-        break;
-      }
-      case "remove-item": {
-        state.items = state.items.filter((each) => each.itemName !== change.itemName);
-        break;
-      }
       default:
         return fail(`${String(change.op)} isn't a change the bench makes.`);
     }
@@ -458,7 +453,8 @@ export async function startLocalPlay(givenOptions) {
       gameSlug, playerNumber, playingAs: playerNumber ? asOf(playerNumber) : "guest",
       accounts: state.accounts.map((account) => ({ id: account.id, username: account.username, whoCanChat: account.whoCanChat })),
       friends: state.friends, blocks: state.blocks, ownedItems: state.ownedItems, purchaseDelivery: state.purchaseDelivery, nextPlayerNumber: nextPlayerNumber(),
-      items: state.items.map((listedItem) => ({ itemName: listedItem.itemName, title: listedItem.title, itemKind: listedItem.itemKind, priceText: priceText(listedItem.currencyCode, listedItem.priceMinorUnits) })),
+      items: state.items.map((listedItem) => ({ itemName: listedItem.itemName, title: listedItem.title, itemKind: listedItem.itemKind, priceText: listedItem.priceMinorUnits === null || !listedItem.currencyCode ? "only granted" : priceText(listedItem.currencyCode, listedItem.priceMinorUnits) })),
+      itemsNote: state.itemsCopiedAt ? `${gameSlug}'s items on Zaisma, brought in ${state.itemsCopiedAt.slice(0, 16).replace("T", " ")} UTC.` : givenSlug ? `Set ZAISMA_KEY to a key for ${gameSlug} and start the bench again to bring in its items from Zaisma.` : "Start the bench with --game <slug> and ZAISMA_KEY set to bring in the game's items from Zaisma.",
       room: code && /^[A-Z0-9]{6}$/.test(code) ? { code, link: `${benchOrigin}/g/${gameSlug}?room=${code}`, playerNames: tracked ? [...new Set([...tracked.sockets].filter((each) => !each.isSpectator && each.playerId).map((each) => nameOfPlayer(each.playerId)))] : [] } : null,
       networkUrl: addresses.length ? `${originAt(addresses[0], ports.bench)}/g/${gameSlug}` : null,
       logLines: [...reportedTypes].map((text) => `Only on Zaisma: ${text}`),
@@ -492,7 +488,8 @@ export async function startLocalPlay(givenOptions) {
     if (request.method === "POST" && path === `/api/buy/${gameSlug}/start`) {
       const playerNumber = playerNumberOf(request);
       const listedItem = state.items.find((each) => each.itemName === body.item_name);
-      if (!listedItem) return fail(404, "no_item", `This game has no item named ${String(body.item_name)}. Add it in the bench's Items.`);
+      if (!listedItem) return fail(404, "no_item", `This game has no item named ${String(body.item_name)} on Zaisma. Set it there (zaisma items set), then start the bench again.`);
+      if (listedItem.priceMinorUnits === null || !listedItem.currencyCode) return fail(400, "not_for_sale", `${listedItem.title} isn't for sale: it's only granted.`);
       if (!playerNumber || asOf(playerNumber) === "guest") return fail(403, "account_needed", "Buying needs an account.");
       const itemCount = listedItem.itemKind === "consumable" && Number.isInteger(body.item_count) && body.item_count > 0 ? body.item_count : 1;
       const purchaseId = `purchase_${randomText(12)}`;
@@ -865,7 +862,7 @@ export async function startLocalPlay(givenOptions) {
       const itemsMatch = /^\/v1\/items\/([a-z0-9-]{1,40})$/.exec(path);
       if (itemsMatch && request.method === "GET") {
         if (!isGameOrigin(origin)) return fail(403, "bad_origin", "Not allowed from here.");
-        return reply(200, { items: state.items.map((listedItem) => ({ itemName: listedItem.itemName, title: listedItem.title, description: listedItem.description, itemKind: listedItem.itemKind, itemCategory: listedItem.itemCategory, priceMinorUnits: listedItem.priceMinorUnits, currencyCode: listedItem.currencyCode, priceText: priceText(listedItem.currencyCode, listedItem.priceMinorUnits) })) });
+        return reply(200, { items: state.items.filter((listedItem) => listedItem.priceMinorUnits !== null && listedItem.currencyCode).map((listedItem) => ({ itemName: listedItem.itemName, title: listedItem.title, description: listedItem.description, itemKind: listedItem.itemKind, itemCategory: listedItem.itemCategory, priceMinorUnits: listedItem.priceMinorUnits, currencyCode: listedItem.currencyCode, priceText: priceText(listedItem.currencyCode, listedItem.priceMinorUnits) })) });
       }
       return notLocal();
     } catch (error) {

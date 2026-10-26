@@ -8,13 +8,12 @@ import { pageScriptResponse } from "../../../apps/site/src/page-scripts.ts";
 import { pageStyleResponse } from "../../../apps/site/src/page-styles.ts";
 import { BUY_SHEET_SCRIPT, buySheet, buySheetData } from "../../../apps/site/src/buy-sheet.ts";
 import { playingBar } from "../../../apps/site/src/components/playing.ts";
-import { cutButton, textButton } from "../../../apps/site/src/components/actions.ts";
+import { cutButton } from "../../../apps/site/src/components/actions.ts";
 import { dropdown, sheet } from "../../../apps/site/src/components/panes.ts";
 import { checkField, selectField } from "../../../apps/site/src/components/choices.ts";
 import { codeField, qrCode } from "../../../apps/site/src/components/inputs.ts";
-import { cutField } from "../../../apps/site/src/components/fields.ts";
 import { emptyState, listRows } from "../../../apps/site/src/components/data.ts";
-import { row, stack, type LayoutItem } from "../../../apps/site/src/components/layout.ts";
+import { stack, type LayoutItem } from "../../../apps/site/src/components/layout.ts";
 
 /** What the bench knows when it draws a tab's page or one of its sheets. */
 export interface BenchView {
@@ -29,6 +28,8 @@ export interface BenchView {
   items: { itemName: string; title: string; itemKind: string; priceText: string }[];
   ownedItems: Record<string, string[]>;
   purchaseDelivery: string;
+  /** Where the items came from and when, or how to bring them in. */
+  itemsNote: string;
   nextPlayerNumber: number;
   /** The room the tab is in, its link and who's in it; null when it's in none. */
   room: { code: string; link: string; playerNames: string[] } | null;
@@ -123,29 +124,15 @@ function sheetMarkup(name: SheetName, view: BenchView): Raw {
     return stack({ items });
   }
   if (name === "items") {
-    const items: LayoutItem[] = [words(view.purchaseDelivery === "game_server" ? "Purchases go to your game server's onPurchase." : "Purchases come to the game's Zaisma.items events.")];
-    if (!view.items.length) items.push({ kind: "block", markup: emptyState({ title: "No items yet", text: "Add one below. A game lists them with Zaisma.items.list() and opens the buy sheet with Zaisma.items.buy()." }) });
+    // The game's own items, as it has them on Zaisma: here only who owns what changes.
+    const items: LayoutItem[] = [words(view.itemsNote), words(view.purchaseDelivery === "game_server" ? "Purchases go to your game server's onPurchase." : "Purchases come to the game's Zaisma.items events.")];
+    if (!view.items.length) items.push({ kind: "block", markup: emptyState({ title: "No items", text: "A game's items are set on Zaisma (the dashboard, zaisma items set or set_item), and the game buys them with Zaisma.items.buy()." }) });
     for (const listedItem of view.items) {
       items.push({ kind: "words", markup: html`<h3>${listedItem.title}</h3><p>${listedItem.itemName}, ${listedItem.itemKind}, ${listedItem.priceText}</p>` });
       for (const account of view.accounts) {
         items.push({ kind: "block", markup: checkField({ name: "bench-owned", id: `bench-owned-${account.id}-${listedItem.itemName}`, checkValue: `${account.id}:${listedItem.itemName}`, label: `${account.username} owns it`, isChecked: (view.ownedItems[account.id] ?? []).includes(listedItem.itemName) }) });
       }
-      items.push({ kind: "control", markup: textButton("Remove this item", { type: "button", name: "bench-remove-item", buttonValue: listedItem.itemName }) });
     }
-    items.push({ kind: "words", markup: html`<h3>Add an item</h3>` });
-    items.push({ kind: "control", markup: cutField({ name: "item_name", id: "bench-item-name", label: "Item name", type: "text", placeholder: "gold-board", autocomplete: "off" }) });
-    items.push({ kind: "control", markup: cutField({ name: "title", id: "bench-item-title", label: "Title", type: "text", placeholder: "Gold board", autocomplete: "off" }) });
-    items.push({
-      kind: "block",
-      markup: row({
-        widths: "equal",
-        items: [
-          { kind: "control", markup: cutField({ name: "price", id: "bench-item-price", label: "Price in cents", type: "text", text: "199", autocomplete: "off" }) },
-          { kind: "control", markup: selectField({ name: "item_kind", id: "bench-item-kind", label: "Kind", pickedValue: "permanent", choices: [{ choiceValue: "permanent", label: "Permanent" }, { choiceValue: "consumable", label: "Consumable" }] }) },
-        ],
-      }),
-    });
-    items.push({ kind: "control", markup: cutButton("Add the item", { id: "bench-item-add", type: "button" }) });
     return stack({ items });
   }
   if (name === "room") {

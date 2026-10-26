@@ -8,7 +8,7 @@ export interface LocalPlayOptions {
   isOnNetwork?: boolean;
   /** Your game's Zaisma slug. Default: the folder's name. */
   gameSlug?: string | null;
-  /** An API key; with gameSlug, the first start copies the game's real items in once. Default: the ZAISMA_KEY environment variable. */
+  /** An API key; with gameSlug, each start brings in the game's items from Zaisma. Default: the ZAISMA_KEY environment variable. */
   zaismaKey?: string;
   /** Zaisma's developer API, where that copy is read from. Default: https://zaisma.com/api/dev. */
   developerApiUrl?: string;
