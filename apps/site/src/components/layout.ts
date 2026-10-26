@@ -404,6 +404,9 @@ ${GAP_TOKENS.map((gap) => `.layout-row > .row-cell.gap-end-${gap} { margin-inlin
 /* Words at the row's ends keep the pane's margin at that side. */
 .row-cell.is-words:first-child { padding-inline-start: var(--pad-words); }
 .row-cell.is-words:last-child { padding-inline-end: var(--pad-words); }
+/* A row of words alone keeps the margin itself, so words that wrap onto a second line (at a large text size) start at it too. */
+.layout-row:not(:has(> .row-cell:not(.is-words))) { padding-inline: var(--pad-words); }
+.layout-row:not(:has(> .row-cell:not(.is-words))) > .row-cell.is-words:is(:first-child, :last-child) { padding-inline: 0; }
 /* One height: every control in the row takes the tallest one's (data-control-height, from their size classes). */
 ${CONTROL_HEIGHTS.map((height) => `${HEIGHT_HOLDERS.map((holder) => `.layout-row[data-control-height="${height}"] > .row-cell > ${holder}`).join(", ")} { --control-height: var(--control-height-${height}); }`).join("\n")}
 /* A row at a pane's top edge holds its controls up at the frame gap, to take the corner's cut; at the bottom edge, down. */
