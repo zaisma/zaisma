@@ -1,5 +1,5 @@
 import { createExecutionContext, createScheduledController, env, runDurableObjectAlarm, runInDurableObject, waitOnExecutionContext } from "cloudflare:test";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import worker, { type Env } from "../../apps/rooms/src/index.ts";
 import { syncSchedules, type GameServerObject } from "../../apps/rooms/src/game-server.ts";
 import type { GameDatabaseObject } from "../../apps/rooms/src/database.ts";
@@ -163,3 +163,59 @@ describe("game server schedules", () => {
     expect(answer).toMatchObject({ code: "no_request_handler" });
   });
 });
+
+// A run due when a new version is read, and a pause from a month that has ended.
+describe("game server schedules around a publish and a month's turn", () => {
+  const midnightMs = Date.parse(`${new Date().toISOString().slice(0, 10)}T00:00:00Z`);
+  // A past alarm fires by itself, so a run may still be on its way: no table yet is no runs yet.
+  const runsOf = async (gameId: string) => ((await gameRows(gameId, "SELECT name, scheduled_at FROM runs ORDER BY name")) as { queryResult?: { name: string; scheduled_at: string }[] }).queryResult ?? [];
+  /** The daily reset came due at midnight; the other schedule isn't due for an hour. */
+  const resetDueAtMidnight = (gameId: string) =>
+    runInDurableObject(objectOf(gameId), (object: GameServerObject) => {
+      for (const schedule of (object as unknown as Inside).schedules?.schedules ?? []) schedule.nextRunAtMs = schedule.name === "daily-reset" ? midnightMs : Date.now() + 3_600_000;
+    });
+
+  beforeEach(async () => {
+    await e.DB.exec("DELETE FROM room_usage; DELETE FROM game_hosting_months; DELETE FROM game_server_errors; DELETE FROM game_server_schedules; DELETE FROM versions; DELETE FROM games;");
+  });
+
+  it("count a run that waits on a timer as close to no CPU", async () => {
+    const { gameId } = await addGame("sleepy", `export default { schedules: [{ name: "nap", cron: "* * * * *" }], async onSchedule() { await new Promise((resolve) => setTimeout(resolve, 1500)); } };`);
+    await syncSchedules(e);
+    const startedAtMs = Date.now();
+    await runDue(gameId);
+    expect(Date.now() - startedAtMs).toBeGreaterThan(1400);
+    expect(await runInDurableObject(objectOf(gameId), (object: GameServerObject) => (object as unknown as { unrecorded: { scheduledRunCount: number; outsideRoomCpuDurationMs: number } }).unrecorded)).toMatchObject({ scheduledRunCount: 1 });
+    expect(await runInDurableObject(objectOf(gameId), (object: GameServerObject) => (object as unknown as { unrecorded: { outsideRoomCpuDurationMs: number } }).unrecorded.outsideRoomCpuDurationMs)).toBeLessThan(150);
+  });
+
+  it("run a schedule that came due just before a new version was read, when the object's alarm goes off first", async () => {
+    const { gameId } = await addGame("midnight-alarm", WORLD);
+    await syncSchedules(e);
+    await resetDueAtMidnight(gameId);
+    await addGame("midnight-alarm", WORLD, "-b");
+    await runDurableObjectAlarm(objectOf(gameId));
+    await vi.waitFor(async () => expect(await runsOf(gameId)).toEqual([{ name: "daily-reset", scheduled_at: new Date(midnightMs).toISOString() }]));
+  });
+
+  it("run it when the rooms Worker's cron reads the new version first", async () => {
+    const { gameId } = await addGame("midnight-cron", WORLD);
+    await syncSchedules(e);
+    await resetDueAtMidnight(gameId);
+    await addGame("midnight-cron", WORLD, "-b");
+    await syncSchedules(e);
+    await runDurableObjectAlarm(objectOf(gameId));
+    await vi.waitFor(async () => expect(await runsOf(gameId)).toEqual([{ name: "daily-reset", scheduled_at: new Date(midnightMs).toISOString() }]));
+  });
+
+  it("run when hosting paused last month, though the object's last look said paused a moment ago", async () => {
+    const { gameId } = await addGame("new-month", WORLD);
+    await syncSchedules(e);
+    await resetDueAtMidnight(gameId);
+    // The last read, in the month that ended, said paused; this month's hosting isn't.
+    await runInDurableObject(objectOf(gameId), (object: GameServerObject) => void ((object as unknown as { hosting: { isPaused: boolean; readAtMs: number } }).hosting = { isPaused: true, readAtMs: Date.now() }));
+    await runDurableObjectAlarm(objectOf(gameId));
+    await vi.waitFor(async () => expect(await runsOf(gameId)).toEqual([{ name: "daily-reset", scheduled_at: new Date(midnightMs).toISOString() }]));
+  });
+});
+

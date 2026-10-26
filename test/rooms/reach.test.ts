@@ -1,7 +1,8 @@
-import { env, runInDurableObject, SELF } from "cloudflare:test";
+import { env, runDurableObjectAlarm, runInDurableObject, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import { issueRoomKey } from "@zaisma/core";
 import type { Env } from "../../apps/rooms/src/index.ts";
+import type { GameServerObject } from "../../apps/rooms/src/game-server.ts";
 
 // Game server reach and secrets: a sandboxed game server's fetch() goes through the gateway
 // (apps/rooms/src/outbound.ts), which takes only https to the hosts the game lists, and the game's
@@ -93,6 +94,54 @@ describe("game server reach and secrets", () => {
 
     // A server can't pass its answer off as Zaisma refusing the call.
     expect((await send("redirected", { url: "https://api.example.test/claims-refusal" })).answer).toMatchObject({ httpStatus: 200, body: {} });
+  });
+
+  /** The game's object records its errors and use now, and says what the developer would see. */
+  async function recordedErrors(gameId: string) {
+    await runDurableObjectAlarm(e.GAME_SERVER_OBJECTS.get(e.GAME_SERVER_OBJECTS.idFromName(gameId)));
+    const { results } = await e.DB.prepare("SELECT kind, message FROM game_server_errors WHERE game_id = ? ORDER BY message").bind(gameId).all<{ kind: string; message: string }>();
+    return results;
+  }
+  const cpuOf = (gameId: string) =>
+    runInDurableObject(e.GAME_SERVER_OBJECTS.get(e.GAME_SERVER_OBJECTS.idFromName(gameId)), (object: GameServerObject) => (object as unknown as { unrecorded: { outsideRoomCpuDurationMs: number } | null }).unrecorded?.outsideRoomCpuDurationMs ?? 0);
+
+  it("shows a refused call in the game's server errors, with its code, whether the game server catches it or not", async () => {
+    const { gameId } = await addGame("refused", CALLER, ["api.example.test"]);
+    // Caught: the game server answers, and the refusal is still an error for its developer.
+    expect((await send("refused", { url: "https://discord.gg/invite" })).answer.code).toBe("host_not_allowed");
+    expect(await recordedErrors(gameId)).toEqual([{ kind: "crash", message: "OutsideCallError: discord.gg isn't in the game's game_server_allowed_hosts (host_not_allowed)" }]);
+  });
+
+  it("keeps the code, fix and place of a refused call that isn't caught, for a game listing a few hosts", async () => {
+    const hosts = ["api.example.test", "scores.example.test", "chat.example.test", "levels.example.test", "login.example.test", "mail.example.test"];
+    const { gameId } = await addGame("refused-loud", "export default { onRequest: (player, request) => fetch(request.url) };", hosts);
+    expect((await send("refused-loud", { url: "https://discord.gg/invite" })).error.code).toBe("game_server_error");
+    const errors = await recordedErrors(gameId);
+    expect(errors.map((error) => error.message)).toEqual([
+      "OutsideCallError: discord.gg isn't in the game's game_server_allowed_hosts (host_not_allowed)",
+      expect.stringMatching(/^OutsideCallError: discord\.gg isn't in the game's game_server_allowed_hosts\. List it with update_game: game_server_allowed_hosts \[.*"discord\.gg"\]\. Calls to it work within a minute\. \(host_not_allowed\) \(zaisma-server\.js:\d+:\d+\)$/),
+    ]);
+  });
+
+  it("counts reading a slow answer's body as the other server's wait, not CPU", async () => {
+    const { gameId } = await addGame("slow-reader", "export default { async onRequest() { const response = await fetch('https://api.example.test/slow-body'); return await response.json(); } };", ["api.example.test"]);
+    const startedAtMs = Date.now();
+    expect((await send("slow-reader", {})).answer).toEqual({ isDone: true });
+    expect(Date.now() - startedAtMs).toBeGreaterThan(1400);
+    expect(await cpuOf(gameId)).toBeLessThan(150);
+  });
+
+  it("uses secrets changed within a minute even when the word of it never reaches the game's object", async () => {
+    const { gameId } = await addGame("lost-word", CALLER, ["api.example.test"]);
+    expect((await send("lost-word", { url: "https://api.example.test/" })).answer.body.authorization).toBe("none");
+    const atMs = Date.now();
+    await e.GAME_SECRETS.get(e.GAME_SECRETS.idFromName(gameId)).setSecret("API_TOKEN", "token-one", atMs);
+    await e.DB.prepare("UPDATE games SET secrets_changed_at_ms = ? WHERE id = ?").bind(atMs, gameId).run();
+    // Not told, and its last look at the game was under a minute ago: it carries on with what it has.
+    expect((await send("lost-word", { url: "https://api.example.test/" })).answer.body.authorization).toBe("none");
+    // The minute passes.
+    await runInDurableObject(e.GAME_SERVER_OBJECTS.get(e.GAME_SERVER_OBJECTS.idFromName(gameId)), (object: GameServerObject) => void ((object as unknown as { hosting: null }).hosting = null));
+    expect((await send("lost-word", { url: "https://api.example.test/" })).answer.body.authorization).toBe("token-one");
   });
 
   it("uses changed secrets from the next call", async () => {

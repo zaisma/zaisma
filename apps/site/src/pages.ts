@@ -339,7 +339,7 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
     hasTurnstileCheck: (!tester || multiplayer) && !isClosed && Boolean(env.TURNSTILE_SITE_KEY),
     // What a page for older players shows depends on who's looking, so no cache keeps it.
     isPrivate: game.minimum_player_age_years > 13,
-    hasStripePayments: !isClosed,
+    hasStripeFrame: !isClosed,
     body: html`${stack({ items: [{ kind: "block", markup: gamePane }, ...sections] })}
 ${screenshotSheets}
 ${playingBar({ title: game.title, controls: barControls })}

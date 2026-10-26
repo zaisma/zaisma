@@ -102,6 +102,19 @@ const outsideServers = async (request: Request): Promise<Response> => {
     const groups = variables.customIdentifier.endsWith("quiet") ? [] : [{ dimensions: { datetimeHour: `${variables.fromDate}T23:00:00Z` }, sum: { egressBytes: 10_000_000 } }, { dimensions: { datetimeHour: `${today}T01:00:00Z` }, sum: { egressBytes: 30_000_000 } }];
     return Response.json({ data: { viewer: { accounts: [{ callsTurnUsageAdaptiveGroups: groups }] } }, errors: null });
   }
+  // Answers its headers at once and its body after 1.5 seconds: a server that is slow to finish.
+  if (url.pathname === "/slow-body") {
+    return new Response(
+      new ReadableStream({
+        async start(controller) {
+          await new Promise((resolve) => setTimeout(resolve, 1500));
+          controller.enqueue(new TextEncoder().encode('{"isDone":true}'));
+          controller.close();
+        },
+      }),
+      { headers: { "Content-Type": "application/json" } },
+    );
+  }
   if (url.pathname === "/redirect") return new Response(null, { status: 302, headers: { Location: "https://elsewhere.example.test/took-the-redirect" } });
   if (url.pathname === "/claims-refusal") return new Response("{}", { headers: { "Content-Type": "application/json", "zaisma-outside-call-refused": "host_not_allowed" } });
   return Response.json({ host: url.hostname, path: url.pathname, method: request.method, authorization: request.headers.get("authorization") });

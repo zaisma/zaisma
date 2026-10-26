@@ -1,7 +1,7 @@
 import { DurableObject, WorkerEntrypoint } from "cloudflare:workers";
-import { GAME_SERVER_OPTIONS, REQUEST_LIMITS, SCHEDULE_LIMITS, WEBHOOK_LIMITS, checkSchedules, nextRunAtMs, readRequestAnswer, type Player, type RequestErrorCode, type Schedule } from "@zaisma/game-server/internal";
-import { HOSTING_PAUSED_TEXT, HOSTING_PRICES, isHostingPaused, type LogSourceKind, type PrintedLogLine } from "@zaisma/core";
-import { errorLine, linesOf, sandboxOpener, type Session } from "./sandbox.ts";
+import { GAME_SERVER_OPTIONS, REQUEST_LIMITS, SCHEDULE_LIMITS, WEBHOOK_LIMITS, checkSchedules, defineGameServer, nextRunAtMs, readRequestAnswer, type Player, type RequestErrorCode, type Schedule } from "@zaisma/game-server/internal";
+import { HOSTING_PAUSED_TEXT, HOSTING_PRICES, isHostingPaused, monthStartDateOf, type LogSourceKind, type PrintedLogLine } from "@zaisma/core";
+import { errorLine, linesOf, optionsOf, refusalsOf, sandboxOpener, type Session } from "./sandbox.ts";
 import { LogWriter } from "./logs.ts";
 import { secretsForGameServer } from "./secrets.ts";
 import type { Env } from "./index.ts";
@@ -102,6 +102,8 @@ export class GameServerObject extends DurableObject<Env> {
   private playingCountAtMs: number | null;
   private writtenPlayingCount: { playerCount: number; atMs: number } | null;
   private isSeatTableMade = false;
+  /** games.secrets_changed_at_ms as the open session read its secrets: a different value later means they changed. */
+  private secretsChangedAtMs: number | null | undefined = undefined;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -124,6 +126,7 @@ export class GameServerObject extends DurableObject<Env> {
     await this.ctx.storage.deleteAll();
     this.unrecorded = null;
     this.hosting = null;
+    this.secretsChangedAtMs = undefined;
     this.unsavedRequestCount = 0;
     this.gameId = null;
     this.schedules = null;
@@ -308,10 +311,14 @@ export class GameServerObject extends DurableObject<Env> {
     this.ctx.storage.kv.put("game_id", gameId);
   }
 
-  /** Whether the game's hosting is paused this month (hosting.ts), as last read; a read that fails counts as not paused. */
-  private async isHostingPaused(): Promise<boolean> {
+  /**
+   * Whether the game's hosting is paused this month (hosting.ts), as last read, which is again after
+   * HOSTING_CHECK_MS or when the month has turned over; a read that fails counts as not paused. The
+   * same read checks the game's secrets haven't changed without word reaching this object.
+   */
+  private async isHostingPaused(isFresh = false): Promise<boolean> {
     const nowMs = Date.now();
-    if (this.hosting && nowMs - this.hosting.readAtMs < HOSTING_CHECK_MS) return this.hosting.isPaused;
+    if (!isFresh && this.hosting && nowMs - this.hosting.readAtMs < HOSTING_CHECK_MS && monthStartDateOf(this.hosting.readAtMs) === monthStartDateOf(nowMs)) return this.hosting.isPaused;
     if (!this.gameId) return false;
     try {
       this.hosting = { isPaused: (await isHostingPaused(this.env.DB, this.gameId, nowMs)).isPaused, readAtMs: nowMs };
@@ -319,7 +326,19 @@ export class GameServerObject extends DurableObject<Env> {
       console.error("Couldn't read whether the game's hosting is paused:", error);
       this.hosting = { isPaused: false, readAtMs: nowMs };
     }
+    await this.checkSecrets();
     return this.hosting.isPaused;
+  }
+
+  /** The open session has the secrets as they are: when they changed since, it's dropped, so the next call opens with the new ones. */
+  private async checkSecrets(): Promise<void> {
+    if (this.secretsChangedAtMs === undefined || !this.server) return;
+    try {
+      const game = await this.env.DB.prepare("SELECT secrets_changed_at_ms FROM games WHERE id = ?").bind(this.gameId).first<{ secrets_changed_at_ms: number | null }>();
+      if (game && game.secrets_changed_at_ms !== this.secretsChangedAtMs) this.server = null;
+    } catch (error) {
+      console.error("Couldn't read whether the game's secrets changed:", error);
+    }
   }
 
   private isPaused(): boolean {
@@ -344,6 +363,7 @@ export class GameServerObject extends DurableObject<Env> {
     try {
       const open = await sandboxOpener(this.env, this.ctx.exports, gameId, versionId);
       if (open === null) return { outcome: { code: "no_request_handler", message: "This game's server doesn't take requests: its live version has no game server." } };
+      this.secretsChangedAtMs = (await this.env.DB.prepare("SELECT secrets_changed_at_ms FROM games WHERE id = ?").bind(gameId).first<{ secrets_changed_at_ms: number | null }>())?.secrets_changed_at_ms ?? null;
       const { secrets } = await secretsForGameServer(this.env, gameId);
       await this.logWriter()?.checkWatched();
       const session = await open(secrets);
@@ -353,7 +373,8 @@ export class GameServerObject extends DurableObject<Env> {
       const unknown = optionNames.find((name) => !(GAME_SERVER_OPTIONS as readonly string[]).includes(name));
       if (unknown) throw new Error(`${unknown} isn't a game server option. A game server takes: ${GAME_SERVER_OPTIONS.join(", ")}.`);
       const handlerNames = Array.isArray(settings.handlerNames) ? settings.handlerNames.map(String) : [];
-      // Checked like any game server's (defineGameServer), so a mistake says what to do.
+      // Checked like any game server's (defineGameServer), as the developer's own server and the rooms check it, so a mistake says what to do and nothing half runs.
+      defineGameServer({ ...optionsOf(settings), ...(settings.schedules !== undefined ? { schedules: settings.schedules as Schedule[] } : {}), ...Object.fromEntries(handlerNames.map((name) => [name, () => undefined])), ...Object.fromEntries((Array.isArray(settings.badHandlerNames) ? settings.badHandlerNames.map(String) : []).map((name) => [name, "not a function"])) } as never);
       const schedules = checkSchedules(settings.schedules, handlerNames.includes("onSchedule"));
       return { session, handlerNames, schedules };
     } catch (error) {
@@ -381,7 +402,14 @@ export class GameServerObject extends DurableObject<Env> {
         }),
       ]);
       this.printed(versionId, sourceKind, linesOf(reply));
-      this.countCpu(Date.now() - startedAtMs - (typeof (reply as { ioWaitDurationMs?: unknown }).ioWaitDurationMs === "number" ? (reply as { ioWaitDurationMs: number }).ioWaitDurationMs : 0));
+      // Counted from when the sandbox began the handler, not when this call was handed over: calls made at the same moment take turns there, and a call's wait for the others isn't its CPU.
+      // What the sandbox reports is kept within the call's own time here, which the game's code can't change.
+      const { handlerStartedAtMs, ioWaitDurationMs } = reply as { handlerStartedAtMs?: unknown; ioWaitDurationMs?: unknown };
+      const nowMs = Date.now();
+      const runningFromMs = typeof handlerStartedAtMs === "number" ? Math.min(nowMs, Math.max(startedAtMs, handlerStartedAtMs)) : startedAtMs;
+      this.countCpu(nowMs - runningFromMs - (typeof ioWaitDurationMs === "number" ? Math.max(0, ioWaitDurationMs) : 0));
+      // Outside calls the gateway refused are errors for the developer whether or not the handler caught them.
+      for (const line of refusalsOf(reply)) this.note(versionId, "crash", line);
       return reply;
     } catch (error) {
       if (error instanceof TimedOut) {
@@ -425,11 +453,15 @@ export class GameServerObject extends DurableObject<Env> {
         const last = this.schedules?.schedules ?? [];
         schedules = {
           versionId,
-          schedules: ready.schedules.map((schedule) => ({
-            ...schedule,
-            nextRunAtMs: nextRunAtMs(schedule.cron, nowMs)!,
-            lastRunAtMs: last.find((before) => before.name === schedule.name)?.lastRunAtMs ?? null,
-          })),
+          schedules: ready.schedules.map((schedule) => {
+            const before = last.find((earlier) => earlier.name === schedule.name);
+            return {
+              ...schedule,
+              // A run that came due before this read (right after a publish) is kept to run now, not dropped: a run is at least once.
+              nextRunAtMs: before && before.cron === schedule.cron && before.nextRunAtMs <= nowMs ? before.nextRunAtMs : nextRunAtMs(schedule.cron, nowMs)!,
+              lastRunAtMs: before?.lastRunAtMs ?? null,
+            };
+          }),
         };
         // A game server that didn't start: noted for the developer, and read again in a while.
       } else if ("outcome" in ready && ready.retryAtMs !== undefined) this.scheduleRetryAtMs = nowMs + SCHEDULE_RETRY_MS;
@@ -458,10 +490,14 @@ export class GameServerObject extends DurableObject<Env> {
 
   /** Run the schedules that are due, once each however late, after checking the game is still the same. */
   private async runDue(): Promise<void> {
-    const schedules = this.schedules;
+    let schedules = this.schedules;
     if (!schedules || !this.gameId) return;
-    // A new live version (the cron will ask too) or a game players can't play: its schedules are read again.
-    if ((await this.liveVersionId()) !== schedules.versionId) return this.readSchedules();
+    // A new live version (the cron will ask too) or a game players can't play: its schedules are read again, and what's due then runs.
+    if ((await this.liveVersionId()) !== schedules.versionId) {
+      await this.readSchedules();
+      schedules = this.schedules;
+      if (!schedules) return;
+    }
     const nowMs = Date.now();
     const due = schedules.schedules.filter((schedule) => schedule.nextRunAtMs <= nowMs);
     if (!due.length) return;
@@ -474,7 +510,8 @@ export class GameServerObject extends DurableObject<Env> {
     this.saveSchedules();
     this.recordSoon();
     // A paused game's schedules don't run: its alerts and get_stats say why, so the skipped runs aren't errors.
-    if (await this.isHostingPaused()) return;
+    // A skipped run is gone, so a pause that may be last month's is read again first.
+    if ((await this.isHostingPaused()) && (await this.isHostingPaused(true))) return;
     if (this.isPaused()) {
       for (const run of runs) this.note(schedules.versionId, "stopped", `Schedule ${run.name} skipped a run: the game's server is paused for a few minutes, it kept running on too long.`);
       return;
@@ -513,7 +550,7 @@ export class GameServerObject extends DurableObject<Env> {
     const today = this.today();
     if (kind === "crash") today.crashCount++;
     else today.stoppedCount++;
-    const trimmed = message.slice(0, 300);
+    const trimmed = message.slice(0, 600);
     const seen = today.errors.find((error) => error.versionId === versionId && error.kind === kind && error.message === trimmed);
     if (seen) seen.occurrenceCount++;
     else if (today.errors.length < MAXIMUM_ERROR_COUNT) today.errors.push({ versionId, kind, message: trimmed, occurrenceCount: 1, firstAtMs: Date.now() });

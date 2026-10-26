@@ -511,13 +511,15 @@ export const isLocalSite = (env: Env): boolean => env.SITE_ORIGIN.startsWith("ht
  */
 const STRIPE_SCRIPT_ORIGIN = "https://js.stripe.com";
 const STRIPE_FRAME_ORIGINS = ["https://js.stripe.com", "https://hooks.stripe.com"];
+/** Stripe.js, from Stripe's own origin as Stripe requires: only the buy sheet's Stripe frame (/buy/stripe-frame) loads it. */
+export const STRIPE_SCRIPT_TAG = raw(`<script src="${STRIPE_SCRIPT_ORIGIN}/v3/" defer></script>`);
 const STRIPE_API_ORIGIN = "https://api.stripe.com";
 
 /**
  * formTargets: other sites a form on the page may end up at, like the app a Sign in with Zaisma consent page goes back to. On a local
  * preview every page may be framed by the site's own, for the Screens page (components/screens.ts); live, only those that ask.
  */
-export function securityHeaders(env: Env, extra: Record<string, string> = {}, hasTurnstileCheck = false, frames: string[] = [], formTargets: string[] = [], frameAncestors = "'none'", hasStripePayments = false): Headers {
+export function securityHeaders(env: Env, extra: Record<string, string> = {}, hasTurnstileCheck = false, frames: string[] = [], formTargets: string[] = [], frameAncestors = "'none'", hasStripePayments = false, hasStripeFrame = false): Headers {
   const headers = new Headers({
     "Content-Type": "text/html; charset=utf-8",
     "Content-Security-Policy": [
@@ -526,7 +528,7 @@ export function securityHeaders(env: Env, extra: Record<string, string> = {}, ha
       "style-src 'self' 'unsafe-inline'",
       // Only the site's own script files (page-scripts.ts), never an inline one: Strict scripts on zaisma.com.
       `script-src 'self'${hasTurnstileCheck ? ` ${CHECK_ORIGIN}` : ""}${hasStripePayments ? ` ${STRIPE_SCRIPT_ORIGIN}` : ""}`,
-      `frame-src ${gameFrameSource(env)}${hasTurnstileCheck ? ` ${CHECK_ORIGIN}` : ""}${hasStripePayments ? ` ${STRIPE_FRAME_ORIGINS.join(" ")}` : ""}${frames.map((frame) => ` ${frame}`).join("")}`,
+      `frame-src ${gameFrameSource(env)}${hasTurnstileCheck ? ` ${CHECK_ORIGIN}` : ""}${hasStripePayments ? ` ${STRIPE_FRAME_ORIGINS.join(" ")}` : ""}${hasStripeFrame ? " 'self'" : ""}${frames.map((frame) => ` ${frame}`).join("")}`,
       ...(hasStripePayments ? [`connect-src 'self' ${STRIPE_API_ORIGIN}`] : []),
       `form-action 'self'${formTargets.map((target) => ` ${target}`).join("")}`,
       `frame-ancestors ${frameAncestors === "'none'" && isLocalSite(env) ? "'self'" : frameAncestors}`,
@@ -540,7 +542,7 @@ export function securityHeaders(env: Env, extra: Record<string, string> = {}, ha
     "X-Content-Type-Options": "nosniff",
     "Referrer-Policy": "strict-origin-when-cross-origin",
     // Apple Pay and Google Pay ask through the Payment Request API, from inside Stripe's frame, on the buy sheet's pages only.
-    "Permissions-Policy": `camera=(), microphone=(), geolocation=(), payment=(${hasStripePayments ? `self "${STRIPE_SCRIPT_ORIGIN}"` : ""})`,
+    "Permissions-Policy": `camera=(), microphone=(), geolocation=(), payment=(${hasStripePayments ? `self "${STRIPE_SCRIPT_ORIGIN}"` : hasStripeFrame ? "self" : ""})`,
     ...extra,
   });
   return headers;
@@ -620,6 +622,8 @@ export interface LayoutOptions {
   formTargets?: string[];
   /** The page holds the buy sheet: its policy lets Stripe.js, Stripe's frames and Stripe's API in, and Apple Pay and Google Pay ask. */
   hasStripePayments?: boolean;
+  /** The page holds a Stripe frame (the buy sheet): zaisma.com may frame itself in it, and the frame may ask for payments. */
+  hasStripeFrame?: boolean;
   /** Zaisma's own pages may frame this one (the home plays a game in place, in a frame of its game page): sent only for a request that is such a frame. */
   isFramedBySelf?: boolean;
   /**
@@ -678,7 +682,7 @@ ${stylesAppliedTag()}
   const firstPaintFiles = `<${pageStylePath(sheet)}>; rel=preload; as=style, <${pageScriptPath(STYLES_APPLIED_SCRIPT)}>; rel=preload; as=script, <${pageScriptPath(COMPONENT_SCRIPT)}>; rel=preload; as=script, <${pageScriptPath(HEADER_SCRIPT)}>; rel=preload; as=script, <${FONT_PATH}>; rel=preload; as=font; type="font/woff2"; crossorigin`;
   // A link to a game's page is fetched ahead as the pointer rests on it or presses it (SPECULATION_RULES), from the header, so no script is on the page.
   const extra: Record<string, string> = { Link: firstPaintFiles, "Speculation-Rules": `"${SPECULATION_RULES_PATH}"`, ...(isPrivate ? { "Cache-Control": "no-store" } : {}) };
-  return new Response(page.html, { headers: securityHeaders(env, extra, options.hasTurnstileCheck, options.frames, options.formTargets, options.isFramedBySelf ? "'self'" : "'none'", options.hasStripePayments) });
+  return new Response(page.html, { headers: securityHeaders(env, extra, options.hasTurnstileCheck, options.frames, options.formTargets, options.isFramedBySelf ? "'self'" : "'none'", options.hasStripePayments, options.hasStripeFrame) });
 }
 
 /** Which state on the checks' list a page is (LayoutOptions.checkedPage), for the layout check to read and a swapped-in sign-in step to carry over. */

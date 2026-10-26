@@ -31,7 +31,7 @@ export class GameServerOutbound extends WorkerEntrypoint<Env, { gameId: string }
     if (!isHostAllowed(host, allowedHosts)) {
       return refuse(
         "host_not_allowed",
-        `${host} isn't in this game's game_server_allowed_hosts (${allowedHosts.length ? allowedHosts.join(", ") : "it lists none"}).`,
+        `${host} isn't in the game's game_server_allowed_hosts.`,
         `List it with update_game: game_server_allowed_hosts ${JSON.stringify([...allowedHosts, host])}. Calls to it work within a minute.`,
       );
     }
