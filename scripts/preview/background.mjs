@@ -326,9 +326,10 @@ async function answers(url, timeoutMs = 5000) {
 /** phone: this start's { host, reason }, the reason saying why the links aren't on the phone when they could have been. */
 function printReady(offset, startedHow, phone) {
   const site = siteFor(offset, phone.host);
-  // At localhost too (workers/router.mjs): a session's own checks open it there in the app's browser pane, which asks before every
-  // step on the tailnet name but never on localhost. Passkeys work only at the address they were made on, the tailnet one.
-  const phoneText = phone.host ? `Opens on your phone too, on this Mac's tailnet (Tailscale).\nFor Claude's own checks, on this Mac: ${addressFor(8800 + offset, null)} (passkeys only at the tailnet address)` : phone.reason ? `On this Mac only: ${phone.reason}. The preview skill says how to open it on a phone.` : "On this Mac only (--local).";
+  // At localhost too (workers/addresses.mjs): a session's own checks open it there in the app's browser pane, which asks before every
+  // step on the tailnet name but never on localhost. Each address's links and redirects stay on it. Passkeys work only at the
+  // address they were made on, the tailnet one.
+  const phoneText = phone.host ? `Opens on your phone too, on this Mac's tailnet (Tailscale).\nFor Claude's own checks, on this Mac: ${addressFor(8800 + offset, null)} (its links and redirects stay on localhost, the games on 127.0.0.1; passkeys only at the tailnet address)` : phone.reason ? `On this Mac only: ${phone.reason}. The preview skill says how to open it on a phone.` : "On this Mac only (--local).";
   const text = readLog();
   if (text.includes(READY_LINE)) writeFileSync(PAGES, text.slice(text.indexOf(READY_LINE)));
   // run.mjs says how long it waited in line for memory, when it did.
