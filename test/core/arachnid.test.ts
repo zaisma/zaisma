@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { KNOWN_IMAGE_CODE, arachnidShield, embeddedMedia, matroskaHasVideo, sniffMedia, type MediaForMatching } from "@zaisma/core";
+import { KNOWN_IMAGE_CODE, arachnidShield, embeddedMedia, matroskaHasVideo, picturesInside, sniffMedia, type MediaForMatching } from "@zaisma/core";
 
 const image = (path: string, text = path): MediaForMatching => ({ path, type: "image/png", id: text, body: async () => new TextEncoder().encode(text) });
 
@@ -143,5 +143,40 @@ describe("finding pictures and videos whatever they're called", () => {
     expect(found.map((f) => f.type)).toEqual(["image/png", "image/jpeg", "video/mp4"]);
     expect(found[0]!.bytes).toEqual(png);
     expect(embeddedMedia("const s = '/9j/' + 'not really a picture at all, just a long string of letters and words here';")).toEqual([]);
+  });
+});
+
+describe("finding pictures inside packs", () => {
+  const be32 = (value: number) => [(value >>> 24) & 255, (value >>> 16) & 255, (value >>> 8) & 255, value & 255];
+  const chunk = (type: string, length: number) => bytes(be32(length), type, Array(length).fill(7), [0, 0, 0, 0]);
+  const png = (dataLength: number) => new Uint8Array([...bytes([0x89], "PNG\r\n\x1a\n"), ...chunk("IHDR", 13), ...chunk("IDAT", dataLength), ...chunk("IEND", 0)]);
+  const jpeg = bytes([0xff, 0xd8, 0xff, 0xe0, 0, 4, 1, 2], [0xff, 0xda, 0, 4, 1, 2], [9, 0xff, 0x00, 9, 0xff, 0xd0, 9], [0xff, 0xd9]);
+  const gif = bytes("GIF89a", [1, 0, 1, 0, 0x80, 0, 0], [0, 0, 0, 255, 255, 255], [0x21, 0xf9, 4, 0, 0, 0, 0, 0], [0x2c, 0, 0, 0, 0, 1, 0, 1, 0, 0], [2, 2, 0x44, 1, 0], [0x3b]);
+  const webp = bytes("RIFF", [12, 0, 0, 0], "WEBPVP8 ", [0, 0, 0, 0]);
+  const noise = (length: number) => new Uint8Array(length).fill(3);
+  const join = (...parts: Uint8Array[]) => new Uint8Array(parts.flatMap((part) => [...part]));
+
+  it("finds whole PNG, JPEG, GIF and WebP files between other data, with where each starts and ends", () => {
+    const picture = png(40);
+    const pack = join(noise(10), picture, noise(5), jpeg, noise(3), gif, noise(2), webp, noise(20));
+    const { pictures, unfinishedStartIndex } = picturesInside(pack);
+    expect(pictures.map((found) => found.type)).toEqual(["image/png", "image/jpeg", "image/gif", "image/webp"]);
+    expect(pictures[0]).toEqual({ startIndex: 10, endIndex: 10 + picture.length, type: "image/png" });
+    expect(pack.subarray(pictures[1]!.startIndex, pictures[1]!.endIndex)).toEqual(jpeg);
+    expect(pack.subarray(pictures[2]!.startIndex, pictures[2]!.endIndex)).toEqual(gif);
+    expect(pack.subarray(pictures[3]!.startIndex, pictures[3]!.endIndex)).toEqual(webp);
+    expect(unfinishedStartIndex).toBeNull();
+  });
+
+  it("says where a picture starts that runs past the end, so reading goes on from there", () => {
+    const picture = png(200);
+    expect(picturesInside(join(noise(30), picture.subarray(0, 100)))).toEqual({ pictures: [], unfinishedStartIndex: 30 });
+  });
+
+  it("skips bytes that only look like a picture's start, and one claiming more than a window", () => {
+    expect(picturesInside(join(bytes([0x89], "PNG\r\n\x1a\n", "nonsense"), noise(40))).pictures).toEqual([]);
+    expect(picturesInside(join(bytes([0xff, 0xd8, 0xff, 0x00]), noise(40))).pictures).toEqual([]);
+    const huge = join(bytes([0x89], "PNG\r\n\x1a\n"), chunk("IHDR", 13), bytes(be32(0x7000_0000), "IDAT"), noise(40));
+    expect(picturesInside(huge)).toEqual({ pictures: [], unfinishedStartIndex: null });
   });
 });
