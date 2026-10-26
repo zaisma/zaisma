@@ -30,6 +30,7 @@ import { checkField, choiceCards, selectField } from "./components/inputs.ts";
 import { connectionAddressOf, currentSession } from "./auth.ts";
 import { waitEndsText } from "./email-codes.ts";
 import type { Env } from "./env.ts";
+import { confirmItsYouSheet } from "./components/confirm-its-you.ts";
 import { glassMessage, html, layout, raw, scriptTags, type Raw } from "./html.ts";
 import { pageScript } from "./page-scripts.ts";
 import { PASSKEY_SCRIPT, checkPasskeyTap, usedChallengeCookie } from "./passkeys.ts";
@@ -374,7 +375,7 @@ async function connectPage(env: Env, checked: Allowed, account: Account, error?:
     viewer: { account },
     // The answer goes on to the app, which a page's form-action has to allow.
     formTargets: [backTo.origin],
-    body: glassPane({
+    body: html`${glassPane({
       paneWidth: "fit",
       label: `Connect ${name}`,
       body: html`${stack({
@@ -400,7 +401,7 @@ ${stack({
           { kind: "words", markup: html`<p>You can remove it any time from ${textLink("your account", "/account#developer")}, with your API keys.</p>` },
         ],
       })}${scriptTags(PASSKEY_SCRIPT, ACCESS_CHOICES_SCRIPT, CONNECT_APP_SCRIPT)}`,
-    }),
+    })}${confirmItsYouSheet({ id: "connect-confirm" })}`,
   });
 }
 
@@ -483,22 +484,31 @@ const CONNECT_APP_SCRIPT = pageScript("connect-app", `(() => {
   // The select field's pick is a hidden field, which sends no change of its own.
   form.addEventListener("click", () => setTimeout(show, 0));
   zaismaPasskeyFirst({ added: form.dataset.again, waiting: form.dataset.again }, stop);
-  // Connect taps the passkey first, so it only sends the form once that's done; it's never a submit button.
+  // Connect asks for the passkey first, in the popup, so it only sends the form once that's done; it's never a submit button.
   const go = form.querySelector('button[name="connect_step"]');
-  if (go) go.onclick = async () => {
+  if (go) go.onclick = () => {
     $("connect-error").hidden = true;
     const said = choices.gamesProblem();
     if (said) return stop(said);
     if (state !== "ready") { if (passkeyStep) passkeyStep.hidden = false; go.hidden = true; return; }
-    const tapped = await zaismaPasskeyTap("key");
-    if (tapped.error) return stop(tapped.error);
-    zaismaFillTap(form, tapped.tap);
-    const decision = document.createElement("input");
-    decision.type = "hidden";
-    decision.name = "decision";
-    decision.value = "allow";
-    form.append(decision);
-    form.submit();
+    // The popup asks for the passkey, the browser's own prompt up at once: the tap is made for this connection, once, and the server checks it.
+    let tap = null;
+    const opened = window.zaismaConfirmItsYou("connect-confirm", {
+      methods: ["passkey"],
+      reason: "A connection stays until you remove it, so making one takes your passkey.",
+      passkeyPurpose: "key",
+      send: async (proof) => { tap = proof.passkey_tap; return { ok: true }; },
+      onConfirmed: () => {
+        zaismaFillTap(form, tap);
+        const decision = document.createElement("input");
+        decision.type = "hidden";
+        decision.name = "decision";
+        decision.value = "allow";
+        form.append(decision);
+        form.submit();
+      },
+    });
+    if (!opened) stop("This browser can't use passkeys. Connect from one that can.");
   };
   show();
 })();`);

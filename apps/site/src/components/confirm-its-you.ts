@@ -30,7 +30,7 @@ const PIN_DIGIT_COUNT = PURCHASE_PIN_LIMITS.pinDigitCount;
 const SWITCH_WORDS: Record<ConfirmMethod, string> = { passkey: "Use your passkey instead", purchase_pin: "Use your purchase PIN instead", password: "Use your password instead" };
 
 /**
- * Confirm it's you: a small glass dialog that opens over anything (the store panel's Buy, later a key's Make) and asks the player to prove it's
+ * Confirm it's you: a small glass dialog that opens over anything (the store panel's Buy, the account page's changes, a key's Make) and asks the player to prove it's
  * them, in a way that suits what they're doing: a passkey, their purchase PIN (for a purchase only) or their password. The page opens it with
  * its own methods, its reason and the function that sends the proof (zaismaConfirmItsYou, CONFIRM_ITS_YOU_SCRIPT); when the proof is right the
  * dialog closes itself and the page goes on at once, so the press that asked is the only press. A purchase PIN is six boxes (the PIN field), and
