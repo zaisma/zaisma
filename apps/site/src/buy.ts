@@ -27,9 +27,9 @@ import {
 } from "@zaisma/core";
 import { tryPassword } from "./account.ts";
 import { currentSession, realEmail, sessionCookies, type Session } from "./auth.ts";
-import { BUY_SHEET_SCRIPT, buySheet, buySheetData, buySheetStripe } from "./buy-sheet.ts";
+import { BUY_SHEET_SCRIPT, STRIPE_FRAME_SCRIPT, buySheet, buySheetData, buySheetStripe } from "./buy-sheet.ts";
 import { isOpenHere } from "./game-links.ts";
-import { glassMessage, html, layout, scriptTags } from "./html.ts";
+import { glassMessage, html, layout, pageData, scriptTags, securityHeaders, STRIPE_SCRIPT_TAG } from "./html.ts";
 import { viewerOf } from "./viewer.ts";
 import { PASSKEY_SCRIPT } from "./passkeys.ts";
 import { purchaseJson, withReceipts } from "./items-api.ts";
@@ -627,7 +627,7 @@ export async function buyWindowPage(env: Env, request: Request, slug: string, it
     checkedPage: "Buy window",
     isBare: true,
     isPrivate: true,
-    hasStripePayments: true,
+    hasStripeFrame: true,
     body: html`${buySheet({ joinHref: `/join?next=${encodeURIComponent(here)}`, signInHref: `/signin?next=${encodeURIComponent(here)}`, coverUrl: cover ? `/img/${cover.id}` : null })}
 ${buySheetData({
       slug: game.slug,
@@ -639,6 +639,25 @@ ${buySheetData({
     })}
 ${scriptTags(PASSKEY_SCRIPT, BUY_SHEET_SCRIPT)}`,
   });
+}
+
+/**
+ * zaisma.com/buy/stripe-frame: the one place Stripe.js loads, inside the buy sheet's Stripe frames (components/stripe-frame.ts), so the
+ * pages around the sheet keep a script-src of their own. Only zaisma.com may frame it; it holds nothing but Stripe's parts, see-through
+ * over the sheet's glass, and nothing about the player until the sheet asks.
+ */
+export function stripeFramePage(env: Env): Response {
+  const stripePublishableKey = buySheetStripe(env).stripe_publishable_key;
+  const body = html`<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex"><title>Stripe</title></head>
+<body style="margin:0;background:transparent;overflow:hidden"><div id="stripe-mount"></div>
+${pageData("stripe-frame-data", { stripe_publishable_key: stripePublishableKey })}
+${STRIPE_SCRIPT_TAG}
+${scriptTags(STRIPE_FRAME_SCRIPT)}
+</body>
+</html>`;
+  return new Response(body.html, { headers: securityHeaders(env, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" }, false, [], [], "'self'", true) });
 }
 
 function originOf(address: string | null): string | null {

@@ -3,6 +3,7 @@ import { pageScript } from "./page-scripts.ts";
 import type { Env } from "./env.ts";
 import { cardRow, cutButton, runButton, textButton } from "./components/actions.ts";
 import { cutField } from "./components/fields.ts";
+import { stripeFrame } from "./components/stripe-frame.ts";
 import { doneState, loadingState, problemState } from "./components/data.ts";
 import { confirmItsYouSheet } from "./components/confirm-its-you.ts";
 import { row, stack } from "./components/layout.ts";
@@ -33,7 +34,7 @@ export function buySheet(options: { joinHref: string; signInHref: string; coverU
             // What this step is: a new card, saved for the next buys too (it takes the saved card's place when there is one).
             { kind: "words", id: "buy-card-words", markup: html`<p></p>` },
             // Stripe's card form goes here; the local preview's stand-in Stripe has no form, so its test card's number stands in for it.
-            { kind: "block", id: "buy-card-form", markup: html`<div id="buy-card-element"></div>` },
+            { kind: "block", id: "buy-card-form", markup: stripeFrame({ id: "buy-card-frame", title: "Card details" }) },
             { kind: "control", id: "buy-test-card", isHidden: true, markup: cutField({ name: "test_card_number", id: "buy-test-card-field", label: "Card number", type: "text", text: "4242 4242 4242 4242", isReadOnly: true, autocomplete: "off", hint: "The preview's test card. On zaisma.com, Stripe's card form is here." }) },
             { kind: "control", id: "buy-keep-card", isHidden: true, markup: textButton("Keep your saved card", { type: "button" }) },
           ],
@@ -57,7 +58,7 @@ export function buySheet(options: { joinHref: string; signInHref: string; coverU
   // The foot stays in view while the body scrolls: Apple Pay or Google Pay when offered, the saved card, the line the EU's law asks for, and Buy.
   const foot = stack({
     items: [
-      { kind: "block", id: "buy-wallet", isHidden: true, markup: html`<div id="buy-wallet-element"></div>` },
+      { kind: "block", id: "buy-wallet", isHidden: true, markup: stripeFrame({ id: "buy-wallet-frame", title: "Apple Pay or Google Pay" }) },
       { kind: "control", id: "buy-wallet-stand-in", isHidden: true, markup: cutButton("Apple Pay", { type: "button", isFullWidth: true }) },
       { kind: "control", id: "buy-other-card", isHidden: true, markup: cardRow("", { type: "button", hiddenText: "Use another card", changeText: "Change" }) },
       // Digital content delivered at once loses the 14-day withdrawal right only with the buyer's acknowledgement, said before they buy.
@@ -67,7 +68,7 @@ export function buySheet(options: { joinHref: string; signInHref: string; coverU
       { kind: "control", markup: cutButton("Back to the game", { id: "buy-back", type: "submit", formMethod: "dialog", isFullWidth: true, isHidden: true }) },
     ],
   });
-  return html`${storePanel({ id: "buy-sheet", title: "Buy", closeLabel: "Close", body, foot })}${confirmItsYouSheet({ id: "buy-confirm-you" })}`;
+  return html`${storePanel({ id: "buy-sheet", title: "Buy", closeLabel: "Close", body, foot })}${confirmItsYouSheet({ id: "buy-confirm-you" })}${stripeFrame({ id: "buy-check-frame", title: "Your bank's check" })}`;
 }
 
 /** What the sheet's script needs from the page that holds it (pageData "buy-sheet-data"). */
@@ -167,19 +168,34 @@ async function call(path, body, method) {
   }
 }
 
-// Stripe.js comes from js.stripe.com only when the sheet needs it (a card to enter, a wallet, 3-D Secure), never with the page.
-let stripeScript = null;
-const stripes = {};
-function stripeFor(stripeAccountId) {
-  stripeScript = stripeScript || new Promise((resolve, reject) => {
-    const script = document.createElement("script");
-    script.src = "https://js.stripe.com/v3/";
-    script.onload = () => resolve(window.Stripe);
-    script.onerror = () => { stripeScript = null; reject(new Error("Stripe didn't load")); };
-    document.head.appendChild(script);
+// Stripe.js runs only in Zaisma's Stripe frames (/buy/stripe-frame), never on this page: a frame gets its source when the sheet first
+// needs it (a card to enter, a wallet, a bank's check), then is asked by postMessage, at this origin only, and answers the same way.
+const frameLoads = {};
+function stripeFrameReady(id) {
+  frameLoads[id] = frameLoads[id] || new Promise((resolve) => {
+    const frame = byId(id);
+    frame.addEventListener("load", () => resolve(frame), { once: true });
+    frame.src = "/buy/stripe-frame";
   });
-  return stripeScript.then((Stripe) => stripes[stripeAccountId || ""] || (stripes[stripeAccountId || ""] = Stripe(buyData.stripe_publishable_key, stripeAccountId ? { stripeAccount: stripeAccountId } : undefined)));
+  return frameLoads[id];
 }
+function askFrame(id, message) {
+  return stripeFrameReady(id).then((frame) => frame.contentWindow.postMessage(Object.assign({ zaisma_stripe: true }, message), location.origin));
+}
+// What the frames say, by frame: each job's answer waits here, and the wallet's moments come as they happen.
+const frameWaiters = {};
+const waitForFrame = (id, kinds) => new Promise((resolve) => { frameWaiters[id] = { kinds: kinds, resolve: resolve }; });
+window.addEventListener("message", (event) => {
+  const message = event.data;
+  if (event.origin !== location.origin || !message || message.zaisma_stripe !== true) return;
+  const frame = [byId("buy-card-frame"), byId("buy-wallet-frame"), byId("buy-check-frame")].find((each) => each.contentWindow === event.source);
+  if (!frame) return;
+  if (message.kind === "height") return frame.style.setProperty("--stripe-frame-height", message.height + "px");
+  if (message.kind === "cover") { frame.hidden = !message.is_covering; frame.classList.toggle("is-covering", message.is_covering); return; }
+  if (frame.id === "buy-wallet-frame") return walletSaid(message);
+  const waiter = frameWaiters[frame.id];
+  if (waiter && waiter.kinds.includes(message.kind)) { delete frameWaiters[frame.id]; waiter.resolve(message); }
+});
 const stripeLook = () => ({ theme: matchMedia("(prefers-color-scheme: dark)").matches ? "night" : "stripe", variables: { fontFamily: getComputedStyle(document.body).fontFamily, borderRadius: "10px" } });
 
 function open(asked) {
@@ -376,13 +392,11 @@ async function paid(answer) {
   if (answer.status === "completed") return bought(answer.purchase);
   if (answer.status === "action_needed") {
     waiting("Your bank asks you to confirm");
-    try {
-      const stripe = await stripeFor(answer.stripe_account_id);
-      const result = await stripe.handleNextAction({ clientSecret: answer.client_secret });
-      if (result.error) return declined(result.error.message);
-    } catch {
-      return problem("Couldn't reach your bank", "Nothing was charged. Try again.");
-    }
+    const checked = waitForFrame("buy-check-frame", ["next_action_done"]);
+    askFrame("buy-check-frame", { kind: "next_action", stripe_account_id: answer.stripe_account_id, client_secret: answer.client_secret });
+    const result = await checked;
+    if (result.is_unreachable) return problem("Couldn't reach your bank", "Nothing was charged. Try again.");
+    if (result.error_message) return declined(result.error_message);
     return settle();
   }
   problem("Couldn't buy it", "Zaisma didn't answer. Check your connection and try again.");
@@ -452,31 +466,29 @@ function enterCard() {
   // Buy saves the card and pays: Stripe's form, or the stand-in's test card, filled in already.
   showButtons(["go"]);
   if (buyData.stripe_mode === "stripe" && !cardForm) {
-    cardForm = stripeFor(null).then((stripe) => {
-      const elements = stripe.elements({ mode: "setup", currency: sale.price.currency_code, paymentMethodTypes: ["card"], appearance: stripeLook() });
-      const element = elements.create("payment", { wallets: { applePay: "never", googlePay: "never" } });
-      element.mount("#buy-card-element");
-      return { stripe: stripe, elements: elements };
-    }).catch(() => { cardForm = null; problem("Couldn't load the card form", "Check your connection and try again."); return null; });
+    byId("buy-card-frame").hidden = false;
+    cardForm = askFrame("buy-card-frame", { kind: "card", currency_code: sale.price.currency_code, appearance: stripeLook() }).then(() => true);
   }
 }
 
 async function saveCard() {
   busy(true);
-  let form = null;
+  let setupIntentId;
   if (buyData.stripe_mode === "stripe") {
-    form = await cardForm;
-    if (!form) return;
-    const submitted = await form.elements.submit();
-    if (submitted.error) return busy(false);
+    // The frame checks the form, makes the setup and confirms it with Stripe; Stripe's form says itself what's missing or wrong.
+    await cardForm;
+    const answered = waitForFrame("buy-card-frame", ["card_set_up", "card_incomplete", "card_problem", "card_not_ready"]);
+    askFrame("buy-card-frame", { kind: "save_card", return_url: location.href });
+    const said = await answered;
+    if (said.kind === "card_problem") return problem("Couldn't save your card", said.message);
+    if (said.kind !== "card_set_up") return busy(false);
+    setupIntentId = said.setup_intent_id;
+  } else {
+    const setup = await call("/api/payment-methods/setup", {});
+    if (setup.error) return problem("Couldn't save your card", setup.error.message);
+    setupIntentId = setup.setup_intent_id;
   }
-  const setup = await call("/api/payment-methods/setup", {});
-  if (setup.error) return problem("Couldn't save your card", setup.error.message);
-  if (form) {
-    const confirmed = await form.stripe.confirmSetup({ elements: form.elements, clientSecret: setup.client_secret, confirmParams: { return_url: location.href }, redirect: "if_required" });
-    if (confirmed.error) { busy(false); return; }
-  }
-  const saved = await call("/api/payment-methods/saved", { setup_intent_id: setup.setup_intent_id });
+  const saved = await call("/api/payment-methods/saved", { setup_intent_id: setupIntentId });
   if (saved.error) return problem("Couldn't save your card", saved.error.message);
   sale.saved_card = saved.saved_card;
   // Saved: Buy was pressed for it, so it takes it from here, asking first only when the start answer said why. Saving is done, so the
@@ -494,25 +506,20 @@ function showWallet(shown) {
   if (wallet && wallet.purchaseId === sale.purchase_id) { if (wallet.isAvailable) shown.push("buy-wallet"); return; }
   const forSale = sale;
   wallet = { purchaseId: forSale.purchase_id, isAvailable: false };
-  stripeFor(forSale.wallet.stripe_account_id).then((stripe) => {
-    const elements = stripe.elements({ mode: "payment", amount: forSale.price.price_minor_units, currency: forSale.price.currency_code, appearance: stripeLook() });
-    const element = elements.create("expressCheckout", { emailRequired: true, paymentMethods: { applePay: "always", googlePay: "always", link: "never", paypal: "never", amazonPay: "never" } });
-    element.on("ready", (event) => {
-      if (!event.availablePaymentMethods || sale !== forSale) return;
-      wallet.isAvailable = true;
-      if (moment === "ready" || moment === "card") byId("buy-wallet").hidden = false;
-    });
-    element.on("confirm", async () => {
-      isWalletPayment = true;
-      waiting("Paying");
-      const intent = await call("/api/buy/purchases/" + forSale.purchase_id + "/wallet-intent");
-      if (intent.error) return problem("Couldn't buy it", intent.error.message);
-      const result = await stripe.confirmPayment({ elements: elements, clientSecret: intent.client_secret, confirmParams: { return_url: location.href }, redirect: "if_required" });
-      if (result.error) return declined(result.error.message);
-      settle();
-    });
-    element.mount("#buy-wallet-element");
-  }).catch(() => {});
+  // A fresh frame for each purchase, so its button pays for this one.
+  const frame = byId("buy-wallet-frame");
+  delete frameLoads["buy-wallet-frame"];
+  frame.hidden = false;
+  askFrame("buy-wallet-frame", { kind: "wallet", purchase_id: forSale.purchase_id, stripe_account_id: forSale.wallet.stripe_account_id, price_minor_units: forSale.price.price_minor_units, currency_code: forSale.price.currency_code, appearance: stripeLook(), return_url: location.href });
+}
+// The wallet frame's moments: its button showed, the player chose it, and how the payment went.
+function walletSaid(message) {
+  if (!wallet || !sale || wallet.purchaseId !== sale.purchase_id) return;
+  if (message.kind === "wallet_ready") { wallet.isAvailable = true; if (moment === "ready" || moment === "card") byId("buy-wallet").hidden = false; return; }
+  if (message.kind === "wallet_paying") { isWalletPayment = true; return waiting("Paying"); }
+  if (message.kind === "wallet_problem") return problem("Couldn't buy it", message.message);
+  if (message.kind === "wallet_declined") return declined(message.message);
+  if (message.kind === "wallet_paid") return settle();
 }
 byId("buy-wallet-stand-in").querySelector("button").addEventListener("click", () => {
   setText("buy-message", "Apple Pay and Google Pay show here on zaisma.com. The preview can't run them.");
@@ -581,6 +588,79 @@ if (buyData.is_preview) {
     if (name === "press_buy") { isHeld = false; syncGo(); return go.click(); }
   };
 }
+})();`);
+
+/**
+ * Inside the Stripe frame (/buy/stripe-frame): Stripe.js and Stripe's parts, run for the buy sheet on the page around it, which asks by
+ * postMessage and hears back the same way, both only at zaisma.com's own origin. The frame calls Zaisma itself where Stripe needs a secret
+ * (saving a card, a wallet payment), so the page never handles one.
+ */
+export const STRIPE_FRAME_SCRIPT = pageScript("stripe-frame", String.raw`(function () {
+const frameData = JSON.parse(document.getElementById("stripe-frame-data").textContent);
+const here = location.origin;
+const stripes = {};
+const stripeFor = (stripeAccountId) => stripes[stripeAccountId || ""] || (stripes[stripeAccountId || ""] = window.Stripe(frameData.stripe_publishable_key, stripeAccountId ? { stripeAccount: stripeAccountId } : undefined));
+const tell = (message) => parent.postMessage(Object.assign({ zaisma_stripe: true }, message), here);
+const mount = document.getElementById("stripe-mount");
+new ResizeObserver(() => tell({ kind: "height", height: Math.ceil(mount.getBoundingClientRect().height) })).observe(mount);
+async function call(path, body) {
+  try {
+    const answer = await (await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) })).json();
+    return answer && typeof answer === "object" ? answer : { error: { message: "Zaisma didn't answer. Check your connection and try again." } };
+  } catch {
+    return { error: { message: "Zaisma didn't answer. Check your connection and try again." } };
+  }
+}
+let card = null;
+const jobs = {
+  // The card form, on Zaisma's platform: saving it makes the setup, confirms it with Stripe (a bank may check), and says which setup it was.
+  card(message) {
+    const elements = stripeFor(null).elements({ mode: "setup", currency: message.currency_code, paymentMethodTypes: ["card"], appearance: message.appearance });
+    elements.create("payment", { wallets: { applePay: "never", googlePay: "never" } }).mount(mount);
+    card = elements;
+  },
+  async save_card(message) {
+    if (!card) return tell({ kind: "card_not_ready" });
+    const submitted = await card.submit();
+    if (submitted.error) return tell({ kind: "card_incomplete" });
+    const setup = await call("/api/payment-methods/setup", {});
+    if (setup.error) return tell({ kind: "card_problem", message: setup.error.message });
+    const confirmed = await stripeFor(null).confirmSetup({ elements: card, clientSecret: setup.client_secret, confirmParams: { return_url: message.return_url }, redirect: "if_required" });
+    if (confirmed.error) return tell({ kind: "card_incomplete" });
+    tell({ kind: "card_set_up", setup_intent_id: setup.setup_intent_id });
+  },
+  // Apple Pay and Google Pay, on the developer's account: the wallet asks for Face ID or a fingerprint, and pays.
+  wallet(message) {
+    const stripe = stripeFor(message.stripe_account_id);
+    const elements = stripe.elements({ mode: "payment", amount: message.price_minor_units, currency: message.currency_code, appearance: message.appearance });
+    const element = elements.create("expressCheckout", { emailRequired: true, paymentMethods: { applePay: "always", googlePay: "always", link: "never", paypal: "never", amazonPay: "never" } });
+    element.on("ready", (event) => { if (event.availablePaymentMethods) tell({ kind: "wallet_ready" }); });
+    element.on("confirm", async () => {
+      tell({ kind: "wallet_paying" });
+      const intent = await call("/api/buy/purchases/" + message.purchase_id + "/wallet-intent", {});
+      if (intent.error) return tell({ kind: "wallet_problem", message: intent.error.message });
+      const result = await stripe.confirmPayment({ elements: elements, clientSecret: intent.client_secret, confirmParams: { return_url: message.return_url }, redirect: "if_required" });
+      tell(result.error ? { kind: "wallet_declined", message: result.error.message } : { kind: "wallet_paid" });
+    });
+    element.mount(mount);
+  },
+  // A bank's 3-D Secure check for a saved card's payment: the frame covers the window while it's open.
+  async next_action(message) {
+    tell({ kind: "cover", is_covering: true });
+    try {
+      const result = await stripeFor(message.stripe_account_id).handleNextAction({ clientSecret: message.client_secret });
+      tell({ kind: "next_action_done", error_message: result.error ? result.error.message : null });
+    } catch {
+      tell({ kind: "next_action_done", error_message: null, is_unreachable: true });
+    }
+    tell({ kind: "cover", is_covering: false });
+  },
+};
+window.addEventListener("message", (event) => {
+  const message = event.data;
+  if (event.origin !== here || event.source !== parent || !message || message.zaisma_stripe !== true || !Object.prototype.hasOwnProperty.call(jobs, message.kind)) return;
+  jobs[message.kind](message);
+});
 })();`);
 
 /** Which Stripe the sheet uses here: the preview's stand-in only on a local site (stripe.ts refuses it anywhere else too). */

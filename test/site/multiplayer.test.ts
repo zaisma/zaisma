@@ -121,7 +121,8 @@ describe("game details", () => {
     const page = await (await SELF.fetch("https://zaisma.test/g/solo")).text();
     expect(page).toContain('id="play"');
     expect(page).toContain('<template id="game-frame"><iframe');
-    expect(page).not.toMatch(/<\/template>[\s\S]*<iframe/);
+    // The buy sheet's Stripe frames have no source until a buy needs one; no other frame is on the page before Play.
+    expect(page.replace(/<iframe class="stripe-frame"[^>]*><\/iframe>/g, "")).not.toMatch(/<\/template>[\s\S]*<iframe/);
     expect(pageDataOf(page, "game-page-data").autoplay).toBe("never");
   });
 

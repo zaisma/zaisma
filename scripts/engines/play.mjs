@@ -160,7 +160,7 @@ async function play(chrome, sample) {
 
 /** The game's frame, as a picture. */
 async function screenshot(send) {
-  const { result } = await send("Runtime.evaluate", { expression: `JSON.stringify((document.querySelector("iframe") ?? document.body).getBoundingClientRect())`, returnByValue: true });
+  const { result } = await send("Runtime.evaluate", { expression: `JSON.stringify((document.querySelector("iframe:not(.stripe-frame)") ?? document.body).getBoundingClientRect())`, returnByValue: true });
   const { x, y, width, height } = JSON.parse(result.value);
   const { data } = await send("Page.captureScreenshot", { format: "png", clip: { x, y, width: Math.max(1, width), height: Math.max(1, height), scale: 0.5 } });
   return data;

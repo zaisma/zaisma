@@ -56,7 +56,7 @@ import { handleGameLinks, recheckLinks } from "./game-links.ts";
 import { watchHealth } from "./health-alerts.ts";
 import { SECURITY_TEXT_FILE_PATH, securityTextFile } from "./security-policy.ts";
 import { viewerOf } from "./viewer.ts";
-import { buyWindowPage, failStaleSales, handleBuy } from "./buy.ts";
+import { buyWindowPage, failStaleSales, handleBuy, stripeFramePage } from "./buy.ts";
 import { handleConnectReturn } from "./stripe-account-api.ts";
 
 // The chat filter's AI step, for the rooms Worker (its CHAT_CHECK binding).
@@ -93,6 +93,7 @@ async function route(request: Request, env: Env, ctx: ExecutionContext): Promise
   const buy = await handleBuy(request, env, path);
   if (buy) return buy;
   if (path === "/stripe/connect-return" && method === "GET") return handleConnectReturn(request, env);
+  if (path === "/buy/stripe-frame" && (method === "GET" || method === "HEAD")) return stripeFramePage(env);
   const buyWindow = path.match(/^\/buy\/([a-z0-9-]+)\/([a-z0-9][a-z0-9_-]{0,39})$/);
   if (buyWindow && method === "GET") return buyWindowPage(env, request, buyWindow[1]!, buyWindow[2]!);
   if (method !== "GET" && method !== "HEAD" && method !== "POST" && !(method === "PUT" && path.startsWith("/api/saves/"))) return new Response("Method not allowed", { status: 405 });
