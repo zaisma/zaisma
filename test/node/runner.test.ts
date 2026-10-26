@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { startServer } from "../../packages/game-server/bin/node.js";
 // @ts-expect-error plain JavaScript without type declarations
-import { localRoomStates } from "../../packages/game-server/bin/node-parts.js";
+import { localRoomStates, passKeysFrom, profilesFrom } from "../../packages/game-server/bin/node-parts.js";
 import { ERROR_TEXT, GameServerError, defineGameServer, generateSigningKey, loadSigningKey, relay, signPass, type Purchase } from "../../packages/game-server/src/internal.ts";
 import { signTestReceipt } from "../helpers.ts";
 import { playTranscript, transcriptGameServerOptions, type TranscriptDriver } from "../rooms-transcript.ts";
@@ -217,6 +217,82 @@ describe("Node runner", () => {
     expect(await stranger.next()).toMatchObject({ type: "error", code: "bad_pass" });
     expect(await stranger.closed).toBe(4001);
     own.close();
+  });
+
+  it("turns a hello away as busy, and keeps its matches, when Zaisma's keys or an account's name are slow to come", async () => {
+    let status = 503;
+    let requestCount = 0;
+    const zaisma = createServer((request, response) => {
+      requestCount++;
+      response.writeHead(status).end("later");
+    });
+    await new Promise<void>((r) => zaisma.listen(0, r));
+    onTestFinished(() => void zaisma.close());
+    const issuerUrl = `http://localhost:${(zaisma.address() as { port: number }).port}`;
+    const own = startServer({ gameServer: relay, gameSlug: "arena", port: 0, origins: [ORIGIN], issuerUrl, loadPassKeys: passKeysFrom(`${issuerUrl}/.well-known/jwks.json`), loadProfile: profilesFrom(issuerUrl), roomStateFile: null });
+    await new Promise((r) => own.httpServer.once("listening", r));
+    onTestFinished(() => void own.close());
+    const at = (own.httpServer.address() as { port: number }).port;
+    // The keys can't be fetched (503): busy, the try-again close.
+    const first = connect(ORIGIN, "/v1/rooms/arena/ABCDEF", at);
+    await first.open;
+    first.say({ type: "hello", protocolVersionNumber: 1, pass: await pass("player_one") });
+    expect(await first.next()).toMatchObject({ type: "error", code: "busy" });
+    expect(await first.closed).toBe(1013);
+    // Account names ask to slow down (429).
+    const keyed = startServer({ gameServer: relay, gameSlug: "arena", port: 0, origins: [ORIGIN], issuerUrl: ISS, loadPassKeys: async () => [signing.publicKey], loadProfile: profilesFrom(issuerUrl), roomStateFile: null });
+    await new Promise((r) => keyed.httpServer.once("listening", r));
+    onTestFinished(() => void keyed.close());
+    status = 429;
+    const keyedAt = (keyed.httpServer.address() as { port: number }).port;
+    const now = Math.floor(Date.now() / 1000);
+    const second = connect(ORIGIN, "/v1/rooms/arena/ABCDEF", keyedAt);
+    await second.open;
+    second.say({ type: "hello", protocolVersionNumber: 1, pass: await signPass(signing, { sub: "player_owl", aud: "arena", iss: ISS, pass_version_number: 1, kind: "account", iat: now, exp: now + 60 }) });
+    expect(await second.next()).toMatchObject({ type: "error", code: "busy" });
+    expect(await second.closed).toBe(1013);
+    expect(requestCount).toBeGreaterThan(0);
+    // And the runner still takes a guest.
+    const guest = connect(ORIGIN, "/v1/rooms/arena/ABCDEF", keyedAt);
+    await guest.open;
+    guest.say({ type: "hello", protocolVersionNumber: 1, pass: await pass("player_guest") });
+    expect((await guest.next()).me).toMatchObject({ id: "player_guest" });
+    guest.ws.close();
+  });
+
+  it("keeps the keys it has when a refresh fails, and asks for new ones at most every 30 seconds", async () => {
+    vi.useFakeTimers({ toFake: ["Date"], now: Date.parse("2026-10-16T13:45:00Z") });
+    onTestFinished(() => void vi.useRealTimers());
+    let isUp = true;
+    let fetchCount = 0;
+    const zaisma = createServer((request, response) => {
+      fetchCount++;
+      if (!isUp) return void response.writeHead(503).end();
+      response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ keys: [{ kid: "key_one" }] }));
+    });
+    await new Promise<void>((r) => zaisma.listen(0, r));
+    onTestFinished(() => void zaisma.close());
+    const loadKeys = passKeysFrom(`http://localhost:${(zaisma.address() as { port: number }).port}/.well-known/jwks.json`);
+    expect(await loadKeys()).toEqual([{ kid: "key_one" }]);
+    expect(fetchCount).toBe(1);
+    // A pass with a key ID it doesn't know asks for a refresh: too soon after the last fetch, so the keys it has answer.
+    expect(await loadKeys(true)).toEqual([{ kid: "key_one" }]);
+    expect(fetchCount).toBe(1);
+    // Later it does ask, and Zaisma is down: the keys it has still answer.
+    isUp = false;
+    vi.setSystemTime(Date.parse("2026-10-16T13:45:31Z"));
+    expect(await loadKeys(true)).toEqual([{ kid: "key_one" }]);
+    expect(fetchCount).toBe(2);
+    // And a day later, with Zaisma still down, the old keys serve until it's back.
+    vi.setSystemTime(Date.parse("2026-10-17T13:45:00Z"));
+    expect(await loadKeys()).toEqual([{ kid: "key_one" }]);
+  });
+
+  it("names OutsideCallError, as Zaisma's game servers can, though nothing here refuses a call", () => {
+    const OutsideCallError = (globalThis as unknown as { OutsideCallError: new (...given: string[]) => Error }).OutsideCallError;
+    expect(typeof OutsideCallError).toBe("function");
+    expect(new Error("an ordinary failure") instanceof OutsideCallError).toBe(false);
+    expect(new OutsideCallError("host_not_allowed", "x isn't listed.", "List it.") instanceof OutsideCallError).toBe(true);
   });
 
   it("seats a pass of a kind added after v1 as a guest, as Zaisma rooms do", async () => {

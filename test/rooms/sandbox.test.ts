@@ -961,6 +961,22 @@ describe("a game server whose sandbox keeps failing", () => {
   });
 });
 
+describe("a room's game server CPU", () => {
+  it("counts a handler that awaits a timer as close to none", async () => {
+    await addSandboxGame("sleepy-room", "export default { setup: async () => { await new Promise((resolve) => setTimeout(resolve, 1500)); return {}; } };");
+    const stub = e.GAME_SERVER_OBJECTS.get(e.GAME_SERVER_OBJECTS.idFromName("gsleepyroom"));
+    const stats = await runInDurableObject(stub, async (_object, state) => {
+      const { sandboxOpener, wrapSession } = await import("../../apps/rooms/src/sandbox.ts");
+      const open = await sandboxOpener(e, (state as unknown as { exports: never }).exports, "gsleepyroom", "vsleepyroom");
+      const server = await wrapSession(open!, () => {});
+      await server.setup!(null);
+      return { cpuDurationMs: server.stats.cpuDurationMs, waitDurationMs: server.stats.waitDurationMs };
+    });
+    expect(stats.waitDurationMs).toBeGreaterThan(1400);
+    expect(stats.cpuDurationMs).toBeLessThan(150);
+  });
+});
+
 describe("a real-time game server in the sandbox", () => {
   it("gets the messages since the last tick with the tick, in one call and in order", async () => {
     const { wrapSession } = await import("../../apps/rooms/src/sandbox.ts");

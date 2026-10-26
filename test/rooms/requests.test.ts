@@ -213,6 +213,14 @@ describe("game server requests", () => {
     expect((await send("busy-shop", { type: "leaderboard" })).httpStatus).toBe(200);
   });
 
+  it("answer from the first moment of a new month, though the object's last look said paused", async () => {
+    const { gameId } = await addGame("new-month-shop", LEADERBOARD);
+    // A pause read in the month before this one: a month later than now stands in for a read just before midnight on the 1st.
+    const nextMonthMs = Date.parse(`${monthStartDateOf(Date.now() + 40 * 86_400_000)}T00:00:00Z`);
+    await runInDurableObject(objectOf(gameId), (object: GameServerObject) => void ((object as unknown as { hosting: { isPaused: boolean; readAtMs: number } }).hosting = { isPaused: true, readAtMs: nextMonthMs }));
+    expect((await send("new-month-shop", { type: "leaderboard" })).httpStatus).toBe(200);
+  });
+
   it("count their CPU past the first 10 ms on the hosting meter", async () => {
     const { gameId } = await addGame("heavy-shop", LEADERBOARD);
     expect((await send("heavy-shop", { type: "heavy" })).httpStatus).toBe(200);
@@ -232,11 +240,96 @@ describe("game server requests", () => {
     expect(usage!.outside_room_cpu_duration_ms).toBeGreaterThan(200);
   });
 
+  it("from a game server with an option out of range answer nothing and say which, as the Node runner refuses to start", async () => {
+    const { gameId } = await addGame("zero-ticks-shop", "export default { ticksPerSec: 0, onRequest: () => 1 };");
+    expect((await send("zero-ticks-shop", { type: "anything" })).body.error.code).toBe("game_server_error");
+    await runDurableObjectAlarm(objectOf(gameId));
+    const error = await e.DB.prepare("SELECT message FROM game_server_errors WHERE game_id = ?").bind(gameId).first<{ message: string }>();
+    expect(error!.message).toMatch(/^Didn't start: ticksPerSec is 0\. .*\(bad_option\)/);
+  });
+
   it("from a game server that doesn't start say so to its developer", async () => {
     const { gameId } = await addGame("typo-shop", "export default { onRequest: () => 1, tickRate: 20 };");
     expect((await send("typo-shop", { type: "leaderboard" })).body.error.code).toBe("game_server_error");
     await runDurableObjectAlarm(objectOf(gameId));
     const error = await e.DB.prepare("SELECT message FROM game_server_errors WHERE game_id = ?").bind(gameId).first<{ message: string }>();
     expect(error!.message).toMatch(/^Didn't start: tickRate isn't a game server option/);
+  });
+});
+
+// What the hosting meter counts for a game server's calls outside rooms: CPU is the game server running,
+// not its waits on the database, other servers or its own timers, and not other calls' turns at the sandbox.
+describe("game server CPU on the hosting meter", () => {
+  const BUSY = `
+  const burn = () => {
+    let total = 0;
+    for (let i = 0; i < 40_000_000; i++) total = (total + i * 7) % 1_000_003;
+    return total;
+  };
+  export default {
+    async onRequest(player, request) {
+      if (request.type === "wait") await new Promise((resolve) => setTimeout(resolve, 1500));
+      if (request.type === "wait-twice") await Promise.all([new Promise((resolve) => setTimeout(resolve, 1000)), new Promise((resolve) => setTimeout(resolve, 1000))]);
+      if (request.type === "burn") burn();
+      if (request.type === "burn-then-wait") {
+        burn();
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      }
+      return { isDone: true };
+    },
+  };`;
+  const cpuOf = (gameId: string) => runInDurableObject(objectOf(gameId), (object: GameServerObject) => (object as unknown as { unrecorded: { outsideRoomCpuDurationMs: number } | null }).unrecorded?.outsideRoomCpuDurationMs ?? 0);
+
+  beforeEach(async () => {
+    await e.DB.exec("DELETE FROM room_usage; DELETE FROM game_hosting_months; DELETE FROM game_server_errors; DELETE FROM versions; DELETE FROM games;");
+  });
+
+  it("count a request that waits on a timer as close to no CPU", async () => {
+    const { gameId } = await addGame("timer-shop", BUSY);
+    const startedAtMs = Date.now();
+    expect((await send("timer-shop", { type: "wait" })).httpStatus).toBe(200);
+    expect(Date.now() - startedAtMs).toBeGreaterThan(1400);
+    expect(await cpuOf(gameId)).toBeLessThan(150);
+    // Timers side by side wait once, not twice.
+    await send("timer-shop", { type: "wait-twice" });
+    expect(await cpuOf(gameId)).toBeLessThan(300);
+  });
+
+  it("still count the CPU a request used before it waited", async () => {
+    const { gameId } = await addGame("burn-shop", BUSY);
+    await send("burn-shop", { type: "burn" });
+    const burned = await cpuOf(gameId);
+    expect(burned).toBeGreaterThan(100);
+    await send("burn-shop", { type: "burn-then-wait" });
+    const afterWait = (await cpuOf(gameId)) - burned;
+    expect(afterWait).toBeGreaterThan(burned * 0.5);
+    expect(afterWait).toBeLessThan(burned * 2);
+  });
+
+  it("count a request's CPU though its code replaces the clock", async () => {
+    const { gameId } = await addGame("clock-shop", `Date.now = () => 9e15;\n${BUSY}`);
+    await send("clock-shop", { type: "burn" });
+    expect(await cpuOf(gameId)).toBeGreaterThan(100);
+  });
+
+  it("answer nothing and say which, for a handler that isn't a function, as the Node runner refuses to start", async () => {
+    const { gameId } = await addGame("string-handler-shop", 'export default { onRequest: () => 1, onSchedule: "soon" };');
+    expect((await send("string-handler-shop", { type: "anything" })).body.error.code).toBe("game_server_error");
+    await runDurableObjectAlarm(objectOf(gameId));
+    const error = await e.DB.prepare("SELECT message FROM game_server_errors WHERE game_id = ?").bind(gameId).first<{ message: string }>();
+    expect(error!.message).toMatch(/^Didn't start: onSchedule isn't a function\..*\(bad_option\)/);
+  });
+
+  it("count requests made at the same moment as about the CPU each used, not their wait for each other", async () => {
+    const { gameId } = await addGame("crowd-shop", BUSY);
+    await send("crowd-shop", { type: "burn" });
+    const alone = await cpuOf(gameId);
+    expect(alone).toBeGreaterThan(100);
+    const passes = await Promise.all(Array.from({ length: 5 }, () => newPass("crowd-shop")));
+    await Promise.all(passes.map((pass) => send("crowd-shop", { type: "burn" }, pass.pass)));
+    const together = (await cpuOf(gameId)) - alone;
+    // Five calls one after another cost about five times one; counting each other's turns would make it fifteen.
+    expect(together).toBeGreaterThan(alone * 2);
+    expect(together).toBeLessThan(alone * 8);
   });
 });

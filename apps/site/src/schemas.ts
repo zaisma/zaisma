@@ -690,7 +690,7 @@ export const STATS = object({
       room_play_duration_min: countOf("Player time in rooms."),
       message_count: countOf("Messages and bytes frames players sent the rooms."),
       ...PER_PLAYER_TRAFFIC,
-      game_server_cpu_duration_sec: countOf("The game's own game server running in its rooms (each call's time less its waits on the database and other servers); 0 for built-in ones."),
+      game_server_cpu_duration_sec: countOf("The game's own game server running in its rooms (each call's time less its waits on the database, other servers and its own timers); 0 for built-in ones."),
       game_server: nullable(
         object(
           {

@@ -138,10 +138,10 @@ interface Answer {
  * Every answer from the sandbox can carry the lines the game server printed, and how long the call
  * waited on its database and outside calls (the rest is CPU, for the player-hour meter).
  */
-type Printed = { logLines?: unknown; ioWaitDurationMs?: unknown };
+type Printed = { logLines?: unknown; ioWaitDurationMs?: unknown; handlerStartedAtMs?: unknown; refusalLines?: unknown };
 
 /** A game server's options as the sandbox reports them, and which of its handlers it has. */
-interface Settings {
+export interface Settings {
   optionNames: unknown;
   maximumPlayerCount?: unknown;
   maximumSpectatorCount?: unknown;
@@ -157,6 +157,8 @@ interface Settings {
   /** As plain JSON; the game's object checks them (checkSchedules). */
   schedules?: unknown;
   handlerNames: unknown;
+  /** The handlers the game server has that aren't functions, for the same check on them as on its own server. */
+  badHandlerNames?: unknown;
   /** What the game server printed as it loaded. */
   logLines?: unknown;
 }
@@ -414,6 +416,7 @@ class Session extends RpcTarget {
       stateSyncEnabled: server.stateSyncEnabled,
       schedules: plain(server.schedules),
       handlerNames: HANDLERS.filter((name) => typeof server[name] === "function"),
+      badHandlerNames: HANDLERS.filter((name) => server[name] !== undefined && typeof server[name] !== "function"),
     }));
   }
   setup(setupData) {
@@ -609,7 +612,10 @@ import { AsyncLocalStorage } from "node:async_hooks";
 const LEVELS = ${JSON.stringify(LOG_LEVELS)};
 const LINE_COUNT = ${LOG_LIMITS.callLineCount};
 const CHARACTER_COUNT = ${LOG_LIMITS.lineCharacterCount};
+const ERROR_LINE_COUNT = 20;
 const store = new AsyncLocalStorage();
+// The game's own code can replace Date.now: the clock this reports with is the one from before it loaded.
+const nativeNow = Date.now.bind(Date);
 let loose = { lines: [], droppedCount: 0 };
 function text(given) {
   if (typeof given === "string") return given;
@@ -634,31 +640,99 @@ for (const level of LEVELS) {
     } catch {
       line = "(something that can't be printed)";
     }
-    printed.lines.push({ atMs: Date.now(), level, text: line.length > CHARACTER_COUNT ? line.slice(0, CHARACTER_COUNT - 1) + "…" : line });
+    printed.lines.push({ atMs: nativeNow(), level, text: line.length > CHARACTER_COUNT ? line.slice(0, CHARACTER_COUNT - 1) + "…" : line });
   };
 }
 console.trace = console.debug;
 console.dir = console.log;
 console.table = console.log;
-// Runs work as one call, and hands back its answer with what it printed and how long it waited on I/O.
+// The time of the waits that ended in this call, each as [from, to]: overlapping waits (calls and timers
+// running side by side) count once. Merged when they pile up, so a call with a timer per row stays small.
+function waitsMerged(waits) {
+  const sorted = waits.slice().sort((first, second) => first[0] - second[0]);
+  const merged = [];
+  for (const wait of sorted) {
+    const last = merged[merged.length - 1];
+    if (last && wait[0] <= last[1]) last[1] = Math.max(last[1], wait[1]);
+    else merged.push([wait[0], wait[1]]);
+  }
+  return merged;
+}
+export function addWait(printed, fromMs, toMs) {
+  if (!printed || printed.isDone || !(toMs > fromMs)) return;
+  printed.waits.push([fromMs, toMs]);
+  if (printed.waits.length > 256) printed.waits = waitsMerged(printed.waits);
+}
+// Runs work as one call, and hands back its answer with what it printed, when its handler began and how long it waited on I/O.
 export async function withLogs(work) {
-  const printed = { lines: loose.lines, droppedCount: loose.droppedCount, ioWaitDurationMs: 0 };
+  // The clock moves only across I/O, so it is read once the call has had its turn: calls made at the same moment
+  // take turns here, and the time a call waited for the others' turns isn't the game server running.
+  await new Promise((resolve) => nativeSetTimeout(resolve, 0));
+  const handlerStartedAtMs = nativeNow();
+  const printed = { lines: loose.lines, droppedCount: loose.droppedCount, waits: [], isDone: false, refusalLines: [] };
   loose = { lines: [], droppedCount: 0 };
-  let answer = await store.run(printed, work);
-  if (printed.droppedCount) printed.lines.push({ atMs: Date.now(), level: "warn", text: "Zaisma: this call printed " + printed.droppedCount + " more lines than the " + LINE_COUNT + " a call keeps; they weren't kept." });
-  if (printed.ioWaitDurationMs) answer = { ...answer, ioWaitDurationMs: printed.ioWaitDurationMs };
+  let answer;
+  try {
+    answer = await store.run(printed, work);
+  } finally {
+    printed.isDone = true;
+  }
+  if (printed.droppedCount) printed.lines.push({ atMs: nativeNow(), level: "warn", text: "Zaisma: this call printed " + printed.droppedCount + " more lines than the " + LINE_COUNT + " a call keeps; they weren't kept." });
+  const ioWaitDurationMs = waitsMerged(printed.waits).reduce((total, wait) => total + wait[1] - wait[0], 0);
+  answer = { ...answer, handlerStartedAtMs, ...(ioWaitDurationMs ? { ioWaitDurationMs } : {}), ...(printed.refusalLines.length ? { refusalLines: printed.refusalLines } : {}) };
   return printed.lines.length ? { ...answer, logLines: printed.lines } : answer;
+}
+// A refused outside call, for the game's server errors whether or not the game server catches it.
+export function refused(line) {
+  const printed = store.getStore();
+  if (printed && !printed.isDone && printed.refusalLines.length < ERROR_LINE_COUNT && !printed.refusalLines.includes(line)) printed.refusalLines.push(line);
 }
 // Waits on the database or another server, counting the time toward the call's I/O wait: inside the
 // sandbox the clock moves only across I/O, so the rest of a call's time is the game server running.
 export async function timedWait(waited) {
   const printed = store.getStore();
-  const startedAtMs = Date.now();
+  const startedAtMs = nativeNow();
   try {
     return await waited;
   } finally {
-    if (printed) printed.ioWaitDurationMs += Date.now() - startedAtMs;
+    addWait(printed, startedAtMs, nativeNow());
   }
+}
+// A timer's wait counts too, once it fires inside the call. The clock only moves across I/O, so the
+// time since the timer was set can include work done before it was; the wait is at most the delay.
+const nativeSetTimeout = globalThis.setTimeout;
+const nativeSetInterval = globalThis.setInterval;
+function timerWait(printed, sinceMs, delay) {
+  const nowMs = nativeNow();
+  addWait(printed, nowMs - Math.min(nowMs - sinceMs, Math.max(0, Number(delay) || 0)), nowMs);
+  return nowMs;
+}
+globalThis.setTimeout = function setTimeout(callback, delay, ...rest) {
+  const printed = store.getStore();
+  if (!printed || typeof callback !== "function") return nativeSetTimeout(callback, delay, ...rest);
+  const setAtMs = nativeNow();
+  return nativeSetTimeout(function (...given) {
+    timerWait(printed, setAtMs, delay);
+    callback.apply(this, given);
+  }, delay, ...rest);
+};
+globalThis.setInterval = function setInterval(callback, delay, ...rest) {
+  const printed = store.getStore();
+  if (!printed || typeof callback !== "function") return nativeSetInterval(callback, delay, ...rest);
+  let sinceMs = nativeNow();
+  return nativeSetInterval(function (...given) {
+    sinceMs = timerWait(printed, sinceMs, delay);
+    callback.apply(this, given);
+  }, delay, ...rest);
+};
+if (globalThis.scheduler && typeof globalThis.scheduler.wait === "function") {
+  const nativeWait = globalThis.scheduler.wait.bind(globalThis.scheduler);
+  globalThis.scheduler.wait = async function wait(delay, options) {
+    const printed = store.getStore();
+    const setAtMs = nativeNow();
+    await nativeWait(delay, options);
+    timerWait(printed, setAtMs, delay);
+  };
 }
 `;
 
@@ -666,7 +740,7 @@ export async function timedWait(waited) {
 // (outbound.ts) throws an OutsideCallError saying why and what to do, instead of answering like the
 // server it was meant for. The gateway decides either way; this only shapes the error.
 const outsideCalls = `
-import { timedWait } from "./logs.js";
+import { timedWait, refused } from "./logs.js";
 class OutsideCallError extends Error {
   constructor(error) {
     super(error.message + " " + error.fix + " (" + error.code + ")");
@@ -681,6 +755,8 @@ class OutsideCallError extends Error {
 }
 const outsideFetch = globalThis.fetch;
 globalThis.fetch = async function fetch(input, init) {
+  // Where the game server called from: after the awaits below that is gone from the error's own stack.
+  const calledFrom = new Error().stack;
   const response = await timedWait(outsideFetch(input, init));
   if (!response.headers.has("${OUTSIDE_CALL_REFUSAL_HEADER}")) return response;
   let error;
@@ -689,9 +765,28 @@ globalThis.fetch = async function fetch(input, init) {
   } catch {
     error = { code: response.headers.get("${OUTSIDE_CALL_REFUSAL_HEADER}"), message: "The call was refused.", fix: "" };
   }
-  throw new OutsideCallError(error);
+  // Shown in the game's server errors with its code, whether or not the game server catches the error.
+  refused("OutsideCallError: " + String(error.message).replace(/\\.$/, "") + " (" + error.code + ")");
+  const failure = new OutsideCallError(error);
+  failure.stack = failure.name + ": " + failure.message + String(calledFrom).replace(/^[^\\n]*/, "");
+  throw failure;
 };
 globalThis.OutsideCallError = OutsideCallError;
+// Reading an answer's body is a wait on the other server too, not the game server running.
+for (const name of ["text", "json", "arrayBuffer", "blob", "formData", "bytes"]) {
+  const read = Response.prototype[name];
+  if (typeof read !== "function") continue;
+  Response.prototype[name] = function (...given) {
+    return timedWait(read.apply(this, given));
+  };
+}
+for (const Reader of [globalThis.ReadableStreamDefaultReader, globalThis.ReadableStreamBYOBReader]) {
+  const read = Reader && Reader.prototype.read;
+  if (typeof read !== "function") continue;
+  Reader.prototype.read = function (...given) {
+    return timedWait(read.apply(this, given));
+  };
+}
 `;
 
 /** A version's game server files and their code, or null if it has none (or too much). */
@@ -798,6 +893,23 @@ interface SentRoom {
   backedUpKey: string;
 }
 
+/** A game server's options as the sandbox reports them, as the game gave them, so defineGameServer checks them like any game server's. */
+export function optionsOf(settings: Settings) {
+  return {
+    ...(settings.maximumPlayerCount !== undefined ? { maximumPlayerCount: settings.maximumPlayerCount as number } : {}),
+    ...(settings.maximumSpectatorCount !== undefined ? { maximumSpectatorCount: settings.maximumSpectatorCount as number } : {}),
+    ...(settings.ticksPerSec !== undefined ? { ticksPerSec: settings.ticksPerSec as number } : {}),
+    ...(settings.hostControlsEnabled !== undefined ? { hostControlsEnabled: settings.hostControlsEnabled as boolean } : {}),
+    ...(settings.idleCheck !== undefined ? { idleCheck: settings.idleCheck as GameServer["idleCheck"] } : {}),
+    ...(settings.idleTimeoutSec !== undefined ? { idleTimeoutSec: settings.idleTimeoutSec as number } : {}),
+    ...(settings.awayMode !== undefined ? { awayMode: settings.awayMode as GameServer["awayMode"] } : {}),
+    ...(settings.seatHoldDurationSec !== undefined ? { seatHoldDurationSec: settings.seatHoldDurationSec as number } : {}),
+    ...(settings.reconnectTimeoutSec !== undefined ? { reconnectTimeoutSec: settings.reconnectTimeoutSec as number } : {}),
+    ...(settings.stateSaveIntervalSec !== undefined ? { stateSaveIntervalSec: settings.stateSaveIntervalSec as number } : {}),
+    ...(settings.stateSyncEnabled !== undefined ? { stateSyncEnabled: settings.stateSyncEnabled as boolean } : {}),
+  };
+}
+
 /**
  * A game server that runs its handlers through a session with the sandbox. If the sandbox itself
  * fails (over its CPU limit, or restarted), that call is lost and the next gets a fresh session;
@@ -878,6 +990,11 @@ export async function wrapSession(open: (secrets: Record<string, string>) => Pro
     // The call's time less its waits on the database and other servers: the game server running, plus the call's own small cost.
     stats.cpuDurationMs += Math.max(0, callDurationMs - (typeof answer.ioWaitDurationMs === "number" ? answer.ioWaitDurationMs : 0));
     printed(linesOf(answer));
+    // Outside calls the gateway refused, whether or not the game server caught them: each is a mistake for the developer to see.
+    for (const line of refusalsOf(answer)) {
+      stats.crashCount++;
+      record("crash", line);
+    }
     if (answer.error) {
       stats.crashCount++;
       record("crash", answer.error);
@@ -957,17 +1074,7 @@ export async function wrapSession(open: (secrets: Record<string, string>) => Pro
 
   // The options pass through as the game gave them, so defineGameServer checks them like any game server's.
   const server = {
-    ...(settings.maximumPlayerCount !== undefined ? { maximumPlayerCount: settings.maximumPlayerCount as number } : {}),
-    ...(settings.maximumSpectatorCount !== undefined ? { maximumSpectatorCount: settings.maximumSpectatorCount as number } : {}),
-    ...(settings.ticksPerSec !== undefined ? { ticksPerSec: settings.ticksPerSec as number } : {}),
-    ...(settings.hostControlsEnabled !== undefined ? { hostControlsEnabled: settings.hostControlsEnabled as boolean } : {}),
-    ...(settings.idleCheck !== undefined ? { idleCheck: settings.idleCheck as GameServer["idleCheck"] } : {}),
-    ...(settings.idleTimeoutSec !== undefined ? { idleTimeoutSec: settings.idleTimeoutSec as number } : {}),
-    ...(settings.awayMode !== undefined ? { awayMode: settings.awayMode as GameServer["awayMode"] } : {}),
-    ...(settings.seatHoldDurationSec !== undefined ? { seatHoldDurationSec: settings.seatHoldDurationSec as number } : {}),
-    ...(settings.reconnectTimeoutSec !== undefined ? { reconnectTimeoutSec: settings.reconnectTimeoutSec as number } : {}),
-    ...(settings.stateSaveIntervalSec !== undefined ? { stateSaveIntervalSec: settings.stateSaveIntervalSec as number } : {}),
-    ...(settings.stateSyncEnabled !== undefined ? { stateSyncEnabled: settings.stateSyncEnabled as boolean } : {}),
+    ...optionsOf(settings),
     // The sandbox runs the game's stateView itself; this stands in for it, so its options are checked like any game server's.
     ...(handlerNames.has("stateView") ? { stateView: () => null } : {}),
     setup: async (setupData: unknown) => {
@@ -1075,6 +1182,11 @@ export function errorLine(text: string): string {
   const where = lines.find((line) => /zaisma-server[^\s:()]*\.js:\d+:\d+/.test(line))?.match(/zaisma-server[^\s:()]*\.js:\d+:\d+/)?.[0];
   const message = lines[0]!.replace(/^Error: /, "");
   return (where ? `${message} (${where})` : message).slice(0, 600);
+}
+
+/** The refused outside calls a call's answer reports, as lines for the game's server errors. */
+export function refusalsOf(answer: Printed): string[] {
+  return Array.isArray(answer.refusalLines) ? answer.refusalLines.filter((line): line is string => typeof line === "string") : [];
 }
 
 /** A broadcast effect's audience, as the room API takes it (it checks it). */
