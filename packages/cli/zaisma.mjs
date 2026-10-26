@@ -2176,9 +2176,19 @@ async function run({ command, values, flags, globalFlags, rest }) {
 async function playLocally(values, flags) {
   const { spawn } = await import("node:child_process");
   const given = [values.folder ?? ".", ...(flags.port !== undefined ? ["--port", flags.port] : []), ...(flags.game !== undefined ? ["--game", flags.game] : []), ...(flags["on-network"] ? ["--on-network"] : []), ...(flags["no-open"] ? ["--no-open"] : []), ...(isJson ? ["--json"] : [])];
+  const { existsSync: isThere } = await import("node:fs");
+  const { dirname: folderOf, join: joinPath } = await import("node:path");
   const local = process.env.ZAISMA_GAME_SERVER_BIN;
-  const [file, list] = local ? [process.execPath, [local, "play-locally", ...given]] : [process.platform === "win32" ? "npx.cmd" : "npx", ["--yes", "@zaisma/game-server@1", "play-locally", ...given]];
-  const child = spawn(file, list, { stdio: "inherit" });
+  // npm's npx run through this Node, where npm keeps it beside Node (Windows) or under lib/ (macOS, Linux): a .cmd can't be spawned without a shell on Windows.
+  const npxScript = [joinPath(folderOf(process.execPath), "node_modules/npm/bin/npx-cli.js"), joinPath(folderOf(process.execPath), "../lib/node_modules/npm/bin/npx-cli.js")].find((path) => isThere(path));
+  const npxArguments = ["--yes", "@zaisma/game-server@1", "play-locally", ...given];
+  const [file, list] = local ? [process.execPath, [local, "play-locally", ...given]] : npxScript ? [process.execPath, [npxScript, ...npxArguments]] : ["npx", npxArguments];
+  let child;
+  try {
+    child = spawn(file, list, { stdio: "inherit" });
+  } catch {
+    refuse("game_server_not_run", { message: "npx couldn't run @zaisma/game-server.", fix: "Check that Node 22.18 or newer and npm are installed, and that npm can reach its registry once to download the package." }, EXIT_CODES.failed);
+  }
   // Ctrl-C reaches the child from the terminal by itself; a SIGTERM sent to this command alone is passed on.
   process.on("SIGINT", () => {});
   process.on("SIGTERM", () => child.kill("SIGTERM"));

@@ -14,7 +14,7 @@ import { createServer, request as httpRequest } from "node:http";
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, watch, writeFileSync } from "node:fs";
 import { networkInterfaces } from "node:os";
-import { basename, extname, join, resolve, sep } from "node:path";
+import { basename, extname, isAbsolute, join, relative as relativePath, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocket, WebSocketServer } from "ws";
 import { BUSY_CLOSE_CODE, GameServerError, PASS_VERSION_NUMBER, RECEIPT_TOKEN_TYPE, RECEIPT_VERSION_NUMBER, generateSigningKey, guestName, jwks, loadSigningKey, roomCode, signPass, verifyPass } from "../src/internal.ts";
@@ -56,7 +56,8 @@ const BENCH_PAGE = `<!doctype html><meta charset="utf-8"><title>Loading</title><
     // Storage off: the SDK keeps no pass either.
   }
   var query = decodeURIComponent(location.hash.slice(1));
-  if (!/^(\\?[\\w=&%-]*)?$/.test(query)) query = "";
+  // Any query the game takes, never a path: it's resolved against the game's own root.
+  if (!/^(\\?[^#\\s]*)?$/.test(query)) query = "";
   location.replace(given.get("then") === "restore" ? "restore#" + encodeURIComponent(query) : new URL("../" + query, location.href).href);
 })();
 </script>`;
@@ -174,7 +175,7 @@ function sourceOf(gameFolder) {
     for (const entry of readdirSync(folder, { withFileTypes: true })) {
       const path = join(folder, entry.name);
       if (entry.isDirectory()) walk(path);
-      else if (entry.name.endsWith(".js") || entry.name.endsWith(".mjs")) found.push(path);
+      else found.push(path);
     }
   };
   const folder = join(gameFolder, "zaisma-server");
@@ -234,11 +235,7 @@ export async function startLocalPlay(givenOptions) {
   const stateFile = join(localFolder, "bench.json");
   const state = existsSync(stateFile) ? { ...defaultState(), ...JSON.parse(readFileSync(stateFile, "utf8")) } : defaultState();
   const saveState = () => writeFileSync(stateFile, JSON.stringify(state, null, 2));
-  if (!existsSync(stateFile)) {
-    // Games that handle purchases in their game server get them there, as on Zaisma with purchase_delivery game_server.
-    state.purchaseDelivery = /\bonPurchase\b|\bonRefund\b/.test(sourceOf(gameFolder)) ? "game_server" : "game";
-    saveState();
-  }
+  if (!existsSync(stateFile)) saveState();
   if (givenSlug && zaismaKey && !state.isItemsCopied) {
     try {
       const response = await fetch(`${developerApiUrl}/games/${givenSlug}/items`, { headers: { authorization: `Bearer ${zaismaKey}` } });
@@ -322,12 +319,17 @@ export async function startLocalPlay(givenOptions) {
   }
 
   // --- The bench page's own calls, on the bench origin ---
-  const alive = new Map(); // tab -> how many event streams it holds open
-  const streams = new Set();
-  const tell = (event, details = {}) => {
-    for (const response of streams) response.write(`event: ${event}\ndata: ${JSON.stringify(details)}\n\n`);
+  // Each tab asks for the state about once a second, which says it's open: a tab not heard from for a few seconds is closed.
+  // (Polling, not a held-open stream per tab: a browser holds at most six connections to one address.)
+  const PLAYER_OPEN_MS = 4000;
+  const heardAtMs = new Map(); // player number -> when its tab last asked
+  let reloadNumber = 0;
+  /** Tell every tab to reload its game, at its next ask. */
+  const tell = (event) => {
+    if (event === "reload") reloadNumber++;
   };
-  const openPlayerNumbers = () => [...alive.keys()].sort((first, second) => first - second);
+  const alive = { has: (playerNumber) => now() - (heardAtMs.get(playerNumber) ?? 0) < PLAYER_OPEN_MS };
+  const openPlayerNumbers = () => [...heardAtMs.keys()].filter((playerNumber) => alive.has(playerNumber)).sort((first, second) => first - second);
   const nextPlayerNumber = () => {
     let playerNumber = 1;
     while (alive.has(playerNumber)) playerNumber++;
@@ -339,7 +341,7 @@ export async function startLocalPlay(givenOptions) {
 
   const benchStatePublic = () => ({
     gameSlug, ports, accounts: state.accounts, tabs: state.tabs, friends: state.friends, blocks: state.blocks, ownedItems: state.ownedItems, items: state.items,
-    purchaseDelivery: state.purchaseDelivery, openPlayerNumbers: openPlayerNumbers(), nextPlayerNumber: nextPlayerNumber(), addresses, isOnNetwork,
+    purchaseDelivery: state.purchaseDelivery, reloadNumber, openPlayerNumbers: openPlayerNumbers(), nextPlayerNumber: nextPlayerNumber(), addresses, isOnNetwork,
     rooms: [...roomsTracked].map(([code, room]) => ({ code, playerCount: [...room.sockets].filter((each) => !each.isSpectator).length })),
   });
 
@@ -393,7 +395,6 @@ export async function startLocalPlay(givenOptions) {
         return fail(`${String(change.op)} isn't a change the bench makes.`);
     }
     saveState();
-    tell("state");
     return null;
   }
 
@@ -408,7 +409,6 @@ export async function startLocalPlay(givenOptions) {
     state.purchases.push(purchase);
     if (listedItem.itemKind === "permanent") state.ownedItems[account.id] = [...new Set([...ownedNamesOf(account.id), itemName])];
     saveState();
-    tell("state");
     return { purchase: await purchaseFor(purchase) };
   }
 
@@ -427,29 +427,15 @@ export async function startLocalPlay(givenOptions) {
       }
     };
     const path = url.pathname;
-    if (path === "/bench/state" && request.method === "GET") return reply(200, benchStatePublic());
+    if (path === "/bench/state" && request.method === "GET") {
+      const playerNumber = Number(url.searchParams.get("player"));
+      if (Number.isInteger(playerNumber) && playerNumber > 0) heardAtMs.set(playerNumber, now());
+      return reply(200, benchStatePublic());
+    }
     if (path === "/bench/state" && request.method === "POST") {
       const change = await readJson();
       const refused = change ? changeState(change) : { error: { code: "bad_change", message: "The change isn't JSON.", fix: "Use the bench's bar." } };
       return refused ? reply(400, refused) : reply(200, benchStatePublic());
-    }
-    if (path === "/bench/events") {
-      const playerNumber = Number(url.searchParams.get("player"));
-      response.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-store", Connection: "keep-alive" });
-      response.write("retry: 1000\n\n");
-      streams.add(response);
-      if (Number.isInteger(playerNumber) && playerNumber > 0) alive.set(playerNumber, (alive.get(playerNumber) ?? 0) + 1);
-      tell("state");
-      request.on("close", () => {
-        streams.delete(response);
-        if (Number.isInteger(playerNumber) && playerNumber > 0) {
-          const openStreamCount = (alive.get(playerNumber) ?? 1) - 1;
-          if (openStreamCount > 0) alive.set(playerNumber, openStreamCount);
-          else alive.delete(playerNumber);
-          tell("state");
-        }
-      });
-      return;
     }
     if (path === "/bench/key" && request.method === "GET") {
       const playerNumber = Number(url.searchParams.get("player"));
@@ -550,10 +536,12 @@ export async function startLocalPlay(givenOptions) {
         if (path === "_zaisma/warm.json") return send(200, "application/json", "[]");
         return send(404, "text/plain; charset=utf-8", "Not found.");
       }
-      const relative = path === "" || path.endsWith("/") ? `${path}index.html` : path;
-      const file = resolve(gameFolder, relative);
-      const inside = file === gameFolder || file.startsWith(gameFolder + sep);
-      // The bench's own folder (its signing keys) and the game server's files are never served, as on Zaisma, in any case.
+      const asked = path === "" || path.endsWith("/") ? `${path}index.html` : path;
+      const file = resolve(gameFolder, asked);
+      // Judged on where the path lands, not how it was written (an encoded slash, .., another letter case), so the bench's
+      // own folder (its signing keys) and the game server's files are never served, as on Zaisma.
+      const relative = relativePath(gameFolder, file).split(sep).join("/");
+      const inside = relative !== "" && !relative.startsWith("../") && relative !== ".." && !isAbsolute(relative);
       if (!inside || relative.split("/")[0].toLowerCase() === LOCAL_FOLDER || isServerFile(relative)) return send(404, "text/plain; charset=utf-8", "File not found: this game is missing a file.");
       let target = file;
       if (existsSync(target) && statSync(target).isDirectory()) target = join(target, "index.html");
@@ -823,6 +811,14 @@ export async function startLocalPlay(givenOptions) {
   function startRunner() {
     return new Promise((done) => {
       runnerSource = sourceOf(gameFolder);
+      // Games that handle purchases in their game server get them there, as on Zaisma with purchase_delivery game_server,
+      // read again at each start unless the delivery was copied from the game on Zaisma.
+      const delivery = /\bonPurchase\b|\bonRefund\b/.test(runnerSource) ? "game_server" : "game";
+      if (!state.isItemsCopied && state.purchaseDelivery !== delivery) {
+        state.purchaseDelivery = delivery;
+        saveState();
+        tell("reload");
+      }
       const config = { entry: entry(), gameSlug, port: ports.runner, origin: localhostOrigin(ports.game), issuerUrl: roomsAddress(), databaseFile: join(localFolder, "database.sqlite"), roomStateFile: join(localFolder, "room-states.sqlite"), developerApiUrl: `${roomsAddress()}/api/dev`, zaismaKey: LOCAL_RUNNER_KEY };
       const child = spawn(process.execPath, ["--disable-warning=ExperimentalWarning", runnerFile, JSON.stringify(config)], { stdio: ["pipe", "pipe", "pipe"], env: { ...process.env } });
       let isReady = false;
@@ -901,7 +897,7 @@ export async function startLocalPlay(givenOptions) {
         const wasServerChanged = isServerChanged;
         const wasOtherChanged = isOtherChanged;
         isServerChanged = isOtherChanged = false;
-        if (wasServerChanged && sourceOf(gameFolder) !== runnerSource) {
+        if (wasServerChanged && (!runner || sourceOf(gameFolder) !== runnerSource)) {
           log("Your game server changed: starting it again.");
           void restartRunner();
         }
@@ -946,7 +942,6 @@ export async function startLocalPlay(givenOptions) {
       isClosing = true;
       clearTimeout(timer);
       watcher?.close();
-      for (const response of streams) response.end();
       await restartChain.catch(() => {});
       await stopRunner();
       await Promise.all([benchServer, gameServer, roomsServer].map((server) => new Promise((done) => {

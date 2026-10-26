@@ -132,6 +132,10 @@ describe("play-locally", () => {
     // In any case: macOS and Windows find .zaisma-local as .ZAISMA-LOCAL too, and it holds the signing keys.
     expect((await fetch(`${play.gameSiteUrl}/.ZAISMA-LOCAL/keys.json`)).status).toBe(404);
     expect((await fetch(`${play.gameSiteUrl}/ZAISMA-SERVER.JS`)).status).toBe(404);
+    // However the path is written: an encoded slash with .. lands in the same folder, and is judged by where it lands.
+    expect((await fetch(`${play.gameSiteUrl}/a%2F..%2F.zaisma-local%2Fkeys.json`)).status).toBe(404);
+    expect((await fetch(`${play.gameSiteUrl}/a%2F..%2Fzaisma-server.js`)).status).toBe(404);
+    expect((await fetch(`${play.gameSiteUrl}/a%2F..%2Findex.html`)).status).toBe(200);
     expect((await fetch(`${play.gameSiteUrl}/../keys.json`)).status).toBe(404);
     const page = await fetch(`${play.gameSiteUrl}/`);
     expect(page.headers.get("content-security-policy")).toContain(`frame-ancestors http://localhost:${port}`);

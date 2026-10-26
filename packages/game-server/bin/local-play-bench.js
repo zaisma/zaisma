@@ -443,16 +443,25 @@ function benchScript(config) {
   }
 
   async function start() {
-    state = await call("/bench/state");
+    state = await call(`/bench/state${playerNumber ? `?player=${playerNumber}` : ""}`);
     // A tab with no player in its address takes the first number nobody holds, so a shared room link opens as someone new.
     if (!playerNumber) {
       playerNumber = state.nextPlayerNumber;
       query.set("player", String(playerNumber));
       history.replaceState(null, "", `${location.pathname}?${query}`);
     }
-    const events = new EventSource(`/bench/events?player=${playerNumber}`);
-    events.addEventListener("state", async () => { state = await call("/bench/state"); renderBar(); });
-    events.addEventListener("reload", () => loadFrame());
+    // About once a second: the bar's state, that this tab is open, and whether a game file changed (reloadNumber).
+    let reloadNumber = state.reloadNumber;
+    setInterval(async () => {
+      const fresh = await call(`/bench/state?player=${playerNumber}`).catch(() => null);
+      if (!fresh) return;
+      state = fresh;
+      renderBar();
+      if (fresh.reloadNumber !== reloadNumber) {
+        reloadNumber = fresh.reloadNumber;
+        loadFrame();
+      }
+    }, 1000);
     byId("who").onchange = async () => {
       await change({ op: "set-tab", playerNumber, as: byId("who").value });
       roomCode = null;
