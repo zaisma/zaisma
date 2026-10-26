@@ -1017,6 +1017,12 @@ export interface UsageMeterOptions {
   unit: string;
   /** The day it starts again from nothing, "YYYY-MM-DD" in UTC: said after the numbers as "Resets Nov 1." */
   resetDate?: string;
+  /** The numbers said in words of the page's own instead ("62% of this month's free hosting"), for a meter whose figures are a share or two allowances in one. */
+  shownWords?: string;
+  /** Amber from this number up, where that isn't 80% of the limit (a free allowance then a budget on one track). */
+  warnFromNumber?: number;
+  /** Used up isn't a warning: the track fills but isn't striped, and says nothing is wrong (a free allowance a budget carries on from). */
+  isFullFine?: boolean;
 }
 
 /**
@@ -1026,12 +1032,13 @@ export interface UsageMeterOptions {
  */
 export function usageMeter(options: UsageMeterOptions): Raw {
   const sharePct = Math.min(100, (options.usedNumber / Math.max(options.limitNumber, 1)) * 100);
-  const isAllUsed = options.usedNumber >= options.limitNumber;
-  const tone = isAllUsed ? " is-full" : sharePct >= 80 ? " is-near" : options.usedNumber > 0 ? " is-used" : "";
+  const isAllUsed = options.usedNumber >= options.limitNumber && !options.isFullFine;
+  const warnFromPct = options.warnFromNumber === undefined ? 80 : (options.warnFromNumber / Math.max(options.limitNumber, 1)) * 100;
+  const tone = isAllUsed ? " is-full" : sharePct >= warnFromPct ? " is-near" : options.usedNumber > 0 ? " is-used" : "";
   const overNumber = options.usedNumber - options.limitNumber;
   const allUsedWords = overNumber > 0 ? `, ${chartWords(overNumber)} ${options.unit} over` : ", all used";
   const resetWords = options.resetDate ? `Resets ${new Date(`${options.resetDate}T00:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}.` : "";
-  return html`<div class="usage${tone}"><span class="usage-label">${isAllUsed ? icon("warning") : ""}${options.label}</span><p class="usage-numbers"><span class="usage-fact">${chartWords(options.usedNumber)} of ${chartWords(options.limitNumber)}\u00a0${options.unit}${isAllUsed ? html`<b>${allUsedWords}</b>` : ""}${resetWords ? "\u00a0·" : ""}</span>${resetWords ? html` <span class="usage-fact">${resetWords}</span>` : ""}</p><div class="usage-track cut-carved" data-cut-line="6" role="meter" aria-label="${options.label}" aria-valuemin="0" aria-valuemax="${options.limitNumber}" aria-valuenow="${Math.min(options.usedNumber, options.limitNumber)}">${CUT_LINE}<span class="usage-fill" data-cut-line="4" style="width:${sharePct.toFixed(2)}%"></span></div></div>`;
+  return html`<div class="usage${tone}"><span class="usage-label">${isAllUsed ? icon("warning") : ""}${options.label}</span><p class="usage-numbers"><span class="usage-fact">${options.shownWords ?? html`${chartWords(options.usedNumber)} of ${chartWords(options.limitNumber)}\u00a0${options.unit}`}${isAllUsed ? html`<b>${allUsedWords}</b>` : ""}${resetWords ? "\u00a0·" : ""}</span>${resetWords ? html` <span class="usage-fact">${resetWords}</span>` : ""}</p><div class="usage-track cut-carved" data-cut-line="6" role="meter" aria-label="${options.label}" aria-valuemin="0" aria-valuemax="${options.limitNumber}" aria-valuenow="${Math.min(options.usedNumber, options.limitNumber)}">${CUT_LINE}<span class="usage-fill" data-cut-line="4" style="width:${sharePct.toFixed(2)}%"></span></div></div>`;
 }
 
 const meterPane = (options: UsageMeterOptions) => glassPane({ paneWidth: "fit", body: usageMeter(options) });
@@ -1066,5 +1073,7 @@ component({
     { label: "Over the limit", markup: meterPane({ label: "Player-hours this month", usedNumber: 1240, limitNumber: 1000, unit: "hours", resetDate: "2026-11-01" }) },
     { label: "A little used: still a sliver", markup: meterPane({ label: "Requests this month", usedNumber: 140, limitNumber: 100000, unit: "requests", resetDate: "2026-11-01" }) },
     { label: "None used", markup: meterPane({ label: "Database rows", usedNumber: 0, limitNumber: 50000, unit: "rows" }) },
+    { label: "In its own words: a share of a free allowance", markup: meterPane({ label: "Starfall", usedNumber: 62, limitNumber: 100, unit: "%", resetDate: "2026-11-01", shownWords: "62% of this month's free hosting" }) },
+    { label: "Two allowances on one track: free, then a budget the game lives on (used up is not a warning until the budget is)", markup: meterPane({ label: "Starfall", usedNumber: 100 + 2 * 45, limitNumber: 300, warnFromNumber: 260, isFullFine: true, unit: "", resetDate: "2026-11-01", shownWords: "Free part used. $18 of $40 budget" }) },
   ],
 });

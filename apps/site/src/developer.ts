@@ -370,7 +370,7 @@ export async function authenticate(request: Request, env: Env, via: "api" | "mcp
       throw new ApiError("key_turned_off", {
         message: `This API key was ${foundWords(found.key)} and turned off on ${dayText(found.key.turned_off_at_ms!)}, so it can't be used again.`,
         field: "Authorization",
-        fix: "Make a new key on zaisma.com/account (under Game developers), and keep it out of code you share: use ZAISMA_KEY or your AI tool's settings.",
+        fix: "Make a new key on zaisma.com/dashboard/settings (under Keys), and keep it out of code you share: use ZAISMA_KEY or your AI tool's settings.",
       });
     }
     if (found?.keyState === "token_ended") {
@@ -381,19 +381,19 @@ export async function authenticate(request: Request, env: Env, via: "api" | "mcp
       });
     }
     if (found?.keyState === "ended") {
-      throw new ApiError("key_ended", { message: `This API key's end date was ${dayText(found.key.ends_at_ms!)}.`, field: "Authorization", fix: "Make a new key on zaisma.com/account (under Game developers)." });
+      throw new ApiError("key_ended", { message: `This API key's end date was ${dayText(found.key.ends_at_ms!)}.`, field: "Authorization", fix: "Make a new key on zaisma.com/dashboard/settings (under Keys)." });
     }
     accountId = key?.account_id ?? null;
     if (key) access = keyAccess(key);
     usedKey = key;
-    if (!accountId) throw new ApiError("bad_key", { message: "That API key isn't valid: it was removed, mistyped or never made.", field: "Authorization", fix: "Make a new key on zaisma.com/account (under Game developers) and send it as: Authorization: Bearer zsk_…" });
+    if (!accountId) throw new ApiError("bad_key", { message: "That API key isn't valid: it was removed, mistyped or never made.", field: "Authorization", fix: "Make a new key on zaisma.com/dashboard/settings (under Keys) and send it as: Authorization: Bearer zsk_…" });
   } else {
     // From our own pages only: other sites can't use a signed-in player's cookie.
     if (request.method !== "GET" && request.headers.get("origin") !== new URL(request.url).origin) {
       throw new ApiError("bad_origin", { message: "A call with a session came from another site.", fix: "Call from zaisma.com, or send an API key as: Authorization: Bearer zsk_…" });
     }
     const session = await currentSession(request, env);
-    if (!session) throw new ApiError("signed_out", { message: "There's no API key and no signed-in session.", field: "Authorization", fix: "Send an API key from zaisma.com/account as: Authorization: Bearer zsk_…" });
+    if (!session) throw new ApiError("signed_out", { message: "There's no API key and no signed-in session.", field: "Authorization", fix: "Send an API key from zaisma.com/dashboard/settings as: Authorization: Bearer zsk_…" });
     accountId = session.userId;
     cookies = session.cookies;
   }
@@ -698,6 +698,7 @@ export const API_ROUTES: readonly ApiRoute[] = [
   call({ method: "DELETE", path: "/sign-in-apps/:sign_in_app_id", reaches: "sign_in_app", access: needs("sign_in_app_access", "write"), pathParts: { sign_in_app_id: "sign_in_app" } }),
   call({ method: "GET", path: "/credit", reaches: "account", access: needs("credit_access", "read"), isAccountWide: true }),
   call({ method: "POST", path: "/credit/top-ups", reaches: "account", access: needs("credit_access", "write"), isAccountWide: true, body: { inputs: plainInputs("amount_cents") } }),
+  call({ method: "GET", path: "/spending-requests/:spending_request_id", reaches: "account", access: needs("credit_access", "read"), isAccountWide: true, pathParts: { spending_request_id: "plain" } }),
   call({ method: "GET", path: "/pro", reaches: "account", access: needs("credit_access", "read"), isAccountWide: true }),
   call({ method: "POST", path: "/pro/checkout", reaches: "account", access: needs("credit_access", "write"), isAccountWide: true }),
   call({ method: "POST", path: "/pro/cancel", reaches: "account", access: needs("credit_access", "write"), isAccountWide: true }),
@@ -798,7 +799,7 @@ async function checkCall(request: Request, env: Env, path: string, apiRoute: Api
     throw new ApiError("key_not_allowed", {
       message: `This API key can't send ${name}: that needs ${input.area} ${input.choice}, and the key has ${input.area} ${caller.access.areaAccess[input.area]}.`,
       field: name,
-      fix: `Leave ${name} out: ${input.withoutIt}. To send it, the developer makes a key with ${input.area} ${input.choice} on zaisma.com/account; keys can't be made through the API.`,
+      fix: `Leave ${name} out: ${input.withoutIt}. To send it, the developer makes a key with ${input.area} ${input.choice} on zaisma.com/dashboard/settings; keys can't be made through the API.`,
     });
   }
   for (const [name, input, given] of inputs) {
@@ -868,7 +869,7 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
     return answer({ access: accessJson(caller.access), can_publish: caller.canPublish, credit_balance_cents: creditBalanceCents, plan: await planFor(env.DB, caller.ownerId) });
   }
   if (apiRoute.path === "/pro" || apiRoute.path.startsWith("/pro/")) return answer(...(await proRoute(env, apiRoute.path, method, caller)));
-  if (apiRoute.path === "/credit" || apiRoute.path.startsWith("/credit/")) return answer(...(await creditRoute(env, apiRoute.path, method, checked.body, caller)));
+  if (apiRoute.path === "/credit" || apiRoute.path.startsWith("/credit/") || apiRoute.path.startsWith("/spending-requests/")) return answer(...(await creditRoute(env, apiRoute.path, method, checked.body, caller)));
   if (apiRoute.path === "/stripe-account" || apiRoute.path.startsWith("/stripe-account/")) return answer(...(await stripeAccountRoute(env, apiRoute.path, method, checked.body, caller)));
   if (path === "/check" && method === "POST") return answer(await checkRoute(env, checked));
   if (path === "/api-keys" && method === "GET") return answer(await apiKeysAnswer(env, caller));
@@ -1259,7 +1260,7 @@ async function changeBudget(env: Env, game: Game, given: unknown, caller: Caller
   }
   const budgetCents = given as number | null;
   const isRaising = budgetCents !== null && (game.monthly_budget_cents === null || budgetCents > game.monthly_budget_cents);
-  if (isRaising) checkSpendingConfirmed(env, caller, game.monthly_budget_cents === null ? "Giving a game a budget" : "Raising a game's budget");
+  if (isRaising) await checkSpendingConfirmed(env, caller, game.monthly_budget_cents === null ? "Giving a game a budget" : "Raising a game's budget", { requestKind: "game_budget", gameId: game.id, monthlyBudgetCents: budgetCents! });
   if (budgetCents === game.monthly_budget_cents) return;
   await env.DB.prepare("UPDATE games SET monthly_budget_cents = ? WHERE id = ?").bind(budgetCents, game.id).run();
   game.monthly_budget_cents = budgetCents;
@@ -2439,7 +2440,7 @@ export async function ownGame(env: Env, slug: string, caller: Caller, field = "s
     throw new ApiError("key_not_allowed", {
       message: `This API key works only on ${gameSlugs.join(", ")}, not ${game.slug}.`,
       field,
-      fix: `Use one of the games list_games shows, or ask the developer for a key that covers ${game.slug} (keys are made on zaisma.com/account).`,
+      fix: `Use one of the games list_games shows, or ask the developer for a key that covers ${game.slug} (keys are made on zaisma.com/dashboard/settings).`,
     });
   }
   return game;
@@ -2451,20 +2452,20 @@ function checkAccess(apiRoute: ApiRoute, caller: Caller): void {
   if (apiRoute.isAccountWide && caller.access.gameSlugs) {
     throw new ApiError("key_not_allowed", {
       message: `This API key works only on ${caller.access.gameSlugs.join(", ")}, so it can't make ${apiRoute.method} ${apiRoute.path}, which acts for the whole account.`,
-      fix: "Make the call with a key for all your games, or on zaisma.com/dashboard; keys are made on zaisma.com/account.",
+      fix: "Make the call with a key for all your games, or on zaisma.com/dashboard; keys are made on zaisma.com/dashboard/settings.",
     });
   }
   if (apiRoute.isFullKeyOnly && !isFullKey(caller.access)) {
     throw new ApiError("key_not_allowed", {
       message: `This API key isn't a full key, and ${apiRoute.method} ${apiRoute.path} needs one: ${apiRoute.path === "/api-keys" ? "it shows how your keys are used and from where" : "it shows where your account is used from"}.`,
-      fix: `Call with a full key for all your games, or see it on zaisma.com/account${apiRoute.path === "/api-keys" ? "" : " under Activity"}; keys are made on zaisma.com/account.`,
+      fix: `Call with a full key for all your games, or see it on zaisma.com/account${apiRoute.path === "/api-keys" ? "" : " under Activity"}; keys are made on zaisma.com/dashboard/settings.`,
     });
   }
   for (const more of apiRoute.alsoNeeds) {
     if (allows(caller.access.areaAccess, more.area, more.choice)) continue;
     throw new ApiError("key_not_allowed", {
       message: `This API key can't make ${apiRoute.method} ${apiRoute.path}: it reads ${more.area.replace("_access", "")} too, which needs ${more.area} ${more.choice}, and the key has ${more.area} ${caller.access.areaAccess[more.area]}.`,
-      fix: `get_access (GET /access) shows what this key can do. To do this, the developer makes a key with ${apiRoute.alsoNeeds.map((each) => `${each.area} ${each.choice}`).join(", ")} (a read key has them all) on zaisma.com/account; keys can't be made through the API.`,
+      fix: `get_access (GET /access) shows what this key can do. To do this, the developer makes a key with ${apiRoute.alsoNeeds.map((each) => `${each.area} ${each.choice}`).join(", ")} (a read key has them all) on zaisma.com/dashboard/settings; keys can't be made through the API.`,
     });
   }
   if (!area || allows(caller.access.areaAccess, area, choice)) return;
@@ -2474,7 +2475,7 @@ function checkAccess(apiRoute: ApiRoute, caller: Caller): void {
     message: isAccountArea
       ? `This API key works only on some games, and ${area === "webhook_access" ? "webhooks" : "sign-in apps"} belong to the whole account, so it can't make ${apiRoute.method} ${apiRoute.path}.`
       : `This API key can't make ${apiRoute.method} ${apiRoute.path}: that needs ${area} ${choice}, and the key has ${area} ${has}.`,
-    fix: `get_access (GET /access) shows what this key can do. To do this, the developer makes a key with ${area} ${choice}${isAccountArea ? " for all their games" : ""} on zaisma.com/account; keys can't be made through the API.`,
+    fix: `get_access (GET /access) shows what this key can do. To do this, the developer makes a key with ${area} ${choice}${isAccountArea ? " for all their games" : ""} on zaisma.com/dashboard/settings; keys can't be made through the API.`,
   });
 }
 

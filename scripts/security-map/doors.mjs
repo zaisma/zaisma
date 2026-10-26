@@ -155,6 +155,7 @@ const PAGE_SOURCES = [
   { source_path: "apps/site/src/sign-in.ts", entry: "handleSignIn", routeSymbols: ["handleSignIn"] },
   { source_path: "apps/site/src/passkeys.ts", entry: "handlePasskeys", routeSymbols: ["handlePasskeys"], onlyMethod: "POST" },
   { source_path: "apps/site/src/dashboard.ts", entry: "handleDashboard", routeSymbols: ["handleDashboard"] },
+  { source_path: "apps/site/src/developer-settings.ts", entry: "handleDeveloperSettings", routeSymbols: ["handleDeveloperSettings"] },
   { source_path: "apps/site/src/forum-pages.ts", entry: "handleForum", routeSymbols: ["handleForum"] },
   { source_path: "apps/site/src/friends.ts", entry: "handleFriends", routeSymbols: ["handleFriends"] },
   { source_path: "apps/site/src/blocks.ts", entry: "handleBlocks", routeSymbols: ["handleBlocks"] },
@@ -204,7 +205,7 @@ const PAGE_GIVES = {
   "page:POST /join/account": ["session"],
   "page:/signin/callback": ["session"],
   "page:POST /api/passkeys/signin": ["session"],
-  "page:POST /account/keys": ["api_key"],
+  "page:POST /dashboard/settings/keys": ["api_key"],
   "page:/oauth/token": ["oauth_access"],
   "page:/oauth/authorize": ["oauth_code"],
 };

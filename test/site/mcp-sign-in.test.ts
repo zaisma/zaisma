@@ -408,8 +408,8 @@ describe("connecting", () => {
     expect((await exchange(clientId, again.code!)).status).toBe(200);
     expect(await env.DB.prepare("SELECT COUNT(*) AS connection_count FROM api_keys WHERE kind = 'connected_app' AND name = 'Claude'").first()).toEqual({ connection_count: 1 });
     // Keys are counted apart: one key exists, so the page still makes keys.
-    const keysPage = await (await browser.go("/account")).text();
-    expect(keysPage).toContain('id="key-new"');
+    const keysPage = await (await browser.go("/dashboard/settings")).text();
+    expect(keysPage).toContain('id="key-add"');
   });
 });
 

@@ -4,6 +4,7 @@ import { addCreditEntry, createAccount, createApiKey, creditOf, personOwner } fr
 import { TOOLS } from "../../apps/site/src/mcp.ts";
 import { callerFor } from "../../apps/site/src/developer.ts";
 import { creditRoute } from "../../apps/site/src/credit-api.ts";
+import { answerSpendingRequest, askForSpending } from "../../apps/site/src/spending-requests.ts";
 import { errorProblems, schemaProblems } from "../schema-check.ts";
 import { letPublish } from "../helpers.ts";
 
@@ -80,7 +81,7 @@ const checkoutCompleted = (paymentIntentId: string, amountCents: number) => ({
 });
 
 beforeEach(async () => {
-  await env.DB.exec("DELETE FROM credit_entries; DELETE FROM game_hosting_months; DELETE FROM security_events; DELETE FROM api_keys; DELETE FROM audit_log; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM accounts;");
+  await env.DB.exec("DELETE FROM credit_entries; DELETE FROM spending_requests; DELETE FROM game_hosting_months; DELETE FROM security_events; DELETE FROM api_keys; DELETE FROM audit_log; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM accounts;");
   stripeCalls = [];
   await createAccount(env.DB, { id: "dev-1", username: "Pixel_Smith", ageBand: "18+" });
   await letPublish(env.DB, "dev-1");
@@ -102,7 +103,7 @@ describe("a top-up", () => {
       "line_items[0][price_data][product_data][name]": "Zaisma hosting credit",
       "payment_intent_data[setup_future_usage]": "off_session",
       "metadata[owner_id]": ownerId,
-      success_url: `${SITE}/developer/settings#credit`,
+      success_url: `${SITE}/dashboard/settings#hosting`,
     });
     // One Stripe customer per owner, kept.
     expect((await creditOf(env.DB, ownerId)).stripeCustomerId).toBe("cus_test_1");
@@ -166,7 +167,7 @@ describe("automatic top-up and budgets", () => {
     const on = { is_enabled: true, top_up_below_cents: 500, top_up_amount_cents: 2000, monthly_top_up_limit_cents: 6000 };
     const refused = await api("/credit/automatic-top-up", { method: "PATCH", body: on });
     expect(refused.status).toBe(403);
-    expect(refused.answer.error).toMatchObject({ code: "confirmation_needed", confirm_url: `${SITE}/developer/settings#credit` });
+    expect(refused.answer.error).toMatchObject({ code: "confirmation_needed", confirm_url: `${SITE}/dashboard/settings#hosting` });
     expect((await creditOf(env.DB, ownerId)).automaticTopUp.isEnabled).toBe(false);
 
     // Our own page, with a passkey tapped in the last 10 minutes (withSpendingConfirmation).
@@ -189,6 +190,53 @@ describe("automatic top-up and budgets", () => {
     expect((await tool("update_game", { slug: "sky-hopper", monthly_budget_cents: 2000 })).game.monthly_budget_cents).toBe(2000);
     expect((await tool("update_game", { slug: "sky-hopper", monthly_budget_cents: 3000 })).code).toBe("confirmation_needed");
     expect((await tool("update_game", { slug: "sky-hopper", monthly_budget_cents: null })).game.monthly_budget_cents).toBeNull();
+  });
+
+  it("keep a raise as a spending request the AI can check, one a game, and never for a lowering", async () => {
+    await api("/games", { body: { title: "Sky Hopper", slug: "sky-hopper" } });
+    const first = await tool("update_game", { slug: "sky-hopper", monthly_budget_cents: 4000 });
+    expect(first).toMatchObject({ code: "confirmation_needed", spending_request_id: expect.stringMatching(/^spending_request_/) });
+    expect(first.confirm_url).toBe(`${SITE}/dashboard/settings?spending_request=${first.spending_request_id}`);
+    const waiting = await tool("get_spending_request", { spending_request_id: first.spending_request_id });
+    expect(waiting.spending_request).toMatchObject({ request_kind: "game_budget", game_slug: "sky-hopper", request_status: "waiting", requested_change: { monthly_budget_cents: 4000 } });
+    const second = await tool("update_game", { slug: "sky-hopper", monthly_budget_cents: 6000 });
+    expect((await tool("get_spending_request", { spending_request_id: first.spending_request_id })).code).toBe("no_spending_request");
+    expect((await tool("get_spending_request", { spending_request_id: second.spending_request_id })).spending_request.requested_change.monthly_budget_cents).toBe(6000);
+    // A lowering makes no request.
+    await env.DB.prepare("UPDATE games SET monthly_budget_cents = 5000 WHERE slug = 'sky-hopper'").run();
+    const before = (await env.DB.prepare("SELECT COUNT(*) AS request_count FROM spending_requests").first<{ request_count: number }>())!.request_count;
+    expect((await tool("update_game", { slug: "sky-hopper", monthly_budget_cents: 2000 })).game.monthly_budget_cents).toBe(2000);
+    expect((await env.DB.prepare("SELECT COUNT(*) AS request_count FROM spending_requests").first<{ request_count: number }>())!.request_count).toBe(before);
+  });
+
+  it("keep an automatic top-up raise as a request, approve it with a confirmed caller, and hold at most 20 waiting", async () => {
+    await stripeEvent(checkoutCompleted("pi_test_5", 2000));
+    const asked = await tool("update_automatic_top_up", { is_enabled: true, top_up_below_cents: 500, top_up_amount_cents: 2000, monthly_top_up_limit_cents: 6000 });
+    expect(asked).toMatchObject({ code: "confirmation_needed", spending_request_id: expect.stringMatching(/^spending_request_/) });
+    const waiting = (await tool("get_spending_request", { spending_request_id: asked.spending_request_id })).spending_request;
+    expect(waiting).toMatchObject({ request_kind: "automatic_top_up", requested_change: { is_enabled: true, top_up_amount_cents: 2000 }, current_setting: { is_enabled: false } });
+    const caller = (await callerFor(env, new Request(SITE), "dev-1"))!;
+    // An unconfirmed caller can't approve; a confirmed one makes the same change the confirmed call would.
+    await expect(answerSpendingRequest(env, caller, asked.spending_request_id, "approved")).rejects.toMatchObject({ code: "confirmation_needed" });
+    expect(await answerSpendingRequest(env, { ...caller, isSpendingConfirmed: true }, asked.spending_request_id, "approved")).toBe("answered");
+    expect((await creditOf(env.DB, ownerId)).automaticTopUp).toMatchObject({ isEnabled: true, topUpAmountCents: 2000, monthlyTopUpLimitCents: 6000 });
+    expect((await tool("get_spending_request", { spending_request_id: asked.spending_request_id })).spending_request.request_status).toBe("approved");
+    // Another account's request can't be answered, and the 21st waiting one replaces the oldest.
+    expect(await answerSpendingRequest(env, { ...caller, accountId: "someone-else", isSpendingConfirmed: true }, asked.spending_request_id, "declined")).toBe("not_waiting");
+    const ids: string[] = [];
+    for (let gameNumber = 0; gameNumber < 21; gameNumber++) ids.push(await askForSpending(env, "dev-1", { requestKind: "game_budget", gameId: `game_fake_${gameNumber}`, monthlyBudgetCents: 1000 }));
+    expect((await env.DB.prepare("SELECT COUNT(*) AS waiting_count FROM spending_requests WHERE request_status = 'waiting'").first<{ waiting_count: number }>())!.waiting_count).toBe(20);
+    expect(await env.DB.prepare("SELECT id FROM spending_requests WHERE id = ?").bind(ids[0]).first()).toBeNull();
+  });
+
+  it("say what last month's use past the free allowance would have cost, 0 inside it", async () => {
+    await api("/games", { body: { title: "Sky Hopper", slug: "sky-hopper" } });
+    await api("/games", { body: { title: "Quiet Game", slug: "quiet-game" } });
+    const lastMonth = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth() - 1, 1)).toISOString().slice(0, 10);
+    await env.DB.prepare("INSERT INTO game_hosting_months (game_id, month_start_date, used_cents) SELECT id, ?, 940 FROM games WHERE slug = 'sky-hopper'").bind(lastMonth).run();
+    await env.DB.prepare("INSERT INTO game_hosting_months (game_id, month_start_date, used_cents) SELECT id, ?, 300 FROM games WHERE slug = 'quiet-game'").bind(lastMonth).run();
+    const { games } = (await tool("get_credit", {})).credit;
+    expect(games).toEqual([expect.objectContaining({ slug: "sky-hopper", last_month_beyond_free_cents: 440 })]);
   });
 
   it("are out of reach of a key without credit_access", async () => {

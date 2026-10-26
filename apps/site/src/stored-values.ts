@@ -116,7 +116,7 @@ export const STORED_VALUES: readonly StoredValue[] = [
   { stored: "accounts.profile_held_reason", format: "escaped_text", source: "outside", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },
   { stored: "accounts.social_stopped_reason", format: "escaped_text", source: "outside", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },
   { stored: "passkeys.name", format: "escaped_text", source: "player", checked_by: null, saved_by_door_ids: ["page:POST /api/passkeys/add"], shown_on_door_ids: [ACCOUNT] },
-  { stored: "api_keys.name", format: "escaped_text", source: "developer", checked_by: null, saved_by_door_ids: ["page:POST /account/keys"], shown_on_door_ids: [ACCOUNT] },
+  { stored: "api_keys.name", format: "escaped_text", source: "developer", checked_by: null, saved_by_door_ids: ["page:POST /dashboard/settings/keys"], shown_on_door_ids: [ACCOUNT, "page:/dashboard/settings"] },
   { stored: "api_keys.found_at_url", format: "escaped_text", source: "outside", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },
   { stored: "api_keys.last_used_device", format: "escaped_text", source: "outside", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [ACCOUNT] },
   { stored: "api_keys.last_used_network_name", format: "escaped_text", source: "outside", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [ACCOUNT] },

@@ -187,7 +187,6 @@ const PATHS = [
   "/account/email/remove",
   "/account/delete",
   "/account/data.zip",
-  "/account/keys",
   "/account/where-used-from",
   "/account/security-alerts/seen",
   "/account/email-ask/skip",
@@ -593,24 +592,7 @@ export async function handleAccount(request: Request, env: Env, path: string, wa
     return done(redirect("/account?streamer-mode-saved#streamer-mode"));
   }
 
-  // API keys for the developer MCP and upload command. The key is shown once, here.
-  if (path === "/account/keys" && post) {
-    const name = field("name", 40) || "My key";
-    if ((await liveApiKeyCount(env.DB, account.id)) >= MAXIMUM_API_KEY_COUNT) return done(await accountPage(env, session, false, `You can have up to ${MAXIMUM_API_KEY_COUNT} keys. Remove one first.`));
-    // Only the developer's own games can be chosen; anything else in the form is dropped.
-    const ownSlugs = new Set((await gamesOwnedBy(env.DB, account.id)).map((game) => game.slug));
-    const scope = keyScopeFromForm(form ?? new FormData(), ownSlugs);
-    const problem = checkKeyScope(scope);
-    if (problem) return done(await accountPage(env, session, false, problem));
-    // A key lasts, so it needs a tap on a passkey made for this key (an honest page asks for it; this is the backstop).
-    const passkey = await checkPasskeyTap(request, env, account.id, "key", passkeyTapFromForm(form ?? new FormData()));
-    if (!passkey) return withCookies(await accountPage(env, session, false, keyRefusal(await passkeysFor(env.DB, account.id))), [...(session?.cookies ?? []), usedChallengeCookie(env)]);
-    const { key, token } = await createApiKey(env.DB, account.id, name, scope);
-    await recordProof(env, session, "passkey", passkey.id);
-    await seedKeyPlace(request, env, account.id, key.id);
-    await logAccountChange(request, env, account, "api_key_created", { subjectName: name });
-    return withCookies(await accountPage(env, session, false, undefined, { name, token }), [...session.cookies, usedChallengeCookie(env)]);
-  }
+  // API keys are made on Developer settings (developer-settings.ts); a key is removed here too, from the window after a new password.
   const revoke = path.match(/^\/account\/keys\/([a-z0-9]+)\/revoke$/);
   if (revoke && post) {
     const removedKey = (await apiKeysFor(env.DB, account.id)).find((key) => key.id === revoke[1]);
@@ -1476,35 +1458,6 @@ export function passkeyTapFromForm(form: FormData): PasskeyTap {
   };
 }
 
-/**
- * Making a key: a button that opens a wizard. Its name and what it can do, then which games, then (for a
- * custom key) a choice per area. One form, so the steps only show and hide; the server checks it all again.
- */
-function keyWizard(games: { slug: string; title: string }[], passkeyState: PasskeyState, approvesFromAtMs: number | null, isOpenOnLoad: boolean): Raw {
-  return html`<button class="btn" type="button" id="key-new" data-passkey-state="${passkeyState}"${isOpenOnLoad ? raw(" data-open") : ""}>Make an API key</button>
-<dialog id="key-wizard" class="wizard${passkeyState === "ready" ? "" : " short"} bevel-l" aria-labelledby="key-wizard-title">
-<form method="post" action="/account/keys#developer" id="key-form">
-  <div class="wizard-head">
-    <div><h2 id="key-wizard-title">New API key</h2><p class="wizard-sub" id="key-wizard-sub"></p></div>
-    <button class="btn ghost wizard-x" type="button" data-close aria-label="Close">Close</button>
-  </div>
-  ${PASSKEY_TAP_FIELDS}
-  <div class="wizard-body">
-${passkeyStep(passkeyState, approvesFromAtMs, { title: "First, add a passkey", sub: "Making a key needs your passkey, so someone who learns your password can't make one. After this, each key is a tap.", waitingFor: "make keys" })}
-${accessChoices(games, html`      <label>Key name<input name="name" maxlength="40" placeholder="Like My laptop or GitHub Actions"></label>
-`)}
-    <p class="error" id="key-wizard-error" role="alert" hidden></p>
-  </div>
-  <div class="wizard-foot row">
-    <button class="btn ghost" type="button" id="key-back">Back</button>
-    <button class="btn" type="button" id="key-next">Next</button>
-    <button class="btn light" type="submit" id="key-make">Make the key</button>
-  </div>
-</form>
-</dialog>
-${scriptTags(ACCESS_CHOICES_SCRIPT, KEY_WIZARD_SCRIPT)}`;
-}
-
 /** Whether the account can make a key now: with a passkey that approves, only waiting ones, or none. */
 export type PasskeyState = "none" | "waiting" | "ready";
 
@@ -1553,60 +1506,6 @@ function zaismaFillTap(form, tap) {
 `);
 
 // The new key's steps: what it's called, which games, what it can do (and each area, for a custom key).
-// Without a passkey that can approve, the one step is adding a passkey (or waiting for the new one); a key is made with a tap on one.
-const KEY_WIZARD_SCRIPT = pageScript("key-wizard", `(() => {
-  const dialog = document.getElementById("key-wizard");
-  const form = document.getElementById("key-form");
-  const steps = [...form.querySelectorAll("[data-step]")];
-  const $ = (id) => document.getElementById(id);
-  const choices = zaismaAccessChoices(form);
-  let at = 0;
-  const state = $("key-new").dataset.passkeyState;
-  // The areas step is only for a custom key.
-  const path = () => (state === "ready" ? steps.filter((step) => step.dataset.step !== "passkey" && (step.dataset.step !== "areas" || choices.isCustom())) : steps.filter((step) => step.dataset.step === "passkey"));
-  function show() {
-    const list = path();
-    at = Math.min(at, list.length - 1);
-    for (const step of steps) step.hidden = step !== list[at];
-    $("key-wizard-title").textContent = list[at].dataset.title;
-    $("key-wizard-sub").textContent = list[at].dataset.sub;
-    const isPasskeyStep = state !== "ready";
-    $("key-back").hidden = isPasskeyStep || at === 0;
-    $("key-next").hidden = isPasskeyStep || at === list.length - 1;
-    $("key-make").hidden = isPasskeyStep || at !== list.length - 1;
-    form.querySelector(".wizard-foot").hidden = isPasskeyStep;
-    $("key-wizard-error").hidden = true;
-    choices.sync();
-  }
-  function problem() {
-    return path()[at].dataset.step === "games" ? choices.gamesProblem() : "";
-  }
-  function stop(message) {
-    $("key-wizard-error").textContent = message;
-    $("key-wizard-error").hidden = false;
-  }
-  const open = () => { form.reset(); at = 0; show(); dialog.showModal(); };
-  $("key-new").onclick = open;
-  if ($("key-new").hasAttribute("data-open")) open();
-  // Added with nothing older to approve: it can make keys at once. The page comes back with the wizard open.
-  zaismaPasskeyFirst({ added: "/account?passkey-added&make-key#developer", waiting: "/account?passkey-waiting#passkeys" }, stop);
-  $("key-back").onclick = () => { at -= 1; show(); };
-  $("key-next").onclick = () => { const said = problem(); if (said) return stop(said); at += 1; show(); };
-  form.addEventListener("change", (event) => { if (event.target.name !== "name") show(); });
-  form.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const said = problem();
-    if (said) return stop(said);
-    if (state !== "ready") return;
-    // The tap is made for this key, once; the server checks it.
-    const tapped = await zaismaPasskeyTap("key");
-    if (tapped.error) return stop(tapped.error);
-    zaismaFillTap(form, tapped.tap);
-    form.submit();
-  });
-  for (const close of dialog.querySelectorAll("[data-close]")) close.onclick = () => dialog.close();
-  dialog.addEventListener("click", (event) => { if (event.target === dialog) dialog.close(); });
-})();`);
 
 const ICON_PASSKEY = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="4"/><path d="M2 21c0-3.9 3.1-7 7-7 1.2 0 2.4.3 3.4.9"/><circle cx="18" cy="13" r="2.5"/><path d="M18 15.5V21l1.5-1.2M18 18.5h1.5"/></svg>';
 
@@ -1852,16 +1751,7 @@ ${games.length
       ? html`<h2>Your games</h2><ul>${games.map((game) => html`<li><a href="/dashboard/${game.slug}">${game.title}</a> <span class="pill ${game.review_status}">${game.review_status}</span></li>`)}</ul>`
       : ""}
 <h2 id="developer">Game developers</h2>
-<p>Manage your games on <a href="/dashboard">your games page</a>, or from any AI tool or the command line with an API key. Treat a key like a password: anyone with it can change your games.</p>
-${made
-      ? html`<div class="note" role="status"><p><strong>Your new key, "${made.name}".</strong> Copy it now. It won't be shown again.</p><p><code class="key">${made.token}</code></p>
-<p class="small">Connect Claude Code to Zaisma with it:</p><p><code class="key">claude mcp add --transport http -s user zaisma ${env.SITE_ORIGIN}/mcp --header "Authorization: Bearer ${made.token}"</code></p>
-<p class="small">Other AI tools: add the MCP server ${env.SITE_ORIGIN}/mcp with that header. For the upload command, set it as ZAISMA_KEY.</p></div>`
-      : ""}
-${keys.length
-      ? html`<ul class="keys">${keys.map((key) => keyRow(key, games, html`<form method="post" action="/account/keys/${key.id}/revoke"><button class="btn ghost" type="submit">Remove</button></form>`))}</ul>`
-      : ""}
-${keyWizard(games, passkeyState, waitingPasskeys.length && !approving.length ? Math.min(...waitingPasskeys.map((passkey) => passkey.approves_from_at_ms)) : null, query.has("make-key"))}
+<p>Manage your games on <a href="/dashboard">your games page</a>. API keys, connected AI apps, webhooks, sign-in apps, hosting credit and Zaisma Pro are on <a href="/dashboard/settings">Developer settings</a>.</p>
 <h2>Sign out</h2>
 <form method="post" action="/signout"><button class="btn ghost" type="submit">Sign out on every device</button></form>
 <h2 id="your-data">Download your data</h2>
@@ -1872,7 +1762,7 @@ ${isConfirmed
 <h2 id="delete-account">Delete account</h2>
 ${isConfirmed
       ? html`<details><summary>Delete your account</summary>
-<p>This deletes your username, any email, game saves and everything else on your account straight away. Games you played and sites you signed in to with Zaisma are told, so their developers can erase what they kept about you. It can't be undone.</p>
+<p>This deletes your username, any email, game saves and everything else on your account straight away. Unused hosting credit from the last 180 days goes back to the card it was paid with. Games you played and sites you signed in to with Zaisma are told, so their developers can erase what they kept about you. It can't be undone.</p>
 ${games.length
           ? html`<p>Your games are deleted with it, with their files, database and every player's saves, and their links never go to another game:</p>
 <ul>${games.map((game) => html`<li>${game.title} <span class="muted">(zaisma.com/g/${game.slug})</span></li>`)}</ul>`
