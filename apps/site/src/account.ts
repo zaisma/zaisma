@@ -106,7 +106,8 @@ import { checkEmailCode, deleteEmailCodesOf, sendEmailCode, waitEndsText } from 
 import type { Env } from "./env.ts";
 import { deleteForumFiles } from "./forum-posts.ts";
 import { deleteDueGames } from "./game-deletion.ts";
-import { html, layout, message, raw, scriptTags, type Raw } from "./html.ts";
+import { confirmItsYouSheet } from "./components/confirm-its-you.ts";
+import { html, layout, message, pageData, raw, scriptTags, type Raw } from "./html.ts";
 import { cityPane, cityStage, CITY_PANE_SCRIPT, CITY_SCRIPT } from "./components/city.ts";
 import type { CheckedPageName } from "./components/checked-pages.ts";
 import { row } from "./components/layout.ts";
@@ -120,7 +121,7 @@ import { foundWords } from "./leaked-keys.ts";
 import { emailAskBox, isEmailAskDue, markSecurityAlertsSeen, securityAlertsBox, skipEmailAsk } from "./security-alerts.ts";
 import { activityAnswer, doneByText, eventTitle, logAccountChange, recordSignIn, seedKeyPlace, setWhereUsedFrom, whereText } from "./security-log.ts";
 import { profilePath } from "./profiles.ts";
-import { PASSKEY_ADD_SCRIPT, PASSKEY_CONFIRM_SCRIPT, PASSKEY_SCRIPT, PASSKEY_SIGN_IN_SCRIPT, checkPasskeyTap, keyRefusal, usedChallengeCookie, type PasskeyTap } from "./passkeys.ts";
+import { PASSKEY_ADD_SCRIPT, PASSKEY_SCRIPT, PASSKEY_SIGN_IN_SCRIPT, checkPasskeyTap, keyRefusal, usedChallengeCookie, type PasskeyTap } from "./passkeys.ts";
 import { MINIMUM_PASSWORD_CHARACTER_COUNT, PASSWORD_HINT, newPasswordProblem } from "./passwords.ts";
 import { deleteSaveFiles } from "./saves.ts";
 import { accountDataFileName, accountDataZip } from "./account-data.ts";
@@ -181,6 +182,7 @@ const PATHS = [
   "/account/streamer-mode",
   "/account/color-theme",
   "/account/confirm",
+  "/api/account/confirm",
   "/account/password",
   "/account/email",
   "/account/email/code",
@@ -210,6 +212,8 @@ export async function handleAccount(request: Request, env: Env, path: string, wa
     const origin = request.headers.get("origin");
     if (origin && origin !== new URL(request.url).origin) return new Response("Bad origin", { status: 403 });
   }
+  // Confirm it's you from the popup (components/confirm-its-you.ts) is JSON, not a form.
+  if (path === "/api/account/confirm") return post ? confirmItsYou(request, env) : new Response("Method not allowed", { status: 405 });
   const form = post ? await request.formData() : null;
   const field = (name: string, maximumCharacterCount = 200) => String(form?.get(name) ?? "").trim().slice(0, maximumCharacterCount);
   // Passwords are taken as typed, spaces and all.
@@ -471,21 +475,12 @@ export async function handleAccount(request: Request, env: Env, path: string, wa
     return done(redirect("/account?username-saved#username"));
   }
 
-  // Confirm it's them: their password, or a code to their email when the account has no password.
+  // Confirm it's them with a code to their email, for an account with no password to prove it with (a password, or a passkey, is the popup's: /api/account/confirm).
   if (path === "/account/confirm" && post) {
     if (await limited(env, request)) return done(message(env, "Slow down", SLOW_DOWN, 429));
-    // With a passkey that can approve, a password or code only lets them add a passkey, which waits a day.
+    // With a passkey that can approve, a code only lets them add a passkey, which waits a day.
     const back = next ?? (confirmation.isPasskeyNeeded ? "/account?confirmed-to-add#passkeys" : "/account?confirmed#signing-in");
-    if (account.password_changed_at_ms !== null) {
-      // Signed in already, so no invisible check; the limits on wrong passwords still hold.
-      const signedIn = await tryPassword(request, env, account, passwordField(), { turnstileToken: null, knownEmail: null });
-      if (signedIn === "wrong" || signedIn === "no-password") return done(await accountPage(env, session, false, "That password isn't right."));
-      if (signedIn === "locked") return done(await accountPage(env, session, false, LOCKED_OUT));
-      if (signedIn === "too-many" || signedIn === "bot-check-failed") return done(message(env, "Slow down", SLOW_DOWN, 429));
-      if (signedIn === "failed") return done(message(env, "Couldn't check your password", "Something went wrong on our side. Try again in a minute.", 502));
-      await recordProof(env, signedIn, "password");
-      return withCookies(redirect(back), [...sessionCookies(env, signedIn), await recordSignIn(request, env, account.id, "password")]);
-    }
+    if (account.password_changed_at_ms !== null) return done(redirect("/account?confirm-first#signing-in"));
     const email = realEmail(session.email);
     if (!email) return done(redirect("/account?confirm-failed#signing-in"));
     if (!(await passesBotCheck("email_code"))) return done(await accountPage(env, session, false, BOT_CHECK_FAILED));
@@ -716,6 +711,49 @@ function safeNext(nextPath: string | null | undefined): string | null {
 }
 
 const nextQuery = (next: string | null) => (next ? `?next=${encodeURIComponent(next)}` : "");
+
+/**
+ * POST /api/account/confirm { passkey_tap } or { password }: the popup's proof that this is them (components/confirm-its-you.ts), for what
+ * changes how the account signs in, downloads or deletes it, and adding a passkey. The same proof the "Confirm it's you" block took
+ * (session-proofs.ts): a passkey's tap counts for everything; a password signs in again and counts for everything except where the account
+ * has a passkey that can approve, which only lets them add a new one (it waits a day). Answers { is_confirmed: true }, or { error } with the reason.
+ */
+async function confirmItsYou(request: Request, env: Env): Promise<Response> {
+  const session = await currentSession(request, env);
+  const account = session ? await accountById(env.DB, session.userId) : null;
+  const answer = (body: Record<string, unknown>, httpStatus: number, cookies: string[]) => withCookies(Response.json(body, { status: httpStatus }), cookies);
+  if (!session || !account) return answer({ error: "Sign in first." }, 401, []);
+  const sessionCookiesNow = session.cookies;
+  if (await limited(env, request)) return answer({ error: SLOW_DOWN }, 429, sessionCookiesNow);
+  let body: Record<string, unknown> = {};
+  try {
+    const parsed = await request.json();
+    if (parsed && typeof parsed === "object") body = parsed as Record<string, unknown>;
+  } catch {}
+
+  if (body.passkey_tap !== undefined) {
+    const given = (body.passkey_tap && typeof body.passkey_tap === "object" ? body.passkey_tap : {}) as Record<string, unknown>;
+    const text = (name: string) => (typeof given[name] === "string" ? (given[name] as string).slice(0, 20000) : "");
+    const passkey = await checkPasskeyTap(request, env, account.id, "confirm", { id: text("passkey_id").slice(0, 400), clientDataJSON: text("client_data_json"), authenticatorData: text("authenticator_data"), signature: text("signature"), userHandle: text("user_handle").slice(0, 400) });
+    const used = [...sessionCookiesNow, usedChallengeCookie(env)];
+    if (!passkey) return answer({ error: "That passkey didn't work. Try again, or use another one." }, 403, used);
+    await recordProof(env, session, "passkey", passkey.id);
+    return answer({ is_confirmed: true }, 200, used);
+  }
+
+  if (typeof body.password === "string") {
+    // Signed in already, so no invisible check; the limits on wrong passwords still hold.
+    const signedIn = await tryPassword(request, env, account, body.password.slice(0, MAXIMUM_PASSWORD_FIELD_CHARACTER_COUNT), { turnstileToken: null, knownEmail: null });
+    if (signedIn === "wrong" || signedIn === "no-password") return answer({ error: "That password isn't right." }, 403, sessionCookiesNow);
+    if (signedIn === "locked") return answer({ error: LOCKED_OUT }, 429, sessionCookiesNow);
+    if (signedIn === "too-many" || signedIn === "bot-check-failed") return answer({ error: SLOW_DOWN }, 429, sessionCookiesNow);
+    if (signedIn === "failed") return answer({ error: "Couldn't check your password just now. Try again in a minute." }, 502, sessionCookiesNow);
+    await recordProof(env, signedIn, "password");
+    return answer({ is_confirmed: true }, 200, [...sessionCookies(env, signedIn), await recordSignIn(request, env, account.id, "password")]);
+  }
+
+  return answer({ error: "Send a passkey_tap or a password." }, 400, sessionCookiesNow);
+}
 
 async function limited(env: Env, request: Request): Promise<boolean> {
   // Keyed by connection address, checked by Cloudflare and never stored.
@@ -1508,6 +1546,71 @@ function zaismaFillTap(form, tap) {
 }
 `);
 
+/**
+ * Confirm it's you on the account page, in the popup (components/confirm-its-you.ts): every action that needs a proof (data-confirm="strong" for
+ * what changes how the account signs in, downloads or deletes it; "add" for a new passkey) is pressed once, and a button with nothing proven yet
+ * opens the popup first, then goes on by itself. zaismaAskAccountConfirm(kind) answers true when it's proven (now, or just now) and false when
+ * it wasn't. The server checks every proof again, so a page with a stale idea of it only asks too often or sends the old redirect.
+ */
+const ACCOUNT_CONFIRM_SCRIPT = pageScript("account-confirm", `(() => {
+  const data = JSON.parse(document.getElementById("account-confirm-data").textContent);
+  const REASONS = { strong: "This changes how you sign in, or what happens to your account, so we check it's you first.", add: "Adding a passkey takes a quick check that it's you." };
+  // When each kind of proof ends, in this page's own time, a little before the server's so a press never lands on a proof about to run out.
+  const SAFETY_MS = 5000;
+  const until = { strong: performance.now() + data.is_confirmed_for_ms - SAFETY_MS, add: performance.now() + data.is_proven_for_ms - SAFETY_MS };
+  const isProven = (kind) => performance.now() < until[kind];
+  function ask(kind) {
+    if (isProven(kind)) return Promise.resolve(true);
+    return new Promise((resolve) => {
+      let method = null;
+      const opened = window.zaismaConfirmItsYou("account-confirm", {
+        methods: kind === "strong" ? data.strong_methods : data.add_methods,
+        reason: REASONS[kind],
+        passkeyPurpose: "confirm",
+        send: async (proof) => {
+          const answer = await pkPost("/api/account/confirm", proof.method === "passkey" ? { passkey_tap: proof.passkey_tap } : { password: proof.password });
+          if (answer.ok) method = proof.method;
+          return answer.ok ? { ok: true } : { ok: false, message: answer.data.error || "That didn't work. Try again." };
+        },
+        onConfirmed: () => {
+          // A password counts for everything unless the account has a passkey that can approve: then it only lets them add one.
+          const endsAt = performance.now() + 10 * 60000 - SAFETY_MS;
+          until.add = endsAt;
+          if (!data.is_passkey_needed || method === "passkey") until.strong = endsAt;
+          resolve(true);
+        },
+        onCancelled: () => resolve(false),
+      });
+      if (opened) return;
+      // Nothing here can prove it: no passkey this browser can use, no password. A code to their email is on the page when that's the way.
+      const code = document.getElementById("confirm");
+      const problem = document.getElementById("confirm-problem");
+      if (code) { code.open = true; code.scrollIntoView({ block: "center" }); }
+      else { problem.textContent = "Confirming it's you needs your passkey, and this browser can't use passkeys. Try another browser or device."; problem.hidden = false; }
+      resolve(false);
+    });
+  }
+  window.zaismaAskAccountConfirm = ask;
+  for (const form of document.querySelectorAll("form[data-confirm]")) {
+    form.addEventListener("submit", (event) => {
+      const kind = form.dataset.confirm;
+      // Keeping where the account is used from only asks when it's being turned off.
+      if (isProven(kind) || (form.dataset.confirmWhen === "unchecked" && form.querySelector('input[type="checkbox"]').checked)) return;
+      event.preventDefault();
+      const submitter = event.submitter || undefined;
+      ask(kind).then((isRight) => { if (isRight) form.requestSubmit(submitter); });
+    });
+  }
+  for (const link of document.querySelectorAll("a[data-confirm]")) {
+    link.addEventListener("click", (event) => {
+      if (isProven(link.dataset.confirm)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      ask(link.dataset.confirm).then((isRight) => { if (isRight) link.click(); });
+    });
+  }
+})();`);
+
 // The new key's steps: what it's called, which games, what it can do (and each area, for a custom key).
 
 const ICON_PASSKEY = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="4"/><path d="M2 21c0-3.9 3.1-7 7-7 1.2 0 2.4.3 3.4.9"/><circle cx="18" cy="13" r="2.5"/><path d="M18 15.5V21l1.5-1.2M18 18.5h1.5"/></svg>';
@@ -1592,7 +1695,7 @@ ${hasNoOtherWayIn ? html`<div class="row"><a class="btn ghost" href="#passkeys">
 type ActivityEvents = Awaited<ReturnType<typeof activityAnswer>>;
 
 /** The account's Activity: what happened in the last 90 days, who did it and from where, and the setting for keeping where. */
-function activitySection(activity: ActivityEvents, query: URLSearchParams): Raw {
+function activitySection(activity: ActivityEvents, query: URLSearchParams, isConfirmed: boolean): Raw {
   const event = (each: ActivityEvents["events"][number]) => {
     const where = whereText(each);
     const by = doneByText(each);
@@ -1605,7 +1708,7 @@ ${query.has("where-off") ? html`<p class="note" role="status">Saved. Your activi
 ${query.has("where-on") ? html`<p class="note" role="status">Saved. Your activity shows where each thing came from again, from now on.</p>` : ""}
 ${shown.length ? html`<ul class="keys">${shown.map(event)}</ul>` : html`<p class="muted">Nothing in the last 90 days.</p>`}
 ${earlier.length ? html`<details><summary>Earlier</summary><ul class="keys">${earlier.map(event)}</ul></details>` : ""}
-<form class="stack" method="post" action="/account/where-used-from">
+<form class="stack" method="post" action="/account/where-used-from"${isConfirmed ? "" : raw(' data-confirm="strong" data-confirm-when="unchecked"')}>
 <div class="choices">
 <label class="check"><input type="checkbox" name="where_used_from_enabled" value="on"${activity.where_used_from_enabled ? raw(" checked") : ""}> <span>Keep where my account is used from<small class="hint">Shows the device, network and rough place of each sign-in and change. Off, we keep only what happened and when. Uploads keep their connection address for 90 days either way.</small></span></label>
 </div>
@@ -1629,7 +1732,7 @@ async function accountPage(env: Env, session: Session, welcome: boolean, error?:
     activityAnswer(env, account, null),
   ]);
   // Changing how they sign in, and deleting the account, need the strongest proof the account has; otherwise "Confirm it's you" first.
-  const { isProven, isConfirmed, isPasskeyNeeded } = await confirmationOf(env, session, account.id);
+  const { isConfirmed, isPasskeyNeeded, remainingMs } = await confirmationOf(env, session, account.id);
   const nowMs = Date.now();
   const approving = approvingPasskeys(passkeys, nowMs);
   const waitingPasskeys = passkeys.filter((passkey) => passkey.approves_from_at_ms > nowMs);
@@ -1643,13 +1746,20 @@ async function accountPage(env: Env, session: Session, welcome: boolean, error?:
   // Someone tried enough wrong passwords to lock new devices out, or cost a device its mark: said once.
   const noticeAtMs = account.wrong_password_notice_at_ms;
   if (noticeAtMs !== null) await clearWrongPasswordNotice(env, account.id, noticeAtMs);
-  // The invisible check runs on asking for an email code: Confirm it's you without a password, or adding an email.
-  const hasCodeForm = Boolean(env.TURNSTILE_SITE_KEY) && (isConfirmed || !hasPassword);
-  // Adding a way in waits for Confirm it's you, which is above: say so where the add would be.
-  const confirmToAdd = html`<p class="muted small"><a href="#confirm">Confirm it's you</a> above to add one.</p>`;
-  const confirmWithOldWays = html`${hasPassword
-    ? html`<form class="row" method="post" action="/account/confirm"><input type="password" name="password" autocomplete="current-password" required aria-label="Your password" placeholder="Your password"><button class="btn" type="submit">Confirm</button></form>`
-    : html`<form method="post" action="/account/confirm" id="confirm-form">${botCheck(env, "email_code")}<button class="btn" type="submit">Email me a code</button></form>`}`;
+  // The invisible check runs on asking for an email code: adding an email, or confirming with a code.
+  const hasCodeForm = Boolean(env.TURNSTILE_SITE_KEY);
+  // What changes how they sign in (and downloading and deleting) asks for a proof when its button is pressed, in the popup (ACCOUNT_CONFIRM_SCRIPT):
+  // a passkey when the account has one that can approve, else the password. Adding a passkey takes any proof, so the password does it too, which waits a day.
+  const confirmData = {
+    is_proven_for_ms: remainingMs,
+    is_confirmed_for_ms: isConfirmed ? remainingMs : 0,
+    is_passkey_needed: isPasskeyNeeded,
+    strong_methods: isPasskeyNeeded ? ["passkey"] : hasPassword ? ["password"] : [],
+    add_methods: [...(isPasskeyNeeded ? ["passkey"] : []), ...(hasPassword ? ["password"] : [])],
+  };
+  const needsConfirm = (kind: "strong" | "add" = "strong") => raw(` data-confirm="${kind}"`);
+  // Without a password or a passkey to prove it with, a code to the email does it (a full page, so the press that asked is pressed again after).
+  const confirmWithCode = html`<form method="post" action="/account/confirm" id="confirm-form">${botCheck(env, "email_code")}<button class="btn" type="submit">Email me a code</button></form>`;
   return page(
     env,
     "Your account",
@@ -1696,33 +1806,25 @@ ${signingInNote ? html`<p class="note" role="status">${SIGNING_IN_NOTES[signingI
 ${!email && !passkeys.length && !isAskingForEmail ? protectAccountLine() : ""}
 ${query.has("confirm-failed") ? html`<p class="error" role="alert">Couldn't send a code. Wait a minute and try again.</p>` : ""}
 ${scriptTags(PASSKEY_SCRIPT)}
-${isConfirmed
-      ? ""
-      : html`<div class="note" id="confirm"><p>${query.has("confirm-first") ? html`<strong>Confirm it's you first.</strong> ` : ""}To change your password, email or passkeys, download your data, delete your account, or stop keeping where your account is used from, confirm it's you.</p>
-${isPasskeyNeeded
-          ? html`<div class="row"><button class="btn" type="button" id="passkey-confirm">Confirm with your passkey</button></div>
-<p class="error" role="alert" id="passkey-confirm-error" hidden></p>
-<details id="lost-passkeys"><summary>Lost your passkeys?</summary>
-<p>${hasPassword ? "Confirm with your password" : "Confirm with a code to your email"} to add a new passkey. Because none of your passkeys approved it, it can make API keys and change how you sign in a day after you add it${email ? ", and we'll email you about it" : ""}.</p>
-${confirmWithOldWays}
-</details>
-${scriptTags(PASSKEY_CONFIRM_SCRIPT)}`
-          : confirmWithOldWays}
-</div>`}
+${query.has("confirm-first") ? html`<p class="note" role="status"><strong>Confirm it's you first.</strong> Press the button again and we'll ask.</p>` : ""}
+<p class="error" role="alert" id="confirm-problem" hidden></p>
+${!isConfirmed && !hasPassword
+      ? html`<details id="confirm"${query.has("confirm-first") ? raw(" open") : ""}><summary>Confirm with a code to your email</summary>
+<p>${isPasskeyNeeded ? "Your passkey is the quickest way. Lost your passkeys? " : "You have no password or passkey to confirm with. "}A code to your email confirms it's you. Because none of your passkeys approved it, a passkey added this way can make API keys and change how you sign in a day after you add it${email ? ", and we'll email you about it" : ""}.</p>
+${confirmWithCode}
+</details>`
+      : ""}
+${scriptTags(ACCOUNT_CONFIRM_SCRIPT)}
+${pageData("account-confirm-data", confirmData)}
+<div class="not-steel">${confirmItsYouSheet({ id: "account-confirm" })}</div>
 <h3 class="sub">Password</h3>
 <p>${hasPassword ? `Set on ${day(account.password_changed_at_ms!)}.` : "No password yet. Add one to sign in with your username."}</p>
-${isConfirmed
-      ? html`<form class="row" method="post" action="/account/password"><input type="password" name="password" minlength="${MINIMUM_PASSWORD_CHARACTER_COUNT}" autocomplete="new-password" required aria-label="New password" placeholder="New password"><button class="btn ghost" type="submit">${hasPassword ? "Change" : "Add"}</button></form>
-<p class="hint">${PASSWORD_HINT}</p>`
-      : ""}
+<form class="row" method="post" action="/account/password"${isConfirmed ? "" : needsConfirm()}><input type="password" name="password" minlength="${MINIMUM_PASSWORD_CHARACTER_COUNT}" autocomplete="new-password" required aria-label="New password" placeholder="New password"><button class="btn ghost" type="submit">${hasPassword ? "Change" : "Add"}</button></form>
+<p class="hint">${PASSWORD_HINT}</p>
 <h3 class="sub" id="email">Email</h3>
 <p>${email ? html`<strong>${email}</strong>. A way back in if you forget your password. Never shown to anyone.` : "No email. Add one to get back in if you forget your password. Never shown to anyone."}</p>
-${isConfirmed
-      ? html`<form class="row" method="post" action="/account/email" id="email-form"><input type="email" name="email" autocomplete="email" required aria-label="${email ? "New email" : "Email"}" placeholder="${email ? "New email" : "Email"}">${botCheck(env, "email_code")}<button class="btn ghost" type="submit">${email ? "Change" : "Add"}</button></form>
-${email && hasPassword ? html`<form class="after-row" method="post" action="/account/email/remove"><button class="btn ghost" type="submit">Remove email</button></form>` : ""}`
-      : email
-        ? ""
-        : confirmToAdd}
+<form class="row" method="post" action="/account/email" id="email-form"${isConfirmed ? "" : needsConfirm()}><input type="email" name="email" autocomplete="email" required aria-label="${email ? "New email" : "Email"}" placeholder="${email ? "New email" : "Email"}">${botCheck(env, "email_code")}<button class="btn ghost" type="submit">${email ? "Change" : "Add"}</button></form>
+${email && hasPassword ? html`<form class="after-row" method="post" action="/account/email/remove"${isConfirmed ? "" : needsConfirm()}><button class="btn ghost" type="submit">Remove email</button></form>` : ""}
 <h3 class="sub" id="passkeys">Passkeys</h3>
 <p>Sign in with Face ID, a fingerprint or your device's PIN instead of your password.</p>
 ${query.has("passkey-added") ? html`<p class="note" role="status"><strong>Passkey added.</strong> Next time, choose Sign in with a passkey.</p>` : ""}
@@ -1731,17 +1833,13 @@ ${query.has("passkey-waiting") && waitingPasskeys.length ? html`<p class="note" 
 ${passkeys.length
       ? html`<ul class="keys">${passkeys.map(
           (passkey) => html`<li><span>Added on ${passkey.name} <span class="why muted small">${day(passkey.created_at_ms)}, ${passkey.last_used_at_ms ? `last used ${day(passkey.last_used_at_ms)}` : "not used yet"}</span>${passkey.approves_from_at_ms > nowMs ? html`<span class="why muted small">Can make API keys from ${waitEndsText(passkey.approves_from_at_ms)}</span>` : ""}</span>
-${isConfirmed ? html`<form method="post" action="/account/passkeys/${passkey.id}/remove"><button class="btn ghost" type="submit">Remove</button></form>` : ""}</li>`,
+<form method="post" action="/account/passkeys/${passkey.id}/remove"${isConfirmed ? "" : needsConfirm()}><button class="btn ghost" type="submit">Remove</button></form></li>`,
         )}</ul>`
       : ""}
-${isProven
-      ? html`<div class="row" id="passkey-add-row"><button class="btn${passkeys.length ? " ghost" : ""}" type="button" id="passkey-add">Add a passkey</button></div>
+<div class="row" id="passkey-add-row"><button class="btn${passkeys.length ? " ghost" : ""}" type="button" id="passkey-add">Add a passkey</button></div>
 <p class="error" role="alert" id="passkey-error" hidden></p>
-${scriptTags(PASSKEY_ADD_SCRIPT)}`
-      : passkeys.length
-        ? ""
-        : confirmToAdd}
-${activitySection(activity, query)}
+${scriptTags(PASSKEY_ADD_SCRIPT)}
+${activitySection(activity, query, isConfirmed)}
 ${signIns.length
       ? html`<h2 id="sign-ins">Signed in with Zaisma</h2>
 <p>Sites and apps you signed in to with your Zaisma account. They get your player ID and name, never your email. Remove one and it asks again next time.</p>
@@ -1759,23 +1857,19 @@ ${games.length
 <form method="post" action="/signout"><button class="btn ghost" type="submit">Sign out on every device</button></form>
 <h2 id="your-data">Download your data</h2>
 <p>A copy of everything Zaisma keeps about your account, with your game saves as files, in one .zip.</p>
-${isConfirmed
-      ? html`<p><a class="btn ghost" href="/account/data.zip" data-download>Download your data</a></p>`
-      : html`<p><a href="#confirm">Confirm it's you above</a>, then you can download your data here.</p>`}
+<p><a class="btn ghost" href="/account/data.zip" data-download${isConfirmed ? "" : needsConfirm()}>Download your data</a></p>
 <h2 id="delete-account">Delete account</h2>
-${isConfirmed
-      ? html`<details><summary>Delete your account</summary>
+<details><summary>Delete your account</summary>
 <p>This deletes your username, any email, game saves and everything else on your account straight away. Unused hosting credit from the last 180 days goes back to the card it was paid with. Games you played and sites you signed in to with Zaisma are told, so their developers can erase what they kept about you. It can't be undone.</p>
 ${games.length
           ? html`<p>Your games are deleted with it, with their files, database and every player's saves, and their links never go to another game:</p>
 <ul>${games.map((game) => html`<li>${game.title} <span class="muted">(zaisma.com/g/${game.slug})</span></li>`)}</ul>`
           : ""}
-<form class="row" method="post" action="/account/delete">
+<form class="row" method="post" action="/account/delete"${isConfirmed ? "" : needsConfirm()}>
 <input name="confirm" placeholder='Type "delete"' aria-label='Type "delete" to confirm' autocomplete="off" required>
 <button class="btn danger" type="submit">Delete my account</button>
 </form>
-</details>`
-      : html`<p><a href="#confirm">Confirm it's you above</a>, then you can delete your account here.</p>`}
+</details>
 <p class="muted small">Account ID: <code>${account.id}</code></p>`,
     200,
     hasCodeForm,

@@ -17,6 +17,7 @@ import { glassPane, icon, tag } from "./components/foundations.ts";
 import { paneParts, stack, type LayoutItem } from "./components/layout.ts";
 import type { ControlMarkup } from "./components/control-markup.ts";
 import { sidePlaces } from "./components/navigation.ts";
+import { confirmItsYouSheet } from "./components/confirm-its-you.ts";
 import { confirmSheet, dropdown, notice, sheet } from "./components/panes.ts";
 import { checkField, choiceCards, codeField, cutField, longField, selectField, toggle } from "./components/inputs.ts";
 import { emptyState, listRows, numbers, table, type ListRow, type UsageMeterOptions } from "./components/data.ts";
@@ -233,7 +234,7 @@ const tapSheet = (id: string, title: string, text: string, action: string, confi
     title,
     closeLabel: "Close",
     action,
-    body: html`<div data-tap="confirm" data-tap-always="yes">${stack({ items: [words(text), { kind: "words", markup: html`<p class="field-error" data-tap-error hidden role="alert"></p>` }] })}</div>`,
+    body: html`<div data-tap="confirm" data-tap-always="yes" data-tap-reason="Connecting Stripe takes your passkey.">${stack({ items: [words(text), { kind: "words", markup: html`<p class="field-error" data-tap-error hidden role="alert"></p>` }] })}</div>`,
     buttons: [cutButton("Cancel", { type: "submit", formMethod: "dialog" }), runButton(confirmLabel, { type: "submit" })],
   });
 
@@ -857,19 +858,26 @@ const SETTINGS_SCRIPT = pageScript(
     if (!raises(holder, form)) return;
     event.preventDefault();
     say(form, "");
-    if (typeof zaismaPasskeyTap !== "function" || !window.PublicKeyCredential) return say(form, "This browser can't use passkeys.");
+    // The Confirm it's you popup asks for the passkey, so the press that asked is the only press. A key's tap is made for that key and goes
+    // with its form; any other proves it's them first (POST /api/account/confirm), which the raise or the connect then needs.
     var kind = holder.getAttribute("data-tap");
-    var tapped = await zaismaPasskeyTap(kind);
-    if (tapped.error) return say(form, tapped.error);
-    var tap = tapped.tap;
-    if (kind === "key") {
-      Object.keys(tap).forEach(function (name) { if (form.elements[name]) form.elements[name].value = tap[name]; });
-    } else {
-      var proof = await pkPost("/api/passkeys/confirm", { id: tap.passkey_id, clientDataJSON: tap.client_data_json, authenticatorData: tap.authenticator_data, signature: tap.signature, userHandle: tap.user_handle });
-      if (!proof.ok) return say(form, (proof.data && proof.data.error) || "That passkey didn't work. Try again.");
-    }
-    form.setAttribute("data-tapped", "yes");
-    if (form.requestSubmit) form.requestSubmit(submitter || undefined); else form.submit();
+    var tap = null;
+    var opened = typeof window.zaismaConfirmItsYou === "function" && window.zaismaConfirmItsYou("settings-confirm", {
+      methods: ["passkey"],
+      reason: holder.getAttribute("data-tap-reason") || (kind === "key" ? "A key stays until you turn it off, so making one takes your passkey." : "Turning spending on or up takes your passkey."),
+      passkeyPurpose: kind,
+      send: async function (proof) {
+        if (kind === "key") { tap = proof.passkey_tap; return { ok: true }; }
+        var answer = await pkPost("/api/account/confirm", { passkey_tap: proof.passkey_tap });
+        return answer.ok ? { ok: true } : { ok: false, message: (answer.data && answer.data.error) || "That passkey didn't work. Try again." };
+      },
+      onConfirmed: function () {
+        if (tap) Object.keys(tap).forEach(function (name) { if (form.elements[name]) form.elements[name].value = tap[name]; });
+        form.setAttribute("data-tapped", "yes");
+        if (form.requestSubmit) form.requestSubmit(submitter || undefined); else form.submit();
+      },
+    });
+    if (!opened) say(form, "This browser can't use passkeys. Do this in one that can.");
   }, true);
 })();`,
 );
@@ -922,7 +930,7 @@ async function settingsPage(env: Env, request: Request, session: SignedIn, calle
     keysPane(keys, settings.games.map((game) => ({ slug: game.slug, title: game.title })), making),
   ];
   const panes = stack({ items: [...topNotes, ...paneItems] });
-  const body = html`<h1 class="sr">Developer settings</h1>${sidePlaces({ label: "Developer settings", places: TAB_PANES.map((pane, index) => ({ label: pane.label, icon: pane.icon, href: `#${pane.id}`, isCurrent: index === 0 })), body: panes })}${paneItems.map((paneItem) => PANE_LAYERS.get(paneItem) ?? "")}${spendingSheet}${state.done && DONE_WORDS[state.done] ? notice({ text: DONE_WORDS[state.done]!, tone: "done" }) : ""}${state.problem ? notice({ text: state.problem, tone: "problem" }) : ""}${scriptTags(PASSKEY_SCRIPT, SETTINGS_SCRIPT)}`;
+  const body = html`<h1 class="sr">Developer settings</h1>${sidePlaces({ label: "Developer settings", places: TAB_PANES.map((pane, index) => ({ label: pane.label, icon: pane.icon, href: `#${pane.id}`, isCurrent: index === 0 })), body: panes })}${paneItems.map((paneItem) => PANE_LAYERS.get(paneItem) ?? "")}${spendingSheet}${confirmItsYouSheet({ id: "settings-confirm" })}${state.done && DONE_WORDS[state.done] ? notice({ text: DONE_WORDS[state.done]!, tone: "done" }) : ""}${state.problem ? notice({ text: state.problem, tone: "problem" }) : ""}${scriptTags(PASSKEY_SCRIPT, SETTINGS_SCRIPT)}`;
   const response = layout(env, { title: "Developer settings · Zaisma", body, checkedPage: "Developer settings", nav: "developer", viewer: { account }, isPrivate: true });
   const answered = new Response(response.body, { status: httpStatus, headers: response.headers });
   for (const cookie of session.cookies) answered.headers.append("Set-Cookie", cookie);
