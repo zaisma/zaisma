@@ -638,7 +638,7 @@ export function legal(env: Env, page: string): Response | null {
 // The rules themselves are CONTENT_RULES (@zaisma/core), each anchored by the name holds and takedowns give it.
 const ruleItem = (rule: ContentRule, words: string) => {
   const details = CONTENT_RULE_DETAILS[rule];
-  return html`<li id="${rule}"><strong>${words}</strong>${details.explanation ? html` ${details.explanation}` : ""}<br><strong>Fine:</strong> ${details.fine}<br><strong>Not fine:</strong> ${details.notFine}</li>`;
+  return html`<li id="${rule}"><strong>${words}</strong>${details.explanation ? html` ${details.explanation}` : ""}<br><strong>The test:</strong> ${details.test}<br><strong>Fine:</strong> ${details.fine}<br><strong>Not fine:</strong> ${details.notFine}</li>`;
 };
 const CONTENT_RULES_PAGE = `
 <p class="lead">Zaisma is for players 13 and up. Any kind of game is welcome, within these rules.</p>
@@ -648,9 +648,9 @@ ${html`<ul>${Object.entries(CONTENT_RULES).map(([rule, words]) => ruleItem(rule 
 <h2>Allowed, even where other platforms ban it</h2>
 ${html`<ul>${ALLOWED_CONTENT.map((words) => html`<li>${words}</li>`)}</ul>`}
 <h2>How we check</h2>
-<p>Every game is scanned before it's published: automatic malware checks, matching against known illegal images, and an AI review. Games that need a closer look wait for a person.</p>
+<p>Every game is scanned before it's published: automatic malware checks, matching against known illegal images, and an AI review that asks each rule's test above. A version that clearly breaks one is rejected within minutes, with no person needed. A person looks only at what the review can't settle, and at anything about child safety.</p>
 <h2>If a game breaks a rule</h2>
-<p>That version is held, or the live game is hidden, and you're told which rule, what we found and how to fix it. Nothing is deleted. Publish a fixed version and it's back.</p>
+<p>That version is rejected, or the live game is hidden, and you're told which rule, what we found and how to fix it. Nothing is deleted. Publish a fixed version and it's back. If the review got it wrong, message Zaisma with the version (your AI can, with message_zaisma) and a person looks, usually within a day.</p>
 <p>Copyright and defamation are different: we don't judge them ourselves. When the owner of a work, or a private person a game falsely accuses of a crime, sends a notice, the game is hidden until you publish a version without what the notice names. If the notice is wrong, you can send a counter-notice. See <a href="/legal/dmca">Copyright and DMCA notices</a> and <a href="/legal/defamation">Defamation notices</a>.</p>
 <p>These rules follow US law. When a country's own law forbids a game that's fine here (the UK's hatred offences, say), a notice from a court, regulator or police there blocks it for players in that country only, and everyone else still plays it. Publish a version without what the notice names and we lift the block. Authorities can send notices to <a href="mailto:safety@zaisma.com">safety@zaisma.com</a>.</p>
 <p>Accounts are closed only for sexual content involving minors, malware, or putting back something we already took down.</p>

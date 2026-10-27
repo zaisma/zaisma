@@ -33,60 +33,74 @@ export const CONTENT_RULES = {
 } as const;
 export type ContentRule = keyof typeof CONTENT_RULES;
 /**
- * Where each rule's line is: the page shows it under the rule, with what's fine and what isn't, and an
- * explanation where the words alone leave the line unclear.
+ * Where each rule's line is: the page shows it under the rule, with its test, what's fine and what isn't, and an
+ * explanation where the words alone leave the line unclear. The test is one yes/no question written from the Fine
+ * and Not fine examples: the AI review lists evidence and judges only by it, and a clear yes rejects the version
+ * ("Clear breaks are rejected without a person" in docs/DECISIONS.md).
  */
-export const CONTENT_RULE_DETAILS: Record<ContentRule, { explanation?: string; fine: string; notFine: string }> = {
+export const CONTENT_RULE_DETAILS: Record<ContentRule, { test: string; explanation?: string; fine: string; notFine: string }> = {
   child_safety: {
+    test: "Is anything sexual involving someone who is or looks under 18, drawn, animated or AI-made included?",
     fine: "kids and teens as characters in any story that isn't sexual.",
     notFine: "anything sexual involving someone who is or looks under 18, drawn, animated or AI-made included.",
   },
   sexual: {
+    test: "Does the game show nudity, or show or describe sex in detail, a \"censored\" bar included?",
     fine: "romance, kissing, dating sims, swimwear and dirty jokes.",
     notFine: "nudity, sex shown or described in detail, or porn behind a \"censored\" bar.",
   },
   malware: {
+    test: "Does the code mine cryptocurrency, hide what it runs (obfuscated beyond ordinary minifying, or running text it decodes), get around one of Zaisma's protections, or imitate Zaisma or another service, or promise prizes, to get players' passwords, details or wallet access?",
     fine: "minified builds, opening your own site from the game's links, and saving in the browser.",
     notFine: "a \"free skins\" page that asks for a password, mining while you play, or code that tries to leave the game's frame.",
   },
   illegal: {
+    test: "Can players bet real money, or chips or anything bought with real money or cashed out, on chance?",
     fine: "casino, poker and slots played for points that can't be bought or cashed out; crime as gameplay.",
     notFine: "bets with real money, or with chips that can be bought or cashed out.",
   },
   real_people: {
+    test: "Does it give a way to find or reach a real person who didn't make it public (a home address, phone number, personal email, private account, school or work), or make a real threat of violence against a real person?",
     explanation:
       "Anything that lets players find or reach a real person who didn't make it public: a home address, phone number, personal email or private account, or where they go to school or work. Or a real threat of violence against a real person.",
     fine: "anyone's name, face and photo; mocking, memes and satire; violence that's gameplay; places famous on their own (the White House, Epstein's island, a company's HQ); accounts and addresses people publish themselves.",
     notFine: "\"Jake lives at 12 Oak St\", a celebrity's leaked phone number, the school a kid goes to, or a message that means a real threat.",
   },
   copyright: {
+    test: "Is someone else's game, art, music or characters used without their permission or license?",
     explanation: "We act on it only when the owner sends a notice (see Copyright and DMCA notices).",
     fine: "a game inspired by another (the same genre, the same mechanics), parody with your own characters, and assets used within their license.",
     notFine: "Mario in your game, a ripped soundtrack, or someone else's game uploaded as yours.",
   },
   defamation: {
+    test: "Does the game falsely say a real private person committed a crime?",
     explanation: "We act on it only when that person sends a notice (see Defamation notices); we don't judge it ourselves.",
     fine: "satire, jokes and wild stories about politicians, celebrities and other public figures; crimes someone was publicly charged with or convicted of; made-up people.",
     notFine: "a game that names your neighbor Emma Clarke as the town's thief, or says a real classmate sells drugs.",
   },
   personal_details: {
+    test: "Does the game ask players for an email, real name, birthday, age, location, phone number or password?",
     fine: "a nickname for the scoreboard, Sign in with Zaisma, and a link to your own site.",
     notFine: "\"Enter your email to save\", or asking for a birthday, age, city or real name.",
   },
   chat: {
+    test: "Can a player type text that another player reads as written, without it going through room.chat, or canChat and checkChat?",
     fine: "a chat box that sends with room.chat, preset phrases (\"GG\", \"Follow me\"), emotes, names for worlds and rooms, text only the player who typed it sees, and a word game that checks what you type against its own list and tells everyone only whether it was right.",
     notFine: "players' typed messages sent with room.send or broadcast, or through another service.",
   },
   crypto: {
+    test: "Does it use or promote a coin other than Bitcoin, a token, an NFT or an airdrop, or use Bitcoin for investment advice, mining on the player's device, paying players sats, or asking for a seed phrase or permission to spend from a wallet?",
     fine: "teaching Bitcoin, items for sats, tips, and a story with a meme-coin villain.",
     notFine: "an NFT skin shop, an airdrop, \"deposit sats, invite friends, earn more\", or asking for a seed phrase.",
   },
   purchases: {
+    test: "Can players pay real money, or coins or gems bought with real money, for a random reward, or does a shop show a price in such coins or gems with no real price beside it?",
     explanation: "Players always know what they pay for and what it costs in money: an item is sold by name, and a price in coins or gems shows the real price beside it.",
     fine: "a free daily chest, a shop that shows \"500 gems ($4.99)\", and cosmetics bought by name.",
     notFine: "a paid crate with a random skin, gems bought with money spent on a gacha pull, or a shop that sells gem bundles priced only in gems.",
   },
   faked_plays: {
+    test: "Does code, with no player action, join rooms or load the game again and again, so plays or players are counted that aren't people?",
     fine: "asking players to share your game, tester links, and playing your own game.",
     notFine: "scripts that open your game in a thousand tabs, click farms, or bots that fill rooms.",
   },
@@ -127,10 +141,10 @@ const IF_THE_CHECK_IS_WRONG = "If the check got it wrong: message_zaisma with th
 const BACK_ON_LISTS = "The game plays by its link meanwhile, and is back in lists about a minute after the fix.";
 
 /** What a hold tells the developer a fixed version is checked for ("A fix is checked against its hold." in docs/DECISIONS.md). */
-const FIXED_VERSION_CHECKED = "Upload a fixed version: it's checked for what this hold names and for anything you added. What we already passed stays passed.";
+const FIXED_VERSION_CHECKED = "Upload a fixed version: it's checked for what this names and for anything you added. What we already passed stays passed.";
 
 /** What follows an AI review's concern, whatever the developer changes. */
-const IF_THE_AI_IS_WRONG = "If the AI got it wrong: a person at Zaisma decides a held version, usually within a day; for a rejected one, message_zaisma with the version_id.";
+const IF_THE_AI_IS_WRONG = "If the review got it wrong: message_zaisma with the version_id, and a person at Zaisma looks, usually within a day; a version a person approves doesn't count against your daily reviews.";
 
 interface ReviewCode {
   /** What it means, in one sentence: listed in docs/DEVELOPER-API.md, and the message when the code has no message of its own. */
@@ -244,8 +258,13 @@ export const REVIEW_CODES = {
   scan_failed: { meaning: "The scan didn't finish after three tries, so a person at Zaisma looks.", contentRule: null, fix: `${PERSON_LOOKS} Uploading the version again scans it again.` },
 
   // The AI review's concerns, in the AI's words
-  ai_malware: { meaning: "The AI review found what looks like malware.", contentRule: "malware", fix: `If the game does that, take it out and upload a new version. ${FIXED_VERSION_CHECKED} ${IF_THE_AI_IS_WRONG}`, hasOwnMessage: true },
-  ai_phishing_or_scam: { meaning: "The AI review found what looks like phishing or a scam.", contentRule: "malware", fix: `If the game does that, take it out and upload a new version. ${FIXED_VERSION_CHECKED} ${IF_THE_AI_IS_WRONG}`, hasOwnMessage: true },
+  ai_malware: {
+    meaning: "The AI review found malware: a crypto miner, or code that hides what it runs.",
+    contentRule: "malware",
+    fix: `Take it out and upload a new version. Obfuscated code can't be reviewed, so upload the readable build; an ordinary minified build is fine. ${FIXED_VERSION_CHECKED} ${IF_THE_AI_IS_WRONG}`,
+    hasOwnMessage: true,
+  },
+  ai_phishing_or_scam: { meaning: "The AI review found phishing or a scam.", contentRule: "malware", fix: `If the game does that, take it out and upload a new version. ${FIXED_VERSION_CHECKED} ${IF_THE_AI_IS_WRONG}`, hasOwnMessage: true },
   ai_data_collection: {
     meaning: "The AI review found the game asking players for personal details, like emails, real names, birthdays or location.",
     contentRule: "personal_details",
@@ -296,7 +315,7 @@ export const REVIEW_CODES = {
     fix: `Take it out and upload a new version. Bitcoin itself is welcome, and so is a story that mentions another coin. ${FIXED_VERSION_CHECKED} ${IF_THE_AI_IS_WRONG}`,
     hasOwnMessage: true,
   },
-  ai_other: { meaning: "The AI review found something else for a person at Zaisma to look at.", contentRule: null, fix: `If the message is right, change it and upload a new version. ${FIXED_VERSION_CHECKED} ${IF_THE_AI_IS_WRONG}`, hasOwnMessage: true },
+  ai_other: { meaning: "The AI review found faked plays or players, or text that addresses the reviewer.", contentRule: null, fix: `Take out what the message names and upload a new version. ${FIXED_VERSION_CHECKED} ${IF_THE_AI_IS_WRONG}`, hasOwnMessage: true },
   ai_concern: { meaning: "The AI review held or rejected the version without naming one concern; the message is its summary.", contentRule: null, fix: `If the message is right, change it and upload a new version. ${IF_THE_AI_IS_WRONG}`, hasOwnMessage: true },
 
   // People and reports

@@ -484,6 +484,29 @@ describe("the evidence-first review", () => {
   });
 });
 
+describe("the judge decides from the tests", () => {
+  const items: EvidenceItem[] = [
+    { kind: "player_text", subject: "read_by_others", detail: "A chat box.", path: "chat.js", quote: "socket.send(text)", file_sha256: "", source: "reader" },
+    { kind: "content", subject: "sexual", detail: "Nudity.", path: "art/ending.png", quote: "", file_sha256: "", source: "reader" },
+    { kind: "content", subject: "lifelike_gore", detail: "Lifelike gore.", path: "gore.js", quote: "drawWound()", file_sha256: "", source: "reader" },
+  ];
+  const answer = (verdict: "pass" | "hold" | "reject", findings: { code: string; evidence_item_numbers: number[] }[]) =>
+    settle({ verdict, summary: "A game.", has_sexual_content_involving_minors: false, findings: findings.map((finding) => ({ ...finding, message: `${finding.code}.` })) }, items);
+
+  it("rejects a finding that cites the evidence, whatever verdict the judge picked, a picture's included", () => {
+    expect(answer("hold", [{ code: "ai_free_text_chat", evidence_item_numbers: [1] }])).toMatchObject({ verdict: "reject", findings: [{ code: "ai_free_text_chat", severity: "reject", path: "chat.js" }] });
+    expect(answer("hold", [{ code: "ai_sexual_content", evidence_item_numbers: [2] }])).toMatchObject({ verdict: "reject", findings: [{ code: "ai_sexual_content", severity: "reject", path: "art/ending.png" }] });
+    expect(answer("hold", [{ code: "ai_lifelike_gore", evidence_item_numbers: [3] }, { code: "ai_free_text_chat", evidence_item_numbers: [1] }]).verdict).toBe("reject");
+  });
+
+  it("holds for a person only for lifelike gore alone, a finding with no evidence, or a judge that stops a game with no finding", () => {
+    expect(answer("pass", [{ code: "ai_lifelike_gore", evidence_item_numbers: [3] }])).toMatchObject({ verdict: "hold", findings: [{ code: "ai_lifelike_gore", severity: "hold" }] });
+    expect(answer("reject", [{ code: "ai_malware", evidence_item_numbers: [9] }])).toMatchObject({ verdict: "hold", findings: [{ code: "ai_malware", severity: "hold" }] });
+    expect(answer("hold", [])).toMatchObject({ verdict: "hold", findings: [{ code: "ai_concern" }] });
+    expect(answer("pass", [])).toMatchObject({ verdict: "pass", findings: [] });
+  });
+});
+
 describe("re-uploads checked against their hold", () => {
   let alerts: string[];
   let clockMs: number;
@@ -534,8 +557,8 @@ describe("re-uploads checked against their hold", () => {
   it("checks a fix against its hold: what the held version already had stays passed, except malware", async () => {
     const cases: { fixFinding: JudgeFinding; decision: ScanReport["decision"] }[] = [
       { fixFinding: { code: "ai_other", path: "game.js" }, decision: "approved" },
-      { fixFinding: { code: "ai_other", path: "chat.js" }, decision: "held" },
-      { fixFinding: { code: "ai_malware", path: "game.js" }, decision: "held" },
+      { fixFinding: { code: "ai_other", path: "chat.js" }, decision: "rejected" },
+      { fixFinding: { code: "ai_malware", path: "game.js" }, decision: "rejected" },
     ];
     for (const [index, { fixFinding, decision }] of cases.entries()) {
       const game = await createGame(env.DB, { slug: `ember-keep-${index}`, title: "Ember Keep", description: "Hold the keep." });
@@ -550,7 +573,7 @@ describe("re-uploads checked against their hold", () => {
       expect(brief.earlierHold).toMatchObject({ findings: [{ code: "ai_lifelike_gore", path: "gore.js" }], addedPaths: ["chat.js"], changedPaths: ["gore.js"], removedPaths: [] });
       expect(brief.earlierHold!.carriedItemNumbers).toEqual([brief.items.findIndex((evidenceItem) => evidenceItem.path === "game.js") + 1]);
       expect(fixed.decision).toBe(decision);
-      expect(fixed.findings.find((finding) => finding.code === fixFinding.code)?.severity).toBe(decision === "approved" ? "info" : "hold");
+      expect(fixed.findings.find((finding) => finding.code === fixFinding.code)?.severity).toBe(decision === "approved" ? "info" : "reject");
     }
   });
 

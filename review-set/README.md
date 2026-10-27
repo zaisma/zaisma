@@ -33,7 +33,7 @@ Every case stays inert. A rule-breaker shows a rule's surface with stand-ins: a 
 npm run review-set
 ```
 
-Runs every public case, and every private one when `~/zaisma-private/security/review-set/cases` exists (`ZAISMA_REVIEW_SET_PRIVATE_DIR` points elsewhere), 3 times each, with the review as the scan runs it: the rule-based checks, the readers, then the judge. Every case is judged as a first upload. It says which bad games were held, which honest ones were passed, which cases got different verdicts on different runs and how often the judge declined, then `PASS` or `FAIL`.
+Runs every public case, and every private one when `~/zaisma-private/security/review-set/cases` exists (`ZAISMA_REVIEW_SET_PRIVATE_DIR` points elsewhere), 3 times each, with the review as the scan runs it: the rule-based checks, the readers, then the judge. Every case is judged as a first upload. It says which bad games were stopped (and which of them were rejected by themselves, with no person: the goal is all of them; a bad game only held still stops it but counts as a miss), which honest ones were passed, which cases got different verdicts on different runs and how often the judge declined, then `PASS` or `FAIL`.
 
 - `--runs <count>`: runs per case, 1 to 10.
 - `--case <name>`: only that case (repeat it for more).
@@ -53,7 +53,7 @@ A **full run** (every case, the configured models, at least 3 runs) records `rev
 
 ## Review precedents
 
-When a person finds the review wrong (a hold they release, or a game it passed that they reject or take down), the miss becomes a review precedent the judge reads and a stand-in case ("The AI review learns from its misses." in `docs/DECISIONS.md`). A new one is tried on the public cases in the Worker before the judge reads it. The private cases and the whole set are measured here, with the rulings in force:
+When a person finds the review wrong (a hold or rejection they release, a hold they uphold, or a game it passed that they reject or take down), the miss becomes a review precedent the judge reads and a stand-in case ("The AI review learns from its misses." in `docs/DECISIONS.md`). A new one is tried on the public cases in the Worker before the judge reads it. The private cases and the whole set are measured here, with the rulings in force:
 
 ```bash
 # save the admin MCP's list_review_precedents answer as { "review_precedents": [...] }, then:
@@ -70,7 +70,7 @@ Every protection in `REVIEW_SET_PROTECTIONS` has at least one private case, a ga
 The review reads each protection as a closed yes/no subject, with one fixed outcome (the lines are written to be mechanical, so the same game gets the same verdict from any model):
 
 - A game that only bumps into a protection (a plain `window.open`, a call to an address that isn't Zaisma rooms or its own servers) passes with a note (`unregistered_link`, `unlisted_address`), from the rule-based checks.
-- A game that dodges one is held (`ai_protection_dodged`): `protection_attempt` with the subject `page_outside_frame`, `peer_outside_relay`, `link_without_tap`, `link_built_from_pieces` or `address_built_from_pieces`.
+- A game that dodges one is rejected (`ai_protection_dodged`): `protection_attempt` with the subject `page_outside_frame`, `peer_outside_relay`, `link_without_tap`, `link_built_from_pieces` or `address_built_from_pieces`.
 - Typed text another player reads as written is chat (`read_by_others`); typed answers the game checks (`checked_by_game`), text only the typer sees and whole phrases the developer wrote are fine.
 
 Public near misses and plain breakers for these are in `cases/` (`typed-answers-word-race`, `guess-feed-drawing`, `composer-spells-anything`, `window-open-discord`); a developer or their AI can read their `why` as Fine and Not fine examples.

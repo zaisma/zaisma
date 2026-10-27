@@ -203,11 +203,15 @@ if (isJson) {
     console.log(`${result.name}${result.is_private ? " (private)" : ""}: ${result.outcome}, decisions ${result.decisions.join(" ")}${result.finding_codes.length ? `, codes ${result.finding_codes.join(" ")}` : ""}`);
   }
   for (const result of results) {
+    if (result.outcome !== "held_bad" || result.decisions.every((decision) => decision === "rejected")) continue;
+    console.log(`${result.name}${result.is_private ? " (private)" : ""}: stopped but not rejected by itself, decisions ${result.decisions.join(" ")}${result.finding_codes.length ? `, codes ${result.finding_codes.join(" ")}` : ""}`);
+  }
+  for (const result of results) {
     if (!result.declined_attempt_count) continue;
     console.log(`${result.name}${result.is_private ? " (private)" : ""}: the judge declined ${result.declined_attempt_count} tries over ${result.decisions.length} runs; ${result.declined_run_count} of the runs declined every try and were held for a person.`);
   }
   console.log(
-    `Bad games held: ${summary.held_bad_case_count} of ${summary.bad_case_count}. Honest games passed: ${summary.passed_honest_case_count} of ${summary.honest_case_count}. ` +
+    `Bad games stopped: ${summary.held_bad_case_count} of ${summary.bad_case_count}, rejected with no person: ${summary.rejected_bad_case_count}. Honest games passed: ${summary.passed_honest_case_count} of ${summary.honest_case_count}. ` +
       `Inconsistent: ${summary.inconsistent_case_count}. Private cases: ${summary.private_case_count}. Tokens: ${summary.input_token_count} in, ${summary.output_token_count} out. ` +
       `Cost: $${(summary.cost_cents / 100).toFixed(2)}, ${(summary.cost_cents / Math.max(1, cases.length * runCount)).toFixed(2)}¢ per judged review. ` +
       `Judge declined: ${summary.declined_attempt_count} tries, ${summary.declined_review_count} of ${cases.length * runCount} reviews every try. ` +
