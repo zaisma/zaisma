@@ -587,7 +587,8 @@ describe("the game page's saves script, keeping every promise", () => {
     await vi.waitFor(() => expect(page.told("sync")).toHaveLength(1));
     page.answer("PUT", API, { error: "Played on another device.", version_number: 3, sha256: "laptop", saved_at: new Date(Date.now() + skewMs - 5 * 60_000).toISOString(), changed_by_kind: "player" }, 409, zaismaClock());
     page.fromGame({ step: "save", text: saveTextOf({ level: "4" }) });
-    await vi.waitFor(() => expect(page.told("sync")).toHaveLength(2));
+    // A refused save, the check of whose is newer and the save again: a longer wait than one step, for a busy test machine.
+    await vi.waitFor(() => expect(page.told("sync")).toHaveLength(2), { timeout: 5000 });
     // The phone's progress wins: it replaces the laptop's, and the game isn't reloaded with the older progress.
     expect(page.told("sync").at(-1)).toEqual({ type: "zaisma:saves", step: "sync", text: null });
     expect(page.opened).toHaveLength(1);

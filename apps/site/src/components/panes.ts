@@ -1254,8 +1254,6 @@ export interface BannerOptions {
 
 /** The least width a banner keeps its words and its buttons side by side at; narrower, its words take the whole width and its button goes under them. */
 const BANNER_SIDE_BY_SIDE_LEAST_PX = 560;
-/** An icon-only cut button's width (actions.ts): the room Close takes beside a narrow banner's first line. */
-const CLOSE_WIDTH_PX = 52;
 
 /**
  * A banner: a strip of glass across the top of a page's content for something that holds while you're there (playing as a guest, a held
@@ -1301,8 +1299,9 @@ component({
   .banner .banner-in.has-action > .layout-row > .row-cell:first-child { grid-area: 2 / 1; margin: var(--gap-words-control) 0 0; }
   .banner .banner-in.has-action > .layout-row > .row-cell:first-child > .shell { display: flex; flex: 1 1 auto; }
   .banner .banner-in.has-action > .layout-row > .row-cell:first-child > .shell > .face { width: 100%; justify-content: center; }
-  /* The words make room for Close beside their first line: an empty float as wide as Close and the gap less their margin, down to its foot. */
-  .banner-in.has-close .banner-text::before { content: ""; float: inline-end; width: calc(${CLOSE_WIDTH_PX}px + var(--gap-words-control) - var(--pad-words)); height: calc((var(--control-height-regular) + 1lh) / 2); }
+  /* The words make room for Close beside their first line: an empty float as wide as Close (an icon-only quiet button, as wide as it is
+     tall) and the gap less their margin, down to its foot. */
+  .banner-in.has-close .banner-text::before { content: ""; float: inline-end; width: calc(var(--control-height-regular) + var(--gap-words-control) - var(--pad-words)); height: calc((var(--control-height-regular) + 1lh) / 2); }
 }
 `,
   render: banner,
