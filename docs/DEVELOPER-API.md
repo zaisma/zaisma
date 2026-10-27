@@ -483,7 +483,7 @@ Each developer gets two kinds of review a day, across all their games. A large r
 | `personal_details` | Asking players for personal details like emails, real names, birthdays or location inside the game. Every player has a Zaisma ID and name; games with their own accounts link them through Sign in with Zaisma, and anything more happens on the developer's own site. |
 | `chat` | Typed chat between players outside Zaisma's chat hosting. In Zaisma rooms, chat goes through room.chat; on your own server, through canChat and checkChat. Preset phrases and emotes are always fine. |
 | `crypto` | Cryptocurrency other than Bitcoin: using or promoting other coins, tokens, NFTs or airdrops. A story that mentions one is fine. Bitcoin games are welcome, but not investment advice, mining on the player's device, paying players sats, or asking for seed phrases or permission to spend from a wallet. |
-| `purchases` | Selling paid random rewards (loot boxes), including through coins bought with money, or showing prices in coins or gems without the real price beside them. |
+| `purchases` | Selling paid random rewards (loot boxes), including through coins bought with money, or showing prices in coins or gems bought with money without the real price beside each one, even when the coins themselves are sold at a real price. |
 | `faked_plays` | Faking plays or players, with bots, scripts or click farms. |
 
 Allowed, even where other platforms ban it (`ALLOWED_CONTENT`): the AI review passes it and report triage dismisses reports about it.

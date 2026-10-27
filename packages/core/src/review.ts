@@ -28,7 +28,7 @@ export const CONTENT_RULES = {
   crypto:
     "Cryptocurrency other than Bitcoin: using or promoting other coins, tokens, NFTs or airdrops. A story that mentions one is fine. Bitcoin games are welcome, but not investment advice, mining on the player's device, paying players sats, or asking for seed phrases or permission to spend from a wallet.",
   purchases:
-    "Selling paid random rewards (loot boxes), including through coins bought with money, or showing prices in coins or gems without the real price beside them.",
+    "Selling paid random rewards (loot boxes), including through coins bought with money, or showing prices in coins or gems bought with money without the real price beside each one, even when the coins themselves are sold at a real price.",
   faked_plays: "Faking plays or players, with bots, scripts or click farms.",
 } as const;
 export type ContentRule = keyof typeof CONTENT_RULES;
