@@ -109,6 +109,8 @@ interface ShownOnce {
 interface PageState {
   done?: string;
   problem?: string;
+  /** Where to go to fix the problem, shown as a link after it. */
+  problemLink?: { words: string; href: string };
   shownOnce?: ShownOnce;
   /** A spending request to answer, opened over the Hosting pane. */
   spendingRequestId?: string;
@@ -925,7 +927,7 @@ async function settingsPage(env: Env, request: Request, session: SignedIn, calle
     keysPane(keys, settings.games.map((game) => ({ slug: game.slug, title: game.title })), making),
   ];
   const panes = stack({ items: [...topNotes, ...paneItems] });
-  const body = html`<h1 class="sr">Developer settings</h1>${sidePlaces({ label: "Developer settings", rowId: "settings-places-row", places: TAB_PANES.map((pane, index) => ({ label: pane.label, icon: pane.icon, href: `#${pane.id}`, isCurrent: index === 0 })), body: panes })}${paneItems.map((paneItem) => PANE_LAYERS.get(paneItem) ?? "")}${spendingSheet}${confirmItsYouSheet({ id: "settings-confirm" })}${state.done && DONE_WORDS[state.done] ? notice({ text: DONE_WORDS[state.done]!, tone: "done" }) : ""}${state.problem ? notice({ text: state.problem, tone: "problem" }) : ""}${scriptTags(PASSKEY_SCRIPT, SETTINGS_SCRIPT)}`;
+  const body = html`<h1 class="sr">Developer settings</h1>${sidePlaces({ label: "Developer settings", rowId: "settings-places-row", places: TAB_PANES.map((pane, index) => ({ label: pane.label, icon: pane.icon, href: `#${pane.id}`, isCurrent: index === 0 })), body: panes })}${paneItems.map((paneItem) => PANE_LAYERS.get(paneItem) ?? "")}${spendingSheet}${confirmItsYouSheet({ id: "settings-confirm" })}${state.done && DONE_WORDS[state.done] ? notice({ text: DONE_WORDS[state.done]!, tone: "done" }) : ""}${state.problem ? notice({ text: state.problem, tone: "problem", link: state.problemLink }) : ""}${scriptTags(PASSKEY_SCRIPT, SETTINGS_SCRIPT)}`;
   const response = layout(env, { title: "Developer settings · Zaisma", body, checkedPage: "Developer settings", pageShape: "reading", nav: "developer", viewer: { account }, isPrivate: true });
   const answered = new Response(response.body, { status: httpStatus, headers: response.headers });
   for (const cookie of session.cookies) answered.headers.append("Set-Cookie", cookie);
@@ -981,6 +983,7 @@ export async function handleDeveloperSettings(request: Request, env: Env, path: 
   const field = (name: string, maximumCharacterCount?: number) => bodyField(form, name, maximumCharacterCount);
   const back = (done: string, hash: string) => redirect(`${PAGE}?done=${done}#${hash}`, session.cookies);
   const failed = (error: unknown) => {
+    if (error instanceof ApiError && error.code === "account_not_protected") return settingsPage(env, request, session, caller, account, { problem: `${error.message} Add a passkey or an email first.`, problemLink: { words: "Open your account", href: "/account" } }, error.httpStatus);
     if (error instanceof ApiError) return settingsPage(env, request, session, caller, account, { problem: error.messageWithFix }, error.httpStatus);
     throw error;
   };

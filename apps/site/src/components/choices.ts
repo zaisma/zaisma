@@ -548,8 +548,10 @@ component({
 .choice-cards { --choice-row-least: calc(var(--choice-count) * var(--size-card)); display: flex; flex-wrap: wrap; align-items: stretch; gap: var(--gap-control-stack) 0; }
 .choice-cards > .choice-card { flex: 1 1 calc((var(--choice-row-least) - 100%) * 999); }
 .choice-cards > .choice-card:not(:last-child) { margin-inline-end: max(var(--gap-control-row-boxes), min(0px, (var(--choice-row-least) - 100%) * 999)); }
-.choice-card { position: relative; display: flex; align-items: flex-start; gap: var(--gap-words-words); min-height: 76px; padding: 14px var(--pad-inside-words); cursor: pointer; -webkit-tap-highlight-color: transparent;
+.choice-card { position: relative; display: flex; align-items: flex-start; gap: var(--gap-words-words); min-height: 44px; padding: 14px var(--pad-inside-words); cursor: pointer; -webkit-tap-highlight-color: transparent;
   color: var(--muted); --face-color: var(--well); background: var(--face-color); box-shadow: var(--well-shade); clip-path: var(--cut-shape); transition: --face-color 0.2s, box-shadow 0.2s, color 0.2s; }
+/* A card with a line on what it means has room for it; one with only its name (an amount) is as tall as its name, never taller than its content. */
+.choice-card:has(.choice-text) { min-height: 76px; }
 .choice-card > :not(.cut-line):not(.choice-input) { position: relative; z-index: 2; }
 .choice-input { position: absolute; inset: 0; z-index: 3; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
 .choice-card > .ico { flex: none; margin-top: 1px; color: var(--muted); }
