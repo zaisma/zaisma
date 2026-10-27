@@ -15,7 +15,7 @@
 //   node scripts/restore.mjs check --account-id <id>
 //       every table's rows against the main database's backup, and the copy's counts
 //   node scripts/restore.mjs clean
-//       deletes the generated configs (apps/*/wrangler.restore.jsonc) and the download (.restore/) from this checkout
+//       deletes the generated configs (apps/*/wrangler.restore*.jsonc) and the download (.restore/) from this checkout
 //
 // Every command takes --json (one answer as JSON) and run takes --dry (says each step, does none). run is
 // safe to run again: each step looks first and skips what's done, so a run that stopped goes on from there.
@@ -144,6 +144,8 @@ function wranglerOrFail(argumentList, what, options) {
 }
 
 const configOf = (worker) => join("apps", worker, "wrangler.restore.jsonc");
+/** A Worker's first deploy into a new account, without its bindings to Workers not deployed yet. */
+const firstConfigOf = (worker) => join("apps", worker, "wrangler.restore-first.jsonc");
 const siteConfig = configOf("site");
 
 /** One SQL statement on the restored main database, answered as rows. */
@@ -340,9 +342,26 @@ async function runRestore() {
   // The Workers, in ship's order. photodna's container needs the SDK and Docker, as on a ship.
   const photoDnaProblem = placePhotoDnaSdk(CHECKOUT) ?? ensureDocker();
   if (photoDnaProblem) fail(`photodna can't be built: ${photoDnaProblem}.`);
+  // rooms and the site bind to each other: in a new account, a Worker whose binding names one that isn't
+  // deployed yet goes first without that binding, then again whole once every Worker is up.
+  const deployedWorkerNames = new Set();
+  const deployedAgain = [];
   for (const worker of WORKERS) {
     say(`Deploying ${worker}…`);
-    wranglerOrFail(["deploy", "--config", configOf(worker)], `Deploying ${worker}`);
+    const configText = readFileSync(join(CHECKOUT, configOf(worker)), "utf8");
+    const missingNames = [...configText.matchAll(/"service":\s*"([\w-]+)"/g)].map((match) => match[1]).filter((name) => name !== `zaisma-${worker}` && !deployedWorkerNames.has(name));
+    if (missingNames.length) {
+      const firstText = missingNames.reduce((text, name) => text.replace(new RegExp(`,?\\s*\\{[^{}]*"service":\\s*"${name}"[^{}]*\\}`, "g"), ""), configText).replace(/\[\s*,/g, "[");
+      writeFileSync(join(CHECKOUT, firstConfigOf(worker)), firstText);
+      wranglerOrFail(["deploy", "--config", firstConfigOf(worker)], `Deploying ${worker} without its bindings to ${missingNames.join(", ")}`);
+      deployedAgain.push(worker);
+    } else wranglerOrFail(["deploy", "--config", configOf(worker)], `Deploying ${worker}`);
+    deployedWorkerNames.add(`zaisma-${worker}`);
+  }
+  for (const worker of deployedAgain) {
+    say(`Deploying ${worker} again, with every binding…`);
+    wranglerOrFail(["deploy", "--config", configOf(worker)], `Deploying ${worker} again`);
+    rmSync(join(CHECKOUT, firstConfigOf(worker)), { force: true });
   }
 
   // Fresh signing keys, made here and sent straight into the secrets, and the read key last: with it, the site's cron starts the copy.
@@ -413,7 +432,7 @@ else if (command === "status") {
   answer(row, `RESTORE STATUS ${describeRow(row)}.`);
 } else if (command === "check") checkRestore();
 else if (command === "clean") {
-  for (const worker of WORKERS) rmSync(join(CHECKOUT, configOf(worker)), { force: true });
+  for (const worker of WORKERS) for (const config of [configOf(worker), firstConfigOf(worker)]) rmSync(join(CHECKOUT, config), { force: true });
   rmSync(RESTORE_FOLDER, { recursive: true, force: true });
   answer({}, "RESTORE CLEAN the generated configs and the downloaded main database are gone from this checkout.");
 } else fail(`${command || "No command"}: restore.mjs takes plan, run, status, check or clean.`, "node scripts/restore.mjs plan");
