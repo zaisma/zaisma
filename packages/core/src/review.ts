@@ -416,6 +416,18 @@ export const REVIEW_CODES = {
     fix: `Send the background without words or logos (add_image, or add_shader for a shader); words that are part of the scene, like a sign on a building, are fine. ${COVER_GUIDE} ${IF_THE_CHECK_IS_WRONG}`,
     hasOwnMessage: true,
   },
+  overlay_on_background: {
+    meaning: "Something is laid over a background instead of being part of its world, like a button, badge or sticker, so it doesn't show; the message says what.",
+    contentRule: null,
+    fix: `Send the background without it (add_image, or add_shader for a shader). ${COVER_GUIDE} ${IF_THE_CHECK_IS_WRONG}`,
+    hasOwnMessage: true,
+  },
+  famous_name_on_background: {
+    meaning: "A background shows a famous character, logo or name, from a film, show, game, brand or club, so it doesn't show; the message names it.",
+    contentRule: null,
+    fix: `Send a background of your game's own world (add_image, or add_shader for a shader). Only obvious ones count. If you own it or have permission, message_zaisma with the game_slug. ${COVER_GUIDE}`,
+    hasOwnMessage: true,
+  },
   // The shader check (Backgrounds in docs/DEVELOPER-API.md): a shader is drawn before anyone sees it
   shader_does_not_compile: {
     meaning: "The shader didn't compile; the message gives the first compiler error.",

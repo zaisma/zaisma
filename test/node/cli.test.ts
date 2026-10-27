@@ -8,6 +8,7 @@ import { gzipSync } from "node:zlib";
 import { DatabaseSync } from "node:sqlite";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { BACKGROUND_SCREENS, VISIBILITIES } from "../../packages/core/src/developers.ts";
+import { MATCH_UPDATE_MODES } from "../../packages/core/src/types.ts";
 import { findChrome } from "../../packages/cli/chrome.mjs";
 import { SHADER_LIMITS } from "../../packages/cli/shader-check.mjs";
 import { png } from "../site/png-stub.ts";
@@ -112,6 +113,23 @@ describe("the upload command's table in docs/DEVELOPER-API.md", () => {
     const documentedCommands = new Set(documented.map((row) => commandNames.find((name) => name === [row.command, row.subcommand].filter(Boolean).join(" ")) ?? row.command));
     for (const name of commandNames.filter((name) => name !== "help")) expect(documentedCommands, name).toContain(name);
   });
+
+  it("gives each choice the command takes as help --json has it", () => {
+    const doc = readFileSync(join(ROOT, "docs/DEVELOPER-API.md"), "utf8");
+    const cells = doc.slice(doc.indexOf("## The upload command")).split("\n").filter((line) => line.startsWith("| `zaisma ")).map((line) => line.split(/(?<!\\)\|/)[1]!.trim().replace(/^`|`$/g, "").replace(/\\\|/g, "|"));
+    const commandNames = help.commands.map((entry) => entry.command);
+    let choiceCount = 0;
+    for (const cell of cells) {
+      const words = cell.split(" ").slice(1).filter((word) => /^[a-z-]+$/.test(word));
+      const command = help.commands.find((entry) => entry.command === commandNames.find((name) => name === words.slice(0, 2).join(" ")) || entry.command === words[0])!;
+      for (const match of cell.matchAll(/(?:(--[a-z-]+) )?([a-z_]+(?:\|[a-z_]+)+)/g)) {
+        const choices = match[1] ? command.flags.find((flag) => flag.flag === match[1])?.choices : command.arguments.find((argument) => argument.choices)?.choices;
+        expect(choices, `${cell}: ${match[0]}`).toEqual(match[2]!.split("|"));
+        choiceCount++;
+      }
+    }
+    expect(choiceCount).toBeGreaterThan(5);
+  });
 });
 
 describe("closed flags", () => {
@@ -162,6 +180,7 @@ describe("closed flags", () => {
     expect(choicesOf("forum message", "--category")).toEqual(FORUM_CATEGORIES);
     expect(choicesOf("shader", "--screen")).toEqual([...BACKGROUND_SCREENS]);
     expect(choicesOf("check", "--screen")).toEqual([...BACKGROUND_SCREENS]);
+    for (const command of ["upload", "publish"]) expect(choicesOf(command, "--match-update-mode")).toEqual([...MATCH_UPDATE_MODES]);
   });
 
   it("names the new command and flag for renamed ones", async () => {

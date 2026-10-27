@@ -257,8 +257,23 @@ describe("the listing check on backgrounds", () => {
       });
     }
     expect(listingOutcomes(brief("background"), answer({ background_text: "PLAY / the Roblox logo" })).pictures.background).toMatchObject({ outcome: "rejected", reason: { code: "text_on_background", message: 'The background has words or a logo on it: "PLAY", "the Roblox logo".' } });
-    // What the cover questions answer never counts against a background.
-    expect(listingOutcomes(brief("background"), answer({ extra_text: "LAVA LEAP", overlay: "a badge" })).pictures.background).toEqual({ outcome: "fine" });
+    // What only covers are asked never counts against a background.
+    expect(listingOutcomes(brief("background"), answer({ extra_text: "LAVA LEAP", main_subject: "a dragon", is_main_subject_in_screenshots: false })).pictures.background).toEqual({ outcome: "fine" });
+  });
+
+  it("reject a background with something laid over it, or a famous character, each with its own code", () => {
+    expect(listingOutcomes(brief("phone_background"), answer({ overlay: "a Play button" })).pictures.background).toEqual({
+      outcome: "rejected",
+      reason: { code: "overlay_on_background", message: "Something is laid over the background: a Play button.", content_rule: null },
+    });
+    expect(listingOutcomes(brief("background"), answer({ famous_name: "Pikachu" })).pictures.background).toEqual({
+      outcome: "rejected",
+      reason: { code: "famous_name_on_background", message: "The background shows Pikachu.", content_rule: null },
+    });
+    // The covers' order: a famous name, then words, then what's laid over; a fake reward before all of them.
+    expect(listingOutcomes(brief("background"), answer({ famous_name: "the Roblox logo", background_text: "PLAY", overlay: "a badge" })).pictures.background).toMatchObject({ reason: { code: "famous_name_on_background" } });
+    expect(listingOutcomes(brief("background"), answer({ background_text: "PLAY", overlay: "a badge" })).pictures.background).toMatchObject({ reason: { code: "text_on_background" } });
+    expect(listingOutcomes(brief("background"), answer({ fake_reward: "FREE ROBUX", famous_name: "Robux" })).pictures.background).toMatchObject({ outcome: "held", reason: { code: "fake_reward" } });
   });
 
   it("hold the game for a fake reward on a background, and leave safety to a person", () => {

@@ -367,7 +367,7 @@ export async function authenticate(request: Request, env: Env, via: "api" | "mcp
     const token = header.match(/^Bearer\s+(\S+)$/i)?.[1] ?? "";
     // A connected app's token is bound to the MCP it asked for (RFC 8707); the REST API is for keys.
     if (via === "api" && token.startsWith("zat_")) {
-      throw new ApiError("token_not_for_api", { message: "This token is a connected app's and works only at zaisma.com/mcp.", field: "Authorization", fix: "Call the REST API with an API key from zaisma.com/account." });
+      throw new ApiError("token_not_for_api", { message: "This token is a connected app's and works only at zaisma.com/mcp.", field: "Authorization", fix: "Call the REST API with an API key made on Developer settings (zaisma.com/dashboard/settings, under Keys)." });
     }
     const found = await apiKeyForToken(env.DB, token);
     const key = found?.key ?? null;
@@ -2504,7 +2504,7 @@ function checkAccess(apiRoute: ApiRoute, caller: Caller): void {
   if (apiRoute.isFullKeyOnly && !isFullKey(caller.access)) {
     throw new ApiError("key_not_allowed", {
       message: `This API key isn't a full key, and ${apiRoute.method} ${apiRoute.path} needs one: ${apiRoute.path === "/api-keys" ? "it shows how your keys are used and from where" : "it shows where your account is used from"}.`,
-      fix: `Call with a full key for all your games, or see it on zaisma.com/account${apiRoute.path === "/api-keys" ? "" : " under Activity"}; keys are made on zaisma.com/dashboard/settings.`,
+      fix: `Call with a full key for all your games, or see ${apiRoute.path === "/api-keys" ? "your keys on zaisma.com/dashboard/settings, under Keys, where keys are made" : "it on zaisma.com/account, under Activity; keys are made on zaisma.com/dashboard/settings"}.`,
     });
   }
   for (const more of apiRoute.alsoNeeds) {
