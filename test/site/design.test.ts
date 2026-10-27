@@ -43,6 +43,7 @@ import controlMarkupSource from "../../apps/site/src/components/control-markup.t
 import citySource from "../../apps/site/src/components/city.ts?raw";
 import screensSource from "../../apps/site/src/components/screens.ts?raw";
 import playingSource from "../../apps/site/src/components/playing.ts?raw";
+import layersSource from "../../apps/site/src/components/layers.ts?raw";
 import readingSource from "../../apps/site/src/components/reading.ts?raw";
 import peopleSource from "../../apps/site/src/components/people.ts?raw";
 import galleryPageSource from "../../apps/site/src/design-page.ts?raw";
@@ -51,7 +52,7 @@ import galleryPageSource from "../../apps/site/src/design-page.ts?raw";
 const SOURCES: Record<string, string> = {
   "components/foundations.ts": foundationsSource, "components/tokens.ts": tokensSource, "components/icons.ts": iconsSource, "components/glass-script.ts": glassScriptSource, 
   "components/backdrop-script.ts": backdropScriptSource, "components/actions.ts": actionsSource, "components/fields.ts": fieldsSource, "components/switch.ts": switchSource, "components/choices.ts": choicesSource, "components/example-pane.ts": examplePaneSource, "components/inputs.ts": inputsSource, "components/navigation.ts": navigationSource, "components/panes.ts": panesSource, "components/confirm-its-you.ts": confirmItsYouSource, "components/stripe-frame.ts": stripeFrameSource, "components/data.ts": dataSource,
-  "components/layout.ts": layoutSource, "components/layout-gallery.ts": layoutGallerySource, "components/control-markup.ts": controlMarkupSource, "components/city.ts": citySource, "components/screens.ts": screensSource, "components/playing.ts": playingSource,
+  "components/layout.ts": layoutSource, "components/layout-gallery.ts": layoutGallerySource, "components/control-markup.ts": controlMarkupSource, "components/city.ts": citySource, "components/screens.ts": screensSource, "components/playing.ts": playingSource, "components/layers.ts": layersSource,
   "components/reading.ts": readingSource, "components/people.ts": peopleSource,
   "design-page.ts": galleryPageSource,
 };

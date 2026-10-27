@@ -76,7 +76,7 @@ export function urgentCard(options: UrgentCardOptions): Raw {
   const close = cutButton("Close", { type: "button", icon: "close", isLabelHidden: true, isSmall: true, dataAttributes: { "layer-close": "" } });
   const buttons = options.buttons?.length ? row({ widths: "equal", items: options.buttons.map((button) => ({ kind: "control" as const, markup: button })) }) : "";
   const sheetsToClose = options.sheetsToClose?.length ? html` data-sheets-to-close="${options.sheetsToClose.join(" ")}"` : "";
-  return html`<aside class="playing-card urgent-card glass${options.isInPlace ? " in-place" : ""}" id="${options.id}" role="alert" data-notice-urgency="urgent"${sheetsToClose}${options.isInPlace ? "" : raw(' popover="manual"')} data-glass data-glass-corners="pane">${EDGE}<div class="playing-card-in"><div class="urgent-card-head"><h2 class="playing-card-title">${options.title}</h2>${close}</div><p class="urgent-card-text">${options.text}</p>${buttons}</div></aside>`;
+  return html`<aside class="playing-card glass urgent-card${options.isInPlace ? " in-place" : ""}" id="${options.id}" role="alert" data-notice-urgency="urgent"${sheetsToClose}${options.isInPlace ? "" : raw(' popover="manual"')} data-glass data-glass-corners="pane">${EDGE}<div class="playing-card-in"><div class="urgent-card-head"><h2 class="playing-card-title">${options.title}</h2>${close}</div><p class="urgent-card-text">${options.text}</p>${buttons}</div></aside>`;
 }
 
 export interface ScreenshotOptions {
@@ -249,6 +249,7 @@ html.is-leaving body > main > :not(.playing-bar, .playing-card, .playing-check, 
 .playing-card.urgent-card.in-place { position: relative; inset: auto; }
 .urgent-card-head { display: flex; align-items: flex-start; gap: var(--gap-control-row-boxes); }
 .urgent-card-head > .playing-card-title { flex: 1; min-width: 0; }
+.urgent-card-text { color: var(--ink); }
 @media (max-width: 640px) { .playing-card.urgent-card:not(.in-place) { left: var(--pad-frame); right: var(--pad-frame); width: auto; margin: 0 auto; max-width: 360px; } }
 @media (prefers-reduced-motion: reduce) {
   .playing-card { transition: var(--glass-transition), opacity 0.2s ease, display 0.2s allow-discrete; }
