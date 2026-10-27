@@ -435,7 +435,7 @@ describe("the evidence-first review", () => {
     expect(report.findings.map((finding) => finding.code)).toContain("ai_review_budget_used");
   });
 
-  it("asks the judge again when it declines, holds when it declines every try, and turns a reject with no quoted proof into a hold", async () => {
+  it("asks the judge again when it declines, holds when it declines every try, and turns a reject that cites no evidence into a hold", async () => {
     // Each call to the API answers the next body in the list, the last one from then on.
     const answers = (...bodies: Record<string, unknown>[]) => {
       let callIndex = 0;
@@ -465,11 +465,17 @@ describe("the evidence-first review", () => {
     expect(refused.findings.map((finding) => finding.code)).toEqual(["ai_review_declined"]);
     expect(fetchSpy).toHaveBeenCalledTimes(3);
 
+    // A picture's item has no quote and is proof all the same; a finding that cites nothing is held for a person.
     vi.restoreAllMocks();
     answers(verdict({ verdict: "reject", findings: [{ code: "ai_sexual_content", evidence_item_numbers: [1], message: "A picture." }] }));
-    const unquoted = await judgeVersion("test-key", "claude-sonnet-5-5", brief);
-    expect(unquoted.verdict).toBe("hold");
-    expect(unquoted.findings).toEqual([{ stage: "ai", severity: "hold", code: "ai_sexual_content", message: "A picture.", path: "art/a.png" }]);
+    const picture = await judgeVersion("test-key", "claude-sonnet-5-5", brief);
+    expect(picture.verdict).toBe("reject");
+    expect(picture.findings).toEqual([{ stage: "ai", severity: "reject", code: "ai_sexual_content", message: "A picture.", path: "art/a.png" }]);
+    vi.restoreAllMocks();
+    answers(verdict({ verdict: "reject", findings: [{ code: "ai_sexual_content", evidence_item_numbers: [], message: "A picture." }] }));
+    const uncited = await judgeVersion("test-key", "claude-sonnet-5-5", brief);
+    expect(uncited.verdict).toBe("hold");
+    expect(uncited.findings).toEqual([{ stage: "ai", severity: "hold", code: "ai_sexual_content", message: "A picture." }]);
   });
 
   it("holds more code than the review reads, without reading it", async () => {

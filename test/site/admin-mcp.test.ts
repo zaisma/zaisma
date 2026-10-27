@@ -241,6 +241,11 @@ describe("admin MCP", () => {
   });
 
   it("counts how the review's scans came out, by the scan's own decision", async () => {
+    // Other tests' versions are in the database too: count what these add.
+    type Counts = Record<"passed_count" | "rejected_count" | "held_for_person_count" | "waiting_count", number>;
+    const before: Counts = await data("get_review_counts");
+    const beforeLong: Counts = await data("get_review_counts", { period_duration_days: 90 });
+    const added = (after: Counts, from: Counts) => Object.fromEntries((Object.keys(from) as (keyof Counts)[]).filter((key) => key.endsWith("_count")).map((key) => [key, after[key] - from[key]]));
     const game = await createGame(env.DB, { slug: "counted-game", title: "Counted", description: "A test." });
     const finding = (code: string, severity: string) => ({ stage: "ai", severity, code, message: "x" });
     const scanned = [
@@ -257,8 +262,10 @@ describe("admin MCP", () => {
     }
     // A person approving the held one later doesn't change how the scan decided.
     await env.DB.prepare("UPDATE versions SET scan_status = 'approved' WHERE id = 'version_counted2'").run();
-    expect(await data("get_review_counts")).toMatchObject({ period_duration_days: 30, passed_count: 1, rejected_count: 1, held_for_person_count: 1, waiting_count: 1 });
-    expect(await data("get_review_counts", { period_duration_days: 90 })).toMatchObject({ passed_count: 2 });
+    const after = await data("get_review_counts");
+    expect(after.period_duration_days).toBe(30);
+    expect(added(after, before)).toEqual({ passed_count: 1, rejected_count: 1, held_for_person_count: 1, waiting_count: 1 });
+    expect(added(await data("get_review_counts", { period_duration_days: 90 }), beforeLong)).toMatchObject({ passed_count: 2 });
     expect(await refusal("get_review_counts", { period_duration_days: 91 })).toMatchObject({ field: "period_duration_days" });
   });
 
