@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // Brings Zaisma back in a Cloudflare account from its backups at Backblaze B2 (apps/site/src/backups.ts),
 // for the day Zaisma's own account is gone, and for practising that day. Run it from a public checkout on
-// the code to deploy, signed in to wrangler with access to the target account:
+// the code to deploy, with an API token for the target account in the shell (CLOUDFLARE_API_TOKEN), never
+// wrangler login: the machine has one wrangler sign-in, and every npm run ship uses it.
 //
 //   node scripts/restore.mjs plan [--night <YYYY-MM-DD>]
 //       which night the restore would bring back (the newest by default) and the nights there are; writes nothing
@@ -150,6 +151,7 @@ function remoteRows(sql) {
 }
 
 function needTarget() {
+  if (!process.env.CLOUDFLARE_API_TOKEN) fail("CLOUDFLARE_API_TOKEN isn't set in this shell: the restore never uses wrangler's own sign-in, which npm run ship needs for Zaisma's account.", "Make an API token in the target account (the \"Edit Cloudflare Workers\" template plus D1, Queues, Containers, R2 and the zones' DNS) and export it in this shell only.");
   for (const name of ["account-id", ...(command === "run" ? ["site-domain", "game-domain"] : [])]) if (!flags.get(name)) fail(`--${name} is missing.`, "node scripts/restore.mjs run --account-id <id> --site-domain <domain> --game-domain <domain>");
 }
 
