@@ -584,6 +584,8 @@ runSql(`UPDATE reports SET has_block_between = 1 WHERE player_reason = 'followin
 await seedWrongPasswords();
 // A player back to a save from 2 hours ago with neither a passkey nor an email, asked again this run (made the first time).
 await seedProtectAccount();
+// Friend requests in games: one from Saved_Farmer (made just above) waits for the preview account, sent from Arena.
+seedFriendRequests();
 // The security log's Activity and who-and-where in game histories, again this run (rows keep their keys).
 seedSecurityLog();
 // An announcement showing on the home, again this run (it keeps its ID, so closing it holds until --reset).
@@ -1806,8 +1808,6 @@ function seedFriendsNow() {
     // Tiny Farm plays on a server of its own: Tall_Pine is in one of its rooms there, so Join carries the server (Friends in games).
     `UPDATE games SET own_server_urls = '["wss://play.example.com"]' WHERE slug = 'tiny-farm'`,
     `INSERT OR REPLACE INTO room_players (game_id, room_code, player_id, server_url, joined_at_ms, updated_at_ms) SELECT ${game("tiny-farm")}, 'TNYFRM', ${player("Tall_Pine")}, 'wss://play.example.com', ${later}, ${later} ${ifMade}`,
-    // Friend requests in games: one from Saved_Farmer waits for the preview account, sent from Arena.
-    `INSERT OR IGNORE INTO friend_requests (sender_account_id, recipient_account_id, game_id, created_at_ms, expires_at_ms) SELECT ${account("Saved_Farmer")}, ${account("Preview_Studio")}, ${game("arena")}, ${Date.now()}, ${later} WHERE EXISTS (SELECT 1 FROM accounts WHERE username = 'Saved_Farmer') AND NOT EXISTS (SELECT 1 FROM friendships WHERE account_id = ${account("Preview_Studio")} AND friend_account_id = ${account("Saved_Farmer")})`,
     // Join switches for games: a private room in Arena, and Cave Crew with Join off.
     ...room("arena", "SWFTTR", 3, 8, "NL", "EU", "Swift_Otter", false),
     ...room("cave-crew", "RDLNTN", 2, 16, "GB", "EU", "Red_Lantern"),
@@ -1824,6 +1824,13 @@ function seedFriendsNow() {
     `UPDATE live_rooms SET spectator_count = 1, maximum_spectator_count = 20 WHERE room_code IN (${["22", "23", "24", "25", "26", "27"].map((suffix) => `'QWRT${suffix}'`).join(", ")})`,
   ];
   runSql(sql.join("; "));
+}
+
+function seedFriendRequests() {
+  const account = (name) => `(SELECT id FROM accounts WHERE username = '${name}')`;
+  runSql(
+    `INSERT OR IGNORE INTO friend_requests (sender_account_id, recipient_account_id, game_id, created_at_ms, expires_at_ms) SELECT ${account("Saved_Farmer")}, ${account("Preview_Studio")}, (SELECT id FROM games WHERE slug = 'arena'), ${Date.now()}, 4102444800000 WHERE EXISTS (SELECT 1 FROM accounts WHERE username = 'Saved_Farmer') AND NOT EXISTS (SELECT 1 FROM friendships WHERE account_id = ${account("Preview_Studio")} AND friend_account_id = ${account("Saved_Farmer")})`,
+  );
 }
 
 function seedPlayingNow() {
