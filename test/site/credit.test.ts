@@ -233,8 +233,8 @@ describe("automatic top-up and budgets", () => {
     await api("/games", { body: { title: "Sky Hopper", slug: "sky-hopper" } });
     await api("/games", { body: { title: "Quiet Game", slug: "quiet-game" } });
     const lastMonth = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth() - 1, 1)).toISOString().slice(0, 10);
-    await env.DB.prepare("INSERT INTO game_hosting_months (game_id, month_start_date, used_cents) SELECT id, ?, 940 FROM games WHERE slug = 'sky-hopper'").bind(lastMonth).run();
-    await env.DB.prepare("INSERT INTO game_hosting_months (game_id, month_start_date, used_cents) SELECT id, ?, 300 FROM games WHERE slug = 'quiet-game'").bind(lastMonth).run();
+    await env.DB.prepare("INSERT INTO game_hosting_months (game_id, month_start_date, used_cents) SELECT id, ?, 1440 FROM games WHERE slug = 'sky-hopper'").bind(lastMonth).run();
+    await env.DB.prepare("INSERT INTO game_hosting_months (game_id, month_start_date, used_cents) SELECT id, ?, 600 FROM games WHERE slug = 'quiet-game'").bind(lastMonth).run();
     const { games } = (await tool("get_credit", {})).credit;
     expect(games).toEqual([expect.objectContaining({ slug: "sky-hopper", last_month_beyond_free_cents: 440 })]);
   });

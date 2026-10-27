@@ -1,6 +1,6 @@
 import { env } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { addCreditEntry, createAccount, createGame, creditOf, gameHostingMonth, monthStartDateOf, personOwner, type Game } from "@zaisma/core";
+import { HOSTING_PRICES, addCreditEntry, createAccount, createGame, creditOf, gameHostingMonth, monthStartDateOf, personOwner, type Game } from "@zaisma/core";
 import { runHostingJob } from "../../apps/site/src/hosting-job.ts";
 import { apiCall, callerFor } from "../../apps/site/src/developer.ts";
 import { handleStripeEvents } from "../../apps/site/src/stripe-events.ts";
@@ -44,10 +44,11 @@ beforeEach(async () => {
 });
 afterEach(() => vi.unstubAllGlobals());
 
-/** This month's use, as one day's row: player-hours of a rooms-only game, at 0.2 cents each. */
-const setPlayerHours = (hours: number) =>
-  env.DB.prepare("INSERT INTO room_usage (game_id, date, room_play_duration_sec) VALUES (?, ?, ?) ON CONFLICT (game_id, date) DO UPDATE SET room_play_duration_sec = excluded.room_play_duration_sec")
-    .bind(game.id, new Date().toISOString().slice(0, 10), hours * HOUR_SEC)
+/** Rooms awake for this many cents of use (the free allowance is 1,000), as one day's row. */
+const awakeSecFor = (cents: number) => Math.round(cents / HOSTING_PRICES.awakeCentsPerSec);
+const setUseCents = (cents: number) =>
+  env.DB.prepare("INSERT INTO room_usage (game_id, date, room_awake_duration_sec) VALUES (?, ?, ?) ON CONFLICT (game_id, date) DO UPDATE SET room_awake_duration_sec = excluded.room_awake_duration_sec")
+    .bind(game.id, new Date().toISOString().slice(0, 10), awakeSecFor(cents))
     .run();
 const setBudget = (cents: number | null) => env.DB.prepare("UPDATE games SET monthly_budget_cents = ? WHERE id = ?").bind(cents, game.id).run();
 const topUp = (cents: number) => addCreditEntry(env.DB, { ownerId, entryKind: "top_up", amountCents: cents, stripeObjectId: `pi_${crypto.randomUUID()}`, refundableUntilMs: Date.now() + 86_400_000 });
@@ -58,18 +59,18 @@ const entries = async (kind: string) => (await env.DB.prepare("SELECT amount_cen
 
 describe("a game without a budget", () => {
   it("hears once at 80% of its free hosting, and pauses at all of it", async () => {
-    await setPlayerHours(1900);
+    await setUseCents(760);
     await runHostingJob(testEnv);
     expect(await notices()).toEqual([]);
 
-    await setPlayerHours(2100);
+    await setUseCents(840);
     await runHostingJob(testEnv);
     await runHostingJob(testEnv);
     expect(await notices()).toEqual(["hosting_nearly_paused"]);
     expect(emails.map((email) => [email.to, email.subject])).toEqual([["emma@example.com", "Arena has used most of its free hosting"]]);
     expect((await month()).paused_at_ms).toBeNull();
 
-    await setPlayerHours(2500);
+    await setUseCents(1000);
     await runHostingJob(testEnv);
     expect(await month()).toMatchObject({ paused_reason: "free_used", paused_at_ms: expect.any(Number), charged_cents: 0 });
     expect(await notices()).toEqual(["hosting_nearly_paused", "hosting_paused"]);
@@ -86,20 +87,20 @@ describe("a game with a budget", () => {
   it("draws from credit past its free hosting, hears at 80% of its budget, and pauses at it with credit left", async () => {
     await topUp(1000);
     await setBudget(500);
-    // 3,500 player-hours: 700 cents, 200 past the free 500.
-    await setPlayerHours(3500);
+    // 1,200 cents: 200 past the free 1,000.
+    await setUseCents(1200);
     await runHostingJob(testEnv);
     expect(await balance()).toBe(800);
     expect(await month()).toMatchObject({ charged_cents: 200, paused_at_ms: null });
 
-    await setPlayerHours(4500);
+    await setUseCents(1400);
     await runHostingJob(testEnv);
     expect(await month()).toMatchObject({ charged_cents: 400, paused_at_ms: null });
     expect(await notices()).toEqual(["hosting_budget_nearly_used"]);
     expect(emails.map((email) => email.text)).toEqual([expect.stringContaining("Arena has used $4 of its $5 budget")]);
 
-    // 1,100 cents: 600 past free, 100 past the budget. It stops at the budget, and the rest is Zaisma's.
-    await setPlayerHours(5500);
+    // 1,600 cents: 600 past free, 100 past the budget. It stops at the budget, and the rest is Zaisma's.
+    await setUseCents(1600);
     await runHostingJob(testEnv);
     expect(await month()).toMatchObject({ charged_cents: 500, written_off_cents: 100, paused_reason: "budget_used" });
     expect(await balance()).toBe(500);
@@ -110,13 +111,13 @@ describe("a game with a budget", () => {
   it("pauses when the balance is used, never takes it below 0, and writes off the rest", async () => {
     await topUp(100);
     await setBudget(5000);
-    await setPlayerHours(3500);
+    await setUseCents(1200);
     await runHostingJob(testEnv);
     expect(await balance()).toBe(0);
     expect(await month()).toMatchObject({ charged_cents: 100, written_off_cents: 100, paused_reason: "credit_used" });
     expect(emails.map((email) => email.subject)).toEqual(["Your Zaisma credit is used up", "Arena's hosting is paused"]);
     // The finishing hour's use is written off too, never charged later.
-    await setPlayerHours(3600);
+    await setUseCents(1220);
     await runHostingJob(testEnv);
     expect(await balance()).toBe(0);
     expect(await month()).toMatchObject({ charged_cents: 100, written_off_cents: 120 });
@@ -125,7 +126,7 @@ describe("a game with a budget", () => {
   it("starts again when credit comes in", async () => {
     await topUp(100);
     await setBudget(5000);
-    await setPlayerHours(3500);
+    await setUseCents(1200);
     await runHostingJob(testEnv);
     expect((await month()).paused_reason).toBe("credit_used");
     const event = { id: "evt_1", type: "checkout.session.completed", data: { object: { id: "cs_1", mode: "payment", payment_status: "paid", payment_intent: "pi_paid_1", amount_subtotal: 2000, metadata: { owner_id: ownerId } } } };
@@ -136,7 +137,7 @@ describe("a game with a budget", () => {
     expect((await handleStripeEvents(new Request("https://zaisma.test/stripe/events", { method: "POST", headers: { "stripe-signature": `t=${signedAtSec},v1=${signature}` }, body }), testEnv)).status).toBe(200);
     expect((await month()).paused_at_ms).toBeNull();
     // What was written off stays Zaisma's: the next charge is only what's new.
-    await setPlayerHours(3600);
+    await setUseCents(1220);
     await runHostingJob(testEnv);
     expect(await month()).toMatchObject({ charged_cents: 120, written_off_cents: 100, paused_at_ms: null });
     expect(await balance()).toBe(1980);
@@ -145,7 +146,7 @@ describe("a game with a budget", () => {
   it("pauses at once when its budget is lowered below this month's charges, and starts when it's raised", async () => {
     await topUp(2000);
     await setBudget(5000);
-    await setPlayerHours(4000);
+    await setUseCents(1300);
     await runHostingJob(testEnv);
     expect((await month()).charged_cents).toBe(300);
     const caller = (await callerFor(testEnv, new Request("https://zaisma.test"), "dev-1"))!;
@@ -158,9 +159,9 @@ describe("a game with a budget", () => {
 
   it("charges a month once when two runs of the job judge it at the same moment", async () => {
     await topUp(2000);
-    // A $2 budget and 3,500 player-hours: 700 cents, 200 past the free hosting, so the budget is just used.
+    // A $2 budget and 1,200 cents: 200 past the free hosting, so the budget is just used.
     await setBudget(200);
-    await setPlayerHours(3500);
+    await setUseCents(1200);
     const nowMs = Date.now();
     await Promise.all([runHostingJob(testEnv, nowMs), runHostingJob(testEnv, nowMs)]);
     expect({ balanceCents: await balance(), charges: await entries("hosting_charge"), monthChargedCents: (await month()).charged_cents }).toEqual({ balanceCents: 1800, charges: [-200], monthChargedCents: 200 });
@@ -169,14 +170,14 @@ describe("a game with a budget", () => {
   it("charges what a month's rooms reported after its last run, on the 1st of the next", async () => {
     await topUp(5000);
     await setBudget(5000);
-    const setDay = (date: string, hours: number) =>
-      env.DB.prepare("INSERT INTO room_usage (game_id, date, room_play_duration_sec) VALUES (?, ?, ?) ON CONFLICT (game_id, date) DO UPDATE SET room_play_duration_sec = excluded.room_play_duration_sec").bind(game.id, date, hours * HOUR_SEC).run();
-    // January's last run: 3,000 player-hours, 600 cents, 100 past the free 500.
-    await setDay("2031-01-31", 3000);
+    const setDay = (date: string, cents: number) =>
+      env.DB.prepare("INSERT INTO room_usage (game_id, date, room_awake_duration_sec) VALUES (?, ?, ?) ON CONFLICT (game_id, date) DO UPDATE SET room_awake_duration_sec = excluded.room_awake_duration_sec").bind(game.id, date, awakeSecFor(cents)).run();
+    // January's last run: 1,100 cents, 100 past the free 1,000.
+    await setDay("2031-01-31", 1100);
     await runHostingJob(testEnv, Date.parse("2031-01-31T23:55:00Z"));
     // A room checks in at 23:58 with its last hour: 200 past free in all. February's use is February's own.
-    await setDay("2031-01-31", 3500);
-    await setDay("2031-02-01", 10);
+    await setDay("2031-01-31", 1200);
+    await setDay("2031-02-01", 4);
     await runHostingJob(testEnv, Date.parse("2031-02-01T00:00:00Z"));
     await runHostingJob(testEnv, Date.parse("2031-02-01T00:05:00Z"));
     await runHostingJob(testEnv, Date.parse("2031-02-02T12:00:00Z"));
@@ -193,7 +194,7 @@ describe("automatic top-up", () => {
   it("charges the saved card before a game would pause, within the month's limit, and says so", async () => {
     await turnOn(1000);
     await setBudget(5000);
-    await setPlayerHours(3500);
+    await setUseCents(1200);
     await runHostingJob(testEnv);
     expect(stripeCalls.map((call) => [call.path, call.form.get("amount"), call.form.get("off_session"), call.idempotencyKey])).toEqual([["/v1/payment_intents", "1000", "true", `automatic-top-up:${ownerId}:${monthStartDateOf().slice(0, 7)}:1`]]);
     expect(await balance()).toBe(800);
@@ -201,7 +202,7 @@ describe("automatic top-up", () => {
     expect(emails.map((email) => email.text)).toEqual([expect.stringContaining("Zaisma added $10 of credit. $0 of your $10 for")]);
 
     // The month's limit is used: no second top-up, so the game pauses when the balance runs out.
-    await setPlayerHours(8000);
+    await setUseCents(2100);
     await runHostingJob(testEnv);
     expect(stripeCalls).toHaveLength(1);
     expect(await month()).toMatchObject({ charged_cents: 1000, paused_reason: "credit_used" });
@@ -211,7 +212,7 @@ describe("automatic top-up", () => {
     await turnOn(5000);
     await setBudget(5000);
     isCardDeclined = true;
-    await setPlayerHours(3500);
+    await setUseCents(1200);
     await runHostingJob(testEnv);
     expect((await creditOf(env.DB, ownerId)).automaticTopUp.isEnabled).toBe(false);
     expect(emails.map((email) => email.subject)).toEqual(["Your automatic top-up didn't go through", "Arena's hosting is paused"]);

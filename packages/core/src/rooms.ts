@@ -98,9 +98,6 @@ export const MATCH_FINISH_DURATION_SEC = 3600;
 /** The share of a game's free allowance or budget, in percent, that raises its heads-up alert (Julius, Oct 18, 2026). */
 export const NEARLY_USED_PCT = 80;
 
-/** Game server CPU each player-hour in Zaisma rooms includes (Julius, Oct 20, 2026); past it, it's priced as CPU (hosting.ts). */
-export const PLAYER_HOUR_INCLUDED_CPU_DURATION_SEC = 25;
-
 /**
  * A game's use of rooms and the relay this month (UTC): player time in Zaisma rooms (running rooms add theirs at
  * least hourly), the data Zaisma's relay sent its players (read from Cloudflare about once an hour) and the time its

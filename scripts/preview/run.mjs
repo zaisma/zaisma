@@ -700,7 +700,7 @@ Zaisma preview is running. Nothing here touches the live site.
                   a second, the biggest message types and the "move" hint)
   Hosting         ${SITE}/dashboard/rocket-lab/players#hosting  (Free this month: 100% used, paused),  ${SITE}/dashboard/four-in-a-row/players#hosting
                   (85%: the heads-up),  ${SITE}/dashboard/cave-crew/players#hosting  (40%, mostly the relay),  ${SITE}/dashboard/arena/players#hosting
-                  (100% free, "$3.40 of $5 budget this month"),  ${SITE}/dashboard/star-haul/players#hosting  (paused: its budget is used)
+                  (100% free, "$3.40 of $5 budget this month", shares of every kind: rooms, game server, requests, database),  ${SITE}/dashboard/star-haul/players#hosting  (paused: its budget is used)
   Own servers     ${SITE}/dashboard/tiny-farm/details#own-servers  (Your own servers: wss://play.example.com; the ⋯ menu on
                   ${SITE}/g/tiny-farm?play names it: "Online play runs on the developer's own server: play.example.com")
   Make an account ${SITE}/join  (try the username Preview_Studio to see it taken, with free ones to tap)
@@ -1481,15 +1481,15 @@ async function seedHolds(api, upload, go, form) {
   ].join("; "));
 
   // The hosting meter (packages/core/src/hosting.ts), each game's month as the hosting job writes it (game_hosting_months).
-  // Rocket Lab: 2,500 hours in rooms, all of its free hosting, so it's paused (the developer home's alert). Not a game the
-  // preview's multiplayer is tried on. Tried again while the running rooms have the database busy.
+  // Rocket Lab: about 440 hours of rooms awake, all of its free hosting, so it's paused (the developer home's alert). Not a
+  // game the preview's multiplayer is tried on. Tried again while the running rooms have the database busy.
   for (let i = 0; i < 5; i++) {
-    // And Cave Crew: 250 hours in rooms and 15 GB through Zaisma's relay this month, 40% of its free hosting, mostly the relay.
-    // And Four in a Row: 2,125 hours, 85% of it, for the heads-up on its card and Overview.
-    // And Arena, whose own game server runs on Zaisma: 40 hours in rooms with 2,500 CPU-seconds (1,500 past the 1,000
-    // they include), its room traffic (big JSON "move" snapshots 12 times a player-second, 15% of them to players whose
-    // connection was backed up, for the hints), and requests and CPU outside rooms that take it past its free hosting:
-    // $3.40 of its $5 budget, from its developer's $20 top-up. And Star Haul at its $2 budget, paused.
+    // And Cave Crew: 15 GB through Zaisma's relay and about 44 hours of rooms awake this month, 40% of its free hosting, mostly the relay.
+    // And Four in a Row: about 370 hours awake, 85% of it, for the heads-up on its card and Overview.
+    // And Arena, whose own game server runs on Zaisma: use in every kind (rooms awake, connections and their rows; its game
+    // server's CPU, starts, versions and logs; requests and its object awake; database calls, rows and awake time), its room
+    // traffic (big JSON "move" snapshots 12 times a player-second, 15% of them to players whose connection was backed up,
+    // for the hints), past its free hosting: $3.40 of its $5 budget, from its developer's $20 top-up. And Star Haul at its $2 budget, paused.
     const arenaTraffic = [
       "INSERT INTO room_usage (game_id, date, room_count, room_play_duration_sec, message_count, inbound_size_bytes, outbound_message_count, outbound_size_bytes, game_server_cpu_duration_ms, game_server_call_count) SELECT id, date('now'), 30, 144000, 4322000, 207520000, 1892000, 1586880000, 2500000, 8640000 FROM games WHERE slug = 'arena' ON CONFLICT (game_id, date) DO UPDATE SET room_play_duration_sec = excluded.room_play_duration_sec, message_count = excluded.message_count, inbound_size_bytes = excluded.inbound_size_bytes, outbound_message_count = excluded.outbound_message_count, outbound_size_bytes = excluded.outbound_size_bytes, game_server_cpu_duration_ms = excluded.game_server_cpu_duration_ms",
       ...[
@@ -1504,14 +1504,22 @@ async function seedHolds(api, upload, go, form) {
       // Arena's requests and CPU outside rooms: 600 cents of CPU and 226 of requests, on the first of the month.
       "INSERT INTO room_usage (game_id, date, game_server_request_count, outside_room_cpu_duration_ms) SELECT id, date('now', 'start of month'), 1412500, 150000000 FROM games WHERE slug = 'arena' ON CONFLICT (game_id, date) DO UPDATE SET game_server_request_count = excluded.game_server_request_count, outside_room_cpu_duration_ms = excluded.outside_room_cpu_duration_ms",
       "INSERT INTO room_usage (game_id, date, room_count, room_play_duration_sec) SELECT id, date('now'), 300, 12600000 FROM games WHERE slug = 'star-haul' ON CONFLICT (game_id, date) DO UPDATE SET room_play_duration_sec = excluded.room_play_duration_sec",
+      // What Cloudflare bills each game for, in the meter's own counts (migration 0160).
+      "UPDATE room_usage SET room_awake_duration_sec = 1600000 WHERE date = date('now') AND game_id = (SELECT id FROM games WHERE slug = 'rocket-lab')",
+      "UPDATE room_usage SET room_awake_duration_sec = 157000 WHERE date = date('now') AND game_id = (SELECT id FROM games WHERE slug = 'cave-crew')",
+      "UPDATE room_usage SET room_awake_duration_sec = 1330000 WHERE date = date('now', 'start of month') AND game_id = (SELECT id FROM games WHERE slug = 'four-in-a-row')",
+      "UPDATE room_usage SET room_awake_duration_sec = 1900000 WHERE date = date('now') AND game_id = (SELECT id FROM games WHERE slug = 'star-haul')",
+      "UPDATE room_usage SET room_awake_duration_sec = 500000, room_connection_count = 2000, object_request_count = 10000, bookkeeping_written_row_count = 50000, game_server_session_count = 5000, game_server_startup_cpu_duration_ms = 500000, outside_call_count = 20000, log_file_count = 2000, object_awake_duration_sec = 200000, database_call_count = 500000, database_written_row_count = 200000, database_read_row_count = 10000000, database_awake_duration_sec = 300000 WHERE date = date('now') AND game_id = (SELECT id FROM games WHERE slug = 'arena')",
+      "UPDATE room_usage SET outside_room_cpu_duration_ms = 40000000 WHERE date = date('now', 'start of month') AND game_id = (SELECT id FROM games WHERE slug = 'arena')",
+      ...[0, 1, 2].map((dayCount) => `INSERT OR IGNORE INTO loaded_versions (game_id, date, version_id) SELECT id, date('now', '-${dayCount} days'), live_version_id FROM games WHERE slug = 'arena' AND live_version_id IS NOT NULL`),
       "UPDATE games SET monthly_budget_cents = 500 WHERE slug = 'arena'",
       "UPDATE games SET monthly_budget_cents = 200 WHERE slug = 'star-haul'",
       ...[
-        ["rocket-lab", 500, 0, "'free_used'", "unixepoch('now', '-20 minutes') * 1000"],
-        ["four-in-a-row", 425, 0, "NULL", "NULL"],
-        ["cave-crew", 200, 0, "NULL", "NULL"],
-        ["arena", 840, 340, "NULL", "NULL"],
-        ["star-haul", 700, 200, "'budget_used'", "unixepoch('now', '-2 hours') * 1000"],
+        ["rocket-lab", 1000, 0, "'free_used'", "unixepoch('now', '-20 minutes') * 1000"],
+        ["four-in-a-row", 850, 0, "NULL", "NULL"],
+        ["cave-crew", 400, 0, "NULL", "NULL"],
+        ["arena", 1340, 340, "NULL", "NULL"],
+        ["star-haul", 1200, 200, "'budget_used'", "unixepoch('now', '-2 hours') * 1000"],
       ].map(([slug, usedCents, chargedCents, pausedReason, pausedAtMs]) => `INSERT INTO game_hosting_months (game_id, month_start_date, used_cents, charged_cents, paused_at_ms, paused_reason) SELECT id, date('now', 'start of month'), ${usedCents}, ${chargedCents}, ${pausedAtMs}, ${pausedReason} FROM games WHERE slug = '${slug}' ON CONFLICT (game_id, month_start_date) DO UPDATE SET used_cents = excluded.used_cents, charged_cents = excluded.charged_cents, paused_at_ms = excluded.paused_at_ms, paused_reason = excluded.paused_reason`),
       // The developer's $20 top-up and what the two games drew from it.
       "DELETE FROM credit_entries WHERE owner_id = (SELECT owner_id FROM games WHERE slug = 'arena')",

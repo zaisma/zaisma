@@ -644,9 +644,9 @@ describe("room events", () => {
       .run();
   }
 
-  async function setUse(slug: string, columns: { room_play_duration_sec?: number; game_server_request_count?: number }) {
-    await env.DB.prepare("INSERT OR REPLACE INTO room_usage (game_id, date, room_play_duration_sec, game_server_request_count) VALUES (?, ?, ?, ?)")
-      .bind(await gameId(slug), today(), columns.room_play_duration_sec ?? 0, columns.game_server_request_count ?? 0)
+  async function setUse(slug: string, columns: { room_awake_duration_sec?: number; game_server_request_count?: number }) {
+    await env.DB.prepare("INSERT OR REPLACE INTO room_usage (game_id, date, room_awake_duration_sec, game_server_request_count) VALUES (?, ?, ?, ?)")
+      .bind(await gameId(slug), today(), columns.room_awake_duration_sec ?? 0, columns.game_server_request_count ?? 0)
       .run();
   }
 
@@ -736,8 +736,8 @@ describe("room events", () => {
   it("tell a webhook when free hosting is nearly used, once a month, then when it pauses", async () => {
     await publishedGame("sky-hopper");
     await tool("create_webhook", { endpoint_url: HOOKS, event_kinds: ["alert_raised"] });
-    // 2,100 player-hours of a rooms-only game: 84% of the free allowance.
-    await setUse("sky-hopper", { room_play_duration_sec: 2100 * 3600 });
+    // Rooms awake for 1,312,500 seconds: 84% of the free allowance.
+    await setUse("sky-hopper", { room_awake_duration_sec: 1_312_500 });
 
     await tellAlerts();
     expect(received).toHaveLength(1);
@@ -750,7 +750,7 @@ describe("room events", () => {
     await tellAlerts();
     expect(received).toHaveLength(1);
 
-    await setUse("sky-hopper", { room_play_duration_sec: 2500 * 3600 });
+    await setUse("sky-hopper", { room_awake_duration_sec: 1_562_500 });
     await tellAlerts();
     expect(received).toHaveLength(2);
     expect(events()[1].alert.kind).toBe("hosting_paused");
@@ -763,8 +763,8 @@ describe("room events", () => {
     await publishedGame("sky-hopper");
     await tool("create_webhook", { endpoint_url: HOOKS, event_kinds: ["alert_raised"] });
     await tool("create_webhook", { destination_kind: "game_server", event_kinds: ["alert_raised"], game_slugs: ["sky-hopper"] });
-    // 3,125,000 requests are the whole free allowance.
-    await setUse("sky-hopper", { game_server_request_count: 3_125_000 });
+    // 5,600,000 requests are past the whole free allowance.
+    await setUse("sky-hopper", { game_server_request_count: 5_600_000 });
 
     await tellAlerts();
     // Straight past the heads-up: only the paused alert goes out.
@@ -778,7 +778,7 @@ describe("room events", () => {
     await tool("create_webhook", { endpoint_url: `${HOOKS}/bugs`, event_kinds: ["bug_reported", "game_server_error_found"] });
     await tool("create_webhook", { endpoint_url: `${HOOKS}/theirs`, event_kinds: ["alert_raised"] }, other);
     await tool("create_webhook", { endpoint_url: `${HOOKS}/alerts`, event_kinds: ["alert_raised"] });
-    await setUse("sky-hopper", { room_play_duration_sec: 2200 * 3600 });
+    await setUse("sky-hopper", { room_awake_duration_sec: 1_375_000 });
 
     await tellAlerts();
     expect(received.map((request) => request.url)).toEqual([`${HOOKS}/alerts`]);

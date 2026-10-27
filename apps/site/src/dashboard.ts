@@ -9,6 +9,8 @@ import { doneByText, eventTitle, whereText } from "./security-log.ts";
 import { pageScript } from "./page-scripts.ts";
 import { pageStyle } from "./page-styles.ts";
 import { SHADER_HELPERS, ZAISMA_SHADER } from "./components/shaders.ts";
+import { usageTrack } from "./components/data.ts";
+import { hostingMeter } from "./hosting-meter.ts";
 import { EDGE } from "./components/foundations.ts";
 
 /**
@@ -705,15 +707,13 @@ const nextMonthStart = (nowMs = Date.now()) => {
 };
 
 /**
- * The free tier, in its own section: hosting is counted in player-hours (time in Zaisma rooms, and data
- * through Zaisma's relay), and until hosting billing a game stops at the free ones. Only for games that
- * play online, or have used some.
+ * The free tier, in its own section: the month's free hosting as a percentage, what used it, and past it the
+ * budget. Only for games that play online, or have used some.
  */
 function hostingPanel(game: GameJson, stats: Stats, own: boolean): Raw | "" {
   const use = stats.hosting_use_this_month;
   if (game.multiplayer_mode === "none" && !use.free_used_pct && !use.is_paused && !own && use.monthly_budget_cents === null) return "";
   const resetDay = nextMonthStart();
-  const shares = use.shares.length ? html`<small>${use.shares.map((share) => `${HOSTING_KIND_LABELS[share.kind]} ${share.share_pct}%`).join(", ")}</small>` : "";
   const dollars = (cents: number) => `$${(cents / 100).toFixed(cents % 100 === 0 ? 0 : 2)}`;
   const pausedWhy =
     use.paused_reason === "budget_used"
@@ -724,27 +724,26 @@ function hostingPanel(game: GameJson, stats: Stats, own: boolean): Raw | "" {
   const paused = use.is_paused
     ? html`<div class="hosting-paused" role="status"><strong>Hosting is paused</strong><p>New matches can't start, and running ones end within the hour.</p><small>${pausedWhy}</small></div>`
     : "";
-  const freeMeter = html`<span class="meter"><span style="width:${use.free_used_pct}%"></span></span>`;
+  // The meter and its key are Zaisma's own (the gallery's usage meter), in this page's older plate, which is always dark: what used it in a color each, with its share.
+  const meter = html`<div class="not-steel" data-theme-choice="dark">${usageTrack(hostingMeter(`${game.title}'s hosting this month`, use))}</div>`;
   const budgetCents = use.monthly_budget_cents;
   if (budgetCents === null) {
     return html`<h2 class="rule-h" id="hosting">Hosting <span class="muted">This month</span></h2>
 ${paused}<div class="numbers hosting">
-<div class="num plate${use.free_used_pct >= 100 ? " reached" : ""}"><strong>${use.free_used_pct}%</strong><span>Free this month: ${use.free_used_pct}% used. Resets ${resetDay}.</span>${freeMeter}${shares}</div>
+<div class="num plate${use.free_used_pct >= 100 ? " reached" : ""}"><strong>${use.free_used_pct}%</strong><span>Free this month: ${use.free_used_pct}% used. Resets ${resetDay}.</span>${meter}</div>
 </div>`;
   }
   // Paid hosting carries on where the free allowance ends: one meter, the free part first, then the budget. The free
   // part is a share of the bar, never sized by dollars, and a game living on its budget isn't warned about it.
-  const budgetUsedPct = Math.min(100, Math.round((use.spent_from_credit_cents / Math.max(budgetCents, 1)) * 100));
   const isIntoBudget = use.free_used_pct >= 100;
   return html`<h2 class="rule-h" id="hosting">Hosting <span class="muted">This month</span></h2>
 ${paused}<div class="numbers hosting">
 <div class="num plate${use.spent_from_credit_cents >= budgetCents * 0.8 ? " reached" : ""}">${isIntoBudget
     ? html`<strong>${dollars(use.spent_from_credit_cents)}</strong><span>of ${dollars(budgetCents)} budget, after this month's free hosting. Resets ${resetDay}.</span>`
-    : html`<strong>${use.free_used_pct}%</strong><span>Free this month: ${use.free_used_pct}% used. Then the ${dollars(budgetCents)} budget. Resets ${resetDay}.</span>`}<span class="meter split"><span class="part free"><i style="width:${use.free_used_pct}%"></i></span><span class="part paid"><i style="width:${budgetUsedPct}%"></i></span></span><span class="meter-labels"><small>Free: ${use.free_used_pct}%</small><small>Budget: ${dollars(use.spent_from_credit_cents)} of ${dollars(budgetCents)}</small></span>${shares}</div>
+    : html`<strong>${use.free_used_pct}%</strong><span>Free this month: ${use.free_used_pct}% used. Then the ${dollars(budgetCents)} budget. Resets ${resetDay}.</span>`}${meter}<span class="meter-labels"><small>Free: ${use.free_used_pct}%</small><small>Budget: ${dollars(use.spent_from_credit_cents)} of ${dollars(budgetCents)}</small></span></div>
 </div>`;
 }
 
-const HOSTING_KIND_LABELS: Record<Stats["hosting_use_this_month"]["shares"][number]["kind"], string> = { room_play: "Rooms", game_server_cpu: "Game server CPU", relayed_data: "Relay", database: "Database", requests: "Requests", adult_chat_checks: "Adult chat checks" };
 
 /**
  * The game's own SQLite database: the month's use, its tables beside how to reach it. The SQL console
@@ -1273,7 +1272,7 @@ interface Stats {
   }[];
   hosting_use_this_month: {
     free_used_pct: number;
-    shares: { kind: "room_play" | "game_server_cpu" | "relayed_data" | "database" | "requests" | "adult_chat_checks"; share_pct: number }[];
+    shares: { kind: "rooms" | "game_server" | "relayed_data" | "database" | "requests" | "adult_chat_checks"; share_pct: number }[];
     is_paused: boolean;
     paused_reason: "free_used" | "budget_used" | "credit_used" | null;
     monthly_budget_cents: number | null;

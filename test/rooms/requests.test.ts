@@ -221,23 +221,37 @@ describe("game server requests", () => {
     expect((await send("new-month-shop", { type: "leaderboard" })).httpStatus).toBe(200);
   });
 
-  it("count their CPU past the first 10 ms on the hosting meter", async () => {
+  it("count all their CPU on the hosting meter, nothing included", async () => {
     const { gameId } = await addGame("heavy-shop", LEADERBOARD);
     expect((await send("heavy-shop", { type: "heavy" })).httpStatus).toBe(200);
     await runInDurableObject(objectOf(gameId), (object: GameServerObject) => {
       const counting = object as unknown as { countCpu(cpuDurationMs: number): void; unrecorded: { outsideRoomCpuDurationMs: number } };
       const before = counting.unrecorded.outsideRoomCpuDurationMs;
       expect(before).toBeGreaterThan(0);
-      // 10 ms of each call is included: 8 adds nothing, 210 adds 200.
       counting.countCpu(8);
-      expect(counting.unrecorded.outsideRoomCpuDurationMs).toBe(before);
-      counting.countCpu(210);
-      expect(counting.unrecorded.outsideRoomCpuDurationMs).toBe(before + 200);
+      expect(counting.unrecorded.outsideRoomCpuDurationMs).toBe(before + 8);
     });
     await runDurableObjectAlarm(objectOf(gameId));
     const usage = await e.DB.prepare("SELECT game_server_request_count, outside_room_cpu_duration_ms FROM room_usage WHERE game_id = ?").bind(gameId).first<{ game_server_request_count: number; outside_room_cpu_duration_ms: number }>();
     expect(usage!.game_server_request_count).toBe(1);
-    expect(usage!.outside_room_cpu_duration_ms).toBeGreaterThan(200);
+    expect(usage!.outside_room_cpu_duration_ms).toBeGreaterThan(8);
+  });
+
+  it("count the session they open, its startup, the version loaded today, the object's awake time and its own wakes", async () => {
+    const { gameId, versionId } = await addGame("counted-shop", LEADERBOARD);
+    for (let i = 0; i < 3; i++) expect((await send("counted-shop", { type: "leaderboard" })).httpStatus).toBe(200);
+    await runDurableObjectAlarm(objectOf(gameId));
+    const usage = await e.DB.prepare("SELECT game_server_request_count, game_server_session_count, game_server_startup_cpu_duration_ms, object_awake_duration_sec, object_request_count, bookkeeping_written_row_count FROM room_usage WHERE game_id = ?")
+      .bind(gameId)
+      .first<Record<string, number>>();
+    // One session for all three requests: calls on an open session aren't billed.
+    expect(usage).toMatchObject({ game_server_request_count: 3, game_server_session_count: 1, object_request_count: 1 });
+    expect(usage!.game_server_startup_cpu_duration_ms).toBeGreaterThanOrEqual(0);
+    // At least the 10 seconds after its last call.
+    expect(usage!.object_awake_duration_sec).toBeGreaterThanOrEqual(10);
+    expect(usage!.bookkeeping_written_row_count).toBeGreaterThan(0);
+    // The version counts once today, however often it's loaded; a second version is a second.
+    expect(await e.DB.prepare("SELECT version_id FROM loaded_versions WHERE game_id = ?").bind(gameId).all().then((answer) => answer.results)).toEqual([{ version_id: versionId }]);
   });
 
   it("from a game server with an option out of range answer nothing and say which, as the Node runner refuses to start", async () => {

@@ -17,9 +17,18 @@ import type { Env } from "./index.ts";
 const LIST_CACHE_MS = 30_000;
 const listsByGameId = new Map<string, { allowedHosts: string[]; readAtMs: number }>();
 
+/**
+ * Calls each game made through this isolate that aren't in room_usage yet, for the hosting meter: counted here,
+ * where the game's code can't reach, and added at most every RECORD_DELAY_MS, a row per game, not a write per call.
+ */
+const unrecordedCallCountByGameId = new Map<string, number>();
+let isRecordPlanned = false;
+const RECORD_DELAY_MS = 5_000;
+
 export class GameServerOutbound extends WorkerEntrypoint<Env, { gameId: string }> {
   async fetch(request: Request): Promise<Response> {
     const { gameId } = this.ctx.props;
+    this.countCall(gameId);
     const url = URL.canParse(request.url) ? new URL(request.url) : null;
     if (!url || url.protocol !== "https:") {
       return refuse("not_https", `${url ? `${url.protocol}//${url.host}` : JSON.stringify(request.url)} isn't an https address.`, "Call https:// addresses, like https://api.example.com/scores; game servers make no other calls.");
@@ -53,6 +62,18 @@ export class GameServerOutbound extends WorkerEntrypoint<Env, { gameId: string }
       }
       return refuse("outside_call_failed", `${host} couldn't be reached: ${String(error instanceof Error ? error.message : error).slice(0, 200)}`, "Check the address and that the server is up.");
     }
+  }
+
+  /** One more call for the game's meter, refused or not: the gateway ran either way. */
+  private countCall(gameId: string): void {
+    unrecordedCallCountByGameId.set(gameId, (unrecordedCallCountByGameId.get(gameId) ?? 0) + 1);
+    if (isRecordPlanned) return;
+    isRecordPlanned = true;
+    this.ctx.waitUntil(
+      new Promise((resolve) => setTimeout(resolve, RECORD_DELAY_MS))
+        .then(() => recordCalls(this.env.DB))
+        .finally(() => (isRecordPlanned = false)),
+    );
   }
 
   /** The game's list, kept for LIST_CACHE_MS. A game that's gone lists nothing. */
@@ -102,4 +123,24 @@ async function cappedBody(request: Request): Promise<Uint8Array | null | "too_bi
     filledSizeBytes += chunk.byteLength;
   }
   return body;
+}
+
+/** Adds the calls waiting (in this isolate) to each game's room_usage for today, with its own row as one Zaisma wrote for the game; a write that fails keeps them for the next. */
+export async function recordCalls(database: D1Database): Promise<void> {
+  const counts = [...unrecordedCallCountByGameId];
+  unrecordedCallCountByGameId.clear();
+  if (!counts.length) return;
+  const date = new Date().toISOString().slice(0, 10);
+  try {
+    await database.batch(
+      counts.map(([gameId, callCount]) =>
+        database
+          .prepare("INSERT INTO room_usage (game_id, date, outside_call_count, bookkeeping_written_row_count) VALUES (?, ?, ?, 1) ON CONFLICT(game_id, date) DO UPDATE SET outside_call_count = outside_call_count + excluded.outside_call_count, bookkeeping_written_row_count = bookkeeping_written_row_count + 1")
+          .bind(gameId, date, callCount),
+      ),
+    );
+  } catch (error) {
+    console.error("Couldn't record games' outside calls:", error);
+    for (const [gameId, callCount] of counts) unrecordedCallCountByGameId.set(gameId, (unrecordedCallCountByGameId.get(gameId) ?? 0) + callCount);
+  }
 }

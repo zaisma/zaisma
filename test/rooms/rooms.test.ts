@@ -882,7 +882,15 @@ describe("rooms", () => {
     // Out: the welcome, the player list and the probes, all Zaisma's own.
     expect(row.outbound_message_count).toBeGreaterThanOrEqual(2);
     expect(row.outbound_size_bytes).toBeGreaterThan(100);
-    expect(Object.keys(row).sort()).toEqual(["adult_chat_check_count", "database_read_row_count", "database_size_bytes", "database_written_row_count", "date", "game_id", "game_server_call_count", "game_server_cpu_duration_ms", "game_server_crash_count", "game_server_ended_match_count", "game_server_request_count", "game_server_scheduled_run_count", "game_server_stopped_count", "inbound_size_bytes", "message_count", "outbound_message_count", "outbound_size_bytes", "outside_room_cpu_duration_ms", "relay_credential_count", "relayed_size_bytes", "room_count", "room_play_duration_sec"]);
+    // What Cloudflare bills for it: awake at least the 10 seconds after its last event, one connection, and the rows it wrote for the game (its listing, its saves, this record).
+    expect(row.room_awake_duration_sec).toBeGreaterThanOrEqual(10);
+    expect(row.room_connection_count).toBe(1);
+    expect(row.bookkeeping_written_row_count).toBeGreaterThan(0);
+    expect(Object.keys(row).sort()).toEqual([
+      "adult_chat_check_count", "bookkeeping_written_row_count", "database_awake_duration_sec", "database_call_count", "database_read_row_count", "database_size_bytes", "database_written_row_count", "date", "game_id", "game_server_call_count", "game_server_cpu_duration_ms", "game_server_crash_count",
+      "game_server_ended_match_count", "game_server_request_count", "game_server_scheduled_run_count", "game_server_session_count", "game_server_startup_cpu_duration_ms", "game_server_stopped_count", "inbound_size_bytes", "log_file_count", "message_count", "object_awake_duration_sec",
+      "object_request_count", "outbound_message_count", "outbound_size_bytes", "outside_call_count", "outside_room_cpu_duration_ms", "relay_credential_count", "relayed_size_bytes", "room_awake_duration_sec", "room_connection_count", "room_count", "room_play_duration_sec",
+    ]);
     const { results: types } = await e.DB.prepare("SELECT message_type, direction, message_count FROM room_message_types WHERE game_id = ? ORDER BY direction, message_type").bind(id).all();
     expect(types).toEqual([
       { message_type: "(none)", direction: "inbound", message_count: 1 },

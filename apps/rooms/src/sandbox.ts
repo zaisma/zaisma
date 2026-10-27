@@ -1,6 +1,7 @@
 import { GAME_SERVER_OPTIONS, OUTSIDE_CALL_REFUSAL_HEADER, PAIR_CHANGE_COUNT, OUTSIDE_CALL_ERROR_CODES, QUEUES_INPUT, RESERVE_WITH_ROOM_CODE, ROOM_LIMITS, STATE_SYNC, SYNCS_STATE, GameServerError, checkSchedules, defineGameServer, noSetupError, readChatAnswer, readJoinAnswer, unknownOptionError, type Audience, type ChatAnswer, type ChatInfo, type AwayInfo, type AwayReason, type GameServer, type JoinAnswer, type JoinInfo, type LeaveInfo, type Player, type Purchase, type RestoreInfo, type Room, type ScheduledRun, type SendOptions, type StateSyncHooks, type VersionUpdate, roomCallChecksModuleSource, stateSyncModuleSource } from "@zaisma/game-server/internal";
 import { LOG_LEVELS, LOG_LIMITS, SANDBOX_GAME_SERVER, logText, manifestKey, readPrintedLines, serverModules, type Manifest, type PrintedLogLine } from "@zaisma/core";
 import type { Env } from "./index.ts";
+import { noteLoadedVersion } from "./usage-counts.ts";
 
 /**
  * Developers' own game servers, run in a Dynamic Worker: a sealed sandbox with a CPU limit and one
@@ -847,6 +848,7 @@ async function serverCode(env: Env, versionId: string): Promise<{ entry: string;
 export async function sandboxOpener(env: Env, exports: Cloudflare.Exports, gameId: string, versionId: string): Promise<((secrets: Record<string, string>) => Promise<Session>) | null> {
   const code = await serverCode(env, versionId);
   if (code === null) return null;
+  await noteLoadedVersion(env.DB, gameId, versionId);
   const ours = exports as unknown as Record<"GameDatabaseBinding" | "GameServerOutbound" | "ReceiptCheckBinding", (options: { props: { gameId: string } }) => Fetcher>;
   const worker = env.LOADER.get(`${gameId}:${versionId}`, () => ({
     compatibilityDate: "2026-10-01",
@@ -948,8 +950,10 @@ export function optionsOf(settings: Settings) {
 export async function wrapSession(open: (secrets: Record<string, string>) => Promise<Session>, onBroken: () => void, secrets: Record<string, string> = {}, onNewError?: () => void, onLogLines?: (lines: PrintedLogLine[]) => void): Promise<SandboxServer> {
   // A fresh session after a failure gets the secrets as they are by then.
   let currentSecrets = secrets;
+  const openedAtMs = Date.now();
   let session = await open(currentSecrets);
   const settings = await session.settings();
+  const startupCpuDurationMs = Date.now() - openedAtMs;
   const printed = (lines: PrintedLogLine[]) => {
     if (lines.length) onLogLines?.(lines);
   };
@@ -960,7 +964,7 @@ export async function wrapSession(open: (secrets: Record<string, string>) => Pro
   // A game server for requests or schedules alone doesn't run rooms, and one whose schedules don't read doesn't start anywhere.
   if (!handlerNames.has("setup")) throw noSetupError();
   checkSchedules(settings.schedules, handlerNames.has("onSchedule"));
-  const stats: SandboxStats = { callCount: 0, waitDurationMs: 0, cpuDurationMs: 0, failureCount: 0, crashCount: 0, stoppedCount: 0, errors: new Map() };
+  const stats: SandboxStats = { callCount: 0, waitDurationMs: 0, cpuDurationMs: 0, sessionCount: 1, startupCpuDurationMs, failureCount: 0, crashCount: 0, stoppedCount: 0, errors: new Map() };
   // Errors this session already reported as new: stats.errors empties each time the room records them, and a repeat isn't new.
   const reportedErrorKeys = new Set<string>();
   const record = (kind: "crash" | "stopped", text: string) => {
@@ -1006,7 +1010,10 @@ export async function wrapSession(open: (secrets: Record<string, string>) => Pro
       printed(linesOf(null, `Zaisma: ${stopped}`));
       if (++stats.failureCount >= FAILURE_COUNT) onBroken();
       else {
+        const reopenedAtMs = Date.now();
         session = await open(currentSecrets);
+        stats.sessionCount++;
+        stats.startupCpuDurationMs += Date.now() - reopenedAtMs;
         sent = null;
         needsRestore = isTicking;
       }
@@ -1207,8 +1214,12 @@ export interface SandboxStats {
   callCount: number;
   /** Time spent waiting on the game server, for our own measurements. */
   waitDurationMs: number;
-  /** The game server's time running in its calls (each call's time less its I/O waits), for the player-hour meter. */
+  /** The game server's time running in its calls (each call's time less its I/O waits), for the hosting meter. */
   cpuDurationMs: number;
+  /** Sessions opened with the sandbox (each one call Cloudflare bills; calls on an open session aren't), for the hosting meter. */
+  sessionCount: number;
+  /** The time opening those sessions took (loading the code, starting it, its options), counted as CPU on the hosting meter. */
+  startupCpuDurationMs: number;
   /** Times the sandbox itself failed; FAILURE_COUNT of them end the room. */
   failureCount: number;
   crashCount: number;

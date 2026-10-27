@@ -2,6 +2,7 @@ import { DurableObject, WorkerEntrypoint } from "cloudflare:workers";
 import { DATABASE_LIMITS, DatabaseError, DumpCursorError, TABLE_COLUMNS_SQL, answerDatabase, type DatabaseErrorCode, checkBatch, checkedRow, checkPlayerId, checkStatement, dumpPart, eraseRefused, eraseStatements, importStatements, plainRow, preview, readDatabaseAnswer, tablesFromColumns, tooManyRows, type DatabaseAnswer, type DatabaseRow, type DatabaseValue, type DumpPart, type ErasedTable, type GameDatabase } from "@zaisma/game-server/internal";
 import { HOSTING_PAUSED_TEXT, MATCH_FINISH_DURATION_SEC, MAXIMUM_GAME_STORAGE_SIZE_BYTES, keptRoomsSizeBytes, nextMonthStartDate, recordPlayerErased, usageMonth } from "@zaisma/core";
 import type { Env } from "./index.ts";
+import { AwakeTime } from "./usage-counts.ts";
 
 /** Rows read and written in a month, the way Cloudflare bills them. */
 export interface Usage {
@@ -15,6 +16,9 @@ interface UnrecordedUse {
   date: string;
   readRowCount: number;
   writtenRowCount: number;
+  /** Calls the game made to it, and the time it was awake in ms (AwakeTime); missing in use saved before them. */
+  callCount?: number;
+  awakeDurationMs?: number;
 }
 
 /**
@@ -110,6 +114,8 @@ export class GameDatabaseObject extends DurableObject<Env> {
   /** The game's kept rooms' size (kept_rooms), in memory only: storing it would add a table the developer sees. */
   private keptRooms: KeptRoomsSize = { sizeBytes: 0, readAtMs: 0 };
   private isReadingKeptRooms = false;
+  /** Its awake time as Cloudflare bills it, for the hosting meter. */
+  private readonly awake = new AwakeTime();
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -456,9 +462,12 @@ export class GameDatabaseObject extends DurableObject<Env> {
     const date = new Date().toISOString().slice(0, 10);
     // Yesterday's use goes out under its own date first.
     if (this.unrecordedUse && this.unrecordedUse.date !== date) this.ctx.waitUntil(this.recordUse());
-    const unrecorded = (this.unrecordedUse ??= { date, readRowCount: 0, writtenRowCount: 0 });
+    const unrecorded = (this.unrecordedUse ??= { date, readRowCount: 0, writtenRowCount: 0, callCount: 0, awakeDurationMs: 0 });
     unrecorded.readRowCount += readRowCount;
     unrecorded.writtenRowCount += writtenRowCount;
+    // Each call that counts its use is one call to the object, and a moment it's awake.
+    unrecorded.callCount = (unrecorded.callCount ?? 0) + 1;
+    unrecorded.awakeDurationMs = (unrecorded.awakeDurationMs ?? 0) + this.awake.note();
     this.recordWhenDue();
     // A restart can lose the last minute's counts; that's a little use off the meter, never a wrong pause.
     if (this.unsavedStatementCount >= USAGE_SAVE_STATEMENT_COUNT || Date.now() - this.savedAtMs >= USAGE_SAVE_MS) this.save();
@@ -484,16 +493,23 @@ export class GameDatabaseObject extends DurableObject<Env> {
     this.unrecordedUse = null;
     this.save();
     try {
+      // Its own row, and the saves of its use since the last (about one a minute), count as rows Zaisma wrote for the game.
       await this.env.DB.prepare(
-        "INSERT INTO room_usage (game_id, date, database_read_row_count, database_written_row_count, database_size_bytes) VALUES (?, ?, ?, ?, ?) ON CONFLICT(game_id, date) DO UPDATE SET database_read_row_count = database_read_row_count + excluded.database_read_row_count, database_written_row_count = database_written_row_count + excluded.database_written_row_count, database_size_bytes = excluded.database_size_bytes",
+        "INSERT INTO room_usage (game_id, date, database_read_row_count, database_written_row_count, database_size_bytes, database_call_count, database_awake_duration_sec, bookkeeping_written_row_count) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(game_id, date) DO UPDATE SET database_read_row_count = database_read_row_count + excluded.database_read_row_count, database_written_row_count = database_written_row_count + excluded.database_written_row_count, database_size_bytes = excluded.database_size_bytes, database_call_count = database_call_count + excluded.database_call_count, database_awake_duration_sec = database_awake_duration_sec + excluded.database_awake_duration_sec, bookkeeping_written_row_count = bookkeeping_written_row_count + excluded.bookkeeping_written_row_count",
       )
-        .bind(gameId, unrecorded.date, unrecorded.readRowCount, unrecorded.writtenRowCount, this.ctx.storage.sql.databaseSize + this.keptRoomsSizeBytes())
+        .bind(gameId, unrecorded.date, unrecorded.readRowCount, unrecorded.writtenRowCount, this.ctx.storage.sql.databaseSize + this.keptRoomsSizeBytes(), unrecorded.callCount ?? 0, Math.round((unrecorded.awakeDurationMs ?? 0) / 1000), 2)
         .run();
     } catch (error) {
       console.error("Couldn't record the game database's use:", error);
       // Back with whatever came since, for the next try.
       const newerUse = this.unrecordedUse as UnrecordedUse | null;
-      this.unrecordedUse = { date: unrecorded.date, readRowCount: unrecorded.readRowCount + (newerUse?.readRowCount ?? 0), writtenRowCount: unrecorded.writtenRowCount + (newerUse?.writtenRowCount ?? 0) };
+      this.unrecordedUse = {
+        date: unrecorded.date,
+        readRowCount: unrecorded.readRowCount + (newerUse?.readRowCount ?? 0),
+        writtenRowCount: unrecorded.writtenRowCount + (newerUse?.writtenRowCount ?? 0),
+        callCount: (unrecorded.callCount ?? 0) + (newerUse?.callCount ?? 0),
+        awakeDurationMs: (unrecorded.awakeDurationMs ?? 0) + (newerUse?.awakeDurationMs ?? 0),
+      };
       this.save();
     }
   }

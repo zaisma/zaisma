@@ -1,8 +1,9 @@
 import { DurableObject, WorkerEntrypoint } from "cloudflare:workers";
 import { GAME_SERVER_OPTIONS, REQUEST_LIMITS, SCHEDULE_LIMITS, WEBHOOK_LIMITS, checkSchedules, defineGameServer, nextRunAtMs, readRequestAnswer, type Player, type RequestErrorCode, type Schedule } from "@zaisma/game-server/internal";
-import { HOSTING_PAUSED_TEXT, HOSTING_PRICES, isHostingPaused, monthStartDateOf, type LogSourceKind, type PrintedLogLine } from "@zaisma/core";
+import { HOSTING_PAUSED_TEXT, isHostingPaused, monthStartDateOf, type LogSourceKind, type PrintedLogLine } from "@zaisma/core";
 import { errorLine, linesOf, optionsOf, refusalsOf, sandboxOpener, type Session } from "./sandbox.ts";
 import { LogWriter } from "./logs.ts";
+import { AwakeTime, countingDatabase } from "./usage-counts.ts";
 import { secretsForGameServer } from "./secrets.ts";
 import type { Env } from "./index.ts";
 
@@ -19,8 +20,17 @@ interface Unrecorded {
   date: string;
   requestCount: number;
   scheduledRunCount: number;
-  /** Game server CPU in requests, webhooks and schedule runs past the first includedCpuDurationMsPerRequest of each, for the hosting meter. */
+  /** Game server CPU in requests, webhooks and schedule runs, for the hosting meter. */
   outsideRoomCpuDurationMs: number;
+  /** For the hosting meter too (missing in use saved before them): sessions opened with the sandbox and the time opening took, */
+  gameServerSessionCount?: number;
+  startupCpuDurationMs?: number;
+  /** the object's awake time in ms (AwakeTime) and its own wakes (alarms, the cron's calls), */
+  objectAwakeDurationMs?: number;
+  objectRequestCount?: number;
+  /** and the rows and log files Zaisma wrote for the game. */
+  bookkeepingWrittenRowCount?: number;
+  logFileCount?: number;
   crashCount: number;
   stoppedCount: number;
   errors: { versionId: string; kind: "crash" | "stopped"; message: string; occurrenceCount: number; firstAtMs: number }[];
@@ -104,9 +114,13 @@ export class GameServerObject extends DurableObject<Env> {
   private isSeatTableMade = false;
   /** games.secrets_changed_at_ms as the open session read its secrets: a different value later means they changed. */
   private secretsChangedAtMs: number | null | undefined = undefined;
+  /** The object's awake time as Cloudflare bills it, and D1 as the meter counts its writes. */
+  private readonly awake = new AwakeTime();
+  private readonly db: D1Database;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
+    this.db = countingDatabase(env.DB, (writtenRowCount) => this.countWritten(writtenRowCount));
     this.playingCountAtMs = ctx.storage.kv.get<number>("playing_count_at_ms") ?? null;
     this.writtenPlayingCount = ctx.storage.kv.get<{ playerCount: number; atMs: number }>("written_playing_count") ?? null;
     this.unrecorded = ctx.storage.kv.get<Unrecorded>("unrecorded") ?? null;
@@ -162,10 +176,10 @@ export class GameServerObject extends DurableObject<Env> {
     const sql = this.seatTable();
     const nowMs = Date.now();
     const others = this.ctx.storage.transactionSync(() => {
-      sql.exec("INSERT INTO room_seats (room_code, player_id, is_playing, seated_at_ms, synced_at_ms) VALUES (?, ?, 1, ?, ?) ON CONFLICT (room_code, player_id) DO UPDATE SET is_playing = 1, synced_at_ms = excluded.synced_at_ms", roomCode, playerId, nowMs, nowMs);
+      this.writeSeats(sql, "INSERT INTO room_seats (room_code, player_id, is_playing, seated_at_ms, synced_at_ms) VALUES (?, ?, 1, ?, ?) ON CONFLICT (room_code, player_id) DO UPDATE SET is_playing = 1, synced_at_ms = excluded.synced_at_ms", roomCode, playerId, nowMs, nowMs);
       const otherRoomCodes = sql.exec<{ room_code: string }>("SELECT room_code FROM room_seats WHERE player_id = ? AND room_code != ? ORDER BY seated_at_ms, room_code", playerId, roomCode).toArray().map((row) => row.room_code);
       const roomCodesToLeave = otherRoomCodes.slice(0, Math.max(0, otherRoomCodes.length - Math.max(0, maximumRoomCountPerPlayer - 1)));
-      for (const otherRoomCode of roomCodesToLeave) sql.exec("DELETE FROM room_seats WHERE room_code = ? AND player_id = ?", otherRoomCode, playerId);
+      for (const otherRoomCode of roomCodesToLeave) this.writeSeats(sql, "DELETE FROM room_seats WHERE room_code = ? AND player_id = ?", otherRoomCode, playerId);
       return roomCodesToLeave;
     });
     this.planPlayingCount();
@@ -184,9 +198,10 @@ export class GameServerObject extends DurableObject<Env> {
     this.ctx.storage.transactionSync(() => {
       const seated = new Set(seatedPlayerIds);
       const rows = sql.exec<{ player_id: string }>("SELECT player_id FROM room_seats WHERE room_code = ?", roomCode).toArray();
-      for (const row of rows) if (!seated.has(row.player_id)) sql.exec("DELETE FROM room_seats WHERE room_code = ? AND player_id = ?", roomCode, row.player_id);
+      for (const row of rows) if (!seated.has(row.player_id)) this.writeSeats(sql, "DELETE FROM room_seats WHERE room_code = ? AND player_id = ?", roomCode, row.player_id);
       for (const playerId of seatedPlayerIds) {
-        sql.exec(
+        this.writeSeats(
+          sql,
           "INSERT INTO room_seats (room_code, player_id, is_playing, seated_at_ms, synced_at_ms) VALUES (?, ?, ?, ?, ?) ON CONFLICT (room_code, player_id) DO UPDATE SET is_playing = excluded.is_playing, synced_at_ms = excluded.synced_at_ms",
           roomCode,
           playerId,
@@ -199,35 +214,44 @@ export class GameServerObject extends DurableObject<Env> {
     this.planPlayingCount();
   }
 
+  /** A write to the seat registry, its rows counted for the meter. */
+  private writeSeats(sql: SqlStorage, query: string, ...values: SqlStorageValue[]): void {
+    const cursor = sql.exec(query, ...values);
+    cursor.toArray();
+    this.countWritten(cursor.rowsWritten);
+  }
+
   /** Write the playing count soon, unless that's already planned. */
   private planPlayingCount(): void {
     if (this.playingCountAtMs !== null) return;
     this.playingCountAtMs = Date.now() + PLAYING_COUNT_DELAY_MS;
-    this.ctx.storage.kv.put("playing_count_at_ms", this.playingCountAtMs);
+    this.kvPut("playing_count_at_ms", this.playingCountAtMs);
     this.planAlarm();
   }
 
   /** Seats of rooms that stopped without saying so are dropped, then the count of different players playing is written to live_games when it changed or is an hour old. */
   private async writePlayingCount(): Promise<void> {
     this.playingCountAtMs = null;
-    this.ctx.storage.kv.delete("playing_count_at_ms");
+    this.kvDelete("playing_count_at_ms");
     if (!this.gameId) return;
     const sql = this.seatTable();
     const nowMs = Date.now();
-    sql.exec("DELETE FROM room_seats WHERE synced_at_ms < ?", nowMs - SEAT_STALE_MS);
+    this.writeSeats(sql, "DELETE FROM room_seats WHERE synced_at_ms < ?", nowMs - SEAT_STALE_MS);
     const playerCount = sql.exec<{ player_count: number }>("SELECT COUNT(DISTINCT player_id) AS player_count FROM room_seats WHERE is_playing = 1").one().player_count;
     const written = this.writtenPlayingCount;
     if (written && written.playerCount === playerCount && nowMs - written.atMs < PLAYING_COUNT_CHECK_IN_MS) return;
     try {
-      await this.env.DB.prepare("INSERT INTO live_games (game_id, playing_player_count, updated_at_ms) VALUES (?, ?, ?) ON CONFLICT(game_id) DO UPDATE SET playing_player_count = excluded.playing_player_count, updated_at_ms = excluded.updated_at_ms")
+      await this.db.prepare("INSERT INTO live_games (game_id, playing_player_count, updated_at_ms) VALUES (?, ?, ?) ON CONFLICT(game_id) DO UPDATE SET playing_player_count = excluded.playing_player_count, updated_at_ms = excluded.updated_at_ms")
         .bind(this.gameId, playerCount, nowMs)
         .run();
       this.writtenPlayingCount = { playerCount, atMs: nowMs };
-      this.ctx.storage.kv.put("written_playing_count", this.writtenPlayingCount);
+      this.kvPut("written_playing_count", this.writtenPlayingCount);
+      // The seats' rows and this count reach the meter with the next record.
+      this.recordSoon();
     } catch (error) {
       console.error("Couldn't write the game's playing count:", error);
       this.playingCountAtMs = nowMs + PLAYING_COUNT_RETRY_MS;
-      this.ctx.storage.kv.put("playing_count_at_ms", this.playingCountAtMs);
+      this.kvPut("playing_count_at_ms", this.playingCountAtMs);
     }
   }
 
@@ -300,15 +324,19 @@ export class GameServerObject extends DurableObject<Env> {
   /** From the rooms Worker's cron, when the game's live version isn't the one whose schedules were read. */
   async syncSchedules(gameId: string): Promise<void> {
     this.knowGame(gameId);
+    const today = this.today();
+    today.objectRequestCount = (today.objectRequestCount ?? 0) + 1;
     await this.readSchedules();
     this.planAlarm();
   }
 
   private knowGame(gameId: string): void {
+    // Every call names its game: each is a moment the object is awake.
+    this.noteAwake();
     if (this.gameId === gameId) return;
     this.logs = null;
     this.gameId = gameId;
-    this.ctx.storage.kv.put("game_id", gameId);
+    this.kvPut("game_id", gameId);
   }
 
   /**
@@ -321,7 +349,7 @@ export class GameServerObject extends DurableObject<Env> {
     if (!isFresh && this.hosting && nowMs - this.hosting.readAtMs < HOSTING_CHECK_MS && monthStartDateOf(this.hosting.readAtMs) === monthStartDateOf(nowMs)) return this.hosting.isPaused;
     if (!this.gameId) return false;
     try {
-      this.hosting = { isPaused: (await isHostingPaused(this.env.DB, this.gameId, nowMs)).isPaused, readAtMs: nowMs };
+      this.hosting = { isPaused: (await isHostingPaused(this.db, this.gameId, nowMs)).isPaused, readAtMs: nowMs };
     } catch (error) {
       console.error("Couldn't read whether the game's hosting is paused:", error);
       this.hosting = { isPaused: false, readAtMs: nowMs };
@@ -334,7 +362,7 @@ export class GameServerObject extends DurableObject<Env> {
   private async checkSecrets(): Promise<void> {
     if (this.secretsChangedAtMs === undefined || !this.server) return;
     try {
-      const game = await this.env.DB.prepare("SELECT secrets_changed_at_ms FROM games WHERE id = ?").bind(this.gameId).first<{ secrets_changed_at_ms: number | null }>();
+      const game = await this.db.prepare("SELECT secrets_changed_at_ms FROM games WHERE id = ?").bind(this.gameId).first<{ secrets_changed_at_ms: number | null }>();
       if (game && game.secrets_changed_at_ms !== this.secretsChangedAtMs) this.server = null;
     } catch (error) {
       console.error("Couldn't read whether the game's secrets changed:", error);
@@ -363,11 +391,16 @@ export class GameServerObject extends DurableObject<Env> {
     try {
       const open = await sandboxOpener(this.env, this.ctx.exports, gameId, versionId);
       if (open === null) return { outcome: { code: "no_request_handler", message: "This game's server doesn't take requests: its live version has no game server." } };
-      this.secretsChangedAtMs = (await this.env.DB.prepare("SELECT secrets_changed_at_ms FROM games WHERE id = ?").bind(gameId).first<{ secrets_changed_at_ms: number | null }>())?.secrets_changed_at_ms ?? null;
+      this.secretsChangedAtMs = (await this.db.prepare("SELECT secrets_changed_at_ms FROM games WHERE id = ?").bind(gameId).first<{ secrets_changed_at_ms: number | null }>())?.secrets_changed_at_ms ?? null;
       const { secrets } = await secretsForGameServer(this.env, gameId);
       await this.logWriter()?.checkWatched();
+      const openedAtMs = Date.now();
       const session = await open(secrets);
       const settings = await session.settings();
+      const today = this.today();
+      today.gameServerSessionCount = (today.gameServerSessionCount ?? 0) + 1;
+      today.startupCpuDurationMs = (today.startupCpuDurationMs ?? 0) + (Date.now() - openedAtMs);
+      this.recordSoon();
       this.printed(versionId, sourceKind, linesOf(settings));
       const optionNames = Array.isArray(settings.optionNames) ? settings.optionNames.map(String) : [];
       const unknown = optionNames.find((name) => !(GAME_SERVER_OPTIONS as readonly string[]).includes(name));
@@ -394,6 +427,7 @@ export class GameServerObject extends DurableObject<Env> {
   private async reach<T extends { error?: string; logLines?: unknown }>(versionId: string, sourceKind: LogSourceKind, work: () => Promise<T>, timeoutSec: number, handler: string, timeoutMessage: string): Promise<T | null> {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const startedAtMs = Date.now();
+    this.noteAwake(startedAtMs);
     try {
       const reply = await Promise.race([
         work(),
@@ -427,12 +461,13 @@ export class GameServerObject extends DurableObject<Env> {
       return null;
     } finally {
       clearTimeout(timer);
+      this.noteAwake(startedAtMs, Date.now());
     }
   }
 
   /** The game's live version, or null when players can't play it (taken down, held, no version). */
   private async liveVersionId(): Promise<string | null> {
-    const game = await this.env.DB.prepare("SELECT review_status, live_version_id FROM games WHERE id = ?").bind(this.gameId).first<{ review_status: string; live_version_id: string | null }>();
+    const game = await this.db.prepare("SELECT review_status, live_version_id FROM games WHERE id = ?").bind(this.gameId).first<{ review_status: string; live_version_id: string | null }>();
     return game?.review_status === "live" && game.live_version_id ? game.live_version_id : null;
   }
 
@@ -469,10 +504,10 @@ export class GameServerObject extends DurableObject<Env> {
     this.schedules = schedules;
     this.saveSchedules();
     try {
-      await this.env.DB.batch([
-        this.env.DB.prepare("DELETE FROM game_server_schedules WHERE game_id = ?").bind(this.gameId),
+      await this.db.batch([
+        this.db.prepare("DELETE FROM game_server_schedules WHERE game_id = ?").bind(this.gameId),
         ...(schedules?.schedules ?? []).map((schedule) =>
-          this.env.DB.prepare("INSERT INTO game_server_schedules (game_id, schedule_name, cron, version_id, next_run_at_ms, last_run_at_ms) VALUES (?, ?, ?, ?, ?, ?)").bind(
+          this.db.prepare("INSERT INTO game_server_schedules (game_id, schedule_name, cron, version_id, next_run_at_ms, last_run_at_ms) VALUES (?, ?, ?, ?, ?, ?)").bind(
             this.gameId,
             schedule.name,
             schedule.cron,
@@ -481,7 +516,7 @@ export class GameServerObject extends DurableObject<Env> {
             schedule.lastRunAtMs,
           ),
         ),
-        this.env.DB.prepare("UPDATE games SET game_server_schedules_version_id = ? WHERE id = ?").bind(versionId, this.gameId),
+        this.db.prepare("UPDATE games SET game_server_schedules_version_id = ? WHERE id = ?").bind(versionId, this.gameId),
       ]);
     } catch (error) {
       console.error("Couldn't record the game server's schedules:", error);
@@ -537,12 +572,37 @@ export class GameServerObject extends DurableObject<Env> {
     this.recordSoon();
   }
 
-  /** A call's CPU past what each request includes, for the hosting meter (CPU is the call's time less its waits). */
+  /** A call's CPU, for the hosting meter (CPU is the call's time less its waits). */
   private countCpu(cpuDurationMs: number): void {
-    const pastIncludedMs = cpuDurationMs - HOSTING_PRICES.includedCpuDurationMsPerRequest;
-    if (pastIncludedMs <= 0) return;
-    this.today().outsideRoomCpuDurationMs += Math.round(pastIncludedMs);
+    if (cpuDurationMs <= 0) return;
+    this.today().outsideRoomCpuDurationMs += Math.round(cpuDurationMs);
     this.recordSoon();
+  }
+
+  /** The object was in use from fromMs to toMs: its awake time on the meter, recorded with the rest of its use. */
+  private noteAwake(fromMs = Date.now(), toMs = fromMs): void {
+    const addedMs = this.awake.note(fromMs, toMs);
+    if (!addedMs) return;
+    const today = this.today();
+    today.objectAwakeDurationMs = (today.objectAwakeDurationMs ?? 0) + addedMs;
+  }
+
+  /** Rows Zaisma wrote for the game, on the meter, recorded with the rest of its use. */
+  private countWritten(writtenRowCount: number): void {
+    if (!writtenRowCount) return;
+    const today = this.today();
+    today.bookkeepingWrittenRowCount = (today.bookkeepingWrittenRowCount ?? 0) + writtenRowCount;
+  }
+
+  /** The object's key-value storage, its writes counted. */
+  private kvPut(key: string, kept: unknown): void {
+    this.ctx.storage.kv.put(key, kept);
+    this.countWritten(1);
+  }
+
+  private kvDelete(key: string): void {
+    this.ctx.storage.kv.delete(key);
+    this.countWritten(1);
   }
 
   /** An error for the developer's stats, once per distinct message. */
@@ -561,7 +621,7 @@ export class GameServerObject extends DurableObject<Env> {
     const date = new Date().toISOString().slice(0, 10);
     // Use from an earlier day goes out first, under its own date.
     if (this.unrecorded && this.unrecorded.date !== date) void this.record();
-    return (this.unrecorded ??= { date, requestCount: 0, scheduledRunCount: 0, outsideRoomCpuDurationMs: 0, crashCount: 0, stoppedCount: 0, errors: [] });
+    return (this.unrecorded ??= { date, requestCount: 0, scheduledRunCount: 0, outsideRoomCpuDurationMs: 0, gameServerSessionCount: 0, startupCpuDurationMs: 0, objectAwakeDurationMs: 0, objectRequestCount: 0, bookkeepingWrittenRowCount: 0, logFileCount: 0, crashCount: 0, stoppedCount: 0, errors: [] });
   }
 
   /** The game's log writer, once the object knows its game. */
@@ -602,6 +662,10 @@ export class GameServerObject extends DurableObject<Env> {
 
   async alarm(): Promise<void> {
     const nowMs = Date.now();
+    this.noteAwake(nowMs);
+    // Its own wake, recorded with this alarm's record (never one more alarm).
+    const today = this.today();
+    today.objectRequestCount = (today.objectRequestCount ?? 0) + 1;
     // Waiting lines go with any alarm, which is never later than the one planned for them.
     this.logsWriteAtMs = null;
     if (this.logs?.hasWaitingLines) await this.logs.write();
@@ -629,11 +693,34 @@ export class GameServerObject extends DurableObject<Env> {
     const nowMs = Date.now();
     const ranSchedules = this.haveSchedulesRun ? this.schedules : null;
     this.haveSchedulesRun = false;
+    const logs = this.logs?.takeUse() ?? { fileCount: 0, writtenRowCount: 0 };
+    // Whole seconds go now; the rest waits for the next record.
+    const awakeDurationSec = Math.floor((unrecorded.objectAwakeDurationMs ?? 0) / 1000);
+    const leftAwakeMs = (unrecorded.objectAwakeDurationMs ?? 0) - awakeDurationSec * 1000;
+    if (leftAwakeMs) this.today().objectAwakeDurationMs = (this.unrecorded!.objectAwakeDurationMs ?? 0) + leftAwakeMs;
+    // This record's own rows (a row a statement, and deleting the saved use) are counted before it's written, so recording never needs another record.
+    const statementCount = 1 + unrecorded.errors.length + (ranSchedules?.schedules.length ?? 0);
+    const writtenRowCount = (unrecorded.bookkeepingWrittenRowCount ?? 0) + logs.writtenRowCount + statementCount + 1;
     try {
+      // Past the counting wrapper (this.db), since its rows are counted above.
       await this.env.DB.batch([
         this.env.DB.prepare(
-          "INSERT INTO room_usage (game_id, date, game_server_request_count, game_server_scheduled_run_count, outside_room_cpu_duration_ms, game_server_crash_count, game_server_stopped_count) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(game_id, date) DO UPDATE SET game_server_request_count = game_server_request_count + excluded.game_server_request_count, game_server_scheduled_run_count = game_server_scheduled_run_count + excluded.game_server_scheduled_run_count, outside_room_cpu_duration_ms = outside_room_cpu_duration_ms + excluded.outside_room_cpu_duration_ms, game_server_crash_count = game_server_crash_count + excluded.game_server_crash_count, game_server_stopped_count = game_server_stopped_count + excluded.game_server_stopped_count",
-        ).bind(this.gameId, unrecorded.date, unrecorded.requestCount, unrecorded.scheduledRunCount, unrecorded.outsideRoomCpuDurationMs, unrecorded.crashCount, unrecorded.stoppedCount),
+          "INSERT INTO room_usage (game_id, date, game_server_request_count, game_server_scheduled_run_count, outside_room_cpu_duration_ms, game_server_crash_count, game_server_stopped_count, game_server_session_count, game_server_startup_cpu_duration_ms, object_awake_duration_sec, object_request_count, bookkeeping_written_row_count, log_file_count) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(game_id, date) DO UPDATE SET game_server_request_count = game_server_request_count + excluded.game_server_request_count, game_server_scheduled_run_count = game_server_scheduled_run_count + excluded.game_server_scheduled_run_count, outside_room_cpu_duration_ms = outside_room_cpu_duration_ms + excluded.outside_room_cpu_duration_ms, game_server_crash_count = game_server_crash_count + excluded.game_server_crash_count, game_server_stopped_count = game_server_stopped_count + excluded.game_server_stopped_count, game_server_session_count = game_server_session_count + excluded.game_server_session_count, game_server_startup_cpu_duration_ms = game_server_startup_cpu_duration_ms + excluded.game_server_startup_cpu_duration_ms, object_awake_duration_sec = object_awake_duration_sec + excluded.object_awake_duration_sec, object_request_count = object_request_count + excluded.object_request_count, bookkeeping_written_row_count = bookkeeping_written_row_count + excluded.bookkeeping_written_row_count, log_file_count = log_file_count + excluded.log_file_count",
+        ).bind(
+          this.gameId,
+          unrecorded.date,
+          unrecorded.requestCount,
+          unrecorded.scheduledRunCount,
+          unrecorded.outsideRoomCpuDurationMs,
+          unrecorded.crashCount,
+          unrecorded.stoppedCount,
+          unrecorded.gameServerSessionCount ?? 0,
+          Math.round(unrecorded.startupCpuDurationMs ?? 0),
+          awakeDurationSec,
+          unrecorded.objectRequestCount ?? 0,
+          writtenRowCount,
+          logs.fileCount,
+        ),
         ...unrecorded.errors.map((error) =>
           this.env.DB.prepare(
             "INSERT INTO game_server_errors (game_id, version_id, kind, message, occurrence_count, first_at_ms, last_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(game_id, version_id, kind, message) DO UPDATE SET occurrence_count = occurrence_count + excluded.occurrence_count, last_at_ms = excluded.last_at_ms",
@@ -655,16 +742,19 @@ export class GameServerObject extends DurableObject<Env> {
   }
 
   private save(): void {
-    if (this.unrecorded) this.ctx.storage.kv.put("unrecorded", this.unrecorded);
-    else this.ctx.storage.kv.delete("unrecorded");
+    // The save itself is a row written, counted in what it saves; deleting it, in the record that took it.
+    if (this.unrecorded) {
+      this.unrecorded.bookkeepingWrittenRowCount = (this.unrecorded.bookkeepingWrittenRowCount ?? 0) + 1;
+      this.ctx.storage.kv.put("unrecorded", this.unrecorded);
+    } else this.ctx.storage.kv.delete("unrecorded");
     this.unsavedRequestCount = 0;
   }
 
   private saveSchedules(): void {
-    if (this.schedules) this.ctx.storage.kv.put("schedules", this.schedules);
-    else this.ctx.storage.kv.delete("schedules");
-    if (this.scheduleRetryAtMs !== null) this.ctx.storage.kv.put("schedule_retry_at_ms", this.scheduleRetryAtMs);
-    else this.ctx.storage.kv.delete("schedule_retry_at_ms");
+    if (this.schedules) this.kvPut("schedules", this.schedules);
+    else this.kvDelete("schedules");
+    if (this.scheduleRetryAtMs !== null) this.kvPut("schedule_retry_at_ms", this.scheduleRetryAtMs);
+    else this.kvDelete("schedule_retry_at_ms");
   }
 }
 

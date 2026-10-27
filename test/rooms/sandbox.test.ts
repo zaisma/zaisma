@@ -1089,6 +1089,8 @@ describe("spectators in Zaisma rooms", () => {
     player.ws.close(1000);
     const usage = await rowOnce("SELECT * FROM room_usage WHERE game_id = ?", () => true);
     expect(usage.room_play_duration_sec).toBeLessThan(60);
+    // The player's connection is on the meter; the spectator's isn't.
+    expect(usage.room_connection_count).toBe(1);
   });
 
   it("tells spectators the match ended once the last player leaves", async () => {
