@@ -139,7 +139,7 @@ export function shareDialog(gameTitle: string, hasQrCode: boolean): Raw {
   const items: LayoutItem[] = [
     { kind: "control", markup: cutButton("Show", { id: "share-reveal", type: "button", icon: "eye", isHidden: true }) },
     { kind: "block", id: "share-room", isHidden: true, markup: codeField({ id: "share-room-code", label: "Room code", code: "" }) },
-    { kind: "block", markup: linkField({ id: "share-link", label: "Link", url: "" }) },
+    { kind: "control", markup: linkField({ id: "share-link", label: "Link", url: "" }) },
     { kind: "block", markup: menuChoices({ label: "More ways to share", choices }) },
   ];
   const qrBox = hasQrCode

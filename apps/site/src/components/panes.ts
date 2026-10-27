@@ -753,7 +753,7 @@ export function sheet(options: SheetOptions): Raw {
     // under it are one piece of glass in front, its outline (drawn by LAYERS_SCRIPT inside the scrolling row, so it moves with the tabs) up
     // the tab's outward slants, across its top, and along the sheet's top beside it; the other tabs and Close sit behind, in its shadow.
     const tabButtons = options.tabs.map((tab, index) => html`<button class="sheet-tab-button" type="button" data-sheet-tab-to="${tab.tabValue}" aria-pressed="${index ? "false" : "true"}"><span class="sheet-tab-words"><span class="sheet-tab-label">${tab.label}</span>${tab.itemCount === undefined ? "" : html`<span class="sheet-tab-count">${tab.itemCount.toLocaleString("en-US")}</span>`}</span></button>`);
-    const strip = html`<div class="sheet-tab-row" data-cut-line="0"><svg class="sheet-tab-outline" aria-hidden="true"><path class="behind-glass"/><path class="behind-well"/><clipPath id="${options.id}-behind"><path class="behind-clip"/></clipPath><polygon class="front-shadow" clip-path="url(#${options.id}-behind)"/></svg><div class="sheet-tab-scroll"><div class="sheet-tab-track" role="group" aria-label="${options.title}">${tabButtons}<span class="sheet-tab-fill"></span></div></div><span class="sheet-tab-end">${closeButton}</span></div>`;
+    const strip = html`<div class="sheet-tab-row" data-cut-line="0"><svg class="sheet-tab-outline" aria-hidden="true"><path class="behind-glass"/><path class="behind-well"/><clipPath id="${options.id}-behind"><path/></clipPath><polygon class="front-shadow" clip-path="url(#${options.id}-behind)"/></svg><div class="sheet-tab-scroll"><div class="sheet-tab-track" role="group" aria-label="${options.title}">${tabButtons}<span class="sheet-tab-fill"></span></div></div><span class="sheet-tab-end">${closeButton}</span></div>`;
     const words = html`<h2 class="sheet-title" id="${options.id}-title">${options.title}</h2>`;
     const body = html`${options.tabs.map((tab, index) => html`<section class="sheet-tab" data-sheet-tab="${tab.tabValue}"${index ? raw(" hidden") : ""}>${tab.body}</section>`)}`;
     return sheetMarkup({ ...options, body: html``, parts: html`${strip}${paneParts({ head: { words }, body: sheetScroll(body), foot: sheetFoot(options.buttons) })}`, closeButton });
@@ -859,7 +859,7 @@ const SHEET_STYLES = `
 .sheet-tab-outline .front-shadow { fill: var(--tab-shadow); filter: blur(3px); }
 .sheet-tab-button { --tab-slant: 8px; position: relative; flex: none; display: flex; align-items: center; gap: var(--gap-words-words); padding: 0 calc(var(--pad-inside-words) + var(--tab-slant)); margin: 0; border: 0;
   font: var(--type-label); color: var(--ink-2); white-space: nowrap; background: transparent; cursor: pointer; transition: color 0.15s; }
-.sheet-tab-button > span { position: relative; z-index: 1; }
+.sheet-tab-words { position: relative; z-index: 1; }
 .sheet-tab-count { margin-left: var(--gap-words-words); font: var(--type-facts); color: var(--muted); }
 .sheet-tab-button[aria-pressed="true"] { color: var(--ink); cursor: default; }
 .sheet-tab-button:hover:not([aria-pressed="true"]) { color: var(--ink); }
@@ -933,7 +933,7 @@ component({
     {
       label: "Compact, on a wide screen: narrow, its gaps closed up like a dropdown's (the share sheet)",
       isStill: true,
-      markup: sheet({ id: "example-sheet-compact", title: "Share Ashen Crown", body: stack({ items: [{ kind: "block", markup: linkField({ id: "example-sheet-compact-link", label: "Link", url: "https://zaisma.com/g/ashen-crown" }) }, { kind: "block", markup: menuChoices({ label: "More ways to share", choices: [{ label: "Show QR code", icon: "qr-code", isButton: true }, { label: "More ways to share", icon: "share", isButton: true }] }) }] }), closeLabel: "Close", isShown: true, isCompact: true }),
+      markup: sheet({ id: "example-sheet-compact", title: "Share Ashen Crown", body: stack({ items: [{ kind: "control", markup: linkField({ id: "example-sheet-compact-link", label: "Link", url: "https://zaisma.com/g/ashen-crown" }) }, { kind: "block", markup: menuChoices({ label: "More ways to share", choices: [{ label: "Show QR code", icon: "qr-code", isButton: true }, { label: "More ways to share", icon: "share", isButton: true }] }) }] }), closeLabel: "Close", isShown: true, isCompact: true }),
     },
     {
       label: "A long title",

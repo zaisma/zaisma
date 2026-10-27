@@ -121,6 +121,8 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
     function paneKind(pane) {
       if (pane.matches(".dropdown")) return { name: "a menu", widthPx: lengthPx("var(--size-menu)"), heightPx: lengthPx("var(--size-menu-height)") };
       if (pane.matches(".select-list")) { var field = document.querySelector('[popovertarget="' + pane.id + '"]'); var holder = field && (field.closest(".cut-field") || field); return { name: "a select's list", widthPx: holder ? holder.getBoundingClientRect().width : Infinity, heightPx: lengthPx("var(--size-menu-height)") }; }
+      // A light box fills the window by design: what it holds keeps its own size.
+      if (pane.matches(".light-box")) return null;
       if (pane.matches(".sheet")) {
         var token = pane.matches(".is-compact") ? "--size-sheet-compact" : pane.matches(".placement-side") ? "--size-sheet-side" : pane.matches(".is-picture") ? "--size-sheet-picture" : "--size-sheet";
         return { name: { "--size-sheet": "a sheet", "--size-sheet-side": "a store panel", "--size-sheet-picture": "a picture's sheet", "--size-sheet-compact": "a compact sheet" }[token], widthPx: isPhoneWide && !pane.matches(".in-place") ? innerWidth : lengthPx("var(" + token + ")"), heightPx: Infinity };

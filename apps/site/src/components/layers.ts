@@ -469,7 +469,7 @@ export const LAYERS_SCRIPT = `/* layers */(function () {
       // The front piece's shadow falls only on what's behind it: its shape in the row, blurred, kept to the behind shape.
       var shadow = svg.querySelector(".front-shadow");
       shadow.setAttribute("points", (!isShown ? [[-24, h]] : (isAtStart ? [[-24, 0]] : [[-24, h], [left, h], [left + s, 0]]).concat([[right - s, 0], [right, h]])).concat([[w + 24, h], [w + 24, h + 24], [-24, h + 24]]).map(function (p) { return p.join(","); }).join(" "));
-      svg.querySelector(".behind-clip").setAttribute("d", behind);
+      svg.querySelector("clipPath > path").setAttribute("d", behind);
       if (isRevealing && scroller && scroller.scrollTo) {
         var shownLeft = scroller.scrollLeft, shownRight = shownLeft + scroller.clientWidth;
         if (tabLeft < shownLeft || tabRight > shownRight) scroller.scrollTo({ left: tabLeft < shownLeft ? tabLeft - 24 : tabRight - scroller.clientWidth + 24, behavior: isReduced() ? "auto" : "smooth" });
@@ -485,8 +485,11 @@ export const LAYERS_SCRIPT = `/* layers */(function () {
     sheet.zaismaEdgeShape = function (w, h, cuts) {
       var chosen = track.querySelector('[data-sheet-tab-to][aria-pressed="true"]'), scroller = track.parentNode;
       if (!chosen || !scroller) return null;
-      var box = sheet.getBoundingClientRect(), tab = chosen.getBoundingClientRect(), shown = scroller.getBoundingClientRect(), foot = row.getBoundingClientRect().bottom - box.top, s = TAB_SLANT_PX;
-      var left = Math.max(tab.left, shown.left) - box.left, right = Math.min(tab.right, shown.right) - box.left;
+      // In the sheet's own size, never as it shows on screen: it opens from a touch smaller (its transform), and the row is drawn unscaled.
+      var box = sheet.getBoundingClientRect(), rowBox = row.getBoundingClientRect(), scale = sheet.offsetWidth ? box.width / sheet.offsetWidth : 1, s = TAB_SLANT_PX;
+      var rowLeft = (rowBox.left - box.left) / scale, foot = (rowBox.bottom - box.top) / scale;
+      var tabLeft = chosen.offsetLeft - scroller.scrollLeft, tabRight = tabLeft + chosen.offsetWidth;
+      var left = rowLeft + Math.max(tabLeft, 0), right = rowLeft + Math.min(tabRight, scroller.clientWidth);
       var points = [];
       // Its top: the sheet's corner cut where the chosen tab is at the sheet's start or end, a slant up and down where it isn't.
       if (left <= 1) points.push([0, cuts[0]], [cuts[0], 0]); else points.push([0, foot], [left, foot], [left + s, 0]);

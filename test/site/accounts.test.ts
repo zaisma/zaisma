@@ -1624,7 +1624,7 @@ describe("friends", () => {
     // Signed out: the same names, nobody a friend.
     const { answer: forGuest } = await among(new Browser(), [benPlayerId]);
     expect(forGuest.players).toEqual([{ player_id: benPlayerId, name: "Quiet_Comet", is_friend: false }]);
-    const tooMany = await among(ana, Array.from({ length: 51 }, (_, i) => `player_x${i}`));
+    const tooMany = await among(ana, Array.from({ length: 101 }, (_, i) => `player_x${i}`));
     expect(tooMany).toMatchObject({ status: 400, answer: { error: { code: "bad_player_ids" } } });
     expect((await among(ana, ["not-a-player"])).answer.error.code).toBe("bad_player_ids");
 

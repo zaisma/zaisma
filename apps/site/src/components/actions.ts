@@ -738,6 +738,8 @@ component({
 .quiet-btn { --control-height: var(--control-height-regular); vertical-align: middle; max-width: 100%; }
 /* Small, and only its icon (a pane's Close, a sheet's Back): a square of a small control's size, its slab and no line under it when pointed at. */
 .quiet-btn.small { --control-height: var(--control-height-small); }
+/* On a touch screen a small one still takes a finger, as a small cut button does: its hit area reaches out to 44px, its look unchanged. */
+@media (pointer: coarse) { .quiet-btn.small { position: relative; } .quiet-btn.small::after { content: ""; position: absolute; inset: calc((var(--control-height) - var(--touch-target)) / 2); } }
 .quiet-btn.icon-only > .face { width: var(--control-height); padding: 0; align-items: center; }
 .quiet-btn.icon-only .ico { width: 18px; height: 18px; }
 .quiet-btn:focus-visible { outline: none; }

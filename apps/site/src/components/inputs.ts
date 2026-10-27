@@ -2,6 +2,7 @@ import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
 import { CUT_LINE, glassPane, icon } from "./foundations.ts";
 import { cutButton } from "./actions.ts";
+import { controlMarkup, type ControlMarkup } from "./control-markup.ts";
 import { examplePane } from "./example-pane.ts";
 import { qrCodeSvg } from "@zaisma/core";
 
@@ -389,11 +390,11 @@ export interface LinkFieldOptions {
  * A link field: a link to copy, in a carved well, its address on one line without https:// and cut short at its end when it's long. A press
  * anywhere on it copies the whole address ("Copy" at its end says so), and for a moment it says "Link copied" in its place.
  */
-export function linkField(options: LinkFieldOptions): Raw {
+export function linkField(options: LinkFieldOptions): ControlMarkup {
   const shown = options.url.replace(/^https?:\/\//, "");
   const isCopied = options.state === "is-copied";
   const state = options.state && options.state !== "is-copied" ? ` ${options.state}` : "";
-  return html`<div class="link-field${isCopied ? " is-copied" : ""}${options.isMasked ? " is-masked" : ""}"><span class="link-field-label" id="${options.id}-label">${options.label}</span><button class="link-field-box cut-carved${state}" type="button" data-cut-line="10" aria-labelledby="${options.id}-label ${options.id}" aria-describedby="${options.id}-copy">${CUT_LINE}<span class="link-field-icon is-link">${icon("link")}</span><span class="link-field-icon is-done">${icon("check")}</span><span class="link-field-text" id="${options.id}" data-link="${options.url}">${shown}</span><span class="link-field-said" role="status">${isCopied ? "Link copied" : ""}</span><span class="link-field-copy" id="${options.id}-copy">Copy</span></button></div>`;
+  return controlMarkup(html`<div class="link-field${isCopied ? " is-copied" : ""}${options.isMasked ? " is-masked" : ""}"><span class="link-field-label" id="${options.id}-label">${options.label}</span><button class="link-field-box cut-carved${state}" type="button" data-cut-line="10" aria-labelledby="${options.id}-label ${options.id}" aria-describedby="${options.id}-copy">${CUT_LINE}<span class="link-field-icon is-link">${icon("link")}</span><span class="link-field-icon is-done">${icon("check")}</span><span class="link-field-text" id="${options.id}" data-link="${options.url}">${shown}</span><span class="link-field-said" role="status">${isCopied ? "Link copied" : ""}</span><span class="link-field-copy" id="${options.id}-copy">Copy</span></button></div>`, "field", { hasOwnWords: true });
 }
 
 component({
