@@ -65,6 +65,7 @@ const TEXTURE_CHECK_COUNT = 20;
 /** The choices the API takes, checked before anything is sent (test/node/cli.test.ts holds them to the API's lists). */
 const VISIBILITIES = ["listed", "unlisted", "private", "draft"];
 const SCREENS = ["wide", "phone"];
+const MATCH_UPDATE_MODES = ["next_match", "now"];
 const TOPIC_KINDS = ["bug", "gap", "feature", "question", "talk"];
 const MESSAGE_KINDS = ["bug", "gap", "feature", "question"];
 const FORUM_CATEGORIES = ["publishing", "scans", "pages", "rooms", "servers", "passes", "sdk", "saves", "stats", "mcp", "api", "cli", "accounts", "dashboard", "reports", "rules", "docs", "other"];
@@ -153,7 +154,7 @@ const COMMANDS = {
       game: { hasValue: true, isRequired: true, placeholder: "<slug>", about: "The game to upload to" },
       "patch-notes": { hasValue: true, placeholder: '"…"', about: "What changed, shown with the update" },
       "publish-when-approved": { hasValue: false, about: "Go live as soon as it passes review" },
-      "match-update-mode": { hasValue: true, placeholder: "<next_match|now>", about: "With --publish-when-approved: when running matches get it: next_match (they finish on the version they started; the default) or now (every live match switches within seconds, in the same room)" },
+      "match-update-mode": { hasValue: true, choices: MATCH_UPDATE_MODES, about: "With --publish-when-approved: when running matches get it: next_match (they finish on the version they started; the default) or now (every live match switches within seconds, in the same room)" },
     },
   },
   shader: {
@@ -172,7 +173,7 @@ const COMMANDS = {
     arguments: [{ name: "slug" }, { name: "version_id" }],
     flags: {
       "scheduled-publish-at": { hasValue: true, placeholder: "<time>", about: 'Publish later instead: an ISO 8601 time with Z or an offset, like "2026-11-01T17:00:00Z" or "2026-11-01T17:00+01:00"' },
-      "match-update-mode": { hasValue: true, placeholder: "<next_match|now>", about: "When running matches get it: next_match (they finish on the version they started; the default) or now (every live match switches within seconds, in the same room)" },
+      "match-update-mode": { hasValue: true, choices: MATCH_UPDATE_MODES, about: "When running matches get it: next_match (they finish on the version they started; the default) or now (every live match switches within seconds, in the same room)" },
     },
   },
   unschedule: { about: "Cancel a publish-later", arguments: [{ name: "slug" }, { name: "version_id" }], flags: {} },

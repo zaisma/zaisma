@@ -65,3 +65,35 @@ describe("game server error codes in the docs", () => {
     expect(listed.sort()).toEqual([...used, 1012].sort());
   });
 });
+
+describe("the game server's options, runner flags and imports in the docs", () => {
+  const docs = ["README.md", "docs/DEVELOPER-API.md", "docs/NAMING.md", "packages/game-server/README.md"].map((file) => ({ file, text: read(file) }));
+
+  it("name every game server option", () => {
+    const options = read("packages/game-server/src/room.ts").match(/export const GAME_SERVER_OPTIONS = \[([^\]]+)\]/)![1]!.match(/"(\w+)"/g)!.map((option) => option.slice(1, -1));
+    expect(options.length).toBeGreaterThan(20);
+    const text = docs.map((doc) => doc.text).join("\n");
+    expect(options.filter((option) => !new RegExp(`\\b${option}\\b`).test(text))).toEqual([]);
+  });
+
+  it("give the Node runner only the flags it takes", () => {
+    const flags = read("packages/game-server/bin/node.js").match(/const FLAGS = \[([^\]]+)\]/)![1]!.match(/"([a-z-]+)"/g)!.map((flag) => `--${flag.slice(1, -1)}`);
+    let flagCount = 0;
+    for (const { file, text } of docs) {
+      // The flags in the clause that names the runner; the upload command's rows are its own (cli.test.ts holds those).
+      const clauses = [...text.matchAll(/(?:npx @zaisma\/game-server|Node runner)[^;\n]*?(?=; |\. |\n|$)/g)].filter((match) => !text.slice(text.lastIndexOf("\n", match.index) + 1).startsWith("| `zaisma "));
+      for (const flag of clauses.flatMap((clause) => clause[0].match(/--[a-z][a-z-]+/g) ?? [])) expect(flags, `${file} ${flag}`).toContain(flag);
+      flagCount += clauses.flatMap((clause) => clause[0].match(/--[a-z][a-z-]+/g) ?? []).length;
+    }
+    expect(flagCount).toBeGreaterThan(3);
+  });
+
+  it("import only what the package exports", () => {
+    const exported = { "@zaisma/game-server": read("packages/game-server/src/index.ts"), "@zaisma/game-server/node": read("packages/game-server/bin/node.d.ts") };
+    for (const { file, text } of docs) {
+      for (const match of text.matchAll(/import \{([^}]+)\} from "(@zaisma\/game-server(?:\/node)?)"/g)) {
+        for (const name of match[1]!.split(",").map((part) => part.replace(/^\s*type\s+/, "").trim()).filter(Boolean)) expect(exported[match[2] as keyof typeof exported], `${file} ${name}`).toMatch(new RegExp(`\\b${name}\\b`));
+      }
+    }
+  });
+});
