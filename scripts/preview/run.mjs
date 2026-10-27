@@ -1794,7 +1794,9 @@ function poster(ip) {
 async function signedIn(person, ip) {
   const asPerson = poster(ip);
   await asPerson("/join/age", { month: "6", day: "2", year: person.year });
-  await asPerson("/join/account", { username: person.name, password: PASSWORD, turnstile_token: TURNSTILE_TOKEN, ...(person.socialMode ? { social_mode: person.socialMode } : {}) });
+  await asPerson("/join/account", { username: person.name, password: PASSWORD, turnstile_token: TURNSTILE_TOKEN });
+  // How they play is the step after (account.ts, /join/play).
+  if (person.socialMode) await asPerson("/join/play", { social_mode: person.socialMode });
   if (person.email) {
     await asPerson("/account/email", { email: person.email, turnstile_token: TURNSTILE_TOKEN });
     await asPerson("/account/email/code", { email: person.email, code: await mailedCode(person.email) });
