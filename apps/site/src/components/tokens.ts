@@ -117,6 +117,9 @@ export const WORDS_SURFACES = [".glass-pane > .pane-in", ".sheet-in", ".playing-
  */
 export const BARE_GROUPS = [".cover", ".person"];
 
+/** The least a box that scrolls up and down scrolls by: one that scrolls by less (a sliver) only bounces under a finger. The layout check holds it. */
+export const LEAST_SCROLL_PX = 12;
+
 /** The bare groups' rule, once: the unit takes --pad-words at its sides, or the row, grid or track holding units does and its cells don't. */
 export const BARE_GROUPS_STYLES = `
 :where(${BARE_GROUPS.join(", ")}) { padding-inline: var(--pad-words); }

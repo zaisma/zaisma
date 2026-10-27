@@ -1,0 +1,109 @@
+# The nightly layout sweep: every page and state, the stress accounts too, in headless Chrome on every screen, light and dark, at 200% text,
+# measuring every rule (npm run layout:check -- --sweep, scripts/layout-check.mjs), on main's preview with its stand-ins and test data. A pull
+# request's Layout check measures pages only for how they arrange their pieces on a phone and a laptop (check.yml); this catches what
+# that leaves out within a day. "Nightly layout sweep result" passes only when every share did, and npm run ship stops while main's latest
+# result failed (applyNightlySweep, scripts/ship-github-check.mjs): fix the pages, merge, and run it again with gh workflow run nightly.yml.
+name: Nightly layout sweep
+
+on:
+  schedule:
+    # 02:00 UTC, after an evening's work in Europe.
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-layout-sweep
+  cancel-in-progress: false
+
+env:
+  # The preview's test data as a snapshot, as in check.yml.
+  PREVIEW_SNAPSHOT_PATHS: |
+    .wrangler/preview
+    !.wrangler/preview/v3/observability
+    !.wrangler/preview/v3/cache
+    !.wrangler/preview/*.log
+
+jobs:
+  # The preview's full test data, made once for the four shares (as check.yml's Preview test data).
+  seed:
+    name: Preview test data
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+      - uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: npm-${{ runner.os }}-
+      # The migrations applied to an empty database, kept by their hash (MIGRATED_DATABASES in scripts/preview/run.mjs).
+      - uses: actions/cache@v4
+        with:
+          path: .wrangler/preview-migrated
+          key: preview-migrated-${{ hashFiles('migrations/**') }}
+      - run: npm ci --no-audit --no-fund
+      - run: npm run preview:start -- --reset
+      # Stopped first, so its databases are written out whole.
+      - run: npm run preview:stop
+      - uses: actions/cache/save@v4
+        with:
+          path: ${{ env.PREVIEW_SNAPSHOT_PATHS }}
+          key: nightly-preview-test-data-${{ github.run_id }}
+      - if: failure()
+        run: tail -n 80 .wrangler/preview-run/preview.log .wrangler/preview/servers.log || true
+
+  sweep:
+    name: Sweep (${{ matrix.shard }} of 4)
+    needs: seed
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+      - uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: npm-${{ runner.os }}-
+      - run: npm ci --no-audit --no-fund
+      - uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.PREVIEW_SNAPSHOT_PATHS }}
+          key: nightly-preview-test-data-${{ github.run_id }}
+          fail-on-cache-miss: true
+      - run: npm run preview:start
+      - run: npm run layout:check -- --sweep --shard ${{ matrix.shard }}/4
+      - if: failure()
+        run: tail -n 80 .wrangler/preview-run/preview.log .wrangler/preview/servers.log || true
+
+  result:
+    name: Nightly layout sweep result
+    needs: [seed, sweep]
+    # Also when a share failed, so the result fails instead of being skipped.
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - env:
+          SEED_RESULT: ${{ needs.seed.result }}
+          SWEEP_RESULT: ${{ needs.sweep.result }}
+        run: |
+          echo "Preview test data: $SEED_RESULT. Sweep: $SWEEP_RESULT."
+          if [ "$SEED_RESULT" = success ] && [ "$SWEEP_RESULT" = success ]; then exit 0; fi
+          exit 1
