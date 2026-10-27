@@ -584,7 +584,7 @@ describe("cloud saves", () => {
   async function saved(accountId: string, gameId: string) {
     const text = canonicalSave(saveFromParts({ coins: "120" }, []));
     await bumpSave(env.DB, { accountId, gameId, baseVersionNumber: 0, sha256: await saveHash(text), sizeBytes: text.length, changedByKind: "player", versionId: null });
-    await env.SAVES.put(saveKey(accountId, gameId), text);
+    await env.SAVES.put(saveKey(accountId, gameId, 1, await saveHash(text)), text);
   }
 
   it("lists saves after an encoded cursor, and refuses one it didn't give", async () => {

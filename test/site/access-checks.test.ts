@@ -375,7 +375,7 @@ async function makeWorld(): Promise<World> {
   // A player's save in the game, with an earlier copy.
   const saveText = canonicalSave(saveFromParts({ coins: "5" }, []));
   await bumpSave(env.DB, { accountId: player!.id, gameId: game.id, baseVersionNumber: 0, sha256: await saveHash(saveText), sizeBytes: saveText.length, changedByKind: "player", versionId: null });
-  await env.SAVES.put(saveKey(player!.id, game.id), saveText);
+  await env.SAVES.put(saveKey(player!.id, game.id, 1, await saveHash(saveText)), saveText);
   const saveCopyId = newId("save_copy");
   const copyText = canonicalSave(saveFromParts({ coins: "1" }, []));
   await env.DB.prepare("INSERT INTO save_history (id, account_id, game_id, saved_at_ms, copy_reason, sha256, size_bytes) VALUES (?, ?, ?, ?, 'hourly', ?, ?)")

@@ -33,7 +33,7 @@
   // first, doubling up to 1,024 while a batch's text stays under 1 MB (games keep whole files as records).
   var FIRST_BATCH_RECORD_COUNT = 16;
   var MAXIMUM_BATCH_RECORD_COUNT = 1024;
-  var SMALL_BATCH_CHARACTER_COUNT = 1024 * 1024;
+  var SMALL_BATCH_BYTE_COUNT = 1024 * 1024;
 
   // Tests check the save format through this (test/node/saves.test.ts).
   if (__ZAISMA_SAVES__.test) return __ZAISMA_SAVES__.test({ encode: encode, decode: decode, saveText: saveText, putSave: putSave, readDatabases: readDatabases, databasesReader: databasesReader });
@@ -67,6 +67,17 @@
     return textOf(canonical(local), idbText);
   }
   // The same text as canonicalSave on the server: all three keys, always in this order.
+  /** Text's size in UTF-8 bytes, as the server counts a save against the limit, without encoding it. */
+  function byteLength(text) {
+    var byteCount = text.length;
+    for (var i = 0; i < text.length; i++) {
+      var code = text.charCodeAt(i);
+      if (code < 0x80) continue;
+      // Two bytes below U+0800, and each half of a surrogate pair (four bytes the pair); three for the rest.
+      byteCount += code < 0x800 || (code >= 0xd800 && code < 0xe000) ? 1 : 2;
+    }
+    return byteCount;
+  }
   function textOf(localText, idbText) {
     return '{"save_format_version_number":1,"local_storage_items":' + localText + ',"indexeddb_databases":' + (idbText || "[]") + "}";
   }
@@ -319,21 +330,23 @@
 
   /**
    * readNumberbText while the game plays: each store's text is kept, and a read only reads again the stores
-   * the game changed (changed: { isAll, databases: [name], stores: ["<database>\n<store>"] }), a batch of
-   * records at a time, stopping once the save passes maximumCharacterCount characters. The text is exactly
+   * the game changed (changed: { isAll, isCountCheck, databases: [name], stores: ["<database>\n<store>"] }), a batch
+   * of records at a time, stopping once the save passes maximumByteCount bytes (UTF-8, as the server counts).
+   * isCountCheck also reads again any database whose version, stores or record counts changed, which catches most
+   * writes the script can't watch (the game's own workers) without reading what didn't change. The text is exactly
    * readNumberbText's, put together from the kept parts. Answers { text } or { isOverLimit: true }.
    */
   function databasesReader() {
     // Database name -> { version, stores: { name: { text, hasRecords } } }
     var kept = {};
-    return function read(changed, maximumCharacterCount) {
+    return function read(changed, maximumByteCount) {
       var changedStores = {};
       changed.stores.forEach(function (storeKey) {
         changedStores[storeKey] = true;
       });
       return names().then(function (list) {
         var keptNow = {};
-        var characterCount = 0;
+        var byteCount = 0;
         var index = 0;
         function next() {
           if (index === list.length) {
@@ -355,26 +368,73 @@
           var isAnyStore = isWhole || Object.keys(changedStores).some(function (storeKey) {
             return storeKey.indexOf(name + "\n") === 0;
           });
-          if (!isAnyStore) {
+          var keep = function () {
             keptNow[name] = before;
-            characterCount += before.characterCount;
-            return characterCount > maximumCharacterCount ? { isOverLimit: true } : next();
-          }
-          return readChanged(name, before, isWhole, changedStores, maximumCharacterCount - characterCount).then(function (database) {
-            if (database && database.isOverLimit) return { isOverLimit: true };
-            if (database) {
-              keptNow[name] = database;
-              characterCount += database.characterCount;
-            }
-            return next();
+            byteCount += before.byteCount;
+            return byteCount > maximumByteCount ? { isOverLimit: true } : next();
+          };
+          var readAgain = function (isWholeRead) {
+            return readChanged(name, before, isWholeRead, changedStores, maximumByteCount - byteCount).then(function (database) {
+              if (database && database.isOverLimit) return { isOverLimit: true };
+              if (database) {
+                keptNow[name] = database;
+                byteCount += database.byteCount;
+              }
+              return next();
+            });
+          };
+          if (isAnyStore) return readAgain(isWhole);
+          if (!changed.isCountCheck) return keep();
+          return countsChanged(name, before).then(function (isChanged) {
+            return isChanged ? readAgain(true) : keep();
           });
         }
         return next();
       });
     };
   }
+  /** Whether a database kept from an earlier read looks changed: its version, stores or a store's record count. Only counts are read, never records. */
+  function countsChanged(name, before) {
+    var created = false;
+    return open(name, 0, function () {
+      created = true;
+    }).then(function (database) {
+      var stores = storeNames(database);
+      if (created || database.version !== before.version || stores.join("\n") !== before.storeNames.join("\n")) {
+        database.close();
+        if (created) indexedDB.deleteDatabase(name);
+        return true;
+      }
+      if (!stores.length) {
+        database.close();
+        return false;
+      }
+      return new Promise(function (ok) {
+        var transaction = database.transaction(stores, "readonly");
+        var recordCounts = {};
+        stores.forEach(function (storeName) {
+          var counting = transaction.objectStore(storeName).count();
+          counting.onsuccess = function () {
+            recordCounts[storeName] = counting.result;
+          };
+        });
+        transaction.oncomplete = function () {
+          database.close();
+          ok(
+            stores.some(function (storeName) {
+              return recordCounts[storeName] !== before.stores[storeName].recordCount;
+            }),
+          );
+        };
+        transaction.onerror = transaction.onabort = function () {
+          database.close();
+          ok(true);
+        };
+      });
+    });
+  }
   /** One database for databasesReader: its stores read again where changed, the rest as kept. null when it's gone or has no stores. */
-  function readChanged(name, before, isWhole, changedStores, maximumCharacterCount) {
+  function readChanged(name, before, isWhole, changedStores, maximumByteCount) {
     var created = false;
     return open(name, 0, function () {
       created = true;
@@ -390,12 +450,12 @@
       var reading = stores.filter(function (storeName) {
         return isWhole || !before.stores[storeName] || changedStores[name + "\n" + storeName];
       });
-      var out = { version: database.version, storeNames: stores, stores: {}, characterCount: 0, hasRecords: false };
+      var out = { version: database.version, storeNames: stores, stores: {}, byteCount: 0, hasRecords: false };
       stores.forEach(function (storeName) {
         if (reading.indexOf(storeName) === -1) out.stores[storeName] = before.stores[storeName];
       });
       stores.forEach(function (storeName) {
-        if (out.stores[storeName]) out.characterCount += out.stores[storeName].text.length;
+        if (out.stores[storeName]) out.byteCount += out.stores[storeName].byteCount;
       });
       if (!reading.length) {
         database.close();
@@ -421,20 +481,21 @@
           var keys = store.getAllKeys(range, batchRecordCount);
           var values = store.getAll(range, batchRecordCount);
           values.onsuccess = function () {
-            var previousCharacterCount = out.characterCount;
+            var previousByteCount = out.byteCount;
             var blobCharacterCount = pending.blobCharacterCount || 0;
             values.result.forEach(function (record, i) {
               var encoded = encode([keys.result[i], record], pending, []);
               copy.records.push(encoded);
-              out.characterCount += JSON.stringify(encoded).length + 1;
+              out.byteCount += byteLength(JSON.stringify(encoded)) + 1;
             });
-            out.characterCount += (pending.blobCharacterCount || 0) - blobCharacterCount;
-            if (out.characterCount > maximumCharacterCount) {
+            // A file's base64 text is all ASCII: a character a byte.
+            out.byteCount += (pending.blobCharacterCount || 0) - blobCharacterCount;
+            if (out.byteCount > maximumByteCount) {
               isOverLimit = true;
               transaction.abort();
               return;
             }
-            var isSmall = out.characterCount - previousCharacterCount < SMALL_BATCH_CHARACTER_COUNT;
+            var isSmall = out.byteCount - previousByteCount < SMALL_BATCH_BYTE_COUNT;
             if (values.result.length === batchRecordCount) nextBatch(keys.result[keys.result.length - 1], isSmall ? Math.min(batchRecordCount * 2, MAXIMUM_BATCH_RECORD_COUNT) : batchRecordCount);
             else nextStore();
           };
@@ -448,11 +509,12 @@
               var recordTexts = stored.records.map(function (record) {
                 return JSON.stringify(record);
               });
-              out.stores[stored.shape.name] = { text: shapeText.slice(0, -1) + ',"records":[' + recordTexts.join(",") + "]}", hasRecords: stored.records.length > 0 };
+              var storeText = shapeText.slice(0, -1) + ',"records":[' + recordTexts.join(",") + "]}";
+              out.stores[stored.shape.name] = { text: storeText, byteCount: byteLength(storeText), recordCount: stored.records.length, hasRecords: stored.records.length > 0 };
             });
-            out.characterCount = 0;
+            out.byteCount = 0;
             stores.forEach(function (storeName) {
-              out.characterCount += out.stores[storeName].text.length;
+              out.byteCount += out.stores[storeName].byteCount;
             });
             ok(finish(out));
           }, fail);
@@ -477,7 +539,7 @@
     var read = databasesReader();
     addEventListener("message", function (event) {
       var asked = event.data || {};
-      read(asked.changed, asked.maximumCharacterCount).then(
+      read(asked.changed, asked.maximumByteCount).then(
         function (answer) {
           answer.id = asked.id;
           postMessage(answer);
@@ -596,7 +658,7 @@
     // The page always hands over a v1 save.
     var local = save.local_storage_items;
     var databases = decode(save.indexeddb_databases);
-    // IndexedDB first: it's the part that can fail, and then localStorage is still as it was.
+    // IndexedDB first, so a database that can't be set up leaves localStorage as it was.
     var writing =
       window.indexedDB && indexedDB.databases
         ? writeDatabases(databases, onBlocked)
@@ -604,10 +666,20 @@
           ? Promise.reject(new Error("No IndexedDB here"))
           : Promise.resolve();
     return writing.then(function () {
-      localStorage.clear();
-      Object.keys(local).forEach(function (key) {
-        localStorage.setItem(key, String(local[key]));
-      });
+      // A write that throws (the browser's storage is full) puts this device's localStorage back as it was.
+      var before = snapshot();
+      try {
+        localStorage.clear();
+        Object.keys(local).forEach(function (key) {
+          localStorage.setItem(key, String(local[key]));
+        });
+      } catch (error) {
+        localStorage.clear();
+        Object.keys(before).forEach(function (key) {
+          localStorage.setItem(key, before[key]);
+        });
+        throw error;
+      }
     });
   }
 
@@ -681,7 +753,8 @@
 
   // What the game changed since the last check, so a check reads only that again: a store, a whole
   // database (set up anew or deleted) or localStorage. Writes the game's own workers make, and
-  // localStorage set as a property, aren't seen, so every 10th check (5 minutes) reads everything.
+  // localStorage set as a property, aren't seen: every 10th check (5 minutes) reads localStorage and any
+  // database whose version or record counts changed, and leaving the page reads every database whole.
   var changedStores = {};
   var changedDatabases = {};
   var isLocalChanged = true;
@@ -735,7 +808,7 @@
   var hereReader = null;
   var waiting = null;
   var readNumber = 0;
-  function readDatabasesText(changed, maximumCharacterCount) {
+  function readDatabasesText(changed, maximumByteCount) {
     if (!isWorkerTried) {
       isWorkerTried = true;
       try {
@@ -755,7 +828,7 @@
     }
     if (!worker) {
       hereReader = hereReader || databasesReader();
-      return hereReader(changed, maximumCharacterCount);
+      return hereReader(changed, maximumByteCount);
     }
     var id = ++readNumber;
     return new Promise(function (ok) {
@@ -766,14 +839,14 @@
           ok(answer);
         },
       };
-      worker.postMessage({ id: id, changed: changed, maximumCharacterCount: maximumCharacterCount });
+      worker.postMessage({ id: id, changed: changed, maximumByteCount: maximumByteCount });
     }).then(function (answer) {
       if (!answer.isFailed) return answer;
       // The worker can't read here (or stopped): read on the page from now on, from the start.
       if (worker) worker.terminate();
       worker = null;
       hereReader = databasesReader();
-      return hereReader({ isAll: true, databases: [], stores: [] }, maximumCharacterCount);
+      return hereReader({ isAll: true, databases: [], stores: [] }, maximumByteCount);
     });
   }
 
@@ -781,35 +854,44 @@
   var last = null;
   var timer = null;
   var localText = null;
+  var localByteCount = 0;
   var idbText = null;
   var checkCount = 0;
   var reading = false;
   var again = false;
   // localStorage this small is read at every check anyway, which also catches it set as a property.
   var SMALL_LOCAL_CHARACTER_COUNT = 64 * 1024;
-  /** isLeaving: the player is leaving the tab, so localStorage is read whatever was seen. */
-  function check(isLeaving) {
+  /**
+   * isLeaving: the player is leaving the tab, so localStorage is read whatever was seen. isWhole: the page is going
+   * away, so every database is read whole, catching any write the script couldn't see.
+   */
+  function check(isLeaving, isWhole) {
     if (!syncing) return;
     if (reading) {
       again = true;
       return;
     }
-    var isAll = isAllChanged || idbText === null || ++checkCount % 10 === 0;
-    var changed = { isAll: isAll, databases: Object.keys(changedDatabases), stores: Object.keys(changedStores) };
-    var readsIdb = isAll || changed.databases.length > 0 || changed.stores.length > 0;
-    var readsLocal = isAll || isLocalChanged || localText === null || isLeaving === true || localText.length < SMALL_LOCAL_CHARACTER_COUNT;
+    var isAll = isAllChanged || idbText === null || isWhole === true;
+    // Every 10th check (5 minutes), also what the script can't watch: localStorage, and databases whose version or record counts changed.
+    var isCountCheck = !isAll && ++checkCount % 10 === 0;
+    var changed = { isAll: isAll, isCountCheck: isCountCheck, databases: Object.keys(changedDatabases), stores: Object.keys(changedStores) };
+    var readsIdb = isAll || isCountCheck || changed.databases.length > 0 || changed.stores.length > 0;
+    var readsLocal = isAll || isCountCheck || isLocalChanged || localText === null || isLeaving === true || localText.length < SMALL_LOCAL_CHARACTER_COUNT;
     if (!readsIdb && !readsLocal) return;
     changedStores = {};
     changedDatabases = {};
     isAllChanged = false;
     isLocalChanged = false;
     reading = true;
-    if (readsLocal) localText = canonical(snapshot());
-    var maximumCharacterCount = saveLimitBytes - localText.length;
-    (readsIdb ? readDatabasesText(changed, maximumCharacterCount) : Promise.resolve({ text: idbText }))
+    if (readsLocal) {
+      localText = canonical(snapshot());
+      localByteCount = byteLength(localText);
+    }
+    var maximumByteCount = saveLimitBytes - localByteCount;
+    (readsIdb ? readDatabasesText(changed, maximumByteCount) : Promise.resolve({ text: idbText }))
       .then(function (answer) {
         if (answer.isFailed) throw new Error("The save couldn't be read");
-        if (answer.isOverLimit || localText.length > saveLimitBytes) {
+        if (answer.isOverLimit || localByteCount > saveLimitBytes) {
           // Read again in full next time: what's kept stopped partway.
           idbText = null;
           post({ step: "over_limit" });
@@ -856,17 +938,15 @@
         fail(new Error("The game holds its database open"));
       }).then(ok, fail);
     })
-      .then(function () {
-        // What's in storage now is the save the page sent: the next check has nothing new to send.
-        return readNumberbText();
-      })
       .then(
-        function (freshIdbText) {
-          idbText = freshIdbText;
+        function () {
+          // What's in storage now is the save the page sent, already encoded: nothing is read again on the game's thread.
+          idbText = save.indexeddb_databases.length ? JSON.stringify(save.indexeddb_databases) : "";
           localText = canonical(snapshot());
-          // The worker's kept parts are from before: the next check reads everything (and finds nothing new).
+          localByteCount = byteLength(localText);
+          // The worker's kept parts are from before: the next check reads everything there (and finds nothing new).
           isAllChanged = true;
-          last = textOf(localText, freshIdbText);
+          last = textOf(localText, idbText);
           post({ step: "applied", ok: true });
         },
         function () {
@@ -878,7 +958,7 @@
     if (document.visibilityState === "hidden") check(true);
   });
   addEventListener("pagehide", function () {
-    check(true);
+    check(true, true);
   });
   post({ step: "hello", phase: "game", versionId: versionId });
 })();
