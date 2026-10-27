@@ -80,7 +80,8 @@ export async function savesRoute(request: Request, env: Env, game: Game, playerI
       return [{ save_copy: { ...copyJson(copy, row), ...saveContentsJson(readStoredSave(text), readKeys(query)) } }];
     }
     checkCloudSaves(game);
-    return changed(env, game, accountId, playerId, canonicalSave(readStoredSave(text)), copy.version_id);
+    const restoredText = canonicalSave(readStoredSave(text));
+    return changed(env, game, accountId, playerId, () => restoredText, copy.version_id);
   }
 
   if (method === "GET") {
@@ -94,21 +95,23 @@ export async function savesRoute(request: Request, env: Env, game: Game, playerI
   if (method === "DELETE") {
     await existingSave(env, game, accountId, playerId);
     checkCloudSaves(game);
-    return changed(env, game, accountId, playerId, EMPTY_SAVE_TEXT, null);
+    return changed(env, game, accountId, playerId, () => EMPTY_SAVE_TEXT, null);
   }
 
   if (method === "PATCH") {
     const changes = readItems(body.local_storage_items, true);
     if (!Object.keys(changes).length) throw new ApiError("bad_local_storage_items", { message: "local_storage_items has no keys, so nothing would change.", field: "local_storage_items", fix: ITEMS_FIX });
     checkCloudSaves(game);
-    const row = await saveRow(env.DB, accountId, game.id);
-    const current = readStoredSave((row ? await readSave(env, row) : null) ?? EMPTY_SAVE_TEXT);
-    const items: Record<string, string> = { ...current.local_storage_items };
-    for (const [key, itemText] of Object.entries(changes)) {
-      if (itemText === null) delete items[key];
-      else items[key] = itemText;
-    }
-    return changed(env, game, accountId, playerId, checkedText(saveFromParts(items, current.indexeddb_databases)), null);
+    // Made from the save as it is on each try, so only these keys change, whatever else saved meanwhile.
+    return changed(env, game, accountId, playerId, (currentText) => {
+      const current = readStoredSave(currentText ?? EMPTY_SAVE_TEXT);
+      const items: Record<string, string> = { ...current.local_storage_items };
+      for (const [key, itemText] of Object.entries(changes)) {
+        if (itemText === null) delete items[key];
+        else items[key] = itemText;
+      }
+      return checkedText(saveFromParts(items, current.indexeddb_databases));
+    }, null);
   }
 
   // PUT: the whole save.
@@ -124,17 +127,21 @@ export async function savesRoute(request: Request, env: Env, game: Game, playerI
   const problem = indexeddbDatabasesProblem(body.indexeddb_databases);
   if (problem) throw new ApiError("bad_indexeddb_databases", { message: problem.message, field: problem.field, fix: DATABASES_FIX });
   checkCloudSaves(game);
-  return changed(env, game, accountId, playerId, checkedText(saveFromParts(items, body.indexeddb_databases as unknown[])), null);
+  const wholeText = checkedText(saveFromParts(items, body.indexeddb_databases as unknown[]));
+  return changed(env, game, accountId, playerId, () => wholeText, null);
 }
 
-/** Make the change, and answer the save as it is now with the copy that keeps what it replaced. `versionId` is a restored copy's, else null. */
-async function changed(env: Env, game: Game, accountId: string, playerId: string, text: string, versionId: string | null): Promise<[unknown]> {
-  const change = await changeSaveAsDeveloper(env, accountId, game.id, text, versionId);
-  if (!change) {
+/**
+ * Make the change (`change` makes the new save from the save as it is, changeSaveAsDeveloper), and answer the save as it is
+ * now with the copy that keeps what it replaced. `versionId` is a restored copy's, else null.
+ */
+async function changed(env: Env, game: Game, accountId: string, playerId: string, change: (currentText: string | null) => string, versionId: string | null): Promise<[unknown]> {
+  const developerChange = await changeSaveAsDeveloper(env, accountId, game.id, change, versionId);
+  if (!developerChange) {
     throw new ApiError("save_busy", { message: `${playerId}'s game kept saving at the same moment, so the change didn't go through.`, fix: "Call again in a few seconds.", retryAfterSec: 5 });
   }
   const copyCount = (await saveHistory(env.DB, accountId, game.id)).length;
-  return [{ save: summaryJson(change.row, playerId, copyCount), kept_save_copy_id: change.keptSaveCopyId, next_steps: [] satisfies NextStep[] }];
+  return [{ save: summaryJson(developerChange.row, playerId, copyCount), kept_save_copy_id: developerChange.keptSaveCopyId, next_steps: [] satisfies NextStep[] }];
 }
 
 /** The account behind a player ID. Guests have no saves on Zaisma: their progress stays in their browser. */

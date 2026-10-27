@@ -1,8 +1,8 @@
 import { env, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
-import { EMPTY_SAVE_TEXT, accountById, bumpSave, canonicalSave, createAccount, createApiKey, gameBySlug, saveCopyKey, saveFromParts, saveHash, saveKey, saveRow } from "@zaisma/core";
+import { EMPTY_SAVE_TEXT, accountById, bumpSave, canonicalSave, createAccount, createApiKey, gameBySlug, saveCopyKey, saveFromParts, saveHash, saveKey, saveRow, unversionedSaveKey } from "@zaisma/core";
 import { TOOLS } from "../../apps/site/src/mcp.ts";
-import { readSave } from "../../apps/site/src/saves.ts";
+import { changeSaveAsDeveloper, readSave, storedSaveText } from "../../apps/site/src/saves.ts";
 import { SAVE, SAVE_CHANGED, SAVE_COPY, SAVE_COPY_LIST, SAVE_LIST } from "../../apps/site/src/schemas.ts";
 import { errorProblems, schemaProblems } from "../schema-check.ts";
 import { letPublish } from "../helpers.ts";
@@ -49,16 +49,19 @@ async function tool(name: string, toolArguments: Record<string, unknown>): Promi
 /** The player's game saving, as the game page's PUT /api/saves does: the next version, stored in R2. */
 async function playerSaves(player: { accountId: string }, localStorageItems: Record<string, string>, indexeddbDatabases: unknown[] = [], versionId: string | null = null) {
   const text = canonicalSave(saveFromParts(localStorageItems, indexeddbDatabases));
-  const row = await env.DB.prepare("SELECT version_number FROM saves WHERE account_id = ? AND game_id = ?").bind(player.accountId, gameId).first<{ version_number: number }>();
-  const versionNumber = await bumpSave(env.DB, { accountId: player.accountId, gameId, baseVersionNumber: row?.version_number ?? 0, sha256: await saveHash(text), sizeBytes: new TextEncoder().encode(text).length, changedByKind: "player", versionId });
+  const row = await saveRow(env.DB, player.accountId, gameId);
+  const sha256 = await saveHash(text);
+  // Its file first, then the row, then the previous version's file goes, as handleSaves does.
+  await env.SAVES.put(saveKey(player.accountId, gameId, (row?.version_number ?? 0) + 1, sha256), text);
+  const versionNumber = await bumpSave(env.DB, { accountId: player.accountId, gameId, baseVersionNumber: row?.version_number ?? 0, sha256, sizeBytes: new TextEncoder().encode(text).length, changedByKind: "player", versionId });
   expect(versionNumber).not.toBeNull();
-  await env.SAVES.put(saveKey(player.accountId, gameId), text);
+  if (row) await env.SAVES.delete([saveKey(player.accountId, gameId, row.version_number, row.sha256), unversionedSaveKey(player.accountId, gameId)]);
 }
 
 /** A save as Zaisma stores it (the v1 envelope), as text and as JSON. */
 const savedText = (localStorageItems: Record<string, string>, indexeddbDatabases: unknown[] = []) => canonicalSave(saveFromParts(localStorageItems, indexeddbDatabases));
 const envelope = (localStorageItems: Record<string, string>, indexeddbDatabases: unknown[] = []) => JSON.parse(savedText(localStorageItems, indexeddbDatabases));
-const stored = async (player: { accountId: string }) => JSON.parse((await (await env.SAVES.get(saveKey(player.accountId, gameId)))!.text()));
+const stored = async (player: { accountId: string }) => JSON.parse((await storedSaveText(env, (await saveRow(env.DB, player.accountId, gameId))!))!);
 const copyReasons = async () => (await env.DB.prepare("SELECT copy_reason FROM save_history ORDER BY saved_at_ms DESC, rowid DESC").all<{ copy_reason: string }>()).results.map((row) => row.copy_reason);
 
 beforeEach(async () => {
@@ -170,6 +173,36 @@ describe("changing saves", () => {
     expect(await tool("change_save", { slug: "sky-hopper", player_id: fox.playerId, local_storage_items: { coins: "500" } })).toMatchObject({ save: { save_copy_count: 1 }, kept_save_copy_id: null });
   });
 
+  it("keeps every change made at the same moment, and the player's own save landing meanwhile", async () => {
+    await playerSaves(fox, { coins: "120", level: "3" });
+    await Promise.all([
+      tool("change_save", { slug: "sky-hopper", player_id: fox.playerId, local_storage_items: { coins: "500" } }),
+      tool("change_save", { slug: "sky-hopper", player_id: fox.playerId, local_storage_items: { gems: "2" } }),
+    ]);
+    expect((await stored(fox)).local_storage_items).toEqual({ coins: "500", gems: "2", level: "3" });
+
+    // The player's game saves after the change read the save and before it lands: the change is made again on top of it.
+    let isPlayerSaved = false;
+    const saves = {
+      get: env.SAVES.get.bind(env.SAVES),
+      delete: env.SAVES.delete.bind(env.SAVES),
+      put: async (key: string, text: string, options?: R2PutOptions) => {
+        if (!isPlayerSaved && !key.includes("/save_copy_")) {
+          isPlayerSaved = true;
+          await playerSaves(fox, { coins: "500", gems: "2", level: "4", quest: "started" });
+        }
+        return env.SAVES.put(key, text, options);
+      },
+    };
+    const game = (await gameBySlug(env.DB, "sky-hopper"))!;
+    const change = await changeSaveAsDeveloper({ ...env, SAVES: saves as unknown as R2Bucket }, fox.accountId, game.id, (currentText) => {
+      const current = JSON.parse(currentText!);
+      return savedText({ ...current.local_storage_items, coins: "1000" });
+    }, null);
+    expect(change).not.toBeNull();
+    expect((await stored(fox)).local_storage_items).toEqual({ coins: "1000", gems: "2", level: "4", quest: "started" });
+  });
+
   it("keeps one copy for a run of the developer's own changes, so the player's copies stay", async () => {
     await playerSaves(fox, { level: "1" });
     await playerSaves(fox, { level: "2" });
@@ -271,7 +304,9 @@ describe("saves stored before v1", () => {
   /** Store a save as it was stored before v1, with its hash in the database. */
   async function storeLegacy() {
     await playerSaves(fox, { level: "3" });
-    await env.SAVES.put(saveKey(fox.accountId, gameId), legacy);
+    await env.SAVES.put(unversionedSaveKey(fox.accountId, gameId), legacy);
+    const current = (await saveRow(env.DB, fox.accountId, gameId))!;
+    await env.SAVES.delete(saveKey(fox.accountId, gameId, current.version_number, current.sha256));
     await env.DB.prepare("UPDATE saves SET sha256 = ?, size_bytes = ? WHERE account_id = ?").bind(await saveHash(legacy), legacy.length, fox.accountId).run();
   }
   const row = () => env.DB.prepare("SELECT sha256, size_bytes FROM saves WHERE account_id = ?").bind(fox.accountId).first<{ sha256: string; size_bytes: number }>();
@@ -280,12 +315,12 @@ describe("saves stored before v1", () => {
     await storeLegacy();
     const got = await tool("get_save", { slug: "sky-hopper", player_id: fox.playerId });
     expect(got.save).toMatchObject({ sha256: await saveHash(v1), size_bytes: v1.length, local_storage_items: { level: "3" }, indexeddb_databases: [{ name: "game", version: 1, stores: [] }] });
-    const object = (await env.SAVES.get(saveKey(fox.accountId, gameId)))!;
+    const object = (await env.SAVES.get(unversionedSaveKey(fox.accountId, gameId)))!;
     expect(await object.text()).toBe(v1);
     expect(await row()).toEqual({ sha256: await saveHash(v1), size_bytes: v1.length });
     // The second read writes nothing.
     expect(await tool("get_save", { slug: "sky-hopper", player_id: fox.playerId })).toEqual(got);
-    expect((await env.SAVES.get(saveKey(fox.accountId, gameId)))!.etag).toBe(object.etag);
+    expect((await env.SAVES.get(unversionedSaveKey(fox.accountId, gameId)))!.etag).toBe(object.etag);
   });
 
   it("rewrites a copy as v1 the same way", async () => {
@@ -300,7 +335,7 @@ describe("saves stored before v1", () => {
     expect(await env.DB.prepare("SELECT sha256 FROM save_history WHERE id = ?").bind(changed.kept_save_copy_id).first()).toEqual({ sha256: await saveHash(v1) });
     // Restoring it writes the v1 text.
     await tool("restore_save_copy", { slug: "sky-hopper", player_id: fox.playerId, save_copy_id: changed.kept_save_copy_id });
-    expect(await (await env.SAVES.get(saveKey(fox.accountId, gameId)))!.text()).toBe(v1);
+    expect(JSON.stringify(await stored(fox))).toBe(v1);
   });
 
   it("never overwrites or mislabels a save that landed between the read and the rewrite", async () => {
@@ -321,7 +356,7 @@ describe("saves stored before v1", () => {
     expect(await readSave({ ...env, SAVES: saves as unknown as R2Bucket }, current)).toBe(newer);
     // It read again, found the newer save already v1, and wrote nothing more.
     expect(conditionalPutCount).toBe(1);
-    expect(await (await env.SAVES.get(saveKey(fox.accountId, gameId)))!.text()).toBe(newer);
+    expect(JSON.stringify(await stored(fox))).toBe(newer);
     expect(await row()).toEqual({ sha256: await saveHash(newer), size_bytes: newer.length });
   });
 });
