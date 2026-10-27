@@ -76,10 +76,10 @@ beforeAll(async () => {
 });
 
 describe("Browse's link", () => {
-  it("reads the sort, filter, search and page, falling back to the defaults for anything else", () => {
-    expect(browseQuery(new URL(`${SITE}/games`))).toEqual({ sort: "popular", filter: "all", searchText: "", pageNumber: 1 });
-    expect(browseQuery(new URL(`${SITE}/games?sort=new&filter=horror&search_text=%20lake%20&page=3`))).toEqual({ sort: "new", filter: "horror", searchText: "lake", pageNumber: 3 });
-    expect(browseQuery(new URL(`${SITE}/games?sort=best&filter=rpg&page=-2`))).toEqual({ sort: "popular", filter: "all", searchText: "", pageNumber: 1 });
+  it("reads the sort, filter, price, search and page, falling back to the defaults for anything else", () => {
+    expect(browseQuery(new URL(`${SITE}/games`))).toEqual({ sort: "popular", filter: "all", priceRange: "any", searchText: "", pageNumber: 1 });
+    expect(browseQuery(new URL(`${SITE}/games?sort=new&filter=horror&price=15_to_30&search_text=%20lake%20&page=3`))).toEqual({ sort: "new", filter: "horror", priceRange: "15_to_30", searchText: "lake", pageNumber: 3 });
+    expect(browseQuery(new URL(`${SITE}/games?sort=best&filter=rpg&price=cheap&page=-2`))).toEqual({ sort: "popular", filter: "all", priceRange: "any", searchText: "", pageNumber: 1 });
     expect(browseQuery(new URL(`${SITE}/games?search_text=${"a".repeat(200)}`)).searchText).toHaveLength(80);
   });
 });

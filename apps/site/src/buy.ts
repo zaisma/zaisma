@@ -636,6 +636,7 @@ ${buySheetData({
       ...buySheetStripe(env),
       asked: { item_name: itemName, item_count: itemCount, game_account_id: url.searchParams.get("game_account_id"), request_number: wholeNumber(url.searchParams.get("request_number")) },
       opener_origin: openerOrigin,
+      opened_item_name: null,
     })}
 ${scriptTags(PASSKEY_SCRIPT, BUY_SHEET_SCRIPT)}`,
   });

@@ -1,11 +1,11 @@
 import { env } from "cloudflare:test";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
-import { ApiError, HANDLING_LEASE_MS, PURCHASE_DELIVERIES, UNHANDLED_PAGE_COUNT, cardFeeNote, checkItem, checkPurchaseSettings, createGame, finishHandling, finishRefundHandling, priceFor, priceText, purchaseById, purchaseLabelOf, purchaseSettingsOf, releaseHandling, releaseRefundHandling, startHandling, startRefundHandling, takeBack, unhandledFor } from "@zaisma/core";
+import { ApiError, HANDLING_LEASE_MS, PURCHASE_DELIVERIES, UNHANDLED_PAGE_COUNT, cardFeeNote, checkItem, checkPurchaseSettings, createGame, finishHandling, finishRefundHandling, fullGameOwner, priceFor, priceRangeOf, priceText, purchaseById, purchaseLabelOf, purchaseSettingsOf, releaseHandling, releaseRefundHandling, startHandling, startRefundHandling, takeBack, unhandledFor } from "@zaisma/core";
 
 // Items' pure parts (packages/core/src/items.ts): checking one, the price a player pays, how it's written,
 // the card fee note, and the label a game page shows from them.
 
-const revive = { title: "Revive", description: "", item_kind: "consumable", item_category: "gameplay", price_minor_units: 199, currency_code: "usd", local_prices: [] as unknown[] };
+const revive = { title: "Revive", description: "", item_kind: "consumable", item_category: "gameplay", price_minor_units: 199, currency_code: "usd", local_prices: [] as unknown[], is_on_game_page: false };
 
 /** The code and field an ApiError was thrown with, or null. */
 function refusal(work: () => unknown): { code: string; field: string | null } | null {
@@ -33,6 +33,9 @@ describe("checkItem", () => {
     const tooMany = Array.from({ length: 41 }, () => ({ currency_code: "eur", price_minor_units: 199 }));
     expect(refusal(() => checkItem("revive", { ...revive, local_prices: tooMany }))).toEqual({ code: "bad_item", field: "local_prices" });
     expect(refusal(() => checkItem("revive", { ...revive, price_minor_units: null }))).toEqual({ code: "bad_item", field: "currency_code" });
+    expect(refusal(() => checkItem("revive", { ...revive, is_on_game_page: "yes" }))).toEqual({ code: "bad_item", field: "is_on_game_page" });
+    const { is_on_game_page: _left, ...withoutGamePage } = revive;
+    expect(refusal(() => checkItem("revive", withoutGamePage))).toEqual({ code: "missing_field", field: "is_on_game_page" });
     expect(refusal(() => checkItem("revive", { ...revive, item_kind: "forever" }))).toEqual({ code: "bad_item", field: "item_kind" });
   });
 });
@@ -69,15 +72,57 @@ describe("prices", () => {
 
 describe("the purchase label", () => {
   it("counts sold items and the game's own payments, not items that are only granted", () => {
-    const label = purchaseLabelOf([{ item_category: "cosmetic", price_minor_units: 299 }, { item_category: "gameplay", price_minor_units: null }], ["content"]);
+    const label = purchaseLabelOf([{ item_category: "cosmetic", price_minor_units: 299 }, { item_category: "gameplay", price_minor_units: null }], ["content"], null);
     expect(label).toEqual({ categories: ["cosmetic", "content"], has_own_payments: true });
-    expect(purchaseLabelOf([], [])).toEqual({ categories: [], has_own_payments: false });
+    expect(purchaseLabelOf([], [], null)).toEqual({ categories: [], has_own_payments: false });
+  });
+
+  it("leaves out the full game item: a paid game selling nothing else has no in-game purchases", () => {
+    const fullGame = { item_name: "full_game", item_category: "content" as const, price_minor_units: 2499 };
+    expect(purchaseLabelOf([fullGame], [], "full_game")).toEqual({ categories: [], has_own_payments: false });
+    expect(purchaseLabelOf([fullGame, { item_name: "frozen_north", item_category: "content", price_minor_units: 999 }], [], "full_game")).toEqual({ categories: ["content"], has_own_payments: false });
+    expect(purchaseLabelOf([fullGame], [], null)).toEqual({ categories: ["content"], has_own_payments: false });
   });
 
   it("needs a refund policy whenever the game sells anything", () => {
     const none = { refund_policy: null, refund_policy_text: null, own_payment_categories: [], purchase_delivery: "game" as const };
     expect(refusal(() => checkPurchaseSettings({ own_payment_categories: ["currency"] }, none, false))).toEqual({ code: "refund_policy_needed", field: "refund_policy" });
     expect(checkPurchaseSettings({ refund_policy: "no_refunds", own_payment_categories: ["currency", "cosmetic"] }, none, false)).toEqual({ refund_policy: "no_refunds", refund_policy_text: null, own_payment_categories: ["cosmetic", "currency"], purchase_delivery: "game" });
+  });
+});
+
+describe("price ranges", () => {
+  it("cut at $5, $15 and $30 in about US dollars, a price on a cut going up a band", () => {
+    expect(priceRangeOf(null)).toBe("free");
+    const usd = (priceMinorUnits: number) => priceRangeOf({ priceMinorUnits, currencyCode: "usd" });
+    expect([usd(499), usd(500), usd(1499), usd(2499), usd(2999), usd(3000)]).toEqual(["under_5", "5_to_15", "5_to_15", "15_to_30", "15_to_30", "30_and_up"]);
+    // EUR 24.99 is about $28.74.
+    expect(priceRangeOf({ priceMinorUnits: 2499, currencyCode: "eur" })).toBe("15_to_30");
+    expect(priceRangeOf({ priceMinorUnits: 2800, currencyCode: "eur" })).toBe("30_and_up");
+  });
+});
+
+describe("owning a paid game", () => {
+  afterAll(async () => {
+    await env.DB.exec("DELETE FROM purchases; DELETE FROM games; DELETE FROM owners; DELETE FROM accounts;");
+  });
+
+  it("is everyone for a free game; for a paid one its developer and accounts that bought it, not a refund or a guest", async () => {
+    await env.DB.exec("DELETE FROM purchases; DELETE FROM games; DELETE FROM owners; DELETE FROM accounts;");
+    await env.DB.batch(["emma", "alex", "ben"].map((name) => env.DB.prepare("INSERT INTO accounts (id, player_id, username, age_band, created_at_ms, updated_at_ms) VALUES (?, ?, ?, '18+', 0, 0)").bind(`account_${name}`, `player_${name}`, name)));
+    await env.DB.prepare("INSERT INTO owners (id, kind, account_id, created_at_ms) VALUES ('owner_emma', 'person', 'account_emma', 1)").run();
+    const free = await createGame(env.DB, { slug: "sky-hopper", title: "Sky Hopper", description: "", ownerId: "owner_emma" });
+    const paid = { ...(await createGame(env.DB, { slug: "ashfall", title: "Ashfall", description: "", ownerId: "owner_emma" })), full_game_item_name: "full_game" };
+    const account = (name: string) => ({ id: `account_${name}`, player_id: `player_${name}` });
+    await env.DB.batch([
+      env.DB.prepare("INSERT INTO purchases (id, game_id, item_name, item_kind, player_id, purchase_source, purchase_status, created_at_ms) VALUES ('purchase_alex', ?, 'full_game', 'permanent', 'player_alex', 'sale', 'completed', 1)").bind(paid.id),
+      env.DB.prepare("INSERT INTO purchases (id, game_id, item_name, item_kind, player_id, purchase_source, purchase_status, created_at_ms) VALUES ('purchase_ben', ?, 'full_game', 'permanent', 'player_ben', 'sale', 'refunded', 1)").bind(paid.id),
+    ]);
+    expect(await fullGameOwner(env.DB, free, null)).toBe(true);
+    expect(await fullGameOwner(env.DB, paid, null)).toBe(false);
+    expect(await fullGameOwner(env.DB, paid, account("emma"))).toBe(true);
+    expect(await fullGameOwner(env.DB, paid, account("alex"))).toBe(true);
+    expect(await fullGameOwner(env.DB, paid, account("ben"))).toBe(false);
   });
 });
 

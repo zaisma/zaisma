@@ -2,6 +2,7 @@ import { ApiError } from "./errors.ts";
 import { newId } from "./ids.ts";
 import { checkShownText } from "./shown-text.ts";
 import { checkText } from "./text-filter.ts";
+import type { Game } from "./types.ts";
 
 /**
  * What a game sells or grants, and players' purchases and grants of it (docs/DECISIONS.md, "One Zaisma buy
@@ -92,8 +93,9 @@ export const ZERO_DECIMAL_CURRENCIES: readonly string[] = ["bif", "clp", "djf", 
 
 /**
  * About how many US dollars one whole unit of each priced currency is worth, rounded up a little (read Oct 25, 2026).
- * Only for a safety rule that compares a day's buying with a dollar limit (PURCHASE_PIN_LIMITS), never a price or a
- * charge: Stripe converts nothing here, and a rate that drifts moves the limit by a few percent.
+ * Only for a safety rule that compares a day's buying with a dollar limit (PURCHASE_PIN_LIMITS) and Browse's price bands
+ * (priceRangeOf), never a price or a charge: Stripe converts nothing here, and a rate that drifts moves a limit or a band's
+ * edge by a few percent. Reviewed when a currency moves 10%.
  */
 export const APPROXIMATE_USD_PER_CURRENCY_UNIT: Readonly<Record<string, number>> = {
   usd: 1,
@@ -262,18 +264,22 @@ export interface GameItem {
   price_minor_units: number | null;
   currency_code: string | null;
   local_prices: LocalPrice[];
+  /** The game page sells it under Add-ons too, not only the game. */
+  is_on_game_page: boolean;
   created_at_ms: number;
   updated_at_ms: number;
 }
 
-type ItemRow = Omit<GameItem, "local_prices"> & { local_prices: string };
+type ItemRow = Omit<GameItem, "local_prices" | "is_on_game_page"> & { local_prices: string; is_on_game_page: number };
 
-const itemOf = (row: ItemRow): GameItem => ({ ...row, local_prices: JSON.parse(row.local_prices || "[]") as LocalPrice[] });
+const itemOf = (row: ItemRow): GameItem => ({ ...row, local_prices: JSON.parse(row.local_prices || "[]") as LocalPrice[], is_on_game_page: row.is_on_game_page === 1 });
+
+const ITEM_COLUMNS = "item_name, title, description, item_kind, item_category, price_minor_units, currency_code, local_prices, is_on_game_page, created_at_ms, updated_at_ms";
 
 /** A game's items, by name. */
 export async function itemsOf(database: D1Database, gameId: string): Promise<GameItem[]> {
   const { results } = await database
-    .prepare("SELECT item_name, title, description, item_kind, item_category, price_minor_units, currency_code, local_prices, created_at_ms, updated_at_ms FROM game_items WHERE game_id = ? ORDER BY item_name")
+    .prepare(`SELECT ${ITEM_COLUMNS} FROM game_items WHERE game_id = ? ORDER BY item_name`)
     .bind(gameId)
     .all<ItemRow>();
   return results.map(itemOf);
@@ -281,7 +287,7 @@ export async function itemsOf(database: D1Database, gameId: string): Promise<Gam
 
 export async function itemByName(database: D1Database, gameId: string, itemName: string): Promise<GameItem | null> {
   const row = await database
-    .prepare("SELECT item_name, title, description, item_kind, item_category, price_minor_units, currency_code, local_prices, created_at_ms, updated_at_ms FROM game_items WHERE game_id = ? AND item_name = ?")
+    .prepare(`SELECT ${ITEM_COLUMNS} FROM game_items WHERE game_id = ? AND item_name = ?`)
     .bind(gameId, itemName)
     .first<ItemRow>();
   return row ? itemOf(row) : null;
@@ -323,12 +329,12 @@ export function cardFeeNote(currencyCode: string | null, priceMinorUnits: number
 }
 
 /** The fields a whole item takes, besides its name (the path's). */
-export const ITEM_FIELDS = ["title", "description", "item_kind", "item_category", "price_minor_units", "currency_code", "local_prices"] as const;
+export const ITEM_FIELDS = ["title", "description", "item_kind", "item_category", "price_minor_units", "currency_code", "local_prices", "is_on_game_page"] as const;
 
 /** An item's fields, checked: everything game_items stores but its times. */
 export type CheckedItem = Omit<GameItem, "created_at_ms" | "updated_at_ms">;
 
-const ITEM_FIX = "set_item takes the whole item: { item_name, title, description, item_kind, item_category, price_minor_units, currency_code, local_prices }.";
+const ITEM_FIX = "set_item takes the whole item: { item_name, title, description, item_kind, item_category, price_minor_units, currency_code, local_prices, is_on_game_page }.";
 
 function badItem(field: string, message: string, fix: string): ApiError {
   return new ApiError("bad_item", { message, field, fix });
@@ -379,6 +385,9 @@ export function checkItem(itemName: string, input: Record<string, unknown>): Che
   if (!Array.isArray(input.local_prices) || input.local_prices.length > ITEM_LIMITS.maximumLocalPriceCount) {
     throw badItem("local_prices", "local_prices isn't a list of up to 40 { currency_code, price_minor_units }.", "Send [] for none, or a price for each currency you set one in, like [{ \"currency_code\": \"brl\", \"price_minor_units\": 5990 }].");
   }
+  if (typeof input.is_on_game_page !== "boolean") {
+    throw badItem("is_on_game_page", `is_on_game_page ${JSON.stringify(input.is_on_game_page)} isn't true or false.`, "Send true (the game page sells it under Add-ons too) or false (only the game sells it).");
+  }
   let main: LocalPrice | null = null;
   if (input.price_minor_units === null || input.currency_code === null) {
     if (input.price_minor_units !== null || input.currency_code !== null) {
@@ -408,6 +417,7 @@ export function checkItem(itemName: string, input: Record<string, unknown>): Che
     price_minor_units: main?.price_minor_units ?? null,
     currency_code: main?.currency_code ?? null,
     local_prices: localPrices,
+    is_on_game_page: input.is_on_game_page,
   };
 }
 
@@ -496,15 +506,46 @@ export interface PurchaseLabel {
   has_own_payments: boolean;
 }
 
-export function purchaseLabelOf(items: readonly Pick<GameItem, "item_category" | "price_minor_units">[], ownPaymentCategories: readonly ItemCategory[]): PurchaseLabel {
-  const sold = new Set<ItemCategory>([...items.filter((gameItem) => gameItem.price_minor_units !== null).map((gameItem) => gameItem.item_category), ...ownPaymentCategories]);
+/** The full game item (a paid game's price to play) isn't an in-game purchase, so it's left out: a paid game selling nothing else says "No in-game purchases". */
+export function purchaseLabelOf(items: readonly (Pick<GameItem, "item_category" | "price_minor_units"> & { item_name?: string })[], ownPaymentCategories: readonly ItemCategory[], fullGameItemName: string | null): PurchaseLabel {
+  const sold = new Set<ItemCategory>([...items.filter((gameItem) => gameItem.price_minor_units !== null && (fullGameItemName === null || gameItem.item_name !== fullGameItemName)).map((gameItem) => gameItem.item_category), ...ownPaymentCategories]);
   return { categories: ITEM_CATEGORIES.filter((category) => sold.has(category)), has_own_payments: ownPaymentCategories.length > 0 };
 }
 
 /** A game's purchase label from the database: one query for its sold items' categories. */
-export async function purchaseLabelFor(database: D1Database, game: { id: string; own_payment_categories: string }): Promise<PurchaseLabel> {
-  const { results } = await database.prepare("SELECT DISTINCT item_category, 1 AS price_minor_units FROM game_items WHERE game_id = ? AND price_minor_units IS NOT NULL").bind(game.id).all<{ item_category: ItemCategory; price_minor_units: number }>();
-  return purchaseLabelOf(results, purchaseSettingsOf({ refund_policy: null, refund_policy_text: null, own_payment_categories: game.own_payment_categories }).own_payment_categories);
+export async function purchaseLabelFor(database: D1Database, game: { id: string; own_payment_categories: string; full_game_item_name: string | null }): Promise<PurchaseLabel> {
+  const { results } = await database
+    .prepare("SELECT DISTINCT item_category, 1 AS price_minor_units FROM game_items WHERE game_id = ? AND price_minor_units IS NOT NULL AND item_name IS NOT ?")
+    .bind(game.id, game.full_game_item_name)
+    .all<{ item_category: ItemCategory; price_minor_units: number }>();
+  return purchaseLabelOf(results, purchaseSettingsOf({ refund_policy: null, refund_policy_text: null, own_payment_categories: game.own_payment_categories }).own_payment_categories, null);
+}
+
+/** Browse's price filter: a game's price to play, in bands of US dollars (priceRangeOf). */
+export const PRICE_RANGES = ["free", "under_5", "5_to_15", "15_to_30", "30_and_up"] as const;
+export type PriceRange = (typeof PRICE_RANGES)[number];
+
+/**
+ * The band a price to play falls in: free for none, else the price in about US dollars (APPROXIMATE_USD_PER_CURRENCY_UNIT, a fixed
+ * table, so Browse never waits on a live rate and a game's band only shifts when a currency moves a lot), cut at $5, $15 and $30, a
+ * price on a cut going in the band above it ($5.00 is 5_to_15).
+ */
+export function priceRangeOf(price: { priceMinorUnits: number; currencyCode: string } | null): PriceRange {
+  if (!price) return "free";
+  const usdMinorUnits = approximateUsdMinorUnits(price.currencyCode, price.priceMinorUnits) ?? price.priceMinorUnits;
+  return usdMinorUnits < 500 ? "under_5" : usdMinorUnits < 1500 ? "5_to_15" : usdMinorUnits < 3000 ? "15_to_30" : "30_and_up";
+}
+
+/**
+ * Whether a player may play a game that sells itself once (docs/DECISIONS.md, "How paid games work"): every game opens free but a
+ * paid one, which opens to the account that owns its full game item, through a sale or a grant not taken back, and to its developer.
+ * Guests own nothing, so a paid game is false for them.
+ */
+export async function fullGameOwner(database: D1Database, game: Pick<Game, "id" | "owner_id" | "full_game_item_name">, account: { id: string; player_id: string } | null): Promise<boolean> {
+  if (game.full_game_item_name === null) return true;
+  if (!account) return false;
+  if (game.owner_id && (await database.prepare("SELECT 1 AS is_owner FROM owners WHERE id = ? AND account_id = ?").bind(game.owner_id, account.id).first())) return true;
+  return (await owningPurchaseOf(database, game.id, account.player_id, game.full_game_item_name)) !== null;
 }
 
 /** One purchase or grant, as stored. */

@@ -466,7 +466,7 @@ function paymentsPane(settings: Settings): LayoutItem {
       "payments",
       "Payments",
       [
-        words("Players buy in your games and the money goes straight to your own Stripe account. Zaisma takes no cut."),
+        words("Players buy your game once, or things in it, and the money goes straight to your own Stripe account. Zaisma takes no cut."),
         layer(tapSheet("payments-connect", "Connect Stripe?", "Tap your passkey, then finish on Stripe's page. Players' money goes straight to your Stripe account.", `${PAGE}/payments/connect`, "Continue to Stripe")),
       ],
       { end: cutButton("Connect", { type: "button", isSmall: true, controls: "payments-connect" }) },

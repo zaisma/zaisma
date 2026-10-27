@@ -1,5 +1,10 @@
 import {
   ALLOWED_CONTENT,
+  fullGameOwner,
+  itemsOf,
+  ownedItemNames,
+  priceFor,
+  priceText,
   purchaseLabelFor,
   purchaseSettingsOf,
   refundPolicyWords,
@@ -35,8 +40,8 @@ import { gameUrl, type Env } from "./env.ts";
 import { cutButton, runButton, textLink } from "./components/actions.ts";
 import { codeField } from "./components/inputs.ts";
 import { cutField } from "./components/fields.ts";
-import { glanceFacts } from "./components/data.ts";
-import { glassPane, type IconName } from "./components/foundations.ts";
+import { glanceFacts, listRows } from "./components/data.ts";
+import { glassPane, tag, type IconName } from "./components/foundations.ts";
 import { grid, row, stack, track, type LayoutItem } from "./components/layout.ts";
 import { banner, dropdown, sheet } from "./components/panes.ts";
 import { person } from "./components/people.ts";
@@ -45,7 +50,7 @@ import { facts, readingText } from "./components/reading.ts";
 import { backgroundMarkup, backgroundOf } from "./backgrounds.ts";
 import { glassMessage, html, layout, pageData, raw, scriptTags, type Raw } from "./html.ts";
 import { pageScript } from "./page-scripts.ts";
-import { showcase } from "./home.ts";
+import { coverPriceText, paidGamesOwnedBy, showcase } from "./home.ts";
 import { viewerOf } from "./viewer.ts";
 import { SAVES_SCRIPT } from "./saves-client.ts";
 import { reportSheet } from "./report.ts";
@@ -103,7 +108,15 @@ function purchaseWords(purchaseLabel: PurchaseLabel): string {
 export async function gamePage(env: Env, slug: string, request: Request, tester?: TesterLink): Promise<Response> {
   const url = new URL(request.url);
   const game = await gameBySlug(env.DB, slug);
-  if (!game || (!tester && (game.review_status === "pending" || game.visibility === "draft" || game.visibility === "private"))) return glassMessage(env, "Game not found", "Check the link and try again.", 404);
+  if (!game || (!tester && game.review_status === "pending")) return glassMessage(env, "Game not found", "Check the link and try again.", 404);
+  const hidden = game.visibility === "draft" || game.visibility === "private";
+  // A game for older players (docs/DECISIONS.md, "Games can keep out younger age bands"): a younger account
+  // sees its details, closed, and nothing on the page says an age. The viewer's age also picks More games.
+  const viewer = await viewerOf(request, env);
+  // A paid game (docs/DECISIONS.md, "How paid games work") plays for whoever owns it, its developer and tester links; bought means
+  // kept, so its page still opens for an owner after the developer hides it.
+  const isGameOwner = tester ? true : await fullGameOwner(env.DB, game, viewer.account);
+  if (!tester && hidden && !(game.full_game_item_name !== null && isGameOwner && game.live_version_id)) return glassMessage(env, "Game not found", "Check the link and try again.", 404);
   if (game.review_status === "removed") return glassMessage(env, "This game was removed", "It broke Zaisma's content rules or was taken down on request.", 410);
   if (game.review_status === "held") return glassMessage(env, "This game is being reviewed", "Someone reported it and we're taking a look. Try again later.", 404);
   // Blocked in the player's country on a notice under its law, and only there (country-blocks.ts).
@@ -112,16 +125,15 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
   const testerVersion = tester ? await testerLinkVersion(env.DB, game, tester) : null;
   if (tester && !testerVersion) return glassMessage(env, "Nothing to play yet", "The version this link opens isn't there yet: the developer hasn't published one, or it was deleted. Try the link again later.", 404);
   const here = tester ? `/t/${tester.token}` : `/g/${game.slug}`;
-  const hidden = game.visibility === "draft" || game.visibility === "private";
-  // A game for older players (docs/DECISIONS.md, "Games can keep out younger age bands"): a younger account
-  // sees its details, closed, and nothing on the page says an age. The viewer's age also picks More games.
-  const viewer = await viewerOf(request, env);
   const isClosed = Boolean(viewer.account && !isOldEnoughFor(viewer.account.age_band, game.minimum_player_age_years));
+  // A paid game the viewer doesn't own: Buy where Play is, and nothing plays.
+  const isForSale = game.full_game_item_name !== null && !isGameOwner && !isClosed;
 
   const ownServerUrls = ownServerUrlsOf(game);
   // A room link (zaisma.com/g/<slug>?room=CODE) drops the player straight into that match.
   const code = url.searchParams.get("room")?.toUpperCase() ?? "";
-  const inRoom = ROOM_CODE.test(code) && !isClosed;
+  // A paid game's room link, for someone who doesn't own it, opens the details with Buy instead.
+  const inRoom = ROOM_CODE.test(code) && !isClosed && !isForSale;
   // A friend's Join into a room on the game's own servers names the server too (?server=), passed on only when it's one of them.
   // Watch beside Join says watch=1, which the game reads as Zaisma.rooms.isLinkedAsSpectator.
   const roomQuery = inRoom ? `?room=${code}${ownServerParameter(url.searchParams.get("server"), ownServerUrls)}${url.searchParams.get("watch") === "1" ? "&watch=1" : ""}` : "";
@@ -138,7 +150,7 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
   // Rooms on Zaisma have codes players can type into the bar to join (a room link does the same).
   const hasRoomCodes = game.multiplayer_mode !== "none" && !isTestBuild && !isClosed;
   const ownServers = ownServerUrls.map((server) => new URL(server).host);
-  const autoplay = !isClosed && (inRoom || url.searchParams.has("play"));
+  const autoplay = !isClosed && !isForSale && (inRoom || url.searchParams.has("play"));
   // A game that needs an account for the whole game or for multiplayer asks guests to sign in, and brings them back to the same match.
   const accountRequirement = authConfigured(env) ? game.account_requirement : "none";
   // An accounts-only game's public address opens only through the entry Play fetches (handlePlayEntry).
@@ -147,7 +159,7 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
   // A game can ask a guest to sign in while it runs (Zaisma.player.signIn).
   const canSignIn = authConfigured(env);
   const playedVersionId = testerVersion?.id ?? game.live_version_id;
-  const [developer, pictures, updates, others, live, playingNow, playedVersion] = await Promise.all([
+  const [developer, pictures, updates, others, live, playingNow, playedVersion, items, ownedNames, demo, fullGame] = await Promise.all([
     game.owner_id
       ? env.DB.prepare("SELECT accounts.username AS name, (SELECT COUNT(*) FROM games WHERE owner_id = ? AND review_status = 'live' AND visibility = 'listed') AS game_count FROM owners JOIN accounts ON accounts.id = owners.account_id WHERE owners.id = ?").bind(game.owner_id, game.owner_id).first<{ name: string; game_count: number }>()
       : null,
@@ -161,7 +173,21 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
     playingNowCounts(env),
     // Whether the version this page plays needs threads (ScanReport.has_threads), without reading the whole report.
     playedVersionId ? env.DB.prepare("SELECT json_extract(scan_report, '$.has_threads') = 1 AS has_threads FROM versions WHERE id = ?").bind(playedVersionId).first<{ has_threads: number | null }>() : null,
+    // What the page sells: the full game, and the add-ons the developer picked (is_on_game_page), with what the viewer owns of them.
+    isClosed ? [] : itemsOf(env.DB, game.id),
+    viewer.account && !isClosed ? ownedItemNames(env.DB, game.id, viewer.account.player_id) : ([] as string[]),
+    // A paid game's free demo, still there for players; and, on a demo's own page, the paid game that names it.
+    isForSale && game.demo_game_id
+      ? env.DB.prepare("SELECT slug FROM games WHERE id = ? AND owner_id IS ? AND full_game_item_name IS NULL AND review_status = 'live' AND live_version_id IS NOT NULL AND visibility IN ('listed', 'unlisted')").bind(game.demo_game_id, game.owner_id).first<{ slug: string }>()
+      : null,
+    game.full_game_item_name === null && game.owner_id
+      ? env.DB.prepare("SELECT slug FROM games WHERE demo_game_id = ? AND owner_id = ? AND full_game_item_name IS NOT NULL AND review_status = 'live' AND live_version_id IS NOT NULL AND visibility IN ('listed', 'unlisted') ORDER BY slug LIMIT 1").bind(game.id, game.owner_id).first<{ slug: string }>()
+      : null,
   ]);
+  const fullGameItem = items.find((gameItem) => gameItem.item_name === game.full_game_item_name) ?? null;
+  const fullGamePrice = fullGameItem ? priceFor(fullGameItem, countryCode) : null;
+  // Add-ons: the items the developer sells on the page too, priced or owned, but the full game, which is Buy.
+  const addOns = items.filter((gameItem) => gameItem.is_on_game_page && gameItem.item_name !== game.full_game_item_name && (gameItem.price_minor_units !== null || (gameItem.item_kind === "permanent" && ownedNames.includes(gameItem.item_name))));
   const rooms = live && roomsOnPage(game) ? live : null;
   // Checked browsers with the game on screen, and everyone in its rooms (who may have come in another way): the larger.
   const playingNowPlayerCount = Math.max(playingNow.get(game.id) ?? 0, live ? live.playing.playerCount : 0);
@@ -193,17 +219,27 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
     ? `You're testing this game with a link from its developer.${isTestBuild ? ` It opens a version players don't have yet${game.multiplayer_mode !== "none" || ownServers.length ? ", so online play is off: it works only on the version players have" : ""}.` : ""}${hidden ? " It isn't public yet: anyone with this link can play, so only share it with other testers." : ""} Your progress stays in this browser.${tester.ends_at_ms ? ` The link works until ${day(tester.ends_at_ms)}.` : ""}`
     : "";
   const reportHref = `/g/${game.slug}/report`;
-  // The pane's actions: Play (the page's one orange), Details down to About, Share and Report.
+  // The pane's actions: Play (the page's one orange), or Buy for a paid game the viewer doesn't own; Details down to About, a paid
+  // game's demo or a demo's full game, Share and Report.
+  const mainAction = isClosed
+    ? []
+    : !isForSale
+      ? [{ kind: "control" as const, markup: runButton("Play", { id: "play", type: "button", isBig: true, isFullWidth: true, icon: "play" }) }]
+      : fullGamePrice
+        ? [{ kind: "control" as const, markup: runButton("Buy", { id: "buy-game", type: "button", isBig: true, isFullWidth: true, icon: "cart", trailingText: priceText(fullGamePrice.currencyCode, fullGamePrice.priceMinorUnits), dataAttributes: { "buy-item": game.full_game_item_name! } }) }]
+        : [{ kind: "control" as const, markup: runButton("Not on sale right now", { id: "buy-game", type: "button", isBig: true, isFullWidth: true, isDisabled: true }) }];
+  const otherGameLink = demo ? cutButton("Play the demo", { href: `/g/${demo.slug}?play`, isBig: true }) : fullGame ? cutButton("Full game", { href: `/g/${fullGame.slug}?buy`, isBig: true }) : null;
   const paneActions = stack({
     items: [
-      ...(isClosed ? [] : [{ kind: "control" as const, markup: runButton("Play", { id: "play", type: "button", isBig: true, isFullWidth: true, icon: "play" }) }]),
+      ...mainAction,
       {
         kind: "block",
         markup: row({
           widths: "lead-fills",
-          label: "Details, Share and Report",
+          label: otherGameLink ? (demo ? "Details, Play the demo, Share and Report" : "Details, Full game, Share and Report") : "Details, Share and Report",
           items: [
             { kind: "control", markup: cutButton("Details", { href: "#about", isBig: true }) },
+            ...(otherGameLink ? [{ kind: "control" as const, markup: otherGameLink }] : []),
             { kind: "control", markup: cutButton("Share", { id: "share-page", type: "button", icon: "share", isLabelHidden: true, isBig: true, controls: "share-dialog" }) },
             { kind: "control", markup: cutButton("Report", { href: reportHref, icon: "flag", isLabelHidden: true, isBig: true, dataAttributes: { report: "" } }) },
           ],
@@ -211,7 +247,8 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
       },
     ],
   });
-  const accountNote = accountRequirement !== "none" && !isClosed
+  // A paid game's Buy says what's needed, and the buy sheet makes the account.
+  const accountNote = accountRequirement !== "none" && !isClosed && game.full_game_item_name === null
     ? html`<p id="account-note">${accountRequirement === "whole_game" ? "Needs a Zaisma account" : "Playing online needs a Zaisma account"}<span id="account-ask" hidden>. ${textLink("Make one free", `/join?next=${accountNext}`)} or ${textLink("sign in", `/signin?next=${accountNext}`)}${accountRequirement === "whole_game" ? " to play" : " to play with others"}</span>.</p>`
     : null;
   const gamePane = glassPane({
@@ -240,10 +277,27 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
   });
   const description = game.description.trim();
   const developerGames = more.filter((otherGame) => otherGame.owner_id && otherGame.owner_id === game.owner_id);
+  const ownedGameIds = await paidGamesOwnedBy(env, viewer.account, developerGames);
   const sections: LayoutItem[] = [
     ...(rooms ? [section("rooms", "Rooms", [{ kind: "block", markup: codeBox(game.slug) }, { kind: "block", id: "rooms-list", markup: roomsPanel(game, rooms) }])] : []),
     ...(shots.length
       ? [section("screenshots", "Screenshots", [{ kind: "block", markup: track({ id: "screenshots-track", itemSize: "cover", label: "Screenshots", items: shots.map((shot, shotIndex) => ({ kind: "block" as const, markup: screenshot({ imageUrl: shot, label: `Screenshot ${shotIndex + 1} of ${shots.length}`, sheetId: `screenshot-${shotIndex + 1}` }) })) }) }])]
+      : []),
+    ...(addOns.length
+      ? [section("add-ons", "Add-ons", [{
+          kind: "block" as const,
+          markup: listRows({
+            label: "Add-ons",
+            rows: addOns.map((gameItem) => {
+              const price = priceFor(gameItem, countryCode);
+              const isOwned = gameItem.item_kind === "permanent" && ownedNames.includes(gameItem.item_name);
+              const detail = gameItem.description.split("\n")[0]?.trim() || undefined;
+              return isOwned || !price
+                ? { title: gameItem.title, detail, end: tag("Owned", "plain") }
+                : { title: gameItem.title, detail, action: cutButton(priceText(price.currencyCode, price.priceMinorUnits), { type: "button", isSmall: true, dataAttributes: { "buy-item": gameItem.item_name } }) };
+            }),
+          }),
+        }])]
       : []),
     section("about", "About", [
       { kind: "block", markup: readingText({ markup: description ? paragraphs(description) : html`<p>The developer hasn't written about this game yet.</p>` }) },
@@ -255,7 +309,7 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
       ? [section("updates", "Updates", [{ kind: "block", markup: readingText({ markup: html`${updates.results.map((update) => html`<h3>${day(update.published_at_ms)}</h3>${paragraphs(update.patch_notes)}`)}` }) }])]
       : []),
     ...(developerGames.length && developer
-      ? [section("more", `More from ${developer.name}`, [{ kind: "block", markup: grid({ itemSize: "cover", items: developerGames.map((otherGame) => ({ kind: "block" as const, markup: gameCard({ title: otherGame.title, imageUrl: otherGame.cover ?? null, href: `/g/${otherGame.slug}`, facts: { playerCount: otherGame.playing_now_player_count >= MINIMUM_PLAYING_NOW_PLAYER_COUNT ? otherGame.playing_now_player_count : undefined } }) })) }) }])]
+      ? [section("more", `More from ${developer.name}`, [{ kind: "block", markup: grid({ itemSize: "cover", items: developerGames.map((otherGame) => ({ kind: "block" as const, markup: gameCard({ title: otherGame.title, imageUrl: otherGame.cover ?? null, href: `/g/${otherGame.slug}`, facts: { playerCount: otherGame.playing_now_player_count >= MINIMUM_PLAYING_NOW_PLAYER_COUNT ? otherGame.playing_now_player_count : undefined, priceText: coverPriceText(otherGame, ownedGameIds) } }) })) }) }])]
       : []),
   ];
   const screenshotSheets = shots.map((shot, shotIndex) => sheet({ id: `screenshot-${shotIndex + 1}`, title: `${game.title}, screenshot ${shotIndex + 1} of ${shots.length}`, body: screenshotLarge(shot, `${game.title}, screenshot ${shotIndex + 1}`), closeLabel: "Close" }));
@@ -329,7 +383,7 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
     title: `${game.title} on Zaisma`,
     // What chat apps, social sites and search engines read; tester links are secret, so they get none.
     head: tester ? undefined : await gamePageHead(env, game, { roomCode: inRoom ? code : null, developerName: developer?.name ?? null }),
-    checkedPage: tester ? "Tester link" : rooms ? "Game page" : "Game page, no rooms",
+    checkedPage: tester ? "Tester link" : isForSale ? "Game page, for sale" : rooms ? "Game page" : "Game page, no rooms",
     // The game's own world behind the glass, the same the home shows while its cover is pointed at.
     stage: backgroundMarkup(background),
     // The home opens the game page in a frame to play in place; only such a request (a same-site frame) may do it, every other still refuses framing.
@@ -337,8 +391,8 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
     viewer,
     // Cloudflare's invisible check from when the page opens, for play counts and multiplayer (tester links: only for multiplayer).
     hasTurnstileCheck: (!tester || multiplayer) && !isClosed && Boolean(env.TURNSTILE_SITE_KEY),
-    // What a page for older players shows depends on who's looking, so no cache keeps it.
-    isPrivate: game.minimum_player_age_years > 13,
+    // What a page for older players, a paid game's or one with add-ons shows depends on who's looking, so no cache keeps it.
+    isPrivate: game.minimum_player_age_years > 13 || game.full_game_item_name !== null || addOns.length > 0,
     hasStripeFrame: !isClosed,
     body: html`${stack({ items: [{ kind: "block", markup: gamePane }, ...sections] })}
 ${screenshotSheets}
@@ -387,7 +441,7 @@ ${pageData("game-page-data", {
       // A room link is an invitation into a match already underway, and ?play comes from a Play button elsewhere: both skip the details.
       autoplay: autoplay ? (accountRequirement === "whole_game" || (accountRequirement === "multiplayer" && inRoom) ? "when_signed_in" : "always") : "never",
     })}
-${isClosed ? "" : buySheetData({ slug: game.slug, tester_token: tester?.token ?? null, place: "game_page", ...buySheetStripe(env), asked: null, opener_origin: null })}
+${isClosed ? "" : buySheetData({ slug: game.slug, tester_token: tester?.token ?? null, place: "game_page", ...buySheetStripe(env), asked: null, opener_origin: null, opened_item_name: isForSale && fullGamePrice && url.searchParams.has("buy") ? game.full_game_item_name : null })}
 ${saves && !isClosed ? pageData("saves-data", { api: `/api/saves/${game.slug}`, root: gameUrl(env, game.slug), query: roomQuery, frameOrigin: gameOrigin, slug: game.slug, offerAfter: (Number(env.KEEP_OFFER_SECONDS) || 300) * 1000, isAccountOfferEnabled: Boolean(game.account_offer_enabled) }) : ""}
 ${isClosed
       ? scriptTags(GAME_PAGE_SCRIPT, GAME_EMBEDDED_SCRIPT)
@@ -395,7 +449,7 @@ ${isClosed
           GAME_PAGE_SCRIPT,
           ...(tester && !multiplayer ? [] : [PLAY_COUNTER_SCRIPT]),
           ...(saves ? [SAVES_SCRIPT] : []),
-          ...(accountRequirement !== "none" ? [ACCOUNT_GATE_SCRIPT] : []),
+          ...(accountRequirement !== "none" && !isForSale ? [ACCOUNT_GATE_SCRIPT] : []),
           ...(canSignIn ? [SIGN_IN_WHILE_PLAYING_SCRIPT] : []),
           ...(multiplayer ? [STILL_THERE_SCRIPT] : []),
           GAME_LINKS_SCRIPT,
@@ -1073,7 +1127,9 @@ addEventListener("pagehide", () => {
 const ACCOUNT_GATE_SCRIPT = pageScript("account-gate", `// Guests are asked to sign in first, and come back to the same page or match.
 const needsSignIn = !/(^|; )(__Host-)?zaisma_in=1/.test(document.cookie);
 if (needsSignIn) {
-  document.getElementById("account-ask").hidden = false;
+  // A paid game says no "Needs a Zaisma account" (its Buy makes one), so a tester link to it has no ask to show.
+  const accountAsk = document.getElementById("account-ask");
+  if (accountAsk) accountAsk.hidden = false;
   if (gamePage.account_requirement === "whole_game" || gamePage.room_code) {
     const playButton = document.getElementById("play");
     playButton.querySelector(".face > span:not([class])").textContent = "Sign in to play";

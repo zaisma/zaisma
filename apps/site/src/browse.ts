@@ -1,4 +1,4 @@
-import { GENRE_LABELS, GENRES, requestCountryCode, type DeviceKind, type Genre } from "@zaisma/core";
+import { GENRE_LABELS, GENRES, PRICE_RANGES, currencyForCountry, priceRangeOf, requestCountryCode, type DeviceKind, type Genre, type PriceRange } from "@zaisma/core";
 import { textButton } from "./components/actions.ts";
 import { glassPane } from "./components/foundations.ts";
 import { grid, stack, type LayoutItem } from "./components/layout.ts";
@@ -9,7 +9,7 @@ import { gameCard } from "./components/playing.ts";
 import { tabSwitch, type SwitchTab } from "./components/switch.ts";
 import { DEVICE_KIND_SOURCE, viewerDeviceKind } from "./device-kind.ts";
 import type { Env } from "./env.ts";
-import { MINIMUM_POPULAR_PLAYER_COUNT, isTrending, shelfCounts, showcase, trendingScore, type ShelfCount, type ShowGame } from "./home.ts";
+import { MINIMUM_POPULAR_PLAYER_COUNT, coverPriceText, isTrending, paidGamesOwnedBy, shelfCounts, showcase, trendingScore, type ShelfCount, type ShowGame } from "./home.ts";
 import { GAME_SEARCH, html, layout, scriptTags } from "./html.ts";
 import { pageScript } from "./page-scripts.ts";
 import { MINIMUM_PLAYING_NOW_PLAYER_COUNT } from "./plays.ts";
@@ -28,6 +28,8 @@ export type BrowseSort = (typeof BROWSE_SORTS)[number];
 const SORT_LABELS: Record<BrowseSort, string> = { popular: "Popular", trending: "Trending", new: "New", updated: "Updated" };
 
 export type BrowseFilter = "all" | "multiplayer" | Genre;
+/** Browse's price filter (?price=): a game's price to play in bands (priceRangeOf), or any. */
+export type BrowsePriceRange = PriceRange | "any";
 
 /** Covers a page of Browse shows; the next page loads as you scroll. */
 export const BROWSE_PAGE_GAME_COUNT = 48;
@@ -42,20 +44,23 @@ export interface BrowseGame extends ShowGame {
 export interface BrowseQuery {
   sort: BrowseSort;
   filter: BrowseFilter;
+  priceRange: BrowsePriceRange;
   /** Trimmed; "" for none. */
   searchText: string;
   /** From 1. */
   pageNumber: number;
 }
 
-/** What the link asks for; anything unknown falls back to the default (Popular, All, no search, the first page). */
+/** What the link asks for; anything unknown falls back to the default (Popular, All, any price, no search, the first page). */
 export function browseQuery(url: URL): BrowseQuery {
   const sort = url.searchParams.get("sort");
   const filter = url.searchParams.get("filter");
+  const priceRange = url.searchParams.get("price");
   const pageNumber = Number(url.searchParams.get("page"));
   return {
     sort: (BROWSE_SORTS as readonly string[]).includes(sort ?? "") ? (sort as BrowseSort) : "popular",
     filter: filter === "multiplayer" || (GENRES as readonly string[]).includes(filter ?? "") ? (filter as BrowseFilter) : "all",
+    priceRange: (PRICE_RANGES as readonly string[]).includes(priceRange ?? "") ? (priceRange as PriceRange) : "any",
     searchText: (url.searchParams.get("search_text") ?? "").trim().slice(0, MAXIMUM_SEARCH_CHARACTER_COUNT),
     pageNumber: Number.isInteger(pageNumber) && pageNumber > 1 ? pageNumber : 1,
   };
@@ -89,7 +94,7 @@ function matchesSearch(game: ShowGame, searchText: string): boolean {
  * Trending rank by the home shelves' own counting (shelfCounts), with every game below a shelf's floor after the ranked ones, newest
  * update first, so nothing listed is left out; a game Zaisma keeps off the shelves is listed but ranks as if nobody played it.
  */
-export async function browseGames(env: Env, options: { sort: BrowseSort; filter: BrowseFilter; searchText: string; deviceKind: DeviceKind; viewerAgeFloorYears: number; countryCode: string | null; nowMs?: number }): Promise<BrowseGame[]> {
+export async function browseGames(env: Env, options: { sort: BrowseSort; filter: BrowseFilter; priceRange: BrowsePriceRange; searchText: string; deviceKind: DeviceKind; viewerAgeFloorYears: number; countryCode: string | null; nowMs?: number }): Promise<BrowseGame[]> {
   const [games, { counts }] = await Promise.all([
     showcase(env, options.viewerAgeFloorYears, Number.MAX_SAFE_INTEGER, options.countryCode),
     shelfCounts(env, options.viewerAgeFloorYears, options.nowMs),
@@ -117,10 +122,27 @@ export async function browseGames(env: Env, options: { sort: BrowseSort; filter:
   const chosen = games
     .filter((game) => options.filter === "all" || (options.filter === "multiplayer" ? game.is_multiplayer : game.genres.includes(options.filter)))
     .filter((game) => matchesSearch(game, options.searchText))
+    .filter((game) => matchesPriceRange(game, options.priceRange))
     .sort(order[options.sort])
     .map((game): BrowseGame => ({ ...game, device_note: deviceNote(game, options.deviceKind) }));
   // The device's own first, each part keeping the sort's order.
   return [...chosen.filter((game) => !game.device_note), ...chosen.filter((game) => game.device_note)];
+}
+
+/**
+ * Whether a game's price to play is in the range: a free game, with in-game purchases or not, is free; a paid game not on sale right now
+ * is in no range but any.
+ */
+function matchesPriceRange(game: Pick<ShowGame, "is_paid" | "full_game_price">, priceRange: BrowsePriceRange): boolean {
+  if (priceRange === "any") return true;
+  if (game.is_paid && !game.full_game_price) return false;
+  return priceRangeOf(game.full_game_price) === priceRange;
+}
+
+/** The price filter's words, with the viewer's currency symbol where it's the dollar, the euro or the pound, else in US dollars. */
+function priceRangeLabels(countryCode: string | null): Record<BrowsePriceRange, string> {
+  const symbol = { usd: "$", eur: "€", gbp: "£" }[currencyForCountry(countryCode) ?? "usd"] ?? "$";
+  return { any: "Any price", free: "Free", under_5: `Under ${symbol}5`, "5_to_15": `${symbol}5 to ${symbol}15`, "15_to_30": `${symbol}15 to ${symbol}30`, "30_and_up": `${symbol}30 and up` };
 }
 
 /** A link to Browse with this query, leaving out what's the default. */
@@ -128,19 +150,20 @@ export function browseHref(query: Partial<BrowseQuery>): string {
   const parameters = new URLSearchParams();
   if (query.sort && query.sort !== "popular") parameters.set("sort", query.sort);
   if (query.filter && query.filter !== "all") parameters.set("filter", query.filter);
+  if (query.priceRange && query.priceRange !== "any") parameters.set("price", query.priceRange);
   if (query.searchText) parameters.set("search_text", query.searchText);
   if (query.pageNumber && query.pageNumber > 1) parameters.set("page", String(query.pageNumber));
   const search = parameters.toString();
   return `/games${search ? `?${search}` : ""}`;
 }
 
-const coverOf = (game: BrowseGame, coverIndex: number): LayoutItem => ({
+const coverOf = (game: BrowseGame, coverIndex: number, ownedGameIds: ReadonlySet<string>): LayoutItem => ({
   kind: "block",
   markup: gameCard({
     title: game.title,
     imageUrl: game.cover,
     href: `/g/${game.slug}`,
-    facts: { deviceNote: game.device_note ?? undefined, playerCount: game.playing_now_player_count >= MINIMUM_PLAYING_NOW_PLAYER_COUNT ? game.playing_now_player_count : undefined },
+    facts: { deviceNote: game.device_note ?? undefined, playerCount: game.playing_now_player_count >= MINIMUM_PLAYING_NOW_PLAYER_COUNT ? game.playing_now_player_count : undefined, priceText: coverPriceText(game, ownedGameIds) },
     // The first row loads with the page, the very first cover before anything else.
     isEager: coverIndex < 6,
     hasHighPriority: coverIndex === 0,
@@ -162,18 +185,21 @@ function otherDevicesWords(games: BrowseGame[]): string {
 function browseState(query: BrowseQuery, isSignedIn: boolean, gameCount: number): CheckedPageName {
   if (query.searchText) return gameCount ? "Games, a search" : "Games, nothing found";
   if (query.filter !== "all") return gameCount ? (query.filter === "multiplayer" ? "Games, multiplayer" : "Games, one genre") : "Games, an empty genre";
+  if (query.priceRange !== "any") return gameCount ? "Games, a price range" : "Games, an empty price range";
   return isSignedIn ? "Games, signed in" : "Games";
 }
 
 /** The results: this page's covers for the viewer's device, then those for others after their divider, then Load more or nothing. */
-function results(query: BrowseQuery, games: BrowseGame[]): LayoutItem[] {
+function results(query: BrowseQuery, games: BrowseGame[], ownedGameIds: ReadonlySet<string>): LayoutItem[] {
   if (!games.length) {
     const filterLabel = query.filter === "multiplayer" ? "multiplayer" : query.filter === "all" ? "" : GENRE_LABELS[query.filter].toLowerCase();
     const state = query.searchText
       ? emptyState({ title: `No games match "${query.searchText}"`, text: "Try a game's title, its developer or a genre.", action: textButton("Clear search", { href: browseHref({ ...query, searchText: "", pageNumber: 1 }) }) })
       : query.filter !== "all"
         ? emptyState({ title: `No ${filterLabel} games yet`, text: "Every listed game is under All.", action: textButton("All games", { href: browseHref({ sort: query.sort }) }) })
-        : emptyState({ title: "No games yet", text: "The first games are on their way." });
+        : query.priceRange !== "any"
+          ? emptyState({ title: "No games in this price range yet", text: "Every listed game is under Any price.", action: textButton("Any price", { href: browseHref({ ...query, priceRange: "any", pageNumber: 1 }) }) })
+          : emptyState({ title: "No games yet", text: "The first games are on their way." });
     return [{ kind: "block", markup: state }];
   }
   const firstIndex = (query.pageNumber - 1) * BROWSE_PAGE_GAME_COUNT;
@@ -184,11 +210,11 @@ function results(query: BrowseQuery, games: BrowseGame[]): LayoutItem[] {
   const hasMore = firstIndex + BROWSE_PAGE_GAME_COUNT < games.length;
   return [
     // Both lists are always there, so Load more can add to either; an empty one takes no room until a page brings it covers.
-    { kind: "block", isHidden: !fitting.length && query.pageNumber === 1 && Boolean(others.length), markup: grid({ id: "browse-games", itemSize: "cover", label: "Games", items: fitting.map(coverOf) }) },
+    { kind: "block", isHidden: !fitting.length && query.pageNumber === 1 && Boolean(others.length), markup: grid({ id: "browse-games", itemSize: "cover", label: "Games", items: fitting.map((game, coverIndex) => coverOf(game, coverIndex, ownedGameIds)) }) },
     {
       kind: "block",
       isHidden: !others.length,
-      markup: stack({ items: [{ kind: "words", markup: dividerWords(otherDevicesWords(allOthers)) }, { kind: "block", markup: grid({ id: "browse-other-games", itemSize: "cover", label: "Games made for other devices", items: others.map((game, coverIndex) => coverOf(game, fitting.length + coverIndex)) }) }] }),
+      markup: stack({ items: [{ kind: "words", markup: dividerWords(otherDevicesWords(allOthers)) }, { kind: "block", markup: grid({ id: "browse-other-games", itemSize: "cover", label: "Games made for other devices", items: others.map((game, coverIndex) => coverOf(game, fitting.length + coverIndex, ownedGameIds)) }) }] }),
     },
     ...(hasMore
       ? [{ kind: "block" as const, markup: loadMore({ href: browseHref({ ...query, pageNumber: query.pageNumber + 1 }), label: "More games", listId: "browse-games", moreListIds: ["browse-other-games"], isLoadedOnScroll: true }) }]
@@ -201,13 +227,18 @@ export async function browsePage(env: Env, request: Request): Promise<Response> 
   const query = browseQuery(new URL(request.url));
   const viewer = await viewerOf(request, env);
   const deviceKind = viewerDeviceKind(request);
-  const games = await browseGames(env, { ...query, deviceKind, viewerAgeFloorYears: viewer.ageFloorYears, countryCode: requestCountryCode(request) });
+  const countryCode = requestCountryCode(request);
+  const games = await browseGames(env, { ...query, deviceKind, viewerAgeFloorYears: viewer.ageFloorYears, countryCode });
+  const firstIndex = (query.pageNumber - 1) * BROWSE_PAGE_GAME_COUNT;
+  const ownedGameIds = await paidGamesOwnedBy(env, viewer.account, games.slice(firstIndex, firstIndex + BROWSE_PAGE_GAME_COUNT));
   const sortTabs: SwitchTab[] = BROWSE_SORTS.map((sort) => ({ label: SORT_LABELS[sort], href: browseHref({ ...query, sort, pageNumber: 1 }), isCurrent: query.sort === sort }));
   const filterTabs: SwitchTab[] = (["all", "multiplayer", ...GENRES] as BrowseFilter[]).map((filter) => ({
     label: filter === "all" ? "All" : filter === "multiplayer" ? "Multiplayer" : GENRE_LABELS[filter],
     href: browseHref({ ...query, filter, pageNumber: 1 }),
     isCurrent: query.filter === filter,
   }));
+  const priceLabels = priceRangeLabels(countryCode);
+  const priceTabs: SwitchTab[] = (["any", ...PRICE_RANGES] as BrowsePriceRange[]).map((priceRange) => ({ label: priceLabels[priceRange], href: browseHref({ ...query, priceRange, pageNumber: 1 }), isCurrent: query.priceRange === priceRange }));
   const body = html`<div id="browse" data-device-kind="${deviceKind}">${glassPane({
     paneWidth: "full",
     label: "Browse",
@@ -216,7 +247,8 @@ export async function browsePage(env: Env, request: Request): Promise<Response> 
         { kind: "words", markup: html`<h1>${query.searchText ? `Games matching "${query.searchText}"` : "Browse"}</h1>` },
         { kind: "control", markup: tabSwitch({ label: "Sort", switchSize: "small", tabs: sortTabs }) },
         { kind: "control", markup: tabSwitch({ label: "Genre", switchSize: "small", isFramed: true, tabs: filterTabs }) },
-        ...results(query, games),
+        { kind: "control", markup: tabSwitch({ label: "Price", switchSize: "small", isFramed: true, tabs: priceTabs }) },
+        ...results(query, games, ownedGameIds),
       ],
     }),
   })}</div>`;
@@ -227,7 +259,7 @@ export async function browsePage(env: Env, request: Request): Promise<Response> 
     nav: "browse",
     viewer,
     checkedPage: browseState(query, viewer.account !== null && viewer.account !== undefined, games.length),
-    search: { ...GAME_SEARCH, searchText: query.searchText, keep: { ...(query.sort !== "popular" ? { sort: query.sort } : {}), ...(query.filter !== "all" ? { filter: query.filter } : {}) } },
+    search: { ...GAME_SEARCH, searchText: query.searchText, keep: { ...(query.sort !== "popular" ? { sort: query.sort } : {}), ...(query.filter !== "all" ? { filter: query.filter } : {}), ...(query.priceRange !== "any" ? { price: query.priceRange } : {}) } },
     body: html`${body}${scriptTags(BROWSE_SCRIPT)}`,
   });
   // The order depends on the device, so a cache keeps one copy per device cookie.

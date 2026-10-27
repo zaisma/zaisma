@@ -27,6 +27,7 @@ import {
   audit,
   checkDetails,
   settleMinimumAge,
+  settlePaidGame,
   checkSlug,
   createGame,
   deleteImageRow,
@@ -211,7 +212,7 @@ import { alertIfNoticeFixPublished } from "./notices.ts";
  *   GET    /api/dev/games                      your games
  *   POST   /api/dev/games                      make a game (starts as a draft)
  *   GET    /api/dev/games/:slug                one game, with its images, backgrounds, shaders, versions and tester links
- *   PATCH  /api/dev/games/:slug                title, description, visibility, devices, controls, genres, screen_orientation, play_modes, cloud_saves_enabled, account_offer_enabled, deleted_account_erase_enabled, friend_joins_enabled, performance_measuring_enabled, room_browsing, multiplayer_mode, account_requirement, minimum_player_age_years, game_server_allowed_hosts, own_server_urls, links, glass_tint_color
+ *   PATCH  /api/dev/games/:slug                title, description, visibility, devices, controls, genres, screen_orientation, play_modes, cloud_saves_enabled, account_offer_enabled, deleted_account_erase_enabled, friend_joins_enabled, performance_measuring_enabled, room_browsing, multiplayer_mode, account_requirement, minimum_player_age_years, game_server_allowed_hosts, own_server_urls, links, glass_tint_color, demo_game_slug, full_game_item_name
  *   POST   /api/dev/games/:slug/images?kind=   add a cover, screenshot, background picture or shader texture (the image bytes as the body)
  *   DELETE /api/dev/games/:slug/images/:id     remove one
  *   POST   /api/dev/games/:slug/shaders        send a background shader: { screen, image, buffers } (see backgrounds-api.ts)
@@ -548,7 +549,7 @@ const naming = (what: "game" | "game_list" | "files" | "forum_topic"): ApiInput 
 
 /** What a tester link opens and until when, besides its name. */
 const TESTER_LINK_INPUTS = ["version_choice", "picked_version_id", "ends_at"];
-const GAME_DETAIL_INPUTS = ["title", "description", "devices", "controls", "genres", "screen_orientation", "play_modes", "cloud_saves_enabled", "account_offer_enabled", "deleted_account_erase_enabled", "friend_joins_enabled", "performance_measuring_enabled", "multiplayer_mode", "room_browsing", "account_requirement", "minimum_player_age_years", "game_server_allowed_hosts", "own_server_urls", "links", "glass_tint_color"];
+const GAME_DETAIL_INPUTS = ["title", "description", "devices", "controls", "genres", "screen_orientation", "play_modes", "cloud_saves_enabled", "account_offer_enabled", "deleted_account_erase_enabled", "friend_joins_enabled", "performance_measuring_enabled", "multiplayer_mode", "room_browsing", "account_requirement", "minimum_player_age_years", "game_server_allowed_hosts", "own_server_urls", "links", "glass_tint_color", "demo_game_slug"];
 const FORUM_POST_INPUTS = ["text_markdown", "debug_context", "author_kind", "images_base64"];
 /** Posts carry their images inline as base64, so they can be big. */
 const MAXIMUM_FORUM_POST_BODY_SIZE_BYTES = 72 * 1024 * 1024;
@@ -580,7 +581,7 @@ export const API_ROUTES: readonly ApiRoute[] = [
   call({ method: "GET", path: "/games", reaches: "account", access: needs("game_access", "read") }),
   call({ method: "POST", path: "/games", reaches: "account", access: needs("game_access", "write"), isAccountWide: true, isPublishing: true, body: { inputs: plainInputs("slug", ...GAME_DETAIL_INPUTS) } }),
   call({ method: "GET", path: "/games/:slug", reaches: "game", access: needs("game_access", "read"), pathParts: atGame }),
-  call({ method: "PATCH", path: "/games/:slug", reaches: "game", access: needs("game_access", "write"), pathParts: atGame, body: { inputs: { ...plainInputs("visibility", ...GAME_DETAIL_INPUTS), monthly_budget_cents: needsToo("credit_access", "write", "the game's budget stays as it is") } } }),
+  call({ method: "PATCH", path: "/games/:slug", reaches: "game", access: needs("game_access", "write"), pathParts: atGame, body: { inputs: { ...plainInputs("visibility", ...GAME_DETAIL_INPUTS), monthly_budget_cents: needsToo("credit_access", "write", "the game's budget stays as it is"), full_game_item_name: needsToo("purchase_access", "write", "the game's price to play stays as it is") } } }),
   call({ method: "POST", path: "/games/:slug/images", reaches: "game", access: needs("game_access", "write"), pathParts: atGame, query: plainInputs("kind"), body: "bytes" }),
   call({ method: "DELETE", path: "/games/:slug/images/:image_id", reaches: "game", access: needs("game_access", "write"), pathParts: { slug: "game", image_id: "in_game" } }),
   call({ method: "POST", path: "/games/:slug/shaders", reaches: "game", access: needs("game_access", "write"), pathParts: atGame, body: { inputs: plainInputs(...SHADER_INPUTS), maximumSizeBytes: MAXIMUM_SHADER_BODY_SIZE_BYTES } }),
@@ -924,7 +925,7 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
     if ((owned?.game_count ?? 0) >= MAXIMUM_GAME_COUNT_PER_OWNER) {
       throw new ApiError("too_many_games", { message: `You have ${MAXIMUM_GAME_COUNT_PER_OWNER} games, the most an account can have.`, fix: "Ask Zaisma (message_zaisma, kind gap) if you need more." });
     }
-    const details = settledMinimumAge({ minimum_player_age_years: 13, account_requirement: "none" }, checkDetailsOrThrow({ ...body, title }));
+    const details = await settledPaidGame(env, { id: "", owner_id: caller.ownerId, full_game_item_name: null, account_requirement: "none", title }, settledMinimumAge({ minimum_player_age_years: 13, account_requirement: "none" }, checkDetailsOrThrow({ ...body, title })));
     if (details.links) details.links = await checkLinkSites(details.links, [], { dnsUrl: env.LINK_CHECK_DNS_URL });
     let made = await createGame(env.DB, { slug, title, description: details.description ?? "", ownerId: caller.ownerId, visibility: "draft" });
     await applyDetails(env.DB, made, { ...details, title: undefined, description: undefined });
@@ -1026,7 +1027,7 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
 
   if (!isImages && method === "PATCH") {
     const { monthly_budget_cents: budgetGiven, ...detailBody } = checked.body;
-    const change = settledMinimumAge(game, checkDetailsOrThrow(detailBody));
+    const change = await settledPaidGame(env, game, settledMinimumAge(game, checkDetailsOrThrow(detailBody)));
     if (budgetGiven !== undefined) await changeBudget(env, game, budgetGiven, caller);
     if (game.review_status === "removed" && change.visibility) {
       throw gameRemoved(game, "its visibility can't change", "visibility");
@@ -1085,6 +1086,10 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
     const changed = (await gameBySlug(env.DB, game.slug))!;
     // Setting the game for 16 or 18 and up passes the versions held only for lifelike gore.
     const passedForGore = change.minimum_player_age_years !== undefined && change.minimum_player_age_years >= LIFELIKE_GORE_MINIMUM_PLAYER_AGE_YEARS ? await passVersionsHeldForGore(env, changed, caller.actor) : [];
+    // A game that now sells itself states its refund policy before anything goes on sale.
+    const refundPolicySteps: NextStep[] = change.full_game_item_name && !changed.refund_policy
+      ? [{ tool: "set_purchase_settings", arguments: { slug: game.slug }, after_sec: null, reason: "A game states its refund policy before anything goes on sale: players can't buy the full game until set_purchase_settings sets refund_policy." }]
+      : [];
     const goreSteps: NextStep[] = passedForGore.length
       ? [{ tool: "get_version", arguments: { slug: game.slug, version_id: passedForGore[0]!.id }, after_sec: null, reason: "It passed now that the game is for 16 and up." }]
       : [];
@@ -1092,7 +1097,7 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
       game: await gameJson(env, changed),
       review_message: isWaitingForReview ? "The new title or description is checked in about a minute, then shows." : null,
       game_server_problem: gameServerProblem,
-      next_steps: [...goreSteps, ...(await nextStepsAfterDetails(env, changed, gameServerProblem))],
+      next_steps: [...goreSteps, ...refundPolicySteps, ...(await nextStepsAfterDetails(env, changed, gameServerProblem))],
     });
   }
 
@@ -1300,6 +1305,16 @@ function checkDetailsOrThrow(body: Record<string, unknown>) {
 /** A change with the game's minimum age settled: whole_game added when it's above 13, or the error answer for a contradiction. */
 function settledMinimumAge(game: Pick<Game, "minimum_player_age_years" | "account_requirement">, change: DetailsChange): DetailsChange {
   const settled = settleMinimumAge(game, change);
+  if ("problem" in settled) {
+    const { field, message, fix, code } = settled.problem;
+    throw new ApiError(code as ErrorCode, { message, field, fix });
+  }
+  return settled.change;
+}
+
+/** A change with the game's price to play settled (settlePaidGame): whole_game added for a paid game, the demo found, or the error answer. */
+async function settledPaidGame(env: Env, game: Parameters<typeof settlePaidGame>[1], change: DetailsChange): Promise<DetailsChange> {
+  const settled = await settlePaidGame(env.DB, game, change);
   if ("problem" in settled) {
     const { field, message, fix, code } = settled.problem;
     throw new ApiError(code as ErrorCode, { message, field, fix });
@@ -2565,6 +2580,9 @@ export async function gameJson(env: Env, game: Game) {
     monthly_budget_cents: game.monthly_budget_cents,
     // What the game page says it sells, from its items: pages and AIs read the label from here alone.
     purchase_label: await purchaseLabelFor(env.DB, game),
+    // The permanent content item a player buys to play; null: free to play. Its demo, another of the developer's games, by slug.
+    full_game_item_name: game.full_game_item_name,
+    demo_game_slug: game.demo_game_id ? ((await env.DB.prepare("SELECT slug FROM games WHERE id = ?").bind(game.demo_game_id).first<{ slug: string }>())?.slug ?? null) : null,
     refund_policy: game.refund_policy,
     refund_policy_text: game.refund_policy_text,
     updated_at: iso(game.updated_at_ms),

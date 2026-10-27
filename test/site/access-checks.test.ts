@@ -180,7 +180,7 @@ const SAMPLES: Record<string, (world: World) => Sample> = {
   "DELETE /games/:slug/secrets/:secret_name": () => ({}),
   "GET /games/:slug/kept-rooms": () => ({}),
   "GET /games/:slug/items": () => ({}),
-  "PUT /games/:slug/items/:item_name": () => ({ body: { title: "Revive", description: "", item_kind: "consumable", item_category: "gameplay", price_minor_units: 149, currency_code: "usd", local_prices: [] } }),
+  "PUT /games/:slug/items/:item_name": () => ({ body: { title: "Revive", description: "", item_kind: "consumable", item_category: "gameplay", price_minor_units: 149, currency_code: "usd", local_prices: [], is_on_game_page: false } }),
   // An item nobody owns: one players own stays (item_has_owners).
   "DELETE /games/:slug/items/:item_name": () => ({ pathValues: { item_name: "spare_cape" } }),
   "PATCH /games/:slug/purchase-settings": () => ({ body: { refund_policy: "within_14_days" } }),

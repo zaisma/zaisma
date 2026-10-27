@@ -675,6 +675,9 @@ Zaisma preview is running. Nothing here touches the live site.
                   given and never sold; Preview_Studio's Stripe is connected (${STRIPE_TEST_VARS ? "connect your own Stripe test account on the dashboard" : "the stand-in's"}); as Card_Keeper (saved card, owns Straw Hat: buys with one press),
                   Pin_Keeper (purchase PIN ${PURCHASE_PIN}: every saved-card buy asks for it), Moss_Runner (neither) or Saved_Farmer (no email or passkey); as a guest the sheet asks to sign in)
                   ${SITE}/g/seaside-stand?play  (its developer has no Stripe connected: its Extra Lemons answer stripe_not_connected)
+  Paid game       ${SITE}/g/ashfall  (sells itself for $24.99: Buy where Play is, Play the demo, Add-ons; as Card_Keeper, who owns it and the
+                  Supporter pack: Play and Owned; ${SITE}/g/ashfall?buy as Moss_Runner opens the sheet; ${SITE}/g/ashfall-demo links Full game;
+                  ${SITE}/games?price=15_to_30 filters by price, and covers carry the price for anyone who doesn't own it)
   Leaving Zaisma  ${SITE}/g/tiny-farm?play  (its link buttons: Seed shop and Patreon open for everyone, Discord only
                   for signed-in adults, Free prize for nobody; its links are on ${SITE}/dashboard/tiny-farm/details#links)
   Share cards     ${SITE}/g/shard-dodge  (its developer links in each site's look: Discord and the website only signed in
@@ -1014,6 +1017,8 @@ async function seed() {
   }
   await seedBuySheet(api, upload, approveNewest);
   stepDone("buy sheet");
+  await seedPaidGame(api, upload, approveNewest, go, form);
+  stepDone("paid game");
   // Shard Dodge's links on its game page, each in its site's look (Discord and the website only for
   // signed-in adults), and a share picture of its own that shared links show instead of the cover.
   await api("PATCH", "/games/shard-dodge", {
@@ -1864,7 +1869,7 @@ async function seedBuySheet(api, upload, approveNewest) {
   await api("POST", `/games/${game.slug}/versions/${await approveNewest(game.slug)}/publish`);
   await api("PATCH", `/games/${game.slug}`, { visibility: "unlisted" });
   await api("PATCH", `/games/${game.slug}/purchase-settings`, { refund_policy: "no_refunds" });
-  await api("PUT", `/games/${game.slug}/items/extra_lemons`, { title: "Extra Lemons", description: "A crate of lemons for the stand.", item_kind: "consumable", item_category: "gameplay", price_minor_units: 299, currency_code: "usd", local_prices: [] });
+  await api("PUT", `/games/${game.slug}/items/extra_lemons`, { title: "Extra Lemons", description: "A crate of lemons for the stand.", item_kind: "consumable", item_category: "gameplay", price_minor_units: 299, currency_code: "usd", local_prices: [], is_on_game_page: false });
 
   await signedIn({ name: "Card_Keeper", email: "card@example.test", year: "1992" }, "198.51.100.233");
   const withPin = await signedIn({ name: "Pin_Keeper", email: "pin@example.test", year: "1993" }, "198.51.100.234");
@@ -1877,6 +1882,38 @@ async function seedBuySheet(api, upload, approveNewest) {
   // Setting a PIN needs the password and an email or passkey on the account.
   const pinResponse = await withPin("/api/account/purchase-pin", JSON.stringify({ purchase_pin: PURCHASE_PIN, password: PASSWORD }), "PUT");
   if (!pinResponse.ok) console.log(`  Couldn't set Pin_Keeper's purchase PIN: ${pinResponse.status} ${await pinResponse.text()}`);
+}
+
+/**
+ * A game that sells itself once (docs/DECISIONS.md, "How paid games work"): Ashfall, $24.99 (€24.99 in the euro area), with two add-ons
+ * on its page, The Frozen North and a Supporter pack, and Ashfall Demo, free, as its demo. Card_Keeper owns Ashfall and the Supporter
+ * pack (granted, as a backer would be); Moss_Runner owns nothing. Both games are Preview_Studio's, whose Stripe is connected.
+ */
+async function seedPaidGame(api, upload, approveNewest, go, form) {
+  const made = [];
+  for (const [title, description, color] of [
+    ["Ashfall Demo", "The first hour of Ashfall, free: climb out of the ash and reach the first city.", [90, 70, 60]],
+    ["Ashfall", "A volcanic world swallowed the old kingdoms. Climb the ash fields, rebuild the last city and find out what woke the mountain.", [180, 80, 40]],
+  ]) {
+    const { game } = await api("POST", "/games", { title, description, devices: ["computer"], controls: ["keyboard_mouse", "gamepad"], play_modes: [{ mode: "single" }], genres: ["adventure", "role_playing"] });
+    await upload("examples/hello-game", game.slug, "First version.");
+    await api("POST", `/games/${game.slug}/versions/${await approveNewest(game.slug)}/publish`);
+    for (const [kind, n] of [["screenshot", 4], ["cover", 0]]) {
+      const { image } = await api("POST", `/games/${game.slug}/images?kind=${kind}`, picture(color, n));
+      await go(`/admin/images/${image.id}/approve`, form({ reason: "" }));
+    }
+    await api("PATCH", `/games/${game.slug}`, { visibility: "listed" });
+    made.push(game.slug);
+  }
+  const [demoSlug, slug] = made;
+  await api("PATCH", `/games/${slug}/purchase-settings`, { refund_policy: "within_14_days" });
+  const item = (title, description, itemCategory, priceMinorUnits, isOnGamePage, localPrices = []) => ({ title, description, item_kind: "permanent", item_category: itemCategory, price_minor_units: priceMinorUnits, currency_code: "usd", local_prices: localPrices, is_on_game_page: isOnGamePage });
+  await api("PUT", `/games/${slug}/items/full_game`, item("Ashfall", "The whole game.", "content", 2499, false, [{ currency_code: "eur", price_minor_units: 2499 }]));
+  await api("PUT", `/games/${slug}/items/frozen_north`, item("The Frozen North", "A new region past the glacier, with eight hours of story.", "content", 999, true));
+  await api("PUT", `/games/${slug}/items/supporter_pack`, item("Supporter pack", "A cape, a banner for your city and the soundtrack.", "cosmetic", 499, true));
+  await api("PATCH", `/games/${slug}`, { full_game_item_name: "full_game", demo_game_slug: demoSlug });
+  const [{ player_id: cardKeeperPlayerId }] = querySql("SELECT player_id FROM accounts WHERE username = 'Card_Keeper'");
+  for (const itemName of ["full_game", "supporter_pack"]) await api("POST", `/games/${slug}/purchases`, { player_id: cardKeeperPlayerId, item_name: itemName });
 }
 
 /**

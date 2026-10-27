@@ -599,9 +599,9 @@ describe("items", () => {
     expect(result.exitCode).toBe(0);
     const changes = calls.filter((call) => call.method !== "GET");
     expect(changes.map((call) => `${call.method} ${call.path}`)).toEqual(["PUT /games/sky-hopper/items/revive", "PUT /games/sky-hopper/items/speed_boost", "DELETE /games/sky-hopper/items/gold_crown"]);
-    expect(changes[0]!.body).toEqual({ title: "Revive", description: "", item_kind: "consumable", item_category: "gameplay", price_minor_units: 149, currency_code: "usd", local_prices: [] });
+    expect(changes[0]!.body).toEqual({ title: "Revive", description: "", item_kind: "consumable", item_category: "gameplay", price_minor_units: 149, currency_code: "usd", local_prices: [], is_on_game_page: false });
     // Fields an item leaves out are sent as nothing set, so the API gets the whole item.
-    expect(changes[1]!.body).toMatchObject({ description: "", local_prices: [] });
+    expect(changes[1]!.body).toMatchObject({ description: "", local_prices: [], is_on_game_page: false });
     expect(json(result.stdout)).toMatchObject({ set_item_names: ["revive", "speed_boost"], removed_item_names: ["gold_crown"] });
   });
 

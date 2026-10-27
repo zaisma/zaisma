@@ -164,7 +164,7 @@ const detailsByApi = (field: string, wrap: (value: string) => unknown = (value) 
   "api:PATCH /games/:slug": (value) => api(`/games/${gameSlug}`, { method: "PATCH", body: { [field]: wrap(value) } }),
 });
 /** A whole item that's only granted, for set_item, with its title and description. */
-const ITEM = (title: string, description: string) => ({ title, description, item_kind: "permanent", item_category: "cosmetic", price_minor_units: null, currency_code: null, local_prices: [] });
+const ITEM = (title: string, description: string) => ({ title, description, item_kind: "permanent", item_category: "cosmetic", price_minor_units: null, currency_code: null, local_prices: [], is_on_game_page: false });
 const LINK = (value: string, part: "link_name" | "destination_url") => [{ link_name: part === "link_name" ? value : "store", destination_url: part === "destination_url" ? value : "https://store.example.com/", is_on_game_page: true }];
 
 /** How each door saves each value, keyed "<stored> <door id>". */
