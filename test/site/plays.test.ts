@@ -52,7 +52,8 @@ describe("counted plays", () => {
   });
 
   it("counts a ticket once, after a minute, and never more time than has passed", async () => {
-    const t0 = Date.now();
+    // Midday, so the play's minutes all fall on one day's row whenever the test runs.
+    const t0 = Date.UTC(2026, 9, 26, 12);
     const id = await issueTicket(env.DB, "g-play", NEW, t0);
     expect(await countTicket(env.DB, "g-play", id, COMCAST, t0 + 30_000)).toBe(false);
     // 120 seconds claimed 30 seconds in: refused. 50 seconds at 50: kept for when the play counts.

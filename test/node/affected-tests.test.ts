@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error: a Node script with no types of its own.
-import { EVERYTHING_PATHS, affectedChecks, buildGraph, workerProjects } from "../../scripts/affected-tests.mjs";
+import { EVERYTHING_PATHS, affectedChecks, buildGraph, githubTestPlan, workerProjects } from "../../scripts/affected-tests.mjs";
 
 /** scripts/affected-tests.mjs: which tests and checks a change can affect, from the repository's graph. */
 
@@ -89,5 +89,18 @@ describe("the preview checks", () => {
     const changes = workflow.slice(workflow.indexOf("name: What changed"), workflow.indexOf("\n  tests:"));
     expect(changes).toContain("node scripts/affected-tests.mjs --github");
     expect(changes).not.toContain("run: npm ci");
+  });
+});
+
+describe("what GitHub's check runs", () => {
+  const affected = { is_every_test_reached: false, test_files: [{ path: "test/site/a.test.ts" }, { path: "test/node/b.test.ts" }] };
+  const changedPaths = ["apps/site/src/a.ts", "test/node/b.test.ts", "test/helpers.ts"];
+  it("runs only the reached tests on a pull request, and its own changed test files ten times", () => {
+    expect(githubTestPlan({ eventName: "pull_request", changedPaths, affected })).toEqual({ is_full_suite: false, reached_test_files: ["test/site/a.test.ts", "test/node/b.test.ts"], changed_test_files: ["test/node/b.test.ts"] });
+  });
+  it("runs everything in the merge queue and on main, and on a pull request that reaches every test", () => {
+    expect(githubTestPlan({ eventName: "merge_group", changedPaths, affected })).toEqual({ is_full_suite: true, reached_test_files: [], changed_test_files: [] });
+    expect(githubTestPlan({ eventName: "push", changedPaths, affected }).is_full_suite).toBe(true);
+    expect(githubTestPlan({ eventName: "pull_request", changedPaths, affected: { ...affected, is_every_test_reached: true } })).toMatchObject({ is_full_suite: true, changed_test_files: ["test/node/b.test.ts"] });
   });
 });

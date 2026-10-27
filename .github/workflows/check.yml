@@ -2,8 +2,14 @@
 # Needs no secrets: vitest.config.ts gives the tests every binding they use.
 #
 # Everything runs side by side, split across runners: the tests in four shards (four files at once on each), typecheck, the
-# Layout check in two and the Engine exports in three. "Tests and typecheck", the check the ruleset requires and npm run ship
+# Layout check in six (seven screens and 200% text a page, so a share of the pages each keeps every runner short) and the
+# Engine exports in three. "Tests and typecheck", the check the ruleset requires and npm run ship
 # reads, passes only when all of them did.
+# A pull request runs only the test files its change reaches (scripts/affected-tests.mjs, "Reached tests"), and the test files it
+# adds or changes ten times ("New tests ten times"), so a flaky test is caught before the queue. The merge queue and main run every
+# test ("Tests"), and only those runs count for npm run ship (scripts/ship-github-check.mjs). In the merge queue a failed file runs
+# once more, and a test that passes then is named as flaky instead of throwing the batch out (scripts/test-shard.mjs) (Julius,
+# Oct 26, 2026).
 # A change to docs/, .claude/, CLAUDE.md or README.md alone changes no code, so it runs only the tests that read
 # those files (the node project) as "Docs tests". The same paths are DOCS_ONLY_PATH in
 # scripts/ship-github-check.mjs.
@@ -51,6 +57,9 @@ jobs:
     outputs:
       is_code_changed: ${{ steps.diff.outputs.is_code_changed }}
       is_engines_changed: ${{ steps.diff.outputs.is_engines_changed }}
+      is_full_suite: ${{ steps.diff.outputs.is_full_suite }}
+      reached_test_files: ${{ steps.diff.outputs.reached_test_files }}
+      changed_test_files: ${{ steps.diff.outputs.changed_test_files }}
       is_checked_in_queue: ${{ steps.queue.outputs.is_checked_in_queue }}
       preview_snapshot_key: ${{ steps.snapshot.outputs.key }}
       is_preview_snapshot_ready: ${{ steps.snapshot.outputs.is_ready }}
@@ -93,12 +102,13 @@ jobs:
             echo "No earlier commit to compare with: running everything."
             echo "is_code_changed=true" >> "$GITHUB_OUTPUT"
             echo "is_engines_changed=true" >> "$GITHUB_OUTPUT"
+            echo "is_full_suite=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           changed_paths="$(git diff --name-only "$BASE_SHA$RANGE_DOTS$HEAD_SHA")"
           echo "$changed_paths"
-          # Whether the Engine exports run: always on main, and on a pull request when the change reaches what they run, by the
-          # repository's graph (scripts/affected-tests.mjs: plain Node, before npm ci).
+          # Whether the Engine exports run (always on main, and on a pull request when the change reaches what they run) and which
+          # tests a pull request runs, by the repository's graph (scripts/affected-tests.mjs: plain Node, before npm ci).
           node scripts/affected-tests.mjs --github
           if [ -n "$changed_paths" ] && ! echo "$changed_paths" | grep -qvE '^(docs/|\.claude/|CLAUDE\.md$|README\.md$)'; then
             echo "Only docs/, .claude/, CLAUDE.md and README.md changed: running the docs tests."
@@ -146,7 +156,8 @@ jobs:
           lookup-only: true
 
   tests:
-    name: Tests (${{ matrix.shard }} of 4)
+    # "Reached tests" on a pull request that runs only the tests its change reaches, which npm run ship never counts.
+    name: ${{ needs.changes.outputs.is_full_suite == 'true' && 'Tests' || 'Reached tests' }} (${{ matrix.shard }} of 4)
     needs: changes
     if: needs.changes.outputs.is_code_changed == 'true' && needs.changes.outputs.is_checked_in_queue != 'true'
     runs-on: ubuntu-latest
@@ -173,10 +184,50 @@ jobs:
       - run: npm ci --no-audit --no-fund
       # Miniflare keeps the tests' databases, buckets and rate limiters in SQLite files under the temp folder, and
       # syncs each write: in memory, a slow runner disk can't hold a test past its time. Four files at once, one a core.
-      - run: npm test -- --shard=${{ matrix.shard }}/4
+      - run: node scripts/test-shard.mjs --shard ${{ matrix.shard }}/4 ${{ needs.changes.outputs.is_full_suite != 'true' && '--files "$REACHED_TEST_FILES"' || '' }} ${{ github.event_name == 'merge_group' && '--rerun-failed-once' || '' }}
         env:
           TMPDIR: /dev/shm
           TEST_WORKER_COUNT: 4
+          REACHED_TEST_FILES: ${{ needs.changes.outputs.reached_test_files }}
+      - if: always() && hashFiles('flaky_tests.json') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: flaky-tests-${{ matrix.shard }}
+          path: flaky_tests.json
+
+  # The test files a pull request adds or changes, ten runs one after another: most flaky tests show before the merge queue.
+  # rerun.yml's fifty runs stay for proving a flaky test's fix.
+  repeat-new-tests:
+    name: New tests ten times
+    needs: changes
+    if: github.event_name == 'pull_request' && needs.changes.outputs.is_code_changed == 'true' && needs.changes.outputs.changed_test_files != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+      # npm's download cache, as in the tests job.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: npm-${{ runner.os }}-
+      - run: npm ci --no-audit --no-fund
+      - env:
+          CHANGED_TEST_FILES: ${{ needs.changes.outputs.changed_test_files }}
+          # As in the tests job.
+          TMPDIR: /dev/shm
+          TEST_WORKER_COUNT: 4
+        run: |
+          for run in $(seq 1 10); do
+            echo "::group::Run $run of 10"
+            if ! npx vitest run $CHANGED_TEST_FILES; then echo "::error::Run $run of 10 failed: a test this pull request adds or changes is flaky or failing."; exit 1; fi
+            echo "::endgroup::"
+          done
 
   typecheck:
     name: Typecheck
@@ -275,20 +326,20 @@ jobs:
       - if: failure()
         run: tail -n 80 .wrangler/preview-run/preview.log .wrangler/preview/servers.log || true
 
-  # The measuring check (npm run layout:check): every page in headless Chrome at 320 x 667 and 1440 x 900, light and dark,
-  # on the preview with its stand-ins and test data (test/layout/layout-check.test.ts), each runner its share of the pages
+  # The measuring check (npm run layout:check -- --screens all): every page in headless Chrome on all seven screens and at 200% text,
+  # light and dark, on the preview with its stand-ins and test data (test/layout/layout-check.test.ts), each runner its share of the pages
   # (LAYOUT_CHECK_SHARD, scripts/layout-check.mjs). The preview starts from the snapshot in seconds and applies this branch's
   # own migrations, as it does on any start.
   layout:
-    name: Layout check (${{ matrix.shard }} of 2)
+    name: Layout check (${{ matrix.shard }} of 6)
     needs: [changes, seed]
     if: ${{ !cancelled() && needs.changes.outputs.is_code_changed == 'true' && needs.changes.outputs.is_checked_in_queue != 'true' && (needs.seed.result == 'success' || needs.seed.result == 'skipped') }}
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2]
+        shard: [1, 2, 3, 4, 5, 6]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -312,7 +363,8 @@ jobs:
       - run: npx vitest run --project layout
         env:
           LAYOUT_CHECK: "1"
-          LAYOUT_CHECK_SHARD: ${{ matrix.shard }}/2
+          LAYOUT_CHECK_SHARD: ${{ matrix.shard }}/6
+          LAYOUT_CHECK_SCREENS: all
       - if: failure()
         run: tail -n 80 .wrangler/preview-run/preview.log .wrangler/preview/servers.log || true
 
@@ -379,7 +431,7 @@ jobs:
 
   check:
     name: Tests and typecheck
-    needs: [changes, tests, typecheck, engines, seed, layout, docs-tests]
+    needs: [changes, tests, repeat-new-tests, typecheck, engines, seed, layout, docs-tests]
     # Also when a job failed, so the required check fails instead of being skipped.
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
@@ -391,13 +443,14 @@ jobs:
           IS_CODE_CHANGED: ${{ needs.changes.outputs.is_code_changed }}
           IS_ENGINES_CHANGED: ${{ needs.changes.outputs.is_engines_changed }}
           TESTS_RESULT: ${{ needs.tests.result }}
+          REPEAT_RESULT: ${{ needs.repeat-new-tests.result }}
           TYPECHECK_RESULT: ${{ needs.typecheck.result }}
           ENGINES_RESULT: ${{ needs.engines.result }}
           SEED_RESULT: ${{ needs.seed.result }}
           LAYOUT_RESULT: ${{ needs.layout.result }}
           DOCS_TESTS_RESULT: ${{ needs.docs-tests.result }}
         run: |
-          echo "What changed: $CHANGES_RESULT (code changed: $IS_CODE_CHANGED, engine code changed: $IS_ENGINES_CHANGED). Tests: $TESTS_RESULT. Typecheck: $TYPECHECK_RESULT. Engine exports: $ENGINES_RESULT. Preview test data: $SEED_RESULT. Layout check: $LAYOUT_RESULT. Docs tests: $DOCS_TESTS_RESULT."
+          echo "What changed: $CHANGES_RESULT (code changed: $IS_CODE_CHANGED, engine code changed: $IS_ENGINES_CHANGED). Tests: $TESTS_RESULT. New tests ten times: $REPEAT_RESULT. Typecheck: $TYPECHECK_RESULT. Engine exports: $ENGINES_RESULT. Preview test data: $SEED_RESULT. Layout check: $LAYOUT_RESULT. Docs tests: $DOCS_TESTS_RESULT."
           if [ "$CHANGES_RESULT" != success ]; then exit 1; fi
           # A push to main the merge queue already checked: its merge group's run passed on exactly this commit.
           if [ "$IS_CHECKED_IN_QUEUE" = true ]; then echo "Checked in the merge queue: this commit passed there."; exit 0; fi
@@ -405,6 +458,8 @@ jobs:
           engines_ok=false
           if [ "$ENGINES_RESULT" = success ]; then engines_ok=true; fi
           if [ "$ENGINES_RESULT" = skipped ] && [ "$IS_ENGINES_CHANGED" = false ]; then engines_ok=true; fi
+          # New tests ten times passed, or didn't run (no test file changed, or not a pull request).
+          if [ "$REPEAT_RESULT" != success ] && [ "$REPEAT_RESULT" != skipped ]; then exit 1; fi
           if [ "$IS_CODE_CHANGED" = true ] && [ "$TESTS_RESULT" = success ] && [ "$TYPECHECK_RESULT" = success ] && [ "$engines_ok" = true ] && [ "$LAYOUT_RESULT" = success ]; then exit 0; fi
           if [ "$IS_CODE_CHANGED" = false ] && [ "$DOCS_TESTS_RESULT" = success ]; then exit 0; fi
           exit 1

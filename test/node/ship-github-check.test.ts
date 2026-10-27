@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import {
   DOCS_ONLY_PATH,
-  DOCS_TESTS_CHECK_NAME,
+  DOCS_TESTS_CHECK_NAME, REACHED_TESTS_CHECK_NAME,
   ENGINES_CHECK_NAME,
   GITHUB_CHECK_NAME,
   applyEnginesProof,
@@ -43,10 +43,15 @@ describe("the workflow and ship agree", () => {
     expect(workflow).toContain(`check-runs?check_name=${encodeURIComponent(GITHUB_CHECK_NAME)}&filter=all`);
     expect(workflow).toContain(`if [ "$IS_CHECKED_IN_QUEUE" = true ]; then echo "Checked in the merge queue: this commit passed there."; exit 0; fi`);
     // Every checking job steps aside for it; only the required check and main's caches run.
-    for (const job of ["Tests (", "Typecheck", "Engine exports (", "Preview test data", "Layout check (", "Docs tests"]) {
+    for (const job of ["${{ needs.changes.outputs.is_full_suite == 'true' && 'Tests' || 'Reached tests' }} (", "Typecheck", "Engine exports (", "Preview test data", "Layout check (", "Docs tests"]) {
       const section = workflow.slice(workflow.indexOf(`name: ${job}`), workflow.indexOf("runs-on:", workflow.indexOf(`name: ${job}`)));
       expect(section, job).toContain("needs.changes.outputs.is_checked_in_queue != 'true'");
     }
+  });
+  it("on a pull request running only its reached tests as \"Reached tests\", and the merge queue every test with one more run of a failed file", () => {
+    expect(workflow).toContain(`'Tests' || '${REACHED_TESTS_CHECK_NAME}'`);
+    expect(workflow).toContain("github.event_name == 'merge_group' && '--rerun-failed-once'");
+    expect(workflow).toContain("needs: [changes, tests, repeat-new-tests,");
   });
   it("on running the engine exports on every push to main, and failing the required check when they fail", () => {
     expect(workflow).toContain(`if [ "$ENGINES_RESULT" = skipped ] && [ "$IS_ENGINES_CHANGED" = false ]; then engines_ok=true; fi`);
@@ -124,6 +129,10 @@ describe("checkState", () => {
     expect(checkState([run(GITHUB_CHECK_NAME, "completed", "success"), run(DOCS_TESTS_CHECK_NAME, "completed", "success")]).state).toBe("docs_passed");
     expect(checkState([run(GITHUB_CHECK_NAME, "completed", "failure"), run(DOCS_TESTS_CHECK_NAME, "completed", "failure")]).state).toBe("docs_failed");
   });
+  it("tells a pull request's run of only its reached tests apart", () => {
+    expect(checkState([run(GITHUB_CHECK_NAME, "completed", "success"), run(`${REACHED_TESTS_CHECK_NAME} (1 of 4)`, "completed", "success"), run("Tests (1 of 4)", "completed", "skipped")]).state).toBe("reached_passed");
+    expect(checkState([run(GITHUB_CHECK_NAME, "completed", "success"), run("Tests (1 of 4)", "completed", "success")]).state).toBe("passed");
+  });
 });
 
 describe("judgeCheckedCode", () => {
@@ -141,6 +150,10 @@ describe("judgeCheckedCode", () => {
   });
   it("waits while only a running check could decide", () => {
     expect(judgeCheckedCode([at("merge", "running"), at("branch", "docs_passed")]).verdict).toBe("running");
+  });
+  it("never counts a pull request's run of only its reached tests for code: the merge queue's run decides", () => {
+    expect(judgeCheckedCode([at("merge", "running"), at("branch", "reached_passed")]).verdict).toBe("running");
+    expect(judgeCheckedCode([at("merge", "passed"), at("branch", "reached_passed")])).toMatchObject({ verdict: "passed", commitSha: "merge" });
   });
   it("never counts docs tests for code", () => {
     expect(judgeCheckedCode([at("roadmap", "docs_passed"), at("talk", "docs_passed")]).verdict).toBe("none");

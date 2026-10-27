@@ -78,7 +78,7 @@ const LONG_STYLES = `
 .field.long { height: auto; align-items: stretch; }
 /* It fills a pane's width; in a pane that fits what's in it, its words run a reading width (--size-reading), or what room there is. */
 .field.long textarea { position: relative; z-index: 2; display: block; flex: 1; min-width: 0; width: var(--size-reading); max-width: 100%; padding: 14px var(--pad-inside-words); resize: none; overflow-y: auto;
-  font: 400 16px/1.5 var(--body); color: var(--ink); caret-color: var(--run-lo);
+  font: 400 1rem/1.5 var(--body); color: var(--ink); caret-color: var(--run-lo);
   --face-color: var(--field-face); background: var(--face-color); border: 0; border-radius: 0; box-shadow: var(--field-shade);
   clip-path: var(--cut-shape); transition: --face-color 0.25s; }
 .field.long:not(.is-disabled):hover textarea { --face-color: var(--field-hover); }
@@ -184,6 +184,13 @@ export const SELECT_SCRIPT = `/* select fields */(function () {
   var GAP_PX = 6, EDGE_PX = 8, owners = new WeakMap();
   window.zaismaWatch.each("[data-select]", function (root) {
     var button = root.querySelector(".select-button"), list = root.querySelector(".select-list"), box = list.querySelector('[role="listbox"]'), hidden = root.querySelector('input[type="hidden"]'), field = button.closest(".field"), value = root.querySelector(".select-value");
+    // A list that would scroll by a sliver (its choices a few pixels taller than its cap, as six at 200% text) shows them all instead: a
+    // scroll that short only bounces under a finger.
+    function fitSliver() {
+      list.style.maxHeight = "";
+      var extraPx = box.scrollHeight - box.clientHeight;
+      if (extraPx > 0 && extraPx < 12) list.style.maxHeight = Math.ceil(list.offsetHeight + extraPx) + "px";
+    }
     if (!list.hasAttribute("popover")) return;
     // Lifted out of the pane it's in to the page itself, so no pane's glass, clip or filter is round it: it paints and blurs over everything
     // in every browser (Safari draws glass inside glass unblurred, so rows below showed through it). A list left by a field gone from the page goes,
@@ -204,6 +211,7 @@ export const SELECT_SCRIPT = `/* select fields */(function () {
     // scrolls or the window changes, and gone once the field has left the window.
     function place() {
       var r = field.getBoundingClientRect();
+      fitSliver();
       if (!field.isConnected || r.bottom < 0 || r.top > window.innerHeight || r.right < 0 || r.left > document.documentElement.clientWidth) { list.hidePopover(); return; }
       list.style.width = r.width + "px";
       var spot = window.zaismaPlace(r, { width: r.width, height: list.offsetHeight }, { gapPx: GAP_PX, edgePx: EDGE_PX });
@@ -282,9 +290,9 @@ component({
    Its list is a pane of the menus' glass hanging just under the field, as wide as it, its choices on the switch's slabs: a faint one under
    the pointer or the arrow keys, the white one with the orange line on the picked. */
 .select-button { position: relative; z-index: 2; flex: 1; min-width: 0; width: 100%; height: 100%; padding: 0 calc(var(--pad-inside-words) + 24px) 0 calc(var(--pad-inside-words) + 34px); border: 0; border-radius: 0; cursor: pointer; text-align: left;
-  font: 500 18px var(--display); color: var(--ink);
+  font: 500 1.125rem var(--display); color: var(--ink);
   --face-color: var(--field-face); background: var(--face-color); box-shadow: var(--field-shade); clip-path: var(--cut-shape); transition: --face-color 0.25s; }
-@media (max-width: 760px) { .select-button { font-size: 16px; } }
+@media (max-width: 760px) { .select-button { font-size: 1rem; } }
 .field.select.no-icon .select-button { padding-left: var(--pad-inside-words); }
 .select-value { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .select-value.is-placeholder { color: var(--muted); }
@@ -303,7 +311,7 @@ component({
 .field.select.is-disabled .select-chev { color: var(--muted); }
 /* The list: the popover's own place is the window, so it's set just under the field by SELECT_SCRIPT. Its choices sit close to its edge,
    inset like a well's slabs, so their words start where the field's do. */
-.select-list { position: fixed; inset: auto; margin: 0; max-height: min(320px, 50vh); padding: 4px; border: 0; color: var(--ink);
+.select-list { position: fixed; inset: auto; margin: 0; max-height: min(var(--size-menu-height), 50vh); padding: 4px; border: 0; color: var(--ink);
   display: flex; flex-direction: column; --glass-tint: var(--glass-dropdown);
   transition: var(--glass-transition), opacity 0.2s, transform 0.3s cubic-bezier(.2,.8,.2,1), overlay 0.3s allow-discrete, display 0.3s allow-discrete; }
 /* A browser that can't keep it in the top layer while it fades (Safari) would let it fall under what follows it on the page: it goes at once. */
@@ -312,7 +320,8 @@ component({
 .select-list:not(:popover-open):not(.in-place) { display: none; opacity: 0; transform: translateY(-6px); pointer-events: none; }
 .select-list.is-above:not(:popover-open):not(.in-place) { transform: translateY(6px); }
 @starting-style { .select-list:popover-open { opacity: 0; transform: translateY(-6px); } .select-list.is-above:popover-open { transform: translateY(6px); } }
-.select-list.in-place { position: relative; display: flex; width: 100%; }
+/* Shown open in place (the gallery's open states), it holds every choice: there's no window edge to keep it from. */
+.select-list.in-place { position: relative; display: flex; width: 100%; max-height: none; }
 /* It scrolls with no fade, so the pick's orange line always shows in full: its rail and a choice cut at its edge say there's more. */
 .select-options { flex: 0 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; outline: none; }
 .select-options.own-scroll.shows-rail { padding-right: 18px; }
@@ -353,7 +362,7 @@ type PressState = "is-pointed" | "is-pressed" | "is-focused";
  * unseen strip across the line, centered on it, or the line itself when it's taller.
  */
 const TOUCH_ROOM = (selector: string) =>
-  `@media (pointer: coarse) { ${selector}::before { content: ""; position: absolute; inset: min(0px, calc(50% - var(--control-height-regular) / 2)) 0; } }`;
+  `@media (pointer: coarse) { ${selector}::before { content: ""; position: absolute; inset: min(0px, calc(50% - var(--touch-target) / 2)) 0; } }`;
 
 export interface CheckFieldOptions {
   name: string;

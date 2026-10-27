@@ -897,6 +897,7 @@ function signInPage(env: Env, title: string, body: Raw, options: SignInPageOptio
     stage: cityStage(),
     isBare: true,
     checkedPage: options.checkedPage,
+    pageShape: "full",
     isPrivate: true,
     hasTurnstileCheck,
     viewer: options.account === undefined ? undefined : { account: options.account },

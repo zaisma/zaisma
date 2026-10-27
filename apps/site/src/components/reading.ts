@@ -218,7 +218,7 @@ component({
 .breadcrumbs [aria-current] { color: var(--ink); font-weight: 600; }
 .crumb-chevron { display: flex; padding-inline: var(--gap-words-words); color: var(--muted); }
 .crumb-chevron > .ico { width: 7px; height: 11px; }
-@media (pointer: coarse) { .breadcrumbs .link::before { content: ""; position: absolute; inset: calc((var(--control-height-regular) - 1lh) / -2) 0; } }
+@media (pointer: coarse) { .breadcrumbs .link::before { content: ""; position: absolute; inset: calc((var(--touch-target) - 1lh) / -2) 0; } }
 `,
   render: breadcrumbs,
   examples: [

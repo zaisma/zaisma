@@ -9,7 +9,9 @@
 //   date before it merges, its run tests the branch exactly as it is, and main never moves back (the
 //   ruleset blocks force pushes);
 // - an earlier commit on main, when only docs/, .claude/, CLAUDE.md or README.md changed since.
-// A run that only ran the docs tests ("Docs tests") never counts for code.
+// A run that only ran the docs tests ("Docs tests") never counts for code, and neither does a pull request's run that ran only the
+// tests its change reaches ("Reached tests (1 of 4)" and the rest, instead of "Tests (1 of 4)"): only the merge queue's and main's
+// runs, which run every test, count since then (Julius, Oct 26, 2026).
 // A pull request's run skips "Engine exports" when its branch changed nothing that job runs (scripts/affected-tests.mjs,
 // from the repository's graph); a run like that counts only with an Engine exports pass on the main commit it was cut
 // from (applyEnginesProof), since the branch's code is that commit's code where the engines look.
@@ -18,6 +20,8 @@
 export const GITHUB_CHECK_NAME = "Tests and typecheck";
 // The job that runs instead of the full tests when only docs changed.
 export const DOCS_TESTS_CHECK_NAME = "Docs tests";
+// The test jobs of a pull request's run that ran only the tests its change reaches, "Reached tests (1 of 4)" and the rest.
+export const REACHED_TESTS_CHECK_NAME = "Reached tests";
 // Paths that hold no code that's tested or deployed. The same paths are in check.yml's "What changed".
 export const DOCS_ONLY_PATH = /^(docs\/|\.claude\/|CLAUDE\.md$|README\.md$)/;
 // The jobs that play the engine samples, "Engine exports (1 of 3)" and the rest, each with its share of them. A pull request runs
@@ -57,6 +61,7 @@ export function sameCodeCommits(runGit, commitSha, { searchCommitCount = SAME_CO
 /**
  * What one commit's check runs (GitHub's check-runs API with filter=all: every run and every attempt) say about its code:
  * "passed" and "failed" for the full tests and typecheck, "docs_passed" and "docs_failed" when only the docs tests ran,
+ * "reached_passed" and "reached_failed" when only the tests a pull request's change reaches ran,
  * "running", or "none". Each check counts by its latest run (one still going counts first). A commit the merge queue landed has
  * two workflow runs, its merge group's and main's own push, which skips the checking jobs the queue already ran; a rerun that
  * found the code already checked does the same. So `engines`, the Engine exports jobs' state with all their shares together,
@@ -74,8 +79,9 @@ export function checkState(checkRuns) {
   const engines = !engineRuns.length ? "none" : engineRuns.some((engineRun) => engineRun.status === "completed" && !["success", "skipped"].includes(engineRun.conclusion)) ? "failed" : engineRuns.some((engineRun) => engineRun.status !== "completed") ? "running" : isEngines("success") ? "passed" : isEngines("skipped") ? "skipped" : "failed";
   if (check.status !== "completed") return { state: "running", url: check.html_url, engines };
   const isDocsRun = checkRuns.some((checkRun) => checkRun.name === DOCS_TESTS_CHECK_NAME && checkRun.status === "completed" && isRan(checkRun)) && !checkRuns.some((checkRun) => checkRun.name.startsWith("Tests (") && isRan(checkRun));
+  const isReachedRun = checkRuns.some((checkRun) => checkRun.name.startsWith(`${REACHED_TESTS_CHECK_NAME} (`) && isRan(checkRun)) && !checkRuns.some((checkRun) => checkRun.name.startsWith("Tests (") && isRan(checkRun));
   const isPassed = check.conclusion === "success";
-  return { state: `${isDocsRun ? "docs_" : ""}${isPassed ? "passed" : "failed"}`, url: check.html_url, engines };
+  return { state: `${isDocsRun ? "docs_" : isReachedRun ? "reached_" : ""}${isPassed ? "passed" : "failed"}`, url: check.html_url, engines };
 }
 
 /** The latest of these runs of one check: one still going, else the last to finish (the first given, when they don't say when). */

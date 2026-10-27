@@ -3,11 +3,25 @@
  * no imports, so the check reads it in Node as it is.
  */
 
-/** The screens every page is shown and measured on: Julius's phone, and a desktop. scripts/layout-check.mjs measures at the same. */
+/**
+ * The screens every page is measured on, the ones players bring (docs/DESIGN.md, Screens): a small phone and a common one, a phone on its side,
+ * an iPad, a Steam Deck, a laptop and a 1440p monitor. A phone is drawn at twice its pixels as a mobile browser; a touch screen is held to 44px
+ * targets; the runner is held above the fold except on a phone on its side, which scrolls.
+ */
 export const SCREEN_SIZES = [
-  { name: "Phone", widthPx: 320, heightPx: 667, isPhone: true },
-  { name: "Desktop", widthPx: 1440, heightPx: 900, isPhone: false },
+  { name: "Phone", widthPx: 320, heightPx: 667, isPhone: true, hasTouch: true, isRunnerChecked: true },
+  { name: "Big phone", widthPx: 390, heightPx: 844, isPhone: true, hasTouch: true, isRunnerChecked: true },
+  { name: "Landscape phone", widthPx: 844, heightPx: 390, isPhone: true, hasTouch: true, isRunnerChecked: false },
+  { name: "Tablet", widthPx: 820, heightPx: 1180, isPhone: false, hasTouch: true, isRunnerChecked: true },
+  { name: "Steam Deck", widthPx: 1280, heightPx: 800, isPhone: false, hasTouch: true, isRunnerChecked: true },
+  { name: "Laptop", widthPx: 1440, heightPx: 900, isPhone: false, hasTouch: false, isRunnerChecked: true },
+  { name: "Desktop", widthPx: 2560, heightPx: 1440, isPhone: false, hasTouch: false, isRunnerChecked: true },
 ] as const;
+export type ScreenName = (typeof SCREEN_SIZES)[number]["name"];
+/** What a run checks unless told otherwise (npm run layout:check -- --screens): Julius's phone and a laptop, so a build's runs stay quick. GitHub's check runs all seven. */
+export const LOCAL_SCREEN_NAMES: readonly ScreenName[] = ["Phone", "Laptop"];
+/** The screens a run at 200% text checks (--text 200): a laptop and an iPad. A phone at 320 is already checked to reflow. */
+export const TEXT_SCREEN_NAMES: readonly ScreenName[] = ["Tablet", "Laptop"];
 export const SCREEN_THEMES = ["light", "dark"] as const;
 
 /**
@@ -64,6 +78,8 @@ export interface CheckedPage {
   setUp?: string;
   /** With setUp: the state the page says it is at its address, before setUp opens what it hides. */
   stateBeforeSetUp?: string;
+  /** The state the page says it is when that's another entry's: the same page seen as a stress account (STRESS_ACCOUNTS). */
+  shownStateName?: string;
   /** The test account it's seen signed in as (scripts/preview/sign-ins.mjs). */
   account?: string;
   /** The gallery takes light or dark from its address. */
@@ -76,6 +92,18 @@ export interface CheckedPage {
 
 const CITY = { mainActionShows: "desktop" } as const;
 
+/**
+ * The stress accounts (scripts/preview/sign-ins.mjs), and the words each adds to a page's name: every name at its field's longest, nothing at
+ * all, and a great many things. A page that lists what depends on who's looking is listed as each of them too (the layout check fails one that isn't).
+ */
+export const STRESS_ACCOUNTS = [
+  { account: "Longest_Names_Here", nameEnding: "long names" },
+  { account: "Empty_Handed", nameEnding: "empty" },
+  { account: "Many_Things", nameEnding: "full" },
+] as const;
+/** The page's name its stress entries start with: a signed-in state's without its ", signed in". */
+export const stressBaseName = (name: string): string => name.replace(/, signed in$/, "");
+
 /** The Players sheet, opened from the playing bar's Players button. */
 const OPEN_PLAYERS_SHEET = `(async () => { document.querySelector('[aria-controls="players"]').click(); await new Promise((done) => setTimeout(done, 600)); return true; })()`;
 /** The cards over a running game that start hidden (the game asking to sign in, the save toast), shown one under another. */
@@ -87,6 +115,8 @@ const SHOW_PLAYING_CARDS = `(async () => {
     if (id === "save-toast") card.querySelector("p").textContent = "Progress saves to your account.";
     card.hidden = false;
     card.style.top = top + "px";
+    // One that wouldn't fit under the one before (a phone on its side) stays hidden: over a game they come one at a time.
+    if (top + card.getBoundingClientRect().height > innerHeight - 8 && top > 70) { card.hidden = true; continue; }
     top += 20 + card.getBoundingClientRect().height;
   }
   await new Promise((done) => setTimeout(done, 600));
@@ -118,8 +148,13 @@ const WRONG_SIGN_IN = { username: "Nobody_Here", password: "not the password", .
 const CHECKED_PAGE_LIST = [
   { name: "Home", area: "Playing", path: "/", mainActionShows: "nowhere", isCoverAboveFold: true },
   { name: "Home, signed in", area: "Playing", path: "/", account: "Moss_Runner", mainActionShows: "nowhere", isCoverAboveFold: true },
+  { name: "Home, long names", area: "Playing", path: "/", account: "Longest_Names_Here", shownStateName: "Home, signed in", mainActionShows: "nowhere", isCoverAboveFold: true },
+  { name: "Home, empty", area: "Playing", path: "/", account: "Empty_Handed", shownStateName: "Home, signed in", mainActionShows: "nowhere", isCoverAboveFold: true },
+  { name: "Home, full", area: "Playing", path: "/", account: "Many_Things", shownStateName: "Home, signed in", mainActionShows: "nowhere", isCoverAboveFold: true },
   { name: "Game page", area: "Playing", path: "/g/cave-crew", mainActionShows: "everywhere" },
   { name: "Game page, no rooms", area: "Playing", path: "/g/shard-dodge", mainActionShows: "everywhere" },
+  // The longest title and description a game can have, and every name on its page at its longest.
+  { name: "Game page, long names", area: "Playing", path: "/g/wandering-lighthouse-keeper", account: "Longest_Names_Here", shownStateName: "Game page, no rooms", mainActionShows: "everywhere" },
   { name: "Tester link", area: "Playing", path: "/t/7e57ed00dcafe0a1b2c3", mainActionShows: "everywhere" },
   { name: "Playing a game, the players sheet", area: "Playing", path: "/g/cave-crew?play", mainActionShows: "nowhere", setUp: OPEN_PLAYERS_SHEET, stateBeforeSetUp: "Game page" },
   { name: "Playing a game, asked to sign in", area: "Playing", path: "/g/tiny-farm?play", mainActionShows: "nowhere", setUp: SHOW_PLAYING_CARDS, stateBeforeSetUp: "Game page, no rooms" },
@@ -134,6 +169,7 @@ const CHECKED_PAGE_LIST = [
   { name: "Buy window", area: "Playing", path: "/buy/tiny-farm/revive", mainActionShows: "nowhere" },
   { name: "Games", area: "Playing", path: "/games", mainActionShows: "nowhere", isCoverAboveFold: true },
   { name: "Games, signed in", area: "Playing", path: "/games", account: "Moss_Runner", mainActionShows: "nowhere", isCoverAboveFold: true },
+  ...STRESS_ACCOUNTS.map(({ account, nameEnding }) => ({ name: `Games, ${nameEnding}` as const, area: "Playing" as const, path: "/games", account, shownStateName: "Games, signed in", mainActionShows: "nowhere" as const, isCoverAboveFold: true })),
   { name: "Games, one genre", area: "Playing", path: "/games?filter=strategy", mainActionShows: "nowhere", isCoverAboveFold: true },
   { name: "Games, multiplayer", area: "Playing", path: "/games?filter=multiplayer", mainActionShows: "nowhere", isCoverAboveFold: true },
   { name: "Games, a search", area: "Playing", path: "/games?search_text=farm", mainActionShows: "nowhere", isCoverAboveFold: true },
@@ -162,6 +198,7 @@ const CHECKED_PAGE_LIST = [
   { name: "How do you play", area: "Signing in", path: "/join/play", account: "Moss_Runner", ...CITY },
   { name: "You're in", area: "Signing in", path: "/account/kept", account: "Moss_Runner", ...CITY },
   { name: "Developer settings", area: "Developers", path: "/dashboard/settings", account: "Preview_Studio", mainActionShows: "nowhere" },
+  ...STRESS_ACCOUNTS.map(({ account, nameEnding }) => ({ name: `Developer settings, ${nameEnding}` as const, area: "Developers" as const, path: "/dashboard/settings", account, shownStateName: "Developer settings", mainActionShows: "nowhere" as const })),
   { name: "Developer settings, a spending request", area: "Developers", path: "/dashboard/settings?spending_request=spending_request_preview0waiting", account: "Preview_Studio", mainActionShows: "nowhere", stateBeforeSetUp: "Developer settings", setUp: `(async () => { await new Promise((done) => setTimeout(done, 600)); return Boolean(document.getElementById("spending-request")?.open); })()` },
   { name: "Background guide", area: "Developers", path: "/developers/backgrounds", mainActionShows: "nowhere" },
   { name: "Example page", area: "Gallery", path: "/design/example", mainActionShows: "everywhere" },

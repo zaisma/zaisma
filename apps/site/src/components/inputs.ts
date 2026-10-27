@@ -75,7 +75,7 @@ component({
 .slider-fill { width: calc((100% - var(--thumb)) * var(--fill)); height: 6px; top: calc(50% - 3px); background: var(--run); }
 .slider-input { position: absolute; inset: 0; z-index: 3; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; -webkit-appearance: none; appearance: none; }
 /* On a phone the track takes a whole control's height (--control-height-regular) to touch, centered on it. */
-@media (pointer: coarse) { .slider-input { inset: min(0px, calc(50% - var(--control-height-regular) / 2)) 0; height: auto; } }
+@media (pointer: coarse) { .slider-input { inset: min(0px, calc(50% - var(--touch-target) / 2)) 0; height: auto; } }
 .slider-input::-webkit-slider-thumb { -webkit-appearance: none; width: var(--thumb); height: var(--thumb); }
 .slider-input::-moz-range-thumb { width: var(--thumb); height: var(--thumb); border: 0; }
 .slider-thumb { position: absolute; z-index: 2; top: 0; left: calc((100% - var(--thumb)) * var(--fill)); width: var(--thumb); height: var(--thumb); pointer-events: none;
@@ -304,13 +304,14 @@ export const COPY_SCRIPT = `/* code fields */(function () {
     if (!copy) return;
     var text = document.getElementById(copy.getAttribute("aria-controls")), holder = copy.closest(".code-field"), said = holder && holder.querySelector(".code-copied");
     if (!text || !said) return;
-    function done() {
-      said.textContent = "Copied"; holder.classList.add("is-copied");
+    function saying(words) {
+      said.textContent = words; holder.classList.add("is-copied");
       clearTimeout(said.timer); said.timer = setTimeout(function () { said.textContent = ""; holder.classList.remove("is-copied"); }, 1600);
     }
-    // Where the clipboard isn't open to the page, the code is selected and copied the old way.
-    function byHand() { selectAll(text); try { if (document.execCommand("copy")) done(); } catch (error) {} }
-    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text.getAttribute("data-code") || text.textContent).then(done, byHand);
+    // Where the clipboard isn't open to the page, the code is selected and copied the old way; selected is all it says when that fails too.
+    function byHand() { selectAll(text); var isCopied = false; try { isCopied = document.execCommand("copy"); } catch (error) {} saying(isCopied ? "Copied" : "Selected"); }
+    // The press answers at once: the clipboard can take its time, and only says otherwise when it refuses.
+    if (navigator.clipboard && navigator.clipboard.writeText) { saying("Copied"); navigator.clipboard.writeText(text.getAttribute("data-code") || text.textContent).catch(byHand); }
     else byHand();
   });
 })();
@@ -332,7 +333,7 @@ component({
 .field.code { height: auto; min-height: var(--control-height-field); align-items: stretch; }
 /* Each line is as tall as Copy's half and the gap round it, so the first line sits on Copy's center line and the second clears it. */
 /* One long token (a key, an address) breaks at a line's end, or at a slash or hyphen where one is near it. */
-.code-text { position: relative; z-index: 2; flex: 1; min-width: 0; padding: 14px var(--pad-inside-words); font: 500 15px/24px ui-monospace, Menlo, monospace; color: var(--ink);
+.code-text { position: relative; z-index: 2; flex: 1; min-width: 0; padding: 14px var(--pad-inside-words); font: 500 0.9375rem/1.5rem ui-monospace, Menlo, monospace; color: var(--ink);
   overflow-wrap: anywhere; cursor: text; background: var(--well); box-shadow: var(--well-shade); clip-path: var(--cut-shape); }
 /* Only the first line keeps clear of Copy (and its gap); the lines under it run the field's whole width. */
 .code-text::before { content: ""; float: right; width: 48px; height: 24px; }
@@ -343,7 +344,7 @@ component({
 .code-field.is-masked .code-text { color: transparent; text-shadow: 0 0 10px var(--ink); cursor: pointer; }
 .field.code:has(:focus-visible) > .cut-line polygon, .field.code.is-focused > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 /* On a phone, Copy takes a whole control's height (--control-height-regular, 44px) to touch. */
-@media (pointer: coarse) { .field.code > .cut-btn::before { content: ""; position: absolute; inset: calc((var(--control-height-small) - var(--control-height-regular)) / 2); } }
+@media (pointer: coarse) { .field.code > .cut-btn::before { content: ""; position: absolute; inset: calc((var(--control-height-small) - var(--touch-target)) / 2); } }
 `,
   render: codeField,
   examples: [
@@ -390,13 +391,14 @@ component({
    the room allows up to 220px; its line under it in the label's words. Masked, it blurs until the page shows it. */
 .qr-code { display: grid; justify-items: center; gap: var(--gap-words-control); margin: 0; min-width: 0; }
 .qr-picture { display: block; width: min(220px, 100%); height: auto; aspect-ratio: 1; background: #fff; transition: filter 0.25s; }
-.qr-caption { font: var(--type-label); color: var(--ink); text-align: center; }
+/* Its words keep the margin inside it, as a field's do, however wide they run (a masked code's caption, at a large text size). */
+.qr-caption { font: var(--type-label); color: var(--ink); text-align: center; padding-inline: var(--pad-inside-words); }
 .qr-code.is-masked > .qr-picture { filter: blur(8px); }
 /* Compact, on a wide screen: smaller, with its line beside it, the width of what a compact sheet holds. */
 @media (min-width: 761px) {
   .qr-code.is-compact { grid-template-columns: auto 1fr; justify-items: start; align-items: center; column-gap: var(--gap-block-block); }
   .qr-code.is-compact > .qr-picture { width: 104px; }
-  .qr-code.is-compact > .qr-caption { text-align: start; padding-inline-end: var(--pad-words); }
+  .qr-code.is-compact > .qr-caption { text-align: start; padding-inline: 0 var(--pad-words); }
 }
 `,
   render: qrCode,

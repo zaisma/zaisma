@@ -353,6 +353,7 @@ async function consentPage(env: Env, checked: Allowed, account: Account): Promis
     isPrivate: true,
     viewer: { account },
     checkedPage: "Sign in with Zaisma",
+    pageShape: "reading",
     // The Continue button's answer goes on to the app, which a page's form-action has to allow.
     formTargets: [backTo.origin],
     body: glassPane({
@@ -388,6 +389,7 @@ function continuePage(env: Env, app: SignInApp, back: string): Response {
     isPrivate: true,
     // A one-pane notice that sends the player on at once, the same shape as glassMessage (html.ts).
     checkedPage: "A message",
+    pageShape: "reading",
     body: glassPane({
       paneWidth: "fit",
       body: html`${stack({

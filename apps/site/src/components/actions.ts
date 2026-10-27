@@ -254,7 +254,7 @@ const RUN_STYLES = `
   position: relative; z-index: 1; overflow: hidden; height: var(--control-height); padding: 0 24px 0 22px;
   display: flex; align-items: center; gap: 10px; white-space: nowrap;
   color: var(--on-run); text-shadow: 0 1px 0 rgba(255,226,180,0.45);
-  font: 600 16px var(--display); letter-spacing: 0.01em;
+  font: 600 1rem var(--display); letter-spacing: 0.01em;
   /* The face: lit from above, deepening toward its foot. */
   background: radial-gradient(130% 110% at 50% -35%, rgba(255,255,255,0.3), rgba(255,255,255,0) 62%), linear-gradient(180deg, var(--run-hi), var(--run) 52%, #E57F0C);
   clip-path: var(--cut-shape);
@@ -269,7 +269,7 @@ const RUN_STYLES = `
 .run.has-trailing > :is(span:not([class]), .label-idle, .label-busy) { flex: 1 1 auto; text-align: start; }
 .run-trailing { flex: none; font-variant-numeric: tabular-nums; }
 .run-trailing:empty { display: none; }
-.run.big { --control-height: var(--control-height-big); justify-content: center; padding: 0 30px 0 26px; font-size: 19px; gap: 12px; }
+.run.big { --control-height: var(--control-height-big); justify-content: center; padding: 0 30px 0 26px; font-size: 1.1875rem; gap: 12px; }
 /* The reflection of a fixed light: a soft band that slides the opposite way to the pointer. */
 .run::before { content: ""; position: absolute; inset: 0; background: linear-gradient(105deg, rgba(255,255,255,0) calc(var(--refl) - 22%), rgba(255,255,255,0.2) var(--refl), rgba(255,255,255,0) calc(var(--refl) + 22%)); opacity: 0; transition: opacity 0.6s; }
 .run-wrap.over .run::before, .run-wrap.is-pointed .run::before { opacity: 1; }
@@ -304,7 +304,7 @@ const RUN_STYLES = `
 .run-wrap:disabled:not([aria-busy="true"]) > .run > .cut-line { --band-top: var(--carve-top); --band-left: var(--carve-left); --band-right: var(--carve-right); --band-bottom: var(--carve-bottom); }
 .run-wrap:disabled:not([aria-busy="true"]) > .run > .cut-line polygon { stroke: var(--carve-rim); stroke-width: 2; }
 /* On a phone it keeps the other buttons' heights: 44px, and big 48px (--control-height-big). */
-@media (max-width: 760px) { .run { padding: 0 20px 0 16px; font-size: 15px; } .run.big { font-size: 17px; } }
+@media (max-width: 760px) { .run { padding: 0 20px 0 16px; font-size: 0.9375rem; } .run.big { font-size: 1.0625rem; } }
 @media (prefers-reduced-motion: reduce) { .run, .run .arrow, .run .play, .run-wrap::before { transition: none; } .run.glint::after { animation: none; } }
 `;
 
@@ -363,7 +363,7 @@ component({
 .cut-btn.is-full { display: flex; width: 100%; }
 .cut-btn > .face { display: flex; flex: auto; align-items: center; justify-content: center; gap: 8px; min-width: 0; height: var(--control-height);
   --face-padding: 24px; --face-shift: 0px; padding: 0 calc(var(--face-padding) - var(--face-shift)) 0 calc(var(--face-padding) + var(--face-shift));
-  font: 600 15px var(--display); color: var(--ink); white-space: nowrap;
+  font: 600 0.9375rem var(--display); color: var(--ink); white-space: nowrap;
   --face-color: var(--btn); background: var(--face-color); clip-path: var(--cut-shape);
   transition: --face-color 0.2s, color 0.2s, box-shadow 0.2s, opacity 0.15s, transform 0.4s ${SPRING}; }
 /* Words longer than the room it has end in an ellipsis on one line. */
@@ -371,7 +371,7 @@ component({
 /* A count (a post's likes): figures of one width, so it never shifts as it changes, a weight lighter than the words. */
 .cut-count { font-weight: 500; font-variant-numeric: tabular-nums; }
 /* Big keeps the same slant angle as the rest, so it is the same button, larger. */
-.cut-btn.big > .face { --face-padding: 28px; font-size: 17px; }
+.cut-btn.big > .face { --face-padding: 28px; font-size: 1.0625rem; }
 .cut-btn.small > .face { --face-padding: 14px; }
 /* Its words center in what shows of the button, as an icon alone does: one slanted end (beside another control in a row) loses half its
    slant at mid-height, so the words move a quarter slant away from it; the button keeps its width. Slanted at both ends, they stay put. */
@@ -414,7 +414,7 @@ component({
 .cut-btn:not([aria-busy="true"]) .loader, .cut-btn[aria-busy="true"] .face > .ico { display: none; }
 .cut-btn .face > .loader { position: relative; z-index: 2; }
 /* On a touch screen a small one (36px) still takes a finger: its hit area reaches out to a regular control's 44px, its look unchanged. */
-@media (pointer: coarse) { .cut-btn.small::after { content: ""; position: absolute; inset: calc((var(--control-height) - var(--control-height-regular)) / 2); } }
+@media (pointer: coarse) { .cut-btn.small::after { content: ""; position: absolute; inset: calc((var(--control-height) - var(--touch-target)) / 2); } }
 @media (max-width: 760px) { .cut-btn.big > .face { --face-padding: 20px; } }
 @media (prefers-reduced-motion: reduce) { .cut-btn > .face { transition: --face-color 0.2s, color 0.2s; } }
 `,
@@ -541,7 +541,7 @@ component({
 .glass-btn:focus-visible { outline: none; }
 .glass-btn > .face {
   position: relative; display: flex; flex: auto; align-items: center; justify-content: center; gap: 10px; height: var(--control-height); padding: 0 18px;
-  font: 500 15px var(--display); color: var(--ink); white-space: nowrap;
+  font: 500 0.9375rem var(--display); color: var(--ink); white-space: nowrap;
   --glass-tint: var(--glass-btn-face);
   transition: var(--glass-transition), box-shadow 0.2s, transform 0.4s ${SPRING}; }
 .glass-btn .face > :not(.edge) { position: relative; z-index: 3; }
@@ -663,7 +663,7 @@ component({
 .guest-btn { --control-height: var(--control-height-regular); display: flex; width: 100%; }
 .guest-btn:focus-visible { outline: none; }
 .guest-btn > .face { display: flex; flex: auto; align-items: center; justify-content: center; gap: 8px; height: var(--control-height); padding: 0 16px;
-  font: 500 15px var(--display); color: var(--ink-2); white-space: nowrap; --face-color: transparent; background-color: var(--face-color);
+  font: 500 0.9375rem var(--display); color: var(--ink-2); white-space: nowrap; --face-color: transparent; background-color: var(--face-color);
   clip-path: var(--cut-shape);
   transition: --face-color 0.2s, color 0.2s, box-shadow 0.2s, transform 0.4s ${SPRING}; }
 .guest-btn .face > :not(.cut-line) { position: relative; z-index: 2; }
@@ -818,7 +818,7 @@ component({
 .danger-wrap { vertical-align: middle; max-width: 100%; }
 .danger-wrap:focus-visible { outline: none; }
 .danger { --control-height: var(--control-height-regular); position: relative; overflow: hidden; display: flex; flex: auto; align-items: center; justify-content: center; gap: 10px; min-width: 0; height: var(--control-height); padding: 0 24px;
-  color: #fff; text-shadow: 0 1px 1px rgba(90,10,0,0.35); font: 600 16px var(--display); white-space: nowrap;
+  color: #fff; text-shadow: 0 1px 1px rgba(90,10,0,0.35); font: 600 1rem var(--display); white-space: nowrap;
   --face-color: var(--danger); background: radial-gradient(130% 110% at 50% -35%, rgba(255,255,255,0.24), rgba(255,255,255,0) 62%), linear-gradient(180deg, rgba(255,255,255,0.06), rgba(80,0,0,0.14)), var(--face-color);
   clip-path: var(--cut-shape); transition: --face-color 0.2s, box-shadow 0.2s, transform 0.4s ${SPRING}; }
 .danger.cut-raised > .cut-line { --band-top: rgba(255,214,206,0.8); --band-left: rgba(255,196,186,0.5); --band-right: rgba(110,20,10,0.35); --band-bottom: rgba(96,14,4,0.55); }
@@ -832,7 +832,7 @@ component({
 .danger-wrap[aria-busy="true"] { cursor: progress; }
 .danger-wrap:not([aria-busy="true"]) .loader { display: none; }
 [data-glass] .control-row > .danger-wrap > .danger { width: 100%; }
-@media (max-width: 760px) { .danger { padding: 0 20px; font-size: 15px; } }
+@media (max-width: 760px) { .danger { padding: 0 20px; font-size: 0.9375rem; } }
 @media (prefers-reduced-motion: reduce) { .danger { transition: --face-color 0.2s; } }
 `,
   render: deleteButton,
@@ -890,7 +890,7 @@ component({
    inside a line of words keeps its line's. */
 @media (pointer: coarse) {
   :is(.link.quiet, :is(.row-cell, .stack-cell, .grid-cell, .pane-foot-start) > .link) { position: relative; }
-  :is(.link.quiet, :is(.row-cell, .stack-cell, .grid-cell, .pane-foot-start) > .link)::after { content: ""; position: absolute; inset: calc((1lh - var(--control-height-regular)) / 2) 0; }
+  :is(.link.quiet, :is(.row-cell, .stack-cell, .grid-cell, .pane-foot-start) > .link)::after { content: ""; position: absolute; inset: calc((1lh - var(--touch-target)) / 2) 0; }
 }
 `,
   render: textLink,
