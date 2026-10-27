@@ -38,6 +38,7 @@ import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
 import { BackupStorage } from "../apps/site/src/backup-storage.ts";
+import { scanStatements } from "../packages/game-server/src/database.ts";
 import { ensureDocker, placePhotoDnaSdk } from "./photodna-sdk.mjs";
 
 const CHECKOUT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -51,6 +52,8 @@ const MAIN_DATABASE_KEY = "main-database.sql";
 const BACKUP_CRON_UTC = { hour: 3, minute: 17 };
 const RESTORE_FOLDER = join(CHECKOUT, ".restore");
 const DAY_MS = 24 * 60 * 60 * 1000;
+/** SQL sent at once through wrangler d1 execute --command: well under a command line's limit. */
+const COMMAND_SIZE_CHARACTERS = 90_000;
 
 const [command = "", ...rest] = process.argv.slice(2);
 const flags = readFlags(rest);
@@ -193,6 +196,35 @@ async function downloadMainDatabase(storage, version) {
   return { dumpPath, rowCounts };
 }
 
+/**
+ * The dump without its virtual tables, for D1's import, which refuses them (it resets the database and
+ * says only D1_RESET_DO), and the CREATE VIRTUAL TABLEs and their rows as statements to run after it.
+ */
+function splitVirtualTables(dumpPath) {
+  const dumpSql = readFileSync(dumpPath, "utf8");
+  const statements = scanStatements(dumpSql).map((statement) => dumpSql.slice(statement.startIndex, statement.endIndex));
+  const virtualNames = new Set(statements.map((text) => /^CREATE\s+VIRTUAL\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?"?([\w]+)"?/i.exec(text)?.[1]).filter(Boolean));
+  const isVirtual = (text) => /^CREATE\s+VIRTUAL\s+TABLE/i.test(text) || [...virtualNames].some((name) => new RegExp(`^INSERT\\s+INTO\\s+"?${name}"?\\s*\\(`, "i").test(text));
+  const importPath = `${dumpPath}.import.sql`;
+  writeFileSync(importPath, statements.filter((text) => !isVirtual(text)).map((text) => `${text};\n`).join(""));
+  return { importPath, virtualStatements: statements.filter(isVirtual) };
+}
+
+/** Statements joined into commands of up to COMMAND_SIZE_CHARACTERS each (one longer statement goes alone). */
+function commandsOf(statements) {
+  const commands = [];
+  let command = "";
+  for (const text of statements) {
+    if (command && command.length + text.length > COMMAND_SIZE_CHARACTERS) {
+      commands.push(command);
+      command = "";
+    }
+    command += `${text};\n`;
+  }
+  if (command) commands.push(command);
+  return commands;
+}
+
 async function runRestore() {
   needTarget();
   const storage = backupStorage();
@@ -233,8 +265,13 @@ async function runRestore() {
   const hasMainDatabase = wrangler(["d1", "execute", DATABASE_NAME, "--remote", "--json", "--config", siteConfig, "--command", "SELECT COUNT(*) AS migration_count FROM d1_migrations"]).exitCode === 0;
   if (!hasMainDatabase) {
     const { dumpPath } = await downloadMainDatabase(storage, chosen.version);
+    const { importPath, virtualStatements } = splitVirtualTables(dumpPath);
     say(`Loading ${chosen.night}'s main database…`);
-    wranglerOrFail(["d1", "execute", DATABASE_NAME, "--remote", "--yes", "--config", siteConfig, "--file", dumpPath], "Loading the main database");
+    const loadStartedAtMs = Date.now();
+    wranglerOrFail(["d1", "execute", DATABASE_NAME, "--remote", "--yes", "--config", siteConfig, "--file", importPath], "Loading the main database");
+    // D1's import takes no virtual table (the forum's full-text search): it and its rows go in as statements.
+    for (const command of commandsOf(virtualStatements)) wranglerOrFail(["d1", "execute", DATABASE_NAME, "--remote", "--yes", "--config", siteConfig, "--command", command], "Loading the main database's virtual tables");
+    say(`Main database loaded in ${Math.round((Date.now() - loadStartedAtMs) / 1000)} s (${virtualStatements.length} statements for virtual tables).`);
   }
   // Migrations newer than the copy: one that deletes data asks in this terminal.
   if (wrangler(["d1", "migrations", "apply", DATABASE_NAME, "--remote", "--config", siteConfig], { isInteractive: true }).exitCode !== 0) fail("Applying migrations failed (above).", "Fix it and run this again.");
