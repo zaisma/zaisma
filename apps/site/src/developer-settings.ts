@@ -20,7 +20,8 @@ import { sidePlaces } from "./components/navigation.ts";
 import { confirmItsYouSheet } from "./components/confirm-its-you.ts";
 import { confirmSheet, dropdown, notice, sheet } from "./components/panes.ts";
 import { checkField, choiceCards, codeField, cutField, longField, selectField, toggle } from "./components/inputs.ts";
-import { emptyState, listRows, numbers, table, type ListRow, type UsageMeterOptions } from "./components/data.ts";
+import { emptyState, listRows, numbers, table, type ListRow } from "./components/data.ts";
+import { hostingMeter } from "./hosting-meter.ts";
 import { foldedPart } from "./components/reading.ts";
 
 /**
@@ -366,21 +367,16 @@ function gameRow(each: GameHosting): ListRow {
   const { game, hosting } = each;
   const budgetCents = hosting.monthly_budget_cents;
   const freePct = hosting.free_used_pct;
-  const budgetPct = budgetCents === null ? 0 : Math.min(100, Math.round((hosting.spent_from_credit_cents / Math.max(budgetCents, 1)) * 100));
-  const meter: UsageMeterOptions =
-    budgetCents === null
-      ? { label: game.title, usedNumber: freePct, limitNumber: 100, unit: "%" }
-      : { label: game.title, usedNumber: Math.min(100, freePct) + budgetPct * 2, limitNumber: 300, warnFromNumber: 260, unit: "", isFullFine: budgetPct < 100 };
+  const meter = hostingMeter(game.title, hosting);
   const meterWords = budgetCents === null ? `${freePct}% of this month's free hosting` : freePct >= 100 ? `Free part used · ${dollars(hosting.spent_from_credit_cents)} of its ${dollars(budgetCents)} budget` : `${freePct}% of the free part, then a ${dollars(budgetCents)} budget`;
   const pausedWords =
     hosting.paused_reason === "budget_used" ? "This month's budget is used. Raise it to start again." : hosting.paused_reason === "credit_used" ? "Your credit ran out. Add credit to start again." : `This month's free hosting is used. It's back on ${shownDate(hosting.resets_on_date)}, or sooner with credit and a budget.`;
   const budgetWords = budgetCents === null ? (each.lastMonthBeyondFreeCents > 0 ? `Last month's use past the free allowance would have cost ${dollars(each.lastMonthBeyondFreeCents)} at today's prices.` : "No budget: it stops at its free allowance.") : null;
-  const usedBy = hosting.shares.length ? `Used by ${hosting.shares.map((share) => `${SHARE_WORDS[share.kind]} ${share.share_pct}%`).join(", ")}` : null;
   const idBase = `budget-${game.slug}`;
   return {
     title: game.title,
     detail: `${meterWords} · Resets ${monthDay(hosting.resets_on_date)}`,
-    secondDetail: [hosting.is_paused ? pausedWords : budgetWords, usedBy].filter((line): line is string => Boolean(line)).join(" · ") || undefined,
+    secondDetail: (hosting.is_paused ? pausedWords : budgetWords) ?? undefined,
     end: hosting.is_paused ? tag("Paused", "warning") : undefined,
     meter,
     action: budgetCents === null ? opens("Give it a budget", idBase) : [opens("Change budget", idBase), more(game.title, `${idBase}-more`)],
@@ -418,7 +414,6 @@ function gameSheets(each: GameHosting): LayoutItem[] {
   ];
 }
 
-const SHARE_WORDS: Record<string, string> = { rooms: "rooms", game_server: "game server", relayed_data: "relay", database: "database", requests: "requests" };
 
 /* ---- Pro ---- */
 

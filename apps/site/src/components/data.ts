@@ -1053,6 +1053,15 @@ export interface UsageMeterOptions {
   warnFromNumber?: number;
   /** Used up isn't a warning: the track fills but isn't striped, and says nothing is wrong (a free allowance a budget carries on from). */
   isFullFine?: boolean;
+  /** What used it: the fill in a color for each part, its share of the fill, and a key under the track naming each with its share. */
+  parts?: UsagePart[];
+}
+
+/** One part of what used a meter: its name, its share of the use in whole percent, and its color (0 to 4), the same for the same thing everywhere. */
+export interface UsagePart {
+  label: string;
+  sharePct: number;
+  partColorIndex: number;
 }
 
 /** How full a meter is, and its tone: amber from its warning point, striped when all used. */
@@ -1064,14 +1073,25 @@ function meterState(options: UsageMeterOptions) {
   return { sharePct, isAllUsed, tone };
 }
 
-/** A meter's track alone, in its tone, for a list row whose lines say its numbers. */
-function usageTrack(options: UsageMeterOptions): Raw {
+/** A meter's track alone, in its tone, and its parts' key, for a list row (or an old page's own plate) whose lines say its numbers. */
+export function usageTrack(options: UsageMeterOptions): Raw {
   const { sharePct, tone } = meterState(options);
-  return html`<span class="usage${tone}">${meterTrack(options, sharePct)}</span>`;
+  return html`<span class="usage${tone}">${meterTrack(options, sharePct)}${usageKey(options)}</span>`;
 }
 
 function meterTrack(options: UsageMeterOptions, sharePct: number): Raw {
-  return html`<div class="usage-track cut-carved" data-cut-line="6" role="meter" aria-label="${options.label}" aria-valuemin="0" aria-valuemax="${options.limitNumber}" aria-valuenow="${Math.min(options.usedNumber, options.limitNumber)}">${CUT_LINE}<span class="usage-fill" data-cut-line="4" style="width:${sharePct.toFixed(2)}%"></span></div>`;
+  const parts = options.parts?.filter((part) => part.sharePct > 0) ?? [];
+  const fill = parts.length
+    ? html`<span class="usage-fill has-parts" data-cut-line="4" style="width:${sharePct.toFixed(2)}%">${parts.map((part) => html`<span class="usage-part" data-part="${String(part.partColorIndex)}" style="flex-grow:${String(part.sharePct)}"></span>`)}</span>`
+    : html`<span class="usage-fill" data-cut-line="4" style="width:${sharePct.toFixed(2)}%"></span>`;
+  return html`<div class="usage-track cut-carved" data-cut-line="6" role="meter" aria-label="${options.label}" aria-valuemin="0" aria-valuemax="${options.limitNumber}" aria-valuenow="${Math.min(options.usedNumber, options.limitNumber)}">${CUT_LINE}${fill}</div>`;
+}
+
+/** The key under a meter with parts: each part's color, name and share, in the order given. */
+function usageKey(options: UsageMeterOptions): Raw | "" {
+  const parts = options.parts?.filter((part) => part.sharePct > 0) ?? [];
+  if (!parts.length) return "";
+  return html`<ul class="usage-key" aria-label="What used ${options.label}">${parts.map((part) => html`<li data-part="${String(part.partColorIndex)}"><span class="usage-swatch" aria-hidden="true"></span><span class="usage-part-name">${part.label}</span><b>${String(part.sharePct)}%</b></li>`)}</ul>`;
 }
 
 /**
@@ -1084,7 +1104,7 @@ export function usageMeter(options: UsageMeterOptions): Raw {
   const overNumber = options.usedNumber - options.limitNumber;
   const allUsedWords = overNumber > 0 ? `, ${chartWords(overNumber)} ${options.unit} over` : ", all used";
   const resetWords = options.resetDate ? `Resets ${new Date(`${options.resetDate}T00:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}.` : "";
-  return html`<div class="usage${tone}"><span class="usage-label">${isAllUsed ? icon("warning") : ""}${options.label}</span><p class="usage-numbers"><span class="usage-fact">${options.shownWords ?? html`${chartWords(options.usedNumber)} of ${chartWords(options.limitNumber)}\u00a0${options.unit}`}${isAllUsed ? html`<b>${allUsedWords}</b>` : ""}${resetWords ? "\u00a0·" : ""}</span>${resetWords ? html` <span class="usage-fact">${resetWords}</span>` : ""}</p>${meterTrack(options, sharePct)}</div>`;
+  return html`<div class="usage${tone}"><span class="usage-label">${isAllUsed ? icon("warning") : ""}${options.label}</span><p class="usage-numbers"><span class="usage-fact">${options.shownWords ?? html`${chartWords(options.usedNumber)} of ${chartWords(options.limitNumber)}\u00a0${options.unit}`}${isAllUsed ? html`<b>${allUsedWords}</b>` : ""}${resetWords ? "\u00a0·" : ""}</span>${resetWords ? html` <span class="usage-fact">${resetWords}</span>` : ""}</p>${meterTrack(options, sharePct)}${usageKey(options)}</div>`;
 }
 
 const meterPane = (options: UsageMeterOptions) => glassPane({ paneWidth: "fit", body: usageMeter(options) });
@@ -1110,6 +1130,20 @@ component({
 .usage:is(.is-used, .is-near) .usage-fill { min-width: 6px; }
 .usage.is-near .usage-fill { background: var(--meter-near); }
 .usage.is-full .usage-fill { background: repeating-linear-gradient(-45deg, var(--meter-near) 0 6px, var(--meter-full) 6px 12px); }
+/* With parts, the fill is what used it, side by side in each part's color, a hairline of the track between them; past 80% the colors
+   stay and the numbers say so, and all used, amber stripes run across them. The key under the track names each part with its share. */
+.usage-fill.has-parts, .usage:is(.is-near, .is-full) .usage-fill.has-parts { display: flex; gap: 2px; background: none; }
+.usage-part { display: block; min-width: 3px; background: var(--part-color); }
+.usage.is-full .usage-part { background: repeating-linear-gradient(-45deg, var(--part-color) 0 6px, var(--meter-full) 6px 12px); }
+.usage [data-part="0"] { --part-color: var(--part-0); }
+.usage [data-part="1"] { --part-color: var(--part-1); }
+.usage [data-part="2"] { --part-color: var(--part-2); }
+.usage [data-part="3"] { --part-color: var(--part-3); }
+.usage [data-part="4"] { --part-color: var(--part-4); }
+.usage-key { display: flex; flex-wrap: wrap; gap: var(--gap-words-words) var(--gap-words-control); list-style: none; margin: 0; padding: 0 var(--pad-words); }
+.usage-key li { display: inline-flex; align-items: center; gap: var(--gap-words-words); font: var(--type-facts); color: var(--ink-2); }
+.usage-key b { font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
+.usage-swatch { width: 10px; height: 10px; background: var(--part-color); }
 `,
   render: usageMeter,
   examples: [
@@ -1121,5 +1155,8 @@ component({
     { label: "None used", markup: meterPane({ label: "Database rows", usedNumber: 0, limitNumber: 50000, unit: "rows" }) },
     { label: "In its own words: a share of a free allowance", markup: meterPane({ label: "Starfall", usedNumber: 62, limitNumber: 100, unit: "%", resetDate: "2026-11-01", shownWords: "62% of this month's free hosting" }) },
     { label: "Two allowances on one track: free, then a budget the game lives on (used up is not a warning until the budget is)", markup: meterPane({ label: "Starfall", usedNumber: 100 + 2 * 45, limitNumber: 300, warnFromNumber: 260, isFullFine: true, unit: "", resetDate: "2026-11-01", shownWords: "Free part used. $18 of $40 budget" }) },
+    { label: "Split by what used it: a color for each part, with its share in the key", markup: meterPane({ label: "Starfall", usedNumber: 62, limitNumber: 100, unit: "%", resetDate: "2026-11-01", shownWords: "62% of this month's free hosting", parts: [{ label: "Rooms", sharePct: 48, partColorIndex: 0 }, { label: "Game server", sharePct: 27, partColorIndex: 1 }, { label: "Database", sharePct: 15, partColorIndex: 3 }, { label: "Requests", sharePct: 10, partColorIndex: 4 }] }) },
+    { label: "Split, past 80%", markup: meterPane({ label: "Kestrel", usedNumber: 86, limitNumber: 100, unit: "%", resetDate: "2026-11-01", shownWords: "86% of this month's free hosting", parts: [{ label: "Relay", sharePct: 75, partColorIndex: 2 }, { label: "Rooms", sharePct: 25, partColorIndex: 0 }] }) },
+    { label: "Split, all used", markup: meterPane({ label: "Ashen Crown", usedNumber: 100, limitNumber: 100, unit: "%", resetDate: "2026-11-01", shownWords: "100% of this month's free hosting", parts: [{ label: "Rooms", sharePct: 100, partColorIndex: 0 }] }) },
   ],
 });
