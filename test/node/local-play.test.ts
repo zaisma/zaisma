@@ -239,7 +239,9 @@ describe("play-locally", () => {
     expect(response.headers.get("set-cookie")).toBe(`zaisma_in=1; Path=/p/${anna}; SameSite=Lax`);
     expect(response.headers.get("content-security-policy")).toContain("frame-ancestors 'self'");
     const page = await response.text();
-    for (const id of ["game-page-data", "buy-sheet", "players", "share-dialog", "room-dialog", "report"]) expect(page).toContain(`id="${id}"`);
+    for (const id of ["game-page-data", "buy-sheet", "players", "share-dialog", "room-dialog"]) expect(page).toContain(`id="${id}"`);
+    // Report is a step of the Players sheet.
+    expect(page).toContain('data-sheet-step="report"');
     expect(page).toContain(`src="${play.gameSiteUrl}/${SLUG}/"`);
     const stylesheet = /href="(\/css\/site\.[a-z0-9]+\.css)"/.exec(page)?.[1];
     expect(stylesheet).toBeTruthy();
