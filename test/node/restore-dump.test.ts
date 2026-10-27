@@ -2,6 +2,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+// @ts-expect-error plain JavaScript without type declarations
 import { ORDERED_DUMP_HEADER, writeImportParts } from "../../scripts/restore-dump.mjs";
 
 // The main database's dump made ready for D1's import (scripts/restore-dump.mjs): parents first, in parts that
@@ -29,7 +30,7 @@ describe("a dump made ready for D1's import", () => {
         "CREATE INDEX games_by_owner ON games(owner_id)",
       ].map((text) => `${text};\n`).join(""),
     );
-    const paths = await writeImportParts(dumpPath);
+    const paths: string[] = await writeImportParts(dumpPath);
     expect(paths).toHaveLength(1);
     expect(readFileSync(paths[0]!, "utf8").startsWith("PRAGMA defer_foreign_keys=TRUE;\n")).toBe(true);
     expect(statementsOf(paths)).toEqual([
@@ -46,7 +47,7 @@ describe("a dump made ready for D1's import", () => {
     const filler = "x".repeat(1000);
     const rows = Array.from({ length: 10_000 }, (_, index) => `INSERT INTO "notes"("id","body") VALUES('note_${index}','${index === 8_400 ? "one;\nand two" : filler}')`);
     writeFileSync(dumpPath, `${ORDERED_DUMP_HEADER}\nPRAGMA defer_foreign_keys=TRUE;\nCREATE TABLE notes (id TEXT PRIMARY KEY, body TEXT);\n${rows.map((text) => `${text};\n`).join("")}`);
-    const paths = await writeImportParts(dumpPath, 2 * 1024 * 1024);
+    const paths: string[] = await writeImportParts(dumpPath, 2 * 1024 * 1024);
     // 10 MB of rows, past the 8 MB read, in parts of up to 2 MB.
     expect(paths.length).toBeGreaterThanOrEqual(5);
     for (const path of paths) expect(readFileSync(path, "utf8").startsWith("PRAGMA defer_foreign_keys=TRUE;\n")).toBe(true);
