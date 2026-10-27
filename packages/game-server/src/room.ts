@@ -1033,6 +1033,8 @@ export type ServerMessage =
   | { type: "state"; serverTimeMs: number; full: unknown }
   | { type: "state"; serverTimeMs: number; changes: StateChange[] }
   | { type: "blocks"; playerIds: string[] }
+  // Zaisma has a friend request waiting for this player: their game page looks (never who it's from).
+  | { type: "friend_request" }
   | { type: "chat"; fromPlayerId: string; text: string; hasSwearing: boolean; hasSlur: boolean; sentAt: string }
   | { type: "chat_sent"; chatNumber: number; sentAt: string }
   | { type: "chat_stopped"; chatNumber: number; reason: string; message: string }
@@ -1064,6 +1066,7 @@ export type ClientMessage =
   | { type: "kick"; playerId: string; keepOut?: boolean }
   | { type: "block"; playerId: string }
   | { type: "unblock"; playerId: string }
+  | { type: "friend_request"; playerId: string }
   | { type: "probe_answer"; probeNumber: number }
   | { type: "here" }
   | { type: "idle" }
@@ -2047,6 +2050,19 @@ export class RoomCore<S = any> {
     return null;
   }
 
+  /**
+   * A player's game page just sent another player here a friend request (docs/DECISIONS.md, "Friend requests in
+   * games"): the room tells that player's game to have their page look now, rather than at its next check-in.
+   * Zaisma's record is the request; this says only "look", never who it's from, so a lying client gains nothing.
+   */
+  private friendRequestTold(playerId: string, message: Record<string, unknown>): RoomErrorCode | null {
+    const otherPlayerId = message.playerId;
+    if (typeof otherPlayerId !== "string" || otherPlayerId === playerId || !this.players.has(otherPlayerId)) return "bad_message";
+    if (this.hasBlockBetween(playerId, otherPlayerId)) return null;
+    this.sendText(otherPlayerId, JSON.stringify({ type: "friend_request" } satisfies ServerMessage));
+    return null;
+  }
+
   /** Players in the match who haven't walked away: what room lists and "playing now" count. */
   get playingCount(): number {
     return this.players.size - this.kept.size;
@@ -2630,6 +2646,8 @@ export class RoomCore<S = any> {
         return this.sessionBlock(playerId, message, true);
       case "unblock":
         return this.sessionBlock(playerId, message, false);
+      case "friend_request":
+        return this.friendRequestTold(playerId, message);
       default:
         // A type this room doesn't know, maybe from a newer SDK: counted and limited above, then ignored.
         return typeof message.type === "string" ? null : "bad_message";

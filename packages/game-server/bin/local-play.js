@@ -145,6 +145,8 @@ function defaultState() {
     // Each player's guest, while they play as one: { id, name }.
     guests: {},
     friends: [],
+    // Friend requests waiting between bench accounts: { from, to, createdAtMs }.
+    friendRequests: [],
     blocks: [],
     ownedItems: {},
     items: [],
@@ -629,6 +631,7 @@ export async function startLocalPlay(givenOptions) {
     if (rest === "" && method === "DELETE") {
       state.accounts = state.accounts.filter((each) => each.id !== account.id);
       state.friends = state.friends.filter((pair) => !pair.includes(account.id));
+      state.friendRequests = (state.friendRequests ?? []).filter((each) => each.from !== account.id && each.to !== account.id);
       state.blocks = state.blocks.filter((block) => block.blocker !== account.id && block.blocked !== account.id);
       state.purchases = state.purchases.filter((purchase) => purchase.accountId !== account.id);
       delete state.ownedItems[account.id];
@@ -950,6 +953,61 @@ export async function startLocalPlay(givenOptions) {
         return reply(200, { is_blocked: true });
       }
       return reply(200, { player: { player_id: target.playerId, name: target.username }, is_friend: friendIdsOf(account.id).includes(target.id), is_blocked: state.blocks.some((block) => block.blocker === account.id && block.blocked === target.id) });
+    }
+    // Friend requests between bench accounts, as Zaisma's game page sends and answers them (apps/site/src/friend-requests.ts).
+    if (path === "/friends/requests" || path.startsWith("/friends/requests/")) {
+      if (!account) return reply(401, { error: { code: "not_signed_in", message: "Sign in to add friends." } });
+      const requests = (state.friendRequests ??= []);
+      const isBlockedPair = (other) => state.blocks.some((block) => isPair([block.blocker, block.blocked], account.id, other.id));
+      const isFriend = (other) => friendIdsOf(account.id).includes(other.id);
+      const waitingFrom = (from, to) => requests.find((each) => each.from === from && each.to === to);
+      const makeFriends = (other) => {
+        state.friendRequests = requests.filter((each) => !isPair([each.from, each.to], account.id, other.id));
+        if (!isFriend(other)) state.friends.push([account.id, other.id]);
+        saveState();
+        log(`${account.username} and ${other.username} are friends now.`);
+      };
+      if (request.method === "GET" && path === "/friends/requests") {
+        return reply(200, { requests: requests.filter((each) => each.to === account.id).map((each) => ({ from: accountOf(each.from), createdAtMs: each.createdAtMs })).filter((each) => each.from).map((each) => ({ player_id: each.from.playerId, name: each.from.username, created_at_ms: each.createdAtMs, game_slug: gameSlug })).reverse() });
+      }
+      const aboutMatch = /^\/friends\/requests\/about\/(player_[a-z0-9]{1,40})$/.exec(path);
+      if (request.method === "GET" && aboutMatch) {
+        const other = accountOfPlayer(aboutMatch[1]);
+        if (!other || other.id === account.id) return reply(200, { player: null, can_send: false, has_sent: false, is_friend: false });
+        const hasSent = Boolean(waitingFrom(account.id, other.id));
+        const canSend = !isFriend(other) && !hasSent && !isBlockedPair(other) && other.ageBand === account.ageBand && (Boolean(waitingFrom(other.id, account.id)) || glass.takesFriendRequests(other.ageBand, other.socialMode));
+        return reply(200, { player: { player_id: other.playerId, name: other.username }, can_send: canSend, has_sent: hasSent, is_friend: isFriend(other) });
+      }
+      if (isPost && path === "/friends/requests") {
+        const body = await readJson(request);
+        const other = typeof body.player_id === "string" ? accountOfPlayer(body.player_id) : null;
+        if (!other || other.id === account.id) return reply(409, { error: { code: "not_an_account", message: "Only players signed in to Zaisma take friend requests." } });
+        if (isFriend(other)) return reply(409, { error: { code: "already_friends", message: "You're friends already." } });
+        if (waitingFrom(other.id, account.id)) {
+          makeFriends(other);
+          return reply(200, { status: "friends" });
+        }
+        if (waitingFrom(account.id, other.id)) return reply(409, { error: { code: "already_sent", message: "Your request is waiting for them." } });
+        if (isBlockedPair(other) || other.ageBand !== account.ageBand || !glass.takesFriendRequests(other.ageBand, other.socialMode)) return reply(409, { error: { code: "not_taking_requests", message: "They aren't taking friend requests from you." } });
+        requests.push({ from: account.id, to: other.id, createdAtMs: Date.now() });
+        saveState();
+        log(`${account.username} sent ${other.username} a friend request.`);
+        return reply(200, { status: "sent" });
+      }
+      const answerMatch = /^\/friends\/requests\/(player_[a-z0-9]{1,40})\/(accept|turn-down)$/.exec(path);
+      if (isPost && answerMatch) {
+        await readText(request);
+        const other = accountOfPlayer(answerMatch[1]);
+        if (!other || !waitingFrom(other.id, account.id)) return reply(404, { error: { code: "request_not_found", message: "That request isn't waiting any more." } });
+        if (answerMatch[2] === "accept") makeFriends(other);
+        else {
+          state.friendRequests = requests.filter((each) => !(each.from === other.id && each.to === account.id));
+          saveState();
+          log(`${account.username} turned down ${other.username}'s friend request.`);
+        }
+        return reply(200, { answer: answerMatch[2] === "accept" ? "accepted" : "turned_down" });
+      }
+      return reply(404, { error: { code: "not_found", message: "Nothing here." } });
     }
     // A report goes to Zaisma's moderators, or the game's developer: here the terminal says what it would send.
     if (isPost && path === `${game}/report`) {

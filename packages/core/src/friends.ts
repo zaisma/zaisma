@@ -1,7 +1,7 @@
 /**
  * Friends (docs/DECISIONS.md, "How friends work"): two accounts become friends when one accepts an
  * invite the other made, a link or an 8-character code given by hand, never by a stranger pressing
- * "Add friend". An invite works once, for a week. Friends are symmetric, at most MAXIMUM_FRIEND_COUNT
+ * "Add friend" on its own: a request in a game (friend-requests.ts) is the other way. An invite works once, for a week. Friends are symmetric, at most MAXIMUM_FRIEND_COUNT
  * each, and both sides go when either removes the other or deletes their account. Passes carry an
  * account's friends as opaque tags, so canChat can let friends chat. A block between two accounts
  * (blocks.ts) ends their friendship and keeps them from becoming friends again until it's undone.

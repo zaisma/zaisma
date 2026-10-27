@@ -1,4 +1,4 @@
-import { AGE_BAND_FLOOR_YEARS, accountById, checkIn, friendsNowOf, gameBySlug, joinRefusalText, leftGame, type Account, type FriendNow, type FriendsInGame } from "@zaisma/core";
+import { AGE_BAND_FLOOR_YEARS, accountById, checkIn, waitingFriendRequestCountOf, friendsNowOf, gameBySlug, joinRefusalText, leftGame, type Account, type FriendNow, type FriendsInGame } from "@zaisma/core";
 import { currentSession } from "./auth.ts";
 import type { Env } from "./env.ts";
 import { tile } from "./home.ts";
@@ -58,6 +58,8 @@ export async function handleFriendsNow(request: Request, env: Env, path: string)
   const gameSlug = slugOf(body.game_slug);
   const game = gameSlug ? await gameBySlug(env.DB, gameSlug) : null;
   await checkIn(env.DB, session.userId, game?.id ?? null);
+  // A game page hears how many friend requests wait, so its card shows a new one within a check-in (friend-requests.ts).
+  if (game) return done(Response.json({ waiting_friend_request_count: await waitingFriendRequestCountOf(env.DB, session.userId) }));
   return done(new Response(null, { status: 204 }));
 }
 

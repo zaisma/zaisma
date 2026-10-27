@@ -240,7 +240,34 @@ declare namespace Zaisma {
      * await Zaisma.friends.setRoom(null);   // left the match
      */
     setRoom(room: OwnServerRoom | null): Promise<void>;
+    /**
+     * Offer the player to send another player a friend request, from your own scoreboard, lobby or menu.
+     * Zaisma asks the player first on its page ("Send Mia a friend request?", with the name Zaisma knows
+     * them by), so nothing is sent without them, and the other player gets it over their game's corner and
+     * on zaisma.com/friends. Players can also send one from Players in Zaisma's bar, so a button of your
+     * own is optional. Resolves with what happened: "sent"; "cancelled" when the player said no or another
+     * question was up; "already_friends"; or "not_taking_requests" when the other player doesn't take them
+     * from this one (their settings, their age group, a block, or a guest), which never says which. Your game
+     * never hears of requests themselves, only that two players are friends (room.areFriends on your game server, and the
+     * passes' tags, from their next join). Fails with error.code "account_needed" for a guest (ask them to
+     * sign in with {@link player.signIn}), "bad_player_id" for something that isn't a player's id, and
+     * "not_on_zaisma" when the game isn't played on Zaisma.
+     *
+     * @example
+     * // A button beside each player on your end-of-match screen.
+     * const { status } = await Zaisma.friends.sendRequest(player.id);
+     * if (status === "sent") button.textContent = "Request sent";
+     */
+    sendRequest(playerId: string): Promise<FriendRequestAnswer>;
   }
+
+  /** What became of a friend request the game offered ({@link Friends.sendRequest}). */
+  interface FriendRequestAnswer {
+    status: FriendRequestStatus;
+  }
+
+  /** "sent", "cancelled" (the player said no), "already_friends", or "not_taking_requests" (never why). */
+  type FriendRequestStatus = "sent" | "cancelled" | "already_friends" | "not_taking_requests";
 
   /** The player's friends playing this game ({@link Friends.list}). */
   interface FriendList {

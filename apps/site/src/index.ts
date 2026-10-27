@@ -47,6 +47,7 @@ import { handleForum } from "./forum-pages.ts";
 import { handleAnnouncements } from "./announcements.ts";
 import { handleFriends } from "./friends.ts";
 import { handleBlocks } from "./blocks.ts";
+import { handleFriendRequests } from "./friend-requests.ts";
 import { handleFriendsNow } from "./friends-now.ts";
 import { handlePlayersSheet } from "./players-sheet.ts";
 import { handleProfiles } from "./profiles.ts";
@@ -142,6 +143,8 @@ async function route(request: Request, env: Env, ctx: ExecutionContext): Promise
   const playersSheet = await handlePlayersSheet(request, env, path);
   if (playersSheet) return playersSheet;
 
+  const friendRequests = await handleFriendRequests(request, env, path);
+  if (friendRequests) return friendRequests;
   const friends = await handleFriends(request, env, path);
   if (friends) return friends;
   const friendsNow = await handleFriendsNow(request, env, path);

@@ -716,6 +716,42 @@ describe("the SDK's types say what the SDK does", () => {
     expect(await failureCode(() => sdk.Zaisma.items.markHandled("purchase_k2v9q4"))).toBe("handled_by_server");
   });
 
+  it("offers a friend request through the Zaisma page, which asks first, and has the room nudge the other player's game", async () => {
+    const accountPass = { pass: "account-pass", player: { id: "player_ana", name: "Ana", kind: "account" }, expiresAt: "2099-01-01T00:00:00Z" };
+    const fetchAnswer = ((url: string) => (url.endsWith("/v1/pass") ? Promise.resolve({ ok: true, json: () => Promise.resolve(accountPass) }) : Promise.reject(new TypeError("Failed to fetch")))) as () => Promise<unknown>;
+    const sdk = loadSdk(ON_ZAISMA, fetchAnswer, "account");
+    const { socket } = await joinedRoom(sdk);
+    const sent = () => socket.sent.map((text) => JSON.parse(text));
+    const askedOf = async () => {
+      await vi.waitFor(() => expect((sdk.page.posted.at(-1) as { type?: string })?.type).toBe("zaisma:friend-request"));
+      return sdk.page.posted.at(-1);
+    };
+    const asking = sdk.Zaisma.friends.sendRequest("player_bo");
+    expect(await askedOf()).toEqual({ type: "zaisma:friend-request", playerId: "player_bo" });
+    sdk.page.say({ type: "zaisma:friend-request", playerId: "player_bo", status: "asking" });
+    sdk.page.say({ type: "zaisma:friend-request", playerId: "player_bo", status: "sent" });
+    const answer = await asking;
+    expect(answer).toEqual({ status: "sent" });
+    expect(Object.keys(answer).sort()).toEqual(fieldsOf("FriendRequestAnswer"));
+    // The room Bo is in tells Bo's game to have their page look.
+    expect(sent().at(-1)).toEqual({ type: "friend_request", playerId: "player_bo" });
+    // The player said no on Zaisma's sheet.
+    const cancelled = sdk.Zaisma.friends.sendRequest("player_bo");
+    await askedOf();
+    sdk.page.say({ type: "zaisma:friend-request", playerId: "player_bo", status: "cancelled" });
+    expect(await cancelled).toEqual({ status: "cancelled" });
+    const before = socket.sent.length;
+    // One sent from the page's own Players reaches the room too.
+    sdk.page.say({ type: "zaisma:friend-request", playerId: "player_bo", status: "sent" });
+    expect(socket.sent.length).toBe(before + 1);
+    // A request waiting for this player: the room says only "look", and the page is told.
+    say(socket, { type: "friend_request" });
+    expect(sdk.page.posted.at(-1)).toEqual({ type: "zaisma:friend-requests" });
+    expect(await failureCode(() => sdk.Zaisma.friends.sendRequest("Bo"))).toBe("bad_player_id");
+    expect(await failureCode(() => loadSdk().Zaisma.friends.sendRequest("player_bo"))).toBe("account_needed");
+    expect(await failureCode(() => loadSdk(null).Zaisma.friends.sendRequest("player_bo"))).toBe("not_on_zaisma");
+  });
+
   it("lists a signed-in player's friends playing the game, as FriendInGame says, and keeps the answer 10 seconds", async () => {
     const asked: { url: string; body: Record<string, unknown> }[] = [];
     const answers: Record<string, unknown> = {

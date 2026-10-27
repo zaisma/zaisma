@@ -182,6 +182,10 @@
     "kind": "constant",
     "value": 3000
   },
+  "wait in sendFriendRequest": {
+    "kind": "constant",
+    "value": 3000
+  },
   "refusal: Zaisma.player.getPass off Zaisma": {
     "kind": "constant",
     "value": {

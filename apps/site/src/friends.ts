@@ -17,6 +17,7 @@ import {
   removeFriend,
   removeFriendInvite,
   setAppearingOffline,
+  waitingFriendRequestsTo,
   socialSettingsOf,
   socialStoppedNotice,
   type Account,
@@ -28,11 +29,13 @@ import { friendsNowSection } from "./friends-now.ts";
 import { accountPicture, html, layout, message, metalButton, raw, scriptTags, type Raw } from "./html.ts";
 import { pageScript } from "./page-scripts.ts";
 import { blockedSection } from "./blocks.ts";
+import { friendRequestsSection } from "./friend-requests.ts";
 import { profilePath } from "./profiles.ts";
 
 /**
  * Friends (docs/DECISIONS.md, "How friends work"): the friend list, invites and the page an invite
- * link opens. Friends only ever come from an invite one of them gave the other by hand.
+ * link opens. Friends come from an invite one of them gave the other by hand, or a friend request
+ * sent in a game (friend-requests.ts).
  */
 export async function handleFriends(request: Request, env: Env, path: string): Promise<Response | null> {
   const inviteMatch = path.match(/^\/friends\/add\/([A-Za-z0-9-]{1,20})$/);
@@ -164,7 +167,7 @@ function chatLine(account: Account): Raw {
 }
 
 async function friendsPage(env: Env, session: Session, account: Account, query: URLSearchParams, error?: string): Promise<Response> {
-  const [friends, invites, blocks] = await Promise.all([friendsOf(env.DB, account.id), friendInvitesOf(env.DB, account.id), blocksOf(env.DB, account.id)]);
+  const [friends, invites, blocks, requests] = await Promise.all([friendsOf(env.DB, account.id), friendInvitesOf(env.DB, account.id), blocksOf(env.DB, account.id), account.social_stopped_at_ms ? [] : waitingFriendRequestsTo(env.DB, account.id)]);
   const now = await friendsNowSection(env, account, friends.length);
   const added = friends.find((friend) => friend.player_id === query.get("added"));
   const newInvite = invites.find((invite) => invite.invite_code === query.get("invite"));
@@ -178,9 +181,10 @@ async function friendsPage(env: Env, session: Session, account: Account, query: 
 ${added ? html`<p class="note" role="status">You and ${added.name} are friends now.</p>` : ""}
 ${query.has("removed") ? html`<p class="note" role="status">Removed. You're no longer friends on either side.</p>` : ""}
 ${error ? html`<p class="error" role="alert">${error}</p>` : ""}
-${account.social_stopped_at_ms ? html`<p class="note" role="status">${socialStoppedNotice(account.social_stopped_reason)}</p>` : html`${now}
+${account.social_stopped_at_ms ? html`<p class="note" role="status">${socialStoppedNotice(account.social_stopped_reason)}</p>` : html`${friendRequestsSection(requests, query)}
+${now}
 <h2 class="rule-h" id="invite">Invite a friend</h2>
-<p>Friends join by an invite you give them yourself, as a link or a code. Nobody else can add you.</p>
+<p>Friends join by an invite you give them yourself, as a link or a code, or by a friend request in a game, when your settings take them.</p>
 ${newInvite
       ? html`<div class="note invite-made" role="status"><p><strong>Send this to one friend.</strong> It works once, for ${FRIEND_INVITE_DURATION_DAYS} days.</p>
 <p class="invite-code">${friendInviteCodeInWords(newInvite.invite_code)}</p>

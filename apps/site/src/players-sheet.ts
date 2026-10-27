@@ -1,7 +1,7 @@
 import { friendsInGameOf, gameBySlug, joinRefusalText } from "@zaisma/core";
 import { currentSession } from "./auth.ts";
 import type { Env } from "./env.ts";
-import { cutButton, textLink } from "./components/actions.ts";
+import { cutButton, runButton, textLink } from "./components/actions.ts";
 import type { ControlMarkup } from "./components/control-markup.ts";
 import { listRows, pictureFrame, emptyState } from "./components/data.ts";
 import { stack, type LayoutItem } from "./components/layout.ts";
@@ -94,6 +94,13 @@ export function playersSheet(options: { gameOrigin: string; slug: string; title:
   const words = (markup: Raw): LayoutItem => ({ kind: "words", markup });
   const body = stack({
     items: [
+      // Friend requests waiting for the player, with Accept and Turn down (friend-requests.ts brings them).
+      {
+        kind: "block",
+        id: "players-requests",
+        isHidden: true,
+        markup: stack({ items: [words(html`<h3>Friend requests</h3>`), { kind: "block", markup: listRows({ whenEmpty: html`<p hidden></p>`, rows: [], id: "players-requests-list", label: "Friend requests" }) }] }),
+      },
       words(html`<h3 id="players-room-title">In this room<span id="players-count"></span></h3>`),
       // While nobody's listed, the note says why (the page's script writes it): the list's empty state.
       { kind: "block", markup: listRows({ whenEmpty: html`<p id="players-note" hidden></p>`, rows: [], id: "players-list", label: "In this room" }) },
@@ -111,6 +118,10 @@ export function playersSheet(options: { gameOrigin: string; slug: string; title:
   const playerBody = stack({
     items: [
       { kind: "control", markup: cutButton("Profile", { href: "/", id: "players-player-profile", isFullWidth: true, isHidden: true }) },
+      // Only when they take friend requests from this player (friend-requests.ts asks), with no hint why otherwise.
+      { kind: "control", markup: cutButton("Add friend", { type: "button", id: "players-player-friend", isFullWidth: true, isHidden: true }) },
+      words(html`<p id="players-player-sent" hidden>Friend request sent.</p>`),
+      words(html`<p id="players-player-sign-in" hidden>${textLink("Sign in", options.signInPath)} to add friends.</p>`),
       { kind: "control", markup: cutButton("Block", { type: "button", id: "players-player-block", isFullWidth: true }) },
       { kind: "control", markup: cutButton("Report", { type: "button", id: "players-player-report", isFullWidth: true }) },
     ],
@@ -120,6 +131,7 @@ export function playersSheet(options: { gameOrigin: string; slug: string; title:
   return html`${sheet({ id: "players", title: "Players", body, closeLabel: "Close", placement: "foot" })}
 ${sheet({ id: "players-player", title: "Player", body: playerBody, closeLabel: "Close", placement: "foot" })}
 <template id="players-row">${rowTemplate}</template>
+<template id="players-request-row">${listRows({ whenEmpty: html`<p hidden></p>`, rows: [{ lead: pictureFrame("?", "md"), title: "?", action: [runButton("Accept", { ...rowButton, dataAttributes: { "request-action": "accept" } }), cutButton("Turn down", { ...rowButton, dataAttributes: { "request-action": "turn-down" } })] }] })}</template>
 ${pageData("players-data", { gameOrigin: options.gameOrigin, slug: options.slug, hasZaismaRooms: options.hasZaismaRooms, canSignIn: options.canSignIn })}
 ${scriptTags(PLAYERS_SHEET_SCRIPT)}`;
 }
@@ -160,6 +172,26 @@ const PLAYERS_SHEET_SCRIPT = pageScript("players-sheet", String.raw`(() => {
   }
   // A button's words: the last span in its face (cutButton).
   const wordsOf = (button) => button.querySelector(".face > span:last-child");
+  // Friend requests waiting for this player, and the ones they sent from here this session.
+  let requests = [];
+  const sentTo = new Set();
+  addEventListener("zaisma:friend-requests-waiting", (e) => { requests = e.detail && Array.isArray(e.detail.requests) ? e.detail.requests : []; if (sheet.open) render(); });
+  addEventListener("zaisma:friend-request-sent", (e) => { if (e.detail) sentTo.add(e.detail.id); });
+  function renderRequests() {
+    const list = $("players-requests-list");
+    list.textContent = "";
+    $("players-requests").hidden = !requests.length;
+    list.hidden = !requests.length;
+    requests.slice(0, 20).forEach((waiting) => {
+      const item = $("players-request-row").content.querySelector("li").cloneNode(true);
+      paint(item.querySelector(".av"), waiting.name);
+      item.querySelector(".list-row-title").textContent = waiting.name;
+      item.querySelectorAll("[data-request-action]").forEach((button) => button.addEventListener("click", () => {
+        dispatchEvent(new CustomEvent("zaisma:answer-friend-request", { detail: { id: waiting.player_id, verb: button.dataset.requestAction } }));
+      }));
+      list.appendChild(item);
+    });
+  }
 
   addEventListener("message", (e) => {
     const f = frame();
@@ -202,6 +234,7 @@ const PLAYERS_SHEET_SCRIPT = pageScript("players-sheet", String.raw`(() => {
   }
 
   function render() {
+    renderRequests();
     $("players-count").textContent = room ? " · " + room.players.length : "";
     const list = $("players-list");
     list.textContent = "";
@@ -250,10 +283,36 @@ const PLAYERS_SHEET_SCRIPT = pageScript("players-sheet", String.raw`(() => {
         profile.rel = "noopener";
       }
       $("players-player-block").hidden = isBlocked;
+      showFriendChoice(other, known, isBlocked);
       if (!playerSheet.open) playerSheet.showModal();
     });
     return item;
   }
+
+  // Add friend, Friend request sent, or Sign in to add friends: asked of Zaisma as the player's sheet opens.
+  function showFriendChoice(other, known, isBlocked) {
+    const add = $("players-player-friend"), sent = $("players-player-sent"), signIn = $("players-player-sign-in");
+    add.hidden = true;
+    sent.hidden = true;
+    signIn.hidden = !(other.kind === "account" && !isSignedIn() && CAN_SIGN_IN);
+    if (!known || known.isFriend || isBlocked || !isSignedIn()) return;
+    if (sentTo.has(other.id)) { sent.hidden = false; return; }
+    const asking = other.id;
+    fetch("/friends/requests/about/" + other.id)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((about) => {
+        if (!about || !chosen || chosen.id !== asking) return;
+        add.hidden = !about.can_send;
+        sent.hidden = !about.has_sent;
+      })
+      .catch(() => {});
+  }
+  $("players-player-friend").addEventListener("click", () => {
+    if (!chosen) return;
+    const playerId = chosen.id;
+    closeBoth();
+    dispatchEvent(new CustomEvent("zaisma:ask-friend-request", { detail: { id: playerId } }));
+  });
 
   function closeBoth() {
     if (playerSheet.open) playerSheet.close();
@@ -287,7 +346,7 @@ const PLAYERS_SHEET_SCRIPT = pageScript("players-sheet", String.raw`(() => {
 
   // The bar's button opens it (SHEET_SCRIPT does too, by its aria-controls; this runs first and fills it in).
   opener.addEventListener("click", () => {
-    ["report", "block"].forEach((id) => { const other = $(id); if (other && other.open) other.close(); });
+    ["report", "block", "friend-request"].forEach((id) => { const other = $(id); if (other && other.open) other.close(); });
     render();
     loadFriends();
     if (!sheet.open) sheet.showModal();
