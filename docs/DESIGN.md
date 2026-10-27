@@ -408,8 +408,6 @@ Every component, with the call that makes it and its options, is in the catalog 
   - `options`: `head: Raw`, `body: Raw`, `label?: string`, `paneWidth?: "full" | "fit"`
 - **Dropdown** (`dropdown(options: DropdownOptions)`, `panes.ts`): A short list of choices that hangs from a button, like the account button's in the header: with a head, rules, icons, counts and the current one, as each needs. A choice that's hard to take back asks first, in a confirm sheet.
   - `options`: `id: string`, `label: string`, `head?: { title: string; note?: string }`, `items: DropdownItem[]`, `isOpen?: boolean`
-- **Filter menu** (`filterMenu(options: FilterMenuOptions)`, `panes.ts`): The ways to narrow a list, in one menu from a Filter button that counts the ones in use: each way says what's picked, and opens its choices in the same pane, with a way back.
-  - `options`: `id: string`, `groups: FilterGroup[]`, `clearHref: string | null`, `filterCount: number`, `isOpen?: boolean`, `openGroupName?: string`
 - **Filter tags** (`filterTags(options: { … })`, `panes.ts`): The filters in use on a list, under its Filter button: one small button each, with a close mark, that takes it away.
   - `options`: `tags: FilterTag[]`
 - **Game cover** (`gameCover(options: GameCoverOptions)`, `panes.ts`): A game in a list: the studio's art, bare, set in a carved well, with only what concerns you under it. Zaisma's mark stands in while the art loads, and for a game with none yet.
@@ -428,6 +426,8 @@ Every component, with the call that makes it and its options, is in the catalog 
   - `options`: `text: string`, `icon?: IconName`, `action?: { label: string; href?: string; formAction?: string }`, `closeLabel?: string`, `tone?: "plain" | "warning"`
 - **Step flow** (`stepFlow(options: StepFlowOptions)`, `panes.ts`): A task in a few steps, like protecting your account: a pane with a thin step line across its top that fills in orange as you go, the step you're on ending in light, and Back and Next.
   - `options`: `steps: StepFlowStep[]`, `currentIndex: number`, `body?: Raw`, `action: string`, `finishLabel?: string`, `backHref?: string`, `paneWidth?: "full" | "fit"`
+- **Filter menu** (`filterMenu(options: FilterMenuOptions)`, `navigation.ts`): The ways to narrow a list, in one menu from a Filter button that counts the ones in use: each way says what's picked, and opens its choices in the same pane, with a way back.
+  - `options`: `id: string`, `groups: FilterGroup[]`, `clearHref: string | null`, `filterCount: number`, `isOpen?: boolean`, `openGroupName?: string`
 - **Game card** (`gameCard(options: GameCardOptions)`, `playing.ts`): A game in a list of games, like Browse or More from a developer: its cover, its title beneath with players now, and what else concerns you under that.
 - **Playing card** (`playingCard(options: PlayingCardOptions)`, `playing.ts`): A card over a running game's top corner, for what needs the player now (keep your progress, a game asking them to sign in) or what just happened (Saved). The game keeps running and stays in view. One with nothing to press in it goes on a tap or a swipe.
   - `options`: `id: string`, `title?: string`, `body: Raw`, `isShown?: boolean`, `isInPlace?: boolean`
