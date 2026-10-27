@@ -178,6 +178,7 @@ export const GAME_ALERT = object({
     database_full: "the game's storage (its database and kept rooms) reached the 10 GB a game can keep, so the database can change and delete rows but not grow, and no more rooms can be kept",
     hosting_nearly_paused: "80% of the month's free hosting is used, and the game has no budget to go on past it",
     hosting_budget_nearly_used: "80% of the game's monthly budget is used",
+    credit_low: "your hosting credit is under 20% of what there was after your last top-up, and this game has a budget that spends it: add credit or turn on automatic top-up",
     database_nearly_full: "the game's storage is 80% of the 10 GB a game can keep",
     player_erase_failed: "Zaisma couldn't erase players who deleted their accounts from the game database; the fix names their player IDs for erase_player",
     reports_open: "player reports are waiting for Zaisma",
@@ -608,13 +609,14 @@ export const HOSTING_USE = object(
   "This month (UTC) on the game's one hosting meter: the free allowance as a percentage, what used it, and what credit paid past it.",
 );
 
-const CREDIT_ENTRY_KIND = choice({ top_up: "credit bought", hosting_charge: "a game's hosting past its free allowance, one entry per game per day", refund: "credit refunded to its card", written_off: "what a game used past its budget or your credit, which Zaisma took on: never charged" });
+const CREDIT_ENTRY_KIND = choice({ top_up: "credit bought", hosting_charge: "a game's hosting past its free allowance, one entry per game per day", refund: "credit refunded to its card", written_off: "what a game used past its budget, your credit, or its free hosting while it had no budget, which Zaisma took on: never charged" });
 /** A developer's hosting credit (get_credit). */
 export const CREDIT = object({
   credit: object({
     balance_cents: countOf("What's left to spend, in cents. Never below 0."),
+    is_credit_low: yes("Whether the balance is under 20% of what there was right after the last top-up: add credit or turn on automatic top-up. Each game with a budget shows a credit_low alert meanwhile."),
     automatic_top_up: object({
-      is_enabled: yes("Whether Zaisma tops up from the card of the last top-up when the balance is under top_up_below_cents."),
+      is_enabled: yes("Whether Zaisma tops up from the card of the last top-up when a charge would take the balance under top_up_below_cents."),
       top_up_below_cents: nullable(countOf()),
       top_up_amount_cents: nullable(countOf()),
       monthly_top_up_limit_cents: nullable(countOf("The most automatic top-ups add in a month (UTC).")),

@@ -155,6 +155,7 @@ export const ERROR_CODES = {
   bad_values: { httpStatus: 400, meaning: "values isn't a list of text, numbers, null and { blob_base64 } for the SQL's ?s." },
   bad_player_id: { httpStatus: 400, meaning: "player_id isn't a player ID (player_…)." },
   too_many_rows: { httpStatus: 400, meaning: "A statement answered more than 10,000 rows." },
+  integer_too_large: { httpStatus: 400, meaning: "A statement answered a whole number past 2^53, which JavaScript can't hold exactly." },
   answer_too_big: { httpStatus: 400, meaning: "The rows answered come to more than 8 MB." },
   database_full: { httpStatus: 403, meaning: "The statement would grow the game's storage (its database and kept rooms) past the 10 GB a game can keep." },
   database_unavailable: { httpStatus: 503, meaning: "The game's database didn't answer." },

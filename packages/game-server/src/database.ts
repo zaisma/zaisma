@@ -92,21 +92,25 @@ export function eraseRefused(tableName: string, error: unknown): DatabaseError {
 }
 
 export const DATABASE_LIMITS = {
-  /** One statement's SQL. */
+  /** One statement's SQL, in characters. */
   maximumSqlCharacterCount: 100_000,
+  /** One statement's SQL, in UTF-8 bytes: Cloudflare's SQLite takes 100 KB, so text in other scripts is held to it too. */
+  maximumSqlSizeBytes: 100_000,
   /** Values for one statement's ?s. */
   maximumValueCount: 100,
-  /** One text or blob value, in a query and in the database. */
+  /** One text or blob value a game server or query binds. */
   maximumValueSizeBytes: 1024 * 1024,
+  /** One text or blob value in an import, which brings back every row an export wrote: what the database holds in a value. */
+  maximumImportValueSizeBytes: 2 * 1024 * 1024,
   /** Statements in one batch. */
   maximumStatementCount: 100,
   /** Rows one statement may answer; past it, page with LIMIT and OFFSET or a WHERE. */
   maximumRowCount: 10_000,
 } as const;
 
-export type DatabaseErrorCode = "bad_sql" | "bad_values" | "bad_player_id" | "too_many_rows" | "hosting_paused" | "database_full" | "database_unavailable";
+export type DatabaseErrorCode = "bad_sql" | "bad_values" | "bad_player_id" | "too_many_rows" | "hosting_paused" | "database_full" | "database_unavailable" | "integer_too_large";
 
-const DATABASE_ERROR_CODES: readonly string[] = ["bad_sql", "bad_values", "bad_player_id", "too_many_rows", "hosting_paused", "database_full", "database_unavailable"];
+const DATABASE_ERROR_CODES: readonly string[] = ["bad_sql", "bad_values", "bad_player_id", "too_many_rows", "hosting_paused", "database_full", "database_unavailable", "integer_too_large"];
 
 /** A call the database refused, with a code, what happened and what to do (like the developer API's errors, docs/NAMING.md). */
 export class DatabaseError extends Error {
@@ -148,30 +152,66 @@ export function answerDatabase<T>(work: () => T): DatabaseAnswer<T> {
 const REFUSED_FIRST_WORDS = new Set(["BEGIN", "COMMIT", "END", "ROLLBACK", "SAVEPOINT", "RELEASE", "ATTACH", "DETACH"]);
 
 /**
- * Check one statement and its values before it runs: one statement only, no transaction control,
- * values of the kinds SQLite takes. Throws a DatabaseError; answers the statement to run (without a
- * trailing ; or comment, which SQLite in a Durable Object takes as an empty statement) and its values.
+ * The PRAGMAs Cloudflare's SQLite runs; it refuses the rest (user_version, journal_mode…) with SQLITE_AUTH, so both
+ * runtimes refuse them. defer_foreign_keys is what an import's part runs first, in its transaction.
  */
-export function checkStatement(sql: unknown, values: unknown): { sql: string; values: DatabaseValue[] } {
+export const ALLOWED_PRAGMAS: readonly string[] = ["table_info", "table_xinfo", "table_list", "index_list", "index_info", "index_xinfo", "foreign_key_list", "foreign_key_check", "defer_foreign_keys", "quick_check", "integrity_check", "optimize"];
+
+/** Functions Cloudflare's SQLite refuses, which would answer in the Node runner. */
+const REFUSED_FUNCTIONS: readonly string[] = ["sqlite_version", "sqlite_source_id", "load_extension"];
+
+/** SQL with its quotes, names and comments blanked, so a word is only found where it's SQL. */
+function sqlWithoutQuotes(sql: string): string {
+  return sql.replace(/'(?:[^']|'')*'|"(?:[^"]|"")*"|`[^`]*`|\[[^\]]*\]|--[^\n]*|\/\*[\s\S]*?\*\//g, " ");
+}
+
+/** What Cloudflare's SQLite refuses and Node's would run: PRAGMAs outside ALLOWED_PRAGMAS, TEMP objects and unauthorized functions. */
+function checkRefusedByCloudflare(sql: string, leadingWords: string[]): void {
+  const [firstWord = "", secondWord = ""] = leadingWords;
+  const bare = sqlWithoutQuotes(sql);
+  if (firstWord === "PRAGMA") {
+    const pragmaName = /^\s*PRAGMA\s+(?:\w+\s*\.\s*)?(\w+)/i.exec(bare)?.[1]?.toLowerCase() ?? "";
+    if (!ALLOWED_PRAGMAS.includes(pragmaName)) {
+      throw new DatabaseError("bad_sql", `PRAGMA ${pragmaName || "…"} isn't allowed: Zaisma's database doesn't take it, and neither does your own server's runner, so a query runs the same in both.`, `Allowed: ${ALLOWED_PRAGMAS.map((name) => `PRAGMA ${name}`).join(", ")}. To keep a schema version, use a table of your own, like CREATE TABLE schema_version (version_number INTEGER NOT NULL).`);
+    }
+  }
+  if (firstWord === "CREATE" && (secondWord === "TEMP" || secondWord === "TEMPORARY")) {
+    throw new DatabaseError("bad_sql", `CREATE ${secondWord} isn't allowed: the database keeps no temporary tables or objects.`, "Make an ordinary table and drop it when done, or use a WITH query for a result you only need inside one statement.");
+  }
+  const refusedFunction = REFUSED_FUNCTIONS.find((name) => new RegExp(`\\b${name}\\s*\\(`, "i").test(bare));
+  if (refusedFunction) throw new DatabaseError("bad_sql", `${refusedFunction}() isn't allowed: Zaisma's database doesn't take it, and neither does your own server's runner.`, "Keep what you need to know about the database (a schema version, say) in a table of your own.");
+}
+
+/**
+ * Check one statement and its values before it runs: one statement only, no transaction control,
+ * nothing Cloudflare's SQLite refuses, values of the kinds SQLite takes. Throws a DatabaseError; answers the
+ * statement to run (without a trailing ; or comment, which SQLite in a Durable Object takes as an empty
+ * statement) and its values. A text or blob value may be up to maximumValueSizeBytes (an import's: more).
+ */
+export function checkStatement(sql: unknown, values: unknown, maximumValueSizeBytes: number = DATABASE_LIMITS.maximumValueSizeBytes): { sql: string; values: DatabaseValue[] } {
   if (typeof sql !== "string" || !sql.trim()) throw new DatabaseError("bad_sql", "The SQL isn't text.", 'Give one SQL statement as text, like "SELECT * FROM scores WHERE player_id = ?".');
   if (sql.length > DATABASE_LIMITS.maximumSqlCharacterCount) throw new DatabaseError("bad_sql", `The SQL is ${sql.length} characters.`, `Keep one statement under ${DATABASE_LIMITS.maximumSqlCharacterCount} characters, and pass data as values instead of writing it into the SQL.`);
+  // Cloudflare's limit is in bytes: three bytes a character at most, so short statements need no count.
+  const sqlSizeBytes = sql.length * 3 <= DATABASE_LIMITS.maximumSqlSizeBytes ? 0 : new TextEncoder().encode(sql).length;
+  if (sqlSizeBytes > DATABASE_LIMITS.maximumSqlSizeBytes) throw new DatabaseError("bad_sql", `The SQL is ${sqlSizeBytes} bytes.`, `Keep one statement under ${DATABASE_LIMITS.maximumSqlSizeBytes} bytes (UTF-8), and pass data as values instead of writing it into the SQL.`);
   const statements = scanStatements(sql);
   if (statements.length === 0) throw new DatabaseError("bad_sql", "The SQL has only comments.", 'Give one SQL statement, like "SELECT * FROM scores WHERE player_id = ?".');
   if (statements.length > 1) throw new DatabaseError("bad_sql", "The SQL has more than one statement.", "Give one statement per query, or several in a batch (room.database.batch([{ sql, values }, ...]) in a game server, batch_database through the API), which also runs them in one transaction.");
   const firstWord = statements[0]!.leadingWords[0] ?? "";
   if (REFUSED_FIRST_WORDS.has(firstWord)) throw new DatabaseError("bad_sql", `${firstWord} isn't allowed.`, "For a transaction, use a batch (room.database.batch([{ sql, values }, ...]) in a game server, batch_database through the API): its statements all happen or none do.");
+  checkRefusedByCloudflare(sql.slice(statements[0]!.startIndex, statements[0]!.endIndex), statements[0]!.leadingWords);
   const given = values === undefined || values === null ? [] : values;
   if (!Array.isArray(given)) throw new DatabaseError("bad_values", "values isn't a list.", 'Give the values for the ?s as a list, in order, like ["player_8f3k2m", 1200].');
   if (given.length > DATABASE_LIMITS.maximumValueCount) throw new DatabaseError("bad_values", `There are ${given.length} values.`, `Give up to ${DATABASE_LIMITS.maximumValueCount} values per statement; split big inserts into several statements in one batch.`);
-  return { sql: sql.slice(0, statements[0]!.endIndex), values: given.map(checkValue) };
+  return { sql: sql.slice(0, statements[0]!.endIndex), values: given.map((givenValue, i) => checkValue(givenValue, i, maximumValueSizeBytes)) };
 }
 
 /** One value for a ?, the i-th (from 0). */
-function checkValue(givenValue: unknown, i: number): DatabaseValue {
+function checkValue(givenValue: unknown, i: number, maximumValueSizeBytes: number): DatabaseValue {
   if (typeof givenValue === "number" && Number.isInteger(givenValue) && !Number.isSafeInteger(givenValue)) throw new DatabaseError("bad_values", `Value ${i + 1} is a whole number past 2^53, which JavaScript can't hold exactly.`, "Store it as text, like String(value), and read it back as text.");
   if (givenValue === null || typeof givenValue === "string" || givenValue instanceof Uint8Array || (typeof givenValue === "number" && Number.isFinite(givenValue))) {
     const sizeBytes = typeof givenValue === "string" ? new TextEncoder().encode(givenValue).length : givenValue instanceof Uint8Array ? givenValue.byteLength : 0;
-    if (sizeBytes > DATABASE_LIMITS.maximumValueSizeBytes) throw new DatabaseError("bad_values", `Value ${i + 1} is ${sizeBytes} bytes.`, `Keep each text or blob under ${DATABASE_LIMITS.maximumValueSizeBytes / 1024 / 1024} MB; store big files somewhere else and keep a link here.`);
+    if (sizeBytes > maximumValueSizeBytes) throw new DatabaseError("bad_values", `Value ${i + 1} is ${sizeBytes} bytes.`, `Keep each text or blob under ${maximumValueSizeBytes / 1024 / 1024} MB; store big files somewhere else and keep a link here.`);
     return givenValue;
   }
   const kind = typeof givenValue === "boolean" ? "true or false" : typeof givenValue === "number" ? String(givenValue) : Array.isArray(givenValue) ? "a list" : typeof givenValue;
@@ -200,16 +240,20 @@ export function plainRow(row: Record<string, unknown>): DatabaseRow {
 
 /**
  * A row as a game's query gets it: plainRow, refusing a whole number past 2^53, which JavaScript would
- * round (a game would read a different number than the one stored). Dumps and previews keep plainRow.
+ * round (a game would read a different number than the one stored): integer_too_large. Dumps and previews keep
+ * plainRow. realColumns names the columns that hold REALs, which can be as big (1e20) and are not refused.
  */
-export function checkedRow(row: Record<string, unknown>): DatabaseRow {
+export function checkedRow(row: Record<string, unknown>, realColumns?: ReadonlySet<string>): DatabaseRow {
   const plain = plainRow(row);
   for (const [column, columnValue] of Object.entries(plain)) {
-    if (typeof columnValue === "number" && Number.isInteger(columnValue) && !Number.isSafeInteger(columnValue)) {
-      throw new DatabaseError("bad_sql", `Column ${column} holds a whole number past 2^53, which JavaScript can't hold exactly.`, `Read it as text with CAST(${column} AS TEXT).`);
-    }
+    if (typeof columnValue === "number" && Number.isInteger(columnValue) && !Number.isSafeInteger(columnValue) && !realColumns?.has(column)) throw integerTooLarge(column);
   }
   return plain;
+}
+
+/** A whole number past 2^53 in a result, which JavaScript can't hold exactly. */
+export function integerTooLarge(column: string): DatabaseError {
+  return new DatabaseError("integer_too_large", `Column ${column} holds a whole number past 2^53 (9,007,199,254,740,991), which JavaScript can't hold exactly.`, `Read it as text with CAST(${column} AS TEXT), or store 64-bit IDs as TEXT.`);
 }
 
 export function tooManyRows(): DatabaseError {

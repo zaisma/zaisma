@@ -57,6 +57,11 @@ import {
   matroskaHasVideo,
   picturesInside,
   sniffMedia,
+  godotPicturesInside,
+  isGodotPack,
+  isUnityPack,
+  unityPicturesInside,
+  type ByteSource,
   type MediaForMatching,
   blobKey,
   blobSizes,
@@ -648,7 +653,8 @@ export type MediaMatchResult = ImageMatchResult & { reusedMediaCount: number };
  * a big video never sits in memory. Audio-only WebM files aren't sent. A file cleared in the last 30 days
  * by every matcher connected now isn't sent again, and one whose first bytes said it's no picture isn't
  * read again (checked_files), so an update sends only what changed. Pictures stored inside packs (Godot .pck,
- * .glb, Emscripten .data, .wasm) are found and matched too; a pack whose pictures all cleared isn't searched again.
+ * .glb, Emscripten .data, .wasm) are found and matched too, and so are Unity's and Godot's GPU textures, decoded
+ * into pictures; a pack whose pictures all cleared isn't searched again.
  */
 export async function matchMedia(env: Env, files: StoredFile[], texts: { path: string; text: string }[], disguised: MediaForMatching[], matcher: ImageMatcher, nowMs = Date.now()): Promise<MediaMatchResult> {
   if (matcher === notConnected) return { ...(await matcher.check([])), reusedMediaCount: 0 };
@@ -662,10 +668,8 @@ export async function matchMedia(env: Env, files: StoredFile[], texts: { path: s
   const checked = await checkedFiles(env, [...files.map((file) => file.sha256), ...disguised.map((media) => media.sha256), ...embedded.map((media) => media.sha256)], nowMs);
   // Only Zaisma's own matchers are trusted from an earlier check: one plugged in by a self-hoster (or a test) always sees everything.
   const providers = connectedProviders(env);
-  const isCleared = (sha256: string | undefined) => {
-    const row = sha256 ? checked.get(sha256) : undefined;
-    return providers.length > 0 && row?.is_media === 1 && row.provider !== null && providers.every((provider) => row.provider!.split("+").includes(provider));
-  };
+  const isClearedRow = (row: CheckedFileRow | undefined) => providers.length > 0 && row?.is_media === 1 && row.provider !== null && providers.every((provider) => row.provider!.split("+").includes(provider));
+  const isCleared = (sha256: string | undefined) => isClearedRow(sha256 ? checked.get(sha256) : undefined);
   let reusedMediaCount = 0;
   const media: MediaForMatching[] = [];
   const add = (candidate: MediaForMatching) => {
@@ -703,7 +707,12 @@ export async function matchMedia(env: Env, files: StoredFile[], texts: { path: s
     }
     if (file.sha256 && checked.get(file.sha256)?.is_media === 0) continue; // Its first bytes said it's no picture.
     if (++sniffedFileCount > MAXIMUM_SNIFFED_FILE_COUNT) continue;
-    const type = sniffMedia(await readStart(env, file.key, SNIFF_BYTES));
+    const start = await readStart(env, file.key, SNIFF_BYTES);
+    if (isUnityPack(start)) {
+      packs.push(file); // An asset bundle, whatever it's called.
+      continue;
+    }
+    const type = sniffMedia(start);
     if (!type || (type === "video/webm" && !matroskaHasVideo(await readStart(env, file.key, MATROSKA_HEAD_BYTES)))) {
       if (file.sha256) sniffedNotMedia.push(file.sha256);
       continue;
@@ -713,28 +722,39 @@ export async function matchMedia(env: Env, files: StoredFile[], texts: { path: s
   if (sniffedFileCount > MAXIMUM_SNIFFED_FILE_COUNT) findings.push({ stage: "images", severity: "hold", code: "too_many_files_to_check", message: `More than ${MAXIMUM_SNIFFED_FILE_COUNT} files that aren't code or pictures: the first ${MAXIMUM_SNIFFED_FILE_COUNT} were checked for hidden pictures, and a person should look at the rest.` });
   embedded.forEach(add);
   if (media.length > MAXIMUM_MATCHED_MEDIA_COUNT) findings.push({ stage: "images", severity: "hold", code: "too_many_images_to_check", message: `More than ${MAXIMUM_MATCHED_MEDIA_COUNT} pictures and videos: the first ${MAXIMUM_MATCHED_MEDIA_COUNT} were matched, and a person should look at the rest.` });
-  const inside = await mediaInsidePacks(env, packs, isCleared);
+  const inside = await mediaInsidePacks(env, packs, async (hashes) => {
+    const insideChecked = await checkedFiles(env, hashes, nowMs);
+    return (sha256) => isClearedRow(insideChecked.get(sha256));
+  });
   reusedMediaCount += inside.reusedMediaCount;
   if (inside.isCapped) findings.push({ stage: "images", severity: "info", code: "too_many_pictures_inside_packs", message: `More than ${MAXIMUM_PACK_PICTURE_COUNT} pictures inside packs: the first ${MAXIMUM_PACK_PICTURE_COUNT} were matched.` });
   const sent = [...media.slice(0, MAXIMUM_MATCHED_MEDIA_COUNT), ...inside.media];
   const matchResult = await matcher.check(sent);
-  const clearedPackHashes = isMatchFinished(matchResult) && !inside.isCapped ? packs.filter((pack) => pack.sha256 && !matchResult.findings.some((finding) => finding.path?.startsWith(`${pack.path} (picture `))).map((pack) => pack.sha256!) : [];
+  const clearedPackHashes = isMatchFinished(matchResult) && !inside.isCapped ? packs.filter((pack) => pack.sha256 && !matchResult.findings.some((finding) => finding.path?.startsWith(`${pack.path} (`))).map((pack) => pack.sha256!) : [];
   await saveCheckedFiles(env, sent, sniffedNotMedia, matchResult, nowMs, clearedPackHashes);
   return { ...matchResult, findings: [...findings, ...matchResult.findings], reusedMediaCount };
 }
 
 /**
- * The pictures stored inside packs, read a window at a time so a big pack never sits in memory whole. Each is
- * hashed while its window is read and read back by range when it's sent; one cleared earlier isn't sent again.
+ * The pictures stored inside packs, read a window at a time so a big pack never sits in memory whole, and the
+ * textures, sprites and videos inside Unity builds and Godot packs. Each is hashed when it's found and read back
+ * (and decoded) when it's sent; one cleared earlier, in this pack or any other, isn't sent again. A pack that
+ * can't be read passes.
  */
-async function mediaInsidePacks(env: Env, packs: StoredFile[], isCleared: (sha256: string | undefined) => boolean): Promise<{ media: MediaForMatching[]; reusedMediaCount: number; isCapped: boolean }> {
-  const media: MediaForMatching[] = [];
+async function mediaInsidePacks(env: Env, packs: StoredFile[], clearedAmong: (hashes: string[]) => Promise<(sha256: string) => boolean>): Promise<{ media: MediaForMatching[]; reusedMediaCount: number; isCapped: boolean }> {
+  const found: MediaForMatching[] = [];
   const seenHashes = new Set<string>();
-  let reusedMediaCount = 0;
+  // Found pictures are kept as references until cleared ones are looked up, so a pack of cleared pictures can hold more than are sent.
+  const isFoundCapped = () => found.length >= MAXIMUM_PACK_PICTURE_COUNT * 4;
+  const add = (picture: MediaForMatching & { sha256: string }) => {
+    if (seenHashes.has(picture.sha256)) return;
+    seenHashes.add(picture.sha256);
+    found.push(picture);
+  };
   for (const pack of packs) {
     let pictureNumber = 0;
     let windowStartIndex = 0;
-    while (windowStartIndex < pack.sizeBytes) {
+    while (windowStartIndex < pack.sizeBytes && !isFoundCapped()) {
       const bytes = await readRange(env, pack.key, windowStartIndex, Math.min(PACK_WINDOW_SIZE_BYTES, pack.sizeBytes - windowStartIndex));
       if (bytes.length === 0) break;
       const { pictures, unfinishedStartIndex } = picturesInside(bytes);
@@ -742,22 +762,35 @@ async function mediaInsidePacks(env: Env, packs: StoredFile[], isCleared: (sha25
         const sizeBytes = picture.endIndex - picture.startIndex;
         if (sizeBytes < MINIMUM_PACK_PICTURE_SIZE_BYTES) continue;
         pictureNumber++;
-        const sha256 = await sha256Hex(bytes.subarray(picture.startIndex, picture.endIndex));
-        if (seenHashes.has(sha256)) continue;
-        seenHashes.add(sha256);
-        if (isCleared(sha256)) {
-          reusedMediaCount++;
-          continue;
-        }
-        if (media.length >= MAXIMUM_PACK_PICTURE_COUNT) return { media, reusedMediaCount, isCapped: true };
         const pictureStartIndex = windowStartIndex + picture.startIndex;
-        media.push({ path: `${pack.path} (picture ${pictureNumber} inside)`, type: picture.type, id: `${pack.key}#${pictureStartIndex}`, sha256, body: () => readRange(env, pack.key, pictureStartIndex, sizeBytes) });
+        add({ path: `${pack.path} (picture ${pictureNumber} inside)`, type: picture.type, id: `${pack.key}#${pictureStartIndex}`, sha256: await sha256Hex(bytes.subarray(picture.startIndex, picture.endIndex)), body: () => readRange(env, pack.key, pictureStartIndex, sizeBytes) });
       }
       if (windowStartIndex + bytes.length >= pack.sizeBytes) break;
       windowStartIndex += unfinishedStartIndex === null ? bytes.length : Math.max(1, unfinishedStartIndex);
     }
+    const source: ByteSource = { sizeBytes: pack.sizeBytes, read: (startIndex, sizeBytes) => readRange(env, pack.key, startIndex, sizeBytes) };
+    const start = await readStart(env, pack.key, 16);
+    const engine = isUnityPack(start) ? unityPicturesInside(source) : isGodotPack(start) ? godotPicturesInside(source) : null;
+    if (!engine) continue;
+    try {
+      for await (const picture of engine) {
+        if (isFoundCapped()) break;
+        add({ path: `${pack.path} (${picture.label} inside)`, type: picture.type, id: `${pack.key}#${picture.sha256}`, sha256: picture.sha256, body: picture.body });
+      }
+    } catch {
+      // A pack that can't be read passes, like an encrypted one.
+    }
   }
-  return { media, reusedMediaCount, isCapped: false };
+  const isCleared = await clearedAmong([...seenHashes]);
+  const media: MediaForMatching[] = [];
+  let reusedMediaCount = 0;
+  let isCapped = isFoundCapped();
+  for (const picture of found) {
+    if (isCleared(picture.sha256!)) reusedMediaCount++;
+    else if (media.length < MAXIMUM_PACK_PICTURE_COUNT) media.push(picture);
+    else isCapped = true;
+  }
+  return { media, reusedMediaCount, isCapped };
 }
 
 /** Whether every connected matcher finished: no finding about matching itself, only about pictures. */

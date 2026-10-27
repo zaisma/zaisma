@@ -1,4 +1,4 @@
-import { ApiError, CREDIT_LIMITS, FREE_HOSTING_CENTS_PER_MONTH, automaticTopUpsThisMonth, checkIdKind, creditOf, iso, monthStartDateOf, newId, passkeysFor, refundableTopUps, type CreditEntryKind } from "@zaisma/core";
+import { ApiError, CREDIT_LIMITS, FREE_HOSTING_CENTS_PER_MONTH, automaticTopUpsThisMonth, checkIdKind, creditOf, isCreditLow, iso, monthStartDateOf, newId, passkeysFor, refundableTopUps, type CreditEntryKind } from "@zaisma/core";
 import { confirmationOf } from "./session-proofs.ts";
 import { logCallerEvent } from "./security-log.ts";
 import { refundCharge, topUpCheckout } from "./stripe.ts";
@@ -72,6 +72,7 @@ export async function creditAnswer(env: Env, ownerId: string, nowMs = Date.now()
   ]);
   return {
     balance_cents: credit.balanceCents,
+    is_credit_low: isCreditLow(credit),
     automatic_top_up: {
       is_enabled: credit.automaticTopUp.isEnabled,
       top_up_below_cents: credit.automaticTopUp.topUpBelowCents,
@@ -178,8 +179,9 @@ export async function creditRoute(env: Env, path: string, method: string, body: 
     const isRaising =
       isEnabled && (!now.isEnabled || (amountCents ?? 0) > (now.topUpAmountCents ?? 0) || (belowCents ?? 0) > (now.topUpBelowCents ?? 0) || (limitCents ?? 0) > (now.monthlyTopUpLimitCents ?? 0));
     if (isRaising) await checkSpendingConfirmed(env, caller, now.isEnabled ? "Raising automatic top-up" : "Turning automatic top-up on", { requestKind: "automatic_top_up", isEnabled, topUpBelowCents: belowCents!, topUpAmountCents: amountCents!, monthlyTopUpLimitCents: limitCents! });
-    await env.DB.prepare("UPDATE owners SET automatic_top_up_enabled = ?, top_up_below_cents = ?, top_up_amount_cents = ?, monthly_top_up_limit_cents = ? WHERE id = ?")
-      .bind(isEnabled ? 1 : 0, belowCents, amountCents, limitCents, ownerId)
+    // Turning it on starts its top-ups' idempotency keys afresh, so a card that was declined before is charged again, not answered from Stripe's memory.
+    await env.DB.prepare("UPDATE owners SET automatic_top_up_enabled = ?, top_up_below_cents = ?, top_up_amount_cents = ?, monthly_top_up_limit_cents = ?, automatic_top_up_enabled_at_ms = CASE WHEN ? AND automatic_top_up_enabled = 0 THEN ? ELSE automatic_top_up_enabled_at_ms END WHERE id = ?")
+      .bind(isEnabled ? 1 : 0, belowCents, amountCents, limitCents, isEnabled ? 1 : 0, Date.now(), ownerId)
       .run();
     await logCallerEvent(env, caller, "automatic_top_up_changed");
     return [{ credit: await creditAnswer(env, ownerId), next_steps: [] satisfies NextStep[] }];
@@ -196,7 +198,7 @@ function badAutomaticTopUp(field: string, message: string, fix = "Give whole cen
  * Refunds what's unspent of a top-up to its card: the credit comes out first, with the top-up's refunded_cents, so it
  * can't be spent meanwhile and Stripe's charge.refunded event adds nothing; put back if Stripe says no.
  */
-async function refundTopUp(env: Env, ownerId: string, topUpId: string, paymentIntentId: string, amountCents: number): Promise<number> {
+async function refundTopUp(env: Env, ownerId: string, topUpId: string, paymentIntentId: string, amountCents: number, idempotencyKey?: string): Promise<number> {
   const entryId = newId("credit_entry");
   const nowMs = Date.now();
   const [reserved] = await env.DB.batch([
@@ -206,7 +208,7 @@ async function refundTopUp(env: Env, ownerId: string, topUpId: string, paymentIn
   ]);
   if (!reserved?.meta.changes) throw new ApiError("top_up_not_refundable", { message: "That top-up's credit was spent a moment ago.", field: "top_up_id", fix: "get_credit shows what each top-up still refunds." });
   try {
-    const refund = await refundCharge(env, paymentIntentId, amountCents, `refund:${entryId}`);
+    const refund = await refundCharge(env, paymentIntentId, amountCents, idempotencyKey ?? `refund:${entryId}`);
     await env.DB.prepare("UPDATE credit_entries SET stripe_object_id = ? WHERE id = ?").bind(refund.id, entryId).run();
     return amountCents;
   } catch (error) {
@@ -221,17 +223,45 @@ async function refundTopUp(env: Env, ownerId: string, topUpId: string, paymentIn
 
 /**
  * Before an account is deleted: every top-up's refundable part back to its card, since the credit goes with the
- * account. One that fails is logged and the deletion goes on: the account's owner asked for it.
+ * account. One Stripe doesn't take now waits in pending_refunds, with only the payment and the amount, and the
+ * deletion goes on: the account's owner asked for it, and retryPendingRefunds pays it once Stripe takes it.
  */
-export async function refundForDeletion(env: Env, accountId: string): Promise<void> {
+export async function refundForDeletion(env: Env, accountId: string, nowMs = Date.now()): Promise<void> {
   const owner = await env.DB.prepare("SELECT id FROM owners WHERE account_id = ?").bind(accountId).first<{ id: string }>();
   if (!owner) return;
-  for (const topUp of await refundableTopUps(env.DB, owner.id)) {
+  for (const topUp of await refundableTopUps(env.DB, owner.id, nowMs)) {
     if (topUp.refundableCents <= 0 || !topUp.stripeObjectId) continue;
+    // The same key for every try, so a refund Stripe made without answering is never made twice.
+    const pendingRefundId = newId("pending_refund");
     try {
-      await refundTopUp(env, owner.id, topUp.id, topUp.stripeObjectId, topUp.refundableCents);
+      await refundTopUp(env, owner.id, topUp.id, topUp.stripeObjectId, topUp.refundableCents, `refund:${pendingRefundId}`);
     } catch (error) {
-      console.error("Couldn't refund a deleted account's top-up:", topUp.id, error);
+      console.error("Couldn't refund a deleted account's top-up now; it waits in pending_refunds:", topUp.id, error);
+      await env.DB.prepare("INSERT INTO pending_refunds (id, stripe_payment_intent_id, amount_cents, created_at_ms) VALUES (?, ?, ?, ?)").bind(pendingRefundId, topUp.stripeObjectId, topUp.refundableCents, nowMs).run();
+    }
+  }
+}
+
+/** A pending refund is first tried again this long after the deletion, then hourly; refundsStuck tells Julius of one past 30 days. */
+const PENDING_REFUND_FIRST_RETRY_MS = 5 * 60_000;
+const PENDING_REFUND_RETRY_INTERVAL_MS = 3_600_000;
+
+/** Every 5 minutes: the deleted accounts' refunds whose next try is due, each gone once Stripe takes it. */
+export async function retryPendingRefunds(env: Env, nowMs = Date.now()): Promise<void> {
+  const { results: due } = await env.DB.prepare(
+    "SELECT id, stripe_payment_intent_id, amount_cents FROM pending_refunds WHERE (last_tried_at_ms IS NULL AND created_at_ms <= ?) OR last_tried_at_ms <= ? ORDER BY created_at_ms LIMIT 50",
+  )
+    .bind(nowMs - PENDING_REFUND_FIRST_RETRY_MS, nowMs - PENDING_REFUND_RETRY_INTERVAL_MS)
+    .all<{ id: string; stripe_payment_intent_id: string; amount_cents: number }>();
+  for (const refund of due) {
+    // Claimed first, so two runs at once try it once.
+    const claimed = await env.DB.prepare("UPDATE pending_refunds SET last_tried_at_ms = ?, try_count = try_count + 1 WHERE id = ? AND COALESCE(last_tried_at_ms, 0) < ?").bind(nowMs, refund.id, nowMs).run();
+    if (!claimed.meta.changes) continue;
+    try {
+      await refundCharge(env, refund.stripe_payment_intent_id, refund.amount_cents, `refund:${refund.id}`);
+      await env.DB.prepare("DELETE FROM pending_refunds WHERE id = ?").bind(refund.id).run();
+    } catch (error) {
+      console.error("A deleted account's refund still didn't go through:", refund.id, error);
     }
   }
 }

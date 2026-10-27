@@ -17,7 +17,7 @@ const SITE = "https://zaisma.test";
 const FRAME_ORIGIN = "https://owl-game.games.zaisma.test";
 const API = "/api/saves/owl-game";
 
-type Answer = { httpStatus?: number; body: unknown };
+type Answer = { httpStatus?: number; body: unknown; headers?: Record<string, string> };
 type Message = Record<string, unknown>;
 
 function storage(items: Record<string, string> = {}) {
@@ -42,7 +42,10 @@ function storage(items: Record<string, string> = {}) {
 function loadGamePage({ isSignedIn = true, isAccountOfferEnabled = true, localItems = {} as Record<string, string> } = {}) {
   const answers: { method: string; path: string; answer: Answer }[] = [];
   const asked: { method: string; path: string; body: unknown }[] = [];
-  const answer = (method: string, path: string, body: unknown, httpStatus = 200) => answers.unshift({ method, path, answer: { httpStatus, body } });
+  const answer = (method: string, path: string, body: unknown, httpStatus = 200, headers: Record<string, string> = {}) => answers.unshift({ method, path, answer: { httpStatus, body, headers } });
+  // Waits of 30 seconds or more (a failed save's retry) are held for the test to run; shorter ones run as usual.
+  const retries: { run: () => void; delayMs: number }[] = [];
+  const channels: { onmessage: null | ((event: { data: unknown }) => void) }[] = [];
   const listeners: Record<string, ((event?: unknown) => void)[]> = {};
   const documentListeners: Record<string, (() => void)[]> = {};
   // Its words go in its own <p> (querySelector("p")); the stand-in is its own <p>, so they land in its textContent.
@@ -86,13 +89,18 @@ function loadGamePage({ isSignedIn = true, isAccountOfferEnabled = true, localIt
       asked.push({ method, path, body: init.body === undefined ? undefined : JSON.parse(init.body) });
       const found = answers.find((each) => each.method === method && each.path === path);
       if (!found) throw new TypeError("Failed to fetch");
-      return { ok: (found.answer.httpStatus ?? 200) < 300, status: found.answer.httpStatus ?? 200, json: async () => found.answer.body };
+      const headers = found.answer.headers ?? {};
+      return { ok: (found.answer.httpStatus ?? 200) < 300, status: found.answer.httpStatus ?? 200, headers: { get: (name: string) => headers[name.toLowerCase()] ?? null }, json: async () => found.answer.body };
     },
     addEventListener: (type: string, listener: (event?: unknown) => void) => void (listeners[type] ??= []).push(listener),
     BroadcastChannel: class {
       onmessage = null;
+      constructor() {
+        channels.push(this);
+      }
     },
     setInterval: () => 0,
+    setTimeout: (run: () => void, delayMs = 0) => (delayMs >= 30_000 ? `retry-${retries.push({ run, delayMs })}` : setTimeout(run, delayMs)),
   };
   // The game page's own script defines these for the saves script (pages.ts).
   Object.assign(window, { tellSignedIn: undefined });
@@ -105,6 +113,15 @@ function loadGamePage({ isSignedIn = true, isAccountOfferEnabled = true, localIt
     toGame,
     opened,
     localStorage,
+    retries,
+    /** Another tab says the player signed in. */
+    hearSignedIn() {
+      channels.forEach((channel) => channel.onmessage?.({ data: "signed-in" }));
+    },
+    /** Which account the browser's cookie says is signed in: none, or one. */
+    setSignedIn(isSignedIn: boolean) {
+      browser.document.cookie = isSignedIn ? "zaisma_in=1" : "";
+    },
     /** The game domain's saves script says something. */
     fromGame(data: Message) {
       (listeners.message ?? []).forEach((listener) => listener({ origin: FRAME_ORIGIN, source: contentWindow, data: { type: "zaisma:saves", ...data } }));
@@ -155,7 +172,7 @@ describe("the game page's saves script, for the game's own save screens", () => 
     page.fromGame({ step: "hello", phase: "restore", text: saveTextOf({ level: "3" }), versionId: "version_k2v9q4x7m1p3w8r5t6y0" });
     await vi.waitFor(() => expect(page.told("restore")).toEqual([{ type: "zaisma:saves", step: "restore", action: "use-cloud", data: envelope({ level: "9" }) }]));
     // Kept with the version the game was served from; this device never played while this page watched, so no time.
-    expect(page.asked.find((each) => each.method === "PUT")!.body).toEqual({ keep: true, save_json: saveTextOf({ level: "3" }), version_id: "version_k2v9q4x7m1p3w8r5t6y0", played_at: null });
+    expect(page.asked.find((each) => each.method === "PUT")!.body).toEqual({ tag: "0123456789abcdef", keep: true, save_json: saveTextOf({ level: "3" }), version_id: "version_k2v9q4x7m1p3w8r5t6y0", played_at: null });
     page.fromGame({ step: "restored", ok: true });
     page.fromGame({ step: "hello", phase: "game" });
     await vi.waitFor(() => expect(page.asked.filter((each) => each.path === `${API}/copies`)).toHaveLength(1));
@@ -206,7 +223,7 @@ describe("the game page's saves script, for the game's own save screens", () => 
     page.fromGame({ step: "applied", ok: true });
     await vi.waitFor(() => expect(page.events("developerChange")).toEqual([{ savedAt: developerSave.saved_at, keptSaveCopy: expect.objectContaining({ id: "save_copy_since", copyReason: "device_lost" }) }]));
     // Kept dated when this device last played it, from its played record.
-    expect(page.asked.filter((each) => each.method === "PUT")[1]!.body).toEqual({ keep: true, save_json: saveTextOf({ level: "4" }), version_id: null, played_at: expect.stringMatching(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/) });
+    expect(page.asked.filter((each) => each.method === "PUT")[1]!.body).toEqual({ tag: "0123456789abcdef", keep: true, save_json: saveTextOf({ level: "4" }), version_id: null, played_at: expect.stringMatching(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/) });
     // Saving goes on from the developer's version, and the game was never reloaded.
     expect(page.told("sync").at(-1)).toEqual({ type: "zaisma:saves", step: "sync", text: saveTextOf({ level: "10" }) });
     expect(page.opened).toHaveLength(1);
@@ -337,7 +354,7 @@ describe("the game page's saves script, for the game's own save screens", () => 
     accountWins.play();
     accountWins.fromGame({ step: "hello", phase: "restore", text: saveTextOf({ level: "4" }) });
     await vi.waitFor(() => expect(accountWins.told("restore")).toEqual([{ type: "zaisma:saves", step: "restore", action: "use-cloud", data: envelope({ level: "9" }) }]));
-    expect(accountWins.asked.filter((each) => each.method === "PUT").map((each) => each.body)).toEqual([{ keep: true, save_json: saveTextOf({ level: "4" }), version_id: null, played_at: new Date(older).toISOString() }]);
+    expect(accountWins.asked.filter((each) => each.method === "PUT").map((each) => each.body)).toEqual([{ tag: "0123456789abcdef", keep: true, save_json: saveTextOf({ level: "4" }), version_id: null, played_at: new Date(older).toISOString() }]);
     await accountWins.window.savesRequest({ requestNumber: 1, request: "listen", eventNames: ["conflict"] });
     await vi.waitFor(() => expect(accountWins.events("conflict")).toEqual([{ winnerKind: "account", keptSaveCopy: expect.objectContaining({ id: "save_copy_phone" }) }]));
 
@@ -353,7 +370,7 @@ describe("the game page's saves script, for the game's own save screens", () => 
     await deviceWins.window.savesRequest({ requestNumber: 1, request: "listen", eventNames: ["conflict"] });
     deviceWins.fromGame({ step: "save", text: saveTextOf({ level: "4" }) });
     await vi.waitFor(() => expect(deviceWins.events("conflict")).toEqual([{ winnerKind: "this_device", keptSaveCopy: expect.objectContaining({ id: "save_copy_account" }) }]));
-    expect(deviceWins.asked.filter((each) => each.method === "PUT").map((each) => each.body)).toEqual([{ base_version_number: 2, save_json: saveTextOf({ level: "4" }), version_id: null, replace: true }]);
+    expect(deviceWins.asked.filter((each) => each.method === "PUT").map((each) => each.body)).toEqual([{ tag: "0123456789abcdef", base_version_number: 2, save_json: saveTextOf({ level: "4" }), version_id: null, replace: true }]);
   });
 
   it("shows the \"Keep your progress\" card when the game asks, at most once a visit and not for 3 days after Not now", () => {
@@ -420,6 +437,234 @@ function loadGameFrame({ localItems = {} as Record<string, string>, indexedDB = 
     steps: (step: string) => toPage.filter((message) => message.step === step),
   };
 }
+
+describe("the game page's saves script, keeping every promise", () => {
+  const puts = (page: ReturnType<typeof loadGamePage>) => page.asked.filter((each) => each.method === "PUT").map((each) => each.body as Record<string, unknown>);
+  const savedAnswer = (versionNumber: number) => ({ version_number: versionNumber, sha256: "x", saved_at: new Date().toISOString(), kept_save_copy_id: null });
+  const toast = (page: ReturnType<typeof loadGamePage>) => page.elements["save-toast"]!.textContent;
+
+  it("waits before sending a failed save again, longer each time and as long as Retry-After says, never in a loop", async () => {
+    const page = loadGamePage();
+    await playing(page, { level: "3" });
+    const syncCount = page.told("sync").length;
+    // Offline: the save fails, and the game isn't told to send it again at once.
+    page.fromGame({ step: "save", text: saveTextOf({ level: "4" }) });
+    await vi.waitFor(() => expect(page.retries).toHaveLength(1));
+    expect(page.retries[0]!.delayMs).toBe(30_000);
+    expect(page.told("sync")).toHaveLength(syncCount);
+    expect(toast(page)).toBe("Couldn't save to your account. Trying again soon.");
+    // A newer save meanwhile waits for the retry, which sends the newest.
+    page.fromGame({ step: "save", text: saveTextOf({ level: "5" }) });
+    expect(puts(page)).toHaveLength(1);
+    page.answer("PUT", API, { error: "Zaisma had a problem." }, 503);
+    page.retries[0]!.run();
+    await vi.waitFor(() => expect(page.retries).toHaveLength(2));
+    expect(puts(page).at(-1)!.save_json).toBe(saveTextOf({ level: "5" }));
+    expect(page.retries[1]!.delayMs).toBe(60_000);
+    page.answer("PUT", API, { error: "Saving too often." }, 429, { "retry-after": "300" });
+    page.retries[1]!.run();
+    await vi.waitFor(() => expect(page.retries).toHaveLength(3));
+    expect(page.retries[2]!.delayMs).toBe(300_000);
+    page.answer("PUT", API, savedAnswer(3));
+    page.retries[2]!.run();
+    await vi.waitFor(() => expect(toast(page)).toBe("Progress saves to your account. Last saved just now."));
+    expect(puts(page)).toHaveLength(4);
+    expect(page.told("sync")).toHaveLength(syncCount);
+
+    // A game that stopped saving to accounts: saving stops for the visit.
+    const stopped = loadGamePage();
+    await playing(stopped, { level: "3" });
+    stopped.answer("PUT", API, { error: "This game doesn't save to accounts." }, 404);
+    stopped.fromGame({ step: "save", text: saveTextOf({ level: "4" }) });
+    await vi.waitFor(() => expect(stopped.told("pause")).toHaveLength(1));
+    expect(stopped.retries).toEqual([]);
+    stopped.fromGame({ step: "save", text: saveTextOf({ level: "5" }) });
+    expect(puts(stopped)).toHaveLength(1);
+  });
+
+  it("carries on when a save whose answer was lost is refused as already stored: no reload, no copy, no conflict", async () => {
+    const page = loadGamePage();
+    await playing(page, { level: "3" });
+    await page.window.savesRequest({ requestNumber: 1, request: "listen", eventNames: ["conflict"] });
+    const text = saveTextOf({ level: "4" });
+    page.answer("PUT", API, { error: "Played on another device.", version_number: 3, sha256: await saveHash(text), saved_at: new Date().toISOString(), changed_by_kind: "player" }, 409);
+    page.fromGame({ step: "save", text });
+    await vi.waitFor(() => expect(toast(page)).toBe("Progress saves to your account. Last saved just now."));
+    expect(page.told("pause")).toEqual([]);
+    expect(page.opened).toHaveLength(1);
+    expect(page.events("conflict")).toEqual([]);
+    page.answer("PUT", API, savedAnswer(4));
+    page.fromGame({ step: "save", text: saveTextOf({ level: "5" }) });
+    await vi.waitFor(() => expect(puts(page)).toHaveLength(2));
+    // No keep: the next save goes on from the version it adopted.
+    expect(puts(page)[1]).toMatchObject({ base_version_number: 3, save_json: saveTextOf({ level: "5" }) });
+  });
+
+  it("drops a save waiting behind one the account refused, keeping the newest progress instead", async () => {
+    const page = loadGamePage();
+    await playing(page, { level: "3" });
+    page.answer("PUT", API, { error: "Played on another device.", version_number: 3, sha256: "developer", saved_at: new Date().toISOString(), changed_by_kind: "developer" }, 409);
+    page.fromGame({ step: "save", text: saveTextOf({ level: "4" }) });
+    page.fromGame({ step: "save", text: saveTextOf({ level: "5" }) });
+    await vi.waitFor(() => expect(page.opened).toHaveLength(2));
+    // The save sent, then the newest progress kept as an earlier version: the waiting save is never sent over the developer's change.
+    expect(puts(page).map((body) => [body.keep === true, body.save_json])).toEqual([
+      [false, saveTextOf({ level: "4" })],
+      [true, saveTextOf({ level: "5" })],
+    ]);
+  });
+
+  it("pauses after a refused session, and saves again once the player is signed in, reopening as whoever that is", async () => {
+    const page = loadGamePage();
+    await playing(page, { level: "3" });
+    page.answer("PUT", API, { error: "Sign in to save to your account." }, 401);
+    page.fromGame({ step: "save", text: saveTextOf({ level: "4" }) });
+    await vi.waitFor(() => expect(page.told("pause")).toHaveLength(1));
+    expect(toast(page)).toBe("Sign in again to keep saving to your account.");
+    // Not signed in yet: nothing is asked.
+    page.setSignedIn(false);
+    page.hearSignedIn();
+    expect(page.asked.filter((each) => each.path === `${API}?version`)).toEqual([]);
+    page.setSignedIn(true);
+    page.answer("GET", `${API}?version`, { version_number: 2, saved_at: new Date().toISOString(), changed_by_kind: "player" });
+    page.answer("GET", API, await cloudSave({ level: "3" }, 2));
+    page.hearSignedIn();
+    await vi.waitFor(() => expect(page.opened).toHaveLength(2));
+    expect(page.opened[1]).toContain("_zaisma/restore");
+
+    // Another account signed in on this browser: the page asks at once, and reopens as that account.
+    const switched = loadGamePage();
+    await playing(switched, { level: "3" });
+    switched.answer("PUT", API, { error: "account_changed", message: "Another account is signed in now." }, 409);
+    switched.answer("GET", `${API}?version`, { version_number: 0, saved_at: null, changed_by_kind: null });
+    switched.answer("GET", API, { tag: "fedcba9876543210", version_number: 0 });
+    switched.fromGame({ step: "save", text: saveTextOf({ level: "4" }) });
+    await vi.waitFor(() => expect(switched.opened).toHaveLength(2));
+    expect(puts(switched)).toHaveLength(1);
+  });
+
+  it("decides which progress was played most recently on Zaisma's clock, whatever the device's says", async () => {
+    // This phone's clock is 10 minutes slow. The laptop saved 5 minutes ago; the phone is playing right now.
+    const skewMs = 10 * 60_000;
+    const zaismaClock = () => ({ date: new Date(Date.now() + skewMs).toUTCString() });
+    const page = loadGamePage();
+    page.answer("GET", API, await cloudSave({ level: "3" }, 2, "player", new Date(Date.now() + skewMs - 3600_000).toISOString()), 200, zaismaClock());
+    page.play();
+    page.fromGame({ step: "hello", phase: "restore", text: saveTextOf({ level: "3" }) });
+    await vi.waitFor(() => expect(page.told("restore")).toHaveLength(1));
+    page.fromGame({ step: "restored", ok: true });
+    page.fromGame({ step: "hello", phase: "game" });
+    await vi.waitFor(() => expect(page.told("sync")).toHaveLength(1));
+    page.answer("PUT", API, { error: "Played on another device.", version_number: 3, sha256: "laptop", saved_at: new Date(Date.now() + skewMs - 5 * 60_000).toISOString(), changed_by_kind: "player" }, 409, zaismaClock());
+    page.fromGame({ step: "save", text: saveTextOf({ level: "4" }) });
+    await vi.waitFor(() => expect(page.told("sync")).toHaveLength(2));
+    // The phone's progress wins: it replaces the laptop's, and the game isn't reloaded with the older progress.
+    expect(page.told("sync").at(-1)).toEqual({ type: "zaisma:saves", step: "sync", text: null });
+    expect(page.opened).toHaveLength(1);
+  });
+
+  it("on a shared computer, gives each account its own progress, moving another's unsynced progress aside until it's back", async () => {
+    const ANNA = "aaaaaaaaaaaaaaaa";
+    const BEN = "bbbbbbbbbbbbbbbb";
+    const annaSynced = saveTextOf({ level: "7" });
+    const benSave = { ...(await cloudSave({ level: "2" }, 9, "player", new Date(Date.now() - 3600_000).toISOString())), tag: BEN };
+    const annaMarker = JSON.stringify({ version_number: 4, sha256: await saveHash(annaSynced), slug: "owl-game", marked_at_ms: Date.now() - 120_000 });
+    const playedNow = JSON.stringify({ sha256: "anna-progress", played_at_ms: Date.now() - 60_000 });
+    /** Ben opens the game where Anna played, the game's storage holding `text`. */
+    async function benOpens(text: string, localItems: Record<string, string>) {
+      const page = loadGamePage({ localItems });
+      page.answer("GET", API, benSave);
+      page.answer("PUT", API, { is_kept: true, save_copy_id: "save_copy_x" });
+      page.play();
+      page.fromGame({ step: "hello", phase: "restore", text });
+      await vi.waitFor(() => expect(page.told("restore")).toHaveLength(1));
+      return page;
+    }
+
+    // The game's storage is exactly Anna's synced save: Ben gets his own, and nothing of Anna's is kept on his account.
+    const synced = await benOpens(annaSynced, { [`zaisma:save:${ANNA}`]: annaMarker, "zaisma:played:owl-game": playedNow });
+    expect(synced.told("restore")).toEqual([{ type: "zaisma:saves", step: "restore", action: "use-cloud", data: envelope({ level: "2" }) }]);
+    expect(puts(synced)).toEqual([]);
+
+    // Anna played on after her last sync: her progress is moved aside for her, and Ben gets his own.
+    const annaUnsynced = saveTextOf({ level: "8" });
+    const ben = await benOpens(annaUnsynced, { [`zaisma:save:${ANNA}`]: annaMarker, "zaisma:played:owl-game": playedNow });
+    expect(ben.told("restore")).toEqual([{ type: "zaisma:saves", step: "restore", action: "use-cloud", data: envelope({ level: "2" }) }]);
+    expect(puts(ben)).toEqual([]);
+    expect(JSON.parse(ben.localStorage.getItem(`zaisma:unsynced:${ANNA}`)!)).toMatchObject({ text: annaUnsynced });
+    ben.fromGame({ step: "restored", ok: true });
+    await vi.waitFor(() => expect(ben.localStorage.getItem(`zaisma:save:${BEN}`)).not.toBeNull());
+
+    // Anna signs in here again: her moved-aside progress is this device's progress, and goes on from her version.
+    const anna = loadGamePage({ localItems: Object.fromEntries(ben.localStorage.map) });
+    anna.answer("GET", API, { ...(await cloudSave({ level: "7" }, 4, "player", new Date(Date.now() - 2 * 3600_000).toISOString())), tag: ANNA });
+    anna.play();
+    anna.fromGame({ step: "hello", phase: "restore", text: saveTextOf({ level: "2" }) });
+    await vi.waitFor(() => expect(anna.told("restore")).toHaveLength(1));
+    expect(anna.told("restore")).toEqual([{ type: "zaisma:saves", step: "restore", action: "use-cloud", data: envelope({ level: "8" }) }]);
+    expect(anna.localStorage.getItem(`zaisma:unsynced:${ANNA}`)).toBeNull();
+    anna.fromGame({ step: "restored", ok: true });
+    anna.fromGame({ step: "hello", phase: "game" });
+    await vi.waitFor(() => expect(anna.told("sync")).toEqual([{ type: "zaisma:saves", step: "sync", text: null }]));
+    anna.answer("PUT", API, savedAnswer(5));
+    anna.fromGame({ step: "save", text: annaUnsynced });
+    await vi.waitFor(() => expect(puts(anna)).toHaveLength(1));
+    expect(puts(anna)[0]).toMatchObject({ tag: ANNA, base_version_number: 4, save_json: annaUnsynced });
+  });
+
+  it("opens with the account's progress when a guest with nothing in the game's storage signs in", async () => {
+    const page = loadGamePage({ isSignedIn: false });
+    page.play();
+    page.fromGame({ step: "hello", phase: "game" });
+    // The guest played, then the game's storage was emptied: that change counts as playing just now.
+    const played = () => JSON.parse(page.localStorage.getItem("zaisma:played:owl-game") ?? "null");
+    page.fromGame({ step: "save", text: saveTextOf({ level: "1" }) });
+    await vi.waitFor(() => expect(played()).not.toBeNull());
+    page.fromGame({ step: "save", text: EMPTY_SAVE_TEXT });
+    await vi.waitFor(() => expect(played()).toMatchObject({ played_at_ms: expect.any(Number) }));
+    page.setSignedIn(true);
+    page.answer("GET", API, await cloudSave({ level: "9" }, 2));
+    page.hearSignedIn();
+    await vi.waitFor(() => expect(page.opened).toHaveLength(1));
+    expect(page.opened[0]).toContain("_zaisma/restore");
+    page.fromGame({ step: "hello", phase: "restore", text: EMPTY_SAVE_TEXT });
+    await vi.waitFor(() => expect(page.told("restore")).toEqual([{ type: "zaisma:saves", step: "restore", action: "use-cloud", data: envelope({ level: "9" }) }]));
+    expect(puts(page)).toEqual([]);
+  });
+
+  it("starts saving when the account answers a version without its data", async () => {
+    const page = loadGamePage();
+    page.answer("GET", API, { tag: "0123456789abcdef", version_number: 3 });
+    page.play();
+    page.fromGame({ step: "hello", phase: "restore", text: saveTextOf({ level: "3" }) });
+    await vi.waitFor(() => expect(page.told("restore")).toEqual([{ type: "zaisma:saves", step: "restore", action: "keep" }]));
+    page.fromGame({ step: "hello", phase: "game" });
+    await vi.waitFor(() => expect(page.told("sync")).toHaveLength(1));
+    page.answer("PUT", API, savedAnswer(4));
+    page.fromGame({ step: "save", text: saveTextOf({ level: "3" }) });
+    await vi.waitFor(() => expect(puts(page)).toEqual([expect.objectContaining({ base_version_number: 3 })]));
+  });
+});
+
+describe("the game domain's saves script, at the save limit and putting saves in place", () => {
+  it("counts the limit in UTF-8 bytes, as the server does", async () => {
+    // 72 characters, 132 bytes.
+    const frame = loadGameFrame({ localItems: { world: "é".repeat(60) }, saveLimitBytes: 100 });
+    frame.fromPage({ step: "sync", text: null });
+    await vi.waitFor(() => expect(frame.steps("over_limit")).toHaveLength(1));
+    expect(frame.steps("save")).toEqual([]);
+  });
+
+  it("takes a developer's change in place without reading the databases again on the game's thread", async () => {
+    let listCount = 0;
+    const indexedDB = { databases: async () => (listCount++, []) };
+    const frame = loadGameFrame({ localItems: { level: "3" }, indexedDB });
+    frame.fromPage({ step: "apply", data: envelope({ level: "10" }) });
+    await vi.waitFor(() => expect(frame.steps("applied")).toEqual([{ type: "zaisma:saves", step: "applied", ok: true }]));
+    // Once, to put the save in place; never again to read it back.
+    expect(listCount).toBe(1);
+  });
+});
 
 describe("the game domain's saves script, past the save limit", () => {
   it("says the save is over the limit instead of sending it, and the game page keeps it on the device", async () => {

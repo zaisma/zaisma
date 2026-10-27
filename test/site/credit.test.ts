@@ -1,9 +1,9 @@
 import { env, SELF } from "cloudflare:test";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { addCreditEntry, addPasskey, createAccount, createApiKey, creditOf, personOwner } from "@zaisma/core";
+import { addCreditEntry, addPasskey, createAccount, createApiKey, creditOf, deleteAccount, personOwner } from "@zaisma/core";
 import { TOOLS } from "../../apps/site/src/mcp.ts";
 import { callerFor } from "../../apps/site/src/developer.ts";
-import { creditRoute } from "../../apps/site/src/credit-api.ts";
+import { creditRoute, refundForDeletion, retryPendingRefunds } from "../../apps/site/src/credit-api.ts";
 import { answerSpendingRequest, askForSpending } from "../../apps/site/src/spending-requests.ts";
 import { errorProblems, schemaProblems } from "../schema-check.ts";
 import { letPublish } from "../helpers.ts";
@@ -22,6 +22,8 @@ const realFetch = globalThis.fetch;
 let stripeCalls: { path: string; form: URLSearchParams; idempotencyKey: string | null }[] = [];
 /** The email Supabase knows the account by: a real one, or the stand-in an account without one is known by. */
 let accountEmail = "emma@example.com";
+/** Stripe can't be reached. */
+let isStripeDown = false;
 
 beforeAll(() => {
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -31,6 +33,7 @@ beforeAll(() => {
     const form = new URLSearchParams(typeof init?.body === "string" ? init.body : "");
     const headers = new Headers(init?.headers);
     stripeCalls.push({ path: url.pathname, form, idempotencyKey: headers.get("idempotency-key") });
+    if (isStripeDown) throw new TypeError("fetch failed");
     if (url.pathname === "/v1/customers") return Response.json({ id: "cus_test_1" });
     if (url.pathname === "/v1/checkout/sessions") return Response.json({ id: "cs_test_1", url: "https://checkout.stripe.com/c/pay/cs_test_1", expires_at: 1_900_000_000 });
     if (url.pathname === "/v1/refunds") return Response.json({ id: `re_test_${stripeCalls.length}` });
@@ -87,6 +90,8 @@ beforeEach(async () => {
   await env.DB.exec("DELETE FROM passkeys; DELETE FROM credit_entries; DELETE FROM spending_requests; DELETE FROM game_hosting_months; DELETE FROM security_events; DELETE FROM api_keys; DELETE FROM audit_log; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM accounts;");
   stripeCalls = [];
   accountEmail = "emma@example.com";
+  isStripeDown = false;
+  await env.DB.exec("DELETE FROM pending_refunds;");
   await createAccount(env.DB, { id: "dev-1", username: "Pixel_Smith", ageBand: "18+" });
   await letPublish(env.DB, "dev-1");
   token = (await createApiKey(env.DB, "dev-1", "claude")).token;
@@ -261,5 +266,38 @@ describe("automatic top-up and budgets", () => {
     expect((await api("/credit/top-ups", { key: readKey, body: { amount_cents: 2000 } })).answer.error.code).toBe("key_not_allowed");
     expect((await api("/access", { key: readKey })).answer.credit_balance_cents).toBeNull();
     expect(stripeCalls).toEqual([]);
+  });
+});
+
+describe("credit that's low or left behind", () => {
+  it("says whether it's low on GET /credit and get_credit: under 20% of the balance right after the last top-up", async () => {
+    expect((await stripeEvent(checkoutCompleted("pi_low", 2000))).status).toBe(200);
+    expect((await api("/credit")).answer.credit.is_credit_low).toBe(false);
+    // $16.50 spent: $3.50 left, under the $4 line.
+    await addCreditEntry(env.DB, { ownerId, entryKind: "hosting_charge", amountCents: -1650 });
+    expect((await api("/credit")).answer.credit.is_credit_low).toBe(true);
+    expect((await tool("get_credit", {})).credit.is_credit_low).toBe(true);
+  });
+
+  it("still gets a deleted account's unspent credit back when Stripe is down as it's deleted, once Stripe is back", async () => {
+    expect((await stripeEvent(checkoutCompleted("pi_deleted", 2000))).status).toBe(200);
+    const deletedAtMs = Date.now();
+    isStripeDown = true;
+    await refundForDeletion(env, "dev-1", deletedAtMs);
+    const firstKey = stripeCalls.find((call) => call.path === "/v1/refunds")!.idempotencyKey;
+    await deleteAccount(env.DB, "dev-1");
+    const pending = async () => (await env.DB.prepare("SELECT * FROM pending_refunds").all<Record<string, unknown>>()).results;
+    // Only the payment and the amount: nothing about the account that's gone.
+    expect(await pending()).toEqual([{ id: expect.stringMatching(/^pending_refund_/), stripe_payment_intent_id: "pi_deleted", amount_cents: 2000, created_at_ms: deletedAtMs, last_tried_at_ms: null, try_count: 0 }]);
+
+    isStripeDown = false;
+    stripeCalls = [];
+    await retryPendingRefunds(env, deletedAtMs + 60_000);
+    expect(stripeCalls).toEqual([]);
+    await retryPendingRefunds(env, deletedAtMs + 6 * 60_000);
+    expect(stripeCalls.map((call) => [call.path, call.form.get("payment_intent"), call.form.get("amount")])).toEqual([["/v1/refunds", "pi_deleted", "2000"]]);
+    // The same key as the first try, so a refund Stripe made without answering is never made twice.
+    expect(stripeCalls[0]!.idempotencyKey).toBe(firstKey);
+    expect(await pending()).toEqual([]);
   });
 });

@@ -112,7 +112,7 @@ export function embeddedMedia(text: string): { type: string; bytes: Uint8Array }
   return out;
 }
 
-/** Engine packs and binaries searched for pictures stored inside them (Godot .pck, .glb models, Emscripten .data, assets compiled into .wasm). */
+/** Engine packs and binaries searched for pictures stored inside them (Godot .pck, .glb models, Unity and Emscripten .data, assets compiled into .wasm; Unity asset bundles are found by their first bytes). */
 export const PACK_EXTENSIONS = new Set(["pck", "glb", "data", "dat", "bin", "wasm"]);
 /** How much of a pack is read at a time; a picture bigger than this inside one isn't matched. */
 export const PACK_WINDOW_SIZE_BYTES = 32 * 1024 * 1024;
@@ -128,7 +128,7 @@ export interface PictureInside {
 
 /**
  * The whole PNG, JPEG, GIF and WebP files stored inside a pack's bytes, found by their signatures and walked
- * to their ends. GPU textures and encrypted packs hold none it can read, and pass. unfinishedStartIndex is
+ * to their ends. GPU textures are decoded apart (unityPicturesInside, godotPicturesInside); encrypted packs pass. unfinishedStartIndex is
  * where a picture starts that runs past the end of these bytes (read on from there), or null. One claiming
  * more than PACK_WINDOW_SIZE_BYTES is skipped, so reading on from it always gets all of it in one window.
  */

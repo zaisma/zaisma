@@ -6,6 +6,7 @@ import { adminForm } from "../../apps/site/src/admin.ts";
 import { dailyCleanup } from "../../apps/site/src/cleanup.ts";
 import { judgeSays, readsNothing, seesNothing } from "./scan-stubs.ts";
 import { letPublish } from "../helpers.ts";
+import { UNITY_FORMAT, rgbaPixels, serializedFile, texture2d, unityBundle, unityWebData } from "../engine-packs.ts";
 
 const SITE = "https://zaisma.test";
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -154,6 +155,25 @@ describe("an update scans only what changed", () => {
   it("holds a version whose pack holds a known picture", async () => {
     flaggedPaths = ["game.data (picture 1 inside)"];
     const held = await push("dev-1", "hop", { "index.html": "<!doctype html>", "game.data": packWith(png(2000)) });
+    expect(held.report.decision).toBe("held");
+    expect(held.report.findings.some((finding) => finding.code === KNOWN_IMAGE_CODE)).toBe(true);
+  });
+
+  it("matches the textures inside a Unity build and an asset bundle, holds one that matches, and doesn't decode cleared ones again", async () => {
+    const heroBundle = (name: string) => unityBundle([{ name: "CAB-1", bytes: serializedFile([{ classId: 28, pathId: 1, bytes: texture2d(name, 64, 64, UNITY_FORMAT.rgba32, rgbaPixels(64, 64, (x, y) => [x, y, 0, 255])) }]) }]);
+    const build = unityWebData([{ name: "data.unity3d", bytes: heroBundle("Hero") }]);
+    const first = await push("dev-1", "hop", { "index.html": "<!doctype html>", "Build/game.data": build, "StreamingAssets/extras.dat": heroBundle("Hero copy") });
+    expect(sentPaths).toEqual(['Build/game.data (texture "Hero" inside)']);
+    expect(first.report.decision).toBe("approved");
+
+    sentPaths = [];
+    const changedBuild = unityWebData([{ name: "boot.config", bytes: enc("changed") }, { name: "data.unity3d", bytes: heroBundle("Hero") }]);
+    const second = await push("dev-1", "hop", { "index.html": "<!doctype html>", "Build/game.data": changedBuild });
+    expect(sentPaths).toEqual([]);
+    expect(second.report.images.reused_media_count).toBe(1);
+
+    flaggedPaths = ['StreamingAssets/other.bin (texture "Villain" inside)'];
+    const held = await push("dev-1", "hop", { "index.html": "<!doctype html>", "StreamingAssets/other.bin": unityBundle([{ name: "CAB-2", bytes: serializedFile([{ classId: 28, pathId: 1, bytes: texture2d("Villain", 64, 64, UNITY_FORMAT.rgba32, rgbaPixels(64, 64, () => [200, 0, 0, 255])) }]) }]) });
     expect(held.report.decision).toBe("held");
     expect(held.report.findings.some((finding) => finding.code === KNOWN_IMAGE_CODE)).toBe(true);
   });

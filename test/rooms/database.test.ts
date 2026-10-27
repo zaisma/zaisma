@@ -1,8 +1,9 @@
 import { env, runDurableObjectAlarm, runInDurableObject, SELF } from "cloudflare:test";
-import { beforeEach, describe, expect, it } from "vitest";
-import { MATCH_FINISH_DURATION_SEC, MAXIMUM_GAME_STORAGE_SIZE_BYTES, issueRoomKey } from "@zaisma/core";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { MATCH_FINISH_DURATION_SEC, MAXIMUM_GAME_STORAGE_SIZE_BYTES, issueRoomKey, usageMonth } from "@zaisma/core";
 import type { Env } from "../../apps/rooms/src/index.ts";
-import type { GameDatabaseObject } from "../../apps/rooms/src/database.ts";
+import { GameDatabaseService, type GameDatabaseObject } from "../../apps/rooms/src/database.ts";
+import { dumpPart } from "@zaisma/game-server/internal";
 
 // The game database (apps/rooms/src/database.ts): one SQLite database per game, used by its game servers as room.database.
 
@@ -282,5 +283,143 @@ describe("game database", () => {
     expect(await a.ask({ erase: "player_mia" })).toMatchObject({ code: "bad_sql", message: expect.stringContaining("players") });
     expect(await a.ask({ sql: "SELECT player_id FROM scores" })).toEqual([{ player_id: "player_mia" }]);
     expect(await a.ask({ sql: "SELECT player_id FROM players" })).toEqual([{ player_id: "player_mia" }]);
+  });
+
+  it("answers the same as the Node runner: refuses PRAGMA user_version, TEMP tables, sqlite_version() and a 103 KB statement of Japanese text", async () => {
+    await addSandboxGame("parity", LEADERBOARD);
+    const stub = e.GAME_DATABASES.get(e.GAME_DATABASES.idFromName("gparity"));
+    for (const sql of ["PRAGMA user_version", "PRAGMA journal_mode", "CREATE TEMP TABLE seen (id INTEGER)", "SELECT sqlite_version()", `SELECT '${"日".repeat(34_500)}'`]) {
+      expect(await stub.query(sql, [])).toMatchObject({ error: { code: "bad_sql" } });
+    }
+    expect(await stub.query("PRAGMA table_list", [])).toMatchObject({ queryResult: expect.any(Array) });
+  });
+
+  it("refuses a 64-bit integer it would answer as a different number (integer_too_large), reads a REAL as big, and the CAST works", async () => {
+    await addSandboxGame("bigints", LEADERBOARD);
+    const a = await join("bigints", "ABCDEF");
+    await a.next();
+    await a.ask({ sql: "CREATE TABLE players (steam_id INTEGER PRIMARY KEY, label TEXT, ratio REAL)" });
+    await a.ask({ sql: "INSERT INTO players VALUES (76561198012345679, 'big', 1e20), (5, 'small', 2.5)" });
+    expect(await a.ask({ sql: "SELECT steam_id FROM players WHERE label = 'big'" })).toMatchObject({ code: "integer_too_large", message: expect.stringContaining("Column steam_id") });
+    expect(await a.ask({ sql: "SELECT ratio, steam_id FROM players ORDER BY steam_id" })).toMatchObject({ code: "integer_too_large" });
+    expect(await a.ask({ sql: "SELECT ratio, label FROM players ORDER BY steam_id" })).toEqual([{ ratio: 2.5, label: "small" }, { ratio: 1e20, label: "big" }]);
+    expect(await a.ask({ sql: "SELECT CAST(steam_id AS TEXT) AS steam_id FROM players WHERE label = 'big'" })).toEqual([{ steam_id: "76561198012345679" }]);
+    // A write that returns one is undone, as any refused answer is.
+    expect(await a.ask({ sql: "UPDATE players SET label = 'changed' WHERE label = 'big' RETURNING steam_id" })).toMatchObject({ code: "integer_too_large" });
+    expect(await a.ask({ sql: "SELECT label FROM players WHERE label = 'changed'" })).toEqual([]);
+  });
+
+  it("imports a row grown past 1 MB by SQL, which a game server's own value can't be, and a part whose rows refer to later ones", async () => {
+    await addSandboxGame("importing", LEADERBOARD);
+    const stub = e.GAME_DATABASES.get(e.GAME_DATABASES.idFromName("gimporting"));
+    await stub.query("CREATE TABLE worlds (id INTEGER PRIMARY KEY, world_json TEXT)", []);
+    await stub.query("INSERT INTO worlds VALUES (1, ?)", ["x".repeat(600_000)]);
+    await stub.query("UPDATE worlds SET world_json = world_json || ?", ["y".repeat(600_000)]);
+    const exported = await stub.exportForDeveloper(null);
+    expect("queryResult" in exported).toBe(true);
+    const other = e.GAME_DATABASES.get(e.GAME_DATABASES.idFromName("gimported"));
+    const imported = await other.importForDeveloper((exported as { queryResult: { dumpSql: string } }).queryResult.dumpSql);
+    expect(imported).toMatchObject({ queryResult: { skippedStatementCount: expect.any(Number) } });
+    expect(await other.query("SELECT length(world_json) AS text_length FROM worlds", [])).toEqual({ queryResult: [{ text_length: 1_200_000 }] });
+    // A game server's own value is still held to 1 MB.
+    expect(await other.query("INSERT INTO worlds VALUES (2, ?)", ["z".repeat(1_100_000)])).toMatchObject({ error: { code: "bad_values" } });
+
+    const forward = "CREATE TABLE replies (id INTEGER PRIMARY KEY, reply_to INTEGER REFERENCES replies (id), post_id INTEGER REFERENCES posts (id));\nINSERT INTO replies VALUES(1,2,7);\nINSERT INTO replies VALUES(2,NULL,7);\nCREATE TABLE posts (id INTEGER PRIMARY KEY);\nINSERT INTO posts VALUES(7);\n";
+    expect(await other.importForDeveloper(forward)).toMatchObject({ queryResult: { statementCount: 5 } });
+    expect(await other.query("SELECT id FROM replies ORDER BY id", [])).toEqual({ queryResult: [{ id: 1 }, { id: 2 }] });
+    // A reference to a row in another part is refused, naming what to do, and the part is undone.
+    const service = new GameDatabaseService({ props: {}, exports: {} } as never, e);
+    const crossing = await service.importDump("gimported", "INSERT INTO replies VALUES(3,99,7);\n");
+    expect(crossing).toMatchObject({ error: { code: "bad_sql", message: expect.stringContaining("FOREIGN KEY constraint failed"), fix: expect.stringContaining("go in together") } });
+    // Cloudflare reset the object to undo the part: a call after it reaches a fresh one.
+    expect(await e.GAME_DATABASES.get(e.GAME_DATABASES.idFromName("gimported")).query("SELECT count(*) AS reply_count FROM replies", [])).toEqual({ queryResult: [{ reply_count: 2 }] });
+  });
+
+  it("exports a table with a primary key in key order, so a row the game replaces between parts isn't read twice", async () => {
+    await addSandboxGame("exporting", LEADERBOARD);
+    const stub = e.GAME_DATABASES.get(e.GAME_DATABASES.idFromName("gexporting"));
+    await stub.batch([{ sql: "CREATE TABLE scores (player_id TEXT PRIMARY KEY, best_score INTEGER)" }, { sql: "CREATE TABLE stock (shop TEXT, item TEXT, item_count INTEGER, PRIMARY KEY (shop, item)) WITHOUT ROWID" }]);
+    for (let i = 0; i < 30; i++) {
+      await stub.query("INSERT INTO scores VALUES (?, ?)", [`player_${String(i).padStart(2, "0")}`, i]);
+      await stub.query("INSERT INTO stock VALUES ('shop', ?, 1)", [`item_${String(i).padStart(2, "0")}`]);
+    }
+    // Small parts, cut by hand through the cursor, with the game writing after the first.
+    const dumpFromObject = (cursor: string | null) =>
+      runInDurableObject(stub, (_database: GameDatabaseObject, state) =>
+        dumpPart(
+          (sql, values) => {
+            const rows = state.storage.sql.exec(sql, ...(values as unknown[]).map((each) => (each instanceof Uint8Array ? each.slice().buffer : each)) as never[]);
+            return { rows: rows.toArray() as never[], readRowCount: rows.rowsRead };
+          },
+          cursor,
+          500,
+        ),
+      );
+    const parts: string[] = [];
+    let isStockWritten = false;
+    let cursor: string | null = null;
+    do {
+      const part = await dumpFromObject(cursor);
+      parts.push(part.dumpSql);
+      cursor = part.nextCursor;
+      if (parts.length === 1) await stub.query("INSERT OR REPLACE INTO scores VALUES ('player_00', 99)", []);
+      if (!isStockWritten && part.dumpSql.includes('INSERT INTO "stock"')) {
+        isStockWritten = true;
+        await stub.query("DELETE FROM stock WHERE item = 'item_00'", []);
+      }
+    } while (cursor);
+    expect(parts.length).toBeGreaterThan(5);
+    const dump = parts.join("");
+    expect(dump.match(/INSERT INTO "scores"/g)).toHaveLength(30);
+    expect(dump.match(/INSERT INTO "stock"/g)).toHaveLength(30);
+  });
+
+  it("holds a game server's erase whose record D1 refused, and sends it with the next use, so a restore erases the player again", async () => {
+    await addSandboxGame("holding", LEADERBOARD);
+    const a = await join("holding", "ABCDEF");
+    await a.next();
+    await a.ask({ score: 10, id: "player_mia" });
+    const stub = e.GAME_DATABASES.get(e.GAME_DATABASES.idFromName("gholding"));
+    await e.DB.exec("CREATE TRIGGER refuse_erased_record BEFORE INSERT ON player_erases BEGIN SELECT RAISE(ABORT, 'D1 is down'); END");
+    try {
+      expect(await a.ask({ erase: "player_mia" })).toEqual([{ tableName: "scores", erasedRowCount: 1 }]);
+      // D1 refused its record, so the database object holds the erase.
+      await expect.poll(() => runInDurableObject(stub, (database: GameDatabaseObject) => (database as unknown as { heldErases: unknown[] }).heldErases.length)).toBe(1);
+      expect(await e.DB.prepare("SELECT count(*) AS erase_count FROM player_erases WHERE game_id = 'gholding'").first("erase_count")).toBe(0);
+    } finally {
+      await e.DB.exec("DROP TRIGGER refuse_erased_record");
+    }
+    // D1 answers again: the minute is up, and the next use sends what was held.
+    await runInDurableObject(stub, (database: GameDatabaseObject) => void ((database as unknown as { recordedAtMs: number }).recordedAtMs = 0));
+    await stub.usageThisMonth();
+    await expect.poll(() => e.DB.prepare("SELECT erase_status FROM player_erases WHERE game_id = 'gholding' AND player_id = 'player_mia'").first("erase_status")).toBe("erased");
+  });
+
+  it("after a restore, the use that was already added to the meter isn't added again, and the hosting pause is the one now", async () => {
+    await addSandboxGame("restored", LEADERBOARD);
+    const a = await join("restored", "ABCDEF");
+    await a.next();
+    await a.ask({ score: 10 });
+    const stub = e.GAME_DATABASES.get(e.GAME_DATABASES.idFromName("grestored"));
+    await runInDurableObject(stub, (database: GameDatabaseObject) => {
+      (database as unknown as { pointInTime: () => unknown }).pointInTime = () => ({ bookmarkForTime: async () => "bookmark", restoreOnNextStart: async () => "undo" });
+    });
+    const prepared = await stub.prepareRestore({ restoreToAtMs: Date.now() - 60_000 });
+    if ("error" in prepared) throw new Error(prepared.error.message);
+    // What a restore brings back: the use waiting at that moment, which prepareRestore had already added to the meter, and the pause the moment had.
+    await runInDurableObject(stub, (database: GameDatabaseObject, state) => {
+      state.storage.kv.put("unrecorded_use", { date: "2026-10-20", readRowCount: 0, writtenRowCount: 500, callCount: 1, awakeDurationMs: 0 });
+      state.storage.kv.put("hosting_pause", { month: usageMonth(), pausedAtMs: Date.now() - 2 * 3_600_000 });
+      void database;
+    });
+    // The restart and carrying the use over, as the service does them.
+    await new GameDatabaseService({ props: {}, exports: {} } as never, e).finishRestore("grestored", prepared.queryResult);
+    // Hosting runs now: the old pause is gone and the database answers.
+    const restored = () => e.GAME_DATABASES.get(e.GAME_DATABASES.idFromName("grestored"));
+    await vi.waitFor(async () => expect(await restored().query("SELECT best_score FROM scores", [])).toEqual({ queryResult: [{ best_score: 10 }] }), { timeout: 5000 });
+    // The 500 rows were on the meter before the restore: the restored object doesn't hold them to add again.
+    const waiting = await runInDurableObject(restored(), (database: GameDatabaseObject) => (database as unknown as { unrecordedUse: { writtenRowCount: number } | null }).unrecordedUse);
+    expect(waiting?.writtenRowCount ?? 0).toBeLessThan(500);
+    expect(await runInDurableObject(restored(), (database: GameDatabaseObject) => (database as unknown as { hostingPause: unknown }).hostingPause)).toBeNull();
   });
 });

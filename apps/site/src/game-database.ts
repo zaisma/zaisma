@@ -148,10 +148,20 @@ async function restoreRoute(env: Env, game: Game, what: "restores" | "undo", che
     throw new ApiError("slow_down", { message: "Too many restores of this game's database in the last minute.", fix: "Wait a minute: up to 5 restores and undos a minute per game.", retryAfterSec: 60 });
   }
   const restoredAtMs = Date.now();
-  const restored = readAnswer(await service.restore(game.id, undone ? { bookmark: undone.undo_bookmark } : { restoreToAtMs }), null);
-  const restore: DatabaseRestore = { id: newId("database_restore"), game_id: game.id, restore_to_at_ms: restoreToAtMs, undo_bookmark: restored.undoBookmark, undoes_database_restore_id: undone?.id ?? null, restored_at_ms: restoredAtMs };
-  await addDatabaseRestore(env.DB, restore);
-  const erasedAgainPlayerCount = await eraseAgain(env, game.id, restoreToAtMs);
+  const prepared = readAnswer(await service.prepareRestore(game.id, undone ? { bookmark: undone.undo_bookmark } : { restoreToAtMs }), null);
+  const restore: DatabaseRestore = { id: newId("database_restore"), game_id: game.id, restore_to_at_ms: restoreToAtMs, undo_bookmark: prepared.undoBookmark, undoes_database_restore_id: undone?.id ?? null, restored_at_ms: restoredAtMs };
+  // The restore's record and who to erase again are kept before it happens: it can't be taken back, so if D1 refuses, nothing changes.
+  let erasedPlayerIds: string[];
+  try {
+    await addDatabaseRestore(env.DB, restore);
+    erasedPlayerIds = await playersErasedSince(env.DB, game.id, restoreToAtMs);
+  } catch (error) {
+    console.error("Couldn't keep a database restore, so it didn't happen:", error);
+    await service.abandonRestore(game.id, prepared).catch((abandonError) => console.error("Couldn't take a prepared database restore back:", abandonError));
+    throw new ApiError("database_unavailable", { message: "The restore wasn't made: Zaisma couldn't keep its record, so the database is as it was.", fix: "Try the restore again in a moment.", retryAfterSec: 5 });
+  }
+  await service.finishRestore(game.id, prepared);
+  const erasedAgainPlayerCount = await eraseAgain(env, game.id, erasedPlayerIds);
   const nextSteps: NextStep[] = [{ tool: "get_database", arguments: { slug: game.slug }, after_sec: null, reason: "See the tables as they were then." }];
   if (!undone) nextSteps.push({ tool: "undo_database_restore", arguments: { slug: game.slug, database_restore_id: restore.id }, after_sec: null, reason: `Undo it if it went back too far: within ${DATABASE_RESTORE_LIMITS.restorableDurationDays} days.` });
   return [{ database_restore: restoreJson(restore), erased_again_player_count: erasedAgainPlayerCount, next_steps: nextSteps }];
@@ -180,12 +190,11 @@ function readRestoreToAtMs(game: Game, given: unknown, nowMs: number): number {
 }
 
 /**
- * Erases again the players erased since a moment (deleted accounts, erase_player and game servers' erases),
- * which a restore to it brought back, 20 at a time; one that doesn't go goes back to the erase queue, tried
+ * Erases again the players erased since a moment (deleted accounts, erase_player and game servers' erases, read before the
+ * restore), which a restore to it brought back, 20 at a time; one that doesn't go goes back to the erase queue, tried
  * on the webhook schedule. Answers how many were erased now.
  */
-async function eraseAgain(env: Env, gameId: string, sinceMs: number): Promise<number> {
-  const playerIds = await playersErasedSince(env.DB, gameId, sinceMs);
+async function eraseAgain(env: Env, gameId: string, playerIds: string[]): Promise<number> {
   let erasedCount = 0;
   for (let i = 0; i < playerIds.length; i += 20) {
     await Promise.all(
@@ -199,7 +208,7 @@ async function eraseAgain(env: Env, gameId: string, sinceMs: number): Promise<nu
         } catch (error) {
           console.error("Couldn't erase a player again after a restore:", error);
         }
-        await queuePlayerErase(env.DB, gameId, playerId);
+        await queuePlayerErase(env.DB, gameId, playerId).catch((error) => console.error("Couldn't queue a player's erase after a restore:", error));
       }),
     );
   }
@@ -264,7 +273,7 @@ export async function databaseDumpPart(env: Env, game: Game, cursor: string | nu
 function readAnswer<T>(answer: DeveloperDatabaseAnswer<T>, sqlField: string | null): T {
   if ("queryResult" in answer) return answer.queryResult;
   const { code, message, fix } = answer.error;
-  const field = code === "bad_sql" ? sqlField : code === "bad_values" ? (sqlField === "sql" ? "values" : sqlField) : code === "bad_cursor" ? "cursor" : null;
+  const field = code === "bad_sql" || code === "integer_too_large" ? sqlField : code === "bad_values" ? (sqlField === "sql" ? "values" : sqlField) : code === "bad_cursor" ? "cursor" : null;
   const retryAfterSec = code === "database_unavailable" ? 5 : null;
   throw new ApiError(code, { message, field, fix, retryAfterSec });
 }

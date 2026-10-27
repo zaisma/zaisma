@@ -1538,6 +1538,60 @@ describe("room browsing", () => {
     expect((await list("nope")).rooms).toHaveLength(2);
   });
 
+  it("calls the end off once the game's hosting starts again, tells the game and its players, and takes new players again", async () => {
+    const id = await addGame("revived");
+    const a = await join("revived", "RVVDRM");
+    await e.DB.prepare("INSERT INTO game_hosting_months (game_id, month_start_date, used_cents, paused_at_ms, paused_reason) VALUES (?, ?, 500, ?, 'credit_used')").bind(id, monthStartDateOf(), Date.now()).run();
+    const stub = e.ROOMS.get(e.ROOMS.idFromName("revived:RVVDRM"));
+    const checkNow = () =>
+      runInDurableObject(stub, async (room: Room, state) => {
+        (room as any).hostingCheckedAtMs = 0;
+        await state.storage.put("hostingCheckedAtMs", 0);
+        await state.storage.setAlarm(Date.now());
+      });
+    await checkNow();
+    await runDurableObjectAlarm(stub); // Due now, so it may already have run by itself.
+    await until(a, (m) => m.type === "ending");
+
+    // Credit came in: the hosting job cleared the pause, and the room's next check calls the end off.
+    await e.DB.prepare("UPDATE game_hosting_months SET paused_at_ms = NULL, paused_reason = NULL WHERE game_id = ?").bind(id).run();
+    await checkNow();
+    await runDurableObjectAlarm(stub); // Due now, so it may already have run by itself.
+    expect(await until(a, (m) => m.type === "ending_cancelled")).toEqual({ type: "ending_cancelled" });
+    await runInDurableObject(stub, async (room: Room, state) => {
+      expect((room as any).core.endsAt).toBeNull();
+      expect((await state.storage.get<{ endsAt?: string }>("room"))?.endsAt).toBeUndefined();
+    });
+    const newcomer = await connect("revived", "RVVDRM");
+    newcomer.ws.send(JSON.stringify({ type: "hello", protocolVersionNumber: 1, pass: (await getPass("revived")).pass }));
+    expect(await newcomer.next()).toMatchObject({ type: "welcome", endsAt: null });
+    newcomer.ws.close(1000);
+    a.ws.close(1000);
+  });
+
+  it("counts a running match's player time at its hourly check-in, not only once players leave, and never twice", async () => {
+    const id = await addGame("marathon");
+    const a = await join("marathon", "MRTHNA");
+    const stub = e.ROOMS.get(e.ROOMS.idFromName("marathon:MRTHNA"));
+    // An hour into the match, the check-in is due.
+    await runInDurableObject(stub, async (room: Room, state) => {
+      for (const socket of state.getWebSockets()) {
+        const attachment = socket.deserializeAttachment();
+        if (attachment.stage === "in") socket.serializeAttachment({ ...attachment, joinedAtMs: Date.now() - 3600_000 });
+      }
+      (room as any).checkedInAtMs = Date.now() - 3600_000;
+      await state.storage.setAlarm(Date.now());
+    });
+    await runDurableObjectAlarm(stub); // Due now, so it may already have run by itself.
+    const playDurationSec = async () => (await e.DB.prepare("SELECT COALESCE(SUM(room_play_duration_sec), 0) AS play_duration_sec FROM room_usage WHERE game_id = ?").bind(id).first<{ play_duration_sec: number }>())!.play_duration_sec;
+    await vi.waitFor(async () => expect(await playDurationSec()).toBeGreaterThanOrEqual(3600));
+    a.ws.close(1000);
+    await a.closed;
+    // Emptied (its usage recorded, then its row dropped): the rest of their time counts from the check-in on, not from when they joined.
+    await rows(id, (r) => r.length === 0);
+    expect(await playDurationSec()).toBeLessThan(3660);
+  });
+
   it("checks in every hour, and a room that stopped without hearing its players go drops off", async () => {
     const id = await addGame("checker");
     const a = await join("checker", "GHJKMN");

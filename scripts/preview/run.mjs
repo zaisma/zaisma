@@ -701,6 +701,8 @@ Zaisma preview is running. Nothing here touches the live site.
   Hosting         ${SITE}/dashboard/rocket-lab/players#hosting  (Free this month: 100% used, paused),  ${SITE}/dashboard/four-in-a-row/players#hosting
                   (85%: the heads-up),  ${SITE}/dashboard/cave-crew/players#hosting  (40%, mostly the relay),  ${SITE}/dashboard/arena/players#hosting
                   (100% free, "$3.40 of $5 budget this month", shares of every kind: rooms, game server, requests, database),  ${SITE}/dashboard/star-haul/players#hosting  (paused: its budget is used)
+  Credit is low   ${SITE}/dashboard/arena  (the credit_low alert on Arena's Overview: "Credit is low: add credit or turn on automatic top-up"),
+                  ${SITE}/dashboard/settings#hosting  (the same line under the credit's numbers)
   Own servers     ${SITE}/dashboard/tiny-farm/details#own-servers  (Your own servers: wss://play.example.com; the ⋯ menu on
                   ${SITE}/g/tiny-farm?play names it: "Online play runs on the developer's own server: play.example.com")
   Make an account ${SITE}/join  (try the username Preview_Studio to see it taken, with free ones to tap)
@@ -1528,6 +1530,8 @@ async function seedHolds(api, upload, go, form) {
       "INSERT INTO credit_entries (id, owner_id, entry_kind, amount_cents, game_id, created_at_ms) SELECT 'credit_entry_preview00000001', owner_id, 'hosting_charge', -340, id, unixepoch('now', '-1 hours') * 1000 FROM games WHERE slug = 'arena'",
       "INSERT INTO credit_entries (id, owner_id, entry_kind, amount_cents, game_id, created_at_ms) SELECT 'credit_entry_preview00000002', owner_id, 'hosting_charge', -200, id, unixepoch('now', '-2 hours') * 1000 FROM games WHERE slug = 'star-haul'",
       "UPDATE owners SET credit_balance_cents = 1460 WHERE id = (SELECT owner_id FROM games WHERE slug = 'arena')",
+      // Under its credit-low line (migration 0166), so the budgeted games show credit_low and the Hosting pane says credit is low.
+      "UPDATE owners SET credit_low_line_cents = 1500 WHERE id = (SELECT owner_id FROM games WHERE slug = 'arena')",
     ].join("; ");
     const inserted = runSql(arenaTraffic + "; INSERT INTO room_usage (game_id, date, room_count, room_play_duration_sec, message_count) SELECT id, date('now'), 412, 9000000, 90000 FROM games WHERE slug = 'rocket-lab' ON CONFLICT (game_id, date) DO UPDATE SET room_play_duration_sec = excluded.room_play_duration_sec; INSERT INTO room_usage (game_id, date, room_count, room_play_duration_sec, message_count, relay_credential_count, relayed_size_bytes) SELECT id, date('now'), 64, 900000, 20000, 310, 15000000000 FROM games WHERE slug = 'cave-crew' ON CONFLICT (game_id, date) DO UPDATE SET room_play_duration_sec = excluded.room_play_duration_sec, relay_credential_count = excluded.relay_credential_count, relayed_size_bytes = excluded.relayed_size_bytes; INSERT INTO room_usage (game_id, date, room_count, room_play_duration_sec, message_count) SELECT id, date('now', 'start of month'), 900, 7650000, 400000 FROM games WHERE slug = 'four-in-a-row' ON CONFLICT (game_id, date) DO UPDATE SET room_play_duration_sec = excluded.room_play_duration_sec; " + hostingSql);
     if (inserted) break;

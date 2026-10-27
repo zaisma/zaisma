@@ -1,5 +1,5 @@
 import { DurableObject, WorkerEntrypoint } from "cloudflare:workers";
-import { DATABASE_LIMITS, DatabaseError, DumpCursorError, TABLE_COLUMNS_SQL, answerDatabase, type DatabaseErrorCode, checkBatch, checkedRow, checkPlayerId, checkStatement, dumpPart, eraseRefused, eraseStatements, importStatements, plainRow, preview, readDatabaseAnswer, tablesFromColumns, tooManyRows, type DatabaseAnswer, type DatabaseRow, type DatabaseValue, type DumpPart, type ErasedTable, type GameDatabase } from "@zaisma/game-server/internal";
+import { DATABASE_LIMITS, DatabaseError, DumpCursorError, TABLE_COLUMNS_SQL, answerDatabase, type DatabaseErrorCode, checkBatch, checkPlayerId, checkStatement, dumpPart, eraseRefused, eraseStatements, importStatements, integerTooLarge, plainRow, scanStatements, preview, readDatabaseAnswer, tablesFromColumns, tooManyRows, type DatabaseAnswer, type DatabaseRow, type DatabaseValue, type DumpPart, type ErasedTable, type GameDatabase } from "@zaisma/game-server/internal";
 import { HOSTING_PAUSED_TEXT, MATCH_FINISH_DURATION_SEC, MAXIMUM_GAME_STORAGE_SIZE_BYTES, keptRoomsSizeBytes, nextMonthStartDate, recordPlayerErased, usageMonth } from "@zaisma/core";
 import type { Env } from "./index.ts";
 import { AwakeTime } from "./usage-counts.ts";
@@ -30,6 +30,15 @@ interface HostingPause {
   pausedAtMs: number;
 }
 
+/** A game server's erase whose record in D1 failed, held until the next recordUse. */
+interface HeldErase {
+  playerId: string;
+  erasedAtMs: number;
+}
+
+/** The most erases held: a player's ID is about 30 bytes and a key-value value holds 128 KB. */
+const MAXIMUM_HELD_ERASE_COUNT = 1000;
+
 /** One statement's rows, and the rows it read and wrote, as the developer API shows them. */
 export interface StatementResult {
   rows: DatabaseRow[];
@@ -48,6 +57,13 @@ export interface PointInTime {
   bookmarkForTime(atMs: number): Promise<string>;
   /** Restores to the bookmark when the object next starts; answers the bookmark for the moment just before, to undo it. */
   restoreOnNextStart(bookmark: string): Promise<string>;
+}
+
+/** A restore set for the next start: the bookmark that undoes it, and the use and hosting pause to carry over it. */
+export interface PreparedRestore {
+  undoBookmark: string;
+  usage: Usage;
+  hostingPause: HostingPause | null;
 }
 
 /** What a part of an import did. */
@@ -102,6 +118,8 @@ export class GameDatabaseObject extends DurableObject<Env> {
   private usage: Usage;
   private unrecordedUse: UnrecordedUse | null;
   private hostingPause: HostingPause | null;
+  /** Players a game server erased whose record in D1 failed, sent with the next recordUse: the erase never fails, and a restore must erase them again. */
+  private heldErases: HeldErase[];
   /**
    * When the use was last added to room_usage, or the object started. In memory only, and no alarm, which would add
    * a table of Cloudflare's (_cf_…) the developer's own SQL sees: use waiting is added at the next statement or read of it.
@@ -123,6 +141,7 @@ export class GameDatabaseObject extends DurableObject<Env> {
     this.usage = { month: usage.month, readRowCount: usage.readRowCount, writtenRowCount: usage.writtenRowCount };
     this.unrecordedUse = ctx.storage.kv.get<UnrecordedUse>("unrecorded_use") ?? null;
     this.hostingPause = ctx.storage.kv.get<HostingPause>("hosting_pause") ?? null;
+    this.heldErases = ctx.storage.kv.get<HeldErase[]>("held_erases") ?? [];
   }
 
   /**
@@ -164,6 +183,7 @@ export class GameDatabaseObject extends DurableObject<Env> {
     this.usage = { month: usageMonth(), readRowCount: 0, writtenRowCount: 0 };
     this.unrecordedUse = null;
     this.hostingPause = null;
+    this.heldErases = [];
     this.unsavedStatementCount = 0;
   }
 
@@ -177,6 +197,13 @@ export class GameDatabaseObject extends DurableObject<Env> {
     else this.ctx.storage.kv.delete("hosting_pause");
   }
 
+
+  /** A game server's erase whose record in D1 failed: held here, and sent with the next recordUse. */
+  holdErase(playerId: string, erasedAtMs: number): void {
+    // The most a hold keeps (a few thousand IDs would pass the most a value holds); the oldest go first, with a note in the logs.
+    this.heldErases = [...this.heldErases.filter((held) => held.playerId !== playerId), { playerId, erasedAtMs }].slice(-MAXIMUM_HELD_ERASE_COUNT);
+    this.ctx.storage.kv.put("held_erases", this.heldErases);
+  }
 
   /** erasePlayer() for the developer API and for deleted accounts, with the rows it wrote. */
   erasePlayerForDeveloper(playerId: unknown): DeveloperDatabaseAnswer<{ erasedTables: ErasedTable[]; writtenRowCount: number }> {
@@ -218,7 +245,7 @@ export class GameDatabaseObject extends DurableObject<Env> {
     try {
       const part = dumpPart((statementSql, values) => {
         statementCount++;
-        const cursor = sql.exec(statementSql, ...values);
+        const cursor = sql.exec(statementSql, ...values.map((boundValue) => (boundValue instanceof Uint8Array ? boundValue.slice().buffer : boundValue)));
         const rows = cursor.toArray().map(plainRow);
         readRowCount += cursor.rowsRead;
         return { rows, readRowCount: cursor.rowsRead };
@@ -243,14 +270,15 @@ export class GameDatabaseObject extends DurableObject<Env> {
       const plan = importStatements(dumpSql);
       const checked = plan.statements.map((statement) => {
         try {
-          return checkStatement(statement.sql, statement.values);
+          return checkStatement(statement.sql, statement.values, DATABASE_LIMITS.maximumImportValueSizeBytes);
         } catch (error) {
           if (error instanceof DatabaseError) throw new DatabaseError(error.code, `Statement ${statement.statementNumber} of the dump (${preview(statement.sql)}): ${error.message.slice(0, -` ${error.fix} (${error.code})`.length)}`, error.fix);
           throw error;
         }
       });
-      const statementResults = this.run(checked, Infinity, (i, error) => {
-        const statement = plan.statements[i]!;
+      // Foreign keys are checked when the part commits, so a row can refer to one that comes after it in the part.
+      const statementResults = this.importRun([{ sql: "PRAGMA defer_foreign_keys = ON", values: [] }, ...checked], (i, error) => {
+        const statement = plan.statements[i - 1] ?? { statementNumber: 0, sql: "PRAGMA defer_foreign_keys = ON" };
         const sqliteMessage = String(error instanceof Error ? error.message : error).replace(/^Error: /, "").slice(0, 300);
         const fix = /already exists/.test(sqliteMessage)
           ? "Import adds to what's there and never replaces it. Drop or rename that first with query_database (like DROP TABLE scores), or leave its CREATE out, then send this part again. Parts before it stay imported; this one was undone."
@@ -264,6 +292,18 @@ export class GameDatabaseObject extends DurableObject<Env> {
         writtenRowCount: statementResults.reduce((rowCount, statementResult) => rowCount + statementResult.writtenRowCount, 0),
       };
     });
+  }
+
+  /** run() for an import's part, whose first statement defers foreign keys: a reference that crosses parts fails at commit, and says so. */
+  private importRun(statements: { sql: string; values: DatabaseValue[] }[], failure: (i: number, error: unknown) => DatabaseError): StatementResult[] {
+    try {
+      return this.run(statements, Infinity, failure);
+    } catch (error) {
+      if (!(error instanceof DatabaseError) && /FOREIGN KEY constraint failed/i.test(String(error instanceof Error ? error.message : error))) {
+        throw new DatabaseError(FOREIGN_KEY_ACROSS_PARTS.code, FOREIGN_KEY_ACROSS_PARTS.message, FOREIGN_KEY_ACROSS_PARTS.fix);
+      }
+      throw error;
+    }
   }
 
   /**
@@ -363,11 +403,13 @@ export class GameDatabaseObject extends DurableObject<Env> {
           try {
             for (const row of cursor) {
               if (rows.length >= DATABASE_LIMITS.maximumRowCount) throw tooManyRows();
-              const plain = checkedRow(row);
+              const plain = plainRow(row);
               answerSizeBytes += rowSizeBytes(plain);
               if (answerSizeBytes > maximumAnswerSizeBytes) throw new AnswerTooBig();
               rows.push(plain);
             }
+            // The cursor gives a 64-bit INTEGER as the nearest JavaScript number: one past 2^53 is refused, as the Node runner refuses it.
+            readRowCount += this.checkIntegers(statement, cursor.columnNames, rows);
           } catch (error) {
             // SQLite can also fail while stepping through, like a UNIQUE constraint on an INSERT.
             throw failure && !(error instanceof DatabaseError) && !(error instanceof AnswerTooBig) ? failure(i, error) : error;
@@ -388,12 +430,34 @@ export class GameDatabaseObject extends DurableObject<Env> {
   }
 
   /**
+   * Throws integer_too_large for a whole number past 2^53 in rows. The Durable Object's cursor gives a REAL (1e20) and a
+   * 64-bit INTEGER the same way, so for a SELECT it asks SQLite's typeof which is which; a statement that isn't one
+   * (an INSERT … RETURNING) can't be asked again, and is refused. Answers the rows that took to read.
+   */
+  private checkIntegers(statement: { sql: string; values: DatabaseValue[] }, columnNames: string[], rows: DatabaseRow[]): number {
+    const unsafe = rows.map((row) => Object.entries(row).filter(([, columnValue]) => typeof columnValue === "number" && Number.isInteger(columnValue) && !Number.isSafeInteger(columnValue)).map(([column]) => column));
+    if (unsafe.every((columns) => columns.length === 0)) return 0;
+    const firstWord = scanStatements(statement.sql)[0]?.leadingWords[0] ?? "";
+    const firstColumn = unsafe.flat()[0]!;
+    if (firstWord !== "SELECT" && firstWord !== "WITH" && firstWord !== "VALUES") throw integerTooLarge(firstColumn);
+    const checkedIndexes = [...new Set(unsafe.flat().map((column) => columnNames.indexOf(column)))];
+    const checkSql = `WITH answered(${columnNames.map((_, index) => `c${index}`).join(", ")}) AS (${statement.sql}) SELECT ${checkedIndexes.map((index) => `typeof(c${index}) AS t${index}`).join(", ")} FROM answered`;
+    const check = this.ctx.storage.sql.exec(checkSql, ...statement.values.map((boundValue) => (boundValue instanceof Uint8Array ? boundValue.slice().buffer : boundValue)));
+    const types = check.toArray();
+    if (types.length !== rows.length) throw integerTooLarge(firstColumn);
+    unsafe.forEach((columns, rowIndex) => {
+      for (const column of columns) if (types[rowIndex]![`t${columnNames.indexOf(column)}`] !== "real") throw integerTooLarge(column);
+    });
+    return check.rowsRead;
+  }
+
+  /**
    * Sets the database to go back to a moment, or to an earlier restore's undo bookmark, when it next
    * starts (Cloudflare's point-in-time recovery, which keeps 30 days), and answers the bookmark that
    * undoes it and this month's use, which the restore would roll back with everything else. The caller
    * then restarts it (restart) and carries the use over (carryUsage). Until the restart, it answers nothing.
    */
-  async prepareRestore(target: RestoreTarget): Promise<DeveloperDatabaseAnswer<{ undoBookmark: string; usage: Usage }>> {
+  async prepareRestore(target: RestoreTarget): Promise<DeveloperDatabaseAnswer<PreparedRestore>> {
     return this.ctx.blockConcurrencyWhile(async () => {
       if (this.isRestarting) return answerDatabase((): never => {
         throw restarting();
@@ -405,7 +469,7 @@ export class GameDatabaseObject extends DurableObject<Env> {
         const bookmark = "bookmark" in target ? target.bookmark : await pointInTime.bookmarkForTime(target.restoreToAtMs);
         const undoBookmark = await pointInTime.restoreOnNextStart(bookmark);
         this.isRestarting = true;
-        return { queryResult: { undoBookmark, usage: { ...this.usage } } };
+        return { queryResult: { undoBookmark, usage: { ...this.usage }, hostingPause: this.hostingPause ? { ...this.hostingPause } : null } };
       } catch (error) {
         const cloudflareMessage = String(error instanceof Error ? error.message : error).slice(0, 300);
         if (/does not implement point-in-time recovery/.test(cloudflareMessage)) {
@@ -424,19 +488,34 @@ export class GameDatabaseObject extends DurableObject<Env> {
 
   /**
    * After a restore: this month's use as it was before, the larger of each count, since the restore
-   * rolled the use back with everything else. The hosting pause comes back from the site's next job.
+   * rolled the use back with everything else, and the hosting pause as it is now, since the restore brought back the one
+   * the moment had (or none). Use waiting at that moment was added to room_usage before the restore (prepareRestore),
+   * so the restored object's copy of it is dropped, or it would count twice.
    * The object going away still answers for a moment, and refuses, so the caller tries again until the restored one takes it.
    */
-  carryUsage(carried: Usage): void {
+  carryUsage(carried: Usage, hostingPause: HostingPause | null = null): void {
     if (this.isRestarting) throw restarting();
+    this.hostingPause = hostingPause;
+    if (hostingPause) this.ctx.storage.kv.put("hosting_pause", hostingPause);
+    else this.ctx.storage.kv.delete("hosting_pause");
+    this.unrecordedUse = null;
     this.newMonth();
-    if (carried.month !== this.usage.month) return;
-    this.usage = {
-      month: this.usage.month,
-      readRowCount: Math.max(this.usage.readRowCount, carried.readRowCount),
-      writtenRowCount: Math.max(this.usage.writtenRowCount, carried.writtenRowCount),
-    };
+    if (carried.month === this.usage.month) {
+      this.usage = {
+        month: this.usage.month,
+        readRowCount: Math.max(this.usage.readRowCount, carried.readRowCount),
+        writtenRowCount: Math.max(this.usage.writtenRowCount, carried.writtenRowCount),
+      };
+    }
     this.save();
+  }
+
+  /**
+   * A prepared restore the site couldn't keep a record of: the next start restores to the undo bookmark, the
+   * state from before the restore was prepared (nothing has run since), instead. The caller restarts the object, as for a restore.
+   */
+  async abandonRestore(undoBookmark: string): Promise<void> {
+    await this.pointInTime().restoreOnNextStart(undoBookmark);
   }
 
   /** Cloudflare's point-in-time recovery for this object's storage. Tests put a stand-in here: local storage has none. */
@@ -475,7 +554,7 @@ export class GameDatabaseObject extends DurableObject<Env> {
 
   /** Adds the use waiting to room_usage, in the background, once RECORD_DELAY_MS has passed since the last time. */
   private recordWhenDue(): void {
-    if (!this.unrecordedUse || Date.now() - this.recordedAtMs < RECORD_DELAY_MS) return;
+    if ((!this.unrecordedUse && this.heldErases.length === 0) || Date.now() - this.recordedAtMs < RECORD_DELAY_MS) return;
     this.recordedAtMs = Date.now();
     this.ctx.waitUntil(this.recordUse());
   }
@@ -488,8 +567,15 @@ export class GameDatabaseObject extends DurableObject<Env> {
   private async recordUse(): Promise<void> {
     // The object is reached by idFromName(gameId), so its name is the game's ID.
     const gameId = this.ctx.id.name;
+    if (!gameId) return;
+    // The use goes first, and its first step runs before any await: the size it records is the size now.
+    await this.recordRows(gameId);
+    await this.recordHeldErases(gameId);
+  }
+
+  private async recordRows(gameId: string): Promise<void> {
     const unrecorded = this.unrecordedUse;
-    if (!unrecorded || !gameId) return;
+    if (!unrecorded) return;
     this.unrecordedUse = null;
     this.save();
     try {
@@ -514,6 +600,25 @@ export class GameDatabaseObject extends DurableObject<Env> {
     }
   }
 
+  /** Sends the erases whose record failed to player_erases; one that fails again stays held. */
+  private async recordHeldErases(gameId: string): Promise<void> {
+    if (this.heldErases.length === 0) return;
+    const held = this.heldErases;
+    const recorded = new Set<string>();
+    for (const erase of held) {
+      try {
+        await recordPlayerErased(this.env.DB, gameId, erase.playerId, erase.erasedAtMs);
+        recorded.add(erase.playerId);
+      } catch (error) {
+        console.error("Couldn't keep a player's erase:", error);
+      }
+    }
+    // Erases held while these went out stay.
+    this.heldErases = this.heldErases.filter((erase) => !recorded.has(erase.playerId));
+    if (this.heldErases.length) this.ctx.storage.kv.put("held_erases", this.heldErases);
+    else this.ctx.storage.kv.delete("held_erases");
+  }
+
   private save(): void {
     this.ctx.storage.kv.put("usage", this.usage);
     if (this.unrecordedUse) this.ctx.storage.kv.put("unrecorded_use", this.unrecordedUse);
@@ -522,6 +627,13 @@ export class GameDatabaseObject extends DurableObject<Env> {
     this.savedAtMs = Date.now();
   }
 }
+
+/** An import part that left a foreign key broken: it was undone. */
+const FOREIGN_KEY_ACROSS_PARTS = {
+  code: "bad_sql",
+  message: "A row in this part refers to a row that isn't in it or in a part before it (FOREIGN KEY constraint failed), so the part was undone.",
+  fix: "Rows that refer to each other must go in together: send them in one part, or the part they refer to first. Parts before it stay imported.",
+} as const;
 
 /** Tries at carrying the use over to a restored database, 50 ms more apart each time: about 5 seconds in all. */
 const CARRY_ATTEMPT_COUNT = 14;
@@ -580,12 +692,21 @@ export function gameDatabase(env: Env, gameId: string): GameDatabase {
   };
 }
 
-/** Keeps that a game server erased a player, so a restore to a time before erases them again. Never fails the erase. */
+/**
+ * Keeps that a game server erased a player, so a restore to a time before erases them again. Never fails the erase: when
+ * D1 refuses, the database object holds it and sends it with its next recordUse.
+ */
 async function recordErased(env: Env, gameId: string, playerId: unknown): Promise<void> {
+  const erasedAtMs = Date.now();
   try {
-    await recordPlayerErased(env.DB, gameId, String(playerId));
+    await recordPlayerErased(env.DB, gameId, String(playerId), erasedAtMs);
   } catch (error) {
     console.error("Couldn't keep a player's erase:", error);
+    try {
+      await gameDatabaseObject(env, gameId).holdErase(String(playerId), erasedAtMs);
+    } catch (holdError) {
+      console.error("Couldn't hold a player's erase either:", holdError);
+    }
   }
 }
 
@@ -662,16 +783,23 @@ export class GameDatabaseService extends WorkerEntrypoint<Env> {
   }
 
   importDump(gameId: string, dumpSql: string): Promise<DeveloperDatabaseAnswer<ImportResult>> {
-    return this.reach(gameId, (database) => database.importForDeveloper(dumpSql));
+    return this.reach(gameId, (database) => database.importForDeveloper(dumpSql), (error) =>
+      // Cloudflare ends a transaction that commits with a foreign key broken by resetting the object to how it was: the part is undone.
+      /constraints were violated|FOREIGN KEY constraint failed/i.test(String(error instanceof Error ? error.message : error)) ? { error: FOREIGN_KEY_ACROSS_PARTS } : null,
+    );
   }
 
   /**
-   * Restores a game's database to a moment, or to an earlier restore's undo bookmark, and answers the
-   * bookmark that undoes this one. The object restarts to restore, then gets this month's use back.
+   * Sets a game's database to go back to a moment, or to an earlier restore's undo bookmark, and answers the bookmark
+   * that undoes it. Nothing is restored until finishRestore; until then the database answers nothing. The site keeps the
+   * restore's record first, and calls abandonRestore instead when it can't.
    */
-  async restore(gameId: string, target: RestoreTarget): Promise<DeveloperDatabaseAnswer<{ undoBookmark: string }>> {
-    const prepared = await this.reach(gameId, (database) => database.prepareRestore(target));
-    if ("error" in prepared) return prepared;
+  prepareRestore(gameId: string, target: RestoreTarget): Promise<DeveloperDatabaseAnswer<PreparedRestore>> {
+    return this.reach(gameId, (database) => database.prepareRestore(target));
+  }
+
+  /** The restore happening: the object restarts to restore, then gets this month's use and hosting pause back. */
+  async finishRestore(gameId: string, prepared: PreparedRestore): Promise<void> {
     try {
       await gameDatabaseObject(this.env, gameId).restart();
     } catch {
@@ -680,20 +808,27 @@ export class GameDatabaseService extends WorkerEntrypoint<Env> {
     // Until the restored object takes the use (the old one refuses it), nothing else should reach it either.
     for (let attemptNumber = 1; attemptNumber <= CARRY_ATTEMPT_COUNT; attemptNumber++) {
       try {
-        await gameDatabaseObject(this.env, gameId).carryUsage(prepared.queryResult.usage);
+        await gameDatabaseObject(this.env, gameId).carryUsage(prepared.usage, prepared.hostingPause);
         break;
       } catch (error) {
         if (attemptNumber === CARRY_ATTEMPT_COUNT) console.error("Couldn't carry a restored game database's use over:", error);
         else await new Promise((resolve) => setTimeout(resolve, attemptNumber * 50));
       }
     }
-    return { queryResult: { undoBookmark: prepared.queryResult.undoBookmark } };
   }
 
-  private async reach<T>(gameId: string, work: (database: DurableObjectStub<GameDatabaseObject>) => Promise<DeveloperDatabaseAnswer<T>>): Promise<DeveloperDatabaseAnswer<T>> {
+  /** A prepared restore that won't happen: the object restarts to the state it had when it was prepared, so nothing changes. */
+  async abandonRestore(gameId: string, prepared: PreparedRestore): Promise<void> {
+    await gameDatabaseObject(this.env, gameId).abandonRestore(prepared.undoBookmark);
+    await this.finishRestore(gameId, prepared);
+  }
+
+  private async reach<T>(gameId: string, work: (database: DurableObjectStub<GameDatabaseObject>) => Promise<DeveloperDatabaseAnswer<T>>, translate?: (error: unknown) => DeveloperDatabaseAnswer<T> | null): Promise<DeveloperDatabaseAnswer<T>> {
     try {
       return await work(gameDatabaseObject(this.env, gameId));
     } catch (error) {
+      const translated = translate?.(error);
+      if (translated) return translated;
       console.error("Game database unavailable:", error);
       return { error: { code: "database_unavailable", message: "The game's database didn't answer.", fix: "Try again in a moment; if it keeps happening, tell Zaisma with post_topic (kind bug, category servers)." } };
     }

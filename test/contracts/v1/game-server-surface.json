@@ -113,8 +113,10 @@
     "kind": "constant",
     "value": {
       "maximumSqlCharacterCount": 100000,
+      "maximumSqlSizeBytes": 100000,
       "maximumValueCount": 100,
       "maximumValueSizeBytes": 1048576,
+      "maximumImportValueSizeBytes": 2097152,
       "maximumStatementCount": 100,
       "maximumRowCount": 10000
     }
@@ -132,6 +134,7 @@
       "database_full",
       "database_unavailable",
       "hosting_paused",
+      "integer_too_large",
       "too_many_rows"
     ]
   },

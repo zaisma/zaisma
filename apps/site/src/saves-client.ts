@@ -21,7 +21,15 @@ import { pageScript } from "./page-scripts.ts";
  * the game reloads with the account's progress. Saving only starts once the game domain says the
  * account's save is in place, so a device that couldn't take it never sends its own.
  * When this device last played is remembered per game as { sha256, played_at_ms }: the time its save
- * last changed, as far as this page saw (null when it never saw a change; the account's progress wins then).
+ * last changed, as far as this page saw (null when it never saw a change; the account's progress wins then),
+ * on Zaisma's clock (the device's, put right by each answer's Date header), so a device clock that's off never decides.
+ * A save that fails waits and tries again (30 seconds, doubling to 5 minutes, or what Retry-After says); a save
+ * whose answer was lost is recognised by its sha256 when it's sent again. Every change carries the tag the page
+ * loaded with: after a 401 or another account signing in, saving pauses until the player is signed in, then the
+ * game reopens through the restore page as that account.
+ * On a shared computer, the game's storage may hold another account's progress: when it's that account's synced
+ * save (its marker says so), this account's own save loads; when it was never synced, it belongs to the account
+ * that played here last, and is moved aside for it (zaisma:unsynced:<tag>) until it signs in here again.
  * A record from before v1 saves holds the hash of the older format, which no v1 save matches: it counts
  * as both having played on, so whichever progress wins, the other is kept as an earlier version.
  * A developer's change (through the API, saves-api.ts) always wins: when the game's next save finds the
@@ -74,24 +82,63 @@ export const SAVES_SCRIPT = pageScript("saves", `
   let applying = null;    // a developer's change while the game domain puts it in place under the running game
   let isRestoringCopy = false; // the game is going back to an earlier version (Zaisma.saves.restoreCopy)
   let versionId = null;   // the game version the game domain says it was served from (its last hello or save), a label on each save
+  let clockOffsetMs = 0;  // Zaisma's clock minus this device's, from the last answer's Date header
+  let retryTimer = null;  // a failed save waiting to be sent again
+  let retryDelayMs = 0;   // how long the last wait was: 30 seconds, doubling to 5 minutes
+  let isAwaitingSignIn = false; // saving paused after a 401 or another account signing in, until the player is signed in
   // A save with nothing in it, exactly as canonicalSave in packages/core/src/saves.ts writes it.
   const EMPTY_SAVE_TEXT = ${JSON.stringify(EMPTY_SAVE_TEXT)};
 
   // A save as one text, the same as canonicalSave on the server: all three keys in this order, localStorage keys sorted.
   const canonical = (save) => {
+    if (!save || !save.local_storage_items) return null;
     const items = {};
     Object.keys(save.local_storage_items).sort().forEach((k) => Object.defineProperty(items, k, { value: save.local_storage_items[k], enumerable: true, writable: true, configurable: true }));
     return JSON.stringify({ save_format_version_number: 1, local_storage_items: items, indexeddb_databases: save.indexeddb_databases });
   };
   const sha = async (text) => Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text))), (b) => b.toString(16).padStart(2, "0")).join("");
+  // Which save of an account this device last had: { version_number, sha256, slug, marked_at_ms }, per account tag.
   const marker = (tag, value) => {
     try {
       if (value === undefined) return JSON.parse(localStorage.getItem("zaisma:save:" + tag) || "null");
-      localStorage.setItem("zaisma:save:" + tag, JSON.stringify(value));
+      localStorage.setItem("zaisma:save:" + tag, JSON.stringify({ ...value, slug: SAVES.slug, marked_at_ms: serverNow() }));
     } catch { return null; }
   };
+  // Every account's marker for this game in this browser, with its tag (markers from before slug was kept are left out).
+  const markersHere = () => {
+    const found = [];
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (!key || !key.startsWith("zaisma:save:")) continue;
+        const value = JSON.parse(localStorage.getItem(key) || "null");
+        if (value && value.slug === SAVES.slug) found.push({ tag: key.slice("zaisma:save:".length), ...value });
+      }
+    } catch {}
+    return found;
+  };
+  // Another account's progress, moved aside on a shared computer until that account signs in here again: { text, played_at_ms }.
+  const asideKey = (tag) => "zaisma:unsynced:" + tag;
+  const putAside = (tag, value) => {
+    try { localStorage.setItem(asideKey(tag), JSON.stringify(value)); return true; } catch { return false; }
+  };
+  const takeAside = (tag) => {
+    try {
+      const value = JSON.parse(localStorage.getItem(asideKey(tag)) || "null");
+      localStorage.removeItem(asideKey(tag));
+      return value && typeof value.text === "string" ? value : null;
+    } catch { return null; }
+  };
+  // Zaisma's clock: this device's, put right by the offset each answer's Date header shows.
+  const serverNow = () => Date.now() + clockOffsetMs;
+  // Every call to the account: learns Zaisma's clock from the answer.
+  const ask = (path, init = {}) => fetch(path, { credentials: "same-origin", ...init }).then((res) => {
+    const answeredAtMs = Date.parse((res.headers && res.headers.get && res.headers.get("date")) || "");
+    if (answeredAtMs) clockOffsetMs = answeredAtMs - Date.now();
+    return res;
+  });
   const ago = (savedAt) => {
-    const m = Math.round((Date.now() - Date.parse(savedAt)) / 60000);
+    const m = Math.round((serverNow() - Date.parse(savedAt)) / 60000);
     return m < 1 ? "just now" : m < 60 ? m + " min ago" : m < 1440 ? Math.round(m / 60) + " h ago" : Math.round(m / 1440) + " days ago";
   };
   // Where progress goes, in the Keep your progress card.
@@ -110,11 +157,10 @@ export const SAVES_SCRIPT = pageScript("saves", `
   }
   // The account's progress wins: keep this device's as an earlier version on the account, dated when this device
   // last played it (played_at; null when that isn't known). Answers the copy's ID, or null.
-  const keepDevice = (text) => {
-    if (!text || text === EMPTY_SAVE_TEXT) return Promise.resolve(null);
-    const p = played();
-    const body = { keep: true, save_json: text, version_id: versionId, played_at: p && p.played_at_ms ? new Date(p.played_at_ms).toISOString() : null };
-    return fetch(SAVES.api, { method: "PUT", body: JSON.stringify(body), credentials: "same-origin" })
+  const keepDevice = (text, playedAtMs = (played() || {}).played_at_ms) => {
+    if (!text || text === EMPTY_SAVE_TEXT || !cloud || cloud instanceof Promise) return Promise.resolve(null);
+    const body = { tag: cloud.tag, keep: true, save_json: text, version_id: versionId, played_at: playedAtMs ? new Date(playedAtMs).toISOString() : null };
+    return ask(SAVES.api, { method: "PUT", body: JSON.stringify(body) })
       .then((r) => (r.ok ? r.json() : null))
       .then((out) => (out && out.save_copy_id) || null)
       .catch(() => null);
@@ -126,25 +172,22 @@ export const SAVES_SCRIPT = pageScript("saves", `
       localStorage.setItem(playedKey, JSON.stringify(value));
     } catch { return null; }
   };
-  // The game sent its save: if it changed, this device played just now.
+  // The game sent its save: if it changed, this device played just now (on Zaisma's clock).
   async function notePlayed(text) {
     const hash = await sha(text);
     const was = played();
     if (!was) played({ sha256: hash, played_at_ms: null });
-    else if (was.sha256 !== hash) played({ sha256: hash, played_at_ms: Date.now() });
+    else if (was.sha256 !== hash) played({ sha256: hash, played_at_ms: serverNow() });
   }
   // Whether this device's progress was played after the account's was saved. Not known: the account's wins.
-  const deviceIsNewer = (savedAt) => {
-    const p = played();
-    return Boolean(p && p.played_at_ms && savedAt && p.played_at_ms > Date.parse(savedAt));
-  };
+  const deviceIsNewer = (savedAt, playedAtMs = (played() || {}).played_at_ms) => Boolean(playedAtMs && savedAt && playedAtMs > Date.parse(savedAt));
   const tell = (msg) => frame && frame.contentWindow && frame.contentWindow.postMessage({ type: "zaisma:saves", ...msg }, SAVES.frameOrigin);
   // To the game itself (the SDK), not the game domain's saves script.
   const toGame = (msg) => frame && frame.contentWindow && frame.contentWindow.postMessage(msg, SAVES.frameOrigin);
   const copyFields = (copy) => ({ id: copy.id, savedAt: copy.saved_at, copyReason: copy.copy_reason, sizeBytes: copy.size_bytes, isCurrentSave: copy.is_current_save, versionId: copy.version_id ?? null });
   async function copyById(saveCopyId) {
     if (!saveCopyId) return null;
-    const res = await fetch(SAVES.api + "/copies", { credentials: "same-origin" }).catch(() => null);
+    const res = await ask(SAVES.api + "/copies").catch(() => null);
     const out = res && res.ok ? await res.json().catch(() => null) : null;
     const copy = out && Array.isArray(out.save_copies) ? out.save_copies.find((each) => each.id === saveCopyId) : null;
     return copy ? copyFields(copy) : null;
@@ -165,7 +208,7 @@ export const SAVES_SCRIPT = pageScript("saves", `
   // One retry for a passing hiccup; a signed-out player or a game without saves just plays.
   async function load(retry = true) {
     try {
-      const res = await fetch(SAVES.api, { credentials: "same-origin" });
+      const res = await ask(SAVES.api);
       if (res.ok) return await res.json();
       if (res.status === 401 || res.status === 404 || !retry) return null;
     } catch { if (!retry) return null; }
@@ -185,6 +228,9 @@ export const SAVES_SCRIPT = pageScript("saves", `
     pendingConflict = null; // A conflict from this reload comes after it (conflicted).
     if (applying) { clearTimeout(applying.timer); applying = null; }
     queued = null; // From the game as it was; the reloaded game sends its own.
+    clearTimeout(retryTimer);
+    retryTimer = null;
+    retryDelayMs = 0;
     cloud = load();
     openAt("_zaisma/restore#" + encodeURIComponent(SAVES.query));
     clearTimeout(fallback);
@@ -295,8 +341,8 @@ export const SAVES_SCRIPT = pageScript("saves", `
     const c = await load();
     if (!c) return say("Couldn't reach your saved progress, so this visit won't save to your account.");
     cloud = c;
-    if (!c.version_number) {
-      // A new account: whatever this device has becomes the account's save.
+    if (!c.version_number || !c.save_data) {
+      // A new account (or one whose save has no data): whatever this device has becomes the account's save.
       paused = false;
       synced = null;
       welcome = true;
@@ -309,6 +355,10 @@ export const SAVES_SCRIPT = pageScript("saves", `
       tell({ step: "sync", text: guestText });
       say("Progress saves to your account.");
       pop("Your progress now saves to your account.");
+    } else if (!guestText || guestText === EMPTY_SAVE_TEXT) {
+      // Nothing on this device: the game reopens with the account's progress.
+      forceCloud = true;
+      openThroughRestore();
     } else if (deviceIsNewer(c.saved_at)) {
       // Both have progress, and this device's was played more recently: it replaces the account's, which is kept
       // as an earlier version (the game hears the conflict once that save is stored).
@@ -327,9 +377,37 @@ export const SAVES_SCRIPT = pageScript("saves", `
       pop("You're signed in. Your account's progress in this game is newer, so the game reloaded with it.");
     }
   }
-  addEventListener("focus", joined);
-  document.addEventListener("visibilitychange", joined);
-  try { new BroadcastChannel("zaisma").onmessage = (e) => e.data === "signed-in" && joined(); } catch {}
+  // Saving paused after a 401 or another account signing in: once the account answers again, the game reopens
+  // through the restore page as whoever is signed in now, which checks whose progress is on this device.
+  async function signedInAgain() {
+    if (!isAwaitingSignIn || guest || !signedIn()) return;
+    const res = await ask(SAVES.api + "?version").catch(() => null);
+    if (!isAwaitingSignIn || !res || !res.ok) return;
+    isAwaitingSignIn = false;
+    openThroughRestore();
+  }
+  function awaitSignIn(isOtherAccount) {
+    paused = true;
+    queued = null;
+    tell({ step: "pause" });
+    isAwaitingSignIn = true;
+    if (isOtherAccount) signedInAgain();
+    else say("Sign in again to keep saving to your account.");
+  }
+  const heardSignIn = () => { joined(); signedInAgain(); };
+  addEventListener("focus", heardSignIn);
+  document.addEventListener("visibilitychange", heardSignIn);
+  try { new BroadcastChannel("zaisma").onmessage = (e) => e.data === "signed-in" && heardSignIn(); } catch {}
+
+  // Whose this device's progress is, when it isn't this account's (tag): another account's synced save (isSynced),
+  // or progress never synced, which belongs to the account that played here last. Null: this account's, or no one's.
+  function progressOwner(localHash, tag) {
+    const markers = markersHere();
+    const synced = markers.find((each) => each.tag !== tag && each.sha256 === localHash);
+    if (synced) return { tag: synced.tag, isSynced: true };
+    const last = markers.reduce((newest, each) => (!newest || (each.marked_at_ms || 0) > (newest.marked_at_ms || 0) ? each : newest), null);
+    return last && last.tag !== tag ? { tag: last.tag, isSynced: false } : null;
+  }
 
   async function restore(text, broken) {
     clearTimeout(fallback);
@@ -344,63 +422,98 @@ export const SAVES_SCRIPT = pageScript("saves", `
       say("Couldn't reach your saved progress, so this visit won't save to your account.");
       return tell({ step: "restore", action: "keep" });
     }
-    const localHash = await sha(text);
-    const empty = text === EMPTY_SAVE_TEXT;
+    // An answer without its data counts as no save on the account; the next save still starts from its version.
+    const hasCloudSave = Boolean(c.version_number && c.save_data);
+    let localHash = await sha(text);
     // The first time this page sees this device's save: from now on a change to it counts as playing.
     if (!played()) played({ sha256: localHash, played_at_ms: null });
     // A marker from before version_number and sha256 matches neither, so the most recently played wins.
     const mark = marker(c.tag);
+    // A shared computer: progress here that's another account's stays that account's, and this account starts from its own.
+    let deviceText = text;
+    let isStorageOthers = false;
+    if (text !== EMPTY_SAVE_TEXT && localHash !== c.sha256 && !(mark && mark.sha256 === localHash)) {
+      const owner = progressOwner(localHash, c.tag);
+      if (owner) {
+        if (!owner.isSynced && !putAside(owner.tag, { text, played_at_ms: (played() || {}).played_at_ms || null })) {
+          say("Another account's progress is on this device, so this visit won't save to your account.");
+          return tell({ step: "restore", action: "keep" });
+        }
+        isStorageOthers = true;
+        deviceText = EMPTY_SAVE_TEXT;
+      }
+    }
+    // This account's own progress, moved aside while another account played here: it's this device's progress again.
+    const aside = takeAside(c.tag);
+    let devicePlayedAtMs = (played() || {}).played_at_ms;
+    if (aside) {
+      deviceText = aside.text;
+      devicePlayedAtMs = aside.played_at_ms;
+      localHash = await sha(aside.text);
+    }
+    const empty = deviceText === EMPTY_SAVE_TEXT;
     let use;
-    if (forceCloud && c.version_number) {
+    if (forceCloud && hasCloudSave) {
       use = "cloud";
       // This device's progress since its last save (the account keeps one copy of each progress).
       // Unchanged since it last synced, it was the account's own save, so there's nothing to keep; nor when it was kept before the reload.
-      if (!empty && localHash !== c.sha256 && !(mark && mark.sha256 === localHash) && text !== keptBeforeReload) keepDevice(text);
+      if (!empty && localHash !== c.sha256 && !(mark && mark.sha256 === localHash) && deviceText !== keptBeforeReload) keepDevice(deviceText, devicePlayedAtMs);
     }
-    else if (!c.version_number) use = "local";
+    else if (!hasCloudSave) use = "local";
     else if (empty || localHash === c.sha256) use = "cloud";
     else if (mark && mark.version_number === c.version_number) use = "local";
     else if (mark && mark.sha256 === localHash) use = "cloud";
     else {
       // Both played on since they last matched: the progress played most recently wins, the other is kept.
-      use = deviceIsNewer(c.saved_at) ? "local" : "cloud";
-      if (use === "cloud") conflicted("account", keepDevice(text));
+      use = deviceIsNewer(c.saved_at, devicePlayedAtMs) ? "local" : "cloud";
+      if (use === "cloud") conflicted("account", keepDevice(deviceText, devicePlayedAtMs));
       else replacing = true; // The game hears the conflict once its save replaced the account's (store).
     }
     forceCloud = false;
     keptBeforeReload = null;
-    if (use === "cloud" && c.version_number) {
-      restoring = c;
-      tell({ step: "restore", action: "use-cloud", data: c.save_data });
+    // What goes in the game's storage: the account's save, this account's moved-aside progress, or nothing in place of another's.
+    const putting = use === "cloud" && hasCloudSave ? { saveData: c.save_data } : aside && !empty ? { saveData: JSON.parse(deviceText), isDeviceProgress: true, aside } : isStorageOthers ? { saveData: JSON.parse(EMPTY_SAVE_TEXT) } : null;
+    if (putting) {
+      restoring = { c, ...putting };
+      tell({ step: "restore", action: "use-cloud", data: putting.saveData });
     } else {
       paused = false;
       // Keep this device's save; the game sends it as soon as it starts.
-      synced = empty && !c.version_number ? text : null;
+      synced = empty && !hasCloudSave ? text : null;
       tell({ step: "restore", action: "keep" });
       say("Progress saves to your account.");
     }
   }
 
-  // The game domain put the account's save in place (or couldn't). Only then does saving start.
+  // The game domain put a save in place (or couldn't). Only then does saving start.
   function restored(ok) {
-    const c = restoring;
+    const r = restoring;
     restoring = null;
+    if (!r) return;
     if (!ok) {
+      if (r.aside) putAside(r.c.tag, r.aside);
       say("Couldn't put your account's progress on this device, so this visit won't save to your account.");
       return;
     }
-    synced = canonical(c.save_data);
-    marker(c.tag, { version_number: c.version_number, sha256: c.sha256 });
-    played({ sha256: c.sha256, played_at_ms: Date.parse(c.saved_at) || null });
+    const c = r.c;
+    const isAccountSave = r.saveData === c.save_data;
+    // This account's own moved-aside progress back in place: the game sends it, and it saves from the account's version.
+    synced = r.isDeviceProgress ? null : canonical(r.saveData);
     paused = false;
-    say("Progress saves to your account. Last saved " + ago(c.saved_at) + ".");
+    if (isAccountSave) {
+      marker(c.tag, { version_number: c.version_number, sha256: c.sha256 });
+      played({ sha256: c.sha256, played_at_ms: Date.parse(c.saved_at) || null });
+    } else {
+      sha(canonical(r.saveData)).then((hash) => played({ sha256: hash, played_at_ms: r.isDeviceProgress ? r.aside.played_at_ms || null : null }));
+    }
+    say(isAccountSave ? "Progress saves to your account. Last saved " + ago(c.saved_at) + "." : "Progress saves to your account.");
   }
 
   async function store(text) {
     if (paused) return;
-    if (saving) { queued = text; return; }
-    const body = JSON.stringify({ base_version_number: cloud.version_number, save_json: text, version_id: versionId, ...(replacing ? { replace: true } : {}) });
-    saving = fetch(SAVES.api, { method: "PUT", body, credentials: "same-origin", keepalive: body.length < 60000 }).catch(() => null);
+    if (saving || retryTimer) { queued = text; return; }
+    const body = JSON.stringify({ tag: cloud.tag, base_version_number: cloud.version_number, save_json: text, version_id: versionId, ...(replacing ? { replace: true } : {}) });
+    saving = ask(SAVES.api, { method: "PUT", body, keepalive: body.length < 60000 }).catch(() => null);
     const opened = openCount;
     const res = await saving;
     saving = null;
@@ -409,9 +522,13 @@ export const SAVES_SCRIPT = pageScript("saves", `
     // Going back to an earlier version: a save that went through still moved the account on; anything else waits for that.
     if (isRestoringCopy && !(res && res.ok)) return;
     const out = res ? await res.json().catch(() => ({})) : {};
-    if (res && res.ok) {
-      if (replacing) conflicted("this_device", Promise.resolve(out.kept_save_copy_id));
+    // A 409 for exactly this save: it landed before (its answer was lost), so it's saved.
+    const isSavedBefore = res && res.status === 409 && out.error !== "account_changed" && out.sha256 && out.sha256 === (await sha(text));
+    if (opened !== openCount) return;
+    if (res && (res.ok || isSavedBefore)) {
+      if (replacing && res.ok) conflicted("this_device", Promise.resolve(out.kept_save_copy_id));
       replacing = false;
+      retryDelayMs = 0;
       cloud.version_number = out.version_number;
       cloud.sha256 = out.sha256;
       synced = text;
@@ -419,17 +536,23 @@ export const SAVES_SCRIPT = pageScript("saves", `
       say("Progress saves to your account. Last saved just now.");
       if (welcome) pop("Your progress now saves to your account.");
       welcome = false;
+    } else if (res && res.status === 409 && out.error === "account_changed") {
+      // Another account signed in on this browser: this page's progress never goes to it.
+      return awaitSignIn(true);
     } else if (res && res.status === 409) {
       paused = true;
       tell({ step: "pause" });
+      // The newest progress this device has; a save waiting behind this one is from before whatever happens next.
+      const newest = queued ?? text;
+      queued = null;
       // The developer's change always wins, and so does another device's progress played after this device's:
       // reload the game with it, keeping this device's progress. Otherwise this device's, played just now, replaces it.
       // A developer's change is never a conflict, and a game that listens for it takes it in place.
       if (out.changed_by_kind === "developer" && listening.has("developerChange")) {
-        takeDeveloperChange(text);
+        takeDeveloperChange(newest);
       } else if (out.changed_by_kind === "developer" || !deviceIsNewer(out.saved_at)) {
-        const keeping = keepDevice(text);
-        keptBeforeReload = text;
+        const keeping = keepDevice(newest);
+        keptBeforeReload = newest;
         forceCloud = true;
         openThroughRestore();
         if (out.changed_by_kind !== "developer") conflicted("account", keeping);
@@ -444,14 +567,27 @@ export const SAVES_SCRIPT = pageScript("saves", `
       overLimit();
       return;
     } else if (res && res.status === 401) {
+      return awaitSignIn(false);
+    } else if (res && res.status === 404) {
+      // The game stopped saving to accounts (or isn't live): nothing more goes for this visit.
       paused = true;
+      queued = null;
       tell({ step: "pause" });
-      say("Sign in again to keep saving to your account.");
+      say("This game doesn't save to your account right now, so its progress stays on this device.");
       return;
     } else {
-      // Let the game send this save again on its next check.
+      // Offline, too often or Zaisma had a problem: send the newest save again later, waiting longer each time.
+      queued = queued ?? text;
+      retryDelayMs = Math.min(retryDelayMs ? retryDelayMs * 2 : 30000, 300000);
+      const retryAfterMs = res && res.status === 429 ? Number((res.headers && res.headers.get && res.headers.get("retry-after")) || 0) * 1000 : 0;
       say("Couldn't save to your account. Trying again soon.");
-      tell({ step: "sync", text: synced });
+      retryTimer = setTimeout(() => {
+        retryTimer = null;
+        const next = queued;
+        queued = null;
+        if (next !== null && opened === openCount) store(next);
+      }, Math.max(retryDelayMs, retryAfterMs || 0));
+      return;
     }
     if (queued !== null) { const next = queued; queued = null; store(next); }
   }
@@ -461,7 +597,7 @@ export const SAVES_SCRIPT = pageScript("saves", `
   // asked for, so this costs one small read.
   document.addEventListener("visibilitychange", async () => {
     if (guest || paused || saving || document.visibilityState !== "visible" || !cloud || cloud instanceof Promise) return;
-    const res = await fetch(SAVES.api + "?version", { credentials: "same-origin" }).catch(() => null);
+    const res = await ask(SAVES.api + "?version").catch(() => null);
     const out = res && res.ok ? await res.json().catch(() => null) : null;
     if (!out || out.version_number === cloud.version_number || paused || saving) return;
     if (out.changed_by_kind !== "developer" && deviceIsNewer(out.saved_at)) return;
@@ -478,6 +614,7 @@ export const SAVES_SCRIPT = pageScript("saves", `
   // text is this device's progress since its last save, kept as an earlier version (null: nothing to keep).
   async function takeDeveloperChange(text) {
     const opened = openCount;
+    queued = null;
     const keeping = keepDevice(text);
     const reload = () => {
       keptBeforeReload = text;
@@ -494,6 +631,7 @@ export const SAVES_SCRIPT = pageScript("saves", `
     const taking = applying;
     if (!taking) return;
     applying = null;
+    queued = null; // From the game before the change: the game sends its own after it.
     clearTimeout(taking.timer);
     if (!ok) return taking.reload();
     const c = taking.c;
@@ -531,7 +669,7 @@ export const SAVES_SCRIPT = pageScript("saves", `
     reply({ status: "asking" });
     if (guest || !signedIn()) return fail("account_needed", "Earlier versions are kept for players signed in to Zaisma: a guest's progress stays in this browser. Ask the player to sign in first (Zaisma.player.signIn).");
     if (m.request === "list_copies") {
-      const res = await fetch(SAVES.api + "/copies", { credentials: "same-origin" }).catch(() => null);
+      const res = await ask(SAVES.api + "/copies").catch(() => null);
       const out = res && res.ok ? await res.json().catch(() => null) : null;
       if (!out || !Array.isArray(out.save_copies)) return failed();
       return reply({ answer: out.save_copies.map(copyFields) });
@@ -540,7 +678,7 @@ export const SAVES_SCRIPT = pageScript("saves", `
     const copyPath = SAVES.api + "/copies/" + m.saveCopyId;
     const noCopy = () => fail("no_save_copy", "The player has no earlier version " + m.saveCopyId + " in this game: Zaisma.saves.listCopies() lists the ones kept.");
     if (m.request === "get_copy") {
-      const res = await fetch(copyPath, { credentials: "same-origin" }).catch(() => null);
+      const res = await ask(copyPath).catch(() => null);
       if (res && res.status === 404) return noCopy();
       const out = res && res.ok ? await res.json().catch(() => null) : null;
       if (!out || !out.save_copy) return failed();
@@ -552,7 +690,7 @@ export const SAVES_SCRIPT = pageScript("saves", `
     isRestoringCopy = true;
     queued = null;
     tell({ step: "pause" });
-    const res = await fetch(copyPath + "/restore", { method: "POST", credentials: "same-origin" }).catch(() => null);
+    const res = await ask(copyPath + "/restore", { method: "POST", body: JSON.stringify({ tag: cloud && !(cloud instanceof Promise) ? cloud.tag : null }) }).catch(() => null);
     isRestoringCopy = false;
     if (res && res.ok) {
       reply({ answer: null });
@@ -560,6 +698,11 @@ export const SAVES_SCRIPT = pageScript("saves", `
       forceCloud = true;
       openThroughRestore();
       return;
+    }
+    // Another account signed in on this browser: the game reopens as that account.
+    if (res && res.status === 409) {
+      awaitSignIn(true);
+      return failed();
     }
     paused = wasPaused;
     if (!wasPaused) tell({ step: "sync", text: synced });

@@ -52,11 +52,20 @@ interface SchemaEntry {
   is_without_rowid: number | null;
 }
 
-/** Where a part stops in a table: after a rowid, or, in a table without rowids, after that many rows. */
+/** One column of a table's key, as the last row read held it: its SQLite type, and the value as text (text as it is, a blob in hex, a number as SQL writes it). */
+interface KeyValue {
+  key_type: "integer" | "real" | "text" | "blob" | "null";
+  key_text: string | null;
+}
+
+/**
+ * Where a part stops in a table: after the last key it read, so a game writing between parts can't move it
+ * (a table with a primary key is read in key order, rowid last; one without, in rowid order).
+ */
 interface DumpPosition {
   table_name: string;
   last_rowid_number: number | null;
-  dumped_row_count: number;
+  last_key: KeyValue[] | null;
 }
 
 /** A name in double quotes, as SQLite takes any table or column name. */
@@ -88,8 +97,11 @@ export function dumpPart(read: DumpRead, cursor: string | null, partSizeBytes: n
   };
   let tableIndex = 0;
   let position: DumpPosition | null = null;
-  if (cursor === null) add(DUMP_START);
-  else {
+  if (cursor === null) {
+    add(DUMP_START);
+    // Every table is made before any row goes in, so a row can refer to a table made after it.
+    for (const table of tables) add(`${table.sql};\n`);
+  } else {
     position = readCursor(cursor);
     tableIndex = tables.findIndex((table) => table.name === position!.table_name);
     if (tableIndex === -1) throw new DumpCursorError(`The table ${position.table_name} isn't there any more.`);
@@ -97,27 +109,36 @@ export function dumpPart(read: DumpRead, cursor: string | null, partSizeBytes: n
 
   for (; tableIndex < tables.length; tableIndex++) {
     const table = tables[tableIndex]!;
-    if (!position) add(`${table.sql};\n`);
-    position ??= { table_name: table.name, last_rowid_number: table.is_without_rowid ? null : 0, dumped_row_count: 0 };
+    position ??= { table_name: table.name, last_rowid_number: null, last_key: null };
     const columns = select<{ name: string; is_insertable: number; primary_key_number: number }>("SELECT name, hidden = 0 AS is_insertable, pk AS primary_key_number FROM pragma_table_xinfo(?) ORDER BY cid", [table.name]);
     // Generated columns, and a virtual table's hidden ones, can't be inserted: the INSERTs name the rest.
     const insertedColumns = columns.filter((column) => column.is_insertable === 1);
-    const insertInto = `INSERT INTO ${quoteName(table.name)}${insertedColumns.length < columns.length ? `(${insertedColumns.map((column) => quoteName(column.name)).join(",")})` : ""} VALUES(`;
+    // A search table's rows are known by their rowids, so they go in with them.
+    const isVirtual = table.table_kind === "virtual";
+    const insertInto = `INSERT INTO ${quoteName(table.name)}${insertedColumns.length < columns.length || isVirtual ? `(${[...(isVirtual ? ["rowid"] : []), ...insertedColumns.map((column) => quoteName(column.name))].join(",")})` : ""} VALUES(`;
     // quote() writes each value as SQL, the way sqlite3's .dump does: 'text' with '' for a quote, X'…' for bytes.
     const valuesSql = insertedColumns.map((column, i) => `quote(${quoteName(column.name)}) AS value_${i}`).join(", ");
+    // A table with a declared primary key is read in its key order (rowid last, where it has one), so a row the game deletes or
+    // replaces on the other side of the cursor can't move it; a table without one, in rowid order.
     const primaryKey = columns.filter((column) => column.primary_key_number > 0).sort((first, second) => first.primary_key_number - second.primary_key_number);
+    const tableName = quoteName(table.name);
+    const keyExpressions = primaryKey.length ? [...primaryKey.map((column) => `${tableName}.${quoteName(column.name)}`), ...(table.is_without_rowid ? [] : [`${tableName}.rowid`])] : [];
     while (true) {
-      const rows =
-        position.last_rowid_number === null
-          ? select<DatabaseRow>(`SELECT ${valuesSql} FROM ${quoteName(table.name)} ORDER BY ${primaryKey.map((column) => quoteName(column.name)).join(", ")} LIMIT ${PAGE_ROW_COUNT} OFFSET ?`, [position.dumped_row_count])
-          : select<DatabaseRow>(`SELECT rowid AS paging_rowid, ${valuesSql} FROM ${quoteName(table.name)} WHERE rowid > ? ORDER BY rowid LIMIT ${PAGE_ROW_COUNT}`, [position.last_rowid_number]);
+      let rows: DatabaseRow[];
+      if (keyExpressions.length) {
+        const keySql = keyExpressions.map((expression, i) => `typeof(${expression}) AS key_type_${i}, CASE typeof(${expression}) WHEN 'text' THEN ${expression} WHEN 'blob' THEN hex(${expression}) WHEN 'null' THEN NULL ELSE quote(${expression}) END AS key_text_${i}`).join(", ");
+        const after = keyAfter(keyExpressions, position.last_key);
+        rows = select<DatabaseRow>(`SELECT ${keySql}${valuesSql ? `, ${valuesSql}` : ""} FROM ${tableName}${after.sql ? ` WHERE ${after.sql}` : ""} ORDER BY ${keyExpressions.join(", ")} LIMIT ${PAGE_ROW_COUNT}`, after.values);
+      } else {
+        rows = select<DatabaseRow>(`SELECT rowid AS paging_rowid${valuesSql ? `, ${valuesSql}` : ""} FROM ${tableName} WHERE rowid > ? ORDER BY rowid LIMIT ${PAGE_ROW_COUNT}`, [position.last_rowid_number ?? 0]);
+      }
       for (const row of rows) {
-        const insert = `${insertInto}${insertedColumns.map((_, i) => row[`value_${i}`]).join(",")});\n`;
+        const insert = `${insertInto}${[...(isVirtual ? [row.paging_rowid] : []), ...insertedColumns.map((_, i) => row[`value_${i}`])].join(",")});\n`;
         // The part ends before a row that would take it past partSizeBytes; the next starts with that row.
         if (hasRows && dumpSizeBytes + utf8SizeBytes(insert) > partSizeBytes) return { dumpSql, nextCursor: writeCursor(position), readRowCount };
         add(insert);
         hasRows = true;
-        if (position.last_rowid_number === null) position.dumped_row_count++;
+        if (keyExpressions.length) position.last_key = keyExpressions.map((_, i) => ({ key_type: row[`key_type_${i}`] as KeyValue["key_type"], key_text: row[`key_text_${i}`] as string | null }));
         else position.last_rowid_number = row.paging_rowid as number;
       }
       if (rows.length < PAGE_ROW_COUNT) break;
@@ -162,9 +183,33 @@ function readCursor(cursor: string): DumpPosition {
   } catch {
     throw new DumpCursorError("The cursor isn't one an export answered.");
   }
-  const { table_name: tableName, last_rowid_number: lastRowidNumber, dumped_row_count: dumpedRowCount } = (position ?? {}) as Partial<DumpPosition>;
-  if (typeof tableName !== "string" || !(lastRowidNumber === null || Number.isInteger(lastRowidNumber)) || !Number.isInteger(dumpedRowCount)) throw new DumpCursorError("The cursor isn't one an export answered.");
-  return { table_name: tableName, last_rowid_number: lastRowidNumber as number | null, dumped_row_count: dumpedRowCount as number };
+  const { table_name: tableName, last_rowid_number: lastRowidNumber, last_key: lastKey } = (position ?? {}) as Partial<DumpPosition>;
+  const isKey = (key: unknown) => {
+    const { key_type: keyType, key_text: keyText } = (key ?? {}) as Partial<KeyValue>;
+    return (keyType === "null" ? keyText === null : (keyType === "integer" || keyType === "real" || keyType === "text" || keyType === "blob") && typeof keyText === "string") && (keyType !== "integer" || /^-?\d+$/.test(keyText!)) && (keyType !== "real" || /^-?[0-9.]+(e[+-]?\d+)?$/i.test(keyText!)) && (keyType !== "blob" || /^([0-9A-Fa-f]{2})*$/.test(keyText!));
+  };
+  if (typeof tableName !== "string" || !(lastRowidNumber === null || Number.isInteger(lastRowidNumber)) || !(lastKey === null || (Array.isArray(lastKey) && lastKey.length > 0 && lastKey.length <= 64 && lastKey.every(isKey)))) throw new DumpCursorError("The cursor isn't one an export answered.");
+  return { table_name: tableName, last_rowid_number: lastRowidNumber as number | null, last_key: lastKey as KeyValue[] | null };
+}
+
+/**
+ * The WHERE for the rows after a key, for ORDER BY the key's columns: one OR per column, each holding the ones before it equal
+ * and itself greater (NULLs sort first). The key's values are bound, numbers as text SQLite casts back, so none loses digits.
+ */
+function keyAfter(keyExpressions: string[], lastKey: KeyValue[] | null): { sql: string; values: DatabaseValue[] } {
+  if (!lastKey) return { sql: "", values: [] };
+  if (lastKey.length !== keyExpressions.length) throw new DumpCursorError("The cursor isn't one an export answered.");
+  const values: DatabaseValue[] = [];
+  const operand = (key: KeyValue) => {
+    values.push(key.key_type === "blob" ? Uint8Array.from({ length: key.key_text!.length / 2 }, (_, byteIndex) => parseInt(key.key_text!.slice(byteIndex * 2, byteIndex * 2 + 2), 16)) : key.key_text);
+    return key.key_type === "integer" ? "CAST(? AS INTEGER)" : key.key_type === "real" ? "CAST(? AS REAL)" : "?";
+  };
+  const terms = keyExpressions.map((expression, i) => {
+    const conditions = keyExpressions.slice(0, i).map((earlier, earlierIndex) => (lastKey[earlierIndex]!.key_type === "null" ? `${earlier} IS NULL` : `${earlier} IS ${operand(lastKey[earlierIndex]!)}`));
+    conditions.push(lastKey[i]!.key_type === "null" ? `${expression} IS NOT NULL` : `${expression} > ${operand(lastKey[i]!)}`);
+    return `(${conditions.join(" AND ")})`;
+  });
+  return { sql: terms.join(" OR "), values };
 }
 
 /** A statement of a dump, ready to run: its SQL, the values for its ?s, and which statement of the part it came from (from 1). */
@@ -183,20 +228,102 @@ export interface ImportPlan {
 
 const IMPORT_FIX = "Import takes a dump's CREATE and INSERT statements, as sqlite3's .dump or export_database writes them; it only adds. Run other changes with query_database or batch_database.";
 
+/** The name a statement starts with after `CREATE TABLE [IF NOT EXISTS]` or `INSERT INTO`, however it's quoted. */
+function tableNameAfter(text: string, introduction: RegExp): string | null {
+  const match = new RegExp(`^${introduction.source}\\s*(?:"((?:[^"]|"")*)"|'((?:[^']|'')*)'|\`([^\`]*)\`|\\[([^\\]]*)\\]|(\\w+))`, "i").exec(text);
+  if (!match) return null;
+  const [, doubleQuoted, singleQuoted, backQuoted, bracketed, bare] = match;
+  return doubleQuoted?.replaceAll('""', '"') ?? singleQuoted?.replaceAll("''", "'") ?? backQuoted ?? bracketed ?? bare ?? null;
+}
+
+/** The shadow tables an FTS5 table makes for itself: sqlite3's .dump writes them as ordinary tables, and a search table makes them again. */
+const FTS5_SHADOW_SUFFIXES = ["data", "idx", "content", "docsize", "config"] as const;
+
+/** A search table sqlite3's .dump creates by writing to the schema table: its CREATE VIRTUAL TABLE, and the columns its rows go in by. */
+interface DumpedSearchTable {
+  name: string;
+  createSql: string;
+  columnNames: string[];
+}
+
+const SEARCH_TABLE_FIX = "Import takes a search table made with fts5. For others, import the database file instead: npx @zaisma/cli database import <slug> game.sqlite.";
+
+/** The columns of an fts5(…) table from its CREATE VIRTUAL TABLE: the arguments that aren't options (name=value). */
+function searchColumnNames(createSql: string): string[] {
+  const openIndex = createSql.indexOf("(", createSql.search(/fts5/i));
+  const closeIndex = createSql.lastIndexOf(")");
+  if (openIndex === -1 || closeIndex <= openIndex) return [];
+  const argumentTexts: string[] = [];
+  let current = "";
+  let openParenthesisCount = 0;
+  let quote: string | null = null;
+  for (const character of createSql.slice(openIndex + 1, closeIndex)) {
+    if (quote) {
+      current += character;
+      if (character === quote) quote = null;
+    } else if (character === "'" || character === '"' || character === "`") {
+      quote = character;
+      current += character;
+    } else if (character === "(") {
+      openParenthesisCount++;
+      current += character;
+    } else if (character === ")") {
+      openParenthesisCount--;
+      current += character;
+    } else if (character === "," && openParenthesisCount === 0) {
+      argumentTexts.push(current);
+      current = "";
+    } else current += character;
+  }
+  argumentTexts.push(current);
+  const names: string[] = [];
+  for (const argument of argumentTexts) {
+    const trimmed = argument.trim();
+    if (!trimmed || /^[\w.]+\s*=/.test(trimmed)) continue;
+    const first = /^(?:"((?:[^"]|"")*)"|'([^']*)'|`([^`]*)`|\[([^\]]*)\]|(\w+))/.exec(trimmed);
+    const name = first?.[1]?.replaceAll('""', '"') ?? first?.[2] ?? first?.[3] ?? first?.[4] ?? first?.[5];
+    if (name) names.push(name);
+  }
+  return names;
+}
+
 /**
  * Reads a part of a dump into the statements to run. Import only adds: it takes CREATE and INSERT
  * statements, and leaves out what sqlite3 writes around them (the transaction, PRAGMAs, ANALYZE and its
  * sqlite_stat1 rows). The values in an INSERT become values for ?s, since Zaisma's database takes
  * statements up to 100 KB and a row of a dump can be bigger; unistr('…'), which sqlite3 writes for text with
- * line breaks, becomes the text it stands for. AUTOINCREMENT's counters only ever go up.
+ * line breaks, becomes the text it stands for. AUTOINCREMENT's counters only ever go up. The tables are made
+ * first, so a row can refer to a table made after it. A search table in sqlite3's own dump (its
+ * `INSERT INTO sqlite_schema` under writable_schema, and its shadow tables) becomes its CREATE VIRTUAL TABLE, filled again
+ * from its _content rows with their rowids.
  */
 export function importStatements(dumpSql: string): ImportPlan {
   const statements: ImportStatement[] = [];
   const scanned = scanStatements(dumpSql);
   let skippedStatementCount = 0;
+  const textOf = (scannedStatement: (typeof scanned)[number]) => dumpSql.slice(scannedStatement.startIndex, scannedStatement.endIndex);
+  const refuseAt = (statementNumber: number, text: string, message: string, fix: string = IMPORT_FIX) => new DatabaseError("bad_sql", `Statement ${statementNumber} of the dump (${preview(text)}): ${message}`, fix);
+
+  // sqlite3's .dump creates a virtual table by writing its row in the schema table: those come first, so the shadow tables are known.
+  const searchTables = new Map<number, DumpedSearchTable>();
+  const shadowNames = new Map<string, DumpedSearchTable & { suffix: string }>();
+  scanned.forEach((scannedStatement, i) => {
+    const [firstWord = "", secondWord = "", thirdWord = ""] = scannedStatement.leadingWords;
+    if (!(firstWord === "INSERT" && secondWord === "INTO" && (thirdWord === "SQLITE_SCHEMA" || thirdWord === "SQLITE_MASTER"))) return;
+    const text = textOf(scannedStatement);
+    const match = /^INSERT\s+INTO\s+sqlite_(?:schema|master)\s*\([^)]*\)\s*VALUES\s*\(\s*'table'\s*,\s*'((?:[^']|'')*)'\s*,\s*'(?:[^']|'')*'\s*,\s*\d+\s*,\s*'((?:[^']|'')*)'\s*\)$/i.exec(text);
+    const createSql = match?.[2]?.replaceAll("''", "'");
+    if (!match || !createSql || !/^CREATE\s+VIRTUAL\s+TABLE\s/i.test(createSql)) throw refuseAt(i + 1, text, "it writes to the schema table, and only a virtual table's can be read from there.");
+    if (!/\bUSING\s+fts5\b/i.test(createSql)) throw refuseAt(i + 1, text, "this virtual table isn't an fts5 search table.", SEARCH_TABLE_FIX);
+    const name = match[1]!.replaceAll("''", "'");
+    const table = { name, createSql, columnNames: searchColumnNames(createSql) };
+    searchTables.set(i, table);
+    for (const suffix of FTS5_SHADOW_SUFFIXES) shadowNames.set(`${name}_${suffix}`.toLowerCase(), { ...table, suffix });
+  });
+
   scanned.forEach((scannedStatement, i) => {
     const statementNumber = i + 1;
-    const text = dumpSql.slice(scannedStatement.startIndex, scannedStatement.endIndex);
+    const text = textOf(scannedStatement);
     const [firstWord = "", secondWord = "", thirdWord = ""] = scannedStatement.leadingWords;
     const words = scannedStatement.leadingWords.join(" ");
     const isSkipped =
@@ -209,7 +336,28 @@ export function importStatements(dumpSql: string): ImportPlan {
       skippedStatementCount++;
       return;
     }
-    const refuse = (message: string) => new DatabaseError("bad_sql", `Statement ${statementNumber} of the dump (${preview(text)}): ${message}`, IMPORT_FIX);
+    const refuse = (message: string) => refuseAt(statementNumber, text, message);
+    if (firstWord === "INSERT" && secondWord === "INTO" && (thirdWord === "SQLITE_SCHEMA" || thirdWord === "SQLITE_MASTER")) {
+      statements.push({ sql: searchTables.get(i)!.createSql, values: [], statementNumber });
+      return;
+    }
+    if (shadowNames.size) {
+      const shadow = shadowNames.get(tableNameAfter(text, firstWord === "CREATE" ? /CREATE\s+TABLE(?:\s+IF\s+NOT\s+EXISTS)?/ : /INSERT\s+INTO/)?.toLowerCase() ?? "");
+      if (shadow && (firstWord === "CREATE" || firstWord === "INSERT")) {
+        if (firstWord === "CREATE" || shadow.suffix !== "content") {
+          skippedStatementCount++;
+          return;
+        }
+        // The rows of a search table are in its _content, by rowid; they go back in through the table itself.
+        const bound = bindLiterals(text, refuse);
+        const insertInto = `INSERT INTO ${quoteName(shadow.name)}(${["rowid", ...shadow.columnNames.map(quoteName)].join(",")}) VALUES(`;
+        const replaced = bound.sql.replace(/^INSERT\s+INTO\s+(?:"(?:[^"]|"")*"|\w+)\s+VALUES\s*\(/i, insertInto);
+        if (replaced === bound.sql) throw refuse("a search table's content rows are INSERT INTO \"name_content\" VALUES(…).");
+        if (bound.values.length > DATABASE_LIMITS.maximumValueCount) throw new DatabaseError("bad_values", `Statement ${statementNumber} of the dump (${preview(text)}) has ${bound.values.length} text and blob values.`, `Give each row its own INSERT, as sqlite3's .dump does: the database takes up to ${DATABASE_LIMITS.maximumValueCount} values a statement.`);
+        statements.push({ sql: replaced, values: bound.values, statementNumber });
+        return;
+      }
+    }
     if (firstWord === "CREATE") {
       statements.push({ sql: text, values: [], statementNumber });
       return;
@@ -231,7 +379,9 @@ export function importStatements(dumpSql: string): ImportPlan {
     if (bound.values.length > DATABASE_LIMITS.maximumValueCount) throw new DatabaseError("bad_values", `Statement ${statementNumber} of the dump (${preview(text)}) has ${bound.values.length} text and blob values.`, `Give each row its own INSERT, as sqlite3's .dump does: the database takes up to ${DATABASE_LIMITS.maximumValueCount} values a statement.`);
     statements.push({ sql: bound.sql, values: bound.values, statementNumber });
   });
-  return { statements, statementCount: scanned.length, skippedStatementCount };
+  // Tables first, in the order given, then the rest in theirs: a row may refer to a table made after it.
+  const isTable = (statement: ImportStatement) => /^CREATE\s+(?:VIRTUAL\s+)?TABLE\s/i.test(statement.sql);
+  return { statements: [...statements.filter(isTable), ...statements.filter((statement) => !isTable(statement))], statementCount: scanned.length, skippedStatementCount };
 }
 
 /** The start of a statement, for an error. */

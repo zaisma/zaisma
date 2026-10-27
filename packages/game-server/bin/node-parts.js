@@ -96,7 +96,8 @@ export function localDatabase(file) {
         statement.setReadBigInts(true);
         for (const row of statement.iterate(...values)) {
           if (rows.length >= DATABASE_LIMITS.maximumRowCount) throw tooManyRows();
-          rows.push(checkedRow(numbersFrom(row)));
+          // node:sqlite gives an INTEGER as a BigInt and a REAL as a number: a REAL as big as 1e20 is no whole number to refuse.
+          rows.push(checkedRow(numbersFrom(row), new Set(Object.entries(row).filter(([, columnValue]) => typeof columnValue === "number").map(([column]) => column))));
         }
         return rows;
       });

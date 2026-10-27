@@ -210,7 +210,7 @@ import server from "./${entry}";
 
 const ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
 const newRoomCode = () => Array.from(crypto.getRandomValues(new Uint8Array(6)), (byte) => ALPHABET[byte & 31]).join("");
-const HOOKS = ["onJoin", "onLeave", "onSpectatorJoin", "onSpectatorLeave", "onMessage", "onBytes", "onTick", "onMoved", "onAway", "onBack", "onEnding", "onRestored", "onVersionUpdate", "onPurchase", "onRefund"];
+const HOOKS = ["onJoin", "onLeave", "onSpectatorJoin", "onSpectatorLeave", "onMessage", "onBytes", "onTick", "onMoved", "onAway", "onBack", "onEnding", "onEndingCancelled", "onRestored", "onVersionUpdate", "onPurchase", "onRefund"];
 // A call hands back up to this many of the errors its handlers threw (errorCount says how many there were).
 const ERROR_COUNT = 20;
 const HANDLERS = ["setup", "canJoin", "onChat", "onRequest", "onSchedule", "onWebhook", "stateView", ...HOOKS];
@@ -502,9 +502,9 @@ class Session extends RpcTarget {
     const room = recorder(snapshot, effects, this.#database, this.#secrets, this.#verifyReceipt, this.#countReserve);
     // Every handler is (state, who or what it's about, room, then what else it hears): onJoin(state, player, room, joinData, joinInfo),
     // onMessage(state, player, room, message), onAway(state, player, room, awayInfo), onTick(state, tickDurationSec, room), and so on;
-    // onEnding has only (state, room).
+    // onEnding and onEndingCancelled have only (state, room).
     const state = this.#state;
-    const full = hook === "onEnding" ? [state, room] : [state, handlerArguments[0], room, ...handlerArguments.slice(1)];
+    const full = hook === "onEnding" || hook === "onEndingCancelled" ? [state, room] : [state, handlerArguments[0], room, ...handlerArguments.slice(1)];
     try {
       const next = await server[hook](...full);
       if (next === undefined) return null;
@@ -1136,6 +1136,7 @@ export async function wrapSession(open: (secrets: Record<string, string>) => Pro
     ...(handlerNames.has("onAway") ? { onAway: (state: unknown, player: Player, room: Room, awayInfo: AwayInfo) => call("onAway", state, [player, awayInfo], room) } : {}),
     ...(handlerNames.has("onBack") ? { onBack: (state: unknown, player: Player, room: Room) => call("onBack", state, [player], room) } : {}),
     ...(handlerNames.has("onEnding") ? { onEnding: (state: unknown, room: Room) => call("onEnding", state, [], room) } : {}),
+    ...(handlerNames.has("onEndingCancelled") ? { onEndingCancelled: (state: unknown, room: Room) => call("onEndingCancelled", state, [], room) } : {}),
     // Only for game servers that take purchases: a room without onPurchase never takes one.
     ...(handlerNames.has("onPurchase") ? { onPurchase: (state: unknown, player: Player, room: Room, purchase: Purchase) => call("onPurchase", state, [player, purchase], room) } : {}),
     ...(handlerNames.has("onRefund") ? { onRefund: (state: unknown, player: Player, room: Room, purchase: Purchase) => call("onRefund", state, [player, purchase], room) } : {}),
