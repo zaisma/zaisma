@@ -1219,7 +1219,7 @@ export const TOOLS: Tool[] = [
     name: "list_api_keys",
     title: "Your API keys",
     description:
-      "Your keys and connected apps (AI apps connected by signing in, like claude.ai), each with its kind: what it can do, when it ends, when it was last used and from where, and whether Zaisma turned it off because it was found in public (with where). Needs a full key for all your games. Keys are made and removed only on zaisma.com/account.",
+      "Your keys and connected apps (AI apps connected by signing in, like claude.ai), each with its kind: what it can do, when it ends, when it was last used and from where, and whether Zaisma turned it off because it was found in public (with where). Needs a full key for all your games. Keys are made and removed only on Developer settings (zaisma.com/dashboard/settings, under Keys).",
     inputSchema: object({}),
     outputSchema: API_KEYS,
     annotations: read,
@@ -1543,7 +1543,7 @@ export const TOOLS: Tool[] = [
     name: "list_kept_rooms",
     title: "List a game's kept rooms",
     description:
-      "A game's kept rooms: rooms its game server kept with room.setKept(true), like a survival world or a persistent server, which sleep with their world saved when everyone leaves and wake when someone joins. Each with its code, name, saved size and when it was last saved and played, most recently played first; and the game's storage, its database and kept rooms together, against the free 500 MB and the 10 GB a game can keep (`maximum_storage_size_bytes`). Listed kept rooms show on the game page's Rooms tab even with nobody in them.",
+      "A game's kept rooms: rooms its game server kept with room.setKept(true), like a survival world or a persistent server, which sleep with their world saved when everyone leaves and wake when someone joins. Each with its code, name, saved size and when it was last saved and played, most recently played first; and the game's storage, its database and kept rooms together, against the 10 GB a game can keep (`maximum_storage_size_bytes`); below that, storage counts on the game's hosting meter (get_stats, hosting_use_this_month). Listed kept rooms show on the game page's Rooms tab even with nobody in them.",
     inputSchema: object({ slug }, ["slug"]),
     outputSchema: KEPT_ROOMS,
     annotations: read,

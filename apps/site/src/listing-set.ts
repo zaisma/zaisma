@@ -10,7 +10,7 @@ import { judgeListing, listingOutcomes, type ListingBrief, type ListingJudge, ty
 
 const MEDIA_TYPES: Record<string, ListingPicture["mediaType"]> = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp" };
 /** What an item can come out as: fine, a person looks, or the code of the line it broke. */
-const LISTING_CODES = ["extra_text_on_cover", "overlay_on_cover", "famous_name", "cover_not_from_game", "tag_in_title", "fake_reward", "screenshot_not_from_game", "text_on_background"] as const;
+const LISTING_CODES = ["extra_text_on_cover", "overlay_on_cover", "famous_name", "cover_not_from_game", "tag_in_title", "fake_reward", "screenshot_not_from_game", "text_on_background", "overlay_on_background", "famous_name_on_background"] as const;
 export type ListingItemOutcome = "fine" | "person" | (typeof LISTING_CODES)[number];
 
 /** One case: its case.json and its pictures. The title is the item "title"; each picture is its path. */

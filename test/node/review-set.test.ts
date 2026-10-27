@@ -129,8 +129,8 @@ describe("the listing check's cases", () => {
 
   it("cover every listing line with a slop case, and honest ones at the edges", () => {
     const expectedCodes = new Set(listingCases.flatMap((listingCase) => Object.values(listingCase.file.expected as Record<string, string>)));
-    // A famous name is covered by a title case: covers with real characters aren't ours to draw.
-    for (const code of LISTING_ITEM_CODES) expect(expectedCodes.has(code), `a slop case for ${code}`).toBe(true);
+    // A famous name is covered by a title case: covers and backgrounds with real characters aren't ours to draw.
+    for (const code of LISTING_ITEM_CODES.filter((code) => code !== "famous_name_on_background")) expect(expectedCodes.has(code), `a slop case for ${code}`).toBe(true);
     expect(listingCases.filter((listingCase) => listingCase.file.is_honest === true).length).toBeGreaterThanOrEqual(5);
   });
 
