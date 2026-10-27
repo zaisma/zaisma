@@ -1062,7 +1062,7 @@ describe("pages", () => {
     for (const rule of Object.keys(CONTENT_RULES)) {
       // Each rule is a fold row anchored by its name: its test in the head, Fine and Not fine under it.
       const item = page.match(new RegExp(`<details class="fold-row" id="${rule}">([\\s\\S]*?)</details>`))?.[1] ?? "";
-      expect(item, rule).toContain(CONTENT_RULE_DETAILS[rule as keyof typeof CONTENT_RULE_DETAILS].test.replace(/"/g, "&quot;").slice(0, 30));
+      expect(item, rule).toContain(CONTENT_RULE_DETAILS[rule as keyof typeof CONTENT_RULE_DETAILS].test.slice(0, 30).replace(/"/g, "&quot;").replace(/'/g, "&#39;"));
       expect(item, rule).toContain("<dt>Fine</dt>");
       expect(item, rule).toContain("<dt>Not fine</dt>");
     }
