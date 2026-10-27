@@ -177,6 +177,13 @@ const PLAYERS_SHEET_SCRIPT = pageScript("players-sheet", String.raw`(() => {
   const sentTo = new Set();
   addEventListener("zaisma:friend-requests-waiting", (e) => { requests = e.detail && Array.isArray(e.detail.requests) ? e.detail.requests : []; if (sheet.open) render(); });
   addEventListener("zaisma:friend-request-sent", (e) => { if (e.detail) sentTo.add(e.detail.id); });
+  // Friends now (an accept either way): the row says Friend, and the menu has nothing to add.
+  addEventListener("zaisma:friend-added", (e) => {
+    if (!e.detail) return;
+    sentTo.delete(e.detail.id);
+    const known = accounts.get(e.detail.id);
+    if (known && !known.isFriend) { known.isFriend = true; if (sheet.open) render(); }
+  });
   function renderRequests() {
     const list = $("players-requests-list");
     list.textContent = "";
@@ -296,12 +303,18 @@ const PLAYERS_SHEET_SCRIPT = pageScript("players-sheet", String.raw`(() => {
     sent.hidden = true;
     signIn.hidden = !(other.kind === "account" && !isSignedIn() && CAN_SIGN_IN);
     if (!known || known.isFriend || isBlocked || !isSignedIn()) return;
-    if (sentTo.has(other.id)) { sent.hidden = false; return; }
+    // Sent from here: say so at once, then ask Zaisma, which knows when it was accepted since.
+    sent.hidden = !sentTo.has(other.id);
     const asking = other.id;
     fetch("/friends/requests/about/" + other.id)
       .then((res) => (res.ok ? res.json() : null))
       .then((about) => {
         if (!about || !chosen || chosen.id !== asking) return;
+        if (about.is_friend) {
+          sentTo.delete(asking);
+          known.isFriend = true;
+          render();
+        }
         add.hidden = !about.can_send;
         sent.hidden = !about.has_sent;
       })

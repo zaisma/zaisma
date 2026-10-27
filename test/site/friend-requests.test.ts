@@ -162,6 +162,7 @@ describe("sending and answering", () => {
     const game = (await gameBySlug(env.DB, "hollow-reach"))!;
     expect(await sendFriendRequest(env.DB, await account("alex"), await playerIdOf("mia"), game.id)).toEqual({ status: "sent", is_paused_now: false });
     expect(await friendRequestRefusalFor(env.DB, await account("alex"), await playerIdOf("mia"))).toBe("already_sent");
+    expect((await call("alex", "/friends/requests")).answer).toEqual({ requests: [], accepted: [] });
     // Hollow Reach isn't out yet, so Mia sees no game with it.
     expect(await waitingFriendRequestsTo(env.DB, "mia")).toEqual([{ player_id: await playerIdOf("alex"), name: "Alex_Ray", created_at_ms: expect.any(Number), game_slug: null }]);
     const accepted = await call("mia", `/friends/requests/${await playerIdOf("alex")}/accept`, { body: {} });
@@ -169,6 +170,13 @@ describe("sending and answering", () => {
     expect(await areFriends(env.DB, "alex", "mia")).toBe(true);
     expect(await areFriends(env.DB, "mia", "alex")).toBe(true);
     expect(await waitingFriendRequestsTo(env.DB, "mia")).toEqual([]);
+    // Alex hears of the accept: on the game page's check-in, and in the list its card reads.
+    expect((await call("alex", "/api/presence", { body: { game_slug: "hollow-reach" } })).answer).toEqual({ waiting_friend_request_count: 0, accepted_friend_request_count: 1 });
+    expect((await call("alex", "/friends/requests")).answer).toEqual({ requests: [], accepted: [{ player_id: await playerIdOf("mia"), name: "Mia_Stone", answered_at_ms: expect.any(Number) }] });
+    expect((await call("alex", `/friends/requests/about/${await playerIdOf("mia")}`)).answer).toMatchObject({ can_send: false, has_sent: false, is_friend: true });
+    // A day on, the news is old.
+    await env.DB.prepare("UPDATE friend_requests SET answered_at_ms = ?").bind(Date.now() - DAY_MS - 1000).run();
+    expect((await call("alex", "/friends/requests")).answer.accepted).toEqual([]);
     // Answering twice finds nothing.
     expect((await call("mia", `/friends/requests/${await playerIdOf("alex")}/accept`, { body: {} })).status).toBe(404);
   });
@@ -178,6 +186,8 @@ describe("sending and answering", () => {
     expect(await sendFriendRequest(env.DB, await account("mia"), await playerIdOf("alex"), null)).toEqual({ status: "friends" });
     expect(await areFriends(env.DB, "alex", "mia")).toBe(true);
     expect(await waitingFriendRequestsTo(env.DB, "alex")).toEqual([]);
+    // Alex sent first, so Alex hears of it like an accept.
+    expect((await call("alex", "/friends/requests")).answer.accepted).toEqual([{ player_id: await playerIdOf("mia"), name: "Mia_Stone", answered_at_ms: expect.any(Number) }]);
   });
 
   it("never tells the sender of a turn-down, and waits 30 days before they can ask again", async () => {
@@ -185,8 +195,9 @@ describe("sending and answering", () => {
     const mia = await playerIdOf("mia");
     await sendFriendRequest(env.DB, alex, mia, null);
     expect((await call("mia", `/friends/requests/${await playerIdOf("alex")}/turn-down`, { body: {} })).answer).toEqual({ answer: "turned_down" });
-    // To Alex it still looks waiting.
+    // To Alex it still looks waiting, and no news ever comes of it.
     expect(await friendRequestRefusalFor(env.DB, alex, mia)).toBe("already_sent");
+    expect((await call("alex", "/friends/requests")).answer.accepted).toEqual([]);
     expect((await call("alex", `/friends/requests/about/${mia}`)).answer).toEqual({ player: { player_id: mia, name: "Mia_Stone" }, can_send: false, has_sent: true, is_friend: false });
     // Run out: Add friend stays away for the rest of the 30 days.
     await env.DB.prepare("UPDATE friend_requests SET created_at_ms = ?, expires_at_ms = ?").bind(Date.now() - 8 * DAY_MS, Date.now() - DAY_MS).run();
@@ -240,7 +251,7 @@ describe("sending and answering", () => {
     expect(sent).toMatchObject({ status: 200, answer: { status: "sent" } });
     expect((await call("noah", `/friends/requests/about/${lena}`)).answer).toMatchObject({ can_send: false, has_sent: true });
     // Lena never sees it.
-    expect((await call("lena", "/friends/requests")).answer).toEqual({ requests: [] });
+    expect((await call("lena", "/friends/requests")).answer).toEqual({ requests: [], accepted: [] });
     expect((await account("noah")).friend_requests_paused_until_ms).toBeGreaterThan(nowMs + 6 * DAY_MS);
     // A person looks: the reports queue has Noah, from Zaisma.
     expect(await env.DB.prepare("SELECT reporter_account_id, reason FROM profile_reports WHERE account_id = 'noah'").first()).toEqual({ reporter_account_id: "zaisma", reason: "friend_request_pattern" });
@@ -273,9 +284,9 @@ describe("the game page's calls", () => {
   it("brings the count on a game page's check-in, and the list to the card, Players and /friends", async () => {
     await env.DB.prepare("UPDATE games SET review_status = 'live', visibility = 'listed', live_version_id = 'version_live' WHERE slug = 'hollow-reach'").run();
     await call("alex", "/friends/requests", { body: { player_id: await playerIdOf("mia"), game_slug: "hollow-reach" } });
-    expect((await call("mia", "/api/presence", { body: { game_slug: "hollow-reach" } })).answer).toEqual({ waiting_friend_request_count: 1 });
+    expect((await call("mia", "/api/presence", { body: { game_slug: "hollow-reach" } })).answer).toEqual({ waiting_friend_request_count: 1, accepted_friend_request_count: 0 });
     expect((await call("mia", "/api/presence", { body: {} })).status).toBe(204);
-    expect((await call("mia", "/friends/requests")).answer).toEqual({ requests: [{ player_id: await playerIdOf("alex"), name: "Alex_Ray", created_at_ms: expect.any(Number), game_slug: "hollow-reach" }] });
+    expect((await call("mia", "/friends/requests")).answer).toEqual({ requests: [{ player_id: await playerIdOf("alex"), name: "Alex_Ray", created_at_ms: expect.any(Number), game_slug: "hollow-reach" }], accepted: [] });
     const friendsPage = (await call("mia", "/friends")).answer as string;
     expect(friendsPage).toContain("Friend requests (1)");
     expect(friendsPage).toContain(`action="/friends/requests/${await playerIdOf("alex")}/accept"`);
@@ -292,6 +303,7 @@ describe("the game page's calls", () => {
     const page = (await call("alex", "/g/hollow-reach")).answer as string;
     expect(page).toContain('id="friend-request"');
     expect(page).toContain('id="friend-request-card"');
+    expect(page).toContain('id="friend-accepted-card"');
     expect(page).toContain('id="players-player-friend"');
     expect(pageDataOf(page, "friend-request-data")).toMatchObject({ slug: "hollow-reach" });
   });

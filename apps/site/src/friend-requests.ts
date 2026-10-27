@@ -1,4 +1,4 @@
-import { accountById, answerFriendRequest, friendRequestRefusalFor, gameBySlug, sendFriendRequest, waitingFriendRequestsTo, type WaitingFriendRequest } from "@zaisma/core";
+import { acceptedFriendRequestsFrom, accountById, answerFriendRequest, friendRequestRefusalFor, gameBySlug, sendFriendRequest, waitingFriendRequestsTo, type WaitingFriendRequest } from "@zaisma/core";
 import { authConfigured, currentSession } from "./auth.ts";
 import { sendAlert } from "./email.ts";
 import type { Env } from "./env.ts";
@@ -18,7 +18,8 @@ import { profilePath } from "./profiles.ts";
  * (Zaisma.friends.sendRequest); the player sends it here, on a Zaisma page, with the name Zaisma knows the other
  * player by. The sender never hears of a turn-down: their request looks waiting until it would have run out.
  *
- *   GET  /friends/requests                        { requests }: the ones waiting for the signed-in player, newest first
+ *   GET  /friends/requests                        { requests, accepted }: the ones waiting for the signed-in player, newest first,
+ *                                                 and the ones they sent that were accepted in the last day
  *   GET  /friends/requests/about/:player_id       { player, can_send, has_sent }: what the sheet and Add friend show
  *   POST /friends/requests                        { player_id, game_slug }: send one; { status: "sent" | "friends" }
  *   POST /friends/requests/:player_id/accept      accept (JSON from the game page, a form from /friends)
@@ -60,7 +61,10 @@ export async function handleFriendRequests(request: Request, env: Env, path: str
     return done(answer({ player: other ? { player_id: playerId, name: other.username } : null, can_send: refusal === null, has_sent: refusal === "already_sent", is_friend: refusal === "already_friends" }));
   }
 
-  if (!post) return done(answer({ requests: account.social_stopped_at_ms ? [] : await waitingFriendRequestsTo(env.DB, account.id) }));
+  if (!post) {
+    if (account.social_stopped_at_ms) return done(answer({ requests: [], accepted: [] }));
+    return done(answer({ requests: await waitingFriendRequestsTo(env.DB, account.id), accepted: await acceptedFriendRequestsFrom(env.DB, account.id) }));
+  }
 
   const text = await request.text();
   if (text.length > 512) return done(answer({ error: { code: "too_big", message: "A friend request is a player_id and a game_slug." } }, 413));
@@ -148,6 +152,8 @@ export function friendRequestParts(options: { gameOrigin: string; slug: string }
       ],
     }),
   });
+  // The sender's news once one is accepted: one line, gone by itself.
+  const acceptedCard = playingCard({ id: "friend-accepted-card", body: stack({ items: [{ kind: "words", markup: html`<p>You and <strong id="friend-accepted-name"></strong> are friends now.</p>` }] }) });
   return html`${sheet({
     id: "friend-request",
     title: "Send a friend request?",
@@ -157,12 +163,15 @@ export function friendRequestParts(options: { gameOrigin: string; slug: string }
     buttons: [cutButton("Cancel", { type: "submit", formMethod: "dialog" }), runButton("Send request", { type: "button", id: "friend-request-yes" })],
   })}
 ${card}
+${acceptedCard}
 ${pageData("friend-request-data", { gameOrigin: options.gameOrigin, slug: options.slug })}
 ${scriptTags(FRIEND_REQUEST_SCRIPT)}`;
 }
 
 /** How long the card stays when nobody touches it, before the request waits in Players and on /friends. */
 const CARD_SHOWN_MS = 8000;
+/** How long "You and Mia are friends now." stays. */
+const NEWS_SHOWN_MS = 5000;
 
 // The game page's friend requests: a game (or Players) asks, the sheet asks the player, and requests for this player come as a card.
 const FRIEND_REQUEST_SCRIPT = pageScript("friend-requests", String.raw`(() => {
@@ -229,6 +238,13 @@ const FRIEND_REQUEST_SCRIPT = pageScript("friend-requests", String.raw`(() => {
     const res = await post("/friends/requests", { player_id: asking.id, game_slug: SLUG });
     yes.removeAttribute("aria-busy");
     const answer = res ? await res.json().catch(() => null) : null;
+    // One back to someone whose request waited: friends at once, and they hear of it like an accept.
+    if (res && res.ok && answer && answer.status === "friends") {
+      dispatchEvent(new CustomEvent("zaisma:friend-added", { detail: { id: asking.id } }));
+      tell({ type: "zaisma:friend-request", playerId: asking.id, status: "accepted" });
+      waiting = waiting.filter((each) => each.player_id !== asking.id);
+      dispatchEvent(new CustomEvent("zaisma:friend-requests-waiting", { detail: { requests: waiting } }));
+    }
     if (res && res.ok) return finish("sent");
     const code = answer && answer.error ? answer.error.code : "";
     if (code === "already_friends") return finish("already_friends");
@@ -271,9 +287,31 @@ const FRIEND_REQUEST_SCRIPT = pageScript("friend-requests", String.raw`(() => {
     if (!answer || !Array.isArray(answer.requests)) return;
     waiting = answer.requests;
     dispatchEvent(new CustomEvent("zaisma:friend-requests-waiting", { detail: { requests: waiting } }));
+    // Requests this player sent that were accepted: Players marks them Friend, and the news shows once a tab.
+    const seen = shown();
+    (Array.isArray(answer.accepted) ? answer.accepted : []).forEach((each) => {
+      dispatchEvent(new CustomEvent("zaisma:friend-added", { detail: { id: each.player_id } }));
+      const key = "accepted:" + each.player_id + ":" + each.answered_at_ms;
+      if (seen.has(key)) return;
+      seen.add(key);
+      news.push(each.name);
+    });
+    keepShown(seen);
     showNext();
   }
+  // Names whose accept this player hasn't seen yet, shown one at a time.
+  const news = [];
+  const newsCard = $("friend-accepted-card");
+  let newsTimer = null;
+  function showNews() {
+    if (!newsCard || !news.length || !newsCard.hidden || !isPlaying()) return;
+    $("friend-accepted-name").textContent = news.shift();
+    newsCard.hidden = false;
+    clearTimeout(newsTimer);
+    newsTimer = setTimeout(() => { newsCard.hidden = true; setTimeout(showNews, 600); }, ${NEWS_SHOWN_MS});
+  }
   function showNext() {
+    showNews();
     if (showing || !isPlaying()) return;
     const seen = shown();
     const next = waiting.find((each) => !seen.has(each.player_id + ":" + each.created_at_ms));
@@ -299,6 +337,12 @@ const FRIEND_REQUEST_SCRIPT = pageScript("friend-requests", String.raw`(() => {
     const res = await post("/friends/requests/" + playerId + "/" + verb);
     waiting = waiting.filter((each) => each.player_id !== playerId);
     dispatchEvent(new CustomEvent("zaisma:friend-requests-waiting", { detail: { requests: waiting } }));
+    const isAccepted = Boolean(res && res.ok) && verb === "accept";
+    // Friends now: Players marks them, and the rooms they share tell the sender's game to have their page look.
+    if (isAccepted) {
+      dispatchEvent(new CustomEvent("zaisma:friend-added", { detail: { id: playerId } }));
+      tell({ type: "zaisma:friend-request", playerId, status: "accepted" });
+    }
     return Boolean(res && res.ok);
   }
   $("friend-request-accept").addEventListener("click", async () => {
@@ -314,11 +358,11 @@ const FRIEND_REQUEST_SCRIPT = pageScript("friend-requests", String.raw`(() => {
     if (showing && showing.player_id === e.detail.id) hideCard();
     answerRequest(e.detail.id, e.detail.verb);
   });
-  // The presence check-in says how many wait; a different count means something new to look at.
-  let lastCount = -1;
+  // The presence check-in says how many wait and how many of this player's were accepted; a change means something new to look at.
+  let lastCounts = "";
   addEventListener("zaisma:presence", (e) => {
-    const count = e.detail && typeof e.detail.waiting_friend_request_count === "number" ? e.detail.waiting_friend_request_count : 0;
-    if (count !== lastCount) { lastCount = count; if (count || waiting.length) look(); }
+    const counts = e.detail ? [e.detail.waiting_friend_request_count, e.detail.accepted_friend_request_count].map((count) => (typeof count === "number" ? count : 0)) : [0, 0];
+    if (counts.join() !== lastCounts) { lastCounts = counts.join(); if (counts[0] || counts[1] || waiting.length) look(); }
   });
   // Once the game is running.
   new MutationObserver(() => { if (isPlaying()) { showNext(); if (!hasLooked) look(); } }).observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });

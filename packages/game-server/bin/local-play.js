@@ -632,6 +632,7 @@ export async function startLocalPlay(givenOptions) {
       state.accounts = state.accounts.filter((each) => each.id !== account.id);
       state.friends = state.friends.filter((pair) => !pair.includes(account.id));
       state.friendRequests = (state.friendRequests ?? []).filter((each) => each.from !== account.id && each.to !== account.id);
+      state.acceptedFriendRequests = (state.acceptedFriendRequests ?? []).filter((each) => each.from !== account.id && each.to !== account.id);
       state.blocks = state.blocks.filter((block) => block.blocker !== account.id && block.blocked !== account.id);
       state.purchases = state.purchases.filter((purchase) => purchase.accountId !== account.id);
       delete state.ownedItems[account.id];
@@ -962,13 +963,19 @@ export async function startLocalPlay(givenOptions) {
       const isFriend = (other) => friendIdsOf(account.id).includes(other.id);
       const waitingFrom = (from, to) => requests.find((each) => each.from === from && each.to === to);
       const makeFriends = (other) => {
+        // The sender hears of the accept on their next look, for a day, as on Zaisma.
+        (state.acceptedFriendRequests ??= []).push({ from: other.id, to: account.id, answeredAtMs: Date.now() });
         state.friendRequests = requests.filter((each) => !isPair([each.from, each.to], account.id, other.id));
         if (!isFriend(other)) state.friends.push([account.id, other.id]);
         saveState();
         log(`${account.username} and ${other.username} are friends now.`);
       };
       if (request.method === "GET" && path === "/friends/requests") {
-        return reply(200, { requests: requests.filter((each) => each.to === account.id).map((each) => ({ from: accountOf(each.from), createdAtMs: each.createdAtMs })).filter((each) => each.from).map((each) => ({ player_id: each.from.playerId, name: each.from.username, created_at_ms: each.createdAtMs, game_slug: gameSlug })).reverse() });
+        const accepted = (state.acceptedFriendRequests ?? []).filter((each) => each.from === account.id && each.answeredAtMs > Date.now() - 86400000 && isFriend({ id: each.to })).map((each) => ({ to: accountOf(each.to), answeredAtMs: each.answeredAtMs })).filter((each) => each.to);
+        return reply(200, {
+          requests: requests.filter((each) => each.to === account.id).map((each) => ({ from: accountOf(each.from), createdAtMs: each.createdAtMs })).filter((each) => each.from).map((each) => ({ player_id: each.from.playerId, name: each.from.username, created_at_ms: each.createdAtMs, game_slug: gameSlug })).reverse(),
+          accepted: accepted.map((each) => ({ player_id: each.to.playerId, name: each.to.username, answered_at_ms: each.answeredAtMs })).reverse(),
+        });
       }
       const aboutMatch = /^\/friends\/requests\/about\/(player_[a-z0-9]{1,40})$/.exec(path);
       if (request.method === "GET" && aboutMatch) {

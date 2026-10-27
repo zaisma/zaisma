@@ -744,6 +744,9 @@ describe("the SDK's types say what the SDK does", () => {
     // One sent from the page's own Players reaches the room too.
     sdk.page.say({ type: "zaisma:friend-request", playerId: "player_bo", status: "sent" });
     expect(socket.sent.length).toBe(before + 1);
+    // An accept on the page reaches the room the same way, so the sender hears of it.
+    sdk.page.say({ type: "zaisma:friend-request", playerId: "player_bo", status: "accepted" });
+    expect(sent().at(-1)).toEqual({ type: "friend_request", playerId: "player_bo" });
     // A request waiting for this player: the room says only "look", and the page is told.
     say(socket, { type: "friend_request" });
     expect(sdk.page.posted.at(-1)).toEqual({ type: "zaisma:friend-requests" });

@@ -207,6 +207,39 @@ export async function waitingFriendRequestsTo(database: D1Database, accountId: s
   return results;
 }
 
+/** A request this account sent that was accepted lately: the sender hears of an accept, never of a turn-down. */
+export interface AcceptedFriendRequest {
+  player_id: string;
+  name: string;
+  answered_at_ms: number;
+}
+
+/** How long after an accept its sender's game pages still bring the news. */
+const ACCEPTED_SHOWN_MS = DAY_MS;
+
+/** The account's requests accepted in the last day, newest first, while they're still friends. */
+export async function acceptedFriendRequestsFrom(database: D1Database, accountId: string, nowMs = Date.now()): Promise<AcceptedFriendRequest[]> {
+  const { results } = await database
+    .prepare(
+      `SELECT accounts.player_id, accounts.username AS name, friend_requests.answered_at_ms FROM friend_requests
+       JOIN accounts ON accounts.id = friend_requests.recipient_account_id
+       JOIN friendships ON friendships.account_id = friend_requests.sender_account_id AND friendships.friend_account_id = friend_requests.recipient_account_id
+       WHERE friend_requests.sender_account_id = ? AND friend_requests.answer = 'accepted' AND friend_requests.answered_at_ms > ?
+       ORDER BY friend_requests.answered_at_ms DESC LIMIT 20`,
+    )
+    .bind(accountId, nowMs - ACCEPTED_SHOWN_MS)
+    .all<AcceptedFriendRequest>();
+  return results;
+}
+
+/** How many requests wait for an account, and how many it sent were accepted in the last day, for the game page's check-in. */
+export async function friendRequestCountsOf(database: D1Database, accountId: string, nowMs = Date.now()): Promise<{ waiting_friend_request_count: number; accepted_friend_request_count: number }> {
+  return {
+    waiting_friend_request_count: await waitingFriendRequestCountOf(database, accountId, nowMs),
+    accepted_friend_request_count: (await acceptedFriendRequestsFrom(database, accountId, nowMs)).length,
+  };
+}
+
 /** How many requests wait for an account, for the game page's check-in. */
 export async function waitingFriendRequestCountOf(database: D1Database, accountId: string, nowMs = Date.now()): Promise<number> {
   return (await database.prepare("SELECT COUNT(*) AS request_count FROM friend_requests WHERE recipient_account_id = ? AND answer IS NULL AND expires_at_ms > ?").bind(accountId, nowMs).first<{ request_count: number }>())!.request_count;

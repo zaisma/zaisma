@@ -1457,7 +1457,7 @@ describe("friends", () => {
     await env.DB.prepare("INSERT INTO room_players (game_id, room_code, player_id, joined_at_ms, updated_at_ms) VALUES ('g-arena', 'ROOMAA', ?, ?, ?)").bind(await playerIdOf("quiet_comet@example.com"), now, now).run();
     await env.DB.prepare("INSERT INTO live_rooms (game_id, room_code, player_count, maximum_player_count, is_open, created_at_ms, updated_at_ms) VALUES ('g-arena', 'ROOMAA', 2, 8, 1, ?, ?)").bind(now, now).run();
     // A game page's check-in answers how many friend requests wait.
-    expect(await (await checkIn(carol, { game_slug: "secret-game" })).json()).toEqual({ waiting_friend_request_count: 0 });
+    expect(await (await checkIn(carol, { game_slug: "secret-game" })).json()).toEqual({ waiting_friend_request_count: 0, accepted_friend_request_count: 0 });
     await env.DB.prepare("UPDATE accounts SET who_sees_online = 'nobody', who_sees_playing_now = 'nobody' WHERE id = ?").bind(users.get("red_fox@example.com")!).run();
     await checkIn(dan, { game_slug: "arena-game" });
 

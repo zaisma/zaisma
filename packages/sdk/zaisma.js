@@ -618,7 +618,7 @@
         room._blocks = new Set(Array.isArray(message.playerIds) ? message.playerIds : []);
         room._mutedChanged();
       } else if (message.type === "friend_request") {
-        // Someone here sent this player a friend request: the Zaisma page looks now (never who it's from).
+        // Someone here sent this player a friend request, or accepted theirs: the Zaisma page looks now (never who).
         if (onZaismaPage()) window.parent.postMessage({ type: "zaisma:friend-requests" }, config.site);
       } else if (message.type === "message") {
         room._emit("message", message.data, typeof message.fromPlayerId === "string" ? message.fromPlayerId : null);
@@ -2496,10 +2496,10 @@
       return friendRequestAsk;
     });
   }
-  // A request sent (by the game's own button or the page's Players): the rooms the other player is in nudge their game.
+  // A request sent (by the game's own button or the page's Players), or one accepted: the rooms the other player is in nudge their game.
   window.addEventListener("message", function (event) {
     var told = event.data;
-    if (!config.site || event.origin !== config.site || event.source !== window.parent || !told || told.type !== "zaisma:friend-request" || told.status !== "sent" || typeof told.playerId !== "string") return;
+    if (!config.site || event.origin !== config.site || event.source !== window.parent || !told || told.type !== "zaisma:friend-request" || (told.status !== "sent" && told.status !== "accepted") || typeof told.playerId !== "string") return;
     joined.forEach(function (room) {
       if (!room._done && !room.isSpectator && room.players.some(function (each) { return each.id === told.playerId; })) room._say({ type: "friend_request", playerId: told.playerId });
     });

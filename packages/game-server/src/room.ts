@@ -1033,7 +1033,7 @@ export type ServerMessage =
   | { type: "state"; serverTimeMs: number; full: unknown }
   | { type: "state"; serverTimeMs: number; changes: StateChange[] }
   | { type: "blocks"; playerIds: string[] }
-  // Zaisma has a friend request waiting for this player: their game page looks (never who it's from).
+  // Zaisma has news of a friend request for this player (one waiting, or theirs accepted): their game page looks (never who).
   | { type: "friend_request" }
   | { type: "chat"; fromPlayerId: string; text: string; hasSwearing: boolean; hasSlur: boolean; sentAt: string }
   | { type: "chat_sent"; chatNumber: number; sentAt: string }
@@ -2051,8 +2051,8 @@ export class RoomCore<S = any> {
   }
 
   /**
-   * A player's game page just sent another player here a friend request (docs/DECISIONS.md, "Friend requests in
-   * games"): the room tells that player's game to have their page look now, rather than at its next check-in.
+   * A player's game page just sent another player here a friend request, or accepted theirs (docs/DECISIONS.md,
+   * "Friend requests in games"): the room tells that player's game to have their page look now, rather than at its next check-in.
    * Zaisma's record is the request; this says only "look", never who it's from, so a lying client gains nothing.
    */
   private friendRequestTold(playerId: string, message: Record<string, unknown>): RoomErrorCode | null {
