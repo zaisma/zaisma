@@ -33,7 +33,7 @@ Every case stays inert. A rule-breaker shows a rule's surface with stand-ins: a 
 npm run review-set
 ```
 
-Runs every public case, and every private one when `~/zaisma-private/security/review-set/cases` exists (`ZAISMA_REVIEW_SET_PRIVATE_DIR` points elsewhere), 3 times each, with the review as the scan runs it: the rule-based checks, the readers, then the judge. Every case is judged as a first upload. It says which bad games were stopped (and which of them were rejected by themselves, with no person: the goal is all of them; a bad game only held still stops it but counts as a miss), which honest ones were passed, which cases got different verdicts on different runs and how often the judge declined, then `PASS` or `FAIL`.
+Runs every public case, and every private one when `~/zaisma-private/security/review-set/cases` exists (`ZAISMA_REVIEW_SET_PRIVATE_DIR` points elsewhere), 3 times each, with the review as the scan runs it: the rule-based checks, the readers, then the judge. Every case is judged as a first upload. It says which bad games were stopped (and which of them were rejected by themselves, with no person: the goal is all of them but child safety, which a person always sees; a bad game only held still stops it but counts as a miss), which honest ones were passed, which cases got different verdicts on different runs and how often the judge declined, then `PASS` or `FAIL`.
 
 - `--runs <count>`: runs per case, 1 to 10.
 - `--case <name>`: only that case (repeat it for more).

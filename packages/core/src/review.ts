@@ -94,7 +94,7 @@ export const CONTENT_RULE_DETAILS: Record<ContentRule, { test: string; explanati
     notFine: "an NFT skin shop, an airdrop, \"deposit sats, invite friends, earn more\", or asking for a seed phrase.",
   },
   purchases: {
-    test: "Can players pay real money, or coins or gems bought with real money, for a random reward, or does a shop show a price in such coins or gems with no real price beside it?",
+    test: "Can players pay real money, or coins or gems bought with real money, for a random reward? Or are coins or gems sold for real money (like gem bundles bought with Zaisma.items.buy) and anything priced in them with no real price beside each price?",
     explanation: "Players always know what they pay for and what it costs in money: an item is sold by name, and a price in coins or gems shows the real price beside it.",
     fine: "a free daily chest, a shop that shows \"500 gems ($4.99)\", and cosmetics bought by name.",
     notFine: "a paid crate with a random skin, gems bought with money spent on a gacha pull, or a shop that sells gem bundles priced only in gems.",

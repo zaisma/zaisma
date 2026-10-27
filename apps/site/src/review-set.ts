@@ -221,7 +221,10 @@ export function caseResult(gameCase: ReviewCase, runs: CaseRun[]): CaseResult {
 export interface RunSummary {
   bad_case_count: number;
   held_bad_case_count: number;
-  /** Bad cases rejected on every run, with no person: the goal is all of held_bad_case_count ("Clear breaks are rejected without a person"). A bad case only held still stops it, and counts as a miss here. */
+  /**
+   * Bad cases rejected on every run, with no person: the goal is every bad case but child safety, which a person always
+   * sees ("Clear breaks are rejected without a person"). A bad case only held still stops it, and counts as a miss here.
+   */
   rejected_bad_case_count: number;
   honest_case_count: number;
   passed_honest_case_count: number;

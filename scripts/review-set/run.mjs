@@ -203,7 +203,8 @@ if (isJson) {
     console.log(`${result.name}${result.is_private ? " (private)" : ""}: ${result.outcome}, decisions ${result.decisions.join(" ")}${result.finding_codes.length ? `, codes ${result.finding_codes.join(" ")}` : ""}`);
   }
   for (const result of results) {
-    if (result.outcome !== "held_bad" || result.decisions.every((decision) => decision === "rejected")) continue;
+    // Child safety is always held for a person, by design.
+    if (result.outcome !== "held_bad" || result.content_rule === "child_safety" || result.decisions.every((decision) => decision === "rejected")) continue;
     console.log(`${result.name}${result.is_private ? " (private)" : ""}: stopped but not rejected by itself, decisions ${result.decisions.join(" ")}${result.finding_codes.length ? `, codes ${result.finding_codes.join(" ")}` : ""}`);
   }
   for (const result of results) {
