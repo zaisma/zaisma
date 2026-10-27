@@ -210,6 +210,60 @@ function splitVirtualTables(dumpPath) {
   return { importPath, virtualStatements: statements.filter(isVirtual) };
 }
 
+/**
+ * The dump as statements through wrangler d1 execute --command: each table's CREATE and rows together,
+ * a table after every table it refers to, then indexes, views and triggers, in commands that each defer
+ * foreign keys to their end. A refused command stops the load and says which tables it held.
+ */
+function loadByStatements(dumpPath) {
+  const dumpSql = readFileSync(dumpPath, "utf8");
+  const statements = scanStatements(dumpSql).map((statement) => dumpSql.slice(statement.startIndex, statement.endIndex));
+  const tableNameOf = (text) => (/^CREATE\s+(?:VIRTUAL\s+)?TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?"?(\w+)"?/i.exec(text) ?? /^INSERT\s+INTO\s+"?(\w+)"?\s*\(/i.exec(text))?.[1]?.toLowerCase() ?? null;
+  const groups = new Map();
+  const rest = [];
+  for (const text of statements) {
+    if (/^PRAGMA\b/i.test(text)) continue;
+    const tableName = tableNameOf(text);
+    if (tableName) groups.set(tableName, [...(groups.get(tableName) ?? []), text]);
+    else rest.push(text);
+  }
+  const referencesOf = (tableName) => [...(groups.get(tableName)?.[0] ?? "").matchAll(/REFERENCES\s+"?(\w+)"?/gi)].map((match) => match[1].toLowerCase()).filter((name) => name !== tableName && groups.has(name));
+  const ordered = [];
+  const placed = new Set();
+  const place = (tableName, path = new Set()) => {
+    if (placed.has(tableName) || path.has(tableName)) return;
+    path.add(tableName);
+    for (const parent of referencesOf(tableName)) place(parent, path);
+    placed.add(tableName);
+    ordered.push(tableName);
+  };
+  for (const tableName of groups.keys()) place(tableName);
+  const commands = [];
+  let command = "";
+  let commandTables = new Set();
+  const flush = () => {
+    if (command) commands.push({ sql: `PRAGMA defer_foreign_keys = TRUE;\n${command}`, tables: [...commandTables] });
+    command = "";
+    commandTables = new Set();
+  };
+  const add = (text, tableName) => {
+    if (command && command.length + text.length > COMMAND_SIZE_CHARACTERS) flush();
+    command += `${text};\n`;
+    if (tableName) commandTables.add(tableName);
+  };
+  for (const tableName of ordered) for (const text of groups.get(tableName)) add(text, tableName);
+  for (const text of rest) add(text, null);
+  flush();
+  commands.forEach((loaded, index) => {
+    const result = wrangler(["d1", "execute", DATABASE_NAME, "--remote", "--yes", "--config", siteConfig, "--command", loaded.sql]);
+    if (result.exitCode !== 0) {
+      say(result.output.trim());
+      fail(`Part ${index + 1} of ${commands.length} of the main database (tables ${loaded.tables.join(", ") || "none: indexes, views and triggers"}) was refused (above); the parts before it are in.`, "Delete the practice database (npx wrangler d1 delete zaisma, with this shell's token), fix what's above, and run this again.");
+    }
+    say(`Main database part ${index + 1} of ${commands.length} in.`);
+  });
+}
+
 /** Statements joined into commands of up to COMMAND_SIZE_CHARACTERS each (one longer statement goes alone). */
 function commandsOf(statements) {
   const commands = [];
@@ -268,10 +322,17 @@ async function runRestore() {
     const { importPath, virtualStatements } = splitVirtualTables(dumpPath);
     say(`Loading ${chosen.night}'s main database…`);
     const loadStartedAtMs = Date.now();
-    wranglerOrFail(["d1", "execute", DATABASE_NAME, "--remote", "--yes", "--config", siteConfig, "--file", importPath], "Loading the main database");
-    // D1's import takes no virtual table (the forum's full-text search): it and its rows go in as statements.
-    for (const command of commandsOf(virtualStatements)) wranglerOrFail(["d1", "execute", DATABASE_NAME, "--remote", "--yes", "--config", siteConfig, "--command", command], "Loading the main database's virtual tables");
-    say(`Main database loaded in ${Math.round((Date.now() - loadStartedAtMs) / 1000)} s (${virtualStatements.length} statements for virtual tables).`);
+    const imported = wrangler(["d1", "execute", DATABASE_NAME, "--remote", "--yes", "--config", siteConfig, "--file", importPath]);
+    if (imported.exitCode === 0) {
+      // D1's import takes no virtual table (the forum's full-text search): it and its rows go in as statements.
+      for (const command of commandsOf(virtualStatements)) wranglerOrFail(["d1", "execute", DATABASE_NAME, "--remote", "--yes", "--config", siteConfig, "--command", command], "Loading the main database's virtual tables");
+    } else {
+      // D1's import can refuse a dump without saying why ({"D1_RESET_DO":true}), and leaves the database as it was:
+      // the same SQL then goes in as statements, parents before the tables that refer to them, and a refusal names its statement.
+      say(`D1's import refused the dump (${imported.output.trim().split("\n").filter((line) => /ERROR/.test(line)).join(" ") || "no reason given"}); loading it as statements instead…`);
+      loadByStatements(dumpPath);
+    }
+    say(`Main database loaded in ${Math.round((Date.now() - loadStartedAtMs) / 1000)} s.`);
   }
   // Migrations newer than the copy: one that deletes data asks in this terminal.
   if (wrangler(["d1", "migrations", "apply", DATABASE_NAME, "--remote", "--config", siteConfig], { isInteractive: true }).exitCode !== 0) fail("Applying migrations failed (above).", "Fix it and run this again.");
