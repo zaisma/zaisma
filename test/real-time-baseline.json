@@ -1,0 +1,130 @@
+{
+  "test/contracts/sdk-v1.test.ts": {
+    "real_calendar_count": 0,
+    "real_sleep_count": 1
+  },
+  "test/game-server/room.test.ts": {
+    "real_calendar_count": 0,
+    "real_sleep_count": 6
+  },
+  "test/games/serve.test.ts": {
+    "real_calendar_count": 0,
+    "real_sleep_count": 1
+  },
+  "test/load/room-load.test.ts": {
+    "real_calendar_count": 0,
+    "real_sleep_count": 2
+  },
+  "test/node/local-play.test.ts": {
+    "real_calendar_count": 0,
+    "real_sleep_count": 1
+  },
+  "test/node/preview-memory.test.ts": {
+    "real_calendar_count": 0,
+    "real_sleep_count": 1
+  },
+  "test/node/relay.test.ts": {
+    "real_calendar_count": 0,
+    "real_sleep_count": 1
+  },
+  "test/node/runner.test.ts": {
+    "real_calendar_count": 0,
+    "real_sleep_count": 14
+  },
+  "test/node/saves-page.test.ts": {
+    "real_calendar_count": 0,
+    "real_sleep_count": 4
+  },
+  "test/node/sdk-types.test.ts": {
+    "real_calendar_count": 0,
+    "real_sleep_count": 26
+  },
+  "test/rooms/database.test.ts": {
+    "real_calendar_count": 3,
+    "real_sleep_count": 1
+  },
+  "test/rooms/kept-rooms.test.ts": {
+    "real_calendar_count": 0,
+    "real_sleep_count": 1
+  },
+  "test/rooms/logs.test.ts": {
+    "real_calendar_count": 1,
+    "real_sleep_count": 1
+  },
+  "test/rooms/requests.test.ts": {
+    "real_calendar_count": 0,
+    "real_sleep_count": 4
+  },
+  "test/rooms/room-updates.test.ts": {
+    "real_calendar_count": 0,
+    "real_sleep_count": 3
+  },
+  "test/rooms/rooms.test.ts": {
+    "real_calendar_count": 0,
+    "real_sleep_count": 18
+  },
+  "test/rooms/sandbox-parity.test.ts": {
+    "real_calendar_count": 0,
+    "real_sleep_count": 1
+  },
+  "test/rooms/sandbox.test.ts": {
+    "real_calendar_count": 0,
+    "real_sleep_count": 17
+  },
+  "test/rooms/schedules.test.ts": {
+    "real_calendar_count": 1,
+    "real_sleep_count": 1
+  },
+  "test/sdk-stand-in.ts": {
+    "real_calendar_count": 0,
+    "real_sleep_count": 1
+  },
+  "test/site/accounts.test.ts": {
+    "real_calendar_count": 3,
+    "real_sleep_count": 1
+  },
+  "test/site/backups.test.ts": {
+    "real_calendar_count": 2,
+    "real_sleep_count": 0
+  },
+  "test/site/browse.test.ts": {
+    "real_calendar_count": 1,
+    "real_sleep_count": 0
+  },
+  "test/site/credit.test.ts": {
+    "real_calendar_count": 2,
+    "real_sleep_count": 0
+  },
+  "test/site/flow.test.ts": {
+    "real_calendar_count": 2,
+    "real_sleep_count": 0
+  },
+  "test/site/game-server-start-errors.test.ts": {
+    "real_calendar_count": 1,
+    "real_sleep_count": 0
+  },
+  "test/site/home.test.ts": {
+    "real_calendar_count": 1,
+    "real_sleep_count": 0
+  },
+  "test/site/hosting-job.test.ts": {
+    "real_calendar_count": 1,
+    "real_sleep_count": 0
+  },
+  "test/site/links.test.ts": {
+    "real_calendar_count": 1,
+    "real_sleep_count": 0
+  },
+  "test/site/mcp.test.ts": {
+    "real_calendar_count": 7,
+    "real_sleep_count": 0
+  },
+  "test/site/review-precedents.test.ts": {
+    "real_calendar_count": 1,
+    "real_sleep_count": 0
+  },
+  "test/site/webhooks.test.ts": {
+    "real_calendar_count": 1,
+    "real_sleep_count": 2
+  }
+}
