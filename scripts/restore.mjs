@@ -207,26 +207,8 @@ async function downloadMainDatabase(storage, version) {
   return { dumpPath, rowCounts };
 }
 
-/**
- * The dump without its virtual tables, for D1's import, which refuses them (it resets the database and
- * says only D1_RESET_DO), and the CREATE VIRTUAL TABLEs and their rows as statements to run after it.
- */
-function splitVirtualTables(dumpPath) {
-  const dumpSql = readFileSync(dumpPath, "utf8");
-  const statements = scanStatements(dumpSql).map((statement) => dumpSql.slice(statement.startIndex, statement.endIndex));
-  const virtualNames = new Set(statements.map((text) => /^CREATE\s+VIRTUAL\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?"?([\w]+)"?/i.exec(text)?.[1]).filter(Boolean));
-  const isVirtual = (text) => /^CREATE\s+VIRTUAL\s+TABLE/i.test(text) || [...virtualNames].some((name) => new RegExp(`^INSERT\\s+INTO\\s+"?${name}"?\\s*\\(`, "i").test(text));
-  const importPath = `${dumpPath}.import.sql`;
-  writeFileSync(importPath, statements.filter((text) => !isVirtual(text)).map((text) => `${text};\n`).join(""));
-  return { importPath, virtualStatements: statements.filter(isVirtual) };
-}
-
-/**
- * The dump as statements through wrangler d1 execute --command: each table's CREATE and rows together,
- * a table after every table it refers to, then indexes, views and triggers, in commands that each defer
- * foreign keys to their end. A refused command stops the load and says which tables it held.
- */
-function loadByStatements(dumpPath) {
+/** The dump's statements by table, the tables in reference order (parents first), and the rest (indexes, views, triggers). */
+function dumpInReferenceOrder(dumpPath) {
   const dumpSql = readFileSync(dumpPath, "utf8");
   const statements = scanStatements(dumpSql).map((statement) => dumpSql.slice(statement.startIndex, statement.endIndex));
   const tableNameOf = (text) => (/^CREATE\s+(?:VIRTUAL\s+)?TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?"?(\w+)"?/i.exec(text) ?? /^INSERT\s+INTO\s+"?(\w+)"?\s*\(/i.exec(text))?.[1]?.toLowerCase() ?? null;
@@ -249,6 +231,28 @@ function loadByStatements(dumpPath) {
     ordered.push(tableName);
   };
   for (const tableName of groups.keys()) place(tableName);
+  return { groups, ordered, rest };
+}
+
+/**
+ * The dump rewritten as backups now write it, each table and its rows after the tables it refers to: D1's
+ * import checks foreign keys as it goes and resets on a row whose parent isn't in yet. Backups from before
+ * the dump wrote parents first import this way too.
+ */
+function writeOrderedDump(dumpPath) {
+  const { groups, ordered, rest } = dumpInReferenceOrder(dumpPath);
+  const orderedPath = `${dumpPath}.ordered.sql`;
+  writeFileSync(orderedPath, ["PRAGMA defer_foreign_keys=TRUE", ...ordered.flatMap((tableName) => groups.get(tableName)), ...rest].map((text) => `${text};\n`).join(""));
+  return orderedPath;
+}
+
+/**
+ * The last resort when D1's import still refuses a dump: the same SQL through wrangler d1 execute --command,
+ * in reference order, in commands that each defer foreign keys to their end. Slow (a command a minute or so,
+ * COMMAND_SIZE_CHARACTERS each), so only for small databases; a refused command says which tables it held.
+ */
+function loadByStatements(dumpPath) {
+  const { groups, ordered, rest } = dumpInReferenceOrder(dumpPath);
   const commands = [];
   let command = "";
   let commandTables = new Set();
@@ -273,21 +277,6 @@ function loadByStatements(dumpPath) {
     }
     say(`Main database part ${index + 1} of ${commands.length} in.`);
   });
-}
-
-/** Statements joined into commands of up to COMMAND_SIZE_CHARACTERS each (one longer statement goes alone). */
-function commandsOf(statements) {
-  const commands = [];
-  let command = "";
-  for (const text of statements) {
-    if (command && command.length + text.length > COMMAND_SIZE_CHARACTERS) {
-      commands.push(command);
-      command = "";
-    }
-    command += `${text};\n`;
-  }
-  if (command) commands.push(command);
-  return commands;
 }
 
 async function runRestore() {
@@ -330,14 +319,11 @@ async function runRestore() {
   const hasMainDatabase = wrangler(["d1", "execute", DATABASE_NAME, "--remote", "--json", "--config", siteConfig, "--command", "SELECT COUNT(*) AS migration_count FROM d1_migrations"]).exitCode === 0;
   if (!hasMainDatabase) {
     const { dumpPath } = await downloadMainDatabase(storage, chosen.version);
-    const { importPath, virtualStatements } = splitVirtualTables(dumpPath);
+    const importPath = writeOrderedDump(dumpPath);
     say(`Loading ${chosen.night}'s main database…`);
     const loadStartedAtMs = Date.now();
     const imported = wrangler(["d1", "execute", DATABASE_NAME, "--remote", "--yes", "--config", siteConfig, "--file", importPath]);
-    if (imported.exitCode === 0) {
-      // D1's import takes no virtual table (the forum's full-text search): it and its rows go in as statements.
-      for (const command of commandsOf(virtualStatements)) wranglerOrFail(["d1", "execute", DATABASE_NAME, "--remote", "--yes", "--config", siteConfig, "--command", command], "Loading the main database's virtual tables");
-    } else {
+    if (imported.exitCode !== 0) {
       // D1's import can refuse a dump without saying why ({"D1_RESET_DO":true}), and leaves the database as it was:
       // the same SQL then goes in as statements, parents before the tables that refer to them, and a refusal names its statement.
       say(`D1's import refused the dump (${imported.output.trim().split("\n").filter((line) => /ERROR/.test(line)).join(" ") || "no reason given"}); loading it as statements instead…`);

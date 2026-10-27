@@ -1,7 +1,7 @@
 import { env, SELF } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createAccount, createApiKey } from "@zaisma/core";
-import { BACKUP_LIMITS, backupPart, handleBackupMessage, isRefreshDue, mainDatabaseDump, startBackupRun, type BackupPart } from "../../apps/site/src/backups.ts";
+import { BACKUP_LIMITS, backupPart, handleBackupMessage, isRefreshDue, mainDatabaseDump, orderedByReferences, startBackupRun, type BackupPart } from "../../apps/site/src/backups.ts";
 import { BACKUP_STORAGE_LIMITS } from "../../apps/site/src/backup-storage.ts";
 import { handleRestoreMessage, runWaitingRestore, type RestorePart } from "../../apps/site/src/restore.ts";
 import type { Env } from "../../apps/site/src/env.ts";
@@ -213,6 +213,22 @@ describe("a night's parts", () => {
     expect(run.finished_at_ms).toEqual(expect.any(Number));
     // Nothing reads the bucket but the one check of old versions.
     expect(requests.filter((request) => request.method === "GET")).toHaveLength(1);
+  });
+
+  it("writes every table after the tables it refers to, so D1's import takes it", async () => {
+    let dump = "";
+    for await (const part of mainDatabaseDump(env.DB)) dump += part;
+    const createdAt = (name: string) => dump.search(new RegExp(`^CREATE TABLE "?${name}"?\\s*\\(`, "m"));
+    const { results: references } = await env.DB.prepare("SELECT m.name AS child_name, p.\"table\" AS parent_name FROM sqlite_master m, pragma_foreign_key_list(m.name) p WHERE m.type = 'table' AND m.name NOT LIKE '_cf_%' AND p.\"table\" <> m.name").all<{ child_name: string; parent_name: string }>();
+    expect(references.length).toBeGreaterThan(0);
+    for (const { child_name: childName, parent_name: parentName } of references) expect(createdAt(parentName), `${parentName} before ${childName}`).toBeLessThan(createdAt(childName));
+    expect(createdAt("owners")).toBeLessThan(createdAt("games"));
+  });
+
+  it("orders tables parents first, and places a table that refers to itself, or a loop of them, once", () => {
+    const parents: Record<string, string[]> = { games: ["owners", "games"], owners: [], saves: ["games", "accounts"], accounts: [], left: ["right"], right: ["left"] };
+    const ordered = orderedByReferences(["games", "owners", "saves", "accounts", "left", "right"].map((name) => ({ name })), (name) => parents[name] ?? []).map((table) => table.name);
+    expect(ordered).toEqual(["owners", "games", "accounts", "saves", "right", "left"]);
   });
 
   it("writes each value so it loads back the same, quotes and line breaks included", async () => {
