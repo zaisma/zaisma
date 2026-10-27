@@ -179,6 +179,8 @@ const STATE_CHUNK_CHARACTER_COUNT = 512 * 1024;
 const stateChunkKey = (index: number) => `stateChunk:${index}`;
 /** Storage keys a kept room's backup reads at a time: a few state chunks of 512K characters each at most. */
 const BACKUP_PAGE_KEY_COUNT = 8;
+/** Storage keys a restore puts at once: the most one put takes. */
+const RESTORE_PUT_KEY_COUNT = 128;
 /** Where each player's owned items wait out hibernation: ownedItemNames:<player id>. */
 const OWNED_ITEM_NAMES_KEY_PREFIX = "ownedItemNames:";
 
@@ -291,45 +293,48 @@ export class Room extends DurableObject<Env> {
     this.db = countingDatabase(env.DB, (writtenRowCount) => this.countWritten(writtenRowCount));
     // Games ping every 25 seconds or so; the answer doesn't wake the room, and the time is kept per socket.
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"));
-    ctx.blockConcurrencyWhile(async () => {
-      const got = await ctx.storage.get<Meta | Saved | SavedRoom | number | string[] | PendingVersionUpdate>(["meta", "saved", "room", "checkedInAtMs", "hostingCheckedAtMs", "seatedPlayerIds", "versionUpdate"]);
-      this.pendingVersionUpdate = (got.get("versionUpdate") as PendingVersionUpdate | undefined) ?? null;
-      this.meta = (got.get("meta") as Meta | undefined) ?? null;
-      const saved = (got.get("saved") as Saved | undefined) ?? {};
-      this.saved = saved.state;
-      this.savedRoom = got.get("room") as SavedRoom | undefined;
-      this.hasEnded = saved.hasEnded ?? false;
-      this.usage = { ...noUsage(), ...saved.usage };
-      this.savedVersionId = saved.versionId;
-      this.isSavedEmpty = saved.isSavedEmpty === true;
-      this.isKept = this.savedRoom?.isKept === true && !this.hasEnded;
-      // A turn-based room saved for a version switch keeps its state in "saved", with when and who.
-      if (!saved.stateChunkCount && saved.savedAtMs !== undefined) {
+    ctx.blockConcurrencyWhile(() => this.readStored());
+  }
+
+  /** Reads what the room keeps into memory: when it wakes, and again after a restore puts its world back. */
+  private async readStored(): Promise<void> {
+    const got = await this.ctx.storage.get<Meta | Saved | SavedRoom | number | string[] | PendingVersionUpdate>(["meta", "saved", "room", "checkedInAtMs", "hostingCheckedAtMs", "seatedPlayerIds", "versionUpdate"]);
+    this.pendingVersionUpdate = (got.get("versionUpdate") as PendingVersionUpdate | undefined) ?? null;
+    this.meta = (got.get("meta") as Meta | undefined) ?? null;
+    const saved = (got.get("saved") as Saved | undefined) ?? {};
+    this.saved = saved.state;
+    this.savedRoom = got.get("room") as SavedRoom | undefined;
+    this.hasEnded = saved.hasEnded ?? false;
+    this.usage = { ...noUsage(), ...saved.usage };
+    this.savedVersionId = saved.versionId;
+    this.isSavedEmpty = saved.isSavedEmpty === true;
+    this.isKept = this.savedRoom?.isKept === true && !this.hasEnded;
+    // A turn-based room saved for a version switch keeps its state in "saved", with when and who.
+    if (!saved.stateChunkCount && saved.savedAtMs !== undefined) {
+      this.savedAtMs = saved.savedAtMs;
+      this.matchPlayers = saved.matchPlayers ?? [];
+    }
+    // A real-time room's state, saved in pieces with one put, so a restart never reads half a save.
+    if (saved.stateChunkCount) {
+      const keys = Array.from({ length: saved.stateChunkCount }, (_, index) => stateChunkKey(index));
+      const chunks = await this.ctx.storage.get<string>(keys);
+      const text = keys.map((key) => chunks.get(key) ?? "").join("");
+      try {
+        this.saved = JSON.parse(text);
         this.savedAtMs = saved.savedAtMs;
         this.matchPlayers = saved.matchPlayers ?? [];
+        this.savedStateKey = stateKeyOf(text, this.matchPlayers);
+        this.savedSizeBytes = utf8SizeBytes(text);
+      } catch (error) {
+        console.error("Couldn't read the room's saved state:", error);
       }
-      // A real-time room's state, saved in pieces with one put, so a restart never reads half a save.
-      if (saved.stateChunkCount) {
-        const keys = Array.from({ length: saved.stateChunkCount }, (_, index) => stateChunkKey(index));
-        const chunks = await ctx.storage.get<string>(keys);
-        const text = keys.map((key) => chunks.get(key) ?? "").join("");
-        try {
-          this.saved = JSON.parse(text);
-          this.savedAtMs = saved.savedAtMs;
-          this.matchPlayers = saved.matchPlayers ?? [];
-          this.savedStateKey = stateKeyOf(text, this.matchPlayers);
-          this.savedSizeBytes = utf8SizeBytes(text);
-        } catch (error) {
-          console.error("Couldn't read the room's saved state:", error);
-        }
-        this.stateChunkCount = saved.stateChunkCount;
-      }
-      this.checkedInAtMs = (got.get("checkedInAtMs") as number | undefined) ?? 0;
-      this.hostingCheckedAtMs = (got.get("hostingCheckedAtMs") as number | undefined) ?? 0;
-      this.seatedPlayerIds = got.get("seatedPlayerIds") as string[] | undefined;
-      this.alarmAtMs = await ctx.storage.getAlarm();
-      for (const [key, names] of await ctx.storage.list<string[]>({ prefix: OWNED_ITEM_NAMES_KEY_PREFIX })) this.ownedItemNamesByPlayerId.set(key.slice(OWNED_ITEM_NAMES_KEY_PREFIX.length), names);
-    });
+      this.stateChunkCount = saved.stateChunkCount;
+    }
+    this.checkedInAtMs = (got.get("checkedInAtMs") as number | undefined) ?? 0;
+    this.hostingCheckedAtMs = (got.get("hostingCheckedAtMs") as number | undefined) ?? 0;
+    this.seatedPlayerIds = got.get("seatedPlayerIds") as string[] | undefined;
+    this.alarmAtMs = await this.ctx.storage.getAlarm();
+    for (const [key, names] of await this.ctx.storage.list<string[]>({ prefix: OWNED_ITEM_NAMES_KEY_PREFIX })) this.ownedItemNamesByPlayerId.set(key.slice(OWNED_ITEM_NAMES_KEY_PREFIX.length), names);
   }
 
   async fetch(request: Request): Promise<Response> {
@@ -344,6 +349,7 @@ export class Room extends DurableObject<Env> {
     if (request.method === "POST" && new URL(request.url).pathname === "/version-update") return this.versionUpdating(request);
     if (request.method === "POST" && new URL(request.url).pathname === "/delete") return this.deleting(request);
     if (request.method === "POST" && new URL(request.url).pathname === "/backup") return this.backingUp(request);
+    if (request.method === "POST" && new URL(request.url).pathname === "/restore") return this.restoring(request);
     if (!this.meta || !this.meta.roomCode) {
       this.meta = {
         gameId: request.headers.get("x-game-id")!,
@@ -1209,7 +1215,8 @@ export class Room extends DurableObject<Env> {
   /**
    * Everything a kept room keeps, for Zaisma's nightly backup (apps/site/src/backups.ts, through
    * GameStorageService.keptRoomBackup): one JSON line per storage key, { key, value }, read a page at a
-   * time so a big world never sits whole in memory. Putting each back with storage.put restores the room.
+   * time so a big world never sits whole in memory. What JSON can't hold (bytes, Maps, Dates) is tagged
+   * (storedValueJson). Putting each back with storage.put restores the room (restoring).
    */
   private async backingUp(request: Request): Promise<Response> {
     if (!this.meta || this.meta.gameId !== request.headers.get("x-game-id")) return new Response("No such room", { status: 404 });
@@ -1223,7 +1230,7 @@ export class Room extends DurableObject<Env> {
         const page = await storage.list({ startAfter, limit: BACKUP_PAGE_KEY_COUNT });
         let lines = "";
         for (const [key, storedValue] of page) {
-          lines += `${JSON.stringify({ key, value: storedValue })}\n`;
+          lines += `${JSON.stringify({ key, stored_value: storedValueJson(storedValue) })}\n`;
           startAfter = key;
         }
         isDone = page.size < BACKUP_PAGE_KEY_COUNT;
@@ -1231,6 +1238,52 @@ export class Room extends DurableObject<Env> {
       },
     });
     return new Response(body, { headers: { "content-type": "application/jsonl" } });
+  }
+
+  /**
+   * A kept room's world back from its backup's JSON lines, for a restore from Zaisma's backups
+   * (apps/site/src/restore.ts, through GameStorageService.restoreKeptRoom), a page of keys at a time, then
+   * read into memory as if the room had just woken. The meta key goes in last, so a world without one is
+   * an earlier try cut short, cleared first; a room that already holds a world is never replaced (409).
+   */
+  private async restoring(request: Request): Promise<Response> {
+    if (this.meta) return new Response("This room already holds a world.", { status: 409 });
+    if (!request.body) return new Response("No world sent.", { status: 400 });
+    await this.ctx.storage.deleteAll();
+    let meta: unknown;
+    let entries: Record<string, unknown> = {};
+    let entryCount = 0;
+    const putEntries = async () => {
+      if (entryCount) await this.ctx.storage.put(entries);
+      entries = {};
+      entryCount = 0;
+    };
+    let rest = "";
+    const decoder = new TextDecoder();
+    const takeLine = async (line: string) => {
+      if (!line.trim()) return;
+      const { key: storageKey, ...fields } = JSON.parse(line) as { key: string } & Record<string, unknown>;
+      // Lines from before stored values were tagged hold plain JSON as value.
+      const storedValue = "stored_value" in fields ? storedValueOf(fields.stored_value) : fields["value"];
+      if (storageKey === "meta") {
+        meta = storedValue;
+        return;
+      }
+      entries[storageKey] = storedValue;
+      entryCount++;
+      if (entryCount >= RESTORE_PUT_KEY_COUNT) await putEntries();
+    };
+    for await (const chunk of request.body) {
+      const lines = (rest + decoder.decode(chunk, { stream: true })).split("\n");
+      rest = lines.pop()!;
+      for (const line of lines) await takeLine(line);
+    }
+    await takeLine(rest + decoder.decode());
+    await putEntries();
+    if (!meta) return new Response("The world has no meta key: not a kept room's backup.", { status: 400 });
+    await this.ctx.storage.put("meta", meta);
+    await this.ctx.blockConcurrencyWhile(() => this.readStored());
+    return new Response(null, { status: 204 });
   }
 
   private async deleting(request: Request): Promise<Response> {
@@ -1970,6 +2023,53 @@ export class Room extends DurableObject<Env> {
 }
 
 /** A saved state's key: its JSON and who was in the match, since either changing is worth a save. */
+/**
+ * A stored value as JSON for a kept room's backup: what JSON can't hold is tagged as { $stored: kind, … }
+ * (bytes as base64, Maps and Sets as their entries, Dates, big integers, undefined), and so is a plain
+ * object that has a $stored key of its own. storedValueOf reads it back.
+ */
+export function storedValueJson(storedValue: unknown): unknown {
+  if (storedValue === undefined) return { $stored: "undefined" };
+  if (typeof storedValue === "bigint") return { $stored: "bigint", text: storedValue.toString() };
+  if (storedValue === null || typeof storedValue !== "object") return storedValue;
+  if (storedValue instanceof ArrayBuffer) return { $stored: "bytes", base64: bytesBase64(new Uint8Array(storedValue)) };
+  if (ArrayBuffer.isView(storedValue)) return { $stored: "bytes", view: storedValue.constructor.name, base64: bytesBase64(new Uint8Array(storedValue.buffer, storedValue.byteOffset, storedValue.byteLength)) };
+  if (storedValue instanceof Date) return { $stored: "date", ms: storedValue.getTime() };
+  if (storedValue instanceof Map) return { $stored: "map", entries: [...storedValue].map(([entryKey, entryValue]) => [storedValueJson(entryKey), storedValueJson(entryValue)]) };
+  if (storedValue instanceof Set) return { $stored: "set", values: [...storedValue].map(storedValueJson) };
+  if (Array.isArray(storedValue)) return storedValue.map(storedValueJson);
+  const object = Object.fromEntries(Object.entries(storedValue).map(([name, entryValue]) => [name, storedValueJson(entryValue)]));
+  return "$stored" in object ? { $stored: "object", entries: object } : object;
+}
+
+/** A value storedValueJson wrote, as it was stored. */
+export function storedValueOf(json: unknown): unknown {
+  if (json === null || typeof json !== "object") return json;
+  if (Array.isArray(json)) return json.map(storedValueOf);
+  const tagged = json as Record<string, unknown>;
+  if (!("$stored" in tagged)) return Object.fromEntries(Object.entries(tagged).map(([name, entryValue]) => [name, storedValueOf(entryValue)]));
+  if (tagged.$stored === "undefined") return undefined;
+  if (tagged.$stored === "bigint") return BigInt(tagged.text as string);
+  if (tagged.$stored === "date") return new Date(tagged.ms as number);
+  if (tagged.$stored === "map") return new Map((tagged.entries as [unknown, unknown][]).map(([entryKey, entryValue]) => [storedValueOf(entryKey), storedValueOf(entryValue)]));
+  if (tagged.$stored === "set") return new Set((tagged.values as unknown[]).map(storedValueOf));
+  if (tagged.$stored === "object") return Object.fromEntries(Object.entries(tagged.entries as Record<string, unknown>).map(([name, entryValue]) => [name, storedValueOf(entryValue)]));
+  if (tagged.$stored === "bytes") {
+    const bytes = Uint8Array.from(atob(tagged.base64 as string), (character) => character.charCodeAt(0));
+    const View = typeof tagged.view === "string" ? (globalThis as unknown as Record<string, unknown>)[tagged.view] : undefined;
+    if (typeof View !== "function") return bytes.buffer;
+    const bytesPerElement = (View as unknown as { BYTES_PER_ELEMENT?: number }).BYTES_PER_ELEMENT ?? 1;
+    return new (View as new (buffer: ArrayBuffer, offsetBytes: number, elementCount: number) => unknown)(bytes.buffer, 0, bytes.byteLength / bytesPerElement);
+  }
+  throw new Error(`A kept room's backup holds a value tagged ${String(tagged.$stored)}, which no backup writes.`);
+}
+
+function bytesBase64(bytes: Uint8Array): string {
+  let binary = "";
+  for (let index = 0; index < bytes.length; index += 0x8000) binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000));
+  return btoa(binary);
+}
+
 function stateKeyOf(stateText: string, matchPlayers: Player[]): string {
   return `${matchPlayers.map((player) => player.id).join(" ")}\n${stateText}`;
 }

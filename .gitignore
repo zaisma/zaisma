@@ -8,3 +8,6 @@ dist/
 .claude/ship/
 # Skills live in the private ops repo; scripts/ops-setup.mjs links them in on our machines.
 .claude/skills/
+# A restore's generated Worker configs and its download of the main database (scripts/restore.mjs).
+apps/*/wrangler.restore.jsonc
+.restore/

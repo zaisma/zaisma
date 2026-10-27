@@ -1,5 +1,6 @@
 import type { CompressJob, ListingCheckJob, ScanJob, ShaderCheckJob } from "@zaisma/core";
 import type { BackupPart } from "./backups.ts";
+import type { RestorePart } from "./restore.ts";
 import type { PerformanceJob } from "./performance-check.ts";
 import type { GameDatabaseService } from "../../rooms/src/database.ts";
 import type { GameSecretsService } from "../../rooms/src/secrets.ts";
@@ -25,13 +26,16 @@ export interface Env {
   /** Versions to open in headless Chrome once they pass (performance-check.ts). */
   PERFORMANCE_QUEUE: Queue<PerformanceJob>;
   /** Parts of the night's copy to Backblaze (backups.ts). */
-  BACKUP_QUEUE?: Queue<BackupPart>;
+  BACKUP_QUEUE?: Queue<BackupPart | RestorePart>;
   /** Zaisma's backups bucket at Backblaze B2 (backup-storage.ts): its S3 endpoint, region and name, and the key that can only list and write. Without the endpoint, no backup runs; without the key, each night fails and says so. */
   BACKUP_ENDPOINT?: string;
   BACKUP_REGION?: string;
   BACKUP_BUCKET_NAME?: string;
   BACKUP_KEY_ID?: string;
   BACKUP_KEY_SECRET?: string;
+  /** A key that can only list and read the backups bucket, set only while a restore runs into this account (restore.ts). */
+  RESTORE_KEY_ID?: string;
+  RESTORE_KEY_SECRET?: string;
   /** Every game's own database, in the rooms Worker, for the developer API (game-database.ts). */
   GAME_DATABASES?: Service<GameDatabaseService>;
   /** Every game's secrets, in the rooms Worker, for the developer API (secrets-api.ts). */

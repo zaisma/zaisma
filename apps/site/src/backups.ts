@@ -214,8 +214,8 @@ export async function backupPart(env: Env, part: BackupPart, run: Pick<BackupRun
   const due = objects.filter((object) => isDue(`${part.bucket_name}/${object.key}`, object.uploaded.getTime()));
   const copied = await copyInTurn(due, async (listedObject) => {
     const object = await bucket.get(listedObject.key);
-    // Deleted since it was listed: nothing to keep.
-    return object ? storage.uploadObject(`${part.bucket_name}/${listedObject.key}`, object.body) : 0;
+    // Deleted since it was listed: nothing to keep. Its content type and custom metadata go with it, for a restore.
+    return object ? storage.uploadObject(`${part.bucket_name}/${listedObject.key}`, object.body, { contentType: object.httpMetadata?.contentType, customMetadata: object.customMetadata }) : 0;
   });
   const lastKey = copied.stoppedAfter?.key ?? (listed.truncated ? listed.objects.at(-1)!.key : null);
   return { ...copied, nextPart: lastKey ? { ...part, after_key: lastKey } : null };
