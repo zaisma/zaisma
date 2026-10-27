@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Brings Zaisma back in a Cloudflare account from its backups at Backblaze B2 (apps/site/src/backups.ts),
-// for the day Zaisma's own account is gone, and for practising that day. Run it from a public checkout on
+// for the day Zaisma's own account is gone, and for practicing that day. Run it from a public checkout on
 // the code to deploy, with an API token for the target account in the shell (CLOUDFLARE_API_TOKEN), never
 // wrangler login: the machine has one wrangler sign-in, and every npm run ship uses it.
 //
