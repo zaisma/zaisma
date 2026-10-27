@@ -160,7 +160,7 @@ export const STORED_VALUES: readonly StoredValue[] = [
 
   // Reports and reviews, read by Zaisma's people.
   { stored: "reports.player_text", format: "escaped_text", source: "player", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [ADMIN_GAME, ADMIN_REPORTS] },
-  { stored: "reports.reported_chat_json", format: "escaped_text", source: "player", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [ADMIN_GAME, ADMIN_REPORTS] },
+  { stored: "reports.reported_chat_json", format: "escaped_text", source: "player", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },
   { stored: "reports.player_name", format: "escaped_text", source: "outside", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [ADMIN_GAME, ADMIN_REPORTS] },
   { stored: "reports.room_name", format: "escaped_text", source: "outside", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },
   { stored: "reports.triage", format: "escaped_text", source: "outside", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: ["page:/admin", ADMIN_GAME, ADMIN_REPORTS] },
