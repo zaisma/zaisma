@@ -1,4 +1,4 @@
-import { BARE_GROUPS } from "./tokens.ts";
+import { BARE_GROUPS, LEAST_SCROLL_PX } from "./tokens.ts";
 
 /** Where a measured rule runs (docs/DESIGN.md, Rules): once per component on the gallery's pages, on every page, or in the nightly sweep. */
 export type LayoutRuleTier = "gallery" | "page" | "sweep";
@@ -464,7 +464,7 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
   // what lifts in it) only bounces under a finger.
   if (isMeasured("a box that scrolls up and down by a sliver")) document.querySelectorAll("body *").forEach(function (box) {
     var css = getComputedStyle(box), extraPx = box.scrollHeight - box.clientHeight;
-    if (/^(auto|scroll)$/.test(css.overflowY) && extraPx > 1 && extraPx < 12 && isShown(box)) report("a box that scrolls up and down by a sliver", box, round(extraPx) + "px to scroll");
+    if (/^(auto|scroll)$/.test(css.overflowY) && extraPx > 1 && extraPx < ${LEAST_SCROLL_PX} && isShown(box)) report("a box that scrolls up and down by a sliver", box, round(extraPx) + "px to scroll");
   });
   // Nothing empty takes a place in a stack: a thing with no height still gets a gap on each side.
   document.querySelectorAll(".pane-in, .sheet-in, .tray, form, .layout-stack, .pane-stack, .stack-cell").forEach(function (holder) {
