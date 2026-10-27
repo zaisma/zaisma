@@ -24,7 +24,7 @@ import { authConfigured, currentSession } from "./auth.ts";
 import { sendAlert } from "./email.ts";
 import type { Env } from "./env.ts";
 import { JOIN_OFF_STYLES, joinAndWatch } from "./friends-now.ts";
-import { tile } from "./home.ts";
+import { FULL_GAME_ITEM_SQL, coverPriceText, fullGamePriceOf, paidGamesOwnedBy, tile } from "./home.ts";
 import { accountPicture, html, layout, message, metalButton, raw, scriptTags, shownAddress, type Raw } from "./html.ts";
 import { pageScript } from "./page-scripts.ts";
 import { pageStyle } from "./page-styles.ts";
@@ -105,18 +105,23 @@ export async function handleProfiles(request: Request, env: Env, path: string): 
   return done(await profilePage(env, owner, visitor, viewer, query, requestCountryCode(request)));
 }
 
-/** Covers for the games on a profile, by slug. */
-async function coversOf(env: Env, slugs: string[]): Promise<Map<string, { cover: string | null; square: string | null }>> {
+/** Covers for the games on a profile, by slug, with a paid game's price to play in the viewer's country. */
+async function coversOf(env: Env, slugs: string[], countryCode: string | null): Promise<Map<string, { id: string; cover: string | null; square: string | null; is_paid: boolean; full_game_price: { currencyCode: string; priceMinorUnits: number } | null }>> {
   if (!slugs.length) return new Map();
   const { results } = await env.DB.prepare(
-    `SELECT games.slug,
+    `SELECT games.id, games.slug, games.full_game_item_name,
+       ${FULL_GAME_ITEM_SQL},
        (SELECT id FROM game_images WHERE game_id = games.id AND kind = 'cover' AND review_status = 'approved' ORDER BY created_at_ms DESC LIMIT 1) AS cover,
        (SELECT id FROM game_images WHERE game_id = games.id AND kind = 'square' AND review_status = 'approved' ORDER BY created_at_ms DESC LIMIT 1) AS square
      FROM games WHERE slug IN (SELECT value FROM json_each(?))`,
   )
     .bind(JSON.stringify(slugs))
-    .all<{ slug: string; cover: string | null; square: string | null }>();
-  return new Map(results.map((row) => [row.slug, { cover: row.cover ? `/img/${row.cover}` : null, square: row.square ? `/img/${row.square}` : null }]));
+    .all<{ id: string; slug: string; full_game_item_name: string | null; full_game_item: string | null; cover: string | null; square: string | null }>();
+  return new Map(
+    results.map((row) => {
+      return [row.slug, { id: row.id, cover: row.cover ? `/img/${row.cover}` : null, square: row.square ? `/img/${row.square}` : null, is_paid: row.full_game_item_name !== null, full_game_price: fullGamePriceOf(row.full_game_item, countryCode) }];
+    }),
+  );
 }
 
 interface EditState {
@@ -134,8 +139,14 @@ async function profilePage(env: Env, owner: Account, visitor: Account | null, vi
   // Playing now goes through the same rules as /friends (friends-now.ts); the owner previewing as a friend sees it as a friend would.
   const viewerAccountId = viewer.kind === "owner" ? owner.id : viewer.kind === "friend" ? (viewer.accountId ?? owner.id) : viewer.kind === "signed_in" ? viewer.accountId : null;
   const playingNow = view.can_see_playing_now ? await playingNowOf(env.DB, owner.id, viewerAccountId, viewerAgeFloorYears) : null;
-  const covers = await coversOf(env, [...view.published_games, ...(view.played_games ?? [])].map((game) => game.slug));
-  const card = (game: { slug: string; title: string }, flag?: string) => tile({ slug: game.slug, title: game.title, ...(covers.get(game.slug) ?? { cover: null, square: null }) }, flag ? { flag } : {});
+  const covers = await coversOf(env, [...view.published_games, ...(view.played_games ?? [])].map((game) => game.slug), countryCode);
+  // A paid game's cover carries its price to play, for a visitor who doesn't own it.
+  const ownedGameIds = await paidGamesOwnedBy(env, visitor, [...covers.values()]);
+  const card = (game: { slug: string; title: string }, flag?: string) => {
+    const cover = covers.get(game.slug);
+    const shownFlag = flag ?? (cover ? coverPriceText(cover, ownedGameIds) : undefined);
+    return tile({ slug: game.slug, title: game.title, cover: cover?.cover ?? null, square: cover?.square ?? null }, shownFlag ? { flag: shownFlag } : {});
+  };
   const isOwnView = viewer.kind === "owner";
   const isOwner = visitor?.id === owner.id;
   const name = view.display_name ?? owner.username;

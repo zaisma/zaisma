@@ -4,7 +4,7 @@ import { component } from "./component.ts";
 import { controlMarkup, type ControlMarkup } from "./control-markup.ts";
 import { CUT_LINE, EDGE, glassPane, icon, logo, railMarkup, type IconName } from "./foundations.ts";
 import { cutPolygon } from "./tokens.ts";
-import { cutButton, runButton, textLink } from "./actions.ts";
+import { cutButton, rowArrows, runButton, textLink } from "./actions.ts";
 import { searchField, tabSwitch, type SearchFieldOptions, type SwitchTab } from "./inputs.ts";
 import { STAND_IN_COVERS, dropdown, type DropdownItem } from "./panes.ts";
 import { listRows, pictureFrame } from "./data.ts";
@@ -548,22 +548,6 @@ export const RAIL_SCRIPT = `/* rail */(function () {
 `;
 
 
-export interface RowArrowsOptions {
-  /** The row's name, for a screen reader: "Scroll Popular on". */
-  rowName: string;
-  /** The id of the track it scrolls (Track, layout.ts). */
-  trackId: string;
-  /** Where the row starts scrolled to, so both arrows or only the back one can be pressed: the gallery's fixed states. */
-  scrolledTo?: "middle" | "end";
-}
-
-/** Arrows to scroll a row, for a mouse or trackpad: a cut well of two halves at the right of the row's heading. Touch screens swipe instead. */
-export function rowArrows(options: RowArrowsOptions): ControlMarkup {
-  const arrow = (way: "back" | "on") =>
-    cutButton(`Scroll ${options.rowName} ${way}`, { type: "button", icon: way === "back" ? "arrow-back" : "arrow-on", isLabelHidden: true, isInWell: true, controls: options.trackId });
-  return controlMarkup(html`<div class="steps cut-carved" data-row-arrows${options.scrolledTo ? html` data-scrolled-to="${options.scrolledTo}"` : ""} data-cut-line="9">${CUT_LINE}${arrow("back")}${arrow("on")}</div>`, "small", { isPointerOnly: true });
-}
-
 /**
  * Scroll fades: every box that scrolls up and down, wherever it is and whatever is in it, fades its words out over its
  * top and bottom edges while there's more to scroll that way, so nothing runs hard into the edge of its pane. Found by
@@ -1101,11 +1085,13 @@ export interface SectionTabsOptions {
   /** What the sections are, for a screen reader: "Game sections". */
   label: string;
   tabs: SectionTab[];
+  /** Unique on the page: the id of the row the tabs scroll in, so a mouse gets Row arrows when they don't fit across. */
+  rowId?: string;
 }
 
 /** A page's own sections as tabs (a game dashboard's Overview, Versions, Players; a profile's Games and Friends): the header's tabs, under the page's title. */
 export function sectionTabs(options: SectionTabsOptions): Raw {
-  return html`<nav class="section-tabs" aria-label="${options.label}">${tabSwitch({ label: options.label, switchSize: "big", isFramed: true, tabs: options.tabs })}</nav>`;
+  return html`<nav class="section-tabs" aria-label="${options.label}">${tabSwitch({ label: options.label, switchSize: "big", isFramed: true, rowId: options.rowId, tabs: options.tabs })}</nav>`;
 }
 
 export interface SidePlacesOptions {
@@ -1115,6 +1101,8 @@ export interface SidePlacesOptions {
   places: (SectionTab & { icon: IconName })[];
   /** The page itself: its sections, one under another. */
   body: Raw;
+  /** Unique on the page: the id of the row its places scroll in where they're tabs (Section tabs' rowId). */
+  rowId?: string;
 }
 
 /**
@@ -1122,7 +1110,7 @@ export interface SidePlacesOptions {
  * page at most a reading page's column (--size-page-reading) beside it, the pair centered in the wide frame (a reading page: Page shape). Where both can't have room, the places are the section tabs at the top of the page.
  */
 export function sidePlaces(options: SidePlacesOptions): Raw {
-  return html`<div class="side-places"><div class="side-places-in"><nav class="side-places-side" aria-label="${options.label}">${glassPane({ paneWidth: "fit", body: tabSwitch({ label: options.label, switchSize: "big", isVertical: true, tabs: options.places }) })}</nav><div class="side-places-top">${sectionTabs({ label: options.label, tabs: options.places.map((place) => ({ label: place.label, href: place.href, isCurrent: place.isCurrent, badgeCount: place.badgeCount, state: place.state })) })}</div><div class="side-places-body">${options.body}</div></div></div>`;
+  return html`<div class="side-places"><div class="side-places-in"><nav class="side-places-side" aria-label="${options.label}">${glassPane({ paneWidth: "fit", body: tabSwitch({ label: options.label, switchSize: "big", isVertical: true, tabs: options.places }) })}</nav><div class="side-places-top">${sectionTabs({ label: options.label, rowId: options.rowId, tabs: options.places.map((place) => ({ label: place.label, href: place.href, isCurrent: place.isCurrent, badgeCount: place.badgeCount, state: place.state })) })}</div><div class="side-places-body">${options.body}</div></div></div>`;
 }
 
 /** The least room for the places beside the page: below it, they are the tabs at the top (a container query can't read a token). */
@@ -1183,7 +1171,7 @@ component({
 /* Section tabs: the header's framed switch for a page's own sections. As wide as its tabs, and never wider than the page: past that
    they scroll sideways inside their frame, fading out over a side with more, and rest on whole tabs, starting where the one you're on shows whole. */
 .section-tabs { display: flex; min-width: 0; max-width: 100%; }
-.section-tabs > .switch-frame { flex: 0 1 auto; }
+.section-tabs > .switch-frame, .section-tabs > .switch-scroll { flex: 0 1 auto; }
 `,
   render: sectionTabs,
   examples: [
@@ -1203,7 +1191,7 @@ component({
       isStill: true,
       markup: sectionTabs({ label: "Profile sections", tabs: PROFILE_SECTIONS.slice(0, 3).map((label, tabIndex) => ({ label, href: "#section-tabs", isCurrent: tabIndex === 0, state: tabIndex === 1 ? "is-focused" : undefined })) }),
     },
-    { label: "In a narrow pane: they scroll to the one you pick", markup: glassPane({ paneWidth: "fit", body: sectionTabs({ label: "Profile sections", tabs: PROFILE_SECTIONS.map((label, tabIndex) => ({ label, href: "#section-tabs", isCurrent: tabIndex === 2 })) }) }) },
+    { label: "In a narrow pane: they scroll to the one you pick, and a mouse has Row arrows", markup: glassPane({ paneWidth: "fit", body: sectionTabs({ label: "Profile sections", rowId: "example-section-tabs-row", tabs: PROFILE_SECTIONS.map((label, tabIndex) => ({ label, href: "#section-tabs", isCurrent: tabIndex === 2 })) }) }) },
   ],
 });
 
@@ -1319,5 +1307,113 @@ component({
       isWide: true,
       markup: glassPane({ paneWidth: "full", body: html`${listRows({ whenEmpty: html`<p>No older versions yet.</p>`, id: "example-load-end-list", rows: LOADED_ROWS })}${loadMore({ label: "Show older versions", listId: "example-load-end-list", endText: "That's every version." })}` }),
     },
+  ],
+});
+
+/** One way a Filter menu narrows a list (Genre, Players, Price): its choices, each a link to the list with it picked. */
+export interface FilterGroup {
+  /** Its key in the menu, lowercase: "genre". */
+  groupName: string;
+  label: string;
+  /** What's picked now, said beside its label: "Adventure", or "Any". */
+  pickedLabel: string;
+  choices: { label: string; href: string; isCurrent: boolean }[];
+}
+
+export interface FilterMenuOptions {
+  /** The menu's id, which its button controls. */
+  id: string;
+  groups: FilterGroup[];
+  /** The list with nothing filtered, for Clear filters; null when nothing is. */
+  clearHref: string | null;
+  /** How many filters are in use, on the button; 0 for none. */
+  filterCount: number;
+  /** The gallery's fixed states: open, and on one group's choices. */
+  isOpen?: boolean;
+  openGroupName?: string;
+}
+
+/**
+ * The Filter menu: a button that opens a dropdown of the ways to narrow a list, each with what's picked. Choosing one turns the menu to
+ * that group's choices, with a way back at its top, in the same pane, so a mouse and a thumb use it alike; choosing a choice follows its link.
+ */
+export function filterMenu(options: FilterMenuOptions): ControlMarkup {
+  // A choice is a Dropdown's (its classes and look), a link to the list with it picked.
+  const choice = (label: string, href: string, isCurrent: boolean, choiceIcon?: IconName) =>
+    html`<a href="${href}" class="dropdown-choice" role="menuitem" tabindex="-1" data-cut-line="8"${isCurrent ? raw(' aria-current="page"') : ""}>${CUT_LINE}${choiceIcon ? icon(choiceIcon) : ""}<span>${label}</span></a>`;
+  const button = cutButton("Filter", { type: "button", icon: "filter", controls: options.id, isExpanded: Boolean(options.isOpen), reactionCount: options.filterCount || undefined });
+  const opener = (groupName: string, inside: Raw, className: string) =>
+    html`<button type="button" class="dropdown-choice ${className}" role="menuitem" tabindex="-1" aria-haspopup="menu" data-cut-line="8" data-filter-opens="${groupName}">${CUT_LINE}${inside}</button>`;
+  const main = html`<div class="dropdown-in filter-panel" data-filter-panel=""${options.openGroupName ? raw(" hidden") : ""}>${options.groups.map((group) =>
+    opener(group.groupName, html`<span>${group.label}</span><span class="filter-picked">${group.pickedLabel}</span>${icon("chevron-right")}`, "filter-group"),
+  )}${options.clearHref ? html`<hr role="separator">${choice("Clear filters", options.clearHref, false, "close")}` : ""}</div>`;
+  const panels = options.groups.map(
+    (group) =>
+      html`<div class="dropdown-in filter-panel" data-filter-panel="${group.groupName}"${options.openGroupName === group.groupName ? "" : raw(" hidden")}>${opener("", html`${icon("arrow-back")}<span>${group.label}</span>`, "filter-back")}<hr role="separator">${group.choices.map((each) => choice(each.label, each.href, each.isCurrent))}</div>`,
+  );
+  const menu = html`<div class="dropdown glass filter-menu${options.isOpen ? "" : " shut"}" id="${options.id}" role="menu" aria-label="Filter" aria-hidden="${options.isOpen ? "false" : "true"}" data-glass data-glass-corners="menu">${EDGE}${main}${panels}</div>`;
+  return controlMarkup(html`${button}${menu}`, "regular");
+}
+
+/** A Filter menu turns to a group's choices and back in place, and starts again from its groups each time it opens. */
+export const FILTER_MENU_SCRIPT = `/* filter menus */(function () {
+  function show(menu, groupName, isFocused) {
+    var shown = null;
+    menu.querySelectorAll("[data-filter-panel]").forEach(function (panel) { panel.hidden = panel.getAttribute("data-filter-panel") !== groupName; if (!panel.hidden) shown = panel; });
+    if (menu.zaismaPlace) menu.zaismaPlace();
+    if (isFocused && shown) {
+      // Back from a group, its row in the groups is focused again; into one, its picked choice, or else its first.
+      var back = groupName === "" && menu.lastGroupName ? menu.querySelector('[data-filter-opens="' + menu.lastGroupName + '"]') : null;
+      var target = back || shown.querySelector('[aria-current="page"]') || shown.querySelector('[role="menuitem"]');
+      if (target) target.focus({ preventScroll: true });
+    }
+  }
+  window.zaismaWatch.each(".filter-menu", function (menu) {
+    menu.addEventListener("click", function (event) {
+      var opener = event.target.closest("[data-filter-opens]");
+      if (!opener) return;
+      var groupName = opener.getAttribute("data-filter-opens");
+      if (groupName) menu.lastGroupName = groupName;
+      show(menu, groupName, event.detail === 0);
+    });
+    menu.addEventListener("keydown", function (event) {
+      var item = document.activeElement;
+      if (event.key === "ArrowRight" && item && item.matches(".filter-group")) { event.preventDefault(); menu.lastGroupName = item.getAttribute("data-filter-opens"); show(menu, menu.lastGroupName, true); }
+      if (event.key === "ArrowLeft" && item && item.closest('[data-filter-panel]:not([data-filter-panel=""])')) { event.preventDefault(); show(menu, "", true); }
+    });
+    // Shut, it goes back to its groups for the next time it opens.
+    new MutationObserver(function () { if (menu.getAttribute("aria-hidden") === "true") show(menu, "", false); }).observe(menu, { attributes: true, attributeFilter: ["aria-hidden"] });
+  });
+})();
+`;
+
+const filterMenuFrame = (options: FilterMenuOptions) => html`<div class="dropdown-frame">${filterMenu(options)}</div>`;
+const EXAMPLE_FILTER_GROUPS: FilterGroup[] = [
+  { groupName: "genre", label: "Genre", pickedLabel: "Adventure", choices: ["Any", "Action", "Adventure", "Role-playing", "Strategy"].map((label) => ({ label, href: "#filter-menu", isCurrent: label === "Adventure" })) },
+  { groupName: "players", label: "Players", pickedLabel: "Any", choices: ["Any", "Single-player", "Multiplayer"].map((label) => ({ label, href: "#filter-menu", isCurrent: label === "Any" })) },
+  { groupName: "price", label: "Price", pickedLabel: "$15 to $30", choices: ["Any price", "Free", "Under $5", "$5 to $15", "$15 to $30", "$30 and up"].map((label) => ({ label, href: "#filter-menu", isCurrent: label === "$15 to $30" })) },
+];
+
+component({
+  name: "Filter menu",
+  slug: "filter-menu",
+  group: "panes",
+  summary: "The ways to narrow a list, in one menu from a Filter button that counts the ones in use: each way says what's picked, and opens its choices in the same pane, with a way back.",
+  styles: `
+/* A Filter menu: a Dropdown whose rows each open a group's choices in its place (a group's row ends in what's picked and a chevron),
+   and whose group's choices start with the way back. It's at least wide enough for its longest group and what's picked in it. */
+/* Until DROPDOWN_SCRIPT places it, it waits shut at the window's corner, not where it sits in the row (past the window's edge). */
+.filter-menu { top: 0; left: 0; min-width: min(15rem, var(--menu-room-width, calc(100vw - 2 * var(--pad-frame)))); }
+.filter-panel[hidden] { display: none; }
+.filter-group > .filter-picked { margin-left: auto; color: var(--muted); font: var(--type-facts); }
+.filter-group > .ico, .filter-back > .ico { flex: none; width: 12px; height: 12px; }
+.filter-back { font: var(--type-name); color: var(--ink); }
+`,
+  render: filterMenu,
+  examples: [
+    { label: "Closed, two filters in use", markup: html`<div style="display:flex;justify-content:flex-end">${filterMenu({ id: "example-filter-closed", groups: EXAMPLE_FILTER_GROUPS, clearHref: "#filter-menu", filterCount: 2 })}</div>` },
+    { label: "Open: the ways to filter, each with what's picked", markup: filterMenuFrame({ id: "example-filter-open", groups: EXAMPLE_FILTER_GROUPS, clearHref: "#filter-menu", filterCount: 2, isOpen: true }) },
+    { label: "On one way's choices, the picked one marked", markup: filterMenuFrame({ id: "example-filter-price", groups: EXAMPLE_FILTER_GROUPS, clearHref: "#filter-menu", filterCount: 2, isOpen: true, openGroupName: "price" }), isStill: true },
+    { label: "Nothing filtered yet: no count, no Clear filters", markup: filterMenuFrame({ id: "example-filter-none", groups: EXAMPLE_FILTER_GROUPS.map((group) => ({ ...group, pickedLabel: group.groupName === "price" ? "Any price" : "Any" })), clearHref: null, filterCount: 0, isOpen: true }) },
   ],
 });

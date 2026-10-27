@@ -80,7 +80,7 @@ export function roomsPanel(game: Pick<Game, "slug">, list: RoomPage, picked: Rec
       { label: "All", isCurrent: !list.region, extra: html` data-region=""` },
       ...list.regions.map((entry) => ({ label: entry.name, badgeCount: entry.roomCount, isCurrent: list.region === entry.region, extra: html` data-region="${entry.region}"` })),
     ];
-    items.push({ kind: "control", markup: tabSwitch({ label: "Region", switchSize: "small", isFramed: true, tabs }) });
+    items.push({ kind: "control", markup: tabSwitch({ label: "Region", switchSize: "small", isFramed: true, rowId: "rooms-region-row", tabs }) });
   }
   // Labels worth filtering by, with only the values that pass the filter. The page's script reads data-label on the field a pick changes.
   const filters = list.filters

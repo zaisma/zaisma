@@ -51,8 +51,8 @@ async function tool(name: string, toolArguments: Record<string, unknown>): Promi
   return result.structuredContent;
 }
 
-const revive = { title: "Revive", description: "Back in the fight where you fell.", item_kind: "consumable", item_category: "gameplay", price_minor_units: 199, currency_code: "usd", local_prices: [] };
-const cape = { title: "Supporter's Cape", description: "", item_kind: "permanent", item_category: "cosmetic", price_minor_units: null, currency_code: null, local_prices: [] };
+const revive = { title: "Revive", description: "Back in the fight where you fell.", item_kind: "consumable", item_category: "gameplay", price_minor_units: 199, currency_code: "usd", local_prices: [], is_on_game_page: false };
+const cape = { title: "Supporter's Cape", description: "", item_kind: "permanent", item_category: "cosmetic", price_minor_units: null, currency_code: null, local_prices: [], is_on_game_page: false };
 const setItem = (itemName: string, fields: Record<string, unknown>) => api(`/games/sky-hopper/items/${itemName}`, { method: "PUT", body: fields });
 const setRefundPolicy = () => api("/games/sky-hopper/purchase-settings", { method: "PATCH", body: { refund_policy: "unused_within_14_days" } });
 const receiptKeys = async () => [(await loadSigningKey(env.TEST_RECEIPT_SIGNING_KEY)).publicKey];
@@ -487,6 +487,85 @@ describe("a deleted game", () => {
     vi.unstubAllGlobals();
     const played = JSON.parse(new TextDecoder().decode(zip["games-played.json"]));
     expect(played.purchases).toMatchObject([{ game_slug: "sky-hopper", game_title: game.title, id: granted.answer.purchase.id, item_name: "supporter_cape", purchase_status: "completed" }]);
+  });
+});
+
+describe("selling the game once", () => {
+  const fullGame = { title: "Sky Hopper", description: "The whole game.", item_kind: "permanent", item_category: "content", price_minor_units: 1999, currency_code: "usd", local_prices: [], is_on_game_page: false };
+  const setGame = (body: Record<string, unknown>, key?: string) => api("/games/sky-hopper", { method: "PATCH", body, key });
+
+  it("takes the is_on_game_page of an item, and answers it", async () => {
+    await setRefundPolicy();
+    const made = await setItem("expansion", { ...fullGame, title: "The North", is_on_game_page: true });
+    expect(made.answer.item).toMatchObject({ is_on_game_page: true });
+    expect(schemaProblems(GAME_ITEM, made.answer.item)).toEqual([]);
+    expect((await setItem("expansion", { ...fullGame, is_on_game_page: "yes" })).answer.error).toMatchObject({ code: "bad_item", field: "is_on_game_page" });
+  });
+
+  it("names a permanent content item as the full game, turning the game accounts only, and it stays so while it's set", async () => {
+    await setRefundPolicy();
+    await setItem("full_game", fullGame);
+    const named = await setGame({ full_game_item_name: "full_game" });
+    expect(named.status).toBe(200);
+    expect(named.answer.game).toMatchObject({ full_game_item_name: "full_game", account_requirement: "whole_game", demo_game_slug: null, purchase_label: { categories: [] } });
+    expect(schemaProblems(GAME, named.answer.game)).toEqual([]);
+    expect((await setGame({ account_requirement: "none" })).answer.error).toMatchObject({ code: "account_requirement_locked", field: "account_requirement" });
+    // Made free to play again, account_requirement stays as it is.
+    expect((await setGame({ full_game_item_name: null, account_requirement: "none" })).answer.game).toMatchObject({ full_game_item_name: null, account_requirement: "none" });
+  });
+
+  it("refuses an item that's missing, consumable or not content, and asks for a refund policy when there's none", async () => {
+    expect((await setGame({ full_game_item_name: "full_game" })).answer.error).toMatchObject({ code: "bad_full_game_item", field: "full_game_item_name" });
+    await setItem("revive", { ...revive, price_minor_units: null, currency_code: null });
+    expect((await setGame({ full_game_item_name: "revive" })).answer.error).toMatchObject({ code: "bad_full_game_item", field: "full_game_item_name" });
+    await setItem("skin", { ...fullGame, item_category: "cosmetic", price_minor_units: null, currency_code: null });
+    expect((await setGame({ full_game_item_name: "skin" })).answer.error).toMatchObject({ code: "bad_full_game_item" });
+    expect((await setGame({ full_game_item_name: "Full Game" })).answer.error).toMatchObject({ code: "bad_full_game_item" });
+    // Only granted for now (no price, so no refund policy yet): named, with set_purchase_settings next.
+    await setItem("full_game", { ...fullGame, price_minor_units: null, currency_code: null });
+    expect((await setGame({ full_game_item_name: "full_game" })).answer.next_steps).toEqual(expect.arrayContaining([expect.objectContaining({ tool: "set_purchase_settings" })]));
+  });
+
+  it("keeps the full game item permanent, content and there while it's named", async () => {
+    await setRefundPolicy();
+    await setItem("full_game", fullGame);
+    await setGame({ full_game_item_name: "full_game" });
+    expect((await setItem("full_game", { ...fullGame, item_kind: "consumable" })).answer.error).toMatchObject({ code: "full_game_item_in_use", field: "item_kind" });
+    expect((await setItem("full_game", { ...fullGame, item_category: "gameplay" })).answer.error).toMatchObject({ code: "full_game_item_in_use", field: "item_category" });
+    expect((await api("/games/sky-hopper/items/full_game", { method: "DELETE" })).answer.error).toMatchObject({ code: "full_game_item_in_use" });
+    // Its price can come off: the page says Not on sale right now.
+    expect((await setItem("full_game", { ...fullGame, price_minor_units: null, currency_code: null })).status).toBe(200);
+  });
+
+  it("links another of the developer's free games as the demo, never itself, a paid one or someone else's", async () => {
+    await setRefundPolicy();
+    await setItem("full_game", fullGame);
+    expect((await api("/games", { body: { title: "Sky Hopper Demo", slug: "sky-hopper-demo" } })).status).toBe(201);
+    expect((await setGame({ demo_game_slug: "sky-hopper-demo" })).answer.error).toMatchObject({ code: "bad_demo_game", field: "demo_game_slug" });
+    expect((await setGame({ full_game_item_name: "full_game", demo_game_slug: "sky-hopper-demo" })).answer.game).toMatchObject({ demo_game_slug: "sky-hopper-demo" });
+    expect((await setGame({ demo_game_slug: "sky-hopper" })).answer.error).toMatchObject({ code: "bad_demo_game" });
+    expect((await setGame({ demo_game_slug: "no-such-game" })).answer.error).toMatchObject({ code: "bad_demo_game" });
+    // The demo can't be sold itself while it's a demo.
+    await api("/games/sky-hopper-demo/purchase-settings", { method: "PATCH", body: { refund_policy: "no_refunds" } });
+    await api("/games/sky-hopper-demo/items/full_game", { method: "PUT", body: fullGame });
+    expect((await api("/games/sky-hopper-demo", { method: "PATCH", body: { full_game_item_name: "full_game" } })).answer.error).toMatchObject({ code: "bad_full_game_item" });
+    // Someone else's game.
+    await createAccount(env.DB, { id: "other-developer", username: "Liam_Moore", ageBand: "18+" });
+    await letPublish(env.DB, "other-developer");
+    const otherKey = (await createApiKey(env.DB, "other-developer", "claude")).token;
+    expect((await api("/games", { body: { title: "Moon Base", slug: "moon-base" }, key: otherKey })).status).toBe(201);
+    expect((await setGame({ demo_game_slug: "moon-base" })).answer.error).toMatchObject({ code: "bad_demo_game" });
+    // Free to play again, the demo goes with it.
+    expect((await setGame({ full_game_item_name: null })).answer.game).toMatchObject({ demo_game_slug: null });
+  });
+
+  it("needs purchase_access write to set the price to play, through the MCP tool too", async () => {
+    await setRefundPolicy();
+    await setItem("full_game", fullGame);
+    const publishKey = (await createApiKey(env.DB, developerId, "ci", { accessLevel: "publish", gameSlugs: null })).token;
+    expect((await setGame({ full_game_item_name: "full_game" }, publishKey)).answer.error).toMatchObject({ code: "key_not_allowed" });
+    expect((await tool("update_game", { slug: "sky-hopper", full_game_item_name: "full_game" })).game).toMatchObject({ full_game_item_name: "full_game" });
+    expect((await tool("set_item", { slug: "sky-hopper", item_name: "north", ...fullGame, is_on_game_page: true })).item).toMatchObject({ is_on_game_page: true });
   });
 });
 

@@ -71,6 +71,8 @@ export interface GlanceFacts {
   friendsRefusalNotes?: string[];
   /** Why it may not suit this device ("Needs a keyboard"), for a game made for others; said instead of when you played or friends. */
   deviceNote?: string;
+  /** A paid game's price to play ("$24.99"), for a viewer who doesn't own it: a tag on its cover. */
+  priceText?: string;
 }
 
 /** The glance list: one line per fact, each with its own look. People and a clock are line icons; friends are their pictures; an update is a green tag. */

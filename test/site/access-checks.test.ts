@@ -180,7 +180,7 @@ const SAMPLES: Record<string, (world: World) => Sample> = {
   "DELETE /games/:slug/secrets/:secret_name": () => ({}),
   "GET /games/:slug/kept-rooms": () => ({}),
   "GET /games/:slug/items": () => ({}),
-  "PUT /games/:slug/items/:item_name": () => ({ body: { title: "Revive", description: "", item_kind: "consumable", item_category: "gameplay", price_minor_units: 149, currency_code: "usd", local_prices: [] } }),
+  "PUT /games/:slug/items/:item_name": () => ({ body: { title: "Revive", description: "", item_kind: "consumable", item_category: "gameplay", price_minor_units: 149, currency_code: "usd", local_prices: [], is_on_game_page: false } }),
   // An item nobody owns: one players own stays (item_has_owners).
   "DELETE /games/:slug/items/:item_name": () => ({ pathValues: { item_name: "spare_cape" } }),
   "PATCH /games/:slug/purchase-settings": () => ({ body: { refund_policy: "within_14_days" } }),
@@ -290,6 +290,7 @@ const NAMES_INSIDE: Record<string, string> = {
 const INPUTS_THAT_NEED_MORE: Record<string, [AccessArea, string]> = {
   "POST /games/:slug/versions publish_when_approved": ["version_access", "publish"],
   "PATCH /games/:slug monthly_budget_cents": ["credit_access", "write"],
+  "PATCH /games/:slug full_game_item_name": ["purchase_access", "write"],
 };
 
 /** What a stranger names in an input that names something: the developer's own. */

@@ -84,9 +84,11 @@ function coverFacts(facts: GlanceFacts, title?: string): Raw {
       : friends.length
         ? html`<span class="friends">${pictureRow(friends.map((friend) => friend.username), "xs")}<span>${friends.map((friend) => friend.username).join(", ")}<span class="sr"> playing</span></span></span>`
         : "";
+  // A paid game's price to play leads what's said under its cover.
+  const priced = facts.priceText ? html`${tag(facts.priceText, "plain")}${left}` : left;
   // With its title shown, the title leads the row and anything else it has to say goes on a line of its own under it.
-  if (title !== undefined) return html`<div class="cover-meta has-title"><span class="cover-name">${title}</span>${facts.playerCount !== undefined ? html`<span class="count">${icon("people")}<span>${facts.playerCount.toLocaleString("en-US")}<span class="sr"> playing now</span></span></span>` : ""}${left ? html`<span class="cover-more">${left}</span>` : ""}</div>`;
-  return html`<div class="cover-meta">${left}${facts.playerCount !== undefined ? html`<span class="count">${icon("people")}<span>${facts.playerCount.toLocaleString("en-US")}<span class="sr"> playing now</span></span></span>` : ""}</div>`;
+  if (title !== undefined) return html`<div class="cover-meta has-title"><span class="cover-name">${title}</span>${facts.playerCount !== undefined ? html`<span class="count">${icon("people")}<span>${facts.playerCount.toLocaleString("en-US")}<span class="sr"> playing now</span></span></span>` : ""}${priced ? html`<span class="cover-more">${priced}</span>` : ""}</div>`;
+  return html`<div class="cover-meta">${priced}${facts.playerCount !== undefined ? html`<span class="count">${icon("people")}<span>${facts.playerCount.toLocaleString("en-US")}<span class="sr"> playing now</span></span></span>` : ""}</div>`;
 }
 
 export interface GameCoverOptions {
@@ -184,7 +186,13 @@ export const DROPDOWN_SCRIPT = `/* menus */(function () {
     menu.style.removeProperty("--menu-room");
     menu.style.setProperty("--menu-room-width", Math.max(0, end - start - 2 * edgePx) + "px");
     var spot = window.zaismaPlace(anchor, { width: menu.offsetWidth, height: menu.offsetHeight }, { roomRect: room, gapPx: gapPx, edgePx: edgePx, isAlwaysBelow: !!slab });
-    menu.style.setProperty("--menu-room", Math.max(0, spot.isAbove ? anchor.top - gapPx - top - edgePx : foot - anchor.bottom - gapPx - edgePx) + "px");
+    var roomPx = Math.max(0, spot.isAbove ? anchor.top - gapPx - top - edgePx : foot - anchor.bottom - gapPx - edgePx);
+    menu.style.setProperty("--menu-room", roomPx + "px");
+    // Choices that would scroll by a sliver (a few pixels taller than the room, as a Filter menu's prices on a phone) show them all instead:
+    // a scroll that short only bounces under a finger.
+    var shownChoices = Array.prototype.find.call(menu.querySelectorAll(".dropdown-in"), function (box) { return box.offsetParent !== null; });
+    var extraPx = shownChoices ? shownChoices.scrollHeight - shownChoices.clientHeight : 0;
+    if (extraPx > 0 && extraPx < 12) menu.style.setProperty("--menu-room", Math.ceil(roomPx + extraPx) + "px");
     spot = window.zaismaPlace(anchor, { width: menu.offsetWidth, height: menu.offsetHeight }, { roomRect: room, gapPx: gapPx, edgePx: edgePx, isAlwaysBelow: !!slab });
     menu.classList.toggle("from-start", !spot.isAtEnd); menu.classList.toggle("is-above", spot.isAbove);
     menu.style.top = (spot.topPx - origin.top) + "px";
@@ -201,6 +209,8 @@ export const DROPDOWN_SCRIPT = `/* menus */(function () {
   function shown() { menus = menus.filter(function (menu) { return menu.isConnected; }); return menus; }
   window.zaismaWatch.each('.dropdown[role="menu"]', function (menu) {
     menus.push(menu);
+    // A menu whose height changes while it's open (a Filter menu turning to a group's choices) is placed again by its own script.
+    menu.zaismaPlace = function () { place(menu); };
     if (!menu.classList.contains("shut")) requestAnimationFrame(function () { place(menu); });
     menu.addEventListener("keydown", function (event) {
       var list = items(menu), at = list.indexOf(document.activeElement);
@@ -208,7 +218,8 @@ export const DROPDOWN_SCRIPT = `/* menus */(function () {
       if (event.key === "Home" || event.key === "End") { event.preventDefault(); list[event.key === "Home" ? 0 : list.length - 1].focus(); }
       if (event.key === "Escape" || event.key === "Tab") { toggle(menu, false); if (event.key === "Escape") { var button = buttonOf(menu); if (button) button.focus(); } }
     });
-    menu.addEventListener("click", function (event) { if (event.target.closest('[role="menuitem"]')) toggle(menu, false); });
+    // A choice that opens more choices in the same menu (aria-haspopup) keeps it open.
+    menu.addEventListener("click", function (event) { if (event.target.closest('[role="menuitem"]:not([aria-haspopup])')) toggle(menu, false); });
   });
   document.addEventListener("click", function (event) {
     var button = event.target.closest && event.target.closest("[aria-controls][aria-expanded]");
@@ -221,6 +232,8 @@ export const DROPDOWN_SCRIPT = `/* menus */(function () {
   });
   function placeAll() { shown().forEach(place); }
   window.zaismaWatch.resize(placeAll);
+  // An open menu is measured again once the fonts are in, when its choices have their real height.
+  if (document.fonts) document.fonts.ready.then(placeAll);
   window.zaismaWatch.scroll(placeAll);
 })();
 `;
@@ -484,6 +497,31 @@ component({
   ],
 });
 
+/** A filter in use, said as a tag that removes it: its link is the list without it. */
+export interface FilterTag {
+  label: string;
+  removeHref: string;
+}
+
+/** The filters in use, under a list's Filter button: each a small cut button with a close mark, which takes that one away. */
+export function filterTags(options: { tags: FilterTag[] }): Raw {
+  return row({ widths: "fit", label: "Filters in use: each removes itself", items: options.tags.map((filter) => control(cutButton(filter.label, { href: filter.removeHref, icon: "close", isSmall: true }))) });
+}
+
+component({
+  name: "Filter tags",
+  slug: "filter-tags",
+  group: "panes",
+  summary: "The filters in use on a list, under its Filter button: one small button each, with a close mark, that takes it away.",
+  // A Row of its buttons (layout.ts): they wrap onto more lines where they don't fit across.
+  styles: "",
+  render: filterTags,
+  examples: [
+    { label: "Two in use", markup: filterTags({ tags: [{ label: "Adventure", removeHref: "#filter-tags" }, { label: "$15 to $30", removeHref: "#filter-tags" }] }) },
+    { label: "Many, wrapping", markup: html`<div style="width:min(260px,100%)">${filterTags({ tags: [{ label: "Role-playing", removeHref: "#filter-tags" }, { label: "Multiplayer", removeHref: "#filter-tags" }, { label: "$30 and up", removeHref: "#filter-tags" }] })}</div>` },
+  ],
+});
+
 component({
   name: "Game cover",
   slug: "game-cover",
@@ -498,6 +536,7 @@ component({
     { label: "In focus", markup: html`<div class="cover-sample">${gameCover({ title: "Verdant", imageUrl: "/design/covers/verdant.webp", href: "#verdant", facts: { playerCount: 96 }, isCurrent: true })}</div>`, isStill: true },
     { label: "On a loop", markup: html`<div class="cover-sample" data-state-loop="cover">${standInCovers(["iron-vigil"])}</div>`, isStill: true },
     { label: "Made for another device", markup: html`<div class="cover-sample">${gameCover({ title: "Verdant", imageUrl: "/design/covers/verdant.webp", href: "#verdant", facts: { deviceNote: "Needs a keyboard" } })}</div>` },
+    { label: "A paid game", markup: html`<div class="cover-sample">${gameCover({ title: "Hollow Tide", imageUrl: "/design/covers/hollow-tide.webp", href: "#hollow-tide", facts: { priceText: "$24.99", playerCount: 412 } })}</div>` },
     { label: "No cover yet", markup: html`<div class="cover-sample">${gameCover({ title: "The Last Lighthouse Keeper", imageUrl: null, href: "#game-cover", facts: { playerCount: 38 } })}</div>` },
     { label: "With its title, for another device", markup: html`<div class="cover-sample">${gameCover({ title: "The Last Lighthouse Keeper", imageUrl: null, href: "#game-cover", facts: { playerCount: 38, deviceNote: "Needs a keyboard" }, isTitleShown: true })}</div>` },
     {

@@ -315,6 +315,22 @@ describe("game server", () => {
     expect((await SELF.fetch(`${G}/open-one/`)).status).toBe(200);
   });
 
+  it("serves a private paid game to browsers that came in through its entry, which only owners get, and is not found for any other", async () => {
+    await addGame("ashfall", "live");
+    await env.DB.prepare("UPDATE games SET visibility = 'private', account_requirement = 'whole_game', full_game_item_name = 'full_game', entry_signing_key = 'keyone' WHERE slug = 'ashfall'").run();
+    const game = (await gameBySlug(env.DB, "ashfall"))!;
+    const stranger = await SELF.fetch(`${G}/ashfall/`);
+    expect(stranger.status).toBe(404);
+    expect(await stranger.text()).toContain("Game not found");
+    const entered = await SELF.fetch(`${G}/ashfall/_zaisma/enter?grant=${await createEntryGrant(game)}`, { redirect: "manual" });
+    expect(entered.status).toBe(302);
+    const cookie = entered.headers.get("set-cookie")!.split(";")[0]!;
+    expect((await SELF.fetch(`${G}/ashfall/`, { headers: { cookie } })).status).toBe(200);
+    // A private game that doesn't sell itself opens only through preview and tester links, cookie or not.
+    await env.DB.prepare("UPDATE games SET full_game_item_name = NULL WHERE slug = 'ashfall'").run();
+    expect((await SELF.fetch(`${G}/ashfall/`, { headers: { cookie } })).status).toBe(404);
+  });
+
   describe("files uploaded one by one", () => {
     const enc = (text: string) => new TextEncoder().encode(text);
     // "let level = 1;\n" 200 times, and its Brotli copy, made with Node's zlib.

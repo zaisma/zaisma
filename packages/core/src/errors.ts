@@ -217,6 +217,11 @@ export const ERROR_CODES = {
   no_game_server: { httpStatus: 409, meaning: "purchase_delivery game_server needs a game server, on Zaisma or the developer's own, and the game has none." },
   already_handled: { httpStatus: 409, meaning: "The purchase was handed over already, or its refund was told already." },
   handled_by_server: { httpStatus: 409, meaning: "The game's purchases go to its game server or the developer's own server (purchase_delivery), so the game can't mark them handled." },
+  bad_full_game_item: { httpStatus: 400, meaning: "full_game_item_name doesn't name one of the game's items that's permanent and content, or the game is another game's demo." },
+  full_game_item_in_use: { httpStatus: 409, meaning: "The item is the game's full game (full_game_item_name), so it can't be removed or stop being permanent and content." },
+  bad_demo_game: { httpStatus: 400, meaning: "demo_game_slug isn't another of the developer's games that's free to play, or the game itself is free to play." },
+  account_requirement_locked: { httpStatus: 400, meaning: "A game that sells itself (full_game_item_name) needs account_requirement whole_game, since only accounts own it." },
+  full_game_not_owned: { httpStatus: 403, meaning: "The game sells itself, and the player's account doesn't own it: buy it on its game page." },
 
   // Cloud saves
   no_save: { httpStatus: 404, meaning: "The player has no save in the game." },

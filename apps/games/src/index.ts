@@ -474,12 +474,15 @@ async function serve(request: Request, env: Env, ctx: ExecutionContext): Promise
     }
     version = opens;
   } else {
-    // Drafts and private games open only through preview and tester links.
+    // Drafts and private games open only through preview and tester links; a paid one also to the browsers of players who bought it
+    // (bought means kept): entry grants reach only its owners (apps/site/src/plays.ts, handlePlayEntry), and enterAccountsOnly checks one.
     if (game.review_status !== "live" || !game.r2_prefix || !game.live_version_id) return page(404, "Game not found", "Check the link and try again.", env);
-    if (game.visibility === "draft" || game.visibility === "private") return page(404, "Game not found", "Check the link and try again.", env);
+    const isHidden = game.visibility === "draft" || game.visibility === "private";
+    if (isHidden && !(game.full_game_item_name !== null && isAccountsOnly)) return page(404, "Game not found", "Check the link and try again.", env);
     if (isAccountsOnly) {
       const refused = await enterAccountsOnly(request, url, env, target, game);
-      if (refused) return gated(refused);
+      // A hidden game says nothing more to a browser that didn't come in through its page.
+      if (refused) return gated(isHidden && refused.status === 404 ? page(404, "Game not found", "Check the link and try again.", env) : refused);
     }
     version = { id: game.live_version_id, kind: game.version_kind ?? "zip", r2_prefix: game.r2_prefix };
     if (!isAccountsOnly) {

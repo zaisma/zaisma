@@ -1846,7 +1846,7 @@ async function secrets(command, values) {
 }
 
 /** The fields of an item the file gives and set_item takes. */
-const ITEM_FILE_FIELDS = ["item_name", "title", "description", "item_kind", "item_category", "price_minor_units", "currency_code", "local_prices"];
+const ITEM_FILE_FIELDS = ["item_name", "title", "description", "item_kind", "item_category", "price_minor_units", "currency_code", "local_prices", "is_on_game_page"];
 
 /** A price as people read it, from minor units, for the list. */
 function itemPriceText(gameItem) {
@@ -1875,7 +1875,7 @@ async function items(command, values) {
     } catch {
       wanted = null;
     }
-    const fileFix = 'Give a JSON list of whole items, like [{ "item_name": "revive", "title": "Revive", "description": "", "item_kind": "consumable", "item_category": "gameplay", "price_minor_units": 199, "currency_code": "usd", "local_prices": [] }].';
+    const fileFix = 'Give a JSON list of whole items, like [{ "item_name": "revive", "title": "Revive", "description": "", "item_kind": "consumable", "item_category": "gameplay", "price_minor_units": 199, "currency_code": "usd", "local_prices": [], "is_on_game_page": false }].';
     if (!Array.isArray(wanted) || wanted.some((gameItem) => !gameItem || typeof gameItem !== "object" || typeof gameItem.item_name !== "string")) refuse("bad_item", { message: `${values.file ?? "What was piped in"} isn't a JSON list of items.`, field: "file", fix: fileFix });
     for (const gameItem of wanted) {
       const unknown = Object.keys(gameItem).find((key) => !ITEM_FILE_FIELDS.includes(key) && !["card_fee_note", "created_at", "updated_at"].includes(key));
@@ -1885,13 +1885,15 @@ async function items(command, values) {
     const repeated = names.find((name, i) => names.indexOf(name) !== i);
     if (repeated) refuse("bad_item", { message: `${repeated} is in the file twice.`, field: "file", fix: "Give each item once." });
     const current = (await api("GET", path)).items;
-    const same = (gameItem, existing) => ITEM_FILE_FIELDS.every((field) => JSON.stringify(gameItem[field] ?? null) === JSON.stringify(existing[field] ?? null));
+    // An item file that leaves is_on_game_page out means false, as items set sends it.
+    const valueOf = (gameItem, field) => gameItem[field] ?? (field === "is_on_game_page" ? false : null);
+    const same = (gameItem, existing) => ITEM_FILE_FIELDS.every((field) => JSON.stringify(valueOf(gameItem, field)) === JSON.stringify(valueOf(existing, field)));
     const changed = wanted.filter((gameItem) => { const existing = current.find((other) => other.item_name === gameItem.item_name); return !existing || !same(gameItem, existing); });
     const gone = current.filter((existing) => !names.includes(existing.item_name));
     const setNames = [];
     for (const gameItem of changed) {
       const { item_name: itemName, ...fields } = gameItem;
-      for (const field of ITEM_FILE_FIELDS.slice(1)) if (!(field in fields)) fields[field] = field === "local_prices" ? [] : field === "description" ? "" : null;
+      for (const field of ITEM_FILE_FIELDS.slice(1)) if (!(field in fields)) fields[field] = field === "local_prices" ? [] : field === "description" ? "" : field === "is_on_game_page" ? false : null;
       for (const key of ["card_fee_note", "created_at", "updated_at"]) delete fields[key];
       await api("PUT", `${path}/${encodeURIComponent(itemName)}`, fields);
       setNames.push(itemName);

@@ -5,6 +5,7 @@ import { checkOwnServerUrls } from "./own-servers.ts";
 import { checkLinks, type GameLink } from "./links.ts";
 import { checkShownText } from "./shown-text.ts";
 import { randomKey } from "./game-access.ts";
+import { ITEM_NAME_PATTERN, itemByName } from "./items.ts";
 // The shader drawing the check, `zaisma check` and every runner share, kept with the upload command so it can draw a shader locally.
 import {
   SHADER_BUFFER_NAMES,
@@ -687,6 +688,12 @@ export interface DetailsChange {
   links?: GameLink[];
   /** The color Zaisma tints its glass with over the game's background, #RRGGBB; null clears it. */
   glass_tint_color?: string | null;
+  /** The permanent content item a player must own to play; null: free to play. Checked against the game's items by settlePaidGame. */
+  full_game_item_name?: string | null;
+  /** The demo's slug as given; settlePaidGame turns it into demo_game_id. null clears it. */
+  demo_game_slug?: string | null;
+  /** Another of the developer's games, free to play, that the page links as Play the demo; null clears it. */
+  demo_game_id?: string | null;
 }
 
 /** Check a change from the API (docs/NAMING.md). Returns the tidied change or a plain error. */
@@ -803,7 +810,73 @@ export function checkDetails(input: Record<string, unknown>): { change: DetailsC
     }
     change.glass_tint_color = input.glass_tint_color === null ? null : (input.glass_tint_color as string).toLowerCase();
   }
+  if ("full_game_item_name" in input) {
+    if (input.full_game_item_name !== null && (typeof input.full_game_item_name !== "string" || !ITEM_NAME_PATTERN.test(input.full_game_item_name))) {
+      return { problem: { code: "bad_full_game_item", field: "full_game_item_name", message: `full_game_item_name ${JSON.stringify(input.full_game_item_name)} isn't an item name.`, fix: FULL_GAME_ITEM_FIX } };
+    }
+    change.full_game_item_name = input.full_game_item_name as string | null;
+  }
+  if ("demo_game_slug" in input) {
+    if (input.demo_game_slug !== null && (typeof input.demo_game_slug !== "string" || !/^[a-z0-9][a-z0-9-]{0,63}$/.test(input.demo_game_slug))) {
+      return { problem: { code: "bad_demo_game", field: "demo_game_slug", message: `demo_game_slug ${JSON.stringify(input.demo_game_slug)} isn't a game's slug.`, fix: DEMO_GAME_FIX } };
+    }
+    change.demo_game_slug = input.demo_game_slug as string | null;
+  }
   return { change };
+}
+
+const FULL_GAME_ITEM_FIX = "set_item with item_kind permanent and item_category content makes the item; then name it here. null makes the game free to play.";
+const DEMO_GAME_FIX = "Name another of your games that's free to play; list_games shows them. null takes the demo off.";
+
+/**
+ * A game that sells itself once (docs/DECISIONS.md, "How paid games work"): its full game item is one of its own items, permanent and
+ * content, and the game then needs accounts for the whole game, since only accounts own items; account_requirement can't move off
+ * whole_game while it's set. Its demo is another game of the same developer that's free to play, kept as demo_game_id. Clearing the
+ * full game item leaves account_requirement as it is, as lowering the minimum age does.
+ */
+export async function settlePaidGame(database: D1Database, game: Pick<Game, "id" | "owner_id" | "full_game_item_name" | "account_requirement" | "title">, change: DetailsChange): Promise<{ change: DetailsChange } | { problem: InputProblem }> {
+  const settled: DetailsChange = { ...change };
+  if (change.full_game_item_name) {
+    const fullGameItem = await itemByName(database, game.id, change.full_game_item_name);
+    if (!fullGameItem || fullGameItem.item_kind !== "permanent" || fullGameItem.item_category !== "content") {
+      const why = !fullGameItem ? "the game has no item by that name" : `it's ${fullGameItem.item_kind} and ${fullGameItem.item_category}, and the item that is the game is permanent and content`;
+      return { problem: { code: "bad_full_game_item", field: "full_game_item_name", message: `${change.full_game_item_name} can't be the full game: ${why}.`, fix: FULL_GAME_ITEM_FIX } };
+    }
+    const namingIt = await database.prepare("SELECT title FROM games WHERE demo_game_id = ? AND id != ? LIMIT 1").bind(game.id, game.id).first<{ title: string }>();
+    if (namingIt) {
+      return { problem: { code: "bad_full_game_item", field: "full_game_item_name", message: `${game.title} is the free demo of ${namingIt.title}, so it can't have a price to play.`, fix: `Take it off ${namingIt.title} first (update_game demo_game_slug null), or sell its full version as ${namingIt.title}.` } };
+    }
+  }
+  const fullGameItemName = change.full_game_item_name !== undefined ? change.full_game_item_name : game.full_game_item_name;
+  if (fullGameItemName) {
+    if (change.account_requirement !== undefined && change.account_requirement !== "whole_game") {
+      return {
+        problem: {
+          code: "account_requirement_locked",
+          field: "account_requirement",
+          message: `account_requirement ${change.account_requirement} lets guests play, but ${game.title} sells itself (full_game_item_name ${fullGameItemName}), and only accounts own it.`,
+          fix: "A paid game needs accounts for the whole game. Set full_game_item_name null first to make it free to play and let guests in.",
+        },
+      };
+    }
+    if (game.account_requirement !== "whole_game") settled.account_requirement = "whole_game";
+  }
+  // A game made free to play again has no demo to link.
+  if (change.full_game_item_name === null) settled.demo_game_id = null;
+  if (change.demo_game_slug !== undefined) {
+    delete settled.demo_game_slug;
+    if (change.demo_game_slug === null) settled.demo_game_id = null;
+    else {
+      if (fullGameItemName === null) {
+        return { problem: { code: "bad_demo_game", field: "demo_game_slug", message: `${game.title} is free to play, so it has no demo.`, fix: "Set full_game_item_name first: only a game that sells itself links a demo." } };
+      }
+      const demo = await database.prepare("SELECT id, owner_id, full_game_item_name FROM games WHERE slug = ?").bind(change.demo_game_slug).first<Pick<Game, "id" | "owner_id" | "full_game_item_name">>();
+      const why = !demo || !game.owner_id || demo.owner_id !== game.owner_id ? "it isn't one of your games" : demo.id === game.id ? "it's this game" : demo.full_game_item_name !== null ? "it has a price to play itself" : null;
+      if (why) return { problem: { code: "bad_demo_game", field: "demo_game_slug", message: `${change.demo_game_slug} can't be the demo: ${why}.`, fix: DEMO_GAME_FIX } };
+      settled.demo_game_id = demo!.id;
+    }
+  }
+  return { change: settled };
 }
 
 /**
@@ -874,8 +947,13 @@ export async function applyDetails(database: D1Database, game: Game, change: Det
   if (change.room_browsing !== undefined) set("room_browsing", change.room_browsing);
   if (change.account_requirement !== undefined) set("account_requirement", change.account_requirement);
   if (change.minimum_player_age_years !== undefined) set("minimum_player_age_years", change.minimum_player_age_years);
-  // A change that lets fewer people in ends every game entry handed out so far (game-access.ts).
-  const isTightening = (change.minimum_player_age_years ?? 0) > game.minimum_player_age_years || (change.account_requirement === "whole_game" && game.account_requirement !== "whole_game");
+  if (change.full_game_item_name !== undefined) set("full_game_item_name", change.full_game_item_name);
+  if (change.demo_game_id !== undefined) set("demo_game_id", change.demo_game_id);
+  // A change that lets fewer people in ends every game entry handed out so far (game-access.ts); a new price to play is one.
+  const isTightening =
+    (change.minimum_player_age_years ?? 0) > game.minimum_player_age_years ||
+    (change.account_requirement === "whole_game" && game.account_requirement !== "whole_game") ||
+    Boolean(change.full_game_item_name && change.full_game_item_name !== game.full_game_item_name);
   if (isTightening) set("entry_signing_key", randomKey(32));
   // Rooms running the old setting end within a minute, when they next check the game.
   if (change.multiplayer_mode !== undefined) set("multiplayer_mode", change.multiplayer_mode);
