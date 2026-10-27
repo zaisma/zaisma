@@ -11,9 +11,9 @@ import { playable } from "./home.ts";
 import { html, structuredData, type Raw } from "./html.ts";
 import { profilePath } from "./profiles.ts";
 import { cutButton } from "./components/actions.ts";
-import { codeField, qrCode } from "./components/inputs.ts";
+import { codeField, linkField, qrCode } from "./components/inputs.ts";
 import { stack, type LayoutItem } from "./components/layout.ts";
-import { sheet } from "./components/panes.ts";
+import { lightBox, menuChoices, sheet, type DropdownChoice } from "./components/panes.ts";
 
 const ROOM_CODE = /^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$/;
 /** Search engines show about this much of a description. */
@@ -127,17 +127,23 @@ export async function qrCodeImage(env: Env, game: Game | null, request: Request)
 }
 
 /**
- * The game page's Share sheet: the QR code (the room's during a match), the room code, the link with Copy (Code field), and the system's
- * share sheet where there is one. Tester links get no QR code: their address is a secret the code would only spread further. The game
+ * The game page's Share sheet: the room code during a match, the link to copy (Link field), then Show QR code, which opens the QR code
+ * large in a light box (the room's during a match), and the system's share sheet where there is one. Tester links get no QR code: their address is a secret the code would only spread further. The game
  * page's script fills it in (shareFrom); with the room code hidden (streamer mode) the QR code, room code and link are masked until Show.
  */
 export function shareDialog(gameTitle: string, hasQrCode: boolean): Raw {
+  const choices: DropdownChoice[] = [
+    ...(hasQrCode ? [{ label: "Show QR code", icon: "qr-code" as const, controls: "share-qr-box", id: "share-qr-open" }] : []),
+    { label: "More ways to share", icon: "share", isButton: true, id: "share-more", isHidden: true },
+  ];
   const items: LayoutItem[] = [
-    ...(hasQrCode ? [{ kind: "block" as const, markup: qrCode({ id: "share-qr", label: "QR code for this link", caption: "Scan to play", isCompact: true }) }] : []),
     { kind: "control", markup: cutButton("Show", { id: "share-reveal", type: "button", icon: "eye", isHidden: true }) },
     { kind: "block", id: "share-room", isHidden: true, markup: codeField({ id: "share-room-code", label: "Room code", code: "" }) },
-    { kind: "block", markup: codeField({ id: "share-link", label: "Link", code: "" }) },
-    { kind: "control", markup: cutButton("More ways to share", { id: "share-more", type: "button", icon: "share", isHidden: true }) },
+    { kind: "block", markup: linkField({ id: "share-link", label: "Link", url: "" }) },
+    { kind: "block", markup: menuChoices({ label: "More ways to share", choices }) },
   ];
-  return sheet({ id: "share-dialog", title: `Share ${gameTitle}`, closeLabel: "Close", body: stack({ items }), isCompact: true });
+  const qrBox = hasQrCode
+    ? lightBox({ id: "share-qr-box", label: `QR code for ${gameTitle}`, closeLabel: "Close", body: qrCode({ id: "share-qr", label: `QR code for ${gameTitle}`, caption: "Scan with a phone's camera to play", isLarge: true }) })
+    : "";
+  return html`${sheet({ id: "share-dialog", title: `Share ${gameTitle}`, closeLabel: "Close", body: stack({ items }), isCompact: true })}${qrBox}`;
 }

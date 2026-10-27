@@ -38,7 +38,7 @@ export type LayoutItem =
   | (LayoutItemPlace & { kind: "control"; markup: ControlMarkup })
   | (LayoutItemPlace & { kind: "block"; markup: NotControlMarkup });
 
-/** Where an item sits, for its margins: words (and a control that's words alone, a text button) keep the pane's; the rest the frame gap. */
+/** Where an item sits, for its margins: words (and a control that's words alone, a quiet button) keep the pane's; the rest the frame gap. */
 const placedKind = (layoutItem: LayoutItem): "words" | "control" | "block" => (layoutItem.kind === "control" && layoutItem.markup.isWordsAlone ? "words" : layoutItem.kind);
 
 /** The spacing tokens a layout picks from (docs/DESIGN.md, Spacing), by what's on each side. */
@@ -244,8 +244,11 @@ export function columns(options: ColumnsOptions): Raw {
 }
 
 export interface PanePartsOptions {
-  /** The pane's head: its words (a heading, a line under it), and at most one control in its top end corner. */
-  head?: { words: Raw; end?: LayoutControl };
+  /**
+   * The pane's head: its words (a heading, a line under it), at most one control in its top end corner (Close), and at most one in its top
+   * start corner (a sheet's Back), its twin.
+   */
+  head?: { start?: LayoutControl; words: Raw; end?: LayoutControl };
   body: Raw;
   /** The pane's foot: something at its start, and at most one control in its bottom end corner. */
   foot?: { start?: LayoutItem; end?: LayoutControl };
@@ -257,7 +260,7 @@ export interface PanePartsOptions {
  */
 export function paneParts(options: PanePartsOptions): Raw {
   const head = options.head
-    ? html`<div class="pane-head"${options.head.end && !options.head.end.isWordsAlone ? html` data-control-height="${options.head.end.controlHeight}"` : ""}><div class="pane-head-words">${options.head.words}</div>${options.head.end ? html`<div class="pane-head-end${options.head.end.isWordsAlone ? " is-words" : ""}">${options.head.end}</div>` : ""}</div>`
+    ? html`<div class="pane-head"${options.head.end && !options.head.end.isWordsAlone ? html` data-control-height="${options.head.end.controlHeight}"` : ""}>${options.head.start ? html`<div class="pane-head-start">${options.head.start}</div>` : ""}<div class="pane-head-words">${options.head.words}</div>${options.head.end ? html`<div class="pane-head-end${options.head.end.isWordsAlone ? " is-words" : ""}">${options.head.end}</div>` : ""}</div>`
     : "";
   const foot = options.foot
     ? html`<div class="pane-foot"${options.foot.end && !options.foot.end.isWordsAlone ? html` data-control-height="${options.foot.end.controlHeight}"` : ""}>${options.foot.start ? html`<div class="pane-foot-start is-${options.foot.start.kind}">${options.foot.start.markup}</div>` : ""}${options.foot.end ? html`<div class="pane-foot-end${options.foot.end.isWordsAlone ? " is-words" : ""}">${options.foot.end}</div>` : ""}</div>`
@@ -270,7 +273,7 @@ export function paneParts(options: PanePartsOptions): Raw {
 const GAP_TOKENS: LayoutGap[] = ["control-row-boxes", "control-stack", "words-control", "words-words", "block-block"];
 
 /** What takes a control's height in each control (its --control-height), as it sits directly in a row's cell. */
-const HEIGHT_HOLDERS = [".cut-btn", ".guest-btn", ".glass-btn", ".text-btn", ".run-wrap > .run", ".cut-field > .field", ".pin-box", ".find", ".tab-switch", ".steps"];
+const HEIGHT_HOLDERS = [".cut-btn", ".guest-btn", ".glass-btn", ".quiet-btn", ".run-wrap > .run", ".cut-field > .field", ".pin-box", ".find", ".tab-switch", ".steps"];
 
 /** What shows of a holder's children: not hidden, not a cell whose only thing is hidden (holds-only-hidden, ROW_LAYOUT_SCRIPT), not a slab's drawn edge (a tray's first child), and not a script, a template or a form's hidden field. */
 const SHOWN = ':not([hidden], .holds-only-hidden, .edge, script, template, input[type="hidden"])';
@@ -478,6 +481,13 @@ export const PANE_PARTS_STYLES = `
 .pane-head:has(> .pane-head-end) > .pane-head-words > :first-child { overflow-wrap: break-word; hyphens: auto; }
 .pane-head:not([data-control-height]) > .pane-head-words > :first-child { padding-top: var(--head-inset); }
 .pane-head > .pane-head-end { grid-column: 2; grid-row: 1; }
+/* A start control (a sheet's Back) is the end control's twin in the top start corner, the edge rule giving it that corner's cut; the heading
+   sits between the two, a words-to-control gap from each. Hidden (the first step has no Back), it takes no room. */
+.pane-head > .pane-head-start { display: flex; grid-column: 1; grid-row: 1; }
+.pane-head > .pane-head-start:not(:has(> :not([hidden]))) { display: none; }
+.pane-head:has(> .pane-head-start > :not([hidden])) { grid-template-columns: auto minmax(0, 1fr) auto; }
+.pane-head:has(> .pane-head-start > :not([hidden])) > .pane-head-words > :first-child { grid-column: 2; padding-inline-start: 0; }
+.pane-head:has(> .pane-head-start > :not([hidden])) > .pane-head-end { grid-column: 3; }
 .pane-foot { display: flex; gap: var(--gap-words-control); min-width: 0; align-items: flex-end; }
 /* Beside a corner control the head's first line sits on its center line, like words beside controls in a row; the foot's last line likewise. */
 .pane-head[data-control-height] > .pane-head-words > :first-child { padding-top: max(0px, calc((var(--row-control-height) - 1lh) / 2)); }
@@ -487,7 +497,7 @@ export const PANE_PARTS_STYLES = `
 .pane-head-end, .pane-foot-end { display: flex; margin-inline-start: auto; }
 .pane-foot-start { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; }
 .pane-foot-start.is-words { padding: 0 0 var(--pad-words) var(--pad-words); }
-/* A corner's text button is words alone: it keeps the pane's margin. */
+/* A corner's quiet button is words alone: it keeps the pane's margin. */
 .pane-head-end.is-words { padding: var(--pad-words) var(--pad-words) 0 0; }
 .pane-foot-end.is-words { padding: 0 var(--pad-words) var(--pad-words) 0; }
 .pane-body { display: flex; flex-direction: column; gap: var(--gap-block-block); min-width: 0; }

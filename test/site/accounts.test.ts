@@ -1579,7 +1579,7 @@ describe("friends", () => {
     expect(rowTemplate).toContain('data-player-action="mute"');
     expect(rowTemplate).toContain('data-player-action="more"');
     // The hooks their scripts use.
-    for (const id of ["players-count", "players-list", "players-note", "players-watching", "players-friends", "players-friends-list", "players-sign-in", "players-player-title", "players-player-profile", "players-player-block", "players-player-report", "players-data"]) expect(players).toContain(`id="${id}"`);
+    for (const id of ["players-find-field", "players-list", "players-note", "players-watching", "players-friends", "players-friends-list", "players-sign-in", "players-player-title", "players-player-profile", "players-player-block", "players-player-report", "players-data"]) expect(players).toContain(`id="${id}"`);
     for (const id of ["block-title", "block-who", "block-friend", "block-told", "block-error", "block-yes", "block-data"]) expect(block).toContain(`id="${id}"`);
   });
 

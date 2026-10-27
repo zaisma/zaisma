@@ -89,7 +89,7 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
   // Pieces made to lie over each other: a row of pictures, each over the next.
   var OVERLAPPING = ".picture-row";
   var SKIPPED = "script, style, template, .sr, [aria-hidden='true'], .loader, .rail, .edge, .cut-line";
-  var COMPONENTS = ["run-wrap", "cut-btn", "glass-btn", "guest-btn", "text-btn", "cut-field", "field", "find", "tab-switch", "switch-frame", "steps", "cover", "banner", "glass-pane", "tray", "tray-head", "sheet", "dropdown", "notice", "table", "list-rows", "choice-card", "toggle", "check", "top", "foot", "layout-row", "layout-stack", "layout-grid", "layout-track", "pane-head", "pane-foot"];
+  var COMPONENTS = ["run-wrap", "cut-btn", "glass-btn", "guest-btn", "quiet-btn", "cut-field", "field", "find", "tab-switch", "switch-frame", "steps", "cover", "banner", "glass-pane", "tray", "tray-head", "sheet", "dropdown", "notice", "table", "list-rows", "choice-card", "toggle", "check", "top", "foot", "layout-row", "layout-stack", "layout-grid", "layout-track", "pane-head", "pane-foot"];
   function isShown(el) {
     var r = el.getBoundingClientRect();
     if (r.width < 1 || r.height < 1) return false;
@@ -384,7 +384,7 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
   [[".pane-head-end", "top", 1], [".pane-foot-end", "bottom", 2]].forEach(function (place) {
     document.querySelectorAll(place[0]).forEach(function (end) {
       var control = end.querySelector("[data-cut-line]"), pane = end.closest("[data-glass]:not([data-cut-line])");
-      // A text button in a corner is words: it keeps the pane's margin, which the words' check measures.
+      // A quiet button in a corner is words: it keeps the pane's margin, which the words' check measures.
       if (!control || !pane || !isShown(control) || end.classList.contains("is-words")) return;
       var holder = pane.querySelector(":scope > .pane-in, :scope > .sheet-in") || pane, css = getComputedStyle(holder), r = control.getBoundingClientRect(), p = pane.getBoundingClientRect();
       var away = place[1] === "top" ? r.top - p.top : p.bottom - r.bottom, side = p.right - r.right;

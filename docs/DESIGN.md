@@ -329,7 +329,7 @@ Every component, with the call that makes it and its options, is in the catalog 
 - **Columns** (`columns(options: ColumnsOptions)`, `layout.ts`): Two halves of the width side by side, like a game's details beside its rooms and updates. A pane takes the whole width or fits what's in it, so one that should take half the screen goes in a column. One column can stay in view while the other scrolls; they go one over the other where both can't have room.
   - `options`: `columns: [Raw, Raw]`, `stickyColumn?: "first" | "second"`
 - **Pane parts** (`paneParts(options: PanePartsOptions)`, `layout.ts`): A pane's places: its head (words, and one control in its top corner), its body and its foot (something at the start, one control in its bottom corner). A corner control sits in the corner and takes its cut.
-  - `options`: `head?: { words: Raw; end?: LayoutControl }`, `body: Raw`, `foot?: { start?: LayoutItem; end?: LayoutControl }`
+  - `options`: `head?: { start?: LayoutControl; words: Raw; end?: LayoutControl }`, `body: Raw`, `foot?: { start?: LayoutItem; end?: LayoutControl }`
 - **Screens** (`screens(options: ScreensOptions)`, `screens.ts`): One page on the screens players bring (a phone and a laptop to start; a big phone, a phone on its side, an iPad, a Steam Deck and a 2560 desktop as asked), light and dark, side by side, each with what the measuring check finds. Point at or tap anything in a screen to see what it is and which rule placed it. It's where a page is reviewed, never made: the Screens page shows any page this way on a local preview.
   - `options`: `path: string`, `title: string`, `stepsToTake?: readonly StepToTake[]`, `screenNames?: readonly ScreenName[]`, `screensPath?: string`, `account?: string`
 
@@ -345,8 +345,8 @@ Every component, with the call that makes it and its options, is in the catalog 
   - `options`: `href?: string`, `type?: "submit" | "button"`, `icon: keyof typeof WAY_ICONS | IconName`, `tint?: GlassTint`, `isDisabled?: boolean`, `isBusy?: boolean`, `state?: ButtonState`
 - **Guest button** (`guestButton(label: string, options?: { … })`, `actions.ts`): The quietest way on, like Continue as guest: words and an arrow below the glass buttons, a slab only once you point at it.
   - `options`: `href?: string`, `type?: "submit" | "button"`, `state?: ButtonState`, `isBusy?: boolean`
-- **Text button** (`textButton(label: string, options?: TextButtonOptions)`, `actions.ts`): The quietest thing to press, words alone: Skip for now, Show all, Undo. Beside a cut button it's the way out; never the one thing to do.
-  - `options`: `href?: string`, `type?: "submit" | "button"`, `name?: string`, `buttonValue?: string`, `formMethod?: "dialog"`, `icon?: IconName`, `isDisabled?: boolean`, `isBusy?: boolean`, `state?: ButtonState`
+- **Quiet button** (`quietButton(label: string, options?: QuietButtonOptions)`, `actions.ts`): The quietest thing to press: words, an icon, or both, with no slab until it's pointed at. Skip for now, Show all, Undo; only its icon, a sheet's Back and Close. Beside a cut button it's the way out; never the one thing to do.
+  - `options`: `id?: string`, `dataAttributes?: Record<string, string>`, `href?: string`, `type?: "submit" | "button"`, `name?: string`, `buttonValue?: string`, `formMethod?: "dialog"`, `isAutofocused?: boolean`, `icon?: IconName`, `isLabelHidden?: boolean`, `isSmall?: boolean`, `isDisabled?: boolean`, `isBusy?: boolean`, `state?: ButtonState`
 - **Delete button** (`deleteButton(label: string, options: DeleteButtonOptions)`, `actions.ts`): Deleting a game, a key, an account: a cut button, never orange. Only its confirm step turns red, the one red in Zaisma, after one sentence on what goes.
   - `options`: `action: string`, `confirmLabel: string`, `confirmText: string`, `id?: string`, `isFullWidth?: boolean`, `state?: ButtonState`, `isConfirmShown?: boolean`, `isConfirmBusy?: boolean`
 - **Link** (`textLink(words: string, href: string, options?: TextLinkOptions)`, `actions.ts`): Words that go somewhere: underlined in orange inside a sentence, plain in a list of links until you point at them. Anything you press that isn't words is a button.
@@ -384,8 +384,10 @@ Every component, with the call that makes it and its options, is in the catalog 
   - `options`: `name: string`, `label: string`, `accept: string`, `isMultiple?: boolean`, `hint: string`, `maximumByteCount?: number`, `error?: string`, `pickedFiles?: FileDropFile[]`, `isDisabled?: boolean`, `id?: string`, `state?: "over"`
 - **Code field** (`codeField(options: CodeFieldOptions)`, `inputs.ts`): Code to copy and keep: an API key shown once, a game's address, an upload command. It's read-only, in code's own letters, with a Copy button at its end.
   - `options`: `label: string`, `code: string`, `id?: string`, `state?: "is-focused" | "is-copied"`, `isMasked?: boolean`
+- **Link field** (`linkField(options: LinkFieldOptions)`, `inputs.ts`): A link to copy: its address on one line, in the words' own letters, without https://. A press anywhere on it copies it, and it says "Link copied" in its place for a moment. Code to copy (a key, a command) is a Code field.
+  - `options`: `id: string`, `label: string`, `url: string`, `isMasked?: boolean`, `state?: "is-copied" | "is-pointed" | "is-focused"`
 - **QR code** (`qrCode(options: QrCodeOptions)`, `inputs.ts`): A link as a picture a phone's camera reads: a game's address, or a room's, for someone in the same room. Black on white whatever the glass, with a line saying what it opens.
-  - `options`: `id: string`, `label: string`, `caption: string`, `imageUrl?: string`, `isMasked?: boolean`, `isCompact?: boolean`
+  - `options`: `id: string`, `label: string`, `caption: string`, `imageUrl?: string`, `isMasked?: boolean`, `isCompact?: boolean`, `isLarge?: boolean`
 
 ### Navigation
 
@@ -418,6 +420,10 @@ Every component, with the call that makes it and its options, is in the catalog 
   - `options`: `head: Raw`, `body: Raw`, `label?: string`, `paneWidth?: "full" | "fit"`
 - **Dropdown** (`dropdown(options: DropdownOptions)`, `panes.ts`): A short list of choices that hangs from a button, like the account button's in the header: with a head, rules, icons, counts and the current one, as each needs. A choice that's hard to take back asks first, in a confirm sheet.
   - `options`: `id: string`, `label: string`, `head?: { title: string; note?: string; lineId?: string }`, `items: DropdownItem[]`, `isOpen?: boolean`
+- **Menu choices** (`menuChoices(options: MenuChoicesOptions)`, `panes.ts`): A dropdown's choices on their own, in a sheet or a pane: an icon and words, no slab until pointed at, so a short list of things to do (a player's Profile, Block and Report) reads like the ⋯ menu, not a stack of buttons.
+  - `options`: `label: string`, `choices: DropdownChoice[]`
+- **Light box** (`lightBox(options: LightBoxOptions)`, `panes.ts`): One thing large in the middle of a dimmed screen, like a QR code to hold up to a friend across a room: nothing else round it, and a press anywhere, Close or Esc takes it away, back to the sheet that opened it.
+  - `options`: `id: string`, `label: string`, `body: Raw`, `closeLabel: string`
 - **Filter tags** (`filterTags(options: { … })`, `panes.ts`): The filters in use on a list, under its Filter button: one small button each, with a close mark, that takes it away.
   - `options`: `tags: FilterTag[]`
 - **Game cover** (`gameCover(options: GameCoverOptions)`, `panes.ts`): A game in a list: the studio's art, bare, set in a carved well, with only what concerns you under it. Zaisma's mark stands in while the art loads, and for a game with none yet.
@@ -458,7 +464,7 @@ Every component, with the call that makes it and its options, is in the catalog 
 - **Glance facts** (`glanceFacts(facts: GlanceFacts)`, `data.ts`): What concerns you about a game at a glance: players now, friends playing, when you played, an update. Only what's true, one line each.
   - `facts`: `playerCount?: number`, `playedAtMs?: number`, `updatedAtMs?: number`, `updatesHref?: string`, `friends?: { username: string }[]`, `friendsRefusalNotes?: string[]`, `deviceNote?: string`, `priceText?: string`
 - **List rows** (`listRows(options: { … })`, `data.ts`): A list of things on glass, one a row with hairlines between: versions, keys, topics, players. A row that goes somewhere is a link as a whole, ending in a chevron that steps on as you point; a row to read may end in a button.
-  - `options`: `rows: ListRow[]`, `whenEmpty: Raw`, `id?: string`, `label?: string`, `shownRowCount?: number`
+  - `options`: `rows: ListRow[]`, `whenEmpty: Raw`, `id?: string`, `label?: string`, `shownRowCount?: number`, `isCompact?: boolean`
 - **Empty state** (`emptyState(options: StateNoteOptions)`, `data.ts`): Where a list has nothing yet: what will be here, how it gets here, and the button that starts it. In the voice, never a picture.
   - `options`: `title: string`, `text: string`, `action?: ControlMarkup`
 - **Problem state** (`problemState(options: StateNoteOptions)`, `data.ts`): Where content couldn't come: what went wrong in plain words, and what to do about it, like Try again.

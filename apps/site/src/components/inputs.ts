@@ -294,10 +294,24 @@ export function codeField(options: CodeFieldOptions): Raw {
   return html`<div class="cut-field code-field${isCopied ? " is-copied" : ""}${options.isMasked ? " is-masked" : ""}"><span class="code-head"><span class="code-label" id="${id}-label">${options.label}</span><span class="code-copied" role="status">${isCopied ? "Copied" : ""}</span></span><div class="field code cut-carved${options.state === "is-focused" ? " is-focused" : ""}" data-cut-line="10">${CUT_LINE}<code class="code-text" id="${id}" tabindex="0" aria-labelledby="${id}-label">${code}</code>${cutButton("Copy", { type: "button", icon: "copy", isLabelHidden: true, isSmall: true, controls: id })}</div></div>`;
 }
 
-/** Copy: the field's whole code goes to the clipboard, and "Copied" shows over its end for a moment; clicking the code selects all of it. */
+/**
+ * Copy: the field's whole code goes to the clipboard, and "Copied" shows over its end for a moment; clicking the code selects all of it.
+ * A link field copies its whole address on a press anywhere on it, and says "Link copied" in its place for a moment.
+ */
 export const COPY_SCRIPT = `/* code fields */(function () {
   function selectAll(element) { var range = document.createRange(); range.selectNodeContents(element); var picked = window.getSelection(); picked.removeAllRanges(); picked.addRange(range); }
   document.addEventListener("click", function (event) {
+    var box = event.target.closest && event.target.closest(".link-field-box");
+    if (box) {
+      var field = box.closest(".link-field"), shown = field.querySelector(".link-field-text"), done = field.querySelector(".link-field-said");
+      var copied = function (words) { done.textContent = words; field.classList.add("is-copied"); clearTimeout(done.timer); done.timer = setTimeout(function () { done.textContent = ""; field.classList.remove("is-copied"); }, 1600); };
+      // Where the clipboard isn't open to the page, the address is selected and copied the old way.
+      var linkByHand = function () { selectAll(shown); var isCopied = false; try { isCopied = document.execCommand("copy"); } catch (error) {} if (isCopied) copied("Link copied"); };
+      var address = shown.getAttribute("data-link") || shown.textContent;
+      if (navigator.clipboard && navigator.clipboard.writeText) { copied("Link copied"); navigator.clipboard.writeText(address).catch(linkByHand); }
+      else linkByHand();
+      return;
+    }
     var code = event.target.closest && event.target.closest(".field.code > .code-text");
     if (code) { selectAll(code); return; }
     var copy = event.target.closest && event.target.closest(".field.code > .cut-btn[aria-controls]");
@@ -358,6 +372,71 @@ component({
   ],
 });
 
+export interface LinkFieldOptions {
+  /** Unique on the page: the link's words carry it, for a page script to fill in (data-link, and the words shown). */
+  id: string;
+  /** What it is: "Link". */
+  label: string;
+  /** The whole address that's copied; it shows without its https://. */
+  url: string;
+  /** A secret on a screen others may see (a streamer's room link): blurred until a page script takes is-masked off it; a press still copies it. */
+  isMasked?: boolean;
+  /** The gallery's fixed states. */
+  state?: "is-copied" | "is-pointed" | "is-focused";
+}
+
+/**
+ * A link field: a link to copy, in a carved well, its address on one line without https:// and cut short at its end when it's long. A press
+ * anywhere on it copies the whole address ("Copy" at its end says so), and for a moment it says "Link copied" in its place.
+ */
+export function linkField(options: LinkFieldOptions): Raw {
+  const shown = options.url.replace(/^https?:\/\//, "");
+  const isCopied = options.state === "is-copied";
+  const state = options.state && options.state !== "is-copied" ? ` ${options.state}` : "";
+  return html`<div class="link-field${isCopied ? " is-copied" : ""}${options.isMasked ? " is-masked" : ""}"><span class="link-field-label" id="${options.id}-label">${options.label}</span><button class="link-field-box cut-carved${state}" type="button" data-cut-line="10" aria-labelledby="${options.id}-label ${options.id}" aria-describedby="${options.id}-copy">${CUT_LINE}<span class="link-field-icon is-link">${icon("link")}</span><span class="link-field-icon is-done">${icon("check")}</span><span class="link-field-text" id="${options.id}" data-link="${options.url}">${shown}</span><span class="link-field-said" role="status">${isCopied ? "Link copied" : ""}</span><span class="link-field-copy" id="${options.id}-copy">Copy</span></button></div>`;
+}
+
+component({
+  name: "Link field",
+  slug: "link-field",
+  group: "inputs",
+  summary: "A link to copy: its address on one line, in the words' own letters, without https://. A press anywhere on it copies it, and it says \"Link copied\" in its place for a moment. Code to copy (a key, a command) is a Code field.",
+  styles: `
+/* A link field: a carved well, like a code field's, one line tall: a link mark, the address in the words' letters (cut short at its end
+   when it's long), and "Copy" quietly at its end. The whole well is the button: pointed at, its words darken; pressed, it sinks a pixel.
+   Copied, the mark turns to a tick and "Link copied" takes the address's place, both in the ink, for a moment (COPY_SCRIPT): green on the well is too faint to read. */
+.link-field { display: flex; flex-direction: column; gap: var(--gap-words-control); min-width: 0; }
+.link-field-label { padding-inline: var(--pad-words); font: var(--type-label); color: var(--ink-2); }
+.link-field-box { position: relative; display: flex; align-items: center; gap: var(--gap-words-words); width: 100%; min-width: 0; height: var(--control-height-field); padding: 0 var(--pad-inside-words); margin: 0; border: 0;
+  font: var(--type-words); color: var(--ink); text-align: left; cursor: pointer; background: var(--well); box-shadow: var(--well-shade); clip-path: var(--cut-shape); transition: transform 0.15s; }
+.link-field-box > :not(.cut-line) { position: relative; z-index: 2; }
+.link-field-icon { flex: none; display: inline-flex; color: var(--ink-2); }
+.link-field-icon > .ico { width: 18px; height: 18px; }
+.link-field-text { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.link-field-copy { flex: none; font: var(--type-facts); color: var(--ink-2); transition: color 0.15s; }
+.link-field-box:hover .link-field-copy, .link-field-box.is-pointed .link-field-copy { color: var(--ink); }
+.link-field-box:active, .link-field-box.is-pressed { transform: translateY(1px); }
+.link-field-box:focus-visible { outline: none; }
+.link-field-box:focus-visible > .cut-line polygon, .link-field-box.is-focused > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
+.link-field-icon.is-done, .link-field-said { display: none; }
+.link-field.is-copied :is(.link-field-icon.is-link, .link-field-text, .link-field-copy) { display: none; }
+.link-field.is-copied .link-field-icon.is-done { display: inline-flex; color: var(--ink); }
+.link-field.is-copied .link-field-said { display: block; flex: 1; color: var(--ink); }
+/* Masked: the address blurs into its own glow, unreadable, until the page shows it; a press still copies it. */
+.link-field.is-masked .link-field-text { color: transparent; text-shadow: 0 0 10px var(--ink); }
+@media (prefers-reduced-motion: reduce) { .link-field-box { transition: none; } }
+`,
+  render: linkField,
+  examples: [
+    { label: "A game's link", markup: examplePane(linkField({ id: "example-link", label: "Link", url: "https://zaisma.com/g/ashen-crown" })) },
+    { label: "Pointed", markup: examplePane(linkField({ id: "example-link-pointed", label: "Link", url: "https://zaisma.com/g/ashen-crown", state: "is-pointed" })), isStill: true },
+    { label: "Copied", markup: examplePane(linkField({ id: "example-link-copied", label: "Link", url: "https://zaisma.com/g/ashen-crown", state: "is-copied" })), isStill: true },
+    { label: "A long one: cut short at its end", markup: examplePane(linkField({ id: "example-link-long", label: "Link to this match", url: "https://zaisma.com/g/the-last-lighthouse-keeper-tides-of-the-northern-reach?room=K7Q2MX" })) },
+    { label: "Masked, for a streamer: blurred until shown", markup: examplePane(linkField({ id: "example-link-masked", label: "Link to this match", url: "https://zaisma.com/g/ashen-crown?room=K7Q2MX", isMasked: true })), isStill: true },
+    { label: "Keyboard focus", markup: examplePane(linkField({ id: "example-link-focused", label: "Link", url: "https://zaisma.com/g/ashen-crown", state: "is-focused" })), isStill: true },
+  ],
+});
+
 export interface QrCodeOptions {
   /** Unique on the page: the picture's, for a page script to point it at a link (its caption is <id>-caption). */
   id: string;
@@ -371,11 +450,13 @@ export interface QrCodeOptions {
   isMasked?: boolean;
   /** On a wide screen, smaller, with its line beside it (a compact sheet's): a phone camera still reads it at that size. On a phone it's as wide as the room allows. */
   isCompact?: boolean;
+  /** As large as the screen allows, to hold up to someone across a room: the Light box's. */
+  isLarge?: boolean;
 }
 
 /** A QR code: a link as a picture any phone's camera reads, on white whatever the glass, with a line under it saying what it opens. */
 export function qrCode(options: QrCodeOptions): Raw {
-  return html`<figure class="qr-code${options.isMasked ? " is-masked" : ""}${options.isCompact ? " is-compact" : ""}"><img class="qr-picture" id="${options.id}"${options.imageUrl ? html` src="${options.imageUrl}"` : ""} alt="${options.label}" width="220" height="220"><figcaption class="qr-caption" id="${options.id}-caption">${options.caption}</figcaption></figure>`;
+  return html`<figure class="qr-code${options.isMasked ? " is-masked" : ""}${options.isCompact ? " is-compact" : ""}${options.isLarge ? " is-large" : ""}"><img class="qr-picture" id="${options.id}"${options.imageUrl ? html` src="${options.imageUrl}"` : ""} alt="${options.label}" width="220" height="220"><figcaption class="qr-caption" id="${options.id}-caption">${options.caption}</figcaption></figure>`;
 }
 
 /** The gallery's QR code: a stand-in game's address, made as Zaisma makes every game's. */
@@ -394,6 +475,8 @@ component({
 /* Its words keep the margin inside it, as a field's do, however wide they run (a masked code's caption, at a large text size). */
 .qr-caption { font: var(--type-label); color: var(--ink); text-align: center; padding-inline: var(--pad-inside-words); }
 .qr-code.is-masked > .qr-picture { filter: blur(8px); }
+/* Large (a light box's): as big as the screen allows, its white margin wider to match, its line under it. */
+.qr-code.is-large > .qr-picture { width: min(360px, 76vw, 58dvh); padding: 16px; box-sizing: border-box; }
 /* Compact, on a wide screen: smaller, with its line beside it, the width of what a compact sheet holds. */
 @media (min-width: 761px) {
   .qr-code.is-compact { grid-template-columns: auto 1fr; justify-items: start; align-items: center; column-gap: var(--gap-block-block); }

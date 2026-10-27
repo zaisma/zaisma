@@ -195,7 +195,7 @@ const REPORT_SHEET_SCRIPT = pageScript("report-sheet", `(() => {
   });
   // Enter in a field sends the report: the sheet's first submit button is its Close, which the browser would press.
   form.addEventListener("keydown", (e) => {
-    if (e.key !== "Enter" || !(e.target instanceof HTMLInputElement) || send.hidden) return;
+    if (e.key !== "Enter" || !(e.target instanceof HTMLInputElement) || send.hidden || (step && !step.contains(e.target))) return;
     e.preventDefault();
     form.requestSubmit(send);
   });

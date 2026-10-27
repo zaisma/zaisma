@@ -240,7 +240,7 @@ component({
 .folded-head { display: flex; align-items: center; gap: var(--gap-words-words); min-height: var(--control-height-regular); padding-inline: var(--pad-words); cursor: pointer; list-style: none;
   font: var(--type-label); color: var(--ink-2); transition: color 0.15s; -webkit-tap-highlight-color: transparent; }
 .folded-head::-webkit-details-marker { display: none; }
-/* Pointed at, its words darken and its chevron steps on, the way a text button's arrow does. */
+/* Pointed at, its words darken and its chevron steps on, the way a quiet button's arrow does. */
 .folded-head:hover { color: var(--ink); }
 .folded-head:hover .folded-chevron { transform: translateX(2px); }
 .folded[open] > .folded-head:hover .folded-chevron { transform: rotate(90deg) translateX(2px); }

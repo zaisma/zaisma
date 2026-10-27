@@ -101,7 +101,7 @@ class FakeElement {
 function loadPage({ isPlaying = false } = {}) {
   const documentListeners: Record<string, Listener[]> = {};
   const windowListeners: Record<string, Listener[]> = {};
-  const root = new FakeElement("html");
+  const root = Object.assign(new FakeElement("html"), { clientWidth: 1200 });
   if (isPlaying) root.classList.add("is-playing");
   const body = root.appendChild(new FakeElement("body"));
   const main = body.appendChild(new FakeElement("main"));
@@ -141,6 +141,11 @@ function loadPage({ isPlaying = false } = {}) {
   };
   const coveredChanges: unknown[] = [];
   const window: Record<string, unknown> = {
+    innerHeight: 800,
+    scrollX: 0,
+    scrollY: 0,
+    // Where a hanging pane goes (panes.ts's PLACE_SCRIPT), standing in: under the button.
+    zaismaPlace: (rect: { left: number; bottom: number }) => ({ leftPx: rect.left, topPx: rect.bottom + 8, isAbove: false, isAtEnd: false }),
     addEventListener: (type: string, listener: Listener) => void (windowListeners[type] ??= []).push(listener),
     dispatchEvent: (fired: { type: string; detail: { coveredBy: unknown } }) => void (fired.type === "zaisma:covered" && coveredChanges.push(fired.detail.coveredBy)),
   };
@@ -320,6 +325,27 @@ describe("the stack of sheets", () => {
     // A confirm opened over another sheet is drawn a size smaller.
     expect(three.classList.contains("is-over-sheet")).toBe(true);
     expect(one.classList.contains("is-over-sheet")).toBe(false);
+  });
+
+  it("opens a sheet where its kind says: a small one hangs from the button that opened it, a task sheet never does", () => {
+    const page = loadPage();
+    const opener = page.document.body.appendChild(new FakeElement("button", { class: "cut-btn" }));
+    const [small, task] = [page.sheet("share"), page.sheet("report")];
+    small.classList.add("is-compact");
+    page.fire("click", opener);
+    small.showModal();
+    expect(small.classList.contains("is-anchored")).toBe(true);
+    small.close();
+    vi.advanceTimersByTime(400);
+    page.fire("click", opener);
+    task.showModal();
+    expect(task.classList.contains("is-anchored")).toBe(false);
+    // A small one with no button behind it (a game asked for it) takes a task sheet's place.
+    task.close();
+    vi.advanceTimersByTime(400);
+    page.fire("click", page.document.body);
+    small.showModal();
+    expect(small.classList.contains("is-anchored")).toBe(false);
   });
 
   it("closes only the top sheet on a press beside it or Esc", () => {

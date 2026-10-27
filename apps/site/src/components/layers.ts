@@ -232,7 +232,7 @@ export const LAYERS_SCRIPT = `/* layers */(function () {
     var target = event.target;
     if (!target.closest) return;
     // A notice's Close, and anything pressed in an urgent card (its Close, Sign in), let it go.
-    var closer = target.closest("[data-notice] .cut-btn, [data-layer-close]");
+    var closer = target.closest("[data-layer-close]");
     var card = closer && closer.closest("[data-notice], .urgent-card");
     if (!card) { var pressed = target.closest("a, button"); card = pressed && pressed.closest(".urgent-card"); }
     var entry = card && entryOf(card);
@@ -286,6 +286,8 @@ export const LAYERS_SCRIPT = `/* layers */(function () {
     openSheets.push(this);
     anchor(this);
     place(this);
+    // Its tab row is drawn once it has its place and its width.
+    drawTabRows(this, true);
     focusSheet(this);
     raiseUrgent();
     pump();
@@ -298,27 +300,36 @@ export const LAYERS_SCRIPT = `/* layers */(function () {
     sheet.setAttribute("tabindex", "-1");
     sheet.focus({ preventScroll: true });
   }
+  // Where a sheet opens is its kind's, never how it was opened (docs/DESIGN.md, "Every pane opens where its kind says"): a small sheet (compact)
+  // hangs from the button that opened it, on every screen; every other sheet keeps its own place (centered, at the foot, at the side, in the
+  // middle). A small one opened with no button to hang from (a game asked for it) takes a task sheet's place.
   function anchor(sheet) {
     var opener = pressed && performance.now() - pressed.at < 2000 && pressed.button.isConnected ? pressed.button : null;
-    // A store panel stands at the screen's edge whatever opened it, a picture large in the middle, a sheet in place stays where it is, and a
-    // confirm over another sheet opens in the middle of it.
-    if (!opener || sheet.matches(".in-place, .placement-side, .placement-middle, .is-picture") || opener.closest("[popover]") || sheet.contains(opener) || opener.closest("dialog[open]")) return;
+    if (!opener || !sheet.classList.contains("is-compact") || sheet.matches(".in-place, .placement-side, .placement-middle, .is-picture") || opener.closest("[popover]") || sheet.contains(opener) || opener.closest("dialog[open]")) return;
     anchors.set(sheet, { opener: opener, rect: opener.getBoundingClientRect() });
     sheet.classList.add("is-anchored");
+    sheet.classList.toggle("is-on-page", Boolean(window.zaismaIsOnPage && window.zaismaIsOnPage(opener, sheet)));
     // What loads in it after it opens (a screenshot) changes its size: it's placed again, so it stays inside the window.
     if (resized) resized.observe(sheet);
   }
   function place(sheet) {
     var held = anchors.get(sheet);
-    if (!held || !sheet.open || !wide.matches) return;
+    if (!held || !sheet.open) return;
     var rect = held.opener.isConnected ? held.opener.getBoundingClientRect() : held.rect;
     if (rect.width || rect.height) held.rect = rect; else rect = held.rect;
     var windowWidth = document.documentElement.clientWidth, windowHeight = window.innerHeight;
     if (rect.bottom < 0 || rect.top > windowHeight || rect.right < 0 || rect.left > windowWidth) { sheet.close(); return; }
     sheet.style.setProperty("--sheet-max-height", (windowHeight - 2 * EDGE_PX) + "px");
+    // On a phone it hangs only where it fits whole above or below its button; otherwise it rises from the foot like any sheet there.
+    var roomPx = Math.max(rect.top, windowHeight - rect.bottom) - GAP_PX_SHEET - EDGE_PX;
+    sheet.classList.toggle("is-anchored", wide.matches || sheet.offsetHeight <= roomPx);
+    if (!sheet.classList.contains("is-anchored")) return;
     var spot = window.zaismaPlace(rect, { width: sheet.offsetWidth, height: sheet.offsetHeight }, { roomRect: { left: 0, top: 0, right: windowWidth, bottom: windowHeight }, gapPx: GAP_PX_SHEET, edgePx: EDGE_PX });
-    sheet.style.setProperty("--sheet-left", Math.round(spot.leftPx) + "px");
-    sheet.style.setProperty("--sheet-top", Math.round(spot.topPx) + "px");
+    // Riding the page, it's placed in the page's coordinates, so the page's own scroll carries it with no script between; this runs again on
+    // a scroll only to keep it inside the window or flip it, which leaves the numbers as they were while neither is needed.
+    var isOnPage = sheet.classList.contains("is-on-page");
+    sheet.style.setProperty("--sheet-left", Math.round(spot.leftPx + (isOnPage ? window.scrollX : 0)) + "px");
+    sheet.style.setProperty("--sheet-top", Math.round(spot.topPx + (isOnPage ? window.scrollY : 0)) + "px");
     sheet.classList.toggle("is-above", spot.isAbove); sheet.classList.toggle("is-at-end", spot.isAtEnd);
   }
   function placeAll() { anchors.forEach(function (held, sheet) { place(sheet); }); }
@@ -337,7 +348,7 @@ export const LAYERS_SCRIPT = `/* layers */(function () {
     if (!anchors.has(sheet)) return;
     anchors.delete(sheet);
     if (resized) resized.unobserve(sheet);
-    sheet.classList.remove("is-anchored", "is-above", "is-at-end");
+    sheet.classList.remove("is-anchored", "is-above", "is-at-end", "is-on-page");
     sheet.style.removeProperty("--sheet-left"); sheet.style.removeProperty("--sheet-top"); sheet.style.removeProperty("--sheet-max-height");
   }, true);
   HTMLDialogElement.prototype.close = function () { if (isLeaving(this)) leaveSheet(this, arguments); else close.apply(this, arguments); };
@@ -371,9 +382,12 @@ export const LAYERS_SCRIPT = `/* layers */(function () {
     if (shower) { event.preventDefault(); layers.say({ cardId: shower.getAttribute("data-layer-show") }); return; }
     var back = event.target.closest("[data-sheet-back]");
     if (back) { var stepped = back.closest("dialog"); if (stepped && stepped.zaismaSteps && stepped.zaismaSteps.length > 1) step(stepped, stepped.zaismaSteps[stepped.zaismaSteps.length - 2]); return; }
-    var tab = event.target.closest(".sheet .tab-switch > button[value]");
+    var tab = event.target.closest("[data-sheet-tab-to]");
     var tabbed = tab && tab.closest("dialog");
-    if (tabbed && tabbed.querySelector("[data-sheet-tab]")) { showPart(tabbed, "data-sheet-tab", tab.value, 0); return; }
+    if (tabbed) { chooseTab(tabbed, tab.getAttribute("data-sheet-tab-to")); return; }
+    // A light box goes on a press anywhere in it but its own controls, when it's the top layer.
+    var box = event.target.closest("dialog.light-box[open]");
+    if (box && openSheets[openSheets.length - 1] === box && !event.target.closest("a, button, input")) { box.close(); return; }
     // A press beside the top sheet closes it, and only it.
     var open = event.target.matches("dialog.sheet[open]") ? event.target : null;
     if (!open || !event.detail || openSheets[openSheets.length - 1] !== open) return;
@@ -397,6 +411,10 @@ export const LAYERS_SCRIPT = `/* layers */(function () {
     if (shown) {
       shown.classList.remove("is-from-end", "is-from-start");
       if (direction && !isReduced()) { void shown.offsetWidth; shown.classList.add(direction > 0 ? "is-from-end" : "is-from-start"); }
+      // The edge rule cuts a piece by where it sits, and mid-slide it sits off to the side: once the slide is over (or at once, with none),
+      // everything cut in it is drawn again where it is, so a choice at the sheet's foot takes both corners' cuts.
+      var redraw = function () { shown.querySelectorAll("[data-cut-line]").forEach(function (el) { if (el.redrawCut) el.redrawCut(); }); };
+      if (shown.classList.contains("is-from-end") || shown.classList.contains("is-from-start")) shown.addEventListener("animationend", redraw, { once: true }); else if (window.requestAnimationFrame) requestAnimationFrame(redraw);
     }
     return shown;
   }
@@ -417,12 +435,80 @@ export const LAYERS_SCRIPT = `/* layers */(function () {
   function reset(sheet) {
     sheet.style.minHeight = "";
     if (sheet.zaismaSteps) { sheet.zaismaSteps = null; var first = firstOf(sheet, "data-sheet-step"); step(sheet, first); sheet.zaismaSteps = null; }
-    var firstTab = sheet.querySelector(".tab-switch > button[value]");
-    if (firstTab && sheet.querySelector("[data-sheet-tab]")) {
-      showPart(sheet, "data-sheet-tab", firstTab.value, 0);
-      firstTab.parentNode.querySelectorAll("button[value]").forEach(function (button) { button.setAttribute("aria-pressed", String(button === firstTab)); });
-    }
+    var firstTab = sheet.querySelector("[data-sheet-tab-to]");
+    if (firstTab) chooseTab(sheet, firstTab.getAttribute("data-sheet-tab-to"));
   }
+  // A tab chosen: its part shows, it's the pressed one in the row, the front piece's outline moves to it, and it scrolls into view.
+  function chooseTab(sheet, tabValue) {
+    showPart(sheet, "data-sheet-tab", tabValue, 0);
+    sheet.querySelectorAll("[data-sheet-tab-to]").forEach(function (button) { button.setAttribute("aria-pressed", String(button.getAttribute("data-sheet-tab-to") === tabValue)); });
+    drawTabRows(sheet, true);
+  }
+  // The tab row: behind (the deeper glass) everywhere in it but the chosen tab, drawn inside its scrolling track so it moves with the tabs, its
+  // shadow along the front piece's outline; and the sheet's own glass edge (GLASS_SCRIPT, zaismaEdgeShape) drawn along that outline: up the
+  // chosen tab's outward slants, across its top, along the row's foot beside it, and round the rest of the sheet. isRevealing scrolls the
+  // chosen tab into view.
+  var TAB_SLANT_PX = 8;
+  function drawTabRows(holder, isRevealing) {
+    (holder.classList && holder.classList.contains("sheet-tab-scroll") ? [holder.querySelector(".sheet-tab-track")] : holder.querySelectorAll(".sheet-tab-track")).forEach(function (track) {
+      var chosen = track.querySelector('[data-sheet-tab-to][aria-pressed="true"]'), svg = track.querySelector(".sheet-tab-outline");
+      if (!chosen || !svg) return;
+      // Drawn again whenever the row changes size (the sheet settling into its place, the fonts arriving).
+      if (!track.zaismaWatched && window.zaismaWatch) { track.zaismaWatched = true; window.zaismaWatch.size(track, function () { drawTabRows(track.parentNode, false); }); }
+      var w = track.offsetWidth, h = track.offsetHeight, s = TAB_SLANT_PX;
+      var left = chosen.offsetLeft, right = left + chosen.offsetWidth;
+      var behind = "M0,0H" + w + "V" + h + "H" + right + "L" + (right - s) + ",0H" + (left + s) + "L" + left + "," + h + "H0Z";
+      svg.querySelector(".behind-glass").setAttribute("d", behind);
+      svg.querySelector(".behind-well").setAttribute("d", behind);
+      // The front piece's shadow falls only on what's behind it: the line along its outline, kept to the behind shape.
+      var shadow = svg.querySelector(".front-shadow");
+      shadow.setAttribute("points", [[0, h], [left, h], [left + s, 0], [right - s, 0], [right, h], [w, h]].map(function (p) { return p.join(","); }).join(" "));
+      shadow.style.clipPath = 'path("' + behind + '")';
+      var scroller = track.parentNode;
+      if (isRevealing && scroller && scroller.scrollTo) {
+        var shownLeft = scroller.scrollLeft, shownRight = shownLeft + scroller.clientWidth;
+        if (left < shownLeft || right > shownRight) scroller.scrollTo({ left: left < shownLeft ? left - 24 : right - scroller.clientWidth + 24, behavior: isReduced() ? "auto" : "smooth" });
+      }
+      markMore(scroller);
+      outlineSheet(track);
+    });
+  }
+  // The sheet's glass edge along its front piece: where the chosen tab is in the sheet now (the row scrolls), kept to what shows of the row.
+  function outlineSheet(track) {
+    var sheet = track.closest && track.closest(".sheet"), row = track.closest && track.closest(".sheet-tab-row");
+    if (!sheet || !row || !sheet.getBoundingClientRect) return;
+    sheet.zaismaEdgeShape = function (w, h, cuts) {
+      var chosen = track.querySelector('[data-sheet-tab-to][aria-pressed="true"]'), scroller = track.parentNode;
+      if (!chosen || !scroller) return null;
+      var box = sheet.getBoundingClientRect(), tab = chosen.getBoundingClientRect(), shown = scroller.getBoundingClientRect(), foot = row.getBoundingClientRect().bottom - box.top, s = TAB_SLANT_PX;
+      var left = Math.max(tab.left, shown.left) - box.left, right = Math.min(tab.right, shown.right) - box.left;
+      var points = [];
+      // Its top: the sheet's corner cut where the chosen tab is at the sheet's start or end, a slant up and down where it isn't.
+      if (left <= 1) points.push([0, cuts[0]], [cuts[0], 0]); else points.push([0, foot], [left, foot], [left + s, 0]);
+      if (right >= w - 1) points.push([w - cuts[1], 0], [w, cuts[1]]); else points.push([right - s, 0], [right, foot], [w, foot]);
+      points.push([w, h - cuts[2]], [w - cuts[2], h], [cuts[3], h], [0, h - cuts[3]]);
+      return right - left > 2 * s ? points : null;
+    };
+    if (sheet.redrawGlass) sheet.redrawGlass();
+  }
+  // Where there's more to scroll, the row fades out at that end.
+  function markMore(scroller) {
+    if (!scroller || !scroller.classList) return;
+    scroller.classList.toggle("is-more-start", scroller.scrollLeft > 1);
+    scroller.classList.toggle("is-more-end", scroller.scrollLeft + scroller.clientWidth < scroller.scrollWidth - 1);
+  }
+  document.addEventListener("scroll", function (event) {
+    if (!event.target.classList || !event.target.classList.contains("sheet-tab-scroll")) return;
+    markMore(event.target);
+    // The chosen tab moved in the sheet: its glass edge follows.
+    var track = event.target.querySelector(".sheet-tab-track");
+    if (track) outlineSheet(track);
+  }, true);
+  // Rows on the page as it opens (a gallery's still copy), and again when the window or the fonts change their size.
+  var drawAllTabRows = function () { if (document.body) drawTabRows(document.body, false); };
+  drawAllTabRows();
+  window.addEventListener("resize", drawAllTabRows);
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(drawAllTabRows);
 
   var layers = window.zaismaLayers = {
     coveredBy: null,

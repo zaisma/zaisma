@@ -1109,11 +1109,12 @@ if (roomOpen && roomDialog) {
 const shareBox = document.getElementById("share-dialog");
 const shareLink = document.getElementById("share-link");
 // What streamer mode masks: the QR code, the room code and the link (Copy still copies them).
-const shareSecrets = () => shareBox.querySelectorAll(".qr-code, .code-field");
+const shareSecrets = () => document.querySelectorAll("#share-dialog .code-field, #share-dialog .link-field, #share-qr-box .qr-code");
 function shareFrom(button) {
   const url = location.origin + location.pathname + location.search.replace(/[?&]play\b[^&]*/, "").replace(/^&/, "?");
   const room = new URLSearchParams(location.search).get("room");
-  shareLink.textContent = url;
+  shareLink.dataset.link = url;
+  shareLink.textContent = url.replace(/^https?:\/\//, "");
   document.getElementById("share-room").hidden = !room;
   document.getElementById("share-room-code").textContent = room || "";
   const isMasked = isRoomCodeHidden && Boolean(room);
@@ -1122,7 +1123,7 @@ function shareFrom(button) {
   const qr = document.getElementById("share-qr");
   if (qr) {
     qr.src = "/g/" + gamePage.slug + "/qr-code.svg" + (room ? "?room=" + encodeURIComponent(room) : "");
-    document.getElementById("share-qr-caption").textContent = room ? "Scan to join this match" : "Scan to play";
+    document.getElementById("share-qr-caption").textContent = room ? "Scan with a phone's camera to join this match" : "Scan with a phone's camera to play";
   }
   if (!shareBox.open) shareBox.showModal();
   shareBox.returnFocus = button;
@@ -1131,7 +1132,7 @@ const shareMore = document.getElementById("share-more");
 if (navigator.share) {
   shareMore.hidden = false;
   shareMore.onclick = async () => {
-    try { await navigator.share({ title: document.title, url: shareLink.textContent }); shareBox.close(); } catch {}
+    try { await navigator.share({ title: document.title, url: shareLink.dataset.link }); shareBox.close(); } catch {}
   };
 }
 // Show, or a tap on the blurred link or room code, reveals them for this time.

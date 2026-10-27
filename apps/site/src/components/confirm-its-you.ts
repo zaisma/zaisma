@@ -1,7 +1,7 @@
 import { PURCHASE_PIN_LIMITS } from "@zaisma/core";
 import { html, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
-import { cutButton, runButton, textButton } from "./actions.ts";
+import { cutButton, runButton, quietButton } from "./actions.ts";
 import { cutField, pinField } from "./fields.ts";
 import { stack } from "./layout.ts";
 import { sheet } from "./panes.ts";
@@ -48,7 +48,7 @@ export function confirmItsYouSheet(options: ConfirmItsYouOptions): Raw {
       { kind: "words", id: `${id}-username`, isHidden: true, markup: html`<input type="text" name="username" autocomplete="username" tabindex="-1" aria-hidden="true">` },
       { kind: "control", id: `${id}-password`, isHidden: method !== "password", markup: cutField({ name: "password", id: `${id}-password-field`, label: "Password", type: "password", icon: "lock", autocomplete: "current-password" }) },
       { kind: "words", id: `${id}-problem`, isHidden: !options.errorText || method === "purchase_pin", markup: html`<p class="confirm-problem" role="alert">${options.errorText ?? ""}</p>` },
-      { kind: "words", id: `${id}-switch`, isHidden: !options.switchTo, markup: textButton(SWITCH_WORDS[options.switchTo ?? "password"], { type: "button" }) },
+      { kind: "words", id: `${id}-switch`, isHidden: !options.switchTo, markup: quietButton(SWITCH_WORDS[options.switchTo ?? "password"], { type: "button" }) },
     ],
   });
   return sheet({
@@ -101,7 +101,7 @@ export const CONFIRM_ITS_YOU_SCRIPT = String.raw`/* confirm it's you */(function
     part(id, "password").hidden = method !== "password";
     var other = state.methods.filter(function (each) { return each !== method; })[0] || null;
     part(id, "switch").hidden = !other;
-    if (other) part(id, "switch").querySelector(".text-label").textContent = SWITCH_WORDS[other];
+    if (other) part(id, "switch").querySelector(".quiet-label").textContent = SWITCH_WORDS[other];
     var go = part(id, "go");
     go.querySelector(".label-idle").textContent = method === "passkey" ? "Use your passkey" : "Confirm";
     if (state.isBusy) go.setAttribute("aria-busy", "true"); else go.removeAttribute("aria-busy");
