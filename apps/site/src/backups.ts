@@ -294,6 +294,9 @@ async function* gameDatabaseDump(env: Env, gameId: string): AsyncGenerator<strin
   } while (cursor);
 }
 
+/** The dump's first line, so a restore knows its tables are in reference order and splits it as it streams (scripts/restore-dump.mjs). */
+export const MAIN_DATABASE_DUMP_HEADER = "-- Zaisma's main database: each table after the tables it refers to.";
+
 /** Rows per SELECT while dumping a table of the main database. */
 const MAIN_DATABASE_PAGE_ROW_COUNT = 500;
 
@@ -311,7 +314,7 @@ export async function* mainDatabaseDump(database: D1Database): AsyncGenerator<st
   const { results: entries } = await database
     .prepare("SELECT type, name, tbl_name AS table_name, sql FROM sqlite_master WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%' AND tbl_name NOT LIKE '_cf_%' ORDER BY rowid")
     .all<{ type: string; name: string; table_name: string; sql: string }>();
-  yield "PRAGMA defer_foreign_keys=TRUE;\n";
+  yield `${MAIN_DATABASE_DUMP_HEADER}\nPRAGMA defer_foreign_keys=TRUE;\n`;
   // A virtual table (the forum's full-text search) makes its own shadow tables, so only its rows are dumped.
   const virtualNames = entries.filter((entry) => entry.type === "table" && /^CREATE\s+VIRTUAL\s+TABLE/i.test(entry.sql)).map((entry) => entry.name);
   const isShadowTable = (name: string) => virtualNames.some((virtualName) => name.startsWith(`${virtualName}_`));

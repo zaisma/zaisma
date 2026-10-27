@@ -196,7 +196,7 @@ describe("a night's parts", () => {
     await runNight(testEnv, sent);
 
     const dump = text(newest("main-database.sql")!.bytes);
-    expect(dump.startsWith("PRAGMA defer_foreign_keys=TRUE;\n")).toBe(true);
+    expect(dump.startsWith("-- Zaisma's main database: each table after the tables it refers to.\nPRAGMA defer_foreign_keys=TRUE;\n")).toBe(true);
     expect(dump).toContain("CREATE TABLE backup_runs");
     expect(dump).toMatch(/INSERT INTO "backup_runs"\("run_date",.*\) VALUES\('\d{4}-\d{2}-\d{2}',/);
     // The forum's full-text search goes in through its virtual table, never its shadow tables.

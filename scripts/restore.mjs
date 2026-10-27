@@ -39,7 +39,7 @@ import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
 import { BackupStorage } from "../apps/site/src/backup-storage.ts";
-import { scanStatements } from "../packages/game-server/src/database.ts";
+import { dumpInReferenceOrder, writeImportParts } from "./restore-dump.mjs";
 import { ensureDocker, placePhotoDnaSdk } from "./photodna-sdk.mjs";
 
 const CHECKOUT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -207,45 +207,6 @@ async function downloadMainDatabase(storage, version) {
   return { dumpPath, rowCounts };
 }
 
-/** The dump's statements by table, the tables in reference order (parents first), and the rest (indexes, views, triggers). */
-function dumpInReferenceOrder(dumpPath) {
-  const dumpSql = readFileSync(dumpPath, "utf8");
-  const statements = scanStatements(dumpSql).map((statement) => dumpSql.slice(statement.startIndex, statement.endIndex));
-  const tableNameOf = (text) => (/^CREATE\s+(?:VIRTUAL\s+)?TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?"?(\w+)"?/i.exec(text) ?? /^INSERT\s+INTO\s+"?(\w+)"?\s*\(/i.exec(text))?.[1]?.toLowerCase() ?? null;
-  const groups = new Map();
-  const rest = [];
-  for (const text of statements) {
-    if (/^PRAGMA\b/i.test(text)) continue;
-    const tableName = tableNameOf(text);
-    if (tableName) groups.set(tableName, [...(groups.get(tableName) ?? []), text]);
-    else rest.push(text);
-  }
-  const referencesOf = (tableName) => [...(groups.get(tableName)?.[0] ?? "").matchAll(/REFERENCES\s+"?(\w+)"?/gi)].map((match) => match[1].toLowerCase()).filter((name) => name !== tableName && groups.has(name));
-  const ordered = [];
-  const placed = new Set();
-  const place = (tableName, path = new Set()) => {
-    if (placed.has(tableName) || path.has(tableName)) return;
-    path.add(tableName);
-    for (const parent of referencesOf(tableName)) place(parent, path);
-    placed.add(tableName);
-    ordered.push(tableName);
-  };
-  for (const tableName of groups.keys()) place(tableName);
-  return { groups, ordered, rest };
-}
-
-/**
- * The dump rewritten as backups now write it, each table and its rows after the tables it refers to: D1's
- * import checks foreign keys as it goes and resets on a row whose parent isn't in yet. Backups from before
- * the dump wrote parents first import this way too.
- */
-function writeOrderedDump(dumpPath) {
-  const { groups, ordered, rest } = dumpInReferenceOrder(dumpPath);
-  const orderedPath = `${dumpPath}.ordered.sql`;
-  writeFileSync(orderedPath, ["PRAGMA defer_foreign_keys=TRUE", ...ordered.flatMap((tableName) => groups.get(tableName)), ...rest].map((text) => `${text};\n`).join(""));
-  return orderedPath;
-}
-
 /**
  * The last resort when D1's import still refuses a dump: the same SQL through wrangler d1 execute --command,
  * in reference order, in commands that each defer foreign keys to their end. Slow (a command a minute or so,
@@ -319,10 +280,20 @@ async function runRestore() {
   const hasMainDatabase = wrangler(["d1", "execute", DATABASE_NAME, "--remote", "--json", "--config", siteConfig, "--command", "SELECT COUNT(*) AS migration_count FROM d1_migrations"]).exitCode === 0;
   if (!hasMainDatabase) {
     const { dumpPath } = await downloadMainDatabase(storage, chosen.version);
-    const importPath = writeOrderedDump(dumpPath);
-    say(`Loading ${chosen.night}'s main database…`);
+    const importPaths = await writeImportParts(dumpPath);
+    say(`Loading ${chosen.night}'s main database (${importPaths.length} part${importPaths.length === 1 ? "" : "s"})…`);
     const loadStartedAtMs = Date.now();
-    const imported = wrangler(["d1", "execute", DATABASE_NAME, "--remote", "--yes", "--config", siteConfig, "--file", importPath]);
+    let imported = { exitCode: 0, output: "" };
+    for (const [index, importPath] of importPaths.entries()) {
+      imported = wrangler(["d1", "execute", DATABASE_NAME, "--remote", "--yes", "--config", siteConfig, "--file", importPath]);
+      if (imported.exitCode !== 0) break;
+      if (importPaths.length > 1) say(`Main database part ${index + 1} of ${importPaths.length} imported.`);
+    }
+    // The fallback starts from an empty database: only a single-part import leaves it as it was.
+    if (imported.exitCode !== 0 && importPaths.length > 1) {
+      say(imported.output.trim());
+      fail("D1's import refused a part of the main database (above); the parts before it are in.", "Delete the database (npx wrangler d1 delete zaisma, with this shell's token) and run this again.");
+    }
     if (imported.exitCode !== 0) {
       // D1's import can refuse a dump without saying why ({"D1_RESET_DO":true}), and leaves the database as it was:
       // the same SQL then goes in as statements, parents before the tables that refer to them, and a refusal names its statement.
