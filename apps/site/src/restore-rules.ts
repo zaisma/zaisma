@@ -25,7 +25,10 @@ export function restoreRuleOf(backupKey: string): RestoreRule {
   if (kind === "game-databases" && rest.length === 1 && key.endsWith(".sql")) return owned("SELECT 1 AS has_owner FROM games WHERE id = ?", [key.slice(0, -".sql".length)]);
   if (kind === "kept-rooms" && parts.length === 2 && parts[1]!.endsWith(".jsonl")) return owned("SELECT 1 AS has_owner FROM kept_rooms WHERE game_id = ? AND room_code = ?", [parts[0]!, parts[1]!.slice(0, -".jsonl".length)]);
   if (kind === "zaisma-saves") {
-    // A save (saveKey) or one of its earlier copies (saveCopyKey).
+    // A save's version (saveKey): only the one its row names, so a version replaced before the copy stays out.
+    const saveVersion = parts.length === 3 ? /^save_(\d+)_([0-9a-f]+)\.json$/.exec(parts[2]!) : null;
+    if (saveVersion) return owned("SELECT 1 AS has_owner, version_number FROM saves WHERE account_id = ? AND game_id = ? AND version_number = ? AND sha256 = ?", [parts[0]!, parts[1]!, saveVersion[1]!, saveVersion[2]!], JSON_TYPE);
+    // A save from before each version had its own file (unversionedSaveKey), or one of a save's earlier copies (saveCopyKey).
     if (parts.length === 2 && parts[1]!.endsWith(".json")) return owned("SELECT 1 AS has_owner, version_number FROM saves WHERE account_id = ? AND game_id = ?", [parts[0]!, parts[1]!.slice(0, -".json".length)], JSON_TYPE);
     if (parts.length === 3 && parts[2]!.endsWith(".json")) return owned("SELECT 1 AS has_owner FROM save_history WHERE id = ? AND account_id = ? AND game_id = ?", [parts[2]!.slice(0, -".json".length), parts[0]!, parts[1]!], JSON_TYPE);
     return { kind: "never", reason: "not a save or a save's copy" };

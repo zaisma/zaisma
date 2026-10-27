@@ -34,7 +34,8 @@ const R2_KEY_EXAMPLES: Record<string, string> = {
   shaderCheckSheetKey: "zaisma-games/shader-checks/sheet_1.png",
   shaderCheckRunPrefix: "zaisma-games/shader-check-runs/owner_1/1761500000000-run",
   brotliKeyOf: "zaisma-games/brotli/blobs/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
-  saveKey: "zaisma-saves/account_1/game_1.json",
+  saveKey: "zaisma-saves/account_1/game_1/save_7_9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.json",
+  unversionedSaveKey: "zaisma-saves/account_1/game_1.json",
   saveCopyKey: "zaisma-saves/account_1/game_1/copy_1.json",
   keptKey: "zaisma-games/held-images/game_1/shader_1.still.png",
 };
@@ -81,6 +82,7 @@ describe("what a restore brings back", () => {
 
   it("brings back a save, a game's files and its database only with what owns them", () => {
     expect(restoreRuleOf("zaisma-saves/account_1/game_1.json")).toMatchObject({ kind: "owned", ownerValues: ["account_1", "game_1"], contentType: "application/json" });
+    expect(restoreRuleOf("zaisma-saves/account_1/game_1/save_7_9f86d081.json")).toMatchObject({ kind: "owned", ownerValues: ["account_1", "game_1", "7", "9f86d081"] });
     expect(restoreRuleOf("zaisma-saves/account_1/game_1/copy_1.json")).toMatchObject({ kind: "owned", ownerValues: ["copy_1", "account_1", "game_1"] });
     expect(restoreRuleOf("zaisma-games/games/game_1/k2m4x9/assets/level 2.png")).toMatchObject({ kind: "owned", ownerSql: expect.stringContaining("r2_prefix"), ownerValues: ["games/game_1/k2m4x9", "games/game_1"] });
     expect(restoreRuleOf("zaisma-games/images/game_1/image_1.card.jpg")).toMatchObject({ kind: "owned", ownerValues: ["image_1", "game_1"], contentType: "image/jpeg" });
