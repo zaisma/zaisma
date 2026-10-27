@@ -68,7 +68,7 @@ const ROOM_CODE = /^[A-Z0-9]{6}$/;
  * Friends playing the game, each with Join, grayed with why under their name when it won't work; none for a friend in no room Zaisma
  * knows. Watch beside it when their room takes spectators, by the same rules. The players sheet puts this in its friends part.
  */
-function friendRows(slug: string, friends: Awaited<ReturnType<typeof friendsInGameOf>>): Raw {
+export function friendRows(slug: string, friends: Awaited<ReturnType<typeof friendsInGameOf>>): Raw {
   if (!friends.length) return html`<p class="sheet-text">None of your friends are playing this right now.</p>`;
   return listRows({ whenEmpty: emptyState({ title: "No friends playing", text: "None of your friends are playing this right now." }),
     label: "Friends playing",
