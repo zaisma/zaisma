@@ -144,7 +144,9 @@ export async function handleSaves(request: Request, env: Env, slug: string, copi
     keptSaveCopyId = await keepCopy(env, copy, () => storedSaveText(env, current), (newestCopyAtMs) => copyReason(current, { sizeBytes, isReplacing: body.replace === true }, newestCopyAtMs));
     await forgetSave(env, current);
   }
-  return withCookies(json({ version_number: versionNumber, sha256, saved_at: iso(Date.now()), kept_save_copy_id: keptSaveCopyId }));
+  // The time the save was stored, exactly as a retry of it would answer.
+  const stored = await saveRow(env.DB, account.id, game.id);
+  return withCookies(json({ version_number: versionNumber, sha256, saved_at: iso(stored?.version_number === versionNumber ? stored.saved_at_ms : Date.now()), kept_save_copy_id: keptSaveCopyId }));
 }
 
 const tooOften = () => Response.json({ error: "Saving too often." }, { status: 429, headers: { "Cache-Control": "no-store", "Retry-After": "60" } });
