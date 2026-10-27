@@ -831,8 +831,9 @@ describe("pages", () => {
     ]);
   });
 
-  // The game page as the design test's own game shows it, and the gallery's pages, besides the states above: the rules below hold on each.
-  const STRUCTURE_PATHS = ["/g/design-farm", ...CHECKED_PAGES.filter((each) => each.isGallery).map((each) => each.path)];
+  // The game page as the design test's own game shows it, and the gallery's pages (Screens is only on a local preview), besides the
+  // states above: the rules below hold on each.
+  const STRUCTURE_PATHS = ["/g/design-farm", ...CHECKED_PAGES.filter((each) => each.isGallery && !each.path.startsWith("/design/screens")).map((each) => each.path)];
 
   it("keep the rules their markup can't break unseen: one title, headings in order, no capitals, no token's name, few equal choices, fields in groups, one runner", async () => {
     for (const state of PUBLIC_STATES) {
