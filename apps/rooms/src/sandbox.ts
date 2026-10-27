@@ -1,4 +1,4 @@
-import { GAME_SERVER_OPTIONS, OUTSIDE_CALL_REFUSAL_HEADER, PAIR_CHANGE_COUNT, OUTSIDE_CALL_ERROR_CODES, QUEUES_INPUT, RESERVE_WITH_ROOM_CODE, ROOM_LIMITS, STATE_SYNC, SYNCS_STATE, GameServerError, checkSchedules, defineGameServer, noSetupError, readJoinAnswer, unknownOptionError, type Audience, type AwayInfo, type AwayReason, type GameServer, type JoinAnswer, type JoinInfo, type LeaveInfo, type Player, type Purchase, type RestoreInfo, type Room, type ScheduledRun, type SendOptions, type StateSyncHooks, type VersionUpdate, roomCallChecksModuleSource, stateSyncModuleSource } from "@zaisma/game-server/internal";
+import { GAME_SERVER_OPTIONS, OUTSIDE_CALL_REFUSAL_HEADER, PAIR_CHANGE_COUNT, OUTSIDE_CALL_ERROR_CODES, QUEUES_INPUT, RESERVE_WITH_ROOM_CODE, ROOM_LIMITS, STATE_SYNC, SYNCS_STATE, GameServerError, checkSchedules, defineGameServer, noSetupError, readChatAnswer, readJoinAnswer, unknownOptionError, type Audience, type ChatAnswer, type ChatInfo, type AwayInfo, type AwayReason, type GameServer, type JoinAnswer, type JoinInfo, type LeaveInfo, type Player, type Purchase, type RestoreInfo, type Room, type ScheduledRun, type SendOptions, type StateSyncHooks, type VersionUpdate, roomCallChecksModuleSource, stateSyncModuleSource } from "@zaisma/game-server/internal";
 import { LOG_LEVELS, LOG_LIMITS, SANDBOX_GAME_SERVER, logText, manifestKey, readPrintedLines, serverModules, type Manifest, type PrintedLogLine } from "@zaisma/core";
 import type { Env } from "./index.ts";
 
@@ -155,6 +155,7 @@ export interface Settings {
   maximumRoomCountPerPlayer?: unknown;
   stateSaveIntervalSec?: unknown;
   stateSyncEnabled?: unknown;
+  adultChatFilterEnabled?: unknown;
   /** As plain JSON; the game's object checks them (checkSchedules). */
   schedules?: unknown;
   handlerNames: unknown;
@@ -186,6 +187,8 @@ export interface Session {
   restore(state: unknown): Promise<void>;
   /** canJoin: the game's answer on a player coming in, as plain JSON. It can't change the state or the room. */
   check(player: Player, joinData: unknown, roomChanges: RoomChanges, given: GivenState, joinInfo: JoinInfo): Promise<{ answer?: unknown; error?: string } & Printed>;
+  /** onChat: the game's answer on a chat message, as plain JSON. Like canJoin, it can't change the state or the room. */
+  chat(player: Player, chatInfo: ChatInfo, roomChanges: RoomChanges, given: GivenState): Promise<{ answer?: unknown; error?: string } & Printed>;
   /** onRequest: what the game server answered a request, as plain JSON, or the error it threw. */
   request(player: Player, request: unknown): Promise<{ answer?: unknown; error?: string } & Printed>;
   /** onSchedule: one run of a schedule, or the error it threw. */
@@ -209,7 +212,7 @@ const newRoomCode = () => Array.from(crypto.getRandomValues(new Uint8Array(6)), 
 const HOOKS = ["onJoin", "onLeave", "onSpectatorJoin", "onSpectatorLeave", "onMessage", "onBytes", "onTick", "onMoved", "onAway", "onBack", "onEnding", "onRestored", "onVersionUpdate", "onPurchase", "onRefund"];
 // A call hands back up to this many of the errors its handlers threw (errorCount says how many there were).
 const ERROR_COUNT = 20;
-const HANDLERS = ["setup", "canJoin", "onRequest", "onSchedule", "onWebhook", "stateView", ...HOOKS];
+const HANDLERS = ["setup", "canJoin", "onChat", "onRequest", "onSchedule", "onWebhook", "stateView", ...HOOKS];
 const MAXIMUM_STATE_VIEW_SIZE_BYTES = ${ROOM_LIMITS.maximumStateViewSizeBytes};
 const MAXIMUM_RESERVES_PER_MIN = ${ROOM_LIMITS.maximumReservesPerMin};
 const ROOM_LIMITS = ${JSON.stringify(ROOM_LIMITS)};
@@ -416,6 +419,7 @@ class Session extends RpcTarget {
       maximumRoomCountPerPlayer: server.maximumRoomCountPerPlayer,
       stateSaveIntervalSec: server.stateSaveIntervalSec,
       stateSyncEnabled: server.stateSyncEnabled,
+      adultChatFilterEnabled: server.adultChatFilterEnabled,
       schedules: plain(server.schedules),
       handlerNames: HANDLERS.filter((name) => typeof server[name] === "function"),
       badHandlerNames: HANDLERS.filter((name) => server[name] !== undefined && typeof server[name] !== "function"),
@@ -525,6 +529,26 @@ class Session extends RpcTarget {
       return { error: String((error && error.stack) || error) };
     }
     // Handed back as plain JSON; the room reads it like any game server's answer (true, false or { refusalMessage }).
+    try {
+      return { answer: answer === undefined ? null : JSON.parse(JSON.stringify(answer)) };
+    } catch {
+      return { answer: "(an answer that isn't plain JSON)" };
+    }
+  }
+  chat(player, chatInfo, roomChanges, given) {
+    return withLogs(() => this.#chat(player, chatInfo, roomChanges, given));
+  }
+  async #chat(player, chatInfo, roomChanges, given) {
+    if (given) this.#state = given.state;
+    const snapshot = this.#take(roomChanges);
+    if (typeof server.onChat !== "function") return { answer: true };
+    let answer;
+    try {
+      answer = await server.onChat(this.#state, player, recorder(snapshot, [], this.#database, this.#secrets, this.#verifyReceipt, this.#countReserve, "onChat"), chatInfo);
+    } catch (error) {
+      return { error: String((error && error.stack) || error) };
+    }
+    // Handed back as plain JSON; the room reads it like any game server's answer (true, false or { toPlayerIds }).
     try {
       return { answer: answer === undefined ? null : JSON.parse(JSON.stringify(answer)) };
     } catch {
@@ -910,6 +934,7 @@ export function optionsOf(settings: Settings) {
     ...(settings.maximumRoomCountPerPlayer !== undefined ? { maximumRoomCountPerPlayer: settings.maximumRoomCountPerPlayer as number } : {}),
     ...(settings.stateSaveIntervalSec !== undefined ? { stateSaveIntervalSec: settings.stateSaveIntervalSec as number } : {}),
     ...(settings.stateSyncEnabled !== undefined ? { stateSyncEnabled: settings.stateSyncEnabled as boolean } : {}),
+    ...(settings.adultChatFilterEnabled !== undefined ? { adultChatFilterEnabled: settings.adultChatFilterEnabled as boolean } : {}),
   };
 }
 
@@ -1124,6 +1149,24 @@ export async function wrapSession(open: (secrets: Record<string, string>) => Pro
               throw new Error(`Game server error: ${read.mistake.message}`);
             }
             return checked.answer as JoinAnswer;
+          },
+        }
+      : {}),
+    ...(handlerNames.has("onChat")
+      ? {
+          onChat: async (state: unknown, player: Player, room: Room, chatInfo: ChatInfo) => {
+            const changes = roomChanges(room);
+            const checked = await reach(() => session.chat(player, chatInfo, changes, given(state)));
+            if (checked.error) throw new Error(`Game server error: ${checked.error.slice(0, 2000)}`);
+            // A wrong answer stops the message, and its developer sees why with the game's server errors.
+            const read = readChatAnswer(checked.answer);
+            if ("mistake" in read) {
+              stats.crashCount++;
+              record("crash", read.mistake.message);
+              printed(linesOf(null, read.mistake.message));
+              throw new Error(`Game server error: ${read.mistake.message}`);
+            }
+            return checked.answer as ChatAnswer;
           },
         }
       : {}),

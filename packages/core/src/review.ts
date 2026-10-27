@@ -24,7 +24,7 @@ export const CONTENT_RULES = {
   defamation: "False claims that a real private person committed a crime.",
   personal_details:
     "Asking players for personal details like emails, real names, birthdays or location inside the game. Every player has a Zaisma ID and name; games with their own accounts link them through Sign in with Zaisma, and anything more happens on the developer's own site.",
-  chat: "Free-text chat between players. In the beta, players talk through each game's preset phrases and emotes.",
+  chat: "Typed chat between players outside Zaisma's chat hosting. In Zaisma rooms, chat goes through room.chat; on your own server, through canChat and checkChat. Preset phrases and emotes are always fine.",
   crypto:
     "Cryptocurrency other than Bitcoin: using or promoting other coins, tokens, NFTs or airdrops. A story that mentions one is fine. Bitcoin games are welcome, but not investment advice, mining on the player's device, paying players sats, or asking for seed phrases or permission to spend from a wallet.",
   purchases:
@@ -74,8 +74,8 @@ export const CONTENT_RULE_DETAILS: Record<ContentRule, { explanation?: string; f
     notFine: "\"Enter your email to save\", or asking for a birthday, age, city or real name.",
   },
   chat: {
-    fine: "preset phrases (\"GG\", \"Follow me\"), emotes, names for worlds and rooms, text only the player who typed it sees, and a word game that checks what you type against its own list and tells everyone only whether it was right.",
-    notFine: "a chat box where players type messages to each other, a guess feed everyone reads, or a composer players spell messages with, through Zaisma's rooms or your own server.",
+    fine: "a chat box that sends with room.chat, preset phrases (\"GG\", \"Follow me\"), emotes, names for worlds and rooms, text only the player who typed it sees, and a word game that checks what you type against its own list and tells everyone only whether it was right.",
+    notFine: "players' typed messages sent with room.send or broadcast, or through another service.",
   },
   crypto: {
     fine: "teaching Bitcoin, items for sats, tips, and a story with a meme-coin villain.",
@@ -284,7 +284,12 @@ export const REVIEW_CODES = {
     fix: `Show the real price beside coin prices (Zaisma.items.list() gives each item's price in the player's currency as priceText), and upload a new version. ${FIXED_VERSION_CHECKED} ${IF_THE_AI_IS_WRONG}`,
     hasOwnMessage: true,
   },
-  ai_free_text_chat: { meaning: "The AI review found free-text chat between players.", contentRule: "chat", fix: `Swap typed chat for preset phrases or emotes, and upload a new version. ${FIXED_VERSION_CHECKED} ${IF_THE_AI_IS_WRONG}`, hasOwnMessage: true },
+  ai_free_text_chat: {
+    meaning: "The AI review found typed text another player reads as written that doesn't go through Zaisma's chat hosting (room.chat in Zaisma rooms, canChat and checkChat on your own server).",
+    contentRule: "chat",
+    fix: `Send typed chat with room.chat (or canChat and checkChat on your own server), and upload a new version. ${FIXED_VERSION_CHECKED} ${IF_THE_AI_IS_WRONG}`,
+    hasOwnMessage: true,
+  },
   ai_disallowed_crypto: {
     meaning: "The AI review found cryptocurrency the rules don't allow: coins other than Bitcoin, tokens, NFTs or airdrops, or Bitcoin used for investment advice, paying players or asking for wallet access.",
     contentRule: "crypto",

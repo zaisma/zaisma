@@ -68,10 +68,12 @@
     "values": [
       "buy",
       "list",
+      "markHandled",
       "off",
       "on",
       "owned",
-      "owns"
+      "owns",
+      "unhandled"
     ]
   },
   "Zaisma.links.open options": {

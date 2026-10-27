@@ -63,11 +63,12 @@ describe("social settings", () => {
     expect(socialSettingsInNewBand({ ...custom, age_band: "16-17" }, "18+")).toEqual(custom);
   });
 
-  it("puts only accounts that chat with anyone in a band group, and never 13–15", () => {
+  it("puts every account that chats at all in its own band's group, friends included, and nobody in none", () => {
     expect(chatBandGroup({ age_band: "16-17", who_can_chat: "anyone" })).toBe("16-17");
     expect(chatBandGroup({ age_band: "18+", who_can_chat: "anyone" })).toBe("18+");
-    expect(chatBandGroup({ age_band: "18+", who_can_chat: "friends" })).toBeNull();
-    expect(chatBandGroup({ age_band: "13-15", who_can_chat: "anyone" })).toBeNull();
+    expect(chatBandGroup({ age_band: "18+", who_can_chat: "friends" })).toBe("18+");
+    expect(chatBandGroup({ age_band: "13-15", who_can_chat: "friends" })).toBe("13-15");
+    expect(chatBandGroup({ age_band: "18+", who_can_chat: "nobody" })).toBeNull();
   });
 });
 

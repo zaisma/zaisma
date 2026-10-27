@@ -3,7 +3,7 @@ import { PLAYER_HOUR_INCLUDED_CPU_DURATION_SEC } from "./rooms.ts";
 /**
  * Hosting on one meter (docs/DECISIONS.md, "Hosting is priced with a margin, with a free tier, and prepaid above
  * it"): everything a game runs on Zaisma's servers (room time, game server CPU, relayed data, its database and its
- * game server requests) costs cents at twice what Cloudflare charges us, and every game gets
+ * game server requests, and the chat filter's checks between adults when it turns them on) costs cents at twice what Cloudflare and Anthropic charge us, and every game gets
  * FREE_HOSTING_CENTS_PER_MONTH of it free each month (UTC), shown only as a percentage. Past it, a game with a
  * budget draws from its developer's credit (credit.ts); one without stops. Game files, saves, sign-in, publishing
  * and spectators stay off the meter on purpose.
@@ -29,13 +29,15 @@ export const HOSTING_PRICES = {
   readRowCentsPerRow: 0.0000002,
   /** $0.40 per GB-month the game's storage (its database and kept rooms) keeps. */
   storedCentsPerByteMonth: 4e-8,
+  /** $0.10 per 1,000 AI checks of chat between adults, for a game server with adultChatFilterEnabled (Julius, Oct 26, 2026): Zaisma pays for under-18s' checks. */
+  adultChatCheckCentsPerCheck: 0.01,
 } as const;
 
 /** The free allowance every game gets each month: $5 at the prices above, about 2,500 player-hours of rooms alone. */
 export const FREE_HOSTING_CENTS_PER_MONTH = 500;
 
 /** What a game's use is shared out as, on the meter. */
-export const HOSTING_KINDS = ["room_play", "game_server_cpu", "relayed_data", "database", "requests"] as const;
+export const HOSTING_KINDS = ["room_play", "game_server_cpu", "relayed_data", "database", "requests", "adult_chat_checks"] as const;
 export type HostingKind = (typeof HOSTING_KINDS)[number];
 
 /** Why a game's hosting is paused this month: its free allowance with no budget, its budget, or its developer's credit. */
@@ -59,6 +61,8 @@ export interface HostingUse {
   monthStoredSizeBytes: number;
   /** The storage's size as last recorded. */
   databaseSizeBytes: number;
+  /** The chat filter's AI checks of chat between adults (adultChatFilterEnabled). */
+  adultChatCheckCount: number;
 }
 
 /** A month's use in cents per kind and in total, fractions kept. */
@@ -72,6 +76,7 @@ export function hostingCostCents(use: HostingUse): { kinds: Record<HostingKind, 
     relayed_data: use.relayedSizeBytes * prices.relayedCentsPerByte,
     database: use.writtenRowCount * prices.writtenRowCentsPerRow + use.readRowCount * prices.readRowCentsPerRow + use.monthStoredSizeBytes * prices.storedCentsPerByteMonth,
     requests: (use.requestCount + use.scheduledRunCount) * prices.requestCentsPerRequest,
+    adult_chat_checks: use.adultChatCheckCount * prices.adultChatCheckCentsPerCheck,
   };
   return { kinds, totalCents: HOSTING_KINDS.reduce((sumCents, kind) => sumCents + kinds[kind], 0) };
 }
@@ -109,7 +114,7 @@ export async function hostingUseThisMonth(database: D1Database, gameId: string, 
   const [{ results: days }, before] = await Promise.all([
     database
       .prepare(
-        "SELECT date, room_play_duration_sec, relayed_size_bytes, game_server_cpu_duration_ms, outside_room_cpu_duration_ms, game_server_request_count, game_server_scheduled_run_count, database_written_row_count, database_read_row_count, database_size_bytes FROM room_usage WHERE game_id = ? AND date >= ? AND date < ? ORDER BY date",
+        "SELECT date, room_play_duration_sec, relayed_size_bytes, game_server_cpu_duration_ms, outside_room_cpu_duration_ms, game_server_request_count, game_server_scheduled_run_count, database_written_row_count, database_read_row_count, database_size_bytes, adult_chat_check_count FROM room_usage WHERE game_id = ? AND date >= ? AND date < ? ORDER BY date",
       )
       .bind(gameId, monthStart, nextMonthStart)
       .all<{
@@ -123,10 +128,11 @@ export async function hostingUseThisMonth(database: D1Database, gameId: string, 
         database_written_row_count: number;
         database_read_row_count: number;
         database_size_bytes: number;
+        adult_chat_check_count: number;
       }>(),
     database.prepare("SELECT database_size_bytes FROM room_usage WHERE game_id = ? AND date < ? AND database_size_bytes > 0 ORDER BY date DESC LIMIT 1").bind(gameId, monthStart).first<{ database_size_bytes: number }>(),
   ]);
-  const use: HostingUse = { roomPlayDurationSec: 0, relayedSizeBytes: 0, roomCpuDurationMs: 0, outsideRoomCpuDurationMs: 0, requestCount: 0, scheduledRunCount: 0, writtenRowCount: 0, readRowCount: 0, monthStoredSizeBytes: 0, databaseSizeBytes: before?.database_size_bytes ?? 0 };
+  const use: HostingUse = { roomPlayDurationSec: 0, relayedSizeBytes: 0, roomCpuDurationMs: 0, outsideRoomCpuDurationMs: 0, requestCount: 0, scheduledRunCount: 0, writtenRowCount: 0, readRowCount: 0, monthStoredSizeBytes: 0, databaseSizeBytes: before?.database_size_bytes ?? 0, adultChatCheckCount: 0 };
   for (const day of days) {
     use.roomPlayDurationSec += day.room_play_duration_sec;
     use.relayedSizeBytes += day.relayed_size_bytes;
@@ -136,6 +142,7 @@ export async function hostingUseThisMonth(database: D1Database, gameId: string, 
     use.scheduledRunCount += day.game_server_scheduled_run_count;
     use.writtenRowCount += day.database_written_row_count;
     use.readRowCount += day.database_read_row_count;
+    use.adultChatCheckCount += day.adult_chat_check_count;
   }
   // Each day of the month so far, at the storage's size last recorded by then (a row with 0 is one the database didn't write).
   const now = new Date(nowMs);

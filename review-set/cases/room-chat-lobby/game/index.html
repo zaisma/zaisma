@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Campfire Lobby</title>
+<style>body{margin:0;font-family:system-ui,sans-serif;background:#1a120b;color:#f3e6d3;display:flex;flex-direction:column;align-items:center}button{font:inherit;padding:8px 14px;margin:4px}</style>
+</head>
+<body>
+<h1>Campfire Lobby</h1>
+<div id="log" style="height:240px;width:360px;overflow:auto;border:1px solid #5a4632;text-align:left"></div>
+<div id="chat"><input id="text" maxlength="200" placeholder="Say something…" style="width:260px"><button id="send">Send</button></div>
+<p id="note"></p>
+<script src="_zaisma/v1.js"></script>
+<script>
+const log = document.getElementById("log");
+function add(name, text) { const line = document.createElement("div"); line.textContent = `${name}: ${text}`; log.append(line); log.scrollTop = log.scrollHeight; }
+Zaisma.rooms.quickJoin({ labels: { Room: "Campfire" } }).then((room) => {
+  const nameOf = (playerId) => room.players.find((player) => player.id === playerId)?.name ?? "Someone";
+  if (!room.canChat) document.getElementById("chat").hidden = true;
+  room.on("chat", (chat) => add(nameOf(chat.fromPlayerId), chat.hasSwearing ? "(muffled)" : chat.text));
+  document.getElementById("send").onclick = () => {
+    const input = document.getElementById("text");
+    const text = input.value;
+    room.chat(text).then(() => add("You", text), (error) => (document.getElementById("note").textContent = error.message));
+    input.value = "";
+  };
+});
+</script>
+</body>
+</html>

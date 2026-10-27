@@ -556,7 +556,7 @@ describe("the SDK's types say what the SDK does", () => {
 
   it("checks chat through Zaisma, and calls Zaisma only from a game on Zaisma", async () => {
     const asked: string[] = [];
-    const tooLong = { isAllowed: false, reason: "too_long", message: "That message is too long to send.", hasSwearing: false, text: "" };
+    const tooLong = { isAllowed: false, reason: "too_long", message: "That message is too long to send.", hasSwearing: false, hasSlur: false, text: "" };
     const fetchAnswer = ((url: string) => {
       asked.push(url);
       return Promise.resolve({ ok: true, json: () => Promise.resolve(tooLong) });

@@ -13,7 +13,8 @@
       "alert": ": Record<string, unknown> | null",
       "account_deletion": ": AccountDeletion | null",
       "sign_in_app": ": Record<string, unknown> | null",
-      "security_event": ": Record<string, unknown> | null"
+      "security_event": ": Record<string, unknown> | null",
+      "purchase": ": Record<string, unknown> | null"
     }
   },
   "WebhookEventKind": {
@@ -26,6 +27,8 @@
       "game_server_error_found",
       "live_version_changed",
       "player_reported",
+      "purchase_completed",
+      "purchase_refunded",
       "review_status_changed",
       "scan_status_changed",
       "security_alert",

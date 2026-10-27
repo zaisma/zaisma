@@ -14,6 +14,7 @@ import {
   isContentRule,
   isForZaisma,
   reportLabel,
+  reportedChatOf,
   reportPictureKey,
   versionById,
   ownServerUrlsOf,
@@ -380,6 +381,10 @@ async function triageInput(env: Env, report: Report, game: Game, others: Report[
     // Room names and labels can be typed by players: the player may be reporting the name itself.
     ...(report.room_name ? [`The room's name and labels, as players saw them: "${untrusted(report.room_name)}"`] : []),
     `Details: ${report.player_text ? `"${untrusted(report.player_text)}"` : "(none)"}`,
+    // From the reporter's own game, like the rest of the report: what their screen showed, not a record Zaisma kept.
+    ...(reportedChatOf(report).length
+      ? ["Chat lines from the reporter's screen, oldest first (the reported player's, or another player's, the reporter's included):", ...reportedChatOf(report).map((line) => `${line.sent_at.slice(11, 19)} ${line.from_player_id ? "reported player" : "another player"}: "${untrusted(line.text)}"`)]
+      : []),
     report.has_picture ? "With a picture of the game, after this block." : "",
     "</report>",
     "<other_reports>",

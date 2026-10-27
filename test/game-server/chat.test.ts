@@ -19,15 +19,22 @@ describe("checkChat", () => {
     await checkChat({ text: "555", senderPass: sender, receiverPasses: [receiver] });
     await checkChat({ text: "123", senderPass: sender, receiverPasses: [receiver] });
     const check = await checkChat({ text: "4567", senderPass: sender, receiverPasses: [receiver] });
-    expect(check).toEqual({ isAllowed: false, reason: "contact_details", message: "Contact details can't be sent here.", hasSwearing: false });
-    expect(sent.at(-1)).toEqual({ url: "https://rooms.zaisma.com/v1/chat/check", body: { gameSlug: "own-game", senderPass: sender, receiverPasses: [receiver], text: "4567", recentTexts: ["555", "123"] } });
+    expect(check).toEqual({ isAllowed: false, reason: "contact_details", message: "Contact details can't be sent here.", hasSwearing: false, hasSlur: false });
+    expect(sent.at(-1)).toEqual({ url: "https://rooms.zaisma.com/v1/chat/check", body: { gameSlug: "own-game", senderPass: sender, receiverPasses: [receiver], text: "4567", recentTexts: ["555", "123"], isAdultFilterEnabled: false } });
+    // A game that checks chat between adults too says so; slurs come back flagged.
+    vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
+      sent.push({ url, body: JSON.parse(String(init.body)) });
+      return Response.json({ isAllowed: true, reason: null, message: null, hasSwearing: false, hasSlur: true });
+    });
+    expect(await checkChat({ text: "gg", senderPass: sender, receiverPasses: [receiver], isAdultFilterEnabled: true })).toEqual({ isAllowed: true, reason: null, message: null, hasSwearing: false, hasSlur: true });
+    expect(sent.at(-1)!.body.isAdultFilterEnabled).toBe(true);
     // Another sender's messages are their own.
     await checkChat({ text: "hi", senderPass: passOf({ sub: "player_sender2" }), receiverPasses: [receiver] });
     expect(sent.at(-1)!.body.recentTexts).toEqual([]);
   });
 
   it("answers unchecked when Zaisma can't be reached, or the pass isn't Zaisma's", async () => {
-    const unchecked = { isAllowed: false, reason: "unchecked", message: "This message couldn't be checked. Try again in a moment.", hasSwearing: false };
+    const unchecked = { isAllowed: false, reason: "unchecked", message: "This message couldn't be checked. Try again in a moment.", hasSwearing: false, hasSlur: false };
     vi.stubGlobal("fetch", async () => Promise.reject(new TypeError("fetch failed")));
     expect(await checkChat({ text: "gg", senderPass: passOf({ sub: "player_sender3" }), receiverPasses: [] })).toEqual(unchecked);
     vi.stubGlobal("fetch", async () => new Response("busy", { status: 503 }));
@@ -42,7 +49,7 @@ describe("checkChat", () => {
   it("refuses a message over 2000 characters as too_long, without cutting or sending it", async () => {
     const asked: string[] = [];
     vi.stubGlobal("fetch", async (url: string) => (asked.push(url), Response.json({ isAllowed: true, reason: null, message: null, hasSwearing: false })));
-    expect(await checkChat({ text: "a".repeat(2001), senderPass: passOf({ sub: "player_sender6" }), receiverPasses: [] })).toEqual({ isAllowed: false, reason: "too_long", message: "That message is too long to send.", hasSwearing: false });
+    expect(await checkChat({ text: "a".repeat(2001), senderPass: passOf({ sub: "player_sender6" }), receiverPasses: [] })).toEqual({ isAllowed: false, reason: "too_long", message: "That message is too long to send.", hasSwearing: false, hasSlur: false });
     expect(asked).toEqual([]);
     expect((await checkChat({ text: "a".repeat(2000), senderPass: passOf({ sub: "player_sender6" }), receiverPasses: [] })).isAllowed).toBe(true);
   });
@@ -54,6 +61,6 @@ describe("checkChat", () => {
     });
     const refused = await checkChat({ text: "gg", senderPass: passOf({ sub: "player_sender5" }), receiverPasses: [] }).catch((error: unknown) => error);
     expect(refused).toBeInstanceOf(ChatCheckError);
-    expect(refused).toMatchObject({ code: "own_server_only", fix: expect.stringContaining("Zaisma.checkChat") });
+    expect(refused).toMatchObject({ code: "own_server_only", fix: expect.stringContaining("room.chat") });
   });
 });

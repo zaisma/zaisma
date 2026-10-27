@@ -4,7 +4,7 @@ import { FREE_HOSTING_CENTS_PER_MONTH, freeUsedPct, hostingCostCents, hostingSha
 // The one hosting meter (packages/core/src/hosting.ts): everything a game runs on Zaisma's servers in cents, at
 // twice Cloudflare's cost, against one free allowance a month. The examples are the decision's own.
 
-const NOTHING: HostingUse = { roomPlayDurationSec: 0, relayedSizeBytes: 0, roomCpuDurationMs: 0, outsideRoomCpuDurationMs: 0, requestCount: 0, scheduledRunCount: 0, writtenRowCount: 0, readRowCount: 0, monthStoredSizeBytes: 0, databaseSizeBytes: 0 };
+const NOTHING: HostingUse = { roomPlayDurationSec: 0, relayedSizeBytes: 0, roomCpuDurationMs: 0, outsideRoomCpuDurationMs: 0, requestCount: 0, scheduledRunCount: 0, writtenRowCount: 0, readRowCount: 0, monthStoredSizeBytes: 0, databaseSizeBytes: 0, adultChatCheckCount: 0 };
 const use = (part: Partial<HostingUse>): HostingUse => ({ ...NOTHING, ...part });
 const HOUR_SEC = 3600;
 
@@ -61,5 +61,16 @@ describe("the hosting meter", () => {
     expect(shares.reduce((sumPct, share) => sumPct + share.sharePct, 0)).toBe(100);
     expect(shares.map((share) => share.kind)).toEqual(["room_play", "requests", "database"]);
     expect(hostingShares(hostingCostCents(NOTHING).kinds)).toEqual([]);
+  });
+
+  it("puts the chat filter's checks between adults on the meter at $0.10 per 1,000, its own share", () => {
+    // A Haiku check is about 0.0024 to 0.007 cents (Oct 26, 2026), so twice that is within half of 0.01.
+    const month = hostingCostCents(use({ adultChatCheckCount: 50_000 }));
+    expect(month.kinds.adult_chat_checks).toBeCloseTo(500, 6);
+    expect(freeUsedPct(month.totalCents)).toBe(100);
+    expect(hostingShares(hostingCostCents(use({ roomPlayDurationSec: 1000 * HOUR_SEC, adultChatCheckCount: 20_000 })).kinds)).toEqual([
+      { kind: "room_play", sharePct: 50 },
+      { kind: "adult_chat_checks", sharePct: 50 },
+    ]);
   });
 });

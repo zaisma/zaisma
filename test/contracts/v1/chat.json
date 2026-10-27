@@ -5,7 +5,8 @@
       "isAllowed": ": boolean",
       "reason": ": ChatCheckReason | null",
       "message": ": string | null",
-      "hasSwearing": ": boolean"
+      "hasSwearing": ": boolean",
+      "hasSlur": ": boolean"
     }
   },
   "ChatCheckOptions": {
@@ -13,7 +14,8 @@
     "fields": {
       "text": ": string",
       "senderPass": ": string",
-      "receiverPasses": ": Array<string>"
+      "receiverPasses": ": Array<string>",
+      "isAdultFilterEnabled": "?: boolean | undefined"
     }
   },
   "ChatCheckReason": {
