@@ -2,7 +2,8 @@ import { GENRE_LABELS, GENRES, PRICE_RANGES, currencyForCountry, priceRangeOf, r
 import { textButton } from "./components/actions.ts";
 import { glassPane } from "./components/foundations.ts";
 import { grid, row, stack, type LayoutItem } from "./components/layout.ts";
-import { filterMenu, filterTags, type FilterGroup, type FilterTag } from "./components/panes.ts";
+import { filterTags, type FilterTag } from "./components/panes.ts";
+import { filterMenu, type FilterGroup } from "./components/navigation.ts";
 import { loadMore } from "./components/navigation.ts";
 import { emptyState } from "./components/data.ts";
 import { dividerWords } from "./components/reading.ts";

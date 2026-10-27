@@ -6,7 +6,7 @@ import { CUT_LINE, EDGE, glassPane, icon, logo, railMarkup, type IconName } from
 import { cutPolygon } from "./tokens.ts";
 import { cutButton, rowArrows, runButton, textLink } from "./actions.ts";
 import { searchField, tabSwitch, type SearchFieldOptions, type SwitchTab } from "./inputs.ts";
-import { STAND_IN_COVERS, dropdown, type DropdownItem } from "./panes.ts";
+import { STAND_IN_COVERS, dropdown, dropdownChoice, type DropdownItem } from "./panes.ts";
 import { listRows, pictureFrame } from "./data.ts";
 import { row, stack, track, type LayoutItem } from "./layout.ts";
 
@@ -1307,5 +1307,110 @@ component({
       isWide: true,
       markup: glassPane({ paneWidth: "full", body: html`${listRows({ whenEmpty: html`<p>No older versions yet.</p>`, id: "example-load-end-list", rows: LOADED_ROWS })}${loadMore({ label: "Show older versions", listId: "example-load-end-list", endText: "That's every version." })}` }),
     },
+  ],
+});
+
+/** One way a Filter menu narrows a list (Genre, Players, Price): its choices, each a link to the list with it picked. */
+export interface FilterGroup {
+  /** Its key in the menu, lowercase: "genre". */
+  groupName: string;
+  label: string;
+  /** What's picked now, said beside its label: "Adventure", or "Any". */
+  pickedLabel: string;
+  choices: { label: string; href: string; isCurrent: boolean }[];
+}
+
+export interface FilterMenuOptions {
+  /** The menu's id, which its button controls. */
+  id: string;
+  groups: FilterGroup[];
+  /** The list with nothing filtered, for Clear filters; null when nothing is. */
+  clearHref: string | null;
+  /** How many filters are in use, on the button; 0 for none. */
+  filterCount: number;
+  /** The gallery's fixed states: open, and on one group's choices. */
+  isOpen?: boolean;
+  openGroupName?: string;
+}
+
+/**
+ * The Filter menu: a button that opens a dropdown of the ways to narrow a list, each with what's picked. Choosing one turns the menu to
+ * that group's choices, with a way back at its top, in the same pane, so a mouse and a thumb use it alike; choosing a choice follows its link.
+ */
+export function filterMenu(options: FilterMenuOptions): ControlMarkup {
+  const button = cutButton("Filter", { type: "button", icon: "filter", controls: options.id, isExpanded: Boolean(options.isOpen), reactionCount: options.filterCount || undefined });
+  const opener = (groupName: string, inside: Raw, className: string) =>
+    html`<button type="button" class="dropdown-choice ${className}" role="menuitem" tabindex="-1" aria-haspopup="menu" data-cut-line="8" data-filter-opens="${groupName}">${CUT_LINE}${inside}</button>`;
+  const main = html`<div class="dropdown-in filter-panel" data-filter-panel=""${options.openGroupName ? raw(" hidden") : ""}>${options.groups.map((group) =>
+    opener(group.groupName, html`<span>${group.label}</span><span class="filter-picked">${group.pickedLabel}</span>${icon("chevron-right")}`, "filter-group"),
+  )}${options.clearHref ? html`<hr role="separator">${dropdownChoice({ label: "Clear filters", href: options.clearHref, icon: "close" })}` : ""}</div>`;
+  const panels = options.groups.map(
+    (group) =>
+      html`<div class="dropdown-in filter-panel" data-filter-panel="${group.groupName}"${options.openGroupName === group.groupName ? "" : raw(" hidden")}>${opener("", html`${icon("arrow-back")}<span>${group.label}</span>`, "filter-back")}<hr role="separator">${group.choices.map((choice) => dropdownChoice({ label: choice.label, href: choice.href, isCurrent: choice.isCurrent }))}</div>`,
+  );
+  const menu = html`<div class="dropdown glass filter-menu${options.isOpen ? "" : " shut"}" id="${options.id}" role="menu" aria-label="Filter" aria-hidden="${options.isOpen ? "false" : "true"}" data-glass data-glass-corners="menu">${EDGE}${main}${panels}</div>`;
+  return controlMarkup(html`${button}${menu}`, "regular");
+}
+
+/** A Filter menu turns to a group's choices and back in place, and starts again from its groups each time it opens. */
+export const FILTER_MENU_SCRIPT = `/* filter menus */(function () {
+  function show(menu, groupName, isFocused) {
+    var shown = null;
+    menu.querySelectorAll("[data-filter-panel]").forEach(function (panel) { panel.hidden = panel.getAttribute("data-filter-panel") !== groupName; if (!panel.hidden) shown = panel; });
+    if (menu.zaismaPlace) menu.zaismaPlace();
+    if (isFocused && shown) {
+      // Back from a group, its row in the groups is focused again; into one, its picked choice, or else its first.
+      var back = groupName === "" && menu.lastGroupName ? menu.querySelector('[data-filter-opens="' + menu.lastGroupName + '"]') : null;
+      var target = back || shown.querySelector('[aria-current="page"]') || shown.querySelector('[role="menuitem"]');
+      if (target) target.focus({ preventScroll: true });
+    }
+  }
+  window.zaismaWatch.each(".filter-menu", function (menu) {
+    menu.addEventListener("click", function (event) {
+      var opener = event.target.closest("[data-filter-opens]");
+      if (!opener) return;
+      var groupName = opener.getAttribute("data-filter-opens");
+      if (groupName) menu.lastGroupName = groupName;
+      show(menu, groupName, event.detail === 0);
+    });
+    menu.addEventListener("keydown", function (event) {
+      var item = document.activeElement;
+      if (event.key === "ArrowRight" && item && item.matches(".filter-group")) { event.preventDefault(); menu.lastGroupName = item.getAttribute("data-filter-opens"); show(menu, menu.lastGroupName, true); }
+      if (event.key === "ArrowLeft" && item && item.closest('[data-filter-panel]:not([data-filter-panel=""])')) { event.preventDefault(); show(menu, "", true); }
+    });
+    // Shut, it goes back to its groups for the next time it opens.
+    new MutationObserver(function () { if (menu.getAttribute("aria-hidden") === "true") show(menu, "", false); }).observe(menu, { attributes: true, attributeFilter: ["aria-hidden"] });
+  });
+})();
+`;
+
+const filterMenuFrame = (options: FilterMenuOptions) => html`<div class="dropdown-frame">${filterMenu(options)}</div>`;
+const EXAMPLE_FILTER_GROUPS: FilterGroup[] = [
+  { groupName: "genre", label: "Genre", pickedLabel: "Adventure", choices: ["Any", "Action", "Adventure", "Role-playing", "Strategy"].map((label) => ({ label, href: "#filter-menu", isCurrent: label === "Adventure" })) },
+  { groupName: "players", label: "Players", pickedLabel: "Any", choices: ["Any", "Single-player", "Multiplayer"].map((label) => ({ label, href: "#filter-menu", isCurrent: label === "Any" })) },
+  { groupName: "price", label: "Price", pickedLabel: "$15 to $30", choices: ["Any price", "Free", "Under $5", "$5 to $15", "$15 to $30", "$30 and up"].map((label) => ({ label, href: "#filter-menu", isCurrent: label === "$15 to $30" })) },
+];
+
+component({
+  name: "Filter menu",
+  slug: "filter-menu",
+  group: "panes",
+  summary: "The ways to narrow a list, in one menu from a Filter button that counts the ones in use: each way says what's picked, and opens its choices in the same pane, with a way back.",
+  styles: `
+/* A Filter menu: a Dropdown whose rows each open a group's choices in its place (a group's row ends in what's picked and a chevron),
+   and whose group's choices start with the way back. It's at least wide enough for its longest group and what's picked in it. */
+/* Until DROPDOWN_SCRIPT places it, it waits shut at the window's corner, not where it sits in the row (past the window's edge). */
+.filter-menu { top: 0; left: 0; min-width: min(15rem, var(--menu-room-width, calc(100vw - 2 * var(--pad-frame)))); }
+.filter-panel[hidden] { display: none; }
+.filter-group > .filter-picked { margin-left: auto; color: var(--muted); font: var(--type-facts); }
+.filter-group > .ico, .filter-back > .ico { flex: none; width: 12px; height: 12px; }
+.filter-back { font: var(--type-name); color: var(--ink); }
+`,
+  render: filterMenu,
+  examples: [
+    { label: "Closed, two filters in use", markup: html`<div style="display:flex;justify-content:flex-end">${filterMenu({ id: "example-filter-closed", groups: EXAMPLE_FILTER_GROUPS, clearHref: "#filter-menu", filterCount: 2 })}</div>` },
+    { label: "Open: the ways to filter, each with what's picked", markup: filterMenuFrame({ id: "example-filter-open", groups: EXAMPLE_FILTER_GROUPS, clearHref: "#filter-menu", filterCount: 2, isOpen: true }) },
+    { label: "On one way's choices, the picked one marked", markup: filterMenuFrame({ id: "example-filter-price", groups: EXAMPLE_FILTER_GROUPS, clearHref: "#filter-menu", filterCount: 2, isOpen: true, openGroupName: "price" }), isStill: true },
+    { label: "Nothing filtered yet: no count, no Clear filters", markup: filterMenuFrame({ id: "example-filter-none", groups: EXAMPLE_FILTER_GROUPS.map((group) => ({ ...group, pickedLabel: group.groupName === "price" ? "Any price" : "Any" })), clearHref: null, filterCount: 0, isOpen: true }) },
   ],
 });

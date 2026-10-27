@@ -249,7 +249,7 @@ component({
   transition: height 0.45s cubic-bezier(.2,.8,.2,1); }
 .switch-frame.small { height: var(--switch-height, var(--control-height-small)); }
 /* With Row arrows (rowId): the frame, then the arrows a mouse scrolls it with, which show only while its tabs don't fit. */
-.switch-scroll { display: flex; align-items: center; gap: var(--gap-control-row); min-width: 0; max-width: 100%; }
+.switch-scroll { display: flex; align-items: center; gap: var(--gap-control-row-boxes); min-width: 0; max-width: 100%; }
 .switch-scroll > .switch-frame { flex: 0 1 auto; }
 /* At rest a row of tabs that scrolls shows them whole at its start: it snaps a tab's start to just past the fade there (SCROLL_FADE_SCRIPT
    starts it where the one you're on shows whole). That fade is as wide as a tab's room round its words, so the words of the tab before
