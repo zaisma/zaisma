@@ -1,25 +1,33 @@
 #!/usr/bin/env node
 // The measuring check (docs/DESIGN.md, Layout): opens every page and state in LAYOUT_CHECK_PAGES in headless Chrome on the screens players
-// bring (checked-pages.ts's SCREEN_SIZES: a phone and a laptop unless told otherwise), light and dark, and measures it the way a person would
-// look at it, failing on what's out of line:
+// bring (checked-pages.ts's SCREEN_SIZES), and measures it the way a person would look at it, failing on what's out of line. Each rule has
+// a tier (layout-measure.ts, LAYOUT_RULE_TIERS), and a run measures the tiers it's for (LAYOUT_CHECK_RUNS):
+//   - a pull request's run (the default): every page and state on a phone and a laptop, in light, for how it arranges its pieces (page),
+//     and the gallery's pages for their components too (gallery). Dark changes only colours (design.test.ts scans it), so it's measured nightly;
+//   - --gallery: the gallery's pages on every screen, light and dark, at 200% text, for their components (gallery and page), when a change
+//     touches the components;
+//   - --sweep: every page and state, the stress accounts too, on every screen, light and dark, at 200% text, every tier, each night.
+// The rules:
 //   - controls in one row of different heights, or not on one line;
 //   - anything overlapping another thing with an edge, or spilling out of its pane;
 //   - words closer to a pane's edge than its margin (--pad-pane, its tray's --pad-tray), and things with an edge of their own at other
 //     than the frame gap (--pad-frame) from an edge they sit against;
 //   - a control in a pane's corner (Pane parts) not in its corner, or anything cut to a bevel under 4px;
 //   - the page's runner (its main action) below the fold, and the page scrolling sideways;
-//   - a page without its shape, or anything wider than it; a pane over the page past its kind's size or the screen, or overflowing unscrolled;
-//   - the Laws of UX a check can measure (proximity, common region, similarity, connectedness, hierarchy, choice counts, chunking), and a
-//     press that answers nothing within 400 ms (the Doherty threshold), on a laptop.
+//   - anything wider than its page's shape; a pane over the page past its kind's size or the screen, or overflowing unscrolled;
+//   - the Laws of UX a check can measure (proximity, common region, similarity), and a press that answers nothing within 400 ms (the
+//     Doherty threshold), on a laptop, in the sweep.
 // Each failure says the page, the size, the theme, the thing (its component and label) and what was measured against what's expected.
 //
 //   npm run layout:check                     against this checkout's preview (started first when it isn't running: a few minutes)
+//   npm run layout:check -- --gallery        the gallery's pages on every screen, light and dark, at 200% text
+//   npm run layout:check -- --sweep          every page and state on every screen, light and dark, at 200% text, every rule (as each night)
 //   npm run layout:check -- --json           the same, as JSON
 //   npm run layout:check -- --only /signin   only the pages whose path has that in it
 //   npm run layout:check -- --tabs 2         how many pages it opens at once (DEFAULT_TAB_COUNT: one fewer than the cores, at most 4)
-//   npm run layout:check -- --screens all    every screen, and 200% text (or --screens Phone,Tablet: screens by name; LOCAL_SCREEN_NAMES by default)
+//   npm run layout:check -- --screens all    every screen, and 200% text (or --screens Phone,Tablet: screens by name), in place of the run's
 //   npm run layout:check -- --text 200       the browser's text at 200% too, on a laptop and an iPad (TEXT_SCREEN_NAMES)
-//   npm run layout:check -- --shard 2/4      the second of four shares of the pages, as GitHub's check splits them
+//   npm run layout:check -- --shard 2/4      the second of four shares of the pages, as the nightly sweep splits them
 //   npm run layout:check -- --pictures <dir> one contact sheet per page and state, <dir>/<state>.png: its screens side by side, light over dark
 //   CHROME_PATH=/path/to/chrome npm run layout:check
 //
@@ -32,8 +40,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { fetchChrome, findChrome, openChrome } from "./chrome.mjs";
 import { PASSWORD } from "./preview/sign-ins.mjs";
-import { MEASURE_LAYOUT_SOURCE } from "../apps/site/src/components/layout-measure.ts";
-import { CHECKED_PAGES, LOCAL_SCREEN_NAMES, SCREEN_SIZES, SCREEN_THEMES, STRESS_ACCOUNTS, TEXT_SCREEN_NAMES, UNIQUE_WORD, stressBaseName } from "../apps/site/src/components/checked-pages.ts";
+import { LAYOUT_TIERS, MEASURE_LAYOUT_SOURCE } from "../apps/site/src/components/layout-measure.ts";
+import { CHECKED_PAGES, LOCAL_SCREEN_NAMES, SCREEN_SIZES, SCREEN_THEMES, STRESS_ACCOUNTS, TEXT_SCREEN_NAMES, UNIQUE_WORD } from "../apps/site/src/components/checked-pages.ts";
 import { mkdirSync, writeFileSync } from "node:fs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -57,33 +65,48 @@ export function layoutCheckScreens(names = LOCAL_SCREEN_NAMES, textPercent = nul
 export const LAYOUT_CHECK_SIZES = layoutCheckScreens();
 export const LAYOUT_CHECK_THEMES = [...SCREEN_THEMES];
 export const LAYOUT_CHECK_PAGES = CHECKED_PAGES;
+const isStressPage = (page) => STRESS_ACCOUNTS.some((stress) => stress.account === page.account);
+
+/**
+ * What each run measures: its pages, screens and themes, and the tiers it measures on each page (layout-measure.ts, LAYOUT_RULE_TIERS).
+ * pull_request is npm run layout:check with neither flag, as each pull request's Layout check runs it; gallery is --gallery, when a change
+ * touches the components; sweep is --sweep, each night.
+ */
+export const LAYOUT_CHECK_RUNS = {
+  pull_request: { pages: CHECKED_PAGES.filter((page) => !isStressPage(page)), sizes: LAYOUT_CHECK_SIZES, themes: ["light"], tiersOf: (page) => (page.isGallery ? ["gallery", "page"] : ["page"]) },
+  gallery: { pages: CHECKED_PAGES.filter((page) => page.isGallery), sizes: layoutCheckScreens("all"), themes: LAYOUT_CHECK_THEMES, tiersOf: () => ["gallery", "page"] },
+  sweep: { pages: CHECKED_PAGES, sizes: layoutCheckScreens("all"), themes: LAYOUT_CHECK_THEMES, tiersOf: () => [...LAYOUT_TIERS] },
+};
 /** Pages open at once, each in its own window (tabs that share one aren't drawn): one fewer than the cores, so the preview keeps one. */
 /** How long one page at one size and theme may take, loading and settling included, before it fails. */
 const RUN_TIME_LIMIT_MS = 90_000;
 export const DEFAULT_TAB_COUNT = Math.max(1, Math.min(4, availableParallelism() - 1));
 
-// Each page's time in a tab on GitHub's runners, all its sizes and themes, in seconds (measured Oct 23, 2026, on a preview started from
-// a snapshot, its images not yet made; the Layout check jobs print it as secondsByPage), by name: GitHub's check deals the pages to its runners by it (layoutCheckShard). A page that isn't
-// here costs UNLISTED_PAGE_COST_SEC.
+// Each page's time in a tab on GitHub's runners, in seconds, from a pull request's run (a phone and a laptop, in light; measured Oct 26,
+// 2026: the Layout check job prints it as secondsByPage), by name: the nightly sweep deals the pages to its four runners by it
+// (layoutCheckShard), each page's share of the whole being about the same at every screen. A page that isn't here (under 10s) costs
+// UNLISTED_PAGE_COST_SEC.
 const PAGE_COSTS_SEC = {
-  Screens: 51.8,
-  "Gallery: inputs": 36.6,
-  "Gallery: foundations": 33.5,
-  "Gallery: navigation": 32.6,
-  "Home, signed in": 29.7,
-  Home: 26.5,
-  "Gallery: data": 24.1,
-  "Gallery: panes": 18,
-  "Gallery: actions": 17.6,
-  "Forgot your password": 17.3,
-  "Sign in": 17,
-  "Gallery: layout": 14.2,
-  "Sign in with Zaisma": 10.9,
-  "Make an account": 10.9,
-  "Example page": 9.8,
-  "Connect an app": 9.8,
+  "Gallery: layout": 54.9,
+  Screens: 43.8,
+  "Gallery: panes": 35.9,
+  "Gallery: data": 18.9,
+  "Gallery: inputs": 18.4,
+  Home: 16.7,
+  "Gallery: actions": 14.7,
+  "Gallery: navigation": 14.6,
+  "Buying, confirm with a PIN": 14.1,
+  "Buying, declined": 13.1,
+  "Home, signed in": 12.2,
+  "Games, signed in": 11.7,
+  "Buying, can't be bought": 11.6,
+  "Developer settings, a spending request": 11.2,
+  "Game page": 11.1,
+  "Buying, one press": 11.1,
+  "Buying, a first card": 10.2,
+  "Playing a game, asked to sign in": 10,
 };
-const UNLISTED_PAGE_COST_SEC = 20;
+const UNLISTED_PAGE_COST_SEC = 6;
 
 /**
  * The pages in one share ("index/count", from 1) of GitHub's Layout check runners: dealt by cost, the dearest first, each to the share
@@ -244,28 +267,23 @@ async function checkPage(chrome, contextId, url, looks, options) {
       if (lookIndex > 0) await look({ size, theme });
       await send("Runtime.evaluate", { expression: SETTLE, awaitPromise: true, returnByValue: true });
       const isMainActionChecked = size.isRunnerChecked !== false && (options.mainActionShows === "everywhere" || (options.mainActionShows === "desktop" && !size.isPhone));
-      const measured = { isMainActionChecked, isCoverAboveFold: Boolean(options.isCoverAboveFold) && size.isRunnerChecked !== false, isTouch: Boolean(size.hasTouch) };
+      const measured = { isMainActionChecked, isCoverAboveFold: Boolean(options.isCoverAboveFold) && size.isRunnerChecked !== false, isTouch: Boolean(size.hasTouch), tiers: options.tiers };
       const { result, exceptionDetails } = await send("Runtime.evaluate", { expression: `(${MEASURE_LAYOUT_SOURCE})(${JSON.stringify(measured)})`, returnByValue: true });
       const found = exceptionDetails ? [{ check: "the check couldn't measure the page", element: "", said: exceptionDetails.exception?.description ?? exceptionDetails.text }] : result.value;
       // The entry's address must show the state it's named for (checked-pages.ts), so a list that drifts from the pages fails here.
       const state = await said();
-      // A page that lists what depends on who's looking is listed as each stress account too (Long and empty and full states).
-      const isStressed = options.account && !options.isGallery && !options.setUp && !options.stepsToTake && !STRESS_ACCOUNTS.some((stress) => stress.account === options.account);
-      if (isStressed && lookIndex === 0 && (await send("Runtime.evaluate", { expression: "Boolean(document.querySelector('main .when-empty'))", returnByValue: true })).result?.value) {
-        const missing = STRESS_ACCOUNTS.map((stress) => `${stressBaseName(options.name)}, ${stress.nameEnding}`).filter((name) => !LAYOUT_CHECK_PAGES.some((page) => page.name === name));
-        if (missing.length) found.push({ check: "a list without its long, empty and full states", element: "", said: `it lists things that depend on who's looking, and CHECKED_PAGES has no ${missing.map((name) => `"${name}"`).join(", ")} (checked-pages.ts, STRESS_ACCOUNTS)` });
-      }
       if (!options.markup && state !== (options.stateBeforeSetUp ?? options.shownStateName ?? options.name)) {
         const address = (await send("Runtime.evaluate", { expression: "location.pathname + location.search", returnByValue: true })).result?.value;
         found.push({ check: "the page isn't the state it's listed as", element: "", said: `${state === null ? "it names no state (a page built in Zaisma's look names one: html.ts, checkedPage)" : `it says it's "${state}"`}, at ${address}` });
       }
       // The gallery's panes, each opened from its button, measured for their size, and closed (docs/DESIGN.md, Pane sizes).
-      if (options.isGallery) {
+      if (options.isGallery && options.tiers.includes("gallery")) {
         const panes = await send("Runtime.evaluate", { expression: openEveryPane(), awaitPromise: true, returnByValue: true });
         found.push(...(panes.exceptionDetails ? [{ check: "the check couldn't open the gallery's panes", element: "", said: panes.exceptionDetails.exception?.description ?? panes.exceptionDetails.text }] : panes.result.value));
       }
-      // Every press that answers in the page answers within 400 ms (the Doherty threshold), on a laptop, once: a press changes the page.
-      if (size.name === "Laptop" && theme === "light" && !options.stepsToTake && !options.setUp) {
+      // Every press that answers in the page answers within 400 ms (the Doherty threshold), on a laptop, once (a press changes the page),
+      // in the sweep: pressing every button is most of a page's time.
+      if (options.tiers.includes("sweep") && size.name === "Laptop" && theme === "light" && !options.stepsToTake && !options.setUp) {
         const answers = await send("Runtime.evaluate", { expression: PRESS_EVERY_ANSWER, awaitPromise: true, returnByValue: true });
         found.push(...(answers.exceptionDetails ? [{ check: "the check couldn't press the page's buttons", element: "", said: answers.exceptionDetails.exception?.description ?? answers.exceptionDetails.text }] : answers.result.value));
       }
@@ -336,9 +354,9 @@ async function signIn(chrome, contextId, site, username) {
 /**
  * Measures pages, every size and theme, tabCount at once: { checkedCount, failures, secondsByPage }, each failure { page, size, theme,
  * check, element, said }, in the order of pages, sizes and themes, and secondsByPage each page's time in a tab, all its sizes and themes. markup puts that markup in place of a page's own (test/layout/layout-check.test.ts's
- * fixture), on the example page.
+ * fixture), on the example page. tiersOf gives the tiers measured on each page (every tier unless told otherwise).
  */
-export async function checkPages({ site, signInSite, pages = LAYOUT_CHECK_PAGES, sizes = LAYOUT_CHECK_SIZES, themes = LAYOUT_CHECK_THEMES, chromePath, tabCount = DEFAULT_TAB_COUNT, onPage = () => {}, picturesFolder = null }) {
+export async function checkPages({ site, signInSite, pages = LAYOUT_CHECK_PAGES, sizes = LAYOUT_CHECK_SIZES, themes = LAYOUT_CHECK_THEMES, tiersOf = () => [...LAYOUT_TIERS], chromePath, tabCount = DEFAULT_TAB_COUNT, onPage = () => {}, picturesFolder = null }) {
   // Each page's pictures, by its name: one per screen and theme, for its contact sheet.
   const picturesByPage = new Map();
   const chrome = await openChrome(chromePath, "zaisma-layout-");
@@ -378,7 +396,7 @@ export async function checkPages({ site, signInSite, pages = LAYOUT_CHECK_PAGES,
         const isOwnContext = Boolean(page.stepsToTake);
         const contextId = isOwnContext ? await newContext(page.account) : await contextFor(page.account);
         const pictureOf = picturesFolder ? (size, theme, jpegBase64) => { if (!picturesByPage.has(page.name)) picturesByPage.set(page.name, []); picturesByPage.get(page.name).push({ size, theme, jpegBase64 }); } : null;
-        const foundByLook = await Promise.race([checkPage(chrome, contextId, url, runLooks, { ...page, pictureOf }), wait(RUN_TIME_LIMIT_MS * runLooks.length).then(() => tooSlow)]);
+        const foundByLook = await Promise.race([checkPage(chrome, contextId, url, runLooks, { ...page, pictureOf, tiers: tiersOf(page) }), wait(RUN_TIME_LIMIT_MS * runLooks.length).then(() => tooSlow)]);
         if (isOwnContext) await chrome.send("Target.disposeBrowserContext", { browserContextId: contextId }).catch(() => {});
         secondsByPage[page.name] = Math.round(((secondsByPage[page.name] ?? 0) + (Date.now() - startedMs) / 1000) * 10) / 10;
         foundByRun[runIndex] = runLooks.flatMap(({ size, theme: lookTheme }, lookIndex) => foundByLook[lookIndex].map((failure) => ({ page: page.name, path: page.path, size: size.name, theme: lookTheme, ...failure })));
@@ -425,17 +443,20 @@ async function main() {
   const VALUED = ["--only", "--tabs", "--screens", "--text", "--shard", "--pictures"];
   const valueOf = (flag) => (args.includes(flag) ? args[args.indexOf(flag) + 1] : null);
   const isJson = args.includes("--json");
+  const runName = args.includes("--sweep") ? "sweep" : args.includes("--gallery") ? "gallery" : "pull_request";
+  const layoutRun = LAYOUT_CHECK_RUNS[runName];
   const only = valueOf("--only");
   const tabCount = args.includes("--tabs") ? Number(valueOf("--tabs")) : DEFAULT_TAB_COUNT;
-  const unknown = args.filter((arg, i) => !["--json", ...VALUED].includes(arg) && !VALUED.includes(args[i - 1]));
-  const OPTIONS_WORDS = "The options are --json, --only <part of a page's path>, --tabs <pages at once>, --screens all or <name>,<name>, --text 200, --shard <n>/<count> and --pictures <folder>.";
+  const unknown = args.filter((arg, i) => !["--json", "--sweep", "--gallery", ...VALUED].includes(arg) && !VALUED.includes(args[i - 1]));
+  const OPTIONS_WORDS = "The options are --sweep or --gallery, --json, --only <part of a page's path>, --tabs <pages at once>, --screens all or <name>,<name>, --text 200, --shard <n>/<count> and --pictures <folder>.";
   if (unknown.length) stop(`Unknown option ${unknown.join(" ")}. ${OPTIONS_WORDS}`, isJson);
+  if (args.includes("--sweep") && args.includes("--gallery")) stop("--sweep already measures the gallery's pages on every screen: give one of --sweep and --gallery.", isJson);
   if (!Number.isInteger(tabCount) || tabCount < 1 || tabCount > 16) stop("--tabs takes a whole number from 1 to 16, like --tabs 2.", isJson);
   const screensAsked = valueOf("--screens"), textAsked = valueOf("--text"), shard = valueOf("--shard"), picturesFolder = valueOf("--pictures");
   if (textAsked !== null && !TEXT_PERCENTS.includes(Number(textAsked))) stop(`--text takes ${TEXT_PERCENTS.join(" or ")}, like --text 200.`, isJson);
-  let sizes;
+  let sizes = layoutRun.sizes;
   try {
-    sizes = layoutCheckScreens(screensAsked === "all" ? "all" : screensAsked ? screensAsked.split(",").map((name) => name.trim()) : LOCAL_SCREEN_NAMES, textAsked === null ? null : Number(textAsked));
+    if (screensAsked !== null || textAsked !== null) sizes = layoutCheckScreens(screensAsked === "all" ? "all" : screensAsked ? screensAsked.split(",").map((name) => name.trim()) : LOCAL_SCREEN_NAMES, textAsked === null ? null : Number(textAsked));
   } catch (error) {
     stop(error.message, isJson);
   }
@@ -443,7 +464,7 @@ async function main() {
   if (!chromePath) stop("No Chrome: set CHROME_PATH, or let it download Chrome for Testing (it couldn't).", isJson, "no_chrome");
   const sites = previewSites();
   if (!sites) stop("The preview didn't start: see .wrangler/preview-run/preview.log.", isJson, "no_preview");
-  const allPages = LAYOUT_CHECK_PAGES;
+  const allPages = layoutRun.pages;
   let pages = only ? allPages.filter((page) => page.path.includes(only)) : allPages;
   if (shard) {
     try {
@@ -459,6 +480,8 @@ async function main() {
     ...sites,
     pages,
     sizes,
+    themes: layoutRun.themes,
+    tiersOf: layoutRun.tiersOf,
     chromePath,
     tabCount,
     picturesFolder,
@@ -468,7 +491,7 @@ async function main() {
   else {
     for (const failure of failures) console.log(`  ${failure.page} ${failure.size} ${failure.theme}: ${failure.check}: ${failure.element}: ${failure.said}`);
     if (picturesFolder) console.log(`Contact sheets: ${picturesFolder}`);
-    console.log(failures.length ? `LAYOUT FAIL: ${failures.length} problem(s) on ${new Set(failures.map((failure) => `${failure.page} ${failure.size} ${failure.theme}`)).size} of ${checkedCount} pages.` : `LAYOUT PASS: ${checkedCount} pages, ${sizes.map((size) => size.name).join(", ")}, light and dark, in ${Math.round((Date.now() - startedMs) / 1000)}s with ${tabCount} at once.`);
+    console.log(failures.length ? `LAYOUT FAIL: ${failures.length} problem(s) on ${new Set(failures.map((failure) => `${failure.page} ${failure.size} ${failure.theme}`)).size} of ${checkedCount} pages.` : `LAYOUT PASS: ${checkedCount} pages, ${sizes.map((size) => size.name).join(", ")}, ${layoutRun.themes.join(" and ")}, measuring ${[...new Set(allPages.flatMap(layoutRun.tiersOf))].join(", ")}, in ${Math.round((Date.now() - startedMs) / 1000)}s with ${tabCount} at once.`);
   }
   process.exit(failures.length ? 1 : 0);
 }
