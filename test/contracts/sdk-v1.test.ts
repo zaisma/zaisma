@@ -49,6 +49,13 @@ const ALLOWED_OUTPUT_ADDITIONS: { union: string; value: string }[] = [
   { union: "ErrorCode", value: "no_purchase" },
   { union: "ErrorCode", value: "already_handled" },
   { union: "ErrorCode", value: "handled_by_server" },
+  // Room.chat, text chat in rooms.
+  { union: "ErrorCode", value: "chat_stopped" },
+  { union: "ErrorCode", value: "chat_not_allowed" },
+  { union: "ErrorCode", value: "chat_empty" },
+  { union: "ErrorCode", value: "chat_too_long" },
+  { union: "ErrorCode", value: "chat_too_fast" },
+  { union: "ErrorCode", value: "chat_not_here" },
 ];
 
 const MORE_VALUES_NOTE = "More values may come";
@@ -132,7 +139,7 @@ function assertionsFor(checker: ts.TypeChecker, frozen: ts.Symbol): string[] {
   const now = (path: string) => `typeof Zaisma.${path}`;
   const name = (path: string) => path.replace(/\./g, "_");
   const call = (path: string) => {
-    lines.push(`type Inputs_${name(path)} = Fits<Parameters<${old(path)}>, Parameters<${now(path)}>>;`);
+    lines.push(`type Inputs_${name(path)} = Fits<RoomHandles<Parameters<${old(path)}>>, Parameters<${now(path)}>>;`);
     lines.push(`type Output_${name(path)} = Fits<Awaited<ReturnType<${now(path)}>>, Awaited<ReturnType<${old(path)}>>>;`);
   };
   const value = (path: string) => lines.push(`type Value_${name(path)} = Fits<${now(path)}, ${old(path)}>;`);
@@ -237,7 +244,13 @@ function typeProblems(frozenText: string): string[] {
   for (const root of roots) if (!currentMembers.some((member) => member.name === root.name && member.flags & ts.SymbolFlags.Value)) problems.push(`Zaisma.${root.name} is gone`);
 
   // Inputs v1 to today, outputs today to v1, compiled.
-  const assertions = ["/** Compiles only when Given fits Wanted. */", "type Fits<Given extends Wanted, Wanted> = true;", ...roots.flatMap((root) => assertionsFor(checker, root)), "export {};", ""].join("\n");
+  const assertions = [
+    "/** Compiles only when Given fits Wanted. */",
+    "type Fits<Given extends Wanted, Wanted> = true;",
+    // A Room a game passes back (invite, openPlayersPanel) is one the SDK made, never one the game built, so today's
+    // Room stands for v1's there; rooms-v1.test.ts holds the Room itself (today's still fits v1's).
+    "type RoomHandles<Given> = { [Index in keyof Given]: Given[Index] extends ZaismaV1Lock.Room | null | undefined ? Exclude<Given[Index], ZaismaV1Lock.Room> | Zaisma.Room : Given[Index] };",
+    ...roots.flatMap((root) => assertionsFor(checker, root)), "export {};", ""].join("\n");
   const second = compile({ [FROZEN_FILE]: frozen, [ASSERTIONS_FILE]: assertions }, first);
   const lines = assertions.split("\n");
   for (const diagnostic of ts.getPreEmitDiagnostics(second)) {

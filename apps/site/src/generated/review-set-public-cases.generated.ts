@@ -200,7 +200,7 @@ export const PUBLIC_REVIEW_CASES: PublicReviewCase[] = [
   "is_honest": false,
   "content_rule": "chat",
   "protection": null,
-  "why": "Players type anything and every player in the room sees it, with no chat rules for age or settings: until Zaisma's chat ships, games use preset phrases and emotes.",
+  "why": "Players type anything and every player in the room reads it, sent with room.send outside Zaisma's chat hosting: no chat rules for age or settings, and no filter. room.chat would carry it.",
   "files": [
    {
     "path": "index.html",
@@ -464,6 +464,21 @@ export const PUBLIC_REVIEW_CASES: PublicReviewCase[] = [
    {
     "path": "index.html",
     "text": "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>Roast Battle</title>\n<style>body{margin:0;font-family:system-ui,sans-serif;background:#111;color:#eee;display:flex;flex-direction:column;align-items:center}canvas{background:#000;margin-top:12px}button{font:inherit;padding:8px 14px;margin:4px}</style>\n</head>\n<body>\n<h1>Roast Battle</h1>\n<p>Pick the sharpest comeback.</p>\n<p id=\"question\"></p>\n<div id=\"options\"></div>\n<p>Score: <span id=\"score\">0</span></p>\n<script>\nconst questions = [\n  {\n    \"question\": \"\\\"Your code is so bad the compiler filed a restraining order.\\\"\",\n    \"options\": [\n      \"That's harsh\",\n      \"Says the guy whose commits are all 'fix stuff'\",\n      \"Ok\"\n    ],\n    \"answer\": 1\n  },\n  {\n    \"question\": \"\\\"You play like a damn potato.\\\"\",\n    \"options\": [\n      \"At least a potato doesn't rage quit, asshole\",\n      \"No u\",\n      \"Rude\"\n    ],\n    \"answer\": 0\n  }\n];\nlet index = 0, score = 0;\nfunction show() {\n  const current = questions[index % questions.length];\n  document.getElementById(\"question\").textContent = current.question;\n  const options = document.getElementById(\"options\");\n  options.innerHTML = \"\";\n  current.options.forEach((option, i) => {\n    const button = document.createElement(\"button\");\n    button.textContent = option;\n    button.onclick = () => { if (i === current.answer) score++; document.getElementById(\"score\").textContent = score; index++; show(); };\n    options.append(button);\n  });\n}\nshow();\n</script>\n</body>\n</html>\n"
+   }
+  ]
+ },
+ {
+  "name": "room-chat-lobby",
+  "title": "Campfire Lobby",
+  "description": "Sit around the fire and talk while you wait for a match.",
+  "is_honest": true,
+  "content_rule": null,
+  "protection": null,
+  "why": "Its chat box sends with room.chat, so every message goes through Zaisma's chat hosting: only players who may chat with each other read it, and Zaisma's filter checks it on the way.",
+  "files": [
+   {
+    "path": "index.html",
+    "text": "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>Campfire Lobby</title>\n<style>body{margin:0;font-family:system-ui,sans-serif;background:#1a120b;color:#f3e6d3;display:flex;flex-direction:column;align-items:center}button{font:inherit;padding:8px 14px;margin:4px}</style>\n</head>\n<body>\n<h1>Campfire Lobby</h1>\n<div id=\"log\" style=\"height:240px;width:360px;overflow:auto;border:1px solid #5a4632;text-align:left\"></div>\n<div id=\"chat\"><input id=\"text\" maxlength=\"200\" placeholder=\"Say something…\" style=\"width:260px\"><button id=\"send\">Send</button></div>\n<p id=\"note\"></p>\n<script src=\"_zaisma/v1.js\"></script>\n<script>\nconst log = document.getElementById(\"log\");\nfunction add(name, text) { const line = document.createElement(\"div\"); line.textContent = `${name}: ${text}`; log.append(line); log.scrollTop = log.scrollHeight; }\nZaisma.rooms.quickJoin({ labels: { Room: \"Campfire\" } }).then((room) => {\n  const nameOf = (playerId) => room.players.find((player) => player.id === playerId)?.name ?? \"Someone\";\n  if (!room.canChat) document.getElementById(\"chat\").hidden = true;\n  room.on(\"chat\", (chat) => add(nameOf(chat.fromPlayerId), chat.hasSwearing ? \"(muffled)\" : chat.text));\n  document.getElementById(\"send\").onclick = () => {\n    const input = document.getElementById(\"text\");\n    const text = input.value;\n    room.chat(text).then(() => add(\"You\", text), (error) => (document.getElementById(\"note\").textContent = error.message));\n    input.value = \"\";\n  };\n});\n</script>\n</body>\n</html>\n"
    }
   ]
  },

@@ -7,9 +7,10 @@
  * running one copy of the game server. Names follow docs/NAMING.md.
  */
 
+import { CHAT_CHECK_LIMITS, CHAT_ROOM_LIMITS } from "./chat.ts";
 import { DatabaseError, type GameDatabase } from "./database.ts";
 import { isRoomCode, roomCode } from "./names.ts";
-import type { PlayerKind, ReceiptClaims } from "./pass.ts";
+import type { PassClaims, PlayerKind, ReceiptClaims } from "./pass.ts";
 import type { Server } from "./requests.ts";
 import { readSchedules, type Schedule, type ScheduledRun } from "./schedules.ts";
 import { roomCallChecks, type CheckedDelivery } from "./room-calls.ts";
@@ -441,6 +442,13 @@ export interface GameServer<S = any> {
    */
   stateSyncEnabled?: boolean;
   /**
+   * Check chat between adults (room.chat) with Zaisma's filter too: contact details, moving apps or
+   * meeting up, personal details and sexual content are stopped, as they always are for under-18s. Off by
+   * default, when chat between adults is only flagged (hasSwearing, hasSlur) and your game decides. Each
+   * message the filter's AI looks at counts on your hosting meter (adult_chat_checks).
+   */
+  adultChatFilterEnabled?: boolean;
+  /**
    * How often a real-time room saves its state, in seconds: 1 to 60, default 5. A restarted room comes
    * back with the last saved state (onRestored). Turn-based rooms save after every change and ignore it.
    */
@@ -504,6 +512,16 @@ export interface GameServer<S = any> {
    * joinInfo.fromRoomCode, and not again when they arrive.
    */
   canJoin?(state: S, player: Player, room: Room, joinData: unknown, joinInfo: JoinInfo): JoinAnswer | Promise<JoinAnswer>;
+  /**
+   * A player sent a chat message (room.chat in their game), before Zaisma's filter checks it: answer true
+   * to send it, false to stop it (the sender's room.chat fails with chat_stopped, reason stopped_by_game),
+   * or { toPlayerIds } to send it to only some of chatInfo.toPlayerIds, like a team chat or a player your
+   * moderators muted. chatInfo.toPlayerIds are the players the sender's game sent it to; whatever you
+   * answer, it reaches only those of them who may chat with the sender, never anyone else. Only decide
+   * here, as in canJoin: room can be read, not changed. Without onChat every message goes on to the
+   * filter. If it throws or answers anything else, the message is stopped and the mistake is logged.
+   */
+  onChat?(state: S, player: Player, room: Room, chatInfo: ChatInfo): ChatAnswer | Promise<ChatAnswer>;
   /** After room.moveTo: who the other room took, and who it turned away and why. */
   onMoved?(state: S, moveResult: MoveResult, room: Room): HandlerResult<S>;
   /**
@@ -617,6 +635,31 @@ export function restoreInfoOf(savedAtMs: number, nowMs = Date.now(), savedVersio
  */
 export type JoinAnswer = boolean | { refusalMessage: string };
 
+/** A chat message as onChat sees it: what the player typed, and the players their game sent it to. */
+export interface ChatInfo {
+  text: string;
+  toPlayerIds: string[];
+}
+
+/**
+ * What onChat answers: true sends the message on to Zaisma's filter; false stops it; { toPlayerIds }
+ * sends it to only those of chatInfo.toPlayerIds (it can narrow who reads it, never widen it).
+ */
+export type ChatAnswer = boolean | { toPlayerIds: string[] };
+
+/** What the sender hears when the game server's onChat stopped their message. */
+export const STOPPED_BY_GAME_MESSAGE = "Your message wasn't sent.";
+
+/** onChat's answer as the room acts on it: send (to toPlayerIds, or all it was sent to when null), or stop. Anything else is a mistake, and stops it. */
+export function readChatAnswer(answer: unknown): { isAllowed: true; toPlayerIds: string[] | null } | { isAllowed: false } | { mistake: GameServerError } {
+  if (answer === true) return { isAllowed: true, toPlayerIds: null };
+  if (answer === false) return { isAllowed: false };
+  const toPlayerIds = typeof answer === "object" && answer !== null && !Array.isArray(answer) ? (answer as { toPlayerIds?: unknown }).toPlayerIds : undefined;
+  if (Array.isArray(toPlayerIds) && toPlayerIds.every((id) => typeof id === "string") && Object.keys(answer as object).length === 1) return { isAllowed: true, toPlayerIds };
+  const given = answer === undefined || answer === null ? "nothing" : typeof answer === "string" ? `the text ${JSON.stringify(answer.slice(0, 60))}` : typeof answer === "object" ? describeObject(answer) : String(answer);
+  return { mistake: new GameServerError("bad_handler_answer", "onChat", `onChat answered ${given}, so the message was stopped.`, 'Answer true to send it, false to stop it, or { toPlayerIds: ["player_..."] } to send it to only those players.') };
+}
+
 function describeObject(given: object): string {
   try {
     return (JSON.stringify(given) ?? "an object").slice(0, 80);
@@ -652,12 +695,14 @@ export const GAME_SERVER_OPTIONS = [
   "awayMode",
   "seatHoldDurationSec",
   "stateSyncEnabled",
+  "adultChatFilterEnabled",
   "reconnectTimeoutSec",
   "maximumRoomCountPerPlayer",
   "stateSaveIntervalSec",
   "setup",
   "onJoin",
   "canJoin",
+  "onChat",
   "onMoved",
   "onLeave",
   "onSpectatorJoin",
@@ -850,6 +895,7 @@ export function defineGameServer<S>(server: GameServer<S>): GameServer<S> {
   }
   if (hostControlsEnabled !== undefined && typeof hostControlsEnabled !== "boolean") throw bad("hostControlsEnabled", "hostControlsEnabled isn't true or false.", "Give true or false.");
   if (server.stateSyncEnabled !== undefined && typeof server.stateSyncEnabled !== "boolean") throw bad("stateSyncEnabled", "stateSyncEnabled isn't true or false.", "Give true to send each player the state and then only what changes, or leave it out.");
+  if (server.adultChatFilterEnabled !== undefined && typeof server.adultChatFilterEnabled !== "boolean") throw bad("adultChatFilterEnabled", "adultChatFilterEnabled isn't true or false.", "Give true to check chat between adults with Zaisma's filter too, or leave it out.");
   if (server.stateView !== undefined && !server.stateSyncEnabled) throw bad("stateView", "stateView only works with stateSyncEnabled.", "Add stateSyncEnabled: true, or leave stateView out.");
   if (idleCheck !== undefined && idleCheck !== "server" && idleCheck !== "client" && idleCheck !== "off") {
     throw bad("idleCheck", `idleCheck is ${JSON.stringify(idleCheck)}.`, 'Give "server" (the room checks, after idleTimeoutSec), "client" (each player\'s game decides) or "off".');
@@ -942,6 +988,13 @@ export interface RoomSettings {
  * isSpectator: true, and they get the players, the state and every message sent to everyone, but they send
  * nothing: only probe answers, and anything else gets spectator_cannot_send. welcome and every "room"
  * message carry spectatorCount, and a "room" message goes out whenever it changes.
+ *
+ * Chat (room.chat): a client sends {type: "chat", chatNumber, text, toPlayerIds?}, which the room's host
+ * handles before the game's messages (readChatMessage, then startChat, Zaisma's filter, and deliverChat
+ * or stopChat). Each player it reaches gets {type: "chat", fromPlayerId, text, hasSwearing, hasSlur,
+ * sentAt}; the sender gets {type: "chat_sent", chatNumber, sentAt}, {type: "chat_stopped", chatNumber,
+ * reason, message}, or an error with its chatNumber (chat_not_allowed, chat_empty, chat_too_long,
+ * chat_too_fast). chat_sent never says who read it. welcome says canChat: whether this player can chat at all.
  */
 export type ServerMessage =
   | {
@@ -956,6 +1009,7 @@ export type ServerMessage =
       endsAt: string | null;
       probeIntervalSec: number | null;
       protocolVersionNumber: number;
+      canChat: boolean;
     }
   | { type: "probe"; probeNumber: number; serverTimeMs: number; pingDurationMs: number | null }
   | { type: "ending"; endsAt: string }
@@ -970,8 +1024,11 @@ export type ServerMessage =
   | { type: "state"; serverTimeMs: number; full: unknown }
   | { type: "state"; serverTimeMs: number; changes: StateChange[] }
   | { type: "blocks"; playerIds: string[] }
-  // versionId: with other_version, the version the room runs, which the game reloads at.
-  | { type: "error"; code: RoomErrorCode; message: string; versionId?: string }
+  | { type: "chat"; fromPlayerId: string; text: string; hasSwearing: boolean; hasSlur: boolean; sentAt: string }
+  | { type: "chat_sent"; chatNumber: number; sentAt: string }
+  | { type: "chat_stopped"; chatNumber: number; reason: string; message: string }
+  // versionId: with other_version, the version the room runs, which the game reloads at. chatNumber: the chat message it refuses.
+  | { type: "error"; code: RoomErrorCode; message: string; versionId?: string; chatNumber?: number }
   | { type: "ended"; message: string; endReason: EndReason };
 
 /**
@@ -992,6 +1049,7 @@ export type ClientMessage =
       avoidBlockedPlayers?: boolean;
     }
   | { type: "message"; data: unknown }
+  | { type: "chat"; chatNumber: number; text: string; toPlayerIds?: string[] }
   | { type: "zaisma:purchase"; purchaseId: string; receipt?: string }
   | { type: "room"; room: Partial<RoomSettings> }
   | { type: "kick"; playerId: string; keepOut?: boolean }
@@ -1034,7 +1092,12 @@ export type RoomErrorCode =
   | "spectator_cannot_send"
   | "already_playing"
   | "bad_origin"
-  | "send_queue_full";
+  | "send_queue_full"
+  | "chat_not_here"
+  | "chat_not_allowed"
+  | "chat_empty"
+  | "chat_too_long"
+  | "chat_too_fast";
 
 export const ERROR_TEXT: Record<RoomErrorCode, string> = {
   room_full: "This room is full.",
@@ -1062,6 +1125,11 @@ export const ERROR_TEXT: Record<RoomErrorCode, string> = {
   bad_origin: "Rooms take players from the game's own page.",
   // The SDK's own: sends waiting while it reconnects ran past its queue.
   send_queue_full: "Up to 60 sends wait while reconnecting; older ones were dropped.",
+  chat_not_here: "This room's server doesn't take chat.",
+  chat_not_allowed: "You can't chat here.",
+  chat_empty: "Type a message first.",
+  chat_too_long: "That message is too long to send.",
+  chat_too_fast: "Too many messages at once. Wait a moment.",
 };
 
 /** What players are told when Zaisma ends a match at room.endsAt. */
@@ -1089,6 +1157,8 @@ export interface SavedRoom extends RoomSettings {
   sessionBlocks?: [string, string][];
   /** Friendships between the room's players, as pairs of player IDs. */
   friendships?: [string, string][];
+  /** Who each account player the room remembers may chat with, by player ID. */
+  chatSettings?: Record<string, PlayerChatSettings>;
   /** When Zaisma will end the match (room.endsAt), once it's set. */
   endsAt?: string;
   /** Kept (room.setKept): it sleeps with its state when everyone leaves, instead of going a day later. */
@@ -1192,8 +1262,53 @@ export function checkRoomData(given: unknown, maximumSizeBytes: number): { isVal
  * An error for a client. message replaces the usual text, like the game's reason for turning a player away;
  * details add what the code needs, like the room's versionId with other_version.
  */
-export function errorMessage(code: RoomErrorCode, message?: string, details?: { versionId: string }): string {
+export function errorMessage(code: RoomErrorCode, message?: string, details?: { versionId: string } | { chatNumber: number }): string {
   return JSON.stringify({ type: "error", code, message: message || ERROR_TEXT[code], ...details } satisfies ServerMessage);
+}
+
+/**
+ * Who an account player may chat with, from their pass (who_can_chat and chat_group_id): kept by the
+ * room's host, never shown to the game. A guest has none and chats with nobody.
+ */
+export interface PlayerChatSettings {
+  whoCanChat: "nobody" | "friends" | "anyone";
+  chatGroupId: string | null;
+}
+
+/** A checked pass's chat settings, for RoomCore.setChatSettings: null for a guest. A setting this version doesn't know chats with nobody. */
+export function chatSettingsOf(claims: PassClaims): PlayerChatSettings | null {
+  if (claims.kind !== "account") return null;
+  const whoCanChat: PlayerChatSettings["whoCanChat"] = claims.who_can_chat === "friends" ? "friends" : claims.who_can_chat === "anyone" ? "anyone" : "nobody";
+  return { whoCanChat, chatGroupId: typeof claims.chat_group_id === "string" ? claims.chat_group_id : null };
+}
+
+/** A chat message from a client as readChatMessage found it, for startChat to check. */
+export interface ChatClientMessage {
+  chatNumber: number;
+  text: unknown;
+  toPlayerIds: unknown;
+  sizeBytes: number;
+}
+
+/** Room traffic of chat, in the room's message types. */
+export const CHAT_MESSAGE_TYPE = "(chat)";
+
+/**
+ * A client's chat message ({type: "chat"}), or null for any other text, which goes to receive. The
+ * room's host handles chat before receive, since Zaisma's filter runs between the room and the players.
+ */
+export function readChatMessage(text: string): ChatClientMessage | null {
+  // Most messages aren't chat: only text that could be is parsed here, and one too big is receive's to refuse.
+  if (!text.includes('"chat"') || text.length > ROOM_LIMITS.maximumGameMessageSizeBytes) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== "object" || (parsed as { type?: unknown }).type !== "chat") return null;
+  const chat = parsed as { chatNumber?: unknown; text?: unknown; toPlayerIds?: unknown };
+  return { chatNumber: Number.isSafeInteger(chat.chatNumber) ? (chat.chatNumber as number) : 0, text: chat.text, toPlayerIds: chat.toPlayerIds, sizeBytes: utf8ByteCount(text) };
 }
 
 /** Whether a player may come in, and if not, why. */
@@ -1403,6 +1518,12 @@ export class RoomCore<S = any> {
   private readonly sessionBlocks = new Set<string>();
   /** Friendships between players from their accounts (Zaisma's own record, or passes on your own server): pairKey(first, second). */
   private readonly friendships = new Set<string>();
+  /** Who each account player may chat with, from their pass: never in Player, so games never see it. */
+  private readonly chatSettings = new Map<string, PlayerChatSettings>();
+  /** When each player sent their chat messages in the last CHAT_ROOM_LIMITS.chatWindowDurationMs. */
+  private readonly chatSentAtMs = new Map<string, number[]>();
+  /** Each player's last chat messages, for Zaisma's filter to read pieces together: in memory only. */
+  private readonly recentChats = new Map<string, { text: string; sentAtMs: number }[]>();
   /** The blocks each player was last told of, so they're told again only when theirs change. */
   private readonly toldBlocks = new Map<string, string>();
   /** When each player in the match was last heard from, when their game was hidden, and the idle check their game asked for. */
@@ -1430,6 +1551,8 @@ export class RoomCore<S = any> {
   private readonly api: Room;
   /** The room as canJoin and stateView see it: reading works, and any call that changes or sends throws room_call_unavailable. */
   private readonly canJoinRoom: Room;
+  /** The room as onChat sees it: reading only, like canJoin. */
+  private readonly chatRoom: Room;
   private readonly stateViewRoom: Room;
   readonly server: GameServer<S>;
   private readonly transport: Transport;
@@ -1529,6 +1652,7 @@ export class RoomCore<S = any> {
       for (const [first, second] of saved.accountBlocks ?? []) this.accountBlocks.add(pairKey(first, second));
       for (const [blocker, blocked] of saved.sessionBlocks ?? []) this.sessionBlocks.add(blockKey(blocker, blocked));
       for (const [first, second] of saved.friendships ?? []) this.friendships.add(pairKey(first, second));
+      for (const [id, settings] of Object.entries(saved.chatSettings ?? {})) this.chatSettings.set(id, settings);
     } else if (startOptions.start) {
       const start = startOptions.start;
       this.isOpen = false;
@@ -1646,6 +1770,7 @@ export class RoomCore<S = any> {
     Object.defineProperty(this.api, PAIR_CHANGE_COUNT, { get: () => this.pairChangeCount });
     Object.defineProperty(this.api, STATE_SYNC, { value: { viewers: () => this.stateViewers(), send: (playerIds, frame) => this.sendStateFrom(playerIds, frame) } satisfies StateSyncHooks });
     this.canJoinRoom = readOnlyRoom(this.api, "canJoin");
+    this.chatRoom = readOnlyRoom(this.api, "onChat");
     this.stateViewRoom = readOnlyRoom(this.api, "stateView");
     if (restoreInfo) this.restored(restoreInfo, lostPlayers);
   }
@@ -1690,6 +1815,7 @@ export class RoomCore<S = any> {
       ...(this.endsAt ? { endsAt: this.endsAt } : {}),
       ...(this.isKept ? { isKept: true } : {}),
       ...this.savedBlocks(),
+      ...(this.chatSettings.size ? { chatSettings: Object.fromEntries([...this.chatSettings].filter(([id]) => this.known.has(id))) } : {}),
     };
   }
 
@@ -1727,6 +1853,129 @@ export class RoomCore<S = any> {
     if (!isChanged) return;
     this.dirty = true;
     this.pairChangeCount++;
+  }
+
+  /** A player's chat settings from their pass, before join: null for a guest, who chats with nobody. */
+  setChatSettings(playerId: string, settings: PlayerChatSettings | null): void {
+    if (settings) this.chatSettings.set(playerId, { whoCanChat: settings.whoCanChat, chatGroupId: settings.chatGroupId });
+    else if (!this.chatSettings.delete(playerId)) return;
+    this.dirty = true;
+  }
+
+  /** Whether a player can chat at all: an account whose setting isn't nobody, with a chat group. */
+  canChat(playerId: string): boolean {
+    const settings = this.chatSettings.get(playerId);
+    return settings !== undefined && settings.whoCanChat !== "nobody" && settings.chatGroupId !== null;
+  }
+
+  /**
+   * Whether one player's chat may reach another, canChat's rule on passes (pass.ts): two accounts in the
+   * same chat group with no block either way, friends unless both chat with anyone.
+   */
+  private mayChat(senderPlayerId: string, receiverPlayerId: string): boolean {
+    if (senderPlayerId === receiverPlayerId || !this.canChat(senderPlayerId) || !this.canChat(receiverPlayerId) || this.hasBlockBetween(senderPlayerId, receiverPlayerId)) return false;
+    const sender = this.chatSettings.get(senderPlayerId)!;
+    const receiver = this.chatSettings.get(receiverPlayerId)!;
+    if (sender.chatGroupId !== receiver.chatGroupId) return false;
+    return (sender.whoCanChat === "anyone" && receiver.whoCanChat === "anyone") || this.areFriends(senderPlayerId, receiverPlayerId);
+  }
+
+  /** Who a player's chat may reach: the players in the match (or those of toPlayerIds in it), never spectators, kept only where they may chat. */
+  chatReceivers(senderPlayerId: string, toPlayerIds?: readonly string[]): string[] {
+    const asked = toPlayerIds ? [...new Set(toPlayerIds)].filter((id) => this.players.has(id)) : [...this.players.keys()];
+    return asked.filter((id) => this.mayChat(senderPlayerId, id));
+  }
+
+  /**
+   * A chat message from a player (readChatMessage), checked by the room: the sender, the text, their pace,
+   * then the game server's onChat with the players their game sent it to. When it goes no further the room
+   * answers the sender itself (an error, or chat_stopped with stopped_by_game) and this is null. Otherwise
+   * it's the text, who may read it (chatReceivers, which may be nobody) and the sender's last messages, for
+   * the host to run Zaisma's filter and then deliverChat or stopChat.
+   */
+  async startChat(playerId: string, chat: ChatClientMessage): Promise<{ text: string; receiverPlayerIds: string[]; recentTexts: string[] } | null> {
+    const refuse = (code: RoomErrorCode) => {
+      this.sendText(playerId, errorMessage(code, undefined, { chatNumber: chat.chatNumber }));
+      return null;
+    };
+    // Spectators send nothing, chat included; limited like anyone's messages, so refusing them costs little.
+    if (this.spectators.has(playerId)) return refuse(this.ended ? "ended" : this.take(playerId) ? "spectator_cannot_send" : "too_fast");
+    const player = this.players.get(playerId);
+    if (!player || this.ended) return refuse("ended");
+    this.messageCount++;
+    this.countTraffic("inbound", CHAT_MESSAGE_TYPE, 1, chat.sizeBytes);
+    // Counted against the room's 30 a second like any message, then chat's own pace below.
+    if (!this.take(playerId)) return refuse("too_fast");
+    const isPlayerIdList = chat.toPlayerIds === undefined || (Array.isArray(chat.toPlayerIds) && chat.toPlayerIds.length <= this.maximumPlayerCount && chat.toPlayerIds.every((id) => typeof id === "string"));
+    if (typeof chat.text !== "string" || !isPlayerIdList) return refuse("bad_message");
+    if (!this.canChat(playerId)) return refuse("chat_not_allowed");
+    if (!chat.text.trim()) return refuse("chat_empty");
+    if (chat.text.length > CHAT_CHECK_LIMITS.maximumMessageCharacterCount) return refuse("chat_too_long");
+    if (!this.takeChat(playerId)) return refuse("chat_too_fast");
+    const presence = this.presence.get(playerId);
+    if (presence) presence.seenAtMs = this.now();
+    const toPlayerIds = (chat.toPlayerIds === undefined ? [...this.players.keys()] : [...new Set(chat.toPlayerIds as string[])]).filter((id) => id !== playerId && this.players.has(id));
+    let askedPlayerIds = toPlayerIds;
+    if (this.server.onChat) {
+      await this.settled();
+      let answer: unknown;
+      try {
+        answer = await this.server.onChat(this.state, player, this.chatRoom, { text: chat.text, toPlayerIds: [...toPlayerIds] });
+      } catch (error) {
+        console.error("Game server error:", error);
+        answer = false;
+      }
+      const read = readChatAnswer(answer);
+      if ("mistake" in read) console.error("Game server error:", read.mistake);
+      if ("mistake" in read || !read.isAllowed) {
+        this.stopChat(playerId, chat.chatNumber, "stopped_by_game", STOPPED_BY_GAME_MESSAGE);
+        return null;
+      }
+      if (read.toPlayerIds) askedPlayerIds = toPlayerIds.filter((id) => read.toPlayerIds!.includes(id));
+    }
+    const recentTexts = this.recentChatTexts(playerId);
+    this.rememberChat(playerId, chat.text);
+    return { text: chat.text, receiverPlayerIds: this.chatReceivers(playerId, askedPlayerIds), recentTexts };
+  }
+
+  /**
+   * Send a chat message Zaisma's filter let through to its receivers, and tell the sender it went
+   * (chat_sent), even when it reached nobody: the sender never learns who can't read them.
+   */
+  deliverChat(senderPlayerId: string, chatNumber: number, receiverPlayerIds: readonly string[], chat: { text: string; hasSwearing: boolean; hasSlur: boolean }): void {
+    const sentAt = new Date(this.now()).toISOString();
+    // Players who left, or blocked the sender, while the filter looked get nothing.
+    const receivers = receiverPlayerIds.filter((id) => this.players.has(id) && this.mayChat(senderPlayerId, id));
+    if (receivers.length) this.sendEach(receivers, JSON.stringify({ type: "chat", fromPlayerId: senderPlayerId, text: chat.text, hasSwearing: chat.hasSwearing, hasSlur: chat.hasSlur, sentAt } satisfies ServerMessage), CHAT_MESSAGE_TYPE);
+    this.sendText(senderPlayerId, JSON.stringify({ type: "chat_sent", chatNumber, sentAt } satisfies ServerMessage));
+  }
+
+  /** Tell the sender their chat message was stopped: reason is the filter's, or stopped_by_game; message is what they see. */
+  stopChat(senderPlayerId: string, chatNumber: number, reason: string, message: string): void {
+    this.sendText(senderPlayerId, JSON.stringify({ type: "chat_stopped", chatNumber, reason, message } satisfies ServerMessage));
+  }
+
+  /** A player's chat messages from the last CHAT_CHECK_LIMITS.recentTextDurationMs, oldest first, up to recentTextCount. */
+  recentChatTexts(playerId: string): string[] {
+    const nowMs = this.now();
+    return (this.recentChats.get(playerId) ?? []).filter((sent) => nowMs - sent.sentAtMs < CHAT_CHECK_LIMITS.recentTextDurationMs).map((sent) => sent.text);
+  }
+
+  private rememberChat(playerId: string, text: string): void {
+    const nowMs = this.now();
+    const recent = (this.recentChats.get(playerId) ?? []).filter((sent) => nowMs - sent.sentAtMs < CHAT_CHECK_LIMITS.recentTextDurationMs);
+    recent.push({ text, sentAtMs: nowMs });
+    this.recentChats.set(playerId, recent.slice(-CHAT_CHECK_LIMITS.recentTextCount));
+  }
+
+  /** Whether a player may send another chat message: CHAT_ROOM_LIMITS.maximumChatMessageCount in any chatWindowDurationMs. */
+  private takeChat(playerId: string): boolean {
+    const nowMs = this.now();
+    const sentAtMs = (this.chatSentAtMs.get(playerId) ?? []).filter((atMs) => nowMs - atMs < CHAT_ROOM_LIMITS.chatWindowDurationMs);
+    const isTaken = sentAtMs.length < CHAT_ROOM_LIMITS.maximumChatMessageCount;
+    if (isTaken) sentAtMs.push(nowMs);
+    this.chatSentAtMs.set(playerId, sentAtMs);
+    return isTaken;
   }
 
   /** Whether two players have a block between them, either way: from their accounts, or one a player's game said it made. */
@@ -2038,7 +2287,7 @@ export class RoomCore<S = any> {
     const probeIntervalSec = this.ticking ? ROOM_TUNING.probeIntervalSec : null;
     this.sendText(
       player.id,
-      JSON.stringify({ type: "welcome", me: shownPlayer(player), isSpectator: false, players: this.list(), room: this.settings(), spectatorCount: this.spectators.size, hostPlayerId: this.hostPlayerId, awayChecks: this.checks(player.id), endsAt: this.endsAt, probeIntervalSec, protocolVersionNumber: PROTOCOL_VERSION_NUMBER } satisfies ServerMessage),
+      JSON.stringify({ type: "welcome", me: shownPlayer(player), isSpectator: false, players: this.list(), room: this.settings(), spectatorCount: this.spectators.size, hostPlayerId: this.hostPlayerId, awayChecks: this.checks(player.id), endsAt: this.endsAt, probeIntervalSec, protocolVersionNumber: PROTOCOL_VERSION_NUMBER, canChat: this.canChat(player.id) } satisfies ServerMessage),
     );
     // Every room gets a first ping and clock sample right away, ticking or not.
     this.probe(player.id);
@@ -2076,7 +2325,7 @@ export class RoomCore<S = any> {
     const probeIntervalSec = this.ticking ? ROOM_TUNING.probeIntervalSec : null;
     this.sendText(
       spectator.id,
-      JSON.stringify({ type: "welcome", me: shownPlayer(spectator), isSpectator: true, players: this.list(), room: this.settings(), spectatorCount: this.spectators.size, hostPlayerId: this.hostPlayerId, awayChecks: { idleTimeoutSec: null, hiddenTimeoutSec: null }, endsAt: this.endsAt, probeIntervalSec, protocolVersionNumber: PROTOCOL_VERSION_NUMBER } satisfies ServerMessage),
+      JSON.stringify({ type: "welcome", me: shownPlayer(spectator), isSpectator: true, players: this.list(), room: this.settings(), spectatorCount: this.spectators.size, hostPlayerId: this.hostPlayerId, awayChecks: { idleTimeoutSec: null, hiddenTimeoutSec: null }, endsAt: this.endsAt, probeIntervalSec, protocolVersionNumber: PROTOCOL_VERSION_NUMBER, canChat: false } satisfies ServerMessage),
     );
     this.probe(spectator.id);
     // A new connection starts with nothing of the state: a full copy comes with the next round.
@@ -2153,6 +2402,8 @@ export class RoomCore<S = any> {
   /** Take a player out of the match, forgetting what the room knew about them while they were in. */
   private out(playerId: string): void {
     this.players.delete(playerId);
+    this.chatSentAtMs.delete(playerId);
+    this.recentChats.delete(playerId);
     this.latestSlots.delete(playerId);
     this.stateSkippedPlayerIds.delete(playerId);
     this.fullCopyPlayerIds.delete(playerId);
@@ -2360,6 +2611,9 @@ export class RoomCore<S = any> {
       case "message":
         this.input(() => this.server.onMessage?.(this.state, player!, this.api, message.data), "onMessage");
         return null;
+      case "chat":
+        // The room's host takes chat before it gets here (readChatMessage); a host that doesn't, doesn't take chat.
+        return "chat_not_here";
       case "zaisma:purchase":
         this.purchaseTold(playerId, message);
         return null;

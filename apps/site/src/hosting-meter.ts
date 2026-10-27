@@ -2,7 +2,7 @@ import { HOSTING_KINDS, type HostingKind } from "@zaisma/core";
 import type { UsageMeterOptions } from "./components/data.ts";
 
 /** What each kind of use is called on a page, in the meter's key. */
-export const HOSTING_KIND_LABELS: Record<HostingKind, string> = { rooms: "Rooms", game_server: "Game server", relayed_data: "Relay", database: "Database", requests: "Requests" };
+export const HOSTING_KIND_LABELS: Record<HostingKind, string> = { rooms: "Rooms", game_server: "Game server", relayed_data: "Relay", database: "Database", requests: "Requests", adult_chat_checks: "Chat checks" };
 
 /** A game's month on the hosting meter, as get_stats answers it (hosting_use_this_month). */
 export interface HostingMonthJson {

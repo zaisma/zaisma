@@ -93,7 +93,7 @@ describe("player passes", () => {
     const reason = async (token: string) => verifyPass(token, keys, { gameSlug: "arena", issuerUrl: ISS }).then(() => "ok", (error: PassError) => error.code);
     // Each player's tag in this game, and their friends' tags: never their player IDs.
     const tag = (sub: string) => `player_tag_${sub.slice("player_".length)}`;
-    const account = (sub: string, whoCanChat: WhoCanChat, friendPlayerIds: string[]): PassClaims => ({ ...claims, name: undefined, sub, kind: "account", who_can_chat: whoCanChat, player_tag_id: tag(sub), friend_player_tag_ids: friendPlayerIds.map(tag) });
+    const account = (sub: string, whoCanChat: WhoCanChat, friendPlayerIds: string[]): PassClaims => ({ ...claims, name: undefined, sub, kind: "account", who_can_chat: whoCanChat, chat_group_id: "chat_group_a", player_tag_id: tag(sub), friend_player_tag_ids: friendPlayerIds.map(tag) });
     expect(await reason(await signPass(signing, account("player_ana", "friends", ["player_ben"])))).toBe("ok");
     expect(await reason(await signPass(signing, { ...account("player_ana", "friends", []), friend_player_tag_ids: "player_tag_ben" as never }))).toBe("malformed");
     expect(await reason(await signPass(signing, { ...account("player_ana", "friends", []), friend_player_tag_ids: [7] as never }))).toBe("malformed");
@@ -113,8 +113,11 @@ describe("player passes", () => {
     expect(canChat(ben, ana)).toBe(true);
     expect(canChat(ana, cy)).toBe(false);
     expect(canChat({ ...ana, friend_player_tag_ids: [...ana.friend_player_tag_ids!, tag("player_dee")] }, soloFriend)).toBe(false);
-    // Friends chat across chat groups; strangers who both let anyone chat still need the same group.
-    expect(canChat({ ...ben, who_can_chat: "anyone", chat_group_id: "chat_group_a" }, { ...ana, who_can_chat: "anyone", chat_group_id: "chat_group_b" })).toBe(true);
+    // Chat never leaves a chat group, friends included (Oct 26, 2026): friends a 14 and a 16 pass, or an adult and a teen, don't chat.
+    expect(canChat({ ...ben, chat_group_id: "chat_group_b" }, ana)).toBe(false);
+    expect(canChat({ ...ben, who_can_chat: "anyone", chat_group_id: "chat_group_a" }, { ...ana, who_can_chat: "anyone", chat_group_id: "chat_group_b" })).toBe(false);
+    expect(canChat({ ...ben, chat_group_id: undefined }, ana)).toBe(false);
+    // Strangers who both let anyone chat, in the same group.
     expect(canChat({ ...cy, chat_group_id: "chat_group_a" }, { ...account("player_eve", "anyone", []), chat_group_id: "chat_group_a" })).toBe(true);
     // A guest named in a list is still a guest.
     expect(canChat(ana, { ...claims, sub: "player_ben" })).toBe(false);
@@ -136,6 +139,7 @@ describe("player passes", () => {
       sub,
       kind: "account",
       who_can_chat: "friends",
+      chat_group_id: "chat_group_a",
       player_tag_id: playerTag,
       friend_player_tag_ids: friendTagIds,
       block_player_tag_ids: blockTagIds,

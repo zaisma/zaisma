@@ -9,6 +9,7 @@ export const SIGN_INS = [
   { username: "Moss_Runner", about: "a friend, adult, open and social, playing Shard Dodge (16 and up); no saved card or PIN, so Tiny Farm's shop starts from nothing" },
   { username: "Quiet_Comet", about: "a friend, 14, private to friends" },
   { username: "Bright_Reed", about: "16, open and social, not a friend" },
+  { username: "Chat_Owl", about: "an adult, open and social, to chat with Moss_Runner in Chat Test" },
   { username: "Tall_Pine", about: "a friend with custom social settings" },
   { username: "Kit_Spark", about: "a friend in a full Four in a Row room" },
   { username: "Key_Maker", about: "no passkey yet: make an API key to see the wizard add one first" },

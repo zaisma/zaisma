@@ -6,12 +6,12 @@ import { FREE_HOSTING_CENTS_PER_MONTH, HOSTING_PRICES, HOSTING_USE_FACTS, OUTSID
 import { AWAKE_TAIL_MS, AwakeTime } from "../../apps/rooms/src/usage-counts.ts";
 
 // The one hosting meter (packages/core/src/hosting.ts): every charge Cloudflare bills Zaisma for a game, in cents,
-// against one free allowance a month. Each price keeps a margin over what Cloudflare charges for it
-// (cloudflare-prices.json, with its source), and every count the meter keeps is priced, so nothing slips in free.
+// against one free allowance a month. Each price keeps a margin over what it costs Zaisma
+// (hosting-costs.json, with its source), and every count the meter keeps is priced, so nothing slips in free.
 
 const use = (part: Partial<HostingUse>): HostingUse => ({ ...noHostingUse(), ...part });
 const HOUR_SEC = 3600;
-const CLOUDFLARE_PRICES = JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), "cloudflare-prices.json"), "utf8")) as Record<string, { cloudflare_cents: number; what: string; source_url: string }>;
+const HOSTING_COSTS = JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), "hosting-costs.json"), "utf8")) as Record<string, { cost_cents: number; what: string; source_url: string }>;
 
 /** An hour of an 8-player real-time room at 60 ticks: awake all hour, 20 messages a second a player, about 1 ms of CPU a tick, a check every 30 seconds. */
 const realTimeRoomHour = (roomHourCount: number): Partial<HostingUse> => ({
@@ -36,12 +36,12 @@ const turnBasedRoomHour = (roomHourCount: number): Partial<HostingUse> => ({
 });
 
 describe("the hosting meter", () => {
-  it("keeps a margin of at least twice Cloudflare's price on every line", () => {
-    expect(Object.keys(CLOUDFLARE_PRICES).sort()).toEqual(Object.keys(HOSTING_PRICES).sort());
+  it("keeps a margin of at least twice what it costs on every line", () => {
+    expect(Object.keys(HOSTING_COSTS).sort()).toEqual(Object.keys(HOSTING_PRICES).sort());
     for (const [name, priceCents] of Object.entries(HOSTING_PRICES)) {
-      const cloudflare = CLOUDFLARE_PRICES[name]!;
-      expect(cloudflare.source_url, name).toMatch(/^https:\/\/developers\.cloudflare\.com\//);
-      expect(priceCents, `${name}: ${cloudflare.what}`).toBeGreaterThanOrEqual(2 * cloudflare.cloudflare_cents - 1e-15);
+      const cost = HOSTING_COSTS[name]!;
+      expect(cost.source_url, name).toMatch(/^https:\/\/(developers\.cloudflare\.com|www\.anthropic\.com)\//);
+      expect(priceCents, `${name}: ${cost.what}`).toBeGreaterThanOrEqual(2 * cost.cost_cents - 1e-15);
     }
   });
 
@@ -68,6 +68,8 @@ describe("the hosting meter", () => {
     );
     // A schedule's run and a webhook event are requests; the object's awake time goes with them.
     expect(hostingCostCents(use({ requestCount: 1000, scheduledRunCount: 1000, objectAwakeDurationSec: HOUR_SEC })).kinds.requests).toBeCloseTo(2000 * prices.requestCentsPerRequest + HOUR_SEC * prices.awakeCentsPerSec, 9);
+    // The chat filter's checks between adults, its own share.
+    expect(hostingCostCents(use({ adultChatCheckCount: 1000 })).kinds.adult_chat_checks).toBeCloseTo(1000 * prices.adultChatCheckCentsPerCheck, 9);
     // Player time is a fact, never priced.
     expect(hostingCostCents(use({ roomPlayDurationSec: 1000 * HOUR_SEC })).totalCents).toBe(0);
   });

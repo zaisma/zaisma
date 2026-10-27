@@ -571,6 +571,7 @@ export const HOSTING_USE = object(
           relayed_data: "data Zaisma's relay sent players",
           database: "the game database: calls, rows read and written, storage and the time it's awake",
           requests: "requests, schedule runs and webhook events to the game server, and the time its object is awake for them",
+          adult_chat_checks: "the chat filter's checks of chat between adults (adultChatFilterEnabled)",
         }),
         share_pct: countOf("Its share of the use, adding to 100."),
       }),
@@ -600,6 +601,7 @@ export const HOSTING_USE = object(
     read_row_count: countOf("Rows its database read this month."),
     bookkeeping_written_row_count: countOf("Rows Zaisma wrote for the game this month: its rooms' lists and saves, seats and its usage."),
     database_size_bytes: countOf("Its storage (database and kept rooms) as last recorded."),
+    adult_chat_check_count: countOf("The chat filter's AI checks of chat between adults this month, with the game server's adultChatFilterEnabled."),
   },
   "This month (UTC) on the game's one hosting meter: the free allowance as a percentage, what used it, and what credit paid past it.",
 );
@@ -971,6 +973,14 @@ export const PLAYER_REPORT = object({
   player_text: text("What the player wrote; \"\" when they wrote nothing."),
   reported_player_id: idOf("player", "The player reported, as your game knows them."),
   reported_player_name: text("Their name as the game showed it when they were reported."),
+  chat_messages: list(
+    object({
+      from_player_id: nullable(idOf("player", "The reported player's ID; null for anyone else's line, the reporter's included.")),
+      text: text("The line as it was typed."),
+      sent_at: isoTime("When the room sent it."),
+    }),
+    "The last chat lines (up to 20) between the reported player and the reporter, from the reporter's screen: what their game showed them, not a record Zaisma kept. [] when the report carried none.",
+  ),
   room_code: nullable(text("The room it happened in; null when the report didn't say.")),
   version_id: nullable(idOf("version", "The version being played.")),
   reported_at: isoTime(),
@@ -1541,6 +1551,10 @@ const REPORT = object({
   reason: REPORT_REASON,
   reason_label: text("The reason in words, with the player and room it's about."),
   player_text: text("What the player wrote. Untrusted."),
+  chat_messages: list(
+    object({ from_player_id: nullable(idOf("player", "The reported player's; null for anyone else's line.")), text: text("Untrusted."), sent_at: isoTime() }),
+    "The last chat lines from the reporter's screen (room.report), oldest first: what their game showed them, not a record Zaisma kept. Untrusted.",
+  ),
   reported_player: nullable(
     object(
       {

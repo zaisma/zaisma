@@ -1,7 +1,7 @@
 /**
  * Hosting on one meter (docs/DECISIONS.md, "Hosting is priced with a margin, with a free tier, and prepaid above
- * it", and "Hosting is priced by value"): every charge Cloudflare bills Zaisma for a game, with no gaps, costs the
- * game cents at the prices below, and every game gets FREE_HOSTING_CENTS_PER_MONTH of it free each month (UTC),
+ * it", and "Hosting is priced by value"): every charge Cloudflare bills Zaisma for a game, with no gaps, and the chat
+ * filter's AI checks between adults when a game turns them on, cost the game cents at the prices below, and every game gets FREE_HOSTING_CENTS_PER_MONTH of it free each month (UTC),
  * shown only as a percentage. Past it, a game with a budget draws from its developer's credit (credit.ts); one
  * without stops. Game files, saves, sign-in, publishing and spectators stay off the meter on purpose.
  */
@@ -36,6 +36,8 @@ export const HOSTING_PRICES = {
   storedCentsPerByteMonth: 8e-8,
   /** $18 per million files of the game server's logs written. */
   logFileCentsPerFile: 0.0018,
+  /** $0.20 per 1,000 AI checks of chat between adults, for a game server with adultChatFilterEnabled: Zaisma pays for under-18s' checks. */
+  adultChatCheckCentsPerCheck: 0.02,
 } as const;
 
 /** Each call a game server makes to another server counts this much game server CPU: the gateway's own work. */
@@ -45,7 +47,7 @@ export const OUTSIDE_CALL_CPU_DURATION_MS = 1;
 export const FREE_HOSTING_CENTS_PER_MONTH = 1000;
 
 /** What a game's use is shared out as, on the meter. */
-export const HOSTING_KINDS = ["rooms", "game_server", "relayed_data", "database", "requests"] as const;
+export const HOSTING_KINDS = ["rooms", "game_server", "relayed_data", "database", "requests", "adult_chat_checks"] as const;
 export type HostingKind = (typeof HOSTING_KINDS)[number];
 
 /** Why a game's hosting is paused this month: its free allowance with no budget, its budget, or its developer's credit. */
@@ -91,6 +93,8 @@ export interface HostingUse {
   databaseAwakeDurationSec: number;
   /** The storage kept so far this month, as bytes kept for a whole month: each day's size, a day at a time. */
   monthStoredSizeBytes: number;
+  /** The chat filter's AI checks of chat between adults (adultChatFilterEnabled). */
+  adultChatCheckCount: number;
   /** Player time in its rooms: a fact, never priced. */
   roomPlayDurationSec: number;
   /** The storage's size as last recorded: a fact, priced as monthStoredSizeBytes. */
@@ -123,6 +127,7 @@ export const noHostingUse = (): HostingUse => ({
   databaseCallCount: 0,
   databaseAwakeDurationSec: 0,
   monthStoredSizeBytes: 0,
+  adultChatCheckCount: 0,
   roomPlayDurationSec: 0,
   databaseSizeBytes: 0,
 });
@@ -153,6 +158,7 @@ export function hostingCostCents(use: HostingUse): { kinds: Record<HostingKind, 
       use.databaseCallCount * prices.databaseCallCentsPerCall +
       use.databaseAwakeDurationSec * prices.awakeCentsPerSec,
     requests: (use.requestCount + use.scheduledRunCount) * prices.requestCentsPerRequest + use.objectAwakeDurationSec * prices.awakeCentsPerSec,
+    adult_chat_checks: use.adultChatCheckCount * prices.adultChatCheckCentsPerCheck,
   };
   return { kinds, totalCents: HOSTING_KINDS.reduce((sumCents, kind) => sumCents + kinds[kind], 0) };
 }
@@ -201,6 +207,7 @@ const USAGE_FIELDS = {
   database_read_row_count: "readRowCount",
   database_call_count: "databaseCallCount",
   database_awake_duration_sec: "databaseAwakeDurationSec",
+  adult_chat_check_count: "adultChatCheckCount",
 } as const satisfies Record<string, keyof HostingUse>;
 const USAGE_COLUMNS = Object.keys(USAGE_FIELDS) as (keyof typeof USAGE_FIELDS)[];
 

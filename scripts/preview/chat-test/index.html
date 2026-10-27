@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chat Test</title>
+<style>
+  body { margin: 0; min-height: 100vh; display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 24px 16px; box-sizing: border-box; background: #10141b; color: #e8ecf2; font: 16px system-ui, sans-serif; }
+  #chat-log { width: min(480px, 100%); height: 50vh; overflow: auto; padding: 12px; box-sizing: border-box; background: #0a0d12; border: 1px solid #2a3240; border-radius: 8px; }
+  #chat-log div { margin: 4px 0; overflow-wrap: anywhere; }
+  #chat-row { display: flex; gap: 8px; width: min(480px, 100%); }
+  input { flex: 1; min-height: 40px; padding: 0 10px; font: inherit; color: inherit; background: #0a0d12; border: 1px solid #2a3240; border-radius: 8px; }
+  button { min-height: 40px; padding: 0 14px; font: inherit; border: 0; border-radius: 8px; background: #3d6bd8; color: #fff; }
+  #status { color: #9aa4b2; font-size: 14px; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<h1>Chat Test</h1>
+<p id="status">Joining…</p>
+<div id="chat-log"></div>
+<div id="chat-row"><input id="chat-input" maxlength="2000" placeholder="Say something…" autocomplete="off" hidden><button id="chat-send" hidden>Send</button></div>
+<button id="players" hidden>Players</button>
+<script src="_zaisma/v1.js"></script>
+<script>
+// The chat box from Zaisma's developer docs (Chat), with a Players button for mute, block and report.
+(async () => {
+  const room = await Zaisma.joinRoom();
+  const log = document.querySelector("#chat-log");
+  const input = document.querySelector("#chat-input");
+  const send = document.querySelector("#chat-send");
+  const nameOf = (playerId) => room.players.find((player) => player.id === playerId)?.name ?? "Someone";
+  function addLine(name, text) {
+    const line = document.createElement("div");
+    line.textContent = `${name}: ${text}`; // textContent: never as HTML
+    log.append(line);
+    log.scrollTop = log.scrollHeight;
+  }
+  const showStatus = () => (document.querySelector("#status").textContent = `${room.me.name} in room ${room.roomCode} with ${room.players.length - 1} other player${room.players.length === 2 ? "" : "s"}.${room.canChat ? "" : " Chat is for signed-in players."}`);
+  showStatus();
+  room.on("players", showStatus);
+  input.hidden = send.hidden = !room.canChat;
+  document.querySelector("#players").hidden = false;
+  document.querySelector("#players").onclick = () => Zaisma.openPlayersPanel(room);
+  room.on("chat", (chat) => addLine(nameOf(chat.fromPlayerId), chat.hasSlur ? "(hidden)" : chat.text));
+  // Games run in a frame that doesn't submit forms: the button and Enter send.
+  async function sendLine() {
+    const text = input.value;
+    input.value = "";
+    try {
+      await room.chat(text);
+      addLine(room.me.name, text);
+    } catch (error) {
+      addLine("Zaisma", error.message);
+    }
+  }
+  send.addEventListener("click", sendLine);
+  input.addEventListener("keydown", (event) => event.key === "Enter" && sendLine());
+})();
+</script>
+</body>
+</html>

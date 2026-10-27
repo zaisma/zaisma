@@ -1,0 +1,77 @@
+{
+  "gameServerCpuCentsPerSec": {
+    "cost_cents": 0.002,
+    "what": "$0.02 per million CPU milliseconds, Dynamic Workers' startup included",
+    "source_url": "https://developers.cloudflare.com/dynamic-workers/pricing/"
+  },
+  "gameServerSessionCentsPerSession": {
+    "cost_cents": 3e-05,
+    "what": "$0.30 per million Dynamic Worker requests; calls on a returned RpcTarget aren't billed",
+    "source_url": "https://developers.cloudflare.com/dynamic-workers/pricing/"
+  },
+  "loadedVersionCentsPerDay": {
+    "cost_cents": 0.2,
+    "what": "$0.002 per Dynamic Worker (ID and code) a day",
+    "source_url": "https://developers.cloudflare.com/dynamic-workers/pricing/"
+  },
+  "awakeCentsPerSec": {
+    "cost_cents": 0.00016,
+    "what": "$12.50 per million GB-s at 128 MB",
+    "source_url": "https://developers.cloudflare.com/durable-objects/platform/pricing/"
+  },
+  "inboundMessageCentsPerMessage": {
+    "cost_cents": 7.5e-07,
+    "what": "$0.15 per million Durable Object requests, incoming WebSocket messages at 20 to 1",
+    "source_url": "https://developers.cloudflare.com/durable-objects/platform/pricing/"
+  },
+  "roomConnectionCentsPerConnection": {
+    "cost_cents": 4.5e-05,
+    "what": "$0.30 per million Worker requests plus $0.15 per million Durable Object requests",
+    "source_url": "https://developers.cloudflare.com/workers/platform/pricing/"
+  },
+  "objectRequestCentsPerRequest": {
+    "cost_cents": 1.5e-05,
+    "what": "$0.15 per million Durable Object requests (alarms, RPC sessions)",
+    "source_url": "https://developers.cloudflare.com/durable-objects/platform/pricing/"
+  },
+  "databaseCallCentsPerCall": {
+    "cost_cents": 1.5e-05,
+    "what": "$0.15 per million Durable Object requests; the binding in front of it is a service binding, billed no request",
+    "source_url": "https://developers.cloudflare.com/durable-objects/platform/pricing/"
+  },
+  "requestCentsPerRequest": {
+    "cost_cents": 4.5e-05,
+    "what": "$0.30 per million Worker requests plus $0.15 per million Durable Object requests",
+    "source_url": "https://developers.cloudflare.com/workers/platform/pricing/"
+  },
+  "relayedCentsPerByte": {
+    "cost_cents": 5e-09,
+    "what": "$0.05 per GB through Cloudflare's TURN relay",
+    "source_url": "https://developers.cloudflare.com/realtime/turn/"
+  },
+  "writtenRowCentsPerRow": {
+    "cost_cents": 0.0001,
+    "what": "$1 per million rows written (D1 and SQLite-backed Durable Objects)",
+    "source_url": "https://developers.cloudflare.com/durable-objects/platform/pricing/"
+  },
+  "readRowCentsPerRow": {
+    "cost_cents": 1e-07,
+    "what": "$0.001 per million rows read",
+    "source_url": "https://developers.cloudflare.com/durable-objects/platform/pricing/"
+  },
+  "storedCentsPerByteMonth": {
+    "cost_cents": 2e-08,
+    "what": "$0.20 per GB-month stored",
+    "source_url": "https://developers.cloudflare.com/durable-objects/platform/pricing/"
+  },
+  "logFileCentsPerFile": {
+    "cost_cents": 0.00045,
+    "what": "$4.50 per million R2 writes (class A)",
+    "source_url": "https://developers.cloudflare.com/r2/pricing/"
+  },
+  "adultChatCheckCentsPerCheck": {
+    "cost_cents": 0.007,
+    "what": "One Claude Haiku check of a chat message, about 0.0024 to 0.007 cents (Oct 26, 2026), the top of that range",
+    "source_url": "https://www.anthropic.com/pricing"
+  }
+}

@@ -1272,7 +1272,7 @@ interface Stats {
   }[];
   hosting_use_this_month: {
     free_used_pct: number;
-    shares: { kind: "rooms" | "game_server" | "relayed_data" | "database" | "requests"; share_pct: number }[];
+    shares: { kind: "rooms" | "game_server" | "relayed_data" | "database" | "requests" | "adult_chat_checks"; share_pct: number }[];
     is_paused: boolean;
     paused_reason: "free_used" | "budget_used" | "credit_used" | null;
     monthly_budget_cents: number | null;

@@ -29,9 +29,9 @@ export interface PassClaims {
    */
   who_can_chat?: WhoCanChat | (string & {});
   /**
-   * For accounts that chat with anyone, the group they can chat in (chat_group_…): two such players
-   * chat when their groups match (canChat). Opaque and different in every game, so it never says an
-   * age; a game could guess which group is the younger one from its size.
+   * For accounts that chat at all (friends or anyone), the group they can chat in (chat_group_…): two
+   * players chat only when their groups match (canChat), friends included. Opaque and different in every
+   * game, so it never says an age; a game could guess which group is the younger one from its size.
    */
   chat_group_id?: string;
   /**
@@ -114,11 +114,12 @@ export function passesAreFriends(first: PassClaims, second: PassClaims): boolean
 }
 
 /**
- * Whether two players may chat, by the passes your server checked (verifyPass): both accounts, no block
- * between them, neither letting nobody chat, and either friends or both letting anyone chat, in the same
- * chat group. Guests and accounts set to nobody never chat; accounts set to friends chat only with
- * friends (passesAreFriends). Use it on every message your own server delivers, text or voice; Zaisma's
- * chat check (checkChat) applies the same rule, and Zaisma rooms will do the same for you.
+ * Whether two players may chat, by the passes your server checked (verifyPass): both accounts in the same
+ * chat group, no block between them, neither letting nobody chat, and either friends or both letting
+ * anyone chat. Guests and accounts set to nobody never chat; accounts set to friends chat only with
+ * friends (passesAreFriends); friends in different chat groups don't chat. Use it on every message your
+ * own server delivers, text or voice; Zaisma's chat check (checkChat) applies the same rule, and so do
+ * rooms (room.chat), on Zaisma and in the runner.
  */
 export function canChat(first: PassClaims, second: PassClaims): boolean {
   mustBePasses(first, second, "canChat");
@@ -126,8 +127,9 @@ export function canChat(first: PassClaims, second: PassClaims): boolean {
   if (passesHaveBlockBetween(first, second)) return false;
   const isOpenTo = (whoCanChat: unknown) => whoCanChat === "friends" || whoCanChat === "anyone";
   if (!isOpenTo(first.who_can_chat) || !isOpenTo(second.who_can_chat)) return false;
-  if (passesAreFriends(first, second)) return true;
-  return first.who_can_chat === "anyone" && second.who_can_chat === "anyone" && typeof first.chat_group_id === "string" && first.chat_group_id === second.chat_group_id;
+  // Chat never leaves a chat group, friends included.
+  if (typeof first.chat_group_id !== "string" || first.chat_group_id !== second.chat_group_id) return false;
+  return passesAreFriends(first, second) || (first.who_can_chat === "anyone" && second.who_can_chat === "anyone");
 }
 
 export type PublicKey = JsonWebKey & { kid: string };

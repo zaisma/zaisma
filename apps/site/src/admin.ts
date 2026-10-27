@@ -7,6 +7,7 @@ import {
   SEVERITIES,
   SEVERITY,
   reportLabel,
+  reportedChatOf,
   reportPictureKey,
   PLAYER_REPORT_REASONS,
   ZAISMA_PLAYER_REPORT_REASONS,
@@ -744,7 +745,7 @@ ${deletion
 
 <h2>Open reports (${mine.length})</h2>
 ${mine.length
-      ? html`<table>${mine.map((report) => html`<tr><td>${severityPill(report.severity_index)}</td><td>${reportLabel(report)}${report.player_id ? html`<br><small class="muted">Player ID ${report.player_id}</small>` : ""}</td><td>${report.player_text}${pictureLink(report)}${report.triage ? html`<br><small class="muted">${(JSON.parse(report.triage) as Triage).summary}</small>` : ""}</td><td>${when(report.reported_at_ms)}</td></tr>`)}</table>
+      ? html`<table>${mine.map((report) => html`<tr><td>${severityPill(report.severity_index)}</td><td>${reportLabel(report)}${report.player_id ? html`<br><small class="muted">Player ID ${report.player_id}</small>` : ""}</td><td>${report.player_text}${chatLines(report)}${pictureLink(report)}${report.triage ? html`<br><small class="muted">${(JSON.parse(report.triage) as Triage).summary}</small>` : ""}</td><td>${when(report.reported_at_ms)}</td></tr>`)}</table>
 <form method="post" action="/admin/games/${game.id}/dismiss" class="row" style="margin-top:10px"><input name="reason" placeholder="Why (optional)"><button class="btn ghost" type="submit">Dismiss reports</button></form>`
       : html`<p class="note">None.</p>`}
 
@@ -994,7 +995,7 @@ function groupCard(group: ReportGroup, pausedUpdate: string | undefined, holdDra
       html`<p class="muted">Re-check of the game's files: ${recheck.recheck_status === "waiting" ? "running…" : recheck.recheck_status === "failed" ? `didn't finish (${recheck.summary ?? ""})` : recheck.findings?.length ? html`${recheck.scan_status === "rejected" ? pill("rejected") : ""} found ${recheck.findings.join("; ")}. ${recheck.summary ?? ""}` : `nothing new. ${recheck.summary ?? ""}`}</p>`,
   )}
   <details><summary>What players sent (${group.rows.length})</summary><table>${group.rows.map(
-    (report) => html`<tr><td class="nowrap">${ago(report.reported_at_ms)}</td><td>${reportLabel(report)}${report.player_id ? html`<br><small class="muted">Player ID ${report.player_id}${report.has_block_between ? " · blocked by the reporter, or blocked them" : ""}</small>` : ""}</td><td>${report.player_text || html`<span class="muted">No details</span>`}${pictureLink(report)}</td></tr>`,
+    (report) => html`<tr><td class="nowrap">${ago(report.reported_at_ms)}</td><td>${reportLabel(report)}${report.player_id ? html`<br><small class="muted">Player ID ${report.player_id}${report.has_block_between ? " · blocked by the reporter, or blocked them" : ""}</small>` : ""}</td><td>${report.player_text || html`<span class="muted">No details</span>`}${chatLines(report)}${pictureLink(report)}</td></tr>`,
   )}</table></details>
   <form method="post" class="decide">
     <input type="hidden" name="back" value="queue">
@@ -1049,6 +1050,11 @@ function precedentDecision(path: string): PrecedentDecision | null {
   return null;
 }
 
+/** A player report's chat lines from the reporter's screen, under what they wrote. */
+const chatLines = (report: { reported_chat_json?: string | null; player_id: string }) => {
+  const lines = reportedChatOf(report);
+  return lines.length ? html`<br><small class="muted">Chat from the reporter's screen:</small>${lines.map((line) => html`<br><small>${line.sent_at.slice(11, 16)} <strong>${line.from_player_id ? "Reported player" : "Other"}</strong>: ${line.text}</small>`)}` : "";
+};
 const pictureLink = (report: { id: string; has_picture: number }) => (report.has_picture ? html` <a href="/admin/reports/${report.id}/picture" target="_blank">Picture</a>` : "");
 
 /** The picture of the game a player included with a report. */

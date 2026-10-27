@@ -11,15 +11,19 @@ import {
   VERSION_UPDATE_CLOSE_CODE,
   RoomCore,
   addTraffic,
+  chatSettingsOf,
   checkRoomData,
   clientIdle,
   errorMessage,
   noTraffic,
+  readChatMessage,
   restoreInfoOf,
   tidyRoomInfo,
   verifyPass,
+  type ChatClientMessage,
   type ClientIdle,
   type GameServer,
+  type PlayerChatSettings,
   type MoveAnswer,
   type MoveAsk,
   type Player,
@@ -38,6 +42,7 @@ import { SANDBOX, errorLine, isGameStartError, linesOf, sandboxServer, type Sand
 import { LogWriter } from "./logs.ts";
 import { AwakeTime, countingDatabase, countingStorage } from "./usage-counts.ts";
 import { roomPurchaseHandling } from "./purchases.ts";
+import { filterChatMessage } from "./chat-filter.ts";
 import { secretsForGameServer } from "./secrets.ts";
 import { signingKey, type Env } from "./index.ts";
 
@@ -398,12 +403,45 @@ export class Room extends DurableObject<Env> {
     if (Date.now() - this.lastCheckAtMs > CHECK_MS && !(await this.gameStillLive())) return;
     if (Date.now() - this.lastTesterCheckAtMs > TESTER_CHECK_MS) await this.testerLinksStillOn();
     if ((socket.deserializeAttachment() as Attachment).stage !== "in") return;
+    // Chat goes through Zaisma's filter on its way, so the room takes it before the game's messages.
+    const chat = typeof message === "string" ? readChatMessage(message) : null;
+    if (chat) return this.chat(socket, core, attachment.id, chat);
     const startedCount = core.handlerStartCount;
     const errorCode = typeof message === "string" ? core.receive(attachment.id, message) : core.receiveBytes(attachment.id, new Uint8Array(message));
     if (errorCode) socket.send(errorMessage(errorCode));
     // A ticking room whose game server only queues input: plain input and probe answers start no handler, and the next tick applies them, so each need not wait on a busy room.
     if (core.queuesInput && core.handlerStartCount === startedCount) return;
     await this.settle(core);
+  }
+
+  /**
+   * A player's chat message (room.chat): the room checks it and asks the game server's onChat (startChat),
+   * Zaisma's filter looks, and it goes to those who may read it (deliverChat) or the sender hears why not
+   * (stopChat). Nobody may read it: nothing to check, and the sender still hears it went.
+   */
+  private async chat(socket: WebSocket, core: RoomCore, playerId: string, chat: ChatClientMessage): Promise<void> {
+    const started = await core.startChat(playerId, chat);
+    if (!started || !this.meta) return;
+    let answer: { isAllowed: boolean; reason: string | null; message: string | null; hasSwearing: boolean; hasSlur: boolean } = { isAllowed: true, reason: null, message: null, hasSwearing: false, hasSlur: false };
+    if (started.receiverPlayerIds.length) {
+      try {
+        answer = await filterChatMessage(this.env, {
+          gameId: this.meta.gameId,
+          text: started.text,
+          senderPlayerId: playerId,
+          receiverPlayerIds: started.receiverPlayerIds,
+          recentTexts: started.recentTexts,
+          source: "rooms",
+          isAdultFilterEnabled: core.server.adultChatFilterEnabled === true,
+        });
+      } catch (error) {
+        console.error("Couldn't filter a chat message:", error);
+        socket.send(errorMessage("busy", undefined, { chatNumber: chat.chatNumber }));
+        return;
+      }
+    }
+    if (answer.isAllowed) core.deliverChat(playerId, chat.chatNumber, started.receiverPlayerIds, { text: started.text, hasSwearing: answer.hasSwearing, hasSlur: answer.hasSlur });
+    else core.stopChat(playerId, chat.chatNumber, answer.reason ?? "not_allowed_to_chat", answer.message ?? "");
   }
 
   async webSocketClose(socket: WebSocket, code: number): Promise<void> {
@@ -700,8 +738,11 @@ export class Room extends DurableObject<Env> {
     if (!this.meta) return this.refuse(socket, "game_unavailable");
 
     let player: Player;
+    // Who the player may chat with, from their pass: the room keeps it, and the game never sees it.
+    let chatSettings: PlayerChatSettings | null = null;
     try {
       const claims = await verifyPass(pass, [(await signingKey(this.env)).publicKey], { gameSlug: this.meta.slug, issuerUrl: this.env.ISSUER });
+      chatSettings = chatSettingsOf(claims);
       // An account's pass is proof only: its name comes from its profile, and a deleted account's pass stops working.
       const name = claims.kind === "account" ? await accountUsernameOf(this.db, claims.sub) : claims.name;
       if (!name) return this.refuse(socket, "bad_pass");
@@ -747,6 +788,8 @@ export class Room extends DurableObject<Env> {
     }
     // The room's rules and the game's canJoin, before anyone hears about this player.
     const admitted = await core.admit(player, made.joinData, { isSpectator });
+    // Spectators send nothing, chat included.
+    if (admitted.isAllowed) core.setChatSettings(player.id, isSpectator ? null : chatSettings);
     if (!admitted.isAllowed) {
       this.refuse(socket, admitted.code, admitted.message);
       // A canJoin that crashed or answered wrongly turns everyone away, so the room may never fill and empty: record it now, for its developer.

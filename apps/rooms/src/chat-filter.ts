@@ -7,8 +7,10 @@ import type { Env } from "./index.ts";
  * the one place its rules are applied to a message, for Zaisma's rooms and for developers' own servers
  * (POST /v1/chat/check). Every message to or from an under-18 account is checked here before anyone sees
  * it: the rules first (checkChatText), then the site's AI (CHAT_CHECK) for what they can't tell and for
- * every message from an adult to a teen. A message that can't be checked is stopped. Between adults the
- * floor stays out of the way: swearing is only flagged, and the game decides.
+ * every message from an adult to a teen. The AI is a narrow second look: when it can't check (down, or its
+ * budget used up), the message goes after the rules, as when in doubt. Swearing and slurs are only
+ * flagged, and the game decides. Between adults the floor stays out of the way unless the game turned it
+ * on (isAdultFilterEnabled), when the same checks run and each AI look counts on its meter.
  *
  * Nothing about the message is kept, except a sexual one from an adult to a teen, kept for the AI's review
  * (chat_reviews). Contact and personal details sent toward teens are counted, never kept: the fifth in a day
@@ -23,6 +25,8 @@ export interface ChatMessage {
   /** The sender's last messages, oldest first: up to CHAT_FILTER_LIMITS.recentTextCount from the last recentTextDurationMs. */
   recentTexts: string[];
   source: ChatSource;
+  /** Check chat between adults too: the game server's adultChatFilterEnabled, or checkChat's isAdultFilterEnabled. */
+  isAdultFilterEnabled: boolean;
 }
 
 export interface ChatFilterAnswer {
@@ -31,12 +35,17 @@ export interface ChatFilterAnswer {
   /** The words the sender sees when it's stopped. */
   message: string | null;
   hasSwearing: boolean;
+  hasSlur: boolean;
 }
+
+type ChatFlags = Pick<ChatFilterAnswer, "hasSwearing" | "hasSlur">;
+const NO_FLAGS: ChatFlags = { hasSwearing: false, hasSlur: false };
 
 type ChatAccount = Pick<Account, "id" | "player_id" | "age_band" | "chat_stopped_reason" | "chat_stopped_until_ms" | "chat_repeat_block_count" | "chat_repeat_window_started_at_ms">;
 
-const allowed = (hasSwearing: boolean): ChatFilterAnswer => ({ isAllowed: true, reason: null, message: null, hasSwearing });
-const stopped = (reason: ChatFilterReason, hasSwearing = false): ChatFilterAnswer => ({ isAllowed: false, reason, message: CHAT_BLOCK_MESSAGES[reason], hasSwearing });
+const allowed = (flags: ChatFlags): ChatFilterAnswer => ({ isAllowed: true, reason: null, message: null, ...flags });
+const stopped = (reason: ChatFilterReason, flags: ChatFlags = NO_FLAGS): ChatFilterAnswer => ({ isAllowed: false, reason, message: CHAT_BLOCK_MESSAGES[reason], hasSwearing: flags.hasSwearing, hasSlur: flags.hasSlur });
+const today = (nowMs: number) => new Date(nowMs).toISOString().slice(0, 10);
 
 /** One verdict per message for every receiver, so it never tells a game which of them is under 18. */
 export async function filterChatMessage(env: Env, chat: ChatMessage, nowMs = Date.now()): Promise<ChatFilterAnswer> {
@@ -55,16 +64,19 @@ export async function filterChatMessage(env: Env, chat: ChatMessage, nowMs = Dat
   // Guests have no chat (canChat keeps them out; this is the backstop), and neither does a deleted account.
   if (!sender || playerIds.some((playerId) => !byPlayerId.has(playerId))) return stopped("chat_paused");
   if (isChatStopped(sender, nowMs)) return stopped("chat_paused");
-  if (!text) return allowed(false);
+  if (!text) return allowed(NO_FLAGS);
 
   const receivers = chat.receiverPlayerIds.map((playerId) => byPlayerId.get(playerId)!).filter((account) => account.id !== sender.id);
   const isSenderMinor = sender.age_band !== "18+";
   const hasMinorReceiver = receivers.some((account) => account.age_band !== "18+");
   const rules = checkChatText(text, recentTexts);
-  // Between adults the game decides (its switch comes with Text chat in rooms): only swearing is flagged.
-  if (!isSenderMinor && !hasMinorReceiver) return allowed(rules.hasSwearing);
+  const flags: ChatFlags = { hasSwearing: rules.hasSwearing, hasSlur: rules.hasSlur };
+  // Between adults the game decides: only flagged, unless it turned the filter on for them too.
+  const isBetweenAdults = !isSenderMinor && !hasMinorReceiver;
+  if (isBetweenAdults && !chat.isAdultFilterEnabled) return allowed(flags);
 
   let reason = rules.verdict === "blocked" ? rules.reason : null;
+  // Chat stays in the sender's chat group, so this only comes from an own server that skipped canChat (answerChatCheck stops those first): the backstop.
   const isAdultToMinor = !isSenderMinor && hasMinorReceiver;
   if (!reason && (rules.verdict === "unclear" || isAdultToMinor)) {
     let checked: UnclearChatCheck;
@@ -74,15 +86,21 @@ export async function filterChatMessage(env: Env, chat: ChatMessage, nowMs = Dat
       console.error("chat check unavailable", error);
       checked = { verdict: "unchecked" };
     }
-    // Teens' messages that can't be checked are stopped: failing open would let them through just when nobody is watching.
-    if (checked.verdict === "unchecked") return stopped("unchecked", rules.hasSwearing);
+    // A narrow second look: one that can't check sends the message after the rules, as when in doubt (Julius, Oct 26, 2026).
     if (checked.verdict === "blocked") reason = checked.reason;
+    // The game turned the filter on between adults: each look the AI made is on its meter.
+    if (isBetweenAdults && checked.verdict !== "unchecked") await countAdultChatCheck(env, chat.gameId, nowMs);
   }
-  if (!reason) return allowed(rules.hasSwearing);
+  if (!reason) return allowed(flags);
 
   if (hasMinorReceiver && (reason === "contact_details" || reason === "personal_details")) await countRepeatBlock(env, sender, nowMs);
   if (isAdultToMinor && reason === "sexual") await keepForReview(env, sender, chat, text, recentTexts, nowMs);
-  return stopped(reason, rules.hasSwearing);
+  return stopped(reason, flags);
+}
+
+/** One AI check of chat between adults, for the game's hosting meter (adult_chat_checks). */
+async function countAdultChatCheck(env: Env, gameId: string, nowMs: number): Promise<void> {
+  await env.DB.prepare("INSERT INTO room_usage (game_id, date, adult_chat_check_count) VALUES (?, ?, 1) ON CONFLICT(game_id, date) DO UPDATE SET adult_chat_check_count = adult_chat_check_count + 1").bind(gameId, today(nowMs)).run();
 }
 
 /** Counts a block toward a teen, keeping no text: the fifth within a day pauses the sender's chat for an hour. */

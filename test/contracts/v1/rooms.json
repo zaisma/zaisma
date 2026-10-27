@@ -89,6 +89,7 @@
       "friendJoinsEnabled": ": boolean",
       "name": ": string | null",
       "labels": ": Readonly<Record<string, string>>",
+      "canChat": ": boolean",
       "endsAt": ": string | null",
       "pingDurationMs": ": number | null",
       "state": ": unknown",
@@ -108,6 +109,7 @@
       "unblock": ": (playerId: string) => void",
       "block": ": (playerId: string) => Promise<boolean>",
       "report": ": (playerId: string, reason: ReportReason, details?: string | undefined) => Promise<ReportAnswer>",
+      "chat": ": (text: string, chatOptions?: ChatOptions | undefined) => Promise<ChatSent>",
       "on": ": <EventName extends keyof RoomEvents>(event: EventName, listener: RoomEvents[EventName]) => Room",
       "off": ": <EventName extends keyof RoomEvents>(event: EventName, listener: RoomEvents[EventName]) => Room"
     }
@@ -131,7 +133,8 @@
       "back": ": (back: Back) => void",
       "muted": ": (playerIds: Array<string>) => void",
       "error": ": (error: RoomError) => void",
-      "versionUpdate": ": (versionUpdate: VersionUpdate) => void"
+      "versionUpdate": ": (versionUpdate: VersionUpdate) => void",
+      "chat": "?: ((chatMessage: ChatMessage) => void) | undefined"
     }
   },
   "Player": {
@@ -296,6 +299,11 @@
       "bad_pass",
       "blocked_player_here",
       "busy",
+      "chat_empty",
+      "chat_not_allowed",
+      "chat_not_here",
+      "chat_too_fast",
+      "chat_too_long",
       "ended",
       "game_not_open_to_player",
       "game_unavailable",
@@ -356,6 +364,7 @@
       "away",
       "back",
       "bytes",
+      "chat",
       "connectionStatus",
       "ended",
       "ending",

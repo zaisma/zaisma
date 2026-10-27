@@ -27,6 +27,7 @@ const message = (sender: { player_id: string }, receivers: { player_id: string }
   receiverPlayerIds: receivers.map((receiver) => receiver.player_id),
   recentTexts: [],
   source: "rooms",
+  isAdultFilterEnabled: false,
   ...extra,
 });
 
@@ -37,20 +38,38 @@ describe("the chat filter", () => {
   it("leaves adults' chat to the game, unchecked, with swearing flagged", async () => {
     const [adult, adultToo] = [await player("18+"), await player("18+")];
     const { asked, withAi } = stubbedAi({ verdict: "blocked", reason: "sexual" });
-    expect(await filterChatMessage(withAi, message(adult, [adultToo], "add me on snap, this is shit"))).toEqual({ isAllowed: true, reason: null, message: null, hasSwearing: true });
+    expect(await filterChatMessage(withAi, message(adult, [adultToo], "add me on snap, this is shit"))).toEqual({ isAllowed: true, reason: null, message: null, hasSwearing: true, hasSlur: false });
     expect(asked).toEqual([]);
   });
 
-  it("stops contact details toward a teen, and anything the AI can't check", async () => {
+  it("checks adults' chat like teens' when the game turns it on, counting each AI look on its meter", async () => {
+    const [adult, adultToo] = [await player("18+"), await player("18+")];
+    const { asked, withAi } = stubbedAi({ verdict: "blocked", reason: "contact_details" });
+    const on = { isAdultFilterEnabled: true, gameId: "game_adultfilter" };
+    expect(await filterChatMessage(withAi, message(adult, [adultToo], "add me on snap", on))).toMatchObject({ isAllowed: false, reason: "contact_details" });
+    // The rules stopped that one: no AI look, nothing on the meter.
+    expect(asked).toEqual([]);
+    expect(await filterChatMessage(withAi, message(adult, [adultToo], "meet irl at westfield saturday, my mom can drive", on))).toMatchObject({ isAllowed: false, reason: "contact_details" });
+    expect(await filterChatMessage(withAi, message(adult, [adultToo], "where are you", on))).toMatchObject({ isAllowed: false, reason: "contact_details" });
+    expect(asked.map((check) => check.text)).toEqual(["where are you"]);
+    expect(await e.DB.prepare("SELECT adult_chat_check_count FROM room_usage WHERE game_id = 'game_adultfilter'").first("adult_chat_check_count")).toBe(1);
+    // A pause for repeats is only for chat toward teens.
+    expect(await accountOf(adult.id)).toMatchObject({ chat_repeat_block_count: 0 });
+  });
+
+  it("stops contact details toward a teen, and sends what the AI can't check after the rules", async () => {
     const [adult, teen] = [await player("18+"), await player("13-15")];
-    expect(await filterChatMessage(stubbedAi().withAi, message(adult, [teen], "add me on snap"))).toEqual({ isAllowed: false, reason: "contact_details", message: "Contact details can't be sent here.", hasSwearing: false });
-    // Teen to teen, what the rules can't tell goes to the AI; when it can't answer, it's stopped.
+    expect(await filterChatMessage(stubbedAi().withAi, message(adult, [teen], "add me on snap"))).toEqual({ isAllowed: false, reason: "contact_details", message: "Contact details can't be sent here.", hasSwearing: false, hasSlur: false });
+    // Teen to teen, what the rules can't tell goes to the AI; when it can't answer, it goes, as when in doubt (Oct 26, 2026).
     const teenToo = await player("16-17");
     const down = stubbedAi({ verdict: "unchecked" });
-    expect(await filterChatMessage(down.withAi, message(teen, [teenToo], "where are you"))).toMatchObject({ isAllowed: false, reason: "unchecked" });
+    expect(await filterChatMessage(down.withAi, message(teen, [teenToo], "where are you"))).toMatchObject({ isAllowed: true, reason: null });
     expect(down.asked).toEqual([{ text: "where are you", recentTexts: [], isAdultToMinor: false }]);
-    // So is one with no AI at all.
-    expect(await filterChatMessage({ ...e, CHAT_CHECK: undefined } as Env, message(teen, [teenToo], "where are you"))).toMatchObject({ isAllowed: false, reason: "unchecked" });
+    // So does one with no AI at all; the rules still stop what they know.
+    expect(await filterChatMessage({ ...e, CHAT_CHECK: undefined } as Env, message(teen, [teenToo], "where are you"))).toMatchObject({ isAllowed: true });
+    expect(await filterChatMessage({ ...e, CHAT_CHECK: undefined } as Env, message(teen, [teenToo], "call me 555 123 4567"))).toMatchObject({ isAllowed: false, reason: "contact_details" });
+    // Between teens a phone number is stopped, and a slur passes, flagged for the game.
+    expect(await filterChatMessage(stubbedAi().withAi, message(teen, [teenToo], "you f a g"))).toEqual({ isAllowed: true, reason: null, message: null, hasSwearing: false, hasSlur: true });
     // And a guest gets nothing: canChat keeps them out, and this is the backstop.
     expect(await filterChatMessage(stubbedAi().withAi, message(teen, [{ player_id: "player_guest1" }], "gg"))).toMatchObject({ isAllowed: false, reason: "chat_paused" });
   });
@@ -58,7 +77,7 @@ describe("the chat filter", () => {
   it("checks the whole message, and refuses one over 2000 characters without asking anyone", async () => {
     const [adult, teen] = [await player("18+"), await player("13-15")];
     const ai = stubbedAi();
-    expect(await filterChatMessage(ai.withAi, message(adult, [teen], "a".repeat(2001)))).toEqual({ isAllowed: false, reason: "too_long", message: "That message is too long to send.", hasSwearing: false });
+    expect(await filterChatMessage(ai.withAi, message(adult, [teen], "a".repeat(2001)))).toEqual({ isAllowed: false, reason: "too_long", message: "That message is too long to send.", hasSwearing: false, hasSlur: false });
     expect(ai.asked).toEqual([]);
     expect(await filterChatMessage(ai.withAi, message(adult, [teen], `${"nice ".repeat(300)}add me on snap`))).toMatchObject({ isAllowed: false, reason: "contact_details" });
   });
@@ -78,7 +97,7 @@ describe("the chat filter", () => {
     expect((await accountOf(adult.id))!.chat_repeat_block_count).toBe(4);
     expect(await filterChatMessage(withAi, message(adult, [teen], "add me on snap"), nowMs)).toMatchObject({ reason: "contact_details" });
     expect(await accountOf(adult.id)).toEqual({ chat_stopped_reason: "paused_for_repeats", chat_stopped_until_ms: nowMs + 3_600_000, chat_repeat_block_count: 0 });
-    expect(await filterChatMessage(withAi, message(adult, [teen], "gg"), nowMs + 1000)).toEqual({ isAllowed: false, reason: "chat_paused", message: "Your chat is paused for now.", hasSwearing: false });
+    expect(await filterChatMessage(withAi, message(adult, [teen], "gg"), nowMs + 1000)).toEqual({ isAllowed: false, reason: "chat_paused", message: "Your chat is paused for now.", hasSwearing: false, hasSlur: false });
     // The pause ends by itself.
     expect(await filterChatMessage(withAi, message(adult, [teen], "gg"), nowMs + 3_600_001)).toMatchObject({ isAllowed: true });
 
@@ -92,7 +111,7 @@ describe("the chat filter", () => {
   it("keeps an adult's sexual message to a teen for review, pausing the sender only in Zaisma's rooms", async () => {
     const [adult, teen] = [await player("18+"), await player("13-15")];
     const { withAi } = stubbedAi({ verdict: "blocked", reason: "sexual" });
-    expect(await filterChatMessage(withAi, message(adult, [teen], "u home alone?", { recentTexts: ["hey"] }))).toEqual({ isAllowed: false, reason: "sexual", message: "That can't be sent here.", hasSwearing: false });
+    expect(await filterChatMessage(withAi, message(adult, [teen], "u home alone?", { recentTexts: ["hey"] }))).toEqual({ isAllowed: false, reason: "sexual", message: "That can't be sent here.", hasSwearing: false, hasSlur: false });
     expect(await reviewsOf(adult.id)).toEqual([{ source: "rooms", text: "u home alone?", recent_texts_json: '["hey"]', chat_review_status: "pending" }]);
     expect((await accountOf(adult.id))!.chat_stopped_reason).toBe("in_review");
     expect(await filterChatMessage(withAi, message(adult, [teen], "gg"))).toMatchObject({ reason: "chat_paused" });
@@ -113,6 +132,6 @@ describe("the chat filter", () => {
     const [adult, adultToo, adultThree, teen] = [await player("18+"), await player("18+"), await player("18+"), await player("16-17")];
     const { withAi } = stubbedAi();
     expect(await filterChatMessage(withAi, message(adult, [adultToo, adultThree], "add me on snap"))).toMatchObject({ isAllowed: true });
-    expect(await filterChatMessage(withAi, message(adult, [adultToo, teen, adultThree], "add me on snap"))).toEqual({ isAllowed: false, reason: "contact_details", message: "Contact details can't be sent here.", hasSwearing: false });
+    expect(await filterChatMessage(withAi, message(adult, [adultToo, teen, adultThree], "add me on snap"))).toEqual({ isAllowed: false, reason: "contact_details", message: "Contact details can't be sent here.", hasSwearing: false, hasSlur: false });
   });
 });

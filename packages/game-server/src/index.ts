@@ -22,6 +22,8 @@ export {
   type HandlerResult,
   type IdleCheck,
   type JoinAnswer,
+  type ChatAnswer,
+  type ChatInfo,
   type JoinInfo,
   type KickOptions,
   type LeaveInfo,
@@ -45,6 +47,6 @@ export { WEBHOOK_LIMITS, verifyWebhook, type WebhookError, type WebhookErrorCode
 export { DATABASE_LIMITS, DatabaseError, type DatabaseErrorCode, type DatabaseRow, type DatabaseStatement, type DatabaseValue, type GameDatabase } from "./database.ts";
 export { OUTSIDE_CALL_LIMITS, OutsideCallError, type OutsideCallErrorCode } from "./outside-calls.ts";
 export { PASS_ISSUER_URL, PASS_TOKEN_TYPE, PASS_VERSION_NUMBER, PassError, RECEIPT_ISSUER_URL, RECEIPT_TOKEN_TYPE, RECEIPT_VERSION_NUMBER, ReceiptError, canChat, passesAreFriends, passesHaveBlockBetween, verifyPass, verifyReceipt, type PassClaims, type PassErrorCode, type PassExpectations, type PlayerKind, type PublicKey, type ReceiptClaims, type ReceiptErrorCode, type ReceiptExpectations, type WhoCanChat } from "./pass.ts";
-export { CHAT_CHECK_LIMITS, ChatCheckError, checkChat, type ChatCheck, type ChatCheckOptions, type ChatCheckReason } from "./chat.ts";
+export { CHAT_CHECK_LIMITS, CHAT_ROOM_LIMITS, ChatCheckError, checkChat, type ChatCheck, type ChatCheckOptions, type ChatCheckReason } from "./chat.ts";
 export { guestName, isRoomCode } from "./names.ts";
 export { relay } from "./relay.ts";

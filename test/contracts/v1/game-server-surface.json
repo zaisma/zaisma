@@ -53,13 +53,27 @@
       "checkTimeoutMs": 5000
     }
   },
+  "CHAT_ROOM_LIMITS": {
+    "kind": "constant",
+    "value": {
+      "maximumChatMessageCount": 20,
+      "chatWindowDurationMs": 10000
+    }
+  },
+  "ChatAnswer": {
+    "kind": "fields",
+    "fields": {
+      "valueOf": ": (() => boolean) | (() => Object)"
+    }
+  },
   "ChatCheck": {
     "kind": "fields",
     "fields": {
       "isAllowed": ": boolean",
       "reason": ": ChatCheckReason | null",
       "message": ": string | null",
-      "hasSwearing": ": boolean"
+      "hasSwearing": ": boolean",
+      "hasSlur": ": boolean"
     }
   },
   "ChatCheckError": {
@@ -71,7 +85,8 @@
     "fields": {
       "text": ": string",
       "senderPass": ": string",
-      "receiverPasses": ": Array<string>"
+      "receiverPasses": ": Array<string>",
+      "isAdultFilterEnabled": "?: boolean | undefined"
     }
   },
   "ChatCheckReason": {
@@ -86,6 +101,13 @@
       "too_long",
       "unchecked"
     ]
+  },
+  "ChatInfo": {
+    "kind": "fields",
+    "fields": {
+      "text": ": string",
+      "toPlayerIds": ": Array<string>"
+    }
   },
   "DATABASE_LIMITS": {
     "kind": "constant",
@@ -151,12 +173,14 @@
       "awayMode",
       "seatHoldDurationSec",
       "stateSyncEnabled",
+      "adultChatFilterEnabled",
       "reconnectTimeoutSec",
       "maximumRoomCountPerPlayer",
       "stateSaveIntervalSec",
       "setup",
       "onJoin",
       "canJoin",
+      "onChat",
       "onMoved",
       "onLeave",
       "onSpectatorJoin",
@@ -200,6 +224,7 @@
       "reconnectTimeoutSec": "?: number | undefined",
       "maximumRoomCountPerPlayer": "?: number | undefined",
       "stateSyncEnabled": "?: boolean | undefined",
+      "adultChatFilterEnabled": "?: boolean | undefined",
       "stateSaveIntervalSec": "?: number | undefined",
       "setup": "?: ((setupData: unknown) => S) | undefined",
       "onRequest": "?: ((player: Player, request: unknown, server: Server) => unknown) | undefined",
@@ -208,6 +233,7 @@
       "onWebhook": "?: ((event: WebhookEvent, server: Server) => unknown) | undefined",
       "onJoin": "?: ((state: S, player: Player, room: Room, joinData: unknown, joinInfo: JoinInfo) => HandlerResult<S>) | undefined",
       "canJoin": "?: ((state: S, player: Player, room: Room, joinData: unknown, joinInfo: JoinInfo) => JoinAnswer | Promise<JoinAnswer>) | undefined",
+      "onChat": "?: ((state: S, player: Player, room: Room, chatInfo: ChatInfo) => ChatAnswer | Promise<ChatAnswer>) | undefined",
       "onMoved": "?: ((state: S, moveResult: MoveResult, room: Room) => HandlerResult<S>) | undefined",
       "onLeave": "?: ((state: S, player: Player, room: Room, leaveInfo: LeaveInfo) => HandlerResult<S>) | undefined",
       "onSpectatorJoin": "?: ((state: S, spectator: Player, room: Room) => HandlerResult<S>) | undefined",
@@ -649,6 +675,11 @@
       "bad_pass",
       "blocked_player_here",
       "busy",
+      "chat_empty",
+      "chat_not_allowed",
+      "chat_not_here",
+      "chat_too_fast",
+      "chat_too_long",
       "ended",
       "game_not_open_to_player",
       "game_unavailable",

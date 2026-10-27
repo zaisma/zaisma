@@ -1,6 +1,7 @@
 {
   "startServerOptions": [
     "database",
+    "developerApiUrl",
     "gameServer",
     "gameSlug",
     "issuerUrl",
@@ -11,7 +12,8 @@
     "port",
     "roomStateFile",
     "secrets",
-    "webhookSigningSecret"
+    "webhookSigningSecret",
+    "zaismaKey"
   ],
   "startServerDefaults": {
     "port": 8080,
@@ -28,6 +30,9 @@
     "database-file",
     "game",
     "issuer-url",
+    "json",
+    "no-open",
+    "on-network",
     "origin",
     "port",
     "room-state-file"

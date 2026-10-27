@@ -1057,7 +1057,7 @@ export interface UsageMeterOptions {
   parts?: UsagePart[];
 }
 
-/** One part of what used a meter: its name, its share of the use in whole percent, and its color (0 to 4), the same for the same thing everywhere. */
+/** One part of what used a meter: its name, its share of the use in whole percent, and its color (0 to 5), the same for the same thing everywhere. */
 export interface UsagePart {
   label: string;
   sharePct: number;
@@ -1140,6 +1140,7 @@ component({
 .usage [data-part="2"] { --part-color: var(--part-2); }
 .usage [data-part="3"] { --part-color: var(--part-3); }
 .usage [data-part="4"] { --part-color: var(--part-4); }
+.usage [data-part="5"] { --part-color: var(--part-5); }
 .usage-key { display: flex; flex-wrap: wrap; gap: var(--gap-words-words) var(--gap-words-control); list-style: none; margin: 0; padding: 0 var(--pad-words); }
 .usage-key li { display: inline-flex; align-items: center; gap: var(--gap-words-words); font: var(--type-facts); color: var(--ink-2); }
 .usage-key b { font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }

@@ -87,8 +87,9 @@ function element(): Record<string, unknown> {
   return { style: {}, setAttribute() {}, appendChild() {}, addEventListener() {}, remove() {}, querySelector: () => null };
 }
 
-export function loadSdk(zaismaConfig: typeof ON_ZAISMA | null = ON_ZAISMA, fetchAnswer: () => Promise<unknown> = () => Promise.reject(new TypeError("Failed to fetch")), playerKind = "guest", search = "") {
-  const storage = new Map([["zaisma:pass:test-game", JSON.stringify({ ...me, pass: "pass", expiresAt: "2099-01-01T00:00:00Z" })]]);
+export function loadSdk(zaismaConfig: typeof ON_ZAISMA | null = ON_ZAISMA, fetchAnswer: () => Promise<unknown> = () => Promise.reject(new TypeError("Failed to fetch")), playerKind = "guest", search = "", keptPlayer: object = me) {
+  // The pass this tab kept from before: a guest's, unless the test says whose.
+  const storage = new Map([["zaisma:pass:test-game", JSON.stringify({ ...keptPlayer, pass: "pass", expiresAt: "2099-01-01T00:00:00Z" })]]);
   const sockets: StandInSocket[] = [];
   // What the SDK runs on a timer (its checks every second), for the test to run when it likes.
   const intervals: (() => void)[] = [];
