@@ -148,7 +148,7 @@ export async function pageStructureProblems(markup: string): Promise<string[]> {
   for (const group of nodes.filter((node) => isChoiceGroup(node) && !isInside(node, EXAMPLE))) {
     const choices = group.classes.includes("tab-switch")
       ? group.children.filter((child) => child.tag === "button" && !child.attributes.has("hidden"))
-      : group.children.filter((cell) => cell.classes.includes("row-cell") && cell.classes.includes("is-control") && !cell.attributes.has("hidden") && cell.children.some((child) => child.classes.includes("shell") || child.classes.includes("run-wrap")));
+      : group.children.filter((cell) => cell.classes.includes("row-cell") && cell.classes.includes("is-control") && !cell.attributes.has("hidden") && cell.children.some((child) => (child.classes.includes("shell") || child.classes.includes("run-wrap")) && !child.attributes.has("hidden")));
     if (choices.length > MAXIMUM_EQUAL_CHOICE_COUNT) problems.push(`too many equal choices: ${nameOf(group)}, ${choices.length} side by side, at most ${MAXIMUM_EQUAL_CHOICE_COUNT}`);
   }
   for (const menu of nodes.filter((node) => node.classes.includes("dropdown") && node.attributes.get("role") === "menu" && !isInside(node, EXAMPLE))) {

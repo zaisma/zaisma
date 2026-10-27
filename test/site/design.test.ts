@@ -895,11 +895,11 @@ describe("page structure", () => {
   });
 
   it("finds words in capitals and a token's name outside code", async () => {
-    expect(await problemsOn(paneOf("<p>PLAY IT NOW</p><p>Set --pad-pane here</p>"))).toEqual([
-      'words in capitals: p "PLAY IT NOW"',
+    expect(await problemsOn(paneOf("<p>PLAY THE GAME</p><p>Set --pad-pane here</p>"))).toEqual([
+      'words in capitals: p "PLAY THE GAME"',
       'a token\'s name outside code: p "Set --pad-pane here", set it in code',
     ]);
-    expect(await problemsOn(paneOf("<p>Play it now, with an MCP key</p><p>Set <code>--pad-pane</code> here</p>"))).toEqual([]);
+    expect(await problemsOn(paneOf("<p>Play the game, with an MCP key</p><p>Set <code>--pad-pane</code> here</p>"))).toEqual([]);
   });
 
   it("finds more equal choices side by side than five, and a menu of more than nine with no groups", async () => {
