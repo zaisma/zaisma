@@ -1161,6 +1161,7 @@ function chatReviewAnswer(review: AdminChatReview) {
 /** The error for an input whose value isn't one the tool takes: bad_<field> (docs/NAMING.md, Errors). */
 const VALUE_ERRORS: Record<string, ErrorCode> = {
   maximum_group_count: "bad_maximum_group_count",
+  period_duration_days: "bad_period_duration_days",
   decision: "bad_decision",
   notice_kind: "bad_notice_kind",
   country_code: "bad_country_code",

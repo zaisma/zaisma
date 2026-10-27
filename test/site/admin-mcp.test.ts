@@ -266,7 +266,7 @@ describe("admin MCP", () => {
     expect(after.period_duration_days).toBe(30);
     expect(added(after, before)).toEqual({ passed_count: 1, rejected_count: 1, held_for_person_count: 1, waiting_count: 1 });
     expect(added(await data("get_review_counts", { period_duration_days: 90 }), beforeLong)).toMatchObject({ passed_count: 2 });
-    expect(await refusal("get_review_counts", { period_duration_days: 91 })).toMatchObject({ field: "period_duration_days" });
+    expect(await refusal("get_review_counts", { period_duration_days: 91 })).toMatchObject({ code: "bad_period_duration_days", field: "period_duration_days" });
   });
 
   it("lists, tests and retires review precedents", async () => {
