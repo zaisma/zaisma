@@ -31,7 +31,7 @@ import { existsSync, mkdirSync, openSync, readFileSync, readdirSync, realpathSyn
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { applyEnginesProof, checkState, enginesBaseCommits, judgeCheckedCode, sameCodeCommits } from "./ship-github-check.mjs";
+import { applyEnginesProof, applyNightlySweep, checkState, enginesBaseCommits, judgeCheckedCode, sameCodeCommits, sweepFailedPages } from "./ship-github-check.mjs";
 import { CHECK_GAME_SLUG, CHECK_GAME_URL, PUBLISH_CLI_WORKFLOW_URL, PUBLISH_GAME_SERVER_WORKFLOW_URL, ROOMS_URL, SITE_URL, checkBuckets, checkPackageOnNpm, checkSecurityAddresses, checkUrl, publishedKeyCount, securityTxtProblems } from "./ship-checks.mjs";
 import { linkSkills, opsPlacesOf } from "./ops-setup.mjs";
 
@@ -207,6 +207,33 @@ if (!isDryRun && checkedCode.verdict === "running") finish("FAIL", `${shortSha}:
 if (!isDryRun && checkedCode.verdict === "failed") finish("FAIL", `${shortSha}: ${githubCheckNote}; nothing deployed. Fix main, then ship again.`, 1);
 if (!isDryRun && checkedCode.verdict !== "passed") finish("FAIL", `${shortSha}: ${githubCheckNote}; nothing deployed, since only code a full check passed on ships.`, 1);
 say(githubCheckNote);
+
+// Main's latest nightly layout sweep (.github/workflows/nightly.yml), which measures every page on every screen: a failed one stops the
+// ship until the pages are fixed and it passes again. Only a pass or a failure decides; before the first run, nothing stops it.
+function readNightlySweep() {
+  let listed;
+  try {
+    listed = run("gh", ["run", "list", "--repo", GITHUB_REPOSITORY, "--workflow", "nightly.yml", "--branch", "main", "--status", "completed", "--limit", "10", "--json", "databaseId,conclusion,url"]);
+  } catch (error) {
+    return { problem: error.message };
+  }
+  if (listed.exitCode !== 0) return { problem: listed.output.trim().split("\n").at(-1) };
+  let runs;
+  try {
+    runs = JSON.parse(listed.output.slice(listed.output.indexOf("[")) || "[]");
+  } catch {
+    return { problem: `gh run list answered ${listed.output.trim().slice(0, 120)}` };
+  }
+  const latest = runs.find((each) => each.conclusion === "success" || each.conclusion === "failure");
+  if (!latest) return null;
+  const failedPages = latest.conclusion === "failure" ? sweepFailedPages(run("gh", ["run", "view", String(latest.databaseId), "--repo", GITHUB_REPOSITORY, "--log-failed"]).output) : [];
+  return { conclusion: latest.conclusion, url: latest.url, failedPages };
+}
+const nightlySweep = readNightlySweep();
+if (!isDryRun && nightlySweep?.problem) finish("FAIL", `${shortSha}: couldn't read main's nightly layout sweep (${nightlySweep.problem}); nothing deployed.`, 1);
+const sweptCode = applyNightlySweep(checkedCode, nightlySweep?.problem ? null : nightlySweep);
+if (!isDryRun && sweptCode.verdict === "sweep_failed") finish("FAIL", `${shortSha}: ${sweptCode.sweepNote}; nothing deployed.`, 1);
+say(sweptCode.sweepNote ?? (nightlySweep?.problem ? `couldn't read main's nightly layout sweep (${nightlySweep.problem})` : nightlySweep ? `main's last nightly layout sweep passed (${nightlySweep.url})` : "no nightly layout sweep on main yet"));
 
 // The main checkout's main, brought up to date when that can't lose anything.
 function updateMainCheckout() {

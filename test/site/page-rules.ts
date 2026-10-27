@@ -63,3 +63,111 @@ export function pageProblems(markup: string): string[] {
   }
   return [...new Set(problems)];
 }
+
+/** An element of a rendered page as HTMLRewriter reads it, with what's in it: other elements and its own words. */
+interface PageNode { tag: string; classes: string[]; attributes: Map<string, string>; children: PageNode[]; words: string; parent: PageNode | null }
+
+const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
+const VOID_TAGS = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"]);
+
+/** A page's markup as a tree, read by HTMLRewriter (the Workers runtime's own parser): every element, and the words directly in each. */
+async function pageTree(markup: string): Promise<PageNode> {
+  const root: PageNode = { tag: "#document", classes: [], attributes: new Map(), children: [], words: "", parent: null };
+  let open = root;
+  await new HTMLRewriter()
+    .on("*", {
+      element(element) {
+        // A drawing is one thing: what's inside an svg (its paths, which may close themselves) isn't read.
+        if (element.namespaceURI === SVG_NAMESPACE && element.tagName !== "svg") return;
+        const attributes = new Map([...element.attributes].map(([name = "", value = ""]) => [name, value]));
+        const node: PageNode = { tag: element.tagName, classes: (attributes.get("class") ?? "").split(/\s+/).filter(Boolean), attributes, children: [], words: "", parent: open };
+        open.children.push(node);
+        // A void element (an input, an img) has no end tag, so nothing is ever inside it.
+        if (VOID_TAGS.has(element.tagName)) return;
+        open = node;
+        element.onEndTag(() => { open = node.parent ?? root; });
+      },
+    })
+    .onDocument({ text(text) { open.words += text.text; } })
+    .transform(new Response(markup))
+    .text();
+  return root;
+}
+
+const everyNode = (node: PageNode): PageNode[] => node.children.flatMap((child) => [child, ...everyNode(child)]);
+/** Whether a node is one of these, by tag and classes or by an attribute: "h1", ".run-wrap", "header.top", "[hidden]", "[aria-hidden=true]". */
+const isNode = (node: PageNode, ...selectors: string[]) => selectors.some((selector) => {
+  const attribute = /^\[([a-z-]+)(?:=([^\]]+))?\]$/.exec(selector);
+  if (attribute) return node.attributes.has(attribute[1]!) && (attribute[2] === undefined || node.attributes.get(attribute[1]!) === attribute[2]);
+  const [tag = "", ...classes] = selector.split(".");
+  return (!tag || node.tag === tag) && classes.every((name) => node.classes.includes(name));
+});
+const isInside = (node: PageNode, ...selectors: string[]) => { for (let walk = node.parent; walk; walk = walk.parent) if (isNode(walk, ...selectors)) return true; return false; };
+const isOrInside = (node: PageNode, ...selectors: string[]) => isNode(node, ...selectors) || isInside(node, ...selectors);
+const nameOf = (node: PageNode) => `${node.tag}${node.classes.length ? `.${node.classes.join(".")}` : ""} "${everyNode(node).map((each) => each.words).join(" ").concat(node.words).replace(/\s+/g, " ").trim().slice(0, 40)}"`;
+
+/** A gallery example is a piece shown alone, not a page; what sits over the page (a sheet, a menu, a card over the game) is a layer of its own. */
+const EXAMPLE = ".example-stage";
+const OVER_PAGE = [".sheet", ".dropdown", "[popover]", ".notice", ".playing-card", ".playing-bar", ".playing-check"];
+/** What's never shown as words on the page: scripts, templates, what's only for screen readers or hidden, and code, which is set as typed. */
+const NOT_WORDS = ["script", "style", "template", "textarea", "code", "kbd", "pre", ".code", ".sr", "[aria-hidden=true]"];
+/** What isn't on the page in the state it's in: closed, hidden, or a template a script fills in. */
+const NOT_SHOWN = ["template", "[hidden]", "dialog", "[popover]"];
+/** At most this many equal choices side by side (Hick's law), and this many in one menu with no groups. */
+export const MAXIMUM_EQUAL_CHOICE_COUNT = 5;
+export const MAXIMUM_UNGROUPED_MENU_ITEM_COUNT = 9;
+/** At most this many fields in a pane with no heading between them (Miller's law). */
+export const MAXIMUM_UNBROKEN_FIELD_COUNT = 7;
+const FIELDS = [".cut-field", ".bday", ".pin-field", ".choice-cards", ".toggle", ".check", ".slider"];
+
+/**
+ * The layout rules a rendered page can't break unseen, scanned on its markup (docs/DESIGN.md, Rules: made impossible before they're
+ * measured): one title, headings in order, no words in capitals, no token's name outside code, few equal choices, fields in groups, and one
+ * runner. Each problem names its rule as the measuring check would and what breaks it. test/site/design.test.ts holds every page to it.
+ */
+export async function pageStructureProblems(markup: string): Promise<string[]> {
+  const nodes = everyNode(await pageTree(markup));
+  const problems: string[] = [];
+  // Hierarchy: one h1, and headings that never skip a level.
+  const titles = nodes.filter((node) => node.tag === "h1" && isInside(node, "main", ".city") && !isInside(node, EXAMPLE, "dialog", "template"));
+  if (titles.length > 1) problems.push(`more than one title: ${nameOf(titles[1]!)}, a second h1 after ${nameOf(titles[0]!)}`);
+  let lastLevel = 1;
+  for (const heading of nodes.filter((node) => /^h[1-4]$/.test(node.tag) && isInside(node, "main") && !isInside(node, EXAMPLE, "template", ...OVER_PAGE))) {
+    const level = Number(heading.tag[1]);
+    if (level > lastLevel + 1) problems.push(`headings out of order: ${nameOf(heading)}, an h${level} after an h${lastLevel}`);
+    lastLevel = level;
+  }
+  // Words: never in capitals for show, and a token's name only in code (Jost draws its two hyphens as one dash).
+  for (const node of nodes.filter((each) => each.words.trim() && !isOrInside(each, ...NOT_WORDS))) {
+    if (/\b[A-Z]{3,}\s+[A-Z]{3,}\b/.test(node.words)) problems.push(`words in capitals: ${nameOf(node)}`);
+    if (/--[a-z]/.test(node.words)) problems.push(`a token's name outside code: ${nameOf(node)}, set it in code`);
+  }
+  // Hick's law and choice overload: few equal choices in a row or a switch, and a long menu in groups. A framed switch is a strip that
+  // scrolls sideways (filters, places), read as one control.
+  const isChoiceGroup = (node: PageNode) => (node.classes.includes("layout-row") && node.attributes.has("data-control-height")) || (node.classes.includes("tab-switch") && !node.classes.includes("vertical") && !node.classes.includes("framed"));
+  for (const group of nodes.filter((node) => isChoiceGroup(node) && !isInside(node, EXAMPLE))) {
+    const choices = group.classes.includes("tab-switch")
+      ? group.children.filter((child) => child.tag === "button" && !child.attributes.has("hidden"))
+      : group.children.filter((cell) => cell.classes.includes("row-cell") && cell.classes.includes("is-control") && !cell.attributes.has("hidden") && cell.children.some((child) => (child.classes.includes("shell") || child.classes.includes("run-wrap")) && !child.attributes.has("hidden")));
+    if (choices.length > MAXIMUM_EQUAL_CHOICE_COUNT) problems.push(`too many equal choices: ${nameOf(group)}, ${choices.length} side by side, at most ${MAXIMUM_EQUAL_CHOICE_COUNT}`);
+  }
+  for (const menu of nodes.filter((node) => node.classes.includes("dropdown") && node.attributes.get("role") === "menu" && !isInside(node, EXAMPLE))) {
+    const items = everyNode(menu).filter((node) => node.attributes.get("role") === "menuitem" && !node.attributes.has("hidden"));
+    if (items.length > MAXIMUM_UNGROUPED_MENU_ITEM_COUNT && !everyNode(menu).some((node) => node.tag === "hr")) problems.push(`too many equal choices: ${nameOf(menu)}, ${items.length} in one menu with no groups, at most ${MAXIMUM_UNGROUPED_MENU_ITEM_COUNT}`);
+  }
+  // Miller's law and chunking: a pane's fields come in groups, a heading between.
+  for (const holder of nodes.filter((node) => (node.classes.includes("pane-in") || node.classes.includes("sheet-in")) && !isInside(node, EXAMPLE))) {
+    let run = 0;
+    for (const node of everyNode(holder)) {
+      if (/^(h2|h3|h4|legend)$/.test(node.tag)) run = 0;
+      else if (FIELDS.some((field) => isNode(node, field)) && !FIELDS.some((field) => isInside(node, field)) && !isOrInside(node, "[hidden]") && ++run > MAXIMUM_UNBROKEN_FIELD_COUNT) {
+        problems.push(`a long form in one piece: ${nameOf(node)}, ${run} fields with no heading between them, at most ${MAXIMUM_UNBROKEN_FIELD_COUNT}`);
+        break;
+      }
+    }
+  }
+  // One runner, the page's one main action, in each state (the header's Sign in apart, and what a layer or a later state shows).
+  const runners = nodes.filter((node) => node.classes.includes("run-wrap") && !isInside(node, "header", "[data-on-no-pane]", EXAMPLE, ...NOT_SHOWN, ...OVER_PAGE));
+  if (runners.length > 1) problems.push(`two runners in view: ${nameOf(runners[1]!)} beside ${nameOf(runners[0]!)}`);
+  return [...new Set(problems)];
+}
