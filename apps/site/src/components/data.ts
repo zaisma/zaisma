@@ -1091,7 +1091,7 @@ function meterTrack(options: UsageMeterOptions, sharePct: number): Raw {
 function usageKey(options: UsageMeterOptions): Raw | "" {
   const parts = options.parts?.filter((part) => part.sharePct > 0) ?? [];
   if (!parts.length) return "";
-  return html`<ul class="usage-key" aria-label="What used ${options.label}">${parts.map((part) => html`<li data-part="${String(part.partColorIndex)}"><span class="usage-swatch" aria-hidden="true"></span><span class="usage-part-name">${part.label}</span><b>${String(part.sharePct)}%</b></li>`)}</ul>`;
+  return html`<ul class="usage-key" aria-label="What used ${options.label}">${parts.map((part) => html`<li data-part="${String(part.partColorIndex)}"><span class="usage-swatch" aria-hidden="true"></span>${part.label}<b>${String(part.sharePct)}%</b></li>`)}</ul>`;
 }
 
 /**
@@ -1134,7 +1134,7 @@ component({
    stay and the numbers say so, and all used, amber stripes run across them. The key names each part with its share: over the track on a
    meter of its own, so the track stays its foot, and under it in a list row or another plate, where the row's lines are over it. Each
    swatch hangs before its words, so the words keep the margin. */
-.usage-fill.has-parts, .usage:is(.is-near, .is-full) .usage-fill.has-parts { display: flex; gap: 2px; background: none; }
+.usage-fill.has-parts, .usage:is(.is-near, .is-full) .usage-fill.has-parts { display: flex; gap: var(--gap-control-row); background: none; }
 .usage-part { display: block; min-width: 3px; background: var(--part-color); }
 .usage.is-full .usage-part { background: repeating-linear-gradient(-45deg, var(--part-color) 0 6px, var(--meter-full) 6px 12px); }
 .usage [data-part="0"] { --part-color: var(--part-0); }
@@ -1143,9 +1143,9 @@ component({
 .usage [data-part="3"] { --part-color: var(--part-3); }
 .usage [data-part="4"] { --part-color: var(--part-4); }
 .usage [data-part="5"] { --part-color: var(--part-5); }
-.usage-key { display: flex; flex-wrap: wrap; gap: var(--gap-words-words) calc(var(--gap-words-control) + 16px); list-style: none; margin: 0; padding: 0 var(--pad-words); }
+.usage-key { display: flex; flex-wrap: wrap; gap: var(--gap-words-words) var(--gap-block-block); list-style: none; margin: 0; padding: 0 var(--pad-words); }
 .usage-key li { position: relative; display: inline-flex; align-items: center; gap: var(--gap-words-words); font: var(--type-facts); color: var(--ink-2); }
-.usage-key .usage-swatch { position: absolute; left: -16px; top: 50%; margin-top: -5px; }
+.usage-key .usage-swatch { position: absolute; left: calc(-10px - var(--gap-words-words)); top: calc(50% - 5px); }
 .usage-key b { font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
 .usage-swatch { width: 10px; height: 10px; background: var(--part-color); }
 `,
@@ -1162,5 +1162,26 @@ component({
     { label: "Split by what used it: a color for each part, with its share in the key", markup: meterPane({ label: "Starfall", usedNumber: 62, limitNumber: 100, unit: "%", resetDate: "2026-11-01", shownWords: "62% of this month's free hosting", parts: [{ label: "Rooms", sharePct: 48, partColorIndex: 0 }, { label: "Game server", sharePct: 27, partColorIndex: 1 }, { label: "Database", sharePct: 15, partColorIndex: 3 }, { label: "Requests", sharePct: 10, partColorIndex: 4 }] }) },
     { label: "Split, past 80%", markup: meterPane({ label: "Kestrel", usedNumber: 86, limitNumber: 100, unit: "%", resetDate: "2026-11-01", shownWords: "86% of this month's free hosting", parts: [{ label: "Relay", sharePct: 75, partColorIndex: 2 }, { label: "Rooms", sharePct: 25, partColorIndex: 0 }] }) },
     { label: "Split, all used", markup: meterPane({ label: "Ashen Crown", usedNumber: 100, limitNumber: 100, unit: "%", resetDate: "2026-11-01", shownWords: "100% of this month's free hosting", parts: [{ label: "Rooms", sharePct: 100, partColorIndex: 0 }] }) },
+  ],
+});
+
+component({
+  name: "Usage track",
+  slug: "usage-track",
+  group: "data",
+  summary: "A usage meter's track and its parts' key alone, for a list row or a plate whose own lines say the numbers: a game's hosting in developer settings and on its dashboard.",
+  styles: "",
+  render: usageTrack,
+  examples: [
+    {
+      label: "Split by what used it, its key under the track, in a list row whose lines say the numbers",
+      markup: glassPane({
+        paneWidth: "fit",
+        body: listRows({
+          whenEmpty: html``,
+          rows: [{ title: "Starfall", detail: "62% of this month's free hosting · Resets Nov 1", meter: { label: "Starfall", usedNumber: 62, limitNumber: 100, unit: "%", parts: [{ label: "Rooms", sharePct: 48, partColorIndex: 0 }, { label: "Game server", sharePct: 27, partColorIndex: 1 }, { label: "Database", sharePct: 15, partColorIndex: 3 }, { label: "Requests", sharePct: 10, partColorIndex: 4 }] } }],
+        }),
+      }),
+    },
   ],
 });
