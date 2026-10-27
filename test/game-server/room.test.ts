@@ -1020,6 +1020,26 @@ describe("blocks between players", () => {
     expect(room.hasBlockBetween("a", "a")).toBe(false);
   });
 
+  it("tells only the player a friend request was sent to that their page should look, never who from, and not across a block", () => {
+    const { t, sent } = transport();
+    const room = new RoomCore(watcher, t);
+    room.join({ id: "a", name: "A", kind: "account" });
+    room.join({ id: "b", name: "B", kind: "account" });
+    room.join({ id: "c", name: "C", kind: "account" });
+    const nudges = (id: string) => (sent[id] ?? []).filter((message) => message.type === "friend_request");
+    expect(room.receive("a", JSON.stringify({ type: "friend_request", playerId: "b" }))).toBeNull();
+    expect(nudges("b")).toEqual([{ type: "friend_request" }]);
+    expect(nudges("a")).toEqual([]);
+    expect(nudges("c")).toEqual([]);
+    // Only players here, never oneself.
+    expect(room.receive("a", JSON.stringify({ type: "friend_request", playerId: "zz" }))).toBe("bad_message");
+    expect(room.receive("a", JSON.stringify({ type: "friend_request", playerId: "a" }))).toBe("bad_message");
+    // Across a block nothing goes.
+    room.receive("c", JSON.stringify({ type: "block", playerId: "a" }));
+    expect(room.receive("a", JSON.stringify({ type: "friend_request", playerId: "c" }))).toBeNull();
+    expect(nudges("c")).toEqual([]);
+  });
+
   it("takes a block a player's game says it made, and its unblock, and keeps them while the room sleeps", () => {
     const { t, sent } = transport();
     const room = new RoomCore(watcher, t);

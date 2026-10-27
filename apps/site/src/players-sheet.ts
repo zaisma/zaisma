@@ -1,7 +1,7 @@
 import { MAXIMUM_OTHER_PLAYER_COUNT, friendsInGameOf, gameBySlug, joinRefusalText } from "@zaisma/core";
 import { currentSession } from "./auth.ts";
 import type { Env } from "./env.ts";
-import { cutButton, textLink } from "./components/actions.ts";
+import { cutButton, runButton, textLink } from "./components/actions.ts";
 import { cutField } from "./components/fields.ts";
 import type { ControlMarkup } from "./components/control-markup.ts";
 import { listRows, pictureFrame, emptyState } from "./components/data.ts";
@@ -99,6 +99,15 @@ export function playersSheet(options: { gameOrigin: string; slug: string; title:
   const words = (markup: Raw): LayoutItem => ({ kind: "words", markup });
   const body = stack({
     items: [
+      // Friend requests waiting for the player, with Accept and Turn down (friend-requests.ts brings them).
+      {
+        kind: "block",
+        id: "players-requests",
+        isHidden: true,
+        markup: stack({ items: [words(html`<h3>Friend requests</h3>`), { kind: "block", markup: listRows({ whenEmpty: html`<p hidden></p>`, rows: [], id: "players-requests-list", label: "Friend requests" }) }] }),
+      },
+      // The room's own heading shows only under friend requests, to part the two lists.
+      words(html`<h3 id="players-room-title" hidden>In this room</h3>`),
       // A long room's find field: it narrows the list to the names that hold what's typed.
       { kind: "control", id: "players-find", isHidden: true, markup: cutField({ id: "players-find-field", name: "player_name", label: "Find a player", type: "search", icon: "search", placeholder: "Find a player", autocomplete: "off" }) },
       // While nobody's listed, the note says why (the page's script writes it): the list's empty state.
@@ -114,12 +123,23 @@ export function playersSheet(options: { gameOrigin: string; slug: string; title:
     ],
   });
   // One player's other choices: Profile (accounts only), Block and Report, a press further than Mute, so a misclick only mutes.
-  const playerBody = menuChoices({
-    label: "Their choices",
-    choices: [
-      { label: "Profile", href: "/", id: "players-player-profile", icon: "person", isHidden: true },
-      { label: "Block", isButton: true, id: "players-player-block", icon: "ban" },
-      { label: "Report", isButton: true, id: "players-player-report", icon: "flag" },
+  const playerBody = stack({
+    items: [
+      {
+        kind: "block",
+        markup: menuChoices({
+          label: "Their choices",
+          choices: [
+            { label: "Profile", href: "/", id: "players-player-profile", icon: "person", isHidden: true },
+            // Only when they take friend requests from this player (friend-requests.ts asks), with no hint why otherwise.
+            { label: "Add friend", isButton: true, id: "players-player-friend", icon: "friends", isHidden: true },
+            { label: "Block", isButton: true, id: "players-player-block", icon: "ban" },
+            { label: "Report", isButton: true, id: "players-player-report", icon: "flag" },
+          ],
+        }),
+      },
+      words(html`<p id="players-player-sent" hidden>Friend request sent.</p>`),
+      words(html`<p id="players-player-sign-in" hidden>${textLink("Sign in", options.signInPath)} to add friends.</p>`),
     ],
   });
   const rowButton = { type: "button", isSmall: true } as const;
@@ -148,6 +168,7 @@ export function playersSheet(options: { gameOrigin: string; slug: string; title:
     steps: [{ stepName: "players", title: "Players", body }, { stepName: "player", title: "Player", body: playerBody }, options.reportStep],
   })}
 <template id="players-row">${rowTemplate}</template>
+<template id="players-request-row">${listRows({ whenEmpty: html`<p hidden></p>`, rows: [{ lead: pictureFrame("?", "md"), title: "?", action: [runButton("Accept", { ...rowButton, dataAttributes: { "request-action": "accept" } }), cutButton("Turn down", { ...rowButton, dataAttributes: { "request-action": "turn-down" } })] }] })}</template>
 ${pageData("players-data", { gameOrigin: options.gameOrigin, slug: options.slug, hasZaismaRooms: options.hasZaismaRooms, canSignIn: options.canSignIn, maximumPlayerCount: MAXIMUM_PLAYER_COUNT, findShownAfterCount: FIND_SHOWN_AFTER_COUNT })}
 ${scriptTags(PLAYERS_SHEET_SCRIPT)}`;
 }
@@ -184,6 +205,36 @@ const PLAYERS_SHEET_SCRIPT = pageScript("players-sheet", String.raw`(() => {
     const letters = words.length > 1 ? [Array.from(words[0])[0], Array.from(words[1])[0]] : Array.from(words[0] || "?").slice(0, 2);
     picture.style.setProperty("--h", String(hue));
     picture.textContent = letters.join("").toUpperCase();
+  }
+  // A button's words: the last span in its face (cutButton).
+  const wordsOf = (button) => button.querySelector(".face > span:last-child");
+  // Friend requests waiting for this player, and the ones they sent from here this session.
+  let requests = [];
+  const sentTo = new Set();
+  addEventListener("zaisma:friend-requests-waiting", (e) => { requests = e.detail && Array.isArray(e.detail.requests) ? e.detail.requests : []; if (sheet.open) render(); });
+  addEventListener("zaisma:friend-request-sent", (e) => { if (e.detail) sentTo.add(e.detail.id); });
+  // Friends now (an accept either way): the row says Friend, and the menu has nothing to add.
+  addEventListener("zaisma:friend-added", (e) => {
+    if (!e.detail) return;
+    sentTo.delete(e.detail.id);
+    const known = accounts.get(e.detail.id);
+    if (known && !known.isFriend) { known.isFriend = true; if (sheet.open) render(); }
+  });
+  function renderRequests() {
+    const list = $("players-requests-list");
+    list.textContent = "";
+    $("players-requests").hidden = !requests.length;
+    $("players-room-title").hidden = !requests.length;
+    list.hidden = !requests.length;
+    requests.slice(0, 20).forEach((waiting) => {
+      const item = $("players-request-row").content.querySelector("li").cloneNode(true);
+      paint(item.querySelector(".av"), waiting.name);
+      item.querySelector(".list-row-title").textContent = waiting.name;
+      item.querySelectorAll("[data-request-action]").forEach((button) => button.addEventListener("click", () => {
+        dispatchEvent(new CustomEvent("zaisma:answer-friend-request", { detail: { id: waiting.player_id, verb: button.dataset.requestAction } }));
+      }));
+      list.appendChild(item);
+    });
   }
 
   addEventListener("message", (e) => {
@@ -234,6 +285,7 @@ const PLAYERS_SHEET_SCRIPT = pageScript("players-sheet", String.raw`(() => {
   // Enter in it finds, and never sends the sheet's form (its Report step's).
   find.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); e.stopPropagation(); } });
   function render() {
+    renderRequests();
     $("players-players-title").textContent = room ? "Players · " + room.players.length : "Players";
     const list = $("players-list");
     list.textContent = "";
@@ -291,10 +343,42 @@ const PLAYERS_SHEET_SCRIPT = pageScript("players-sheet", String.raw`(() => {
         profile.rel = "noopener";
       }
       $("players-player-block").hidden = isBlocked;
+      showFriendChoice(other, known, isBlocked);
       zaismaLayers.step(sheet, "player");
     });
     return item;
   }
+
+  // Add friend, Friend request sent, or Sign in to add friends: asked of Zaisma as the player's sheet opens.
+  function showFriendChoice(other, known, isBlocked) {
+    const add = $("players-player-friend"), sent = $("players-player-sent"), signIn = $("players-player-sign-in");
+    add.hidden = true;
+    sent.hidden = true;
+    signIn.hidden = !(other.kind === "account" && !isSignedIn() && CAN_SIGN_IN);
+    if (!known || known.isFriend || isBlocked || !isSignedIn()) return;
+    // Sent from here: say so at once, then ask Zaisma, which knows when it was accepted since.
+    sent.hidden = !sentTo.has(other.id);
+    const asking = other.id;
+    fetch("/friends/requests/about/" + other.id)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((about) => {
+        if (!about || !chosen || chosen.id !== asking) return;
+        if (about.is_friend) {
+          sentTo.delete(asking);
+          known.isFriend = true;
+          render();
+        }
+        add.hidden = !about.can_send;
+        sent.hidden = !about.has_sent;
+      })
+      .catch(() => {});
+  }
+  $("players-player-friend").addEventListener("click", () => {
+    if (!chosen) return;
+    const playerId = chosen.id;
+    sheet.close();
+    dispatchEvent(new CustomEvent("zaisma:ask-friend-request", { detail: { id: playerId } }));
+  });
 
   // Block goes back to the room's list, and the game asks: between two accounts, its confirm opens on top of this sheet.
   $("players-player-block").addEventListener("click", () => {
@@ -323,8 +407,7 @@ const PLAYERS_SHEET_SCRIPT = pageScript("players-sheet", String.raw`(() => {
 
   // The bar's button opens it at the room's list (zaismaLayers does too, by its aria-controls; this runs first and fills it in).
   opener.addEventListener("click", () => {
-    const block = $("block");
-    if (block && block.open) block.close();
+    ["report", "block", "friend-request"].forEach((id) => { const other = $(id); if (other && other.open) other.close(); });
     render();
     loadFriends();
     zaismaLayers.step(sheet, "players", { isBackShown: false });

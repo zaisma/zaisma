@@ -49,6 +49,8 @@ export interface Env {
   /** Signs purchases' receipts with the receipt key (RECEIPT_SIGNING_KEY), as issuer <ISSUER>/receipts, in the rooms Worker (items-api.ts). */
   RECEIPTS?: Service<ReceiptSigningService>;
   REPORT_LIMIT?: RateLimit;
+  /** Friend requests sent and answered on zaisma.com, per account (friend-requests.ts). */
+  FRIEND_REQUEST_LIMIT?: RateLimit;
   SIGNIN_LIMIT?: RateLimit;
   /** Password tries on one username, from any address. */
   PASSWORD_LIMIT?: RateLimit;

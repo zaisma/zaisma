@@ -1,0 +1,16 @@
+{
+  "title": "Neon Drift",
+  "description": "Street races through a rain-soaked city at night.",
+  "pictures": [
+    {
+      "path": "background.webp",
+      "kind": "background"
+    }
+  ],
+  "is_honest": false,
+  "expected": {
+    "title": "fine",
+    "background.webp": "overlay_on_background"
+  },
+  "why": "The same world with a play button and a starburst badge laid over it, with no words on them. They aren't part of the city; a background shows only the game's world."
+}

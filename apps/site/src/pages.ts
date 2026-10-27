@@ -58,6 +58,7 @@ import { SAVES_SCRIPT } from "./saves-client.ts";
 import { reportScript, reportSheet, reportStep } from "./report.ts";
 import { blockSheet } from "./blocks.ts";
 import { playersSheet } from "./players-sheet.ts";
+import { friendRequestParts } from "./friend-requests.ts";
 import { GAME_UPDATES_SCRIPT, connectionPlate, updateBarButtons } from "./game-updates.ts";
 import { MINIMUM_PLAYING_NOW_PLAYER_COUNT, PLAY_COUNTER_SCRIPT, ageRefusal, playingNowCounts } from "./plays.ts";
 import { profilePath } from "./profiles.ts";
@@ -513,6 +514,7 @@ ${multiplayer
 ${keepCard}
 ${saves ? urgentCard({ id: "signed-out", title: "You've been signed out", text: "Sign in again to keep saving to your account.", buttons: [runButton("Sign in", { href: signinHere })] }) : ""}
 ${signInCard}
+${isClosed || !authConfigured(env) ? "" : friendRequestParts({ gameOrigin, slug: game.slug })}
 ${multiplayer ? stillThereCard() : ""}
 ${leavingCard(game.title)}
 ${isClosed ? "" : buySheet({ joinHref: joinHere, signInHref: signinHere, coverUrl })}

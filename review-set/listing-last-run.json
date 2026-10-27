@@ -1,19 +1,19 @@
 {
-  "fingerprint_sha256": "dab85365e3c0e967b3d044992de3871fdbcb80d31cb1423f6a4219f7f9fdb290",
-  "ran_at": "2026-10-23T15:39:49Z",
+  "fingerprint_sha256": "c139244464310baa9dd69acaf2850e5e431d9d36ce21f03b3a3df6cb102026b7",
+  "ran_at": "2026-10-27T19:09:09Z",
   "model_vars": {
     "LISTING_CHECK_MODEL": "claude-sonnet-5-5"
   },
   "run_count": 3,
   "summary": {
-    "case_count": 18,
+    "case_count": 19,
     "honest_case_count": 8,
-    "slop_case_count": 10,
-    "matched_case_count": 18,
+    "slop_case_count": 11,
+    "matched_case_count": 19,
     "missed_case_count": 0,
     "inconsistent_case_count": 0,
     "declined_attempt_count": 0,
-    "cost_cents": 31.7518,
+    "cost_cents": 33.59762,
     "is_passing": true
   },
   "cases": [
@@ -324,6 +324,30 @@
         },
         {
           "title": "fine"
+        }
+      ],
+      "outcome": "matched",
+      "declined_attempt_count": 0
+    },
+    {
+      "name": "overlay-on-background",
+      "is_honest": false,
+      "expected": {
+        "title": "fine",
+        "background.webp": "overlay_on_background"
+      },
+      "runs": [
+        {
+          "title": "fine",
+          "background.webp": "overlay_on_background"
+        },
+        {
+          "title": "fine",
+          "background.webp": "overlay_on_background"
+        },
+        {
+          "title": "fine",
+          "background.webp": "overlay_on_background"
         }
       ],
       "outcome": "matched",
