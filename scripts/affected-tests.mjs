@@ -300,19 +300,38 @@ async function main() {
 }
 
 /**
+ * What GitHub's check runs on a change: everything (is_full_suite) in the merge queue and on main, and on a pull request whose change
+ * reaches every test; otherwise the test files it reaches (reached_test_files). And the test files it adds or changes
+ * (changed_test_files), which a pull request runs ten times.
+ */
+export function githubTestPlan({ eventName, changedPaths, affected }) {
+  const isFullSuite = eventName !== "pull_request" || affected.is_every_test_reached;
+  const testFiles = new Set(affected.test_files.map((test) => test.path));
+  return {
+    is_full_suite: isFullSuite,
+    reached_test_files: isFullSuite ? [] : [...testFiles],
+    changed_test_files: eventName === "pull_request" ? changedPaths.filter((path) => path.startsWith("test/") && path.endsWith(".test.ts") && testFiles.has(path)) : [],
+  };
+}
+
+/**
  * For GitHub's "What changed": the paths a pull request changed since it left main (BASE_SHA...HEAD_SHA) or a push changed
- * (BASE_SHA..HEAD_SHA, by RANGE_DOTS), and what they reach, as the step's output is_engines_changed. A push to main
- * (EVENT_NAME) runs everything.
+ * (BASE_SHA..HEAD_SHA, by RANGE_DOTS), and what they reach, as the step's outputs is_engines_changed, is_full_suite,
+ * reached_test_files and changed_test_files (githubTestPlan; the lists space-separated). A push to main (EVENT_NAME) runs everything.
  */
 function github() {
   const { BASE_SHA, HEAD_SHA, RANGE_DOTS = "...", EVENT_NAME, GITHUB_OUTPUT } = process.env;
   const result = spawnSync("git", ["diff", "--name-only", "--no-renames", `${BASE_SHA}${RANGE_DOTS}${HEAD_SHA}`], { cwd: ROOT, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
   if (result.status !== 0) stop(`git diff ${BASE_SHA}${RANGE_DOTS}${HEAD_SHA}: ${result.stderr.trim()}`);
-  const affected = affectedChecks({ changedPaths: result.stdout.split("\n").filter(Boolean) });
+  const changedPaths = result.stdout.split("\n").filter(Boolean);
+  const affected = affectedChecks({ changedPaths });
   console.log(JSON.stringify(affected, null, 2));
+  const plan = githubTestPlan({ eventName: EVENT_NAME, changedPaths, affected });
+  console.log(plan.is_full_suite ? "The tests: every one." : `The tests: the ${plan.reached_test_files.length} file(s) this change reaches.`);
+  if (plan.changed_test_files.length) console.log(`Ten runs of the test files it adds or changes: ${plan.changed_test_files.join(" ")}.`);
   const isEnginesChanged = EVENT_NAME !== "pull_request" || affected.is_engine_exports_reached;
   console.log(isEnginesChanged ? `The Engine exports run${EVENT_NAME === "pull_request" ? ` (${affected.engine_exports_reached_by} changed)` : " on every push to main"}.` : "Nothing the Engine exports run changed: skipping them.");
-  if (GITHUB_OUTPUT) appendFileSync(GITHUB_OUTPUT, `is_engines_changed=${isEnginesChanged}\n`);
+  if (GITHUB_OUTPUT) appendFileSync(GITHUB_OUTPUT, `is_engines_changed=${isEnginesChanged}\nis_full_suite=${plan.is_full_suite}\nreached_test_files=${plan.reached_test_files.join(" ")}\nchanged_test_files=${plan.changed_test_files.join(" ")}\n`);
 }
 
 function stop(message) {

@@ -117,6 +117,15 @@ describe("a test run's turn", () => {
     const turn = nextTurn({ entries: waiting, previews: [awake(0, 1700 * MB)], testRuns: measured, capBytes: 3 * GB, awakeSizeBytes: GB, nowMs: 1000 });
     expect(turn).toMatchObject({ turnPid: 100, usedBytes: 1700 * MB });
   });
+  it("runs one Workers run at a time on the machine, and lets node runs behind a waiting one go", () => {
+    const running = testEntry(21, 1, { turnGivenAtMs: 0, workerCount: 1 });
+    const waitingWorkers = testEntry(22, 2, { askedAtMs: 1 });
+    const nodeRun = testEntry(23, 2, { askedAtMs: 2, isNodeOnly: true });
+    const turn = nextTurn({ entries: [running, waitingWorkers, nodeRun], previews: [], testRuns: [{ pid: 21, sizeBytes: testRunSizeBytes(1) }], capBytes: 8 * GB, awakeSizeBytes: GB, nowMs: 1000 });
+    expect(turn).toMatchObject({ turnPid: 23 });
+    expect(nextTurn({ entries: [running, waitingWorkers], previews: [], testRuns: [{ pid: 21, sizeBytes: testRunSizeBytes(1) }], capBytes: 8 * GB, awakeSizeBytes: GB, nowMs: 1000 })).toMatchObject({ turnPid: null });
+    expect(nextTurn({ entries: [waitingWorkers], previews: [], capBytes: 8 * GB, awakeSizeBytes: GB, nowMs: 1000 })).toMatchObject({ turnPid: 22 });
+  });
   it("passes over a Workers run that can never fit beside the awake previews, and keeps order for the rest", () => {
     const workers = testEntry(21, 4, { askedAtMs: 1 });
     const nodeRun = testEntry(22, 2, { askedAtMs: 2, isNodeOnly: true });
