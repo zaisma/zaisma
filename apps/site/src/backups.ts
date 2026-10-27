@@ -214,8 +214,8 @@ export async function backupPart(env: Env, part: BackupPart, run: Pick<BackupRun
   const due = objects.filter((object) => isDue(`${part.bucket_name}/${object.key}`, object.uploaded.getTime()));
   const copied = await copyInTurn(due, async (listedObject) => {
     const object = await bucket.get(listedObject.key);
-    // Deleted since it was listed: nothing to keep.
-    return object ? storage.uploadObject(`${part.bucket_name}/${listedObject.key}`, object.body) : 0;
+    // Deleted since it was listed: nothing to keep. Its content type and custom metadata go with it, for a restore.
+    return object ? storage.uploadObject(`${part.bucket_name}/${listedObject.key}`, object.body, { contentType: object.httpMetadata?.contentType, customMetadata: object.customMetadata }) : 0;
   });
   const lastKey = copied.stoppedAfter?.key ?? (listed.truncated ? listed.objects.at(-1)!.key : null);
   return { ...copied, nextPart: lastKey ? { ...part, after_key: lastKey } : null };
@@ -294,13 +294,18 @@ async function* gameDatabaseDump(env: Env, gameId: string): AsyncGenerator<strin
   } while (cursor);
 }
 
+/** The dump's first line, so a restore knows its tables are in reference order and splits it as it streams (scripts/restore-dump.mjs). */
+export const MAIN_DATABASE_DUMP_HEADER = "-- Zaisma's main database: each table after the tables it refers to.";
+
 /** Rows per SELECT while dumping a table of the main database. */
 const MAIN_DATABASE_PAGE_ROW_COUNT = 500;
 
 /**
  * The main database as SQL that loads into an empty D1 (wrangler d1 execute --file): its tables, their
  * rows, then indexes, views and triggers, the way D1's own export writes them, with no transaction (D1
- * refuses one in a file); a virtual table's rows go in through it, never its shadow tables. Each table is
+ * refuses one in a file); a virtual table's rows go in through it, never its shadow tables. Each table
+ * comes after the tables it refers to (orderedByReferences): D1's import checks foreign keys as it goes and
+ * resets the database on the first row whose parent isn't in yet ({"D1_RESET_DO":true}, nothing more). Each table is
  * read a page at a time by rowid (or, without rowids, by its primary key), so it isn't one moment's
  * snapshot: rows written while it runs may be in or not. D1's own Time Travel keeps exact moments for 30
  * days inside Cloudflare.
@@ -309,11 +314,17 @@ export async function* mainDatabaseDump(database: D1Database): AsyncGenerator<st
   const { results: entries } = await database
     .prepare("SELECT type, name, tbl_name AS table_name, sql FROM sqlite_master WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%' AND tbl_name NOT LIKE '_cf_%' ORDER BY rowid")
     .all<{ type: string; name: string; table_name: string; sql: string }>();
-  yield "PRAGMA defer_foreign_keys=TRUE;\n";
+  yield `${MAIN_DATABASE_DUMP_HEADER}\nPRAGMA defer_foreign_keys=TRUE;\n`;
   // A virtual table (the forum's full-text search) makes its own shadow tables, so only its rows are dumped.
   const virtualNames = entries.filter((entry) => entry.type === "table" && /^CREATE\s+VIRTUAL\s+TABLE/i.test(entry.sql)).map((entry) => entry.name);
   const isShadowTable = (name: string) => virtualNames.some((virtualName) => name.startsWith(`${virtualName}_`));
-  for (const table of entries.filter((entry) => entry.type === "table" && !isShadowTable(entry.name))) {
+  const tables = entries.filter((entry) => entry.type === "table" && !isShadowTable(entry.name));
+  const parentNamesOf = new Map<string, string[]>();
+  for (const table of tables) {
+    const { results: references } = await database.prepare("SELECT DISTINCT \"table\" AS parent_name FROM pragma_foreign_key_list(?)").bind(table.name).all<{ parent_name: string }>();
+    parentNamesOf.set(table.name, references.map((reference) => reference.parent_name));
+  }
+  for (const table of orderedByReferences(tables, (name) => parentNamesOf.get(name) ?? [])) {
     yield `${table.sql};\n`;
     const { results: columns } = await database.prepare("SELECT name, pk AS primary_key_number FROM pragma_table_info(?) ORDER BY cid").bind(table.name).all<{ name: string; primary_key_number: number }>();
     const valuesSql = columns.map((column, index) => `quote(${quoteName(column.name)}) AS value_${index}`).join(", ");
@@ -340,3 +351,22 @@ export async function* mainDatabaseDump(database: D1Database): AsyncGenerator<st
 }
 
 const quoteName = (name: string) => `"${name.replaceAll('"', '""')}"`;
+
+/**
+ * Tables in their creation order, except that each comes after the tables it refers to. A table that refers
+ * to itself, or a loop of them, keeps its place: D1's import defers foreign keys only within its own steps.
+ */
+export function orderedByReferences<Table extends { name: string }>(tables: Table[], parentNamesOf: (name: string) => string[]): Table[] {
+  const byName = new Map(tables.map((table) => [table.name.toLowerCase(), table]));
+  const ordered: Table[] = [];
+  const placed = new Set<string>();
+  const place = (name: string, path: Set<string>) => {
+    if (placed.has(name) || path.has(name) || !byName.has(name)) return;
+    path.add(name);
+    for (const parentName of parentNamesOf(byName.get(name)!.name)) place(parentName.toLowerCase(), path);
+    placed.add(name);
+    ordered.push(byName.get(name)!);
+  };
+  for (const table of tables) place(table.name.toLowerCase(), new Set());
+  return ordered;
+}
