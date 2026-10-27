@@ -140,7 +140,7 @@ const CHECKED_PAGE_LIST = [
   { name: "Games, a search", area: "Playing", path: "/games?search_text=farm", mainActionShows: "nowhere", isCoverAboveFold: true },
   { name: "Games, nothing found", area: "Playing", path: "/games?search_text=no%20game%20is%20called%20this", mainActionShows: "nowhere" },
   { name: "Games, an empty genre", area: "Playing", path: "/games?filter=visual_novel", mainActionShows: "nowhere" },
-  { name: "Games, a price range", area: "Playing", path: "/games?price=15_to_30", mainActionShows: "nowhere", isCoverAboveFold: true },
+  { name: "Games, a price range", area: "Playing", path: "/games?price=free", mainActionShows: "nowhere", isCoverAboveFold: true },
   { name: "Games, an empty price range", area: "Playing", path: "/games?price=30_and_up", mainActionShows: "nowhere" },
   { name: "Report a game", area: "Playing", path: "/g/cave-crew/report", mainActionShows: "nowhere" },
   { name: "A message", area: "Playing", path: "/oauth/authorize?client_id=nope", mainActionShows: "everywhere" },

@@ -250,12 +250,6 @@ const details = {
     description: "A color Zaisma tints its glass with over the game's background (set_background), as # and six hex digits; Zaisma still decides how thick the glass is, so words stay readable. null: no tint.",
     examples: ["#6b3fa0", null],
   },
-  demo_game_slug: {
-    type: ["string", "null"],
-    pattern: "^[a-z0-9]+(-[a-z0-9]+)*$",
-    description: "For a game that sells itself (full_game_item_name): another of your games, free to play, that its page links as Play the demo; the demo's page links back as Full game. Progress doesn't carry over. null: no demo.",
-    examples: ["ashfall-demo", null],
-  },
 };
 const DETAILS = Object.keys(details);
 const read = { readOnlyHint: true, openWorldHint: false } as const;
@@ -331,6 +325,12 @@ export const TOOLS: Tool[] = [
             description:
               "What the game may draw from the developer's credit each month past its free hosting, in cents (5000 is $50); null for no paid hosting, so it pauses at its free allowance. Off or lower works with any key that has credit_access write; a first or higher budget answers confirmation_needed, with confirm_url where the developer approves it with their passkey, and spending_request_id for get_spending_request.",
           },
+          demo_game_slug: {
+            type: ["string", "null"],
+            pattern: "^[a-z0-9]+(-[a-z0-9]+)*$",
+            description: "For a game that sells itself (full_game_item_name): another of your games, free to play, that its page links as Play the demo; the demo's page links back as Full game. Progress doesn't carry over. null: no demo.",
+            examples: ["ashfall-demo", null],
+          },
           full_game_item_name: {
             type: ["string", "null"],
             pattern: "^[a-z0-9][a-z0-9_-]{0,39}$",
@@ -368,7 +368,7 @@ export const TOOLS: Tool[] = [
     }),
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
     run: async (toolArguments, call) => {
-      const change = pick(toolArguments, [...DETAILS, "visibility", "monthly_budget_cents", "full_game_item_name"]);
+      const change = pick(toolArguments, [...DETAILS, "visibility", "monthly_budget_cents", "full_game_item_name", "demo_game_slug"]);
       if (change.visibility === "draft" || change.visibility === "private") {
         const { game } = (await call("GET", `/games/${pathPart(toolArguments.slug)}`)) as { game: { visibility: string; review_status: string } };
         if ((game.visibility === "listed" || game.visibility === "unlisted") && game.review_status === "live" && toolArguments.confirm !== true) {

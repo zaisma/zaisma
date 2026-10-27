@@ -186,6 +186,11 @@ const DOORS: Record<string, Door> = {
   ...Object.fromEntries(Object.entries(detailsByApi("own_server_urls", (value) => [value.replace(/^https:/, "wss:")])).map(([door, save]) => [`games.own_server_urls[] ${door}`, save])),
   "games.own_server_urls[] page:/dashboard/([a-z0-9-]+)(/.*)?": (value) => form(`/dashboard/${gameSlug}/own-servers`, { own_server_url_0: value.replace(/^https:/, "wss:") }, cookie),
   ...Object.fromEntries(Object.entries(detailsByApi("game_server_allowed_hosts", (value) => [`${value}.example.com`])).map(([door, save]) => [`games.game_server_allowed_hosts[] ${door}`, save])),
+  // The full game is one of the game's items, permanent and content, made first.
+  "games.full_game_item_name api:PATCH /games/:slug": async (value) => {
+    await api(`/games/${gameSlug}/items/${encodeURIComponent(value)}`, { method: "PUT", body: { ...ITEM("Full game", ""), item_category: "content" } });
+    return api(`/games/${gameSlug}`, { method: "PATCH", body: { full_game_item_name: value } });
+  },
   "game_items.item_name api:PUT /games/:slug/items/:item_name": (value) => api(`/games/${gameSlug}/items/${encodeURIComponent(value)}`, { method: "PUT", body: ITEM("Cape", "") }),
   "game_items.title api:PUT /games/:slug/items/:item_name": (value, mark) => api(`/games/${gameSlug}/items/item-${mark}`, { method: "PUT", body: ITEM(value, "") }),
   "game_items.description api:PUT /games/:slug/items/:item_name": (value, mark) => api(`/games/${gameSlug}/items/item-${mark}`, { method: "PUT", body: ITEM("Cape", value) }),

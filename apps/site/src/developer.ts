@@ -549,7 +549,7 @@ const naming = (what: "game" | "game_list" | "files" | "forum_topic"): ApiInput 
 
 /** What a tester link opens and until when, besides its name. */
 const TESTER_LINK_INPUTS = ["version_choice", "picked_version_id", "ends_at"];
-const GAME_DETAIL_INPUTS = ["title", "description", "devices", "controls", "genres", "screen_orientation", "play_modes", "cloud_saves_enabled", "account_offer_enabled", "deleted_account_erase_enabled", "friend_joins_enabled", "performance_measuring_enabled", "multiplayer_mode", "room_browsing", "account_requirement", "minimum_player_age_years", "game_server_allowed_hosts", "own_server_urls", "links", "glass_tint_color", "demo_game_slug"];
+const GAME_DETAIL_INPUTS = ["title", "description", "devices", "controls", "genres", "screen_orientation", "play_modes", "cloud_saves_enabled", "account_offer_enabled", "deleted_account_erase_enabled", "friend_joins_enabled", "performance_measuring_enabled", "multiplayer_mode", "room_browsing", "account_requirement", "minimum_player_age_years", "game_server_allowed_hosts", "own_server_urls", "links", "glass_tint_color"];
 const FORUM_POST_INPUTS = ["text_markdown", "debug_context", "author_kind", "images_base64"];
 /** Posts carry their images inline as base64, so they can be big. */
 const MAXIMUM_FORUM_POST_BODY_SIZE_BYTES = 72 * 1024 * 1024;
@@ -581,7 +581,7 @@ export const API_ROUTES: readonly ApiRoute[] = [
   call({ method: "GET", path: "/games", reaches: "account", access: needs("game_access", "read") }),
   call({ method: "POST", path: "/games", reaches: "account", access: needs("game_access", "write"), isAccountWide: true, isPublishing: true, body: { inputs: plainInputs("slug", ...GAME_DETAIL_INPUTS) } }),
   call({ method: "GET", path: "/games/:slug", reaches: "game", access: needs("game_access", "read"), pathParts: atGame }),
-  call({ method: "PATCH", path: "/games/:slug", reaches: "game", access: needs("game_access", "write"), pathParts: atGame, body: { inputs: { ...plainInputs("visibility", ...GAME_DETAIL_INPUTS), monthly_budget_cents: needsToo("credit_access", "write", "the game's budget stays as it is"), full_game_item_name: needsToo("purchase_access", "write", "the game's price to play stays as it is") } } }),
+  call({ method: "PATCH", path: "/games/:slug", reaches: "game", access: needs("game_access", "write"), pathParts: atGame, body: { inputs: { ...plainInputs("visibility", "demo_game_slug", ...GAME_DETAIL_INPUTS), monthly_budget_cents: needsToo("credit_access", "write", "the game's budget stays as it is"), full_game_item_name: needsToo("purchase_access", "write", "the game's price to play stays as it is") } } }),
   call({ method: "POST", path: "/games/:slug/images", reaches: "game", access: needs("game_access", "write"), pathParts: atGame, query: plainInputs("kind"), body: "bytes" }),
   call({ method: "DELETE", path: "/games/:slug/images/:image_id", reaches: "game", access: needs("game_access", "write"), pathParts: { slug: "game", image_id: "in_game" } }),
   call({ method: "POST", path: "/games/:slug/shaders", reaches: "game", access: needs("game_access", "write"), pathParts: atGame, body: { inputs: plainInputs(...SHADER_INPUTS), maximumSizeBytes: MAXIMUM_SHADER_BODY_SIZE_BYTES } }),
@@ -925,7 +925,7 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
     if ((owned?.game_count ?? 0) >= MAXIMUM_GAME_COUNT_PER_OWNER) {
       throw new ApiError("too_many_games", { message: `You have ${MAXIMUM_GAME_COUNT_PER_OWNER} games, the most an account can have.`, fix: "Ask Zaisma (message_zaisma, kind gap) if you need more." });
     }
-    const details = await settledPaidGame(env, { id: "", owner_id: caller.ownerId, full_game_item_name: null, account_requirement: "none", title }, settledMinimumAge({ minimum_player_age_years: 13, account_requirement: "none" }, checkDetailsOrThrow({ ...body, title })));
+    const details = settledMinimumAge({ minimum_player_age_years: 13, account_requirement: "none" }, checkDetailsOrThrow({ ...body, title }));
     if (details.links) details.links = await checkLinkSites(details.links, [], { dnsUrl: env.LINK_CHECK_DNS_URL });
     let made = await createGame(env.DB, { slug, title, description: details.description ?? "", ownerId: caller.ownerId, visibility: "draft" });
     await applyDetails(env.DB, made, { ...details, title: undefined, description: undefined });

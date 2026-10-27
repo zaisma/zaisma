@@ -290,6 +290,7 @@ const NAMES_INSIDE: Record<string, string> = {
 const INPUTS_THAT_NEED_MORE: Record<string, [AccessArea, string]> = {
   "POST /games/:slug/versions publish_when_approved": ["version_access", "publish"],
   "PATCH /games/:slug monthly_budget_cents": ["credit_access", "write"],
+  "PATCH /games/:slug full_game_item_name": ["purchase_access", "write"],
 };
 
 /** What a stranger names in an input that names something: the developer's own. */
