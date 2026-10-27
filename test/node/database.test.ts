@@ -28,6 +28,26 @@ describe("checking statements", () => {
     expect(() => checkStatement("", [])).toThrow(/isn't text/);
   });
 
+  it("refuses what Cloudflare's SQLite refuses, so a query runs the same on both: most PRAGMAs, TEMP objects, sqlite_version()", () => {
+    for (const sql of ["PRAGMA user_version", "PRAGMA user_version = 3", "pragma main.journal_mode", "PRAGMA foreign_keys = ON", "/* c */ PRAGMA\n user_version"]) {
+      expect(() => checkStatement(sql, [])).toThrow(/isn't allowed.*Allowed: PRAGMA table_info.*table of your own.*\(bad_sql\)$/s);
+    }
+    for (const sql of ["PRAGMA table_info(scores)", "PRAGMA main.table_list", "PRAGMA foreign_key_check", "PRAGMA quick_check", "PRAGMA optimize", "PRAGMA defer_foreign_keys = ON"]) expect(checkStatement(sql, []).sql).toBe(sql);
+    expect(() => checkStatement("CREATE TEMP TABLE seen (id INTEGER)", [])).toThrow(/CREATE TEMP isn't allowed/);
+    expect(() => checkStatement("create temporary view v AS SELECT 1", [])).toThrow(/CREATE TEMPORARY isn't allowed/);
+    expect(() => checkStatement("SELECT sqlite_version() AS version", [])).toThrow(/sqlite_version\(\) isn't allowed/);
+    expect(() => checkStatement("SELECT 1 FROM t WHERE x = load_extension ('a')", [])).toThrow(/load_extension\(\) isn't allowed/);
+    // As text or a name, they're only words.
+    expect(checkStatement("SELECT 'sqlite_version()' AS word, \"PRAGMA user_version\" FROM t", []).values).toEqual([]);
+  });
+
+  it("measures a statement in UTF-8 bytes against Cloudflare's 100 KB, not in characters", () => {
+    const text = (characterCount: number) => `SELECT '${"日".repeat(characterCount)}'`;
+    expect(checkStatement(text(33_000), []).sql.length).toBe(33_009);
+    expect(() => checkStatement(text(34_500), [])).toThrow(/The SQL is 103509 bytes.*pass data as values.*\(bad_sql\)$/s);
+    expect(() => checkStatement(`SELECT '${"a".repeat(150_000)}'`, [])).toThrow(/The SQL is 150009 characters/);
+  });
+
   it("takes text, numbers, null and blobs, and says how to give anything else", () => {
     const blob = new Uint8Array([1, 2]);
     expect(checkStatement("SELECT ?, ?, ?, ?", ["a", 1.5, null, blob]).values).toEqual(["a", 1.5, null, blob]);
@@ -56,14 +76,24 @@ describe("a local database file", () => {
     expect(await localDatabase(file).query("SELECT player_id, best_score FROM scores")).toEqual([{ player_id: "player_a", best_score: 1200 }]);
   });
 
-  it("refuses whole numbers past 2^53 going in (bad_values) and coming out (bad_sql), and reads them as text", async () => {
+  it("refuses whole numbers past 2^53 going in (bad_values) and coming out (integer_too_large), and reads them as text", async () => {
     const database: GameDatabase = localDatabase(join(folder, "big.sqlite"));
     await database.query("CREATE TABLE totals (player_id TEXT PRIMARY KEY, amount INTEGER NOT NULL)");
     expect(await attempt(database.query("INSERT INTO totals VALUES (?, ?)", ["player_a", 2 ** 53]))).toMatchObject({ name: "DatabaseError", code: "bad_values", message: expect.stringContaining("Store it as text") });
     expect(await database.query("INSERT INTO totals VALUES (?, ?) RETURNING amount", ["player_b", Number.MAX_SAFE_INTEGER])).toEqual([{ amount: Number.MAX_SAFE_INTEGER }]);
     await database.query("INSERT INTO totals VALUES ('player_c', 9223372036854775807)");
-    expect(await attempt(database.query("SELECT amount FROM totals WHERE player_id = 'player_c'"))).toMatchObject({ name: "DatabaseError", code: "bad_sql", message: expect.stringContaining("CAST(amount AS TEXT)") });
+    expect(await attempt(database.query("SELECT amount FROM totals WHERE player_id = 'player_c'"))).toMatchObject({ name: "DatabaseError", code: "integer_too_large", message: expect.stringContaining("Column amount holds a whole number past 2^53") });
+    // A REAL as big is no whole number to refuse.
+    expect(await database.query("SELECT 1e20 AS big")).toEqual([{ big: 1e20 }]);
     expect(await database.query("SELECT CAST(amount AS TEXT) AS amount FROM totals WHERE player_id = 'player_c'")).toEqual([{ amount: "9223372036854775807" }]);
+  });
+
+  it("refuses the same statements Zaisma's rooms refuse", async () => {
+    const database: GameDatabase = localDatabase(join(folder, "refused.sqlite"));
+    for (const sql of ["PRAGMA user_version", "PRAGMA journal_mode", "CREATE TEMP TABLE seen (id INTEGER)", "SELECT sqlite_version()", `SELECT '${"日".repeat(34_500)}'`]) {
+      expect(await attempt(database.query(sql))).toMatchObject({ name: "DatabaseError", code: "bad_sql" });
+    }
+    expect(await database.query("PRAGMA table_list")).toEqual(expect.any(Array));
   });
 
   it("erases a player the same way Zaisma rooms do, and makes no file to erase from", async () => {
@@ -92,7 +122,6 @@ describe("a local database file", () => {
     await keyed.query("CREATE TABLE scores (player_id TEXT)");
     await keyed.query("CREATE TABLE players (player_id TEXT PRIMARY KEY)");
     await keyed.query("CREATE TABLE trophies (owner TEXT REFERENCES players (player_id))");
-    await keyed.query("PRAGMA foreign_keys = ON");
     await keyed.batch([{ sql: "INSERT INTO scores VALUES ('player_mia')" }, { sql: "INSERT INTO players VALUES ('player_mia')" }, { sql: "INSERT INTO trophies VALUES ('player_mia')" }]);
     expect(await attempt(keyed.erasePlayer("player_mia"))).toMatchObject({ code: "bad_sql", message: expect.stringContaining("players") });
     expect(await keyed.query("SELECT player_id FROM scores")).toEqual([{ player_id: "player_mia" }]);

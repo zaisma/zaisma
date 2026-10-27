@@ -1751,15 +1751,20 @@ function* sqliteDumpStatements(sqlite) {
     )
     .all();
   yield "PRAGMA foreign_keys=OFF;\nBEGIN TRANSACTION;\n";
-  for (const table of entries.filter((entry) => entry.type === "table" && (entry.table_kind === "table" || entry.table_kind === "virtual") && !entry.name.startsWith("sqlite_"))) {
-    yield `${table.sql};\n`;
+  const tables = entries.filter((entry) => entry.type === "table" && (entry.table_kind === "table" || entry.table_kind === "virtual") && !entry.name.startsWith("sqlite_"));
+  // Every table is made before any row goes in, so a row can refer to a table made after it.
+  for (const table of tables) yield `${table.sql};\n`;
+  for (const table of tables) {
     const columns = sqlite.prepare("SELECT name, hidden = 0 AS is_insertable, pk AS primary_key_number FROM pragma_table_xinfo(?) ORDER BY cid").all(table.name);
     const insertedColumns = columns.filter((column) => column.is_insertable === 1);
-    const insertInto = `INSERT INTO ${quoteName(table.name)}${insertedColumns.length < columns.length ? `(${insertedColumns.map((column) => quoteName(column.name)).join(",")})` : ""} VALUES(`;
-    const valuesSql = insertedColumns.map((column, i) => `quote(${quoteName(column.name)}) AS value_${i}`).join(", ");
+    // A search table's rows are known by their rowids, so they go in with them.
+    const isVirtual = table.table_kind === "virtual";
+    const insertInto = `INSERT INTO ${quoteName(table.name)}${insertedColumns.length < columns.length || isVirtual ? `(${[...(isVirtual ? ["rowid"] : []), ...insertedColumns.map((column) => quoteName(column.name))].join(",")})` : ""} VALUES(`;
+    const valuesSql = [...(isVirtual ? ["rowid AS paging_rowid"] : []), ...insertedColumns.map((column, i) => `quote(${quoteName(column.name)}) AS value_${i}`)].join(", ");
     const primaryKey = columns.filter((column) => column.primary_key_number > 0).sort((first, second) => first.primary_key_number - second.primary_key_number);
-    const order = table.is_without_rowid ? primaryKey.map((column) => quoteName(column.name)).join(", ") : "rowid";
-    for (const row of sqlite.prepare(`SELECT ${valuesSql} FROM ${quoteName(table.name)} ORDER BY ${order}`).iterate()) yield `${insertInto}${insertedColumns.map((_, i) => row[`value_${i}`]).join(",")});\n`;
+    // The key's order, rowid last where there is one, as Zaisma's export reads it (packages/game-server/src/dump.ts).
+    const order = primaryKey.length ? [...primaryKey.map((column) => `${quoteName(table.name)}.${quoteName(column.name)}`), ...(table.is_without_rowid ? [] : [`${quoteName(table.name)}.rowid`])].join(", ") : "rowid";
+    for (const row of sqlite.prepare(`SELECT ${valuesSql} FROM ${quoteName(table.name)} ORDER BY ${order}`).iterate()) yield `${insertInto}${[...(isVirtual ? [row.paging_rowid] : []), ...insertedColumns.map((_, i) => row[`value_${i}`])].join(",")});\n`;
   }
   if (entries.some((entry) => entry.name === "sqlite_sequence")) {
     yield "DELETE FROM sqlite_sequence;\n";
