@@ -82,28 +82,31 @@ export const LAYOUT_CHECK_RUNS = {
 const RUN_TIME_LIMIT_MS = 90_000;
 export const DEFAULT_TAB_COUNT = Math.max(1, Math.min(4, availableParallelism() - 1));
 
-// Each page's time in a tab on GitHub's runners, all its sizes and themes, in seconds (measured Oct 23, 2026, on a preview started from
-// a snapshot, its images not yet made; the Layout check jobs print it as secondsByPage), by name: GitHub's check deals the pages to its runners by it (layoutCheckShard). A page that isn't
-// here costs UNLISTED_PAGE_COST_SEC.
+// Each page's time in a tab on GitHub's runners, in seconds, from a pull request's run (a phone and a laptop, in light; measured Oct 26,
+// 2026: the Layout check job prints it as secondsByPage), by name: the nightly sweep deals the pages to its four runners by it
+// (layoutCheckShard), each page's share of the whole being about the same at every screen. A page that isn't here (under 10s) costs
+// UNLISTED_PAGE_COST_SEC.
 const PAGE_COSTS_SEC = {
-  Screens: 51.8,
-  "Gallery: inputs": 36.6,
-  "Gallery: foundations": 33.5,
-  "Gallery: navigation": 32.6,
-  "Home, signed in": 29.7,
-  Home: 26.5,
-  "Gallery: data": 24.1,
-  "Gallery: panes": 18,
-  "Gallery: actions": 17.6,
-  "Forgot your password": 17.3,
-  "Sign in": 17,
-  "Gallery: layout": 14.2,
-  "Sign in with Zaisma": 10.9,
-  "Make an account": 10.9,
-  "Example page": 9.8,
-  "Connect an app": 9.8,
+  "Gallery: layout": 54.9,
+  Screens: 43.8,
+  "Gallery: panes": 35.9,
+  "Gallery: data": 18.9,
+  "Gallery: inputs": 18.4,
+  Home: 16.7,
+  "Gallery: actions": 14.7,
+  "Gallery: navigation": 14.6,
+  "Buying, confirm with a PIN": 14.1,
+  "Buying, declined": 13.1,
+  "Home, signed in": 12.2,
+  "Games, signed in": 11.7,
+  "Buying, can't be bought": 11.6,
+  "Developer settings, a spending request": 11.2,
+  "Game page": 11.1,
+  "Buying, one press": 11.1,
+  "Buying, a first card": 10.2,
+  "Playing a game, asked to sign in": 10,
 };
-const UNLISTED_PAGE_COST_SEC = 20;
+const UNLISTED_PAGE_COST_SEC = 6;
 
 /**
  * The pages in one share ("index/count", from 1) of GitHub's Layout check runners: dealt by cost, the dearest first, each to the share
