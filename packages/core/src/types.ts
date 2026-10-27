@@ -97,6 +97,10 @@ export interface Game {
   own_payment_categories: string;
   /** Where its purchases are delivered (items.ts, PURCHASE_DELIVERIES): the game, its game server, or the developer's own server. */
   purchase_delivery: "game" | "game_server" | "own_server";
+  /** The permanent content item a player must own to play (items.ts, fullGameOwner); NULL: free to play. */
+  full_game_item_name: string | null;
+  /** Another of the developer's games, free to play, that the page links as Play the demo (a games.id); NULL: none. */
+  demo_game_id: string | null;
   /** When running matches got the live version: at their next match, or now (rooms that see it switch to it). */
   live_version_match_update_mode: MatchUpdateMode;
   /** When the live version went live; NULL for games published before it was kept. */

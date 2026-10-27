@@ -23,6 +23,8 @@ How publishing works:
 3. Every version is scanned, usually in under a minute; get_version shows the result. A held version waits for a person, usually within a day, or, when its findings say daily_large_reviews_used or daily_small_reviews_used, for the next of the developer's daily reviews (5 large, 30 small; 20 and 100 with Zaisma Pro). Passed versions get a private preview link.
 4. publish_version makes a passed version live (or rolls back to an older one), now or at a set time; with match_update_mode "now", running matches switch to it within seconds too, instead of at their next match. Then update_game with visibility "listed" shows the game to players (or "unlisted": only people with the link). To let testers play first, keep it private and make tester links with add_tester_link.
 
+To earn, a game can sell itself once (set_item a permanent content item, then update_game full_game_item_name) or sell items inside it with the buy sheet; both pay the developer's own Stripe with no cut.
+
 Ask the developer before making a game private or a draft again (players lose access), and show them the preview link before publishing.
 
 To try online play before uploading, run \`npx @zaisma/cli play-locally\` in the game's folder: it runs the game and its game server on the developer's computer with no key or internet, and the bench's Add a player opens a second player in another tab. You can test it there yourself: run it with --no-open --json in the background, and the bench's API at http://localhost:4800/bench/api makes and sets up players (age, social mode, friends, blocks, items, refunds), opens them for your browser, gives passes for scripts that join rooms, and reads the game server's log (README, "The bench's API, for your AI").
@@ -140,7 +142,7 @@ const details = {
     items: { enum: GENRES },
     uniqueItems: true,
     maxItems: MAXIMUM_GENRE_COUNT,
-    description: `Up to ${MAXIMUM_GENRE_COUNT} genres from Zaisma's list; players filter Browse by them (a genre's own list is zaisma.com/games?filter=<genre>, like ?filter=horror), and [] clears them. Only these words: not ["rpg"] or ["multiplayer"] (answers bad_genres; multiplayer comes from play_modes)`,
+    description: `Up to ${MAXIMUM_GENRE_COUNT} genres from Zaisma's list; players filter Browse by them (a genre's own list is zaisma.com/games?genre=<genre>, like ?genre=horror), and [] clears them. Only these words: not ["rpg"] or ["multiplayer"] (answers bad_genres; multiplayer comes from play_modes)`,
     examples: [["role_playing", "strategy"], ["horror", "survival"], []],
   },
   screen_orientation: { type: ["string", "null"], enum: [...SCREENS, null], description: "null: not set" },
@@ -306,6 +308,9 @@ export const TOOLS: Tool[] = [
       'Not: { "links": [{ "link_name": "patreon", "destination_url": "patreon.com/kit", "is_on_game_page": true }] } (the whole address: "https://www.patreon.com/kit")\n' +
       'Not: { "links": [{ "link_name": "Store Page", "destination_url": "https://kit.itch.io/sky-hopper", "is_on_game_page": true }] } (lowercase letters, digits and underscores: "store_page")\n' +
       'Not: { "glass_tint_color": "purple" } (# and six hex digits: "#6b3fa0")\n' +
+      'Not: { "full_game_item_name": "revive" } where revive is a consumable (bad_full_game_item: the full game is a permanent item with item_category content)\n' +
+      'Not: { "slug": "ashfall", "demo_game_slug": "ashfall" } (bad_demo_game: the demo is another of your games, free to play, like "ashfall-demo")\n' +
+      'Not: { "full_game_item_name": "full_game", "account_requirement": "none" } (account_requirement_locked: a paid game is accounts only)\n' +
       'Not: { "monthly_budget_cents": 50 } (that\'s 50 cents: cents, not dollars, so $50 is 5000)\n' +
       'Not: { "title": "Sky\\u202eHopper" } (no invisible characters or ones that flip text direction: "Sky Hopper")',
     inputSchema: {
@@ -320,11 +325,24 @@ export const TOOLS: Tool[] = [
             description:
               "What the game may draw from the developer's credit each month past its free hosting, in cents (5000 is $50); null for no paid hosting, so it pauses at its free allowance. Off or lower works with any key that has credit_access write; a first or higher budget answers confirmation_needed, with confirm_url where the developer approves it with their passkey, and spending_request_id for get_spending_request.",
           },
+          demo_game_slug: {
+            type: ["string", "null"],
+            pattern: "^[a-z0-9]+(-[a-z0-9]+)*$",
+            description: "For a game that sells itself (full_game_item_name): another of your games, free to play, that its page links as Play the demo; the demo's page links back as Full game. Progress doesn't carry over. null: no demo.",
+            examples: ["ashfall-demo", null],
+          },
+          full_game_item_name: {
+            type: ["string", "null"],
+            pattern: "^[a-z0-9][a-z0-9_-]{0,39}$",
+            description:
+              "Sell the game once: the item (set_item, permanent and content) a player buys to play. Its page shows Buy and the price where Play is, its cover the price; only owners, you and tester links play, as accounts (account_requirement turns whole_game and stays so while it's set). Bought means kept: owners still play after you make it private. The game hears it in Zaisma.items.owns and ownedItemNames like any item. Needs a key with purchase_access write. null: free to play.",
+          },
           confirm: { type: "boolean", description: "The developer agreed to hide a public game" },
         },
         ["slug"],
       ),
       examples: [
+        { slug: "ashfall", full_game_item_name: "full_game", demo_game_slug: "ashfall-demo" },
         { slug: "sky-hopper", play_modes: [{ mode: "single" }, { mode: "online", minimum_player_count: 2, maximum_player_count: 4, play_style: "co-op" }] },
         { slug: "party-hop", play_modes: [{ mode: "local", minimum_player_count: 2, maximum_player_count: null, play_style: "versus" }], devices: ["phone", "tablet"], controls: ["touch"], screen_orientation: "landscape" },
         { slug: "sky-hopper", genres: ["platformer", "adventure"] },
@@ -350,7 +368,7 @@ export const TOOLS: Tool[] = [
     }),
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
     run: async (toolArguments, call) => {
-      const change = pick(toolArguments, [...DETAILS, "visibility", "monthly_budget_cents"]);
+      const change = pick(toolArguments, [...DETAILS, "visibility", "monthly_budget_cents", "full_game_item_name", "demo_game_slug"]);
       if (change.visibility === "draft" || change.visibility === "private") {
         const { game } = (await call("GET", `/games/${pathPart(toolArguments.slug)}`)) as { game: { visibility: string; review_status: string } };
         if ((game.visibility === "listed" || game.visibility === "unlisted") && game.review_status === "live" && toolArguments.confirm !== true) {
@@ -1356,7 +1374,7 @@ export const TOOLS: Tool[] = [
     name: "set_item",
     title: "Set an item",
     description:
-      "Make or replace one item a game sells or grants, whole: send every field. Prices are in the currency's smallest unit (cents, pence; yen are whole), the price players pay, tax included; Zaisma takes no cut. A price needs the game's refund policy first (set_purchase_settings). price_minor_units and currency_code null: an item that's only granted (grant_item), or no longer sold. local_prices sets what players in other currencies pay (picked by their country); without one they see the main price. Nothing sold is random: sell the item itself, by name. The game checks what a player owns with Zaisma.items.owns(item_name), and its server with player.ownedItemNames or a receipt. Live at once.\n\n" +
+      "Make or replace one item a game sells or grants, whole: send every field. Prices are in the currency's smallest unit (cents, pence; yen are whole), the price players pay, tax included; Zaisma takes no cut. A price needs the game's refund policy first (set_purchase_settings). price_minor_units and currency_code null: an item that's only granted (grant_item), or no longer sold. local_prices sets what players in other currencies pay (picked by their country); without one they see the main price. Nothing sold is random: sell the item itself, by name. To sell the whole game once, make a permanent content item and name it with update_game full_game_item_name. The game checks what a player owns with Zaisma.items.owns(item_name), and its server with player.ownedItemNames or a receipt. Live at once.\n\n" +
       'Not: { "price_minor_units": 1.99 } (minor units: 199 for $1.99)\n' +
       'Not: { "item_name": "Revive Potion" } (lowercase letters, digits, _ and -: "revive_potion"; the title is what players see)\n' +
       'Not: { "currency_code": "USD" } (lowercase, as Stripe writes it: "usd")',
@@ -1377,18 +1395,20 @@ export const TOOLS: Tool[] = [
             items: { type: "object", properties: { currency_code: { type: "string", pattern: "^[a-z]{3}$" }, price_minor_units: { type: "integer", minimum: 0 } }, required: ["currency_code", "price_minor_units"], additionalProperties: false },
             description: "Prices in other currencies, which players in those countries pay; [] for none",
           },
+          is_on_game_page: { type: "boolean", description: "true: the game page sells it under Add-ons too (an expansion, a supporter pack), not only the game; false: only the game sells it" },
         },
-        ["slug", "item_name", "title", "description", "item_kind", "item_category", "price_minor_units", "currency_code", "local_prices"],
+        ["slug", "item_name", "title", "description", "item_kind", "item_category", "price_minor_units", "currency_code", "local_prices", "is_on_game_page"],
       ),
       examples: [
-        { slug: "sky-hopper", item_name: "revive", title: "Revive", description: "Back in the fight where you fell.", item_kind: "consumable", item_category: "gameplay", price_minor_units: 199, currency_code: "usd", local_prices: [] },
-        { slug: "frostbound", item_name: "expansion_north", title: "The Northern Reaches", description: "A new region, twelve hours of story.", item_kind: "permanent", item_category: "content", price_minor_units: 1999, currency_code: "usd", local_prices: [{ currency_code: "brl", price_minor_units: 5990 }] },
-        { slug: "frostbound", item_name: "supporter_cape", title: "Supporter's Cape", description: "", item_kind: "permanent", item_category: "cosmetic", price_minor_units: null, currency_code: null, local_prices: [] },
+        { slug: "sky-hopper", item_name: "revive", title: "Revive", description: "Back in the fight where you fell.", item_kind: "consumable", item_category: "gameplay", price_minor_units: 199, currency_code: "usd", local_prices: [], is_on_game_page: false },
+        { slug: "frostbound", item_name: "expansion_north", title: "The Northern Reaches", description: "A new region, twelve hours of story.", item_kind: "permanent", item_category: "content", price_minor_units: 1999, currency_code: "usd", local_prices: [{ currency_code: "brl", price_minor_units: 5990 }], is_on_game_page: true },
+        { slug: "ashfall", item_name: "full_game", title: "Ashfall", description: "The whole game.", item_kind: "permanent", item_category: "content", price_minor_units: 2499, currency_code: "usd", local_prices: [{ currency_code: "eur", price_minor_units: 2499 }], is_on_game_page: false },
+        { slug: "frostbound", item_name: "supporter_cape", title: "Supporter's Cape", description: "", item_kind: "permanent", item_category: "cosmetic", price_minor_units: null, currency_code: null, local_prices: [], is_on_game_page: false },
       ],
     },
     outputSchema: answer({ item: GAME_ITEM, next_steps: NEXT }),
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
-    run: (toolArguments, call) => call("PUT", `/games/${pathPart(toolArguments.slug)}/items/${pathPart(toolArguments.item_name)}`, pick(toolArguments, ["title", "description", "item_kind", "item_category", "price_minor_units", "currency_code", "local_prices"])),
+    run: (toolArguments, call) => call("PUT", `/games/${pathPart(toolArguments.slug)}/items/${pathPart(toolArguments.item_name)}`, pick(toolArguments, ["title", "description", "item_kind", "item_category", "price_minor_units", "currency_code", "local_prices", "is_on_game_page"])),
   },
   {
     name: "remove_item",

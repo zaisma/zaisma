@@ -249,7 +249,7 @@ describe("sending events", () => {
     await developerTool("create_game", { title: "moon base", slug: "moon-base" });
     await createAccount(env.DB, { id: "player-1", username: "Emma_Clarke", ageBand: "18+" });
     const playerId = (await accountById(env.DB, "player-1"))!.player_id;
-    await developerTool("set_item", { slug: "sky-hopper", item_name: "revive", title: "Revive", description: "", item_kind: "consumable", item_category: "gameplay", price_minor_units: null, currency_code: null, local_prices: [] });
+    await developerTool("set_item", { slug: "sky-hopper", item_name: "revive", title: "Revive", description: "", item_kind: "consumable", item_category: "gameplay", price_minor_units: null, currency_code: null, local_prices: [], is_on_game_page: false });
     const { webhook: both, signing_secret: signingSecret } = await developerTool("create_webhook", { endpoint_url: `${HOOKS}/both`, event_kinds: ["purchase_completed", "purchase_refunded"], game_slugs: ["sky-hopper"] });
     await developerTool("create_webhook", { endpoint_url: `${HOOKS}/completed`, event_kinds: ["purchase_completed"] });
     await developerTool("create_webhook", { endpoint_url: `${HOOKS}/refunded`, event_kinds: ["purchase_refunded"] });
@@ -430,7 +430,7 @@ describe("webhooks to the game server", () => {
     await developerTool("create_game", { title: "cave crew", slug: "cave-crew" });
     await createAccount(env.DB, { id: "player-2", username: "Ben_Miller", ageBand: "18+" });
     const playerId = (await accountById(env.DB, "player-2"))!.player_id;
-    await developerTool("set_item", { slug: "sky-hopper", item_name: "revive", title: "Revive", description: "", item_kind: "consumable", item_category: "gameplay", price_minor_units: null, currency_code: null, local_prices: [] });
+    await developerTool("set_item", { slug: "sky-hopper", item_name: "revive", title: "Revive", description: "", item_kind: "consumable", item_category: "gameplay", price_minor_units: null, currency_code: null, local_prices: [], is_on_game_page: false });
     await developerTool("create_webhook", { destination_kind: "game_server", event_kinds: ["purchase_completed", "purchase_refunded"], game_slugs: ["sky-hopper"] });
     await developerTool("create_webhook", { destination_kind: "game_server", event_kinds: ["purchase_completed"], game_slugs: ["cave-crew"] });
     const game = (await env.DB.prepare("SELECT id FROM games WHERE slug = 'sky-hopper'").first<{ id: string }>())!;

@@ -160,6 +160,8 @@ export const GAME = object({
   purchase_label: PURCHASE_LABEL,
   refund_policy: nullable(REFUND_POLICY_CHOICE),
   refund_policy_text: nullable(text("The refund policy in the developer's own words, with refund_policy own_words; null otherwise.")),
+  full_game_item_name: nullable(text("The permanent content item a player must own to play; null: free to play.")),
+  demo_game_slug: nullable(text("Another of the developer's games, free to play, that the page links as Play the demo; null: none.")),
   updated_at: isoTime(),
 });
 
@@ -1027,6 +1029,7 @@ export const GAME_ITEM = object({
   price_minor_units: nullable(PRICE_MINOR_UNITS),
   currency_code: nullable(CURRENCY_CODE),
   local_prices: list(object({ currency_code: CURRENCY_CODE, price_minor_units: PRICE_MINOR_UNITS }), "Prices in other currencies, which players in those countries see and pay; [] for none."),
+  is_on_game_page: yes("The game page sells it under Add-ons too, not only the game."),
   card_fee_note: nullable(text("Under 2 units of a currency, about what reaches the developer after card fees; null otherwise.")),
   created_at: isoTime(),
   updated_at: isoTime(),

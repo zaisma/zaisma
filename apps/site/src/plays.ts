@@ -13,7 +13,7 @@ import {
   type PerformanceDay,
   type PlayerPerformanceRow,
 } from "@zaisma/core";
-import { accountById, createEntryGrant, gameBySlug, isIdOf, isOldEnoughFor, isTesterLinkOn, issueRoomKey, playsOnline, testerLinkVersion, newId, testerLinkByToken, tradeRoomKey, type Account, type Game } from "@zaisma/core";
+import { accountById, createEntryGrant, fullGameOwner, gameBySlug, isIdOf, isOldEnoughFor, isTesterLinkOn, issueRoomKey, playsOnline, testerLinkVersion, newId, testerLinkByToken, tradeRoomKey, type Account, type Game } from "@zaisma/core";
 import { currentSession } from "./auth.ts";
 import { gameUrl, type Env } from "./env.ts";
 import { playable } from "./home.ts";
@@ -95,7 +95,7 @@ export async function handlePlays(request: Request, env: Env, path: string): Pro
   if (match[2] === "/entry") return handlePlayEntry(request, env, game, body);
   if (match[2]) return signedInWhilePlaying(request, env, game, body);
   if (body.tester !== undefined) return testerPlay(request, env, game, body);
-  if (!game || !playable(game)) return new Response(null, { status: 404 });
+  if (!game || !(playable(game) || isKeptForOwners(game))) return new Response(null, { status: 404 });
 
   if (typeof body.ticket === "string") {
     if (!isIdOf("play_ticket", body.ticket)) return new Response(null, { status: 400 });
@@ -109,7 +109,10 @@ export async function handlePlays(request: Request, env: Env, path: string): Pro
   }
   // A game that needs an account, or is for older players, starts no play for anyone it doesn't let in.
   const viewer = game.account_requirement === "whole_game" || game.minimum_player_age_years > 13 ? await signedIn(request, env) : null;
-  const turnedAway = viewer ? refusal(game, viewer.account) : null;
+  const isOwner = await fullGameOwner(env.DB, game, viewer?.account ?? null);
+  // A paid game the developer hid is still there for the players who bought it, and for nobody else.
+  if (!playable(game) && !isOwner) return withCookies(new Response(null, { status: 404 }), viewer?.cookies ?? []);
+  const turnedAway = viewer ? refusal(game, viewer.account, isOwner) : null;
   if (turnedAway) return withCookies(turnedAway, viewer!.cookies);
   const facts = startFacts(body);
   await countStart(env.DB, game.id, facts);
@@ -139,12 +142,20 @@ async function testerPlay(request: Request, env: Env, game: Game | null, body: R
 }
 
 /**
- * Who a game turns away (docs/DECISIONS.md, "Games can keep out younger age bands"): a guest of an
- * accounts-only game, and an account younger than its minimum age. Null when the player may play.
+ * Who a game turns away (docs/DECISIONS.md, "Games can keep out younger age bands", "How paid games work"): a guest of an
+ * accounts-only game, an account younger than its minimum age, and an account that doesn't own a paid game (isOwner, from
+ * fullGameOwner). Null when the player may play.
  */
-export function refusal(game: Pick<Game, "account_requirement" | "minimum_player_age_years">, account: Pick<Account, "age_band"> | null): Response | null {
+export function refusal(game: Pick<Game, "account_requirement" | "minimum_player_age_years" | "full_game_item_name" | "title">, account: Pick<Account, "age_band"> | null, isOwner: boolean): Response | null {
   if (!account && game.account_requirement === "whole_game") return refused("account_needed", "This game needs a Zaisma account. Sign in to play.");
-  return ageRefusal(game, account);
+  const tooYoung = ageRefusal(game, account);
+  if (tooYoung) return tooYoung;
+  return game.full_game_item_name !== null && !isOwner ? refused("full_game_not_owned", `Buy ${game.title} to play.`) : null;
+}
+
+/** A paid game the developer made private or a draft, still live: bought means kept, so it plays on for its owners (fullGameOwner). */
+export function isKeptForOwners(game: Game): boolean {
+  return game.full_game_item_name !== null && game.review_status === "live" && Boolean(game.live_version_id) && (game.visibility === "draft" || game.visibility === "private");
 }
 
 /** A game for older players turns away guests (who have no age) and younger accounts. Tester links follow it too. */
@@ -154,16 +165,19 @@ export function ageRefusal(game: Pick<Game, "minimum_player_age_years">, account
   return isOldEnoughFor(account.age_band, game.minimum_player_age_years) ? null : refused("game_not_open_to_player", "This game isn't open to your account.");
 }
 
-const refused = (code: "account_needed" | "game_not_open_to_player", message: string) => Response.json({ error: { code, message } }, { status: 403, headers: { "Cache-Control": "no-store" } });
+const refused = (code: "account_needed" | "game_not_open_to_player" | "full_game_not_owned", message: string) => Response.json({ error: { code, message } }, { status: 403, headers: { "Cache-Control": "no-store" } });
 
 /**
  * Play on an accounts-only game: the game domain serves its public address only to a browser holding the
  * entry cookie (game-access.ts, "The game entry"), so the page asks here for a grant, after the checks.
  */
 async function handlePlayEntry(request: Request, env: Env, game: Game | null, body: Record<string, unknown>): Promise<Response> {
-  if (!game || !playable(game) || game.account_requirement !== "whole_game") return new Response(null, { status: 404 });
+  if (!game || !(playable(game) || isKeptForOwners(game)) || game.account_requirement !== "whole_game") return new Response(null, { status: 404 });
   const { account, cookies } = await signedIn(request, env);
-  const turnedAway = refusal(game, account);
+  // Every paid game is accounts-only (settlePaidGame), so its entry, the only way to its files, reaches only its owners.
+  const isOwner = await fullGameOwner(env.DB, game, account);
+  if (!playable(game) && !isOwner) return withCookies(new Response(null, { status: 404 }), cookies);
+  const turnedAway = refusal(game, account, isOwner);
   if (turnedAway) return withCookies(turnedAway, cookies);
   // Where to go inside the game: a path and query, checked again by the games server.
   const then = typeof body.then === "string" && body.then.length <= 2000 ? body.then : "";
@@ -179,7 +193,8 @@ async function handlePlayEntry(request: Request, env: Env, game: Game | null, bo
 async function signedInWhilePlaying(request: Request, env: Env, game: Game | null, body: Record<string, unknown>): Promise<Response> {
   const { account, cookies } = await signedIn(request, env);
   if (!account) return new Response(null, { status: 401 });
-  const key = game && body.roomKey !== undefined ? await tradeRoomKey(env.DB, game.id, body.roomKey, account.id) : null;
+  // A paid game's rooms take only its owners, so an account that doesn't own it gets no key.
+  const key = game && body.roomKey !== undefined && (await fullGameOwner(env.DB, game, account)) ? await tradeRoomKey(env.DB, game.id, body.roomKey, account.id) : null;
   return withCookies(ok({ player: { id: account.player_id, name: account.username, kind: "account" }, ...(key ? { key, playerKind: "account" } : {}) }), cookies);
 }
 

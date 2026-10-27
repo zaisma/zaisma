@@ -85,6 +85,8 @@ export interface BuySheetData {
   /** The window only: who asked, from the game's own site (the SDK's query), and where the answer may go. */
   asked: { item_name: string; item_count: number; game_account_id: string | null; request_number: number } | null;
   opener_origin: string | null;
+  /** The game page only: the item whose sheet opens with the page (a paid game's ?buy), or null. */
+  opened_item_name: string | null;
 }
 
 /**
@@ -567,6 +569,15 @@ if (buyData.place === "game_page") {
     if (!hasPlayerTap()) return tell(request, "error", { code: "needs_player_tap", message: "The buy sheet opens only right after the player taps or presses a key in the game: call Zaisma.items.buy from that tap's handler." });
     open(request);
   };
+  // The page's own buttons (a paid game's Buy, each add-on's price) open the sheet for their item. Once it's bought the page is drawn
+  // again, since the server draws what the viewer owns: Buy turns into Play, an add-on into Owned.
+  const pageTell = (message) => { if (message.status === "bought") location.reload(); };
+  const openForPage = (itemName) => open({ requestNumber: 0, itemName: itemName, itemCount: 1, gameAccountId: null, tell: pageTell });
+  document.addEventListener("click", (event) => {
+    const button = event.target.closest && event.target.closest("[data-buy-item]");
+    if (button && !button.disabled) openForPage(button.dataset.buyItem);
+  });
+  if (buyData.opened_item_name) openForPage(buyData.opened_item_name);
 } else {
   // The window answers only the game's own site the server named (opener_origin); any other opener hears nothing, and the game sees the
   // purchase in its next pass.

@@ -72,7 +72,7 @@ function benchGame(input: PlayerPageInput): Game {
     controls: "", screen_orientation: "", play_modes: "", room_browsing: "off", account_requirement: "none", minimum_player_age_years: 13, entry_signing_key: "",
     is_off_shelves: 0, details_waiting_for_review: null, title_listing_reason: null, country_blocks: "[]", cleared_title: null, listing_check_requested_at_ms: null,
     listing_checked_at_ms: null, glass_tint_color: null, refund_policy: null, refund_policy_text: null, own_payment_categories: "[]",
-    purchase_delivery: input.purchaseDelivery, live_version_match_update_mode: "next_match", live_version_published_at_ms: null,
+    purchase_delivery: input.purchaseDelivery, full_game_item_name: null, demo_game_id: null, live_version_match_update_mode: "next_match", live_version_published_at_ms: null,
     has_live_version_game_file_changes: 0, created_at_ms: 0, updated_at_ms: 0,
   };
 }
@@ -99,6 +99,14 @@ export async function playerPage(input: PlayerPageInput): Promise<BenchPage> {
     head: undefined,
     isFramedBySelf: true,
     isShownInLists: false,
+    // The bench plays the game free, with nothing on its page to buy: items are bought inside the game.
+    isFullGameOwner: true,
+    items: [],
+    ownedItemNames: [],
+    countryCode: null,
+    demoGameSlug: null,
+    fullGameSlug: null,
+    ownedPaidGameIds: new Set(),
   }));
 }
 

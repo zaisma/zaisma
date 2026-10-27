@@ -71,6 +71,7 @@ export const itemJson = (gameItem: GameItem) => ({
   price_minor_units: gameItem.price_minor_units,
   currency_code: gameItem.currency_code,
   local_prices: gameItem.local_prices,
+  is_on_game_page: gameItem.is_on_game_page,
   card_fee_note: cardFeeNote(gameItem.currency_code, gameItem.price_minor_units),
   created_at: iso(gameItem.created_at_ms),
   updated_at: iso(gameItem.updated_at_ms),
@@ -116,8 +117,16 @@ export async function withReceipts(env: Env, game: Game, purchases: Purchase[]) 
 async function itemsAnswer(env: Env, game: Game) {
   const items = await itemsOf(env.DB, game.id);
   const settings = purchaseSettingsOf(game);
-  return { items: items.map(itemJson), ...settings, purchase_label: purchaseLabelOf(items, settings.own_payment_categories) };
+  return { items: items.map(itemJson), ...settings, purchase_label: purchaseLabelOf(items, settings.own_payment_categories, game.full_game_item_name) };
 }
+
+/** The game's full game item stays permanent and content, and stays, while the game is sold by it (full_game_item_name). */
+const fullGameItemInUse = (game: Game, itemName: string, field: string) =>
+  new ApiError("full_game_item_in_use", {
+    message: `${itemName} is ${game.slug}'s full game: players buy it to play, so it stays a permanent content item.`,
+    field,
+    fix: `update_game with full_game_item_name null first, to make ${game.slug} free to play; or keep item_kind permanent and item_category content.`,
+  });
 
 const noItem = (game: Game, itemName: string) => new ApiError("no_item", { message: `${game.slug} has no item named ${itemName}.`, field: "item_name", fix: "list_items names the game's items; make one with set_item." });
 
@@ -130,6 +139,7 @@ export async function itemsRoute(request: Request, env: Env, game: Game, itemNam
 
   if (method === "PUT") {
     const checkedItem = checkItem(itemName, checked.body);
+    if (itemName === game.full_game_item_name && (checkedItem.item_kind !== "permanent" || checkedItem.item_category !== "content")) throw fullGameItemInUse(game, itemName, checkedItem.item_kind !== "permanent" ? "item_kind" : "item_category");
     const existing = await itemByName(env.DB, game.id, itemName);
     const tooManyItems = () => new ApiError("too_many_items", { message: `${game.slug} has ${ITEM_LIMITS.maximumItemCount} items, the most a game can have.`, field: "item_name", fix: "Remove items nobody owns with remove_item, or reuse one: an item is replaced whole by set_item with its name." });
     const refundPolicyNeeded = () =>
@@ -145,9 +155,9 @@ export async function itemsRoute(request: Request, env: Env, game: Game, itemNam
     if (checkedItem.price_minor_units !== null && game.refund_policy === null) throw refundPolicyNeeded();
     // The limit and the refund policy are checked again in the write itself, so items set, or a policy cleared, at the same moment can't get past them.
     const saved = await env.DB.prepare(
-      "INSERT INTO game_items (game_id, item_name, title, description, item_kind, item_category, price_minor_units, currency_code, local_prices, created_at_ms, updated_at_ms) SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10 WHERE (EXISTS (SELECT 1 FROM game_items WHERE game_id = ?1 AND item_name = ?2) OR (SELECT COUNT(*) FROM game_items WHERE game_id = ?1) < ?11) AND (?7 IS NULL OR EXISTS (SELECT 1 FROM games WHERE id = ?1 AND refund_policy IS NOT NULL)) ON CONFLICT (game_id, item_name) DO UPDATE SET title = excluded.title, description = excluded.description, item_kind = excluded.item_kind, item_category = excluded.item_category, price_minor_units = excluded.price_minor_units, currency_code = excluded.currency_code, local_prices = excluded.local_prices, updated_at_ms = excluded.updated_at_ms",
+      "INSERT INTO game_items (game_id, item_name, title, description, item_kind, item_category, price_minor_units, currency_code, local_prices, is_on_game_page, created_at_ms, updated_at_ms) SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?12, ?10, ?10 WHERE (EXISTS (SELECT 1 FROM game_items WHERE game_id = ?1 AND item_name = ?2) OR (SELECT COUNT(*) FROM game_items WHERE game_id = ?1) < ?11) AND (?7 IS NULL OR EXISTS (SELECT 1 FROM games WHERE id = ?1 AND refund_policy IS NOT NULL)) ON CONFLICT (game_id, item_name) DO UPDATE SET title = excluded.title, description = excluded.description, item_kind = excluded.item_kind, item_category = excluded.item_category, price_minor_units = excluded.price_minor_units, currency_code = excluded.currency_code, local_prices = excluded.local_prices, is_on_game_page = excluded.is_on_game_page, updated_at_ms = excluded.updated_at_ms",
     )
-      .bind(game.id, itemName, checkedItem.title, checkedItem.description, checkedItem.item_kind, checkedItem.item_category, checkedItem.price_minor_units, checkedItem.currency_code, JSON.stringify(checkedItem.local_prices), nowMs, ITEM_LIMITS.maximumItemCount)
+      .bind(game.id, itemName, checkedItem.title, checkedItem.description, checkedItem.item_kind, checkedItem.item_category, checkedItem.price_minor_units, checkedItem.currency_code, JSON.stringify(checkedItem.local_prices), nowMs, ITEM_LIMITS.maximumItemCount, checkedItem.is_on_game_page ? 1 : 0)
       .run();
     if (!saved.meta.changes) {
       const policy = await env.DB.prepare("SELECT refund_policy FROM games WHERE id = ?").bind(game.id).first<{ refund_policy: string | null }>();
@@ -169,6 +179,7 @@ export async function itemsRoute(request: Request, env: Env, game: Game, itemNam
 
   if (method === "DELETE") {
     if (!(await itemByName(env.DB, game.id, itemName))) throw noItem(game, itemName);
+    if (itemName === game.full_game_item_name) throw fullGameItemInUse(game, itemName, "item_name");
     const owned = await env.DB.prepare("SELECT COUNT(*) AS purchase_count FROM purchases WHERE game_id = ? AND item_name = ? AND purchase_status = 'completed'").bind(game.id, itemName).first<{ purchase_count: number }>();
     if (owned?.purchase_count) {
       throw new ApiError("item_has_owners", {
@@ -207,7 +218,7 @@ export async function purchaseSettingsRoute(env: Env, game: Game, caller: Caller
   if (!changed.meta.changes) checkPurchaseSettings(checked.body, purchaseSettingsOf(game), true);
   await logCallerEvent(env, caller, "purchase_settings_changed", { gameId: game.id });
   const items = await itemsOf(env.DB, game.id);
-  return [{ ...settings, purchase_label: purchaseLabelOf(items, settings.own_payment_categories), next_steps: [] satisfies NextStep[] }];
+  return [{ ...settings, purchase_label: purchaseLabelOf(items, settings.own_payment_categories, game.full_game_item_name), next_steps: [] satisfies NextStep[] }];
 }
 
 /** An opaque point in the newest-first list of purchases: where the last page ended. */

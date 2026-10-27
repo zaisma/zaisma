@@ -7,7 +7,8 @@
     "item_category": "gameplay",
     "price_minor_units": 199,
     "currency_code": "usd",
-    "local_prices": [{ "currency_code": "brl", "price_minor_units": 990 }]
+    "local_prices": [{ "currency_code": "brl", "price_minor_units": 990 }],
+    "is_on_game_page": false
   },
   {
     "item_name": "straw_hat",
@@ -17,7 +18,8 @@
     "item_category": "cosmetic",
     "price_minor_units": 499,
     "currency_code": "usd",
-    "local_prices": [{ "currency_code": "eur", "price_minor_units": 459 }]
+    "local_prices": [{ "currency_code": "eur", "price_minor_units": 459 }],
+    "is_on_game_page": false
   },
   {
     "item_name": "spring_valley",
@@ -27,7 +29,8 @@
     "item_category": "content",
     "price_minor_units": 1999,
     "currency_code": "usd",
-    "local_prices": []
+    "local_prices": [],
+    "is_on_game_page": false
   },
   {
     "item_name": "founders_badge",
@@ -37,6 +40,7 @@
     "item_category": "cosmetic",
     "price_minor_units": null,
     "currency_code": null,
-    "local_prices": []
+    "local_prices": [],
+    "is_on_game_page": false
   }
 ]

@@ -461,7 +461,7 @@ function paymentsPane(settings: Settings): LayoutItem {
       "payments",
       "Payments",
       [
-        words("Players buy in your games and the money goes straight to your own Stripe account. Zaisma takes no cut."),
+        words("Players buy your game once, or things in it, and the money goes straight to your own Stripe account. Zaisma takes no cut."),
         layer(tapSheet("payments-connect", "Connect Stripe?", "Tap your passkey, then finish on Stripe's page. Players' money goes straight to your Stripe account.", `${PAGE}/payments/connect`, "Continue to Stripe")),
       ],
       { end: cutButton("Connect", { type: "button", isSmall: true, controls: "payments-connect" }) },
@@ -925,7 +925,7 @@ async function settingsPage(env: Env, request: Request, session: SignedIn, calle
     keysPane(keys, settings.games.map((game) => ({ slug: game.slug, title: game.title })), making),
   ];
   const panes = stack({ items: [...topNotes, ...paneItems] });
-  const body = html`<h1 class="sr">Developer settings</h1>${sidePlaces({ label: "Developer settings", places: TAB_PANES.map((pane, index) => ({ label: pane.label, icon: pane.icon, href: `#${pane.id}`, isCurrent: index === 0 })), body: panes })}${paneItems.map((paneItem) => PANE_LAYERS.get(paneItem) ?? "")}${spendingSheet}${confirmItsYouSheet({ id: "settings-confirm" })}${state.done && DONE_WORDS[state.done] ? notice({ text: DONE_WORDS[state.done]!, tone: "done" }) : ""}${state.problem ? notice({ text: state.problem, tone: "problem" }) : ""}${scriptTags(PASSKEY_SCRIPT, SETTINGS_SCRIPT)}`;
+  const body = html`<h1 class="sr">Developer settings</h1>${sidePlaces({ label: "Developer settings", rowId: "settings-places-row", places: TAB_PANES.map((pane, index) => ({ label: pane.label, icon: pane.icon, href: `#${pane.id}`, isCurrent: index === 0 })), body: panes })}${paneItems.map((paneItem) => PANE_LAYERS.get(paneItem) ?? "")}${spendingSheet}${confirmItsYouSheet({ id: "settings-confirm" })}${state.done && DONE_WORDS[state.done] ? notice({ text: DONE_WORDS[state.done]!, tone: "done" }) : ""}${state.problem ? notice({ text: state.problem, tone: "problem" }) : ""}${scriptTags(PASSKEY_SCRIPT, SETTINGS_SCRIPT)}`;
   const response = layout(env, { title: "Developer settings · Zaisma", body, checkedPage: "Developer settings", pageShape: "reading", nav: "developer", viewer: { account }, isPrivate: true });
   const answered = new Response(response.body, { status: httpStatus, headers: response.headers });
   for (const cookie of session.cookies) answered.headers.append("Set-Cookie", cookie);

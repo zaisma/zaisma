@@ -196,7 +196,7 @@ beforeEach(async () => {
 
 /** The developer connected, as the return from Stripe leaves it. */
 const connect = () => env.DB.prepare("UPDATE owners SET stripe_account_id = ?, can_take_stripe_payments = 1, stripe_country_code = 'DE', stripe_default_currency_code = 'eur', stripe_business_name = 'Pixel Smith Games', stripe_support_email = 'help@pixelsmith.example', stripe_connected_at_ms = ? WHERE id = ?").bind(ACCOUNT, Date.now(), ownerId).run();
-const setItem = (itemName: string, fields: Record<string, unknown>) => api(`/games/tiny-farm/items/${itemName}`, { method: "PUT", body: { description: "", item_category: "gameplay", local_prices: [], ...fields } });
+const setItem = (itemName: string, fields: Record<string, unknown>) => api(`/games/tiny-farm/items/${itemName}`, { method: "PUT", body: { description: "", item_category: "gameplay", local_prices: [], is_on_game_page: false, ...fields } });
 const revive = { title: "Revive", item_kind: "consumable", price_minor_units: 199, currency_code: "eur" };
 const barn = { title: "Golden Barn", item_kind: "permanent", item_category: "cosmetic", price_minor_units: 999, currency_code: "eur" };
 const saveCard = () => env.DB.prepare("INSERT INTO saved_payment_methods (account_id, stripe_payment_method_id, card_brand, card_last_digits, created_at_ms) VALUES ('player-1', 'pm_test_saved', 'visa', '4242', ?)").bind(Date.now()).run();

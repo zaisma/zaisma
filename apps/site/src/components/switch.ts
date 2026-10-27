@@ -2,7 +2,7 @@ import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
 import { controlMarkup, type ControlMarkup } from "./control-markup.ts";
 import { CUT_LINE, colorPicker, icon, tag, type ColorChoice, type IconName } from "./foundations.ts";
-import { TINT_CHOICES } from "./actions.ts";
+import { TINT_CHOICES, rowArrows } from "./actions.ts";
 
 /*
  * The switch, from the sign-in draft's Sign in / Make an account switch and the home draft's sort switch, and the three foundations
@@ -40,7 +40,15 @@ export interface SwitchTab {
 }
 
 /** The switch: a clear well, a white slab with the orange line under the one you're on, and a faint one under the one you point at. */
-export function tabSwitch(options: { label: string; tabs: SwitchTab[]; switchSize: "big" | "small"; isFramed?: boolean; isVertical?: boolean }): ControlMarkup {
+export function tabSwitch(options: {
+  label: string;
+  tabs: SwitchTab[];
+  switchSize: "big" | "small";
+  isFramed?: boolean;
+  isVertical?: boolean;
+  /** Framed only: the id of the row its tabs scroll in. With one, a mouse gets Row arrows after the frame to scroll it while its tabs don't fit. */
+  rowId?: string;
+}): ControlMarkup {
   const isSmall = options.switchSize === "small";
   const inside = (tab: SwitchTab) =>
     tab.icon || tab.badgeCount ? html`${tab.icon ? icon(tab.icon) : ""}<span>${tab.label}</span>${tab.badgeCount ? tag(tab.badgeCount, "count") : ""}` : html`${tab.label}`;
@@ -51,14 +59,14 @@ export function tabSwitch(options: { label: string; tabs: SwitchTab[]; switchSiz
   // Framed: in a carved frame of its own that it scrolls inside, fading at its ends (the header's tabs, the gallery's groups on a phone), so
   // the switch has no well or cut of its own, and its slab's ends on the first and last tabs follow the frame's ends.
   const own = options.isFramed
-    ? html`<div class="switch-frame cut-carved ${options.switchSize}" data-cut-line="${isSmall ? 9 : 10}">${CUT_LINE}<div class="switch-frame-row" data-fades-sideways><div class="tab-switch framed ${kind}" role="group" aria-label="${options.label}">`
+    ? html`${options.rowId ? raw('<div class="switch-scroll">') : ""}<div class="switch-frame cut-carved ${options.switchSize}" data-cut-line="${isSmall ? 9 : 10}">${CUT_LINE}<div class="switch-frame-row"${options.rowId ? html` id="${options.rowId}"` : ""} data-fades-sideways><div class="tab-switch framed ${kind}" role="group" aria-label="${options.label}">`
     : html`<div class="tab-switch cut-carved ${kind}" role="group" aria-label="${options.label}" data-cut-line="${isSmall ? 9 : 10}">${CUT_LINE}`;
   return controlMarkup(html`${own}<span class="ghost" aria-hidden="true" data-cut-line="${isSmall ? 7 : 8}"></span><span class="slab cut-raised" aria-hidden="true" data-cut-line="${isSmall ? 7 : 8}">${CUT_LINE}</span><span class="focus-ring" aria-hidden="true" data-cut-line="${isSmall ? 7 : 8}">${CUT_LINE}</span>${options.tabs.map((tab) =>
     tab.href
       ? // A link that can't be followed now has no address, so nothing reaches it; it still says what it is.
         html`<a${tab.isDisabled ? raw(' aria-disabled="true"') : html` href="${tab.href}"`}${folding(tab)}${tab.extra ?? ""}${tab.isCurrent ? raw(' aria-current="page"') : ""}>${inside(tab)}</a>`
       : html`<button type="button"${folding(tab)}${tab.extra ?? ""}${tab.tabValue !== undefined ? html` value="${tab.tabValue}"` : ""} aria-pressed="${tab.isCurrent ? "true" : "false"}"${tab.isDisabled ? raw(" disabled") : ""}>${inside(tab)}</button>`,
-  )}</div>${options.isFramed ? raw("</div></div>") : ""}`, isSmall ? "small" : "regular");
+  )}</div>${options.isFramed ? raw("</div></div>") : ""}${options.isFramed && options.rowId ? html`${rowArrows({ rowName: options.label, trackId: options.rowId })}</div>` : ""}`, isSmall ? "small" : "regular");
 }
 
 /** The switch's slab sits under the one you're on, the ghost follows the pointer across the others, both with the spring. */
@@ -240,6 +248,12 @@ component({
 .switch-frame { position: relative; display: flex; flex: none; min-width: 0; height: var(--switch-height, var(--control-height-regular)); background: var(--well); box-shadow: var(--well-shade); clip-path: var(--cut-shape);
   transition: height 0.45s cubic-bezier(.2,.8,.2,1); }
 .switch-frame.small { height: var(--switch-height, var(--control-height-small)); }
+/* With Row arrows (rowId): one control, the frame then the arrows a mouse scrolls it with, which show only while its tabs don't fit. */
+.switch-scroll { display: flex; align-items: center; min-width: 0; max-width: 100%; }
+/* The room between them goes on the arrows, so the frame reaches the row's end where they're hidden (a touch screen, or tabs that fit);
+   they're as tall as the frame, so a big switch's arrows keep to the pane's edges as it does. */
+.switch-scroll > .switch-frame { flex: 0 1 auto; margin-inline-end: 0; }
+.switch-scroll > .steps { align-self: stretch; height: auto; margin-inline-start: var(--gap-control-row-boxes); }
 /* At rest a row of tabs that scrolls shows them whole at its start: it snaps a tab's start to just past the fade there (SCROLL_FADE_SCRIPT
    starts it where the one you're on shows whole). That fade is as wide as a tab's room round its words, so the words of the tab before
    are wholly out of view, never cut, and the slab of the one you're on is never faded; the fade at its end stays the usual one
@@ -338,6 +352,10 @@ component({
     {
       label: "Framed: more tabs than fit scroll inside the frame, fading at its ends",
       markup: html`<div style="width:min(300px,100%)">${tabSwitch({ label: "Groups", switchSize: "small", isFramed: true, tabs: ["Foundations", "Actions", "Inputs", "Navigation", "Panes", "Data"].map((label, tabIndex) => ({ label, href: "#switch", isCurrent: tabIndex === 2 })) })}</div>`,
+    },
+    {
+      label: "Framed, with Row arrows: a mouse scrolls the tabs that don't fit (a touch screen swipes and shows none)",
+      markup: html`<div style="width:min(360px,100%)">${tabSwitch({ label: "Genres", switchSize: "small", isFramed: true, rowId: "example-switch-arrows-row", tabs: ["Action", "Adventure", "Role-playing", "Shooter", "Strategy", "Simulation", "Racing", "Sports"].map((label, tabIndex) => ({ label, href: "#switch", isCurrent: tabIndex === 0 })) })}</div>`,
     },
     {
       label: "Framed, with tabs folded away (the header off a developer page)",

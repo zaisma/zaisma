@@ -1,4 +1,4 @@
-import { AGE_BAND_FLOOR_YEARS, KEPT_PLAYED_GAME_COUNT, NOT_BLOCKED_IN_COUNTRY_SQL, SHOWN_IN_LISTS_SQL, requestCountryCode, gameBySlug, mergePlayed, readPlayModes, recentlyPlayed, recordPlayed, type Account, type Game, type MultiplayerMode } from "@zaisma/core";
+import { AGE_BAND_FLOOR_YEARS, KEPT_PLAYED_GAME_COUNT, NOT_BLOCKED_IN_COUNTRY_SQL, SHOWN_IN_LISTS_SQL, requestCountryCode, gameBySlug, mergePlayed, priceFor, priceText, readPlayModes, recentlyPlayed, recordPlayed, type Account, type Game, type LocalPrice, type MultiplayerMode } from "@zaisma/core";
 import { isProtectionOfferDue, markProtectionOffered, protectAccountWindow } from "./account-protection.ts";
 import { currentSession } from "./auth.ts";
 import type { Env } from "./env.ts";
@@ -45,6 +45,8 @@ export interface ShowGame {
   genres: string[];
   /** It has a multiplayer mode, or a local or online play mode: Browse's Multiplayer filter. */
   is_multiplayer: boolean;
+  /** It plays alone: a single play mode, or no modes said and no multiplayer: Browse's Single-player filter. */
+  is_single_player: boolean;
   /** People playing it right now (checked browsers with it on screen); cards show it from MINIMUM_PLAYING_NOW_PLAYER_COUNT up. */
   playing_now_player_count: number;
   /** none, multiplayer or whole_game: a guest can't start a whole_game game without an account. */
@@ -53,6 +55,10 @@ export interface ShowGame {
   glass_tint_color: string | null;
   /** What the home shows behind its glass while the game's cover is pointed at; null is Zaisma's own on both screens (the home's script fills it, backgroundsOfGames). */
   background: { wide: ShownBackground; phone: ShownBackground } | null;
+  /** It sells itself once (games.full_game_item_name): only owners play it. */
+  is_paid: boolean;
+  /** A paid game's price to play in the viewer's country; null for a free game, or a paid one not on sale now. */
+  full_game_price: { currencyCode: string; priceMinorUnits: number } | null;
 }
 
 const PEOPLE_ICON = '<svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><circle cx="6" cy="5.2" r="2.4"/><path d="M1.8 13.2c0-2.4 1.9-4.2 4.2-4.2s4.2 1.8 4.2 4.2"/><circle cx="11.6" cy="5.8" r="1.9"/><path d="M10.9 9c2 .2 3.4 1.9 3.4 4"/></svg>';
@@ -64,7 +70,8 @@ const PEOPLE_ICON = '<svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><ci
 export async function showcase(env: Env, viewerAgeFloorYears: number, maximumGameCount = 200, countryCode: string | null = null): Promise<ShowGame[]> {
   const [{ results }, playingNow] = await Promise.all([env.DB
     .prepare(
-      `SELECT games.id, games.slug, games.title, games.description, games.owner_id, games.devices, games.controls, games.screen_orientation, games.genres, games.play_modes, games.multiplayer_mode, games.account_requirement, games.glass_tint_color,
+      `SELECT games.id, games.slug, games.title, games.description, games.owner_id, games.devices, games.controls, games.screen_orientation, games.genres, games.play_modes, games.multiplayer_mode, games.account_requirement, games.glass_tint_color, games.full_game_item_name,
+         ${FULL_GAME_ITEM_SQL},
          accounts.username AS developer, versions.published_at_ms,
          (SELECT MIN(published_at_ms) FROM versions WHERE game_id = games.id) AS first_published_at_ms,
          (SELECT id FROM game_images WHERE game_id = games.id AND kind = 'cover' AND review_status = 'approved' ORDER BY created_at_ms DESC LIMIT 1) AS cover,
@@ -77,7 +84,7 @@ export async function showcase(env: Env, viewerAgeFloorYears: number, maximumGam
        ORDER BY COALESCE(versions.published_at_ms, games.updated_at_ms) DESC LIMIT ?`,
     )
     .bind(viewerAgeFloorYears, countryCode, maximumGameCount)
-    .all<{ id: string; slug: string; title: string; description: string; owner_id: string | null; devices: string; controls: string; screen_orientation: string; genres: string; play_modes: string; multiplayer_mode: MultiplayerMode; account_requirement: Game["account_requirement"]; glass_tint_color: string | null; developer: string | null; published_at_ms: number | null; first_published_at_ms: number | null; cover: string | null; square: string | null }>(),
+    .all<{ id: string; slug: string; title: string; description: string; owner_id: string | null; devices: string; controls: string; screen_orientation: string; genres: string; play_modes: string; multiplayer_mode: MultiplayerMode; account_requirement: Game["account_requirement"]; glass_tint_color: string | null; full_game_item_name: string | null; full_game_item: string | null; developer: string | null; published_at_ms: number | null; first_published_at_ms: number | null; cover: string | null; square: string | null }>(),
     playingNowCounts(env),
   ]);
   return results.map((row) => {
@@ -99,13 +106,47 @@ export async function showcase(env: Env, viewerAgeFloorYears: number, maximumGam
     screen_orientation: row.screen_orientation,
     genres: row.genres ? row.genres.split(",") : [],
     is_multiplayer: row.multiplayer_mode !== "none" || (playModes ?? []).some((playMode) => playMode.mode !== "single"),
+    is_single_player: playModes ? playModes.some((playMode) => playMode.mode === "single") : row.multiplayer_mode === "none",
     playing_now_player_count: playingNow.get(row.id) ?? 0,
     account_requirement: row.account_requirement,
     glass_tint_color: row.glass_tint_color,
     background: null,
+    is_paid: row.full_game_item_name !== null,
+    full_game_price: fullGamePriceOf(row.full_game_item, countryCode),
     };
   });
 }
+
+/** The SQL that reads a game's full game item's prices as one JSON column, for fullGamePriceOf. */
+export const FULL_GAME_ITEM_SQL = "(SELECT json_object('price_minor_units', price_minor_units, 'currency_code', currency_code, 'local_prices', local_prices) FROM game_items WHERE game_id = games.id AND item_name = games.full_game_item_name) AS full_game_item";
+
+/** A paid game's price to play in this country, from FULL_GAME_ITEM_SQL's column; null for a free game or one not on sale now. */
+export function fullGamePriceOf(fullGameItem: string | null, countryCode: string | null): { currencyCode: string; priceMinorUnits: number } | null {
+  if (!fullGameItem) return null;
+  const prices = JSON.parse(fullGameItem) as { price_minor_units: number | null; currency_code: string | null; local_prices: string };
+  return priceFor({ ...prices, local_prices: JSON.parse(prices.local_prices || "[]") as LocalPrice[] }, countryCode);
+}
+
+/**
+ * Of these games, the paid ones the account plays without buying: those it bought (or was granted), and its own. One read, through the
+ * purchases index by game and player.
+ */
+export async function paidGamesOwnedBy(env: Env, account: Pick<Account, "id" | "player_id"> | null | undefined, games: readonly Pick<ShowGame, "id" | "is_paid">[]): Promise<Set<string>> {
+  const paidGameIds = games.filter((game) => game.is_paid).map((game) => game.id);
+  if (!account || !paidGameIds.length) return new Set();
+  const { results } = await env.DB.prepare(
+    `SELECT purchases.game_id FROM purchases JOIN games ON games.id = purchases.game_id
+       WHERE purchases.game_id IN (SELECT value FROM json_each(?1)) AND purchases.player_id = ?2 AND purchases.item_name = games.full_game_item_name AND purchases.item_kind = 'permanent' AND purchases.purchase_status = 'completed'
+     UNION SELECT games.id FROM games JOIN owners ON owners.id = games.owner_id WHERE games.id IN (SELECT value FROM json_each(?1)) AND owners.account_id = ?3`,
+  )
+    .bind(JSON.stringify(paidGameIds), account.player_id, account.id)
+    .all<{ game_id: string }>();
+  return new Set(results.map((row) => row.game_id));
+}
+
+/** The price tag on a paid game's cover: its price to play, for a viewer who doesn't own it; nothing for a free game or an owner. */
+export const coverPriceText = (game: Pick<ShowGame, "id" | "full_game_price">, ownedGameIds: ReadonlySet<string>): string | undefined =>
+  game.full_game_price && !ownedGameIds.has(game.id) ? priceText(game.full_game_price.currencyCode, game.full_game_price.priceMinorUnits) : undefined;
 
 const DAY_MS = 86_400_000;
 /** Games per shelf, and the fewest that make a shelf worth showing. */
@@ -214,8 +255,8 @@ function card(game: Pick<ShowGame, "slug" | "title" | "cover" | "square"> & { pl
 const shownPlayerCount = (game: ShowGame): number | undefined => (game.playing_now_player_count >= MINIMUM_PLAYING_NOW_PLAYER_COUNT ? game.playing_now_player_count : undefined);
 
 /** A game in one of the home's rows (the home's script builds the same in the browser for Continue playing). */
-const coverOf = (game: ShowGame, loading: Pick<GameCoverOptions, "isEager" | "hasHighPriority"> = {}): Raw =>
-  gameCover({ title: game.title, imageUrl: game.cover ?? null, href: `/g/${game.slug}`, facts: { playerCount: shownPlayerCount(game) }, ...loading });
+const coverOf = (game: ShowGame, ownedGameIds: ReadonlySet<string>, loading: Pick<GameCoverOptions, "isEager" | "hasHighPriority"> = {}): Raw =>
+  gameCover({ title: game.title, imageUrl: game.cover ?? null, href: `/g/${game.slug}`, facts: { playerCount: shownPlayerCount(game), priceText: coverPriceText(game, ownedGameIds) }, ...loading });
 
 /** The first shelf's covers the page opens with in view, about a phone's or a wide screen's first row: they load with the page. */
 const FIRST_VIEW_COVER_COUNT = 4;
@@ -224,9 +265,9 @@ const FIRST_VIEW_COVER_COUNT = 4;
  * One of the home's shelves: its heading (a link to Browse with this sort), its arrows and its covers. The first shelf's first covers load
  * with the page, the very first before anything else, since one of them is the largest thing in the first view; the rest wait until they near the screen.
  */
-function homeShelf(id: string, title: string, sortName: string, list: ShowGame[], isFirstShelf: boolean): LayoutItem {
+function homeShelf(id: string, title: string, sortName: string, list: ShowGame[], isFirstShelf: boolean, ownedGameIds: ReadonlySet<string>): LayoutItem {
   const loadingOf = (coverIndex: number) => (isFirstShelf && coverIndex < FIRST_VIEW_COVER_COUNT ? { isEager: true, hasHighPriority: coverIndex === 0 } : {});
-  return { kind: "block", markup: shelf({ id, trackId: `track-${id}`, title, titleHref: `/games?sort=${sortName}`, items: list.map((game, coverIndex) => ({ kind: "block" as const, markup: coverOf(game, loadingOf(coverIndex)) })) }) };
+  return { kind: "block", markup: shelf({ id, trackId: `track-${id}`, title, titleHref: `/games?sort=${sortName}`, items: list.map((game, coverIndex) => ({ kind: "block" as const, markup: coverOf(game, ownedGameIds, loadingOf(coverIndex)) })) }) };
 }
 
 /** What of each game the home's script needs: Continue playing's covers, the background behind the cover pointed at and the devices it puts first. */
@@ -253,6 +294,7 @@ export async function home(env: Env, request: Request): Promise<Response> {
     currentAnnouncement(env),
   ]);
   for (const game of games) game.background = backgrounds.get(game.id) ?? null;
+  const ownedGameIds = await paidGamesOwnedBy(env, account, games);
   const browserGames = games.map((game) => Object.fromEntries(BROWSER_GAME_FIELDS.map((name) => [name, game[name]])));
   // Zaisma's news, until it ends or this device closes it (the script shows it unless it's been closed).
   const newsLink = news ? shownAddress(news.link_url) : null;
@@ -279,9 +321,9 @@ export async function home(env: Env, request: Request): Promise<Response> {
             ...newsBanner,
             ...guestBanner,
             { kind: "block", id: "home-continue", isHidden: true, markup: continuePlaying },
-            ...(popular.length ? [homeShelf("popular", "Popular", "popular", popular, true)] : []),
-            ...(trending.length ? [homeShelf("trending", "Trending", "trending", trending, !popular.length)] : []),
-            ...(fresh.length ? [homeShelf("new", "New", "new", fresh, !popular.length && !trending.length)] : []),
+            ...(popular.length ? [homeShelf("popular", "Popular", "popular", popular, true, ownedGameIds)] : []),
+            ...(trending.length ? [homeShelf("trending", "Trending", "trending", trending, !popular.length, ownedGameIds)] : []),
+            ...(fresh.length ? [homeShelf("new", "New", "new", fresh, !popular.length && !trending.length, ownedGameIds)] : []),
             { kind: "block", markup: row({ widths: "fit", alignment: "center", items: [{ kind: "control", markup: textButton("All games", { href: "/games" }) }] }) },
           ],
         })}`,

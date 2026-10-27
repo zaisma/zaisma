@@ -2647,6 +2647,134 @@ describe("a game for 16 and up", () => {
   });
 });
 
+describe("a game that sells itself", () => {
+  // Ashfall sells itself for $24.99 and two add-ons on its page; Ashfall Demo is its free demo. Emma made both.
+  async function paidGame() {
+    await env.DB.exec("DELETE FROM purchases; DELETE FROM game_items;");
+    const developer = new Browser();
+    await join(developer, null, "Emma_Clarke");
+    const developerAccount = (await env.DB.prepare("SELECT id FROM accounts WHERE username = 'Emma_Clarke'").first<{ id: string }>())!;
+    await env.DB.prepare("INSERT INTO owners (id, kind, account_id, created_at_ms) VALUES ('owner_emma', 'person', ?, 1)").bind(developerAccount.id).run();
+    const now = Date.now();
+    await env.DB.batch([
+      env.DB.prepare(
+        "INSERT INTO games (id, slug, title, review_status, visibility, live_version_id, multiplayer_mode, account_requirement, full_game_item_name, demo_game_id, refund_policy, owner_id, entry_signing_key, created_at_ms, updated_at_ms) VALUES ('g-ashfall', 'ashfall', 'Ashfall', 'live', 'listed', 'v-ashfall', 'relay', 'whole_game', 'full_game', 'g-ashfall-demo', 'no_refunds', 'owner_emma', 'entrykey', ?, ?)",
+      ).bind(now, now),
+      env.DB.prepare("INSERT INTO games (id, slug, title, review_status, visibility, live_version_id, owner_id, created_at_ms, updated_at_ms) VALUES ('g-ashfall-demo', 'ashfall-demo', 'Ashfall Demo', 'live', 'listed', 'v-ashfall-demo', 'owner_emma', ?, ?)").bind(now, now),
+      env.DB.prepare("INSERT INTO versions (id, game_id, r2_prefix, file_count, size_bytes, scan_status, created_at_ms) VALUES ('v-ashfall', 'g-ashfall', 'games/g-ashfall/v-ashfall', 1, 0, 'approved', 0), ('v-ashfall-demo', 'g-ashfall-demo', 'games/g-ashfall-demo/v', 1, 0, 'approved', 0)"),
+      env.DB.prepare(
+        `INSERT INTO game_items (game_id, item_name, title, description, item_kind, item_category, price_minor_units, currency_code, local_prices, is_on_game_page, created_at_ms, updated_at_ms) VALUES
+           ('g-ashfall', 'full_game', 'Ashfall', '', 'permanent', 'content', 2499, 'usd', '[]', 0, 1, 1),
+           ('g-ashfall', 'frozen_north', 'The Frozen North', 'A new region.\nTwelve hours of story.', 'permanent', 'content', 999, 'usd', '[]', 1, 1, 1),
+           ('g-ashfall', 'supporter_pack', 'Supporter pack', 'A cape and a banner.', 'permanent', 'cosmetic', 499, 'usd', '[]', 1, 1, 1),
+           ('g-ashfall', 'revive', 'Revive', '', 'consumable', 'gameplay', 199, 'usd', '[]', 0, 1, 1)`,
+      ),
+    ]);
+    const owner = new Browser();
+    await join(owner, null, "Alex_Turner");
+    const ownerPlayer = (await env.DB.prepare("SELECT player_id FROM accounts WHERE username = 'Alex_Turner'").first<{ player_id: string }>())!;
+    await env.DB.prepare("INSERT INTO purchases (id, game_id, item_name, item_kind, player_id, purchase_source, purchase_status, created_at_ms) VALUES ('purchase_full', 'g-ashfall', 'full_game', 'permanent', ?1, 'sale', 'completed', 1), ('purchase_pack', 'g-ashfall', 'supporter_pack', 'permanent', ?1, 'sale', 'completed', 1)").bind(ownerPlayer.player_id).run();
+    const stranger = new Browser();
+    await join(stranger, null, "Ben_Walker");
+    return { developer, owner, stranger, guest: new Browser() };
+  }
+  const entry = (b: Browser) => b.go("/api/plays/ashfall/entry", undefined, { method: "POST", body: JSON.stringify({ then: "" }) });
+  const start = (b: Browser) => b.go("/api/plays/ashfall", undefined, { method: "POST", body: JSON.stringify({ token: "test-token" }) });
+
+  afterEach(async () => {
+    await env.DB.exec("DELETE FROM purchases; DELETE FROM game_items;");
+  });
+
+  it("plays only for owners, its developer and tester links: Play, its files' entry and room keys turn everyone else away", async () => {
+    const { developer, owner, stranger, guest } = await paidGame();
+    for (const b of [owner, developer]) {
+      expect((await (await entry(b)).json()) as { entry_url: string }).toMatchObject({ entry_url: expect.stringMatching(/\/ashfall\/_zaisma\/enter\?grant=/) });
+      // Started, not turned away (this file's stand-in check doesn't pass plays, so no key or ticket comes with it).
+      expect((await start(b)).status).toBe(204);
+    }
+    const notOwned = await entry(stranger);
+    expect(notOwned.status).toBe(403);
+    expect(await notOwned.json()).toMatchObject({ error: { code: "full_game_not_owned", message: "Buy Ashfall to play." } });
+    expect(await (await start(stranger)).json()).toMatchObject({ error: { code: "full_game_not_owned" } });
+    expect(await (await entry(guest)).json()).toMatchObject({ error: { code: "account_needed" } });
+    // No room key reached anyone who doesn't own it.
+    const strangerAccount = (await env.DB.prepare("SELECT id FROM accounts WHERE username = 'Ben_Walker'").first<{ id: string }>())!;
+    expect(await env.DB.prepare("SELECT COUNT(*) AS key_count FROM room_keys WHERE account_id = ?").bind(strangerAccount.id).first("key_count")).toBe(0);
+    // A tester link plays it, as it skips the account rule.
+    const link = await addTesterLink(env.DB, "g-ashfall", "Friends");
+    expect((await guest.go("/api/plays/ashfall", undefined, { method: "POST", body: JSON.stringify({ tester: link.token, token: "test-token" }) })).status).toBe(204);
+    // A refund ends it.
+    await env.DB.prepare("UPDATE purchases SET purchase_status = 'refunded' WHERE id = 'purchase_full'").run();
+    expect(await (await entry(owner)).json()).toMatchObject({ error: { code: "full_game_not_owned" } });
+  });
+
+  it("keeps playing for owners after the developer hides it, and is not found for anyone else", async () => {
+    const { owner, stranger, guest } = await paidGame();
+    await env.DB.prepare("UPDATE games SET visibility = 'private' WHERE id = 'g-ashfall'").run();
+    expect(await (await entry(owner)).json()).toMatchObject({ entry_url: expect.any(String) });
+    expect((await owner.go("/g/ashfall")).status).toBe(200);
+    expect((await entry(stranger)).status).toBe(404);
+    expect((await start(stranger)).status).toBe(404);
+    expect((await stranger.go("/g/ashfall")).status).toBe(404);
+    expect((await guest.go("/g/ashfall")).status).toBe(404);
+    // A takedown ends it for owners too.
+    await env.DB.prepare("UPDATE games SET review_status = 'removed' WHERE id = 'g-ashfall'").run();
+    expect((await entry(owner)).status).toBe(404);
+  });
+
+  it("shows Buy and the price where Play is, its demo and its add-ons, and Play and Owned to an owner", async () => {
+    const { owner, guest, stranger } = await paidGame();
+    const forSale = await guest.go("/g/ashfall?room=BCDFGH");
+    expect(forSale.headers.get("cache-control")).toBe("no-store");
+    const forSalePage = await forSale.text();
+    expect(forSalePage).toContain('id="buy-game"');
+    expect(forSalePage).toContain('data-buy-item="full_game"');
+    expect(forSalePage).toContain("$24.99");
+    expect(forSalePage).not.toContain('id="play"');
+    expect(forSalePage).not.toContain(">Needs a Zaisma account<");
+    expect(forSalePage).toContain('href="/g/ashfall-demo?play"');
+    // Add-ons: the two the developer put on the page, the first line of each description, not the full game or the revive.
+    expect(forSalePage).toContain(">Add-ons<");
+    expect(forSalePage).toContain("The Frozen North");
+    expect(forSalePage).toContain("A new region.");
+    expect(forSalePage).not.toContain("Twelve hours of story.");
+    expect(forSalePage).toContain('data-buy-item="supporter_pack"');
+    expect(forSalePage).not.toContain('data-buy-item="revive"');
+    // A room link to it opens the details with Buy, not the match.
+    expect(pageDataOf(forSalePage, "game-page-data")).toMatchObject({ autoplay: "never", room_code: "" });
+    expect(pageDataOf(forSalePage, "buy-sheet-data")).toMatchObject({ opened_item_name: null });
+    // ?buy opens the sheet at once for someone who can buy it, and is ignored for an owner.
+    expect(pageDataOf(await (await stranger.go("/g/ashfall?buy")).text(), "buy-sheet-data")).toMatchObject({ opened_item_name: "full_game" });
+    const owned = await (await owner.go("/g/ashfall?buy")).text();
+    expect(owned).toContain('id="play"');
+    expect(owned).not.toContain('id="buy-game"');
+    expect(owned).not.toContain('href="/g/ashfall-demo?play"');
+    expect(owned).not.toContain('data-buy-item="supporter_pack"');
+    expect(owned).toContain(">Owned<");
+    expect(pageDataOf(owned, "buy-sheet-data")).toMatchObject({ opened_item_name: null });
+    // The demo's page links to the full game; the label says no in-game purchases come with the full game alone.
+    const demo = await (await guest.go("/g/ashfall-demo")).text();
+    expect(demo).toContain('id="play"');
+    expect(demo).toContain('href="/g/ashfall?buy"');
+    // Taken off sale: owners still play, others see it's not on sale.
+    await env.DB.prepare("UPDATE game_items SET price_minor_units = NULL, currency_code = NULL WHERE item_name = 'full_game'").run();
+    expect(await (await guest.go("/g/ashfall")).text()).toContain("Not on sale right now");
+  });
+
+  it("puts its price on its cover for anyone who doesn't own it, and Browse filters by price range", async () => {
+    const { owner, guest } = await paidGame();
+    const browse = await (await guest.go("/games")).text();
+    expect(browse).toContain("$24.99");
+    expect(await (await owner.go("/games")).text()).not.toContain("$24.99");
+    const ranged = await (await guest.go("/games?price=15_to_30")).text();
+    expect(ranged).toContain("Ashfall");
+    expect(ranged).not.toContain("Ashfall Demo");
+    const free = await (await guest.go("/games?price=free")).text();
+    expect(free).toContain("Ashfall Demo");
+    expect(await (await guest.go("/games?price=30_and_up")).text()).toContain("No games in this price range yet");
+  });
+});
+
 describe("API keys on the account page", () => {
   it("shows a new key once, lists it and removes it", async () => {
     const b = new Browser();
