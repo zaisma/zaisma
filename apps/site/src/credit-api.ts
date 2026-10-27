@@ -1,9 +1,9 @@
-import { ApiError, CREDIT_LIMITS, FREE_HOSTING_CENTS_PER_MONTH, automaticTopUpsThisMonth, checkIdKind, creditOf, isCreditLow, iso, monthStartDateOf, newId, refundableTopUps, type CreditEntryKind } from "@zaisma/core";
+import { ApiError, CREDIT_LIMITS, FREE_HOSTING_CENTS_PER_MONTH, automaticTopUpsThisMonth, checkIdKind, creditOf, isCreditLow, iso, monthStartDateOf, newId, passkeysFor, refundableTopUps, type CreditEntryKind } from "@zaisma/core";
 import { confirmationOf } from "./session-proofs.ts";
 import { logCallerEvent } from "./security-log.ts";
 import { refundCharge, topUpCheckout } from "./stripe.ts";
 import { askForSpending, spendingRequestAnswer, spendingRequestUrl, type SpendingChange } from "./spending-requests.ts";
-import type { Session } from "./auth.ts";
+import { authUserEmail, realEmail, type Session } from "./auth.ts";
 import type { Caller, NextStep } from "./developer.ts";
 import type { Env } from "./env.ts";
 
@@ -88,6 +88,13 @@ export async function creditAnswer(env: Env, ownerId: string, nowMs = Date.now()
   };
 }
 
+/** Whether the account has a passkey or a real email: a way back in that isn't just a password. */
+async function isAccountProtected(env: Env, accountId: string): Promise<boolean> {
+  if ((await passkeysFor(env.DB, accountId)).length > 0) return true;
+  const email = await authUserEmail(env, accountId);
+  return Boolean(email && realEmail(email));
+}
+
 const wholeCents = (given: unknown) => typeof given === "number" && Number.isInteger(given);
 
 /** One call, once the router (developer.ts, checkCall) has checked the key. */
@@ -117,6 +124,13 @@ export async function creditRoute(env: Env, path: string, method: string, body: 
         message: `amount_cents ${JSON.stringify(amountCents)} isn't a top-up Zaisma takes: whole cents from ${CREDIT_LIMITS.minimumTopUpCents} ($10) to ${CREDIT_LIMITS.maximumTopUpCents} ($1,000).`,
         field: "amount_cents",
         fix: "Give cents, not dollars: 2000 is $20.",
+      });
+    }
+    // A top-up keeps the card, so (like linking a parent) it waits until the account has a passkey or an email to get back in with.
+    if (!(await isAccountProtected(env, caller.accountId))) {
+      throw new ApiError("account_not_protected", {
+        message: "This account has no passkey and no email yet, and a top-up keeps your card for later ones.",
+        fix: `Add a passkey or an email on ${env.SITE_ORIGIN}/account, then top up again.`,
       });
     }
     const checkout = await topUpCheckout(env, ownerId, amountCents as number);

@@ -727,6 +727,7 @@ Zaisma preview is running. Nothing here touches the live site.
   Leaked keys     ${SITE}/account#developer  (as Preview_Studio: three key rows, one working with a last use and an end date, one
                   turned off after GitHub found it, one that ended yesterday; Make an API key shows the Ends choice) and
                   ${SITE}/account#activity  (Zaisma turned off an API key found in public)
+  Add credit      ${SITE}/dashboard/settings#hosting  (as Quiet_Builder, no passkey or email: Add credit, then Pay on Stripe, says to add one first; as Key_Maker, with an email, it goes on to Stripe)
   Security alerts ${SITE}/account  (as Quiet_Builder, no email: two alerts with That was me and Not you?, then
                   Where should we tell you…? with Skip) and ${SITE}/dashboard  (the same two); the mailbox has the
                   alerts accounts with an email got (an email added, a new sign-in, a new key);

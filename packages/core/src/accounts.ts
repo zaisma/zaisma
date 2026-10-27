@@ -98,10 +98,15 @@ export function birthDateText(birth: { yearNumber: number; monthNumber: number; 
   return `${String(birth.yearNumber).padStart(4, "0")}-${String(birth.monthNumber).padStart(2, "0")}-${String(birth.dayNumber).padStart(2, "0")}`;
 }
 
+/** Whole years a kept birth date is old on that day, or null for one that doesn't read. */
+export function ageYearsOn(birthDate: string, today: Date): number | null {
+  const parts = /^(\d{4})-(\d{2})-(\d{2})$/.exec(birthDate);
+  return parts ? ageOn({ yearNumber: Number(parts[1]), monthNumber: Number(parts[2]), dayNumber: Number(parts[3]) }, today) : null;
+}
+
 /** The band a kept birth date is in on that day, or null for one that doesn't read (or is under 13). */
 export function ageBandOn(birthDate: string, today: Date): AgeBand | null {
-  const parts = /^(\d{4})-(\d{2})-(\d{2})$/.exec(birthDate);
-  const ageYearCount = parts ? ageOn({ yearNumber: Number(parts[1]), monthNumber: Number(parts[2]), dayNumber: Number(parts[3]) }, today) : null;
+  const ageYearCount = ageYearsOn(birthDate, today);
   return ageYearCount === null ? null : ageBand(ageYearCount);
 }
 
@@ -111,6 +116,38 @@ export function ageBandOn(birthDate: string, today: Date): AgeBand | null {
  */
 export function birthdayToday(nowMs = Date.now()): Date {
   return new Date(nowMs - 12 * 3600_000);
+}
+
+const DAY_MS = 86_400_000;
+const startOfUtcDay = (ms: number) => Math.floor(ms / DAY_MS) * DAY_MS;
+
+/**
+ * The day the age question counts: the date on the player's own device (YYYY-MM-DD, sent by the sign-up
+ * form), so a 13th birthday counts from midnight where they are. It's held within Earth's time zones, from
+ * the date at UTC−12 to the date at UTC+14; anything else (or no date) counts the UTC date.
+ */
+export function signUpToday(deviceDate: string | undefined, nowMs = Date.now()): Date {
+  const parts = /^(\d{4})-(\d{2})-(\d{2})$/.exec(deviceDate ?? "");
+  if (parts) {
+    const given = new Date(Date.UTC(Number(parts[1]), Number(parts[2]) - 1, Number(parts[3])));
+    const isRealDate = given.getUTCMonth() === Number(parts[2]) - 1 && given.getUTCDate() === Number(parts[3]);
+    if (isRealDate && given.getTime() >= startOfUtcDay(nowMs - 12 * 3600_000) && given.getTime() <= startOfUtcDay(nowMs + 14 * 3600_000)) return given;
+  }
+  return new Date(nowMs);
+}
+
+/** How long the join steps' cookie lives, in milliseconds (JOIN_DURATION_SEC in the account pages). */
+const JOIN_COOKIE_MS = 3600_000;
+
+/**
+ * Whether the join steps' cookie keeps its birth date: the band it says is one the birth date could have read when the age
+ * question was answered (the day on the player's own device, UTC−12 to UTC+14, within the cookie's life). Steps that cross
+ * midnight keep it; a cookie that says a band its date can't (a forged one) drops it.
+ */
+export function joinBirthDateKept(birthDate: string, band: AgeBand, nowMs = Date.now()): boolean {
+  const earliestBand = ageBandOn(birthDate, new Date(nowMs - JOIN_COOKIE_MS - 12 * 3600_000));
+  const latestBand = ageBandOn(birthDate, new Date(nowMs + 14 * 3600_000));
+  return latestBand !== null && AGE_BAND_ORDER[band] <= AGE_BAND_ORDER[latestBand] && (earliestBand === null || AGE_BAND_ORDER[earliestBand] <= AGE_BAND_ORDER[band]);
 }
 
 const AGE_BAND_ORDER: Record<AgeBand, number> = { "13-15": 0, "16-17": 1, "18+": 2 };
@@ -222,13 +259,15 @@ export async function accountWithBirthday(database: D1Database, account: Account
 /**
  * What an account's kept birth date changes today, or null for nothing: its band moves up (carrying its
  * preset over, socialSettingsInNewBand) and from 18 the date is deleted. Bands never move down, and a
- * date that doesn't read is deleted.
+ * date that doesn't read is deleted; one that reads under 13 is kept on an under-18 account.
  */
 function birthdayChange(account: Account, nowMs: number): (Pick<Account, "age_band" | "birth_date"> & SocialSettings) | null {
   if (!account.birth_date) return null;
-  const band = ageBandOn(account.birth_date, birthdayToday(nowMs));
-  if (!band || account.age_band === "18+") return { age_band: account.age_band, birth_date: null, ...socialSettingsOf(account) };
-  if (AGE_BAND_ORDER[band] <= AGE_BAND_ORDER[account.age_band]) return null;
+  const ageYearCount = ageYearsOn(account.birth_date, birthdayToday(nowMs));
+  if (ageYearCount === null || account.age_band === "18+") return { age_band: account.age_band, birth_date: null, ...socialSettingsOf(account) };
+  const band = ageBand(ageYearCount);
+  // Under 13 on this clock: the date was answered on the player's own clock a day ahead of it, so it stays until it reads 13.
+  if (!band || AGE_BAND_ORDER[band] <= AGE_BAND_ORDER[account.age_band]) return null;
   return { age_band: band, birth_date: band === "18+" ? null : account.birth_date, ...socialSettingsInNewBand(account, band) };
 }
 
