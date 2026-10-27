@@ -51,8 +51,9 @@ declare namespace Zaisma {
     /**
      * This tab's player, with their player pass: the signed-in Zaisma account, with the same player ID in
      * every game, or a guest. joinRoom gets one by itself; call this to let the player into a server of
-     * your own. Kept for the tab, so a guest who reloads stays the same guest, and renewed when it has
-     * under 10 minutes left or the player signed in or out. Fails with error.code "unchecked" when the
+     * your own. A guest's is kept for the tab, so a guest who reloads stays the same guest, and renewed when
+     * it has under 10 minutes left or the player signs in; an account gets a new one each time the game
+     * loads, for whoever is signed in then. Fails with error.code "unchecked" when the
      * game isn't played on its zaisma.com page, "not_on_zaisma" when it isn't hosted on Zaisma, and
      * "account_needed" for a guest when the game needs an account for multiplayer or the whole game
      * (its account_requirement setting): ask them to sign in with Zaisma.player.signIn().

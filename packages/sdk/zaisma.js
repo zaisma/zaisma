@@ -190,9 +190,11 @@
     if (!config.rooms) return Promise.reject(notOnZaisma("Player passes come from Zaisma, so they work only in games played on Zaisma."));
     if (!passPromise) {
       passPromise = roomKey().then(function (given) {
-        // The kept pass, unless the player signed in or out since it was made.
+        // A guest keeps their pass, so a reload is the same guest. An account gets a new one with each page's key: the key is for
+        // whoever is signed in now (another account than the kept pass's, maybe), and its pass brings their chat settings, friends
+        // and blocks as they are now; the account's player ID is the same either way.
         var kept = keptPass();
-        if (kept && kept.kind === given.playerKind) return kept;
+        if (kept && kept.kind === "guest" && given.playerKind === "guest") return kept;
         return post("/v1/pass", { gameSlug: config.game, roomKey: given.key }).then(function (answer) {
           var mine = { id: answer.player.id, name: answer.player.name, kind: answer.player.kind, pass: answer.pass, expiresAt: answer.expiresAt };
           try { sessionStorage.setItem(passKey, JSON.stringify(mine)); } catch (error) { /* fine */ }
