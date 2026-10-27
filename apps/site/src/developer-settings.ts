@@ -997,6 +997,11 @@ export async function handleDeveloperSettings(request: Request, env: Env, path: 
     if (sub === "credit/top-up") {
       const picked = field("amount_cents", 20);
       const cents = picked === "other" || picked === "" ? centsOf(field("other_dollars", 20)) : Number(picked);
+      // The page's own words for an amount the API wouldn't take: the API's speak of cents, which nobody typed here.
+      if (!Number.isInteger(cents) || cents < CREDIT_LIMITS.minimumTopUpCents || cents > CREDIT_LIMITS.maximumTopUpCents) {
+        const range = `${dollars(CREDIT_LIMITS.minimumTopUpCents)} to ${dollars(CREDIT_LIMITS.maximumTopUpCents)}`;
+        return settingsPage(env, request, session, caller, account, { problem: picked === "" ? `Pick an amount, from ${range}.` : `Type an amount in dollars, from ${range}.` }, 400);
+      }
       const made = (await call("POST", "/credit/top-ups", { amount_cents: cents })) as { checkout_url: string };
       return redirect(made.checkout_url, session.cookies);
     }
