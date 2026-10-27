@@ -28,6 +28,7 @@ import { handleScanBatch, queueImageChecks, rescanWaiting } from "./scan.ts";
 import { queueMissingCompression } from "./compress.ts";
 import { handlePerformanceBatch, type PerformanceJob } from "./performance-check.ts";
 import { handleBackupMessage, startBackupRun, type BackupPart } from "./backups.ts";
+import { handleRestoreMessage, runWaitingRestore, type RestorePart } from "./restore.ts";
 import { queueListingChecks, runListingCheck } from "./listing-check.ts";
 import { checkShaderFromQueue, queueShaderChecks } from "./shader-check.ts";
 import { coverGuidePage } from "./cover-guide.ts";
@@ -207,9 +208,12 @@ export default {
   async queue(batch, env): Promise<void> {
     // Versions to open in Chrome have a queue of their own (zaisma-performance, or its stand-in in tests).
     if (batch.queue.startsWith("zaisma-performance")) return handlePerformanceBatch(batch as MessageBatch<PerformanceJob>, env);
-    // The night's copy to Backblaze (zaisma-backup): one part a message.
+    // The night's copy to Backblaze (zaisma-backup), or a restore from it: one part a message.
     if (batch.queue.startsWith("zaisma-backup")) {
-      for (const message of (batch as unknown as MessageBatch<BackupPart>).messages) await handleBackupMessage(env, message);
+      for (const message of (batch as unknown as MessageBatch<BackupPart | RestorePart>).messages) {
+        if (message.body.part_kind === "restore") await handleRestoreMessage(env, message as Message<RestorePart>);
+        else await handleBackupMessage(env, message as Message<BackupPart>);
+      }
       return;
     }
     const scans: Message<ScanJob>[] = [];
@@ -237,6 +241,8 @@ export default {
   },
 
   async scheduled(event, env): Promise<void> {
+    // While a restore from the backups runs, nothing else does: a cleanup would delete files whose owners haven't come back yet (restore.ts).
+    if (await runWaitingRestore(env)) return;
     // One failing job mustn't stop the others.
     const jobs = await Promise.allSettled([moveFiles(env), publishDue(env), triageReports(env), sortTopics(env), sortMisplaced(env), checkForumPosts(env), checkProfiles(env), reviewChatMessages(env), deliverDueWebhooks(env), eraseDuePlayers(env), deleteDueGames(env), ...(event.cron === DAILY ? [] : [runHostingJob(env).then(() => tellAlertNotices(env)), retryPendingRefunds(env)]), tellGameServerErrors(env), recheckLinks(env), rescanWaiting(env), watchHealth(env), testWaitingReviewPrecedents(env), queueListingChecks(env), queueShaderChecks(env), deleteAbandonedSignIns(env, event.cron === DAILY ? DAILY_SIGN_IN_SWEEP_MS : RECENT_SIGN_IN_SWEEP_MS), ...(event.cron === DAILY ? [dailyCleanup(env), failStaleSales(env), queueImageChecks(env), queueMissingCompression(env), startBackupRun(env)] : [])]);
     for (const job of jobs) if (job.status === "rejected") console.error("scheduled job failed", job.reason);

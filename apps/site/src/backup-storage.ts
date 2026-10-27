@@ -23,12 +23,29 @@ export interface BackupStorageSettings {
   keySecret: string;
 }
 
-/** One version of an object in the bucket, as ListObjectVersions answers it. */
+/** One version of an object in the bucket, as ListObjectVersions answers it; a hide marker (isHidden) is Backblaze's lifecycle rule hiding the object. */
 export interface BackupObjectVersion {
   key: string;
   versionId: string;
   lastModifiedAtMs: number;
+  sizeBytes: number;
+  isHidden: boolean;
 }
+
+/** What R2 kept with an object besides its bytes, sent with each copy so a restore puts it back. */
+export interface BackupObjectMetadata {
+  contentType?: string;
+  customMetadata?: Record<string, string>;
+}
+
+/** One version's bytes and what was kept with them. */
+export interface BackupObject extends BackupObjectMetadata {
+  body: ReadableStream<Uint8Array>;
+  sizeBytes: number;
+}
+
+/** R2's custom metadata travels as one header, its JSON percent-encoded: S3 metadata names can't hold every name R2's can. */
+const CUSTOM_METADATA_HEADER = "x-amz-meta-custom-metadata";
 
 /** How a storage waits before trying a request again: the real wait, unless a test gives one that doesn't. */
 export type BackupWait = (durationMs: number) => Promise<void>;
@@ -39,17 +56,22 @@ export class BackupStorageError extends Error {}
 const EMPTY_SHA256_HEX = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
 
 export class BackupStorage {
-  constructor(
-    private readonly settings: BackupStorageSettings,
-    private readonly wait: BackupWait = waitFor,
-  ) {}
+  // Plain fields, not constructor parameter properties: scripts/restore.mjs runs this file in Node, which only strips types.
+  private readonly settings: BackupStorageSettings;
+  private readonly wait: BackupWait;
+
+  constructor(settings: BackupStorageSettings, wait: BackupWait = waitFor) {
+    this.settings = settings;
+    this.wait = wait;
+  }
 
   /**
    * Writes the source's bytes as the object's newest version: in one request when they fit in a part,
    * else as a multipart upload. Answers the size written. An upload that fails part way is left for the
    * bucket's lifecycle rule to cancel (the key can't).
    */
-  async uploadObject(key: string, source: AsyncIterable<Uint8Array>): Promise<number> {
+  async uploadObject(key: string, source: AsyncIterable<Uint8Array>, metadata: BackupObjectMetadata = {}): Promise<number> {
+    const metadataHeaders = metadataHeadersOf(metadata);
     let held: Uint8Array[] = [];
     let heldSizeBytes = 0;
     let uploadId: string | null = null;
@@ -59,7 +81,7 @@ export class BackupStorage {
       const bytes = joinBytes(held, heldSizeBytes);
       held = [];
       heldSizeBytes = 0;
-      uploadId ??= await this.startMultipartUpload(key);
+      uploadId ??= await this.startMultipartUpload(key, metadataHeaders);
       const response = await this.send("PUT", key, { partNumber: String(partEtags.length + 1), uploadId }, bytes);
       const etag = response.headers.get("etag");
       if (!etag) throw new BackupStorageError(`Backblaze answered part ${partEtags.length + 1} of ${key} without an ETag.`);
@@ -73,7 +95,7 @@ export class BackupStorage {
       if (heldSizeBytes >= BACKUP_STORAGE_LIMITS.partSizeBytes) await sendPart();
     }
     if (uploadId === null) {
-      await this.send("PUT", key, {}, joinBytes(held, heldSizeBytes));
+      await this.send("PUT", key, {}, joinBytes(held, heldSizeBytes), metadataHeaders);
       return sizeBytes;
     }
     if (heldSizeBytes) await sendPart();
@@ -89,28 +111,57 @@ export class BackupStorage {
   async listObjectVersions(prefix: string, versionLimitCount = 1000): Promise<BackupObjectVersion[]> {
     const response = await this.send("GET", "", { versions: "", prefix, "max-keys": String(versionLimitCount) }, null);
     const answerText = await response.text();
-    return [...answerText.matchAll(/<Version>([\s\S]*?)<\/Version>/g)].map((match) => ({
-      key: xmlValue(match[1]!, "Key") ?? "",
-      versionId: xmlValue(match[1]!, "VersionId") ?? "",
-      lastModifiedAtMs: Date.parse(xmlValue(match[1]!, "LastModified") ?? ""),
-    }));
+    return versionsOf(answerText);
   }
 
-  private async startMultipartUpload(key: string): Promise<string> {
-    const response = await this.send("POST", key, { uploads: "" }, new Uint8Array());
+  /**
+   * A page of every version in the bucket whose key starts with prefix, after afterKey (null for the
+   * first), each key's versions newest first. A page holds only whole keys: when Backblaze cut the last
+   * key short, its versions wait for the next page, and nextAfterKey says where that starts (null on the last page).
+   */
+  async listVersionPage(prefix: string, afterKey: string | null, versionLimitCount = 1000): Promise<{ versions: BackupObjectVersion[]; nextAfterKey: string | null }> {
+    const response = await this.send("GET", "", { versions: "", prefix, "max-keys": String(versionLimitCount), ...(afterKey ? { "key-marker": afterKey } : {}) }, null);
+    const answerText = await response.text();
+    const versions = versionsOf(answerText).sort((first, second) => (first.key < second.key ? -1 : first.key > second.key ? 1 : second.lastModifiedAtMs - first.lastModifiedAtMs));
+    if (xmlValue(answerText, "IsTruncated") !== "true" || !versions.length) return { versions, nextAfterKey: null };
+    const lastKey = versions.at(-1)!.key;
+    const whole = versions.filter((version) => version.key !== lastKey);
+    // A key with more versions than a page can't happen: the bucket keeps about 29 nights of each.
+    if (!whole.length) throw new BackupStorageError(`${lastKey} has more versions than a page of ${versionLimitCount}.`);
+    return { versions: whole, nextAfterKey: whole.at(-1)!.key };
+  }
+
+  /** One version's bytes, with the content type and custom metadata it was copied with. */
+  async getObject(key: string, versionId: string): Promise<BackupObject> {
+    const response = await this.send("GET", key, { versionId }, null);
+    if (!response.body) throw new BackupStorageError(`Backblaze answered ${key} without its bytes.`);
+    const customMetadataText = response.headers.get(CUSTOM_METADATA_HEADER);
+    let customMetadata: Record<string, string> | undefined;
+    if (customMetadataText) {
+      try {
+        customMetadata = JSON.parse(decodeURIComponent(customMetadataText)) as Record<string, string>;
+      } catch {
+        throw new BackupStorageError(`${key}'s custom metadata isn't the JSON a backup writes.`);
+      }
+    }
+    return { body: response.body, sizeBytes: Number(response.headers.get("content-length") ?? 0), contentType: response.headers.get("content-type") ?? undefined, customMetadata };
+  }
+
+  private async startMultipartUpload(key: string, metadataHeaders: Record<string, string>): Promise<string> {
+    const response = await this.send("POST", key, { uploads: "" }, new Uint8Array(), metadataHeaders);
     const uploadId = xmlValue(await response.text(), "UploadId");
     if (!uploadId) throw new BackupStorageError(`Backblaze didn't start a multipart upload of ${key}.`);
     return uploadId;
   }
 
   /** One signed request, tried again on 5xx, 429 or a broken connection; any other refusal throws with Backblaze's message. */
-  private async send(method: "GET" | "PUT" | "POST", key: string, query: Record<string, string>, body: Uint8Array | null): Promise<Response> {
+  private async send(method: "GET" | "PUT" | "POST", key: string, query: Record<string, string>, body: Uint8Array | null, extraHeaders: Record<string, string> = {}): Promise<Response> {
     let lastFailure = "";
     for (let tryNumber = 1; tryNumber <= BACKUP_STORAGE_LIMITS.requestTryCount; tryNumber++) {
       if (tryNumber > 1) await this.wait(500 * 2 ** tryNumber);
       let response: Response;
       try {
-        response = await fetch(await this.signedRequest(method, key, query, body));
+        response = await fetch(await this.signedRequest(method, key, query, body, extraHeaders));
       } catch (error) {
         lastFailure = error instanceof Error ? error.message : String(error);
         continue;
@@ -123,7 +174,7 @@ export class BackupStorage {
     throw new BackupStorageError(`Backblaze refused ${method} ${key || "the bucket"}: ${lastFailure}`);
   }
 
-  private async signedRequest(method: string, key: string, query: Record<string, string>, body: Uint8Array | null): Promise<Request> {
+  private async signedRequest(method: string, key: string, query: Record<string, string>, body: Uint8Array | null, extraHeaders: Record<string, string>): Promise<Request> {
     const { endpointUrl, regionName, bucketName, keyId, keySecret } = this.settings;
     const url = new URL(endpointUrl);
     const canonicalPath = `/${encodeSegment(bucketName)}${key ? `/${key.split("/").map(encodeSegment).join("/")}` : "/"}`;
@@ -135,7 +186,7 @@ export class BackupStorage {
     const nowIso = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
     const dateText = nowIso.slice(0, 8);
     const payloadSha256Hex = body ? hex(await crypto.subtle.digest("SHA-256", body)) : EMPTY_SHA256_HEX;
-    const headers: Record<string, string> = { host: url.host, "x-amz-content-sha256": payloadSha256Hex, "x-amz-date": nowIso };
+    const headers: Record<string, string> = { ...extraHeaders, host: url.host, "x-amz-content-sha256": payloadSha256Hex, "x-amz-date": nowIso };
     if (body) headers["content-md5"] = base64(await crypto.subtle.digest("MD5", body));
     const signedHeaderNames = Object.keys(headers).sort();
     const canonicalRequest = [method, canonicalPath, canonicalQuery, ...signedHeaderNames.map((name) => `${name}:${headers[name]}`), "", signedHeaderNames.join(";"), payloadSha256Hex].join("\n");
@@ -151,6 +202,25 @@ export class BackupStorage {
       body: body && method !== "GET" ? body : undefined,
     });
   }
+}
+
+/** The headers that keep an object's metadata with its copy: its content type, and its custom metadata as one percent-encoded JSON header. */
+function metadataHeadersOf(metadata: BackupObjectMetadata): Record<string, string> {
+  const headers: Record<string, string> = {};
+  if (metadata.contentType) headers["content-type"] = metadata.contentType;
+  if (metadata.customMetadata && Object.keys(metadata.customMetadata).length) headers[CUSTOM_METADATA_HEADER] = encodeURIComponent(JSON.stringify(metadata.customMetadata));
+  return headers;
+}
+
+/** The versions and hide markers a ListObjectVersions answer holds. */
+function versionsOf(answerText: string): BackupObjectVersion[] {
+  return [...answerText.matchAll(/<(Version|DeleteMarker)>([\s\S]*?)<\/\1>/g)].map((match) => ({
+    key: xmlValue(match[2]!, "Key") ?? "",
+    versionId: xmlValue(match[2]!, "VersionId") ?? "",
+    lastModifiedAtMs: Date.parse(xmlValue(match[2]!, "LastModified") ?? ""),
+    sizeBytes: Number(xmlValue(match[2]!, "Size") ?? 0),
+    isHidden: match[1] === "DeleteMarker",
+  }));
 }
 
 /** S3's own encoding of a path segment or query part: everything but letters, digits and -._~ as %XX. */

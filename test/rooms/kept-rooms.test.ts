@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { MAXIMUM_GAME_STORAGE_SIZE_BYTES, issueRoomKey, listRooms } from "@zaisma/core";
 import { REMOVED_CLOSE_CODE } from "@zaisma/game-server";
 import type { Env } from "../../apps/rooms/src/index.ts";
-import type { Room } from "../../apps/rooms/src/room.ts";
+import { storedValueJson, storedValueOf, type Room } from "../../apps/rooms/src/room.ts";
 import { gameDatabaseObject, type GameDatabaseObject } from "../../apps/rooms/src/database.ts";
 import { GameStorageService } from "../../apps/rooms/src/game-storage.ts";
 
@@ -290,11 +290,26 @@ describe("kept rooms", () => {
     await until(async () => (await liveRow("backed-up", "BACKXX"))?.player_count === 0);
     const service = new GameStorageService(createExecutionContext(), e);
     const world = await service.keptRoomBackup(gameIdOf("backed-up"), "backed-up", "BACKXX");
-    const lines = (await new Response(world).text()).trim().split("\n").map((line) => JSON.parse(line) as { key: string; value: unknown });
+    const worldText = await new Response(world).text();
+    const lines = worldText.trim().split("\n").map((line) => JSON.parse(line) as { key: string; stored_value: unknown });
     const stored = await runInDurableObject(roomOf("backed-up", "BACKXX"), async (_room: Room, state) => [...(await state.storage.list()).entries()]);
-    expect(lines.map((line) => [line.key, line.value])).toEqual(JSON.parse(JSON.stringify(stored)));
+    expect(lines.map((line) => [line.key, storedValueOf(line.stored_value)])).toEqual(stored);
     expect(lines.map((line) => line.key)).toEqual(expect.arrayContaining(["meta", "saved"]));
     expect(await service.keptRoomBackup("gsomeoneelse", "backed-up", "BACKXX")).toBeNull();
+
+    // A restore puts the same world into a room that has none, and never over one that has.
+    const restoredRoom = roomOf("backed-up", "RESTXX");
+    await service.restoreKeptRoom(gameIdOf("backed-up"), "backed-up", "RESTXX", new Response(worldText).body!);
+    expect(await runInDurableObject(restoredRoom, async (_room: Room, state) => [...(await state.storage.list()).entries()])).toEqual(stored);
+    await service.restoreKeptRoom(gameIdOf("backed-up"), "backed-up", "RESTXX", new Response(`${JSON.stringify({ key: "meta", stored_value: { gameId: "gother" } })}\n`).body!);
+    expect(await runInDurableObject(restoredRoom, async (_room: Room, state) => state.storage.get("meta"))).toEqual(stored.find(([key]) => key === "meta")![1]);
+  });
+
+  it("write what JSON can't hold into a backup so it reads back the same", () => {
+    const value = { bytes: new Uint8Array([1, 2, 255]), floats: new Float32Array([1.5, -2]), buffer: new Uint8Array([7, 8]).buffer, when: new Date(1_761_500_000_000), map: new Map([["a", 1]]), set: new Set(["b"]), big: 10n ** 20n, gone: undefined, $stored: "a game's own key", nested: [{ $stored: "bytes" }] };
+    expect(storedValueOf(JSON.parse(JSON.stringify(storedValueJson(value))))).toEqual(value);
+    // Lines from before stored values were tagged read as plain JSON.
+    expect(storedValueOf({ level: 3, name: "Ada" })).toEqual({ level: 3, name: "Ada" });
   });
 
   it("go with their game's storage when the game is deleted", async () => {
