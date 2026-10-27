@@ -4,7 +4,7 @@ import { CITY_SCRIPT } from "./components/city.ts";
 import { pageStyle } from "./page-styles.ts";
 import { examplePage } from "./example-page.ts";
 import { pageScript, type PageScript } from "./page-scripts.ts";
-import { SCREENS_PATH, SCREENS_SCRIPT, isSitePath, screensPane, screensPicker } from "./components/screens.ts";
+import { SCREENS_PATH, SCREENS_SCRIPT, isSitePath, screenNamesOf, screensPane, screensPicker } from "./components/screens.ts";
 import { CHECKED_PAGES, type CheckedPageName } from "./components/checked-pages.ts";
 import { COMPONENT_GROUPS, type Component, type ComponentGroup } from "./components/component.ts";
 import { COMPONENTS, COMPONENT_SCRIPT, COMPONENT_STYLES, HEADER_SCRIPT } from "./components/index.ts";
@@ -12,7 +12,8 @@ import { EDGE, STAND_IN_BACKGROUNDS_SCRIPT, backdrop, logo, pageSettingsAttribut
 import { cutButton, runButton, textLink } from "./components/actions.ts";
 import { cutField, tabSwitch } from "./components/inputs.ts";
 import { loadMore } from "./components/navigation.ts";
-import { listRows } from "./components/data.ts";
+import { stack } from "./components/layout.ts";
+import { listRows, emptyState } from "./components/data.ts";
 import { cutPolygon, glassPane, tray } from "./components/foundations.ts";
 
 /*
@@ -79,7 +80,7 @@ function olderVersionsPage(env: Env, url: URL): Response {
     const versionNumber = 14 - (pageNumber - 1) * 3 - rowIndex;
     return { title: `Version ${versionNumber}`, detail: `Replaced · ${16 - versionNumber} weeks ago`, href: "#load-more" };
   });
-  const page = html`<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Older versions · Design · Zaisma</title></head><body>${listRows({ id: "example-load-more-list", rows })}${pageNumber < 3 ? loadMore({ href: "/design/examples/older-versions?page=3", label: "Show older versions", listId: "example-load-more-list" }) : loadMore({ label: "Show older versions", listId: "example-load-more-list", endText: "That's every version." })}</body></html>`;
+  const page = html`<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Older versions · Design · Zaisma</title></head><body>${listRows({ whenEmpty: emptyState({ title: "No older versions", text: "Every version is above." }), id: "example-load-more-list", rows })}${pageNumber < 3 ? loadMore({ href: "/design/examples/older-versions?page=3", label: "Show older versions", listId: "example-load-more-list" }) : loadMore({ label: "Show older versions", listId: "example-load-more-list", endText: "That's every version." })}</body></html>`;
   return new Response(page.html, { headers: securityHeaders(env) });
 }
 
@@ -104,7 +105,7 @@ function galleryPage(env: Env, options: { group: ComponentGroup; theme: GalleryT
   const groups = COMPONENT_GROUPS.filter(({ group: each }) => components.some((component) => component.group === each));
   const groupTabs = groups.map(({ group: each, name }) => ({ label: name, href: `${groupPath(each)}${themeQuery(theme)}`, isCurrent: each === group }));
   const page = html`<!doctype html>
-<html lang="en">
+<html lang="en" data-page-shape="wide">
 <head>
 ${head(`${options.title} · Design · Zaisma`, group, options.scripts)}
 ${checkedPageTag(options.checkedPage)}
@@ -140,9 +141,10 @@ function screensPage(env: Env, url: URL): Response {
   const states = url.searchParams.getAll("state").flatMap((name) => CHECKED_PAGES.filter((page) => page.name === name && !page.isOnSignInSite));
   const asked = url.searchParams.getAll("page").map((path) => path.trim()).filter(isSitePath);
   const titleOf = (path: string) => CHECKED_PAGES.find((page) => page.path === path && !page.stepsToTake)?.name ?? path;
-  const shown = [...states.map((page) => ({ path: page.path, title: page.name, stepsToTake: page.stepsToTake })), ...asked.map((path) => ({ path, title: titleOf(path) }))];
+  const shown = [...states.map((page) => ({ path: page.path, title: page.name, stepsToTake: page.stepsToTake, account: page.account })), ...asked.map((path) => ({ path, title: titleOf(path) }))];
   const panes = shown.length ? shown : [{ path: "/design/example", title: titleOf("/design/example") }];
-  const main = html`<h1 class="group-name">Screens</h1>${screensPicker(panes[0]!.path)}${panes.map((pane) => screensPane(pane))}`;
+  // The picker and each page's screens, one under another a block's gap apart (a Stack), never set down side by side by hand.
+  const main = html`<h1 class="group-name">Screens</h1>${stack({ items: [screensPicker(panes[0]!.path, screenNamesOf(url)), ...panes.map((pane) => screensPane({ ...pane, screenNames: screenNamesOf(url), screensPath: `${url.pathname}${url.search}` }))].map((markup) => ({ kind: "block" as const, markup })) })}`;
   return galleryPage(env, { group: "layout", theme, path: `${url.pathname}${url.search}`, title: "Screens", checkedPage: "Screens", main, frames: ["'self'"], isIndexHidden: true });
 }
 
@@ -163,7 +165,7 @@ body.gallery { margin: 0; min-height: 100vh; font: var(--type-reading); }
 /* The groups fold away, so a page that wants the room (Screens) has the whole width. */
 .gallery-layout.is-index-hidden { grid-template-columns: minmax(0, 1fr); }
 .gallery-layout.is-index-hidden > .gallery-index { display: none; }
-.gallery-layout { max-width: 1480px; margin: 0 auto; padding: var(--gap-block-block) var(--pad-pane) calc(2 * var(--gap-block-block)); display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: var(--gap-block-block); align-items: start; }
+.gallery-layout { max-width: var(--size-page-wide); margin: 0 auto; padding: var(--gap-block-block) var(--pad-pane) calc(2 * var(--gap-block-block)); display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: var(--gap-block-block); align-items: start; }
 .gallery-index { position: sticky; top: var(--under-gallery-bar); align-self: start; padding: var(--pad-inner-pane); }
 .gallery-groups { display: none; }
 .gallery-main { min-width: 0; }
@@ -177,7 +179,8 @@ body.gallery { margin: 0; min-height: 100vh; font: var(--type-reading); }
 .examples { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: var(--gap-block-block); padding-bottom: var(--pad-words); }
 .example { margin: 0; min-width: 0; display: flex; flex-direction: column; }
 .example.wide { grid-column: 1 / -1; }
-.example-stage > * { max-width: 100%; }
+/* A sheet keeps its own cap (Pane sizes): the stage never widens it. */
+.example-stage > :not(.sheet) { max-width: 100%; }
 /* What the example is: a few quiet words just under it. */
 .example { gap: var(--gap-words-control); }
 .example-name { margin: 0; padding-inline: var(--pad-words); font: var(--type-facts); color: var(--muted); }

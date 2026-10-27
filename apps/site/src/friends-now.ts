@@ -90,7 +90,7 @@ export function joinAndWatch(slug: string, doors: Pick<FriendsInGame, "join" | "
  * On a game's page (into #friends-here): the friends playing it, their pictures and "Liam and Sofia are playing", with Join, and Watch for a
  * game that takes spectators; a door that won't work says why in its place (Room full).
  */
-function friendsHere(slug: string, here: FriendsInGame): Raw {
+export function friendsHere(slug: string, here: FriendsInGame): Raw {
   const doors: LayoutItem[] = [];
   const refusals = new Set<string>();
   for (const [door, words, query] of [[here.join, "Join", ""], [here.watch, "Watch", "&watch=1"]] as const) {

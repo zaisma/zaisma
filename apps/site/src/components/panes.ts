@@ -68,9 +68,9 @@ export interface DropdownOptions {
 
 /** A dropdown: a pane of the glass that hangs from any button (aria-controls its id), holding a short list of choices. */
 export function dropdown(options: DropdownOptions): Raw {
-  return html`<div class="dropdown glass${options.isOpen ? "" : " shut"}" id="${options.id}" role="menu" aria-label="${options.label}" aria-hidden="${options.isOpen ? "false" : "true"}" data-glass data-glass-corners="menu">${EDGE}${options.head ? html`<div class="dropdown-head"><strong>${options.head.title}</strong>${options.head.note ? html`<span>${options.head.note}</span>` : ""}</div>` : ""}${options.items.map((menuItem) =>
+  return html`<div class="dropdown glass${options.isOpen ? "" : " shut"}" id="${options.id}" role="menu" aria-label="${options.label}" aria-hidden="${options.isOpen ? "false" : "true"}" data-glass data-glass-corners="menu">${EDGE}${options.head ? html`<div class="dropdown-head"><strong>${options.head.title}</strong>${options.head.note ? html`<span>${options.head.note}</span>` : ""}</div>` : ""}<div class="dropdown-in">${options.items.map((menuItem) =>
     "kind" in menuItem ? raw('<hr role="separator">') : dropdownChoice(menuItem),
-  )}</div>`;
+  )}</div></div>`;
 }
 
 /** The same facts as the glance list, short, under a cover: when you played, an update or friends on the left, players now on the right. */
@@ -160,11 +160,12 @@ export const DROPDOWN_SCRIPT = `/* menus */(function () {
   var root = getComputedStyle(document.documentElement);
   // The gap under the button, and the least room kept from the screen's edges: two controls stacked, and the frame gap.
   function token(name, fallback) { return parseFloat(root.getPropertyValue(name)) || fallback; }
-  // Where a fixed menu's coordinates start: the viewport, or the nearest ancestor that holds fixed things (a transform or filter), like the gallery's frames.
+  // Where a fixed menu's coordinates start: the viewport, or the nearest ancestor that holds fixed things (a transform, a filter or a glass's
+  // backdrop blur, a container), like the gallery's frames or a pane the menu sits in.
   function fixedOrigin(el) {
     for (var p = el.parentElement; p && p !== document.documentElement; p = p.parentElement) {
       var style = getComputedStyle(p);
-      if (style.transform !== "none" || style.filter !== "none" || /paint|layout|strict|content/.test(style.contain || "")) return p.getBoundingClientRect();
+      if (style.transform !== "none" || style.filter !== "none" || (style.backdropFilter || "none") !== "none" || (style.containerType || "normal") !== "normal" || /transform|filter/.test(style.willChange || "") || /paint|layout|strict|content/.test(style.contain || "")) return p.getBoundingClientRect();
     }
     return { left: 0, top: 0 };
   }
@@ -177,7 +178,14 @@ export const DROPDOWN_SCRIPT = `/* menus */(function () {
     // The room it keeps to: the screen, or what holds it where that holds fixed things (a gallery frame stands in for a screen).
     var start = origin.width ? origin.left : 0, end = origin.width ? origin.right : document.documentElement.clientWidth;
     var top = origin.height ? origin.top : 0, foot = origin.height ? origin.bottom : window.innerHeight;
-    var spot = window.zaismaPlace(slab ? { left: r.left, right: r.right, top: below - 1, bottom: below } : r, { width: menu.offsetWidth, height: menu.offsetHeight }, { roomRect: { left: start, right: end, top: top, bottom: foot }, gapPx: gapPx, edgePx: edgePx, isAlwaysBelow: !!slab });
+    var anchor = slab ? { left: r.left, right: r.right, top: below - 1, bottom: below } : r, room = { left: start, right: end, top: top, bottom: foot };
+    // Placed once at its whole height, then again once it knows the room on the side it opened to: a long menu stops at the screen's edge and
+    // scrolls inside itself (--menu-room; --size-menu-height caps it too).
+    menu.style.removeProperty("--menu-room");
+    menu.style.setProperty("--menu-room-width", Math.max(0, end - start - 2 * edgePx) + "px");
+    var spot = window.zaismaPlace(anchor, { width: menu.offsetWidth, height: menu.offsetHeight }, { roomRect: room, gapPx: gapPx, edgePx: edgePx, isAlwaysBelow: !!slab });
+    menu.style.setProperty("--menu-room", Math.max(0, spot.isAbove ? anchor.top - gapPx - top - edgePx : foot - anchor.bottom - gapPx - edgePx) + "px");
+    spot = window.zaismaPlace(anchor, { width: menu.offsetWidth, height: menu.offsetHeight }, { roomRect: room, gapPx: gapPx, edgePx: edgePx, isAlwaysBelow: !!slab });
     menu.classList.toggle("from-start", !spot.isAtEnd); menu.classList.toggle("is-above", spot.isAbove);
     menu.style.top = (spot.topPx - origin.top) + "px";
     menu.style.left = (spot.leftPx - origin.left) + "px";
@@ -218,12 +226,18 @@ export const DROPDOWN_SCRIPT = `/* menus */(function () {
 `;
 
 const DROPDOWN_STYLES = `
-/* A dropdown: a pane of the glass hanging just under its button (above it, is-above, where PLACE_SCRIPT puts it there), as wide as what's in it
-   (never wider than the screen), holding a short list of choices. It grows from the button's end, or from its start when it hangs from there (from-start). */
-.dropdown { position: fixed; z-index: 11; width: max-content; max-width: calc(100vw - 2 * var(--pad-frame)); padding: var(--pad-inner-pane); --pad-words: var(--pad-inside-words); --glass-tint: var(--glass-dropdown);
+/* A dropdown: a pane of the glass hanging just under its button (above it, is-above, where PLACE_SCRIPT puts it there), as wide as what's in it,
+   holding a short list of choices. It's never wider than a menu (--size-menu) or the screen, nor taller than a menu (--size-menu-height) or the
+   room DROPDOWN_SCRIPT finds beside its button (--menu-room, and --menu-room-width across): past that its choices scroll inside it, never the page. It grows from the button's end, or from its start when it hangs from there (from-start). */
+.dropdown { position: fixed; z-index: 11; width: max-content; max-width: min(var(--size-menu), var(--menu-room-width, calc(100vw - 2 * var(--pad-frame)))); max-height: min(var(--size-menu-height), var(--menu-room, calc(100dvh - 2 * var(--pad-frame)))); padding: var(--pad-inner-pane); --pad-words: var(--pad-inside-words); --glass-tint: var(--glass-dropdown);
   display: flex; flex-direction: column; gap: 2px;
   transform-origin: top right; transition: var(--glass-transition), opacity 0.25s, transform 0.35s cubic-bezier(.2,.8,.2,1); }
 .dropdown.from-start { transform-origin: top left; }
+/* Its choices, under its head: what doesn't fit its height scrolls here, so the head and the glass's edge stay put. */
+.dropdown-in { display: flex; flex-direction: column; gap: 2px; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+/* A choice keeps its height while the list scrolls: nothing in a menu shrinks to fit it. */
+.dropdown > *, .dropdown-in > * { flex: none; }
+.dropdown > .dropdown-in { flex: 0 1 auto; }
 .dropdown.shut { opacity: 0; transform: translateY(-6px) scale(0.98); pointer-events: none; visibility: hidden; transition: var(--glass-transition), opacity 0.25s, transform 0.35s cubic-bezier(.2,.8,.2,1), visibility 0s 0.35s; }
 .dropdown.is-above { transform-origin: bottom right; }
 .dropdown.is-above.from-start { transform-origin: bottom left; }
@@ -426,7 +440,7 @@ component({
     {
       label: "Full: holding a row of covers",
       isWide: true,
-      markup: tray({ paneWidth: "full", head: html`<h3 class="tray-sample-title">Continue playing</h3>`, body: grid({ itemSize: "cover", items: ["ashen-crown", "neon-drift", "hollow-tide"].map((slug) => ({ kind: "block", markup: STAND_IN_COVERS[slug]! })) }) }),
+      markup: tray({ paneWidth: "full", head: html`<h3 class="tray-sample-title">Continue playing</h3>`, body: grid({ whenEmpty: html`<p>No games here yet.</p>`, itemSize: "cover", items: ["ashen-crown", "neon-drift", "hollow-tide"].map((slug) => ({ kind: "block", markup: STAND_IN_COVERS[slug]! })) }) }),
     },
   ],
 });
@@ -514,6 +528,8 @@ export interface SheetOptions {
   isShown?: boolean;
   /** On a wide screen, a narrow sheet with its gaps closed up, so it reads as a dropdown (the share sheet's QR code and link); on a phone it's like any sheet. */
   isCompact?: boolean;
+  /** A picture large (a screenshot, a screen on Screens): as wide as the screen allows, up to --size-sheet-picture, rather than --size-sheet. */
+  isPicture?: boolean;
 }
 
 /**
@@ -590,10 +606,12 @@ export const SHEET_SCRIPT = `/* sheets */(function () {
   }
   function hold(sheet) {
     var opener = pressed && performance.now() - pressed.at < 2000 && pressed.button.isConnected ? pressed.button : null;
-    // A store panel stands at the screen's edge whatever opened it, and a sheet in place stays where it is.
-    if (!opener || sheet.matches(".in-place, .placement-side, .placement-middle") || opener.closest("[popover]") || sheet.contains(opener)) return;
+    // A store panel stands at the screen's edge whatever opened it, a picture large in the middle, and a sheet in place stays where it is.
+    if (!opener || sheet.matches(".in-place, .placement-side, .placement-middle, .is-picture") || opener.closest("[popover]") || sheet.contains(opener)) return;
     anchors.set(sheet, { opener: opener, rect: opener.getBoundingClientRect() });
     sheet.classList.add("is-anchored");
+    // What loads in it after it opens (a screenshot) changes its size: it's placed again, so it stays inside the window.
+    if (resized) resized.observe(sheet);
   }
   function place(sheet) {
     var held = anchors.get(sheet);
@@ -609,12 +627,14 @@ export const SHEET_SCRIPT = `/* sheets */(function () {
     sheet.classList.toggle("is-above", spot.isAbove); sheet.classList.toggle("is-at-end", spot.isAtEnd);
   }
   function placeAll() { anchors.forEach(function (held, sheet) { place(sheet); }); }
+  var resized = window.ResizeObserver ? new ResizeObserver(function (entries) { entries.forEach(function (entry) { if (anchors.has(entry.target)) place(entry.target); }); }) : null;
   window.addEventListener("resize", placeAll);
   window.addEventListener("scroll", placeAll, { passive: true, capture: true });
   document.addEventListener("close", function (event) {
     var sheet = event.target;
     if (!anchors.has(sheet)) return;
     anchors.delete(sheet);
+    if (resized) resized.unobserve(sheet);
     sheet.classList.remove("is-anchored", "is-above", "is-at-end");
     sheet.style.removeProperty("--sheet-left"); sheet.style.removeProperty("--sheet-top"); sheet.style.removeProperty("--sheet-max-height");
   }, true);
@@ -641,17 +661,19 @@ export const SHEET_SCRIPT = `/* sheets */(function () {
 
 /** On a touch screen, a button shorter than a regular control reaches past its own box to a regular control's height, unseen: for `scope`'s buttons. */
 const touchReach = (scope: string) => `@media (pointer: coarse) {
-  ${scope} .shell::after { content: ""; position: absolute; left: 0; right: 0; top: min(0px, calc((100% - var(--control-height-regular)) / 2)); bottom: min(0px, calc((100% - var(--control-height-regular)) / 2)); }
+  ${scope} .shell::after { content: ""; position: absolute; left: 0; right: 0; top: min(0px, calc((100% - var(--touch-target)) / 2)); bottom: min(0px, calc((100% - var(--touch-target)) / 2)); }
 }`;
 
 const SHEET_STYLES = `
 /* A sheet: a dialog of the panes' glass over the page, which dims behind it (dimmed, not blurred, so it stays cheap). It comes up a
    little as it opens and drops away as it closes, the dimming fading with it; nothing in it waits for that. Centered on a wide screen; on
    a phone it rises from the foot of the screen, a gap from its edges. Like a pane that fits, it's as wide as what's in it, its words running
-   to a reading width at most. */
-.sheet { width: fit-content; max-width: calc(100% - 2 * var(--pad-pane)); max-height: calc(100dvh - 2 * var(--pad-pane)); margin: auto; padding: 0; border: 0; overflow: visible; color: var(--ink);
+   to a reading width at most, and never wider than a sheet (--size-sheet) or the screen less its margins: past its height, its body scrolls. */
+.sheet { width: fit-content; max-width: min(var(--size-sheet), calc(100% - 2 * var(--pad-pane))); max-height: calc(100dvh - 2 * var(--pad-pane)); margin: auto; padding: 0; border: 0; overflow: visible; color: var(--ink);
   --glass-tint: var(--glass-dropdown);
   transition: var(--glass-transition), opacity 0.25s, transform 0.3s cubic-bezier(.2,.8,.2,1), overlay 0.3s allow-discrete, display 0.3s allow-discrete; }
+/* A picture's sheet: as wide as the screen allows, up to its own size, so a screenshot or a screen shows large. */
+.sheet.is-picture { max-width: min(var(--size-sheet-picture), calc(100% - 2 * var(--pad-pane))); }
 /* Over the page, fixed to the window whether it's opening, open or closing (it stops being :modal the moment it starts to close). */
 .sheet:not(.in-place) { position: fixed; inset: 0; z-index: 40; }
 /* The sheet itself takes the focus when a press opened it (SHEET_SCRIPT): no ring, a ring is for the keyboard. */
@@ -701,7 +723,7 @@ ${touchReach(".sheet")}
   .sheet.is-anchored.is-above:not(.in-place):is(:not([open]), .is-leaving) { transform: translateY(8px) scale(0.98); }
   @starting-style { .sheet.is-anchored:not(.in-place)[open] { transform: translateY(-8px) scale(0.98); } .sheet.is-anchored.is-above:not(.in-place)[open] { transform: translateY(8px) scale(0.98); } }
   /* A compact sheet is a dropdown's size: narrow, its head, body and the blocks in it closed up to the controls' gap. */
-  .sheet.is-compact { width: 320px; }
+  .sheet.is-compact { width: var(--size-sheet-compact); }
   .sheet.is-compact .sheet-in, .sheet.is-compact .sheet-body { gap: var(--gap-control-stack); }
   .sheet.is-compact .layout-stack > .stack-cell[class*="gap-top-"] { margin-top: var(--gap-control-stack); }
   .sheet.is-anchored:not(.in-place)::backdrop { background: rgba(6, 9, 14, 0.16); }
@@ -778,6 +800,9 @@ component({
 .store-item { display: flex; flex-direction: column; gap: var(--gap-block-block); min-width: 0; }
 .store-picture { position: relative; display: block; aspect-ratio: 16 / 9; overflow: hidden; clip-path: var(--cut-shape);
   background: url("/zaisma-mark-metal.svg") center / auto 50% no-repeat var(--well); box-shadow: var(--well-shade); }
+/* On a short screen (a Steam Deck, a phone on its side, a laptop at a large text size) the picture over the game is shorter, its art still covering
+   it, so the item's words and Buy have room rather than the panel scrolling by a sliver. */
+@media (max-height: 52em) { .sheet:not(.in-place) .store-picture { max-height: min(9rem, 30dvh); } }
 .store-picture-art { position: absolute; inset: 2px; display: block; overflow: hidden; clip-path: var(--cut-shape); }
 .store-picture img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
 .store-item-words { display: flex; flex-direction: column; gap: var(--gap-words-words); min-width: 0; }
@@ -834,12 +859,12 @@ component({
   styles: `
 /* A store panel is a sheet standing at the right edge of the screen, as tall as the screen less the page's edge, so the game keeps its middle.
    Nothing dims it. It slides in from its side; on a phone it rises from the foot like the other sheets, nearly the screen's height. */
-.sheet.placement-side:not(.in-place) { inset: var(--pad-pane) var(--pad-pane) var(--pad-pane) auto; width: min(380px, calc(100% - 2 * var(--pad-pane))); height: calc(100dvh - 2 * var(--pad-pane)); max-height: none; margin: 0; }
+.sheet.placement-side:not(.in-place) { inset: var(--pad-pane) var(--pad-pane) var(--pad-pane) auto; width: min(var(--size-sheet-side), calc(100% - 2 * var(--pad-pane))); max-width: none; height: calc(100dvh - 2 * var(--pad-pane)); max-height: none; margin: 0; }
 .sheet.placement-side:not(.in-place) > .sheet-in { height: 100%; }
 .sheet.placement-side:is(:not([open]), .is-leaving) { transform: translateX(40px); }
 @starting-style { .sheet.placement-side[open] { transform: translateX(40px); } }
 .sheet.placement-side::backdrop { background: transparent; }
-.sheet.placement-side.in-place { width: min(380px, 100%); }
+.sheet.placement-side.in-place { width: min(var(--size-sheet-side), 100%); max-width: none; }
 @media (max-width: 760px) {
   .sheet.placement-side:not(.in-place) { inset: 0; width: calc(100% - 2 * var(--gap-control-stack)); height: calc(100dvh - 2 * var(--pad-pane)); margin: auto var(--gap-control-stack) var(--gap-control-stack); }
   .sheet.placement-side:is(:not([open]), .is-leaving) { transform: translateY(40px); }
@@ -1206,7 +1231,8 @@ component({
 .step-line > li:first-child .step-mark { clip-path: polygon(var(--corner-start) 0, 100% 0, calc(100% - 3px) 100%, calc(var(--corner-start) - 4px) 100%); }
 .step-line > li:last-child .step-mark { clip-path: polygon(3px 0, calc(100% - var(--corner-end)) 0, calc(100% - var(--corner-end) + 4px) 100%, 0 100%); }
 .step-line > li:only-child .step-mark { clip-path: polygon(var(--corner-start) 0, calc(100% - var(--corner-end)) 0, calc(100% - var(--corner-end) + 4px) 100%, calc(var(--corner-start) - 4px) 100%); }
-.step-label { padding-inline-start: var(--pad-words); }
+/* A step's name keeps the margin at both ends, the last one's at the pane's edge too, and breaks a word that's longer than its room (at a large text size). */
+.step-label { padding-inline: var(--pad-words); overflow-wrap: break-word; }
 .step-fill { position: absolute; inset: 0; background: linear-gradient(90deg, #E9820C, var(--run)); transform: scaleX(0); transform-origin: left; transition: transform 0.6s cubic-bezier(.2,.8,.2,1); }
 /* The light at the leading end of the step you're on is a layer of its own over the fill, fading in and out, so it moves from line to line
    smoothly as you go on or back. */

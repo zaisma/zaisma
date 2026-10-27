@@ -224,7 +224,11 @@ component({
 .tab-switch .ghost { background: var(--ghost); opacity: 0; }
 .tab-switch.pointing .ghost { opacity: 1; }
 .tab-switch > a, .tab-switch > button { position: relative; z-index: 2; display: grid; place-content: center; padding: 0 var(--tab-room); border: 0; background: none; cursor: pointer;
-  font: 500 15px var(--display); color: var(--ink-2); text-decoration: none; white-space: nowrap; }
+  font: 500 0.9375rem var(--display); color: var(--ink-2); text-decoration: none; white-space: nowrap; }
+/* A switch across that has less room than its words (a narrow place, a large text size) stays inside it: its tabs' words wrap onto a second line in
+   the same height rather than run past its end. One that scrolls sideways (framed) keeps them on one line. */
+.tab-switch:not(.vertical, .framed) { max-width: 100%; }
+.tab-switch:not(.vertical, .framed) > :is(a, button) { min-width: 0; white-space: normal; line-height: 1.1; text-align: center; }
 .tab-switch.big > a, .tab-switch.big > button { flex: 1 1 0; }
 /* The one you're on is marked by its slab and full ink, at the same weight as the others, so its words never move as it's chosen. */
 .tab-switch [aria-current="page"], .tab-switch [aria-pressed="true"] { color: var(--ink); }
@@ -248,7 +252,7 @@ component({
 /* When they fit, the tabs share out the frame's width; when they don't, they keep their own and scroll. */
 .tab-switch.framed > a, .tab-switch.framed > button { flex: 1 0 auto; }
 /* A tab that folds away into the end of the tabs and opens out of it again. */
-.tab-switch > .foldable { max-width: 160px; overflow: hidden; transition: max-width 0.45s cubic-bezier(.2,.8,.2,1), padding 0.45s cubic-bezier(.2,.8,.2,1), opacity 0.3s 0.08s; }
+.tab-switch > .foldable { max-width: 10rem; overflow: hidden; transition: max-width 0.45s cubic-bezier(.2,.8,.2,1), padding 0.45s cubic-bezier(.2,.8,.2,1), opacity 0.3s 0.08s; }
 .tab-switch > .foldable.folded { max-width: 0; padding-left: 0; padding-right: 0; opacity: 0; pointer-events: none; transition: max-width 0.4s cubic-bezier(.4,0,.2,1), padding 0.4s cubic-bezier(.4,0,.2,1), opacity 0.16s; }
 /* Keyboard focus: a line round the focused tab that follows its cut, like the slab's (the focus ring, set by SWITCH_SCRIPT). */
 .tab-switch > :focus-visible { outline: none; }
@@ -262,7 +266,7 @@ component({
 .tab-switch.small { --control-height: var(--control-height-small); --tab-room: 14px; padding: 3px; clip-path: var(--cut-shape); }
 .tab-switch.small .slab, .tab-switch.small .ghost { top: 3px; bottom: 3px; transition-duration: 0.4s, 0.4s, 0.3s; }
 /* Its tabs keep their own widths, and share out any room past them evenly (a sort filling its line under a heading on a phone). */
-.tab-switch.small > a, .tab-switch.small > button { flex: 1 1 auto; font-size: 14px; }
+.tab-switch.small > a, .tab-switch.small > button { flex: 1 1 auto; font-size: 0.875rem; }
 /* The first and last tabs shown sit against the switch's cut corners, which eat into them at its ends: they take a slant's more room there.
    A folded tab isn't shown, so the ends are the first and last tabs that aren't folded (the cut line, slab, ghost and ring are hidden from readers, so they never count). */
 .tab-switch:not(.vertical) > :nth-child(1 of :not(.folded):not([aria-hidden])) { padding-inline-start: calc(var(--tab-room) + var(--control-slant) / 2); }
@@ -272,7 +276,7 @@ component({
 .tab-switch.vertical { flex-direction: column; height: auto; }
 .tab-switch.vertical .slab, .tab-switch.vertical .ghost { top: 0; bottom: auto; left: 4px; right: 4px; width: auto; height: 0; transition: transform 0.55s var(--spring), height 0.55s var(--spring), opacity 0.3s; }
 .tab-switch.vertical.small .slab, .tab-switch.vertical.small .ghost { left: 3px; right: 3px; transition-duration: 0.4s, 0.4s, 0.3s; }
-.tab-switch.vertical > a, .tab-switch.vertical > button { flex: none; display: flex; align-items: center; justify-content: flex-start; gap: 10px; height: 40px; padding: 0 14px; text-align: left; }
+.tab-switch.vertical > a, .tab-switch.vertical > button { flex: none; display: flex; align-items: center; justify-content: flex-start; gap: 10px; height: 2.5rem; padding: 0 14px; text-align: left; }
 .tab-switch.vertical > a > .tag, .tab-switch.vertical > button > .tag { margin-left: auto; }
 .tab-switch.vertical .ico { width: 18px; height: 18px; }
 /* A count in a tab across sits just after its words. */
@@ -282,7 +286,7 @@ component({
 @media (pointer: coarse) {
   .tab-switch:not(.vertical, .framed) { height: max(var(--control-height), var(--control-height-regular)); }
   .switch-frame, .switch-frame.small { height: max(var(--switch-height, var(--control-height-small)), var(--control-height-regular)); }
-  .tab-switch > :not([aria-hidden])::before { content: ""; position: absolute; left: 0; right: 0; top: min(0px, calc((100% - var(--control-height-regular)) / 2)); bottom: min(0px, calc((100% - var(--control-height-regular)) / 2)); }
+  .tab-switch > :not([aria-hidden])::before { content: ""; position: absolute; left: 0; right: 0; top: min(0px, calc((100% - var(--touch-target)) / 2)); bottom: min(0px, calc((100% - var(--touch-target)) / 2)); }
 }
 @media (prefers-reduced-motion: reduce) { .tab-switch .slab, .tab-switch .ghost, .tab-switch > .foldable { transition: none; } }
 `,
@@ -298,7 +302,7 @@ component({
     },
     {
       label: "Long words in a narrow place: the tabs keep less room round them",
-      markup: html`<div style="width:min(248px,100%)">${tabSwitch({ label: "Sort", switchSize: "small", tabs: [{ label: "Recently played", tabValue: "played", isCurrent: true }, { label: "Recently updated", tabValue: "updated", isCurrent: false }] })}</div>`,
+      markup: html`<div style="width:min(15.5rem,100%)">${tabSwitch({ label: "Sort", switchSize: "small", tabs: [{ label: "Recently played", tabValue: "played", isCurrent: true }, { label: "Recently updated", tabValue: "updated", isCurrent: false }] })}</div>`,
     },
     {
       label: "Pointed: the faint slab under it",
@@ -379,7 +383,7 @@ component({
 .color-pick:focus-visible .cut-line polygon, .color-pick.is-focused .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 /* On a touch screen a swatch's hit area is a regular control tall: from the well's top (4px above it) down over the bar's room under it,
    all inside the well, whose clip would cut off anything reaching further. */
-@media (pointer: coarse) { .color-pick::before { content: ""; position: absolute; left: 0; right: 0; top: -4px; height: var(--control-height-regular); } }
+@media (pointer: coarse) { .color-pick::before { content: ""; position: absolute; left: 0; right: 0; top: -4px; height: var(--touch-target); } }
 @media (prefers-reduced-motion: reduce) { .color-mark { transition: none; } }
 `,
   render: colorPicker,

@@ -720,7 +720,7 @@ function binaryBytes(received) {
   return new Uint8Array(received.buffer.slice(received.byteOffset, received.byteOffset + received.byteLength));
 }
 
-const USAGE = "Usage: zaisma-game-server <server.ts | relay> --game <slug> [--port 8080] [--origin <url>,<url>] [--issuer-url https://rooms.zaisma.com] [--database-file zaisma-database.sqlite] [--room-state-file zaisma-room-states.sqlite]";
+const USAGE = "Usage: zaisma-game-server <server.ts | relay> --game <slug> [--port 8080] [--origin <url>,<url>] [--issuer-url https://rooms.zaisma.com] [--database-file zaisma-database.sqlite] [--room-state-file zaisma-room-states.sqlite]\n   or: zaisma-game-server play-locally [folder] [--port 4800] [--game <slug>] [--on-network] [--no-open] [--json]";
 const FLAGS = ["game", "port", "origin", "issuer-url", "database-file", "room-state-file"];
 
 /** The command line's flags by name, or null for one this runner doesn't take (or one missing its value). */
@@ -734,8 +734,73 @@ function flagsFrom(argumentList) {
   return flags;
 }
 
+/** play-locally's flags: whether each takes a value. */
+const PLAY_LOCALLY_FLAGS = { port: true, game: true, "on-network": false, "no-open": false, json: false };
+
+/** play-locally [folder] and its flags, or null with the refusal printed: said plainly, before anything listens. */
+function playLocallyArguments(argumentList) {
+  const refuse = (message, fix) => {
+    console.error(`${message} ${fix} (bad_option)`);
+    return null;
+  };
+  const flags = {};
+  let folder = null;
+  for (let i = 0; i < argumentList.length; i++) {
+    const given = argumentList[i];
+    if (!given.startsWith("--")) {
+      if (folder !== null) return refuse(`play-locally takes one folder, and got ${folder} and ${given}.`, "Give the folder of your game, the one with index.html at the top.");
+      folder = given;
+      continue;
+    }
+    const name = given.slice(2);
+    if (!(name in PLAY_LOCALLY_FLAGS)) return refuse(`${given} isn't a play-locally flag.`, `play-locally takes: ${Object.keys(PLAY_LOCALLY_FLAGS).map((each) => `--${each}`).join(", ")}.`);
+    if (!PLAY_LOCALLY_FLAGS[name]) {
+      flags[name] = true;
+      continue;
+    }
+    const flagValue = argumentList[++i];
+    if (flagValue === undefined || flagValue.startsWith("--")) return refuse(`${given} needs a value.`, name === "port" ? "Give the first of four ports, like --port 4800." : "Give your game's slug, like --game sky-hopper.");
+    flags[name] = flagValue;
+  }
+  const portNumber = flags.port === undefined ? 4800 : Number(flags.port);
+  if (!Number.isInteger(portNumber) || portNumber < 1 || portNumber > 65532) return refuse("--port isn't a whole number from 1 to 65532.", "Give the first of four ports, like --port 4800: the bench, the game's site, the stand-in rooms and your game server take it and the next three.");
+  if (flags.game !== undefined && !/^[a-z0-9-]{1,40}$/.test(flags.game)) return refuse("--game isn't a game's slug.", "A slug is 1 to 40 lowercase letters, digits or hyphens, like sky-hopper.");
+  return { folder: folder ?? ".", portNumber, gameSlug: flags.game ?? null, isOnNetwork: flags["on-network"] === true, isOpening: flags["no-open"] !== true, isJson: flags.json === true };
+}
+
+/** zaisma-game-server play-locally: your game and its game server on this computer, with a test bench (bin/local-play.js). */
+async function playLocally(argumentList) {
+  const given = playLocallyArguments(argumentList);
+  if (!given) process.exit(1);
+  const { startLocalPlay, terminalQr } = await import("./local-play.js");
+  const say = given.isJson ? (line) => console.error(line) : (line) => console.log(line);
+  let running;
+  try {
+    running = await startLocalPlay({ gameFolder: given.folder, port: given.portNumber, isOnNetwork: given.isOnNetwork, gameSlug: given.gameSlug, log: say });
+  } catch (error) {
+    console.error(error instanceof GameServerError ? `${error.message} ${error.fix ?? ""} (${error.code})` : error);
+    process.exit(1);
+  }
+  for (const signal of ["SIGTERM", "SIGINT"]) process.once(signal, () => running.close().then(() => process.exit(0)));
+  if (given.isJson) console.log(JSON.stringify({ bench_url: running.benchUrl, game_site_url: running.gameSiteUrl, rooms_url: running.roomsUrl, network_url: running.networkUrl }));
+  say(`Playing ${given.gameSlug ?? "your game"} on this computer. The test bench is at ${running.benchUrl}`);
+  say("Each player plays on Zaisma's own game page. Add a player in the dev bar to play with yourself in another tab. A change to a game file reloads the game, and a change to the game server starts it again with its rooms kept.");
+  say("Nothing here talks to Zaisma. What the bench keeps is in .zaisma-local/ in the game's folder: add it to your .gitignore. Press Ctrl-C to stop.");
+  if (running.networkUrl) {
+    say(`On a phone on the same Wi-Fi: ${running.networkUrl}`);
+    say(terminalQr(running.networkUrl));
+    say("Your phone will say the connection isn't private, because the bench signs its own certificate. Continue to the site.");
+  }
+  if (given.isOpening) {
+    const { spawn } = await import("node:child_process");
+    const opener = process.platform === "darwin" ? ["open", [running.benchUrl]] : process.platform === "win32" ? ["cmd", ["/c", "start", "", running.benchUrl]] : ["xdg-open", [running.benchUrl]];
+    spawn(opener[0], opener[1], { stdio: "ignore", detached: true }).on("error", () => {}).unref();
+  }
+}
+
 // Run as a command. An npm bin is a symlink to this file, so both sides are resolved before they're compared.
 async function runCommand() {
+  if (process.argv[2] === "play-locally") return playLocally(process.argv.slice(3));
   const file = process.argv[2];
   const flags = file ? flagsFrom(process.argv.slice(3)) : null;
   if (!file || file.startsWith("--") || !flags?.game) {

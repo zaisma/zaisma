@@ -897,6 +897,7 @@ function signInPage(env: Env, title: string, body: Raw, options: SignInPageOptio
     stage: cityStage(),
     isBare: true,
     checkedPage: options.checkedPage,
+    pageShape: "full",
     isPrivate: true,
     hasTurnstileCheck,
     viewer: options.account === undefined ? undefined : { account: options.account },
@@ -1105,7 +1106,7 @@ async function agePage(env: Env, next: string | null, error?: string, via?: Prov
   return entryPage(env, "join", next, { ageError: error, via, httpStatus: error ? 400 : 200 });
 }
 
-const SOCIAL_MODE_LABELS: Record<SocialMode, string> = { solo_focused: "Solo-focused", friends_focused: "Friends-focused", open_and_social: "Open and social" };
+export const SOCIAL_MODE_LABELS: Record<SocialMode, string> = { solo_focused: "Solo-focused", friends_focused: "Friends-focused", open_and_social: "Open and social" };
 
 /**
  * What a preset does, in a line. It only ever says what the player gets, never what they don't or why:

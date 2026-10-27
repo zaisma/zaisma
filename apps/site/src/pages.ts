@@ -28,6 +28,7 @@ import {
   versionById,
   type ContentRule,
   type Game,
+  type RoomPage,
   type TesterLink,
 } from "@zaisma/core";
 import { authConfigured } from "./auth.ts";
@@ -35,18 +36,18 @@ import { gameUrl, type Env } from "./env.ts";
 import { cutButton, runButton, textLink } from "./components/actions.ts";
 import { codeField } from "./components/inputs.ts";
 import { cutField } from "./components/fields.ts";
-import { glanceFacts } from "./components/data.ts";
+import { glanceFacts, emptyState } from "./components/data.ts";
 import { glassPane, type IconName } from "./components/foundations.ts";
 import { grid, row, stack, track, type LayoutItem } from "./components/layout.ts";
 import { banner, dropdown, sheet } from "./components/panes.ts";
 import { person } from "./components/people.ts";
 import { gameCard, playingBar, playingCard, playingCheck, screenshot, screenshotLarge } from "./components/playing.ts";
 import { facts, readingText } from "./components/reading.ts";
-import { backgroundMarkup, backgroundOf } from "./backgrounds.ts";
+import { backgroundMarkup, backgroundOf, type ShownBackground } from "./backgrounds.ts";
 import { glassMessage, html, layout, pageData, raw, scriptTags, type Raw } from "./html.ts";
 import { pageScript } from "./page-scripts.ts";
-import { showcase } from "./home.ts";
-import { viewerOf } from "./viewer.ts";
+import { showcase, type ShowGame } from "./home.ts";
+import { viewerOf, type Viewer } from "./viewer.ts";
 import { SAVES_SCRIPT } from "./saves-client.ts";
 import { reportSheet } from "./report.ts";
 import { blockSheet } from "./blocks.ts";
@@ -100,6 +101,46 @@ function purchaseWords(purchaseLabel: PurchaseLabel): string {
   return `${sold.charAt(0).toUpperCase()}${sold.slice(1)}${purchaseLabel.has_own_payments ? "; some handled by the developer, not Zaisma" : ""}`;
 }
 
+/** What a game page shows: read from D1 by gamePage, or given by a stand-in for zaisma.com (the game server package's test bench). */
+export interface GamePageView {
+  game: Game;
+  /** The page's address, for ?room=, ?server=, ?watch=1 and ?play. */
+  pageUrl: URL;
+  tester: TesterLink | null;
+  /** The version a tester link opens, or null without one. */
+  testerVersionId: string | null;
+  viewer: Viewer;
+  developer: { name: string; game_count: number } | null;
+  pictures: { id: string; kind: string }[];
+  updates: { id: string; patch_notes: string; published_at_ms: number }[];
+  /** The showcase's games, for More from the developer. */
+  otherGames: ShowGame[];
+  /** The game's live rooms on Zaisma, or null when it has none to count or list. */
+  liveRooms: RoomPage | null;
+  /** Checked browsers with the game on screen (playingNowCounts). */
+  checkedPlayerCount: number;
+  /** Whether the version this page plays needs threads (ScanReport.has_threads). */
+  hasThreads: boolean;
+  purchaseLabel: PurchaseLabel;
+  background: ShownBackground;
+  /** What chat apps, social sites and search engines read; none for tester links, which are secret. */
+  head: Raw | undefined;
+  /** The request is a same-site frame of the page: the home playing a game in place. */
+  isFramedBySelf: boolean;
+  /** Listed, and kept on lists by the listing check, so search engines may index it. */
+  isShownInLists: boolean;
+}
+
+// A game for older players (docs/DECISIONS.md, "Games can keep out younger age bands"): a younger account
+// sees its details, closed, and nothing on the page says an age.
+const isClosedTo = (viewer: Viewer, game: Game) => Boolean(viewer.account && !isOldEnoughFor(viewer.account.age_band, game.minimum_player_age_years));
+
+/** The room a room link (zaisma.com/g/<slug>?room=CODE) drops the player straight into, or "" for none. */
+function roomCodeOf(url: URL, isClosed: boolean): string {
+  const code = url.searchParams.get("room")?.toUpperCase() ?? "";
+  return ROOM_CODE.test(code) && !isClosed ? code : "";
+}
+
 export async function gamePage(env: Env, slug: string, request: Request, tester?: TesterLink): Promise<Response> {
   const url = new URL(request.url);
   const game = await gameBySlug(env.DB, slug);
@@ -111,17 +152,67 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
   if (isBlockedInCountry(game, countryCode)) return glassMessage(env, "This game isn't available in your country", `A legal notice under your country's law (${countryName(countryCode!)}) blocks it here. It's still available everywhere else.`, 451);
   const testerVersion = tester ? await testerLinkVersion(env.DB, game, tester) : null;
   if (tester && !testerVersion) return glassMessage(env, "Nothing to play yet", "The version this link opens isn't there yet: the developer hasn't published one, or it was deleted. Try the link again later.", 404);
+  const viewer = await viewerOf(request, env);
+  const isClosed = isClosedTo(viewer, game);
+  const code = roomCodeOf(url, isClosed);
+  const playedVersionId = testerVersion?.id ?? game.live_version_id;
+  const [developer, pictures, updates, otherGames, liveRooms, playingNow, playedVersion, purchaseLabel, background, shownInLists] = await Promise.all([
+    game.owner_id
+      ? env.DB.prepare("SELECT accounts.username AS name, (SELECT COUNT(*) FROM games WHERE owner_id = ? AND review_status = 'live' AND visibility = 'listed') AS game_count FROM owners JOIN accounts ON accounts.id = owners.account_id WHERE owners.id = ?").bind(game.owner_id, game.owner_id).first<{ name: string; game_count: number }>()
+      : null,
+    // The square cover is only for phones' game cards, not one of the game's pictures.
+    env.DB.prepare("SELECT id, kind FROM game_images WHERE game_id = ? AND review_status = 'approved' AND kind IN ('cover', 'screenshot') ORDER BY kind = 'cover' DESC, created_at_ms").bind(game.id).all<{ id: string; kind: string }>(),
+    env.DB.prepare("SELECT id, patch_notes, published_at_ms FROM versions WHERE game_id = ? AND published_at_ms IS NOT NULL AND patch_notes != '' ORDER BY published_at_ms DESC LIMIT 10").bind(game.id).all<{ id: string; patch_notes: string; published_at_ms: number }>(),
+    // The viewer's age picks More games.
+    showcase(env, viewer.ageFloorYears, 60, countryCode),
+    // Games on Zaisma rooms: who's playing now, and the rooms to list if the developer shows them here.
+    // Not on tester links: their rooms are reached by code and invite link.
+    game.multiplayer_mode !== "none" && !tester && !isClosed ? pageRooms(env, game, request, readRoomPick(url.searchParams)) : null,
+    playingNowCounts(env),
+    // Whether the version this page plays needs threads (ScanReport.has_threads), without reading the whole report.
+    playedVersionId ? env.DB.prepare("SELECT json_extract(scan_report, '$.has_threads') = 1 AS has_threads FROM versions WHERE id = ?").bind(playedVersionId).first<{ has_threads: number | null }>() : null,
+    purchaseLabelFor(env.DB, game),
+    backgroundOf(env, game, isPhoneRequest(request) ? "phone" : "wide"),
+    // Unlisted games are for people with the link, never search engines; so are games the listing check keeps off lists ("No slop").
+    game.visibility === "listed" && !tester ? env.DB.prepare(`SELECT 1 AS shown FROM games WHERE id = ? AND ${SHOWN_IN_LISTS_SQL}`).bind(game.id).first() : null,
+  ]);
+  const response = gamePageResponse(env, {
+    game,
+    pageUrl: url,
+    tester: tester ?? null,
+    testerVersionId: testerVersion?.id ?? null,
+    viewer,
+    developer,
+    pictures: pictures.results,
+    updates: updates.results,
+    otherGames,
+    liveRooms,
+    checkedPlayerCount: playingNow.get(game.id) ?? 0,
+    hasThreads: playedVersion?.has_threads === 1,
+    purchaseLabel,
+    background,
+    head: tester ? undefined : await gamePageHead(env, game, { roomCode: code || null, developerName: developer?.name ?? null }),
+    // The home opens the game page in a frame to play in place; only such a request (a same-site frame) may do it, every other still refuses framing.
+    isFramedBySelf: request.headers.get("sec-fetch-dest") === "iframe" && request.headers.get("sec-fetch-site") === "same-origin",
+    isShownInLists: Boolean(shownInLists),
+  });
+  for (const cookie of viewer.cookies) response.headers.append("Set-Cookie", cookie);
+  return response;
+}
+
+/**
+ * A game page drawn from what it shows (GamePageView), with no reads of its own: zaisma.com draws it from D1, and the
+ * game server package's test bench from its own stand-ins, so the bench's player page is Zaisma's own.
+ */
+export function gamePageResponse(env: Env, view: GamePageView): Response {
+  const { game, tester, viewer } = view;
+  const url = view.pageUrl;
   const here = tester ? `/t/${tester.token}` : `/g/${game.slug}`;
   const hidden = game.visibility === "draft" || game.visibility === "private";
-  // A game for older players (docs/DECISIONS.md, "Games can keep out younger age bands"): a younger account
-  // sees its details, closed, and nothing on the page says an age. The viewer's age also picks More games.
-  const viewer = await viewerOf(request, env);
-  const isClosed = Boolean(viewer.account && !isOldEnoughFor(viewer.account.age_band, game.minimum_player_age_years));
-
+  const isClosed = isClosedTo(viewer, game);
   const ownServerUrls = ownServerUrlsOf(game);
-  // A room link (zaisma.com/g/<slug>?room=CODE) drops the player straight into that match.
-  const code = url.searchParams.get("room")?.toUpperCase() ?? "";
-  const inRoom = ROOM_CODE.test(code) && !isClosed;
+  const code = roomCodeOf(url, isClosed);
+  const inRoom = code !== "";
   // A friend's Join into a room on the game's own servers names the server too (?server=), passed on only when it's one of them.
   // Watch beside Join says watch=1, which the game reads as Zaisma.rooms.isLinkedAsSpectator.
   const roomQuery = inRoom ? `?room=${code}${ownServerParameter(url.searchParams.get("server"), ownServerUrls)}${url.searchParams.get("watch") === "1" ? "&watch=1" : ""}` : "";
@@ -133,7 +224,7 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
   const signinHere = `/signin?next=${encodeURIComponent(`${here}?play`)}`;
   // A tester link on a build players don't have yet plays alone: online play would reach the live
   // version's rooms, game server and data, so it waits until test builds get their own.
-  const isTestBuild = Boolean(testerVersion && testerVersion.id !== game.live_version_id);
+  const isTestBuild = Boolean(view.testerVersionId && view.testerVersionId !== game.live_version_id);
   const multiplayer = (game.multiplayer_mode !== "none" || ownServerUrls.length > 0) && !isTestBuild;
   // Rooms on Zaisma have codes players can type into the bar to join (a room link does the same).
   const hasRoomCodes = game.multiplayer_mode !== "none" && !isTestBuild && !isClosed;
@@ -146,31 +237,16 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
   const accountNext = encodeURIComponent(`${here}${inRoom ? roomQuery : "?play"}`);
   // A game can ask a guest to sign in while it runs (Zaisma.player.signIn).
   const canSignIn = authConfigured(env);
-  const playedVersionId = testerVersion?.id ?? game.live_version_id;
-  const [developer, pictures, updates, others, live, playingNow, playedVersion] = await Promise.all([
-    game.owner_id
-      ? env.DB.prepare("SELECT accounts.username AS name, (SELECT COUNT(*) FROM games WHERE owner_id = ? AND review_status = 'live' AND visibility = 'listed') AS game_count FROM owners JOIN accounts ON accounts.id = owners.account_id WHERE owners.id = ?").bind(game.owner_id, game.owner_id).first<{ name: string; game_count: number }>()
-      : null,
-    // The square cover is only for phones' game cards, not one of the game's pictures.
-    env.DB.prepare("SELECT id, kind FROM game_images WHERE game_id = ? AND review_status = 'approved' AND kind IN ('cover', 'screenshot') ORDER BY kind = 'cover' DESC, created_at_ms").bind(game.id).all<{ id: string; kind: string }>(),
-    env.DB.prepare("SELECT id, patch_notes, published_at_ms FROM versions WHERE game_id = ? AND published_at_ms IS NOT NULL AND patch_notes != '' ORDER BY published_at_ms DESC LIMIT 10").bind(game.id).all<{ id: string; patch_notes: string; published_at_ms: number }>(),
-    showcase(env, viewer.ageFloorYears, 60, countryCode),
-    // Games on Zaisma rooms: who's playing now, and the rooms to list if the developer shows them here.
-    // Not on tester links: their rooms are reached by code and invite link.
-    game.multiplayer_mode !== "none" && !tester && !isClosed ? pageRooms(env, game, request, readRoomPick(url.searchParams)) : null,
-    playingNowCounts(env),
-    // Whether the version this page plays needs threads (ScanReport.has_threads), without reading the whole report.
-    playedVersionId ? env.DB.prepare("SELECT json_extract(scan_report, '$.has_threads') = 1 AS has_threads FROM versions WHERE id = ?").bind(playedVersionId).first<{ has_threads: number | null }>() : null,
-  ]);
+  const live = view.liveRooms;
   const rooms = live && roomsOnPage(game) ? live : null;
   // Checked browsers with the game on screen, and everyone in its rooms (who may have come in another way): the larger.
-  const playingNowPlayerCount = Math.max(playingNow.get(game.id) ?? 0, live ? live.playing.playerCount : 0);
-  const shots = pictures.results.map((picture) => `/img/${picture.id}`);
+  const playingNowPlayerCount = Math.max(view.checkedPlayerCount, live ? live.playing.playerCount : 0);
+  const shots = view.pictures.map((picture) => `/img/${picture.id}`);
   // The game's own cover, across the top of the buy sheet (items have no pictures of their own); null where the developer has none yet.
-  const coverPicture = pictures.results.find((picture) => picture.kind === "cover");
+  const coverPicture = view.pictures.find((picture) => picture.kind === "cover");
   const coverUrl = coverPicture ? `/img/${coverPicture.id}` : null;
-  const more = [...others.filter((otherGame) => otherGame.slug !== game.slug && otherGame.owner_id && otherGame.owner_id === game.owner_id), ...others.filter((otherGame) => otherGame.slug !== game.slug && (!otherGame.owner_id || otherGame.owner_id !== game.owner_id))].slice(0, 4);
-  const purchaseLabel = await purchaseLabelFor(env.DB, game);
+  const more = [...view.otherGames.filter((otherGame) => otherGame.slug !== game.slug && otherGame.owner_id && otherGame.owner_id === game.owner_id), ...view.otherGames.filter((otherGame) => otherGame.slug !== game.slug && (!otherGame.owner_id || otherGame.owner_id !== game.owner_id))].slice(0, 4);
+  const { developer, purchaseLabel, background } = view;
   const refundWords = refundPolicyWords(purchaseSettingsOf(game));
   const devices = game.devices ? game.devices.split(",") : [];
   const controls = game.controls ? game.controls.split(",") : [];
@@ -187,7 +263,6 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
   ];
   const isSignedInAdult = viewer.account?.age_band === "18+";
   const pageLinks = linksOf(game).filter((link) => link.is_on_game_page && canOpenLink(link, isSignedInAdult));
-  const background = await backgroundOf(env, game, isPhoneRequest(request) ? "phone" : "wide");
   const gameOrigin = new URL(frameUrl).origin;
   const testerWords = tester
     ? `You're testing this game with a link from its developer.${isTestBuild ? ` It opens a version players don't have yet${game.multiplayer_mode !== "none" || ownServers.length ? ", so online play is off: it works only on the version players have" : ""}.` : ""}${hidden ? " It isn't public yet: anyone with this link can play, so only share it with other testers." : ""} Your progress stays in this browser.${tester.ends_at_ms ? ` The link works until ${day(tester.ends_at_ms)}.` : ""}`
@@ -243,7 +318,7 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
   const sections: LayoutItem[] = [
     ...(rooms ? [section("rooms", "Rooms", [{ kind: "block", markup: codeBox(game.slug) }, { kind: "block", id: "rooms-list", markup: roomsPanel(game, rooms) }])] : []),
     ...(shots.length
-      ? [section("screenshots", "Screenshots", [{ kind: "block", markup: track({ id: "screenshots-track", itemSize: "cover", label: "Screenshots", items: shots.map((shot, shotIndex) => ({ kind: "block" as const, markup: screenshot({ imageUrl: shot, label: `Screenshot ${shotIndex + 1} of ${shots.length}`, sheetId: `screenshot-${shotIndex + 1}` }) })) }) }])]
+      ? [section("screenshots", "Screenshots", [{ kind: "block", markup: track({ whenEmpty: emptyState({ title: "No screenshots yet", text: "The developer hasn't added any screenshots." }), id: "screenshots-track", itemSize: "cover", label: "Screenshots", items: shots.map((shot, shotIndex) => ({ kind: "block" as const, markup: screenshot({ imageUrl: shot, label: `Screenshot ${shotIndex + 1} of ${shots.length}`, sheetId: `screenshot-${shotIndex + 1}` }) })) }) }])]
       : []),
     section("about", "About", [
       { kind: "block", markup: readingText({ markup: description ? paragraphs(description) : html`<p>The developer hasn't written about this game yet.</p>` }) },
@@ -251,14 +326,14 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
       ...(developer ? [{ kind: "block" as const, markup: person({ username: developer.name, href: profilePath(developer.name), note: developer.game_count === 1 ? "1 game on Zaisma" : `${developer.game_count} games on Zaisma` }) }] : []),
       ...(pageLinks.length ? [{ kind: "block" as const, markup: html`${developerLinks(pageLinks)}` }] : []),
     ]),
-    ...(updates.results.length
-      ? [section("updates", "Updates", [{ kind: "block", markup: readingText({ markup: html`${updates.results.map((update) => html`<h3>${day(update.published_at_ms)}</h3>${paragraphs(update.patch_notes)}`)}` }) }])]
+    ...(view.updates.length
+      ? [section("updates", "Updates", [{ kind: "block", markup: readingText({ markup: html`${view.updates.map((update) => html`<h3>${day(update.published_at_ms)}</h3>${paragraphs(update.patch_notes)}`)}` }) }])]
       : []),
     ...(developerGames.length && developer
-      ? [section("more", `More from ${developer.name}`, [{ kind: "block", markup: grid({ itemSize: "cover", items: developerGames.map((otherGame) => ({ kind: "block" as const, markup: gameCard({ title: otherGame.title, imageUrl: otherGame.cover ?? null, href: `/g/${otherGame.slug}`, facts: { playerCount: otherGame.playing_now_player_count >= MINIMUM_PLAYING_NOW_PLAYER_COUNT ? otherGame.playing_now_player_count : undefined } }) })) }) }])]
+      ? [section("more", `More from ${developer.name}`, [{ kind: "block", markup: grid({ whenEmpty: emptyState({ title: "No other games yet", text: "This is the developer's only game so far." }), itemSize: "cover", items: developerGames.map((otherGame) => ({ kind: "block" as const, markup: gameCard({ title: otherGame.title, imageUrl: otherGame.cover ?? null, href: `/g/${otherGame.slug}`, facts: { playerCount: otherGame.playing_now_player_count >= MINIMUM_PLAYING_NOW_PLAYER_COUNT ? otherGame.playing_now_player_count : undefined } }) })) }) }])]
       : []),
   ];
-  const screenshotSheets = shots.map((shot, shotIndex) => sheet({ id: `screenshot-${shotIndex + 1}`, title: `${game.title}, screenshot ${shotIndex + 1} of ${shots.length}`, body: screenshotLarge(shot, `${game.title}, screenshot ${shotIndex + 1}`), closeLabel: "Close" }));
+  const screenshotSheets = shots.map((shot, shotIndex) => sheet({ id: `screenshot-${shotIndex + 1}`, title: `${game.title}, screenshot ${shotIndex + 1} of ${shots.length}`, body: screenshotLarge(shot, `${game.title}, screenshot ${shotIndex + 1}`), closeLabel: "Close", isPicture: true }));
   // Playing: the bar beside the game, and what it opens.
   const barControls = [
     ...(multiplayer ? [cutButton("Players", { id: "players-open", type: "button", icon: "people", isLabelHidden: true, isSmall: true, controls: "players", reactionCount: 0 })] : []),
@@ -327,13 +402,12 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
     : "";
   const response = layout(env, {
     title: `${game.title} on Zaisma`,
-    // What chat apps, social sites and search engines read; tester links are secret, so they get none.
-    head: tester ? undefined : await gamePageHead(env, game, { roomCode: inRoom ? code : null, developerName: developer?.name ?? null }),
+    head: view.head,
     checkedPage: tester ? "Tester link" : rooms ? "Game page" : "Game page, no rooms",
+    pageShape: "full",
     // The game's own world behind the glass, the same the home shows while its cover is pointed at.
     stage: backgroundMarkup(background),
-    // The home opens the game page in a frame to play in place; only such a request (a same-site frame) may do it, every other still refuses framing.
-    isFramedBySelf: request.headers.get("sec-fetch-dest") === "iframe" && request.headers.get("sec-fetch-site") === "same-origin",
+    isFramedBySelf: view.isFramedBySelf,
     viewer,
     // Cloudflare's invisible check from when the page opens, for play counts and multiplayer (tester links: only for multiplayer).
     hasTurnstileCheck: (!tester || multiplayer) && !isClosed && Boolean(env.TURNSTILE_SITE_KEY),
@@ -375,7 +449,7 @@ ${pageData("game-page-data", {
       devices,
       controls,
       // A build that needs threads runs only where the game's frame can be isolated (Chrome and Edge): other browsers get a note.
-      has_threads: playedVersion?.has_threads === 1,
+      has_threads: view.hasThreads,
       // Streamer mode (an account setting) hides room codes until the player shows them.
       is_streamer_mode_on: Boolean(viewer.account?.is_streamer_mode_on),
       screen_orientation: game.screen_orientation || null,
@@ -406,11 +480,8 @@ ${isClosed
           GAME_AUTOPLAY_SCRIPT,
         )}`,
   });
-  for (const cookie of viewer.cookies) response.headers.append("Set-Cookie", cookie);
   response.headers.append("Vary", "Sec-Fetch-Dest, Sec-Fetch-Site");
-  // Unlisted games are for people with the link, never search engines; so are games the listing check keeps off lists ("No slop").
-  const isShownInLists = game.visibility === "listed" && Boolean(await env.DB.prepare(`SELECT 1 AS shown FROM games WHERE id = ? AND ${SHOWN_IN_LISTS_SQL}`).bind(game.id).first());
-  if (!isShownInLists || tester) response.headers.set("X-Robots-Tag", "noindex");
+  if (!view.isShownInLists || tester) response.headers.set("X-Robots-Tag", "noindex");
   return response;
 }
 

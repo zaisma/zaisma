@@ -381,6 +381,48 @@ npx @zaisma/cli secrets set <slug> DISCORD_WEBHOOK_URL   # asks for the value; n
 - **Secrets:** names like `DISCORD_WEBHOOK_URL` (capitals, digits and underscores) with up to 8 KB of text, up to 50 a game, set with `set_secret`, the API or the upload command and never shown again, to anyone. Your game server reads them as `server.secrets` in `onRequest` and `onSchedule` and `room.secrets` in rooms; running rooms get a new value within a minute. Since your code reads them, anyone who can publish the game's code can use them. Never put a secret in the game's own files: players can read those.
 - **On your own server** the Node runner calls out freely, and `server.secrets` is its environment variables, so the same code runs with `DISCORD_WEBHOOK_URL=… npx @zaisma/game-server …`.
 
+#### Play it on your own computer
+
+Before you upload, play your multiplayer game on your own computer, with no Zaisma account, key or internet, and no change to its code. In your game's folder (the one with `index.html` at the top):
+
+```sh
+npx @zaisma/cli play-locally
+```
+
+Your game opens in the browser on a test bench. Each player plays on Zaisma's own game page, drawn by Zaisma's own code, with its bar, sheets and cards, and the bench answers what the page asks Zaisma. Above it sits the bench's dev bar. Its game server runs beside it (`zaisma-server/index.js` or `zaisma-server.js` in the folder, as uploads find it, else the relay), and `Zaisma.joinRoom()` reaches it there. **Add a player** in the dev bar brings a new player into the room you're in: in a new tab, so two tabs play together, or on a phone from its QR code. Every new player is a guest. Signing in or making an account (from the game, or the page's sign-in and buy sheets) goes to the bench's players: pick one, make a new one with a name, an age band and a social mode, with Zaisma's own limits, or press Quick player. Each player's details set their profile, friends and blocks, grant or take away the game's items, and refund their purchases; the dev bar's player menu switches a tab to another player or signs it out. Passes are real, signed with a key the bench makes on its first run and checked by your game server exactly as Zaisma's are, and carry who each player chats with as Zaisma's do. Blocks, mutes and reports also happen on the game page as players do them. A buy (`Zaisma.items.buy`) opens Zaisma's own buy sheet with a test card that's never charged: the item is granted, with a receipt your game server can check. Accounts' cloud saves are kept per account. A change to a game file reloads the game; a change to the game server starts it again, with its rooms as they were.
+
+| Flag | What it does |
+| --- | --- |
+| `[folder]` | The game's folder; this one unless given |
+| `--port <port>` | The first of four ports, `4800` unless given: the bench, the game's site, the stand-in rooms and your game server take it and the next three |
+| `--game <slug>` | The game's slug; with `ZAISMA_KEY` set to a key for it, each start brings in the game's items from Zaisma, the ones its code buys (the bench makes none up; offline it keeps the last ones) |
+| `--on-network` | Let a phone on the same Wi-Fi open the bench too: it prints the address and a QR code. There the bench speaks HTTPS with a certificate it signs itself, so the phone says the connection isn't private: continue to the site. On this computer it stays `http://localhost` |
+| `--no-open` | Don't open the bench in the browser |
+| `--json` | Print `{ bench_url, game_site_url, rooms_url, network_url }` once it's listening |
+
+### The bench's API, for your AI
+
+Everything the dev bar and the Players panel do is a call of the bench's own API, so an AI working on your game can test it the same way: start the bench in the background (`npx @zaisma/cli play-locally --no-open --json` prints its addresses), set up players, open them in its browser to play and check its changes (a saved file reloads the game), and read the game server's output. It's JSON at `http://localhost:4800/bench/api`; errors are `{ error: { code, message, fix } }`, as in Zaisma's developer API, and players are named by their `player_id`, the ID games see.
+
+| Call | What it does |
+| --- | --- |
+| `GET /bench/api` | The game, the bench's addresses, its players, the players open now with their rooms, the rooms and the game's items |
+| `GET /bench/api/log` | What the bench and your game server said: `{ log_lines }` |
+| `GET, POST /bench/api/players` | List the players, or make one: `{ name, age_band, social_mode }`, each optional (the next example name, `18+` and Zaisma's starting social mode). `age_band` is `13-15`, `16-17` or `18+`; `social_mode` is `solo_focused`, `friends_focused` or `open_and_social`, which `13-15` can't be, as on Zaisma |
+| `GET, PATCH, DELETE /bench/api/players/<player_id>` | One player (with their purchases), a change to their `name`, `age_band` or `social_mode`, or deleting them with their saves, items, purchases, friends and blocks |
+| `PUT, DELETE /bench/api/players/<player_id>/friends/<player_id>` | Make two players friends, or not |
+| `PUT, DELETE /bench/api/players/<player_id>/blocks/<player_id>` | Block a player, which ends a friendship, or unblock them |
+| `POST /bench/api/players/<player_id>/items` | Grant one of the game's items, `{ item_name, item_count }`: a purchase the game gets as Zaisma would send it |
+| `DELETE /bench/api/players/<player_id>/items/<item_name>` | Take a permanent item away |
+| `GET /bench/api/players/<player_id>/purchases`, `POST .../purchases/<purchase_id>/refund` | A player's purchases, and refunding one, which the game gets as Zaisma's refund |
+| `GET, POST /bench/api/open-players` | The players open now, or open a new one, `{ player_id, room_code }` (a guest without `player_id`): its `url` is the dev page to open in a browser |
+| `PUT /bench/api/open-players/<player_number>` | Who an open player plays as, `{ player_id }`, or `{ player_id: null }` for a new guest |
+| `POST /bench/api/open-players/<player_number>/pass` | That player's pass, as the game gets one, with `rooms_url` and `game_site_url`: a script joins a room at `<rooms_url as ws>/v1/rooms/<game>/<room code>` with `Origin: <game_site_url>` and sends `{ type: "hello", protocolVersionNumber: 1, pass }`, to test the game server without a browser |
+
+Changes to a player reach the game with their next pass: the next time they join a room.
+
+Only on Zaisma, and so not here: the chat filter (`Zaisma.filter` answers every text unchanged, with `is_stand_in: true`), reports (printed in the terminal, never sent), earlier versions of saves, registered links, profiles, regions in room lists and performance measuring. The dev bar's log says so the first time a page asks for one. Everything the bench keeps (its keys, players, saves and the game's database) is in `.zaisma-local/` in the game's folder: add it to your `.gitignore`. Upload and check skip it. It's the game server package's command (`npx @zaisma/game-server@1 play-locally`), which `zaisma play-locally` runs for you.
+
 #### Run your game server yourself
 
 The same game server runs on your own machine with Node 22.18 or later:

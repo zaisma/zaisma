@@ -47,5 +47,11 @@ describe("the built @zaisma/game-server package", () => {
       output = `${(error as { stdout?: string }).stdout ?? ""}${(error as { stderr?: string }).stderr ?? ""}`;
     }
     expect(output).toContain("--game");
+    expect(output).toContain("play-locally");
+  });
+
+  it("carries play-locally, with the SDK it serves", () => {
+    for (const file of ["bin/local-play.js", "bin/local-play-bench.js", "bin/local-play-runner.js", "bin/local-play.d.ts", "src/qr-code.js", "sdk/zaisma.js", "sdk/zaisma.d.ts", "sdk/saves.js", "sdk/relay.js", "sdk/picture.js", "bench/glass.js", "bench/brand/fonts/OFL.txt", "bench/brand/zaisma-mark-metal.svg"]) expect(existsSync(join(DIST_DIR, file)), file).toBe(true);
+    for (const file of ["bin/local-play.js", "bin/local-play-runner.js"]) expect(readFileSync(join(DIST_DIR, file), "utf8"), file).not.toMatch(/\.\.\/src\/[a-z-]+\.ts"/);
   });
 });

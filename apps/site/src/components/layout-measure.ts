@@ -34,6 +34,57 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
   }
   function report(check, el, said) { failures.push({ check: check, element: describe(el), said: said }); }
   var round = function (n) { return Math.round(n * 10) / 10; };
+  // A length as the page works it out (a token in rem, a calc), in px: a probe takes it as its width for a moment, inside what sets it.
+  function lengthPx(expression, inside) {
+    var probe = document.createElement("i"); probe.style.cssText = "position:absolute;visibility:hidden;display:block;height:0;width:" + expression;
+    (inside || document.body).appendChild(probe); var found = probe.getBoundingClientRect().width; probe.remove(); return found;
+  }
+  // What sits over the page, fixed to the window: a sheet, a menu, a popover, a notice, a card over the game. Measured as panes over the page.
+  var OVER_PAGE = ".sheet:not(.in-place), .dropdown, [popover], .notice, .playing-card, .playing-bar, .playing-check";
+  function isOnFixed(el) { for (var walk = el; walk && walk !== document.body; walk = walk.parentElement) { if (getComputedStyle(walk).position === "fixed") return true; } return false; }
+  // A gallery example is a piece shown alone, not a page: the page's own rules (its titles, its headings' order) skip it.
+  var EXAMPLE = ".example-stage";
+  // ---- Pane sizes (docs/DESIGN.md, Pane sizes): a pane over the page stops at its kind's size and the screen, and scrolls inside past it. ----
+  function measurePanes() {
+    var isPhoneWide = innerWidth <= 760;
+    function paneKind(pane) {
+      if (pane.matches(".dropdown")) return { name: "a menu", widthPx: lengthPx("var(--size-menu)"), heightPx: lengthPx("var(--size-menu-height)") };
+      if (pane.matches(".select-list")) { var field = document.querySelector('[popovertarget="' + pane.id + '"]'); var holder = field && (field.closest(".cut-field") || field); return { name: "a select's list", widthPx: holder ? holder.getBoundingClientRect().width : Infinity, heightPx: lengthPx("var(--size-menu-height)") }; }
+      if (pane.matches(".sheet")) {
+        var token = pane.matches(".is-compact") ? "--size-sheet-compact" : pane.matches(".placement-side") ? "--size-sheet-side" : pane.matches(".is-picture") ? "--size-sheet-picture" : "--size-sheet";
+        return { name: { "--size-sheet": "a sheet", "--size-sheet-side": "a store panel", "--size-sheet-picture": "a picture's sheet", "--size-sheet-compact": "a compact sheet" }[token], widthPx: isPhoneWide && !pane.matches(".in-place") ? innerWidth : lengthPx("var(" + token + ")"), heightPx: Infinity };
+      }
+      return null;
+    }
+    function roomOf(pane) {
+      // In the browser's top layer (a sheet opened over the page, a popover), the window is its room, whatever holds it.
+      if (pane.matches(":modal, :popover-open")) return { left: 0, top: 0, right: innerWidth, bottom: innerHeight };
+      for (var walk = pane.parentElement; walk && walk !== document.documentElement; walk = walk.parentElement) {
+        var css = getComputedStyle(walk);
+        if (css.transform !== "none" || css.filter !== "none" || (css.backdropFilter || "none") !== "none" || (css.containerType || "normal") !== "normal" || /transform|filter/.test(css.willChange || "") || /paint|layout|strict|content/.test(css.contain || "")) return walk.getBoundingClientRect();
+      }
+      return { left: 0, top: 0, right: innerWidth, bottom: innerHeight };
+    }
+    var overPanes = Array.prototype.filter.call(document.querySelectorAll(".dropdown:not(.shut), dialog.sheet[open], .sheet.in-place, :popover-open, .notice, .playing-card"), function (pane) { return isShown(pane); });
+    overPanes.forEach(function (pane) {
+      var r = pane.getBoundingClientRect(), kind = paneKind(pane), isInPlace = pane.matches(".in-place");
+      if (kind && r.width > kind.widthPx + TOLERANCE_PX) report("a pane wider than its kind allows", pane, round(r.width) + "px wide, " + kind.name + " at most " + round(kind.widthPx) + "px");
+      if (isInPlace || pane.closest(EXAMPLE + " .in-place")) return;
+      if (kind && r.height > kind.heightPx + TOLERANCE_PX) report("a pane taller than its kind allows", pane, round(r.height) + "px tall, " + kind.name + " at most " + round(kind.heightPx) + "px");
+      var room = roomOf(pane), past = [["left", room.left - r.left], ["right", r.right - room.right], ["top", room.top - r.top], ["bottom", r.bottom - room.bottom]].find(function (side) { return side[1] > TOLERANCE_PX; });
+      if (past) report("a pane past the screen", pane, "its " + past[0] + " edge " + round(past[1]) + "px past the " + (room.width === undefined ? "window's" : "frame's it opens in"));
+      // Everything in it shows inside it, or inside something in it that scrolls.
+      var spill = 0;
+      Array.prototype.forEach.call(pane.querySelectorAll("*"), function (el) {
+        if (el.matches(SKIPPED) || el.closest(SKIPPED) || !isShown(el)) return;
+        for (var walk = el.parentElement; walk && walk !== pane; walk = walk.parentElement) if (/^(auto|scroll|hidden|clip)$/.test(getComputedStyle(walk).overflowY)) return;
+        var o = el.getBoundingClientRect(); spill = Math.max(spill, o.bottom - r.bottom, r.top - o.top);
+      });
+      if (spill > TOLERANCE_PX) report("a pane that overflows without scrolling", pane, round(spill) + "px of what's in it outside it, and nothing in it scrolls");
+    });
+  }
+  // The gallery's panes opened one by one (scripts/layout-check.mjs) are measured for their size alone.
+  if (options.isPanesOnly) { measurePanes(); return failures; }
   // The box that scrolls sideways round an element, up to the pane (a track of covers): only what shows in it is measured.
   function scrollerIn(el, pane) {
     for (var walk = el.parentElement; walk && walk !== pane; walk = walk.parentElement) { var x = getComputedStyle(walk).overflowX; if (x === "auto" || x === "scroll" || x === "hidden") return walk; }
@@ -111,7 +162,12 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
     framed.forEach(function (el) {
       if (isScrolledAway(el, pane)) return;
       var r = el.getBoundingClientRect(), d = distances(r);
-      ["left", "right", "top", "bottom"].forEach(function (side) {
+      // Inside what scrolls with its rail showing, the rail's room at the right is part of the gap there.
+      var railed = el.closest(".shows-rail"), railPx = railed && pane.contains(railed) ? Math.max(0, parseFloat(getComputedStyle(railed).paddingRight) - gap.right) : 0;
+      if (railPx) d = { left: d.left, right: Math.max(gap.right, d.right - railPx), top: d.top, bottom: d.bottom };
+      // In a list that scrolls up and down inside the pane (a long menu's choices), what shows sits wherever it's scrolled to: only its sides are measured.
+      var holdingScroller = scrollerIn(el, pane), isInScrolledList = holdingScroller && !holdingScroller.matches(".pane-in, .sheet-in") && holdingScroller.scrollHeight > holdingScroller.clientHeight + 1;
+      (isInScrolledList ? ["left", "right"] : ["left", "right", "top", "bottom"]).forEach(function (side) {
         if (d[side] < gap[side] - TOLERANCE_PX) {
           if (d[side] < -TOLERANCE_PX && (side === "left" || side === "right" || !isScrolling)) report("spills out of its pane", el, side + " edge " + round(-d[side]) + "px past the pane's");
           else report("closer to the pane's edge than the frame gap", el, round(d[side]) + "px from the " + side + " edge, expected " + round(gap[side]) + "px");
@@ -186,8 +242,9 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
         // Words beside a control sit on its center line rather than at the margin above or below them (checked below), and words beside
         // anything else with an edge (a swatch, a box) line up with it the same way.
         var isBesideFramed = framed.some(function (f) { var o = f.getBoundingClientRect(); return (o.right <= r.left + TOLERANCE_PX || o.left >= r.right - TOLERANCE_PX) && Math.min(o.bottom, r.bottom) - Math.max(o.top, r.top) > TOLERANCE_PX; });
-        // A notice is one centered line, as tall as a small control and its room: its words keep the margin at the sides only.
-        var sides = el.closest(BESIDE_CONTROLS_WORDS) || isBesideFramed || pane.matches(".notice") ? ["left", "right"] : ["left", "right", "top", "bottom"];
+        // A notice is one centered line, as tall as a small control and its room: its words keep the margin at the sides only. Words in what
+        // scrolls sideways run under its fading edge, so only their top and bottom are measured there.
+        var sides = el.closest(BESIDE_CONTROLS_WORDS) || isBesideFramed || pane.matches(".notice") ? ["left", "right"] : scroller && scroller.scrollWidth > scroller.clientWidth + 1 ? ["top", "bottom"] : ["left", "right", "top", "bottom"];
         var side = sides.find(function (each) { return d[each] < wordsAt[each] - TOLERANCE_PX; });
         if (side) { flagged.add(el); report("words closer to the pane's edge than its margin", el, round(d[side]) + "px from the " + side + " edge of " + describe(pane) + ", the words margin is " + round(wordsAt[side]) + "px"); return true; }
         // What's scrolled out of its box (the buy sheet's body, scrolled to its confirm step) isn't under the words: it isn't shown there.
@@ -298,7 +355,7 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
   // Every control is its size class's height (--control-height: small, regular, field or big), never a number of its own.
   document.querySelectorAll(".run-wrap > .run, .cut-btn:not(.in-well) > .face, .glass-btn > .face, .guest-btn > .face, .danger, .cut-field > .field:not(.long, .code), .pin-box, .find, .bday-field").forEach(function (el) {
     if (!isShown(el)) return;
-    var expectedPx = parseFloat(getComputedStyle(el).getPropertyValue("--control-height")), foundPx = el.getBoundingClientRect().height;
+    var expectedPx = getComputedStyle(el).getPropertyValue("--control-height").trim() ? lengthPx("var(--control-height)", el) : 0, foundPx = el.getBoundingClientRect().height;
     if (expectedPx && Math.abs(foundPx - expectedPx) > 1) report("a control off its size class's height", el, round(foundPx) + "px tall, its size class " + round(expectedPx) + "px");
   });
   // Words: never in capitals for show (no ALL CAPS), never cut off, and never orange unless they're something you act on.
@@ -374,15 +431,155 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
   }
   // The page's own panes, the header and the footer share one left and right edge: a pane a few pixels out of line with them is off.
   var header = document.querySelector("header.top");
+  var pageShape = document.documentElement.getAttribute("data-page-shape");
   if (header && isShown(header)) {
     var h = header.getBoundingClientRect();
     Array.prototype.forEach.call(document.querySelectorAll(".glass-pane, .foot"), function (el) {
       if (!isShown(el) || (el.parentElement && el.parentElement.closest("[data-glass], [data-on-no-pane], .example-stage"))) return;
+      // A reading page's column is centered under the header instead (below); its panes line up with the column.
+      if (pageShape === "reading" && !el.matches(".foot")) return;
       var r = el.getBoundingClientRect();
       [["left", r.left - h.left], ["right", r.right - h.right]].forEach(function (pair) {
         if (Math.abs(pair[1]) > TOLERANCE_PX && Math.abs(pair[1]) < 16) report("out of line with the header", el, "its " + pair[0] + " edge " + round(pair[1]) + "px off the header's");
       });
     });
+  }
+
+  // ---- Page shapes (docs/DESIGN.md, Page shapes): a rebuilt page says its shape, and nothing on it runs wider than the shape lets it. ----
+  var padPanePx = parseFloat(root.getPropertyValue("--pad-pane")) || 24;
+  if (document.querySelector('meta[name="checked-page"]') && !pageShape) report("a page without its shape", document.documentElement, "a rebuilt page names its shape (layout's pageShape: reading, wide or full)");
+  if (pageShape) {
+    var screenWidthPx = document.documentElement.clientWidth;
+    var wideWidthPx = Math.min(lengthPx("var(--size-page-wide)"), screenWidthPx - 2 * padPanePx), readingWidthPx = Math.min(lengthPx("var(--size-page-reading)"), screenWidthPx - 2 * padPanePx);
+    var frameOf = function (widthPx) { return { left: (screenWidthPx - widthPx) / 2, right: (screenWidthPx + widthPx) / 2, widthPx: widthPx }; };
+    var sidePlaces = document.querySelector("main .side-places-body");
+    // The shape's box: the wide frame, or a reading page's column (the body beside its places, where it has them).
+    var column = pageShape === "reading" ? (sidePlaces && isShown(sidePlaces) ? { left: sidePlaces.getBoundingClientRect().left, right: sidePlaces.getBoundingClientRect().left + readingWidthPx, widthPx: readingWidthPx } : frameOf(readingWidthPx)) : frameOf(wideWidthPx);
+    var wide = frameOf(wideWidthPx);
+    Array.prototype.forEach.call(document.querySelectorAll("main .glass-pane, main .table, main .layout-grid, main .tray"), function (el) {
+      if (!isShown(el) || isOnFixed(el) || el.closest(EXAMPLE + ", " + OVER_PAGE) || scrollerIn(el, document.body)) return;
+      var r = el.getBoundingClientRect(), box = el.closest(".side-places-side") ? wide : column;
+      if (r.left < box.left - TOLERANCE_PX || r.right > box.right + TOLERANCE_PX) report("wider than its page's shape", el, round(r.width) + "px from " + round(r.left) + "px, the " + pageShape + " shape runs " + round(box.widthPx) + "px from " + round(box.left) + "px");
+    });
+    // A reading page's column sits in the middle, under the header's.
+    if (pageShape === "reading" && header && isShown(header)) {
+      var held = sidePlaces && isShown(sidePlaces) ? document.querySelector("main .side-places-in") : document.querySelector("body > main");
+      if (held && isShown(held)) {
+        var hr = header.getBoundingClientRect(), cr = held.getBoundingClientRect(), offPx = (cr.left + cr.right) / 2 - (hr.left + hr.right) / 2;
+        if (Math.abs(offPx) > TOLERANCE_PX && cr.width < hr.width - TOLERANCE_PX) report("a reading column off the middle", held, "its middle " + round(offPx) + "px off the header's");
+      }
+    }
+  }
+  // A line of words runs at most 75 characters of its font (a "0" in it): --size-reading is 60ch, and 75 leaves room for a wide pane's short lines.
+  var LONGEST_LINE_CHARACTER_COUNT = 75;
+  // 75ch in the words' own font, as the browser works ch out: a probe inside the element takes its width.
+  Array.prototype.forEach.call(document.querySelectorAll("main p, main li, dialog p"), function (el) {
+    if (!isShown(el) || el.closest(SKIPPED + ", pre, code, table, .list-rows, .dropdown, .tab-switch, .steps, .step-line, nav") || el.querySelector("p, li")) return;
+    // One line that's cut off at its end (a note in a row, ending in an ellipsis) isn't read as a line of a paragraph.
+    if (/^(nowrap|pre)$/.test(getComputedStyle(el).whiteSpace) || getComputedStyle(el).textOverflow === "ellipsis") return;
+    var range = document.createRange(); range.selectNodeContents(el);
+    var longestPx = Array.prototype.reduce.call(range.getClientRects(), function (most, glyphs) { return Math.max(most, glyphs.width); }, 0), mostPx = lengthPx(LONGEST_LINE_CHARACTER_COUNT + "ch", el);
+    // Half a character's room for a glyph that reaches past its advance at a line's end.
+    if (longestPx > mostPx + Math.max(TOLERANCE_PX, mostPx / LONGEST_LINE_CHARACTER_COUNT / 2)) report("a line of words longer than the reading width", el, "a line " + round(longestPx) + "px long, at most " + round(mostPx) + "px (" + LONGEST_LINE_CHARACTER_COUNT + " characters)");
+  });
+
+  measurePanes();
+
+  // ---- The Laws of UX a check can measure (lawsofux.com; docs/DESIGN.md, Laws of UX). Gallery examples are pieces shown alone: skipped. ----
+  var isOwn = function (el) { return isShown(el) && !el.closest(EXAMPLE + ", " + SKIPPED); };
+  var surfaceOf = function (el) { return el.closest("[data-glass]:not([data-cut-line])"); };
+  // Proximity: a heading is nearer what it names (what follows it) than the block before it.
+  Array.prototype.forEach.call(document.querySelectorAll("h2, h3, h4"), function (heading) {
+    if (!isOwn(heading)) return;
+    // A heading that's a cell of a stack, beside the cells it sits between (one inside a pane's head or a component places itself).
+    var cell = heading.parentElement;
+    if (!cell || !cell.matches(".stack-cell") || cell.children.length !== 1) return;
+    var before = cell.previousElementSibling, after = cell.nextElementSibling;
+    while (before && !isShown(before)) before = before.previousElementSibling;
+    while (after && !isShown(after)) after = after.nextElementSibling;
+    if (!before || !after) return;
+    var h = heading.getBoundingClientRect(), aboveGapPx = h.top - before.getBoundingClientRect().bottom, belowGapPx = after.getBoundingClientRect().top - h.bottom;
+    if (aboveGapPx + TOLERANCE_PX < belowGapPx) report("words nearer the block before than their own", heading, round(aboveGapPx) + "px under what's before it, " + round(belowGapPx) + "px over what it names");
+  });
+  // Common region: a heading's group is on its own surface: a heading with nothing after it on its surface has left its group on another.
+  Array.prototype.forEach.call(document.querySelectorAll("h2, h3"), function (heading) {
+    var surface = surfaceOf(heading);
+    if (!isOwn(heading) || !surface || heading.closest(".pane-head, .dropdown-head, .sheet, .playing-card")) return;
+    var walker = document.createTreeWalker(surface, NodeFilter.SHOW_ELEMENT), el, isAfter = false, hasMore = false;
+    while ((el = walker.nextNode())) { if (el === heading) { isAfter = true; continue; } if (isAfter && !heading.contains(el) && isShown(el) && !el.matches(SKIPPED) && el.getBoundingClientRect().height > 0 && (el.textContent.trim() || el.matches("input, button, a, img, canvas, svg"))) { hasMore = true; break; } }
+    if (!hasMore) report("one group on two surfaces", heading, "it's the last thing on " + describe(surface) + ": what it names is on another surface");
+  });
+  // Similarity: the cells of one grid or track are one kind at one width.
+  Array.prototype.forEach.call(document.querySelectorAll(".layout-grid, .layout-track"), function (list) {
+    if (!isOwn(list)) return;
+    var cells = Array.prototype.filter.call(list.children, isShown);
+    var kindOf = function (cell) { var inner = cell.matches(".grid-cell") ? cell.firstElementChild : cell; return inner ? (inner.className.split(" ")[0] || inner.tagName) : ""; };
+    for (var i = 1; i < cells.length; i++) {
+      var a = cells[0].getBoundingClientRect(), b = cells[i].getBoundingClientRect();
+      if (Math.abs(a.width - b.width) > 1 || kindOf(cells[0]) !== kindOf(cells[i])) { report("one kind at different sizes", cells[i], round(b.width) + "px " + kindOf(cells[i]) + " beside " + round(a.width) + "px " + kindOf(cells[0])); break; }
+    }
+  });
+  // Uniform connectedness: a switch's tabs and a step flow's steps are one line on one slab.
+  Array.prototype.forEach.call(document.querySelectorAll(".tab-switch:not(.vertical), .step-line"), function (group) {
+    if (!isOwn(group)) return;
+    var parts = Array.prototype.filter.call(group.querySelectorAll(":scope > a, :scope > button, :scope > li"), isShown), top = parts.length ? parts[0].getBoundingClientRect().top : 0;
+    var off = parts.find(function (part) { return Math.abs(part.getBoundingClientRect().top - top) > TOLERANCE_PX; });
+    if (off) report("steps or tabs apart", off, "on another line from " + describe(parts[0]));
+  });
+  // Hierarchy: one title, and headings in order.
+  var titleSizePx = (function () { var probe = document.createElement("i"); probe.style.cssText = "position:absolute;visibility:hidden;font:var(--type-title)"; document.body.appendChild(probe); var found = parseFloat(getComputedStyle(probe).fontSize); probe.remove(); return found; })();
+  var titles = Array.prototype.filter.call(document.querySelectorAll("h1, h2, h3, p, span, strong"), function (el) { return isOwn(el) && !isOnFixed(el) && el.firstChild && el.firstChild.nodeType === 3 && el.textContent.trim() && Math.abs(parseFloat(getComputedStyle(el).fontSize) - titleSizePx) < 0.5 && getComputedStyle(el).fontWeight >= 600; });
+  var heads = Array.prototype.filter.call(document.querySelectorAll("main h1, body > .city h1"), function (el) { return !el.closest(EXAMPLE + ", dialog, template"); });
+  if (titles.length > 1) report("more than one title", titles[1], "in the title's type beside " + describe(titles[0]));
+  else if (heads.length > 1) report("more than one title", heads[1], "a second h1, after " + describe(heads[0]));
+  var lastLevel = 1, lastByPane = new Map();
+  Array.prototype.forEach.call(document.querySelectorAll("main h1, main h2, main h3, main h4"), function (heading) {
+    if (heading.closest(EXAMPLE + ", " + OVER_PAGE + ", template")) return;
+    var level = Number(heading.tagName[1]);
+    if (level > lastLevel + 1) report("headings out of order", heading, "an h" + level + " after an h" + lastLevel + ", skipping a level");
+    lastLevel = level;
+    if (!isShown(heading)) return;
+    var pane = surfaceOf(heading) || document.body, sizePx = parseFloat(getComputedStyle(heading).fontSize), list = lastByPane.get(pane) || [];
+    var bigger = list.find(function (other) { return other.level < level && sizePx > other.sizePx + 0.5; });
+    if (bigger) report("headings out of order", heading, "an h" + level + " at " + round(sizePx) + "px, bigger than the h" + bigger.level + " at " + round(bigger.sizePx) + "px before it");
+    list.push({ level: level, sizePx: sizePx }); lastByPane.set(pane, list);
+  });
+  // Hick's law and choice overload: few equal choices in a row, and a long menu in groups.
+  var MAXIMUM_EQUAL_CHOICE_COUNT = 5, MAXIMUM_UNGROUPED_MENU_ITEM_COUNT = 9;
+  // Choices are buttons and a switch's buttons; fields side by side (a PIN's boxes) aren't, and a switch of places (links) is a way round, not a choice.
+  Array.prototype.forEach.call(document.querySelectorAll(".layout-row[data-control-height], .tab-switch:not(.vertical)"), function (group) {
+    if (!isOwn(group)) return;
+    // A framed switch is a strip that scrolls sideways (filters, places), read as one control.
+    if (group.matches(".tab-switch.framed")) return;
+    var choices = group.matches(".tab-switch") ? group.querySelectorAll(":scope > button") : Array.prototype.filter.call(group.querySelectorAll(":scope > .row-cell.is-control"), function (cell) { return cell.querySelector(":scope > .shell, :scope > .run-wrap"); });
+    var shownCount = Array.prototype.filter.call(choices, isShown).length;
+    if (shownCount > MAXIMUM_EQUAL_CHOICE_COUNT) report("too many equal choices", group, shownCount + " side by side, at most " + MAXIMUM_EQUAL_CHOICE_COUNT);
+  });
+  Array.prototype.forEach.call(document.querySelectorAll('.dropdown[role="menu"]'), function (menu) {
+    if (menu.closest(EXAMPLE)) return;
+    var itemCount = menu.querySelectorAll('[role="menuitem"]:not([hidden])').length;
+    if (itemCount > MAXIMUM_UNGROUPED_MENU_ITEM_COUNT && !menu.querySelector("hr")) report("too many equal choices", menu, itemCount + " choices in one menu with no groups, at most " + MAXIMUM_UNGROUPED_MENU_ITEM_COUNT);
+  });
+  // Miller's law and chunking: a pane's fields come in groups of at most seven, a heading between.
+  var MAXIMUM_UNBROKEN_FIELD_COUNT = 7, FIELDS = ".cut-field, .bday, .pin-field, .choice-cards, .toggle, .check, .slider";
+  Array.prototype.forEach.call(document.querySelectorAll(".pane-in, .sheet-in"), function (holder) {
+    if (!isOwn(holder)) return;
+    var run = 0, walker = document.createTreeWalker(holder, NodeFilter.SHOW_ELEMENT), el;
+    while ((el = walker.nextNode())) {
+      if (el.matches("h2, h3, h4, legend")) run = 0;
+      else if (el.matches(FIELDS) && !el.parentElement.closest(FIELDS) && isShown(el) && ++run > MAXIMUM_UNBROKEN_FIELD_COUNT) { report("a long form in one piece", el, run + " fields with no heading between them, at most " + MAXIMUM_UNBROKEN_FIELD_COUNT); break; }
+    }
+  });
+  // Two panes side by side or one over the other keep a block's gap between them (a layout component puts it there): never touching, never
+  // overlapping. Panes over the page (a sheet, a menu) and a pane inside another are left out.
+  var blockGapPx = lengthPx("var(--gap-block-block)");
+  var pagePanes = Array.prototype.filter.call(document.querySelectorAll(".glass-pane, .tray, .foot, header.top"), function (pane) { return isShown(pane) && !isOnFixed(pane) && !pane.closest(EXAMPLE + ", " + OVER_PAGE) && !(pane.parentElement && pane.parentElement.closest(".glass-pane, .tray")); });
+  for (var p1 = 0; p1 < pagePanes.length; p1++) for (var p2 = p1 + 1; p2 < pagePanes.length; p2++) {
+    var one = pagePanes[p1].getBoundingClientRect(), two = pagePanes[p2].getBoundingClientRect();
+    var acrossPx = Math.min(one.right, two.right) - Math.max(one.left, two.left), downPx = Math.min(one.bottom, two.bottom) - Math.max(one.top, two.top);
+    // Beside each other in one direction, the space between them in the other.
+    var apartPx = acrossPx > TOLERANCE_PX ? -downPx : downPx > TOLERANCE_PX ? -acrossPx : Infinity;
+    if (apartPx < blockGapPx - TOLERANCE_PX) report(apartPx < -TOLERANCE_PX ? "two panes overlapping" : "two panes closer than a block's gap", pagePanes[p2], (apartPx < 0 ? "over " : round(apartPx) + "px from ") + describe(pagePanes[p1]) + (apartPx < 0 ? " by " + round(-apartPx) + "px" : ", a block's gap is " + round(blockGapPx) + "px"));
   }
   var pageWidthPx = document.scrollingElement.scrollWidth;
   if (pageWidthPx > innerWidth + 1) report("the page scrolls sideways", document.body, pageWidthPx + "px wide in a " + innerWidth + "px window");
