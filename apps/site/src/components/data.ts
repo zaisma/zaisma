@@ -1104,7 +1104,7 @@ export function usageMeter(options: UsageMeterOptions): Raw {
   const overNumber = options.usedNumber - options.limitNumber;
   const allUsedWords = overNumber > 0 ? `, ${chartWords(overNumber)} ${options.unit} over` : ", all used";
   const resetWords = options.resetDate ? `Resets ${new Date(`${options.resetDate}T00:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}.` : "";
-  return html`<div class="usage${tone}"><span class="usage-label">${isAllUsed ? icon("warning") : ""}${options.label}</span><p class="usage-numbers"><span class="usage-fact">${options.shownWords ?? html`${chartWords(options.usedNumber)} of ${chartWords(options.limitNumber)}\u00a0${options.unit}`}${isAllUsed ? html`<b>${allUsedWords}</b>` : ""}${resetWords ? "\u00a0·" : ""}</span>${resetWords ? html` <span class="usage-fact">${resetWords}</span>` : ""}</p>${meterTrack(options, sharePct)}${usageKey(options)}</div>`;
+  return html`<div class="usage${tone}"><span class="usage-label">${isAllUsed ? icon("warning") : ""}${options.label}</span><p class="usage-numbers"><span class="usage-fact">${options.shownWords ?? html`${chartWords(options.usedNumber)} of ${chartWords(options.limitNumber)}\u00a0${options.unit}`}${isAllUsed ? html`<b>${allUsedWords}</b>` : ""}${resetWords ? "\u00a0·" : ""}</span>${resetWords ? html` <span class="usage-fact">${resetWords}</span>` : ""}</p>${usageKey(options)}${meterTrack(options, sharePct)}</div>`;
 }
 
 const meterPane = (options: UsageMeterOptions) => glassPane({ paneWidth: "fit", body: usageMeter(options) });
@@ -1131,7 +1131,9 @@ component({
 .usage.is-near .usage-fill { background: var(--meter-near); }
 .usage.is-full .usage-fill { background: repeating-linear-gradient(-45deg, var(--meter-near) 0 6px, var(--meter-full) 6px 12px); }
 /* With parts, the fill is what used it, side by side in each part's color, a hairline of the track between them; past 80% the colors
-   stay and the numbers say so, and all used, amber stripes run across them. The key under the track names each part with its share. */
+   stay and the numbers say so, and all used, amber stripes run across them. The key names each part with its share: over the track on a
+   meter of its own, so the track stays its foot, and under it in a list row or another plate, where the row's lines are over it. Each
+   swatch hangs before its words, so the words keep the margin. */
 .usage-fill.has-parts, .usage:is(.is-near, .is-full) .usage-fill.has-parts { display: flex; gap: 2px; background: none; }
 .usage-part { display: block; min-width: 3px; background: var(--part-color); }
 .usage.is-full .usage-part { background: repeating-linear-gradient(-45deg, var(--part-color) 0 6px, var(--meter-full) 6px 12px); }
@@ -1141,8 +1143,9 @@ component({
 .usage [data-part="3"] { --part-color: var(--part-3); }
 .usage [data-part="4"] { --part-color: var(--part-4); }
 .usage [data-part="5"] { --part-color: var(--part-5); }
-.usage-key { display: flex; flex-wrap: wrap; gap: var(--gap-words-words) var(--gap-words-control); list-style: none; margin: 0; padding: 0 var(--pad-words); }
-.usage-key li { display: inline-flex; align-items: center; gap: var(--gap-words-words); font: var(--type-facts); color: var(--ink-2); }
+.usage-key { display: flex; flex-wrap: wrap; gap: var(--gap-words-words) calc(var(--gap-words-control) + 16px); list-style: none; margin: 0; padding: 0 var(--pad-words); }
+.usage-key li { position: relative; display: inline-flex; align-items: center; gap: var(--gap-words-words); font: var(--type-facts); color: var(--ink-2); }
+.usage-key .usage-swatch { position: absolute; left: -16px; top: 50%; margin-top: -5px; }
 .usage-key b { font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
 .usage-swatch { width: 10px; height: 10px; background: var(--part-color); }
 `,
