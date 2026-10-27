@@ -60,7 +60,10 @@ export class PhotoDnaHasher extends DurableObject<Env> {
   /** Starts the container if it's asleep, and waits until Microsoft's SDK has loaded. */
   private async start(): Promise<void> {
     const container = this.ctx.container!;
-    if (!container.running) container.start({ enableInternet: false });
+    // Under the durable_object scheduling policy (a new account's, as a restore makes) the code names the image and its
+    // size; under the default policy (Zaisma's own account) wrangler.jsonc does, and there are no images here.
+    const image = (container as { images?: Record<string, string> }).images?.main;
+    if (!container.running) container.start({ enableInternet: false, ...(image ? { image, instance: "basic" } : {}) } as Parameters<typeof container.start>[0]);
     await container.setInactivityTimeout(HASHER_IDLE_MS);
     const port = container.getTcpPort(8080);
     let lastError: unknown;

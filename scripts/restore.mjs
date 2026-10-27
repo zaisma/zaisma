@@ -169,8 +169,9 @@ function writeConfigs(databaseId) {
       .replaceAll(PRODUCTION.databaseId, databaseId)
       .replaceAll(PRODUCTION.gameDomain, gameDomain)
       .replaceAll(PRODUCTION.siteDomain, siteDomain)
-      // A new account's containers run under the durable_object scheduling policy: it can't make one with the default.
-      .replace(/("containers":\s*\[[^\]]*)/, (containers) => containers.replaceAll(/\{\s*"class_name"/g, '{ "scheduling_policy": "durable_object", "class_name"'));
+      // A new account's containers run under the durable_object scheduling policy (it can't make one with the default),
+      // where the Durable Object starts its image, named main, at its size (apps/photodna/src/index.ts).
+      .replace(/"containers":\s*(\[.*\]),?$/m, (line, listText) => `"containers": ${JSON.stringify(JSON.parse(listText).map((container) => ({ scheduling_policy: "durable_object", class_name: container.class_name, images: { main: { dockerfile: container.image } } })))},`);
     writeFileSync(join(CHECKOUT, configOf(worker)), text);
   }
 }
