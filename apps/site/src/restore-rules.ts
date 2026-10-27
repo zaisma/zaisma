@@ -36,8 +36,9 @@ export function restoreRuleOf(backupKey: string): RestoreRule {
   if (area === "blobs" && areaParts.length === 1) return owned("SELECT 1 AS has_owner FROM blobs WHERE sha256 = ?", [name]);
   if (area === "owned" && areaParts.length === 2) return owned("SELECT 1 AS has_owner FROM owned_blobs WHERE owner_id = ? AND sha256 = ?", [areaParts[0]!, name]);
   if (area === "manifests" && areaParts.length === 1 && name.endsWith(".json")) return owned("SELECT 1 AS has_owner FROM versions WHERE id = ?", [name.slice(0, -".json".length)], JSON_TYPE);
-  // Versions uploaded as a zip before files were stored by fingerprint: games/<game_id>/<version_id>/<path>.
-  if (area === "games" && areaParts.length >= 3) return owned("SELECT 1 AS has_owner FROM versions WHERE id = ? AND game_id = ?", [areaParts[1]!, areaParts[0]!]);
+  // Versions uploaded as a zip before files were stored by fingerprint: their files sit under the version's r2_prefix,
+  // games/<game_id>/<a folder of its own>/<path> (games/<folder>/<path> in older rows).
+  if (area === "games" && areaParts.length >= 2) return owned("SELECT 1 AS has_owner FROM versions WHERE r2_prefix IN (?, ?)", [`games/${areaParts[0]!}/${areaParts[1]!}`, `games/${areaParts[0]!}`]);
   // A game's image (imageKey), or its card and sized copies (cardImageKey, sizedImageKey): the id is before the first dot.
   if (area === "images" && areaParts.length === 2) {
     const imageId = name.split(".")[0]!;

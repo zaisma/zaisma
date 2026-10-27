@@ -82,7 +82,7 @@ describe("what a restore brings back", () => {
   it("brings back a save, a game's files and its database only with what owns them", () => {
     expect(restoreRuleOf("zaisma-saves/account_1/game_1.json")).toMatchObject({ kind: "owned", ownerValues: ["account_1", "game_1"], contentType: "application/json" });
     expect(restoreRuleOf("zaisma-saves/account_1/game_1/copy_1.json")).toMatchObject({ kind: "owned", ownerValues: ["copy_1", "account_1", "game_1"] });
-    expect(restoreRuleOf("zaisma-games/games/game_1/version_1/assets/level 2.png")).toMatchObject({ kind: "owned", ownerValues: ["version_1", "game_1"] });
+    expect(restoreRuleOf("zaisma-games/games/game_1/k2m4x9/assets/level 2.png")).toMatchObject({ kind: "owned", ownerSql: expect.stringContaining("r2_prefix"), ownerValues: ["games/game_1/k2m4x9", "games/game_1"] });
     expect(restoreRuleOf("zaisma-games/images/game_1/image_1.card.jpg")).toMatchObject({ kind: "owned", ownerValues: ["image_1", "game_1"], contentType: "image/jpeg" });
     expect(restoreRuleOf("game-databases/game_1.sql")).toMatchObject({ kind: "owned", ownerValues: ["game_1"] });
     expect(restoreRuleOf("kept-rooms/game_1/ABCDEF.jsonl")).toMatchObject({ kind: "owned", ownerValues: ["game_1", "ABCDEF"] });
