@@ -2,7 +2,8 @@
 # Needs no secrets: vitest.config.ts gives the tests every binding they use.
 #
 # Everything runs side by side, split across runners: the tests in four shards (four files at once on each), typecheck, the
-# Layout check in two and the Engine exports in three. "Tests and typecheck", the check the ruleset requires and npm run ship
+# Layout check in six (seven screens and 200% text a page, so a share of the pages each keeps every runner short) and the
+# Engine exports in three. "Tests and typecheck", the check the ruleset requires and npm run ship
 # reads, passes only when all of them did.
 # A pull request runs only the test files its change reaches (scripts/affected-tests.mjs, "Reached tests"), and the test files it
 # adds or changes ten times ("New tests ten times"), so a flaky test is caught before the queue. The merge queue and main run every
@@ -330,15 +331,15 @@ jobs:
   # (LAYOUT_CHECK_SHARD, scripts/layout-check.mjs). The preview starts from the snapshot in seconds and applies this branch's
   # own migrations, as it does on any start.
   layout:
-    name: Layout check (${{ matrix.shard }} of 4)
+    name: Layout check (${{ matrix.shard }} of 6)
     needs: [changes, seed]
     if: ${{ !cancelled() && needs.changes.outputs.is_code_changed == 'true' && needs.changes.outputs.is_checked_in_queue != 'true' && (needs.seed.result == 'success' || needs.seed.result == 'skipped') }}
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2, 3, 4, 5, 6]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -362,7 +363,7 @@ jobs:
       - run: npx vitest run --project layout
         env:
           LAYOUT_CHECK: "1"
-          LAYOUT_CHECK_SHARD: ${{ matrix.shard }}/4
+          LAYOUT_CHECK_SHARD: ${{ matrix.shard }}/6
           LAYOUT_CHECK_SCREENS: all
       - if: failure()
         run: tail -n 80 .wrangler/preview-run/preview.log .wrangler/preview/servers.log || true

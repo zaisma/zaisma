@@ -53,7 +53,7 @@ describe("the preview checks' shares", () => {
     const engines: string[] = allEngineSamples();
     expect(engines.length).toBeGreaterThan(5);
     expect(engines.at(-1)).toMatch(/-threads$/);
-    for (const count of [1, 2, 3, 4]) {
+    for (const count of [1, 2, 3, 4, 6]) {
       const shares = Array.from({ length: count }, (_, i) => engineSampleShard(engines, `${i + 1}/${count}`) as string[]);
       expect(shares.flat().sort()).toEqual([...engines].sort());
     }
@@ -66,6 +66,6 @@ describe("the preview checks' shares", () => {
       const shares = Array.from({ length: count }, (_, i) => layoutCheckShard(LAYOUT_CHECK_PAGES, `${i + 1}/${count}`) as { name: string }[]);
       expect(shares.flat().map((page) => page.name).sort()).toEqual(LAYOUT_CHECK_PAGES.map((page: { name: string }) => page.name).sort());
     }
-    expect(workflow).toContain("LAYOUT_CHECK_SHARD: ${{ matrix.shard }}/4");
+    expect(workflow).toContain("LAYOUT_CHECK_SHARD: ${{ matrix.shard }}/6");
   });
 });
