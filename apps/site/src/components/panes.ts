@@ -46,7 +46,7 @@ export interface DropdownChoice {
 export type DropdownItem = DropdownChoice | { kind: "rule" };
 
 /** One choice in a dropdown: words with an icon, a faint slab under the pointer, the slab with the orange line when it's the current one. */
-export function dropdownChoice(choice: DropdownChoice): Raw {
+function dropdownChoice(choice: DropdownChoice): Raw {
   const inside = html`${CUT_LINE}${choice.icon ? icon(choice.icon) : ""}<span>${choice.label}</span>${choice.badgeCount ? tag(choice.badgeCount, "count") : ""}${choice.isNewTab ? html`<span class="dropdown-out" aria-hidden="true">${icon("out-of-page")}</span>` : ""}`;
   const dataMarkup = choice.dataAttributes ? html`${Object.entries(choice.dataAttributes).map(([name, text]) => html` data-${name}="${text}"`)}` : "";
   const shared = html` class="dropdown-choice${choice.state ? ` ${choice.state}` : ""}" role="menuitem" tabindex="-1" data-cut-line="8"${choice.id ? html` id="${choice.id}"` : ""}${choice.isHidden ? raw(" hidden") : ""}${choice.isCurrent ? raw(' aria-current="page"') : ""}`;
@@ -186,7 +186,13 @@ export const DROPDOWN_SCRIPT = `/* menus */(function () {
     menu.style.removeProperty("--menu-room");
     menu.style.setProperty("--menu-room-width", Math.max(0, end - start - 2 * edgePx) + "px");
     var spot = window.zaismaPlace(anchor, { width: menu.offsetWidth, height: menu.offsetHeight }, { roomRect: room, gapPx: gapPx, edgePx: edgePx, isAlwaysBelow: !!slab });
-    menu.style.setProperty("--menu-room", Math.max(0, spot.isAbove ? anchor.top - gapPx - top - edgePx : foot - anchor.bottom - gapPx - edgePx) + "px");
+    var roomPx = Math.max(0, spot.isAbove ? anchor.top - gapPx - top - edgePx : foot - anchor.bottom - gapPx - edgePx);
+    menu.style.setProperty("--menu-room", roomPx + "px");
+    // Choices that would scroll by a sliver (a few pixels taller than the room, as a Filter menu's prices on a phone) show them all instead:
+    // a scroll that short only bounces under a finger.
+    var shownChoices = Array.prototype.find.call(menu.querySelectorAll(".dropdown-in"), function (box) { return box.offsetParent !== null; });
+    var extraPx = shownChoices ? shownChoices.scrollHeight - shownChoices.clientHeight : 0;
+    if (extraPx > 0 && extraPx < 12) menu.style.setProperty("--menu-room", Math.ceil(roomPx + extraPx) + "px");
     spot = window.zaismaPlace(anchor, { width: menu.offsetWidth, height: menu.offsetHeight }, { roomRect: room, gapPx: gapPx, edgePx: edgePx, isAlwaysBelow: !!slab });
     menu.classList.toggle("from-start", !spot.isAtEnd); menu.classList.toggle("is-above", spot.isAbove);
     menu.style.top = (spot.topPx - origin.top) + "px";
@@ -226,6 +232,8 @@ export const DROPDOWN_SCRIPT = `/* menus */(function () {
   });
   function placeAll() { shown().forEach(place); }
   window.zaismaWatch.resize(placeAll);
+  // An open menu is measured again once the fonts are in, when its choices have their real height.
+  if (document.fonts) document.fonts.ready.then(placeAll);
   window.zaismaWatch.scroll(placeAll);
 })();
 `;
@@ -497,7 +505,7 @@ export interface FilterTag {
 
 /** The filters in use, under a list's Filter button: each a small cut button with a close mark, which takes that one away. */
 export function filterTags(options: { tags: FilterTag[] }): Raw {
-  return html`<div class="filter-tags" role="group" aria-label="Filters in use: each removes itself">${options.tags.map((filter) => cutButton(filter.label, { href: filter.removeHref, icon: "close", isSmall: true }))}</div>`;
+  return row({ widths: "fit", label: "Filters in use: each removes itself", items: options.tags.map((filter) => control(cutButton(filter.label, { href: filter.removeHref, icon: "close", isSmall: true }))) });
 }
 
 component({
@@ -505,10 +513,8 @@ component({
   slug: "filter-tags",
   group: "panes",
   summary: "The filters in use on a list, under its Filter button: one small button each, with a close mark, that takes it away.",
-  styles: `
-/* Filter tags wrap onto more lines where they don't fit across, side by side as boxes are (the edge rule's neighbor distance). */
-.filter-tags { display: flex; flex-wrap: wrap; gap: var(--gap-control-row-boxes); min-width: 0; }
-`,
+  // A Row of its buttons (layout.ts): they wrap onto more lines where they don't fit across.
+  styles: "",
   render: filterTags,
   examples: [
     { label: "Two in use", markup: filterTags({ tags: [{ label: "Adventure", removeHref: "#filter-tags" }, { label: "$15 to $30", removeHref: "#filter-tags" }] }) },

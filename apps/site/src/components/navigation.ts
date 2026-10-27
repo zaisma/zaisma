@@ -6,7 +6,7 @@ import { CUT_LINE, EDGE, glassPane, icon, logo, railMarkup, type IconName } from
 import { cutPolygon } from "./tokens.ts";
 import { cutButton, rowArrows, runButton, textLink } from "./actions.ts";
 import { searchField, tabSwitch, type SearchFieldOptions, type SwitchTab } from "./inputs.ts";
-import { STAND_IN_COVERS, dropdown, dropdownChoice, type DropdownItem } from "./panes.ts";
+import { STAND_IN_COVERS, dropdown, type DropdownItem } from "./panes.ts";
 import { listRows, pictureFrame } from "./data.ts";
 import { row, stack, track, type LayoutItem } from "./layout.ts";
 
@@ -1171,7 +1171,7 @@ component({
 /* Section tabs: the header's framed switch for a page's own sections. As wide as its tabs, and never wider than the page: past that
    they scroll sideways inside their frame, fading out over a side with more, and rest on whole tabs, starting where the one you're on shows whole. */
 .section-tabs { display: flex; min-width: 0; max-width: 100%; }
-.section-tabs > .switch-scroll { flex: 0 1 auto; }
+.section-tabs > .switch-frame, .section-tabs > .switch-scroll { flex: 0 1 auto; }
 `,
   render: sectionTabs,
   examples: [
@@ -1338,15 +1338,18 @@ export interface FilterMenuOptions {
  * that group's choices, with a way back at its top, in the same pane, so a mouse and a thumb use it alike; choosing a choice follows its link.
  */
 export function filterMenu(options: FilterMenuOptions): ControlMarkup {
+  // A choice is a Dropdown's (its classes and look), a link to the list with it picked.
+  const choice = (label: string, href: string, isCurrent: boolean, choiceIcon?: IconName) =>
+    html`<a href="${href}" class="dropdown-choice" role="menuitem" tabindex="-1" data-cut-line="8"${isCurrent ? raw(' aria-current="page"') : ""}>${CUT_LINE}${choiceIcon ? icon(choiceIcon) : ""}<span>${label}</span></a>`;
   const button = cutButton("Filter", { type: "button", icon: "filter", controls: options.id, isExpanded: Boolean(options.isOpen), reactionCount: options.filterCount || undefined });
   const opener = (groupName: string, inside: Raw, className: string) =>
     html`<button type="button" class="dropdown-choice ${className}" role="menuitem" tabindex="-1" aria-haspopup="menu" data-cut-line="8" data-filter-opens="${groupName}">${CUT_LINE}${inside}</button>`;
   const main = html`<div class="dropdown-in filter-panel" data-filter-panel=""${options.openGroupName ? raw(" hidden") : ""}>${options.groups.map((group) =>
     opener(group.groupName, html`<span>${group.label}</span><span class="filter-picked">${group.pickedLabel}</span>${icon("chevron-right")}`, "filter-group"),
-  )}${options.clearHref ? html`<hr role="separator">${dropdownChoice({ label: "Clear filters", href: options.clearHref, icon: "close" })}` : ""}</div>`;
+  )}${options.clearHref ? html`<hr role="separator">${choice("Clear filters", options.clearHref, false, "close")}` : ""}</div>`;
   const panels = options.groups.map(
     (group) =>
-      html`<div class="dropdown-in filter-panel" data-filter-panel="${group.groupName}"${options.openGroupName === group.groupName ? "" : raw(" hidden")}>${opener("", html`${icon("arrow-back")}<span>${group.label}</span>`, "filter-back")}<hr role="separator">${group.choices.map((choice) => dropdownChoice({ label: choice.label, href: choice.href, isCurrent: choice.isCurrent }))}</div>`,
+      html`<div class="dropdown-in filter-panel" data-filter-panel="${group.groupName}"${options.openGroupName === group.groupName ? "" : raw(" hidden")}>${opener("", html`${icon("arrow-back")}<span>${group.label}</span>`, "filter-back")}<hr role="separator">${group.choices.map((each) => choice(each.label, each.href, each.isCurrent))}</div>`,
   );
   const menu = html`<div class="dropdown glass filter-menu${options.isOpen ? "" : " shut"}" id="${options.id}" role="menu" aria-label="Filter" aria-hidden="${options.isOpen ? "false" : "true"}" data-glass data-glass-corners="menu">${EDGE}${main}${panels}</div>`;
   return controlMarkup(html`${button}${menu}`, "regular");

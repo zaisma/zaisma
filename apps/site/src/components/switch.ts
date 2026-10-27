@@ -59,7 +59,7 @@ export function tabSwitch(options: {
   // Framed: in a carved frame of its own that it scrolls inside, fading at its ends (the header's tabs, the gallery's groups on a phone), so
   // the switch has no well or cut of its own, and its slab's ends on the first and last tabs follow the frame's ends.
   const own = options.isFramed
-    ? html`${options.rowId ? raw('<div class="switch-scroll">') : ""}<div class="switch-frame cut-carved ${options.switchSize}" data-cut-line="${isSmall ? 9 : 10}">${CUT_LINE}<div class="switch-frame-row"${options.rowId ? html` id="${options.rowId}"` : ""} data-fades-sideways><div class="tab-switch framed ${kind}" role="group" aria-label="${options.label}">`
+    ? html`${options.rowId ? raw('<div class="switch-scroll control-row">') : ""}<div class="switch-frame cut-carved ${options.switchSize}" data-cut-line="${isSmall ? 9 : 10}">${CUT_LINE}<div class="switch-frame-row"${options.rowId ? html` id="${options.rowId}"` : ""} data-fades-sideways><div class="tab-switch framed ${kind}" role="group" aria-label="${options.label}">`
     : html`<div class="tab-switch cut-carved ${kind}" role="group" aria-label="${options.label}" data-cut-line="${isSmall ? 9 : 10}">${CUT_LINE}`;
   return controlMarkup(html`${own}<span class="ghost" aria-hidden="true" data-cut-line="${isSmall ? 7 : 8}"></span><span class="slab cut-raised" aria-hidden="true" data-cut-line="${isSmall ? 7 : 8}">${CUT_LINE}</span><span class="focus-ring" aria-hidden="true" data-cut-line="${isSmall ? 7 : 8}">${CUT_LINE}</span>${options.tabs.map((tab) =>
     tab.href
@@ -248,9 +248,12 @@ component({
 .switch-frame { position: relative; display: flex; flex: none; min-width: 0; height: var(--switch-height, var(--control-height-regular)); background: var(--well); box-shadow: var(--well-shade); clip-path: var(--cut-shape);
   transition: height 0.45s cubic-bezier(.2,.8,.2,1); }
 .switch-frame.small { height: var(--switch-height, var(--control-height-small)); }
-/* With Row arrows (rowId): the frame, then the arrows a mouse scrolls it with, which show only while its tabs don't fit. */
-.switch-scroll { display: flex; align-items: center; gap: var(--gap-control-row-boxes); min-width: 0; max-width: 100%; }
-.switch-scroll > .switch-frame { flex: 0 1 auto; }
+/* With Row arrows (rowId): a row of controls on one line, the frame then the arrows a mouse scrolls it with, which show only while its tabs don't fit. */
+.switch-scroll { flex-wrap: nowrap; align-items: center; min-width: 0; max-width: 100%; }
+/* The room between them goes on the arrows, so the frame reaches the row's end where they're hidden (a touch screen, or tabs that fit);
+   they're as tall as the frame, so a big switch's arrows keep to the pane's edges as it does. */
+.switch-scroll > .switch-frame { flex: 0 1 auto; margin-inline-end: 0; }
+.switch-scroll > .steps { align-self: stretch; height: auto; margin-inline-start: var(--gap-control-row-boxes); }
 /* At rest a row of tabs that scrolls shows them whole at its start: it snaps a tab's start to just past the fade there (SCROLL_FADE_SCRIPT
    starts it where the one you're on shows whole). That fade is as wide as a tab's room round its words, so the words of the tab before
    are wholly out of view, never cut, and the slab of the one you're on is never faded; the fade at its end stays the usual one
