@@ -1,10 +1,14 @@
 #!/usr/bin/env node
-// One command for a change's checks: the tests it can reach and the typecheck side by side, and the Layout check for the pages
-// it changed when this checkout's preview is awake. It prints PASS, or FAIL with, for each failure, the test file, the test's
+// One command for a change's checks on this machine: the typecheck, the Node tests the change can reach and the change's own new or
+// changed Workers test files side by side, and the Layout check for the pages it changed when this checkout's preview is awake.
+// Every other Workers test file the change reaches is left to GitHub's check on the pull request (Julius, Oct 26, 2026: tests stay
+// off his Mac), and so are its own when another Workers test run is already going on this machine (one at a time,
+// scripts/preview/memory.mjs). It prints PASS, or FAIL with, for each failure, the test file, the test's
 // name and the first lines of its error, and each typecheck error as file:line: message. Never the full output.
 //
-//   npm run check                    runs the tests this checkout's change can reach (scripts/affected-tests.mjs), the typecheck,
-//                                    and the Layout check for the changed pages when the preview is awake
+//   npm run check                    runs the Node tests this checkout's change can reach (scripts/affected-tests.mjs), its own
+//                                    Workers test files, the typecheck, and the Layout check for the changed pages when the preview
+//                                    is awake
 //   npm run check -- --json          the same, as JSON; a refusal is {"error": {"code", "message", "fix"}}
 //   npm run check -- --base <ref>    changes since that commit instead of since origin/main
 //   npm run check -- --pr <number>   reads GitHub's check on that pull request's latest commit instead of running anything:
@@ -13,7 +17,7 @@
 //   npm run check -- --commit <sha>  the same for one commit
 //
 // While a preview is awake on this machine, the Workers tests can't fit beside it (scripts/preview/memory.mjs): this runs the Node
-// tests and lists the rest as left_to_github, which GitHub's check runs. Last line: PASS or FAIL (or PENDING, for --pr and --commit).
+// tests and lists its own Workers files as left_to_github too. Last line: PASS or FAIL (or PENDING, for --pr and --commit).
 // Exit status: 0 PASS, 1 FAIL, 2 a refusal, 3 PENDING.
 import { execFile, spawn } from "node:child_process";
 import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
@@ -22,12 +26,37 @@ import { join, relative } from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import { ROOT, affectedChecks, changedPathsSince } from "./affected-tests.mjs";
+import { LINE_DIRECTORY, isAlive, readLine } from "./preview/memory.mjs";
 import { GITHUB_CHECK_NAME } from "./ship-github-check.mjs";
 
 export const ERROR_LINE_COUNT = 15;
 const WORKERS_TESTS_WHILE_PREVIEW_AWAKE = "workers_tests_while_preview_awake";
 const GITHUB_REPOSITORY = "zaisma/zaisma";
 const FAILED_CONCLUSIONS = ["failure", "timed_out", "cancelled", "action_required", "startup_failure"];
+// Test files that run on plain Node, light enough for this machine; every other project's run in the Workers runtime.
+const NODE_TEST_FILE = /^test\/(node|layout|contracts)\//;
+// Files at once for the change's own Workers test files here: each takes about 0.9 GB.
+const OWN_WORKERS_WORKER_COUNT = 2;
+
+/**
+ * Which of the reached test files run here and which are left to GitHub's check: the Node ones and the change's own Workers test
+ * files (ones it adds or changes) run here, unless another Workers test run is going on this machine; every other Workers file goes
+ * to GitHub.
+ */
+export function splitTestFiles(testFiles, changedPaths, { isWorkersRunGoing = false } = {}) {
+  const changed = new Set(changedPaths);
+  const here = testFiles.filter((path) => NODE_TEST_FILE.test(path) || (!isWorkersRunGoing && changed.has(path)));
+  return { here, leftToGithub: testFiles.filter((path) => !here.includes(path)) };
+}
+
+/** Whether a Workers test run has its turn on this machine now (scripts/preview/memory.mjs's line). */
+function isWorkersRunGoing({ directory = LINE_DIRECTORY } = {}) {
+  try {
+    return readLine({ directory }).entries.some((entry) => entry.kind === "test" && !entry.is_node_only && entry.turn_given_at_ms !== null && isAlive(entry.pid));
+  } catch {
+    return false;
+  }
+}
 
 /** The failed tests in vitest's JSON report: the file, the test's full name and the first lines of its error. A file that failed to load has no test name. */
 export function parseVitestReport(report, { root = ROOT } = {}) {
@@ -62,7 +91,7 @@ export function formatResult(result) {
   for (const failure of result.test_failures) lines.push(`TEST ${failure.file}${failure.test_name ? ` > ${failure.test_name}` : ""}`, ...failure.error.split("\n").map((text) => `  ${text}`));
   for (const failure of result.typecheck_failures) lines.push(`TYPE ${failure.file}:${failure.line}: ${failure.message}`);
   for (const failure of result.layout_failures) lines.push(`LAYOUT ${failure}`);
-  if (result.left_to_github.length) lines.push(`Left to GitHub's check (a preview is awake): ${result.left_to_github.length} Workers test file(s).`);
+  if (result.left_to_github.length) lines.push(`Left to GitHub's check: ${result.left_to_github.length} Workers test file(s). Push, and read npm run check -- --pr <number>.`);
   for (const note of result.notes) lines.push(note);
   lines.push(result.is_pass ? "PASS" : "FAIL");
   return lines.join("\n");
@@ -188,9 +217,9 @@ function firstLines(text) {
   return text.split("\n").slice(0, ERROR_LINE_COUNT).join("\n");
 }
 
-function run(command, args) {
+function run(command, args, env = {}) {
   return new Promise((resolve) => {
-    const child = spawn(command, args, { cwd: ROOT, env: process.env });
+    const child = spawn(command, args, { cwd: ROOT, env: { ...process.env, ...env } });
     let output = "";
     child.stdout.on("data", (chunk) => (output += chunk));
     child.stderr.on("data", (chunk) => (output += chunk));
@@ -198,11 +227,11 @@ function run(command, args) {
   });
 }
 
-async function runVitest(testFiles) {
+async function runVitest(testFiles, env = {}) {
   const folder = mkdtempSync(join(tmpdir(), "zaisma-check-"));
   const reportPath = join(folder, "report.json");
   try {
-    const { status, output } = await run("npx", ["vitest", "run", "--reporter=json", `--outputFile=${reportPath}`, ...testFiles]);
+    const { status, output } = await run("npx", ["vitest", "run", "--reporter=json", `--outputFile=${reportPath}`, ...testFiles], env);
     let report = null;
     try {
       report = JSON.parse(readFileSync(reportPath, "utf8"));
@@ -258,13 +287,15 @@ export async function check({ base = "origin/main" } = {}) {
   const affected = affectedChecks({ changedPaths });
   const notes = [];
   const testFiles = affected.test_files.map((test) => test.path);
+  const split = splitTestFiles(testFiles, changedPaths, { isWorkersRunGoing: isWorkersRunGoing() });
   const testsRun = (async () => {
-    if (!testFiles.length) return { failures: [], leftToGithub: [] };
-    let run = await runVitest(testFiles);
-    let leftToGithub = [];
+    if (!split.here.length) return { failures: [], leftToGithub: split.leftToGithub };
+    const hasWorkersFiles = split.here.some((path) => !NODE_TEST_FILE.test(path));
+    let run = await runVitest(split.here, hasWorkersFiles ? { TEST_WORKER_COUNT: String(OWN_WORKERS_WORKER_COUNT) } : {});
+    let leftToGithub = split.leftToGithub;
     if (run.output.includes(WORKERS_TESTS_WHILE_PREVIEW_AWAKE)) {
-      leftToGithub = testFiles.filter((path) => !path.startsWith("test/node/"));
-      run = await runVitest(testFiles.filter((path) => path.startsWith("test/node/")));
+      leftToGithub = testFiles.filter((path) => !NODE_TEST_FILE.test(path));
+      run = await runVitest(testFiles.filter((path) => NODE_TEST_FILE.test(path)));
     }
     if (!run.report) return { failures: [{ file: "vitest", test_name: null, error: firstLines(run.output) }], leftToGithub };
     return { failures: parseVitestReport(run.report), leftToGithub };

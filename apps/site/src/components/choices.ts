@@ -184,6 +184,13 @@ export const SELECT_SCRIPT = `/* select fields */(function () {
   var GAP_PX = 6, EDGE_PX = 8, owners = new WeakMap();
   window.zaismaWatch.each("[data-select]", function (root) {
     var button = root.querySelector(".select-button"), list = root.querySelector(".select-list"), box = list.querySelector('[role="listbox"]'), hidden = root.querySelector('input[type="hidden"]'), field = button.closest(".field"), value = root.querySelector(".select-value");
+    // A list that would scroll by a sliver (its choices a few pixels taller than its cap, as six at 200% text) shows them all instead: a
+    // scroll that short only bounces under a finger.
+    function fitSliver() {
+      list.style.maxHeight = "";
+      var extraPx = box.scrollHeight - box.clientHeight;
+      if (extraPx > 0 && extraPx < 12) list.style.maxHeight = Math.ceil(list.offsetHeight + extraPx) + "px";
+    }
     if (!list.hasAttribute("popover")) return;
     // Lifted out of the pane it's in to the page itself, so no pane's glass, clip or filter is round it: it paints and blurs over everything
     // in every browser (Safari draws glass inside glass unblurred, so rows below showed through it). A list left by a field gone from the page goes,
@@ -204,6 +211,7 @@ export const SELECT_SCRIPT = `/* select fields */(function () {
     // scrolls or the window changes, and gone once the field has left the window.
     function place() {
       var r = field.getBoundingClientRect();
+      fitSliver();
       if (!field.isConnected || r.bottom < 0 || r.top > window.innerHeight || r.right < 0 || r.left > document.documentElement.clientWidth) { list.hidePopover(); return; }
       list.style.width = r.width + "px";
       var spot = window.zaismaPlace(r, { width: r.width, height: list.offsetHeight }, { gapPx: GAP_PX, edgePx: EDGE_PX });
@@ -312,7 +320,8 @@ component({
 .select-list:not(:popover-open):not(.in-place) { display: none; opacity: 0; transform: translateY(-6px); pointer-events: none; }
 .select-list.is-above:not(:popover-open):not(.in-place) { transform: translateY(6px); }
 @starting-style { .select-list:popover-open { opacity: 0; transform: translateY(-6px); } .select-list.is-above:popover-open { transform: translateY(6px); } }
-.select-list.in-place { position: relative; display: flex; width: 100%; }
+/* Shown open in place (the gallery's open states), it holds every choice: there's no window edge to keep it from. */
+.select-list.in-place { position: relative; display: flex; width: 100%; max-height: none; }
 /* It scrolls with no fade, so the pick's orange line always shows in full: its rail and a choice cut at its edge say there's more. */
 .select-options { flex: 0 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; outline: none; }
 .select-options.own-scroll.shows-rail { padding-right: 18px; }

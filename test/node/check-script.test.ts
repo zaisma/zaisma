@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error: a Node script with no types of its own.
-import { ERROR_LINE_COUNT, formatGithubResult, formatResult, judgeCheckRuns, pagesForChangedFiles, parseJobLog, parseTypecheck, parseVitestReport } from "../../scripts/check.mjs";
+import { ERROR_LINE_COUNT, formatGithubResult, formatResult, judgeCheckRuns, pagesForChangedFiles, parseJobLog, parseTypecheck, parseVitestReport, splitTestFiles } from "../../scripts/check.mjs";
 
 /** scripts/check.mjs: how it reads vitest's and tsc's output and what it prints. */
 
@@ -43,6 +43,17 @@ describe("pagesForChangedFiles", () => {
   });
 });
 
+describe("splitTestFiles", () => {
+  const reached = ["test/node/a.test.ts", "test/contracts/b.test.ts", "test/site/own.test.ts", "test/site/other.test.ts", "test/rooms/rooms.test.ts"];
+  const changed = ["apps/site/src/x.ts", "test/site/own.test.ts", "test/node/a.test.ts"];
+  it("runs the Node files and the change's own Workers files here, and leaves the other Workers files to GitHub", () => {
+    expect(splitTestFiles(reached, changed)).toEqual({ here: ["test/node/a.test.ts", "test/contracts/b.test.ts", "test/site/own.test.ts"], leftToGithub: ["test/site/other.test.ts", "test/rooms/rooms.test.ts"] });
+  });
+  it("leaves its own Workers files to GitHub too while another Workers run is going on this machine", () => {
+    expect(splitTestFiles(reached, changed, { isWorkersRunGoing: true }).leftToGithub).toEqual(["test/site/own.test.ts", "test/site/other.test.ts", "test/rooms/rooms.test.ts"]);
+  });
+});
+
 describe("formatResult", () => {
   const empty = { test_failures: [], typecheck_failures: [], layout_failures: [], left_to_github: [], notes: [], is_pass: true };
   it("ends on PASS when nothing failed", () => {
@@ -51,6 +62,9 @@ describe("formatResult", () => {
   it("lists each failure and ends on FAIL", () => {
     const text = formatResult({ ...empty, is_pass: false, test_failures: [{ file: "test/node/a.test.ts", test_name: "a refuses", error: "boom" }], typecheck_failures: [{ file: "x.ts", line: 3, message: "TS1: bad" }] });
     expect(text).toBe("TEST test/node/a.test.ts > a refuses\n  boom\nTYPE x.ts:3: TS1: bad\nFAIL");
+  });
+  it("says how many Workers files went to GitHub and how to read their result", () => {
+    expect(formatResult({ ...empty, left_to_github: ["test/site/a.test.ts"] })).toBe("Left to GitHub's check: 1 Workers test file(s). Push, and read npm run check -- --pr <number>.\nPASS");
   });
 });
 
