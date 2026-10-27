@@ -2,14 +2,24 @@ import type { Finding } from "../types.ts";
 import { KNOWN_IMAGE_CODE, type ImageMatcher, type MediaForMatching } from "./images.ts";
 
 /**
- * PhotoDNA, from Microsoft: still pictures matched against lists of known child sexual abuse material.
- * Pictures never leave Zaisma: each one becomes an Edge Hash (made with Microsoft's SDK, in the
- * photodna Worker's container), and only the hashes are sent, up to 5 per request. Microsoft's
- * license keeps AI agents away from the SDK's libraries; this code only talks to the service that runs them.
+ * PhotoDNA, from Microsoft: pictures, and still frames from videos, matched against lists of known child
+ * sexual abuse material. Pictures never leave Zaisma: each one (or each frame) becomes an Edge Hash (made
+ * with Microsoft's SDK, in the photodna Worker's container), and only the hashes are sent, up to 5 per
+ * request. Microsoft's license keeps AI agents away from the SDK's libraries; this code only talks to the
+ * service that runs them.
  */
 
 /** What making one picture's Edge Hash came to. `skip`: PhotoDNA can't hash this picture (too small, a format it can't read). */
 export type PhotoDnaHashOutcome = { kind: "hash"; hash: string } | { kind: "skip"; why: string } | { kind: "down"; why: string };
+
+/** One still frame taken from a video, and where in the video it is. */
+export interface PhotoDnaFrame {
+  hash: string;
+  timeInVideoMs: number;
+}
+
+/** What taking a video's frames and hashing them came to. `skip`: no frame could be taken (too big, unreadable, no picture track). */
+export type PhotoDnaFramesOutcome = { kind: "frames"; frames: PhotoDnaFrame[] } | { kind: "skip"; why: string } | { kind: "down"; why: string };
 
 /** One hash's answer from Microsoft. `failure` is set when Microsoft couldn't match that hash. */
 export interface PhotoDnaHashResult {
@@ -28,6 +38,8 @@ export type PhotoDnaPriority = "upload" | "recheck";
 /** The photodna Worker, as the matcher sees it. */
 export interface PhotoDnaService {
   hash(media: MediaForMatching): Promise<PhotoDnaHashOutcome>;
+  /** A video's still frames, each hashed (the container takes them; see apps/photodna/container/frames.mjs). */
+  hashFrames(media: MediaForMatching): Promise<PhotoDnaFramesOutcome>;
   match(hashes: string[], priority: PhotoDnaPriority): Promise<PhotoDnaMatchOutcome>;
 }
 
@@ -63,48 +75,69 @@ export function readMatchHashAnswer(answer: unknown, hashCount: number): PhotoDn
   };
 }
 
+/** Where a frame is in its video, as m:ss. */
+const timeInVideo = (timeInVideoMs: number) => {
+  const wholeSecondCount = Math.floor(timeInVideoMs / 1000);
+  return `${Math.floor(wholeSecondCount / 60)}:${String(wholeSecondCount % 60).padStart(2, "0")}`;
+};
+/** Matched frames named in a video's finding. */
+const NAMED_FRAME_COUNT = 3;
+
 /**
- * The PhotoDNA matcher. Videos aren't sent (Arachnid Shield checks them); an animated GIF's first
- * frame is. A picture PhotoDNA can't hash, or one Microsoft couldn't match, is counted as unchecked
- * rather than held: it never stops a version while Arachnid Shield has checked everything. If the
- * service or Microsoft is down, the rest aren't sent and the result says matching didn't finish.
+ * The PhotoDNA matcher. Pictures are hashed whole (an animated GIF's first frame); videos as still frames
+ * taken from them, and a match on any frame holds the video. A picture PhotoDNA can't hash, a video it can't
+ * take frames from, or one Microsoft couldn't match is counted as unchecked rather than held: it never stops
+ * a version while Arachnid Shield has checked everything. If the service or Microsoft is down, the rest
+ * aren't sent and the result says matching didn't finish.
  */
 export function photoDna(service: PhotoDnaService, options: { priority?: PhotoDnaPriority } = {}): ImageMatcher {
   const priority = options.priority ?? "upload";
   return {
     async check(media) {
       const findings: Finding[] = [];
-      const pictures = media.filter((candidate) => candidate.type.startsWith("image/"));
-      let uncheckedMediaCount = media.length - pictures.length;
+      const sendable = media.filter((candidate) => candidate.type.startsWith("image/") || candidate.type.startsWith("video/"));
+      let uncheckedMediaCount = media.length - sendable.length;
       let checkedMediaCount = 0;
       let down: string | null = null;
 
-      // One hash per distinct file, made a few at a time.
-      const hashById = new Map<string, Promise<PhotoDnaHashOutcome>>();
-      const outcomes: { picture: MediaForMatching; outcome: PhotoDnaHashOutcome }[] = [];
+      // One hash per distinct picture, and one set of frames per distinct video, made a few at a time.
+      const outcomeById = new Map<string, Promise<PhotoDnaHashOutcome | PhotoDnaFramesOutcome>>();
+      const outcomes: { media: MediaForMatching; outcome: PhotoDnaHashOutcome | PhotoDnaFramesOutcome }[] = [];
       let nextIndex = 0;
       const worker = async () => {
-        while (!down && nextIndex < pictures.length) {
-          const picture = pictures[nextIndex++]!;
-          let pending = hashById.get(picture.id);
-          if (!pending) hashById.set(picture.id, (pending = service.hash(picture).catch((error): PhotoDnaHashOutcome => ({ kind: "down", why: String(error) }))));
+        while (!down && nextIndex < sendable.length) {
+          const candidate = sendable[nextIndex++]!;
+          let pending = outcomeById.get(candidate.id);
+          if (!pending) {
+            const made = candidate.type.startsWith("video/") ? service.hashFrames(candidate) : service.hash(candidate);
+            outcomeById.set(candidate.id, (pending = made.catch((error): PhotoDnaHashOutcome => ({ kind: "down", why: String(error) }))));
+          }
           const outcome = await pending;
           if (outcome.kind === "down") down ??= `couldn't make hashes (${outcome.why})`;
-          outcomes.push({ picture, outcome });
+          outcomes.push({ media: candidate, outcome });
         }
       };
-      await Promise.all(Array.from({ length: Math.min(CONCURRENT_HASH_COUNT, pictures.length) }, worker));
+      await Promise.all(Array.from({ length: Math.min(CONCURRENT_HASH_COUNT, sendable.length) }, worker));
 
-      // Each distinct hash is sent once, 5 to a request; every picture with that hash shares its answer.
-      const picturesByHash = new Map<string, MediaForMatching[]>();
-      for (const { picture, outcome } of outcomes) {
-        if (outcome.kind === "skip") uncheckedMediaCount++;
-        if (outcome.kind !== "hash") continue;
-        const sharing = picturesByHash.get(outcome.hash) ?? [];
-        sharing.push(picture);
-        picturesByHash.set(outcome.hash, sharing);
+      // Each distinct hash is sent once, 5 to a request; every picture or frame with that hash shares its answer.
+      const sharingByHash = new Map<string, { media: MediaForMatching; timeInVideoMs: number | null }[]>();
+      const hashed: MediaForMatching[] = [];
+      const unansweredCountByMedia = new Map<MediaForMatching, number>();
+      for (const { media: candidate, outcome } of outcomes) {
+        if (outcome.kind === "skip" || (outcome.kind === "frames" && !outcome.frames.length)) uncheckedMediaCount++;
+        const frames = outcome.kind === "hash" ? [{ hash: outcome.hash, timeInVideoMs: null }] : outcome.kind === "frames" ? outcome.frames : [];
+        if (!frames.length) continue;
+        hashed.push(candidate);
+        unansweredCountByMedia.set(candidate, frames.length);
+        for (const frame of frames) {
+          const sharing = sharingByHash.get(frame.hash) ?? [];
+          sharing.push({ media: candidate, timeInVideoMs: frame.timeInVideoMs });
+          sharingByHash.set(frame.hash, sharing);
+        }
       }
-      const hashes = [...picturesByHash.keys()];
+      const failed = new Set<MediaForMatching>();
+      const matched = new Map<MediaForMatching, { timeInVideoMs: number | null; sources: string[] }[]>();
+      const hashes = [...sharingByHash.keys()];
       for (let i = 0; !down && i < hashes.length; i += PHOTODNA_MAXIMUM_HASH_COUNT) {
         const batch = hashes.slice(i, i + PHOTODNA_MAXIMUM_HASH_COUNT);
         const answer = await service.match(batch, priority).catch((error): PhotoDnaMatchOutcome => ({ kind: "down", why: String(error) }));
@@ -114,19 +147,30 @@ export function photoDna(service: PhotoDnaService, options: { priority?: PhotoDn
         }
         batch.forEach((hash, index) => {
           const hashResult = answer.results[index]!;
-          const sharing = picturesByHash.get(hash)!;
-          if (hashResult.failure) {
-            uncheckedMediaCount += sharing.length;
-            return;
+          for (const { media: candidate, timeInVideoMs } of sharingByHash.get(hash)!) {
+            unansweredCountByMedia.set(candidate, unansweredCountByMedia.get(candidate)! - 1);
+            if (hashResult.failure) failed.add(candidate);
+            else if (hashResult.isMatch) matched.set(candidate, [...(matched.get(candidate) ?? []), { timeInVideoMs, sources: hashResult.sources }]);
           }
-          checkedMediaCount += sharing.length;
-          if (!hashResult.isMatch) return;
-          const lists = hashResult.sources.length ? ` (list: ${hashResult.sources.join(", ")})` : "";
-          for (const picture of sharing) findings.push({ stage: "images", severity: "hold", code: KNOWN_IMAGE_CODE, message: `PhotoDNA: matches known child sexual abuse material${lists}.`, path: picture.path });
         });
       }
 
-      if (down) findings.push({ stage: "images", severity: "hold", code: "image_matching_failed", message: `PhotoDNA ${down}, so not every picture was checked. A person should look, or scan it again later.` });
+      // A video is checked once every one of its frames was answered; its matches count either way, even if Microsoft went down after them.
+      for (const candidate of hashed) {
+        if (failed.has(candidate)) uncheckedMediaCount++;
+        else if (!unansweredCountByMedia.get(candidate)) checkedMediaCount++;
+        const matches = matched.get(candidate);
+        if (!matches) continue;
+        const sources = [...new Set(matches.flatMap((match) => match.sources))];
+        const lists = sources.length ? ` (list: ${sources.join(", ")})` : "";
+        const times = matches.flatMap((match) => (match.timeInVideoMs === null ? [] : [match.timeInVideoMs])).sort((earlierMs, laterMs) => earlierMs - laterMs);
+        const what = times.length
+          ? `${times.length === 1 ? "a frame" : `${times.length} frames`} at ${times.slice(0, NAMED_FRAME_COUNT).map(timeInVideo).join(", ")}${times.length > NAMED_FRAME_COUNT ? " and more" : ""} ${times.length === 1 ? "matches" : "match"}`
+          : "matches";
+        findings.push({ stage: "images", severity: "hold", code: KNOWN_IMAGE_CODE, message: `PhotoDNA: ${what} known child sexual abuse material${lists}.`, path: candidate.path });
+      }
+
+      if (down) findings.push({ stage: "images", severity: "hold", code: "image_matching_failed", message: `PhotoDNA ${down}, so not every picture and video was checked. A person should look, or scan it again later.` });
       return { provider: "photodna", isConnected: true, checkedMediaCount, uncheckedMediaCount, findings };
     },
   };

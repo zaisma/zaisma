@@ -457,3 +457,36 @@ describe("migration 0143", () => {
     ]);
   });
 });
+
+describe("migration 0168", () => {
+  const report = (provider: string) => `'${JSON.stringify({ decision: "approved", findings: [], images: { provider, is_connected: true, checked_media_count: 3 } })}'`;
+  const database = migratedFrom(
+    "0168_",
+    `INSERT INTO games (id, slug, title, review_status, created_at_ms, updated_at_ms) VALUES ('game_one', 'one', 'One', 'live', 1, 1);
+     INSERT INTO versions (id, game_id, r2_prefix, file_count, size_bytes, scan_status, created_at_ms, scan_report) VALUES
+       ('version_both', 'game_one', 'manifests/version_both', 1, 10, 'approved', 1, ${report("arachnid-shield+photodna")}),
+       ('version_photodna', 'game_one', 'manifests/version_photodna', 1, 10, 'approved', 2, ${report("photodna")}),
+       ('version_shield', 'game_one', 'manifests/version_shield', 1, 10, 'approved', 3, ${report("arachnid-shield")}),
+       ('version_held', 'game_one', 'manifests/version_held', 1, 10, 'held', 4, ${report("arachnid-shield+photodna")});
+     INSERT INTO checked_files (sha256, is_media, provider, checked_at_ms) VALUES ('sha_both', 1, 'arachnid-shield+photodna', 5), ('sha_photodna', 1, 'photodna', 5), ('sha_shield', 1, 'arachnid-shield', 5), ('sha_text', 0, NULL, 5);`,
+  );
+
+  it("takes PhotoDNA off approved versions' reports, so the daily job sends their videos to it", () => {
+    const providers = database.prepare("SELECT id, json_extract(scan_report, '$.images.provider') AS provider, json_extract(scan_report, '$.images.checked_media_count') AS checked FROM versions ORDER BY created_at_ms").all();
+    expect(providers).toEqual([
+      { id: "version_both", provider: "arachnid-shield", checked: 3 },
+      { id: "version_photodna", provider: "none", checked: 3 },
+      { id: "version_shield", provider: "arachnid-shield", checked: 3 },
+      { id: "version_held", provider: "arachnid-shield+photodna", checked: 3 },
+    ]);
+  });
+
+  it("stops trusting files PhotoDNA cleared without their frames, and keeps every row", () => {
+    expect(database.prepare("SELECT sha256, is_media, provider FROM checked_files ORDER BY sha256").all()).toEqual([
+      { sha256: "sha_both", is_media: 1, provider: "arachnid-shield" },
+      { sha256: "sha_photodna", is_media: 1, provider: "none" },
+      { sha256: "sha_shield", is_media: 1, provider: "arachnid-shield" },
+      { sha256: "sha_text", is_media: 0, provider: null },
+    ]);
+  });
+});

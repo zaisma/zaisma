@@ -14,10 +14,14 @@ import {
 
 const media = (path: string, text = path, type = "image/png"): MediaForMatching => ({ path, type, id: text, body: async () => new TextEncoder().encode(text) });
 
-/** A stand-in photodna Worker: each picture's hash is its text, "BAD" ones match, "TINY" ones can't be hashed. */
+/**
+ * A stand-in photodna Worker: each picture's hash is its text, "BAD" ones match, "TINY" ones can't be hashed and
+ * "FAIL" ones Microsoft can't match. A video's text is its frames, 2 s apart, split by "|"; "BROKEN" has none.
+ */
 function service(options: { hash?: (text: string) => PhotoDnaHashOutcome; match?: (hashes: string[]) => PhotoDnaMatchOutcome } = {}) {
   const requests: { hashes: string[]; priority: string }[] = [];
   const hashed: string[] = [];
+  const videos: string[] = [];
   const photo: PhotoDnaService = {
     async hash(item) {
       const text = new TextDecoder().decode((await item.body()) as Uint8Array);
@@ -25,13 +29,19 @@ function service(options: { hash?: (text: string) => PhotoDnaHashOutcome; match?
       if (options.hash) return options.hash(text);
       return text === "TINY" ? { kind: "skip", why: "too small" } : { kind: "hash", hash: `hash:${text}` };
     },
+    async hashFrames(item) {
+      const text = new TextDecoder().decode((await item.body()) as Uint8Array);
+      videos.push(text);
+      if (text === "BROKEN") return { kind: "skip", why: "ffmpeg took no frame" };
+      return { kind: "frames", frames: text.split("|").map((frame, index) => ({ hash: `hash:${frame}`, timeInVideoMs: index * 2000 })) };
+    },
     async match(hashes, priority) {
       requests.push({ hashes, priority });
       if (options.match) return options.match(hashes);
-      return { kind: "results", results: hashes.map((hash) => ({ isMatch: hash === "hash:BAD", sources: hash === "hash:BAD" ? ["Test"] : [] })) };
+      return { kind: "results", results: hashes.map((hash) => (hash === "hash:FAIL" ? { isMatch: false, sources: [], failure: "status 3208" } : { isMatch: hash === "hash:BAD", sources: hash === "hash:BAD" ? ["Test"] : [] })) };
     },
   };
-  return { photo, requests, hashed };
+  return { photo, requests, hashed, videos };
 }
 
 const shieldSays = (result: Partial<Awaited<ReturnType<ImageMatcher["check"]>>>): ImageMatcher => ({
@@ -61,12 +71,39 @@ describe("PhotoDNA image matching", () => {
     expect(known[0]!.severity).toBe("hold");
   });
 
-  it("leaves videos, and pictures it can't hash, to the other matcher without holding", async () => {
+  it("leaves pictures it can't hash, and videos it can't take frames from, to the other matcher without holding", async () => {
     const s = service();
-    const result = await photoDna(s.photo, { priority: "recheck" }).check([media("intro.mp4", "v", "video/mp4"), media("dot.png", "TINY"), media("ok.png")]);
-    expect(result).toMatchObject({ checkedMediaCount: 1, uncheckedMediaCount: 2, findings: [] });
+    const result = await photoDna(s.photo, { priority: "recheck" }).check([media("intro.mp4", "BROKEN", "video/mp4"), media("dot.png", "TINY"), media("ok.png"), media("music.ogg", "m", "audio/ogg")]);
+    expect(result).toMatchObject({ checkedMediaCount: 1, uncheckedMediaCount: 3, findings: [] });
     expect(s.hashed).toEqual(["TINY", "ok.png"]);
+    expect(s.videos).toEqual(["BROKEN"]);
     expect(s.requests[0]!.priority).toBe("recheck");
+  });
+
+  it("matches every frame of a video, and holds the video when any frame matches, saying where", async () => {
+    const s = service();
+    const result = await photoDna(s.photo).check([media("intro.mp4", "a|b|c", "video/mp4"), media("ending.webm", "d|BAD|e|BAD", "video/webm"), media("credits.mp4", "a|b|c", "video/mp4")]);
+    expect(result).toMatchObject({ checkedMediaCount: 3, uncheckedMediaCount: 0 });
+    // The same file under two names has its frames taken once.
+    expect(s.videos).toEqual(["a|b|c", "d|BAD|e|BAD"]);
+    // Each distinct hash is sent once, whichever videos share it.
+    expect(s.requests.flatMap((request) => request.hashes).sort()).toEqual(["hash:BAD", "hash:a", "hash:b", "hash:c", "hash:d", "hash:e"]);
+    expect(result.findings).toEqual([{ stage: "images", severity: "hold", code: KNOWN_IMAGE_CODE, message: "PhotoDNA: 2 frames at 0:02, 0:06 match known child sexual abuse material (list: Test).", path: "ending.webm" }]);
+  });
+
+  it("counts a video unchecked when Microsoft couldn't match one of its frames, and still holds a match in it", async () => {
+    const s = service();
+    const result = await photoDna(s.photo).check([media("intro.mp4", "a|FAIL", "video/mp4"), media("trailer.mp4", "FAIL|BAD", "video/mp4")]);
+    expect(result).toMatchObject({ checkedMediaCount: 0, uncheckedMediaCount: 2 });
+    expect(result.findings.map((finding) => [finding.path, finding.message])).toEqual([["trailer.mp4", "PhotoDNA: a frame at 0:02 matches known child sexual abuse material (list: Test)."]]);
+  });
+
+  it("keeps a match found before Microsoft went down", async () => {
+    let requestCount = 0;
+    const s = service({ match: (hashes) => (++requestCount > 1 ? { kind: "down", why: "503" } : { kind: "results", results: hashes.map((hash) => ({ isMatch: hash === "hash:BAD", sources: [] })) }) });
+    const result = await photoDna(s.photo).check([media("long.mp4", "BAD|a|b|c|d|e|f", "video/mp4")]);
+    expect(result.findings.map((finding) => finding.code)).toEqual([KNOWN_IMAGE_CODE, "image_matching_failed"]);
+    expect(result.checkedMediaCount).toBe(0);
   });
 
   it("says it didn't finish when the hasher or Microsoft is down", async () => {
@@ -124,8 +161,11 @@ describe("two matchers together", () => {
     expect(pictures.provider).toBe("photodna");
     expect(pictures.findings.map((f) => f.code)).toEqual(["image_matching_later"]);
 
-    const withVideo = await eitherMatcher([shieldDown, photoDna(s.photo)]).check([media("a.png"), media("intro.mp4", "v", "video/mp4")]);
-    expect(withVideo.findings.map((f) => [f.code, f.severity])).toEqual([["image_matching_failed", "hold"]]);
+    const withVideo = await eitherMatcher([shieldDown, photoDna(s.photo)]).check([media("a.png"), media("intro.mp4", "v|w", "video/mp4")]);
+    expect(withVideo.provider).toBe("photodna");
+
+    const withBrokenVideo = await eitherMatcher([shieldDown, photoDna(s.photo)]).check([media("a.png"), media("intro.mp4", "BROKEN", "video/mp4")]);
+    expect(withBrokenVideo.findings.map((f) => [f.code, f.severity])).toEqual([["image_matching_failed", "hold"]]);
   });
 
   it("waits for a person when both are down", async () => {

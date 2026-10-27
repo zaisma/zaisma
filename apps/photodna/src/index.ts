@@ -4,15 +4,16 @@ import {
   PHOTODNA_MONTHLY_REQUEST_COUNT,
   PHOTODNA_REQUEST_INTERVAL_MS,
   readMatchHashAnswer,
+  type PhotoDnaFramesOutcome,
   type PhotoDnaHashOutcome,
   type PhotoDnaMatchOutcome,
   type PhotoDnaPriority,
 } from "@zaisma/core";
 
 /**
- * PhotoDNA image matching for the site's scans (scan.ts there), through its service binding. Pictures
- * are hashed in a container running Microsoft's SDK and never leave Cloudflare; only the hashes go to
- * Microsoft, through one pacer that keeps every request within Microsoft's limits.
+ * PhotoDNA image matching for the site's scans (scan.ts there), through its service binding. Pictures,
+ * and still frames taken from videos, are hashed in a container running Microsoft's SDK and never leave
+ * Cloudflare; only the hashes go to Microsoft, through one pacer that keeps every request within Microsoft's limits.
  */
 export interface Env {
   HASHER: DurableObjectNamespace<PhotoDnaHasher>;
@@ -25,10 +26,19 @@ const HASHER_COUNT = 2;
 const HASHER_IDLE_MS = 2 * 60 * 1000;
 const MAXIMUM_ATTEMPT_COUNT = 3;
 
-/** What the site calls: `hash` for one picture, `match` for up to 5 hashes. */
+/** What the site calls: `hash` for one picture, `hashFrames` for one video, `match` for up to 5 hashes. */
 export class PhotoDnaService extends WorkerEntrypoint<Env> {
   hash(bytes: Uint8Array): Promise<PhotoDnaHashOutcome> {
-    return this.env.HASHER.getByName(`hasher-${Math.floor(Math.random() * HASHER_COUNT)}`).hash(bytes);
+    return this.hasher().hash(bytes);
+  }
+
+  /** A video, streamed: never held in memory. */
+  hashFrames(body: Uint8Array | ReadableStream): Promise<PhotoDnaFramesOutcome> {
+    return this.hasher().hashFrames(body);
+  }
+
+  private hasher() {
+    return this.env.HASHER.getByName(`hasher-${Math.floor(Math.random() * HASHER_COUNT)}`);
   }
 
   match(apiKey: string, hashes: string[], priority: PhotoDnaPriority): Promise<PhotoDnaMatchOutcome> {
@@ -45,13 +55,26 @@ export class PhotoDnaHasher extends DurableObject<Env> {
   private starting: Promise<void> | undefined;
 
   async hash(bytes: Uint8Array): Promise<PhotoDnaHashOutcome> {
+    const answer = await this.post<PhotoDnaHashOutcome>("/hash", bytes);
+    return answer.kind === "hash" || answer.kind === "skip" || answer.kind === "down" ? answer : { kind: "down", why: "the hasher's answer wasn't readable" };
+  }
+
+  /** The container takes the video's frames with ffmpeg and hashes each (container/frames.mjs). */
+  async hashFrames(body: Uint8Array | ReadableStream): Promise<PhotoDnaFramesOutcome> {
+    const answer = await this.post<PhotoDnaFramesOutcome>("/frames", body);
+    return (answer.kind === "frames" && Array.isArray(answer.frames)) || answer.kind === "skip" || answer.kind === "down" ? answer : { kind: "down", why: "the hasher's answer wasn't readable" };
+  }
+
+  private async post<Outcome extends { kind: string }>(path: string, body: Uint8Array | ReadableStream): Promise<Outcome | { kind: "down"; why: string }> {
     try {
       this.starting ??= this.start().finally(() => (this.starting = undefined));
       await this.starting;
-      const response = await this.ctx.container!.getTcpPort(8080).fetch("http://container/hash", { method: "POST", body: bytes });
-      if (!response.ok) return { kind: "down", why: `the hasher answered ${response.status}` };
-      const answer = (await response.json()) as PhotoDnaHashOutcome;
-      return answer.kind === "hash" || answer.kind === "skip" ? answer : { kind: "down", why: "the hasher's answer wasn't readable" };
+      const response = await this.ctx.container!.getTcpPort(8080).fetch(`http://container${path}`, { method: "POST", body });
+      if (!response.ok) {
+        await response.body?.cancel();
+        return { kind: "down", why: `the hasher answered ${response.status}` };
+      }
+      return (await response.json()) as Outcome;
     } catch (error) {
       return { kind: "down", why: `the hasher didn't answer: ${String(error).slice(0, 200)}` };
     }
