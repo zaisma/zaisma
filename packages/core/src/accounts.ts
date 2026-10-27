@@ -59,6 +59,8 @@ export interface Account extends SocialSettings {
   /** When a person turned the account's social side off for good after a report (stopSocial), and which kind of report; null when it's on. */
   social_stopped_at_ms: number | null;
   social_stopped_reason: ZaismaPlayerReportReason | null;
+  /** Until when this account's friend requests go nowhere, after most of its recent ones were turned down or left (friend-requests.ts); null when they go. */
+  friend_requests_paused_until_ms: number | null;
   /** When an account without an email pressed Skip on "Where should we tell you if someone else uses your account?" (security-alerts.ts); null while it hasn't. */
   email_ask_skipped_at_ms: number | null;
   created_at_ms: number;
@@ -349,6 +351,7 @@ export async function createAccount(database: D1Database, newAccount: { id: stri
     can_publish: 0,
     social_stopped_at_ms: null,
     social_stopped_reason: null,
+    friend_requests_paused_until_ms: null,
     email_ask_skipped_at_ms: null,
     created_at_ms: createdAtMs,
     updated_at_ms: createdAtMs,
@@ -483,6 +486,8 @@ export async function deleteAccount(database: D1Database, id: string): Promise<v
     database.prepare("UPDATE purchases SET receipt_email = NULL WHERE player_id = (SELECT player_id FROM accounts WHERE id = ?)").bind(id),
     database.prepare("DELETE FROM friendships WHERE account_id = ? OR friend_account_id = ?").bind(id, id),
     database.prepare("DELETE FROM friend_invites WHERE account_id = ?").bind(id),
+    database.prepare("DELETE FROM friend_requests WHERE sender_account_id = ? OR recipient_account_id = ?").bind(id, id),
+    database.prepare("DELETE FROM room_visits WHERE player_id = (SELECT player_id FROM accounts WHERE id = ?)").bind(id),
     // Their blocks, both the ones they made and the ones of them.
     database.prepare("DELETE FROM blocks WHERE account_id = ? OR blocked_account_id = ?").bind(id, id),
     // Chat the filter kept of theirs and nobody confirmed; a confirmed one stays, nameless, until it's no longer kept for the report.

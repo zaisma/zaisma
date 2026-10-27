@@ -1200,7 +1200,7 @@ const SOCIAL_SETTING_LABELS: Record<SocialSetting, [string, string]> = {
   who_sees_profile: ["Who sees your profile", "Your bio, links and the games you play. Your name and the games you've made always show."],
 };
 
-const SOCIAL_CHOICE_LABELS: Record<string, string> = { nobody: "Nobody", friends: "Friends", anyone: "Anyone" };
+const SOCIAL_CHOICE_LABELS: Record<string, string> = { nobody: "Nobody", friends: "Friends", played_with: "People I play with", anyone: "Anyone" };
 
 /**
  * The Social section: the presets, and under Custom every setting as choices side by side. Only the

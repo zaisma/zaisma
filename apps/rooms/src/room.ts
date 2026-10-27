@@ -1075,6 +1075,13 @@ export class Room extends DurableObject<Env> {
     this.seatedPlayerIds = undefined;
     try {
       await database.batch([
+        // Whoever leaves stays a visit for an hour, for People I play with (friend-requests.ts); who's here is room_players.
+        database
+          .prepare(
+            `INSERT OR REPLACE INTO room_visits (game_id, room_code, server_url, player_id, last_seen_at_ms)
+             SELECT game_id, room_code, NULL, player_id, ? FROM room_players WHERE game_id = ? AND room_code = ? AND server_url IS NULL AND player_id NOT IN (SELECT value FROM json_each(?))`,
+          )
+          .bind(nowMs, meta.gameId, meta.roomCode!, JSON.stringify(playerIds)),
         ...(was
           ? was.filter((playerId) => !playerIds.includes(playerId)).map((playerId) => database.prepare("DELETE FROM room_players WHERE game_id = ? AND room_code = ? AND player_id = ? AND server_url IS NULL").bind(meta.gameId, meta.roomCode!, playerId))
           : [database.prepare("DELETE FROM room_players WHERE game_id = ? AND room_code = ? AND server_url IS NULL").bind(meta.gameId, meta.roomCode!)]),

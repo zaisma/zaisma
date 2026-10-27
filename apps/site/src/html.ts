@@ -555,13 +555,14 @@ export function securityHeaders(env: Env, extra: Record<string, string> = {}, ha
 /**
  * A signed-in player's page checks in while it's on screen, so friends see them online (friends-now.ts);
  * a game page says which game once Play is pressed (body data-presence-game), and that it left as it closes.
+ * A game page's check-in answers how many friend requests wait for the player (zaisma:presence), for its card (friend-requests.ts).
  * The last check-in is kept for the tab: a page opened within a minute of it checks in when the next one is due, so moving from
  * page to page keeps the same beat as one page left open. A page that says which game checks in at once.
  */
 const PRESENCE_SCRIPT = pageScript("presence", `(()=>{if(!/(^|; )(__Host-)?zaisma_in=1/.test(document.cookie))return;let last=0,off=false;const b=document.body,KEY="zaisma:checked-in-at-ms";
 try{last=Number(sessionStorage.getItem(KEY))||0}catch{}if(last>Date.now())last=0;
 const beat=()=>{if(off||document.visibilityState!=="visible")return;last=Date.now();try{sessionStorage.setItem(KEY,String(last))}catch{}const g=b.dataset.presenceGame;
-fetch("/api/presence",{method:"POST",body:JSON.stringify(g?{game_slug:g}:{}),keepalive:true}).then(r=>{if(r.status===401)off=true}).catch(()=>{})};
+fetch("/api/presence",{method:"POST",body:JSON.stringify(g?{game_slug:g}:{}),keepalive:true}).then(r=>{if(r.status===401)off=true;else if(r.status===200)r.json().then(a=>dispatchEvent(new CustomEvent("zaisma:presence",{detail:a}))).catch(()=>{})}).catch(()=>{})};
 const start=()=>{beat();setInterval(beat,${PRESENCE_CHECK_IN_MS})};if(b.dataset.presenceGame||Date.now()-last>60000)start();else setTimeout(start,last+${PRESENCE_CHECK_IN_MS}-Date.now());document.addEventListener("visibilitychange",()=>{if(Date.now()-last>60000)beat()});
 new MutationObserver(beat).observe(b,{attributes:true,attributeFilter:["data-presence-game"]});
 addEventListener("pagehide",()=>{const g=b.dataset.presenceGame;if(g&&!off)navigator.sendBeacon("/api/presence",JSON.stringify({left_game_slug:g}))})})();`);

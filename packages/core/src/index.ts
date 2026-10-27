@@ -20,6 +20,7 @@ export * from "./social-settings.ts";
 export * from "./friends.ts";
 export * from "./blocks.ts";
 export * from "./friends-now.ts";
+export * from "./friend-requests.ts";
 export * from "./profiles.ts";
 export * from "./saves.ts";
 export * from "./webauthn.ts";

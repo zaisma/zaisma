@@ -1,6 +1,6 @@
 import { deleteStaleDraftMedia } from "./forum-posts.ts";
 import { deleteOldShaderChecks } from "./shader-check.ts";
-import { ANTIVIRUS_ANSWER_KEPT_DURATION_DAYS, CHECKED_FILE_KEPT_DURATION_DAYS, ROOM_STALE_MS, applyBirthdays, audit, deleteEndedAccessPasses, deleteExpiredFriendInvites, deleteStalePresences, deleteExpiredSignInCodes, deleteOldDatabaseRestores, deleteOldDeliveries, LIFELIKE_GORE_MINIMUM_PLAYER_AGE_YEARS, blobKey, brotliKeyOf, gameById, manifestKey, needsLifelikeGoreAge, ownedBlobKey, publishVersion, reportPictureKey, versionById, type Manifest, type ScanReport, type Version } from "@zaisma/core";
+import { ANTIVIRUS_ANSWER_KEPT_DURATION_DAYS, CHECKED_FILE_KEPT_DURATION_DAYS, ROOM_STALE_MS, applyBirthdays, audit, deleteEndedAccessPasses, deleteExpiredFriendInvites, deleteOldFriendRequests, deleteStalePresences, deleteExpiredSignInCodes, deleteOldDatabaseRestores, deleteOldDeliveries, LIFELIKE_GORE_MINIMUM_PLAYER_AGE_YEARS, blobKey, brotliKeyOf, gameById, manifestKey, needsLifelikeGoreAge, ownedBlobKey, publishVersion, reportPictureKey, versionById, type Manifest, type ScanReport, type Version } from "@zaisma/core";
 import { authConfigured, deleteAuthUser, newestAuthUsers } from "./auth.ts";
 import { deleteOldDeviceMarks } from "./device-marks.ts";
 import { deleteOldEmailCodes } from "./email-codes.ts";
@@ -115,6 +115,7 @@ export async function dailyCleanup(env: Env, nowMs = Date.now()): Promise<{ dele
   // Lists already skip these; a room that stopped without saying so (a restart) leaves one behind. A kept room waiting with nobody in it never checks in, and stays.
   await env.DB.prepare("DELETE FROM live_rooms WHERE updated_at_ms < ? AND NOT (is_kept = 1 AND player_count = 0)").bind(nowMs - ROOM_STALE_MS).run();
   await deleteStalePresences(env.DB, nowMs);
+  await deleteOldFriendRequests(env.DB, nowMs);
   // Game server errors are for fixing what's happening now: kept 30 days after they last happened.
   await env.DB.prepare("DELETE FROM game_server_errors WHERE last_at_ms < ?").bind(nowMs - 30 * DAY_MS).run();
   // So are its logs: days past the 30 kept (logs-api.ts).

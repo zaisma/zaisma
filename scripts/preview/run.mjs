@@ -584,6 +584,8 @@ runSql(`UPDATE reports SET has_block_between = 1 WHERE player_reason = 'followin
 await seedWrongPasswords();
 // A player back to a save from 2 hours ago with neither a passkey nor an email, asked again this run (made the first time).
 await seedProtectAccount();
+// Friend requests in games: one from Saved_Farmer (made just above) waits for the preview account, sent from Arena.
+seedFriendRequests();
 // The security log's Activity and who-and-where in game histories, again this run (rows keep their keys).
 seedSecurityLog();
 // An announcement showing on the home, again this run (it keeps its ID, so closing it holds until --reset).
@@ -757,6 +759,10 @@ Zaisma preview is running. Nothing here touches the live site.
                   ${SITE}/@Quiet_Comet  (14: private unless you're a friend), ${SITE}/admin/profiles  (Bright_Reed's bio held)
   Blocking        ${SITE}/g/arena  (as Preview_Studio in one window and Moss_Runner in a private one, join the same room,
                   then Players, Block: Zaisma asks beside the game; a guest's block is for the session)
+  Friend requests ${SITE}/g/arena?play  (as Preview_Studio: Saved_Farmer's request comes as a card over the game's corner, then waits
+                  in Players; with Chat_Owl in a private window in the same room, Players, Chat_Owl's ⋯, Add friend and the sheet
+                  that asks first, and Chat_Owl's card),  ${SITE}/friends  (Friend requests with Accept, Turn down and Report),
+                  ${SITE}/account#social  (Custom: Invites only, People I play with, Anyone; as Quiet_Comet, 14, only the first two)
   Players plate   ${SITE}/g/arena?play  (Players in the bar: who's in the room with Mute and ⋯, with two windows in one room),
                   ${SITE}/g/tiny-farm?play  (a game with its own netcode), ${SITE}/g/shard-dodge?play  (single player: no button)
   Spectators      ${SITE}/friends  (Kit_Spark's full room: Join grayed, Watch beside it),  ${SITE}/g/arena#rooms  ("· 2 watching"
@@ -1818,6 +1824,13 @@ function seedFriendsNow() {
     `UPDATE live_rooms SET spectator_count = 1, maximum_spectator_count = 20 WHERE room_code IN (${["22", "23", "24", "25", "26", "27"].map((suffix) => `'QWRT${suffix}'`).join(", ")})`,
   ];
   runSql(sql.join("; "));
+}
+
+function seedFriendRequests() {
+  const account = (name) => `(SELECT id FROM accounts WHERE username = '${name}')`;
+  runSql(
+    `INSERT OR IGNORE INTO friend_requests (sender_account_id, recipient_account_id, game_id, created_at_ms, expires_at_ms) SELECT ${account("Saved_Farmer")}, ${account("Preview_Studio")}, (SELECT id FROM games WHERE slug = 'arena'), ${Date.now()}, 4102444800000 WHERE EXISTS (SELECT 1 FROM accounts WHERE username = 'Saved_Farmer') AND NOT EXISTS (SELECT 1 FROM friendships WHERE account_id = ${account("Preview_Studio")} AND friend_account_id = ${account("Saved_Farmer")})`,
+  );
 }
 
 function seedPlayingNow() {

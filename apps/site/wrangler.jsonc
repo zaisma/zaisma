@@ -108,6 +108,8 @@
     { "name": "EXPORT_LIMIT", "namespace_id": "1047", "simple": { "limit": 2, "period": 60 } },
     // Credit top-ups and refunds an owner starts (credit-api.ts): each reaches Stripe.
     { "name": "CREDIT_LIMIT", "namespace_id": "1086", "simple": { "limit": 10, "period": 60 } },
+    // Friend requests sent and answered, per account (friend-requests.ts): bursts only; the daily cap is in the database.
+    { "name": "FRIEND_REQUEST_LIMIT", "namespace_id": "1129", "simple": { "limit": 30, "period": 60 } },
     // Zaisma Pro checkouts, cancels and resumes an owner starts (pro-api.ts): each reaches Stripe.
     { "name": "PRO_LIMIT", "namespace_id": "1094", "simple": { "limit": 10, "period": 60 } },
     // Purchases a player starts with the buy sheet (buy.ts): each makes a purchase and reaches Stripe.

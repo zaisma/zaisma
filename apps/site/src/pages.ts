@@ -61,6 +61,7 @@ import { SAVES_SCRIPT } from "./saves-client.ts";
 import { reportSheet } from "./report.ts";
 import { blockSheet } from "./blocks.ts";
 import { playersSheet } from "./players-sheet.ts";
+import { friendRequestParts } from "./friend-requests.ts";
 import { GAME_UPDATES_SCRIPT, connectionPlate, updateBarButtons } from "./game-updates.ts";
 import { MINIMUM_PLAYING_NOW_PLAYER_COUNT, PLAY_COUNTER_SCRIPT, ageRefusal, playingNowCounts } from "./plays.ts";
 import { profilePath } from "./profiles.ts";
@@ -515,6 +516,7 @@ ${multiplayer ? playersSheet({ gameOrigin, slug: game.slug, title: game.title, h
 ${keepCard}
 ${saves ? playingCard({ id: "save-toast", body: stack({ items: [{ kind: "words", markup: html`<p></p>` }] }) }) : ""}
 ${signInCard}
+${isClosed || !authConfigured(env) ? "" : friendRequestParts({ gameOrigin, slug: game.slug })}
 ${multiplayer ? stillThereCard() : ""}
 ${leavingCard(game.title)}
 ${isClosed ? "" : buySheet({ joinHref: joinHere, signInHref: signinHere, coverUrl })}
