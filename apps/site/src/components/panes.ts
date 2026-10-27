@@ -752,11 +752,11 @@ export function sheet(options: SheetOptions): Raw {
     // The sheet's top row: its tabs, scrolling sideways when there are more than fit, and Close fixed at its end. The chosen tab and the sheet
     // under it are one piece of glass in front, its outline (drawn by LAYERS_SCRIPT inside the scrolling row, so it moves with the tabs) up
     // the tab's outward slants, across its top, and along the sheet's top beside it; the other tabs and Close sit behind, in its shadow.
+    // No title shows: the tabs say where you are. The tab row carries the sheet's title as its name, which names the sheet for screen readers.
     const tabButtons = options.tabs.map((tab, index) => html`<button class="sheet-tab-button" type="button" data-sheet-tab-to="${tab.tabValue}" aria-pressed="${index ? "false" : "true"}"><span class="sheet-tab-words"><span class="sheet-tab-label">${tab.label}</span>${tab.itemCount === undefined ? "" : html`<span class="sheet-tab-count">${tab.itemCount.toLocaleString("en-US")}</span>`}</span></button>`);
-    const strip = html`<div class="sheet-tab-row" data-cut-line="0"><svg class="sheet-tab-outline" aria-hidden="true"><path class="behind-glass"/><path class="behind-well"/><clipPath id="${options.id}-behind"><path/></clipPath><polygon class="front-shadow" clip-path="url(#${options.id}-behind)"/></svg><div class="sheet-tab-scroll"><div class="sheet-tab-track" role="group" aria-label="${options.title}">${tabButtons}<span class="sheet-tab-fill"></span></div></div><span class="sheet-tab-end">${closeButton}</span></div>`;
-    const words = html`<h2 class="sheet-title" id="${options.id}-title">${options.title}</h2>`;
+    const strip = html`<div class="sheet-tab-row" data-cut-line="0"><svg class="sheet-tab-outline" aria-hidden="true"><path class="behind-glass"/><path class="behind-well"/><clipPath id="${options.id}-behind"><path/></clipPath><polygon class="front-shadow" clip-path="url(#${options.id}-behind)"/></svg><div class="sheet-tab-scroll"><div class="sheet-tab-track" id="${options.id}-title" role="group" aria-label="${options.title}">${tabButtons}<span class="sheet-tab-fill"></span></div></div><span class="sheet-tab-end">${closeButton}</span></div>`;
     const body = html`${options.tabs.map((tab, index) => html`<section class="sheet-tab" data-sheet-tab="${tab.tabValue}"${index ? raw(" hidden") : ""}>${tab.body}</section>`)}`;
-    return sheetMarkup({ ...options, body: html``, parts: html`${strip}${paneParts({ head: { words }, body: sheetScroll(body), foot: sheetFoot(options.buttons) })}`, closeButton });
+    return sheetMarkup({ ...options, body: html``, parts: html`${strip}${paneParts({ body: sheetScroll(body), foot: sheetFoot(options.buttons) })}`, closeButton });
   }
   return sheetMarkup({ ...options, closeButton });
 }
@@ -844,7 +844,7 @@ const SHEET_STYLES = `
    along the sheet's top beside it. Behind: the other tabs, the rest of the row and Close's end, in deeper glass, their words quieter, the
    front piece's shadow falling on them; an svg under the row that LAYERS_SCRIPT draws where the tabs are scrolled to. Pointed at, a tab's
    words darken. */
-.sheet-tab-row { --tab-shadow: rgba(6, 9, 14, 0.24); position: relative; z-index: 0; display: flex; align-items: stretch; min-width: 0; margin: calc(-1 * var(--pad-frame)) calc(-1 * var(--pad-frame)) 0; clip-path: var(--cut-shape); }
+.sheet-tab-row { --tab-shadow: rgba(6, 9, 14, 0.12); position: relative; z-index: 0; display: flex; align-items: stretch; min-width: 0; margin: calc(-1 * var(--pad-frame)) calc(-1 * var(--pad-frame)) 0; clip-path: var(--cut-shape); }
 .sheet-tab-scroll { position: relative; flex: 1; min-width: 0; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; overscroll-behavior-x: contain; }
 .sheet-tab-scroll::-webkit-scrollbar { display: none; }
 .sheet-tab-scroll.is-more-end { mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent); }
@@ -856,7 +856,7 @@ const SHEET_STYLES = `
 .sheet-tab-outline .behind-well { fill: var(--well); }
 /* The front piece's shadow: its shape blurred, falling on what's behind only (LAYERS_SCRIPT clips it to the behind shape), so it runs on
    round the chosen tab's slants and along the foot with no seam; under Close's end the same fall-off is a gradient, to the sheet's edge. */
-.sheet-tab-outline .front-shadow { fill: var(--tab-shadow); filter: blur(3px); }
+.sheet-tab-outline .front-shadow { fill: var(--tab-shadow); filter: blur(4px); }
 .sheet-tab-button { --tab-slant: 8px; position: relative; flex: none; display: flex; align-items: center; gap: var(--gap-words-words); padding: 0 calc(var(--pad-inside-words) + var(--tab-slant)); margin: 0; border: 0;
   font: var(--type-label); color: var(--ink-2); white-space: nowrap; background: transparent; cursor: pointer; transition: color 0.15s; }
 .sheet-tab-words { position: relative; z-index: 1; }
