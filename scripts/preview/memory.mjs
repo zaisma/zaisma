@@ -11,7 +11,9 @@
 //   run takes as many files at once as fit, up to what it asked for (TEST_WORKER_COUNT), and waits only when not even one does.
 //   One preview or test run may always run on its own, even over the cap. A run that waits costs the line nothing (its alive
 //   processes aren't counted), one that can never fit beside the awake previews doesn't hold the ones behind it, and a Workers test
-//   run that can never fit beside an awake preview isn't queued: it ends at once with workers_tests_while_preview_awake.
+//   run that can never fit beside an awake preview isn't queued: it ends at once with workers_tests_while_preview_awake. Only one
+//   Workers test run goes at a time on the machine, whatever the cap (Julius, Oct 26, 2026: the Workers tests run on GitHub, and a
+//   build runs only its own new ones here); node runs behind a waiting one go first.
 //   PREVIEW_MEMORY_CAP_BYTES sets the cap for one shell, memory_cap_bytes in LINE_DIRECTORY/settings.json for the machine,
 //   and without either it's 3/8 of this machine's memory (3 GB on an 8 GB Mac). 0 is no cap. macOS only: elsewhere (GitHub's
 //   check, one preview a runner) there's no cap and no line.
@@ -203,7 +205,13 @@ export function nextTurn({ entries, previews, testRuns = [], capBytes, awakeSize
     const roomBytes = capBytes - usedBytes - keptBytes + measuredOf(entry);
     let result;
     let neverFits = false;
-    if (entry.kind === "test") {
+    // One Workers test run on the machine at a time (Julius, Oct 26, 2026): another waits for it to end, and node runs behind it
+    // go first, since they don't need what it waits for.
+    const isOtherWorkersRunGoing = entry.kind === "test" && !entry.is_node_only && coming.some((other) => other.kind === "test" && !other.is_node_only && other.pid !== entry.pid);
+    if (isOtherWorkersRunGoing) {
+      result = { turnPid: null, turnWorkerCount: null, usedBytes, keptBytes, neededBytes: testRunSizeBytes(1, false), isAlone: false };
+      neverFits = true;
+    } else if (entry.kind === "test") {
       const fileSizeBytes = testRunSizeBytes(1, entry.is_node_only) - TEST_RUN_SIZE_BYTES;
       const fittingCount = capBytes === 0 ? entry.requested_worker_count : Math.min(entry.requested_worker_count, Math.floor((roomBytes - TEST_RUN_SIZE_BYTES) / fileSizeBytes));
       const workerCount = isAlone ? Math.max(1, fittingCount) : fittingCount;
