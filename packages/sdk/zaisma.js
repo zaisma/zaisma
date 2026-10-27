@@ -617,6 +617,9 @@
       } else if (message.type === "blocks") {
         room._blocks = new Set(Array.isArray(message.playerIds) ? message.playerIds : []);
         room._mutedChanged();
+      } else if (message.type === "friend_request") {
+        // Someone here sent this player a friend request, or accepted theirs: the Zaisma page looks now (never who).
+        if (onZaismaPage()) window.parent.postMessage({ type: "zaisma:friend-requests" }, config.site);
       } else if (message.type === "message") {
         room._emit("message", message.data, typeof message.fromPlayerId === "string" ? message.fromPlayerId : null);
       } else if (message.type === "chat" || message.type === "chat_sent" || message.type === "chat_stopped" || (message.type === "error" && typeof message.chatNumber === "number")) {
@@ -2457,6 +2460,51 @@
   }
 
   var rooms = { list: listRooms, quickJoin: quickJoin, linkedRoomCode: roomCodeFromPage(), linkedServerUrl: roomCodeFromPage() ? serverUrlFromPage() : null, isLinkedAsSpectator: watchFromPage() };
-  var friends = { list: listFriends, setRoom: setOwnRoom };
+  /*
+   * Friend requests (zaisma.d.ts: Friends.sendRequest): the Zaisma page asks the player before anything is
+   * sent, with the name Zaisma knows the other player by, so no game sends one on a player's behalf. Once one
+   * is sent, from here or the page's Players, the rooms the other player is in tell their game to have their
+   * page look now; Zaisma's record is the request itself.
+   */
+  var friendRequestAsk = null;
+  var FRIEND_REQUEST_STATUSES = ["sent", "cancelled", "already_friends", "not_taking_requests"];
+  function sendFriendRequest(playerId) {
+    if (!onZaismaPage() || !config.rooms) return Promise.reject(notOnZaisma("Friend requests come from Zaisma, so they work only in games played on Zaisma."));
+    if (typeof playerId !== "string" || !/^player_[a-z0-9]{1,40}$/.test(playerId)) return Promise.reject(codedError("bad_player_id", "Zaisma.friends.sendRequest takes a player's id from room.players or Zaisma.friends.list."));
+    return getPass().then(function (mine) {
+      if (mine.kind !== "account") throw codedError("account_needed", "Friend requests are for players signed in to Zaisma: ask the player to sign in first (Zaisma.player.signIn).");
+      // One question at a time: another request while the page is asking is a no.
+      if (friendRequestAsk) return { status: "cancelled" };
+      friendRequestAsk = new Promise(function (resolve) {
+        var isAsking = false;
+        var timer = setTimeout(function () { if (!isAsking) settle("cancelled"); }, 3000);
+        function settle(status) {
+          removeEventListener("message", onMessage);
+          clearTimeout(timer);
+          friendRequestAsk = null;
+          resolve({ status: status });
+        }
+        function onMessage(event) {
+          var told = event.data;
+          if (event.origin !== config.site || event.source !== window.parent || !told || told.type !== "zaisma:friend-request" || told.playerId !== playerId) return;
+          if (told.status === "asking") isAsking = true;
+          else if (FRIEND_REQUEST_STATUSES.indexOf(told.status) !== -1) settle(told.status);
+        }
+        addEventListener("message", onMessage);
+        window.parent.postMessage({ type: "zaisma:friend-request", playerId: playerId }, config.site);
+      });
+      return friendRequestAsk;
+    });
+  }
+  // A request sent (by the game's own button or the page's Players), or one accepted: the rooms the other player is in nudge their game.
+  window.addEventListener("message", function (event) {
+    var told = event.data;
+    if (!config.site || event.origin !== config.site || event.source !== window.parent || !told || told.type !== "zaisma:friend-request" || (told.status !== "sent" && told.status !== "accepted") || typeof told.playerId !== "string") return;
+    joined.forEach(function (room) {
+      if (!room._done && !room.isSpectator && room.players.some(function (each) { return each.id === told.playerId; })) room._say({ type: "friend_request", playerId: told.playerId });
+    });
+  });
+
+  var friends = { list: listFriends, setRoom: setOwnRoom, sendRequest: sendFriendRequest };
   window.Zaisma = { sdkVersionNumber: 1, gameSlug: config.game || null, player: player, joinRoom: joinRoom, rooms: rooms, server: server, invite: invite, checkChat: checkChat, openPlayersPanel: openPlayersPanel, links: links, items: items, friends: friends, saves: saves, versions: versions };
 })();

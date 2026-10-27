@@ -414,6 +414,13 @@ export async function setOwnServerRoom(
   nowMs = Date.now(),
 ): Promise<void> {
   await database.batch([
+    // The room left stays a visit for People I play with, seen now.
+    database
+      .prepare(
+        `INSERT OR REPLACE INTO room_visits (game_id, room_code, server_url, player_id, last_seen_at_ms)
+         SELECT game_id, room_code, server_url, player_id, ?5 FROM room_players WHERE game_id = ?1 AND player_id = ?2 AND server_url IS NOT NULL AND NOT (room_code IS ?3 AND server_url IS ?4)`,
+      )
+      .bind(gameId, playerId, room?.room_code ?? null, room?.server_url ?? null, nowMs),
     database
       .prepare("DELETE FROM room_players WHERE game_id = ?1 AND player_id = ?2 AND server_url IS NOT NULL AND NOT (room_code IS ?3 AND server_url IS ?4)")
       .bind(gameId, playerId, room?.room_code ?? null, room?.server_url ?? null),

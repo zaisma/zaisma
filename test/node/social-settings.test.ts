@@ -18,7 +18,9 @@ import { ageBandOn, birthDateText, birthdayToday } from "../../packages/core/src
 /** Social settings: the presets, the age limits, and migration 0048 moving every account over from its social mode. */
 
 const SOLO_FOCUSED: SocialSettings = { who_can_chat: "nobody", who_can_join: "friends", who_sees_playing_now: "friends", who_sees_played_games: "friends", who_sees_online: "friends", who_can_send_friend_requests: "nobody", who_sees_profile: "friends" };
+// Friends-focused at 13–15, invites only; at 16 and up it takes friend requests from anyone (Julius, Oct 27, 2026).
 const FRIENDS_FOCUSED: SocialSettings = { ...SOLO_FOCUSED, who_can_chat: "friends" };
+const FRIENDS_FOCUSED_16_UP: SocialSettings = { ...FRIENDS_FOCUSED, who_can_send_friend_requests: "anyone" };
 const OPEN_AND_SOCIAL_ADULT: SocialSettings = { who_can_chat: "anyone", who_can_join: "anyone", who_sees_playing_now: "anyone", who_sees_played_games: "anyone", who_sees_online: "friends", who_can_send_friend_requests: "anyone", who_sees_profile: "anyone" };
 const OPEN_AND_SOCIAL_TEEN: SocialSettings = { ...FRIENDS_FOCUSED, who_can_chat: "anyone", who_can_send_friend_requests: "anyone", who_sees_profile: "anyone" };
 
@@ -26,6 +28,8 @@ describe("social settings", () => {
   it("sets everything from a preset, within the band's limits", () => {
     expect(socialModeSettings("solo_focused", "18+")).toEqual(SOLO_FOCUSED);
     expect(socialModeSettings("friends_focused", "13-15")).toEqual(FRIENDS_FOCUSED);
+    expect(socialModeSettings("friends_focused", "16-17")).toEqual(FRIENDS_FOCUSED_16_UP);
+    expect(socialModeSettings("friends_focused", "18+")).toEqual(FRIENDS_FOCUSED_16_UP);
     expect(socialModeSettings("open_and_social", "18+")).toEqual(OPEN_AND_SOCIAL_ADULT);
     expect(socialModeSettings("open_and_social", "16-17")).toEqual(OPEN_AND_SOCIAL_TEEN);
   });
@@ -40,7 +44,8 @@ describe("social settings", () => {
   it("keeps hard age limits: online never past friends, under 18 joining and what they play with friends, 13–15 chat with friends and invites only", () => {
     for (const band of ["13-15", "16-17", "18+"] as const) expect(socialSettingChoicesFor(band, "who_sees_online")).toEqual(["nobody", "friends"]);
     expect(socialSettingChoicesFor("13-15", "who_can_chat")).toEqual(["nobody", "friends"]);
-    expect(socialSettingChoicesFor("13-15", "who_can_send_friend_requests")).toEqual(["nobody"]);
+    expect(socialSettingChoicesFor("13-15", "who_can_send_friend_requests")).toEqual(["nobody", "played_with"]);
+    expect(socialSettingChoicesFor("16-17", "who_can_send_friend_requests")).toEqual(["nobody", "played_with", "anyone"]);
     expect(socialSettingChoicesFor("16-17", "who_can_chat")).toEqual(["nobody", "friends", "anyone"]);
     for (const setting of ["who_can_join", "who_sees_playing_now", "who_sees_played_games"] as const) {
       expect(socialSettingChoicesFor("16-17", setting)).toEqual(["nobody", "friends"]);
@@ -51,14 +56,16 @@ describe("social settings", () => {
     expect(isWithinAgeLimits(OPEN_AND_SOCIAL_TEEN, "16-17")).toBe(true);
     // The backstop brings anything past a limit back to it, and anything unknown to the strictest choice.
     // Every band can open its profile to anyone: it starts at friends under 18, from the presets.
-    expect(withinAgeLimits(OPEN_AND_SOCIAL_ADULT, "13-15")).toEqual({ ...FRIENDS_FOCUSED, who_sees_profile: "anyone" });
+    expect(withinAgeLimits(OPEN_AND_SOCIAL_ADULT, "13-15")).toEqual({ ...FRIENDS_FOCUSED, who_can_send_friend_requests: "played_with", who_sees_profile: "anyone" });
     for (const band of ["13-15", "16-17", "18+"] as const) expect(socialSettingChoicesFor(band, "who_sees_profile")).toEqual(["friends", "anyone"]);
     expect(withinAgeLimits({ ...OPEN_AND_SOCIAL_ADULT, who_sees_online: "anyone" as never, who_can_join: "everyone" as never }, "18+")).toEqual({ ...OPEN_AND_SOCIAL_ADULT, who_sees_online: "nobody", who_can_join: "nobody" });
   });
 
   it("keeps a preset when moving up a band, and Custom as it was", () => {
     expect(socialSettingsInNewBand({ ...OPEN_AND_SOCIAL_TEEN, age_band: "16-17" }, "18+")).toEqual(OPEN_AND_SOCIAL_ADULT);
-    expect(socialSettingsInNewBand({ ...FRIENDS_FOCUSED, age_band: "13-15" }, "16-17")).toEqual(FRIENDS_FOCUSED);
+    expect(socialSettingsInNewBand({ ...FRIENDS_FOCUSED, age_band: "13-15" }, "16-17")).toEqual(FRIENDS_FOCUSED_16_UP);
+    // People I play with, turned on at 13–15, is Custom and stays so.
+    expect(socialSettingsInNewBand({ ...FRIENDS_FOCUSED, who_can_send_friend_requests: "played_with", age_band: "13-15" }, "16-17")).toEqual({ ...FRIENDS_FOCUSED, who_can_send_friend_requests: "played_with" });
     const custom = { ...FRIENDS_FOCUSED, who_can_chat: "anyone" as const };
     expect(socialSettingsInNewBand({ ...custom, age_band: "16-17" }, "18+")).toEqual(custom);
   });
@@ -123,7 +130,8 @@ describe("migrations 0048 and 0051", () => {
     const settingsOf = (id: string) => database.prepare(`SELECT ${SOCIAL_SETTINGS.join(", ")} FROM accounts WHERE id = ?`).get(id);
     expect(settingsOf("young-solo")).toEqual(SOLO_FOCUSED);
     expect(settingsOf("young-friends")).toEqual(FRIENDS_FOCUSED);
-    expect(settingsOf("teen-friends")).toEqual(FRIENDS_FOCUSED);
+    // 0172 moves friends-focused at 16 and up to taking friend requests from anyone.
+    expect(settingsOf("teen-friends")).toEqual(FRIENDS_FOCUSED_16_UP);
     expect(settingsOf("teen-open")).toEqual(OPEN_AND_SOCIAL_TEEN);
     expect(settingsOf("adult-solo")).toEqual(SOLO_FOCUSED);
     expect(settingsOf("adult-open")).toEqual(OPEN_AND_SOCIAL_ADULT);

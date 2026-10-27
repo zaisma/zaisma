@@ -298,6 +298,9 @@ export const isSocialModeAllowed = (ageBand: AgeBand, socialMode: SocialMode): b
 /** Where a new player starts on Zaisma: 13–15 with no chat, everyone else with friends only. */
 export const startingSocialMode = (ageBand: AgeBand): SocialMode => defaultSocialMode(ageBand);
 
+/** Whether a bench account on this preset takes friend requests (its preset's who_can_send_friend_requests, as on Zaisma): every bench player plays together, so People I play with counts. */
+export const takesFriendRequests = (ageBand: AgeBand, socialMode: SocialMode): boolean => socialModeSettings(socialMode, ageBand).who_can_send_friend_requests !== "nobody";
+
 /**
  * Who a player chats with, by Zaisma's own rules for their age and social mode: their chat setting, and the band group strangers who chat
  * with anyone share (16–17 or 18+), or null. A pass carries the setting and an opaque chat group made from the group, never the age.

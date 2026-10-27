@@ -104,6 +104,7 @@ export const STORED_VALUES: readonly StoredValue[] = [
   { stored: "kept_rooms.name", format: "escaped_text", source: "outside", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },
   { stored: "live_rooms.labels", format: "escaped_text", source: "outside", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },
   { stored: "room_players.server_url", format: "escaped_text", source: "outside", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },
+  { stored: "room_visits.server_url", format: "escaped_text", source: "outside", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },
   { stored: "game_deletions.failure_message", format: "escaped_text", source: "outside", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [ADMIN_GAME] },
   { stored: "player_erases.failure_message", format: "escaped_text", source: "outside", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },
   { stored: "audit_log.actor", format: "escaped_text", source: "outside", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: ["page:/admin/audit", ADMIN_GAME] },
@@ -198,7 +199,7 @@ export const CLOSED_TEXT_COLUMNS: readonly string[] = [
   // Choices from fixed lists.
   "accounts.color_theme", "accounts.chat_stopped_reason", "api_keys.found_in", "mcp_clients.token_endpoint_auth_method", "audit_log.action", "chat_reviews.source", "checked_files.provider", "forum_post_ratings.rating", "forum_reports.reason", "forum_topic_tags.tag",
   "forum_topics.category", "forum_topics.severity", "game_backgrounds.screen", "game_backgrounds.source", "game_shaders.screen", "games.visibility", "games.purchase_delivery", "games.devices", "games.controls", "games.genres",
-  "games.screen_orientation", "games.play_modes", "games.room_browsing", "games.built_in_server", "games.account_requirement", "profile_reports.reason", "reports.reason", "reports.player_reason",
+  "games.screen_orientation", "games.play_modes", "games.room_browsing", "games.built_in_server", "games.account_requirement", "friend_requests.answer", "profile_reports.reason", "reports.reason", "reports.player_reason",
   "review_precedents.decision", "review_precedents.content_rule", "room_message_types.direction", "save_history.copy_reason", "security_events.done_by", "webhooks.event_kinds",
   "performance_days.browser_name", "performance_days.os_name", "performance_days.graphics_family", "game_hosting_months.paused_reason",
   "game_items.item_category", "games.refund_policy", "games.own_payment_categories", "purchases.purchase_source", "passkey_challenges.purpose", "purchase_confirmations.confirmation_method",

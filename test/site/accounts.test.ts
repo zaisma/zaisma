@@ -33,7 +33,9 @@ const SUPABASE = "https://supabase.test";
 
 // The presets' settings (docs/DECISIONS.md, "Social settings, with the social modes as presets").
 const SOLO_FOCUSED = { who_can_chat: "nobody", who_can_join: "friends", who_sees_playing_now: "friends", who_sees_played_games: "friends", who_sees_online: "friends", who_can_send_friend_requests: "nobody", who_sees_profile: "friends" };
+// Friends-focused at 13–15, invites only; at 16 and up it takes friend requests from anyone (Julius, Oct 27, 2026).
 const FRIENDS_FOCUSED = { ...SOLO_FOCUSED, who_can_chat: "friends" };
+const FRIENDS_FOCUSED_16_UP = { ...FRIENDS_FOCUSED, who_can_send_friend_requests: "anyone" };
 const OPEN_AND_SOCIAL_ADULT = { who_can_chat: "anyone", who_can_join: "anyone", who_sees_playing_now: "anyone", who_sees_played_games: "anyone", who_sees_online: "friends", who_can_send_friend_requests: "anyone", who_sees_profile: "anyone" };
 
 // --- A small stand-in for Supabase Auth: passwords, ES256 access tokens, refresh, Google and Discord, admin calls. ---
@@ -375,7 +377,7 @@ describe("making an account", () => {
     expect(emails).toHaveLength(0);
 
     const account = await accountById(env.DB, await idOf("Night_Owl"));
-    expect(account).toMatchObject({ username: "Night_Owl", age_band: "18+", ...FRIENDS_FOCUSED, password_changed_at_ms: expect.any(Number) });
+    expect(account).toMatchObject({ username: "Night_Owl", age_band: "18+", ...FRIENDS_FOCUSED_16_UP, password_changed_at_ms: expect.any(Number) });
     const page = await (await b.go("/account?welcome")).text();
     expect(page).toContain("Welcome to Zaisma, Night_Owl");
     expect(page).not.toContain("no-mail.zaisma.com");
@@ -447,7 +449,7 @@ describe("making an account", () => {
     // A social mode sent with the account step is ignored: the account starts on the band's default, which step B shows picked.
     const made = await older.go("/join/account", { turnstile_token: "test-token", username: "Open_Kite", password: PASSWORD, social_mode: "open_and_social" });
     expect(made.headers.get("location")).toBe("/join/play");
-    expect(await accountById(env.DB, await idOf("Open_Kite"))).toMatchObject({ age_band: "16-17", ...FRIENDS_FOCUSED });
+    expect(await accountById(env.DB, await idOf("Open_Kite"))).toMatchObject({ age_band: "16-17", ...FRIENDS_FOCUSED_16_UP });
     const playPage = await (await older.go("/join/play")).text();
     expect(playPage).toContain("How do you play?");
     expect(playPage).toContain("I want to play and chat with my friends.");
@@ -994,7 +996,7 @@ describe("the account page", () => {
     expect((await accountById(env.DB, id))?.username).toBe("Loud_Comet");
 
     // The page shows the presets and settings 13–15 can have, and nothing at all of the rest: no open
-    // and social, no Anyone for chat or joining, no friend requests, and no hint of what opens up later.
+    // and social, no Anyone for chat, joining or friend requests, and no hint of what opens up later.
     const accountPageText = await (await b.go("/account")).text();
     const social = accountPageText.slice(accountPageText.indexOf('<h2 id="social">'), accountPageText.indexOf('<h2 id="signing-in">'));
     expect(social).toContain('<h2 id="social">Social</h2>');
@@ -1002,7 +1004,9 @@ describe("the account page", () => {
     expect(social).toMatch(/name="who_can_chat" value="friends"/);
     expect(social).not.toContain('value="open_and_social"');
     expect(social).not.toMatch(/name="who_can_chat" value="anyone"|name="who_can_join" value="anyone"|name="who_sees_online" value="anyone"/);
-    expect(social).not.toContain('name="who_can_send_friend_requests"');
+    // Friend requests: Invites only, or People I play with, never Anyone.
+    expect(social).toMatch(/name="who_can_send_friend_requests" value="played_with"/);
+    expect(social).not.toMatch(/name="who_can_send_friend_requests" value="anyone"/);
     expect(social).not.toMatch(/opens up|disabled|16-17|band group/);
 
     // 13–15 can move to friends-focused, never open and social, and nothing past their limits.
@@ -1032,11 +1036,11 @@ describe("the account page", () => {
     // come everywhere (UTC−12), and never down.
     const sixteenthBirthdayMs = Date.UTC(thisYear + 1, 0, 1);
     expect(await accountById(env.DB, id, sixteenthBirthdayMs + 11 * 3600_000)).toMatchObject({ age_band: "13-15" });
-    expect(await accountById(env.DB, id, sixteenthBirthdayMs + 12 * 3600_000)).toMatchObject({ age_band: "16-17", birth_date: `${thisYear - 15}-01-01`, ...FRIENDS_FOCUSED });
+    expect(await accountById(env.DB, id, sixteenthBirthdayMs + 12 * 3600_000)).toMatchObject({ age_band: "16-17", birth_date: `${thisYear - 15}-01-01`, ...FRIENDS_FOCUSED_16_UP });
     expect(await accountById(env.DB, id)).toMatchObject({ age_band: "16-17" });
     // Open and social at 16–17 keeps joining and what they play with friends.
-    expect(await (await b.go("/account/social", { social_mode: "custom", ...FRIENDS_FOCUSED, who_sees_playing_now: "anyone" })).text()).toContain("Choose from the social settings shown");
-    expect((await b.go("/account/social", { social_mode: "open_and_social", ...FRIENDS_FOCUSED })).status).toBe(303);
+    expect(await (await b.go("/account/social", { social_mode: "custom", ...FRIENDS_FOCUSED_16_UP, who_sees_playing_now: "anyone" })).text()).toContain("Choose from the social settings shown");
+    expect((await b.go("/account/social", { social_mode: "open_and_social", ...FRIENDS_FOCUSED_16_UP })).status).toBe(303);
     expect(await accountById(env.DB, id)).toMatchObject({ ...FRIENDS_FOCUSED, who_can_chat: "anyone", who_can_send_friend_requests: "anyone", who_sees_profile: "anyone" });
     const teenPageText = await (await b.go("/account")).text();
     const teenPage = teenPageText.slice(teenPageText.indexOf('<h2 id="social">'), teenPageText.indexOf('<h2 id="signing-in">'));
@@ -1452,7 +1456,8 @@ describe("friends", () => {
     expect((await checkIn(ben)).status).toBe(204);
     await env.DB.prepare("INSERT INTO room_players (game_id, room_code, player_id, joined_at_ms, updated_at_ms) VALUES ('g-arena', 'ROOMAA', ?, ?, ?)").bind(await playerIdOf("quiet_comet@example.com"), now, now).run();
     await env.DB.prepare("INSERT INTO live_rooms (game_id, room_code, player_count, maximum_player_count, is_open, created_at_ms, updated_at_ms) VALUES ('g-arena', 'ROOMAA', 2, 8, 1, ?, ?)").bind(now, now).run();
-    expect((await checkIn(carol, { game_slug: "secret-game" })).status).toBe(204);
+    // A game page's check-in answers how many friend requests wait.
+    expect(await (await checkIn(carol, { game_slug: "secret-game" })).json()).toEqual({ waiting_friend_request_count: 0, accepted_friend_request_count: 0 });
     await env.DB.prepare("UPDATE accounts SET who_sees_online = 'nobody', who_sees_playing_now = 'nobody' WHERE id = ?").bind(users.get("red_fox@example.com")!).run();
     await checkIn(dan, { game_slug: "arena-game" });
 

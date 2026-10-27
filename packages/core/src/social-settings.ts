@@ -17,8 +17,12 @@ export interface SocialSettings {
   who_sees_played_games: "nobody" | "friends" | "anyone";
   /** Who sees that the player has zaisma.com open. Never anyone: a stranger can do nothing with it. */
   who_sees_online: "nobody" | "friends";
-  /** Who can send the player a friend request: nobody means friends come by invites only. Anyone reaches only the player's own band group. */
-  who_can_send_friend_requests: "nobody" | "anyone";
+  /**
+   * Who can send the player a friend request: nobody means friends come by invites only, played_with the
+   * players they were in a room with now or within the last hour. Anyone and played_with reach only the
+   * player's own band group.
+   */
+  who_can_send_friend_requests: "nobody" | "played_with" | "anyone";
   /** Who gets past the profile's header (name, @username and published games always show). */
   who_sees_profile: "friends" | "anyone";
 }
@@ -32,7 +36,7 @@ export const SOCIAL_SETTING_CHOICES: { readonly [setting in SocialSetting]: read
   who_sees_playing_now: ["nobody", "friends", "anyone"],
   who_sees_played_games: ["nobody", "friends", "anyone"],
   who_sees_online: ["nobody", "friends"],
-  who_can_send_friend_requests: ["nobody", "anyone"],
+  who_can_send_friend_requests: ["nobody", "played_with", "anyone"],
   who_sees_profile: ["friends", "anyone"],
 };
 
@@ -48,17 +52,18 @@ export const isSocialMode = (given: unknown): given is SocialMode => SOCIAL_MODE
 /** What each preset sets, before the band's limits. */
 const SOCIAL_MODE_SETTINGS: Record<SocialMode, SocialSettings> = {
   solo_focused: { who_can_chat: "nobody", who_can_join: "friends", who_sees_playing_now: "friends", who_sees_played_games: "friends", who_sees_online: "friends", who_can_send_friend_requests: "nobody", who_sees_profile: "friends" },
-  friends_focused: { who_can_chat: "friends", who_can_join: "friends", who_sees_playing_now: "friends", who_sees_played_games: "friends", who_sees_online: "friends", who_can_send_friend_requests: "nobody", who_sees_profile: "friends" },
+  // Friends-focused keeps every way to reach the player with friends, but anyone can offer friendship (Julius, Oct 27, 2026).
+  friends_focused: { who_can_chat: "friends", who_can_join: "friends", who_sees_playing_now: "friends", who_sees_played_games: "friends", who_sees_online: "friends", who_can_send_friend_requests: "anyone", who_sees_profile: "friends" },
   open_and_social: { who_can_chat: "anyone", who_can_join: "anyone", who_sees_playing_now: "anyone", who_sees_played_games: "anyone", who_sees_online: "friends", who_can_send_friend_requests: "anyone", who_sees_profile: "anyone" },
 };
 
 /**
  * The most each band can open each setting to. Under 18, joining and what they play or played stay
- * with friends; 13–15 also chat only with friends and take invites only. Every band can open its profile
+ * with friends; 13–15 also chat only with friends and take friend requests at most from players they play with. Every band can open its profile
  * to anyone (it starts at friends under 18, from the presets).
  */
 const AGE_LIMITS: Record<AgeBand, SocialSettings> = {
-  "13-15": { who_can_chat: "friends", who_can_join: "friends", who_sees_playing_now: "friends", who_sees_played_games: "friends", who_sees_online: "friends", who_can_send_friend_requests: "nobody", who_sees_profile: "anyone" },
+  "13-15": { who_can_chat: "friends", who_can_join: "friends", who_sees_playing_now: "friends", who_sees_played_games: "friends", who_sees_online: "friends", who_can_send_friend_requests: "played_with", who_sees_profile: "anyone" },
   "16-17": { who_can_chat: "anyone", who_can_join: "friends", who_sees_playing_now: "friends", who_sees_played_games: "friends", who_sees_online: "friends", who_can_send_friend_requests: "anyone", who_sees_profile: "anyone" },
   "18+": { who_can_chat: "anyone", who_can_join: "anyone", who_sees_playing_now: "anyone", who_sees_played_games: "anyone", who_sees_online: "friends", who_can_send_friend_requests: "anyone", who_sees_profile: "anyone" },
 };
@@ -111,9 +116,14 @@ export function defaultSocialMode(band: AgeBand): SocialMode {
   return band === "13-15" ? "solo_focused" : "friends_focused";
 }
 
-/** What a preset sets for a band, within its limits: open and social at 16–17 keeps joining and what they play with friends. */
+/**
+ * What a preset sets for a band, within its limits: open and social at 16–17 keeps joining and what they play with friends.
+ * At 13–15 every preset takes friends by invites only, so People I play with is only ever their own choice under Custom
+ * (Julius, Oct 27, 2026: "they can turn on People I play with, default stays Invites only").
+ */
 export function socialModeSettings(socialMode: SocialMode, band: AgeBand): SocialSettings {
-  return withinAgeLimits(SOCIAL_MODE_SETTINGS[socialMode], band);
+  const settings = withinAgeLimits(SOCIAL_MODE_SETTINGS[socialMode], band);
+  return band === "13-15" ? { ...settings, who_can_send_friend_requests: "nobody" } : settings;
 }
 
 export const sameSocialSettings = (first: SocialSettings, second: SocialSettings) => SOCIAL_SETTINGS.every((setting) => first[setting] === second[setting]);

@@ -25,6 +25,8 @@ export const ACCOUNT_DATA_TABLES: Record<string, { file_path: string | null; rea
   friendships: { file_path: "friends.json", reason: "Friends, by username." },
   friend_invites: { file_path: "friends.json", reason: "Open friend invites." },
   blocks: { file_path: "friends.json", reason: "Blocks this account made; never who blocked it." },
+  friend_requests: { file_path: "friends.json", reason: "Friend requests sent, and the ones sent to you with your answers; never how others answered yours." },
+  room_visits: { file_path: "games-played.json", reason: "Rooms the account left in the last hour, for People I play with." },
   played: { file_path: "games-played.json", reason: "Continue playing." },
   games_ever_played: { file_path: "games-played.json", reason: "Every game played, kept so it can be told when the account is deleted." },
   presences: { file_path: "games-played.json", reason: "When the account was last seen online, and in which game." },
@@ -80,6 +82,7 @@ export const ACCOUNT_COLUMNS_LEFT_OUT: Record<string, string> = {
   purchase_pin_hash: "A fingerprint of the purchase PIN, never readable back.",
   purchase_pin_failed_count: "The purchase PIN's counter of wrong tries.",
   stripe_customer_id: "Zaisma's reference at Stripe for the saved card.",
+  friend_requests_paused_until_ms: "A safety record: until when friend requests go nowhere.",
 };
 
 const encoder = new TextEncoder();
@@ -171,6 +174,9 @@ async function* accountDataSources(env: Env, account: Account, nowMs: number): A
     friends: await rows(env, "SELECT friend.username, friend.player_id, friendship.created_at_ms FROM friendships friendship JOIN accounts friend ON friend.id = friendship.friend_account_id WHERE friendship.account_id = ? ORDER BY friendship.created_at_ms", id),
     friend_invites: await rows(env, "SELECT invite_code, created_at_ms, expires_at_ms FROM friend_invites WHERE account_id = ? ORDER BY created_at_ms", id),
     blocks: await rows(env, "SELECT blocked.username, block.created_at_ms FROM blocks block JOIN accounts blocked ON blocked.id = block.blocked_account_id WHERE block.account_id = ? ORDER BY block.created_at_ms", id),
+    // Never how the other player answered: a turn-down looks like nothing happened to its sender.
+    friend_requests_sent: await rows(env, "SELECT recipient.username, request.created_at_ms, request.expires_at_ms FROM friend_requests request JOIN accounts recipient ON recipient.id = request.recipient_account_id WHERE request.sender_account_id = ? ORDER BY request.created_at_ms", id),
+    friend_requests_received: await rows(env, "SELECT sender.username, request.created_at_ms, request.expires_at_ms, request.answer, request.answered_at_ms FROM friend_requests request JOIN accounts sender ON sender.id = request.sender_account_id WHERE request.recipient_account_id = ? ORDER BY request.created_at_ms", id),
   });
 
   yield jsonFile("games-played.json", {
@@ -178,6 +184,7 @@ async function* accountDataSources(env: Env, account: Account, nowMs: number): A
     games_ever_played: await rows(env, "SELECT game.slug AS game_slug, game.title, ever.first_played_at_ms FROM games_ever_played ever JOIN games game ON game.id = ever.game_id WHERE ever.account_id = ? ORDER BY ever.first_played_at_ms", id),
     last_seen: (await rows(env, "SELECT presence.seen_at_ms, game.slug AS game_slug, presence.game_seen_at_ms FROM presences presence LEFT JOIN games game ON game.id = presence.game_id WHERE presence.account_id = ?", id))[0] ?? null,
     rooms_now: await rows(env, "SELECT game.slug AS game_slug, room.room_code, room.server_url, room.joined_at_ms, room.updated_at_ms FROM room_players room JOIN games game ON game.id = room.game_id WHERE room.player_id = ?", account.player_id),
+    rooms_left_lately: await rows(env, "SELECT game.slug AS game_slug, visit.room_code, visit.server_url, visit.last_seen_at_ms FROM room_visits visit JOIN games game ON game.id = visit.game_id WHERE visit.player_id = ?", account.player_id),
     purchases: await rows(
       env,
       "SELECT COALESCE(game.slug, purchase.deleted_game_slug) AS game_slug, COALESCE(game.title, purchase.deleted_game_title) AS game_title, purchase.id, purchase.item_name, purchase.item_kind, purchase.item_count, purchase.purchase_source, purchase.purchase_status, purchase.paid_minor_units, purchase.currency_code, purchase.refunded_minor_units, purchase.receipt_email, purchase.purchased_at_ms, purchase.refunded_at_ms FROM purchases purchase LEFT JOIN games game ON game.id = purchase.game_id WHERE purchase.player_id = ? ORDER BY purchase.created_at_ms",
