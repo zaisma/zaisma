@@ -2212,11 +2212,20 @@ describe("text chat in rooms", () => {
     c.ws.send(JSON.stringify({ type: "chat", chatNumber: number, text, ...(toPlayerIds ? { toPlayerIds } : {}) }));
     return until(c, (m) => m.chatNumber === number);
   }
-  /** The chat a client got by now, after a moment for anything still on its way. */
-  const chatsOf = async (c: { inbox: any[] }) => {
-    await new Promise((resolve) => setTimeout(resolve, 150));
-    return c.inbox.filter((m) => m.type === "chat").map((m) => m.text);
-  };
+  /**
+   * The chat a client got by now: it sends a message of its own to nobody, and what came before the room's answer
+   * on it is everything the room sent it first (one socket's messages arrive in order).
+   */
+  async function chatsOf(c: Awaited<ReturnType<typeof enter>>) {
+    const number = ++chatNumber;
+    c.ws.send(JSON.stringify({ type: "chat", chatNumber: number, text: "anyone?", toPlayerIds: [] }));
+    const texts: string[] = [];
+    for (;;) {
+      const m = await c.next();
+      if (m.chatNumber === number) return texts;
+      if (m.type === "chat") texts.push(m.text);
+    }
+  }
 
   it("delivers chat only to players in the sender's chat group who may read it, and stops the rest", async () => {
     const id = await addOwnGame("chat-room", CHAT_SERVER);
