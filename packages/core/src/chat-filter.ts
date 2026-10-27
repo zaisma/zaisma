@@ -19,17 +19,15 @@ export const CHAT_FILTER_LIMITS = {
   reviewKeptMs: 31_536_000_000,
 } as const;
 
-/** Why the filter stopped a message: what checkChatText blocks, a paused sender, a message the AI couldn't check, one too long to check, or (own servers' chat check) players who may not chat with each other. */
-export type ChatFilterReason = ChatBlockReason | "chat_paused" | "unchecked" | "too_long" | "not_allowed_to_chat";
+/** Why the filter stopped a message: what checkChatText blocks, a paused sender, one too long to check, or (own servers' chat check) players who may not chat with each other. */
+export type ChatFilterReason = ChatBlockReason | "chat_paused" | "too_long" | "not_allowed_to_chat";
 
 /** The words the sender sees for each reason. None mentions age or the other player. */
 export const CHAT_BLOCK_MESSAGES: Record<ChatFilterReason, string> = {
   contact_details: "Contact details can't be sent here.",
   personal_details: "Personal details can't be sent here.",
-  slur: "That word can't be sent here.",
   sexual: "That can't be sent here.",
   chat_paused: "Your chat is paused for now.",
-  unchecked: "This message couldn't be checked. Try again in a moment.",
   too_long: "That message is too long to send.",
   not_allowed_to_chat: "Chat isn't open for this message.",
 };

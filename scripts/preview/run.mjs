@@ -525,7 +525,7 @@ const mcpClientSql = `INSERT INTO mcp_clients (id, client_name, redirect_urls, r
   INSERT OR IGNORE INTO api_keys (id, account_id, name, secret_hash, access_level, created_at_ms, last_used_at_ms, kind, mcp_client_id, connected_app_host)
   SELECT 'previewconnection001', id, 'Claude', 'previewhash', 'full', ${Date.now() - 3 * 86400_000}, ${Date.now() - 3600_000}, 'connected_app', 'https://claude.ai/oauth/mcp-oauth-client-metadata', 'claude.ai'
   FROM accounts WHERE username = 'Preview_Studio'`;
-runSql(`UPDATE games SET multiplayer_mode = 'own' WHERE slug = 'arena'; UPDATE games SET multiplayer_mode = 'built-in', built_in_server = slug WHERE slug = 'four-in-a-row' AND multiplayer_mode = 'none'; UPDATE games SET multiplayer_mode = 'relay' WHERE slug = 'cave-crew' AND multiplayer_mode = 'none'; UPDATE games SET account_requirement = 'whole_game', minimum_player_age_years = 16 WHERE slug = 'shard-dodge'; DELETE FROM live_rooms; DELETE FROM room_players; ${signInAppSql}; ${mcpClientSql}`);
+runSql(`UPDATE games SET multiplayer_mode = 'own' WHERE slug IN ('arena', 'chat-test'); UPDATE games SET multiplayer_mode = 'built-in', built_in_server = slug WHERE slug = 'four-in-a-row' AND multiplayer_mode = 'none'; UPDATE games SET multiplayer_mode = 'relay' WHERE slug = 'cave-crew' AND multiplayer_mode = 'none'; UPDATE games SET account_requirement = 'whole_game', minimum_player_age_years = 16 WHERE slug = 'shard-dodge'; DELETE FROM live_rooms; DELETE FROM room_players; ${signInAppSql}; ${mcpClientSql}`);
 // Tiny Farm (for everyone 13 and up) has a newest version held for lifelike gore, again this run: set the game for 16 and up
 // on its dashboard and it passes. The report is what the AI review would have saved.
 const goreReport = JSON.stringify({
@@ -657,6 +657,9 @@ Zaisma preview is running. Nothing here touches the live site.
                   ${SITE}/dashboard/lava-leap; home leaves it out, ${SITE}/g/lava-leap still plays; ${SITE}/admin/games/ shows Clear.
                   Rename a game with [UPDATE] in its title and, a minute later, it's off the lists too)
   Multiplayer     ${SITE}/g/arena  (open it in two windows to play together)
+  Text chat       ${SITE}/g/chat-test?play  (room.chat: Moss_Runner and Chat_Owl, both adults, chat in two windows of one room (?room=CODE);
+                  Bright_Reed (16) in the same room reads neither, and a guest gets no box; "/stop" is stopped by the game server;
+                  Players, then Report, carries the last lines: see them on ${SITE}/admin/reports)
   Engine samples  ${engineSamples.map((sample) => `${SITE}/g/${sample.slug}?play${sample.scan_status === "approved" ? "" : ` (${sample.scan_status ?? "not uploaded"})`}`).join("\n                  ") || "(npm run preview -- --reset to add them)"}
                   (web exports uploaded unchanged; npm run engines:play checks that each starts and draws)
   Rooms           ${SITE}/g/arena#rooms  and  ${SITE}/g/cave-crew#rooms  (Cave Crew's are mostly pretend, from around the world)
@@ -1161,6 +1164,15 @@ async function seed() {
   // Friends for the preview account: four who said yes to its invites, and one invite still waiting.
   const people = await seedFriends(go, form);
   stepDone("friends");
+  // Text chat: Chat Test's room.chat box and game server, unlisted, and a second open adult to chat with Moss_Runner.
+  {
+    const { game } = await api("POST", "/games", { title: "Chat Test", description: "A chat box over a room, to try room.chat.", devices: ["phone", "tablet", "computer"], controls: ["touch", "keyboard_mouse"], genres: [] });
+    await upload("scripts/preview/chat-test", game.slug, "First version.");
+    await api("POST", `/games/${game.slug}/versions/${await approveNewest(game.slug)}/publish`);
+    await api("PATCH", `/games/${game.slug}`, { visibility: "unlisted" });
+    await signedIn({ name: "Chat_Owl", email: "owl@example.test", year: "1995", socialMode: "open_and_social" }, "198.51.100.236");
+  }
+  stepDone("chat test");
   await seedProfiles(go, form, people);
   stepDone("profiles");
   await seedSignInStates();
@@ -1823,7 +1835,9 @@ function poster(ip) {
 async function signedIn(person, ip) {
   const asPerson = poster(ip);
   await asPerson("/join/age", { month: "6", day: "2", year: person.year });
-  await asPerson("/join/account", { username: person.name, password: PASSWORD, turnstile_token: TURNSTILE_TOKEN, ...(person.socialMode ? { social_mode: person.socialMode } : {}) });
+  await asPerson("/join/account", { username: person.name, password: PASSWORD, turnstile_token: TURNSTILE_TOKEN });
+  // How they play is the step after (account.ts, /join/play).
+  if (person.socialMode) await asPerson("/join/play", { social_mode: person.socialMode });
   if (person.email) {
     await asPerson("/account/email", { email: person.email, turnstile_token: TURNSTILE_TOKEN });
     await asPerson("/account/email/code", { email: person.email, code: await mailedCode(person.email) });

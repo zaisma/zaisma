@@ -1,0 +1,8 @@
+{
+  "title": "Campfire Lobby",
+  "description": "Sit around the fire and talk while you wait for a match.",
+  "is_honest": true,
+  "content_rule": null,
+  "protection": null,
+  "why": "Its chat box sends with room.chat, so every message goes through Zaisma's chat hosting: only players who may chat with each other read it, and Zaisma's filter checks it on the way."
+}

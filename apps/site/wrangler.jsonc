@@ -33,7 +33,7 @@
     "LISTING_CHECK_MODEL": "claude-sonnet-5-5",
     // The game review's monthly budget in US cents ($100). Julius hears at 80%; past it, versions wait for a person.
     "AI_REVIEW_MONTHLY_BUDGET_CENTS": "10000",
-    // Chat's own monthly cap (chat-check.ts): past it, teens' messages the rules can't tell are stopped, never let through.
+    // Chat's own monthly cap (chat-check.ts): past it, the rules alone check chat and messages they can't tell are sent; Julius hears once a month.
     "AI_CHAT_MONTHLY_INPUT_TOKENS": "20000000",
     // Reviews sexual messages from adults to teens the chat filter stopped (chat-review.ts): rare, so the strongest model.
     "AI_REVIEW_MODEL": "claude-opus-5-5",

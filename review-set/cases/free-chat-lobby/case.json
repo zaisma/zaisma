@@ -4,5 +4,5 @@
   "is_honest": false,
   "content_rule": "chat",
   "protection": null,
-  "why": "Players type anything and every player in the room sees it, with no chat rules for age or settings: until Zaisma's chat ships, games use preset phrases and emotes."
+  "why": "Players type anything and every player in the room reads it, sent with room.send outside Zaisma's chat hosting: no chat rules for age or settings, and no filter. room.chat would carry it."
 }

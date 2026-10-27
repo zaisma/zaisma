@@ -1,9 +1,10 @@
 /**
  * Zaisma's chat filter for your own server (docs/DECISIONS.md, "The text filter catches what matters and
  * leaves the rest alone"). Every chat message to or from an under-18 account is checked on Zaisma's side:
- * contact details in any disguise, moving to another app or meeting up, personal details, slurs and
- * sexual content are stopped. Swearing is only flagged (hasSwearing): blocking it is your call. The answer
- * is one verdict for the whole message, never per receiver, so it never says who's under 18.
+ * contact details in any disguise, moving to another app or meeting up, personal details and sexual
+ * content are stopped. Swearing and slurs are only flagged (hasSwearing, hasSlur): blocking them is your
+ * call. Between adults it only flags, unless you turn the filter on for them too (isAdultFilterEnabled).
+ * The answer is one verdict for the whole message, never per receiver, so it never says who's under 18.
  *
  * checkChat sends the players' passes (as your server received them) and the sender's last few messages to
  * Zaisma (POST <issuer>/v1/chat/check), so a phone number sent a few digits at a time is caught too.
@@ -14,15 +15,18 @@
 
 import { OutsideCallError } from "./outside-calls.ts";
 
-/** Why a message was stopped. The same reasons as Zaisma.checkChat, plus chat_paused and not_allowed_to_chat. */
+/**
+ * Why a message was stopped. The same reasons as Zaisma.checkChat, plus chat_paused, not_allowed_to_chat and
+ * unchecked (Zaisma couldn't be reached). slur is v1's and no longer given: slurs are flagged (hasSlur), never stopped.
+ */
 export type ChatCheckReason = "contact_details" | "personal_details" | "slur" | "sexual" | "chat_paused" | "unchecked" | "too_long" | "not_allowed_to_chat";
 
 export interface ChatCheck {
   /** Whether to deliver it. */
   isAllowed: boolean;
   /**
-   * Why not; null when it's allowed. chat_paused: the sender's chat is paused or removed. unchecked: Zaisma
-   * couldn't check it, so don't deliver it (try again in a moment). too_long: over 2000 characters.
+   * Why not; null when it's allowed. chat_paused: the sender's chat is paused or removed. unchecked: your
+   * server couldn't reach Zaisma, so don't deliver it (try again in a moment). too_long: over 2000 characters.
    * not_allowed_to_chat: canChat says the sender and a receiver may not chat (Zaisma checks it too).
    */
   reason: ChatCheckReason | null;
@@ -30,6 +34,8 @@ export interface ChatCheck {
   message: string | null;
   /** Whether it swears. Zaisma allows it; block it yourself if your game doesn't. */
   hasSwearing: boolean;
+  /** Whether it has a slur. Zaisma allows it too, so your game and its moderators decide. */
+  hasSlur: boolean;
 }
 
 export interface ChatCheckOptions {
@@ -39,7 +45,16 @@ export interface ChatCheckOptions {
   senderPass: string;
   /** The passes of everyone it would reach, up to 50. */
   receiverPasses: string[];
+  /** Check chat between adults too, as for under-18s; each message Zaisma's AI looks at counts on your hosting meter. False by default. */
+  isAdultFilterEnabled?: boolean;
 }
+
+/** Chat in rooms (room.chat), for both Zaisma's rooms and your own server's runner: past any human's typing, so it only stops floods. */
+export const CHAT_ROOM_LIMITS = {
+  /** Chat messages one player may send in any chatWindowDurationMs; past it, chat_too_fast. */
+  maximumChatMessageCount: 20,
+  chatWindowDurationMs: 10_000,
+} as const;
 
 export const CHAT_CHECK_LIMITS = {
   /** The longest message checked, in characters: the whole text is checked, and a longer one is refused (too_long), never cut. */
@@ -65,9 +80,9 @@ export class ChatCheckError extends Error {
   }
 }
 
-const UNCHECKED: ChatCheck = { isAllowed: false, reason: "unchecked", message: "This message couldn't be checked. Try again in a moment.", hasSwearing: false };
-const TOO_LONG: ChatCheck = { isAllowed: false, reason: "too_long", message: "That message is too long to send.", hasSwearing: false };
-const REASONS: readonly string[] = ["contact_details", "personal_details", "slur", "sexual", "chat_paused", "unchecked", "too_long", "not_allowed_to_chat"];
+const UNCHECKED: ChatCheck = { isAllowed: false, reason: "unchecked", message: "This message couldn't be checked. Try again in a moment.", hasSwearing: false, hasSlur: false };
+const TOO_LONG: ChatCheck = { isAllowed: false, reason: "too_long", message: "That message is too long to send.", hasSwearing: false, hasSlur: false };
+const REASONS: readonly string[] = ["contact_details", "personal_details", "sexual", "chat_paused", "unchecked", "too_long", "not_allowed_to_chat"];
 
 /** Each sender's last messages, by the sender's pass's player ID: only in this process's memory. */
 const recentBySender = new Map<string, { text: string; sentAtMs: number }[]>();
@@ -100,13 +115,16 @@ function rememberText(senderPlayerId: string, text: string, nowMs: number): void
 /**
  * Check one chat message with Zaisma's filter. Call it on every chat message your server delivers, after
  * canChat says the players may chat, and deliver it only when isAllowed (Zaisma applies canChat's rule
- * too, so a message to anyone who may not chat is stopped). It's free. When Zaisma can't be
- * reached it answers unchecked: don't deliver the message.
+ * too, so a message to anyone who may not chat is stopped). It's free, except the checks of chat between
+ * adults when isAdultFilterEnabled. When Zaisma can't be reached it answers unchecked: don't deliver the message.
+ * The runner (zaisma-game-server) does all this for room.chat in its rooms.
  *
  *   const check = await checkChat({ text, senderPass, receiverPasses: [receiverPass] });
  *   if (!check.isAllowed || check.hasSwearing) return reply(sender, check.message ?? "No swearing here.");
  */
 export async function checkChat({ text, senderPass, receiverPasses }: ChatCheckOptions): Promise<ChatCheck> {
+  // Read apart from the destructuring, which is v1's signature as it's locked (test/contracts).
+  const isAdultFilterEnabled = (arguments[0] as ChatCheckOptions | undefined)?.isAdultFilterEnabled === true;
   const claims = readClaims(String(senderPass ?? ""));
   if (typeof claims.sub !== "string" || !isZaismaIssuer(claims.iss) || !Array.isArray(receiverPasses)) return UNCHECKED;
   const message = String(text ?? "");
@@ -118,20 +136,20 @@ export async function checkChat({ text, senderPass, receiverPasses }: ChatCheckO
     const response = await fetch(`${claims.iss}/v1/chat/check`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ gameSlug: claims.aud, senderPass, receiverPasses: receiverPasses.slice(0, CHAT_CHECK_LIMITS.maximumReceiverCount), text: message, recentTexts }),
+      body: JSON.stringify({ gameSlug: claims.aud, senderPass, receiverPasses: receiverPasses.slice(0, CHAT_CHECK_LIMITS.maximumReceiverCount), text: message, recentTexts, isAdultFilterEnabled }),
       signal: AbortSignal.timeout(CHAT_CHECK_LIMITS.checkTimeoutMs),
     });
     if (!response.ok) return UNCHECKED;
     const answer = (await response.json()) as Partial<ChatCheck>;
     if (typeof answer.isAllowed !== "boolean") return UNCHECKED;
     const reason = typeof answer.reason === "string" && REASONS.includes(answer.reason) ? (answer.reason as ChatCheckReason) : null;
-    return { isAllowed: answer.isAllowed, reason, message: typeof answer.message === "string" ? answer.message : null, hasSwearing: answer.hasSwearing === true };
+    return { isAllowed: answer.isAllowed, reason, message: typeof answer.message === "string" ? answer.message : null, hasSwearing: answer.hasSwearing === true, hasSlur: answer.hasSlur === true };
   } catch (error) {
     // In Zaisma rooms the gateway refuses the call to Zaisma's own address: checkChat is for a game server on your own server.
     if (error instanceof OutsideCallError && ["unreachable_host", "not_https", "host_not_allowed"].includes(error.code)) {
       throw new ChatCheckError(
         "checkChat is for a game server on your own server. In Zaisma rooms the room runs Zaisma's chat filter on the chat it delivers.",
-        "Send chat through Zaisma's chat hosting in rooms once it's out; until then, check what a player types in the game with Zaisma.checkChat, or offer preset phrases and emotes.",
+        "In Zaisma rooms, send chat with room.chat in the game; the room filters it.",
       );
     }
     return UNCHECKED;

@@ -852,6 +852,72 @@ describe("Node runner", () => {
   }, 10_000);
 });
 
+describe("Chat in the Node runner's rooms", () => {
+  it("delivers room.chat to those who may read it, after onChat and Zaisma's filter (checkChat)", async () => {
+    // Zaisma's chat check, as checkChat calls it: it stops "snap" and says what it was sent.
+    const checked: Record<string, unknown>[] = [];
+    const zaisma = createServer((request, response) => {
+      let body = "";
+      request.on("data", (chunk) => (body += chunk));
+      request.on("end", () => {
+        const asked = JSON.parse(body);
+        checked.push(asked);
+        const isStopped = String(asked.text).includes("snap");
+        response.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({ isAllowed: !isStopped, reason: isStopped ? "contact_details" : null, message: isStopped ? "Contact details can't be sent here." : null, hasSwearing: false, hasSlur: false }));
+      });
+    });
+    await new Promise<void>((r) => zaisma.listen(0, r));
+    onTestFinished(() => void zaisma.close());
+    const issuerUrl = `http://localhost:${(zaisma.address() as { port: number }).port}`;
+    const talker = defineGameServer({ setup: () => ({}), onChat: (_state, _player, _room, chatInfo) => chatInfo.text !== "stop" });
+    const own = startServer({ gameServer: talker, gameSlug: "arena", port: 0, origins: [ORIGIN], issuerUrl, loadPassKeys: async () => [signing.publicKey], roomStateFile: null, loadProfile: async (playerId: string) => ({ id: playerId, name: playerId.slice(7) }) });
+    await new Promise((r) => own.httpServer.once("listening", r));
+    onTestFinished(() => void own.close());
+    const at = (own.httpServer.address() as { port: number }).port;
+    const nowSec = Math.floor(Date.now() / 1000);
+    const passes: Record<string, string> = {};
+    const enter = async (sub: string, claims: Record<string, unknown>) => {
+      passes[sub] = await signPass(signing, { sub, aud: "arena", iss: issuerUrl, pass_version_number: 1, iat: nowSec, exp: nowSec + 60, ...claims } as never);
+      const client = connect(ORIGIN, "/v1/rooms/arena/CHATRM", at);
+      await client.open;
+      client.say({ type: "hello", protocolVersionNumber: 1, pass: passes[sub] });
+      const welcome = await client.next();
+      expect(welcome.type).toBe("welcome");
+      return { ...client, welcome };
+    };
+    const ana = await enter("player_ana", { kind: "account", who_can_chat: "anyone", chat_group_id: "chat_group_a" });
+    const ben = await enter("player_ben", { kind: "account", who_can_chat: "anyone", chat_group_id: "chat_group_a" });
+    const tom = await enter("player_tom", { kind: "account", who_can_chat: "anyone", chat_group_id: "chat_group_b" });
+    const guest = await enter("player_guest", { kind: "guest", name: "Swift Fox 42" });
+    expect([ana.welcome.canChat, guest.welcome.canChat]).toEqual([true, false]);
+    let chatNumber = 0;
+    const chat = async (client: typeof ana, text: string) => {
+      const number = ++chatNumber;
+      client.say({ type: "chat", chatNumber: number, text });
+      for (;;) {
+        const message = await client.next();
+        if (message.chatNumber === number) return message;
+      }
+    };
+
+    // Ben, in Ana's chat group, reads her; Tom, in another, never does; Zaisma checked it with Ben's pass alone.
+    expect(await chat(ana, "good game")).toMatchObject({ type: "chat_sent" });
+    expect(await until(ben, "chat")).toMatchObject({ fromPlayerId: "player_ana", text: "good game", hasSwearing: false, hasSlur: false });
+    expect(checked.at(-1)).toMatchObject({ gameSlug: "arena", senderPass: passes.player_ana, receiverPasses: [passes.player_ben], text: "good game", isAdultFilterEnabled: false });
+    expect(await chat(ana, "add me on snap")).toMatchObject({ type: "chat_stopped", reason: "contact_details", message: "Contact details can't be sent here." });
+    expect(await chat(ana, "stop")).toMatchObject({ type: "chat_stopped", reason: "stopped_by_game" });
+    expect(await chat(guest, "hi")).toMatchObject({ type: "error", code: "chat_not_allowed" });
+    // Tom alone in his group: it went, to nobody, and Zaisma wasn't asked.
+    const checkCount = checked.length;
+    expect(await chat(tom, "anyone?")).toMatchObject({ type: "chat_sent" });
+    expect(checked).toHaveLength(checkCount);
+    // Nothing of Ana's ever reached Tom or the guest.
+    const nothingIn = (client: typeof ana) => Promise.race([until(client, "chat"), new Promise((r) => setTimeout(() => r(null), 150))]);
+    expect([await nothingIn(tom), await nothingIn(guest)]).toEqual([null, null]);
+    for (const client of [ana, ben, tom, guest]) client.ws.close();
+  });
+});
+
 describe("The Node runner, for the fullest pass Zaisma makes", () => {
   /** An account owning every one of a game's 1,000 items with 40-character names, with 200 friends and 100 blocks. */
   async function fullestPass() {

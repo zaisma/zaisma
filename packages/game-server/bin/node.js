@@ -22,7 +22,7 @@ import { createServer } from "node:http";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { resolve } from "node:path";
 import { realpathSync } from "node:fs";
-import { BUSY_CLOSE_CODE, ENDED_CLOSE_CODE, ERROR_TEXT, NO_ANSWER_CLOSE_CODE, PASS_ISSUER_URL, PassError, ReceiptError, REMOVED_CLOSE_CODE, REQUEST_ERROR_HTTP_STATUS, REQUEST_LIMITS, ROOM_LIMITS, ROOM_TUNING, WEBHOOK_LIMITS, GameServerError, RoomCore, restoreInfoOf, passesAreFriends, passesHaveBlockBetween, answerRequest, startSchedules, checkRoomData, clientIdle, defineGameServer, errorMessage, isRoomCode, readRequestBody, relay, requestError, runWebhook, tidyRoomInfo, verifyPass, verifyReceipt, verifyWebhook } from "../src/internal.ts";
+import { BUSY_CLOSE_CODE, ENDED_CLOSE_CODE, ERROR_TEXT, NO_ANSWER_CLOSE_CODE, PASS_ISSUER_URL, PassError, ReceiptError, REMOVED_CLOSE_CODE, REQUEST_ERROR_HTTP_STATUS, REQUEST_LIMITS, ROOM_LIMITS, ROOM_TUNING, WEBHOOK_LIMITS, GameServerError, RoomCore, chatSettingsOf, checkChat, readChatMessage, restoreInfoOf, passesAreFriends, passesHaveBlockBetween, answerRequest, startSchedules, checkRoomData, clientIdle, defineGameServer, errorMessage, isRoomCode, readRequestBody, relay, requestError, runWebhook, tidyRoomInfo, verifyPass, verifyReceipt, verifyWebhook } from "../src/internal.ts";
 import { OutsideCallError } from "../src/outside-calls.ts";
 import { checkedStartServerOptions, localDatabase, localRoomStates, passKeysFrom, profilesFrom, receiptKeysFrom, secretsFromEnvironment } from "./node-parts.js";
 
@@ -290,10 +290,11 @@ export function startServer(options) {
       saved ? { state: saved.state, room: saved.savedRoom, ...(definition.ticksPerSec || saved.matchPlayers?.length ? { restoreInfo: restoreInfoOf(saved.savedAtMs, Date.now(), null, saved.isSavedEmpty), lostPlayers: saved.matchPlayers } : {}) } : { start },
     );
     if (saved) core.savedAtMs = saved.savedAtMs;
-    // passes: each player's checked pass, newest, for the blocks and friendships between them (passesHaveBlockBetween, passesAreFriends).
+    // passes: each player's checked pass, newest, for the blocks and friendships between them (passesHaveBlockBetween, passesAreFriends);
+    // passTexts: the same passes as the players sent them, for Zaisma's chat filter (checkChat).
     // savedStateKey: what the room last saved (its state and its match's players), so an unchanged one isn't written again.
     // seatedAtMs: when each player came into this room on their own, for the game's one-room rule (the oldest seat closes first).
-    room = { core, sockets, passes: new Map(), seatedAtMs: new Map(), timer: null, probeTimer: null, waiting: false, savedStateKey: saved ? stateKeyOf(saved.stateJson, saved.matchPlayers, saved.savedRoom.isKept === true) : null, hasReportedStateSize: false };
+    room = { core, sockets, passes: new Map(), passTexts: new Map(), seatedAtMs: new Map(), timer: null, probeTimer: null, waiting: false, savedStateKey: saved ? stateKeyOf(saved.stateJson, saved.matchPlayers, saved.savedRoom.isKept === true) : null, hasReportedStateSize: false };
     rooms.set(code, room);
     return room;
   }
@@ -402,6 +403,24 @@ export function startServer(options) {
     }
   }
 
+  /**
+   * A player's chat message (room.chat): the room checks it and asks the game server's onChat (startChat),
+   * Zaisma's filter looks (checkChat, with the passes of those who may read it), and it goes to them
+   * (deliverChat) or the sender hears why not (stopChat). Everyone it may reach is in the sender's chat
+   * group, so the first CHAT_CHECK_LIMITS.maximumReceiverCount of them stand for the rest.
+   */
+  async function chatIn(room, playerId, chat) {
+    const started = await room.core.startChat(playerId, chat);
+    if (!started) return;
+    let check = { isAllowed: true, reason: null, message: null, hasSwearing: false, hasSlur: false };
+    if (started.receiverPlayerIds.length) {
+      const receiverPasses = started.receiverPlayerIds.map((id) => room.passTexts.get(id)).filter((pass) => typeof pass === "string");
+      check = await checkChat({ text: started.text, senderPass: room.passTexts.get(playerId) ?? "", receiverPasses, isAdultFilterEnabled: definition.adultChatFilterEnabled === true });
+    }
+    if (check.isAllowed) room.core.deliverChat(playerId, chat.chatNumber, started.receiverPlayerIds, { text: started.text, hasSwearing: check.hasSwearing, hasSlur: check.hasSlur });
+    else room.core.stopChat(playerId, chat.chatNumber, check.reason ?? "unchecked", check.message ?? "");
+  }
+
   /** Keep a room for players on their way, even if it empties meanwhile. */
   function wait(code, room, durationMs) {
     room.waiting = true;
@@ -489,6 +508,9 @@ export function startServer(options) {
       if (text === "ping") return ws.send("pong");
       if (playerId) {
         const room = rooms.get(code);
+        // Chat goes through Zaisma's filter (checkChat) on its way, so the room takes it before the game's messages.
+        const chat = text === null ? null : readChatMessage(text);
+        if (chat && room) return chatIn(room, playerId, chat);
         // Bytes (a binary frame) go to the game server's onBytes, under the same limits as messages.
         const errorCode = text === null ? room?.core.receiveBytes(playerId, binaryBytes(received)) : room?.core.receive(playerId, text);
         if (errorCode) ws.send(errorMessage(errorCode));
@@ -537,9 +559,16 @@ export function startServer(options) {
       room.sockets.set(player.id, ws);
       // Blocks between accounts come in their passes: this player's and those of everyone the room remembers.
       // Spectators send nothing, so nothing of theirs reaches a player to block.
+      // Who the player may chat with, from their pass: the room keeps it, and the game never sees it. Spectators send nothing, chat included.
+      room.core.setChatSettings(player.id, isSpectator ? null : chatSettingsOf(claims));
       if (!isSpectator) {
         room.passes.set(player.id, claims);
-        for (const id of room.passes.keys()) if (!room.core.known.has(id) && id !== player.id) room.passes.delete(id);
+        room.passTexts.set(player.id, pass);
+        for (const id of room.passes.keys()) {
+          if (room.core.known.has(id) || id === player.id) continue;
+          room.passes.delete(id);
+          room.passTexts.delete(id);
+        }
         room.core.setAccountBlocks(player.id, [...room.passes].filter(([id, other]) => id !== player.id && passesHaveBlockBetween(claims, other)).map(([id]) => id));
         room.core.setFriends(player.id, [...room.passes].filter(([id, other]) => id !== player.id && passesAreFriends(claims, other)).map(([id]) => id));
       }

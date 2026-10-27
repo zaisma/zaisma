@@ -120,6 +120,7 @@ import {
   checkIdKind,
   isIdOf,
   playerProfile,
+  reportedChatOf,
   secondsUntilDayPasses,
   type ErrorCode,
   MAXIMUM_REDIRECT_URL_COUNT,
@@ -1677,7 +1678,7 @@ async function reportsFor(env: Env, game: Game, cursor: string | null) {
     .bind(game.id, Math.max(sinceMs, fromMs))
     .all<{ id: string; player_text: string; triage: string | null; version_id: string | null; reported_at_ms: number; bug_report_at_ms: number }>();
   const { results: players } = await env.DB
-    .prepare("SELECT id, player_reason, player_text, player_id, player_name, room_code, version_id, reported_at_ms, passed_to_developer_at_ms FROM reports WHERE game_id = ? AND is_passed_to_developer = 1 AND severity_index > 0 AND passed_to_developer_at_ms > ? ORDER BY passed_to_developer_at_ms DESC LIMIT 50")
+    .prepare("SELECT id, player_reason, player_text, player_id, player_name, room_code, version_id, reported_at_ms, reported_chat_json, passed_to_developer_at_ms FROM reports WHERE game_id = ? AND is_passed_to_developer = 1 AND severity_index > 0 AND passed_to_developer_at_ms > ? ORDER BY passed_to_developer_at_ms DESC LIMIT 50")
     .bind(game.id, Math.max(sinceMs, fromMs))
     .all<PlayerReportRow & { passed_to_developer_at_ms: number }>();
   return {
@@ -1702,12 +1703,13 @@ export function bugReportJson(bug: { id: string; player_text: string; triage: st
   };
 }
 
-/** A player report Zaisma passed to the developer, in get_reports and the player_reported event: who was reported and what the player wrote, never who sent it. */
+/** A player report Zaisma passed to the developer, in get_reports and the player_reported event: who was reported, what the player wrote and the chat lines from their screen, never who sent it. */
 export function playerReportJson(report: PlayerReportRow) {
   return {
     id: report.id,
     reason: report.player_reason,
     player_text: report.player_text,
+    chat_messages: reportedChatOf(report),
     reported_player_id: report.player_id,
     reported_player_name: report.player_name,
     room_code: report.room_code || null,
@@ -1824,6 +1826,7 @@ export function hostingUseJson(game: Game, hosting: Awaited<ReturnType<typeof ho
     written_row_count: hosting.use.writtenRowCount,
     read_row_count: hosting.use.readRowCount,
     database_size_bytes: hosting.use.databaseSizeBytes,
+    adult_chat_check_count: hosting.use.adultChatCheckCount,
   };
 }
 

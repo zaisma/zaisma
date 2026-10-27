@@ -20,10 +20,11 @@ export const EVIDENCE_KINDS = {
   /**
    * Text a player types, by who reads it, never by route: shown_locally (only the typer sees it), checked_by_game
    * (the game compares it to a secret or a list and others see only the result), read_by_others (another player
-   * reads it as written, however it's entered: that's chat) and picked_phrases (whole phrases the developer wrote,
-   * chosen from a closed list).
+   * reads it as written outside Zaisma's chat hosting, however it's entered: that's unfiltered chat),
+   * sent_through_zaisma_chat (another player reads it, sent with room.chat or checked with canChat and checkChat)
+   * and picked_phrases (whole phrases the developer wrote, chosen from a closed list).
    */
-  player_text: ["shown_locally", "checked_by_game", "read_by_others", "picked_phrases"],
+  player_text: ["shown_locally", "checked_by_game", "read_by_others", "sent_through_zaisma_chat", "picked_phrases"],
   /**
    * Code that tries to get around one of the beta's protections instead of just bumping into it, each a yes/no
    * test: page_outside_frame (reaches the page outside the game's frame by any route), peer_outside_relay (makes

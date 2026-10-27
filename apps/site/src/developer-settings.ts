@@ -418,7 +418,7 @@ function gameSheets(each: GameHosting): LayoutItem[] {
   ];
 }
 
-const SHARE_WORDS: Record<string, string> = { room_play: "rooms", game_server_cpu: "game server CPU", relayed_data: "relay", database: "database", requests: "requests" };
+const SHARE_WORDS: Record<string, string> = { room_play: "rooms", game_server_cpu: "game server CPU", relayed_data: "relay", database: "database", requests: "requests", adult_chat_checks: "adult chat checks" };
 
 /* ---- Pro ---- */
 
