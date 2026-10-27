@@ -242,7 +242,7 @@ html.is-leaving body > main > :not(.playing-bar, .playing-card, .playing-check, 
 @media (orientation: landscape) and (max-height: 500px) { .playing-card { top: var(--pad-frame); } }
 /* An urgent card: a playing card with its edge in the marked color, a popover over everything (zaismaLayers shows it last). The browser's own
    popover look is put back to the card's; it comes and goes as a card does, kept in the top layer while it leaves. Across the top on a phone. */
-.playing-card.urgent-card { inset: auto; top: calc(var(--control-height-small) + 3 * var(--pad-frame)); right: var(--pad-frame); height: auto; padding: 0; border: 0; overflow: visible; background: transparent;
+.playing-card.urgent-card { inset: auto; top: calc(var(--control-height-small) + 3 * var(--pad-frame)); right: var(--pad-frame); height: auto; padding: 0; border: 0; overflow: visible;
   transition: var(--glass-transition), opacity 0.25s ease, transform 0.3s cubic-bezier(.2,.8,.2,1), display 0.3s allow-discrete, overlay 0.3s allow-discrete; }
 .playing-card.urgent-card:not(.in-place):not(:popover-open) { opacity: 0; transform: translateY(-8px); }
 .urgent-card > .edge :is(.rim, .hair) { stroke: var(--marked); }
