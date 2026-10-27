@@ -1,6 +1,6 @@
 import { createExecutionContext, env, SELF } from "cloudflare:test";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { MAXIMUM_OPEN_FRIEND_INVITE_COUNT, accountById, stopSocial, addTesterLink, friendsNowOf, blocksOf, playerProfile, playingNowOf, ageBand, ageOn, applyBirthdays, canonicalSave, saveFromParts, checkUsername, createAccount, createApiKey, deleteExpiredFriendInvites, friendInviteByCode, friendInvitesOf, friendsOf, gameById, gameBySlug, gameOwner, recordPlayed, createGame, saveKey, sha256Hex, createReport, createVersion, isSlugRetired, newId, personOwner, queueGameDeletion, saveCopyKey, saveScan } from "@zaisma/core";
+import { MAXIMUM_OPEN_FRIEND_INVITE_COUNT, accountById, stopSocial, addTesterLink, friendsNowOf, blocksOf, playerProfile, playingNowOf, ageBand, ageOn, applyBirthdays, canonicalSave, saveFromParts, checkUsername, createAccount, createApiKey, deleteExpiredFriendInvites, friendInviteByCode, friendInvitesOf, friendsOf, gameById, gameBySlug, gameOwner, recordPlayed, createGame, unversionedSaveKey, sha256Hex, createReport, createVersion, isSlugRetired, newId, personOwner, queueGameDeletion, saveCopyKey, saveScan } from "@zaisma/core";
 import { deleteDueGames } from "../../apps/site/src/game-deletion.ts";
 import { PASSKEY_SCRIPT } from "../../apps/site/src/passkeys.ts";
 import { decideTopic } from "../../apps/site/src/forum-posts.ts";
@@ -8,7 +8,7 @@ import { checkForumPosts, type CheckDeps } from "../../apps/site/src/forum-check
 import { checkProfiles } from "../../apps/site/src/profile-check.ts";
 import { scanVersion, type ScanDeps } from "../../apps/site/src/scan.ts";
 import { passingScanDeps } from "./scan-stubs.ts";
-import { changeSaveAsDeveloper } from "../../apps/site/src/saves.ts";
+import { changeSaveAsDeveloper, storedSaveText } from "../../apps/site/src/saves.ts";
 
 /** A localStorage-only save as Zaisma stores it (the v1 envelope). */
 const savedText = (localStorageItems: Record<string, string>) => canonicalSave(saveFromParts(localStorageItems, []));
@@ -1130,7 +1130,7 @@ describe("deleting an account deletes its games", () => {
     // Another player's save, with an earlier copy.
     const player = await createAccount(env.DB, { id: "player-ana", username: "Ana_Plays", ageBand: "18+" });
     await env.DB.prepare("INSERT INTO saves (account_id, game_id, version_number, sha256, size_bytes, saved_at_ms, changed_by_kind) VALUES (?, ?, 1, 'x', 2, ?, 'game')").bind(player.id, game.id, Date.now()).run();
-    await env.SAVES.put(saveKey(player.id, game.id), "{}");
+    await env.SAVES.put(unversionedSaveKey(player.id, game.id), "{}");
     await env.DB.prepare("INSERT INTO save_history (id, account_id, game_id, saved_at_ms, copy_reason, sha256, size_bytes) VALUES ('save_copy_1', ?, ?, ?, 'hourly', 'x', 2)").bind(player.id, game.id, Date.now()).run();
     await env.SAVES.put(saveCopyKey(player.id, game.id, "save_copy_1"), "{}");
     await recordPlayed(env.DB, player.id, game.id);
@@ -1145,7 +1145,7 @@ describe("deleting an account deletes its games", () => {
     await vi.waitFor(async () => expect(await gameById(env.DB, game.id)).toBeNull());
     for (const table of ["versions", "reports", "saves", "save_history", "played", "games_ever_played", "game_deletions", "audit_log", "database_restores"]) expect(await rowCount(table, game.id), table).toBe(0);
     for (const key of [`games/${game.id}/${zipVersionId}/index.html`, `manifests/${filesVersionId}.json`, `images/${game.id}/image_cover`, `report-pictures/${reportId}.jpg`]) expect(await env.GAMES.head(key), key).toBeNull();
-    for (const key of [saveKey(player.id, game.id), saveCopyKey(player.id, game.id, "save_copy_1")]) expect(await env.SAVES.head(key), key).toBeNull();
+    for (const key of [unversionedSaveKey(player.id, game.id), saveCopyKey(player.id, game.id, "save_copy_1")]) expect(await env.SAVES.head(key), key).toBeNull();
     const overview = await env.GAME_DATABASES!.overview(game.id);
     expect("queryResult" in overview && overview.queryResult.tables).toEqual([]);
     expect(await env.GAME_SECRETS!.list(game.id)).toEqual({ secrets: [] });
@@ -2023,8 +2023,15 @@ describe("cloud saves", () => {
       .run();
     return `g-${slug}`;
   }
-  const put = (b: Browser, baseVersionNumber: number, saveData: Record<string, string>, slug = "owl-game") =>
-    b.go(`/api/saves/${slug}`, undefined, { method: "PUT", body: JSON.stringify({ base_version_number: baseVersionNumber, save_json: JSON.stringify(saveData) }) });
+  /** The tag the game page's GET answers, which every change it makes carries. */
+  const tagOf = async (b: Browser, slug = "owl-game") => ((await (await b.go(`/api/saves/${slug}`)).json()) as { tag: string }).tag;
+  const put = async (b: Browser, baseVersionNumber: number, saveData: Record<string, string>, slug = "owl-game") =>
+    b.go(`/api/saves/${slug}`, undefined, { method: "PUT", body: JSON.stringify({ tag: await tagOf(b, slug), base_version_number: baseVersionNumber, save_json: JSON.stringify(saveData) }) });
+  /** The account's save in a game, as stored now. */
+  const storedNow = async (accountId: string, gameId: string) => {
+    const row = await env.DB.prepare("SELECT * FROM saves WHERE account_id = ? AND game_id = ?").bind(accountId, gameId).first<{ account_id: string; game_id: string; version_number: number; sha256: string }>();
+    return row ? storedSaveText(env, row) : null;
+  };
 
   it("stores a save, hands it back, and refuses an out-of-date one", async () => {
     const gameId = await liveGame();
@@ -2039,7 +2046,7 @@ describe("cloud saves", () => {
     expect(await first.json()).toMatchObject({ version_number: 1, saved_at: expect.stringMatching(/Z$/) });
     const got = (await (await b.go("/api/saves/owl-game")).json()) as { version_number: number; save_data: Record<string, string>; sha256: string };
     expect(got).toMatchObject({ version_number: 1, save_data: { save_format_version_number: 1, local_storage_items: { coins: "120", level: "3" }, indexeddb_databases: [] } });
-    expect(await env.SAVES.get(saveKey(users.get("fox@example.com")!, gameId)).then((o) => o?.text())).toBe(savedText({ level: "3", coins: "120" }));
+    expect(await storedNow(users.get("fox@example.com")!, gameId)).toBe(savedText({ level: "3", coins: "120" }));
 
     // A second device that loaded version 0 can't overwrite version 1.
     const stale = await put(b, 0, { level: "1" });
@@ -2049,13 +2056,72 @@ describe("cloud saves", () => {
     expect((await put(b, 1, { level: "5" })).status).toBe(409);
   });
 
+  it("answers a save the account already has with its version, and keeps no copy of it", async () => {
+    await liveGame();
+    const b = new Browser();
+    await join(b);
+    const first = (await (await put(b, 0, { level: "3" })).json()) as { version_number: number; sha256: string; saved_at: string };
+    // Sent again after its answer was lost, from the version it started from: saved already.
+    const again = await put(b, 0, { level: "3" });
+    expect(again.status).toBe(200);
+    expect(await again.json()).toEqual({ version_number: 1, sha256: first.sha256, saved_at: first.saved_at, kept_save_copy_id: null });
+    // A device keeping progress that is exactly the account's save keeps nothing.
+    const kept = await b.go("/api/saves/owl-game", undefined, { method: "PUT", body: JSON.stringify({ tag: await tagOf(b), keep: true, save_json: JSON.stringify({ level: "3" }) }) });
+    expect(await kept.json()).toEqual({ is_kept: false, save_copy_id: null });
+    expect(await env.DB.prepare("SELECT COUNT(*) AS copy_count FROM save_history").first()).toEqual({ copy_count: 0 });
+    // A save another device made first answers 409 with that save's sha256, so the page can tell its own from another's.
+    const stale = await put(b, 0, { level: "4" });
+    expect(stale.status).toBe(409);
+    expect(await stale.json()).toMatchObject({ version_number: 1, sha256: first.sha256, changed_by_kind: "player" });
+  });
+
+  it("refuses a change from a page loaded for another account, leaving this account's save as it was", async () => {
+    const gameId = await liveGame();
+    const b = new Browser();
+    await join(b, "a@example.com", "Player_One");
+    const tagOfOne = await tagOf(b);
+    await put(b, 0, { level: "3" });
+    // Another account signs in on the same browser, while the page still holds the first account's tag.
+    await b.go("/signout", {});
+    await join(b, "b@example.com", "Player_Two");
+    const accountTwo = await idOf("Player_Two");
+    expect((await put(b, 0, { level: "1" })).status).toBe(200);
+    const accountChanged = { error: "account_changed", message: "Another account is signed in now." };
+    for (const body of [
+      { tag: tagOfOne, base_version_number: 1, save_json: JSON.stringify({ level: "99" }) },
+      { tag: tagOfOne, keep: true, save_json: JSON.stringify({ level: "99" }) },
+    ]) {
+      const refused = await b.go("/api/saves/owl-game", undefined, { method: "PUT", body: JSON.stringify(body) });
+      expect(refused.status).toBe(409);
+      expect(await refused.json()).toEqual(accountChanged);
+    }
+    // Without a tag at all, it's a bad save.
+    expect((await b.go("/api/saves/owl-game", undefined, { method: "PUT", body: JSON.stringify({ base_version_number: 1, save_json: "{}" }) })).status).toBe(400);
+    expect(await storedNow(accountTwo, gameId)).toBe(savedText({ level: "1" }));
+    expect(await env.DB.prepare("SELECT COUNT(*) AS copy_count FROM save_history").first()).toEqual({ copy_count: 0 });
+  });
+
+  it("leaves the save as it was when its file can't be stored, never naming a version it doesn't have", async () => {
+    const gameId = await liveGame();
+    const b = new Browser();
+    await join(b);
+    await put(b, 0, { level: "3" });
+    const tag = await tagOf(b);
+    b.bindings = { SAVES: { get: env.SAVES.get.bind(env.SAVES), delete: env.SAVES.delete.bind(env.SAVES), put: () => Promise.reject(new Error("R2 is down")) } as unknown as R2Bucket };
+    const failed = await b.go("/api/saves/owl-game", undefined, { method: "PUT", body: JSON.stringify({ tag, base_version_number: 1, save_json: JSON.stringify({ level: "4" }) }) });
+    expect(failed.status).toBe(500);
+    b.bindings = null;
+    expect(await (await b.go("/api/saves/owl-game")).json()).toMatchObject({ version_number: 1, sha256: await sha256Hex(new TextEncoder().encode(savedText({ level: "3" }))), save_data: { local_storage_items: { level: "3" } } });
+    expect(await storedNow(users.get("fox@example.com")!, gameId)).toBe(savedText({ level: "3" }));
+  });
+
   it("tells the game page when the developer changed the save, so it takes it without asking", async () => {
     const gameId = await liveGame();
     const b = new Browser();
     await join(b);
     await put(b, 0, { level: "3" });
     expect(await (await b.go("/api/saves/owl-game?version")).json()).toMatchObject({ version_number: 1, changed_by_kind: "player" });
-    await changeSaveAsDeveloper(env, users.get("fox@example.com")!, gameId, savedText({ level: "10" }), null);
+    await changeSaveAsDeveloper(env, users.get("fox@example.com")!, gameId, () => savedText({ level: "10" }), null);
     expect(await (await b.go("/api/saves/owl-game?version")).json()).toMatchObject({ version_number: 2, changed_by_kind: "developer" });
     expect(await (await b.go("/api/saves/owl-game")).json()).toMatchObject({ version_number: 2, changed_by_kind: "developer", save_data: { local_storage_items: { level: "10" } } });
     // The open game's next save started from version 1: refused, saying the developer moved it on.
@@ -2072,12 +2138,12 @@ describe("cloud saves", () => {
     const b = new Browser();
     await join(b);
     const save = { idb: [{ name: "/idbfs", version: 21, stores: [{ name: "FILE_DATA", keyPath: null, autoIncrement: false, indexes: [], records: [["/idbfs/save", { contents: { $z: ["view", "Uint8Array", "Bw=="] } }]] }] }], local: { b: "2", a: "1" } };
-    const res = await b.go("/api/saves/owl-game", undefined, { method: "PUT", body: JSON.stringify({ base_version_number: 0, save_json: JSON.stringify(save) }) });
+    const res = await b.go("/api/saves/owl-game", undefined, { method: "PUT", body: JSON.stringify({ tag: await tagOf(b), base_version_number: 0, save_json: JSON.stringify(save) }) });
     expect(res.status).toBe(200);
     // Sent in the shape from before v1, stored as v1.
     const text = canonicalSave(saveFromParts(save.local, save.idb));
     expect(text.startsWith('{"save_format_version_number":1,"local_storage_items":{"a":"1","b":"2"},"indexeddb_databases":[{"name":"/idbfs"')).toBe(true);
-    expect(await env.SAVES.get(saveKey(users.get("fox@example.com")!, gameId)).then((o) => o?.text())).toBe(text);
+    expect(await storedNow(users.get("fox@example.com")!, gameId)).toBe(text);
     const got = (await (await b.go("/api/saves/owl-game")).json()) as { save_data: unknown; sha256: string };
     expect(got.save_data).toEqual(JSON.parse(text));
     expect(got.sha256).toBe(await sha256Hex(new TextEncoder().encode(text)));
@@ -2094,8 +2160,9 @@ describe("cloud saves", () => {
     await join(b);
     const accountId = users.get("fox@example.com")!;
     const versionIdNow = async () => (await env.DB.prepare("SELECT version_id FROM saves WHERE account_id = ? AND game_id = ?").bind(accountId, gameId).first<{ version_id: string | null }>())!.version_id;
+    const tag = await tagOf(b);
     const putVersion = (baseVersionNumber: number, versionId: unknown) =>
-      b.go("/api/saves/owl-game", undefined, { method: "PUT", body: JSON.stringify({ base_version_number: baseVersionNumber, save_json: JSON.stringify({ level: String(baseVersionNumber) }), version_id: versionId }) });
+      b.go("/api/saves/owl-game", undefined, { method: "PUT", body: JSON.stringify({ tag, base_version_number: baseVersionNumber, save_json: JSON.stringify({ level: String(baseVersionNumber) }), version_id: versionId }) });
     expect((await putVersion(0, "version_owl1")).status).toBe(200);
     expect(await versionIdNow()).toBe("version_owl1");
     // Another game's version, junk or none: still saved, with no label.
@@ -2107,7 +2174,7 @@ describe("cloud saves", () => {
     expect(await versionIdNow()).toBeNull();
     // The developer's writes have no game version behind them.
     expect((await putVersion(4, "version_owl1")).status).toBe(200);
-    await changeSaveAsDeveloper(env, accountId, gameId, savedText({ level: "dev" }), null);
+    await changeSaveAsDeveloper(env, accountId, gameId, () => savedText({ level: "dev" }), null);
     expect(await versionIdNow()).toBeNull();
   });
 
@@ -2119,18 +2186,18 @@ describe("cloud saves", () => {
     await put(b, 0, { level: "3" });
     // As a save from before v1 was stored: a bare localStorage object, with its hash.
     const legacy = JSON.stringify({ level: "3" });
-    await env.SAVES.put(saveKey(accountId, gameId), legacy, { customMetadata: { version_number: "1" } });
+    await env.SAVES.put(unversionedSaveKey(accountId, gameId), legacy, { customMetadata: { version_number: "1" } });
     await env.DB.prepare("UPDATE saves SET sha256 = ?, size_bytes = ? WHERE account_id = ?").bind(await sha256Hex(new TextEncoder().encode(legacy)), legacy.length, accountId).run();
     const text = savedText({ level: "3" });
     const got = (await (await b.go("/api/saves/owl-game")).json()) as { sha256: string; save_data: unknown };
     expect(got).toMatchObject({ sha256: await sha256Hex(new TextEncoder().encode(text)), save_data: JSON.parse(text) });
-    const object = (await env.SAVES.get(saveKey(accountId, gameId)))!;
+    const object = (await env.SAVES.get(unversionedSaveKey(accountId, gameId)))!;
     expect(await object.text()).toBe(text);
     expect(object.customMetadata).toEqual({ version_number: "1" });
     expect(await env.DB.prepare("SELECT sha256, size_bytes FROM saves WHERE account_id = ?").bind(accountId).first()).toEqual({ sha256: got.sha256, size_bytes: text.length });
     // The second read writes nothing.
     expect(await (await b.go("/api/saves/owl-game")).json()).toEqual(got);
-    expect((await env.SAVES.get(saveKey(accountId, gameId)))!.etag).toBe(object.etag);
+    expect((await env.SAVES.get(unversionedSaveKey(accountId, gameId)))!.etag).toBe(object.etag);
   });
 
   it("keeps saves apart per player", async () => {
@@ -2162,7 +2229,7 @@ describe("cloud saves", () => {
     const id = users.get("fox@example.com")!;
     await put(b, 0, { level: "9" });
     await b.go("/account/delete", { confirm: "delete" });
-    expect(await env.SAVES.get(saveKey(id, gameId))).toBeNull();
+    expect((await env.SAVES.list({ prefix: `${id}/${gameId}` })).objects).toEqual([]);
     expect(await env.DB.prepare("SELECT * FROM saves").first()).toBeNull();
   });
 
@@ -2171,7 +2238,7 @@ describe("cloud saves", () => {
     const copies = async () => (await env.DB.prepare("SELECT * FROM save_history ORDER BY saved_at_ms DESC, rowid DESC").all<{ id: string; copy_reason: string; saved_at_ms: number; sha256: string }>()).results;
     // Pretend the history was made earlier, so the next save is due an hourly copy.
     const age = (ms: number) => env.DB.prepare("UPDATE save_history SET saved_at_ms = saved_at_ms - ?").bind(ms).run();
-    const putWith = (b: Browser, body: Record<string, unknown>) => b.go("/api/saves/owl-game", undefined, { method: "PUT", body: JSON.stringify(body) });
+    const putWith = async (b: Browser, body: Record<string, unknown>) => b.go("/api/saves/owl-game", undefined, { method: "PUT", body: JSON.stringify({ tag: await tagOf(b), ...body }) });
 
     it("keeps a copy about once an hour, not on every save", async () => {
       const gameId = await liveGame();
@@ -2251,7 +2318,7 @@ describe("cloud saves", () => {
       expect(await env.SAVES.get(`${id()}/${gameId}/${copy!.id}.json`).then((o) => o?.text())).toBe(text);
       expect((await copies())[0]!.sha256).toBe(sha256);
       // Going back to it makes it the save, labelled with the copy's version.
-      expect(await (await b.go(`/api/saves/owl-game/copies/${copy!.id}/restore`, undefined, { method: "POST", body: "{}" })).json()).toMatchObject({ sha256 });
+      expect(await (await b.go(`/api/saves/owl-game/copies/${copy!.id}/restore`, undefined, { method: "POST", body: JSON.stringify({ tag: await tagOf(b) }) })).json()).toMatchObject({ sha256 });
       expect(await env.DB.prepare("SELECT version_id FROM saves WHERE game_id = ?").bind(gameId).first()).toEqual({ version_id: "version_owl1" });
     });
 
@@ -2266,7 +2333,7 @@ describe("cloud saves", () => {
       // The save and its copy, both stored before v1 with the same progress, and so with the same old hash.
       const legacy = JSON.stringify({ level: "2" });
       const legacyHash = await sha256Hex(new TextEncoder().encode(legacy));
-      await env.SAVES.put(saveKey(accountId, gameId), legacy, { customMetadata: { version_number: "2" } });
+      await env.SAVES.put(unversionedSaveKey(accountId, gameId), legacy, { customMetadata: { version_number: "2" } });
       await env.SAVES.put(`${id()}/${gameId}/${copy!.id}.json`, legacy);
       await env.DB.prepare("UPDATE saves SET sha256 = ?, size_bytes = ? WHERE account_id = ?").bind(legacyHash, legacy.length, accountId).run();
       await env.DB.prepare("UPDATE save_history SET sha256 = ?, size_bytes = ? WHERE id = ?").bind(legacyHash, legacy.length, copy!.id).run();
@@ -2323,7 +2390,8 @@ describe("cloud saves", () => {
       expect(await (await a.go(`/api/saves/owl-game/copies/${copyId}`)).json()).toEqual({ save_copy: { ...listed.save_copies[0], local_storage_items: { level: "1" }, missing_keys: [], indexeddb_databases: [] } });
 
       // Browsers send the page's origin with every POST from a script (this test browser, with a body).
-      const restore = (init: { origin?: string } = {}, browser = a, id = copyId, slug = "owl-game") => browser.go(`/api/saves/${slug}/copies/${id}/restore`, undefined, { method: "POST", body: "{}", ...init });
+      const tag = await tagOf(a);
+      const restore = (init: { origin?: string } = {}, browser = a, id = copyId, slug = "owl-game") => browser.go(`/api/saves/${slug}/copies/${id}/restore`, undefined, { method: "POST", body: JSON.stringify({ tag }), ...init });
       expect((await restore({ origin: "https://owl-game.games.example" })).status).toBe(403);
       expect((await restore({}, new Browser())).status).toBe(401);
       const restored = await restore();
@@ -4299,10 +4367,11 @@ describe("download your data", () => {
     const b = new Browser();
     await join(b);
     const id = users.get("fox@example.com")!;
-    await b.go("/api/saves/owl-game", undefined, { method: "PUT", body: JSON.stringify({ base_version_number: 0, save_json: JSON.stringify({ level: "3" }) }) });
+    const tag = ((await (await b.go("/api/saves/owl-game")).json()) as { tag: string }).tag;
+    await b.go("/api/saves/owl-game", undefined, { method: "PUT", body: JSON.stringify({ tag, base_version_number: 0, save_json: JSON.stringify({ level: "3" }) }) });
     await env.DB.prepare("INSERT INTO save_history (id, account_id, game_id, saved_at_ms, copy_reason, sha256, size_bytes) VALUES ('copy-1', ?, 'g-owl', ?, 'hourly', 'abc', 20)").bind(id, now - 3600_000).run();
     // A save and a copy stored before v1: the export reads them as v1, with the v1 text's hash and size, and leaves them as they are.
-    await env.SAVES.put(saveKey(id, "g-owl"), JSON.stringify({ level: "3" }), { customMetadata: { version_number: "1" } });
+    await env.SAVES.put(unversionedSaveKey(id, "g-owl"), JSON.stringify({ level: "3" }), { customMetadata: { version_number: "1" } });
     await env.SAVES.put(saveCopyKey(id, "g-owl", "copy-1"), JSON.stringify({ level: "1" }));
     await recordPlayed(env.DB, id, "g-owl");
     await createAccount(env.DB, { id: "u-friend", username: "Kind_Badger", ageBand: "18+" });
@@ -4339,7 +4408,7 @@ describe("download your data", () => {
     expect(Object.entries(zip.files).find(([path]) => path.includes("/earlier/"))![1]).toBeTruthy();
     expect(JSON.parse(new TextDecoder().decode(Object.entries(zip.files).find(([path]) => path.includes("/earlier/"))![1]))).toMatchObject({ copy_reason: "hourly", local_storage_items: { level: "1" }, indexeddb_databases: [] });
     expect(await (await env.SAVES.get(saveCopyKey(id, "g-owl", "copy-1")))!.text()).toBe(JSON.stringify({ level: "1" }));
-    expect(await (await env.SAVES.get(saveKey(id, "g-owl")))!.text()).toBe(JSON.stringify({ level: "3" }));
+    expect(await (await env.SAVES.get(unversionedSaveKey(id, "g-owl")))!.text()).toBe(JSON.stringify({ level: "3" }));
     const v1Save = savedText({ level: "3" });
     const v1Copy = savedText({ level: "1" });
     expect(zip.json("saves/owl-game/save.json")).toMatchObject({ sha256: await sha256Hex(new TextEncoder().encode(v1Save)), size_bytes: v1Save.length });
