@@ -53,6 +53,8 @@ const MAIN_DATABASE_KEY = "main-database.sql";
 const BACKUP_CRON_UTC = { hour: 3, minute: 17 };
 const RESTORE_FOLDER = join(CHECKOUT, ".restore");
 const DAY_MS = 24 * 60 * 60 * 1000;
+/** Cloudflare's published Turnstile test keys that always pass, for a practice on domains Zaisma's widget doesn't answer on. */
+const TURNSTILE_TEST_KEYS = { siteKey: "1x00000000000000000000BB", secret: "1x0000000000000000000000000000000AA" };
 /** SQL sent at once through wrangler d1 execute --command: well under a command line's limit. */
 const COMMAND_SIZE_CHARACTERS = 90_000;
 
@@ -173,8 +175,9 @@ function writeConfigs(databaseId) {
       // A new account's containers run under the durable_object scheduling policy (it can't make one with the default),
       // where the Durable Object starts its image, named main, at its size (apps/photodna/src/index.ts).
       .replace(/"containers":\s*(\[.*\]),?$/m, (line, listText) => `"containers": ${JSON.stringify(JSON.parse(listText).map((container) => ({ scheduling_policy: "durable_object", class_name: container.class_name, images: { main: { dockerfile: container.image } } })))},`);
-    // The Turnstile widget answers only on zaisma.com: on other domains (a practice) the site goes without the check, as the local preview does.
-    const checkedText = siteDomain === PRODUCTION.siteDomain ? text : text.replace(/^\s*"TURNSTILE_SITE_KEY":.*\n/m, "");
+    // Zaisma's Turnstile widget answers only on zaisma.com: on other domains (a practice) the site uses Cloudflare's
+    // published test keys, which always pass, as the local preview does (scripts/preview/run.mjs).
+    const checkedText = siteDomain === PRODUCTION.siteDomain ? text : text.replace(/("TURNSTILE_SITE_KEY":\s*)"[^"]*"/, `$1"${TURNSTILE_TEST_KEYS.siteKey}"`);
     writeFileSync(join(CHECKOUT, configOf(worker)), checkedText);
   }
 }
@@ -383,6 +386,7 @@ async function runRestore() {
   putSecretWhenMissing("rooms", "RECEIPT_SIGNING_KEY", ed25519Key);
   putSecretWhenMissing("rooms", "PLAYER_TAG_KEY", () => randomBytes(32).toString("base64"));
   putSecretWhenMissing("site", "SIGN_IN_SIGNING_KEY", () => spawnSync(process.execPath, [join(CHECKOUT, "scripts", "sign-in-key.mjs")], { encoding: "utf8" }).stdout);
+  if (flags.get("site-domain") !== PRODUCTION.siteDomain) putSecretWhenMissing("site", "TURNSTILE_SECRET", () => TURNSTILE_TEST_KEYS.secret);
   putSecretWhenMissing("site", "RESTORE_KEY_ID", () => process.env.RESTORE_KEY_ID);
   putSecretWhenMissing("site", "RESTORE_KEY_SECRET", () => process.env.RESTORE_KEY_SECRET);
 
