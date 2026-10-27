@@ -441,7 +441,6 @@ function loadGameFrame({ localItems = {} as Record<string, string>, indexedDB = 
 describe("the game page's saves script, keeping every promise", () => {
   const puts = (page: ReturnType<typeof loadGamePage>) => page.asked.filter((each) => each.method === "PUT").map((each) => each.body as Record<string, unknown>);
   const savedAnswer = (versionNumber: number) => ({ version_number: versionNumber, sha256: "x", saved_at: new Date().toISOString(), kept_save_copy_id: null });
-  const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
   const toast = (page: ReturnType<typeof loadGamePage>) => page.elements["save-toast"]!.textContent;
 
   it("waits before sending a failed save again, longer each time and as long as Retry-After says, never in a loop", async () => {
@@ -456,7 +455,6 @@ describe("the game page's saves script, keeping every promise", () => {
     expect(toast(page)).toBe("Couldn't save to your account. Trying again soon.");
     // A newer save meanwhile waits for the retry, which sends the newest.
     page.fromGame({ step: "save", text: saveTextOf({ level: "5" }) });
-    await tick();
     expect(puts(page)).toHaveLength(1);
     page.answer("PUT", API, { error: "Zaisma had a problem." }, 503);
     page.retries[0]!.run();
@@ -481,7 +479,6 @@ describe("the game page's saves script, keeping every promise", () => {
     await vi.waitFor(() => expect(stopped.told("pause")).toHaveLength(1));
     expect(stopped.retries).toEqual([]);
     stopped.fromGame({ step: "save", text: saveTextOf({ level: "5" }) });
-    await tick();
     expect(puts(stopped)).toHaveLength(1);
   });
 
@@ -510,7 +507,6 @@ describe("the game page's saves script, keeping every promise", () => {
     page.fromGame({ step: "save", text: saveTextOf({ level: "4" }) });
     page.fromGame({ step: "save", text: saveTextOf({ level: "5" }) });
     await vi.waitFor(() => expect(page.opened).toHaveLength(2));
-    await tick();
     // The save sent, then the newest progress kept as an earlier version: the waiting save is never sent over the developer's change.
     expect(puts(page).map((body) => [body.keep === true, body.save_json])).toEqual([
       [false, saveTextOf({ level: "4" })],
@@ -528,7 +524,6 @@ describe("the game page's saves script, keeping every promise", () => {
     // Not signed in yet: nothing is asked.
     page.setSignedIn(false);
     page.hearSignedIn();
-    await tick();
     expect(page.asked.filter((each) => each.path === `${API}?version`)).toEqual([]);
     page.setSignedIn(true);
     page.answer("GET", `${API}?version`, { version_number: 2, saved_at: new Date().toISOString(), changed_by_kind: "player" });
@@ -622,10 +617,11 @@ describe("the game page's saves script, keeping every promise", () => {
     page.play();
     page.fromGame({ step: "hello", phase: "game" });
     // The guest played, then the game's storage was emptied: that change counts as playing just now.
+    const played = () => JSON.parse(page.localStorage.getItem("zaisma:played:owl-game") ?? "null");
     page.fromGame({ step: "save", text: saveTextOf({ level: "1" }) });
-    await tick();
+    await vi.waitFor(() => expect(played()).not.toBeNull());
     page.fromGame({ step: "save", text: EMPTY_SAVE_TEXT });
-    await tick();
+    await vi.waitFor(() => expect(played()).toMatchObject({ played_at_ms: expect.any(Number) }));
     page.setSignedIn(true);
     page.answer("GET", API, await cloudSave({ level: "9" }, 2));
     page.hearSignedIn();

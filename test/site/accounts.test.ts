@@ -2108,8 +2108,8 @@ describe("cloud saves", () => {
     await put(b, 0, { level: "3" });
     const tag = await tagOf(b);
     b.bindings = { SAVES: { get: env.SAVES.get.bind(env.SAVES), delete: env.SAVES.delete.bind(env.SAVES), put: () => Promise.reject(new Error("R2 is down")) } as unknown as R2Bucket };
-    const failed = await b.go("/api/saves/owl-game", undefined, { method: "PUT", body: JSON.stringify({ tag, base_version_number: 1, save_json: JSON.stringify({ level: "4" }) }) });
-    expect(failed.status).toBe(500);
+    // The Worker fails the request (the runtime answers 500).
+    await expect(b.go("/api/saves/owl-game", undefined, { method: "PUT", body: JSON.stringify({ tag, base_version_number: 1, save_json: JSON.stringify({ level: "4" }) }) })).rejects.toThrow("R2 is down");
     b.bindings = null;
     expect(await (await b.go("/api/saves/owl-game")).json()).toMatchObject({ version_number: 1, sha256: await sha256Hex(new TextEncoder().encode(savedText({ level: "3" }))), save_data: { local_storage_items: { level: "3" } } });
     expect(await storedNow(users.get("fox@example.com")!, gameId)).toBe(savedText({ level: "3" }));
@@ -2358,7 +2358,7 @@ describe("cloud saves", () => {
       const list = await copies();
       expect(list).toHaveLength(5);
       expect(list.at(-1)!.copy_reason).toBe("account_lost");
-      const files = await env.SAVES.list({ prefix: `${id()}/g-owl-game/` });
+      const files = await env.SAVES.list({ prefix: `${id()}/g-owl-game/save_copy_` });
       expect(files.objects).toHaveLength(5);
     });
 
