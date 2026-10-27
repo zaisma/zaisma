@@ -308,7 +308,7 @@ component({
 .fold-rows { display: grid; min-width: 0; container-type: inline-size; }
 .fold-row + .fold-row { border-top: var(--divider); }
 .fold-row-head { display: grid; grid-template-columns: minmax(0, 11rem) minmax(0, 1fr) auto; align-items: baseline; gap: var(--gap-words-words) var(--gap-words-control);
-  min-height: var(--control-height-regular); padding: 12px var(--pad-words); cursor: pointer; list-style: none; -webkit-tap-highlight-color: transparent; }
+  min-height: var(--control-height-regular); padding: var(--gap-words-control) var(--pad-words); cursor: pointer; list-style: none; -webkit-tap-highlight-color: transparent; }
 .fold-row-head::-webkit-details-marker { display: none; }
 .fold-row-title { font: var(--type-label); color: var(--ink); overflow-wrap: anywhere; }
 .fold-row-detail { font: var(--type-words); color: var(--ink-2); }
@@ -319,6 +319,9 @@ component({
 .fold-row[open] > .fold-row-head .fold-row-chevron { transform: rotate(90deg); }
 .fold-row-head:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .fold-row-body { padding: 0 var(--pad-words) var(--gap-block-block); }
+/* At a pane's edge the first and last rows' words keep the pane's margin, as words do. */
+.fold-row:first-child > .fold-row-head { padding-top: var(--pad-words); }
+.fold-row:last-child:not([open]) > .fold-row-head { padding-bottom: var(--pad-words); }
 @container (max-width: 34rem) { .fold-row-head { grid-template-columns: minmax(0, 1fr) auto; } .fold-row-detail { grid-column: 1; } .fold-row-chevron { grid-row: 1; grid-column: 2; } }
 @media (prefers-reduced-motion: reduce) { .fold-row-chevron { transition: none; } }
 `,
@@ -329,12 +332,12 @@ component({
       isWide: true,
       markup: glassPane({
         paneWidth: "full",
-        body: foldRows({
+        body: stack({ items: [{ kind: "block", markup: foldRows({
           rows: [
             { id: "fold-rows-sexual", title: "Sexual content", detail: "Does the game show nudity, or show or describe sex in detail?", body: facts({ arrangement: "across", facts: [{ label: "Fine", text: "Romance, kissing, dating sims, swimwear and dirty jokes." }, { label: "Not fine", text: "Nudity, or sex shown or described in detail." }] }) },
             { id: "fold-rows-chat", title: "Typed chat", detail: "Can a player type text that another player reads as written, outside room.chat?", body: facts({ arrangement: "across", facts: [{ label: "Fine", text: "A chat box that sends with room.chat, preset phrases and emotes." }, { label: "Not fine", text: "Typed messages sent with room.send." }] }) },
           ],
-        }),
+        }) }] }),
       }),
     },
   ],

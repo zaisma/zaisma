@@ -1,6 +1,6 @@
 import { env, SELF } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CONTENT_RULES, KNOWN_IMAGE_CODE, PLAN_LIMITS, REVIEW_LIMITS, arachnidShield, blobKey, createGame, createVersion, gameById, gameBySlug, heldVersions, manifestKey, newId, notConnected, sha256Hex, versionById, type EvidenceItem, type ImageMatcher, type Manifest, type ScanJob, type ScanReport } from "@zaisma/core";
+import { CONTENT_RULES, CONTENT_RULE_DETAILS, KNOWN_IMAGE_CODE, PLAN_LIMITS, REVIEW_LIMITS, arachnidShield, blobKey, createGame, createVersion, gameById, gameBySlug, heldVersions, manifestKey, newId, notConnected, sha256Hex, versionById, type EvidenceItem, type ImageMatcher, type Manifest, type ScanJob, type ScanReport } from "@zaisma/core";
 import { handleScanBatch, imageMatcher, passVersion, queueImageChecks, recheckImages, replaceWaitingVersions, rescanWaiting, scanVersion, type ScanDeps } from "../../apps/site/src/scan.ts";
 import { dailyCleanup } from "../../apps/site/src/cleanup.ts";
 import { judgeSays, readsNothing, seesNothing } from "./scan-stubs.ts";
@@ -1060,9 +1060,11 @@ describe("pages", () => {
   it("shows a Fine and a Not fine example under every content rule", async () => {
     const page = await (await SELF.fetch(`${LOCAL}/legal/content-rules`)).text();
     for (const rule of Object.keys(CONTENT_RULES)) {
-      const item = page.match(new RegExp(`<li id="${rule}">([\\s\\S]*?)</li>`))?.[1] ?? "";
-      expect(item, rule).toContain("<strong>Fine:</strong>");
-      expect(item, rule).toContain("<strong>Not fine:</strong>");
+      // Each rule is a fold row anchored by its name: its test in the head, Fine and Not fine under it.
+      const item = page.match(new RegExp(`<details class="fold-row" id="${rule}">([\\s\\S]*?)</details>`))?.[1] ?? "";
+      expect(item, rule).toContain(CONTENT_RULE_DETAILS[rule as keyof typeof CONTENT_RULE_DETAILS].test.replace(/"/g, "&quot;").slice(0, 30));
+      expect(item, rule).toContain("<dt>Fine</dt>");
+      expect(item, rule).toContain("<dt>Not fine</dt>");
     }
     expect(page).not.toContain("review doesn");
   });

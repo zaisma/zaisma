@@ -664,12 +664,12 @@ function contentRulesBody(): Raw {
     items: [
       pane("Content rules", [
         { kind: "words", markup: html`<h1>Content rules</h1>` },
-        { kind: "words", markup: html`<p>Zaisma is for players 13 and up. Any kind of game is welcome, including what other platforms ban. The lines below are the only ones, and each has a yes-or-no test.</p>` },
+        { kind: "words", markup: html`<p>Zaisma is for players 13 and up. Games may contain anything these rules don't prohibit, including:</p>` },
         { kind: "words", markup: html`<p>${ALLOWED_CONTENT_TITLES.map((title, index) => html`<span title="${ALLOWED_CONTENT[index]}">${tag(title, "plain")}</span> `)}</p>` },
       ]),
       pane("The lines", [
         { kind: "words", markup: html`<h2>The lines</h2>` },
-        { kind: "words", markup: html`<p>Every version is checked against each test. One that answers a test yes is rejected, with the rule, what we found and how to fix it.</p>` },
+        { kind: "words", markup: html`<p>Every version is checked against each rule's test. A version that meets one is rejected, with the rule, what was found and how to fix it.</p>` },
         { kind: "block", markup: foldRows({ label: "The lines", rows: REVIEWED_CONTENT_RULES.map(ruleRow) }) },
       ]),
       pane("Only on a notice", [
@@ -684,9 +684,9 @@ function contentRulesBody(): Raw {
           markup: facts({
             arrangement: "across",
             facts: [
-              { label: "Checked in minutes", text: "Malware checks, matching against known illegal images, and an AI review that asks each test." },
-              { label: "A clear break is rejected", text: "With the rule, what we found and the fix. Nothing is deleted: publish a fixed version and it's back." },
-              { label: "Wrong call? Ask a person", text: "Message Zaisma with the version (your AI can, with message_zaisma), usually answered within a day." },
+              { label: "Review", text: "Each version is checked for malware, matched against known illegal images and reviewed against each rule's test, usually within minutes." },
+              { label: "Rejection", text: "A version that breaks a rule is rejected with the rule, the finding and the fix. Nothing is deleted; a corrected version can be published." },
+              { label: "Appeal", text: "To contest a decision, message Zaisma with the version (message_zaisma in the MCP). A person replies, usually within a day." },
             ],
           }),
         },

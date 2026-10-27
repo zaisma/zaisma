@@ -11,12 +11,11 @@ import { DROPDOWN_SCRIPT, NOTICE_SCRIPT, PLACE_SCRIPT, SHEET_SCRIPT, STARTED_LOW
 import { CHART_SCRIPT } from "./data.ts";
 import { PLAYING_CARD_SCRIPT } from "./playing.ts";
 import { CONFIRM_ITS_YOU_SCRIPT } from "./confirm-its-you.ts";
-import { FOLD_ROWS_SCRIPT } from "./reading.ts";
 import "./stripe-frame.ts";
 // The layout components register in layout-gallery.ts, whose examples use every other group.
 import "./layout-gallery.ts";
 // Components pages still to build need: words to read and the ways through them, and people and what they write.
-import "./reading.ts";
+import { FOLD_ROWS_SCRIPT } from "./reading.ts";
 import "./people.ts";
 import "./screens.ts";
 // A game's page while it plays: the bar beside the game and the cards over it.
