@@ -22,6 +22,9 @@ export class LogWriter {
   private readAtMs = 0;
   private watchCheckedAtMs = 0;
   private writing: Promise<void> | null = null;
+  /** Files written and rows written for them since the owner last took them (takeUse), for the hosting meter. */
+  private unrecordedFileCount = 0;
+  private unrecordedWrittenRowCount = 0;
 
   constructor(
     private readonly env: Env,
@@ -89,6 +92,7 @@ export class LogWriter {
           httpMetadata: { contentType: "application/x-ndjson" },
           customMetadata: { levels, sourceKinds, roomCode: file[0]!.roomCode ?? "" },
         });
+        this.unrecordedFileCount++;
         await this.markDay(logDay(nowMs));
       } catch (error) {
         console.error("Couldn't write a game server's logs:", error);
@@ -106,8 +110,16 @@ export class LogWriter {
   /** The game has logs on this day, for the daily cleanup and get_logs. Once per writer per day. */
   private async markDay(day: string): Promise<void> {
     if (this.markedDays.has(day)) return;
-    await this.env.DB.prepare("INSERT OR IGNORE INTO game_log_days (game_id, day) VALUES (?, ?)").bind(this.gameId, day).run();
+    const marked = await this.env.DB.prepare("INSERT OR IGNORE INTO game_log_days (game_id, day) VALUES (?, ?)").bind(this.gameId, day).run();
+    this.unrecordedWrittenRowCount += marked.meta?.rows_written ?? 0;
     this.markedDays.add(day);
+  }
+
+  /** The files and rows written since the last time, for the owner's use on the hosting meter. */
+  takeUse(): { fileCount: number; writtenRowCount: number } {
+    const use = { fileCount: this.unrecordedFileCount, writtenRowCount: this.unrecordedWrittenRowCount };
+    this.unrecordedFileCount = this.unrecordedWrittenRowCount = 0;
+    return use;
   }
 
   /** Whether someone read the game's logs lately, read at most every 30 seconds: when a writer starts, and after writes. */

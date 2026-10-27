@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { issueRoomKey } from "@zaisma/core";
 import type { Env } from "../../apps/rooms/src/index.ts";
 import type { GameServerObject } from "../../apps/rooms/src/game-server.ts";
+import { recordCalls } from "../../apps/rooms/src/outbound.ts";
 
 // Game server reach and secrets: a sandboxed game server's fetch() goes through the gateway
 // (apps/rooms/src/outbound.ts), which takes only https to the hosts the game lists, and the game's
@@ -83,6 +84,15 @@ describe("game server reach and secrets", () => {
     // Zaisma's own domains, and this Zaisma's addresses.
     expect((await send("caller", { url: "https://zaisma.com/api/dev/games" })).answer.code).toBe("unreachable_host");
     expect((await send("caller", { url: "https://rooms.zaisma.test/v1/requests/caller" })).answer.code).toBe("unreachable_host");
+  });
+
+  it("counts each call the game server makes, refused or not, on the game's meter", async () => {
+    const { gameId } = await addGame("counted-caller", CALLER, ["api.example.test"]);
+    await send("counted-caller", { url: "https://api.example.test/scores" });
+    await send("counted-caller", { url: "https://elsewhere.example.test/" });
+    // Counted in the gateway, where the game's code can't reach, and added a few seconds later; here, at once.
+    await recordCalls(e.DB);
+    expect(await e.DB.prepare("SELECT outside_call_count, bookkeeping_written_row_count FROM room_usage WHERE game_id = ?").bind(gameId).first()).toEqual({ outside_call_count: 2, bookkeeping_written_row_count: 1 });
   });
 
   it("follows no redirect to an unlisted host, and only Zaisma's refusals count as refusals", async () => {

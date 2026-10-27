@@ -186,6 +186,10 @@ describe("game database", () => {
     });
     const after = await stub.usageThisMonth();
     expect(second).toEqual({ date: today, database_written_row_count: after.writtenRowCount, database_read_row_count: after.readRowCount, database_size_bytes: after.storageSizeBytes });
+    // Each call counts once, and the object's awake time: the five calls above, within moments, are 10 seconds at least.
+    const calls = await e.DB.prepare("SELECT database_call_count, database_awake_duration_sec FROM room_usage WHERE game_id = 'gmetered'").first<{ database_call_count: number; database_awake_duration_sec: number }>();
+    expect(calls!.database_call_count).toBeGreaterThanOrEqual(5);
+    expect(calls!.database_awake_duration_sec).toBeGreaterThanOrEqual(10);
   });
 
   it("stops growing at the most storage a game can have, its database and kept rooms together", async () => {

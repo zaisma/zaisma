@@ -705,9 +705,8 @@ const nextMonthStart = (nowMs = Date.now()) => {
 };
 
 /**
- * The free tier, in its own section: hosting is counted in player-hours (time in Zaisma rooms, and data
- * through Zaisma's relay), and until hosting billing a game stops at the free ones. Only for games that
- * play online, or have used some.
+ * The free tier, in its own section: the month's free hosting as a percentage, what used it, and past it the
+ * budget. Only for games that play online, or have used some.
  */
 function hostingPanel(game: GameJson, stats: Stats, own: boolean): Raw | "" {
   const use = stats.hosting_use_this_month;
@@ -744,7 +743,7 @@ ${paused}<div class="numbers hosting">
 </div>`;
 }
 
-const HOSTING_KIND_LABELS: Record<Stats["hosting_use_this_month"]["shares"][number]["kind"], string> = { room_play: "Rooms", game_server_cpu: "Game server CPU", relayed_data: "Relay", database: "Database", requests: "Requests" };
+const HOSTING_KIND_LABELS: Record<Stats["hosting_use_this_month"]["shares"][number]["kind"], string> = { rooms: "Rooms", game_server: "Game server", relayed_data: "Relay", database: "Database", requests: "Requests" };
 
 /**
  * The game's own SQLite database: the month's use, its tables beside how to reach it. The SQL console
@@ -1273,7 +1272,7 @@ interface Stats {
   }[];
   hosting_use_this_month: {
     free_used_pct: number;
-    shares: { kind: "room_play" | "game_server_cpu" | "relayed_data" | "database" | "requests"; share_pct: number }[];
+    shares: { kind: "rooms" | "game_server" | "relayed_data" | "database" | "requests"; share_pct: number }[];
     is_paused: boolean;
     paused_reason: "free_used" | "budget_used" | "credit_used" | null;
     monthly_budget_cents: number | null;

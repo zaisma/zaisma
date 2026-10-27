@@ -4376,7 +4376,7 @@ describe("Developer settings", () => {
 
   it("shows the money defaults: no top-up amount picked, automatic top-up starting at below $5 and add $20 with no monthly most", async () => {
     const { b } = await developer();
-    await env.DB.prepare("INSERT INTO game_hosting_months (game_id, month_start_date, used_cents) VALUES ('game_dev_settings', ?, 940)").bind(new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth() - 1, 1)).toISOString().slice(0, 10)).run();
+    await env.DB.prepare("INSERT INTO game_hosting_months (game_id, month_start_date, used_cents) VALUES ('game_dev_settings', ?, 1440)").bind(new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth() - 1, 1)).toISOString().slice(0, 10)).run();
     const page = await (await b.go("/dashboard/settings")).text();
     expect(page).not.toMatch(/name="amount_cents"[^>]*checked/);
     for (const cents of ["1000", "2500", "5000", "10000", "other"]) expect(page).toContain(`value="${cents}"`);
