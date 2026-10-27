@@ -79,7 +79,7 @@ export async function handleRestoreMessage(env: Env, message: Message<RestorePar
     console.error("restore part failed", part, error);
     if (message.attempts < RESTORE_LIMITS.partTryCount) return message.retry({ delaySeconds: 60 * message.attempts });
     const failureMessage = `${part.prefix} after ${part.after_key ?? "the start"} failed ${message.attempts} times: ${error instanceof Error ? error.message : String(error)}`;
-    await finishPart(env, run.id, { restoredObjectCount: 0, restoredSizeBytes: 0, skippedObjectCount: 0, nextPart: null }, failureMessage);
+    await finishPart(env, run.id, { restoredObjectCount: 0, restoredSizeBytes: 0, skippedObjectCount: 0, kindCounts: new Map(), nextPart: null }, failureMessage);
     return message.ack();
   }
   const isFinished = await finishPart(env, run.id, partResult, null);
@@ -96,8 +96,13 @@ interface RestorePartResult {
   restoredObjectCount: number;
   restoredSizeBytes: number;
   skippedObjectCount: number;
+  /** Keys restored and left out, by kind (keyKindOf). */
+  kindCounts: Map<string, { restoredCount: number; skippedCount: number }>;
   nextPart: RestorePart | null;
 }
+
+/** A key's kind for restore_kind_counts: a game file's area (zaisma-games/logs), or the kind of backup (zaisma-saves, game-databases). */
+export const keyKindOf = (backupKey: string) => (backupKey.startsWith("zaisma-games/") ? backupKey.split("/").slice(0, 2).join("/") : backupKey.split("/")[0]!);
 
 /** Counts a finished part, and the part it queues, in one write; answers whether that finished the restore. */
 async function finishPart(env: Env, restoreId: string, partResult: RestorePartResult, failureMessage: string | null): Promise<boolean> {
@@ -106,6 +111,11 @@ async function finishPart(env: Env, restoreId: string, partResult: RestorePartRe
       "UPDATE restore_runs SET finished_part_count = finished_part_count + 1, queued_part_count = queued_part_count + ?, restored_object_count = restored_object_count + ?, restored_size_bytes = restored_size_bytes + ?, skipped_object_count = skipped_object_count + ?, failure_message = COALESCE(failure_message, ?) WHERE id = ?",
     ).bind(partResult.nextPart ? 1 : 0, partResult.restoredObjectCount, partResult.restoredSizeBytes, partResult.skippedObjectCount, failureMessage, restoreId),
     env.DB.prepare("UPDATE restore_runs SET finished_at_ms = ? WHERE id = ? AND finished_at_ms IS NULL AND finished_part_count >= queued_part_count").bind(Date.now(), restoreId),
+    ...[...partResult.kindCounts].map(([keyKind, counts]) =>
+      env.DB.prepare(
+        "INSERT INTO restore_kind_counts (restore_id, key_kind, restored_count, skipped_count) VALUES (?, ?, ?, ?) ON CONFLICT (restore_id, key_kind) DO UPDATE SET restored_count = restored_count + excluded.restored_count, skipped_count = skipped_count + excluded.skipped_count",
+      ).bind(restoreId, keyKind, counts.restoredCount, counts.skippedCount),
+    ),
   ]);
   return Boolean(finished!.meta.changes);
 }
@@ -126,9 +136,11 @@ export async function restorePart(env: Env, part: RestorePart, run: Pick<Restore
   let restoredObjectCount = 0;
   let restoredSizeBytes = 0;
   let stoppedAfterKey: string | null = null;
+  const restoredKeys = new Set<string>();
   for (let index = 0; index < due.length; index += RESTORE_LIMITS.copyConcurrency) {
     const group = due.slice(index, index + RESTORE_LIMITS.copyConcurrency);
     const sizes = await Promise.all(group.map((candidate) => restoreKey(env, storage, candidate.key, candidate.version!, candidate.rule, ownerOf.get(candidate.key) ?? null, run)));
+    group.forEach((candidate, groupIndex) => sizes[groupIndex] !== null && restoredKeys.add(candidate.key));
     restoredObjectCount += sizes.filter((sizeBytes) => sizeBytes !== null).length;
     restoredSizeBytes += sizes.reduce<number>((totalSizeBytes, sizeBytes) => totalSizeBytes + (sizeBytes ?? 0), 0);
     if (index + RESTORE_LIMITS.copyConcurrency < due.length && restoredSizeBytes >= RESTORE_LIMITS.partCopySizeBytes) {
@@ -138,8 +150,15 @@ export async function restorePart(env: Env, part: RestorePart, run: Pick<Restore
   }
   const handledKeys = stoppedAfterKey === null ? keys : keys.filter((key) => key <= stoppedAfterKey!);
   const skippedObjectCount = handledKeys.length - restoredObjectCount;
+  const kindCounts = new Map<string, { restoredCount: number; skippedCount: number }>();
+  for (const key of handledKeys) {
+    const counts = kindCounts.get(keyKindOf(key)) ?? { restoredCount: 0, skippedCount: 0 };
+    if (restoredKeys.has(key)) counts.restoredCount++;
+    else counts.skippedCount++;
+    kindCounts.set(keyKindOf(key), counts);
+  }
   const nextAfterKey = stoppedAfterKey ?? page.nextAfterKey;
-  return { restoredObjectCount, restoredSizeBytes, skippedObjectCount, nextPart: nextAfterKey ? { ...part, after_key: nextAfterKey } : null };
+  return { restoredObjectCount, restoredSizeBytes, skippedObjectCount, kindCounts, nextPart: nextAfterKey ? { ...part, after_key: nextAfterKey } : null };
 }
 
 interface OwnerRow {

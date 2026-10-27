@@ -17,3 +17,13 @@ CREATE TABLE restore_runs (
   skipped_object_count INTEGER NOT NULL DEFAULT 0,
   failure_message TEXT
 );
+
+-- What each restore brought back and left out, by kind of key (a game file's area like zaisma-games/logs, or zaisma-saves),
+-- so a restore shows what it left out and a rule that leaves out too much is seen.
+CREATE TABLE restore_kind_counts (
+  restore_id TEXT NOT NULL,
+  key_kind TEXT NOT NULL,
+  restored_count INTEGER NOT NULL DEFAULT 0,
+  skipped_count INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (restore_id, key_kind)
+);

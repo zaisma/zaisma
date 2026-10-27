@@ -138,7 +138,7 @@ beforeEach(async () => {
     const request = new Request(input, init);
     return new URL(request.url).hostname === "backups.zaisma.test" ? backblaze(request) : realFetch(request);
   }) as typeof fetch;
-  await env.DB.exec("DELETE FROM backup_runs; DELETE FROM restore_runs; DELETE FROM room_usage; DELETE FROM kept_rooms;");
+  await env.DB.exec("DELETE FROM backup_runs; DELETE FROM restore_runs; DELETE FROM restore_kind_counts; DELETE FROM room_usage; DELETE FROM kept_rooms;");
   await clearBucket(env.GAMES);
   await clearBucket(env.SAVES);
 });
@@ -405,6 +405,12 @@ describe("a restore from the backups", () => {
     expect(run.finished_at_ms).toEqual(expect.any(Number));
     // Brotli copies are made again.
     expect(await env.DB.prepare("SELECT COUNT(*) AS row_count FROM compressed_blobs").first("row_count")).toBe(0);
+    const { results: kindCounts } = await env.DB.prepare("SELECT key_kind, restored_count, skipped_count FROM restore_kind_counts WHERE restore_id = 'restore_1' ORDER BY key_kind").all();
+    expect(kindCounts).toEqual([
+      { key_kind: "zaisma-games/blobs", restored_count: 1, skipped_count: 1 },
+      { key_kind: "zaisma-games/logs", restored_count: 0, skipped_count: 1 },
+      { key_kind: "zaisma-saves", restored_count: 1, skipped_count: 1 },
+    ]);
   });
 
   it("takes each key's newest copy before the cutoff, and leaves out a key Backblaze hid", async () => {

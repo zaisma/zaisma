@@ -17,7 +17,8 @@
 //   node scripts/restore.mjs clean
 //       deletes the generated configs (apps/*/wrangler.restore*.jsonc) and the download (.restore/) from this checkout
 //
-// Every command takes --json (one answer as JSON) and run takes --dry (says each step, does none). run is
+// Every command takes --json (one answer as JSON) and run takes --dry (says each step, does none) and --again
+// (copies everything once more after a finished restore, putting each key back as it was). run is
 // safe to run again: each step looks first and skips what's done, so a run that stopped goes on from there.
 //
 // It needs the read key in the shell, RESTORE_KEY_ID and RESTORE_KEY_SECRET: a Backblaze key with only
@@ -66,12 +67,12 @@ function readFlags(words) {
     const word = words[index];
     if (!word.startsWith("--")) fail(`${word} isn't a flag: give flags as --name value.`);
     const name = word.slice(2);
-    if (["json", "dry"].includes(name)) read.set(name, true);
+    if (["json", "dry", "again"].includes(name)) read.set(name, true);
     else if (["night", "account-id", "site-domain", "game-domain"].includes(name)) {
       const value = words[++index];
       if (!value || value.startsWith("--")) fail(`--${name} needs a value.`);
       read.set(name, value);
-    } else fail(`--${name} isn't a flag restore.mjs takes: --night, --account-id, --site-domain, --game-domain, --json, --dry.`);
+    } else fail(`--${name} isn't a flag restore.mjs takes: --night, --account-id, --site-domain, --game-domain, --again, --json, --dry.`);
   }
   return read;
 }
@@ -384,8 +385,10 @@ async function runRestore() {
   putSecretWhenMissing("site", "RESTORE_KEY_SECRET", () => process.env.RESTORE_KEY_SECRET);
 
   // The copy: one restore_runs row, which the site's cron starts within five minutes.
-  const runs = remoteRows("SELECT id FROM restore_runs");
-  if (!runs.length) remoteRows(`INSERT INTO restore_runs (id, cutoff_at_ms, requested_at_ms) VALUES ('restore_${randomBytes(9).toString("base64url")}', ${chosen.cutoffAtMs}, ${Date.now()})`);
+  // --again copies everything once more after a finished restore: safe, since each key is put back as it was.
+  const runs = remoteRows("SELECT id FROM restore_runs WHERE finished_at_ms IS NULL");
+  const isFirst = !remoteRows("SELECT id FROM restore_runs").length;
+  if (!runs.length && (isFirst || flags.has("again"))) remoteRows(`INSERT INTO restore_runs (id, cutoff_at_ms, requested_at_ms) VALUES ('restore_${randomBytes(9).toString("base64url")}', ${chosen.cutoffAtMs}, ${Date.now()})`);
   answer(
     { night_date: chosen.night, cutoff_at: new Date(chosen.cutoffAtMs).toISOString(), next_step: "node scripts/restore.mjs status --account-id <id>" },
     `RESTORE STARTED ${chosen.night}: deployed on ${flags.get("site-domain")} and ${flags.get("game-domain")}; the site copies the rest within minutes of its next cron. Follow it with node scripts/restore.mjs status --account-id ${flags.get("account-id")}, then check. Put the other secrets from the password manager (each Worker's wrangler.jsonc lists them), and delete the read key once check passes.`,
@@ -400,6 +403,11 @@ function restoreRow() {
   return row;
 }
 
+/** What the copy brought back and left out, by kind of key, as lines. */
+function kindLines(restoreId) {
+  return remoteRows(`SELECT key_kind, restored_count, skipped_count FROM restore_kind_counts WHERE restore_id = '${restoreId.replaceAll("'", "''")}' ORDER BY key_kind`).map((counts) => `  ${counts.key_kind}: ${counts.restored_count} restored, ${counts.skipped_count} left out`);
+}
+
 function describeRow(row) {
   const state = row.failure_message ? `failed: ${row.failure_message}` : row.finished_at_ms ? `finished ${new Date(row.finished_at_ms).toISOString()}` : row.started_at_ms ? "copying" : "waiting for the site's cron (and the read key)";
   return `${state}; ${row.finished_part_count} of ${row.queued_part_count} parts, ${row.restored_object_count} objects (${(row.restored_size_bytes / 1024 ** 3).toFixed(2)} GB) restored, ${row.skipped_object_count} left out (deleted or taken down before the copy, or kinds a restore leaves out)`;
@@ -411,16 +419,23 @@ function checkRestore() {
   if (!countsFile) fail("No row counts from the main database's download in .restore/.", "Run check from the checkout run used.");
   const expected = JSON.parse(readFileSync(join(RESTORE_FOLDER, countsFile), "utf8"));
   const problems = [];
+  const grown = [];
   if (!row.finished_at_ms) problems.push(`the copy isn't finished (${describeRow(row)})`);
   if (row.failure_message) problems.push(`the copy failed: ${row.failure_message}`);
-  // compressed_blobs is emptied by the restore itself, and Brotli copies are made again.
+  // compressed_blobs is emptied by the restore itself, and Brotli copies are made again. A table with more rows than
+  // the backup was written to since (migrations applied after the load, the restored site's own logs): only fewer is a loss.
   for (const [tableName, rowCount] of Object.entries(expected)) {
     if (tableName === "compressed_blobs") continue;
     const [counted] = remoteRows(`SELECT COUNT(*) AS row_count FROM "${tableName.replaceAll('"', '""')}"`);
-    if (counted?.row_count !== rowCount) problems.push(`${tableName} has ${counted?.row_count} rows, the backup ${rowCount}`);
+    if ((counted?.row_count ?? 0) < rowCount) problems.push(`${tableName} has ${counted?.row_count} rows, the backup ${rowCount}`);
+    else if (counted.row_count > rowCount) grown.push(`${tableName} ${rowCount} → ${counted.row_count}`);
   }
+  const kinds = kindLines(row.id);
   if (problems.length) fail(`${problems.length} problem(s): ${problems.join("; ")}.`);
-  answer({ checked_table_count: Object.keys(expected).length, ...row }, `RESTORE CHECKED every table's rows match the backup (${Object.keys(expected).length} tables); ${describeRow(row)}. Now play a game there.`);
+  answer(
+    { checked_table_count: Object.keys(expected).length, grown_tables: grown, ...row },
+    `RESTORE CHECKED no table has fewer rows than the backup (${Object.keys(expected).length} tables${grown.length ? `; written to since: ${grown.join(", ")}` : ""}); ${describeRow(row)}. By kind:\n${kinds.join("\n")}\nNow play a game there.`,
+  );
 }
 
 if (command === "plan") {
@@ -432,7 +447,7 @@ if (command === "plan") {
 } else if (command === "run") await runRestore();
 else if (command === "status") {
   const row = restoreRow();
-  answer(row, `RESTORE STATUS ${describeRow(row)}.`);
+  answer(row, `RESTORE STATUS ${describeRow(row)}.${row.finished_part_count ? `\n${kindLines(row.id).join("\n")}` : ""}`);
 } else if (command === "check") checkRestore();
 else if (command === "clean") {
   for (const worker of WORKERS) for (const config of [configOf(worker), firstConfigOf(worker)]) rmSync(join(CHECKOUT, config), { force: true });
