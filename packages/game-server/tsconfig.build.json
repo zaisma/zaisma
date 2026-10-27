@@ -16,5 +16,5 @@
     "rootDir": "src",
     "outDir": "dist/src"
   },
-  "files": ["src/index.ts", "src/internal.ts"]
+  "files": ["src/index.ts", "src/internal.ts", "src/qr-code.ts"]
 }

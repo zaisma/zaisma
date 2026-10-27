@@ -229,7 +229,7 @@ describe("--json", () => {
   });
 
   it("help --json lists every command, and the exit codes and error codes the docs list", async () => {
-    expect(help.commands.map((entry) => entry.command)).toEqual(["games", "new", "check", "upload", "shader", "versions", "publish", "unschedule", "visibility", "allowed-hosts", "own-servers", "links", "links set", "links remove", "secrets", "secrets set", "secrets delete", "items", "items set", "items remove", "kept-rooms", "kept-rooms delete", "logs", "forum", "forum post", "forum message", "forum reply", "database", "database query", "database batch", "database export", "database import", "database restore", "database undo-restore", "saves", "saves get", "saves change", "saves replace", "saves reset", "saves copies", "saves copy", "saves restore", "export", "help"]);
+    expect(help.commands.map((entry) => entry.command)).toEqual(["games", "new", "check", "play-locally", "upload", "shader", "versions", "publish", "unschedule", "visibility", "allowed-hosts", "own-servers", "links", "links set", "links remove", "secrets", "secrets set", "secrets delete", "items", "items set", "items remove", "kept-rooms", "kept-rooms delete", "logs", "forum", "forum post", "forum message", "forum reply", "database", "database query", "database batch", "database export", "database import", "database restore", "database undo-restore", "saves", "saves get", "saves change", "saves replace", "saves reset", "saves copies", "saves copy", "saves restore", "export", "help"]);
     const docs = readFileSync(join(ROOT, "docs/DEVELOPER-API.md"), "utf8");
     const section = docs.slice(docs.indexOf("\n## The upload command\n"));
     const exitRows = [...section.matchAll(/^\| (\d+) \| `([a-z_]+)` \| (.+) \|$/gm)].map((row) => ({ exit_code: Number(row[1]), name: row[2], meaning: row[3] }));
@@ -821,6 +821,9 @@ describe("check and automatic fixes", () => {
     const clean = await zaisma(["check", gameFolder({ "index.html": '<!doctype html><canvas></canvas><script src="game.js"></script>', "game.js": "// the game" })], { key: "" });
     expect(clean.exitCode).toBe(0);
     expect(clean.stdout).toContain("Ready to upload: 2 files");
+    // What play-locally keeps in the folder is never counted or sent.
+    const played = await zaisma(["check", gameFolder({ "index.html": '<!doctype html><canvas></canvas><script src="game.js"></script>', "game.js": "// the game", ".zaisma-local/keys.json": "{}", ".zaisma-local/saves/anna.json": "{}" })], { key: "" });
+    expect(played.stdout).toContain("Ready to upload: 2 files");
 
     const result = await zaisma(["check", gameFolder(threaded)], { key: "" });
     expect(result.exitCode).toBe(6);
