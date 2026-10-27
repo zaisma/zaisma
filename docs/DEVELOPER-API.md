@@ -1237,6 +1237,8 @@ The same handler can post a crash (`event.kind === "game_server_error_found"`, w
 
 Secret links that open the game for anyone who has them, whatever its visibility, so a private or draft game can be played before it's public, and an update before players get it. Testers need no account. Make one per group (your team, playtesters, a streamer) and name it for them, so you can turn one off without the others.
 
+Before a build reaches testers, try its online play on your own computer: `npx @zaisma/cli play-locally` in the game's folder runs it and its game server with a test bench, no key needed (README, "Play it on your own computer").
+
 | Call | What it does |
 | --- | --- |
 | `GET /games/:slug/testers` | The links that aren't turned off: `{"id", "name", "link_url", "version_choice", "picked_version_id", "ends_at", "created_at", "last_opened_at"}`. `last_opened_at` is when someone last opened it (to the hour), or `null`. A link past its `ends_at` is still listed, so you can give it a new end date. |
@@ -1506,6 +1508,7 @@ The files a version needed before its first frame in its run in Chrome are prelo
 | `zaisma games` | Your games | `GET /games` |
 | `zaisma new <title> [--slug <slug>]` | Make a game (a draft) | `POST /games` |
 | `zaisma check <folder> [--game <slug>] [--screen wide\|phone] [--draw-on-zaisma]` | Check a game's folder before uploading, with no key and nothing sent (with `--game` and a key, its own servers count); or draw a shader's folder as the shader check does, in Chrome on this computer, or on Zaisma when there's none | Checking a game, above; `POST /games/:slug/shader-checks` |
+| `zaisma play-locally [folder] [--port <port>] [--game <slug>] [--on-network] [--no-open]` | Play the game on this computer with its game server and a test bench: each player on Zaisma's own game page, blocking and buying through it (Zaisma's buy sheet with a test card that's never charged), players made on this computer with an age band and social mode, their friends, blocks, items and refunds set in their details, and a dev bar to add or switch players; with no key and nothing sent, it runs `npx @zaisma/game-server@1 play-locally` | none |
 | `zaisma upload <folder> --game <slug> [--patch-notes "…"] [--publish-when-approved [--match-update-mode next_match\|now]]` | Check, fix what it can, upload a version, sending only new files, and wait for its scan | Uploading versions, above |
 | `zaisma shader <folder> --game <slug> --screen wide\|phone` | Send a shader's folder: each texture as an image of kind `shader_texture` (one the game has already, byte for byte, is used again), waited for until approved, then the shader | `POST /games/:slug/images?kind=shader_texture`, `POST /games/:slug/shaders` |
 | `zaisma versions <slug>` | The game and its versions, with preview links | `GET /games/:slug` |
@@ -1600,5 +1603,6 @@ Errors only the command answers with, beside the API's own codes (it also uses `
 | `shader_texture_not_approved` | shader, check: a texture sent for the shader was rejected, or still waits for a person, so the shader wasn't sent. |
 | `no_chrome` | check: there's no Chrome on this computer to draw the shader in, and no --game with ZAISMA_KEY to draw it on Zaisma. |
 | `local_chrome_failed` | check: the Chrome on this computer couldn't draw the shader. |
+| `game_server_not_run` | play-locally: npx couldn't run @zaisma/game-server, which runs the game on this computer. |
 | `server_unreachable` | Zaisma couldn't be reached: no connection, or a wrong ZAISMA_API. |
 | `unexpected_answer` | Zaisma answered without JSON, like a page from a network in between. |

@@ -20,7 +20,8 @@ const KEY = process.env.ZAISMA_KEY || "";
 const CLI_VERSION = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8")).version;
 /** Files bigger than this go in parts; the server says how big each part is. */
 const DIRECT_BYTES = 95 * 1024 * 1024;
-const JUNK = new Set([".DS_Store", "Thumbs.db", "desktop.ini", "__MACOSX", ".git", "node_modules"]);
+// .zaisma-local holds what play-locally keeps (its keys, saves and database): never sent.
+const JUNK = new Set([".DS_Store", "Thumbs.db", "desktop.ini", "__MACOSX", ".git", "node_modules", ".zaisma-local"]);
 /** How long upload waits for the scan (200 checks, 3 seconds apart) before it says it's still scanning. ZAISMA_SCAN_CHECK_INTERVAL_MS is for tests. */
 const SCAN_CHECK_INTERVAL_MS = Number(process.env.ZAISMA_SCAN_CHECK_INTERVAL_MS) || 3000;
 const SCAN_CHECK_COUNT = 200;
@@ -104,6 +105,7 @@ const COMMAND_ERROR_CODES = {
   shader_texture_not_approved: "shader, check: a texture sent for the shader was rejected, or still waits for a person, so the shader wasn't sent.",
   no_chrome: "check: there's no Chrome on this computer to draw the shader in, and no --game with ZAISMA_KEY to draw it on Zaisma.",
   local_chrome_failed: "check: the Chrome on this computer couldn't draw the shader.",
+  game_server_not_run: "play-locally: npx couldn't run @zaisma/game-server, which runs the game on this computer.",
   server_unreachable: "Zaisma couldn't be reached: no connection, or a wrong ZAISMA_API.",
   unexpected_answer: "Zaisma answered without JSON, like a page from a network in between.",
 };
@@ -130,6 +132,18 @@ const COMMANDS = {
       game: { hasValue: true, placeholder: "<slug>", about: "The game it's for, so the fixes name it (and, with ZAISMA_KEY set, so its own servers count); for a shader's folder with no Chrome here, the game to draw it on Zaisma for" },
       screen: { hasValue: true, choices: SCREENS, about: "A shader's folder only: the screen to draw it for, wide (desktops and tablets; the default) or phone" },
       "draw-on-zaisma": { hasValue: false, about: "A shader's folder only: draw it on Zaisma's own renderer, with --game and ZAISMA_KEY, even when there's a Chrome here" },
+    },
+  },
+  "play-locally": {
+    about:
+      "Play your game on this computer, with its game server and a test bench: Add a player opens another tab as someone else, so you play together, with made-up accounts, friends, blocks and items between them, and Zaisma's buy sheet with a test card that's never charged; " +
+      "needs no key and no internet. A file change reloads the game; a change to the game server starts it again with its rooms kept. It runs @zaisma/game-server's play-locally",
+    arguments: [{ name: "folder", isOptional: true }],
+    flags: {
+      port: { hasValue: true, placeholder: "<port>", about: "The first of four ports, 4800 unless given: the bench, the game's site, the stand-in rooms and your game server take it and the next three" },
+      game: { hasValue: true, placeholder: "<slug>", about: "The game's slug; with ZAISMA_KEY set, each start brings in the game's items from Zaisma" },
+      "on-network": { hasValue: false, about: "Let a phone on the same Wi-Fi open the bench too; it prints the address and a QR code" },
+      "no-open": { hasValue: false, about: "Don't open the bench in the browser" },
     },
   },
   upload: {
@@ -2100,6 +2114,7 @@ async function run({ command, values, flags, globalFlags, rest }) {
     return EXIT_CODES.done;
   }
   if (command === "check") return checkFolder(values, flags);
+  if (command === "play-locally") return playLocally(values, flags);
   if (command === "export") return exportGame(values, flags);
   if (command === "upload") return upload(values, flags);
   if (command === "shader") return sendShader(values, flags);
@@ -2151,6 +2166,39 @@ async function run({ command, values, flags, globalFlags, rest }) {
   else if (command === "saves" || command.startsWith("saves ")) await saves(command, values, flags);
   else await forum(command, values, flags);
   return EXIT_CODES.done;
+}
+
+/**
+ * play-locally: the game server package's command, run through npx so this command stays free of dependencies
+ * (ZAISMA_GAME_SERVER_BIN, a path to its bin/node.js, is for tests and the repository). Its output and exit code
+ * come through as they are; with --json it prints { bench_url, game_site_url, rooms_url, network_url } once listening.
+ */
+async function playLocally(values, flags) {
+  const { spawn } = await import("node:child_process");
+  const given = [values.folder ?? ".", ...(flags.port !== undefined ? ["--port", flags.port] : []), ...(flags.game !== undefined ? ["--game", flags.game] : []), ...(flags["on-network"] ? ["--on-network"] : []), ...(flags["no-open"] ? ["--no-open"] : []), ...(isJson ? ["--json"] : [])];
+  const { existsSync: isThere } = await import("node:fs");
+  const { dirname: folderOf, join: joinPath } = await import("node:path");
+  const local = process.env.ZAISMA_GAME_SERVER_BIN;
+  // npm's npx run through this Node, where npm keeps it beside Node (Windows) or under lib/ (macOS, Linux): a .cmd can't be spawned without a shell on Windows.
+  const npxScript = [joinPath(folderOf(process.execPath), "node_modules/npm/bin/npx-cli.js"), joinPath(folderOf(process.execPath), "../lib/node_modules/npm/bin/npx-cli.js")].find((path) => isThere(path));
+  const npxArguments = ["--yes", "@zaisma/game-server@1", "play-locally", ...given];
+  const [file, list] = local ? [process.execPath, [local, "play-locally", ...given]] : npxScript ? [process.execPath, [npxScript, ...npxArguments]] : ["npx", npxArguments];
+  let child;
+  try {
+    child = spawn(file, list, { stdio: "inherit" });
+  } catch {
+    refuse("game_server_not_run", { message: "npx couldn't run @zaisma/game-server.", fix: "Check that Node 22.18 or newer and npm are installed, and that npm can reach its registry once to download the package." }, EXIT_CODES.failed);
+  }
+  // Ctrl-C reaches the child from the terminal by itself; a SIGTERM sent to this command alone is passed on.
+  process.on("SIGINT", () => {});
+  process.on("SIGTERM", () => child.kill("SIGTERM"));
+  const exitCode = await new Promise((done) => {
+    child.on("error", () => done(null));
+    // Stopped by a signal (Ctrl-C) is a stop, not a failure.
+    child.on("exit", (code, signal) => done(code ?? (signal ? 0 : 1)));
+  });
+  if (exitCode === null) refuse("game_server_not_run", { message: "npx couldn't run @zaisma/game-server.", fix: "Check that Node 22.18 or newer and npm are installed, and that npm can reach its registry once to download the package." }, EXIT_CODES.failed);
+  return exitCode === 0 ? EXIT_CODES.done : { exitCode, meaning: "play-locally stopped" };
 }
 
 /** A failure, in the API's shape: with --json the { error } on stdout, otherwise one line on stderr. */
