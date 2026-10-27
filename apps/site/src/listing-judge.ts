@@ -112,7 +112,7 @@ const PICTURE_FIELDS = {
   overlay: {
     type: "string",
     description:
-      "Covers only (\"\" for screenshots): what is laid over the picture instead of being part of the scene: a button, menu, shop panel, row of rewards, badge, sticker, starburst, icon bubble, or an arrow or circle pointing at something. A few words naming each. Lighting, sparks and effects in the scene aren't overlays. \"\" when there's nothing.",
+      "Covers and backgrounds (\"\" for screenshots): what is laid over the picture instead of being part of the scene: a button, menu, shop panel, row of rewards, badge, sticker, starburst, icon bubble, or an arrow or circle pointing at something. A few words naming each. Lighting, sparks and effects in the scene aren't overlays. \"\" when there's nothing.",
   },
   fake_reward: {
     type: "string",
@@ -122,7 +122,7 @@ const PICTURE_FIELDS = {
   famous_name: {
     type: "string",
     description:
-      "Covers only (\"\" for screenshots): a famous character, logo or name from a film, show, game, brand or sports club that a typical teenager would name at a glance, like Mario, Naruto, Goku, Lightning McQueen, the Batmobile, Pikachu, a football club's crest, the Roblox logo or Robux. Name it. Generic blocky, pixel or cartoon figures, and lookalikes nobody would name for sure, are not famous: when unsure, \"\". \"\" when there's none.",
+      "Covers and backgrounds (\"\" for screenshots): a famous character, logo or name from a film, show, game, brand or sports club that a typical teenager would name at a glance, like Mario, Naruto, Goku, Lightning McQueen, the Batmobile, Pikachu, a football club's crest, the Roblox logo or Robux. Name it. Generic blocky, pixel or cartoon figures, and lookalikes nobody would name for sure, are not famous: when unsure, \"\". \"\" when there's none.",
   },
   main_subject: {
     type: "string",
@@ -141,7 +141,7 @@ const PICTURE_FIELDS = {
   background_text: {
     type: "string",
     description:
-      "Backgrounds only (\"\" for covers and screenshots): every word, number, symbol or logo written on the picture, the game's own name and logo included, quoted exactly or named; anything laid over it instead of being part of the scene, like a button, badge or sticker; and any famous character, logo or name a typical teenager would name at a glance. Separated by \" / \". Words that are part of the scene (a sign on a building, a neon shop sign, writing on a shirt) don't count. \"\" when there's none.",
+      "Backgrounds only (\"\" for covers and screenshots): every word, number, symbol or logo written on the picture, the game's own name and logo included, quoted exactly or named, separated by \" / \". Overlays go in overlay and famous characters, logos and names in famous_name. Words that are part of the scene (a sign on a building, a neon shop sign, writing on a shirt) don't count. \"\" when there's none.",
   },
   has_safety_concern: {
     type: "boolean",
@@ -181,9 +181,9 @@ Pictures come numbered, each with its kind. Covers (cover, square cover, share p
 
 The lines:
 - A cover shows no text besides the game's name, a subtitle and the studio's name or logo. Captions, callouts, update banners ("NEW SKINS & UPDATES!"), feature lists ("TRAIN EVOLVE GET STRONGER"), counts ("100 WALLS!", "12 DISASTERS"), prices and stats ("$67/s", "+1K") and stickers with words are extra text. A number that is part of the game's name ("+1 Monkey Evolution") is the name.
-- Nothing is laid over a cover: buttons, menus, shop panels, reward rows, badges, stickers, starbursts, icon bubbles, arrows or circles pointing at something.
+- Nothing is laid over a cover or a background: buttons, menus, shop panels, reward rows, badges, stickers, starbursts, icon bubbles, arrows or circles pointing at something.
 - Nothing promises a fake reward or real-money bait, on any picture or in the words.
-- No famous character, logo or name a typical teenager would name at a glance, on a cover or in the title. Obvious cases only: when unsure, it doesn't count.
+- No famous character, logo or name a typical teenager would name at a glance, on a cover, a background or in the title. Obvious cases only: when unsure, it doesn't count.
 - A cover's main subject appears in the game's screenshots.
 - A screenshot is a real capture: only what was added after capturing it counts against it, never the game's own interface.
 - A background shows no words or logo at all: not even the game's name, a subtitle or the studio's logo. Words that are part of the scene still don't count.
@@ -251,8 +251,12 @@ export function pictureOutcome(picture: Pick<ListingPicture, "kind">, answer: Pi
   const fakeReward = said(answer.fake_reward);
   if (fakeReward) return { outcome: "held", reason: reason("fake_reward", `The ${kindName} promises ${quoted(fakeReward)}.`) };
   if (isBackground(picture.kind)) {
+    const famous = said(answer.famous_name);
+    if (famous) return { outcome: "rejected", reason: reason("famous_name_on_background", `The background shows ${famous}.`) };
     const found = said(answer.background_text);
-    return found ? { outcome: "rejected", reason: reason("text_on_background", `The background has words or a logo on it: ${found.split(" / ").map(quoted).join(", ")}.`) } : { outcome: "fine" };
+    if (found) return { outcome: "rejected", reason: reason("text_on_background", `The background has words or a logo on it: ${found.split(" / ").map(quoted).join(", ")}.`) };
+    const laidOver = said(answer.overlay);
+    return laidOver ? { outcome: "rejected", reason: reason("overlay_on_background", `Something is laid over the background: ${laidOver}.`) } : { outcome: "fine" };
   }
   if (picture.kind === "screenshot") {
     const added = said(answer.added_after_capture);
