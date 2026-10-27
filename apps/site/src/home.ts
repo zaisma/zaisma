@@ -333,6 +333,7 @@ export async function home(env: Env, request: Request): Promise<Response> {
     nav: "home",
     viewer,
     checkedPage: viewer.account ? "Home, signed in" : "Home",
+    pageShape: "full",
     body: html`${body}
 ${isProtectionOffered ? protectAccountWindow() : ""}
 ${pageData("home-data", {

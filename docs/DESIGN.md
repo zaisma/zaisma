@@ -9,14 +9,20 @@ Zaisma is the glass, and the game is not. Zaisma's interface is a layer of glass
 Each rule says what holds it. A rule a check can measure has one, so it holds on every page without anyone looking; the rest are judged in the preview, on [Screens](#screens).
 
 - **Pages are only gallery components, layout included.** No page has styles, classes or a sheet of its own; it calls components and lays them out with the layout components. *Held by* `test/site/design.test.ts` ("pages").
-- **Nothing is out of line, on any screen.** Two margins in a pane, rows of one height on one line, corner controls in their corners, no bevel under 4px, nothing spilling or overlapping, no sideways scroll. *Held by* `npm run layout:check` at 320 × 667 and 1440 × 900, light and dark, on every page.
+- **Nothing is out of line, on any screen.** Two margins in a pane, rows of one height on one line, corner controls in their corners, no bevel under 4px, nothing spilling or overlapping, no sideways scroll. *Held by* `npm run layout:check` on the seven screens players bring ([Screens](#screens)), light and dark, on every page.
+- **Every page says its shape.** Reading, wide or full, each with a named width, so nothing stretches across a big screen ([Page shapes](#page-shapes)). *Held by* the compiler (a rebuilt page's `layout()` call needs `pageShape`) and `npm run layout:check` ("a page without its shape", "wider than its page's shape", "a reading column off the middle").
+- **A pane over the page stops at its kind's size and scrolls inside.** A menu, a select's list and a sheet each have a ceiling ([Pane sizes](#pane-sizes)); what's past it scrolls inside the pane, never the page. *Held by* `npm run layout:check`, which opens every pane in the gallery from its button ("a pane wider than its kind allows", "a pane taller than its kind allows", "a pane past the screen", "a pane that overflows without scrolling").
+- **Words and controls grow with the browser's text size.** Type and control heights are in `rem`, spacing in `px`: a reader who sets their text larger gets larger words and controls, not larger margins. *Held by* `npm run layout:check -- --text 200` (on a laptop and an iPad, every rule as at 100%) and `test/site/design.test.ts` (no font in `px` outside a named list).
+- **Every list says what it shows when it's empty.** `listRows`, `table`, and `grid` and `track` of covers or cards take a required `whenEmpty` (an Empty state), shown in the list's place while it has nothing, a page script's list included. A page whose lists depend on who's looking is checked as the stress accounts too: every name at its longest, nothing, and a great many things. *Held by* the compiler and `npm run layout:check` ("a list without its long, empty and full states").
+- **Lines of words stay readable.** No line runs past 75 characters of its font. *Held by* `npm run layout:check` ("a line of words longer than the reading width").
 - **Words line up.** Words inside a field, a list's rows, a table or a card start where the pane's words do (`--pad-inside-words`), so a heading over a field lines up with the field's words; and words are never a little further in than the margin (inset twice). *Held by* `npm run layout:check` ("words inside it off the pane's words", "words off the pane's margin").
 - **Words beside a control sit on its center line.** Their first line does (their last on a field's boxes and at a pane's foot), at a pane's top edge too, where the control takes the corner's cut at the frame gap. *Held by* `npm run layout:check` ("words beside a control off its center line").
 - **Controls come in four heights, and a row is one.** Every control is its size class's height (small 36, regular 44, field 52, big 56, 48 on a phone), never a number of its own; two controls side by side are a Row, an equal row's cells are one width, and a row that can't fit on one line becomes a stack, each control filling its own line. *Held by* `npm run layout:check` ("a control off its size class's height", "two controls side by side outside a row", "an equal row's cells of different widths", "a control alone on a row's line").
-- **Everything you press is big enough to press.** On a touch screen, at least 44px tall, its hit area grown past what shows where it's smaller. *Held by* `npm run layout:check` at 320 × 667 ("a touch target under 44px"); links inside a line of words are the one exception.
+- **Everything you press is big enough to press.** On a touch screen, at least 44px tall, its hit area grown past what shows where it's smaller. *Held by* `npm run layout:check` on every touch screen ("a touch target under 44px"); links inside a line of words are the one exception.
 - **No words cut off, none left alone.** Words wrap rather than being clipped (an ellipsis only where a page says so), and no paragraph or heading leaves one word alone on its last line (`text-wrap`, set once in `tokens.ts`). *Held by* `npm run layout:check` ("words cut off").
 - **Nothing empty takes a place.** A thing with nothing in it (a bot check before it's needed) takes no room and no gap. *Held by* `npm run layout:check` ("an empty thing taking a gap").
 - **The page's panes, the header and the footer share one edge.** *Held by* `npm run layout:check` ("out of line with the header").
+- **Panes keep a block's gap between them.** Two panes side by side or one over the other are placed by a layout component, `--gap-block-block` apart: never touching, never overlapping. *Held by* `npm run layout:check` ("two panes closer than a block's gap", "two panes overlapping").
 - **Nothing square in a cut corner.** Anything with an edge in a pane's corner takes the corner's cut, with no component asking for it; only words, bare icons and thin lines are left alone. *Held by* `npm run layout:check` ("square in a cut corner").
 - **One runner in view.** The header's Sign in is a cut button on a page with a runner of its own. *Held by* `npm run layout:check` ("two runners in view").
 - **A pane is as wide as what holds it, or as wide as what's in it.** Never a width of its own: one that should take half the screen is a column of Columns. *Held by* the compiler (`paneWidth: "full" | "fit"`) and `test/site/design.test.ts` ("layout").
@@ -36,6 +42,25 @@ Each rule says what holds it. A rule a check can measure has one, so it holds on
 - **A token's name is code.** Jost draws two hyphens as one dash, so `--spring` in words is set in code. *Held by* `npm run layout:check` ("a token's name outside code").
 
 A remark in a preview becomes one of three things: a token's value, a component's option, or a check. It's written here with what holds it, so it holds on every page from then on, built or not.
+
+### Laws of UX
+
+The [Laws of UX](https://lawsofux.com) a check can measure fail a page; the rest are principles, looked at before every preview (the `preview` skill's look) and judged there. Each number is a named constant in `layout-measure.ts`, with the law beside it.
+
+| Law | Held by |
+| --- | --- |
+| Law of proximity | "words nearer the block before than their own": a heading is nearer what it names than what's before it |
+| Law of common region | "one group on two surfaces": a heading's group is on its own pane |
+| Law of similarity | "one kind at different sizes": a grid's or a track's cells are one kind at one width, as an equal row's are |
+| Law of uniform connectedness | "steps or tabs apart": a switch's tabs and a step flow's steps are one line |
+| Hierarchy (aesthetic-usability) | "more than one title", "headings out of order" |
+| Hick's law, choice overload | "too many equal choices": at most 5 controls of one size side by side, at most 9 choices in a menu with no groups |
+| Miller's law, chunking | "a long form in one piece": at most 7 fields with no heading between them |
+| Doherty threshold | "no answer within 400 ms": every press that answers in the page (opening a sheet, a menu, a tab) shows it within 400 ms, on a laptop |
+| Von Restorff effect | One runner, orange only on actions ("two runners in view", "orange words on what you don't act on") |
+| Fitts's law | "a touch target under 44px", "the runner below the fold" |
+
+Judged in the preview: it works like the products players know (Jakob's law); nothing on the page could go (Occam's razor, Tesler's law); progress and what's unfinished show (goal-gradient, Zeigarnik); the moment after Play or Buy feels like an arrival (peak-end); fields take what people type (Postel's law); no more on screen than the task needs (cognitive load).
 
 ## Voice
 
@@ -167,16 +192,43 @@ Say what each thing is, since the spacing and margins come from it (`LayoutItem`
 | `grid` | Cells of one size, as many to a line as fit their least width (`itemSize`: `cover`, `card`, `figure`) |
 | `track` | A row of covers that scrolls sideways; under a heading with its Row arrows it's a Shelf |
 | `columns` | Two halves of the width side by side, one over the other below two columns of 360px; one may stay in view while the other scrolls (`stickyColumn`) |
-| `sidePlaces` | A page's own places on a pane down its side, staying in view, beside the page at most `--size-column` wide; the section tabs at the page's top where both can't have room |
+| `sidePlaces` | A page's own places on a pane down its side, staying in view, beside a reading page's column (`--size-page-reading`), the pair centered in the wide frame; the section tabs at the page's top where both can't have room |
 | `paneParts` | A pane's head, body and foot, with one control in its top or bottom end corner; the head's heading beside its control, its other words under both |
 
 - **A pane is `full` or `fit`.** Full is as wide as what holds it; fit is as wide as what's in it, its paragraphs running to a reading width at most (`--size-reading`, 60ch). A pane that should take half the screen is a column of `columns`. A sheet fits what's in it too.
-- **Widths are named, never numbers:** a grid's `--size-cover`, `--size-card` and `--size-figure`, a track's covers, the reading width, a page's column beside its places (`--size-column`), and shares.
-- **`npm run layout:check`** opens every page in `CHECKED_PAGES` (`apps/site/src/components/checked-pages.ts`) in headless Chrome at 320 × 667 and 1440 × 900, light and dark, and measures it as a person would look at it: the two margins, rows of one height on one line, corner controls in their corners, bevels of at least 4px, nothing spilling or overlapping, the runner above the fold, no sideways scroll. Each failure names the page, the screen, the thing and what was measured. An entry's `stepsToTake` reaches a state only forms or an earlier page lead to (a wrong password, a code that didn't work, a join step): the check takes them once, then measures the answer at every screen; it also fails when the page doesn't name the entry's state. It opens a few pages at once (`--tabs`, one fewer than the cores, at most 4). It must pass for any page change, and GitHub's check runs it in full on every pull request; while you work, `--only <part of a path>` checks just the pages you changed, and the full run is once before you push.
+- **Widths are named, never numbers:** a grid's `--size-cover`, `--size-card` and `--size-figure`, a track's covers, the reading width, the page shapes (`--size-page-reading`, `--size-page-wide`), the pane sizes, and shares.
+- **`npm run layout:check`** opens every page in `CHECKED_PAGES` (`apps/site/src/components/checked-pages.ts`) in headless Chrome on a phone (320 × 667) and a laptop (1440 × 900) by default, light and dark, and measures it as a person would look at it: the two margins, rows of one height on one line, corner controls in their corners, bevels of at least 4px, nothing spilling or overlapping, the runner above the fold, no sideways scroll. Each failure names the page, the screen, the thing and what was measured. An entry's `stepsToTake` reaches a state only forms or an earlier page lead to (a wrong password, a code that didn't work, a join step): the check takes them once, then measures the answer at every screen; it also fails when the page doesn't name the entry's state. It opens a few pages at once (`--tabs`, one fewer than the cores, at most 4). It must pass for any page change, and GitHub's check runs it in full on every pull request, on all seven screens and at 200% text, in four shares; while you work, `--only <part of a path>` checks just the pages you changed, and the full run is once before you push. `--screens all` (or `--screens Phone,Tablet`, by name) runs other screens, `--text 200` adds the browser's text at 200% on a laptop and an iPad, `--shard 2/4` runs one of four shares as GitHub does, and `--pictures <folder>` saves one contact sheet per page and state: its screens side by side, light over dark, for the look before a preview.
+
+### Page shapes
+
+Every rebuilt page says what it is (`layout()`'s `pageShape`, `data-page-shape` on the page), and the shape sets how wide it runs. The header and footer sit in the wide frame on every page, so moving between pages never moves them. On a phone every shape is the screen less its margins. The gallery draws each on a 2560 desktop and a laptop (Layout, Page shape).
+
+| Shape | For | Width |
+| --- | --- | --- |
+| `reading` | Words, forms and settings: Developer settings, Connect an app, a message, a report | One column, `--size-page-reading` (820px), centered under the header; a page with places down its side has them beside the column, the pair centered in the frame |
+| `wide` | Covers, cards, tables and charts: Browse, the gallery | The wide frame, `--size-page-wide` (1680px), less the margins |
+| `full` | A page whose world is the page: the home, a game's page, the city | Its world to the screen's edges; its panes in the wide frame |
+
+A page that doesn't fit the rule gets the shape closest to it, and its pull request says why.
+
+### Pane sizes
+
+A pane over the page has a ceiling by its kind, in `rem` so it grows with its words; each also stops at the screen less its margins, and what's past it scrolls inside the pane.
+
+| Pane | Widest | Tallest |
+| --- | --- | --- |
+| A menu (dropdown) | `--size-menu` (20rem) | `--size-menu-height` (30rem), or the room beside its button |
+| A select's list | Its field | `--size-menu-height` |
+| A compact sheet | `--size-sheet-compact` (20rem) | The screen less its margins |
+| A sheet | `--size-sheet` (36rem) | The screen less its margins (78% of a phone's) |
+| A picture's sheet (a screenshot, or a screen on Screens, large) | `--size-sheet-picture` (80rem) | The screen less its margins (78% of a phone's) |
+| A store panel | `--size-sheet-side` (23.75rem) | The screen less its margins |
 
 ### Screens
 
-`/design/screens?page=/signin` on a local preview shows a page on Julius's phone (320 × 667) and a desktop (1440 × 900), light and dark, side by side, each with what the measuring check finds (`screens.ts`). `page` can be given more than once, to put variants side by side. Pointing at anything in a screen outlines it and says what it is and what placed it: its size class, its layout's gap and why, its pane's width and margins. It's where a page is reviewed, never made: pages are written in code, held by the checks, and judged here, and a remark names the rule to change.
+The seven screens players bring, which the check measures (`SCREEN_SIZES` in `checked-pages.ts`): a phone (320 × 667), a big phone (390 × 844), a phone on its side (844 × 390), an iPad (820 × 1180), a Steam Deck (1280 × 800), a laptop (1440 × 900) and a 2560 desktop (2560 × 1440). Phones and the landscape phone take a phone's sizes (below 760px wide or 500px tall); every touch screen is held to 44px targets; the runner is held above the fold everywhere but on a phone on its side, which scrolls.
+
+`/design/screens?page=/signin` on a local preview shows a page on Julius's phone and a laptop, light and dark, side by side, each with what the measuring check finds (`screens.ts`); `screen=<name>`, once per screen, picks others (the picker's checks do it). `page` can be given more than once, to put variants side by side. Pointing at anything in a screen outlines it and says what it is and what placed it: its size class, its layout's gap and why, its pane's width and margins. It's where a page is reviewed, never made: pages are written in code, held by the checks, and judged here, and a remark names the rule to change.
 
 ## Type
 
@@ -184,7 +236,7 @@ Applies where Spacing does. Every word outside a control's own inside is set in 
 
 | Token | What the words are | Font |
 | --- | --- | --- |
-| `--type-title` | A game's title | Jost 600, 40px (32px on a phone) |
+| `--type-title` | A game's title, once on a page | Jost 600, 40px (32px on a phone) |
 | `--type-heading` | A pane's heading | Jost 600, 30px (26px on a phone) |
 | `--type-section` | A row's or a section's heading | Jost 600, 22px (20px on a phone) |
 | `--type-name` | A name in a pane, a dropdown's head | Jost 600, 17px |
@@ -196,6 +248,7 @@ Applies where Spacing does. Every word outside a control's own inside is set in 
 | `--type-tag` | A Tag | Jost 600, 12px |
 | `--type-code` | A token or a value | Monospace 600, 13px |
 
+- **In `rem`, sized here at the browser's own 16px**, so words grow with the browser's text size; a control's height does too.
 - **Inside words, only the weight changes** (a name in bold in a glance line). Never the size.
 - **A control's inside keeps its own font**, set by each control's size (a button's label, a field's text, a tab), like its padding. A picture's initials are sized to the picture. Each one is named, with its reason, in `NOT_TYPE` in `test/site/design.test.ts`.
 - **Lines between two parts of one pane are `--divider`**, never a border of their own.
@@ -254,20 +307,21 @@ Every component, with the call that makes it and its options, is in the catalog 
 
 - **Side places** (`sidePlaces(options: SidePlacesOptions)`, `navigation.ts`): A page's own places down its side, beside the page: a vertical switch on a pane that stays in view while the page scrolls, like Developer settings' Hosting, Pro and Keys. The page runs a column's width at most beside it. Where both can't have room, the places become the section tabs at the top of the page.
   - `options`: `label: string`, `places: (SectionTab & { icon: IconName })[]`, `body: Raw`
+- **Page shape** (`pageShapeDrawing(options: { … })`, `layout.ts`): What a page is, which sets how wide it runs: every rebuilt page says one (layout's pageShape). Words, forms and settings are reading, one column under the header (--size-page-reading); covers, cards, tables and charts are wide, the whole frame (--size-page-wide); a page whose world is the page (the home, a game's page, the city) is full, its world to the screen's edges and its panes in the frame. The header and footer sit in the frame on every page, so moving between pages never moves them. On a phone every shape is the screen less its margins.
+  - `options`: `pageShape: (typeof PAGE_SHAPES)[number]`, `screenName: (typeof DRAWN_SCREENS)[number]["screenName"]`
 - **Stack** (`stack(options: StackOptions)`, `layout.ts`): Things one under another: a pane's heading, its lines, its fields and its button. Each gap is picked from what's on each side, so you never pass one; say what each thing is (words, a control, a block) and the stack spaces it.
   - `options`: `items: LayoutItem[]`, `label?: string`, `dataAttributes?: Record<string, string>`
 - **Row** (`row(options: RowOptions)`, `layout.ts`): Things side by side. Say how they share the width: equal, the lead fills (the others fit their words), or each fits at the start, the end, the middle or both ends. Controls in a row are always one height, the tallest one's, and slant toward each other.
   - `options`: `items: LayoutItem[]`, `widths: "equal" | "lead-fills" | "fit"`, `alignment?: "start" | "end" | "center" | "between"`, `label?: string`
 - **Grid** (`grid(options: GridOptions)`, `layout.ts`): Cells of one size, as many to a line as fit: covers, cards, figures. Say what a cell holds and the grid sizes it; it folds to fewer columns as it narrows, to one on a phone, by its own width.
-  - `options`: `items: LayoutItem[]`, `itemSize: "cover" | "card" | "figure"`, `label?: string`, `id?: string`
 - **Track** (`track(options: TrackOptions)`, `layout.ts`): A row of covers that scrolls sideways, fading at an edge with more past it, a few showing with the next peeking in. Under a heading row with its Row arrows, it's a shelf.
-  - `options`: `id: string`, `items: LayoutItem[]`, `itemSize: "cover"`, `label?: string`
+  - `options`: `id: string`, `items: LayoutItem[]`, `itemSize: "cover"`, `label?: string`, `whenEmpty: Raw`
 - **Columns** (`columns(options: ColumnsOptions)`, `layout.ts`): Two halves of the width side by side, like a game's details beside its rooms and updates. A pane takes the whole width or fits what's in it, so one that should take half the screen goes in a column. One column can stay in view while the other scrolls; they go one over the other where both can't have room.
   - `options`: `columns: [Raw, Raw]`, `stickyColumn?: "first" | "second"`
 - **Pane parts** (`paneParts(options: PanePartsOptions)`, `layout.ts`): A pane's places: its head (words, and one control in its top corner), its body and its foot (something at the start, one control in its bottom corner). A corner control sits in the corner and takes its cut.
   - `options`: `head?: { words: Raw; end?: LayoutControl }`, `body: Raw`, `foot?: { start?: LayoutItem; end?: LayoutControl }`
-- **Screens** (`screens(options: ScreensOptions)`, `screens.ts`): One page on a phone at 320 × 667 and a desktop at 1440 × 900, light and dark, side by side, each with what the measuring check finds. Point at or tap anything in a screen to see what it is and which rule placed it. It's where a page is reviewed, never made: the Screens page shows any page this way on a local preview.
-  - `options`: `path: string`, `title: string`, `stepsToTake?: readonly StepToTake[]`
+- **Screens** (`screens(options: ScreensOptions)`, `screens.ts`): One page on the screens players bring (a phone and a laptop to start; a big phone, a phone on its side, an iPad, a Steam Deck and a 2560 desktop as asked), light and dark, side by side, each with what the measuring check finds. Point at or tap anything in a screen to see what it is and which rule placed it. It's where a page is reviewed, never made: the Screens page shows any page this way on a local preview.
+  - `options`: `path: string`, `title: string`, `stepsToTake?: readonly StepToTake[]`, `screenNames?: readonly ScreenName[]`, `screensPath?: string`, `account?: string`
 
 ### Actions
 
@@ -357,7 +411,7 @@ Every component, with the call that makes it and its options, is in the catalog 
 - **Game cover** (`gameCover(options: GameCoverOptions)`, `panes.ts`): A game in a list: the studio's art, bare, set in a carved well, with only what concerns you under it. Zaisma's mark stands in while the art loads, and for a game with none yet.
   - `options`: `title: string`, `imageUrl: string | null`, `href: string`, `facts: GlanceFacts`, `isCurrent?: boolean`, `isEager?: boolean`, `hasHighPriority?: boolean`, `isTitleShown?: boolean`
 - **Sheet** (`sheet(options: SheetOptions)`, `panes.ts`): A task that comes and goes over the page: report a game, block someone, add a key. Opened by a button that names it: on a phone it rises from the foot, on a wide screen it hangs from that button like a dropdown, under it or above it; Esc, its close button or a press beside it close it, and it drops away as it goes in every browser (it stays open while it leaves, so no browser drops it early or draws it out of place). Its title, Close and its buttons stay in view while the rest scrolls.
-  - `options`: `id: string`, `title: string`, `body: Raw`, `closeLabel: string`, `buttons?: ControlMarkup[]`, `action?: string`, `placement?: "center" | "foot" | "middle"`, `isShown?: boolean`, `isCompact?: boolean`
+  - `options`: `id: string`, `title: string`, `body: Raw`, `closeLabel: string`, `buttons?: ControlMarkup[]`, `action?: string`, `placement?: "center" | "foot" | "middle"`, `isShown?: boolean`, `isCompact?: boolean`, `isPicture?: boolean`
 - **Store item** (`storeItem(options: StoreItemOptions)`, `panes.ts`): What a store panel sells: the game's own cover across the top, then the item's name, its price large under it, what it is, and one quiet line on who sells it and what refunds there are. Items have no pictures of their own, so the cover is the developer's image, bare; with none, Zaisma's mark stands in.
   - `options`: `id: string`, `imageUrl: string | null`, `name: string`, `priceText: string`, `description?: string`, `noteText?: string`
 - **Store panel** (`storePanel(options: StorePanelOptions)`, `panes.ts`): Where a player buys: a tall panel at the screen's right edge over the running game, which keeps its middle (on a phone, a sheet risen from the foot, nearly the screen's height). A slim head with Close, the item with the game's cover across its top, and pinned at its foot the card row and the buy button carrying the price; Apple Pay and Google Pay sit with them when offered. Pressing Buy is the confirmation: only when Zaisma needs to know it's them does the panel ask first, in the same place.
@@ -391,7 +445,7 @@ Every component, with the call that makes it and its options, is in the catalog 
 - **Glance facts** (`glanceFacts(facts: GlanceFacts)`, `data.ts`): What concerns you about a game at a glance: players now, friends playing, when you played, an update. Only what's true, one line each.
   - `facts`: `playerCount?: number`, `playedAtMs?: number`, `updatedAtMs?: number`, `updatesHref?: string`, `friends?: { username: string }[]`, `friendsRefusalNotes?: string[]`, `deviceNote?: string`, `priceText?: string`
 - **List rows** (`listRows(options: { … })`, `data.ts`): A list of things on glass, one a row with hairlines between: versions, keys, topics, players. A row that goes somewhere is a link as a whole, ending in a chevron that steps on as you point; a row to read may end in a button.
-  - `options`: `rows: ListRow[]`, `id?: string`, `label?: string`, `shownRowCount?: number`
+  - `options`: `rows: ListRow[]`, `whenEmpty: Raw`, `id?: string`, `label?: string`, `shownRowCount?: number`
 - **Empty state** (`emptyState(options: StateNoteOptions)`, `data.ts`): Where a list has nothing yet: what will be here, how it gets here, and the button that starts it. In the voice, never a picture.
   - `options`: `title: string`, `text: string`, `action?: ControlMarkup`
 - **Problem state** (`problemState(options: StateNoteOptions)`, `data.ts`): Where content couldn't come: what went wrong in plain words, and what to do about it, like Try again.
@@ -401,7 +455,7 @@ Every component, with the call that makes it and its options, is in the catalog 
 - **Loading state** (`loadingState(options: { … })`, `data.ts`): Where content is on its way: a hairline with a light running along it, and what's coming. Never a spinner over content; a button that's waiting shows the loader instead.
   - `options`: `label: string`
 - **Table** (`table(options: TableOptions)`, `data.ts`): Rows to compare: versions, requests, players, logs. Its header stays as the rows scroll under it, numbers line up on the right, and on a phone it scrolls sideways rather than folding rows into cards.
-  - `options`: `caption: string`, `columns: TableColumn[]`, `rows: (Raw | string)[][]`, `hasRowHeads?: boolean`, `isCompact?: boolean`, `shownRowCount?: number`, `rowsPlaceholder?: Raw`, `id?: string`
+  - `options`: `caption: string`, `columns: TableColumn[]`, `rows: (Raw | string)[][]`, `hasRowHeads?: boolean`, `isCompact?: boolean`, `shownRowCount?: number`, `rowsPlaceholder?: Raw`, `whenEmpty: Raw`, `id?: string`
 - **Numbers** (`numbers(options: { … })`, `data.ts`): A row of figures to take in at a glance: players, hours, plays. Each figure is big, its label sits under it, and how it moved is green when it's good news.
   - `options`: `items: NumberItem[]`
 - **Chart** (`chart(options: ChartOptions)`, `data.ts`): How something moved over time, drawn on the page with nothing to wait for: a line or bars on a hairline grid, the last point marked with its number, and any point's number where you point or step with the arrow keys. Or how a whole splits, as a ring with its key. Screen readers get the same numbers.

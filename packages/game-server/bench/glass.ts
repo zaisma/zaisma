@@ -270,7 +270,7 @@ ${logMenu}
 <div class="bench-stage"><aside class="bench-panel" id="bench-panel" aria-label="Players" hidden></aside>
 <iframe class="game-frame" id="bench-player" src="${frame.path}" title="${who}: the game page on Zaisma" allow="${frame.allow}" allowfullscreen></iframe></div>
 <script src="/bench/dev.js?player=${String(view.playerNumber)}" defer></script>`;
-  const page = await pageOf(layout(benchEnv(places), { title: `${who}: test bench for ${view.gameSlug}`, checkedPage: "Game page", isBare: true, frames: ["'self'"], body }));
+  const page = await pageOf(layout(benchEnv(places), { title: `${who}: test bench for ${view.gameSlug}`, checkedPage: "Game page", pageShape: "full", isBare: true, frames: ["'self'"], body }));
   return { ...page, body: page.body.replace('<html lang="en"', '<html lang="en" class="is-playing"') };
 }
 
@@ -440,7 +440,7 @@ export async function panelPage(places: BenchPlaces, place: PanelPlace, panelHtm
   const body = html`<style>${raw(BENCH_STYLE)}body { background: #120f2e; }</style>
 <aside class="bench-panel is-page" id="bench-panel" aria-label="Players" data-bench-page>${raw(panelHtml)}</aside>
 <script src="/bench/dev.js?player=${String(place.playerNumber)}&page=players" defer></script>`;
-  return pageOf(layout(benchEnv(places), { title: "Players: test bench", checkedPage: "A message", isBare: true, body }));
+  return pageOf(layout(benchEnv(places), { title: "Players: test bench", checkedPage: "A message", pageShape: "reading", isBare: true, body }));
 }
 
 /** Where a sign-in ends (/account/kept): it tells the game page it's signed in, then closes or goes back to the player's game. */
@@ -449,7 +449,7 @@ export async function keptPage(places: BenchPlaces, username: string | null, pla
   const body = html`<style>${raw(BENCH_STYLE)}body { background: #120f2e; }</style>
 <aside class="bench-panel is-page" aria-label="Signed in"><div class="bp-head"><b>You're in</b></div><p class="bp-empty">${text}</p></aside>
 <script src="/bench/kept.js?player=${String(playerNumber)}" defer></script>`;
-  return pageOf(layout(benchEnv(places), { title: "Signed in: test bench", checkedPage: "A message", isBare: true, body }));
+  return pageOf(layout(benchEnv(places), { title: "Signed in: test bench", checkedPage: "A message", pageShape: "reading", isBare: true, body }));
 }
 
 /** The site's stylesheet, scripts and font by the paths the page names, or null for a path that isn't one of them. */

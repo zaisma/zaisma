@@ -6,7 +6,7 @@ import { gameFrameSource, type Env } from "./env.ts";
 import { pageScript, pageScriptPath, type PageScript } from "./page-scripts.ts";
 import { pageStyle, pageStylePath, type PageStyle } from "./page-styles.ts";
 import { COMPONENT_SCRIPT, COMPONENT_STYLES, HEADER_SCRIPT } from "./components/index.ts";
-import { footer, header, rail, type HeaderTab } from "./components/navigation.ts";
+import { HEADER_TWO_ROWS_MEDIA, footer, header, rail, type HeaderTab } from "./components/navigation.ts";
 import { cutButton, runButton } from "./components/actions.ts";
 import { pictureFrame, problemState } from "./components/data.ts";
 import { backdrop, glassPane } from "./components/foundations.ts";
@@ -427,14 +427,15 @@ const SHELL_STYLES = `
 /* The room the floating header takes at the top: its inset, its height (the header's own --header-height, worked out from its rows) and a
    block's gap, so the page starts a block's gap below it, and a link to a part of the page stops there. */
 :root { --header-room: calc(var(--pad-pane) + var(--header-height, 68px) + var(--gap-block-block)); scroll-padding-top: var(--header-room); }
-@media (max-width: 760px) { :root { --header-room: calc(var(--pad-pane) + env(safe-area-inset-top, 0px) + var(--header-height, 110px) + var(--gap-block-block)); } }
+@media ${HEADER_TWO_ROWS_MEDIA} { :root { --header-room: calc(var(--pad-pane) + env(safe-area-inset-top, 0px) + var(--header-height, 110px) + var(--gap-block-block)); } }
 /* The page's own color behind the backdrop; a game's background sets --backdrop-edge to its own color (BACKDROP_SCRIPT), so a strip a phone's browser bars uncover at an edge is that color. */
 html { background: var(--backdrop-edge, var(--page)); }
 body { position: relative; margin: 0; min-height: 100vh; display: flex; flex-direction: column; font: var(--type-reading); color: var(--ink); background: var(--backdrop-edge, var(--page));
   padding-top: var(--header-room); }
 body > main { position: relative; flex: 1 0 auto; width: 100%; }
-/* The footer keeps a block's gap above it itself. */
-body > main:not(.steel) { width: min(1240px, calc(100% - 2 * var(--pad-pane))); margin: 0 auto; }
+/* A rebuilt page's width is its shape's (PAGE_SHAPE_STYLES, layout.ts). The footer keeps a block's gap above it itself. A Steel page, until it's
+   rebuilt, keeps its header and footer at Steel's own width over its band. */
+html:not([data-page-shape]) body > :is(.top, .foot) { width: min(1240px, calc(100% - 2 * var(--pad-pane))); }
 main.steel, .game-steel { position: relative; }
 .game-steel { flex: 1 0 auto; }
 main.steel { padding: 32px max(24px, calc((100% - 1240px) / 2 + 24px)) 72px; }
@@ -607,7 +608,14 @@ const ADMIN_TABS: [string, string][] = [
   ["Chat reviews", "/admin/chat-reviews"], ["Precedents", "/admin/precedents"], ["Audit log", "/admin/audit"],
 ];
 
-export interface LayoutOptions {
+/**
+ * What a page is, which sets how wide it runs (docs/DESIGN.md, Page shapes): words, forms and settings are "reading", one column under the
+ * header; covers, cards, tables and charts are "wide", the whole frame; a page whose world is the page (the home, a game's page, the city)
+ * is "full", its world to the screen's edges and its panes in the frame.
+ */
+export type PageShape = "reading" | "wide" | "full";
+
+interface LayoutBaseOptions {
   title: string;
   body: Raw;
   head?: Raw;
@@ -633,16 +641,24 @@ export interface LayoutOptions {
    * passes its account as { account }, so the session is read once. Left out, the header says Sign in until the page sees the signed-in cookie.
    */
   viewer?: Pick<Viewer, "account"> | null;
-  /**
-   * The body is built in Zaisma's look, with no Steel around it, and this is the state it renders on the list the design and layout checks
-   * open (components/checked-pages.ts): a page can't be rebuilt without naming one, and the layout check fails when an entry shows another.
-   */
-  checkedPage?: CheckedPageName;
   /** A scene of the page's own in place of Zaisma's backdrop, like the sign-in's city (components/city.ts). */
   stage?: Raw;
   /** A Steel page's own stylesheets (page-styles.ts), until its page is rebuilt: linked right after the site's, so they win over it as before. */
   steelStyles?: PageStyle[];
 }
+
+/** A page built in Zaisma's look names its state and its shape; a Steel page, neither. */
+export type LayoutOptions =
+  | (LayoutBaseOptions & { checkedPage?: undefined; pageShape?: undefined })
+  | (LayoutBaseOptions & {
+      /**
+       * The body is built in Zaisma's look, with no Steel around it, and this is the state it renders on the list the design and layout checks
+       * open (components/checked-pages.ts): a page can't be rebuilt without naming one, and the layout check fails when an entry shows another.
+       */
+      checkedPage: CheckedPageName;
+      /** What the page is, which sets how wide it runs: a rebuilt page can't be made without one (the layout check fails a page without it too). */
+      pageShape: PageShape;
+    });
 
 export function layout(env: Env, options: LayoutOptions): Response {
   const isRebuilt = options.checkedPage !== undefined;
@@ -651,7 +667,7 @@ export function layout(env: Env, options: LayoutOptions): Response {
   const themeColors = colorTheme === "system" ? html`<meta name="theme-color" content="#E7E4DF" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#121110" media="(prefers-color-scheme: dark)">` : html`<meta name="theme-color" content="${colorTheme === "dark" ? "#121110" : "#E7E4DF"}">`;
   const page = html`<!doctype html>
-<html lang="en" data-theme-choice="${colorTheme}">
+<html lang="en" data-theme-choice="${colorTheme}"${options.pageShape ? html` data-page-shape="${options.pageShape}"` : ""}>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
@@ -739,7 +755,7 @@ export function message(env: Env, title: string, text: string, httpStatus = 200)
 export function glassMessage(env: Env, title: string, text: string, httpStatus = 200): Response {
   // The gallery's problem state says it; the page's heading is for screen readers, since the state's title is its words.
   const body = glassPane({ paneWidth: "fit", body: html`<h1 class="sr">${title}</h1>${problemState({ title, text, action: runButton("Back to games", { href: "/", isFullWidth: true }) })}` });
-  const response = layout(env, { title, body, checkedPage: "A message" });
+  const response = layout(env, { title, body, checkedPage: "A message", pageShape: "reading" });
   return new Response(response.body, { status: httpStatus, headers: response.headers });
 }
 

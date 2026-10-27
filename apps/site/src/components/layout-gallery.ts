@@ -6,7 +6,7 @@ import { cutField, selectField } from "./inputs.ts";
 import { shelf } from "./navigation.ts";
 import { STAND_IN_COVERS, banner } from "./panes.ts";
 import { table } from "./data.ts";
-import { GRID_STYLES, PANE_PARTS_STYLES, ROW_STYLES, STACK_STYLES, TRACK_STYLES, COLUMNS_STYLES, columns, grid, paneParts, row, stack, track, type LayoutItem } from "./layout.ts";
+import { GRID_STYLES, PAGE_SHAPE_STYLES, PAGE_SHAPES, PANE_PARTS_STYLES, ROW_STYLES, STACK_STYLES, TRACK_STYLES, COLUMNS_STYLES, columns, grid, pageShapeDrawing, paneParts, row, stack, track, type LayoutItem } from "./layout.ts";
 
 /*
  * The layout components in the gallery: layout.ts makes them, and this registers them with their examples, since the examples use
@@ -51,10 +51,22 @@ export const roomsPane = (): Raw =>
     label: "Rooms",
     body: paneParts({
       head: { words: html`<h2>Rooms</h2><p>267 playing now in 78 rooms</p>`, end: cutButton("Refresh", { type: "button" }) },
-      body: table({ caption: "Open rooms", columns: [{ label: "Room" }, { label: "Map" }, { label: "Players", isNumeric: true }], rows: [["North gate", "Glacier", "6"], ["Ember pit", "Caldera", "4"], ["Old harbour", "Coast", "8"]] }),
+      body: table({ whenEmpty: html`<p>No open rooms right now.</p>`, caption: "Open rooms", columns: [{ label: "Room" }, { label: "Map" }, { label: "Players", isNumeric: true }], rows: [["North gate", "Glacier", "6"], ["Ember pit", "Caldera", "4"], ["Old harbour", "Coast", "8"]] }),
       foot: { start: words(html`<p>Updated a minute ago</p>`), end: cutButton("All rooms", { type: "button" }) },
     }),
   });
+
+component({
+  name: "Page shape",
+  slug: "page-shape",
+  group: "layout",
+  summary: "What a page is, which sets how wide it runs: every rebuilt page says one (layout's pageShape). Words, forms and settings are reading, one column under the header (--size-page-reading); covers, cards, tables and charts are wide, the whole frame (--size-page-wide); a page whose world is the page (the home, a game's page, the city) is full, its world to the screen's edges and its panes in the frame. The header and footer sit in the frame on every page, so moving between pages never moves them. On a phone every shape is the screen less its margins.",
+  styles: PAGE_SHAPE_STYLES,
+  render: pageShapeDrawing,
+  examples: PAGE_SHAPES.flatMap((pageShape) =>
+    (["2560 desktop", "Laptop"] as const).map((screenName) => ({ label: `${pageShape[0]!.toUpperCase()}${pageShape.slice(1)}, on a ${screenName}`, markup: pageShapeDrawing({ pageShape, screenName }), isStill: true })),
+  ),
+});
 
 component({
   name: "Stack",
@@ -145,8 +157,8 @@ component({
   styles: GRID_STYLES,
   render: grid,
   examples: [
-    { label: "Covers", isWide: true, markup: glassPane({ paneWidth: "full", body: grid({ itemSize: "cover", items: covers(["ashen-crown", "neon-drift", "hollow-tide", "verdant", "iron-vigil", "glasswing"]) }) }) },
-    { label: "Cards", isWide: true, markup: glassPane({ paneWidth: "full", body: grid({ itemSize: "card", items: ["Ashen Crown", "Neon Drift", "Hollow Tide"].map((title) => block(glassPane({ paneWidth: "full", body: stack({ items: [words(html`<h2>${title}</h2>`), words(html`<p>Live · version 14</p>`), { kind: "control", markup: cutButton("Open", { type: "button" }) }] }) }))) }) }) },
+    { label: "Covers", isWide: true, markup: glassPane({ paneWidth: "full", body: grid({ whenEmpty: html`<p>No games here yet.</p>`, itemSize: "cover", items: covers(["ashen-crown", "neon-drift", "hollow-tide", "verdant", "iron-vigil", "glasswing"]) }) }) },
+    { label: "Cards", isWide: true, markup: glassPane({ paneWidth: "full", body: grid({ whenEmpty: html`<p>No games here yet.</p>`, itemSize: "card", items: ["Ashen Crown", "Neon Drift", "Hollow Tide"].map((title) => block(glassPane({ paneWidth: "full", body: stack({ items: [words(html`<h2>${title}</h2>`), words(html`<p>Live · version 14</p>`), { kind: "control", markup: cutButton("Open", { type: "button" }) }] }) }))) }) }) },
   ],
 });
 
@@ -158,7 +170,7 @@ component({
   styles: TRACK_STYLES,
   render: track,
   examples: [
-    { label: "Covers in a pane", isWide: true, markup: glassPane({ paneWidth: "full", body: track({ id: "example-track", itemSize: "cover", items: covers(["ashen-crown", "neon-drift", "hollow-tide", "verdant", "iron-vigil", "glasswing", "frostline", "kestrel"]) }) }) },
+    { label: "Covers in a pane", isWide: true, markup: glassPane({ paneWidth: "full", body: track({ whenEmpty: html`<p>No games here yet.</p>`, id: "example-track", itemSize: "cover", items: covers(["ashen-crown", "neon-drift", "hollow-tide", "verdant", "iron-vigil", "glasswing", "frostline", "kestrel"]) }) }) },
     { label: "Under a heading with its arrows: a Shelf (Navigation)", isWide: true, markup: glassPane({ paneWidth: "full", body: shelf({ id: "example-track-shelf", trackId: "example-track-shelf-track", title: "New", items: covers(["kestrel", "frostline", "glasswing", "iron-vigil", "verdant"]) }) }) },
   ],
 });

@@ -6,7 +6,7 @@ import { html, raw, shownAddress, type Raw } from "./html.ts";
 import { LINK_BRAND_ICON_PATHS } from "./link-icons.ts";
 import { pageScript } from "./page-scripts.ts";
 import { cutButton, runButton } from "./components/actions.ts";
-import { listRows, type ListRow } from "./components/data.ts";
+import { listRows, type ListRow, emptyState } from "./components/data.ts";
 import { icon } from "./components/foundations.ts";
 import { checkField, codeField } from "./components/inputs.ts";
 import { stack } from "./components/layout.ts";
@@ -205,5 +205,5 @@ export function developerLinks(links: GameLink[]): Raw | string {
     const host = new URL(destinationUrl).hostname.replace(/^www\./, "");
     return [{ lead: brandMark(brand), title: label, detail: brand === "website" ? undefined : host, href: destinationUrl, isNewTab: true }];
   });
-  return rows.length ? listRows({ label: "The developer's links", rows }) : "";
+  return rows.length ? listRows({ whenEmpty: emptyState({ title: "No links", text: "The developer hasn't added any links yet." }), label: "The developer's links", rows }) : "";
 }

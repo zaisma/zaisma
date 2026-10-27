@@ -62,10 +62,10 @@ describe("the preview checks' shares", () => {
   });
 
   it("measure every page once", () => {
-    for (const count of [1, 2, 3]) {
+    for (const count of [1, 2, 3, 4]) {
       const shares = Array.from({ length: count }, (_, i) => layoutCheckShard(LAYOUT_CHECK_PAGES, `${i + 1}/${count}`) as { name: string }[]);
       expect(shares.flat().map((page) => page.name).sort()).toEqual(LAYOUT_CHECK_PAGES.map((page: { name: string }) => page.name).sort());
     }
-    expect(workflow).toContain("LAYOUT_CHECK_SHARD: ${{ matrix.shard }}/2");
+    expect(workflow).toContain("LAYOUT_CHECK_SHARD: ${{ matrix.shard }}/4");
   });
 });

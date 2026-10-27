@@ -106,11 +106,17 @@ export function accountButton(options: AccountButtonOptions): Raw {
   return html`<button type="button" class="me${options.state ? ` ${options.state}` : ""}" aria-expanded="${options.isMenuOpen ? "true" : "false"}" aria-controls="${options.menuId}" aria-label="Your account, ${options.username}">${options.pictureMarkup}</button>`;
 }
 
+/**
+ * Where the header goes to its two rows (Zaisma, search and you over where you are): below 64em, so on an iPad and a phone on its side, and on
+ * a laptop with the browser's text at 200%, as the one row wouldn't fit there. In em, which media queries take from the browser's text size.
+ */
+export const HEADER_TWO_ROWS_MEDIA = "(max-width: 64em)";
+
 const HEADER_STYLES = `
 /* The header's height at rest, from its size classes, for the page under it to clear (html.ts's --header-room): one row of regular controls
    inside its inset. On a phone its first row is small controls, and the tabs, where there are any, a row of regular height under it. */
 :root { --header-height: calc(var(--control-height-regular) + 2 * var(--pad-inner-pane)); }
-@media (max-width: 760px) {
+@media ${HEADER_TWO_ROWS_MEDIA} {
   :root { --header-height: calc(var(--control-height-small) + 2 * var(--pad-inner-pane)); }
   :root:has(#top.has-tab-row) { --header-height: calc(var(--control-height-small) + var(--gap-control-stack) + var(--control-height-regular) + 2 * var(--pad-inner-pane)); }
 }
@@ -118,7 +124,7 @@ const HEADER_STYLES = `
    It's adaptive glass: --glass-top sets its tint and thickness, and smoked glass (dark, or .smoke) gives it light words. */
 .top {
   position: fixed; z-index: 10; top: var(--pad-pane); left: 50%; transform: translateX(-50%);
-  width: min(1240px, calc(100% - 2 * var(--pad-pane))); height: var(--header-height);
+  width: min(var(--size-page-wide), calc(100% - 2 * var(--pad-pane))); height: var(--header-height);
   display: flex; align-items: center; gap: 0; padding: 0 var(--pad-inner-pane);
   --glass-tint: var(--glass-top);
   clip-path: ${cutPolygon("header")};
@@ -151,7 +157,7 @@ const HEADER_STYLES = `
 /* Phones: one slab in two rows: the logo, a search button and you on top; where you are below. */
 /* The phone's search button: a small Cut button, icon only, that swaps the tabs for the field. */
 .top > .find + .cut-btn { display: none; }
-@media (max-width: 760px) {
+@media ${HEADER_TWO_ROWS_MEDIA} {
   /* The header floats on phones too: a slab of glass inset from every edge (below the notch), never touching the screen's sides. */
   /* Two rows at most, at rest or compact: Zaisma, search and you (or Sign in) always share the first, the tabs or the field the second. */
   .top { top: calc(var(--pad-pane) + env(safe-area-inset-top, 0px)); width: calc(100% - 2 * var(--pad-pane)); height: auto; display: grid; grid-template-columns: minmax(0, auto) minmax(0, 1fr) auto auto; align-items: center; gap: var(--gap-control-stack) 0; padding: var(--pad-inner-pane); }
@@ -168,7 +174,7 @@ const HEADER_STYLES = `
   .top > .logo { margin-left: var(--pad-words); }
   .top .find { --pad-inside-words: var(--pad-words); }
   .top > .logo, .top.is-compact > .logo { --logo-height: 22px; }
-  .top .find { display: none; order: 5; flex-basis: 100%; max-width: none; margin: 0; }
+  .top .find, .top .find:has(~ .end > .shell), .top .find:has(~ .end > .me) { display: none; order: 5; flex-basis: 100%; max-width: none; margin: 0; }
   .top.searching .find { display: flex; }
   .top.searching .nav { display: none; }
   .top > .find + .cut-btn { display: inline-flex; margin-left: auto; margin-right: var(--gap-words-control); }
@@ -177,7 +183,7 @@ const HEADER_STYLES = `
   /* The first row is small controls, so it shares Zaisma, search and Sign in or you on the narrowest phones; Sign in is the compact runner, or
      a small cut button beside the page's own runner. */
   .top .end > .run-wrap > .run, .top .end > .cut-btn { --control-height: var(--control-height-small); }
-  .top .end .run { padding: 0 16px 0 14px; font-size: 14px; gap: 6px; }
+  .top .end .run { padding: 0 16px 0 14px; font-size: 0.875rem; gap: 6px; }
   /* The picture is as tall as the search button beside it, at rest or compact. */
   .top .me, .top.is-compact .me { --frame: var(--control-height-small); }
   /* The search button and Sign in are a row of two controls, slanting toward each other; beside your picture, which never slants, it keeps a control's gap. */
@@ -190,7 +196,7 @@ const HEADER_STYLES = `
 /* On a touch screen, Sign in and your picture are small, so each takes a regular control's height to press, reaching into the header's inset
    above and below it. */
 @media (pointer: coarse) {
-  .top .end > .shell::after, .top .end > .me::before { content: ""; position: absolute; left: 0; right: 0; top: min(0px, calc((100% - var(--control-height-regular)) / 2)); bottom: min(0px, calc((100% - var(--control-height-regular)) / 2)); }
+  .top .end > .shell::after, .top .end > .me::before { content: ""; position: absolute; left: 0; right: 0; top: min(0px, calc((100% - var(--touch-target)) / 2)); bottom: min(0px, calc((100% - var(--touch-target)) / 2)); }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -208,7 +214,7 @@ const HEADER_STYLES = `
 export const HEADER_SCRIPT = pageScript(
   "header",
   `(function () {
-  var phone = function () { return window.innerWidth <= 760; };
+  var phone = function () { return window.matchMedia(${JSON.stringify(HEADER_TWO_ROWS_MEDIA)}).matches; };
   var headers = Array.prototype.slice.call(document.querySelectorAll("header.top"));
   headers.forEach(function (top) {
     /* Once the page scrolls, the slab gets slimmer and everything in it shrinks to fit (COMPACT_SCRIPT, data-compacts). */
@@ -793,7 +799,8 @@ component({
 `,
   render: accountButton,
   examples: [
-    { label: "Rest", markup: accountButton({ ...STAND_IN_ACCOUNT, menuId: "example-me-menu" }) },
+    // A still copy: the header's own example (Header) opens the menu.
+    { label: "Rest", markup: accountButton({ ...STAND_IN_ACCOUNT, menuId: "example-me-menu" }), isStill: true },
     { label: "Pointed", markup: accountButton({ ...STAND_IN_ACCOUNT, menuId: "example-me-menu", state: "is-pointed" }), isStill: true },
     { label: "Pressed", markup: accountButton({ ...STAND_IN_ACCOUNT, menuId: "example-me-menu", state: "is-pressed" }), isStill: true },
     { label: "Menu open", markup: accountButton({ ...STAND_IN_ACCOUNT, menuId: "example-me-menu", isMenuOpen: true }), isStill: true },
@@ -812,7 +819,7 @@ component({
    it, so they keep a pane's margin from its edge. */
 .foot {
   position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-block-block);
-  width: min(1240px, calc(100% - 2 * var(--pad-pane))); margin: var(--gap-block-block) auto var(--pad-pane); padding: var(--pad-pane);
+  width: min(var(--size-page-wide), calc(100% - 2 * var(--pad-pane))); margin: var(--gap-block-block) auto var(--pad-pane); padding: var(--pad-pane);
   color: var(--muted); font: var(--type-note); --glass-tint: var(--glass-top);
   clip-path: ${cutPolygon("header")};
   transition: var(--glass-transition);
@@ -1020,7 +1027,7 @@ export function shelf(options: ShelfOptions): Raw {
         : { kind: "words", markup: title },
       isEmpty
         ? { kind: "words", markup: html`<p class="shelf-note">${options.emptyText}</p>` }
-        : { kind: "block", markup: track({ id: options.trackId, itemSize: "cover", items: options.items }) },
+        : { kind: "block", markup: track({ whenEmpty: html`<p class="shelf-note">${options.emptyText}</p>`, id: options.trackId, itemSize: "cover", items: options.items }) },
     ],
   })}</section>`;
 }
@@ -1112,7 +1119,7 @@ export interface SidePlacesOptions {
 
 /**
  * A page's own places down its side, beside the page: a vertical switch on a pane that stays in view while the page scrolls by, and the
- * page at most a column's width (--size-column) beside it. Where both can't have room, the places are the section tabs at the top of the page.
+ * page at most a reading page's column (--size-page-reading) beside it, the pair centered in the wide frame (a reading page: Page shape). Where both can't have room, the places are the section tabs at the top of the page.
  */
 export function sidePlaces(options: SidePlacesOptions): Raw {
   return html`<div class="side-places"><div class="side-places-in"><nav class="side-places-side" aria-label="${options.label}">${glassPane({ paneWidth: "fit", body: tabSwitch({ label: options.label, switchSize: "big", isVertical: true, tabs: options.places }) })}</nav><div class="side-places-top">${sectionTabs({ label: options.label, tabs: options.places.map((place) => ({ label: place.label, href: place.href, isCurrent: place.isCurrent, badgeCount: place.badgeCount, state: place.state })) })}</div><div class="side-places-body">${options.body}</div></div></div>`;
@@ -1135,7 +1142,7 @@ component({
 .side-places-top { display: flex; justify-content: center; min-width: 0; }
 .side-places-body { min-width: 0; }
 @container (min-width: ${SIDE_PLACES_LEAST_PX}px) {
-  .side-places-in { grid-template-columns: auto minmax(0, var(--size-column)); justify-content: center; }
+  .side-places-in { grid-template-columns: auto minmax(0, var(--size-page-reading)); justify-content: center; }
   .side-places-side { display: block; position: sticky; top: var(--header-room, var(--pad-pane)); }
   .side-places-top { display: none; }
 }
@@ -1299,18 +1306,18 @@ component({
 `,
   render: loadMore,
   examples: [
-    { label: "Under a list: try it, to the last page", isWide: true, markup: glassPane({ paneWidth: "full", body: html`${listRows({ id: "example-load-more-list", rows: LOADED_ROWS })}${loadMore({ href: "/design/examples/older-versions?page=2", label: "Show older versions", listId: "example-load-more-list" })}` }) },
+    { label: "Under a list: try it, to the last page", isWide: true, markup: glassPane({ paneWidth: "full", body: html`${listRows({ whenEmpty: html`<p>No older versions yet.</p>`, id: "example-load-more-list", rows: LOADED_ROWS })}${loadMore({ href: "/design/examples/older-versions?page=2", label: "Show older versions", listId: "example-load-more-list" })}` }) },
     { label: "Busy", markup: html`<div style="width:min(340px,100%)">${cutButton("Show older versions", { href: "#load-more", isFullWidth: true, isBusy: true })}</div>`, isStill: true },
     {
       label: "After a failed load: press it again",
       isWide: true,
       isStill: true,
-      markup: glassPane({ paneWidth: "full", body: html`${listRows({ id: "example-load-failed-list", rows: LOADED_ROWS })}${loadMore({ href: "#load-more", label: "Show older versions", listId: "example-load-failed-list", isFailed: true })}` }),
+      markup: glassPane({ paneWidth: "full", body: html`${listRows({ whenEmpty: html`<p>No older versions yet.</p>`, id: "example-load-failed-list", rows: LOADED_ROWS })}${loadMore({ href: "#load-more", label: "Show older versions", listId: "example-load-failed-list", isFailed: true })}` }),
     },
     {
       label: "At the end of the list",
       isWide: true,
-      markup: glassPane({ paneWidth: "full", body: html`${listRows({ id: "example-load-end-list", rows: LOADED_ROWS })}${loadMore({ label: "Show older versions", listId: "example-load-end-list", endText: "That's every version." })}` }),
+      markup: glassPane({ paneWidth: "full", body: html`${listRows({ whenEmpty: html`<p>No older versions yet.</p>`, id: "example-load-end-list", rows: LOADED_ROWS })}${loadMore({ label: "Show older versions", listId: "example-load-end-list", endText: "That's every version." })}` }),
     },
   ],
 });
