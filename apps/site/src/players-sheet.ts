@@ -5,7 +5,7 @@ import { cutButton, textLink } from "./components/actions.ts";
 import type { ControlMarkup } from "./components/control-markup.ts";
 import { listRows, pictureFrame, emptyState } from "./components/data.ts";
 import { stack, type LayoutItem } from "./components/layout.ts";
-import { sheet } from "./components/panes.ts";
+import { sheet, type SheetStep } from "./components/panes.ts";
 import { joinPath } from "./friends-now.ts";
 import { profilePath } from "./profiles.ts";
 import { html, pageData, scriptTags, securityHeaders, type Raw } from "./html.ts";
@@ -87,10 +87,11 @@ export function friendRows(slug: string, friends: Awaited<ReturnType<typeof frie
 
 /**
  * The Players sheet, risen from the foot over the running game (which stays in view), for games that go online: who's in the room, each
- * with Mute and ⋯ (Profile, Block, Report in a sheet of their own), and the friends playing the game. The bar's button that opens it is
+ * with Mute and ⋯, and the friends playing the game. Its steps move forward inside it: Players, then a player (Profile, Block, Report),
+ * then Report (reportStep, which brings its own script), each with Back; Block opens its confirm on top. The bar's button that opens it is
  * the game page's: id "players-open", aria-controls "players", with the room's player count in its cut-count (cutButton's reactionCount).
  */
-export function playersSheet(options: { gameOrigin: string; slug: string; title: string; hasZaismaRooms: boolean; canSignIn: boolean; signInPath: string }): Raw {
+export function playersSheet(options: { gameOrigin: string; slug: string; title: string; hasZaismaRooms: boolean; canSignIn: boolean; signInPath: string; reportStep: SheetStep }): Raw {
   const words = (markup: Raw): LayoutItem => ({ kind: "words", markup });
   const body = stack({
     items: [
@@ -116,9 +117,13 @@ export function playersSheet(options: { gameOrigin: string; slug: string; title:
     ],
   });
   const rowButton = { type: "button", isSmall: true } as const;
-  const rowTemplate = listRows({ whenEmpty: emptyState({ title: "Nobody here yet", text: "Players show here as they join your room." }), rows: [{ lead: pictureFrame("?", "md"), title: "?", detail: "?", action: [cutButton("Mute", { ...rowButton, dataAttributes: { "player-action": "mute" } }), cutButton("More", { ...rowButton, icon: "more", isLabelHidden: true, controls: "players-player", dataAttributes: { "player-action": "more" } })] }] });
-  return html`${sheet({ id: "players", title: "Players", body, closeLabel: "Close", placement: "foot" })}
-${sheet({ id: "players-player", title: "Player", body: playerBody, closeLabel: "Close", placement: "foot" })}
+  const rowTemplate = listRows({ whenEmpty: emptyState({ title: "Nobody here yet", text: "Players show here as they join your room." }), rows: [{ lead: pictureFrame("?", "md"), title: "?", detail: "?", action: [cutButton("Mute", { ...rowButton, dataAttributes: { "player-action": "mute" } }), cutButton("More", { ...rowButton, icon: "more", isLabelHidden: true, dataAttributes: { "player-action": "more" } })] }] });
+  return html`${sheet({
+    id: "players",
+    closeLabel: "Close",
+    placement: "foot",
+    steps: [{ stepName: "players", title: "Players", body }, { stepName: "player", title: "Player", body: playerBody }, options.reportStep],
+  })}
 <template id="players-row">${rowTemplate}</template>
 ${pageData("players-data", { gameOrigin: options.gameOrigin, slug: options.slug, hasZaismaRooms: options.hasZaismaRooms, canSignIn: options.canSignIn })}
 ${scriptTags(PLAYERS_SHEET_SCRIPT)}`;
@@ -138,7 +143,6 @@ const PLAYERS_SHEET_SCRIPT = pageScript("players-sheet", String.raw`(() => {
   const isSignedIn = () => /(^|; )(__Host-)?zaisma_in=1/.test(document.cookie);
   // The bar button's count: its cut-count (cutButton's reactionCount).
   const count = opener.querySelector(".cut-count");
-  const playerSheet = $("players-player");
   // The room the game is in, as its SDK says: { code, myPlayerId, players, muted, blocked, lasting }.
   let room = null, hasSeenRoom = false;
   // The player whose other choices are open: { id, name }.
@@ -238,7 +242,7 @@ const PLAYERS_SHEET_SCRIPT = pageScript("players-sheet", String.raw`(() => {
       mute.addEventListener("click", () => tell({ type: "zaisma:player-action", action: isBlocked || isMuted ? "unmute" : "mute", playerId: other.id }));
     }
     more.setAttribute("aria-label", "More for " + name);
-    // ⋯ opens the player's own sheet (SHEET_SCRIPT, by its aria-controls), filled in here first.
+    // ⋯ moves the sheet to the player's step, filled in here first.
     more.addEventListener("click", () => {
       chosen = { id: other.id, name };
       $("players-player-title").textContent = name;
@@ -250,28 +254,23 @@ const PLAYERS_SHEET_SCRIPT = pageScript("players-sheet", String.raw`(() => {
         profile.rel = "noopener";
       }
       $("players-player-block").hidden = isBlocked;
-      if (!playerSheet.open) playerSheet.showModal();
+      zaismaLayers.step(sheet, "player");
     });
     return item;
   }
 
-  function closeBoth() {
-    if (playerSheet.open) playerSheet.close();
-    if (sheet.open) sheet.close();
-  }
+  // Block goes back to the room's list, and the game asks: between two accounts, its confirm opens on top of this sheet.
   $("players-player-block").addEventListener("click", () => {
     if (!chosen) return;
     const playerId = chosen.id;
-    closeBoth();
+    zaismaLayers.step(sheet, "players");
     tell({ type: "zaisma:player-action", action: "block", playerId });
   });
+  // Report is this sheet's next step (report.ts fills it in and moves to it).
   $("players-player-report").addEventListener("click", () => {
     if (!chosen) return;
-    const detail = { id: chosen.id, name: chosen.name, code: room ? room.code : "" };
-    closeBoth();
-    dispatchEvent(new CustomEvent("zaisma:open-report", { detail }));
+    dispatchEvent(new CustomEvent("zaisma:open-report", { detail: { id: chosen.id, name: chosen.name, code: room ? room.code : "" } }));
   });
-  playerSheet.addEventListener("close", () => { chosen = null; });
 
   // Friends playing this game, outside this room, with Join: fresh each time the sheet opens.
   function loadFriends() {
@@ -285,14 +284,16 @@ const PLAYERS_SHEET_SCRIPT = pageScript("players-sheet", String.raw`(() => {
       .catch(() => {});
   }
 
-  // The bar's button opens it (SHEET_SCRIPT does too, by its aria-controls; this runs first and fills it in).
+  // The bar's button opens it at the room's list (zaismaLayers does too, by its aria-controls; this runs first and fills it in).
   opener.addEventListener("click", () => {
-    ["report", "block"].forEach((id) => { const other = $(id); if (other && other.open) other.close(); });
+    const block = $("block");
+    if (block && block.open) block.close();
     render();
     loadFriends();
+    zaismaLayers.step(sheet, "players", { isBackShown: false });
     if (!sheet.open) sheet.showModal();
   });
-  sheet.addEventListener("close", () => { if (playerSheet.open) playerSheet.close(); const f = frame(); if (f) f.focus(); });
+  sheet.addEventListener("close", () => { chosen = null; const f = frame(); if (f) f.focus(); });
   // No count on the bar's button until the game is in a room.
   update();
 })();`);

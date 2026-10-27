@@ -89,6 +89,7 @@ export function blockSheet(options: { gameOrigin: string }): Raw {
     body,
     closeLabel: "Close",
     placement: "foot",
+    isConfirm: true,
     buttons: [cutButton("Cancel", { type: "submit", formMethod: "dialog" }), runButton("Block", { type: "button", id: "block-yes" })],
   })}
 ${pageData("block-data", { gameOrigin: options.gameOrigin })}
@@ -96,7 +97,7 @@ ${scriptTags(BLOCK_SHEET_SCRIPT)}`;
 }
 
 // The block sheet's script: a game asks (Zaisma.players.block) and the sheet asks the player, or blocks for this session. Cancel, Esc
-// and a press beside the sheet close it (SHEET_SCRIPT), which is a no.
+// and a press beside the sheet close it (zaismaLayers), which is a no. Asked from the Players sheet, it opens on top of it as its confirm.
 const BLOCK_SHEET_SCRIPT = pageScript("block-sheet", `(() => {
   const sheet = document.getElementById("block");
   const GAME_ORIGIN = JSON.parse(document.getElementById("block-data").textContent).gameOrigin;

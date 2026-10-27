@@ -1108,6 +1108,23 @@ On your own server, the Node runner runs the same hooks. It needs `ZAISMA_KEY` s
 
 **`own_server`.** The game sends your backend the `receipt` of a purchase (from `Zaisma.items.unhandled()`; your backend also gets it from the `purchase_completed` webhook), and your backend checks it with `verifyReceipt` (see Receipts above), credits the account named in `game_account_id` once per `purchase_id`, and calls `mark_purchase_handled`. A refunded or charged-back purchase is told the same way once your backend has taken back what it should (`refund_handled_at`). The webhook events carry `game_account_id` for games with their own accounts, so your backend can credit them even when no game is open. `GET /games/:slug/players/:player_id/items` lists what's still waiting.
 
+### When Zaisma covers your game
+
+Zaisma puts nothing over a running game by default, but the player can open one of its sheets (buying, Players, Report), and a card can come over the game's corner (Still there?, Keep your progress). The SDK says when, so a game can pause or hold its input:
+
+- `Zaisma.page.coveredBy` is `"sheet"` while one of Zaisma's sheets is open over the game: the player is busy with it, so pausing makes sense. While a sheet is open, Still there? waits, since the player is there.
+- `"card"` while one of its cards is over the game's corner: the game stays in view and playable.
+- `null` otherwise, and always outside Zaisma's page (your own site, `play-locally`).
+
+`Zaisma.page.on("coveredBy", (coveredBy) => …)` hears each change (a wrong event name fails with `unknown_event`):
+
+```js
+Zaisma.page.on("coveredBy", (coveredBy) => {
+  if (coveredBy === "sheet") pauseGame();
+  else resumeGame();
+});
+```
+
 ## Selling with the buy sheet
 
 Players buy a game's priced items through Zaisma's buy sheet. The developer connects their own Stripe account (Stripe Connect Standard): they are the seller, every sale is a direct charge on their account, the money goes to them, and Zaisma takes no fee. Stripe's own fees apply. The sheet and the receipt show the account's `business_name` and `support_email`. Until an account is connected and can take payments, the sheet answers `stripe_not_connected` or `stripe_cannot_take_payments`, and setting a price answers `next_steps` pointing at `get_stripe_account`.

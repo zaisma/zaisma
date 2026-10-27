@@ -106,13 +106,13 @@ export const stressBaseName = (name: string): string => name.replace(/, signed i
 
 /** The Players sheet, opened from the playing bar's Players button. */
 const OPEN_PLAYERS_SHEET = `(async () => { document.querySelector('[aria-controls="players"]').click(); await new Promise((done) => setTimeout(done, 600)); return true; })()`;
-/** The cards over a running game that start hidden (the game asking to sign in, the save toast), shown one under another. */
+/** The cards over a running game that start hidden (the game asking to sign in, signed out), shown one under another. */
 const SHOW_PLAYING_CARDS = `(async () => {
   let top = 70;
-  for (const id of ["sign-in-ask", "save-toast"]) {
+  for (const id of ["sign-in-ask", "signed-out"]) {
     const card = document.getElementById(id);
     if (!card) continue;
-    if (id === "save-toast") card.querySelector("p").textContent = "Progress saves to your account.";
+    if (card.popover && card.showPopover) card.showPopover();
     card.hidden = false;
     card.style.top = top + "px";
     // One that wouldn't fit under the one before (a phone on its side) stays hidden: over a game they come one at a time.

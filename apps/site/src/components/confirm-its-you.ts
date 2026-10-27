@@ -57,6 +57,7 @@ export function confirmItsYouSheet(options: ConfirmItsYouOptions): Raw {
     body,
     closeLabel: "Close",
     placement: "middle",
+    isConfirm: true,
     buttons: [
       cutButton("Cancel", { id: `${id}-cancel`, type: "submit", formMethod: "dialog" }),
       runButton(method === "passkey" ? "Use your passkey" : "Confirm", { id: `${id}-go`, type: "button", busyLabel: "Confirming", isBusy: options.isBusy && method !== "purchase_pin", isHidden: method === "purchase_pin" }),
@@ -209,7 +210,7 @@ component({
   group: "panes",
   summary: "A small dialog that opens over anything and asks the player to prove it's them, the way that suits what they're doing: a passkey, their purchase PIN (for a purchase only) or their password. The page says why in one sentence and gives it the function that sends the proof; a right proof closes it and the page goes on by itself, so the button that asked is pressed once. In the middle of a wide screen, risen from the foot on a phone.",
   styles: `
-/* Confirm it's you: a sheet that stays in the middle of a wide screen whatever opened it (SHEET_SCRIPT), wide enough for "Use your passkey" in half its foot. */
+/* Confirm it's you: a sheet that stays in the middle of a wide screen whatever opened it (LAYERS_SCRIPT), wide enough for "Use your passkey" in half its foot. */
 @media (min-width: 761px) {
   .sheet.placement-middle:not(.in-place) { width: min(480px, calc(100% - 2 * var(--pad-pane))); }
 }

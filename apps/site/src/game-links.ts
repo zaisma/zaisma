@@ -171,7 +171,9 @@ window.askLink = async (asked) => {
     linkTrust.dataset.host = host;
   }
   const keep = document.getElementById("keep");
-  if (keep) keep.hidden = true;
+  if (keep) zaismaLayers.leave(keep);
+  // Full screen is the game's alone: it ends first, so the sheet shows over the page.
+  if (document.fullscreenElement) await document.exitFullscreen().catch(() => {});
   (isOpen ? linkAsk : linkClosed).showModal();
   (isOpen ? linkGo : document.getElementById("link-back")).focus();
 };

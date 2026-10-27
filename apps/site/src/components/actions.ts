@@ -801,6 +801,7 @@ export function deleteButton(label: string, options: DeleteButtonOptions): Contr
     buttons: [cutButton("Cancel", { type: "submit", formMethod: "dialog", isAutofocused: true }), controlMarkup(dangerButton(options.confirmLabel, options.isConfirmBusy), "regular")],
     action: options.action,
     isShown: options.isConfirmShown,
+    isConfirm: true,
   });
   return controlMarkup(options.isConfirmShown ? sheet : html`${sheet}${cutButton(label, { type: "button", icon: "trash", controls: id, isFullWidth: options.isFullWidth, state: options.state })}`, "regular");
 }

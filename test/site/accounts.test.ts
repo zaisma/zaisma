@@ -23,6 +23,7 @@ import { unzipSync } from "fflate";
 import { ACCOUNT_COLUMNS_LEFT_OUT, ACCOUNT_DATA_TABLES } from "../../apps/site/src/account-data.ts";
 import { pageProblems } from "./page-rules.ts";
 import { playersSheet } from "../../apps/site/src/players-sheet.ts";
+import { html } from "../../apps/site/src/markup.ts";
 import { blockSheet } from "../../apps/site/src/blocks.ts";
 import { configuredRateLimit, countingRateLimiter } from "../rate-limits.ts";
 import siteWranglerText from "../../apps/site/wrangler.jsonc?raw";
@@ -1554,8 +1555,11 @@ describe("friends", () => {
     expect((await playerProfile(env.DB, benPlayerId, "https://zaisma.test"))!.playing_now).toEqual({ slug: "own-game", title: "Own Servers", page_url: "https://zaisma.test/g/own-game" });
   });
 
-  it("builds the Players and Block sheets from gallery components only, their row templates too", () => {
-    const players = playersSheet({ gameOrigin: "https://games.zaisma.test", slug: "arena-game", title: "Arena", hasZaismaRooms: true, canSignIn: true, signInPath: "/signin" }).html;
+  it("builds the Players and Block sheets from gallery components only, their row templates too: Players, a player and Report are steps of one sheet", () => {
+    const reportStep = { stepName: "report", title: "Report Arena", body: html`<p>What's wrong</p>` };
+    const players = playersSheet({ gameOrigin: "https://games.zaisma.test", slug: "arena-game", title: "Arena", hasZaismaRooms: true, canSignIn: true, signInPath: "/signin", reportStep }).html;
+    expect(players.match(/<dialog /g)).toHaveLength(1);
+    for (const stepName of ["players", "player", "report"]) expect(players).toContain(`data-sheet-step="${stepName}"`);
     const block = blockSheet({ gameOrigin: "https://games.zaisma.test" }).html;
     for (const markup of [players, block]) expect(pageProblems(markup)).toEqual([]);
     // pageProblems leaves templates out, so the room's row template is held to it on its own.

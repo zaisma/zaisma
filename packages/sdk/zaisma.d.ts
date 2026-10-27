@@ -539,6 +539,32 @@ declare namespace Zaisma {
    */
   const versions: Versions;
 
+  /**
+   * Whether Zaisma's page covers the game right now, so a game can pause or hold the player's input while it does.
+   * coveredBy is "sheet" while one of Zaisma's sheets is open over the game (buying, Players, Report: the player is
+   * busy with it), "card" while one of its cards is over the game's corner (Still there?, Keep your progress; the
+   * game stays in view and playable), and null otherwise. Always null outside Zaisma's page (your own site, a
+   * local test). Listen for "coveredBy" to hear each change.
+   * @example
+   * Zaisma.page.on("coveredBy", (coveredBy) => {
+   *   if (coveredBy === "sheet") pauseGame();
+   *   else resumeGame();
+   * });
+   */
+  const page: Page;
+
+  /** Whether Zaisma's page covers the game ({@link page}). */
+  interface Page {
+    /** "sheet", "card" or null: what of Zaisma's is over the game now. Read-only. */
+    readonly coveredBy: CoveredBy;
+    /** Listen for "coveredBy": called with the new value each time it changes. A wrong name fails with error.code "unknown_event". */
+    on(event: "coveredBy", listener: (coveredBy: CoveredBy) => void): Page;
+    off(event: "coveredBy", listener: (coveredBy: CoveredBy) => void): Page;
+  }
+
+  /** What of Zaisma's covers the game ({@link page}): one of its sheets, one of its cards, or nothing. */
+  type CoveredBy = "sheet" | "card" | null;
+
   /** A version published "now" ({@link versions}). */
   interface Versions {
     /** Listen for "update". A wrong name fails with error.code "unknown_event". */

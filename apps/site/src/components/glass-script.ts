@@ -603,7 +603,7 @@ export const GLASS_SCRIPT = `/* glass */(function () {
   window.zaismaGlass = glass;
   window.zaismaCutLine = cutLine;
   // How the page was last used, keyboard or pointer (a mouse, a touch, a pen): a ring only ever shows for the keyboard (:focus-visible), so a sheet
-  // opened by a press focuses itself, not its first button, and only one opened from the keyboard focuses its first control (SHEET_SCRIPT).
+  // opened by a press focuses itself, not its first button, and only one opened from the keyboard focuses its first control (LAYERS_SCRIPT).
   window.zaismaInput = (function () {
     var isKeyboard = false;
     document.addEventListener("keydown", function (event) { if (!/^(Shift|Control|Alt|Meta|AltGraph|CapsLock)$/.test(event.key)) isKeyboard = true; }, true);

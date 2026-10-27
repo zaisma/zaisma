@@ -47,7 +47,7 @@ import { glassPane, tag, type IconName } from "./components/foundations.ts";
 import { grid, row, stack, track, type LayoutItem } from "./components/layout.ts";
 import { banner, dropdown, sheet } from "./components/panes.ts";
 import { person } from "./components/people.ts";
-import { gameCard, playingBar, playingCard, playingCheck, screenshot, screenshotLarge } from "./components/playing.ts";
+import { gameCard, playingBar, playingCard, playingCheck, screenshot, screenshotLarge, urgentCard } from "./components/playing.ts";
 import { facts, readingText } from "./components/reading.ts";
 import { backgroundMarkup, backgroundOf, type ShownBackground } from "./backgrounds.ts";
 import { glassMessage, html, layout, pageData, raw, scriptTags, type Raw } from "./html.ts";
@@ -55,7 +55,7 @@ import { pageScript } from "./page-scripts.ts";
 import { coverPriceText, paidGamesOwnedBy, showcase, type ShowGame } from "./home.ts";
 import { viewerOf, type Viewer } from "./viewer.ts";
 import { SAVES_SCRIPT } from "./saves-client.ts";
-import { reportSheet } from "./report.ts";
+import { reportScript, reportSheet, reportStep } from "./report.ts";
 import { blockSheet } from "./blocks.ts";
 import { playersSheet } from "./players-sheet.ts";
 import { GAME_UPDATES_SCRIPT, connectionPlate, updateBarButtons } from "./game-updates.ts";
@@ -450,7 +450,8 @@ export function gamePageResponse(env: Env, view: GamePageView): Response {
   const menu = dropdown({
     id: "menu-dialog",
     label: game.title,
-    head: { title: game.title, note: ownServers.length ? ownServersLine(ownServers) : undefined },
+    // When the account last saved ("Saved 2 min ago"), written by the saves script: saving that works says nothing over the game.
+    head: { title: game.title, note: ownServers.length ? ownServersLine(ownServers) : undefined, lineId: saves ? "save-line" : undefined },
     items: [
       // Guests only: a signed-in player's progress is on their account already.
       ...(saves && !viewer.account ? [{ id: "keep-link", isHidden: true, label: "Keep your progress", icon: "save" as const, href: joinHere, dataAttributes: { keep: "/join" } }] : []),
@@ -506,11 +507,11 @@ ${playingBar({ title: game.title, controls: barControls })}
 ${roomSheet}
 ${isClosed ? "" : connectionPlate()}
 ${menu}
-${reportSheet(game, { isMultiplayer: multiplayer, gameOrigin })}
-${multiplayer ? blockSheet({ gameOrigin }) : ""}
-${multiplayer ? playersSheet({ gameOrigin, slug: game.slug, title: game.title, hasZaismaRooms: game.multiplayer_mode !== "none", canSignIn, signInPath: `/signin?next=${encodeURIComponent(`/g/${game.slug}`)}` }) : ""}
+${multiplayer
+  ? html`${playersSheet({ gameOrigin, slug: game.slug, title: game.title, hasZaismaRooms: game.multiplayer_mode !== "none", canSignIn, signInPath: `/signin?next=${encodeURIComponent(`/g/${game.slug}`)}`, reportStep: reportStep(game, { isMultiplayer: true }) })}${reportScript(game, { gameOrigin })}${blockSheet({ gameOrigin })}`
+  : reportSheet(game, { isMultiplayer: false, gameOrigin })}
 ${keepCard}
-${saves ? playingCard({ id: "save-toast", body: stack({ items: [{ kind: "words", markup: html`<p></p>` }] }) }) : ""}
+${saves ? urgentCard({ id: "signed-out", title: "You've been signed out", text: "Sign in again to keep saving to your account.", buttons: [runButton("Sign in", { href: signinHere })] }) : ""}
 ${signInCard}
 ${multiplayer ? stillThereCard() : ""}
 ${leavingCard(game.title)}
@@ -1052,7 +1053,7 @@ if (deviceNotes.length) {
 const menuButton = document.getElementById("menu");
 // A tap into the game never reaches this page: the page losing focus closes an open menu instead.
 window.addEventListener("blur", () => document.querySelectorAll('.dropdown[role="menu"]:not(.shut)').forEach((menu) => { const opener = document.querySelector('[aria-controls="' + menu.id + '"][aria-expanded="true"]'); if (opener) opener.click(); }));
-menuButton.addEventListener("click", () => setTimeout(() => { if (frame && menuButton.getAttribute("aria-expanded") === "false" && !document.getElementById("report").open) frame.focus(); }));
+menuButton.addEventListener("click", () => setTimeout(() => { if (frame && menuButton.getAttribute("aria-expanded") === "false" && !document.querySelector("dialog.sheet[open]")) frame.focus(); }));
 // The room control: the room's code while the game is in a room (zaisma:room, then zaisma:players says
 // whether it takes others), Join otherwise; its sheet has the code with Copy, and Join by code. In streamer mode (an
 // account setting) the code starts hidden: the eye shows it on this page, and Share blurs it under Show.
@@ -1141,6 +1142,8 @@ shareBox.addEventListener("close", () => { if (frame) frame.focus(); else if (sh
 share.onclick = () => shareFrom(share);
 // The game says which room it's in, so the address bar (and so Share) points to that match.
 const gameOrigin = new URL(gamePage.frame_url).origin;
+// Whenever a sheet or card of Zaisma's covers the game, or stops, the game hears it (Zaisma.page.coveredBy), so it can pause.
+addEventListener("zaisma:covered", (e) => { if (frame && frame.contentWindow) frame.contentWindow.postMessage({ type: "zaisma:covered", coveredBy: e.detail.coveredBy }, gameOrigin); });
 addEventListener("message", (e) => {
   if (!frame || e.origin !== gameOrigin || e.source !== frame.contentWindow) return;
   const d = e.data;
@@ -1286,7 +1289,7 @@ function tellSignedIn() {
     telling = null;
     if (!answer) return false;
     if (answer.key) roomKey = Promise.resolve({ key: answer.key, playerKind: answer.playerKind });
-    signInAsk.hidden = true;
+    zaismaLayers.leave(signInAsk);
     frame.contentWindow.postMessage({ type: "zaisma:signed-in", player: answer.player }, gameOrigin);
     return true;
   })();
@@ -1299,12 +1302,12 @@ window.askSignIn = async () => {
   wasGuest = true;
   signInText.textContent = "Make a free Zaisma account or sign in. The game keeps running here while you do.";
   const keep = document.getElementById("keep");
-  if (keep) keep.hidden = true;
-  signInAsk.hidden = false;
-  signInAsk.querySelector("[data-sign-in]").focus();
+  if (keep) zaismaLayers.leave(keep);
+  zaismaLayers.show(signInAsk);
+  if (!signInAsk.hidden) signInAsk.querySelector("[data-sign-in]").focus();
 };
 document.getElementById("sign-in-later").onclick = () => {
-  signInAsk.hidden = true;
+  zaismaLayers.leave(signInAsk);
   if (!frame) return;
   frame.contentWindow.postMessage({ type: "zaisma:sign-in", status: "declined" }, gameOrigin);
   frame.focus();

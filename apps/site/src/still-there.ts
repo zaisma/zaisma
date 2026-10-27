@@ -10,7 +10,8 @@ import { playingCard } from "./components/playing.ts";
  * this card with the time counting down and answers "showing", so the game draws no plate of its own.
  * I'm here answers "here", which the SDK counts as input. The SDK says untilMs: null once the asking is
  * over (input, or the time ran out), and the card hides. In full screen only the game shows, so the page
- * doesn't answer and the game draws its own plate.
+ * doesn't answer and the game draws its own plate. It's an ask in the queue over the game (zaismaLayers):
+ * while one of Zaisma's sheets is open, the player is there, so the page answers "here" for them.
  */
 
 /** The card, hidden until the game asks. */
@@ -35,7 +36,7 @@ const tellStillThere = (status) => frame && frame.contentWindow.postMessage({ ty
 function hideStillThere() {
   clearInterval(stillThereTimer);
   stillThereTimer = null;
-  stillThere.hidden = true;
+  zaismaLayers.leave(stillThere);
 }
 function showStillThereTime(untilMs) {
   const leftSec = Math.max(0, Math.ceil((untilMs - Date.now()) / 1000));
@@ -49,9 +50,10 @@ addEventListener("message", (e) => {
   if (!d || d.type !== "zaisma:still-there") return;
   hideStillThere();
   if (typeof d.untilMs !== "number" || !Number.isFinite(d.untilMs) || document.fullscreenElement) return;
+  if (zaismaLayers.coveredBy === "sheet") return tellStillThere("here");
   // The SDK asks for 30 seconds; a game's own clock never keeps the card up longer than a minute.
   const untilMs = Math.min(d.untilMs, Date.now() + 60000);
-  stillThere.hidden = false;
+  zaismaLayers.show(stillThere);
   showStillThereTime(untilMs);
   stillThereTimer = setInterval(() => showStillThereTime(untilMs), 250);
   tellStillThere("showing");

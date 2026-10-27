@@ -6,6 +6,7 @@ import { glanceFacts, pictureRow, type GlanceFacts } from "./data.ts";
 import { cardRow, cutButton, runButton, textButton } from "./actions.ts";
 import { REPORT_REASONS, STAND_IN_QR_CODE, birthdayField, choiceCards, codeField, cutField, longField, qrCode } from "./inputs.ts";
 import { grid, paneParts, row, stack, type ControlMarkup, type LayoutItem } from "./layout.ts";
+import { tabSwitch } from "./switch.ts";
 
 /*
  * Panes: Zaisma's glass as a sheet that holds things (the sign-in's pane), a menu that hangs
@@ -60,15 +61,18 @@ export interface DropdownOptions {
   id: string;
   /** What it is, for a screen reader: "Your account". */
   label: string;
-  /** A head over its places, like the account's name and whether you're online. */
-  head?: { title: string; note?: string };
+  /**
+   * A head over its places, like the account's name and whether you're online. lineId: a quiet line under them that a page's script
+   * writes and shows (the game page's "Saved 2 min ago"), hidden until it does.
+   */
+  head?: { title: string; note?: string; lineId?: string };
   items: DropdownItem[];
   isOpen?: boolean;
 }
 
 /** A dropdown: a pane of the glass that hangs from any button (aria-controls its id), holding a short list of choices. */
 export function dropdown(options: DropdownOptions): Raw {
-  return html`<div class="dropdown glass${options.isOpen ? "" : " shut"}" id="${options.id}" role="menu" aria-label="${options.label}" aria-hidden="${options.isOpen ? "false" : "true"}" data-glass data-glass-corners="menu">${EDGE}${options.head ? html`<div class="dropdown-head"><strong>${options.head.title}</strong>${options.head.note ? html`<span>${options.head.note}</span>` : ""}</div>` : ""}<div class="dropdown-in">${options.items.map((menuItem) =>
+  return html`<div class="dropdown glass${options.isOpen ? "" : " shut"}" id="${options.id}" role="menu" aria-label="${options.label}" aria-hidden="${options.isOpen ? "false" : "true"}" data-glass data-glass-corners="menu">${EDGE}${options.head ? html`<div class="dropdown-head"><strong>${options.head.title}</strong>${options.head.note ? html`<span>${options.head.note}</span>` : ""}${options.head.lineId ? html`<span id="${options.head.lineId}" role="status" hidden></span>` : ""}</div>` : ""}<div class="dropdown-in">${options.items.map((menuItem) =>
     "kind" in menuItem ? raw('<hr role="separator">') : dropdownChoice(menuItem),
   )}</div></div>`;
 }
@@ -546,16 +550,11 @@ component({
   ],
 });
 
-export interface SheetOptions {
+interface SheetBaseOptions {
   /** Unique on the page: the button that opens it names it (cutButton's controls). */
   id: string;
-  title: string;
-  /** Its words and fields, which scroll between its head and its buttons when they're long. The sheet is one form: it holds none of its own. */
-  body: Raw;
   /** What its close button says to a screen reader: "Close". */
   closeLabel: string;
-  /** Its buttons, at its foot and in view while the body scrolls: the way out first, the one thing to do last (Cancel, Send report). */
-  buttons?: ControlMarkup[];
   /** Where its form posts when a button sends it. Without one, a button that sends it only closes it. */
   action?: string;
   /**
@@ -569,15 +568,84 @@ export interface SheetOptions {
   isCompact?: boolean;
   /** A picture large (a screenshot, a screen on Screens): as wide as the screen allows, up to --size-sheet-picture, rather than --size-sheet. */
   isPicture?: boolean;
+  /** A short yes or no that guards something (Confirm it's you): opened over another sheet it's drawn a size smaller, in the middle of it. */
+  isConfirm?: boolean;
+}
+
+/** A sheet with one task in it: its title, its body and its buttons. */
+interface SheetOfOneOptions extends SheetBaseOptions {
+  title: string;
+  /** Its words and fields, which scroll between its head and its buttons when they're long. The sheet is one form: it holds none of its own. */
+  body: Raw;
+  /** Its buttons, at its foot and in view while the body scrolls: the way out first, the one thing to do last (Cancel, Send report). */
+  buttons?: ControlMarkup[];
+}
+
+/** One step of a task that moves forward inside one sheet (Players, then a player, then Report). */
+export interface SheetStep {
+  /** What zaismaLayers.step(sheet, stepName) moves to: "players", "player", "report". Its title's id is "{sheet id}-{stepName}-title". */
+  stepName: string;
+  title: string;
+  body: Raw;
+  buttons?: ControlMarkup[];
+}
+
+/** A sheet whose task moves forward inside it: the first step shows as it opens; every step after it has Back before its title. */
+interface SheetOfStepsOptions extends SheetBaseOptions {
+  steps: SheetStep[];
+}
+
+/** One tab of a sheet with tabs: its switch's words, the value it's known by, and what shows while it's chosen. */
+export interface SheetTab {
+  label: string;
+  tabValue: string;
+  body: Raw;
+}
+
+/** A sheet with tabs in its head that swap what's in it (a game's link and its QR code): the first is chosen as it opens. */
+interface SheetOfTabsOptions extends SheetBaseOptions {
+  title: string;
+  tabs: SheetTab[];
+  buttons?: ControlMarkup[];
+}
+
+export type SheetOptions = SheetOfOneOptions | SheetOfStepsOptions | SheetOfTabsOptions;
+
+// Declared, not assigned, since gallery examples above them make sheets as the file loads.
+function sheetClose(closeLabel: string) {
+  return cutButton(closeLabel, { type: "submit", formMethod: "dialog", icon: "close", isLabelHidden: true, isSmall: true });
+}
+function sheetScroll(body: Raw) {
+  return html`<div class="sheet-scroll"><div class="sheet-body">${body}</div></div>`;
+}
+function sheetFoot(buttons: ControlMarkup[] | undefined) {
+  return buttons?.length ? { start: { kind: "block" as const, markup: row({ widths: "equal", items: buttons.map((button) => ({ kind: "control" as const, markup: button })) }) } } : undefined;
 }
 
 /**
  * A sheet: a pane of glass over the page for a task that comes and goes (report a game, block someone), opened by a button that names it.
  * Its head (the title, and Close in the corner) and its buttons stay where they are while what's between them scrolls. It's one form, so
- * Close and Cancel close it without sending it (formmethod="dialog").
+ * Close and Cancel close it without sending it (formmethod="dialog"). A task of steps moves forward inside it with Back (zaismaLayers.step),
+ * and tabs in its head swap what's in it; either way it stays one sheet, one layer, and closing it closes all of it.
  */
 export function sheet(options: SheetOptions): Raw {
-  return sheetMarkup({ ...options, closeButton: cutButton(options.closeLabel, { type: "submit", formMethod: "dialog", icon: "close", isLabelHidden: true, isSmall: true }) });
+  const closeButton = sheetClose(options.closeLabel);
+  if ("steps" in options) {
+    const back = cutButton("Back", { type: "button", icon: "arrow-back", isLabelHidden: true, isSmall: true, dataAttributes: { "sheet-back": "" } });
+    const parts = html`${options.steps.map((step, index) => {
+      const titleId = `${options.id}-${step.stepName}-title`;
+      const words = html`<div class="sheet-step-head">${index ? back : ""}<h2 class="sheet-title" id="${titleId}">${step.title}</h2></div>`;
+      return html`<section class="sheet-step" data-sheet-step="${step.stepName}"${index ? raw(" hidden") : ""}>${paneParts({ head: { words, end: closeButton }, body: sheetScroll(step.body), foot: sheetFoot(step.buttons) })}</section>`;
+    })}`;
+    return sheetMarkup({ ...options, title: options.steps[0]!.title, titleId: `${options.id}-${options.steps[0]!.stepName}-title`, body: html``, parts, closeButton });
+  }
+  if ("tabs" in options) {
+    const tabs = tabSwitch({ label: options.title, switchSize: "small", tabs: options.tabs.map((tab, index) => ({ label: tab.label, tabValue: tab.tabValue, isCurrent: !index })) });
+    const words = html`<h2 class="sheet-title" id="${options.id}-title">${options.title}</h2><div class="sheet-tabs">${tabs}</div>`;
+    const body = html`${options.tabs.map((tab, index) => html`<section class="sheet-tab" data-sheet-tab="${tab.tabValue}"${index ? raw(" hidden") : ""}>${tab.body}</section>`)}`;
+    return sheetMarkup({ ...options, body: html``, parts: paneParts({ head: { words, end: closeButton }, body: sheetScroll(body), foot: sheetFoot(options.buttons) }), closeButton });
+  }
+  return sheetMarkup({ ...options, closeButton });
 }
 
 export interface ConfirmSheetOptions {
@@ -595,108 +663,22 @@ export interface ConfirmSheetOptions {
   isShown?: boolean;
 }
 
-/** A confirm sheet: one sentence, the action and Cancel, before something that's hard to take back. A delete's is Delete button's own, the only red one. */
+/**
+ * A confirm sheet: one sentence, the action and Cancel, before something that's hard to take back. A delete's is Delete button's own, the
+ * only red one. Opened over another sheet, it's drawn a size smaller, in the middle of it, and closing it lands on the sheet beneath.
+ */
 export function confirmSheet(options: ConfirmSheetOptions): Raw {
-  return sheet({
+  return sheetMarkup({
+    closeButton: sheetClose("Close"),
     id: options.id,
     title: options.title,
     body: html`<p class="sheet-text">${options.text}</p>`,
-    closeLabel: "Close",
     action: options.action,
     buttons: [cutButton("Cancel", { type: "submit", formMethod: "dialog", isAutofocused: !options.isBusy }), runButton(options.confirmLabel, { type: "submit", isBusy: options.isBusy })],
     isShown: options.isShown,
+    isConfirm: true,
   });
 }
-
-/** Sheets: a button that names one (aria-controls, with no aria-expanded: that's a dropdown) opens it over the page; a press beside it closes it. Esc and its own buttons close it natively.
- *  A closed dialog leaves the top layer, and unless the browser keeps it there through the exit (CSS \`overlay\`, which iOS can claim
- *  without doing), it's drawn inside whatever holds it, far from where it was, or not at all. So every close (Esc, a dialog-method
- *  button, a press beside it, a script's close()) keeps it open while it leaves, in every browser, and only then closes it. */
-export const SHEET_SCRIPT = `/* sheets */(function () {
-  var close = HTMLDialogElement.prototype.close;
-  function isLeaving(sheet) { return sheet.open && sheet.matches(".sheet:not(.in-place)"); }
-  function leave(sheet, closeArguments) {
-    if (sheet.classList.contains("is-leaving")) return;
-    sheet.classList.add("is-leaving");
-    var timer = setTimeout(done, 400);
-    function end(event) { if (event.target === sheet && event.propertyName === "opacity") done(); }
-    function done() { clearTimeout(timer); sheet.removeEventListener("transitionend", end); if (!sheet.classList.contains("is-leaving")) return; sheet.classList.remove("is-leaving"); close.apply(sheet, closeArguments); }
-    sheet.addEventListener("transitionend", end);
-  }
-  // On a wide screen a sheet opened by a button hangs from it like a dropdown (zaismaPlace): toward the middle of the window, under it or above it,
-  // kept inside the window, and following it as the page scrolls or the window changes; a phone keeps its sheet at the foot (the CSS).
-  var wide = window.matchMedia("(min-width: 761px)"), anchors = new Map(), GAP_PX = 8, EDGE_PX = 16;
-  // The button it opens from is the one pressed a moment before (a page may open its sheet itself, after fetching what's in it); a sheet opened
-  // with no press behind it, or from a button inside a dropdown, which closes, stays centered.
-  var pressed = null, showModal = HTMLDialogElement.prototype.showModal;
-  document.addEventListener("click", function (event) { var button = event.target.closest && event.target.closest("button, a, [role='button']"); pressed = button ? { button: button, at: performance.now() } : null; }, true);
-  HTMLDialogElement.prototype.showModal = function () {
-    var wasOpen = this.open;
-    showModal.apply(this, arguments);
-    if (!wasOpen && this.matches(".sheet")) { hold(this); place(this); focusSheet(this); }
-  };
-  // Focus moves into a sheet as it opens (a screen reader and the keyboard need it there), but a ring only ever shows for the keyboard: opened by a
-  // press (a mouse, a touch), the sheet takes the focus itself, no ring, and Tab goes on to its first control; opened from the keyboard, the browser's
-  // choice (its first control, or the one marked autofocus) stands. Closing returns the focus to the opening button as the browser does.
-  function focusSheet(sheet) {
-    if (window.zaismaInput && window.zaismaInput.isKeyboard()) return;
-    sheet.setAttribute("tabindex", "-1");
-    sheet.focus({ preventScroll: true });
-  }
-  function hold(sheet) {
-    var opener = pressed && performance.now() - pressed.at < 2000 && pressed.button.isConnected ? pressed.button : null;
-    // A store panel stands at the screen's edge whatever opened it, a picture large in the middle, and a sheet in place stays where it is.
-    if (!opener || sheet.matches(".in-place, .placement-side, .placement-middle, .is-picture") || opener.closest("[popover]") || sheet.contains(opener)) return;
-    anchors.set(sheet, { opener: opener, rect: opener.getBoundingClientRect() });
-    sheet.classList.add("is-anchored");
-    // What loads in it after it opens (a screenshot) changes its size: it's placed again, so it stays inside the window.
-    if (resized) resized.observe(sheet);
-  }
-  function place(sheet) {
-    var held = anchors.get(sheet);
-    if (!held || !sheet.open || !wide.matches) return;
-    var rect = held.opener.isConnected ? held.opener.getBoundingClientRect() : held.rect;
-    if (rect.width || rect.height) held.rect = rect; else rect = held.rect;
-    var windowWidth = document.documentElement.clientWidth, windowHeight = window.innerHeight;
-    if (rect.bottom < 0 || rect.top > windowHeight || rect.right < 0 || rect.left > windowWidth) { sheet.close(); return; }
-    sheet.style.setProperty("--sheet-max-height", (windowHeight - 2 * EDGE_PX) + "px");
-    var spot = window.zaismaPlace(rect, { width: sheet.offsetWidth, height: sheet.offsetHeight }, { roomRect: { left: 0, top: 0, right: windowWidth, bottom: windowHeight }, gapPx: GAP_PX, edgePx: EDGE_PX });
-    sheet.style.setProperty("--sheet-left", Math.round(spot.leftPx) + "px");
-    sheet.style.setProperty("--sheet-top", Math.round(spot.topPx) + "px");
-    sheet.classList.toggle("is-above", spot.isAbove); sheet.classList.toggle("is-at-end", spot.isAtEnd);
-  }
-  function placeAll() { anchors.forEach(function (held, sheet) { place(sheet); }); }
-  var resized = window.ResizeObserver ? new ResizeObserver(function (entries) { entries.forEach(function (entry) { if (anchors.has(entry.target)) place(entry.target); }); }) : null;
-  window.addEventListener("resize", placeAll);
-  window.addEventListener("scroll", placeAll, { passive: true, capture: true });
-  document.addEventListener("close", function (event) {
-    var sheet = event.target;
-    if (!anchors.has(sheet)) return;
-    anchors.delete(sheet);
-    if (resized) resized.unobserve(sheet);
-    sheet.classList.remove("is-anchored", "is-above", "is-at-end");
-    sheet.style.removeProperty("--sheet-left"); sheet.style.removeProperty("--sheet-top"); sheet.style.removeProperty("--sheet-max-height");
-  }, true);
-  HTMLDialogElement.prototype.close = function () { if (isLeaving(this)) leave(this, arguments); else close.apply(this, arguments); };
-  document.addEventListener("cancel", function (event) { if (event.target.matches && isLeaving(event.target)) { event.preventDefault(); leave(event.target, []); } }, true);
-  document.addEventListener("submit", function (event) {
-    var method = (event.submitter && event.submitter.getAttribute("formmethod")) || event.target.getAttribute("method");
-    var sheet = event.target.closest("dialog");
-    if (!method || method.toLowerCase() !== "dialog" || !sheet || !isLeaving(sheet)) return;
-    event.preventDefault();
-    leave(sheet, event.submitter && event.submitter.hasAttribute("value") ? [event.submitter.value] : []);
-  });
-  document.addEventListener("click", function (event) {
-    var opener = event.target.closest && event.target.closest("[aria-controls]:not([aria-expanded])");
-    var named = opener && document.getElementById(opener.getAttribute("aria-controls"));
-    if (named && named.matches("dialog.sheet")) { event.preventDefault(); named.classList.remove("is-leaving"); if (!named.open) named.showModal(); return; }
-    var open = event.target.matches && event.target.matches("dialog.sheet[open]") ? event.target : null;
-    if (!open || !event.detail) return;
-    var r = open.getBoundingClientRect();
-    if (event.clientX < r.left || event.clientX > r.right || event.clientY < r.top || event.clientY > r.bottom) open.close();
-  });
-})();
-`;
 
 /** On a touch screen, a button shorter than a regular control reaches past its own box to a regular control's height, unseen: for `scope`'s buttons. */
 const touchReach = (scope: string) => `@media (pointer: coarse) {
@@ -715,7 +697,7 @@ const SHEET_STYLES = `
 .sheet.is-picture { max-width: min(var(--size-sheet-picture), calc(100% - 2 * var(--pad-pane))); }
 /* Over the page, fixed to the window whether it's opening, open or closing (it stops being :modal the moment it starts to close). */
 .sheet:not(.in-place) { position: fixed; inset: 0; z-index: 40; }
-/* The sheet itself takes the focus when a press opened it (SHEET_SCRIPT): no ring, a ring is for the keyboard. */
+/* The sheet itself takes the focus when a press opened it (LAYERS_SCRIPT): no ring, a ring is for the keyboard. */
 .sheet:focus-visible { outline: none; }
 .sheet:is(:not([open]), .is-leaving) { opacity: 0; transform: translateY(16px) scale(0.98); pointer-events: none; transition-timing-function: ease, ease, cubic-bezier(.4,0,1,1); }
 @starting-style { .sheet[open] { opacity: 0; transform: translateY(12px) scale(0.985); } }
@@ -734,7 +716,19 @@ const SHEET_STYLES = `
    the head and the buttons stay in view, and Close keeps its corner. */
 .sheet-in { display: flex; flex-direction: column; gap: var(--gap-block-block); max-height: inherit; min-height: 0; overflow-y: auto; margin: 0; }
 .sheet-in :where(p, .sheet-text) { max-width: var(--size-reading); }
-.sheet-in > .pane-parts, .sheet-in > .pane-parts > .pane-body { flex: 1 1 auto; min-height: 0; }
+.sheet-in > .pane-parts, .sheet-in > .pane-parts > .pane-body, .sheet-step > .pane-parts, .sheet-step > .pane-parts > .pane-body { flex: 1 1 auto; min-height: 0; }
+/* Steps: one task moving forward inside the same sheet, one step shown at a time (zaismaLayers.step). The one shown comes in from its side
+   (forward from the end, Back from the start) in 0.2s; the sheet keeps its tallest height on a wide screen, so it doesn't jump. */
+.sheet-in > .sheet-step:not([hidden]) { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+.sheet-step-head { display: flex; align-items: center; gap: var(--gap-control-row-boxes); }
+.sheet-step-head > .sheet-title { flex: 1; min-width: 0; }
+.sheet-step.is-from-end { animation: sheet-step-from-end 0.2s cubic-bezier(.2,.8,.2,1); }
+.sheet-step.is-from-start { animation: sheet-step-from-start 0.2s cubic-bezier(.2,.8,.2,1); }
+@keyframes sheet-step-from-end { from { opacity: 0; transform: translateX(16px); } }
+@keyframes sheet-step-from-start { from { opacity: 0; transform: translateX(-16px); } }
+/* Tabs in its head, under the title, swap what's in it: one tab's part shown at a time. */
+.sheet-tabs { display: flex; margin-top: var(--gap-words-control); }
+.sheet-tab:not([hidden]) { display: flex; flex-direction: column; gap: var(--gap-block-block); }
 .sheet-title { margin: 0; font: var(--type-section); color: var(--ink); text-wrap: balance; }
 /* The body scrolls across the sheet's whole width, so its rail sits where a pane's does, and what's in it keeps the frame gap. */
 .sheet-scroll { position: relative; flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; margin-inline: calc(-1 * var(--pad-frame)); }
@@ -752,7 +746,7 @@ ${touchReach(".sheet")}
   @starting-style { .sheet:not(.in-place)[open] { transform: translateY(40px); } }
 }
 @media (min-width: 761px) {
-  /* Opened by a button on a wide screen (SHEET_SCRIPT sets where): it hangs from the button like a dropdown, under it or above it where there's no
+  /* Opened by a button on a wide screen (LAYERS_SCRIPT sets where): it hangs from the button like a dropdown, under it or above it where there's no
      room, and comes in from the button's side. The page behind it is dimmed only a little, and not at all over a running game (at the foot). */
   .sheet.is-anchored:not(.in-place) { inset: auto; left: var(--sheet-left); top: var(--sheet-top); margin: 0; max-height: var(--sheet-max-height); transform-origin: 0 0; }
   .sheet.is-anchored.is-at-end:not(.in-place) { transform-origin: 100% 0; }
@@ -761,13 +755,15 @@ ${touchReach(".sheet")}
   .sheet.is-anchored:not(.in-place):is(:not([open]), .is-leaving) { transform: translateY(-8px) scale(0.98); }
   .sheet.is-anchored.is-above:not(.in-place):is(:not([open]), .is-leaving) { transform: translateY(8px) scale(0.98); }
   @starting-style { .sheet.is-anchored:not(.in-place)[open] { transform: translateY(-8px) scale(0.98); } .sheet.is-anchored.is-above:not(.in-place)[open] { transform: translateY(8px) scale(0.98); } }
-  /* A compact sheet is a dropdown's size: narrow, its head, body and the blocks in it closed up to the controls' gap. */
-  .sheet.is-compact { width: var(--size-sheet-compact); }
-  .sheet.is-compact .sheet-in, .sheet.is-compact .sheet-body { gap: var(--gap-control-stack); }
-  .sheet.is-compact .layout-stack > .stack-cell[class*="gap-top-"] { margin-top: var(--gap-control-stack); }
+  /* A compact sheet is a dropdown's size: narrow, its head, body and the blocks in it closed up to the controls' gap. A confirm opened over
+     another sheet is drawn the same size, in the middle of the screen. */
+  .sheet:is(.is-compact, [data-sheet-confirm].is-over-sheet) { width: var(--size-sheet-compact); }
+  .sheet:is(.is-compact, [data-sheet-confirm].is-over-sheet) :is(.sheet-in, .sheet-body) { gap: var(--gap-control-stack); }
+  .sheet:is(.is-compact, [data-sheet-confirm].is-over-sheet) .layout-stack > .stack-cell[class*="gap-top-"] { margin-top: var(--gap-control-stack); }
   .sheet.is-anchored:not(.in-place)::backdrop { background: rgba(6, 9, 14, 0.16); }
   .sheet.is-anchored.placement-foot::backdrop { background: transparent; }
 }
+@media (prefers-reduced-motion: reduce) { .sheet-step { animation: none; } }
 @media (prefers-reduced-motion: reduce) { .sheet { transition: var(--glass-transition), opacity 0.2s, overlay 0.2s allow-discrete, display 0.2s allow-discrete; } .sheet:not(.in-place):is(:not([open]), .is-leaving), .sheet.is-anchored:not(.in-place):is(:not([open]), .is-leaving), .sheet.is-anchored.is-above:not(.in-place):is(:not([open]), .is-leaving) { transform: none; } @starting-style { .sheet.is-anchored:not(.in-place)[open], .sheet.is-anchored.is-above:not(.in-place)[open] { transform: none; } } }
 `;
 
@@ -780,7 +776,7 @@ component({
   name: "Sheet",
   slug: "sheet",
   group: "panes",
-  summary: "A task that comes and goes over the page: report a game, block someone, add a key. Opened by a button that names it: on a phone it rises from the foot, on a wide screen it hangs from that button like a dropdown, under it or above it; Esc, its close button or a press beside it close it, and it drops away as it goes in every browser (it stays open while it leaves, so no browser drops it early or draws it out of place). Its title, Close and its buttons stay in view while the rest scrolls.",
+  summary: "A task that comes and goes over the page: report a game, block someone, add a key. Opened by a button that names it: on a phone it rises from the foot, on a wide screen it hangs from that button like a dropdown, under it or above it; Esc, its close button or a press beside it close it, and it drops away as it goes in every browser (it stays open while it leaves, so no browser drops it early or draws it out of place). Its title, Close and its buttons stay in view while the rest scrolls. A task of steps moves forward inside it with Back, and tabs in its head swap what's in it; a confirm opens a size smaller on top, never more than two deep.",
   styles: SHEET_STYLES,
   render: sheet,
   examples: [
@@ -799,6 +795,41 @@ component({
     {
       label: "Try it: at the foot, over a running game, which stays in view (a buy sheet)",
       markup: html`${cutButton("Buy the Founder's Pack", { type: "button", controls: "example-sheet-foot" })}${sheet({ id: "example-sheet-foot", title: "Founder's Pack", body: html`<p>The soundtrack, the Ember Keep castle and 1,200 crowns in Ashen Crown, on every device you sign in on.</p>`, closeLabel: "Close", action: "#sheet", placement: "foot", buttons: [cutButton("Not now", { type: "submit", formMethod: "dialog" }), runButton("Buy for $14.99", { type: "submit" })] })}`,
+    },
+    {
+      label: "Try it: a confirm over a sheet, a size smaller; a press beside it, Esc or Cancel close only the confirm",
+      markup: html`${cutButton("Your games", { type: "button", controls: "example-sheet-under" })}${sheet({
+        id: "example-sheet-under",
+        title: "Ashen Crown",
+        body: stack({ items: [{ kind: "words", markup: html`<p>In your games since March. Played 2 days ago.</p>` }, { kind: "control", markup: cutButton("Remove from your games", { type: "button", controls: "example-sheet-over", isFullWidth: true }) }] }),
+        closeLabel: "Close",
+      })}${confirmSheet({ id: "example-sheet-over", title: "Remove Ashen Crown?", text: "It leaves your games. Your saves stay on your account.", action: "#sheet", confirmLabel: "Remove" })}`,
+    },
+    {
+      label: "Try it: steps of one task in one sheet (Players, a player, Report), Back before a later step's title; a press beside it closes all of it",
+      markup: html`${cutButton("Players", { type: "button", icon: "people", controls: "example-sheet-steps" })}${sheet({
+        id: "example-sheet-steps",
+        closeLabel: "Close",
+        placement: "foot",
+        steps: [
+          { stepName: "players", title: "Players", body: stack({ items: [{ kind: "words", markup: html`<h3>In this room · 2</h3>` }, { kind: "control", markup: cutButton("Liam", { type: "button", isFullWidth: true, dataAttributes: { "sheet-step-to": "player" } }) }] }) },
+          { stepName: "player", title: "Liam", body: stack({ items: [{ kind: "control", markup: cutButton("Block", { type: "button", isFullWidth: true }) }, { kind: "control", markup: cutButton("Report", { type: "button", isFullWidth: true, dataAttributes: { "sheet-step-to": "report" } }) }] }) },
+          { stepName: "report", title: "Report Liam", body: reportBody("example-sheet-steps"), buttons: [runButton("Send report", { type: "submit" })] },
+        ],
+      })}`,
+    },
+    {
+      label: "Try it: tabs in its head that swap what's in it (a game's link and its QR code), at its tallest height",
+      markup: html`${cutButton("Share", { type: "button", icon: "share", controls: "example-sheet-tabs" })}${sheet({
+        id: "example-sheet-tabs",
+        title: "Share Ashen Crown",
+        closeLabel: "Close",
+        isCompact: true,
+        tabs: [
+          { label: "Link", tabValue: "link", body: codeField({ id: "example-sheet-tabs-link", label: "Link", code: "https://zaisma.com/g/ashen-crown" }) },
+          { label: "QR code", tabValue: "qr-code", body: qrCode({ id: "example-sheet-tabs-qr", label: "QR code for this link", caption: "Scan to play", imageUrl: STAND_IN_QR_CODE, isCompact: true }) },
+        ],
+      })}`,
     },
   ],
 });
@@ -946,7 +977,7 @@ component({
   name: "Confirm sheet",
   slug: "confirm-sheet",
   group: "panes",
-  summary: "One sentence, the action and Cancel, before something that's hard to take back: signing out everywhere, ending a room. A delete's confirm is Delete button's own, the only red one.",
+  summary: "One sentence, the action and Cancel, before something that's hard to take back: signing out everywhere, ending a room. Over another sheet it opens a size smaller, and closing it lands on the sheet beneath. A delete's confirm is Delete button's own, the only red one.",
   styles: "",
   render: confirmSheet,
   examples: [
@@ -958,6 +989,11 @@ component({
 
 export interface NoticeOptions {
   text: string;
+  /**
+   * How it waits its turn (zaismaLayers): "information" (the default) leaves by itself when it's done and waits behind asks; "urgent" goes
+   * over anything, sheets included, and is read out at once (role alert), like a problem.
+   */
+  noticeUrgency?: "information" | "urgent";
   /** "done": something just went through (Saved), and it leaves by itself after 4 s. "problem": something didn't, and it stays until it's closed. */
   tone: "done" | "problem";
   /** Where its Undo posts, for something done that can be taken back (Removed from your games): it shows Undo, and stays 8 s rather than 4. */
@@ -969,8 +1005,9 @@ export interface NoticeOptions {
 /** A notice: a moment that just happened ("Saved", "Couldn't save: you're offline"), in the header's glass just under the header. */
 export function notice(options: NoticeOptions): Raw {
   const isProblem = options.tone === "problem";
+  const noticeUrgency = options.noticeUrgency ?? "information";
   const undo = options.undoAction === undefined ? "" : html`<form class="notice-undo" method="post" action="${options.undoAction}">${textButton("Undo", { type: "submit" })}</form>`;
-  return html`<div class="notice glass ${options.tone}${options.isInPlace ? " in-place" : ""}" role="${isProblem ? "alert" : "status"}" data-notice="${options.tone}"${undo ? raw(" data-notice-undo") : ""} data-glass data-glass-corners="menu">${EDGE}${icon(isProblem ? "warning" : "check")}<span class="notice-text">${options.text}</span>${undo}${isProblem ? cutButton("Close", { type: "button", icon: "close", isLabelHidden: true, isSmall: true }) : ""}</div>`;
+  return html`<div class="notice glass ${options.tone}${options.isInPlace ? " in-place" : ""}" role="${isProblem || noticeUrgency === "urgent" ? "alert" : "status"}" data-notice="${options.tone}" data-notice-urgency="${noticeUrgency}"${undo ? raw(" data-notice-undo") : ""} data-glass data-glass-corners="menu">${EDGE}${icon(isProblem ? "warning" : "check")}<span class="notice-text">${options.text}</span>${undo}${isProblem ? cutButton("Close", { type: "button", icon: "close", isLabelHidden: true, isSmall: true }) : ""}</div>`;
 }
 
 /**
@@ -992,48 +1029,11 @@ export const STARTED_LOW_SCRIPT = `/* panes started low */(function () {
 })();
 `;
 
-/**
- * Notices: one that's done leaves after 4 s, or 8 s with Undo (it waits while you point at it); a problem leaves when its close button is
- * pressed. Floating ones stack under the header, newest last, a stacked gap apart, and close up as one leaves. Notices a page adds later
- * are watched too.
- */
-export const NOTICE_SCRIPT = `/* notices */(function () {
-  var STAY_MS = 4000, UNDO_STAY_MS = 8000, LEAVE_MS = 300;
-  var GAP_PX = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--gap-control-stack")) || 8;
-  // Each floating notice sits under the ones before it.
-  function stack() {
-    var shift = 0;
-    document.querySelectorAll("[data-notice]:not(.in-place)").forEach(function (el) {
-      el.style.setProperty("--notice-shift", shift + "px");
-      if (!el.classList.contains("is-leaving")) shift += el.offsetHeight + GAP_PX;
-    });
-  }
-  // One in place (the gallery's still copy) comes back a moment after it leaves, so it can be tried again.
-  function leave(el) {
-    if (el.classList.contains("is-leaving")) return; el.classList.add("is-leaving");
-    if (el.classList.contains("in-place")) setTimeout(function () { el.classList.remove("is-leaving"); }, 1600); else setTimeout(function () { el.remove(); stack(); }, LEAVE_MS);
-  }
-  function wait(el) { clearTimeout(el.noticeTimer); el.noticeTimer = setTimeout(function () { leave(el); }, el.hasAttribute("data-notice-undo") ? UNDO_STAY_MS : STAY_MS); }
-  function arrive(el) {
-    if (el.noticeArrived || el.classList.contains("in-place")) return; el.noticeArrived = true;
-    stack();
-    if (el.getAttribute("data-notice") !== "done") return;
-    wait(el);
-    el.addEventListener("pointerenter", function () { clearTimeout(el.noticeTimer); });
-    el.addEventListener("pointerleave", function () { wait(el); });
-  }
-  function find(root) { if (!root.querySelectorAll) return; if (root.matches("[data-notice]")) arrive(root); root.querySelectorAll("[data-notice]").forEach(arrive); }
-  find(document.body);
-  window.zaismaWatch.page(function (changes) { changes.forEach(function (change) { change.addedNodes.forEach(find); }); });
-  document.addEventListener("click", function (event) { var close = event.target.closest && event.target.closest("[data-notice] > .cut-btn"); if (close) leave(close.closest("[data-notice]")); });
-})();
-`;
-
 component({
   name: "Notice",
   slug: "notice",
   group: "panes",
-  summary: "A moment that just happened, just under the header: Saved, Copied, or what went wrong. A done one leaves by itself after 4 seconds (8 with Undo); a problem stays until it's closed. Two at once stack.",
+  summary: "A moment that just happened, just under the header: Saved, Copied, or what went wrong. A done one leaves by itself after 4 seconds (8 with Undo), waiting while it's pointed at or touched; a problem stays until it's closed. Up to three stack, and the rest wait their turn (zaismaLayers.say makes one from a page's script).",
   styles: `
 /* A notice: a small slab of the header's glass floating just under the header, in the middle, under any notices before it. It comes down a
    little as it arrives and fades up as it leaves. A done one carries a green tick, a problem the warning in the marked color and a close
@@ -1064,6 +1064,10 @@ ${touchReach(".notice")}
     { label: "A problem", markup: notice({ text: "Couldn't save: you're offline. Your changes are kept here.", tone: "problem", isInPlace: true }) },
     { label: "Done, with Undo", markup: notice({ text: "Removed Ashen Crown from your games", tone: "done", undoAction: "#notice", isInPlace: true }) },
     { label: "Two at once", markup: html`<div class="notice-stack">${notice({ text: "Copied", tone: "done", isInPlace: true })}${notice({ text: "Couldn't reach Zaisma. Check your connection.", tone: "problem", isInPlace: true })}</div>` },
+    {
+      label: "Three at once, the most a page shows: a fourth waits until one leaves",
+      markup: html`<div class="notice-stack">${notice({ text: "Saved", tone: "done", isInPlace: true })}${notice({ text: "Copied", tone: "done", isInPlace: true })}${notice({ text: "Couldn't reach Zaisma. Check your connection.", tone: "problem", isInPlace: true })}</div>`,
+    },
   ],
 });
 
