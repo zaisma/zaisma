@@ -6,17 +6,19 @@ import { grid, paneParts, row, stack } from "../../apps/site/src/components/layo
 import { table } from "../../apps/site/src/components/data.ts";
 import { gameCard, playingCard } from "../../apps/site/src/components/playing.ts";
 import { dropdown, sheet } from "../../apps/site/src/components/panes.ts";
-import { cutField } from "../../apps/site/src/components/inputs.ts";
+import { LAYOUT_RULE_TIERS } from "../../apps/site/src/components/layout-measure.ts";
+import layoutMeasureSource from "../../apps/site/src/components/layout-measure.ts?raw";
+import layoutCheckSource from "../../scripts/layout-check.mjs?raw";
 // @ts-expect-error: a Node script with no types of its own.
-import { checkPages, chromeToRun, LAYOUT_CHECK_PAGES, LAYOUT_CHECK_SIZES, LAYOUT_CHECK_THEMES, layoutCheckScreens, layoutCheckShard, previewSites } from "../../scripts/layout-check.mjs";
+import { checkPages, chromeToRun, LAYOUT_CHECK_RUNS, layoutCheckShard, previewSites } from "../../scripts/layout-check.mjs";
 
 /*
- * The measuring check (scripts/layout-check.mjs, npm run layout:check) on this checkout's preview, in headless Chrome: every page in
- * CHECKED_PAGES, on a phone and a laptop (every screen and 200% text with LAYOUT_CHECK_SCREENS=all, as GitHub's check runs it), light and
- * dark, with nothing out of line; and pages made to break each rule, which it must catch by name. GitHub's check runs it in its own jobs (Layout check, .github/workflows/check.yml) with LAYOUT_CHECK=1, on the
- * preview started from a snapshot of its test data. Elsewhere it runs only on a preview that's already up, and says so when there's none.
- * GitHub's check splits the pages across runners: LAYOUT_CHECK_SHARD="2/3" measures the second of three shares (layoutCheckShard),
- * and the first share also measures the pages broken on purpose.
+ * The measuring check (scripts/layout-check.mjs, npm run layout:check) on this checkout's preview, in headless Chrome: a run's pages
+ * (LAYOUT_CHECK_RUNS: a pull request's unless LAYOUT_CHECK_RUN says gallery or sweep), with nothing out of line; and pages made to break
+ * each rule, which it must catch by name. GitHub's check runs it in its own job (Layout check, .github/workflows/check.yml) with
+ * LAYOUT_CHECK=1, on the preview started from a snapshot of its test data. Elsewhere it runs only on a preview that's already up, and says
+ * so when there's none. LAYOUT_CHECK_SHARD="2/4" measures the second of four shares (layoutCheckShard), and the first share also measures
+ * the pages broken on purpose.
  */
 
 const isRequired = process.env.LAYOUT_CHECK === "1";
@@ -24,19 +26,39 @@ const sites = previewSites({ isStarting: isRequired }) as { site: string; signIn
 if (!sites) console.log("No preview is running, so the layout check is skipped: npm run preview:start, then run this again (LAYOUT_CHECK=1 starts it).");
 
 type Failure = { page: string; size: string; theme: string; check: string; element: string; said: string };
+type LayoutRun = { pages: { name: string; isGallery?: boolean }[]; sizes: unknown[]; themes: string[]; tiersOf: (page: unknown) => string[] };
+const RUNS = LAYOUT_CHECK_RUNS as Record<"pull_request" | "gallery" | "sweep", LayoutRun>;
 const shard = process.env.LAYOUT_CHECK_SHARD;
-const sizes = (process.env.LAYOUT_CHECK_SCREENS === "all" ? layoutCheckScreens("all") : LAYOUT_CHECK_SIZES) as unknown[];
+const layoutRun = RUNS[(process.env.LAYOUT_CHECK_RUN ?? "pull_request") as keyof typeof RUNS];
 /** A laptop, for the pages broken on purpose. */
 const LAPTOP = [{ name: "Laptop", widthPx: 1440, heightPx: 900, isPhone: false, hasTouch: false, isRunnerChecked: true, textPercent: 100 }];
-const pages = (shard ? layoutCheckShard(LAYOUT_CHECK_PAGES, shard) : LAYOUT_CHECK_PAGES) as unknown[];
+const pages = (shard ? layoutCheckShard(layoutRun.pages, shard) : layoutRun.pages) as unknown[];
 const isFirstShare = !shard || shard.startsWith("1/");
+
+describe("the measured rules", () => {
+  it("each have a tier, so a new rule can't land without one, and every tier names a rule that's measured", () => {
+    const names = [...layoutMeasureSource.matchAll(/report\("([^"]+)"/g), ...layoutCheckSource.matchAll(/check: "([^"$]+)"/g)].map((match) => match[1]!);
+    expect(names.filter((name) => !(name in LAYOUT_RULE_TIERS))).toEqual([]);
+    expect(Object.keys(LAYOUT_RULE_TIERS).filter((name) => !names.includes(name))).toEqual([]);
+  });
+
+  it("are measured as each run says: a pull request's every page for its arrangement on two screens in light, the gallery's for its components too", () => {
+    expect(RUNS.pull_request.themes).toEqual(["light"]);
+    expect(RUNS.pull_request.pages.some((page) => / (long names|empty|full)$/.test(page.name))).toBe(false);
+    expect(RUNS.pull_request.tiersOf({ name: "Home" })).toEqual(["page"]);
+    expect(RUNS.pull_request.tiersOf({ name: "Gallery: layout", isGallery: true })).toEqual(["gallery", "page"]);
+    expect(RUNS.gallery.pages.every((page) => page.isGallery)).toBe(true);
+    expect(RUNS.sweep.tiersOf({ name: "Home" })).toEqual(["gallery", "page", "sweep"]);
+    expect(RUNS.sweep.sizes.length).toBeGreaterThan(RUNS.pull_request.sizes.length);
+  });
+});
 
 describe.skipIf(!sites)("the layout check", () => {
   it("finds nothing out of line on any page, at any size or theme", async () => {
-    const { failures, checkedCount, secondsByPage } = (await checkPages({ ...sites!, pages, sizes, chromePath: await chromeToRun() })) as { failures: Failure[]; checkedCount: number; secondsByPage: Record<string, number> };
+    const { failures, checkedCount, secondsByPage } = (await checkPages({ ...sites!, pages, sizes: layoutRun.sizes, themes: layoutRun.themes, tiersOf: layoutRun.tiersOf, chromePath: await chromeToRun() })) as { failures: Failure[]; checkedCount: number; secondsByPage: Record<string, number> };
     // For PAGE_COSTS_SEC in scripts/layout-check.mjs, when the shares stop finishing together.
     console.log(`Seconds in a tab per page: ${JSON.stringify(secondsByPage)}`);
-    expect(checkedCount).toBe(pages.length * sizes.length * LAYOUT_CHECK_THEMES.length);
+    expect(checkedCount).toBe(pages.length * layoutRun.sizes.length * layoutRun.themes.length);
     expect(failures.map((failure) => `${failure.page} ${failure.size} ${failure.theme}: ${failure.check}: ${failure.element}: ${failure.said}`)).toEqual([]);
   }, 900_000);
 
@@ -131,24 +153,27 @@ describe.skipIf(!sites)("the layout check", () => {
     expect(said.filter((line) => /Fine menu|Choice 1"/.test(line) && /pane (taller|past|that overflows)/.test(line) && !/400px/.test(line)).length, said.join("\n")).toBeLessThan(2);
   }, 300_000);
 
-  it.skipIf(!isFirstShare)("catches the Laws of UX it can measure: proximity, common region, similarity, hierarchy, choices, chunking and an answer within 400 ms", async () => {
+  it.skipIf(!isFirstShare)("measures a gallery rule on the gallery's pages and skips it on a page in a pull request's run", async () => {
+    // A control off its size class's height (a gallery rule), in place of a gallery page's own and of the example page's.
+    const offSize = fullPane(cutButton("Too short", { type: "button" }).html.replace('<span class="face cut-raised"', '<span style="height:40px" class="face cut-raised"'));
+    const measuredOn = async (page: Record<string, unknown>) => {
+      const { failures } = (await checkPages({ ...sites!, pages: [{ ...page, markup: offSize }], sizes: LAPTOP, themes: ["light"], tiersOf: RUNS.pull_request.tiersOf, chromePath: await chromeToRun() })) as { failures: Failure[] };
+      return failures.filter((failure) => /size class/.test(failure.check) && /Too short/.test(failure.element)).length;
+    };
+    expect(await measuredOn({ name: "Gallery: layout", path: "/design/layout", mainActionShows: "nowhere", isGallery: true })).toBeGreaterThan(0);
+    expect(await measuredOn({ name: "Broken on purpose", path: "/design/example", mainActionShows: "nowhere" })).toBe(0);
+  }, 300_000);
+
+  it.skipIf(!isFirstShare)("catches the Laws of UX it can measure: proximity, common region, similarity and an answer within 400 ms", async () => {
     const hugging = fullPane(stack({ items: [{ kind: "block", markup: raw(table({ caption: "Rooms", columns: [{ label: "Room" }], rows: [["North"]], whenEmpty: html`<p>No rooms.</p>` }).html) }, { kind: "words", markup: html`<h2>Hugging the table</h2>` }, { kind: "words", markup: html`<p>What it names</p>` }] }).html.replace("<h2>Hugging the table</h2>", '<h2 style="margin-top:-20px;margin-bottom:30px">Hugging the table</h2>'));
     const splitGroup = fullPane(html`<p>Before</p><h2>Left alone</h2>`.html) + fullPane("<p>Its group, on another pane</p>");
     const mixedGrid = fullPane(grid({ itemSize: "card", whenEmpty: html`<p>None.</p>`, items: ["One", "Two"].map((title) => ({ kind: "block" as const, markup: glassPane({ paneWidth: "full", body: html`<p>${title}</p>` }) })) }).html.replace('<div class="grid-cell is-block">', '<div class="grid-cell is-block" style="max-width:120px">'));
-    const twoTitles = fullPane('<h1>First title</h1><h1>Second title</h1><h4>Skipped a level</h4>');
-    const sixEqual = fullPane(row({ widths: "fit", items: ["A", "B", "C", "D", "E", "F"].map((label) => ({ kind: "control" as const, markup: cutButton(label, { type: "button" }) })) }).html);
-    const longMenu = dropdown({ id: "fixture-long-menu", label: "Ten choices", items: choices(10), isOpen: true }).html.replace('class="dropdown glass"', 'style="top:8px;left:8px" class="dropdown glass"');
-    const eightFields = fullPane(stack({ items: Array.from({ length: 8 }, (_, index) => ({ kind: "control" as const, markup: cutField({ id: `fixture-field-${index}`, name: `field_${index}`, label: `Field ${index + 1}`, type: "text" }) })) }).html);
     const deaf = fullPane('<button type="button" aria-controls="nothing-at-all">Answers nothing</button>');
-    const said = await brokenOnLaptop(hugging + splitGroup + mixedGrid + twoTitles + sixEqual + longMenu + eightFields + deaf);
+    const said = await brokenOnLaptop(hugging + splitGroup + mixedGrid + deaf);
     for (const [check, named] of [
       [/words nearer the block before than their own/, /Hugging the table/],
       [/one group on two surfaces/, /Left alone/],
       [/one kind at different sizes/, /Two|One/],
-      [/more than one title/, /Second title/],
-      [/headings out of order/, /Skipped a level/],
-      [/too many equal choices/, /A|Ten choices|Choice/],
-      [/a long form in one piece/, /Field 8/],
       [/no answer within 400 ms/, /Answers nothing/],
     ] as const) expect(said.some((line) => check.test(line) && named.test(line)), `${check}\n${said.join("\n")}`).toBe(true);
   }, 300_000);

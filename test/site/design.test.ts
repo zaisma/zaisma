@@ -1,5 +1,5 @@
 import { env, SELF } from "cloudflare:test";
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { createAccount, createGame, personOwner } from "@zaisma/core";
 import "../../apps/site/src/index.ts";
 import { COMPONENTS, COMPONENT_STYLES } from "../../apps/site/src/components/index.ts";
@@ -13,13 +13,14 @@ import * as data from "../../apps/site/src/components/data.ts";
 import * as layoutComponents from "../../apps/site/src/components/layout.ts";
 import { COLUMNS_STYLES, COLUMN_LEAST_PX, GRID_STYLES, PANE_PARTS_STYLES, ROW_STYLES, STACK_STYLES, TRACK_STYLES, columns, grid, paneParts, row, stack, type LayoutItem } from "../../apps/site/src/components/layout.ts";
 import { pageStyles } from "../../apps/site/src/page-styles.ts";
-import { CHECKED_PAGES, LOCAL_SCREEN_NAMES, SCREEN_SIZES, STRESS_ACCOUNTS, TEXT_SCREEN_NAMES, UNIQUE_WORD, type StepToTake } from "../../apps/site/src/components/checked-pages.ts";
+import { CHECKED_PAGES, LOCAL_SCREEN_NAMES, SCREEN_SIZES, STRESS_ACCOUNTS, TEXT_SCREEN_NAMES, UNIQUE_WORD, stressBaseName, type StepToTake } from "../../apps/site/src/components/checked-pages.ts";
 import { layout, type LayoutOptions } from "../../apps/site/src/html.ts";
-import { PAGE_SHEETS, STEEL_PAGE_SHEETS, UNSTYLED_HOOKS, pageProblems } from "./page-rules.ts";
+import { PAGE_SHEETS, STEEL_PAGE_SHEETS, UNSTYLED_HOOKS, pageProblems, pageStructureProblems } from "./page-rules.ts";
 import { BACKDROP_SCRIPT, glassPane, pageSettingsAttributes } from "../../apps/site/src/components/foundations.ts";
 import { GLASS_LIGHT_PASS, MOST_GLASS_PANE_COUNT } from "../../apps/site/src/components/shaders.ts";
 import { SHADER_HEAD, SHADER_LIMITS, SHADER_UPSCALE_SOURCE } from "@zaisma/core";
 import { html } from "../../apps/site/src/html.ts";
+import { raw } from "../../apps/site/src/markup.ts";
 import foundationsSource from "../../apps/site/src/components/foundations.ts?raw";
 import tokensSource from "../../apps/site/src/components/tokens.ts?raw";
 import iconsSource from "../../apps/site/src/components/icons.ts?raw";
@@ -829,6 +830,145 @@ describe("pages", () => {
       ".control-row is a component's inside, not for a page",
     ]);
   });
+
+  // The game page as the design test's own game shows it, and the gallery's pages, besides the states above: the rules below hold on each.
+  const STRUCTURE_PATHS = ["/g/design-farm", ...CHECKED_PAGES.filter((each) => each.isGallery).map((each) => each.path)];
+
+  it("keep the rules their markup can't break unseen: one title, headings in order, no capitals, no token's name, few equal choices, fields in groups, one runner", async () => {
+    for (const state of PUBLIC_STATES) {
+      const text = state.stepsToTake ? await pageAfterSteps(state.path, state.stepsToTake) : (await page(state.path)).text;
+      if (text !== null) expect(await pageStructureProblems(text), state.name).toEqual([]);
+    }
+    for (const path of STRUCTURE_PATHS) {
+      const { response, text } = await page(path);
+      expect(response.status, path).toBe(200);
+      expect(await pageStructureProblems(text), path).toEqual([]);
+    }
+  });
+
+  it("list what depends on who's looking as each stress account too: a signed-in page with a list has its long, empty and full states", async () => {
+    // Signed in as the design test's developer, with a session as Supabase signs one (auth.ts reads its keys from Supabase's address).
+    const keys = (await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"])) as CryptoKeyPair;
+    const publicKey = await crypto.subtle.exportKey("jwk", keys.publicKey);
+    const realFetch = globalThis.fetch;
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(input instanceof Request ? input.url : String(input));
+      if (url.href === "https://supabase.test/auth/v1/.well-known/jwks.json") return Response.json({ keys: [{ ...publicKey, kid: "design-test-key", alg: "ES256" }] });
+      return realFetch(input, init);
+    });
+    const encode = (given: ArrayBuffer | string) => btoa(typeof given === "string" ? given : String.fromCharCode(...new Uint8Array(given))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    const nowSec = Math.floor(Date.now() / 1000);
+    const head = `${encode(JSON.stringify({ alg: "ES256", kid: "design-test-key", typ: "JWT" }))}.${encode(JSON.stringify({ sub: "design-dev", email: "", aud: "authenticated", iss: "https://supabase.test/auth/v1", exp: nowSec + 3600, iat: nowSec, amr: [{ method: "password", timestamp: nowSec }] }))}`;
+    const cookie = `__Host-zaisma=${head}.${encode(await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, keys.privateKey, new TextEncoder().encode(head)))}~r-design-dev`;
+    try {
+      const signedIn = CHECKED_PAGES.filter((each) => each.account && !each.isGallery && !each.isOnSignInSite && !each.setUp && !each.stepsToTake && !each.shownStateName && !needsPreviewGames(each));
+      expect(signedIn.length).toBeGreaterThan(2);
+      for (const state of signedIn) {
+        const text = await (await SELF.fetch(`${SITE}${state.path}`, { headers: { cookie } })).text();
+        const said = text.match(/<meta name="checked-page" content="([^"]*)">/)?.[1]?.replaceAll("&#39;", "'");
+        // A page that sends this account on elsewhere isn't the state: its list, if it has one, is read where it shows.
+        if (said !== state.name) continue;
+        const main = text.slice(text.indexOf("<main"), text.lastIndexOf("</main>"));
+        if (!main.includes('class="when-empty"')) continue;
+        const missing = STRESS_ACCOUNTS.map((stress) => `${stressBaseName(state.name)}, ${stress.nameEnding}`).filter((name) => !CHECKED_PAGES.some((each) => each.name === name));
+        expect(missing, `${state.name} lists what depends on who's looking: CHECKED_PAGES needs these (checked-pages.ts, STRESS_ACCOUNTS)`).toEqual([]);
+      }
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
+describe("page structure", () => {
+  // Each rule a page's markup can't break unseen (page-rules.ts, pageStructureProblems): a page made to break it, named by the rule and
+  // what breaks it, and the same page made right, which passes.
+  const onPage = (body: string) => `<!doctype html><html><body><header class="top">${actions.runButton("Sign in").html}</header><main>${body}</main></body></html>`;
+  const paneOf = (body: string) => glassPane({ paneWidth: "full", body: html`${raw(body)}` }).html;
+  const problemsOn = async (body: string) => pageStructureProblems(onPage(body));
+
+  it("finds a second title and a heading that skips a level", async () => {
+    expect(await problemsOn(paneOf("<h1>First title</h1><h1>Second title</h1><h4>Skipped a level</h4>"))).toEqual([
+      'more than one title: h1 "Second title", a second h1 after h1 "First title"',
+      'headings out of order: h4 "Skipped a level", an h4 after an h1',
+    ]);
+    expect(await problemsOn(paneOf("<h1>The title</h1><h2>A part</h2><h3>Inside it</h3>"))).toEqual([]);
+  });
+
+  it("finds words in capitals and a token's name outside code", async () => {
+    expect(await problemsOn(paneOf("<p>PLAY IT NOW</p><p>Set --pad-pane here</p>"))).toEqual([
+      'words in capitals: p "PLAY IT NOW"',
+      'a token\'s name outside code: p "Set --pad-pane here", set it in code',
+    ]);
+    expect(await problemsOn(paneOf("<p>Play it now, with an MCP key</p><p>Set <code>--pad-pane</code> here</p>"))).toEqual([]);
+  });
+
+  it("finds more equal choices side by side than five, and a menu of more than nine with no groups", async () => {
+    const choiceRow = (count: number) => row({ widths: "fit", items: Array.from({ length: count }, (_, index) => ({ kind: "control" as const, markup: actions.cutButton(`Choice ${index + 1}`, { type: "button" }) })) }).html;
+    const menu = (count: number) => panes.dropdown({ id: `menu-${count}`, label: `${count} choices`, items: Array.from({ length: count }, (_, index) => ({ label: `Item ${index + 1}`, href: "#" })), isOpen: true }).html;
+    const found = await problemsOn(paneOf(choiceRow(6)) + menu(10));
+    expect(found.some((problem) => /^too many equal choices: div\.layout-row.*6 side by side, at most 5$/.test(problem)), found.join("\n")).toBe(true);
+    expect(found.some((problem) => /^too many equal choices: div\.dropdown.*10 in one menu with no groups, at most 9$/.test(problem)), found.join("\n")).toBe(true);
+    expect(await problemsOn(paneOf(choiceRow(5)) + menu(9))).toEqual([]);
+  });
+
+  it("finds more than seven fields in a pane with no heading between them", async () => {
+    const fields = (count: number) => Array.from({ length: count }, (_, index) => ({ kind: "control" as const, markup: inputs.cutField({ id: `field-${index}`, name: `field_${index}`, label: `Field ${index + 1}`, type: "text" }) }));
+    const found = await problemsOn(paneOf(stack({ items: fields(8) }).html));
+    expect(found.length, found.join("\n")).toBe(1);
+    expect(found[0]).toMatch(/^a long form in one piece: .*Field 8.*, 8 fields with no heading between them, at most 7$/);
+    expect(await problemsOn(paneOf(stack({ items: [...fields(4), { kind: "words" as const, markup: html`<h2>More</h2>` }, ...fields(4)] }).html))).toEqual([]);
+  });
+
+  it("finds two runners in one state, leaving the header's Sign in and what a sheet holds out", async () => {
+    const found = await problemsOn(paneOf(actions.runButton("Play").html + actions.runButton("Play again").html));
+    expect(found, found.join("\n")).toEqual([expect.stringMatching(/^two runners in view: .*"Play again" beside .*"Play"$/)]);
+    expect(await problemsOn(paneOf(actions.runButton("Play").html) + panes.sheet({ id: "more", title: "More", body: actions.runButton("Buy"), closeLabel: "Close" }).html)).toEqual([]);
+  });
+
+  // What these rules ask of the components' styles, which every page's look comes from (a page has no styles of its own).
+  const STYLES = () => COMPONENT_STYLES() + GALLERY_STYLES;
+  const rulesOf = (css: string) => [...css.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/([^{}]+)\{([^{}]*)\}/g)].map(([, selectors = "", declarations = ""]) => ({ selectors: selectors.trim(), declarations }));
+
+  it("set no words in capitals and no words in the title's type: a page's one title is its h1", () => {
+    expect(rulesOf(STYLES()).filter((rule) => /text-transform:\s*uppercase|font-variant(-caps)?:\s*(all-)?small-caps/.test(rule.declarations)).map((rule) => rule.selectors)).toEqual([]);
+    expect(rulesOf(STYLES()).filter((rule) => /font:\s*var\(--type-title\)/.test(rule.declarations)).map((rule) => rule.selectors)).toEqual([]);
+  });
+
+  it("set words orange only on what you act on: a link or a button", () => {
+    // The orange tokens, and every token made from them.
+    const orange = new Set(["--run", "--run-hi", "--run-lo"]);
+    const tokens = [...STYLES().matchAll(/(--[a-z0-9-]+):\s*([^;}]+)/g)];
+    for (let size = 0; size !== orange.size; ) { size = orange.size; for (const [, name = "", value = ""] of tokens) if ([...orange].some((each) => value.includes(`var(${each})`))) orange.add(name); }
+    const ACTED_ON = /(^|[\s>+~])(a|button|summary|label)\b|\.(run|link|cut-btn|glass-btn|guest-btn|text-btn|danger)\b|\[role="?(tab|button)/;
+    const problems = rulesOf(STYLES()).flatMap((rule) => [...rule.declarations.matchAll(/(?:^|[;\s])color:\s*([^;]+)/g)]
+      .filter(([, value = ""]) => [...orange].some((each) => value.includes(`var(${each})`)))
+      .flatMap(() => rule.selectors.split(",").map((selector) => selector.trim()).filter((selector) => !ACTED_ON.test(selector.split(/\s+/).pop()!))));
+    expect(problems).toEqual([]);
+  });
+
+  it("keep a heading never bigger than the one it's under: in one place, a lower level's type is never a larger size", () => {
+    const remOf = (token: string) => Number(new RegExp(`${token}:\\s*\\d+\\s+([\\d.]+)rem`).exec(tokensSource)?.[1] ?? NaN);
+    const sizes = rulesOf(STYLES()).flatMap((rule) => {
+      const token = /font:\s*var\((--type-[a-z]+)\)/.exec(rule.declarations)?.[1];
+      if (!token) return [];
+      return rule.selectors.split(/,(?![^(]*\))/).flatMap((selector) => {
+        const heading = /(?:^|\s)(?::is\(([^)]*)\)|(h[1-6]))$/.exec(selector.trim());
+        if (!heading) return [];
+        const levels = heading[1] ? heading[1].split(",").map((each) => each.trim()).filter((each) => /^h[1-6]$/.test(each)) : [heading[2]!];
+        return levels.map((level) => ({ place: selector.trim().slice(0, heading.index).trim(), level: Number(level[1]), rem: remOf(token) }));
+      });
+    });
+    expect(sizes.length).toBeGreaterThan(2);
+    const problems = sizes.flatMap((lower) => sizes.filter((upper) => upper.place === lower.place && upper.level < lower.level && lower.rem > upper.rem).map((upper) => `${lower.place} h${lower.level} at ${lower.rem}rem is bigger than its h${upper.level} at ${upper.rem}rem`));
+    expect(problems).toEqual([]);
+  });
+
+  it("keep a switch's tabs and a step flow's steps on one line: neither wraps", () => {
+    const rules = rulesOf(STYLES()).filter((rule) => /\.(tab-switch|step-line)(?![\w-])[^\s,]*\s*(,|$)/.test(rule.selectors) && !/\.vertical/.test(rule.selectors));
+    expect(rules.filter((rule) => /flex-wrap:\s*wrap|grid-auto-flow:\s*row/.test(rule.declarations)).map((rule) => rule.selectors)).toEqual([]);
+    expect(rules.find((rule) => rule.selectors === ".tab-switch")?.declarations).toMatch(/display: flex;/);
+    expect(rules.find((rule) => rule.selectors === ".step-line")?.declarations).toMatch(/grid-auto-flow: column;/);
+  });
 });
 
 describe("layout", () => {
@@ -847,6 +987,30 @@ describe("layout", () => {
       const selector = selectors.replace(/\/\*[\s\S]*?\*\//g, "").trim().split("\n").pop()!.trim();
       return [...declarations.matchAll(/(?:^|[;\s])(font(?:-size)?|--type-[a-z]+|--control-height-[a-z]+):\s*([^;}]+)/g)].filter(([, , value = ""]) => /\d(px)/.test(value) && !IN_PX.has(selector)).map(([, property, value]) => `${selector} | ${property}: ${value!.trim()}`);
     });
+    expect(problems).toEqual([]);
+  });
+
+  it("changes only colours in dark: a rule for dark sets colour, background, border colour, shadow, filter, opacity or a glass variable", () => {
+    // The one rule that swaps what shows in dark, with why: the city's day and night stills are one picture in two lights, in one place.
+    const SWAPPED_IN_DARK = new Set([".city-stage .city-still.is-day | display", ".city-stage .city-still.is-night | display"]);
+    const COLOUR = /^(color|color-scheme|caret-color|accent-color|outline-color|text-decoration-color|fill|stroke|background(-color|-image)?|border(-(top|right|bottom|left))?-color|box-shadow|text-shadow|filter|backdrop-filter|opacity)$/;
+    // A custom property is a colour or glass's look unless it names a size, a space, a type or a shape.
+    const LAYOUT_TOKEN = /^--(pad|gap|size|type|control-height|control-slant|cut|bevel|header-room|tab-room)/;
+    const css = COMPONENT_STYLES().replace(/\/\*[\s\S]*?\*\//g, "");
+    // Every rule with the blocks it's in (an @media), so a rule inside prefers-color-scheme: dark is known as dark.
+    const rules: { context: string; selector: string; declarations: string }[] = [];
+    const open: string[] = [];
+    let start = 0;
+    for (let at = 0; at < css.length; at++) {
+      if (css[at] === "{") { open.push(css.slice(start, at).trim()); start = at + 1; }
+      else if (css[at] === "}") { const selector = open.pop() ?? ""; const declarations = css.slice(start, at); if (!declarations.includes("{") && declarations.trim() && !selector.startsWith("@")) rules.push({ context: open.join(" "), selector, declarations }); start = at + 1; }
+    }
+    const darkRules = rules.filter((rule) => /prefers-color-scheme:\s*dark/.test(rule.context) || /data-theme-choice="dark"/.test(rule.selector));
+    expect(darkRules.length).toBeGreaterThan(1);
+    const problems = darkRules.flatMap((rule) => [...rule.declarations.matchAll(/([a-z-]+|--[a-z0-9-]+)\s*:\s*[^;]+/g)].map((match) => match[1]!)
+      .filter((property) => (property.startsWith("--") ? LAYOUT_TOKEN.test(property) : !COLOUR.test(property)))
+      .map((property) => `${rule.selector.replace(/^(:root:not\(\[data-theme-choice="light"\]\)|\[data-theme-choice="dark"\])\s*/, "")} | ${property}`)
+      .filter((each) => !SWAPPED_IN_DARK.has(each)));
     expect(problems).toEqual([]);
   });
 

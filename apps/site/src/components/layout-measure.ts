@@ -1,14 +1,85 @@
 import { BARE_GROUPS } from "./tokens.ts";
 
+/** Where a measured rule runs (docs/DESIGN.md, Rules): once per component on the gallery's pages, on every page, or in the nightly sweep. */
+export type LayoutRuleTier = "gallery" | "page" | "sweep";
+export const LAYOUT_TIERS: readonly LayoutRuleTier[] = ["gallery", "page", "sweep"];
+
+/**
+ * Every rule the measuring check still measures, by the name it fails with (a report() below, or a check: in scripts/layout-check.mjs), and
+ * its tier. A rule made impossible in code (a type, or a scan of the rendered page in test/site/design.test.ts) isn't measured at all.
+ *   - gallery: how one component is built (its sizes, margins, cuts), proven once on the gallery's pages, on every screen and at 200% text;
+ *   - page: how a page arranges its pieces, on every page and state on each pull request, on a phone and a laptop;
+ *   - sweep: what's too slow to measure on every pull request, and every rule on every page on the other screens, in dark, at 200% text
+ *     and on the stress accounts, each night (.github/workflows/nightly.yml).
+ * test/layout/layout-check.test.ts fails a rule that isn't here, and a name here no rule uses.
+ */
+export const LAYOUT_RULE_TIERS: Readonly<Record<string, LayoutRuleTier>> = {
+  "a touch target under 44px": "gallery",
+  "a control off its size class's height": "gallery",
+  "bevel under 4px": "gallery",
+  "square in a cut corner": "gallery",
+  "a corner control without its corner's bevel": "gallery",
+  "controls in one row of different heights": "gallery",
+  "a corner control not in its corner": "gallery",
+  "an equal row's cells of different widths": "gallery",
+  "words beside a control off its center line": "gallery",
+  "a bare group's parts off each other": "gallery",
+  "a bare group closer to the pane's edge than the words margin": "gallery",
+  "closer to the pane's edge than the frame gap": "gallery",
+  "off the frame gap": "gallery",
+  "words off the pane's margin": "gallery",
+  "words closer to the pane's edge than its margin": "gallery",
+  "words inside it off the pane's words": "gallery",
+  "a pane wider than its kind allows": "gallery",
+  "a pane taller than its kind allows": "gallery",
+  "a pane past the screen": "gallery",
+  "a pane that overflows without scrolling": "gallery",
+  "a box that scrolls up and down by a sliver": "gallery",
+  "a line of words longer than the reading width": "gallery",
+  "a reading column off the middle": "gallery",
+  "wider than its page's shape": "gallery",
+  "one kind at different sizes": "gallery",
+  "the check couldn't open the gallery's panes": "gallery",
+  "overlaps another thing": "page",
+  "spills out of its pane": "page",
+  "words cut off": "page",
+  "the page scrolls sideways": "page",
+  "the runner below the fold": "page",
+  "the first cover below the fold": "page",
+  "out of line with the header": "page",
+  "one group on two surfaces": "page",
+  "words nearer the block before than their own": "page",
+  "an empty thing taking a gap": "page",
+  "a control alone on a row's line, short of its end": "page",
+  "controls in one row not on one line": "page",
+  "words over something with an edge": "page",
+  // Two controls a page sets side by side outside a row: only a page's arrangement (columns, a grid's cells) can, so it's measured there.
+  "two controls side by side outside a row": "page",
+  "two panes overlapping": "page",
+  "two panes closer than a block's gap": "page",
+  "the check couldn't send the page's form": "page",
+  "the check couldn't open the page's hidden state": "page",
+  "the check couldn't measure the page": "page",
+  "the page isn't the state it's listed as": "page",
+  "the page didn't settle in time": "page",
+  "no answer within 400 ms": "sweep",
+  "the check couldn't press the page's buttons": "sweep",
+};
+
 /**
  * The measuring check (docs/DESIGN.md, Layout), run in a page: what's out of line on it, as failures, each { check, element, said }.
  * scripts/layout-check.mjs runs it on every page in Chrome, and Screens (screens.ts) on each page it shows, live. It's a function's
- * source, since it runs in the browser: (MEASURE_LAYOUT_SOURCE)({ isMainActionChecked, isCoverAboveFold, isTouch }). Things with an edge of their own are framed:
+ * source, since it runs in the browser: (MEASURE_LAYOUT_SOURCE)({ isMainActionChecked, isCoverAboveFold, isTouch, tiers }), where tiers
+ * are the LAYOUT_RULE_TIERS it measures (every tier when it's left out). Things with an edge of their own are framed:
  * cut by the edge rule (data-cut-line), glass of their own (data-glass), a cover, or a list's rows.
  */
 export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
   // The bare groups (tokens.ts): a unit whose words sit bare, measured whole.
   var BARE_GROUPS = ${JSON.stringify(BARE_GROUPS.join(", "))};
+  var TIERS = ${JSON.stringify(LAYOUT_RULE_TIERS)};
+  var tiers = options.tiers || ${JSON.stringify(LAYOUT_TIERS)};
+  // Whether this run measures a rule (a rule missing from LAYOUT_RULE_TIERS is always measured).
+  function isMeasured(check) { return !TIERS[check] || tiers.indexOf(TIERS[check]) >= 0; }
   var TOLERANCE_PX = 1.5, LEAST_BEVEL_PX = 4;
   var failures = [];
   var root = getComputedStyle(document.documentElement);
@@ -32,7 +103,7 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
     var label = (el.getAttribute("aria-label") || el.innerText || el.textContent || "").trim().replace(/\s+/g, " ").slice(0, 48);
     return (component || (named ? named.className.split(" ")[0] : el.tagName.toLowerCase())) + (label ? ' "' + label + '"' : "");
   }
-  function report(check, el, said) { failures.push({ check: check, element: describe(el), said: said }); }
+  function report(check, el, said) { if (isMeasured(check)) failures.push({ check: check, element: describe(el), said: said }); }
   var round = function (n) { return Math.round(n * 10) / 10; };
   // A length as the page works it out (a token in rem, a calc), in px: a probe takes it as its width for a moment, inside what sets it.
   function lengthPx(expression, inside) {
@@ -358,26 +429,19 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
     var expectedPx = getComputedStyle(el).getPropertyValue("--control-height").trim() ? lengthPx("var(--control-height)", el) : 0, foundPx = el.getBoundingClientRect().height;
     if (expectedPx && Math.abs(foundPx - expectedPx) > 1) report("a control off its size class's height", el, round(foundPx) + "px tall, its size class " + round(expectedPx) + "px");
   });
-  // Words: never in capitals for show (no ALL CAPS), never cut off, and never orange unless they're something you act on.
-  var orange = ["--run", "--run-hi", "--run-lo"].map(function (name) { var probe = document.createElement("i"); probe.style.color = root.getPropertyValue(name).trim(); document.body.appendChild(probe); var color = getComputedStyle(probe).color; probe.remove(); return color; });
+  // Words are never cut off. (Capitals, orange words and a token's name are scanned on the rendered page: test/site/design.test.ts.)
   var wordsWalker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT), wordsNode, seen = new Set();
   while ((wordsNode = wordsWalker.nextNode())) {
     var holder = wordsNode.parentElement;
     if (!wordsNode.textContent.trim() || !holder || seen.has(holder) || holder.closest(SKIPPED + ", input, textarea, code, kbd, pre, .code") || !isShown(holder)) continue;
     seen.add(holder);
     var holderCss = getComputedStyle(holder);
-    if (holderCss.textTransform === "uppercase" || /^(all-)?small-caps$/.test(holderCss.fontVariantCaps)) report("words in capitals", holder, "text-transform " + holderCss.textTransform + ", font-variant-caps " + holderCss.fontVariantCaps);
-    else if (/\b[A-Z]{3,}\s+[A-Z]{3,}\b/.test(wordsNode.textContent)) report("words in capitals", holder, "\"" + wordsNode.textContent.trim().slice(0, 40) + "\"");
-    if (/--[a-z]/.test(wordsNode.textContent)) report("a token's name outside code", holder, "Jost draws its two hyphens as one dash: set it in code");
-    if (orange.indexOf(holderCss.color) >= 0 && !holder.closest("a, button, label, summary, [role='tab'], [role='button'], [tabindex]")) report("orange words on what you don't act on", holder, "its color is " + holderCss.color);
     if (/^(hidden|clip)$/.test(holderCss.overflowX) && holderCss.textOverflow !== "ellipsis" && holder.clientWidth > 1 && holder.scrollWidth > holder.clientWidth + 1) report("words cut off", holder, round(holder.scrollWidth) + "px of words in " + round(holder.clientWidth) + "px");
   }
-  // The page's runner (its one main action, never the header's Sign in) shows without scrolling, and no two runners are ever in view at once.
+  // The page's runner (its one main action, never the header's Sign in) shows without scrolling. (One runner a state: scanned, design.test.ts.)
   var runners = Array.prototype.filter.call(document.querySelectorAll(".run-wrap"), function (each) { return isShown(each) && !each.closest("[data-on-no-pane] , .example-stage"); });
   var pageRunner = runners.find(function (each) { return !each.closest("header.top"); });
   if (options.isMainActionChecked && pageRunner && pageRunner.getBoundingClientRect().bottom > innerHeight + 0.5) report("the runner below the fold", pageRunner, "its foot at " + round(pageRunner.getBoundingClientRect().bottom + scrollY) + "px, the window " + innerHeight + "px tall");
-  var inView = runners.filter(function (each) { var r = each.getBoundingClientRect(); return r.bottom > 0 && r.top < innerHeight; });
-  if (inView.length > 1) report("two runners in view", inView[1], "beside " + describe(inView[0]));
   // The page's first cover shows whole without scrolling, where the page is for finding a game (the home).
   if (options.isCoverAboveFold) {
     var cover = Array.prototype.find.call(document.querySelectorAll("main .cover"), isShown);
@@ -385,7 +449,7 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
   }
   // On a touch screen, everything you press has a hit area at least 44px tall (its box, and any hit area its ::before or ::after adds), apart
   // from links inside a line of words.
-  if (options.isTouch) document.querySelectorAll("a[href], button, [role='button'], [role='tab'], input:not([type='hidden']), select, textarea, summary").forEach(function (el) {
+  if (options.isTouch && isMeasured("a touch target under 44px")) document.querySelectorAll("a[href], button, [role='button'], [role='tab'], input:not([type='hidden']), select, textarea, summary").forEach(function (el) {
     if (!isShown(el) || el.closest(SKIPPED) || getComputedStyle(el).display === "inline" || Number(getComputedStyle(el).opacity) < 0.01) return;
     if (el.matches("input, textarea") && el.closest("label, .field, .find, .check, .toggle, .slider")) return;
     var r = el.getBoundingClientRect(), extendPx = 0;
@@ -398,7 +462,7 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
   });
   // A box that scrolls up and down scrolls by more than a few pixels: one that scrolls by a sliver (a row of covers made a little taller by
   // what lifts in it) only bounces under a finger.
-  document.querySelectorAll("body *").forEach(function (box) {
+  if (isMeasured("a box that scrolls up and down by a sliver")) document.querySelectorAll("body *").forEach(function (box) {
     var css = getComputedStyle(box), extraPx = box.scrollHeight - box.clientHeight;
     if (/^(auto|scroll)$/.test(css.overflowY) && extraPx > 1 && extraPx < 12 && isShown(box)) report("a box that scrolls up and down by a sliver", box, round(extraPx) + "px to scroll");
   });
@@ -445,9 +509,8 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
     });
   }
 
-  // ---- Page shapes (docs/DESIGN.md, Page shapes): a rebuilt page says its shape, and nothing on it runs wider than the shape lets it. ----
+  // ---- Page shapes (docs/DESIGN.md, Page shapes): nothing on a page runs wider than its shape lets it (a rebuilt page without one doesn't compile). ----
   var padPanePx = parseFloat(root.getPropertyValue("--pad-pane")) || 24;
-  if (document.querySelector('meta[name="checked-page"]') && !pageShape) report("a page without its shape", document.documentElement, "a rebuilt page names its shape (layout's pageShape: reading, wide or full)");
   if (pageShape) {
     var screenWidthPx = document.documentElement.clientWidth;
     var wideWidthPx = Math.min(lengthPx("var(--size-page-wide)"), screenWidthPx - 2 * padPanePx), readingWidthPx = Math.min(lengthPx("var(--size-page-reading)"), screenWidthPx - 2 * padPanePx);
@@ -485,7 +548,8 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
 
   measurePanes();
 
-  // ---- The Laws of UX a check can measure (lawsofux.com; docs/DESIGN.md, Laws of UX). Gallery examples are pieces shown alone: skipped. ----
+  // ---- The Laws of UX a check can measure (lawsofux.com; docs/DESIGN.md, Laws of UX). Gallery examples are pieces shown alone: skipped.
+  // Connectedness, hierarchy, choice counts and chunking are scanned on the rendered page instead (test/site/design.test.ts). ----
   var isOwn = function (el) { return isShown(el) && !el.closest(EXAMPLE + ", " + SKIPPED); };
   var surfaceOf = function (el) { return el.closest("[data-glass]:not([data-cut-line])"); };
   // Proximity: a heading is nearer what it names (what follows it) than the block before it.
@@ -519,57 +583,6 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
       if (Math.abs(a.width - b.width) > 1 || kindOf(cells[0]) !== kindOf(cells[i])) { report("one kind at different sizes", cells[i], round(b.width) + "px " + kindOf(cells[i]) + " beside " + round(a.width) + "px " + kindOf(cells[0])); break; }
     }
   });
-  // Uniform connectedness: a switch's tabs and a step flow's steps are one line on one slab.
-  Array.prototype.forEach.call(document.querySelectorAll(".tab-switch:not(.vertical), .step-line"), function (group) {
-    if (!isOwn(group)) return;
-    var parts = Array.prototype.filter.call(group.querySelectorAll(":scope > a, :scope > button, :scope > li"), isShown), top = parts.length ? parts[0].getBoundingClientRect().top : 0;
-    var off = parts.find(function (part) { return Math.abs(part.getBoundingClientRect().top - top) > TOLERANCE_PX; });
-    if (off) report("steps or tabs apart", off, "on another line from " + describe(parts[0]));
-  });
-  // Hierarchy: one title, and headings in order.
-  var titleSizePx = (function () { var probe = document.createElement("i"); probe.style.cssText = "position:absolute;visibility:hidden;font:var(--type-title)"; document.body.appendChild(probe); var found = parseFloat(getComputedStyle(probe).fontSize); probe.remove(); return found; })();
-  var titles = Array.prototype.filter.call(document.querySelectorAll("h1, h2, h3, p, span, strong"), function (el) { return isOwn(el) && !isOnFixed(el) && el.firstChild && el.firstChild.nodeType === 3 && el.textContent.trim() && Math.abs(parseFloat(getComputedStyle(el).fontSize) - titleSizePx) < 0.5 && getComputedStyle(el).fontWeight >= 600; });
-  var heads = Array.prototype.filter.call(document.querySelectorAll("main h1, body > .city h1"), function (el) { return !el.closest(EXAMPLE + ", dialog, template"); });
-  if (titles.length > 1) report("more than one title", titles[1], "in the title's type beside " + describe(titles[0]));
-  else if (heads.length > 1) report("more than one title", heads[1], "a second h1, after " + describe(heads[0]));
-  var lastLevel = 1, lastByPane = new Map();
-  Array.prototype.forEach.call(document.querySelectorAll("main h1, main h2, main h3, main h4"), function (heading) {
-    if (heading.closest(EXAMPLE + ", " + OVER_PAGE + ", template")) return;
-    var level = Number(heading.tagName[1]);
-    if (level > lastLevel + 1) report("headings out of order", heading, "an h" + level + " after an h" + lastLevel + ", skipping a level");
-    lastLevel = level;
-    if (!isShown(heading)) return;
-    var pane = surfaceOf(heading) || document.body, sizePx = parseFloat(getComputedStyle(heading).fontSize), list = lastByPane.get(pane) || [];
-    var bigger = list.find(function (other) { return other.level < level && sizePx > other.sizePx + 0.5; });
-    if (bigger) report("headings out of order", heading, "an h" + level + " at " + round(sizePx) + "px, bigger than the h" + bigger.level + " at " + round(bigger.sizePx) + "px before it");
-    list.push({ level: level, sizePx: sizePx }); lastByPane.set(pane, list);
-  });
-  // Hick's law and choice overload: few equal choices in a row, and a long menu in groups.
-  var MAXIMUM_EQUAL_CHOICE_COUNT = 5, MAXIMUM_UNGROUPED_MENU_ITEM_COUNT = 9;
-  // Choices are buttons and a switch's buttons; fields side by side (a PIN's boxes) aren't, and a switch of places (links) is a way round, not a choice.
-  Array.prototype.forEach.call(document.querySelectorAll(".layout-row[data-control-height], .tab-switch:not(.vertical)"), function (group) {
-    if (!isOwn(group)) return;
-    // A framed switch is a strip that scrolls sideways (filters, places), read as one control.
-    if (group.matches(".tab-switch.framed")) return;
-    var choices = group.matches(".tab-switch") ? group.querySelectorAll(":scope > button") : Array.prototype.filter.call(group.querySelectorAll(":scope > .row-cell.is-control"), function (cell) { return cell.querySelector(":scope > .shell, :scope > .run-wrap"); });
-    var shownCount = Array.prototype.filter.call(choices, isShown).length;
-    if (shownCount > MAXIMUM_EQUAL_CHOICE_COUNT) report("too many equal choices", group, shownCount + " side by side, at most " + MAXIMUM_EQUAL_CHOICE_COUNT);
-  });
-  Array.prototype.forEach.call(document.querySelectorAll('.dropdown[role="menu"]'), function (menu) {
-    if (menu.closest(EXAMPLE)) return;
-    var itemCount = menu.querySelectorAll('[role="menuitem"]:not([hidden])').length;
-    if (itemCount > MAXIMUM_UNGROUPED_MENU_ITEM_COUNT && !menu.querySelector("hr")) report("too many equal choices", menu, itemCount + " choices in one menu with no groups, at most " + MAXIMUM_UNGROUPED_MENU_ITEM_COUNT);
-  });
-  // Miller's law and chunking: a pane's fields come in groups of at most seven, a heading between.
-  var MAXIMUM_UNBROKEN_FIELD_COUNT = 7, FIELDS = ".cut-field, .bday, .pin-field, .choice-cards, .toggle, .check, .slider";
-  Array.prototype.forEach.call(document.querySelectorAll(".pane-in, .sheet-in"), function (holder) {
-    if (!isOwn(holder)) return;
-    var run = 0, walker = document.createTreeWalker(holder, NodeFilter.SHOW_ELEMENT), el;
-    while ((el = walker.nextNode())) {
-      if (el.matches("h2, h3, h4, legend")) run = 0;
-      else if (el.matches(FIELDS) && !el.parentElement.closest(FIELDS) && isShown(el) && ++run > MAXIMUM_UNBROKEN_FIELD_COUNT) { report("a long form in one piece", el, run + " fields with no heading between them, at most " + MAXIMUM_UNBROKEN_FIELD_COUNT); break; }
-    }
-  });
   // Two panes side by side or one over the other keep a block's gap between them (a layout component puts it there): never touching, never
   // overlapping. Panes over the page (a sheet, a menu) and a pane inside another are left out.
   var blockGapPx = lengthPx("var(--gap-block-block)");
@@ -579,7 +592,8 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
     var acrossPx = Math.min(one.right, two.right) - Math.max(one.left, two.left), downPx = Math.min(one.bottom, two.bottom) - Math.max(one.top, two.top);
     // Beside each other in one direction, the space between them in the other.
     var apartPx = acrossPx > TOLERANCE_PX ? -downPx : downPx > TOLERANCE_PX ? -acrossPx : Infinity;
-    if (apartPx < blockGapPx - TOLERANCE_PX) report(apartPx < -TOLERANCE_PX ? "two panes overlapping" : "two panes closer than a block's gap", pagePanes[p2], (apartPx < 0 ? "over " : round(apartPx) + "px from ") + describe(pagePanes[p1]) + (apartPx < 0 ? " by " + round(-apartPx) + "px" : ", a block's gap is " + round(blockGapPx) + "px"));
+    if (apartPx < -TOLERANCE_PX) report("two panes overlapping", pagePanes[p2], "over " + describe(pagePanes[p1]) + " by " + round(-apartPx) + "px");
+    else if (apartPx < blockGapPx - TOLERANCE_PX) report("two panes closer than a block's gap", pagePanes[p2], (apartPx < 0 ? "over " : round(apartPx) + "px from ") + describe(pagePanes[p1]) + ", a block's gap is " + round(blockGapPx) + "px");
   }
   var pageWidthPx = document.scrollingElement.scrollWidth;
   if (pageWidthPx > innerWidth + 1) report("the page scrolls sideways", document.body, pageWidthPx + "px wide in a " + innerWidth + "px window");

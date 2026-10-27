@@ -8,7 +8,11 @@ import {
   DOCS_TESTS_CHECK_NAME,
   ENGINES_CHECK_NAME,
   GITHUB_CHECK_NAME,
+  NIGHTLY_SWEEP_CHECK_NAME,
+  NIGHTLY_SWEEP_RERUN_COMMAND,
   applyEnginesProof,
+  applyNightlySweep,
+  sweepFailedPages,
   checkState,
   enginesBaseCommits,
   isDocsOnly,
@@ -43,7 +47,7 @@ describe("the workflow and ship agree", () => {
     expect(workflow).toContain(`check-runs?check_name=${encodeURIComponent(GITHUB_CHECK_NAME)}&filter=all`);
     expect(workflow).toContain(`if [ "$IS_CHECKED_IN_QUEUE" = true ]; then echo "Checked in the merge queue: this commit passed there."; exit 0; fi`);
     // Every checking job steps aside for it; only the required check and main's caches run.
-    for (const job of ["Tests (", "Typecheck", "Engine exports (", "Preview test data", "Layout check (", "Docs tests"]) {
+    for (const job of ["Tests (", "Typecheck", "Engine exports (", "Preview test data", "Layout check\n", "Gallery on every screen", "Docs tests"]) {
       const section = workflow.slice(workflow.indexOf(`name: ${job}`), workflow.indexOf("runs-on:", workflow.indexOf(`name: ${job}`)));
       expect(section, job).toContain("needs.changes.outputs.is_checked_in_queue != 'true'");
     }
@@ -52,6 +56,11 @@ describe("the workflow and ship agree", () => {
     expect(workflow).toContain(`if [ "$ENGINES_RESULT" = skipped ] && [ "$IS_ENGINES_CHANGED" = false ]; then engines_ok=true; fi`);
     // A skip passes only with the engines' own flag false; any other result but success leaves engines_ok false.
     expect(workflow).toContain(`if [ "$ENGINES_RESULT" = success ]; then engines_ok=true; fi`);
+  });
+  it("on running the gallery on every screen when the components change, and failing the required check when it fails", () => {
+    expect(workflow).toContain(`if [ "$GALLERY_RESULT" = skipped ] && [ "$IS_GALLERY_CHANGED" = false ]; then gallery_ok=true; fi`);
+    expect(workflow).toContain("grep -qE '^apps/site/src/(components/|page-styles\\.ts$|design-page\\.ts$)'");
+    expect(workflow).toContain("run: npm run layout:check -- --gallery");
   });
   it("on which paths are docs only", () => {
     expect(workflow).toContain(`grep -qvE '${DOCS_ONLY_PATH.source.replaceAll("\\/", "/")}'`);
@@ -145,6 +154,34 @@ describe("judgeCheckedCode", () => {
   it("never counts docs tests for code", () => {
     expect(judgeCheckedCode([at("roadmap", "docs_passed"), at("talk", "docs_passed")]).verdict).toBe("none");
     expect(judgeCheckedCode([at("merge", "none")]).verdict).toBe("none");
+  });
+});
+
+describe("applyNightlySweep", () => {
+  const passed = { verdict: "passed", state: "passed", commitSha: "main", url: "https://github.test/main" };
+  const nightly = readFileSync(join(ROOT, ".github/workflows/nightly.yml"), "utf8");
+  it("is the nightly workflow's last job, run again by the command it names", () => {
+    expect(nightly).toContain(`name: ${NIGHTLY_SWEEP_CHECK_NAME}\n`);
+    expect(nightly).toContain("workflow_dispatch:");
+    expect(NIGHTLY_SWEEP_RERUN_COMMAND).toBe("gh workflow run nightly.yml");
+    expect(readFileSync(join(ROOT, "scripts/ship.mjs"), "utf8")).toContain('"--workflow", "nightly.yml", "--branch", "main"');
+  });
+  it("passes before the first sweep and after a passed one", () => {
+    expect(applyNightlySweep(passed, null)).toBe(passed);
+    expect(applyNightlySweep(passed, { conclusion: "success", url: "https://github.test/sweep", failedPages: [] })).toBe(passed);
+  });
+  it("stops the ship on a failed sweep, naming its link, its pages and how to clear it", () => {
+    const stopped = applyNightlySweep(passed, { conclusion: "failure", url: "https://github.test/sweep", failedPages: ["Home", "Sign in"] });
+    expect(stopped.verdict).toBe("sweep_failed");
+    expect(stopped.sweepNote).toBe("main's last nightly layout sweep failed (https://github.test/sweep), on Home, Sign in: fix the pages, merge, and run it again with gh workflow run nightly.yml");
+  });
+  it("leaves a verdict that didn't pass as it is", () => {
+    const failed = { ...passed, verdict: "failed" };
+    expect(applyNightlySweep(failed, { conclusion: "failure", url: "https://github.test/sweep", failedPages: [] })).toBe(failed);
+  });
+  it("reads the pages from the failed jobs' log", () => {
+    const log = "Sweep (2 of 4)\tRun npm run layout:check\t2026-10-27T02:14:00Z FAIL Home (/) Steam Deck dark: 2\nSweep (2 of 4)\tRun\t2026-10-27T02:14:01Z FAIL Sign in (/signin) Phone light: 1\nSweep (2 of 4)\tRun\tz FAIL Home (/) Phone dark: 1\n  ok Games (/games) Phone light";
+    expect(sweepFailedPages(log)).toEqual(["Home", "Sign in"]);
   });
 });
 

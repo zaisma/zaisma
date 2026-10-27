@@ -13,6 +13,8 @@
 // A pull request's run skips "Engine exports" when its branch changed nothing that job runs (scripts/affected-tests.mjs,
 // from the repository's graph); a run like that counts only with an Engine exports pass on the main commit it was cut
 // from (applyEnginesProof), since the branch's code is that commit's code where the engines look.
+// A pull request's Layout check measures pages only for how they arrange their pieces; every page on every screen is measured each night
+// on main (.github/workflows/nightly.yml), and a failed sweep stops the ship until it passes again (applyNightlySweep).
 
 // The check the ruleset requires, which passes only when the jobs before it did.
 export const GITHUB_CHECK_NAME = "Tests and typecheck";
@@ -121,6 +123,30 @@ export function enginesBaseCommits(runGit, mainShas, branchSha, { searchCommitCo
  * request was cut from: the newest of `baseStates` (those commits' checkState answers, newest first) that ran the
  * job decides, "running" waits, a failure stops, and none at all means the code was never played.
  */
+// The nightly sweep's last job, which passes only when every share did.
+export const NIGHTLY_SWEEP_CHECK_NAME = "Nightly layout sweep result";
+// The command that runs it again, once the pages are fixed and merged.
+export const NIGHTLY_SWEEP_RERUN_COMMAND = "gh workflow run nightly.yml";
+
+/**
+ * The pages a failed sweep names, from its failed jobs' log (layout-check.mjs prints "FAIL <page> (<path>) <screen> <theme>: <count>"),
+ * each once, in the order they failed.
+ */
+export function sweepFailedPages(logText) {
+  return [...new Set([...(logText ?? "").matchAll(/\sFAIL (.+?) \(\/[^)]*\) /g)].map((match) => match[1]))];
+}
+
+/**
+ * A passed verdict stands only while main's latest nightly sweep (`sweep`: { conclusion, url, failedPages }, or null before the first)
+ * hasn't failed: a failed one stops the ship with its link, the pages it named and how to clear it. Only a pass or a failure decides
+ * (a cancelled run says nothing), and no run yet passes.
+ */
+export function applyNightlySweep(checked, sweep) {
+  if (checked.verdict !== "passed" || !sweep || sweep.conclusion !== "failure") return checked;
+  const pages = sweep.failedPages?.length ? `, on ${sweep.failedPages.join(", ")}` : "";
+  return { ...checked, verdict: "sweep_failed", sweepUrl: sweep.url, sweepNote: `main's last nightly layout sweep failed (${sweep.url})${pages}: fix the pages, merge, and run it again with ${NIGHTLY_SWEEP_RERUN_COMMAND}` };
+}
+
 export function applyEnginesProof(checked, baseStates) {
   if (checked.verdict !== "passed" || checked.engines !== "skipped") return checked;
   const proof = baseStates.find((baseState) => ["passed", "failed", "running"].includes(baseState.engines));

@@ -2,8 +2,11 @@
 # Needs no secrets: vitest.config.ts gives the tests every binding they use.
 #
 # Everything runs side by side, split across runners: the tests in four shards (four files at once on each), typecheck, the
-# Layout check in two and the Engine exports in three. "Tests and typecheck", the check the ruleset requires and npm run ship
-# reads, passes only when all of them did.
+# Layout check on one, the gallery on every screen on one when the components changed, and the Engine exports in three.
+# "Tests and typecheck", the check the ruleset requires and npm run ship reads, passes only when all of them did.
+# The Layout check measures each page for how it arranges its pieces, on a phone and a laptop in light; each component is proven
+# on every screen in "Gallery on every screen" when a change touches the components, and every page on every screen each night
+# (nightly.yml, "Nightly layout sweep"), whose failure stops npm run ship (applyNightlySweep, scripts/ship-github-check.mjs).
 # A change to docs/, .claude/, CLAUDE.md or README.md alone changes no code, so it runs only the tests that read
 # those files (the node project) as "Docs tests". The same paths are DOCS_ONLY_PATH in
 # scripts/ship-github-check.mjs.
@@ -51,6 +54,7 @@ jobs:
     outputs:
       is_code_changed: ${{ steps.diff.outputs.is_code_changed }}
       is_engines_changed: ${{ steps.diff.outputs.is_engines_changed }}
+      is_gallery_changed: ${{ steps.diff.outputs.is_gallery_changed }}
       is_checked_in_queue: ${{ steps.queue.outputs.is_checked_in_queue }}
       preview_snapshot_key: ${{ steps.snapshot.outputs.key }}
       is_preview_snapshot_ready: ${{ steps.snapshot.outputs.is_ready }}
@@ -93,6 +97,7 @@ jobs:
             echo "No earlier commit to compare with: running everything."
             echo "is_code_changed=true" >> "$GITHUB_OUTPUT"
             echo "is_engines_changed=true" >> "$GITHUB_OUTPUT"
+            echo "is_gallery_changed=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           changed_paths="$(git diff --name-only "$BASE_SHA$RANGE_DOTS$HEAD_SHA")"
@@ -100,6 +105,12 @@ jobs:
           # Whether the Engine exports run: always on main, and on a pull request when the change reaches what they run, by the
           # repository's graph (scripts/affected-tests.mjs: plain Node, before npm ci).
           node scripts/affected-tests.mjs --github
+          # Whether the gallery runs on every screen: a change to the components, the pages' styles or the gallery's page.
+          if echo "$changed_paths" | grep -qE '^apps/site/src/(components/|page-styles\.ts$|design-page\.ts$)'; then
+            echo "is_gallery_changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_gallery_changed=false" >> "$GITHUB_OUTPUT"
+          fi
           if [ -n "$changed_paths" ] && ! echo "$changed_paths" | grep -qvE '^(docs/|\.claude/|CLAUDE\.md$|README\.md$)'; then
             echo "Only docs/, .claude/, CLAUDE.md and README.md changed: running the docs tests."
             echo "is_code_changed=false" >> "$GITHUB_OUTPUT"
@@ -275,20 +286,16 @@ jobs:
       - if: failure()
         run: tail -n 80 .wrangler/preview-run/preview.log .wrangler/preview/servers.log || true
 
-  # The measuring check (npm run layout:check -- --screens all): every page in headless Chrome on all seven screens and at 200% text,
-  # light and dark, on the preview with its stand-ins and test data (test/layout/layout-check.test.ts), each runner its share of the pages
-  # (LAYOUT_CHECK_SHARD, scripts/layout-check.mjs). The preview starts from the snapshot in seconds and applies this branch's
-  # own migrations, as it does on any start.
+  # The measuring check as a pull request runs it (npm run layout:check): every page and state in headless Chrome on a phone and a laptop,
+  # in light, for how it arranges its pieces, and the pages broken on purpose, on the preview with its stand-ins and test data
+  # (test/layout/layout-check.test.ts). The preview starts from the snapshot in seconds and applies this branch's own migrations, as it
+  # does on any start.
   layout:
-    name: Layout check (${{ matrix.shard }} of 4)
+    name: Layout check
     needs: [changes, seed]
     if: ${{ !cancelled() && needs.changes.outputs.is_code_changed == 'true' && needs.changes.outputs.is_checked_in_queue != 'true' && (needs.seed.result == 'success' || needs.seed.result == 'skipped') }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -312,8 +319,38 @@ jobs:
       - run: npx vitest run --project layout
         env:
           LAYOUT_CHECK: "1"
-          LAYOUT_CHECK_SHARD: ${{ matrix.shard }}/4
-          LAYOUT_CHECK_SCREENS: all
+      - if: failure()
+        run: tail -n 80 .wrangler/preview-run/preview.log .wrangler/preview/servers.log || true
+
+  # The gallery's pages on every screen, light and dark, at 200% text (npm run layout:check -- --gallery), when the change touches the
+  # components: a broken component breaks every page that uses it, and a pull request's Layout check measures pages only for arrangement.
+  gallery:
+    name: Gallery on every screen
+    needs: [changes, seed]
+    if: ${{ !cancelled() && needs.changes.outputs.is_code_changed == 'true' && needs.changes.outputs.is_gallery_changed == 'true' && needs.changes.outputs.is_checked_in_queue != 'true' && (needs.seed.result == 'success' || needs.seed.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+      # npm's download cache, as in the tests job.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: npm-${{ runner.os }}-
+      - run: npm ci --no-audit --no-fund
+      - uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.PREVIEW_SNAPSHOT_PATHS }}
+          key: ${{ needs.changes.outputs.preview_snapshot_key }}
+          fail-on-cache-miss: true
+      - run: npm run preview:start
+      - run: npm run layout:check -- --gallery
       - if: failure()
         run: tail -n 80 .wrangler/preview-run/preview.log .wrangler/preview/servers.log || true
 
@@ -380,7 +417,7 @@ jobs:
 
   check:
     name: Tests and typecheck
-    needs: [changes, tests, typecheck, engines, seed, layout, docs-tests]
+    needs: [changes, tests, typecheck, engines, seed, layout, gallery, docs-tests]
     # Also when a job failed, so the required check fails instead of being skipped.
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
@@ -391,14 +428,16 @@ jobs:
           IS_CHECKED_IN_QUEUE: ${{ needs.changes.outputs.is_checked_in_queue }}
           IS_CODE_CHANGED: ${{ needs.changes.outputs.is_code_changed }}
           IS_ENGINES_CHANGED: ${{ needs.changes.outputs.is_engines_changed }}
+          IS_GALLERY_CHANGED: ${{ needs.changes.outputs.is_gallery_changed }}
           TESTS_RESULT: ${{ needs.tests.result }}
           TYPECHECK_RESULT: ${{ needs.typecheck.result }}
           ENGINES_RESULT: ${{ needs.engines.result }}
           SEED_RESULT: ${{ needs.seed.result }}
           LAYOUT_RESULT: ${{ needs.layout.result }}
+          GALLERY_RESULT: ${{ needs.gallery.result }}
           DOCS_TESTS_RESULT: ${{ needs.docs-tests.result }}
         run: |
-          echo "What changed: $CHANGES_RESULT (code changed: $IS_CODE_CHANGED, engine code changed: $IS_ENGINES_CHANGED). Tests: $TESTS_RESULT. Typecheck: $TYPECHECK_RESULT. Engine exports: $ENGINES_RESULT. Preview test data: $SEED_RESULT. Layout check: $LAYOUT_RESULT. Docs tests: $DOCS_TESTS_RESULT."
+          echo "What changed: $CHANGES_RESULT (code changed: $IS_CODE_CHANGED, engine code changed: $IS_ENGINES_CHANGED). Tests: $TESTS_RESULT. Typecheck: $TYPECHECK_RESULT. Engine exports: $ENGINES_RESULT. Preview test data: $SEED_RESULT. Layout check: $LAYOUT_RESULT. Gallery on every screen: $GALLERY_RESULT (components changed: $IS_GALLERY_CHANGED). Docs tests: $DOCS_TESTS_RESULT."
           if [ "$CHANGES_RESULT" != success ]; then exit 1; fi
           # A push to main the merge queue already checked: its merge group's run passed on exactly this commit.
           if [ "$IS_CHECKED_IN_QUEUE" = true ]; then echo "Checked in the merge queue: this commit passed there."; exit 0; fi
@@ -406,6 +445,10 @@ jobs:
           engines_ok=false
           if [ "$ENGINES_RESULT" = success ]; then engines_ok=true; fi
           if [ "$ENGINES_RESULT" = skipped ] && [ "$IS_ENGINES_CHANGED" = false ]; then engines_ok=true; fi
-          if [ "$IS_CODE_CHANGED" = true ] && [ "$TESTS_RESULT" = success ] && [ "$TYPECHECK_RESULT" = success ] && [ "$engines_ok" = true ] && [ "$LAYOUT_RESULT" = success ]; then exit 0; fi
+          # The gallery on every screen passed, or was skipped because the change touched no component.
+          gallery_ok=false
+          if [ "$GALLERY_RESULT" = success ]; then gallery_ok=true; fi
+          if [ "$GALLERY_RESULT" = skipped ] && [ "$IS_GALLERY_CHANGED" = false ]; then gallery_ok=true; fi
+          if [ "$IS_CODE_CHANGED" = true ] && [ "$TESTS_RESULT" = success ] && [ "$TYPECHECK_RESULT" = success ] && [ "$engines_ok" = true ] && [ "$LAYOUT_RESULT" = success ] && [ "$gallery_ok" = true ]; then exit 0; fi
           if [ "$IS_CODE_CHANGED" = false ] && [ "$DOCS_TESTS_RESULT" = success ]; then exit 0; fi
           exit 1

@@ -5,13 +5,14 @@ import { ALONE_TEST_FILES, CI_WORKER_COUNT, SHARD_TEST_DURATIONS_MS, dealIntoSha
 // @ts-expect-error: a Node script with no types of its own.
 import { allEngineSamples, engineSampleShard } from "../../scripts/engines/samples.mjs";
 // @ts-expect-error: a Node script with no types of its own.
-import { LAYOUT_CHECK_PAGES, layoutCheckShard } from "../../scripts/layout-check.mjs";
+import { LAYOUT_CHECK_RUNS, layoutCheckShard } from "../../scripts/layout-check.mjs";
 
 /** test/shards.ts: how GitHub's check deals the test files out to its four runners; and the engine samples and layout pages to theirs. */
 
 const ROOT = join(import.meta.dirname, "../..");
 const SHARD_COUNT = 4;
 const workflow = readFileSync(join(ROOT, ".github/workflows/check.yml"), "utf8");
+const nightly = readFileSync(join(ROOT, ".github/workflows/nightly.yml"), "utf8");
 
 const testFilesIn = (folder: string): string[] =>
   readdirSync(join(ROOT, "test", folder), { withFileTypes: true }).flatMap((entry) => (entry.isDirectory() ? testFilesIn(join(folder, entry.name)) : entry.name.endsWith(".test.ts") ? [`test/${join(folder, entry.name)}`] : []));
@@ -61,11 +62,13 @@ describe("the preview checks' shares", () => {
     expect(() => engineSampleShard(engines, "4/3")).toThrow(/like 2\/3/);
   });
 
-  it("measure every page once", () => {
-    for (const count of [1, 2, 3, 4]) {
-      const shares = Array.from({ length: count }, (_, i) => layoutCheckShard(LAYOUT_CHECK_PAGES, `${i + 1}/${count}`) as { name: string }[]);
-      expect(shares.flat().map((page) => page.name).sort()).toEqual(LAYOUT_CHECK_PAGES.map((page: { name: string }) => page.name).sort());
-    }
-    expect(workflow).toContain("LAYOUT_CHECK_SHARD: ${{ matrix.shard }}/4");
+  it("measure every page once: the nightly sweep's in four shares, a pull request's on one runner", () => {
+    const sweepPages: { name: string }[] = LAYOUT_CHECK_RUNS.sweep.pages;
+    const shares = Array.from({ length: 4 }, (_, i) => layoutCheckShard(sweepPages, `${i + 1}/4`) as { name: string }[]);
+    expect(shares.flat().map((page) => page.name).sort()).toEqual(sweepPages.map((page) => page.name).sort());
+    expect(shares.every((share) => share.length > 0)).toBe(true);
+    expect(nightly).toContain("npm run layout:check -- --sweep --shard ${{ matrix.shard }}/4");
+    expect(workflow).not.toContain("LAYOUT_CHECK_SHARD");
+    expect(workflow.slice(workflow.indexOf("\n  layout:"), workflow.indexOf("\n  gallery:"))).not.toContain("matrix");
   });
 });
