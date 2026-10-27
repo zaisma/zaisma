@@ -138,8 +138,15 @@ export async function gameSaves(database: D1Database, gameId: string, afterPlaye
   return results;
 }
 
-/** Where a save's data lives in the saves bucket. Listing <account>/ finds all of a player's saves. */
-export const saveKey = (accountId: string, gameId: string) => `${accountId}/${gameId}.json`;
+/**
+ * Where one version of a save lives in the saves bucket: each version in its own file, written before the save's
+ * row moves to it, so a row never names data that isn't stored. Two devices saving the same version at once write
+ * different files (the sha256 tells them apart), and the one whose row move loses deletes only its own.
+ * Listing <account>/ finds all of a player's saves.
+ */
+export const saveKey = (accountId: string, gameId: string, versionNumber: number, sha256: string) => `${accountId}/${gameId}/save_${versionNumber}_${sha256}.json`;
+/** Where a save stored before each version had its own file lives: read when the version's own file isn't there. */
+export const unversionedSaveKey = (accountId: string, gameId: string) => `${accountId}/${gameId}.json`;
 
 // --- Save history: earlier versions, so "my progress is gone" can be undone ---
 
@@ -164,7 +171,10 @@ export interface SaveCopy {
   id: string;
   account_id: string;
   game_id: string;
+  /** When this progress was played (stored, for a copy of the account's save). The history lists in this order. */
   saved_at_ms: number;
+  /** When the copy was kept: the 30 days a copy kept before progress was lost stays protected count from here. */
+  kept_at_ms: number;
   copy_reason: SaveCopyReason;
   sha256: string;
   size_bytes: number;
@@ -192,38 +202,35 @@ export function copyReason(current: { size_bytes: number; saved_at_ms: number },
 }
 
 /**
- * Which copies to drop to stay at KEPT_SAVE_COPY_COUNT. The newest always stays. Past that, the
- * oldest routine copy goes first, so a copy from right before progress was lost outlives a day
- * of hourly copies; after 30 days it counts as routine. The copy being added (`addedCopyId`) never goes,
- * even when it's dated to a device's last play long ago.
+ * Record a copy (its data is already in R2) and trim the game's history to KEPT_SAVE_COPY_COUNT in the same
+ * transaction, against the table as it is then, so keeps at the same moment never leave more. The newest copy
+ * always stays, and so does the one being added, even when it's dated to a device's play long ago. Past that,
+ * the oldest routine copy goes first, so a copy from right before progress was lost outlives a day of hourly
+ * copies; 30 days after it was kept it counts as routine. When the history already holds this exact progress,
+ * nothing is added. Answers the copies dropped (their files are the caller's to delete) and the ID of the copy
+ * holding this progress, or null when there's none.
  */
-export function copiesToDrop(copies: SaveCopy[], nowMs: number, addedCopyId: string | null = null): SaveCopy[] {
-  const keep = [...copies].sort((first, second) => second.saved_at_ms - first.saved_at_ms);
-  const drop: SaveCopy[] = [];
-  const droppable = (copy: SaveCopy) => copy.id !== addedCopyId;
-  const routine = (copy: SaveCopy) => droppable(copy) && (copy.copy_reason === "hourly" || nowMs - copy.saved_at_ms > SAVE_COPY_PROTECTION_DURATION_MS);
-  while (keep.length > KEPT_SAVE_COPY_COUNT) {
-    let i = keep.length - 1;
-    while (i > 0 && !routine(keep[i]!)) i--;
-    if (i === 0) {
-      i = keep.length - 1;
-      while (i > 0 && !droppable(keep[i]!)) i--;
-    }
-    drop.push(...keep.splice(i, 1));
-  }
-  return drop;
-}
-
-/** Record a copy (its data is already in R2) next to the game's `copies`, and return the ones to delete to make room. */
-export async function addSaveCopy(database: D1Database, copy: SaveCopy, copies: SaveCopy[], nowMs = Date.now()): Promise<SaveCopy[]> {
-  const dropped = copiesToDrop([copy, ...copies], nowMs, copy.id);
-  await database.batch([
+export async function addSaveCopy(database: D1Database, copy: SaveCopy, nowMs = Date.now()): Promise<{ dropped: Pick<SaveCopy, "id" | "account_id" | "game_id">[]; heldById: string | null }> {
+  const [, trimmed, holding] = await database.batch([
     database
-      .prepare("INSERT INTO save_history (id, account_id, game_id, saved_at_ms, copy_reason, sha256, size_bytes, version_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
-      .bind(copy.id, copy.account_id, copy.game_id, copy.saved_at_ms, copy.copy_reason, copy.sha256, copy.size_bytes, copy.version_id),
-    ...dropped.map((droppedCopy) => database.prepare("DELETE FROM save_history WHERE id = ?").bind(droppedCopy.id)),
+      .prepare(
+        "INSERT INTO save_history (id, account_id, game_id, saved_at_ms, kept_at_ms, copy_reason, sha256, size_bytes, version_id) SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9 WHERE NOT EXISTS (SELECT 1 FROM save_history WHERE account_id = ?2 AND game_id = ?3 AND sha256 = ?7)",
+      )
+      .bind(copy.id, copy.account_id, copy.game_id, copy.saved_at_ms, copy.kept_at_ms, copy.copy_reason, copy.sha256, copy.size_bytes, copy.version_id),
+    database
+      .prepare(
+        `DELETE FROM save_history WHERE id IN (
+           SELECT id FROM save_history
+           WHERE account_id = ?1 AND game_id = ?2 AND id != ?3
+             AND id != (SELECT id FROM save_history WHERE account_id = ?1 AND game_id = ?2 ORDER BY saved_at_ms DESC, id LIMIT 1)
+           ORDER BY (copy_reason = 'hourly' OR COALESCE(kept_at_ms, saved_at_ms) < ?4) DESC, saved_at_ms, id DESC
+           LIMIT MAX(0, (SELECT COUNT(*) FROM save_history WHERE account_id = ?1 AND game_id = ?2) - ?5)
+         ) RETURNING id, account_id, game_id`,
+      )
+      .bind(copy.account_id, copy.game_id, copy.id, nowMs - SAVE_COPY_PROTECTION_DURATION_MS, KEPT_SAVE_COPY_COUNT),
+    database.prepare("SELECT id FROM save_history WHERE account_id = ? AND game_id = ? AND sha256 = ? LIMIT 1").bind(copy.account_id, copy.game_id, copy.sha256),
   ]);
-  return dropped;
+  return { dropped: trimmed!.results as Pick<SaveCopy, "id" | "account_id" | "game_id">[], heldById: (holding!.results[0] as { id: string } | undefined)?.id ?? null };
 }
 
 /** An earlier version as the player's game page and the developer API list it (the API adds its sha256). */

@@ -84,7 +84,7 @@ describe("export everything", () => {
     const fox = (await accountById(env.DB, "player-fox"))!;
     const saveText = canonicalSave(saveFromParts({ coins: "120" }, []));
     await bumpSave(env.DB, { accountId: fox.id, gameId, baseVersionNumber: 0, sha256: await saveHash(saveText), sizeBytes: saveText.length, changedByKind: "player", versionId: null });
-    await env.SAVES.put(saveKey(fox.id, gameId), saveText);
+    await env.SAVES.put(saveKey(fox.id, gameId, 1, await saveHash(saveText)), saveText);
 
     const answered = await tool("export_game", { slug: "sky-hopper" });
     expect(schemaProblems(GAME_EXPORT, answered)).toEqual([]);

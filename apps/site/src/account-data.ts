@@ -1,6 +1,7 @@
-import { canonicalSave, iso, linkUrlsOf, readStoredSave, saveContentsJson, saveCopyKey, saveHash, saveKey, type Account } from "@zaisma/core";
+import { canonicalSave, iso, linkUrlsOf, readStoredSave, saveContentsJson, saveCopyKey, saveHash, type Account } from "@zaisma/core";
 import { authUserRecord, realEmail } from "./auth.ts";
 import type { Env } from "./env.ts";
+import { storedSaveText } from "./saves.ts";
 import { zipStream, type ZipSource } from "./zip-writer.ts";
 
 /**
@@ -190,8 +191,8 @@ async function* accountDataSources(env: Env, account: Account, nowMs: number): A
   const copies = await env.DB.prepare("SELECT id, game_id, saved_at_ms, copy_reason, sha256, size_bytes FROM save_history WHERE account_id = ? ORDER BY saved_at_ms").bind(id).all<{ id: string; game_id: string; saved_at_ms: number; copy_reason: string; sha256: string; size_bytes: number }>();
   for (const save of saves.results) {
     const folder = `saves/${save.slug}`;
-    const text = await (await env.SAVES.get(saveKey(id, save.game_id)))?.text();
-    if (text === undefined) missing.push(`${folder}/save.json`);
+    const text = await storedSaveText(env, { account_id: id, game_id: save.game_id, version_number: save.version_number, sha256: save.sha256 });
+    if (text === null) missing.push(`${folder}/save.json`);
     else {
       // Hash and size are of the v1 text the contents are written as, whatever shape the stored one is in.
       const v1Text = canonicalSave(readStoredSave(text));
