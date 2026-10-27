@@ -303,7 +303,8 @@ component({
 .field.select.is-disabled .select-chev { color: var(--muted); }
 /* The list: the popover's own place is the window, so it's set just under the field by SELECT_SCRIPT. Its choices sit close to its edge,
    inset like a well's slabs, so their words start where the field's do. */
-.select-list { position: fixed; inset: auto; margin: 0; max-height: min(var(--size-menu-height), 50vh); padding: 4px; border: 0; color: var(--ink);
+/* Up to 60% of the window's height: a short list (six regions at 200% text on a laptop) fits whole rather than scrolling by a sliver. */
+.select-list { position: fixed; inset: auto; margin: 0; max-height: min(var(--size-menu-height), 60vh); padding: 4px; border: 0; color: var(--ink);
   display: flex; flex-direction: column; --glass-tint: var(--glass-dropdown);
   transition: var(--glass-transition), opacity 0.2s, transform 0.3s cubic-bezier(.2,.8,.2,1), overlay 0.3s allow-discrete, display 0.3s allow-discrete; }
 /* A browser that can't keep it in the top layer while it fades (Safari) would let it fall under what follows it on the page: it goes at once. */
