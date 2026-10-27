@@ -757,6 +757,10 @@ Zaisma preview is running. Nothing here touches the live site.
                   ${SITE}/@Quiet_Comet  (14: private unless you're a friend), ${SITE}/admin/profiles  (Bright_Reed's bio held)
   Blocking        ${SITE}/g/arena  (as Preview_Studio in one window and Moss_Runner in a private one, join the same room,
                   then Players, Block: Zaisma asks beside the game; a guest's block is for the session)
+  Friend requests ${SITE}/g/arena?play  (as Preview_Studio: Saved_Farmer's request comes as a card over the game's corner, then waits
+                  in Players; with Chat_Owl in a private window in the same room, Players, Chat_Owl's ⋯, Add friend and the sheet
+                  that asks first, and Chat_Owl's card),  ${SITE}/friends  (Friend requests with Accept, Turn down and Report),
+                  ${SITE}/account#social  (Custom: Invites only, People I play with, Anyone; as Quiet_Comet, 14, only the first two)
   Players plate   ${SITE}/g/arena?play  (Players in the bar: who's in the room with Mute and ⋯, with two windows in one room),
                   ${SITE}/g/tiny-farm?play  (a game with its own netcode), ${SITE}/g/shard-dodge?play  (single player: no button)
   Spectators      ${SITE}/friends  (Kit_Spark's full room: Join grayed, Watch beside it),  ${SITE}/g/arena#rooms  ("· 2 watching"
@@ -1802,6 +1806,8 @@ function seedFriendsNow() {
     // Tiny Farm plays on a server of its own: Tall_Pine is in one of its rooms there, so Join carries the server (Friends in games).
     `UPDATE games SET own_server_urls = '["wss://play.example.com"]' WHERE slug = 'tiny-farm'`,
     `INSERT OR REPLACE INTO room_players (game_id, room_code, player_id, server_url, joined_at_ms, updated_at_ms) SELECT ${game("tiny-farm")}, 'TNYFRM', ${player("Tall_Pine")}, 'wss://play.example.com', ${later}, ${later} ${ifMade}`,
+    // Friend requests in games: one from Saved_Farmer waits for the preview account, sent from Arena.
+    `INSERT OR IGNORE INTO friend_requests (sender_account_id, recipient_account_id, game_id, created_at_ms, expires_at_ms) SELECT ${account("Saved_Farmer")}, ${account("Preview_Studio")}, ${game("arena")}, ${Date.now()}, ${later} WHERE EXISTS (SELECT 1 FROM accounts WHERE username = 'Saved_Farmer') AND NOT EXISTS (SELECT 1 FROM friendships WHERE account_id = ${account("Preview_Studio")} AND friend_account_id = ${account("Saved_Farmer")})`,
     // Join switches for games: a private room in Arena, and Cave Crew with Join off.
     ...room("arena", "SWFTTR", 3, 8, "NL", "EU", "Swift_Otter", false),
     ...room("cave-crew", "RDLNTN", 2, 16, "GB", "EU", "Red_Lantern"),
