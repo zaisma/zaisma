@@ -230,29 +230,40 @@ html { -webkit-tap-highlight-color: transparent; }
   --header-cut-large: 16px; --header-cut-small: 12px;
   --menu-cut-large: 14px; --menu-cut-small: 12px;
   /* A control's height by its size class: each control sets --control-height from one of these, and a row sets every control in it to its
-     tallest's (layout.ts). */
-  --control-height-small: 36px; --control-height-regular: 44px; --control-height-field: 52px; --control-height-big: 56px;
+     tallest's (layout.ts). In rem, as type is, so a control grows with its words when the browser's text is set larger (36, 44, 52 and 56px at
+     the browser's own 16px). */
+  /* The least a finger needs to land on, which a small control's hit area reaches to on a touch screen: in px, as fingers don't grow with the text. */
+  --touch-target: 44px;
+  --control-height-small: 2.25rem; --control-height-regular: 2.75rem; --control-height-field: 3.25rem; --control-height-big: 3.5rem;
   /* The named sizes, the only widths a layout takes (layout.ts): a cell's least width in a grid, by what it holds; and the widest a
      paragraph runs in a pane that fits what's in it, for reading. */
   --size-cover: 180px; --size-card: 280px; --size-figure: 150px; --size-reading: 60ch;
-  /* The widest a page's sections run beside its places down the side (Side places), so a settings page's panes don't stretch across a desktop. */
-  --size-column: 820px;
+  /* Page shapes (layout.ts, html.ts's pageShape): a reading page's one column, and the wide frame every page's header, footer and panes sit in,
+     so nothing stretches across a big screen. A 2560 screen shows the world either side of the frame; a laptop's frame is its width less the margins. */
+  --size-page-reading: 820px; --size-page-wide: 1680px;
+  /* Pane sizes: the most a pane over the page takes, by its kind, before what's in it scrolls inside it (docs/DESIGN.md, Pane sizes). In rem,
+     so a pane grows with its words as controls do; each also stops at the screen less its margins. A menu (a dropdown) and a select's list
+     (as wide as its field) at most --size-menu-height tall; a compact sheet a dropdown's width; any other sheet --size-sheet; a picture's
+     sheet (a screenshot, or a screen, large) --size-sheet-picture; the store panel its own column at the screen's edge. */
+  --size-menu: 20rem; --size-menu-height: 30rem;
+  --size-sheet-compact: 20rem; --size-sheet: 36rem; --size-sheet-picture: 80rem; --size-sheet-side: 23.75rem;
   /* A figure's least width in Numbers: two side by side on a phone. */
   --size-number: 96px;
   /* Type (docs/DESIGN.md, Type): every word outside a control's own inside takes one of these whole fonts, picked by what the words are. */
-  --type-title: 600 40px/1.04 var(--display);
-  --type-heading: 600 30px/1.1 var(--display);
-  --type-section: 600 22px/1.2 var(--display);
-  --type-name: 600 17px/1.3 var(--display);
-  --type-label: 600 15px/1.3 var(--display);
-  --type-words: 500 15px/1.35 var(--display);
-  --type-reading: 400 15px/1.5 var(--body);
-  --type-note: 500 14px/1.4 var(--display);
-  --type-facts: 500 13px/1.3 var(--display);
-  --type-tag: 600 12px/1 var(--display);
-  --type-code: 600 13px/1.3 ui-monospace, Menlo, monospace;
+  --type-title: 600 2.5rem/1.04 var(--display);
+  --type-heading: 600 1.875rem/1.1 var(--display);
+  --type-section: 600 1.375rem/1.2 var(--display);
+  --type-name: 600 1.0625rem/1.3 var(--display);
+  --type-label: 600 0.9375rem/1.3 var(--display);
+  --type-words: 500 0.9375rem/1.35 var(--display);
+  --type-reading: 400 0.9375rem/1.5 var(--body);
+  --type-note: 500 0.875rem/1.4 var(--display);
+  --type-facts: 500 0.8125rem/1.3 var(--display);
+  --type-tag: 600 0.75rem/1 var(--display);
+  --type-code: 600 0.8125rem/1.3 ui-monospace, Menlo, monospace;
 }
-@media (max-width: 760px) { :root { --pad-pane: 20px; --pad-frame: 8px; --control-height-big: 48px; --type-title: 600 32px/1.04 var(--display); --type-heading: 600 26px/1.1 var(--display); --type-section: 600 20px/1.2 var(--display); } }
+/* A phone's sizes, upright or on its side (a landscape phone is a phone's height, not a laptop's). */
+@media (max-width: 760px), (max-height: 500px) { :root { --pad-pane: 20px; --pad-frame: 8px; --control-height-big: 3rem; --type-title: 600 2rem/1.04 var(--display); --type-heading: 600 1.625rem/1.1 var(--display); --type-section: 600 1.25rem/1.2 var(--display); } }
 :root, [data-theme-choice="light"] { ${LIGHT_GLASS} --page: #E7E4DF; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme-choice="light"]) { ${SMOKED_GLASS} --page: #121110; } }
 [data-theme-choice="dark"] { ${SMOKED_GLASS} --page: #121110; }
@@ -288,6 +299,10 @@ ${WORDS_SURFACES.join(", ")} { padding: var(--pad-frame); --pad-words: var(--pad
 /* Headings and paragraphs keep the margin at their sides wherever they sit in it (layout.ts's edge rules give their top and bottom); inside
    anything with an edge of its own there's none (a slab of glass sets --pad-words to nothing), and any component's own padding wins. */
 :where(${WORDS_HOLDERS.join(", ")}) :where(h1, h2, h3, h4, p) { padding-inline: var(--pad-words); }
+/* A line of words runs at most 75 characters of its own font, however wide its surface (the layout check's "a line of words longer than the
+   reading width"); a pane that fits what's in it stops its paragraphs sooner, at --size-reading. A word longer than the line (an email address
+   at a large text size) breaks rather than run past the margin. */
+:where(${WORDS_HOLDERS.join(", ")}, .tray-head) :where(p, li) { max-width: 75ch; overflow-wrap: break-word; }
 /* Bare groups (BARE_GROUPS above): a game card, a person. The unit takes the margin as a whole, at its sides here and its top and bottom in layout.ts. */${BARE_GROUPS_STYLES}
 .glass { position: relative; color: var(--ink); --glass-shown-tint: var(--glass-tint); background-color: var(--glass-shown-tint); background-image: var(--glass-layer, linear-gradient(transparent, transparent)), var(--glass-wash), var(--glass-sheen);
   -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate)); backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));

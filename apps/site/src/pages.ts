@@ -36,7 +36,7 @@ import { gameUrl, type Env } from "./env.ts";
 import { cutButton, runButton, textLink } from "./components/actions.ts";
 import { codeField } from "./components/inputs.ts";
 import { cutField } from "./components/fields.ts";
-import { glanceFacts } from "./components/data.ts";
+import { glanceFacts, emptyState } from "./components/data.ts";
 import { glassPane, type IconName } from "./components/foundations.ts";
 import { grid, row, stack, track, type LayoutItem } from "./components/layout.ts";
 import { banner, dropdown, sheet } from "./components/panes.ts";
@@ -318,7 +318,7 @@ export function gamePageResponse(env: Env, view: GamePageView): Response {
   const sections: LayoutItem[] = [
     ...(rooms ? [section("rooms", "Rooms", [{ kind: "block", markup: codeBox(game.slug) }, { kind: "block", id: "rooms-list", markup: roomsPanel(game, rooms) }])] : []),
     ...(shots.length
-      ? [section("screenshots", "Screenshots", [{ kind: "block", markup: track({ id: "screenshots-track", itemSize: "cover", label: "Screenshots", items: shots.map((shot, shotIndex) => ({ kind: "block" as const, markup: screenshot({ imageUrl: shot, label: `Screenshot ${shotIndex + 1} of ${shots.length}`, sheetId: `screenshot-${shotIndex + 1}` }) })) }) }])]
+      ? [section("screenshots", "Screenshots", [{ kind: "block", markup: track({ whenEmpty: emptyState({ title: "No screenshots yet", text: "The developer hasn't added any screenshots." }), id: "screenshots-track", itemSize: "cover", label: "Screenshots", items: shots.map((shot, shotIndex) => ({ kind: "block" as const, markup: screenshot({ imageUrl: shot, label: `Screenshot ${shotIndex + 1} of ${shots.length}`, sheetId: `screenshot-${shotIndex + 1}` }) })) }) }])]
       : []),
     section("about", "About", [
       { kind: "block", markup: readingText({ markup: description ? paragraphs(description) : html`<p>The developer hasn't written about this game yet.</p>` }) },
@@ -330,10 +330,10 @@ export function gamePageResponse(env: Env, view: GamePageView): Response {
       ? [section("updates", "Updates", [{ kind: "block", markup: readingText({ markup: html`${view.updates.map((update) => html`<h3>${day(update.published_at_ms)}</h3>${paragraphs(update.patch_notes)}`)}` }) }])]
       : []),
     ...(developerGames.length && developer
-      ? [section("more", `More from ${developer.name}`, [{ kind: "block", markup: grid({ itemSize: "cover", items: developerGames.map((otherGame) => ({ kind: "block" as const, markup: gameCard({ title: otherGame.title, imageUrl: otherGame.cover ?? null, href: `/g/${otherGame.slug}`, facts: { playerCount: otherGame.playing_now_player_count >= MINIMUM_PLAYING_NOW_PLAYER_COUNT ? otherGame.playing_now_player_count : undefined } }) })) }) }])]
+      ? [section("more", `More from ${developer.name}`, [{ kind: "block", markup: grid({ whenEmpty: emptyState({ title: "No other games yet", text: "This is the developer's only game so far." }), itemSize: "cover", items: developerGames.map((otherGame) => ({ kind: "block" as const, markup: gameCard({ title: otherGame.title, imageUrl: otherGame.cover ?? null, href: `/g/${otherGame.slug}`, facts: { playerCount: otherGame.playing_now_player_count >= MINIMUM_PLAYING_NOW_PLAYER_COUNT ? otherGame.playing_now_player_count : undefined } }) })) }) }])]
       : []),
   ];
-  const screenshotSheets = shots.map((shot, shotIndex) => sheet({ id: `screenshot-${shotIndex + 1}`, title: `${game.title}, screenshot ${shotIndex + 1} of ${shots.length}`, body: screenshotLarge(shot, `${game.title}, screenshot ${shotIndex + 1}`), closeLabel: "Close" }));
+  const screenshotSheets = shots.map((shot, shotIndex) => sheet({ id: `screenshot-${shotIndex + 1}`, title: `${game.title}, screenshot ${shotIndex + 1} of ${shots.length}`, body: screenshotLarge(shot, `${game.title}, screenshot ${shotIndex + 1}`), closeLabel: "Close", isPicture: true }));
   // Playing: the bar beside the game, and what it opens.
   const barControls = [
     ...(multiplayer ? [cutButton("Players", { id: "players-open", type: "button", icon: "people", isLabelHidden: true, isSmall: true, controls: "players", reactionCount: 0 })] : []),
@@ -404,6 +404,7 @@ export function gamePageResponse(env: Env, view: GamePageView): Response {
     title: `${game.title} on Zaisma`,
     head: view.head,
     checkedPage: tester ? "Tester link" : rooms ? "Game page" : "Game page, no rooms",
+    pageShape: "full",
     // The game's own world behind the glass, the same the home shows while its cover is pointed at.
     stage: backgroundMarkup(background),
     isFramedBySelf: view.isFramedBySelf,

@@ -13,7 +13,8 @@ import * as data from "../../apps/site/src/components/data.ts";
 import * as layoutComponents from "../../apps/site/src/components/layout.ts";
 import { COLUMNS_STYLES, COLUMN_LEAST_PX, GRID_STYLES, PANE_PARTS_STYLES, ROW_STYLES, STACK_STYLES, TRACK_STYLES, columns, grid, paneParts, row, stack, type LayoutItem } from "../../apps/site/src/components/layout.ts";
 import { pageStyles } from "../../apps/site/src/page-styles.ts";
-import { CHECKED_PAGES, UNIQUE_WORD, type StepToTake } from "../../apps/site/src/components/checked-pages.ts";
+import { CHECKED_PAGES, LOCAL_SCREEN_NAMES, SCREEN_SIZES, STRESS_ACCOUNTS, TEXT_SCREEN_NAMES, UNIQUE_WORD, type StepToTake } from "../../apps/site/src/components/checked-pages.ts";
+import { layout, type LayoutOptions } from "../../apps/site/src/html.ts";
 import { PAGE_SHEETS, STEEL_PAGE_SHEETS, UNSTYLED_HOOKS, pageProblems } from "./page-rules.ts";
 import { BACKDROP_SCRIPT, glassPane, pageSettingsAttributes } from "../../apps/site/src/components/foundations.ts";
 import { GLASS_LIGHT_PASS, MOST_GLASS_PANE_COUNT } from "../../apps/site/src/components/shaders.ts";
@@ -303,7 +304,7 @@ describe("the gallery", () => {
       for (const holder of elementTree((await page(groupPath(group))).text)) {
         const children = holder.children.filter((child) => child.tag !== "svg" && child.tag !== "template");
         // A control's own parts (a switch's tabs, the row arrows' two slabs, a dropdown's choices) are its inside, not controls beside each other.
-        if (holder.classes.includes("shell") || holder.attributes.includes(" data-cut-line") || holder.attributes.includes(' role="menu"') || holder.attributes.includes(' role="listbox"')) continue;
+        if (holder.classes.includes("shell") || holder.attributes.includes(" data-cut-line") || holder.attributes.includes(' role="menu"') || holder.classes.includes("dropdown-in") || holder.attributes.includes(' role="listbox"')) continue;
         // A compact choice list's cards are its own inside, down its carved well like a vertical switch's places.
         if (holder.classes.includes("choice-list-in")) continue;
         if (children.length < 2 || !children.every((child) => child.classes.includes("shell") || child.attributes.includes(" data-cut-line"))) continue;
@@ -460,13 +461,13 @@ describe("components", () => {
   });
 
   it("head a table's columns for screen readers and line its numbers up on the right", () => {
-    const markup = data.table({ caption: "Versions", columns: [{ label: "Version" }, { label: "Files", isNumeric: true }], rows: [["Version 14", "312"]] }).html;
+    const markup = data.table({ whenEmpty: html`<p>No rows yet.</p>`, caption: "Versions", columns: [{ label: "Version" }, { label: "Files", isNumeric: true }], rows: [["Version 14", "312"]] }).html;
     expect(markup).toContain('<p class="table-caption" id="table-versions-caption">Versions</p>');
     expect(markup).toContain('aria-labelledby="table-versions-caption"');
     expect(markup).toContain('<th scope="col" class="glass">Version</th><th scope="col" class="glass num">Files</th>');
     expect(markup).toContain('<td>Version 14</td><td class="num">312</td>');
     // A first column that names the rows is each row's head.
-    expect(data.table({ caption: "Versions", hasRowHeads: true, columns: [{ label: "Version" }, { label: "Files", isNumeric: true }], rows: [["Version 14", "312"]] }).html).toContain('<th scope="row" class="glass">Version 14</th><td class="num">312</td>');
+    expect(data.table({ whenEmpty: html`<p>No rows yet.</p>`, caption: "Versions", hasRowHeads: true, columns: [{ label: "Version" }, { label: "Files", isNumeric: true }], rows: [["Version 14", "312"]] }).html).toContain('<th scope="row" class="glass">Version 14</th><td class="num">312</td>');
   });
 
   it("give a chart's numbers to screen readers as a table of the same values", () => {
@@ -688,7 +689,7 @@ const NOT_SPACING = new Set<string>([
   ".choice-cards > .choice-card:not(:last-child) | margin-inline-end",
   // A control's own parts: a well's inset round its slab, the birthday's wheels, and a list of places, one control its slab glides along.
   ".tab-switch | padding", ".tab-switch.small | padding", ".color-well | padding", ".steps | padding", ".wheels | gap", ".wheels | padding",
-  ".dropdown | gap",
+  ".dropdown | gap", ".dropdown-in | gap",
   // Room to scroll, or for a scrollbar or a page's rail.
   ".wheel | padding", "html | scroll-padding-top", ".gallery-layout | padding-right",
   ".choice-list-in.own-scroll.shows-rail | padding-right", ".sheet-in.own-scroll.shows-rail | padding-right", ".sheet-body.own-scroll.shows-rail | padding-right",
@@ -831,6 +832,43 @@ describe("pages", () => {
 });
 
 describe("layout", () => {
+  it("makes a rebuilt page say its shape: the compiler refuses one without it", () => {
+    // @ts-expect-error: a page that names its state is rebuilt, and a rebuilt page names its shape.
+    const withoutShape: LayoutOptions = { title: "A page", body: html`<p>Hi</p>`, checkedPage: "Example page" };
+    const withShape: LayoutOptions = { title: "A page", body: html`<p>Hi</p>`, checkedPage: "Example page", pageShape: "reading" };
+    expect(withoutShape.title).toBe(withShape.title);
+    expect(typeof layout).toBe("function");
+  });
+
+  it("sets no words in px: type and controls grow with the browser's text size", () => {
+    // A picture's initials are sized to the picture, which doesn't grow: the one font in px.
+    const IN_PX = new Set([".frame.xs .av::first-letter"]);
+    const problems = [...COMPONENT_STYLES().matchAll(/([^{}]+)\{([^{}]*)\}/g)].flatMap(([, selectors = "", declarations = ""]) => {
+      const selector = selectors.replace(/\/\*[\s\S]*?\*\//g, "").trim().split("\n").pop()!.trim();
+      return [...declarations.matchAll(/(?:^|[;\s])(font(?:-size)?|--type-[a-z]+|--control-height-[a-z]+):\s*([^;}]+)/g)].filter(([, , value = ""]) => /\d(px)/.test(value) && !IN_PX.has(selector)).map(([, property, value]) => `${selector} | ${property}: ${value!.trim()}`);
+    });
+    expect(problems).toEqual([]);
+  });
+
+  it("names the old column width nowhere: a page's widths are its shape's", () => {
+    expect(COMPONENT_STYLES()).not.toContain("--size-column");
+    for (const source of [layoutSource, navigationSource, panesSource, tokensSource]) expect(source).not.toContain("--size-column");
+  });
+
+  it("measures on seven screens, each named once, and runs the screens a run starts with and its 200% text on screens from that list", () => {
+    const names = SCREEN_SIZES.map((size) => size.name);
+    expect(new Set(names).size).toBe(7);
+    for (const name of [...LOCAL_SCREEN_NAMES, ...TEXT_SCREEN_NAMES]) expect(names).toContain(name);
+  });
+
+  it("lists each stress state with the page it's of: the same page, as a stress account", () => {
+    for (const page of CHECKED_PAGES.filter((each) => STRESS_ACCOUNTS.some((stress) => stress.account === each.account))) {
+      const stress = STRESS_ACCOUNTS.find((each) => each.account === page.account)!;
+      expect(page.name.endsWith(`, ${stress.nameEnding}`), page.name).toBe(true);
+      expect(CHECKED_PAGES.some((each) => each.name === page.shownStateName), page.name).toBe(true);
+    }
+  });
+
   const words = (text: string): LayoutItem => ({ kind: "words", markup: html`<p>${text}</p>` });
   const block = (text: string): LayoutItem => ({ kind: "block", markup: html`<div>${text}</div>` });
   const control = (markup: ReturnType<typeof actions.cutButton>): LayoutItem => ({ kind: "control", markup });
@@ -875,7 +913,7 @@ describe("layout", () => {
   });
 
   it("takes only named sizes: a grid's cells, a track's covers, columns' halves, never a number of a page's", () => {
-    expect(grid({ itemSize: "cover", items: [block("a")] }).html).toContain('class="layout-grid item-cover"');
+    expect(grid({ whenEmpty: html`<p>No games here yet.</p>`, itemSize: "cover", items: [block("a")] }).html).toContain('class="layout-grid item-cover"');
     // Every width, height, basis or template in the layout components is a named size or a share: no pane has a width of its own.
     const SIZE_PROPERTY = /(?:^|[;\s{])((?:min-|max-)?(?:width|height)|flex-basis|flex|grid-template-columns):\s*([^;}]+)/g;
     // A length, other than a share (%), a fraction or a flex number, is a named one: a size token, or a track's cover.

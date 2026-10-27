@@ -1174,6 +1174,42 @@ async function seed() {
   // Last, since they count toward its developer's 50 games.
   runSql(`WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 60) INSERT OR IGNORE INTO games (id, slug, title, description, review_status, live_version_id, owner_id, visibility, entry_signing_key, created_at_ms, updated_at_ms, genres, devices, controls) SELECT 'game_browse' || i, 'browse-world-' || i, 'Browse World ' || i, '', 'live', live_version_id, owner_id, 'listed', entry_signing_key, created_at_ms, updated_at_ms, CASE i % 4 WHEN 0 THEN 'strategy' WHEN 1 THEN 'role_playing,adventure' WHEN 2 THEN 'horror' ELSE 'racing' END, CASE WHEN i % 10 = 0 THEN 'computer' ELSE '' END, CASE WHEN i % 10 = 0 THEN 'keyboard_mouse' ELSE '' END FROM games, n WHERE slug = 'night-drive'`);
   stepDone("Browse's other games");
+  await seedStressAccounts(go, form);
+  stepDone("stress accounts");
+}
+
+/**
+ * The stress accounts (sign-ins.mjs; docs/DESIGN.md, Pages under stress), which the layout check signs in as on the pages that list things:
+ * Longest_Names_Here with every name at its field's longest and one unlisted game named so; Empty_Handed with nothing at all; Many_Things
+ * with 60 games played, 120 friends and 40 unlisted games of its own. They sign up through the join pages; their bulk (games, plays and
+ * friendships) is written straight in, as Browse's other games are, since a great many of each through the API would take the seed minutes.
+ * Unlisted, so no other page's look changes.
+ */
+async function seedStressAccounts(go, form) {
+  /** The longest each field allows (packages/core: a display name, a bio; the developer API: a game's title and description). */
+  const LONGEST_DISPLAY_NAME = "Bartholomew Montgomery-Whitfo";
+  const LONGEST_BIO = "Speedrunner, puzzle builder and collector of very long names. I write long reviews, longer bios, and the longest game titles a field will take, ever.";
+  const LONGEST_GAME_TITLE = "The Extraordinarily Long Chronicles of the Wandering Lighthouse Keeper, Volume I";
+  const LONGEST_GAME_DESCRIPTION = "A lighthouse keeper walks the coast at night with a lantern, mending broken lamps before the ships come in. Each lamp is a small puzzle of mirrors, gears and weather; each night the sea rises a little higher and the fog comes in a little thicker. Keep the light burning through forty storms, meet the fishers, smugglers and gulls who share the shore, and learn why the old keeper left. Plays with a keyboard, a controller or a touch screen, in short nights of ten minutes or long ones that last until dawn.";
+  const longest = await signedIn({ name: "Longest_Names_Here", year: "1990" }, "203.0.113.1");
+  await longest("/@Longest_Names_Here/edit", { display_name: LONGEST_DISPLAY_NAME, bio: LONGEST_BIO });
+  await signedIn({ name: "Empty_Handed", year: "1990" }, "203.0.113.2");
+  await signedIn({ name: "Many_Things", year: "1990" }, "203.0.113.3");
+  for (const username of ["Longest_Names_Here", "Empty_Handed", "Many_Things"]) await go("/admin/publishing/add", form({ username }));
+  // 120 friends for Many_Things, each a player who joined through the pages, from an address of their own.
+  for (let friendIndex = 1; friendIndex <= 120; friendIndex += 1) await signedIn({ name: `Many_Friend_${friendIndex}`, year: "1995" }, `203.0.${114 + Math.floor(friendIndex / 200)}.${(friendIndex % 200) + 10}`);
+  const nowMs = Date.now();
+  const account = (username) => `(SELECT id FROM accounts WHERE username = '${username}')`;
+  runSql([
+    ...["Longest_Names_Here", "Many_Things"].map((username) => `INSERT OR IGNORE INTO owners (id, kind, account_id, created_at_ms) SELECT 'owner_stress_' || lower('${username}'), 'person', ${account(username)}, ${nowMs}`),
+    `INSERT OR IGNORE INTO games (id, slug, title, description, review_status, live_version_id, owner_id, visibility, entry_signing_key, created_at_ms, updated_at_ms, genres) SELECT 'game_stress_longest', 'wandering-lighthouse-keeper', '${LONGEST_GAME_TITLE.replace(/'/g, "''")}', '${LONGEST_GAME_DESCRIPTION.replace(/'/g, "''")}', 'live', live_version_id, (SELECT id FROM owners WHERE account_id = ${account("Longest_Names_Here")}), 'unlisted', entry_signing_key, ${nowMs}, ${nowMs}, 'role_playing,adventure,puzzle' FROM games WHERE slug = 'night-drive'`,
+    `WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 40) INSERT OR IGNORE INTO games (id, slug, title, description, review_status, live_version_id, owner_id, visibility, entry_signing_key, created_at_ms, updated_at_ms) SELECT 'game_stress_many_' || i, 'many-things-world-' || i, 'Many Things World ' || i, '', 'live', live_version_id, (SELECT id FROM owners WHERE account_id = ${account("Many_Things")}), 'unlisted', entry_signing_key, ${nowMs} - i * 60000, ${nowMs} - i * 60000 FROM games, n WHERE slug = 'night-drive'`,
+    `INSERT OR IGNORE INTO played (account_id, game_id, played_at_ms) SELECT ${account("Longest_Names_Here")}, 'game_stress_longest', ${nowMs - 3600_000}`,
+    // 60 games played: its own 40, then 20 of Browse's.
+    `INSERT OR IGNORE INTO played (account_id, game_id, played_at_ms) SELECT ${account("Many_Things")}, id, ${nowMs} - played_rank * 60000 FROM (SELECT id, ROW_NUMBER() OVER (ORDER BY id) AS played_rank FROM games WHERE id LIKE 'game_stress_many_%' OR id IN (SELECT id FROM games WHERE id LIKE 'game_browse%' ORDER BY id LIMIT 20))`,
+    `INSERT OR IGNORE INTO friendships (account_id, friend_account_id, created_at_ms) SELECT ${account("Many_Things")}, id, ${nowMs} FROM accounts WHERE username LIKE 'Many_Friend_%'`,
+    `INSERT OR IGNORE INTO friendships (account_id, friend_account_id, created_at_ms) SELECT id, ${account("Many_Things")}, ${nowMs} FROM accounts WHERE username LIKE 'Many_Friend_%'`,
+  ].join(";\n"));
 }
 
 /**

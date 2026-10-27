@@ -577,7 +577,7 @@ const FIELD_STYLES = `
    (more-left and more-right, FIELD_SCRIPT) instead of being cut off hard there, while the face stays whole. */
 .field > input { --text-start: calc(var(--pad-inside-words) + 34px); --text-end: 16px; }
 .field input { position: relative; z-index: 2; flex: 1; min-width: 0; width: 100%; height: 100%; padding: 0 var(--text-end) 0 var(--text-start);
-  font: 500 18px var(--display); color: var(--ink); caret-color: var(--run-lo);
+  font: 500 1.125rem var(--display); color: var(--ink); caret-color: var(--run-lo);
   background: transparent; border: 0; border-radius: 0; clip-path: var(--cut-shape); }
 .field:has(> input)::before { content: ""; position: absolute; inset: 0; z-index: 1; pointer-events: none; --face-color: var(--field-face); background: var(--face-color);
   box-shadow: var(--field-shade); clip-path: var(--cut-shape); transition: --face-color 0.25s; }
@@ -687,7 +687,7 @@ component({
 .find input[type="search"] {
   --text-start: calc(var(--pad-inside-words) + 34px); --text-end: var(--search-end-room);
   position: relative; z-index: 2; width: 100%; height: 100%; padding: 0 var(--text-end) 0 var(--text-start);
-  font: 500 18px var(--display); color: var(--ink); caret-color: var(--run-lo);
+  font: 500 1.125rem var(--display); color: var(--ink); caret-color: var(--run-lo);
   background: transparent; border: 0; border-radius: 0; clip-path: var(--cut-shape);
 }
 /* Its face is a layer under its words, as a cut field's is, so its words fade at an end with more past it. */
@@ -727,7 +727,7 @@ component({
 /* A legend sits outside its fieldset's flex, so it takes the gap as a margin. */
 .bday legend { padding: 0 var(--pad-words); margin-bottom: var(--gap-words-control); font: var(--type-label); color: var(--ink-2); }
 .bday-field { position: relative; display: flex; align-items: center; justify-content: space-between; gap: var(--gap-words-words); width: 100%; height: var(--control-height-field); padding: 0 var(--pad-inside-words) 0 calc(var(--pad-inside-words) + 34px); border: 0; cursor: pointer; text-align: left;
-  font: 500 18px var(--display); color: var(--muted); --face-color: var(--field-face); background: var(--face-color); box-shadow: var(--field-shade);
+  font: 500 1.125rem var(--display); color: var(--muted); --face-color: var(--field-face); background: var(--face-color); box-shadow: var(--field-shade);
   clip-path: var(--cut-shape); transition: --face-color 0.25s; }
 .bday-field:hover { --face-color: var(--field-hover); }
 .bday-field[aria-expanded="true"], .bday-field:focus-visible, .bday-field.is-focused { outline: none; --face-color: var(--field-focus); }
@@ -763,9 +763,9 @@ component({
   mask-image: linear-gradient(180deg, #000 0, #000 30%, rgba(0,0,0,0.45) 70%, transparent); }
 .wheel::-webkit-scrollbar { display: none; }
 .wheel [role="option"] { height: 40px; display: flex; align-items: center; justify-content: center; scroll-snap-align: start;
-  font: 500 16px var(--display); color: var(--ink-2); cursor: pointer; user-select: none; -webkit-user-select: none; transition: color 0.2s, font-size 0.2s; }
+  font: 500 1rem var(--display); color: var(--ink-2); cursor: pointer; user-select: none; -webkit-user-select: none; transition: color 0.2s, font-size 0.2s; }
 .wheel [role="option"].blank { color: var(--muted); font-weight: 400; }
-.wheel [role="option"][aria-selected="true"] { font-size: 18px; color: var(--ink); font-weight: 600; }
+.wheel [role="option"][aria-selected="true"] { font-size: 1.125rem; color: var(--ink); font-weight: 600; }
 .wheel [role="option"][aria-selected="true"].blank { color: var(--muted); font-weight: 500; }
 .wheel:focus-visible [role="option"][aria-selected="true"] { outline: 2px solid var(--focus); outline-offset: -2px; }
 /* Done: a cut slab of clearer glass; it whitens with the orange line when you point at it, once there's a whole date. */
@@ -794,10 +794,10 @@ component({
 .date-time-wheels { grid-template-columns: 2.5fr 1.1fr 0.7fr; }
 /* The picked day stays at the wheel's own size, so a long one ("Jan 15, 2027") still fits a phone. */
 .date-time-wheels [role="option"] { white-space: nowrap; }
-.date-time-wheels [role="option"][aria-selected="true"] { font-size: 16px; }
+.date-time-wheels [role="option"][aria-selected="true"] { font-size: 1rem; }
 /* On a phone what's typed or picked is 16px, the least that keeps a phone from zooming in, so more of it fits: in a cut field, a search, a
    birthday's and a date's. Set here, after each of those fields' own font, so it holds on every one. */
-@media (max-width: 760px) { .field input, .find input[type="search"], .bday-field { font-size: 16px; } }
+@media (max-width: 760px) { .field input, .find input[type="search"], .bday-field { font-size: 1rem; } }
 `,
   render: dateTimeField,
   examples: [

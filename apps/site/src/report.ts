@@ -285,6 +285,7 @@ export async function reportForm(env: Env, slug: string, error = "", httpStatus 
   const response = layout(env, {
     viewer,
     checkedPage: "Report a game",
+    pageShape: "reading",
     title: named ? `Report ${game.title}` : "Report a game",
     body: glassPane({
       paneWidth: "fit",
@@ -322,6 +323,7 @@ export async function submitReport(env: Env, request: Request, slug: string, ctx
     const response = layout(env, {
       title: "Thanks for the report",
       checkedPage: "A message",
+      pageShape: "reading",
       body: glassPane({
         paneWidth: "fit",
         body: stack({

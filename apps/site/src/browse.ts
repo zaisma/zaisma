@@ -184,11 +184,11 @@ function results(query: BrowseQuery, games: BrowseGame[]): LayoutItem[] {
   const hasMore = firstIndex + BROWSE_PAGE_GAME_COUNT < games.length;
   return [
     // Both lists are always there, so Load more can add to either; an empty one takes no room until a page brings it covers.
-    { kind: "block", isHidden: !fitting.length && query.pageNumber === 1 && Boolean(others.length), markup: grid({ id: "browse-games", itemSize: "cover", label: "Games", items: fitting.map(coverOf) }) },
+    { kind: "block", isHidden: !fitting.length && query.pageNumber === 1 && Boolean(others.length), markup: grid({ whenEmpty: emptyState({ title: "No games on this page", text: "Every game here is made for another device." }), id: "browse-games", itemSize: "cover", label: "Games", items: fitting.map(coverOf) }) },
     {
       kind: "block",
       isHidden: !others.length,
-      markup: stack({ items: [{ kind: "words", markup: dividerWords(otherDevicesWords(allOthers)) }, { kind: "block", markup: grid({ id: "browse-other-games", itemSize: "cover", label: "Games made for other devices", items: others.map((game, coverIndex) => coverOf(game, fitting.length + coverIndex)) }) }] }),
+      markup: stack({ items: [{ kind: "words", markup: dividerWords(otherDevicesWords(allOthers)) }, { kind: "block", markup: grid({ whenEmpty: emptyState({ title: "Nothing for other devices", text: "Every game here plays on this one." }), id: "browse-other-games", itemSize: "cover", label: "Games made for other devices", items: others.map((game, coverIndex) => coverOf(game, fitting.length + coverIndex)) }) }] }),
     },
     ...(hasMore
       ? [{ kind: "block" as const, markup: loadMore({ href: browseHref({ ...query, pageNumber: query.pageNumber + 1 }), label: "More games", listId: "browse-games", moreListIds: ["browse-other-games"], isLoadedOnScroll: true }) }]
@@ -227,6 +227,7 @@ export async function browsePage(env: Env, request: Request): Promise<Response> 
     nav: "browse",
     viewer,
     checkedPage: browseState(query, viewer.account !== null && viewer.account !== undefined, games.length),
+    pageShape: "wide",
     search: { ...GAME_SEARCH, searchText: query.searchText, keep: { ...(query.sort !== "popular" ? { sort: query.sort } : {}), ...(query.filter !== "all" ? { filter: query.filter } : {}) } },
     body: html`${body}${scriptTags(BROWSE_SCRIPT)}`,
   });
