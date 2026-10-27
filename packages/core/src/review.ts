@@ -33,33 +33,38 @@ export const CONTENT_RULES = {
 } as const;
 export type ContentRule = keyof typeof CONTENT_RULES;
 /**
- * Where each rule's line is: the page shows it under the rule, with its test, what's fine and what isn't, and an
+ * Where each rule's line is: the page shows it under the rule's short title, with its test, what's fine and what isn't, and an
  * explanation where the words alone leave the line unclear. The test is one yes/no question written from the Fine
  * and Not fine examples: the AI review lists evidence and judges only by it, and a clear yes rejects the version
  * ("Clear breaks are rejected without a person" in docs/DECISIONS.md).
  */
-export const CONTENT_RULE_DETAILS: Record<ContentRule, { test: string; explanation?: string; fine: string; notFine: string }> = {
+export const CONTENT_RULE_DETAILS: Record<ContentRule, { title: string; test: string; explanation?: string; fine: string; notFine: string }> = {
   child_safety: {
+    title: "Child safety",
     test: "Is anything sexual involving someone who is or looks under 18, drawn, animated or AI-made included?",
     fine: "kids and teens as characters in any story that isn't sexual.",
     notFine: "anything sexual involving someone who is or looks under 18, drawn, animated or AI-made included.",
   },
   sexual: {
+    title: "Sexual content",
     test: "Does the game show nudity, or show or describe sex in detail, a \"censored\" bar included?",
     fine: "romance, kissing, dating sims, swimwear and dirty jokes.",
     notFine: "nudity, sex shown or described in detail, or porn behind a \"censored\" bar.",
   },
   malware: {
+    title: "Malware and scams",
     test: "Does the code mine cryptocurrency, hide what it runs (obfuscated beyond ordinary minifying, or running text it decodes), get around one of Zaisma's protections, or imitate Zaisma or another service, or promise prizes, to get players' passwords, details or wallet access?",
     fine: "minified builds, opening your own site from the game's links, and saving in the browser.",
     notFine: "a \"free skins\" page that asks for a password, mining while you play, or code that tries to leave the game's frame.",
   },
   illegal: {
+    title: "Illegal content and gambling",
     test: "Can players bet real money, or chips or anything bought with real money or cashed out, on chance?",
     fine: "casino, poker and slots played for points that can't be bought or cashed out; crime as gameplay.",
     notFine: "bets with real money, or with chips that can be bought or cashed out.",
   },
   real_people: {
+    title: "Real people",
     test: "Does it give a way to find or reach a real person who didn't make it public (a home address, phone number, personal email, private account, school or work), or make a real threat of violence against a real person?",
     explanation:
       "Anything that lets players find or reach a real person who didn't make it public: a home address, phone number, personal email or private account, or where they go to school or work. Or a real threat of violence against a real person.",
@@ -67,39 +72,46 @@ export const CONTENT_RULE_DETAILS: Record<ContentRule, { test: string; explanati
     notFine: "\"Jake lives at 12 Oak St\", a celebrity's leaked phone number, the school a kid goes to, or a message that means a real threat.",
   },
   copyright: {
+    title: "Copyright",
     test: "Is someone else's game, art, music or characters used without their permission or license?",
     explanation: "We act on it only when the owner sends a notice (see Copyright and DMCA notices).",
     fine: "a game inspired by another (the same genre, the same mechanics), parody with your own characters, and assets used within their license.",
     notFine: "Mario in your game, a ripped soundtrack, or someone else's game uploaded as yours.",
   },
   defamation: {
+    title: "Defamation",
     test: "Does the game falsely say a real private person committed a crime?",
     explanation: "We act on it only when that person sends a notice (see Defamation notices); we don't judge it ourselves.",
     fine: "satire, jokes and wild stories about politicians, celebrities and other public figures; crimes someone was publicly charged with or convicted of; made-up people.",
     notFine: "a game that names your neighbor Emma Clarke as the town's thief, or says a real classmate sells drugs.",
   },
   personal_details: {
+    title: "Personal details",
     test: "Does the game ask players for an email, real name, birthday, age, location, phone number or password?",
     fine: "a nickname for the scoreboard, Sign in with Zaisma, and a link to your own site.",
     notFine: "\"Enter your email to save\", or asking for a birthday, age, city or real name.",
   },
   chat: {
+    title: "Typed chat",
     test: "Can a player type text that another player reads as written, without it going through room.chat, or canChat and checkChat?",
     fine: "a chat box that sends with room.chat, preset phrases (\"GG\", \"Follow me\"), emotes, names for worlds and rooms, text only the player who typed it sees, and a word game that checks what you type against its own list and tells everyone only whether it was right.",
     notFine: "players' typed messages sent with room.send or broadcast, or through another service.",
   },
   crypto: {
+    title: "Crypto",
     test: "Does it use or promote a coin other than Bitcoin, a token, an NFT or an airdrop, or use Bitcoin for investment advice, mining on the player's device, paying players sats, or asking for a seed phrase or permission to spend from a wallet?",
     fine: "teaching Bitcoin, items for sats, tips, and a story with a meme-coin villain.",
     notFine: "an NFT skin shop, an airdrop, \"deposit sats, invite friends, earn more\", or asking for a seed phrase.",
   },
   purchases: {
+    title: "Purchases",
     test: "Can players pay real money, or coins or gems bought with real money, for a random reward? Or are coins or gems sold for real money (like gem bundles bought with Zaisma.items.buy) and anything priced in them with no real price beside each price?",
     explanation: "Players always know what they pay for and what it costs in money: an item is sold by name, and a price in coins or gems shows the real price beside it.",
     fine: "a free daily chest, a shop that shows \"500 gems ($4.99)\", and cosmetics bought by name.",
     notFine: "a paid crate with a random skin, gems bought with money spent on a gacha pull, or a shop that sells gem bundles priced only in gems.",
   },
   faked_plays: {
+    title: "Faked plays",
     test: "Does code, with no player action, join rooms or load the game again and again, so plays or players are counted that aren't people?",
     fine: "asking players to share your game, tester links, and playing your own game.",
     notFine: "scripts that open your game in a thousand tabs, click farms, or bots that fill rooms.",
@@ -128,6 +140,19 @@ export const ALLOWED_CONTENT = [
   "Trash talk and fiery lobbies: how players talk to each other is up to each game.",
   "Bitcoin games: teaching it, Bitcoin themes, selling items for sats, and tips.",
 ] as const;
+/** ALLOWED_CONTENT in a few words each, in the same order, for the rules page's tags: one title per entry, which the compiler holds. */
+type TitlesOf<Entries extends readonly string[]> = { readonly [Index in keyof Entries]: string };
+export const ALLOWED_CONTENT_TITLES: TitlesOf<typeof ALLOWED_CONTENT> = [
+  "Edgy and dark humor",
+  "Jokes about any group",
+  "Satire of real people",
+  "Gameplay violence",
+  "Real wars and their symbols",
+  "Drugs in a story",
+  "Play-money casinos",
+  "Trash talk",
+  "Bitcoin games",
+];
 export const isContentRule = (candidate: unknown): candidate is ContentRule => typeof candidate === "string" && Object.hasOwn(CONTENT_RULES, candidate);
 
 /** The fix for a hold a person decides: there's nothing for the developer to change. */

@@ -441,11 +441,13 @@ Every component, with the call that makes it and its options, is in the catalog 
   - `options`: `id: string`, `title?: string`, `body: Raw`, `isShown?: boolean`, `isInPlace?: boolean`
 - **Confirm it's you** (`confirmItsYouSheet(options: ConfirmItsYouOptions)`, `confirm-its-you.ts`): A small dialog that opens over anything and asks the player to prove it's them, the way that suits what they're doing: a passkey, their purchase PIN (for a purchase only) or their password. The page says why in one sentence and gives it the function that sends the proof; a right proof closes it and the page goes on by itself, so the button that asked is pressed once. In the middle of a wide screen, risen from the foot on a phone.
   - `options`: `id: string`, `method?: ConfirmMethod`, `switchTo?: ConfirmMethod`, `reasonText?: string`, `errorText?: string`, `isBusy?: boolean`, `isShown?: boolean`
-- **Stripe frame** (`stripeFrame(options: StripeFrameOptions)`, `stripe-frame.ts`): A zaisma.com frame for Stripe's own parts, its card form, Apple Pay and Google Pay, and a bank's 3-D Secure check, so Stripe.js loads only inside it and never on the page around it. As tall as what Stripe draws in it, and over the whole window while a bank asks the player to confirm.
-  - `options`: `id: string`, `title: string`, `isShown?: boolean`
 - **Folded part** (`foldedPart(options: FoldedPartOptions)`, `reading.ts`): Something that belongs on the page but out of the way, behind its title and how many are in it: earlier versions, blocked people, preview links. Pressing the title opens it in place.
   - `options`: `title: string`, `entryCount?: number`, `body: Raw`, `isOpen?: boolean`, `id?: string`
+- **Fold rows** (`foldRows(options: FoldRowsOptions)`, `reading.ts`): Things to scan by a title and one line, each opening in place to what's under it, like the content rules with their tests: the title and line always show, the rest folds. A link to a row opens it.
+  - `options`: `rows: FoldRow[]`, `label?: string`
 - **Divider with words** (`dividerWords(words: string)`, `reading.ts`): A hairline across a pane with a word or two in its middle, between two ways to do one thing: or, between signing in with a password and with a passkey.
+- **Stripe frame** (`stripeFrame(options: StripeFrameOptions)`, `stripe-frame.ts`): A zaisma.com frame for Stripe's own parts, its card form, Apple Pay and Google Pay, and a bank's 3-D Secure check, so Stripe.js loads only inside it and never on the page around it. As tall as what Stripe draws in it, and over the whole window while a bank asks the player to confirm.
+  - `options`: `id: string`, `title: string`, `isShown?: boolean`
 
 ### Data
 
