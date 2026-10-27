@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createAccount, createApiKey } from "@zaisma/core";
 import { BACKUP_LIMITS, backupPart, handleBackupMessage, isRefreshDue, mainDatabaseDump, orderedByReferences, startBackupRun, type BackupPart } from "../../apps/site/src/backups.ts";
 import { BACKUP_STORAGE_LIMITS } from "../../apps/site/src/backup-storage.ts";
-import { handleRestoreMessage, runWaitingRestore, type RestorePart } from "../../apps/site/src/restore.ts";
+import { handleRestoreMessage, restorePart, runWaitingRestore, splitRange, type RestorePart } from "../../apps/site/src/restore.ts";
 import type { Env } from "../../apps/site/src/env.ts";
 import { letPublish } from "../helpers.ts";
 
@@ -465,8 +465,37 @@ describe("a restore from the backups", () => {
     expect(page.versions.map((listed) => listed.key)).toEqual(["zaisma-games/blobs/blob-0", "zaisma-games/blobs/blob-0", "zaisma-games/blobs/blob-0"]);
     expect(page.nextAfterKey).toBe("zaisma-games/blobs/blob-0");
     const result = await restorePart(testEnv, firstGamesPart, storage);
-    expect(result).toMatchObject({ restoredObjectCount: 5, nextPart: null });
+    expect(result).toMatchObject({ restoredObjectCount: 5, nextParts: [] });
     for (let index = 0; index < 5; index++) expect(new Uint8Array(await (await env.GAMES.get(`blobs/blob-${index}`))!.arrayBuffer())).toEqual(new Uint8Array([index]));
+  });
+
+  it("splits a range of more than a page into ranges that cover it whole, and brings every key back", async () => {
+    await env.DB.exec("DELETE FROM blobs;");
+    // Keys spread over many first characters, one with a character no split point names, and a crowd under one.
+    const shas = [...Array.from({ length: 40 }, (_, index) => `${"0123456789abcdef"[index % 16]}${index.toString(36)}ffee`), "~tilde", ...Array.from({ length: 30 }, (_, index) => `aa${index.toString(36).padStart(2, "0")}`)];
+    for (const sha of shas) {
+      await env.DB.prepare("INSERT INTO blobs (sha256, size_bytes, created_at_ms) VALUES (?, 1, 0)").bind(sha).run();
+      versions.set(`zaisma-games/blobs/${sha}`, [{ bytes: new TextEncoder().encode(sha), atMs: Date.now() - 1000, headers: new Headers() }]);
+    }
+    const first: RestorePart = { restore_id: "restore_1", part_kind: "restore", prefix: "zaisma-games/", range_start_key: "zaisma-games/", before_key: null, after_key: null, split_level: 0 };
+    const ranges = splitRange(first);
+    // The range's own start, then one from each of the 65 split characters.
+    expect(ranges).toHaveLength(66);
+    expect(ranges[0]).toMatchObject({ range_start_key: "zaisma-games/", before_key: "zaisma-games/-", after_key: null });
+    expect(ranges.at(-1)).toMatchObject({ range_start_key: "zaisma-games/z", before_key: null, after_key: "zaisma-games/z" });
+    // Each range's end is the next one's start, so nothing falls between them.
+    ranges.slice(1).forEach((range, index) => expect(range.range_start_key).toBe(ranges[index]!.before_key));
+
+    const testEnv = { ...env, ...restoreKeys } as Env;
+    const queued = [first];
+    let partCount = 0;
+    while (queued.length) {
+      const result = await restorePart(testEnv, queued.shift()!, { cutoff_at_ms: Date.now() + DAY_MS }, undefined, 8);
+      queued.push(...result.nextParts);
+      partCount++;
+    }
+    expect(partCount).toBeGreaterThan(65);
+    for (const sha of shas) expect(await (await env.GAMES.get(`blobs/${sha}`))?.text(), sha).toBe(sha);
   });
 
   it("brings a game's database back as Zaisma's writes, and erases again a player erased since", async () => {

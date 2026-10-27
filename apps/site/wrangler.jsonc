@@ -84,7 +84,7 @@
     "consumers": [
       { "queue": "zaisma-scan", "max_batch_size": 1, "max_retries": 3 },
       { "queue": "zaisma-performance", "max_batch_size": 1, "max_retries": 3, "max_concurrency": 3 },
-      { "queue": "zaisma-backup", "max_batch_size": 1, "max_retries": 3, "max_concurrency": 5 }
+      { "queue": "zaisma-backup", "max_batch_size": 1, "max_retries": 3, "max_concurrency": 50 }
     ]
   },
   // Every 5 minutes: publish drafts at their scheduled time. Daily: delete old drafts and unused files, and start the night's backup.

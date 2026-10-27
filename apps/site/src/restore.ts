@@ -9,8 +9,9 @@ import { restoreRuleOf, type RestoreRule } from "./restore-rules.ts";
  * Zaisma back from its backups at Backblaze, in a Cloudflare account whose main database scripts/restore.mjs
  * has just loaded (docs/DECISIONS.md, "A copy outside Cloudflare that nobody can delete"). The script inserts
  * a restore_runs row; the site's cron starts it once the read key is set (RESTORE_KEY_ID, RESTORE_KEY_SECRET),
- * and its parts go on the zaisma-backup queue, one chain per kind of backup, each a page of keys that
- * queues the next, the backup turned around.
+ * and its parts go on the zaisma-backup queue, a range of keys each, a page at a time. A range with more than
+ * a page splits itself by the key's next character (KEY_SPLIT_CHARACTERS) into ranges that run side by side,
+ * so millions of saves and game files come back in hours, not days.
  *
  * Each key comes back as its newest version uploaded before the restore's cutoff (the night after the
  * main database's copy), and only when the restored database still holds what owns it: a restore never
@@ -31,6 +32,8 @@ export const RESTORE_LIMITS = {
   databasePartSizeBytes: 4 * 1024 * 1024,
   /** Tries per part before the restore is marked failed. */
   partTryCount: 3,
+  /** How many times a range splits into smaller ones: 66 ways each time, so four levels reach any size Zaisma has. */
+  maximumSplitLevel: 4,
   /** How long player_erases keeps an erase (webhooks.ts): every erase it still holds is done again. */
   erasedPlayerKeptDurationMs: 31 * 24 * 60 * 60 * 1000,
 } as const;
@@ -39,12 +42,39 @@ export const RESTORE_LIMITS = {
 export const RESTORED_PREFIXES = ["zaisma-games/", "zaisma-saves/", "game-databases/", "kept-rooms/"] as const;
 type RestoredPrefix = (typeof RESTORED_PREFIXES)[number];
 
-/** One part of a restore, as a message on the zaisma-backup queue. */
+/**
+ * One part of a restore, as a message on the zaisma-backup queue: the keys under prefix from range_start_key
+ * (a range's own start, where its splits begin) up to before_key (null: to the prefix's end), listed after
+ * after_key (null: from the range's start).
+ */
 export interface RestorePart {
   restore_id: string;
   part_kind: "restore";
   prefix: RestoredPrefix;
+  range_start_key: string;
+  before_key: string | null;
   after_key: string | null;
+  split_level: number;
+}
+
+/**
+ * The characters a range splits on, in byte order, as Backblaze lists keys. The ranges between them are
+ * contiguous, so a key with any other character still falls in one of them.
+ */
+export const KEY_SPLIT_CHARACTERS = "-.0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefghijklmnopqrstuvwxyz";
+
+/** A range split by the next character after its start: the ranges between each split point, in order, covering it whole. */
+export function splitRange(part: RestorePart): RestorePart[] {
+  const splitKeys = [...KEY_SPLIT_CHARACTERS].map((character) => part.range_start_key + character).filter((splitKey) => part.before_key === null || splitKey < part.before_key);
+  const starts = [part.range_start_key, ...splitKeys];
+  // A key equal to a split point is listed after it, so it would be missed: no key Zaisma writes ends one character after a range's start.
+  return starts.map((rangeStartKey, index) => ({
+    ...part,
+    range_start_key: rangeStartKey,
+    before_key: starts[index + 1] ?? part.before_key,
+    after_key: index === 0 ? part.after_key : rangeStartKey,
+    split_level: part.split_level + 1,
+  }));
 }
 
 interface RestoreRun {
@@ -63,7 +93,7 @@ export async function runWaitingRestore(env: Env, nowMs = Date.now()): Promise<b
   if (!running) return false;
   if (running.started_at_ms !== null || !env.RESTORE_KEY_ID || !env.RESTORE_KEY_SECRET || !env.BACKUP_QUEUE) return true;
   const started = await env.DB.prepare("UPDATE restore_runs SET started_at_ms = ?, queued_part_count = ? WHERE id = ? AND started_at_ms IS NULL").bind(nowMs, RESTORED_PREFIXES.length, running.id).run();
-  if (started.meta.changes) await env.BACKUP_QUEUE.sendBatch(RESTORED_PREFIXES.map((prefix): { body: RestorePart } => ({ body: { restore_id: running.id, part_kind: "restore", prefix, after_key: null } })));
+  if (started.meta.changes) await env.BACKUP_QUEUE.sendBatch(RESTORED_PREFIXES.map((prefix): { body: RestorePart } => ({ body: { restore_id: running.id, part_kind: "restore", prefix, range_start_key: prefix, before_key: null, after_key: null, split_level: 0 } })));
   return true;
 }
 
@@ -79,11 +109,11 @@ export async function handleRestoreMessage(env: Env, message: Message<RestorePar
     console.error("restore part failed", part, error);
     if (message.attempts < RESTORE_LIMITS.partTryCount) return message.retry({ delaySeconds: 60 * message.attempts });
     const failureMessage = `${part.prefix} after ${part.after_key ?? "the start"} failed ${message.attempts} times: ${error instanceof Error ? error.message : String(error)}`;
-    await finishPart(env, run.id, { restoredObjectCount: 0, restoredSizeBytes: 0, skippedObjectCount: 0, kindCounts: new Map(), nextPart: null }, failureMessage);
+    await finishPart(env, run.id, { restoredObjectCount: 0, restoredSizeBytes: 0, skippedObjectCount: 0, kindCounts: new Map(), nextParts: [] }, failureMessage);
     return message.ack();
   }
   const isFinished = await finishPart(env, run.id, partResult, null);
-  if (partResult.nextPart) await env.BACKUP_QUEUE!.send(partResult.nextPart);
+  for (let index = 0; index < partResult.nextParts.length; index += 100) await env.BACKUP_QUEUE!.sendBatch(partResult.nextParts.slice(index, index + 100).map((nextPart) => ({ body: nextPart })));
   // The restored database says Brotli copies exist that aren't in R2 any more: they're made again.
   if (isFinished) {
     await env.DB.prepare("DELETE FROM compressed_blobs").run();
@@ -98,7 +128,8 @@ interface RestorePartResult {
   skippedObjectCount: number;
   /** Keys restored and left out, by kind (keyKindOf). */
   kindCounts: Map<string, { restoredCount: number; skippedCount: number }>;
-  nextPart: RestorePart | null;
+  /** The page after this one, or the ranges this one split into. */
+  nextParts: RestorePart[];
 }
 
 /** A key's kind for restore_kind_counts: a game file's area (zaisma-games/logs), or the kind of backup (zaisma-saves, game-databases). */
@@ -109,7 +140,7 @@ async function finishPart(env: Env, restoreId: string, partResult: RestorePartRe
   const [, finished] = await env.DB.batch([
     env.DB.prepare(
       "UPDATE restore_runs SET finished_part_count = finished_part_count + 1, queued_part_count = queued_part_count + ?, restored_object_count = restored_object_count + ?, restored_size_bytes = restored_size_bytes + ?, skipped_object_count = skipped_object_count + ?, failure_message = COALESCE(failure_message, ?) WHERE id = ?",
-    ).bind(partResult.nextPart ? 1 : 0, partResult.restoredObjectCount, partResult.restoredSizeBytes, partResult.skippedObjectCount, failureMessage, restoreId),
+    ).bind(partResult.nextParts.length, partResult.restoredObjectCount, partResult.restoredSizeBytes, partResult.skippedObjectCount, failureMessage, restoreId),
     env.DB.prepare("UPDATE restore_runs SET finished_at_ms = ? WHERE id = ? AND finished_at_ms IS NULL AND finished_part_count >= queued_part_count").bind(Date.now(), restoreId),
     ...[...partResult.kindCounts].map(([keyKind, counts]) =>
       env.DB.prepare(
@@ -120,10 +151,20 @@ async function finishPart(env: Env, restoreId: string, partResult: RestorePartRe
   return Boolean(finished!.meta.changes);
 }
 
-/** One page of a restore: each key's newest version before the cutoff, put back when its owner is in the restored database. */
-export async function restorePart(env: Env, part: RestorePart, run: Pick<RestoreRun, "cutoff_at_ms">, wait?: BackupWait): Promise<RestorePartResult> {
+/**
+ * One page of a restore: each key's newest version before the cutoff, put back when its owner is in the
+ * restored database. A range's first page that isn't its last splits the range instead, so its pieces run side by side.
+ */
+export async function restorePart(env: Env, part: RestorePart, run: Pick<RestoreRun, "cutoff_at_ms">, wait?: BackupWait, listedVersionCount: number = RESTORE_LIMITS.listedVersionCount): Promise<RestorePartResult> {
   const storage = new BackupStorage(restoreStorageSettings(env), wait);
-  const page = await storage.listVersionPage(part.prefix, part.after_key, RESTORE_LIMITS.listedVersionCount);
+  const listed = await storage.listVersionPage(part.prefix, part.after_key ?? (part.range_start_key === part.prefix ? null : part.range_start_key), listedVersionCount);
+  // The range ends at before_key: keys from there on are another range's.
+  const isInRange = (key: string) => part.before_key === null || key < part.before_key;
+  const page = { versions: listed.versions.filter((version) => isInRange(version.key)), nextAfterKey: listed.nextAfterKey !== null && isInRange(listed.nextAfterKey) && listed.versions.every((version) => isInRange(version.key)) ? listed.nextAfterKey : null };
+  const isFirstPage = part.after_key === null || part.after_key === part.range_start_key;
+  // A range too narrow to split (its first split point is already past its end) goes on page by page.
+  const splitParts = isFirstPage && page.nextAfterKey !== null && part.split_level < RESTORE_LIMITS.maximumSplitLevel ? splitRange(part) : [];
+  if (splitParts.length > 1) return { restoredObjectCount: 0, restoredSizeBytes: 0, skippedObjectCount: 0, kindCounts: new Map(), nextParts: splitParts };
   // Versions come newest first for each key: the first before the cutoff is the one, unless it's Backblaze hiding a key Zaisma stopped copying.
   const chosen = new Map<string, BackupObjectVersion | null>();
   for (const version of page.versions) if (!chosen.has(version.key) && version.lastModifiedAtMs < run.cutoff_at_ms) chosen.set(version.key, version.isHidden ? null : version);
@@ -158,7 +199,7 @@ export async function restorePart(env: Env, part: RestorePart, run: Pick<Restore
     kindCounts.set(keyKindOf(key), counts);
   }
   const nextAfterKey = stoppedAfterKey ?? page.nextAfterKey;
-  return { restoredObjectCount, restoredSizeBytes, skippedObjectCount, kindCounts, nextPart: nextAfterKey ? { ...part, after_key: nextAfterKey } : null };
+  return { restoredObjectCount, restoredSizeBytes, skippedObjectCount, kindCounts, nextParts: nextAfterKey ? [{ ...part, after_key: nextAfterKey }] : [] };
 }
 
 interface OwnerRow {
