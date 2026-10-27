@@ -15,6 +15,7 @@ const savedText = (localStorageItems: Record<string, string>) => canonicalSave(s
 import { DAILY_SIGN_IN_SWEEP_MS, RECENT_SIGN_IN_SWEEP_MS, deleteAbandonedSignIns } from "../../apps/site/src/cleanup.ts";
 import worker from "../../apps/site/src/index.ts";
 import { deleteOldProofs } from "../../apps/site/src/session-proofs.ts";
+import { sendEmailCode } from "../../apps/site/src/email-codes.ts";
 import { ACTIVITY, SIGN_IN_APP } from "../../apps/site/src/schemas.ts";
 import { errorProblems, schemaProblems } from "../schema-check.ts";
 import { pageDataOf, pageScriptNames, pageScriptText, strictScriptProblems } from "../strict-scripts.ts";
@@ -246,7 +247,10 @@ beforeEach(async () => {
   await env.DB.exec("DELETE FROM email_codes; DELETE FROM email_code_requests; DELETE FROM security_events; DELETE FROM security_places; DELETE FROM device_marks; DELETE FROM wrong_passwords; DELETE FROM forum_posts; DELETE FROM forum_topic_tags; DELETE FROM forum_votes; DELETE FROM forum_follows; DELETE FROM forum_media; DELETE FROM forum_mentions; DELETE FROM forum_topics; DELETE FROM played; DELETE FROM games_ever_played; DELETE FROM player_erases; DELETE FROM presences; DELETE FROM room_players; DELETE FROM live_rooms; DELETE FROM friendships; DELETE FROM friend_invites; DELETE FROM blocks; DELETE FROM profile_reports; DELETE FROM game_images; DELETE FROM api_keys; DELETE FROM passkeys; DELETE FROM session_proofs; DELETE FROM save_history; DELETE FROM saves; DELETE FROM audit_log; DELETE FROM tester_links; DELETE FROM reports; DELETE FROM versions; DELETE FROM game_deletions; DELETE FROM retired_game_slugs; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM accounts;");
 });
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.useRealTimers();
+});
 
 // --- A browser with a cookie jar ---
 
@@ -316,6 +320,13 @@ async function addEmail(b: Browser, email: string): Promise<Response> {
 
 /** Sign in with a password, passing the invisible check a device the account hasn't seen needs. */
 const signIn = (b: Browser, form: Record<string, string>) => b.go("/signin", { turnstile_token: "sign_in", ...form });
+
+/** Sign out, then let the next second begin: Sign out on every device ends every session up to the end of the second it happens in, so a sign-in in that same second would end with it. */
+async function signOutThenWait(b: Browser): Promise<Response> {
+  const res = await b.go("/signout", {});
+  vi.useFakeTimers({ toFake: ["Date"], now: Date.now() + 1500 });
+  return res;
+}
 
 /** Ask for a code to an email from the Forgot your password page, and type it. */
 async function signInByEmail(b: Browser, email: string, next?: string): Promise<Response> {
@@ -758,7 +769,7 @@ describe("accounts open only through Zaisma", () => {
 
     // The owner's device still gets in with the right password, with no invisible check to pass.
     const checksBefore = turnstileChecks.length;
-    await owner.go("/signout", {});
+    await signOutThenWait(owner);
     expect((await owner.go("/signin", { username: "Night_Owl", password: PASSWORD })).headers.get("location")).toBe("/");
     expect(turnstileChecks).toHaveLength(checksBefore);
 
@@ -3943,7 +3954,7 @@ describe("Sign in with Zaisma", () => {
     expect(right.headers.get("access-control-allow-origin")).toBe("*");
 
     // Signing in keeps the whole link, PKCE included, and comes back to it.
-    await player.go("/signout", {});
+    await signOutThenWait(player);
     const next = new URL((await player.go(authorizeQuery(appId, pkce))).headers.get("location")!, SITE).searchParams.get("next")!;
     expect(next.length).toBeGreaterThan(200);
     expect(await (await player.go(`/signin?next=${encodeURIComponent(next)}`)).text()).toContain(`name="next" value="${next.replace(/&/g, "&amp;")}"`);
@@ -4165,7 +4176,7 @@ describe("the security log on the account page", () => {
     expect(refused.headers.get("location")).toBe("/account?confirm-first#signing-in");
     expect((await accountById(env.DB, id))!.where_used_from_enabled).toBe(1);
 
-    await owner.go("/signout", {});
+    await signOutThenWait(owner);
     await owner.go("/signin", { username: "Night_Owl", password: PASSWORD });
     // An upload from a key, with its address.
     await env.DB.prepare(
@@ -4636,5 +4647,158 @@ describe("Developer settings", () => {
     const appId = (await env.DB.prepare("SELECT id FROM sign_in_apps").first<{ id: string }>())!.id;
     expect((await b.go(`/dashboard/settings/sign-in-apps/${appId}/delete`, {})).status).toBe(303);
     expect(await env.DB.prepare("SELECT COUNT(*) AS app_count FROM sign_in_apps").first()).toEqual({ app_count: 0 });
+  });
+});
+
+// Sign-in's promises, from the Oct 23 hunt (docs/findings/beta-hardening.md): the clock is set so no test hangs on today's date.
+describe("sign-in keeps its promises", () => {
+  const setNow = (iso: string) => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(iso));
+  };
+  afterEach(() => vi.useRealTimers());
+
+  const TOO_YOUNG = "You can't make an account";
+  const hasJoinCookie = (b: Browser) => b.jar.has("__Host-zaisma_join");
+
+  describe("the 13th birthday counts from midnight where the player is", () => {
+    it("lets in the morning of the birthday in Tokyo, which is still the evening before in UTC, and keeps the birth date", async () => {
+      setNow("2027-03-08T16:00:00Z");
+      const tokyo = new Browser();
+      await tokyo.go("/join/age", { birthday: "2014-03-09", today: "2027-03-09" });
+      expect(hasJoinCookie(tokyo)).toBe(true);
+      await tokyo.go("/join/account", { turnstile_token: "test-token", username: "Tokyo_Teen", password: PASSWORD });
+      // The band-move clock (UTC-12) still reads 12: the date stays, and the account moves up on its 16th birthday.
+      expect(await env.DB.prepare("SELECT age_band, birth_date FROM accounts WHERE id = ?").bind(await idOf("Tokyo_Teen")).first()).toEqual({ age_band: "13-15", birth_date: "2014-03-09" });
+      expect(await accountById(env.DB, await idOf("Tokyo_Teen"), Date.UTC(2030, 2, 9, 13))).toMatchObject({ age_band: "16-17", birth_date: "2014-03-09" });
+    });
+
+    it("turns away the evening before the birthday in Los Angeles, which is already the birthday in UTC", async () => {
+      setNow("2027-03-09T03:00:00Z");
+      const losAngeles = new Browser();
+      expect(await (await losAngeles.go("/join/age", { birthday: "2014-03-09", today: "2027-03-08" })).text()).toContain(TOO_YOUNG);
+      expect(hasJoinCookie(losAngeles)).toBe(false);
+      // A form with no date (no script) counts the UTC date.
+      expect(hasJoinCookie(await (async () => { const b = new Browser(); await b.go("/join/age", { birthday: "2014-03-09" }); return b; })())).toBe(true);
+    });
+
+    it("counts the UTC date for a date no time zone has right now", async () => {
+      setNow("2027-03-09T12:00:00Z");
+      const ahead = new Browser();
+      expect(await (await ahead.go("/join/age", { birthday: "2014-03-10", today: "2027-03-20" })).text()).toContain(TOO_YOUNG);
+      const behind = new Browser();
+      await behind.go("/join/age", { birthday: "2014-03-09", today: "2027-03-01" });
+      expect(hasJoinCookie(behind)).toBe(true);
+      expect(await (await new Browser().go("/join/age", { birthday: "2014-03-09", today: "not a date" })).text()).not.toContain(TOO_YOUNG);
+    });
+
+    it("keeps the birth date of an account made on its 13th birthday, and still deletes it at 18", async () => {
+      await createAccount(env.DB, { id: "teen-1", username: "Tokyo_Teen", ageBand: "13-15", birthDate: "2014-03-09" });
+      const born = async (nowMs: number) => (await accountById(env.DB, "teen-1", nowMs))!;
+      expect(await born(Date.UTC(2027, 2, 9, 0, 30))).toMatchObject({ age_band: "13-15", birth_date: "2014-03-09" });
+      expect(await born(Date.UTC(2027, 2, 9, 13))).toMatchObject({ age_band: "13-15", birth_date: "2014-03-09" });
+      expect(await born(Date.UTC(2032, 2, 9, 13))).toMatchObject({ age_band: "18+", birth_date: null });
+    });
+  });
+
+  describe("join steps that cross midnight keep the birth date", () => {
+    it.each([
+      { name: "a 16th birthday", birthday: "2011-03-09", band: "13-15", later: Date.UTC(2027, 2, 9, 13), laterBand: "16-17" },
+      { name: "an 18th birthday", birthday: "2009-03-09", band: "16-17", later: Date.UTC(2027, 2, 9, 13), laterBand: "18+" },
+    ])("on $name", async ({ birthday, band, later, laterBand }) => {
+      setNow("2027-03-08T23:50:00Z");
+      const b = new Browser();
+      await b.go("/join/age", { birthday });
+      setNow("2027-03-09T00:10:00Z");
+      await b.go("/join/account", { turnstile_token: "test-token", username: "Midnight_Kid", password: PASSWORD });
+      const id = await idOf("Midnight_Kid");
+      expect(await env.DB.prepare("SELECT age_band, birth_date FROM accounts WHERE id = ?").bind(id).first()).toEqual({ age_band: band, birth_date: birthday });
+      expect(await accountById(env.DB, id, later)).toMatchObject({ age_band: laterBand, birth_date: laterBand === "18+" ? null : birthday });
+    });
+
+    it("but drops a birth date a cookie's band can't have come from", async () => {
+      setNow("2027-03-09T12:00:00Z");
+      const forged = new Browser();
+      forged.jar.set("__Host-zaisma_join", encodeURIComponent(JSON.stringify({ band: "16-17", birth_date: "2014-03-09" })));
+      await forged.go("/join/account", { turnstile_token: "test-token", username: "Forged_Kid", password: PASSWORD });
+      expect(await accountById(env.DB, await idOf("Forged_Kid"))).toMatchObject({ age_band: "16-17", birth_date: null });
+    });
+  });
+
+  it("signs in with the username as it's shown everywhere, @name", async () => {
+    await join(new Browser(), null, "Night_Owl");
+    const b = new Browser();
+    const res = await signIn(b, { username: "@night_owl", password: PASSWORD });
+    expect([res.status, res.headers.get("location")]).toEqual([303, "/"]);
+    expect(b.jar.has("__Host-zaisma")).toBe(true);
+    expect((await signIn(new Browser(), { username: "@night_owl", password: "wrong password here" })).status).toBe(400);
+  });
+
+  describe("someone new back from Google or Discord who is deleted keeps nothing", () => {
+    const proofCount = async () => (await env.DB.prepare("SELECT COUNT(*) AS proof_count FROM session_proofs").first<{ proof_count: number }>())!.proof_count;
+
+    it("without having answered the age question", async () => {
+      const b = new Browser();
+      await viaProvider(b, "/signin/with/discord", "new@example.com");
+      expect(deleted).toHaveLength(1);
+      expect(await proofCount()).toBe(0);
+    });
+
+    it("when the age question then says under 13", async () => {
+      const b = new Browser();
+      await b.go("/join/age", { ...BIRTH_ADULT, with: "discord" });
+      await viaProvider(b, "/signin/with/discord", "half@example.com");
+      await b.go("/join/age", { year: String(thisYear - 9), month: "3", day: "3" });
+      expect(deleted).toHaveLength(1);
+      expect(await proofCount()).toBe(0);
+    });
+
+    it("and the proof is kept once the account is made", async () => {
+      const b = new Browser();
+      await b.go("/join/age", { ...BIRTH_ADULT, with: "discord" });
+      await viaProvider(b, "/signin/with/discord", "half@example.com");
+      expect(await proofCount()).toBe(0);
+      await b.go("/join/username", { turnstile_token: "test-token", username: "Lucky_Star" });
+      expect(await env.DB.prepare("SELECT account_id, proof_kind FROM session_proofs").all()).toMatchObject({ results: [{ account_id: users.get("half@example.com"), proof_kind: "discord" }] });
+    });
+  });
+
+  it("a deleted account's other device can't make a new account on the deleted sign-in", async () => {
+    const a = new Browser();
+    await join(a, null);
+    const [phone, tablet] = [new Browser(), new Browser()];
+    for (const device of [phone, tablet]) await signIn(device, { username: "Night_Owl", password: PASSWORD });
+    expect((await phone.go("/account")).status).toBe(200);
+    expect((await a.go("/account/delete", { confirm: "delete" })).status).toBe(200);
+
+    const askedAge = await phone.go("/join/age", BIRTH_ADULT);
+    expect(askedAge.headers.get("location")).toBe("/join");
+    expect(phone.jar.has("__Host-zaisma")).toBe(false);
+    // The same from the username step, with the join steps' cookie in hand.
+    tablet.jar.set("__Host-zaisma_join", encodeURIComponent(JSON.stringify({ band: "18+" })));
+    const madeAgain = await tablet.go("/join/username", { turnstile_token: "test-token", username: "Lucky_Star" });
+    expect(madeAgain.headers.get("location")).toBe("/join");
+    expect(tablet.jar.has("__Host-zaisma")).toBe(false);
+    expect(await env.DB.prepare("SELECT COUNT(*) AS account_count FROM accounts").first()).toEqual({ account_count: 0 });
+  });
+
+  it("a device signed in earlier in the same second as Sign out on every device is signed out too", async () => {
+    setNow("2027-01-05T10:00:00.400Z");
+    const a = new Browser();
+    await join(a, null);
+    const other = new Browser();
+    await signIn(other, { username: "Night_Owl", password: PASSWORD });
+    expect((await other.go("/account")).status).toBe(200);
+    setNow("2027-01-05T10:00:00.900Z");
+    await a.go("/signout", {});
+    expect((await other.go("/account")).headers.get("location")).toBe("/signin");
+  });
+
+  it("at most 3 email codes an hour reach one address, even when the asks come at the same moment", async () => {
+    const nowMs = Date.UTC(2027, 0, 5, 10);
+    const asks = await Promise.all(Array.from({ length: 6 }, () => sendEmailCode(env, { email: "fox@example.com", accountId: null, kind: "sign_in", reason: "sign_in" }, nowMs)));
+    expect(asks.filter((ask) => ask === "sent")).toHaveLength(3);
+    expect(asks.filter((ask) => ask === "too-many")).toHaveLength(3);
+    expect(await env.DB.prepare("SELECT COUNT(*) AS request_count FROM email_code_requests").first()).toEqual({ request_count: 3 });
   });
 });
