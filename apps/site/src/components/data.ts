@@ -357,7 +357,7 @@ component({
 .list-row > :not(.cut-line) { position: relative; z-index: 2; }
 .list-row-lead { flex: none; display: inline-flex; color: var(--ink-2); }
 /* Compact: a long list in a narrow place (the players in a room): one line a row, its words taking what's left beside its picture and buttons. */
-.list-rows.is-compact > li > .list-row { flex-wrap: nowrap; min-height: 44px; padding-block: 6px; }
+.list-rows.is-compact > li > .list-row { flex-wrap: nowrap; min-height: 44px; padding-block: calc(var(--gap-control-stack) * 0.75); }
 .list-rows.is-compact .list-row-words { flex: 1 1 0; }
 .list-row-lead > .ico { width: 20px; height: 20px; }
 /* The words keep a card's width at least: where the buttons don't fit beside that, they go under the words, at the row's end. */

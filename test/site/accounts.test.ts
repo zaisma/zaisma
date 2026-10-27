@@ -1604,7 +1604,7 @@ describe("friends", () => {
     // Only games that go online get the button and the plate.
     const page = await (await ana.go("/g/arena-game")).text();
     expect(page).toContain('id="players-open"');
-    expect(page).toMatch(/<dialog class="sheet glass placement-foot" id="players"/);
+    expect(page).toMatch(/<dialog class="sheet glass placement-foot is-compact"[^>]* id="players"/);
     expect(page).toMatch(/<dialog class="sheet glass placement-foot" id="block"/);
     const solo = await (await ana.go("/g/solo-game")).text();
     expect(solo).not.toContain('id="players-open"');

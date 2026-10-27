@@ -415,7 +415,7 @@ component({
 .link-field-text { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .link-field-copy { flex: none; font: var(--type-facts); color: var(--ink-2); transition: color 0.15s; }
 .link-field-box:hover .link-field-copy, .link-field-box.is-pointed .link-field-copy { color: var(--ink); }
-.link-field-box:active, .link-field-box.is-pressed { transform: translateY(1px); }
+.link-field-box:active, .link-field-box.is-pressed { box-shadow: var(--press-shade); }
 .link-field-box:focus-visible { outline: none; }
 .link-field-box:focus-visible > .cut-line polygon, .link-field-box.is-focused > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 .link-field-icon.is-done, .link-field-said { display: none; }
@@ -476,7 +476,7 @@ component({
 .qr-caption { font: var(--type-label); color: var(--ink); text-align: center; padding-inline: var(--pad-inside-words); }
 .qr-code.is-masked > .qr-picture { filter: blur(8px); }
 /* Large (a light box's): as big as the screen allows, its white margin wider to match, its line under it. */
-.qr-code.is-large > .qr-picture { width: min(360px, 76vw, 58dvh); padding: 16px; box-sizing: border-box; }
+.qr-code.is-large > .qr-picture { width: min(360px, 76vw, 58dvh); padding: var(--pad-tray); box-sizing: border-box; }
 /* Compact, on a wide screen: smaller, with its line beside it, the width of what a compact sheet holds. */
 @media (min-width: 761px) {
   .qr-code.is-compact { grid-template-columns: auto 1fr; justify-items: start; align-items: center; column-gap: var(--gap-block-block); }

@@ -306,7 +306,7 @@ describe("the gallery", () => {
       for (const holder of elementTree((await page(groupPath(group))).text)) {
         const children = holder.children.filter((child) => child.tag !== "svg" && child.tag !== "template");
         // A control's own parts (a switch's tabs, the row arrows' two slabs, a dropdown's choices) are its inside, not controls beside each other.
-        if (holder.classes.includes("shell") || holder.attributes.includes(" data-cut-line") || holder.attributes.includes(' role="menu"') || holder.classes.includes("dropdown-in") || holder.attributes.includes(' role="listbox"')) continue;
+        if (holder.classes.includes("shell") || holder.attributes.includes(" data-cut-line") || holder.attributes.includes(' role="menu"') || holder.classes.includes("dropdown-in") || holder.classes.includes("menu-choices") || holder.attributes.includes(' role="listbox"')) continue;
         // A compact choice list's cards are its own inside, down its carved well like a vertical switch's places.
         if (holder.classes.includes("choice-list-in")) continue;
         // A switch with its Row arrows (tabSwitch's rowId) is one control: the frame and the arrows that scroll it are its own inside.
@@ -598,6 +598,7 @@ const OWN_SVG = new Map<string, string>([
   ["4527 3300", "Zaisma's mark (the Logo)"],
   ['class="cut-line"', "the edge rule's outline (CUT_LINE)"],
   ['class="edge"', "glass's drawn rim (EDGE)"],
+  ['<svg class="sheet-tab-outline"', "a sheet's tab row: what's behind its chosen tab, and that tab's shadow, drawn to the row"],
   ['<svg class="chart-drawing"', "a chart's own line or bars, drawn from its numbers"],
   ['<svg class="chart-drawing chart-area-drawing"', "the shade under a chart's line"],
   ['<svg class="ring-drawing"', "a ring chart's parts, drawn from its shares"],
@@ -693,7 +694,7 @@ const NOT_SPACING = new Set<string>([
   ".choice-cards > .choice-card:not(:last-child) | margin-inline-end",
   // A control's own parts: a well's inset round its slab, the birthday's wheels, and a list of places, one control its slab glides along.
   ".tab-switch | padding", ".tab-switch.small | padding", ".color-well | padding", ".steps | padding", ".wheels | gap", ".wheels | padding",
-  ".dropdown | gap", ".dropdown-in | gap",
+  ".dropdown | gap", ".dropdown-in | gap", ".menu-choices | gap",
   // Room to scroll, or for a scrollbar or a page's rail.
   ".wheel | padding", "html | scroll-padding-top", ".gallery-layout | padding-right",
   ".choice-list-in.own-scroll.shows-rail | padding-right", ".sheet-in.own-scroll.shows-rail | padding-right", ".sheet-body.own-scroll.shows-rail | padding-right",

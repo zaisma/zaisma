@@ -444,30 +444,35 @@ export const LAYERS_SCRIPT = `/* layers */(function () {
     sheet.querySelectorAll("[data-sheet-tab-to]").forEach(function (button) { button.setAttribute("aria-pressed", String(button.getAttribute("data-sheet-tab-to") === tabValue)); });
     drawTabRows(sheet, true);
   }
-  // The tab row: behind (the deeper glass) everywhere in it but the chosen tab, drawn inside its scrolling track so it moves with the tabs, its
-  // shadow along the front piece's outline; and the sheet's own glass edge (GLASS_SCRIPT, zaismaEdgeShape) drawn along that outline: up the
+  // The tab row: behind (the deeper glass) everywhere in it but the chosen tab, Close's end too, drawn to the row where the tabs are scrolled
+  // to now (again on every scroll), with the front piece's shadow falling on it; and the sheet's own glass edge (GLASS_SCRIPT, zaismaEdgeShape) drawn along that outline: up the
   // chosen tab's outward slants, across its top, along the row's foot beside it, and round the rest of the sheet. isRevealing scrolls the
   // chosen tab into view.
   var TAB_SLANT_PX = 8;
   function drawTabRows(holder, isRevealing) {
     (holder.classList && holder.classList.contains("sheet-tab-scroll") ? [holder.querySelector(".sheet-tab-track")] : holder.querySelectorAll(".sheet-tab-track")).forEach(function (track) {
-      var chosen = track.querySelector('[data-sheet-tab-to][aria-pressed="true"]'), svg = track.querySelector(".sheet-tab-outline");
+      var scroller = track.parentNode, row = scroller && scroller.parentNode;
+      var chosen = track.querySelector('[data-sheet-tab-to][aria-pressed="true"]'), svg = row && row.querySelector(".sheet-tab-outline");
       if (!chosen || !svg) return;
       // Drawn again whenever the row changes size (the sheet settling into its place, the fonts arriving).
       if (!track.zaismaWatched && window.zaismaWatch) { track.zaismaWatched = true; window.zaismaWatch.size(track, function () { drawTabRows(track.parentNode, false); }); }
-      var w = track.offsetWidth, h = track.offsetHeight, s = TAB_SLANT_PX;
-      var left = chosen.offsetLeft, right = left + chosen.offsetWidth;
-      var behind = "M0,0H" + w + "V" + h + "H" + right + "L" + (right - s) + ",0H" + (left + s) + "L" + left + "," + h + "H0Z";
+      var w = row.offsetWidth, h = row.offsetHeight, s = TAB_SLANT_PX;
+      // Where the chosen tab is in the row now, kept to what shows of the scrolling part (as its glass edge is, outlineSheet).
+      var tabLeft = chosen.offsetLeft, tabRight = tabLeft + chosen.offsetWidth;
+      var left = Math.max(tabLeft - scroller.scrollLeft, 0), right = Math.min(tabRight - scroller.scrollLeft, scroller.clientWidth);
+      // At the sheet's start (the first tab, or one scrolled past the start), the chosen tab has the sheet's own corner there, no slant;
+      // between tabs it slants outward. Scrolled out of sight, all the row is behind.
+      var isAtStart = left <= 1, isShown = right - left > 2 * s;
+      var behind = !isShown ? "M0,0H" + w + "V" + h + "H0Z" : "M0,0H" + w + "V" + h + "H" + right + "L" + (right - s) + ",0" + (isAtStart ? "H0Z" : "H" + (left + s) + "L" + left + "," + h + "H0Z");
       svg.querySelector(".behind-glass").setAttribute("d", behind);
       svg.querySelector(".behind-well").setAttribute("d", behind);
-      // The front piece's shadow falls only on what's behind it: the line along its outline, kept to the behind shape.
+      // The front piece's shadow falls only on what's behind it: its shape in the row, blurred, kept to the behind shape.
       var shadow = svg.querySelector(".front-shadow");
-      shadow.setAttribute("points", [[0, h], [left, h], [left + s, 0], [right - s, 0], [right, h], [w, h]].map(function (p) { return p.join(","); }).join(" "));
-      shadow.style.clipPath = 'path("' + behind + '")';
-      var scroller = track.parentNode;
+      shadow.setAttribute("points", (!isShown ? [[-24, h]] : (isAtStart ? [[-24, 0]] : [[-24, h], [left, h], [left + s, 0]]).concat([[right - s, 0], [right, h]])).concat([[w + 24, h], [w + 24, h + 24], [-24, h + 24]]).map(function (p) { return p.join(","); }).join(" "));
+      svg.querySelector(".behind-clip").setAttribute("d", behind);
       if (isRevealing && scroller && scroller.scrollTo) {
         var shownLeft = scroller.scrollLeft, shownRight = shownLeft + scroller.clientWidth;
-        if (left < shownLeft || right > shownRight) scroller.scrollTo({ left: left < shownLeft ? left - 24 : right - scroller.clientWidth + 24, behavior: isReduced() ? "auto" : "smooth" });
+        if (tabLeft < shownLeft || tabRight > shownRight) scroller.scrollTo({ left: tabLeft < shownLeft ? tabLeft - 24 : tabRight - scroller.clientWidth + 24, behavior: isReduced() ? "auto" : "smooth" });
       }
       markMore(scroller);
       outlineSheet(track);
@@ -499,10 +504,8 @@ export const LAYERS_SCRIPT = `/* layers */(function () {
   }
   document.addEventListener("scroll", function (event) {
     if (!event.target.classList || !event.target.classList.contains("sheet-tab-scroll")) return;
-    markMore(event.target);
-    // The chosen tab moved in the sheet: its glass edge follows.
-    var track = event.target.querySelector(".sheet-tab-track");
-    if (track) outlineSheet(track);
+    // The chosen tab moved in the sheet: what's behind and its glass edge follow.
+    drawTabRows(event.target, false);
   }, true);
   // Rows on the page as it opens (a gallery's still copy), and again when the window or the fonts change their size.
   var drawAllTabRows = function () { if (document.body) drawTabRows(document.body, false); };
