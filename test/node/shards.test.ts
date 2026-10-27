@@ -37,7 +37,7 @@ describe("the shards", () => {
   });
 
   it("are the ones the workflow runs, four files at once", () => {
-    expect(workflow).toContain(`npm test -- --shard=\${{ matrix.shard }}/${SHARD_COUNT}`);
+    expect(workflow).toContain(`node scripts/test-shard.mjs --shard \${{ matrix.shard }}/${SHARD_COUNT}`);
     expect(workflow).toContain(`TEST_WORKER_COUNT: ${CI_WORKER_COUNT}`);
     for (const path of ALONE_TEST_FILES) expect(existsSync(join(ROOT, path)), path).toBe(true);
   });

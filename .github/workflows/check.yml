@@ -2,13 +2,13 @@
 # Needs no secrets: vitest.config.ts gives the tests every binding they use.
 #
 # Everything runs side by side, split across runners: the tests in four shards (four files at once on each), typecheck, the
-# Layout check in two and the Engine exports in three.
+# Layout check in two and the Engine exports in three. "Tests and typecheck", the check the ruleset requires and npm run ship
+# reads, passes only when all of them did.
 # A pull request runs only the test files its change reaches (scripts/affected-tests.mjs, "Reached tests"), and the test files it
 # adds or changes ten times ("New tests ten times"), so a flaky test is caught before the queue. The merge queue and main run every
 # test ("Tests"), and only those runs count for npm run ship (scripts/ship-github-check.mjs). In the merge queue a failed file runs
 # once more, and a test that passes then is named as flaky instead of throwing the batch out (scripts/test-shard.mjs) (Julius,
-# Oct 26, 2026). "Tests and typecheck", the check the ruleset requires and npm run ship
-# reads, passes only when all of them did.
+# Oct 26, 2026).
 # A change to docs/, .claude/, CLAUDE.md or README.md alone changes no code, so it runs only the tests that read
 # those files (the node project) as "Docs tests". The same paths are DOCS_ONLY_PATH in
 # scripts/ship-github-check.mjs.
