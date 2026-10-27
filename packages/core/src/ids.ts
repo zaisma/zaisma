@@ -7,7 +7,7 @@ import { ApiError } from "./errors.ts";
  * player IDs take theirs with the SDK and game server's names (docs/ROADMAP.md); an account's is kept
  * with the account (accounts.player_id), the same in every game.
  */
-export const ID_KINDS = ["game", "version", "image", "shader", "tester", "topic", "post", "report", "media", "precedent", "review_precedent", "player", "owner", "save_copy", "play_ticket", "room_key", "sign_in_app", "chat_group", "player_tag", "webhook", "webhook_event", "chat_review", "mcp_client", "database_restore", "announcement", "top_up", "credit_entry", "purchase", "spending_request"] as const;
+export const ID_KINDS = ["game", "version", "image", "shader", "tester", "topic", "post", "report", "media", "precedent", "review_precedent", "player", "owner", "save_copy", "play_ticket", "room_key", "sign_in_app", "chat_group", "player_tag", "webhook", "webhook_event", "chat_review", "mcp_client", "database_restore", "announcement", "top_up", "credit_entry", "purchase", "spending_request", "pending_refund"] as const;
 export type IdKind = (typeof ID_KINDS)[number];
 
 /** 20 random lowercase letters and digits: the random part of an ID, and of an API key's own format (zsk_<random>_<secret>). */

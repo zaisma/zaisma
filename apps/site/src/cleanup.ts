@@ -121,6 +121,8 @@ export async function dailyCleanup(env: Env, nowMs = Date.now()): Promise<{ dele
   await deleteOldLogs(env, nowMs);
   // Free-use alerts already told, kept a while so a month never tells one twice.
   await env.DB.prepare("DELETE FROM alert_notices WHERE noticed_at_ms < ?").bind(nowMs - 90 * DAY_MS).run();
+  // When the relay's use was last read for a game (relay.ts): only games whose players got relay credentials in two days are read.
+  await env.DB.prepare("DELETE FROM relay_reads WHERE read_at_ms < ?").bind(nowMs - 3 * DAY_MS).run();
   // Chat kept for a report: a year from when it was confirmed (chat-review.ts).
   await env.DB.prepare("DELETE FROM chat_reviews WHERE kept_until_ms IS NOT NULL AND kept_until_ms < ?").bind(nowMs).run();
   // A play's ticket is only needed while it's going on.

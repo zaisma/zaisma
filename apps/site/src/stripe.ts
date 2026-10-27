@@ -86,7 +86,7 @@ export async function stripeCall(env: Env, method: "GET" | "POST", path: string,
   const answer = (await response.json().catch(() => ({}))) as StripeObject & { error?: { message?: string; code?: string; decline_code?: string; type?: string } };
   if (!response.ok) {
     console.error(`Stripe refused ${method} ${path}:`, answer.error);
-    throw new StripeRefusal(answer.error?.message ?? `HTTP ${response.status}`, answer.error?.decline_code ?? answer.error?.code ?? null, answer.error?.type ?? null);
+    throw new StripeRefusal(answer.error?.message ?? `HTTP ${response.status}`, answer.error?.decline_code ?? answer.error?.code ?? null, answer.error?.type ?? null, response.status);
   }
   return answer;
 }
@@ -97,8 +97,14 @@ export class StripeRefusal extends ApiError {
     readonly stripeMessage: string,
     readonly stripeCode: string | null,
     readonly stripeErrorKind: string | null = null,
+    readonly stripeHttpStatusNumber: number | null = null,
   ) {
     super("stripe_unavailable", { message: `Stripe didn't take it: ${stripeMessage}`, fix: "Try again in a minute; if it keeps happening, tell Zaisma with message_zaisma." });
+  }
+
+  /** The card itself was refused (HTTP 402, card_error), not Stripe's own trouble, a rate limit or a key in use: trying again won't help. */
+  get isCardRefused(): boolean {
+    return this.stripeHttpStatusNumber === 402 || this.stripeErrorKind === "card_error";
   }
 }
 

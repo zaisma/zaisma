@@ -106,7 +106,8 @@ export interface Room {
   /**
    * When Zaisma will end this match, an ISO time, or null. Set once the game's hosting on Zaisma rooms
    * pauses for the month (its free allowance, or its developer's budget or credit, is used), an hour after
-   * the pause, so your game can save and tell its players (onEnding runs then); never set on your own server.
+   * the pause, so your game can save and tell its players (onEnding runs then); back to null when Zaisma calls the
+   * end off because the game's hosting started again (onEndingCancelled runs then). Never set on your own server.
    */
   readonly endsAt: string | null;
   /** Shown in room lists (the game page and Zaisma.rooms.list). A hidden room still works by code and link. */
@@ -574,6 +575,12 @@ export interface GameServer<S = any> {
    */
   onEnding?(state: S, room: Room): HandlerResult<S>;
   /**
+   * Zaisma called off the end onEnding announced, because the game's hosting started again (credit came in, its
+   * budget was raised or the month reset): room.endsAt is null again, the match goes on and takes new players.
+   * Runs once; each player's game also gets the "endingCancelled" event. Never runs on your own server.
+   */
+  onEndingCancelled?(state: S, room: Room): HandlerResult<S>;
+  /**
    * The room restarted (Zaisma restarts its rooms on every update, and your own server may restart) and
    * came back with the state it last saved: restoreInfo.savedAt says when, and restoreInfo.lostDurationSec
    * how many seconds of play since then are lost, so you can resync clocks or tell your players. Runs
@@ -715,6 +722,7 @@ export const GAME_SERVER_OPTIONS = [
   "onRefund",
   "onTick",
   "onEnding",
+  "onEndingCancelled",
   "onRestored",
   "stateView",
   "onVersionUpdate",
@@ -1013,6 +1021,7 @@ export type ServerMessage =
     }
   | { type: "probe"; probeNumber: number; serverTimeMs: number; pingDurationMs: number | null }
   | { type: "ending"; endsAt: string }
+  | { type: "ending_cancelled" }
   // A version published "now": coming at appliesAt (an ISO time), then now, just before the room closes its connections (VERSION_UPDATE_CLOSE_CODE). isReloading: the game's files changed, so it reloads.
   | { type: "version_update"; step: "coming" | "now"; versionId: string; appliesAt: string; isReloading: boolean }
   | { type: "players"; players: ListedPlayer[]; hostPlayerId: string | null }
@@ -3101,6 +3110,18 @@ export class RoomCore<S = any> {
     this.dirty = true;
     this.sendEach(this.everyone(), JSON.stringify({ type: "ending", endsAt } satisfies ServerMessage));
     if (this.server.onEnding) this.run(() => this.server.onEnding!(this.state, this.api), "onEnding");
+  }
+
+  /**
+   * Zaisma calls off the end startEnding announced, since the game's hosting started again: endsAt is null, every
+   * player hears it and onEndingCancelled runs, once. Only Zaisma rooms call it.
+   */
+  cancelEnding(): void {
+    if (this.ended || this.endsAt === null) return;
+    this.endsAt = null;
+    this.dirty = true;
+    this.sendEach(this.everyone(), JSON.stringify({ type: "ending_cancelled" } satisfies ServerMessage));
+    if (this.server.onEndingCancelled) this.run(() => this.server.onEndingCancelled!(this.state, this.api), "onEndingCancelled");
   }
 
   /** End the match: everyone hears message and why (endReason), and their connections close. */

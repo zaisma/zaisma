@@ -4,8 +4,8 @@ import { sendPush, type PushPriorityNumber } from "./push.ts";
 
 /**
  * Half-broken, not down ("Julius hears within minutes when something is down", docs/DECISIONS.md in the ops repo): scans
- * falling behind, errors spiking, and the outside checker (scripts/watch.mjs, run by .github/workflows/watch.yml) gone
- * silent. Runs on the site's 5-minute cron. Julius is pushed once when a condition starts, again every 2 hours while it
+ * falling behind, errors spiking, the outside checker (scripts/watch.mjs, run by .github/workflows/watch.yml) gone
+ * silent, and a deleted account's refund Stripe still hasn't taken after 30 days (credit-api.ts, retryPendingRefunds). Runs on the site's 5-minute cron. Julius is pushed once when a condition starts, again every 2 hours while it
  * holds, and once when it ends; `health_alerts` holds a row while one holds. Down itself is the outside checker's: it
  * can't depend on the thing that's down.
  */
@@ -14,7 +14,7 @@ const MINUTE_MS = 60_000;
 const SCRIPT_NAMES = ["zaisma-site", "zaisma-rooms", "zaisma-games"] as const;
 const DEFAULT_GRAPHQL_URL = "https://api.cloudflare.com/client/v4/graphql";
 const DEFAULT_WATCH_RUNS_URL = "https://api.github.com/repos/zaisma/zaisma/actions/workflows/watch.yml/runs?per_page=1&status=completed";
-const PRIORITY_NUMBER: Record<HealthAlertKind, PushPriorityNumber> = { scans_behind: 0, errors_spiking: 0, watcher_silent: 1 };
+const PRIORITY_NUMBER: Record<HealthAlertKind, PushPriorityNumber> = { scans_behind: 0, errors_spiking: 0, watcher_silent: 1, refunds_stuck: 0 };
 
 /** What a check found: whether the condition holds (null when it couldn't tell, which changes nothing) and a line saying what. */
 type Finding = { isBad: boolean | null; detail: string };
@@ -24,6 +24,7 @@ export async function watchHealth(env: Env, nowMs = Date.now()): Promise<void> {
     scans_behind: await settled(() => scansBehind(env, nowMs)),
     errors_spiking: await settled(() => errorsSpiking(env, nowMs)),
     watcher_silent: await settled(() => watcherSilent(env, nowMs)),
+    refunds_stuck: await settled(() => refundsStuck(env, nowMs)),
   };
   for (const kind of HEALTH_ALERT_KINDS) {
     const finding = findings[kind];
@@ -120,6 +121,16 @@ async function watcherSilent(env: Env, nowMs: number): Promise<Finding> {
   return silentMs > HEALTH_ALERT_LIMITS.maximumWatcherSilenceDurationMin * MINUTE_MS
     ? { isBad: true, detail: `The checker outside Cloudflare last finished ${durationText(silentMs)} ago. Down alerts are off until it runs again (GitHub Actions, .github/workflows/watch.yml).` }
     : { isBad: false, detail: "" };
+}
+
+/** Refunds a deleted account was owed that Stripe hasn't taken for HEALTH_ALERT_LIMITS.maximumPendingRefundDurationDays: they need a person. */
+async function refundsStuck(env: Env, nowMs: number): Promise<Finding> {
+  const found = await env.DB.prepare("SELECT COUNT(*) AS refund_count, COALESCE(SUM(amount_cents), 0) AS amount_cents FROM pending_refunds WHERE created_at_ms < ?")
+    .bind(nowMs - HEALTH_ALERT_LIMITS.maximumPendingRefundDurationDays * 86_400_000)
+    .first<{ refund_count: number; amount_cents: number }>();
+  const refundCount = found?.refund_count ?? 0;
+  if (!refundCount) return { isBad: false, detail: "" };
+  return { isBad: true, detail: `${refundCount} ${refundCount === 1 ? "refund" : "refunds"} of deleted accounts' credit ($${(found!.amount_cents / 100).toFixed(2)} in all) has failed at Stripe for over ${HEALTH_ALERT_LIMITS.maximumPendingRefundDurationDays} days: pending_refunds has the payment intents.` };
 }
 
 /** The value at a path through objects and arrays, or undefined where the answer doesn't go that far. */

@@ -90,4 +90,20 @@ describe("relay credentials", () => {
     const thisMonthBytes = (yesterday.slice(0, 7) === today.slice(0, 7) ? 10_000_000 : 0) + 30_000_000;
     expect(use).toEqual({ roomPlayDurationSec: 0, relayedSizeBytes: thisMonthBytes, gameServerCpuDurationMs: 0 });
   });
+
+  it("reads every game's relayed data within the hour, also when more than 250 games use the relay", async () => {
+    await e.DB.exec("DELETE FROM relay_reads;");
+    const startMs = Date.parse("2031-03-10T12:00:00Z");
+    const gameIds = Array.from({ length: 300 }, (_, index) => `game_relayed${index}`);
+    await e.DB.batch(gameIds.map((gameId) => e.DB.prepare("INSERT INTO room_usage (game_id, date, relay_credential_count) VALUES (?, '2031-03-10', 1)").bind(gameId)));
+    // 60 a minute, the ones read longest ago first: all 300 in five minutes, under Cloudflare's 300 queries in 5 minutes.
+    for (let minute = 0; minute < 5; minute++) await syncRelayUse(e, e.DB, startMs + minute * 60_000);
+    const readCount = async () => (await e.DB.prepare("SELECT COUNT(*) AS game_count FROM relay_reads").first<{ game_count: number }>())!.game_count;
+    expect(await readCount()).toBe(300);
+    // Each is read again only once the hour has nearly passed.
+    await syncRelayUse(e, e.DB, startMs + 30 * 60_000);
+    expect((await e.DB.prepare("SELECT COUNT(*) AS game_count FROM relay_reads WHERE read_at_ms >= ?").bind(startMs + 30 * 60_000).first<{ game_count: number }>())!.game_count).toBe(0);
+    await syncRelayUse(e, e.DB, startMs + 60 * 60_000);
+    expect((await e.DB.prepare("SELECT COUNT(*) AS game_count FROM relay_reads WHERE read_at_ms = ?").bind(startMs + 60 * 60_000).first<{ game_count: number }>())!.game_count).toBe(60);
+  });
 });

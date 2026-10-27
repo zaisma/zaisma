@@ -266,7 +266,12 @@ export function hostingEmail(env: Env, kind: HostingEmailKind, details: HostingE
   const [subject, first, second]: [string, string, string] = (() => {
     switch (kind) {
       case "hosting_nearly_paused":
-        return [`${game} has used most of its free hosting`, `${game} has used 80% of its free hosting this month. When it's all used, no new matches start until ${details.resetsOnText}, and running ones get an hour to finish.`, `To keep it going, add credit and give ${game} a monthly budget at ${settings}.`];
+        // A game with a budget hears it too when there's no credit for the budget to spend.
+        return [
+          `${game} has used most of its free hosting`,
+          `${game} has used 80% of its free hosting this month. When it's all used, no new matches start until ${details.resetsOnText}, and running ones get an hour to finish.`,
+          details.budgetCents !== undefined ? `${game} has a budget, but there's no credit for it to spend: add credit, or turn on automatic top-up, at ${settings}.` : `To keep it going, add credit and give ${game} a monthly budget at ${settings}.`,
+        ];
       case "hosting_budget_nearly_used":
         return [`${game} has used most of its budget`, `${game} has used ${dollars(details.spentCents ?? 0)} of its ${dollars(details.budgetCents ?? 0)} budget for ${details.monthName}. When it's all used, the game pauses like at the end of its free hosting.`, `To keep it going, raise its budget at ${settings}.`];
       case "hosting_paused": {

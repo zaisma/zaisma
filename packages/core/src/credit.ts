@@ -11,7 +11,7 @@ export const CREDIT_LIMITS = {
   /** Caps what one stolen card can charge in one go. */
   maximumTopUpCents: 100_000,
   refundableDurationDays: 180,
-  /** The owner hears their credit is low once it's under this share of their last top-up. */
+  /** The owner hears their credit is low once it's under this share of the balance right after their last top-up. */
   creditLowPct: 20,
   minimumAutomaticTopUpCents: 1000,
 } as const;
@@ -38,13 +38,17 @@ export interface Credit {
   balanceCents: number;
   stripeCustomerId: string | null;
   stripePaymentMethodId: string | null;
-  automaticTopUp: { isEnabled: boolean; topUpBelowCents: number | null; topUpAmountCents: number | null; monthlyTopUpLimitCents: number | null };
+  automaticTopUp: { isEnabled: boolean; topUpBelowCents: number | null; topUpAmountCents: number | null; monthlyTopUpLimitCents: number | null; attemptCount: number; enabledAtMs: number | null };
   creditLowToldAtMs: number | null;
+  /** Under this the credit is low: creditLowPct of the balance right after the last top-up; null before the first one. */
+  creditLowLineCents: number | null;
 }
 
 export async function creditOf(database: D1Database, ownerId: string): Promise<Credit> {
   const row = await database
-    .prepare("SELECT credit_balance_cents, stripe_customer_id, stripe_payment_method_id, automatic_top_up_enabled, top_up_below_cents, top_up_amount_cents, monthly_top_up_limit_cents, credit_low_told_at_ms FROM owners WHERE id = ?")
+    .prepare(
+      "SELECT credit_balance_cents, stripe_customer_id, stripe_payment_method_id, automatic_top_up_enabled, top_up_below_cents, top_up_amount_cents, monthly_top_up_limit_cents, automatic_top_up_attempt_count, automatic_top_up_enabled_at_ms, credit_low_told_at_ms, credit_low_line_cents FROM owners WHERE id = ?",
+    )
     .bind(ownerId)
     .first<{
       credit_balance_cents: number;
@@ -54,15 +58,31 @@ export async function creditOf(database: D1Database, ownerId: string): Promise<C
       top_up_below_cents: number | null;
       top_up_amount_cents: number | null;
       monthly_top_up_limit_cents: number | null;
+      automatic_top_up_attempt_count: number;
+      automatic_top_up_enabled_at_ms: number | null;
       credit_low_told_at_ms: number | null;
+      credit_low_line_cents: number | null;
     }>();
   return {
     balanceCents: row?.credit_balance_cents ?? 0,
     stripeCustomerId: row?.stripe_customer_id ?? null,
     stripePaymentMethodId: row?.stripe_payment_method_id ?? null,
-    automaticTopUp: { isEnabled: row?.automatic_top_up_enabled === 1, topUpBelowCents: row?.top_up_below_cents ?? null, topUpAmountCents: row?.top_up_amount_cents ?? null, monthlyTopUpLimitCents: row?.monthly_top_up_limit_cents ?? null },
+    automaticTopUp: {
+      isEnabled: row?.automatic_top_up_enabled === 1,
+      topUpBelowCents: row?.top_up_below_cents ?? null,
+      topUpAmountCents: row?.top_up_amount_cents ?? null,
+      monthlyTopUpLimitCents: row?.monthly_top_up_limit_cents ?? null,
+      attemptCount: row?.automatic_top_up_attempt_count ?? 0,
+      enabledAtMs: row?.automatic_top_up_enabled_at_ms ?? null,
+    },
     creditLowToldAtMs: row?.credit_low_told_at_ms ?? null,
+    creditLowLineCents: row?.credit_low_line_cents ?? null,
   };
+}
+
+/** Whether the owner's credit is under the line their last top-up set (never before the first top-up that set one). */
+export function isCreditLow(credit: Pick<Credit, "balanceCents" | "creditLowLineCents">): boolean {
+  return credit.creditLowLineCents !== null && credit.balanceCents < credit.creditLowLineCents;
 }
 
 /** One change to an owner's credit. */

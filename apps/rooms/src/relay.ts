@@ -9,8 +9,10 @@
 /** How long relay credentials work: as long as the room key that gets them. */
 export const RELAY_CREDENTIAL_DURATION_SEC = 6 * 3600;
 
-/** At most this many games' use is read each hour: Cloudflare takes 300 analytics queries in 5 minutes. */
-const MAXIMUM_CHECKED_GAME_COUNT = 250;
+/** At most this many games' use is read each minute: Cloudflare takes 300 analytics queries in 5 minutes. */
+const MAXIMUM_READ_GAME_COUNT_PER_MINUTE = 60;
+/** A game's use is read again once this long has passed since its last read: every game hourly, spread over the hour. */
+const READ_INTERVAL_MS = 59 * 60_000;
 
 export interface RelayEnv {
   /** Cloudflare Realtime's TURN key (dashboard, Realtime, TURN): its ID and API token, Worker secrets. */
@@ -111,17 +113,23 @@ async function relayedSizeBytesByDate(env: RelayEnv, gameId: string, fromDate: s
 }
 
 /**
- * Hourly: each game whose players got relay credentials in the last two days (they last 6 hours, so
- * yesterday's reach into today), the data the relay sent them yesterday and today, into room_usage.
+ * Every minute: up to MAXIMUM_READ_GAME_COUNT_PER_MINUTE of the games whose players got relay credentials in the
+ * last two days (they last 6 hours, so yesterday's reach into today), the ones read longest ago first, each read
+ * again once an hour has nearly passed. The data the relay sent each one yesterday and today goes into room_usage,
+ * so every game is on the meter within the hour however many use the relay (relay_reads keeps when each was read).
  */
 export async function syncRelayUse(env: RelayEnv, database: D1Database, nowMs = Date.now()): Promise<void> {
   if (!env.CLOUDFLARE_ACCOUNT_ID || !env.RELAY_ANALYTICS_API_TOKEN) return;
   const yesterday = today(nowMs - 86_400_000);
   const { results } = await database
-    .prepare("SELECT game_id FROM room_usage WHERE date >= ? AND relay_credential_count > 0 GROUP BY game_id ORDER BY MAX(date) DESC LIMIT ?")
-    .bind(yesterday, MAXIMUM_CHECKED_GAME_COUNT)
+    .prepare(
+      "SELECT used.game_id FROM (SELECT game_id FROM room_usage WHERE date >= ? AND relay_credential_count > 0 GROUP BY game_id) AS used LEFT JOIN relay_reads ON relay_reads.game_id = used.game_id WHERE relay_reads.read_at_ms IS NULL OR relay_reads.read_at_ms <= ? ORDER BY COALESCE(relay_reads.read_at_ms, 0) LIMIT ?",
+    )
+    .bind(yesterday, nowMs - READ_INTERVAL_MS, MAXIMUM_READ_GAME_COUNT_PER_MINUTE)
     .all<{ game_id: string }>();
   for (const { game_id: gameId } of results) {
+    // Marked first, so a game Cloudflare won't answer for waits its turn instead of holding up the rest.
+    await database.prepare("INSERT INTO relay_reads (game_id, read_at_ms) VALUES (?, ?) ON CONFLICT(game_id) DO UPDATE SET read_at_ms = excluded.read_at_ms").bind(gameId, nowMs).run();
     const byDate = await relayedSizeBytesByDate(env, gameId, yesterday);
     if (!byDate) continue;
     const writes = [...byDate].map(([date, relayedSizeBytes]) =>
