@@ -118,6 +118,7 @@ interface PageState {
 
 interface CreditJson {
   balance_cents: number;
+  is_credit_low: boolean;
   automatic_top_up: { is_enabled: boolean; top_up_below_cents: number | null; top_up_amount_cents: number | null; monthly_top_up_limit_cents: number | null; topped_up_this_month_cents: number };
   top_ups: { id: string; amount_cents: number; refundable_cents: number; refund_ends_at: string | null; created_at: string }[];
   games: { slug: string; last_month_beyond_free_cents: number }[];
@@ -258,6 +259,7 @@ function hostingPane(settings: Settings): LayoutItem {
         ],
       }),
     ),
+    ...(credit.is_credit_low ? [words("Credit is low: add credit or turn on automatic top-up.")] : []),
     words(credit.balance_cents === 0 ? "Hosting is free up to each game's monthly allowance. Credit pays for what goes past it, only in games you give a budget." : "Credit pays for hosting past each game's free allowance, only in games you give a budget."),
     block(
       listRows({ whenEmpty: emptyState({ title: "Nothing to change", text: "Credit's settings show here." }),

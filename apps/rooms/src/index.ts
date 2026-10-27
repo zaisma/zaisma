@@ -699,9 +699,9 @@ export default {
     return new Response("Not found", { status: 404 });
   },
 
-  // Every minute: games' schedules after a publish (game-server.ts). Once an hour: the relay's use per game (relay.ts).
+  // Every minute: games' schedules after a publish (game-server.ts), and the relay's use of the games due to be read (relay.ts).
   async scheduled(event, env, ctx): Promise<void> {
     ctx.waitUntil(syncSchedules(env));
-    if (new Date(event.scheduledTime).getUTCMinutes() === 17) ctx.waitUntil(syncRelayUse(env, env.DB));
+    ctx.waitUntil(syncRelayUse(env, env.DB, event.scheduledTime));
   },
 } satisfies ExportedHandler<Env>;

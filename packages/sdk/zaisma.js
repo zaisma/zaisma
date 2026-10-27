@@ -29,7 +29,7 @@
   var SMOOTHING_OPTIONS = ["delayMs"];
   var DELIVERIES = ["reliable", "latest_only"];
   var ROOM_INFO_FIELDS = ["name", "labels"];
-  var ROOM_EVENTS = ["message", "bytes", "state", "players", "connectionStatus", "ended", "ending", "kicked", "settings", "move", "moved", "idle", "away", "back", "muted", "error", "versionUpdate", "chat"];
+  var ROOM_EVENTS = ["message", "bytes", "state", "players", "connectionStatus", "ended", "ending", "endingCancelled", "kicked", "settings", "move", "moved", "idle", "away", "back", "muted", "error", "versionUpdate", "chat"];
   /** Chat (room.chat): the longest message, the lines a room keeps in memory for reports, and how many of them a report carries. */
   var MAXIMUM_CHAT_CHARACTER_COUNT = 2000;
   var KEPT_CHAT_LINE_COUNT = 50;
@@ -640,6 +640,9 @@
       } else if (message.type === "ending") {
         room.endsAt = message.endsAt;
         room._emit("ending", { endsAt: message.endsAt });
+      } else if (message.type === "ending_cancelled") {
+        room.endsAt = null;
+        room._emit("endingCancelled");
       } else if (message.type === "version_update") {
         var versionUpdate = { versionId: message.versionId, appliesAt: message.appliesAt, isReloading: message.isReloading === true };
         if (message.step === "now") room._isReloadingForVersion = versionUpdate.isReloading;

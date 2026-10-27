@@ -54,7 +54,8 @@ type Attachment =
   // clientIdle: the idle check the player's game asked for, for game servers that leave it to the client.
   // kind: missing on players who joined before accounts got passes, all guests.
   // isSpectator: watching (maximumSpectatorCount), not playing: free, and never seated for friends' Join.
-  | { stage: "in"; id: string; name: string; kind?: PlayerKind; joinedAtMs: number; tester?: string; seenAtMs?: number; clientIdle?: ClientIdle; isSpectator?: true }
+  // playCountedFromMs: where the player's time was last counted to (the hourly check-in), or joinedAtMs until then.
+  | { stage: "in"; id: string; name: string; kind?: PlayerKind; joinedAtMs: number; tester?: string; seenAtMs?: number; clientIdle?: ClientIdle; isSpectator?: true; playCountedFromMs?: number }
   | { stage: "gone" };
 
 interface Meta {
@@ -505,7 +506,8 @@ export class Room extends DurableObject<Env> {
         await this.touchSeats();
         // A kept world's size, for the game's storage, at most hourly rather than with every save.
         if (this.isKept) await this.keepRow();
-        // A long match's game server health shouldn't wait for the room to empty.
+        // A long match's player time, game server health and the rest of its use shouldn't wait for the room to empty.
+        this.countPlayTime();
         await this.recordUsage(false);
         // Also when the room has no row to touch (everyone walked away).
         this.checkedInAtMs = Date.now();
@@ -773,7 +775,7 @@ export class Room extends DurableObject<Env> {
       return this.refuse(socket, "other_version", undefined, { versionId: roomVersionId });
     }
     // Once its game's hosting pauses, a room takes back only players it knows or is holding a place for, and its match gets an hour to finish.
-    if (!core.players.has(player.id) && !core.spectators.has(player.id) && !core.expects(player.id) && (core.endsAt !== null || (await this.checkHosting(core)))) return this.refuse(socket, "hosting_paused");
+    if (!core.players.has(player.id) && !core.spectators.has(player.id) && !core.expects(player.id) && (await this.checkHosting(core))) return this.refuse(socket, "hosting_paused");
     // Blocks between this account and the players the room remembers, found afresh, so one taken back since is gone.
     // Spectators send nothing, so nothing of theirs reaches a player to block.
     if (player.kind === "account" && core.known.size > 0 && !isSpectator) {
@@ -873,13 +875,23 @@ export class Room extends DurableObject<Env> {
     }
   }
 
-  /** Mark a socket as gone, counting the time its player spent in the room. Watching is free: a spectator's time isn't counted. */
+  /** Mark a socket as gone, counting the time its player spent in the room since the last check-in. Watching is free: a spectator's time isn't counted. */
   private retire(socket: WebSocket): Attachment {
     const attachment = socket.deserializeAttachment() as Attachment;
-    if (attachment.stage === "in" && !attachment.isSpectator) this.usage.roomPlayDurationSec += Math.round((Date.now() - (attachment.joinedAtMs ?? Date.now())) / 1000);
+    if (attachment.stage === "in" && !attachment.isSpectator) this.usage.roomPlayDurationSec += Math.round((Date.now() - (attachment.playCountedFromMs ?? attachment.joinedAtMs ?? Date.now())) / 1000);
     socket.serializeAttachment({ stage: "gone" } satisfies Attachment);
     this.socketIndex = null;
     return attachment;
+  }
+
+  /** At the hourly check-in: each connected player's time so far into this.usage, counted from there on, so a long match reaches the meter hourly. */
+  private countPlayTime(nowMs = Date.now()): void {
+    for (const socket of this.sockets()) {
+      const attachment = socket.deserializeAttachment() as Attachment;
+      if (attachment.stage !== "in" || attachment.isSpectator) continue;
+      this.usage.roomPlayDurationSec += Math.round((nowMs - (attachment.playCountedFromMs ?? attachment.joinedAtMs)) / 1000);
+      socket.serializeAttachment({ ...attachment, playCountedFromMs: nowMs } satisfies Attachment);
+    }
   }
 
   /** Everyone has gone: stop ticking, record usage, drop the room's row, and clean up after a day. */
@@ -930,15 +942,24 @@ export class Room extends DurableObject<Env> {
   /**
    * Whether the game's hosting is paused this month (hosting.ts). A running match that finds it is ends
    * MATCH_FINISH_DURATION_SEC after the pause, so every room of the game ends together: its game server
-   * and players hear when (room.endsAt).
+   * and players hear when (room.endsAt). Read again while the match is ending: once the pause is gone (credit
+   * came in, a budget was raised, the month reset), the end is called off and the room takes players again.
    */
   private async checkHosting(core: RoomCore): Promise<boolean> {
-    if (core.endsAt !== null) return true;
     // Kept, since a sleeping room forgets: otherwise every wake would check.
     this.hostingCheckedAtMs = Date.now();
     await this.storage.put("hostingCheckedAtMs", this.hostingCheckedAtMs);
     const hosting = await isHostingPaused(this.db, this.meta!.gameId);
-    if (!hosting.isPaused) return false;
+    if (!hosting.isPaused) {
+      if (core.endsAt !== null && !core.ended) {
+        core.cancelEnding();
+        this.savedRoom = core.saved;
+        await this.storage.put("room", this.savedRoom);
+        await this.settle(core);
+      }
+      return false;
+    }
+    if (core.endsAt !== null) return true;
     if (core.players.size > 0 && !core.ended) {
       const endsAtMs = Math.max(Date.now(), hosting.pausedAtMs! + MATCH_FINISH_DURATION_SEC * 1000);
       core.startEnding(new Date(endsAtMs).toISOString());

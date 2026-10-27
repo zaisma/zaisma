@@ -127,6 +127,33 @@ describe("RoomCore", () => {
     expect(room.join({ id: "c", name: "C", kind: "guest" })).toEqual({ isAllowed: false, code: "ended" });
   });
 
+  it("tells every player and the game server once when Zaisma calls the end off, and takes the end back out of the save", () => {
+    const revived = defineGameServer({
+      setup: () => ({ cancelledCount: 0, seenEndsAt: "" as string | null }),
+      onEndingCancelled(state, room) {
+        state.cancelledCount++;
+        state.seenEndsAt = room.endsAt;
+      },
+    });
+    const { t, sent } = transport();
+    const room = new RoomCore(revived, t);
+    room.join({ id: "a", name: "A", kind: "guest" });
+    // Nothing to call off before an end was set.
+    room.cancelEnding();
+    expect(room.state.cancelledCount).toBe(0);
+    room.startEnding(new Date(Date.now() + 3600_000).toISOString());
+    room.cancelEnding();
+    room.cancelEnding();
+    expect(room.endsAt).toBeNull();
+    expect(room.state).toEqual({ cancelledCount: 1, seenEndsAt: null });
+    expect(sent.a!.filter((message) => message.type === "ending_cancelled")).toEqual([{ type: "ending_cancelled" }]);
+    expect(room.saved.endsAt).toBeUndefined();
+    // It can be set again by a later pause.
+    const endsAt = new Date(Date.now() + 7200_000).toISOString();
+    room.startEnding(endsAt);
+    expect(room.endsAt).toBe(endsAt);
+  });
+
   it("tells every player and the game server once when Zaisma will end the match, and keeps it through a sleep", () => {
     const ender = defineGameServer({
       setup: () => ({ endingCount: 0, seenEndsAt: null as string | null }),
@@ -356,7 +383,7 @@ describe("RoomCore", () => {
     expect(refusal).toBeInstanceOf(GameServerError);
     expect(refusal).toMatchObject({ code: "unknown_option", field: "tickRate" });
     expect(refusal!.message).toBe(
-      "tickRate isn't a game server option. A game server takes: maximumPlayerCount, maximumSpectatorCount, ticksPerSec, hostControlsEnabled, idleCheck, idleTimeoutSec, awayMode, seatHoldDurationSec, stateSyncEnabled, adultChatFilterEnabled, reconnectTimeoutSec, maximumRoomCountPerPlayer, stateSaveIntervalSec, setup, onJoin, canJoin, onChat, onMoved, onLeave, onSpectatorJoin, onSpectatorLeave, onAway, onBack, onMessage, onBytes, onPurchase, onRefund, onTick, onEnding, onRestored, stateView, onVersionUpdate, onRequest, schedules, onSchedule, onWebhook. (unknown_option)",
+      "tickRate isn't a game server option. A game server takes: maximumPlayerCount, maximumSpectatorCount, ticksPerSec, hostControlsEnabled, idleCheck, idleTimeoutSec, awayMode, seatHoldDurationSec, stateSyncEnabled, adultChatFilterEnabled, reconnectTimeoutSec, maximumRoomCountPerPlayer, stateSaveIntervalSec, setup, onJoin, canJoin, onChat, onMoved, onLeave, onSpectatorJoin, onSpectatorLeave, onAway, onBack, onMessage, onBytes, onPurchase, onRefund, onTick, onEnding, onEndingCancelled, onRestored, stateView, onVersionUpdate, onRequest, schedules, onSchedule, onWebhook. (unknown_option)",
     );
   });
 
