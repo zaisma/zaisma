@@ -45,11 +45,17 @@ function newCode(): string {
  */
 export async function sendEmailCode(env: Env, request: { email: string; accountId: string | null; kind: EmailCodeKind; reason: EmailCodeReason }, nowMs = Date.now()): Promise<EmailCodeSending> {
   const emailSha256 = await emailHash(request.email);
-  const counted = await env.DB.prepare("SELECT COUNT(*) AS day_request_count, COALESCE(SUM(requested_at_ms > ?), 0) AS hour_request_count FROM email_code_requests WHERE email_sha256 = ? AND requested_at_ms > ?")
-    .bind(nowMs - HOUR_MS, emailSha256, nowMs - DAY_MS)
-    .first<{ day_request_count: number; hour_request_count: number }>();
-  if ((counted?.hour_request_count ?? 0) >= CODES_PER_HOUR || (counted?.day_request_count ?? 0) >= CODES_PER_DAY) return "too-many";
-  await env.DB.prepare("INSERT INTO email_code_requests (email_sha256, requested_at_ms) VALUES (?, ?)").bind(emailSha256, nowMs).run();
+  // The limits and the record are one statement, so asks at the same moment can't all pass the count.
+  const recorded = await env.DB.prepare(
+    `INSERT INTO email_code_requests (email_sha256, requested_at_ms)
+     SELECT ?1, ?2
+     WHERE (SELECT COUNT(*) FROM email_code_requests WHERE email_sha256 = ?1 AND requested_at_ms > ?3) < ?4
+       AND (SELECT COUNT(*) FROM email_code_requests WHERE email_sha256 = ?1 AND requested_at_ms > ?5) < ?6
+     RETURNING email_sha256`,
+  )
+    .bind(emailSha256, nowMs, nowMs - HOUR_MS, CODES_PER_HOUR, nowMs - DAY_MS, CODES_PER_DAY)
+    .first();
+  if (!recorded) return "too-many";
   if (!request.accountId) return "sent";
 
   const code = newCode();

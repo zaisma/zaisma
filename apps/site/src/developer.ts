@@ -787,6 +787,7 @@ async function checkCall(request: Request, env: Env, path: string, apiRoute: Api
 
   closedQuery(checked.query, Object.keys(apiRoute.query));
   const body = apiRoute.body;
+  if (!body) await refuseBody(request);
   if (body && body !== "bytes") {
     checked.body = await readJson(request, body.maximumSizeBytes, body.isOptional);
     closedBody(checked.body, Object.keys(body.inputs));
@@ -2539,6 +2540,25 @@ async function readJson(request: Request, maximumSizeBytes = 64 * 1024, isOption
     if (body && typeof body === "object" && !Array.isArray(body)) return body as Record<string, unknown>;
   } catch {}
   throw new ApiError("bad_json", { message: "The body isn't a JSON object.", fix: 'Send a JSON object, like { "title": "Sky Hopper" }, with Content-Type: application/json.' });
+}
+
+/** A call that takes no body refuses one: nothing, or {} (many clients send it by default), passes. */
+async function refuseBody(request: Request): Promise<void> {
+  const fix = "This call takes no body; leave it out.";
+  if (Number(request.headers.get("content-length") ?? 0) > 64 * 1024) throw new ApiError("bad_json", { message: "This call takes no body, and one was sent.", fix });
+  const text = (await request.text()).trim();
+  if (!text) return;
+  try {
+    const body: unknown = JSON.parse(text);
+    if (body && typeof body === "object" && !Array.isArray(body)) {
+      const [firstKey] = Object.keys(body);
+      if (firstKey === undefined) return;
+      throw new ApiError("unknown_field", { message: `${firstKey} isn't a field of this call: it takes no body.`, field: firstKey, fix });
+    }
+  } catch (error) {
+    if (error instanceof ApiError) throw error;
+  }
+  throw new ApiError("bad_json", { message: "This call takes no body, and one was sent.", fix });
 }
 
 /** Inputs are closed: a field we don't take is an error, never quietly ignored (docs/NAMING.md). */

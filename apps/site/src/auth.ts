@@ -91,9 +91,11 @@ export async function signOutOthers(env: Env, access: string, connectionAddress:
  * Refuse every session of the account signed in before cutoffMs (checked by currentSession on each request), so
  * a session Supabase didn't sign out, or a refreshed token, can't outlive a new password or Sign out on every device.
  */
-export async function endSessionsBefore(env: Env, accountId: string, cutoffMs: number): Promise<void> {
-  // Supabase writes sign-in times in whole seconds, so a sign-in just after this one must not look older than the cut-off.
-  await env.DB.prepare("UPDATE accounts SET sessions_ended_at_ms = ? WHERE id = ?").bind(Math.floor(cutoffMs / 1000) * 1000, accountId).run();
+export async function endSessionsBefore(env: Env, accountId: string, cutoffMs: number, rounding: "down" | "up" = "down"): Promise<void> {
+  // Supabase writes sign-in times in whole seconds, so a sign-in just after a new password's must not look older than the cut-off:
+  // that one rounds down (measured from this device's fresh session); Sign out on every device has no new session to keep, so it rounds up.
+  const wholeSecondMs = (rounding === "up" ? Math.ceil(cutoffMs / 1000) : Math.floor(cutoffMs / 1000)) * 1000;
+  await env.DB.prepare("UPDATE accounts SET sessions_ended_at_ms = ? WHERE id = ?").bind(wholeSecondMs, accountId).run();
 }
 
 // --- Passwords: Supabase checks them and keeps only a hash ---
