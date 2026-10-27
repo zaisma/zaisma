@@ -497,7 +497,9 @@ component({
   styles: `
 /* Icons: the set, with names. */
 .icon-set { width: 100%; list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: var(--gap-block-block); color: var(--ink); }
-.icon-set li { display: flex; align-items: center; gap: var(--gap-words-words); font: var(--type-facts); color: var(--ink-2); }
+/* A name wraps rather than widen its column: at large text, the longest names would push the set past the page. */
+.icon-set li { display: flex; align-items: center; gap: var(--gap-words-words); min-width: 0; font: var(--type-facts); color: var(--ink-2); }
+.icon-set li span { min-width: 0; overflow-wrap: anywhere; }
 .icon-set .ico { width: 20px; height: 20px; color: var(--ink); }
 .icon-set .play { width: 20px; height: 20px; color: var(--ink); }
 `,
