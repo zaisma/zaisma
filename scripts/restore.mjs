@@ -168,7 +168,9 @@ function writeConfigs(databaseId) {
     const text = readFileSync(join(CHECKOUT, "apps", worker, "wrangler.jsonc"), "utf8")
       .replaceAll(PRODUCTION.databaseId, databaseId)
       .replaceAll(PRODUCTION.gameDomain, gameDomain)
-      .replaceAll(PRODUCTION.siteDomain, siteDomain);
+      .replaceAll(PRODUCTION.siteDomain, siteDomain)
+      // A new account's containers run under the durable_object scheduling policy: it can't make one with the default.
+      .replace(/("containers":\s*\[[^\]]*)/, (containers) => containers.replaceAll(/\{\s*"class_name"/g, '{ "scheduling_policy": "durable_object", "class_name"'));
     writeFileSync(join(CHECKOUT, configOf(worker)), text);
   }
 }
