@@ -690,17 +690,57 @@ function contentRulesBody(): Raw {
             ],
           }),
         },
+      ]),
+      pane("Reports and enforcement", [
+        { kind: "words", markup: html`<h2>Reports and enforcement</h2>` },
         {
-          kind: "words",
-          markup: readingText({
-            markup: html`<p>A person looks only at what the review can't settle, and at anything about child safety. Accounts are closed only for sexual content involving minors, malware, or putting back something we already took down.</p>
-<p>Names players give to things in a game (sessions, worlds, maps) are allowed. The game is responsible for keeping them within these rules.</p>
-<p>These rules follow US law. When a country's own law forbids a game that's fine here (the UK's hatred offences, say), a notice from a court, regulator or police there blocks it for players in that country only, and everyone else still plays it. Publish a version without what the notice names and we lift the block. Authorities can send notices to ${textLink("safety@zaisma.com", "mailto:safety@zaisma.com")}.</p>
-<h3>Reports and takedowns</h3>
-<p>Every game page has a Report button. We remove games that break these rules. Reports about child safety or illegal content go straight to a person. Until we've checked a report, a brand-new game is hidden and a recent update goes back to the version before it.</p>
-<p>How players talk to each other is up to each game and its moderators, and mute and block are always there. Zaisma steps in for threats that reach into real life, sharing someone's personal details, following someone after they've blocked them, and anything sexual toward a teen. Trash talk, however rough, is the game's call: reports about bullying, cheating and other behavior go to the game's developer.</p>
-<p>A game with faked plays is taken off Popular, Trending and New. Doing it again can get the game taken down.</p>
-<p>Zaisma's lists show games whose covers and titles keep a few clear lines: no text but the title, nothing laid over the picture, no fake rewards, no famous characters you don't own, and built around something from the game. A game that breaks one still plays by its link until it's fixed; a fake reward holds it. See ${textLink("Covers that show your game", "/developers/covers")}.</p>`,
+          kind: "block",
+          markup: foldRows({
+            label: "Reports and enforcement",
+            rows: [
+              {
+                id: "reports",
+                title: "Reports",
+                detail: "Every game page has a Report button; child safety and illegal content go straight to a person.",
+                body: readingText({ markup: html`<p>We remove games that break these rules. Until a report is checked, a brand-new game is hidden and a recent update goes back to the version before it. A person looks only at what the review can't settle, and at anything about child safety.</p>` }),
+              },
+              {
+                id: "player-conduct",
+                title: "Player conduct",
+                detail: "How players treat each other is the game's call, with a few exceptions.",
+                body: readingText({ markup: html`<p>Each game and its moderators decide how players talk to each other, and mute and block are always there. Zaisma steps in for threats that reach into real life, sharing someone's personal details, following someone after they've blocked them, and anything sexual toward a teen. Reports about bullying, cheating and other behavior go to the game's developer.</p>` }),
+              },
+              {
+                id: "account-closure",
+                title: "Account closure",
+                detail: "Only for sexual content involving minors, malware, or restoring content that was taken down.",
+                body: readingText({ markup: html`<p>Breaking any other rule costs a version, never the account: the version is rejected or the game hidden, and a corrected version brings it back.</p>` }),
+              },
+              {
+                id: "other-countries",
+                title: "Other countries",
+                detail: "A notice from a court, regulator or police blocks a game in that country only.",
+                body: readingText({ markup: html`<p>These rules follow US law. When a country's own law forbids a game that's allowed here (the UK's hatred offences, for example), the game is blocked for players in that country, and everyone else can still play it. Publishing a version without what the notice names lifts the block. Authorities can send notices to ${textLink("safety@zaisma.com", "mailto:safety@zaisma.com")}.</p>` }),
+              },
+              {
+                id: "faked-plays-in-lists",
+                title: "Faked plays",
+                detail: "A game with faked plays is removed from Popular, Trending and New; doing it again can get it taken down.",
+                body: readingText({ markup: html`<p>Plays and players are counted only when they're people (see the faked plays rule above).</p>` }),
+              },
+              {
+                id: "covers-and-titles",
+                title: "Covers and titles",
+                detail: "Zaisma's lists show games whose covers and titles keep the listing lines.",
+                body: readingText({ markup: html`<p>No text but the title, nothing laid over the picture, no fake rewards, no famous characters you don't own, and built around something from the game. A game that breaks one still plays by its link until it's fixed; a fake reward holds it. See ${textLink("Covers that show your game", "/developers/covers")}.</p>` }),
+              },
+              {
+                id: "names-players-give",
+                title: "Names players give",
+                detail: "Names players give to sessions, worlds and maps are allowed; the game keeps them within these rules.",
+                body: readingText({ markup: html`<p>The game is responsible for what its players name things, as for anything else it shows.</p>` }),
+              },
+            ],
           }),
         },
       ]),
