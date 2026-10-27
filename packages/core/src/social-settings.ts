@@ -134,12 +134,12 @@ export function socialSettingsInNewBand(account: SocialSettings & { age_band: Ag
 }
 
 /**
- * Who an account that chats with anyone can meet: 16–17 only other 16–17s, 18+ only other 18+s. Null
- * when it doesn't chat with strangers. Never leaves Zaisma as it is: passes carry an opaque chat group
+ * The chat group an account chats in: its own age band, whatever its setting, so chat never leaves the
+ * band, friends included (Julius, Oct 26, 2026: "No matter what setting you pick, everyone's in your age
+ * band"). Null when it chats with nobody. Never leaves Zaisma as it is: passes carry an opaque chat group
  * made from it (chatGroupId), so games never learn an age.
  */
-export function chatBandGroup(account: Pick<SocialSettings, "who_can_chat"> & { age_band: AgeBand }): "16-17" | "18+" | null {
-  // 13–15 never chat with anyone, whatever the row says.
-  if (account.who_can_chat !== "anyone" || account.age_band === "13-15") return null;
+export function chatBandGroup(account: Pick<SocialSettings, "who_can_chat"> & { age_band: AgeBand }): AgeBand | null {
+  if (account.who_can_chat === "nobody") return null;
   return account.age_band;
 }

@@ -72,6 +72,8 @@ export interface PlayerReportRow {
   room_code: string;
   version_id: string | null;
   reported_at_ms: number;
+  /** JSON ReportedChatMessage[], or null when it carried no chat. */
+  reported_chat_json?: string | null;
 }
 
 /**

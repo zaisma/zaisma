@@ -200,7 +200,7 @@ describe("the SDK's types say what the SDK does", () => {
     expect(await failureCode(() => room.smoothedState(100))).toBe("unknown_option");
   });
 
-  it("keeps a pass for the tab until the player signs in or out", async () => {
+  it("keeps a guest's pass for the tab, and gives an account a new one with each page's key", async () => {
     const asked: { url: string; body: string }[] = [];
     const passAnswer = { pass: "account-pass", player: { id: "player_cy", name: "Cy", kind: "account" }, expiresAt: "2099-01-01T00:00:00Z" };
     const fetchAnswer = ((url: string, init: { body: string }) => {
@@ -215,6 +215,11 @@ describe("the SDK's types say what the SDK does", () => {
     expect(signedIn).toEqual({ ...passAnswer.player, pass: "account-pass", expiresAt: passAnswer.expiresAt });
     expect(Object.keys(signedIn).sort()).toEqual(fieldsOf("PlayerWithPass"));
     expect(asked).toEqual([{ url: "https://rooms.zaisma.test/v1/pass", body: JSON.stringify({ gameSlug: "test-game", roomKey: "room_key_test" }) }]);
+    // A tab that kept another account's pass (the player signed in as someone else in another window): the page's key is for
+    // whoever is signed in now, so the game plays as them, never as the account the tab had before.
+    const switched = await loadSdk(ON_ZAISMA, fetchAnswer, "account", "", { id: "player_owl", name: "Chat_Owl", kind: "account" }).Zaisma.player.getPass();
+    expect(switched.id).toBe("player_cy");
+    expect(asked).toHaveLength(2);
   });
 
   it("asks the page to sign a guest in, then gives the account's pass", async () => {
@@ -556,7 +561,7 @@ describe("the SDK's types say what the SDK does", () => {
 
   it("checks chat through Zaisma, and calls Zaisma only from a game on Zaisma", async () => {
     const asked: string[] = [];
-    const tooLong = { isAllowed: false, reason: "too_long", message: "That message is too long to send.", hasSwearing: false, text: "" };
+    const tooLong = { isAllowed: false, reason: "too_long", message: "That message is too long to send.", hasSwearing: false, hasSlur: false, text: "" };
     const fetchAnswer = ((url: string) => {
       asked.push(url);
       return Promise.resolve({ ok: true, json: () => Promise.resolve(tooLong) });
@@ -871,6 +876,33 @@ describe("the SDK's types say what the SDK does", () => {
     // A late probe (queued behind other messages) doesn't pull the clock back.
     say(socket, { type: "probe", probeNumber: 3, serverTimeMs: Date.now() + 4000, pingDurationMs: 60 });
     expect(Math.abs(room.serverTimeMs() - (Date.now() + 5000))).toBeLessThan(100);
+  });
+
+  it("chats through the room: room.chat answers when it went, the chat event brings others' lines, and reports carry them", async () => {
+    const sdk = loadSdk();
+    const { room, socket } = await joinedRoom(sdk);
+    // A guest's welcome: no chat.
+    expect(room.canChat).toBe(false);
+    expect(await failureCode(() => room.chat("hi"))).toBe("chat_not_allowed");
+    say(socket, { type: "welcome", me, players: [me, { id: "player_bo", name: "Bo", kind: "account" }], room: settings, hostPlayerId: null, awayChecks: { idleTimeoutSec: 600, hiddenTimeoutSec: null }, canChat: true });
+    expect(room.canChat).toBe(true);
+    socket.sent.length = 0;
+    const got: unknown[] = [];
+    room.on("chat", (chat: unknown) => got.push(chat));
+    const sending = room.chat("good game");
+    const sent = JSON.parse(socket.sent.at(-1) as string);
+    expect(sent).toEqual({ type: "chat", chatNumber: sent.chatNumber, text: "good game" });
+    say(socket, { type: "chat_sent", chatNumber: sent.chatNumber, sentAt: "2026-10-26T10:00:00.000Z" });
+    expect(await sending).toEqual({ sentAt: "2026-10-26T10:00:00.000Z" });
+    say(socket, { type: "chat", fromPlayerId: "player_bo", text: "gg too", hasSwearing: false, hasSlur: false, sentAt: "2026-10-26T10:00:01.000Z" });
+    expect(got).toEqual([{ fromPlayerId: "player_bo", text: "gg too", hasSwearing: false, hasSlur: false, sentAt: "2026-10-26T10:00:01.000Z" }]);
+    const stopping = room.chat("add me on snap");
+    say(socket, { type: "chat_stopped", chatNumber: JSON.parse(socket.sent.at(-1) as string).chatNumber, reason: "contact_details", message: "Contact details can't be sent here." });
+    expect(await stopping.catch((error: { code: string; reason: string }) => [error.code, error.reason])).toEqual(["chat_stopped", "contact_details"]);
+    // Muted players' lines never reach the game.
+    room.mute("player_bo");
+    say(socket, { type: "chat", fromPlayerId: "player_bo", text: "hello?", hasSwearing: false, hasSlur: false, sentAt: "2026-10-26T10:00:02.000Z" });
+    expect(got).toHaveLength(1);
   });
 
   it("sends bytes as a binary frame, and hands the game bytes with whose they are", async () => {

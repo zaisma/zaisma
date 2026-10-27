@@ -2,13 +2,13 @@
   "ClientMessage": {
     "kind": "fields",
     "fields": {
-      "type": ": \"hello\" | \"message\" | \"room\" | \"kick\" | \"block\" | \"unblock\" | \"probe_answer\" | \"here\" | \"idle\" | \"hidden\" | \"shown\" | \"back\""
+      "type": ": \"hello\" | \"message\" | \"chat\" | \"zaisma:purchase\" | \"room\" | \"kick\" | \"block\" | \"unblock\" | \"probe_answer\" | \"here\" | \"idle\" | \"hidden\" | \"shown\" | \"back\""
     }
   },
   "ServerMessage": {
     "kind": "fields",
     "fields": {
-      "type": ": \"message\" | \"room\" | \"welcome\" | \"probe\" | \"ending\" | \"version_update\" | \"players\" | \"away\" | \"kicked\" | \"move\" | \"state\" | \"blocks\" | \"error\" | \"ended\""
+      "type": ": \"message\" | \"chat\" | \"room\" | \"welcome\" | \"probe\" | \"ending\" | \"version_update\" | \"players\" | \"away\" | \"kicked\" | \"move\" | \"state\" | \"blocks\" | \"chat_sent\" | \"chat_stopped\" | \"error\" | \"ended\""
     }
   },
   "EndReason": {
@@ -32,6 +32,11 @@
       "bad_pass",
       "blocked_player_here",
       "busy",
+      "chat_empty",
+      "chat_not_allowed",
+      "chat_not_here",
+      "chat_too_fast",
+      "chat_too_long",
       "ended",
       "game_not_open_to_player",
       "game_unavailable",

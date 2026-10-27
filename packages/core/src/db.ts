@@ -186,6 +186,8 @@ export interface Report {
   player_id: string;
   player_name: string;
   player_reason: string;
+  /** JSON ReportedChatMessage[]: the last chat lines from the reporter's screen, or null when it carried none. */
+  reported_chat_json?: string | null;
   /** 1 when the player included a picture of the game (reportPictureKey). */
   has_picture: number;
   closed_at_ms: number | null;
@@ -212,6 +214,33 @@ export interface Report {
 /** Where a report's picture is kept, in the games bucket. Never served on the game domain. */
 export const reportPictureKey = (reportId: string) => `report-pictures/${reportId}.jpg`;
 
+/**
+ * A chat line a player report carries, as the reporter's game had it: from_player_id is the reported
+ * player's, or null for anyone else's (the reporter included, since nothing about them is kept).
+ */
+export interface ReportedChatMessage {
+  from_player_id: string | null;
+  text: string;
+  sent_at: string;
+}
+
+/** A player report carries at most this many chat lines, each up to maximumTextCharacterCount. */
+export const REPORTED_CHAT_LIMITS = {
+  maximumMessageCount: 20,
+  maximumTextCharacterCount: 2000,
+} as const;
+
+/** A report's chat lines as stored, read back: none for a report without them or with lines that don't read. */
+export function reportedChatOf(report: { reported_chat_json?: string | null }): ReportedChatMessage[] {
+  if (!report.reported_chat_json) return [];
+  try {
+    const lines = JSON.parse(report.reported_chat_json) as ReportedChatMessage[];
+    return Array.isArray(lines) ? lines : [];
+  } catch {
+    return [];
+  }
+}
+
 export interface NewReport {
   gameId: string;
   reason: string;
@@ -223,6 +252,8 @@ export interface NewReport {
   player?: { id: string; name: string; reason: string };
   /** The reporter and the reported account have a block between them (the only thing about the reporter that's kept). */
   hasBlockBetween?: boolean;
+  /** The last chat lines from the reporter's screen. */
+  reportedChat?: ReportedChatMessage[];
 }
 
 /** How serious a report is from its reason alone, before triage looks at it: its place in SEVERITIES. */
@@ -239,8 +270,8 @@ export function reportSeverityIndex(reason: string, playerReason = ""): number {
 export async function createReport(database: D1Database, report: NewReport): Promise<string> {
   const id = newId("report");
   await database
-    .prepare("INSERT INTO reports (id, game_id, reason, player_text, reported_at_ms, version_id, room_code, room_name, player_id, player_name, player_reason, severity_index, has_block_between) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-    .bind(id, report.gameId, report.reason, report.playerText, now(), report.versionId ?? null, report.roomCode ?? "", report.roomName ?? null, report.player?.id ?? "", report.player?.name ?? "", report.player?.reason ?? "", reportSeverityIndex(report.reason, report.player?.reason), report.hasBlockBetween ? 1 : 0)
+    .prepare("INSERT INTO reports (id, game_id, reason, player_text, reported_at_ms, version_id, room_code, room_name, player_id, player_name, player_reason, severity_index, has_block_between, reported_chat_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+    .bind(id, report.gameId, report.reason, report.playerText, now(), report.versionId ?? null, report.roomCode ?? "", report.roomName ?? null, report.player?.id ?? "", report.player?.name ?? "", report.player?.reason ?? "", reportSeverityIndex(report.reason, report.player?.reason), report.hasBlockBetween ? 1 : 0, report.reportedChat?.length ? JSON.stringify(report.reportedChat) : null)
     .run();
   return id;
 }

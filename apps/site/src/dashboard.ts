@@ -744,7 +744,7 @@ ${paused}<div class="numbers hosting">
 </div>`;
 }
 
-const HOSTING_KIND_LABELS: Record<Stats["hosting_use_this_month"]["shares"][number]["kind"], string> = { room_play: "Rooms", game_server_cpu: "Game server CPU", relayed_data: "Relay", database: "Database", requests: "Requests" };
+const HOSTING_KIND_LABELS: Record<Stats["hosting_use_this_month"]["shares"][number]["kind"], string> = { room_play: "Rooms", game_server_cpu: "Game server CPU", relayed_data: "Relay", database: "Database", requests: "Requests", adult_chat_checks: "Adult chat checks" };
 
 /**
  * The game's own SQLite database: the month's use, its tables beside how to reach it. The SQL console
@@ -1273,7 +1273,7 @@ interface Stats {
   }[];
   hosting_use_this_month: {
     free_used_pct: number;
-    shares: { kind: "room_play" | "game_server_cpu" | "relayed_data" | "database" | "requests"; share_pct: number }[];
+    shares: { kind: "room_play" | "game_server_cpu" | "relayed_data" | "database" | "requests" | "adult_chat_checks"; share_pct: number }[];
     is_paused: boolean;
     paused_reason: "free_used" | "budget_used" | "credit_used" | null;
     monthly_budget_cents: number | null;

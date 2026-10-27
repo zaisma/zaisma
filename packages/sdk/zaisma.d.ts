@@ -51,8 +51,9 @@ declare namespace Zaisma {
     /**
      * This tab's player, with their player pass: the signed-in Zaisma account, with the same player ID in
      * every game, or a guest. joinRoom gets one by itself; call this to let the player into a server of
-     * your own. Kept for the tab, so a guest who reloads stays the same guest, and renewed when it has
-     * under 10 minutes left or the player signed in or out. Fails with error.code "unchecked" when the
+     * your own. A guest's is kept for the tab, so a guest who reloads stays the same guest, and renewed when
+     * it has under 10 minutes left or the player signs in; an account gets a new one each time the game
+     * loads, for whoever is signed in then. Fails with error.code "unchecked" when the
      * game isn't played on its zaisma.com page, "not_on_zaisma" when it isn't hosted on Zaisma, and
      * "account_needed" for a guest when the game needs an account for multiplayer or the whole game
      * (its account_requirement setting): ask them to sign in with Zaisma.player.signIn().
@@ -176,10 +177,10 @@ declare namespace Zaisma {
   /**
    * Zaisma's chat check: the same check Zaisma runs on its side on every chat message to or from an
    * under-18 account. It stops contact details in any disguise, moving to another app or meeting up,
-   * personal details, slurs and sexual content, and answers with the words to show the sender. Swearing
-   * is flagged (hasSwearing) but allowed: blocking it is your game's call. Use it to show the sender why
-   * at once; Zaisma checks again when the message is delivered, so it can't be skipped. Checks the whole
-   * text, up to 2000 characters; a longer one is refused (too_long), never cut.
+   * personal details and sexual content, and answers with the words to show the sender. Swearing and
+   * slurs are flagged (hasSwearing, hasSlur) but allowed: blocking them is your game's call. For chat
+   * between players use {@link Room.chat}, which runs this check on its way; this one is for other text
+   * players type. Checks the whole text, up to 2000 characters; a longer one is refused (too_long), never cut.
    *
    * @example
    * const check = await Zaisma.checkChat(typedMessage);
@@ -998,6 +999,11 @@ declare namespace Zaisma {
     /** The room's labels, like { Mode: "Classic", Map: "Docks" }. */
     readonly labels: Readonly<Record<string, string>>;
     /**
+     * Whether this player can chat at all ({@link Room.chat}): a Zaisma account whose chat setting isn't
+     * nobody, playing (not watching). False for guests: hide your chat box, and offer preset phrases or emotes.
+     */
+    readonly canChat: boolean;
+    /**
      * When Zaisma will end this match, an ISO time, or null: set once the game's hosting pauses for the
      * month, an hour after the pause (the "ending" event). Never set in a room on your own server.
      */
@@ -1133,8 +1139,31 @@ declare namespace Zaisma {
      * player changed their mind. A block never removes anyone from the room.
      */
     block(playerId: string): Promise<boolean>;
-    /** Report a player to Zaisma, with what happened in the player's own words if they gave any (details). Nothing about the reporting player is sent. */
+    /**
+     * Report a player to Zaisma, with what happened in the player's own words if they gave any (details).
+     * The last chat lines (up to 20) they sent this player, or this player sent them, go with it from this
+     * screen; nothing else about the reporting player is sent.
+     */
     report(playerId: string, reason: ReportReason, details?: string): Promise<ReportAnswer>;
+    /**
+     * Send a chat message: through the room to the players in it (or chatOptions.toPlayerIds of them) who
+     * may chat with this player, on Zaisma's rooms or your own server's runner. It reaches only players in
+     * this player's chat group whose settings let them chat with this player, never anyone with a block
+     * between them, and never spectators. Your game server's onChat may stop it or send it to fewer
+     * players first; then Zaisma's chat filter checks it on its way (messages to and from under-18s
+     * always, between adults when your game server turns it on), and Zaisma keeps none of it. Draw the
+     * chat yourself: the "chat" event brings the others' messages; show this player's own when it resolves.
+     *
+     * Resolves { sentAt } once it went, even when nobody could read it (the sender is never told who
+     * can't). Rejects with error.code chat_stopped (error.reason says why, like contact_details or
+     * stopped_by_game, and error.message is what to show the player), chat_not_allowed (a guest, or chat
+     * set to nobody: check {@link Room.canChat} first), chat_empty, chat_too_long (over 2000 characters),
+     * chat_too_fast (over 20 in 10 seconds) or connection_closed.
+     *
+     * @example
+     * room.chat(input.value).then(({ sentAt }) => addLine(room.me.name, input.value), (error) => showError(error.message));
+     */
+    chat(text: string, chatOptions?: ChatOptions): Promise<ChatSent>;
 
     /**
      * Listen for an event. Listening is optional: without "move" and "back" listeners, the SDK follows
@@ -1241,7 +1270,52 @@ declare namespace Zaisma {
      * room.on("versionUpdate", ({ appliesAt }) => showBanner(`Updating at ${new Date(appliesAt).toLocaleTimeString()}`));
      */
     versionUpdate: (versionUpdate: VersionUpdate) => void;
+    /**
+     * Another player's chat message reached this player ({@link Room.chat}). Messages from players this
+     * player muted or blocked never come. hasSwearing and hasSlur flag what Zaisma allows: hide or blur
+     * them if your game doesn't. (Optional here only so games written for v1's events still fit.)
+     */
+    chat?: (chatMessage: ChatMessage) => void;
   }
+
+  /** What {@link Room.chat} takes. */
+  interface ChatOptions {
+    /** Send it to only these players in the room (like a team), from room.players. All players when left out. */
+    toPlayerIds?: string[];
+  }
+
+  /** {@link Room.chat}'s answer once the message went. */
+  interface ChatSent {
+    /** When the room sent it, as an ISO time. */
+    sentAt: string;
+  }
+
+  /** A chat message another player sent ({@link Room.chat}), as the "chat" event brings it. */
+  interface ChatMessage {
+    fromPlayerId: string;
+    text: string;
+    /** It swears: Zaisma allows it; hide it if your game doesn't. */
+    hasSwearing: boolean;
+    /** It has a slur: Zaisma allows it too; your game and its moderators decide. */
+    hasSlur: boolean;
+    /** When the room sent it, as an ISO time. */
+    sentAt: string;
+  }
+
+  /**
+   * The codes {@link Room.chat} rejects with: chat_stopped (the game server's onChat or Zaisma's filter
+   * stopped it: error.reason and error.message say why), chat_not_allowed, chat_empty, chat_too_long,
+   * chat_too_fast, bad_player_id, busy (try again in a moment), ended, spectator_cannot_send and
+   * connection_closed. More codes may come within v1: show the error's message.
+   */
+  type ChatErrorCode = "chat_stopped" | "chat_not_allowed" | "chat_empty" | "chat_too_long" | "chat_too_fast" | "chat_not_here" | "bad_player_id" | "busy" | "ended" | "spectator_cannot_send" | "connection_closed";
+
+  /**
+   * Why {@link Room.chat} was stopped (error.reason with chat_stopped): "stopped_by_game" (your game
+   * server's onChat), the filter's {@link ChatCheckReason}s, "chat_paused" (the sender's chat is paused
+   * for now) or "not_allowed_to_chat". More values may come.
+   */
+  type ChatStoppedReason = "stopped_by_game" | ChatCheckReason | "chat_paused" | "not_allowed_to_chat";
 
   /** What {@link Room.smoothedState} takes. */
   interface SmoothingOptions {
@@ -1467,6 +1541,7 @@ declare namespace Zaisma {
    * - already_playing: a player in the room tried to watch it too.
    * - spectator_cannot_send: a spectator tried to send to the room ({@link Room.send}, {@link Room.sendBytes}).
    * - send_queue_full: the SDK's own: more than 60 reliable sends waited while the room wasn't reachable, so the oldest were dropped. Send less while connectionStatus isn't open, or use latest_only for updates that replace each other.
+   * - chat_not_allowed, chat_empty, chat_too_long, chat_too_fast: {@link Room.chat} refused (they reject its promise, not the "error" event); chat_not_here: the room's server doesn't take chat.
    *
    * More codes may come within v1: handle one you don't know like an error you can show (its message).
    */
@@ -1494,7 +1569,12 @@ declare namespace Zaisma {
     | "spectators_full"
     | "already_playing"
     | "spectator_cannot_send"
-    | "send_queue_full";
+    | "send_queue_full"
+    | "chat_not_here"
+    | "chat_not_allowed"
+    | "chat_empty"
+    | "chat_too_long"
+    | "chat_too_fast";
 
   /**
    * The codes a request's errors have ({@link Server.request}), from Zaisma or the Node runner alike:
@@ -1551,6 +1631,7 @@ declare namespace Zaisma {
    * - bad_idle_timeout: an idleTimeoutSec that isn't from 30 to 86400.
    * - request_failed: Zaisma didn't answer (no connection, or a problem on Zaisma's side); try again.
    * - no_game: {@link Items.buy} named a game that isn't open to play here.
+   * - chat_stopped, chat_not_allowed, chat_empty, chat_too_long, chat_too_fast, chat_not_here: {@link Room.chat} didn't send ({@link ChatErrorCode}).
    * - And a request's ({@link RequestErrorCode}).
    *
    * More values may come; treat an unknown one as "request_failed".
@@ -1558,6 +1639,12 @@ declare namespace Zaisma {
   type ErrorCode =
     | RoomErrorCode
     | RequestErrorCode
+    | "chat_stopped"
+    | "chat_not_allowed"
+    | "chat_empty"
+    | "chat_too_long"
+    | "chat_too_fast"
+    | "chat_not_here"
     | "unchecked"
     | "unknown_option"
     | "unknown_event"
@@ -1636,6 +1723,8 @@ declare namespace Zaisma {
     message: string | null;
     /** Whether it swears. Zaisma allows swearing; block it yourself if your game doesn't. */
     hasSwearing: boolean;
+    /** Whether it has a slur. Zaisma allows it too; your game and its moderators decide. */
+    hasSlur: boolean;
     /** The text tidied up: hidden characters and extra spaces gone, line breaks kept (empty when it's too_long). */
     text: string;
   }
@@ -1643,10 +1732,11 @@ declare namespace Zaisma {
   /**
    * Why {@link checkChat} stopped a message: "contact_details" (a link, handle, email, phone number or
    * contact app in any disguise, or moving to another app or meeting up), "personal_details" (where
-   * someone lives, their school, their full name, photos), "slur", "sexual", "unchecked" (Zaisma couldn't
-   * check it: try again in a moment) or "too_long" (over 2000 characters). The game server's
-   * ChatCheckReason has two more, "chat_paused" and "not_allowed_to_chat", which only a room can give.
-   * More values may come; treat an unknown one as a stop: show message.
+   * someone lives, their school, their full name, photos), "sexual" or "too_long" (over 2000 characters).
+   * "slur" and "unchecked" are v1's and no longer given: slurs are flagged (hasSlur), and what the AI can't
+   * look at goes after the rules. The game server's ChatCheckReason has two more, "chat_paused" and
+   * "not_allowed_to_chat", which only a room can give. More values may come; treat an unknown one as a
+   * stop: show message.
    */
   type ChatCheckReason = "contact_details" | "personal_details" | "slur" | "sexual" | "unchecked" | "too_long";
 

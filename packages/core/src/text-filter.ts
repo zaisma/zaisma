@@ -80,12 +80,12 @@ export function checkText(text: string): TextCheck {
 /**
  * The chat filter's rules (docs/DECISIONS.md, "The text filter catches what matters and leaves the rest
  * alone"), run on Zaisma's side on every message to or from an under-18 account. They stop contact
- * details in any disguise, moving apps or meeting up, personal details, slurs and sexual words; swearing
- * is only flagged (hasSwearing), since it's the game's call. What the rules can't tell goes to a small
+ * details in any disguise, moving apps or meeting up, personal details and sexual words; swearing and
+ * slurs are only flagged (hasSwearing, hasSlur), since they're the game's call (Julius, Oct 26, 2026). What the rules can't tell goes to a small
  * AI model as unclear: words that often come before grooming, a lone run of digits (a score or a phone
  * number) and other languages, whose words the English lists don't know.
  */
-export type ChatBlockReason = "contact_details" | "personal_details" | "slur" | "sexual";
+export type ChatBlockReason = "contact_details" | "personal_details" | "sexual";
 
 export interface ChatTextCheck {
   verdict: "allowed" | "blocked" | "unclear";
@@ -93,6 +93,8 @@ export interface ChatTextCheck {
   reason: ChatBlockReason | null;
   /** Whether it swears: allowed by Zaisma, for the game to block if it likes. */
   hasSwearing: boolean;
+  /** Whether it has a slur: allowed by Zaisma too, for the game and its moderators to act on. */
+  hasSlur: boolean;
 }
 
 /** Slurs in the obscenity library's English list, by the word each of its phrases stands for. */
@@ -114,10 +116,11 @@ const sexualWords = matcherOf((word) => SEXUAL_WORDS.includes(word));
 const swearing = matcherOf((word) => !SLUR_WORDS.includes(word) && !SEXUAL_WORDS.includes(word));
 
 // Contact details in chat: CONTACT without its digit run, which alone is unclear (a score or a phone
-// number), plus moving apps or meeting up, and numbers written as words.
+// number), plus moving apps or meeting up in real life, and numbers written as words. "Meet me at the old
+// mill" could be in the game, so a meeting without "irl" or "in person" is the AI's to tell (it's unclear).
 const CHAT_CONTACT = [
   ...CONTACT.filter((pattern) => pattern !== PHONE_NUMBER),
-  /\b(meet\s*(up|me|irl)|come\s+(over\s+)?to\s+my\s+(house|place|home)|what'?s\s+your\s+(address|number|phone|snap|insta|discord))\b/i,
+  /\b(meet\s*(up\s+|me\s+)?(irl|in\s+real\s+life|in\s+person|offline)|come\s+(over\s+)?to\s+my\s+(house|place|home)|what'?s\s+your\s+(address|number|phone|snap|insta|discord))\b/i,
   /\b(move|go|talk|chat)\s+(to|on)\s+(another|a different|a private|other)\s+(app|site|server|chat)\b/i,
 ];
 const NUMBER_WORDS = /(?:(?:\b(?:zero|oh|one|two|three|four|five|six|seven|eight|nine)\b|\d)[\s,.\-()+]*){7,}/i;
@@ -151,8 +154,9 @@ const hasWords = (matcher: RegExpMatcher, text: string) => {
 export function checkChatText(text: string, recentTexts: string[] = []): ChatTextCheck {
   const clean = tidyText(text, CHAT_FILTER_LIMITS.maximumMessageCharacterCount);
   const hasSwearing = clean !== "" && hasWords(swearing, clean);
-  const blocked = (reason: ChatBlockReason): ChatTextCheck => ({ verdict: "blocked", reason, hasSwearing });
-  if (!clean) return { verdict: "allowed", reason: null, hasSwearing };
+  const hasSlur = clean !== "" && hasWords(slurs, clean);
+  const blocked = (reason: ChatBlockReason): ChatTextCheck => ({ verdict: "blocked", reason, hasSwearing, hasSlur });
+  if (!clean) return { verdict: "allowed", reason: null, hasSwearing, hasSlur };
   const recent = recentTexts.map((recentText) => tidyText(recentText, CHAT_FILTER_LIMITS.maximumMessageCharacterCount)).filter(Boolean);
   // Pieces: the message joined to the ones before it, unless one of those was contact details already (and blocked then).
   const isSplitContact = recent.length > 0 && !recent.some(isContact) && isContact([...recent, clean].join(" "));
@@ -165,10 +169,9 @@ export function checkChatText(text: string, recentTexts: string[] = []): ChatTex
   const isSplitNumber = digitPieces.length > 1 && DIGITS_ONLY.test(clean) && PHONE_NUMBER.test(digitPieces.join(" ")) && !PHONE_NUMBER.test(clean);
   if (isContact(clean) || isSplitContact || isSplitNumber) return blocked("contact_details");
   if (PERSONAL.some((pattern) => pattern.test(clean))) return blocked("personal_details");
-  if (hasWords(slurs, clean)) return blocked("slur");
   if (hasWords(sexualWords, clean) || SEXUAL_PHRASES.test(clean)) return blocked("sexual");
   // Letters outside English's a to z (accents, other scripts): the lists are English, so the AI looks.
   const isOtherLanguage = /[^\P{L}a-z]/iu.test(clean);
-  if (UNCLEAR.test(clean) || PHONE_NUMBER.test(clean) || isOtherLanguage) return { verdict: "unclear", reason: null, hasSwearing };
-  return { verdict: "allowed", reason: null, hasSwearing };
+  if (UNCLEAR.test(clean) || PHONE_NUMBER.test(clean) || isOtherLanguage) return { verdict: "unclear", reason: null, hasSwearing, hasSlur };
+  return { verdict: "allowed", reason: null, hasSwearing, hasSlur };
 }

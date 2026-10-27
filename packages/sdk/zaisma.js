@@ -29,7 +29,11 @@
   var SMOOTHING_OPTIONS = ["delayMs"];
   var DELIVERIES = ["reliable", "latest_only"];
   var ROOM_INFO_FIELDS = ["name", "labels"];
-  var ROOM_EVENTS = ["message", "bytes", "state", "players", "connectionStatus", "ended", "ending", "kicked", "settings", "move", "moved", "idle", "away", "back", "muted", "error", "versionUpdate"];
+  var ROOM_EVENTS = ["message", "bytes", "state", "players", "connectionStatus", "ended", "ending", "kicked", "settings", "move", "moved", "idle", "away", "back", "muted", "error", "versionUpdate", "chat"];
+  /** Chat (room.chat): the longest message, the lines a room keeps in memory for reports, and how many of them a report carries. */
+  var MAXIMUM_CHAT_CHARACTER_COUNT = 2000;
+  var KEPT_CHAT_LINE_COUNT = 50;
+  var REPORTED_CHAT_LINE_COUNT = 20;
   var SAVES_EVENTS = ["conflict", "developerChange"];
   var ITEMS_EVENTS = ["purchase", "refund", "sheetOpen", "sheetClose"];
   var VERSIONS_EVENTS = ["update"];
@@ -186,9 +190,11 @@
     if (!config.rooms) return Promise.reject(notOnZaisma("Player passes come from Zaisma, so they work only in games played on Zaisma."));
     if (!passPromise) {
       passPromise = roomKey().then(function (given) {
-        // The kept pass, unless the player signed in or out since it was made.
+        // A guest keeps their pass, so a reload is the same guest. An account gets a new one with each page's key: the key is for
+        // whoever is signed in now (another account than the kept pass's, maybe), and its pass brings their chat settings, friends
+        // and blocks as they are now; the account's player ID is the same either way.
         var kept = keptPass();
-        if (kept && kept.kind === given.playerKind) return kept;
+        if (kept && kept.kind === "guest" && given.playerKind === "guest") return kept;
         return post("/v1/pass", { gameSlug: config.game, roomKey: given.key }).then(function (answer) {
           var mine = { id: answer.player.id, name: answer.player.name, kind: answer.player.kind, pass: answer.pass, expiresAt: answer.expiresAt };
           try { sessionStorage.setItem(passKey, JSON.stringify(mine)); } catch (error) { /* fine */ }
@@ -457,6 +463,12 @@
     this._flushTimer = null;
     this._isQueueFullSaid = false;
     this._isWelcomed = false;
+    // Chat (room.chat): whether this player can chat at all (from welcome), the messages waiting for the
+    // room's answer by their chatNumber, and the room's last chat lines, in memory only, for reports.
+    this.canChat = false;
+    this._chatNumber = 0;
+    this._chats = new Map();
+    this._chatLines = [];
   }
   Room.prototype = Object.create(Emitter.prototype);
 
@@ -557,6 +569,7 @@
         room._checks = message.awayChecks || { idleTimeoutSec: null, hiddenTimeoutSec: null };
         room._probeIntervalSec = typeof message.probeIntervalSec === "number" ? message.probeIntervalSec : null;
         room.spectatorCount = typeof message.spectatorCount === "number" ? message.spectatorCount : 0;
+        room.canChat = message.canChat === true && !room.isSpectator;
         room._away = room._gone = room._idleSent = room._coming = room._offered = room._isReloadingForVersion = false;
         room.awayReason = null;
         room._isQueueFullSaid = false;
@@ -606,6 +619,8 @@
         room._mutedChanged();
       } else if (message.type === "message") {
         room._emit("message", message.data, typeof message.fromPlayerId === "string" ? message.fromPlayerId : null);
+      } else if (message.type === "chat" || message.type === "chat_sent" || message.type === "chat_stopped" || (message.type === "error" && typeof message.chatNumber === "number")) {
+        room._chatAnswer(message);
       } else if (message.type === "state") {
         room._takeState(message);
       } else if (message.type === "room") {
@@ -661,6 +676,7 @@
       if (room._done || event.code === 4000 || event.code === 4001) {
         room._done = true;
         room._queue = [];
+        room._failChats();
         room._setConnectionStatus("closed");
         if (room._ready) {
           room._ready.reject(codedError("connection_closed", "The connection closed before the room let the player in" + (event.reason ? ": " + event.reason : "") + "."));
@@ -1253,16 +1269,85 @@
     });
     return blockAsk;
   }
-  /** Report a player to Zaisma. reason: real_life_threat, personal_details, following_after_block or sexual (Zaisma looks), or harassment, cheating or other (passed to the game's developer). Nothing about you is sent. */
+  /**
+   * Report a player to Zaisma. reason: real_life_threat, personal_details, following_after_block or sexual (Zaisma looks), or harassment, cheating or other (passed to the game's developer).
+   * The last chat lines they sent you, or you sent them, go with it (up to 20); nothing else about you is sent.
+   */
   Room.prototype.report = function (playerId, reason, details) {
     var reported = this.players.filter(function (each) { return each.id === playerId; })[0];
-    return post("/v1/report", { gameSlug: config.game, roomCode: this.roomCode, playerId: playerId, playerName: reported ? reported.name : "", reason: reason, details: details || "" });
+    var me = this.me ? this.me.id : null;
+    var chatMessages = this._chatLines.filter(function (line) {
+      return line.fromPlayerId === playerId || (line.fromPlayerId === me && (!line.toPlayerIds || line.toPlayerIds.indexOf(playerId) !== -1));
+    }).slice(-REPORTED_CHAT_LINE_COUNT).map(function (line) { return { fromPlayerId: line.fromPlayerId, text: line.text, sentAt: line.sentAt }; });
+    return post("/v1/report", { gameSlug: config.game, roomCode: this.roomCode, playerId: playerId, playerName: reported ? reported.name : "", reason: reason, details: details || "", chatMessages: chatMessages });
+  };
+
+  /**
+   * Send a chat message (zaisma.d.ts: room.chat): through the room, to the players who may chat with this
+   * one, after the game server's onChat and Zaisma's chat filter. Resolves { sentAt } once it went, even to
+   * nobody; rejects with a coded error when it didn't.
+   */
+  Room.prototype.chat = function (text, chatOptions) {
+    var toPlayerIds = chatOptions && chatOptions.toPlayerIds;
+    if (!this.canChat) return Promise.reject(codedError("chat_not_allowed", "You can't chat here."));
+    if (typeof text !== "string" || !text.trim()) return Promise.reject(codedError("chat_empty", "Type a message first."));
+    if (text.length > MAXIMUM_CHAT_CHARACTER_COUNT) return Promise.reject(codedError("chat_too_long", "That message is too long to send."));
+    if (toPlayerIds !== undefined && !(Array.isArray(toPlayerIds) && toPlayerIds.every(function (id) { return typeof id === "string"; }))) {
+      return Promise.reject(codedError("bad_player_id", "chatOptions.toPlayerIds takes a list of player IDs from room.players."));
+    }
+    if (this._done) return Promise.reject(codedError("connection_closed", "This room is closed."));
+    var room = this;
+    var chatNumber = ++this._chatNumber;
+    var payload = { type: "chat", chatNumber: chatNumber, text: text };
+    if (toPlayerIds) payload.toPlayerIds = toPlayerIds.slice();
+    return new Promise(function (resolve, reject) {
+      room._chats.set(chatNumber, { text: text, toPlayerIds: payload.toPlayerIds || null, resolve: resolve, reject: reject });
+      // Waits in order with the other sends while the connection is back.
+      room._sendReliable(JSON.stringify(payload));
+    });
+  };
+  /** A chat line, kept in memory for reports: the last KEPT_CHAT_LINE_COUNT. */
+  Room.prototype._keepChatLine = function (line) {
+    this._chatLines.push(line);
+    if (this._chatLines.length > KEPT_CHAT_LINE_COUNT) this._chatLines.shift();
+  };
+  /** What the room said about chat: someone's message, or its answer on one of this player's. */
+  Room.prototype._chatAnswer = function (message) {
+    if (message.type === "chat") {
+      if (typeof message.fromPlayerId !== "string" || typeof message.text !== "string") return;
+      // Muted and blocked players' chat never reaches the game.
+      if (this.isMuted(message.fromPlayerId)) return;
+      var chat = { fromPlayerId: message.fromPlayerId, text: message.text, hasSwearing: message.hasSwearing === true, hasSlur: message.hasSlur === true, sentAt: typeof message.sentAt === "string" ? message.sentAt : new Date().toISOString() };
+      this._keepChatLine({ fromPlayerId: chat.fromPlayerId, text: chat.text, sentAt: chat.sentAt, toPlayerIds: null });
+      this._emit("chat", chat);
+      return;
+    }
+    var waiting = this._chats.get(message.chatNumber);
+    if (!waiting) return;
+    this._chats.delete(message.chatNumber);
+    if (message.type === "chat_sent") {
+      this._keepChatLine({ fromPlayerId: this.me ? this.me.id : null, text: waiting.text, sentAt: message.sentAt, toPlayerIds: waiting.toPlayerIds });
+      waiting.resolve({ sentAt: message.sentAt });
+    } else if (message.type === "chat_stopped") {
+      var stopped = codedError("chat_stopped", typeof message.message === "string" && message.message ? message.message : "Your message wasn't sent.");
+      stopped.reason = typeof message.reason === "string" ? message.reason : null;
+      waiting.reject(stopped);
+    } else {
+      waiting.reject(codedError(message.code, message.message));
+    }
+  };
+  /** Chat messages still waiting when the room closes don't go. */
+  Room.prototype._failChats = function () {
+    var waiting = Array.from(this._chats.values());
+    this._chats.clear();
+    waiting.forEach(function (chat) { chat.reject(codedError("connection_closed", "The room closed before the message went.")); });
   };
 
   Room.prototype.leave = function () {
     if (!this._done) left(this);
     this._done = true;
     this._queue = [];
+    this._failChats();
     if (this._ws) this._ws.close(1000, "Left");
   };
 

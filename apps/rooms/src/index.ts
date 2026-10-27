@@ -1,4 +1,4 @@
-import { finishHandling, finishRefundHandling, unhandledFor, type PurchaseDelivery, CHAT_BLOCK_MESSAGES, CHAT_FILTER_LIMITS, itemsOf, ownedItemNames, priceFor, priceText, PLAYER_REPORT_REASONS, accountById, checkChatText, isChatStopped, isBlockedInCountry, isOldEnoughFor, requestCountryCode, type AgeBand, gameAddress, accountUsernameOf, blockPlayerIdsOf, chatBandGroup, socialSettingsOf, friendPlayerIdsOf, friendsInGameOf, gameServerOf, isOwnServerUrl, ownServerUrlsOf, setOwnServerRoom, type AccountRequirement, type MultiplayerMode, createReport, isIdOf, iso, leaveOut, listRooms, newId, isHostingPaused, playerProfile, readLabelParameter, readLeftParameter, tidyChatText, tidyText, useRoomKey, type PlayerReportReason, type RoomList } from "@zaisma/core";
+import { finishHandling, finishRefundHandling, unhandledFor, type PurchaseDelivery, CHAT_BLOCK_MESSAGES, CHAT_FILTER_LIMITS, itemsOf, ownedItemNames, priceFor, priceText, PLAYER_REPORT_REASONS, accountById, checkChatText, isChatStopped, isBlockedInCountry, isOldEnoughFor, requestCountryCode, type AgeBand, gameAddress, accountUsernameOf, blockPlayerIdsOf, chatBandGroup, socialSettingsOf, friendPlayerIdsOf, friendsInGameOf, gameServerOf, isOwnServerUrl, ownServerUrlsOf, setOwnServerRoom, type AccountRequirement, type MultiplayerMode, createReport, REPORTED_CHAT_LIMITS, type ReportedChatMessage, isIdOf, iso, leaveOut, listRooms, newId, isHostingPaused, playerProfile, readLabelParameter, readLeftParameter, tidyChatText, tidyText, useRoomKey, type PlayerReportReason, type RoomList } from "@zaisma/core";
 import { BUSY_CLOSE_CODE, ERROR_TEXT, PassError, REMOVED_CLOSE_CODE, errorMessage, type RoomErrorCode, REQUEST_ERROR_HTTP_STATUS, REQUEST_LIMITS, PASS_VERSION_NUMBER, canChat, guestName, isRoomCode, jwks, readRequestBody, requestError, roomCode, signPass, verifyPass, type Player, type PassClaims, type RequestErrorCode } from "@zaisma/game-server/internal";
 import { usesRooms } from "./registry.ts";
 import { purchasesForGame } from "./purchases.ts";
@@ -211,6 +211,25 @@ function failure(code: CallErrorCode, message: string, httpStatus: number, origi
 }
 
 /** Body is sent as text/plain JSON so the browser doesn't need a preflight request. */
+/**
+ * A player report's chat lines (room.report attaches them from the reporter's screen), checked: up to
+ * REPORTED_CHAT_LIMITS lines of { fromPlayerId, text, sentAt } and nothing else, or null when they don't
+ * read. Only the reported player's ID is kept with a line: anyone else's, the reporter's included, isn't.
+ */
+function reportedChatFrom(given: unknown, reportedPlayerId: string): ReportedChatMessage[] | null {
+  if (given === undefined) return [];
+  if (!Array.isArray(given) || given.length > REPORTED_CHAT_LIMITS.maximumMessageCount) return null;
+  const lines: ReportedChatMessage[] = [];
+  for (const line of given) {
+    if (!line || typeof line !== "object" || Array.isArray(line)) return null;
+    const { fromPlayerId, text, sentAt, ...rest } = line as Record<string, unknown>;
+    if (Object.keys(rest).length || !isIdOf("player", fromPlayerId) || typeof text !== "string" || text.length > REPORTED_CHAT_LIMITS.maximumTextCharacterCount) return null;
+    if (typeof sentAt !== "string" || sentAt.length > 40 || Number.isNaN(Date.parse(sentAt))) return null;
+    lines.push({ from_player_id: fromPlayerId === reportedPlayerId ? fromPlayerId : null, text: tidyChatText(text, REPORTED_CHAT_LIMITS.maximumTextCharacterCount), sent_at: new Date(Date.parse(sentAt)).toISOString() });
+  }
+  return lines;
+}
+
 async function readBody(request: Request): Promise<{ slug: string | null; body: Record<string, unknown> }> {
   try {
     const body = JSON.parse(await request.text()) as Record<string, unknown>;
@@ -394,6 +413,7 @@ async function answerChatCheck(request: Request, env: Env): Promise<Response> {
     return failure("bad_request", `receiverPasses takes a list of up to ${MAXIMUM_CHAT_RECEIVER_COUNT} player passes, as your server received them.`, 400, undefined, "receiverPasses");
   }
   if (typeof body.text !== "string") return failure("bad_request", "text takes the message as text.", 400, undefined, "text");
+  if (body.isAdultFilterEnabled !== undefined && typeof body.isAdultFilterEnabled !== "boolean") return failure("bad_request", "isAdultFilterEnabled takes true or false.", 400, undefined, "isAdultFilterEnabled");
   const recentTexts = body.recentTexts ?? [];
   if (!Array.isArray(recentTexts) || !recentTexts.every((recentText) => typeof recentText === "string")) return failure("bad_request", "recentTexts takes a list of the sender's last messages, oldest first.", 400, undefined, "recentTexts");
 
@@ -418,7 +438,7 @@ async function answerChatCheck(request: Request, env: Env): Promise<Response> {
   // The backstop for canChat: a server that skipped it still delivers nothing to players who may not chat.
   // One verdict for the message, never which receiver.
   if (receivers.some((receiver) => receiver.sub !== sender.sub && !canChat(sender, receiver))) {
-    return json({ isAllowed: false, reason: "not_allowed_to_chat", message: CHAT_BLOCK_MESSAGES.not_allowed_to_chat, hasSwearing: false });
+    return json({ isAllowed: false, reason: "not_allowed_to_chat", message: CHAT_BLOCK_MESSAGES.not_allowed_to_chat, hasSwearing: false, hasSlur: false });
   }
 
   const answer = await filterChatMessage(env, {
@@ -428,6 +448,8 @@ async function answerChatCheck(request: Request, env: Env): Promise<Response> {
     receiverPlayerIds: receivers.map((receiver) => receiver.sub),
     recentTexts: recentTexts.slice(-CHAT_FILTER_LIMITS.recentTextCount).map((recentText) => tidyText(recentText, CHAT_FILTER_LIMITS.maximumMessageCharacterCount)),
     source: "own_server",
+    // The game's own switch for chat between adults: its checks are on its meter.
+    isAdultFilterEnabled: body.isAdultFilterEnabled === true,
   });
   return json(answer);
 }
@@ -498,16 +520,17 @@ export default {
       if (url.pathname === "/v1/filter") {
         if (await limited(env.FILTER_LIMIT, request)) return failure("slow_down", SLOW_DOWN, 429, cors);
         if (String(body.text ?? "").length > CHAT_FILTER_LIMITS.maximumMessageCharacterCount) {
-          return json({ isAllowed: false, reason: "too_long", message: CHAT_BLOCK_MESSAGES.too_long, hasSwearing: false, text: "" }, 200, cors);
+          return json({ isAllowed: false, reason: "too_long", message: CHAT_BLOCK_MESSAGES.too_long, hasSwearing: false, hasSlur: false, text: "" }, 200, cors);
         }
         const text = tidyText(body.text, CHAT_FILTER_LIMITS.maximumMessageCharacterCount);
         const rules = checkChatText(text);
         let reason = rules.reason as keyof typeof CHAT_BLOCK_MESSAGES | null;
         if (rules.verdict === "unclear") {
           const checked = env.CHAT_CHECK ? await env.CHAT_CHECK.checkUnclear({ text, recentTexts: [], isAdultToMinor: false }).catch(() => ({ verdict: "unchecked" as const })) : { verdict: "unchecked" as const };
-          reason = checked.verdict === "blocked" ? checked.reason : checked.verdict === "unchecked" ? "unchecked" : null;
+          // As in rooms: when the AI can't look, the rules' answer stands.
+          if (checked.verdict === "blocked") reason = checked.reason;
         }
-        return json({ isAllowed: reason === null, reason, message: reason ? CHAT_BLOCK_MESSAGES[reason] : null, hasSwearing: rules.hasSwearing, text: tidyChatText(body.text, CHAT_FILTER_LIMITS.maximumMessageCharacterCount) }, 200, cors);
+        return json({ isAllowed: reason === null, reason, message: reason ? CHAT_BLOCK_MESSAGES[reason] : null, hasSwearing: rules.hasSwearing, hasSlur: rules.hasSlur, text: tidyChatText(body.text, CHAT_FILTER_LIMITS.maximumMessageCharacterCount) }, 200, cors);
       }
 
       if (url.pathname === "/v1/pass") {
@@ -526,7 +549,7 @@ export default {
         }
         const player: Player = account ? { id: account.player_id, name: account.username, kind: "account" } : { id: newId("player"), name: guestName(), kind: "guest" };
         // The pass is proof only: an account's carries no name, which games look up (/v1/players/<id>).
-        // It says who the account can chat with, never its age: its chat setting (within its band's limits) and an opaque chat group when that's anyone.
+        // It says who the account can chat with, never its age: its chat setting (within its band's limits) and an opaque chat group, its band's, whenever it chats at all.
         // And its friends and blocks, as opaque tags (playerTag), never a list of players anyone can read: games see what the public sees.
         const bandGroup = account ? chatBandGroup(account) : null;
         const chat = account
@@ -569,6 +592,10 @@ export default {
         if (!(reason in PLAYER_REPORT_REASONS) || !isRoomCode(reportedRoomCode) || !isIdOf("player", playerId)) {
           return failure("bad_report", `Choose what happened (${Object.keys(PLAYER_REPORT_REASONS).join(", ")}), with the room's code and the player's ID.`, 400, cors);
         }
+        const reportedChat = reportedChatFrom(body.chatMessages, playerId);
+        if (!reportedChat) {
+          return failure("bad_report", `chatMessages takes up to ${REPORTED_CHAT_LIMITS.maximumMessageCount} chat lines, each { fromPlayerId, text, sentAt } with text up to ${REPORTED_CHAT_LIMITS.maximumTextCharacterCount} characters.`, 400, cors);
+        }
         await createReport(env.DB, {
           gameId: game.id,
           reason: "player",
@@ -576,6 +603,7 @@ export default {
           versionId: game.live_version_id,
           roomCode: reportedRoomCode,
           player: { id: playerId, name: plainText(body.playerName, 40), reason },
+          reportedChat,
         });
         return json({ isReported: true }, 200, cors);
       }

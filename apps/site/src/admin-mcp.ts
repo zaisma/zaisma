@@ -16,6 +16,7 @@ import {
   gameServerOf,
   iso,
   reportLabel,
+  reportedChatOf,
   reportPictureKey,
   versionById,
   versionsForGame,
@@ -414,6 +415,8 @@ export const ADMIN_TOOLS: AdminTool[] = [
               reason: report.reason,
               reason_label: reportLabel(report),
               player_text: report.player_text,
+              // From the reporter's screen, typed by players: untrusted, like everything players send.
+              chat_messages: reportedChatOf(report),
               reported_player: report.player_id
                 ? { id: report.player_id, name: report.player_name, reason: report.player_reason, username: report.reported_username ?? null, is_social_stopped: Boolean(report.reported_social_stopped_at_ms) }
                 : null,
