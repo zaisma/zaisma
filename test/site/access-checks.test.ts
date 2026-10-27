@@ -8,6 +8,7 @@ import {
   addCreditEntry,
   addDatabaseRestore,
   addImage,
+  addPasskey,
   addTesterLink,
   allows,
   bumpSave,
@@ -324,6 +325,8 @@ async function makeWorld(): Promise<World> {
     await createAccount(env.DB, { id: accountIdOf(name), username: `${username}_${n}`, ageBand: "18+" });
     await letPublish(env.DB, accountIdOf(name));
   }
+  // A top-up keeps a card, so the developer's account has a passkey (an account with neither a passkey nor an email is refused).
+  await addPasskey(env.DB, { id: `passkey-${n}`, account_id: accountIdOf("victim"), public_key: "key", algorithm_number: -7, sign_count: 0, name: "Phone" }, 0);
   const [victimOwner, strangerOwner, player] = await Promise.all([personOwner(env.DB, accountIdOf("victim")), personOwner(env.DB, accountIdOf("stranger")), accountById(env.DB, accountIdOf("player"))]);
   const game = await createGame(env.DB, { slug: `hop-${n}`, title: "Hop", description: "", ownerId: victimOwner.id, visibility: "draft" });
   const otherGame = await createGame(env.DB, { slug: `cave-${n}`, title: "Cave", description: "", ownerId: victimOwner.id, visibility: "draft" });
@@ -558,7 +561,7 @@ beforeAll(async () => {
 afterAll(async () => {
   globalThis.fetch = realFetch;
   await env.DB.exec(
-    "DELETE FROM kept_rooms; DELETE FROM purchases; DELETE FROM game_items; DELETE FROM forum_media; DELETE FROM forum_follows; DELETE FROM forum_votes; DELETE FROM forum_post_ratings; DELETE FROM forum_bookmarks; DELETE FROM forum_reports; DELETE FROM forum_misplaced_flags; DELETE FROM forum_posts; DELETE FROM forum_topic_tags; DELETE FROM forum_topics; DELETE FROM webhook_deliveries; DELETE FROM webhooks; DELETE FROM sign_in_apps; DELETE FROM save_history; DELETE FROM saves; DELETE FROM tester_links; DELETE FROM game_backgrounds; DELETE FROM game_shaders; DELETE FROM game_images; DELETE FROM owned_blobs; DELETE FROM blobs; DELETE FROM api_keys; DELETE FROM security_events; DELETE FROM security_places; DELETE FROM audit_log; DELETE FROM versions; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM credit_entries; DELETE FROM spending_requests; DELETE FROM owners; DELETE FROM accounts;",
+    "DELETE FROM kept_rooms; DELETE FROM passkeys; DELETE FROM purchases; DELETE FROM game_items; DELETE FROM forum_media; DELETE FROM forum_follows; DELETE FROM forum_votes; DELETE FROM forum_post_ratings; DELETE FROM forum_bookmarks; DELETE FROM forum_reports; DELETE FROM forum_misplaced_flags; DELETE FROM forum_posts; DELETE FROM forum_topic_tags; DELETE FROM forum_topics; DELETE FROM webhook_deliveries; DELETE FROM webhooks; DELETE FROM sign_in_apps; DELETE FROM save_history; DELETE FROM saves; DELETE FROM tester_links; DELETE FROM game_backgrounds; DELETE FROM game_shaders; DELETE FROM game_images; DELETE FROM owned_blobs; DELETE FROM blobs; DELETE FROM api_keys; DELETE FROM security_events; DELETE FROM security_places; DELETE FROM audit_log; DELETE FROM versions; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM credit_entries; DELETE FROM spending_requests; DELETE FROM owners; DELETE FROM accounts;",
   );
 });
 

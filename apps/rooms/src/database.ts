@@ -1,5 +1,5 @@
 import { DurableObject, WorkerEntrypoint } from "cloudflare:workers";
-import { DATABASE_LIMITS, DatabaseError, DumpCursorError, TABLE_COLUMNS_SQL, answerDatabase, type DatabaseErrorCode, checkBatch, checkPlayerId, checkStatement, dumpPart, eraseRefused, eraseStatements, importStatements, integerTooLarge, plainRow, scanStatements, preview, readDatabaseAnswer, tablesFromColumns, tooManyRows, type DatabaseAnswer, type DatabaseRow, type DatabaseValue, type DumpPart, type ErasedTable, type GameDatabase } from "@zaisma/game-server/internal";
+import { DATABASE_LIMITS, DatabaseError, DumpCursorError, quoteName, TABLE_COLUMNS_SQL, answerDatabase, type DatabaseErrorCode, checkBatch, checkPlayerId, checkStatement, dumpPart, eraseRefused, eraseStatements, importStatements, integerTooLarge, plainRow, scanStatements, preview, readDatabaseAnswer, tablesFromColumns, tooManyRows, type DatabaseAnswer, type DatabaseRow, type DatabaseValue, type DumpPart, type ErasedTable, type GameDatabase } from "@zaisma/game-server/internal";
 import { HOSTING_PAUSED_TEXT, MATCH_FINISH_DURATION_SEC, MAXIMUM_GAME_STORAGE_SIZE_BYTES, keptRoomsSizeBytes, nextMonthStartDate, recordPlayerErased, usageMonth } from "@zaisma/core";
 import type { Env } from "./index.ts";
 import { AwakeTime } from "./usage-counts.ts";
@@ -304,6 +304,31 @@ export class GameDatabaseObject extends DurableObject<Env> {
       }
       throw error;
     }
+  }
+
+  /**
+   * One part of a backup's dump in, for a restore from Zaisma's backups (apps/site/src/restore.ts): the
+   * same statements an import takes, in one transaction, but Zaisma's own writes: never on the game's
+   * meter, its free writes or its hosting pause, and never refused for size, since the game had it all before.
+   * The first part clears what an earlier try of the same restore left half done: a restore only runs in an
+   * account set up for it, where nothing else has written to a game's database.
+   */
+  importForBackup(dumpSql: string, isFirstPart: boolean): DeveloperDatabaseAnswer<{ statementCount: number }> {
+    return answerDatabase(() => {
+      if (this.isRestarting) throw restarting();
+      const plan = importStatements(dumpSql);
+      const sql = this.ctx.storage.sql;
+      this.ctx.storage.transactionSync(() => {
+        if (isFirstPart) {
+          const schemaRows = sql.exec<{ type: string; name: string }>("SELECT type, name FROM sqlite_schema WHERE type IN ('table', 'view') AND substr(name, 1, 4) <> '_cf_' AND substr(name, 1, 7) <> 'sqlite_'").toArray();
+          for (const schemaRow of schemaRows) sql.exec(`DROP ${schemaRow.type === "view" ? "VIEW" : "TABLE"} IF EXISTS ${quoteName(schemaRow.name)}`);
+        }
+        // As an import's part does: a row can refer to one that comes after it in the part.
+        sql.exec("PRAGMA defer_foreign_keys = ON");
+        for (const statement of plan.statements) sql.exec(statement.sql, ...statement.values.map((boundValue) => (boundValue instanceof Uint8Array ? boundValue.slice().buffer : boundValue))).toArray();
+      });
+      return { statementCount: plan.statements.length };
+    });
   }
 
   /**
@@ -787,6 +812,11 @@ export class GameDatabaseService extends WorkerEntrypoint<Env> {
       // Cloudflare ends a transaction that commits with a foreign key broken by resetting the object to how it was: the part is undone.
       /constraints were violated|FOREIGN KEY constraint failed/i.test(String(error instanceof Error ? error.message : error)) ? { error: FOREIGN_KEY_ACROSS_PARTS } : null,
     );
+  }
+
+  /** One part of a backup's dump in, for a restore from Zaisma's backups: Zaisma's writes, never the game's (GameDatabaseObject.importForBackup). */
+  importBackup(gameId: string, dumpSql: string, isFirstPart: boolean): Promise<DeveloperDatabaseAnswer<{ statementCount: number }>> {
+    return this.reach(gameId, (database) => database.importForBackup(dumpSql, isFirstPart));
   }
 
   /**

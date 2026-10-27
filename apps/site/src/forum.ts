@@ -549,6 +549,18 @@ export async function readableTopic(env: Env, viewer: Viewer, topicId: string, f
   checkIdKind("topic", topicId, field, "search_forum (GET /forum) lists topics with their IDs.");
   const topic = await topicById(env, topicId);
   if (!topic || !canRead(topic, viewer)) throw new ApiError("no_topic", { message: `There's no topic with the ID ${topicId.slice(0, 60)} you can see.`, field, fix: "search_forum (GET /forum) lists topics with their IDs; a public topic shows to others once its first post is checked." });
+  // A key limited to some games reaches only those games' topics (as ownGame does for a game's own calls).
+  const gameSlugs = viewer?.access.gameSlugs;
+  if (gameSlugs && topic.game_id) {
+    const game = await gameById(env.DB, topic.game_id);
+    if (game && !gameSlugs.includes(game.slug)) {
+      throw new ApiError("key_not_allowed", {
+        message: `This API key works only on ${gameSlugs.join(", ")}, and this topic is about ${game.slug}.`,
+        field,
+        fix: `Use a topic about one of those games, or ask the developer for a key that covers ${game.slug} (keys are made on zaisma.com/dashboard/settings).`,
+      });
+    }
+  }
   return topic;
 }
 

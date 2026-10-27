@@ -22,7 +22,6 @@ import {
   accountById,
   accountByUsername,
   ageBand,
-  ageBandOn,
   ageOn,
   birthDateText,
   apiKeysFor,
@@ -61,6 +60,8 @@ import {
   COLOR_THEMES,
   type ColorTheme,
   UsernameTakenError,
+  joinBirthDateKept,
+  signUpToday,
   type Account,
   type AgeBand,
   type Game,
@@ -262,10 +263,13 @@ export async function handleAccount(request: Request, env: Env, path: string, wa
       const why = query.get("error") === "access_denied" ? `${by} sign-in was cancelled.` : `${by} sign-in didn't work. Try again, or use your username and password.`;
       return withCookies(await signinPage(env, back, why, 400), cookies);
     }
-    if (isProvider(provider)) await recordProof(env, signedIn, provider);
-    if (await accountById(env.DB, signedIn.userId)) return withCookies(redirect(back ?? "/"), [...cookies, ...sessionCookies(env, signedIn), await recordSignIn(request, env, signedIn.userId, provider as SignInKind)]);
-    // New here, and they answered the age question first: pick a username to finish.
-    if (joinBand(request, env)) return withCookies(redirect(`/join/username${nextQuery(back)}`), [...cookies, ...sessionCookies(env, signedIn)]);
+    // The proof is kept only for an account that exists: someone deleted for not answering the age question leaves no row.
+    if (await accountById(env.DB, signedIn.userId)) {
+      if (isProvider(provider)) await recordProof(env, signedIn, provider);
+      return withCookies(redirect(back ?? "/"), [...cookies, ...sessionCookies(env, signedIn), await recordSignIn(request, env, signedIn.userId, provider as SignInKind)]);
+    }
+    // New here, and they answered the age question first: pick a username to finish (the proof is kept once the account is made).
+    if (joinBand(request, env)) return withCookies(redirect(`/join/username${nextQuery(back)}`), [...cookies, ...sessionCookies(env, signedIn), ...(isProvider(provider) ? [setCookie(env, "zaisma_via", provider, { maximumAgeSec: JOIN_DURATION_SEC })] : [])]);
     // New here without the age question: keep nothing, and ask it now.
     await deleteAuthUser(env, signedIn.userId);
     return withCookies(redirect(`/join?with=${provider}${back ? `&next=${encodeURIComponent(back)}` : ""}`), cookies);
@@ -278,10 +282,11 @@ export async function handleAccount(request: Request, env: Env, path: string, wa
     const login = field("username", 320);
     const password = passwordField();
     if (!login || !password) return await signinPage(env, next, "Enter your username and password.", 400, login);
-    const email = login.includes("@") ? login.toLowerCase() : null;
+    const typed = login.replace(/^@/, "");
+    const email = typed.includes("@") ? typed.toLowerCase() : null;
     const userId = email ? await authUserIdByEmail(env, email) : null;
     if (userId === undefined) return message(env, "Couldn't sign you in", "Something went wrong on our side. Try again in a minute.", 502);
-    const account = email ? (userId ? await accountById(env.DB, userId) : null) : await accountByUsername(env.DB, login.replace(/^@/, ""));
+    const account = email ? (userId ? await accountById(env.DB, userId) : null) : await accountByUsername(env.DB, typed);
     const signedIn = await tryPassword(request, env, account, password, { turnstileToken: field("turnstile_token", 2048), knownEmail: email });
     if (signedIn === "too-many") return message(env, "Slow down", SLOW_DOWN, 429);
     if (signedIn === "locked") return await signinPage(env, next, LOCKED_OUT, 400, login);
@@ -347,11 +352,15 @@ export async function handleAccount(request: Request, env: Env, path: string, wa
       return done(await agePage(env, next, undefined, isProvider(via) ? via : undefined));
     }
 
+    // A session whose sign-in is gone (the account was deleted on another device) can't start an account: start over signed out.
+    const leftover = Boolean(session) && (path === "/join/age" || path === "/join/username") && post && !(await authUserEmail(env, session!.userId));
+    if (leftover) return withCookies(redirect(`/join${nextQuery(next)}`), clearSessionCookies(env));
+
     if (path === "/join/age" && post) {
       // The wheels send the birthday as one YYYY-MM-DD; a form without the script sends its parts.
       const [yearText = "", monthText = "", dayText = ""] = /^\d{4}-\d{2}-\d{2}$/.test(field("birthday", 10)) ? field("birthday", 10).split("-") : [field("year"), field("month"), field("day")];
       const birthday = { yearNumber: Number(yearText), monthNumber: Number(monthText), dayNumber: Number(dayText) };
-      const ageYearCount = ageOn(birthday, new Date());
+      const ageYearCount = ageOn(birthday, signUpToday(field("today", 10)));
       if (ageYearCount === null) return done(await agePage(env, next, "Choose your full birth date."));
       const band = ageBand(ageYearCount);
       if (!band) {
@@ -426,7 +435,9 @@ export async function handleAccount(request: Request, env: Env, path: string, wa
         if (!(error instanceof UsernameTakenError)) throw error;
         return await again({ usernameError: takenText(checked.username) }, await suggestUsernames(env.DB, checked.username));
       }
-      return withCookies(redirect(afterMade), [...session.cookies, setCookie(env, "zaisma_join", "", { maximumAgeSec: 0 }), await recordSignIn(request, env, session.userId, null, { isNewAccount: true })]);
+      const via = readCookie(request, env, "zaisma_via") ?? "";
+      if (isProvider(via)) await recordProof(env, session, via);
+      return withCookies(redirect(afterMade), [...session.cookies, setCookie(env, "zaisma_join", "", { maximumAgeSec: 0 }), setCookie(env, "zaisma_via", "", { maximumAgeSec: 0 }), await recordSignIn(request, env, session.userId, null, { isNewAccount: true })]);
     }
     return done(redirect("/join"));
   }
@@ -437,7 +448,7 @@ export async function handleAccount(request: Request, env: Env, path: string, wa
 
   if (path === "/signout" && post) {
     // Other devices are out at once, not within the hour their access token has left.
-    await endSessionsBefore(env, session.userId, Date.now());
+    await endSessionsBefore(env, session.userId, Date.now(), "up");
     await signOutEverywhere(env, session.access, connectionAddress);
     return withCookies(redirect("/"), clearSessionCookies(env));
   }
@@ -770,12 +781,12 @@ function joinBand(request: Request, env: Env): AgeBand | null {
   }
 }
 
-/** The birth date from the join steps' cookie: under 18 only, and only when it says the same band (the server worked both out from one answer). */
+/** The birth date from the join steps' cookie: under 18 only, and only when it reads as the cookie's band or a later one (joinBirthDateKept), so steps that cross midnight keep it and a forged cookie doesn't. */
 function joinBirthDate(request: Request, env: Env): string | undefined {
   try {
     const joinCookie = JSON.parse(decodeURIComponent(readCookie(request, env, "zaisma_join") ?? "")) as { band?: string; birth_date?: string };
-    const isSameBand = isAgeBand(joinCookie.band) && joinCookie.band !== "18+" && typeof joinCookie.birth_date === "string" && ageBandOn(joinCookie.birth_date, new Date()) === joinCookie.band;
-    return isSameBand ? joinCookie.birth_date : undefined;
+    const isKept = isAgeBand(joinCookie.band) && joinCookie.band !== "18+" && typeof joinCookie.birth_date === "string" && joinBirthDateKept(joinCookie.birth_date, joinCookie.band);
+    return isKept ? joinCookie.birth_date : undefined;
   } catch {
     return undefined;
   }
@@ -975,6 +986,7 @@ ${runButton("Sign in", { isFullWidth: true, isBig: true, busyLabel: "Signing in"
     html`${paneHeading("Make an account", game)}
 <p>${given.via ? `You're new to Zaisma. Answer this first, then we'll take you back to ${PROVIDERS[given.via]} to finish.` : "Keep your progress, play with friends and get your own username."}</p>
 <form method="post" action="/join/age" id="age-form">
+<input type="hidden" name="today" value="">
 ${nextField(next)}
 ${given.via ? html`<input type="hidden" name="with" value="${given.via}">` : ""}
 ${birthdayField({ id: "join-birthday", name: "birthday", label: "When's your birthday?", isRequired: true, hint: "Your birthday is never shown to anyone.", error: given.ageError })}
@@ -990,10 +1002,22 @@ ${signin}
 ${join}
 <p class="or" data-entry-or="join"${current === "join" ? "" : raw(" hidden")}>or</p>
 ${guestWay(game, false)}
-${scriptTags(PASSKEY_SCRIPT, PASSKEY_SIGN_IN_SCRIPT, ENTRY_SWITCH_SCRIPT)}`,
+${scriptTags(PASSKEY_SCRIPT, PASSKEY_SIGN_IN_SCRIPT, ENTRY_SWITCH_SCRIPT, JOIN_TODAY_SCRIPT)}`,
     { checkedPage: current === "signin" ? (given.signinError ? "Sign in, wrong password" : "Sign in") : given.ageError ? "New account, no birthday" : "Make an account", game, httpStatus: given.httpStatus },
   );
 }
+
+// The age question counts the date on the player's own device, so a 13th birthday comes at their midnight (the server holds it within Earth's time zones).
+const JOIN_TODAY_SCRIPT = pageScript("join-today", `(() => {
+  const form = document.getElementById("age-form");
+  if (!form) return;
+  const setToday = () => {
+    const now = new Date();
+    form.elements.today.value = now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0") + "-" + String(now.getDate()).padStart(2, "0");
+  };
+  setToday();
+  form.addEventListener("submit", setToday);
+})();`);
 
 // Sign in and Make an account swap in place: the other view shows, the switch's slab slides to it, and the address and title follow
 // (back and forward too). Anything but a plain click (a new tab, a modifier) goes to its own address as a link does.

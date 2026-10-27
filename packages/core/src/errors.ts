@@ -174,6 +174,7 @@ export const ERROR_CODES = {
   confirmation_needed: { httpStatus: 403, meaning: "This needs the developer's passkey on zaisma.com (turning spending on or up, or connecting a Stripe account): confirm_url is where they do it." },
   bad_monthly_budget_cents: { httpStatus: 400, meaning: "monthly_budget_cents isn't a whole number of cents of at least 100 ($1), or null for no paid hosting." },
   bad_top_up_amount: { httpStatus: 400, meaning: "amount_cents isn't a whole number of cents from 1,000 ($10) to 100,000 ($1,000)." },
+  account_not_protected: { httpStatus: 403, meaning: "The account has no passkey and no email yet, and a top-up keeps a card, so it needs one of them first: add a passkey or an email on zaisma.com/account." },
   no_top_up: { httpStatus: 404, meaning: "You have no top-up with that ID." },
   no_spending_request: { httpStatus: 404, meaning: "You have no spending request with that ID." },
   top_up_not_refundable: { httpStatus: 409, meaning: "The top-up has nothing left to refund: it's spent, refunded, or over 180 days old." },

@@ -37,6 +37,16 @@ export class GameStorageService extends WorkerEntrypoint<Env> {
     return response.body;
   }
 
+  /**
+   * Puts a kept room's world back from its backup's JSON lines, for a restore from Zaisma's backups
+   * (apps/site/src/restore.ts). A room that already holds a world got it from an earlier try of the same
+   * restore (a world's meta key goes in last), so it's left as it is.
+   */
+  async restoreKeptRoom(gameId: string, slug: string, roomCode: string, lines: ReadableStream<Uint8Array>): Promise<void> {
+    const response = await this.env.ROOMS.get(this.env.ROOMS.idFromName(`${slug}:${roomCode}`)).fetch("https://room/restore", { method: "POST", headers: { "x-game-id": gameId }, body: lines });
+    if (!response.ok && response.status !== 409) throw new Error(`kept room ${roomCode} said ${response.status}: ${await response.text()}`);
+  }
+
   /** Each kept room deletes its own world (its object is named by the game's link name and its code), then the rows go. */
   private async deleteKeptRooms(gameId: string): Promise<void> {
     const game = await this.env.DB.prepare("SELECT slug FROM games WHERE id = ?").bind(gameId).first<{ slug: string }>();

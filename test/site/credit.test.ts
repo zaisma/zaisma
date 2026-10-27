@@ -1,6 +1,6 @@
 import { env, SELF } from "cloudflare:test";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { addCreditEntry, createAccount, createApiKey, creditOf, deleteAccount, personOwner } from "@zaisma/core";
+import { addCreditEntry, addPasskey, createAccount, createApiKey, creditOf, deleteAccount, personOwner } from "@zaisma/core";
 import { TOOLS } from "../../apps/site/src/mcp.ts";
 import { callerFor } from "../../apps/site/src/developer.ts";
 import { creditRoute, refundForDeletion, retryPendingRefunds } from "../../apps/site/src/credit-api.ts";
@@ -20,12 +20,15 @@ let nextId = 1;
 const realFetch = globalThis.fetch;
 /** What reached the stand-in for Stripe: each call's path and form. */
 let stripeCalls: { path: string; form: URLSearchParams; idempotencyKey: string | null }[] = [];
+/** The email Supabase knows the account by: a real one, or the stand-in an account without one is known by. */
+let accountEmail = "emma@example.com";
 /** Stripe can't be reached. */
 let isStripeDown = false;
 
 beforeAll(() => {
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(input instanceof Request ? input.url : String(input));
+    if (url.origin === "https://supabase.test" && url.pathname === "/auth/v1/admin/users/dev-1") return Response.json({ id: "dev-1", email: accountEmail });
     if (url.hostname !== "api.stripe.com") return realFetch(input, init);
     const form = new URLSearchParams(typeof init?.body === "string" ? init.body : "");
     const headers = new Headers(init?.headers);
@@ -84,8 +87,9 @@ const checkoutCompleted = (paymentIntentId: string, amountCents: number) => ({
 });
 
 beforeEach(async () => {
-  await env.DB.exec("DELETE FROM credit_entries; DELETE FROM spending_requests; DELETE FROM game_hosting_months; DELETE FROM security_events; DELETE FROM api_keys; DELETE FROM audit_log; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM accounts;");
+  await env.DB.exec("DELETE FROM passkeys; DELETE FROM credit_entries; DELETE FROM spending_requests; DELETE FROM game_hosting_months; DELETE FROM security_events; DELETE FROM api_keys; DELETE FROM audit_log; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM accounts;");
   stripeCalls = [];
+  accountEmail = "emma@example.com";
   isStripeDown = false;
   await env.DB.exec("DELETE FROM pending_refunds;");
   await createAccount(env.DB, { id: "dev-1", username: "Pixel_Smith", ageBand: "18+" });
@@ -117,6 +121,18 @@ describe("a top-up", () => {
       const refused = await api("/credit/top-ups", { body: { amount_cents: amountCents } });
       expect(refused.answer.error).toMatchObject({ code: "bad_top_up_amount", field: "amount_cents" });
     }
+  });
+
+  it("is refused for an account with neither a passkey nor an email, which a card kept for later would leave with no way back in", async () => {
+    accountEmail = "dev-1@no-mail.zaisma.com";
+    const refused = await api("/credit/top-ups", { body: { amount_cents: 2000 } });
+    expect(refused.status).toBe(403);
+    expect(refused.answer.error).toMatchObject({ code: "account_not_protected", field: null, fix: expect.stringContaining("/account") });
+    expect(stripeCalls).toEqual([]);
+    expect(await tool("top_up_credit", { amount_cents: 2000 })).toMatchObject({ code: "account_not_protected" });
+    // A passkey, or an email, is enough.
+    await addPasskey(env.DB, { id: "pk-1", account_id: "dev-1", public_key: "key", algorithm_number: -7, sign_count: 0, name: "Phone" }, 0);
+    expect((await api("/credit/top-ups", { body: { amount_cents: 2000 } })).status).toBe(201);
   });
 
   it("adds credit once when Stripe says it's paid, even when the event comes twice, and keeps the card", async () => {

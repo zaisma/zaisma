@@ -117,7 +117,7 @@ export function imageMatcher(env: Env, priority: PhotoDnaPriority = "upload"): I
   return matchers.length ? eitherMatcher(matchers) : notConnected;
 }
 
-/** The photodna Worker as the matcher sees it. Pictures are read whole: PhotoDNA hashes one at a time. */
+/** The photodna Worker as the matcher sees it. Pictures are read whole: PhotoDNA hashes one at a time. Videos are streamed to it. */
 function photoDnaService(worker: NonNullable<Env["PHOTODNA"]>, apiKey: string): PhotoDnaService {
   return {
     async hash(media) {
@@ -125,6 +125,7 @@ function photoDnaService(worker: NonNullable<Env["PHOTODNA"]>, apiKey: string): 
       const bytes = body instanceof Uint8Array ? body : new Uint8Array(await new Response(body).arrayBuffer());
       return worker.hash(bytes);
     },
+    hashFrames: async (media) => worker.hashFrames(await media.body()),
     match: (hashes, priority) => worker.match(apiKey, hashes, priority),
   };
 }

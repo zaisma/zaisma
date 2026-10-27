@@ -87,6 +87,34 @@ beforeEach(async () => {
   other = (await createApiKey(env.DB, "dev-2", "claude")).token;
 });
 
+describe("a key limited to some games", () => {
+  it("reaches only those games' topics, and a call with no body refuses one", async () => {
+    const owner = await personOwner(env.DB, "dev-1");
+    for (const slug of ["game-a", "game-b"]) await createGame(env.DB, { slug, title: slug, description: "", ownerId: owner.id, visibility: "draft" });
+    const limited = (await createApiKey(env.DB, "dev-1", "only-a", { accessLevel: "full", gameSlugs: ["game-a"] })).token;
+    const topicAbout = async (gameSlug: string) => (await api("/forum", { body: { is_public: false, kind: "question", title: `About ${gameSlug}`, text_markdown: "How?", game_slug: gameSlug } })).data.topic.id as string;
+    const topicB = await topicAbout("game-b");
+    const topicA = await topicAbout("game-a");
+    const refusals = [
+      await api(`/forum/${topicB}`, { key: limited }),
+      await api(`/forum/${topicB}/posts`, { key: limited, body: { text_markdown: "More" } }),
+      await api(`/forum/${topicB}/answer`, { key: limited, method: "POST", body: { answer_post_id: null } }),
+      await api(`/forum/${topicB}/follow`, { key: limited, method: "POST" }),
+    ];
+    for (const refused of refusals) expect([refused.status, refused.data.error.code]).toEqual([403, "key_not_allowed"]);
+    expect((await api(`/forum/${topicA}`, { key: limited })).status).toBe(200);
+    expect((await api(`/forum/${topicA}/follow`, { key: limited, method: "POST" })).status).toBe(200);
+    // The same topic is still there for a key for every game.
+    expect((await api(`/forum/${topicB}`)).status).toBe(200);
+
+    // A body on a call that takes none: {} and nothing pass, a key in it doesn't.
+    const withBody = await api(`/forum/${topicA}/follow`, { method: "POST", body: { is_following: true } });
+    expect([withBody.status, withBody.data.error.code, withBody.data.error.field]).toEqual([400, "unknown_field", "is_following"]);
+    expect(withBody.data.error.fix).toBe("This call takes no body; leave it out.");
+    expect((await api(`/forum/${topicA}/follow`, { method: "POST", body: {} })).status).toBe(200);
+  });
+});
+
 describe("posting", () => {
   it("posts through the API, blanks secrets and labels who wrote it", async () => {
     const owner = await personOwner(env.DB, "dev-1");

@@ -19,7 +19,7 @@ export interface ImageMatchResult {
   provider: string;
   isConnected: boolean;
   checkedMediaCount: number;
-  /** Pictures and videos this matcher doesn't check (PhotoDNA: videos, and pictures it can't hash). */
+  /** Pictures and videos this matcher didn't check (PhotoDNA: pictures it can't hash, videos it can't take frames from). */
   uncheckedMediaCount?: number;
   findings: Finding[];
 }
