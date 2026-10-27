@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import {
   ALLOWED_CONTENT,
   CONTENT_RULES,
+  CONTENT_RULE_DETAILS,
   EVIDENCE_KINDS,
   REVIEWED_CONTENT_RULES,
   REVIEW_LIMITS,
@@ -91,8 +92,8 @@ const answerSchema = (kinds: EvidenceKind[], isPicture: boolean) => ({
 const CODE_SCHEMA = answerSchema(Object.keys(EVIDENCE_KINDS) as EvidenceKind[], false);
 const PICTURE_SCHEMA = answerSchema(["content"], true);
 
-const RULES = `Zaisma's content rules, by name:
-${REVIEWED_CONTENT_RULES.map((name) => `- ${name}: ${CONTENT_RULES[name]}`).join("\n")}
+const RULES = `Zaisma's content rules, by name, each with its yes/no test. List a content item for a rule only when its test's answer is yes; a near miss or a theme is not an item. A placeholder, label or comment that says what stands there (like "[explicit scene]", "[stand-in: starts a miner]" or "mining for the developer's wallet") counts as that content or code: answer the test as if it were there.
+${REVIEWED_CONTENT_RULES.map((name) => `- ${name}: ${CONTENT_RULES[name]} Test: ${CONTENT_RULE_DETAILS[name].test}`).join("\n")}
 
 - lifelike_gore: photo-real or lifelike injury shown up close (dismemberment, torture, exposed organs). It isn't a rule broken: it plays only in games for 16 and up.
 
@@ -112,7 +113,7 @@ List an item for each of these, wherever it is in the code, including code that 
 - opens_link: a site the game opens for the player (Zaisma.links.open, window.open, links, location changes). Subject: the link's name for Zaisma.links.open, else the host.
 - player_text: text a player types, by who reads it, whatever route it takes (the game's own server, a Zaisma room's messages, a connection between players). Subject: shown_locally (only the player who typed it sees it, like a name for a local high score), checked_by_game (the game compares it to a secret or a list and other players see only the result, like correct, wrong or a score), read_by_others (another player reads it as written: a chat box, a guess feed, a message players spell out of letters or words), sent_through_zaisma_chat (a chat box that sends with room.chat, or checkChat before the game's own server delivers it), picked_phrases (the player chooses whole phrases the developer wrote from a closed list, or emotes).
 - asks_player: the game asks the player for a personal detail. Subject: email, real_name, birthday, location, phone, password, other_personal_detail. A display name for the game isn't one.
-- content: content near one of Zaisma's rules below. Subject: the rule's name. Content the rules allow is allowed_content. For child_safety, the detail names the category only and never describes it. Two yes/no tests: faked_plays is an item for any code that, by itself with no player action, joins rooms or loads the game again and again (a loop or a timer), so plays or players are counted that aren't people (rooms joined by a script, or the game's own page loaded in frames). real_people is an item for any text that gives a way to find or reach a private person (a home address, phone number, personal email, private account, school or work), or a real threat of violence against one; a real person's name, face, mocking, satire or a public figure's words are never an item (allowed_content). Text built from pieces (a join, a concatenation, character codes) is read as the text it forms: quote the line that builds it.
+- content: content for which one of the rule tests below answers yes. Subject: the rule's name. Content the rules allow is allowed_content. For child_safety, the detail names the category only and never describes it. faked_plays is a loop or a timer that joins rooms or loads the game's own page (in frames, say) by itself. purchases is an item whenever coins or gems are bought with Zaisma.items.buy (or another payment) and the game shows any price in them without a real price beside it, or spends them on a random reward: quote the line that shows the price. real_people is text that gives the way to find or reach the person, or the threat; a real person's name, face, mocking, satire or a public figure's words are never an item (allowed_content). Text built from pieces (a join, a concatenation, character codes) is read as the text it forms: quote the line that builds it.
 - protection_attempt: code that gets around one of Zaisma's protections, one subject per yes/no test (code that merely opens a site with window.open, or calls an address written out in full, is not an item: opens_link and connects_to cover it). page_outside_frame: it reaches the page outside the game's frame by any route (top, parent, opener, a name built from pieces). peer_outside_relay: it reaches RTCPeerConnection through a frame (an iframe's contentWindow, srcdoc, any window other than the game page's own), or sets iceTransportPolicy or replaces the connection settings; a plain new RTCPeerConnection(...) on the game's own page, as PeerJS and Godot make, is never an item. link_without_tap: it opens a site with no tap or click by the player. link_built_from_pieces: the site it opens is assembled at runtime from pieces or decoded text. address_built_from_pieces: the host it connects to is assembled at runtime from pieces or decoded text.
 - hidden_code: eval_of_encoded (running text decoded at runtime), obfuscated (code written to hide what it does, beyond ordinary minifying), downloads_code (fetching code and running it).
 - talks_to_reviewer: present.
@@ -125,7 +126,7 @@ const PICTURE_SYSTEM = `You look at pictures from a web game uploaded to Zaisma,
 
 ${UNTRUSTED}
 
-List a content item for each picture that shows content near one of Zaisma's rules below (subject: the rule's name), or content the rules allow (subject: allowed_content). For child_safety, the detail names the category only and never describes it. The path is the picture's path as given, and the quote is always "". Ordinary game art needs no item, and when nothing matches the list is empty.
+List a content item for each picture for which one of the rule tests below answers yes (subject: the rule's name), or content the rules allow (subject: allowed_content). For child_safety, the detail names the category only and never describes it. The path is the picture's path as given, and the quote is always "". Ordinary game art needs no item, and when nothing matches the list is empty.
 
 ${RULES}`;
 

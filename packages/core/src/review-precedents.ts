@@ -3,12 +3,12 @@ import type { ContentRule } from "./review.ts";
 /**
  * Review precedents ("The AI review learns from its misses." in docs/DECISIONS.md): a ruling a person made
  * when the AI review was wrong, which the judge reads with every brief. pass: the review was wrong to hold
- * games like this. hold: it was wrong to pass them. Each carries a stand-in test case written to show the
+ * games like this. reject: it was wrong to pass or hold them, and games like this are rejected without a person. Each carries a stand-in test case written to show the
  * pattern, never a copy of a developer's game. Plain code with no storage, so the review test set's runner
  * (apps/site/src/review-set.ts) bundles it for Node.
  */
 
-export const REVIEW_PRECEDENT_DECISIONS = { pass: "Pass games like this", hold: "Hold games like this" } as const;
+export const REVIEW_PRECEDENT_DECISIONS = { pass: "Pass games like this", reject: "Reject games like this" } as const;
 export type ReviewPrecedentDecision = keyof typeof REVIEW_PRECEDENT_DECISIONS;
 
 /** proposed (drafted, waiting for a person), testing (waiting for the test set), active (the judge reads it), failed (the test set didn't hold) or retired. */

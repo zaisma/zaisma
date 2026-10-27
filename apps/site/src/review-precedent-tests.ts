@@ -17,7 +17,7 @@ import type { Env } from "./env.ts";
  * The gate on a new review precedent ("The AI review learns from its misses." in docs/DECISIONS.md): before the
  * judge reads a ruling, the review runs with it in force on its own stand-in case and on the public cases that
  * could go wrong with it. A pass ruling must still hold every bad game of its content rule (or every bad game, once,
- * when it names none); a hold ruling must still pass every honest game. Private cases aren't in the Worker: the
+ * when it names none); a reject ruling must still pass every honest game. Private cases aren't in the Worker: the
  * local `npm run review-set -- --precedents` run measures those (review-set/README.md).
  */
 
@@ -46,7 +46,7 @@ function toReviewCase(publicCase: PublicReviewCase): ReviewCase {
 /** The cases a ruling is tried on, with how often each is run and what a good outcome is. */
 export function testPlan(precedent: ReviewPrecedent, publicCases: PublicReviewCase[] = PUBLIC_REVIEW_CASES): { gameCase: ReviewCase; runCount: number; isOwnCase: boolean }[] {
   const own = { gameCase: standInCase(precedent), runCount: REVIEW_PRECEDENT_LIMITS.testRunCount, isOwnCase: true };
-  if (precedent.decision === "hold") {
+  if (precedent.decision === "reject") {
     return [own, ...publicCases.filter((publicCase) => publicCase.is_honest).map((publicCase) => ({ gameCase: toReviewCase(publicCase), runCount: REVIEW_PRECEDENT_LIMITS.honestTestRunCount, isOwnCase: false }))];
   }
   const sameRule = publicCases.filter((publicCase) => !publicCase.is_honest && publicCase.content_rule === precedent.content_rule);

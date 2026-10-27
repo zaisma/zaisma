@@ -89,7 +89,7 @@ import { html, layout, raw, type Raw } from "./html.ts";
 import { handleAdminMcp } from "./admin-mcp.ts";
 import { adminFeedbackAction, adminFeedbackPage, feedbackSummary } from "./admin-feedback.ts";
 import { precedentAction, precedentsPage, savePrecedent } from "./precedents.ts";
-import { isAiHold, proposedReviewPrecedent, releaseAiHold, reviewPrecedentAction, reviewPrecedentProblem, reviewPrecedentsPage, saveReviewPrecedent, teachTheReviewBlock } from "./review-precedents.ts";
+import { isAiHold, isAiStop, proposedReviewPrecedent, releaseAiStop, reviewPrecedentAction, reviewPrecedentProblem, reviewPrecedentsPage, saveReviewPrecedent, teachTheReviewBlock } from "./review-precedents.ts";
 import { clearCountedDay, playSpikes } from "./plays.ts";
 import { KNOWN_IMAGE_ALERT, changesSince, passVersion, type ChangesSince } from "./scan.ts";
 import { ownerUsername, stopCopy } from "./copies.ts";
@@ -261,14 +261,14 @@ export async function adminForm(env: Env, path: string, form: FormData, actor: s
     const version = await versionById(env.DB, match[1]!);
     if (!version) return new Response("Not found", { status: 404 });
     if (match[2] === "approve" && knownImages(version)) return new Response("This version matched known abuse material, so it can't be approved.", { status: 409 });
-    // Teaching the review: releasing an AI hold means it was wrong (a "pass" ruling); rejecting a version it passed means it was wrong the other way (a "hold" ruling).
-    const teachDecision = match[2] === "approve" ? "pass" : version.scan_status === "approved" ? "hold" : null;
+    // Teaching the review: approving a version the AI stopped means it was wrong (a "pass" ruling); upholding an AI hold, or rejecting a version it passed, means it should have rejected it by itself (a "reject" ruling).
+    const teachDecision = match[2] === "approve" ? "pass" : version.scan_status === "approved" || isAiHold(version) ? "reject" : null;
     const teachProblem = teachDecision ? reviewPrecedentProblem(form, teachDecision) : null;
     if (teachProblem) return gameDetail(env, version.game_id, teachProblem);
     if (match[2] === "approve") {
-      if (await releaseAiHold(env, version, actor)) await saveReviewPrecedent(env, form, "pass", actor);
+      if (await releaseAiStop(env, version, actor)) await saveReviewPrecedent(env, form, "pass", actor);
       await env.DB.prepare("UPDATE versions SET review_reason = NULL WHERE id = ?").bind(version.id).run();
-    } else if (teachDecision) await saveReviewPrecedent(env, form, "hold", actor);
+    } else if (teachDecision) await saveReviewPrecedent(env, form, "reject", actor);
     if (version.report_held_at_ms && match[2] === "approve") {
       // A report paused this update: put it back, and later reports can't pause it again.
       await publishVersion(env.DB, version);
@@ -464,9 +464,9 @@ export async function adminForm(env: Env, path: string, form: FormData, actor: s
     if (match[2] === "takedown") {
       const contentRule = pickedRule(form);
       if (!reason || !contentRule) return gameDetail(env, game.id, "Pick the rule it broke and say why. The developer reads why, unless it's child safety; it goes in the audit log too.");
-      const teachProblem = reviewPrecedentProblem(form, "hold");
+      const teachProblem = reviewPrecedentProblem(form, "reject");
       if (teachProblem) return gameDetail(env, game.id, teachProblem);
-      await saveReviewPrecedent(env, form, "hold", actor);
+      await saveReviewPrecedent(env, form, "reject", actor);
       const removedReason = decidedReason("taken_down", contentRule, reason);
       await setReviewStatus(env.DB, game.id, "removed", removedReason);
       await closeReports(env.DB, game.id, "actioned");
@@ -662,8 +662,8 @@ async function gameDetail(env: Env, id: string, error = ""): Promise<Response> {
   ]);
   const mine = reports.filter((report) => report.game_id === id);
   // Teach the review: the drafted ruling for each held version the AI judge held, and for the version players get.
-  const passDrafts = new Map(await Promise.all(versions.filter(isAiHold).map(async (version) => [version.id, await proposedReviewPrecedent(env.DB, version.id, "pass")] as const)));
-  const holdDrafts = new Map(await Promise.all(versions.filter((version) => version.scan_status === "approved").map(async (version) => [version.id, await proposedReviewPrecedent(env.DB, version.id, "hold")] as const)));
+  const passDrafts = new Map(await Promise.all(versions.filter(isAiStop).map(async (version) => [version.id, await proposedReviewPrecedent(env.DB, version.id, "pass")] as const)));
+  const rejectDrafts = new Map(await Promise.all(versions.filter((version) => version.scan_status === "approved" || isAiHold(version)).map(async (version) => [version.id, await proposedReviewPrecedent(env.DB, version.id, "reject")] as const)));
   // Held versions: what changed since the hold they answer, or the game's version before.
   const changes = new Map(await Promise.all(versions.filter((version) => version.scan_status === "held").map(async (version) => [version.id, await changesSince(env, version)] as const)));
   // Held re-uploads: which game and developer each matched, for the person deciding it.
@@ -689,7 +689,7 @@ ${error ? html`<p class="note" style="color:var(--danger)">${error}</p>` : ""}
 <h2>Takedown</h2>
 ${game.review_status === "removed" || game.review_status === "held"
       ? html`<form method="post" action="/admin/games/${game.id}/restore" class="row"><input name="reason" placeholder="Why (optional)"><button class="btn" type="submit">${game.review_status === "held" ? "Clear and show again" : "Restore"}</button></form>`
-      : html`<form method="post" action="/admin/games/${game.id}/takedown" class="stack"><div class="row">${decisionFields({ isTakedown: true })}<button class="btn danger" type="submit">Take down now</button></div>${game.live_version_id ? teachTheReviewBlock({ decision: "hold", draft: holdDrafts.get(game.live_version_id) ?? null, versionId: game.live_version_id }) : ""}</form>`}
+      : html`<form method="post" action="/admin/games/${game.id}/takedown" class="stack"><div class="row">${decisionFields({ isTakedown: true })}<button class="btn danger" type="submit">Take down now</button></div>${game.live_version_id ? teachTheReviewBlock({ decision: "reject", draft: rejectDrafts.get(game.live_version_id) ?? null, versionId: game.live_version_id }) : ""}</form>`}
 ${toldDeveloper(game.review_reason)}
 
 <h2>Notice</h2>
@@ -763,9 +763,9 @@ ${versions.map((version) => {
   ${toldDeveloper(version.review_reason)}
   ${version.scan_status !== "approved" || !current
         ? html`<div class="row">
-    ${version.scan_status !== "approved" && !knownImages(version) ? html`<form method="post" action="/admin/versions/${version.id}/approve" class="stack">${isAiHold(version) ? teachTheReviewBlock({ decision: "pass", draft: passDrafts.get(version.id) ?? null, versionId: version.id }) : ""}<div><button class="btn" type="submit">${version.report_held_at_ms ? "Put the update back" : version.publish_when_approved_enabled && !version.replaced_by_version_id ? "Approve and publish" : "Approve as a draft"}</button></div></form>` : ""}
+    ${version.scan_status !== "approved" && !knownImages(version) ? html`<form method="post" action="/admin/versions/${version.id}/approve" class="stack">${isAiStop(version) ? teachTheReviewBlock({ decision: "pass", draft: passDrafts.get(version.id) ?? null, versionId: version.id }) : ""}<div><button class="btn" type="submit">${version.report_held_at_ms ? "Put the update back" : version.publish_when_approved_enabled && !version.replaced_by_version_id ? "Approve and publish" : "Approve as a draft"}</button></div></form>` : ""}
     ${version.scan_status !== "rejected" && report?.matched_game ? html`<form method="post" action="/admin/versions/${version.id}/reject-copy"><button class="btn ghost" type="submit">Reject as a copy</button></form>` : ""}
-    ${version.scan_status !== "rejected" ? html`<details><summary class="btn ghost">${version.report_held_at_ms ? "Keep it off…" : "Reject…"}</summary><form class="stack" method="post" action="/admin/versions/${version.id}/reject"><div class="row">${decisionFields({})}<button class="btn ghost" type="submit">${version.report_held_at_ms ? "Keep it off" : "Reject"}</button></div>${version.scan_status === "approved" ? teachTheReviewBlock({ decision: "hold", draft: holdDrafts.get(version.id) ?? null, versionId: version.id }) : ""}</form></details>` : ""}
+    ${version.scan_status !== "rejected" ? html`<details><summary class="btn ghost">${version.report_held_at_ms ? "Keep it off…" : "Reject…"}</summary><form class="stack" method="post" action="/admin/versions/${version.id}/reject"><div class="row">${decisionFields({})}<button class="btn ghost" type="submit">${version.report_held_at_ms ? "Keep it off" : "Reject"}</button></div>${version.scan_status === "approved" || isAiHold(version) ? teachTheReviewBlock({ decision: "reject", draft: rejectDrafts.get(version.id) ?? null, versionId: version.id }) : ""}</form></details>` : ""}
   </div>`
         : ""}`;
       return html`<div class="note" style="margin-bottom:12px">
@@ -948,15 +948,15 @@ async function reportQueue(env: Env): Promise<Response> {
   ]);
   const groups = groupReports(open);
   const pausedUpdate = new Map(paused.map((version) => [version.game_id, version.id]));
-  // Teach the review: triage drafts a "hold" ruling for a report about a game whose version the AI passed.
-  const holdDrafts = new Map(await Promise.all(groups.map(async (group) => [group.id, await proposedReviewPrecedent(env.DB, group.lead.version_id, "hold")] as const)));
+  // Teach the review: triage drafts a "reject" ruling for a report about a game whose version the AI passed.
+  const rejectDrafts = new Map(await Promise.all(groups.map(async (group) => [group.id, await proposedReviewPrecedent(env.DB, group.lead.version_id, "reject")] as const)));
   const waiting = open.filter((report) => !report.triaged_at_ms).length;
   return page(
     env,
     "Reports",
     html`<h1>Reports</h1>
 <p class="lead">${groups.length ? `${open.length} open ${open.length === 1 ? "report" : "reports"} about ${groups.length} ${groups.length === 1 ? "problem" : "problems"}, most serious first.` : "No open reports."}${waiting ? ` ${waiting} still being sorted.` : ""}</p>
-${groups.map((group) => groupCard(group, pausedUpdate.get(group.lead.game_id), holdDrafts.get(group.id) ?? null))}
+${groups.map((group) => groupCard(group, pausedUpdate.get(group.lead.game_id), rejectDrafts.get(group.id) ?? null))}
 ${handled.length
       ? html`<details class="handled"><summary><h2>Handled without you this week (${handled.length})</h2></summary>
 <table><tr><th>Game</th><th>What</th><th>Done</th><th>Player wrote</th><th>When</th></tr>${handled.map((report) => {
@@ -967,7 +967,7 @@ ${handled.length
   );
 }
 
-function groupCard(group: ReportGroup, pausedUpdate: string | undefined, holdDraft: ReviewPrecedent | null): Raw {
+function groupCard(group: ReportGroup, pausedUpdate: string | undefined, rejectDraft: ReviewPrecedent | null): Raw {
   const triage = group.triage;
   const game = group.lead;
   const recommendation = triage?.recommendation;
@@ -1010,7 +1010,7 @@ function groupCard(group: ReportGroup, pausedUpdate: string | undefined, holdDra
         <label class="check"><input type="checkbox" name="p_alone" value="1"> If you dismiss it: the AI may dismiss cases like this without you</label>
       </details>
     </div>
-    ${holdDraft?.title && !gameRemoved && !pausedUpdate ? teachTheReviewBlock({ decision: "hold", draft: holdDraft, versionId: holdDraft.from_version_id, reportGroupId: group.id }) : ""}
+    ${rejectDraft?.title && !gameRemoved && !pausedUpdate ? teachTheReviewBlock({ decision: "reject", draft: rejectDraft, versionId: rejectDraft.from_version_id, reportGroupId: group.id }) : ""}
     <div class="row">
     <input name="reason" value="${prefill}" aria-label="Why: for the audit log, and the developer reads it if you take the game down or keep the update off" title="For the audit log. If you take the game down or keep the update off, the developer reads it too (never for child safety)." maxlength="500">
     ${gameRemoved || isPlayerGroup(group) ? "" : ruleSelect({ contentRule: triage && isContentRule(triage.category) ? triage.category : null, isRequired: false })}

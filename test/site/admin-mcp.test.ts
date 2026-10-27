@@ -1,6 +1,6 @@
 import { env, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { createAccount, createApiKey, NOT_BLOCKED_IN_COUNTRY_SQL, personOwner, type ImageMatcher } from "@zaisma/core";
+import { createAccount, createApiKey, createGame, createVersion, NOT_BLOCKED_IN_COUNTRY_SQL, personOwner, type ImageMatcher } from "@zaisma/core";
 import { scanVersion } from "../../apps/site/src/scan.ts";
 import { passingScanDeps } from "./scan-stubs.ts";
 import { triageReports, type TriageDeps } from "../../apps/site/src/triage.ts";
@@ -113,6 +113,7 @@ describe("admin MCP", () => {
       "list_review_precedents",
       "approve_review_precedent",
       "retire_review_precedent",
+      "get_review_counts",
       "list_chat_reviews",
       "decide_chat_review",
       "decide_notice",
@@ -237,6 +238,35 @@ describe("admin MCP", () => {
     expect((await data("list_precedents", { precedent_status: "retired" })).precedents.map((listed: { id: string }) => listed.id)).toEqual([set.precedent.id]);
     expect((await data("retire_precedent", { precedent_id: changed.precedent.id })).precedent.precedent_status).toBe("retired");
     expect(await refusal("list_precedents", { precedent_status: "in_force" })).toMatchObject({ code: "bad_precedent_status" });
+  });
+
+  it("counts how the review's scans came out, by the scan's own decision", async () => {
+    // Other tests' versions are in the database too: count what these add.
+    type Counts = Record<"passed_count" | "rejected_count" | "held_for_person_count" | "waiting_count", number>;
+    const before: Counts = await data("get_review_counts");
+    const beforeLong: Counts = await data("get_review_counts", { period_duration_days: 90 });
+    const added = (after: Counts, from: Counts) => Object.fromEntries((Object.keys(from) as (keyof Counts)[]).filter((key) => key.endsWith("_count")).map((key) => [key, after[key] - from[key]]));
+    const game = await createGame(env.DB, { slug: "counted-game", title: "Counted", description: "A test." });
+    const finding = (code: string, severity: string) => ({ stage: "ai", severity, code, message: "x" });
+    const scanned = [
+      { decision: "approved", findings: [], finished_at_ms: Date.now() },
+      { decision: "rejected", findings: [finding("ai_free_text_chat", "reject")], finished_at_ms: Date.now() },
+      { decision: "held", findings: [finding("ai_lifelike_gore", "hold")], finished_at_ms: Date.now() },
+      { decision: "held", findings: [finding("daily_large_reviews_used", "hold"), finding("unlisted_address", "info")], finished_at_ms: Date.now() },
+      { decision: "approved", findings: [], finished_at_ms: Date.now() - 40 * 24 * 60 * 60 * 1000 },
+    ];
+    for (const [index, report] of scanned.entries()) {
+      const versionId = `version_counted${index}`;
+      await createVersion(env.DB, { id: versionId, gameId: game.id, r2Prefix: `manifests/${versionId}`, fileCount: 1, sizeBytes: 1, kind: "files" });
+      await env.DB.prepare("UPDATE versions SET scan_status = ?, scan_report = ? WHERE id = ?").bind(report.decision, JSON.stringify({ ...report, outside_hosts: [], images: { provider: "none", is_connected: false, checked_media_count: 0 }, ai: null }), versionId).run();
+    }
+    // A person approving the held one later doesn't change how the scan decided.
+    await env.DB.prepare("UPDATE versions SET scan_status = 'approved' WHERE id = 'version_counted2'").run();
+    const after = await data("get_review_counts");
+    expect(after.period_duration_days).toBe(30);
+    expect(added(after, before)).toEqual({ passed_count: 1, rejected_count: 1, held_for_person_count: 1, waiting_count: 1 });
+    expect(added(await data("get_review_counts", { period_duration_days: 90 }), beforeLong)).toMatchObject({ passed_count: 2 });
+    expect(await refusal("get_review_counts", { period_duration_days: 91 })).toMatchObject({ code: "bad_period_duration_days", field: "period_duration_days" });
   });
 
   it("lists, tests and retires review precedents", async () => {

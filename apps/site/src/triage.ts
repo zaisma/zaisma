@@ -186,7 +186,7 @@ async function triageOne(env: Env, report: Report, deps: Required<Pick<TriageDep
   // A report about a content rule on a game the AI passed may be a miss: draft the ruling now, so taking the game down can teach the review in the same click.
   const category = outcome.triage.category;
   if (deps.draftReviewPrecedent && report.version_id && !report.player_id && isContentRule(category) && category !== "copyright" && category !== "child_safety" && outcome.severityIndex !== SEVERITY.child_safety) {
-    await draftMiss(env, { versionId: report.version_id, decision: "hold", reportGroupId: outcome.reportGroupId ?? report.id, reason: outcome.triage.summary, contentRule: category }, deps.draftReviewPrecedent);
+    await draftMiss(env, { versionId: report.version_id, decision: "reject", reportGroupId: outcome.reportGroupId ?? report.id, reason: outcome.triage.summary, contentRule: category }, deps.draftReviewPrecedent);
   }
   if (outcome.recheck) await env.SCAN_QUEUE.send({ versionId: outcome.recheck, recheck: { reportId: report.id } });
   await alertAfterTriage(env, report, game, outcome);
