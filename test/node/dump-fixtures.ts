@@ -1,5 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
-import { dumpPart, type DatabaseRow } from "../../packages/game-server/src/internal.ts";
+import { dumpPart, importStatements, type DatabaseRow } from "../../packages/game-server/src/internal.ts";
 
 // Databases and helpers for the SQL dump's tests (test/node/dump.test.ts, test/node/cli.test.ts).
 
@@ -35,4 +35,16 @@ export function dumpParts(database: DatabaseSync, partSizeBytes?: number): strin
     cursor = part.nextCursor;
   } while (cursor);
   return parts;
+}
+
+/** A dump imported the way a part goes into Zaisma: its statements in one transaction, foreign keys on and checked at the end. */
+export function importInto(database: DatabaseSync, dumpSql: string): void {
+  database.exec("PRAGMA foreign_keys = ON; BEGIN; PRAGMA defer_foreign_keys = ON");
+  try {
+    for (const statement of importStatements(dumpSql).statements) database.prepare(statement.sql).run(...(statement.values as never[]));
+    database.exec("COMMIT");
+  } catch (error) {
+    database.exec("ROLLBACK");
+    throw error;
+  }
 }

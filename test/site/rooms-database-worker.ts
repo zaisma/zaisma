@@ -12,6 +12,8 @@ import { GameDatabaseObject as RealGameDatabaseObject, GameDatabaseService as Re
 // rolls the month's use back (here, to nothing). The rows themselves stay: tests put back what a restore would.
 let restoredBookmarks: string[] = [];
 let undoCount = 0;
+// What a restore brings back in the object's key-value storage that the stand-in's can't: the hosting pause the moment had.
+let pausedAtMsTheRestoreBringsBack: number | null = null;
 
 export class GameDatabaseObject extends RealGameDatabaseObject {
   protected override pointInTime(): PointInTime {
@@ -20,6 +22,7 @@ export class GameDatabaseObject extends RealGameDatabaseObject {
       restoreOnNextStart: async (bookmark) => {
         restoredBookmarks.push(bookmark);
         this.ctx.storage.kv.delete("usage");
+        if (pausedAtMsTheRestoreBringsBack !== null) this.ctx.storage.kv.put("hosting_pause", { month: new Date(pausedAtMsTheRestoreBringsBack).toISOString().slice(0, 7), pausedAtMs: pausedAtMsTheRestoreBringsBack });
         return `undo-${++undoCount}`;
       },
     };
@@ -27,6 +30,11 @@ export class GameDatabaseObject extends RealGameDatabaseObject {
 }
 
 export class GameDatabaseService extends RealGameDatabaseService {
+  /** For tests: the hosting pause (its moment) the next restores bring back, or null for none. */
+  bringBackPauseOnRestore(pausedAtMs: number | null) {
+    pausedAtMsTheRestoreBringsBack = pausedAtMs;
+  }
+
   /** For tests: the bookmarks restored to since the last call. */
   takeRestoredBookmarks() {
     const taken = restoredBookmarks;
