@@ -1215,6 +1215,12 @@ export async function startLocalPlay(givenOptions) {
         }
         return notLocal();
       }
+      // Zaisma's chat check, as the runner's rooms ask it for room.chat (checkChat): the bench lets every message through,
+      // nothing flagged, the way /v1/filter stands in below. Zaisma's own filter runs once the game is on Zaisma.
+      if (request.method === "POST" && path === "/v1/chat/check") {
+        await readBody();
+        return reply(200, { isAllowed: true, reason: null, message: null, hasSwearing: false, hasSlur: false });
+      }
       if (request.method === "POST" && ["/v1/pass", "/v1/rooms", "/v1/report", "/v1/filter", "/v1/friends", "/v1/friends/room", "/v1/items/unhandled", "/v1/items/handled"].includes(path)) {
         if (!isGameOrigin(origin)) return fail(403, "bad_origin", "Not allowed from here.");
         const body = await readBody();
@@ -1225,7 +1231,7 @@ export async function startLocalPlay(givenOptions) {
           return reply(200, await passFor(given.as, given.playerNumber));
         }
         if (path === "/v1/rooms") return reply(200, { roomCode: roomCode() });
-        if (path === "/v1/filter") return reply(200, { isAllowed: true, reason: null, message: null, hasSwearing: false, text: String(body.text ?? ""), is_stand_in: true });
+        if (path === "/v1/filter") return reply(200, { isAllowed: true, reason: null, message: null, hasSwearing: false, hasSlur: false, text: String(body.text ?? ""), is_stand_in: true });
         if (path === "/v1/report") {
           log(`Report (not sent anywhere): ${JSON.stringify({ roomCode: body.roomCode, playerId: body.playerId, playerName: body.playerName, reason: body.reason, details: body.details })}`);
           return reply(200, { isReported: true });

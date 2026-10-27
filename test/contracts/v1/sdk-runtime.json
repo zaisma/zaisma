@@ -554,6 +554,23 @@
       "post zaisma:players-open"
     ]
   },
+  "wire: Zaisma.friends.list, POST /v1/pass body": {
+    "kind": "values",
+    "values": [
+      "gameSlug",
+      "roomKey"
+    ]
+  },
+  "wire: Zaisma.friends.list, POST /v1/pass answer": {
+    "kind": "values",
+    "values": [
+      "expiresAt",
+      "pass",
+      "player.id",
+      "player.kind",
+      "player.name"
+    ]
+  },
   "wire: Zaisma.friends.list, POST /v1/friends body": {
     "kind": "values",
     "values": [
@@ -574,7 +591,25 @@
   "wire: Zaisma.friends.list": {
     "kind": "constant",
     "value": [
+      "POST /v1/pass",
       "POST /v1/friends"
+    ]
+  },
+  "wire: Zaisma.friends.setRoom, POST /v1/pass body": {
+    "kind": "values",
+    "values": [
+      "gameSlug",
+      "roomKey"
+    ]
+  },
+  "wire: Zaisma.friends.setRoom, POST /v1/pass answer": {
+    "kind": "values",
+    "values": [
+      "expiresAt",
+      "pass",
+      "player.id",
+      "player.kind",
+      "player.name"
     ]
   },
   "wire: Zaisma.friends.setRoom, POST /v1/friends/room body": {
@@ -594,7 +629,25 @@
   "wire: Zaisma.friends.setRoom": {
     "kind": "constant",
     "value": [
+      "POST /v1/pass",
       "POST /v1/friends/room"
+    ]
+  },
+  "wire: Zaisma.friends.setRoom(null), POST /v1/pass body": {
+    "kind": "values",
+    "values": [
+      "gameSlug",
+      "roomKey"
+    ]
+  },
+  "wire: Zaisma.friends.setRoom(null), POST /v1/pass answer": {
+    "kind": "values",
+    "values": [
+      "expiresAt",
+      "pass",
+      "player.id",
+      "player.kind",
+      "player.name"
     ]
   },
   "wire: Zaisma.friends.setRoom(null), POST /v1/friends/room body": {
@@ -613,6 +666,7 @@
   "wire: Zaisma.friends.setRoom(null)": {
     "kind": "constant",
     "value": [
+      "POST /v1/pass",
       "POST /v1/friends/room"
     ]
   },
@@ -645,10 +699,45 @@
       "items[].title"
     ]
   },
+  "wire: Zaisma.items.list, POST /v1/pass body": {
+    "kind": "values",
+    "values": [
+      "gameSlug",
+      "roomKey"
+    ]
+  },
+  "wire: Zaisma.items.list, POST /v1/pass answer": {
+    "kind": "values",
+    "values": [
+      "expiresAt",
+      "pass",
+      "player.id",
+      "player.kind",
+      "player.name"
+    ]
+  },
   "wire: Zaisma.items.list": {
     "kind": "constant",
     "value": [
-      "GET /v1/items/<gameSlug>"
+      "GET /v1/items/<gameSlug>",
+      "POST /v1/pass"
+    ]
+  },
+  "wire: Zaisma.server.request, POST /v1/pass body": {
+    "kind": "values",
+    "values": [
+      "gameSlug",
+      "roomKey"
+    ]
+  },
+  "wire: Zaisma.server.request, POST /v1/pass answer": {
+    "kind": "values",
+    "values": [
+      "expiresAt",
+      "pass",
+      "player.id",
+      "player.kind",
+      "player.name"
     ]
   },
   "wire: Zaisma.server.request, POST /v1/requests/<gameSlug> body": {
@@ -667,6 +756,7 @@
   "wire: Zaisma.server.request": {
     "kind": "constant",
     "value": [
+      "POST /v1/pass",
       "POST /v1/requests/<gameSlug>"
     ]
   },
