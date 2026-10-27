@@ -607,6 +607,7 @@ const ALERT_PLACES: Partial<Record<GameAlertKind, { section: Section; hash: stri
   database_full: { section: "database", hash: "", label: "Database" },
   hosting_nearly_paused: { section: "players", hash: "#hosting", label: "Hosting" },
   hosting_budget_nearly_used: { section: "players", hash: "#hosting", label: "Hosting" },
+  credit_low: { section: "players", hash: "#hosting", label: "Hosting" },
   database_nearly_full: { section: "database", hash: "", label: "Database" },
   reports_open: { section: "players", hash: "#reports", label: "See them" },
   link_flagged: { section: "details", hash: "#links", label: "Links" },

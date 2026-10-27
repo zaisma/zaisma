@@ -83,7 +83,7 @@ describe("the docs say what the code does", () => {
     const types = read("packages/sdk/zaisma.d.ts");
     const start = types.indexOf("interface RoomEvents {");
     const body = types.slice(start, start + types.slice(start).search(/\n {2}}\n/));
-    expect(sorted(documented)).toEqual(sorted([...body.matchAll(/^ {4}(\w+): \(/gm)].map((match) => match[1]!)));
+    expect(sorted(documented)).toEqual(sorted([...body.matchAll(/^ {4}(\w+)\??: \(/gm)].map((match) => match[1]!)));
   });
 
   it("lists the admin tools and the report decisions as the admin MCP has them", () => {

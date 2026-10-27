@@ -10,6 +10,7 @@ import {
   creditOf,
   gameHostingMonth,
   hostingUseThisMonth,
+  isCreditLow,
   monthStartDateOf,
   nextMonthStartDate,
   type Credit,
@@ -25,16 +26,22 @@ import type { Env } from "./env.ts";
  * Every 5 minutes, the one judge of every game's month on the meter (docs/DECISIONS.md, "Hosting is priced with a
  * margin, with a free tier, and prepaid above it"): what it used, what's charged to its developer's credit, and
  * whether it's paused, written to game_hosting_months, which rooms, the relay, requests and the database read.
- * Games with use today, and once an hour every game with stored data, whose storage counts every day.
+ * Games with use today or yesterday (a room's last flush of a day can land after midnight), and once an hour every
+ * game with stored data, whose storage counts every day. Only the 5-minute cron runs it, so runs rarely overlap; when
+ * they do, the month's row is the claim (addHostingCharge) and the use is charged once.
  *
- * - No budget: at its free allowance the game pauses (free_used).
+ * - No budget: at its free allowance the game pauses (free_used), and what it used past it, its finishing hour
+ *   included, is written off: a budget given later pays only from when it starts (Julius, Oct 26, 2026).
  * - A budget: past its free allowance it draws whole cents from credit (the fraction carried), never past its budget
- *   (budget_used) or the balance (credit_used), and the automatic top-up runs first, so a developer with one on never
- *   pauses while it can still charge. What a game uses past either, its finishing hour included, is written off.
+ *   (budget_used) or the balance (credit_used). Automatic top-up runs first, whenever this run's charge would take the
+ *   balance under the developer's line, so a developer with it on never pauses while it can still charge. What a game
+ *   uses past either, its finishing hour included, is written off.
  * - A pause that no longer holds (a budget raised, credit added) is cleared, and the game's database told.
  *
- * The heads-ups (80% of the free allowance or of a budget), the pause and the storage's hard cap go to alert_notices
- * once per game per month for the alert_raised webhook, and to the developer by email.
+ * The heads-ups (80% of the free allowance, also for a game with a budget and nothing to spend, or of a budget), the
+ * pause and the storage's hard cap go to alert_notices for the alert_raised webhook, and to the developer by email:
+ * once a month, a pause once per pause and a budget's heads-up once per budget. A run that goes straight past a
+ * heads-up to the pause sends both.
  */
 export async function runHostingJob(env: Env, nowMs = Date.now()): Promise<void> {
   const monthStart = monthStartDateOf(nowMs);
@@ -42,15 +49,16 @@ export async function runHostingJob(env: Env, nowMs = Date.now()): Promise<void>
   const isHourly = new Date(nowMs).getUTCMinutes() < 5;
   const { results: games } = await env.DB.prepare(
     `SELECT id, slug, title, owner_id, monthly_budget_cents FROM games WHERE owner_id IS NOT NULL AND id IN (
-       SELECT game_id FROM room_usage WHERE date = ?
+       SELECT game_id FROM room_usage WHERE date >= date(?, '-1 day')
        UNION SELECT game_id FROM room_usage WHERE ? AND date >= date(?, '-1 month') AND database_size_bytes > 0
        UNION SELECT game_id FROM game_hosting_months WHERE month_start_date = ? AND paused_at_ms IS NOT NULL)`,
   )
     .bind(today, isHourly ? 1 : 0, monthStart, monthStart)
     .all<{ id: string; slug: string; title: string; owner_id: string; monthly_budget_cents: number | null }>();
   const owners = new Map<string, Credit>();
-  // On the 1st, the month before is judged again for the use its rooms reported after its last run.
-  if (new Date(nowMs).getUTCDate() === 1) {
+  // In the first two hours of the 1st (after the relay's read of the last hours), the month before is judged again
+  // for the use its rooms, relay and database reported after its last run.
+  if (new Date(nowMs).getUTCDate() === 1 && new Date(nowMs).getUTCHours() < 2) {
     const lastMonthEndMs = Date.parse(`${monthStart}T00:00:00Z`) - 1;
     const { results: lastMonthGames } = await env.DB.prepare("SELECT id, slug, title, owner_id, monthly_budget_cents FROM games WHERE owner_id IS NOT NULL AND id IN (SELECT game_id FROM room_usage WHERE date = ?)")
       .bind(new Date(lastMonthEndMs).toISOString().slice(0, 10))
@@ -79,12 +87,15 @@ async function judgeGame(env: Env, game: { id: string; title: string; owner_id: 
   let credit = owners.get(game.owner_id) ?? (await creditOf(env.DB, game.owner_id));
   let chargedCents = month.charged_cents;
   let writtenOffCents = month.written_off_cents;
+  const isPastFree = use.totalCents >= FREE_HOSTING_CENTS_PER_MONTH;
+  // Past the free allowance, and neither charged nor written off yet.
+  const owedCents = Math.max(0, Math.floor(use.totalCents - FREE_HOSTING_CENTS_PER_MONTH) - chargedCents - writtenOffCents);
   let reason: PausedReason | null = null;
   if (budgetCents === null) {
-    if (use.totalCents >= FREE_HOSTING_CENTS_PER_MONTH) reason = "free_used";
+    if (isPastFree) reason = "free_used";
   } else {
-    const owedCents = Math.max(0, Math.floor(use.totalCents - FREE_HOSTING_CENTS_PER_MONTH) - chargedCents - writtenOffCents);
-    if (owedCents > 0 && credit.balanceCents < owedCents) credit = await topUpAutomatically(env, game.owner_id, credit, nowMs);
+    // A closed month's charge is only what the balance already covers: no card is charged for it.
+    if (!options.isClosedMonth) credit = await topUpAutomatically(env, game.owner_id, credit, nowMs, Math.min(owedCents, Math.max(0, budgetCents - chargedCents)));
     const chargeableCents = Math.max(0, Math.min(owedCents, budgetCents - chargedCents, credit.balanceCents));
     if (chargeableCents > 0) {
       if (await addHostingCharge(env.DB, { ownerId: game.owner_id, gameId: game.id, amountCents: chargeableCents, monthStartDate: month.month_start_date, monthChargedCents: month.charged_cents, nowMs })) {
@@ -98,15 +109,15 @@ async function judgeGame(env: Env, game: { id: string; title: string; owner_id: 
         return;
       }
     }
-    const isPastFree = use.totalCents >= FREE_HOSTING_CENTS_PER_MONTH;
     if (chargedCents >= budgetCents && isPastFree) reason = "budget_used";
     else if (isPastFree && credit.balanceCents <= 0) reason = "credit_used";
-    // What it used past its budget or the balance is Zaisma's: never charged later.
-    const leftOverCents = owedCents - (chargedCents - month.charged_cents);
-    if (reason && leftOverCents > 0) {
-      await addWrittenOff(env.DB, { ownerId: game.owner_id, gameId: game.id, amountCents: leftOverCents, nowMs });
-      writtenOffCents += leftOverCents;
-    }
+  }
+  // What it used past its free allowance without a budget, past its budget or past the balance is Zaisma's: never
+  // charged later, even once a budget comes (Julius, Oct 26, 2026: "Your picks: write it off").
+  const leftOverCents = owedCents - (chargedCents - month.charged_cents);
+  if (reason && leftOverCents > 0) {
+    await addWrittenOff(env.DB, { ownerId: game.owner_id, gameId: game.id, amountCents: leftOverCents, nowMs });
+    writtenOffCents += leftOverCents;
   }
   owners.set(game.owner_id, credit);
 
@@ -123,52 +134,84 @@ async function judgeGame(env: Env, game: { id: string; title: string; owner_id: 
   if (pausedAtMs !== null || month.paused_at_ms !== null) await tellDatabase(env, game.id, pausedAtMs);
 
   const details: HostingEmailDetails = { gameTitle: game.title, monthName: monthName(nowMs), resetsOnText: resetsOnText(nowMs), pausedReason: reason ?? undefined, spentCents: chargedCents, budgetCents: budgetCents ?? undefined };
-  const reached: HostingAlertKind[] = [];
-  if (reason) reached.push("hosting_paused");
-  else if (budgetCents === null && use.totalCents >= (FREE_HOSTING_CENTS_PER_MONTH * NEARLY_USED_PCT) / 100) reached.push("hosting_nearly_paused");
-  else if (budgetCents !== null && chargedCents >= (budgetCents * NEARLY_USED_PCT) / 100) reached.push("hosting_budget_nearly_used");
-  if (use.use.databaseSizeBytes >= MAXIMUM_GAME_STORAGE_SIZE_BYTES) reached.push("database_full");
-  else if (use.use.databaseSizeBytes >= (MAXIMUM_GAME_STORAGE_SIZE_BYTES * NEARLY_USED_PCT) / 100) reached.push("database_nearly_full");
-  for (const kind of reached) {
-    const noticed = await env.DB.prepare("INSERT OR IGNORE INTO alert_notices (game_id, alert_kind, month_start_date, noticed_at_ms) VALUES (?, ?, ?, ?)").bind(game.id, kind, month.month_start_date, nowMs).run();
+  // Each notice with what it's about: a pause by its moment and a budget's heads-up by the budget, so a second pause or a raised budget's 80% is told again.
+  const reached: [HostingAlertKind, string][] = [];
+  const isNearlyFree = use.totalCents >= (FREE_HOSTING_CENTS_PER_MONTH * NEARLY_USED_PCT) / 100;
+  // The heads-up comes before the pause, and with it when one run went straight past it: never skipped.
+  if (isNearlyFree && (budgetCents === null || (chargedCents === 0 && !(await canGoPastFree(env, game.owner_id, credit, nowMs))))) reached.push(["hosting_nearly_paused", ""]);
+  else if (budgetCents !== null && chargedCents >= (budgetCents * NEARLY_USED_PCT) / 100) reached.push(["hosting_budget_nearly_used", String(budgetCents)]);
+  if (pausedAtMs !== null) reached.push(["hosting_paused", String(pausedAtMs)]);
+  if (use.use.databaseSizeBytes >= MAXIMUM_GAME_STORAGE_SIZE_BYTES) reached.push(["database_full", ""]);
+  else if (use.use.databaseSizeBytes >= (MAXIMUM_GAME_STORAGE_SIZE_BYTES * NEARLY_USED_PCT) / 100) reached.push(["database_nearly_full", ""]);
+  for (const [kind, subject] of reached) {
+    const noticed = await env.DB.prepare("INSERT OR IGNORE INTO alert_notices (game_id, alert_kind, month_start_date, alert_subject, noticed_at_ms) VALUES (?, ?, ?, ?, ?)").bind(game.id, kind, month.month_start_date, subject, nowMs).run();
     if (noticed.meta.changes && (kind === "hosting_paused" || kind === "hosting_nearly_paused" || kind === "hosting_budget_nearly_used")) await emailOwner(env, game.owner_id, kind, details);
   }
 }
 
-/**
- * Tops the owner's credit up from their saved card when it's under their line and the month's limit has room, before
- * a game would pause. Idempotent per owner, month and count, so a retry is the same charge. A declined card turns
- * automatic top-up off and tells them, since trying it again would fail the same way. Answers the credit after.
- */
-export async function topUpAutomatically(env: Env, ownerId: string, credit: Credit, nowMs = Date.now()): Promise<Credit> {
+/** Whether a game with a budget can go past its free hosting: the owner has credit, or automatic top-up can still add some this month. */
+async function canGoPastFree(env: Env, ownerId: string, credit: Credit, nowMs: number): Promise<boolean> {
+  if (credit.balanceCents > 0) return true;
   const automatic = credit.automaticTopUp;
-  if (!automatic.isEnabled || !credit.stripeCustomerId || !credit.stripePaymentMethodId || automatic.topUpAmountCents === null || automatic.monthlyTopUpLimitCents === null) return credit;
-  if (automatic.topUpBelowCents !== null && credit.balanceCents >= automatic.topUpBelowCents) return credit;
-  const { toppedUpCents, topUpCount } = await automaticTopUpsThisMonth(env.DB, ownerId, nowMs);
-  if (toppedUpCents + automatic.topUpAmountCents > automatic.monthlyTopUpLimitCents) return credit;
-  try {
-    const paymentIntent = await chargeSavedCard(env, {
-      ownerId,
-      customerId: credit.stripeCustomerId,
-      paymentMethodId: credit.stripePaymentMethodId,
-      amountCents: automatic.topUpAmountCents,
-      idempotencyKey: `automatic-top-up:${ownerId}:${monthStartDateOf(nowMs).slice(0, 7)}:${topUpCount + 1}`,
-    });
-    if (paymentIntent.status !== "succeeded") return credit;
-    const added = await addTopUp(env, { ownerId, amountCents: automatic.topUpAmountCents, paymentIntentId: paymentIntent.id, isAutomatic: true, nowMs });
-    if (added) {
-      const leftThisMonthCents = automatic.monthlyTopUpLimitCents - toppedUpCents - automatic.topUpAmountCents;
-      await emailOwner(env, ownerId, "automatic_top_up_made", { topUpCents: automatic.topUpAmountCents, leftThisMonthCents, monthlyLimitCents: automatic.monthlyTopUpLimitCents, monthName: monthName(nowMs) });
-    }
-    return creditOf(env.DB, ownerId);
-  } catch (error) {
-    if (!(error instanceof StripeRefusal)) throw error;
-    await turnOffAutomaticTopUp(env, ownerId, error.stripeMessage);
-    return { ...credit, automaticTopUp: { ...automatic, isEnabled: false } };
-  }
+  if (!automatic.isEnabled || !credit.stripePaymentMethodId || automatic.topUpAmountCents === null || automatic.monthlyTopUpLimitCents === null) return false;
+  const { toppedUpCents } = await automaticTopUpsThisMonth(env.DB, ownerId, nowMs);
+  return toppedUpCents + automatic.topUpAmountCents <= automatic.monthlyTopUpLimitCents;
 }
 
-/** A top-up that went through: the credit, refundable for 180 days, and every paused game of the owner's starts again if it can. */
+/** At most this many automatic top-ups in one run for one owner; the monthly limit stops it sooner. */
+const MAXIMUM_TOP_UP_COUNT_PER_RUN = 5;
+
+/**
+ * Tops the owner's credit up from their saved card while the balance after owedCents, this run's charge, would be
+ * under their line, as long as the month's limit has room. Each attempt has its own idempotency key (the attempt count
+ * and when automatic top-up was last turned on), reused only to try the same attempt again when Stripe didn't answer,
+ * so it's charged once. A refused card turns automatic top-up off and tells them; Stripe's own trouble leaves it on,
+ * and the next run tries again. Answers the credit after.
+ */
+export async function topUpAutomatically(env: Env, ownerId: string, credit: Credit, nowMs = Date.now(), owedCents = 0): Promise<Credit> {
+  for (let topUpIndex = 0; topUpIndex < MAXIMUM_TOP_UP_COUNT_PER_RUN; topUpIndex++) {
+    const automatic = credit.automaticTopUp;
+    if (!automatic.isEnabled || !credit.stripeCustomerId || !credit.stripePaymentMethodId || automatic.topUpAmountCents === null || automatic.monthlyTopUpLimitCents === null) return credit;
+    if (credit.balanceCents - owedCents >= (automatic.topUpBelowCents ?? 0)) return credit;
+    const { toppedUpCents } = await automaticTopUpsThisMonth(env.DB, ownerId, nowMs);
+    if (toppedUpCents + automatic.topUpAmountCents > automatic.monthlyTopUpLimitCents) return credit;
+    let paymentIntent: { id: string; status?: unknown };
+    try {
+      paymentIntent = await chargeSavedCard(env, {
+        ownerId,
+        customerId: credit.stripeCustomerId,
+        paymentMethodId: credit.stripePaymentMethodId,
+        amountCents: automatic.topUpAmountCents,
+        idempotencyKey: `automatic-top-up:${ownerId}:${monthStartDateOf(nowMs).slice(0, 7)}:${automatic.attemptCount}:${automatic.enabledAtMs ?? 0}`,
+      });
+    } catch (error) {
+      if (error instanceof StripeRefusal && error.isCardRefused) {
+        await settleTopUpAttempt(env, ownerId, automatic.attemptCount);
+        await turnOffAutomaticTopUp(env, ownerId, error.stripeMessage);
+        return { ...credit, automaticTopUp: { ...automatic, isEnabled: false } };
+      }
+      // Not the card: Stripe's own trouble, a rate limit, or no answer. It stays on, and this run charges what the balance covers.
+      console.error("Automatic top-up: Stripe didn't take it this time", ownerId, error);
+      return credit;
+    }
+    await settleTopUpAttempt(env, ownerId, automatic.attemptCount);
+    if (paymentIntent.status === "succeeded") await addTopUp(env, { ownerId, amountCents: automatic.topUpAmountCents, paymentIntentId: paymentIntent.id, isAutomatic: true, nowMs });
+    credit = await creditOf(env.DB, ownerId);
+    if (paymentIntent.status !== "succeeded") return credit;
+  }
+  return credit;
+}
+
+/** An attempt Stripe answered: the next one gets its own key. Only the run that read this count moves it on, so two runs at once share one attempt. */
+async function settleTopUpAttempt(env: Env, ownerId: string, attemptCount: number): Promise<void> {
+  await env.DB.prepare("UPDATE owners SET automatic_top_up_attempt_count = automatic_top_up_attempt_count + 1 WHERE id = ? AND automatic_top_up_attempt_count = ?").bind(ownerId, attemptCount).run();
+}
+
+/**
+ * A top-up that went through, from whichever path counts it first (this job, or Stripe's event): the credit,
+ * refundable for 180 days; the credit-low line, creditLowPct of the balance after it; the developer told of an
+ * automatic one; and every paused game of the owner's starts again if it can.
+ */
 export async function addTopUp(env: Env, topUp: { ownerId: string; amountCents: number; paymentIntentId: string; isAutomatic: boolean; nowMs?: number }): Promise<boolean> {
   const nowMs = topUp.nowMs ?? Date.now();
   const id = await addCreditEntry(env.DB, {
@@ -181,6 +224,12 @@ export async function addTopUp(env: Env, topUp: { ownerId: string; amountCents: 
     createdAtMs: nowMs,
   });
   if (!id) return false;
+  await env.DB.prepare("UPDATE owners SET credit_low_line_cents = credit_balance_cents * ? / 100, credit_low_told_at_ms = NULL WHERE id = ?").bind(CREDIT_LIMITS.creditLowPct, topUp.ownerId).run();
+  if (topUp.isAutomatic) {
+    const [credit, { toppedUpCents }] = await Promise.all([creditOf(env.DB, topUp.ownerId), automaticTopUpsThisMonth(env.DB, topUp.ownerId, nowMs)]);
+    const monthlyLimitCents = credit.automaticTopUp.monthlyTopUpLimitCents ?? toppedUpCents;
+    await emailOwner(env, topUp.ownerId, "automatic_top_up_made", { topUpCents: topUp.amountCents, leftThisMonthCents: Math.max(0, monthlyLimitCents - toppedUpCents), monthlyLimitCents, monthName: monthName(nowMs) });
+  }
   await clearPauses(env, topUp.ownerId, nowMs);
   return true;
 }
@@ -225,16 +274,21 @@ export async function turnOffAutomaticTopUp(env: Env, ownerId: string, failureTe
   if (turnedOff.meta.changes) await emailOwner(env, ownerId, "automatic_top_up_failed", { failureText: failureText ?? undefined });
 }
 
-/** Once per top-up, when the balance drops under creditLowPct of the last one; and when it reaches zero. */
+/**
+ * Once per top-up, when the balance falls under the line that top-up set: by email, and as a credit_low alert on each
+ * of the owner's games with a budget until the next top-up. And when it reaches zero; both when one run crosses both.
+ */
 async function tellCreditLow(env: Env, ownerId: string, credit: Credit, balanceBeforeCents: number, nowMs: number): Promise<void> {
-  if (credit.balanceCents <= 0 && balanceBeforeCents > 0) {
-    await emailOwner(env, ownerId, "credit_used_up", {});
-    return;
+  if (isCreditLow(credit)) {
+    const told = await env.DB.prepare("UPDATE owners SET credit_low_told_at_ms = ? WHERE id = ? AND credit_low_told_at_ms IS NULL").bind(nowMs, ownerId).run();
+    if (told.meta.changes) {
+      await env.DB.prepare("INSERT OR IGNORE INTO alert_notices (game_id, alert_kind, month_start_date, alert_subject, noticed_at_ms) SELECT id, 'credit_low', ?, ?, ? FROM games WHERE owner_id = ? AND monthly_budget_cents IS NOT NULL")
+        .bind(monthStartDateOf(nowMs), String(nowMs), nowMs, ownerId)
+        .run();
+      await emailOwner(env, ownerId, "credit_low", { balanceCents: credit.balanceCents });
+    }
   }
-  const lastTopUp = await env.DB.prepare("SELECT amount_cents, created_at_ms FROM credit_entries WHERE owner_id = ? AND entry_kind = 'top_up' ORDER BY created_at_ms DESC LIMIT 1").bind(ownerId).first<{ amount_cents: number; created_at_ms: number }>();
-  if (!lastTopUp || credit.balanceCents >= (lastTopUp.amount_cents * CREDIT_LIMITS.creditLowPct) / 100) return;
-  const told = await env.DB.prepare("UPDATE owners SET credit_low_told_at_ms = ? WHERE id = ? AND (credit_low_told_at_ms IS NULL OR credit_low_told_at_ms < ?)").bind(nowMs, ownerId, lastTopUp.created_at_ms).run();
-  if (told.meta.changes) await emailOwner(env, ownerId, "credit_low", { balanceCents: credit.balanceCents });
+  if (credit.balanceCents <= 0 && balanceBeforeCents > 0) await emailOwner(env, ownerId, "credit_used_up", {});
 }
 
 /** An email to the owner's account, when it has an email; the alerts and the API say the same either way. */

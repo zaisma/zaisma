@@ -1005,7 +1005,8 @@ declare namespace Zaisma {
     readonly canChat: boolean;
     /**
      * When Zaisma will end this match, an ISO time, or null: set once the game's hosting pauses for the
-     * month, an hour after the pause (the "ending" event). Never set in a room on your own server.
+     * month, an hour after the pause (the "ending" event); null again if Zaisma calls the end off (the
+     * "endingCancelled" event). Never set in a room on your own server.
      */
     readonly endsAt: string | null;
     /**
@@ -1222,6 +1223,11 @@ declare namespace Zaisma {
      * "ended" follows then.
      */
     ending: (ending: Ending) => void;
+    /**
+     * Zaisma called off the end the "ending" event announced, because the game's hosting started again:
+     * room.endsAt is null, and the match goes on. Optional, as events added after v1 are, so v1's types still fit.
+     */
+    endingCancelled?: () => void;
     /** The game server or the host removed the player from the room. The connection closes. */
     kicked: (kicked: Kicked) => void;
     /** The room's listing, Join switch, name or labels changed, or how many watch: room.isListed, room.isOpen, room.friendJoinsEnabled, room.name, room.labels and room.spectatorCount have the new ones. */

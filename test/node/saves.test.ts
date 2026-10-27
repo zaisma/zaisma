@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { canonicalSave, copiesToDrop, EMPTY_SAVE_TEXT, copyReason, indexeddbDatabasesProblem, parseSave, type SaveCopy, type SaveCopyReason } from "../../packages/core/src/saves.ts";
+import { canonicalSave, EMPTY_SAVE_TEXT, copyReason, indexeddbDatabasesProblem, parseSave } from "../../packages/core/src/saves.ts";
 
 interface Format {
   encode: (v: unknown, pending: Promise<void>[], seen: unknown[]) => unknown;
@@ -94,6 +94,31 @@ describe("cloud save format", () => {
     }
   });
 
+  it("puts this device's localStorage back when the account's save can't be written", async () => {
+    const items = new Map<string, string>([["level", "3"], ["coins", "10"]]);
+    const standIn = {
+      get length() {
+        return items.size;
+      },
+      key: (index: number) => [...items.keys()][index] ?? null,
+      getItem: (key: string) => items.get(key) ?? null,
+      clear: () => items.clear(),
+      setItem: (key: string, given: string) => {
+        if (key === "world") throw new DOMException("The quota has been exceeded.", "QuotaExceededError");
+        items.set(key, given);
+      },
+    };
+    const before = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+    Object.defineProperty(globalThis, "localStorage", { value: standIn, configurable: true });
+    try {
+      await expect(format.putSave({ save_format_version_number: 1, local_storage_items: { a: "1", world: "big" }, indexeddb_databases: [] })).rejects.toThrow("quota");
+      expect(Object.fromEntries(items)).toEqual({ level: "3", coins: "10" });
+    } finally {
+      if (before) Object.defineProperty(globalThis, "localStorage", before);
+      else delete (globalThis as { localStorage?: unknown }).localStorage;
+    }
+  });
+
   it("reads the v1 envelope and both shapes from before it, always answering the envelope", () => {
     const envelope = (local: Record<string, string>, databases: unknown[]) => ({ save_format_version_number: 1, local_storage_items: local, indexeddb_databases: databases });
     expect(parseSave('{"save_format_version_number":1,"local_storage_items":{"a":"1"},"indexeddb_databases":[{"name":"x"}]}')).toEqual(envelope({ a: "1" }, [{ name: "x" }]));
@@ -117,7 +142,6 @@ describe("cloud save format", () => {
 
 describe("save history", () => {
   const H = 3600_000;
-  const copy = (hoursAgo: number, reason: SaveCopyReason = "hourly"): SaveCopy => ({ id: `c${hoursAgo}`, account_id: "a", game_id: "g", saved_at_ms: 1e12 - hoursAgo * H, copy_reason: reason, sha256: `h${hoursAgo}`, size_bytes: 10, version_id: null });
 
   it("copies when progress is about to be lost, and otherwise once an hour", () => {
     const current = { size_bytes: 1000, saved_at_ms: 1e12 };
@@ -128,25 +152,7 @@ describe("save history", () => {
     expect(copyReason(current, { sizeBytes: 900, isReplacing: false }, 1e12 - H / 2)).toBeNull();
   });
 
-  it("keeps five: the newest always, then routine copies go first, oldest first", () => {
-    const list = [copy(0), copy(1), copy(2, "account_lost"), copy(3), copy(4), copy(5, "smaller"), copy(6)];
-    expect(copiesToDrop(list, 1e12).map((c) => c.id)).toEqual(["c6", "c4"]);
-    expect(copiesToDrop(list.slice(0, 5), 1e12)).toEqual([]);
-  });
-
-  it("drops the oldest when every older copy is protected, and stops protecting after 30 days", () => {
-    const protectedOnly = [copy(0), copy(1, "device_lost"), copy(2, "account_lost"), copy(3, "smaller"), copy(4, "restore"), copy(5, "account_lost")];
-    expect(copiesToDrop(protectedOnly, 1e12).map((c) => c.id)).toEqual(["c5"]);
-    const old = [copy(0), copy(1), copy(2), copy(3), copy(4), copy(31 * 24, "account_lost")];
-    expect(copiesToDrop(old, 1e12).map((c) => c.id)).toEqual([`c${31 * 24}`]);
-  });
-
-  it("never drops the copy being added, even one dated to a device's play long ago", () => {
-    const deviceCopy = copy(35 * 24, "device_lost");
-    expect(copiesToDrop([deviceCopy, copy(0), copy(1), copy(2), copy(3), copy(4)], 1e12, deviceCopy.id).map((c) => c.id)).toEqual(["c4"]);
-    const allProtected = [copy(0, "account_lost"), copy(1, "smaller"), copy(2, "restore"), copy(3, "account_lost"), copy(4, "smaller")];
-    expect(copiesToDrop([deviceCopy, ...allProtected], 1e12, deviceCopy.id).map((c) => c.id)).toEqual(["c4"]);
-  });
+  // Which copies stay is decided in the database as a copy is added (addSaveCopy): test/site/saves.test.ts.
 });
 
 describe("IndexedDB databases a browser can restore", () => {
@@ -279,6 +285,7 @@ function standInIndexedDB(databases: Record<string, { version: number; stores: R
               autoIncrement: false,
               indexNames: [],
               getAllKeys: (range: { lower: Key; lowerOpen: boolean } | null, count: number) => answer(() => inRange(range, count).map(([key]) => key)),
+              count: () => answer(() => database.stores[storeName]!.length),
               getAll: (range: { lower: Key; lowerOpen: boolean } | null, count: number) => {
                 // Only the batched reads count, not the whole reads the test compares with.
                 if (count !== undefined) getAllCount[storeName] = (getAllCount[storeName] ?? 0) + 1;
@@ -302,7 +309,7 @@ function standInIndexedDB(databases: Record<string, { version: number; stores: R
 
 interface Reader {
   readDatabases: () => Promise<unknown[]>;
-  databasesReader: () => (changed: { isAll: boolean; databases: string[]; stores: string[] }, maximumCharacterCount: number) => Promise<{ text?: string; isOverLimit?: boolean }>;
+  databasesReader: () => (changed: { isAll: boolean; isCountCheck?: boolean; databases: string[]; stores: string[] }, maximumByteCount: number) => Promise<{ text?: string; isOverLimit?: boolean }>;
   encode: Format["encode"];
 }
 function loadReader(databases: Parameters<typeof standInIndexedDB>[0]) {
@@ -351,6 +358,30 @@ describe("cloud saves while the game plays", () => {
     expect((await reader.read(nothingChanged, Infinity)).text).toBe(changed.text);
     // Nothing changed: nothing read.
     expect(reader.getAllCount).toEqual({ FILE_DATA: 6, OTHER: 2 });
+  });
+
+  it("reads nothing again while the game changes nothing, and on a count check only a database whose records changed", async () => {
+    const databases = { "/idbfs": { version: 21, stores: { FILE_DATA: manyRecords() } }, other: { version: 1, stores: { s: [["a", 1]] as [Key, unknown][] } } };
+    const reader = loadReader(databases);
+    const first = await reader.read(everything, Infinity);
+    expect(reader.getAllCount).toEqual({ FILE_DATA: 6, s: 1 });
+    const countCheck = { isAll: false, isCountCheck: true, databases: [], stores: [] };
+    for (let checkIndex = 0; checkIndex < 3; checkIndex++) expect(await reader.read(countCheck, Infinity)).toEqual(first);
+    expect(reader.getAllCount).toEqual({ FILE_DATA: 6, s: 1 });
+    // The game's own worker adds a record the script didn't see: the next count check reads that database, and only it.
+    databases.other.stores.s.push(["b", 2]);
+    const after = await reader.read(countCheck, Infinity);
+    expect(reader.getAllCount).toEqual({ FILE_DATA: 6, s: 2 });
+    expect(after.text).toBe(await reader.wholeText());
+  });
+
+  it("counts the limit in UTF-8 bytes, as the server does", async () => {
+    const reader = loadReader({ game: { version: 1, stores: { s: [["slot", "é".repeat(500)]] } } });
+    const whole = (await reader.read(everything, Infinity)).text!;
+    const byteCount = new TextEncoder().encode(whole).length;
+    expect(byteCount).toBeGreaterThan(whole.length);
+    expect(await reader.read(everything, whole.length)).toEqual({ isOverLimit: true });
+    expect(await reader.read(everything, byteCount)).toEqual({ text: whole });
   });
 
   it("drops a database the game deleted", async () => {

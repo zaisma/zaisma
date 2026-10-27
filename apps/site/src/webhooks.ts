@@ -254,15 +254,16 @@ const monthStartDate = (nowMs: number) => `${new Date(nowMs).toISOString().slice
  * crons never both send one.
  */
 export async function tellAlertNotices(env: Env, nowMs = Date.now()): Promise<void> {
-  const { results: notices } = await env.DB.prepare("SELECT game_id, alert_kind, month_start_date FROM alert_notices WHERE told_webhooks_at_ms IS NULL ORDER BY noticed_at_ms LIMIT 100").all<{
+  const { results: notices } = await env.DB.prepare("SELECT game_id, alert_kind, month_start_date, alert_subject FROM alert_notices WHERE told_webhooks_at_ms IS NULL ORDER BY noticed_at_ms LIMIT 100").all<{
     game_id: string;
     alert_kind: HostingAlertKind;
     month_start_date: string;
+    alert_subject: string;
   }>();
   const claimed: typeof notices = [];
   for (const notice of notices) {
-    const marked = await env.DB.prepare("UPDATE alert_notices SET told_webhooks_at_ms = ? WHERE game_id = ? AND alert_kind = ? AND month_start_date = ? AND told_webhooks_at_ms IS NULL")
-      .bind(nowMs, notice.game_id, notice.alert_kind, notice.month_start_date)
+    const marked = await env.DB.prepare("UPDATE alert_notices SET told_webhooks_at_ms = ? WHERE game_id = ? AND alert_kind = ? AND month_start_date = ? AND alert_subject = ? AND told_webhooks_at_ms IS NULL")
+      .bind(nowMs, notice.game_id, notice.alert_kind, notice.month_start_date, notice.alert_subject)
       .run();
     if (marked.meta.changes) claimed.push(notice);
   }

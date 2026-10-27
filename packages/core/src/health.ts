@@ -4,7 +4,7 @@
  * (apps/site/src/health-alerts.ts) covers these three.
  */
 
-export const HEALTH_ALERT_KINDS = ["scans_behind", "errors_spiking", "watcher_silent"] as const;
+export const HEALTH_ALERT_KINDS = ["scans_behind", "errors_spiking", "watcher_silent", "refunds_stuck"] as const;
 export type HealthAlertKind = (typeof HEALTH_ALERT_KINDS)[number];
 
 export const HEALTH_ALERT_LIMITS = {
@@ -20,12 +20,15 @@ export const HEALTH_ALERT_LIMITS = {
   reminderIntervalMin: 120,
   /** The outside checker runs every 5 minutes; GitHub often runs a schedule late. */
   maximumWatcherSilenceDurationMin: 45,
+  /** A deleted account's refund is retried hourly; past this, Julius hears it's stuck. */
+  maximumPendingRefundDurationDays: 30,
 } as const;
 
 export const HEALTH_ALERT_WORDS: Record<HealthAlertKind, { title: string; clearedTitle: string }> = {
   scans_behind: { title: "Scans are behind", clearedTitle: "Scans caught up" },
   errors_spiking: { title: "Errors are spiking", clearedTitle: "Errors are back to normal" },
   watcher_silent: { title: "The outside checker has gone quiet", clearedTitle: "The outside checker is running again" },
+  refunds_stuck: { title: "A deleted account's refund is stuck", clearedTitle: "Stuck refunds went through" },
 };
 
 export type HealthAlertState = { startedAtMs: number; lastToldAtMs: number };

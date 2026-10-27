@@ -13,6 +13,7 @@ import {
   reportPictureKey,
   saveCopyKey,
   saveKey,
+  unversionedSaveKey,
   type GameDeletion,
 } from "@zaisma/core";
 import type { Env } from "./env.ts";
@@ -102,9 +103,9 @@ async function deleteGame(env: Env, deletion: GameDeletion): Promise<void> {
     await env.DB.prepare("DELETE FROM save_history WHERE id IN (SELECT value FROM json_each(?))").bind(JSON.stringify(copies.map((copy) => copy.id))).run();
   }
   for (;;) {
-    const { results: saves } = await env.DB.prepare("SELECT account_id FROM saves WHERE game_id = ? LIMIT ?").bind(gameId, R2_DELETE_KEY_COUNT).all<{ account_id: string }>();
+    const { results: saves } = await env.DB.prepare("SELECT account_id, version_number, sha256 FROM saves WHERE game_id = ? LIMIT ?").bind(gameId, R2_DELETE_KEY_COUNT / 2).all<{ account_id: string; version_number: number; sha256: string }>();
     if (!saves.length) break;
-    await deleteKeys(env.SAVES, saves.map((save) => saveKey(save.account_id, gameId)));
+    await deleteKeys(env.SAVES, saves.flatMap((save) => [saveKey(save.account_id, gameId, save.version_number, save.sha256), unversionedSaveKey(save.account_id, gameId)]));
     await env.DB.prepare("DELETE FROM saves WHERE game_id = ? AND account_id IN (SELECT value FROM json_each(?))").bind(gameId, JSON.stringify(saves.map((save) => save.account_id))).run();
   }
 
