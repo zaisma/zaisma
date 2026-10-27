@@ -4,7 +4,7 @@ import { component } from "./component.ts";
 import { controlMarkup, type ControlMarkup } from "./control-markup.ts";
 import { CUT_LINE, EDGE, glassPane, icon, logo, railMarkup, type IconName } from "./foundations.ts";
 import { cutPolygon } from "./tokens.ts";
-import { cutButton, runButton, textLink } from "./actions.ts";
+import { cutButton, rowArrows, runButton, textLink } from "./actions.ts";
 import { searchField, tabSwitch, type SearchFieldOptions, type SwitchTab } from "./inputs.ts";
 import { STAND_IN_COVERS, dropdown, type DropdownItem } from "./panes.ts";
 import { listRows, pictureFrame } from "./data.ts";
@@ -548,22 +548,6 @@ export const RAIL_SCRIPT = `/* rail */(function () {
 `;
 
 
-export interface RowArrowsOptions {
-  /** The row's name, for a screen reader: "Scroll Popular on". */
-  rowName: string;
-  /** The id of the track it scrolls (Track, layout.ts). */
-  trackId: string;
-  /** Where the row starts scrolled to, so both arrows or only the back one can be pressed: the gallery's fixed states. */
-  scrolledTo?: "middle" | "end";
-}
-
-/** Arrows to scroll a row, for a mouse or trackpad: a cut well of two halves at the right of the row's heading. Touch screens swipe instead. */
-export function rowArrows(options: RowArrowsOptions): ControlMarkup {
-  const arrow = (way: "back" | "on") =>
-    cutButton(`Scroll ${options.rowName} ${way}`, { type: "button", icon: way === "back" ? "arrow-back" : "arrow-on", isLabelHidden: true, isInWell: true, controls: options.trackId });
-  return controlMarkup(html`<div class="steps cut-carved" data-row-arrows${options.scrolledTo ? html` data-scrolled-to="${options.scrolledTo}"` : ""} data-cut-line="9">${CUT_LINE}${arrow("back")}${arrow("on")}</div>`, "small", { isPointerOnly: true });
-}
-
 /**
  * Scroll fades: every box that scrolls up and down, wherever it is and whatever is in it, fades its words out over its
  * top and bottom edges while there's more to scroll that way, so nothing runs hard into the edge of its pane. Found by
@@ -1101,11 +1085,13 @@ export interface SectionTabsOptions {
   /** What the sections are, for a screen reader: "Game sections". */
   label: string;
   tabs: SectionTab[];
+  /** Unique on the page: the id of the row the tabs scroll in, so a mouse gets Row arrows when they don't fit across. */
+  rowId?: string;
 }
 
 /** A page's own sections as tabs (a game dashboard's Overview, Versions, Players; a profile's Games and Friends): the header's tabs, under the page's title. */
 export function sectionTabs(options: SectionTabsOptions): Raw {
-  return html`<nav class="section-tabs" aria-label="${options.label}">${tabSwitch({ label: options.label, switchSize: "big", isFramed: true, tabs: options.tabs })}</nav>`;
+  return html`<nav class="section-tabs" aria-label="${options.label}">${tabSwitch({ label: options.label, switchSize: "big", isFramed: true, rowId: options.rowId, tabs: options.tabs })}</nav>`;
 }
 
 export interface SidePlacesOptions {
@@ -1115,6 +1101,8 @@ export interface SidePlacesOptions {
   places: (SectionTab & { icon: IconName })[];
   /** The page itself: its sections, one under another. */
   body: Raw;
+  /** Unique on the page: the id of the row its places scroll in where they're tabs (Section tabs' rowId). */
+  rowId?: string;
 }
 
 /**
@@ -1122,7 +1110,7 @@ export interface SidePlacesOptions {
  * page at most a reading page's column (--size-page-reading) beside it, the pair centered in the wide frame (a reading page: Page shape). Where both can't have room, the places are the section tabs at the top of the page.
  */
 export function sidePlaces(options: SidePlacesOptions): Raw {
-  return html`<div class="side-places"><div class="side-places-in"><nav class="side-places-side" aria-label="${options.label}">${glassPane({ paneWidth: "fit", body: tabSwitch({ label: options.label, switchSize: "big", isVertical: true, tabs: options.places }) })}</nav><div class="side-places-top">${sectionTabs({ label: options.label, tabs: options.places.map((place) => ({ label: place.label, href: place.href, isCurrent: place.isCurrent, badgeCount: place.badgeCount, state: place.state })) })}</div><div class="side-places-body">${options.body}</div></div></div>`;
+  return html`<div class="side-places"><div class="side-places-in"><nav class="side-places-side" aria-label="${options.label}">${glassPane({ paneWidth: "fit", body: tabSwitch({ label: options.label, switchSize: "big", isVertical: true, tabs: options.places }) })}</nav><div class="side-places-top">${sectionTabs({ label: options.label, rowId: options.rowId, tabs: options.places.map((place) => ({ label: place.label, href: place.href, isCurrent: place.isCurrent, badgeCount: place.badgeCount, state: place.state })) })}</div><div class="side-places-body">${options.body}</div></div></div>`;
 }
 
 /** The least room for the places beside the page: below it, they are the tabs at the top (a container query can't read a token). */
@@ -1183,7 +1171,7 @@ component({
 /* Section tabs: the header's framed switch for a page's own sections. As wide as its tabs, and never wider than the page: past that
    they scroll sideways inside their frame, fading out over a side with more, and rest on whole tabs, starting where the one you're on shows whole. */
 .section-tabs { display: flex; min-width: 0; max-width: 100%; }
-.section-tabs > .switch-frame { flex: 0 1 auto; }
+.section-tabs > .switch-scroll { flex: 0 1 auto; }
 `,
   render: sectionTabs,
   examples: [
@@ -1203,7 +1191,7 @@ component({
       isStill: true,
       markup: sectionTabs({ label: "Profile sections", tabs: PROFILE_SECTIONS.slice(0, 3).map((label, tabIndex) => ({ label, href: "#section-tabs", isCurrent: tabIndex === 0, state: tabIndex === 1 ? "is-focused" : undefined })) }),
     },
-    { label: "In a narrow pane: they scroll to the one you pick", markup: glassPane({ paneWidth: "fit", body: sectionTabs({ label: "Profile sections", tabs: PROFILE_SECTIONS.map((label, tabIndex) => ({ label, href: "#section-tabs", isCurrent: tabIndex === 2 })) }) }) },
+    { label: "In a narrow pane: they scroll to the one you pick, and a mouse has Row arrows", markup: glassPane({ paneWidth: "fit", body: sectionTabs({ label: "Profile sections", rowId: "example-section-tabs-row", tabs: PROFILE_SECTIONS.map((label, tabIndex) => ({ label, href: "#section-tabs", isCurrent: tabIndex === 2 })) }) }) },
   ],
 });
 

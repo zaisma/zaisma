@@ -946,3 +946,19 @@ component({
     { label: "On no pane: cut as if it were in one", markup: html`<div class="control-row">${runButton("Play", { type: "button", icon: "play" })}${cutButton("Details", { type: "button" })}</div>` },
   ],
 });
+
+export interface RowArrowsOptions {
+  /** The row's name, for a screen reader: "Scroll Popular on". */
+  rowName: string;
+  /** The id of the track it scrolls (Track, layout.ts). */
+  trackId: string;
+  /** Where the row starts scrolled to, so both arrows or only the back one can be pressed: the gallery's fixed states. */
+  scrolledTo?: "middle" | "end";
+}
+
+/** Arrows to scroll a row, for a mouse or trackpad: a cut well of two halves at the right of the row's heading. Touch screens swipe instead. */
+export function rowArrows(options: RowArrowsOptions): ControlMarkup {
+  const arrow = (way: "back" | "on") =>
+    cutButton(`Scroll ${options.rowName} ${way}`, { type: "button", icon: way === "back" ? "arrow-back" : "arrow-on", isLabelHidden: true, isInWell: true, controls: options.trackId });
+  return controlMarkup(html`<div class="steps cut-carved" data-row-arrows${options.scrolledTo ? html` data-scrolled-to="${options.scrolledTo}"` : ""} data-cut-line="9">${CUT_LINE}${arrow("back")}${arrow("on")}</div>`, "small", { isPointerOnly: true });
+}

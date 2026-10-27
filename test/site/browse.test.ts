@@ -76,10 +76,10 @@ beforeAll(async () => {
 });
 
 describe("Browse's link", () => {
-  it("reads the sort, filter, price, search and page, falling back to the defaults for anything else", () => {
-    expect(browseQuery(new URL(`${SITE}/games`))).toEqual({ sort: "popular", filter: "all", priceRange: "any", searchText: "", pageNumber: 1 });
-    expect(browseQuery(new URL(`${SITE}/games?sort=new&filter=horror&price=15_to_30&search_text=%20lake%20&page=3`))).toEqual({ sort: "new", filter: "horror", priceRange: "15_to_30", searchText: "lake", pageNumber: 3 });
-    expect(browseQuery(new URL(`${SITE}/games?sort=best&filter=rpg&price=cheap&page=-2`))).toEqual({ sort: "popular", filter: "all", priceRange: "any", searchText: "", pageNumber: 1 });
+  it("reads the sort, genre, players, price, search and page, falling back to the defaults for anything else", () => {
+    expect(browseQuery(new URL(`${SITE}/games`))).toEqual({ sort: "popular", genre: "any", players: "any", priceRange: "any", searchText: "", pageNumber: 1 });
+    expect(browseQuery(new URL(`${SITE}/games?sort=new&genre=horror&players=multiplayer&price=15_to_30&search_text=%20lake%20&page=3`))).toEqual({ sort: "new", genre: "horror", players: "multiplayer", priceRange: "15_to_30", searchText: "lake", pageNumber: 3 });
+    expect(browseQuery(new URL(`${SITE}/games?sort=best&genre=rpg&players=lots&price=cheap&page=-2`))).toEqual({ sort: "popular", genre: "any", players: "any", priceRange: "any", searchText: "", pageNumber: 1 });
     expect(browseQuery(new URL(`${SITE}/games?search_text=${"a".repeat(200)}`)).searchText).toHaveLength(80);
   });
 });
@@ -138,12 +138,16 @@ describe("Browse", () => {
     expect(updated.indexOf("browse-quiet")).toBeLessThan(updated.indexOf("browse-busy"));
   });
 
-  it("filters by Multiplayer and by a genre", async () => {
-    const { slugs: multiplayer } = await browse("?filter=multiplayer", { headers: { cookie: "zaisma_device_kind=computer" } });
+  it("filters by players and by a genre, together too", async () => {
+    const { slugs: multiplayer } = await browse("?players=multiplayer", { headers: { cookie: "zaisma_device_kind=computer" } });
     expect(multiplayer).toEqual(expect.arrayContaining(["browse-busy", "browse-relay"]));
     expect(multiplayer).toHaveLength(2);
-    const { slugs: strategy } = await browse("?filter=strategy", { headers: { cookie: "zaisma_device_kind=computer" } });
+    const { slugs: strategy } = await browse("?genre=strategy", { headers: { cookie: "zaisma_device_kind=computer" } });
     expect(strategy).toEqual(["browse-crowded", "browse-keys"]);
+    const { slugs: single } = await browse("?players=single", { headers: { cookie: "zaisma_device_kind=computer" } });
+    expect(single).not.toEqual(expect.arrayContaining(["browse-relay"]));
+    const { slugs: both } = await browse("?genre=strategy&players=multiplayer", { headers: { cookie: "zaisma_device_kind=computer" } });
+    expect(both.every((slug) => strategy.includes(slug) && multiplayer.includes(slug))).toBe(true);
   });
 
   it("searches titles, developers and genre labels, ignoring case", async () => {
@@ -157,8 +161,11 @@ describe("Browse", () => {
     const { text } = await browse("?search_text=zzzz-nothing");
     expect(text).toContain("No games match");
     expect(text).toContain("Clear search");
-    const { text: emptyFilter } = await browse("?filter=horror");
+    const { text: emptyFilter } = await browse("?genre=horror");
     expect(emptyFilter).toContain("No horror games yet");
+    const { text: emptyFilters } = await browse("?genre=horror&price=30_and_up");
+    expect(emptyFilters).toContain("No games match these filters yet");
+    expect(emptyFilters).toContain("Clear filters");
   });
 
   it("puts games for the viewer's device first, the rest after a divider with their note", async () => {

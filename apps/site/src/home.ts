@@ -45,6 +45,8 @@ export interface ShowGame {
   genres: string[];
   /** It has a multiplayer mode, or a local or online play mode: Browse's Multiplayer filter. */
   is_multiplayer: boolean;
+  /** It plays alone: a single play mode, or no modes said and no multiplayer: Browse's Single-player filter. */
+  is_single_player: boolean;
   /** People playing it right now (checked browsers with it on screen); cards show it from MINIMUM_PLAYING_NOW_PLAYER_COUNT up. */
   playing_now_player_count: number;
   /** none, multiplayer or whole_game: a guest can't start a whole_game game without an account. */
@@ -104,6 +106,7 @@ export async function showcase(env: Env, viewerAgeFloorYears: number, maximumGam
     screen_orientation: row.screen_orientation,
     genres: row.genres ? row.genres.split(",") : [],
     is_multiplayer: row.multiplayer_mode !== "none" || (playModes ?? []).some((playMode) => playMode.mode !== "single"),
+    is_single_player: playModes ? playModes.some((playMode) => playMode.mode === "single") : row.multiplayer_mode === "none",
     playing_now_player_count: playingNow.get(row.id) ?? 0,
     account_requirement: row.account_requirement,
     glass_tint_color: row.glass_tint_color,
