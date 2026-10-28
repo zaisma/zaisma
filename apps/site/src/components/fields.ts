@@ -137,10 +137,17 @@ export interface BirthdayFieldOptions {
   isRequired?: boolean;
 }
 
+/**
+ * One wheel: a groove carved into the picker's glass, its picked row in the middle catching the light, with a row above and below it. The
+ * groove (and its lit row) stay still while the wheel scrolls inside it.
+ */
+const wheelChannel = (part: string, label: string) =>
+  html`<div class="wheel-channel cut-carved" data-cut-line="8"><span class="wheel-lit" data-cut-line="6" aria-hidden="true">${CUT_LINE}</span><div class="wheel" data-own-fade data-part="${part}" role="listbox" aria-label="${label}" tabindex="0"></div></div>`;
+
 /** What a birthday field says when its form won't go on without one. */
 const BIRTHDAY_MISSING = "Pick your birthday to go on.";
 
-/** One field that opens three glass wheels, month, day and year, under a lit band. Each starts blank, so nothing suggests an age. */
+/** One field that opens three glass wheels, month, day and year, each in its own groove. Each starts blank, so nothing suggests an age. */
 export function birthdayField(options: BirthdayFieldOptions): ControlMarkup {
   const id = options.id ?? `bday-${options.name}`;
   const isOpen = options.state === "open";
@@ -151,7 +158,7 @@ export function birthdayField(options: BirthdayFieldOptions): ControlMarkup {
 <button type="button" class="${fieldClass}" data-cut-line="10" aria-expanded="${isOpen ? "true" : "false"}" aria-controls="${id}-pick" aria-describedby="${id}-legend ${id}-error${options.hint ? ` ${id}-hint` : ""}">${CUT_LINE}${icon("calendar")}<span class="bday-value">Choose a date</span><span class="bday-chev">${icon("chevron-down")}</span></button>
 <p class="field-error" id="${id}-error"${isMarked ? "" : raw(" hidden")}>${options.error ?? BIRTHDAY_MISSING}</p>${options.hint ? html`<p class="field-hint" id="${id}-hint"${isMarked ? raw(" hidden") : ""}>${options.hint}</p>` : ""}
 <div class="bday-pick" data-cut-line="10" id="${id}-pick" role="group" aria-label="${options.label}"${isOpen ? "" : raw(" hidden")}>
-<div class="wheels"><span class="wheel-band cut-raised" data-cut-line="8" aria-hidden="true"></span><div class="wheel" data-own-fade data-part="month" role="listbox" aria-label="Month" tabindex="0"></div><div class="wheel" data-own-fade data-part="day" role="listbox" aria-label="Day" tabindex="0"></div><div class="wheel" data-own-fade data-part="year" role="listbox" aria-label="Year" tabindex="0"></div></div>
+<div class="wheels">${wheelChannel("month", "Month")}${wheelChannel("day", "Day")}${wheelChannel("year", "Year")}</div>
 <span class="bday-read sr" aria-live="polite"></span>
 </div>
 <input type="hidden" name="${options.name}" value="${options.birthday ?? ""}" data-id="${id}">
@@ -174,21 +181,20 @@ export interface DateTimeFieldOptions {
 }
 
 /**
- * A date and time field, for scheduling (a version going live later): the birthday field's look, opening three wheels under the lit band, the
- * day ("Today", "Tomorrow", "Fri, Oct 23"), the hour with its AM or PM ("3 PM": every hour of the day on one wheel, so none hides), and
- * the minute in fives, all in the viewer's own time zone, said under it.
+ * A date and time field, for scheduling (a version going live later): the birthday field's look, opening four wheels in the order a time
+ * is read, the day ("Today", "Tomorrow", "Fri, Oct 23"), the hour (1 to 12), the minute in fives, then AM or PM, all in the viewer's own
+ * time zone, said under it.
  * It submits ISO 8601 with the viewer's offset (DATE_TIME_SCRIPT fills it in).
  */
 export function dateTimeField(options: DateTimeFieldOptions): ControlMarkup {
   const id = options.id ?? `when-${options.name}`;
   const isOpen = options.state === "open";
-  const wheel = (part: string, label: string) => html`<div class="wheel" data-own-fade data-part="${part}" role="listbox" aria-label="${label}" tabindex="0"></div>`;
   return controlMarkup(html`<fieldset class="bday" data-date-time${options.minimumAt ? html` data-minimum-at="${options.minimumAt}"` : ""}>
 <legend id="${id}-legend">${options.label}</legend>
 <button type="button" class="bday-field cut-carved${options.error ? " is-marked" : ""}" data-cut-line="10" aria-expanded="${isOpen ? "true" : "false"}" aria-controls="${id}-pick" aria-describedby="${id}-legend ${options.error ? `${id}-error ` : ""}${id}-zone">${CUT_LINE}${icon("clock")}<span class="bday-value">Choose a time</span><span class="bday-chev">${icon("chevron-down")}</span></button>
 ${options.error ? html`<p class="field-error" id="${id}-error">${options.error}</p>` : ""}<p class="date-time-zone" id="${id}-zone"></p>
 <div class="bday-pick" data-cut-line="10" id="${id}-pick" role="group" aria-label="${options.label}"${isOpen ? "" : raw(" hidden")}>
-<div class="wheels date-time-wheels"><span class="wheel-band cut-raised" data-cut-line="8" aria-hidden="true"></span>${wheel("day", "Day")}${wheel("hour", "Hour")}${wheel("minute", "Minute")}</div>
+<div class="wheels date-time-wheels">${wheelChannel("day", "Day")}${wheelChannel("hour", "Hour")}${wheelChannel("minute", "Minute")}${wheelChannel("half", "AM or PM")}</div>
 <span class="bday-read sr" aria-live="polite"></span>
 </div>
 <input type="hidden" name="${options.name}" value="${options.pickedAt ?? ""}" data-id="${id}">
@@ -524,9 +530,9 @@ export const SEARCH_SCRIPT = `/* search finishes */(function () {
  */
 export const DATE_TIME_SCRIPT = `/* date and time */(function () {
   var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  var ROW = 40, DAY_MS = 86400000, FIVE_MS = 300000;
-  var HOURS = [], MINUTES = [];
-  for (var h = 0; h < 24; h++) HOURS.push((h % 12 || 12) + (h < 12 ? " AM" : " PM"));
+  var ROW = 36, DAY_MS = 86400000, FIVE_MS = 300000;
+  var HOURS = [], MINUTES = [], HALVES = ["AM", "PM"];
+  for (var h = 1; h <= 12; h++) HOURS.push(String(h));
   for (var m = 0; m < 60; m += 5) MINUTES.push(String(m).padStart(2, "0"));
   function two(n) { return String(n).padStart(2, "0"); }
   function startOfDay(date) { return new Date(date.getFullYear(), date.getMonth(), date.getDate()); }
@@ -556,11 +562,12 @@ export const DATE_TIME_SCRIPT = `/* date and time */(function () {
       // Next year's days say their year instead of their weekday, so they fit the wheel.
       return (day.getFullYear() === thisYear ? thisYearWords : laterYearWords).format(day);
     }
-    var picked = { day: 0, hour: 0, minute: 0 }, isSet = false;
-    function timeOf(at) { var day = days[at.day]; return new Date(day.getFullYear(), day.getMonth(), day.getDate(), at.hour, at.minute * 5); }
+    // The hour wheel's rows are 1 to 12 (row 11 is 12) and the half's AM or PM; together they make the hour of the day.
+    var picked = { day: 0, hour: 0, minute: 0, half: 0 }, isSet = false;
+    function timeOf(at) { var day = days[at.day]; return new Date(day.getFullYear(), day.getMonth(), day.getDate(), (at.hour + 1) % 12 + at.half * 12, at.minute * 5); }
     function pickedOf(date) {
       var dayIndex = Math.max(0, Math.min(days.length - 1, Math.round((startOfDay(date).getTime() - firstDay.getTime()) / DAY_MS)));
-      return { day: dayIndex, hour: date.getHours(), minute: Math.floor(date.getMinutes() / 5) };
+      return { day: dayIndex, hour: (date.getHours() % 12 || 12) - 1, minute: Math.floor(date.getMinutes() / 5), half: date.getHours() < 12 ? 0 : 1 };
     }
     var given = hidden.value ? new Date(hidden.value) : null, error = root.querySelector(".field-error");
     // Sent back with an error (a time that's passed): the field keeps saying the time it was sent with, marked, until another is picked.
@@ -569,6 +576,7 @@ export const DATE_TIME_SCRIPT = `/* date and time */(function () {
     var wheels = {
       day: { el: root.querySelector('[data-part="day"]'), items: days.map(dayWords) },
       hour: { el: root.querySelector('[data-part="hour"]'), items: HOURS },
+      half: { el: root.querySelector('[data-part="half"]'), items: HALVES },
       minute: { el: root.querySelector('[data-part="minute"]'), items: MINUTES }
     };
     function mark(part) {
@@ -658,7 +666,7 @@ export const DATE_TIME_SCRIPT = `/* date and time */(function () {
 export const BIRTHDAY_SCRIPT = `/* birthday */(function () {
   var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   var MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-  var ROW = 40, THIS_YEAR = new Date().getFullYear();
+  var ROW = 36, THIS_YEAR = new Date().getFullYear();
   var HINT = window.matchMedia("(pointer: coarse)").matches ? "Swipe each wheel to pick." : "Scroll or type to pick each one.";
   var years = []; for (var yr = THIS_YEAR; yr > THIS_YEAR - 100; yr--) years.push(String(yr));
   function daysIn(month, year) { return month ? new Date(year || 2000, month, 0).getDate() : 31; }
@@ -1010,28 +1018,30 @@ component({
    date ("Jan 15, 2027, 1:30 PM") fits a phone. What's wrong is said under it, as under a cut field. */
 .bday-value { min-width: 0; flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .bday-field > span { position: relative; z-index: 2; }
-/* The picker: a well of clearer glass holding three wheels under a white band with the orange line. The picked value is larger; the others fade
-   toward the edges. The wheel you're on by keyboard draws the focus line round its part of the band, closing on the band's own line, so
-   there's one line under the value, never two. */
+/* The picker: a pane of clearer glass holding its wheels, each a groove carved into it three rows tall. The picked row is in the middle and
+   catches the light, as a pointed list row does (its glass clears, its edge lit above and shaded below); a row shows above and below it,
+   quieter, so there's always more to see both ways. The wheel you're on by keyboard draws the focus line round its groove. */
 .bday-pick { position: relative; margin-top: 0; padding: var(--pad-inner-pane); border: 0; background: var(--pick); box-shadow: var(--pick-shade);
   clip-path: var(--cut-shape); }
 /* The month gets the room its longest name needs (September), the day the least. */
-.wheels { position: relative; display: grid; grid-template-columns: 1.9fr 0.7fr 1fr; gap: 4px; padding: 0 6px; }
-/* The band sits on the wheels' top row, so nothing blank sits above it: the value you've picked is at the top, the rest follow below it, fading. */
-.wheel-band { position: absolute; left: 0; right: 0; top: 0; height: 40px; pointer-events: none;
-  background: var(--slab); box-shadow: var(--slab-shade), inset 0 -3px 0 var(--run);
-  clip-path: var(--cut-shape); }
-.wheel { position: relative; height: 160px; overflow-y: auto; overscroll-behavior: contain;
-  scroll-snap-type: y mandatory; scrollbar-width: none; padding: 0 0 120px; box-sizing: border-box; outline: none;
-  -webkit-mask-image: linear-gradient(180deg, #000 0, #000 30%, rgba(0,0,0,0.45) 70%, transparent);
-  mask-image: linear-gradient(180deg, #000 0, #000 30%, rgba(0,0,0,0.45) 70%, transparent); }
+/* Each wheel is at least as wide as its longest row (a month's name, a year, "Tomorrow", "AM"), so a pane that fits what's in it grows to them. */
+.wheels { --wheel-row: 36px; position: relative; display: grid; grid-template-columns: minmax(6.5rem, 1.9fr) minmax(2.75rem, 0.7fr) minmax(4rem, 1fr); gap: var(--gap-control-row); }
+.wheel-channel { position: relative; min-width: 0; height: calc(3 * var(--wheel-row)); background: var(--well); box-shadow: var(--well-shade); clip-path: var(--cut-shape); }
+.wheel-lit { position: absolute; z-index: 1; left: 3px; right: 3px; top: var(--wheel-row); height: var(--wheel-row); pointer-events: none; background: var(--field-hover); clip-path: var(--cut-shape); }
+.wheel-lit > .cut-line { --band-top: var(--raise-top); --band-left: var(--raise-left); --band-right: var(--raise-right); --band-bottom: var(--raise-bottom); }
+.wheel-channel > .cut-line { z-index: 3; pointer-events: none; }
+.wheel-channel:has(> .wheel:focus-visible) > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
+/* The wheel scrolls inside its groove, the picked row snapped to the middle; the rows above and below fade toward the groove's ends. */
+.wheel { position: relative; z-index: 2; height: 100%; overflow-y: auto; overscroll-behavior: contain; scroll-snap-type: y mandatory; scroll-padding-top: var(--wheel-row);
+  scrollbar-width: none; padding: var(--wheel-row) 0; box-sizing: border-box; outline: none;
+  -webkit-mask-image: linear-gradient(180deg, rgba(0,0,0,0.4), #000 33%, #000 67%, rgba(0,0,0,0.4));
+  mask-image: linear-gradient(180deg, rgba(0,0,0,0.4), #000 33%, #000 67%, rgba(0,0,0,0.4)); }
 .wheel::-webkit-scrollbar { display: none; }
-.wheel [role="option"] { height: 40px; display: flex; align-items: center; justify-content: center; scroll-snap-align: start;
+.wheel [role="option"] { height: var(--wheel-row); display: flex; align-items: center; justify-content: center; scroll-snap-align: start;
   font: 500 1rem var(--display); color: var(--ink-2); cursor: pointer; user-select: none; -webkit-user-select: none; transition: color 0.2s, font-size 0.2s; }
 .wheel [role="option"].blank { color: var(--muted); font-weight: 400; }
-.wheel [role="option"][aria-selected="true"] { font-size: 1.125rem; color: var(--ink); font-weight: 600; }
+.wheel [role="option"][aria-selected="true"] { color: var(--ink); font-weight: 600; }
 .wheel [role="option"][aria-selected="true"].blank { color: var(--muted); font-weight: 500; }
-.wheel:focus-visible [role="option"][aria-selected="true"] { outline: 2px solid var(--focus); outline-offset: -2px; }
 /* Done: a cut slab of clearer glass; it whitens with the orange line when you point at it, once there's a whole date. */
 `,
   render: birthdayField,
@@ -1050,16 +1060,15 @@ component({
   slug: "date-time-field",
   group: "inputs",
   subgroup: "dates",
-  summary: "Picking when something happens, like a version going live: the birthday field's wheels for the day, the hour (with its AM or PM) and the minute, in your own time zone, which it says.",
+  summary: "Picking when something happens, like a version going live: the birthday field's wheels for the day, the hour, the minute and AM or PM, in your own time zone, which it says.",
   styles: `
 /* The date and time field: the birthday field with a clock, and the time zone said under it. The day wheel gets the room "Jan 15, 2027" needs,
    the hour "12 PM". */
 .date-time-zone { margin: 0; padding-inline: var(--pad-words); font: var(--type-facts); color: var(--muted); }
 .date-time-zone:empty { display: none; }
-.date-time-wheels { grid-template-columns: 2.5fr 1.1fr 0.7fr; }
+.date-time-wheels { grid-template-columns: minmax(7rem, 2.5fr) repeat(3, minmax(2.75rem, 0.8fr)); }
 /* The picked day stays at the wheel's own size, so a long one ("Jan 15, 2027") still fits a phone. */
 .date-time-wheels [role="option"] { white-space: nowrap; }
-.date-time-wheels [role="option"][aria-selected="true"] { font-size: 1rem; }
 /* On a phone what's typed or picked is 16px, the least that keeps a phone from zooming in, so more of it fits: in a cut field, a search, a
    birthday's and a date's. Set here, after each of those fields' own font, so it holds on every one. */
 @media (max-width: 760px) { .field input, .find input[type="search"], .find-finish, .bday-field { font-size: 1rem; } }
