@@ -621,11 +621,12 @@ component({
   styles: `
 /* A groove: carved into the glass and read by its edges alone, like every carving, but deep: a shade under its upper edge and a crisp line
    of light along its lower lip, where the light from above lands (--groove-shade, --groove-lip); its face is the toggle slot's when off,
-   never brighter. It's cut by the edge rule. What's filled is orange light lying in it a pixel in from its lips, cut by the edge rule too,
-   its holder casting its glow past the lips. With no end known, a short light runs along it, inside it. */
+   never brighter. It's cut by the edge rule. What's filled is orange light lying inside the carving, 2px in from every edge (clear of the
+   shade along its top and above its lit lip), cut by the edge rule too, its glow soft enough to stay within the carving. It never starts
+   at the carving's very edge or covers its lip, so it never reads fuller than it is. With no end known, a short light runs along it, inside it. */
 .groove { position: relative; display: block; height: 8px; }
 .groove::before { content: ""; position: absolute; inset: 0; background: var(--toggle-off); box-shadow: inset 0 3px 3px var(--groove-shade), inset 0 -1.5px 0 var(--groove-lip); clip-path: var(--cut-shape); }
-.groove-fill { position: absolute; z-index: 2; top: 1px; bottom: 1px; left: 0; width: var(--groove-filled-length, calc(var(--groove-filled, 0) * 100%)); filter: drop-shadow(0 0 3px var(--run)); transition: width 0.3s ease; }
+.groove-fill { position: absolute; z-index: 2; top: 2px; bottom: 2px; left: 2px; width: max(0px, calc(var(--groove-filled-length, calc(var(--groove-filled, 0) * 100%)) - 2px)); max-width: calc(100% - 4px); filter: drop-shadow(0 0 1.5px var(--run)); transition: width 0.3s ease; }
 .groove-light { position: absolute; inset: 0; background: linear-gradient(180deg, var(--run-hi), var(--run)); clip-path: var(--cut-shape); }
 /* Still going: a glint of light runs along the orange, inside it, over and over. */
 .groove.is-working .groove-light { overflow: hidden; }
