@@ -225,6 +225,7 @@ export const SELECT_SCRIPT = `/* select fields */(function () {
       var topPx = Math.max(EDGE_PX, Math.min(window.innerHeight - heightPx - EDGE_PX, r.top + r.height / 2 - rowMiddlePx));
       var leftPx = Math.max(EDGE_PX, Math.min(document.documentElement.clientWidth - r.width - EDGE_PX, r.left));
       list.style.left = Math.round(leftPx) + "px"; list.style.top = Math.round(topPx) + "px";
+      window.zaismaCast(list);
     }
     function pick(i) {
       options.forEach(function (o, j) { o.setAttribute("aria-selected", String(j === i)); });
@@ -333,6 +334,10 @@ component({
 /* Shown open in place (the gallery's open states), it holds every choice: there's no window edge to keep it from. A select's lies over
    its field, the picked row (--picked-row-index, its rows 36px and 2px apart) centered on it. */
 .select-list.in-place { position: relative; display: flex; width: 100%; max-height: none; }
+/* The shadow a floating list casts (PLACE_SCRIPT's zaismaCast): a box under it with only an outer shadow. A still open one in the gallery
+   casts it through its field, whose label and field are hidden, so only the list makes one. */
+.float-cast { position: fixed; z-index: 2147483646; pointer-events: none; box-shadow: var(--float-shade); }
+.cut-field[data-select]:has(> .select-list.over-field.in-place) { filter: var(--float-cast); }
 /* Glass inside a pane's glass isn't blurred, so the label and field under it are hidden rather than showing through. */
 .cut-field[data-select]:has(> .select-list.over-field.in-place) > :is(label, .field) { visibility: hidden; }
 .select-list.over-field.in-place { z-index: 6; margin-top: calc(-1 * (var(--gap-words-control) + var(--control-height-field) / 2 + 22px + var(--picked-row-index) * 38px)); }

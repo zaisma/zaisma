@@ -2,7 +2,7 @@ import { PURCHASE_PIN_LIMITS } from "@zaisma/core";
 import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
 import { controlMarkup, type ControlMarkup } from "./control-markup.ts";
-import { CUT_LINE, EDGE, icon, type IconName } from "./foundations.ts";
+import { CUT_LINE, EDGE, glassPane, icon, type IconName } from "./foundations.ts";
 import { secondaryButton, toggleButton } from "./actions.ts";
 import { examplePane } from "./example-pane.ts";
 import { row } from "./layout.ts";
@@ -442,6 +442,7 @@ export const SEARCH_SCRIPT = `/* search finishes */(function () {
       var spot = window.zaismaPlace(r, { width: r.width, height: list.offsetHeight }, { gapPx: GAP_PX, edgePx: EDGE_PX });
       list.style.left = Math.round(spot.leftPx) + "px"; list.style.top = Math.round(spot.topPx) + "px";
       list.classList.toggle("is-above", spot.isAbove);
+      window.zaismaCast(list);
     }
     // The rest of the finish you're on, after what's typed, while what's typed is all in view.
     function showFinish() {
@@ -692,6 +693,7 @@ export const WHEEL_SCRIPT = String.raw`/* wheel fields */(function () {
       var heightPx = pick.offsetHeight, widthPx = pick.offsetWidth, rowMiddlePx = wheelRow.offsetTop + 1.5 * ROW;
       pick.style.top = Math.round(Math.max(8, Math.min(window.innerHeight - heightPx - 8, r.top + r.height / 2 - rowMiddlePx))) + "px";
       pick.style.left = Math.round(Math.max(8, Math.min(document.documentElement.clientWidth - widthPx - 8, r.left))) + "px";
+      window.zaismaCast(pick);
     }
     function mark(part) {
       var w = wheels[part], i = form.at[part];
@@ -1049,6 +1051,8 @@ component({
 /* Shown open in place (the gallery's open states), it lies over its field the same way, the label and field it covers hidden: glass inside
    a pane's glass isn't blurred, so they would show through it. */
 .wheel-field:has(> .wheel-pick.in-place) > :is(legend, .wheel-button) { visibility: hidden; }
+/* Its shadow, cast through the field, whose label and field are hidden, so only the wheels make one. */
+.wheel-field:has(> .wheel-pick.in-place) { filter: var(--float-cast); }
 .select-list.over-field.wheel-pick.in-place { position: relative; z-index: 6; margin-top: calc(-1 * (var(--gap-words-control) + var(--control-height-field) / 2 + var(--pad-inner-pane) + 1.5 * 36px)); }
 /* The month gets the room its longest name needs (September), the day the least. */
 /* Each wheel is at least as wide as its longest row (a month's name, a year, "Tomorrow", "AM"), so a pane that fits what's in it grows to them. */

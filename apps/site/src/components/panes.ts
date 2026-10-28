@@ -173,6 +173,20 @@ export const PLACE_SCRIPT = `/* place */(function () {
     var topPx = isAbove ? buttonRect.top - gapPx - paneSize.height : buttonRect.bottom + gapPx;
     return { leftPx: leftPx, topPx: Math.max(room.top + edgePx, Math.min(topPx, room.bottom - edgePx - paneSize.height)), isAtEnd: isAtEnd, isAbove: isAbove };
   };
+  // A pane floating over the page (a select's list, a search's, the wheels: .select-list) casts a shadow onto it, so it reads as on top. Its
+  // glass's cut shape would clip a shadow of its own, and a filter round it would stop its glass blurring, so the shadow is a box of its own
+  // laid under it, with only an outer shadow (--float-shade). window.zaismaCast(pane) lays it again once the pane has moved.
+  window.zaismaCast = function (pane) {
+    var cast = pane.floatCast;
+    if (!cast) { cast = pane.floatCast = document.createElement("div"); cast.className = "float-cast"; cast.setAttribute("aria-hidden", "true"); document.body.appendChild(cast); }
+    if (!pane.isConnected || !pane.matches(":popover-open")) { cast.hidden = true; return; }
+    var r = pane.getBoundingClientRect();
+    cast.hidden = false; cast.style.left = r.left + "px"; cast.style.top = r.top + "px"; cast.style.width = r.width + "px"; cast.style.height = r.height + "px";
+  };
+  // Opening, closing and settling after its opening move: the toggle and transition events don't bubble, so they're caught on the way down.
+  ["toggle", "transitionend"].forEach(function (type) {
+    document.addEventListener(type, function (event) { if (event.target.classList && event.target.classList.contains("select-list") && !event.target.classList.contains("in-place")) window.zaismaCast(event.target); }, true);
+  });
 })();
 `;
 
