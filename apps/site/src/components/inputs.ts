@@ -294,7 +294,7 @@ export function codeField(options: CodeFieldOptions): Raw {
   const isCommand = / /.test(options.code.trim());
   const code = isCommand ? options.code.split(" ").map((word, wordIndex) => html`${wordIndex ? " " : ""}<span class="code-word">${word}</span>`) : options.code;
   const isCopied = options.state === "is-copied";
-  return html`<div class="cut-field code-field${isCopied ? " is-copied" : ""}${options.isMasked ? " is-masked" : ""}"><span class="copy-head"><span class="code-label" id="${id}-label">${options.label}</span><span class="copy-said" role="status">${isCopied ? "Copied" : ""}</span></span><div class="field code cut-carved${options.state === "is-focused" ? " is-focused" : ""}" data-cut-line="10">${CUT_LINE}<code class="code-text" id="${id}" tabindex="0" aria-labelledby="${id}-label">${code}</code>${tertiaryButton("Copy", { type: "button", icon: "copy", isLabelHidden: true, isSmall: true, controls: id })}<span class="code-done" aria-hidden="true">${icon("check")}</span></div></div>`;
+  return html`<div class="cut-field code-field${isCopied ? " is-copied" : ""}${options.isMasked ? " is-masked" : ""}"><span class="copy-head"><span class="code-label" id="${id}-label">${options.label}</span><span class="copy-said" role="status">${isCopied ? "Copied" : ""}</span></span><div class="field code cut-carved${options.state === "is-focused" ? " is-focused" : ""}" data-cut-line="10">${CUT_LINE}<code class="code-text" id="${id}" tabindex="0" aria-labelledby="${id}-label">${code}</code>${tertiaryButton("Copy", { type: "button", icon: "copy", isLabelHidden: true, isSmall: true, controls: id })}<span class="copy-done" aria-hidden="true">${icon("check")}</span></div></div>`;
 }
 
 /**
@@ -350,9 +350,10 @@ component({
 .code-label { font: var(--type-label); color: var(--ink-2); }
 .copy-said { font: var(--type-facts); color: var(--ink); opacity: 0; transition: opacity 0.2s; }
 :is(.code-field, .link-field).is-copied .copy-said { opacity: 1; }
-.code-done { display: none; position: absolute; z-index: 4; top: var(--toggle-inset); right: var(--toggle-inset); width: var(--control-height-small); height: var(--control-height-small); place-items: center; pointer-events: none; color: var(--ink); }
-.code-field.is-copied .code-done { display: grid; }
-.code-field.is-copied .field.code > .tertiary-btn .ico { visibility: hidden; }
+/* The tick lies just over Copy's icon, which hides under it. */
+:is(.field.code, .link-field-box) > .copy-done { display: none; position: absolute; z-index: 4; top: var(--toggle-inset); right: var(--toggle-inset); width: var(--control-height-small); height: var(--control-height-small); place-items: center; pointer-events: none; color: var(--ink); }
+:is(.code-field, .link-field).is-copied :is(.field.code, .link-field-box) > .copy-done { display: grid; }
+:is(.code-field, .link-field).is-copied :is(.field.code, .link-field-box) > .tertiary-btn .ico { visibility: hidden; }
 .field.code { height: auto; min-height: var(--control-height-field); align-items: stretch; }
 /* Each line is as tall as Copy's half and the gap round it, so the first line sits on Copy's center line and the second clears it. */
 /* One long token (a key, an address) breaks at a line's end, or at a slash or hyphen where one is near it. */
@@ -395,14 +396,14 @@ export interface LinkFieldOptions {
 }
 
 /**
- * A link field: a link to copy, in a carved well, its address on one line without https:// and cut short at its end when it's long. A press
- * anywhere on it copies the whole address (Copy's icon at its end says so), and for a moment it says so as a code field does.
+ * A link field: a link to copy, in a carved well, its address on one line without https:// and cut short at its end when it's long, with a
+ * code field's Copy (a small tertiary icon button) at its end. A press anywhere on it copies the whole address, and it says so as a code field does.
  */
 export function linkField(options: LinkFieldOptions): ControlMarkup {
   const shown = options.url.replace(/^https?:\/\//, "");
   const isCopied = options.state === "is-copied";
   const state = options.state && options.state !== "is-copied" ? ` ${options.state}` : "";
-  return controlMarkup(html`<div class="link-field${isCopied ? " is-copied" : ""}${options.isMasked ? " is-masked" : ""}"><span class="copy-head"><span class="link-field-label" id="${options.id}-label">${options.label}</span><span class="copy-said" role="status">${isCopied ? "Copied" : ""}</span></span><button class="link-field-box cut-carved${state}" type="button" data-cut-line="10" aria-labelledby="${options.id}-label ${options.id}" aria-describedby="${options.id}-copy">${CUT_LINE}<span class="link-field-icon">${icon("link")}</span><span class="link-field-text" id="${options.id}" data-link="${options.url}">${shown}</span><span class="link-field-copy" id="${options.id}-copy" data-cut-line="9">${CUT_LINE}<span class="sr">Copy</span>${icon("copy")}${icon("check")}</span></button></div>`, "field", { hasOwnWords: true });
+  return controlMarkup(html`<div class="link-field${isCopied ? " is-copied" : ""}${options.isMasked ? " is-masked" : ""}"><span class="copy-head"><span class="link-field-label" id="${options.id}-label">${options.label}</span><span class="copy-said" role="status">${isCopied ? "Copied" : ""}</span></span><div class="link-field-box cut-carved${state}" data-cut-line="10">${CUT_LINE}<span class="link-field-icon">${icon("link")}</span><span class="link-field-text" id="${options.id}" data-link="${options.url}">${shown}</span>${tertiaryButton(`Copy ${options.label.toLowerCase()}`, { type: "button", icon: "copy", isLabelHidden: true, isSmall: true, controls: options.id, state: options.state === "is-pointed" || options.state === "is-focused" ? options.state : undefined })}<span class="copy-done" aria-hidden="true">${icon("check")}</span></div></div>`, "field", { hasOwnWords: true });
 }
 
 component({
@@ -413,34 +414,25 @@ component({
   summary: "A link to copy: its address on one line, in the words' own letters, without https://. A press anywhere on it copies it, and it says so as a Code field does. Code to copy (a key, a command) is a Code field.",
   styles: `
 /* A link field: a carved well, like a code field's, one line tall: a link mark, the address in the words' letters (cut short at its end
-   when it's long), and Copy's icon at its end, where a code field's Copy is. The whole well is the button: pointed at, Copy's icon brings up
-   a tertiary button's slab; pressed, the well is shaded from above. Copied, it says so as a code field does: the icon is a tick and
-   "Copied" shows at the end of the label's line, both in the ink, for a moment (COPY_SCRIPT); the address stays. */
+   when it's long), and a code field's Copy over its end, a small tertiary icon button, which the keyboard reaches. A press anywhere on the
+   well copies too: pointed at, the well brings up Copy's slab; pressed, it's shaded from above. Copied, it says so as a code field does:
+   Copy's icon is a tick and "Copied" shows at the end of the label's line, both in the ink, for a moment (COPY_SCRIPT); the address stays. */
 .link-field { display: flex; flex-direction: column; gap: var(--gap-words-control); min-width: 0; }
 .link-field-label { font: var(--type-label); color: var(--ink-2); }
-.link-field-box { --toggle-inset: calc((var(--control-height-field) - var(--control-height-small)) / 2); position: relative; display: flex; align-items: center; gap: var(--gap-words-words); width: 100%; min-width: 0; height: var(--control-height-field); padding: 0 var(--pad-inside-words); margin: 0; border: 0;
-  font: var(--type-words); color: var(--ink); text-align: left; cursor: pointer; background: var(--well); box-shadow: var(--well-shade); clip-path: var(--cut-shape); transition: transform 0.15s; }
+.link-field-box { --toggle-inset: calc((var(--control-height-field) - var(--control-height-small)) / 2); position: relative; display: flex; align-items: center; gap: var(--gap-words-words); width: 100%; min-width: 0; height: var(--control-height-field);
+  padding: 0 calc(var(--control-height-small) + var(--toggle-inset) + var(--gap-words-words)) 0 var(--pad-inside-words);
+  font: var(--type-words); color: var(--ink); cursor: pointer; background: var(--well); box-shadow: var(--well-shade); clip-path: var(--cut-shape); }
 .link-field-box > :not(.cut-line) { position: relative; z-index: 2; }
 .link-field-icon { flex: none; display: inline-flex; color: var(--ink-2); }
 .link-field-icon > .ico { width: 18px; height: 18px; }
 .link-field-text { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-/* Copy's icon, as far in from the end as from the top and bottom, on a tertiary button's slab when the well is pointed at or pressed,
-   cut by the edge rule like any control in the well (data-cut-line), so it follows the field's corner. */
-.link-field-copy { flex: none; display: grid; place-items: center; width: var(--control-height-small); height: var(--control-height-small); margin-inline-end: calc(var(--toggle-inset) - var(--pad-inside-words));
-  color: var(--ink-2); --face-color: transparent; background: var(--face-color); clip-path: var(--cut-shape); transition: --face-color 0.15s, color 0.15s; }
-.link-field-copy > .ico { grid-area: 1 / 1; position: relative; z-index: 2; width: 18px; height: 18px; }
-.link-field-copy > .ico:last-child { visibility: hidden; }
-.link-field-box:hover .link-field-copy, .link-field-box.is-pointed .link-field-copy { color: var(--ink); --face-color: var(--wash); }
-.link-field-box:active .link-field-copy, .link-field-box.is-pressed .link-field-copy { --face-color: var(--wash-press); }
-.link-field-box:active, .link-field-box.is-pressed { box-shadow: var(--press-shade); }
-.link-field-box:focus-visible { outline: none; }
-.link-field-box:focus-visible > .cut-line polygon, .link-field-box.is-focused > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
-.link-field.is-copied .link-field-copy { color: var(--ink); }
-.link-field.is-copied .link-field-copy > .ico:nth-last-child(2) { visibility: hidden; }
-.link-field.is-copied .link-field-copy > .ico:last-child { visibility: visible; }
+.link-field-box > .tertiary-btn { position: absolute; z-index: 3; top: var(--toggle-inset); right: var(--toggle-inset); }
+.link-field-box:hover > .tertiary-btn > .face { color: var(--ink); --face-color: var(--wash); }
+.link-field-box:active { box-shadow: var(--press-shade); }
+.link-field-box:active > .tertiary-btn > .face { --face-color: var(--wash-press); }
 /* Masked: the address blurs into its own glow, unreadable, until the page shows it; a press still copies it. */
-.link-field.is-masked .link-field-text { color: transparent; text-shadow: 0 0 10px var(--ink); }
-@media (prefers-reduced-motion: reduce) { .link-field-box { transition: none; } }
+/* Its glow has room round the words, inside what cuts them short, so it isn't clipped. */
+.link-field.is-masked .link-field-text { color: transparent; text-shadow: 0 0 10px var(--ink); padding: 12px; margin: -12px; }
 `,
   render: linkField,
   examples: [
