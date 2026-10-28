@@ -23,7 +23,7 @@ export const LIGHT_GLASS = `color-scheme: light;
   --run-cast: drop-shadow(0 2px 3px rgba(20, 23, 28, 0.18)) drop-shadow(0 8px 14px rgba(20, 23, 28, 0.18)); --run-cast-up: drop-shadow(0 3px 4px rgba(20, 23, 28, 0.16)) drop-shadow(0 12px 20px rgba(20, 23, 28, 0.16)); --run-cast-down: drop-shadow(0 1px 1.5px rgba(20, 23, 28, 0.22)) drop-shadow(0 2px 4px rgba(20, 23, 28, 0.12)); --run-flare: drop-shadow(0 0 6px rgba(247, 147, 26, 0.55)) drop-shadow(0 4px 10px rgba(20, 23, 28, 0.14)); --toggle-ring: drop-shadow(1.5px 0 0 var(--run)) drop-shadow(-1.5px 0 0 var(--run)) drop-shadow(0 1.5px 0 var(--run)) drop-shadow(0 -1.5px 0 var(--run)); --toggle-cast: drop-shadow(0 1px 2px rgba(247, 147, 26, 0.4)) drop-shadow(0 6px 10px rgba(20, 23, 28, 0.1));
   /* A pane floating over the page (a list, the wheels): the shadow it casts, outside its edge, so it reads as on top; and the same as a filter. */
   --float-cast: drop-shadow(0 1px 3px rgba(20, 23, 28, 0.08)) drop-shadow(0 6px 16px rgba(20, 23, 28, 0.1));
-  --slab: linear-gradient(180deg, rgba(255, 255, 255, 0.88), rgba(255, 255, 255, 0.6)); --slab-shade: 0 4px 10px rgba(20, 23, 28, 0.12); --ghost: rgba(255, 255, 255, 0.45); --ghost-rest: rgba(255, 255, 255, 0); --wash-rest: rgba(20, 23, 28, 0); --wash: rgba(20, 23, 28, 0.08); --wash-press: rgba(20, 23, 28, 0.14);
+  --slab: linear-gradient(180deg, rgba(255, 255, 255, 0.88), rgba(255, 255, 255, 0.6)); --slab-shade: 0 4px 10px rgba(20, 23, 28, 0.12); --slab-cast: drop-shadow(0 1px 1px rgba(20, 30, 50, 0.14)) drop-shadow(0 3px 6px rgba(20, 30, 50, 0.16)); --ghost: rgba(255, 255, 255, 0.45); --ghost-rest: rgba(255, 255, 255, 0); --wash-rest: rgba(20, 23, 28, 0); --wash: rgba(20, 23, 28, 0.08); --wash-press: rgba(20, 23, 28, 0.14);
   --btn: #F7F8FA; --btn-hover: #FFFFFF; --btn-press: rgba(226, 232, 240, 0.9);
   --press-shade: inset 0 2px 5px rgba(20, 30, 50, 0.16);
   /* The edge of something you press, at rest (a check's box, a toggle's slot, a choice card): 3:1 or more against the glass. */
@@ -72,7 +72,7 @@ export const SMOKED_GLASS = `color-scheme: dark;
   --run-words: var(--run-hi);
   --run-cast: drop-shadow(0 3px 10px rgba(247, 147, 26, 0.3)) drop-shadow(0 0 2px rgba(247, 147, 26, 0.25)); --run-cast-up: drop-shadow(0 5px 16px rgba(247, 147, 26, 0.34)) drop-shadow(0 0 3px rgba(247, 147, 26, 0.28)); --run-cast-down: drop-shadow(0 1px 4px rgba(247, 147, 26, 0.42)) drop-shadow(0 0 1.5px rgba(247, 147, 26, 0.34)); --run-flare: drop-shadow(0 2px 18px rgba(247, 147, 26, 0.7)) drop-shadow(0 0 4px rgba(255, 190, 110, 0.65)); --toggle-ring: drop-shadow(1.5px 0 0 var(--run)) drop-shadow(-1.5px 0 0 var(--run)) drop-shadow(0 1.5px 0 var(--run)) drop-shadow(0 -1.5px 0 var(--run)); --toggle-cast: drop-shadow(0 3px 8px rgba(247, 147, 26, 0.45)) drop-shadow(0 1px 1.5px rgba(247, 147, 26, 0.35));
   --float-cast: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.25)) drop-shadow(0 8px 20px rgba(0, 0, 0, 0.3));
-  --slab: rgba(255, 255, 255, 0.2); --slab-shade: 0 0 0 transparent; --ghost: rgba(255, 255, 255, 0.1); --ghost-rest: rgba(255, 255, 255, 0); --wash-rest: rgba(255, 255, 255, 0); --wash: rgba(255, 255, 255, 0.14); --wash-press: rgba(255, 255, 255, 0.22);
+  --slab: rgba(255, 255, 255, 0.2); --slab-shade: 0 0 0 transparent; --slab-cast: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.4)) drop-shadow(0 3px 8px rgba(0, 0, 0, 0.45)); --ghost: rgba(255, 255, 255, 0.1); --ghost-rest: rgba(255, 255, 255, 0); --wash-rest: rgba(255, 255, 255, 0); --wash: rgba(255, 255, 255, 0.14); --wash-press: rgba(255, 255, 255, 0.22);
   --btn: #3A3E47; --btn-hover: #444852; --btn-press: rgba(255, 255, 255, 0.07);
   --press-shade: inset 0 2px 5px rgba(0, 0, 0, 0.4);
   --press-rim: rgba(255, 255, 255, 0.45);
@@ -344,8 +344,6 @@ ${WORDS_SURFACES.join(", ")} { padding: var(--pad-frame); --pad-words: var(--pad
 /* On smoked glass a carving's shaded top and left are dark on dark, so a faint light line traces its outer edge all round: the cut reads at
    its edge on every side, not at what's inside it. Light glass needs none (--carve-rim is transparent there). Half the stroke is clipped away. */
 .cut-carved > .cut-line polygon { stroke: var(--carve-rim); stroke-width: 2; }
-/* Orange is always shown in full, so a slab's shade never falls on its orange underline. */
-.slab.cut-raised > .cut-line { --band-bottom: transparent; }
 .cut-line .cut-band.on-top { fill: var(--band-top, transparent); } .cut-line .cut-band.on-left { fill: var(--band-left, transparent); }
 .cut-line .cut-band.on-right { fill: var(--band-right, transparent); } .cut-line .cut-band.on-bottom { fill: var(--band-bottom, transparent); }
 /* A nested corner's cut faces two ways, so it takes half of each side's light. */

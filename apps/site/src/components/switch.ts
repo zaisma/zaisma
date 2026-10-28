@@ -39,7 +39,7 @@ export interface SwitchTab {
   state?: "is-pointed" | "is-focused";
 }
 
-/** The switch: a clear well, a white slab with the orange line under the one you're on, and a faint one under the one you point at. */
+/** The switch: a carved well, a raised slab under the one you're on, and a faint one under the one you point at. */
 export function tabSwitch(options: {
   label: string;
   tabs: SwitchTab[];
@@ -223,13 +223,18 @@ component({
   subgroup: "choices",
   summary: "Choosing one of a few: Sign in or Make an account (big), Recently played or Recently updated (small). Stacked, it's a page's own places down its side.",
   styles: `
-/* The switch: the header's and the home's. A clear well, a white slab with the orange line under the one you're on, and a faint one under the one you point at.
+/* The switch: the header's and the home's. A carved well, a raised slab under the one you're on, lit like any raised glass, and a faint one under the
+   one you point at. No orange: it's a choice, not the thing to do, so orange is left for keyboard focus.
    It's never wider than its room: where its tabs don't fit, they keep less room round their words (--tab-room, SWITCH_SCRIPT) and share it. */
 .tab-switch { --control-height: var(--control-height-regular); --tab-room: 18px; position: relative; display: flex; min-width: 0; max-width: 100%; height: var(--control-height); padding: 4px; background: var(--well); box-shadow: var(--well-shade);
   clip-path: var(--cut-shape); }
 .tab-switch .slab, .tab-switch .ghost { position: absolute; top: 4px; bottom: 4px; left: 0; width: 0; pointer-events: none; clip-path: var(--cut-shape);
   transition: transform 0.55s var(--spring), width 0.55s var(--spring), opacity 0.3s; }
-.tab-switch .slab { clip-path: var(--cut-shape); background: var(--slab); box-shadow: var(--slab-shade), inset 0 -3px 0 var(--run); }
+/* The slab is a raised piece of glass with the face and bevel of a raised button (--btn, the raise bands), so its edges catch the light, and it
+   casts a soft shadow into the well under it (--slab-cast), which the well's cut keeps inside it. Its face is cut to its shape below its
+   bevel, so the slab itself isn't clipped and its shadow shows. */
+.tab-switch .slab { clip-path: none; filter: var(--slab-cast); }
+.tab-switch .slab::before { content: ""; position: absolute; inset: 0; background: var(--btn); clip-path: var(--cut-shape); }
 .tab-switch .ghost { background: var(--ghost); opacity: 0; }
 .tab-switch.pointing .ghost { opacity: 1; }
 .tab-switch > a, .tab-switch > button { position: relative; z-index: 2; display: grid; place-content: center; padding: 0 var(--tab-room); border: 0; background: none; cursor: pointer;
@@ -237,14 +242,14 @@ component({
 /* A switch across that has less room than its words (a narrow place, a large text size) stays inside it: its tabs' words wrap onto a second line in
    the same height rather than run past its end. One that scrolls sideways (framed) keeps them on one line. */
 .tab-switch:not(.vertical, .framed) { max-width: 100%; }
-.tab-switch:not(.vertical, .framed) > :is(a, button) { min-width: 0; white-space: normal; line-height: 1.1; text-align: center; }
+.tab-switch:not(.vertical, .framed) > :is(a, button) { min-width: 0; white-space: normal; line-height: 1.1; text-align: center; text-wrap: balance; }
 .tab-switch.big > a, .tab-switch.big > button { flex: 1 1 0; }
 /* The one you're on is marked by its slab and full ink, at the same weight as the others, so its words never move as it's chosen. */
 .tab-switch [aria-current="page"], .tab-switch [aria-pressed="true"] { color: var(--ink); }
 /* One that can't be chosen now: faded, and it answers nothing (SWITCH_SCRIPT gives it no ghost). */
 .tab-switch > [aria-disabled="true"], .tab-switch > :disabled { cursor: default; opacity: 0.4; }
 /* Before the script has measured, the one you're on carries its own slab. */
-.tab-switch:not(.is-ready) [aria-current="page"], .tab-switch:not(.is-ready) [aria-pressed="true"] { background: var(--slab); box-shadow: inset 0 -3px 0 var(--run); }
+.tab-switch:not(.is-ready) [aria-current="page"], .tab-switch:not(.is-ready) [aria-pressed="true"] { background: var(--btn); box-shadow: var(--slab-shade); }
 /* Framed: the carved frame is its own (.switch-frame), --switch-height tall (a size class's height), and the tabs scroll inside it. */
 .switch-frame { position: relative; display: flex; flex: none; min-width: 0; height: var(--switch-height, var(--control-height-regular)); background: var(--well); box-shadow: var(--well-shade); clip-path: var(--cut-shape);
   transition: height 0.45s cubic-bezier(.2,.8,.2,1); }
@@ -277,6 +282,8 @@ component({
 .tab-switch.vertical.small .focus-ring { left: 3px; right: 3px; }
 .tab-switch.is-focus-shown .focus-ring { opacity: 1; }
 .tab-switch .focus-ring .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
+/* Only its line: no bevel, so a focused tab never looks carved in or raised. */
+.tab-switch .focus-ring > .cut-line { --band-top: transparent; --band-left: transparent; --band-right: transparent; --band-bottom: transparent; }
 /* The sort switch: the header's switch, smaller. */
 .tab-switch.small { --control-height: var(--control-height-small); --tab-room: 14px; padding: 3px; clip-path: var(--cut-shape); }
 .tab-switch.small .slab, .tab-switch.small .ghost { top: 3px; bottom: 3px; transition-duration: 0.4s, 0.4s, 0.3s; }
