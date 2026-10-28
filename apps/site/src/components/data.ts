@@ -1,6 +1,6 @@
 import { accountPicture, html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
-import { cutButton, runButton, textLink } from "./actions.ts";
+import { secondaryButton, primaryButton, textLink } from "./actions.ts";
 import type { ControlMarkup } from "./control-markup.ts";
 import { CUT_LINE, MINUTE_MS, ago, glassPane, icon, tag, type IconName, type TagTone } from "./foundations.ts";
 import { WHEN_EMPTY_STYLES, row } from "./layout.ts";
@@ -399,7 +399,7 @@ component({
     { label: "Rows that go somewhere", isWide: true, markup: listPane(VERSION_LIST_ROWS) },
     {
       label: "Compact: a long list in a narrow place, one line a row (the players in a room)",
-      markup: html`<div style="width:320px">${glassPane({ paneWidth: "full", body: listRows({ isCompact: true, whenEmpty: html`<p>Nobody here yet.</p>`, rows: ["Liam", "Sofia", "Emma Charlotte Fairweather-Lindqvist"].map((name, index) => ({ lead: pictureFrame(name, "sm"), title: name, titleIcon: index ? undefined : { icon: "friends" as const, label: "Friend" }, action: [cutButton(`Mute ${name}`, { type: "button", icon: "speaker", isLabelHidden: true, isSmall: true }), cutButton(`More for ${name}`, { type: "button", icon: "more", isLabelHidden: true, isSmall: true })] })) }) })}</div>`,
+      markup: html`<div style="width:320px">${glassPane({ paneWidth: "full", body: listRows({ isCompact: true, whenEmpty: html`<p>Nobody here yet.</p>`, rows: ["Liam", "Sofia", "Emma Charlotte Fairweather-Lindqvist"].map((name, index) => ({ lead: pictureFrame(name, "sm"), title: name, titleIcon: index ? undefined : { icon: "friends" as const, label: "Friend" }, action: [secondaryButton(`Mute ${name}`, { type: "button", icon: "speaker", isLabelHidden: true, isSmall: true }), secondaryButton(`More for ${name}`, { type: "button", icon: "more", isLabelHidden: true, isSmall: true })] })) }) })}</div>`,
     },
     { label: "Pointed", markup: listPane([{ title: "Ashen Crown", detail: "Unlisted · 2,318 players this week", href: "#list-rows", state: "is-pointed" }]), isStill: true },
     { label: "Pressed", markup: listPane([{ title: "Ashen Crown", detail: "Unlisted · 2,318 players this week", href: "#list-rows", state: "is-pressed" }]), isStill: true },
@@ -409,33 +409,33 @@ component({
       label: "Led by pictures, a button a row",
       isWide: true,
       markup: listPane([
-        { lead: pictureFrame("Sofia", "md", { presence: "playing" }), title: "Sofia", detail: "Playing Ashen Crown", action: cutButton("Invite", ROW_BUTTON) },
-        { lead: pictureFrame("Liam", "md", { presence: "online" }), title: "Liam", detail: "Online", action: cutButton("Invite", ROW_BUTTON) },
-        { lead: pictureFrame("Noah", "md"), title: "Noah", detail: "Played 3 days ago", action: cutButton("Invite", ROW_BUTTON) },
+        { lead: pictureFrame("Sofia", "md", { presence: "playing" }), title: "Sofia", detail: "Playing Ashen Crown", action: secondaryButton("Invite", ROW_BUTTON) },
+        { lead: pictureFrame("Liam", "md", { presence: "online" }), title: "Liam", detail: "Online", action: secondaryButton("Invite", ROW_BUTTON) },
+        { lead: pictureFrame("Noah", "md"), title: "Noah", detail: "Played 3 days ago", action: secondaryButton("Invite", ROW_BUTTON) },
       ]),
     },
     {
       label: "A few buttons a row: players in a room",
       isWide: true,
       markup: listPane([
-        { lead: pictureFrame("Sofia", "md"), title: "Sofia", detail: "Friend", action: [cutButton("Mute", ROW_BUTTON), cutButton("More for Sofia", { ...ROW_BUTTON, icon: "more", isLabelHidden: true })] },
-        { lead: pictureFrame("Liam", "md"), title: "Liam", detail: "Muted", action: [cutButton("Unmute", ROW_BUTTON), cutButton("More for Liam", { ...ROW_BUTTON, icon: "more", isLabelHidden: true })] },
+        { lead: pictureFrame("Sofia", "md"), title: "Sofia", detail: "Friend", action: [secondaryButton("Mute", ROW_BUTTON), secondaryButton("More for Sofia", { ...ROW_BUTTON, icon: "more", isLabelHidden: true })] },
+        { lead: pictureFrame("Liam", "md"), title: "Liam", detail: "Muted", action: [secondaryButton("Unmute", ROW_BUTTON), secondaryButton("More for Liam", { ...ROW_BUTTON, icon: "more", isLabelHidden: true })] },
       ]),
     },
     {
       label: "Led by icons, with a second line",
       isWide: true,
       markup: listPane([
-        { lead: icon("passkey"), title: "MacBook Pro", detail: "iCloud Keychain · added Oct 2", secondDetail: "Used today", action: cutButton("Remove", ROW_BUTTON) },
-        { lead: icon("key"), title: "Claude", detail: "Reads, uploads · made Oct 12", secondDetail: "Used an hour ago", action: cutButton("Remove", ROW_BUTTON) },
+        { lead: icon("passkey"), title: "MacBook Pro", detail: "iCloud Keychain · added Oct 2", secondDetail: "Used today", action: secondaryButton("Remove", ROW_BUTTON) },
+        { lead: icon("key"), title: "Claude", detail: "Reads, uploads · made Oct 12", secondDetail: "Used an hour ago", action: secondaryButton("Remove", ROW_BUTTON) },
       ]),
     },
     {
       label: "With a meter under its lines: games' hosting this month",
       isWide: true,
       markup: listPane([
-        { title: "Ashen Crown", detail: "Free part used · $3.54 of its $5 budget · Resets Nov 1", meter: { label: "Ashen Crown", usedNumber: 242, limitNumber: 300, warnFromNumber: 260, unit: "", isFullFine: true }, action: cutButton("Budget", ROW_BUTTON) },
-        { title: "Kestrel", detail: "All of this month's free hosting · Resets Nov 1", secondDetail: "No budget: it stops at its free allowance.", end: tag("Paused", "warning"), meter: { label: "Kestrel", usedNumber: 100, limitNumber: 100, unit: "%" }, action: cutButton("Budget", ROW_BUTTON) },
+        { title: "Ashen Crown", detail: "Free part used · $3.54 of its $5 budget · Resets Nov 1", meter: { label: "Ashen Crown", usedNumber: 242, limitNumber: 300, warnFromNumber: 260, unit: "", isFullFine: true }, action: secondaryButton("Budget", ROW_BUTTON) },
+        { title: "Kestrel", detail: "All of this month's free hosting · Resets Nov 1", secondDetail: "No budget: it stops at its free allowance.", end: tag("Paused", "warning"), meter: { label: "Kestrel", usedNumber: 100, limitNumber: 100, unit: "%" }, action: secondaryButton("Budget", ROW_BUTTON) },
       ]),
     },
     {
@@ -492,7 +492,7 @@ component({
   styles: STATE_STYLES + WHEN_EMPTY_STYLES,
   render: emptyState,
   examples: [
-    { label: "With what starts it", markup: glassPane({ paneWidth: "fit", body: emptyState({ title: "No games yet", text: "Make one from your AI, or upload a folder with an index.html from your terminal.", action: runButton("Make a game", { type: "button", isFullWidth: true }) }) }) },
+    { label: "With what starts it", markup: glassPane({ paneWidth: "fit", body: emptyState({ title: "No games yet", text: "Make one from your AI, or upload a folder with an index.html from your terminal.", action: primaryButton("Make a game", { type: "button", isFullWidth: true }) }) }) },
     { label: "Words alone", markup: glassPane({ paneWidth: "fit", body: emptyState({ title: "No friends playing", text: "When a friend plays something, it shows here." }) }) },
   ],
 });
@@ -511,7 +511,7 @@ component({
   styles: "",
   render: problemState,
   examples: [
-    { label: "With what to do", markup: glassPane({ paneWidth: "fit", body: problemState({ title: "Couldn't load your versions", text: "Zaisma didn't answer in time. Nothing is lost.", action: cutButton("Try again", { type: "button", isFullWidth: true }) }) }) },
+    { label: "With what to do", markup: glassPane({ paneWidth: "fit", body: problemState({ title: "Couldn't load your versions", text: "Zaisma didn't answer in time. Nothing is lost.", action: secondaryButton("Try again", { type: "button", isFullWidth: true }) }) }) },
     { label: "Words alone", markup: glassPane({ paneWidth: "fit", body: problemState({ title: "This game isn't shown where you are", text: "Its developer keeps it from players in your country." }) }) },
   ],
 });
@@ -530,7 +530,7 @@ component({
   styles: "",
   render: doneState,
   examples: [
-    { label: "With the way on", markup: glassPane({ paneWidth: "fit", body: doneState({ title: "Report sent", text: "Zaisma looks at it within a day and tells you what it did.", action: cutButton("Close", { type: "button", isFullWidth: true }) }) }) },
+    { label: "With the way on", markup: glassPane({ paneWidth: "fit", body: doneState({ title: "Report sent", text: "Zaisma looks at it within a day and tells you what it did.", action: secondaryButton("Close", { type: "button", isFullWidth: true }) }) }) },
     { label: "Words alone", markup: glassPane({ paneWidth: "fit", body: doneState({ title: "Version 15 is live", text: "Players get it the next time they open the game." }) }) },
   ],
 });
@@ -566,7 +566,7 @@ export interface TableColumn {
   isNumeric?: boolean;
   /** Its cells are long words (what a scan found, a message): they wrap, at least a card's width wide, instead of running on. */
   isLongText?: boolean;
-  /** Its cells are the row's buttons (small Cut buttons, side by side): at the row's end, its heading said only to screen readers. */
+  /** Its cells are the row's buttons (small Secondary buttons, side by side): at the row's end, its heading said only to screen readers. */
   isActions?: boolean;
 }
 
@@ -703,9 +703,9 @@ component({
         hasRowHeads: true,
         columns: [...VERSION_COLUMNS.slice(0, 2), { label: "Size", isNumeric: true }, { label: "Made" }, { label: "Actions", isActions: true }],
         rows: [
-          ["Version 16", VERSION_STATE_TAGS.passed, "49.4 MB", "10 min ago", cutButton("Publish", ROW_BUTTON)],
-          ["Version 15", VERSION_STATE_TAGS.held, "49.2 MB", "An hour ago", cutButton("Details", ROW_BUTTON)],
-          ["Version 13", VERSION_STATE_TAGS.replaced, "47.6 MB", "Oct 16", cutButton("Roll back", ROW_BUTTON)],
+          ["Version 16", VERSION_STATE_TAGS.passed, "49.4 MB", "10 min ago", secondaryButton("Publish", ROW_BUTTON)],
+          ["Version 15", VERSION_STATE_TAGS.held, "49.2 MB", "An hour ago", secondaryButton("Details", ROW_BUTTON)],
+          ["Version 13", VERSION_STATE_TAGS.replaced, "47.6 MB", "Oct 16", secondaryButton("Roll back", ROW_BUTTON)],
         ],
       }),
     },

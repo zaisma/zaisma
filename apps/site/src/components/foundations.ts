@@ -152,7 +152,7 @@ export interface SheetMarkupOptions {
   title: string;
   /** Its words and fields, which scroll between its head and its buttons when they're long. */
   body: Raw;
-  /** Its Close (actions.ts's cutButton: small, only its icon, formmethod="dialog"), in its head's corner. */
+  /** Its Close (actions.ts's secondaryButton: small, only its icon, formmethod="dialog"), in its head's corner. */
   closeButton: ControlMarkup;
   /** Its buttons, an equal row at its foot, in view while the body scrolls: the way out first, the one thing to do last. */
   buttons?: ControlMarkup[];

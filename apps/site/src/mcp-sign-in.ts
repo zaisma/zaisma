@@ -25,7 +25,7 @@ import {
 import { AREA_LABELS, CHOICE_LABELS, LEVEL_LABELS, PASSKEY_TAP_FIELDS, ACCESS_CHOICES_SCRIPT, keyMakingState, keyScopeFromForm, passkeyTapFromForm, type PasskeyState } from "./account.ts";
 import { glassPane } from "./components/foundations.ts";
 import { row, stack, type LayoutItem } from "./components/layout.ts";
-import { cutButton, runButton, textLink } from "./components/actions.ts";
+import { secondaryButton, primaryButton, textLink } from "./components/actions.ts";
 import { checkField, choiceCards, selectField } from "./components/inputs.ts";
 import { connectionAddressOf, currentSession } from "./auth.ts";
 import { waitEndsText } from "./email-codes.ts";
@@ -449,15 +449,15 @@ ${ACCESS_AREAS.map((area) =>
 
 /** Connect and Cancel, and the step that adds a first passkey before connecting, as the connect form's stack holds them. */
 function connectButtons(passkeyState: PasskeyState, approvesFromAtMs: number | null): LayoutItem[] {
-  const cancel = cutButton("Cancel", { type: "submit", name: "decision", buttonValue: "cancel" });
+  const cancel = secondaryButton("Cancel", { type: "submit", name: "decision", buttonValue: "cancel" });
   if (passkeyState === "waiting" && approvesFromAtMs !== null) {
     return [{ kind: "block", markup: html`<p>Your new passkey can connect apps from ${waitEndsText(approvesFromAtMs)}.</p>` }, { kind: "block", markup: row({ widths: "fit", items: [{ kind: "control", markup: cancel }] }) }];
   }
   const firstPasskey: LayoutItem[] =
     passkeyState === "ready"
       ? []
-      : [{ kind: "block", markup: html`<section class="pane-stack" data-step="passkey" hidden><h2>First, add a passkey</h2><p>Connecting an app needs your passkey, so someone who learns your password can't connect one.</p>${passkeyState === "waiting" && approvesFromAtMs !== null ? html`<p>Your new passkey can connect apps from ${waitEndsText(approvesFromAtMs)}.</p>` : html`<div id="passkey-first">${cutButton("Add a passkey", { type: "button", isFullWidth: true })}</div>`}</section>` }];
-  return [...firstPasskey, { kind: "block", markup: row({ widths: "equal", items: [{ kind: "control", markup: runButton("Connect", { type: "button", name: "connect_step", buttonValue: "connect" }) }, { kind: "control", markup: cancel }] }) }];
+      : [{ kind: "block", markup: html`<section class="pane-stack" data-step="passkey" hidden><h2>First, add a passkey</h2><p>Connecting an app needs your passkey, so someone who learns your password can't connect one.</p>${passkeyState === "waiting" && approvesFromAtMs !== null ? html`<p>Your new passkey can connect apps from ${waitEndsText(approvesFromAtMs)}.</p>` : html`<div id="passkey-first">${secondaryButton("Add a passkey", { type: "button", isFullWidth: true })}</div>`}</section>` }];
+  return [...firstPasskey, { kind: "block", markup: row({ widths: "equal", items: [{ kind: "control", markup: primaryButton("Connect", { type: "button", name: "connect_step", buttonValue: "connect" }) }, { kind: "control", markup: cancel }] }) }];
 }
 
 // The summary follows the choices; Continue adds a passkey first when there's none, then taps it for this connection.

@@ -6,7 +6,7 @@ import { controlMarkup, type ControlMarkup } from "./control-markup.ts";
 import { paneParts } from "./layout.ts";
 
 /*
- * Actions, loudest to quietest: the runner button (the one colored thing you press), the cut button beside it
+ * Actions, loudest to quietest: the primary button (the one colored thing you press), the secondary button beside it
  * (tinted for the other ways in), and the tertiary button below them. Each answers the pointer, the press
  * and the keyboard in its own way, so none of them feels dead.
  */
@@ -45,7 +45,7 @@ const classes = (...names: (string | false | undefined)[]) => names.filter(Boole
 /** Can't be pressed now: a button is disabled (a busy one is already); a link can't be, so it's left as it is. */
 const disabledAttribute = (target: ButtonTarget & { isDisabled?: boolean; isBusy?: boolean }) => (target.isDisabled && !target.isBusy && !target.href ? raw(" disabled") : "");
 
-export interface RunButtonOptions extends ButtonTarget {
+export interface PrimaryButtonOptions extends ButtonTarget {
   /** 56px (48 on a phone), for a pane's one main action: the home's Play, the sign-in page's Sign in. */
   isBig?: boolean;
   isFullWidth?: boolean;
@@ -71,8 +71,8 @@ export interface RunButtonOptions extends ButtonTarget {
   isDelete?: boolean;
 }
 
-/** The runner button: a raised orange slab, the same height as the other buttons, lit along its edges. It lifts, leans toward the pointer and catches the light; pressing sinks it into the glass. */
-export function runButton(label: string, options: RunButtonOptions = {}): ControlMarkup {
+/** The primary button: a raised orange slab, the same height as the other buttons, lit along its edges. It lifts, leans toward the pointer and catches the light; pressing sinks it into the glass. */
+export function primaryButton(label: string, options: PrimaryButtonOptions = {}): ControlMarkup {
   if (options.isDelete) return controlMarkup(dangerButton(label, options), "regular");
   // The label's span has no class of its own: html.ts's account link finds it as the header's runner's span without one.
   const words = options.busyLabel ? html`<span class="label-idle">${label}</span><span class="label-busy">${options.busyLabel}</span>` : html`<span>${label}</span>`;
@@ -82,7 +82,7 @@ export function runButton(label: string, options: RunButtonOptions = {}): Contro
   return controlMarkup(html`${opening(shell, options, options.isBusy, html`${disabledAttribute(options)}${options.isHidden ? raw(" hidden") : ""}`)}<span class="${options.isBig ? "face run big" : "face run"}${hasTrailing ? " has-trailing" : ""} cut-raised" data-cut-line="${options.isBig ? 14 : 12}">${CUT_LINE}${loader()}${options.icon ? icon(options.icon) : ""}${words}${ending}</span>${closing(options)}`, options.isBig ? "big" : "regular");
 }
 
-export interface CutButtonOptions extends ButtonTarget {
+export interface SecondaryButtonOptions extends ButtonTarget {
   icon?: IconName;
   /** Another way in (a passkey, Google, Discord): its mark in the icon's place, and its slab tinted the way's color unless tint says otherwise. */
   wayIn?: WayIn;
@@ -115,21 +115,21 @@ export interface CutButtonOptions extends ButtonTarget {
  * A secondary button: a solid cut slab. It brightens under the pointer and carves in under a press. A delete is one too, never orange.
  * Another way in (a passkey, Google, Discord) is one with the way's mark, its slab tinted the way's color, as wide as the column.
  */
-export function cutButton(label: string, options: CutButtonOptions = {}): ControlMarkup {
-  return cutButtonMarkup(label, options);
+export function secondaryButton(label: string, options: SecondaryButtonOptions = {}): ControlMarkup {
+  return secondaryButtonMarkup(label, options);
 }
 
-export interface ToggleButtonOptions extends Omit<CutButtonOptions, "isBig" | "isInWell" | "isFullWidth" | "isExpanded" | "wayIn" | "tint"> {
+export interface ToggleButtonOptions extends Omit<SecondaryButtonOptions, "isBig" | "isInWell" | "isFullWidth" | "isExpanded" | "wayIn" | "tint"> {
   /** On or off (aria-pressed): the page's script flips it, and what it changes. */
   isPressed: boolean;
 }
 
 /**
  * A toggle button: something that stays on until it's pressed again (Follow, a like, Mute, a password's Show). Off, it rests level in the
- * glass, a slab like any cut button, and carves in as it's pressed; on, its top surface rises from the same footprint and its orange front surface shows, so it never moves and a row of them stays in line.
+ * glass, a slab like any secondary button, and carves in as it's pressed; on, its top surface rises from the same footprint and its orange front surface shows, so it never moves and a row of them stays in line.
  */
 export function toggleButton(label: string, options: ToggleButtonOptions): ControlMarkup {
-  return cutButtonMarkup(label, options, options.isPressed);
+  return secondaryButtonMarkup(label, options, options.isPressed);
 }
 
 /**
@@ -171,8 +171,8 @@ export const TOGGLE_SCRIPT = `/* toggle buttons */(function () {
 })();
 `;
 
-// A toggle is a cut button with a front surface below its top surface (its face), showing when the face rises.
-function cutButtonMarkup(label: string, options: CutButtonOptions, isPressed?: boolean): ControlMarkup {
+// A toggle is a secondary button with a front surface below its top surface (its face), showing when the face rises.
+function secondaryButtonMarkup(label: string, options: SecondaryButtonOptions, isPressed?: boolean): ControlMarkup {
   const isToggle = isPressed !== undefined;
   const hasCount = options.reactionCount !== undefined;
   const countWords = hasCount ? Number(options.reactionCount).toLocaleString("en-US") : "";
@@ -200,14 +200,14 @@ const WAY_MARKS = { google: GOOGLE, discord: DISCORD, passkey: raw(ICONS.passkey
 export type WayIn = keyof typeof WAY_MARKS;
 
 /**
- * A cut button's tint: none ("clear"), or a way in's color mixed into its slab. Each way has its own unless the page picks one. "plain" is
+ * A secondary button's tint: none ("clear"), or a way in's color mixed into its slab. Each way has its own unless the page picks one. "plain" is
  * the glass's own tone, as Google's buttons are: whiter on light glass, nearer Google's black on smoked.
  */
 export type ButtonTint = "clear" | "plain" | "blue" | "indigo" | "black";
 const WAY_TINTS: Record<WayIn, ButtonTint> = { google: "plain", discord: "indigo", passkey: "clear" };
 
 /**
- * The runner button: it lifts and leans toward the pointer, a reflection slides the other way, and one glint sweeps as
+ * The primary button: it lifts and leans toward the pointer, a reflection slides the other way, and one glint sweeps as
  * the pointer arrives and always finishes. The pointer is followed on the still shell; the lift and lean are set there
  * for its face and its side, which move inside it.
  */
@@ -275,7 +275,7 @@ export const RUNNER_SCRIPT = `/* runner */(function () {
 const SPRING = "cubic-bezier(.25,.9,.3,1.25)";
 
 const RUN_STYLES = `
-/* The runner button: the one colored thing you can press. A raised orange slab, the same height as every other button,
+/* The primary button: the one colored thing you can press. A raised orange slab, the same height as every other button,
    lit along its edges like the other raised controls (the edge rule's bands, in orange). It lifts, leans toward you and
    a glint crosses it as you arrive; a press brings it down toward the glass, never carving it, and it springs back.
    The shell (.run-wrap, the link or button) stays still; its face (.run) moves inside it.
@@ -345,7 +345,7 @@ const RUN_STYLES = `
 .run-wrap:not([aria-busy="true"]) .loader, .run-wrap[aria-busy="true"] .arrow, .run-wrap[aria-busy="true"] .face > .ico, .run-wrap[aria-busy="true"] .face > .play { display: none; }
 .run .loader { position: relative; z-index: 2; }
 @keyframes run-drift { 0%, 100% { transform: translateX(0); opacity: 0.55; } 50% { transform: translateX(7px); opacity: 1; } }
-/* Can't press yet: orange is only what you can act on, so it isn't orange. It's carved flat into the glass, as a disabled cut button is,
+/* Can't press yet: orange is only what you can act on, so it isn't orange. It's carved flat into the glass, as a disabled secondary button is,
    its cut and edge kept, its words quieter, and it answers no pointer: no glow, no lift, no glint. */
 .run-wrap:disabled:not([aria-busy="true"]) { cursor: default; pointer-events: none; }
 .run-wrap:disabled:not([aria-busy="true"]) { filter: none; }
@@ -377,8 +377,8 @@ const stateExamples = (render: (state?: ButtonState) => Raw, loopKind: "runner" 
   ];
 };
 
-/** The red one: the runner's shape and edge light, in red, with no glint and no lean. Only a delete's confirm step has it (runButton's isDelete). */
-function dangerButton(label: string, options: RunButtonOptions): Raw {
+/** The red one: the runner's shape and edge light, in red, with no glint and no lean. Only a delete's confirm step has it (primaryButton's isDelete). */
+function dangerButton(label: string, options: PrimaryButtonOptions): Raw {
   return html`${opening(classes("danger-wrap", options.state), { type: options.type ?? "submit" }, options.isBusy)}<span class="face danger cut-raised" data-cut-line="12">${CUT_LINE}${loader()}<span class="danger-words">${label}</span></span>${closing({})}`;
 }
 
@@ -407,27 +407,27 @@ const DANGER_STYLES = `
 `;
 
 component({
-  name: "Runner button",
-  slug: "runner-button",
+  name: "Primary button",
+  slug: "primary-button",
   group: "actions",
   subgroup: "buttons",
   summary: "The one thing to do on a screen: Play, Sign in, Next. Never more than one in view, and visible without scrolling.",
   styles: RUN_STYLES + DANGER_STYLES,
-  render: runButton,
+  render: primaryButton,
   examples: [
-    ...stateExamples((state) => runButton("Sign in", { type: "button", state }), "runner"),
-    { label: "Busy, saying what's happening", markup: runButton("Sign in", { type: "button", isBusy: true, busyLabel: "Signing in" }), isStill: true },
-    { label: "Busy, keeping its words", markup: runButton("Next", { type: "button", isBusy: true }), isStill: true },
-    { label: "Can't press yet", markup: runButton("Next", { type: "button", isDisabled: true }), isStill: true },
-    { label: "Big, with Play", markup: runButton("Play", { type: "button", isBig: true, icon: "play" }) },
-    { label: "Big and full width, as on Sign in", markup: html`<div style="${COLUMN}">${runButton("Sign in", { type: "button", isFullWidth: true, isBig: true })}</div>` },
-    { label: "With its price at the other end (a buy button)", markup: html`<div style="${COLUMN}">${runButton("Buy", { type: "button", isFullWidth: true, trailingText: "$19.99" })}</div>` },
-    { label: "With its price, busy", markup: html`<div style="${COLUMN}">${runButton("Buy", { type: "button", isFullWidth: true, trailingText: "$19.99", isBusy: true, busyLabel: "Buying" })}</div>`, isStill: true },
-    { label: "Long words: one line, ending in an ellipsis", markup: html`<div style="${COLUMN}">${runButton("Play Ashen Crown: The Long Night of the Iron Vigil", { type: "button", isFullWidth: true, isBig: true, icon: "play" })}</div>` },
-    { label: "Red: a delete's confirm, only in a Confirm sheet", markup: runButton("Delete Ashen Crown", { isDelete: true }) },
-    { label: "Red, pointed", markup: runButton("Delete Ashen Crown", { isDelete: true, state: "is-pointed" }), isStill: true },
-    { label: "Red, pressed: it carves in", markup: runButton("Delete Ashen Crown", { isDelete: true, state: "is-pressed" }), isStill: true },
-    { label: "Red, deleting", markup: runButton("Delete Ashen Crown", { isDelete: true, isBusy: true }), isStill: true },
+    ...stateExamples((state) => primaryButton("Sign in", { type: "button", state }), "runner"),
+    { label: "Busy, saying what's happening", markup: primaryButton("Sign in", { type: "button", isBusy: true, busyLabel: "Signing in" }), isStill: true },
+    { label: "Busy, keeping its words", markup: primaryButton("Next", { type: "button", isBusy: true }), isStill: true },
+    { label: "Can't press yet", markup: primaryButton("Next", { type: "button", isDisabled: true }), isStill: true },
+    { label: "Big, with Play", markup: primaryButton("Play", { type: "button", isBig: true, icon: "play" }) },
+    { label: "Big and full width, as on Sign in", markup: html`<div style="${COLUMN}">${primaryButton("Sign in", { type: "button", isFullWidth: true, isBig: true })}</div>` },
+    { label: "With its price at the other end (a buy button)", markup: html`<div style="${COLUMN}">${primaryButton("Buy", { type: "button", isFullWidth: true, trailingText: "$19.99" })}</div>` },
+    { label: "With its price, busy", markup: html`<div style="${COLUMN}">${primaryButton("Buy", { type: "button", isFullWidth: true, trailingText: "$19.99", isBusy: true, busyLabel: "Buying" })}</div>`, isStill: true },
+    { label: "Long words: one line, ending in an ellipsis", markup: html`<div style="${COLUMN}">${primaryButton("Play Ashen Crown: The Long Night of the Iron Vigil", { type: "button", isFullWidth: true, isBig: true, icon: "play" })}</div>` },
+    { label: "Red: a delete's confirm, only in a Confirm sheet", markup: primaryButton("Delete Ashen Crown", { isDelete: true }) },
+    { label: "Red, pointed", markup: primaryButton("Delete Ashen Crown", { isDelete: true, state: "is-pointed" }), isStill: true },
+    { label: "Red, pressed: it carves in", markup: primaryButton("Delete Ashen Crown", { isDelete: true, state: "is-pressed" }), isStill: true },
+    { label: "Red, deleting", markup: primaryButton("Delete Ashen Crown", { isDelete: true, isBusy: true }), isStill: true },
   ],
 });
 
@@ -437,7 +437,7 @@ component({
  */
 const world = (standInSlug: string, glassKind: "light" | "smoked", body: Raw) =>
   html`<div ${glassKind === "light" ? raw('data-theme-choice="light"') : raw('class="smoke"')} style="position:relative;overflow:hidden;display:grid;gap:var(--gap-control-stack);width:min(380px,100%);padding:var(--pad-pane)">${backdrop({ isFramed: true, standInSlug })}${body}</div>`;
-/** A cut button's tints, for a color picker (inputs.ts's Color picker, the gallery's tint palette). */
+/** A secondary button's tints, for a color picker (inputs.ts's Color picker, the gallery's tint palette). */
 export const TINT_CHOICES: (ColorChoice & { colorValue: ButtonTint })[] = [
   { name: "Clear", colorValue: "clear", swatch: "clear" },
   // Plain follows the glass: white on light, Google's near-black on smoked, so its swatch shows both, half and half.
@@ -447,15 +447,15 @@ export const TINT_CHOICES: (ColorChoice & { colorValue: ButtonTint })[] = [
   { name: "Black", colorValue: "black", swatch: "#14171C" },
 ];
 const tintPalette = () => html`<div class="tint-try" data-tint-try>${wayButton("Continue with Discord", "discord")}${colorPicker({ label: "Tint", choices: TINT_CHOICES, pickedValue: "indigo" })}</div>`;
-const wayButton = (label: string, wayIn: WayIn, more: Omit<CutButtonOptions, "wayIn"> = {}) => cutButton(label, { type: "button", wayIn, isFullWidth: true, ...more });
+const wayButton = (label: string, wayIn: WayIn, more: Omit<SecondaryButtonOptions, "wayIn"> = {}) => secondaryButton(label, { type: "button", wayIn, isFullWidth: true, ...more });
 const waysIn = () => html`${wayButton("Sign in with a passkey", "passkey")}${wayButton("Continue with Google", "google")}${wayButton("Continue with Discord", "discord")}`;
 
 component({
-  name: "Cut button",
-  slug: "cut-button",
+  name: "Secondary button",
+  slug: "secondary-button",
   group: "actions",
   subgroup: "buttons",
-  summary: "Everything else you can press: Details, Make an account, Cancel. Another way in (a passkey, Google, Discord) is one with the way's mark and color. A delete is a cut button too, never orange; only its confirm step turns red.",
+  summary: "Everything else you can press: Details, Make an account, Cancel. Another way in (a passkey, Google, Discord) is one with the way's mark and color. A delete is a secondary button too, never orange; only its confirm step turns red.",
   styles: `
 /* A secondary button: a solid cut slab with a drawn outline, the same slab a Toggle button is. Under the pointer it brightens and stays
    where it is; a press carves it in where it is (shaded from above, its light turned round), never moving or shrinking it, quickly, and it
@@ -517,7 +517,7 @@ component({
 @media (prefers-reduced-motion: reduce) { .cut-btn > .face { transition: --face-color 0.2s, color 0.2s; } }
 /* Another way in: its mark before its words, and the way's color mixed into its slab (a brand's color is how you recognize it, so it
    doesn't follow light or dark; mixed in, the words keep the ink's color in either theme). Plain is the glass's own tone, as Google's
-   buttons are; clear is the slab as it is. It points and carves like any cut button. */
+   buttons are; clear is the slab as it is. It points and carves like any secondary button. */
 .cut-btn[data-tint] > .face { --way: var(--btn); --way-mix: 0%; --face-color: color-mix(in srgb, var(--way) var(--way-mix), var(--btn)); }
 .cut-btn[data-tint]:hover > .face, .cut-btn[data-tint].is-pointed > .face, .cut-btn[data-tint]:focus-visible > .face, .cut-btn[data-tint].is-focused > .face { --face-color: color-mix(in srgb, var(--way) var(--way-mix), var(--btn-hover)); }
 .cut-btn[data-tint]:active > .face, .cut-btn[data-tint].is-pressed > .face { --face-color: color-mix(in srgb, var(--way) var(--way-mix), var(--btn-press)); }
@@ -537,20 +537,20 @@ component({
 /* The gallery's tint palette: a Color picker; pick one and the button above takes it (GALLERY_SCRIPT). */
 .tint-try { display: grid; gap: var(--gap-block-block); width: min(340px, 100%); }
 `,
-  render: cutButton,
+  render: secondaryButton,
   examples: [
-    ...stateExamples((state) => cutButton("Details", { type: "button", state }), "cut"),
-    { label: "Busy", markup: cutButton("Saving", { type: "button", isBusy: true }), isStill: true },
-    { label: "With an icon", markup: cutButton("Settings", { type: "button", icon: "gear" }) },
-    { label: "Only its icon", markup: cutButton("Light. Switch to dark", { type: "button", icon: "light-dark", isLabelHidden: true }) },
-    { label: "Small", markup: cutButton("Show", { type: "button", isSmall: true }) },
-    { label: "Small, only its icon: a sheet's Close, a Copy", markup: html`<div class="control-row">${cutButton("Close", { type: "button", icon: "close", isLabelHidden: true, isSmall: true })}${cutButton("Copy", { type: "button", icon: "copy", isLabelHidden: true, isSmall: true })}</div>` },
-    { label: "Can't press", markup: html`<div class="control-row">${cutButton("Details", { type: "button", isDisabled: true })}${cutButton("Settings", { type: "button", icon: "gear", isDisabled: true })}</div>`, isStill: true },
-    { label: "With a count: the players in a room", markup: cutButton("Players", { type: "button", icon: "people", isLabelHidden: true, reactionCount: 3 }) },
-    { label: "Big, beside Play", markup: html`<div class="control-row">${runButton("Play", { type: "button", isBig: true, icon: "play" })}${cutButton("Details", { type: "button", isBig: true })}</div>` },
-    { label: "Full width", markup: html`<div style="width:min(380px,100%)">${cutButton("Make an account", { type: "button", isFullWidth: true })}</div>` },
-    { label: "A delete", markup: cutButton("Delete this game", { type: "button" }) },
-    { label: "Long words: one line, ending in an ellipsis", markup: html`<div style="${COLUMN}">${cutButton("Make an account and keep your progress in Ashen Crown", { type: "button", isFullWidth: true })}</div>` },
+    ...stateExamples((state) => secondaryButton("Details", { type: "button", state }), "cut"),
+    { label: "Busy", markup: secondaryButton("Saving", { type: "button", isBusy: true }), isStill: true },
+    { label: "With an icon", markup: secondaryButton("Settings", { type: "button", icon: "gear" }) },
+    { label: "Only its icon", markup: secondaryButton("Light. Switch to dark", { type: "button", icon: "light-dark", isLabelHidden: true }) },
+    { label: "Small", markup: secondaryButton("Show", { type: "button", isSmall: true }) },
+    { label: "Small, only its icon: a sheet's Close, a Copy", markup: html`<div class="control-row">${secondaryButton("Close", { type: "button", icon: "close", isLabelHidden: true, isSmall: true })}${secondaryButton("Copy", { type: "button", icon: "copy", isLabelHidden: true, isSmall: true })}</div>` },
+    { label: "Can't press", markup: html`<div class="control-row">${secondaryButton("Details", { type: "button", isDisabled: true })}${secondaryButton("Settings", { type: "button", icon: "gear", isDisabled: true })}</div>`, isStill: true },
+    { label: "With a count: the players in a room", markup: secondaryButton("Players", { type: "button", icon: "people", isLabelHidden: true, reactionCount: 3 }) },
+    { label: "Big, beside Play", markup: html`<div class="control-row">${primaryButton("Play", { type: "button", isBig: true, icon: "play" })}${secondaryButton("Details", { type: "button", isBig: true })}</div>` },
+    { label: "Full width", markup: html`<div style="width:min(380px,100%)">${secondaryButton("Make an account", { type: "button", isFullWidth: true })}</div>` },
+    { label: "A delete", markup: secondaryButton("Delete this game", { type: "button" }) },
+    { label: "Long words: one line, ending in an ellipsis", markup: html`<div style="${COLUMN}">${secondaryButton("Make an account and keep your progress in Ashen Crown", { type: "button", isFullWidth: true })}</div>` },
     { label: "The ways in, each in its own tint", markup: html`<div style="display:grid;gap:var(--gap-control-stack);${COLUMN}">${waysIn()}</div>` },
     { label: "A way in, pointed", markup: html`<div style="${COLUMN}">${wayButton("Continue with Discord", "discord", { state: "is-pointed" })}</div>`, isStill: true },
     { label: "A way in, pressed: it carves in", markup: html`<div style="${COLUMN}">${wayButton("Continue with Discord", "discord", { state: "is-pressed" })}</div>`, isStill: true },
@@ -560,7 +560,112 @@ component({
     // Over a game's world the glass follows the world, not the theme: light glass on a bright one, smoked on a dark one.
     { label: "Over a bright game world", markup: world("kestrel", "light", waysIn()) },
     { label: "Over a dark game world", markup: world("starward", "smoked", waysIn()) },
-    { label: "An action floating on a world", markup: world("emberfall", "smoked", html`<div style="display:flex;justify-content:center">${cutButton("More games", { icon: "chevron-down", type: "button" })}</div>`) },
+    { label: "An action floating on a world", markup: world("emberfall", "smoked", html`<div style="display:flex;justify-content:center">${secondaryButton("More games", { icon: "chevron-down", type: "button" })}</div>`) },
+  ],
+});
+
+export interface TertiaryButtonOptions extends ButtonTarget {
+  /** An icon before its words, like Show all's chevron. */
+  icon?: IconName;
+  /**
+   * Only its icon shows, its words said to a screen reader, and pointing brings up its slab with no orange line under it: a pane's Close and
+   * a sheet's Back, which sit quietly in its corners until they're wanted.
+   */
+  isLabelHidden?: boolean;
+  /** A small control's height, as a pane's corner buttons are. */
+  isSmall?: boolean;
+  /** An arrow after its words that steps on as you point at it: a way on, like Continue as guest under the ways in. */
+  hasArrow?: boolean;
+  /** As wide as the column, its words in the middle: under the ways in, as wide as they are. */
+  isFullWidth?: boolean;
+  /** Can't be pressed now: its words fade further and it answers no pointer. */
+  isDisabled?: boolean;
+  isBusy?: boolean;
+  state?: ButtonState;
+}
+
+const TERTIARY_ARROW = html`<span class="tertiary-arrow" aria-hidden="true">${icon("chevron-right")}</span>`;
+
+/**
+ * A tertiary button: words, an icon or both alone at rest, the quietest thing you press (Skip for now, Show all, Undo; a sheet's Back and Close). It's a control's size with a slab that
+ * shows only when you point at it, so it sits and is cut like any control, its words as far in as a field's (--pad-inside-words: on a
+ * pane's edge, at the pane's margin). Pointing brings up the slab and draws the orange line in under its words; keyboard focus is the cut
+ * stroke round the slab, as on every button. With an arrow, it's a way on: Continue as guest under the ways in.
+ */
+export function tertiaryButton(label: string, options: TertiaryButtonOptions = {}): ControlMarkup {
+  const isIconOnly = Boolean(options.isLabelHidden && options.icon);
+  const extra = html`${disabledAttribute(options)}${isIconOnly ? html` aria-label="${label}"` : ""}`;
+  return controlMarkup(html`${opening(classes("tertiary-btn", isIconOnly && "icon-only", options.isSmall && "small", options.isFullWidth && "is-full", options.state), options, options.isBusy, extra)}<span class="face" data-cut-line="${options.isSmall ? 9 : 10}">${CUT_LINE}<span class="tertiary-words">${loader()}${options.icon ? icon(options.icon) : ""}${isIconOnly ? "" : html`<span class="tertiary-label">${label}</span>`}${options.hasArrow ? TERTIARY_ARROW : ""}</span>${isIconOnly || options.hasArrow ? "" : raw('<span class="tertiary-line" aria-hidden="true"></span>')}</span>${closing(options)}`, options.isSmall ? "small" : "regular");
+}
+
+component({
+  name: "Tertiary button",
+  slug: "tertiary-button",
+  group: "actions",
+  subgroup: "buttons",
+  summary: "The quietest thing to press: words, an icon, or both, with no slab until it's pointed at. Skip for now, Show all, Undo; only its icon, a sheet's Back and Close. Beside a secondary button it's the way out; never the one thing to do.",
+  styles: `
+/* A tertiary button: words only, at rest, in a control's box: its words keep a field's inset (--pad-inside-words), so on a pane's edge they're
+   at the pane's margin while its box is at the frame gap, cut by the edge rule like any control's (slanting toward a control beside it).
+   Pointing at it brings up its slab, faint (--wash), and draws the orange line in under its words from the left, a light running ahead
+   along it, the way a cover's line does; leaving, the line runs on out to the right, quicker than it came. A press darkens its slab where
+   it is, never moving it. Keyboard focus is the cut stroke round its slab, as on every other button. */
+.tertiary-btn { --control-height: var(--control-height-regular); vertical-align: middle; max-width: 100%; }
+/* Small, and only its icon (a pane's Close, a sheet's Back): a square of a small control's size, its slab and no line under it when pointed at. */
+.tertiary-btn.small { --control-height: var(--control-height-small); }
+/* On a touch screen a small one still takes a finger, as a small secondary button does: its hit area reaches out to 44px, its look unchanged. */
+@media (pointer: coarse) { .tertiary-btn.small { position: relative; } .tertiary-btn.small::after { content: ""; position: absolute; inset: calc((var(--control-height) - var(--touch-target)) / 2); } }
+.tertiary-btn.icon-only > .face { width: var(--control-height); padding: 0; align-items: center; }
+.tertiary-btn.icon-only .ico { width: 18px; height: 18px; }
+.tertiary-btn:focus-visible { outline: none; }
+.tertiary-btn > .face { position: relative; display: flex; flex: auto; flex-direction: column; justify-content: center; min-width: 0; height: var(--control-height); padding: 0 var(--pad-inside-words);
+  font: var(--type-label); color: var(--ink-2); white-space: nowrap; --face-color: transparent; background-color: var(--face-color); clip-path: var(--cut-shape);
+  transition: --face-color 0.2s, color 0.2s, opacity 0.2s, transform 0.4s ${SPRING}; }
+.tertiary-words { position: relative; z-index: 2; display: flex; align-items: center; justify-content: center; gap: var(--gap-words-words); min-width: 0; font: var(--type-label); }
+/* Words longer than the room it has end in an ellipsis on one line. */
+.tertiary-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* The line sits just under the words, which stay on the control's center line, level with a secondary button's beside it. */
+.tertiary-line { position: absolute; z-index: 2; left: var(--pad-inside-words); right: var(--pad-inside-words); top: calc(50% + 0.5lh); display: block; height: 3px; margin-top: 5px; overflow: hidden; clip-path: polygon(3px 0, 100% 0, calc(100% - 3px) 100%, 0 100%);
+  background: linear-gradient(90deg, #E9820C, var(--run) 40%, #FFB54D); transform: scaleX(0); transform-origin: right; transition: transform 0.22s cubic-bezier(.4,0,1,1); }
+.tertiary-line::after { content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 38%; opacity: 0; background: linear-gradient(90deg, rgba(255,255,255,0), rgba(255,246,228,0.95) 70%, rgba(255,255,255,0)); }
+.tertiary-btn:hover > .face, .tertiary-btn.is-pointed > .face { color: var(--ink); --face-color: var(--wash); }
+.tertiary-btn:focus-visible > .face, .tertiary-btn.is-focused > .face { color: var(--ink); }
+.tertiary-btn:hover .tertiary-line, .tertiary-btn.is-pointed .tertiary-line { transform: scaleX(1); transform-origin: left; transition: transform 0.42s cubic-bezier(.2,.8,.2,1); }
+.tertiary-btn:hover .tertiary-line::after, .tertiary-btn.is-pointed .tertiary-line::after { animation: tertiary-glint 0.7s cubic-bezier(.3,.6,.3,1) both; }
+@keyframes tertiary-glint { 0% { transform: translateX(-100%); opacity: 1; } 75% { opacity: 1; } 100% { transform: translateX(270%); opacity: 0; } }
+.tertiary-btn:active > .face, .tertiary-btn.is-pressed > .face { color: var(--ink); --face-color: var(--wash-press); transition-duration: 0.08s; }
+/* With an arrow: it follows the words and steps on as you point at it, further under a press, in the line's place. As wide as the column, the words in the middle. */
+.tertiary-btn.is-full { display: flex; width: 100%; }
+.tertiary-arrow { display: inline-flex; transition: transform 0.45s cubic-bezier(.2,.7,.2,1); }
+.tertiary-arrow > .ico { width: 8px; height: 12px; stroke-width: 2.4; }
+.tertiary-btn:hover .tertiary-arrow, .tertiary-btn.is-pointed .tertiary-arrow { transform: translateX(4px); }
+.tertiary-btn:active .tertiary-arrow, .tertiary-btn.is-pressed .tertiary-arrow { transform: translateX(7px); transition-duration: 0.12s; }
+.tertiary-btn[aria-busy="true"] .tertiary-arrow { visibility: hidden; }
+/* Keyboard focus: the cut stroke round its slab, as on every other button. */
+.tertiary-btn:focus-visible .cut-line polygon, .tertiary-btn.is-focused .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
+/* Can't press: its words fade further than at rest, and it answers no pointer. */
+.tertiary-btn:disabled:not([aria-busy="true"]) { cursor: default; pointer-events: none; }
+.tertiary-btn:disabled:not([aria-busy="true"]) > .face { color: var(--muted); opacity: 0.6; }
+/* Waiting: the loader before its words, in the icon's place. */
+.tertiary-btn:not([aria-busy="true"]) .loader, .tertiary-btn[aria-busy="true"] .tertiary-words > .ico { display: none; }
+.tertiary-btn[aria-busy="true"] { cursor: progress; }
+@media (prefers-reduced-motion: reduce) { .tertiary-btn > .face, .tertiary-line, .tertiary-arrow { transition: --face-color 0.2s, color 0.2s; } .tertiary-line::after { animation: none !important; } }
+`,
+  render: tertiaryButton,
+  examples: [
+    ...stateExamples((state) => tertiaryButton("Skip for now", { type: "button", state }), "tertiary"),
+    { label: "Busy", markup: tertiaryButton("Undo", { type: "button", isBusy: true }), isStill: true },
+    { label: "Can't press", markup: tertiaryButton("Undo", { type: "button", isDisabled: true }), isStill: true },
+    { label: "With an arrow: a way on, under the ways in", markup: html`<div style="display:grid;gap:var(--gap-control-stack);${COLUMN}">${waysIn()}${tertiaryButton("Continue as guest", { href: "#", hasArrow: true, isFullWidth: true })}</div>` },
+    { label: "With an arrow, busy: the loader before its words", markup: html`<div style="${COLUMN}">${tertiaryButton("Continue as guest", { type: "button", hasArrow: true, isFullWidth: true, isBusy: true })}</div>`, isStill: true },
+    { label: "With an icon", markup: tertiaryButton("Show all 1,284 replies", { type: "button", icon: "chevron-down" }) },
+    { label: "Beside a secondary button: the way out", markup: html`<div class="control-row">${secondaryButton("Save", { type: "button" })}${tertiaryButton("Cancel", { type: "button" })}</div>` },
+    { label: "Long words: one line, ending in an ellipsis", markup: html`<div style="${COLUMN}">${tertiaryButton("Skip the tutorial and go straight to the first match", { type: "button" })}</div>` },
+    {
+      label: "Only its icon, small: a sheet's Back and Close in its top corners, nothing behind them until pointed at",
+      markup: html`<div style="width:300px">${glassPane({ paneWidth: "full", body: paneParts({ head: { start: tertiaryButton("Back", { type: "button", icon: "chevron-back", isLabelHidden: true, isSmall: true }), words: html`<h2 class="sheet-title">Liam</h2>`, end: tertiaryButton("Close", { type: "button", icon: "close", isLabelHidden: true, isSmall: true }) }, body: html`<p>Profile, Block and Report go here.</p>` }) })}</div>`,
+    },
+    { label: "Only its icon, pointed: its slab, with no orange line under it", markup: tertiaryButton("Close", { type: "button", icon: "close", isLabelHidden: true, isSmall: true, state: "is-pointed" }), isStill: true },
   ],
 });
 
@@ -571,7 +676,7 @@ component({
   subgroup: "buttons",
   summary: "Something that stays on until it's pressed again: Follow, a like with its count, Mute, a password's Show. Off, it rests level in the glass and carves in as it's pressed; on, its top surface rises from the same place and its orange front surface shows, lit round it on dark glass and shadowed on light. A setting that's on or off on a settings page is a Toggle, the switch.",
   styles: `
-/* A toggle button: a cut button level in the glass when off, carving in as it's pressed; on, its top surface (its words and icon) rises from the same footprint and
+/* A toggle button: a secondary button level in the glass when off, carving in as it's pressed; on, its top surface (its words and icon) rises from the same footprint and
    its front surface shows below it, orange, so it never moves and a row of toggles stays in line. Below it the glass is lit on dark glass
    and shadowed on light (--toggle-cast, which follows the button's own cut and reaches furthest below it). */
 @property --toggle-rise { syntax: "<length>"; inherits: true; initial-value: 0px; }
@@ -643,7 +748,7 @@ export interface CardRowOptions extends ButtonTarget {
 
 /**
  * A card row: the card a buy is paid with as one full-width row (a card mark, its words, a chevron). Pressing it changes the card. It is a
- * cut button in a row's clothes, a field's height, with its words lined up with a pane's words as a field's are.
+ * secondary button in a row's clothes, a field's height, with its words lined up with a pane's words as a field's are.
  */
 /**
  * The common card brands' marks, as their owners draw them, small enough for a row: shown so a card is known at a glance. Keyed by
@@ -678,7 +783,7 @@ component({
   subgroup: "buttons",
   summary: "The card a buy is paid with, as one row you can press to change it: a card mark, its words (\"Visa ending 4242\") and a chevron. It sits above the buy button in a store panel's foot.",
   styles: `
-/* A card row: a cut button at a field's height, its words starting where a pane's words do (as a field's do), the chevron at its far end. */
+/* A card row: a secondary button at a field's height, its words starting where a pane's words do (as a field's do), the chevron at its far end. */
 .cut-btn.card-row { --control-height: var(--control-height-field); }
 .cut-btn.card-row > .face { justify-content: flex-start; --face-padding: var(--pad-inside-words); }
 .cut-btn.card-row > .face > span:not([class]) { flex: 1 1 auto; text-align: start; }
@@ -703,111 +808,6 @@ ${CARD_BRANDS.map((brand) => `.cut-btn.card-row[data-card-brand="${brand}"] .car
   ],
 });
 
-
-export interface TertiaryButtonOptions extends ButtonTarget {
-  /** An icon before its words, like Show all's chevron. */
-  icon?: IconName;
-  /**
-   * Only its icon shows, its words said to a screen reader, and pointing brings up its slab with no orange line under it: a pane's Close and
-   * a sheet's Back, which sit quietly in its corners until they're wanted.
-   */
-  isLabelHidden?: boolean;
-  /** A small control's height, as a pane's corner buttons are. */
-  isSmall?: boolean;
-  /** An arrow after its words that steps on as you point at it: a way on, like Continue as guest under the ways in. */
-  hasArrow?: boolean;
-  /** As wide as the column, its words in the middle: under the ways in, as wide as they are. */
-  isFullWidth?: boolean;
-  /** Can't be pressed now: its words fade further and it answers no pointer. */
-  isDisabled?: boolean;
-  isBusy?: boolean;
-  state?: ButtonState;
-}
-
-const TERTIARY_ARROW = html`<span class="tertiary-arrow" aria-hidden="true">${icon("chevron-right")}</span>`;
-
-/**
- * A tertiary button: words, an icon or both alone at rest, the quietest thing you press (Skip for now, Show all, Undo; a sheet's Back and Close). It's a control's size with a slab that
- * shows only when you point at it, so it sits and is cut like any control, its words as far in as a field's (--pad-inside-words: on a
- * pane's edge, at the pane's margin). Pointing brings up the slab and draws the orange line in under its words; keyboard focus is the cut
- * stroke round the slab, as on every button. With an arrow, it's a way on: Continue as guest under the ways in.
- */
-export function tertiaryButton(label: string, options: TertiaryButtonOptions = {}): ControlMarkup {
-  const isIconOnly = Boolean(options.isLabelHidden && options.icon);
-  const extra = html`${disabledAttribute(options)}${isIconOnly ? html` aria-label="${label}"` : ""}`;
-  return controlMarkup(html`${opening(classes("tertiary-btn", isIconOnly && "icon-only", options.isSmall && "small", options.isFullWidth && "is-full", options.state), options, options.isBusy, extra)}<span class="face" data-cut-line="${options.isSmall ? 9 : 10}">${CUT_LINE}<span class="tertiary-words">${loader()}${options.icon ? icon(options.icon) : ""}${isIconOnly ? "" : html`<span class="tertiary-label">${label}</span>`}${options.hasArrow ? TERTIARY_ARROW : ""}</span>${isIconOnly || options.hasArrow ? "" : raw('<span class="tertiary-line" aria-hidden="true"></span>')}</span>${closing(options)}`, options.isSmall ? "small" : "regular");
-}
-
-component({
-  name: "Tertiary button",
-  slug: "tertiary-button",
-  group: "actions",
-  subgroup: "buttons",
-  summary: "The quietest thing to press: words, an icon, or both, with no slab until it's pointed at. Skip for now, Show all, Undo; only its icon, a sheet's Back and Close. Beside a cut button it's the way out; never the one thing to do.",
-  styles: `
-/* A tertiary button: words only, at rest, in a control's box: its words keep a field's inset (--pad-inside-words), so on a pane's edge they're
-   at the pane's margin while its box is at the frame gap, cut by the edge rule like any control's (slanting toward a control beside it).
-   Pointing at it brings up its slab, faint (--wash), and draws the orange line in under its words from the left, a light running ahead
-   along it, the way a cover's line does; leaving, the line runs on out to the right, quicker than it came. A press darkens its slab where
-   it is, never moving it. Keyboard focus is the cut stroke round its slab, as on every other button. */
-.tertiary-btn { --control-height: var(--control-height-regular); vertical-align: middle; max-width: 100%; }
-/* Small, and only its icon (a pane's Close, a sheet's Back): a square of a small control's size, its slab and no line under it when pointed at. */
-.tertiary-btn.small { --control-height: var(--control-height-small); }
-/* On a touch screen a small one still takes a finger, as a small cut button does: its hit area reaches out to 44px, its look unchanged. */
-@media (pointer: coarse) { .tertiary-btn.small { position: relative; } .tertiary-btn.small::after { content: ""; position: absolute; inset: calc((var(--control-height) - var(--touch-target)) / 2); } }
-.tertiary-btn.icon-only > .face { width: var(--control-height); padding: 0; align-items: center; }
-.tertiary-btn.icon-only .ico { width: 18px; height: 18px; }
-.tertiary-btn:focus-visible { outline: none; }
-.tertiary-btn > .face { position: relative; display: flex; flex: auto; flex-direction: column; justify-content: center; min-width: 0; height: var(--control-height); padding: 0 var(--pad-inside-words);
-  font: var(--type-label); color: var(--ink-2); white-space: nowrap; --face-color: transparent; background-color: var(--face-color); clip-path: var(--cut-shape);
-  transition: --face-color 0.2s, color 0.2s, opacity 0.2s, transform 0.4s ${SPRING}; }
-.tertiary-words { position: relative; z-index: 2; display: flex; align-items: center; justify-content: center; gap: var(--gap-words-words); min-width: 0; font: var(--type-label); }
-/* Words longer than the room it has end in an ellipsis on one line. */
-.tertiary-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-/* The line sits just under the words, which stay on the control's center line, level with a cut button's beside it. */
-.tertiary-line { position: absolute; z-index: 2; left: var(--pad-inside-words); right: var(--pad-inside-words); top: calc(50% + 0.5lh); display: block; height: 3px; margin-top: 5px; overflow: hidden; clip-path: polygon(3px 0, 100% 0, calc(100% - 3px) 100%, 0 100%);
-  background: linear-gradient(90deg, #E9820C, var(--run) 40%, #FFB54D); transform: scaleX(0); transform-origin: right; transition: transform 0.22s cubic-bezier(.4,0,1,1); }
-.tertiary-line::after { content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 38%; opacity: 0; background: linear-gradient(90deg, rgba(255,255,255,0), rgba(255,246,228,0.95) 70%, rgba(255,255,255,0)); }
-.tertiary-btn:hover > .face, .tertiary-btn.is-pointed > .face { color: var(--ink); --face-color: var(--wash); }
-.tertiary-btn:focus-visible > .face, .tertiary-btn.is-focused > .face { color: var(--ink); }
-.tertiary-btn:hover .tertiary-line, .tertiary-btn.is-pointed .tertiary-line { transform: scaleX(1); transform-origin: left; transition: transform 0.42s cubic-bezier(.2,.8,.2,1); }
-.tertiary-btn:hover .tertiary-line::after, .tertiary-btn.is-pointed .tertiary-line::after { animation: tertiary-glint 0.7s cubic-bezier(.3,.6,.3,1) both; }
-@keyframes tertiary-glint { 0% { transform: translateX(-100%); opacity: 1; } 75% { opacity: 1; } 100% { transform: translateX(270%); opacity: 0; } }
-.tertiary-btn:active > .face, .tertiary-btn.is-pressed > .face { color: var(--ink); --face-color: var(--wash-press); transition-duration: 0.08s; }
-/* With an arrow: it follows the words and steps on as you point at it, further under a press, in the line's place. As wide as the column, the words in the middle. */
-.tertiary-btn.is-full { display: flex; width: 100%; }
-.tertiary-arrow { display: inline-flex; transition: transform 0.45s cubic-bezier(.2,.7,.2,1); }
-.tertiary-arrow > .ico { width: 8px; height: 12px; stroke-width: 2.4; }
-.tertiary-btn:hover .tertiary-arrow, .tertiary-btn.is-pointed .tertiary-arrow { transform: translateX(4px); }
-.tertiary-btn:active .tertiary-arrow, .tertiary-btn.is-pressed .tertiary-arrow { transform: translateX(7px); transition-duration: 0.12s; }
-.tertiary-btn[aria-busy="true"] .tertiary-arrow { visibility: hidden; }
-/* Keyboard focus: the cut stroke round its slab, as on every other button. */
-.tertiary-btn:focus-visible .cut-line polygon, .tertiary-btn.is-focused .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
-/* Can't press: its words fade further than at rest, and it answers no pointer. */
-.tertiary-btn:disabled:not([aria-busy="true"]) { cursor: default; pointer-events: none; }
-.tertiary-btn:disabled:not([aria-busy="true"]) > .face { color: var(--muted); opacity: 0.6; }
-/* Waiting: the loader before its words, in the icon's place. */
-.tertiary-btn:not([aria-busy="true"]) .loader, .tertiary-btn[aria-busy="true"] .tertiary-words > .ico { display: none; }
-.tertiary-btn[aria-busy="true"] { cursor: progress; }
-@media (prefers-reduced-motion: reduce) { .tertiary-btn > .face, .tertiary-line, .tertiary-arrow { transition: --face-color 0.2s, color 0.2s; } .tertiary-line::after { animation: none !important; } }
-`,
-  render: tertiaryButton,
-  examples: [
-    ...stateExamples((state) => tertiaryButton("Skip for now", { type: "button", state }), "tertiary"),
-    { label: "Busy", markup: tertiaryButton("Undo", { type: "button", isBusy: true }), isStill: true },
-    { label: "Can't press", markup: tertiaryButton("Undo", { type: "button", isDisabled: true }), isStill: true },
-    { label: "With an arrow: a way on, under the ways in", markup: html`<div style="display:grid;gap:var(--gap-control-stack);${COLUMN}">${waysIn()}${tertiaryButton("Continue as guest", { href: "#", hasArrow: true, isFullWidth: true })}</div>` },
-    { label: "With an arrow, busy: the loader before its words", markup: html`<div style="${COLUMN}">${tertiaryButton("Continue as guest", { type: "button", hasArrow: true, isFullWidth: true, isBusy: true })}</div>`, isStill: true },
-    { label: "With an icon", markup: tertiaryButton("Show all 1,284 replies", { type: "button", icon: "chevron-down" }) },
-    { label: "Beside a cut button: the way out", markup: html`<div class="control-row">${cutButton("Save", { type: "button" })}${tertiaryButton("Cancel", { type: "button" })}</div>` },
-    { label: "Long words: one line, ending in an ellipsis", markup: html`<div style="${COLUMN}">${tertiaryButton("Skip the tutorial and go straight to the first match", { type: "button" })}</div>` },
-    {
-      label: "Only its icon, small: a sheet's Back and Close in its top corners, nothing behind them until pointed at",
-      markup: html`<div style="width:300px">${glassPane({ paneWidth: "full", body: paneParts({ head: { start: tertiaryButton("Back", { type: "button", icon: "chevron-back", isLabelHidden: true, isSmall: true }), words: html`<h2 class="sheet-title">Liam</h2>`, end: tertiaryButton("Close", { type: "button", icon: "close", isLabelHidden: true, isSmall: true }) }, body: html`<p>Profile, Block and Report go here.</p>` }) })}</div>`,
-    },
-    { label: "Only its icon, pointed: its slab, with no orange line under it", markup: tertiaryButton("Close", { type: "button", icon: "close", isLabelHidden: true, isSmall: true, state: "is-pointed" }), isStill: true },
-  ],
-});
 
 // Cut shapes sits with the buttons, so it can show the edge rule on real ones (foundations.ts can't import this file).
 const edgePane = (body: Raw) => glassPane({ paneWidth: "fit", body });
@@ -898,13 +898,13 @@ component({
     { label: `A pane: ${cutWords("pane")}`, markup: cutSample("pane") },
     { label: `The header: ${cutWords("header")}`, markup: cutSample("header") },
     { label: `A menu: ${cutWords("menu")}`, markup: cutSample("menu") },
-    { label: "Alone in a pane: fits its top and its bottom", markup: edgePane(cutButton("Make an account", { type: "button", isFullWidth: true })) },
-    { label: "Side by side: slants between, fits the outside", markup: edgePane(html`<div class="control-row">${runButton("Play", { type: "button", icon: "play" })}${cutButton("Details", { type: "button" })}</div>`) },
+    { label: "Alone in a pane: fits its top and its bottom", markup: edgePane(secondaryButton("Make an account", { type: "button", isFullWidth: true })) },
+    { label: "Side by side: slants between, fits the outside", markup: edgePane(html`<div class="control-row">${primaryButton("Play", { type: "button", icon: "play" })}${secondaryButton("Details", { type: "button" })}</div>`) },
     {
       label: "Stacked: fits the top and the bottom, square between",
-      markup: edgePane(html`<div class="edge-stack">${cutButton("Settings", { type: "button", isFullWidth: true })}${cutButton("Account", { type: "button", isFullWidth: true })}${cutButton("Sign out", { type: "button", isFullWidth: true })}</div>`),
+      markup: edgePane(html`<div class="edge-stack">${secondaryButton("Settings", { type: "button", isFullWidth: true })}${secondaryButton("Account", { type: "button", isFullWidth: true })}${secondaryButton("Sign out", { type: "button", isFullWidth: true })}</div>`),
     },
-    { label: "On no pane: cut as if it were in one", markup: html`<div class="control-row">${runButton("Play", { type: "button", icon: "play" })}${cutButton("Details", { type: "button" })}</div>` },
+    { label: "On no pane: cut as if it were in one", markup: html`<div class="control-row">${primaryButton("Play", { type: "button", icon: "play" })}${secondaryButton("Details", { type: "button" })}</div>` },
   ],
 });
 
@@ -920,6 +920,6 @@ export interface RowArrowsOptions {
 /** Arrows to scroll a row, for a mouse or trackpad: a cut well of two halves at the right of the row's heading. Touch screens swipe instead. */
 export function rowArrows(options: RowArrowsOptions): ControlMarkup {
   const arrow = (way: "back" | "on") =>
-    cutButton(`Scroll ${options.rowName} ${way}`, { type: "button", icon: way === "back" ? "arrow-back" : "arrow-on", isLabelHidden: true, isInWell: true, controls: options.trackId });
+    secondaryButton(`Scroll ${options.rowName} ${way}`, { type: "button", icon: way === "back" ? "arrow-back" : "arrow-on", isLabelHidden: true, isInWell: true, controls: options.trackId });
   return controlMarkup(html`<div class="steps cut-carved" data-row-arrows${options.scrolledTo ? html` data-scrolled-to="${options.scrolledTo}"` : ""} data-cut-line="9">${CUT_LINE}${arrow("back")}${arrow("on")}</div>`, "small", { isPointerOnly: true });
 }

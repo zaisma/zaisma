@@ -9,7 +9,7 @@ import { CHECKED_PAGES, galleryPageName, type CheckedPageName } from "./componen
 import { COMPONENT_GROUPS, COMPONENT_SUBGROUPS, GALLERY_PLACES, galleryPagePath, subgroupsOf, type Component, type ComponentGroup, type GalleryPlace } from "./components/component.ts";
 import { COMPONENTS, COMPONENT_SCRIPT, COMPONENT_STYLES, HEADER_SCRIPT } from "./components/index.ts";
 import { EDGE, STAND_IN_BACKGROUNDS_SCRIPT, backdrop, logo, pageSettingsAttributes, railMarkup } from "./components/foundations.ts";
-import { cutButton, runButton, textLink } from "./components/actions.ts";
+import { secondaryButton, primaryButton, textLink } from "./components/actions.ts";
 import { cutField } from "./components/inputs.ts";
 import { loadMore, sidebar, sidebarButton, sidebarLayout, type SidebarPlace } from "./components/navigation.ts";
 import { row, stack } from "./components/layout.ts";
@@ -68,12 +68,12 @@ function section(each: Component, theme: GalleryTheme): Raw {
 
 /** The sun and the moon, from the sign-in draft's theme control. */
 
-/** Light or dark: one cut button showing the theme you're in, a sun or a moon; pressing it switches to the other. path is where it is, its query (but the theme) kept. */
+/** Light or dark: one secondary button showing the theme you're in, a sun or a moon; pressing it switches to the other. path is where it is, its query (but the theme) kept. */
 const themeButton = (path: string, theme: GalleryTheme) => {
   const other = new URL(path, "https://zaisma.com");
   if (theme === "dark") other.searchParams.delete("theme");
   else other.searchParams.set("theme", "dark");
-  return cutButton(theme === "dark" ? "Dark. Switch to light" : "Light. Switch to dark", { href: `${other.pathname}${other.search}`, icon: "light-dark", isLabelHidden: true, isSmall: true });
+  return secondaryButton(theme === "dark" ? "Dark. Switch to light" : "Light. Switch to dark", { href: `${other.pathname}${other.search}`, icon: "light-dark", isLabelHidden: true, isSmall: true });
 };
 
 function head(title: string, group: ComponentGroup, scripts: PageScript[] = []): Raw {
@@ -268,7 +268,7 @@ export const GALLERY_SCRIPT = pageScript(
   `(function () {
   var stage = document.getElementById("stage");
   var pages = JSON.parse(document.getElementById("design-pages").textContent);
-  // A link to a component on another group's page (like /design#runner-button) goes on to that page.
+  // A link to a component on another group's page (like /design#primary-button) goes on to that page.
   var asked = location.hash.slice(1);
   if (asked && !document.getElementById(asked) && pages[asked]) { location.replace(pages[asked] + location.search + location.hash); return; }
   function query(theme) { return theme === "dark" ? "?theme=dark" : ""; }
@@ -450,7 +450,7 @@ export const GALLERY_SCRIPT = pageScript(
     });
     place(now());
   });
-  // The cut button's tint palette: the button above takes the tint you pick.
+  // The secondary button's tint palette: the button above takes the tint you pick.
   document.addEventListener("click", function (event) {
     var swatch = event.target.closest && event.target.closest("[data-tint-try] .color-pick"); if (!swatch) return;
     swatch.closest("[data-tint-try]").querySelector(".cut-btn").setAttribute("data-tint", swatch.getAttribute("data-color-value"));

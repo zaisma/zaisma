@@ -155,7 +155,7 @@ describe("the gallery", () => {
     const slugs = COMPONENTS().map((each) => each.slug);
     expect(new Set(slugs).size).toBe(slugs.length);
     for (const slug of slugs) expect(slug).toMatch(/^[a-z]+(-[a-z]+)*$/);
-    expect(() => component({ name: "Again", slug: "runner-button", group: "actions", summary: "", styles: "", examples: [] })).toThrow(/Two components/);
+    expect(() => component({ name: "Again", slug: "primary-button", group: "actions", summary: "", styles: "", examples: [] })).toThrow(/Two components/);
     expect(() => component({ name: "Bad", slug: "Not_A_Slug", group: "actions", summary: "", styles: "", examples: [] })).toThrow(/lowercase/);
   });
 
@@ -429,8 +429,8 @@ describe("the gallery", () => {
       expect(response.status, path).toBe(308);
       expect(response.headers.get("location"), path).toBe(location);
     }
-    for (const path of ["/design/inputs/no-such", "/design/no-such-group", "/design/layout/stack", "/design/inputs/fields/more", "/design/frame/runner-button"]) expect((await page(path)).response.status, path).toBe(404);
-    // A link to a component (/design#runner-button) goes on to the page that shows it.
+    for (const path of ["/design/inputs/no-such", "/design/no-such-group", "/design/layout/stack", "/design/inputs/fields/more", "/design/frame/primary-button"]) expect((await page(path)).response.status, path).toBe(404);
+    // A link to a component (/design#primary-button) goes on to the page that shows it.
     const pages = JSON.parse(/<script type="application\/json" id="design-pages">([^<]*)<\/script>/.exec(open)![1]!) as Record<string, string>;
     for (const each of COMPONENTS()) expect(pages[each.slug], each.slug).toBe(galleryPagePath(each.group, each.subgroup));
   });
@@ -445,8 +445,8 @@ describe("components", () => {
   });
 
   it("make the runner a link with an address and a button without one", () => {
-    expect(actions.runButton("Play", { href: "/g/x" }).html).toMatch(/<a class="shell run-wrap" href="\/g\/x">/);
-    expect(actions.runButton("Play").html).toMatch(/<button class="shell run-wrap" type="submit">/);
+    expect(actions.primaryButton("Play", { href: "/g/x" }).html).toMatch(/<a class="shell run-wrap" href="\/g\/x">/);
+    expect(actions.primaryButton("Play").html).toMatch(/<button class="shell run-wrap" type="submit">/);
   });
 
   it("give a password field its Show toggle, and an error its message", () => {
@@ -907,7 +907,7 @@ describe("pages", () => {
 describe("page structure", () => {
   // Each rule a page's markup can't break unseen (page-rules.ts, pageStructureProblems): a page made to break it, named by the rule and
   // what breaks it, and the same page made right, which passes.
-  const onPage = (body: string) => `<!doctype html><html><body><header class="top">${actions.runButton("Sign in").html}</header><main>${body}</main></body></html>`;
+  const onPage = (body: string) => `<!doctype html><html><body><header class="top">${actions.primaryButton("Sign in").html}</header><main>${body}</main></body></html>`;
   const paneOf = (body: string) => glassPane({ paneWidth: "full", body: html`${raw(body)}` }).html;
   const problemsOn = async (body: string) => pageStructureProblems(onPage(body));
 
@@ -928,7 +928,7 @@ describe("page structure", () => {
   });
 
   it("finds more equal choices side by side than five, and a menu of more than nine with no groups", async () => {
-    const choiceRow = (count: number) => row({ widths: "fit", items: Array.from({ length: count }, (_, index) => ({ kind: "control" as const, markup: actions.cutButton(`Choice ${index + 1}`, { type: "button" }) })) }).html;
+    const choiceRow = (count: number) => row({ widths: "fit", items: Array.from({ length: count }, (_, index) => ({ kind: "control" as const, markup: actions.secondaryButton(`Choice ${index + 1}`, { type: "button" }) })) }).html;
     const menu = (count: number) => panes.dropdown({ id: `menu-${count}`, label: `${count} choices`, items: Array.from({ length: count }, (_, index) => ({ label: `Item ${index + 1}`, href: "#" })), isOpen: true }).html;
     const found = await problemsOn(paneOf(choiceRow(6)) + menu(10));
     expect(found.some((problem) => /^too many equal choices: div\.layout-row.*6 side by side, at most 5$/.test(problem)), found.join("\n")).toBe(true);
@@ -945,9 +945,9 @@ describe("page structure", () => {
   });
 
   it("finds two runners in one state, leaving the header's Sign in and what a sheet holds out", async () => {
-    const found = await problemsOn(paneOf(actions.runButton("Play").html + actions.runButton("Play again").html));
+    const found = await problemsOn(paneOf(actions.primaryButton("Play").html + actions.primaryButton("Play again").html));
     expect(found, found.join("\n")).toEqual([expect.stringMatching(/^two runners in view: .*"Play again" beside .*"Play"$/)]);
-    expect(await problemsOn(paneOf(actions.runButton("Play").html) + panes.sheet({ id: "more", title: "More", body: actions.runButton("Buy"), closeLabel: "Close" }).html)).toEqual([]);
+    expect(await problemsOn(paneOf(actions.primaryButton("Play").html) + panes.sheet({ id: "more", title: "More", body: actions.primaryButton("Buy"), closeLabel: "Close" }).html)).toEqual([]);
   });
 
   // What these rules ask of the components' styles, which every page's look comes from (a page has no styles of its own).
@@ -1060,11 +1060,11 @@ describe("layout", () => {
 
   const words = (text: string): LayoutItem => ({ kind: "words", markup: html`<p>${text}</p>` });
   const block = (text: string): LayoutItem => ({ kind: "block", markup: html`<div>${text}</div>` });
-  const control = (markup: ReturnType<typeof actions.cutButton>): LayoutItem => ({ kind: "control", markup });
+  const control = (markup: ReturnType<typeof actions.secondaryButton>): LayoutItem => ({ kind: "control", markup });
   const cells = (markup: string) => [...markup.matchAll(/<div class="((?:stack|row|grid)-cell[^"]*)"/g)].map((match) => match[1]!.split(" "));
 
   it("stacks things with the gap picked from what's on each side, never one passed", () => {
-    const markup = stack({ items: [words("Welcome back"), words("Sign in to keep your progress."), control(actions.runButton("Sign in")), control(actions.cutButton("Cancel")), control(inputs.cutField({ name: "email", label: "Email", type: "email", icon: "mail" })), block("A table")] }).html;
+    const markup = stack({ items: [words("Welcome back"), words("Sign in to keep your progress."), control(actions.primaryButton("Sign in")), control(actions.secondaryButton("Cancel")), control(inputs.cutField({ name: "email", label: "Email", type: "email", icon: "mail" })), block("A table")] }).html;
     expect(cells(markup).map((classes) => classes.find((each) => each.startsWith("gap-top-")) ?? "")).toEqual(["", "gap-top-words-words", "gap-top-words-control", "gap-top-control-stack", "gap-top-block-block", "gap-top-block-block"]);
     // Words keep the pane's margin; controls and blocks sit at the frame gap.
     expect(cells(markup).map((classes) => classes[1])).toEqual(["is-words", "is-words", "is-control", "is-control", "is-control", "is-block"]);
@@ -1072,7 +1072,7 @@ describe("layout", () => {
   });
 
   it("shares a row's width as it's told: the lead fills and the rest fit their words, equal shares, or each fits", () => {
-    const items = [control(actions.runButton("Play", { isBig: true })), control(actions.cutButton("Details"))];
+    const items = [control(actions.primaryButton("Play", { isBig: true })), control(actions.secondaryButton("Details"))];
     expect(cells(row({ widths: "lead-fills", items }).html).map((classes) => classes.includes("fills"))).toEqual([true, false]);
     expect(cells(row({ widths: "equal", items }).html).map((classes) => classes.includes("fills"))).toEqual([true, true]);
     expect(cells(row({ widths: "fit", alignment: "end", items }).html).map((classes) => classes.includes("fills"))).toEqual([false, false]);
@@ -1085,16 +1085,16 @@ describe("layout", () => {
 
   it("sets every control in a row to one height, the tallest one's", () => {
     const heightOf = (items: LayoutItem[]) => /data-control-height="([a-z]+)"/.exec(row({ widths: "fit", items }).html)?.[1];
-    expect(heightOf([control(actions.cutButton("Dismiss", { isSmall: true })), control(actions.cutButton("Read more"))])).toBe("regular");
-    expect(heightOf([control(inputs.cutField({ name: "room", label: "Room code", type: "text", icon: "people" })), control(actions.cutButton("Join"))])).toBe("field");
-    expect(heightOf([control(actions.runButton("Play", { isBig: true })), control(actions.cutButton("Details"))])).toBe("big");
+    expect(heightOf([control(actions.secondaryButton("Dismiss", { isSmall: true })), control(actions.secondaryButton("Read more"))])).toBe("regular");
+    expect(heightOf([control(inputs.cutField({ name: "room", label: "Room code", type: "text", icon: "people" })), control(actions.secondaryButton("Join"))])).toBe("field");
+    expect(heightOf([control(actions.primaryButton("Play", { isBig: true })), control(actions.secondaryButton("Details"))])).toBe("big");
     expect(ROW_STYLES).toContain('.layout-row[data-control-height="big"] > .row-cell > .cut-btn');
     // A field that shows its label sits on its box: the row lines its controls up on the boxes.
-    expect(row({ widths: "lead-fills", items: [control(inputs.cutField({ name: "room", label: "Room code", type: "text", icon: "people" })), control(actions.cutButton("Join"))] }).html).toContain("is-on-field-boxes");
+    expect(row({ widths: "lead-fills", items: [control(inputs.cutField({ name: "room", label: "Room code", type: "text", icon: "people" })), control(actions.secondaryButton("Join"))] }).html).toContain("is-on-field-boxes");
   });
 
   it("puts a pane's corner control in its corner, a tertiary button too", () => {
-    const markup = paneParts({ head: { words: html`<h2>Rooms</h2>`, end: actions.cutButton("Refresh") }, body: html`<p>Rooms here</p>`, foot: { end: actions.tertiaryButton("See all") } }).html;
+    const markup = paneParts({ head: { words: html`<h2>Rooms</h2>`, end: actions.secondaryButton("Refresh") }, body: html`<p>Rooms here</p>`, foot: { end: actions.tertiaryButton("See all") } }).html;
     expect(markup).toMatch(/<div class="pane-head" data-control-height="regular"><div class="pane-head-words"><h2>Rooms<\/h2><\/div><div class="pane-head-end"><button class="shell cut-btn"/);
     // A tertiary button is a control like any other: in a corner it takes the corner's cut, its words on the pane's margin inside it.
     expect(markup).toContain('<div class="pane-foot" data-control-height="regular"><div class="pane-foot-end">');

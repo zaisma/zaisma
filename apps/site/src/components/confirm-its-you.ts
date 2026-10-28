@@ -1,7 +1,7 @@
 import { PURCHASE_PIN_LIMITS } from "@zaisma/core";
 import { html, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
-import { cutButton, runButton, tertiaryButton } from "./actions.ts";
+import { secondaryButton, primaryButton, tertiaryButton } from "./actions.ts";
 import { cutField, pinField } from "./fields.ts";
 import { stack } from "./layout.ts";
 import { sheet } from "./panes.ts";
@@ -59,8 +59,8 @@ export function confirmItsYouSheet(options: ConfirmItsYouOptions): Raw {
     placement: "middle",
     isConfirm: true,
     buttons: [
-      cutButton("Cancel", { id: `${id}-cancel`, type: "submit", formMethod: "dialog" }),
-      runButton(method === "passkey" ? "Use your passkey" : "Confirm", { id: `${id}-go`, type: "button", busyLabel: "Confirming", isBusy: options.isBusy && method !== "purchase_pin", isHidden: method === "purchase_pin" }),
+      secondaryButton("Cancel", { id: `${id}-cancel`, type: "submit", formMethod: "dialog" }),
+      primaryButton(method === "passkey" ? "Use your passkey" : "Confirm", { id: `${id}-go`, type: "button", busyLabel: "Confirming", isBusy: options.isBusy && method !== "purchase_pin", isHidden: method === "purchase_pin" }),
     ],
     isShown: options.isShown,
   });

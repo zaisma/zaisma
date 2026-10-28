@@ -1,7 +1,7 @@
 import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
 import type { ControlMarkup } from "./control-markup.ts";
-import { cutButton, runButton, tertiaryButton, textLink } from "./actions.ts";
+import { secondaryButton, primaryButton, tertiaryButton, textLink } from "./actions.ts";
 import { CUT_LINE, EDGE, logo } from "./foundations.ts";
 import { grid, row, stack } from "./layout.ts";
 import { gameCover, sheet, type GameCoverOptions } from "./panes.ts";
@@ -275,10 +275,10 @@ html.is-leaving body > main > :not(.playing-bar, .playing-card, .playing-check, 
 `;
 
 const STAND_IN_CONTROLS = (): ControlMarkup[] => [
-  cutButton("Players", { type: "button", icon: "people", isLabelHidden: true, isSmall: true }),
-  cutButton("Join", { type: "button", icon: "hash", isSmall: true }),
-  cutButton("Share", { type: "button", icon: "share", isLabelHidden: true, isSmall: true }),
-  cutButton("More", { type: "button", icon: "more", isLabelHidden: true, isSmall: true, isExpanded: false }),
+  secondaryButton("Players", { type: "button", icon: "people", isLabelHidden: true, isSmall: true }),
+  secondaryButton("Join", { type: "button", icon: "hash", isSmall: true }),
+  secondaryButton("Share", { type: "button", icon: "share", isLabelHidden: true, isSmall: true }),
+  secondaryButton("More", { type: "button", icon: "more", isLabelHidden: true, isSmall: true, isExpanded: false }),
 ];
 
 component({
@@ -330,7 +330,7 @@ component({
   render: playingBar,
   examples: [
     { label: "A multiplayer game", markup: playingBar({ title: "Neon Drift", controls: STAND_IN_CONTROLS(), isShown: true }), isWide: true },
-    { label: "Played alone", markup: playingBar({ title: "Verdant", controls: [cutButton("Share", { type: "button", icon: "share", isLabelHidden: true, isSmall: true }), cutButton("More", { type: "button", icon: "more", isLabelHidden: true, isSmall: true, isExpanded: false })], isShown: true }), isWide: true },
+    { label: "Played alone", markup: playingBar({ title: "Verdant", controls: [secondaryButton("Share", { type: "button", icon: "share", isLabelHidden: true, isSmall: true }), secondaryButton("More", { type: "button", icon: "more", isLabelHidden: true, isSmall: true, isExpanded: false })], isShown: true }), isWide: true },
   ],
 });
 
@@ -353,23 +353,23 @@ component({
         body: stack({
           items: [
             { kind: "words", markup: html`<p>Your Verdant progress is only saved in this browser. Make a free account to keep it safe and play on any device.</p>` },
-            { kind: "block", markup: row({ widths: "equal", items: [{ kind: "control", markup: runButton("Make an account", { href: "#join" }) }, { kind: "control", markup: cutButton("Not now", { type: "button" }) }] }) },
+            { kind: "block", markup: row({ widths: "equal", items: [{ kind: "control", markup: primaryButton("Make an account", { href: "#join" }) }, { kind: "control", markup: secondaryButton("Not now", { type: "button" }) }] }) },
             { kind: "words", markup: html`<p>Have an account? ${textLink("Sign in", "#signin")}</p>` },
           ],
         }),
       }),
     },
     { label: "Saved", markup: playingCard({ id: "example-saved", isShown: true, isInPlace: true, body: html`<p>Saved to your account.</p>` }) },
-    { label: "Signed out while buying: urgent, over anything, the sheets it makes useless closed under it", markup: urgentCard({ id: "example-urgent", title: "You've been signed out", text: "Nothing was charged. Sign in again to buy.", buttons: [runButton("Sign in", { href: "#signin" })], isInPlace: true }) },
+    { label: "Signed out while buying: urgent, over anything, the sheets it makes useless closed under it", markup: urgentCard({ id: "example-urgent", title: "You've been signed out", text: "Nothing was charged. Sign in again to buy.", buttons: [primaryButton("Sign in", { href: "#signin" })], isInPlace: true }) },
     {
       label: "Try it: urgent over a sheet, which closes under it",
-      markup: html`${cutButton("Buy Revive", { type: "button", controls: "example-urgent-sheet" })}${sheet({
+      markup: html`${secondaryButton("Buy Revive", { type: "button", controls: "example-urgent-sheet" })}${sheet({
         id: "example-urgent-sheet",
         title: "Revive",
-        body: stack({ items: [{ kind: "words", markup: html`<p>Bring your character back with half its health.</p>` }, { kind: "control", markup: cutButton("Sign out in another tab", { type: "button", isFullWidth: true, dataAttributes: { "layer-show": "example-urgent-over" } }) }] }),
+        body: stack({ items: [{ kind: "words", markup: html`<p>Bring your character back with half its health.</p>` }, { kind: "control", markup: secondaryButton("Sign out in another tab", { type: "button", isFullWidth: true, dataAttributes: { "layer-show": "example-urgent-over" } }) }] }),
         closeLabel: "Close",
         placement: "foot",
-      })}${urgentCard({ id: "example-urgent-over", title: "You've been signed out", text: "Nothing was charged. Sign in again to buy.", buttons: [runButton("Sign in", { href: "#signin" })], sheetsToClose: ["example-urgent-sheet"] })}`,
+      })}${urgentCard({ id: "example-urgent-over", title: "You've been signed out", text: "Nothing was charged. Sign in again to buy.", buttons: [primaryButton("Sign in", { href: "#signin" })], sheetsToClose: ["example-urgent-sheet"] })}`,
     },
   ],
 });

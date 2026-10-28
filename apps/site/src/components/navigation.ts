@@ -4,7 +4,7 @@ import { component } from "./component.ts";
 import { controlMarkup, type ControlMarkup } from "./control-markup.ts";
 import { CUT_LINE, EDGE, glassPane, icon, logo, railMarkup, sheetMarkup, tag, type IconName } from "./foundations.ts";
 import { cutPolygon } from "./tokens.ts";
-import { cutButton, tertiaryButton, rowArrows, runButton, textLink } from "./actions.ts";
+import { secondaryButton, tertiaryButton, rowArrows, primaryButton, textLink } from "./actions.ts";
 import { searchField, tabSwitch, type SearchFieldOptions, type SwitchTab } from "./inputs.ts";
 import { STAND_IN_COVERS, dropdown, type DropdownItem } from "./panes.ts";
 import { listRows, pictureFrame } from "./data.ts";
@@ -32,7 +32,7 @@ export interface HeaderOptions {
   ownTabs?: SwitchTab[];
   /** Where Your games is, once its page exists: the tab shows for a signed-in account then. */
   yourGamesHref?: string;
-  /** The page shows its own runner (a game's Play, a form's Save), so Sign in is a cut button: one runner in view. */
+  /** The page shows its own runner (a game's Play, a form's Save), so Sign in is a secondary button: one runner in view. */
   hasPageRunner?: boolean;
   /** Fixed slim, as after scrolling: the gallery's state. */
   isCompact?: boolean;
@@ -68,7 +68,7 @@ export function header(options: HeaderOptions): Raw {
   ];
   const hasTabRow = !options.isOnSignInPage && tabs.filter((each) => !each.isFolded).length >= 2;
   const states = [hasTabRow ? "has-tab-row" : "", options.isCompact ? "is-compact" : "", options.isSearchOpen ? "searching" : ""].filter(Boolean).map((name) => ` ${name}`).join("");
-  const signIn = options.hasPageRunner ? cutButton("Sign in", { href: "/signin" }) : runButton("Sign in", { href: "/signin" });
+  const signIn = options.hasPageRunner ? secondaryButton("Sign in", { href: "/signin" }) : primaryButton("Sign in", { href: "/signin" });
   const menuItems: DropdownItem[] = account
     ? [
         { label: "Your profile", icon: "person", href: `/@${account.username}` },
@@ -82,7 +82,7 @@ export function header(options: HeaderOptions): Raw {
   return html`<header class="top glass${states}" id="${id}" data-compacts data-glass data-glass-corners="header"${options.isCompact ? raw(" data-stays-compact") : ""}>${EDGE}
   ${options.sidebarButton ?? ""}${wordmark}
   ${options.isOnSignInPage ? "" : html`<nav class="nav" aria-label="Main"${hasTabRow ? "" : raw(" hidden")}>${tabSwitch({ label: "Where you are", switchSize: "big", isFramed: true, tabs })}</nav>`}
-  ${options.search ? html`${searchField(options.search)}${cutButton(options.search.label, { type: "button", icon: "search", isLabelHidden: true, isSmall: true, isExpanded: Boolean(options.isSearchOpen) })}` : ""}
+  ${options.search ? html`${searchField(options.search)}${secondaryButton(options.search.label, { type: "button", icon: "search", isLabelHidden: true, isSmall: true, isExpanded: Boolean(options.isSearchOpen) })}` : ""}
   ${options.isOnSignInPage ? "" : html`<div class="end">${
     account ? accountButton({ username: account.username, pictureMarkup: account.pictureMarkup, menuId, isMenuOpen: options.isMenuOpen }) : signIn
   }</div>`}
@@ -158,7 +158,7 @@ const HEADER_STYLES = `
 
 
 /* Phones: one slab in two rows: the logo, a search button and you on top; where you are below. */
-/* The phone's search button: a small Cut button, icon only, that swaps the tabs for the field. */
+/* The phone's search button: a small Secondary button, icon only, that swaps the tabs for the field. */
 .top > .find + .cut-btn { display: none; }
 @media ${HEADER_TWO_ROWS_MEDIA} {
   /* The header floats on phones too: a slab of glass inset from every edge (below the notch), never touching the screen's sides. */
@@ -190,7 +190,7 @@ const HEADER_STYLES = `
   /* The tabs are a row of regular height: a finger's. */
   .top .nav, .top.is-compact .nav { order: 4; flex-basis: 100%; --switch-height: var(--control-height-regular); }
   /* The first row is small controls, so it shares Zaisma, search and Sign in or you on the narrowest phones; Sign in is the compact runner, or
-     a small cut button beside the page's own runner. */
+     a small secondary button beside the page's own runner. */
   .top .end > .run-wrap > .run, .top .end > .cut-btn { --control-height: var(--control-height-small); }
   .top .end .run { padding: 0 16px 0 14px; font-size: 0.875rem; gap: 6px; }
   /* The picture is as tall as the search button beside it, at rest or compact. */
@@ -758,7 +758,7 @@ component({
   examples: [
     { label: "Try it: scroll the page under it, point at its tabs, open the menu", isWide: true, markup: headerFrame(header({ id: "example-top-try", current: "home", search: GAMES_SEARCH, account: STAND_IN_ACCOUNT, isOnDeveloperPage: false, yourGamesHref: "#header" }), true) },
     { label: "Signed out, on Home: no tabs, since Home alone isn't a choice", isWide: true, isStill: true, markup: headerFrame(header({ id: "example-top-out", current: "home", search: GAMES_SEARCH, account: null, isOnDeveloperPage: false })) },
-    { label: "Signed out, on a page with its own runner (a game's Play): Sign in is a cut button", isWide: true, isStill: true, markup: headerFrame(header({ id: "example-top-runner", current: "home", search: GAMES_SEARCH, account: null, isOnDeveloperPage: false, hasPageRunner: true })) },
+    { label: "Signed out, on a page with its own runner (a game's Play): Sign in is a secondary button", isWide: true, isStill: true, markup: headerFrame(header({ id: "example-top-runner", current: "home", search: GAMES_SEARCH, account: null, isOnDeveloperPage: false, hasPageRunner: true })) },
     { label: "Signed in, menu open", isWide: true, isStill: true, markup: headerFrame(header({ id: "example-top-in", current: "home", search: GAMES_SEARCH, account: STAND_IN_ACCOUNT, isOnDeveloperPage: false, isMenuOpen: true, yourGamesHref: "#header" }), true) },
     { label: "A long username, menu open", isWide: true, isStill: true, markup: headerFrame(header({ id: "example-top-long", current: "home", search: GAMES_SEARCH, account: LONG_NAMED_ACCOUNT, isOnDeveloperPage: false, isMenuOpen: true, yourGamesHref: "#header" }), true) },
     { label: "On the dashboard", isWide: true, isStill: true, markup: headerFrame(header({ id: "example-top-dev", current: "developer", account: STAND_IN_ACCOUNT, isOnDeveloperPage: true, yourGamesHref: "#header" })) },
@@ -964,7 +964,7 @@ component({
    slabs that slant where they meet. Pointing lifts one and sends its arrow on; a press sinks it, its light turning round. At a row's end
    that arrow lies flat in the well, faded. Touch screens swipe instead. */
 .steps { --control-height: var(--control-height-small); position: relative; display: none; gap: 0; height: var(--control-height); padding: 3px; background: var(--well); box-shadow: var(--well-shade); clip-path: var(--cut-shape); }
-/* Each arrow is a Cut button sized for a well (actions.ts), icon only; at the row's end it can't be pressed. */
+/* Each arrow is a Secondary button sized for a well (actions.ts), icon only; at the row's end it can't be pressed. */
 .steps > .cut-btn:first-of-type { margin-inline-end: var(--gap-control-row-boxes); }
 @media (hover: hover) and (pointer: fine) { .steps { display: flex; } .steps[hidden] { display: none; } }
 /* Without a mouse there are none, and a row holding them closes up before them (layout.ts, ROW_STYLES). */
@@ -1160,7 +1160,7 @@ export function sidebar(options: SidebarOptions): Raw {
 /** The button that folds a sidebar away and back on a wide screen, and slides it over the page on a phone: at the start of the page's header or bar. */
 export function sidebarButton(options: { controls: string; label: string; isExpanded: boolean }): ControlMarkup {
   // Beside the page it's on the sidebar's side, over it: the start of the page's header (siteHeader's sidebarButton) or bar.
-  return cutButton(options.label, { type: "button", icon: "sidebar", isLabelHidden: true, isSmall: true, controls: options.controls, isExpanded: options.isExpanded, dataAttributes: { "sidebar-button": "" } });
+  return secondaryButton(options.label, { type: "button", icon: "sidebar", isLabelHidden: true, isSmall: true, controls: options.controls, isExpanded: options.isExpanded, dataAttributes: { "sidebar-button": "" } });
 }
 
 /**
@@ -1463,13 +1463,13 @@ export interface LoadMoreOptions {
 const LOAD_FAILED_TEXT = "That didn't load. Check your connection, then try again.";
 
 /**
- * Load more: a cut button under a long list that adds the next page to it in place. Without scripts it's a link to that page. Once the list
+ * Load more: a secondary button under a long list that adds the next page to it in place. Without scripts it's a link to that page. Once the list
  * has ended, a line saying so takes its place.
  */
 export function loadMore(options: LoadMoreOptions): Raw {
   const listIds = [options.listId, ...(options.moreListIds ?? [])].join(" ");
   if (!options.href) return html`<div class="load-more" data-load-more="${listIds}"><p class="load-more-words">${options.endText ?? ""}</p></div>`;
-  return html`<div class="load-more${options.isFailed ? " is-failed" : ""}" data-load-more="${listIds}"${options.isLoadedOnScroll ? raw(" data-loads-on-scroll") : ""}>${cutButton(options.label, { href: options.href, isFullWidth: true })}<p class="load-more-words" role="status"${options.isFailed ? "" : raw(" hidden")}>${options.isFailed ? LOAD_FAILED_TEXT : ""}</p></div>`;
+  return html`<div class="load-more${options.isFailed ? " is-failed" : ""}" data-load-more="${listIds}"${options.isLoadedOnScroll ? raw(" data-loads-on-scroll") : ""}>${secondaryButton(options.label, { href: options.href, isFullWidth: true })}<p class="load-more-words" role="status"${options.isFailed ? "" : raw(" hidden")}>${options.isFailed ? LOAD_FAILED_TEXT : ""}</p></div>`;
 }
 
 /**
@@ -1532,7 +1532,7 @@ component({
   subgroup: "scrolling",
   summary: "Under a long list (versions, players, topics): the next page added in place, busy while it comes; under a grid of covers it loads by itself as you scroll. Without scripts it's a link to that page.",
   styles: `
-/* Load more: a full-width cut button under its list, a block below it, with what went wrong under it as a control's words; or, once the
+/* Load more: a full-width secondary button under its list, a block below it, with what went wrong under it as a control's words; or, once the
    list has ended, a line of words saying so. */
 .load-more { display: flex; flex-direction: column; gap: var(--gap-words-control); }
 .load-more-words { margin: 0; font: var(--type-note); color: var(--muted); }
@@ -1541,7 +1541,7 @@ component({
   render: loadMore,
   examples: [
     { label: "Under a list: try it, to the last page", isWide: true, markup: glassPane({ paneWidth: "full", body: html`${listRows({ whenEmpty: html`<p>No older versions yet.</p>`, id: "example-load-more-list", rows: LOADED_ROWS })}${loadMore({ href: "/design/examples/older-versions?page=2", label: "Show older versions", listId: "example-load-more-list" })}` }) },
-    { label: "Busy", markup: html`<div style="width:min(340px,100%)">${cutButton("Show older versions", { href: "#load-more", isFullWidth: true, isBusy: true })}</div>`, isStill: true },
+    { label: "Busy", markup: html`<div style="width:min(340px,100%)">${secondaryButton("Show older versions", { href: "#load-more", isFullWidth: true, isBusy: true })}</div>`, isStill: true },
     {
       label: "After a failed load: press it again",
       isWide: true,
@@ -1587,7 +1587,7 @@ export function filterMenu(options: FilterMenuOptions): ControlMarkup {
   // A choice is a Dropdown's (its classes and look), a link to the list with it picked.
   const choice = (label: string, href: string, isCurrent: boolean, choiceIcon?: IconName) =>
     html`<a href="${href}" class="dropdown-choice" role="menuitem" tabindex="-1" data-cut-line="8"${isCurrent ? raw(' aria-current="page"') : ""}>${CUT_LINE}${choiceIcon ? icon(choiceIcon) : ""}<span>${label}</span></a>`;
-  const button = cutButton("Filter", { type: "button", icon: "filter", controls: options.id, isExpanded: Boolean(options.isOpen), reactionCount: options.filterCount || undefined });
+  const button = secondaryButton("Filter", { type: "button", icon: "filter", controls: options.id, isExpanded: Boolean(options.isOpen), reactionCount: options.filterCount || undefined });
   const opener = (groupName: string, inside: Raw, className: string) =>
     html`<button type="button" class="dropdown-choice ${className}" role="menuitem" tabindex="-1" aria-haspopup="menu" data-cut-line="8" data-filter-opens="${groupName}">${CUT_LINE}${inside}</button>`;
   const main = html`<div class="dropdown-in filter-panel" data-filter-panel=""${options.openGroupName ? raw(" hidden") : ""}>${options.groups.map((group) =>

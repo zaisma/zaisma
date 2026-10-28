@@ -3,7 +3,7 @@ import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
 import { controlMarkup, type ControlMarkup } from "./control-markup.ts";
 import { CUT_LINE, icon, type IconName } from "./foundations.ts";
-import { cutButton, toggleButton } from "./actions.ts";
+import { secondaryButton, toggleButton } from "./actions.ts";
 import { examplePane } from "./example-pane.ts";
 import { row } from "./layout.ts";
 
@@ -73,7 +73,7 @@ export interface SearchFieldOptions {
  * Clear button at its end once something's typed. "/" jumps to it in the header.
  */
 export function searchField(options: SearchFieldOptions): ControlMarkup {
-  return controlMarkup(html`<form class="find cut-carved${options.state ? ` ${options.state}` : ""}" method="get" action="${options.action}" role="search" data-cut-line="10">${CUT_LINE}${Object.entries(options.keep ?? {}).map(([name, keptValue]) => html`<input type="hidden" name="${name}" value="${keptValue}">`)}${icon("search")}<input type="search" name="${options.name}" value="${options.searchText}" maxlength="200" placeholder="${options.placeholder}" aria-label="${options.label}" autocomplete="off">${cutButton("Clear the search", { type: "button", icon: "close", isLabelHidden: true, isInWell: true })}</form>`, "regular");
+  return controlMarkup(html`<form class="find cut-carved${options.state ? ` ${options.state}` : ""}" method="get" action="${options.action}" role="search" data-cut-line="10">${CUT_LINE}${Object.entries(options.keep ?? {}).map(([name, keptValue]) => html`<input type="hidden" name="${name}" value="${keptValue}">`)}${icon("search")}<input type="search" name="${options.name}" value="${options.searchText}" maxlength="200" placeholder="${options.placeholder}" aria-label="${options.label}" autocomplete="off">${secondaryButton("Clear the search", { type: "button", icon: "close", isLabelHidden: true, isInWell: true })}</form>`, "regular");
 }
 
 export interface BirthdayFieldOptions {
@@ -602,7 +602,7 @@ const FIELD_STYLES = `
 .field-hint { margin: 0; padding-inline: var(--pad-words); font: var(--type-note); color: var(--muted); }
 /* No icon: its words start where an icon would, so they still line up with the pane's words. */
 .field.no-icon > input { --text-start: var(--pad-inside-words); }
-/* Show/Hide: a small cut button, a toggle, at the field's end, as far in from its end as from its top and bottom. Its words change and its
+/* Show/Hide: a small secondary button, a toggle, at the field's end, as far in from its end as from its top and bottom. Its words change and its
    width doesn't, so what's typed keeps exactly the room it leaves: the toggle's width and its inset on each side. */
 .field { --toggle-inset: calc((var(--control-height-field) - var(--control-height-small)) / 2); }
 .field.with-toggle { --toggle-width: 62px; }

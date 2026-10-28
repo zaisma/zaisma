@@ -2,7 +2,7 @@ import { acceptedFriendRequestsFrom, accountById, answerFriendRequest, friendReq
 import { authConfigured, currentSession } from "./auth.ts";
 import { sendAlert } from "./email.ts";
 import type { Env } from "./env.ts";
-import { cutButton, runButton } from "./components/actions.ts";
+import { secondaryButton, primaryButton } from "./components/actions.ts";
 import { listRows, pictureFrame, emptyState } from "./components/data.ts";
 import { row, stack } from "./components/layout.ts";
 import { banner, sheet } from "./components/panes.ts";
@@ -147,7 +147,7 @@ export function friendRequestParts(options: { gameOrigin: string; slug: string }
         { kind: "words", markup: html`<p><strong id="friend-request-card-name"></strong> wants to be friends.</p>` },
         {
           kind: "block",
-          markup: row({ widths: "fit", label: "Answer", items: [{ kind: "control", markup: runButton("Accept", { type: "button", id: "friend-request-accept" }) }, { kind: "control", markup: cutButton("Not now", { type: "button", id: "friend-request-later" }) }] }),
+          markup: row({ widths: "fit", label: "Answer", items: [{ kind: "control", markup: primaryButton("Accept", { type: "button", id: "friend-request-accept" }) }, { kind: "control", markup: secondaryButton("Not now", { type: "button", id: "friend-request-later" }) }] }),
         },
       ],
     }),
@@ -160,7 +160,7 @@ export function friendRequestParts(options: { gameOrigin: string; slug: string }
     body,
     closeLabel: "Close",
     placement: "foot",
-    buttons: [cutButton("Cancel", { type: "submit", formMethod: "dialog" }), runButton("Send request", { type: "button", id: "friend-request-yes" })],
+    buttons: [secondaryButton("Cancel", { type: "submit", formMethod: "dialog" }), primaryButton("Send request", { type: "button", id: "friend-request-yes" })],
   })}
 ${card}
 ${acceptedCard}

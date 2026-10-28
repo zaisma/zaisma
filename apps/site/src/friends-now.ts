@@ -3,7 +3,7 @@ import { currentSession } from "./auth.ts";
 import type { Env } from "./env.ts";
 import { tile } from "./home.ts";
 import { accountPicture, html, raw, securityHeaders, type Raw } from "./html.ts";
-import { cutButton } from "./components/actions.ts";
+import { secondaryButton } from "./components/actions.ts";
 import { glanceFacts } from "./components/data.ts";
 import { row, type LayoutItem } from "./components/layout.ts";
 
@@ -99,7 +99,7 @@ export function friendsHere(slug: string, here: FriendsInGame): Raw {
     if (!door) continue;
     if (door.refusal) refusals.add(joinRefusalText(door));
     // Watch is its eye alone, so it stays on the friends' line on a phone.
-    else doors.push({ kind: "control", markup: cutButton(words, { href: `${joinPath(slug, door)}${query}`, isSmall: true, ...(words === "Watch" ? { icon: "eye", isLabelHidden: true } : {}) }) });
+    else doors.push({ kind: "control", markup: secondaryButton(words, { href: `${joinPath(slug, door)}${query}`, isSmall: true, ...(words === "Watch" ? { icon: "eye", isLabelHidden: true } : {}) }) });
   }
   return row({
     widths: "lead-fills",

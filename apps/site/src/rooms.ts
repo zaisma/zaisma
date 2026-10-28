@@ -1,7 +1,7 @@
 import { checkText, gameBySlug, hasSpace, hasWatchSpace, leaveOut, listRoomPage, MAXIMUM_PAGE_ROOM_COUNT, readIsHidingFullRoomsParameter, readLabelParameter, readLeftParameter, readRoomOrderParameter, type Game, type ListedRoom, type RoomOrder, type RoomPage } from "@zaisma/core";
 import type { Env } from "./env.ts";
 import { html, securityHeaders, type Raw } from "./html.ts";
-import { cutButton } from "./components/actions.ts";
+import { secondaryButton } from "./components/actions.ts";
 import { emptyState, listRows, type ListRow } from "./components/data.ts";
 import { checkField, cutField, selectField, tabSwitch, type SwitchTab } from "./components/inputs.ts";
 import { row, stack, type ControlMarkup, type LayoutItem } from "./components/layout.ts";
@@ -166,10 +166,10 @@ function roomRow(slug: string, room: ListedRoom): ListRow {
   const detail = [title === filled ? "" : filled, room.spectatorCount > 0 ? `${room.spectatorCount} watching` : "", room.location?.countryName ?? ""].filter(Boolean).join(" · ");
   const said = [name, labelValues.join(", ")].filter(Boolean).join(", ");
   const actions: ControlMarkup[] = [
-    ...(hasSpace(room) ? [cutButton("Join", { href: `/g/${slug}?room=${room.roomCode}`, isSmall: true })] : room.isOpen ? [] : [cutButton("Join", { type: "button", isSmall: true, isDisabled: true })]),
-    ...(hasWatchSpace(room) ? [cutButton("Watch", { href: `/g/${slug}?room=${room.roomCode}&watch=1`, isSmall: true })] : []),
+    ...(hasSpace(room) ? [secondaryButton("Join", { href: `/g/${slug}?room=${room.roomCode}`, isSmall: true })] : room.isOpen ? [] : [secondaryButton("Join", { type: "button", isSmall: true, isDisabled: true })]),
+    ...(hasWatchSpace(room) ? [secondaryButton("Watch", { href: `/g/${slug}?room=${room.roomCode}&watch=1`, isSmall: true })] : []),
     // The page's script (report.ts) opens the report with the room's code and what it's called.
-    ...(said ? [cutButton(`Report the room “${said}”`, { type: "button", icon: "flag", isLabelHidden: true, isSmall: true, dataAttributes: { "report-room": room.roomCode, "room-name": said } })] : []),
+    ...(said ? [secondaryButton(`Report the room “${said}”`, { type: "button", icon: "flag", isLabelHidden: true, isSmall: true, dataAttributes: { "report-room": room.roomCode, "room-name": said } })] : []),
   ];
   return { title, detail: detail || undefined, end: hasSpace(room) ? undefined : room.isOpen ? "Full" : "In a match", action: actions.length > 1 ? actions : actions[0] };
 }
@@ -177,7 +177,7 @@ function roomRow(slug: string, room: ListedRoom): ListRow {
 /** A box for a room code a friend shared. It opens the same room link an invite does. The page's script reads #room-code. */
 export function codeBox(slug: string): Raw {
   const field = cutField({ id: "room-code", name: "room", label: "Have a room code?", type: "text", placeholder: "ABC234", autocomplete: "off", pattern: "[2-9A-HJ-NP-Za-hj-np-z]{6}", isRequired: true });
-  return html`<form method="get" action="/g/${slug}">${row({ widths: "lead-fills", items: [{ kind: "control", markup: field }, { kind: "control", markup: cutButton("Join", { type: "submit" }) }] })}</form>`;
+  return html`<form method="get" action="/g/${slug}">${row({ widths: "lead-fills", items: [{ kind: "control", markup: field }, { kind: "control", markup: secondaryButton("Join", { type: "submit" }) }] })}</form>`;
 }
 
 /**

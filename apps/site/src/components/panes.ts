@@ -3,7 +3,7 @@ import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
 import { CUT_LINE, EDGE, ago, glassPane, icon, sheetMarkup, tag, tray, type IconName } from "./foundations.ts";
 import { emptyState, glanceFacts, listRows, pictureFrame, pictureRow, type GlanceFacts } from "./data.ts";
-import { cardRow, cutButton, tertiaryButton, runButton, textLink, toggleButton } from "./actions.ts";
+import { cardRow, secondaryButton, tertiaryButton, primaryButton, textLink, toggleButton } from "./actions.ts";
 import { REPORT_REASONS, STAND_IN_QR_CODE, birthdayField, choiceCards, codeField, cutField, linkField, longField, qrCode } from "./inputs.ts";
 import { grid, paneParts, row, stack, type ControlMarkup, type LayoutItem } from "./layout.ts";
 
@@ -424,7 +424,7 @@ export const STAND_IN_COVERS: Record<string, Raw> = Object.fromEntries(
 const standInCovers = (slugs: string[]) => html`${slugs.map((slug) => STAND_IN_COVERS[slug])}`;
 
 const signInBody = (idPrefix: string) =>
-  html`<h2>Welcome back</h2>${cutField({ id: `${idPrefix}-username`, name: "username", label: "Username", type: "text", icon: "person", text: "emma_r", autocomplete: "username" })}${cutField({ id: `${idPrefix}-password`, name: "password", label: "Password", type: "password", icon: "lock", text: "correct-horse", autocomplete: "current-password" })}${runButton("Sign in", { type: "button", isFullWidth: true, isBig: true })}`;
+  html`<h2>Welcome back</h2>${cutField({ id: `${idPrefix}-username`, name: "username", label: "Username", type: "text", icon: "person", text: "emma_r", autocomplete: "username" })}${cutField({ id: `${idPrefix}-password`, name: "password", label: "Password", type: "password", icon: "lock", text: "correct-horse", autocomplete: "current-password" })}${primaryButton("Sign in", { type: "button", isFullWidth: true, isBig: true })}`;
 
 component({
   name: "Glass pane",
@@ -450,7 +450,7 @@ const ACCOUNT_ITEMS: DropdownItem[] = [
 ];
 /** An example menu hanging from its button, open: the button at the frame's end, or at its start. */
 const dropdownFrame = (buttonLabel: string, options: DropdownOptions, buttonPlace: "end" | "start" = "end") => {
-  const button = cutButton(buttonLabel, { type: "button", controls: options.id, isExpanded: true });
+  const button = secondaryButton(buttonLabel, { type: "button", controls: options.id, isExpanded: true });
   return html`<div class="dropdown-frame">${buttonPlace === "end" ? button : html`<span style="position: absolute; left: var(--pad-pane); top: 0">${button}</span>`}${dropdown({ ...options, isOpen: true })}</div>`;
 };
 
@@ -479,7 +479,7 @@ component({
     {
       label: "Fit: a head, and what it's about on the tray",
       isWide: true,
-      markup: tray({ paneWidth: "fit", head: html`<h3 class="tray-sample-title">Your games</h3>`, body: row({ widths: "lead-fills", items: [control(runButton("Play", { type: "button", icon: "play" })), control(cutButton("Details", { type: "button" }))] }) }),
+      markup: tray({ paneWidth: "fit", head: html`<h3 class="tray-sample-title">Your games</h3>`, body: row({ widths: "lead-fills", items: [control(primaryButton("Play", { type: "button", icon: "play" })), control(secondaryButton("Details", { type: "button" }))] }) }),
     },
     {
       label: "Full: holding a row of covers",
@@ -603,7 +603,7 @@ component({
   examples: [
     {
       label: "Try it: a game's QR code, large",
-      markup: html`${cutButton("Show QR code", { type: "button", controls: "example-light-box" })}${lightBox({ id: "example-light-box", label: "QR code for Ashen Crown", closeLabel: "Close", body: qrCode({ id: "example-light-box-qr", label: "QR code for Ashen Crown", caption: "Scan with a phone's camera to play Ashen Crown", imageUrl: STAND_IN_QR_CODE, isLarge: true }) })}`,
+      markup: html`${secondaryButton("Show QR code", { type: "button", controls: "example-light-box" })}${lightBox({ id: "example-light-box", label: "QR code for Ashen Crown", closeLabel: "Close", body: qrCode({ id: "example-light-box-qr", label: "QR code for Ashen Crown", caption: "Scan with a phone's camera to play Ashen Crown", imageUrl: STAND_IN_QR_CODE, isLarge: true }) })}`,
     },
   ],
 });
@@ -614,9 +614,9 @@ export interface FilterTag {
   removeHref: string;
 }
 
-/** The filters in use, under a list's Filter button: each a small cut button with a close mark, which takes that one away. */
+/** The filters in use, under a list's Filter button: each a small secondary button with a close mark, which takes that one away. */
 export function filterTags(options: { tags: FilterTag[] }): Raw {
-  return row({ widths: "fit", label: "Filters in use: each removes itself", items: options.tags.map((filter) => control(cutButton(filter.label, { href: filter.removeHref, icon: "close", isSmall: true }))) });
+  return row({ widths: "fit", label: "Filters in use: each removes itself", items: options.tags.map((filter) => control(secondaryButton(filter.label, { href: filter.removeHref, icon: "close", isSmall: true }))) });
 }
 
 component({
@@ -660,7 +660,7 @@ component({
 });
 
 interface SheetBaseOptions {
-  /** Unique on the page: the button that opens it names it (cutButton's controls). */
+  /** Unique on the page: the button that opens it names it (secondaryButton's controls). */
   id: string;
   /** What its close button says to a screen reader: "Close". */
   closeLabel: string;
@@ -796,7 +796,7 @@ export function confirmSheet(options: ConfirmSheetOptions): Raw {
     title: options.title,
     body: html`<p class="sheet-text">${options.text}</p>`,
     action: options.action,
-    buttons: [cutButton("Cancel", { type: "submit", formMethod: "dialog", isAutofocused: !options.isBusy }), runButton(options.confirmLabel, { type: "submit", isBusy: options.isBusy, isDelete: options.isDelete })],
+    buttons: [secondaryButton("Cancel", { type: "submit", formMethod: "dialog", isAutofocused: !options.isBusy }), primaryButton(options.confirmLabel, { type: "submit", isBusy: options.isBusy, isDelete: options.isDelete })],
     isShown: options.isShown,
     isConfirm: true,
   });
@@ -927,7 +927,7 @@ ${touchReach(".sheet")}
 const reportBody = (idPrefix: string) =>
   html`${choiceCards({ id: `${idPrefix}-reason`, name: `report_reason_${idPrefix}`, label: "What's wrong", choices: REPORT_REASONS, pickedValue: "broken", isCompact: true })}${longField({ id: `${idPrefix}-details`, name: "report_text", label: "What you saw", rowCount: 3, maximumCharacterCount: 2000 })}`;
 const reportSheet = (id: string, options: { title?: string; isShown?: boolean } = {}) =>
-  sheet({ id, title: options.title ?? "Report Ashen Crown", body: reportBody(id), closeLabel: "Close", action: "#sheet", buttons: [runButton("Send report", { type: "submit" })], isShown: options.isShown });
+  sheet({ id, title: options.title ?? "Report Ashen Crown", body: reportBody(id), closeLabel: "Close", action: "#sheet", buttons: [primaryButton("Send report", { type: "submit" })], isShown: options.isShown });
 
 component({
   name: "Sheet",
@@ -938,7 +938,7 @@ component({
   styles: SHEET_STYLES,
   render: sheet,
   examples: [
-    { label: "Try it: from its button (on a short screen its title and Send report stay while the reasons scroll)", markup: html`${cutButton("Report this game", { type: "button", controls: "example-sheet-try" })}${reportSheet("example-sheet-try")}` },
+    { label: "Try it: from its button (on a short screen its title and Send report stay while the reasons scroll)", markup: html`${secondaryButton("Report this game", { type: "button", controls: "example-sheet-try" })}${reportSheet("example-sheet-try")}` },
     { label: "Open", markup: reportSheet("example-sheet-shown", { isShown: true }), isWide: true, isStill: true },
     {
       label: "Compact, on a wide screen: narrow, its gaps closed up like a dropdown's (the share sheet)",
@@ -948,24 +948,24 @@ component({
     {
       label: "A long title",
       isStill: true,
-      markup: sheet({ id: "example-sheet-long", title: "Report The Last Lighthouse Keeper: Tides of the Northern Reach", body: longField({ id: "example-sheet-long-details", name: "report_text", label: "What you saw", rowCount: 3, maximumCharacterCount: 2000 }), closeLabel: "Close", action: "#sheet", buttons: [runButton("Send report", { type: "submit" })], isShown: true }),
+      markup: sheet({ id: "example-sheet-long", title: "Report The Last Lighthouse Keeper: Tides of the Northern Reach", body: longField({ id: "example-sheet-long-details", name: "report_text", label: "What you saw", rowCount: 3, maximumCharacterCount: 2000 }), closeLabel: "Close", action: "#sheet", buttons: [primaryButton("Send report", { type: "submit" })], isShown: true }),
     },
     {
       label: "Try it: at the foot, over a running game, which stays in view (a buy sheet)",
-      markup: html`${cutButton("Buy the Founder's Pack", { type: "button", controls: "example-sheet-foot" })}${sheet({ id: "example-sheet-foot", title: "Founder's Pack", body: html`<p>The soundtrack, the Ember Keep castle and 1,200 crowns in Ashen Crown, on every device you sign in on.</p>`, closeLabel: "Close", action: "#sheet", placement: "foot", buttons: [cutButton("Not now", { type: "submit", formMethod: "dialog" }), runButton("Buy for $14.99", { type: "submit" })] })}`,
+      markup: html`${secondaryButton("Buy the Founder's Pack", { type: "button", controls: "example-sheet-foot" })}${sheet({ id: "example-sheet-foot", title: "Founder's Pack", body: html`<p>The soundtrack, the Ember Keep castle and 1,200 crowns in Ashen Crown, on every device you sign in on.</p>`, closeLabel: "Close", action: "#sheet", placement: "foot", buttons: [secondaryButton("Not now", { type: "submit", formMethod: "dialog" }), primaryButton("Buy for $14.99", { type: "submit" })] })}`,
     },
     {
       label: "Try it: a confirm over a sheet, a size smaller; a press beside it, Esc or Cancel close only the confirm",
-      markup: html`${cutButton("Your games", { type: "button", controls: "example-sheet-under" })}${sheet({
+      markup: html`${secondaryButton("Your games", { type: "button", controls: "example-sheet-under" })}${sheet({
         id: "example-sheet-under",
         title: "Ashen Crown",
-        body: stack({ items: [{ kind: "words", markup: html`<p>In your games since March. Played 2 days ago.</p>` }, { kind: "control", markup: cutButton("Remove from your games", { type: "button", controls: "example-sheet-over", isFullWidth: true }) }] }),
+        body: stack({ items: [{ kind: "words", markup: html`<p>In your games since March. Played 2 days ago.</p>` }, { kind: "control", markup: secondaryButton("Remove from your games", { type: "button", controls: "example-sheet-over", isFullWidth: true }) }] }),
         closeLabel: "Close",
       })}${confirmSheet({ id: "example-sheet-over", title: "Remove Ashen Crown?", text: "It leaves your games. Your saves stay on your account.", action: "#sheet", confirmLabel: "Remove" })}`,
     },
     {
       label: "Try it: steps of one task in one sheet (Players, a player, Report), Back before a later step's title; a press beside it closes all of it",
-      markup: html`${cutButton("Players", { type: "button", icon: "people", controls: "example-sheet-steps" })}${sheet({
+      markup: html`${secondaryButton("Players", { type: "button", icon: "people", controls: "example-sheet-steps" })}${sheet({
         id: "example-sheet-steps",
         closeLabel: "Close",
         placement: "foot",
@@ -979,8 +979,8 @@ component({
               label: "In this room",
               isCompact: true,
               rows: [
-                { lead: pictureFrame("Liam", "sm"), title: "Liam", titleIcon: { icon: "friends", label: "Friend" }, action: [toggleButton("Mute Liam", { type: "button", icon: "speaker", isLabelHidden: true, isSmall: true, isPressed: false }), cutButton("More for Liam", { type: "button", icon: "more", isLabelHidden: true, isSmall: true, dataAttributes: { "sheet-step-to": "player" } })] },
-                { lead: pictureFrame("Sofia", "sm"), title: "Sofia", action: [toggleButton("Mute Sofia", { type: "button", icon: "speaker-off", isLabelHidden: true, isSmall: true, isPressed: true }), cutButton("More for Sofia", { type: "button", icon: "more", isLabelHidden: true, isSmall: true, dataAttributes: { "sheet-step-to": "player" } })] },
+                { lead: pictureFrame("Liam", "sm"), title: "Liam", titleIcon: { icon: "friends", label: "Friend" }, action: [toggleButton("Mute Liam", { type: "button", icon: "speaker", isLabelHidden: true, isSmall: true, isPressed: false }), secondaryButton("More for Liam", { type: "button", icon: "more", isLabelHidden: true, isSmall: true, dataAttributes: { "sheet-step-to": "player" } })] },
+                { lead: pictureFrame("Sofia", "sm"), title: "Sofia", action: [toggleButton("Mute Sofia", { type: "button", icon: "speaker-off", isLabelHidden: true, isSmall: true, isPressed: true }), secondaryButton("More for Sofia", { type: "button", icon: "more", isLabelHidden: true, isSmall: true, dataAttributes: { "sheet-step-to": "player" } })] },
               ],
             }),
           },
@@ -989,13 +989,13 @@ component({
             title: "Liam",
             body: menuChoices({ label: "Liam", choices: [{ label: "Profile", icon: "person", href: "#sheet" }, { label: "Block", icon: "ban", isButton: true }, { label: "Report", icon: "flag", isButton: true, dataAttributes: { "sheet-step-to": "report" } }] }),
           },
-          { stepName: "report", title: "Report Liam", body: reportBody("example-sheet-steps"), buttons: [runButton("Send report", { type: "submit" })] },
+          { stepName: "report", title: "Report Liam", body: reportBody("example-sheet-steps"), buttons: [primaryButton("Send report", { type: "submit" })] },
         ],
       })}`,
     },
     {
       label: "Try it: tabs in its head that swap what's in it (the room's players and your friends playing), at its tallest height",
-      markup: html`${cutButton("Who's playing", { type: "button", icon: "people", controls: "example-sheet-tabs" })}${sheet({
+      markup: html`${secondaryButton("Who's playing", { type: "button", icon: "people", controls: "example-sheet-tabs" })}${sheet({
         id: "example-sheet-tabs",
         title: "Who's playing",
         closeLabel: "Close",
@@ -1067,7 +1067,7 @@ component({
 });
 
 export interface StorePanelOptions {
-  /** Unique on the page: the button that opens it names it (cutButton's controls). */
+  /** Unique on the page: the button that opens it names it (secondaryButton's controls). */
   id: string;
   /** The slim row above the picture, with Close at its right: "Buy". */
   title: string;
@@ -1095,7 +1095,7 @@ export function storePanel(options: StorePanelOptions): Raw {
 const STORE_NOTE = "Sold by Preview Studio. Refunds for items you haven't used yet, within 14 days.";
 /** The panel's item, as the examples show it. */
 const storeExampleItem = (id: string, noteText = STORE_NOTE) => ({ kind: "block" as const, markup: storeItem({ id, imageUrl: "/design/covers/hollow-tide.webp", name: "Revive", priceText: "$1.99", description: "Bring your character back with half its health.", noteText }) });
-const storeExampleBuy = (id: string, label = "Buy") => ({ kind: "control" as const, markup: runButton(label, { id, type: "button", isFullWidth: true, trailingText: "$1.99" }) });
+const storeExampleBuy = (id: string, label = "Buy") => ({ kind: "control" as const, markup: primaryButton(label, { id, type: "button", isFullWidth: true, trailingText: "$1.99" }) });
 
 component({
   name: "Store panel",
@@ -1123,7 +1123,7 @@ component({
   examples: [
     {
       label: "Try it: from its button, at the screen's right edge",
-      markup: html`${cutButton("Buy Revive", { type: "button", controls: "example-store-panel-try" })}${storePanel({ id: "example-store-panel-try", title: "Buy", closeLabel: "Close", body: stack({ items: [storeExampleItem("example-store-panel-try-item")] }), foot: stack({ items: [{ kind: "control", markup: cardRow("Visa ending 4242", { type: "button", hiddenText: "Use another card" }) }, storeExampleBuy("example-store-panel-try-buy")] }) })}`,
+      markup: html`${secondaryButton("Buy Revive", { type: "button", controls: "example-store-panel-try" })}${storePanel({ id: "example-store-panel-try", title: "Buy", closeLabel: "Close", body: stack({ items: [storeExampleItem("example-store-panel-try-item")] }), foot: stack({ items: [{ kind: "control", markup: cardRow("Visa ending 4242", { type: "button", hiddenText: "Use another card" }) }, storeExampleBuy("example-store-panel-try-buy")] }) })}`,
     },
     {
       label: "Ready: the saved card and Buy, one press",
@@ -1133,7 +1133,7 @@ component({
     {
       label: "With Apple Pay offered and the line the EU's law asks for above Buy",
       isStill: true,
-      markup: storePanel({ id: "example-store-panel-wallet", title: "Buy", closeLabel: "Close", isShown: true, body: stack({ items: [storeExampleItem("example-store-panel-wallet-item")] }), foot: stack({ items: [{ kind: "control", markup: cutButton("Apple Pay", { type: "button", isFullWidth: true }) }, { kind: "control", markup: cardRow("Visa ending 4242", { type: "button", hiddenText: "Use another card" }) }, { kind: "words", markup: html`<p>You get it now, so you can't cancel it in the next 14 days.</p>` }, storeExampleBuy("example-store-panel-wallet-buy")] }) }),
+      markup: storePanel({ id: "example-store-panel-wallet", title: "Buy", closeLabel: "Close", isShown: true, body: stack({ items: [storeExampleItem("example-store-panel-wallet-item")] }), foot: stack({ items: [{ kind: "control", markup: secondaryButton("Apple Pay", { type: "button", isFullWidth: true }) }, { kind: "control", markup: cardRow("Visa ending 4242", { type: "button", hiddenText: "Use another card" }) }, { kind: "words", markup: html`<p>You get it now, so you can't cancel it in the next 14 days.</p>` }, storeExampleBuy("example-store-panel-wallet-buy")] }) }),
     },
     {
       label: "A first card: the email for receipts and the card form",
@@ -1143,7 +1143,7 @@ component({
     {
       label: "A guest: a way to an account, the game running on",
       isStill: true,
-      markup: storePanel({ id: "example-store-panel-guest", title: "Make a free account to buy", closeLabel: "Close", isShown: true, body: stack({ items: [storeExampleItem("example-store-panel-guest-item"), { kind: "words", markup: html`<p>Your game keeps running while you make one or sign in, and you come back to this.</p>` }] }), foot: row({ widths: "equal", items: [{ kind: "control", markup: cutButton("Sign in", { type: "button" }) }, { kind: "control", markup: runButton("Make an account", { type: "button" }) }] }) }),
+      markup: storePanel({ id: "example-store-panel-guest", title: "Make a free account to buy", closeLabel: "Close", isShown: true, body: stack({ items: [storeExampleItem("example-store-panel-guest-item"), { kind: "words", markup: html`<p>Your game keeps running while you make one or sign in, and you come back to this.</p>` }] }), foot: row({ widths: "equal", items: [{ kind: "control", markup: secondaryButton("Sign in", { type: "button" }) }, { kind: "control", markup: primaryButton("Make an account", { type: "button" }) }] }) }),
     },
   ],
 });
@@ -1156,13 +1156,13 @@ component({
   slug: "confirm-sheet",
   group: "panes",
   subgroup: "layers",
-  summary: "One sentence, the action and Cancel, before something that's hard to take back: signing out everywhere, ending a room. Over another sheet it opens a size smaller, and closing it lands on the sheet beneath. A delete's is red, the only red in Zaisma, and the button that opens it is a cut button with a trash icon, never orange.",
+  summary: "One sentence, the action and Cancel, before something that's hard to take back: signing out everywhere, ending a room. Over another sheet it opens a size smaller, and closing it lands on the sheet beneath. A delete's is red, the only red in Zaisma, and the button that opens it is a secondary button with a trash icon, never orange.",
   styles: "",
   render: confirmSheet,
   examples: [
-    { label: "Try it: from its button", markup: html`${cutButton("Sign out everywhere", { type: "button", controls: "example-confirm-try" })}${confirmSheet({ id: "example-confirm-try", ...SIGN_OUT_EVERYWHERE })}` },
+    { label: "Try it: from its button", markup: html`${secondaryButton("Sign out everywhere", { type: "button", controls: "example-confirm-try" })}${confirmSheet({ id: "example-confirm-try", ...SIGN_OUT_EVERYWHERE })}` },
     { label: "Open", markup: confirmSheet({ id: "example-confirm-shown", ...SIGN_OUT_EVERYWHERE, isShown: true }), isWide: true, isStill: true },
-    { label: "A delete: from a cut button with a trash icon", markup: html`${cutButton("Delete this game", { type: "button", icon: "trash", controls: "example-confirm-delete-try" })}${confirmSheet({ id: "example-confirm-delete-try", ...GAME_DELETE })}` },
+    { label: "A delete: from a secondary button with a trash icon", markup: html`${secondaryButton("Delete this game", { type: "button", icon: "trash", controls: "example-confirm-delete-try" })}${confirmSheet({ id: "example-confirm-delete-try", ...GAME_DELETE })}` },
     { label: "A delete, open: the one red button", markup: confirmSheet({ id: "example-confirm-delete-shown", ...GAME_DELETE, isShown: true }), isWide: true, isStill: true },
     { label: "A delete, deleting", markup: confirmSheet({ id: "example-confirm-delete-busy", ...GAME_DELETE, isShown: true, isBusy: true }), isWide: true, isStill: true },
     {
@@ -1285,7 +1285,7 @@ const BANNER_SIDE_BY_SIDE_LEAST_PX = 560;
  */
 export function banner(options: BannerOptions): Raw {
   const formAction = options.action?.formAction;
-  const action = options.action ? (formAction === undefined ? cutButton(options.action.label, { href: options.action.href ?? "#" }) : cutButton(options.action.label, { type: "submit" })) : undefined;
+  const action = options.action ? (formAction === undefined ? secondaryButton(options.action.label, { href: options.action.href ?? "#" }) : secondaryButton(options.action.label, { type: "submit" })) : undefined;
   const close = options.closeLabel ? tertiaryButton(options.closeLabel, { type: "button", name: "banner_close", icon: "close", isLabelHidden: true }) : undefined;
   const controls = [action, close].filter((each): each is ControlMarkup => each !== undefined);
   const inside = html`<div class="banner-words">${options.icon ? html`<span class="banner-icon">${icon(options.icon)}</span>` : ""}<p class="banner-text">${options.text}</p></div>${controls.length ? row({ widths: "fit", alignment: "end", items: controls.map(control) }) : ""}`;
@@ -1382,11 +1382,11 @@ export function stepFlow(options: StepFlowOptions): Raw {
   const nextLabel = options.currentIndex === lastIndex ? finishLabel : "Next";
   const paneWidth = options.paneWidth ?? "fit";
   if (!isOnPage) {
-    const buttons = row({ widths: "equal", items: [...(options.backHref ? [control(cutButton("Back", { href: options.backHref }))] : []), control(runButton(nextLabel, { type: "submit" }))] });
+    const buttons = row({ widths: "equal", items: [...(options.backHref ? [control(secondaryButton("Back", { href: options.backHref }))] : []), control(primaryButton(nextLabel, { type: "submit" }))] });
     return glassPane({ paneWidth, body: html`${stepLine}<form class="step-form" method="post" action="${options.action}">${options.body ?? ""}${buttons}</form>` });
   }
   const bodies = options.steps.map((step, stepIndex) => html`<div class="step-body"${stepIndex === options.currentIndex ? "" : raw(" hidden")}>${step.body ?? ""}</div>`);
-  const buttons = row({ widths: "equal", items: [control(cutButton("Back", { type: "button", isHidden: options.currentIndex === 0 })), control(runButton(nextLabel, { type: "submit" }))] });
+  const buttons = row({ widths: "equal", items: [control(secondaryButton("Back", { type: "button", isHidden: options.currentIndex === 0 })), control(primaryButton(nextLabel, { type: "submit" }))] });
   return glassPane({ paneWidth, body: html`${stepLine}<form class="step-form" method="post" action="${options.action}" data-steps="${options.currentIndex}" data-finish-label="${finishLabel}">${bodies}${buttons}</form>` });
 }
 
@@ -1544,11 +1544,11 @@ component({
   examples: [
     {
       label: "Between the slants of two controls side by side (their boxes overlap by --control-slant less this), and the edge rule's neighbor distance: 4px",
-      markup: spacingExample("--gap-control-row", html`<div class="control-row" data-spacing-show="gap">${runButton("Play", { type: "button", icon: "play" })}${cutButton("Details", { type: "button" })}</div>`),
+      markup: spacingExample("--gap-control-row", html`<div class="control-row" data-spacing-show="gap">${primaryButton("Play", { type: "button", icon: "play" })}${secondaryButton("Details", { type: "button" })}</div>`),
     },
     {
       label: "Two controls stacked: 8px",
-      markup: spacingExample("--gap-control-stack", spacingPane(html`<div class="edge-stack" data-spacing-show="gap">${cutButton("Settings", { type: "button", isFullWidth: true })}${cutButton("Account", { type: "button", isFullWidth: true })}${cutButton("Sign out", { type: "button", isFullWidth: true })}</div>`)),
+      markup: spacingExample("--gap-control-stack", spacingPane(html`<div class="edge-stack" data-spacing-show="gap">${secondaryButton("Settings", { type: "button", isFullWidth: true })}${secondaryButton("Account", { type: "button", isFullWidth: true })}${secondaryButton("Sign out", { type: "button", isFullWidth: true })}</div>`)),
     },
     {
       label: "A control and the words that belong to it: 8px",
@@ -1564,11 +1564,11 @@ component({
     },
     {
       label: "A pane's edge and anything with an edge of its own (a button, a field, a cover, a table): the frame gap, 12px (10px on a phone)",
-      markup: spacingExample("--pad-frame", html`<div data-spacing-show="pad" data-spacing-of=".pane-in">${spacingPane(runButton("Sign in", { type: "button", isFullWidth: true }))}</div>`),
+      markup: spacingExample("--pad-frame", html`<div data-spacing-show="pad" data-spacing-of=".pane-in">${spacingPane(primaryButton("Sign in", { type: "button", isFullWidth: true }))}</div>`),
     },
     {
       label: "A pane's edge and its words: 24px (18px on a phone), --pad-words further in than the frame gap",
-      markup: spacingExample("--pad-pane", html`<div data-spacing-show="pad" data-spacing-of=".stack-cell.is-words">${spacingPane(stack({ items: [{ kind: "words", markup: html`<h2>Welcome back</h2>` }, { kind: "control", markup: runButton("Sign in", { type: "button", isFullWidth: true }) }] }))}</div>`),
+      markup: spacingExample("--pad-pane", html`<div data-spacing-show="pad" data-spacing-of=".stack-cell.is-words">${spacingPane(stack({ items: [{ kind: "words", markup: html`<h2>Welcome back</h2>` }, { kind: "control", markup: primaryButton("Sign in", { type: "button", isFullWidth: true }) }] }))}</div>`),
     },
     {
       label: "An inner pane's edge (the birthday picker, a menu) and a bar's (the header): 12px",

@@ -3,7 +3,7 @@ import { pageScript, pageScriptPath } from "../page-scripts.ts";
 import { component } from "./component.ts";
 import { glassPane, tag } from "./foundations.ts";
 import { sheet } from "./panes.ts";
-import { cutButton, runButton, textLink } from "./actions.ts";
+import { secondaryButton, primaryButton, textLink } from "./actions.ts";
 import { cutField } from "./inputs.ts";
 import { checkField } from "./choices.ts";
 import { grid, paneParts, row, stack } from "./layout.ts";
@@ -63,7 +63,7 @@ export function screens(options: ScreensOptions): Raw {
     const name = `${screenSize.name}, ${theme}`;
     return html`<figure class="screen" data-screen data-width-px="${String(screenSize.widthPx)}" data-height-px="${String(screenSize.heightPx)}" data-screen-theme="${theme}">
 <div class="screen-view" data-cut-line="0"><iframe src="${options.path}" title="${options.title}: ${name}" width="${String(screenSize.widthPx)}" height="${String(screenSize.heightPx)}" loading="lazy"></iframe><div class="screen-pointer" hidden></div></div>
-<figcaption class="screen-caption"><span>${name} · ${String(screenSize.widthPx)} × ${String(screenSize.heightPx)}</span><span data-screen-verdict>${tag("Measuring", "count")}</span>${cutButton(`${name}, larger`, { type: "button", icon: "full-screen", isLabelHidden: true, isSmall: true, controls: largeId })}</figcaption>
+<figcaption class="screen-caption"><span>${name} · ${String(screenSize.widthPx)} × ${String(screenSize.heightPx)}</span><span data-screen-verdict>${tag("Measuring", "count")}</span>${secondaryButton(`${name}, larger`, { type: "button", icon: "full-screen", isLabelHidden: true, isSmall: true, controls: largeId })}</figcaption>
 <ul class="screen-problems" data-screen-problems hidden></ul>
 <p class="screen-pointed" data-screen-pointed hidden></p>
 </figure>`;
@@ -104,7 +104,7 @@ export function screensPicker(path: string, screenNames: readonly ScreenName[] =
               { kind: "words", markup: html`<h2>On these screens</h2>` },
               { kind: "block", markup: grid({ itemSize: "figure", label: "Screens", items: SCREEN_SIZES.map((screenSize) => ({ kind: "block" as const, markup: checkField({ id: `screens-screen-${screenSize.name.toLowerCase().replace(/ /g, "-")}`, name: "screen", checkValue: screenSize.name, label: `${screenSize.name}, ${screenSize.widthPx} × ${screenSize.heightPx}`, isChecked: screenNames.includes(screenSize.name) }) })) }) },
               { kind: "words", markup: html`<h2>The page</h2>` },
-              { kind: "block", markup: row({ widths: "lead-fills", items: [{ kind: "control", markup: cutField({ id: "screens-page", name: "page", label: "Page", type: "text", icon: "globe", text: path, placeholder: "/signin" }) }, { kind: "control", markup: runButton("Show", { type: "submit" }) }] }) },
+              { kind: "block", markup: row({ widths: "lead-fills", items: [{ kind: "control", markup: cutField({ id: "screens-page", name: "page", label: "Page", type: "text", icon: "globe", text: path, placeholder: "/signin" }) }, { kind: "control", markup: primaryButton("Show", { type: "submit" }) }] }) },
             ],
           })}</form>`,
         },
@@ -120,7 +120,7 @@ export function screensPane(options: ScreensOptions): Raw {
     label: options.title,
     body: paneParts({ head: { words: html`<h2>${options.title}</h2><p>${options.path}</p>
 ${options.account ? html`<p>Seen as ${options.account}: the screens show whoever this browser is signed in as.</p>` : ""}
-<p data-screens-signed-out hidden>It needs an account, and the screens show it as this browser sees it, signed out. ${textLink(options.account ? `Sign in as ${options.account}` : "Sign in", `/signin?next=${encodeURIComponent(options.screensPath ?? SCREENS_PATH)}`)} to see it.</p>`, end: cutButton("Open it", { href: options.path }) }, body: screens(options) }),
+<p data-screens-signed-out hidden>It needs an account, and the screens show it as this browser sees it, signed out. ${textLink(options.account ? `Sign in as ${options.account}` : "Sign in", `/signin?next=${encodeURIComponent(options.screensPath ?? SCREENS_PATH)}`)} to see it.</p>`, end: secondaryButton("Open it", { href: options.path }) }, body: screens(options) }),
   });
 }
 
@@ -131,7 +131,7 @@ ${options.account ? html`<p>Seen as ${options.account}: the screens show whoever
  * outline. Any /js/layout-inspect.<hash>.js address serves it.
  */
 export const LAYOUT_INSPECT_SCRIPT = pageScript("layout-inspect", String.raw`(function () {
-  var COMPONENTS = { "run-wrap": "Runner button", "cut-btn": "Cut button", "tertiary-btn": "Tertiary button", "cut-field": "Field", "field": "Field", "find": "Search", "tab-switch": "Switch", "steps": "Row arrows", "cover": "Cover", "banner": "Banner", "table": "Table", "list-rows": "List rows", "choice-card": "Choice card", "toggle": "Toggle", "check": "Check", "shelf": "Shelf", "tag": "Tag", "link": "Text link", "glass-pane": "Glass pane", "tray": "Tray", "sheet": "Sheet", "top": "Header", "foot": "Footer" };
+  var COMPONENTS = { "run-wrap": "Primary button", "cut-btn": "Secondary button", "tertiary-btn": "Tertiary button", "cut-field": "Field", "field": "Field", "find": "Search", "tab-switch": "Switch", "steps": "Row arrows", "cover": "Cover", "banner": "Banner", "table": "Table", "list-rows": "List rows", "choice-card": "Choice card", "toggle": "Toggle", "check": "Check", "shelf": "Shelf", "tag": "Tag", "link": "Text link", "glass-pane": "Glass pane", "tray": "Tray", "sheet": "Sheet", "top": "Header", "foot": "Footer" };
   var GAPS = { "words-words": "words next to words", "words-control": "words next to a control", "control-stack": "two controls, one over the other", "control-row-boxes": "two controls side by side, their slants overlapping", "block-block": "a block next to anything" };
   function componentOf(el, cell) {
     for (var walk = el; walk && walk !== cell && walk.classList; walk = walk.parentElement) {

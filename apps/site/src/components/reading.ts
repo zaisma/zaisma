@@ -1,6 +1,6 @@
 import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
-import { cutButton, textLink } from "./actions.ts";
+import { secondaryButton, textLink } from "./actions.ts";
 import { glassPane, icon, tag } from "./foundations.ts";
 import type { IconName } from "./icons.ts";
 import { row, stack } from "./layout.ts";
@@ -133,8 +133,8 @@ export function pager(options: PagerOptions): Raw {
   return html`<nav class="pager" aria-label="${options.label}: pages">${row({
     widths: "equal",
     items: [
-      { kind: "control", markup: cutButton("Newer", options.newerHref ? { href: options.newerHref, icon: "arrow-back" } : { type: "button", icon: "arrow-back", isDisabled: true }) },
-      { kind: "control", markup: cutButton("Older", options.olderHref ? { href: options.olderHref, icon: "arrow-on" } : { type: "button", icon: "arrow-on", isDisabled: true }) },
+      { kind: "control", markup: secondaryButton("Newer", options.newerHref ? { href: options.newerHref, icon: "arrow-back" } : { type: "button", icon: "arrow-back", isDisabled: true }) },
+      { kind: "control", markup: secondaryButton("Older", options.olderHref ? { href: options.olderHref, icon: "arrow-on" } : { type: "button", icon: "arrow-on", isDisabled: true }) },
     ],
   })}</nav>`;
 }

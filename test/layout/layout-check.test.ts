@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cutButton } from "../../apps/site/src/components/actions.ts";
+import { secondaryButton } from "../../apps/site/src/components/actions.ts";
 import { glassPane } from "../../apps/site/src/components/foundations.ts";
 import { html, raw } from "../../apps/site/src/markup.ts";
 import { grid, paneParts, row, stack } from "../../apps/site/src/components/layout.ts";
@@ -64,8 +64,8 @@ describe.skipIf(!sites)("the layout check", () => {
 
   it.skipIf(!isFirstShare)("catches a short control beside a taller one, and a corner control off its corner, naming both", async () => {
     // The real components, then broken the way a hand-made page would be: the row without its one height, the corner control pushed down.
-    const unevenRow = row({ widths: "fit", alignment: "end", items: [{ kind: "control", markup: cutButton("Dismiss", { type: "button", isSmall: true }) }, { kind: "control", markup: cutButton("Read more", { type: "button" }) }] }).html.replace(/ data-control-height="[a-z]+"/, "");
-    const offCorner = paneParts({ head: { words: html`<h2>Rooms</h2>`, end: cutButton("Refresh", { type: "button" }) }, body: html`<p>Rooms here</p>` }).html.replace('<div class="pane-head-end">', '<div class="pane-head-end" style="margin-top:30px">');
+    const unevenRow = row({ widths: "fit", alignment: "end", items: [{ kind: "control", markup: secondaryButton("Dismiss", { type: "button", isSmall: true }) }, { kind: "control", markup: secondaryButton("Read more", { type: "button" }) }] }).html.replace(/ data-control-height="[a-z]+"/, "");
+    const offCorner = paneParts({ head: { words: html`<h2>Rooms</h2>`, end: secondaryButton("Refresh", { type: "button" }) }, body: html`<p>Rooms here</p>` }).html.replace('<div class="pane-head-end">', '<div class="pane-head-end" style="margin-top:30px">');
     const markup = glassPane({ paneWidth: "full", body: stack({ items: [{ kind: "block", markup: raw(offCorner) }] }) }).html.replace("</div></section>", `${unevenRow}</div></section>`);
     const page = { name: "Broken on purpose", path: "/design/example", mainActionShows: "nowhere", markup };
     const { failures } = (await checkPages({ ...sites!, pages: [page], sizes: LAPTOP, themes: ["light"], chromePath: await chromeToRun() })) as { failures: Failure[] };
@@ -77,9 +77,9 @@ describe.skipIf(!sites)("the layout check", () => {
   it.skipIf(!isFirstShare)("catches words inset twice, words off a control's center line, a control off its size class, and two controls side by side outside a row", async () => {
     // The real components, then broken the way a hand-made page would be.
     const insetTwice = stack({ items: [{ kind: "words", markup: html`<p>Inset twice</p>` }] }).html.replace("<p>Inset twice</p>", '<p style="padding-left:12px">Inset twice</p>');
-    const offCenter = paneParts({ head: { words: html`<h2>Versions</h2>`, end: cutButton("New version", { type: "button" }) }, body: html`<p>Every version</p>` }).html.replace("<h2>Versions</h2>", '<h2 style="padding-top:30px">Versions</h2>');
-    const offSize = cutButton("Too short", { type: "button" }).html.replace('<span class="face cut-raised"', '<span style="height:40px" class="face cut-raised"');
-    const sideBySide = `<div style="display:flex;gap:8px">${cutButton("Keep", { type: "button" }).html}${cutButton("Drop", { type: "button" }).html}</div>`;
+    const offCenter = paneParts({ head: { words: html`<h2>Versions</h2>`, end: secondaryButton("New version", { type: "button" }) }, body: html`<p>Every version</p>` }).html.replace("<h2>Versions</h2>", '<h2 style="padding-top:30px">Versions</h2>');
+    const offSize = secondaryButton("Too short", { type: "button" }).html.replace('<span class="face cut-raised"', '<span style="height:40px" class="face cut-raised"');
+    const sideBySide = `<div style="display:flex;gap:8px">${secondaryButton("Keep", { type: "button" }).html}${secondaryButton("Drop", { type: "button" }).html}</div>`;
     const markup = glassPane({ paneWidth: "full", body: stack({ items: [{ kind: "block", markup: raw(offCenter) }, { kind: "block", markup: raw(insetTwice) }, { kind: "block", markup: raw(offSize) }, { kind: "block", markup: raw(sideBySide) }] }) }).html;
     const page = { name: "Broken on purpose", path: "/design/example", mainActionShows: "nowhere", markup };
     const { failures } = (await checkPages({ ...sites!, pages: [page], sizes: LAPTOP, themes: ["light"], chromePath: await chromeToRun() })) as { failures: Failure[] };
@@ -155,7 +155,7 @@ describe.skipIf(!sites)("the layout check", () => {
 
   it.skipIf(!isFirstShare)("measures a gallery rule on the gallery's pages and skips it on a page in a pull request's run", async () => {
     // A control off its size class's height (a gallery rule), in place of a gallery page's own and of the example page's.
-    const offSize = fullPane(cutButton("Too short", { type: "button" }).html.replace('<span class="face cut-raised"', '<span style="height:40px" class="face cut-raised"'));
+    const offSize = fullPane(secondaryButton("Too short", { type: "button" }).html.replace('<span class="face cut-raised"', '<span style="height:40px" class="face cut-raised"'));
     const measuredOn = async (page: Record<string, unknown>) => {
       const { failures } = (await checkPages({ ...sites!, pages: [{ ...page, markup: offSize }], sizes: LAPTOP, themes: ["light"], tiersOf: RUNS.pull_request.tiersOf, chromePath: await chromeToRun() })) as { failures: Failure[] };
       return failures.filter((failure) => /size class/.test(failure.check) && /Too short/.test(failure.element)).length;

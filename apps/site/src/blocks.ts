@@ -1,7 +1,7 @@
 import { accountById, areFriends, blockPlayer, hasBlocked, unblockPlayer, type BlockedPlayer } from "@zaisma/core";
 import { authConfigured, currentSession } from "./auth.ts";
 import type { Env } from "./env.ts";
-import { cutButton, runButton, textLink } from "./components/actions.ts";
+import { secondaryButton, primaryButton, textLink } from "./components/actions.ts";
 import { listRows, pictureFrame, emptyState } from "./components/data.ts";
 import { stack } from "./components/layout.ts";
 import { banner, sheet } from "./components/panes.ts";
@@ -90,7 +90,7 @@ export function blockSheet(options: { gameOrigin: string }): Raw {
     closeLabel: "Close",
     placement: "foot",
     isConfirm: true,
-    buttons: [cutButton("Cancel", { type: "submit", formMethod: "dialog" }), runButton("Block", { type: "button", id: "block-yes" })],
+    buttons: [secondaryButton("Cancel", { type: "submit", formMethod: "dialog" }), primaryButton("Block", { type: "button", id: "block-yes" })],
   })}
 ${pageData("block-data", { gameOrigin: options.gameOrigin })}
 ${scriptTags(BLOCK_SHEET_SCRIPT)}`;

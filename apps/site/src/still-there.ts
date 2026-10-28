@@ -1,6 +1,6 @@
 import { html, type Raw } from "./html.ts";
 import { pageScript } from "./page-scripts.ts";
-import { runButton } from "./components/actions.ts";
+import { primaryButton } from "./components/actions.ts";
 import { stack } from "./components/layout.ts";
 import { playingCard } from "./components/playing.ts";
 
@@ -22,7 +22,7 @@ export function stillThereCard(): Raw {
     body: stack({
       items: [
         { kind: "words", markup: html`<p>If nothing happens, the room lets you go in <span id="still-there-time">30 seconds</span>.</p>` },
-        { kind: "control", markup: runButton("I'm here", { id: "still-here", type: "button" }) },
+        { kind: "control", markup: primaryButton("I'm here", { id: "still-here", type: "button" }) },
       ],
     }),
   });

@@ -8,7 +8,7 @@ import { pageStyle, pageStylePath, type PageStyle } from "./page-styles.ts";
 import { COMPONENT_SCRIPT, COMPONENT_STYLES, HEADER_SCRIPT } from "./components/index.ts";
 import { HEADER_TWO_ROWS_MEDIA, footer, header, rail, type HeaderTab } from "./components/navigation.ts";
 import type { ControlMarkup } from "./components/control-markup.ts";
-import { cutButton, runButton } from "./components/actions.ts";
+import { secondaryButton, primaryButton } from "./components/actions.ts";
 import { pictureFrame, problemState } from "./components/data.ts";
 import { backdrop, glassPane } from "./components/foundations.ts";
 import type { SwitchTab } from "./components/inputs.ts";
@@ -745,7 +745,7 @@ export function siteHeader(env: Env, options: { isAdmin?: boolean; nav?: Nav; se
     search: shownSearch ? { ...shownSearch, name: "search_text" } : undefined,
     account: account ? { username: account.username, pictureMarkup: pictureFrame(account.username, "md", { isCut: true }) } : null,
     isOnDeveloperPage: !options.isAdmin && (options.nav === "developer" || options.nav === "forum"),
-    // The page has a runner of its own (Play, Save): Sign in is a cut button, so only one runner is ever in view.
+    // The page has a runner of its own (Play, Save): Sign in is a secondary button, so only one runner is ever in view.
     hasPageRunner: options.hasPageRunner,
     sidebarButton: options.sidebarButton,
   });
@@ -758,14 +758,14 @@ export function siteFooter(): Raw {
 }
 
 export function message(env: Env, title: string, text: string, httpStatus = 200): Response {
-  const response = layout(env, { title, body: html`<h1>${title}</h1><p class="lead">${text}</p><div class="not-steel">${cutButton("Back to games", { href: "/" })}</div>` });
+  const response = layout(env, { title, body: html`<h1>${title}</h1><p class="lead">${text}</p><div class="not-steel">${secondaryButton("Back to games", { href: "/" })}</div>` });
   return new Response(response.body, { status: httpStatus, headers: response.headers });
 }
 
 /** The same, in Zaisma's look: a pane of glass on the page, for a page already rebuilt in it (the connect and Sign in with Zaisma pages). */
 export function glassMessage(env: Env, title: string, text: string, httpStatus = 200): Response {
   // The gallery's problem state says it; the page's heading is for screen readers, since the state's title is its words.
-  const body = glassPane({ paneWidth: "fit", body: html`<h1 class="sr">${title}</h1>${problemState({ title, text, action: runButton("Back to games", { href: "/", isFullWidth: true }) })}` });
+  const body = glassPane({ paneWidth: "fit", body: html`<h1 class="sr">${title}</h1>${problemState({ title, text, action: primaryButton("Back to games", { href: "/", isFullWidth: true }) })}` });
   const response = layout(env, { title, body, checkedPage: "A message", pageShape: "reading" });
   return new Response(response.body, { status: httpStatus, headers: response.headers });
 }

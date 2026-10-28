@@ -10,7 +10,7 @@ import type { Env } from "./env.ts";
 import { playable } from "./home.ts";
 import { html, structuredData, type Raw } from "./html.ts";
 import { profilePath } from "./profiles.ts";
-import { cutButton } from "./components/actions.ts";
+import { secondaryButton } from "./components/actions.ts";
 import { codeField, linkField, qrCode } from "./components/inputs.ts";
 import { stack, type LayoutItem } from "./components/layout.ts";
 import { lightBox, menuChoices, sheet, type DropdownChoice } from "./components/panes.ts";
@@ -137,7 +137,7 @@ export function shareDialog(gameTitle: string, hasQrCode: boolean): Raw {
     { label: "More ways to share", icon: "share", isButton: true, id: "share-more", isHidden: true },
   ];
   const items: LayoutItem[] = [
-    { kind: "control", markup: cutButton("Show", { id: "share-reveal", type: "button", icon: "eye", isHidden: true }) },
+    { kind: "control", markup: secondaryButton("Show", { id: "share-reveal", type: "button", icon: "eye", isHidden: true }) },
     { kind: "block", id: "share-room", isHidden: true, markup: codeField({ id: "share-room-code", label: "Room code", code: "" }) },
     { kind: "control", markup: linkField({ id: "share-link", label: "Link", url: "" }) },
     { kind: "block", markup: menuChoices({ label: "More ways to share", choices }) },

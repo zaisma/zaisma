@@ -113,7 +113,7 @@ import { cityPane, cityStage, CITY_PANE_SCRIPT, CITY_SCRIPT } from "./components
 import type { CheckedPageName } from "./components/checked-pages.ts";
 import { row } from "./components/layout.ts";
 import { type IconName } from "./components/foundations.ts";
-import { cutButton, runButton, tertiaryButton, textLink } from "./components/actions.ts";
+import { secondaryButton, primaryButton, tertiaryButton, textLink } from "./components/actions.ts";
 import { birthdayField, choiceCards, cutField, tabSwitch } from "./components/inputs.ts";
 import { header } from "./components/navigation.ts";
 import { notice } from "./components/panes.ts";
@@ -824,7 +824,7 @@ const USERNAME_SCRIPT = pageScript("username-check", `(() => {
   const input = document.getElementById("username-box"), status = document.getElementById("username-status"), box = document.getElementById("username-suggestions");
   if (!input || !status || !box) return;
   let timer = null, asked = input.value.trim();
-  // In the city's look (a template of a cut button to copy, and the field's own hint and error lines), or the account page's.
+  // In the city's look (a template of a secondary button to copy, and the field's own hint and error lines), or the account page's.
   const template = document.getElementById("username-suggestion");
   const show = (text, kind) => {
     status.textContent = text;
@@ -945,10 +945,10 @@ const paneProblem = (text?: string) => (text ? notice({ text, tone: "problem", i
 
 /** The passkey's way in: shown by PASSKEY_SIGN_IN_SCRIPT where the browser has passkeys, with the ways in round it. */
 const passkeyWay = (next: string, isAutofill: boolean) =>
-  html`<div id="passkey-go" data-next="${next}"${isAutofill ? raw(" data-autofill") : ""} hidden>${cutButton("Sign in with a passkey", { type: "button", wayIn: "passkey", isFullWidth: true })}</div>`;
+  html`<div id="passkey-go" data-next="${next}"${isAutofill ? raw(" data-autofill") : ""} hidden>${secondaryButton("Sign in with a passkey", { type: "button", wayIn: "passkey", isFullWidth: true })}</div>`;
 
 const providerButtons = (providers: Provider[], next: string | null) =>
-  html`${providers.map((provider) => cutButton(`Continue with ${PROVIDERS[provider]}`, { href: `/signin/with/${provider}${nextQuery(next)}`, wayIn: provider, isFullWidth: true }))}`;
+  html`${providers.map((provider) => secondaryButton(`Continue with ${PROVIDERS[provider]}`, { href: `/signin/with/${provider}${nextQuery(next)}`, wayIn: provider, isFullWidth: true }))}`;
 
 /** Which of the two the pane shows: signing in, or the first step of making an account. */
 type EntryView = "signin" | "join";
@@ -971,7 +971,7 @@ ${nextField(next)}
 ${cutField({ id: "signin-username", name: "username", label: "Username", type: "text", icon: "person", text: given.login ?? "", autocomplete: "username webauthn", isRequired: true })}
 ${cutField({ id: "signin-password", name: "password", label: "Password", type: "password", icon: "lock", autocomplete: "current-password", isRequired: true, error: given.signinError })}
 ${botCheck(env, "sign_in")}
-${runButton("Sign in", { isFullWidth: true, isBig: true, busyLabel: "Signing in" })}
+${primaryButton("Sign in", { isFullWidth: true, isBig: true, busyLabel: "Signing in" })}
 <p>${textLink("Forgot your password?", `/signin/email${nextQuery(next)}`)}</p>
 </form>
 <div class="pane-stack" id="ways"${providers.length ? "" : raw(" hidden")}>
@@ -990,7 +990,7 @@ ${runButton("Sign in", { isFullWidth: true, isBig: true, busyLabel: "Signing in"
 ${nextField(next)}
 ${given.via ? html`<input type="hidden" name="with" value="${given.via}">` : ""}
 ${birthdayField({ id: "join-birthday", name: "birthday", label: "When's your birthday?", isRequired: true, hint: "Your birthday is never shown to anyone.", error: given.ageError })}
-${runButton("Next", { isFullWidth: true, isBig: true, busyLabel: "One moment" })}
+${primaryButton("Next", { isFullWidth: true, isBig: true, busyLabel: "One moment" })}
 </form>`,
   );
   // The guest way's own "or" only under Make an account: under Sign in, the ways in above already have one.
@@ -1065,7 +1065,7 @@ async function emailSigninPage(env: Env, next: string | null, error?: string, gi
 ${nextField(back)}
 ${cutField({ id: "signin-email", name: "email", label: "Email", type: "email", icon: "mail", text: given, autocomplete: "email", isRequired: true, error })}
 ${botCheck(env, "email_code")}
-${runButton("Email me a code", { isFullWidth: true, isBig: true, busyLabel: "Sending" })}
+${primaryButton("Email me a code", { isFullWidth: true, isBig: true, busyLabel: "Sending" })}
 </form>
 <div class="pane-stack" id="ways" hidden>
 <p class="or">or</p>
@@ -1100,7 +1100,7 @@ async function codePage(env: Env, email: string, next: string | null, error?: st
 ${nextField(next)}
 <input type="hidden" name="email" value="${email}">
 ${cutField({ id: "signin-code", name: "code", label: "Code", type: "text", icon: "lock", autocomplete: "one-time-code", inputMode: "numeric", isRequired: true, error })}
-${runButton("Continue", { isFullWidth: true, isBig: true })}
+${primaryButton("Continue", { isFullWidth: true, isBig: true })}
 </form>
 <p class="note">No email after a minute? Check spam, or ${textLink("try again", `/signin/email${nextQuery(next)}`)}.</p>
 ${guestWay(game)}`,
@@ -1183,7 +1183,7 @@ ${nextField(next)}
 ${choiceCards({ id: "join-play", name: "social_mode", label: "How do you play?", isLabelHidden: true, pickedValue: current === "custom" ? defaultSocialMode(account.age_band) : current, choices: socialModesFor(account.age_band).map((socialMode) => ({ label: SOCIAL_MODE_LABELS[socialMode], choiceValue: socialMode, text: JOIN_SOCIAL_MODE_LINES[socialMode], icon: JOIN_SOCIAL_MODE_ICONS[socialMode] })) })}
 ${paneProblem(error)}
 <p class="note">You can change this any time in Settings.</p>
-${runButton("Make my account", { isFullWidth: true, isBig: true, busyLabel: "One moment" })}
+${primaryButton("Make my account", { isFullWidth: true, isBig: true, busyLabel: "One moment" })}
 </form>`,
     { checkedPage: "How do you play", game, httpStatus: error ? 400 : 200, account },
   );
@@ -1265,7 +1265,7 @@ const botCheck = (env: Env, action: TurnstileAction) => (env.TURNSTILE_SITE_KEY 
  */
 function usernameCutField(given: JoinGiven): Raw {
   const freeUsernames = given.suggestions ?? [];
-  const suggestions = (usernames: string[]) => row({ widths: "fit", items: usernames.map((username) => ({ kind: "control" as const, markup: cutButton(username, { type: "button", isSmall: true, buttonValue: username }) })) });
+  const suggestions = (usernames: string[]) => row({ widths: "fit", items: usernames.map((username) => ({ kind: "control" as const, markup: secondaryButton(username, { type: "button", isSmall: true, buttonValue: username }) })) });
   return html`<div class="cut-field">${cutField({ id: "username-box", name: "username", label: "Username", type: "text", icon: "person", text: given.username ?? "", autocomplete: "username", isRequired: true })}
 <p class="${given.usernameError ? "field-error" : "field-hint"}" id="username-status" data-resting="${USERNAME_HINT}"${given.usernameError ? raw(' role="alert"') : ""}>${given.usernameError ?? USERNAME_HINT}</p>
 <div id="username-suggestions"${freeUsernames.length ? "" : raw(" hidden")}>${suggestions(freeUsernames)}</div>
@@ -1291,7 +1291,7 @@ ${usernameCutField(given)}
 ${cutField({ id: "join-password", name: "password", label: "Password", type: "password", icon: "lock", autocomplete: "new-password", isRequired: true, hint: PASSWORD_HINT, error: given.passwordError })}
 ${botCheck(env, "join")}
 ${paneProblem(error)}
-${runButton("Next", { isFullWidth: true, isBig: true, busyLabel: "One moment" })}
+${primaryButton("Next", { isFullWidth: true, isBig: true, busyLabel: "One moment" })}
 </form>
 ${TERMS_LINE}
 ${guestWay(game)}
@@ -1312,7 +1312,7 @@ ${nextField(next)}
 ${usernameCutField(given)}
 ${botCheck(env, "join")}
 ${paneProblem(error)}
-${runButton("Next", { isFullWidth: true, isBig: true, busyLabel: "One moment" })}
+${primaryButton("Next", { isFullWidth: true, isBig: true, busyLabel: "One moment" })}
 </form>
 ${TERMS_LINE}
 ${scriptTags(USERNAME_SCRIPT)}`,
@@ -1361,7 +1361,7 @@ async function keptPage(env: Env, account: Account, slug: string | null): Promis
     "You're in",
     html`<h1>You're in, ${account.username}</h1>
 <p>${game ? `Go back to ${game.title} to keep playing.${game.cloud_saves_enabled ? " From now on, your progress saves to your account, so it's safe and follows you to any device." : ""}` : "From now on, games you play save your progress to your account."}</p>
-<div data-back>${runButton(game ? `Back to ${game.title}` : "Find a game", { href: back, isFullWidth: true, isBig: true })}</div>
+<div data-back>${primaryButton(game ? `Back to ${game.title}` : "Find a game", { href: back, isFullWidth: true, isBig: true })}</div>
 ${scriptTags(JOINED_SCRIPT)}`,
     { checkedPage: "You're in", account },
   );

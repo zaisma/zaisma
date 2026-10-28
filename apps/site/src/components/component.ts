@@ -86,7 +86,7 @@ export interface ComponentExample {
 }
 
 export interface Component {
-  /** The gallery's heading: "Runner button". */
+  /** The gallery's heading: "Primary button". */
   name: string;
   /** Lowercase words joined by dashes, unique: the anchor #<slug> and the frame path /design/frame/<slug>. */
   slug: string;

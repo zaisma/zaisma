@@ -1,7 +1,7 @@
 import { MAXIMUM_OTHER_PLAYER_COUNT, friendsInGameOf, gameBySlug, joinRefusalText } from "@zaisma/core";
 import { currentSession } from "./auth.ts";
 import type { Env } from "./env.ts";
-import { cutButton, runButton, textLink, toggleButton } from "./components/actions.ts";
+import { secondaryButton, primaryButton, textLink, toggleButton } from "./components/actions.ts";
 import { cutField } from "./components/fields.ts";
 import type { ControlMarkup } from "./components/control-markup.ts";
 import { listRows, pictureFrame, emptyState } from "./components/data.ts";
@@ -80,7 +80,7 @@ export function friendRows(slug: string, friends: Awaited<ReturnType<typeof frie
       const join = friend.join_refusal === "friend_not_in_room" || (!friend.room_code && !friend.join_refusal) ? null : { room_code: friend.room_code ?? "", server_url: friend.server_url, refusal: friend.join_refusal, refusing_friend_names: [friend.username] };
       const watch = friend.watch ? { room_code: friend.watch.room_code ?? "", server_url: null, refusal: friend.watch.refusal, refusing_friend_names: [friend.username] } : null;
       const reasons = [...new Set([join, watch].flatMap((door) => (door?.refusal ? [joinRefusalText(door)] : [])))];
-      const doorButton = (label: string, door: NonNullable<typeof join>, path: string) => (door.refusal ? cutButton(label, { type: "button", isSmall: true, isDisabled: true }) : cutButton(label, { href: path, isSmall: true }));
+      const doorButton = (label: string, door: NonNullable<typeof join>, path: string) => (door.refusal ? secondaryButton(label, { type: "button", isSmall: true, isDisabled: true }) : secondaryButton(label, { href: path, isSmall: true }));
       const actions = [join ? doorButton("Join", join, joinPath(slug, join)) : null, watch ? doorButton("Watch", watch, `${joinPath(slug, watch)}&watch=1`) : null].filter((action): action is ControlMarkup => action !== null);
       // The picture opens their profile in a new tab, so the game keeps running here.
       const lead = html`<a href="${profilePath(friend.username)}" target="_blank" rel="noopener" aria-label="${friend.username}'s profile">${pictureFrame(friend.username, "sm")}</a>`;
@@ -93,7 +93,7 @@ export function friendRows(slug: string, friends: Awaited<ReturnType<typeof frie
  * The Players sheet, risen from the foot over the running game (which stays in view), for games that go online: who's in the room, each
  * with Mute and ⋯, and the friends playing the game. Its steps move forward inside it: Players, then a player (Profile, Block, Report),
  * then Report (reportStep, which brings its own script), each with Back; Block opens its confirm on top. The bar's button that opens it is
- * the game page's: id "players-open", aria-controls "players", with the room's player count in its cut-count (cutButton's reactionCount).
+ * the game page's: id "players-open", aria-controls "players", with the room's player count in its cut-count (secondaryButton's reactionCount).
  */
 export function playersSheet(options: { gameOrigin: string; slug: string; title: string; hasZaismaRooms: boolean; canSignIn: boolean; signInPath: string; reportStep: SheetStep }): Raw {
   const words = (markup: Raw): LayoutItem => ({ kind: "words", markup });
@@ -155,7 +155,7 @@ export function playersSheet(options: { gameOrigin: string; slug: string; title:
         toggleButton("Mute", { ...rowButton, icon: "speaker", isLabelHidden: true, isPressed: false, dataAttributes: { "player-action": "mute" } }),
         toggleButton("Mute", { ...rowButton, icon: "speaker-off", isLabelHidden: true, isPressed: true, isHidden: true, dataAttributes: { "player-action": "unmute" } }),
         toggleButton("Unblock", { ...rowButton, icon: "ban", isLabelHidden: true, isPressed: true, isHidden: true, dataAttributes: { "player-action": "unblock" } }),
-        cutButton("More", { ...rowButton, icon: "more", isLabelHidden: true, dataAttributes: { "player-action": "more" } }),
+        secondaryButton("More", { ...rowButton, icon: "more", isLabelHidden: true, dataAttributes: { "player-action": "more" } }),
       ],
     }],
   });
@@ -168,7 +168,7 @@ export function playersSheet(options: { gameOrigin: string; slug: string; title:
     steps: [{ stepName: "players", title: "Players", body }, { stepName: "player", title: "Player", body: playerBody }, options.reportStep],
   })}
 <template id="players-row">${rowTemplate}</template>
-<template id="players-request-row">${listRows({ whenEmpty: html`<p hidden></p>`, rows: [{ lead: pictureFrame("?", "md"), title: "?", action: [runButton("Accept", { ...rowButton, dataAttributes: { "request-action": "accept" } }), cutButton("Turn down", { ...rowButton, dataAttributes: { "request-action": "turn-down" } })] }] })}</template>
+<template id="players-request-row">${listRows({ whenEmpty: html`<p hidden></p>`, rows: [{ lead: pictureFrame("?", "md"), title: "?", action: [primaryButton("Accept", { ...rowButton, dataAttributes: { "request-action": "accept" } }), secondaryButton("Turn down", { ...rowButton, dataAttributes: { "request-action": "turn-down" } })] }] })}</template>
 ${pageData("players-data", { gameOrigin: options.gameOrigin, slug: options.slug, hasZaismaRooms: options.hasZaismaRooms, canSignIn: options.canSignIn, maximumPlayerCount: MAXIMUM_PLAYER_COUNT, findShownAfterCount: FIND_SHOWN_AFTER_COUNT })}
 ${scriptTags(PLAYERS_SHEET_SCRIPT)}`;
 }
@@ -185,7 +185,7 @@ const PLAYERS_SHEET_SCRIPT = pageScript("players-sheet", String.raw`(() => {
   const frame = () => document.getElementById("game");
   const tell = (message) => { const f = frame(); if (f && f.contentWindow) f.contentWindow.postMessage(message, GAME_ORIGIN); };
   const isSignedIn = () => /(^|; )(__Host-)?zaisma_in=1/.test(document.cookie);
-  // The bar button's count: its cut-count (cutButton's reactionCount).
+  // The bar button's count: its cut-count (secondaryButton's reactionCount).
   const count = opener.querySelector(".cut-count");
   // The room the game is in, as its SDK says: { code, myPlayerId, players, muted, blocked, lasting }.
   let room = null, hasSeenRoom = false;
@@ -206,7 +206,7 @@ const PLAYERS_SHEET_SCRIPT = pageScript("players-sheet", String.raw`(() => {
     picture.style.setProperty("--h", String(hue));
     picture.textContent = letters.join("").toUpperCase();
   }
-  // A button's words: the last span in its face (cutButton).
+  // A button's words: the last span in its face (secondaryButton).
   const wordsOf = (button) => button.querySelector(".face > span:last-child");
   // Friend requests waiting for this player, and the ones they sent from here this session.
   let requests = [];
