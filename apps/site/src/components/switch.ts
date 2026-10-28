@@ -79,16 +79,23 @@ export const SWITCH_SCRIPT = `/* switches */(function () {
     function besideReach(el) { return Math.max(0, ((Number(el.getAttribute("data-cut-line")) || 0) - rowGapPx) / 2); }
     // The slab is one size on every tab (its tabs are one width), so it slides as a fixed piece of glass. One clock moves it: each frame its
     // place is set and its cut shape and bevel (which blend between a tab at the switch's end and one beside another) drawn in the same step,
-    // so nothing trails it. It eases out to its tab with no overshoot (cubic-bezier(.2, .8, .2, 1)), on whole device pixels, so it never
-    // swings back past its place or snaps a pixel as it settles. --slide-ms long.
+    // so nothing trails it. It eases in and out to its tab with no overshoot (cubic-bezier(.4, 0, .2, 1)), on whole device pixels, so it
+    // never jumps as it starts, swings back past its place or snaps a pixel as it settles. --slide-ms long.
     var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     function onPixel(px) { var ratio = window.devicePixelRatio || 1; return Math.round(px * ratio) / ratio; }
-    function easeOut(t) {
-      // cubic-bezier(.2, .8, .2, 1): x(u) solved for u by Newton's method, then y(u).
-      var u = t;
-      for (var i = 0; i < 6; i++) { var x = 0.6 * (1 - u) * (1 - u) * u + 0.6 * (1 - u) * u * u + u * u * u - t, dx = 0.6 * (1 - u) * (1 - u) + 2.4 * u * u; if (Math.abs(dx) < 1e-6) break; u -= x / dx; }
-      return 2.4 * (1 - u) * (1 - u) * u + 3 * (1 - u) * u * u + u * u * u;
+    // A cubic-bezier(x1, y1, x2, y2) curve: x(u) solved for u by Newton's method, then y(u).
+    function bezier(x1, y1, x2, y2) {
+      return function (t) {
+        var u = t;
+        for (var i = 0; i < 8; i++) {
+          var x = 3 * (1 - u) * (1 - u) * u * x1 + 3 * (1 - u) * u * u * x2 + u * u * u - t, dx = 3 * (1 - u) * (1 - u) * x1 + 6 * (1 - u) * u * (x2 - x1) + 3 * u * u * (1 - x2);
+          if (Math.abs(dx) < 1e-6) break; u = Math.min(1, Math.max(0, u - x / dx));
+        }
+        return 3 * (1 - u) * (1 - u) * u * y1 + 3 * (1 - u) * u * u * y2 + u * u * u;
+      };
     }
+    // Pushed, it gathers speed, then settles into its tab: an ease in and out, never past its place.
+    var slideEase = bezier(0.4, 0, 0.2, 1);
     // Its size in whole pixels, as its cut shape measures it (offsetWidth), so the shape is drawn for the size it has.
     function place(el, at) {
       el.slideAt = at; var sizePx = Math.round(at.size) + "px";
@@ -98,7 +105,7 @@ export const SWITCH_SCRIPT = `/* switches */(function () {
       var from = el.slideAt || to, startMs = performance.now(), id = (el.slideId || 0) + 1; el.slideId = id;
       (function frame() {
         if (el.slideId !== id) return;
-        var t = Math.min(1, (performance.now() - startMs) / ms), e = easeOut(t);
+        var t = Math.min(1, (performance.now() - startMs) / ms), e = slideEase(t);
         place(el, { pos: t < 1 ? onPixel(from.pos + (to.pos - from.pos) * e) : to.pos, size: to.size });
         if (el.redrawCut) el.redrawCut();
         if (t < 1) requestAnimationFrame(frame);
@@ -116,7 +123,7 @@ export const SWITCH_SCRIPT = `/* switches */(function () {
         var toY = { pos: tab.offsetTop, size: tab.offsetHeight }, msY = isGliding && !reduce ? slideMs(el) : 0;
         el.setAttribute("data-cut-beside", "");
         el.setAttribute("data-cut-stack", ((isFirst ? "first " : "") + (isLast ? "last" : "")).trim());
-        if (el.redrawCut) el.redrawCut(msY && from.stack !== null ? { from: from, ms: msY, ease: easeOut } : undefined);
+        if (el.redrawCut) el.redrawCut(msY && from.stack !== null ? { from: from, ms: msY, ease: slideEase } : undefined);
         if (msY) slide(el, toY, msY); else { el.slideId = (el.slideId || 0) + 1; place(el, toY); if (el.redrawCut) el.redrawCut(); }
         return;
       }
@@ -127,7 +134,7 @@ export const SWITCH_SCRIPT = `/* switches */(function () {
       el.setAttribute("data-cut-beside", ((isFirst ? "" : "start ") + (isLast ? "" : "end")).trim());
       var ends = ((isFirst ? "start " : "") + (isLast ? "end" : "")).trim();
       if (ends) el.setAttribute("data-cut-ends", ends); else el.removeAttribute("data-cut-ends");
-      if (el.redrawCut) el.redrawCut(ms && from.beside !== null ? { from: from, ms: ms, ease: easeOut } : undefined);
+      if (el.redrawCut) el.redrawCut(ms && from.beside !== null ? { from: from, ms: ms, ease: slideEase } : undefined);
       if (ms) slide(el, to, ms); else { el.slideId = (el.slideId || 0) + 1; place(el, to); if (el.redrawCut) el.redrawCut(); }
     }
     function slideMs(el) { return parseFloat(getComputedStyle(el).getPropertyValue("--slide-ms")) || 550; }
