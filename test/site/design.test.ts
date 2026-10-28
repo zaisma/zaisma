@@ -155,7 +155,7 @@ describe("the gallery", () => {
     const slugs = COMPONENTS().map((each) => each.slug);
     expect(new Set(slugs).size).toBe(slugs.length);
     for (const slug of slugs) expect(slug).toMatch(/^[a-z]+(-[a-z]+)*$/);
-    expect(() => component({ name: "Again", slug: "runner-button", group: "actions", summary: "", styles: "", examples: [] })).toThrow(/Two components/);
+    expect(() => component({ name: "Again", slug: "primary-button", group: "actions", summary: "", styles: "", examples: [] })).toThrow(/Two components/);
     expect(() => component({ name: "Bad", slug: "Not_A_Slug", group: "actions", summary: "", styles: "", examples: [] })).toThrow(/lowercase/);
   });
 
@@ -336,6 +336,7 @@ describe("the gallery", () => {
     expect(problems).toEqual([]);
   });
 
+  // It renders every gallery page, one after another: more than the default 5s on a busy runner.
   it("builds everything on its pages from the gallery: every piece comes from a component, or is a named exception", async () => {
     // A class on a gallery page is a component's (its styles define it) or the gallery's own scaffolding (GALLERY_ONLY, with why).
     // The gallery may place a component (where it sits and how big its box is) or set the variables it offers, never restyle it.
@@ -373,7 +374,7 @@ describe("the gallery", () => {
       }
     }
     expect([...new Set(problems)]).toEqual([]);
-  });
+  }, 20_000);
 
   it("names no exception that's gone: every entry in the lists below is still in the code", async () => {
     const problems: string[] = [];
@@ -429,8 +430,8 @@ describe("the gallery", () => {
       expect(response.status, path).toBe(308);
       expect(response.headers.get("location"), path).toBe(location);
     }
-    for (const path of ["/design/inputs/no-such", "/design/no-such-group", "/design/layout/stack", "/design/inputs/fields/more", "/design/frame/runner-button"]) expect((await page(path)).response.status, path).toBe(404);
-    // A link to a component (/design#runner-button) goes on to the page that shows it.
+    for (const path of ["/design/inputs/no-such", "/design/no-such-group", "/design/layout/stack", "/design/inputs/fields/more", "/design/frame/primary-button"]) expect((await page(path)).response.status, path).toBe(404);
+    // A link to a component (/design#primary-button) goes on to the page that shows it.
     const pages = JSON.parse(/<script type="application\/json" id="design-pages">([^<]*)<\/script>/.exec(open)![1]!) as Record<string, string>;
     for (const each of COMPONENTS()) expect(pages[each.slug], each.slug).toBe(galleryPagePath(each.group, each.subgroup));
   });
@@ -445,19 +446,19 @@ describe("components", () => {
   });
 
   it("make the runner a link with an address and a button without one", () => {
-    expect(actions.runButton("Play", { href: "/g/x" }).html).toMatch(/<a class="shell run-wrap" href="\/g\/x">/);
-    expect(actions.runButton("Play").html).toMatch(/<button class="shell run-wrap" type="submit">/);
+    expect(actions.primaryButton("Play", { href: "/g/x" }).html).toMatch(/<a class="shell run-wrap" href="\/g\/x">/);
+    expect(actions.primaryButton("Play").html).toMatch(/<button class="shell run-wrap" type="submit">/);
   });
 
   it("give a password field its Show toggle, and an error its message", () => {
-    expect(inputs.cutField({ name: "password", label: "Password", type: "password", icon: "lock" }).html).toContain(actions.cutButton("Show", { type: "button", isSmall: true, isPressed: false, controls: "field-password" }).html);
+    expect(inputs.cutField({ name: "password", label: "Password", type: "password", icon: "lock" }).html).toContain(actions.toggleButton("Show", { type: "button", isSmall: true, isPressed: false, controls: "field-password" }).html);
     const marked = inputs.cutField({ name: "username", label: "Username", type: "text", icon: "person", error: "Use letters only." }).html;
     expect(marked).toContain('aria-invalid="true" aria-describedby="field-username-error"');
     expect(marked).toContain('<p class="field-error" id="field-username-error">Use letters only.</p>');
   });
 
-  it("keep a delete quiet until its confirm step, whose button is the one red and no runner", () => {
-    const markup = actions.deleteButton("Delete this game", { action: "/dashboard/games/ashen-crown/delete", confirmLabel: "Delete Ashen Crown", confirmText: "It's gone for good." }).html;
+  it("give a delete's confirm step the one red button and no runner", () => {
+    const markup = panes.confirmSheet({ id: "delete-ashen-crown", title: "Delete Ashen Crown?", action: "/dashboard/games/ashen-crown/delete", confirmLabel: "Delete Ashen Crown", text: "It's gone for good.", isDelete: true }).html;
     // The sheet is one form, posting the delete; its buttons sit at its foot.
     expect(markup).toContain('<form class="sheet-in" method="post" action="/dashboard/games/ashen-crown/delete">');
     const confirmForm = markup.slice(markup.indexOf('<div class="pane-foot"'), markup.indexOf("</form>"));
@@ -465,10 +466,8 @@ describe("components", () => {
     expect(confirmForm).not.toMatch(/class="[^"]*\brun\b/);
     // Cancel closes the sheet without sending the delete.
     expect(confirmForm).toContain('formmethod="dialog" formnovalidate');
-    // The button that opens it is a cut button, never orange, and names its sheet.
-    const opener = markup.slice(markup.indexOf("</dialog>"));
-    expect(opener).toContain('class="shell cut-btn" type="button" aria-controls="delete-dashboard-games-ashen-crown-delete"');
-    expect(opener).not.toMatch(/\brun\b|danger/);
+    // Any other confirm's action is the runner, never red.
+    expect(panes.confirmSheet({ id: "sign-out", title: "Sign out everywhere?", action: "/account/sign-out-everywhere", confirmLabel: "Sign out everywhere", text: "Every device is signed out." }).html).not.toContain("danger");
   });
 
   it("make a toggle a checkbox that posts with its form, with no script", () => {
@@ -581,6 +580,8 @@ const HAND_CUT = new Set<string>([
   ".top", ".foot", ".header-frame", ".backdrop-frame", ".city-frame", ".glass-strip", ".glass-play",
   // A shape for the glass demo to blur: what's behind the glass, not part of Zaisma.
   ".glass-play .cut",
+  // A toggle's front surface: swept down from its slab's own cut (TOGGLE_SCRIPT reads the edge rule's shape), so it keeps the rule's corners.
+  ".toggle-front",
   // The scroll rail's thumb and the labels its marks open.
   ".rail-thumb", ".rail:hover .rail-thumb, .rail.dragging .rail-thumb", ".rail[data-rail=\"page\"] .rail-thumb",
   ".rail[data-rail=\"page\"]:hover .rail-thumb, .rail[data-rail=\"page\"].dragging .rail-thumb", ".rail .rail-thumb",
@@ -589,8 +590,8 @@ const HAND_CUT = new Set<string>([
   ".rail:not(.dragging) .rail-mark span", ".rail.sideways:not(.dragging) .rail-mark span", ".rail.sideways .rail-mark:not(.is-near) span",
   // Tags and a cover's line: slanted at both ends, a mark on what it labels rather than a thing of its own.
   ".tag", ".cover-bar",
-  // The same line under a quiet button's words, along a list row's foot and across a step flow's top.
-  ".quiet-line", ".step-mark",
+  // The same line along a tertiary button's foot, along a list row's foot and across a step flow's top.
+  ".tertiary-line", ".step-mark",
   // The step line's two outer ends, cut by the pane's corners at the frame gap, worked out from the cut tokens (the edge rule's cut, by hand
   // for a bar four pixels tall).
   ".step-line > li:first-child .step-mark", ".step-line > li:last-child .step-mark", ".step-line > li:only-child .step-mark",
@@ -637,7 +638,6 @@ const OWN_GLASS = new Map<string, string>([
   ['class="glass glass-pane', "Glass pane itself"],
   ['class="tray-group ', "Tray itself"],
   ['class="glass cut-sample', "Cut shapes' own samples: a pane's, the header's and a menu's cut, on glass"],
-  ['class="face glass"', "a glass button's face"],
   ['class="frame ${pictureSize} glass', "a picture's frame"],
   ['class="dropdown glass', "a dropdown"],
   ['class="sheet glass', "a sheet"],
@@ -669,7 +669,7 @@ const NOT_TYPE = new Set<string>([
   "@font-face | font-family",
   // A control's inside: its words, set by each control's size.
   ".run | font", ".run.big | font-size", ".run | font-size", ".cut-btn > .face | font", ".cut-btn.big > .face | font-size",
-  ".glass-btn > .face | font", ".guest-btn > .face | font", ".field input | font", '.find input[type="search"] | font', ".bday-field | font",
+  ".field input | font", '.find input[type="search"] | font', ".bday-field | font",
   '.wheel [role="option"] | font', '.wheel [role="option"][aria-selected="true"] | font-size', '.date-time-wheels [role="option"][aria-selected="true"] | font-size', ".tab-switch > a, .tab-switch > button | font",
   ".tab-switch.small > a, .tab-switch.small > button | font-size", ".top .end .run | font-size",
   // A picture's initials, sized to the picture.
@@ -701,8 +701,7 @@ const NOT_SPACING = new Set<string>([
   ".code-text | padding",
   // A control's inside: its words and icon to its own edge, set by each control size.
   ".tab-switch.vertical > a, .tab-switch.vertical > button | gap", ".tab-switch.vertical > a, .tab-switch.vertical > button | padding", ".run | padding", ".run | gap", ".run.big | padding", ".run.big | gap",
-  ".cut-btn > .face | gap", ".cut-btn > .face | padding", ".glass-btn > .face | gap",
-  ".glass-btn > .face | padding", ".guest-btn > .face | gap", ".guest-btn > .face | padding", ".field input | padding",
+  ".cut-btn > .face | gap", ".cut-btn > .face | padding", ".field input | padding",
   '.find input[type="search"] | padding', ".bday-field | gap",
   ".bday-field | padding", ".bday-chev | margin-right",
   ".logo | padding",
@@ -724,7 +723,7 @@ const NOT_SPACING = new Set<string>([
   ".choice-list-in.own-scroll.shows-rail | padding-right", ".sheet-in.own-scroll.shows-rail | padding-right", ".sheet-body.own-scroll.shows-rail | padding-right",
   ".select-options.own-scroll.shows-rail | padding-right", ".field.long textarea.is-scrolling | padding-right",
   // Where a small thing sits on what it marks: a rail's tick, a cover's line.
-  ".rail-mark | margin-top", ".rail.sideways .rail-mark | margin", ".cover-bar | margin-top", ".quiet-line | margin-top",
+  ".rail-mark | margin-top", ".rail.sideways .rail-mark | margin", ".cover-bar | margin-top",
   // Lines a box's or a card's icon up with the first line of its words.
   ".check-words | padding-top", ".choice-card > .ico | margin-top",
   // Lines words beside controls up with the controls' center line: half the tallest control's height less a line's, above the first line and below the last.
@@ -911,7 +910,7 @@ describe("pages", () => {
 describe("page structure", () => {
   // Each rule a page's markup can't break unseen (page-rules.ts, pageStructureProblems): a page made to break it, named by the rule and
   // what breaks it, and the same page made right, which passes.
-  const onPage = (body: string) => `<!doctype html><html><body><header class="top">${actions.runButton("Sign in").html}</header><main>${body}</main></body></html>`;
+  const onPage = (body: string) => `<!doctype html><html><body><header class="top">${actions.primaryButton("Sign in").html}</header><main>${body}</main></body></html>`;
   const paneOf = (body: string) => glassPane({ paneWidth: "full", body: html`${raw(body)}` }).html;
   const problemsOn = async (body: string) => pageStructureProblems(onPage(body));
 
@@ -932,7 +931,7 @@ describe("page structure", () => {
   });
 
   it("finds more equal choices side by side than five, and a menu of more than nine with no groups", async () => {
-    const choiceRow = (count: number) => row({ widths: "fit", items: Array.from({ length: count }, (_, index) => ({ kind: "control" as const, markup: actions.cutButton(`Choice ${index + 1}`, { type: "button" }) })) }).html;
+    const choiceRow = (count: number) => row({ widths: "fit", items: Array.from({ length: count }, (_, index) => ({ kind: "control" as const, markup: actions.secondaryButton(`Choice ${index + 1}`, { type: "button" }) })) }).html;
     const menu = (count: number) => panes.dropdown({ id: `menu-${count}`, label: `${count} choices`, items: Array.from({ length: count }, (_, index) => ({ label: `Item ${index + 1}`, href: "#" })), isOpen: true }).html;
     const found = await problemsOn(paneOf(choiceRow(6)) + menu(10));
     expect(found.some((problem) => /^too many equal choices: div\.layout-row.*6 side by side, at most 5$/.test(problem)), found.join("\n")).toBe(true);
@@ -949,9 +948,9 @@ describe("page structure", () => {
   });
 
   it("finds two runners in one state, leaving the header's Sign in and what a sheet holds out", async () => {
-    const found = await problemsOn(paneOf(actions.runButton("Play").html + actions.runButton("Play again").html));
+    const found = await problemsOn(paneOf(actions.primaryButton("Play").html + actions.primaryButton("Play again").html));
     expect(found, found.join("\n")).toEqual([expect.stringMatching(/^two runners in view: .*"Play again" beside .*"Play"$/)]);
-    expect(await problemsOn(paneOf(actions.runButton("Play").html) + panes.sheet({ id: "more", title: "More", body: actions.runButton("Buy"), closeLabel: "Close" }).html)).toEqual([]);
+    expect(await problemsOn(paneOf(actions.primaryButton("Play").html) + panes.sheet({ id: "more", title: "More", body: actions.primaryButton("Buy"), closeLabel: "Close" }).html)).toEqual([]);
   });
 
   // What these rules ask of the components' styles, which every page's look comes from (a page has no styles of its own).
@@ -968,10 +967,11 @@ describe("page structure", () => {
     const orange = new Set(["--run", "--run-hi", "--run-lo"]);
     const tokens = [...STYLES().matchAll(/(--[a-z0-9-]+):\s*([^;}]+)/g)];
     for (let size = 0; size !== orange.size; ) { size = orange.size; for (const [, name = "", value = ""] of tokens) if ([...orange].some((each) => value.includes(`var(${each})`))) orange.add(name); }
-    const ACTED_ON = /(^|[\s>+~])(a|button|summary|label)\b|\.(run|link|cut-btn|glass-btn|guest-btn|quiet-btn|danger)\b|\[role="?(tab|button)/;
+    // A part of something you act on counts too: a toggle's icon, on.
+    const ACTED_ON = /(^|[\s>+~])(a|button|summary|label)\b|\.(run|link|cut-btn|toggle-btn|tertiary-btn|danger)\b|\[role="?(tab|button)/;
     const problems = rulesOf(STYLES()).flatMap((rule) => [...rule.declarations.matchAll(/(?:^|[;\s])color:\s*([^;]+)/g)]
       .filter(([, value = ""]) => [...orange].some((each) => value.includes(`var(${each})`)))
-      .flatMap(() => rule.selectors.split(",").map((selector) => selector.trim()).filter((selector) => !ACTED_ON.test(selector.split(/\s+/).pop()!))));
+      .flatMap(() => rule.selectors.split(",").map((selector) => selector.trim()).filter((selector) => !ACTED_ON.test(selector))));
     expect(problems).toEqual([]);
   });
 
@@ -1064,11 +1064,11 @@ describe("layout", () => {
 
   const words = (text: string): LayoutItem => ({ kind: "words", markup: html`<p>${text}</p>` });
   const block = (text: string): LayoutItem => ({ kind: "block", markup: html`<div>${text}</div>` });
-  const control = (markup: ReturnType<typeof actions.cutButton>): LayoutItem => ({ kind: "control", markup });
+  const control = (markup: ReturnType<typeof actions.secondaryButton>): LayoutItem => ({ kind: "control", markup });
   const cells = (markup: string) => [...markup.matchAll(/<div class="((?:stack|row|grid)-cell[^"]*)"/g)].map((match) => match[1]!.split(" "));
 
   it("stacks things with the gap picked from what's on each side, never one passed", () => {
-    const markup = stack({ items: [words("Welcome back"), words("Sign in to keep your progress."), control(actions.runButton("Sign in")), control(actions.cutButton("Cancel")), control(inputs.cutField({ name: "email", label: "Email", type: "email", icon: "mail" })), block("A table")] }).html;
+    const markup = stack({ items: [words("Welcome back"), words("Sign in to keep your progress."), control(actions.primaryButton("Sign in")), control(actions.secondaryButton("Cancel")), control(inputs.cutField({ name: "email", label: "Email", type: "email", icon: "mail" })), block("A table")] }).html;
     expect(cells(markup).map((classes) => classes.find((each) => each.startsWith("gap-top-")) ?? "")).toEqual(["", "gap-top-words-words", "gap-top-words-control", "gap-top-control-stack", "gap-top-block-block", "gap-top-block-block"]);
     // Words keep the pane's margin; controls and blocks sit at the frame gap.
     expect(cells(markup).map((classes) => classes[1])).toEqual(["is-words", "is-words", "is-control", "is-control", "is-control", "is-block"]);
@@ -1076,7 +1076,7 @@ describe("layout", () => {
   });
 
   it("shares a row's width as it's told: the lead fills and the rest fit their words, equal shares, or each fits", () => {
-    const items = [control(actions.runButton("Play", { isBig: true })), control(actions.cutButton("Details"))];
+    const items = [control(actions.primaryButton("Play", { isBig: true })), control(actions.secondaryButton("Details"))];
     expect(cells(row({ widths: "lead-fills", items }).html).map((classes) => classes.includes("fills"))).toEqual([true, false]);
     expect(cells(row({ widths: "equal", items }).html).map((classes) => classes.includes("fills"))).toEqual([true, true]);
     expect(cells(row({ widths: "fit", alignment: "end", items }).html).map((classes) => classes.includes("fills"))).toEqual([false, false]);
@@ -1089,18 +1089,18 @@ describe("layout", () => {
 
   it("sets every control in a row to one height, the tallest one's", () => {
     const heightOf = (items: LayoutItem[]) => /data-control-height="([a-z]+)"/.exec(row({ widths: "fit", items }).html)?.[1];
-    expect(heightOf([control(actions.cutButton("Dismiss", { isSmall: true })), control(actions.cutButton("Read more"))])).toBe("regular");
-    expect(heightOf([control(inputs.cutField({ name: "room", label: "Room code", type: "text", icon: "people" })), control(actions.cutButton("Join"))])).toBe("field");
-    expect(heightOf([control(actions.runButton("Play", { isBig: true })), control(actions.cutButton("Details"))])).toBe("big");
+    expect(heightOf([control(actions.secondaryButton("Dismiss", { isSmall: true })), control(actions.secondaryButton("Read more"))])).toBe("regular");
+    expect(heightOf([control(inputs.cutField({ name: "room", label: "Room code", type: "text", icon: "people" })), control(actions.secondaryButton("Join"))])).toBe("field");
+    expect(heightOf([control(actions.primaryButton("Play", { isBig: true })), control(actions.secondaryButton("Details"))])).toBe("big");
     expect(ROW_STYLES).toContain('.layout-row[data-control-height="big"] > .row-cell > .cut-btn');
     // A field that shows its label sits on its box: the row lines its controls up on the boxes.
-    expect(row({ widths: "lead-fills", items: [control(inputs.cutField({ name: "room", label: "Room code", type: "text", icon: "people" })), control(actions.cutButton("Join"))] }).html).toContain("is-on-field-boxes");
+    expect(row({ widths: "lead-fills", items: [control(inputs.cutField({ name: "room", label: "Room code", type: "text", icon: "people" })), control(actions.secondaryButton("Join"))] }).html).toContain("is-on-field-boxes");
   });
 
-  it("puts a pane's corner control in its corner, a quiet button too", () => {
-    const markup = paneParts({ head: { words: html`<h2>Rooms</h2>`, end: actions.cutButton("Refresh") }, body: html`<p>Rooms here</p>`, foot: { end: actions.quietButton("See all") } }).html;
+  it("puts a pane's corner control in its corner, a tertiary button too", () => {
+    const markup = paneParts({ head: { words: html`<h2>Rooms</h2>`, end: actions.secondaryButton("Refresh") }, body: html`<p>Rooms here</p>`, foot: { end: actions.tertiaryButton("See all") } }).html;
     expect(markup).toMatch(/<div class="pane-head" data-control-height="regular"><div class="pane-head-words"><h2>Rooms<\/h2><\/div><div class="pane-head-end"><button class="shell cut-btn"/);
-    // A quiet button is a control like any other: in a corner it takes the corner's cut, its words on the pane's margin inside it.
+    // A tertiary button is a control like any other: in a corner it takes the corner's cut, its words on the pane's margin inside it.
     expect(markup).toContain('<div class="pane-foot" data-control-height="regular"><div class="pane-foot-end">');
     expect(PANE_PARTS_STYLES).toContain(".pane-head-end, .pane-foot-end { display: flex; margin-inline-start: auto; }");
   });

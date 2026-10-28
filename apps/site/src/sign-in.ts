@@ -18,7 +18,7 @@ import type { Env } from "./env.ts";
 import { glassMessage, html, layout, scriptTags } from "./html.ts";
 import { glassPane } from "./components/foundations.ts";
 import { row, stack } from "./components/layout.ts";
-import { cutButton, runButton, textLink } from "./components/actions.ts";
+import { secondaryButton, primaryButton, textLink } from "./components/actions.ts";
 import { authorizeMcp, handleMcpSignIn, isMcpClientId, tokenMcp } from "./mcp-sign-in.ts";
 import { pageScript } from "./page-scripts.ts";
 
@@ -369,7 +369,7 @@ async function consentPage(env: Env, checked: Allowed, account: Account): Promis
             kind: "block",
             markup: html`<form method="post" action="/oauth/authorize">
 ${AUTHORIZE_FIELDS.filter((name) => checked.parameters[name]).map((name) => html`<input type="hidden" name="${name}" value="${checked.parameters[name]!}">`)}
-${row({ widths: "equal", items: [{ kind: "control", markup: runButton("Continue", { name: "decision", buttonValue: "allow", isAutofocused: true }) }, { kind: "control", markup: cutButton("Cancel", { name: "decision", buttonValue: "cancel" }) }] })}
+${row({ widths: "equal", items: [{ kind: "control", markup: primaryButton("Continue", { name: "decision", buttonValue: "allow", isAutofocused: true }) }, { kind: "control", markup: secondaryButton("Cancel", { name: "decision", buttonValue: "cancel" }) }] })}
 </form>`,
           },
           { kind: "words", markup: html`<p>You can remove ${app.name} any time from ${textLink("your account", "/account#sign-ins")}.</p>` },
@@ -396,7 +396,7 @@ function continuePage(env: Env, app: SignInApp, back: string): Response {
         items: [
           { kind: "words", markup: html`<h1>Back to ${app.name}</h1>` },
           { kind: "words", markup: html`<p>You're signed in. Taking you back now.</p>` },
-          { kind: "control", id: "back", markup: runButton(`Back to ${app.name}`, { href: back, isFullWidth: true }) },
+          { kind: "control", id: "back", markup: primaryButton(`Back to ${app.name}`, { href: back, isFullWidth: true }) },
         ],
       })}${scriptTags(BACK_TO_APP_SCRIPT)}`,
     }),

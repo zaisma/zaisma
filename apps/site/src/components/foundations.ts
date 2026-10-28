@@ -152,7 +152,7 @@ export interface SheetMarkupOptions {
   title: string;
   /** Its words and fields, which scroll between its head and its buttons when they're long. */
   body: Raw;
-  /** Its Close (actions.ts's cutButton: small, only its icon, formmethod="dialog"), in its head's corner. */
+  /** Its Close (actions.ts's secondaryButton: small, only its icon, formmethod="dialog"), in its head's corner. */
   closeButton: ControlMarkup;
   /** Its buttons, an equal row at its foot, in view while the body scrolls: the way out first, the one thing to do last. */
   buttons?: ControlMarkup[];
@@ -177,7 +177,7 @@ export interface SheetMarkupOptions {
 }
 
 /**
- * A sheet (panes.ts's Sheet shows it, and a Delete button's confirm is one): a <dialog> of the panes' glass, one form, with its title and
+ * A sheet (panes.ts's Sheet shows it, and so is a Confirm sheet): a <dialog> of the panes' glass, one form, with its title and
  * Close in its head's corner (Pane parts), its body scrolling under the head, and its buttons at its foot. Close and Cancel close it
  * without sending it (formmethod="dialog"). Here, so actions.ts can make one without a loop of imports.
  */

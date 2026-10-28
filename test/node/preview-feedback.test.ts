@@ -64,14 +64,14 @@ describe("preview feedback comments", () => {
 
   it("keeps what he did before commenting, closed to each kind's fields, the last 40 only", () => {
     const moves = Array.from({ length: 45 }, (_, index) => ({ kind: "move", at_ms: index * 10, x_px: index, y_px: 5.4, pointer_type: "mouse", button: 2 }));
-    const { comment } = addComment({ ...sent, is_page_comment: true, recent_actions: [...moves, { kind: "key", at_ms: 500, key: "Enter", x_px: 3 }, { kind: "key", at_ms: 510 }, { kind: "wave" }, { kind: "scroll", at_ms: 520, scroll_x_px: 0, scroll_y_px: 300 }, { kind: "press", at_ms: 530, x_px: 10, y_px: 20, pointer_type: "pen", element_label: "Cut button" }] }, { directory });
+    const { comment } = addComment({ ...sent, is_page_comment: true, recent_actions: [...moves, { kind: "key", at_ms: 500, key: "Enter", x_px: 3 }, { kind: "key", at_ms: 510 }, { kind: "wave" }, { kind: "scroll", at_ms: 520, scroll_x_px: 0, scroll_y_px: 300 }, { kind: "press", at_ms: 530, x_px: 10, y_px: 20, pointer_type: "pen", element_label: "Secondary button" }] }, { directory });
     expect(comment.is_page_comment).toBe(true);
     expect(comment.recent_actions).toHaveLength(40);
     expect(comment.recent_actions.at(-4)).toEqual({ kind: "move", at_ms: 440, x_px: 44, y_px: 5, pointer_type: "mouse", element_label: "" });
     expect(comment.recent_actions.slice(-3)).toEqual([
       { kind: "key", at_ms: 500, key: "Enter", element_label: "" },
       { kind: "scroll", at_ms: 520, scroll_x_px: 0, scroll_y_px: 300, element_label: "" },
-      { kind: "press", at_ms: 530, x_px: 10, y_px: 20, pointer_type: "mouse", element_label: "Cut button" },
+      { kind: "press", at_ms: 530, x_px: 10, y_px: 20, pointer_type: "mouse", element_label: "Secondary button" },
     ]);
     expect(addComment(sent, { directory }).comment).toMatchObject({ is_page_comment: false, recent_actions: [] });
   });

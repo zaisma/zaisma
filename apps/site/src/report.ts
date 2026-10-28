@@ -4,7 +4,7 @@ import type { Env } from "./env.ts";
 import { sendAlert } from "./email.ts";
 import { tellWebhooks, type WaitUntil } from "./webhooks.ts";
 import { html, layout, pageData, scriptTags, type Raw } from "./html.ts";
-import { cutButton, runButton, textLink } from "./components/actions.ts";
+import { secondaryButton, primaryButton, textLink } from "./components/actions.ts";
 import { checkField, choiceCards, longField, type ChoiceCard } from "./components/choices.ts";
 import { doneState } from "./components/data.ts";
 import { row, stack } from "./components/layout.ts";
@@ -94,7 +94,7 @@ export function reportStep(game: Game, options: { isMultiplayer: boolean }): She
     stepName: "report",
     title: `Report ${game.title}`,
     body,
-    buttons: [cutButton("Back to the game", { id: "report-done", type: "submit", formMethod: "dialog", isHidden: true }), runButton("Send report", { id: "report-send", type: "submit" })],
+    buttons: [secondaryButton("Back to the game", { id: "report-done", type: "submit", formMethod: "dialog", isHidden: true }), primaryButton("Send report", { id: "report-send", type: "submit" })],
   };
 }
 
@@ -296,7 +296,7 @@ export async function reportForm(env: Env, slug: string, error = "", httpStatus 
         kind: "words",
         markup: html`<p>Copyright claims need a formal notice: see the ${textLink("DMCA page", "/legal/dmca")}. So does a game that falsely says you committed a crime: see ${textLink("Defamation notices", "/legal/defamation")}.</p>`,
       },
-      { kind: "block", markup: row({ widths: "equal", items: [{ kind: "control", markup: runButton("Send report", { type: "submit" }) }, { kind: "control", markup: cutButton("Cancel", { href: `/g/${slug}` }) }] }) },
+      { kind: "block", markup: row({ widths: "equal", items: [{ kind: "control", markup: primaryButton("Send report", { type: "submit" }) }, { kind: "control", markup: secondaryButton("Cancel", { href: `/g/${slug}` }) }] }) },
     ],
   });
   const response = layout(env, {
@@ -347,7 +347,7 @@ export async function submitReport(env: Env, request: Request, slug: string, ctx
           items: [
             { kind: "words", markup: html`<h1>Thanks for the report</h1>` },
             { kind: "words", markup: html`<p>${body.is_game_hidden ? "The game is hidden while we check it." : body.is_update_paused ? "The latest update is paused while we check it." : "We'll look at it soon."}</p>` },
-            { kind: "control", markup: cutButton("Back to games", { href: "/", isFullWidth: true }) },
+            { kind: "control", markup: secondaryButton("Back to games", { href: "/", isFullWidth: true }) },
           ],
         }),
       }),

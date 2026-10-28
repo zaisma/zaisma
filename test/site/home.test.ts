@@ -51,7 +51,7 @@ describe("the home page", () => {
   it("ends with an All games link into Browse, never a grid of every game", async () => {
     const { text } = await homePage();
     expect(text).not.toContain('class="grid"');
-    expect(text).toMatch(/<a class="shell quiet-btn" href="\/games"[^>]*>[\s\S]*?All games/);
+    expect(text).toMatch(/<a class="shell tertiary-btn" href="\/games"[^>]*>[\s\S]*?All games/);
   });
 
   it("lists Popular, then Trending and New when they have games, after Continue playing", async () => {

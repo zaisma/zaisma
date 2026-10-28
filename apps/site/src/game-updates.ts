@@ -2,7 +2,7 @@ import { gameBySlug } from "@zaisma/core";
 import { pageScript } from "./page-scripts.ts";
 import type { Env } from "./env.ts";
 import type { Raw } from "./html.ts";
-import { cutButton } from "./components/actions.ts";
+import { secondaryButton } from "./components/actions.ts";
 import type { ControlMarkup } from "./components/control-markup.ts";
 import type { IconName } from "./components/icons.ts";
 import { dropdown } from "./components/panes.ts";
@@ -40,12 +40,12 @@ export async function liveVersionAnswer(env: Env, slug: string): Promise<Respons
  */
 export function updateBarButtons(): ControlMarkup[] {
   const connection = (state: "weak" | "retrying" | "lost", label: string, iconName: IconName) =>
-    cutButton(label, { id: `conn-${state}`, type: "button", icon: iconName, isLabelHidden: true, isSmall: true, controls: "conn-dialog", isHidden: true });
+    secondaryButton(label, { id: `conn-${state}`, type: "button", icon: iconName, isLabelHidden: true, isSmall: true, controls: "conn-dialog", isHidden: true });
   return [
     connection("weak", "Weak connection", "signal-weak"),
     connection("retrying", "Reconnecting", "reconnecting"),
     connection("lost", "Connection lost", "signal-lost"),
-    cutButton("Update", { id: "update", type: "button", icon: "download", isSmall: true, isHidden: true }),
+    secondaryButton("Update", { id: "update", type: "button", icon: "download", isSmall: true, isHidden: true }),
   ];
 }
 

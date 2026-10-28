@@ -9,7 +9,7 @@ import { CHECKED_PAGES, galleryPageName, type CheckedPageName } from "./componen
 import { COMPONENT_GROUPS, COMPONENT_SUBGROUPS, GALLERY_PLACES, galleryPagePath, subgroupsOf, type Component, type ComponentGroup, type GalleryPlace } from "./components/component.ts";
 import { COMPONENTS, COMPONENT_SCRIPT, COMPONENT_STYLES, HEADER_SCRIPT } from "./components/index.ts";
 import { EDGE, STAND_IN_BACKGROUNDS_SCRIPT, backdrop, logo, pageSettingsAttributes, railMarkup } from "./components/foundations.ts";
-import { cutButton, runButton, textLink } from "./components/actions.ts";
+import { secondaryButton, primaryButton, textLink } from "./components/actions.ts";
 import { cutField } from "./components/inputs.ts";
 import { loadMore, sidebar, sidebarButton, sidebarLayout, type SidebarPlace } from "./components/navigation.ts";
 import { row, stack } from "./components/layout.ts";
@@ -68,12 +68,12 @@ function section(each: Component, theme: GalleryTheme): Raw {
 
 /** The sun and the moon, from the sign-in draft's theme control. */
 
-/** Light or dark: one cut button showing the theme you're in, a sun or a moon; pressing it switches to the other. path is where it is, its query (but the theme) kept. */
+/** Light or dark: one secondary button showing the theme you're in, a sun or a moon; pressing it switches to the other. path is where it is, its query (but the theme) kept. */
 const themeButton = (path: string, theme: GalleryTheme) => {
   const other = new URL(path, "https://zaisma.com");
   if (theme === "dark") other.searchParams.delete("theme");
   else other.searchParams.set("theme", "dark");
-  return cutButton(theme === "dark" ? "Dark. Switch to light" : "Light. Switch to dark", { href: `${other.pathname}${other.search}`, icon: "light-dark", isLabelHidden: true, isSmall: true });
+  return secondaryButton(theme === "dark" ? "Dark. Switch to light" : "Light. Switch to dark", { href: `${other.pathname}${other.search}`, icon: "light-dark", isLabelHidden: true, isSmall: true });
 };
 
 function head(title: string, group: ComponentGroup, scripts: PageScript[] = []): Raw {
@@ -268,7 +268,7 @@ export const GALLERY_SCRIPT = pageScript(
   `(function () {
   var stage = document.getElementById("stage");
   var pages = JSON.parse(document.getElementById("design-pages").textContent);
-  // A link to a component on another group's page (like /design#runner-button) goes on to that page.
+  // A link to a component on another group's page (like /design#primary-button) goes on to that page.
   var asked = location.hash.slice(1);
   if (asked && !document.getElementById(asked) && pages[asked]) { location.replace(pages[asked] + location.search + location.hash); return; }
   function query(theme) { return theme === "dark" ? "?theme=dark" : ""; }
@@ -299,6 +299,15 @@ export const GALLERY_SCRIPT = pageScript(
     if (!link || event.metaKey || event.ctrlKey || event.shiftKey || event.button) return;
     event.preventDefault();
     apply(stage.dataset.themeChoice === "dark" ? "light" : "dark");
+  });
+  // The Toggle button's live example turns on and off as a page's script would turn it: its count and its words follow.
+  document.addEventListener("click", function (event) {
+    var toggle = event.target.closest && event.target.closest("[data-toggle-example] .toggle-btn");
+    if (!toggle) return;
+    var isOn = toggle.getAttribute("aria-pressed") !== "true", count = toggle.querySelector(".cut-count"), words = toggle.querySelector(".face > span:not([class])");
+    toggle.setAttribute("aria-pressed", String(isOn));
+    if (count) count.textContent = (Number(count.textContent.replace(/,/g, "")) + (isOn ? 1 : -1)).toLocaleString("en-US");
+    if (words && /^Follow/.test(words.textContent)) words.textContent = isOn ? "Following" : "Follow";
   });
   document.addEventListener("click", function (event) {
     var link = event.target.closest && event.target.closest('.example-stage a[href^="#"], .example-stage a[href^="/"]');
@@ -441,10 +450,10 @@ export const GALLERY_SCRIPT = pageScript(
     });
     place(now());
   });
-  // The glass button's tint palette: the button above takes the tint you pick.
+  // The secondary button's tint palette: the button above takes the tint you pick.
   document.addEventListener("click", function (event) {
     var swatch = event.target.closest && event.target.closest("[data-tint-try] .color-pick"); if (!swatch) return;
-    swatch.closest("[data-tint-try]").querySelector(".glass-btn").setAttribute("data-tint", swatch.getAttribute("data-color-value"));
+    swatch.closest("[data-tint-try]").querySelector(".cut-btn").setAttribute("data-tint", swatch.getAttribute("data-color-value"));
   });
 })();
 `,
@@ -459,7 +468,7 @@ export const DESIGN_LOOPS_SCRIPT = pageScript(
   "design-loops",
   `(function () {
   if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-  var TARGETS = { runner: ".run-wrap", cut: ".cut-btn", glass: ".glass-btn", guest: ".guest-btn", text: ".quiet-btn", check: ".check", choice: ".choice-card", toggle: ".toggle", row: ".list-row", cover: ".cover", switch: ".tab-switch" };
+  var TARGETS = { runner: ".run-wrap", cut: ".cut-btn", tertiary: ".tertiary-btn", check: ".check", choice: ".choice-card", toggle: ".toggle", row: ".list-row", cover: ".cover", switch: ".tab-switch" };
   var MOVE_MS = 650, PRESS_MS = 180;
   function wait(ms) { return new Promise(function (done) { setTimeout(done, ms); }); }
   function send(el, type) { el.dispatchEvent(new MouseEvent(type, { bubbles: type !== "pointerenter" && type !== "pointerleave" })); }
@@ -497,8 +506,6 @@ export const DESIGN_LOOPS_SCRIPT = pageScript(
       isWatching = isShown; if (!isShown) return;
       requestAnimationFrame(watch);
       var at = tip(), now = null;
-      // The glass's light follows the pointer, as it does a real one.
-      if (kind === "glass") { var r = el.getBoundingClientRect(); el.style.setProperty("--mx", (at[0] - r.left).toFixed(0) + "px"); el.style.setProperty("--my", (at[1] - r.top).toFixed(0) + "px"); }
       if (kind === "switch") { el.querySelectorAll("button").forEach(function (tab) { if (inside(tab, at)) now = tab; }); }
       else if (inside(el, at)) now = el;
       if (now === over) return;

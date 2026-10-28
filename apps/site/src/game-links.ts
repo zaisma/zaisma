@@ -5,7 +5,7 @@ import { playable } from "./home.ts";
 import { html, raw, shownAddress, type Raw } from "./html.ts";
 import { LINK_BRAND_ICON_PATHS } from "./link-icons.ts";
 import { pageScript } from "./page-scripts.ts";
-import { cutButton, runButton } from "./components/actions.ts";
+import { secondaryButton, primaryButton } from "./components/actions.ts";
 import { listRows, type ListRow, emptyState } from "./components/data.ts";
 import { icon } from "./components/foundations.ts";
 import { checkField, codeField } from "./components/inputs.ts";
@@ -104,13 +104,13 @@ export function leavingCard(gameTitle: string): Raw {
       { kind: "block", markup: checkField({ id: "link-trust", name: "is_link_site_trusted", label: "Open links to this site straight away from now on, in this browser" }) },
     ],
   });
-  return html`${sheet({ id: "link-ask", title: "You're leaving Zaisma", closeLabel: "Close", placement: "foot", body, buttons: [cutButton("Stay", { id: "link-stay", type: "submit", formMethod: "dialog" }), runButton("Open", { href: "#", dataAttributes: { "link-go": "" } })] })}${sheet({
+  return html`${sheet({ id: "link-ask", title: "You're leaving Zaisma", closeLabel: "Close", placement: "foot", body, buttons: [secondaryButton("Stay", { id: "link-stay", type: "submit", formMethod: "dialog" }), primaryButton("Open", { href: "#", dataAttributes: { "link-go": "" } })] })}${sheet({
     id: "link-closed",
     title: "This link can't be opened here.",
     closeLabel: "Close",
     placement: "foot",
     body: html``,
-    buttons: [cutButton("Back to the game", { id: "link-back", type: "submit", formMethod: "dialog" })],
+    buttons: [secondaryButton("Back to the game", { id: "link-back", type: "submit", formMethod: "dialog" })],
   })}`;
 }
 

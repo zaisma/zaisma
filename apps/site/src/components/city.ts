@@ -2,7 +2,7 @@ import { html, type Raw } from "../markup.ts";
 import { pageScript, type PageScript } from "../page-scripts.ts";
 import { component } from "./component.ts";
 import { glassPane } from "./foundations.ts";
-import { runButton } from "./actions.ts";
+import { primaryButton } from "./actions.ts";
 import { rail } from "./navigation.ts";
 import { stack } from "./layout.ts";
 import { cutPolygon } from "./tokens.ts";
@@ -2838,7 +2838,7 @@ component({
     {
       label: "A pane on the city",
       isWide: true,
-      markup: html`<div class="city-frame">${cityStage({ isFramed: true })}${glassPane({ paneWidth: "fit", label: "Sign in", body: stack({ items: [{ kind: "words", markup: html`<h2>Welcome back</h2>` }, { kind: "control", markup: runButton("Sign in", { type: "button", isFullWidth: true }) }] }) })}</div>`,
+      markup: html`<div class="city-frame">${cityStage({ isFramed: true })}${glassPane({ paneWidth: "fit", label: "Sign in", body: stack({ items: [{ kind: "words", markup: html`<h2>Welcome back</h2>` }, { kind: "control", markup: primaryButton("Sign in", { type: "button", isFullWidth: true }) }] }) })}</div>`,
     },
   ],
 });

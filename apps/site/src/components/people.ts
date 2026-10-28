@@ -1,7 +1,7 @@
 import { html, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
 import type { ControlMarkup } from "./control-markup.ts";
-import { cutButton, quietButton, textLink } from "./actions.ts";
+import { secondaryButton, tertiaryButton, textLink } from "./actions.ts";
 import { ago, glassPane, tag } from "./foundations.ts";
 import { pictureFrame } from "./data.ts";
 import { row, stack } from "./layout.ts";
@@ -46,7 +46,7 @@ export interface PostOptions {
   body: Raw;
   /** Marks beside the author's name: Tags (Answer, Zaisma, AI). */
   marks?: Raw;
-  /** What you can do with it, start to end: Quiet buttons (Reply, Quote) and toggles with a count (Like). */
+  /** What you can do with it, start to end: Tertiary buttons (Reply, Quote) and toggles with a count (Like). */
   actions?: ControlMarkup[];
 }
 
@@ -92,7 +92,7 @@ component({
   render: person,
   examples: [
     { label: "A game's developer", markup: glassPane({ paneWidth: "fit", body: person({ username: "lumen_works", href: "#person", note: "12 games on Zaisma" }) }) },
-    { label: "A friend in a room, with Join", markup: glassPane({ paneWidth: "fit", body: person({ username: "Liam", href: "#person", pictureSize: "sm", presence: "playing", note: "Playing Ashen Crown", end: cutButton("Join", { type: "button", isSmall: true }) }) }) },
+    { label: "A friend in a room, with Join", markup: glassPane({ paneWidth: "fit", body: person({ username: "Liam", href: "#person", pictureSize: "sm", presence: "playing", note: "Playing Ashen Crown", end: secondaryButton("Join", { type: "button", isSmall: true }) }) }) },
     { label: "A long username, with a mark", markup: glassPane({ paneWidth: "fit", body: person({ username: "the_longest_username_allowed", href: "#person", note: "Played 2,140 hours", marks: tag("Developer", "plain") }) }) },
   ],
 });
@@ -123,14 +123,14 @@ component({
               author: { username: "Sofia", href: "#post" },
               postedAtMs: Date.now() - 2 * HOUR_MS,
               body: readingText({ markup: html`<p>Rooms drop everyone at about 50 players for me too, on Chrome and Firefox. It started after Tuesday's update.</p>` }),
-              actions: [quietButton("Reply", { type: "button", icon: "reply" }), quietButton("Quote", { type: "button", icon: "quote" })],
+              actions: [tertiaryButton("Reply", { type: "button", icon: "reply" }), tertiaryButton("Quote", { type: "button", icon: "quote" })],
             },
             {
               author: { username: "zaisma_team", href: "#post" },
               postedAtMs: Date.now() - 40 * 60_000,
               marks: tag("Answer", "new"),
               body: readingText({ markup: html`<p>Thanks, both. The fix is live: rooms past 50 players stay connected now. If one still drops, reply here with its room code.</p>` }),
-              actions: [quietButton("Reply", { type: "button", icon: "reply" })],
+              actions: [tertiaryButton("Reply", { type: "button", icon: "reply" })],
             },
           ],
         }),

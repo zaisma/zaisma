@@ -42,7 +42,7 @@ import {
 } from "@zaisma/core";
 import { authConfigured } from "./auth.ts";
 import { gameUrl, type Env } from "./env.ts";
-import { cutButton, runButton, textLink } from "./components/actions.ts";
+import { secondaryButton, primaryButton, textLink } from "./components/actions.ts";
 import { codeField } from "./components/inputs.ts";
 import { cutField } from "./components/fields.ts";
 import { emptyState, glanceFacts, listRows } from "./components/data.ts";
@@ -331,12 +331,12 @@ export function gamePageResponse(env: Env, view: GamePageView): Response {
   const mainAction = isClosed
     ? []
     : !isForSale
-      ? [{ kind: "control" as const, markup: runButton("Play", { id: "play", type: "button", isBig: true, isFullWidth: true, icon: "play" }) }]
+      ? [{ kind: "control" as const, markup: primaryButton("Play", { id: "play", type: "button", isBig: true, isFullWidth: true, icon: "play" }) }]
       : fullGamePrice
-        ? [{ kind: "control" as const, markup: runButton("Buy", { id: "buy-game", type: "button", isBig: true, isFullWidth: true, icon: "cart", trailingText: priceText(fullGamePrice.currencyCode, fullGamePrice.priceMinorUnits), dataAttributes: { "buy-item": game.full_game_item_name! } }) }]
-        : [{ kind: "control" as const, markup: runButton("Not on sale right now", { id: "buy-game", type: "button", isBig: true, isFullWidth: true, isDisabled: true }) }];
+        ? [{ kind: "control" as const, markup: primaryButton("Buy", { id: "buy-game", type: "button", isBig: true, isFullWidth: true, icon: "cart", trailingText: priceText(fullGamePrice.currencyCode, fullGamePrice.priceMinorUnits), dataAttributes: { "buy-item": game.full_game_item_name! } }) }]
+        : [{ kind: "control" as const, markup: primaryButton("Not on sale right now", { id: "buy-game", type: "button", isBig: true, isFullWidth: true, isDisabled: true }) }];
   const demoSlug = isForSale ? view.demoGameSlug : null;
-  const otherGameLink = demoSlug ? cutButton("Play the demo", { href: `/g/${demoSlug}?play`, isBig: true }) : view.fullGameSlug ? cutButton("Full game", { href: `/g/${view.fullGameSlug}?buy`, isBig: true }) : null;
+  const otherGameLink = demoSlug ? secondaryButton("Play the demo", { href: `/g/${demoSlug}?play`, isBig: true }) : view.fullGameSlug ? secondaryButton("Full game", { href: `/g/${view.fullGameSlug}?buy`, isBig: true }) : null;
   const paneActions = stack({
     items: [
       ...mainAction,
@@ -346,10 +346,10 @@ export function gamePageResponse(env: Env, view: GamePageView): Response {
           widths: "lead-fills",
           label: otherGameLink ? (demoSlug ? "Details, Play the demo, Share and Report" : "Details, Full game, Share and Report") : "Details, Share and Report",
           items: [
-            { kind: "control", markup: cutButton("Details", { href: "#about", isBig: true }) },
+            { kind: "control", markup: secondaryButton("Details", { href: "#about", isBig: true }) },
             ...(otherGameLink ? [{ kind: "control" as const, markup: otherGameLink }] : []),
-            { kind: "control", markup: cutButton("Share", { id: "share-page", type: "button", icon: "share", isLabelHidden: true, isBig: true, controls: "share-dialog" }) },
-            { kind: "control", markup: cutButton("Report", { href: reportHref, icon: "flag", isLabelHidden: true, isBig: true, dataAttributes: { report: "" } }) },
+            { kind: "control", markup: secondaryButton("Share", { id: "share-page", type: "button", icon: "share", isLabelHidden: true, isBig: true, controls: "share-dialog" }) },
+            { kind: "control", markup: secondaryButton("Report", { href: reportHref, icon: "flag", isLabelHidden: true, isBig: true, dataAttributes: { report: "" } }) },
           ],
         }),
       },
@@ -402,7 +402,7 @@ export function gamePageResponse(env: Env, view: GamePageView): Response {
               const detail = gameItem.description.split("\n")[0]?.trim() || undefined;
               return isOwned(gameItem) || !price
                 ? { title: gameItem.title, detail, end: tag("Owned", "plain") }
-                : { title: gameItem.title, detail, action: cutButton(priceText(price.currencyCode, price.priceMinorUnits), { type: "button", isSmall: true, dataAttributes: { "buy-item": gameItem.item_name } }) };
+                : { title: gameItem.title, detail, action: secondaryButton(priceText(price.currencyCode, price.priceMinorUnits), { type: "button", isSmall: true, dataAttributes: { "buy-item": gameItem.item_name } }) };
             }),
           }),
         }])]
@@ -423,13 +423,13 @@ export function gamePageResponse(env: Env, view: GamePageView): Response {
   const screenshotSheets = shots.map((shot, shotIndex) => sheet({ id: `screenshot-${shotIndex + 1}`, title: `${game.title}, screenshot ${shotIndex + 1} of ${shots.length}`, body: screenshotLarge(shot, `${game.title}, screenshot ${shotIndex + 1}`), closeLabel: "Close", isPicture: true }));
   // Playing: the bar beside the game, and what it opens.
   const barControls = [
-    ...(multiplayer ? [cutButton("Players", { id: "players-open", type: "button", icon: "people", isLabelHidden: true, isSmall: true, controls: "players", reactionCount: 0 })] : []),
-    ...(saves ? [cutButton("Keep your progress", { id: "keep-bar", href: joinHere, icon: "save", isLabelHidden: true, isSmall: true, isHidden: true, dataAttributes: { keep: "/join" } })] : []),
-    ...(hasRoomCodes ? [cutButton("Join", { id: "room-open", type: "button", icon: "hash", isSmall: true, controls: "room-dialog" })] : []),
+    ...(multiplayer ? [secondaryButton("Players", { id: "players-open", type: "button", icon: "people", isLabelHidden: true, isSmall: true, controls: "players", reactionCount: 0 })] : []),
+    ...(saves ? [secondaryButton("Keep your progress", { id: "keep-bar", href: joinHere, icon: "save", isLabelHidden: true, isSmall: true, isHidden: true, dataAttributes: { keep: "/join" } })] : []),
+    ...(hasRoomCodes ? [secondaryButton("Join", { id: "room-open", type: "button", icon: "hash", isSmall: true, controls: "room-dialog" })] : []),
     ...(isClosed ? [] : updateBarButtons()),
-    cutButton("Share", { id: "share", type: "button", icon: "share", isLabelHidden: true, isSmall: true, controls: "share-dialog" }),
-    cutButton("Full screen", { id: "full", type: "button", icon: "full-screen", isLabelHidden: true, isSmall: true }),
-    cutButton("More", { id: "menu", type: "button", icon: "more", isLabelHidden: true, isSmall: true, controls: "menu-dialog", isExpanded: false }),
+    secondaryButton("Share", { id: "share", type: "button", icon: "share", isLabelHidden: true, isSmall: true, controls: "share-dialog" }),
+    secondaryButton("Full screen", { id: "full", type: "button", icon: "full-screen", isLabelHidden: true, isSmall: true }),
+    secondaryButton("More", { id: "menu", type: "button", icon: "more", isLabelHidden: true, isSmall: true, controls: "menu-dialog", isExpanded: false }),
   ];
   const roomSheet = hasRoomCodes
     ? sheet({
@@ -441,14 +441,14 @@ export function gamePageResponse(env: Env, view: GamePageView): Response {
           items: [
             { kind: "block", id: "room-here", isHidden: true, markup: stack({ items: [
               { kind: "block", id: "room-code-shown", markup: codeField({ id: "room-code-text", label: "This room", code: "" }) },
-              { kind: "control", markup: cutButton("Hide the room code", { id: "room-eye", type: "button", icon: "eye", isHidden: true }) },
+              { kind: "control", markup: secondaryButton("Hide the room code", { id: "room-eye", type: "button", icon: "eye", isHidden: true }) },
               { kind: "words", id: "room-closed", isHidden: true, markup: html`<p>This room doesn't take new players.</p>` },
             ] }) },
             { kind: "control", markup: cutField({ id: "bar-join-code", name: "room", label: "Join a room by its code", type: "text", icon: "hash", placeholder: "ABC234", autocomplete: "off" }) },
             { kind: "words", id: "join-leaves", isHidden: true, markup: html`<p>It leaves the room you're in.</p>` },
           ],
         }),
-        buttons: [cutButton("Join", { id: "room-join", type: "submit" })],
+        buttons: [secondaryButton("Join", { id: "room-join", type: "submit" })],
       })
     : "";
   const menu = dropdown({
@@ -472,7 +472,7 @@ export function gamePageResponse(env: Env, view: GamePageView): Response {
         body: stack({ items: [
           { kind: "words", id: "save-status", isHidden: true, markup: html`<p role="status"></p>` },
           { kind: "words", markup: html`<p>Your ${game.title} progress is only saved in this browser. Make a free account to keep it safe and play on any device.</p>` },
-          { kind: "block", markup: row({ widths: "equal", items: [{ kind: "control", markup: runButton("Make an account", { href: joinHere, dataAttributes: { keep: "/join" } }) }, { kind: "control", markup: cutButton("Not now", { id: "keep-later", type: "button" }) }] }) },
+          { kind: "block", markup: row({ widths: "equal", items: [{ kind: "control", markup: primaryButton("Make an account", { href: joinHere, dataAttributes: { keep: "/join" } }) }, { kind: "control", markup: secondaryButton("Not now", { id: "keep-later", type: "button" }) }] }) },
           { kind: "words", markup: html`<p>Have an account? ${textLink("Sign in", signinHere, { dataAttributes: { keep: "/signin" } })}</p>` },
         ] }),
       })
@@ -483,7 +483,7 @@ export function gamePageResponse(env: Env, view: GamePageView): Response {
         title: `${game.title} asks you to sign in`,
         body: stack({ items: [
           { kind: "words", markup: html`<p id="sign-in-text">Make a free Zaisma account or sign in. The game keeps running here while you do.</p>` },
-          { kind: "block", markup: row({ widths: "equal", items: [{ kind: "control", markup: runButton("Make an account", { href: joinHere, dataAttributes: { "sign-in": "/join" } }) }, { kind: "control", markup: cutButton("Not now", { id: "sign-in-later", type: "button" }) }] }) },
+          { kind: "block", markup: row({ widths: "equal", items: [{ kind: "control", markup: primaryButton("Make an account", { href: joinHere, dataAttributes: { "sign-in": "/join" } }) }, { kind: "control", markup: secondaryButton("Not now", { id: "sign-in-later", type: "button" }) }] }) },
           { kind: "words", markup: html`<p>Have an account? ${textLink("Sign in", signinHere, { dataAttributes: { "sign-in": "/signin" } })}</p>` },
         ] }),
       })
@@ -515,7 +515,7 @@ ${multiplayer
   ? html`${playersSheet({ gameOrigin, slug: game.slug, title: game.title, hasZaismaRooms: game.multiplayer_mode !== "none", canSignIn, signInPath: `/signin?next=${encodeURIComponent(`/g/${game.slug}`)}`, reportStep: reportStep(game, { isMultiplayer: true }) })}${reportScript(game, { gameOrigin })}${blockSheet({ gameOrigin })}`
   : reportSheet(game, { isMultiplayer: false, gameOrigin })}
 ${keepCard}
-${saves ? urgentCard({ id: "signed-out", title: "You've been signed out", text: "Sign in again to keep saving to your account.", buttons: [runButton("Sign in", { href: signinHere })] }) : ""}
+${saves ? urgentCard({ id: "signed-out", title: "You've been signed out", text: "Sign in again to keep saving to your account.", buttons: [primaryButton("Sign in", { href: signinHere })] }) : ""}
 ${signInCard}
 ${isClosed || !authConfigured(env) ? "" : friendRequestParts({ gameOrigin, slug: game.slug })}
 ${multiplayer ? stillThereCard() : ""}

@@ -2540,7 +2540,7 @@ describe("cloud saves", () => {
     for (const path of [`/signin?next=${next}`, `/join?next=${next}`, `/signin/email?next=${next}`]) {
       const asked = await (await new Browser().go(path)).text();
       expect(asked, path).toContain("<p>Owl Game asked you to sign in.</p>");
-      expect(asked, path).toContain('<div data-back><a class="shell guest-btn" href="/g/owl-game?play">');
+      expect(asked, path).toContain('<div data-back><a class="shell tertiary-btn is-full" href="/g/owl-game?play">');
       expect(asked, path).toContain("Back to Owl Game as a guest");
       expect(asked, path).not.toContain("Continue as guest");
     }
