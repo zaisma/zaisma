@@ -833,18 +833,15 @@ component({
   subgroup: "words",
   summary: "Words that go somewhere: underlined in orange inside a sentence, plain in a list of links until you point at them. Anything you press that isn't words is a button.",
   styles: `
-/* A link: the words' own font, ink, with an orange underline. Under the pointer the line rises: an orange band swells up from it behind
-   the whole of the words, a highlighter's stroke, on every line it wraps onto, with nothing square round them; a press deepens it. Quiet:
-   plain until pointed at, when the line and the band come up. Keyboard focus is the focus outline: a link can wrap across lines, so it
-   can't take a control's cut. */
+/* A link: the words' own font, ink, with an orange underline. Under the pointer its words take the line's orange (--run-words, dark enough
+   on light glass to read); nothing moves and nothing fills in behind them, which would read as the browser's own selection. Quiet: plain
+   until pointed at, when the line comes up and the words turn orange. Keyboard focus is the focus outline: a link can wrap across lines,
+   so it can't take a control's cut. */
 .link { color: var(--ink); font-weight: 600; text-decoration: underline; text-decoration-color: var(--run); text-decoration-thickness: 2px; text-underline-offset: 3px;
-  --band-color: color-mix(in srgb, var(--run) 38%, transparent); background: linear-gradient(var(--band-color), var(--band-color)) left bottom / 100% 0 no-repeat;
-  -webkit-box-decoration-break: clone; box-decoration-break: clone;
-  transition: background-size 0.3s cubic-bezier(.2,.8,.2,1), text-decoration-color 0.15s, color 0.15s; }
-.link:hover, .link.is-pointed { background-size: 100% 100%; }
-.link:active { --band-color: color-mix(in srgb, var(--run) 55%, transparent); }
+  transition: text-decoration-color 0.15s, color 0.15s; }
+.link:hover, .link.is-pointed, .link:active { color: var(--run-words); }
 .link.quiet { color: inherit; font-weight: inherit; text-decoration-color: transparent; }
-.link.quiet:hover, .link.quiet.is-pointed { color: var(--ink); text-decoration-color: var(--run); }
+.link.quiet:hover, .link.quiet.is-pointed { color: var(--run-words); text-decoration-color: var(--run); }
 .link:focus-visible, .link.is-focused { outline: 2px solid var(--focus); outline-offset: 3px; }
 /* On a touch screen a link in a list of links (a footer's) still takes a finger: its hit area reaches a regular control's height, its look
    unchanged. A link inside a sentence keeps its line's, so it never reaches over the lines above and below it. */
