@@ -13,6 +13,7 @@ export const SHIP_TOKEN_PERMISSIONS = [
   "Account > D1 > Edit",
   "Account > Queues > Edit",
   "Account > Workers R2 Storage > Edit",
+  "Account > Containers > Edit",
   "Account > Cloudchamber > Edit",
   "Zone > Workers Routes > Edit",
   "Zone > DNS > Edit",
