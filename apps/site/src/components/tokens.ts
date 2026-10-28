@@ -198,6 +198,15 @@ html { -webkit-tap-highlight-color: transparent; }
 @media (prefers-reduced-motion: no-preference) { @view-transition { navigation: auto; } ::view-transition-group(root) { animation-duration: 0.12s; } }
 :root {
   color-scheme: light dark;
+  /* A thumb: the white slab you flip or drag (a toggle's, a slider's), solid and lit from above on either glass, casting its shadow onto
+     what it rests on (--thumb-cast; pointed, a touch higher). Pressed, it's pushed down in place, never smaller: its shadow drawn in close
+     and its face shaded from above (--thumb-press-shade, --thumb-press-face). */
+  --thumb-face: radial-gradient(120% 90% at 50% 0%, #fff, #F1F4F8 55%, #D9DFE7);
+  --thumb-cast: drop-shadow(0 1px 1px rgba(10, 16, 28, 0.24)) drop-shadow(0 2px 3px rgba(10, 16, 28, 0.12));
+  --thumb-cast-pointed: drop-shadow(0 1.5px 1.5px rgba(10, 16, 28, 0.28)) drop-shadow(0 3px 4px rgba(10, 16, 28, 0.14));
+  --thumb-cast-pressed: drop-shadow(0 0.5px 0.5px rgba(10, 16, 28, 0.3)) drop-shadow(0 0 0 transparent);
+  --thumb-press-shade: inset 0 2px 3px rgba(10, 16, 28, 0.18);
+  --thumb-press-face: linear-gradient(180deg, rgba(10, 16, 28, 0.16), rgba(10, 16, 28, 0.04) 55%, rgba(255, 255, 255, 0.1));
   --run: #F7931A; --run-hi: #FFB24A; --run-lo: #A85A06;
   /* Words and marks on an orange face (the runner, a ticked box): dark ink in both themes, 7.8:1 against it (white is 2.3:1). */
   --on-run: #14171C;

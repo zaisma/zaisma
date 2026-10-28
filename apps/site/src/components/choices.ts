@@ -702,22 +702,22 @@ ${TOUCH_ROOM(".toggle")}
 .toggle-slot:has(.toggle-input:checked) > .cut-line polygon { stroke: transparent; }
 .toggle-input { position: absolute; inset: 0; z-index: 4; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
 /* The slab casts a shadow onto the slot it rests in: the shadow is the holder's, so it follows the slab's cut. */
-.toggle-thumb { position: absolute; z-index: 2; left: 4px; top: 4px; width: 24px; height: 24px; filter: drop-shadow(0 1px 1px rgba(10,16,28,0.24)) drop-shadow(0 2px 3px rgba(10,16,28,0.12));
+.toggle-thumb { position: absolute; z-index: 2; left: 4px; top: 4px; width: 24px; height: 24px; filter: var(--thumb-cast);
   transition: transform 0.4s var(--spring), filter 0.2s; }
 /* The slab is solid and lit from above, so the orange behind it never tints it. */
-.toggle-slab { position: relative; display: grid; place-items: center; width: 100%; height: 100%; color: var(--ink-2); background: radial-gradient(120% 90% at 50% 0%, #fff, #F1F4F8 55%, #D9DFE7); clip-path: var(--cut-shape); transition: box-shadow 0.12s; }
+.toggle-slab { position: relative; display: grid; place-items: center; width: 100%; height: 100%; color: var(--ink-2); background: var(--thumb-face); clip-path: var(--cut-shape); transition: box-shadow 0.12s; }
 /* Its pressed face: a shade from above that fades in and out with the press. */
-.toggle-slab::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(10,16,28,0.16), rgba(10,16,28,0.04) 55%, rgba(255,255,255,0.1)); opacity: 0; transition: opacity 0.12s; }
+.toggle-slab::after { content: ""; position: absolute; inset: 0; background: var(--thumb-press-face); opacity: 0; transition: opacity 0.12s; }
 /* Saving: the loader on the slab, in the slab's own dark words (it's white on either glass), until the change is saved. */
 .toggle-slab > .loader { --loader-width: 14px; position: relative; z-index: 2; color: #3D444E; }
 .toggle:not(:has(.toggle-input[aria-busy="true"])) .toggle-slab > .loader { display: none; }
 .toggle:has(.toggle-input[aria-busy="true"]), .toggle:has(.toggle-input[aria-busy="true"]) .toggle-input { cursor: progress; }
 .toggle-slot:has(.toggle-input:checked) { --face-color: var(--run); }
 .toggle-slot:has(.toggle-input:checked) > .toggle-thumb { transform: translateX(24px); }
-.toggle:not(.is-disabled):hover .toggle-thumb, .toggle.is-pointed .toggle-thumb { filter: drop-shadow(0 1.5px 1.5px rgba(10,16,28,0.28)) drop-shadow(0 3px 4px rgba(10,16,28,0.14)); }
+.toggle:not(.is-disabled):hover .toggle-thumb, .toggle.is-pointed .toggle-thumb { filter: var(--thumb-cast-pointed); }
 /* Pressed: the slab is pushed down into the slot, its size kept (glass doesn't shrink), its shadow drawn in close and its face shaded from above. */
-.toggle:not(.is-disabled):active .toggle-thumb, .toggle.is-pressed .toggle-thumb { filter: drop-shadow(0 0.5px 0.5px rgba(10,16,28,0.3)); transition-duration: 0.4s, 0.08s; }
-.toggle:not(.is-disabled):active .toggle-slab, .toggle.is-pressed .toggle-slab { box-shadow: inset 0 2px 3px rgba(10,16,28,0.18); }
+.toggle:not(.is-disabled):active .toggle-thumb, .toggle.is-pressed .toggle-thumb { filter: var(--thumb-cast-pressed); transition-duration: 0.4s, 0.08s; }
+.toggle:not(.is-disabled):active .toggle-slab, .toggle.is-pressed .toggle-slab { box-shadow: var(--thumb-press-shade); }
 .toggle:not(.is-disabled):active .toggle-slab::after, .toggle.is-pressed .toggle-slab::after { opacity: 1; transition-duration: 0.08s; }
 /* Can't be changed now: the slot flat, the words quieter, and no orange, since there's nothing to do: on, the slot is filled in the grey of
    an edge (--press-rim), which the white slab stands out from in either glass. */

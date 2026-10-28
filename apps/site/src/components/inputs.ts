@@ -38,7 +38,7 @@ export function slider(options: SliderOptions): Raw {
   const id = options.id ?? `slider-${options.name}`;
   const filledPct = (100 * (options.pickedNumber - options.minimumNumber)) / Math.max(1e-9, options.maximumNumber - options.minimumNumber);
   const className = ["slider", options.state ?? "", options.isDisabled ? "is-disabled" : ""].filter(Boolean).join(" ");
-  return html`<div class="${className}" style="--fill:${(Math.max(0, Math.min(100, filledPct)) / 100).toFixed(4)}"><div class="slider-head"><label for="${id}">${options.label}</label><output for="${id}" data-unit="${options.unit}">${numberWords(options.pickedNumber, options.unit)}</output></div><div class="slider-track"><span class="slider-line" aria-hidden="true"></span><span class="slider-fill" aria-hidden="true"></span><input class="slider-input" type="range" id="${id}" name="${options.name}" min="${options.minimumNumber}" max="${options.maximumNumber}" step="${options.stepNumber}" value="${options.pickedNumber}"${options.isDisabled ? raw(" disabled") : ""} data-slider><span class="slider-thumb cut-raised" data-cut-line="6" aria-hidden="true">${CUT_LINE}</span></div></div>`;
+  return html`<div class="${className}" style="--fill:${(Math.max(0, Math.min(100, filledPct)) / 100).toFixed(4)}"><div class="slider-head"><label for="${id}">${options.label}</label><output for="${id}" data-unit="${options.unit}">${numberWords(options.pickedNumber, options.unit)}</output></div><div class="slider-track"><span class="slider-line" aria-hidden="true"></span><span class="slider-fill" aria-hidden="true"></span><input class="slider-input" type="range" id="${id}" name="${options.name}" min="${options.minimumNumber}" max="${options.maximumNumber}" step="${options.stepNumber}" value="${options.pickedNumber}"${options.isDisabled ? raw(" disabled") : ""} data-slider><span class="slider-thumb" aria-hidden="true" data-on-no-pane><span class="slider-slab cut-raised" data-cut-line="6">${CUT_LINE}</span></span></div></div>`;
 }
 
 /** A slider's fill and number follow its thumb. */
@@ -47,7 +47,7 @@ export const SLIDER_SCRIPT = `/* sliders */(function () {
     var box = input.closest(".slider"), min = Number(input.min), max = Number(input.max), output = box.querySelector("output"), unit = output.getAttribute("data-unit");
     box.style.setProperty("--fill", ((Number(input.value) - min) / Math.max(1e-9, max - min)).toFixed(4));
     // The thumb's shape follows the edge rule where it now sits: cut where it meets its pane's corner, square in the middle.
-    var thumb = box.querySelector(".slider-thumb"); if (thumb && thumb.redrawCut) thumb.redrawCut();
+    var slab = box.querySelector(".slider-slab"); if (slab && slab.redrawCut) slab.redrawCut();
     output.textContent = Number(input.value).toLocaleString("en-US") + (unit === "%" ? "%" : " " + unit);
   }
   document.addEventListener("input", function (event) { if (event.target.matches && event.target.matches("input[data-slider]")) follow(event.target); });
@@ -80,19 +80,26 @@ component({
 @media (pointer: coarse) { .slider-input { inset: min(0px, calc(50% - var(--touch-target) / 2)) 0; height: auto; } }
 .slider-input::-webkit-slider-thumb { -webkit-appearance: none; width: var(--thumb); height: var(--thumb); }
 .slider-input::-moz-range-thumb { width: var(--thumb); height: var(--thumb); border: 0; }
+/* Its thumb is the toggle's slab (the --thumb tokens): white and lit from above on either glass, its shadow cast onto the glass under it by
+   its holder, so the shadow follows the slab's cut. Pointed, it lifts a touch; pressed, it's pushed down in place, never smaller, its shadow
+   drawn in close and its face shaded from above. */
 .slider-thumb { position: absolute; z-index: 2; top: 0; left: calc((100% - var(--thumb)) * var(--fill)); width: var(--thumb); height: var(--thumb); pointer-events: none;
-  background: linear-gradient(180deg, #fff, #E9EDF3); box-shadow: 0 1px 3px rgba(20,23,28,0.25); clip-path: var(--cut-shape); transition: filter 0.2s; }
-.slider:not(.is-disabled):hover .slider-thumb { filter: brightness(1.06); }
-.slider-input:active + .slider-thumb, .slider.is-pressed .slider-thumb { filter: brightness(0.94); box-shadow: var(--press-shade); }
+  filter: var(--thumb-cast); transition: filter 0.2s; }
+.slider-slab { position: relative; display: block; width: 100%; height: 100%; background: var(--thumb-face); clip-path: var(--cut-shape); transition: box-shadow 0.12s; }
+.slider-slab::after { content: ""; position: absolute; inset: 0; background: var(--thumb-press-face); opacity: 0; transition: opacity 0.12s; }
+.slider:not(.is-disabled):hover .slider-thumb, .slider.is-pointed .slider-thumb { filter: var(--thumb-cast-pointed); }
+.slider-input:active + .slider-thumb, .slider.is-pressed .slider-thumb { filter: var(--thumb-cast-pressed); transition-duration: 0.08s; }
+.slider-input:active + .slider-thumb > .slider-slab, .slider.is-pressed .slider-slab { box-shadow: var(--thumb-press-shade); }
+.slider-input:active + .slider-thumb > .slider-slab::after, .slider.is-pressed .slider-slab::after { opacity: 1; transition-duration: 0.08s; }
 /* Can't be changed now: the thumb rests flat, the number goes quieter, and no orange, since there's nothing to do: the fill is grey. */
 .slider.is-disabled .slider-input { cursor: default; }
 .slider.is-disabled .slider-head > output { color: var(--muted); }
 .slider.is-disabled .slider-fill { background: var(--muted); }
 .slider.is-disabled .slider-line { background: var(--line); }
 /* Its thumb is dimmed too, faded into the glass, so it plainly can't be dragged. */
-.slider.is-disabled .slider-thumb { box-shadow: none; opacity: 0.45; }
-.slider.is-disabled .slider-thumb > .cut-line polygon { stroke: var(--line); }
-.slider-input:focus-visible + .slider-thumb > .cut-line polygon, .slider.is-focused .slider-thumb > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
+.slider.is-disabled .slider-thumb { filter: none; opacity: 0.45; }
+.slider.is-disabled .slider-slab > .cut-line polygon { stroke: var(--line); }
+.slider-input:focus-visible + .slider-thumb > .slider-slab > .cut-line polygon, .slider.is-focused .slider-slab > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 `,
   render: slider,
   examples: [
