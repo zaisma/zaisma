@@ -625,16 +625,21 @@ component({
 .groove::before { content: ""; position: absolute; inset: 0; background: var(--toggle-off); box-shadow: inset 0 3px 3px var(--groove-shade), inset 0 -1.5px 0 var(--groove-lip); clip-path: var(--cut-shape); }
 .groove-fill { position: absolute; z-index: 2; top: 1px; bottom: 1px; left: 0; width: var(--groove-filled-length, calc(var(--groove-filled, 0) * 100%)); filter: drop-shadow(0 0 3px var(--run)); transition: width 0.3s ease; }
 .groove-light { position: absolute; inset: 0; background: linear-gradient(180deg, var(--run-hi), var(--run)); clip-path: var(--cut-shape); }
+/* Still going: a glint of light runs along the orange, inside it, over and over. */
+.groove.is-working .groove-light { overflow: hidden; }
+.groove.is-working .groove-light::after { content: ""; position: absolute; top: 0; bottom: 0; left: -48px; width: 48px; background: linear-gradient(90deg, rgba(255,255,255,0), rgba(255,255,255,0.7) 50%, rgba(255,255,255,0)); animation: groove-glint 1.6s cubic-bezier(.4,0,.2,1) infinite; }
+@keyframes groove-glint { from { left: -48px; } to { left: 100%; } }
 .groove.is-running { clip-path: var(--cut-shape); }
 .groove.is-running .groove-fill { width: 30%; animation: groove-run 1.4s ease-in-out infinite; }
 @keyframes groove-run { from { transform: translateX(-100%); } to { transform: translateX(340%); } }
-@media (prefers-reduced-motion: reduce) { .groove-fill { transition: none; } .groove.is-running .groove-fill { animation: none; width: 100%; opacity: 0.5; } }
+@media (prefers-reduced-motion: reduce) { .groove-fill { transition: none; } .groove.is-running .groove-fill { animation: none; width: 100%; opacity: 0.5; } .groove.is-working .groove-light::after { animation: none; display: none; } }
 `,
   render: groove,
   examples: [
     { label: "Empty", markup: examplePane(groove({ filledFraction: 0 })) },
     { label: "Part filled", markup: examplePane(groove({ filledFraction: 0.44 })) },
     { label: "Full", markup: examplePane(groove({ filledFraction: 1 })) },
+    { label: "Still going: a glint runs along it", markup: examplePane(groove({ filledFraction: 0.44, isWorking: true })) },
     { label: "No end known yet: a light runs along it", markup: examplePane(groove()) },
   ],
 });
