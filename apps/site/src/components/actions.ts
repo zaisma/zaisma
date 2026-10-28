@@ -91,8 +91,6 @@ export interface CutButtonOptions extends ButtonTarget {
   isInWell?: boolean;
   /** Can't be pressed now: it's carved flat into the glass, its cut and edge kept, its words quieter. In a well of its own (a row's arrow at its end) it lies flat, faded. */
   isDisabled?: boolean;
-  /** A toggle: on is sunk into the glass, its light turned round, as when it's pressed. Left out, it isn't a toggle. */
-  isPressed?: boolean;
   /** How many have reacted with it (a post's likes, a game's hearts), after its icon or words in figures that keep their width: a screen reader hears it after the label ("Like, 12"). */
   reactionCount?: number;
   /** The id of what it shows, hides or changes (aria-controls). */
@@ -105,16 +103,37 @@ export interface CutButtonOptions extends ButtonTarget {
 
 /** A secondary button: a cut slab of clearer glass with a drawn outline. It brightens under the pointer and gives under a press. A delete is one too, never orange. */
 export function cutButton(label: string, options: CutButtonOptions = {}): ControlMarkup {
+  return cutButtonMarkup(label, options);
+}
+
+export interface ToggleButtonOptions extends Omit<CutButtonOptions, "isBig" | "isInWell" | "isFullWidth" | "isExpanded"> {
+  /** On or off (aria-pressed): the page's script flips it, and what it changes. */
+  isPressed: boolean;
+}
+
+/**
+ * A toggle button: something that stays on until it's pressed again (Follow, a like, Mute, a password's Show). Off, its face lies flush in
+ * the glass; on, the face rises on an orange column from the same footprint, so the button never moves and a row of them stays in line.
+ */
+export function toggleButton(label: string, options: ToggleButtonOptions): ControlMarkup {
+  return cutButtonMarkup(label, options, options.isPressed);
+}
+
+// A toggle is a cut button with a column under its face: the face lifts off it when on.
+function cutButtonMarkup(label: string, options: CutButtonOptions, isPressed?: boolean): ControlMarkup {
+  const isToggle = isPressed !== undefined;
   const hasCount = options.reactionCount !== undefined;
   const countWords = hasCount ? Number(options.reactionCount).toLocaleString("en-US") : "";
   const isIconOnly = options.isLabelHidden && !hasCount;
-  const className = classes("cut-btn", options.isBig && "big", options.isSmall && "small", options.isInWell && "in-well", isIconOnly && "icon-only", options.isFullWidth && "is-full", options.state);
-  const extra = html`${disabledAttribute(options)}${isIconOnly ? html` aria-label="${label}"` : ""}${options.isPressed !== undefined ? html` aria-pressed="${options.isPressed ? "true" : "false"}"` : ""}${options.controls ? html` aria-controls="${options.controls}"` : ""}${options.isExpanded !== undefined ? html` aria-expanded="${options.isExpanded ? "true" : "false"}"` : ""}${options.isHidden ? raw(" hidden") : ""}`;
+  const className = classes("cut-btn", isToggle && "toggle-btn", options.isBig && "big", options.isSmall && "small", options.isInWell && "in-well", isIconOnly && "icon-only", options.isFullWidth && "is-full", options.state);
+  const extra = html`${disabledAttribute(options)}${isIconOnly ? html` aria-label="${label}"` : ""}${isToggle ? html` aria-pressed="${isPressed ? "true" : "false"}"` : ""}${options.controls ? html` aria-controls="${options.controls}"` : ""}${options.isExpanded !== undefined ? html` aria-expanded="${options.isExpanded ? "true" : "false"}"` : ""}${options.isHidden ? raw(" hidden") : ""}`;
   // Its icon and count with the label hidden: the label is still said, before the count ("Like, 12"), so a page that changes the count changes what's said.
   // The label's span has no class of its own, as on the runner (html.ts's account link finds it that way).
   const words = !options.isLabelHidden ? html`<span>${label}</span>` : hasCount ? html`<span class="sr">${label}, </span>` : "";
   const reactionMarkup = hasCount ? html`<span class="cut-count">${countWords}</span>` : "";
-  return controlMarkup(html`${opening(className, options, options.isBusy, extra)}<span class="face cut-raised" data-cut-line="${options.isBig ? 13 : 10}">${CUT_LINE}${loader()}${options.icon ? icon(options.icon) : ""}${words}${reactionMarkup}</span>${closing(options)}`, options.isBig ? "big" : options.isSmall || options.isInWell ? "small" : "regular");
+  const cutLine = options.isBig ? 13 : 10;
+  const column = isToggle ? html`<span class="toggle-column" aria-hidden="true" data-cut-line="${cutLine}"></span>` : "";
+  return controlMarkup(html`${opening(className, options, options.isBusy, extra)}${column}<span class="face cut-raised" data-cut-line="${cutLine}">${CUT_LINE}${loader()}${options.icon ? icon(options.icon) : ""}${words}${reactionMarkup}</span>${closing(options)}`, options.isBig ? "big" : options.isSmall || options.isInWell ? "small" : "regular");
 }
 
 const GOOGLE = raw(
@@ -380,9 +399,9 @@ component({
    slant at mid-height, so the words move a quarter slant away from it; the button keeps its width. Slanted at both ends, they stay put. */
 .cut-btn > .face[data-slanted="start"] { --face-shift: calc(var(--control-slant) / 4); }
 .cut-btn > .face[data-slanted="end"] { --face-shift: calc(var(--control-slant) / -4); }
-/* Only its icon: as wide as a little more than it's tall. */
-.cut-btn.icon-only > .face { width: 52px; padding: 0; }
-.cut-btn.small.icon-only > .face { width: 42px; }
+/* Only its icon: as wide as a little more than it's tall, and never narrower, even sharing a row's width. */
+.cut-btn.icon-only > .face { width: 52px; min-width: 52px; padding: 0; }
+.cut-btn.small.icon-only > .face { width: 42px; min-width: 42px; }
 /* An icon alone centers in what shows of the button: a slanted end gives up half its slant. */
 .cut-btn.icon-only > .face[data-slanted~="start"] { padding-left: calc(var(--control-slant) / 2); }
 .cut-btn.icon-only > .face[data-slanted~="end"] { padding-right: calc(var(--control-slant) / 2); }
@@ -394,10 +413,8 @@ component({
 .cut-btn:not(.in-well):hover > .face, .cut-btn:not(.in-well).is-pointed > .face { transform: translateY(-1px); }
 .cut-btn:active > .face, .cut-btn.is-pressed > .face { --face-color: var(--btn-press); box-shadow: var(--press-shade); transform: translateY(1px); transition-duration: 0.08s; }
 /* A press sinks it into the glass: its light turns round, as on a carved field, and its shade goes. */
-/* A toggle that's on stays sunk, the same as a press. */
-.cut-btn:active, .cut-btn.is-pressed, .cut-btn[aria-pressed="true"] { filter: none; }
-.cut-btn[aria-pressed="true"] > .face { --face-color: var(--btn-press); transform: none; }
-.cut-btn:active > .face > .cut-line, .cut-btn.is-pressed > .face > .cut-line, .cut-btn[aria-pressed="true"] > .face > .cut-line { --band-top: var(--carve-top); --band-left: var(--carve-left); --band-right: var(--carve-right); --band-bottom: var(--carve-bottom); }
+.cut-btn:active, .cut-btn.is-pressed { filter: none; }
+.cut-btn:active > .face > .cut-line, .cut-btn.is-pressed > .face > .cut-line { --band-top: var(--carve-top); --band-left: var(--carve-left); --band-right: var(--carve-right); --band-bottom: var(--carve-bottom); }
 .cut-btn:focus-visible { outline: none; }
 .cut-btn:focus-visible > .face, .cut-btn.is-focused > .face { --face-color: var(--btn-hover); }
 .cut-btn:focus-visible .cut-line polygon, .cut-btn.is-focused .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
@@ -430,12 +447,60 @@ component({
     { label: "Small", markup: cutButton("Show", { type: "button", isSmall: true }) },
     { label: "Small, only its icon: a sheet's Close, a Copy", markup: html`<div class="control-row">${cutButton("Close", { type: "button", icon: "close", isLabelHidden: true, isSmall: true })}${cutButton("Copy", { type: "button", icon: "copy", isLabelHidden: true, isSmall: true })}</div>` },
     { label: "Can't press", markup: html`<div class="control-row">${cutButton("Details", { type: "button", isDisabled: true })}${cutButton("Settings", { type: "button", icon: "gear", isDisabled: true })}</div>`, isStill: true },
-    { label: "A toggle, off and on", markup: html`<div class="control-row">${cutButton("Show", { type: "button", isSmall: true, isPressed: false })}${cutButton("Hide", { type: "button", isSmall: true, isPressed: true })}</div>` },
-    { label: "A toggle with a count, off and on", markup: html`<div class="control-row">${cutButton("Like", { type: "button", icon: "heart", isLabelHidden: true, reactionCount: 1284, isPressed: false })}${cutButton("Like", { type: "button", icon: "heart", isLabelHidden: true, reactionCount: 1285, isPressed: true })}</div>` },
+    { label: "With a count: the players in a room", markup: cutButton("Players", { type: "button", icon: "people", isLabelHidden: true, reactionCount: 3 }) },
     { label: "Big, beside Play", markup: html`<div class="control-row">${runButton("Play", { type: "button", isBig: true, icon: "play" })}${cutButton("Details", { type: "button", isBig: true })}</div>` },
     { label: "Full width", markup: html`<div style="width:min(380px,100%)">${cutButton("Make an account", { type: "button", isFullWidth: true })}</div>` },
     { label: "A delete", markup: cutButton("Delete this game", { type: "button" }) },
     { label: "Long words: one line, ending in an ellipsis", markup: html`<div style="${COLUMN}">${cutButton("Make an account and keep your progress in Ashen Crown", { type: "button", isFullWidth: true })}</div>` },
+  ],
+});
+
+component({
+  name: "Toggle button",
+  slug: "toggle-button",
+  group: "actions",
+  subgroup: "buttons",
+  summary: "Something that stays on until it's pressed again: Follow, a like with its count, Mute, a password's Show. Off, its face lies flush in the glass; on, the face rises on an orange column from the same place, lit round it on dark glass and shadowed on light. A setting that's on or off on a settings page is a Toggle, the switch.",
+  styles: `
+/* A toggle button: a cut button whose face rests flush in the glass when off, a clear outline only, and rises on an orange column when on,
+   from the same footprint, so it never moves and a row of toggles stays in line. Under the column the glass is lit on dark glass and
+   shadowed on light (--toggle-cast, which follows the button's own cut and reaches furthest below it). */
+.toggle-btn { position: relative; --toggle-lift: 5px; }
+.toggle-btn.small { --toggle-lift: 4px; }
+.toggle-column { position: absolute; inset: 0; z-index: 0; clip-path: var(--cut-shape); background: linear-gradient(180deg, var(--run-hi), var(--run) 40%, var(--run-lo)); opacity: 0; transition: opacity 0.2s; }
+.toggle-btn > .face { position: relative; z-index: 1; }
+.toggle-btn[aria-pressed="false"] > .face { --face-color: var(--toggle-flush); color: var(--ink-2); }
+.toggle-btn[aria-pressed="false"] > .face > .cut-line { --band-top: transparent; --band-left: transparent; --band-right: transparent; --band-bottom: transparent; }
+.toggle-btn[aria-pressed="false"] > .face > .cut-line polygon { stroke: var(--line); stroke-width: 2; }
+.toggle-btn[aria-pressed="false"]:hover > .face, .toggle-btn[aria-pressed="false"].is-pointed > .face { --face-color: var(--toggle-flush-hover); color: var(--ink); }
+/* Off, it lies flush: pointing at it brightens it, never lifts it. */
+.toggle-btn[aria-pressed="false"]:not(.in-well):hover, .toggle-btn[aria-pressed="false"].is-pointed { filter: none; }
+.toggle-btn[aria-pressed="false"]:not(.in-well):hover > .face, .toggle-btn[aria-pressed="false"].is-pointed > .face { transform: none; }
+.toggle-btn[aria-pressed="true"], .toggle-btn[aria-pressed="true"]:not(.in-well):hover, .toggle-btn[aria-pressed="true"].is-pointed { filter: var(--toggle-cast); }
+.toggle-btn[aria-pressed="true"] > .toggle-column { opacity: 1; }
+/* Raised, the face is solid glass, so the column shows only below it and along its cut, never through it. */
+.toggle-btn[aria-pressed="true"] > .face { --face-color: var(--toggle-face); }
+.toggle-btn[aria-pressed="true"]:hover > .face, .toggle-btn[aria-pressed="true"].is-pointed > .face { --face-color: var(--toggle-face-hover); }
+.toggle-btn[aria-pressed="true"] > .face, .toggle-btn[aria-pressed="true"]:not(.in-well):hover > .face, .toggle-btn[aria-pressed="true"].is-pointed > .face { transform: translateY(calc(-1 * var(--toggle-lift))); }
+.toggle-btn[aria-pressed="true"] > .face > .ico { color: var(--run); }
+/* Pressed, the face goes down to the glass, whichever way it's turning. */
+.toggle-btn:active > .face, .toggle-btn.is-pressed > .face { transform: none; }
+@media (prefers-reduced-motion: reduce) { .toggle-btn > .face { transition: --face-color 0.2s, color 0.2s; } }
+`,
+  render: toggleButton,
+  examples: [
+    { label: "Off", markup: toggleButton("Follow", { type: "button", icon: "bell", isPressed: false }), isStill: true },
+    { label: "On", markup: toggleButton("Following", { type: "button", icon: "bell", isPressed: true }), isStill: true },
+    { label: "Off, pointed", markup: toggleButton("Follow", { type: "button", icon: "bell", isPressed: false, state: "is-pointed" }), isStill: true },
+    { label: "On, pointed", markup: toggleButton("Following", { type: "button", icon: "bell", isPressed: true, state: "is-pointed" }), isStill: true },
+    { label: "Pressed", markup: toggleButton("Follow", { type: "button", icon: "bell", isPressed: false, state: "is-pressed" }), isStill: true },
+    { label: "Keyboard focus", markup: toggleButton("Following", { type: "button", icon: "bell", isPressed: true, state: "is-focused" }), isStill: true },
+    { label: "Try it: press each", isWide: true, markup: html`<div class="control-row" data-toggle-example>${toggleButton("Favorite", { type: "button", icon: "heart", isLabelHidden: true, isPressed: false })}${toggleButton("Follow", { type: "button", icon: "bell", isPressed: true })}${toggleButton("Like", { type: "button", icon: "heart", isLabelHidden: true, reactionCount: 1284, isPressed: false })}${toggleButton("Mute", { type: "button", icon: "speaker", isLabelHidden: true, isPressed: false })}</div>` },
+    { label: "Only its icon, off and on", markup: html`<div class="control-row">${toggleButton("Favorite", { type: "button", icon: "heart", isLabelHidden: true, isPressed: false })}${toggleButton("Favorite", { type: "button", icon: "heart", isLabelHidden: true, isPressed: true })}</div>`, isStill: true },
+    { label: "With a count, off and on", markup: html`<div class="control-row">${toggleButton("Like", { type: "button", icon: "heart", isLabelHidden: true, reactionCount: 1284, isPressed: false })}${toggleButton("Like", { type: "button", icon: "heart", isLabelHidden: true, reactionCount: 1285, isPressed: true })}</div>`, isStill: true },
+    { label: "Small, off and on: a password's Show", markup: html`<div class="control-row">${toggleButton("Show", { type: "button", isSmall: true, isPressed: false })}${toggleButton("Hide", { type: "button", isSmall: true, isPressed: true })}</div>`, isStill: true },
+    { label: "Can't press", markup: toggleButton("Follow", { type: "button", icon: "bell", isPressed: false, isDisabled: true }), isStill: true },
+    { label: "Long words: one line, ending in an ellipsis", markup: html`<div style="${COLUMN}">${toggleButton("Following Ashen Crown and every update from its studio", { type: "button", icon: "bell", isPressed: true })}</div>` },
   ],
 });
 

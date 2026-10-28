@@ -1,7 +1,7 @@
 import { MAXIMUM_OTHER_PLAYER_COUNT, friendsInGameOf, gameBySlug, joinRefusalText } from "@zaisma/core";
 import { currentSession } from "./auth.ts";
 import type { Env } from "./env.ts";
-import { cutButton, runButton, textLink } from "./components/actions.ts";
+import { cutButton, runButton, textLink, toggleButton } from "./components/actions.ts";
 import { cutField } from "./components/fields.ts";
 import type { ControlMarkup } from "./components/control-markup.ts";
 import { listRows, pictureFrame, emptyState } from "./components/data.ts";
@@ -152,9 +152,9 @@ export function playersSheet(options: { gameOrigin: string; slug: string; title:
       title: "?",
       titleIcon: { icon: "friends", label: "Friend", isHidden: true },
       action: [
-        cutButton("Mute", { ...rowButton, icon: "speaker", isLabelHidden: true, isPressed: false, dataAttributes: { "player-action": "mute" } }),
-        cutButton("Mute", { ...rowButton, icon: "speaker-off", isLabelHidden: true, isPressed: true, isHidden: true, dataAttributes: { "player-action": "unmute" } }),
-        cutButton("Unblock", { ...rowButton, icon: "ban", isLabelHidden: true, isPressed: true, isHidden: true, dataAttributes: { "player-action": "unblock" } }),
+        toggleButton("Mute", { ...rowButton, icon: "speaker", isLabelHidden: true, isPressed: false, dataAttributes: { "player-action": "mute" } }),
+        toggleButton("Mute", { ...rowButton, icon: "speaker-off", isLabelHidden: true, isPressed: true, isHidden: true, dataAttributes: { "player-action": "unmute" } }),
+        toggleButton("Unblock", { ...rowButton, icon: "ban", isLabelHidden: true, isPressed: true, isHidden: true, dataAttributes: { "player-action": "unblock" } }),
         cutButton("More", { ...rowButton, icon: "more", isLabelHidden: true, dataAttributes: { "player-action": "more" } }),
       ],
     }],

@@ -12,7 +12,7 @@ import { recordProof } from "./session-proofs.ts";
 import { answerSpendingRequest, spendingRequestAnswer } from "./spending-requests.ts";
 import { stripeAccountRow, stripeAccountWithBalance } from "./stripe-account-api.ts";
 import { waitEndsText } from "./email-codes.ts";
-import { cutButton, runButton, textLink } from "./components/actions.ts";
+import { cutButton, runButton, textLink, toggleButton } from "./components/actions.ts";
 import { glassPane, icon, tag } from "./components/foundations.ts";
 import { paneParts, stack, type LayoutItem } from "./components/layout.ts";
 import type { ControlMarkup } from "./components/control-markup.ts";
@@ -499,7 +499,7 @@ function paymentsPane(settings: Settings): LayoutItem {
       action: cutButton("Change on Stripe", { href: "https://dashboard.stripe.com/settings/account", icon: "out-of-page", isSmall: true }),
     },
     { title: "Stripe Tax", detail: `${stripe.is_stripe_tax_used ? "On" : "Off"} · Stripe calculates and records the tax inside each price · prices never change`, action: opens("Change", "payments-tax") },
-    ...(balance ? [{ title: "Amounts", detail: "Hide them on this device, for when someone's looking", action: cutButton("Hide amounts", { type: "button", icon: "eye", isSmall: true, isPressed: false, dataAttributes: { "amounts-toggle": "" } }) }] : []),
+    ...(balance ? [{ title: "Amounts", detail: "Hide them on this device, for when someone's looking", action: toggleButton("Hide amounts", { type: "button", icon: "eye", isSmall: true, isPressed: false, dataAttributes: { "amounts-toggle": "" } }) }] : []),
     { title: "Disconnect Stripe", detail: "Players can't buy in your games until you connect again · past sales stay", action: opens("Disconnect", "payments-disconnect") },
   );
   items.push(

@@ -300,6 +300,15 @@ export const GALLERY_SCRIPT = pageScript(
     event.preventDefault();
     apply(stage.dataset.themeChoice === "dark" ? "light" : "dark");
   });
+  // The Toggle button's live example turns on and off as a page's script would turn it: its count and its words follow.
+  document.addEventListener("click", function (event) {
+    var toggle = event.target.closest && event.target.closest("[data-toggle-example] .toggle-btn");
+    if (!toggle) return;
+    var isOn = toggle.getAttribute("aria-pressed") !== "true", count = toggle.querySelector(".cut-count"), words = toggle.querySelector(".face > span:not([class])");
+    toggle.setAttribute("aria-pressed", String(isOn));
+    if (count) count.textContent = (Number(count.textContent.replace(/,/g, "")) + (isOn ? 1 : -1)).toLocaleString("en-US");
+    if (words && /^Follow/.test(words.textContent)) words.textContent = isOn ? "Following" : "Follow";
+  });
   document.addEventListener("click", function (event) {
     var link = event.target.closest && event.target.closest('.example-stage a[href^="#"], .example-stage a[href^="/"]');
     if (link) event.preventDefault();
