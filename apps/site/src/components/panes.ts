@@ -617,8 +617,8 @@ component({
   styles: `
 /* An edge light (EDGE_LIGHT, EDGE_LIGHT_SCRIPT): laid in its holder before what it holds, cut to the holder's own shape (--cut-shape), so
    it stops at a cut corner instead of spilling past it. Pointed at, the whole edge wakes (--edge-wake); beside the part you point at, the
-   edge itself brightens (--edge-light) and the light floods up from it into the glass (--edge-flood, --edge-flood-far), fading at its sides,
-   with no line of its own. It eases in and out, and glides along the edge (--light-at) to the next part. */
+   edge itself brightens (--edge-light) and the light floods up from it into the glass (--edge-flood, --edge-flood-far), spilling past the
+   part into its neighbors and fading to nothing before its own box ends, so it never stops at a hard side, with no line of its own. It eases in and out, and glides along the edge (--light-at) to the next part. */
 @property --light-at { syntax: "<length>"; inherits: true; initial-value: 0px; }
 @property --light-span { syntax: "<length>"; inherits: true; initial-value: 0px; }
 .edge-light { position: absolute; inset: 0; pointer-events: none; clip-path: var(--cut-shape); transition: --light-at 0.45s cubic-bezier(.4, 0, .2, 1), --light-span 0.45s cubic-bezier(.4, 0, .2, 1); }
@@ -626,12 +626,12 @@ component({
 .edge-light::before { inset: 0; }
 [data-edge-light="bottom"] > .edge-light::before { box-shadow: inset 0 -1.5px 0 var(--edge-wake); }
 [data-edge-light="left"] > .edge-light::before { box-shadow: inset 1.5px 0 0 var(--edge-wake); }
-[data-edge-light="bottom"] > .edge-light::after { left: calc(var(--light-at) - var(--light-span) / 2 - 8px); width: calc(var(--light-span) + 16px); bottom: 0; height: 32px;
+[data-edge-light="bottom"] > .edge-light::after { left: calc(var(--light-at) - var(--light-span)); width: calc(var(--light-span) * 2); bottom: 0; height: 32px;
   background: linear-gradient(to top, var(--edge-light) 0, var(--edge-flood) 1.5px, var(--edge-flood-far) 10px, transparent 32px);
-  -webkit-mask-image: radial-gradient(60% 140% at 50% 100%, #000 45%, transparent 100%); mask-image: radial-gradient(60% 140% at 50% 100%, #000 45%, transparent 100%); }
-[data-edge-light="left"] > .edge-light::after { top: calc(var(--light-at) - var(--light-span) / 2 - 8px); height: calc(var(--light-span) + 16px); left: 0; width: 44px;
+  -webkit-mask-image: radial-gradient(50% 140% at 50% 100%, #000 30%, transparent 100%); mask-image: radial-gradient(50% 140% at 50% 100%, #000 30%, transparent 100%); }
+[data-edge-light="left"] > .edge-light::after { top: calc(var(--light-at) - var(--light-span)); height: calc(var(--light-span) * 2); left: 0; width: 44px;
   background: linear-gradient(to right, var(--edge-light) 0, var(--edge-flood) 1.5px, var(--edge-flood-far) 12px, transparent 44px);
-  -webkit-mask-image: radial-gradient(140% 60% at 0% 50%, #000 45%, transparent 100%); mask-image: radial-gradient(140% 60% at 0% 50%, #000 45%, transparent 100%); }
+  -webkit-mask-image: radial-gradient(140% 50% at 0% 50%, #000 30%, transparent 100%); mask-image: radial-gradient(140% 50% at 0% 50%, #000 30%, transparent 100%); }
 [data-edge-light].is-awake > .edge-light::before, [data-edge-light].is-lit > .edge-light::after { opacity: 1; }
 @media (prefers-reduced-motion: reduce) { .edge-light { transition: none; } }
 `,
