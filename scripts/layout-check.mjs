@@ -89,12 +89,7 @@ export const DEFAULT_TAB_COUNT = Math.max(1, Math.min(4, availableParallelism() 
 const PAGE_COSTS_SEC = {
   "Gallery: layout": 54.9,
   Screens: 43.8,
-  "Gallery: panes": 35.9,
-  "Gallery: data": 18.9,
-  "Gallery: inputs": 18.4,
   Home: 16.7,
-  "Gallery: actions": 14.7,
-  "Gallery: navigation": 14.6,
   "Buying, confirm with a PIN": 14.1,
   "Buying, declined": 13.1,
   "Home, signed in": 12.2,

@@ -332,6 +332,7 @@ component({
   name: "Runner button",
   slug: "runner-button",
   group: "actions",
+  subgroup: "buttons",
   summary: "The one thing to do on a screen: Play, Sign in, Next. Never more than one in view, and visible without scrolling.",
   styles: RUN_STYLES,
   render: runButton,
@@ -352,6 +353,7 @@ component({
   name: "Cut button",
   slug: "cut-button",
   group: "actions",
+  subgroup: "buttons",
   summary: "Everything else you can press: Details, Make an account, Cancel. A delete is a cut button too, never orange; only its confirm step turns red.",
   styles: `
 /* A secondary button: a cut slab of clearer glass with a drawn outline. Under the pointer it lifts a pixel toward you, brightening, and
@@ -483,6 +485,7 @@ component({
   name: "Card row",
   slug: "card-row",
   group: "actions",
+  subgroup: "buttons",
   summary: "The card a buy is paid with, as one row you can press to change it: a card mark, its words (\"Visa ending 4242\") and a chevron. It sits above the buy button in a store panel's foot.",
   styles: `
 /* A card row: a cut button at a field's height, its words starting where a pane's words do (as a field's do), the chevron at its far end. */
@@ -533,6 +536,7 @@ component({
   name: "Glass button",
   slug: "glass-button",
   group: "actions",
+  subgroup: "buttons",
   summary: "Another way in, like a passkey, Google or Discord: below the runner, never instead of it. Or an action floating on a world with no pane under it.",
   styles: `
 /* Glass buttons for the other ways in: a small slab of the panes' glass, cut and rimmed like them (GLASS_SCRIPT draws the rim).
@@ -656,6 +660,7 @@ component({
   name: "Guest button",
   slug: "guest-button",
   group: "actions",
+  subgroup: "buttons",
   summary: "The quietest way on, like Continue as guest: words and an arrow below the glass buttons, a slab only once you point at it.",
   styles: `
 /* The guest way: below the glass buttons, so only words and an arrow at rest. Pointing at it brings up its cut slab and
@@ -728,6 +733,7 @@ component({
   name: "Quiet button",
   slug: "quiet-button",
   group: "actions",
+  subgroup: "words",
   summary: "The quietest thing to press: words, an icon, or both, with no slab until it's pointed at. Skip for now, Show all, Undo; only its icon, a sheet's Back and Close. Beside a cut button it's the way out; never the one thing to do.",
   styles: `
 /* A quiet button: words only, at rest, in a control's box: its words keep a field's inset (--pad-inside-words), so on a pane's edge they're
@@ -828,6 +834,7 @@ component({
   name: "Delete button",
   slug: "delete-button",
   group: "actions",
+  subgroup: "buttons",
   summary: "Deleting a game, a key, an account: a cut button, never orange. Only its confirm step turns red, the one red in Zaisma, after one sentence on what goes.",
   styles: `
 /* A delete's confirm: the runner's shape, height and edge light, in red; no glint and no lean, since it's the moment to stop and read.
@@ -888,6 +895,7 @@ component({
   name: "Link",
   slug: "link",
   group: "actions",
+  subgroup: "words",
   summary: "Words that go somewhere: underlined in orange inside a sentence, plain in a list of links until you point at them. Anything you press that isn't words is a button.",
   styles: `
 /* A link: the words' own font, ink, with an orange underline. Under the pointer a faint wash comes up behind its words (--wash, reaching a
@@ -941,6 +949,7 @@ component({
   name: "Cut shapes",
   slug: "cut-shapes",
   group: "foundations",
+  subgroup: "look",
   summary: `Corners are cut, never rounded: ${cutWords("pane")} on panes, ${cutWords("header")} on the header, ${cutWords("menu")} on menus. Controls follow the edge rule: a slant only beside another control in a row, and every other corner fits what holds it.`,
   styles: `
 /* Cut shapes: the glass's cuts, each on a slab of glass, then the edge rule on real buttons. */

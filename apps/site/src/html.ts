@@ -7,6 +7,7 @@ import { pageScript, pageScriptPath, type PageScript } from "./page-scripts.ts";
 import { pageStyle, pageStylePath, type PageStyle } from "./page-styles.ts";
 import { COMPONENT_SCRIPT, COMPONENT_STYLES, HEADER_SCRIPT } from "./components/index.ts";
 import { HEADER_TWO_ROWS_MEDIA, footer, header, rail, type HeaderTab } from "./components/navigation.ts";
+import type { ControlMarkup } from "./components/control-markup.ts";
 import { cutButton, runButton } from "./components/actions.ts";
 import { pictureFrame, problemState } from "./components/data.ts";
 import { backdrop, glassPane } from "./components/foundations.ts";
@@ -625,6 +626,8 @@ interface LayoutBaseOptions {
   isAdmin?: boolean;
   isPrivate?: boolean;
   nav?: Nav;
+  /** The page's Sidebar button (navigation.ts's sidebarButton), at the header's start over its sidebar. */
+  sidebarButton?: ControlMarkup;
   hasTurnstileCheck?: boolean;
   search?: HeaderSearch;
   /** The page's main action, at the top of a Steel page until its page is rebuilt. */
@@ -714,18 +717,24 @@ const FONT_PATH = "/fonts/jost.7726a5cd.woff2";
 export const SPECULATION_RULES_PATH = "/speculation-rules.json";
 
 /**
- * Every page's speculation rules: a link to a game's page (/g/<slug>, not its report or rooms) is fetched ahead once the pointer rests
+ * Every page's speculation rules: a link to a game's page (/g/<slug>, not its report or rooms), or to one of a sidebar's places, is fetched ahead once the pointer rests
  * on it or presses it ("moderate"), so the page is there when the click lands; browsers without them just follow the link. Fetched only,
  * never prerendered: a prerendered game page would run its scripts (checking in, the play count, the game's site warming up) for a page
  * the player may never open. A same-origin file, so the page's Content-Security-Policy allows it as it is.
  */
-export const SPECULATION_RULES = { prefetch: [{ source: "document", where: { and: [{ href_matches: "/g/*" }, { not: { href_matches: "/g/*/*" } }] }, eagerness: "moderate" }] };
+export const SPECULATION_RULES = {
+  prefetch: [
+    { source: "document", where: { and: [{ href_matches: "/g/*" }, { not: { href_matches: "/g/*/*" } }] }, eagerness: "moderate" },
+    // A sidebar's places (the gallery's pages), so moving through them never waits on the page.
+    { source: "document", where: { selector_matches: "a.sidebar-place" }, eagerness: "moderate" },
+  ],
+};
 
 /**
  * The site's header (components/navigation.ts), also used on its own by pages that lay themselves out (the game page): Home, the
  * developer tabs open on developer pages, the page's search, and the viewer's account menu or Sign in. Admin pages have their own tabs.
  */
-export function siteHeader(env: Env, options: { isAdmin?: boolean; nav?: Nav; search?: HeaderSearch; viewer?: Pick<Viewer, "account"> | null; hasPageRunner?: boolean } = {}): Raw {
+export function siteHeader(env: Env, options: { isAdmin?: boolean; nav?: Nav; search?: HeaderSearch; viewer?: Pick<Viewer, "account"> | null; hasPageRunner?: boolean; sidebarButton?: ControlMarkup } = {}): Raw {
   const account = options.viewer?.account ?? null;
   // Every player page searches games, landing on Browse; developer and admin pages have their own search or none.
   const isPlayerPage = !options.isAdmin && options.nav !== "developer" && options.nav !== "forum";
@@ -738,6 +747,7 @@ export function siteHeader(env: Env, options: { isAdmin?: boolean; nav?: Nav; se
     isOnDeveloperPage: !options.isAdmin && (options.nav === "developer" || options.nav === "forum"),
     // The page has a runner of its own (Play, Save): Sign in is a cut button, so only one runner is ever in view.
     hasPageRunner: options.hasPageRunner,
+    sidebarButton: options.sidebarButton,
   });
   // A page that doesn't know who's looking swaps Sign in for the account once it sees the signed-in cookie.
   return options.viewer === undefined && env.SUPABASE_URL ? html`${markup}<script src="${pageScriptPath(ACCOUNT_LINK_SCRIPT)}"></script>` : markup;

@@ -430,6 +430,7 @@ component({
   name: "Glass pane",
   slug: "glass-pane",
   group: "panes",
+  subgroup: "glass",
   summary: "A sheet of glass that holds a task: signing in, a game at a glance, a form. It's as wide as what holds it, or as wide as what's in it, its paragraphs running to a reading width at most; never a width of its own. Its content scrolls inside it rather than shrinking. A game's page starts its pane lower on a phone (isStartedLow), so the game's art shows above it.",
   styles: PANE_STYLES,
   render: glassPane,
@@ -457,6 +458,7 @@ component({
   name: "Tray",
   slug: "tray",
   group: "panes",
+  subgroup: "glass",
   summary: "A thinner, clearer sheet a pane extends into, holding everything that belongs to it: the pane's words on top, what they're about on the tray beneath, read as one. Every gallery section is one.",
   styles: `
 /* A tray: the pane above holds the words, square along its foot; the tray runs on from it with no rim of its own along the top. It's
@@ -493,6 +495,7 @@ component({
   name: "Dropdown",
   slug: "dropdown",
   group: "panes",
+  subgroup: "menus",
   summary: "A short list of choices that hangs from a button, like the account button's in the header: with a head, rules, icons, counts and the current one, as each needs. A choice that's hard to take back asks first, in a confirm sheet.",
   styles: DROPDOWN_STYLES,
   render: dropdown,
@@ -544,6 +547,7 @@ component({
   name: "Menu choices",
   slug: "menu-choices",
   group: "panes",
+  subgroup: "menus",
   summary: "A dropdown's choices on their own, in a sheet or a pane: an icon and words, no slab until pointed at, so a short list of things to do (a player's Profile, Block and Report) reads like the ⋯ menu, not a stack of buttons.",
   styles: `
 /* Menu choices: the dropdown's choices one under another, at the controls' gap, the way they sit in a dropdown. */
@@ -581,6 +585,7 @@ component({
   name: "Light box",
   slug: "light-box",
   group: "panes",
+  subgroup: "layers",
   summary: "One thing large in the middle of a dimmed screen, like a QR code to hold up to a friend across a room: nothing else round it, and a press anywhere, Close or Esc takes it away, back to the sheet that opened it.",
   styles: `
 /* A light box: no glass of its own, the screen dimmed deep behind what it shows, which sits in the middle in light words (a QR code keeps
@@ -618,6 +623,7 @@ component({
   name: "Filter tags",
   slug: "filter-tags",
   group: "panes",
+  subgroup: "menus",
   summary: "The filters in use on a list, under its Filter button: one small button each, with a close mark, that takes it away.",
   // A Row of its buttons (layout.ts): they wrap onto more lines where they don't fit across.
   styles: "",
@@ -632,6 +638,7 @@ component({
   name: "Game cover",
   slug: "game-cover",
   group: "panes",
+  subgroup: "cards",
   summary: "A game in a list: the studio's art, bare, set in a carved well, with only what concerns you under it. Zaisma's mark stands in while the art loads, and for a game with none yet.",
   styles: COVER_STYLES,
   render: gameCover,
@@ -924,6 +931,7 @@ component({
   name: "Sheet",
   slug: "sheet",
   group: "panes",
+  subgroup: "layers",
   summary: "A task that comes and goes over the page: report a game, block someone, add a key. Opened by a button that names it: on a phone it rises from the foot, on a wide screen it hangs from that button like a dropdown, under it or above it; Esc, its close button or a press beside it close it, and it drops away as it goes in every browser (it stays open while it leaves, so no browser drops it early or draws it out of place). Its title, Close and its buttons stay in view while the rest scrolls. A task of steps moves forward inside it with Back, and tabs in its head swap what's in it; a confirm opens a size smaller on top, never more than two deep.",
   styles: SHEET_STYLES,
   render: sheet,
@@ -1028,6 +1036,7 @@ component({
   name: "Store item",
   slug: "store-item",
   group: "panes",
+  subgroup: "buying",
   summary: "What a store panel sells: the game's own cover across the top, then the item's name, its price large under it, what it is, and one quiet line on who sells it and what refunds there are. Items have no pictures of their own, so the cover is the developer's image, bare; with none, Zaisma's mark stands in.",
   styles: `
 /* A store item: the picture is a carved well cut like a game cover's, the art filling it up to its rim (2px); both are cut by the edge rule, so
@@ -1090,6 +1099,7 @@ component({
   name: "Store panel",
   slug: "store-panel",
   group: "panes",
+  subgroup: "buying",
   summary: "Where a player buys: a tall panel at the screen's right edge over the running game, which keeps its middle (on a phone, a sheet risen from the foot, nearly the screen's height). A slim head with Close, the item with the game's cover across its top, and pinned at its foot the card row and the buy button carrying the price; Apple Pay and Google Pay sit with them when offered. Pressing Buy is the confirmation: only when Zaisma needs to know it's them does the panel ask first, in the same place.",
   styles: `
 /* A store panel is a sheet standing at the right edge of the screen, as tall as the screen less the page's edge, so the game keeps its middle.
@@ -1142,6 +1152,7 @@ component({
   name: "Confirm sheet",
   slug: "confirm-sheet",
   group: "panes",
+  subgroup: "layers",
   summary: "One sentence, the action and Cancel, before something that's hard to take back: signing out everywhere, ending a room. Over another sheet it opens a size smaller, and closing it lands on the sheet beneath. A delete's confirm is Delete button's own, the only red one.",
   styles: "",
   render: confirmSheet,
@@ -1200,6 +1211,7 @@ component({
   name: "Notice",
   slug: "notice",
   group: "panes",
+  subgroup: "layers",
   summary: "A moment that just happened, just under the header: Saved, Copied, or what went wrong. A done one leaves by itself after 4 seconds (8 with Undo), waiting while it's pointed at or touched; a problem stays until it's closed. Up to three stack, and the rest wait their turn (zaismaLayers.say makes one from a page's script).",
   styles: `
 /* A notice: a small slab of the header's glass floating just under the header, in the middle, under any notices before it. It comes down a
@@ -1273,6 +1285,7 @@ component({
   name: "Banner",
   slug: "banner",
   group: "panes",
+  subgroup: "layers",
   summary: "Something that holds while you're on a page, across the top of its content: you're playing as a guest, a version is held, Zaisma's news on the home. A line of words, at most one button, and a Close for what a player can put away.",
   styles: `
 /* A banner: a strip of the panes' glass, the width of the page's content, with a pane's two margins: what has an edge sits at the frame
@@ -1424,6 +1437,7 @@ component({
   name: "Step flow",
   slug: "step-flow",
   group: "panes",
+  subgroup: "layers",
   summary: "A task in a few steps, like protecting your account: a pane with a thin step line across its top that fills in orange as you go, the step you're on ending in light, and Back and Next.",
   styles: `
 /* A step flow: a pane whose top is a row of thin cut lines, one per step, each with its name under it. Done steps are filled orange; the one
@@ -1505,6 +1519,7 @@ component({
   name: "Spacing",
   slug: "spacing",
   group: "foundations",
+  subgroup: "look",
   summary: "Every gap, padding and margin is one of these tokens, picked by what sits on each side of it, never by how close two things feel. A control is anything from Actions & Inputs; words are a heading, label or line; a block is a group of controls with their words, a paragraph, a picture or a pane. If either side is a block, it's --gap-block-block. More room is a multiple of one, never a new number.",
   styles: `
 /* Spacing: the space each example is about, hatched over it. */

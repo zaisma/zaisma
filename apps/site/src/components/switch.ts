@@ -220,6 +220,7 @@ component({
   name: "Switch",
   slug: "switch",
   group: "inputs",
+  subgroup: "choices",
   summary: "Choosing one of a few: Sign in or Make an account (big), Recently played or Recently updated (small). Stacked, it's a page's own places down its side.",
   styles: `
 /* The switch: the header's and the home's. A clear well, a white slab with the orange line under the one you're on, and a faint one under the one you point at.
@@ -373,6 +374,7 @@ component({
   name: "Color picker",
   slug: "color-picker",
   group: "inputs",
+  subgroup: "pickers",
   summary: "Pick one color from a few: a glass button's tint, the glass's hue. Plain swatches in a carved well, like the switch's tabs; the picked one keeps its whole color, with an orange bar under it, and is named beside them.",
   styles: `
 /* A color picker: plain swatches in a carved well, like the switch's tabs. A swatch is a control like any other, cut by the edge rule,
@@ -427,6 +429,7 @@ component({
   name: "Page settings",
   slug: "page-settings",
   group: "foundations",
+  subgroup: "look",
   summary: "Every page has one set of settings that all its components follow: light or dark, and each component's own, like the glass's hue. One change covers every instance at once, and a page only carries the ones its components use.",
   styles: "",
   examples: [
@@ -448,6 +451,7 @@ component({
   name: "Motion",
   slug: "motion",
   group: "foundations",
+  subgroup: "look",
   summary: "Things move only when pointed at, pressed or chosen: a slab springs across on the spring curve (--spring) in 0.55s, 0.4s for a small one, and a change of size takes 0.45s. Reduced motion stops all of it.",
   styles: "",
   examples: [

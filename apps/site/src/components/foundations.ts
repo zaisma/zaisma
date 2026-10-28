@@ -160,8 +160,8 @@ export interface SheetMarkupOptions {
   action?: string;
   /** Controls pinned at its foot in place of buttons (a stack of them), in view while the body scrolls: a store panel's card row and Buy. */
   foot?: Raw;
-  /** "center" over the dimmed page; "foot" risen from the screen's foot over a running game, not dimming it; "side" a tall panel at the screen's right edge over the game (a store panel); "middle" in the middle of the screen on a wide screen whatever opened it, never hung from a button (Confirm it's you). */
-  placement?: "center" | "foot" | "side" | "middle";
+  /** "center" over the dimmed page; "foot" risen from the screen's foot over a running game, not dimming it; "side" a tall panel at the screen's right edge over the game (a store panel); "middle" in the middle of the screen on a wide screen whatever opened it, never hung from a button (Confirm it's you); "start" a tall panel sliding in from the screen's start edge over the page (a sidebar on a phone). */
+  placement?: "center" | "foot" | "side" | "middle" | "start";
   /** Shown in place, not over the page: the gallery's still copies. */
   isShown?: boolean;
   /** On a wide screen, a narrow sheet with its gaps closed up, so it reads as a dropdown (the share sheet's QR code and link); on a phone it's like any sheet. */
@@ -190,7 +190,7 @@ export function sheetMarkup(options: SheetMarkupOptions): Raw {
   });
   const inside = options.parts ?? parts;
   const form = options.action === undefined ? html`<form class="sheet-in" method="dialog">${inside}</form>` : html`<form class="sheet-in" method="post" action="${options.action}">${inside}</form>`;
-  return html`<dialog class="sheet glass${options.placement === "foot" ? " placement-foot" : options.placement === "side" ? " placement-side" : options.placement === "middle" ? " placement-middle" : ""}${options.isCompact ? " is-compact" : ""}${options.isPicture ? " is-picture" : ""}${options.isShown ? " in-place" : ""}" id="${options.id}" aria-labelledby="${options.titleId ?? `${options.id}-title`}"${options.isConfirm ? raw(" data-sheet-confirm") : ""} data-glass data-glass-corners="pane"${options.isShown ? raw(" open") : ""}>${EDGE}${form}</dialog>`;
+  return html`<dialog class="sheet glass${options.placement === "foot" ? " placement-foot" : options.placement === "side" ? " placement-side" : options.placement === "middle" ? " placement-middle" : options.placement === "start" ? " placement-start" : ""}${options.isCompact ? " is-compact" : ""}${options.isPicture ? " is-picture" : ""}${options.isShown ? " in-place" : ""}" id="${options.id}" aria-labelledby="${options.titleId ?? `${options.id}-title`}"${options.isConfirm ? raw(" data-sheet-confirm") : ""} data-glass data-glass-corners="pane"${options.isShown ? raw(" open") : ""}>${EDGE}${form}</dialog>`;
 }
 
 /** An outline for a cut field or button (GLASS_SCRIPT draws it), and a slab's drawn rim. */
@@ -222,6 +222,7 @@ component({
   name: "Color",
   slug: "color",
   group: "foundations",
+  subgroup: "look",
   summary: "Every color comes from these tokens, so light, dark and smoked glass follow by themselves. Orange is only for what you act on, and it is always shown in full: never faded or at half opacity.",
   styles: `
 /* Color: the gallery's swatches. */
@@ -269,6 +270,7 @@ component({
   name: "Type",
   slug: "type",
   group: "foundations",
+  subgroup: "look",
   summary: "Every word outside a control's own inside is set in one of these, picked by what the words are. Jost for display, the system's own face for reading; fields are 16px or more, so phones don't zoom in.",
   styles: `
 /* Type: each token, set in itself. */
@@ -317,6 +319,7 @@ component({
   name: "Glass",
   slug: "glass",
   group: "foundations",
+  subgroup: "look",
   summary: "Zaisma's interface is glass over the game or the page's backdrop, never over a plain color. It's as thin as the words allow: light with dark words, or smoked with light words.",
   styles: `
 /* Glass: shown over a few shapes, so the blur has something to show, in a frame cut like a pane with the glass at its frame gap. The shapes
@@ -432,6 +435,7 @@ component({
   name: "Backdrop",
   slug: "backdrop",
   group: "foundations",
+  subgroup: "backgrounds",
   summary: "Glass is never on a plain or solid color: there's always something behind it, still or moving. A game is its own backdrop; Zaisma's pages have Zaisma's own, a sheet of satin whose folds sway slowly in a soft light, or their own shader or 3D scene.",
   styles: `
 /* The backdrop: a canvas under everything on the page. Its parent is isolated, so the canvas sits above the page's own color and below the rest.
@@ -468,6 +472,7 @@ component({
   name: "Shader background",
   slug: "shader-background",
   group: "foundations",
+  subgroup: "backgrounds",
   summary: "A background written as a shader: one small function that paints each pixel from the time and the screen's size, in the form AI writes well. From a few lines for a sky to a whole city in the rain. Zaisma's runner draws it small, at most 30 frames a second, holds a still frame on a device that can't keep up. A shader drawn in the page bends the light under the glass: what's behind each pane magnified and bent as through thick glass, with light gathered along its cut edge. A game's own shader runs in a frame on the game's site, which can't redraw a bend in the frame the page scrolls in, so behind Zaisma's glass it shows as drawn, never bent.",
   styles: `
 /* Shader background: each example a framed backdrop with its glass over it, and the simplest one's whole source beside it. */
@@ -487,6 +492,7 @@ component({
   name: "Game background",
   slug: "game-background",
   group: "foundations",
+  subgroup: "backgrounds",
   summary: "A game's own world behind the glass, on its page and behind it on the home: a picture or a shader its developer sends, for wide screens and phones. It's the game's art, never restyled to Zaisma's look, and the glass over it turns light or smoked to keep the words clear. Until real games bring theirs, the stand-in games have these.",
   styles: "",
   render: gameBackgroundFrame,
@@ -500,6 +506,7 @@ component({
   name: "Icons",
   slug: "icons",
   group: "foundations",
+  subgroup: "pictures",
   summary: "Thin line icons in the words' color, so a kind of fact can be found without reading. Never decoration.",
   styles: `
 /* Icons: the set, with names. */
@@ -518,6 +525,7 @@ component({
   name: "Logo",
   slug: "logo",
   group: "foundations",
+  subgroup: "pictures",
   summary: "Zaisma's logo, always a link home: the wordmark at the top of a page, the mark alone in the footer. Drawn in the words' color, never restyled.",
   styles: `
 /* The logo: drawn in the words' color, at --logo-height (a bar sets it as it slims). */
@@ -541,6 +549,7 @@ component({
   name: "Loader",
   slug: "loader",
   group: "foundations",
+  subgroup: "pictures",
   summary: "The Z building itself: what a button shows once it's pressed and waiting, a form sent or a page opening. Only ever after you press something.",
   styles: `
 /* The loader: the brand's Z, masked so it takes the words' color, --loader-width wide (19px). Under reduced motion, the still mark breathing slowly instead. */

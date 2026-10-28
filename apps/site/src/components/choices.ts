@@ -110,6 +110,7 @@ component({
   name: "Long field",
   slug: "long-field",
   group: "inputs",
+  subgroup: "fields",
   summary: "More than a line of words: a game's description, patch notes, a reply. It grows with what's written, and counts the characters only once the limit is near.",
   styles: LONG_STYLES,
   render: longField,
@@ -286,6 +287,7 @@ component({
   name: "Select field",
   slug: "select-field",
   group: "inputs",
+  subgroup: "fields",
   summary: "One of many, from a list: a region, a language, a category. It opens a list of Zaisma's glass under the field, on every device. For one of a few, use Choice cards or a Switch.",
   styles: `
 /* A select field: the cut field holding a button with the picked choice; the birthday field's chevron sits at its end and turns as it opens.
@@ -411,6 +413,7 @@ component({
   name: "Check field",
   slug: "check-field",
   group: "inputs",
+  subgroup: "choices",
   summary: "A yes or no sent with its form: I agree, Email me replies. A small carved box that turns orange with a dark tick. On a page that saves at once, use a Toggle.",
   styles: `
 /* A check field: a small carved box of the fields' glass, cut by the edge rule, before its words. Ticked, the whole box turns orange
@@ -535,6 +538,7 @@ component({
   name: "Choice cards",
   slug: "choice-cards",
   group: "inputs",
+  subgroup: "choices",
   summary: "One of a few, when each needs a line to say what it means: who can see a game, how its rooms run. Compact for many (a report's reasons): close together down a carved well that scrolls. The picked one is the raised white slab with the orange line; the rest sit carved and quieter.",
   styles: `
 /* Choice cards: radios as cut slabs. The ones not picked are carved into the glass, their words quieter; the picked one rises out of it as
@@ -634,6 +638,7 @@ component({
   name: "Toggle",
   slug: "toggle",
   group: "inputs",
+  subgroup: "choices",
   summary: "On or off for a setting: Cloud saves, Show me online. A white slab that springs across a carved slot, which fills orange when it's on. It's a checkbox in its form, so it posts without a script.",
   styles: `
 /* A toggle: a carved slot holding a white slab that springs to its far end when on, the slot filling orange behind it. The real

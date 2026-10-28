@@ -22,6 +22,7 @@ component({
   name: "Stripe frame",
   slug: "stripe-frame",
   group: "panes",
+  subgroup: "buying",
   summary: "A zaisma.com frame for Stripe's own parts, its card form, Apple Pay and Google Pay, and a bank's 3-D Secure check, so Stripe.js loads only inside it and never on the page around it. As tall as what Stripe draws in it, and over the whole window while a bank asks the player to confirm.",
   styles: `
 /* A Stripe frame: as wide as what holds it and as tall as what Stripe draws, told by the frame (--stripe-frame-height); see-through, so Stripe's parts sit on the glass. */

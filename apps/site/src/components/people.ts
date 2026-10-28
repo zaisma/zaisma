@@ -75,6 +75,7 @@ component({
   name: "Person",
   slug: "person",
   group: "data",
+  subgroup: "pictures",
   summary: "Someone on Zaisma named on a page: a game's developer, a post's author, a friend in a room. Their picture in its frame, their name a quiet link to their profile, a line about them, and at most one thing to do at the end. A list of people is List rows, each led by their picture.",
   styles: `
 /* A person: the picture, then the name over a quiet line, a word's gap from it; one control at the end, on the row's center line. A long name
@@ -100,6 +101,7 @@ component({
   name: "Post",
   slug: "post",
   group: "data",
+  subgroup: "reading",
   summary: "What someone wrote: a forum reply, a game's update. Its author and when, the words as Reading text, and what you can do with it at its foot. A list of posts has a hairline between each.",
   styles: `
 /* Posts: one under another, a block's gap and a hairline between each. */

@@ -2830,6 +2830,7 @@ component({
   name: "City",
   slug: "city",
   group: "foundations",
+  subgroup: "backgrounds",
   summary: "Zaisma's own live 3D scene, where signing in and making an account happen: one city in an endless sea on a slow cinematic loop, its orange shapes and sea there to tap. Under reduced motion, without WebGL or on a device that can't keep it smooth, a still of the same city stands in, with everything in place.",
   styles: CITY_STYLES,
   render: cityStage,

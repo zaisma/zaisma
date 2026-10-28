@@ -166,6 +166,7 @@ component({
   name: "Reading text",
   slug: "reading-text",
   group: "data",
+  subgroup: "reading",
   summary: "Words to read: a forum post, the rules, a game's description, its patch notes. Paragraphs in the system's own face, each line at most a reading width long, with headings, lists, quotes, code and tables spaced by what's on each side.",
   styles: `
 /* Reading text: paragraphs in the reading face, lines at most a reading width; a block's gap between paragraphs and anything else, a word's
@@ -210,6 +211,7 @@ component({
   name: "Facts",
   slug: "facts",
   group: "data",
+  subgroup: "lists",
   summary: "What something is, in a few short facts, each a quiet label with its words: who a game is for and what it runs on (side by side), or a version's or a key's details (one a line).",
   styles: `
 /* Facts: a quiet label (facts) with its words (a line's). Across: side by side while they fit, each label over its words. Down: one a line,
@@ -246,6 +248,7 @@ component({
   name: "Breadcrumbs",
   slug: "breadcrumbs",
   group: "navigation",
+  subgroup: "places",
   summary: "Where a page sits: the pages above it as quiet links, a chevron between, this one last. For pages a few levels deep, like a forum topic or a game's version. On a phone it scrolls sideways rather than wrapping.",
   styles: `
 /* Breadcrumbs: quiet links in notes, a small chevron between, the page you're on last in ink. One line: on a narrow screen it scrolls
@@ -270,6 +273,7 @@ component({
   name: "Folded part",
   slug: "folded-part",
   group: "panes",
+  subgroup: "glass",
   summary: "Something that belongs on the page but out of the way, behind its title and how many are in it: earlier versions, blocked people, preview links. Pressing the title opens it in place.",
   styles: `
 /* A folded part: its title a pressable line of words with a chevron that turns as it opens, and its count's Tag; what's in it under the title,
@@ -301,6 +305,7 @@ component({
   name: "Fold rows",
   slug: "fold-rows",
   group: "panes",
+  subgroup: "glass",
   summary: "Things to scan by a title and one line, each opening in place to what's under it, like the content rules with their tests: the title and line always show, the rest folds. A link to a row opens it.",
   styles: `
 /* Fold rows: one thing a row, hairlines between. The head is the title, its line beside it, and a chevron at the end that turns as it opens;
@@ -347,6 +352,7 @@ component({
   name: "Pager",
   slug: "pager",
   group: "navigation",
+  subgroup: "scrolling",
   summary: "Newer and Older under a list read a page at a time, like a topic's replies. The end you're at can't be pressed. A list you add to in place has Load more instead.",
   styles: `
 /* A pager: Newer and Older, an equal Row. */
@@ -363,6 +369,7 @@ component({
   name: "Divider with words",
   slug: "divider-with-words",
   group: "panes",
+  subgroup: "glass",
   summary: "A hairline across a pane with a word or two in its middle, between two ways to do one thing: or, between signing in with a password and with a passkey.",
   styles: `
 /* A divider with words: a hairline each side of its words, in facts. */
@@ -377,6 +384,7 @@ component({
   name: "Progress",
   slug: "progress",
   group: "data",
+  subgroup: "numbers",
   summary: "A task on its way that takes a while, like an upload or a scan: a carved track filling in ink as it goes, and how much is done in words. With no end known yet, a light runs along it.",
   styles: `
 /* Progress: its words over a carved track that fills in ink; with no end known, a light runs along the track instead. */

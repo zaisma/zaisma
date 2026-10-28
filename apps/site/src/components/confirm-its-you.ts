@@ -208,6 +208,7 @@ component({
   name: "Confirm it's you",
   slug: "confirm-its-you",
   group: "panes",
+  subgroup: "layers",
   summary: "A small dialog that opens over anything and asks the player to prove it's them, the way that suits what they're doing: a passkey, their purchase PIN (for a purchase only) or their password. The page says why in one sentence and gives it the function that sends the proof; a right proof closes it and the page goes on by itself, so the button that asked is pressed once. In the middle of a wide screen, risen from the foot on a phone.",
   styles: `
 /* Confirm it's you: a sheet that stays in the middle of a wide screen whatever opened it (LAYERS_SCRIPT), wide enough for "Use your passkey" in half its foot. */

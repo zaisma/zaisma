@@ -622,6 +622,7 @@ component({
   name: "Cut field",
   slug: "cut-field",
   group: "inputs",
+  subgroup: "fields",
   summary: "Anything you type: a username, an email, a password. Its icon says what goes in; what's wrong is said under it, in words.",
   styles: FIELD_STYLES,
   render: cutField,
@@ -649,6 +650,7 @@ component({
   name: "PIN field",
   slug: "pin-field",
   group: "inputs",
+  subgroup: "fields",
   summary: "A PIN, one box for each digit, in one row that fills its pane. Digits only, hidden as they're typed; the cursor moves on by itself, and when the last digit goes in the PIN is sent, so there's no button to press. A wrong PIN is said under the boxes.",
   styles: `
 /* A PIN field: a label over a row of cut fields, one digit each. The boxes are fields (their face, outline, focus and marked amber are the
@@ -677,6 +679,7 @@ component({
   name: "Search field",
   slug: "search-field",
   group: "inputs",
+  subgroup: "fields",
   summary: "Search on a page, and in the header. \"/\" jumps to it there, and nothing says so.",
   styles: `
 /* Search: the cut field's sibling, at a control's height (it sits in the header's row). The same face, carving and shade, the same
@@ -720,6 +723,7 @@ component({
   name: "Birthday field",
   slug: "birthday-field",
   group: "inputs",
+  subgroup: "dates",
   summary: "Asking for a birthday: three wheels that start blank, so nothing suggests an age.",
   styles: `
 /* The birthday field: the same cut field, with a calendar icon; open, it's whitened with the orange outline, like a field you're typing in. */
@@ -785,6 +789,7 @@ component({
   name: "Date and time field",
   slug: "date-time-field",
   group: "inputs",
+  subgroup: "dates",
   summary: "Picking when something happens, like a version going live: the birthday field's wheels for the day, the hour (with its AM or PM) and the minute, in your own time zone, which it says.",
   styles: `
 /* The date and time field: the birthday field with a clock, and the time zone said under it. The day wheel gets the room "Jan 15, 2027" needs,

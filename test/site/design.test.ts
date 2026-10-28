@@ -3,8 +3,8 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 import { createAccount, createGame, personOwner } from "@zaisma/core";
 import "../../apps/site/src/index.ts";
 import { COMPONENTS, COMPONENT_STYLES } from "../../apps/site/src/components/index.ts";
-import { COMPONENT_GROUPS, component } from "../../apps/site/src/components/component.ts";
-import { GALLERY_STYLES, groupPath } from "../../apps/site/src/design-page.ts";
+import { COMPONENT_GROUPS, GALLERY_PLACES, component, galleryPagePath } from "../../apps/site/src/components/component.ts";
+import { GALLERY_STYLES } from "../../apps/site/src/design-page.ts";
 import * as actions from "../../apps/site/src/components/actions.ts";
 import * as inputs from "../../apps/site/src/components/inputs.ts";
 import * as navigation from "../../apps/site/src/components/navigation.ts";
@@ -122,9 +122,9 @@ describe("the gallery", () => {
     expect(COMPONENT_FILES.filter((file) => !SOURCES[file] && !READ_ELSEWHERE.has(file))).toEqual([]);
   });
 
-  it("shows every component, by name, with its examples, on its group's page", async () => {
+  it("shows every component, by name, with its examples, on its subgroup's page", async () => {
     for (const each of COMPONENTS()) {
-      const { response, text } = await page(groupPath(each.group));
+      const { response, text } = await page(galleryPagePath(each.group, each.subgroup));
       expect(response.status, each.group).toBe(200);
       const at = text.indexOf(`<div class="component-section" id="${each.slug}"`);
       expect(at, each.slug).toBeGreaterThan(-1);
@@ -218,8 +218,8 @@ describe("the gallery", () => {
   it("lets no glass change differently: a rule on anything made of glass that sets a transition starts it with the glass's", async () => {
     // The classes that sit beside "glass" on the gallery's pages (the header, a pane, a menu, a button's face, the rail's thumb).
     const glassClasses = new Set<string>();
-    for (const { group } of COMPONENT_GROUPS) {
-      for (const [, classes = ""] of (await page(groupPath(group))).text.matchAll(/class="([^"]*)"/g)) {
+    for (const { group, subgroup } of GALLERY_PLACES()) {
+      for (const [, classes = ""] of (await page(galleryPagePath(group, subgroup))).text.matchAll(/class="([^"]*)"/g)) {
         const list = classes.split(/\s+/);
         if (list.includes("glass")) list.filter((each) => each && each !== "glass").forEach((each) => glassClasses.add(each));
       }
@@ -253,8 +253,8 @@ describe("the gallery", () => {
     for (const [, selectors = "", declarations = ""] of (COMPONENT_STYLES() + GALLERY_STYLES).matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
       checkDeclarations(selectors.replace(/\/\*[\s\S]*?\*\//g, "").trim(), declarations);
     }
-    for (const { group } of COMPONENT_GROUPS) {
-      for (const [, style = ""] of (await page(groupPath(group))).text.matchAll(/style="([^"]*)"/g)) checkDeclarations(`${group}, style="${style}"`, style);
+    for (const { group, subgroup } of GALLERY_PLACES()) {
+      for (const [, style = ""] of (await page(galleryPagePath(group, subgroup))).text.matchAll(/style="([^"]*)"/g)) checkDeclarations(`${group}, style="${style}"`, style);
     }
     expect(problems).toEqual([]);
   });
@@ -272,8 +272,8 @@ describe("the gallery", () => {
     for (const [, selectors = "", declarations = ""] of (COMPONENT_STYLES() + GALLERY_STYLES).matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
       checkDeclarations(selectors.replace(/\/\*[\s\S]*?\*\//g, "").trim().split("\n").pop()!.trim(), declarations);
     }
-    for (const { group } of COMPONENT_GROUPS) {
-      for (const [, style = ""] of (await page(groupPath(group))).text.matchAll(/style="([^"]*)"/g)) checkDeclarations(`${group}, style="${style}"`, style);
+    for (const { group, subgroup } of GALLERY_PLACES()) {
+      for (const [, style = ""] of (await page(galleryPagePath(group, subgroup))).text.matchAll(/style="([^"]*)"/g)) checkDeclarations(`${group}, style="${style}"`, style);
     }
     expect(problems).toEqual([]);
   });
@@ -302,8 +302,8 @@ describe("the gallery", () => {
       const isStack = /(?:^|[;\s])(display:\s*grid|flex-direction:\s*column)/.test(declarations);
       return gap ? selectors.replace(/\/\*[\s\S]*?\*\//g, "").split(",").map((selector) => ({ subject: selector.trim().split(/[\s>+~]+/).pop() ?? "", gap, isStack })) : [];
     });
-    for (const { group } of COMPONENT_GROUPS) {
-      for (const holder of elementTree((await page(groupPath(group))).text)) {
+    for (const { group, subgroup } of GALLERY_PLACES()) {
+      for (const holder of elementTree((await page(galleryPagePath(group, subgroup))).text)) {
         const children = holder.children.filter((child) => child.tag !== "svg" && child.tag !== "template");
         // A control's own parts (a switch's tabs, the row arrows' two slabs, a dropdown's choices) are its inside, not controls beside each other.
         if (holder.classes.includes("shell") || holder.attributes.includes(" data-cut-line") || holder.attributes.includes(' role="menu"') || holder.classes.includes("dropdown-in") || holder.classes.includes("menu-choices") || holder.attributes.includes(' role="listbox"')) continue;
@@ -345,8 +345,8 @@ describe("the gallery", () => {
     const componentCss = COMPONENT_STYLES();
     const rules = (css: string) => [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map(([, selectors = "", declarations = ""]) => ({ selector: selectors.replace(/\/\*[\s\S]*?\*\//g, "").trim().split("\n").pop()!.trim(), declarations }));
     const styledBy = (css: string, name: string) => new RegExp(`\\.${name.replace(/[-]/g, "\\-")}(?![\\w-])`).test(css);
-    for (const { group } of COMPONENT_GROUPS) {
-      const body = (await page(groupPath(group))).text.replace(/<style[\s\S]*?<\/style>|<script[\s\S]*?<\/script>/g, "");
+    for (const { group, subgroup } of GALLERY_PLACES()) {
+      const body = (await page(galleryPagePath(group, subgroup))).text.replace(/<style[\s\S]*?<\/style>|<script[\s\S]*?<\/script>/g, "");
       for (const [, list = ""] of body.matchAll(/\sclass="([^"]*)"/g)) {
         for (const name of list.split(/\s+/).filter(Boolean)) {
           if (styledBy(componentCss, name) || GALLERY_ONLY.has(name) || UNSTYLED_HOOKS.has(name)) continue;
@@ -384,32 +384,55 @@ describe("the gallery", () => {
     const selectors = new Set(rules.flatMap(({ selector }) => [selector, ...selector.split(",").map((each) => each.trim().replace(/:[a-z-]+(\([^)]*\))?/g, ""))]));
     for (const entry of [...LINK_IN_CONTROL, ...HAND_CUT]) if (!selectors.has(entry)) problems.push(`${entry} (LINK_IN_CONTROL or HAND_CUT)`);
     let pages = "";
-    for (const { group } of COMPONENT_GROUPS) pages += (await page(groupPath(group))).text;
+    for (const { group, subgroup } of GALLERY_PLACES()) pages += (await page(galleryPagePath(group, subgroup))).text;
     for (const name of [...GALLERY_ONLY, ...UNSTYLED_HOOKS]) if (!new RegExp(`class="[^"]*\\b${name}\\b`).test(pages)) problems.push(`.${name} (GALLERY_ONLY or UNSTYLED_HOOKS)`);
     const source = Object.values(SOURCES).join("\n");
     for (const name of [...OWN_SVG.keys(), ...OWN_GLASS.keys()]) if (!source.includes(name)) problems.push(`${name} (OWN_SVG or OWN_GLASS)`);
     expect(problems).toEqual([]);
   });
 
-  it("opens light or dark from its address, and the other groups' pages keep it", async () => {
-    for (const { group } of COMPONENT_GROUPS) {
-      const { text } = await page(`${groupPath(group)}?theme=dark`);
+  it("opens light or dark from its address, and the other pages' links keep it", async () => {
+    for (const { group, subgroup } of GALLERY_PLACES()) {
+      const { text } = await page(`${galleryPagePath(group, subgroup)}?theme=dark`);
       expect(text).toContain('<div id="stage" class="stage" data-theme-choice="dark">');
-      expect(text).toContain(`<a href="${groupPath("panes")}?theme=dark" data-gallery-page="${groupPath("panes")}"`);
+      expect(text).toMatch(/<a class="sidebar-place[^"]*" href="\/design\/panes\/glass\?theme=dark"/);
     }
     // Anything but dark is light: the parameter is closed.
     expect((await page("/design?theme=purple")).text).toContain('<div id="stage" class="stage" data-theme-choice="light">');
   });
 
   it("is never framed", async () => {
-    for (const path of ["/design", "/design/panes"]) expect((await SELF.fetch(`${SITE}${path}`)).headers.get("content-security-policy"), path).toContain("frame-ancestors 'none'");
+    for (const path of ["/design", "/design/panes/glass"]) expect((await SELF.fetch(`${SITE}${path}`)).headers.get("content-security-policy"), path).toContain("frame-ancestors 'none'");
   });
 
-  it("has a page for each group and none for anything else", async () => {
-    expect((await page("/design/actions")).text).toContain('<a href="/design/actions" data-gallery-page="/design/actions" aria-current="page">Actions</a>');
-    expect((await page("/design/frame/runner-button")).response.status).toBe(404);
-    expect((await page("/design/foundations")).response.status).toBe(404);
-    expect((await page("/design/no-such-group")).response.status).toBe(404);
+  it("has a page for each subgroup, nested in the sidebar, and none for anything else", async () => {
+    const open = (await page("/design")).text;
+    // Only the page you're on is selected; its group is open, never selected itself.
+    expect(open).toContain('<button class="sidebar-place sidebar-group" type="button" aria-expanded="true"><span class="sidebar-words">Foundations</span>');
+    expect(open).toMatch(/<a class="sidebar-place cut-raised" href="\/design" aria-current="page" data-cut-line="8">/);
+    expect(open.match(/aria-current="page"/g)?.length).toBe(2);
+    expect(open).toContain("<title>Look · Foundations · Design · Zaisma</title>");
+    const fields = await page("/design/inputs/fields");
+    expect(fields.response.status).toBe(200);
+    expect(fields.text).toContain('<button class="sidebar-place sidebar-group" type="button" aria-expanded="true"><span class="sidebar-words">Inputs</span>');
+    expect(fields.text).toMatch(/<a class="sidebar-place cut-raised" href="\/design\/inputs\/fields" aria-current="page" data-cut-line="8">.*?<span class="sidebar-words">Fields<\/span>/);
+    expect(fields.text).toContain('<h1 class="group-name">Fields · Inputs</h1>');
+    expect(fields.text).toContain('id="cut-field"');
+    expect(fields.text).not.toContain('id="slider"');
+    // Every group is a folder of its pages; only the one holding this page starts open.
+    expect(fields.text).toContain('<button class="sidebar-place sidebar-group" type="button" aria-expanded="false"><span class="sidebar-words">Actions</span>');
+    expect(fields.text).toContain('href="/design/actions/words"');
+    expect(fields.text).toMatch(/<button [^>]*data-sidebar-button[^>]*aria-controls="gallery-places" aria-expanded="true"/);
+    expect((await page("/design/layout")).response.status).toBe(200);
+    for (const [path, location] of [["/design/inputs", "/design/inputs/fields"], ["/design/foundations", "/design"], ["/design/foundations/look", "/design"], ["/design/panes?theme=dark", "/design/panes/glass?theme=dark"]] as const) {
+      const response = await SELF.fetch(`${SITE}${path}`, { redirect: "manual" });
+      expect(response.status, path).toBe(308);
+      expect(response.headers.get("location"), path).toBe(location);
+    }
+    for (const path of ["/design/inputs/no-such", "/design/no-such-group", "/design/layout/stack", "/design/inputs/fields/more", "/design/frame/runner-button"]) expect((await page(path)).response.status, path).toBe(404);
+    // A link to a component (/design#runner-button) goes on to the page that shows it.
+    const pages = JSON.parse(/<script type="application\/json" id="design-pages">([^<]*)<\/script>/.exec(open)![1]!) as Record<string, string>;
+    for (const each of COMPONENTS()) expect(pages[each.slug], each.slug).toBe(galleryPagePath(each.group, each.subgroup));
   });
 
 });
@@ -577,8 +600,8 @@ const HAND_CUT = new Set<string>([
 
 // The gallery's own scaffolding, styled only by GALLERY_STYLES: what holds the components, never a piece of Zaisma's UI itself.
 const GALLERY_ONLY = new Set<string>([
-  // The page: its body, the stage that carries its settings, the bar, its title and its groups, the layout, the index and the main column.
-  "gallery", "stage", "gallery-bar", "gallery-title", "gallery-groups", "gallery-layout", "gallery-index", "gallery-main", "group-name",
+  // The page: its body, the stage that carries its settings, the bar, its title and its buttons, the layout and the main column.
+  "gallery", "stage", "gallery-bar", "gallery-title", "gallery-start", "gallery-buttons", "gallery-layout", "gallery-main", "group-name",
   // A section (a Tray) with its name and summary, and the grid of labeled examples on it.
   "component-section", "component-name", "component-summary", "examples", "example", "wide", "example-stage", "example-name",
   // Frames an example is shown in: a header over a stand-in page that scrolls under it, a dropdown hanging from its button, a short box
@@ -626,7 +649,8 @@ const OWN_GLASS = new Map<string, string>([
   ['class="playing-bar glass', "the bar beside a running game"],
   ['class="playing-card glass', "a card over a running game's corner"],
   ['class="gallery-bar glass', "the gallery's bar"],
-  ['class="gallery-index glass', "the gallery's index"],
+  ['class="sidebar glass"', "Sidebar itself"],
+  ['class="sidebar-example-phone glass"', "Sidebar's still phone screen, the sheet over its page"],
   ['data-glass-play', "the Glass foundation's own demo: a window to drag over drifting shapes"],
   ["glassOpacityPct", "the Glass foundation's own demo: three strengths side by side"],
   ['class="backdrop-frame"', "the Backdrop foundation's own demo"],
@@ -794,7 +818,7 @@ describe("pages", () => {
   });
 
   it("are linked to the cached stylesheet and the components' script, never written into the page", async () => {
-    for (const path of ["/", "/design/example", "/design", "/design/actions"]) {
+    for (const path of ["/", "/design/example", "/design", "/design/actions/buttons"]) {
       const { response, text } = await page(path);
       expect(response.status, path).toBe(200);
       const sheet = path.startsWith("/design") && path !== "/design/example" ? "design" : "site";
