@@ -613,10 +613,10 @@ component({
 .choice-card:has(.choice-input:checked) { box-shadow: none; color: var(--ink); }
 .choice-card:has(.choice-input:checked)::before { opacity: 1; }
 /* Its orange is light inside the glass along the edge that leads: a bright line at the edge, flooding a little way in and fading out. */
-.choice-card::after { content: ""; position: absolute; z-index: 2; left: 0; right: 0; bottom: 0; height: 16px; pointer-events: none; opacity: 0; transition: opacity 0.35s cubic-bezier(.4,0,.2,1);
-  background: linear-gradient(to top, var(--pick-light) 0, var(--pick-light) 2px, var(--pick-flood) 3px, transparent 100%); }
-.choice-cards.is-stacked > .choice-card::after, .choice-list .choice-card::after { top: 0; right: auto; width: 18px; height: auto;
-  background: linear-gradient(to right, var(--pick-light) 0, var(--pick-light) 2.5px, var(--pick-flood) 3.5px, transparent 100%); }
+/* One light whichever way it runs: the same line and the same reach, along the foot or down the start. */
+.choice-card::after { content: ""; position: absolute; z-index: 2; left: 0; right: 0; bottom: 0; height: 18px; pointer-events: none; opacity: 0; transition: opacity 0.35s cubic-bezier(.4,0,.2,1);
+  --pick-light-run: to top; background: linear-gradient(var(--pick-light-run), var(--pick-light) 0, var(--pick-light) 2.5px, var(--pick-flood) 3.5px, transparent 100%); }
+.choice-cards.is-stacked > .choice-card::after, .choice-list .choice-card::after { top: 0; right: auto; width: 18px; height: auto; --pick-light-run: to right; }
 .choice-card:has(.choice-input:checked)::after { opacity: 1; }
 .choice-card:has(.choice-input:checked) .choice-label, .choice-card:has(.choice-input:checked) > .ico { color: var(--ink); }
 .choice-card:has(.choice-input:checked) .choice-text { color: var(--ink-2); }
