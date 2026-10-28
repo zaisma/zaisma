@@ -216,11 +216,13 @@ export const PLACE_SCRIPT = `/* place */(function () {
    * in every browser (Safari draws glass inside glass unblurred). One left by an anchor gone from the page goes, even when the anchor's
    * replacement (a panel the page refreshed) has the same id, so nothing ever opens a left one. Riding the page (its anchor in nothing fixed
    * or sticky, zaismaIsOnPage) it's placed in the page's coordinates, so the page's own scroll carries it frame for frame; otherwise in the
-   * window's, placed again as things scroll, and it closes once its anchor has left the window. It closes on Esc or a press elsewhere.
+   * window's, placed again as things scroll. It closes on Esc, a press elsewhere, or a scroll that moves its anchor (scrolled away from, it
+   * fades out rather than hanging on over the page); a scroll inside it (a list, a wheel) leaves it open.
    */
-  var FLOAT_GAP_PX = 6, FLOAT_EDGE_PX = 8;
+  var FLOAT_GAP_PX = 6, FLOAT_EDGE_PX = 8, SCROLLED_AWAY_PX = 4;
   window.zaismaFloat = function (pane, options) {
     var isInPlace = pane.classList.contains("in-place"), isOver = pane.classList.contains("over");
+    var openedAt = null;
     function anchorNow() { return typeof options.anchor === "function" ? options.anchor() : options.anchor; }
     if (!isInPlace) {
       document.querySelectorAll("body > .floating-pane").forEach(function (left) { if (left.floatingHome && !left.floatingHome.isConnected) { if (left.floatCast) left.floatCast.remove(); left.remove(); } });
@@ -229,9 +231,6 @@ export const PLACE_SCRIPT = `/* place */(function () {
       document.body.appendChild(pane);
     }
     function isOpen() { return isInPlace || pane.matches(":popover-open"); }
-    // Over what opens it, it takes that one's place: the field fades under it (keeping its focus), or its edge would show round the
-    // pane's cut corners. However it closes (a pick, Esc, a press elsewhere), the field comes back.
-    if (!isInPlace && isOver) pane.addEventListener("toggle", function (event) { var anchor = anchorNow(); if (anchor) anchor.classList.toggle("is-under-float", event.newState === "open"); });
     // Shown open in place and as wide as what's in it (a gallery's open menu), it hangs under its anchor inside what holds it, never over
     // the rest of the page: where zaismaPlace puts it in that room, below.
     function hang() {
@@ -290,6 +289,7 @@ export const PLACE_SCRIPT = `/* place */(function () {
         pane.style.setProperty("--glass-hue", getComputedStyle(home).getPropertyValue("--glass-hue"));
         pane.showPopover();
       }
+      var at = anchorNow(); openedAt = at ? at.getBoundingClientRect() : null;
       if (options.onShown) options.onShown();
       place();
       if (options.onToggle) options.onToggle(true);
@@ -308,6 +308,13 @@ export const PLACE_SCRIPT = `/* place */(function () {
       });
       pane.addEventListener("keydown", function (event) { if (event.key === "Escape" && pane.matches(":popover-open")) { event.preventDefault(); close(true); } });
       window.zaismaWatch.resize(place);
+      // Scrolled away from: a scroll anywhere but inside it that moves its anchor closes it.
+      document.addEventListener("scroll", function (event) {
+        var anchor = anchorNow();
+        if (!pane.matches(":popover-open") || !openedAt || !anchor || (event.target.nodeType === 1 && pane.contains(event.target))) return;
+        var r = anchor.getBoundingClientRect();
+        if (Math.abs(r.top - openedAt.top) > SCROLLED_AWAY_PX || Math.abs(r.left - openedAt.left) > SCROLLED_AWAY_PX) close(false);
+      }, { capture: true, passive: true });
       // Placed again as anything scrolls: riding the page, the page's own scroll leaves it where it was; a box scrolling inside the page moves it.
       window.zaismaWatch.scroll(place);
       // Measured again once the fonts are in, when what's in it has its real size.
@@ -643,7 +650,6 @@ component({
 .floating-cast > div { position: absolute; inset: 0; filter: var(--float-cast); }
 .floating-cast > div > span { position: absolute; inset: 0; background: #000; }
 .floating-cast.is-on-page { position: absolute; }
-.is-under-float { opacity: 0; transition: opacity 0.2s; }
 /* Shown open in place (the gallery's open states), it's in the page's flow, holding all it has. Over, as wide as what's in it, it lies on
    the field just before it, its line (--line-from-top) on the field's own line; glass inside a pane's glass isn't blurred, so what it
    covers is hidden rather than showing through, and it casts its shadow as a filter on what holds it, where only it is drawn. */
