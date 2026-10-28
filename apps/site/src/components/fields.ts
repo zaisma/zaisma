@@ -440,7 +440,7 @@ export const SEARCH_SCRIPT = `/* search finishes */(function () {
     var id = list.id.replace(/-list$/, ""), url = form.getAttribute("data-suggest"), rows = [], active = -1, timer = 0, asking = null, answers = new Map();
     // A Floating pane under the field, as wide as it; the cursor stays in the field, so Esc there closes it (below).
     var float = window.zaismaFloat(list, {
-      anchor: form, focusOnClose: input,
+      anchor: form, focusOnClose: input, isAnchorWidth: true,
       onToggle: function (isShown) { input.setAttribute("aria-expanded", String(isShown)); form.classList.toggle("is-open", isShown); showFinish(); }
     });
     function isOpen() { return float.isOpen(); }
@@ -670,7 +670,7 @@ export const WHEEL_SCRIPT = String.raw`/* wheel fields */(function () {
     var placeholder = value.textContent, wheels = {};
     form.parts.forEach(function (part) { wheels[part] = { el: root.querySelector('.wheel[data-part="' + part + '"]'), count: 0 }; });
     var wheelRow = pick.querySelector(".wheels");
-    // A Floating pane over the field, at least as wide as it, the wheels' middle row on the field's own line.
+    // A Floating pane over the field, as wide as its wheels whatever the field shows, their middle row on the field's own line.
     var float = window.zaismaFloat(pick, {
       anchor: field, home: root,
       lineOf: function () { return wheelRow.offsetTop + 1.5 * ROW; },

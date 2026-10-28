@@ -174,13 +174,20 @@ export const PLACE_SCRIPT = `/* place */(function () {
     return { leftPx: leftPx, topPx: Math.max(room.top + edgePx, Math.min(topPx, room.bottom - edgePx - paneSize.height)), isAtEnd: isAtEnd, isAbove: isAbove };
   };
   // A floating pane (floatingPane) casts a shadow onto the page, so it reads as on top. Its glass's cut shape would clip a shadow of its own,
-  // and a filter round it would stop its glass blurring, so the shadow is a box of its own laid under it, with only an outer shadow
-  // (--float-shade), riding the page as the pane does.
+  // and a filter round it would stop its glass blurring, so the shadow is a box of its own laid under it, riding the page as the pane does.
+  // The box takes the pane's cut shape and casts --float-cast from it, then has that shape cut out of it, so only the shadow outside the
+  // glass shows: the cut corners too, and nothing under the glass to blur.
+  var CAST_REACH_PX = 64;
   window.zaismaCast = function (pane) {
     var cast = pane.floatCast;
-    if (!cast) { cast = pane.floatCast = document.createElement("div"); cast.className = "floating-cast"; cast.setAttribute("aria-hidden", "true"); document.body.appendChild(cast); }
+    if (!cast) { cast = pane.floatCast = document.createElement("div"); cast.className = "floating-cast"; cast.setAttribute("aria-hidden", "true"); cast.appendChild(document.createElement("span")); document.body.appendChild(cast); }
     if (!pane.isConnected || !pane.matches(":popover-open")) { cast.hidden = true; return; }
     var r = pane.getBoundingClientRect(), isOnPage = pane.classList.contains("is-on-page");
+    var shape = getComputedStyle(pane).clipPath, points = /^polygon\\((.*)\\)$/.exec(shape);
+    var far = "calc(100% + " + CAST_REACH_PX + "px)", near = -CAST_REACH_PX + "px";
+    var inner = points ? points[1].replace(/^(nonzero|evenodd),\\s*/, "") : "0px 0px, 100% 0px, 100% 100%, 0px 100%";
+    cast.firstChild.style.clipPath = points ? shape : "";
+    cast.style.clipPath = "polygon(evenodd, " + near + " " + near + ", " + far + " " + near + ", " + far + " " + far + ", " + near + " " + far + ", " + near + " " + near + ", " + inner + ", " + inner.split(",")[0] + ", " + near + " " + near + ")";
     cast.hidden = false; cast.classList.toggle("is-on-page", isOnPage);
     cast.style.left = r.left + (isOnPage ? window.scrollX : 0) + "px"; cast.style.top = r.top + (isOnPage ? window.scrollY : 0) + "px"; cast.style.width = r.width + "px"; cast.style.height = r.height + "px";
   };
@@ -197,7 +204,8 @@ export const PLACE_SCRIPT = `/* place */(function () {
    *   isInside      a press here doesn't close it (the field a search's list hangs from)
    *   focusOnClose  what takes the focus back when Esc closes it (the anchor by default)
    *   lineOf        over: how far down it the line that sits on the anchor's own line is, by offsets (it opens from a touch smaller)
-   *   isAnchorWidth at least as wide as its anchor (true by default; a menu is as wide as what's in it)
+   *   isAnchorWidth as wide as its anchor, at least (a search's list, whose rows change as you type); otherwise it's as wide as what's in it,
+   *                 whatever its anchor's size
    *   isAlwaysBelow, gapPx, edgePx  under: as zaismaPlace takes them (isAlwaysBelow can be a function of the anchor)
    *   fitsRoom, scrollBox   under: past the room on the side it opened to it scrolls inside itself (--floating-room), and choices that would
    *                 scroll by a sliver (scrollBox) show them all instead
@@ -220,6 +228,9 @@ export const PLACE_SCRIPT = `/* place */(function () {
       document.body.appendChild(pane);
     }
     function isOpen() { return isInPlace || pane.matches(":popover-open"); }
+    // Over what opens it, it takes that one's place: the field fades under it (keeping its focus), or its edge would show round the
+    // pane's cut corners. However it closes (a pick, Esc, a press elsewhere), the field comes back.
+    if (!isInPlace && isOver) pane.addEventListener("toggle", function (event) { var anchor = anchorNow(); if (anchor) anchor.classList.toggle("is-under-float", event.newState === "open"); });
     // Shown open in place and as wide as what's in it (a gallery's open menu), it hangs under its anchor inside what holds it, never over
     // the rest of the page: where zaismaPlace puts it in that room, below.
     function hang() {
@@ -230,7 +241,7 @@ export const PLACE_SCRIPT = `/* place */(function () {
       pane.style.left = Math.round(spot.leftPx - h.left - holder.clientLeft) + "px"; pane.style.top = Math.round(spot.topPx - h.top - holder.clientTop) + "px";
       pane.classList.toggle("from-start", !spot.isAtEnd);
     }
-    if (isInPlace && !isOver && options.isAnchorWidth === false) {
+    if (isInPlace && !isOver && !options.isAnchorWidth) {
       pane.classList.add("is-hanging"); hang();
       window.zaismaWatch.resize(hang); if (document.fonts && document.fonts.ready) document.fonts.ready.then(hang);
     }
@@ -244,7 +255,7 @@ export const PLACE_SCRIPT = `/* place */(function () {
       // Riding the page it scrolls away with its anchor; placed in the window, it closes once its anchor has left it.
       var isOnPage = window.zaismaIsOnPage(anchor, pane);
       if (!anchor.isConnected || (!isOnPage && (r.bottom < 0 || r.top > viewHeight || r.right < 0 || r.left > viewWidth))) { close(false); return; }
-      if (options.isAnchorWidth !== false) { pane.style.width = r.width + "px"; if (pane.scrollWidth > pane.clientWidth) pane.style.width = pane.scrollWidth + "px"; }
+      if (options.isAnchorWidth) { pane.style.width = r.width + "px"; if (pane.scrollWidth > pane.clientWidth) pane.style.width = pane.scrollWidth + "px"; }
       var gapPx = options.gapPx || FLOAT_GAP_PX, edgePx = options.edgePx || FLOAT_EDGE_PX, leftPx, topPx;
       if (isOver) { topPx = r.top + r.height / 2 - options.lineOf(); leftPx = r.left; }
       else {
@@ -324,7 +335,7 @@ export const DROPDOWN_SCRIPT = `/* menus */(function () {
     var float = window.zaismaFloat(menu, {
       anchor: function () { return buttons.get(menu) || buttonOf(menu); },
       anchorRect: function (button) { var r = button.getBoundingClientRect(), slab = button.closest(".top"); if (!slab) return r; var below = slab.getBoundingClientRect().bottom; return { left: r.left, right: r.right, top: below - 1, bottom: below, width: r.width, height: 1 }; },
-      isAnchorWidth: false, isAlwaysBelow: function (button) { return Boolean(button.closest(".top")); }, fitsRoom: true, gapPx: token("--gap-control-stack", 8), edgePx: token("--pad-frame", 10),
+      isAlwaysBelow: function (button) { return Boolean(button.closest(".top")); }, fitsRoom: true, gapPx: token("--gap-control-stack", 8), edgePx: token("--pad-frame", 10),
       scrollBox: function () { return Array.prototype.find.call(menu.querySelectorAll(".dropdown-in"), function (box) { return box.offsetParent !== null; }); },
       onToggle: function (isOpen) { var button = buttons.get(menu) || buttonOf(menu); if (button) button.setAttribute("aria-expanded", String(isOpen)); }
     });
@@ -617,7 +628,7 @@ component({
 /* A floating pane: the menus' glass, out of the page's flow in the top layer (a popover), placed by zaismaFloat over everything, at its
    anchor. Closed, it takes no room and no presses: it fades toward its anchor, then goes. Under, it slides from its anchor (from above it,
    is-above); over, it opens out of it, from a touch smaller. Riding the page (is-on-page), it's placed in the page's coordinates. */
-.floating-pane { position: fixed; inset: auto; margin: 0; padding: 4px; border: 0; color: var(--ink); display: flex; flex-direction: column; --glass-tint: var(--glass-dropdown);
+.floating-pane { position: fixed; inset: auto; margin: 0; padding: 4px; border: 0; color: var(--ink); display: flex; flex-direction: column; max-width: calc(100vw - 2 * var(--pad-frame)); --glass-tint: var(--glass-dropdown);
   transition: var(--glass-transition), opacity 0.2s, transform 0.3s cubic-bezier(.2,.8,.2,1), overlay 0.3s allow-discrete, display 0.3s allow-discrete; }
 .floating-pane.is-on-page { position: absolute; }
 /* A browser that can't keep it in the top layer while it fades (Safari) would let it fall under what follows it on the page: it goes at once. */
@@ -626,16 +637,18 @@ component({
 .floating-pane.is-above:not(:popover-open):not(.in-place) { transform: translateY(6px); }
 .floating-pane.over:not(:popover-open):not(.in-place) { transform: scale(0.97); }
 @starting-style { .floating-pane:popover-open { opacity: 0; transform: translateY(-6px); } .floating-pane.is-above:popover-open { transform: translateY(6px); } .floating-pane.over:popover-open { transform: scale(0.97); } }
-/* The shadow it casts onto the page (zaismaCast): a box laid under it with only an outer shadow. */
-.floating-cast { position: fixed; z-index: 2147483646; pointer-events: none; box-shadow: var(--float-shade); }
+/* The shadow it casts onto the page (zaismaCast): a box laid under it in its cut shape, with that shape cut out after it casts. */
+.floating-cast { position: fixed; z-index: 2147483646; pointer-events: none; filter: var(--float-cast); }
+.floating-cast > span { position: absolute; inset: 0; background: #000; }
 .floating-cast.is-on-page { position: absolute; }
-/* Shown open in place (the gallery's open states), it's in the page's flow, as wide as what holds it, holding all it has. Over, it lies on
+.is-under-float { opacity: 0; transition: opacity 0.2s; }
+/* Shown open in place (the gallery's open states), it's in the page's flow, holding all it has. Over, as wide as what's in it, it lies on
    the field just before it, its line (--line-from-top) on the field's own line; glass inside a pane's glass isn't blurred, so what it
    covers is hidden rather than showing through, and it casts its shadow as a filter on what holds it, where only it is drawn. */
 .floating-pane.in-place { position: relative; display: flex; width: 100%; max-height: none; }
 /* One as wide as what's in it (a menu) hangs under its anchor inside what holds it (zaismaFloat's hang). */
 .floating-pane.under.in-place.is-hanging { position: absolute; width: max-content; }
-.floating-pane.over.in-place { z-index: 6; margin-top: calc(-1 * (var(--gap-words-control) + var(--control-height-field) / 2 + var(--line-from-top, 0px))); }
+.floating-pane.over.in-place { z-index: 6; width: max-content; max-width: 100%; margin-top: calc(-1 * (var(--gap-words-control) + var(--control-height-field) / 2 + var(--line-from-top, 0px))); }
 :has(> .floating-pane.over.in-place) { filter: var(--float-cast); }
 :has(> .floating-pane.over.in-place) > :not(.floating-pane, input) { visibility: hidden; }
 @media (prefers-reduced-motion: reduce) { .floating-pane { transition: var(--glass-transition); } }
