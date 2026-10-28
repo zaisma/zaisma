@@ -174,7 +174,7 @@ export const SWITCH_SCRIPT = `/* switches */(function () {
       var on = current();
       if (last && on && last !== on) {
         // Measured once the fonts are in (from the cache, on a page of the same site), when the tabs have their widths, so it lands where the slab is.
-        var slide = function () {
+        var slideFromLastPage = function () {
           var from = isVertical ? "translateY(" + last.offsetTop + "px)" : "translateX(" + last.offsetLeft + "px) scaleX(" + (last.offsetWidth / Math.max(1, on.offsetWidth)).toFixed(4) + ")";
           var to = isVertical ? "translateY(" + on.offsetTop + "px)" : "translateX(" + on.offsetLeft + "px) scaleX(1)";
           return slab.animate([{ transform: from, transformOrigin: "0 0" }, { transform: to, transformOrigin: "0 0" }], { duration: slideMs(slab), easing: "cubic-bezier(.3, 1.2, .4, 1)" });
@@ -191,7 +191,7 @@ export const SWITCH_SCRIPT = `/* switches */(function () {
             Promise.all(fades.map(function (each) { return each.finished.catch(function () {}); })).then(function () {
               isWaitingToSlide = false; settle(); isWaitingToSlide = true;
               var land = function () { isWaitingToSlide = false; settle(); };
-              slide().finished.then(land, land);
+              slideFromLastPage().finished.then(land, land);
             });
           });
         };
