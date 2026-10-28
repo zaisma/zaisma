@@ -408,19 +408,20 @@ describe("the gallery", () => {
   it("has a page for each subgroup, nested in the sidebar, and none for anything else", async () => {
     const open = (await page("/design")).text;
     // Only the page you're on is selected; its group is open, never selected itself.
-    expect(open).toMatch(/<a class="sidebar-place is-open" href="\/design"><span class="sidebar-words">Foundations<\/span>/);
+    expect(open).toContain('<button class="sidebar-place sidebar-group" type="button" aria-expanded="true"><span class="sidebar-words">Foundations</span>');
     expect(open).toMatch(/<a class="sidebar-place cut-raised" href="\/design" aria-current="page" data-cut-line="8">/);
     expect(open.match(/aria-current="page"/g)?.length).toBe(2);
     expect(open).toContain("<title>Look · Foundations · Design · Zaisma</title>");
     const fields = await page("/design/inputs/fields");
     expect(fields.response.status).toBe(200);
-    expect(fields.text).toContain('<a class="sidebar-place is-open" href="/design/inputs/fields"><span class="sidebar-words">Inputs</span>');
+    expect(fields.text).toContain('<button class="sidebar-place sidebar-group" type="button" aria-expanded="true"><span class="sidebar-words">Inputs</span>');
     expect(fields.text).toMatch(/<a class="sidebar-place cut-raised" href="\/design\/inputs\/fields" aria-current="page" data-cut-line="8">.*?<span class="sidebar-words">Fields<\/span>/);
     expect(fields.text).toContain('<h1 class="group-name">Fields · Inputs</h1>');
     expect(fields.text).toContain('id="cut-field"');
     expect(fields.text).not.toContain('id="slider"');
-    // Only the open group shows its subgroups.
-    expect(fields.text).not.toContain('href="/design/actions/words"');
+    // Every group is a folder of its pages; only the one holding this page starts open.
+    expect(fields.text).toContain('<button class="sidebar-place sidebar-group" type="button" aria-expanded="false"><span class="sidebar-words">Actions</span>');
+    expect(fields.text).toContain('href="/design/actions/words"');
     expect(fields.text).toMatch(/<button [^>]*data-sidebar-button[^>]*aria-controls="gallery-places" aria-expanded="true"/);
     expect((await page("/design/layout")).response.status).toBe(200);
     for (const [path, location] of [["/design/inputs", "/design/inputs/fields"], ["/design/foundations", "/design"], ["/design/foundations/look", "/design"], ["/design/panes?theme=dark", "/design/panes/glass?theme=dark"]] as const) {

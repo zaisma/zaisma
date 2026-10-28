@@ -1117,7 +1117,7 @@ export interface SidebarPlace {
   icon?: IconName;
   /** A small number at its end, like unread reports: a Tag. */
   badgeCount?: number;
-  /** Its own places (a gallery group's subgroups), shown under it while it's current; it links to the first. */
+  /** Its own places (a gallery group's subgroups): it's a folder of them that opens in place, open to start with while it's current. */
   places?: SidebarPlace[];
 }
 
@@ -1131,15 +1131,19 @@ export interface SidebarOptions {
   rememberKey: string;
 }
 
-/** The places as words on the sidebar's glass: only the page you're on has the slab; a group with its own places opens like a folder. */
-const sidebarPlaces = (places: SidebarPlace[], isNested = false): Raw =>
-  html`<ul class="sidebar-places${isNested ? " is-nested" : ""}">${places.map((place) => {
-    const isOpen = Boolean(place.isCurrent && place.places?.length);
-    const isHere = Boolean(place.isCurrent && !place.places?.length);
-    const words = html`${place.icon ? icon(place.icon) : ""}<span class="sidebar-words">${place.label}</span>${place.badgeCount ? tag(place.badgeCount, "count") : ""}${place.places?.length ? html`<span class="sidebar-arrow">${icon(isOpen ? "chevron-down" : "chevron-right")}</span>` : ""}`;
+/**
+ * The places as words on the sidebar's glass: only the page you're on has the slab. A group with its own places opens and shuts like a folder
+ * in place (its name is a button, never a page), the one holding the page you're on open to start with.
+ */
+const sidebarPlaces = (places: SidebarPlace[], isNested = false, isShut = false): Raw =>
+  html`<ul class="sidebar-places${isNested ? " is-nested" : ""}"${isShut ? raw(" hidden") : ""}>${places.map((place) => {
+    const words = html`${place.icon ? icon(place.icon) : ""}<span class="sidebar-words">${place.label}</span>${place.badgeCount ? tag(place.badgeCount, "count") : ""}`;
+    if (place.places?.length) {
+      const isOpen = Boolean(place.isCurrent);
+      return html`<li><button class="sidebar-place sidebar-group" type="button" aria-expanded="${isOpen ? "true" : "false"}">${words}<span class="sidebar-arrow">${icon("chevron-right")}</span></button>${sidebarPlaces(place.places, true, !isOpen)}</li>`;
+    }
     // The page you're on is the slab itself: raised and cut, its words inside it.
-    const link = html`<a class="sidebar-place${isOpen ? " is-open" : ""}${isHere ? " cut-raised" : ""}" href="${place.places?.[0]?.href ?? place.href}"${isHere ? raw(' aria-current="page" data-cut-line="8"') : ""}>${isHere ? CUT_LINE : ""}${words}</a>`;
-    return html`<li>${link}${isOpen ? sidebarPlaces(place.places!, true) : ""}</li>`;
+    return html`<li><a class="sidebar-place${place.isCurrent ? " cut-raised" : ""}" href="${place.href}"${place.isCurrent ? raw(' aria-current="page" data-cut-line="8"') : ""}>${place.isCurrent ? CUT_LINE : ""}${words}</a></li>`;
   })}</ul>`;
 
 /**
@@ -1227,6 +1231,9 @@ export const SIDEBAR_SCRIPT = `/* sidebars */(function () {
     say(nav);
   });
   document.addEventListener("click", function (event) {
+    // A group opens and shuts in place.
+    var group = event.target.closest && event.target.closest(".sidebar-group");
+    if (group) { var isOpen = group.getAttribute("aria-expanded") !== "true", list = group.nextElementSibling; group.setAttribute("aria-expanded", String(isOpen)); if (list) list.hidden = !isOpen; return; }
     var button = event.target.closest && event.target.closest("[data-sidebar-button]");
     if (!button) return;
     var id = button.getAttribute("aria-controls").replace(/-sheet$/, ""), nav = document.getElementById(id), sheet = document.getElementById(id + "-sheet");
@@ -1296,12 +1303,15 @@ component({
   font: var(--type-words); color: var(--ink-2); text-decoration: none; transition: color 0.2s; }
 .sidebar-words { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .sidebar-place > .ico { width: 18px; height: 18px; flex: none; }
-.sidebar-place:hover, .sidebar-place[aria-current="page"], .sidebar-place.is-open { color: var(--ink); }
-.sidebar-place.is-open { font-weight: 600; }
+.sidebar-place:hover, .sidebar-place[aria-current="page"], .sidebar-group[aria-expanded="true"] { color: var(--ink); }
+.sidebar-group { width: 100%; margin: 0; border: 0; background: none; cursor: pointer; text-align: start; }
+.sidebar-group[aria-expanded="true"] { font-weight: 600; }
 /* Its orange is its start edge, its whole height: a line under it read as one over the place below. */
 .sidebar-place[aria-current="page"] { clip-path: var(--cut-shape); background: var(--slab); box-shadow: var(--slab-shade), inset 3px 0 0 var(--run); }
 /* A group's arrow is small and quiet: it says the group opens, nothing more. */
-.sidebar-arrow { display: flex; flex: none; color: var(--muted); }
+.sidebar-arrow { display: flex; flex: none; color: var(--muted); transition: transform 0.2s cubic-bezier(.2,.8,.2,1); }
+.sidebar-group[aria-expanded="true"] > .sidebar-arrow { transform: rotate(90deg); }
+@media (prefers-reduced-motion: reduce) { .sidebar-arrow { transition: none; } }
 .sidebar-arrow > .ico { width: 12px; height: 12px; }
 .sidebar-place:focus-visible { outline: none; text-decoration: underline 2px var(--focus); text-underline-offset: 4px; }
 /* On a phone it's its sheet, sliding over the page from the start edge, as tall as the screen less the page's edge. */
@@ -1322,16 +1332,6 @@ component({
   examples: [
     { label: "Open, a group's subgroups under it", markup: stillSidebar("example-sidebar-nested", GALLERY_GROUPS) },
     { label: "Places with icons and counts", markup: stillSidebar("example-sidebar-icons", SETTINGS_PLACES) },
-    {
-      label: "Beside a page: fold it and unfold it",
-      isWide: true,
-      markup: stack({
-        items: [
-          { kind: "block", markup: row({ widths: "fit", alignment: "start", items: [{ kind: "control", markup: sidebarButton({ controls: "example-sidebar", label: "Settings", isExpanded: true }) }] }) },
-          { kind: "block", markup: sidebarLayout({ sidebar: sidebar({ id: "example-sidebar", label: "Settings", places: SETTINGS_PLACES, rememberKey: "gallery-example" }), main: settingsPanes }) },
-        ],
-      }),
-    },
     {
       label: "On a phone, over the page",
       isStill: true,
@@ -1371,6 +1371,9 @@ component({
 .sidebar-layout.is-folding > .sidebar-layout-in > .sidebar { display: block; position: fixed; left: var(--sidebar-left); top: var(--sidebar-top); width: var(--sidebar-width); height: var(--sidebar-height); z-index: 1; }
 .sidebar-layout.is-folding > .sidebar-layout-in > .sidebar.is-leaving { opacity: 0; transform: translateX(-24px); }
 .sidebar-main { min-width: 0; }
+/* Moving to another of its pages, the sidebar stays where it is and only the page changes (the site's view transition). A page has one
+   sidebar (the gallery's copies are still ones, with nothing to remember), so the name is unique. */
+.sidebar-layout-in > .sidebar[data-sidebar-remember] { view-transition-name: sidebar; }
 .sidebar-layout.is-collapsed > .sidebar-layout-in { grid-template-columns: minmax(0, 1fr); }
 .sidebar-layout.is-collapsed > .sidebar-layout-in > .sidebar { display: none; }
 /* A reading page: the page a reading column beside it, the pair in the middle of the wide frame; folded, the column alone in the middle. */

@@ -717,12 +717,18 @@ const FONT_PATH = "/fonts/jost.7726a5cd.woff2";
 export const SPECULATION_RULES_PATH = "/speculation-rules.json";
 
 /**
- * Every page's speculation rules: a link to a game's page (/g/<slug>, not its report or rooms) is fetched ahead once the pointer rests
+ * Every page's speculation rules: a link to a game's page (/g/<slug>, not its report or rooms), or to one of a sidebar's places, is fetched ahead once the pointer rests
  * on it or presses it ("moderate"), so the page is there when the click lands; browsers without them just follow the link. Fetched only,
  * never prerendered: a prerendered game page would run its scripts (checking in, the play count, the game's site warming up) for a page
  * the player may never open. A same-origin file, so the page's Content-Security-Policy allows it as it is.
  */
-export const SPECULATION_RULES = { prefetch: [{ source: "document", where: { and: [{ href_matches: "/g/*" }, { not: { href_matches: "/g/*/*" } }] }, eagerness: "moderate" }] };
+export const SPECULATION_RULES = {
+  prefetch: [
+    { source: "document", where: { and: [{ href_matches: "/g/*" }, { not: { href_matches: "/g/*/*" } }] }, eagerness: "moderate" },
+    // A sidebar's places (the gallery's pages), so moving through them never waits on the page.
+    { source: "document", where: { selector_matches: "a.sidebar-place" }, eagerness: "moderate" },
+  ],
+};
 
 /**
  * The site's header (components/navigation.ts), also used on its own by pages that lay themselves out (the game page): Home, the

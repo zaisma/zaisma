@@ -1,5 +1,5 @@
 import type { Env } from "./env.ts";
-import { checkedPageTag, headScriptTags, html, isLocalSite, pageData, raw, scriptTags, securityHeaders, styleTags, stylesAppliedTag, type Raw } from "./html.ts";
+import { SPECULATION_RULES_PATH, checkedPageTag, headScriptTags, html, isLocalSite, pageData, raw, scriptTags, securityHeaders, styleTags, stylesAppliedTag, type Raw } from "./html.ts";
 import { CITY_SCRIPT } from "./components/city.ts";
 import { pageStyle } from "./page-styles.ts";
 import { examplePage } from "./example-page.ts";
@@ -152,7 +152,7 @@ ${pageData("design-pages", Object.fromEntries(components.map((each) => [each.slu
 ${stylesAppliedTag()}
 </body>
 </html>`;
-  return new Response(page.html, { headers: securityHeaders(env, {}, false, options.frames ?? []) });
+  return new Response(page.html, { headers: securityHeaders(env, { "Speculation-Rules": `"${SPECULATION_RULES_PATH}"` }, false, options.frames ?? []) });
 }
 
 /**
@@ -182,7 +182,7 @@ body.gallery { margin: 0; min-height: 100vh; font: var(--type-reading); }
 .stage { padding-top: var(--pad-pane); }
 /* The bar floats like the header: inset from the top and both sides, with the header's own padding around what's in it. */
 .gallery-bar { position: sticky; top: var(--pad-pane); z-index: 20; margin: 0 auto; width: calc(100% - 2 * var(--pad-pane)); max-width: calc(1480px - 2 * var(--pad-pane)); min-height: var(--gallery-bar-height); display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-control-stack) var(--gap-words-words); padding: var(--pad-inner-pane);
-  --glass-tint: var(--glass-top); }
+  --glass-tint: var(--glass-top); view-transition-name: gallery-bar; }
 .gallery-bar > .logo { --logo-height: 24px; }
 .gallery-title { font: var(--type-name); color: var(--ink-2); padding-left: var(--gap-words-words); border-left: var(--divider); }
 .gallery-buttons { margin-left: auto; }
