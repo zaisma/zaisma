@@ -1299,10 +1299,12 @@ component({
 .sidebar { padding: var(--pad-inner-pane); --sidebar-is-sheet: 0; }
 .sidebar-places { display: flex; flex-direction: column; gap: var(--gap-control-row); margin: 0; padding: 0; list-style: none; }
 .sidebar-places.is-nested { padding: var(--gap-control-row) 0 var(--gap-control-row) var(--gap-block-block); }
-.sidebar-place { position: relative; display: flex; align-items: center; gap: var(--gap-words-words); min-height: var(--control-height-regular); padding: 0 var(--pad-inside-words);
+/* A row is a small control's height with a mouse, compact as a list of places should be; a finger gets a regular control's. */
+.sidebar-place { position: relative; display: flex; align-items: center; gap: var(--gap-words-words); min-height: var(--control-height-small); padding: 0 var(--pad-inside-words);
   font: var(--type-words); color: var(--ink-2); text-decoration: none; transition: color 0.2s; }
 .sidebar-words { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .sidebar-place > .ico { width: 18px; height: 18px; flex: none; }
+@media (pointer: coarse) { .sidebar-place { min-height: var(--control-height-regular); } }
 .sidebar-place:hover, .sidebar-place[aria-current="page"], .sidebar-group[aria-expanded="true"] { color: var(--ink); }
 .sidebar-group { width: 100%; margin: 0; border: 0; background: none; cursor: pointer; text-align: start; }
 .sidebar-group[aria-expanded="true"] { font-weight: 600; }
