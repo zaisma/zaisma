@@ -263,7 +263,15 @@ export const BUSY_SCRIPT = `/* busy */(function () {
 `;
 
 export const RUNNER_SCRIPT = `/* runner */(function () {
-  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches || !window.matchMedia("(hover: hover)").matches) return;
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  // Clicked, its light flares and settles (is-flaring), with a finger too; the click itself goes on at once.
+  document.addEventListener("click", function (event) {
+    var shell = event.target.closest && event.target.closest(".run-wrap");
+    if (!shell || shell.disabled || shell.getAttribute("aria-busy") === "true") return;
+    shell.classList.remove("is-flaring"); void shell.offsetWidth; shell.classList.add("is-flaring");
+  });
+  document.addEventListener("animationend", function (event) { if (event.animationName === "run-flare" && event.target.classList) event.target.classList.remove("is-flaring"); });
+  if (!window.matchMedia("(hover: hover)").matches) return;
   function lean(shell) {
     if (shell.dataset.lean) return; shell.dataset.lean = "1";
     var face = shell.querySelector(".run"); if (!face) return;
@@ -309,6 +317,11 @@ const RUN_STYLES = `
 .run-wrap { filter: var(--run-cast); transition: filter 0.35s cubic-bezier(.2,.7,.2,1); }
 .run-wrap.over, .run-wrap.is-pointed { filter: var(--run-cast-up); }
 .run-wrap:active, .run-wrap.is-pressed { filter: var(--run-cast-down); transition-duration: 0.1s; }
+/* Clicked, its light flares, brighter and wider (--run-flare), and settles back to what it was over half a second (RUNNER_SCRIPT). */
+.run-wrap.is-flaring { animation: run-flare 0.6s ease-out; }
+.run-wrap.is-flaring > .run { animation: run-flare-face 0.45s ease-out; }
+@keyframes run-flare { from { filter: var(--run-flare); } }
+@keyframes run-flare-face { from { filter: brightness(1.16); } }
 .run {
   --refl: 50%;
   --control-height: var(--control-height-regular);
