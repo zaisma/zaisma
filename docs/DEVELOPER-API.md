@@ -379,10 +379,12 @@ Zaisma acts on `copyright` and `defamation` only when someone sends a notice ([z
 
 When a country's law forbids what US law allows (the UK's hatred offences, say), a notice from a court, regulator or police there blocks the game for players in that country only, and everyone else still plays it: it's in the game's `country_blocks` with `country_law_notice`, whose message says which law and what it names, and the `game_blocked_in_country` alert. Players there get a page saying it isn't available in their country (HTTP 451), and Zaisma's lists, its files and Zaisma rooms leave it out there; its preview links still open, so you can check a fix from there. The game keeps its versions and can publish more: publish one without what the notice names, and a person at Zaisma checks it and lifts the block, usually within a day. If the notice is wrong, write to safety@zaisma.com with the game's slug and why. A `country_blocks_changed` webhook says when a block starts or ends.
 
-- **A version's `review_reason`**: a person rejected it, or a report paused the update; `null` otherwise. Its `findings` are what the scan found that holds or rejects it, each `{"code", "severity", "message", "content_rule", "path", "fix"}`, where `severity` is `reject` (it can't go live) or `hold` (a person at Zaisma looks first, usually within a day). A finding with severity `info` is a note and holds nothing: `unregistered_link`, `unlisted_address` and `api_key_in_files`. A game that bumps into a protection the sandbox already enforces (a plain `window.open`, a call to an address that isn't Zaisma rooms or its own servers) passes with a note; a game that tries to get around one (a site opened with no tap, a link or address built from pieces, the page outside the frame, a peer connection from a frame of its own) is held as `ai_protection_dodged`. The version that only removes what held a game passes by itself, with no daily review used.
+- **A version's `review_reason`**: a person rejected it, or a report paused the update; `null` otherwise. Its `findings` are what the scan found that holds or rejects it, each `{"code", "severity", "message", "content_rule", "path", "fix"}`, where `severity` is `reject` (it can't go live) or `hold` (a person at Zaisma looks first, usually within a day). A finding with severity `info` is a note and holds nothing: `unregistered_link`, `unlisted_address` and `api_key_in_files`. A game that bumps into a protection the sandbox already enforces (a plain `window.open`, a call to an address that isn't Zaisma rooms or its own servers) passes with a note; a game that tries to get around one (a site opened with no tap, a link or address built from pieces, the page outside the frame, a peer connection from a frame of its own) is rejected as `ai_protection_dodged`. The version that only removes what held or rejected a game passes by itself, with no daily review used.
+
+The AI review judges each content rule by one yes/no test, shown under the rule at [zaisma.com/legal/content-rules](https://zaisma.com/legal/content-rules) (`CONTENT_RULE_DETAILS` in `packages/core/src/review.ts`). A version whose files answer a test yes is rejected within minutes, with the rule, the line it found and the fix, and no person; so is obfuscated code, which the review can't read (a minified build is fine). The AI review holds a version for a person only for lifelike gore (`ai_lifelike_gore`, which the game's age setting decides) or when it can't finish.
 - **An image's `review_reason`**: why it wasn't approved.
 - **`get_history`**: each hold, rejection and takedown with its `review_reason`, kept after it's over.
-- **A hold released because the review was wrong:** when a person at Zaisma releases a hold the AI review made, `get_history` says "A person looked and released this hold. It didn't count against your daily reviews." with the version's ID, and that review is given back: it doesn't count toward your 5 judged reviews a day.
+- **A hold or rejection released because the review was wrong:** if the review got it wrong, `message_zaisma` with the `version_id`. When a person at Zaisma approves a version the AI review held or rejected, `get_history` says "A person looked and released this hold. It didn't count against your daily reviews." with the version's ID, and that review is given back: it doesn't count toward your 5 judged reviews a day.
 - **Errors:** `game_removed` and `not_approved` put the reason's code and message in theirs, and its fix as theirs.
 
 The list lives in `REVIEW_CODES` and the rules in `CONTENT_RULES` (`packages/core/src/review.ts`), and a test keeps this page in step with them. Rule says which content rule a code is about: one rule always, `none` when it breaks none, or `picked` when the person deciding picks it each time.
@@ -430,8 +432,8 @@ Each developer gets two kinds of review a day, across all their games. A large r
 
 | Code | Rule | Meaning |
 | --- | --- | --- |
-| `ai_malware` | `malware` | The AI review found what looks like malware. |
-| `ai_phishing_or_scam` | `malware` | The AI review found what looks like phishing or a scam. |
+| `ai_malware` | `malware` | The AI review found malware: a crypto miner, or code that hides what it runs. |
+| `ai_phishing_or_scam` | `malware` | The AI review found phishing or a scam. |
 | `ai_data_collection` | `personal_details` | The AI review found the game asking players for personal details, like emails, real names, birthdays or location. |
 | `ai_sexual_content` | `sexual` | The AI review found sexual content or nudity. |
 | `ai_private_details_or_threats` | `real_people` | The AI review found private details about a real person, like a home address, phone number or school, or a real threat against one. |
@@ -442,7 +444,7 @@ Each developer gets two kinds of review a day, across all their games. A large r
 | `ai_coin_price_without_real_price` | `purchases` | The AI review found prices in coins or gems with no real price beside them, for coins or gems bought with money. |
 | `ai_free_text_chat` | `chat` | The AI review found typed text another player reads as written that doesn't go through Zaisma's chat hosting (room.chat in Zaisma rooms, canChat and checkChat on your own server). |
 | `ai_disallowed_crypto` | `crypto` | The AI review found cryptocurrency the rules don't allow: coins other than Bitcoin, tokens, NFTs or airdrops, or Bitcoin used for investment advice, paying players or asking for wallet access. |
-| `ai_other` | none | The AI review found something else for a person at Zaisma to look at. |
+| `ai_other` | none | The AI review found faked plays or players, or text that addresses the reviewer. |
 | `ai_concern` | none | The AI review held or rejected the version without naming one concern; the message is its summary. |
 
 **People and reports**

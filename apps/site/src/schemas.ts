@@ -1808,6 +1808,15 @@ export const NOTICE_DECIDED = object({
 });
 
 
+/** How the game review's scans came out ("Clear breaks are rejected without a person" in docs/DECISIONS.md). */
+export const REVIEW_COUNTS = object({
+  period_duration_days: countOf("The days counted back from now."),
+  passed_count: countOf("Versions the scan passed by itself."),
+  rejected_count: countOf("Versions the scan rejected by itself, with the rule and the fix: no person."),
+  held_for_person_count: countOf("Versions the scan held for a person: each is a miss to teach the review from, unless it's child safety, known images or the review couldn't read the game."),
+  waiting_count: countOf("Versions held only to wait for a daily review or because a newer version replaced them: no person."),
+});
+
 /** Spikes across Zaisma that alerted the admin (security-alerts.ts). */
 export const SECURITY_SPIKE_LIST = object({
   security_spikes: list(

@@ -1,5 +1,8 @@
 import {
   ALLOWED_CONTENT,
+  ALLOWED_CONTENT_TITLES,
+  NOTICE_ONLY_CONTENT_RULES,
+  REVIEWED_CONTENT_RULES,
   fullGameOwner,
   itemsOf,
   ownedItemNames,
@@ -48,7 +51,7 @@ import { grid, row, stack, track, type LayoutItem } from "./components/layout.ts
 import { banner, dropdown, sheet } from "./components/panes.ts";
 import { person } from "./components/people.ts";
 import { gameCard, playingBar, playingCard, playingCheck, screenshot, screenshotLarge, urgentCard } from "./components/playing.ts";
-import { facts, readingText } from "./components/reading.ts";
+import { facts, foldRows, readingText, type FoldRow } from "./components/reading.ts";
 import { backgroundMarkup, backgroundOf, type ShownBackground } from "./backgrounds.ts";
 import { glassMessage, html, layout, pageData, raw, scriptTags, type Raw } from "./html.ts";
 import { pageScript } from "./page-scripts.ts";
@@ -625,8 +628,8 @@ function enterUrl(env: Env, slug: string, addressKind: "tester" | "preview", gra
 }
 
 export function legal(env: Env, page: string): Response | null {
+  if (page === "content-rules") return layout(env, { title: "Content rules · Zaisma", body: contentRulesBody(), pageShape: "reading", checkedPage: "Content rules" });
   const pages: Record<string, { title: string; body: string }> = {
-    "content-rules": { title: "Content rules", body: CONTENT_RULES_PAGE },
     dmca: { title: "Copyright and DMCA notices", body: DMCA },
     defamation: { title: "Defamation notices", body: DEFAMATION },
     privacy: { title: "Privacy", body: PRIVACY },
@@ -639,30 +642,114 @@ export function legal(env: Env, page: string): Response | null {
 
 // Approved by Julius on Oct 16, 2026 (#191); the faked-plays rule on Oct 13, 2026.
 // The rules themselves are CONTENT_RULES (@zaisma/core), each anchored by the name holds and takedowns give it.
-const ruleItem = (rule: ContentRule, words: string) => {
+
+/** One rule as a fold row: its short title (the anchor a hold's rule links to) and its test, folding open to what it is, Fine and Not fine. */
+const ruleRow = (rule: ContentRule): FoldRow => {
   const details = CONTENT_RULE_DETAILS[rule];
-  return html`<li id="${rule}"><strong>${words}</strong>${details.explanation ? html` ${details.explanation}` : ""}<br><strong>Fine:</strong> ${details.fine}<br><strong>Not fine:</strong> ${details.notFine}</li>`;
+  const sentence = (words: string) => `${words.charAt(0).toUpperCase()}${words.slice(1)}`;
+  return {
+    id: rule,
+    title: details.title,
+    detail: details.test,
+    body: stack({
+      items: [
+        { kind: "words", markup: html`<p>${CONTENT_RULES[rule]}${NOTICE_ONLY_CONTENT_RULES.includes(rule) && details.explanation ? ` ${details.explanation}` : ""}</p>` },
+        { kind: "words", markup: facts({ arrangement: "across", facts: [{ label: "Fine", text: sentence(details.fine) }, { label: "Not fine", text: sentence(details.notFine) }] }) },
+      ],
+    }),
+  };
 };
-const CONTENT_RULES_PAGE = `
-<p class="lead">Zaisma is for players 13 and up. Any kind of game is welcome, within these rules.</p>
-<h2>Not allowed</h2>
-${html`<ul>${Object.entries(CONTENT_RULES).map(([rule, words]) => ruleItem(rule as ContentRule, words))}</ul>`}
-<p>Names players give to things in a game (sessions, worlds, maps) are allowed. The game is responsible for keeping them within these rules.</p>
-<h2>Allowed, even where other platforms ban it</h2>
-${html`<ul>${ALLOWED_CONTENT.map((words) => html`<li>${words}</li>`)}</ul>`}
-<h2>How we check</h2>
-<p>Every game is scanned before it's published: automatic malware checks, matching against known illegal images, and an AI review. Games that need a closer look wait for a person.</p>
-<h2>If a game breaks a rule</h2>
-<p>That version is held, or the live game is hidden, and you're told which rule, what we found and how to fix it. Nothing is deleted. Publish a fixed version and it's back.</p>
-<p>Copyright and defamation are different: we don't judge them ourselves. When the owner of a work, or a private person a game falsely accuses of a crime, sends a notice, the game is hidden until you publish a version without what the notice names. If the notice is wrong, you can send a counter-notice. See <a href="/legal/dmca">Copyright and DMCA notices</a> and <a href="/legal/defamation">Defamation notices</a>.</p>
-<p>These rules follow US law. When a country's own law forbids a game that's fine here (the UK's hatred offences, say), a notice from a court, regulator or police there blocks it for players in that country only, and everyone else still plays it. Publish a version without what the notice names and we lift the block. Authorities can send notices to <a href="mailto:safety@zaisma.com">safety@zaisma.com</a>.</p>
-<p>Accounts are closed only for sexual content involving minors, malware, or putting back something we already took down.</p>
-<h2>Reports and takedowns</h2>
-<p>Every game page has a Report button. We remove games that break these rules. Reports about child safety or illegal content go straight to a person. Until we've checked a report, a brand-new game is hidden and a recent update goes back to the version before it.</p>
-<p>How players talk to each other is up to each game and its moderators, and mute and block are always there. Zaisma steps in for threats that reach into real life, sharing someone's personal details, following someone after they've blocked them, and anything sexual toward a teen. Trash talk, however rough, is the game's call: reports about bullying, cheating and other behavior go to the game's developer.</p>
-<p>A game with faked plays is taken off Popular, Trending and New. Doing it again can get the game taken down.</p>
-<p>Zaisma's lists show games whose covers and titles keep a few clear lines: no text but the title, nothing laid over the picture, no fake rewards, no famous characters you don't own, and built around something from the game. A game that breaks one still plays by its link until it's fixed; a fake reward holds it. See <a href="/developers/covers">Covers that show your game</a>.</p>
-`;
+
+/** zaisma.com/legal/content-rules: what's welcome, then each rule with its test, the two acted on only on a notice, and what happens. */
+function contentRulesBody(): Raw {
+  const pane = (label: string, items: LayoutItem[]): LayoutItem => ({ kind: "block", markup: glassPane({ paneWidth: "full", label, body: stack({ items }) }) });
+  return stack({
+    items: [
+      pane("Content rules", [
+        { kind: "words", markup: html`<h1>Content rules</h1>` },
+        { kind: "words", markup: html`<p>Zaisma is for players 13 and up. Games may contain anything these rules don't prohibit, including:</p>` },
+        { kind: "words", markup: html`<p>${ALLOWED_CONTENT_TITLES.map((title, index) => html`<span title="${ALLOWED_CONTENT[index]}">${tag(title, "plain")}</span> `)}</p>` },
+      ]),
+      pane("The lines", [
+        { kind: "words", markup: html`<h2>The lines</h2>` },
+        { kind: "words", markup: html`<p>Every version is checked against each rule's test. A version that meets one is rejected, with the rule, what was found and how to fix it.</p>` },
+        { kind: "block", markup: foldRows({ label: "The lines", rows: REVIEWED_CONTENT_RULES.map(ruleRow) }) },
+      ]),
+      pane("Only on a notice", [
+        { kind: "words", markup: html`<h2>Only on a notice</h2>` },
+        { kind: "words", markup: html`<p>We don't judge these ourselves. When the owner of a work, or a private person a game falsely accuses of a crime, sends a notice, the game is hidden until you publish a version without what it names. If the notice is wrong, you can send a counter-notice: see ${textLink("Copyright and DMCA notices", "/legal/dmca")} and ${textLink("Defamation notices", "/legal/defamation")}.</p>` },
+        { kind: "block", markup: foldRows({ label: "Only on a notice", rows: NOTICE_ONLY_CONTENT_RULES.map(ruleRow) }) },
+      ]),
+      pane("What happens", [
+        { kind: "words", markup: html`<h2>What happens</h2>` },
+        {
+          kind: "words",
+          markup: facts({
+            arrangement: "across",
+            facts: [
+              { label: "Review", text: "Each version is checked for malware, matched against known illegal images and reviewed against each rule's test, usually within minutes." },
+              { label: "Rejection", text: "A version that breaks a rule is rejected with the rule, the finding and the fix. Nothing is deleted; a corrected version can be published." },
+              { label: "Appeal", text: "To contest a decision, message Zaisma with the version (message_zaisma in the MCP). A person replies, usually within a day." },
+            ],
+          }),
+        },
+      ]),
+      pane("Reports and enforcement", [
+        { kind: "words", markup: html`<h2>Reports and enforcement</h2>` },
+        {
+          kind: "block",
+          markup: foldRows({
+            label: "Reports and enforcement",
+            rows: [
+              {
+                id: "reports",
+                title: "Reports",
+                detail: "Every game page has a Report button; child safety and illegal content go straight to a person.",
+                body: readingText({ markup: html`<p>We remove games that break these rules. Until a report is checked, a brand-new game is hidden and a recent update goes back to the version before it. A person looks only at what the review can't settle, and at anything about child safety.</p>` }),
+              },
+              {
+                id: "player-conduct",
+                title: "Player conduct",
+                detail: "How players treat each other is the game's call, with a few exceptions.",
+                body: readingText({ markup: html`<p>Each game and its moderators decide how players talk to each other, and mute and block are always there. Zaisma steps in for threats that reach into real life, sharing someone's personal details, following someone after they've blocked them, and anything sexual toward a teen. Reports about bullying, cheating and other behavior go to the game's developer.</p>` }),
+              },
+              {
+                id: "account-closure",
+                title: "Account closure",
+                detail: "Only for sexual content involving minors, malware, or restoring content that was taken down.",
+                body: readingText({ markup: html`<p>Breaking any other rule costs a version, never the account: the version is rejected or the game hidden, and a corrected version brings it back.</p>` }),
+              },
+              {
+                id: "other-countries",
+                title: "Other countries",
+                detail: "A notice from a court, regulator or police blocks a game in that country only.",
+                body: readingText({ markup: html`<p>These rules follow US law. When a country's own law forbids a game that's allowed here (the UK's hatred offences, for example), the game is blocked for players in that country, and everyone else can still play it. Publishing a version without what the notice names lifts the block. Authorities can send notices to ${textLink("safety@zaisma.com", "mailto:safety@zaisma.com")}.</p>` }),
+              },
+              {
+                id: "faked-plays-in-lists",
+                title: "Faked plays",
+                detail: "A game with faked plays is removed from Popular, Trending and New; doing it again can get it taken down.",
+                body: readingText({ markup: html`<p>Plays and players are counted only when they're people (see the faked plays rule above).</p>` }),
+              },
+              {
+                id: "covers-and-titles",
+                title: "Covers and titles",
+                detail: "Zaisma's lists show games whose covers and titles keep the listing lines.",
+                body: readingText({ markup: html`<p>No text but the title, nothing laid over the picture, no fake rewards, no famous characters you don't own, and built around something from the game. A game that breaks one still plays by its link until it's fixed; a fake reward holds it. See ${textLink("Covers that show your game", "/developers/covers")}.</p>` }),
+              },
+              {
+                id: "names-players-give",
+                title: "Names players give",
+                detail: "Names players give to sessions, worlds and maps are allowed; the game keeps them within these rules.",
+                body: readingText({ markup: html`<p>The game is responsible for what its players name things, as for anything else it shows.</p>` }),
+              },
+            ],
+          }),
+        },
+      ]),
+    ],
+  });
+}
 
 const DMCA = `
 <p class="lead">If a game on Zaisma uses your work without permission, send us a notice and players won't be able to open it until it's fixed.</p>

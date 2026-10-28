@@ -204,6 +204,7 @@ const CHECKED_PAGE_LIST = [
   ...STRESS_ACCOUNTS.map(({ account, nameEnding }) => ({ name: `Developer settings, ${nameEnding}` as const, area: "Developers" as const, path: "/dashboard/settings", account, shownStateName: "Developer settings", mainActionShows: "nowhere" as const })),
   { name: "Developer settings, a spending request", area: "Developers", path: "/dashboard/settings?spending_request=spending_request_preview0waiting", account: "Preview_Studio", mainActionShows: "nowhere", stateBeforeSetUp: "Developer settings", setUp: `(async () => { await new Promise((done) => setTimeout(done, 600)); return Boolean(document.getElementById("spending-request")?.open); })()` },
   { name: "Background guide", area: "Developers", path: "/developers/backgrounds", mainActionShows: "nowhere" },
+  { name: "Content rules", area: "Developers", path: "/legal/content-rules", mainActionShows: "nowhere" },
   { name: "Example page", area: "Gallery", path: "/design/example", mainActionShows: "everywhere" },
   { name: "Connect an app", area: "Signing in", path: "/mcp-start", isOnSignInSite: true, account: "Preview_Studio", mainActionShows: "everywhere" },
   { name: "Sign in with Zaisma", area: "Signing in", path: "/start", isOnSignInSite: true, account: "Moss_Runner", mainActionShows: "everywhere" },

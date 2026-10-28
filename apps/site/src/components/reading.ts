@@ -80,6 +80,45 @@ export function foldedPart(options: FoldedPartOptions): Raw {
   return html`<details class="folded"${options.id ? html` id="${options.id}"` : ""}${options.isOpen ? raw(" open") : ""}><summary class="folded-head"><span class="folded-chevron" aria-hidden="true">${icon("chevron-right")}</span><span>${options.title}</span>${options.entryCount !== undefined ? tag(options.entryCount, "count") : ""}</summary><div class="folded-body">${options.body}</div></details>`;
 }
 
+export interface FoldRow {
+  /** Unique on the page: the row's anchor, so a link to #<id> lands on it open (FOLD_ROWS_SCRIPT). */
+  id: string;
+  /** What the row is, in a few words: Sexual content, Real people. */
+  title: string;
+  /** Its one line, always shown beside the title: a rule's test. */
+  detail: string;
+  /** What folds open under it. */
+  body: Raw;
+}
+
+export interface FoldRowsOptions {
+  rows: FoldRow[];
+  label?: string;
+}
+
+/**
+ * Fold rows: things to scan by their title and one line, each opening in place to what's under it (a rule's Fine and Not fine), with
+ * hairlines between. A row is a details element, so it opens without a script; a link to its anchor opens it too (FOLD_ROWS_SCRIPT).
+ */
+export function foldRows(options: FoldRowsOptions): Raw {
+  return html`<div class="fold-rows"${options.label ? html` role="group" aria-label="${options.label}"` : ""}>${options.rows.map(
+    (foldRow) => html`<details class="fold-row" id="${foldRow.id}"><summary class="fold-row-head"><span class="fold-row-title">${foldRow.title}</span><span class="fold-row-detail">${foldRow.detail}</span><span class="fold-row-chevron" aria-hidden="true">${icon("chevron-right")}</span></summary><div class="fold-row-body">${foldRow.body}</div></details>`,
+  )}</div>`;
+}
+
+/** Opens the fold row a link points at (#<id>), on arrival and when the address's anchor changes. */
+export const FOLD_ROWS_SCRIPT = `
+(() => {
+  const openTarget = () => {
+    const id = decodeURIComponent(location.hash.slice(1));
+    const foldRow = id ? document.getElementById(id) : null;
+    if (foldRow && foldRow.matches("details.fold-row")) foldRow.open = true;
+  };
+  openTarget();
+  addEventListener("hashchange", openTarget);
+})();
+`;
+
 export interface PagerOptions {
   /** What's paged, for a screen reader: Replies, Versions. */
   label: string;
@@ -255,6 +294,52 @@ component({
   examples: [
     { label: "Folded, with its count", isWide: true, markup: glassPane({ paneWidth: "full", body: foldedPart({ title: "Blocked", entryCount: 3, body: html`<p>Mia, Lucas and Oliver can't see you or send you anything.</p>` }) }) },
     { label: "Open", isWide: true, markup: glassPane({ paneWidth: "full", body: foldedPart({ title: "Earlier versions", entryCount: 12, isOpen: true, body: stack({ items: [{ kind: "words", markup: html`<p>Versions 1 to 12, each kept for a year after it's replaced.</p>` }] }) }) }) },
+  ],
+});
+
+component({
+  name: "Fold rows",
+  slug: "fold-rows",
+  group: "panes",
+  summary: "Things to scan by a title and one line, each opening in place to what's under it, like the content rules with their tests: the title and line always show, the rest folds. A link to a row opens it.",
+  styles: `
+/* Fold rows: one thing a row, hairlines between. The head is the title, its line beside it, and a chevron at the end that turns as it opens;
+   on a narrow pane the line goes under the title. The head is words, keeping the pane's margin, and at least a control's height to press. */
+.fold-rows { display: grid; min-width: 0; container-type: inline-size; }
+.fold-row + .fold-row { border-top: var(--divider); }
+.fold-row-head { display: grid; grid-template-columns: minmax(0, 11rem) minmax(0, 1fr) auto; align-items: baseline; gap: var(--gap-words-words) var(--gap-words-control);
+  min-height: var(--control-height-regular); padding: var(--gap-words-control) var(--pad-words); cursor: pointer; list-style: none; -webkit-tap-highlight-color: transparent; }
+.fold-row-head::-webkit-details-marker { display: none; }
+.fold-row-title { font: var(--type-label); color: var(--ink); overflow-wrap: anywhere; }
+.fold-row-detail { font: var(--type-words); color: var(--ink-2); }
+.fold-row-chevron { display: flex; align-self: center; color: var(--muted); transition: transform 0.3s var(--spring); }
+.fold-row-chevron > .ico { width: 8px; height: 13px; }
+/* Pointed at, its title darkens and its chevron steps on, the way a folded part's does. */
+.fold-row-head:hover .fold-row-chevron { transform: translateX(2px); }
+.fold-row[open] > .fold-row-head .fold-row-chevron { transform: rotate(90deg); }
+.fold-row-head:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.fold-row-body { padding: 0 var(--pad-words) var(--gap-block-block); }
+/* At a pane's edge the first and last rows' words keep the pane's margin, as words do. */
+.fold-row:first-child > .fold-row-head { padding-top: var(--pad-words); }
+.fold-row:last-child:not([open]) > .fold-row-head { padding-bottom: var(--pad-words); }
+@container (max-width: 34rem) { .fold-row-head { grid-template-columns: minmax(0, 1fr) auto; } .fold-row-detail { grid-column: 1; } .fold-row-chevron { grid-row: 1; grid-column: 2; } }
+@media (prefers-reduced-motion: reduce) { .fold-row-chevron { transition: none; } }
+`,
+  render: foldRows,
+  examples: [
+    {
+      label: "One open",
+      isWide: true,
+      markup: glassPane({
+        paneWidth: "full",
+        body: stack({ items: [{ kind: "block", markup: foldRows({
+          rows: [
+            { id: "fold-rows-sexual", title: "Sexual content", detail: "Does the game show nudity, or show or describe sex in detail?", body: facts({ arrangement: "across", facts: [{ label: "Fine", text: "Romance, kissing, dating sims, swimwear and dirty jokes." }, { label: "Not fine", text: "Nudity, or sex shown or described in detail." }] }) },
+            { id: "fold-rows-chat", title: "Typed chat", detail: "Can a player type text that another player reads as written, outside room.chat?", body: facts({ arrangement: "across", facts: [{ label: "Fine", text: "A chat box that sends with room.chat, preset phrases and emotes." }, { label: "Not fine", text: "Typed messages sent with room.send." }] }) },
+          ],
+        }) }] }),
+      }),
+    },
   ],
 });
 

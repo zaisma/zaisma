@@ -450,7 +450,7 @@ describe("report triage and review precedents", () => {
     await triageReports(testEnv, { ...ai({ severity: "high", category: "real_people", summary: "A real address." }).deps, draftReviewPrecedent });
     const rows = (await env.DB.prepare("SELECT * FROM review_precedents").all<{ decision: string; content_rule: string; from_version_id: string; from_report_group_id: string; review_precedent_status: string }>()).results;
     const [report] = await reports();
-    expect(rows).toMatchObject([{ decision: "hold", content_rule: "real_people", from_version_id: versionId, from_report_group_id: report!.id, review_precedent_status: "proposed" }]);
+    expect(rows).toMatchObject([{ decision: "reject", content_rule: "real_people", from_version_id: versionId, from_report_group_id: report!.id, review_precedent_status: "proposed" }]);
 
     // A bug, copyright and another kind of category don't draft one.
     await send({ reason: "other", details: "freezes" });

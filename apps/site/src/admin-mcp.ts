@@ -68,6 +68,7 @@ import {
   PUBLISHING_ACCOUNT_LIST,
   BLOCKED_SCRIPT_LIST,
   SECURITY_SPIKE_LIST,
+  REVIEW_COUNTS,
   HANDLED_REPORTS,
   POST_DECIDED,
   PRECEDENT_CHANGED,
@@ -113,7 +114,7 @@ The developer forum: what developers and their AI tell Zaisma about Zaisma itsel
 - Every public forum post is checked by AI before others see it, and developers can report one that slipped through. waiting_posts are the ones the check held (with held_reason), couldn't check yet, or developers reported (with their reasons; a child-safety report or three reports hide it); decide_post shows or removes each, after the admin agrees. Child-safety reports come first.
 - To copy a topic to public GitHub issues, draft it from the known issue's title, what's wrong and the workaround, never from a developer's own words, name, game or context.
 
-Review precedents: when the AI game review is wrong (it held a game that was fine, or passed one that broke a rule), the admin teaches it in the same click as releasing, rejecting or taking down the game. list_review_precedents shows the rulings with their stand-in test games and what the test set found; approve_review_precedent sends a drafted or failed one to the test; retire_review_precedent stops one being followed. A stand-in is written to show a pattern and is never a copy of a developer's game; child safety is never learned from. Say what you'd do, then wait for the admin to agree.
+Review precedents: when the AI game review is wrong (it stopped a game that was fine, held one it should have rejected, or passed one that broke a rule), the admin teaches it in the same click as approving, rejecting or taking down the game. list_review_precedents shows the rulings with their stand-in test games and what the test set found; approve_review_precedent sends a drafted or failed one to the test; retire_review_precedent stops one being followed. A stand-in is written to show a pattern and is never a copy of a developer's game; child safety is never learned from. Say what you'd do, then wait for the admin to agree.
 
 Chat reviews: sexual messages from adults to teens that Zaisma's chat filter stopped, kept for review. An AI reviews each one; list_chat_reviews shows what needs the admin. They're child-safety cases: never describe them in detail, and remind the admin that a confirmed one must be reported to NCMEC's CyberTipline (decide_chat_review with reported once it is). A message from a developer's own server could be made up to frame a player, so only the admin confirms those. decide_chat_review changes things for players: say what you'd do, then wait for the admin to agree.
 
@@ -262,6 +263,27 @@ async function versionAnswer(env: Env, game: Game, version: Version) {
 }
 
 const historyAnswer = (entry: AuditEntry) => ({ action: entry.action, description: entry.reason, actor: entry.actor, happened_at: iso(entry.happened_at_ms)!, review_reason: reasonAnswer(entry.review_reason) });
+
+/** Versions scanned in the last days, by how the scan decided: the scan report keeps the scan's own decision when a person decides later. */
+export async function reviewCounts(database: D1Database, periodDurationDays: number, nowMs = Date.now()) {
+  const { results } = await database
+    .prepare(
+      `SELECT json_extract(scan_report, '$.decision') AS decision,
+         NOT EXISTS (SELECT 1 FROM json_each(scan_report, '$.findings') WHERE json_extract(json_each.value, '$.severity') != 'info' AND json_extract(json_each.value, '$.code') NOT IN ('daily_large_reviews_used', 'daily_small_reviews_used', 'version_replaced')) AS is_waiting,
+         COUNT(*) AS version_count
+       FROM versions WHERE json_valid(scan_report) AND json_extract(scan_report, '$.finished_at_ms') >= ? GROUP BY 1, 2`,
+    )
+    .bind(nowMs - periodDurationDays * 24 * 60 * 60 * 1000)
+    .all<{ decision: string; is_waiting: number; version_count: number }>();
+  const countOf = (test: (row: (typeof results)[number]) => boolean) => results.filter(test).reduce((runningCount, row) => runningCount + row.version_count, 0);
+  return {
+    period_duration_days: periodDurationDays,
+    passed_count: countOf((row) => row.decision === "approved"),
+    rejected_count: countOf((row) => row.decision === "rejected"),
+    held_for_person_count: countOf((row) => row.decision === "held" && !row.is_waiting),
+    waiting_count: countOf((row) => row.decision === "held" && row.is_waiting === 1),
+  };
+}
 
 /** What the developer reads about a hold, rejection or takedown, stored as JSON. */
 const reasonAnswer = (stored: string | null) => {
@@ -772,7 +794,7 @@ export const ADMIN_TOOLS: AdminTool[] = [
     name: "list_review_precedents",
     title: "Review precedents",
     description:
-      "The rulings the AI game review follows when it was wrong, with each one's stand-in test game and test result. Save the answer as { \"review_precedents\": [...] } to run the review test set with them in force: npm run review-set -- --precedents <file>. A release of a held version, or a rejection or takedown of a game the review passed, drafts a ruling; the admin saves it in the same click, on the admin page.",
+      "The rulings the AI game review follows when it was wrong, with each one's stand-in test game and test result. Save the answer as { \"review_precedents\": [...] } to run the review test set with them in force: npm run review-set -- --precedents <file>. Approving a version the review held or rejected drafts a pass ruling; upholding a hold, or rejecting or taking down a game the review passed, drafts a reject ruling; the admin saves it in the same click, on the admin page.",
     inputSchema: object({ review_precedent_status: { enum: ["proposed", "testing", "active", "failed", "retired", "all"], description: "Which ones; every one but retired by default." } }),
     outputSchema: REVIEW_PRECEDENT_LIST,
     annotations: read,
@@ -787,7 +809,7 @@ export const ADMIN_TOOLS: AdminTool[] = [
   {
     name: "approve_review_precedent",
     title: "Test a review precedent",
-    description: "Send a drafted or failed review precedent to the test set as written: it goes live once every bad game is still held and every honest one still passes, with it in force. To change the wording first, use the admin page. Ask the admin first.",
+    description: "Send a drafted or failed review precedent to the test set as written: it goes live once every bad game is still stopped and every honest one still passes, with it in force. To change the wording first, use the admin page. Ask the admin first.",
     inputSchema: object({ review_precedent_id: idInput("review_precedent", "A drafted or failed review precedent's ID from list_review_precedents.") }, ["review_precedent_id"]),
     outputSchema: REVIEW_PRECEDENT_CHANGED,
     annotations: change,
@@ -796,8 +818,8 @@ export const ADMIN_TOOLS: AdminTool[] = [
       if (precedent.review_precedent_status !== "proposed" && precedent.review_precedent_status !== "failed") {
         throw new ApiError("not_approvable", { message: `${precedent.id} is ${precedent.review_precedent_status}, not drafted or failed.`, field: "review_precedent_id", fix: "Retire it with retire_review_precedent, and set a new one by deciding the next miss." });
       }
-      if (!precedent.title || !precedent.applies_when || !precedent.case_index_html || (precedent.decision === "hold" && !precedent.content_rule)) {
-        throw new ApiError("incomplete_review_precedent", { message: `${precedent.id} isn't complete.`, field: "review_precedent_id", fix: "Fill in its name, when it applies, its test game and (for a hold) its content rule on zaisma.com/admin/review-precedents, or retire it." });
+      if (!precedent.title || !precedent.applies_when || !precedent.case_index_html || (precedent.decision === "reject" && !precedent.content_rule)) {
+        throw new ApiError("incomplete_review_precedent", { message: `${precedent.id} isn't complete.`, field: "review_precedent_id", fix: "Fill in its name, when it applies, its test game and (for a reject ruling) its content rule on zaisma.com/admin/review-precedents, or retire it." });
       }
       const form = new FormData();
       form.set("rp_title", precedent.title);
@@ -825,6 +847,16 @@ export const ADMIN_TOOLS: AdminTool[] = [
       await adminForm(env, `/admin/review-precedents/${precedent.id}/retire`, new FormData(), actor);
       return { review_precedent: reviewPrecedentAnswer(await reviewPrecedentById(env, precedent.id)), next_steps: [] };
     },
+  },
+  {
+    name: "get_review_counts",
+    title: "How reviews came out",
+    description:
+      "How the game review's scans came out over the last days: versions passed by themselves, rejected by themselves (with the rule and the fix, no person), held for a person, and held only to wait for a daily review. The goal is honest games passing first time and clear breaks rejected, so held_for_person_count falls toward zero; each hold a person decides teaches the review (a pass or a reject ruling).",
+    inputSchema: object({ period_duration_days: { type: "integer", minimum: 1, maximum: 90, description: "How many days back from now; 30 by default." } }),
+    outputSchema: REVIEW_COUNTS,
+    annotations: read,
+    run: async (toolArguments, { env }) => reviewCounts(env.DB, (toolArguments.period_duration_days as number | undefined) ?? 30),
   },
   {
     name: "list_chat_reviews",
@@ -1129,6 +1161,7 @@ function chatReviewAnswer(review: AdminChatReview) {
 /** The error for an input whose value isn't one the tool takes: bad_<field> (docs/NAMING.md, Errors). */
 const VALUE_ERRORS: Record<string, ErrorCode> = {
   maximum_group_count: "bad_maximum_group_count",
+  period_duration_days: "bad_period_duration_days",
   decision: "bad_decision",
   notice_kind: "bad_notice_kind",
   country_code: "bad_country_code",

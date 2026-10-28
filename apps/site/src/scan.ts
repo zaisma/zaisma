@@ -183,8 +183,12 @@ export async function scanVersion(env: Env, versionId: string, deps: ScanDeps = 
   // Counts toward the owner's large and small reviews a day (steps 4e and 4a3); re-checks never get here.
   if (isJudged(report)) await env.DB.prepare("UPDATE versions SET judged_at_ms = ? WHERE id = ?").bind(report.finished_at_ms, version.id).run();
   if (report.ai && "judge_model" in report.ai && report.ai.is_small_review) await env.DB.prepare("UPDATE versions SET read_at_ms = ? WHERE id = ?").bind(report.finished_at_ms, version.id).run();
-  // A hold the AI judge made may turn out to be a miss: draft the ruling now, so releasing it can teach the review in the same click.
-  if (decision === "held" && deps.draft && report.ai !== null && "judge_model" in report.ai && report.ai.verdict === "hold") await draftMiss(env, { versionId: version.id, decision: "pass" }, deps.draft);
+  // A version the AI judge stopped may turn out to be a miss either way: draft the rulings now, so a person's call teaches the
+  // review in the same click (approving it: pass; upholding a hold: reject, so the next one like it needs no person).
+  if (decision !== "approved" && deps.draft && report.ai !== null && "judge_model" in report.ai && (report.ai.verdict === "hold" || report.ai.verdict === "reject")) {
+    await draftMiss(env, { versionId: version.id, decision: "pass" }, deps.draft);
+    if (report.ai.verdict === "hold") await draftMiss(env, { versionId: version.id, decision: "reject" }, deps.draft);
+  }
   if (decision === "approved") {
     await passVersion(env, version, "Passed the scan");
   } else {
@@ -421,13 +425,13 @@ async function reviewWithAi(env: Env, version: Version, game: Game, input: Revie
 
 /**
  * The version a new one is compared with to be a tweak: the game's last judged version that was approved, or
- * held only for findings the new version can fix by removing what they stand on (FIXABLE_FINDING_CODES), so the
- * fix for a hold passes on the cheap reads. Never one that was rejected, held for child safety or held for
- * anything else.
+ * held or rejected by the scan only for findings the new version can fix by removing what they stand on
+ * (FIXABLE_FINDING_CODES), so the fix passes on the cheap reads. Never one stopped for child safety, by a person
+ * or for anything else.
  */
 async function tweakBaseline(env: Env, gameId: string, versionId: string): Promise<{ version: { id: string }; report: ScanReport; isHeld: boolean } | null> {
   const rows = await env.DB
-    .prepare("SELECT id, scan_status, scan_report FROM versions WHERE game_id = ? AND id != ? AND judged_at_ms IS NOT NULL AND scan_status IN ('approved', 'held') ORDER BY created_at_ms DESC LIMIT 5")
+    .prepare("SELECT id, scan_status, scan_report FROM versions WHERE game_id = ? AND id != ? AND judged_at_ms IS NOT NULL AND scan_status IN ('approved', 'held', 'rejected') AND (scan_status != 'rejected' OR review_reason IS NULL) ORDER BY created_at_ms DESC LIMIT 5")
     .bind(gameId, versionId)
     .all<{ id: string; scan_status: string; scan_report: string | null }>();
   for (const row of rows.results) {
@@ -442,7 +446,7 @@ async function tweakBaseline(env: Env, gameId: string, versionId: string): Promi
 
 /**
  * The hold a new version answers ("A fix is checked against its hold." in docs/DECISIONS.md): the game's newest
- * judged version, when it's held by the scan alone. Never one held for child safety or known images, one a person
+ * judged version, when the scan alone held or rejected it (a rejection is a hold a fix answers the same way). Never one held for child safety or known images, one a person
  * decided, or one a report paused: a fix can't answer those by itself. An approved newest one means there's no hold.
  */
 export async function heldBaseline(env: Env, version: Pick<Version, "id" | "game_id" | "created_at_ms">): Promise<{ version: Version; report: ScanReport } | null> {
@@ -450,7 +454,7 @@ export async function heldBaseline(env: Env, version: Pick<Version, "id" | "game
     .prepare("SELECT * FROM versions WHERE game_id = ? AND id != ? AND created_at_ms <= ? AND judged_at_ms IS NOT NULL ORDER BY created_at_ms DESC LIMIT 1")
     .bind(version.game_id, version.id, version.created_at_ms)
     .first<Version>();
-  if (!row?.scan_report || row.scan_status !== "held" || row.review_reason !== null || row.report_held_at_ms !== null) return null;
+  if (!row?.scan_report || (row.scan_status !== "held" && row.scan_status !== "rejected") || row.review_reason !== null || row.report_held_at_ms !== null) return null;
   const report = JSON.parse(row.scan_report) as ScanReport;
   if (report.is_child_safety || report.findings.some((finding) => finding.code === KNOWN_IMAGE_CODE)) return null;
   return { version: row, report };

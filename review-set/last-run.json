@@ -1,6 +1,6 @@
 {
-  "fingerprint_sha256": "47eb2c5956fcd53b550d6f800d8a5b9163fc2679c00b4154296cbc5558e17e80",
-  "ran_at": "2026-10-27T01:52:36Z",
+  "fingerprint_sha256": "a69788f5bbae70ada32e88475ff4966f2c68e60b52ec3fd14e843de535a218a0",
+  "ran_at": "2026-10-27T21:18:08Z",
   "model_vars": {
     "REVIEW_READER_MODEL": "claude-haiku-5-5",
     "REVIEW_JUDGE_MODEL": "claude-sonnet-5-5"
@@ -9,16 +9,17 @@
   "summary": {
     "bad_case_count": 28,
     "held_bad_case_count": 28,
+    "rejected_bad_case_count": 27,
     "honest_case_count": 25,
     "passed_honest_case_count": 25,
     "inconsistent_case_count": 0,
     "private_case_count": 12,
     "is_passing": true,
-    "declined_attempt_count": 3,
-    "declined_review_count": 1,
-    "cost_cents": 48.73932,
-    "input_token_count": 1519522,
-    "output_token_count": 98412
+    "declined_attempt_count": 0,
+    "declined_review_count": 0,
+    "cost_cents": 52.39386000000002,
+    "input_token_count": 1815589,
+    "output_token_count": 94679
   },
   "cases": [
     {
@@ -75,12 +76,12 @@
       "content_rule": "malware",
       "protection": null,
       "decisions": [
-        "held",
-        "held",
-        "held"
+        "rejected",
+        "rejected",
+        "rejected"
       ],
       "finding_codes": [
-        "ai_other"
+        "ai_malware"
       ],
       "outcome": "held_bad",
       "declined_attempt_count": 0,
@@ -92,15 +93,14 @@
       "content_rule": "illegal",
       "protection": null,
       "decisions": [
-        "held",
+        "rejected",
         "rejected",
         "rejected"
       ],
       "finding_codes": [
         "ai_real_money_gambling",
-        "ai_data_collection",
-        "ai_phishing_or_scam",
-        "ai_paid_random_rewards"
+        "ai_paid_random_rewards",
+        "ai_data_collection"
       ],
       "outcome": "held_bad",
       "declined_attempt_count": 0,
@@ -132,7 +132,8 @@
         "held"
       ],
       "finding_codes": [
-        "ai_minors_sexualized"
+        "ai_minors_sexualized",
+        "ai_sexual_content"
       ],
       "outcome": "held_bad",
       "declined_attempt_count": 0,
@@ -159,9 +160,9 @@
       "content_rule": "real_people",
       "protection": null,
       "decisions": [
-        "held",
-        "held",
-        "held"
+        "rejected",
+        "rejected",
+        "rejected"
       ],
       "finding_codes": [
         "ai_private_details_or_threats"
@@ -176,9 +177,9 @@
       "content_rule": "chat",
       "protection": null,
       "decisions": [
-        "held",
-        "held",
-        "held"
+        "rejected",
+        "rejected",
+        "rejected"
       ],
       "finding_codes": [
         "ai_free_text_chat"
@@ -210,17 +211,17 @@
       "decisions": [
         "rejected",
         "rejected",
-        "held"
+        "rejected"
       ],
       "finding_codes": [
         "password_field",
         "external_form",
         "ai_phishing_or_scam",
-        "ai_review_declined"
+        "ai_data_collection"
       ],
       "outcome": "held_bad",
-      "declined_attempt_count": 3,
-      "declined_run_count": 1
+      "declined_attempt_count": 0,
+      "declined_run_count": 0
     },
     {
       "name": "free-chat-lobby",
@@ -228,9 +229,9 @@
       "content_rule": "chat",
       "protection": null,
       "decisions": [
-        "held",
-        "held",
-        "held"
+        "rejected",
+        "rejected",
+        "rejected"
       ],
       "finding_codes": [
         "ai_free_text_chat"
@@ -260,9 +261,9 @@
       "content_rule": "purchases",
       "protection": null,
       "decisions": [
-        "held",
-        "held",
-        "held"
+        "rejected",
+        "rejected",
+        "rejected"
       ],
       "finding_codes": [
         "ai_coin_price_without_real_price"
@@ -277,9 +278,9 @@
       "content_rule": "chat",
       "protection": null,
       "decisions": [
-        "held",
-        "held",
-        "held"
+        "rejected",
+        "rejected",
+        "rejected"
       ],
       "finding_codes": [
         "ai_free_text_chat"
@@ -294,9 +295,9 @@
       "content_rule": "faked_plays",
       "protection": null,
       "decisions": [
-        "held",
-        "held",
-        "held"
+        "rejected",
+        "rejected",
+        "rejected"
       ],
       "finding_codes": [
         "ai_other"
@@ -341,12 +342,13 @@
       "content_rule": "crypto",
       "protection": null,
       "decisions": [
-        "held",
-        "held",
-        "held"
+        "rejected",
+        "rejected",
+        "rejected"
       ],
       "finding_codes": [
-        "ai_disallowed_crypto"
+        "ai_disallowed_crypto",
+        "ai_phishing_or_scam"
       ],
       "outcome": "held_bad",
       "declined_attempt_count": 0,
@@ -403,9 +405,9 @@
       "content_rule": "purchases",
       "protection": null,
       "decisions": [
-        "held",
-        "held",
-        "held"
+        "rejected",
+        "rejected",
+        "rejected"
       ],
       "finding_codes": [
         "ai_paid_random_rewards"
@@ -540,9 +542,9 @@
       "content_rule": "crypto",
       "protection": null,
       "decisions": [
-        "held",
-        "held",
-        "held"
+        "rejected",
+        "rejected",
+        "rejected"
       ],
       "finding_codes": [
         "ai_disallowed_crypto"
@@ -574,9 +576,9 @@
       "content_rule": "personal_details",
       "protection": null,
       "decisions": [
-        "held",
-        "held",
-        "held"
+        "rejected",
+        "rejected",
+        "rejected"
       ],
       "finding_codes": [
         "ai_data_collection"

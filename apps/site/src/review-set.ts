@@ -102,7 +102,7 @@ export function standInCase(precedent: ReviewPrecedent): ReviewCase {
     title: precedent.case_title || precedent.title,
     description: precedent.case_description,
     is_honest: precedent.decision === "pass",
-    content_rule: precedent.decision === "hold" ? precedent.content_rule : null,
+    content_rule: precedent.decision === "reject" ? precedent.content_rule : null,
     protection: null,
     why: precedent.why || precedent.applies_when,
     is_private: true,
@@ -221,6 +221,11 @@ export function caseResult(gameCase: ReviewCase, runs: CaseRun[]): CaseResult {
 export interface RunSummary {
   bad_case_count: number;
   held_bad_case_count: number;
+  /**
+   * Bad cases rejected on every run, with no person: the goal is every bad case but child safety, which a person always
+   * sees ("Clear breaks are rejected without a person"). A bad case only held still stops it, and counts as a miss here.
+   */
+  rejected_bad_case_count: number;
   honest_case_count: number;
   passed_honest_case_count: number;
   inconsistent_case_count: number;
@@ -242,6 +247,7 @@ export function summarizeRun(results: CaseResult[]): RunSummary {
   return {
     bad_case_count: countWhere((record) => !record.is_honest),
     held_bad_case_count: countWhere((record) => record.outcome === "held_bad"),
+    rejected_bad_case_count: countWhere((record) => record.outcome === "held_bad" && record.decisions.every((decision) => decision === "rejected")),
     honest_case_count: countWhere((record) => record.is_honest),
     passed_honest_case_count: countWhere((record) => record.outcome === "passed_honest"),
     inconsistent_case_count: countWhere((record) => record.outcome === "inconsistent"),

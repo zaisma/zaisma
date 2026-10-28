@@ -452,6 +452,8 @@ Every component, with the call that makes it and its options, is in the catalog 
   - `options`: `id: string`, `title: string`, `isShown?: boolean`
 - **Folded part** (`foldedPart(options: FoldedPartOptions)`, `reading.ts`): Something that belongs on the page but out of the way, behind its title and how many are in it: earlier versions, blocked people, preview links. Pressing the title opens it in place.
   - `options`: `title: string`, `entryCount?: number`, `body: Raw`, `isOpen?: boolean`, `id?: string`
+- **Fold rows** (`foldRows(options: FoldRowsOptions)`, `reading.ts`): Things to scan by a title and one line, each opening in place to what's under it, like the content rules with their tests: the title and line always show, the rest folds. A link to a row opens it.
+  - `options`: `rows: FoldRow[]`, `label?: string`
 - **Divider with words** (`dividerWords(words: string)`, `reading.ts`): A hairline across a pane with a word or two in its middle, between two ways to do one thing: or, between signing in with a password and with a passkey.
 
 ### Data

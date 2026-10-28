@@ -16,7 +16,7 @@ import "./stripe-frame.ts";
 // The layout components register in layout-gallery.ts, whose examples use every other group.
 import "./layout-gallery.ts";
 // Components pages still to build need: words to read and the ways through them, and people and what they write.
-import "./reading.ts";
+import { FOLD_ROWS_SCRIPT } from "./reading.ts";
 import "./people.ts";
 import "./screens.ts";
 // A game's page while it plays: the bar beside the game and the cards over it.
@@ -38,7 +38,7 @@ export { columns, grid, paneParts, row, stack, track, type LayoutControl, type L
 export const COMPONENT_STYLES = (): string => TOKEN_STYLES + COMPONENTS().map((each) => each.styles).join("");
 
 /** The components' script, readable: what scripts/minify-components.mjs minifies. */
-export const COMPONENT_SCRIPT_SOURCE = WATCH_SCRIPT + GLASS_SCRIPT + BACKDROP_SCRIPT + COLOR_PICKER_SCRIPT + FIELD_SCRIPT + PIN_FIELD_SCRIPT + SWITCH_SCRIPT + RUNNER_SCRIPT + BUSY_SCRIPT + BIRTHDAY_SCRIPT + DATE_TIME_SCRIPT + FILE_DROP_SCRIPT + COPY_SCRIPT + CHART_SCRIPT + LONG_FIELD_SCRIPT + SLIDER_SCRIPT + PLACE_SCRIPT + SELECT_SCRIPT + DROPDOWN_SCRIPT + FILTER_MENU_SCRIPT + LAYERS_SCRIPT + STARTED_LOW_SCRIPT + STEP_FLOW_SCRIPT + CONFIRM_ITS_YOU_SCRIPT + RAIL_SCRIPT + ROW_SCRIPT + ROW_LAYOUT_SCRIPT + SCROLL_FADE_SCRIPT + COMPACT_SCRIPT + LOAD_MORE_SCRIPT + PLAYING_CARD_SCRIPT;
+export const COMPONENT_SCRIPT_SOURCE = WATCH_SCRIPT + GLASS_SCRIPT + BACKDROP_SCRIPT + COLOR_PICKER_SCRIPT + FIELD_SCRIPT + PIN_FIELD_SCRIPT + SWITCH_SCRIPT + RUNNER_SCRIPT + BUSY_SCRIPT + BIRTHDAY_SCRIPT + DATE_TIME_SCRIPT + FILE_DROP_SCRIPT + COPY_SCRIPT + CHART_SCRIPT + LONG_FIELD_SCRIPT + SLIDER_SCRIPT + PLACE_SCRIPT + SELECT_SCRIPT + DROPDOWN_SCRIPT + FILTER_MENU_SCRIPT + LAYERS_SCRIPT + STARTED_LOW_SCRIPT + STEP_FLOW_SCRIPT + CONFIRM_ITS_YOU_SCRIPT + RAIL_SCRIPT + ROW_SCRIPT + ROW_LAYOUT_SCRIPT + SCROLL_FADE_SCRIPT + COMPACT_SCRIPT + LOAD_MORE_SCRIPT + PLAYING_CARD_SCRIPT + FOLD_ROWS_SCRIPT;
 
 /**
  * The script pages load: the minified one, unless it was made from an older source (a script changed and npm run components:minify wasn't

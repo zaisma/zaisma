@@ -1,6 +1,6 @@
 import { env, SELF } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CONTENT_RULES, KNOWN_IMAGE_CODE, PLAN_LIMITS, REVIEW_LIMITS, arachnidShield, blobKey, createGame, createVersion, gameById, gameBySlug, heldVersions, manifestKey, newId, notConnected, sha256Hex, versionById, type EvidenceItem, type ImageMatcher, type Manifest, type ScanJob, type ScanReport } from "@zaisma/core";
+import { CONTENT_RULES, CONTENT_RULE_DETAILS, KNOWN_IMAGE_CODE, PLAN_LIMITS, REVIEW_LIMITS, arachnidShield, blobKey, createGame, createVersion, gameById, gameBySlug, heldVersions, manifestKey, newId, notConnected, sha256Hex, versionById, type EvidenceItem, type ImageMatcher, type Manifest, type ScanJob, type ScanReport } from "@zaisma/core";
 import { handleScanBatch, imageMatcher, passVersion, queueImageChecks, recheckImages, replaceWaitingVersions, rescanWaiting, scanVersion, type ScanDeps } from "../../apps/site/src/scan.ts";
 import { dailyCleanup } from "../../apps/site/src/cleanup.ts";
 import { judgeSays, readsNothing, seesNothing } from "./scan-stubs.ts";
@@ -435,7 +435,7 @@ describe("the evidence-first review", () => {
     expect(report.findings.map((finding) => finding.code)).toContain("ai_review_budget_used");
   });
 
-  it("asks the judge again when it declines, holds when it declines every try, and turns a reject with no quoted proof into a hold", async () => {
+  it("asks the judge again when it declines, holds when it declines every try, and turns a reject that cites no evidence into a hold", async () => {
     // Each call to the API answers the next body in the list, the last one from then on.
     const answers = (...bodies: Record<string, unknown>[]) => {
       let callIndex = 0;
@@ -465,11 +465,17 @@ describe("the evidence-first review", () => {
     expect(refused.findings.map((finding) => finding.code)).toEqual(["ai_review_declined"]);
     expect(fetchSpy).toHaveBeenCalledTimes(3);
 
+    // A picture's item has no quote and is proof all the same; a finding that cites nothing is held for a person.
     vi.restoreAllMocks();
     answers(verdict({ verdict: "reject", findings: [{ code: "ai_sexual_content", evidence_item_numbers: [1], message: "A picture." }] }));
-    const unquoted = await judgeVersion("test-key", "claude-sonnet-5-5", brief);
-    expect(unquoted.verdict).toBe("hold");
-    expect(unquoted.findings).toEqual([{ stage: "ai", severity: "hold", code: "ai_sexual_content", message: "A picture.", path: "art/a.png" }]);
+    const picture = await judgeVersion("test-key", "claude-sonnet-5-5", brief);
+    expect(picture.verdict).toBe("reject");
+    expect(picture.findings).toEqual([{ stage: "ai", severity: "reject", code: "ai_sexual_content", message: "A picture.", path: "art/a.png" }]);
+    vi.restoreAllMocks();
+    answers(verdict({ verdict: "reject", findings: [{ code: "ai_sexual_content", evidence_item_numbers: [], message: "A picture." }] }));
+    const uncited = await judgeVersion("test-key", "claude-sonnet-5-5", brief);
+    expect(uncited.verdict).toBe("hold");
+    expect(uncited.findings).toEqual([{ stage: "ai", severity: "hold", code: "ai_sexual_content", message: "A picture." }]);
   });
 
   it("holds more code than the review reads, without reading it", async () => {
@@ -481,6 +487,29 @@ describe("the evidence-first review", () => {
     );
     expect(gathered.findings.map((finding) => finding.code)).toEqual(["too_much_code"]);
     expect(calls.readerCallCount).toBe(0);
+  });
+});
+
+describe("the judge decides from the tests", () => {
+  const items: EvidenceItem[] = [
+    { kind: "player_text", subject: "read_by_others", detail: "A chat box.", path: "chat.js", quote: "socket.send(text)", file_sha256: "", source: "reader" },
+    { kind: "content", subject: "sexual", detail: "Nudity.", path: "art/ending.png", quote: "", file_sha256: "", source: "reader" },
+    { kind: "content", subject: "lifelike_gore", detail: "Lifelike gore.", path: "gore.js", quote: "drawWound()", file_sha256: "", source: "reader" },
+  ];
+  const answer = (verdict: "pass" | "hold" | "reject", findings: { code: string; evidence_item_numbers: number[] }[]) =>
+    settle({ verdict, summary: "A game.", has_sexual_content_involving_minors: false, findings: findings.map((finding) => ({ ...finding, message: `${finding.code}.` })) }, items);
+
+  it("rejects a finding that cites the evidence, whatever verdict the judge picked, a picture's included", () => {
+    expect(answer("hold", [{ code: "ai_free_text_chat", evidence_item_numbers: [1] }])).toMatchObject({ verdict: "reject", findings: [{ code: "ai_free_text_chat", severity: "reject", path: "chat.js" }] });
+    expect(answer("hold", [{ code: "ai_sexual_content", evidence_item_numbers: [2] }])).toMatchObject({ verdict: "reject", findings: [{ code: "ai_sexual_content", severity: "reject", path: "art/ending.png" }] });
+    expect(answer("hold", [{ code: "ai_lifelike_gore", evidence_item_numbers: [3] }, { code: "ai_free_text_chat", evidence_item_numbers: [1] }]).verdict).toBe("reject");
+  });
+
+  it("holds for a person only for lifelike gore alone, a finding with no evidence, or a judge that stops a game with no finding", () => {
+    expect(answer("pass", [{ code: "ai_lifelike_gore", evidence_item_numbers: [3] }])).toMatchObject({ verdict: "hold", findings: [{ code: "ai_lifelike_gore", severity: "hold" }] });
+    expect(answer("reject", [{ code: "ai_malware", evidence_item_numbers: [9] }])).toMatchObject({ verdict: "hold", findings: [{ code: "ai_malware", severity: "hold" }] });
+    expect(answer("hold", [])).toMatchObject({ verdict: "hold", findings: [{ code: "ai_concern" }] });
+    expect(answer("pass", [])).toMatchObject({ verdict: "pass", findings: [] });
   });
 });
 
@@ -534,8 +563,8 @@ describe("re-uploads checked against their hold", () => {
   it("checks a fix against its hold: what the held version already had stays passed, except malware", async () => {
     const cases: { fixFinding: JudgeFinding; decision: ScanReport["decision"] }[] = [
       { fixFinding: { code: "ai_other", path: "game.js" }, decision: "approved" },
-      { fixFinding: { code: "ai_other", path: "chat.js" }, decision: "held" },
-      { fixFinding: { code: "ai_malware", path: "game.js" }, decision: "held" },
+      { fixFinding: { code: "ai_other", path: "chat.js" }, decision: "rejected" },
+      { fixFinding: { code: "ai_malware", path: "game.js" }, decision: "rejected" },
     ];
     for (const [index, { fixFinding, decision }] of cases.entries()) {
       const game = await createGame(env.DB, { slug: `ember-keep-${index}`, title: "Ember Keep", description: "Hold the keep." });
@@ -550,7 +579,7 @@ describe("re-uploads checked against their hold", () => {
       expect(brief.earlierHold).toMatchObject({ findings: [{ code: "ai_lifelike_gore", path: "gore.js" }], addedPaths: ["chat.js"], changedPaths: ["gore.js"], removedPaths: [] });
       expect(brief.earlierHold!.carriedItemNumbers).toEqual([brief.items.findIndex((evidenceItem) => evidenceItem.path === "game.js") + 1]);
       expect(fixed.decision).toBe(decision);
-      expect(fixed.findings.find((finding) => finding.code === fixFinding.code)?.severity).toBe(decision === "approved" ? "info" : "hold");
+      expect(fixed.findings.find((finding) => finding.code === fixFinding.code)?.severity).toBe(decision === "approved" ? "info" : "reject");
     }
   });
 
@@ -1031,9 +1060,11 @@ describe("pages", () => {
   it("shows a Fine and a Not fine example under every content rule", async () => {
     const page = await (await SELF.fetch(`${LOCAL}/legal/content-rules`)).text();
     for (const rule of Object.keys(CONTENT_RULES)) {
-      const item = page.match(new RegExp(`<li id="${rule}">([\\s\\S]*?)</li>`))?.[1] ?? "";
-      expect(item, rule).toContain("<strong>Fine:</strong>");
-      expect(item, rule).toContain("<strong>Not fine:</strong>");
+      // Each rule is a fold row anchored by its name: its test in the head, Fine and Not fine under it.
+      const item = page.match(new RegExp(`<details class="fold-row" id="${rule}">([\\s\\S]*?)</details>`))?.[1] ?? "";
+      expect(item, rule).toContain(CONTENT_RULE_DETAILS[rule as keyof typeof CONTENT_RULE_DETAILS].test.slice(0, 30).replace(/"/g, "&quot;").replace(/'/g, "&#39;"));
+      expect(item, rule).toContain("<dt>Fine</dt>");
+      expect(item, rule).toContain("<dt>Not fine</dt>");
     }
     expect(page).not.toContain("review doesn");
   });
