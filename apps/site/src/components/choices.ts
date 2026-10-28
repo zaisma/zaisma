@@ -167,7 +167,7 @@ export function selectField(options: SelectFieldOptions): ControlMarkup {
   // The list is a pane of glass (the popover) holding the listbox, which scrolls inside it, so its rail and its cut edge stay inside the glass.
   const list = html`<div class="select-list glass${options.icon ? " after-icon" : ""}${isOpen ? " in-place" : ""}${isAbove ? " is-above" : ""}" id="${id}-list" data-glass data-glass-corners="menu"${isOpen ? "" : raw(" popover")}>${EDGE}<div class="select-options" id="${id}-choices" role="listbox" aria-labelledby="${id}-label" tabindex="-1" data-own-fade>${options.choices.map(
     (choice, choiceIndex) =>
-      html`<div class="select-option" role="option" id="${id}-option-${choiceIndex}" data-choice-value="${choice.choiceValue}" aria-selected="${choice === picked ? "true" : "false"}" data-cut-line="8">${CUT_LINE}<span>${choice.label}</span></div>`,
+      html`<div class="select-option${isOpen && choice === picked ? " is-active" : ""}" role="option" id="${id}-option-${choiceIndex}" data-choice-value="${choice.choiceValue}" aria-selected="${choice === picked ? "true" : "false"}" data-cut-line="8">${CUT_LINE}<span>${choice.label}</span><span class="select-tick">${icon("check")}</span></div>`,
   )}</div></div>`;
   const sizes = html`<span class="select-sizes" aria-hidden="true">${options.placeholder ? html`<span>${options.placeholder}</span>` : ""}${options.choices.map((choice) => html`<span>${choice.label}</span>`)}</span>`;
   const opens = isOpen || options.isDisabled ? raw("") : html` popovertarget="${id}-list"`;
@@ -291,8 +291,8 @@ component({
   summary: "One of many, from a list: a region, a language, a category. It opens a list of Zaisma's glass under the field, on every device. For one of a few, use Choice cards or a Switch.",
   styles: `
 /* A select field: the cut field holding a button with the picked choice; the birthday field's chevron sits at its end and turns as it opens.
-   Its list is a pane of the menus' glass hanging just under the field, as wide as it, its choices on the switch's slabs: a faint one under
-   the pointer or the arrow keys, the white one with the orange line on the picked. */
+   Its list is a pane of the menus' glass hanging just under the field, as wide as it: the choice under the pointer or the arrow keys is on
+   the switch's white slab, alone (a line under it would read as one over the next), and the picked one has a tick at its end. */
 .select-button { position: relative; z-index: 2; flex: 1; min-width: 0; width: 100%; height: 100%; padding: 0 calc(var(--pad-inside-words) + 24px) 0 calc(var(--pad-inside-words) + 34px); border: 0; border-radius: 0; cursor: pointer; text-align: left;
   font: 500 1.125rem var(--display); color: var(--ink);
   --face-color: var(--field-face); background: var(--face-color); box-shadow: var(--field-shade); clip-path: var(--cut-shape); transition: --face-color 0.25s; }
@@ -326,7 +326,7 @@ component({
 @starting-style { .select-list:popover-open { opacity: 0; transform: translateY(-6px); } .select-list.is-above:popover-open { transform: translateY(6px); } }
 /* Shown open in place (the gallery's open states), it holds every choice: there's no window edge to keep it from. */
 .select-list.in-place { position: relative; display: flex; width: 100%; max-height: none; }
-/* It scrolls with no fade, so the pick's orange line always shows in full: its rail and a choice cut at its edge say there's more. */
+/* It scrolls with no fade, so the slab always shows in full: its rail and a choice cut at its edge say there's more. */
 .select-options { flex: 0 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; outline: none; }
 .select-options.own-scroll.shows-rail { padding-right: 18px; }
 .select-option { position: relative; display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 8px calc(var(--pad-inside-words) - 4px) 11px; cursor: pointer; flex: none;
@@ -336,9 +336,12 @@ component({
 @media (pointer: coarse) { .select-option { min-height: var(--control-height-regular); } }
 .select-option > :not(.cut-line) { position: relative; z-index: 2; }
 .select-option > span { flex: 1; }
-.select-option.is-active { --face-color: var(--ghost); color: var(--ink); }
-/* The pick is marked once: the white slab with the orange line along its foot, as on a switch. */
-.select-option[aria-selected="true"] { color: var(--ink); background: var(--slab); box-shadow: var(--slab-shade), inset 0 -3px 0 var(--run); }
+.select-option.is-active { color: var(--ink); background: var(--slab); box-shadow: var(--slab-shade); }
+/* The pick: its words in full ink and a tick at its end, so it shows wherever the slab is. */
+.select-option[aria-selected="true"] { color: var(--ink); }
+.select-option > .select-tick { flex: none; display: inline-flex; visibility: hidden; color: var(--ink); }
+.select-tick > .ico { width: 18px; height: 18px; stroke-width: 2.2; }
+.select-option[aria-selected="true"] > .select-tick { visibility: visible; }
 .select-options:focus-visible .select-option.is-active > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 @media (prefers-reduced-motion: reduce) { .select-list, .select-chev { transition: var(--glass-transition); } }
 `,
@@ -539,7 +542,7 @@ component({
   slug: "choice-cards",
   group: "inputs",
   subgroup: "choices",
-  summary: "One of a few, when each needs a line to say what it means: who can see a game, how its rooms run. Compact for many (a report's reasons): close together down a carved well that scrolls. The picked one is the raised white slab with the orange line; the rest sit carved and quieter.",
+  summary: "One of a few, when each needs a line to say what it means: who can see a game, how its rooms run. Compact for many (a report's reasons): close together down a carved well that scrolls. The picked one is the raised white slab (with the orange line along its foot when they sit side by side); the rest sit carved and quieter.",
   styles: `
 /* Choice cards: radios as cut slabs. The ones not picked are carved into the glass, their words quieter; the picked one rises out of it as
    the switch's white slab, lit, with its orange line along its foot and its words in full ink. Pointing at one brightens its carving. The
@@ -584,7 +587,7 @@ component({
 .choice-card:has(.choice-input:focus-visible) > .cut-line polygon, .choice-card.is-focused.cut-carved > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 /* Compact: a carved well, like a vertical switch's, scrolling once it's taller than about six choices. The cards inside are flat and close
    together, their line under their name, with no outline of their own: the well is carved, and only the picked one is a slab.
-   It scrolls with no fade, so the picked card's orange line always shows in full: its rail and a card cut at its edge say there's more. */
+   It scrolls with no fade, so the picked card's slab always shows in full: its rail and a card cut at its edge say there's more. */
 .choice-list { position: relative; display: flex; max-height: 336px; padding: 4px; background: var(--well); box-shadow: var(--well-shade); clip-path: var(--cut-shape); }
 .choice-list-in { flex: 1; min-width: 0; overflow-y: auto; display: flex; flex-direction: column; gap: var(--gap-control-row); }
 /* With a mouse it scrolls on Zaisma's rail, inside its right edge: the cards keep clear of it. */
@@ -594,7 +597,9 @@ component({
 .choice-list .choice-card.cut-carved > .cut-line { --band-top: transparent; --band-left: transparent; --band-right: transparent; --band-bottom: transparent; }
 .choice-list .choice-card.cut-carved > .cut-line polygon { stroke: transparent; }
 .choice-list .choice-card:hover, .choice-list .choice-card.is-pointed { --face-color: var(--ghost); }
+/* Down a list the picked one is the slab alone: a line under it would read as one over the card below. */
 .choice-list .choice-card:has(.choice-input:checked) { box-shadow: var(--slab-shade); }
+.choice-list .choice-card:has(.choice-input:checked)::after { content: none; }
 .choice-list .choice-card:has(.choice-input:focus-visible) > .cut-line polygon, .choice-list .choice-card.is-focused > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 /* On a phone it doesn't scroll by itself: the sheet or page it's in does, so there's never a scroll inside a scroll. */
 @media (max-width: 760px) { .choice-list { max-height: none; } }

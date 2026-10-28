@@ -10,7 +10,7 @@ import { COMPONENT_GROUPS, COMPONENT_SUBGROUPS, GALLERY_PLACES, galleryPagePath,
 import { COMPONENTS, COMPONENT_SCRIPT, COMPONENT_STYLES, HEADER_SCRIPT } from "./components/index.ts";
 import { EDGE, STAND_IN_BACKGROUNDS_SCRIPT, backdrop, logo, pageSettingsAttributes, railMarkup } from "./components/foundations.ts";
 import { secondaryButton, primaryButton, textLink } from "./components/actions.ts";
-import { cutField } from "./components/inputs.ts";
+import { SEARCH_STAND_IN, cutField } from "./components/inputs.ts";
 import { loadMore, sidebar, sidebarButton, sidebarLayout, type SidebarPlace } from "./components/navigation.ts";
 import { row, stack } from "./components/layout.ts";
 import { listRows, emptyState } from "./components/data.ts";
@@ -102,6 +102,7 @@ function olderVersionsPage(env: Env, url: URL): Response {
 
 export function designPage(env: Env, url: URL): Response | null {
   if (url.pathname === "/design/examples/older-versions") return olderVersionsPage(env, url);
+  if (url.pathname === "/design/examples/search-suggestions") return new Response(JSON.stringify(SEARCH_STAND_IN(url.searchParams.get("search") ?? "")), { headers: securityHeaders(env, { "Content-Type": "application/json" }) });
   if (url.pathname === "/design/example") return examplePage(env);
   if (url.pathname === SCREENS_PATH) return isLocalSite(env) ? screensPage(env, url) : null;
   const found = placeOfPath(url.pathname.replace(/\/+$/, "") || "/");

@@ -2,7 +2,7 @@ import { PURCHASE_PIN_LIMITS } from "@zaisma/core";
 import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
 import { controlMarkup, type ControlMarkup } from "./control-markup.ts";
-import { CUT_LINE, icon, type IconName } from "./foundations.ts";
+import { CUT_LINE, EDGE, icon, type IconName } from "./foundations.ts";
 import { secondaryButton, toggleButton } from "./actions.ts";
 import { examplePane } from "./example-pane.ts";
 import { row } from "./layout.ts";
@@ -70,16 +70,55 @@ export interface SearchFieldOptions {
   label: string;
   /** Fields the search keeps, like the forum's category. */
   keep?: Record<string, string>;
-  /** The gallery's fixed focus. */
-  state?: "is-focused";
+  /** Unique on the page; its list of finishes and games is <id>-list. Defaults to find-<name>. */
+  id?: string;
+  /**
+   * Finishes and games as you type: GET <suggestionsUrl>?search=<what's typed> answers SearchSuggestions, shown in a list under the field.
+   * Left out, it's a plain search.
+   */
+  suggestionsUrl?: string;
+  /** The gallery's fixed states: focused, or open with the list these suggestions make, its first row picked. */
+  state?: "is-focused" | "is-open";
+  shownSuggestions?: SearchSuggestions;
 }
+
+/** What a search's suggestionsUrl answers, as JSON: up to three ways to finish what's typed, most likely first, and up to three games it finds. */
+export interface SearchSuggestions {
+  finishes: string[];
+  games: { title: string; page_url: string; cover_url: string; fact: string }[];
+}
+
+/** What's typed in words, the part that matches it in bold. */
+const matchWords = (text: string, typed: string): Raw => {
+  const at = typed ? text.toLowerCase().indexOf(typed.toLowerCase()) : -1;
+  return at < 0 ? html`<span>${text}</span>` : html`<span>${text.slice(0, at)}<b>${text.slice(at, at + typed.length)}</b>${text.slice(at + typed.length)}</span>`;
+};
+
+/** A search's rows, as SEARCH_SCRIPT makes them: finishes, then the games under a Games heading. */
+const suggestionRows = (id: string, typed: string, suggestions: SearchSuggestions, activeIndex: number): Raw => {
+  const finishes = suggestions.finishes.slice(0, 3), games = suggestions.games.slice(0, 3);
+  const active = (rowIndex: number) => (rowIndex === activeIndex ? " is-active" : "");
+  return html`${finishes.map((finish, rowIndex) => html`<div class="select-option find-finish-row${active(rowIndex)}" role="option" id="${id}-row-${rowIndex}" data-finish="${finish}" data-cut-line="8">${CUT_LINE}<span class="find-row-icon">${icon("search")}</span>${matchWords(finish, typed)}</div>`)}${
+    games.length ? html`<div class="find-head" role="presentation">Games</div>` : ""
+  }${games.map((game, gameIndex) => html`<a class="select-option find-game${active(finishes.length + gameIndex)}" role="option" id="${id}-row-${finishes.length + gameIndex}" href="${game.page_url}" tabindex="-1" data-cut-line="8">${CUT_LINE}<img src="${game.cover_url}" alt="" width="64" height="36"><span class="find-game-words">${matchWords(game.title, typed)}<span class="find-game-fact">${game.fact}</span></span></a>`)}`;
+};
 
 /**
  * Search: the cut field's sibling, a control's height (it sits in the header's row): the same face, carving, icon, indent and words, and a
  * Clear button at its end once something's typed. "/" jumps to it in the header.
  */
 export function searchField(options: SearchFieldOptions): ControlMarkup {
-  return controlMarkup(html`<form class="find cut-carved${options.state ? ` ${options.state}` : ""}" method="get" action="${options.action}" role="search" data-cut-line="10">${CUT_LINE}${Object.entries(options.keep ?? {}).map(([name, keptValue]) => html`<input type="hidden" name="${name}" value="${keptValue}">`)}${icon("search")}<input type="search" name="${options.name}" value="${options.searchText}" maxlength="200" placeholder="${options.placeholder}" aria-label="${options.label}" autocomplete="off">${secondaryButton("Clear the search", { type: "button", icon: "close", isLabelHidden: true, isInWell: true })}</form>`, "regular");
+  const id = options.id ?? `find-${options.name}`;
+  const isOpen = options.state === "is-open" && Boolean(options.shownSuggestions);
+  const firstFinish = isOpen ? options.shownSuggestions?.finishes[0] : undefined;
+  const typedFinish = firstFinish && options.searchText && firstFinish.toLowerCase().startsWith(options.searchText.toLowerCase()) ? firstFinish.slice(options.searchText.length) : "";
+  const suggests = options.suggestionsUrl !== undefined || isOpen;
+  const combobox = suggests ? html` role="combobox" aria-autocomplete="both" aria-expanded="${isOpen ? "true" : "false"}" aria-controls="${id}-choices"${isOpen ? html` aria-activedescendant="${id}-row-0"` : ""}` : "";
+  const list = suggests
+    ? html`<span class="find-finish" aria-hidden="true"><span class="find-typed">${typedFinish ? options.searchText : ""}</span><span>${typedFinish}</span></span><div class="select-list find-list glass${isOpen ? " in-place" : ""}" id="${id}-list" data-glass data-glass-corners="menu"${isOpen ? "" : raw(' popover="manual"')}>${EDGE}<div class="select-options" id="${id}-choices" role="listbox" aria-label="${options.label}" data-own-fade>${isOpen && options.shownSuggestions ? suggestionRows(id, options.searchText, options.shownSuggestions, 0) : ""}</div></div><template class="find-icon"><span class="find-row-icon">${icon("search")}</span></template>`
+    : "";
+  const className = ["find", "cut-carved", options.state === "is-open" ? "is-focused is-open" : options.state ?? ""].filter(Boolean).join(" ");
+  return controlMarkup(html`<form class="${className}" method="get" action="${options.action}" role="search" data-cut-line="10"${options.suggestionsUrl !== undefined ? html` data-suggest="${options.suggestionsUrl}"` : ""}>${CUT_LINE}${Object.entries(options.keep ?? {}).map(([name, keptValue]) => html`<input type="hidden" name="${name}" value="${keptValue}">`)}${icon("search")}<input type="search" name="${options.name}" value="${options.searchText}" maxlength="200" placeholder="${options.placeholder}" aria-label="${options.label}" autocomplete="off"${combobox}>${secondaryButton("Clear the search", { type: "button", icon: "close", isLabelHidden: true, isInWell: true })}${list}</form>`, "regular");
 }
 
 export interface BirthdayFieldOptions {
@@ -356,6 +395,125 @@ export const FIELD_SCRIPT = `/* fields */(function () {
   });
   document.addEventListener("selectionchange", function () { var input = document.activeElement; if (input && input.matches && input.matches(TEXT)) later(input); });
   window.zaismaWatch.each(TEXT, function (input) { fadeText(input); window.zaismaWatch.size(input, function () { fadeText(input); }); });
+})();
+`;
+
+/**
+ * A search's finishes and games as you type (form.find[data-suggest]): it asks its suggestionsUrl a moment after typing stops and lists up
+ * to three finishes, then up to three games, in a select field's list under it. Up and down move the white slab through them, as does the
+ * pointer; on a finish, the rest of it shows quietly after what's typed. Tab takes the finish and waits; Enter takes it and searches, or on
+ * a game opens it; Esc closes the list. Each finish taken is typed in as far as the page is concerned (an input event).
+ */
+export const SEARCH_SCRIPT = `/* search finishes */(function () {
+  var GAP_PX = 6, EDGE_PX = 8, WAIT_MS = 120;
+  window.zaismaWatch.each("form.find[data-suggest]", function (form) {
+    var input = form.querySelector('input[type="search"]'), list = form.querySelector(".find-list"), box = list.querySelector('[role="listbox"]');
+    var ghost = form.querySelector(".find-finish"), typedPart = ghost.firstElementChild, restPart = ghost.lastElementChild, iconTemplate = form.querySelector("template.find-icon");
+    var id = list.id.replace(/-list$/, ""), url = form.getAttribute("data-suggest"), rows = [], active = -1, timer = 0, asking = null, answers = new Map();
+    // Lifted out to the page, like a select field's list, so no pane's glass or clip is round it.
+    if (form.closest(".smoke")) list.classList.add("smoke");
+    document.body.appendChild(list);
+    function isOpen() { return list.matches(":popover-open"); }
+    function place() {
+      var r = form.getBoundingClientRect();
+      if (r.bottom < 0 || r.top > window.innerHeight) { hide(); return; }
+      list.style.width = r.width + "px";
+      var spot = window.zaismaPlace(r, { width: r.width, height: list.offsetHeight }, { gapPx: GAP_PX, edgePx: EDGE_PX });
+      list.style.left = Math.round(spot.leftPx) + "px"; list.style.top = Math.round(spot.topPx) + "px";
+      list.classList.toggle("is-above", spot.isAbove);
+    }
+    // The rest of the finish you're on, after what's typed, while what's typed is all in view.
+    function showFinish() {
+      var row = isOpen() && rows[active], typed = input.value, finish = row && row.getAttribute("data-finish");
+      var fits = finish && typed && finish.length > typed.length && finish.toLowerCase().indexOf(typed.toLowerCase()) === 0 && input.scrollLeft < 1;
+      typedPart.textContent = fits ? typed : ""; restPart.textContent = fits ? finish.slice(typed.length) : "";
+    }
+    function setActive(index) {
+      active = index;
+      rows.forEach(function (row, rowIndex) { row.classList.toggle("is-active", rowIndex === index); });
+      if (index >= 0) { input.setAttribute("aria-activedescendant", rows[index].id); var row = rows[index]; if (row.offsetTop < box.scrollTop) box.scrollTop = row.offsetTop; else if (row.offsetTop + row.offsetHeight > box.scrollTop + box.clientHeight) box.scrollTop = row.offsetTop + row.offsetHeight - box.clientHeight; }
+      else input.removeAttribute("aria-activedescendant");
+      showFinish();
+    }
+    function show() {
+      if (!isOpen()) {
+        var themed = form.closest("[data-theme-choice]");
+        if (themed && themed !== document.documentElement) list.setAttribute("data-theme-choice", themed.getAttribute("data-theme-choice")); else list.removeAttribute("data-theme-choice");
+        list.style.setProperty("--glass-hue", getComputedStyle(form).getPropertyValue("--glass-hue"));
+        list.showPopover();
+      }
+      input.setAttribute("aria-expanded", "true"); form.classList.add("is-open"); place(); showFinish();
+    }
+    function hide() { if (isOpen()) list.hidePopover(); input.setAttribute("aria-expanded", "false"); form.classList.remove("is-open"); showFinish(); }
+    // What's typed, the part of the words that matches it in bold.
+    function words(text, typed) {
+      var span = document.createElement("span"), at = typed ? text.toLowerCase().indexOf(typed.toLowerCase()) : -1;
+      if (at < 0) { span.textContent = text; return span; }
+      var bold = document.createElement("b"); bold.textContent = text.slice(at, at + typed.length);
+      span.append(text.slice(0, at), bold, text.slice(at + typed.length));
+      return span;
+    }
+    function newRow(tag, kind) {
+      var row = document.createElement(tag); row.className = "select-option find-" + kind; row.setAttribute("role", "option"); row.id = id + "-row-" + rows.length; row.setAttribute("data-cut-line", "8");
+      return row;
+    }
+    function fill(answer, typed) {
+      box.textContent = ""; rows = [];
+      (answer.finishes || []).slice(0, 3).forEach(function (finish) {
+        var row = newRow("div", "finish-row"); row.setAttribute("data-finish", finish);
+        row.append(iconTemplate.content.cloneNode(true), words(finish, typed)); box.appendChild(row); rows.push(row);
+      });
+      var games = (answer.games || []).slice(0, 3);
+      if (games.length) { var head = document.createElement("div"); head.className = "find-head"; head.setAttribute("role", "presentation"); head.textContent = "Games"; box.appendChild(head); }
+      games.forEach(function (game) {
+        var row = newRow("a", "game"); row.href = game.page_url; row.tabIndex = -1;
+        var cover = document.createElement("img"); cover.src = game.cover_url; cover.alt = ""; cover.width = 64; cover.height = 36;
+        var gameWords = document.createElement("span"), fact = document.createElement("span");
+        gameWords.className = "find-game-words"; fact.className = "find-game-fact"; fact.textContent = game.fact;
+        gameWords.append(words(game.title, typed), fact); row.append(cover, gameWords); box.appendChild(row); rows.push(row);
+      });
+      if (rows.length && document.activeElement === input) { show(); setActive(0); } else { setActive(-1); hide(); }
+    }
+    function ask() {
+      var typed = input.value.trim();
+      if (asking) { asking.abort(); asking = null; }
+      if (!typed) { rows = []; box.textContent = ""; setActive(-1); hide(); return; }
+      if (answers.has(typed)) { fill(answers.get(typed), typed); return; }
+      asking = new AbortController();
+      fetch(url + (url.indexOf("?") < 0 ? "?" : "&") + "search=" + encodeURIComponent(typed), { signal: asking.signal, headers: { Accept: "application/json" } })
+        .then(function (answer) { return answer.ok ? answer.json() : { finishes: [], games: [] }; })
+        .then(function (answer) { answers.set(typed, answer); if (input.value.trim() === typed) fill(answer, typed); })
+        .catch(function () {});
+    }
+    // A finish taken goes in as if typed, so the page's own search as you type follows it too.
+    function take() { var row = rows[active]; if (!row || !row.hasAttribute("data-finish")) return; input.value = row.getAttribute("data-finish"); input.dispatchEvent(new Event("input", { bubbles: true })); }
+    function go() {
+      var row = rows[active];
+      if (row && row.tagName === "A") { location.href = row.href; return; }
+      if (row) { input.value = row.getAttribute("data-finish"); input.dispatchEvent(new Event("input", { bubbles: true })); }
+      clearTimeout(timer); if (asking) asking.abort(); hide();
+      form.requestSubmit();
+    }
+    input.addEventListener("input", function () { clearTimeout(timer); showFinish(); timer = setTimeout(ask, WAIT_MS); });
+    input.addEventListener("scroll", showFinish);
+    input.addEventListener("keydown", function (event) {
+      var key = event.key;
+      if (key === "ArrowDown" || key === "ArrowUp") {
+        event.preventDefault();
+        if (!isOpen()) { if (rows.length) { show(); setActive(0); } else ask(); return; }
+        setActive((active + (key === "ArrowDown" ? 1 : -1) + rows.length) % rows.length);
+      } else if (key === "Tab" && !event.shiftKey && isOpen() && restPart.textContent) { event.preventDefault(); take(); }
+      else if (key === "Enter" && isOpen() && active >= 0) { event.preventDefault(); go(); }
+      else if (key === "Escape" && isOpen()) { event.preventDefault(); hide(); }
+    });
+    input.addEventListener("focusout", function () { setTimeout(function () { if (document.activeElement !== input) hide(); }, 0); });
+    // The list never takes the focus: a press on it leaves the cursor in the field.
+    list.addEventListener("pointerdown", function (event) { event.preventDefault(); });
+    list.addEventListener("pointermove", function (event) { var row = event.target.closest(".select-option"); var index = rows.indexOf(row); if (index >= 0 && index !== active) setActive(index); });
+    list.addEventListener("click", function (event) { var row = event.target.closest(".select-option"); var index = rows.indexOf(row); if (index < 0) return; event.preventDefault(); setActive(index); go(); });
+    window.zaismaWatch.resize(function () { if (isOpen()) place(); });
+    window.zaismaWatch.scroll(function () { if (isOpen()) place(); });
+  });
 })();
 `;
 
@@ -726,6 +884,31 @@ component({
   ],
 });
 
+/** Finishes the gallery's search offers: genres, and the stand-in games' names. */
+const STAND_IN_FINISHES = ["action", "adventure", "ashen crown", "ashen crown co-op", "ashen crown the long night", "frostline", "glasswing", "hollow tide", "horror", "iron vigil", "iron vigil siege", "kestrel", "neon drift", "neon drift ranked", "racing", "role-playing", "roguelike", "shooter", "simulation", "sports", "strategy", "survival", "verdant"];
+
+/** Games the gallery's search finds, from the stand-in covers (panes.ts's STAND_IN_GAMES; that file imports this one, so they're named here). */
+const SEARCH_STAND_IN_GAMES = [
+  { slug: "ashen-crown", title: "Ashen Crown", playerCount: 1204 },
+  { slug: "neon-drift", title: "Neon Drift", playerCount: 3870 },
+  { slug: "hollow-tide", title: "Hollow Tide", playerCount: 412 },
+  { slug: "iron-vigil", title: "Iron Vigil", playerCount: 8214 },
+  { slug: "frostline", title: "Frostline", playerCount: 2290 },
+  { slug: "kestrel", title: "Kestrel", playerCount: 1730 },
+];
+
+/** The gallery's answer to a search's suggestionsUrl (/design/examples/search-suggestions): finishes and the stand-in games for what's typed. */
+export const SEARCH_STAND_IN = (typed: string): SearchSuggestions => {
+  const search = typed.trim().toLowerCase();
+  if (!search) return { finishes: [], games: [] };
+  return {
+    finishes: STAND_IN_FINISHES.filter((finish) => finish.startsWith(search) && finish !== search).slice(0, 3),
+    games: SEARCH_STAND_IN_GAMES.filter((game) => game.title.toLowerCase().includes(search))
+      .slice(0, 3)
+      .map((game) => ({ title: game.title, page_url: "#search-field", cover_url: `/design/covers/${game.slug}.webp`, fact: `${game.playerCount.toLocaleString("en-US")} playing` })),
+  };
+};
+
 component({
   name: "Search field",
   slug: "search-field",
@@ -761,12 +944,38 @@ component({
 .find > .cut-btn { position: absolute; z-index: 5; top: 0; bottom: 0; right: calc((var(--control-height) - 30px) / 2); align-items: center; }
 .find:has(input:placeholder-shown) > .cut-btn { display: none; }
 .find:not(:has(input:placeholder-shown)) { --search-end-room: calc(46px + var(--control-height) - 30px); }
+/* Finishes and games as you type (suggestionsUrl, SEARCH_SCRIPT): a select field's list hangs under it. The row you're on is the white slab
+   alone, and when it's a finish, the rest of it shows after what's typed, quieter, in the field itself: Tab takes it, Enter takes it and
+   searches. On a game, Enter opens the game. */
+.find-finish { position: absolute; z-index: 2; inset: 0 var(--search-end-room) 0 calc(var(--pad-inside-words) + 34px); display: flex; align-items: center; overflow: hidden; white-space: pre; pointer-events: none;
+  font: 500 1.125rem var(--display); color: var(--muted); }
+.find-finish > .find-typed { visibility: hidden; }
+.find-list .select-option { text-decoration: none; }
+.find-list .select-option b { font-weight: 600; color: var(--ink); }
+.find-list .select-option > .find-row-icon { flex: none; display: inline-flex; color: var(--muted); }
+.find-row-icon > .ico { width: 18px; height: 18px; }
+.find-list .select-option.is-active .find-row-icon { color: var(--ink); }
+.find-head { padding: 8px calc(var(--pad-inside-words) - 4px) 2px; font: var(--type-note); color: var(--muted); }
+.find-game > img { flex: none; width: 64px; height: 36px; object-fit: cover; background: var(--well); }
+.find-game-words { display: grid; gap: 2px; min-width: 0; }
+.find-game-fact { font: var(--type-note); color: var(--muted); }
+/* Shown open in place (the gallery's open state): hanging under the field, over what follows it. */
+.find > .find-list.in-place { position: absolute; z-index: 6; top: calc(100% + 6px); left: 0; right: 0; }
 `,
   render: searchField,
   examples: [
     { label: "Rest", markup: html`<div style="width:min(460px,100%)">${searchField({ action: "#search-field", name: "search_text", searchText: "", placeholder: "Search games", label: "Search games" })}</div>` },
     { label: "Focused, typed: Clear at its end", markup: html`<div style="width:min(460px,100%)">${searchField({ action: "#search-field", name: "search_text", searchText: "rally", placeholder: "Search games", label: "Search games", state: "is-focused" })}</div>`, isStill: true },
     { label: "Typed, a long search", markup: html`<div style="width:min(460px,100%)">${searchField({ action: "#search-field", name: "search_text", searchText: "open world survival with co-op, base building and a long story", placeholder: "Search games", label: "Search games" })}</div>` },
+    {
+      label: "Finishes and games as you type: try ash, neon or iron, then the arrows, Tab and Enter",
+      markup: html`<div style="width:min(460px,100%)">${searchField({ id: "example-find-try", action: "#search-field", name: "search_text", searchText: "", placeholder: "Search games", label: "Search games", suggestionsUrl: "/design/examples/search-suggestions" })}</div>`,
+    },
+    {
+      label: "Open: the first finish in the field",
+      markup: html`<div style="width:min(460px,100%);min-height:22rem">${searchField({ id: "example-find-open", action: "#search-field", name: "search_text", searchText: "ash", placeholder: "Search games", label: "Search games", state: "is-open", shownSuggestions: SEARCH_STAND_IN("ash") })}</div>`,
+      isStill: true,
+    },
   ],
 });
 
@@ -853,7 +1062,7 @@ component({
 .date-time-wheels [role="option"][aria-selected="true"] { font-size: 1rem; }
 /* On a phone what's typed or picked is 16px, the least that keeps a phone from zooming in, so more of it fits: in a cut field, a search, a
    birthday's and a date's. Set here, after each of those fields' own font, so it holds on every one. */
-@media (max-width: 760px) { .field input, .find input[type="search"], .bday-field { font-size: 1rem; } }
+@media (max-width: 760px) { .field input, .find input[type="search"], .find-finish, .bday-field { font-size: 1rem; } }
 `,
   render: dateTimeField,
   examples: [
