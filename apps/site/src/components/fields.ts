@@ -90,8 +90,8 @@ export interface SearchSuggestions {
 
 /** What's typed in words, the part that matches it in bold. */
 const matchWords = (text: string, typed: string): Raw => {
-  const at = typed ? text.toLowerCase().indexOf(typed.toLowerCase()) : -1;
-  return at < 0 ? html`<span>${text}</span>` : html`<span>${text.slice(0, at)}<b>${text.slice(at, at + typed.length)}</b>${text.slice(at + typed.length)}</span>`;
+  const matchIndex = typed ? text.toLowerCase().indexOf(typed.toLowerCase()) : -1;
+  return matchIndex < 0 ? html`<span>${text}</span>` : html`<span>${text.slice(0, matchIndex)}<b>${text.slice(matchIndex, matchIndex + typed.length)}</b>${text.slice(matchIndex + typed.length)}</span>`;
 };
 
 /** A search's rows, as SEARCH_SCRIPT makes them: finishes, then the games under a Games heading. */
@@ -404,8 +404,8 @@ export const FIELD_SCRIPT = `/* fields */(function () {
     var keep = kept(input, input.value);
     if (input.maxLength >= 0) keep = keep.slice(0, input.maxLength);
     if (keep === input.value) return;
-    var at = kept(input, input.value.slice(0, input.selectionStart || 0)).length;
-    input.value = keep; input.setSelectionRange(Math.min(at, keep.length), Math.min(at, keep.length));
+    var caretIndex = kept(input, input.value.slice(0, input.selectionStart || 0)).length;
+    input.value = keep; input.setSelectionRange(Math.min(caretIndex, keep.length), Math.min(caretIndex, keep.length));
   }
   document.addEventListener("input", function (event) { if (event.target.matches && event.target.matches(TAKES) && !event.isComposing) clean(event.target); }, true);
   document.addEventListener("compositionend", function (event) { if (event.target.matches && event.target.matches(TAKES)) clean(event.target); }, true);
@@ -461,10 +461,10 @@ export const SEARCH_SCRIPT = `/* search finishes */(function () {
     function hide() { float.close(false); showFinish(); }
     // What's typed, the part of the words that matches it in bold.
     function words(text, typed) {
-      var span = document.createElement("span"), at = typed ? text.toLowerCase().indexOf(typed.toLowerCase()) : -1;
-      if (at < 0) { span.textContent = text; return span; }
-      var bold = document.createElement("b"); bold.textContent = text.slice(at, at + typed.length);
-      span.append(text.slice(0, at), bold, text.slice(at + typed.length));
+      var span = document.createElement("span"), matchIndex = typed ? text.toLowerCase().indexOf(typed.toLowerCase()) : -1;
+      if (matchIndex < 0) { span.textContent = text; return span; }
+      var bold = document.createElement("b"); bold.textContent = text.slice(matchIndex, matchIndex + typed.length);
+      span.append(text.slice(0, matchIndex), bold, text.slice(matchIndex + typed.length));
       return span;
     }
     function newRow(tag, kind) {
@@ -731,8 +731,8 @@ export const WHEEL_SCRIPT = String.raw`/* wheel fields */(function () {
         timer = setTimeout(function () { if (isOpen()) setRow(part, Math.round(w.el.scrollTop / ROW)); }, 110);
       }, { passive: true });
       w.el.addEventListener("keydown", function (event) {
-        var i = form.at[part], key = event.key, step = { ArrowDown: 1, ArrowUp: -1, PageDown: 5, PageUp: -5 }[key];
-        if (step) { pickRow(part, i + step, true); event.preventDefault(); return; }
+        var i = form.at[part], key = event.key, stepCount = { ArrowDown: 1, ArrowUp: -1, PageDown: 5, PageUp: -5 }[key];
+        if (stepCount) { pickRow(part, i + stepCount, true); event.preventDefault(); return; }
         if (key === "Home") { pickRow(part, form.hasBlank ? 1 : 0, true); event.preventDefault(); return; }
         if (key === "End") { pickRow(part, w.count - 1, true); event.preventDefault(); return; }
         if (key === "Enter" && form.isComplete()) { close(true); event.preventDefault(); return; }
@@ -975,7 +975,7 @@ component({
 });
 
 const HOURS_ROWS = [0, 1, 2, 3].map((hourCount) => ({ label: `${hourCount} h`, rowValue: String(hourCount) }));
-const MINUTE_ROWS = Array.from({ length: 12 }, (_, step) => ({ label: `${String(step * 5).padStart(2, "0")} min`, rowValue: String(step * 5) }));
+const MINUTE_ROWS = Array.from({ length: 12 }, (_, rowIndex) => ({ label: `${String(rowIndex * 5).padStart(2, "0")} min`, rowValue: String(rowIndex * 5) }));
 const MATCH_LENGTH: WheelColumn[] = [{ name: "match_hours", label: "Hours", rows: HOURS_ROWS, pickedValue: "1" }, { name: "match_minutes", label: "Minutes", rows: MINUTE_ROWS, pickedValue: "30" }];
 
 component({

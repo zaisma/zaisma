@@ -7,7 +7,6 @@ import { lightBox } from "./light-box.ts";
 import { tertiaryButton } from "./actions.ts";
 import { controlMarkup, type ControlMarkup } from "./control-markup.ts";
 import { examplePane } from "./example-pane.ts";
-import { qrCodeSvg } from "@zaisma/core";
 
 /*
  * Inputs: the fields (fields.ts), the switch (switch.ts) and the choices (choices.ts) are re-exported from here, so pages import every
@@ -41,7 +40,7 @@ export function slider(options: SliderOptions): Raw {
   const id = options.id ?? `slider-${options.name}`;
   const filledPct = (100 * (options.pickedNumber - options.minimumNumber)) / Math.max(1e-9, options.maximumNumber - options.minimumNumber);
   const className = ["slider", options.state ?? "", options.isDisabled ? "is-disabled" : ""].filter(Boolean).join(" ");
-  return html`<div class="${className}" style="--fill:${(Math.max(0, Math.min(100, filledPct)) / 100).toFixed(4)}"><div class="slider-head"><label for="${id}">${options.label}</label><output for="${id}" data-unit="${options.unit}">${numberWords(options.pickedNumber, options.unit)}</output></div><div class="slider-track">${groove({ kind: "slider-groove", filledFraction: Math.max(0, Math.min(100, filledPct)) / 100 })}<input class="slider-input" type="range" id="${id}" name="${options.name}" min="${options.minimumNumber}" max="${options.maximumNumber}" step="${options.stepNumber}" value="${options.pickedNumber}"${options.isDisabled ? raw(" disabled") : ""} data-slider><span class="slider-thumb" aria-hidden="true"><span class="slider-slab cut-raised" data-cut-line="6">${CUT_LINE}</span></span></div></div>`;
+  return html`<div class="${className}" style="--fill:${(Math.max(0, Math.min(100, filledPct)) / 100).toFixed(4)}"><div class="slider-head"><label for="${id}">${options.label}</label><output for="${id}" data-unit="${options.unit}">${numberWords(options.pickedNumber, options.unit)}</output></div><div class="slider-track">${groove({ kind: "slider-groove", filledPct })}<input class="slider-input" type="range" id="${id}" name="${options.name}" min="${options.minimumNumber}" max="${options.maximumNumber}" step="${options.stepNumber}" value="${options.pickedNumber}"${options.isDisabled ? raw(" disabled") : ""} data-slider><span class="slider-thumb" aria-hidden="true"><span class="slider-slab cut-raised" data-cut-line="6">${CUT_LINE}</span></span></div></div>`;
 }
 
 /** A slider's fill and number follow its thumb. */
@@ -152,8 +151,8 @@ const byteWords = (byteCount: number): string =>
   byteCount < 1e3 ? `${byteCount}\u00a0bytes` : byteCount < 1e6 ? `${Math.round(byteCount / 1e3)}\u00a0KB` : byteCount < 1e9 ? `${Number((byteCount / 1e6).toFixed(1))}\u00a0MB` : `${Number((byteCount / 1e9).toFixed(2))}\u00a0GB`;
 
 /** A size in a unit that suits it, as a number and its unit, for a Progress: 211 of 482.3 MB. */
-const byteUnit = (byteCount: number): { divisor: number; unit: string } =>
-  byteCount < 1e6 ? { divisor: 1e3, unit: "KB" } : byteCount < 1e9 ? { divisor: 1e6, unit: "MB" } : { divisor: 1e9, unit: "GB" };
+const byteUnit = (byteCount: number): { unitByteCount: number; unit: string } =>
+  byteCount < 1e6 ? { unitByteCount: 1e3, unit: "KB" } : byteCount < 1e9 ? { unitByteCount: 1e6, unit: "MB" } : { unitByteCount: 1e9, unit: "GB" };
 
 /**
  * One picked file's row, carved into the pane: a 16:9 preview (its picture, which opens large in the drop's Light box, or a mark for a file
@@ -163,14 +162,14 @@ const byteUnit = (byteCount: number): { divisor: number; unit: string } =>
 const fileRow = (file: FileDropFile, dropId: string): Raw => {
   const isUploading = file.uploadedByteCount !== undefined && file.uploadedByteCount < file.byteCount;
   const isSent = file.uploadedByteCount !== undefined && file.uploadedByteCount >= file.byteCount;
-  const { divisor, unit } = byteUnit(file.byteCount);
-  const rounded = (byteCount: number) => Number((byteCount / divisor).toFixed(1));
-  const sentPercent = Math.round(((file.uploadedByteCount ?? 0) / Math.max(1, file.byteCount)) * 100);
-  const sent = `${rounded(file.uploadedByteCount ?? 0)} of ${rounded(file.byteCount)} ${unit} · ${sentPercent}%`;
+  const { unitByteCount, unit } = byteUnit(file.byteCount);
+  const rounded = (byteCount: number) => Number((byteCount / unitByteCount).toFixed(1));
+  const sentPct = Math.round(((file.uploadedByteCount ?? 0) / Math.max(1, file.byteCount)) * 100);
+  const sent = `${rounded(file.uploadedByteCount ?? 0)} of ${rounded(file.byteCount)} ${unit} · ${sentPct}%`;
   const about = html`<span class="file-drop-top"><span class="file-drop-name">${file.fileName}</span><span class="file-drop-size">${isUploading ? sent : html`${byteWords(file.byteCount)}${isSent ? " · Sent" : ""}`}</span></span>`;
   // While it sends, a Groove runs along the row's whole foot, from one bottom corner to the other, filling as it goes.
   const sending = isUploading
-    ? html`<span class="file-drop-sending" role="progressbar" aria-label="Sending ${file.fileName}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${String(sentPercent)}" aria-valuetext="${sent}">${groove({ filledFraction: (file.uploadedByteCount ?? 0) / Math.max(1, file.byteCount), isWorking: true })}</span>`
+    ? html`<span class="file-drop-sending" role="progressbar" aria-label="Sending ${file.fileName}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${String(sentPct)}" aria-valuetext="${sent}">${groove({ filledPct: sentPct, isWorking: true })}</span>`
     : "";
   return html`<li class="file-drop-row cut-carved${isUploading ? " is-sending" : ""}" data-cut-line="8">${CUT_LINE}<button type="button" class="file-drop-preview cut-carved" data-cut-line="4" aria-controls="${dropId}-view" aria-label="View ${file.fileName}"${file.previewUrl ? html` style="--picture:url('${file.previewUrl}')" data-picture="${file.previewUrl}"` : raw(" disabled")}>${CUT_LINE}${file.previewUrl ? html`<span class="file-drop-zoom">${icon("search")}</span>` : icon("save")}</button><span class="file-drop-about">${about}</span><span class="file-drop-remove">${tertiaryButton(`Remove ${file.fileName}`, { type: "button", icon: "close", isLabelHidden: true, isSmall: true })}</span>${sending}</li>`;
 };
@@ -475,62 +474,6 @@ component({
     { label: "Code: copied", markup: examplePane(copyField({ id: "example-copy-key-copied", label: "Your new API key", copiedText: API_KEY, isCode: true, state: "is-copied" })), isStill: true },
     { label: "Code: keyboard focus", markup: examplePane(copyField({ id: "example-copy-key-focused", label: "Your new API key", copiedText: API_KEY, isCode: true, state: "is-focused" })), isStill: true },
     { label: "Code: masked", markup: examplePane(copyField({ id: "example-copy-room-masked", label: "Room code", copiedText: "K7PQ2M", isCode: true, isMasked: true })), isStill: true },
-  ],
-});
-
-export interface QrCodeOptions {
-  /** Unique on the page: the picture's, for a page script to point it at a link (its caption is <id>-caption). */
-  id: string;
-  /** What a screen reader says for it: "QR code for this link". */
-  label: string;
-  /** The line under it: "Scan to play". */
-  caption: string;
-  /** The QR code's picture (an SVG Zaisma serves). Left out, a page script sets it. */
-  imageUrl?: string;
-  /** A secret on a screen others may see (a streamer's room): blurred until a page script takes is-masked off it. */
-  isMasked?: boolean;
-  /** On a wide screen, smaller, with its line beside it (a compact sheet's): a phone camera still reads it at that size. On a phone it's as wide as the room allows. */
-  isCompact?: boolean;
-  /** As large as the screen allows, to hold up to someone across a room: the Light box's. */
-  isLarge?: boolean;
-}
-
-/** A QR code: a link as a picture any phone's camera reads, on white whatever the glass, with a line under it saying what it opens. */
-export function qrCode(options: QrCodeOptions): Raw {
-  return html`<figure class="qr-code${options.isMasked ? " is-masked" : ""}${options.isCompact ? " is-compact" : ""}${options.isLarge ? " is-large" : ""}"><img class="qr-picture" id="${options.id}"${options.imageUrl ? html` src="${options.imageUrl}"` : ""} alt="${options.label}" width="220" height="220"><figcaption class="qr-caption" id="${options.id}-caption">${options.caption}</figcaption></figure>`;
-}
-
-/** The gallery's QR code: a stand-in game's address, made as Zaisma makes every game's. */
-export const STAND_IN_QR_CODE = `data:image/svg+xml,${encodeURIComponent(qrCodeSvg("https://zaisma.com/g/ashen-crown"))}`;
-
-component({
-  name: "QR code",
-  slug: "qr-code",
-  group: "inputs",
-  subgroup: "pickers",
-  summary: "A link as a picture a phone's camera reads: a game's address, or a room's, for someone in the same room. Black on white whatever the glass, with a line saying what it opens.",
-  styles: `
-/* A QR code: the picture on white with a quiet margin of white round it, so any phone's camera reads it on light glass or smoked, as wide as
-   the room allows up to 220px; its line under it in the label's words. Masked, it blurs until the page shows it. */
-.qr-code { display: grid; justify-items: center; gap: var(--gap-words-control); margin: 0; min-width: 0; }
-.qr-picture { display: block; width: min(220px, 100%); height: auto; aspect-ratio: 1; background: #fff; transition: filter 0.25s; }
-/* Its words keep the margin inside it, as a field's do, however wide they run (a masked code's caption, at a large text size). */
-.qr-caption { font: var(--type-label); color: var(--ink); text-align: center; padding-inline: var(--pad-inside-words); }
-.qr-code.is-masked > .qr-picture { filter: blur(8px); }
-/* Large (a light box's): as big as the screen allows, its white margin wider to match, its line under it. */
-.qr-code.is-large > .qr-picture { width: min(360px, 76vw, 58dvh); padding: var(--pad-tray); box-sizing: border-box; }
-/* Compact, on a wide screen: smaller, with its line beside it, the width of what a compact sheet holds. */
-@media (min-width: 761px) {
-  .qr-code.is-compact { grid-template-columns: auto 1fr; justify-items: start; align-items: center; column-gap: var(--gap-block-block); }
-  .qr-code.is-compact > .qr-picture { width: 104px; }
-  .qr-code.is-compact > .qr-caption { text-align: start; padding-inline: 0 var(--pad-words); }
-}
-`,
-  render: qrCode,
-  examples: [
-    { label: "A game's link", markup: examplePane(qrCode({ id: "example-qr-game", label: "QR code for this link", caption: "Scan to play", imageUrl: STAND_IN_QR_CODE })) },
-    { label: "Compact, on a wide screen: smaller, its line beside it", markup: examplePane(qrCode({ id: "example-qr-compact", label: "QR code for this link", caption: "Scan to play", imageUrl: STAND_IN_QR_CODE, isCompact: true })) },
-    { label: "Masked, for a streamer: blurred until shown", markup: examplePane(qrCode({ id: "example-qr-masked", label: "QR code for this link", caption: "Scan to join this match", imageUrl: STAND_IN_QR_CODE, isMasked: true })), isStill: true },
   ],
 });
 

@@ -21,6 +21,8 @@ interface ButtonTarget {
   /** data-* attributes a page's script reads ({ keep: "/join" } is data-keep="/join"), names in lowercase words joined by dashes. */
   dataAttributes?: Record<string, string>;
   href?: string;
+  /** With href: the link saves its file under this name instead of opening it (a QR code's Download SVG). */
+  downloadName?: string;
   type?: "submit" | "button";
   name?: string;
   buttonValue?: string;
@@ -36,7 +38,7 @@ type ButtonState = "is-pointed" | "is-pressed" | "is-focused";
 /** The button itself: a still shell that takes the pointer (TOKEN_STYLES, "Still under the pointer"). What moves goes inside it, in its face. */
 const opening = (className: string, target: ButtonTarget, isBusy: boolean | undefined, extra: Raw | "" = "") =>
   target.href
-    ? html`<a class="shell ${className}"${target.id ? html` id="${target.id}"` : ""}${dataMarkup(target)} href="${target.href}"${extra}${isBusy ? raw(' aria-busy="true"') : ""}>`
+    ? html`<a class="shell ${className}"${target.id ? html` id="${target.id}"` : ""}${dataMarkup(target)} href="${target.href}"${target.downloadName ? html` download="${target.downloadName}"` : ""}${extra}${isBusy ? raw(' aria-busy="true"') : ""}>`
     : html`<button class="shell ${className}"${target.id ? html` id="${target.id}"` : ""}${dataMarkup(target)} type="${target.type ?? "submit"}"${extra}${target.name ? html` name="${target.name}"` : ""}${target.buttonValue !== undefined ? html` value="${target.buttonValue}"` : ""}${target.formMethod ? raw(' formmethod="dialog" formnovalidate') : ""}${target.isAutofocused ? raw(" autofocus") : ""}${isBusy ? raw(' aria-busy="true" disabled') : ""}>`;
 const dataMarkup = (target: ButtonTarget): Raw | "" =>
   target.dataAttributes ? html`${Object.entries(target.dataAttributes).map(([name, text]) => html` data-${name}="${text}"`)}` : "";

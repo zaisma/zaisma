@@ -224,8 +224,8 @@ export const EDGE = raw('<svg class="edge" aria-hidden="true"></svg>');
 export const EDGE_LIGHT = raw('<span class="edge-light" aria-hidden="true"></span>');
 
 export interface GrooveOptions {
-  /** How much of it is filled with light, from its start: 0 to 1. Left out, a light runs along it: on its way, with no end known yet. */
-  filledFraction?: number;
+  /** How much of it is filled with light, from its start: 0 to 100. Left out, a light runs along it: on its way, with no end known yet. */
+  filledPct?: number;
   /** Its owner's name for it, for the owner's own styles: "slider-groove". */
   kind?: string;
   /** It's still going (an upload on its way): a glint runs along its light, over and over, so it plainly isn't stuck. */
@@ -240,9 +240,9 @@ export interface GrooveOptions {
  * are one. Its owner can set where the fill ends itself (--groove-filled-length), as a slider does, to its thumb's middle.
  */
 export function groove(options: GrooveOptions = {}): Raw {
-  const isRunning = options.filledFraction === undefined;
-  const filled = isRunning ? 0 : Math.max(0, Math.min(1, options.filledFraction ?? 0));
-  return html`<span class="groove${options.kind ? ` ${options.kind}` : ""}${isRunning ? " is-running" : ""}${options.isWorking ? " is-working" : ""}" data-cut-line="3" aria-hidden="true" style="--groove-filled:${filled.toFixed(4)}">${CUT_LINE}<span class="groove-fill"><span class="groove-light" data-cut-line="3" data-cut-bar>${CUT_LINE}${options.lightMarkup ?? ""}</span></span></span>`;
+  const isRunning = options.filledPct === undefined;
+  const shownPct = isRunning ? 0 : Math.max(0, Math.min(100, options.filledPct ?? 0));
+  return html`<span class="groove${options.kind ? ` ${options.kind}` : ""}${isRunning ? " is-running" : ""}${options.isWorking ? " is-working" : ""}" data-cut-line="3" aria-hidden="true" style="--groove-filled:${(shownPct / 100).toFixed(4)}">${CUT_LINE}<span class="groove-fill"><span class="groove-light" data-cut-line="3" data-cut-bar>${CUT_LINE}${options.lightMarkup ?? ""}</span></span></span>`;
 }
 
 /**

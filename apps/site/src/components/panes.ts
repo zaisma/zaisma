@@ -4,7 +4,8 @@ import { component } from "./component.ts";
 import { CUT_LINE, EDGE, ago, floatingPane, glassPane, groove, icon, sheetMarkup, tag, tray, well, type IconName } from "./foundations.ts";
 import { emptyState, glanceFacts, listRows, pictureFrame, pictureRow, type GlanceFacts } from "./data.ts";
 import { cardRow, secondaryButton, tertiaryButton, primaryButton, textLink, toggleButton } from "./actions.ts";
-import { REPORT_REASONS, STAND_IN_QR_CODE, choiceCards, copyField, cutField, longField, qrCode, tabSwitch, wheelField } from "./inputs.ts";
+import { REPORT_REASONS, choiceCards, copyField, cutField, longField, tabSwitch, wheelField } from "./inputs.ts";
+import { STAND_IN_GAME_ICON, STAND_IN_QR_CODE, qrCode } from "./qr-code.ts";
 import { examplePane } from "./example-pane.ts";
 import { lightBox } from "./light-box.ts";
 export { lightBox, type LightBoxOptions } from "./light-box.ts";
@@ -640,10 +641,10 @@ component({
   render: groove,
   // On its own, a card's width, the way a slider's or a Progress's sits: in a pane of its own it would squeeze the pane to a sliver.
   examples: [
-    { label: "Empty", markup: grooveSample(groove({ filledFraction: 0 })) },
-    { label: "Part filled", markup: grooveSample(groove({ filledFraction: 0.44 })) },
-    { label: "Full", markup: grooveSample(groove({ filledFraction: 1 })) },
-    { label: "Still going: a glint runs along it", markup: grooveSample(groove({ filledFraction: 0.44, isWorking: true })) },
+    { label: "Empty", markup: grooveSample(groove({ filledPct: 0 })) },
+    { label: "Part filled", markup: grooveSample(groove({ filledPct: 44 })) },
+    { label: "Full", markup: grooveSample(groove({ filledPct: 100 })) },
+    { label: "Still going: a glint runs along it", markup: grooveSample(groove({ filledPct: 44, isWorking: true })) },
     { label: "No end known yet: a light runs along it", markup: grooveSample(groove()) },
   ],
 });
@@ -867,7 +868,7 @@ component({
   examples: [
     {
       label: "Try it: a game's QR code, large",
-      markup: html`${secondaryButton("Show QR code", { type: "button", controls: "example-light-box" })}${lightBox({ id: "example-light-box", label: "QR code for Ashen Crown", closeLabel: "Close", body: qrCode({ id: "example-light-box-qr", label: "QR code for Ashen Crown", caption: "Scan with a phone's camera to play Ashen Crown", imageUrl: STAND_IN_QR_CODE, isLarge: true }) })}`,
+      markup: html`${secondaryButton("Show QR code", { type: "button", controls: "example-light-box" })}${lightBox({ id: "example-light-box", label: "QR code for Ashen Crown", closeLabel: "Close", body: qrCode({ id: "example-light-box-qr", label: "QR code for Ashen Crown", caption: "Scan with a phone's camera to play Ashen Crown", imageUrl: STAND_IN_QR_CODE, iconUrl: STAND_IN_GAME_ICON, isLarge: true }) })}`,
     },
   ],
 });

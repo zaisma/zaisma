@@ -11,7 +11,8 @@ import { playable } from "./home.ts";
 import { html, structuredData, type Raw } from "./html.ts";
 import { profilePath } from "./profiles.ts";
 import { secondaryButton } from "./components/actions.ts";
-import { copyField, qrCode } from "./components/inputs.ts";
+import { copyField } from "./components/inputs.ts";
+import { qrCode } from "./components/qr-code.ts";
 import { stack, type LayoutItem } from "./components/layout.ts";
 import { lightBox, menuChoices, sheet, type DropdownChoice } from "./components/panes.ts";
 

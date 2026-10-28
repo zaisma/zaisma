@@ -1111,7 +1111,7 @@ export function usageTrack(options: UsageMeterOptions): Raw {
 function meterTrack(options: UsageMeterOptions, sharePct: number): Raw {
   const parts = options.parts?.filter((part) => part.sharePct > 0) ?? [];
   const lightMarkup = parts.length ? html`<span class="usage-parts">${parts.map((part) => html`<span class="usage-part" data-part="${String(part.partColorIndex)}" style="flex-grow:${String(part.sharePct)}"></span>`)}</span>` : undefined;
-  return html`<div class="usage-track" role="meter" aria-label="${options.label}" aria-valuemin="0" aria-valuemax="${options.limitNumber}" aria-valuenow="${Math.min(options.usedNumber, options.limitNumber)}">${groove({ kind: `usage-groove${parts.length ? " has-parts" : ""}`, filledFraction: sharePct / 100, lightMarkup })}</div>`;
+  return html`<div class="usage-track" role="meter" aria-label="${options.label}" aria-valuemin="0" aria-valuemax="${options.limitNumber}" aria-valuenow="${Math.min(options.usedNumber, options.limitNumber)}">${groove({ kind: `usage-groove${parts.length ? " has-parts" : ""}`, filledPct: sharePct, lightMarkup })}</div>`;
 }
 
 /** The key under a meter with parts: each part's color, name and share, in the order given. */

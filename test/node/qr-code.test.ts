@@ -20,8 +20,8 @@ describe("QR codes", () => {
   it("pick the smallest version that holds the link, with finder patterns in three corners", () => {
     for (const [text, sideModuleCount] of [
       ["a", 21],
-      ["https://zaisma.com/g/sky-hopper", 29],
-      ["https://zaisma.com/g/sky-hopper?room=K7PQ2M", 33],
+      ["https://zaisma.com/g/sky-hopper", 33],
+      ["https://zaisma.com/g/sky-hopper?room=K7PQ2M", 37],
       ["x".repeat(QR_CODE_LIMITS.maximumTextBytes), 57],
     ] as const) {
       const modules = qrCodeModules(text);
@@ -43,8 +43,8 @@ describe("QR codes", () => {
 
   it("draw as an SVG on white with a four-module margin, and refuse text that doesn't fit", () => {
     const svg = qrCodeSvg("https://zaisma.com/g/sky-hopper");
-    expect(svg).toMatch(/^<svg xmlns="http:\/\/www\.w3\.org\/2000\/svg" viewBox="0 0 37 37"/);
-    expect(svg).toContain('<rect width="37" height="37" fill="#fff"/>');
+    expect(svg).toMatch(/^<svg xmlns="http:\/\/www\.w3\.org\/2000\/svg" viewBox="0 0 41 41"/);
+    expect(svg).toContain('<rect width="41" height="41" fill="#fff"/>');
     expect(svg).toContain('M4 4h7v1h-7z');
     expect(() => qrCodeModules("x".repeat(QR_CODE_LIMITS.maximumTextBytes + 1))).toThrow(RangeError);
   });
