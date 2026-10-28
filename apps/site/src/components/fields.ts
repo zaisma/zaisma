@@ -688,7 +688,7 @@ export const WHEEL_SCRIPT = String.raw`/* wheel fields */(function () {
       w.count = list.length; w.el.textContent = "";
       list.forEach(function (text, i) {
         var option = document.createElement("div");
-        option.setAttribute("role", "option"); option.id = id + "-" + part + "-" + i; option.textContent = text;
+        option.setAttribute("role", "option"); option.id = id + "-" + part + "-" + i; option.textContent = text; option.setAttribute("data-label", text);
         if (form.hasBlank && i === 0) option.className = "blank";
         rows.appendChild(option);
       });
@@ -1018,9 +1018,9 @@ component({
 .floating-pane.wheel-pick { padding: var(--pad-inner-pane); gap: var(--gap-words-words); }
 /* What a screen reader hears takes no room, so the wheels keep the same room to the pane's edge all round. */
 .wheel-pick > .wheel-read { position: absolute; }
-/* The month gets the room its longest name needs (September), the day the least. */
-/* Each wheel is at least as wide as its longest row (a month's name, a year, "Tomorrow", "AM"), so a pane that fits what's in it grows to them. */
-.wheels { --wheel-row: 36px; position: relative; display: grid; grid-template-columns: minmax(6.5rem, 1.9fr) minmax(2.75rem, 0.7fr) minmax(4rem, 1fr); gap: var(--gap-control-row); }
+/* Each wheel is at least as wide as its longest row (a month's name, a year, "Tomorrow", "25 min") with its room each side, so a pane that
+   fits what's in it grows to them. */
+.wheels { --wheel-row: 36px; position: relative; display: grid; grid-template-columns: repeat(3, auto); gap: var(--gap-control-row); }
 .wheel-channel { position: relative; min-width: 0; height: calc(3 * var(--wheel-row)); background: var(--well); box-shadow: var(--well-shade); clip-path: var(--cut-shape); }
 .wheel-lit { position: absolute; z-index: 1; left: 3px; right: 3px; top: var(--wheel-row); height: var(--wheel-row); pointer-events: none; background: var(--field-hover); clip-path: var(--cut-shape); }
 .wheel-lit > .cut-line { --band-top: var(--raise-top); --band-left: var(--raise-left); --band-right: var(--raise-right); --band-bottom: var(--raise-bottom); }
@@ -1032,18 +1032,19 @@ component({
   -webkit-mask-image: linear-gradient(180deg, rgba(0,0,0,0.4), #000 33%, #000 67%, rgba(0,0,0,0.4));
   mask-image: linear-gradient(180deg, rgba(0,0,0,0.4), #000 33%, #000 67%, rgba(0,0,0,0.4)); }
 .wheel::-webkit-scrollbar { display: none; }
-.wheel [role="option"] { height: var(--wheel-row); display: flex; align-items: center; justify-content: center; scroll-snap-align: start;
-  font: 500 1rem var(--display); color: var(--ink-2); cursor: pointer; user-select: none; -webkit-user-select: none; transition: color 0.2s, font-size 0.2s; }
+/* A row is as wide as it is picked, in bold (its label again, unseen and unheard, holds that width), with the room words get inside a
+   control each side, so the lit slab never touches its words and the pane doesn't change size as the pick moves. */
+.wheel [role="option"] { height: var(--wheel-row); display: flex; flex-direction: column; align-items: center; justify-content: center; scroll-snap-align: start;
+  padding-inline: var(--pad-inside-words); white-space: nowrap; font: 500 1rem var(--display); color: var(--ink-2); cursor: pointer; user-select: none; -webkit-user-select: none; transition: color 0.2s, font-size 0.2s; }
 .wheel [role="option"].blank { color: var(--muted); font-weight: 400; }
 .wheel [role="option"][aria-selected="true"] { color: var(--ink); font-weight: 600; }
 .wheel [role="option"][aria-selected="true"].blank { color: var(--muted); font-weight: 500; }
-/* A date and time says its time zone under it. Its day wheel gets the room "Jan 15, 2027" needs. Custom wheels share the width evenly. */
+.wheel [role="option"]::after { content: attr(data-label) / ""; height: 0; overflow: hidden; visibility: hidden; font-weight: 600; }
+/* A date and time says its time zone under it. Custom wheels share the width evenly, each as wide as the widest. */
 .wheel-zone { margin: 0; padding-inline: calc(var(--pad-words) - var(--pad-inner-pane)); font: var(--type-facts); color: var(--muted); }
 .wheel-zone:empty { display: none; }
-.date-time-wheels { grid-template-columns: minmax(7rem, 2.5fr) repeat(3, minmax(2.75rem, 0.8fr)); }
-.custom-wheels { grid-template-columns: repeat(var(--wheel-count), minmax(3.5rem, 1fr)); }
-/* The picked day stays at the wheel's own size, so a long one ("Jan 15, 2027") still fits a phone. */
-.date-time-wheels [role="option"] { white-space: nowrap; }
+.date-time-wheels { grid-template-columns: repeat(4, auto); }
+.custom-wheels { grid-template-columns: repeat(var(--wheel-count), 1fr); }
 /* On a phone what's typed or picked is 16px, the least that keeps a phone from zooming in, so more of it fits: in a cut field, a search, a
    wheel field's. Set here, after each of those fields' own font, so it holds on every one. */
 @media (max-width: 760px) { .field input, .find input[type="search"], .find-finish, .wheel-button { font-size: 1rem; } }
