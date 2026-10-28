@@ -375,7 +375,7 @@ component({
   slug: "color-picker",
   group: "inputs",
   subgroup: "pickers",
-  summary: "Pick one color from a few: a glass button's tint, the glass's hue. Plain swatches in a carved well, like the switch's tabs; the picked one keeps its whole color, with an orange bar under it, and is named beside them.",
+  summary: "Pick one color from a few: a way in's tint, the glass's hue. Plain swatches in a carved well, like the switch's tabs; the picked one keeps its whole color, with an orange bar under it, and is named beside them.",
   styles: `
 /* A color picker: plain swatches in a carved well, like the switch's tabs. A swatch is a control like any other, cut by the edge rule,
    so swatches side by side slant toward each other and the end ones follow the well's corners. */

@@ -240,7 +240,7 @@ export const GLASS_SCRIPT = `/* glass */(function () {
   var made = 0;
   // The rim is built once; while the slab changes size only its points move, so nothing is rebuilt mid-animation (rebuilding it each frame made the edges flicker).
   // A pane's cut corners are a clip-path in CSS terms (calc with 100%), so it follows the slab's size by itself and is only set again when the corners change.
-  // A control made of glass ([data-cut-line] too, a glass button's face) takes its shape from the edge rule instead, like every other control.
+  // A control made of glass ([data-cut-line] too) takes its shape from the edge rule instead, like every other control.
   function glass(el, cornersOf) {
     var edge = el.querySelector(":scope > .edge"), id = "zg" + (made++), parts = null, lastCorners = "", lastPane = "", isControl = el.hasAttribute("data-cut-line");
     if (!edge) { edge = document.createElementNS(SVG, "svg"); edge.setAttribute("class", "edge"); edge.setAttribute("aria-hidden", "true"); el.appendChild(edge); }

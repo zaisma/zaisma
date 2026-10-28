@@ -786,7 +786,7 @@ component({
 .me:hover .frame-picture, .me.is-pointed .frame-picture, .me[aria-expanded="true"] .frame-picture { filter: brightness(1.1); }
 .me:active .frame, .me.is-pressed .frame { scale: 0.95; }
 .me:focus-visible { outline: none; }
-/* The focus line, as on a glass button: the frame's drawn rim, whole, its hairline in the focus color as wide as every control's focus line
+/* The focus line: the frame's drawn rim, whole, its hairline in the focus color as wide as every control's focus line
    (half of it shows inside the cut), and the pale parts of the rim that lie over it (its band, glint, facets, fringe) put away. */
 .me:focus-visible .frame > .edge, .me.is-focused .frame > .edge, .me[aria-expanded="true"] .frame > .edge { opacity: 1; }
 .me:focus-visible .frame > .edge .hair, .me.is-focused .frame > .edge .hair, .me[aria-expanded="true"] .frame > .edge .hair { stroke: var(--focus); stroke-width: var(--focus-stroke); }

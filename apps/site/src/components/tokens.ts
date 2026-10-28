@@ -33,7 +33,7 @@ export const LIGHT_GLASS = `color-scheme: light;
   --show: rgba(255, 255, 255, 0.55); --show-on: #fff;
   --pick: rgba(255, 255, 255, 0.42); --pick-shade: inset 0 1px 3px rgba(20, 23, 28, 0.1), inset 0 0 0 1px rgba(255, 255, 255, 0.5);
   --done: rgba(255, 255, 255, 0.7); --done-line: inset 0 0 0 1px rgba(20, 23, 28, 0.1);
-  /* A one-color mark on a glass button (Discord's): unset on light glass, so it keeps its own color; white on smoked. */
+  /* A way in's one-color mark (Discord's): unset on light glass, so it keeps its own color; white on smoked. */
   --clear-glass-mark: initial;
   /* What shows only on light glass, and only on smoked (the light-dark icon's sun and moon). */
   --on-light: inline; --on-smoked: none;
@@ -286,7 +286,7 @@ html { -webkit-tap-highlight-color: transparent; }
 
 /* The glass: one look for every piece of it, at any size, defined here once. Anything made of glass has the class glass and
    nothing else paints it: it's a tint (--glass-tint, which a component may set to its own, like the header's --glass-top),
-   a layer over the tint a component may set (--glass-layer, a glass button's brand color), the page's hue (--glass-wash),
+   a layer over the tint a component may set (--glass-layer, a table row's hover), the page's hue (--glass-wash),
    the light on it (--glass-sheen: brightest at its top left, a little shade along its foot), the blur and color of what's
    behind (--glass-blur, --glass-saturate), the way it changes (--glass-transition), and on a slab, cut corners with a drawn
    rim (data-glass: the svg.edge GLASS_SCRIPT draws, sizing its corners and bevel to the slab). design.test.ts checks that

@@ -450,10 +450,10 @@ export const GALLERY_SCRIPT = pageScript(
     });
     place(now());
   });
-  // The glass button's tint palette: the button above takes the tint you pick.
+  // The cut button's tint palette: the button above takes the tint you pick.
   document.addEventListener("click", function (event) {
     var swatch = event.target.closest && event.target.closest("[data-tint-try] .color-pick"); if (!swatch) return;
-    swatch.closest("[data-tint-try]").querySelector(".glass-btn").setAttribute("data-tint", swatch.getAttribute("data-color-value"));
+    swatch.closest("[data-tint-try]").querySelector(".cut-btn").setAttribute("data-tint", swatch.getAttribute("data-color-value"));
   });
 })();
 `,
@@ -468,7 +468,7 @@ export const DESIGN_LOOPS_SCRIPT = pageScript(
   "design-loops",
   `(function () {
   if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-  var TARGETS = { runner: ".run-wrap", cut: ".cut-btn", glass: ".glass-btn", tertiary: ".tertiary-btn", check: ".check", choice: ".choice-card", toggle: ".toggle", row: ".list-row", cover: ".cover", switch: ".tab-switch" };
+  var TARGETS = { runner: ".run-wrap", cut: ".cut-btn", tertiary: ".tertiary-btn", check: ".check", choice: ".choice-card", toggle: ".toggle", row: ".list-row", cover: ".cover", switch: ".tab-switch" };
   var MOVE_MS = 650, PRESS_MS = 180;
   function wait(ms) { return new Promise(function (done) { setTimeout(done, ms); }); }
   function send(el, type) { el.dispatchEvent(new MouseEvent(type, { bubbles: type !== "pointerenter" && type !== "pointerleave" })); }
@@ -506,8 +506,6 @@ export const DESIGN_LOOPS_SCRIPT = pageScript(
       isWatching = isShown; if (!isShown) return;
       requestAnimationFrame(watch);
       var at = tip(), now = null;
-      // The glass's light follows the pointer, as it does a real one.
-      if (kind === "glass") { var r = el.getBoundingClientRect(); el.style.setProperty("--mx", (at[0] - r.left).toFixed(0) + "px"); el.style.setProperty("--my", (at[1] - r.top).toFixed(0) + "px"); }
       if (kind === "switch") { el.querySelectorAll("button").forEach(function (tab) { if (inside(tab, at)) now = tab; }); }
       else if (inside(el, at)) now = el;
       if (now === over) return;

@@ -113,7 +113,7 @@ import { cityPane, cityStage, CITY_PANE_SCRIPT, CITY_SCRIPT } from "./components
 import type { CheckedPageName } from "./components/checked-pages.ts";
 import { row } from "./components/layout.ts";
 import { type IconName } from "./components/foundations.ts";
-import { cutButton, glassButton, runButton, tertiaryButton, textLink } from "./components/actions.ts";
+import { cutButton, runButton, tertiaryButton, textLink } from "./components/actions.ts";
 import { birthdayField, choiceCards, cutField, tabSwitch } from "./components/inputs.ts";
 import { header } from "./components/navigation.ts";
 import { notice } from "./components/panes.ts";
@@ -945,10 +945,10 @@ const paneProblem = (text?: string) => (text ? notice({ text, tone: "problem", i
 
 /** The passkey's way in: shown by PASSKEY_SIGN_IN_SCRIPT where the browser has passkeys, with the ways in round it. */
 const passkeyWay = (next: string, isAutofill: boolean) =>
-  html`<div id="passkey-go" data-next="${next}"${isAutofill ? raw(" data-autofill") : ""} hidden>${glassButton("Sign in with a passkey", { icon: "passkey" })}</div>`;
+  html`<div id="passkey-go" data-next="${next}"${isAutofill ? raw(" data-autofill") : ""} hidden>${cutButton("Sign in with a passkey", { type: "button", wayIn: "passkey", isFullWidth: true })}</div>`;
 
 const providerButtons = (providers: Provider[], next: string | null) =>
-  html`${providers.map((provider) => glassButton(`Continue with ${PROVIDERS[provider]}`, { href: `/signin/with/${provider}${nextQuery(next)}`, icon: provider }))}`;
+  html`${providers.map((provider) => cutButton(`Continue with ${PROVIDERS[provider]}`, { href: `/signin/with/${provider}${nextQuery(next)}`, wayIn: provider, isFullWidth: true }))}`;
 
 /** Which of the two the pane shows: signing in, or the first step of making an account. */
 type EntryView = "signin" | "join";

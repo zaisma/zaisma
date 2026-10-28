@@ -6,8 +6,8 @@ import { controlMarkup, type ControlMarkup } from "./control-markup.ts";
 import { paneParts } from "./layout.ts";
 
 /*
- * Actions, loudest to quietest: the runner button (the one colored thing you press), the cut button beside it,
- * the glass buttons for the other ways in, and the guest button below them. Each answers the pointer, the press
+ * Actions, loudest to quietest: the runner button (the one colored thing you press), the cut button beside it
+ * (tinted for the other ways in), and the tertiary button below them. Each answers the pointer, the press
  * and the keyboard in its own way, so none of them feels dead.
  */
 
@@ -78,6 +78,10 @@ export function runButton(label: string, options: RunButtonOptions = {}): Contro
 
 export interface CutButtonOptions extends ButtonTarget {
   icon?: IconName;
+  /** Another way in (a passkey, Google, Discord): its mark in the icon's place, and its slab tinted the way's color unless tint says otherwise. */
+  wayIn?: WayIn;
+  /** The way's color mixed into its slab: Discord's indigo, Google's plain. Left out, a way in's own, or none. */
+  tint?: ButtonTint;
   /** Only the icon shows; the label is what a screen reader says (aria-label). */
   isLabelHidden?: boolean;
   isFullWidth?: boolean;
@@ -101,12 +105,15 @@ export interface CutButtonOptions extends ButtonTarget {
   isHidden?: boolean;
 }
 
-/** A secondary button: a cut slab of clearer glass with a drawn outline. It brightens under the pointer and gives under a press. A delete is one too, never orange. */
+/**
+ * A secondary button: a solid cut slab. It brightens under the pointer and carves in under a press. A delete is one too, never orange.
+ * Another way in (a passkey, Google, Discord) is one with the way's mark, its slab tinted the way's color, as wide as the column.
+ */
 export function cutButton(label: string, options: CutButtonOptions = {}): ControlMarkup {
   return cutButtonMarkup(label, options);
 }
 
-export interface ToggleButtonOptions extends Omit<CutButtonOptions, "isBig" | "isInWell" | "isFullWidth" | "isExpanded"> {
+export interface ToggleButtonOptions extends Omit<CutButtonOptions, "isBig" | "isInWell" | "isFullWidth" | "isExpanded" | "wayIn" | "tint"> {
   /** On or off (aria-pressed): the page's script flips it, and what it changes. */
   isPressed: boolean;
 }
@@ -164,15 +171,16 @@ function cutButtonMarkup(label: string, options: CutButtonOptions, isPressed?: b
   const hasCount = options.reactionCount !== undefined;
   const countWords = hasCount ? Number(options.reactionCount).toLocaleString("en-US") : "";
   const isIconOnly = options.isLabelHidden && !hasCount;
+  const tint = options.tint ?? (options.wayIn ? WAY_TINTS[options.wayIn] : undefined);
   const className = classes("cut-btn", isToggle && "toggle-btn", options.isBig && "big", options.isSmall && "small", options.isInWell && "in-well", isIconOnly && "icon-only", options.isFullWidth && "is-full", options.state);
-  const extra = html`${disabledAttribute(options)}${isIconOnly ? html` aria-label="${label}"` : ""}${isToggle ? html` aria-pressed="${isPressed ? "true" : "false"}"` : ""}${options.controls ? html` aria-controls="${options.controls}"` : ""}${options.isExpanded !== undefined ? html` aria-expanded="${options.isExpanded ? "true" : "false"}"` : ""}${options.isHidden ? raw(" hidden") : ""}`;
+  const extra = html`${disabledAttribute(options)}${isIconOnly ? html` aria-label="${label}"` : ""}${isToggle ? html` aria-pressed="${isPressed ? "true" : "false"}"` : ""}${options.controls ? html` aria-controls="${options.controls}"` : ""}${options.isExpanded !== undefined ? html` aria-expanded="${options.isExpanded ? "true" : "false"}"` : ""}${options.isHidden ? raw(" hidden") : ""}${tint ? html` data-tint="${tint}"` : ""}`;
   // Its icon and count with the label hidden: the label is still said, before the count ("Like, 12"), so a page that changes the count changes what's said.
   // The label's span has no class of its own, as on the runner (html.ts's account link finds it that way).
   const words = !options.isLabelHidden ? html`<span>${label}</span>` : hasCount ? html`<span class="sr">${label}, </span>` : "";
   const reactionMarkup = hasCount ? html`<span class="cut-count">${countWords}</span>` : "";
   const cutLine = options.isBig ? 13 : 10;
   const front = isToggle ? html`<span class="toggle-front" aria-hidden="true"></span>` : "";
-  return controlMarkup(html`${opening(className, options, options.isBusy, extra)}${front}<span class="face cut-raised" data-cut-line="${cutLine}">${CUT_LINE}${loader()}${options.icon ? icon(options.icon) : ""}${words}${reactionMarkup}</span>${closing(options)}`, options.isBig ? "big" : options.isSmall || options.isInWell ? "small" : "regular");
+  return controlMarkup(html`${opening(className, options, options.isBusy, extra)}${front}<span class="face cut-raised" data-cut-line="${cutLine}">${CUT_LINE}${loader()}${options.wayIn ? html`<span class="way-mark">${WAY_MARKS[options.wayIn]}</span>` : options.icon ? icon(options.icon) : ""}${words}${reactionMarkup}</span>${closing(options)}`, options.isBig ? "big" : options.isSmall || options.isInWell ? "small" : "regular");
 }
 
 const GOOGLE = raw(
@@ -182,39 +190,15 @@ const DISCORD = raw(
   '<svg class="one-color" viewBox="0 0 24 24" aria-hidden="true"><path fill="#5865F2" d="M20.32 4.37a19.8 19.8 0 0 0-4.89-1.52c-.21.38-.44.87-.6 1.25a18.27 18.27 0 0 0-5.49 0 12.64 12.64 0 0 0-.62-1.25 19.74 19.74 0 0 0-4.88 1.52C.53 9.050-.32 13.58.1 18.06a19.9 19.9 0 0 0 5.99 3.03c.46-.63.87-1.3 1.23-1.99a13.1 13.1 0 0 1-1.870-.9l.37-.29c3.93 1.79 8.18 1.79 12.06 0l.37.29c-.6.35-1.22.65-1.87.9.36.7.77 1.36 1.22 1.99a19.84 19.84 0 0 0 6-3.03c.5-5.18-.84-9.68-3.55-13.66zM8.02 15.33c-1.18 0-2.16-1.09-2.16-2.42 0-1.33.96-2.420 2.16-2.42 1.21 0 2.18 1.1 2.16 2.42 0 1.33-.96 2.42-2.16 2.42zm7.97 0c-1.18 0-2.15-1.09-2.15-2.42 0-1.33.95-2.42 2.15-2.420 1.21 0 2.18 1.1 2.16 2.42 0 1.33-.95 2.42-2.16 2.42z"/></svg>',
 );
 /** The other ways in, with the marks their owners ask for. A mark that may also be one color (Discord's) is class one-color. */
-const WAY_ICONS = { google: GOOGLE, discord: DISCORD, passkey: raw(ICONS.passkey) } as const;
+const WAY_MARKS = { google: GOOGLE, discord: DISCORD, passkey: raw(ICONS.passkey) } as const;
+export type WayIn = keyof typeof WAY_MARKS;
 
 /**
- * A glass button's tint: none ("clear"), or the color of the way in mixed into the cut button's slab. Each way has its own unless the page
- * picks one. "plain" is the glass's own tone, as Google's buttons are: whiter on light glass, nearer Google's black on smoked.
+ * A cut button's tint: none ("clear"), or a way in's color mixed into its slab. Each way has its own unless the page picks one. "plain" is
+ * the glass's own tone, as Google's buttons are: whiter on light glass, nearer Google's black on smoked.
  */
-export type GlassTint = "clear" | "plain" | "blue" | "indigo" | "black";
-const WAY_TINTS: Record<keyof typeof WAY_ICONS, GlassTint> = { google: "plain", discord: "indigo", passkey: "clear" };
-
-export interface GlassButtonOptions {
-  href?: string;
-  type?: "submit" | "button";
-  /** A way in's mark (google, discord, passkey), or one of Zaisma's icons for an action on a world. */
-  icon: keyof typeof WAY_ICONS | IconName;
-  tint?: GlassTint;
-  /** Can't be pressed now: a cut button's carved slab whatever its tint, its words quieter and its mark faded. */
-  isDisabled?: boolean;
-  isBusy?: boolean;
-  state?: ButtonState;
-}
-
-/**
- * A glass button: a cut button's slab tinted the color of the way in, with its mark. Quieter than the runner, louder than a tertiary button.
- * Another way in (a passkey, Google, Discord: their marks), or an action that floats on a world with no pane under it (the home's More
- * games: one of Zaisma's icons).
- */
-export function glassButton(label: string, options: GlassButtonOptions): ControlMarkup {
-  const isWayIn = options.icon in WAY_ICONS;
-  const tint = options.tint ?? (isWayIn ? WAY_TINTS[options.icon as keyof typeof WAY_ICONS] : "clear");
-  const mark = isWayIn ? WAY_ICONS[options.icon as keyof typeof WAY_ICONS] : icon(options.icon as IconName);
-  const target = { href: options.href, type: options.type ?? "button", isDisabled: options.isDisabled, isBusy: options.isBusy } as const;
-  return controlMarkup(html`${opening(classes("cut-btn", "glass-btn", "is-full", options.state), target, options.isBusy, html` data-tint="${tint}"${disabledAttribute(target)}`)}<span class="face" data-cut-line="10">${CUT_LINE}${loader()}${mark}<span class="glass-words">${label}</span></span>${closing(target)}`, "regular");
-}
+export type ButtonTint = "clear" | "plain" | "blue" | "indigo" | "black";
+const WAY_TINTS: Record<WayIn, ButtonTint> = { google: "plain", discord: "indigo", passkey: "clear" };
 
 /**
  * The runner button: it lifts and leans toward the pointer, a reflection slides the other way, and one glint sweeps as
@@ -375,7 +359,7 @@ const COLUMN = "width:min(340px,100%)";
  * A button's states, still, side by side; then one to try, and one that points, presses and lets go on a loop
  * (the gallery's design-loops script plays it: data-state-loop names what it plays). Full-width buttons get a column.
  */
-const stateExamples = (render: (state?: ButtonState) => Raw, loopKind: "runner" | "cut" | "glass" | "tertiary", isFullWidth = false) => {
+const stateExamples = (render: (state?: ButtonState) => Raw, loopKind: "runner" | "cut" | "tertiary", isFullWidth = false) => {
   const sized = (markup: Raw) => (isFullWidth ? html`<div style="${COLUMN}">${markup}</div>` : markup);
   return [
     { label: "Rest", markup: sized(render()), isStill: true },
@@ -408,12 +392,31 @@ component({
   ],
 });
 
+/**
+ * A game's world for buttons to sit on: a shader background with no words in it (never a cover, whose art has its title), and the glass
+ * fixed to what it is, light over a bright world and smoked over a dark one, as the world's measured glass would be.
+ */
+const world = (standInSlug: string, glassKind: "light" | "smoked", body: Raw) =>
+  html`<div ${glassKind === "light" ? raw('data-theme-choice="light"') : raw('class="smoke"')} style="position:relative;overflow:hidden;display:grid;gap:var(--gap-control-stack);width:min(380px,100%);padding:var(--pad-pane)">${backdrop({ isFramed: true, standInSlug })}${body}</div>`;
+/** A cut button's tints, for a color picker (inputs.ts's Color picker, the gallery's tint palette). */
+export const TINT_CHOICES: (ColorChoice & { colorValue: ButtonTint })[] = [
+  { name: "Clear", colorValue: "clear", swatch: "clear" },
+  // Plain follows the glass: white on light, Google's near-black on smoked, so its swatch shows both, half and half.
+  { name: "Plain", colorValue: "plain", swatch: "linear-gradient(135deg, #fff 50%, #131314 50%)" },
+  { name: "Blue", colorValue: "blue", swatch: "#2A75E8" },
+  { name: "Indigo", colorValue: "indigo", swatch: "#5865F2" },
+  { name: "Black", colorValue: "black", swatch: "#14171C" },
+];
+const tintPalette = () => html`<div class="tint-try" data-tint-try>${wayButton("Continue with Discord", "discord")}${colorPicker({ label: "Tint", choices: TINT_CHOICES, pickedValue: "indigo" })}</div>`;
+const wayButton = (label: string, wayIn: WayIn, more: Omit<CutButtonOptions, "wayIn"> = {}) => cutButton(label, { type: "button", wayIn, isFullWidth: true, ...more });
+const waysIn = () => html`${wayButton("Sign in with a passkey", "passkey")}${wayButton("Continue with Google", "google")}${wayButton("Continue with Discord", "discord")}`;
+
 component({
   name: "Cut button",
   slug: "cut-button",
   group: "actions",
   subgroup: "buttons",
-  summary: "Everything else you can press: Details, Make an account, Cancel. A delete is a cut button too, never orange; only its confirm step turns red.",
+  summary: "Everything else you can press: Details, Make an account, Cancel. Another way in (a passkey, Google, Discord) is one with the way's mark and color. A delete is a cut button too, never orange; only its confirm step turns red.",
   styles: `
 /* A secondary button: a solid cut slab with a drawn outline, the same slab a Toggle button is. Under the pointer it brightens and stays
    where it is; a press carves it in where it is (shaded from above, its light turned round), never moving or shrinking it, quickly, and it
@@ -473,6 +476,27 @@ component({
 @media (pointer: coarse) { .cut-btn.small::after { content: ""; position: absolute; inset: calc((var(--control-height) - var(--touch-target)) / 2); } }
 @media (max-width: 760px) { .cut-btn.big > .face { --face-padding: 20px; } }
 @media (prefers-reduced-motion: reduce) { .cut-btn > .face { transition: --face-color 0.2s, color 0.2s; } }
+/* Another way in: its mark before its words, and the way's color mixed into its slab (a brand's color is how you recognize it, so it
+   doesn't follow light or dark; mixed in, the words keep the ink's color in either theme). Plain is the glass's own tone, as Google's
+   buttons are; clear is the slab as it is. It points and carves like any cut button. */
+.cut-btn[data-tint] > .face { --way: var(--btn); --way-mix: 0%; --face-color: color-mix(in srgb, var(--way) var(--way-mix), var(--btn)); }
+.cut-btn[data-tint]:hover > .face, .cut-btn[data-tint].is-pointed > .face, .cut-btn[data-tint]:focus-visible > .face, .cut-btn[data-tint].is-focused > .face { --face-color: color-mix(in srgb, var(--way) var(--way-mix), var(--btn-hover)); }
+.cut-btn[data-tint]:active > .face, .cut-btn[data-tint].is-pressed > .face { --face-color: color-mix(in srgb, var(--way) var(--way-mix), var(--btn-press)); }
+.cut-btn[data-tint]:not([data-tint="clear"]) > .face { --way-mix: 22%; }
+.cut-btn[data-tint="plain"] > .face { --way: light-dark(#fff, #131314); --way-mix: 60%; }
+.cut-btn[data-tint="blue"] > .face { --way: #2A75E8; }
+.cut-btn[data-tint="indigo"] > .face { --way: #5865F2; }
+.cut-btn[data-tint="black"] > .face { --way: #14171C; }
+.way-mark { display: inline-flex; flex: none; }
+.way-mark > svg { width: 20px; height: 20px; }
+/* A mark that may be one color (Discord's) is white over smoked glass and its own blue over light (the fallback, since light glass leaves
+   --clear-glass-mark unset). Google's G stays in its colors. Waiting, the loader takes the mark's place; can't press, the mark fades. */
+.way-mark .one-color path { fill: var(--clear-glass-mark, #5865F2); transition: fill 0.3s; }
+.cut-btn[aria-busy="true"] .way-mark { display: none; }
+.cut-btn:disabled:not([aria-busy="true"]) .way-mark { opacity: 0.45; }
+.cut-btn:disabled:not([aria-busy="true"]) .way-mark .one-color path { fill: currentColor; }
+/* The gallery's tint palette: a Color picker; pick one and the button above takes it (GALLERY_SCRIPT). */
+.tint-try { display: grid; gap: var(--gap-block-block); width: min(340px, 100%); }
 `,
   render: cutButton,
   examples: [
@@ -488,6 +512,16 @@ component({
     { label: "Full width", markup: html`<div style="width:min(380px,100%)">${cutButton("Make an account", { type: "button", isFullWidth: true })}</div>` },
     { label: "A delete", markup: cutButton("Delete this game", { type: "button" }) },
     { label: "Long words: one line, ending in an ellipsis", markup: html`<div style="${COLUMN}">${cutButton("Make an account and keep your progress in Ashen Crown", { type: "button", isFullWidth: true })}</div>` },
+    { label: "The ways in, each in its own tint", markup: html`<div style="display:grid;gap:var(--gap-control-stack);${COLUMN}">${waysIn()}</div>` },
+    { label: "A way in, pointed", markup: html`<div style="${COLUMN}">${wayButton("Continue with Discord", "discord", { state: "is-pointed" })}</div>`, isStill: true },
+    { label: "A way in, pressed: it carves in", markup: html`<div style="${COLUMN}">${wayButton("Continue with Discord", "discord", { state: "is-pressed" })}</div>`, isStill: true },
+    { label: "A way in, busy", markup: html`<div style="${COLUMN}">${wayButton("Sign in with a passkey", "passkey", { isBusy: true })}</div>`, isStill: true },
+    { label: "A way in, can't press", markup: html`<div style="display:grid;gap:var(--gap-control-stack);${COLUMN}">${wayButton("Sign in with a passkey", "passkey", { isDisabled: true })}${wayButton("Continue with Discord", "discord", { isDisabled: true })}</div>`, isStill: true },
+    { label: "Every tint: pick one", markup: tintPalette() },
+    // Over a game's world the glass follows the world, not the theme: light glass on a bright one, smoked on a dark one.
+    { label: "Over a bright game world", markup: world("kestrel", "light", waysIn()) },
+    { label: "Over a dark game world", markup: world("starward", "smoked", waysIn()) },
+    { label: "An action floating on a world", markup: world("emberfall", "smoked", html`<div style="display:flex;justify-content:center">${cutButton("More games", { icon: "chevron-down", type: "button" })}</div>`) },
   ],
 });
 
@@ -630,72 +664,6 @@ ${CARD_BRANDS.map((brand) => `.cut-btn.card-row[data-card-brand="${brand}"] .car
   ],
 });
 
-/**
- * A game's world for glass buttons to sit on: a shader background with no words in it (never a cover, whose art has its title), and the glass
- * fixed to what it is, light over a bright world and smoked over a dark one, as the world's measured glass would be.
- */
-const world = (standInSlug: string, glassKind: "light" | "smoked", body: Raw) =>
-  html`<div ${glassKind === "light" ? raw('data-theme-choice="light"') : raw('class="smoke"')} style="position:relative;overflow:hidden;display:grid;gap:var(--gap-control-stack);width:min(380px,100%);padding:var(--pad-pane)">${backdrop({ isFramed: true, standInSlug })}${body}</div>`;
-const wayIn = (state?: ButtonState) => glassButton("Sign in with a passkey", { icon: "passkey", state });
-/** A glass button's tints, for a color picker (inputs.ts's Color picker, the gallery's tint palette). */
-export const TINT_CHOICES: (ColorChoice & { colorValue: GlassTint })[] = [
-  { name: "Clear", colorValue: "clear", swatch: "clear" },
-  // Plain follows the glass: white on light, Google's near-black on smoked, so its swatch shows both, half and half.
-  { name: "Plain", colorValue: "plain", swatch: "linear-gradient(135deg, #fff 50%, #131314 50%)" },
-  { name: "Blue", colorValue: "blue", swatch: "#2A75E8" },
-  { name: "Indigo", colorValue: "indigo", swatch: "#5865F2" },
-  { name: "Black", colorValue: "black", swatch: "#14171C" },
-];
-const tintPalette = () => html`<div class="tint-try" data-tint-try>${glassButton("Continue with Discord", { icon: "discord" })}${colorPicker({ label: "Tint", choices: TINT_CHOICES, pickedValue: "indigo" })}</div>`;
-const waysIn = () => html`${glassButton("Sign in with a passkey", { icon: "passkey" })}${glassButton("Continue with Google", { icon: "google" })}${glassButton("Continue with Discord", { icon: "discord" })}`;
-
-component({
-  name: "Glass button",
-  slug: "glass-button",
-  group: "actions",
-  subgroup: "buttons",
-  summary: "Another way in, like a passkey, Google or Discord: below the runner, never instead of it. Or an action floating on a world with no pane under it.",
-  styles: `
-/* Glass buttons for the other ways in: a cut button (its slab, its pointing and its carved press) tinted the color of the way in, with
-   its mark before its words. A brand's color is how you recognize it, so it doesn't follow light or dark; it's mixed into the slab, so the
-   words keep the ink's color in either theme. Plain is the glass's own tone, as Google's buttons are; clear is the cut button's slab as it is. */
-.cut-btn.glass-btn > .face { --way: var(--btn); --way-mix: 0%; --face-color: color-mix(in srgb, var(--way) var(--way-mix), var(--btn)); }
-.cut-btn.glass-btn:hover > .face, .cut-btn.glass-btn.is-pointed > .face, .cut-btn.glass-btn:focus-visible > .face, .cut-btn.glass-btn.is-focused > .face { --face-color: color-mix(in srgb, var(--way) var(--way-mix), var(--btn-hover)); }
-.cut-btn.glass-btn:active > .face, .cut-btn.glass-btn.is-pressed > .face { --face-color: color-mix(in srgb, var(--way) var(--way-mix), var(--btn-press)); }
-.glass-btn[data-tint]:not([data-tint="clear"]) > .face { --way-mix: 22%; }
-.glass-btn[data-tint="plain"] > .face { --way: light-dark(#fff, #131314); --way-mix: 60%; }
-.glass-btn[data-tint="blue"] > .face { --way: #2A75E8; }
-.glass-btn[data-tint="indigo"] > .face { --way: #5865F2; }
-.glass-btn[data-tint="black"] > .face { --way: #14171C; }
-.glass-btn .face > svg:not(.cut-line) { position: relative; z-index: 2; width: 20px; height: 20px; flex: none; transition: opacity 0.2s; }
-/* Words longer than the room it has end in an ellipsis on one line. */
-.glass-words { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-/* Waiting: the loader takes the way's mark's place. */
-.glass-btn[aria-busy="true"] .face > svg:not(.cut-line) { display: none; }
-/* A mark that may be one color (Discord's) is white over smoked glass and its own blue over light (the fallback, since light glass leaves
-   --clear-glass-mark unset). Google's G stays in its colors. */
-.glass-btn .one-color path { fill: var(--clear-glass-mark, #5865F2); transition: fill 0.3s; }
-/* Can't press: a cut button's carved slab whatever its tint (its brand color is for a way you can take), its mark faded. */
-.glass-btn:disabled:not([aria-busy="true"]) > .face > svg:not(.cut-line) { opacity: 0.45; }
-.glass-btn:disabled:not([aria-busy="true"]) .one-color path { fill: currentColor; }
-/* The gallery's tint palette: a Color picker; pick one and the button above takes it (GALLERY_SCRIPT). */
-.tint-try { display: grid; gap: var(--gap-block-block); width: min(340px, 100%); }
-`,
-  render: glassButton,
-  examples: [
-    ...stateExamples(wayIn, "glass", true),
-    { label: "Busy", markup: html`<div style="${COLUMN}">${glassButton("Sign in with a passkey", { icon: "passkey", isBusy: true })}</div>`, isStill: true },
-    { label: "Can't press", markup: html`<div style="display:grid;gap:var(--gap-control-stack);${COLUMN}">${glassButton("Sign in with a passkey", { icon: "passkey", isDisabled: true })}${glassButton("Continue with Discord", { icon: "discord", isDisabled: true })}</div>`, isStill: true },
-    { label: "Long words: one line, ending in an ellipsis", markup: html`<div style="${COLUMN}">${glassButton("Continue with the Discord account you play Iron Vigil with", { icon: "discord" })}</div>` },
-    { label: "Every tint: pick one", markup: tintPalette() },
-    { label: "The ways in, each in its own tint", markup: html`<div style="display:grid;gap:var(--gap-control-stack);${COLUMN}">${waysIn()}</div>` },
-    // Over a game's world the glass follows the world, not the theme: light glass on a bright one, smoked on a dark one.
-    { label: "Over a bright game world", markup: world("kestrel", "light", waysIn()) },
-    { label: "Over a dark game world", markup: world("starward", "smoked", waysIn()) },
-    // On a world with no pane under it (the home's More games, under the game in focus), with one of Zaisma's icons.
-    { label: "An action floating on a world", markup: world("emberfall", "smoked", html`<div style="display:flex;justify-content:center">${glassButton("More games", { icon: "chevron-down", type: "button" })}</div>`) },
-  ],
-});
 
 export interface TertiaryButtonOptions extends ButtonTarget {
   /** An icon before its words, like Show all's chevron. */

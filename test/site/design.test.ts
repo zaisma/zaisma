@@ -637,7 +637,6 @@ const OWN_GLASS = new Map<string, string>([
   ['class="glass glass-pane', "Glass pane itself"],
   ['class="tray-group ', "Tray itself"],
   ['class="glass cut-sample', "Cut shapes' own samples: a pane's, the header's and a menu's cut, on glass"],
-  ['class="face glass"', "a glass button's face"],
   ['class="frame ${pictureSize} glass', "a picture's frame"],
   ['class="dropdown glass', "a dropdown"],
   ['class="sheet glass', "a sheet"],
@@ -967,7 +966,7 @@ describe("page structure", () => {
     const orange = new Set(["--run", "--run-hi", "--run-lo"]);
     const tokens = [...STYLES().matchAll(/(--[a-z0-9-]+):\s*([^;}]+)/g)];
     for (let size = 0; size !== orange.size; ) { size = orange.size; for (const [, name = "", value = ""] of tokens) if ([...orange].some((each) => value.includes(`var(${each})`))) orange.add(name); }
-    const ACTED_ON = /(^|[\s>+~])(a|button|summary|label)\b|\.(run|link|cut-btn|glass-btn|tertiary-btn|danger)\b|\[role="?(tab|button)/;
+    const ACTED_ON = /(^|[\s>+~])(a|button|summary|label)\b|\.(run|link|cut-btn|tertiary-btn|danger)\b|\[role="?(tab|button)/;
     const problems = rulesOf(STYLES()).flatMap((rule) => [...rule.declarations.matchAll(/(?:^|[;\s])color:\s*([^;]+)/g)]
       .filter(([, value = ""]) => [...orange].some((each) => value.includes(`var(${each})`)))
       .flatMap(() => rule.selectors.split(",").map((selector) => selector.trim()).filter((selector) => !ACTED_ON.test(selector.split(/\s+/).pop()!))));

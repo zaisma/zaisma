@@ -131,7 +131,7 @@ ${options.account ? html`<p>Seen as ${options.account}: the screens show whoever
  * outline. Any /js/layout-inspect.<hash>.js address serves it.
  */
 export const LAYOUT_INSPECT_SCRIPT = pageScript("layout-inspect", String.raw`(function () {
-  var COMPONENTS = { "run-wrap": "Runner button", "cut-btn": "Cut button", "glass-btn": "Glass button", "tertiary-btn": "Tertiary button", "cut-field": "Field", "field": "Field", "find": "Search", "tab-switch": "Switch", "steps": "Row arrows", "cover": "Cover", "banner": "Banner", "table": "Table", "list-rows": "List rows", "choice-card": "Choice card", "toggle": "Toggle", "check": "Check", "shelf": "Shelf", "tag": "Tag", "link": "Text link", "glass-pane": "Glass pane", "tray": "Tray", "sheet": "Sheet", "top": "Header", "foot": "Footer" };
+  var COMPONENTS = { "run-wrap": "Runner button", "cut-btn": "Cut button", "tertiary-btn": "Tertiary button", "cut-field": "Field", "field": "Field", "find": "Search", "tab-switch": "Switch", "steps": "Row arrows", "cover": "Cover", "banner": "Banner", "table": "Table", "list-rows": "List rows", "choice-card": "Choice card", "toggle": "Toggle", "check": "Check", "shelf": "Shelf", "tag": "Tag", "link": "Text link", "glass-pane": "Glass pane", "tray": "Tray", "sheet": "Sheet", "top": "Header", "foot": "Footer" };
   var GAPS = { "words-words": "words next to words", "words-control": "words next to a control", "control-stack": "two controls, one over the other", "control-row-boxes": "two controls side by side, their slants overlapping", "block-block": "a block next to anything" };
   function componentOf(el, cell) {
     for (var walk = el; walk && walk !== cell && walk.classList; walk = walk.parentElement) {
