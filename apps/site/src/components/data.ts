@@ -224,11 +224,13 @@ component({
   styles: `
 /* A tag: slanted at both ends, in --type-tag, carved into the glass it's on: shaded along its top, lit along its foot. Its tone says what it is:
    new or live (green), a count or plain words (the glass's own carving), a warning (amber), or glass (a sliver of the menus' glass, floating over the page). */
-.tag { display: inline-flex; align-items: center; justify-content: center; height: 22px; min-width: 22px; padding: 0 10px 0 9px; flex: none; white-space: nowrap;
+/* Its words sit a pixel up from its box's middle (padding-bottom): Jost leaves more room above its letters and figures than below, so
+   set in the box's middle they look low. */
+.tag { display: inline-flex; align-items: center; justify-content: center; height: 22px; min-width: 22px; padding: 0 10px 2px 9px; flex: none; white-space: nowrap;
   font: var(--type-tag); clip-path: polygon(5px 0, 100% 0, calc(100% - 5px) 100%, 0 100%); }
 .tag.new, .tag.count, .tag.plain, .tag.warning { box-shadow: var(--tag-carve); }
 .tag.new { color: var(--tag-new-ink); background: var(--tag-new); }
-.tag.count { padding: 0 8px; color: var(--ink-2); background: var(--tag-plain); font-variant-numeric: tabular-nums; }
+.tag.count { padding: 0 8px 2px; color: var(--ink-2); background: var(--tag-plain); font-variant-numeric: tabular-nums; }
 .tag.plain { color: var(--ink-2); background: var(--tag-plain); }
 .tag.warning { color: var(--tag-warning-ink); background: var(--tag-warning); }
 /* An icon before its words, small and in their color, says what kind of tag it is at a glance. */
