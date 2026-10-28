@@ -1,7 +1,7 @@
 import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
 import { controlMarkup, type ControlMarkup } from "./control-markup.ts";
-import { CUT_LINE, colorPicker, icon, tag, type ColorChoice, type IconName } from "./foundations.ts";
+import { CUT_LINE, EDGE_LIGHT, colorPicker, icon, tag, type ColorChoice, type IconName } from "./foundations.ts";
 import { TINT_CHOICES } from "./actions.ts";
 
 /*
@@ -59,13 +59,13 @@ export function tabSwitch(options: {
     // The well (.switch-room) stays put, and what's in it scrolls inside it (.switch-track), fading at its ends: across, with the rail
       // under the well; stacked, with the rail beside its places.
       options.isVertical
-        ? html`<div class="switch-room cut-carved ${kind}" data-cut-line="${isSmall ? 9 : 10}">${CUT_LINE}<div class="switch-track"><div class="tab-switch ${kind}" role="group" aria-label="${options.label}">`
-        : html`<div class="switch-room cut-carved ${kind}${options.isFull ? " is-full" : ""}" data-cut-line="${isSmall ? 9 : 10}" data-side-rail>${CUT_LINE}<div class="switch-track" data-fades-sideways data-rail-scroller><div class="tab-switch ${kind}" role="group" aria-label="${options.label}">`;
+        ? html`<div class="switch-room cut-carved ${kind}" data-cut-line="${isSmall ? 9 : 10}" data-edge-light="left">${CUT_LINE}${EDGE_LIGHT}<div class="switch-track"><div class="tab-switch ${kind}" role="group" aria-label="${options.label}">`
+        : html`<div class="switch-room cut-carved ${kind}${options.isFull ? " is-full" : ""}" data-cut-line="${isSmall ? 9 : 10}" data-side-rail data-edge-light="bottom">${CUT_LINE}${EDGE_LIGHT}<div class="switch-track" data-fades-sideways data-rail-scroller><div class="tab-switch ${kind}" role="group" aria-label="${options.label}">`;
   return controlMarkup(html`${own}<span class="slab cut-raised" aria-hidden="true" data-cut-line="${isSmall ? 7 : 8}">${CUT_LINE}</span><span class="focus-ring" aria-hidden="true" data-cut-line="${isSmall ? 9 : 10}">${CUT_LINE}</span>${options.tabs.map((tab) =>
     tab.href
       ? // A link that can't be followed now has no address, so nothing reaches it; it still says what it is.
-        html`<a${tab.isDisabled ? raw(' aria-disabled="true"') : html` href="${tab.href}"`}${folding(tab)}${tab.extra ?? ""}${tab.isCurrent ? raw(' aria-current="page"') : ""}>${inside(tab)}</a>`
-      : html`<button type="button"${folding(tab)}${tab.extra ?? ""}${tab.tabValue !== undefined ? html` value="${tab.tabValue}"` : ""} aria-pressed="${tab.isCurrent ? "true" : "false"}"${tab.isDisabled ? raw(" disabled") : ""}>${inside(tab)}</button>`,
+        html`<a data-lights${tab.isDisabled ? raw(' aria-disabled="true"') : html` href="${tab.href}"`}${folding(tab)}${tab.extra ?? ""}${tab.isCurrent ? raw(' aria-current="page"') : ""}>${inside(tab)}</a>`
+      : html`<button type="button" data-lights${folding(tab)}${tab.extra ?? ""}${tab.tabValue !== undefined ? html` value="${tab.tabValue}"` : ""} aria-pressed="${tab.isCurrent ? "true" : "false"}"${tab.isDisabled ? raw(" disabled") : ""}>${inside(tab)}</button>`,
   )}</div></div></div>`, isSmall ? "small" : "regular");
 }
 
@@ -281,9 +281,6 @@ component({
    only slides: glass doesn't change size as it moves. Past the room it has, the well (.switch-room) stays put, a carving can't move or
    fade, and what's in it scrolls inside it (.switch-track), fading at its ends, with the rail under the well. */
 .switch-room { position: relative; display: flex; width: max-content; max-width: 100%; --face-color: var(--well); background: var(--face-color); box-shadow: var(--well-shade); clip-path: var(--cut-shape); transition: --face-color 0.45s cubic-bezier(.4, 0, .2, 1); }
-/* While you point at a tab you're not on, the well deepens a little (--well-pointed, on light glass only), so the light on its edge stands out. */
-@media (hover: hover) { .switch-room:has(.tab-switch > :is(a, button):not(:disabled, [aria-disabled="true"], [aria-current="page"], [aria-pressed="true"]):hover) { --face-color: var(--well-pointed); } }
-.switch-room:has(.tab-switch > .is-pointed) { --face-color: var(--well-pointed); }
 .switch-track { position: relative; min-width: 0; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; }
 .switch-track::-webkit-scrollbar { display: none; }
 /* Full: it fills the width it's in, its tabs sharing it, past their words' width. */
@@ -293,28 +290,12 @@ component({
 .tab-switch:not(.vertical) { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; width: max-content; background: none; box-shadow: none; clip-path: none; }
 /* The one you're on is marked by its slab and full ink, at the same weight as the others, so its words never move as it's chosen. */
 .tab-switch [aria-current="page"], .tab-switch [aria-pressed="true"] { color: var(--ink); }
-/* Pointed at (a mouse's; a tap shows nothing), a tab you're not on takes full ink, and light gathers on the well's carved edge beside it:
-   one soft glow along the well's lower edge under it (stacked, along its edge beside the place), brightest at the edge and fading up into
-   the tab, with no line of its own (--rim-light: white on light glass, a cool white on smoked). On light glass the well deepens a little
-   meanwhile (--well-pointed, below), so the light shows. Nothing is laid in the well, and nothing shades it: only light. Both ease in
-   and out together. */
-.tab-switch > :is(a, button)::after { content: ""; position: absolute; pointer-events: none; opacity: 0;
-  left: 15%; right: 15%; bottom: calc(0px - var(--switch-inset, 4px)); height: 14px;
-  background: radial-gradient(50% 100% at 50% 100%, var(--rim-light), transparent 100%);
-  transition: opacity 0.45s cubic-bezier(.4, 0, .2, 1), left 0.45s cubic-bezier(.4, 0, .2, 1), right 0.45s cubic-bezier(.4, 0, .2, 1); }
-.tab-switch.small { --switch-inset: 3px; }
-.tab-switch.vertical > :is(a, button)::after { left: calc(0px - var(--switch-inset, 4px)); right: auto; top: 20%; bottom: 20%; width: 14px; height: auto;
-  background: radial-gradient(100% 50% at 0% 50%, var(--rim-light), transparent 100%);
-  transition: opacity 0.45s cubic-bezier(.4, 0, .2, 1), top 0.45s cubic-bezier(.4, 0, .2, 1), bottom 0.45s cubic-bezier(.4, 0, .2, 1); }
-@media (hover: hover) {
-  .tab-switch > :is(a, button):not(:disabled, [aria-disabled="true"], [aria-current="page"], [aria-pressed="true"]):hover { color: var(--ink); }
-  .tab-switch > :is(a, button):not(:disabled, [aria-disabled="true"], [aria-current="page"], [aria-pressed="true"]):hover::after { opacity: 1; left: 4%; right: 4%; }
-  .tab-switch.vertical > :is(a, button):not(:disabled, [aria-disabled="true"], [aria-current="page"], [aria-pressed="true"]):hover::after { left: calc(0px - var(--switch-inset, 4px)); right: auto; top: 6%; bottom: 6%; }
-}
+/* Pointed at (a mouse's; a tap shows nothing), a tab you're not on takes full ink, and the well's edge light (Edge light, Panes › Glass)
+   floods up beside it: its lower edge across, its edge beside the places stacked. Meanwhile, on light glass, the well deepens a little
+   (--well-pointed), so the light shows. */
+@media (hover: hover) { .tab-switch > :is(a, button):not(:disabled, [aria-disabled="true"], [aria-current="page"], [aria-pressed="true"]):hover { color: var(--ink); } }
 .tab-switch > .is-pointed { color: var(--ink); }
-.tab-switch > .is-pointed::after { opacity: 1; left: 4%; right: 4%; }
-.tab-switch.vertical > .is-pointed::after { left: calc(0px - var(--switch-inset, 4px)); right: auto; top: 6%; bottom: 6%; }
-@media (prefers-reduced-motion: reduce) { .tab-switch > :is(a, button)::after { transition: opacity 0.45s; } }
+.switch-room.is-lit { --face-color: var(--well-pointed); }
 /* One that can't be chosen now: faded, and it answers nothing (pointing at it lights nothing). */
 .tab-switch > [aria-disabled="true"], .tab-switch > :disabled { cursor: default; opacity: 0.4; }
 /* Before the script has measured, the one you're on carries its own slab. */

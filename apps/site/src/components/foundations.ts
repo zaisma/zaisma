@@ -255,6 +255,48 @@ export function sheetMarkup(options: SheetMarkupOptions): Raw {
 /** An outline for a cut field or button (GLASS_SCRIPT draws it), and a slab's drawn rim. */
 export const CUT_LINE = raw('<svg class="cut-line" aria-hidden="true"><polygon/></svg>');
 export const EDGE = raw('<svg class="edge" aria-hidden="true"></svg>');
+/**
+ * An edge light (Panes › Glass): the light a well or pane catches on its edge, laid in it before what it holds. The holder names the edge
+ * (data-edge-light="bottom" or "left"), and the parts that light it carry data-lights (a switch's tabs); EDGE_LIGHT_SCRIPT does the rest.
+ */
+export const EDGE_LIGHT = raw('<span class="edge-light" aria-hidden="true"></span>');
+
+/**
+ * Edge lights: pointing (with a mouse) anywhere on a holder ([data-edge-light]) wakes its whole edge (is-awake), and pointing at a part that
+ * lights it ([data-lights], not the one you're on or one that can't be chosen) floods light up from the edge beside it (is-lit, at
+ * --light-at, --light-span wide), gliding to the next part as you move. A part marked is-pointed (the gallery's still) keeps it lit.
+ */
+export const EDGE_LIGHT_SCRIPT = `/* edge light */(function () {
+  function canLight(part) { return Boolean(part) && !part.matches('[aria-current="page"], [aria-pressed="true"], :disabled, [aria-disabled="true"]'); }
+  window.zaismaWatch.each("[data-edge-light]", function (holder) {
+    var light = holder.querySelector(":scope > .edge-light");
+    if (!light) return;
+    var side = holder.getAttribute("data-edge-light"), isAcross = side === "bottom" || side === "top", lit = null;
+    function place(part, isGliding) {
+      var h = holder.getBoundingClientRect(), r = part.getBoundingClientRect();
+      // The first light comes up where it is; after that it glides along the edge to the next part.
+      if (!isGliding) light.style.transition = "none";
+      light.style.setProperty("--light-at", (isAcross ? r.left + r.width / 2 - h.left : r.top + r.height / 2 - h.top) + "px");
+      light.style.setProperty("--light-span", (isAcross ? r.width : r.height) + "px");
+      if (!isGliding) { void light.offsetWidth; light.style.transition = ""; }
+    }
+    function lightUp(part) { place(part, holder.classList.contains("is-lit")); lit = part; holder.classList.add("is-awake", "is-lit"); }
+    function dim() { lit = null; holder.classList.remove("is-lit"); }
+    holder.addEventListener("pointerover", function (event) {
+      if (event.pointerType && event.pointerType !== "mouse") return;
+      holder.classList.add("is-awake");
+      var part = event.target.closest("[data-lights]");
+      if (part && holder.contains(part) && canLight(part)) lightUp(part); else dim();
+    });
+    holder.addEventListener("pointerleave", function () { dim(); holder.classList.remove("is-awake"); });
+    // A part picked (the one you're on now) no longer lights; one that scrolls inside the holder keeps its light beside it.
+    holder.addEventListener("click", function () { setTimeout(function () { if (lit && !canLight(lit)) dim(); }, 0); });
+    holder.addEventListener("scroll", function () { if (lit) place(lit, false); }, true);
+    var still = holder.querySelector("[data-lights].is-pointed");
+    if (still) lightUp(still);
+  });
+})();
+`;
 
 /* ---- The foundations in the gallery: tokens, type, glass, backdrop, cut shapes, motion and icons. ---- */
 
