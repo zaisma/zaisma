@@ -112,14 +112,26 @@ export interface ToggleButtonOptions extends Omit<CutButtonOptions, "isBig" | "i
 }
 
 /**
- * A toggle button: something that stays on until it's pressed again (Follow, a like, Mute, a password's Show). Off, its face lies flush in
- * the glass; on, the face rises on an orange column from the same footprint, so the button never moves and a row of them stays in line.
+ * A toggle button: something that stays on until it's pressed again (Follow, a like, Mute, a password's Show). Off, it's carved into the
+ * glass; on, its top surface rises from the same footprint and its orange front surface shows, so it never moves and a row of them stays in line.
  */
 export function toggleButton(label: string, options: ToggleButtonOptions): ControlMarkup {
   return cutButtonMarkup(label, options, options.isPressed);
 }
 
-// A toggle is a cut button with a column under its face: the face lifts off it when on.
+/** The front surface takes the top surface's own cut, slanted ends and all (the edge rule draws the face's), so it's exactly the shape beneath it. */
+export const TOGGLE_SCRIPT = `/* toggle buttons */(function () {
+  window.zaismaWatch.each(".toggle-btn", function (button) {
+    var face = button.querySelector(":scope > .face"), front = button.querySelector(":scope > .toggle-front");
+    if (!face || !front) return;
+    function copy() { var shape = face.style.getPropertyValue("--cut-shape"); if (shape) front.style.setProperty("--cut-shape", shape); }
+    copy();
+    new MutationObserver(copy).observe(face, { attributes: true, attributeFilter: ["style"] });
+  });
+})();
+`;
+
+// A toggle is a cut button with a front surface below its top surface (its face), showing when the face rises.
 function cutButtonMarkup(label: string, options: CutButtonOptions, isPressed?: boolean): ControlMarkup {
   const isToggle = isPressed !== undefined;
   const hasCount = options.reactionCount !== undefined;
@@ -132,8 +144,8 @@ function cutButtonMarkup(label: string, options: CutButtonOptions, isPressed?: b
   const words = !options.isLabelHidden ? html`<span>${label}</span>` : hasCount ? html`<span class="sr">${label}, </span>` : "";
   const reactionMarkup = hasCount ? html`<span class="cut-count">${countWords}</span>` : "";
   const cutLine = options.isBig ? 13 : 10;
-  const column = isToggle ? html`<span class="toggle-column" aria-hidden="true" data-cut-line="${cutLine}"></span>` : "";
-  return controlMarkup(html`${opening(className, options, options.isBusy, extra)}${column}<span class="face cut-raised" data-cut-line="${cutLine}">${CUT_LINE}${loader()}${options.icon ? icon(options.icon) : ""}${words}${reactionMarkup}</span>${closing(options)}`, options.isBig ? "big" : options.isSmall || options.isInWell ? "small" : "regular");
+  const front = isToggle ? html`<span class="toggle-front" aria-hidden="true"></span>` : "";
+  return controlMarkup(html`${opening(className, options, options.isBusy, extra)}${front}<span class="face cut-raised" data-cut-line="${cutLine}">${CUT_LINE}${loader()}${options.icon ? icon(options.icon) : ""}${words}${reactionMarkup}</span>${closing(options)}`, options.isBig ? "big" : options.isSmall || options.isInWell ? "small" : "regular");
 }
 
 const GOOGLE = raw(
@@ -460,32 +472,43 @@ component({
   slug: "toggle-button",
   group: "actions",
   subgroup: "buttons",
-  summary: "Something that stays on until it's pressed again: Follow, a like with its count, Mute, a password's Show. Off, its face lies flush in the glass; on, the face rises on an orange column from the same place, lit round it on dark glass and shadowed on light. A setting that's on or off on a settings page is a Toggle, the switch.",
+  summary: "Something that stays on until it's pressed again: Follow, a like with its count, Mute, a password's Show. Off, it's carved into the glass; on, its top surface rises from the same place and its orange front surface shows, lit round it on dark glass and shadowed on light. A setting that's on or off on a settings page is a Toggle, the switch.",
   styles: `
-/* A toggle button: a cut button whose face rests flush in the glass when off, a clear outline only, and rises on an orange column when on,
-   from the same footprint, so it never moves and a row of toggles stays in line. Under the column the glass is lit on dark glass and
-   shadowed on light (--toggle-cast, which follows the button's own cut and reaches furthest below it). */
-.toggle-btn { position: relative; --toggle-lift: 5px; }
-.toggle-btn.small { --toggle-lift: 4px; }
-.toggle-column { position: absolute; inset: 0; z-index: 0; clip-path: var(--cut-shape); background: linear-gradient(180deg, var(--run-hi), var(--run) 40%, var(--run-lo)); opacity: 0; transition: opacity 0.2s; }
-.toggle-btn > .face { position: relative; z-index: 1; }
-.toggle-btn[aria-pressed="false"] > .face { --face-color: var(--toggle-flush); color: var(--ink-2); }
-.toggle-btn[aria-pressed="false"] > .face > .cut-line { --band-top: transparent; --band-left: transparent; --band-right: transparent; --band-bottom: transparent; }
-.toggle-btn[aria-pressed="false"] > .face > .cut-line polygon { stroke: var(--line); stroke-width: 2; }
+/* A toggle button: a cut button carved into the glass when off; on, its top surface (its words and icon) rises from the same footprint and
+   its front surface shows below it, orange, so it never moves and a row of toggles stays in line. Below it the glass is lit on dark glass
+   and shadowed on light (--toggle-cast, which follows the button's own cut and reaches furthest below it). */
+.toggle-btn { position: relative; --toggle-lift: 5px; --toggle-cut-reach: 12px; }
+.toggle-btn.small { --toggle-lift: 4px; --toggle-cut-reach: 10px; }
+/* The front surface: the top surface's own shape (TOGGLE_SCRIPT copies it, slanted ends and all), showing only below the risen top surface. */
+.toggle-front { position: absolute; inset: 0; z-index: 0; clip-path: var(--cut-shape); background: linear-gradient(180deg, var(--run-hi), var(--run) 40%, var(--run-lo));
+  -webkit-mask-image: linear-gradient(to top, #000 calc(var(--toggle-lift) + var(--toggle-cut-reach)), transparent calc(var(--toggle-lift) + var(--toggle-cut-reach)));
+  mask-image: linear-gradient(to top, #000 calc(var(--toggle-lift) + var(--toggle-cut-reach)), transparent calc(var(--toggle-lift) + var(--toggle-cut-reach)));
+  visibility: hidden; transition: visibility 0s 0.35s; }
+.toggle-btn > .face { position: relative; z-index: 1; transition: transform 0.35s cubic-bezier(.2,.8,.2,1), color 0.2s, box-shadow 0.2s, --face-color 0s 0.35s; }
+/* Off: carved into the glass, its light turned round, as a field is. It answers the pointer by brightening, never lifting. */
+.toggle-btn[aria-pressed="false"] > .face { --face-color: var(--toggle-flush); box-shadow: var(--well-shade); color: var(--ink-2); }
+.toggle-btn[aria-pressed="false"] > .face > .cut-line { --band-top: var(--carve-top); --band-left: var(--carve-left); --band-right: var(--carve-right); --band-bottom: var(--carve-bottom); }
 .toggle-btn[aria-pressed="false"]:hover > .face, .toggle-btn[aria-pressed="false"].is-pointed > .face { --face-color: var(--toggle-flush-hover); color: var(--ink); }
-/* Off, it lies flush: pointing at it brightens it, never lifts it. */
-.toggle-btn[aria-pressed="false"]:not(.in-well):hover, .toggle-btn[aria-pressed="false"].is-pointed { filter: none; }
-.toggle-btn[aria-pressed="false"]:not(.in-well):hover > .face, .toggle-btn[aria-pressed="false"].is-pointed > .face { transform: none; }
+.toggle-btn[aria-pressed="false"]:not(.in-well):hover, .toggle-btn[aria-pressed="false"].is-pointed, .toggle-btn:active, .toggle-btn.is-pressed { filter: none; }
+.toggle-btn[aria-pressed="false"]:not(.in-well):hover > .face, .toggle-btn[aria-pressed="false"].is-pointed > .face, .toggle-btn[aria-pressed="false"]:active > .face, .toggle-btn[aria-pressed="false"].is-pressed > .face { transform: none; box-shadow: var(--well-shade); }
+/* On: the top surface is solid glass, risen, its front surface showing; turning on, it changes at once, and turning off it lands first, so
+   nothing shows through it on the way. */
+.toggle-btn[aria-pressed="true"] > .toggle-front { visibility: visible; transition: visibility 0s; }
+.toggle-btn[aria-pressed="true"] > .face { --face-color: var(--toggle-face); transform: translateY(calc(-1 * var(--toggle-lift))); transition: transform 0.35s cubic-bezier(.2,.8,.2,1), color 0.2s, box-shadow 0.2s, --face-color 0s; }
+.toggle-btn[aria-pressed="true"]:hover > .face, .toggle-btn[aria-pressed="true"].is-pointed > .face { --face-color: var(--toggle-face-hover); transform: translateY(calc(-1 * var(--toggle-lift))); }
 .toggle-btn[aria-pressed="true"], .toggle-btn[aria-pressed="true"]:not(.in-well):hover, .toggle-btn[aria-pressed="true"].is-pointed { filter: var(--toggle-cast); }
-.toggle-btn[aria-pressed="true"] > .toggle-column { opacity: 1; }
-/* Raised, the face is solid glass, so the column shows only below it and along its cut, never through it. */
-.toggle-btn[aria-pressed="true"] > .face { --face-color: var(--toggle-face); }
-.toggle-btn[aria-pressed="true"]:hover > .face, .toggle-btn[aria-pressed="true"].is-pointed > .face { --face-color: var(--toggle-face-hover); }
-.toggle-btn[aria-pressed="true"] > .face, .toggle-btn[aria-pressed="true"]:not(.in-well):hover > .face, .toggle-btn[aria-pressed="true"].is-pointed > .face { transform: translateY(calc(-1 * var(--toggle-lift))); }
-.toggle-btn[aria-pressed="true"] > .face > .ico { color: var(--run); }
-/* Pressed, the face goes down to the glass, whichever way it's turning. */
-.toggle-btn:active > .face, .toggle-btn.is-pressed > .face { transform: none; }
-@media (prefers-reduced-motion: reduce) { .toggle-btn > .face { transition: --face-color 0.2s, color 0.2s; } }
+.toggle-btn[aria-pressed="true"] > .face > .ico { color: var(--toggle-icon-on); }
+/* Pressed while on: the risen top surface goes down a little, as a key would; its light stays the same. */
+.toggle-btn[aria-pressed="true"]:active, .toggle-btn[aria-pressed="true"].is-pressed { filter: var(--toggle-cast); }
+.toggle-btn[aria-pressed="true"]:active > .face, .toggle-btn[aria-pressed="true"].is-pressed > .face { transform: translateY(calc(-1 * var(--toggle-lift) + 2px)); box-shadow: none; --face-color: var(--toggle-face); }
+.toggle-btn[aria-pressed="true"]:active > .face > .cut-line, .toggle-btn[aria-pressed="true"].is-pressed > .face > .cut-line { --band-top: var(--raise-top); --band-left: var(--raise-left); --band-right: var(--raise-right); --band-bottom: var(--raise-bottom); }
+/* Keyboard focus: one ring round the whole button as you see it, top and front surfaces together, not one round each. */
+.toggle-btn:focus-visible > .face, .toggle-btn.is-focused > .face { --face-color: var(--toggle-flush-hover); }
+.toggle-btn[aria-pressed="true"]:focus-visible > .face, .toggle-btn[aria-pressed="true"].is-focused > .face { --face-color: var(--toggle-face-hover); }
+.toggle-btn:focus-visible .cut-line polygon, .toggle-btn.is-focused .cut-line polygon { stroke: transparent; }
+.toggle-btn:focus-visible, .toggle-btn.is-focused { filter: var(--toggle-ring); }
+.toggle-btn[aria-pressed="true"]:focus-visible, .toggle-btn[aria-pressed="true"].is-focused { filter: var(--toggle-ring) var(--toggle-cast); }
+@media (prefers-reduced-motion: reduce) { .toggle-btn > .face { transition: color 0.2s; } .toggle-front { transition: none; } }
 `,
   render: toggleButton,
   examples: [
@@ -493,7 +516,8 @@ component({
     { label: "On", markup: toggleButton("Following", { type: "button", icon: "bell", isPressed: true }), isStill: true },
     { label: "Off, pointed", markup: toggleButton("Follow", { type: "button", icon: "bell", isPressed: false, state: "is-pointed" }), isStill: true },
     { label: "On, pointed", markup: toggleButton("Following", { type: "button", icon: "bell", isPressed: true, state: "is-pointed" }), isStill: true },
-    { label: "Pressed", markup: toggleButton("Follow", { type: "button", icon: "bell", isPressed: false, state: "is-pressed" }), isStill: true },
+    { label: "Off, pressed", markup: toggleButton("Follow", { type: "button", icon: "bell", isPressed: false, state: "is-pressed" }), isStill: true },
+    { label: "On, pressed: it goes down a little", markup: toggleButton("Following", { type: "button", icon: "bell", isPressed: true, state: "is-pressed" }), isStill: true },
     { label: "Keyboard focus", markup: toggleButton("Following", { type: "button", icon: "bell", isPressed: true, state: "is-focused" }), isStill: true },
     { label: "Try it: press each", isWide: true, markup: html`<div class="control-row" data-toggle-example>${toggleButton("Favorite", { type: "button", icon: "heart", isLabelHidden: true, isPressed: false })}${toggleButton("Follow", { type: "button", icon: "bell", isPressed: true })}${toggleButton("Like", { type: "button", icon: "heart", isLabelHidden: true, reactionCount: 1284, isPressed: false })}${toggleButton("Mute", { type: "button", icon: "speaker", isLabelHidden: true, isPressed: false })}</div>` },
     { label: "Only its icon, off and on", markup: html`<div class="control-row">${toggleButton("Favorite", { type: "button", icon: "heart", isLabelHidden: true, isPressed: false })}${toggleButton("Favorite", { type: "button", icon: "heart", isLabelHidden: true, isPressed: true })}</div>`, isStill: true },
