@@ -40,7 +40,7 @@ export function slider(options: SliderOptions): Raw {
   const id = options.id ?? `slider-${options.name}`;
   const filledPct = (100 * (options.pickedNumber - options.minimumNumber)) / Math.max(1e-9, options.maximumNumber - options.minimumNumber);
   const className = ["slider", options.state ?? "", options.isDisabled ? "is-disabled" : ""].filter(Boolean).join(" ");
-  return html`<div class="${className}" style="--fill:${(Math.max(0, Math.min(100, filledPct)) / 100).toFixed(4)}"><div class="slider-head"><label for="${id}">${options.label}</label><output for="${id}" data-unit="${options.unit}">${numberWords(options.pickedNumber, options.unit)}</output></div><div class="slider-track"><span class="slider-line" aria-hidden="true"></span><span class="slider-fill" aria-hidden="true"><span class="slider-light"></span></span><input class="slider-input" type="range" id="${id}" name="${options.name}" min="${options.minimumNumber}" max="${options.maximumNumber}" step="${options.stepNumber}" value="${options.pickedNumber}"${options.isDisabled ? raw(" disabled") : ""} data-slider><span class="slider-thumb" aria-hidden="true"><span class="slider-slab cut-raised" data-cut-line="6">${CUT_LINE}</span></span></div></div>`;
+  return html`<div class="${className}" style="--fill:${(Math.max(0, Math.min(100, filledPct)) / 100).toFixed(4)}"><div class="slider-head"><label for="${id}">${options.label}</label><output for="${id}" data-unit="${options.unit}">${numberWords(options.pickedNumber, options.unit)}</output></div><div class="slider-track"><span class="slider-line" aria-hidden="true" data-cut-line="3">${CUT_LINE}</span><span class="slider-fill" aria-hidden="true"><span class="slider-light" data-cut-line="3">${CUT_LINE}</span></span><input class="slider-input" type="range" id="${id}" name="${options.name}" min="${options.minimumNumber}" max="${options.maximumNumber}" step="${options.stepNumber}" value="${options.pickedNumber}"${options.isDisabled ? raw(" disabled") : ""} data-slider><span class="slider-thumb" aria-hidden="true"><span class="slider-slab cut-raised" data-cut-line="6">${CUT_LINE}</span></span></div></div>`;
 }
 
 /** A slider's fill and number follow its thumb. */
@@ -78,11 +78,12 @@ component({
    off: a carving reads by its edges, never by a brighter face. What's filled is orange light running inside it, glowing faintly past its lips. */
 .slider-line, .slider-fill { position: absolute; pointer-events: none; left: calc(var(--thumb) / 2 - 4px); }
 .slider-line { top: calc(50% - 4px); height: 8px; right: calc(var(--thumb) / 2 - 4px); background: var(--toggle-off);
-  box-shadow: inset 0 3px 3px var(--groove-shade), inset 0 -1.5px 0 var(--groove-lip); clip-path: polygon(3px 0, 100% 0, 100% calc(100% - 3px), calc(100% - 3px) 100%, 0 100%, 0 3px); }
-/* The light lies in the groove a pixel in from its lips, from its very start to under the thumb's middle, cut where the groove's corner is
-   cut (the same slant, a pixel in); its holder casts its glow, which follows that cut and spills past the lips. */
+  box-shadow: inset 0 3px 3px var(--groove-shade), inset 0 -1.5px 0 var(--groove-lip); clip-path: var(--cut-shape); }
+/* The light lies in the groove a pixel in from its lips, from its very start to under the thumb's middle; the groove and the light are both
+   cut by the edge rule, so where the groove's end meets the pane's cut corner, both are cut there. Its holder casts its glow, which follows
+   the light's cut and spills past the lips. */
 .slider-fill { top: calc(50% - 3px); height: 6px; width: calc(4px + (100% - var(--thumb)) * var(--fill)); filter: drop-shadow(0 0 3px var(--run)); }
-.slider-light { position: absolute; inset: 0; background: linear-gradient(180deg, var(--run-hi), var(--run)); clip-path: polygon(2px 0, 100% 0, 100% 100%, 0 100%, 0 2px); }
+.slider-light { position: absolute; inset: 0; background: linear-gradient(180deg, var(--run-hi), var(--run)); clip-path: var(--cut-shape); }
 .slider-input { position: absolute; inset: 0; z-index: 3; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; -webkit-appearance: none; appearance: none; }
 /* On a phone the track takes a whole control's height (--control-height-regular) to touch, centered on it. */
 @media (pointer: coarse) { .slider-input { inset: min(0px, calc(50% - var(--touch-target) / 2)) 0; height: auto; } }
@@ -500,7 +501,7 @@ export function colorField(options: ColorFieldOptions): Raw {
   const swatchOf = (swatch: string) => (swatch === "clear" ? "var(--clear-swatch)" : swatch);
   return html`<fieldset class="wheel-field color-field" id="${id}" data-color-field data-color-hex="${hex}">
 <legend id="${id}-legend">${options.label}</legend>
-<button type="button" class="wheel-button color-button cut-carved no-icon" data-cut-line="10" aria-expanded="${isOpen ? "true" : "false"}" aria-controls="${id}-pick" aria-describedby="${id}-legend">${CUT_LINE}<span class="color-chip" aria-hidden="true" style="--swatch:${named ? swatchOf(named.swatch) : hex}"></span><span class="wheel-value color-value">${named?.name ?? hex}</span><span class="wheel-chev">${icon("chevron-down")}</span></button>
+<button type="button" class="wheel-button color-button cut-carved no-icon" data-cut-line="10" aria-expanded="${isOpen ? "true" : "false"}" aria-controls="${id}-pick" aria-describedby="${id}-legend">${CUT_LINE}<span class="color-chip cut-raised" aria-hidden="true" data-cut-line="6" style="--swatch:${named ? swatchOf(named.swatch) : hex}">${CUT_LINE}</span><span class="wheel-value color-value">${named?.name ?? hex}</span><span class="wheel-chev">${icon("chevron-down")}</span></button>
 ${floatingPane({
     id: `${id}-pick`,
     placement: "under",
@@ -508,7 +509,7 @@ ${floatingPane({
     role: "group",
     label: options.label,
     isShownInPlace: isOpen,
-    body: html`<div class="color-pane"><div class="color-wheel cut-carved${options.state === "is-focused" ? " is-focused" : ""}" data-cut-line="10" tabindex="0" role="slider" aria-label="Hue and strength" aria-valuetext="${hex}">${CUT_LINE}<span class="color-wheel-light" aria-hidden="true"></span><span class="color-knob" aria-hidden="true" data-on-no-pane><span class="color-knob-slab cut-raised" data-cut-line="6">${CUT_LINE}</span></span></div><div class="color-side"><span class="color-swatch" aria-hidden="true"></span>${cutField({ name: `${options.name}_hex`, id: `${id}-hex`, label: "Hex code", type: "text", text: hex, autocomplete: "off", characterPattern: "[#0-9A-Fa-f]", maximumCharacterCount: 7, isUppercase: true })}${slider({ name: `${options.name}_brightness`, id: `${id}-brightness`, label: "Brightness", minimumNumber: 0, maximumNumber: 100, stepNumber: 1, pickedNumber: 100, unit: "%" })}</div>${
+    body: html`<div class="color-pane"><div class="color-wheel cut-carved${options.state === "is-focused" ? " is-focused" : ""}" data-cut-line="10" tabindex="0" role="slider" aria-label="Hue and strength" aria-valuetext="${hex}">${CUT_LINE}<span class="color-wheel-light" aria-hidden="true"></span><span class="color-knob" aria-hidden="true" data-on-no-pane><span class="color-knob-slab cut-raised" data-cut-line="6">${CUT_LINE}</span></span></div><div class="color-side"><span class="color-swatch cut-raised" aria-hidden="true" data-cut-line="10">${CUT_LINE}</span>${cutField({ name: `${options.name}_hex`, id: `${id}-hex`, label: "Hex code", type: "text", text: hex, autocomplete: "off", characterPattern: "[#0-9A-Fa-f]", maximumCharacterCount: 7, isUppercase: true })}${slider({ name: `${options.name}_brightness`, id: `${id}-brightness`, label: "Brightness", minimumNumber: 0, maximumNumber: 100, stepNumber: 1, pickedNumber: 100, unit: "%" })}</div>${
       options.namedChoices
         ? html`<div class="color-named" role="group" aria-label="Named colors">${options.namedChoices.map(
             (choice) =>
@@ -616,10 +617,14 @@ component({
    the glass and cut by the edge rule like any carving there: hue round its middle, strength from its soft middle out to its rim, dimmed by the
    brightness; the toggle's slab (the --thumb tokens) marks the pick. Beside it, the picked color, a Cut field for its hex code and a Slider
    whose groove runs from black to the full color. Named colors sit under them as chips of colored glass, the picked one ringed in ink. */
+/* Its pane holds a few controls, so it keeps a pane's room round them (--pad-pane), and the wheel a block's gap from the rest. */
+.floating-pane.color-pick { padding: var(--pad-pane); }
 .color-field, .color-pick { --clear-swatch: repeating-conic-gradient(var(--line) 0 25%, transparent 0 50%) 0 0 / 8px 8px; }
-.color-chip { flex: none; width: 20px; height: 20px; background: var(--swatch); clip-path: polygon(5px 0, 100% 0, 100% 15px, 15px 100%, 0 100%, 0 5px); box-shadow: inset 0 1.5px 0 rgba(255,255,255,0.45), inset 0 -1.5px 0 rgba(0,0,0,0.22); }
+/* The chip and the picked color are colored glass raised a little, cut by the edge rule like every piece on a pane: a corner is cut where
+   it meets its holder's cut corner, square elsewhere. */
+.color-chip { position: relative; flex: none; width: 20px; height: 20px; background: var(--swatch); clip-path: var(--cut-shape); }
 .color-value { font-variant-numeric: tabular-nums; }
-.color-pane { display: grid; grid-template-columns: 184px minmax(0, 220px); gap: var(--gap-control-stack) var(--gap-words-control); align-items: start; }
+.color-pane { display: grid; grid-template-columns: 184px minmax(0, 220px); gap: var(--gap-block-block); align-items: start; }
 @media (max-width: 480px) { .color-pane { grid-template-columns: minmax(0, 1fr); justify-items: center; } .color-side { width: 100%; } }
 .color-wheel { position: relative; width: 184px; height: 184px; cursor: crosshair; touch-action: none; outline: none; clip-path: var(--cut-shape); }
 .color-wheel-light { position: absolute; inset: 0; background: radial-gradient(circle closest-side, #fff, rgba(255,255,255,0) 100%), conic-gradient(from 90deg, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00); }
@@ -634,7 +639,7 @@ component({
 .color-wheel.is-held .color-knob-slab::after { opacity: 1; transition-duration: 0.08s; }
 .color-wheel:focus-visible > .cut-line polygon, .color-wheel.is-focused > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 .color-side { display: grid; gap: var(--gap-control-stack); min-width: 0; }
-.color-swatch { height: 48px; background: var(--color-picked); clip-path: polygon(10px 0, 100% 0, 100% 100%, 0 100%, 0 10px); box-shadow: inset 0 1.5px 0 rgba(255,255,255,0.4), inset 0 -1.5px 0 rgba(0,0,0,0.2); }
+.color-swatch { position: relative; display: block; height: 48px; background: var(--color-picked); clip-path: var(--cut-shape); }
 /* Its brightness: the slider's groove runs from black to the full color, with no orange in it. */
 .color-side .slider-line { background: linear-gradient(90deg, #000, var(--color-full, #fff)); }
 .color-side .slider-fill { display: none; }

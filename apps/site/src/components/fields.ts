@@ -1004,10 +1004,10 @@ component({
 .wheel-chev > .ico { width: 16px; height: 10px; stroke-width: 2.2; }
 /* Only the chevron turns when the picker opens; the outline and the icon stay still. */
 .wheel-button[aria-expanded="true"] .wheel-chev { transform: rotate(180deg); }
-.wheel-button .cut-line { z-index: 4; }
-.wheel-button .cut-line polygon { stroke: var(--field-outline); }
-.wheel-button[aria-expanded="true"] .cut-line polygon, .wheel-button:focus-visible .cut-line polygon, .wheel-button.is-focused .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
-.wheel-button.is-marked .cut-line polygon { stroke: var(--marked); stroke-width: 2; }
+.wheel-button > .cut-line { z-index: 4; }
+.wheel-button > .cut-line polygon { stroke: var(--field-outline); }
+.wheel-button[aria-expanded="true"] > .cut-line polygon, .wheel-button:focus-visible > .cut-line polygon, .wheel-button.is-focused > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
+.wheel-button.is-marked > .cut-line polygon { stroke: var(--marked); stroke-width: 2; }
 /* Its words stay on one line, never crowding its edges; its chevron keeps the same inset from its end as its icon from its start, so a long
    date ("Jan 15, 2027, 1:30 PM") fits a phone. What's wrong is said under it, as under a cut field. */
 .wheel-value { min-width: 0; flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
