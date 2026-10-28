@@ -815,7 +815,7 @@ const FIELD_STYLES = `
 .field.with-toggle > .cut-btn > .face { width: var(--toggle-width); padding: 0; }
 .field.with-toggle > input { --text-end: calc(var(--toggle-width) + 2 * var(--toggle-inset)); }
 .field > .cut-btn { position: absolute; z-index: 5; right: var(--toggle-inset); top: var(--toggle-inset); }
-/* Read-only: nothing to type, so it's carved into the glass like a code field instead of a field's lighter face; it can still be selected,
+/* Read-only: nothing to type, so it's carved into the glass like a copy field instead of a field's lighter face; it can still be selected,
    copied and focused. */
 .field:has(> input[readonly])::before { --face-color: var(--well); box-shadow: var(--well-shade); }
 /* Can't be changed now: carved the same, its words and icon quieter, and it answers no pointer. */

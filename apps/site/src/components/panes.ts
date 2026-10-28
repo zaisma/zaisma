@@ -4,7 +4,7 @@ import { component } from "./component.ts";
 import { CUT_LINE, EDGE, ago, glassPane, icon, sheetMarkup, tag, tray, well, type IconName } from "./foundations.ts";
 import { emptyState, glanceFacts, listRows, pictureFrame, pictureRow, type GlanceFacts } from "./data.ts";
 import { cardRow, secondaryButton, tertiaryButton, primaryButton, textLink, toggleButton } from "./actions.ts";
-import { REPORT_REASONS, STAND_IN_QR_CODE, birthdayField, choiceCards, codeField, cutField, linkField, longField, qrCode } from "./inputs.ts";
+import { REPORT_REASONS, STAND_IN_QR_CODE, birthdayField, choiceCards, copyField, cutField, longField, qrCode } from "./inputs.ts";
 import { examplePane } from "./example-pane.ts";
 import { grid, paneParts, row, stack, type ControlMarkup, type LayoutItem } from "./layout.ts";
 
@@ -975,7 +975,7 @@ component({
     {
       label: "Compact, on a wide screen: narrow, its gaps closed up like a dropdown's (the share sheet)",
       isStill: true,
-      markup: sheet({ id: "example-sheet-compact", title: "Share Ashen Crown", body: stack({ items: [{ kind: "control", markup: linkField({ id: "example-sheet-compact-link", label: "Link", url: "https://zaisma.com/g/ashen-crown" }) }, { kind: "block", markup: menuChoices({ label: "More ways to share", choices: [{ label: "Show QR code", icon: "qr-code", isButton: true }, { label: "More ways to share", icon: "share", isButton: true }] }) }] }), closeLabel: "Close", isShown: true, isCompact: true }),
+      markup: sheet({ id: "example-sheet-compact", title: "Share Ashen Crown", body: stack({ items: [{ kind: "control", markup: copyField({ id: "example-sheet-compact-link", label: "Link", copiedText: "https://zaisma.com/g/ashen-crown" }) }, { kind: "block", markup: menuChoices({ label: "More ways to share", choices: [{ label: "Show QR code", icon: "qr-code", isButton: true }, { label: "More ways to share", icon: "share", isButton: true }] }) }] }), closeLabel: "Close", isShown: true, isCompact: true }),
     },
     {
       label: "A long title",

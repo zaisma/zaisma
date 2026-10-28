@@ -577,7 +577,7 @@ export interface TertiaryButtonOptions extends ButtonTarget {
   isLabelHidden?: boolean;
   /** A small control's height, as a pane's corner buttons are. */
   isSmall?: boolean;
-  /** The id of what it acts on (aria-controls): a code field's code, for its Copy. */
+  /** The id of what it acts on (aria-controls): a copy field's text, for its Copy. */
   controls?: string;
   /** An arrow after its words that steps on as you point at it: a way on, like Continue as guest under the ways in. */
   hasArrow?: boolean;

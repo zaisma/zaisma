@@ -8,7 +8,7 @@ import { qrCodeSvg } from "@zaisma/core";
 
 /*
  * Inputs: the fields (fields.ts), the switch (switch.ts) and the choices (choices.ts) are re-exported from here, so pages import every
- * input from one place. A number on a scale, a file drop and a code field are defined here.
+ * input from one place. A number on a scale, a file drop and a copy field are defined here.
  */
 export * from "./fields.ts";
 export * from "./switch.ts";
@@ -269,182 +269,132 @@ component({
   ],
 });
 
-export interface CodeFieldOptions {
+export interface CopyFieldOptions {
+  /** What it is, above it: "Link", "Your new API key". */
   label: string;
-  /** What it holds, shown whole and copied whole: an API key, an address, a command. */
-  code: string;
-  /** Unique on the page. Defaults to a slug of its label. */
-  id?: string;
-  /** The gallery's fixed states: focused, or just copied. */
-  state?: "is-focused" | "is-copied";
+  /** What's copied, whole: a link, a key, a command. A page script can set it later (data-copy on its text, found by its id). */
+  copiedText: string;
   /**
-   * A secret on a screen others may see (a streamer's room code): its code is blurred until a page script takes is-masked off the field,
-   * and Copy still copies it.
+   * Code's own letters, shown whole on as many lines as it takes, a command breaking only at its spaces; a click on it selects it (a key, a
+   * command). Left out, it's words on one line, cut short at its end, a link shown without its https://, and a press anywhere copies it.
    */
-  isMasked?: boolean;
-}
-
-/**
- * A code field: code in a carved field, shown whole (it wraps rather than hiding any of it), with a Copy button at its end; for an API key
- * shown once, an address, a command. Code with spaces in it (a command) breaks only at its spaces, so no part of it is split; code with
- * none (a key, an address) is one long token and breaks anywhere, filling each line. Clicking the code selects all of it.
- */
-export function codeField(options: CodeFieldOptions): Raw {
-  const id = options.id ?? `code-${options.label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
-  const isCommand = / /.test(options.code.trim());
-  const code = isCommand ? options.code.split(" ").map((word, wordIndex) => html`${wordIndex ? " " : ""}<span class="code-word">${word}</span>`) : options.code;
-  const isCopied = options.state === "is-copied";
-  return html`<div class="cut-field code-field${isCopied ? " is-copied" : ""}${options.isMasked ? " is-masked" : ""}"><span class="copy-head"><span class="code-label" id="${id}-label">${options.label}</span><span class="copy-said" role="status">${isCopied ? "Copied" : ""}</span></span>${well({
-    kind: "code-well",
-    body: html`<code class="code-text" id="${id}" tabindex="0" aria-labelledby="${id}-label">${code}</code>`,
-    end: tertiaryButton("Copy", { type: "button", icon: "copy", isLabelHidden: true, isSmall: true, controls: id }),
-    endNote: icon("check"),
-    state: options.state === "is-focused" ? "is-focused" : undefined,
-  })}</div>`;
-}
-
-/**
- * Copy: the field's whole code goes to the clipboard, and for a moment its icon is a tick and "Copied" shows at the end of its label's line; clicking the code selects all of it.
- * A link field copies its whole address on a press anywhere on it, and says so the same way.
- */
-export const COPY_SCRIPT = `/* code fields */(function () {
-  function selectAll(element) { var range = document.createRange(); range.selectNodeContents(element); var picked = window.getSelection(); picked.removeAllRanges(); picked.addRange(range); }
-  document.addEventListener("click", function (event) {
-    var box = event.target.closest && event.target.closest(".well.link-well");
-    if (box) {
-      var field = box.closest(".link-field"), shown = field.querySelector(".link-field-text"), done = field.querySelector(".copy-said");
-      var copied = function (words) { done.textContent = words; field.classList.add("is-copied"); clearTimeout(done.timer); done.timer = setTimeout(function () { done.textContent = ""; field.classList.remove("is-copied"); }, 1600); };
-      // Where the clipboard isn't open to the page, the address is selected and copied the old way.
-      var linkByHand = function () { selectAll(shown); var isCopied = false; try { isCopied = document.execCommand("copy"); } catch (error) {} if (isCopied) copied("Copied"); };
-      var address = shown.getAttribute("data-link") || shown.textContent;
-      if (navigator.clipboard && navigator.clipboard.writeText) { copied("Copied"); navigator.clipboard.writeText(address).catch(linkByHand); }
-      else linkByHand();
-      return;
-    }
-    var code = event.target.closest && event.target.closest(".well.code-well .code-text");
-    if (code) { selectAll(code); return; }
-    var copy = event.target.closest && event.target.closest(".well.code-well .well-end > .tertiary-btn[aria-controls]");
-    if (!copy) return;
-    var text = document.getElementById(copy.getAttribute("aria-controls")), holder = copy.closest(".code-field"), said = holder && holder.querySelector(".copy-said");
-    if (!text || !said) return;
-    function saying(words) {
-      said.textContent = words; holder.classList.add("is-copied");
-      clearTimeout(said.timer); said.timer = setTimeout(function () { said.textContent = ""; holder.classList.remove("is-copied"); }, 1600);
-    }
-    // Where the clipboard isn't open to the page, the code is selected and copied the old way; when that fails too, it's left selected to copy.
-    function byHand() { selectAll(text); var isCopied = false; try { isCopied = document.execCommand("copy"); } catch (error) {} if (isCopied) saying("Copied"); }
-    // The press answers at once: the clipboard can take its time, and only says otherwise when it refuses.
-    if (navigator.clipboard && navigator.clipboard.writeText) { saying("Copied"); navigator.clipboard.writeText(text.getAttribute("data-code") || text.textContent).catch(byHand); }
-    else byHand();
-  });
-})();
-`;
-
-component({
-  name: "Code field",
-  slug: "code-field",
-  group: "inputs",
-  subgroup: "fields",
-  summary: "Code to copy and keep: an API key shown once, a game's address, an upload command. It's read-only, in code's own letters, with a quiet Copy at its end.",
-  styles: `
-/* A code field: code set into the glass, in a Well (nothing to type, so it isn't a field's lighter face), all of it in
-   code's letters, wrapping onto more lines rather than hiding any. Copy is a small tertiary icon button at its end, lying in the
-   well's glass until it's pointed at (a small one takes a finger's 44px on a phone); once it's copied, its icon is a tick and "Copied" shows at the end of the label's line. */
-/* Copied, as a link field says it: for a moment Copy's icon is a tick and "Copied" shows at the end of the label's line, both in the ink
-   (COPY_SCRIPT); the code stays where it is. */
-.copy-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--gap-words-words); padding-inline: var(--pad-words); }
-.code-label { font: var(--type-label); color: var(--ink-2); }
-.copy-said { font: var(--type-facts); color: var(--ink); opacity: 0; transition: opacity 0.2s; }
-:is(.code-field, .link-field).is-copied .copy-said { opacity: 1; }
-/* The tick is the well's end note, over Copy's icon, which hides under it. */
-:is(.code-field, .link-field).is-copied .well-end-note { display: grid; }
-:is(.code-field, .link-field).is-copied .well-end > .tertiary-btn .ico { visibility: hidden; }
-/* Each line is as tall as Copy's half and the gap round it, so the first line sits on Copy's center line and the second clears it. */
-/* One long token (a key, an address) breaks at a line's end, or at a slash or hyphen where one is near it. */
-.code-text { display: block; font: 500 0.9375rem/1.5rem ui-monospace, Menlo, monospace; color: var(--ink); overflow-wrap: anywhere; cursor: text; }
-/* Copy is the well's end control. Only the code's first line keeps clear of it; the lines under it run the well's whole width. */
-.well.code-well { align-items: stretch; }
-.well.code-well > .well-body { padding-inline-end: var(--pad-inside-words); }
-.code-text::before { content: ""; float: right; width: max(0px, var(--control-height-small) + var(--well-inset) - var(--pad-inside-words) + var(--gap-words-words)); height: 24px; }
-/* A command's parts each stay whole, so it breaks only at its spaces; a part longer than a line breaks within itself. */
-.code-word { display: inline-block; max-width: 100%; }
-.code-text:focus-visible { outline: none; }
-/* Masked: the code's letters blur into their own glow, unreadable, until the page shows them; Copy still copies them. */
-.code-field.is-masked .code-text { color: transparent; text-shadow: 0 0 10px var(--ink); cursor: pointer; }
-`,
-  render: codeField,
-  examples: [
-    { label: "An API key, shown once", markup: examplePane(codeField({ id: "example-code-key", label: "Your new API key", code: "zk_live_8f3a91c2e74b5d06a1f9c3e8b27d4a60" })) },
-    { label: "A command: it breaks only at its spaces", markup: examplePane(codeField({ id: "example-code-command", label: "Upload from your terminal", code: "npx @zaisma/cli upload ./build --game ashen-crown" })) },
-    { label: "A game's address", markup: examplePane(codeField({ id: "example-code-address", label: "Your game's address", code: "https://zaisma.com/g/ashen-crown-the-long-night" })) },
-    { label: "One long token", markup: examplePane(codeField({ id: "example-code-secret", label: "Webhook signing secret", code: "whsec_4b9f02d7e1c86a35f0d2b7194ce6a8d3f51b0e9c27a4d6f8b13e5c0a9d7f2e64" })) },
-    { label: "Copied", markup: examplePane(codeField({ id: "example-code-copied", label: "Your new API key", code: "zk_live_8f3a91c2e74b5d06a1f9c3e8b27d4a60", state: "is-copied" })), isStill: true },
-    { label: "Keyboard focus", markup: examplePane(codeField({ id: "example-code-focused", label: "Your new API key", code: "zk_live_8f3a91c2e74b5d06a1f9c3e8b27d4a60", state: "is-focused" })), isStill: true },
-    { label: "Masked, for a streamer: blurred until shown", markup: examplePane(codeField({ id: "example-code-masked", label: "Link", code: "https://zaisma.com/g/ashen-crown?room=K7PQ2M", isMasked: true })), isStill: true },
-  ],
-});
-
-export interface LinkFieldOptions {
-  /** Unique on the page: the link's words carry it, for a page script to fill in (data-link, and the words shown). */
-  id: string;
-  /** What it is: "Link". */
-  label: string;
-  /** The whole address that's copied; it shows without its https://. */
-  url: string;
-  /** A secret on a screen others may see (a streamer's room link): blurred until a page script takes is-masked off it; a press still copies it. */
+  isCode?: boolean;
+  /** Unique on the page: its text carries it, for a page script to fill in. Defaults to a slug of its label. */
+  id?: string;
+  /** A secret on a screen others may see (a streamer's room link or code): blurred until a page script takes is-masked off it; Copy still copies it. */
   isMasked?: boolean;
   /** The gallery's fixed states. */
   state?: "is-copied" | "is-pointed" | "is-focused";
 }
 
 /**
- * A link field: a link to copy, in a carved well, its address on one line without https:// and cut short at its end when it's long, with a
- * code field's Copy (a small tertiary icon button) at its end. A press anywhere on it copies the whole address, and it says so as a code field does.
+ * A copy field: something to copy in a Well, with a Copy (a small tertiary icon button) at its end. Words by default (a link: one line,
+ * cut short, a press anywhere copies it); code shows all of it in code's letters. Copied, Copy's icon is a tick and "Copied" shows at the
+ * end of its label's line for a moment, and what's in it stays.
  */
-export function linkField(options: LinkFieldOptions): ControlMarkup {
-  const shown = options.url.replace(/^https?:\/\//, "");
+export function copyField(options: CopyFieldOptions & { isCode: true }): Raw;
+export function copyField(options: CopyFieldOptions & { isCode?: false }): ControlMarkup;
+export function copyField(options: CopyFieldOptions): Raw;
+export function copyField(options: CopyFieldOptions): Raw {
+  const id = options.id ?? `copy-${options.label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
   const isCopied = options.state === "is-copied";
-  const state = options.state && options.state !== "is-copied" ? ` ${options.state}` : "";
-  return controlMarkup(html`<div class="link-field${isCopied ? " is-copied" : ""}${options.isMasked ? " is-masked" : ""}${state}"><span class="copy-head"><span class="link-field-label" id="${options.id}-label">${options.label}</span><span class="copy-said" role="status">${isCopied ? "Copied" : ""}</span></span>${well({
-    kind: "link-well",
-    body: html`<span class="link-field-text" id="${options.id}" data-link="${options.url}">${shown}</span>`,
-    end: tertiaryButton(`Copy ${options.label.toLowerCase()}`, { type: "button", icon: "copy", isLabelHidden: true, isSmall: true, controls: options.id, state: options.state === "is-pointed" || options.state === "is-focused" ? options.state : undefined }),
+  const isCommand = / /.test(options.copiedText.trim());
+  const shown = options.isCode
+    ? isCommand ? options.copiedText.split(" ").map((word, wordIndex) => html`${wordIndex ? " " : ""}<span class="code-word">${word}</span>`) : options.copiedText
+    : options.copiedText.replace(/^https?:\/\//, "");
+  const body = options.isCode
+    ? html`<code class="copy-field-text" id="${id}" tabindex="0" aria-labelledby="${id}-label" data-copy="${options.copiedText}">${shown}</code>`
+    : html`<span class="copy-field-text" id="${id}" data-copy="${options.copiedText}">${shown}</span>`;
+  const buttonState = options.state === "is-pointed" || (options.state === "is-focused" && !options.isCode) ? options.state : undefined;
+  const className = ["cut-field", "copy-field", options.isCode ? "is-code" : "", isCopied ? "is-copied" : "", options.isMasked ? "is-masked" : ""].filter(Boolean).join(" ");
+  // Words are a field's height, a control in a row or stack; code runs as many lines as it takes, a block.
+  const markup = html`<div class="${className}"><span class="copy-head"><span class="copy-label" id="${id}-label">${options.label}</span><span class="copy-said" role="status">${isCopied ? "Copied" : ""}</span></span>${well({
+    body,
+    end: tertiaryButton("Copy", { type: "button", icon: "copy", isLabelHidden: true, isSmall: true, controls: id, state: buttonState }),
     endNote: icon("check"),
-  })}</div>`, "field", { hasOwnWords: true });
+    state: options.isCode && options.state === "is-focused" ? "is-focused" : undefined,
+  })}</div>`;
+  return options.isCode ? markup : controlMarkup(markup, "field", { hasOwnWords: true });
 }
 
+/**
+ * Copy: a copy field's whole text (data-copy) goes to the clipboard, and for a moment Copy's icon is a tick and "Copied" shows at the end of
+ * its label's line. A press anywhere on a field of words copies it too; a click on code selects all of it, to copy by hand.
+ */
+export const COPY_SCRIPT = `/* copy fields */(function () {
+  function selectAll(element) { var range = document.createRange(); range.selectNodeContents(element); var picked = window.getSelection(); picked.removeAllRanges(); picked.addRange(range); }
+  document.addEventListener("click", function (event) {
+    var field = event.target.closest && event.target.closest(".copy-field");
+    if (!field || !event.target.closest(".well")) return;
+    var text = field.querySelector(".copy-field-text"), said = field.querySelector(".copy-said");
+    if (!event.target.closest(".well-end > .tertiary-btn") && field.classList.contains("is-code")) { selectAll(text); return; }
+    function saying(words) {
+      said.textContent = words; field.classList.add("is-copied");
+      clearTimeout(said.timer); said.timer = setTimeout(function () { said.textContent = ""; field.classList.remove("is-copied"); }, 1600);
+    }
+    // Where the clipboard isn't open to the page, the text is selected and copied the old way; when that fails too, it's left selected to copy.
+    function byHand() { selectAll(text); var isCopied = false; try { isCopied = document.execCommand("copy"); } catch (error) {} if (isCopied) saying("Copied"); }
+    // The press answers at once: the clipboard can take its time, and only says otherwise when it refuses.
+    if (navigator.clipboard && navigator.clipboard.writeText) { saying("Copied"); navigator.clipboard.writeText(text.getAttribute("data-copy") || text.textContent).catch(byHand); }
+    else byHand();
+  });
+})();
+`;
+
+const API_KEY = "zk_live_8f3a91c2e74b5d06a1f9c3e8b27d4a60";
+
 component({
-  name: "Link field",
-  slug: "link-field",
+  name: "Copy field",
+  slug: "copy-field",
   group: "inputs",
   subgroup: "fields",
-  summary: "A link to copy: its address on one line, in the words' own letters, without https://. A press anywhere on it copies it, and it says so as a Code field does. Code to copy (a key, a command) is a Code field.",
+  summary: "Something to copy and keep: a game's link, a room's, an API key shown once, an upload command. Words on one line by default, which a press anywhere copies; code shows all of it in code's letters. For something to type, use a Cut field.",
   styles: `
-/* A link field: a carved well, like a code field's, one line tall: the address in the words' letters (cut short at its end
-   when it's long), and a code field's Copy over its end, a small tertiary icon button, which the keyboard reaches. A press anywhere on the
-   well copies too: pointed at, the well brings up Copy's slab; pressed, it's shaded from above. Copied, it says so as a code field does:
-   Copy's icon is a tick and "Copied" shows at the end of the label's line, both in the ink, for a moment (COPY_SCRIPT); the address stays. */
-.link-field { display: flex; flex-direction: column; gap: var(--gap-words-control); min-width: 0; }
-.link-field-label { font: var(--type-label); color: var(--ink-2); }
-/* Its well is one line tall, the address alone (its label says it's a link), and a press anywhere on it copies: pointed at, Copy's slab comes up. */
-.well.link-well { cursor: pointer; }
-.well.link-well > .well-body { display: flex; align-items: center; gap: var(--gap-words-words); padding-block: 0; }
-.link-field-text { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.well.link-well:hover .well-end > .tertiary-btn > .face { color: var(--ink); --face-color: var(--wash); }
-.well.link-well:active { box-shadow: var(--press-shade); }
-.well.link-well:active .well-end > .tertiary-btn > .face { --face-color: var(--wash-press); }
-/* Masked: the address blurs into its own glow, unreadable, until the page shows it; a press still copies it. */
-/* Its glow has room round the words, inside what cuts them short, so it isn't clipped. */
-.link-field.is-masked .link-field-text { color: transparent; text-shadow: 0 0 10px var(--ink); padding: 12px; margin: -12px; }
+/* A copy field: its label, then a Well holding what's copied, with Copy (a small tertiary icon button) at its end. Copied, Copy's icon is a
+   tick (the well's end note) and "Copied" shows at the end of the label's line, both in the ink, for a moment (COPY_SCRIPT); what's in it
+   stays where it is. */
+.copy-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--gap-words-words); padding-inline: var(--pad-words); }
+.copy-label { font: var(--type-label); color: var(--ink-2); }
+.copy-said { font: var(--type-facts); color: var(--ink); opacity: 0; transition: opacity 0.2s; }
+.copy-field.is-copied .copy-said { opacity: 1; }
+.copy-field.is-copied .well-end-note { display: grid; }
+.copy-field.is-copied .well-end > .tertiary-btn .ico { visibility: hidden; }
+.copy-field-text:focus-visible { outline: none; }
+/* Words: one line tall, the address cut short at its end; a press anywhere on the well copies, so pointing at it brings up Copy's slab. */
+.copy-field:not(.is-code) .well { cursor: pointer; }
+.copy-field:not(.is-code) .well-body { display: flex; align-items: center; padding-block: 0; }
+.copy-field:not(.is-code) .copy-field-text { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.copy-field:not(.is-code) .well:hover .well-end > .tertiary-btn > .face { color: var(--ink); --face-color: var(--wash); }
+.copy-field:not(.is-code) .well:active { box-shadow: var(--press-shade); }
+.copy-field:not(.is-code) .well:active .well-end > .tertiary-btn > .face { --face-color: var(--wash-press); }
+/* Code: all of it in code's letters, wrapping onto more lines rather than hiding any; one long token (a key) breaks at a line's end. Only
+   its first line keeps clear of Copy; the lines under it run the well's whole width, each as tall as Copy's half and the gap round it. */
+.copy-field.is-code .well { align-items: stretch; }
+.copy-field.is-code .well-body { padding-inline-end: var(--pad-inside-words); }
+.copy-field.is-code .copy-field-text { display: block; font: 500 0.9375rem/1.5rem ui-monospace, Menlo, monospace; overflow-wrap: anywhere; cursor: text; }
+.copy-field.is-code .copy-field-text::before { content: ""; float: right; width: max(0px, var(--control-height-small) + var(--well-inset) - var(--pad-inside-words) + var(--gap-words-words)); height: 24px; }
+/* A command's parts each stay whole, so it breaks only at its spaces; a part longer than a line breaks within itself. */
+.code-word { display: inline-block; max-width: 100%; }
+/* Masked: its letters blur into their own glow, unreadable, until the page shows them, the glow with room round the words so it isn't
+   clipped; Copy still copies them. */
+.copy-field.is-masked .copy-field-text { color: transparent; text-shadow: 0 0 10px var(--ink); }
+.copy-field.is-masked:not(.is-code) .copy-field-text { padding: 12px; margin: -12px; }
+.copy-field.is-masked.is-code .copy-field-text { cursor: pointer; }
 `,
-  render: linkField,
+  render: copyField,
   examples: [
-    { label: "A game's link", markup: examplePane(linkField({ id: "example-link", label: "Link", url: "https://zaisma.com/g/ashen-crown" })) },
-    { label: "Pointed", markup: examplePane(linkField({ id: "example-link-pointed", label: "Link", url: "https://zaisma.com/g/ashen-crown", state: "is-pointed" })), isStill: true },
-    { label: "Copied", markup: examplePane(linkField({ id: "example-link-copied", label: "Link", url: "https://zaisma.com/g/ashen-crown", state: "is-copied" })), isStill: true },
-    { label: "A long one: cut short at its end", markup: examplePane(linkField({ id: "example-link-long", label: "Link to this match", url: "https://zaisma.com/g/the-last-lighthouse-keeper-tides-of-the-northern-reach?room=K7Q2MX" })) },
-    { label: "Masked, for a streamer: blurred until shown", markup: examplePane(linkField({ id: "example-link-masked", label: "Link to this match", url: "https://zaisma.com/g/ashen-crown?room=K7Q2MX", isMasked: true })), isStill: true },
-    { label: "Keyboard focus", markup: examplePane(linkField({ id: "example-link-focused", label: "Link", url: "https://zaisma.com/g/ashen-crown", state: "is-focused" })), isStill: true },
+    { label: "A game's link", markup: examplePane(copyField({ id: "example-copy-link", label: "Link", copiedText: "https://zaisma.com/g/ashen-crown" })) },
+    { label: "Pointed", markup: examplePane(copyField({ id: "example-copy-pointed", label: "Link", copiedText: "https://zaisma.com/g/ashen-crown", state: "is-pointed" })), isStill: true },
+    { label: "Copied", markup: examplePane(copyField({ id: "example-copy-copied", label: "Link", copiedText: "https://zaisma.com/g/ashen-crown", state: "is-copied" })), isStill: true },
+    { label: "Keyboard focus", markup: examplePane(copyField({ id: "example-copy-focused", label: "Link", copiedText: "https://zaisma.com/g/ashen-crown", state: "is-focused" })), isStill: true },
+    { label: "A long one: cut short at its end", markup: examplePane(copyField({ id: "example-copy-long", label: "Link to this match", copiedText: "https://zaisma.com/g/the-last-lighthouse-keeper-tides-of-the-northern-reach?room=K7Q2MX" })) },
+    { label: "Masked, for a streamer: blurred until shown", markup: examplePane(copyField({ id: "example-copy-masked", label: "Link to this match", copiedText: "https://zaisma.com/g/ashen-crown?room=K7Q2MX", isMasked: true })), isStill: true },
+    { label: "Code: an API key, shown once", markup: examplePane(copyField({ id: "example-copy-key", label: "Your new API key", copiedText: API_KEY, isCode: true })) },
+    { label: "Code: a command breaks only at its spaces", markup: examplePane(copyField({ id: "example-copy-command", label: "Upload from your terminal", copiedText: "npx @zaisma/cli upload ./build --game ashen-crown", isCode: true })) },
+    { label: "Code: one long token", markup: examplePane(copyField({ id: "example-copy-secret", label: "Webhook signing secret", copiedText: "whsec_4b9f02d7e1c86a35f0d2b7194ce6a8d3f51b0e9c27a4d6f8b13e5c0a9d7f2e64", isCode: true })) },
+    { label: "Code: copied", markup: examplePane(copyField({ id: "example-copy-key-copied", label: "Your new API key", copiedText: API_KEY, isCode: true, state: "is-copied" })), isStill: true },
+    { label: "Code: keyboard focus", markup: examplePane(copyField({ id: "example-copy-key-focused", label: "Your new API key", copiedText: API_KEY, isCode: true, state: "is-focused" })), isStill: true },
+    { label: "Code: masked", markup: examplePane(copyField({ id: "example-copy-room-masked", label: "Room code", copiedText: "K7PQ2M", isCode: true, isMasked: true })), isStill: true },
   ],
 });
 

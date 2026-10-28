@@ -43,7 +43,7 @@ import {
 import { authConfigured } from "./auth.ts";
 import { gameUrl, type Env } from "./env.ts";
 import { secondaryButton, primaryButton, textLink } from "./components/actions.ts";
-import { codeField } from "./components/inputs.ts";
+import { copyField } from "./components/inputs.ts";
 import { cutField } from "./components/fields.ts";
 import { emptyState, glanceFacts, listRows } from "./components/data.ts";
 import { glassPane, tag, type IconName } from "./components/foundations.ts";
@@ -440,7 +440,7 @@ export function gamePageResponse(env: Env, view: GamePageView): Response {
         body: stack({
           items: [
             { kind: "block", id: "room-here", isHidden: true, markup: stack({ items: [
-              { kind: "block", id: "room-code-shown", markup: codeField({ id: "room-code-text", label: "This room", code: "" }) },
+              { kind: "block", id: "room-code-shown", markup: copyField({ id: "room-code-text", label: "This room", copiedText: "", isCode: true }) },
               { kind: "control", markup: secondaryButton("Hide the room code", { id: "room-eye", type: "button", icon: "eye", isHidden: true }) },
               { kind: "words", id: "room-closed", isHidden: true, markup: html`<p>This room doesn't take new players.</p>` },
             ] }) },
@@ -1161,8 +1161,8 @@ function showRoomCode(room) {
   document.getElementById("room-closed").hidden = !room || room.isOpen;
   const codeText = document.getElementById("room-code-text");
   codeText.textContent = room ? (isRoomCodeHidden ? "••••••" : room.code) : "";
-  codeText.setAttribute("data-code", room ? room.code : "");
-  codeText.closest(".code-field").classList.toggle("is-masked", isRoomCodeHidden);
+  codeText.setAttribute("data-copy", room ? room.code : "");
+  codeText.closest(".copy-field").classList.toggle("is-masked", isRoomCodeHidden);
   document.getElementById("room-code-shown").hidden = !room || !room.isOpen;
   const roomEye = document.getElementById("room-eye");
   roomEye.hidden = !isStreamerModeOn || !room || !room.isOpen;
@@ -1198,11 +1198,11 @@ if (roomOpen && roomDialog) {
 const shareBox = document.getElementById("share-dialog");
 const shareLink = document.getElementById("share-link");
 // What streamer mode masks: the QR code, the room code and the link (Copy still copies them).
-const shareSecrets = () => document.querySelectorAll("#share-dialog .code-field, #share-dialog .link-field, #share-qr-box .qr-code");
+const shareSecrets = () => document.querySelectorAll("#share-dialog .copy-field, #share-qr-box .qr-code");
 function shareFrom(button) {
   const url = location.origin + location.pathname + location.search.replace(/[?&]play\b[^&]*/, "").replace(/^&/, "?");
   const room = new URLSearchParams(location.search).get("room");
-  shareLink.dataset.link = url;
+  shareLink.dataset.copy = url;
   shareLink.textContent = url.replace(/^https?:\/\//, "");
   document.getElementById("share-room").hidden = !room;
   document.getElementById("share-room-code").textContent = room || "";
@@ -1221,13 +1221,13 @@ const shareMore = document.getElementById("share-more");
 if (navigator.share) {
   shareMore.hidden = false;
   shareMore.onclick = async () => {
-    try { await navigator.share({ title: document.title, url: shareLink.dataset.link }); shareBox.close(); } catch {}
+    try { await navigator.share({ title: document.title, url: shareLink.dataset.copy }); shareBox.close(); } catch {}
   };
 }
 // Show, or a tap on the blurred link or room code, reveals them for this time.
 const revealShare = () => { for (const secret of shareSecrets()) secret.classList.remove("is-masked"); document.getElementById("share-reveal").hidden = true; };
 document.getElementById("share-reveal").onclick = revealShare;
-shareBox.addEventListener("click", (e) => { if (e.target.closest && e.target.closest(".code-field.is-masked .code-text")) revealShare(); });
+shareBox.addEventListener("click", (e) => { if (e.target.closest && e.target.closest(".copy-field.is-masked .copy-field-text")) revealShare(); });
 shareBox.addEventListener("close", () => { if (frame) frame.focus(); else if (shareBox.returnFocus) shareBox.returnFocus.focus(); });
 share.onclick = () => shareFrom(share);
 // The game says which room it's in, so the address bar (and so Share) points to that match.

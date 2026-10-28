@@ -11,7 +11,7 @@ import { playable } from "./home.ts";
 import { html, structuredData, type Raw } from "./html.ts";
 import { profilePath } from "./profiles.ts";
 import { secondaryButton } from "./components/actions.ts";
-import { codeField, linkField, qrCode } from "./components/inputs.ts";
+import { copyField, qrCode } from "./components/inputs.ts";
 import { stack, type LayoutItem } from "./components/layout.ts";
 import { lightBox, menuChoices, sheet, type DropdownChoice } from "./components/panes.ts";
 
@@ -138,8 +138,8 @@ export function shareDialog(gameTitle: string, hasQrCode: boolean): Raw {
   ];
   const items: LayoutItem[] = [
     { kind: "control", markup: secondaryButton("Show", { id: "share-reveal", type: "button", icon: "eye", isHidden: true }) },
-    { kind: "block", id: "share-room", isHidden: true, markup: codeField({ id: "share-room-code", label: "Room code", code: "" }) },
-    { kind: "control", markup: linkField({ id: "share-link", label: "Link", url: "" }) },
+    { kind: "block", id: "share-room", isHidden: true, markup: copyField({ id: "share-room-code", label: "Room code", copiedText: "", isCode: true }) },
+    { kind: "control", markup: copyField({ id: "share-link", label: "Link", copiedText: "" }) },
     { kind: "block", markup: menuChoices({ label: "More ways to share", choices }) },
   ];
   const qrBox = hasQrCode

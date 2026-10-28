@@ -8,7 +8,7 @@ import { pageScript } from "./page-scripts.ts";
 import { secondaryButton, primaryButton } from "./components/actions.ts";
 import { listRows, type ListRow, emptyState } from "./components/data.ts";
 import { icon } from "./components/foundations.ts";
-import { checkField, codeField } from "./components/inputs.ts";
+import { checkField, copyField } from "./components/inputs.ts";
 import { stack } from "./components/layout.ts";
 import { sheet } from "./components/panes.ts";
 
@@ -100,7 +100,7 @@ export async function recheckLinks(env: Env, nowMs = Date.now()): Promise<void> 
 export function leavingCard(gameTitle: string): Raw {
   const body = stack({
     items: [
-      { kind: "block", markup: codeField({ id: "link-url", label: `${gameTitle} wants to open:`, code: "" }) },
+      { kind: "block", markup: copyField({ id: "link-url", label: `${gameTitle} wants to open:`, copiedText: "", isCode: true }) },
       { kind: "block", markup: checkField({ id: "link-trust", name: "is_link_site_trusted", label: "Open links to this site straight away from now on, in this browser" }) },
     ],
   });
