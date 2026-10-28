@@ -339,6 +339,9 @@ ${WORDS_SURFACES.join(", ")} { padding: var(--pad-frame); --pad-words: var(--pad
    is lit along its top and shaded along its bottom; a carved one (a field, a switch's track) the other way round. Each side is one flat tone,
    so every turn of the cut steps in brightness, like the panes' edges. The outline polygon is left for focus and marks. */
 .cut-line .cut-band { fill: transparent; transition: fill 0.15s; }
+/* While its shape glides (a switch's slab), a side's light changes at once: sides come and go as its corners turn, and a band taking
+   another side's place would fade from that side's light, blinking. */
+.cut-line.is-gliding .cut-band { transition: none; }
 .cut-raised > .cut-line { --band-top: var(--raise-top); --band-left: var(--raise-left); --band-right: var(--raise-right); --band-bottom: var(--raise-bottom); }
 .cut-carved > .cut-line { --band-top: var(--carve-top); --band-left: var(--carve-left); --band-right: var(--carve-right); --band-bottom: var(--carve-bottom); }
 /* On smoked glass a carving's shaded top and left are dark on dark, so a faint light line traces its outer edge all round: the cut reads at
