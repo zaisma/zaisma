@@ -152,14 +152,14 @@ export const TOKEN_STYLES = `
    fades it, never its background, so no control flashes as a fade ends. design.test.ts checks that nothing fades a background. */
 @property --face-color { syntax: "<color>"; inherits: false; initial-value: transparent; }
 /* Scroll fades (navigation.ts's SCROLL_FADE_SCRIPT): a box that scrolls fades its words over an edge while there's more that way, easing in and out.
-   The fade curves: what's in its outer third is all but gone, and only its inner end is whole, so words never run into the edge. It comes and
+   The fade curves: what's in its outer third is faint, and only its inner end is whole, so words never run into the edge. It comes and
    goes over 0.45s, easing in and out, so it never snaps on or off as you reach an end. */
 @property --fade-top { syntax: "<length>"; inherits: false; initial-value: 0px; }
 /* The words' inset in a pane (layout.ts), registered so it's worked out to a length where it's set, and reads as one. */
 @property --pad-words { syntax: "<length>"; inherits: true; initial-value: 0px; }
 @property --fade-bottom { syntax: "<length>"; inherits: false; initial-value: 0px; }
-.scroll-fades.is-fading { -webkit-mask-image: linear-gradient(to bottom, transparent, rgba(0,0,0,0.08) calc(var(--fade-top) * 0.35), rgba(0,0,0,0.5) calc(var(--fade-top) * 0.7), #000 var(--fade-top), #000 calc(100% - var(--fade-bottom)), rgba(0,0,0,0.5) calc(100% - var(--fade-bottom) * 0.7), rgba(0,0,0,0.08) calc(100% - var(--fade-bottom) * 0.35), transparent);
-  mask-image: linear-gradient(to bottom, transparent, rgba(0,0,0,0.08) calc(var(--fade-top) * 0.35), rgba(0,0,0,0.5) calc(var(--fade-top) * 0.7), #000 var(--fade-top), #000 calc(100% - var(--fade-bottom)), rgba(0,0,0,0.5) calc(100% - var(--fade-bottom) * 0.7), rgba(0,0,0,0.08) calc(100% - var(--fade-bottom) * 0.35), transparent); transition: --fade-top 0.45s cubic-bezier(.4, 0, .2, 1), --fade-bottom 0.45s cubic-bezier(.4, 0, .2, 1); }
+.scroll-fades.is-fading { -webkit-mask-image: linear-gradient(to bottom, transparent, rgba(0,0,0,0.22) calc(var(--fade-top) * 0.35), rgba(0,0,0,0.66) calc(var(--fade-top) * 0.7), #000 var(--fade-top), #000 calc(100% - var(--fade-bottom)), rgba(0,0,0,0.66) calc(100% - var(--fade-bottom) * 0.7), rgba(0,0,0,0.22) calc(100% - var(--fade-bottom) * 0.35), transparent);
+  mask-image: linear-gradient(to bottom, transparent, rgba(0,0,0,0.22) calc(var(--fade-top) * 0.35), rgba(0,0,0,0.66) calc(var(--fade-top) * 0.7), #000 var(--fade-top), #000 calc(100% - var(--fade-bottom)), rgba(0,0,0,0.66) calc(100% - var(--fade-bottom) * 0.7), rgba(0,0,0,0.22) calc(100% - var(--fade-bottom) * 0.35), transparent); transition: --fade-top 0.45s cubic-bezier(.4, 0, .2, 1), --fade-bottom 0.45s cubic-bezier(.4, 0, .2, 1); }
 /* A row that scrolls sideways (data-fades-sideways: a header's tabs, the gallery's groups on a phone) fades out over a side with more past it,
    easing in and out, with no scrollbar; it starts scrolled to the one you're on, and never scrolls up and down. */
 @property --fade-left { syntax: "<length>"; inherits: false; initial-value: 0px; }
@@ -176,11 +176,11 @@ html { -webkit-tap-highlight-color: transparent; }
 [data-fades-sideways] { overflow-x: auto; overflow-y: hidden; scrollbar-width: none; transition: --fade-left 0.45s cubic-bezier(.4, 0, .2, 1), --fade-right 0.45s cubic-bezier(.4, 0, .2, 1); }
 [data-fades-sideways]::-webkit-scrollbar { display: none; }
 [data-fades-sideways].more-left, [data-fades-sideways].more-right {
-  -webkit-mask-image: linear-gradient(90deg, transparent 0, rgba(0,0,0,0.08) calc(var(--fade-left) * 0.35), rgba(0,0,0,0.5) calc(var(--fade-left) * 0.7), #000 var(--fade-left), #000 calc(100% - var(--fade-right)), rgba(0,0,0,0.5) calc(100% - var(--fade-right) * 0.7), rgba(0,0,0,0.08) calc(100% - var(--fade-right) * 0.35), transparent 100%);
-  mask-image: linear-gradient(90deg, transparent 0, rgba(0,0,0,0.08) calc(var(--fade-left) * 0.35), rgba(0,0,0,0.5) calc(var(--fade-left) * 0.7), #000 var(--fade-left), #000 calc(100% - var(--fade-right)), rgba(0,0,0,0.5) calc(100% - var(--fade-right) * 0.7), rgba(0,0,0,0.08) calc(100% - var(--fade-right) * 0.35), transparent 100%); }
-/* How far in it fades: 40px, or a row's own --fade-sideways-px (a row of covers fades further). */
-[data-fades-sideways].more-left { --fade-left: var(--fade-sideways-px, 40px); }
-[data-fades-sideways].more-right { --fade-right: var(--fade-sideways-px, 40px); }
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, rgba(0,0,0,0.22) calc(var(--fade-left) * 0.35), rgba(0,0,0,0.66) calc(var(--fade-left) * 0.7), #000 var(--fade-left), #000 calc(100% - var(--fade-right)), rgba(0,0,0,0.66) calc(100% - var(--fade-right) * 0.7), rgba(0,0,0,0.22) calc(100% - var(--fade-right) * 0.35), transparent 100%);
+  mask-image: linear-gradient(90deg, transparent 0, rgba(0,0,0,0.22) calc(var(--fade-left) * 0.35), rgba(0,0,0,0.66) calc(var(--fade-left) * 0.7), #000 var(--fade-left), #000 calc(100% - var(--fade-right)), rgba(0,0,0,0.66) calc(100% - var(--fade-right) * 0.7), rgba(0,0,0,0.22) calc(100% - var(--fade-right) * 0.35), transparent 100%); }
+/* How far in it fades: 34px, or a row's own --fade-sideways-px (a row of covers fades further). */
+[data-fades-sideways].more-left { --fade-left: var(--fade-sideways-px, 34px); }
+[data-fades-sideways].more-right { --fade-right: var(--fade-sideways-px, 34px); }
 /* A row of controls, slanting where they meet, their slants --gap-control-row apart. In a pane it fills the pane's width, its
    controls sharing it, so its ends fit the pane's edges (the edge rule) instead of stopping short with square corners. */
 /* A gap can't be negative, so each control but the last reaches back over the next by a margin; a row that wraps starts each line flush. */

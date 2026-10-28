@@ -566,7 +566,7 @@ export const RAIL_SCRIPT = `/* rail */(function () {
  * (data-own-fade, a birthday wheel) and form fields are left alone.
  */
 export const SCROLL_FADE_SCRIPT = `/* scroll fades */(function () {
-  var FADE_PX = 40, boxes = [], dueBoxes = null;
+  var FADE_PX = 34, boxes = [], dueBoxes = null;
   // Everything is read before anything is written, so a box syncing reads the page's layout once.
   function measure(box) {
     // A table's rows fade out under its head, which stays as they scroll: the fade starts where the head ends.

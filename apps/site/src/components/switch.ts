@@ -314,7 +314,7 @@ component({
    starts it where the one you're on shows whole). That fade is as wide as a tab's room round its words, so the words of the tab before
    are wholly out of view, never cut, and the slab of the one you're on is never faded; the fade at its end stays the usual one
    (--fade-sideways-px), over whatever runs on past it. */
-.switch-frame-row { --fade-sideways-px: 40px; --tab-fade: 18px; position: relative; display: flex; flex: 1; min-width: 0; height: 100%; scroll-snap-type: x mandatory; scroll-padding-inline-start: var(--tab-fade); }
+.switch-frame-row { --fade-sideways-px: 34px; --tab-fade: 18px; position: relative; display: flex; flex: 1; min-width: 0; height: 100%; scroll-snap-type: x mandatory; scroll-padding-inline-start: var(--tab-fade); }
 .switch-frame.small > .switch-frame-row { --tab-fade: 14px; }
 .switch-frame > .switch-frame-row.more-left { --fade-left: var(--tab-fade); }
 .tab-switch.framed > :not([aria-hidden]) { scroll-snap-align: start; }
