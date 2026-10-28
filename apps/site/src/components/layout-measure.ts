@@ -225,7 +225,8 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
   }
   var panes = Array.prototype.filter.call(document.querySelectorAll("[data-glass]:not([data-cut-line])"), function (pane) { return isShown(pane) && !pane.classList.contains("frame"); });
   panes.forEach(function (pane) {
-    var holder = pane.querySelector(":scope > .pane-in, :scope > .sheet-in, :scope > .playing-card-in") || pane, css = getComputedStyle(holder), p = pane.getBoundingClientRect();
+    // What holds a pane's content and pads it: its inner part (a sidebar's places scroll in .sidebar-scroll), or the pane itself.
+    var holder = pane.querySelector(":scope > .pane-in, :scope > .sheet-in, :scope > .playing-card-in, :scope > .sidebar-scroll") || pane, css = getComputedStyle(holder), p = pane.getBoundingClientRect();
     var gap = { left: parseFloat(css.paddingLeft), right: parseFloat(css.paddingRight), top: parseFloat(css.paddingTop), bottom: parseFloat(css.paddingBottom) };
     var words = parseFloat(css.getPropertyValue("--pad-words")) || 0;
     // The words margin, one rule for every surface of glass (tokens.ts): words are never closer to its edge than --pad-pane (a tray's, --pad-tray),
@@ -259,7 +260,7 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
       var atGap = function (side) { return Math.abs(d[side] - gap[side]) <= TOLERANCE_PX; };
       [["top", "left"], ["top", "right"], ["bottom", "right"], ["bottom", "left"]].forEach(function (corner, i) {
         var cut = (el.cutCorners || [])[i];
-        if (cut !== undefined && paneCuts[i] > 0 && atGap(corner[0]) && atGap(corner[1]) && cut < LEAST_BEVEL_PX - 0.01) report("bevel under 4px", el, "in the pane's " + corner.join(" ") + " corner its bevel is " + round(cut) + "px");
+        if (cut !== undefined && !isInScrolledList && paneCuts[i] > 0 && atGap(corner[0]) && atGap(corner[1]) && cut < LEAST_BEVEL_PX - 0.01) report("bevel under 4px", el, "in the pane's " + corner.join(" ") + " corner its bevel is " + round(cut) + "px");
       });
     });
     // Anything with an edge of its own (a picture, a filled, bordered or shadowed box) at the frame gap in a cut corner of the pane is cut

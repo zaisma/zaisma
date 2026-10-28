@@ -280,8 +280,9 @@ component({
    bevel, so the slab itself isn't clipped and its shadow shows. */
 .tab-switch .slab { clip-path: none; filter: var(--slab-cast); }
 .tab-switch .slab::before { content: ""; position: absolute; inset: 0; background: var(--btn); clip-path: var(--cut-shape); }
-.tab-switch > a, .tab-switch > button { position: relative; z-index: 2; display: grid; place-content: center; padding: var(--tab-room-y) var(--tab-room); border: 0; background: none; cursor: pointer;
+.tab-switch > a, .tab-switch > button { position: relative; z-index: 2; display: grid; place-content: center; min-height: calc(var(--control-height) - 2 * var(--switch-inset, 4px)); padding: var(--tab-room-y) var(--tab-room); border: 0; background: none; cursor: pointer;
   font: 500 1rem/1.1 var(--display); color: var(--ink-2); text-decoration: none; white-space: nowrap; }
+/* Its tabs are at least its size's control height, less its inset, so it lines up with the controls beside it at any text size. */
 /* Across, it's as wide as its tabs, one line each, and its tabs are all one width, the widest's, so the slab is one size on every tab and
    only slides: glass doesn't change size as it moves. Past the room it has, its Well stays put, a carving can't move or
    fade, and what's in it scrolls inside it, fading at its ends, with the rail under the well. */
@@ -319,7 +320,7 @@ component({
 /* Only its line: no bevel, so a focused tab never looks carved in or raised. */
 .tab-switch .focus-ring > .cut-line { --band-top: transparent; --band-left: transparent; --band-right: transparent; --band-bottom: transparent; }
 /* Small: a sort under a heading, the header's switch. */
-.tab-switch.small { --control-height: var(--control-height-small); --tab-room: 14px; --tab-room-y: 7px; padding: 3px; clip-path: var(--cut-shape); }
+.tab-switch.small { --control-height: var(--control-height-small); --switch-inset: 3px; --tab-room: 14px; --tab-room-y: 7px; padding: 3px; clip-path: var(--cut-shape); }
 .tab-switch.small .slab { --slide-ms: 380; top: 3px; bottom: 3px; }
 .tab-switch.small > a, .tab-switch.small > button { font-size: 0.875rem; }
 /* Across, the well is its room's, so the tabs' box in its track has none of its own (after .small, which would cut it to the well's shape). */

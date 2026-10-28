@@ -1291,6 +1291,8 @@ component({
 .sidebar-places { display: flex; flex-direction: column; gap: var(--gap-control-row); margin: 0; padding: 0; list-style: none; }
 /* The first and last places' words keep the words margin from the pane's or sheet's edge, as compact rows leave less room round them. */
 .sidebar-places:not(.is-nested) { padding-block: var(--gap-control-stack); }
+/* In a sheet, its body starts under the sheet's head: the list adds only a control row's gap above its first place. */
+.sheet-body > .sidebar-places:not(.is-nested) { padding-top: var(--gap-control-row); }
 .sidebar-places.is-nested { padding: var(--gap-control-row) 0 var(--gap-control-row) var(--gap-block-block); }
 /* A row is a small control's height with a mouse, compact as a list of places should be; a finger gets a regular control's. */
 .sidebar-place { position: relative; display: flex; align-items: center; gap: var(--gap-words-words); min-height: var(--control-height-small); padding: 0 var(--pad-inside-words);

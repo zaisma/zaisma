@@ -365,7 +365,8 @@ export const DROPDOWN_SCRIPT = `/* menus */(function () {
     var float = window.zaismaFloat(menu, {
       anchor: function () { return buttons.get(menu) || buttonOf(menu); },
       anchorRect: function (button) { var r = button.getBoundingClientRect(), slab = button.closest(".top"); if (!slab) return r; var below = slab.getBoundingClientRect().bottom; return { left: r.left, right: r.right, top: below - 1, bottom: below, width: r.width, height: 1 }; },
-      isAlwaysBelow: function (button) { return Boolean(button.closest(".top")); }, fitsRoom: true, gapPx: token("--gap-control-stack", 8), edgePx: token("--pad-frame", 10),
+      // Under a header pinned to the window it never flips above; a header fixed only in a frame of its own (a gallery example) lets it.
+      isAlwaysBelow: function (button) { var top = button.closest(".top"); return Boolean(top) && !(getComputedStyle(top).position === "fixed" && top.offsetParent); }, fitsRoom: true, gapPx: token("--gap-control-stack", 8), edgePx: token("--pad-frame", 10),
       scrollBox: function () { return menu.querySelector(".floating-body"); },
       onToggle: function (isOpen) { var button = buttons.get(menu) || buttonOf(menu); if (button) button.setAttribute("aria-expanded", String(isOpen)); }
     });
