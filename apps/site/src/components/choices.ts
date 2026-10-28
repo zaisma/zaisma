@@ -421,9 +421,14 @@ ${TOUCH_ROOM(".check")}
 /* The socket's shade lies over whatever is in it, so a piece below the face is in its shadow. */
 .check-box::after { content: ""; position: absolute; inset: 0; z-index: 1; box-shadow: var(--field-shade); pointer-events: none; transition: box-shadow 0.08s, opacity 0.12s; }
 .check-input { position: absolute; inset: 0; z-index: 3; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
-.check-piece { position: absolute; inset: 0; display: grid; place-items: center; background: var(--run); color: var(--on-run);
+.check-piece { position: absolute; inset: 0; display: grid; place-items: center; background: var(--run); color: var(--on-run); overflow: hidden;
   transform: translateY(105%); transition: transform 0.38s cubic-bezier(.4,0,.2,1); }
 .check-piece > .ico { width: 16px; height: 16px; stroke-width: 2.4; }
+/* Pointed: an empty socket's piece rises a little into view, still under the carving, ready; a ticked piece's face catches a glint
+   of light that runs across it once. */
+.check-piece::before { content: ""; position: absolute; inset: 0; background: linear-gradient(115deg, transparent 30%, rgba(255,255,255,0.55) 50%, transparent 70%); opacity: 0; transform: translateX(-110%); pointer-events: none; }
+.check:not(.is-disabled):hover .check-box:not(:has(.check-input:checked)) > .check-piece, .check.is-pointed .check-box:not(:has(.check-input:checked)) > .check-piece { transform: translateY(80%); }
+.check:not(.is-disabled):hover .check-box:has(.check-input:checked) > .check-piece::before, .check.is-pointed .check-box:has(.check-input:checked) > .check-piece::before { opacity: 1; transform: translateX(110%); transition: transform 0.7s cubic-bezier(.4,0,.2,1); }
 /* Ticked: the piece seats flush, then rises out of the carving: the shade lifts off it and its own edges take the light. */
 .check-box:has(.check-input:checked) > .check-piece { transform: translateY(0); }
 .check-box:has(.check-input:checked)::after { opacity: 0; transition-delay: 0.3s; }
@@ -453,7 +458,7 @@ ${TOUCH_ROOM(".check")}
 .check-label { font: var(--type-words); color: var(--ink); }
 .check-hint { font: var(--type-note); color: var(--muted); }
 .check-error { font: var(--type-words); color: var(--marked); }
-@media (prefers-reduced-motion: reduce) { .check-piece, .check-box::after, .check-box > .cut-line .cut-band { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .check-piece, .check-piece::before, .check-box::after, .check-box > .cut-line .cut-band { transition: none; } }
 `,
   render: checkField,
   examples: [
