@@ -242,7 +242,7 @@ export interface GrooveOptions {
 export function groove(options: GrooveOptions = {}): Raw {
   const isRunning = options.filledFraction === undefined;
   const filled = isRunning ? 0 : Math.max(0, Math.min(1, options.filledFraction ?? 0));
-  return html`<span class="groove${options.kind ? ` ${options.kind}` : ""}${isRunning ? " is-running" : ""}${options.isWorking ? " is-working" : ""}" data-cut-line="3" aria-hidden="true" style="--groove-filled:${filled.toFixed(4)}">${CUT_LINE}<span class="groove-fill"><span class="groove-light" data-cut-line="3">${CUT_LINE}${options.lightMarkup ?? ""}</span></span></span>`;
+  return html`<span class="groove${options.kind ? ` ${options.kind}` : ""}${isRunning ? " is-running" : ""}${options.isWorking ? " is-working" : ""}" data-cut-line="3" aria-hidden="true" style="--groove-filled:${filled.toFixed(4)}">${CUT_LINE}<span class="groove-fill"><span class="groove-light" data-cut-line="3" data-cut-bar>${CUT_LINE}${options.lightMarkup ?? ""}</span></span></span>`;
 }
 
 /**

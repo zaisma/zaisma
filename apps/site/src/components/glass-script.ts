@@ -444,7 +444,7 @@ export const GLASS_SCRIPT = `/* glass */(function () {
     return found;
   }
   // The outline, clockwise from the top left.
-  function controlShape(w, h, slant, cuts, beside) {
+  function controlShape(w, h, slant, cuts, beside, isBar) {
     // Always two points a corner, the same one twice where it's square or slanted, so any two shapes blend point for point (a glide).
     // A corner's cut takes at most its side's height, shared with the corner above or below it when both are cut.
     var s = Math.min(slant, w / 3), c = cuts.map(function (cut) { return Math.min(cut, h); });
@@ -457,12 +457,15 @@ export const GLASS_SCRIPT = `/* glass */(function () {
       beside.start ? [[0, h], [0, h]] : corner(c[3], [c[3], h], [0, h - c[3]], [0, h]));
     // A thin bar (a groove along a row's foot) whose corner's cut runs deeper than it's tall: its whole end slides back along the corner's
     // line, so it keeps the same gap to its holder's cut as its sides keep to its holder's sides, instead of stopping at its own height.
-    if (w >= 3 * h) {
+    // A bar however short (data-cut-bar: a groove's light, a sliver of it at a cut corner) does too, and what of it lies past the line
+    // isn't drawn: a sliver shorter than the cut is a triangle along it, or nothing, never a square over the carving's cut.
+    if (w >= 3 * h || isBar) {
       var deep = cuts.map(function (cut) { return cut > h + 0.5 ? cut : 0; });
-      if (!beside.end && deep[2] && cuts[1] < LEAST_CUT_PX) { var x2 = w + h - deep[2]; points.splice(2, 4, [x2, 0], [x2, 0], [x2, 0], [w - deep[2], h]); }
-      if (!beside.end && deep[1] && cuts[2] < LEAST_CUT_PX) { var x1 = w - deep[1]; points.splice(2, 4, [x1, 0], [x1 + h, h], [x1 + h, h], [x1 + h, h]); }
-      if (!beside.start && deep[0] && cuts[3] < LEAST_CUT_PX) { var x0 = deep[0]; points.splice(6, 2, [x0 - h, h], [x0 - h, h]); points.splice(0, 2, [x0 - h, h], [x0, 0]); }
-      if (!beside.start && deep[3] && cuts[0] < LEAST_CUT_PX) { var x3 = deep[3]; points.splice(0, 2, [x3 - h, 0], [x3 - h, 0]); points.splice(6, 2, [x3, h], [x3 - h, 0]); }
+      var inX = function (x) { return Math.max(0, Math.min(w, x)); };
+      if (!beside.end && deep[2] && cuts[1] < LEAST_CUT_PX) { var x2 = w + h - deep[2]; points.splice(2, 4, [inX(x2), 0], [inX(x2), 0], [inX(x2), 0], [inX(w - deep[2]), h]); }
+      if (!beside.end && deep[1] && cuts[2] < LEAST_CUT_PX) { var x1 = w - deep[1]; points.splice(2, 4, [inX(x1), 0], [inX(x1 + h), h], [inX(x1 + h), h], [inX(x1 + h), h]); }
+      if (!beside.start && deep[0] && cuts[3] < LEAST_CUT_PX) { var x0 = deep[0]; points.splice(6, 2, [inX(x0 - h), h], [inX(x0 - h), h]); points.splice(0, 2, [inX(x0 - h), h], [inX(x0), 0]); }
+      if (!beside.start && deep[3] && cuts[0] < LEAST_CUT_PX) { var x3 = deep[3]; points.splice(0, 2, [inX(x3 - h), 0], [inX(x3 - h), 0]); points.splice(6, 2, [inX(x3), h], [inX(x3 - h), 0]); }
     }
     return points;
   }
@@ -615,7 +618,7 @@ export const GLASS_SCRIPT = `/* glass */(function () {
     function drawCut() {
       var size = sizeOf(el), w = size[0], h = size[1];
       if (!w || !h || !el.isConnected) return;
-      var shape = distinct(controlShape(w, h, 0, fitCuts(el, w, h), { start: false, end: false })), cut = shape.length > 4 ? cssPolygon(shape) : "";
+      var shape = distinct(controlShape(w, h, 0, fitCuts(el, w, h), { start: false, end: false }, el.hasAttribute("data-cut-bar"))), isBox = shape.length === 4 && shape.every(function (p) { return (p[0] === 0 || p[0] === w) && (p[1] === 0 || p[1] === h); }), cut = isBox ? "" : cssPolygon(shape.length ? shape : [[0, 0]]);
       if (cut === last) return;
       last = cut;
       if (cut) { el.style.setProperty("--cut-shape", cut); el.style.clipPath = cut; }

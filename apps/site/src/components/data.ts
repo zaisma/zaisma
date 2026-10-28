@@ -1155,7 +1155,8 @@ component({
 .usage-track { display: block; }
 .usage-groove .groove-fill { filter: none; transition: width 0.6s var(--spring); }
 .usage-groove .groove-light { background: var(--meter-fill); }
-.usage:is(.is-used, .is-near) .usage-groove .groove-fill { min-width: 4px; }
+/* Any use at all shows: a sliver long enough to show past a cut corner's line at its start. */
+.usage:is(.is-used, .is-near) .usage-groove .groove-fill { min-width: 14px; }
 .usage:is(.is-near, .is-full) .usage-groove .groove-fill { filter: drop-shadow(0 0 1.5px var(--meter-near)); }
 .usage.is-near .usage-groove .groove-light { background: linear-gradient(180deg, color-mix(in srgb, var(--meter-near), #fff 30%), var(--meter-near)); }
 .usage.is-full .usage-groove .groove-light { background: repeating-linear-gradient(-45deg, var(--meter-near) 0 6px, var(--meter-full) 6px 12px); }
