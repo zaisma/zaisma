@@ -62,7 +62,7 @@ export interface WellOptions {
   end?: ControlMarkup;
   /** What shows over the end control for a moment, in its place (a field's Copied tick); its owner shows it. */
   endNote?: Raw;
-  /** Its owner's name for it, for the owner's own styles and script: "code" in a code field. */
+  /** Its owner's name for it, for the owner's own styles and script, ending in -well so it never meets another component's class: "code-well". */
   kind?: string;
   /** The gallery's fixed keyboard focus on what's in it. */
   state?: "is-focused";
