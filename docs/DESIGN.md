@@ -412,8 +412,8 @@ Every component, with the call that makes it and its options, is in the catalog 
   - `options`: `name: string`, `label: string`, `accept: string`, `isMultiple?: boolean`, `hint: string`, `maximumByteCount?: number`, `error?: string`, `pickedFiles?: FileDropFile[]`, `isDisabled?: boolean`, `id?: string`, `state?: "over"`
 - **QR code** (`qrCode(options: QrCodeOptions)`, `inputs.ts`): A link as a picture a phone's camera reads: a game's address, or a room's, for someone in the same room. Black on white whatever the glass, with a line saying what it opens.
   - `options`: `id: string`, `label: string`, `caption: string`, `imageUrl?: string`, `isMasked?: boolean`, `isCompact?: boolean`, `isLarge?: boolean`
-- **Color field** (`colorField(options: ColorFieldOptions)`, `inputs.ts`): Any color: a game's accent, the glass's hue. A field with its color and hex code that opens a wheel carved into glass, beside a field for the hex code and the brightness; named colors, when there are some, a press away. Typing a code moves the wheel to it.
-  - `options`: `name: string`, `label: string`, `id?: string`, `pickedValue: string`, `namedChoices?: ColorChoice[]`, `state?: "open" | "is-focused"`
+- **Color field** (`colorField(options: ColorFieldOptions)`, `inputs.ts`): Any color: a game's accent, the glass's hue. A field with its color and hex code that opens a color square carved into glass, beside a field for the hex code and the brightness, and None when it can be left empty. Typing a code moves the square's slab to it.
+  - `options`: `name: string`, `label: string`, `id?: string`, `pickedValue: string`, `isNoneAllowed?: boolean`, `state?: "open" | "is-focused"`
 
 ### Navigation
 
