@@ -610,6 +610,8 @@ component({
   ],
 });
 
+const grooveSample = (markup: Raw) => html`<div style="width:var(--size-card);max-width:100%">${markup}</div>`;
+
 component({
   name: "Groove",
   slug: "groove",
@@ -635,12 +637,13 @@ component({
 @media (prefers-reduced-motion: reduce) { .groove-fill { transition: none; } .groove.is-running .groove-fill { animation: none; width: 100%; opacity: 0.5; } .groove.is-working .groove-light::after { animation: none; display: none; } }
 `,
   render: groove,
+  // On its own, a card's width, the way a slider's or a Progress's sits: in a pane of its own it would squeeze the pane to a sliver.
   examples: [
-    { label: "Empty", markup: examplePane(groove({ filledFraction: 0 })) },
-    { label: "Part filled", markup: examplePane(groove({ filledFraction: 0.44 })) },
-    { label: "Full", markup: examplePane(groove({ filledFraction: 1 })) },
-    { label: "Still going: a glint runs along it", markup: examplePane(groove({ filledFraction: 0.44, isWorking: true })) },
-    { label: "No end known yet: a light runs along it", markup: examplePane(groove()) },
+    { label: "Empty", markup: grooveSample(groove({ filledFraction: 0 })) },
+    { label: "Part filled", markup: grooveSample(groove({ filledFraction: 0.44 })) },
+    { label: "Full", markup: grooveSample(groove({ filledFraction: 1 })) },
+    { label: "Still going: a glint runs along it", markup: grooveSample(groove({ filledFraction: 0.44, isWorking: true })) },
+    { label: "No end known yet: a light runs along it", markup: grooveSample(groove()) },
   ],
 });
 
