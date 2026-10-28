@@ -509,7 +509,7 @@ ${floatingPane({
     role: "group",
     label: options.label,
     isShownInPlace: isOpen,
-    body: html`<div class="color-pane"><div class="color-wheel cut-carved${options.state === "is-focused" ? " is-focused" : ""}" data-cut-line="10" tabindex="0" role="slider" aria-label="Hue and strength" aria-valuetext="${hex}">${CUT_LINE}<span class="color-wheel-light" aria-hidden="true"></span><span class="color-knob" aria-hidden="true" data-on-no-pane><span class="color-knob-slab cut-raised" data-cut-line="6">${CUT_LINE}</span></span></div><div class="color-side"><span class="color-swatch cut-raised" aria-hidden="true" data-cut-line="10">${CUT_LINE}</span>${cutField({ name: `${options.name}_hex`, id: `${id}-hex`, label: "Hex code", type: "text", text: hex, autocomplete: "off", characterPattern: "[#0-9A-Fa-f]", maximumCharacterCount: 7, isUppercase: true })}${slider({ name: `${options.name}_brightness`, id: `${id}-brightness`, label: "Brightness", minimumNumber: 0, maximumNumber: 100, stepNumber: 1, pickedNumber: 100, unit: "%" })}</div>${
+    body: html`<div class="color-pane"><div class="color-wheel cut-carved${options.state === "is-focused" ? " is-focused" : ""}" data-cut-line="10" tabindex="0" role="slider" aria-label="Hue and strength" aria-valuetext="${hex}">${CUT_LINE}<span class="color-wheel-light" aria-hidden="true"></span><span class="color-knob" aria-hidden="true" data-on-no-pane><span class="color-knob-slab cut-raised" data-cut-line="6">${CUT_LINE}</span></span></div><div class="color-side"><span class="color-swatch cut-carved" aria-hidden="true" data-cut-line="10">${CUT_LINE}</span>${cutField({ name: `${options.name}_hex`, id: `${id}-hex`, label: "Hex code", type: "text", text: hex, autocomplete: "off", characterPattern: "[#0-9A-Fa-f]", maximumCharacterCount: 7, isUppercase: true })}${slider({ name: `${options.name}_brightness`, id: `${id}-brightness`, label: "Brightness", minimumNumber: 0, maximumNumber: 100, stepNumber: 1, pickedNumber: 100, unit: "%" })}</div>${
       options.namedChoices
         ? html`<div class="color-named" role="group" aria-label="Named colors">${options.namedChoices.map(
             (choice) =>
@@ -617,14 +617,18 @@ component({
    the glass and cut by the edge rule like any carving there: hue round its middle, strength from its soft middle out to its rim, dimmed by the
    brightness; the toggle's slab (the --thumb tokens) marks the pick. Beside it, the picked color, a Cut field for its hex code and a Slider
    whose groove runs from black to the full color. Named colors sit under them as chips of colored glass, the picked one ringed in ink. */
-/* Its pane holds a few controls, so it keeps a pane's room round them (--pad-pane), and the wheel a block's gap from the rest. */
-.floating-pane.color-pick { padding: var(--pad-pane); }
+/* Its pane follows the panes' one rule, two margins: what has an edge (the wheel, the picked color, the field, the chips) sits at the frame gap,
+   --pad-frame, and words (the field's and the slider's) keep the pane's margin, --pad-words further in. */
+.floating-pane.color-pick { padding: var(--pad-frame); --pad-words: var(--pad-inside-words); }
+/* Shown open in place, it's as wide as what's in it, as it is floating. */
+.floating-pane.color-pick.in-place { width: max-content; max-width: 100%; }
 .color-field, .color-pick { --clear-swatch: repeating-conic-gradient(var(--line) 0 25%, transparent 0 50%) 0 0 / 8px 8px; }
-/* The chip and the picked color are colored glass raised a little, cut by the edge rule like every piece on a pane: a corner is cut where
-   it meets its holder's cut corner, square elsewhere. */
+/* The chip is colored glass raised a little; it and the picked color are cut by the edge rule like every piece on a pane: a corner is cut
+   where it meets its holder's cut corner, square elsewhere. */
 .color-chip { position: relative; flex: none; width: 20px; height: 20px; background: var(--swatch); clip-path: var(--cut-shape); }
 .color-value { font-variant-numeric: tabular-nums; }
-.color-pane { display: grid; grid-template-columns: 184px minmax(0, 220px); gap: var(--gap-block-block); align-items: start; }
+/* The wheel and what's beside it are one height, the wheel's: the picked color takes what room is left, so no gap opens under the wheel. */
+.color-pane { display: grid; grid-template-columns: 184px minmax(0, 220px); gap: var(--gap-control-stack) var(--gap-words-control); align-items: stretch; }
 @media (max-width: 480px) { .color-pane { grid-template-columns: minmax(0, 1fr); justify-items: center; } .color-side { width: 100%; } }
 .color-wheel { position: relative; width: 184px; height: 184px; cursor: crosshair; touch-action: none; outline: none; clip-path: var(--cut-shape); }
 .color-wheel-light { position: absolute; inset: 0; background: radial-gradient(circle closest-side, #fff, rgba(255,255,255,0) 100%), conic-gradient(from 90deg, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00); }
@@ -638,12 +642,14 @@ component({
 .color-wheel.is-held .color-knob { filter: var(--thumb-cast-pressed); transition-duration: 0.08s; }
 .color-wheel.is-held .color-knob-slab::after { opacity: 1; transition-duration: 0.08s; }
 .color-wheel:focus-visible > .cut-line polygon, .color-wheel.is-focused > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
-.color-side { display: grid; gap: var(--gap-control-stack); min-width: 0; }
-.color-swatch { position: relative; display: block; height: 48px; background: var(--color-picked); clip-path: var(--cut-shape); }
+.color-side { display: flex; flex-direction: column; gap: var(--gap-control-stack); min-width: 0; }
+/* The picked color is carved into the pane, the color lying in it as light inside the glass, shaded along its top and lit along its lip. */
+.color-swatch { position: relative; display: block; flex: 1; min-height: 32px; background: var(--color-picked); clip-path: var(--cut-shape); box-shadow: inset 0 3px 5px var(--groove-shade), inset 0 -1.5px 0 var(--groove-lip); }
 /* Its brightness: the slider's groove runs from black to the full color, with no orange in it. */
 .color-side .slider-line { background: linear-gradient(90deg, #000, var(--color-full, #fff)); }
 .color-side .slider-fill { display: none; }
-.color-named { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: var(--gap-control-stack); padding: 3px; }
+/* The chips keep room round them for the picked one's ring (3px out), inside the pane's scrolling body. */
+.color-named { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: var(--gap-control-stack); padding: 4px; }
 /* A named color: a chip of colored glass, its edges lit and shaded; the picked one is ringed in ink a gap out from it (data-cut-ring). */
 .color-named-pick { position: relative; width: 28px; height: 28px; padding: 0; border: 0; background: none; cursor: pointer; }
 .color-named-pick::before { content: ""; position: absolute; inset: 0; background: var(--swatch); clip-path: var(--cut-shape); box-shadow: inset 0 1.5px 0 rgba(255,255,255,0.45), inset 0 -1.5px 0 rgba(0,0,0,0.22); }
