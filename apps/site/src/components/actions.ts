@@ -477,12 +477,11 @@ component({
 /* A toggle button: a cut button level in the glass when off, carving in as it's pressed; on, its top surface (its words and icon) rises from the same footprint and
    its front surface shows below it, orange, so it never moves and a row of toggles stays in line. Below it the glass is lit on dark glass
    and shadowed on light (--toggle-cast, which follows the button's own cut and reaches furthest below it). */
-.toggle-btn { position: relative; --toggle-lift: 5px; --toggle-cut-reach: 12px; }
-.toggle-btn.small { --toggle-lift: 4px; --toggle-cut-reach: 10px; }
-/* The front surface: the top surface's own shape (TOGGLE_SCRIPT copies it, slanted ends and all), showing only below the risen top surface. */
+.toggle-btn { position: relative; --toggle-lift: 5px; }
+.toggle-btn.small { --toggle-lift: 4px; }
+/* The front surface: the top surface's own shape (TOGGLE_SCRIPT copies it, slanted ends and all), showing below the risen top surface and
+   along a slanted end, as a solid's side would. */
 .toggle-front { position: absolute; inset: 0; z-index: 0; clip-path: var(--cut-shape); background: linear-gradient(180deg, var(--run-hi), var(--run) 40%, var(--run-lo));
-  -webkit-mask-image: linear-gradient(to top, #000 calc(var(--toggle-lift) + var(--toggle-cut-reach)), transparent calc(var(--toggle-lift) + var(--toggle-cut-reach)));
-  mask-image: linear-gradient(to top, #000 calc(var(--toggle-lift) + var(--toggle-cut-reach)), transparent calc(var(--toggle-lift) + var(--toggle-cut-reach)));
   visibility: hidden; transition: visibility 0s 0.35s; }
 .toggle-btn > .face { position: relative; z-index: 1; transition: transform 0.35s cubic-bezier(.2,.8,.2,1), color 0.2s, box-shadow 0.2s, --face-color 0.2s; }
 /* Off: the same slab as on, its bevels and all, resting level in the glass with its front surface out of sight. It answers the pointer
