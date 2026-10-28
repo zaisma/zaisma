@@ -1,10 +1,11 @@
 import { SIZED_IMAGE_WIDTHS_PX } from "@zaisma/core";
 import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
-import { CUT_LINE, EDGE, ago, glassPane, icon, sheetMarkup, tag, tray, type IconName } from "./foundations.ts";
+import { CUT_LINE, EDGE, ago, glassPane, icon, sheetMarkup, tag, tray, well, type IconName } from "./foundations.ts";
 import { emptyState, glanceFacts, listRows, pictureFrame, pictureRow, type GlanceFacts } from "./data.ts";
 import { cardRow, secondaryButton, tertiaryButton, primaryButton, textLink, toggleButton } from "./actions.ts";
 import { REPORT_REASONS, STAND_IN_QR_CODE, birthdayField, choiceCards, codeField, cutField, linkField, longField, qrCode } from "./inputs.ts";
+import { examplePane } from "./example-pane.ts";
 import { grid, paneParts, row, stack, type ControlMarkup, type LayoutItem } from "./layout.ts";
 
 /*
@@ -486,6 +487,37 @@ component({
       isWide: true,
       markup: tray({ paneWidth: "full", head: html`<h3 class="tray-sample-title">Continue playing</h3>`, body: grid({ whenEmpty: html`<p>No games here yet.</p>`, itemSize: "cover", items: ["ashen-crown", "neon-drift", "hollow-tide"].map((slug) => ({ kind: "block", markup: STAND_IN_COVERS[slug]! })) }) }),
     },
+  ],
+});
+
+component({
+  name: "Well",
+  slug: "well",
+  group: "panes",
+  subgroup: "glass",
+  summary: "A box carved into the glass that holds what's set in it: code to copy, a link, a line of words. One gallery control can sit at its end, as Copy does. For glass that holds a task, use a Glass pane; for something to type in, a Cut field.",
+  styles: `
+/* A well: carved into the glass, a field's height at least, lit and shaded at its edges like every carving and cut by the edge rule. What's
+   in it keeps a field's inset (--pad-inside-words); an end control sits as far in from its end as from its top (--well-inset), over the
+   well, and what's in it stops short of it. Keyboard focus on what's in it is the cut stroke round the well. */
+.well { --well-inset: calc((var(--control-height-field) - var(--control-height-small)) / 2); position: relative; display: flex; align-items: center; min-width: 0; min-height: var(--control-height-field);
+  color: var(--ink); background: var(--well); box-shadow: var(--well-shade); clip-path: var(--cut-shape); }
+.well > .well-body { position: relative; z-index: 2; flex: 1; min-width: 0; padding: 14px var(--pad-inside-words); font: var(--type-words); }
+.well:has(> .well-end) > .well-body { padding-inline-end: calc(var(--control-height-small) + var(--well-inset) + var(--gap-words-words)); }
+.well > .well-end { position: absolute; z-index: 3; top: var(--well-inset); right: var(--well-inset); display: flex; }
+.well-end-note { position: absolute; inset: 0; display: none; place-items: center; pointer-events: none; color: var(--ink); }
+.well > .cut-line { z-index: 4; pointer-events: none; }
+.well:has(> .well-body :focus-visible) > .cut-line polygon, .well.is-focused > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
+`,
+  render: well,
+  examples: [
+    { label: "Words", markup: examplePane(well({ body: html`Ashen Crown runs its rooms nearest to most of their players.` })) },
+    { label: "A control at its end", markup: examplePane(well({ body: html`zaisma.com/g/ashen-crown`, end: tertiaryButton("Copy", { type: "button", icon: "copy", isLabelHidden: true, isSmall: true }) })) },
+    {
+      label: "Long words: they stop short of its end control",
+      markup: examplePane(well({ body: html`The Iron Vigil is a night-long siege for up to 64 players, with its own map, three new bosses and a leaderboard that resets every Sunday.`, end: tertiaryButton("Copy", { type: "button", icon: "copy", isLabelHidden: true, isSmall: true }) })),
+    },
+    { label: "Keyboard focus on what's in it", markup: examplePane(well({ body: html`zaisma.com/g/ashen-crown`, state: "is-focused" })), isStill: true },
   ],
 });
 

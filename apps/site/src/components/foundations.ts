@@ -55,6 +55,30 @@ export function glassPane(options: GlassPaneOptions): Raw {
   return html`<section class="glass glass-pane ${options.paneWidth}${options.isStartedLow ? " is-started-low" : ""}" data-glass data-glass-corners="pane"${options.label ? html` aria-label="${options.label}"` : ""}>${EDGE}<div class="pane-in">${options.body}</div></section>`;
 }
 
+export interface WellOptions {
+  /** What's carved into it: words, code, or a line of them with an icon. */
+  body: Raw;
+  /** One gallery control at its end, as far in from its end as from its top (a field's Copy); what's in it stops short of it. */
+  end?: ControlMarkup;
+  /** What shows over the end control for a moment, in its place (a field's Copied tick); its owner shows it. */
+  endNote?: Raw;
+  /** Its owner's name for it, for the owner's own styles and script: "code" in a code field. */
+  kind?: string;
+  /** The gallery's fixed keyboard focus on what's in it. */
+  state?: "is-focused";
+}
+
+/**
+ * A well: a box carved into the glass, holding words, code or controls, its insides at a field's inset and cut by the edge rule. A pane is
+ * glass raised; a well is glass carved in. One gallery control can sit at its end, as far in from its end as from its top.
+ */
+export function well(options: WellOptions): Raw {
+  const className = ["well", "cut-carved", options.kind ?? "", options.state ?? ""].filter(Boolean).join(" ");
+  return html`<div class="${className}" data-cut-line="10">${CUT_LINE}<div class="well-body">${options.body}</div>${
+    options.end ? html`<div class="well-end">${options.end}${options.endNote ? html`<span class="well-end-note" aria-hidden="true">${options.endNote}</span>` : ""}</div>` : ""
+  }</div>`;
+}
+
 /**
  * A tray: a thinner, clearer sheet of glass that a pane extends into, holding a whole area under it, so what's in the area reads as one
  * with its head (the gallery's sections: a head of words, then every example on the tray). The head's bottom corners and the tray's top
