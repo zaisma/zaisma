@@ -61,7 +61,7 @@ export function tabSwitch(options: {
   const own = options.isFramed
     ? html`${options.rowId ? raw('<div class="switch-scroll">') : ""}<div class="switch-frame cut-carved ${options.switchSize}" data-cut-line="${isSmall ? 9 : 10}">${CUT_LINE}<div class="switch-frame-row"${options.rowId ? html` id="${options.rowId}"` : ""} data-fades-sideways><div class="tab-switch framed ${kind}" role="group" aria-label="${options.label}">`
     : html`<div class="tab-switch cut-carved ${kind}" role="group" aria-label="${options.label}" data-cut-line="${isSmall ? 9 : 10}">${CUT_LINE}`;
-  return controlMarkup(html`${own}<span class="slab cut-raised" aria-hidden="true" data-cut-line="${isSmall ? 7 : 8}">${CUT_LINE}</span><span class="focus-ring" aria-hidden="true" data-cut-line="${isSmall ? 7 : 8}">${CUT_LINE}</span>${options.tabs.map((tab) =>
+  return controlMarkup(html`${own}<span class="slab cut-raised" aria-hidden="true" data-cut-line="${isSmall ? 7 : 8}">${CUT_LINE}</span><span class="focus-ring" aria-hidden="true" data-cut-line="${isSmall ? 9 : 10}">${CUT_LINE}</span>${options.tabs.map((tab) =>
     tab.href
       ? // A link that can't be followed now has no address, so nothing reaches it; it still says what it is.
         html`<a${tab.isDisabled ? raw(' aria-disabled="true"') : html` href="${tab.href}"`}${folding(tab)}${tab.extra ?? ""}${tab.isCurrent ? raw(' aria-current="page"') : ""}>${inside(tab)}</a>`
@@ -122,6 +122,8 @@ export const SWITCH_SCRIPT = `/* switches */(function () {
       // Vertical: the slab spans the well's width and moves down it; it never slants, and only on the first or last tab does it follow the well's top or bottom.
       if (isVertical) {
         var toY = { pos: tab.offsetTop, size: tab.offsetHeight }, msY = isGliding && !reduce ? slideMs(el) : 0;
+        // The focus line runs along the well's own edge: on the first or last place, out to the well's end.
+        if (el.classList.contains("focus-ring")) { var topPx = isFirst ? 0 : tab.offsetTop, bottomPx = isLast ? sw.clientHeight : tab.offsetTop + tab.offsetHeight; toY = { pos: topPx, size: bottomPx - topPx }; }
         el.setAttribute("data-cut-beside", "");
         el.setAttribute("data-cut-stack", ((isFirst ? "first " : "") + (isLast ? "last" : "")).trim());
         if (el.redrawCut) el.redrawCut(msY && from.stack !== null ? { from: from, ms: msY, ease: slideEase, isDriven: true } : undefined);
@@ -131,6 +133,8 @@ export const SWITCH_SCRIPT = `/* switches */(function () {
       // Beside another tab, it reaches into the slant between them, so only the row's gap is left between its place and the next one's.
       var reach = besideReach(el), start = isFirst ? 0 : reach, end = isLast ? 0 : reach;
       var to = { pos: onPixel(tab.offsetLeft - start), size: tab.offsetWidth + start + end }, ms = isGliding && !reduce ? slideMs(el) : 0;
+      // The focus line runs along the well's own edge: on the first or last tab, out to the well's end.
+      if (el.classList.contains("focus-ring")) { var leftPx = isFirst ? 0 : tab.offsetLeft - start, rightPx = isLast ? sw.clientWidth : tab.offsetLeft + tab.offsetWidth + end; to = { pos: leftPx, size: rightPx - leftPx }; }
       // The edge rule: the slab slants only where another tab is beside it, and its end on the first or last tab follows the switch's end.
       el.setAttribute("data-cut-beside", ((isFirst ? "" : "start ") + (isLast ? "" : "end")).trim());
       var ends = ((isFirst ? "start " : "") + (isLast ? "end" : "")).trim();
@@ -312,10 +316,10 @@ component({
 .tab-switch > .foldable.folded { max-width: 0; padding-left: 0; padding-right: 0; opacity: 0; pointer-events: none; transition: max-width 0.4s cubic-bezier(.4,0,.2,1), padding 0.4s cubic-bezier(.4,0,.2,1), opacity 0.16s; }
 /* Keyboard focus: a line round the focused tab that follows its cut, like the slab's (the focus ring, set by SWITCH_SCRIPT). */
 .tab-switch > :focus-visible { outline: none; }
-.tab-switch .focus-ring { position: absolute; top: 4px; bottom: 4px; left: 0; width: 0; z-index: 3; pointer-events: none; clip-path: var(--cut-shape); opacity: 0; }
-.tab-switch.small .focus-ring { top: 3px; bottom: 3px; }
-.tab-switch.vertical .focus-ring { top: 0; bottom: auto; left: 4px; right: 4px; width: auto; height: 0; }
-.tab-switch.vertical.small .focus-ring { left: 3px; right: 3px; }
+/* It runs along the well's own edge, the switch's full height (its full width stacked), with the well's cuts at the switch's ends, so
+   there's no gap between the line and the well. */
+.tab-switch .focus-ring { position: absolute; top: 0; bottom: 0; left: 0; width: 0; z-index: 3; pointer-events: none; clip-path: var(--cut-shape); opacity: 0; }
+.tab-switch.vertical .focus-ring { top: 0; bottom: auto; left: 0; right: 0; width: auto; height: 0; }
 .tab-switch.is-focus-shown .focus-ring { opacity: 1; }
 .tab-switch .focus-ring .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 /* Only its line: no bevel, so a focused tab never looks carved in or raised. */
