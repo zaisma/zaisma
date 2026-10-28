@@ -71,12 +71,12 @@ component({
 .slider-head > output { padding-inline-end: var(--pad-words); font: var(--type-label); color: var(--ink); white-space: nowrap; font-variant-numeric: tabular-nums; }
 /* It fills a pane's width; in a pane that fits what's in it, its track is a card's width (--size-card), or what room there is. */
 .slider-track { position: relative; height: var(--thumb); width: var(--size-card); min-width: 100%; max-width: 100%; }
-/* The line is a fine one, in the colour of an edge you can press (--press-rim), so the scale can be found at a glance on any glass. What's
-   filled is orange light along it, the choice cards' pick: a bright line with a soft flood round it (--run-flood). */
-.slider-line, .slider-fill { position: absolute; top: calc(50% - 1px); height: 2px; left: calc(var(--thumb) / 2); pointer-events: none; }
-.slider-line { right: calc(var(--thumb) / 2); background: var(--press-rim); }
-.slider-fill { width: calc((100% - var(--thumb)) * var(--fill)); height: 3px; top: calc(50% - 1.5px); background: var(--run); }
-.slider-fill::after { content: ""; position: absolute; left: 0; right: 0; top: calc(50% - 9px); height: 18px; background: radial-gradient(100% 50% at 50% 50%, var(--run-flood), transparent 100%); }
+/* The line is a thin groove carved into the glass, shaded along its top and lit along its lip like every carving; what's filled is orange
+   light running inside it, glowing faintly past its lips. Carved, it's the toggle's slot when off (--toggle-off). */
+.slider-line, .slider-fill { position: absolute; pointer-events: none; }
+.slider-line { top: calc(50% - 3px); height: 6px; left: calc(var(--thumb) / 2 - 3px); right: calc(var(--thumb) / 2 - 3px); background: var(--toggle-off);
+  box-shadow: var(--well-shade), inset 0 1px 2px rgba(10,16,28,0.18), inset 0 -1px 0 var(--carve-bottom); clip-path: polygon(3px 0, 100% 0, 100% calc(100% - 3px), calc(100% - 3px) 100%, 0 100%, 0 3px); }
+.slider-fill { top: calc(50% - 2px); height: 4px; left: calc(var(--thumb) / 2); width: calc((100% - var(--thumb)) * var(--fill)); background: linear-gradient(180deg, var(--run-hi), var(--run)); filter: drop-shadow(0 0 3px var(--run)); }
 .slider-input { position: absolute; inset: 0; z-index: 3; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; -webkit-appearance: none; appearance: none; }
 /* On a phone the track takes a whole control's height (--control-height-regular) to touch, centered on it. */
 @media (pointer: coarse) { .slider-input { inset: min(0px, calc(50% - var(--touch-target) / 2)) 0; height: auto; } }
@@ -96,11 +96,9 @@ component({
 /* Can't be changed now: the thumb rests flat, the number goes quieter, and no orange, since there's nothing to do: the fill is grey. */
 .slider.is-disabled .slider-input { cursor: default; }
 .slider.is-disabled .slider-head > output { color: var(--muted); }
-.slider.is-disabled .slider-fill { background: var(--muted); }
-.slider.is-disabled .slider-fill::after { content: none; }
-.slider.is-disabled .slider-line { background: var(--line); }
-/* Its thumb is dimmed too, faded into the glass, so it plainly can't be dragged. */
-.slider.is-disabled .slider-thumb { filter: none; opacity: 0.45; }
+.slider.is-disabled .slider-fill { background: var(--muted); filter: none; }
+.slider.is-disabled .slider-line { background: var(--off-face); box-shadow: none; }
+/* Its thumb stays the slab it always is, as a toggle's does: the grey line and quiet number say it can't be moved. */
 .slider.is-disabled .slider-slab > .cut-line polygon { stroke: var(--line); }
 .slider-input:focus-visible + .slider-thumb > .slider-slab > .cut-line polygon, .slider.is-focused .slider-slab > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 `,
