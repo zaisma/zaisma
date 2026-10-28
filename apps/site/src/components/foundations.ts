@@ -271,7 +271,10 @@ export const EDGE_LIGHT_SCRIPT = `/* edge light */(function () {
   window.zaismaWatch.each("[data-edge-light]", function (holder) {
     var light = holder.querySelector(":scope > .edge-light");
     if (!light) return;
-    var side = holder.getAttribute("data-edge-light"), isAcross = side === "bottom" || side === "top", lit = null;
+    var side = holder.getAttribute("data-edge-light"), isAcross = side === "bottom" || side === "top", lit = null, dimLater = null;
+    // Passing over a part that doesn't light (the one you're on), the light waits a moment before it goes, so crossing it on the way to the
+    // next one glides straight on instead of going out and coming back.
+    var PASSING_MS = 250;
     function place(part, isGliding) {
       var h = holder.getBoundingClientRect(), r = part.getBoundingClientRect();
       // The first light comes up where it is; after that it glides along the edge to the next part.
@@ -280,13 +283,14 @@ export const EDGE_LIGHT_SCRIPT = `/* edge light */(function () {
       light.style.setProperty("--light-span", (isAcross ? r.width : r.height) + "px");
       if (!isGliding) { void light.offsetWidth; light.style.transition = ""; }
     }
-    function lightUp(part) { place(part, holder.classList.contains("is-lit")); lit = part; holder.classList.add("is-awake", "is-lit"); }
-    function dim() { lit = null; holder.classList.remove("is-lit"); }
+    function lightUp(part) { clearTimeout(dimLater); dimLater = null; place(part, holder.classList.contains("is-lit")); lit = part; holder.classList.add("is-awake", "is-lit"); }
+    function dim() { clearTimeout(dimLater); dimLater = null; lit = null; holder.classList.remove("is-lit"); }
+    function dimSoon() { if (!dimLater && lit) dimLater = setTimeout(dim, PASSING_MS); }
     holder.addEventListener("pointerover", function (event) {
       if (event.pointerType && event.pointerType !== "mouse") return;
       holder.classList.add("is-awake");
       var part = event.target.closest("[data-lights]");
-      if (part && holder.contains(part) && canLight(part)) lightUp(part); else dim();
+      if (part && holder.contains(part) && canLight(part)) lightUp(part); else dimSoon();
     });
     holder.addEventListener("pointerleave", function () { dim(); holder.classList.remove("is-awake"); });
     // A part picked (the one you're on now) no longer lights; one that scrolls inside the holder keeps its light beside it.
