@@ -3,7 +3,6 @@ import { component } from "./component.ts";
 import { CUT_LINE, floatingPane, glassPane, groove, icon, well } from "./foundations.ts";
 import { cutField } from "./fields.ts";
 import { tabSwitch } from "./switch.ts";
-import { progress } from "./reading.ts";
 import { lightBox } from "./light-box.ts";
 import { tertiaryButton } from "./actions.ts";
 import { controlMarkup, type ControlMarkup } from "./control-markup.ts";
@@ -158,17 +157,21 @@ const byteUnit = (byteCount: number): { divisor: number; unit: string } =>
 
 /**
  * One picked file's row, carved into the pane: a 16:9 preview (its picture, which opens large in the drop's Light box, or a mark for a file
- * that isn't one), its name and size, and Remove at its end. While it uploads, its name and how much has gone sit over a Progress; once it's sent, it says so.
+ * that isn't one), its name and size, and Remove at its end. While it uploads, it says how much has gone and a Groove along its foot fills;
+ * once it's sent, it says so.
  */
 const fileRow = (file: FileDropFile, dropId: string): Raw => {
   const isUploading = file.uploadedByteCount !== undefined && file.uploadedByteCount < file.byteCount;
   const isSent = file.uploadedByteCount !== undefined && file.uploadedByteCount >= file.byteCount;
   const { divisor, unit } = byteUnit(file.byteCount);
   const rounded = (byteCount: number) => Number((byteCount / divisor).toFixed(1));
-  const about = isUploading
-    ? progress({ label: file.fileName, doneNumber: rounded(file.uploadedByteCount ?? 0), totalNumber: rounded(file.byteCount), unit })
-    : html`<span class="file-drop-top"><span class="file-drop-name">${file.fileName}</span><span class="file-drop-size">${byteWords(file.byteCount)}${isSent ? " · Sent" : ""}</span></span>`;
-  return html`<li class="file-drop-row cut-carved" data-cut-line="8">${CUT_LINE}<button type="button" class="file-drop-preview" data-cut-line="4" aria-controls="${dropId}-view" aria-label="View ${file.fileName}"${file.previewUrl ? html` style="--picture:url('${file.previewUrl}')" data-picture="${file.previewUrl}"` : raw(" disabled")}>${CUT_LINE}${file.previewUrl ? html`<span class="file-drop-zoom">${icon("search")}</span>` : icon("save")}</button><span class="file-drop-about">${about}</span><span class="file-drop-remove">${tertiaryButton(`Remove ${file.fileName}`, { type: "button", icon: "close", isLabelHidden: true, isSmall: true })}</span></li>`;
+  const sent = `${rounded(file.uploadedByteCount ?? 0)} of ${rounded(file.byteCount)} ${unit}`;
+  const about = html`<span class="file-drop-top"><span class="file-drop-name">${file.fileName}</span><span class="file-drop-size">${isUploading ? sent : html`${byteWords(file.byteCount)}${isSent ? " · Sent" : ""}`}</span></span>`;
+  // While it sends, a Groove runs along the row's whole foot, from one bottom corner to the other, filling as it goes.
+  const sending = isUploading
+    ? html`<span class="file-drop-sending" role="progressbar" aria-label="Sending ${file.fileName}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${String(Math.round(((file.uploadedByteCount ?? 0) / Math.max(1, file.byteCount)) * 100))}" aria-valuetext="${sent}">${groove({ filledFraction: (file.uploadedByteCount ?? 0) / Math.max(1, file.byteCount) })}</span>`
+    : "";
+  return html`<li class="file-drop-row cut-carved${isUploading ? " is-sending" : ""}" data-cut-line="8">${CUT_LINE}<button type="button" class="file-drop-preview" data-cut-line="4" aria-controls="${dropId}-view" aria-label="View ${file.fileName}"${file.previewUrl ? html` style="--picture:url('${file.previewUrl}')" data-picture="${file.previewUrl}"` : raw(" disabled")}>${CUT_LINE}${file.previewUrl ? html`<span class="file-drop-zoom">${icon("search")}</span>` : icon("save")}</button><span class="file-drop-about">${about}</span><span class="file-drop-remove">${tertiaryButton(`Remove ${file.fileName}`, { type: "button", icon: "close", isLabelHidden: true, isSmall: true })}</span>${sending}</li>`;
 };
 
 /**
@@ -301,8 +304,8 @@ component({
 .file-drop.is-disabled > .cut-line polygon { stroke: var(--line); }
 .file-drop:has(:focus-visible) > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); stroke-dasharray: none; }
 /* What's picked: a row for each file, carved into the pane, close together: its 16:9 preview (its picture, or a mark for a file that isn't
-   one), its name whole (on more lines where it's long) and its size, and Remove at its end. While it uploads, a Progress takes the name's
-   place: its name and how much has gone over a carved track. */
+   one), its name whole (on more lines where it's long) and its size, and Remove at its end. While it uploads, it says how much has gone,
+   and a Groove lies along its whole foot, a part's gap in from its edges, from one bottom corner to the other, cut with the row. */
 .file-drop-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--gap-control-row); }
 .file-drop-row { position: relative; display: flex; align-items: center; gap: var(--gap-words-control); padding: var(--gap-control-row); --face-color: var(--well); background: var(--face-color); clip-path: var(--cut-shape); --pad-words: 0px; }
 /* The preview's picture lies on a layer cut by the edge rule; the button itself is never clipped, so the pointer over it always shows its
@@ -326,6 +329,8 @@ component({
 .file-drop-name { min-width: 0; overflow-wrap: anywhere; font: var(--type-words); color: var(--ink); }
 .file-drop-size { flex: none; font: var(--type-facts); color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .file-drop-remove { flex: none; display: flex; }
+.file-drop-row.is-sending { padding-bottom: calc(2 * var(--gap-control-row) + 8px); }
+.file-drop-sending { position: absolute; left: var(--gap-control-row); right: var(--gap-control-row); bottom: var(--gap-control-row); }
 @media (prefers-reduced-motion: reduce) { .file-drop > .ico { transition: none; } }
 `,
   render: fileDrop,
