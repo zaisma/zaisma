@@ -353,8 +353,10 @@ component({
 /* One long token (a key, an address) breaks at a line's end, or at a slash or hyphen where one is near it. */
 .code-text { position: relative; z-index: 2; flex: 1; min-width: 0; padding: 14px var(--pad-inside-words); font: 500 0.9375rem/1.5rem ui-monospace, Menlo, monospace; color: var(--ink);
   overflow-wrap: anywhere; cursor: text; background: var(--well); box-shadow: var(--well-shade); clip-path: var(--cut-shape); }
-/* Only the first line keeps clear of Copy (and its gap); the lines under it run the field's whole width. */
-.code-text::before { content: ""; float: right; width: 48px; height: 24px; }
+/* Copy lies over the code's own well, at its top end, as far in from its end as from its top (a field's --toggle-inset), so the well runs
+   the field's whole width under it. Only the first line keeps clear of it; the lines under it run the whole width. */
+.field.code > .tertiary-btn { position: absolute; z-index: 3; top: var(--toggle-inset); right: var(--toggle-inset); }
+.code-text::before { content: ""; float: right; width: max(0px, var(--control-height-small) + var(--toggle-inset) - var(--pad-inside-words) + var(--gap-words-words)); height: 24px; }
 /* A command's parts each stay whole, so it breaks only at its spaces; a part longer than a line breaks within itself. */
 .code-word { display: inline-block; max-width: 100%; }
 .code-text:focus-visible { outline: none; }
