@@ -1345,8 +1345,8 @@ component({
   styles: "",
   render: sidebarButton,
   examples: [
-    { label: "The sidebar beside the page", markup: sidebarButton({ controls: "example-sidebar-button", label: "Settings", isExpanded: true }) },
-    { label: "The sidebar folded away", markup: sidebarButton({ controls: "example-sidebar-button", label: "Settings", isExpanded: false }) },
+    { label: "The sidebar beside the page", isStill: true, markup: sidebarButton({ controls: "example-sidebar-button", label: "Settings", isExpanded: true }) },
+    { label: "The sidebar folded away", isStill: true, markup: sidebarButton({ controls: "example-sidebar-button", label: "Settings", isExpanded: false }) },
   ],
 });
 
@@ -1377,7 +1377,8 @@ html[data-page-shape="reading"] .sidebar-layout-in { grid-template-columns: var(
 html[data-page-shape="reading"] .sidebar-layout.is-collapsed > .sidebar-layout-in { grid-template-columns: minmax(0, var(--size-page-reading)); }
 /* Where the page can't have a column beside it (a phone, a tablet with large text), the sidebar is its sheet over the page (Sidebar). */
 @container sidebar-layout (max-width: ${SIDEBAR_SHEET_BELOW}) {
-  .sidebar-layout-in, html[data-page-shape="reading"] .sidebar-layout-in { grid-template-columns: minmax(0, 1fr); }
+  .sidebar-layout-in { grid-template-columns: minmax(0, 1fr); }
+  html[data-page-shape="reading"] .sidebar-layout-in { grid-template-columns: minmax(0, var(--size-page-reading)); }
   .sidebar-layout-in > .sidebar { display: none; --sidebar-is-sheet: 1; }
 }
 @media (prefers-reduced-motion: reduce) { .sidebar-layout-in > .sidebar { transition: var(--glass-transition); } }
