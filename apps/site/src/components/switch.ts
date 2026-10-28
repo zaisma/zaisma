@@ -116,7 +116,7 @@ export const SWITCH_SCRIPT = `/* switches */(function () {
         var toY = { pos: tab.offsetTop, size: tab.offsetHeight }, msY = isGliding && !reduce ? slideMs(el) : 0;
         el.setAttribute("data-cut-beside", "");
         el.setAttribute("data-cut-stack", ((isFirst ? "first " : "") + (isLast ? "last" : "")).trim());
-        if (el.redrawCut) el.redrawCut(msY && from.stack !== null ? { from: from, ms: msY } : undefined);
+        if (el.redrawCut) el.redrawCut(msY && from.stack !== null ? { from: from, ms: msY, ease: easeOut } : undefined);
         if (msY) slide(el, toY, msY); else { el.slideId = (el.slideId || 0) + 1; place(el, toY); if (el.redrawCut) el.redrawCut(); }
         return;
       }
@@ -127,7 +127,7 @@ export const SWITCH_SCRIPT = `/* switches */(function () {
       el.setAttribute("data-cut-beside", ((isFirst ? "" : "start ") + (isLast ? "" : "end")).trim());
       var ends = ((isFirst ? "start " : "") + (isLast ? "end" : "")).trim();
       if (ends) el.setAttribute("data-cut-ends", ends); else el.removeAttribute("data-cut-ends");
-      if (el.redrawCut) el.redrawCut(ms && from.beside !== null ? { from: from, ms: ms } : undefined);
+      if (el.redrawCut) el.redrawCut(ms && from.beside !== null ? { from: from, ms: ms, ease: easeOut } : undefined);
       if (ms) slide(el, to, ms); else { el.slideId = (el.slideId || 0) + 1; place(el, to); if (el.redrawCut) el.redrawCut(); }
     }
     function slideMs(el) { return parseFloat(getComputedStyle(el).getPropertyValue("--slide-ms")) || 550; }

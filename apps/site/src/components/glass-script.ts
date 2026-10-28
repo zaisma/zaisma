@@ -467,8 +467,10 @@ export const GLASS_SCRIPT = `/* glass */(function () {
     return controlShape(w, h, el.hasAttribute("data-cut-beside") ? Number(el.getAttribute("data-cut-line")) || SLANT_PX : SLANT_PX, cuts, beside);
   }
   // The shape drawn: repeated points dropped, so every side drawn has a length.
-  function distinct(points) {
-    return points.filter(function (p, i) { var q = points[(i + points.length - 1) % points.length]; return Math.abs(p[0] - q[0]) > 0.01 || Math.abs(p[1] - q[1]) > 0.01; });
+  // An outline with no point on the one before it (within leastPx, 0.01 by default).
+  function distinct(points, leastPx) {
+    var least = leastPx || 0.01;
+    return points.filter(function (p, i) { var q = points[(i + points.length - 1) % points.length]; return Math.abs(p[0] - q[0]) > least || Math.abs(p[1] - q[1]) > least; });
   }
   function cssPolygon(points) { return "polygon(" + points.map(function (p) { return p[0].toFixed(2) + "px " + p[1].toFixed(2) + "px"; }).join(", ") + ")"; }
   // The same outline moved inward by d on every side: each side's line shifted along its inner normal, meeting its neighbors.
@@ -501,7 +503,7 @@ export const GLASS_SCRIPT = `/* glass */(function () {
       var size = sizeOf(el), w = size[0], h = size[1]; if (!w || !h) return;
       var shape = controlOutline(el, w, h);
       if (glide) {
-        var t = Math.min(1, (performance.now() - glide.startMs) / glide.ms), eased = 1 - Math.pow(1 - t, 3), from = controlOutline(el, w, h, glide.from);
+        var t = Math.min(1, (performance.now() - glide.startMs) / glide.ms), eased = glide.ease ? glide.ease(t) : 1 - Math.pow(1 - t, 3), from = controlOutline(el, w, h, glide.from);
         shape = shape.map(function (p, i) { return [from[i][0] + (p[0] - from[i][0]) * eased, from[i][1] + (p[1] - from[i][1]) * eased]; });
         if (t < 1) requestAnimationFrame(draw); else glide = null;
       }
@@ -511,6 +513,9 @@ export const GLASS_SCRIPT = `/* glass */(function () {
       last = key;
       el.style.setProperty("--cut-shape", cssPolygon(shape));
       svg.setAttribute("viewBox", "0 0 " + w + " " + h);
+      // Its line and light are drawn round the outline with no side under a pixel: a side shrinking away as it glides (a slant becoming a
+      // corner) would turn its neighbors' light every which way in its last frames, then snap as it went.
+      shape = distinct(shape, 1);
       poly.setAttribute("points", list(insetShape(shape, 1)));
       // The raised or carved light: a 1.5px band along each side. data-cut-inset moves it inward, inside an outline drawn round the edge.
       var from = Number(el.getAttribute("data-cut-inset")) || 0, outer = insetShape(shape, from), inner = insetShape(shape, from + 1.5);
@@ -523,9 +528,10 @@ export const GLASS_SCRIPT = `/* glass */(function () {
       });
     }
     draw();
-    // redrawCut() draws it again; redrawCut({ from: { beside, ends }, ms }) glides there from the shape those attributes gave.
+    // redrawCut() draws it again; redrawCut({ from: { beside, ends }, ms, ease }) glides there from the shape those attributes gave, on its
+    // mover's ease (a cubic ease-out by default), so its shape lands as it does.
     el.redrawCut = function (move) {
-      if (move && move.ms > 0 && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) glide = { from: move.from, ms: move.ms, startMs: performance.now() };
+      if (move && move.ms > 0 && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) glide = { from: move.from, ms: move.ms, ease: move.ease, startMs: performance.now() };
       draw();
     };
     window.zaismaWatch.size(el, draw, runBatch);
