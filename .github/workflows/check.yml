@@ -2,7 +2,7 @@
 # Needs no secrets: vitest.config.ts gives the tests every binding they use.
 #
 # Everything runs side by side, split across runners: the tests in four shards (four files at once on each), typecheck, the
-# Layout check on one, the gallery on every screen on one when the components changed, and the Engine exports in three.
+# Layout check on one, the gallery on every screen in three when the components changed, and the Engine exports in three.
 # "Tests and typecheck", the check the ruleset requires and npm run ship reads, passes only when all of them did.
 # The Layout check measures each page for how it arranges its pieces, on a phone and a laptop in light; each component is proven
 # on every screen in "Gallery on every screen" when a change touches the components, and every page on every screen each night
@@ -375,11 +375,16 @@ jobs:
   # The gallery's pages on every screen, light and dark, at 200% text (npm run layout:check -- --gallery), when the change touches the
   # components: a broken component breaks every page that uses it, and a pull request's Layout check measures pages only for arrangement.
   gallery:
-    name: Gallery on every screen
+    name: Gallery on every screen (${{ matrix.shard }} of 3)
     needs: [changes, seed]
     if: ${{ !cancelled() && needs.changes.outputs.is_code_changed == 'true' && needs.changes.outputs.is_gallery_changed == 'true' && needs.changes.outputs.is_checked_in_queue != 'true' && (needs.seed.result == 'success' || needs.seed.result == 'skipped') }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # A page per subgroup is more pages than one runner measures on every screen in time: they're dealt to three, by their time (layoutCheckShard).
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -400,7 +405,7 @@ jobs:
           key: ${{ needs.changes.outputs.preview_snapshot_key }}
           fail-on-cache-miss: true
       - run: npm run preview:start
-      - run: npm run layout:check -- --gallery
+      - run: npm run layout:check -- --gallery --shard ${{ matrix.shard }}/3
       - if: failure()
         run: tail -n 80 .wrangler/preview-run/preview.log .wrangler/preview/servers.log || true
 
