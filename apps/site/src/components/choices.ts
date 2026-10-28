@@ -594,14 +594,18 @@ component({
 .choice-card > :not(.cut-line):not(.choice-input):not(.edge-light) { position: relative; z-index: 2; }
 .choice-input { position: absolute; inset: 0; z-index: 3; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
 .choice-card > .ico { flex: none; margin-top: 1px; color: var(--muted); }
-.choice-card > .ico, .choice-card > .choice-words { transition: transform 0.25s cubic-bezier(.4,0,.2,1); }
+.choice-card > .ico, .choice-card > .choice-words { transition: transform 0.3s cubic-bezier(.4,0,.2,1); }
+/* What's on a card goes up and down with it, as a page can show depth: down a pixel in its carving, up a pixel when it rises as the
+   picked slab, and down further while a press sinks it. */
+.choice-card > :is(.ico, .choice-words) { transform: translateY(1px); }
+.choice-card:has(.choice-input:checked) > :is(.ico, .choice-words) { transform: translateY(-1px); }
 .choice-words { display: grid; gap: var(--gap-words-words); }
 .choice-label { font: var(--type-label); color: var(--ink-2); }
 .choice-text { font: var(--type-note); color: var(--muted); }
 .choices:not(.is-disabled) .choice-card:hover, .choice-card.is-pointed { color: var(--ink-2); }
 /* Pressed: it sinks, quickly, its carving deep and shaded from above and its words a pixel down; let go, it eases back. */
 .choices:not(.is-disabled) .choice-card:active, .choice-card.is-pressed { box-shadow: var(--press-deep); color: var(--ink-2); transition-duration: 0.08s; }
-.choices:not(.is-disabled) .choice-card:active > :is(.ico, .choice-words), .choice-card.is-pressed > :is(.ico, .choice-words) { transform: translateY(1px); transition-duration: 0.08s; }
+.choices:not(.is-disabled) .choice-card:active > :is(.ico, .choice-words), .choice-card.is-pressed > :is(.ico, .choice-words), .choice-card.is-pressed:has(.choice-input:checked) > :is(.ico, .choice-words) { transform: translateY(2px); transition-duration: 0.08s; }
 /* Picked: the slab rises out of the carving, its face coming up over the carved one, its light turned the other way. */
 .choice-card::before { content: ""; position: absolute; inset: 0; background: var(--slab); opacity: 0; pointer-events: none; transition: opacity 0.3s cubic-bezier(.4,0,.2,1), box-shadow 0.25s cubic-bezier(.4,0,.2,1); }
 .choice-card:has(.choice-input:checked) { box-shadow: var(--slab-shade); color: var(--ink); }
