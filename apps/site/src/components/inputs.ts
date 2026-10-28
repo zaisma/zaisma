@@ -642,7 +642,10 @@ component({
 .color-wheel.is-held .color-knob { filter: var(--thumb-cast-pressed); transition-duration: 0.08s; }
 .color-wheel.is-held .color-knob-slab::after { opacity: 1; transition-duration: 0.08s; }
 .color-wheel:focus-visible > .cut-line polygon, .color-wheel.is-focused > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
-.color-side { display: flex; flex-direction: column; gap: var(--gap-control-stack); min-width: 0; }
+/* Beside the wheel, not at the pane's edge, the column's labels have no pane margin to keep and start at its edge; the brightness's number,
+   at the pane's right edge, keeps it. */
+.color-side { display: flex; flex-direction: column; gap: var(--gap-control-stack); min-width: 0; --pad-words: 0px; }
+.color-side .slider-head > output { padding-inline-end: var(--pad-inside-words); }
 /* The picked color is carved into the pane, the color lying in it as light inside the glass, shaded along its top and lit along its lip. */
 .color-swatch { position: relative; display: block; flex: 1; min-height: 32px; background: var(--color-picked); clip-path: var(--cut-shape); box-shadow: inset 0 3px 5px var(--groove-shade), inset 0 -1.5px 0 var(--groove-lip); }
 /* Its brightness: the slider's groove runs from black to the full color, with no orange in it. */
