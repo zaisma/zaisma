@@ -17,9 +17,9 @@ export const LIGHT_GLASS = `color-scheme: light;
   --glass-saturate: 1.8; --edge-hair: rgba(40, 60, 100, 0.1);
   /* A well is carved into the glass: a touch darker than it, so it reads on a pale backdrop too. */
   --well: rgba(70, 84, 108, 0.08); --well-shade: inset 0 1px 3px rgba(20, 23, 28, 0.1);
-  --toggle-face: #F7F8FA; --toggle-face-hover: #FFFFFF; --toggle-icon-on: var(--ink); --toggle-ring: drop-shadow(1.5px 0 0 var(--run)) drop-shadow(-1.5px 0 0 var(--run)) drop-shadow(0 1.5px 0 var(--run)) drop-shadow(0 -1.5px 0 var(--run)); --toggle-cast: drop-shadow(0 1px 2px rgba(247, 147, 26, 0.4)) drop-shadow(0 6px 10px rgba(20, 23, 28, 0.1));
+  --toggle-icon-on: var(--ink); --toggle-ring: drop-shadow(1.5px 0 0 var(--run)) drop-shadow(-1.5px 0 0 var(--run)) drop-shadow(0 1.5px 0 var(--run)) drop-shadow(0 -1.5px 0 var(--run)); --toggle-cast: drop-shadow(0 1px 2px rgba(247, 147, 26, 0.4)) drop-shadow(0 6px 10px rgba(20, 23, 28, 0.1));
   --slab: linear-gradient(180deg, rgba(255, 255, 255, 0.88), rgba(255, 255, 255, 0.6)); --slab-shade: 0 4px 10px rgba(20, 23, 28, 0.12); --ghost: rgba(255, 255, 255, 0.45); --ghost-rest: rgba(255, 255, 255, 0); --wash-rest: rgba(20, 23, 28, 0); --wash: rgba(20, 23, 28, 0.08); --wash-press: rgba(20, 23, 28, 0.14);
-  --btn: rgba(255, 255, 255, 0.6); --btn-hover: rgba(255, 255, 255, 0.82); --btn-press: rgba(226, 232, 240, 0.9);
+  --btn: #F7F8FA; --btn-hover: #FFFFFF; --btn-press: rgba(226, 232, 240, 0.9);
   --press-shade: inset 0 2px 5px rgba(20, 30, 50, 0.16);
   /* The edge of something you press, at rest (a check's box, a toggle's slot, a choice card): 3:1 or more against the glass. */
   --press-rim: rgba(20, 23, 28, 0.5);
@@ -66,9 +66,9 @@ export const SMOKED_GLASS = `color-scheme: dark;
   --glass-tray-sheen: radial-gradient(140% 90% at 0% 0%, rgba(190, 215, 255, 0.04), rgba(190, 215, 255, 0) 55%), linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0) 38%, rgba(0, 0, 0, 0) 70%, rgba(0, 0, 0, 0.04));
   --glass-saturate: 1.9; --edge-hair: rgba(0, 0, 0, 0.09);
   --well: rgba(255, 255, 255, 0.08); --well-shade: inset 0 1px 3px rgba(0, 0, 0, 0.3);
-  --toggle-face: #3A3E47; --toggle-face-hover: #444852; --toggle-icon-on: var(--run); --toggle-ring: drop-shadow(1.5px 0 0 var(--run)) drop-shadow(-1.5px 0 0 var(--run)) drop-shadow(0 1.5px 0 var(--run)) drop-shadow(0 -1.5px 0 var(--run)); --toggle-cast: drop-shadow(0 3px 8px rgba(247, 147, 26, 0.45)) drop-shadow(0 1px 1.5px rgba(247, 147, 26, 0.35));
+  --toggle-icon-on: var(--run); --toggle-ring: drop-shadow(1.5px 0 0 var(--run)) drop-shadow(-1.5px 0 0 var(--run)) drop-shadow(0 1.5px 0 var(--run)) drop-shadow(0 -1.5px 0 var(--run)); --toggle-cast: drop-shadow(0 3px 8px rgba(247, 147, 26, 0.45)) drop-shadow(0 1px 1.5px rgba(247, 147, 26, 0.35));
   --slab: rgba(255, 255, 255, 0.2); --slab-shade: 0 0 0 transparent; --ghost: rgba(255, 255, 255, 0.1); --ghost-rest: rgba(255, 255, 255, 0); --wash-rest: rgba(255, 255, 255, 0); --wash: rgba(255, 255, 255, 0.14); --wash-press: rgba(255, 255, 255, 0.22);
-  --btn: rgba(255, 255, 255, 0.14); --btn-hover: rgba(255, 255, 255, 0.26); --btn-press: rgba(255, 255, 255, 0.07);
+  --btn: #3A3E47; --btn-hover: #444852; --btn-press: rgba(255, 255, 255, 0.07);
   --press-shade: inset 0 2px 5px rgba(0, 0, 0, 0.4);
   --press-rim: rgba(255, 255, 255, 0.45);
   --swatch-rim: rgba(255, 255, 255, 0.45);

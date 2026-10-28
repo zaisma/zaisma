@@ -414,10 +414,9 @@ component({
   subgroup: "buttons",
   summary: "Everything else you can press: Details, Make an account, Cancel. A delete is a cut button too, never orange; only its confirm step turns red.",
   styles: `
-/* A secondary button: a cut slab of clearer glass with a drawn outline. Under the pointer it lifts a pixel toward you, brightening, and
-   casts a shade round its cut (light-dark(): the glass's light or smoked kind), so it shows on light glass, where a whiter face alone barely does; a press
-   sinks it (down a pixel, shaded from above, its light turned round), never shrinking it, quickly, and it springs back when let go.
-   The shell (the button) stays still and casts the shade, which follows the face's cut; the slab is its face. */
+/* A secondary button: a solid cut slab with a drawn outline, the same slab a Toggle button is. Under the pointer it brightens and stays
+   where it is; a press sinks it (down a pixel, shaded from above, its light turned round), never shrinking it, quickly, and it springs back
+   when let go. The shell (the button) stays still; the slab is its face. */
 .cut-btn { --control-height: var(--control-height-regular); flex: none; vertical-align: middle; max-width: 100%; transition: filter 0.2s; }
 .cut-btn.big { --control-height: var(--control-height-big); }
 .cut-btn.small { --control-height: var(--control-height-small); }
@@ -447,9 +446,6 @@ component({
 .cut-btn.in-well > .face { height: 30px; --face-padding: 14px; color: var(--ink-2); }
 .cut-btn.in-well.icon-only > .face { width: 46px; padding: 0; }
 .cut-btn:hover > .face, .cut-btn.is-pointed > .face { --face-color: var(--btn-hover); }
-/* Pointed: it lifts toward you and casts its shade. In a well of its own it only brightens, since the well is its shade. */
-.cut-btn:not(.in-well):hover, .cut-btn:not(.in-well).is-pointed { filter: drop-shadow(0 3px 7px light-dark(rgba(20, 30, 50, 0.24), rgba(0, 0, 0, 0.5))); }
-.cut-btn:not(.in-well):hover > .face, .cut-btn:not(.in-well).is-pointed > .face { transform: translateY(-1px); }
 .cut-btn:active > .face, .cut-btn.is-pressed > .face { --face-color: var(--btn-press); box-shadow: var(--press-shade); transform: translateY(1px); transition-duration: 0.08s; }
 /* A press sinks it into the glass: its light turns round, as on a carved field, and its shade goes. */
 .cut-btn:active, .cut-btn.is-pressed { filter: none; }
@@ -513,8 +509,8 @@ component({
 /* Pressed while off, even mid-landing, its glow or shadow goes at once too: cast by its own shape, it would show through the carved face. */
 .toggle-btn[aria-pressed="false"]:active, .toggle-btn[aria-pressed="false"].is-pressed { --toggle-rise: -1px; transition-duration: 0s, 0.08s; }
 .toggle-btn[aria-pressed="true"]:active, .toggle-btn[aria-pressed="true"].is-pressed { --toggle-rise: calc(var(--toggle-lift) - 2px); transition-duration: 0.2s, 0.08s; }
-/* Its height is the face's only movement: a cut button's lift under the pointer (more specific) never applies to it. */
-.toggle-btn > .face, .cut-btn.toggle-btn:not(.in-well):hover > .face, .cut-btn.toggle-btn:not(.in-well).is-pointed > .face, .toggle-btn:active > .face, .toggle-btn.is-pressed > .face { transform: translateY(calc(-1 * var(--toggle-rise))); }
+/* Its height is the face's only movement. */
+.toggle-btn > .face, .toggle-btn:hover > .face, .toggle-btn.is-pointed > .face, .toggle-btn:active > .face, .toggle-btn.is-pressed > .face { transform: translateY(calc(-1 * var(--toggle-rise))); }
 .toggle-btn > .face { position: relative; z-index: 1; transition: color 0.2s, box-shadow 0.2s, --face-color 0.2s; }
 /* The front surface: what the top surface leaves showing as it rises, swept down to its footprint (TOGGLE_SCRIPT), in a box reaching up by
    the whole lift, joined to the face at every corner and along a slanted end, as a solid's sides are. It follows the face's height frame by
@@ -523,21 +519,19 @@ component({
   background: linear-gradient(180deg, var(--run-hi), var(--run) 40%, var(--run-lo)); }
 /* Off: the same slab as on, its bevels and all, resting level in the glass. It answers the pointer by brightening, never lifting; pressed,
    it carves in, and let go it rises (on). */
-.toggle-btn > .face { --face-color: var(--toggle-face); }
-.toggle-btn:hover > .face, .toggle-btn.is-pointed > .face { --face-color: var(--toggle-face-hover); }
 .toggle-btn[aria-pressed="false"] > .face { color: var(--ink-2); }
 .toggle-btn[aria-pressed="false"]:hover > .face, .toggle-btn[aria-pressed="false"].is-pointed > .face { color: var(--ink); }
-.toggle-btn[aria-pressed="false"]:not(.in-well):hover, .toggle-btn[aria-pressed="false"].is-pointed, .toggle-btn[aria-pressed="false"]:active, .toggle-btn[aria-pressed="false"].is-pressed { filter: none; }
+.toggle-btn[aria-pressed="false"]:active, .toggle-btn[aria-pressed="false"].is-pressed { filter: none; }
 .toggle-btn[aria-pressed="false"]:active > .face, .toggle-btn[aria-pressed="false"].is-pressed > .face { box-shadow: var(--press-shade); --face-color: var(--btn-press); }
 .toggle-btn[aria-pressed="false"]:active > .face > .cut-line, .toggle-btn[aria-pressed="false"].is-pressed > .face > .cut-line { --band-top: var(--carve-top); --band-left: var(--carve-left); --band-right: var(--carve-right); --band-bottom: var(--carve-bottom); }
 /* On: risen over its front surface, the glass lit or shadowed below it. Turning on, the face is solid at once. */
 .toggle-btn[aria-pressed="true"] > .face { transition: color 0.2s, box-shadow 0.2s, --face-color 0s; }
 .toggle-btn[aria-pressed="true"], .toggle-btn[aria-pressed="true"]:not(.in-well):hover, .toggle-btn[aria-pressed="true"].is-pointed, .toggle-btn[aria-pressed="true"]:active, .toggle-btn[aria-pressed="true"].is-pressed { filter: var(--toggle-cast); }
 .toggle-btn[aria-pressed="true"] > .face > .ico { color: var(--toggle-icon-on); }
-.toggle-btn[aria-pressed="true"]:active > .face, .toggle-btn[aria-pressed="true"].is-pressed > .face { box-shadow: none; --face-color: var(--toggle-face); }
+.toggle-btn[aria-pressed="true"]:active > .face, .toggle-btn[aria-pressed="true"].is-pressed > .face { box-shadow: none; --face-color: var(--btn); }
 .toggle-btn[aria-pressed="true"]:active > .face > .cut-line, .toggle-btn[aria-pressed="true"].is-pressed > .face > .cut-line { --band-top: var(--raise-top); --band-left: var(--raise-left); --band-right: var(--raise-right); --band-bottom: var(--raise-bottom); }
 /* Keyboard focus: one ring round the whole button as you see it, top and front surfaces together, not one round each. */
-.toggle-btn:focus-visible > .face, .toggle-btn.is-focused > .face { --face-color: var(--toggle-face-hover); }
+.toggle-btn:focus-visible > .face, .toggle-btn.is-focused > .face { --face-color: var(--btn-hover); }
 .toggle-btn:focus-visible .cut-line polygon, .toggle-btn.is-focused .cut-line polygon { stroke: transparent; }
 .toggle-btn:focus-visible, .toggle-btn.is-focused { filter: var(--toggle-ring); }
 .toggle-btn[aria-pressed="true"]:focus-visible, .toggle-btn[aria-pressed="true"].is-focused { filter: var(--toggle-ring) var(--toggle-cast); }
