@@ -456,8 +456,8 @@ describe("components", () => {
     expect(marked).toContain('<p class="field-error" id="field-username-error">Use letters only.</p>');
   });
 
-  it("keep a delete quiet until its confirm step, whose button is the one red and no runner", () => {
-    const markup = actions.deleteButton("Delete this game", { action: "/dashboard/games/ashen-crown/delete", confirmLabel: "Delete Ashen Crown", confirmText: "It's gone for good." }).html;
+  it("give a delete's confirm step the one red button and no runner", () => {
+    const markup = panes.confirmSheet({ id: "delete-ashen-crown", title: "Delete Ashen Crown?", action: "/dashboard/games/ashen-crown/delete", confirmLabel: "Delete Ashen Crown", text: "It's gone for good.", isDelete: true }).html;
     // The sheet is one form, posting the delete; its buttons sit at its foot.
     expect(markup).toContain('<form class="sheet-in" method="post" action="/dashboard/games/ashen-crown/delete">');
     const confirmForm = markup.slice(markup.indexOf('<div class="pane-foot"'), markup.indexOf("</form>"));
@@ -465,10 +465,8 @@ describe("components", () => {
     expect(confirmForm).not.toMatch(/class="[^"]*\brun\b/);
     // Cancel closes the sheet without sending the delete.
     expect(confirmForm).toContain('formmethod="dialog" formnovalidate');
-    // The button that opens it is a cut button, never orange, and names its sheet.
-    const opener = markup.slice(markup.indexOf("</dialog>"));
-    expect(opener).toContain('class="shell cut-btn" type="button" aria-controls="delete-dashboard-games-ashen-crown-delete"');
-    expect(opener).not.toMatch(/\brun\b|danger/);
+    // Any other confirm's action is the runner, never red.
+    expect(panes.confirmSheet({ id: "sign-out", title: "Sign out everywhere?", action: "/account/sign-out-everywhere", confirmLabel: "Sign out everywhere", text: "Every device is signed out." }).html).not.toContain("danger");
   });
 
   it("make a toggle a checkbox that posts with its form, with no script", () => {

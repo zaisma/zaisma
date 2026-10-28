@@ -229,7 +229,7 @@ const opens = (label: string, sheetId: string): ControlMarkup => cutButton(label
 const more = (what: string, menuId: string): ControlMarkup => cutButton(`More for ${what}`, { type: "button", isSmall: true, icon: "more", isLabelHidden: true, controls: menuId, isExpanded: false });
 
 /** A button that opens a sheet which posts (a confirm, with its sentence). */
-const askSheet = (id: string, title: string, text: string, action: string, confirmLabel: string) => confirmSheet({ id, title, text, action, confirmLabel });
+const askSheet = (id: string, title: string, text: string, action: string, confirmLabel: string, isDelete = false) => confirmSheet({ id, title, text, action, confirmLabel, isDelete });
 
 /** A confirm that taps the passkey before it posts: connecting Stripe. */
 const tapSheet = (id: string, title: string, text: string, action: string, confirmLabel: string) =>
@@ -585,7 +585,7 @@ function webhooksPane(settings: Settings, state: PageState, deliveries: Delivery
       ),
       layer(askSheet(`${idBase}-test`, "Send a test event?", `Zaisma sends a test event to ${where} now and tells you how it went.`, `${PAGE}/webhooks/${webhook.id}/test`, "Send test")),
       layer(askSheet(`${idBase}-secret`, "Replace the signing secret?", "The old secret stops working at once. You'll see the new one once.", `${PAGE}/webhooks/${webhook.id}/secret`, "Replace it")),
-      layer(askSheet(`${idBase}-delete`, "Delete this webhook?", "It stops receiving events, and what was on its way to it is dropped.", `${PAGE}/webhooks/${webhook.id}/delete`, "Delete webhook")),
+      layer(askSheet(`${idBase}-delete`, "Delete this webhook?", "It stops receiving events, and what was on its way to it is dropped.", `${PAGE}/webhooks/${webhook.id}/delete`, "Delete webhook", true)),
     );
   }
   items.push(
@@ -676,7 +676,7 @@ function signInAppsPane(settings: Settings): LayoutItem {
       ),
       layer(sheet({ id: `${idBase}-edit`, title: "Change this app", closeLabel: "Close", action: `${PAGE}/sign-in-apps/${app.id}`, body: stack({ items: fields(idBase, app) }), buttons: [cutButton("Cancel", { type: "submit", formMethod: "dialog" }), runButton("Save", { type: "submit" })] })),
       ...(app.kind === "confidential" ? [layer(askSheet(`${idBase}-secret`, "Replace the client secret?", "The old secret stops working at once. You'll see the new one once.", `${PAGE}/sign-in-apps/${app.id}/secret`, "Replace it"))] : []),
-      layer(askSheet(`${idBase}-delete`, "Delete this sign-in app?", "Players' yes to it is deleted with it. Sites that use it stop working.", `${PAGE}/sign-in-apps/${app.id}/delete`, "Delete sign-in app")),
+      layer(askSheet(`${idBase}-delete`, "Delete this sign-in app?", "Players' yes to it is deleted with it. Sites that use it stop working.", `${PAGE}/sign-in-apps/${app.id}/delete`, "Delete sign-in app", true)),
     );
   }
   items.push(
@@ -725,7 +725,7 @@ function keysPane(keys: ApiKey[], games: { slug: string; title: string }[], maki
           })),
         }),
       ),
-      ...keys.map((key) => layer(askSheet(`key-remove-${key.id}`, `Remove ${key.name}?`, "Whatever uses it stops working at once.", `${PAGE}/keys/${key.id}/remove`, "Remove"))),
+      ...keys.map((key) => layer(askSheet(`key-remove-${key.id}`, `Remove ${key.name}?`, "Whatever uses it stops working at once.", `${PAGE}/keys/${key.id}/remove`, "Remove", true))),
     );
   }
   const canMake = making.passkeyState === "ready";

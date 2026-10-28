@@ -177,7 +177,7 @@ export interface SheetMarkupOptions {
 }
 
 /**
- * A sheet (panes.ts's Sheet shows it, and a Delete button's confirm is one): a <dialog> of the panes' glass, one form, with its title and
+ * A sheet (panes.ts's Sheet shows it, and so is a Confirm sheet): a <dialog> of the panes' glass, one form, with its title and
  * Close in its head's corner (Pane parts), its body scrolling under the head, and its buttons at its foot. Close and Cancel close it
  * without sending it (formmethod="dialog"). Here, so actions.ts can make one without a loop of imports.
  */

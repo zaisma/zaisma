@@ -781,11 +781,13 @@ export interface ConfirmSheetOptions {
   /** Its action sent and waiting, the loader in its arrow's place: the gallery's still copy (BUSY_SCRIPT does it on a page). */
   isBusy?: boolean;
   isShown?: boolean;
+  /** Its action deletes something for good (a game, a webhook, a key): its button is red, the one red in Zaisma, in place of the runner. */
+  isDelete?: boolean;
 }
 
 /**
- * A confirm sheet: one sentence, the action and Cancel, before something that's hard to take back. A delete's is Delete button's own, the
- * only red one. Opened over another sheet, it's drawn a size smaller, in the middle of it, and closing it lands on the sheet beneath.
+ * A confirm sheet: one sentence, the action and Cancel, before something that's hard to take back. A delete's (isDelete) has the only red
+ * button in Zaisma. Opened over another sheet, it's drawn a size smaller, in the middle of it, and closing it lands on the sheet beneath.
  */
 export function confirmSheet(options: ConfirmSheetOptions): Raw {
   return sheetMarkup({
@@ -794,7 +796,7 @@ export function confirmSheet(options: ConfirmSheetOptions): Raw {
     title: options.title,
     body: html`<p class="sheet-text">${options.text}</p>`,
     action: options.action,
-    buttons: [cutButton("Cancel", { type: "submit", formMethod: "dialog", isAutofocused: !options.isBusy }), runButton(options.confirmLabel, { type: "submit", isBusy: options.isBusy })],
+    buttons: [cutButton("Cancel", { type: "submit", formMethod: "dialog", isAutofocused: !options.isBusy }), runButton(options.confirmLabel, { type: "submit", isBusy: options.isBusy, isDelete: options.isDelete })],
     isShown: options.isShown,
     isConfirm: true,
   });
@@ -1146,6 +1148,7 @@ component({
   ],
 });
 
+const GAME_DELETE = { title: "Delete Ashen Crown?", text: "Its page, versions, saves and stats are gone for good. Players who have it open are sent home.", action: "#confirm-sheet", confirmLabel: "Delete Ashen Crown", isDelete: true } as const;
 const SIGN_OUT_EVERYWHERE = { title: "Sign out everywhere?", text: "Every device signed in as you is signed out, this one too. Games keep your saves.", action: "#confirm-sheet", confirmLabel: "Sign out everywhere" } as const;
 
 component({
@@ -1153,12 +1156,21 @@ component({
   slug: "confirm-sheet",
   group: "panes",
   subgroup: "layers",
-  summary: "One sentence, the action and Cancel, before something that's hard to take back: signing out everywhere, ending a room. Over another sheet it opens a size smaller, and closing it lands on the sheet beneath. A delete's confirm is Delete button's own, the only red one.",
+  summary: "One sentence, the action and Cancel, before something that's hard to take back: signing out everywhere, ending a room. Over another sheet it opens a size smaller, and closing it lands on the sheet beneath. A delete's is red, the only red in Zaisma, and the button that opens it is a cut button with a trash icon, never orange.",
   styles: "",
   render: confirmSheet,
   examples: [
     { label: "Try it: from its button", markup: html`${cutButton("Sign out everywhere", { type: "button", controls: "example-confirm-try" })}${confirmSheet({ id: "example-confirm-try", ...SIGN_OUT_EVERYWHERE })}` },
     { label: "Open", markup: confirmSheet({ id: "example-confirm-shown", ...SIGN_OUT_EVERYWHERE, isShown: true }), isWide: true, isStill: true },
+    { label: "A delete: from a cut button with a trash icon", markup: html`${cutButton("Delete this game", { type: "button", icon: "trash", controls: "example-confirm-delete-try" })}${confirmSheet({ id: "example-confirm-delete-try", ...GAME_DELETE })}` },
+    { label: "A delete, open: the one red button", markup: confirmSheet({ id: "example-confirm-delete-shown", ...GAME_DELETE, isShown: true }), isWide: true, isStill: true },
+    { label: "A delete, deleting", markup: confirmSheet({ id: "example-confirm-delete-busy", ...GAME_DELETE, isShown: true, isBusy: true }), isWide: true, isStill: true },
+    {
+      label: "A delete, a long game title",
+      markup: confirmSheet({ id: "example-confirm-delete-long", ...GAME_DELETE, title: "Delete Ashen Crown: The Long Night of the Iron Vigil?", confirmLabel: "Delete Ashen Crown: The Long Night of the Iron Vigil", text: "Its page, 214 versions, 1,240,318 saves and its stats are gone for good. Players who have it open are sent home.", isShown: true }),
+      isWide: true,
+      isStill: true,
+    },
     { label: "Sent, waiting", markup: confirmSheet({ id: "example-confirm-busy", title: "End this room?", text: "The 6 players in North gate go back to the menu, and the room's world is kept for 30 days.", action: "#confirm-sheet", confirmLabel: "End the room", isBusy: true, isShown: true }), isStill: true, isWide: true },
   ],
 });

@@ -1,6 +1,6 @@
 import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
-import { CUT_LINE, EDGE, ICONS, backdrop, colorPicker, glassPane, icon, loader, sheetMarkup, type ColorChoice, type IconName } from "./foundations.ts";
+import { CUT_LINE, EDGE, ICONS, backdrop, colorPicker, glassPane, icon, loader, type ColorChoice, type IconName } from "./foundations.ts";
 import { TOKEN_STYLES } from "./tokens.ts";
 import { controlMarkup, type ControlMarkup } from "./control-markup.ts";
 import { paneParts } from "./layout.ts";
@@ -64,10 +64,16 @@ export interface RunButtonOptions extends ButtonTarget {
    * Left out, the label leads and the arrow follows. An empty string keeps the place for a script to fill (it takes no room until it has words).
    */
   trailingText?: string;
+  /**
+   * Red, the one red in Zaisma, for a delete's confirm step and nowhere else (a Confirm sheet's isDelete): the runner's shape and edge
+   * light with no glint and no lean, since it's the moment to stop and read. It takes only its label, type, busy and state.
+   */
+  isDelete?: boolean;
 }
 
 /** The runner button: a raised orange slab, the same height as the other buttons, lit along its edges. It lifts, leans toward the pointer and catches the light; pressing sinks it into the glass. */
 export function runButton(label: string, options: RunButtonOptions = {}): ControlMarkup {
+  if (options.isDelete) return controlMarkup(dangerButton(label, options), "regular");
   // The label's span has no class of its own: html.ts's account link finds it as the header's runner's span without one.
   const words = options.busyLabel ? html`<span class="label-idle">${label}</span><span class="label-busy">${options.busyLabel}</span>` : html`<span>${label}</span>`;
   const shell = classes("run-wrap", options.isFullWidth && "is-full", options.state);
@@ -371,13 +377,42 @@ const stateExamples = (render: (state?: ButtonState) => Raw, loopKind: "runner" 
   ];
 };
 
+/** The red one: the runner's shape and edge light, in red, with no glint and no lean. Only a delete's confirm step has it (runButton's isDelete). */
+function dangerButton(label: string, options: RunButtonOptions): Raw {
+  return html`${opening(classes("danger-wrap", options.state), { type: options.type ?? "submit" }, options.isBusy)}<span class="face danger cut-raised" data-cut-line="12">${CUT_LINE}${loader()}<span class="danger-words">${label}</span></span>${closing({})}`;
+}
+
+const DANGER_STYLES = `
+/* A delete's confirm: the runner's shape, height and edge light, in red; no glint and no lean, since it's the moment to stop and read.
+   A press carves it in where it is, its light turned round, never moving it. The shell stays still. */
+.danger-wrap { vertical-align: middle; max-width: 100%; }
+.danger-wrap:focus-visible { outline: none; }
+.danger { --control-height: var(--control-height-regular); position: relative; overflow: hidden; display: flex; flex: auto; align-items: center; justify-content: center; gap: 10px; min-width: 0; height: var(--control-height); padding: 0 24px;
+  color: #fff; text-shadow: 0 1px 1px rgba(90,10,0,0.35); font: 600 1rem var(--display); white-space: nowrap;
+  --face-color: var(--danger); background: radial-gradient(130% 110% at 50% -35%, rgba(255,255,255,0.24), rgba(255,255,255,0) 62%), linear-gradient(180deg, rgba(255,255,255,0.06), rgba(80,0,0,0.14)), var(--face-color);
+  clip-path: var(--cut-shape); transition: --face-color 0.2s, box-shadow 0.2s, transform 0.4s ${SPRING}; }
+.danger.cut-raised > .cut-line { --band-top: rgba(255,214,206,0.8); --band-left: rgba(255,196,186,0.5); --band-right: rgba(110,20,10,0.35); --band-bottom: rgba(96,14,4,0.55); }
+.danger > :not(.cut-line) { position: relative; z-index: 2; }
+/* A long name ("Delete Ashen Crown: The Long Night") ends in an ellipsis on one line; the sheet's sentence above says what goes in full. */
+.danger-words { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.danger-wrap:hover > .danger, .danger-wrap.is-pointed > .danger { --face-color: #E44A3B; }
+.danger-wrap:active > .danger, .danger-wrap.is-pressed > .danger { --face-color: var(--danger-lo); box-shadow: inset 0 2px 5px rgba(60,0,0,0.35); transition-duration: 0.08s; }
+.danger-wrap:active > .danger > .cut-line, .danger-wrap.is-pressed > .danger > .cut-line { --band-top: rgba(96,14,4,0.5); --band-left: rgba(110,20,10,0.35); --band-right: rgba(255,196,186,0.4); --band-bottom: rgba(255,214,206,0.6); }
+.danger-wrap:focus-visible > .danger > .cut-line polygon, .danger-wrap.is-focused > .danger > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
+.danger-wrap[aria-busy="true"] { cursor: progress; }
+.danger-wrap:not([aria-busy="true"]) .loader { display: none; }
+[data-glass] .control-row > .danger-wrap > .danger { width: 100%; }
+@media (max-width: 760px) { .danger { padding: 0 20px; font-size: 0.9375rem; } }
+@media (prefers-reduced-motion: reduce) { .danger { transition: --face-color 0.2s; } }
+`;
+
 component({
   name: "Runner button",
   slug: "runner-button",
   group: "actions",
   subgroup: "buttons",
   summary: "The one thing to do on a screen: Play, Sign in, Next. Never more than one in view, and visible without scrolling.",
-  styles: RUN_STYLES,
+  styles: RUN_STYLES + DANGER_STYLES,
   render: runButton,
   examples: [
     ...stateExamples((state) => runButton("Sign in", { type: "button", state }), "runner"),
@@ -389,6 +424,10 @@ component({
     { label: "With its price at the other end (a buy button)", markup: html`<div style="${COLUMN}">${runButton("Buy", { type: "button", isFullWidth: true, trailingText: "$19.99" })}</div>` },
     { label: "With its price, busy", markup: html`<div style="${COLUMN}">${runButton("Buy", { type: "button", isFullWidth: true, trailingText: "$19.99", isBusy: true, busyLabel: "Buying" })}</div>`, isStill: true },
     { label: "Long words: one line, ending in an ellipsis", markup: html`<div style="${COLUMN}">${runButton("Play Ashen Crown: The Long Night of the Iron Vigil", { type: "button", isFullWidth: true, isBig: true, icon: "play" })}</div>` },
+    { label: "Red: a delete's confirm, only in a Confirm sheet", markup: runButton("Delete Ashen Crown", { isDelete: true }) },
+    { label: "Red, pointed", markup: runButton("Delete Ashen Crown", { isDelete: true, state: "is-pointed" }), isStill: true },
+    { label: "Red, pressed: it carves in", markup: runButton("Delete Ashen Crown", { isDelete: true, state: "is-pressed" }), isStill: true },
+    { label: "Red, deleting", markup: runButton("Delete Ashen Crown", { isDelete: true, isBusy: true }), isStill: true },
   ],
 });
 
@@ -767,89 +806,6 @@ component({
       markup: html`<div style="width:300px">${glassPane({ paneWidth: "full", body: paneParts({ head: { start: tertiaryButton("Back", { type: "button", icon: "chevron-back", isLabelHidden: true, isSmall: true }), words: html`<h2 class="sheet-title">Liam</h2>`, end: tertiaryButton("Close", { type: "button", icon: "close", isLabelHidden: true, isSmall: true }) }, body: html`<p>Profile, Block and Report go here.</p>` }) })}</div>`,
     },
     { label: "Only its icon, pointed: its slab, with no orange line under it", markup: tertiaryButton("Close", { type: "button", icon: "close", isLabelHidden: true, isSmall: true, state: "is-pointed" }), isStill: true },
-  ],
-});
-
-export interface DeleteButtonOptions {
-  /** Where its confirm step posts. */
-  action: string;
-  /** The confirm's words: "Delete Ashen Crown". */
-  confirmLabel: string;
-  /** One sentence on what goes, said on the confirm step: "Its page, saves and stats are gone for good." */
-  confirmText: string;
-  /** Its confirm step's id, unique on the page. Made from action when left out. */
-  id?: string;
-  isFullWidth?: boolean;
-  state?: ButtonState;
-  /** Only its confirm step, open in place: the gallery's still copy. */
-  isConfirmShown?: boolean;
-  /** Its confirm pressed and waiting, the loader before its words: the gallery's still copy (BUSY_SCRIPT does it on a page). */
-  isConfirmBusy?: boolean;
-}
-
-/** The red confirm: the runner's shape and edge light, in red, with no glint and no lean. Only a delete's confirm step has it. */
-const dangerButton = (label: string, isBusy?: boolean) =>
-  html`${opening("danger-wrap", { type: "submit" }, isBusy)}<span class="face danger cut-raised" data-cut-line="12">${CUT_LINE}${loader()}<span class="danger-words">${label}</span></span>${closing({})}`;
-
-/** A delete: a cut button with a trash icon, never orange, that opens its confirm step, a sheet with one sentence, Cancel, and the only red in Zaisma. */
-export function deleteButton(label: string, options: DeleteButtonOptions): ControlMarkup {
-  const id = options.id ?? `delete-${options.action.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "")}`;
-  const sheet = sheetMarkup({
-    id,
-    title: `${label}?`,
-    body: html`<p class="sheet-text">${options.confirmText}</p>`,
-    closeButton: tertiaryButton("Close", { type: "submit", formMethod: "dialog", icon: "close", isLabelHidden: true, isSmall: true }),
-    buttons: [cutButton("Cancel", { type: "submit", formMethod: "dialog", isAutofocused: true }), controlMarkup(dangerButton(options.confirmLabel, options.isConfirmBusy), "regular")],
-    action: options.action,
-    isShown: options.isConfirmShown,
-    isConfirm: true,
-  });
-  return controlMarkup(options.isConfirmShown ? sheet : html`${sheet}${cutButton(label, { type: "button", icon: "trash", controls: id, isFullWidth: options.isFullWidth, state: options.state })}`, "regular");
-}
-
-const GAME_DELETE = { action: "#delete-button", confirmLabel: "Delete Ashen Crown", confirmText: "Its page, versions, saves and stats are gone for good. Players who have it open are sent home." } as const;
-
-component({
-  name: "Delete button",
-  slug: "delete-button",
-  group: "actions",
-  subgroup: "buttons",
-  summary: "Deleting a game, a key, an account: a cut button, never orange. Only its confirm step turns red, the one red in Zaisma, after one sentence on what goes.",
-  styles: `
-/* A delete's confirm: the runner's shape, height and edge light, in red; no glint and no lean, since it's the moment to stop and read.
-   A press sinks it into the glass, its light turned round, like any raised control. The shell stays still; its face moves. */
-.danger-wrap { vertical-align: middle; max-width: 100%; }
-.danger-wrap:focus-visible { outline: none; }
-.danger { --control-height: var(--control-height-regular); position: relative; overflow: hidden; display: flex; flex: auto; align-items: center; justify-content: center; gap: 10px; min-width: 0; height: var(--control-height); padding: 0 24px;
-  color: #fff; text-shadow: 0 1px 1px rgba(90,10,0,0.35); font: 600 1rem var(--display); white-space: nowrap;
-  --face-color: var(--danger); background: radial-gradient(130% 110% at 50% -35%, rgba(255,255,255,0.24), rgba(255,255,255,0) 62%), linear-gradient(180deg, rgba(255,255,255,0.06), rgba(80,0,0,0.14)), var(--face-color);
-  clip-path: var(--cut-shape); transition: --face-color 0.2s, box-shadow 0.2s, transform 0.4s ${SPRING}; }
-.danger.cut-raised > .cut-line { --band-top: rgba(255,214,206,0.8); --band-left: rgba(255,196,186,0.5); --band-right: rgba(110,20,10,0.35); --band-bottom: rgba(96,14,4,0.55); }
-.danger > :not(.cut-line) { position: relative; z-index: 2; }
-/* A long name ("Delete Ashen Crown: The Long Night") ends in an ellipsis on one line; the sheet's sentence above says what goes in full. */
-.danger-words { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.danger-wrap:hover > .danger, .danger-wrap.is-pointed > .danger { --face-color: #E44A3B; }
-.danger-wrap:active > .danger, .danger-wrap.is-pressed > .danger { --face-color: var(--danger-lo); box-shadow: inset 0 2px 5px rgba(60,0,0,0.35); transform: translateY(1px); transition-duration: 0.08s; }
-.danger-wrap:active > .danger > .cut-line, .danger-wrap.is-pressed > .danger > .cut-line { --band-top: rgba(96,14,4,0.5); --band-left: rgba(110,20,10,0.35); --band-right: rgba(255,196,186,0.4); --band-bottom: rgba(255,214,206,0.6); }
-.danger-wrap:focus-visible > .danger > .cut-line polygon, .danger-wrap.is-focused > .danger > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
-.danger-wrap[aria-busy="true"] { cursor: progress; }
-.danger-wrap:not([aria-busy="true"]) .loader { display: none; }
-[data-glass] .control-row > .danger-wrap > .danger { width: 100%; }
-@media (max-width: 760px) { .danger { padding: 0 20px; font-size: 0.9375rem; } }
-@media (prefers-reduced-motion: reduce) { .danger { transition: --face-color 0.2s; } }
-`,
-  render: deleteButton,
-  examples: [
-    ...stateExamples((state) => deleteButton("Delete this game", { ...GAME_DELETE, id: `example-delete-${state ?? "rest"}`, state }), "cut").filter((example) => example.label !== "Try it" && example.label !== "On a loop"),
-    { label: "Try it: it opens its confirm step", markup: deleteButton("Delete this game", { ...GAME_DELETE, id: "example-delete-try" }) },
-    { label: "Its confirm step", markup: deleteButton("Delete this game", { ...GAME_DELETE, id: "example-delete-shown", isConfirmShown: true }), isWide: true, isStill: true },
-    { label: "Its confirm step, deleting", markup: deleteButton("Delete this game", { ...GAME_DELETE, id: "example-delete-busy", isConfirmShown: true, isConfirmBusy: true }), isWide: true, isStill: true },
-    {
-      label: "A long game title",
-      markup: deleteButton("Delete this game", { ...GAME_DELETE, id: "example-delete-long", confirmLabel: "Delete Ashen Crown: The Long Night of the Iron Vigil", confirmText: "Ashen Crown: The Long Night of the Iron Vigil goes for good: its page, 214 versions, 1,240,318 saves and its stats. Players who have it open are sent home.", isConfirmShown: true }),
-      isWide: true,
-      isStill: true,
-    },
   ],
 });
 
