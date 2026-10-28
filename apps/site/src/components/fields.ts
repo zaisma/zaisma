@@ -1044,9 +1044,11 @@ component({
    into it three rows tall; the picked row in the middle catches the light, as a pointed list row does (its glass clears, its edge lit above
    and shaded below), with a row above and below it, quieter. The wheel you're on by keyboard draws the focus line round its groove. */
 .select-list.wheel-pick { padding: var(--pad-inner-pane); max-height: none; gap: var(--gap-words-words); }
-/* Shown open in place (the gallery's open states), it lies over its field the same way, the field it covers hidden: glass inside a pane's
-   glass isn't blurred, so the field would show through it. */
-.wheel-field:has(> .wheel-pick.in-place) > .wheel-button { visibility: hidden; }
+/* What a screen reader hears takes no room, so the wheels keep the same room to the pane's edge all round. */
+.wheel-pick > .wheel-read { position: absolute; }
+/* Shown open in place (the gallery's open states), it lies over its field the same way, the label and field it covers hidden: glass inside
+   a pane's glass isn't blurred, so they would show through it. */
+.wheel-field:has(> .wheel-pick.in-place) > :is(legend, .wheel-button) { visibility: hidden; }
 .select-list.over-field.wheel-pick.in-place { position: relative; z-index: 6; margin-top: calc(-1 * (var(--gap-words-control) + var(--control-height-field) / 2 + var(--pad-inner-pane) + 1.5 * 36px)); }
 /* The month gets the room its longest name needs (September), the day the least. */
 /* Each wheel is at least as wide as its longest row (a month's name, a year, "Tomorrow", "AM"), so a pane that fits what's in it grows to them. */

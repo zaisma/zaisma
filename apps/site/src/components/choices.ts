@@ -333,6 +333,8 @@ component({
 /* Shown open in place (the gallery's open states), it holds every choice: there's no window edge to keep it from. A select's lies over
    its field, the picked row (--picked-row-index, its rows 36px and 2px apart) centered on it. */
 .select-list.in-place { position: relative; display: flex; width: 100%; max-height: none; }
+/* Glass inside a pane's glass isn't blurred, so the label and field under it are hidden rather than showing through. */
+.cut-field[data-select]:has(> .select-list.over-field.in-place) > :is(label, .field) { visibility: hidden; }
 .select-list.over-field.in-place { z-index: 6; margin-top: calc(-1 * (var(--gap-words-control) + var(--control-height-field) / 2 + 22px + var(--picked-row-index) * 38px)); }
 /* It scrolls with no fade, so the slab always shows in full: its rail and a choice cut at its edge say there's more. */
 .select-options { flex: 0 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; outline: none; }
