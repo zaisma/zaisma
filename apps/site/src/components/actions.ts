@@ -589,7 +589,7 @@ const TERTIARY_ARROW = html`<span class="tertiary-arrow" aria-hidden="true">${ic
 /**
  * A tertiary button: words, an icon or both alone at rest, the quietest thing you press (Skip for now, Show all, Undo; a sheet's Back and Close). It's a control's size with a slab that
  * shows only when you point at it, so it sits and is cut like any control, its words as far in as a field's (--pad-inside-words: on a
- * pane's edge, at the pane's margin). Pointing brings up the slab and draws the orange line in under its words; keyboard focus is the cut
+ * pane's edge, at the pane's margin). Pointing brings up the slab and draws the orange line in along its foot; keyboard focus is the cut
  * stroke round the slab, as on every button. With an arrow, it's a way on: Continue as guest under the ways in.
  */
 export function tertiaryButton(label: string, options: TertiaryButtonOptions = {}): ControlMarkup {
@@ -607,7 +607,7 @@ component({
   styles: `
 /* A tertiary button: words only, at rest, in a control's box: its words keep a field's inset (--pad-inside-words), so on a pane's edge they're
    at the pane's margin while its box is at the frame gap, cut by the edge rule like any control's (slanting toward a control beside it).
-   Pointing at it brings up its slab, faint (--wash), and draws the orange line in under its words from the left, a light running ahead
+   Pointing at it brings up its slab, faint (--wash), and draws the orange line in along its foot from the left, a light running ahead
    along it, the way a cover's line does; leaving, the line runs on out to the right, quicker than it came. A press darkens its slab where
    it is, never moving it. Keyboard focus is the cut stroke round its slab, as on every other button. */
 .tertiary-btn { --control-height: var(--control-height-regular); vertical-align: middle; max-width: 100%; }
@@ -624,8 +624,8 @@ component({
 .tertiary-words { position: relative; z-index: 2; display: flex; align-items: center; justify-content: center; gap: var(--gap-words-words); min-width: 0; font: var(--type-label); }
 /* Words longer than the room it has end in an ellipsis on one line. */
 .tertiary-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-/* The line sits just under the words, which stay on the control's center line, level with a secondary button's beside it. */
-.tertiary-line { position: absolute; z-index: 2; left: var(--pad-inside-words); right: var(--pad-inside-words); top: calc(50% + 0.5lh); display: block; height: 3px; margin-top: 5px; overflow: hidden; clip-path: polygon(3px 0, 100% 0, calc(100% - 3px) 100%, 0 100%);
+/* The line lies along the slab's foot, corner to corner, and the slab's own cut trims its ends, so it follows whatever shape the edge rule gives it. */
+.tertiary-line { position: absolute; z-index: 2; left: 0; right: 0; bottom: 0; display: block; height: 3px; overflow: hidden;
   background: linear-gradient(90deg, #E9820C, var(--run) 40%, #FFB54D); transform: scaleX(0); transform-origin: right; transition: transform 0.22s cubic-bezier(.4,0,1,1); }
 .tertiary-line::after { content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 38%; opacity: 0; background: linear-gradient(90deg, rgba(255,255,255,0), rgba(255,246,228,0.95) 70%, rgba(255,255,255,0)); }
 .tertiary-btn:hover > .face, .tertiary-btn.is-pointed > .face { color: var(--ink); --face-color: var(--wash); }
