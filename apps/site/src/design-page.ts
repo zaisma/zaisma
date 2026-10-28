@@ -12,7 +12,7 @@ import { EDGE, STAND_IN_BACKGROUNDS_SCRIPT, backdrop, logo, pageSettingsAttribut
 import { cutButton, runButton, textLink } from "./components/actions.ts";
 import { cutField } from "./components/inputs.ts";
 import { loadMore, sidebar, sidebarButton, sidebarLayout, type SidebarPlace } from "./components/navigation.ts";
-import { stack } from "./components/layout.ts";
+import { row, stack } from "./components/layout.ts";
 import { listRows, emptyState } from "./components/data.ts";
 import { cutPolygon, glassPane, tray } from "./components/foundations.ts";
 
@@ -137,9 +137,8 @@ ${checkedPageTag(options.checkedPage)}
 </head>
 <body class="gallery">
 <div id="stage" class="stage"${pageSettingsAttributes({ theme })}>${backdrop()}
-<header class="gallery-bar glass" data-compacts data-rail-starts-below data-glass data-glass-corners="header">${EDGE}${logo("wordmark")}<span class="gallery-title">Design</span>
-${sidebarButton({ controls: "gallery-places", label: "Groups", isExpanded: !options.isScreens })}
-${themeButton(options.path, theme)}</header>
+<header class="gallery-bar glass" data-compacts data-rail-starts-below data-glass data-glass-corners="header">${EDGE}<span class="gallery-start">${sidebarButton({ controls: "gallery-places", label: "Groups", isExpanded: !options.isScreens })}</span>${logo("wordmark")}<span class="gallery-title">Design</span>
+<span class="gallery-buttons">${row({ widths: "fit", alignment: "end", items: [{ kind: "control", markup: sidebarButton({ controls: "gallery-places", label: "Groups", isExpanded: !options.isScreens }) }, { kind: "control", markup: themeButton(options.path, theme) }] })}</span></header>
 <div class="gallery-layout">${sidebarLayout({
     sidebar: sidebar({ id: "gallery-places", label: "Design", places, rememberKey: options.isScreens ? "gallery-screens" : "gallery" }),
     main: html`<main class="gallery-main">
@@ -186,7 +185,9 @@ body.gallery { margin: 0; min-height: 100vh; font: var(--type-reading); }
   --glass-tint: var(--glass-top); }
 .gallery-bar > .logo { --logo-height: 24px; }
 .gallery-title { font: var(--type-name); color: var(--ink-2); padding-left: var(--gap-words-words); border-left: var(--divider); }
-.gallery-bar > .cut-btn[href] { margin-left: auto; }
+.gallery-buttons { margin-left: auto; }
+/* The sidebar's button sits over the sidebar, at the bar's start; on a phone, where the sidebar is a sheet, in the bar's end corner. */
+@media (min-width: 761px) { .gallery-buttons [data-sidebar-button] { display: none; } }
 .gallery-layout { max-width: var(--size-page-wide); margin: 0 auto; padding: var(--gap-block-block) var(--pad-pane) calc(2 * var(--gap-block-block)); }
 .gallery-main { min-width: 0; }
 /* The page's name is already the current place in the sidebar, so on the page it's only for screen readers. */
@@ -233,6 +234,7 @@ body.gallery { margin: 0; min-height: 100vh; font: var(--type-reading); }
 @media (hover: hover) and (pointer: fine) and (min-width: 761px) { .gallery-layout { padding-right: 34px; } }
 /* Phones: the bar is one row (Zaisma, Design, the sidebar's button, light or dark), the sidebar a sheet the button slides over the page, and every example a column of its own. */
 @media (max-width: 760px) {
+  .gallery-start { display: none; }
   /* One even inset all round, so the buttons sit the same distance from every edge of the pane; compact keeps it even, only smaller. */
   .gallery-bar { min-height: 56px; transition: var(--glass-transition), padding 0.25s, gap 0.25s; }
   .gallery-bar.is-compact { padding: calc(var(--pad-inner-pane) * 2 / 3); }
@@ -271,7 +273,7 @@ export const GALLERY_SCRIPT = pageScript(
   if (asked && !document.getElementById(asked) && pages[asked]) { location.replace(pages[asked] + location.search + location.hash); return; }
   function query(theme) { return theme === "dark" ? "?theme=dark" : ""; }
   // Light or dark switches in place, and every link to another page of the gallery keeps it. (The sidebar folds away by itself: SIDEBAR_SCRIPT.)
-  var button = document.querySelector(".gallery-bar > a.cut-btn");
+  var button = document.querySelector(".gallery-buttons a.cut-btn");
   // The Page settings example's Light or Dark (a Switch) follows the theme wherever it's changed.
   function pickTheme(theme) {
     document.querySelectorAll("[data-setting-theme] .tab-switch").forEach(function (sw) {
@@ -293,7 +295,7 @@ export const GALLERY_SCRIPT = pageScript(
     history.replaceState(null, "", themed(location.href, theme));
   }
   document.addEventListener("click", function (event) {
-    var link = event.target.closest && event.target.closest(".gallery-bar > a.cut-btn");
+    var link = event.target.closest && event.target.closest(".gallery-buttons a.cut-btn");
     if (!link || event.metaKey || event.ctrlKey || event.shiftKey || event.button) return;
     event.preventDefault();
     apply(stage.dataset.themeChoice === "dark" ? "light" : "dark");

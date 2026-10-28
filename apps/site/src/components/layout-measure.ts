@@ -528,7 +528,7 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
     });
     // A reading page's column sits in the middle, under the header's.
     if (pageShape === "reading" && header && isShown(header)) {
-      var held = sidePlaces && isShown(sidePlaces) ? document.querySelector("main .sidebar-layout") : document.querySelector("body > main");
+      var held = sidePlaces && isShown(sidePlaces) ? document.querySelector("main .sidebar-layout-in") : document.querySelector("body > main");
       if (held && isShown(held)) {
         var hr = header.getBoundingClientRect(), cr = held.getBoundingClientRect(), offPx = (cr.left + cr.right) / 2 - (hr.left + hr.right) / 2;
         if (Math.abs(offPx) > TOLERANCE_PX && cr.width < hr.width - TOLERANCE_PX) report("a reading column off the middle", held, "its middle " + round(offPx) + "px off the header's");

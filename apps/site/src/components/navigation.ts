@@ -1149,6 +1149,7 @@ export function sidebar(options: SidebarOptions): Raw {
 
 /** The button that folds a sidebar away and back on a wide screen, and slides it over the page on a phone: in the page's bar, or above the page. */
 export function sidebarButton(options: { controls: string; label: string; isExpanded: boolean }): ControlMarkup {
+  // Beside the page it's on the sidebar's side, over it: the start of the page's bar, or the top of the column next to it.
   return cutButton(options.label, { type: "button", icon: "sidebar", isLabelHidden: true, isSmall: true, controls: options.controls, isExpanded: options.isExpanded, dataAttributes: { "sidebar-button": "" } });
 }
 
@@ -1158,11 +1159,11 @@ export function sidebarButton(options: { controls: string; label: string; isExpa
  * sidebar is its sheet, so the page has the width there too.
  */
 export function sidebarLayout(options: { sidebar: Raw; main: Raw; isCollapsed?: boolean }): Raw {
-  return html`<div class="sidebar-layout${options.isCollapsed ? " is-collapsed" : ""}">${options.sidebar}<div class="sidebar-main">${options.main}</div></div>`;
+  return html`<div class="sidebar-layout${options.isCollapsed ? " is-collapsed" : ""}"><div class="sidebar-layout-in">${options.sidebar}<div class="sidebar-main">${options.main}</div></div></div>`;
 }
 
-/** Where a sidebar is a sheet over the page instead of beside it: the gallery's phone width. */
-const SIDEBAR_SHEET_WIDTH_PX = 760;
+/** Where a sidebar is a sheet over the page instead of beside it: narrower than the sidebar and a column of this much beside it, at any size of text. */
+const SIDEBAR_SHEET_BELOW = "45rem";
 
 /**
  * The sidebar's button. On a wide screen it folds the sidebar away and back (an exit of opacity and transform only, then the column goes),
@@ -1170,15 +1171,16 @@ const SIDEBAR_SHEET_WIDTH_PX = 760;
  * goes back to the button.
  */
 export const SIDEBAR_SCRIPT = `/* sidebars */(function () {
-  var phone = window.matchMedia("(max-width: ${SIDEBAR_SHEET_WIDTH_PX}px)");
+  // Whether it's a sheet now: Sidebar layout's container query says so where the page can't fit both, at any size of text.
+  function isSheet(nav) { return getComputedStyle(nav).getPropertyValue("--sidebar-is-sheet").trim() === "1"; }
   var isReduced = function () { return window.matchMedia("(prefers-reduced-motion: reduce)").matches; };
   function keyOf(nav) { return "zaisma-sidebar:" + nav.getAttribute("data-sidebar-remember"); }
   function buttonsOf(nav) { return document.querySelectorAll('[data-sidebar-button][aria-controls="' + nav.id + '"], [data-sidebar-button][aria-controls="' + nav.id + '-sheet"]'); }
   function say(nav) {
     var layout = nav.closest(".sidebar-layout"), sheet = document.getElementById(nav.id + "-sheet");
     buttonsOf(nav).forEach(function (button) {
-      button.setAttribute("aria-controls", phone.matches ? nav.id + "-sheet" : nav.id);
-      button.setAttribute("aria-expanded", String(phone.matches ? Boolean(sheet && sheet.open) : Boolean(layout && !layout.classList.contains("is-collapsed"))));
+      button.setAttribute("aria-controls", isSheet(nav) ? nav.id + "-sheet" : nav.id);
+      button.setAttribute("aria-expanded", String(isSheet(nav) ? Boolean(sheet && sheet.open) : Boolean(layout && !layout.classList.contains("is-collapsed"))));
     });
   }
   function fold(nav, isFolded, isKept) {
@@ -1207,12 +1209,18 @@ export const SIDEBAR_SCRIPT = `/* sidebars */(function () {
     if (!button) return;
     var id = button.getAttribute("aria-controls").replace(/-sheet$/, ""), nav = document.getElementById(id), sheet = document.getElementById(id + "-sheet");
     if (!nav) return;
-    if (phone.matches) { if (sheet && !sheet.open) { sheet.showModal(); say(nav); } return; }
+    if (isSheet(nav)) { if (sheet && !sheet.open) { sheet.showModal(); say(nav); } return; }
     fold(nav, !nav.closest(".sidebar-layout").classList.contains("is-collapsed"), true);
   });
-  // Grown past a phone's width with the sheet open, the sidebar is beside the page again.
-  phone.addEventListener("change", function () {
-    document.querySelectorAll("nav.sidebar[data-sidebar-remember]").forEach(function (nav) { var sheet = document.getElementById(nav.id + "-sheet"); if (!phone.matches && sheet && sheet.open) sheet.close(); say(nav); });
+  // Grown wide enough for both with the sheet open, the sidebar is beside the page again.
+  var isQueued = false;
+  window.addEventListener("resize", function () {
+    if (isQueued) return;
+    isQueued = true;
+    requestAnimationFrame(function () {
+      isQueued = false;
+      document.querySelectorAll("nav.sidebar[data-sidebar-remember]").forEach(function (nav) { var sheet = document.getElementById(nav.id + "-sheet"); if (!isSheet(nav) && sheet && sheet.open) sheet.close(); say(nav); });
+    });
   });
 })();
 `;
@@ -1258,7 +1266,7 @@ component({
   summary: "A page's own places down its side: the gallery's groups, Developer settings' Hosting, Pro and Keys. Beside the page on a wide screen, where its button folds it away for the whole width and the browser remembers; over the page on a phone, where the same button slides it in. The current place's own places sit under it. Never a sidebar built in place.",
   styles: `
 /* A sidebar: one pane of glass holding a vertical switch of places, the current one's own places a small switch under it, indented. */
-.sidebar { padding: var(--pad-inner-pane); }
+.sidebar { padding: var(--pad-inner-pane); --sidebar-is-sheet: 0; }
 .sidebar > .tab-switch { width: 100%; }
 .sidebar-nested { padding: 0 0 var(--gap-control-row) var(--gap-block-block); }
 .sidebar-nested > .tab-switch { width: 100%; }
@@ -1304,7 +1312,7 @@ component({
   slug: "sidebar-button",
   group: "navigation",
   subgroup: "places",
-  summary: "The one button a Sidebar has: in the page's bar, or above the page. On a wide screen it folds the sidebar away and back; on a phone it slides it over the page.",
+  summary: "The one button a Sidebar has. Beside the page it sits on the sidebar's side, over it: the start of the page's bar, or the top of the column next to it, and folds the sidebar away and back. On a phone it can sit in the bar's end corner, and slides the sidebar over the page.",
   styles: "",
   render: sidebarButton,
   examples: [
@@ -1321,23 +1329,24 @@ component({
   styles: `
 /* A Sidebar beside the page: its own column, staying in view under the header while the page scrolls, never taller than the window. It
    comes in fading and sliding a little, and folds away the same way (SIDEBAR_SCRIPT), only then giving its column to the page. */
-.sidebar-layout { display: grid; grid-template-columns: var(--size-sidebar) minmax(0, 1fr); gap: var(--gap-block-block); align-items: start; }
-.sidebar-layout > .sidebar { position: sticky; top: var(--header-room, var(--pad-pane)); max-height: calc(100dvh - var(--header-room, var(--pad-pane)) - var(--pad-pane)); overflow-y: auto; scrollbar-width: none;
+.sidebar-layout { container: sidebar-layout / inline-size; width: 100%; min-width: 0; }
+.sidebar-layout-in { display: grid; grid-template-columns: var(--size-sidebar) minmax(0, 1fr); gap: var(--gap-block-block); align-items: start; }
+.sidebar-layout-in > .sidebar { position: sticky; top: var(--header-room, var(--pad-pane)); max-height: calc(100dvh - var(--header-room, var(--pad-pane)) - var(--pad-pane)); overflow-y: auto; scrollbar-width: none;
   transition: var(--glass-transition), opacity 0.2s, transform 0.2s cubic-bezier(.2,.8,.2,1); }
-@starting-style { .sidebar-layout > .sidebar { opacity: 0; transform: translateX(-12px); } }
-.sidebar-layout.is-folding > .sidebar { opacity: 0; transform: translateX(-12px); }
+@starting-style { .sidebar-layout-in > .sidebar { opacity: 0; transform: translateX(-12px); } }
+.sidebar-layout.is-folding > .sidebar-layout-in > .sidebar { opacity: 0; transform: translateX(-12px); }
 .sidebar-main { min-width: 0; }
-.sidebar-layout.is-collapsed { grid-template-columns: minmax(0, 1fr); }
-.sidebar-layout.is-collapsed > .sidebar { display: none; }
+.sidebar-layout.is-collapsed > .sidebar-layout-in { grid-template-columns: minmax(0, 1fr); }
+.sidebar-layout.is-collapsed > .sidebar-layout-in > .sidebar { display: none; }
 /* A reading page: the page a reading column beside it, the pair in the middle of the wide frame; folded, the column alone in the middle. */
-html[data-page-shape="reading"] .sidebar-layout { grid-template-columns: var(--size-sidebar) minmax(0, var(--size-page-reading)); justify-content: center; }
-html[data-page-shape="reading"] .sidebar-layout.is-collapsed { grid-template-columns: minmax(0, var(--size-page-reading)); }
-/* On a phone the sidebar is its sheet over the page (Sidebar), so the page has the width. */
-@media (max-width: ${SIDEBAR_SHEET_WIDTH_PX}px) {
-  .sidebar-layout, html[data-page-shape="reading"] .sidebar-layout { grid-template-columns: minmax(0, 1fr); }
-  .sidebar-layout > .sidebar { display: none; }
+html[data-page-shape="reading"] .sidebar-layout-in { grid-template-columns: var(--size-sidebar) minmax(0, var(--size-page-reading)); justify-content: center; }
+html[data-page-shape="reading"] .sidebar-layout.is-collapsed > .sidebar-layout-in { grid-template-columns: minmax(0, var(--size-page-reading)); }
+/* Where the page can't have a column beside it (a phone, a tablet with large text), the sidebar is its sheet over the page (Sidebar). */
+@container sidebar-layout (max-width: ${SIDEBAR_SHEET_BELOW}) {
+  .sidebar-layout-in, html[data-page-shape="reading"] .sidebar-layout-in { grid-template-columns: minmax(0, 1fr); }
+  .sidebar-layout-in > .sidebar { display: none; --sidebar-is-sheet: 1; }
 }
-@media (prefers-reduced-motion: reduce) { .sidebar-layout > .sidebar { transition: var(--glass-transition); } }
+@media (prefers-reduced-motion: reduce) { .sidebar-layout-in > .sidebar { transition: var(--glass-transition); } }
 `,
   render: sidebarLayout,
   examples: [

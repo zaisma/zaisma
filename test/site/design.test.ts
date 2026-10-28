@@ -597,8 +597,8 @@ const HAND_CUT = new Set<string>([
 
 // The gallery's own scaffolding, styled only by GALLERY_STYLES: what holds the components, never a piece of Zaisma's UI itself.
 const GALLERY_ONLY = new Set<string>([
-  // The page: its body, the stage that carries its settings, the bar, its title, the layout and the main column.
-  "gallery", "stage", "gallery-bar", "gallery-title", "gallery-layout", "gallery-main", "group-name",
+  // The page: its body, the stage that carries its settings, the bar, its title and its buttons, the layout and the main column.
+  "gallery", "stage", "gallery-bar", "gallery-title", "gallery-start", "gallery-buttons", "gallery-layout", "gallery-main", "group-name",
   // A section (a Tray) with its name and summary, and the grid of labeled examples on it.
   "component-section", "component-name", "component-summary", "examples", "example", "wide", "example-stage", "example-name",
   // Frames an example is shown in: a header over a stand-in page that scrolls under it, a dropdown hanging from its button, a short box
