@@ -16,7 +16,7 @@ import { cutButton, runButton, textLink } from "./components/actions.ts";
 import { glassPane, icon, tag } from "./components/foundations.ts";
 import { paneParts, stack, type LayoutItem } from "./components/layout.ts";
 import type { ControlMarkup } from "./components/control-markup.ts";
-import { sidePlaces } from "./components/navigation.ts";
+import { sidebar, sidebarButton, sidebarLayout } from "./components/navigation.ts";
 import { confirmItsYouSheet } from "./components/confirm-its-you.ts";
 import { confirmSheet, dropdown, notice, sheet } from "./components/panes.ts";
 import { checkField, choiceCards, codeField, cutField, longField, selectField, toggle } from "./components/inputs.ts";
@@ -799,9 +799,9 @@ const AMOUNTS_SCRIPT = pageScript(
 const SETTINGS_SCRIPT = pageScript(
   "developer-settings",
   String.raw`(function () {
-  // The places down the side (and the tabs on a phone) light up for the pane in view.
+  // The places down the side (and in their sheet on a phone) light up for the pane in view.
   var panes = document.querySelectorAll("[data-settings-pane]");
-  var switches = document.querySelectorAll(".side-places .tab-switch");
+  var switches = document.querySelectorAll("#settings-places > .tab-switch, #settings-places-sheet .tab-switch");
   if (switches.length && "IntersectionObserver" in window && panes.length) {
     var seen = {};
     var io = new IntersectionObserver(function (entries) {
@@ -928,8 +928,8 @@ async function settingsPage(env: Env, request: Request, session: SignedIn, calle
     signInAppsPane(settings),
     keysPane(keys, settings.games.map((game) => ({ slug: game.slug, title: game.title })), making),
   ];
-  const panes = stack({ items: [...topNotes, ...paneItems] });
-  const body = html`<h1 class="sr">Developer settings</h1>${sidePlaces({ label: "Developer settings", rowId: "settings-places-row", places: TAB_PANES.map((pane, index) => ({ label: pane.label, icon: pane.icon, href: `#${pane.id}`, isCurrent: index === 0 })), body: panes })}${paneItems.map((paneItem) => PANE_LAYERS.get(paneItem) ?? "")}${spendingSheet}${confirmItsYouSheet({ id: "settings-confirm" })}${state.done && DONE_WORDS[state.done] ? notice({ text: DONE_WORDS[state.done]!, tone: "done" }) : ""}${state.problem ? notice({ text: state.problem, tone: "problem", link: state.problemLink }) : ""}${scriptTags(PASSKEY_SCRIPT, SETTINGS_SCRIPT)}`;
+  const panes = stack({ items: [{ kind: "control", markup: sidebarButton({ controls: "settings-places", label: "Settings", isExpanded: true }) }, ...topNotes, ...paneItems] });
+  const body = html`<h1 class="sr">Developer settings</h1>${sidebarLayout({ sidebar: sidebar({ id: "settings-places", label: "Settings", rememberKey: "developer-settings", places: TAB_PANES.map((pane, index) => ({ label: pane.label, icon: pane.icon, href: `#${pane.id}`, isCurrent: index === 0 })) }), main: panes })}${paneItems.map((paneItem) => PANE_LAYERS.get(paneItem) ?? "")}${spendingSheet}${confirmItsYouSheet({ id: "settings-confirm" })}${state.done && DONE_WORDS[state.done] ? notice({ text: DONE_WORDS[state.done]!, tone: "done" }) : ""}${state.problem ? notice({ text: state.problem, tone: "problem", link: state.problemLink }) : ""}${scriptTags(PASSKEY_SCRIPT, SETTINGS_SCRIPT)}`;
   const response = layout(env, { title: "Developer settings · Zaisma", body, checkedPage: "Developer settings", pageShape: "reading", nav: "developer", viewer: { account }, isPrivate: true });
   const answered = new Response(response.body, { status: httpStatus, headers: response.headers });
   for (const cookie of session.cookies) answered.headers.append("Set-Cookie", cookie);

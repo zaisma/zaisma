@@ -59,6 +59,7 @@ component({
   name: "Slider",
   slug: "slider",
   group: "inputs",
+  subgroup: "choices",
   summary: "A number on a scale: players in a room, a volume. Dragged, tapped or stepped with the arrow keys; the number shows with its unit as it moves. There are no knobs: this covers them.",
   styles: `
 /* A slider: a line for a track, filled orange up to a raised white slab, the thumb. The system's range input lies over the track,
@@ -214,6 +215,7 @@ component({
   name: "File drop",
   slug: "file-drop",
   group: "inputs",
+  subgroup: "pickers",
   summary: "Handing over files: a game's build, a cover, a screenshot for a report. Drop them on it, tap it, or reach it by keyboard; what's picked is listed with its size.",
   styles: `
 /* A file drop: a carved field the size of a pane, its outline dashed. Pointing at it clears it a little; a file held over it whitens it and
@@ -336,6 +338,7 @@ component({
   name: "Code field",
   slug: "code-field",
   group: "inputs",
+  subgroup: "fields",
   summary: "Code to copy and keep: an API key shown once, a game's address, an upload command. It's read-only, in code's own letters, with a Copy button at its end.",
   styles: `
 /* A code field: code set into the glass, a carved well like a switch's (nothing to type, so it isn't a field's lighter face), all of it in
@@ -401,6 +404,7 @@ component({
   name: "Link field",
   slug: "link-field",
   group: "inputs",
+  subgroup: "fields",
   summary: "A link to copy: its address on one line, in the words' own letters, without https://. A press anywhere on it copies it, and it says \"Link copied\" in its place for a moment. Code to copy (a key, a command) is a Code field.",
   styles: `
 /* A link field: a carved well, like a code field's, one line tall: a link mark, the address in the words' letters (cut short at its end
@@ -467,6 +471,7 @@ component({
   name: "QR code",
   slug: "qr-code",
   group: "inputs",
+  subgroup: "pickers",
   summary: "A link as a picture a phone's camera reads: a game's address, or a room's, for someone in the same room. Black on white whatever the glass, with a line saying what it opens.",
   styles: `
 /* A QR code: the picture on white with a quiet margin of white round it, so any phone's camera reads it on light glass or smoked, as wide as

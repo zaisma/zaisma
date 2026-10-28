@@ -1,6 +1,6 @@
 # Design: Glass
 
-Every component, in every state, is on [zaisma.com/design](https://zaisma.com/design), rendered from the site's own code (`apps/site/src/components/`). Change a component there and it changes on every page at once.
+Every component, in every state, is on [zaisma.com/design](https://zaisma.com/design), rendered from the site's own code (`apps/site/src/components/`). Change a component there and it changes on every page at once. Each group's subgroups are a page each (`/design/<group>/<subgroup>`, `COMPONENT_SUBGROUPS` in `component.ts`), nested under their group in the gallery's Sidebar.
 
 Zaisma is the glass, and the game is not. Zaisma's interface is a layer of glass over the page: the header, panes, menus and controls are glass, and behind them is the game's own background or Zaisma's. The game's art, its covers and its screen are never glass and never ours to restyle.
 
@@ -197,7 +197,7 @@ Say what each thing is, since the spacing and margins come from it (`LayoutItem`
 | `grid` | Cells of one size, as many to a line as fit their least width (`itemSize`: `cover`, `card`, `figure`) |
 | `track` | A row of covers that scrolls sideways; under a heading with its Row arrows it's a Shelf |
 | `columns` | Two halves of the width side by side, one over the other below two columns of 360px; one may stay in view while the other scrolls (`stickyColumn`) |
-| `sidePlaces` | A page's own places on a pane down its side, staying in view, beside a reading page's column (`--size-page-reading`), the pair centered in the wide frame; the section tabs at the page's top where both can't have room |
+| `sidebarLayout` | A Sidebar beside the page in its own column (`--size-sidebar`), staying in view; on a reading page beside its column (`--size-page-reading`), the pair centered in the wide frame. Folded, the page takes the whole width; on a phone the sidebar is a sheet over the page |
 | `paneParts` | A pane's head, body and foot, with one control in its top or bottom end corner; the head's heading beside its control, its other words under both |
 
 - **A pane is `full` or `fit`.** Full is as wide as what holds it; fit is as wide as what's in it, its paragraphs running to a reading width at most (`--size-reading`, 60ch). A pane that should take half the screen is a column of `columns`. A sheet fits what's in it too.
@@ -279,7 +279,7 @@ Anything with a look of its own is a component in the gallery, or part of one, a
 - **Someone named on a page is a Person** (`person`, `people.ts`): their picture, their name a quiet Link, a line about them and at most one control. What they wrote is a Post; words to read are Reading text (`reading.ts`).
 - **A button with only an icon, a small button or a toggle is a Cut button** (`isLabelHidden`, `isSmall`, `isPressed`): the gallery's light and dark button, a password's Show.
 - **One of a few colors is a Color picker; one of a few options is a Switch.** The glass button's tint and the glass's hue are Color pickers; light or dark is a Switch.
-- **A page's own places down its side are a vertical Switch** (`tabSwitch` with `isVertical`): the same carved well, slab and ghost as the horizontal one, stacked, with an icon and a count per place. There's no sidebar of its own: beside a page's sections it's Side places (`sidePlaces`, `navigation.ts`), on a pane that stays in view while the page scrolls, and the section tabs at the page's top where there's no room beside.
+- **A page's own places down its side are a Sidebar** (`sidebar`, `sidebarButton` and `sidebarLayout`, `navigation.ts`): a vertical Switch (`tabSwitch` with `isVertical`, an icon and a count per place) on one pane, the current place's own places a small one under it. Beside the page on a wide screen, staying in view, its button folds it away and the browser remembers; on a phone the same button slides it over the page from the start edge as a sheet on the layer stack (`placement: "start"`), gone once a place is picked, on a press beside it or Esc. Never a sidebar built in place.
 - **A short list hanging from a button is a Dropdown** (`dropdown`, `panes.ts`), with its own choices: the account menu is one.
 - **Zaisma's logo is the Logo** (`logo`, `foundations.ts`): the wordmark at the top of a page, the mark in the footer, always a link home.
 - **Waiting is the Loader** (`loader`): the Z building itself (`brand/loader/`). Every button shows it in place of its icon or arrow once it's pressed and waiting (`isBusy`, and `BUSY_SCRIPT` for a form sent or a page opening), and can't be pressed twice.
@@ -298,25 +298,25 @@ Every component, with the call that makes it and its options, is in the catalog 
 - **Color**: Every color comes from these tokens, so light, dark and smoked glass follow by themselves. Orange is only for what you act on, and it is always shown in full: never faded or at half opacity.
 - **Type**: Every word outside a control's own inside is set in one of these, picked by what the words are. Jost for display, the system's own face for reading; fields are 16px or more, so phones don't zoom in.
 - **Glass**: Zaisma's interface is glass over the game or the page's backdrop, never over a plain color. It's as thin as the words allow: light with dark words, or smoked with light words.
+- **Cut shapes**: Corners are cut, never rounded: 18 and 14 on panes, 16 and 12 on the header, 14 and 12 on menus. Controls follow the edge rule: a slant only beside another control in a row, and every other corner fits what holds it.
+- **Page settings**: Every page has one set of settings that all its components follow: light or dark, and each component's own, like the glass's hue. One change covers every instance at once, and a page only carries the ones its components use.
+- **Motion**: Things move only when pointed at, pressed or chosen: a slab springs across on the spring curve (--spring) in 0.55s, 0.4s for a small one, and a change of size takes 0.45s. Reduced motion stops all of it.
+- **Spacing**: Every gap, padding and margin is one of these tokens, picked by what sits on each side of it, never by how close two things feel. A control is anything from Actions & Inputs; words are a heading, label or line; a block is a group of controls with their words, a paragraph, a picture or a pane. If either side is a block, it's --gap-block-block. More room is a multiple of one, never a new number.
+- **Icons** (`icon(name: IconName)`, `icons.ts`): Thin line icons in the words' color, so a kind of fact can be found without reading. Never decoration.
+- **Logo** (`logo(kind: "wordmark" | "mark")`, `foundations.ts`): Zaisma's logo, always a link home: the wordmark at the top of a page, the mark alone in the footer. Drawn in the words' color, never restyled.
+- **Loader** (`loader()`, `foundations.ts`): The Z building itself: what a button shows once it's pressed and waiting, a form sent or a page opening. Only ever after you press something.
 - **Backdrop** (`backdrop(options?: BackdropOptions)`, `foundations.ts`): Glass is never on a plain or solid color: there's always something behind it, still or moving. A game is its own backdrop; Zaisma's pages have Zaisma's own, a sheet of satin whose folds sway slowly in a soft light, or their own shader or 3D scene.
   - `options`: `fragmentShader?: string`, `isGlassAdaptive?: boolean`, `isScene?: boolean`, `isFramed?: boolean`, `standInSlug?: string`
 - **Shader background**: A background written as a shader: one small function that paints each pixel from the time and the screen's size, in the form AI writes well. From a few lines for a sky to a whole city in the rain. Zaisma's runner draws it small, at most 30 frames a second, holds a still frame on a device that can't keep up. A shader drawn in the page bends the light under the glass: what's behind each pane magnified and bent as through thick glass, with light gathered along its cut edge. A game's own shader runs in a frame on the game's site, which can't redraw a bend in the frame the page scrolls in, so behind Zaisma's glass it shows as drawn, never bent.
 - **Game background** (`gameBackgroundFrame(options: GameBackgroundFrameOptions)`, `foundations.ts`): A game's own world behind the glass, on its page and behind it on the home: a picture or a shader its developer sends, for wide screens and phones. It's the game's art, never restyled to Zaisma's look, and the glass over it turns light or smoked to keep the words clear. Until real games bring theirs, the stand-in games have these.
   - `options`: `standInSlug: string`, `title: string`, `note: string`
-- **Icons** (`icon(name: IconName)`, `icons.ts`): Thin line icons in the words' color, so a kind of fact can be found without reading. Never decoration.
-- **Logo** (`logo(kind: "wordmark" | "mark")`, `foundations.ts`): Zaisma's logo, always a link home: the wordmark at the top of a page, the mark alone in the footer. Drawn in the words' color, never restyled.
-- **Loader** (`loader()`, `foundations.ts`): The Z building itself: what a button shows once it's pressed and waiting, a form sent or a page opening. Only ever after you press something.
-- **Cut shapes**: Corners are cut, never rounded: 18 and 14 on panes, 16 and 12 on the header, 14 and 12 on menus. Controls follow the edge rule: a slant only beside another control in a row, and every other corner fits what holds it.
-- **Page settings**: Every page has one set of settings that all its components follow: light or dark, and each component's own, like the glass's hue. One change covers every instance at once, and a page only carries the ones its components use.
-- **Motion**: Things move only when pointed at, pressed or chosen: a slab springs across on the spring curve (--spring) in 0.55s, 0.4s for a small one, and a change of size takes 0.45s. Reduced motion stops all of it.
-- **Spacing**: Every gap, padding and margin is one of these tokens, picked by what sits on each side of it, never by how close two things feel. A control is anything from Actions & Inputs; words are a heading, label or line; a block is a group of controls with their words, a paragraph, a picture or a pane. If either side is a block, it's --gap-block-block. More room is a multiple of one, never a new number.
 - **City** (`cityStage(options?: CityStageOptions)`, `city.ts`): Zaisma's own live 3D scene, where signing in and making an account happen: one city in an endless sea on a slow cinematic loop, its orange shapes and sea there to tap. Under reduced motion, without WebGL or on a device that can't keep it smooth, a still of the same city stands in, with everything in place.
   - `options`: `isFramed?: boolean`
 
 ### Layout
 
-- **Side places** (`sidePlaces(options: SidePlacesOptions)`, `navigation.ts`): A page's own places down its side, beside the page: a vertical switch on a pane that stays in view while the page scrolls, like Developer settings' Hosting, Pro and Keys. The page runs a column's width at most beside it. Where both can't have room, the places become the section tabs at the top of the page.
-  - `options`: `label: string`, `places: (SectionTab & { icon: IconName })[]`, `body: Raw`, `rowId?: string`
+- **Sidebar layout** (`sidebarLayout(options: { … })`, `navigation.ts`): A Sidebar beside the page: the sidebar in its own column, staying in view while the page scrolls, the page in the rest. Folded, the page takes the whole width; on a reading page the page is its reading column and the pair sits in the middle; on a phone the sidebar is a sheet over the page.
+  - `options`: `sidebar: Raw`, `main: Raw`, `isCollapsed?: boolean`
 - **Page shape** (`pageShapeDrawing(options: { … })`, `layout.ts`): What a page is, which sets how wide it runs: every rebuilt page says one (layout's pageShape). Words, forms and settings are reading, one column under the header (--size-page-reading); covers, cards, tables and charts are wide, the whole frame (--size-page-wide); a page whose world is the page (the home, a game's page, the city) is full, its world to the screen's edges and its panes in the frame. The header and footer sit in the frame on every page, so moving between pages never moves them. On a phone every shape is the screen less its margins.
   - `options`: `pageShape: (typeof PAGE_SHAPES)[number]`, `screenName: (typeof DRAWN_SCREENS)[number]["screenName"]`
 - **Stack** (`stack(options: StackOptions)`, `layout.ts`): Things one under another: a pane's heading, its lines, its fields and its button. Each gap is picked from what's on each side, so you never pass one; say what each thing is (words, a control, a block) and the stack spaces it.
@@ -345,10 +345,10 @@ Every component, with the call that makes it and its options, is in the catalog 
   - `options`: `href?: string`, `type?: "submit" | "button"`, `icon: keyof typeof WAY_ICONS | IconName`, `tint?: GlassTint`, `isDisabled?: boolean`, `isBusy?: boolean`, `state?: ButtonState`
 - **Guest button** (`guestButton(label: string, options?: { … })`, `actions.ts`): The quietest way on, like Continue as guest: words and an arrow below the glass buttons, a slab only once you point at it.
   - `options`: `href?: string`, `type?: "submit" | "button"`, `state?: ButtonState`, `isBusy?: boolean`
-- **Quiet button** (`quietButton(label: string, options?: QuietButtonOptions)`, `actions.ts`): The quietest thing to press: words, an icon, or both, with no slab until it's pointed at. Skip for now, Show all, Undo; only its icon, a sheet's Back and Close. Beside a cut button it's the way out; never the one thing to do.
-  - `options`: `id?: string`, `dataAttributes?: Record<string, string>`, `href?: string`, `type?: "submit" | "button"`, `name?: string`, `buttonValue?: string`, `formMethod?: "dialog"`, `isAutofocused?: boolean`, `icon?: IconName`, `isLabelHidden?: boolean`, `isSmall?: boolean`, `isDisabled?: boolean`, `isBusy?: boolean`, `state?: ButtonState`
 - **Delete button** (`deleteButton(label: string, options: DeleteButtonOptions)`, `actions.ts`): Deleting a game, a key, an account: a cut button, never orange. Only its confirm step turns red, the one red in Zaisma, after one sentence on what goes.
   - `options`: `action: string`, `confirmLabel: string`, `confirmText: string`, `id?: string`, `isFullWidth?: boolean`, `state?: ButtonState`, `isConfirmShown?: boolean`, `isConfirmBusy?: boolean`
+- **Quiet button** (`quietButton(label: string, options?: QuietButtonOptions)`, `actions.ts`): The quietest thing to press: words, an icon, or both, with no slab until it's pointed at. Skip for now, Show all, Undo; only its icon, a sheet's Back and Close. Beside a cut button it's the way out; never the one thing to do.
+  - `options`: `id?: string`, `dataAttributes?: Record<string, string>`, `href?: string`, `type?: "submit" | "button"`, `name?: string`, `buttonValue?: string`, `formMethod?: "dialog"`, `isAutofocused?: boolean`, `icon?: IconName`, `isLabelHidden?: boolean`, `isSmall?: boolean`, `isDisabled?: boolean`, `isBusy?: boolean`, `state?: ButtonState`
 - **Link** (`textLink(words: string, href: string, options?: TextLinkOptions)`, `actions.ts`): Words that go somewhere: underlined in orange inside a sentence, plain in a list of links until you point at them. Anything you press that isn't words is a button.
   - `options`: `isQuiet?: boolean`, `isNewTab?: boolean`, `dataAttributes?: Record<string, string>`, `state?: "is-pointed" | "is-focused"`
 
@@ -360,18 +360,20 @@ Every component, with the call that makes it and its options, is in the catalog 
   - `options`: `name: string`, `label: string`, `id?: string`, `digits?: string`, `error?: string`, `isDisabled?: boolean`, `state?: "is-focused"`
 - **Search field** (`searchField(options: SearchFieldOptions)`, `fields.ts`): Search on a page, and in the header. "/" jumps to it there, and nothing says so.
   - `options`: `action: string`, `name: string`, `searchText: string`, `placeholder: string`, `label: string`, `keep?: Record<string, string>`, `state?: "is-focused"`
+- **Long field** (`longField(options: LongFieldOptions)`, `choices.ts`): More than a line of words: a game's description, patch notes, a reply. It grows with what's written, and counts the characters only once the limit is near.
+  - `options`: `name: string`, `label: string`, `id?: string`, `text?: string`, `placeholder?: string`, `rowCount: number`, `maximumCharacterCount?: number`, `hint?: string`, `isRequired?: boolean`, `isDisabled?: boolean`, `error?: string`, `state?: "is-focused"`
+- **Select field** (`selectField(options: SelectFieldOptions)`, `choices.ts`): One of many, from a list: a region, a language, a category. It opens a list of Zaisma's glass under the field, on every device. For one of a few, use Choice cards or a Switch.
+  - `options`: `name: string`, `label: string`, `choices: SelectChoice[]`, `pickedValue?: string`, `placeholder?: string`, `id?: string`, `icon?: IconName`, `isDisabled?: boolean`, `error?: string`, `dataAttributes?: Record<string, string>`, `state?: "is-focused" | "is-open" | "is-open-above"`
+- **Code field** (`codeField(options: CodeFieldOptions)`, `inputs.ts`): Code to copy and keep: an API key shown once, a game's address, an upload command. It's read-only, in code's own letters, with a Copy button at its end.
+  - `options`: `label: string`, `code: string`, `id?: string`, `state?: "is-focused" | "is-copied"`, `isMasked?: boolean`
+- **Link field** (`linkField(options: LinkFieldOptions)`, `inputs.ts`): A link to copy: its address on one line, in the words' own letters, without https://. A press anywhere on it copies it, and it says "Link copied" in its place for a moment. Code to copy (a key, a command) is a Code field.
+  - `options`: `id: string`, `label: string`, `url: string`, `isMasked?: boolean`, `state?: "is-copied" | "is-pointed" | "is-focused"`
 - **Birthday field** (`birthdayField(options: BirthdayFieldOptions)`, `fields.ts`): Asking for a birthday: three wheels that start blank, so nothing suggests an age.
   - `options`: `name: string`, `label: string`, `id?: string`, `birthday?: string`, `hint?: string`, `error?: string`, `state?: "open" | "marked" | "is-focused"`, `isRequired?: boolean`
 - **Date and time field** (`dateTimeField(options: DateTimeFieldOptions)`, `fields.ts`): Picking when something happens, like a version going live: the birthday field's wheels for the day, the hour (with its AM or PM) and the minute, in your own time zone, which it says.
   - `options`: `name: string`, `label: string`, `id?: string`, `pickedAt?: string`, `minimumAt?: string`, `error?: string`, `state?: "open"`
 - **Switch** (`tabSwitch(options: { … })`, `switch.ts`): Choosing one of a few: Sign in or Make an account (big), Recently played or Recently updated (small). Stacked, it's a page's own places down its side.
   - `options`: `label: string`, `tabs: SwitchTab[]`, `switchSize: "big" | "small"`, `isFramed?: boolean`, `isVertical?: boolean`, `rowId?: string`
-- **Color picker** (`colorPicker(options: { … })`, `foundations.ts`): Pick one color from a few: a glass button's tint, the glass's hue. Plain swatches in a carved well, like the switch's tabs; the picked one keeps its whole color, with an orange bar under it, and is named beside them.
-  - `options`: `label: string`, `choices: ColorChoice[]`, `pickedValue: string`, `focusedValue?: string`, `extra?: Raw`
-- **Long field** (`longField(options: LongFieldOptions)`, `choices.ts`): More than a line of words: a game's description, patch notes, a reply. It grows with what's written, and counts the characters only once the limit is near.
-  - `options`: `name: string`, `label: string`, `id?: string`, `text?: string`, `placeholder?: string`, `rowCount: number`, `maximumCharacterCount?: number`, `hint?: string`, `isRequired?: boolean`, `isDisabled?: boolean`, `error?: string`, `state?: "is-focused"`
-- **Select field** (`selectField(options: SelectFieldOptions)`, `choices.ts`): One of many, from a list: a region, a language, a category. It opens a list of Zaisma's glass under the field, on every device. For one of a few, use Choice cards or a Switch.
-  - `options`: `name: string`, `label: string`, `choices: SelectChoice[]`, `pickedValue?: string`, `placeholder?: string`, `id?: string`, `icon?: IconName`, `isDisabled?: boolean`, `error?: string`, `dataAttributes?: Record<string, string>`, `state?: "is-focused" | "is-open" | "is-open-above"`
 - **Check field** (`checkField(options: CheckFieldOptions)`, `choices.ts`): A yes or no sent with its form: I agree, Email me replies. A small carved box that turns orange with a dark tick. On a page that saves at once, use a Toggle.
   - `options`: `name: string`, `label: string`, `isChecked?: boolean`, `hint?: string`, `checkValue?: string`, `isRequired?: boolean`, `error?: string`, `isDisabled?: boolean`, `id?: string`, `state?: PressState`
 - **Choice cards** (`choiceCards(options: ChoiceCardsOptions)`, `choices.ts`): One of a few, when each needs a line to say what it means: who can see a game, how its rooms run. Compact for many (a report's reasons): close together down a carved well that scrolls. The picked one is the raised white slab with the orange line; the rest sit carved and quieter.
@@ -380,12 +382,10 @@ Every component, with the call that makes it and its options, is in the catalog 
   - `options`: `name: string`, `label: string`, `isOn: boolean`, `hint?: string`, `isBusy?: boolean`, `isDisabled?: boolean`, `id?: string`, `state?: PressState`
 - **Slider** (`slider(options: SliderOptions)`, `inputs.ts`): A number on a scale: players in a room, a volume. Dragged, tapped or stepped with the arrow keys; the number shows with its unit as it moves. There are no knobs: this covers them.
   - `options`: `name: string`, `label: string`, `minimumNumber: number`, `maximumNumber: number`, `stepNumber: number`, `pickedNumber: number`, `unit: string`, `isDisabled?: boolean`, `id?: string`, `state?: "is-focused" | "is-pressed"`
+- **Color picker** (`colorPicker(options: { … })`, `foundations.ts`): Pick one color from a few: a glass button's tint, the glass's hue. Plain swatches in a carved well, like the switch's tabs; the picked one keeps its whole color, with an orange bar under it, and is named beside them.
+  - `options`: `label: string`, `choices: ColorChoice[]`, `pickedValue: string`, `focusedValue?: string`, `extra?: Raw`
 - **File drop** (`fileDrop(options: FileDropOptions)`, `inputs.ts`): Handing over files: a game's build, a cover, a screenshot for a report. Drop them on it, tap it, or reach it by keyboard; what's picked is listed with its size.
   - `options`: `name: string`, `label: string`, `accept: string`, `isMultiple?: boolean`, `hint: string`, `maximumByteCount?: number`, `error?: string`, `pickedFiles?: FileDropFile[]`, `isDisabled?: boolean`, `id?: string`, `state?: "over"`
-- **Code field** (`codeField(options: CodeFieldOptions)`, `inputs.ts`): Code to copy and keep: an API key shown once, a game's address, an upload command. It's read-only, in code's own letters, with a Copy button at its end.
-  - `options`: `label: string`, `code: string`, `id?: string`, `state?: "is-focused" | "is-copied"`, `isMasked?: boolean`
-- **Link field** (`linkField(options: LinkFieldOptions)`, `inputs.ts`): A link to copy: its address on one line, in the words' own letters, without https://. A press anywhere on it copies it, and it says "Link copied" in its place for a moment. Code to copy (a key, a command) is a Code field.
-  - `options`: `id: string`, `label: string`, `url: string`, `isMasked?: boolean`, `state?: "is-copied" | "is-pointed" | "is-focused"`
 - **QR code** (`qrCode(options: QrCodeOptions)`, `inputs.ts`): A link as a picture a phone's camera reads: a game's address, or a room's, for someone in the same room. Black on white whatever the glass, with a line saying what it opens.
   - `options`: `id: string`, `label: string`, `caption: string`, `imageUrl?: string`, `isMasked?: boolean`, `isCompact?: boolean`, `isLarge?: boolean`
 
@@ -396,21 +396,25 @@ Every component, with the call that makes it and its options, is in the catalog 
 - **Account button** (`accountButton(options: AccountButtonOptions)`, `navigation.ts`): You, at the header's end once you're signed in: your picture alone is the button, online, as tall as the controls beside it. It opens the account menu, which names you.
   - `options`: `username: string`, `pictureMarkup: Raw`, `menuId: string`, `isMenuOpen?: boolean`, `state?: "is-pointed" | "is-pressed" | "is-focused"`
 - **Footer** (`footer()`, `navigation.ts`): The end of every page: for game developers, the forum, the source and the rules.
+- **Playing bar** (`playingBar(options: PlayingBarOptions)`, `playing.ts`): The one slim bar beside a running game: Zaisma's mark back to every game, the game's name, and its small buttons. Everything else on the page steps aside while a game plays; on a landscape phone the bar runs down the left edge.
+  - `options`: `title: string`, `controls: ControlMarkup[]`, `isShown?: boolean`
 - **Rail** (`rail(scrollKind: "box" | "page" | "side")`, `navigation.ts`): Zaisma's own scrollbar, on every device: it rests faintly and wakes while things move. On a touch screen its thumb is a little wider and drags with a finger.
 - **Row arrows** (`rowArrows(options: RowArrowsOptions)`, `actions.ts`): Scrolling a row of games with a mouse or trackpad: two raised slabs in a carved well. At a row's end that arrow lies flat; touch screens swipe instead.
   - `options`: `rowName: string`, `trackId: string`, `scrolledTo?: "middle" | "end"`
 - **Shelf** (`shelf(options: ShelfOptions)`, `navigation.ts`): A row of games under its heading: the home's Popular, Trending and Continue playing. Its sort and its arrows sit at the heading's end; its covers scroll sideways, a few showing with the next peeking in.
   - `options`: `id: string`, `trackId: string`, `title: string`, `titleHref?: string`, `sortTabs?: SwitchTab[]`, `items: LayoutItem[]`, `emptyText?: string`, `scrolledTo?: "middle" | "end"`
-- **Section tabs** (`sectionTabs(options: SectionTabsOptions)`, `navigation.ts`): A page's own sections, under its title: a game dashboard's Overview, Versions and Players, a profile's Games and Friends. On a phone they scroll sideways, fading at the edge with more.
-  - `options`: `label: string`, `tabs: SectionTab[]`, `rowId?: string`
 - **Load more** (`loadMore(options: LoadMoreOptions)`, `navigation.ts`): Under a long list (versions, players, topics): the next page added in place, busy while it comes; under a grid of covers it loads by itself as you scroll. Without scripts it's a link to that page.
   - `options`: `href?: string`, `label: string`, `listId: string`, `moreListIds?: string[]`, `isLoadedOnScroll?: boolean`, `endText?: string`, `isFailed?: boolean`
-- **Playing bar** (`playingBar(options: PlayingBarOptions)`, `playing.ts`): The one slim bar beside a running game: Zaisma's mark back to every game, the game's name, and its small buttons. Everything else on the page steps aside while a game plays; on a landscape phone the bar runs down the left edge.
-  - `options`: `title: string`, `controls: ControlMarkup[]`, `isShown?: boolean`
-- **Breadcrumbs** (`breadcrumbs(options: BreadcrumbsOptions)`, `reading.ts`): Where a page sits: the pages above it as quiet links, a chevron between, this one last. For pages a few levels deep, like a forum topic or a game's version. On a phone it scrolls sideways rather than wrapping.
-  - `options`: `trail: { label: string; href: string }[]`, `current: string`
 - **Pager** (`pager(options: PagerOptions)`, `reading.ts`): Newer and Older under a list read a page at a time, like a topic's replies. The end you're at can't be pressed. A list you add to in place has Load more instead.
   - `options`: `label: string`, `newerHref?: string`, `olderHref?: string`
+- **Sidebar** (`sidebar(options: SidebarOptions)`, `navigation.ts`): A page's own places down its side: the gallery's groups, Developer settings' Hosting, Pro and Keys. Beside the page on a wide screen, where its button folds it away for the whole width and the browser remembers; over the page on a phone, where the same button slides it in. The current place's own places sit under it. Never a sidebar built in place.
+  - `options`: `id: string`, `label: string`, `places: SidebarPlace[]`, `rememberKey: string`
+- **Sidebar button** (`sidebarButton(options: { … })`, `navigation.ts`): The one button a Sidebar has: in the page's bar, or above the page. On a wide screen it folds the sidebar away and back; on a phone it slides it over the page.
+  - `options`: `controls: string`, `label: string`, `isExpanded: boolean`
+- **Section tabs** (`sectionTabs(options: SectionTabsOptions)`, `navigation.ts`): A page's own sections, under its title: a game dashboard's Overview, Versions and Players, a profile's Games and Friends. On a phone they scroll sideways, fading at the edge with more.
+  - `options`: `label: string`, `tabs: SectionTab[]`, `rowId?: string`
+- **Breadcrumbs** (`breadcrumbs(options: BreadcrumbsOptions)`, `reading.ts`): Where a page sits: the pages above it as quiet links, a chevron between, this one last. For pages a few levels deep, like a forum topic or a game's version. On a phone it scrolls sideways rather than wrapping.
+  - `options`: `trail: { label: string; href: string }[]`, `current: string`
 
 ### Panes
 
@@ -418,21 +422,27 @@ Every component, with the call that makes it and its options, is in the catalog 
   - `options`: `paneWidth: "full" | "fit"`, `body: Raw`, `label?: string`, `isStartedLow?: boolean`
 - **Tray** (`tray(options: { … })`, `foundations.ts`): A thinner, clearer sheet a pane extends into, holding everything that belongs to it: the pane's words on top, what they're about on the tray beneath, read as one. Every gallery section is one.
   - `options`: `head: Raw`, `body: Raw`, `label?: string`, `paneWidth?: "full" | "fit"`
+- **Folded part** (`foldedPart(options: FoldedPartOptions)`, `reading.ts`): Something that belongs on the page but out of the way, behind its title and how many are in it: earlier versions, blocked people, preview links. Pressing the title opens it in place.
+  - `options`: `title: string`, `entryCount?: number`, `body: Raw`, `isOpen?: boolean`, `id?: string`
+- **Fold rows** (`foldRows(options: FoldRowsOptions)`, `reading.ts`): Things to scan by a title and one line, each opening in place to what's under it, like the content rules with their tests: the title and line always show, the rest folds. A link to a row opens it.
+  - `options`: `rows: FoldRow[]`, `label?: string`
+- **Divider with words** (`dividerWords(words: string)`, `reading.ts`): A hairline across a pane with a word or two in its middle, between two ways to do one thing: or, between signing in with a password and with a passkey.
 - **Dropdown** (`dropdown(options: DropdownOptions)`, `panes.ts`): A short list of choices that hangs from a button, like the account button's in the header: with a head, rules, icons, counts and the current one, as each needs. A choice that's hard to take back asks first, in a confirm sheet.
   - `options`: `id: string`, `label: string`, `head?: { title: string; note?: string; lineId?: string }`, `items: DropdownItem[]`, `isOpen?: boolean`
 - **Menu choices** (`menuChoices(options: MenuChoicesOptions)`, `panes.ts`): A dropdown's choices on their own, in a sheet or a pane: an icon and words, no slab until pointed at, so a short list of things to do (a player's Profile, Block and Report) reads like the ⋯ menu, not a stack of buttons.
   - `options`: `label: string`, `choices: DropdownChoice[]`
-- **Light box** (`lightBox(options: LightBoxOptions)`, `panes.ts`): One thing large in the middle of a dimmed screen, like a QR code to hold up to a friend across a room: nothing else round it, and a press anywhere, Close or Esc takes it away, back to the sheet that opened it.
-  - `options`: `id: string`, `label: string`, `body: Raw`, `closeLabel: string`
 - **Filter tags** (`filterTags(options: { … })`, `panes.ts`): The filters in use on a list, under its Filter button: one small button each, with a close mark, that takes it away.
   - `options`: `tags: FilterTag[]`
+- **Filter menu** (`filterMenu(options: FilterMenuOptions)`, `navigation.ts`): The ways to narrow a list, in one menu from a Filter button that counts the ones in use: each way says what's picked, and opens its choices in the same pane, with a way back.
+  - `options`: `id: string`, `groups: FilterGroup[]`, `clearHref: string | null`, `filterCount: number`, `isOpen?: boolean`, `openGroupName?: string`
 - **Game cover** (`gameCover(options: GameCoverOptions)`, `panes.ts`): A game in a list: the studio's art, bare, set in a carved well, with only what concerns you under it. Zaisma's mark stands in while the art loads, and for a game with none yet.
   - `options`: `title: string`, `imageUrl: string | null`, `href: string`, `facts: GlanceFacts`, `isCurrent?: boolean`, `isEager?: boolean`, `hasHighPriority?: boolean`, `isTitleShown?: boolean`
+- **Game card** (`gameCard(options: GameCardOptions)`, `playing.ts`): A game in a list of games, like Browse or More from a developer: its cover, its title beneath with players now, and what else concerns you under that.
+- **Playing card** (`playingCard(options: PlayingCardOptions)`, `playing.ts`): A card over a running game's top corner, for what needs the player now (keep your progress, a game asking them to sign in) or what just happened (Saved). The game keeps running and stays in view. One at a time over a game, asks before information, nothing but urgent while a sheet is open; one with nothing to press in it goes on a tap or a swipe. Urgent news (signed out) is an urgent card, over anything.
+  - `options`: `id: string`, `title?: string`, `body: Raw`, `noticeUrgency?: "information" | "ask"`, `isShown?: boolean`, `isInPlace?: boolean`
+- **Light box** (`lightBox(options: LightBoxOptions)`, `panes.ts`): One thing large in the middle of a dimmed screen, like a QR code to hold up to a friend across a room: nothing else round it, and a press anywhere, Close or Esc takes it away, back to the sheet that opened it.
+  - `options`: `id: string`, `label: string`, `body: Raw`, `closeLabel: string`
 - **Sheet** (`sheet(options: SheetOptions)`, `panes.ts`): A task that comes and goes over the page: report a game, block someone, add a key. Opened by a button that names it: on a phone it rises from the foot, on a wide screen it hangs from that button like a dropdown, under it or above it; Esc, its close button or a press beside it close it, and it drops away as it goes in every browser (it stays open while it leaves, so no browser drops it early or draws it out of place). Its title, Close and its buttons stay in view while the rest scrolls. A task of steps moves forward inside it with Back, and tabs in its head swap what's in it; a confirm opens a size smaller on top, never more than two deep.
-- **Store item** (`storeItem(options: StoreItemOptions)`, `panes.ts`): What a store panel sells: the game's own cover across the top, then the item's name, its price large under it, what it is, and one quiet line on who sells it and what refunds there are. Items have no pictures of their own, so the cover is the developer's image, bare; with none, Zaisma's mark stands in.
-  - `options`: `id: string`, `imageUrl: string | null`, `name: string`, `priceText: string`, `description?: string`, `noteText?: string`
-- **Store panel** (`storePanel(options: StorePanelOptions)`, `panes.ts`): Where a player buys: a tall panel at the screen's right edge over the running game, which keeps its middle (on a phone, a sheet risen from the foot, nearly the screen's height). A slim head with Close, the item with the game's cover across its top, and pinned at its foot the card row and the buy button carrying the price; Apple Pay and Google Pay sit with them when offered. Pressing Buy is the confirmation: only when Zaisma needs to know it's them does the panel ask first, in the same place.
-  - `options`: `id: string`, `title: string`, `closeLabel: string`, `body: Raw`, `foot: Raw`, `action?: string`, `isShown?: boolean`
 - **Confirm sheet** (`confirmSheet(options: ConfirmSheetOptions)`, `panes.ts`): One sentence, the action and Cancel, before something that's hard to take back: signing out everywhere, ending a room. Over another sheet it opens a size smaller, and closing it lands on the sheet beneath. A delete's confirm is Delete button's own, the only red one.
   - `options`: `id: string`, `title: string`, `text: string`, `action: string`, `confirmLabel: string`, `isBusy?: boolean`, `isShown?: boolean`
 - **Notice** (`notice(options: NoticeOptions)`, `panes.ts`): A moment that just happened, just under the header: Saved, Copied, or what went wrong. A done one leaves by itself after 4 seconds (8 with Undo), waiting while it's pointed at or touched; a problem stays until it's closed. Up to three stack, and the rest wait their turn (zaismaLayers.say makes one from a page's script).
@@ -441,42 +451,34 @@ Every component, with the call that makes it and its options, is in the catalog 
   - `options`: `text: string`, `icon?: IconName`, `action?: { label: string; href?: string; formAction?: string }`, `closeLabel?: string`, `tone?: "plain" | "warning"`
 - **Step flow** (`stepFlow(options: StepFlowOptions)`, `panes.ts`): A task in a few steps, like protecting your account: a pane with a thin step line across its top that fills in orange as you go, the step you're on ending in light, and Back and Next.
   - `options`: `steps: StepFlowStep[]`, `currentIndex: number`, `body?: Raw`, `action: string`, `finishLabel?: string`, `backHref?: string`, `paneWidth?: "full" | "fit"`
-- **Filter menu** (`filterMenu(options: FilterMenuOptions)`, `navigation.ts`): The ways to narrow a list, in one menu from a Filter button that counts the ones in use: each way says what's picked, and opens its choices in the same pane, with a way back.
-  - `options`: `id: string`, `groups: FilterGroup[]`, `clearHref: string | null`, `filterCount: number`, `isOpen?: boolean`, `openGroupName?: string`
-- **Game card** (`gameCard(options: GameCardOptions)`, `playing.ts`): A game in a list of games, like Browse or More from a developer: its cover, its title beneath with players now, and what else concerns you under that.
-- **Playing card** (`playingCard(options: PlayingCardOptions)`, `playing.ts`): A card over a running game's top corner, for what needs the player now (keep your progress, a game asking them to sign in) or what just happened (Saved). The game keeps running and stays in view. One at a time over a game, asks before information, nothing but urgent while a sheet is open; one with nothing to press in it goes on a tap or a swipe. Urgent news (signed out) is an urgent card, over anything.
-  - `options`: `id: string`, `title?: string`, `body: Raw`, `noticeUrgency?: "information" | "ask"`, `isShown?: boolean`, `isInPlace?: boolean`
 - **Confirm it's you** (`confirmItsYouSheet(options: ConfirmItsYouOptions)`, `confirm-its-you.ts`): A small dialog that opens over anything and asks the player to prove it's them, the way that suits what they're doing: a passkey, their purchase PIN (for a purchase only) or their password. The page says why in one sentence and gives it the function that sends the proof; a right proof closes it and the page goes on by itself, so the button that asked is pressed once. In the middle of a wide screen, risen from the foot on a phone.
   - `options`: `id: string`, `method?: ConfirmMethod`, `switchTo?: ConfirmMethod`, `reasonText?: string`, `errorText?: string`, `isBusy?: boolean`, `isShown?: boolean`
+- **Store item** (`storeItem(options: StoreItemOptions)`, `panes.ts`): What a store panel sells: the game's own cover across the top, then the item's name, its price large under it, what it is, and one quiet line on who sells it and what refunds there are. Items have no pictures of their own, so the cover is the developer's image, bare; with none, Zaisma's mark stands in.
+  - `options`: `id: string`, `imageUrl: string | null`, `name: string`, `priceText: string`, `description?: string`, `noteText?: string`
+- **Store panel** (`storePanel(options: StorePanelOptions)`, `panes.ts`): Where a player buys: a tall panel at the screen's right edge over the running game, which keeps its middle (on a phone, a sheet risen from the foot, nearly the screen's height). A slim head with Close, the item with the game's cover across its top, and pinned at its foot the card row and the buy button carrying the price; Apple Pay and Google Pay sit with them when offered. Pressing Buy is the confirmation: only when Zaisma needs to know it's them does the panel ask first, in the same place.
+  - `options`: `id: string`, `title: string`, `closeLabel: string`, `body: Raw`, `foot: Raw`, `action?: string`, `isShown?: boolean`
 - **Stripe frame** (`stripeFrame(options: StripeFrameOptions)`, `stripe-frame.ts`): A zaisma.com frame for Stripe's own parts, its card form, Apple Pay and Google Pay, and a bank's 3-D Secure check, so Stripe.js loads only inside it and never on the page around it. As tall as what Stripe draws in it, and over the whole window while a bank asks the player to confirm.
   - `options`: `id: string`, `title: string`, `isShown?: boolean`
-- **Folded part** (`foldedPart(options: FoldedPartOptions)`, `reading.ts`): Something that belongs on the page but out of the way, behind its title and how many are in it: earlier versions, blocked people, preview links. Pressing the title opens it in place.
-  - `options`: `title: string`, `entryCount?: number`, `body: Raw`, `isOpen?: boolean`, `id?: string`
-- **Fold rows** (`foldRows(options: FoldRowsOptions)`, `reading.ts`): Things to scan by a title and one line, each opening in place to what's under it, like the content rules with their tests: the title and line always show, the rest folds. A link to a row opens it.
-  - `options`: `rows: FoldRow[]`, `label?: string`
-- **Divider with words** (`dividerWords(words: string)`, `reading.ts`): A hairline across a pane with a word or two in its middle, between two ways to do one thing: or, between signing in with a password and with a passkey.
 
 ### Data
 
 - **Picture frame** (`pictureFrame(username: string, pictureSize: PictureSize, options?: { … })`, `data.ts`): An account's picture, always in its frame of glass: in the account button, beside a friend's name, at the head of a profile.
   - `options`: `presence?: "online" | "playing"`, `isCut?: boolean`
 - **Picture row** (`pictureRow(usernames: string[], pictureSize: PictureSize)`, `data.ts`): Friends' pictures together: front to back, each lying over the next with a small shadow, all square. Past three, the rest are a +N.
+- **Screenshot** (`screenshot(options: ScreenshotOptions)`, `playing.ts`): A game's screenshot in its row of them, in a carved well cut like a game card's; it opens large in a sheet, whole, as big as the screen allows.
+  - `options`: `imageUrl: string`, `label: string`, `sheetId: string`
+- **Person** (`person(options: PersonOptions)`, `people.ts`): Someone on Zaisma named on a page: a game's developer, a post's author, a friend in a room. Their picture in its frame, their name a quiet link to their profile, a line about them, and at most one thing to do at the end. A list of people is List rows, each led by their picture.
+  - `options`: `username: string`, `href: string`, `note?: string`, `pictureSize?: "sm" | "md"`, `presence?: "online" | "playing"`, `marks?: Raw`, `end?: ControlMarkup`
 - **Tag** (`tag(words: string | number, tone: TagTone, options?: { … })`, `foundations.ts`): A few words or a number carved into what they label, slanted at both ends: Updated on a game, the count of unread topics on a place, a version's state. On glass, a mark's name on the rail.
   - `options`: `icon?: IconName`
 - **Glance facts** (`glanceFacts(facts: GlanceFacts)`, `data.ts`): What concerns you about a game at a glance: players now, friends playing, when you played, an update. Only what's true, one line each.
   - `facts`: `playerCount?: number`, `playedAtMs?: number`, `updatedAtMs?: number`, `updatesHref?: string`, `friends?: { username: string }[]`, `friendsRefusalNotes?: string[]`, `deviceNote?: string`, `priceText?: string`
 - **List rows** (`listRows(options: { … })`, `data.ts`): A list of things on glass, one a row with hairlines between: versions, keys, topics, players. A row that goes somewhere is a link as a whole, ending in a chevron that steps on as you point; a row to read may end in a button.
   - `options`: `rows: ListRow[]`, `whenEmpty: Raw`, `id?: string`, `label?: string`, `shownRowCount?: number`, `isCompact?: boolean`
-- **Empty state** (`emptyState(options: StateNoteOptions)`, `data.ts`): Where a list has nothing yet: what will be here, how it gets here, and the button that starts it. In the voice, never a picture.
-  - `options`: `title: string`, `text: string`, `action?: ControlMarkup`
-- **Problem state** (`problemState(options: StateNoteOptions)`, `data.ts`): Where content couldn't come: what went wrong in plain words, and what to do about it, like Try again.
-  - `options`: `title: string`, `text: string`, `action?: ControlMarkup`
-- **Done state** (`doneState(options: StateNoteOptions)`, `data.ts`): Where a task just ended, in place of it: what was done and what happens next, like a report sent. A moment that passes is a Notice instead.
-  - `options`: `title: string`, `text: string`, `action?: ControlMarkup`
-- **Loading state** (`loadingState(options: { … })`, `data.ts`): Where content is on its way: a hairline with a light running along it, and what's coming. Never a spinner over content; a button that's waiting shows the loader instead.
-  - `options`: `label: string`
 - **Table** (`table(options: TableOptions)`, `data.ts`): Rows to compare: versions, requests, players, logs. Its header stays as the rows scroll under it, numbers line up on the right, and on a phone it scrolls sideways rather than folding rows into cards.
   - `options`: `caption: string`, `columns: TableColumn[]`, `rows: (Raw | string)[][]`, `hasRowHeads?: boolean`, `isCompact?: boolean`, `shownRowCount?: number`, `rowsPlaceholder?: Raw`, `whenEmpty: Raw`, `id?: string`
+- **Facts** (`facts(options: FactsOptions)`, `reading.ts`): What something is, in a few short facts, each a quiet label with its words: who a game is for and what it runs on (side by side), or a version's or a key's details (one a line).
+  - `options`: `facts: Fact[]`, `arrangement: "across" | "down"`, `label?: string`
 - **Numbers** (`numbers(options: { … })`, `data.ts`): A row of figures to take in at a glance: players, hours, plays. Each figure is big, its label sits under it, and how it moved is green when it's good news.
   - `options`: `items: NumberItem[]`
 - **Chart** (`chart(options: ChartOptions)`, `data.ts`): How something moved over time, drawn on the page with nothing to wait for: a line or bars on a hairline grid, the last point marked with its number, and any point's number where you point or step with the arrow keys. Or how a whole splits, as a ring with its key. Screen readers get the same numbers.
@@ -485,16 +487,18 @@ Every component, with the call that makes it and its options, is in the catalog 
   - `options`: `label: string`, `usedNumber: number`, `limitNumber: number`, `unit: string`, `resetDate?: string`, `shownWords?: string`, `warnFromNumber?: number`, `isFullFine?: boolean`, `parts?: UsagePart[]`
 - **Usage track** (`usageTrack(options: UsageMeterOptions)`, `data.ts`): A usage meter's track and its parts' key alone, for a list row or a plate whose own lines say the numbers: a game's hosting in developer settings and on its dashboard.
   - `options`: `label: string`, `usedNumber: number`, `limitNumber: number`, `unit: string`, `resetDate?: string`, `shownWords?: string`, `warnFromNumber?: number`, `isFullFine?: boolean`, `parts?: UsagePart[]`
-- **Screenshot** (`screenshot(options: ScreenshotOptions)`, `playing.ts`): A game's screenshot in its row of them, in a carved well cut like a game card's; it opens large in a sheet, whole, as big as the screen allows.
-  - `options`: `imageUrl: string`, `label: string`, `sheetId: string`
-- **Reading text** (`readingText(options: ReadingTextOptions)`, `reading.ts`): Words to read: a forum post, the rules, a game's description, its patch notes. Paragraphs in the system's own face, each line at most a reading width long, with headings, lists, quotes, code and tables spaced by what's on each side.
-  - `options`: `markup: Raw`, `label?: string`
-- **Facts** (`facts(options: FactsOptions)`, `reading.ts`): What something is, in a few short facts, each a quiet label with its words: who a game is for and what it runs on (side by side), or a version's or a key's details (one a line).
-  - `options`: `facts: Fact[]`, `arrangement: "across" | "down"`, `label?: string`
 - **Progress** (`progress(options: ProgressOptions)`, `reading.ts`): A task on its way that takes a while, like an upload or a scan: a carved track filling in ink as it goes, and how much is done in words. With no end known yet, a light runs along it.
   - `options`: `label: string`, `doneNumber?: number`, `totalNumber?: number`, `unit?: string`
-- **Person** (`person(options: PersonOptions)`, `people.ts`): Someone on Zaisma named on a page: a game's developer, a post's author, a friend in a room. Their picture in its frame, their name a quiet link to their profile, a line about them, and at most one thing to do at the end. A list of people is List rows, each led by their picture.
-  - `options`: `username: string`, `href: string`, `note?: string`, `pictureSize?: "sm" | "md"`, `presence?: "online" | "playing"`, `marks?: Raw`, `end?: ControlMarkup`
+- **Empty state** (`emptyState(options: StateNoteOptions)`, `data.ts`): Where a list has nothing yet: what will be here, how it gets here, and the button that starts it. In the voice, never a picture.
+  - `options`: `title: string`, `text: string`, `action?: ControlMarkup`
+- **Problem state** (`problemState(options: StateNoteOptions)`, `data.ts`): Where content couldn't come: what went wrong in plain words, and what to do about it, like Try again.
+  - `options`: `title: string`, `text: string`, `action?: ControlMarkup`
+- **Done state** (`doneState(options: StateNoteOptions)`, `data.ts`): Where a task just ended, in place of it: what was done and what happens next, like a report sent. A moment that passes is a Notice instead.
+  - `options`: `title: string`, `text: string`, `action?: ControlMarkup`
+- **Loading state** (`loadingState(options: { … })`, `data.ts`): Where content is on its way: a hairline with a light running along it, and what's coming. Never a spinner over content; a button that's waiting shows the loader instead.
+  - `options`: `label: string`
+- **Reading text** (`readingText(options: ReadingTextOptions)`, `reading.ts`): Words to read: a forum post, the rules, a game's description, its patch notes. Paragraphs in the system's own face, each line at most a reading width long, with headings, lists, quotes, code and tables spaced by what's on each side.
+  - `options`: `markup: Raw`, `label?: string`
 - **Post** (`post(options: PostOptions)`, `people.ts`): What someone wrote: a forum reply, a game's update. Its author and when, the words as Reading text, and what you can do with it at its foot. A list of posts has a hairline between each.
   - `options`: `author: { username: string; href: string }`, `postedAtMs: number`, `body: Raw`, `marks?: Raw`, `actions?: ControlMarkup[]`
 

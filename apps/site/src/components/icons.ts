@@ -93,6 +93,8 @@ export const ICONS = {
   ban: stroke("0 0 20 20", '<circle cx="10" cy="10" r="6.8"/><path d="M5.2 5.2l9.6 9.6"/>'),
   bell: stroke("0 0 20 20", '<path d="M5 13.6V9a5 5 0 0 1 10 0v4.6l1.6 2H3.4z"/><path d="M8.3 17.3a1.8 1.8 0 0 0 3.4 0"/>'),
   info: stroke("0 0 20 20", '<circle cx="10" cy="10" r="7.2"/><path d="M10 9v5M10 6.3v.1"/>'),
+  // A sidebar beside a page: folding it away or sliding it in.
+  sidebar: stroke("0 0 20 20", '<rect x="2.8" y="3.8" width="14.4" height="12.4" rx="1.6"/><path d="M7.8 3.8v12.4"/>'),
   filter: stroke("0 0 20 20", '<path d="M3 4.5h14l-5.5 6.4v5.3l-3-1.6v-3.7z"/>'),
   sort: stroke("0 0 20 20", '<path d="M6.5 4v12M3.5 7l3-3 3 3M13.5 16V4M10.5 13l3 3 3-3"/>'),
   key: stroke("0 0 20 20", '<circle cx="6.5" cy="13.5" r="3.2"/><path d="M8.8 11.2 16 4M13.4 6.6l2 2M11.6 8.4l1.6 1.6"/>'),

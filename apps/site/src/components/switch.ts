@@ -33,6 +33,8 @@ export interface SwitchTab {
   /** It can fold away into the end of the tabs (the header's Developer and Forum, off a developer page): folded, it takes no room and can't be reached. */
   isFoldable?: boolean;
   isFolded?: boolean;
+  /** What sits right under it inside the switch, apart from the tabs: a sidebar's current place's own places. */
+  after?: Raw;
   /** Can't be chosen now (a sort with nothing to sort by yet): it's faded and answers nothing. */
   isDisabled?: boolean;
   /** The gallery's fixed states: the ghost under it as if pointed at, or the focus line round it. */
@@ -64,7 +66,7 @@ export function tabSwitch(options: {
   return controlMarkup(html`${own}<span class="ghost" aria-hidden="true" data-cut-line="${isSmall ? 7 : 8}"></span><span class="slab cut-raised" aria-hidden="true" data-cut-line="${isSmall ? 7 : 8}">${CUT_LINE}</span><span class="focus-ring" aria-hidden="true" data-cut-line="${isSmall ? 7 : 8}">${CUT_LINE}</span>${options.tabs.map((tab) =>
     tab.href
       ? // A link that can't be followed now has no address, so nothing reaches it; it still says what it is.
-        html`<a${tab.isDisabled ? raw(' aria-disabled="true"') : html` href="${tab.href}"`}${folding(tab)}${tab.extra ?? ""}${tab.isCurrent ? raw(' aria-current="page"') : ""}>${inside(tab)}</a>`
+        html`<a${tab.isDisabled ? raw(' aria-disabled="true"') : html` href="${tab.href}"`}${folding(tab)}${tab.extra ?? ""}${tab.isCurrent ? raw(' aria-current="page"') : ""}>${inside(tab)}</a>${tab.after ?? ""}`
       : html`<button type="button"${folding(tab)}${tab.extra ?? ""}${tab.tabValue !== undefined ? html` value="${tab.tabValue}"` : ""} aria-pressed="${tab.isCurrent ? "true" : "false"}"${tab.isDisabled ? raw(" disabled") : ""}>${inside(tab)}</button>`,
   )}</div>${options.isFramed ? raw("</div></div>") : ""}${options.isFramed && options.rowId ? html`${rowArrows({ rowName: options.label, trackId: options.rowId })}</div>` : ""}`, isSmall ? "small" : "regular");
 }
@@ -220,6 +222,7 @@ component({
   name: "Switch",
   slug: "switch",
   group: "inputs",
+  subgroup: "choices",
   summary: "Choosing one of a few: Sign in or Make an account (big), Recently played or Recently updated (small). Stacked, it's a page's own places down its side.",
   styles: `
 /* The switch: the header's and the home's. A clear well, a white slab with the orange line under the one you're on, and a faint one under the one you point at.
@@ -373,6 +376,7 @@ component({
   name: "Color picker",
   slug: "color-picker",
   group: "inputs",
+  subgroup: "pickers",
   summary: "Pick one color from a few: a glass button's tint, the glass's hue. Plain swatches in a carved well, like the switch's tabs; the picked one keeps its whole color, with an orange bar under it, and is named beside them.",
   styles: `
 /* A color picker: plain swatches in a carved well, like the switch's tabs. A swatch is a control like any other, cut by the edge rule,
@@ -427,6 +431,7 @@ component({
   name: "Page settings",
   slug: "page-settings",
   group: "foundations",
+  subgroup: "look",
   summary: "Every page has one set of settings that all its components follow: light or dark, and each component's own, like the glass's hue. One change covers every instance at once, and a page only carries the ones its components use.",
   styles: "",
   examples: [
@@ -448,6 +453,7 @@ component({
   name: "Motion",
   slug: "motion",
   group: "foundations",
+  subgroup: "look",
   summary: "Things move only when pointed at, pressed or chosen: a slab springs across on the spring curve (--spring) in 0.55s, 0.4s for a small one, and a change of size takes 0.45s. Reduced motion stops all of it.",
   styles: "",
   examples: [

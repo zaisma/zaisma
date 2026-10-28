@@ -111,6 +111,7 @@ component({
   name: "Picture frame",
   slug: "picture-frame",
   group: "data",
+  subgroup: "pictures",
   summary: "An account's picture, always in its frame of glass: in the account button, beside a friend's name, at the head of a profile.",
   styles: `
 /* An account's picture under a small frame of the panes' glass. Square, except in a pane's corner, where it takes the corner's cut like
@@ -169,6 +170,7 @@ component({
   name: "Picture row",
   slug: "picture-row",
   group: "data",
+  subgroup: "pictures",
   summary: "Friends' pictures together: front to back, each lying over the next with a small shadow, all square. Past three, the rest are a +N.",
   styles: `
 /* A row, front to back: each picture lies over the left of the next and casts a small shadow onto it, so the one in front reads as on top.
@@ -217,6 +219,7 @@ component({
   name: "Tag",
   slug: "tag",
   group: "data",
+  subgroup: "lists",
   summary: "A few words or a number carved into what they label, slanted at both ends: Updated on a game, the count of unread topics on a place, a version's state. On glass, a mark's name on the rail.",
   styles: `
 /* A tag: slanted at both ends, in --type-tag, carved into the glass it's on: shaded along its top, lit along its foot. Its tone says what it is:
@@ -252,6 +255,7 @@ component({
   name: "Glance facts",
   slug: "glance-facts",
   group: "data",
+  subgroup: "lists",
   summary: "What concerns you about a game at a glance: players now, friends playing, when you played, an update. Only what's true, one line each.",
   styles: GLANCE_STYLES,
   render: glanceFacts,
@@ -341,6 +345,7 @@ component({
   name: "List rows",
   slug: "list-rows",
   group: "data",
+  subgroup: "lists",
   summary: "A list of things on glass, one a row with hairlines between: versions, keys, topics, players. A row that goes somewhere is a link as a whole, ending in a chevron that steps on as you point; a row to read may end in a button.",
   styles: `
 /* List rows: one thing a row, hairlines between. A row that's a link ends in a small chevron; under the pointer the row brightens a little
@@ -482,6 +487,7 @@ component({
   name: "Empty state",
   slug: "empty-state",
   group: "data",
+  subgroup: "states",
   summary: "Where a list has nothing yet: what will be here, how it gets here, and the button that starts it. In the voice, never a picture.",
   styles: STATE_STYLES + WHEN_EMPTY_STYLES,
   render: emptyState,
@@ -500,6 +506,7 @@ component({
   name: "Problem state",
   slug: "problem-state",
   group: "data",
+  subgroup: "states",
   summary: "Where content couldn't come: what went wrong in plain words, and what to do about it, like Try again.",
   styles: "",
   render: problemState,
@@ -518,6 +525,7 @@ component({
   name: "Done state",
   slug: "done-state",
   group: "data",
+  subgroup: "states",
   summary: "Where a task just ended, in place of it: what was done and what happens next, like a report sent. A moment that passes is a Notice instead.",
   styles: "",
   render: doneState,
@@ -536,6 +544,7 @@ component({
   name: "Loading state",
   slug: "loading-state",
   group: "data",
+  subgroup: "states",
   summary: "Where content is on its way: a hairline with a light running along it, and what's coming. Never a spinner over content; a button that's waiting shows the loader instead.",
   styles: `
 /* Loading: a hairline across where the content will be, a light running along it the way it runs along a cover's line, and its words
@@ -629,6 +638,7 @@ component({
   name: "Table",
   slug: "table",
   group: "data",
+  subgroup: "lists",
   summary: "Rows to compare: versions, requests, players, logs. Its header stays as the rows scroll under it, numbers line up on the right, and on a phone it scrolls sideways rather than folding rows into cards.",
   styles: `
 /* A table: its caption in a label's words over a box that scrolls sideways under it, cut by the edge rule. Its header row is clearer glass
@@ -748,6 +758,7 @@ component({
   name: "Numbers",
   slug: "numbers",
   group: "data",
+  subgroup: "numbers",
   summary: "A row of figures to take in at a glance: players, hours, plays. Each figure is big, its label sits under it, and how it moved is green when it's good news.",
   styles: `
 /* Numbers: big figures in Jost with figures of one width, their unit smaller beside them (under them when there's no room), the label under
@@ -953,6 +964,7 @@ component({
   name: "Chart",
   slug: "chart",
   group: "data",
+  subgroup: "numbers",
   summary: "How something moved over time, drawn on the page with nothing to wait for: a line or bars on a hairline grid, the last point marked with its number, and any point's number where you point or step with the arrow keys. Or how a whole splits, as a ring with its key. Screen readers get the same numbers.",
   styles: `
 /* A chart over time: its label, then its scale's numbers in a column of their own and the plot beside it, the first and last points' labels
@@ -1128,6 +1140,7 @@ component({
   name: "Usage meter",
   slug: "usage-meter",
   group: "data",
+  subgroup: "numbers",
   summary: "How much of an allowance is used: player-hours, requests, storage. A carved track fills in ink, turns amber from 80%, and says so when it's all used, or over.",
   styles: `
 /* A usage meter: its label on a line of its own, its numbers (and when it resets) under it, the track under them: a carved strip the fill
@@ -1184,6 +1197,7 @@ component({
   name: "Usage track",
   slug: "usage-track",
   group: "data",
+  subgroup: "numbers",
   summary: "A usage meter's track and its parts' key alone, for a list row or a plate whose own lines say the numbers: a game's hosting in developer settings and on its dashboard.",
   styles: "",
   render: usageTrack,

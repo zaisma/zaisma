@@ -1,6 +1,8 @@
+import { GALLERY_PLACES, galleryPagePath, type ComponentGroup, type GalleryPlace } from "./component.ts";
+
 /*
  * The screens and pages the layout check measures (scripts/layout-check.mjs), which Screens (screens.ts) shows and offers. A module with
- * no imports, so the check reads it in Node as it is.
+ * no imports but component.ts (whose own are only types), so the check reads it in Node as it is.
  */
 
 /**
@@ -134,6 +136,8 @@ const openBuySheet = (itemName: string, ...moments: string[]) => `(async () => {
   return true;
 })()`;
 const GALLERY = { area: "Gallery", mainActionShows: "nowhere", isGallery: true } as const;
+/** A gallery page's state: "Gallery: inputs fields", or "Gallery: layout" for a group that's one page. */
+export const galleryPageName = (place: GalleryPlace): `Gallery: ${ComponentGroup}` | `Gallery: ${ComponentGroup} ${string}` => (place.subgroup ? `Gallery: ${place.group} ${place.subgroup}` : `Gallery: ${place.group}`);
 /** A grown-up's birthday for the join steps, and one too young for an account. */
 const ADULT_BIRTHDAY = { birthday: "1990-04-12" } as const;
 const TOO_YOUNG_BIRTHDAY = { birthday: "2020-04-12" } as const;
@@ -208,13 +212,8 @@ const CHECKED_PAGE_LIST = [
   { name: "Example page", area: "Gallery", path: "/design/example", mainActionShows: "everywhere" },
   { name: "Connect an app", area: "Signing in", path: "/mcp-start", isOnSignInSite: true, account: "Preview_Studio", mainActionShows: "everywhere" },
   { name: "Sign in with Zaisma", area: "Signing in", path: "/start", isOnSignInSite: true, account: "Moss_Runner", mainActionShows: "everywhere" },
-  { name: "Gallery: foundations", path: "/design", ...GALLERY },
-  { name: "Gallery: layout", path: "/design/layout", ...GALLERY },
-  { name: "Gallery: actions", path: "/design/actions", ...GALLERY },
-  { name: "Gallery: inputs", path: "/design/inputs", ...GALLERY },
-  { name: "Gallery: navigation", path: "/design/navigation", ...GALLERY },
-  { name: "Gallery: panes", path: "/design/panes", ...GALLERY },
-  { name: "Gallery: data", path: "/design/data", ...GALLERY },
+  ...GALLERY_PLACES().map((place) => ({ name: galleryPageName(place), path: galleryPagePath(place.group, place.subgroup), ...GALLERY })),
+  { name: "Gallery: the sidebar over the page", path: "/design/inputs/fields", ...GALLERY, stateBeforeSetUp: "Gallery: inputs fields", setUp: `(async () => { const sheet = document.getElementById("gallery-places-sheet"); sheet.showModal(); await new Promise((done) => setTimeout(done, 400)); return sheet.open; })()` },
   { name: "Screens", path: "/design/screens?page=%2Fdesign%2Fexample", ...GALLERY },
 ] as const satisfies readonly CheckedPage[];
 export const CHECKED_PAGES: readonly CheckedPage[] = CHECKED_PAGE_LIST;

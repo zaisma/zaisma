@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { COMPONENTS, COMPONENT_GROUPS } from "../../apps/site/src/components/index.ts";
+import { COMPONENT_SUBGROUPS, subgroupsOf } from "../../apps/site/src/components/component.ts";
 // @ts-expect-error plain JavaScript without type declarations
 import { DESIGN_PATH, catalogMarkdown, withCatalog } from "../../scripts/design-catalog.mjs";
 
@@ -25,6 +26,25 @@ describe("docs/DESIGN.md's component catalog", () => {
     for (const each of COMPONENTS().filter((one) => one.render)) {
       const line = catalog.split("\n").find((entry) => entry.startsWith(`- **${each.name}**`));
       expect(line, each.slug).toMatch(/\(`\w+\(.*\)`, `[\w-]+\.ts`\)/);
+    }
+  });
+});
+
+describe("the gallery's subgroups", () => {
+  it("hold every component of a group that has them, and each holds one at least", () => {
+    for (const each of COMPONENTS()) {
+      const subgroups = subgroupsOf(each.group).map(({ subgroup }) => subgroup);
+      if (subgroups.length) expect(subgroups, each.slug).toContain(each.subgroup);
+      else expect(each.subgroup, each.slug).toBeUndefined();
+    }
+    for (const { group, subgroup } of COMPONENT_SUBGROUPS) expect(COMPONENTS().some((each) => each.group === group && each.subgroup === subgroup), `${group} ${subgroup}`).toBe(true);
+  });
+
+  it("are named once in their group, as lowercase words joined by dashes", () => {
+    for (const { group } of COMPONENT_GROUPS) {
+      const slugs = subgroupsOf(group).map(({ subgroup }) => subgroup);
+      expect(new Set(slugs).size, group).toBe(slugs.length);
+      for (const slug of slugs) expect(slug).toMatch(/^[a-z]+(-[a-z]+)*$/);
     }
   });
 });

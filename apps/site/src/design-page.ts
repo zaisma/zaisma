@@ -5,13 +5,13 @@ import { pageStyle } from "./page-styles.ts";
 import { examplePage } from "./example-page.ts";
 import { pageScript, type PageScript } from "./page-scripts.ts";
 import { SCREENS_PATH, SCREENS_SCRIPT, isSitePath, screenNamesOf, screensPane, screensPicker } from "./components/screens.ts";
-import { CHECKED_PAGES, type CheckedPageName } from "./components/checked-pages.ts";
-import { COMPONENT_GROUPS, type Component, type ComponentGroup } from "./components/component.ts";
+import { CHECKED_PAGES, galleryPageName, type CheckedPageName } from "./components/checked-pages.ts";
+import { COMPONENT_GROUPS, COMPONENT_SUBGROUPS, GALLERY_PLACES, galleryPagePath, subgroupsOf, type Component, type ComponentGroup, type GalleryPlace } from "./components/component.ts";
 import { COMPONENTS, COMPONENT_SCRIPT, COMPONENT_STYLES, HEADER_SCRIPT } from "./components/index.ts";
 import { EDGE, STAND_IN_BACKGROUNDS_SCRIPT, backdrop, logo, pageSettingsAttributes, railMarkup } from "./components/foundations.ts";
 import { cutButton, runButton, textLink } from "./components/actions.ts";
-import { cutField, tabSwitch } from "./components/inputs.ts";
-import { loadMore } from "./components/navigation.ts";
+import { cutField } from "./components/inputs.ts";
+import { loadMore, sidebar, sidebarButton, sidebarLayout, type SidebarPlace } from "./components/navigation.ts";
 import { stack } from "./components/layout.ts";
 import { listRows, emptyState } from "./components/data.ts";
 import { cutPolygon, glassPane, tray } from "./components/foundations.ts";
@@ -30,9 +30,25 @@ type GalleryTheme = "light" | "dark";
 const themeOf = (url: URL): GalleryTheme => (url.searchParams.get("theme") === "dark" ? "dark" : "light");
 const themeQuery = (theme: GalleryTheme) => (theme === "dark" ? "?theme=dark" : "");
 
-/** Each group is a page of its own: the foundations at /design, the rest at /design/<group>. */
-export const groupPath = (group: ComponentGroup) => (group === "foundations" ? "/design" : `/design/${group}`);
-const groupOfPath = (pathname: string): ComponentGroup | undefined => COMPONENT_GROUPS.find(({ group }) => groupPath(group) === pathname)?.group;
+/** The page an address shows, or where an old one (a group's own page, from before it had subgroups) goes on to now. */
+function placeOfPath(pathname: string): { place: GalleryPlace } | { redirectPath: string } | undefined {
+  const place = GALLERY_PLACES().find((each) => galleryPagePath(each.group, each.subgroup) === pathname);
+  if (place) return { place };
+  const [, designPart, groupPart, subgroupPart, ...rest] = pathname.split("/");
+  const group = COMPONENT_GROUPS.find((each) => each.group === groupPart)?.group;
+  if (designPart !== "design" || !group || rest.length || !subgroupsOf(group).length) return undefined;
+  if (subgroupPart === undefined) return { redirectPath: galleryPagePath(group) };
+  // /design/foundations/look is /design.
+  if (subgroupPart === subgroupsOf(group)[0]!.subgroup) return { redirectPath: galleryPagePath(group, subgroupPart) };
+  return undefined;
+}
+
+/** A page's name in words: "Fields · Inputs", or a group's alone. */
+const placeName = (place: GalleryPlace) => {
+  const groupName = COMPONENT_GROUPS.find((each) => each.group === place.group)!.name;
+  const subgroupName = COMPONENT_SUBGROUPS.find((each) => each.group === place.group && each.subgroup === place.subgroup)?.name;
+  return subgroupName ? `${subgroupName} · ${groupName}` : groupName;
+};
 
 /** Words that name a token (--spring) set as code: Jost draws two hyphens as one dash, and code never breaks a name across lines. */
 const withTokens = (words: string): Raw => html`${words.split(/(--[a-z0-9-]+)/).map((part, partIndex) => (partIndex % 2 ? html`<code>${part}</code>` : part))}`;
@@ -88,22 +104,31 @@ export function designPage(env: Env, url: URL): Response | null {
   if (url.pathname === "/design/examples/older-versions") return olderVersionsPage(env, url);
   if (url.pathname === "/design/example") return examplePage(env);
   if (url.pathname === SCREENS_PATH) return isLocalSite(env) ? screensPage(env, url) : null;
-  const group = groupOfPath(url.pathname.replace(/\/+$/, "") || "/");
-  if (!group) return null;
+  const found = placeOfPath(url.pathname.replace(/\/+$/, "") || "/");
+  if (!found) return null;
+  if ("redirectPath" in found) return new Response(null, { status: 308, headers: { Location: `${found.redirectPath}${url.search}` } });
+  const { place } = found;
   const theme = themeOf(url);
-  const components = COMPONENTS();
-  const main = html`<h1 class="group-name">${COMPONENT_GROUPS.find((each) => each.group === group)!.name}</h1>
-${components.filter((each) => each.group === group).map((each) => section(each, theme))}`;
+  const shown = COMPONENTS().filter((each) => each.group === place.group && each.subgroup === place.subgroup);
+  const main = html`<h1 class="group-name">${placeName(place)}</h1>
+${shown.map((each) => section(each, theme))}`;
+  const checkedPage = galleryPageName(place);
   // The layout group's Screens example frames the example page.
-  return galleryPage(env, { group, theme, path: `${url.pathname}${url.search}`, title: COMPONENT_GROUPS.find((each) => each.group === group)!.name, checkedPage: `Gallery: ${group}`, main, frames: group === "layout" ? ["'self'"] : [] });
+  return galleryPage(env, { place, theme, path: `${url.pathname}${url.search}`, title: placeName(place), checkedPage, main, frames: place.group === "layout" ? ["'self'"] : [] });
 }
 
-/** A page of the gallery: its bar with light or dark and the groups, the groups down its side, and what it shows. */
-function galleryPage(env: Env, options: { group: ComponentGroup; theme: GalleryTheme; path: string; title: string; checkedPage: CheckedPageName; main: Raw; scripts?: PageScript[]; frames?: string[]; isIndexHidden?: boolean }): Response {
-  const { group, theme } = options;
+/** A page of the gallery: its bar with the sidebar's button and light or dark, the groups and their subgroups down its side, and what it shows. */
+function galleryPage(env: Env, options: { place: GalleryPlace; theme: GalleryTheme; path: string; title: string; checkedPage: CheckedPageName; main: Raw; scripts?: PageScript[]; frames?: string[]; isScreens?: boolean }): Response {
+  const { place, theme } = options;
+  const group = place.group;
   const components = COMPONENTS();
   const groups = COMPONENT_GROUPS.filter(({ group: each }) => components.some((component) => component.group === each));
-  const groupTabs = groups.map(({ group: each, name }) => ({ label: name, href: `${groupPath(each)}${themeQuery(theme)}`, isCurrent: each === group }));
+  const places: SidebarPlace[] = groups.map(({ group: each, name }) => ({
+    label: name,
+    href: `${galleryPagePath(each)}${themeQuery(theme)}`,
+    isCurrent: !options.isScreens && each === group,
+    places: subgroupsOf(each).map(({ subgroup, name: subgroupName }) => ({ label: subgroupName, href: `${galleryPagePath(each, subgroup)}${themeQuery(theme)}`, isCurrent: !options.isScreens && each === group && subgroup === place.subgroup })),
+  }));
   const page = html`<!doctype html>
 <html lang="en" data-page-shape="wide">
 <head>
@@ -113,18 +138,18 @@ ${checkedPageTag(options.checkedPage)}
 <body class="gallery">
 <div id="stage" class="stage"${pageSettingsAttributes({ theme })}>${backdrop()}
 <header class="gallery-bar glass" data-compacts data-rail-starts-below data-glass data-glass-corners="header">${EDGE}${logo("wordmark")}<span class="gallery-title">Design</span>
-${cutButton("Groups", { type: "button", isSmall: true, controls: "gallery-index", isExpanded: !options.isIndexHidden })}
-${themeButton(options.path, theme)}
-<div class="gallery-groups">${tabSwitch({ label: "Groups", switchSize: "small", tabs: groupTabs, isFramed: true })}</div></header>
-<div class="gallery-layout${options.isIndexHidden ? " is-index-hidden" : ""}">
-<nav class="gallery-index glass" id="gallery-index" aria-label="Groups" data-glass data-glass-corners="pane">${EDGE}${tabSwitch({ label: "Groups", switchSize: "big", isVertical: true, tabs: groupTabs.map((tab) => ({ ...tab, extra: raw(` data-gallery-page="${tab.href.split("?")[0]}"`) })) })}</nav>
-<main class="gallery-main">
+${sidebarButton({ controls: "gallery-places", label: "Groups", isExpanded: !options.isScreens })}
+${themeButton(options.path, theme)}</header>
+<div class="gallery-layout">${sidebarLayout({
+    sidebar: sidebar({ id: "gallery-places", label: "Design", places, rememberKey: options.isScreens ? "gallery-screens" : "gallery" }),
+    main: html`<main class="gallery-main">
 ${options.main}
-</main>
-</div>
+</main>`,
+    isCollapsed: options.isScreens,
+  })}</div>
 ${railMarkup("page")}
 </div>
-${pageData("design-pages", Object.fromEntries(components.map((each) => [each.slug, groupPath(each.group)])))}
+${pageData("design-pages", Object.fromEntries(components.map((each) => [each.slug, galleryPagePath(each.group, each.subgroup)])))}
 ${stylesAppliedTag()}
 </body>
 </html>`;
@@ -145,13 +170,13 @@ function screensPage(env: Env, url: URL): Response {
   const panes = shown.length ? shown : [{ path: "/design/example", title: titleOf("/design/example") }];
   // The picker and each page's screens, one under another a block's gap apart (a Stack), never set down side by side by hand.
   const main = html`<h1 class="group-name">Screens</h1>${stack({ items: [screensPicker(panes[0]!.path, screenNamesOf(url)), ...panes.map((pane) => screensPane({ ...pane, screenNames: screenNamesOf(url), screensPath: `${url.pathname}${url.search}` }))].map((markup) => ({ kind: "block" as const, markup })) })}`;
-  return galleryPage(env, { group: "layout", theme, path: `${url.pathname}${url.search}`, title: "Screens", checkedPage: "Screens", main, frames: ["'self'"], isIndexHidden: true });
+  return galleryPage(env, { place: { group: "layout" }, theme, path: `${url.pathname}${url.search}`, title: "Screens", checkedPage: "Screens", main, frames: ["'self'"], isScreens: true });
 }
 
 export const GALLERY_STYLES = `
 /* The gallery: Zaisma's own page, a glass bar with the light or dark button, the groups, and each component's examples in labeled cells. */
 /* Where things rest under the bar: its inset, its height and the gap between blocks, so the stuck index sits where it sat at the top. */
-html { --gallery-bar-height: 68px; --under-gallery-bar: calc(var(--pad-pane) + var(--gallery-bar-height) + var(--gap-block-block)); scroll-padding-top: var(--under-gallery-bar); }
+html { --gallery-bar-height: 68px; --under-gallery-bar: calc(var(--pad-pane) + var(--gallery-bar-height) + var(--gap-block-block)); --header-room: var(--under-gallery-bar); scroll-padding-top: var(--under-gallery-bar); }
 body.gallery { margin: 0; min-height: 100vh; font: var(--type-reading); }
 .stage { min-height: 100vh; color: var(--ink); background: var(--page); }
 /* Padding, not the bar's margin, keeps it off the top: a margin would collapse through the stage and show a strip of nothing above it. */
@@ -162,14 +187,9 @@ body.gallery { margin: 0; min-height: 100vh; font: var(--type-reading); }
 .gallery-bar > .logo { --logo-height: 24px; }
 .gallery-title { font: var(--type-name); color: var(--ink-2); padding-left: var(--gap-words-words); border-left: var(--divider); }
 .gallery-bar > .cut-btn[href] { margin-left: auto; }
-/* The groups fold away, so a page that wants the room (Screens) has the whole width. */
-.gallery-layout.is-index-hidden { grid-template-columns: minmax(0, 1fr); }
-.gallery-layout.is-index-hidden > .gallery-index { display: none; }
-.gallery-layout { max-width: var(--size-page-wide); margin: 0 auto; padding: var(--gap-block-block) var(--pad-pane) calc(2 * var(--gap-block-block)); display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: var(--gap-block-block); align-items: start; }
-.gallery-index { position: sticky; top: var(--under-gallery-bar); align-self: start; padding: var(--pad-inner-pane); }
-.gallery-groups { display: none; }
+.gallery-layout { max-width: var(--size-page-wide); margin: 0 auto; padding: var(--gap-block-block) var(--pad-pane) calc(2 * var(--gap-block-block)); }
 .gallery-main { min-width: 0; }
-/* The group's name is already the current place in the index (or the tabs on a phone), so on the page it's only for screen readers. */
+/* The page's name is already the current place in the sidebar, so on the page it's only for screen readers. */
 .group-name { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .component-section { margin: 0 0 calc(2 * var(--gap-block-block)); scroll-margin-top: var(--under-gallery-bar); }
 .component-name { margin: 0; font: var(--type-section); }
@@ -211,25 +231,13 @@ body.gallery { margin: 0; min-height: 100vh; font: var(--type-reading); }
 .stand-in-row { display: grid; grid-template-columns: repeat(4, minmax(150px, 1fr)); gap: var(--gap-block-block); }
 /* With a mouse, the page's rail gets a gutter of its own, clear of the cards. */
 @media (hover: hover) and (pointer: fine) and (min-width: 761px) { .gallery-layout { padding-right: 34px; } }
-/* Phones: the bar is one row (Zaisma, Design, light or dark), the groups a row of tabs under it that scrolls sideways, and every example a column of its own. */
+/* Phones: the bar is one row (Zaisma, Design, the sidebar's button, light or dark), the sidebar a sheet the button slides over the page, and every example a column of its own. */
 @media (max-width: 760px) {
-  html { scroll-padding-top: 130px; }
-  .gallery-layout { grid-template-columns: minmax(0, 1fr); }
-  .gallery-index { display: none; }
-  /* On a phone the groups are the tabs in the bar, so there's nothing to fold away. */
-  .gallery-bar > [aria-controls="gallery-index"] { display: none; }
-  /* The groups are a row of tabs inside the floating bar, which sticks as the page scrolls. At the very top the bar is roomy; once the page moves it tightens to the row and the tabs. */
-  /* The switch's carved track stays put across the bar, its cut ends and light sharp; only the tabs scroll inside it, fading out
-     before they reach its ends, and only on a side with more tabs past it, so the last tab is never under the fade at the end. */
-  .gallery-groups { display: flex; flex: 1 0 100%; min-width: 0; }
-  .gallery-groups > .switch-frame { flex: 1; }
-  /* One even inset all round, and the same between the rows, so the tabs' frame and the light or dark button sit the same distance
-     from every edge of the pane; compact keeps it even, only smaller. */
+  /* One even inset all round, so the buttons sit the same distance from every edge of the pane; compact keeps it even, only smaller. */
   .gallery-bar { min-height: 56px; transition: var(--glass-transition), padding 0.25s, gap 0.25s; }
   .gallery-bar.is-compact { padding: calc(var(--pad-inner-pane) * 2 / 3); }
   .gallery-bar > .logo { --logo-height: 22px; }
   .gallery-bar.is-compact > .logo { --logo-height: 18px; }
-  .component-section { scroll-margin-top: 130px; }
   .examples { grid-template-columns: minmax(0, 1fr); }
   .cover-sample { width: 100%; }
   .dropdown-frame { height: 420px; }
@@ -262,18 +270,8 @@ export const GALLERY_SCRIPT = pageScript(
   var asked = location.hash.slice(1);
   if (asked && !document.getElementById(asked) && pages[asked]) { location.replace(pages[asked] + location.search + location.hash); return; }
   function query(theme) { return theme === "dark" ? "?theme=dark" : ""; }
-  // Light or dark switches in place, and every link to another group's page keeps it.
+  // Light or dark switches in place, and every link to another page of the gallery keeps it. (The sidebar folds away by itself: SIDEBAR_SCRIPT.)
   var button = document.querySelector(".gallery-bar > a.cut-btn");
-  // The groups down the side fold away and back (Groups, in the bar), and this browser remembers which.
-  var layout = document.querySelector(".gallery-layout"), groupsButton = document.querySelector('.gallery-bar > [aria-controls="gallery-index"]');
-  function showGroups(isShown) { layout.classList.toggle("is-index-hidden", !isShown); groupsButton.setAttribute("aria-expanded", String(isShown)); }
-  // Remembered apart for Screens, which starts with them folded, and the groups' own pages.
-  var groupsKey = "zaisma-gallery-groups:" + (location.pathname === "/design/screens" ? "screens" : "pages");
-  try { var kept = localStorage.getItem(groupsKey); if (groupsButton && (kept === "shown" || kept === "hidden")) showGroups(kept === "shown"); } catch (error) {}
-  if (groupsButton) groupsButton.addEventListener("click", function () {
-    var isShown = layout.classList.contains("is-index-hidden"); showGroups(isShown);
-    try { localStorage.setItem(groupsKey, isShown ? "shown" : "hidden"); } catch (error) {}
-  });
   // The Page settings example's Light or Dark (a Switch) follows the theme wherever it's changed.
   function pickTheme(theme) {
     document.querySelectorAll("[data-setting-theme] .tab-switch").forEach(function (sw) {
@@ -291,7 +289,7 @@ export const GALLERY_SCRIPT = pageScript(
     window.zaismaSettings.set({ theme: theme }, stage);
     pickTheme(theme);
     if (button) { button.href = themed(location.href, theme === "dark" ? "light" : "dark"); button.setAttribute("aria-label", theme === "dark" ? "Dark. Switch to light" : "Light. Switch to dark"); }
-    document.querySelectorAll('[data-gallery-page], .gallery-groups a').forEach(function (link) { link.href = themed(link.href, theme); });
+    document.querySelectorAll("#gallery-places a, #gallery-places-sheet a").forEach(function (link) { link.href = themed(link.href, theme); });
     history.replaceState(null, "", themed(location.href, theme));
   }
   document.addEventListener("click", function (event) {

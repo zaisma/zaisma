@@ -2,9 +2,9 @@ import { html, raw, type Raw } from "../markup.ts";
 import { pageScript } from "../page-scripts.ts";
 import { component } from "./component.ts";
 import { controlMarkup, type ControlMarkup } from "./control-markup.ts";
-import { CUT_LINE, EDGE, glassPane, icon, logo, railMarkup, type IconName } from "./foundations.ts";
+import { CUT_LINE, EDGE, glassPane, icon, logo, railMarkup, sheetMarkup, type IconName } from "./foundations.ts";
 import { cutPolygon } from "./tokens.ts";
-import { cutButton, rowArrows, runButton, textLink } from "./actions.ts";
+import { cutButton, quietButton, rowArrows, runButton, textLink } from "./actions.ts";
 import { searchField, tabSwitch, type SearchFieldOptions, type SwitchTab } from "./inputs.ts";
 import { STAND_IN_COVERS, dropdown, type DropdownItem } from "./panes.ts";
 import { listRows, pictureFrame } from "./data.ts";
@@ -742,6 +742,7 @@ component({
   name: "Header",
   slug: "header",
   group: "navigation",
+  subgroup: "bars",
   summary: "The top of every page: Zaisma, where you are, search when the page has one, and you. It floats as glass and slims once the page scrolls.",
   styles: HEADER_STYLES,
   render: header,
@@ -763,6 +764,7 @@ component({
   name: "Account button",
   slug: "account-button",
   group: "navigation",
+  subgroup: "bars",
   summary: "You, at the header's end once you're signed in: your picture alone is the button, online, as tall as the controls beside it. It opens the account menu, which names you.",
   styles: `
 /* Your picture in its frame, as tall as the controls beside it and cut by the edge rule like them (Picture frame's isCut), so it fits the
@@ -796,6 +798,7 @@ component({
   name: "Footer",
   slug: "footer",
   group: "navigation",
+  subgroup: "bars",
   summary: "The end of every page: for game developers, the forum, the source and the rules.",
   styles: `
 /* The foot, at the end of the page. */
@@ -828,6 +831,7 @@ component({
   name: "Rail",
   slug: "rail",
   group: "navigation",
+  subgroup: "scrolling",
   summary: "Zaisma's own scrollbar, on every device: it rests faintly and wakes while things move. On a touch screen its thumb is a little wider and drags with a finger.",
   styles: `
 /* Zaisma's own scrollbar, on every device: a hairline with a slim glass thumb that wakes while it moves.
@@ -944,6 +948,7 @@ component({
   name: "Row arrows",
   slug: "row-arrows",
   group: "navigation",
+  subgroup: "scrolling",
   summary: "Scrolling a row of games with a mouse or trackpad: two raised slabs in a carved well. At a row's end that arrow lies flat; touch screens swipe instead.",
   styles: `
 /* Arrows to scroll a row, for a mouse or trackpad, at the right of the row's heading: a carved well like a switch's, holding two raised
@@ -1020,6 +1025,7 @@ component({
   name: "Shelf",
   slug: "shelf",
   group: "navigation",
+  subgroup: "scrolling",
   summary: "A row of games under its heading: the home's Popular, Trending and Continue playing. Its sort and its arrows sit at the heading's end; its covers scroll sideways, a few showing with the next peeking in.",
   styles: `
 /* A shelf: its heading, then its sort and its arrows together, in a row, then its track of covers. The heading keeps its whole width
@@ -1094,67 +1100,253 @@ export function sectionTabs(options: SectionTabsOptions): Raw {
   return html`<nav class="section-tabs" aria-label="${options.label}">${tabSwitch({ label: options.label, switchSize: "big", isFramed: true, rowId: options.rowId, tabs: options.tabs })}</nav>`;
 }
 
-export interface SidePlacesOptions {
-  /** What the places are, for a screen reader: "Developer settings". */
+/** A place in a sidebar: a link with its words, and an icon and a count when it has them. */
+export interface SidebarPlace {
   label: string;
-  /** The page's own places, in order, each a link to a section of it (#hosting) with an icon; one is current. */
-  places: (SectionTab & { icon: IconName })[];
-  /** The page itself: its sections, one under another. */
-  body: Raw;
-  /** Unique on the page: the id of the row its places scroll in where they're tabs (Section tabs' rowId). */
-  rowId?: string;
+  href: string;
+  isCurrent?: boolean;
+  icon?: IconName;
+  /** A small number at its end, like unread reports: a Tag. */
+  badgeCount?: number;
+  /** Its own places (a gallery group's subgroups), shown under it while it's current; it links to the first. */
+  places?: SidebarPlace[];
+}
+
+export interface SidebarOptions {
+  /** Unique on the page: its button names it (sidebarButton's controls), and its phone sheet is "{id}-sheet". */
+  id: string;
+  /** What the places are, for a screen reader and as its sheet's title on a phone: "Design", "Settings". */
+  label: string;
+  places: SidebarPlace[];
+  /** Lowercase words joined by dashes: whether it was left folded is kept per browser under zaisma-sidebar:<rememberKey>. */
+  rememberKey: string;
+}
+
+const sidebarTabs = (places: SidebarPlace[], switchSize: "big" | "small"): ControlMarkup =>
+  tabSwitch({
+    label: "Places",
+    switchSize,
+    isVertical: true,
+    tabs: places.map((place) => ({
+      label: place.label,
+      href: place.places?.[0]?.href ?? place.href,
+      isCurrent: Boolean(place.isCurrent),
+      icon: place.icon,
+      badgeCount: place.badgeCount,
+      after: place.isCurrent && place.places?.length ? html`<div class="sidebar-nested">${sidebarTabs(place.places, "small")}</div>` : undefined,
+    })),
+  });
+
+/**
+ * A page's own places down its side: one glass pane of them, a vertical switch, the current place's own places under it. On a wide screen it
+ * sits beside the page (sidebarLayout) and its button folds it away; on a phone it's a sheet that slides over the page from the start edge,
+ * on the layer stack like every sheet (LAYERS_SCRIPT), gone once a place is picked, on a press beside it or Esc.
+ */
+export function sidebar(options: SidebarOptions): Raw {
+  const places = sidebarTabs(options.places, "big");
+  return html`<nav class="sidebar glass" id="${options.id}" aria-label="${options.label}" data-sidebar-remember="${options.rememberKey}" data-glass data-glass-corners="pane">${EDGE}${places}</nav>${sheetMarkup({ id: `${options.id}-sheet`, title: options.label, body: places, closeButton: quietButton("Close", { type: "submit", formMethod: "dialog", icon: "close", isLabelHidden: true, isSmall: true }), placement: "start" })}`;
+}
+
+/** The button that folds a sidebar away and back on a wide screen, and slides it over the page on a phone: in the page's bar, or above the page. */
+export function sidebarButton(options: { controls: string; label: string; isExpanded: boolean }): ControlMarkup {
+  return cutButton(options.label, { type: "button", icon: "sidebar", isLabelHidden: true, isSmall: true, controls: options.controls, isExpanded: options.isExpanded, dataAttributes: { "sidebar-button": "" } });
 }
 
 /**
- * A page's own places down its side, beside the page: a vertical switch on a pane that stays in view while the page scrolls by, and the
- * page at most a reading page's column (--size-page-reading) beside it, the pair centered in the wide frame (a reading page: Page shape). Where both can't have room, the places are the section tabs at the top of the page.
+ * A sidebar beside the page: the sidebar in its own column, staying in view while the page scrolls, the page in the rest. Folded, the page
+ * takes the whole width. On a reading page the page is a reading column and the pair sits in the middle of the wide frame. On a phone the
+ * sidebar is its sheet, so the page has the width there too.
  */
-export function sidePlaces(options: SidePlacesOptions): Raw {
-  return html`<div class="side-places"><div class="side-places-in"><nav class="side-places-side" aria-label="${options.label}">${glassPane({ paneWidth: "fit", body: tabSwitch({ label: options.label, switchSize: "big", isVertical: true, tabs: options.places }) })}</nav><div class="side-places-top">${sectionTabs({ label: options.label, rowId: options.rowId, tabs: options.places.map((place) => ({ label: place.label, href: place.href, isCurrent: place.isCurrent, badgeCount: place.badgeCount, state: place.state })) })}</div><div class="side-places-body">${options.body}</div></div></div>`;
+export function sidebarLayout(options: { sidebar: Raw; main: Raw; isCollapsed?: boolean }): Raw {
+  return html`<div class="sidebar-layout${options.isCollapsed ? " is-collapsed" : ""}">${options.sidebar}<div class="sidebar-main">${options.main}</div></div>`;
 }
 
-/** The least room for the places beside the page: below it, they are the tabs at the top (a container query can't read a token). */
-const SIDE_PLACES_LEAST_PX = 760;
+/** Where a sidebar is a sheet over the page instead of beside it: the gallery's phone width. */
+const SIDEBAR_SHEET_WIDTH_PX = 760;
+
+/**
+ * The sidebar's button. On a wide screen it folds the sidebar away and back (an exit of opacity and transform only, then the column goes),
+ * remembered per browser; at phone width it opens the sidebar's sheet, which a place picked, a press beside it or Esc closes, and the focus
+ * goes back to the button.
+ */
+export const SIDEBAR_SCRIPT = `/* sidebars */(function () {
+  var phone = window.matchMedia("(max-width: ${SIDEBAR_SHEET_WIDTH_PX}px)");
+  var isReduced = function () { return window.matchMedia("(prefers-reduced-motion: reduce)").matches; };
+  function keyOf(nav) { return "zaisma-sidebar:" + nav.getAttribute("data-sidebar-remember"); }
+  function buttonsOf(nav) { return document.querySelectorAll('[data-sidebar-button][aria-controls="' + nav.id + '"], [data-sidebar-button][aria-controls="' + nav.id + '-sheet"]'); }
+  function say(nav) {
+    var layout = nav.closest(".sidebar-layout"), sheet = document.getElementById(nav.id + "-sheet");
+    buttonsOf(nav).forEach(function (button) {
+      button.setAttribute("aria-controls", phone.matches ? nav.id + "-sheet" : nav.id);
+      button.setAttribute("aria-expanded", String(phone.matches ? Boolean(sheet && sheet.open) : Boolean(layout && !layout.classList.contains("is-collapsed"))));
+    });
+  }
+  function fold(nav, isFolded, isKept) {
+    var layout = nav.closest(".sidebar-layout");
+    if (!layout) return;
+    if (isKept) try { localStorage.setItem(keyOf(nav), isFolded ? "hidden" : "shown"); } catch (error) {}
+    if (!isFolded) { layout.classList.remove("is-collapsed", "is-folding"); say(nav); return; }
+    if (isReduced() || !isKept) { layout.classList.add("is-collapsed"); say(nav); return; }
+    layout.classList.add("is-folding");
+    var done = function () { if (!layout.classList.contains("is-folding")) return; layout.classList.remove("is-folding"); layout.classList.add("is-collapsed"); say(nav); };
+    nav.addEventListener("transitionend", function end(event) { if (event.target === nav) { nav.removeEventListener("transitionend", end); done(); } });
+    setTimeout(done, 300);
+  }
+  window.zaismaWatch.each("nav.sidebar[data-sidebar-remember]", function (nav) {
+    try { var kept = localStorage.getItem(keyOf(nav)); if (kept === "shown" || kept === "hidden") fold(nav, kept === "hidden", false); } catch (error) {}
+    var sheet = document.getElementById(nav.id + "-sheet");
+    if (sheet) {
+      sheet.addEventListener("close", function () { say(nav); var button = buttonsOf(nav)[0]; if (button && (!document.activeElement || document.activeElement === document.body || sheet.contains(document.activeElement))) button.focus({ preventScroll: true }); });
+      // A place picked closes it, whether it goes to another page or to a part of this one.
+      sheet.addEventListener("click", function (event) { if (event.target.closest && event.target.closest("a[href]")) sheet.close(); });
+    }
+    say(nav);
+  });
+  document.addEventListener("click", function (event) {
+    var button = event.target.closest && event.target.closest("[data-sidebar-button]");
+    if (!button) return;
+    var id = button.getAttribute("aria-controls").replace(/-sheet$/, ""), nav = document.getElementById(id), sheet = document.getElementById(id + "-sheet");
+    if (!nav) return;
+    if (phone.matches) { if (sheet && !sheet.open) { sheet.showModal(); say(nav); } return; }
+    fold(nav, !nav.closest(".sidebar-layout").classList.contains("is-collapsed"), true);
+  });
+  // Grown past a phone's width with the sheet open, the sidebar is beside the page again.
+  phone.addEventListener("change", function () {
+    document.querySelectorAll("nav.sidebar[data-sidebar-remember]").forEach(function (nav) { var sheet = document.getElementById(nav.id + "-sheet"); if (!phone.matches && sheet && sheet.open) sheet.close(); say(nav); });
+  });
+})();
+`;
+
+const GALLERY_GROUPS: SidebarPlace[] = [
+  { label: "Foundations", href: "#sidebar" },
+  { label: "Layout", href: "#sidebar" },
+  { label: "Actions", href: "#sidebar" },
+  {
+    label: "Inputs",
+    href: "#sidebar",
+    isCurrent: true,
+    places: [
+      { label: "Fields", href: "#sidebar", isCurrent: true },
+      { label: "Dates", href: "#sidebar" },
+      { label: "Choices", href: "#sidebar" },
+      { label: "Pickers", href: "#sidebar" },
+    ],
+  },
+  { label: "Navigation", href: "#sidebar" },
+  { label: "Panes", href: "#sidebar" },
+  { label: "Data", href: "#sidebar" },
+];
+const SETTINGS_PLACES: SidebarPlace[] = [
+  { label: "Hosting", icon: "gauge", href: "#sidebar", isCurrent: true },
+  { label: "Pro", icon: "plus", href: "#sidebar" },
+  { label: "Payments", icon: "card", href: "#sidebar", badgeCount: 2 },
+  { label: "Keys", icon: "key", href: "#sidebar" },
+];
+const settingsPanes = stack({
+  items: [
+    { kind: "block", markup: glassPane({ paneWidth: "full", label: "Hosting", body: stack({ items: [{ kind: "words", markup: html`<h2>Hosting</h2>` }, { kind: "words", markup: html`<p>$18.40 of credit. Each game's first share of hosting is free every month.</p>` }] }) }) },
+    { kind: "block", markup: glassPane({ paneWidth: "full", label: "Keys", body: stack({ items: [{ kind: "words", markup: html`<h2>Keys</h2>` }, { kind: "words", markup: html`<p>A key lets your AI tool or the upload command work on your games.</p>` }] }) }) },
+  ],
+});
+const stillSidebar = (id: string, places: SidebarPlace[]) => html`<nav class="sidebar glass" id="${id}" aria-label="Design" data-glass data-glass-corners="pane">${EDGE}${sidebarTabs(places, "big")}</nav>`;
 
 component({
-  name: "Side places",
-  slug: "side-places",
-  group: "layout",
-  summary: "A page's own places down its side, beside the page: a vertical switch on a pane that stays in view while the page scrolls, like Developer settings' Hosting, Pro and Keys. The page runs a column's width at most beside it. Where both can't have room, the places become the section tabs at the top of the page.",
+  name: "Sidebar",
+  slug: "sidebar",
+  group: "navigation",
+  subgroup: "places",
+  summary: "A page's own places down its side: the gallery's groups, Developer settings' Hosting, Pro and Keys. Beside the page on a wide screen, where its button folds it away for the whole width and the browser remembers; over the page on a phone, where the same button slides it in. The current place's own places sit under it. Never a sidebar built in place.",
   styles: `
-/* Side places: the places on a pane beside the page, which stays in view under the header while the page scrolls; the page is at most a
-   column's width, and the two sit in the middle of the room. Narrower than both need, the places are the section tabs at the page's top. */
-.side-places { container-type: inline-size; width: 100%; min-width: 0; }
-.side-places-in { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--gap-block-block); align-items: start; }
-.side-places-side { display: none; }
-.side-places-top { display: flex; justify-content: center; min-width: 0; }
-.side-places-body { min-width: 0; }
-@container (min-width: ${SIDE_PLACES_LEAST_PX}px) {
-  .side-places-in { grid-template-columns: auto minmax(0, var(--size-page-reading)); justify-content: center; }
-  .side-places-side { display: block; position: sticky; top: var(--header-room, var(--pad-pane)); }
-  .side-places-top { display: none; }
+/* A sidebar: one pane of glass holding a vertical switch of places, the current one's own places a small switch under it, indented. */
+.sidebar { padding: var(--pad-inner-pane); }
+.sidebar > .tab-switch { width: 100%; }
+.sidebar-nested { padding: 0 0 var(--gap-control-row) var(--gap-block-block); }
+.sidebar-nested > .tab-switch { width: 100%; }
+/* On a phone it's its sheet, sliding over the page from the start edge, as tall as the screen less the page's edge. */
+.sheet.placement-start:not(.in-place) { inset: var(--pad-pane) auto var(--pad-pane) var(--pad-pane); width: min(var(--size-sidebar), calc(100% - 3 * var(--pad-pane))); max-width: none; height: calc(100dvh - 2 * var(--pad-pane)); max-height: none; margin: 0; }
+.sheet.placement-start:not(.in-place) > .sheet-in { height: 100%; }
+.sheet.placement-start:is(:not([open]), .is-leaving) { transform: translateX(-40px); }
+@starting-style { .sheet.placement-start[open] { transform: translateX(-40px); } }
+.sheet.placement-start.in-place { width: min(var(--size-sidebar), 100%); max-width: none; }
+.sheet.placement-start .tab-switch { width: 100%; }
+@media (prefers-reduced-motion: reduce) {
+  .sheet.placement-start:is(:not([open]), .is-leaving) { transform: none; } @starting-style { .sheet.placement-start[open] { transform: none; } }
 }
+/* The gallery's still copies: a sidebar as it sits, and a phone's screen with the sheet over its page. */
+.sidebar-example-phone { position: relative; width: 320px; max-width: 100%; height: 480px; overflow: hidden; box-shadow: var(--well-shade); }
+.sidebar-example-phone > .sheet { position: absolute; inset: var(--gap-control-stack) auto var(--gap-control-stack) var(--gap-control-stack); height: auto; }
+.sidebar-example-phone > .sidebar-example-page { padding: var(--pad-pane); opacity: 0.45; }
 `,
-  render: sidePlaces,
+  render: sidebar,
   examples: [
+    { label: "Open, a group's subgroups under it", markup: stillSidebar("example-sidebar-nested", GALLERY_GROUPS) },
+    { label: "Places with icons and counts", markup: stillSidebar("example-sidebar-icons", SETTINGS_PLACES) },
     {
-      label: "Developer settings' places beside its panes",
+      label: "Beside a page: fold it and unfold it",
       isWide: true,
-      markup: sidePlaces({
-        label: "Settings",
-        places: [
-          { label: "Hosting", icon: "gauge", href: "#side-places", isCurrent: true },
-          { label: "Pro", icon: "plus", href: "#side-places", isCurrent: false },
-          { label: "Payments", icon: "card", href: "#side-places", isCurrent: false },
-          { label: "Keys", icon: "key", href: "#side-places", isCurrent: false },
+      markup: stack({
+        items: [
+          { kind: "control", markup: sidebarButton({ controls: "example-sidebar", label: "Settings", isExpanded: true }) },
+          { kind: "block", markup: sidebarLayout({ sidebar: sidebar({ id: "example-sidebar", label: "Settings", places: SETTINGS_PLACES, rememberKey: "gallery-example" }), main: settingsPanes }) },
         ],
-        body: stack({
-          items: [
-            { kind: "block", markup: glassPane({ paneWidth: "full", label: "Hosting", body: stack({ items: [{ kind: "words", markup: html`<h2>Hosting</h2>` }, { kind: "words", markup: html`<p>$18.40 of credit. Each game's first share of hosting is free every month.</p>` }] }) }) },
-            { kind: "block", markup: glassPane({ paneWidth: "full", label: "Keys", body: stack({ items: [{ kind: "words", markup: html`<h2>Keys</h2>` }, { kind: "words", markup: html`<p>A key lets your AI tool or the upload command work on your games.</p>` }] }) }) },
-          ],
-        }),
       }),
+    },
+    {
+      label: "On a phone, over the page",
+      isStill: true,
+      markup: html`<div class="sidebar-example-phone glass" data-glass data-glass-corners="pane">${EDGE}<div class="sidebar-example-page">${settingsPanes}</div>${sheetMarkup({ id: "example-sidebar-phone", title: "Design", body: sidebarTabs(GALLERY_GROUPS, "big"), closeButton: quietButton("Close", { type: "button", icon: "close", isLabelHidden: true, isSmall: true }), placement: "start", isShown: true })}</div>`,
+    },
+  ],
+});
+
+component({
+  name: "Sidebar button",
+  slug: "sidebar-button",
+  group: "navigation",
+  subgroup: "places",
+  summary: "The one button a Sidebar has: in the page's bar, or above the page. On a wide screen it folds the sidebar away and back; on a phone it slides it over the page.",
+  styles: "",
+  render: sidebarButton,
+  examples: [
+    { label: "The sidebar beside the page", markup: sidebarButton({ controls: "example-sidebar-button", label: "Settings", isExpanded: true }) },
+    { label: "The sidebar folded away", markup: sidebarButton({ controls: "example-sidebar-button", label: "Settings", isExpanded: false }) },
+  ],
+});
+
+component({
+  name: "Sidebar layout",
+  slug: "sidebar-layout",
+  group: "layout",
+  summary: "A Sidebar beside the page: the sidebar in its own column, staying in view while the page scrolls, the page in the rest. Folded, the page takes the whole width; on a reading page the page is its reading column and the pair sits in the middle; on a phone the sidebar is a sheet over the page.",
+  styles: `
+/* A Sidebar beside the page: its own column, staying in view under the header while the page scrolls, never taller than the window. It
+   comes in fading and sliding a little, and folds away the same way (SIDEBAR_SCRIPT), only then giving its column to the page. */
+.sidebar-layout { display: grid; grid-template-columns: var(--size-sidebar) minmax(0, 1fr); gap: var(--gap-block-block); align-items: start; }
+.sidebar-layout > .sidebar { position: sticky; top: var(--header-room, var(--pad-pane)); max-height: calc(100dvh - var(--header-room, var(--pad-pane)) - var(--pad-pane)); overflow-y: auto; scrollbar-width: none;
+  transition: var(--glass-transition), opacity 0.2s, transform 0.2s cubic-bezier(.2,.8,.2,1); }
+@starting-style { .sidebar-layout > .sidebar { opacity: 0; transform: translateX(-12px); } }
+.sidebar-layout.is-folding > .sidebar { opacity: 0; transform: translateX(-12px); }
+.sidebar-main { min-width: 0; }
+.sidebar-layout.is-collapsed { grid-template-columns: minmax(0, 1fr); }
+.sidebar-layout.is-collapsed > .sidebar { display: none; }
+/* A reading page: the page a reading column beside it, the pair in the middle of the wide frame; folded, the column alone in the middle. */
+html[data-page-shape="reading"] .sidebar-layout { grid-template-columns: var(--size-sidebar) minmax(0, var(--size-page-reading)); justify-content: center; }
+html[data-page-shape="reading"] .sidebar-layout.is-collapsed { grid-template-columns: minmax(0, var(--size-page-reading)); }
+/* On a phone the sidebar is its sheet over the page (Sidebar), so the page has the width. */
+@media (max-width: ${SIDEBAR_SHEET_WIDTH_PX}px) {
+  .sidebar-layout, html[data-page-shape="reading"] .sidebar-layout { grid-template-columns: minmax(0, 1fr); }
+  .sidebar-layout > .sidebar { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { .sidebar-layout > .sidebar { transition: var(--glass-transition); } }
+`,
+  render: sidebarLayout,
+  examples: [
+    { label: "Beside a page", isWide: true, isStill: true, markup: sidebarLayout({ sidebar: stillSidebar("example-sidebar-beside", SETTINGS_PLACES), main: settingsPanes }) },
+    {
+      label: "Folded: the page has the whole width",
+      isWide: true,
+      isStill: true,
+      markup: sidebarLayout({ sidebar: stillSidebar("example-sidebar-folded", SETTINGS_PLACES), main: settingsPanes, isCollapsed: true }),
     },
   ],
 });
@@ -1166,6 +1358,7 @@ component({
   name: "Section tabs",
   slug: "section-tabs",
   group: "navigation",
+  subgroup: "places",
   summary: "A page's own sections, under its title: a game dashboard's Overview, Versions and Players, a profile's Games and Friends. On a phone they scroll sideways, fading at the edge with more.",
   styles: `
 /* Section tabs: the header's framed switch for a page's own sections. As wide as its tabs, and never wider than the page: past that
@@ -1284,6 +1477,7 @@ component({
   name: "Load more",
   slug: "load-more",
   group: "navigation",
+  subgroup: "scrolling",
   summary: "Under a long list (versions, players, topics): the next page added in place, busy while it comes; under a grid of covers it loads by itself as you scroll. Without scripts it's a link to that page.",
   styles: `
 /* Load more: a full-width cut button under its list, a block below it, with what went wrong under it as a control's words; or, once the
@@ -1398,6 +1592,7 @@ component({
   name: "Filter menu",
   slug: "filter-menu",
   group: "panes",
+  subgroup: "menus",
   summary: "The ways to narrow a list, in one menu from a Filter button that counts the ones in use: each way says what's picked, and opens its choices in the same pane, with a way back.",
   styles: `
 /* A Filter menu: a Dropdown whose rows each open a group's choices in its place (a group's row ends in what's picked and a chevron),

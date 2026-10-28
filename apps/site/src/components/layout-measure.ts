@@ -517,18 +517,18 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
     var screenWidthPx = document.documentElement.clientWidth;
     var wideWidthPx = Math.min(lengthPx("var(--size-page-wide)"), screenWidthPx - 2 * padPanePx), readingWidthPx = Math.min(lengthPx("var(--size-page-reading)"), screenWidthPx - 2 * padPanePx);
     var frameOf = function (widthPx) { return { left: (screenWidthPx - widthPx) / 2, right: (screenWidthPx + widthPx) / 2, widthPx: widthPx }; };
-    var sidePlaces = document.querySelector("main .side-places-body");
+    var sidePlaces = document.querySelector("main .sidebar-main");
     // The shape's box: the wide frame, or a reading page's column (the body beside its places, where it has them).
     var column = pageShape === "reading" ? (sidePlaces && isShown(sidePlaces) ? { left: sidePlaces.getBoundingClientRect().left, right: sidePlaces.getBoundingClientRect().left + readingWidthPx, widthPx: readingWidthPx } : frameOf(readingWidthPx)) : frameOf(wideWidthPx);
     var wide = frameOf(wideWidthPx);
     Array.prototype.forEach.call(document.querySelectorAll("main .glass-pane, main .table, main .layout-grid, main .tray"), function (el) {
       if (!isShown(el) || isOnFixed(el) || el.closest(EXAMPLE + ", " + OVER_PAGE) || scrollerIn(el, document.body)) return;
-      var r = el.getBoundingClientRect(), box = el.closest(".side-places-side") ? wide : column;
+      var r = el.getBoundingClientRect(), box = el.closest(".sidebar") ? wide : column;
       if (r.left < box.left - TOLERANCE_PX || r.right > box.right + TOLERANCE_PX) report("wider than its page's shape", el, round(r.width) + "px from " + round(r.left) + "px, the " + pageShape + " shape runs " + round(box.widthPx) + "px from " + round(box.left) + "px");
     });
     // A reading page's column sits in the middle, under the header's.
     if (pageShape === "reading" && header && isShown(header)) {
-      var held = sidePlaces && isShown(sidePlaces) ? document.querySelector("main .side-places-in") : document.querySelector("body > main");
+      var held = sidePlaces && isShown(sidePlaces) ? document.querySelector("main .sidebar-layout") : document.querySelector("body > main");
       if (held && isShown(held)) {
         var hr = header.getBoundingClientRect(), cr = held.getBoundingClientRect(), offPx = (cr.left + cr.right) / 2 - (hr.left + hr.right) / 2;
         if (Math.abs(offPx) > TOLERANCE_PX && cr.width < hr.width - TOLERANCE_PX) report("a reading column off the middle", held, "its middle " + round(offPx) + "px off the header's");

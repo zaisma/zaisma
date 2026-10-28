@@ -530,7 +530,7 @@ export const PAGE_SHAPE_STYLES = `
    page is one column (--size-page-reading) centered under the header, or its places down the side beside that column, the pair centered in
    the frame. A full page's world (its backdrop or stage) runs to the screen's edges behind. On a phone every shape is the screen less its margins. */
 html[data-page-shape] body > main { width: min(var(--size-page-wide), calc(100% - 2 * var(--pad-pane))); margin: 0 auto; }
-html[data-page-shape="reading"] body > main:not(:has(> .side-places)) { width: min(var(--size-page-reading), calc(100% - 2 * var(--pad-pane))); }
+html[data-page-shape="reading"] body > main:not(:has(> .sidebar-layout)) { width: min(var(--size-page-reading), calc(100% - 2 * var(--pad-pane))); }
 /* The drawings in the gallery: a screen in its proportions, its world, the header and footer in the frame, and the page's panes at its width. */
 .shape-drawing { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: space-evenly; width: 100%; aspect-ratio: 16 / 9; overflow: hidden; background: var(--well); box-shadow: var(--well-shade); clip-path: var(--cut-shape); }
 .shape-drawing.on-laptop { aspect-ratio: 16 / 10; }
