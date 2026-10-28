@@ -172,6 +172,8 @@ export const PLACE_SCRIPT = `/* place */(function () {
       if (anchor && edge.contains(anchor)) return;
       var position = getComputedStyle(edge).position, r = edge.getBoundingClientRect();
       if ((position !== "fixed" && position !== "sticky") || r.width < 1 || r.height < 1 || r.bottom <= 0 || r.top >= room.bottom) return;
+      // Fixed only inside a frame of its own (a gallery's header example, an offsetParent round it), it isn't pinned to the window.
+      if (position === "fixed" && edge.offsetParent) return;
       if (r.width >= room.right / 2) room.top = Math.max(room.top, r.bottom);
       else if ((r.left + r.right) / 2 < room.right / 2) room.left = Math.max(room.left, r.right);
       else room.right = Math.min(room.right, r.left);
@@ -238,7 +240,7 @@ export const PLACE_SCRIPT = `/* place */(function () {
    */
   var FLOAT_GAP_PX = 6, FLOAT_EDGE_PX = 8, SCROLLED_AWAY_PX = 4;
   window.zaismaFloat = function (pane, options) {
-    var isInPlace = pane.classList.contains("in-place"), isOver = pane.classList.contains("over");
+    var isInPlace = pane.classList.contains("in-place"), isOver = pane.classList.contains("placed-over");
     var openedAt = null;
     function anchorNow() { return typeof options.anchor === "function" ? options.anchor() : options.anchor; }
     if (!isInPlace) {
@@ -751,8 +753,8 @@ component({
 @supports not (overlay: auto) { .floating-pane { transition: var(--glass-transition), opacity 0.2s, transform 0.3s cubic-bezier(.2,.8,.2,1); } }
 .floating-pane:not(:popover-open):not(.in-place) { display: none; opacity: 0; transform: translateY(-6px); pointer-events: none; }
 .floating-pane.is-above:not(:popover-open):not(.in-place) { transform: translateY(6px); }
-.floating-pane.over:not(:popover-open):not(.in-place) { transform: scale(0.97); }
-@starting-style { .floating-pane:popover-open { opacity: 0; transform: translateY(-6px); } .floating-pane.is-above:popover-open { transform: translateY(6px); } .floating-pane.over:popover-open { transform: scale(0.97); } }
+.floating-pane.placed-over:not(:popover-open):not(.in-place) { transform: scale(0.97); }
+@starting-style { .floating-pane:popover-open { opacity: 0; transform: translateY(-6px); } .floating-pane.is-above:popover-open { transform: translateY(6px); } .floating-pane.placed-over:popover-open { transform: scale(0.97); } }
 /* The shadow it casts onto the page (zaismaCast): a box laid under it in its cut shape, with that shape cut out after it casts. */
 .floating-cast { position: fixed; z-index: 2147483646; pointer-events: none; }
 .floating-cast > div { position: absolute; inset: 0; filter: var(--float-cast); }
@@ -763,15 +765,15 @@ component({
    covers is hidden rather than showing through, and it casts its shadow as a filter on what holds it, where only it is drawn. */
 .floating-pane.in-place { position: relative; display: flex; width: 100%; }
 /* One as wide as what's in it (a menu) hangs under its anchor inside what holds it (zaismaFloat's hang). */
-.floating-pane.under.in-place.is-hanging { position: absolute; width: max-content; }
-.floating-pane.over.in-place { z-index: 6; width: max-content; max-width: 100%; margin-top: calc(-1 * (var(--gap-words-control) + var(--control-height-field) / 2 + var(--line-from-top, 0px))); }
-:has(> .floating-pane.over.in-place) { filter: var(--float-cast); }
-:has(> .floating-pane.over.in-place) > :not(.floating-pane, input) { visibility: hidden; }
+.floating-pane.placed-under.in-place.is-hanging { position: absolute; width: max-content; }
+.floating-pane.placed-over.in-place { z-index: 6; width: max-content; max-width: 100%; margin-top: calc(-1 * (var(--gap-words-control) + var(--control-height-field) / 2 + var(--line-from-top, 0px))); }
+:has(> .floating-pane.placed-over.in-place) { filter: var(--float-cast); }
+:has(> .floating-pane.placed-over.in-place) > :not(.floating-pane, input) { visibility: hidden; }
 @media (prefers-reduced-motion: reduce) { .floating-pane { transition: var(--glass-transition); } }
 `,
   render: floatingPane,
   examples: [
-    { label: "Holding words, shown in place", markup: html`<div style="width:min(320px,100%)">${floatingPane({ id: "example-floating-words", placement: "under", isShownInPlace: true, body: html`<p style="margin:0;padding:var(--pad-words)">Rooms run nearest to most of their players.</p>` })}</div>` },
+    { label: "Holding words, shown in place", markup: html`<div style="width:min(320px,100%)">${floatingPane({ id: "example-floating-words", placement: "under", isShownInPlace: true, body: html`<p style="margin:0;padding:calc(var(--pad-pane) - 4px)">Rooms run nearest to most of their players.</p>` })}</div>` },
   ],
 });
 

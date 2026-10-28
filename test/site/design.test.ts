@@ -29,6 +29,8 @@ import backdropScriptSource from "../../apps/site/src/components/backdrop-script
 import actionsSource from "../../apps/site/src/components/actions.ts?raw";
 import fieldsSource from "../../apps/site/src/components/fields.ts?raw";
 import switchSource from "../../apps/site/src/components/switch.ts?raw";
+import lightBoxSource from "../../apps/site/src/components/light-box.ts?raw";
+import qrCodeSource from "../../apps/site/src/components/qr-code.ts?raw";
 import choicesSource from "../../apps/site/src/components/choices.ts?raw";
 import examplePaneSource from "../../apps/site/src/components/example-pane.ts?raw";
 import inputsSource from "../../apps/site/src/components/inputs.ts?raw";
@@ -51,7 +53,7 @@ import galleryPageSource from "../../apps/site/src/design-page.ts?raw";
 /** The gallery's own source, to check it draws nothing by hand. */
 const SOURCES: Record<string, string> = {
   "components/foundations.ts": foundationsSource, "components/tokens.ts": tokensSource, "components/icons.ts": iconsSource, "components/glass-script.ts": glassScriptSource, 
-  "components/backdrop-script.ts": backdropScriptSource, "components/actions.ts": actionsSource, "components/fields.ts": fieldsSource, "components/switch.ts": switchSource, "components/choices.ts": choicesSource, "components/example-pane.ts": examplePaneSource, "components/inputs.ts": inputsSource, "components/navigation.ts": navigationSource, "components/panes.ts": panesSource, "components/confirm-its-you.ts": confirmItsYouSource, "components/stripe-frame.ts": stripeFrameSource, "components/data.ts": dataSource,
+  "components/backdrop-script.ts": backdropScriptSource, "components/actions.ts": actionsSource, "components/fields.ts": fieldsSource, "components/switch.ts": switchSource, "components/light-box.ts": lightBoxSource, "components/qr-code.ts": qrCodeSource, "components/choices.ts": choicesSource, "components/example-pane.ts": examplePaneSource, "components/inputs.ts": inputsSource, "components/navigation.ts": navigationSource, "components/panes.ts": panesSource, "components/confirm-its-you.ts": confirmItsYouSource, "components/stripe-frame.ts": stripeFrameSource, "components/data.ts": dataSource,
   "components/layout.ts": layoutSource, "components/layout-gallery.ts": layoutGallerySource, "components/control-markup.ts": controlMarkupSource, "components/city.ts": citySource, "components/screens.ts": screensSource, "components/playing.ts": playingSource, "components/layers.ts": layersSource,
   "components/reading.ts": readingSource, "components/people.ts": peopleSource,
   "design-page.ts": galleryPageSource,
@@ -305,8 +307,9 @@ describe("the gallery", () => {
     for (const { group, subgroup } of GALLERY_PLACES()) {
       for (const holder of elementTree((await page(galleryPagePath(group, subgroup))).text)) {
         const children = holder.children.filter((child) => child.tag !== "svg" && child.tag !== "template");
-        // A control's own parts (a switch's tabs, the row arrows' two slabs, a dropdown's choices) are its inside, not controls beside each other.
-        if (holder.classes.includes("shell") || holder.attributes.includes(" data-cut-line") || holder.attributes.includes(' role="menu"') || holder.classes.includes("dropdown-in") || holder.classes.includes("menu-choices") || holder.attributes.includes(' role="listbox"')) continue;
+        // A control's own parts (a switch's tabs, the row arrows' two slabs, a dropdown's choices, a wheel field's wheels, a file drop's files)
+        // are its inside, not controls beside each other.
+        if (holder.classes.includes("wheels") || holder.classes.includes("file-drop-list") || holder.classes.includes("shell") || holder.attributes.includes(" data-cut-line") || holder.attributes.includes(' role="menu"') || holder.classes.includes("dropdown-in") || holder.classes.includes("menu-choices") || holder.attributes.includes(' role="listbox"')) continue;
         // What a well holds is its own inside (a compact choice list's cards, down its carving like a vertical switch's places).
         if (holder.classes.includes("well-body")) continue;
         if (children.length < 2 || !children.every((child) => child.classes.includes("shell") || child.attributes.includes(" data-cut-line"))) continue;
@@ -563,11 +566,11 @@ describe("components", () => {
   it("open the Developer and Forum tabs only on a developer page", () => {
     const account = { username: "emma_r", pictureMarkup: html`` };
     const onDashboard = navigation.header({ current: "developer", isOnDeveloperPage: true, account }).html;
-    expect(onDashboard).toContain('<a href="/dashboard" class="foldable" aria-current="page">Developer</a>');
-    expect(onDashboard).toContain('<a href="/forum" class="foldable">Forum</a>');
+    expect(onDashboard).toContain('<a data-lights href="/dashboard" class="foldable" aria-current="page">Developer</a>');
+    expect(onDashboard).toContain('<a data-lights href="/forum" class="foldable">Forum</a>');
     const atHome = navigation.header({ current: "home", isOnDeveloperPage: false, account }).html;
-    expect(atHome).toContain('<a href="/dashboard" class="foldable folded" tabindex="-1" aria-hidden="true">Developer</a>');
-    expect(atHome).toContain('<a href="/forum" class="foldable folded" tabindex="-1" aria-hidden="true">Forum</a>');
+    expect(atHome).toContain('<a data-lights href="/dashboard" class="foldable folded" tabindex="-1" aria-hidden="true">Developer</a>');
+    expect(atHome).toContain('<a data-lights href="/forum" class="foldable folded" tabindex="-1" aria-hidden="true">Forum</a>');
   });
 });
 
@@ -629,6 +632,7 @@ const OWN_SVG = new Map<string, string>([
   ['class="one-color"', "Discord's mark, as Discord asks it to be shown"],
   ["cursor.innerHTML", "the gallery's loops' own pointer"],
   ["data-glass-play", "the Glass foundation's demo window's resize grip"],
+  ["const STAND_IN_GAME_ICON", "the gallery's stand-in game icon, a picture as a game's own icon would be"],
 ]);
 
 // The only places glass is made by hand, each with why: every other sheet is a Glass pane or a Tray.
@@ -637,9 +641,8 @@ const OWN_GLASS = new Map<string, string>([
   ['class="tray-group ', "Tray itself"],
   ['class="glass cut-sample', "Cut shapes' own samples: a pane's, the header's and a menu's cut, on glass"],
   ['class="frame ${pictureSize} glass', "a picture's frame"],
-  ['class="dropdown glass', "a dropdown"],
   ['class="sheet glass', "a sheet"],
-  ['class="select-list glass', "a select field's list"],
+  ['class="floating-pane ', "a floating pane: a dropdown, a select field's list, a search's suggestions"],
   ['class="notice glass', "a notice"],
   ['class="foot glass"', "the footer"],
   ['class="banner glass"', "a banner"],
@@ -658,24 +661,28 @@ const OWN_GLASS = new Map<string, string>([
 const LINK_IN_CONTROL = new Set<string>([
   // A tab: the header's tabs and a switch's.
   ".tab-switch > a",
-  ".tab-switch.big > a", ".tab-switch.small > a", ".tab-switch.vertical > a",
+  ".tab-switch.small > a", ".tab-switch.vertical > a",
 ]);
 
 const NOT_TYPE = new Set<string>([
   // A code field's code: inside a control, in code's letters, a size up from code in words so a key reads easily.
-  ".code-text | font",
+  ".copy-field.is-code .copy-field-text | font",
+  // A typed password's dots: a face whose dots are round and big enough to count, a size up.
+  '.field input[type="password"]:not(:placeholder-shown) | font-family', '.field input[type="password"]:not(:placeholder-shown) | font-size',
+  // A search's typed finish, shown in the field's own words.
+  ".find-finish | font",
   "@font-face | font-family",
   // A control's inside: its words, set by each control's size.
   ".run | font", ".run.big | font-size", ".run | font-size", ".cut-btn > .face | font", ".cut-btn.big > .face | font-size",
   ".field input | font", '.find input[type="search"] | font', ".wheel-button | font",
-  '.wheel [role="option"] | font', '.wheel [role="option"][aria-selected="true"] | font-size', '.date-time-wheels [role="option"][aria-selected="true"] | font-size', ".tab-switch > a, .tab-switch > button | font",
+  '.wheel [role="option"] | font', ".tab-switch > a, .tab-switch > button | font",
   ".tab-switch.small > a, .tab-switch.small > button | font-size", ".top .end .run | font-size",
   // A picture's initials, sized to the picture.
   ".frame .av | font", ".frame.xs .av | font-size", ".frame.xs .av::first-letter | font-size",
   ".picture-row-place + .picture-row-place .av | font-size", ".picture-row-place + .picture-row-place .av::first-letter | font-size",
   ".danger | font", ".danger | font-size", ".field.long textarea | font", ".select-button | font",
   // On a phone what's typed is 16px, the least that keeps a phone from zooming in.
-  '.field input, .find input[type="search"], .wheel-button | font-size', ".select-button | font-size",
+  '.field input, .find input[type="search"], .find-finish, .wheel-button | font-size',
   // The +N at the back of a row of pictures, sized to the pictures.
   ".frame.more | font",
 ]);
@@ -695,8 +702,18 @@ const NOT_SPACING = new Set<string>([
   ".chart-inner | padding",
   // A chart's number where you point: a small label's own room round its words.
   ".chart-tip | padding",
-  // A code field's code: clear of the field's edge, and of Copy and "Copied" at its end.
-  ".code-text | padding",
+  // A masked link's words: room round them for their blur, taken back by a margin so they sit where they would.
+  ".copy-field.is-masked:not(.is-code) .copy-field-text | padding", ".copy-field.is-masked:not(.is-code) .copy-field-text | margin",
+  // A search's list: its head's words lined up with the field's, and a game's two lines, closer than any gap.
+  ".find-head | padding", ".find-game-words | gap",
+  // A file on its way: room at its row's foot for the Groove along it.
+  ".file-drop-row.is-sending | padding-bottom",
+  // A color square's knob: centered on its point.
+  ".color-knob | margin",
+  // A well's inside: its words and controls to its carving's edge, a control's inside.
+  ".well > .well-body | padding",
+  // A QR code's tile: white round the code, so a camera finds its edge on any glass.
+  ".qr-tile | padding",
   // A control's inside: its words and icon to its own edge, set by each control size.
   ".tab-switch.vertical > a, .tab-switch.vertical > button | gap", ".tab-switch.vertical > a, .tab-switch.vertical > button | padding", ".run | padding", ".run | gap", ".run.big | padding", ".run.big | gap",
   ".cut-btn > .face | gap", ".cut-btn > .face | padding", ".field input | padding",
@@ -707,19 +724,20 @@ const NOT_SPACING = new Set<string>([
   ".danger | padding", ".danger | gap", ".field.long textarea | padding", ".select-button | padding",
   ".field.select.no-icon .select-button | padding-left", ".choice-card | padding", ".list-row | padding", ".select-option | gap", ".select-option | padding",
   ".choice-well .choice-card | padding", ".well.choice-well > .well-body | padding", ".choice-well .choice-words | gap",
-  // A select's list: its inset round its choices, and the choices' own gap, a control's parts.
-  ".select-list | padding", ".select-options | gap",
+  // A floating pane: its inset round its choices, and the choices' own gap, a control's parts; a select's list over its field lines its
+  // picked choice up with the field's words, and its choices are a little shorter there.
+  ".floating-pane | padding", ".select-options | gap", ".floating-pane.placed-over.in-place | margin-top", ".select-list.placed-over .select-option | padding-block",
   // A select's choice lines its words up with the field's, past the field's icon.
   ".select-list.after-icon .select-option | padding-inline-start",
   // Choice cards side by side slant toward each other as a row does, and go one under another (no overlap) once each can't have a card's width.
   ".choice-cards > .choice-card:not(:last-child) | margin-inline-end",
   // A control's own parts: a well's inset round its slab, the birthday's wheels, and a list of places, one control its slab glides along.
-  ".tab-switch | padding", ".tab-switch.small | padding", ".steps | padding", ".wheels | gap", ".wheels | padding",
-  ".dropdown | gap", ".dropdown-in | gap", ".menu-choices | gap",
+  ".tab-switch | padding", ".tab-switch.small | padding", ".steps | padding", ".wheels | gap",
+  ".floating-pane.dropdown | gap", ".dropdown-in | gap", ".menu-choices | gap",
   // Room to scroll, or for a scrollbar or a page's rail.
   ".wheel | padding", "html | scroll-padding-top", ".gallery-layout | padding-right",
   ".well.scrolls-down > .well-body.own-scroll.shows-rail | padding-right", ".sheet-in.own-scroll.shows-rail | padding-right", ".sheet-body.own-scroll.shows-rail | padding-right",
-  ".floating-body.own-scroll.shows-rail | padding-right", ".field.long textarea.is-scrolling | padding-right",
+  ".floating-body.own-scroll.shows-rail | padding-right", ".sidebar-scroll.own-scroll.shows-rail | padding-right", ".field.long textarea.is-scrolling | padding-right",
   // Where a small thing sits on what it marks: a rail's tick, a cover's line.
   ".rail-mark | margin-top", ".rail.sideways .rail-mark | margin", ".cover-bar | margin-top",
   // Lines a box's or a card's icon up with the first line of its words.
@@ -933,7 +951,7 @@ describe("page structure", () => {
     const menu = (count: number) => panes.dropdown({ id: `menu-${count}`, label: `${count} choices`, items: Array.from({ length: count }, (_, index) => ({ label: `Item ${index + 1}`, href: "#" })), isOpen: true }).html;
     const found = await problemsOn(paneOf(choiceRow(6)) + menu(10));
     expect(found.some((problem) => /^too many equal choices: div\.layout-row.*6 side by side, at most 5$/.test(problem)), found.join("\n")).toBe(true);
-    expect(found.some((problem) => /^too many equal choices: div\.dropdown.*10 in one menu with no groups, at most 9$/.test(problem)), found.join("\n")).toBe(true);
+    expect(found.some((problem) => /^too many equal choices: div\.floating-pane.*10 in one menu with no groups, at most 9$/.test(problem)), found.join("\n")).toBe(true);
     expect(await problemsOn(paneOf(choiceRow(5)) + menu(9))).toEqual([]);
   });
 

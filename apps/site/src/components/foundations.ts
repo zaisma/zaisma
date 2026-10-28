@@ -84,8 +84,8 @@ export interface FloatingPaneOptions {
  * no taller than a menu or the room in the window, and its body scrolls inside it past that, with the rail and scroll fades.
  */
 export function floatingPane(options: FloatingPaneOptions): Raw {
-  const className = ["floating-pane", options.placement, options.kind ?? "", "glass", options.isShownInPlace ? "in-place" : ""].filter(Boolean).join(" ");
-  return html`<div class="${className}" id="${options.id}"${options.role ? html` role="${options.role}"` : ""}${options.label ? html` aria-label="${options.label}"` : ""} data-glass data-glass-corners="menu"${
+  const className = [`placed-${options.placement}`, options.kind ?? "", "glass", options.isShownInPlace ? "in-place" : ""].filter(Boolean).join(" ");
+  return html`<div class="floating-pane ${className}" id="${options.id}"${options.role ? html` role="${options.role}"` : ""}${options.label ? html` aria-label="${options.label}"` : ""} data-glass data-glass-corners="menu"${
     options.isShownInPlace ? (options.lineFromTop ? html` style="--line-from-top: ${options.lineFromTop}"` : "") : raw(' popover="manual"')
   }>${EDGE}${options.head ? html`<div class="floating-head">${options.head}</div>` : ""}<div class="floating-body">${options.body}</div></div>`;
 }

@@ -892,8 +892,8 @@ const SEARCH_STAND_IN_GAMES = [
   { slug: "kestrel", title: "Kestrel", playerCount: 1730 },
 ];
 
-/** The gallery's answer to a search's suggestionsUrl (/design/examples/search-suggestions): finishes and the stand-in games for what's typed. */
-export const SEARCH_STAND_IN = (typed: string): SearchSuggestions => {
+/** The gallery's answer to a search's suggestionsUrl (/design/examples/search-suggestions): finishes and the stand-in games for what's typed. Data, not markup, so it's no component's render. */
+const suggestionsFor = (typed: string): SearchSuggestions => {
   const search = typed.trim().toLowerCase();
   if (!search) return { finishes: [], games: [] };
   return {
@@ -903,6 +903,7 @@ export const SEARCH_STAND_IN = (typed: string): SearchSuggestions => {
       .map((game) => ({ title: game.title, page_url: "#search-field", cover_url: `/design/covers/${game.slug}.webp`, fact: `${game.playerCount.toLocaleString("en-US")} playing` })),
   };
 };
+export const SEARCH_STAND_IN = { suggestionsFor };
 
 component({
   name: "Search field",
@@ -950,7 +951,7 @@ component({
 .find-list .select-option > .find-row-icon { flex: none; display: inline-flex; color: var(--muted); }
 .find-row-icon > .ico { width: 18px; height: 18px; }
 .find-list .select-option.is-active .find-row-icon { color: var(--ink); }
-.find-head { padding: 8px calc(var(--pad-inside-words) - 4px) 2px; font: var(--type-note); color: var(--muted); }
+.find-head { padding: 8px calc(var(--pad-pane) - 4px) 2px; font: var(--type-note); color: var(--muted); }
 .find-game > img { flex: none; width: 64px; height: 36px; object-fit: cover; background: var(--well); }
 .find-game-words { display: grid; gap: 2px; min-width: 0; }
 .find-game-fact { font: var(--type-note); color: var(--muted); }
@@ -968,7 +969,7 @@ component({
     },
     {
       label: "Open: the first finish in the field",
-      markup: html`<div style="width:min(460px,100%);min-height:22rem">${searchField({ id: "example-find-open", action: "#search-field", name: "search_text", searchText: "ash", placeholder: "Search games", label: "Search games", state: "is-open", shownSuggestions: SEARCH_STAND_IN("ash") })}</div>`,
+      markup: html`<div style="width:min(460px,100%);min-height:22rem">${searchField({ id: "example-find-open", action: "#search-field", name: "search_text", searchText: "ash", placeholder: "Search games", label: "Search games", state: "is-open", shownSuggestions: SEARCH_STAND_IN.suggestionsFor("ash") })}</div>`,
       isStill: true,
     },
   ],
@@ -1043,7 +1044,9 @@ component({
 .wheel [role="option"][aria-selected="true"].blank { color: var(--muted); font-weight: 500; }
 .wheel [role="option"]::after { content: attr(data-label) / ""; height: 0; overflow: hidden; visibility: hidden; font-weight: 600; }
 /* A date and time says its time zone under it. Custom wheels share the width evenly, each as wide as the widest. */
-.wheel-zone { margin: 0; padding-inline: calc(var(--pad-words) - var(--pad-inner-pane)); font: var(--type-facts); color: var(--muted); }
+/* The wheels' floating pane holds words (the time zone), so it says where its words margin is, as every surface with words does. */
+.floating-pane.wheel-pick { --pad-words: calc(var(--pad-pane) - var(--pad-inner-pane)); }
+.wheel-zone { margin: 0; padding-inline: var(--pad-words); padding-bottom: var(--pad-words); font: var(--type-facts); color: var(--muted); }
 .wheel-zone:empty { display: none; }
 .date-time-wheels { grid-template-columns: repeat(4, auto); }
 .custom-wheels { grid-template-columns: repeat(var(--wheel-count), 1fr); }

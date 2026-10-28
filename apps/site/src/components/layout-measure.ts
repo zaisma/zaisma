@@ -85,7 +85,7 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
   var root = getComputedStyle(document.documentElement);
   var slantOverlapPx = Math.abs(parseFloat(root.getPropertyValue("--control-slant")) - parseFloat(root.getPropertyValue("--gap-control-row"))) || 6;
   // A person is framed by their picture, and code in reading text by its well.
-  var FRAMED = "[data-cut-line], [data-glass], .cover, .list-rows, .person, .reading pre";
+  var FRAMED = "[data-cut-line], [data-glass], .cover, .list-rows, .person, .reading pre, .slider-track";
   // Pieces made to lie over each other: a row of pictures, each over the next.
   var OVERLAPPING = ".picture-row";
   var SKIPPED = "script, style, template, .sr, [aria-hidden='true'], .loader, .rail, .edge, .cut-line";
@@ -188,7 +188,8 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
     return null;
   }
   // What has words inside it that line up with the pane's (a field's icon or text, a table's cells, a list's rows), and where they start.
-  var INNER_WORDS = ".cut-field > .field, .field.select, .field.code, .field.long, .find, .wheel-button, .choice-cards > .choice-card, .table, .list-rows";
+  // A color field's button leads with its chip, a carving at the field's inner edge, not with words.
+  var INNER_WORDS = ".cut-field > .field, .field.select, .field.code, .field.long, .find, .wheel-button:not(.color-button), .choice-cards > .choice-card, .table, .list-rows";
   function innerStart(el) {
     var start = null, walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT), text;
     while ((text = walker.nextNode())) {
@@ -233,7 +234,9 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
     var isScrolling = holder.scrollHeight > holder.clientHeight + 1, contentTop = holder.getBoundingClientRect().top - holder.scrollTop;
     var box = { left: p.left, right: p.right, top: isScrolling ? contentTop : p.top, bottom: isScrolling ? contentTop + holder.scrollHeight : p.bottom };
     var distances = function (r) { return { left: r.left - box.left, right: box.right - r.right, top: r.top - box.top, bottom: box.bottom - r.bottom }; };
-    var framed = Array.prototype.filter.call(pane.querySelectorAll(FRAMED), function (el) { return el !== pane && !framedIn(el, pane) && isShown(el); });
+    // A floating pane the gallery shows open in place (a select's list over its field, a wheel field's wheels) is laid over the pane, not
+    // set in it: it's measured as a pane of its own, never at the frame gap of the pane under it.
+    var framed = Array.prototype.filter.call(pane.querySelectorAll(FRAMED), function (el) { return el !== pane && !el.matches(".floating-pane.in-place") && !framedIn(el, pane) && isShown(el); });
     var paneCuts = window.zaismaCorners ? window.zaismaCorners(pane, "pane") : [1, 1, 1, 1];
     framed.forEach(function (el) {
       if (isScrolledAway(el, pane)) return;

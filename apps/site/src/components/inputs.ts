@@ -80,13 +80,14 @@ component({
 .slider-groove .groove-fill { transition: none; }
 .slider-input { position: absolute; inset: 0; z-index: 3; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; -webkit-appearance: none; appearance: none; }
 /* On a phone the track takes a whole control's height (--control-height-regular) to touch, centered on it. */
-@media (pointer: coarse) { .slider-input { inset: min(0px, calc(50% - var(--touch-target) / 2)) 0; height: auto; } }
+/* On a touch screen the track is a finger's height, the thumb and groove in its middle, so the whole of what takes a finger is in the pane. */
+@media (pointer: coarse) { .slider-track { height: max(var(--thumb), var(--touch-target)); } }
 .slider-input::-webkit-slider-thumb { -webkit-appearance: none; width: var(--thumb); height: var(--thumb); }
 .slider-input::-moz-range-thumb { width: var(--thumb); height: var(--thumb); border: 0; }
 /* Its thumb is the toggle's slab (the --thumb tokens): white and lit from above on either glass, its shadow cast onto the glass under it by
    its holder, so the shadow follows the slab's cut. Pointed, it lifts a touch; pressed, it's pushed down in place, never smaller, its shadow
    drawn in close and its face shaded from above. */
-.slider-thumb { position: absolute; z-index: 2; top: 0; left: calc((100% - var(--thumb)) * var(--fill)); width: var(--thumb); height: var(--thumb); pointer-events: none;
+.slider-thumb { position: absolute; z-index: 2; top: calc(50% - var(--thumb) / 2); left: calc((100% - var(--thumb)) * var(--fill)); width: var(--thumb); height: var(--thumb); pointer-events: none;
   filter: var(--thumb-cast); transition: filter 0.2s; }
 .slider-slab { position: relative; display: block; width: 100%; height: 100%; background: var(--thumb-face); clip-path: var(--cut-shape); transition: box-shadow 0.12s; }
 .slider-slab::after { content: ""; position: absolute; inset: 0; background: var(--thumb-press-face); opacity: 0; transition: opacity 0.12s; }
@@ -314,6 +315,8 @@ component({
 .file-drop-preview::before { content: ""; position: absolute; inset: 0; background: var(--field-face) var(--picture, none) center / cover no-repeat; clip-path: var(--cut-shape); }
 .file-drop-preview > :not(.cut-line) { position: relative; }
 .file-drop-preview:disabled { cursor: default; }
+/* On a touch screen a preview is a finger's height. */
+@media (pointer: coarse) { .file-drop-preview { width: calc(var(--control-height-regular) * 16 / 9); } }
 /* A picture opens large: the pointer is the zoom-in magnifier over all of it, and a magnifier lights on it while it's pointed at or focused. */
 .file-drop-preview:not(:disabled) * { cursor: zoom-in; }
 .file-drop-zoom { display: grid; place-items: center; color: #fff; opacity: 0; filter: drop-shadow(0 1px 2px rgba(0,0,0,0.6)); transition: opacity 0.2s; pointer-events: none; }
@@ -648,6 +651,8 @@ component({
 /* Beside the square, not at the pane's edge, the column's labels have no pane margin to keep and start at its edge; the brightness's number,
    at the pane's right edge, keeps it. */
 .color-side { display: flex; flex-direction: column; gap: var(--gap-control-stack); min-width: 0; --pad-words: 0px; }
+/* Stacked under the square on a phone, its words take the pane's words margin. */
+@media (max-width: 480px) { .color-side { --pad-words: var(--pad-inside-words); } }
 .color-side .slider-head > output { padding-inline-end: var(--pad-inside-words); }
 /* The picked color is carved into the pane, the color lying in it as light inside the glass, its edges lit and shaded like every carving. */
 .color-swatch { position: relative; display: block; flex: 1; min-height: 32px; background: var(--color-picked); clip-path: var(--cut-shape); }

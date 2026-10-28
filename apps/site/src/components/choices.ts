@@ -320,8 +320,8 @@ component({
 /* Beside an icon, the field's words start after it, and so do its choices'. */
 .select-list.after-icon .select-option { padding-inline-start: calc(var(--pad-inside-words) + 30px); }
 /* Over the field, its rows are slimmer: the list is about the choices, not a second field. */
-.select-list.over .select-option { min-height: 36px; padding-block: 6px 7px; }
-@media (pointer: coarse) { .select-option, .select-list.over .select-option { min-height: var(--control-height-regular); } }
+.select-list.placed-over .select-option { min-height: 36px; padding-block: 6px 7px; }
+@media (pointer: coarse) { .select-option, .select-list.placed-over .select-option { min-height: var(--control-height-regular); } }
 .select-option > :not(.cut-line) { position: relative; z-index: 2; }
 .select-option > span { flex: 1; }
 /* The row under the pointer or the arrow keys catches the light: its glass clears, as a pointed field's does, and its cut edge is lit

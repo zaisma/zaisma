@@ -11,6 +11,10 @@ export const UNSTYLED_HOOKS = new Set<string>([
   "wheel-read", // The birthday's spoken summary (and .sr hides it).
   // What a layout's cell holds (layout.ts), which the measuring check reads (scripts/layout-check.mjs); words' cells are styled.
   "is-control", "is-block",
+  // Hooks a component's script finds its parts by: a Color field's None, a wheel field's kind of wheels, a search's icon and its typed
+  // finish's row, a file drop's templates for a new row and its zoom mark, a filter menu open as its page loads, and a Progress whose end
+  // isn't known yet (its Groove runs; the class says so to a script).
+  "color-none", "birthday-wheels", "find-icon", "find-finish-row", "file-drop-zoom-template", "file-drop-row-template", "is-open-on-load", "is-unknown",
 ]);
 
 /** A component's own insides, styled for it but never for a page to place things with: a page lays out with layout.ts instead. */
@@ -33,6 +37,7 @@ export const STYLE_ATTRIBUTE: { pattern: RegExp; why: string }[] = [
   { pattern: /^--shown-row-count:\d+$/, why: "a table capped to a number of rows" },
   { pattern: /^--sent:[0-9.]+$/, why: "a file drop's upload, the share sent" },
   { pattern: /^--done-pct:[0-9.]+%$/, why: "Progress, the share done" },
+  { pattern: /^--groove-filled:[0-9.]+$/, why: "a Groove's light, the share filled (a Progress, an upload, a usage meter)" },
 ];
 
 /** The page sheets pages may link: the site's and the gallery's, each every component's styles with the shell's or the gallery's. */

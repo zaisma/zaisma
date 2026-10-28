@@ -305,6 +305,8 @@ component({
 .tab-switch > .foldable { max-width: 10rem; overflow: hidden; transition: max-width 0.45s cubic-bezier(.2,.8,.2,1), padding 0.45s cubic-bezier(.2,.8,.2,1), opacity 0.3s 0.08s; }
 /* Its tabs share one width, so a folded tab takes no column at all: it goes, and comes back, at once. */
 .tab-switch:not(.vertical) > .foldable.folded { display: none; }
+/* Across, an open foldable tab keeps its words' width (its clip for folding would let it shrink), so a narrow row scrolls rather than cut it. */
+.tab-switch:not(.vertical) > .foldable:not(.folded) { min-width: max-content; }
 .tab-switch > .foldable.folded { max-width: 0; padding-left: 0; padding-right: 0; opacity: 0; pointer-events: none; transition: max-width 0.4s cubic-bezier(.4,0,.2,1), padding 0.4s cubic-bezier(.4,0,.2,1), opacity 0.16s; }
 /* Keyboard focus: a line round the focused tab that follows its cut, like the slab's (the focus ring, set by SWITCH_SCRIPT). */
 .tab-switch > :focus-visible { outline: none; }

@@ -1948,12 +1948,12 @@ describe("the header and the theme", () => {
   it("opens the Developer and Forum tabs on developer pages and folds them away elsewhere", async () => {
     const b = new Browser();
     await join(b, null);
-    const tabOf = (page: string, words: string) => page.match(new RegExp(`<a href="[^"]*"[^>]*>${words}</a>`))?.[0] ?? "";
+    const tabOf = (page: string, words: string) => page.match(new RegExp(`<a data-lights href="[^"]*"[^>]*>${words}</a>`))?.[0] ?? "";
     const dashboard = await (await b.go("/dashboard")).text();
-    expect(tabOf(dashboard, "Developer")).toBe('<a href="/dashboard" class="foldable" aria-current="page">Developer</a>');
-    expect(tabOf(dashboard, "Forum")).toBe('<a href="/forum" class="foldable">Forum</a>');
+    expect(tabOf(dashboard, "Developer")).toBe('<a data-lights href="/dashboard" class="foldable" aria-current="page">Developer</a>');
+    expect(tabOf(dashboard, "Forum")).toBe('<a data-lights href="/forum" class="foldable">Forum</a>');
     const home = await (await b.go("/")).text();
-    expect(tabOf(home, "Developer")).toBe('<a href="/dashboard" class="foldable folded" tabindex="-1" aria-hidden="true">Developer</a>');
+    expect(tabOf(home, "Developer")).toBe('<a data-lights href="/dashboard" class="foldable folded" tabindex="-1" aria-hidden="true">Developer</a>');
     expect(tabOf(home, "Home")).toBe('<a href="/" aria-current="page">Home</a>');
   });
 
@@ -2517,7 +2517,7 @@ describe("cloud saves", () => {
     expect(plain).toContain('<div class="city-still is-day"></div><div class="city-still is-night"></div><canvas class="city"></canvas>');
     expect(plain).toMatch(/<header class="top glass"[^>]*>[\s\S]*?<\/header>/);
     expect(plain.match(/<header class="top glass"[\s\S]*?<\/header>/)![0]).not.toMatch(/class="end"|class="nav"|href="\/signin"/);
-    expect(plain).toContain('<a href="/signin" aria-current="page">Sign in</a>');
+    expect(plain).toContain('<a data-lights href="/signin" aria-current="page">Sign in</a>');
     expect(plain).toContain('<a href="/join">Make an account</a>');
     expect(plain).toContain("Continue as guest");
     expect(plain).not.toContain("asked you to sign in");
@@ -3069,7 +3069,7 @@ describe("the dashboard", () => {
     await letPublishAs("Night_Owl");
     await b.go("/dashboard/new", { title: "Sky Hopper" });
     const board = await (await b.go("/forum")).text();
-    expect(board).toContain('<a href="/forum" class="foldable" aria-current="page">Forum</a>');
+    expect(board).toContain('<a data-lights href="/forum" class="foldable" aria-current="page">Forum</a>');
     expect(board).toContain('aria-label="Search the forum"');
     expect(board).toContain("New topic");
     expect(await (await b.go("/forum/new")).text()).toContain('<option value="sky-hopper">Sky Hopper</option>');
