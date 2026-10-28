@@ -30,7 +30,6 @@ export const COMPONENT_SUBGROUPS: { group: ComponentGroup; subgroup: string; nam
   { group: "actions", subgroup: "buttons", name: "Buttons" },
   { group: "actions", subgroup: "words", name: "Words" },
   { group: "inputs", subgroup: "fields", name: "Fields" },
-  { group: "inputs", subgroup: "dates", name: "Dates" },
   { group: "inputs", subgroup: "choices", name: "Choices" },
   { group: "inputs", subgroup: "pickers", name: "Pickers" },
   { group: "navigation", subgroup: "bars", name: "Bars" },
@@ -93,6 +92,8 @@ export interface Component {
   group: ComponentGroup;
   /** Its subgroup's slug, one COMPONENT_SUBGROUPS lists for its group: the gallery page it's on. None for a group that's one page. */
   subgroup?: string;
+  /** The slug of the component on its page it comes right after, when that one is defined later (in another file); otherwise it comes in the order defined. */
+  after?: string;
   /** One plain line on when to use it. */
   summary: string;
   /** Its CSS, copied from its draft with the draft's comments. */
@@ -114,10 +115,17 @@ export function component(definition: Component): Component {
   return definition;
 }
 
-/** Every component in gallery order: by group as ComponentGroup lists them, then by subgroup as COMPONENT_SUBGROUPS lists them, then in the order they were defined. */
+/** Defined order, with each component that names one it comes after moved to just after it. */
+const inOrder = (components: Component[]): Component[] => {
+  const placed = components.filter((each) => !each.after || !components.some((other) => other.slug === each.after));
+  for (const each of components) if (!placed.includes(each)) placed.splice(placed.findIndex((other) => other.slug === each.after) + 1, 0, each);
+  return placed;
+};
+
+/** Every component in gallery order: by group as ComponentGroup lists them, then by subgroup as COMPONENT_SUBGROUPS lists them, then in the order they were defined (or after the one they name). */
 export const COMPONENTS = (): Component[] =>
   COMPONENT_GROUPS.flatMap(({ group }) => {
-    const ofGroup = [...componentsBySlug.values()].filter((each) => each.group === group);
+    const ofGroup = inOrder([...componentsBySlug.values()].filter((each) => each.group === group));
     const subgroups = subgroupsOf(group);
     return subgroups.length ? subgroups.flatMap(({ subgroup }) => ofGroup.filter((each) => each.subgroup === subgroup)) : ofGroup;
   });

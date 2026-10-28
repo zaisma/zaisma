@@ -982,7 +982,9 @@ component({
   name: "Wheel field",
   slug: "wheel-field",
   group: "inputs",
-  subgroup: "dates",
+  subgroup: "fields",
+  // Beside the Select field: both open their own pane over the field.
+  after: "select-field",
   summary: "A value made of parts read together, picked on wheels: a birthday (starting blank, so nothing suggests an age), when something happens (in your own time zone, which it says), or wheels of a page's own, like a match's length. One of many from a list is a Select field; a number on a scale, a Slider.",
   styles: `
 /* A wheel field: the same cut field, with what it picks said by its icon; open, it's whitened with the orange outline, like a field you're

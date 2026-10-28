@@ -1264,7 +1264,6 @@ const GALLERY_GROUPS: SidebarPlace[] = [
     isCurrent: true,
     places: [
       { label: "Fields", href: "#sidebar", isCurrent: true },
-      { label: "Dates", href: "#sidebar" },
       { label: "Choices", href: "#sidebar" },
       { label: "Pickers", href: "#sidebar" },
     ],
