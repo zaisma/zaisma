@@ -1954,7 +1954,7 @@ describe("the header and the theme", () => {
     expect(tabOf(dashboard, "Forum")).toBe('<a data-lights href="/forum" class="foldable">Forum</a>');
     const home = await (await b.go("/")).text();
     expect(tabOf(home, "Developer")).toBe('<a data-lights href="/dashboard" class="foldable folded" tabindex="-1" aria-hidden="true">Developer</a>');
-    expect(tabOf(home, "Home")).toBe('<a href="/" aria-current="page">Home</a>');
+    expect(tabOf(home, "Home")).toBe('<a data-lights href="/" aria-current="page">Home</a>');
   });
 
   it("starts every account on System, and saves Light or Dark for its pages", async () => {
@@ -2518,7 +2518,7 @@ describe("cloud saves", () => {
     expect(plain).toMatch(/<header class="top glass"[^>]*>[\s\S]*?<\/header>/);
     expect(plain.match(/<header class="top glass"[\s\S]*?<\/header>/)![0]).not.toMatch(/class="end"|class="nav"|href="\/signin"/);
     expect(plain).toContain('<a data-lights href="/signin" aria-current="page">Sign in</a>');
-    expect(plain).toContain('<a href="/join">Make an account</a>');
+    expect(plain).toContain('<a data-lights href="/join">Make an account</a>');
     expect(plain).toContain("Continue as guest");
     expect(plain).not.toContain("asked you to sign in");
     expect(pageScriptNames(plain)).toEqual(expect.arrayContaining(["city", "back-to-game", "passkey-sign-in", "entry-switch"]));
@@ -2527,7 +2527,7 @@ describe("cloud saves", () => {
     expect(plain).toContain('<section class="pane-stack" id="view-join" data-entry-view="join" data-title="Make an account · Zaisma" hidden>');
     const joinPage = await (await new Browser().go("/join")).text();
     expect(joinPage).toContain('data-entry-view="signin" data-title="Sign in · Zaisma" hidden>');
-    expect(joinPage).toContain('<a href="/join" aria-current="page">Make an account</a>');
+    expect(joinPage).toContain('<a data-lights href="/join" aria-current="page">Make an account</a>');
     // The stills are the stage's CSS, so only the one showing loads.
     const styles = await (await SELF.fetch(`${SITE}${plain.match(/href="(\/css\/site\.[0-9a-f]+\.css)"/)![1]}`)).text();
     for (const still of ["city-day.webp", "city-day-phone.webp", "city-night.webp", "city-night-phone.webp"]) expect(styles).toContain(`url(/sign-in/${still})`);
@@ -2545,7 +2545,7 @@ describe("cloud saves", () => {
       expect(asked, path).not.toContain("Continue as guest");
     }
     // The switch keeps where they were going.
-    expect(await (await new Browser().go(`/signin?next=${next}`)).text()).toContain(`<a href="/join?next=${next}">Make an account</a>`);
+    expect(await (await new Browser().go(`/signin?next=${next}`)).text()).toContain(`<a data-lights href="/join?next=${next}">Make an account</a>`);
     // A made-up game, or one strangers can't see, isn't named.
     for (const unknown of ["/account/kept?game=no-such-game", "/account/kept?game=Owl"]) {
       const page = await (await new Browser().go(`/signin?next=${encodeURIComponent(unknown)}`)).text();

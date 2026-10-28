@@ -142,8 +142,9 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
     overPanes.forEach(function (pane) {
       var r = pane.getBoundingClientRect(), kind = paneKind(pane), isInPlace = pane.matches(".in-place");
       if (kind && r.width > kind.widthPx + TOLERANCE_PX) report("a pane wider than its kind allows", pane, round(r.width) + "px wide, " + kind.name + " at most " + round(kind.widthPx) + "px");
-      // A floating pane shown open in place (the gallery's open states) keeps its height too, so its open state shows it scrolling.
-      var isStill = isInPlace || Boolean(pane.closest(EXAMPLE + " .in-place"));
+      // A floating pane the gallery shows open in place (its open states) keeps its height too, so its open state shows it scrolling. On a
+      // page, one shown open is measured as any pane over the page is.
+      var isStill = Boolean(pane.closest(EXAMPLE)) && (isInPlace || Boolean(pane.closest(EXAMPLE + " .in-place")));
       if (isStill && !pane.matches(".floating-pane")) return;
       if (kind && r.height > kind.heightPx + TOLERANCE_PX) report("a pane taller than its kind allows", pane, round(r.height) + "px tall, " + kind.name + " at most " + round(kind.heightPx) + "px");
       if (isStill) return;

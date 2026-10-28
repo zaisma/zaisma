@@ -773,7 +773,7 @@ component({
 `,
   render: floatingPane,
   examples: [
-    { label: "Holding words, shown in place", markup: html`<div style="width:min(320px,100%)">${floatingPane({ id: "example-floating-words", placement: "under", isShownInPlace: true, body: html`<p style="margin:0;padding:calc(var(--pad-pane) - 4px)">Rooms run nearest to most of their players.</p>` })}</div>` },
+    { label: "Holding words, shown in place", markup: html`<div style="width:min(320px,100%)">${floatingPane({ id: "example-floating-words", placement: "under", isShownInPlace: true, body: html`<p style="margin:0;padding:var(--pad-pane)">Rooms run nearest to most of their players.</p>` })}</div>` },
   ],
 });
 
