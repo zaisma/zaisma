@@ -944,8 +944,8 @@ component({
 .find > .cut-btn { position: absolute; z-index: 5; top: 0; bottom: 0; right: calc((var(--control-height) - 30px) / 2); align-items: center; }
 .find:has(input:placeholder-shown) > .cut-btn { display: none; }
 .find:not(:has(input:placeholder-shown)) { --search-end-room: calc(46px + var(--control-height) - 30px); }
-/* Finishes and games as you type (suggestionsUrl, SEARCH_SCRIPT): a select field's list hangs under it. The row you're on is the white slab
-   alone, and when it's a finish, the rest of it shows after what's typed, quieter, in the field itself: Tab takes it, Enter takes it and
+/* Finishes and games as you type (suggestionsUrl, SEARCH_SCRIPT): a select field's list hangs under it. The row you're on is carved into
+   its glass, and when it's a finish, the rest of it shows after what's typed, quieter, in the field itself: Tab takes it, Enter takes it and
    searches. On a game, Enter opens the game. */
 .find-finish { position: absolute; z-index: 2; inset: 0 var(--search-end-room) 0 calc(var(--pad-inside-words) + 34px); display: flex; align-items: center; overflow: hidden; white-space: pre; pointer-events: none;
   font: 500 1.125rem var(--display); color: var(--muted); }
