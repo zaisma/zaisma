@@ -519,6 +519,8 @@ component({
 .toggle-front { position: absolute; top: calc(-1 * var(--toggle-lift)); right: 0; bottom: 0; left: 0; z-index: 0; clip-path: var(--front-shape);
   background: linear-gradient(180deg, var(--run-hi), var(--run) 40%, var(--run-lo)); visibility: hidden; transition: visibility 0s 0.35s; }
 .toggle-btn[aria-pressed="true"] > .toggle-front { visibility: visible; transition: visibility 0s; }
+/* Pressed while off, even mid-landing, it's carving in: its front surface goes at once, so none shows through the carved face. */
+.toggle-btn[aria-pressed="false"]:active > .toggle-front, .toggle-btn[aria-pressed="false"].is-pressed > .toggle-front { visibility: hidden; transition: visibility 0s; }
 /* Off: the same slab as on, its bevels and all, resting level in the glass. It answers the pointer by brightening, never lifting; pressed,
    it carves in, and let go it rises (on). */
 .toggle-btn > .face { --face-color: var(--toggle-face); }
