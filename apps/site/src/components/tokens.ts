@@ -56,7 +56,7 @@ export const LIGHT_GLASS = `color-scheme: light;
   /* A warning and a field marked wrong: amber, a yellower hue than the runner's orange, so it never reads as something to press or as focus. */
   --warning: #7D5C00; --link-hover: var(--run-lo); --marked: var(--warning);
   --glass-base: 255, 255, 255; --glass-kind: "Light glass, dark words."; --glass-hue-strength: 14%; --track: rgba(186, 198, 216, 0.28);
-  --edge-light: #FFFFFF; --edge-flood: rgba(255, 255, 255, 0.92); --edge-flood-far: rgba(255, 255, 255, 0.55); --edge-wake: rgba(255, 255, 255, 0.85); --well-pointed: rgba(70, 84, 108, 0.2);
+  --edge-light: #FFFFFF; --edge-flood: rgba(255, 255, 255, 0.42); --edge-flood-far: rgba(255, 255, 255, 0.14); --edge-wake: rgba(255, 255, 255, 0.8);
   --raise-top: rgba(255, 255, 255, 0.95); --raise-left: rgba(255, 255, 255, 0.6); --raise-right: rgba(96, 108, 128, 0.22); --raise-bottom: rgba(70, 82, 104, 0.34);
   --carve-rim: transparent; --carve-top: rgba(60, 72, 94, 0.3); --carve-left: rgba(60, 72, 94, 0.2); --carve-right: rgba(255, 255, 255, 0.55); --carve-bottom: rgba(255, 255, 255, 0.9);
   --backdrop-base: #E3E0DB; --backdrop-a: #F6F4F0; --backdrop-b: #CCC8C1; --backdrop-c: #ECE9E4;`;
@@ -96,7 +96,7 @@ export const SMOKED_GLASS = `color-scheme: dark;
   --edge-spec: rgba(255, 255, 255, 0.52); --edge-dense: rgba(255, 255, 255, 0.015); --edge-caustic: transparent;
   --warning: #F2C94C; --link-hover: var(--run-hi); --marked: var(--warning);
   --glass-base: 14, 17, 24; --glass-kind: "Smoked glass, light words."; --glass-hue-strength: 22%; --track: rgba(255, 255, 255, 0.08);
-  --edge-light: rgba(214, 228, 255, 0.9); --edge-flood: rgba(206, 222, 255, 0.4); --edge-flood-far: rgba(206, 222, 255, 0.14); --edge-wake: rgba(206, 222, 255, 0.35); --well-pointed: var(--well);
+  --edge-light: rgba(214, 228, 255, 0.9); --edge-flood: rgba(206, 222, 255, 0.4); --edge-flood-far: rgba(206, 222, 255, 0.14); --edge-wake: rgba(206, 222, 255, 0.35);
   --raise-top: rgba(255, 255, 255, 0.42); --raise-left: rgba(255, 255, 255, 0.22); --raise-right: rgba(0, 0, 0, 0.3); --raise-bottom: rgba(0, 0, 0, 0.5);
   --carve-rim: rgba(255, 255, 255, 0.16); --carve-top: rgba(0, 0, 0, 0.5); --carve-left: rgba(0, 0, 0, 0.32); --carve-right: rgba(255, 255, 255, 0.1); --carve-bottom: rgba(255, 255, 255, 0.2);
   --backdrop-base: #121110; --backdrop-a: #2A2724; --backdrop-b: #0A0909; --backdrop-c: #1D1B19;`;

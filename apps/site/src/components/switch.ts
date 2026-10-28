@@ -291,11 +291,9 @@ component({
 /* The one you're on is marked by its slab and full ink, at the same weight as the others, so its words never move as it's chosen. */
 .tab-switch [aria-current="page"], .tab-switch [aria-pressed="true"] { color: var(--ink); }
 /* Pointed at (a mouse's; a tap shows nothing), a tab you're not on takes full ink, and the well's edge light (Edge light, Panes › Glass)
-   floods up beside it: its lower edge across, its edge beside the places stacked. Meanwhile, on light glass, the well deepens a little
-   (--well-pointed), so the light shows. */
+   floods up beside it: its lower edge across, its edge beside the places stacked. The well itself never changes: only light. */
 @media (hover: hover) { .tab-switch > :is(a, button):not(:disabled, [aria-disabled="true"], [aria-current="page"], [aria-pressed="true"]):hover { color: var(--ink); } }
 .tab-switch > .is-pointed { color: var(--ink); }
-.switch-room.is-lit { --face-color: var(--well-pointed); }
 /* One that can't be chosen now: faded, and it answers nothing (pointing at it lights nothing). */
 .tab-switch > [aria-disabled="true"], .tab-switch > :disabled { cursor: default; opacity: 0.4; }
 /* Before the script has measured, the one you're on carries its own slab. */
