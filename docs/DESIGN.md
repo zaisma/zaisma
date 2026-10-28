@@ -36,6 +36,8 @@ Each rule says what holds it. A rule a check can measure has one, so it holds on
 - **One queue and one stack own what appears over a page or a game.** No page shows, hides or times a notice, a card or a sheet by hand: it asks `window.zaismaLayers` (`LAYERS_SCRIPT`, `layers.ts`). Each notice and card has an urgency (`noticeUrgency`): **information** (Saved, Copied) leaves by itself after 4 s (8 s with Undo), waiting while it's pointed at or touched; an **ask** (Still there?, Keep your progress, the sign-in ask) stays until it's answered and goes ahead of information; **urgent** (signed out, the connection lost while paying) is an Urgent card over anything, sheets and full screen included, and closes the sheets it makes useless (`sheetsToClose`). A problem is information that stays until it's closed. Over a running game one card at a time, the next 300 ms after one leaves, nothing but urgent while a sheet is open or in full screen, and information more than 10 s old by its turn is dropped; on a page at most three notices stack under the header. The save line speaks only when something changes: saving that works says nothing over the game, and the ⋯ menu says when it last saved. *Held by* `test/node/layers.test.ts`.
 - **Sheets go two deep at most.** Steps of one task move forward inside one sheet with Back (Players, then a player, then Report: `sheet({ steps })`, `zaismaLayers.step`); tabs in a sheet's head swap what's in it (`sheet({ tabs })`), keeping its tallest height; a short yes or no that guards something (a Confirm sheet, Confirm it's you, a block) opens a size smaller on top, and closing it lands on the sheet beneath. A third sheet replaces the top one and warns in the console, so it shows in the preview. Tapping beside, X and Esc close only the top one. Whenever a sheet or card covers a game, the game hears it (`Zaisma.page.coveredBy`). *Held by* `test/node/layers.test.ts`.
 - **Nothing waits on an animation.** A click does its thing at once; motion only shows what already happened. *Judged in the preview.*
+- **The glass is real.** Every look is something real glass could do: a part is carved in, flush, raised or floating, lit from one light above and to the left, and a state only moves it between heights or changes the light on it; nothing is painted on ([The glass is real](#the-glass-is-real)). *Judged in the preview*, against the test there.
+- **A component is named for the piece, not its use.** One piece with variants, never a component per page's use ([Adding, changing or removing a component](#adding-changing-or-removing-a-component)). *Judged in the preview* of the gallery.
 - **No decoration.** No "Live now" lights, sale banners, badges for their own sake or glows that mean nothing. *Judged in the preview.*
 - **Buttons move only when pointed at or pressed.** They lift and lean toward the pointer and sink when pressed; at rest they're still. A scene behind the glass may move on its own. *Held by* `test/site/design.test.ts` (what you point at never moves).
 - **No hotkey hints.** "/" jumps to search, and nothing on the page says so. *Judged in the preview.*
@@ -128,6 +130,28 @@ One glass, defined once in `foundations.ts`, at any size from a button's face to
 - **Adaptive:** light glass over light things, smoked glass over dark ones, and the words switch with it. The faintest words keep 4.5:1 and the main words 6:1 against the harshest quarter of what's behind. The backdrop is measured as a whole, once, and every piece of glass over it takes the same glass, so a game's glass never changes with a frame of its shader and no pane picks its own. A game's background is measured when it's added (a picture) or checked (a shader's still) and keeps its tone, its average color and its glass (`apps/site/src/background-tone.ts`), so the home opens on the game's color with its glass already right.
 - **The hue** (`--glass-hue`): a studio's color can tint every piece of glass under where it's set; glass tinted for a brand keeps its own color.
 - **A component only sets the glass's variables** (its tint, a layer); it never paints glass of its own. `test/site/design.test.ts` checks it.
+
+### The glass is real
+
+The glass is a real material, not a picture of one: things are carved into it, rise out of it and float over it, and the light shows which. Every look, state and pane is something real glass could do.
+
+- **Every part sits at one of five heights,** each with its own look, and a component names its height, never a shadow of its own:
+  - **Carved** into its pane (a field, a wheel's groove, a well): shaded inside, its top edge in shadow and its bottom edge lit.
+  - **Flush** with it (a pane, a list's row at rest): no shadow.
+  - **Raised** out of it (a button, a toggle's slab): lit on its top edge, shaded on its bottom, with a small shadow.
+  - **Floating** over the page (a menu, a select's list, the wheels: the Floating pane): a soft shadow onto what's under it, in its own cut shape, never a box's.
+  - **Over everything** (a sheet): a dimmed page behind it.
+- **One light, above and a little to the left,** for everything: sheens and caustics brightest on the top-left facets, shadows falling down and a little to the right. No light follows the pointer.
+- **One blur everywhere.** Higher glass doesn't blur more; only its shadow and its edge's light say how high it is.
+- **A hover is light; a press is depth.** Pointing at something lets it catch the light (its glass clears, its edge shines), and a raised button may lift and lean toward the pointer; a hover never carves or sinks anything. A press sinks a part in, and letting go brings it back up. A press carves in place: nothing moves out of its place or pushes what's beside it.
+- **Nothing is painted on.** No flat color washes, no ink slabs (a dark fill with light words), no underline or side line standing for a state, and nothing that looks like the browser's own selection or highlighting. A state that only works by filling a box with color is flat UI.
+- **Orange is light inside the glass,** never tinted glass: a glow along an edge (focus, the field you're in) or a part lit from within (the main action, the pick you're on).
+- **Disabled is frosted and still:** it catches no light, sinks on no press and its words go quieter, its shape where it was.
+- **Glass sits on glass, not in it.** A pane over another is its own piece of glass with its own edge and shadow, never a soft patch of the pane under it; what it covers is hidden, not seen through it.
+- **Motion has weight.** What rises or sinks moves on the spring, as a material settling.
+- **The glass stays calm over the game.** It bends the backdrop's light as thick glass does, but nothing in it moves or shimmers on its own: the game is what's lively.
+
+**The test** for any look, sketch or state: what is the glass physically doing here, and where is the light? An answer of "it's colored" fails.
 
 ## Shapes
 
@@ -290,6 +314,15 @@ Anything with a look of its own is a component in the gallery, or part of one, a
 ## Components
 
 Every component, with the call that makes it and its options, is in the catalog below. It is written from the gallery's registry (`apps/site/src/components`, shown at `/design`) by `npm run design:catalog`, and `test/node/design-catalog.test.ts` fails when it is out of step, so a page's builder, human or AI, can rely on it. A page is built from these and nothing else: find the component here, call its function, and set the options it names. `/design/example` is a small page built that way (`example-page.ts`), held to the same checks as the gallery.
+
+### Adding, changing or removing a component
+
+1. **Name the piece, not the use.** A component is named for what it is on screen (Wheel field, Copy field, Primary button), never for what one page uses it for (a birthday field, a guest button, a code field). The use is an example.
+2. **One piece, many variants.** Two components with the same shape and behavior are one, with an option: a kind, a size, a form. A new use adds an example or an option, not a component.
+3. **A new component only for a new shape or behavior,** one no component can show with an option. Before adding one, name the nearest component and why an option won't do.
+4. **Split when variants stop sharing.** A component that needs a switch for everything has become two; two pieces that pick or behave differently stay two even when they look alike (the Select field and the Wheel field), side by side on one page. A name so general it says nothing ("Input", with a dozen switches) is the opposite mistake.
+5. **A page holds what a builder compares.** Related components share a subpage, a page left with one component folds into its neighbor, and each component's summary says when to use it and which neighbor to use instead.
+6. **What's shared becomes its own piece.** A control inside a component is the gallery's own (a Tertiary button, never a look-alike), and a mechanism several components repeat becomes a component they all use (Well, Floating pane), so a fix lands once. When components merge, the old names go everywhere at once, with nothing kept under them.
 
 <!-- catalog:start (written by npm run design:catalog from the component registry; don't edit) -->
 
