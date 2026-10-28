@@ -8,7 +8,7 @@ import { examplePane } from "./example-pane.ts";
 import { row } from "./layout.ts";
 
 /*
- * Fields: the cut field, search, the birthday wheels and the date and time picker. From the sign-in draft (fields, the
+ * Fields: the cut field, search, the PIN field and the wheel field. From the sign-in draft (fields, the
  * wheels) and the header draft (search). Split from inputs.ts; inputs.ts re-exports them.
  */
 
@@ -121,83 +121,98 @@ export function searchField(options: SearchFieldOptions): ControlMarkup {
   return controlMarkup(html`<form class="${className}" method="get" action="${options.action}" role="search" data-cut-line="10"${options.suggestionsUrl !== undefined ? html` data-suggest="${options.suggestionsUrl}"` : ""}>${CUT_LINE}${Object.entries(options.keep ?? {}).map(([name, keptValue]) => html`<input type="hidden" name="${name}" value="${keptValue}">`)}${icon("search")}<input type="search" name="${options.name}" value="${options.searchText}" maxlength="200" placeholder="${options.placeholder}" aria-label="${options.label}" autocomplete="off"${combobox}>${secondaryButton("Clear the search", { type: "button", icon: "close", isLabelHidden: true, isInWell: true })}${list}</form>`, "regular");
 }
 
-export interface BirthdayFieldOptions {
+export interface WheelColumn {
+  /** The name its pick is sent under: "match_hours". */
   name: string;
+  /** What it picks, for a screen reader: "Hours". */
   label: string;
-  /** Unique on the page. Defaults to bday-<name>. */
-  id?: string;
-  /** A picked date, YYYY-MM-DD. */
-  birthday?: string;
-  /** What to know about it, under the field, quieter, as under a cut field (its id is <id>-hint): "Your birthday is never shown to anyone." An error takes its place. */
-  hint?: string;
-  /** What's wrong, under the field, marked, as under a cut field: what the page says when it comes back from its form. Picking a whole date takes it away. */
-  error?: string;
-  /** "open" shows the wheels, "marked" says to pick one to go on, "is-focused" is it reached by keyboard: the gallery's fixed states. */
-  state?: "open" | "marked" | "is-focused";
-  isRequired?: boolean;
+  /** Its rows, top to bottom: what each says and what it sends. */
+  rows: { label: string; rowValue: string }[];
+  /** The row it starts on. Left out, the first. */
+  pickedValue?: string;
 }
 
+export interface WheelFieldOptions {
+  /** The name a birthday or a date and time is sent under. Custom wheels send each column under its own name. */
+  name: string;
+  label: string;
+  /**
+   * What it picks: "birthday" (month, day and year, each starting blank so nothing suggests an age, sent as YYYY-MM-DD), "date-time" (the
+   * day, hour, minute and AM or PM in the viewer's own time zone, which it says, sent as ISO 8601 with its offset), or "custom" (its columns).
+   */
+  wheelKind: "birthday" | "date-time" | "custom";
+  /** A custom field's wheels, in the order they're read: it shows their picked rows' labels in that order ("1 h 30 min"). */
+  columns?: WheelColumn[];
+  /** Unique on the page. Defaults to wheel-<name>. */
+  id?: string;
+  /** What says what it picks, at its start. Defaults to a calendar for a birthday and a clock for a date and time; a custom one has none unless given. */
+  icon?: IconName;
+  /** A birthday's (YYYY-MM-DD) or a date and time's (ISO 8601 with its offset: 2026-10-23T15:30+02:00) picked value. */
+  pickedValue?: string;
+  /** A date and time's earliest, ISO 8601 with its offset; earlier picks move up to it. Defaults to now. */
+  minimumAt?: string;
+  /** What to know about it, under the field, quieter (its id is <id>-hint). An error takes its place. */
+  hint?: string;
+  /**
+   * What's wrong, under the field, marked: what the page says when it comes back from its form. Picking takes it away; a date and time sent
+   * back with one keeps saying the time it was sent with until another is picked.
+   */
+  error?: string;
+  /** Its form won't go on until it's picked: it says so and opens. */
+  isRequired?: boolean;
+  /** "open" shows the wheels, "marked" says to pick to go on, "is-focused" is it reached by keyboard: the gallery's fixed states. */
+  state?: "open" | "marked" | "is-focused";
+}
+
+/** What a wheel field says when its form won't go on without a pick. */
+const WHEEL_MISSING = { birthday: "Pick your birthday to go on.", "date-time": "Pick a time to go on.", custom: "Pick one to go on." } as const;
+
+const DATE_WHEELS = {
+  birthday: [["month", "Month"], ["day", "Day"], ["year", "Year"]],
+  "date-time": [["day", "Day"], ["hour", "Hour"], ["minute", "Minute"], ["half", "AM or PM"]],
+} as const;
+
 /**
- * One wheel: a groove carved into the picker's glass, its picked row in the middle catching the light, with a row above and below it. The
- * groove (and its lit row) stay still while the wheel scrolls inside it.
+ * One wheel: a groove carved into the picker's glass, three rows tall, its picked row in the middle catching the light. The groove and its
+ * lit row stay still while the wheel scrolls inside it. A custom wheel carries its rows (data-rows) and where it starts (data-picked).
  */
-const wheelChannel = (part: string, label: string) =>
-  html`<div class="wheel-channel cut-carved" data-cut-line="8"><span class="wheel-lit" data-cut-line="6" aria-hidden="true">${CUT_LINE}</span><div class="wheel" data-own-fade data-part="${part}" role="listbox" aria-label="${label}" tabindex="0"></div></div>`;
+const wheelChannel = (part: string, label: string, column?: WheelColumn) =>
+  html`<div class="wheel-channel cut-carved" data-cut-line="8"><span class="wheel-lit" data-cut-line="6" aria-hidden="true">${CUT_LINE}</span><div class="wheel" data-own-fade data-part="${part}" role="listbox" aria-label="${label}" tabindex="0"${
+    column ? html` data-rows="${JSON.stringify(column.rows.map((row) => [row.label, row.rowValue]))}" data-picked="${Math.max(0, column.rows.findIndex((row) => row.rowValue === column.pickedValue))}"` : ""
+  }></div></div>`;
 
-/** What a birthday field says when its form won't go on without one. */
-const BIRTHDAY_MISSING = "Pick your birthday to go on.";
-
-/** One field that opens three glass wheels, month, day and year, each in its own groove. Each starts blank, so nothing suggests an age. */
-export function birthdayField(options: BirthdayFieldOptions): ControlMarkup {
-  const id = options.id ?? `bday-${options.name}`;
+/**
+ * A wheel field: a field that opens wheels to pick a value made of parts read together, each wheel a groove of three rows with the pick in
+ * the middle: a birthday, a date and time, or wheels of a page's own (a match's length). One of many from a list is a Select field; a
+ * number on a scale is a Slider.
+ */
+export function wheelField(options: WheelFieldOptions): ControlMarkup {
+  const id = options.id ?? `wheel-${options.name}`;
   const isOpen = options.state === "open";
   const isMarked = options.state === "marked" || Boolean(options.error);
-  const fieldClass = ["bday-field", "cut-carved", isMarked ? "is-marked" : "", options.state === "is-focused" ? "is-focused" : ""].filter(Boolean).join(" ");
-  return controlMarkup(html`<fieldset class="bday" data-birthday${options.isRequired ? raw(" data-required") : ""}>
+  const columns = options.wheelKind === "custom" ? (options.columns ?? []) : [];
+  const fieldIcon = options.icon ?? (options.wheelKind === "birthday" ? "calendar" : options.wheelKind === "date-time" ? "clock" : undefined);
+  const shown = options.wheelKind === "custom"
+    ? columns.map((column) => (column.rows.find((row) => row.rowValue === column.pickedValue) ?? column.rows[0])?.label ?? "").join(" ")
+    : options.wheelKind === "birthday" ? "Choose a date" : "Choose a time";
+  const isZone = options.wheelKind === "date-time";
+  const buttonClass = ["wheel-button", "cut-carved", fieldIcon ? "" : "no-icon", options.wheelKind === "custom" ? "set" : "", isMarked ? "is-marked" : "", options.state === "is-focused" ? "is-focused" : ""].filter(Boolean).join(" ");
+  const describedBy = [`${id}-legend`, `${id}-error`, options.hint ? `${id}-hint` : "", isZone ? `${id}-zone` : ""].filter(Boolean).join(" ");
+  const channels = options.wheelKind === "custom"
+    ? columns.map((column) => wheelChannel(column.name, column.label, column))
+    : DATE_WHEELS[options.wheelKind].map(([part, label]) => wheelChannel(part, label));
+  const sent = options.wheelKind === "custom"
+    ? columns.map((column) => html`<input type="hidden" name="${column.name}" value="${(column.rows.find((row) => row.rowValue === column.pickedValue) ?? column.rows[0])?.rowValue ?? ""}" data-part="${column.name}">`)
+    : html`<input type="hidden" name="${options.name}" value="${options.pickedValue ?? ""}">`;
+  return controlMarkup(html`<fieldset class="wheel-field" id="${id}" data-wheels="${options.wheelKind}"${options.minimumAt ? html` data-minimum-at="${options.minimumAt}"` : ""}${options.isRequired ? raw(" data-required") : ""}>
 <legend id="${id}-legend">${options.label}</legend>
-<button type="button" class="${fieldClass}" data-cut-line="10" aria-expanded="${isOpen ? "true" : "false"}" aria-controls="${id}-pick" aria-describedby="${id}-legend ${id}-error${options.hint ? ` ${id}-hint` : ""}">${CUT_LINE}${icon("calendar")}<span class="bday-value">Choose a date</span><span class="bday-chev">${icon("chevron-down")}</span></button>
-<p class="field-error" id="${id}-error"${isMarked ? "" : raw(" hidden")}>${options.error ?? BIRTHDAY_MISSING}</p>${options.hint ? html`<p class="field-hint" id="${id}-hint"${isMarked ? raw(" hidden") : ""}>${options.hint}</p>` : ""}
-<div class="bday-pick" data-cut-line="10" id="${id}-pick" role="group" aria-label="${options.label}"${isOpen ? "" : raw(" hidden")}>
-<div class="wheels">${wheelChannel("month", "Month")}${wheelChannel("day", "Day")}${wheelChannel("year", "Year")}</div>
-<span class="bday-read sr" aria-live="polite"></span>
+<button type="button" class="${buttonClass}" data-cut-line="10" aria-expanded="${isOpen ? "true" : "false"}" aria-controls="${id}-pick" aria-describedby="${describedBy}">${CUT_LINE}${fieldIcon ? icon(fieldIcon) : ""}<span class="wheel-value">${shown}</span><span class="wheel-chev">${icon("chevron-down")}</span></button>
+<p class="field-error" id="${id}-error"${isMarked ? "" : raw(" hidden")}>${options.error ?? WHEEL_MISSING[options.wheelKind]}</p>${options.hint ? html`<p class="field-hint" id="${id}-hint"${isMarked ? raw(" hidden") : ""}>${options.hint}</p>` : ""}${isZone ? html`<p class="wheel-zone" id="${id}-zone"></p>` : ""}
+<div class="wheel-pick" data-cut-line="10" id="${id}-pick" role="group" aria-label="${options.label}"${isOpen ? "" : raw(" hidden")}>
+<div class="wheels ${options.wheelKind}-wheels"${options.wheelKind === "custom" ? html` style="--wheel-count: ${columns.length}"` : ""}>${channels}</div>
+<span class="wheel-read sr" aria-live="polite"></span>
 </div>
-<input type="hidden" name="${options.name}" value="${options.birthday ?? ""}" data-id="${id}">
-</fieldset>`, "field", { hasOwnWords: true });
-}
-
-export interface DateTimeFieldOptions {
-  name: string;
-  label: string;
-  /** Unique on the page. Defaults to when-<name>. */
-  id?: string;
-  /** A picked time, ISO 8601 with its offset: 2026-10-23T15:30+02:00. */
-  pickedAt?: string;
-  /** The earliest time it takes, ISO 8601 with its offset; earlier picks move up to it. Defaults to now. */
-  minimumAt?: string;
-  /** What's wrong, under the field, marked, as under a cut field: "That time has passed. Pick a later one." The field shows the time it was sent with until you pick another, which takes the error away. */
-  error?: string;
-  /** "open" shows the wheels: the gallery's fixed state. */
-  state?: "open";
-}
-
-/**
- * A date and time field, for scheduling (a version going live later): the birthday field's look, opening four wheels in the order a time
- * is read, the day ("Today", "Tomorrow", "Fri, Oct 23"), the hour (1 to 12), the minute in fives, then AM or PM, all in the viewer's own
- * time zone, said under it.
- * It submits ISO 8601 with the viewer's offset (DATE_TIME_SCRIPT fills it in).
- */
-export function dateTimeField(options: DateTimeFieldOptions): ControlMarkup {
-  const id = options.id ?? `when-${options.name}`;
-  const isOpen = options.state === "open";
-  return controlMarkup(html`<fieldset class="bday" data-date-time${options.minimumAt ? html` data-minimum-at="${options.minimumAt}"` : ""}>
-<legend id="${id}-legend">${options.label}</legend>
-<button type="button" class="bday-field cut-carved${options.error ? " is-marked" : ""}" data-cut-line="10" aria-expanded="${isOpen ? "true" : "false"}" aria-controls="${id}-pick" aria-describedby="${id}-legend ${options.error ? `${id}-error ` : ""}${id}-zone">${CUT_LINE}${icon("clock")}<span class="bday-value">Choose a time</span><span class="bday-chev">${icon("chevron-down")}</span></button>
-${options.error ? html`<p class="field-error" id="${id}-error">${options.error}</p>` : ""}<p class="date-time-zone" id="${id}-zone"></p>
-<div class="bday-pick" data-cut-line="10" id="${id}-pick" role="group" aria-label="${options.label}"${isOpen ? "" : raw(" hidden")}>
-<div class="wheels date-time-wheels">${wheelChannel("day", "Day")}${wheelChannel("hour", "Hour")}${wheelChannel("minute", "Minute")}${wheelChannel("half", "AM or PM")}</div>
-<span class="bday-read sr" aria-live="polite"></span>
-</div>
-<input type="hidden" name="${options.name}" value="${options.pickedAt ?? ""}" data-id="${id}">
+${sent}
 </fieldset>`, "field", { hasOwnWords: true });
 }
 
@@ -524,29 +539,60 @@ export const SEARCH_SCRIPT = `/* search finishes */(function () {
 `;
 
 /**
- * The date and time picker: three wheels in the viewer's time zone, the day a year ahead from the earliest it takes. It starts on the time
- * given, or, when nothing is, the next whole hour once it opens. A pick earlier than the earliest moves up to it. Scroll, tap, or use the
- * keys (arrows, Page Up and Down, Home and End). It writes ISO 8601 with the viewer's offset into the hidden input.
+ * Wheel fields ([data-wheels]): one script for the wheels, with a form for what they pick. Scroll a wheel, tap a row, or use the keys (arrows,
+ * Page Up and Down, Home and End, or type a row's start); the row in the middle is the pick. Enter closes it once it's picked, Esc closes it.
+ * A form that needs it (data-required) won't go on without a pick: the field says so and the wheels open.
+ *   birthday   month, day and year, each starting blank; 29 February only in a leap year. Sends YYYY-MM-DD.
+ *   date-time  the day (a year from the earliest it takes), hour, minute in fives and AM or PM, in the viewer's time zone, which it says. It
+ *              starts on the time given, or the next whole hour once it opens; a pick earlier than the earliest moves up to it. Sends ISO
+ *              8601 with the viewer's offset.
+ *   custom     the page's own wheels (data-rows), each sending its pick under its own name.
  */
-export const DATE_TIME_SCRIPT = `/* date and time */(function () {
+export const WHEEL_SCRIPT = String.raw`/* wheel fields */(function () {
   var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   var ROW = 36, DAY_MS = 86400000, FIVE_MS = 300000;
-  var HOURS = [], MINUTES = [], HALVES = ["AM", "PM"];
-  for (var h = 1; h <= 12; h++) HOURS.push(String(h));
-  for (var m = 0; m < 60; m += 5) MINUTES.push(String(m).padStart(2, "0"));
+  var MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+  var HINT = window.matchMedia("(pointer: coarse)").matches ? "Swipe each wheel to pick." : "Scroll or type to pick each one.";
   function two(n) { return String(n).padStart(2, "0"); }
   function startOfDay(date) { return new Date(date.getFullYear(), date.getMonth(), date.getDate()); }
-  function iso(date) {
-    var offset = -date.getTimezoneOffset(), sign = offset < 0 ? "-" : "+", whole = Math.abs(offset);
-    return date.getFullYear() + "-" + two(date.getMonth() + 1) + "-" + two(date.getDate()) + "T" + two(date.getHours()) + ":" + two(date.getMinutes()) + sign + two(Math.floor(whole / 60)) + ":" + two(whole % 60);
+
+  // A birthday: each wheel's row 0 is its blank. The day wheel follows the month and year.
+  function birthdayForm(root, hidden) {
+    var thisYear = new Date().getFullYear(), years = [];
+    for (var y = thisYear; y > thisYear - 100; y--) years.push(String(y));
+    function daysIn(month, year) { return month ? new Date(year || 2000, month, 0).getDate() : 31; }
+    var at = { month: 0, day: 0, year: 0 };
+    var given = /^(\d{4})-(\d{2})-(\d{2})$/.exec(hidden.value);
+    if (given) { at.month = Number(given[2]); at.day = Number(given[3]); at.year = Math.max(0, years.indexOf(given[1]) + 1); }
+    function complete() { return Boolean(at.month && at.day && at.year); }
+    return {
+      parts: ["month", "day", "year"], at: at, hasBlank: true,
+      rows: function (part) {
+        if (part === "month") return ["Month"].concat(MONTHS);
+        if (part === "year") return ["Year"].concat(years);
+        var list = ["Day"]; for (var d = 1; d <= daysIn(at.month, at.year ? Number(years[at.year - 1]) : 0); d++) list.push(String(d)); return list;
+      },
+      // A new month or year refills the day wheel, keeping the day where it still fits.
+      set: function (part, i) { at[part] = i; return part === "day" ? [] : ["day"]; },
+      isComplete: complete,
+      // Two digits typed on the year: the nearest year ending in them.
+      typed: function (part, typed, list) { if (part !== "year" || !/^\d{2}$/.test(typed)) return -1; for (var j = 1; j < list.length; j++) if (list[j].slice(2) === typed) return j; return -1; },
+      firstPart: function () { return complete() || !at.month ? "month" : !at.day ? "day" : "year"; },
+      // The field says it short (Feb 3, 2022), its month in words so no player reads it the other way round; the picker's foot says it in full.
+      words: function () {
+        if (!complete()) return { shown: null, read: HINT, sent: "" };
+        var month = MONTHS[at.month - 1], year = years[at.year - 1];
+        return { shown: month.slice(0, 3) + " " + at.day + ", " + year, read: month + " " + at.day + ", " + year, sent: year + "-" + two(at.month) + "-" + two(at.day) };
+      }
+    };
   }
-  function zoneName(date) {
-    try { var part = new Intl.DateTimeFormat("en-US", { timeZoneName: "long" }).formatToParts(date).find(function (each) { return each.type === "timeZoneName"; }); return part ? part.value : ""; } catch (error) { return ""; }
-  }
-  window.zaismaWatch.each("[data-date-time]", function (root) {
-    var field = root.querySelector(".bday-field"), pick = root.querySelector(".bday-pick"), shown = root.querySelector(".bday-value"), zone = root.querySelector(".date-time-zone");
-    var read = root.querySelector(".bday-read"), hidden = root.querySelector('input[type="hidden"]'), id = hidden.getAttribute("data-id");
-    // The earliest it takes, at a five-minute step; the day wheel starts on its day.
+
+  // A date and time: the hour wheel's rows are 1 to 12 (row 11 is 12), and with AM or PM they make the hour of the day.
+  function dateTimeForm(root, hidden, field) {
+    var HOURS = [], MINUTES = [], HALVES = ["AM", "PM"];
+    for (var h = 1; h <= 12; h++) HOURS.push(String(h));
+    for (var m = 0; m < 60; m += 5) MINUTES.push(two(m));
+    var zone = root.querySelector(".wheel-zone");
     var minimum = root.hasAttribute("data-minimum-at") ? new Date(root.getAttribute("data-minimum-at")) : new Date();
     if (isNaN(minimum)) minimum = new Date();
     minimum = new Date(Math.ceil(minimum.getTime() / FIVE_MS) * FIVE_MS);
@@ -562,217 +608,161 @@ export const DATE_TIME_SCRIPT = `/* date and time */(function () {
       // Next year's days say their year instead of their weekday, so they fit the wheel.
       return (day.getFullYear() === thisYear ? thisYearWords : laterYearWords).format(day);
     }
-    // The hour wheel's rows are 1 to 12 (row 11 is 12) and the half's AM or PM; together they make the hour of the day.
-    var picked = { day: 0, hour: 0, minute: 0, half: 0 }, isSet = false;
-    function timeOf(at) { var day = days[at.day]; return new Date(day.getFullYear(), day.getMonth(), day.getDate(), (at.hour + 1) % 12 + at.half * 12, at.minute * 5); }
-    function pickedOf(date) {
+    var dayRows = days.map(dayWords);
+    function zoneName(date) { try { var part = new Intl.DateTimeFormat("en-US", { timeZoneName: "long" }).formatToParts(date).find(function (each) { return each.type === "timeZoneName"; }); return part ? part.value : ""; } catch (error) { return ""; } }
+    function iso(date) {
+      var offset = -date.getTimezoneOffset(), sign = offset < 0 ? "-" : "+", whole = Math.abs(offset);
+      return date.getFullYear() + "-" + two(date.getMonth() + 1) + "-" + two(date.getDate()) + "T" + two(date.getHours()) + ":" + two(date.getMinutes()) + sign + two(Math.floor(whole / 60)) + ":" + two(whole % 60);
+    }
+    var at = { day: 0, hour: 0, minute: 0, half: 0 }, isSet = false;
+    function timeOf(pick) { var day = days[pick.day]; return new Date(day.getFullYear(), day.getMonth(), day.getDate(), (pick.hour + 1) % 12 + pick.half * 12, pick.minute * 5); }
+    function pickOf(date) {
       var dayIndex = Math.max(0, Math.min(days.length - 1, Math.round((startOfDay(date).getTime() - firstDay.getTime()) / DAY_MS)));
       return { day: dayIndex, hour: (date.getHours() % 12 || 12) - 1, minute: Math.floor(date.getMinutes() / 5), half: date.getHours() < 12 ? 0 : 1 };
     }
-    var given = hidden.value ? new Date(hidden.value) : null, error = root.querySelector(".field-error");
+    function setAll(pick) { Object.keys(pick).forEach(function (part) { at[part] = pick[part]; }); }
+    var given = hidden.value ? new Date(hidden.value) : null;
     // Sent back with an error (a time that's passed): the field keeps saying the time it was sent with, marked, until another is picked.
     var sentAt = given && !isNaN(given) && field.classList.contains("is-marked") ? given : null;
-    if (given && !isNaN(given)) { picked = pickedOf(given < minimum ? minimum : given); isSet = true; }
-    var wheels = {
-      day: { el: root.querySelector('[data-part="day"]'), items: days.map(dayWords) },
-      hour: { el: root.querySelector('[data-part="hour"]'), items: HOURS },
-      half: { el: root.querySelector('[data-part="half"]'), items: HALVES },
-      minute: { el: root.querySelector('[data-part="minute"]'), items: MINUTES }
+    if (given && !isNaN(given)) { setAll(pickOf(given < minimum ? minimum : given)); isSet = true; }
+    return {
+      parts: ["day", "hour", "minute", "half"], at: at, hasBlank: false,
+      rows: function (part) { return part === "day" ? dayRows : part === "hour" ? HOURS : part === "minute" ? MINUTES : HALVES; },
+      // Earlier than it takes: every wheel moves up to the earliest.
+      set: function (part, i) { at[part] = i; isSet = true; sentAt = null; if (timeOf(at) < minimum) { setAll(pickOf(minimum)); return "all"; } return []; },
+      isComplete: function () { return isSet; },
+      // Nothing picked yet: it starts on the next whole hour, or the earliest it takes.
+      opening: function () { if (isSet) return false; var next = new Date(); next.setMinutes(60, 0, 0); setAll(pickOf(next < minimum ? minimum : next)); isSet = true; return true; },
+      firstPart: function () { return "day"; },
+      words: function () {
+        var shownAt = sentAt || timeOf(at);
+        zone.textContent = "Your time" + (zoneName(shownAt) ? ": " + zoneName(shownAt) : "");
+        if (!isSet) return { shown: null, read: "", sent: "" };
+        var timeWords = shownAt.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+        // The field says it short (Today, Oct 23, or Jan 15, 2027 in another year), its month in words so no player reads it the other way
+        // round, and it fits a phone; the wheels and the screen reader say it whole.
+        var day = startOfDay(shownAt), gap = Math.round((day.getTime() - today) / DAY_MS);
+        var shortDay = gap === 0 ? "Today" : gap === 1 ? "Tomorrow" : day.toLocaleDateString("en-US", day.getFullYear() === thisYear ? { month: "short", day: "numeric" } : { month: "short", day: "numeric", year: "numeric" });
+        return { shown: shortDay + ", " + timeWords, read: shownAt.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" }) + " at " + timeWords, sent: iso(shownAt) };
+      }
     };
+  }
+
+  // The page's own wheels: each carries its rows ([label, value]) and where it starts, and sends its pick under its own name.
+  function customForm(root) {
+    var parts = [], lists = {}, at = {};
+    Array.prototype.forEach.call(root.querySelectorAll(".wheel[data-part]"), function (wheel) {
+      var part = wheel.getAttribute("data-part"); parts.push(part);
+      try { lists[part] = JSON.parse(wheel.getAttribute("data-rows")) || []; } catch (error) { lists[part] = []; }
+      at[part] = Math.max(0, Number(wheel.getAttribute("data-picked")) || 0);
+    });
+    return {
+      parts: parts, at: at, hasBlank: false,
+      rows: function (part) { return lists[part].map(function (row) { return row[0]; }); },
+      set: function (part, i) { at[part] = i; return []; },
+      isComplete: function () { return true; },
+      firstPart: function () { return parts[0]; },
+      words: function () {
+        var shown = parts.map(function (part) { return (lists[part][at[part]] || [""])[0]; }).join(" ");
+        var sent = {}; parts.forEach(function (part) { sent[part] = (lists[part][at[part]] || ["", ""])[1]; });
+        return { shown: shown, read: shown, sent: sent };
+      }
+    };
+  }
+
+  window.zaismaWatch.each("[data-wheels]", function (root) {
+    var kind = root.getAttribute("data-wheels"), id = root.id;
+    var field = root.querySelector(".wheel-button"), pick = root.querySelector(".wheel-pick"), value = root.querySelector(".wheel-value");
+    var error = root.querySelector(".field-error"), hint = root.querySelector(".field-hint"), read = root.querySelector(".wheel-read");
+    var hidden = root.querySelector('input[type="hidden"]:not([data-part])');
+    var form = kind === "birthday" ? birthdayForm(root, hidden) : kind === "date-time" ? dateTimeForm(root, hidden, field) : customForm(root);
+    var placeholder = value.textContent, wheels = {};
+    form.parts.forEach(function (part) { wheels[part] = { el: root.querySelector('.wheel[data-part="' + part + '"]'), count: 0 }; });
     function mark(part) {
-      var w = wheels[part], at = picked[part];
-      Array.prototype.forEach.call(w.el.children, function (option, i) { option.setAttribute("aria-selected", String(i === at)); });
-      w.el.setAttribute("aria-activedescendant", id + "-" + part + "-" + at);
+      var w = wheels[part], i = form.at[part];
+      Array.prototype.forEach.call(w.el.children, function (option, j) { option.setAttribute("aria-selected", String(j === i)); });
+      w.el.setAttribute("aria-activedescendant", id + "-" + part + "-" + i);
     }
-    // Each wheel's rows go in together, with one listener for a press on any of them.
-    Object.keys(wheels).forEach(function (part) {
-      var w = wheels[part], rows = document.createDocumentFragment();
-      w.items.forEach(function (text, i) {
+    // A wheel's rows go in together; one listener on the wheel (wired once) takes a press on any of them.
+    function fill(part) {
+      var w = wheels[part], list = form.rows(part), rows = document.createDocumentFragment();
+      w.count = list.length; w.el.textContent = "";
+      list.forEach(function (text, i) {
         var option = document.createElement("div");
         option.setAttribute("role", "option"); option.id = id + "-" + part + "-" + i; option.textContent = text;
+        if (form.hasBlank && i === 0) option.className = "blank";
         rows.appendChild(option);
       });
       w.el.appendChild(rows);
-      w.el.addEventListener("click", function (event) { var option = event.target.closest('[role="option"]'); if (option && option.parentElement === w.el) pickRow(part, Array.prototype.indexOf.call(w.el.children, option), true); });
+      if (!w.isWired) { w.isWired = true; w.el.addEventListener("click", function (event) { var option = event.target.closest('[role="option"]'); if (option && option.parentElement === w.el) pickRow(part, Array.prototype.indexOf.call(w.el.children, option), true); }); }
+      if (form.at[part] > w.count - 1) form.at[part] = w.count - 1;
       mark(part);
-    });
-    function place(isGliding) { Object.keys(wheels).forEach(function (part) { wheels[part].el.scrollTo({ top: picked[part] * ROW, behavior: isGliding && !reduce ? "smooth" : "auto" }); }); }
+    }
+    function place(isGliding) { form.parts.forEach(function (part) { wheels[part].el.scrollTo({ top: form.at[part] * ROW, behavior: isGliding && !reduce ? "smooth" : "auto" }); }); }
     function pickRow(part, i, isGliding) {
-      i = Math.max(0, Math.min(wheels[part].items.length - 1, i));
+      i = Math.max(0, Math.min(wheels[part].count - 1, i));
       wheels[part].el.scrollTo({ top: i * ROW, behavior: isGliding && !reduce ? "smooth" : "auto" });
       setRow(part, i);
     }
+    var isPicked = form.isComplete();
     function setRow(part, i) {
-      if (picked[part] === i && isSet) return;
-      picked[part] = i; isSet = true;
-      if (sentAt) { sentAt = null; field.classList.remove("is-marked"); if (error) error.hidden = true; }
-      // Earlier than it takes: every wheel moves up to the earliest.
-      if (timeOf(picked) < minimum) { picked = pickedOf(minimum); Object.keys(wheels).forEach(mark); place(true); }
-      else mark(part);
+      if (form.at[part] === i && isPicked) return;
+      var changed = form.set(part, i);
+      isPicked = true;
+      // A pick takes away what was wrong.
+      if (field.classList.contains("is-marked") && form.isComplete()) { field.classList.remove("is-marked"); error.hidden = true; if (hint) hint.hidden = false; }
+      if (changed === "all") { form.parts.forEach(mark); place(true); }
+      else { mark(part); changed.forEach(function (other) { fill(other); wheels[other].el.scrollTop = form.at[other] * ROW; }); }
       show();
     }
     function show() {
-      var at = timeOf(picked);
-      zone.textContent = "Your time" + (zoneName(at) ? ": " + zoneName(at) : "");
-      if (!isSet) { shown.textContent = "Choose a time"; field.classList.remove("set"); hidden.value = ""; read.textContent = ""; return; }
-      if (sentAt) at = sentAt;
-      var timeWords = at.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
-      // The field says it short (Today, Oct 23, or Jan 15, 2027 in another year), its month in words so no player reads it the other way
-      // round, and it fits a phone; the wheels and the screen reader say it whole.
-      var day = sentAt ? startOfDay(sentAt) : days[picked.day], gap = Math.round((day.getTime() - today) / DAY_MS);
-      var shortDay = gap === 0 ? "Today" : gap === 1 ? "Tomorrow" : day.toLocaleDateString("en-US", day.getFullYear() === thisYear ? { month: "short", day: "numeric" } : { month: "short", day: "numeric", year: "numeric" });
-      shown.textContent = shortDay + ", " + timeWords; field.classList.add("set");
-      read.textContent = at.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" }) + " at " + timeWords;
-      hidden.value = iso(at);
+      var said = form.words();
+      read.textContent = said.read;
+      value.textContent = said.shown === null ? placeholder : said.shown;
+      field.classList.toggle("set", said.shown !== null);
+      if (hidden) hidden.value = typeof said.sent === "string" ? said.sent : "";
+      if (typeof said.sent === "object") Object.keys(said.sent).forEach(function (part) { var input = root.querySelector('input[type="hidden"][data-part="' + part + '"]'); if (input) input.value = said.sent[part]; });
     }
-    Object.keys(wheels).forEach(function (part) {
-      var w = wheels[part], timer = null;
-      // When a scroll comes to rest, the row under the band is the one picked.
+    form.parts.forEach(function (part) {
+      var w = wheels[part], timer = null, typed = "", typedAt = 0;
+      fill(part);
+      // When a scroll comes to rest, the row in the middle is the one picked.
       w.el.addEventListener("scroll", function () {
         clearTimeout(timer);
         timer = setTimeout(function () { if (!pick.hidden) setRow(part, Math.round(w.el.scrollTop / ROW)); }, 110);
       }, { passive: true });
       w.el.addEventListener("keydown", function (event) {
-        var at = picked[part], step = { ArrowDown: 1, ArrowUp: -1, PageDown: 5, PageUp: -5 }[event.key];
-        if (step) { pickRow(part, at + step, true); event.preventDefault(); return; }
-        if (event.key === "Home") { pickRow(part, 0, true); event.preventDefault(); return; }
-        if (event.key === "End") { pickRow(part, w.items.length - 1, true); event.preventDefault(); return; }
-        if (event.key === "Enter") { close(true); event.preventDefault(); }
+        var i = form.at[part], key = event.key, step = { ArrowDown: 1, ArrowUp: -1, PageDown: 5, PageUp: -5 }[key];
+        if (step) { pickRow(part, i + step, true); event.preventDefault(); return; }
+        if (key === "Home") { pickRow(part, form.hasBlank ? 1 : 0, true); event.preventDefault(); return; }
+        if (key === "End") { pickRow(part, w.count - 1, true); event.preventDefault(); return; }
+        if (key === "Enter" && form.isComplete()) { close(true); event.preventDefault(); return; }
+        if (key.length !== 1 || event.metaKey || event.ctrlKey) return;
+        var now = Date.now(); typed = now - typedAt > 900 ? key.toLowerCase() : typed + key.toLowerCase(); typedAt = now;
+        var list = form.rows(part), hit = -1;
+        for (var j = form.hasBlank ? 1 : 0; j < list.length && hit < 0; j++) if (list[j].toLowerCase().indexOf(typed) === 0) hit = j;
+        if (hit < 0 && form.typed) hit = form.typed(part, typed, list);
+        if (hit >= 0) { pickRow(part, hit, true); event.preventDefault(); }
       });
     });
     // Shown open as the page loads (a gallery's state), it neither takes the focus nor scrolls the page to itself.
     function open(isOnLoad) {
-      // Nothing picked yet: it starts on the next whole hour, or the earliest it takes.
-      if (!isSet) { var next = new Date(); next.setMinutes(60, 0, 0); picked = pickedOf(next < minimum ? minimum : next); isSet = true; Object.keys(wheels).forEach(mark); show(); }
+      if (form.opening && form.opening()) { isPicked = true; form.parts.forEach(mark); show(); }
       pick.hidden = false; field.setAttribute("aria-expanded", "true"); place(false);
       if (isOnLoad) return;
-      wheels.day.el.focus({ preventScroll: true });
+      wheels[form.firstPart()].el.focus({ preventScroll: true });
       pick.scrollIntoView({ block: "nearest", behavior: reduce ? "auto" : "smooth" });
     }
     function close(returnFocus) { pick.hidden = true; field.setAttribute("aria-expanded", "false"); if (returnFocus) field.focus(); }
     field.addEventListener("click", function () { if (pick.hidden) open(); else close(false); });
     pick.addEventListener("keydown", function (event) { if (event.key === "Escape") { close(true); event.preventDefault(); } });
-    if (!pick.hidden) { if (!isSet) open(true); else requestAnimationFrame(function () { place(false); }); }
+    if (!pick.hidden) { if (form.opening && !form.isComplete()) open(true); else requestAnimationFrame(function () { place(false); }); }
     show();
-  });
-})();
-`;
-
-/**
- * The birthday picker. Each wheel starts on its blank row; scroll, tap, or use the keys (arrows, Page Up and Down,
- * Home and End, or type the month's name, the day or the year). 29 February only in a leap year. A form with a
- * required birthday won't go on without one: the field says so and the wheels open.
- */
-export const BIRTHDAY_SCRIPT = `/* birthday */(function () {
-  var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  var MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-  var ROW = 36, THIS_YEAR = new Date().getFullYear();
-  var HINT = window.matchMedia("(pointer: coarse)").matches ? "Swipe each wheel to pick." : "Scroll or type to pick each one.";
-  var years = []; for (var yr = THIS_YEAR; yr > THIS_YEAR - 100; yr--) years.push(String(yr));
-  function daysIn(month, year) { return month ? new Date(year || 2000, month, 0).getDate() : 31; }
-  window.zaismaWatch.each("[data-birthday]", function (root) {
-    var field = root.querySelector(".bday-field"), pick = root.querySelector(".bday-pick"), value = root.querySelector(".bday-value"), error = root.querySelector(".field-error"), hint = root.querySelector(".field-hint");
-    var read = root.querySelector(".bday-read"), hidden = root.querySelector('input[type="hidden"]'), id = hidden.getAttribute("data-id");
-    var birthday = { month: 0, day: 0, year: 0 }; // 0 is the blank row
-    var given = /^(\\d{4})-(\\d{2})-(\\d{2})$/.exec(hidden.value);
-    if (given) { birthday.month = Number(given[2]); birthday.day = Number(given[3]); birthday.year = Math.max(0, years.indexOf(given[1]) + 1); }
-    read.textContent = HINT;
-    var wheels = {
-      month: { el: root.querySelector('[data-part="month"]'), blank: "Month", items: function () { return MONTHS; } },
-      day: { el: root.querySelector('[data-part="day"]'), blank: "Day", items: function () { var n = daysIn(birthday.month, birthday.year ? Number(years[birthday.year - 1]) : 0), list = []; for (var i = 1; i <= n; i++) list.push(String(i)); return list; } },
-      year: { el: root.querySelector('[data-part="year"]'), blank: "Year", items: function () { return years; } }
-    };
-    function fill(part) {
-      var w = wheels[part], list = [w.blank].concat(w.items());
-      w.count = list.length;
-      w.el.textContent = "";
-      // The rows go in together; one listener on the wheel (wired once) takes a press on any of them.
-      var rows = document.createDocumentFragment();
-      list.forEach(function (text, i) {
-        var option = document.createElement("div");
-        option.setAttribute("role", "option"); option.id = id + "-" + part + "-" + i; option.textContent = text;
-        if (i === 0) option.className = "blank";
-        rows.appendChild(option);
-      });
-      w.el.appendChild(rows);
-      if (!w.isWired) { w.isWired = true; w.el.addEventListener("click", function (event) { var option = event.target.closest('[role="option"]'); if (option && option.parentElement === w.el) pickRow(part, Array.prototype.indexOf.call(w.el.children, option), true); }); }
-      mark(part);
-    }
-    function mark(part) {
-      var w = wheels[part], at = birthday[part];
-      Array.prototype.forEach.call(w.el.children, function (option, i) { option.setAttribute("aria-selected", String(i === at)); });
-      w.el.setAttribute("aria-activedescendant", id + "-" + part + "-" + at);
-    }
-    function pickRow(part, i, glide) {
-      var w = wheels[part];
-      i = Math.max(0, Math.min(w.count - 1, i));
-      w.el.scrollTo({ top: i * ROW, behavior: glide && !reduce ? "smooth" : "auto" });
-      setValue(part, i);
-    }
-    function setValue(part, i) {
-      if (birthday[part] === i) return;
-      birthday[part] = i;
-      mark(part);
-      if (part !== "day") { // the day wheel follows the month and year: 29 February only in a leap year
-        fill("day");
-        if (birthday.day > wheels.day.count - 1) { birthday.day = wheels.day.count - 1; mark("day"); }
-        wheels.day.el.scrollTop = birthday.day * ROW;
-      }
-      show();
-    }
-    function text() { return MONTHS[birthday.month - 1] + " " + birthday.day + ", " + years[birthday.year - 1]; }
-    // The field shows it short (Feb 3, 2022), its month in words so no player reads it the other way round; the picker's foot says it in full.
-    function shortText() { return MONTHS[birthday.month - 1].slice(0, 3) + " " + birthday.day + ", " + years[birthday.year - 1]; }
-    function complete() { return birthday.month && birthday.day && birthday.year; }
-    function show() {
-      var done = complete();
-      read.textContent = done ? text() : HINT;
-      if (done) {
-        value.textContent = shortText(); field.classList.add("set"); field.classList.remove("is-marked"); error.hidden = true; if (hint) hint.hidden = false;
-        hidden.value = years[birthday.year - 1] + "-" + String(birthday.month).padStart(2, "0") + "-" + String(birthday.day).padStart(2, "0");
-      } else if (!field.classList.contains("is-marked")) { value.textContent = "Choose a date"; field.classList.remove("set"); hidden.value = ""; }
-      else { field.classList.remove("set"); hidden.value = ""; }
-    }
-    Object.keys(wheels).forEach(function (part) {
-      var w = wheels[part], timer = null, typed = "", typedAt = 0;
-      fill(part);
-      // When a scroll comes to rest, the row under the band is the one picked.
-      w.el.addEventListener("scroll", function () {
-        clearTimeout(timer);
-        timer = setTimeout(function () { setValue(part, Math.round(w.el.scrollTop / ROW)); }, 110);
-      }, { passive: true });
-      w.el.addEventListener("keydown", function (event) {
-        var at = birthday[part], key = event.key, step = { ArrowDown: 1, ArrowUp: -1, PageDown: 5, PageUp: -5 }[key];
-        if (step) { pickRow(part, at + step, true); event.preventDefault(); return; }
-        if (key === "Home") { pickRow(part, 1, true); event.preventDefault(); return; }
-        if (key === "End") { pickRow(part, w.count - 1, true); event.preventDefault(); return; }
-        if (key === "Enter" && complete()) { close(true); event.preventDefault(); return; }
-        if (key.length !== 1 || event.metaKey || event.ctrlKey) return;
-        var now = Date.now(); typed = now - typedAt > 900 ? key.toLowerCase() : typed + key.toLowerCase(); typedAt = now;
-        var list = [w.blank].concat(w.items()), hit = -1;
-        for (var i = 1; i < list.length && hit < 0; i++) if (list[i].toLowerCase().indexOf(typed) === 0) hit = i;
-        if (part === "year" && hit < 0 && /^\\d{2}$/.test(typed)) { // two digits: the nearest year ending in them
-          for (var j = 1; j < list.length && hit < 0; j++) if (list[j].slice(2) === typed) hit = j;
-        }
-        if (hit > 0) { pickRow(part, hit, true); event.preventDefault(); }
-      });
-    });
-    function place() { Object.keys(wheels).forEach(function (part) { wheels[part].el.scrollTop = birthday[part] * ROW; }); }
-    function open() {
-      pick.hidden = false; field.setAttribute("aria-expanded", "true"); place();
-      wheels[complete() ? "month" : !birthday.month ? "month" : !birthday.day ? "day" : "year"].el.focus({ preventScroll: true });
-      pick.scrollIntoView({ block: "nearest", behavior: reduce ? "auto" : "smooth" });
-    }
-    function close(returnFocus) { pick.hidden = true; field.setAttribute("aria-expanded", "false"); if (returnFocus) field.focus(); }
-    field.addEventListener("click", function () { if (pick.hidden) open(); else close(false); });
-    pick.addEventListener("keydown", function (event) { if (event.key === "Escape") { close(true); event.preventDefault(); } });
-    if (!pick.hidden) requestAnimationFrame(place);
-    show();
-    // The account can't go on without a birthday: say so on the field and open the wheels.
-    var form = root.closest("form");
-    if (form && root.hasAttribute("data-required")) form.addEventListener("submit", function (event) {
-      if (complete()) return;
-      event.preventDefault(); field.classList.add("is-marked"); error.textContent = ${JSON.stringify(BIRTHDAY_MISSING)}; error.hidden = false; if (hint) hint.hidden = true; open();
+    // A form that needs it won't go on without a pick: the field says so and the wheels open.
+    var owner = root.closest("form");
+    if (owner && root.hasAttribute("data-required")) owner.addEventListener("submit", function (event) {
+      if (form.isComplete()) return;
+      event.preventDefault(); field.classList.add("is-marked"); error.hidden = false; if (hint) hint.hidden = true; open();
     });
   });
 })();
@@ -987,41 +977,47 @@ component({
   ],
 });
 
+const HOURS_ROWS = [0, 1, 2, 3].map((hourCount) => ({ label: `${hourCount} h`, rowValue: String(hourCount) }));
+const MINUTE_ROWS = Array.from({ length: 12 }, (_, step) => ({ label: `${String(step * 5).padStart(2, "0")} min`, rowValue: String(step * 5) }));
+const MATCH_LENGTH: WheelColumn[] = [{ name: "match_hours", label: "Hours", rows: HOURS_ROWS, pickedValue: "1" }, { name: "match_minutes", label: "Minutes", rows: MINUTE_ROWS, pickedValue: "30" }];
+
 component({
-  name: "Birthday field",
-  slug: "birthday-field",
+  name: "Wheel field",
+  slug: "wheel-field",
   group: "inputs",
   subgroup: "dates",
-  summary: "Asking for a birthday: three wheels that start blank, so nothing suggests an age.",
+  summary: "A value made of parts read together, picked on wheels: a birthday (starting blank, so nothing suggests an age), when something happens (in your own time zone, which it says), or wheels of a page's own, like a match's length. One of many from a list is a Select field; a number on a scale, a Slider.",
   styles: `
-/* The birthday field: the same cut field, with a calendar icon; open, it's whitened with the orange outline, like a field you're typing in. */
-.bday { border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--gap-words-control); min-width: 0; }
+/* A wheel field: the same cut field, with what it picks said by its icon; open, it's whitened with the orange outline, like a field you're
+   typing in. With no icon its words start where an icon would. */
+.wheel-field { border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--gap-words-control); min-width: 0; }
 /* A legend sits outside its fieldset's flex, so it takes the gap as a margin. */
-.bday legend { padding: 0 var(--pad-words); margin-bottom: var(--gap-words-control); font: var(--type-label); color: var(--ink-2); }
-.bday-field { position: relative; display: flex; align-items: center; justify-content: space-between; gap: var(--gap-words-words); width: 100%; height: var(--control-height-field); padding: 0 var(--pad-inside-words) 0 calc(var(--pad-inside-words) + 34px); border: 0; cursor: pointer; text-align: left;
+.wheel-field legend { padding: 0 var(--pad-words); margin-bottom: var(--gap-words-control); font: var(--type-label); color: var(--ink-2); }
+.wheel-button { position: relative; display: flex; align-items: center; justify-content: space-between; gap: var(--gap-words-words); width: 100%; height: var(--control-height-field); padding: 0 var(--pad-inside-words) 0 calc(var(--pad-inside-words) + 34px); border: 0; cursor: pointer; text-align: left;
   font: 500 1.125rem var(--display); color: var(--muted); --face-color: var(--field-face); background: var(--face-color); box-shadow: var(--field-shade);
   clip-path: var(--cut-shape); transition: --face-color 0.25s; }
-.bday-field:hover { --face-color: var(--field-hover); }
-.bday-field[aria-expanded="true"], .bday-field:focus-visible, .bday-field.is-focused { outline: none; --face-color: var(--field-focus); }
-.bday-field.set { color: var(--ink); font-weight: 500; }
-.bday-field > .ico { position: absolute; left: var(--pad-inside-words); top: 50%; width: 20px; height: 20px; transform: translateY(-50%); color: var(--muted); }
-.bday-field[aria-expanded="true"] > .ico, .bday-field.set > .ico { color: var(--ink); }
-.bday-chev { display: inline-flex; flex: none; margin-right: 4px; color: var(--ink); transition: transform 0.4s cubic-bezier(.2,.7,.2,1); }
-.bday-chev > .ico { width: 16px; height: 10px; stroke-width: 2.2; }
+.wheel-button:hover { --face-color: var(--field-hover); }
+.wheel-button[aria-expanded="true"], .wheel-button:focus-visible, .wheel-button.is-focused { outline: none; --face-color: var(--field-focus); }
+.wheel-button.set { color: var(--ink); font-weight: 500; }
+.wheel-button > .ico { position: absolute; left: var(--pad-inside-words); top: 50%; width: 20px; height: 20px; transform: translateY(-50%); color: var(--muted); }
+.wheel-button[aria-expanded="true"] > .ico, .wheel-button.set > .ico { color: var(--ink); }
+.wheel-chev { display: inline-flex; flex: none; margin-right: 4px; color: var(--ink); transition: transform 0.4s cubic-bezier(.2,.7,.2,1); }
+.wheel-chev > .ico { width: 16px; height: 10px; stroke-width: 2.2; }
 /* Only the chevron turns when the picker opens; the outline and the icon stay still. */
-.bday-field[aria-expanded="true"] .bday-chev { transform: rotate(180deg); }
-.bday-field .cut-line { z-index: 4; }
-.bday-field .cut-line polygon { stroke: var(--field-outline); }
-.bday-field[aria-expanded="true"] .cut-line polygon, .bday-field:focus-visible .cut-line polygon, .bday-field.is-focused .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
-.bday-field.is-marked .cut-line polygon { stroke: var(--marked); stroke-width: 2; }
+.wheel-button[aria-expanded="true"] .wheel-chev { transform: rotate(180deg); }
+.wheel-button .cut-line { z-index: 4; }
+.wheel-button .cut-line polygon { stroke: var(--field-outline); }
+.wheel-button[aria-expanded="true"] .cut-line polygon, .wheel-button:focus-visible .cut-line polygon, .wheel-button.is-focused .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
+.wheel-button.is-marked .cut-line polygon { stroke: var(--marked); stroke-width: 2; }
 /* Its words stay on one line, never crowding its edges; its chevron keeps the same inset from its end as its icon from its start, so a long
    date ("Jan 15, 2027, 1:30 PM") fits a phone. What's wrong is said under it, as under a cut field. */
-.bday-value { min-width: 0; flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.bday-field > span { position: relative; z-index: 2; }
+.wheel-value { min-width: 0; flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.wheel-button > span { position: relative; z-index: 2; }
+.wheel-button.no-icon { padding-left: var(--pad-inside-words); }
 /* The picker: a pane of clearer glass holding its wheels, each a groove carved into it three rows tall. The picked row is in the middle and
    catches the light, as a pointed list row does (its glass clears, its edge lit above and shaded below); a row shows above and below it,
    quieter, so there's always more to see both ways. The wheel you're on by keyboard draws the focus line round its groove. */
-.bday-pick { position: relative; margin-top: 0; padding: var(--pad-inner-pane); border: 0; background: var(--pick); box-shadow: var(--pick-shade);
+.wheel-pick { position: relative; margin-top: 0; padding: var(--pad-inner-pane); border: 0; background: var(--pick); box-shadow: var(--pick-shade);
   clip-path: var(--cut-shape); }
 /* The month gets the room its longest name needs (September), the day the least. */
 /* Each wheel is at least as wide as its longest row (a month's name, a year, "Tomorrow", "AM"), so a pane that fits what's in it grows to them. */
@@ -1042,46 +1038,34 @@ component({
 .wheel [role="option"].blank { color: var(--muted); font-weight: 400; }
 .wheel [role="option"][aria-selected="true"] { color: var(--ink); font-weight: 600; }
 .wheel [role="option"][aria-selected="true"].blank { color: var(--muted); font-weight: 500; }
-/* Done: a cut slab of clearer glass; it whitens with the orange line when you point at it, once there's a whole date. */
-`,
-  render: birthdayField,
-  examples: [
-    { label: "Closed", markup: examplePane(birthdayField({ id: "example-bday-closed", name: "birthday", label: "When's your birthday?" })) },
-    { label: "Keyboard focus", markup: examplePane(birthdayField({ id: "example-bday-focused", name: "birthday", label: "When's your birthday?", state: "is-focused" })), isStill: true },
-    { label: "Open", markup: examplePane(birthdayField({ id: "example-bday-open", name: "birthday", label: "When's your birthday?", state: "open" })) },
-    { label: "Picked", markup: examplePane(birthdayField({ id: "example-bday-picked", name: "birthday", label: "When's your birthday?", birthday: "2004-03-14" })) },
-    { label: "With a hint", markup: examplePane(birthdayField({ id: "example-bday-hint", name: "birthday", label: "When's your birthday?", hint: "Your birthday is never shown to anyone." })) },
-    { label: "Error: none picked", markup: examplePane(birthdayField({ id: "example-bday-marked", name: "birthday", label: "When's your birthday?", hint: "Your birthday is never shown to anyone.", state: "marked" })), isStill: true },
-  ],
-});
-
-component({
-  name: "Date and time field",
-  slug: "date-time-field",
-  group: "inputs",
-  subgroup: "dates",
-  summary: "Picking when something happens, like a version going live: the birthday field's wheels for the day, the hour, the minute and AM or PM, in your own time zone, which it says.",
-  styles: `
-/* The date and time field: the birthday field with a clock, and the time zone said under it. The day wheel gets the room "Jan 15, 2027" needs,
-   the hour "12 PM". */
-.date-time-zone { margin: 0; padding-inline: var(--pad-words); font: var(--type-facts); color: var(--muted); }
-.date-time-zone:empty { display: none; }
+/* A date and time says its time zone under it. Its day wheel gets the room "Jan 15, 2027" needs. Custom wheels share the width evenly. */
+.wheel-zone { margin: 0; padding-inline: var(--pad-words); font: var(--type-facts); color: var(--muted); }
+.wheel-zone:empty { display: none; }
 .date-time-wheels { grid-template-columns: minmax(7rem, 2.5fr) repeat(3, minmax(2.75rem, 0.8fr)); }
+.custom-wheels { grid-template-columns: repeat(var(--wheel-count), minmax(3.5rem, 1fr)); }
 /* The picked day stays at the wheel's own size, so a long one ("Jan 15, 2027") still fits a phone. */
 .date-time-wheels [role="option"] { white-space: nowrap; }
 /* On a phone what's typed or picked is 16px, the least that keeps a phone from zooming in, so more of it fits: in a cut field, a search, a
-   birthday's and a date's. Set here, after each of those fields' own font, so it holds on every one. */
-@media (max-width: 760px) { .field input, .find input[type="search"], .find-finish, .bday-field { font-size: 1rem; } }
+   wheel field's. Set here, after each of those fields' own font, so it holds on every one. */
+@media (max-width: 760px) { .field input, .find input[type="search"], .find-finish, .wheel-button { font-size: 1rem; } }
 `,
-  render: dateTimeField,
+  render: wheelField,
   examples: [
-    { label: "Closed", markup: examplePane(dateTimeField({ id: "example-when-closed", name: "publish_at", label: "Go live" })) },
-    { label: "Open", markup: examplePane(dateTimeField({ id: "example-when-open", name: "publish_at", label: "Go live", state: "open" })) },
-    { label: "Picked", markup: examplePane(dateTimeField({ id: "example-when-picked", name: "publish_at", label: "Go live", pickedAt: "2027-01-15T18:30+00:00" })) },
+    { label: "Birthday: closed", markup: examplePane(wheelField({ id: "example-bday-closed", name: "birthday", label: "When's your birthday?", wheelKind: "birthday" })) },
+    { label: "Birthday: open", markup: examplePane(wheelField({ id: "example-bday-open", name: "birthday", label: "When's your birthday?", wheelKind: "birthday", state: "open" })) },
+    { label: "Birthday: picked", markup: examplePane(wheelField({ id: "example-bday-picked", name: "birthday", label: "When's your birthday?", wheelKind: "birthday", pickedValue: "2004-03-14" })) },
+    { label: "Birthday: with a hint", markup: examplePane(wheelField({ id: "example-bday-hint", name: "birthday", label: "When's your birthday?", wheelKind: "birthday", hint: "Your birthday is never shown to anyone." })) },
+    { label: "Birthday: none picked", markup: examplePane(wheelField({ id: "example-bday-marked", name: "birthday", label: "When's your birthday?", wheelKind: "birthday", hint: "Your birthday is never shown to anyone.", state: "marked" })), isStill: true },
+    { label: "Keyboard focus", markup: examplePane(wheelField({ id: "example-bday-focused", name: "birthday", label: "When's your birthday?", wheelKind: "birthday", state: "is-focused" })), isStill: true },
+    { label: "Date and time: closed", markup: examplePane(wheelField({ id: "example-when-closed", name: "publish_at", label: "Go live", wheelKind: "date-time" })) },
+    { label: "Date and time: open", markup: examplePane(wheelField({ id: "example-when-open", name: "publish_at", label: "Go live", wheelKind: "date-time", state: "open" })) },
+    { label: "Date and time: picked", markup: examplePane(wheelField({ id: "example-when-picked", name: "publish_at", label: "Go live", wheelKind: "date-time", pickedValue: "2027-01-15T18:30+00:00" })) },
     {
       label: "Not before a set time: an earlier pick moves up to it",
-      markup: examplePane(dateTimeField({ id: "example-when-minimum", name: "publish_at", label: "Go live", pickedAt: "2027-01-04T14:00+00:00", minimumAt: "2027-01-11T14:00+00:00", state: "open" })),
+      markup: examplePane(wheelField({ id: "example-when-minimum", name: "publish_at", label: "Go live", wheelKind: "date-time", pickedValue: "2027-01-04T14:00+00:00", minimumAt: "2027-01-11T14:00+00:00", state: "open" })),
     },
-    { label: "Error: a time that's passed", markup: examplePane(dateTimeField({ id: "example-when-error", name: "publish_at", label: "Go live", pickedAt: "2026-10-01T15:00+00:00", error: "That time has passed. Pick a later one." })), isStill: true },
+    { label: "Date and time: a time that's passed", markup: examplePane(wheelField({ id: "example-when-error", name: "publish_at", label: "Go live", wheelKind: "date-time", pickedValue: "2026-10-01T15:00+00:00", error: "That time has passed. Pick a later one." })), isStill: true },
+    { label: "Custom wheels: a match's length", markup: examplePane(wheelField({ id: "example-match-length", name: "match_length", label: "How long a match runs", wheelKind: "custom", icon: "clock", columns: MATCH_LENGTH })) },
+    { label: "Custom wheels: open", markup: examplePane(wheelField({ id: "example-match-length-open", name: "match_length", label: "How long a match runs", wheelKind: "custom", icon: "clock", columns: MATCH_LENGTH, state: "open" })) },
   ],
 });

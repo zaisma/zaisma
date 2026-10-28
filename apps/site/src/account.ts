@@ -114,7 +114,7 @@ import type { CheckedPageName } from "./components/checked-pages.ts";
 import { row } from "./components/layout.ts";
 import { type IconName } from "./components/foundations.ts";
 import { secondaryButton, primaryButton, tertiaryButton, textLink } from "./components/actions.ts";
-import { birthdayField, choiceCards, cutField, tabSwitch } from "./components/inputs.ts";
+import { choiceCards, wheelField, cutField, tabSwitch } from "./components/inputs.ts";
 import { header } from "./components/navigation.ts";
 import { notice } from "./components/panes.ts";
 import { pageScript } from "./page-scripts.ts";
@@ -989,7 +989,7 @@ ${primaryButton("Sign in", { isFullWidth: true, isBig: true, busyLabel: "Signing
 <input type="hidden" name="today" value="">
 ${nextField(next)}
 ${given.via ? html`<input type="hidden" name="with" value="${given.via}">` : ""}
-${birthdayField({ id: "join-birthday", name: "birthday", label: "When's your birthday?", isRequired: true, hint: "Your birthday is never shown to anyone.", error: given.ageError })}
+${wheelField({ id: "join-birthday", name: "birthday", label: "When's your birthday?", wheelKind: "birthday", isRequired: true, hint: "Your birthday is never shown to anyone.", error: given.ageError })}
 ${primaryButton("Next", { isFullWidth: true, isBig: true, busyLabel: "One moment" })}
 </form>`,
   );

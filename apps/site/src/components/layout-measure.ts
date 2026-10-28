@@ -185,7 +185,7 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
     return null;
   }
   // What has words inside it that line up with the pane's (a field's icon or text, a table's cells, a list's rows), and where they start.
-  var INNER_WORDS = ".cut-field > .field, .field.select, .field.code, .field.long, .find, .bday-field, .choice-cards > .choice-card, .table, .list-rows";
+  var INNER_WORDS = ".cut-field > .field, .field.select, .field.code, .field.long, .find, .wheel-button, .choice-cards > .choice-card, .table, .list-rows";
   function innerStart(el) {
     var start = null, walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT), text;
     while ((text = walker.nextNode())) {
@@ -426,7 +426,7 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
     });
   });
   // Every control is its size class's height (--control-height: small, regular, field or big), never a number of its own.
-  document.querySelectorAll(".run-wrap > .run, .cut-btn:not(.in-well) > .face, .danger, .cut-field > .field:not(.long, .code), .pin-box, .find, .bday-field").forEach(function (el) {
+  document.querySelectorAll(".run-wrap > .run, .cut-btn:not(.in-well) > .face, .danger, .cut-field > .field:not(.long, .code), .pin-box, .find, .wheel-button").forEach(function (el) {
     if (!isShown(el)) return;
     var expectedPx = getComputedStyle(el).getPropertyValue("--control-height").trim() ? lengthPx("var(--control-height)", el) : 0, foundPx = el.getBoundingClientRect().height;
     if (expectedPx && Math.abs(foundPx - expectedPx) > 1) report("a control off its size class's height", el, round(foundPx) + "px tall, its size class " + round(expectedPx) + "px");
@@ -481,7 +481,7 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
     });
   });
   // Two controls side by side are a row (Row, layout.ts), so they slant toward each other and share one height.
-  var CONTROL_ROOTS = ".run-wrap, .cut-btn, .cut-field > .field, .field.select, .find, .bday-field";
+  var CONTROL_ROOTS = ".run-wrap, .cut-btn, .cut-field > .field, .field.select, .find, .wheel-button";
   var controlRoots = Array.prototype.filter.call(document.querySelectorAll(CONTROL_ROOTS), function (el) { return isShown(el) && !el.parentElement.closest(CONTROL_ROOTS + ", .tab-switch, .steps, .dropdown, header.top"); });
   // Only two in one pane: the gallery's stage lays its examples side by side itself.
   var paneOf = function (el) { return el.closest("[data-glass]:not([data-cut-line]), .example-stage"); };

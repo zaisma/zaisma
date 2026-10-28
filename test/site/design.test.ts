@@ -504,10 +504,10 @@ describe("components", () => {
   });
 
   it("send a date and time as ISO 8601 with its offset", () => {
-    const markup = inputs.dateTimeField({ name: "publish_at", label: "Go live", pickedAt: "2026-10-23T15:30+02:00" }).html;
+    const markup = inputs.wheelField({ name: "publish_at", label: "Go live", wheelKind: "date-time", pickedValue: "2026-10-23T15:30+02:00" }).html;
     const sent = /<input type="hidden" name="publish_at" value="([^"]*)"/.exec(markup)?.[1];
     expect(sent).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}[+-]\d{2}:\d{2}$/);
-    expect(inputs.DATE_TIME_SCRIPT).toContain('sign + two(Math.floor(whole / 60)) + ":" + two(whole % 60)');
+    expect(inputs.WHEEL_SCRIPT).toContain('sign + two(Math.floor(whole / 60)) + ":" + two(whole % 60)');
   });
 
   it("make a file drop a real file input across the whole field", () => {
@@ -669,7 +669,7 @@ const NOT_TYPE = new Set<string>([
   "@font-face | font-family",
   // A control's inside: its words, set by each control's size.
   ".run | font", ".run.big | font-size", ".run | font-size", ".cut-btn > .face | font", ".cut-btn.big > .face | font-size",
-  ".field input | font", '.find input[type="search"] | font', ".bday-field | font",
+  ".field input | font", '.find input[type="search"] | font', ".wheel-button | font",
   '.wheel [role="option"] | font', '.wheel [role="option"][aria-selected="true"] | font-size', '.date-time-wheels [role="option"][aria-selected="true"] | font-size', ".tab-switch > a, .tab-switch > button | font",
   ".tab-switch.small > a, .tab-switch.small > button | font-size", ".top .end .run | font-size",
   // A picture's initials, sized to the picture.
@@ -677,7 +677,7 @@ const NOT_TYPE = new Set<string>([
   ".picture-row-place + .picture-row-place .av | font-size", ".picture-row-place + .picture-row-place .av::first-letter | font-size",
   ".danger | font", ".danger | font-size", ".field.long textarea | font", ".select-button | font",
   // On a phone what's typed is 16px, the least that keeps a phone from zooming in.
-  '.field input, .find input[type="search"], .bday-field | font-size', ".select-button | font-size",
+  '.field input, .find input[type="search"], .wheel-button | font-size', ".select-button | font-size",
   // The +N at the back of a row of pictures, sized to the pictures.
   ".frame.more | font",
 ]);
@@ -702,8 +702,8 @@ const NOT_SPACING = new Set<string>([
   // A control's inside: its words and icon to its own edge, set by each control size.
   ".tab-switch.vertical > a, .tab-switch.vertical > button | gap", ".tab-switch.vertical > a, .tab-switch.vertical > button | padding", ".run | padding", ".run | gap", ".run.big | padding", ".run.big | gap",
   ".cut-btn > .face | gap", ".cut-btn > .face | padding", ".field input | padding",
-  '.find input[type="search"] | padding', ".bday-field | gap",
-  ".bday-field | padding", ".bday-chev | margin-right",
+  '.find input[type="search"] | padding', ".wheel-button | gap",
+  ".wheel-button | padding", ".wheel-chev | margin-right",
   ".logo | padding",
   ".me | padding", ".top .end .run | padding", ".top .end .run | gap", ".tag | padding", ".tag.count | padding",
   ".danger | padding", ".danger | gap", ".field.long textarea | padding", ".select-button | padding",

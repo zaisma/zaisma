@@ -486,7 +486,7 @@ describe("making an account", () => {
     expect(await accountById(env.DB, await idOf("Wheel_Owl"))).toMatchObject({ age_band: "18+" });
     const wrong = await new Browser().go("/join/age", { birthday: "2010-02-30" });
     expect(wrong.status).toBe(400);
-    expect(await wrong.text()).toContain('class="bday-field cut-carved is-marked"');
+    expect(await wrong.text()).toContain('class="wheel-button cut-carved is-marked"');
   });
 
   it("keeps the birth date only while under 18, and never an adult's", async () => {

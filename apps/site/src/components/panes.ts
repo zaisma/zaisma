@@ -4,7 +4,7 @@ import { component } from "./component.ts";
 import { CUT_LINE, EDGE, ago, glassPane, icon, sheetMarkup, tag, tray, well, type IconName } from "./foundations.ts";
 import { emptyState, glanceFacts, listRows, pictureFrame, pictureRow, type GlanceFacts } from "./data.ts";
 import { cardRow, secondaryButton, tertiaryButton, primaryButton, textLink, toggleButton } from "./actions.ts";
-import { REPORT_REASONS, STAND_IN_QR_CODE, birthdayField, choiceCards, copyField, cutField, longField, qrCode } from "./inputs.ts";
+import { REPORT_REASONS, STAND_IN_QR_CODE, choiceCards, copyField, cutField, longField, qrCode, wheelField } from "./inputs.ts";
 import { examplePane } from "./example-pane.ts";
 import { grid, paneParts, row, stack, type ControlMarkup, type LayoutItem } from "./layout.ts";
 
@@ -1604,7 +1604,7 @@ component({
     },
     {
       label: "An inner pane's edge (the birthday picker, a menu) and a bar's (the header): 12px",
-      markup: spacingExample("--pad-inner-pane", spacingPane(html`<div data-spacing-show="pad" data-spacing-of=".bday-pick">${birthdayField({ id: "spacing-bday", name: "birthday", label: "When's your birthday?", state: "open" })}</div>`)),
+      markup: spacingExample("--pad-inner-pane", spacingPane(html`<div data-spacing-show="pad" data-spacing-of=".wheel-pick">${wheelField({ id: "spacing-bday", wheelKind: "birthday", name: "birthday", label: "When's your birthday?", state: "open" })}</div>`)),
     },
   ],
 });

@@ -8,7 +8,7 @@ import { COMPONENT_STYLES } from "../../apps/site/src/components/index.ts";
 
 /** Classes a script or a screen reader uses, with no look of their own. */
 export const UNSTYLED_HOOKS = new Set<string>([
-  "bday-read", // The birthday's spoken summary (and .sr hides it).
+  "wheel-read", // The birthday's spoken summary (and .sr hides it).
   // What a layout's cell holds (layout.ts), which the measuring check reads (scripts/layout-check.mjs); words' cells are styled.
   "is-control", "is-block",
 ]);
@@ -118,7 +118,7 @@ export const MAXIMUM_EQUAL_CHOICE_COUNT = 5;
 export const MAXIMUM_UNGROUPED_MENU_ITEM_COUNT = 9;
 /** At most this many fields in a pane with no heading between them (Miller's law). */
 export const MAXIMUM_UNBROKEN_FIELD_COUNT = 7;
-const FIELDS = [".cut-field", ".bday", ".pin-field", ".choice-cards", ".toggle", ".check", ".slider"];
+const FIELDS = [".cut-field", ".wheel-field", ".pin-field", ".choice-cards", ".toggle", ".check", ".slider"];
 
 /**
  * The layout rules a rendered page can't break unseen, scanned on its markup (docs/DESIGN.md, Rules: made impossible before they're
