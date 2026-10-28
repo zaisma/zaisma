@@ -38,7 +38,7 @@ export function slider(options: SliderOptions): Raw {
   const id = options.id ?? `slider-${options.name}`;
   const filledPct = (100 * (options.pickedNumber - options.minimumNumber)) / Math.max(1e-9, options.maximumNumber - options.minimumNumber);
   const className = ["slider", options.state ?? "", options.isDisabled ? "is-disabled" : ""].filter(Boolean).join(" ");
-  return html`<div class="${className}" style="--fill:${(Math.max(0, Math.min(100, filledPct)) / 100).toFixed(4)}"><div class="slider-head"><label for="${id}">${options.label}</label><output for="${id}" data-unit="${options.unit}">${numberWords(options.pickedNumber, options.unit)}</output></div><div class="slider-track"><span class="slider-line" aria-hidden="true"></span><span class="slider-fill" aria-hidden="true"></span><input class="slider-input" type="range" id="${id}" name="${options.name}" min="${options.minimumNumber}" max="${options.maximumNumber}" step="${options.stepNumber}" value="${options.pickedNumber}"${options.isDisabled ? raw(" disabled") : ""} data-slider><span class="slider-thumb" aria-hidden="true"><span class="slider-slab cut-raised" data-cut-line="6">${CUT_LINE}</span></span></div></div>`;
+  return html`<div class="${className}" style="--fill:${(Math.max(0, Math.min(100, filledPct)) / 100).toFixed(4)}"><div class="slider-head"><label for="${id}">${options.label}</label><output for="${id}" data-unit="${options.unit}">${numberWords(options.pickedNumber, options.unit)}</output></div><div class="slider-track"><span class="slider-glow" aria-hidden="true"></span><span class="slider-line" aria-hidden="true"><span class="slider-fill"></span></span><input class="slider-input" type="range" id="${id}" name="${options.name}" min="${options.minimumNumber}" max="${options.maximumNumber}" step="${options.stepNumber}" value="${options.pickedNumber}"${options.isDisabled ? raw(" disabled") : ""} data-slider><span class="slider-thumb" aria-hidden="true"><span class="slider-slab cut-raised" data-cut-line="6">${CUT_LINE}</span></span></div></div>`;
 }
 
 /** A slider's fill and number follow its thumb. */
@@ -74,10 +74,13 @@ component({
 /* The line is a groove carved into the glass, 8px wide so its two edges read apart: deep shade under its near, upper edge and a crisp line of
    light along its far, lower lip, where the light from above lands (--groove-shade, --groove-lip). Its face stays the toggle slot's when
    off: a carving reads by its edges, never by a brighter face. What's filled is orange light running inside it, glowing faintly past its lips. */
-.slider-line, .slider-fill { position: absolute; pointer-events: none; }
-.slider-line { top: calc(50% - 4px); height: 8px; left: calc(var(--thumb) / 2 - 4px); right: calc(var(--thumb) / 2 - 4px); background: var(--toggle-off);
+.slider-line, .slider-glow { position: absolute; pointer-events: none; top: calc(50% - 4px); height: 8px; left: calc(var(--thumb) / 2 - 4px); }
+.slider-line { right: calc(var(--thumb) / 2 - 4px); background: var(--toggle-off);
   box-shadow: inset 0 3px 3px var(--groove-shade), inset 0 -1.5px 0 var(--groove-lip); clip-path: polygon(3px 0, 100% 0, 100% calc(100% - 3px), calc(100% - 3px) 100%, 0 100%, 0 3px); }
-.slider-fill { top: calc(50% - 3px); height: 6px; left: calc(var(--thumb) / 2); width: calc((100% - var(--thumb)) * var(--fill)); background: linear-gradient(180deg, var(--run-hi), var(--run)); filter: drop-shadow(0 0 3px var(--run)); }
+/* The light lies inside the groove, cut by its own corners, from its start to under the thumb's middle; its glow lies under the groove,
+   spilling past its lips. */
+.slider-fill { position: absolute; top: 1px; bottom: 1px; left: 0; width: calc(4px + (100% - 8px) * var(--fill)); background: linear-gradient(180deg, var(--run-hi), var(--run)); }
+.slider-glow { width: calc(4px + (100% - var(--thumb)) * var(--fill)); box-shadow: 0 0 3px var(--run); }
 .slider-input { position: absolute; inset: 0; z-index: 3; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; -webkit-appearance: none; appearance: none; }
 /* On a phone the track takes a whole control's height (--control-height-regular) to touch, centered on it. */
 @media (pointer: coarse) { .slider-input { inset: min(0px, calc(50% - var(--touch-target) / 2)) 0; height: auto; } }
@@ -97,7 +100,8 @@ component({
 /* Can't be changed now: the thumb rests flat, the number goes quieter, and no orange, since there's nothing to do: the fill is grey. */
 .slider.is-disabled .slider-input { cursor: default; }
 .slider.is-disabled .slider-head > output { color: var(--muted); }
-.slider.is-disabled .slider-fill { background: var(--muted); filter: none; }
+.slider.is-disabled .slider-fill { background: var(--muted); }
+.slider.is-disabled .slider-glow { display: none; }
 .slider.is-disabled .slider-line { background: var(--off-face); box-shadow: none; }
 /* Its thumb stays the slab it always is, as a toggle's does: the grey line and quiet number say it can't be moved. */
 .slider.is-disabled .slider-slab > .cut-line polygon { stroke: var(--line); }
