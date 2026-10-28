@@ -402,7 +402,7 @@ export function linkField(options: LinkFieldOptions): ControlMarkup {
   const shown = options.url.replace(/^https?:\/\//, "");
   const isCopied = options.state === "is-copied";
   const state = options.state && options.state !== "is-copied" ? ` ${options.state}` : "";
-  return controlMarkup(html`<div class="link-field${isCopied ? " is-copied" : ""}${options.isMasked ? " is-masked" : ""}"><span class="copy-head"><span class="link-field-label" id="${options.id}-label">${options.label}</span><span class="copy-said" role="status">${isCopied ? "Copied" : ""}</span></span><button class="link-field-box cut-carved${state}" type="button" data-cut-line="10" aria-labelledby="${options.id}-label ${options.id}" aria-describedby="${options.id}-copy">${CUT_LINE}<span class="link-field-icon">${icon("link")}</span><span class="link-field-text" id="${options.id}" data-link="${options.url}">${shown}</span><span class="link-field-copy" id="${options.id}-copy"><span class="sr">Copy</span>${icon("copy")}${icon("check")}</span></button></div>`, "field", { hasOwnWords: true });
+  return controlMarkup(html`<div class="link-field${isCopied ? " is-copied" : ""}${options.isMasked ? " is-masked" : ""}"><span class="copy-head"><span class="link-field-label" id="${options.id}-label">${options.label}</span><span class="copy-said" role="status">${isCopied ? "Copied" : ""}</span></span><button class="link-field-box cut-carved${state}" type="button" data-cut-line="10" aria-labelledby="${options.id}-label ${options.id}" aria-describedby="${options.id}-copy">${CUT_LINE}<span class="link-field-icon">${icon("link")}</span><span class="link-field-text" id="${options.id}" data-link="${options.url}">${shown}</span><span class="link-field-copy" id="${options.id}-copy" data-cut-line="9">${CUT_LINE}<span class="sr">Copy</span>${icon("copy")}${icon("check")}</span></button></div>`, "field", { hasOwnWords: true });
 }
 
 component({
@@ -424,10 +424,11 @@ component({
 .link-field-icon { flex: none; display: inline-flex; color: var(--ink-2); }
 .link-field-icon > .ico { width: 18px; height: 18px; }
 .link-field-text { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-/* Copy's icon, as far in from the end as from the top and bottom, on a tertiary button's slab when the well is pointed at or pressed. */
+/* Copy's icon, as far in from the end as from the top and bottom, on a tertiary button's slab when the well is pointed at or pressed,
+   cut by the edge rule like any control in the well (data-cut-line), so it follows the field's corner. */
 .link-field-copy { flex: none; display: grid; place-items: center; width: var(--control-height-small); height: var(--control-height-small); margin-inline-end: calc(var(--toggle-inset) - var(--pad-inside-words));
   color: var(--ink-2); --face-color: transparent; background: var(--face-color); clip-path: var(--cut-shape); transition: --face-color 0.15s, color 0.15s; }
-.link-field-copy > .ico { grid-area: 1 / 1; width: 18px; height: 18px; }
+.link-field-copy > .ico { grid-area: 1 / 1; position: relative; z-index: 2; width: 18px; height: 18px; }
 .link-field-copy > .ico:last-child { visibility: hidden; }
 .link-field-box:hover .link-field-copy, .link-field-box.is-pointed .link-field-copy { color: var(--ink); --face-color: var(--wash); }
 .link-field-box:active .link-field-copy, .link-field-box.is-pressed .link-field-copy { --face-color: var(--wash-press); }
