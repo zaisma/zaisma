@@ -79,8 +79,8 @@ export const SWITCH_SCRIPT = `/* switches */(function () {
     function besideReach(el) { return Math.max(0, ((Number(el.getAttribute("data-cut-line")) || 0) - rowGapPx) / 2); }
     // The slab is one size on every tab (its tabs are one width), so it slides as a fixed piece of glass. One clock moves it: each frame its
     // place is set and its cut shape and bevel (which blend between a tab at the switch's end and one beside another) drawn in the same step,
-    // so nothing trails it. It eases in and out to its tab with no overshoot (cubic-bezier(.4, 0, .2, 1)), on whole device pixels, so it
-    // never jumps as it starts, swings back past its place or snaps a pixel as it settles. --slide-ms long.
+    // so nothing trails it. It eases in and out to its tab with no overshoot (cubic-bezier(.4, 0, .2, 1)), landing on a whole device pixel,
+    // so it never jumps as it starts, swings back past its place or snaps a pixel as it settles. --slide-ms long.
     var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     function onPixel(px) { var ratio = window.devicePixelRatio || 1; return Math.round(px * ratio) / ratio; }
     // A cubic-bezier(x1, y1, x2, y2) curve: x(u) solved for u by Newton's method, then y(u).
@@ -108,7 +108,8 @@ export const SWITCH_SCRIPT = `/* switches */(function () {
         var t = Math.min(1, (performance.now() - startMs) / ms), e = slideEase(t);
         // Its shape is drawn before it's moved: drawing reads its size, and reading after a move would lay the page out again mid-frame.
         if (el.redrawCut) el.redrawCut();
-        place(el, { pos: t < 1 ? onPixel(from.pos + (to.pos - from.pos) * e) : to.pos, size: to.size });
+        // Between pixels as it moves (its own layer moves it smoothly there; whole steps stuttered where it goes slowly), on one as it lands.
+        place(el, { pos: t < 1 ? from.pos + (to.pos - from.pos) * e : to.pos, size: to.size });
         if (t < 1) requestAnimationFrame(frame);
       })();
     }
