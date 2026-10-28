@@ -198,7 +198,7 @@ html { -webkit-tap-highlight-color: transparent; }
 @media (prefers-reduced-motion: no-preference) { @view-transition { navigation: auto; } ::view-transition-group(root) { animation-duration: 0.12s; } }
 :root {
   color-scheme: light dark;
-  --run: #F7931A; --run-hi: #FFB24A; --run-lo: #A85A06;
+  --run: #F7931A; --run-hi: #FFB24A; --run-lo: #A85A06; --run-flood: rgba(247, 147, 26, 0.28);
   /* Words and marks on an orange face (the runner, a ticked box): dark ink in both themes, 7.8:1 against it (white is 2.3:1). */
   --on-run: #14171C;
   /* The only red: a delete's confirm step, never anything else. */

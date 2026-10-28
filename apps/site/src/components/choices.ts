@@ -1,7 +1,7 @@
 import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
 import { controlMarkup, type ControlMarkup } from "./control-markup.ts";
-import { CUT_LINE, EDGE, floatingPane, glassPane, icon, loader, type IconName } from "./foundations.ts";
+import { CUT_LINE, EDGE, EDGE_LIGHT, floatingPane, glassPane, icon, loader, type IconName } from "./foundations.ts";
 import { examplePane } from "./example-pane.ts";
 import { LEAST_SCROLL_PX } from "./tokens.ts";
 
@@ -404,6 +404,23 @@ export const CHECK_SCRIPT = `/* check fields */(function () {
 })();
 `;
 
+/**
+ * Choice cards say which way they lie: side by side, or each on its own line once they don't fit (is-stacked), so the pick's light and the
+ * pointer's edge light run along the edge that leads, their foot side by side and their start stacked, never a line over the card below.
+ */
+export const CHOICE_CARDS_SCRIPT = `/* choice cards */(function () {
+  window.zaismaWatch.each(".choice-cards", function (row) {
+    function lie() {
+      var cards = row.children, isStacked = cards.length > 1 && cards[1].offsetTop > cards[0].offsetTop + 1;
+      row.classList.toggle("is-stacked", isStacked);
+      Array.prototype.forEach.call(cards, function (card) { card.setAttribute("data-edge-light", isStacked ? "left" : "bottom"); });
+    }
+    lie();
+    window.zaismaWatch.size(row, lie);
+  });
+})();
+`;
+
 /** What you press that holds a value: its states, still, then one to try and one on a loop. */
 /** Each copy gets its own key (for its ids and names), so copies of radios never share a group. */
 const pressExamples = (render: (state: PressState | undefined, exampleKey: string) => Raw, loopKind: "check" | "choice" | "toggle") => [
@@ -523,10 +540,10 @@ export interface ChoiceCardsOptions {
 export function choiceCards(options: ChoiceCardsOptions): Raw {
   const id = options.id ?? `choice-${options.name}`;
   const card = (choice: ChoiceCard, choiceIndex: number) =>
-    html`<label class="choice-card cut-carved${choiceIndex === 0 && options.state ? ` ${options.state}` : ""}" data-cut-line="10">${CUT_LINE}<input class="choice-input" type="radio" name="${options.name}" id="${id}-${choice.choiceValue}" value="${choice.choiceValue}"${choice.choiceValue === options.pickedValue ? raw(" checked") : ""}>${choice.icon ? icon(choice.icon) : ""}<span class="choice-words"><span class="choice-label">${choice.label}</span>${choice.text ? html`<span class="choice-text">${choice.text}</span>` : ""}</span></label>`;
+    html`<label class="choice-card cut-carved${choiceIndex === 0 && options.state ? ` ${options.state}` : ""}" data-cut-line="10" data-lights${options.isCompact ? "" : raw(' data-edge-light="bottom"')}>${CUT_LINE}${options.isCompact ? "" : EDGE_LIGHT}<input class="choice-input" type="radio" name="${options.name}" id="${id}-${choice.choiceValue}" value="${choice.choiceValue}"${choice.choiceValue === options.pickedValue ? raw(" checked") : ""}>${choice.icon ? icon(choice.icon) : ""}<span class="choice-words"><span class="choice-label">${choice.label}</span>${choice.text ? html`<span class="choice-text">${choice.text}</span>` : ""}</span></label>`;
   const className = ["choices", options.error ? "is-marked" : "", options.isDisabled ? "is-disabled" : ""].filter(Boolean).join(" ");
   const cards = options.isCompact
-    ? html`<div class="choice-list cut-carved" data-cut-line="10">${CUT_LINE}<div class="choice-list-in" data-own-fade>${options.choices.map(card)}</div></div>`
+    ? html`<div class="choice-list cut-carved" data-cut-line="10" data-edge-light="left">${CUT_LINE}${EDGE_LIGHT}<div class="choice-list-in" data-own-fade>${options.choices.map(card)}</div></div>`
     : html`<div class="choice-cards" style="--choice-count: ${options.choices.length}">${options.choices.map(card)}</div>`;
   return html`<fieldset class="${className}"${options.isDisabled ? raw(" disabled") : ""}${options.error ? html` aria-describedby="${id}-error"` : ""}><legend${options.isLabelHidden ? raw(' class="sr"') : ""}>${options.label}</legend>${cards}${options.error ? html`<p class="field-error" id="${id}-error">${options.error}</p>` : ""}</fieldset>`;
 }
@@ -554,11 +571,13 @@ component({
   slug: "choice-cards",
   group: "inputs",
   subgroup: "choices",
-  summary: "One of a few, when each needs a line to say what it means: who can see a game, how its rooms run. Compact for many (a report's reasons): close together down a carved well that scrolls. The picked one is the raised white slab (with the orange line along its foot when they sit side by side); the rest sit carved and quieter.",
+  summary: "One of a few, when each needs a line to say what it means: who can see a game, how its rooms run. Compact for many (a report's reasons): close together down a carved well that scrolls. The picked one rises as the white slab, orange light along its leading edge (its foot side by side, its start stacked); the rest sit carved and quieter.",
   styles: `
 /* Choice cards: radios as cut slabs. The ones not picked are carved into the glass, their words quieter; the picked one rises out of it as
-   the switch's white slab, lit, with its orange line along its foot and its words in full ink. Pointing at one brightens its carving. The
-   real radio lies over the card, unseen, so the arrow keys move between them as the system's do. */
+   the switch's white slab, its words in full ink, with orange light inside the glass along the edge that leads: its foot when the cards sit
+   side by side, its start when they're stacked (is-stacked, from their script) or down a compact list, so it never reads as a line over the
+   card below. Pointing wakes the edge light along that same edge; a press sinks the card, easing in and back out. The real radio lies over
+   the card, unseen, so the arrow keys move between them as the system's do. */
 .choices { margin: 0; padding: 0; border: 0; min-width: 0; display: flex; flex-direction: column; gap: var(--gap-words-control); }
 .choices > legend { padding: 0 var(--pad-words); margin-bottom: var(--gap-words-control); font: var(--type-label); color: var(--ink-2); }
 /* Side by side, a row of controls: their boxes overlap so the edge rule slants them toward each other, while each can have a
@@ -568,37 +587,46 @@ component({
 .choice-cards > .choice-card { flex: 1 1 calc((var(--choice-row-least) - 100%) * 999); }
 .choice-cards > .choice-card:not(:last-child) { margin-inline-end: max(var(--gap-control-row-boxes), min(0px, (var(--choice-row-least) - 100%) * 999)); }
 .choice-card { position: relative; display: flex; align-items: flex-start; gap: var(--gap-words-words); min-height: 44px; padding: 14px var(--pad-inside-words); cursor: pointer; -webkit-tap-highlight-color: transparent;
-  color: var(--muted); --face-color: var(--well); background: var(--face-color); box-shadow: var(--well-shade); clip-path: var(--cut-shape); transition: --face-color 0.2s, box-shadow 0.2s, color 0.2s; }
+  color: var(--muted); --face-color: var(--well); background: var(--face-color); box-shadow: var(--well-shade); clip-path: var(--cut-shape);
+  --pick-light: var(--run); --pick-flood: var(--run-flood); transition: box-shadow 0.25s cubic-bezier(.4,0,.2,1), color 0.2s; }
 /* A card with a line on what it means has room for it; one with only its name (an amount) is as tall as its name, never taller than its content. */
 .choice-card:has(.choice-text) { min-height: 76px; }
-.choice-card > :not(.cut-line):not(.choice-input) { position: relative; z-index: 2; }
+.choice-card > :not(.cut-line):not(.choice-input):not(.edge-light) { position: relative; z-index: 2; }
 .choice-input { position: absolute; inset: 0; z-index: 3; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
 .choice-card > .ico { flex: none; margin-top: 1px; color: var(--muted); }
 .choice-words { display: grid; gap: var(--gap-words-words); }
 .choice-label { font: var(--type-label); color: var(--ink-2); }
 .choice-text { font: var(--type-note); color: var(--muted); }
-.choices:not(.is-disabled) .choice-card:hover, .choice-card.is-pointed { --face-color: var(--field-hover); color: var(--ink-2); }
-.choices:not(.is-disabled) .choice-card:active, .choice-card.is-pressed { --face-color: var(--check-press); box-shadow: var(--press-shade), var(--press-shade); color: var(--ink-2); transition-duration: 0.08s; }
-/* Picked: raised out of the carving, the switch's white slab with its light turned the other way and the orange line along its foot. */
-.choice-card:has(.choice-input:checked) { background: var(--slab); box-shadow: var(--slab-shade); color: var(--ink); }
-/* The orange line lies over its outline, so it always shows in full. */
-.choice-card:has(.choice-input:checked)::after { content: ""; position: absolute; z-index: 2; left: 0; right: 0; bottom: 0; height: 3px; background: var(--run); pointer-events: none; }
+.choices:not(.is-disabled) .choice-card:hover, .choice-card.is-pointed { color: var(--ink-2); }
+/* Pressed: it sinks, shaded from above, quickly; let go, it eases back. */
+.choices:not(.is-disabled) .choice-card:active, .choice-card.is-pressed { box-shadow: var(--press-shade), var(--press-shade); color: var(--ink-2); transition-duration: 0.08s; }
+/* Picked: the slab rises out of the carving, its face coming up over the carved one, its light turned the other way. */
+.choice-card::before { content: ""; position: absolute; inset: 0; background: var(--slab); opacity: 0; pointer-events: none; transition: opacity 0.3s cubic-bezier(.4,0,.2,1); }
+.choice-card:has(.choice-input:checked) { box-shadow: var(--slab-shade); color: var(--ink); }
+.choice-card:has(.choice-input:checked)::before { opacity: 1; }
+/* Its orange is light inside the glass along the edge that leads: a bright line at the edge, flooding a little way in and fading out. */
+.choice-card::after { content: ""; position: absolute; z-index: 2; left: 0; right: 0; bottom: 0; height: 16px; pointer-events: none; opacity: 0; transition: opacity 0.35s cubic-bezier(.4,0,.2,1);
+  background: linear-gradient(to top, var(--pick-light) 0, var(--pick-light) 2px, var(--pick-flood) 3px, transparent 100%); }
+.choice-cards.is-stacked > .choice-card::after, .choice-list .choice-card::after { top: 0; right: auto; width: 18px; height: auto;
+  background: linear-gradient(to right, var(--pick-light) 0, var(--pick-light) 2.5px, var(--pick-flood) 3.5px, transparent 100%); }
+.choice-card:has(.choice-input:checked)::after { opacity: 1; }
 .choice-card:has(.choice-input:checked) .choice-label, .choice-card:has(.choice-input:checked) > .ico { color: var(--ink); }
 .choice-card:has(.choice-input:checked) .choice-text { color: var(--ink-2); }
 .choice-card:has(.choice-input:checked) > .cut-line { --band-top: var(--raise-top); --band-left: var(--raise-left); --band-right: var(--raise-right); --band-bottom: transparent; }
-/* Pressing the picked one sinks it too: shaded from above and a touch darker, its orange line staying. */
-.choices:not(.is-disabled) .choice-card:has(.choice-input:checked):active, .choice-card.is-pressed:has(.choice-input:checked) { filter: brightness(0.92); box-shadow: var(--press-shade); }
+/* Pressing the picked one sinks it too: shaded from above, its light staying. */
+.choices:not(.is-disabled) .choice-card:has(.choice-input:checked):active, .choice-card.is-pressed:has(.choice-input:checked) { box-shadow: var(--press-shade); }
 /* Marked wrong: every card's outline in amber, and what's wrong said under them. */
 .choices.is-marked .choice-card > .cut-line polygon, .choices.is-marked .choice-list > .cut-line polygon { stroke: var(--marked); stroke-width: var(--focus-stroke); }
-/* None can be picked now: flat and quieter, and no orange, since there's nothing to do: the pick's line is grey. */
+/* None can be picked now: flat and quieter, and no orange, since there's nothing to do: the pick's light is grey. */
 .choices.is-disabled .choice-card, .choices.is-disabled .choice-input { cursor: default; }
 .choices.is-disabled .choice-card:not(:has(.choice-input:checked)) { --face-color: transparent; box-shadow: none; }
 .choices.is-disabled .choice-card > .cut-line polygon, .choices.is-disabled .choice-list > .cut-line polygon { stroke: var(--line); }
-.choices.is-disabled .choice-card:has(.choice-input:checked)::after { background: var(--muted); }
+.choices.is-disabled .choice-card { --pick-light: var(--muted); --pick-flood: transparent; }
 .choices.is-disabled .choice-card .choice-label, .choices.is-disabled .choice-card > .ico { color: var(--muted); }
 .choice-card:has(.choice-input:focus-visible) > .cut-line polygon, .choice-card.is-focused.cut-carved > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 /* Compact: a carved well, like a vertical switch's, scrolling once it's taller than about six choices. The cards inside are flat and close
-   together, their line under their name, with no outline of their own: the well is carved, and only the picked one is a slab.
+   together, their line under their name, with no outline of their own: the well is carved, and only the picked one is a slab. Pointing
+   wakes the well's edge light down its side, beside the card, as a vertical switch's does.
    It scrolls with no fade, so the picked card's slab always shows in full: its rail and a card cut at its edge say there's more. */
 .choice-list { position: relative; display: flex; max-height: 336px; padding: 4px; background: var(--well); box-shadow: var(--well-shade); clip-path: var(--cut-shape); }
 .choice-list-in { flex: 1; min-width: 0; overflow-y: auto; display: flex; flex-direction: column; gap: var(--gap-control-row); }
@@ -608,10 +636,7 @@ component({
 .choice-list .choice-words { gap: 2px; }
 .choice-list .choice-card.cut-carved > .cut-line { --band-top: transparent; --band-left: transparent; --band-right: transparent; --band-bottom: transparent; }
 .choice-list .choice-card.cut-carved > .cut-line polygon { stroke: transparent; }
-.choice-list .choice-card:hover, .choice-list .choice-card.is-pointed { --face-color: var(--ghost); }
-/* Down a list the picked one is the slab alone: a line under it would read as one over the card below. */
 .choice-list .choice-card:has(.choice-input:checked) { box-shadow: var(--slab-shade); }
-.choice-list .choice-card:has(.choice-input:checked)::after { content: none; }
 .choice-list .choice-card:has(.choice-input:focus-visible) > .cut-line polygon, .choice-list .choice-card.is-focused > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 /* On a phone it doesn't scroll by itself: the sheet or page it's in does, so there's never a scroll inside a scroll. */
 @media (max-width: 760px) { .choice-list { max-height: none; } }

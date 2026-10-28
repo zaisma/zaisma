@@ -267,7 +267,7 @@ export const EDGE_LIGHT = raw('<span class="edge-light" aria-hidden="true"></spa
  * --light-at, --light-span wide), gliding to the next part as you move. A part marked is-pointed (the gallery's still) keeps it lit.
  */
 export const EDGE_LIGHT_SCRIPT = `/* edge light */(function () {
-  function canLight(part) { return Boolean(part) && !part.matches('[aria-current="page"], [aria-pressed="true"], :disabled, [aria-disabled="true"]'); }
+  function canLight(part) { return Boolean(part) && !part.matches('[aria-current="page"], [aria-pressed="true"], :disabled, [aria-disabled="true"], :has(> input:checked), :has(> input:disabled)'); }
   window.zaismaWatch.each("[data-edge-light]", function (holder) {
     var light = holder.querySelector(":scope > .edge-light");
     if (!light) return;
@@ -296,7 +296,7 @@ export const EDGE_LIGHT_SCRIPT = `/* edge light */(function () {
     // A part picked (the one you're on now) no longer lights; one that scrolls inside the holder keeps its light beside it.
     holder.addEventListener("click", function () { setTimeout(function () { if (lit && !canLight(lit)) dim(); }, 0); });
     holder.addEventListener("scroll", function () { if (lit) place(lit, false); }, true);
-    var still = holder.querySelector("[data-lights].is-pointed");
+    var still = holder.matches("[data-lights].is-pointed") ? holder : holder.querySelector("[data-lights].is-pointed");
     if (still) lightUp(still);
   });
 })();
