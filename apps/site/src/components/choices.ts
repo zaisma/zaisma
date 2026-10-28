@@ -149,41 +149,41 @@ export interface SelectFieldOptions {
   error?: string;
   /** data-* attributes on the hidden field it sends, as on a button: what a page's script reads when a pick changes it ({ label: "Mode" } is data-label="Mode"). */
   dataAttributes?: Record<string, string>;
-  /** The gallery's fixed states: focused, or open with its list under it, or above it where there's no room below. */
-  state?: "is-focused" | "is-open" | "is-open-above";
+  /** The gallery's fixed states: focused, or open, its list over the field. */
+  state?: "is-focused" | "is-open";
 }
 
 /**
- * A select field: a cut field that opens a list of Zaisma's glass under it, on every device, so picking from a list looks and feels like
+ * A select field: a cut field that opens a list of Zaisma's glass over it, on every device, so picking from a list looks and feels like
  * the rest of the page. For one of many (a region, a language); one of a few is Choice cards or a Switch. The pick is sent as a hidden field.
  * It's as wide as its longest choice wherever it fits what's in it, so it never changes width as you pick.
  */
 export function selectField(options: SelectFieldOptions): ControlMarkup {
   const id = options.id ?? `field-${options.name}`;
   const picked = options.choices.find((choice) => choice.choiceValue === options.pickedValue) ?? (options.placeholder ? undefined : options.choices[0]);
-  const isOpen = options.state === "is-open" || options.state === "is-open-above";
-  const isAbove = options.state === "is-open-above";
+  const isOpen = options.state === "is-open";
+  const pickedIndex = Math.max(0, picked ? options.choices.indexOf(picked) : 0);
   const className = ["field", "select", "cut-carved", options.icon ? "" : "no-icon", options.error ? "is-marked" : "", options.isDisabled ? "is-disabled" : "", options.state === "is-focused" ? "is-focused" : "", isOpen ? "is-open" : ""].filter(Boolean).join(" ");
   // The list is a pane of glass (the popover) holding the listbox, which scrolls inside it, so its rail and its cut edge stay inside the glass.
-  const list = html`<div class="select-list glass${options.icon ? " after-icon" : ""}${isOpen ? " in-place" : ""}${isAbove ? " is-above" : ""}" id="${id}-list" data-glass data-glass-corners="menu"${isOpen ? "" : raw(" popover")}>${EDGE}<div class="select-options" id="${id}-choices" role="listbox" aria-labelledby="${id}-label" tabindex="-1" data-own-fade>${options.choices.map(
+  const list = html`<div class="select-list glass${options.icon ? " after-icon" : ""}${isOpen ? " in-place" : ""} over-field" id="${id}-list" data-glass data-glass-corners="menu"${isOpen ? html` style="--picked-row-index:${pickedIndex}"` : raw(" popover")}>${EDGE}<div class="select-options" id="${id}-choices" role="listbox" aria-labelledby="${id}-label" tabindex="-1" data-own-fade>${options.choices.map(
     (choice, choiceIndex) =>
       html`<div class="select-option${isOpen && choice === picked ? " is-active" : ""}" role="option" id="${id}-option-${choiceIndex}" data-choice-value="${choice.choiceValue}" aria-selected="${choice === picked ? "true" : "false"}" data-cut-line="8">${CUT_LINE}<span>${choice.label}</span><span class="select-tick">${icon("check")}</span></div>`,
   )}</div></div>`;
   const sizes = html`<span class="select-sizes" aria-hidden="true">${options.placeholder ? html`<span>${options.placeholder}</span>` : ""}${options.choices.map((choice) => html`<span>${choice.label}</span>`)}</span>`;
   const opens = isOpen || options.isDisabled ? raw("") : html` popovertarget="${id}-list"`;
   return controlMarkup(html`<div class="cut-field" data-select><label id="${id}-label" for="${id}">${options.label}</label>
-${isAbove ? list : ""}<span class="${className}" data-cut-line="10">${CUT_LINE}${options.icon ? icon(options.icon) : ""}<button type="button" class="select-button" id="${id}" aria-haspopup="listbox" aria-expanded="${isOpen ? "true" : "false"}" aria-controls="${id}-choices"${opens}${options.isDisabled ? raw(" disabled") : ""}${options.error ? html` aria-invalid="true" aria-describedby="${id}-error"` : ""}><span class="select-value${picked ? "" : " is-placeholder"}">${picked?.label ?? options.placeholder ?? ""}</span>${sizes}</button><span class="select-chev">${icon("chevron-down")}</span></span>
-${isAbove ? "" : list}<input type="hidden" name="${options.name}" value="${picked?.choiceValue ?? ""}"${options.isDisabled ? raw(" disabled") : ""}${Object.entries(options.dataAttributes ?? {}).map(([attributeName, attributeValue]) => html` data-${attributeName}="${attributeValue}"`)}>
+<span class="${className}" data-cut-line="10">${CUT_LINE}${options.icon ? icon(options.icon) : ""}<button type="button" class="select-button" id="${id}" aria-haspopup="listbox" aria-expanded="${isOpen ? "true" : "false"}" aria-controls="${id}-choices"${opens}${options.isDisabled ? raw(" disabled") : ""}${options.error ? html` aria-invalid="true" aria-describedby="${id}-error"` : ""}><span class="select-value${picked ? "" : " is-placeholder"}">${picked?.label ?? options.placeholder ?? ""}</span>${sizes}</button><span class="select-chev">${icon("chevron-down")}</span></span>
+${list}<input type="hidden" name="${options.name}" value="${picked?.choiceValue ?? ""}"${options.isDisabled ? raw(" disabled") : ""}${Object.entries(options.dataAttributes ?? {}).map(([attributeName, attributeValue]) => html` data-${attributeName}="${attributeValue}"`)}>
 ${options.error ? html`<p class="field-error" id="${id}-error">${options.error}</p>` : ""}</div>`, "field", { hasOwnWords: true });
 }
 
 /**
- * Select fields: the list opens as a popover, moved out to the page so no pane's glass is round it (over everything, never clipped by the pane it's in) attached to its field, as wide as it:
- * under it, or above it where zaismaPlace (panes.ts's PLACE_SCRIPT) puts it, and following it as the page scrolls. The arrow keys move through it, a letter jumps to a choice, Enter or a press picks one and
+ * Select fields: the list opens as a popover, moved out to the page so no pane's glass is round it (over everything, never clipped by the pane it's in), over its field, as wide as it:
+ * the picked choice sits just where the field is, its words on the field's, moved only to stay inside the window, and it follows the field as the page scrolls. The arrow keys move through it, a letter jumps to a choice, Enter or a press picks one and
  * closes it, Esc or a press elsewhere closes it. A pick sets the hidden field and sends it a change event.
  */
 export const SELECT_SCRIPT = `/* select fields */(function () {
-  var GAP_PX = 6, EDGE_PX = 8, LEAST_SCROLL_PX = ${LEAST_SCROLL_PX}, owners = new WeakMap();
+  var EDGE_PX = 8, LEAST_SCROLL_PX = ${LEAST_SCROLL_PX}, owners = new WeakMap();
   window.zaismaWatch.each("[data-select]", function (root) {
     var button = root.querySelector(".select-button"), list = root.querySelector(".select-list"), box = list.querySelector('[role="listbox"]'), hidden = root.querySelector('input[type="hidden"]'), field = button.closest(".field"), value = root.querySelector(".select-value");
     // A list a little taller than its ceiling would scroll by a sliver (and its rail, showing, narrow it): it stops shorter instead, so it
@@ -211,15 +211,20 @@ export const SELECT_SCRIPT = `/* select fields */(function () {
       box.setAttribute("aria-activedescendant", options[active].id);
       var o = options[active], top = o.offsetTop; if (top < box.scrollTop) box.scrollTop = top; else if (top + o.offsetHeight > box.scrollTop + box.clientHeight) box.scrollTop = top + o.offsetHeight - box.clientHeight;
     }
-    // Attached to the field, as wide as it: under it or above it where zaismaPlace puts it, inside the window, following the field as the page
-    // scrolls or the window changes, and gone once the field has left the window.
-    function place() {
+    // Over the field, as wide as it: the picked choice (the first, with none) centered on the field, so its words sit on the field's, moved
+    // only as far as keeps the list inside the window; following the field as the page scrolls or the window changes, and gone once the
+    // field has left the window. A list that scrolls brings the pick to its middle first.
+    function place(isOpening) {
       var r = field.getBoundingClientRect();
       if (!field.isConnected || r.bottom < 0 || r.top > window.innerHeight || r.right < 0 || r.left > document.documentElement.clientWidth) { list.hidePopover(); return; }
       list.style.width = r.width + "px";
-      var spot = window.zaismaPlace(r, { width: r.width, height: list.offsetHeight }, { gapPx: GAP_PX, edgePx: EDGE_PX });
-      list.style.left = Math.round(spot.leftPx) + "px"; list.style.top = Math.round(spot.topPx) + "px";
-      list.classList.toggle("is-above", spot.isAbove);
+      var row = options[Math.max(0, picked())];
+      if (isOpening && box.scrollHeight > box.clientHeight) box.scrollTop = row.offsetTop - (box.clientHeight - row.offsetHeight) / 2;
+      // Measured by offsets, not boxes: while it opens out of the field its scale isn't whole yet.
+      var rowMiddlePx = box.offsetTop + row.offsetTop - box.scrollTop + row.offsetHeight / 2, heightPx = list.offsetHeight;
+      var topPx = Math.max(EDGE_PX, Math.min(window.innerHeight - heightPx - EDGE_PX, r.top + r.height / 2 - rowMiddlePx));
+      var leftPx = Math.max(EDGE_PX, Math.min(document.documentElement.clientWidth - r.width - EDGE_PX, r.left));
+      list.style.left = Math.round(leftPx) + "px"; list.style.top = Math.round(topPx) + "px";
     }
     function pick(i) {
       options.forEach(function (o, j) { o.setAttribute("aria-selected", String(j === i)); });
@@ -238,7 +243,7 @@ export const SELECT_SCRIPT = `/* select fields */(function () {
         var themed = root.closest("[data-theme-choice]");
         if (themed && themed !== document.documentElement) list.setAttribute("data-theme-choice", themed.getAttribute("data-theme-choice")); else list.removeAttribute("data-theme-choice");
         list.style.setProperty("--glass-hue", getComputedStyle(root).getPropertyValue("--glass-hue"));
-        keepOffSliver(); place(); setActive(Math.max(0, picked())); box.focus({ preventScroll: true });
+        keepOffSliver(); place(true); setActive(Math.max(0, picked())); box.focus({ preventScroll: true });
       }
     });
     window.zaismaWatch.resize(function () { if (list.matches(":popover-open")) place(); });
@@ -288,15 +293,14 @@ component({
   slug: "select-field",
   group: "inputs",
   subgroup: "fields",
-  summary: "One of many, from a list: a region, a language, a category. It opens a list of Zaisma's glass under the field, on every device. For one of a few, use Choice cards or a Switch.",
+  summary: "One of many, from a list: a region, a language, a category. It opens a list of Zaisma's glass over the field, the pick where the field was, on every device. For one of a few, use Choice cards or a Switch.",
   styles: `
-/* A select field: the cut field holding a button with the picked choice; the birthday field's chevron sits at its end and turns as it opens.
-   Its list is a pane of the menus' glass hanging just under the field, as wide as it: the choice under the pointer or the arrow keys is on
+/* A select field: the cut field holding a button with the picked choice, at 16px on every screen (a pick needs no typing room); the birthday field's chevron sits at its end and turns as it opens.
+   Its list is a pane of the menus' glass opening over the field, as wide as it, the picked choice where the field was: the choice under the pointer or the arrow keys is on
    the switch's white slab, alone (a line under it would read as one over the next), and the picked one has a tick at its end. */
 .select-button { position: relative; z-index: 2; flex: 1; min-width: 0; width: 100%; height: 100%; padding: 0 calc(var(--pad-inside-words) + 24px) 0 calc(var(--pad-inside-words) + 34px); border: 0; border-radius: 0; cursor: pointer; text-align: left;
-  font: 500 1.125rem var(--display); color: var(--ink);
+  font: 500 1rem var(--display); color: var(--ink);
   --face-color: var(--field-face); background: var(--face-color); box-shadow: var(--field-shade); clip-path: var(--cut-shape); transition: --face-color 0.25s; }
-@media (max-width: 760px) { .select-button { font-size: 1rem; } }
 .field.select.no-icon .select-button { padding-left: var(--pad-inside-words); }
 .select-value { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .select-value.is-placeholder { color: var(--muted); }
@@ -320,12 +324,16 @@ component({
   transition: var(--glass-transition), opacity 0.2s, transform 0.3s cubic-bezier(.2,.8,.2,1), overlay 0.3s allow-discrete, display 0.3s allow-discrete; }
 /* A browser that can't keep it in the top layer while it fades (Safari) would let it fall under what follows it on the page: it goes at once. */
 @supports not (overlay: auto) { .select-list { transition: var(--glass-transition), opacity 0.2s, transform 0.3s cubic-bezier(.2,.8,.2,1); } }
-/* Closed, it takes no room and no presses: it fades out toward the field, then goes. */
+/* Closed, it takes no room and no presses: it fades out toward the field, then goes. A select's list (over-field) opens out of the field
+   itself, from a touch smaller; a search's slides from the field it hangs from. */
 .select-list:not(:popover-open):not(.in-place) { display: none; opacity: 0; transform: translateY(-6px); pointer-events: none; }
 .select-list.is-above:not(:popover-open):not(.in-place) { transform: translateY(6px); }
-@starting-style { .select-list:popover-open { opacity: 0; transform: translateY(-6px); } .select-list.is-above:popover-open { transform: translateY(6px); } }
-/* Shown open in place (the gallery's open states), it holds every choice: there's no window edge to keep it from. */
+.select-list.over-field:not(:popover-open):not(.in-place) { transform: scale(0.97); }
+@starting-style { .select-list:popover-open { opacity: 0; transform: translateY(-6px); } .select-list.is-above:popover-open { transform: translateY(6px); } .select-list.over-field:popover-open { transform: scale(0.97); } }
+/* Shown open in place (the gallery's open states), it holds every choice: there's no window edge to keep it from. A select's lies over
+   its field, the picked row (--picked-row-index, its rows 36px and 2px apart) centered on it. */
 .select-list.in-place { position: relative; display: flex; width: 100%; max-height: none; }
+.select-list.over-field.in-place { z-index: 6; margin-top: calc(-1 * (var(--gap-words-control) + var(--control-height-field) / 2 + 22px + var(--picked-row-index) * 38px)); }
 /* It scrolls with no fade, so the slab always shows in full: its rail and a choice cut at its edge say there's more. */
 .select-options { flex: 0 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; outline: none; }
 .select-options.own-scroll.shows-rail { padding-right: 18px; }
@@ -333,7 +341,9 @@ component({
   font: var(--type-words); color: var(--ink-2); text-wrap: pretty; --face-color: transparent; background: var(--face-color); clip-path: var(--cut-shape); transition: --face-color 0.15s, color 0.15s; }
 /* Beside an icon, the field's words start after it, and so do its choices'. */
 .select-list.after-icon .select-option { padding-inline-start: calc(var(--pad-inside-words) + 30px); }
-@media (pointer: coarse) { .select-option { min-height: var(--control-height-regular); } }
+/* Over the field, its rows are slimmer: the list is about the choices, not a second field. */
+.select-list.over-field .select-option { min-height: 36px; padding-block: 6px 7px; }
+@media (pointer: coarse) { .select-option, .select-list.over-field .select-option { min-height: var(--control-height-regular); } }
 .select-option > :not(.cut-line) { position: relative; z-index: 2; }
 .select-option > span { flex: 1; }
 .select-option.is-active { color: var(--ink); background: var(--slab); box-shadow: var(--slab-shade); }
@@ -353,7 +363,6 @@ component({
     { label: "With a data attribute a script reads: a room list's filter", markup: examplePane(selectField({ id: "example-select-filter", name: "room_mode", label: "Mode", choices: [{ label: "Any", choiceValue: "" }, { label: "Classic", choiceValue: "Classic" }, { label: "Hardcore", choiceValue: "Hardcore" }], dataAttributes: { label: "Mode" } })) },
     { label: "Focused", markup: examplePane(selectField({ id: "example-select-focused", name: "room_region", label: "Where rooms run", choices: REGIONS, pickedValue: "europe", state: "is-focused" })), isStill: true },
     { label: "Open", markup: examplePane(selectField({ id: "example-select-open", name: "room_region", label: "Where rooms run", choices: REGIONS, pickedValue: "europe", state: "is-open" })), isStill: true },
-    { label: "Open above, with no room below", markup: examplePane(selectField({ id: "example-select-above", name: "room_region", label: "Where rooms run", choices: REGIONS, pickedValue: "asia-pacific", state: "is-open-above" })), isStill: true },
     { label: "Many choices: the list scrolls", markup: examplePane(selectField({ id: "example-select-many", name: "language", label: "Language", choices: LANGUAGES, pickedValue: "deutsch", state: "is-open" })), isStill: true },
     { label: "A long choice: cut in the field, whole in the list", markup: examplePane(selectField({ id: "example-select-long", name: "genre", label: "Genre", choices: GENRES, pickedValue: "mmorpg", state: "is-open" })), isStill: true },
     { label: "Error: nothing picked", markup: examplePane(selectField({ id: "example-select-error", name: "room_region", label: "Where rooms run", choices: REGIONS, placeholder: "Pick a region", error: "Pick where your rooms run to go on." })) },
