@@ -203,7 +203,15 @@ export const SELECT_SCRIPT = `/* select fields */(function () {
     }
     if (document.fonts) document.fonts.ready.then(keepOffSliver); else keepOffSliver();
     window.zaismaWatch.resize(keepOffSliver);
-    if (list.classList.contains("in-place")) return;
+    // Shown open in place, a list that scrolls brings its pick to its middle, and its line follows the pick.
+    if (list.classList.contains("in-place")) {
+      var still = list.querySelector('[aria-selected="true"]') || list.querySelector('[role="option"]');
+      if (still && scroller.scrollHeight > scroller.clientHeight) {
+        scroller.scrollTop = still.offsetTop - (scroller.clientHeight - still.offsetHeight) / 2;
+        list.style.setProperty("--line-from-top", scroller.offsetTop + still.offsetTop - scroller.scrollTop + still.offsetHeight / 2 + "px");
+      }
+      return;
+    }
     var options = Array.prototype.slice.call(box.querySelectorAll('[role="option"]')), active = -1, typed = "", typedAt = 0;
     function picked() { return options.findIndex(function (o) { return o.getAttribute("aria-selected") === "true"; }); }
     function setActive(i) {

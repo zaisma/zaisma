@@ -142,8 +142,11 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
     overPanes.forEach(function (pane) {
       var r = pane.getBoundingClientRect(), kind = paneKind(pane), isInPlace = pane.matches(".in-place");
       if (kind && r.width > kind.widthPx + TOLERANCE_PX) report("a pane wider than its kind allows", pane, round(r.width) + "px wide, " + kind.name + " at most " + round(kind.widthPx) + "px");
-      if (isInPlace || pane.closest(EXAMPLE + " .in-place")) return;
+      // A floating pane shown open in place (the gallery's open states) keeps its height too, so its open state shows it scrolling.
+      var isStill = isInPlace || Boolean(pane.closest(EXAMPLE + " .in-place"));
+      if (isStill && !pane.matches(".floating-pane")) return;
       if (kind && r.height > kind.heightPx + TOLERANCE_PX) report("a pane taller than its kind allows", pane, round(r.height) + "px tall, " + kind.name + " at most " + round(kind.heightPx) + "px");
+      if (isStill) return;
       var room = roomOf(pane), past = [["left", room.left - r.left], ["right", r.right - room.right], ["top", room.top - r.top], ["bottom", r.bottom - room.bottom]].find(function (side) { return side[1] > TOLERANCE_PX; });
       if (past) report("a pane past the screen", pane, "its " + past[0] + " edge " + round(past[1]) + "px past the " + (room.width === undefined ? "window's" : "frame's it opens in"));
       // Everything in it shows inside it, or inside something in it that scrolls.

@@ -138,8 +138,8 @@ describe.skipIf(!sites)("the layout check", () => {
   it.skipIf(!isFirstShare)("catches a pane wider than its page's shape, two panes touching, and panes over the page past their kind's size, past the screen or overflowing unscrolled", async () => {
     // The example page is a reading page (820px); a menu with 30 choices scrolls inside itself as it is, and spills when it's made not to.
     const tooWide = `<div style="width:1100px">${fullPane("<p>Wider than its shape</p>")}</div>`;
-    const menu = dropdown({ id: "fixture-menu", label: "Fine menu", items: choices(30), isOpen: true }).html.replace('class="dropdown glass"', 'style="top:8px;left:8px" class="dropdown glass"');
-    const spilling = dropdown({ id: "fixture-spill", label: "Spilling menu", items: choices(30), isOpen: true }).html.replace('class="dropdown glass"', 'style="top:8px;left:400px;max-height:none" class="dropdown glass"').replace('class="dropdown-in"', 'style="overflow:visible" class="dropdown-in"');
+    const menu = dropdown({ id: "fixture-menu", label: "Fine menu", items: choices(30), isOpen: true }).html.replace('class="floating-pane under dropdown glass in-place"', 'style="position:fixed;top:8px;left:8px" class="floating-pane under dropdown glass in-place"');
+    const spilling = dropdown({ id: "fixture-spill", label: "Spilling menu", items: choices(30), isOpen: true }).html.replace('class="floating-pane under dropdown glass in-place"', 'style="position:fixed;top:8px;left:400px;max-height:none" class="floating-pane under dropdown glass in-place"').replace('class="floating-body"', 'style="overflow:visible" class="floating-body"');
     const wideSheet = sheet({ id: "fixture-sheet", title: "Too wide", body: html`<p>A sheet</p>`, closeLabel: "Close", isShown: true }).html.replace('class="sheet', 'style="width:900px;max-width:none" class="sheet');
     // Two panes set down one after the other by hand, with no layout component to put a block's gap between them.
     const touching = fullPane("<p>Touching above</p>") + fullPane("<p>Touching below</p>");

@@ -672,10 +672,10 @@ component({
 .floating-cast > div { position: absolute; inset: 0; filter: var(--float-cast); }
 .floating-cast > div > span { position: absolute; inset: 0; background: #000; }
 .floating-cast.is-on-page { position: absolute; }
-/* Shown open in place (the gallery's open states), it's in the page's flow, holding all it has. Over, as wide as what's in it, it lies on
+/* Shown open in place (the gallery's open states), it's in the page's flow, no taller than a menu, scrolling past it as it does open. Over, as wide as what's in it, it lies on
    the field just before it, its line (--line-from-top) on the field's own line; glass inside a pane's glass isn't blurred, so what it
    covers is hidden rather than showing through, and it casts its shadow as a filter on what holds it, where only it is drawn. */
-.floating-pane.in-place { position: relative; display: flex; width: 100%; max-height: none; }
+.floating-pane.in-place { position: relative; display: flex; width: 100%; }
 /* One as wide as what's in it (a menu) hangs under its anchor inside what holds it (zaismaFloat's hang). */
 .floating-pane.under.in-place.is-hanging { position: absolute; width: max-content; }
 .floating-pane.over.in-place { z-index: 6; width: max-content; max-width: 100%; margin-top: calc(-1 * (var(--gap-words-control) + var(--control-height-field) / 2 + var(--line-from-top, 0px))); }
