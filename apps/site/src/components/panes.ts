@@ -621,7 +621,8 @@ component({
    part into its neighbors and fading to nothing before its own box ends, so it never stops at a hard side, with no line of its own. It eases in and out, and glides along the edge (--light-at) to the next part. */
 @property --light-at { syntax: "<length>"; inherits: true; initial-value: 0px; }
 @property --light-span { syntax: "<length>"; inherits: true; initial-value: 0px; }
-.edge-light { position: absolute; inset: 0; pointer-events: none; clip-path: var(--cut-shape); transition: --light-at 0.45s cubic-bezier(.4, 0, .2, 1), --light-span 0.45s cubic-bezier(.4, 0, .2, 1); }
+/* It follows the pointer closely as it glides (0.2s, easing out), and comes and goes more slowly (0.45s). */
+.edge-light { position: absolute; inset: 0; pointer-events: none; clip-path: var(--cut-shape); transition: --light-at 0.2s cubic-bezier(.2, .8, .2, 1), --light-span 0.2s cubic-bezier(.2, .8, .2, 1); }
 .edge-light::before, .edge-light::after { content: ""; position: absolute; opacity: 0; transition: opacity 0.45s cubic-bezier(.4, 0, .2, 1); }
 .edge-light::before { inset: 0; }
 [data-edge-light="bottom"] > .edge-light::before { box-shadow: inset 0 -1.5px 0 var(--edge-wake); }
