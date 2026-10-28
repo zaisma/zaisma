@@ -500,7 +500,7 @@ export function colorField(options: ColorFieldOptions): Raw {
   const hex = (HEX_CODE.test(options.pickedValue) ? options.pickedValue : "#5865F2").toUpperCase();
   return html`<fieldset class="wheel-field color-field" id="${id}" data-color-field data-color-hex="${hex}">
 <legend id="${id}-legend">${options.label}</legend>
-<button type="button" class="wheel-button color-button cut-carved no-icon" data-cut-line="10" aria-expanded="${isOpen ? "true" : "false"}" aria-controls="${id}-pick" aria-describedby="${id}-legend">${CUT_LINE}<span class="color-chip cut-raised" aria-hidden="true" data-cut-line="6" style="--swatch:${isNone ? "var(--clear-swatch)" : hex}">${CUT_LINE}</span><span class="wheel-value color-value">${isNone ? "None" : hex}</span><span class="wheel-chev">${icon("chevron-down")}</span></button>
+<button type="button" class="wheel-button color-button cut-carved no-icon" data-cut-line="10" aria-expanded="${isOpen ? "true" : "false"}" aria-controls="${id}-pick" aria-describedby="${id}-legend">${CUT_LINE}<span class="color-chip cut-carved" aria-hidden="true" data-cut-line="6" style="--swatch:${isNone ? "var(--clear-swatch)" : hex}">${CUT_LINE}</span><span class="wheel-value color-value">${isNone ? "None" : hex}</span><span class="wheel-chev">${icon("chevron-down")}</span></button>
 ${floatingPane({
     id: `${id}-pick`,
     placement: "under",
@@ -604,7 +604,7 @@ component({
   subgroup: "pickers",
   summary: "Any color: a game's accent, the glass's hue. A field with its color and hex code that opens a color square carved into glass, beside a field for the hex code and the brightness, and None when it can be left empty. Typing a code moves the square's slab to it.",
   styles: `
-/* A color field: the wheel field's button, its color's chip before its hex code, opening a Floating pane under it. In the pane, a color square carved into
+/* A color field: the wheel field's button, its color carved into its start before its hex code, opening a Floating pane under it. In the pane, a color square carved into
    the glass and cut by the edge rule like any carving there: hue across it, strength down it, dimmed by the brightness; the toggle's slab (the --thumb tokens) marks the pick. Beside it, the picked color, a Cut field for its hex code and a Slider
    whose groove runs from black to the full color; one that can be none ends with a None button. The square has the pane's whole left side. */
 /* Its pane follows the panes' one rule, two margins: what has an edge (the square, the picked color, the field, the None button) sits at the frame gap,
@@ -613,9 +613,11 @@ component({
 /* Shown open in place, it's as wide as what's in it, as it is floating. */
 .floating-pane.color-pick.in-place { width: max-content; max-width: 100%; }
 .color-field, .color-pick { --clear-swatch: repeating-conic-gradient(var(--line) 0 25%, transparent 0 50%) 0 0 / 8px 8px; }
-/* The chip is colored glass raised a little; it and the picked color are cut by the edge rule like every piece on a pane: a corner is cut
-   where it meets its holder's cut corner, square elsewhere. */
-.color-chip { position: relative; flex: none; width: 20px; height: 20px; background: var(--swatch); clip-path: var(--cut-shape); }
+/* The field shows its color first: a strip carved into its start, a part's gap in from its edges, the color lying in it as light, shaded
+   along its top like the picked color in the pane. It and the picked color are cut by the edge rule like every piece: a corner is cut where
+   it meets its holder's cut corner (the strip, the field's start), square elsewhere. */
+.wheel-button.color-button { padding-left: var(--gap-control-row); }
+.color-chip { position: relative; flex: none; align-self: stretch; width: 40px; margin-block: var(--gap-control-row); background: var(--swatch); clip-path: var(--cut-shape); box-shadow: inset 0 3px 5px var(--groove-shade), inset 0 -1.5px 0 var(--groove-lip); }
 .color-value { font-variant-numeric: tabular-nums; }
 /* The square has the pane's whole left side: it's as tall as what's beside it (at least 184px) and as wide as it's tall, and the picked
    color takes what room is left beside it, so no gap opens under the square or beside it. */
