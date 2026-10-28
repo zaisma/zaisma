@@ -495,8 +495,10 @@ component({
 .toggle-btn[aria-pressed="false"]:active > .face, .toggle-btn[aria-pressed="false"].is-pressed > .face { transform: translateY(1px); box-shadow: var(--press-shade); --face-color: var(--btn-press); transition-duration: 0.08s; }
 .toggle-btn[aria-pressed="false"]:active > .face > .cut-line, .toggle-btn[aria-pressed="false"].is-pressed > .face > .cut-line { --band-top: var(--carve-top); --band-left: var(--carve-left); --band-right: var(--carve-right); --band-bottom: var(--carve-bottom); }
 /* On: the top surface risen, its front surface showing below it until it has landed again. */
-.toggle-btn[aria-pressed="true"] > .toggle-front { visibility: visible; transition: visibility 0s; }
-.toggle-btn[aria-pressed="true"] > .face, .toggle-btn[aria-pressed="true"]:hover > .face, .toggle-btn[aria-pressed="true"].is-pointed > .face { transform: translateY(calc(-1 * var(--toggle-lift))); }
+/* Turning on, the face is solid at once and the front surface shows a moment after it starts to rise, once the face is clear of where it
+   was pressed down to, so nothing of it flashes through or above the face. */
+.toggle-btn[aria-pressed="true"] > .toggle-front { visibility: visible; transition: visibility 0s 0.05s; }
+.toggle-btn[aria-pressed="true"] > .face, .toggle-btn[aria-pressed="true"]:hover > .face, .toggle-btn[aria-pressed="true"].is-pointed > .face { transform: translateY(calc(-1 * var(--toggle-lift))); transition: transform 0.35s cubic-bezier(.2,.8,.2,1), color 0.2s, box-shadow 0.2s, --face-color 0s; }
 .toggle-btn[aria-pressed="true"], .toggle-btn[aria-pressed="true"]:not(.in-well):hover, .toggle-btn[aria-pressed="true"].is-pointed { filter: var(--toggle-cast); }
 .toggle-btn[aria-pressed="true"] > .face > .ico { color: var(--toggle-icon-on); }
 /* Pressed while on: the risen top surface goes down a little, as a key would; its light stays the same. */
