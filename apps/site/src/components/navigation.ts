@@ -566,7 +566,7 @@ export const RAIL_SCRIPT = `/* rail */(function () {
  * (data-own-fade, a birthday wheel) and form fields are left alone.
  */
 export const SCROLL_FADE_SCRIPT = `/* scroll fades */(function () {
-  var FADE_PX = 28, boxes = [], dueBoxes = null;
+  var FADE_PX = 40, boxes = [], dueBoxes = null;
   // Everything is read before anything is written, so a box syncing reads the page's layout once.
   function measure(box) {
     // A table's rows fade out under its head, which stays as they scroll: the fade starts where the head ends.
@@ -575,7 +575,9 @@ export const SCROLL_FADE_SCRIPT = `/* scroll fades */(function () {
   }
   function put(box, read) {
     var isScrollable = read.scrollHeight > read.clientHeight + 1;
-    var top = Math.min(FADE_PX, read.scrollTop), bottom = Math.min(FADE_PX, read.scrollHeight - read.clientHeight - read.scrollTop);
+    // Its whole length while there's anything more that way, however little, so the last words never sit whole against the edge; it eases
+    // away (the --fade transition) once there's nothing more.
+    var top = read.scrollTop > 0.5 ? FADE_PX : 0, bottom = read.scrollHeight - read.clientHeight - read.scrollTop > 0.5 ? FADE_PX : 0;
     box.style.setProperty("--fade-top", Math.max(0, top) + "px"); box.style.setProperty("--fade-bottom", Math.max(0, bottom) + "px");
     if (read.headPx !== null) box.style.setProperty("--fade-from", read.headPx + "px");
     // Masked only while there's something to fade: a mask on a box that doesn't scroll would only cost its repaints.

@@ -657,9 +657,9 @@ component({
 /* A capped table's rows fade out under its head and over its foot while there's more that way (SCROLL_FADE_SCRIPT, from its head's height,
    --fade-from), as well as at its sides: both masks at once. */
 .table-scroll.is-capped.scroll-fades.is-fading {
-  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 var(--fade-left), #000 calc(100% - var(--fade-right)), transparent 100%),
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, rgba(0,0,0,0.08) calc(var(--fade-left) * 0.35), rgba(0,0,0,0.5) calc(var(--fade-left) * 0.7), #000 var(--fade-left), #000 calc(100% - var(--fade-right)), rgba(0,0,0,0.5) calc(100% - var(--fade-right) * 0.7), rgba(0,0,0,0.08) calc(100% - var(--fade-right) * 0.35), transparent 100%),
     linear-gradient(to bottom, #000 var(--fade-from, 0px), transparent var(--fade-from, 0px), #000 calc(var(--fade-from, 0px) + var(--fade-top)), #000 calc(100% - var(--fade-bottom)), transparent);
-  mask-image: linear-gradient(90deg, transparent 0, #000 var(--fade-left), #000 calc(100% - var(--fade-right)), transparent 100%),
+  mask-image: linear-gradient(90deg, transparent 0, rgba(0,0,0,0.08) calc(var(--fade-left) * 0.35), rgba(0,0,0,0.5) calc(var(--fade-left) * 0.7), #000 var(--fade-left), #000 calc(100% - var(--fade-right)), rgba(0,0,0,0.5) calc(100% - var(--fade-right) * 0.7), rgba(0,0,0,0.08) calc(100% - var(--fade-right) * 0.35), transparent 100%),
     linear-gradient(to bottom, #000 var(--fade-from, 0px), transparent var(--fade-from, 0px), #000 calc(var(--fade-from, 0px) + var(--fade-top)), #000 calc(100% - var(--fade-bottom)), transparent);
   -webkit-mask-composite: source-in; mask-composite: intersect; }
 /* The rows' heads stay put as it scrolls sideways, so it never fades out under them. */
