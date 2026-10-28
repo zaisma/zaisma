@@ -113,7 +113,7 @@ import { cityPane, cityStage, CITY_PANE_SCRIPT, CITY_SCRIPT } from "./components
 import type { CheckedPageName } from "./components/checked-pages.ts";
 import { row } from "./components/layout.ts";
 import { type IconName } from "./components/foundations.ts";
-import { cutButton, glassButton, guestButton, runButton, textLink } from "./components/actions.ts";
+import { cutButton, glassButton, runButton, tertiaryButton, textLink } from "./components/actions.ts";
 import { birthdayField, choiceCards, cutField, tabSwitch } from "./components/inputs.ts";
 import { header } from "./components/navigation.ts";
 import { notice } from "./components/panes.ts";
@@ -936,7 +936,7 @@ const signInSwitch = (current: "signin" | "join", next: string | null) =>
  * (BACK_TO_GAME_SCRIPT) so the game carries on in its own. After an "or" of its own unless the ways in above already had one.
  */
 function guestWay(game: Game | null | undefined, hasOr = true): Raw {
-  const button = game ? html`<div data-back>${guestButton(`Back to ${game.title} as a guest`, { href: `/g/${game.slug}?play` })}</div>` : guestButton("Continue as guest", { href: "/" });
+  const button = game ? html`<div data-back>${tertiaryButton(`Back to ${game.title} as a guest`, { href: `/g/${game.slug}?play`, hasArrow: true, isFullWidth: true })}</div>` : tertiaryButton("Continue as guest", { href: "/", hasArrow: true, isFullWidth: true });
   return html`${hasOr ? html`<p class="or">or</p>` : ""}${button}`;
 }
 
@@ -1326,7 +1326,7 @@ function tooYoungPage(env: Env): Response {
     "You can't make an account",
     html`<h1>You can't make an account</h1>
 <p>You can still play as a guest in any game that doesn't need one.</p>
-${guestButton("Find a game", { href: "/" })}`,
+${tertiaryButton("Find a game", { href: "/", hasArrow: true, isFullWidth: true })}`,
     { checkedPage: "Make an account, too young" },
   );
 }

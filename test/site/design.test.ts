@@ -589,8 +589,8 @@ const HAND_CUT = new Set<string>([
   ".rail:not(.dragging) .rail-mark span", ".rail.sideways:not(.dragging) .rail-mark span", ".rail.sideways .rail-mark:not(.is-near) span",
   // Tags and a cover's line: slanted at both ends, a mark on what it labels rather than a thing of its own.
   ".tag", ".cover-bar",
-  // The same line under a quiet button's words, along a list row's foot and across a step flow's top.
-  ".quiet-line", ".step-mark",
+  // The same line under a tertiary button's words, along a list row's foot and across a step flow's top.
+  ".tertiary-line", ".step-mark",
   // The step line's two outer ends, cut by the pane's corners at the frame gap, worked out from the cut tokens (the edge rule's cut, by hand
   // for a bar four pixels tall).
   ".step-line > li:first-child .step-mark", ".step-line > li:last-child .step-mark", ".step-line > li:only-child .step-mark",
@@ -669,7 +669,7 @@ const NOT_TYPE = new Set<string>([
   "@font-face | font-family",
   // A control's inside: its words, set by each control's size.
   ".run | font", ".run.big | font-size", ".run | font-size", ".cut-btn > .face | font", ".cut-btn.big > .face | font-size",
-  ".glass-btn > .face | font", ".guest-btn > .face | font", ".field input | font", '.find input[type="search"] | font', ".bday-field | font",
+  ".field input | font", '.find input[type="search"] | font', ".bday-field | font",
   '.wheel [role="option"] | font', '.wheel [role="option"][aria-selected="true"] | font-size', '.date-time-wheels [role="option"][aria-selected="true"] | font-size', ".tab-switch > a, .tab-switch > button | font",
   ".tab-switch.small > a, .tab-switch.small > button | font-size", ".top .end .run | font-size",
   // A picture's initials, sized to the picture.
@@ -701,8 +701,7 @@ const NOT_SPACING = new Set<string>([
   ".code-text | padding",
   // A control's inside: its words and icon to its own edge, set by each control size.
   ".tab-switch.vertical > a, .tab-switch.vertical > button | gap", ".tab-switch.vertical > a, .tab-switch.vertical > button | padding", ".run | padding", ".run | gap", ".run.big | padding", ".run.big | gap",
-  ".cut-btn > .face | gap", ".cut-btn > .face | padding", ".glass-btn > .face | gap",
-  ".glass-btn > .face | padding", ".guest-btn > .face | gap", ".guest-btn > .face | padding", ".field input | padding",
+  ".cut-btn > .face | gap", ".cut-btn > .face | padding", ".field input | padding",
   '.find input[type="search"] | padding', ".bday-field | gap",
   ".bday-field | padding", ".bday-chev | margin-right",
   ".logo | padding",
@@ -724,7 +723,7 @@ const NOT_SPACING = new Set<string>([
   ".choice-list-in.own-scroll.shows-rail | padding-right", ".sheet-in.own-scroll.shows-rail | padding-right", ".sheet-body.own-scroll.shows-rail | padding-right",
   ".select-options.own-scroll.shows-rail | padding-right", ".field.long textarea.is-scrolling | padding-right",
   // Where a small thing sits on what it marks: a rail's tick, a cover's line.
-  ".rail-mark | margin-top", ".rail.sideways .rail-mark | margin", ".cover-bar | margin-top", ".quiet-line | margin-top",
+  ".rail-mark | margin-top", ".rail.sideways .rail-mark | margin", ".cover-bar | margin-top", ".tertiary-line | margin-top",
   // Lines a box's or a card's icon up with the first line of its words.
   ".check-words | padding-top", ".choice-card > .ico | margin-top",
   // Lines words beside controls up with the controls' center line: half the tallest control's height less a line's, above the first line and below the last.
@@ -968,7 +967,7 @@ describe("page structure", () => {
     const orange = new Set(["--run", "--run-hi", "--run-lo"]);
     const tokens = [...STYLES().matchAll(/(--[a-z0-9-]+):\s*([^;}]+)/g)];
     for (let size = 0; size !== orange.size; ) { size = orange.size; for (const [, name = "", value = ""] of tokens) if ([...orange].some((each) => value.includes(`var(${each})`))) orange.add(name); }
-    const ACTED_ON = /(^|[\s>+~])(a|button|summary|label)\b|\.(run|link|cut-btn|glass-btn|guest-btn|quiet-btn|danger)\b|\[role="?(tab|button)/;
+    const ACTED_ON = /(^|[\s>+~])(a|button|summary|label)\b|\.(run|link|cut-btn|glass-btn|tertiary-btn|danger)\b|\[role="?(tab|button)/;
     const problems = rulesOf(STYLES()).flatMap((rule) => [...rule.declarations.matchAll(/(?:^|[;\s])color:\s*([^;]+)/g)]
       .filter(([, value = ""]) => [...orange].some((each) => value.includes(`var(${each})`)))
       .flatMap(() => rule.selectors.split(",").map((selector) => selector.trim()).filter((selector) => !ACTED_ON.test(selector.split(/\s+/).pop()!))));
@@ -1097,10 +1096,10 @@ describe("layout", () => {
     expect(row({ widths: "lead-fills", items: [control(inputs.cutField({ name: "room", label: "Room code", type: "text", icon: "people" })), control(actions.cutButton("Join"))] }).html).toContain("is-on-field-boxes");
   });
 
-  it("puts a pane's corner control in its corner, a quiet button too", () => {
-    const markup = paneParts({ head: { words: html`<h2>Rooms</h2>`, end: actions.cutButton("Refresh") }, body: html`<p>Rooms here</p>`, foot: { end: actions.quietButton("See all") } }).html;
+  it("puts a pane's corner control in its corner, a tertiary button too", () => {
+    const markup = paneParts({ head: { words: html`<h2>Rooms</h2>`, end: actions.cutButton("Refresh") }, body: html`<p>Rooms here</p>`, foot: { end: actions.tertiaryButton("See all") } }).html;
     expect(markup).toMatch(/<div class="pane-head" data-control-height="regular"><div class="pane-head-words"><h2>Rooms<\/h2><\/div><div class="pane-head-end"><button class="shell cut-btn"/);
-    // A quiet button is a control like any other: in a corner it takes the corner's cut, its words on the pane's margin inside it.
+    // A tertiary button is a control like any other: in a corner it takes the corner's cut, its words on the pane's margin inside it.
     expect(markup).toContain('<div class="pane-foot" data-control-height="regular"><div class="pane-foot-end">');
     expect(PANE_PARTS_STYLES).toContain(".pane-head-end, .pane-foot-end { display: flex; margin-inline-start: auto; }");
   });

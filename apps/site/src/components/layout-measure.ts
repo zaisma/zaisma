@@ -89,7 +89,7 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
   // Pieces made to lie over each other: a row of pictures, each over the next.
   var OVERLAPPING = ".picture-row";
   var SKIPPED = "script, style, template, .sr, [aria-hidden='true'], .loader, .rail, .edge, .cut-line";
-  var COMPONENTS = ["run-wrap", "cut-btn", "glass-btn", "guest-btn", "quiet-btn", "cut-field", "field", "find", "tab-switch", "switch-frame", "steps", "cover", "banner", "glass-pane", "tray", "tray-head", "sheet", "dropdown", "notice", "table", "list-rows", "choice-card", "toggle", "check", "top", "foot", "layout-row", "layout-stack", "layout-grid", "layout-track", "pane-head", "pane-foot"];
+  var COMPONENTS = ["run-wrap", "cut-btn", "glass-btn", "tertiary-btn", "cut-field", "field", "find", "tab-switch", "switch-frame", "steps", "cover", "banner", "glass-pane", "tray", "tray-head", "sheet", "dropdown", "notice", "table", "list-rows", "choice-card", "toggle", "check", "top", "foot", "layout-row", "layout-stack", "layout-grid", "layout-track", "pane-head", "pane-foot"];
   function isShown(el) {
     var r = el.getBoundingClientRect();
     if (r.width < 1 || r.height < 1) return false;
@@ -386,7 +386,7 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
   [[".pane-head-end", "top", 1], [".pane-foot-end", "bottom", 2]].forEach(function (place) {
     document.querySelectorAll(place[0]).forEach(function (end) {
       var control = end.querySelector("[data-cut-line]"), pane = end.closest("[data-glass]:not([data-cut-line])");
-      // A quiet button in a corner is words: it keeps the pane's margin, which the words' check measures.
+      // A tertiary button in a corner is words: it keeps the pane's margin, which the words' check measures.
       if (!control || !pane || !isShown(control) || end.classList.contains("is-words")) return;
       var holder = pane.querySelector(":scope > .pane-in, :scope > .sheet-in") || pane, css = getComputedStyle(holder), r = control.getBoundingClientRect(), p = pane.getBoundingClientRect();
       var away = place[1] === "top" ? r.top - p.top : p.bottom - r.bottom, side = p.right - r.right;
@@ -426,7 +426,7 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
     });
   });
   // Every control is its size class's height (--control-height: small, regular, field or big), never a number of its own.
-  document.querySelectorAll(".run-wrap > .run, .cut-btn:not(.in-well) > .face, .glass-btn > .face, .guest-btn > .face, .danger, .cut-field > .field:not(.long, .code), .pin-box, .find, .bday-field").forEach(function (el) {
+  document.querySelectorAll(".run-wrap > .run, .cut-btn:not(.in-well) > .face, .glass-btn > .face, .danger, .cut-field > .field:not(.long, .code), .pin-box, .find, .bday-field").forEach(function (el) {
     if (!isShown(el)) return;
     var expectedPx = getComputedStyle(el).getPropertyValue("--control-height").trim() ? lengthPx("var(--control-height)", el) : 0, foundPx = el.getBoundingClientRect().height;
     if (expectedPx && Math.abs(foundPx - expectedPx) > 1) report("a control off its size class's height", el, round(foundPx) + "px tall, its size class " + round(expectedPx) + "px");
@@ -481,7 +481,7 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
     });
   });
   // Two controls side by side are a row (Row, layout.ts), so they slant toward each other and share one height.
-  var CONTROL_ROOTS = ".run-wrap, .cut-btn, .glass-btn, .guest-btn, .cut-field > .field, .field.select, .find, .bday-field";
+  var CONTROL_ROOTS = ".run-wrap, .cut-btn, .glass-btn, .cut-field > .field, .field.select, .find, .bday-field";
   var controlRoots = Array.prototype.filter.call(document.querySelectorAll(CONTROL_ROOTS), function (el) { return isShown(el) && !el.parentElement.closest(CONTROL_ROOTS + ", .tab-switch, .steps, .dropdown, header.top"); });
   // Only two in one pane: the gallery's stage lays its examples side by side itself.
   var paneOf = function (el) { return el.closest("[data-glass]:not([data-cut-line]), .example-stage"); };

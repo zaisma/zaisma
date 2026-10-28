@@ -468,7 +468,7 @@ export const DESIGN_LOOPS_SCRIPT = pageScript(
   "design-loops",
   `(function () {
   if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-  var TARGETS = { runner: ".run-wrap", cut: ".cut-btn", glass: ".glass-btn", guest: ".guest-btn", text: ".quiet-btn", check: ".check", choice: ".choice-card", toggle: ".toggle", row: ".list-row", cover: ".cover", switch: ".tab-switch" };
+  var TARGETS = { runner: ".run-wrap", cut: ".cut-btn", glass: ".glass-btn", tertiary: ".tertiary-btn", check: ".check", choice: ".choice-card", toggle: ".toggle", row: ".list-row", cover: ".cover", switch: ".tab-switch" };
   var MOVE_MS = 650, PRESS_MS = 180;
   function wait(ms) { return new Promise(function (done) { setTimeout(done, ms); }); }
   function send(el, type) { el.dispatchEvent(new MouseEvent(type, { bubbles: type !== "pointerenter" && type !== "pointerleave" })); }

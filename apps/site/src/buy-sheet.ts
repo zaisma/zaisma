@@ -1,7 +1,7 @@
 import { html, pageData, type Raw } from "./html.ts";
 import { pageScript } from "./page-scripts.ts";
 import type { Env } from "./env.ts";
-import { cardRow, cutButton, runButton, quietButton } from "./components/actions.ts";
+import { cardRow, cutButton, runButton, tertiaryButton } from "./components/actions.ts";
 import { cutField } from "./components/fields.ts";
 import { stripeFrame } from "./components/stripe-frame.ts";
 import { doneState, loadingState, problemState } from "./components/data.ts";
@@ -37,7 +37,7 @@ export function buySheet(options: { joinHref: string; signInHref: string; coverU
             // Stripe's card form goes here; the local preview's stand-in Stripe has no form, so its test card's number stands in for it.
             { kind: "block", id: "buy-card-form", markup: stripeFrame({ id: "buy-card-frame", title: "Card details" }) },
             { kind: "control", id: "buy-test-card", isHidden: true, markup: cutField({ name: "test_card_number", id: "buy-test-card-field", label: "Card number", type: "text", text: "4242 4242 4242 4242", isReadOnly: true, autocomplete: "off", hint: "The preview's test card. On zaisma.com, Stripe's card form is here." }) },
-            { kind: "control", id: "buy-keep-card", isHidden: true, markup: quietButton("Keep your saved card", { type: "button" }) },
+            { kind: "control", id: "buy-keep-card", isHidden: true, markup: tertiaryButton("Keep your saved card", { type: "button" }) },
           ],
         }),
       },
@@ -471,7 +471,7 @@ function enterCard() {
   byId("buy-test-card").hidden = buyData.stripe_mode !== "stand_in";
   setText("buy-card-words", sale.saved_card ? "A new card for this buy. It takes the place of " + cardWords(sale.saved_card) + " for your next buys too." : "Add a card to pay with. It's saved to your account, so your next buy is one press.");
   byId("buy-keep-card").hidden = !sale.saved_card;
-  if (sale.saved_card) byId("buy-keep-card").querySelector(".quiet-label").textContent = "Keep " + cardWords(sale.saved_card);
+  if (sale.saved_card) byId("buy-keep-card").querySelector(".tertiary-label").textContent = "Keep " + cardWords(sale.saved_card);
   showWallet(shown);
   if (sale.is_eu_withdrawal_line_shown) shown.push("buy-eu");
   showCells(shown, true);

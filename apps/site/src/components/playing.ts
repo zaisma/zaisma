@@ -1,7 +1,7 @@
 import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
 import type { ControlMarkup } from "./control-markup.ts";
-import { cutButton, runButton, quietButton, textLink } from "./actions.ts";
+import { cutButton, runButton, tertiaryButton, textLink } from "./actions.ts";
 import { CUT_LINE, EDGE, logo } from "./foundations.ts";
 import { grid, row, stack } from "./layout.ts";
 import { gameCover, sheet, type GameCoverOptions } from "./panes.ts";
@@ -73,7 +73,7 @@ export interface UrgentCardOptions {
  * corner on a wide screen, across the top on a phone; it stays until the player closes it or presses what's in it.
  */
 export function urgentCard(options: UrgentCardOptions): Raw {
-  const close = quietButton("Close", { type: "button", icon: "close", isLabelHidden: true, isSmall: true, dataAttributes: { "layer-close": "" } });
+  const close = tertiaryButton("Close", { type: "button", icon: "close", isLabelHidden: true, isSmall: true, dataAttributes: { "layer-close": "" } });
   const buttons = options.buttons?.length ? row({ widths: "equal", items: options.buttons.map((button) => ({ kind: "control" as const, markup: button })) }) : "";
   const sheetsToClose = options.sheetsToClose?.length ? html` data-sheets-to-close="${options.sheetsToClose.join(" ")}"` : "";
   return html`<aside class="playing-card glass urgent-card${options.isInPlace ? " in-place" : ""}" id="${options.id}" role="alert" data-notice-urgency="urgent"${sheetsToClose}${options.isInPlace ? "" : raw(' popover="manual"')} data-glass data-glass-corners="pane">${EDGE}<div class="playing-card-in"><div class="urgent-card-head"><h2 class="playing-card-title">${options.title}</h2>${close}</div><p class="urgent-card-text">${options.text}</p>${buttons}</div></aside>`;

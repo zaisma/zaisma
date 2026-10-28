@@ -22,7 +22,7 @@ export class ControlMarkup extends Raw {
     readonly hasOwnWords: boolean,
     /** It shows only to a mouse or trackpad (the row arrows), so a row keeps the room before it on it, and none when it's gone. */
     readonly isPointerOnly: boolean,
-    /** It's words alone, with no edge of its own (a quiet button), so it keeps the words' margin in a pane, like words. */
+    /** It's words alone, with no edge of its own (a tertiary button), so it keeps the words' margin in a pane, like words. */
     readonly isWordsAlone: boolean,
   ) {
     super(html);

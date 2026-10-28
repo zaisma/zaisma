@@ -3,7 +3,7 @@ import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
 import { CUT_LINE, EDGE, ago, glassPane, icon, sheetMarkup, tag, tray, type IconName } from "./foundations.ts";
 import { emptyState, glanceFacts, listRows, pictureFrame, pictureRow, type GlanceFacts } from "./data.ts";
-import { cardRow, cutButton, quietButton, runButton, textLink, toggleButton } from "./actions.ts";
+import { cardRow, cutButton, tertiaryButton, runButton, textLink, toggleButton } from "./actions.ts";
 import { REPORT_REASONS, STAND_IN_QR_CODE, birthdayField, choiceCards, codeField, cutField, linkField, longField, qrCode } from "./inputs.ts";
 import { grid, paneParts, row, stack, type ControlMarkup, type LayoutItem } from "./layout.ts";
 
@@ -578,7 +578,7 @@ export interface LightBoxOptions {
  * top of what opened it, as that sheet's second layer, and a press anywhere, Close or Esc lands back on it.
  */
 export function lightBox(options: LightBoxOptions): Raw {
-  return html`<dialog class="sheet light-box" id="${options.id}" aria-label="${options.label}"><form class="light-box-in" method="dialog"><span class="light-box-close">${quietButton(options.closeLabel, { type: "submit", formMethod: "dialog", icon: "close", isLabelHidden: true })}</span>${options.body}</form></dialog>`;
+  return html`<dialog class="sheet light-box" id="${options.id}" aria-label="${options.label}"><form class="light-box-in" method="dialog"><span class="light-box-close">${tertiaryButton(options.closeLabel, { type: "submit", formMethod: "dialog", icon: "close", isLabelHidden: true })}</span>${options.body}</form></dialog>`;
 }
 
 component({
@@ -596,7 +596,7 @@ component({
 @starting-style { .sheet.light-box[open] { transform: scale(0.96); } }
 .light-box-in { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--gap-words-control); height: 100%; margin: 0; }
 .light-box-close { position: absolute; top: var(--pad-frame); right: var(--pad-frame); }
-.light-box-close .quiet-btn { color: var(--ink); }
+.light-box-close .tertiary-btn { color: var(--ink); }
 @media (prefers-reduced-motion: reduce) { .sheet.light-box:is(:not([open]), .is-leaving) { transform: none; } @starting-style { .sheet.light-box[open] { transform: none; } } }
 `,
   render: lightBox,
@@ -728,7 +728,7 @@ export type SheetOptions = SheetOfOneOptions | SheetOfStepsOptions | SheetOfTabs
 
 // Declared, not assigned, since gallery examples above them make sheets as the file loads.
 function sheetClose(closeLabel: string) {
-  return quietButton(closeLabel, { type: "submit", formMethod: "dialog", icon: "close", isLabelHidden: true, isSmall: true });
+  return tertiaryButton(closeLabel, { type: "submit", formMethod: "dialog", icon: "close", isLabelHidden: true, isSmall: true });
 }
 function sheetScroll(body: Raw) {
   return html`<div class="sheet-scroll"><div class="sheet-body">${body}</div></div>`;
@@ -747,7 +747,7 @@ export function sheet(options: SheetOptions): Raw {
   const closeButton = sheetClose(options.closeLabel);
   if ("steps" in options) {
     // Back is Close's twin, in the other top corner: quiet as Close is, its chevron drawn as thin as Close's cross.
-    const back = quietButton("Back", { type: "button", icon: "chevron-back", isLabelHidden: true, isSmall: true, dataAttributes: { "sheet-back": "" } });
+    const back = tertiaryButton("Back", { type: "button", icon: "chevron-back", isLabelHidden: true, isSmall: true, dataAttributes: { "sheet-back": "" } });
     const parts = html`${options.steps.map((step, index) => {
       const titleId = `${options.id}-${step.stepName}-title`;
       const words = html`<h2 class="sheet-title" id="${titleId}">${step.title}</h2>`;
@@ -1184,8 +1184,8 @@ export interface NoticeOptions {
 export function notice(options: NoticeOptions): Raw {
   const isProblem = options.tone === "problem";
   const noticeUrgency = options.noticeUrgency ?? "information";
-  const undo = options.undoAction === undefined ? "" : html`<form class="notice-undo" method="post" action="${options.undoAction}">${quietButton("Undo", { type: "submit" })}</form>`;
-  return html`<div class="notice glass ${options.tone}${options.isInPlace ? " in-place" : ""}" role="${isProblem || noticeUrgency === "urgent" ? "alert" : "status"}" data-notice="${options.tone}" data-notice-urgency="${noticeUrgency}"${undo ? raw(" data-notice-undo") : ""} data-glass data-glass-corners="menu">${EDGE}${icon(isProblem ? "warning" : "check")}<span class="notice-text">${options.text}${options.link ? html` ${textLink(options.link.words, options.link.href)}` : ""}</span>${undo}${isProblem ? quietButton("Close", { type: "button", icon: "close", isLabelHidden: true, isSmall: true, dataAttributes: { "layer-close": "" } }) : ""}</div>`;
+  const undo = options.undoAction === undefined ? "" : html`<form class="notice-undo" method="post" action="${options.undoAction}">${tertiaryButton("Undo", { type: "submit" })}</form>`;
+  return html`<div class="notice glass ${options.tone}${options.isInPlace ? " in-place" : ""}" role="${isProblem || noticeUrgency === "urgent" ? "alert" : "status"}" data-notice="${options.tone}" data-notice-urgency="${noticeUrgency}"${undo ? raw(" data-notice-undo") : ""} data-glass data-glass-corners="menu">${EDGE}${icon(isProblem ? "warning" : "check")}<span class="notice-text">${options.text}${options.link ? html` ${textLink(options.link.words, options.link.href)}` : ""}</span>${undo}${isProblem ? tertiaryButton("Close", { type: "button", icon: "close", isLabelHidden: true, isSmall: true, dataAttributes: { "layer-close": "" } }) : ""}</div>`;
 }
 
 /**
@@ -1274,7 +1274,7 @@ const BANNER_SIDE_BY_SIDE_LEAST_PX = 560;
 export function banner(options: BannerOptions): Raw {
   const formAction = options.action?.formAction;
   const action = options.action ? (formAction === undefined ? cutButton(options.action.label, { href: options.action.href ?? "#" }) : cutButton(options.action.label, { type: "submit" })) : undefined;
-  const close = options.closeLabel ? quietButton(options.closeLabel, { type: "button", name: "banner_close", icon: "close", isLabelHidden: true }) : undefined;
+  const close = options.closeLabel ? tertiaryButton(options.closeLabel, { type: "button", name: "banner_close", icon: "close", isLabelHidden: true }) : undefined;
   const controls = [action, close].filter((each): each is ControlMarkup => each !== undefined);
   const inside = html`<div class="banner-words">${options.icon ? html`<span class="banner-icon">${icon(options.icon)}</span>` : ""}<p class="banner-text">${options.text}</p></div>${controls.length ? row({ widths: "fit", alignment: "end", items: controls.map(control) }) : ""}`;
   const holder = `banner-in${options.tone === "warning" ? " tone-warning" : ""}${action ? " has-action" : ""}${close ? " has-close" : ""}`;
@@ -1312,7 +1312,7 @@ component({
   .banner .banner-in.has-action > .layout-row > .row-cell:first-child { grid-area: 2 / 1; margin: var(--gap-words-control) 0 0; }
   .banner .banner-in.has-action > .layout-row > .row-cell:first-child > .shell { display: flex; flex: 1 1 auto; }
   .banner .banner-in.has-action > .layout-row > .row-cell:first-child > .shell > .face { width: 100%; justify-content: center; }
-  /* The words make room for Close beside their first line: an empty float as wide as Close (an icon-only quiet button, as wide as it is
+  /* The words make room for Close beside their first line: an empty float as wide as Close (an icon-only tertiary button, as wide as it is
      tall) and the gap less their margin, down to its foot. */
   .banner-in.has-close .banner-text::before { content: ""; float: inline-end; width: calc(var(--control-height-regular) + var(--gap-words-control) - var(--pad-words)); height: calc((var(--control-height-regular) + 1lh) / 2); }
 }

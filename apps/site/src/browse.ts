@@ -1,5 +1,5 @@
 import { GENRE_LABELS, GENRES, PRICE_RANGES, currencyForCountry, priceRangeOf, requestCountryCode, type DeviceKind, type Genre, type PriceRange } from "@zaisma/core";
-import { quietButton } from "./components/actions.ts";
+import { tertiaryButton } from "./components/actions.ts";
 import { glassPane } from "./components/foundations.ts";
 import { grid, row, stack, type LayoutItem } from "./components/layout.ts";
 import { filterTags, type FilterTag } from "./components/panes.ts";
@@ -247,9 +247,9 @@ function results(query: BrowseQuery, games: BrowseGame[], ownedGameIds: Readonly
       : query.players !== "any" ? `No ${PLAYERS_LABELS[query.players].toLowerCase()} games yet`
       : "No games in this price range yet";
     const state = query.searchText
-      ? emptyState({ title: `No games match "${query.searchText}"`, text: "Try a game's title, its developer or a genre.", action: quietButton("Clear search", { href: browseHref({ ...query, searchText: "", pageNumber: 1 }) }) })
+      ? emptyState({ title: `No games match "${query.searchText}"`, text: "Try a game's title, its developer or a genre.", action: tertiaryButton("Clear search", { href: browseHref({ ...query, searchText: "", pageNumber: 1 }) }) })
       : filterCount
-        ? emptyState({ title: filterTitle, text: "Every listed game shows with no filters.", action: quietButton("Clear filters", { href: browseHref({ sort: query.sort }) }) })
+        ? emptyState({ title: filterTitle, text: "Every listed game shows with no filters.", action: tertiaryButton("Clear filters", { href: browseHref({ sort: query.sort }) }) })
         : emptyState({ title: "No games yet", text: "The first games are on their way." });
     return [{ kind: "block", markup: state }];
   }

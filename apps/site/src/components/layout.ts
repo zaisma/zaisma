@@ -38,7 +38,7 @@ export type LayoutItem =
   | (LayoutItemPlace & { kind: "control"; markup: ControlMarkup })
   | (LayoutItemPlace & { kind: "block"; markup: NotControlMarkup });
 
-/** Where an item sits, for its margins: words (and a control that's words alone, a quiet button) keep the pane's; the rest the frame gap. */
+/** Where an item sits, for its margins: words (and a control that's words alone, a tertiary button) keep the pane's; the rest the frame gap. */
 const placedKind = (layoutItem: LayoutItem): "words" | "control" | "block" => (layoutItem.kind === "control" && layoutItem.markup.isWordsAlone ? "words" : layoutItem.kind);
 
 /** The spacing tokens a layout picks from (docs/DESIGN.md, Spacing), by what's on each side. */
@@ -273,7 +273,7 @@ export function paneParts(options: PanePartsOptions): Raw {
 const GAP_TOKENS: LayoutGap[] = ["control-row-boxes", "control-stack", "words-control", "words-words", "block-block"];
 
 /** What takes a control's height in each control (its --control-height), as it sits directly in a row's cell. */
-const HEIGHT_HOLDERS = [".cut-btn", ".guest-btn", ".glass-btn", ".quiet-btn", ".run-wrap > .run", ".cut-field > .field", ".pin-box", ".find", ".tab-switch", ".steps"];
+const HEIGHT_HOLDERS = [".cut-btn", ".glass-btn", ".tertiary-btn", ".run-wrap > .run", ".cut-field > .field", ".pin-box", ".find", ".tab-switch", ".steps"];
 
 /** What shows of a holder's children: not hidden, not a cell whose only thing is hidden (holds-only-hidden, ROW_LAYOUT_SCRIPT), not a slab's drawn edge (a tray's first child), and not a script, a template or a form's hidden field. */
 const SHOWN = ':not([hidden], .holds-only-hidden, .edge, script, template, input[type="hidden"])';
@@ -497,7 +497,7 @@ export const PANE_PARTS_STYLES = `
 .pane-head-end, .pane-foot-end { display: flex; margin-inline-start: auto; }
 .pane-foot-start { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; }
 .pane-foot-start.is-words { padding: 0 0 var(--pad-words) var(--pad-words); }
-/* A corner's quiet button is words alone: it keeps the pane's margin. */
+/* A corner's tertiary button is words alone: it keeps the pane's margin. */
 .pane-head-end.is-words { padding: var(--pad-words) var(--pad-words) 0 0; }
 .pane-foot-end.is-words { padding: 0 var(--pad-words) var(--pad-words) 0; }
 .pane-body { display: flex; flex-direction: column; gap: var(--gap-block-block); min-width: 0; }

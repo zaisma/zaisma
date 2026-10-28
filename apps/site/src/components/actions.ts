@@ -185,9 +185,8 @@ const DISCORD = raw(
 const WAY_ICONS = { google: GOOGLE, discord: DISCORD, passkey: raw(ICONS.passkey) } as const;
 
 /**
- * A glass button's tint: clear glass, or glass tinted the color of the way in. Each way has its own unless the page picks one. "plain" is
- * nearly solid glass in the glass's own tone, as Google's buttons are: white on light glass with dark words, Google's near-black on smoked
- * glass with light words, so it never outshines the runner in the dark.
+ * A glass button's tint: none ("clear"), or the color of the way in mixed into the cut button's slab. Each way has its own unless the page
+ * picks one. "plain" is the glass's own tone, as Google's buttons are: whiter on light glass, nearer Google's black on smoked.
  */
 export type GlassTint = "clear" | "plain" | "blue" | "indigo" | "black";
 const WAY_TINTS: Record<keyof typeof WAY_ICONS, GlassTint> = { google: "plain", discord: "indigo", passkey: "clear" };
@@ -198,37 +197,29 @@ export interface GlassButtonOptions {
   /** A way in's mark (google, discord, passkey), or one of Zaisma's icons for an action on a world. */
   icon: keyof typeof WAY_ICONS | IconName;
   tint?: GlassTint;
-  /** Can't be pressed now: clear glass whatever its tint, its words quieter and its mark faded. */
+  /** Can't be pressed now: a cut button's carved slab whatever its tint, its words quieter and its mark faded. */
   isDisabled?: boolean;
   isBusy?: boolean;
   state?: ButtonState;
 }
 
 /**
- * A glass button: a small slab of the panes' glass, with their rim. Quieter than the runner, louder than the guest way. Another way in
- * (a passkey, Google, Discord: their marks), or an action that floats on a world with no pane under it (the home's More games: one of
- * Zaisma's icons), where a cut button's clear face would be lost.
+ * A glass button: a cut button's slab tinted the color of the way in, with its mark. Quieter than the runner, louder than a tertiary button.
+ * Another way in (a passkey, Google, Discord: their marks), or an action that floats on a world with no pane under it (the home's More
+ * games: one of Zaisma's icons).
  */
 export function glassButton(label: string, options: GlassButtonOptions): ControlMarkup {
   const isWayIn = options.icon in WAY_ICONS;
   const tint = options.tint ?? (isWayIn ? WAY_TINTS[options.icon as keyof typeof WAY_ICONS] : "clear");
   const mark = isWayIn ? WAY_ICONS[options.icon as keyof typeof WAY_ICONS] : icon(options.icon as IconName);
   const target = { href: options.href, type: options.type ?? "button", isDisabled: options.isDisabled, isBusy: options.isBusy } as const;
-  return controlMarkup(html`${opening(classes("glass-btn", options.state), target, options.isBusy, html` data-tint="${tint}"${disabledAttribute(target)}`)}<span class="face glass" data-glass data-cut-line="10" data-glass-band="3">${loader()}${mark}<span class="glass-words">${label}</span></span>${closing(target)}`, "regular");
-}
-
-const GUEST_ARROW = html`<span class="arrow" aria-hidden="true">${icon("chevron-right")}</span>`;
-
-/** The guest way: words and an arrow under the glass buttons, the quietest way on. Its cut slab shows only when you point at it, press it or tab to it. */
-export function guestButton(label: string, options: { href?: string; type?: "submit" | "button"; state?: ButtonState; isBusy?: boolean } = {}): ControlMarkup {
-  return controlMarkup(html`${opening(classes("guest-btn", options.state), { href: options.href, type: options.type ?? "button" }, options.isBusy)}<span class="face" data-cut-line="10">${CUT_LINE}<span class="guest-words">${loader()}${label}</span>${GUEST_ARROW}</span>${closing({ href: options.href })}`, "regular");
+  return controlMarkup(html`${opening(classes("cut-btn", "glass-btn", "is-full", options.state), target, options.isBusy, html` data-tint="${tint}"${disabledAttribute(target)}`)}<span class="face" data-cut-line="10">${CUT_LINE}${loader()}${mark}<span class="glass-words">${label}</span></span>${closing(target)}`, "regular");
 }
 
 /**
  * The runner button: it lifts and leans toward the pointer, a reflection slides the other way, and one glint sweeps as
  * the pointer arrives and always finishes. The pointer is followed on the still shell; the lift and lean are set there
  * for its face and its side, which move inside it.
- * The glass buttons: their light follows the pointer across the glass.
  */
 /**
  * Busy: a button that sends a form, or a link-button that opens another page, shows the loader once it's pressed (aria-busy) and
@@ -288,11 +279,6 @@ export const RUNNER_SCRIPT = `/* runner */(function () {
   }
   document.querySelectorAll(".run-wrap").forEach(lean);
   window.zaismaWatch.page(function (changes) { changes.forEach(function (change) { change.addedNodes.forEach(function (node) { if (node.querySelectorAll) node.querySelectorAll(".run-wrap").forEach(lean); }); }); });
-  document.addEventListener("pointermove", function (event) {
-    var shell = event.target.closest && event.target.closest(".glass-btn"); if (!shell) return;
-    var r = shell.getBoundingClientRect();
-    shell.style.setProperty("--mx", (event.clientX - r.left).toFixed(0) + "px"); shell.style.setProperty("--my", (event.clientY - r.top).toFixed(0) + "px");
-  }, { passive: true });
 })();
 `;
 
@@ -389,7 +375,7 @@ const COLUMN = "width:min(340px,100%)";
  * A button's states, still, side by side; then one to try, and one that points, presses and lets go on a loop
  * (the gallery's design-loops script plays it: data-state-loop names what it plays). Full-width buttons get a column.
  */
-const stateExamples = (render: (state?: ButtonState) => Raw, loopKind: "runner" | "cut" | "glass" | "guest" | "text", isFullWidth = false) => {
+const stateExamples = (render: (state?: ButtonState) => Raw, loopKind: "runner" | "cut" | "glass" | "tertiary", isFullWidth = false) => {
   const sized = (markup: Raw) => (isFullWidth ? html`<div style="${COLUMN}">${markup}</div>` : markup);
   return [
     { label: "Rest", markup: sized(render()), isStill: true },
@@ -670,106 +656,30 @@ component({
   subgroup: "buttons",
   summary: "Another way in, like a passkey, Google or Discord: below the runner, never instead of it. Or an action floating on a world with no pane under it.",
   styles: `
-/* Glass buttons for the other ways in: a small slab of the panes' glass, cut and rimmed like them (GLASS_SCRIPT draws the rim).
-   The pointer brings a light that follows it across the glass and brightens the rim; a press sinks the slab into its shade.
-   The shell (the button) stays still and holds the tint; the slab is its face. */
-.glass-btn { --control-height: var(--control-height-regular); --mx: 38%; --my: 18%; display: flex; width: 100%; }
-.glass-btn:focus-visible { outline: none; }
-.glass-btn > .face {
-  position: relative; display: flex; flex: auto; align-items: center; justify-content: center; gap: 10px; height: var(--control-height); padding: 0 18px;
-  font: 500 0.9375rem var(--display); color: var(--ink); white-space: nowrap;
-  --glass-tint: var(--glass-btn-face);
-  transition: var(--glass-transition), box-shadow 0.2s, transform 0.4s ${SPRING}; }
-.glass-btn .face > :not(.edge) { position: relative; z-index: 3; }
-.glass-btn .face > svg:not(.edge) { width: 20px; height: 20px; flex: none; transition: transform 0.4s ${SPRING}, opacity 0.2s; }
+/* Glass buttons for the other ways in: a cut button (its slab, its pointing and its carved press) tinted the color of the way in, with
+   its mark before its words. A brand's color is how you recognize it, so it doesn't follow light or dark; it's mixed into the slab, so the
+   words keep the ink's color in either theme. Plain is the glass's own tone, as Google's buttons are; clear is the cut button's slab as it is. */
+.cut-btn.glass-btn > .face { --way: var(--btn); --way-mix: 0%; --face-color: color-mix(in srgb, var(--way) var(--way-mix), var(--btn)); }
+.cut-btn.glass-btn:hover > .face, .cut-btn.glass-btn.is-pointed > .face, .cut-btn.glass-btn:focus-visible > .face, .cut-btn.glass-btn.is-focused > .face { --face-color: color-mix(in srgb, var(--way) var(--way-mix), var(--btn-hover)); }
+.cut-btn.glass-btn:active > .face, .cut-btn.glass-btn.is-pressed > .face { --face-color: color-mix(in srgb, var(--way) var(--way-mix), var(--btn-press)); }
+.glass-btn[data-tint]:not([data-tint="clear"]) > .face { --way-mix: 22%; }
+.glass-btn[data-tint="plain"] > .face { --way: light-dark(#fff, #131314); --way-mix: 60%; }
+.glass-btn[data-tint="blue"] > .face { --way: #2A75E8; }
+.glass-btn[data-tint="indigo"] > .face { --way: #5865F2; }
+.glass-btn[data-tint="black"] > .face { --way: #14171C; }
+.glass-btn .face > svg:not(.cut-line) { position: relative; z-index: 2; width: 20px; height: 20px; flex: none; transition: opacity 0.2s; }
 /* Words longer than the room it has end in an ellipsis on one line. */
-.glass-btn { max-width: 100%; }
-.glass-btn > .face { min-width: 0; }
 .glass-words { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 /* Waiting: the loader takes the way's mark's place. */
-.glass-btn:not([aria-busy="true"]) .loader, .glass-btn[aria-busy="true"] .face > svg:not(.edge) { display: none; }
-.glass-btn[aria-busy="true"] { cursor: progress; }
-.glass-btn .edge { opacity: 0.7; transition: opacity 0.3s; }
-/* A small slab's rim, kept as quiet in light glass as it is in smoked: a faint hairline and a soft inner line. */
-.glass-btn .edge .hair { stroke: var(--glass-btn-hair-rest); transition: stroke 0.3s; }
-.glass-btn .edge .inner { opacity: 0.5; }
-/* The light the pointer brings. */
-.glass-btn > .face::before { content: ""; position: absolute; inset: 0; z-index: 1; pointer-events: none; opacity: 0; transition: opacity 0.3s;
-  background: radial-gradient(150px 110px at var(--mx) var(--my), var(--pointer-glow), rgba(255,255,255,0) 70%); }
-.glass-btn:hover > .face, .glass-btn.is-pointed > .face { --glass-tint: var(--glass-btn-hover); box-shadow: var(--glass-btn-lift); transform: translateY(-1px); }
-.glass-btn:hover .edge .hair, .glass-btn.is-pointed .edge .hair { stroke: var(--glass-btn-hair); }
-/* Pointed: the edge gets brighter, not darker: the dark hairline softens into the glass and the light line inside the rim comes up. */
-.glass-btn:hover .edge .inner, .glass-btn.is-pointed .edge .inner { opacity: 1; }
-.glass-btn:hover > .face::before, .glass-btn.is-pointed > .face::before { opacity: 0.85; }
-.glass-btn:hover .edge, .glass-btn.is-pointed .edge { opacity: 1; }
-.glass-btn:hover .face > svg:not(.edge), .glass-btn.is-pointed .face > svg:not(.edge) { transform: scale(1.1); }
-.glass-btn:active > .face, .glass-btn.is-pressed > .face { --glass-tint: var(--glass-btn-press); box-shadow: var(--press-shade); transform: translateY(1px); transition-duration: 0.08s; }
-.glass-btn:active > .face::before, .glass-btn.is-pressed > .face::before { opacity: 0.45; }
-.glass-btn:active .face > svg:not(.edge), .glass-btn.is-pressed .face > svg:not(.edge) { transform: scale(0.94); transition-duration: 0.08s; }
-/* Keyboard focus: the rim turns orange, following the cut, and its bright facets step aside. */
-.glass-btn:focus-visible > .face, .glass-btn.is-focused > .face { --glass-tint: var(--glass-btn-hover); }
-.glass-btn:focus-visible .edge, .glass-btn.is-focused .edge { opacity: 1; }
-.glass-btn:focus-visible .edge .hair, .glass-btn.is-focused .edge .hair { stroke: var(--focus); stroke-width: 2; }
-.glass-btn:focus-visible .edge .rim, .glass-btn.is-focused .edge .rim { stroke: var(--focus); stroke-width: 2; opacity: 1; }
-.glass-btn:focus-visible .edge .facet, .glass-btn:focus-visible .edge .fringe, .glass-btn.is-focused .edge .facet, .glass-btn.is-focused .edge .fringe { opacity: 0; }
-/* A tinted slab is colored glass, not a plate: it keeps the same glass edge as every glass button, drawn in its own color. Its bevel
-   steps from a light shade of the tint along the lit top to a deep shade along the foot, the rim and the glint at the lit corner are the
-   tint's light, and a sheen lies over the color, brightest at the top. The more color it carries, the more its edge would stand out
-   against it, so a tinted slab's edge is fainter than clear glass's: the same edge, just as quiet. No dark hairline or rainbow fringe,
-   which read as a frame round a colored slab. */
-.glass-btn[data-tint]:not([data-tint="clear"]) > .face {
-  --edge-lit: color-mix(in srgb, var(--tint-color) 30%, white); --edge-shade: color-mix(in srgb, var(--tint-color) 70%, black); --edge-corner: color-mix(in srgb, var(--tint-color) 40%, white);
-  --edge-spec: rgba(255,255,255,0.7); --edge-inner: color-mix(in srgb, var(--tint-color) 35%, white); --edge-dense: rgba(0,0,0,0.03);
-  --edge-bevel: 0.22; --edge-rim: 0.4; --edge-fringe: 0;
-  --glass-layer: linear-gradient(180deg, rgba(255,255,255,0.24), rgba(255,255,255,0.06) 40%, rgba(255,255,255,0) 58%, rgba(0,0,0,0.08)), linear-gradient(color-mix(in srgb, var(--tint-color) var(--tint-pct), transparent), color-mix(in srgb, var(--tint-color) var(--tint-pct), transparent)); }
-/* Plain, on light glass: white, its edge the lightest of all, so the frame inside it never draws a line round the words. On smoked glass:
-   Google's near-black, its edge a dim grey and its sheen faint, with the grey hairline Google draws round its dark button, so it sits as
-   quietly in a dark pane as the white one does in a light one. light-dark() follows the glass's color-scheme (light or smoked glass). */
-.glass-btn[data-tint="plain"] > .face { --edge-lit: light-dark(#fff, #5C5F63); --edge-shade: light-dark(#C9CFD8, #000); --edge-corner: light-dark(#EEF1F5, #6E7175); --edge-inner: light-dark(#fff, #8E918F);
-  --edge-dense: light-dark(rgba(40,60,100,0.03), rgba(255,255,255,0.02)); --edge-bevel: 0.3; --edge-rim: 0.45;
-  --glass-layer: linear-gradient(180deg, light-dark(rgba(255,255,255,0.4), rgba(255,255,255,0.07)), rgba(255,255,255,0) 50%, light-dark(rgba(30,50,90,0.05), rgba(0,0,0,0.1))), linear-gradient(color-mix(in srgb, var(--tint-color) var(--tint-pct), transparent), color-mix(in srgb, var(--tint-color) var(--tint-pct), transparent)); }
-.glass-btn[data-tint="black"] > .face { --edge-lit: #5A606B; --edge-shade: #000; --edge-corner: #6B717C; --edge-inner: #8A919C; }
-.glass-btn[data-tint]:not([data-tint="clear"]) .edge :is(.hair, .fringe) { opacity: 0; }
-/* Plain on smoked glass keeps a hairline, the grey Google draws round its dark button (none on light glass, where the white is enough). */
-.glass-btn[data-tint="plain"] > .face > .edge .hair { opacity: 1; stroke: light-dark(transparent, rgba(142,145,143,0.55)); }
-.glass-btn[data-tint]:not([data-tint="clear"]) .edge .inner { opacity: 0.25; }
-.glass-btn[data-tint]:not([data-tint="clear"]):hover .edge .inner, .glass-btn[data-tint]:not([data-tint="clear"]).is-pointed .edge .inner { opacity: 0.45; }
-.glass-btn[data-tint="blue"]:hover > .face, .glass-btn[data-tint="indigo"]:hover > .face, .glass-btn[data-tint="black"]:hover > .face,
-.glass-btn[data-tint="blue"].is-pointed > .face, .glass-btn[data-tint="indigo"].is-pointed > .face, .glass-btn[data-tint="black"].is-pointed > .face { box-shadow: inset 0 -12px 18px -12px rgba(0,0,0,0.3); }
-.glass-btn[data-tint]:not([data-tint="clear"]):focus-visible .edge .rim, .glass-btn[data-tint]:not([data-tint="clear"]).is-focused .edge .rim { stroke: var(--focus); stroke-width: 2; opacity: 1; }
-/* Tinted: the way's own color, mostly solid, the backdrop just showing through, in either theme (a brand's color is how you recognize it, so it doesn't
-   follow light or dark), but for plain, which is the glass's own tone: white with dark words on light glass, near-black with light words on
-   smoked. The colored and black ones have white words. It's a touch stronger as you point at it and a touch clearer under a press. Changing
-   the tint fades from one to the next. */
-.glass-btn > .face { --tint-pct: 0%; --glass-layer: linear-gradient(color-mix(in srgb, var(--tint-color) var(--tint-pct), transparent), color-mix(in srgb, var(--tint-color) var(--tint-pct), transparent)); }
-/* A brand's glass keeps its own color: the page's hue never reaches it. */
-.glass-btn[data-tint]:not([data-tint="clear"]) > .face { --glass-wash: linear-gradient(transparent, transparent); }
-.glass-btn[data-tint] > .face { --tint-pct: var(--glass-btn-tint-rest); transition: var(--glass-transition), box-shadow 0.2s, transform 0.4s ${SPRING}, --tint-color 0.3s, --tint-pct 0.3s; }
-.glass-btn[data-tint]:hover > .face, .glass-btn[data-tint].is-pointed > .face, .glass-btn[data-tint]:focus-visible > .face, .glass-btn[data-tint].is-focused > .face { --tint-pct: var(--glass-btn-tint-hover); }
-.glass-btn[data-tint]:active > .face, .glass-btn[data-tint].is-pressed > .face { --tint-pct: var(--glass-btn-tint-press); }
-.glass-btn[data-tint="clear"] { --glass-btn-tint-rest: 0%; --glass-btn-tint-hover: 0%; --glass-btn-tint-press: 0%; }
-.glass-btn[data-tint="plain"] > .face { --tint-color: light-dark(#fff, #131314); color: var(--ink); }
-.glass-btn[data-tint="plain"] { --glass-btn-tint-rest: 76%; --glass-btn-tint-hover: 86%; --glass-btn-tint-press: 68%; }
-.glass-btn[data-tint="blue"], .glass-btn[data-tint="indigo"], .glass-btn[data-tint="black"] { --glass-btn-tint-rest: 74%; --glass-btn-tint-hover: 82%; --glass-btn-tint-press: 68%; --pointer-glow: rgba(255,255,255,0.35); }
-.glass-btn[data-tint="blue"] > .face, .glass-btn[data-tint="indigo"] > .face, .glass-btn[data-tint="black"] > .face { color: #fff; }
-.glass-btn[data-tint="blue"] > .face { --tint-color: #2A75E8; }
-.glass-btn[data-tint="indigo"] > .face { --tint-color: #5865F2; }
-.glass-btn[data-tint="black"] > .face { --tint-color: #14171C; }
-/* On a colored or black tint a colored mark would sink into it, so a mark that may be one color turns white with the words.
-   Google's G stays in its colors, which only ever sit on plain or clear glass. */
-.glass-btn[data-tint="blue"] .one-color path, .glass-btn[data-tint="indigo"] .one-color path, .glass-btn[data-tint="black"] .one-color path { fill: currentColor; transition: fill 0.3s; }
-/* On clear glass it's white over smoked glass, and its own blue over light (the fallback, since light glass leaves --clear-glass-mark unset). */
-.glass-btn[data-tint="clear"] .one-color path { fill: var(--clear-glass-mark, #5865F2); transition: fill 0.3s; }
-/* Can't press: clear glass whatever its tint (its brand color is for a way you can take), its words quieter, its mark faded, and it
-   answers no pointer. */
-.glass-btn:disabled:not([aria-busy="true"]) { cursor: default; pointer-events: none; }
-.glass-btn:disabled:not([aria-busy="true"]) > .face { --tint-pct: 0%; color: var(--muted);
-  --edge-lit: inherit; --edge-shade: inherit; --edge-corner: inherit; --edge-inner: inherit; --edge-spec: inherit; --edge-dense: inherit; --edge-bevel: inherit; --edge-rim: inherit; }
-.glass-btn:disabled:not([aria-busy="true"]) > .face > svg:not(.edge) { opacity: 0.45; }
+.glass-btn[aria-busy="true"] .face > svg:not(.cut-line) { display: none; }
+/* A mark that may be one color (Discord's) is white over smoked glass and its own blue over light (the fallback, since light glass leaves
+   --clear-glass-mark unset). Google's G stays in its colors. */
+.glass-btn .one-color path { fill: var(--clear-glass-mark, #5865F2); transition: fill 0.3s; }
+/* Can't press: a cut button's carved slab whatever its tint (its brand color is for a way you can take), its mark faded. */
+.glass-btn:disabled:not([aria-busy="true"]) > .face > svg:not(.cut-line) { opacity: 0.45; }
 .glass-btn:disabled:not([aria-busy="true"]) .one-color path { fill: currentColor; }
 /* The gallery's tint palette: a Color picker; pick one and the button above takes it (GALLERY_SCRIPT). */
 .tint-try { display: grid; gap: var(--gap-block-block); width: min(340px, 100%); }
-@media (prefers-reduced-motion: reduce) { .glass-btn > .face, .glass-btn .face > svg:not(.edge) { transition: var(--glass-transition); } }
 `,
   render: glassButton,
   examples: [
@@ -787,52 +697,7 @@ component({
   ],
 });
 
-component({
-  name: "Guest button",
-  slug: "guest-button",
-  group: "actions",
-  subgroup: "buttons",
-  summary: "The quietest way on, like Continue as guest: words and an arrow below the glass buttons, a slab only once you point at it.",
-  styles: `
-/* The guest way: below the glass buttons, so only words and an arrow at rest. Pointing at it brings up its cut slab and
-   outline and sends the arrow on; a press sinks it; the keyboard's focus draws the outline in ink.
-   The shell (the button) stays still; the slab is its face. */
-.guest-btn { --control-height: var(--control-height-regular); display: flex; width: 100%; }
-.guest-btn:focus-visible { outline: none; }
-.guest-btn > .face { display: flex; flex: auto; align-items: center; justify-content: center; gap: 8px; height: var(--control-height); padding: 0 16px;
-  font: 500 0.9375rem var(--display); color: var(--ink-2); white-space: nowrap; --face-color: transparent; background-color: var(--face-color);
-  clip-path: var(--cut-shape);
-  transition: --face-color 0.2s, color 0.2s, box-shadow 0.2s, transform 0.4s ${SPRING}; }
-.guest-btn .face > :not(.cut-line) { position: relative; z-index: 2; }
-.guest-btn .cut-line polygon { stroke: transparent; }
-.guest-btn .arrow { display: inline-flex; transition: transform 0.45s cubic-bezier(.2,.7,.2,1); }
-.guest-btn .arrow > .ico { width: 8px; height: 12px; stroke-width: 2.4; }
-/* Waiting: the loader shows before its words, as on every button, and the arrow goes; the loader hangs outside the words and the arrow keeps
-   its room, so the words stay exactly where they were. */
-.guest-words { position: relative; }
-.guest-btn .guest-words > .loader { position: absolute; right: calc(100% + var(--gap-words-words)); top: 50%; transform: translateY(-50%); }
-.guest-btn:not([aria-busy="true"]) .loader { display: none; }
-.guest-btn[aria-busy="true"] .arrow { visibility: hidden; }
-.guest-btn[aria-busy="true"] { cursor: progress; }
-.guest-btn:hover > .face, .guest-btn.is-pointed > .face { color: var(--ink); --face-color: var(--clear-hover); }
-.guest-btn:hover .cut-line polygon, .guest-btn.is-pointed .cut-line polygon { stroke: var(--line); }
-.guest-btn:hover .arrow, .guest-btn.is-pointed .arrow { transform: translateX(4px); }
-.guest-btn:active > .face, .guest-btn.is-pressed > .face { color: var(--ink); --face-color: var(--clear-press); box-shadow: var(--press-shade); transform: translateY(1px); transition-duration: 0.08s; }
-.guest-btn:active .cut-line polygon, .guest-btn.is-pressed .cut-line polygon { stroke: var(--line); }
-.guest-btn:active .arrow, .guest-btn.is-pressed .arrow { transform: translateX(7px); transition-duration: 0.12s; }
-.guest-btn:focus-visible > .face, .guest-btn.is-focused > .face { color: var(--ink); }
-.guest-btn:focus-visible .cut-line polygon, .guest-btn.is-focused .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
-@media (prefers-reduced-motion: reduce) { .guest-btn > .face, .guest-btn .arrow { transition: --face-color 0.2s, color 0.2s; } }
-`,
-  render: guestButton,
-  examples: [
-    ...stateExamples((state) => guestButton("Continue as guest", { state }), "guest", true),
-    { label: "Under the ways in", markup: html`<div style="display:grid;gap:var(--gap-control-stack);${COLUMN}">${waysIn()}${guestButton("Continue as guest")}</div>` },
-    { label: "Busy: the loader before its words, which stay where they were", markup: html`<div style="${COLUMN}">${guestButton("Continue as guest", { isBusy: true })}</div>`, isStill: true },
-  ],
-});
-
-export interface QuietButtonOptions extends ButtonTarget {
+export interface TertiaryButtonOptions extends ButtonTarget {
   /** An icon before its words, like Show all's chevron. */
   icon?: IconName;
   /**
@@ -842,83 +707,98 @@ export interface QuietButtonOptions extends ButtonTarget {
   isLabelHidden?: boolean;
   /** A small control's height, as a pane's corner buttons are. */
   isSmall?: boolean;
+  /** An arrow after its words that steps on as you point at it: a way on, like Continue as guest under the ways in. */
+  hasArrow?: boolean;
+  /** As wide as the column, its words in the middle: under the ways in, as wide as they are. */
+  isFullWidth?: boolean;
   /** Can't be pressed now: its words fade further and it answers no pointer. */
   isDisabled?: boolean;
   isBusy?: boolean;
   state?: ButtonState;
 }
 
+const TERTIARY_ARROW = html`<span class="tertiary-arrow" aria-hidden="true">${icon("chevron-right")}</span>`;
+
 /**
- * A quiet button: words, an icon or both alone at rest, the quietest thing you press (Skip for now, Show all, Undo; a sheet's Back and Close). It's a control's size with a slab that
+ * A tertiary button: words, an icon or both alone at rest, the quietest thing you press (Skip for now, Show all, Undo; a sheet's Back and Close). It's a control's size with a slab that
  * shows only when you point at it, so it sits and is cut like any control, its words as far in as a field's (--pad-inside-words: on a
  * pane's edge, at the pane's margin). Pointing brings up the slab and draws the orange line in under its words; keyboard focus is the cut
- * stroke round the slab, as on every button.
+ * stroke round the slab, as on every button. With an arrow, it's a way on: Continue as guest under the ways in.
  */
-export function quietButton(label: string, options: QuietButtonOptions = {}): ControlMarkup {
+export function tertiaryButton(label: string, options: TertiaryButtonOptions = {}): ControlMarkup {
   const isIconOnly = Boolean(options.isLabelHidden && options.icon);
   const extra = html`${disabledAttribute(options)}${isIconOnly ? html` aria-label="${label}"` : ""}`;
-  return controlMarkup(html`${opening(classes("quiet-btn", isIconOnly && "icon-only", options.isSmall && "small", options.state), options, options.isBusy, extra)}<span class="face" data-cut-line="${options.isSmall ? 9 : 10}">${CUT_LINE}<span class="quiet-words">${loader()}${options.icon ? icon(options.icon) : ""}${isIconOnly ? "" : html`<span class="quiet-label">${label}</span>`}</span>${isIconOnly ? "" : raw('<span class="quiet-line" aria-hidden="true"></span>')}</span>${closing(options)}`, options.isSmall ? "small" : "regular");
+  return controlMarkup(html`${opening(classes("tertiary-btn", isIconOnly && "icon-only", options.isSmall && "small", options.isFullWidth && "is-full", options.state), options, options.isBusy, extra)}<span class="face" data-cut-line="${options.isSmall ? 9 : 10}">${CUT_LINE}<span class="tertiary-words">${loader()}${options.icon ? icon(options.icon) : ""}${isIconOnly ? "" : html`<span class="tertiary-label">${label}</span>`}${options.hasArrow ? TERTIARY_ARROW : ""}</span>${isIconOnly || options.hasArrow ? "" : raw('<span class="tertiary-line" aria-hidden="true"></span>')}</span>${closing(options)}`, options.isSmall ? "small" : "regular");
 }
 
 component({
-  name: "Quiet button",
-  slug: "quiet-button",
+  name: "Tertiary button",
+  slug: "tertiary-button",
   group: "actions",
-  subgroup: "words",
+  subgroup: "buttons",
   summary: "The quietest thing to press: words, an icon, or both, with no slab until it's pointed at. Skip for now, Show all, Undo; only its icon, a sheet's Back and Close. Beside a cut button it's the way out; never the one thing to do.",
   styles: `
-/* A quiet button: words only, at rest, in a control's box: its words keep a field's inset (--pad-inside-words), so on a pane's edge they're
+/* A tertiary button: words only, at rest, in a control's box: its words keep a field's inset (--pad-inside-words), so on a pane's edge they're
    at the pane's margin while its box is at the frame gap, cut by the edge rule like any control's (slanting toward a control beside it).
    Pointing at it brings up its slab, faint (--wash), and draws the orange line in under its words from the left, a light running ahead
-   along it, the way a cover's line does; leaving, the line runs on out to the right, quicker than it came. A press sinks it a pixel.
-   Keyboard focus is the cut stroke round its slab, as on every other button. The shell (the button) stays still; its face moves. */
-.quiet-btn { --control-height: var(--control-height-regular); vertical-align: middle; max-width: 100%; }
+   along it, the way a cover's line does; leaving, the line runs on out to the right, quicker than it came. A press darkens its slab where
+   it is, never moving it. Keyboard focus is the cut stroke round its slab, as on every other button. */
+.tertiary-btn { --control-height: var(--control-height-regular); vertical-align: middle; max-width: 100%; }
 /* Small, and only its icon (a pane's Close, a sheet's Back): a square of a small control's size, its slab and no line under it when pointed at. */
-.quiet-btn.small { --control-height: var(--control-height-small); }
+.tertiary-btn.small { --control-height: var(--control-height-small); }
 /* On a touch screen a small one still takes a finger, as a small cut button does: its hit area reaches out to 44px, its look unchanged. */
-@media (pointer: coarse) { .quiet-btn.small { position: relative; } .quiet-btn.small::after { content: ""; position: absolute; inset: calc((var(--control-height) - var(--touch-target)) / 2); } }
-.quiet-btn.icon-only > .face { width: var(--control-height); padding: 0; align-items: center; }
-.quiet-btn.icon-only .ico { width: 18px; height: 18px; }
-.quiet-btn:focus-visible { outline: none; }
-.quiet-btn > .face { position: relative; display: flex; flex: auto; flex-direction: column; justify-content: center; min-width: 0; height: var(--control-height); padding: 0 var(--pad-inside-words);
+@media (pointer: coarse) { .tertiary-btn.small { position: relative; } .tertiary-btn.small::after { content: ""; position: absolute; inset: calc((var(--control-height) - var(--touch-target)) / 2); } }
+.tertiary-btn.icon-only > .face { width: var(--control-height); padding: 0; align-items: center; }
+.tertiary-btn.icon-only .ico { width: 18px; height: 18px; }
+.tertiary-btn:focus-visible { outline: none; }
+.tertiary-btn > .face { position: relative; display: flex; flex: auto; flex-direction: column; justify-content: center; min-width: 0; height: var(--control-height); padding: 0 var(--pad-inside-words);
   font: var(--type-label); color: var(--ink-2); white-space: nowrap; --face-color: transparent; background-color: var(--face-color); clip-path: var(--cut-shape);
   transition: --face-color 0.2s, color 0.2s, opacity 0.2s, transform 0.4s ${SPRING}; }
-.quiet-words { position: relative; z-index: 2; display: flex; align-items: center; justify-content: center; gap: var(--gap-words-words); min-width: 0; font: var(--type-label); }
+.tertiary-words { position: relative; z-index: 2; display: flex; align-items: center; justify-content: center; gap: var(--gap-words-words); min-width: 0; font: var(--type-label); }
 /* Words longer than the room it has end in an ellipsis on one line. */
-.quiet-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.tertiary-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 /* The line sits just under the words, which stay on the control's center line, level with a cut button's beside it. */
-.quiet-line { position: absolute; z-index: 2; left: var(--pad-inside-words); right: var(--pad-inside-words); top: calc(50% + 0.5lh); display: block; height: 3px; margin-top: 5px; overflow: hidden; clip-path: polygon(3px 0, 100% 0, calc(100% - 3px) 100%, 0 100%);
+.tertiary-line { position: absolute; z-index: 2; left: var(--pad-inside-words); right: var(--pad-inside-words); top: calc(50% + 0.5lh); display: block; height: 3px; margin-top: 5px; overflow: hidden; clip-path: polygon(3px 0, 100% 0, calc(100% - 3px) 100%, 0 100%);
   background: linear-gradient(90deg, #E9820C, var(--run) 40%, #FFB54D); transform: scaleX(0); transform-origin: right; transition: transform 0.22s cubic-bezier(.4,0,1,1); }
-.quiet-line::after { content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 38%; opacity: 0; background: linear-gradient(90deg, rgba(255,255,255,0), rgba(255,246,228,0.95) 70%, rgba(255,255,255,0)); }
-.quiet-btn:hover > .face, .quiet-btn.is-pointed > .face { color: var(--ink); --face-color: var(--wash); }
-.quiet-btn:focus-visible > .face, .quiet-btn.is-focused > .face { color: var(--ink); }
-.quiet-btn:hover .quiet-line, .quiet-btn.is-pointed .quiet-line { transform: scaleX(1); transform-origin: left; transition: transform 0.42s cubic-bezier(.2,.8,.2,1); }
-.quiet-btn:hover .quiet-line::after, .quiet-btn.is-pointed .quiet-line::after { animation: quiet-glint 0.7s cubic-bezier(.3,.6,.3,1) both; }
-@keyframes quiet-glint { 0% { transform: translateX(-100%); opacity: 1; } 75% { opacity: 1; } 100% { transform: translateX(270%); opacity: 0; } }
-.quiet-btn:active > .face, .quiet-btn.is-pressed > .face { color: var(--ink); --face-color: var(--wash-press); transform: translateY(1px); transition-duration: 0.08s; }
+.tertiary-line::after { content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 38%; opacity: 0; background: linear-gradient(90deg, rgba(255,255,255,0), rgba(255,246,228,0.95) 70%, rgba(255,255,255,0)); }
+.tertiary-btn:hover > .face, .tertiary-btn.is-pointed > .face { color: var(--ink); --face-color: var(--wash); }
+.tertiary-btn:focus-visible > .face, .tertiary-btn.is-focused > .face { color: var(--ink); }
+.tertiary-btn:hover .tertiary-line, .tertiary-btn.is-pointed .tertiary-line { transform: scaleX(1); transform-origin: left; transition: transform 0.42s cubic-bezier(.2,.8,.2,1); }
+.tertiary-btn:hover .tertiary-line::after, .tertiary-btn.is-pointed .tertiary-line::after { animation: tertiary-glint 0.7s cubic-bezier(.3,.6,.3,1) both; }
+@keyframes tertiary-glint { 0% { transform: translateX(-100%); opacity: 1; } 75% { opacity: 1; } 100% { transform: translateX(270%); opacity: 0; } }
+.tertiary-btn:active > .face, .tertiary-btn.is-pressed > .face { color: var(--ink); --face-color: var(--wash-press); transition-duration: 0.08s; }
+/* With an arrow: it follows the words and steps on as you point at it, further under a press, in the line's place. As wide as the column, the words in the middle. */
+.tertiary-btn.is-full { display: flex; width: 100%; }
+.tertiary-arrow { display: inline-flex; transition: transform 0.45s cubic-bezier(.2,.7,.2,1); }
+.tertiary-arrow > .ico { width: 8px; height: 12px; stroke-width: 2.4; }
+.tertiary-btn:hover .tertiary-arrow, .tertiary-btn.is-pointed .tertiary-arrow { transform: translateX(4px); }
+.tertiary-btn:active .tertiary-arrow, .tertiary-btn.is-pressed .tertiary-arrow { transform: translateX(7px); transition-duration: 0.12s; }
+.tertiary-btn[aria-busy="true"] .tertiary-arrow { visibility: hidden; }
 /* Keyboard focus: the cut stroke round its slab, as on every other button. */
-.quiet-btn:focus-visible .cut-line polygon, .quiet-btn.is-focused .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
+.tertiary-btn:focus-visible .cut-line polygon, .tertiary-btn.is-focused .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 /* Can't press: its words fade further than at rest, and it answers no pointer. */
-.quiet-btn:disabled:not([aria-busy="true"]) { cursor: default; pointer-events: none; }
-.quiet-btn:disabled:not([aria-busy="true"]) > .face { color: var(--muted); opacity: 0.6; }
+.tertiary-btn:disabled:not([aria-busy="true"]) { cursor: default; pointer-events: none; }
+.tertiary-btn:disabled:not([aria-busy="true"]) > .face { color: var(--muted); opacity: 0.6; }
 /* Waiting: the loader before its words, in the icon's place. */
-.quiet-btn:not([aria-busy="true"]) .loader, .quiet-btn[aria-busy="true"] .quiet-words > .ico { display: none; }
-.quiet-btn[aria-busy="true"] { cursor: progress; }
-@media (prefers-reduced-motion: reduce) { .quiet-btn > .face, .quiet-line { transition: --face-color 0.2s, color 0.2s; } .quiet-line::after { animation: none !important; } }
+.tertiary-btn:not([aria-busy="true"]) .loader, .tertiary-btn[aria-busy="true"] .tertiary-words > .ico { display: none; }
+.tertiary-btn[aria-busy="true"] { cursor: progress; }
+@media (prefers-reduced-motion: reduce) { .tertiary-btn > .face, .tertiary-line, .tertiary-arrow { transition: --face-color 0.2s, color 0.2s; } .tertiary-line::after { animation: none !important; } }
 `,
-  render: quietButton,
+  render: tertiaryButton,
   examples: [
-    ...stateExamples((state) => quietButton("Skip for now", { type: "button", state }), "text"),
-    { label: "Busy", markup: quietButton("Undo", { type: "button", isBusy: true }), isStill: true },
-    { label: "Can't press", markup: quietButton("Undo", { type: "button", isDisabled: true }), isStill: true },
-    { label: "With an icon", markup: quietButton("Show all 1,284 replies", { type: "button", icon: "chevron-down" }) },
-    { label: "Beside a cut button: the way out", markup: html`<div class="control-row">${cutButton("Save", { type: "button" })}${quietButton("Cancel", { type: "button" })}</div>` },
-    { label: "Long words: one line, ending in an ellipsis", markup: html`<div style="${COLUMN}">${quietButton("Skip the tutorial and go straight to the first match", { type: "button" })}</div>` },
+    ...stateExamples((state) => tertiaryButton("Skip for now", { type: "button", state }), "tertiary"),
+    { label: "Busy", markup: tertiaryButton("Undo", { type: "button", isBusy: true }), isStill: true },
+    { label: "Can't press", markup: tertiaryButton("Undo", { type: "button", isDisabled: true }), isStill: true },
+    { label: "With an arrow: a way on, under the ways in", markup: html`<div style="display:grid;gap:var(--gap-control-stack);${COLUMN}">${waysIn()}${tertiaryButton("Continue as guest", { href: "#", hasArrow: true, isFullWidth: true })}</div>` },
+    { label: "With an arrow, busy: the loader before its words", markup: html`<div style="${COLUMN}">${tertiaryButton("Continue as guest", { type: "button", hasArrow: true, isFullWidth: true, isBusy: true })}</div>`, isStill: true },
+    { label: "With an icon", markup: tertiaryButton("Show all 1,284 replies", { type: "button", icon: "chevron-down" }) },
+    { label: "Beside a cut button: the way out", markup: html`<div class="control-row">${cutButton("Save", { type: "button" })}${tertiaryButton("Cancel", { type: "button" })}</div>` },
+    { label: "Long words: one line, ending in an ellipsis", markup: html`<div style="${COLUMN}">${tertiaryButton("Skip the tutorial and go straight to the first match", { type: "button" })}</div>` },
     {
       label: "Only its icon, small: a sheet's Back and Close in its top corners, nothing behind them until pointed at",
-      markup: html`<div style="width:300px">${glassPane({ paneWidth: "full", body: paneParts({ head: { start: quietButton("Back", { type: "button", icon: "chevron-back", isLabelHidden: true, isSmall: true }), words: html`<h2 class="sheet-title">Liam</h2>`, end: quietButton("Close", { type: "button", icon: "close", isLabelHidden: true, isSmall: true }) }, body: html`<p>Profile, Block and Report go here.</p>` }) })}</div>`,
+      markup: html`<div style="width:300px">${glassPane({ paneWidth: "full", body: paneParts({ head: { start: tertiaryButton("Back", { type: "button", icon: "chevron-back", isLabelHidden: true, isSmall: true }), words: html`<h2 class="sheet-title">Liam</h2>`, end: tertiaryButton("Close", { type: "button", icon: "close", isLabelHidden: true, isSmall: true }) }, body: html`<p>Profile, Block and Report go here.</p>` }) })}</div>`,
     },
-    { label: "Only its icon, pointed: its slab, with no orange line under it", markup: quietButton("Close", { type: "button", icon: "close", isLabelHidden: true, isSmall: true, state: "is-pointed" }), isStill: true },
+    { label: "Only its icon, pointed: its slab, with no orange line under it", markup: tertiaryButton("Close", { type: "button", icon: "close", isLabelHidden: true, isSmall: true, state: "is-pointed" }), isStill: true },
   ],
 });
 
@@ -950,7 +830,7 @@ export function deleteButton(label: string, options: DeleteButtonOptions): Contr
     id,
     title: `${label}?`,
     body: html`<p class="sheet-text">${options.confirmText}</p>`,
-    closeButton: quietButton("Close", { type: "submit", formMethod: "dialog", icon: "close", isLabelHidden: true, isSmall: true }),
+    closeButton: tertiaryButton("Close", { type: "submit", formMethod: "dialog", icon: "close", isLabelHidden: true, isSmall: true }),
     buttons: [cutButton("Cancel", { type: "submit", formMethod: "dialog", isAutofocused: true }), controlMarkup(dangerButton(options.confirmLabel, options.isConfirmBusy), "regular")],
     action: options.action,
     isShown: options.isConfirmShown,
