@@ -172,7 +172,7 @@ export function selectField(options: SelectFieldOptions): ControlMarkup {
     kind: `select-list${options.icon ? " after-icon" : ""}`,
     isShownInPlace: isOpen,
     lineFromTop: `${4 + pickedIndex * 38 + 18}px`,
-    body: html`<div class="select-options" id="${id}-choices" role="listbox" aria-labelledby="${id}-label" tabindex="-1" data-own-fade>${options.choices.map(
+    body: html`<div class="select-options" id="${id}-choices" role="listbox" aria-labelledby="${id}-label" tabindex="-1">${options.choices.map(
       (choice, choiceIndex) =>
         html`<div class="select-option${isOpen && choice === picked ? " is-active" : ""}" role="option" id="${id}-option-${choiceIndex}" data-choice-value="${choice.choiceValue}" aria-selected="${choice === picked ? "true" : "false"}" data-cut-line="8">${CUT_LINE}<span>${choice.label}</span><span class="select-tick">${icon("check")}</span></div>`,
     )}</div>`,
@@ -193,12 +193,12 @@ ${options.error ? html`<p class="field-error" id="${id}-error">${options.error}<
 export const SELECT_SCRIPT = `/* select fields */(function () {
   var LEAST_SCROLL_PX = ${LEAST_SCROLL_PX};
   window.zaismaWatch.each("[data-select]", function (root) {
-    var button = root.querySelector(".select-button"), list = root.querySelector(".select-list"), box = list.querySelector('[role="listbox"]'), hidden = root.querySelector('input[type="hidden"]'), field = button.closest(".field"), value = root.querySelector(".select-value");
+    var button = root.querySelector(".select-button"), list = root.querySelector(".select-list"), box = list.querySelector('[role="listbox"]'), scroller = list.querySelector(".floating-body"), hidden = root.querySelector('input[type="hidden"]'), field = button.closest(".field"), value = root.querySelector(".select-value");
     // A list a little taller than its ceiling would scroll by a sliver (and its rail, showing, narrow it): it stops shorter instead, so it
     // scrolls by at least LEAST_SCROLL_PX. Its rail only ever adds to what it scrolls by, so this holds once it's set.
     function keepOffSliver() {
       list.style.maxHeight = "";
-      var extraPx = box.scrollHeight - box.clientHeight;
+      var extraPx = scroller.scrollHeight - scroller.clientHeight;
       if (extraPx > 0 && extraPx < LEAST_SCROLL_PX) list.style.maxHeight = Math.floor(list.getBoundingClientRect().height - (LEAST_SCROLL_PX - extraPx)) + "px";
     }
     if (document.fonts) document.fonts.ready.then(keepOffSliver); else keepOffSliver();
@@ -210,16 +210,16 @@ export const SELECT_SCRIPT = `/* select fields */(function () {
       active = Math.max(0, Math.min(options.length - 1, i));
       options.forEach(function (o, j) { o.classList.toggle("is-active", j === active); });
       box.setAttribute("aria-activedescendant", options[active].id);
-      var o = options[active], top = o.offsetTop; if (top < box.scrollTop) box.scrollTop = top; else if (top + o.offsetHeight > box.scrollTop + box.clientHeight) box.scrollTop = top + o.offsetHeight - box.clientHeight;
+      var o = options[active], top = o.offsetTop; if (top < scroller.scrollTop) scroller.scrollTop = top; else if (top + o.offsetHeight > scroller.scrollTop + scroller.clientHeight) scroller.scrollTop = top + o.offsetHeight - scroller.clientHeight;
     }
     var float = window.zaismaFloat(list, {
       anchor: field, home: root, focusOnClose: button,
       // The pick's middle, by offsets: while it opens out of the field its scale isn't whole yet.
-      lineOf: function () { var row = options[Math.max(0, picked())]; return box.offsetTop + row.offsetTop - box.scrollTop + row.offsetHeight / 2; },
+      lineOf: function () { var row = options[Math.max(0, picked())]; return scroller.offsetTop + row.offsetTop - scroller.scrollTop + row.offsetHeight / 2; },
       onShown: function () {
         keepOffSliver();
         var row = options[Math.max(0, picked())];
-        if (box.scrollHeight > box.clientHeight) box.scrollTop = row.offsetTop - (box.clientHeight - row.offsetHeight) / 2;
+        if (scroller.scrollHeight > scroller.clientHeight) scroller.scrollTop = row.offsetTop - (scroller.clientHeight - row.offsetHeight) / 2;
       },
       onToggle: function (isOpen) {
         button.setAttribute("aria-expanded", String(isOpen)); field.classList.toggle("is-open", isOpen);
@@ -304,13 +304,9 @@ component({
 /* Can't be changed now: flat in the glass, its pick and chevron quieter, and nothing changes as you point at it. */
 .field.select.is-disabled .select-button { --face-color: var(--off-face); color: var(--muted); box-shadow: none; cursor: default; }
 .field.select.is-disabled .select-chev { color: var(--muted); }
-/* The list: a Floating pane over the field, no taller than a menu or half the window. Its choices sit close to its edge, inset like a
+/* The list: a Floating pane over the field, scrolling in its body past a menu's height. Its choices sit close to its edge, inset like a
    well's slabs, so their words start where the field's do. */
-.floating-pane.select-list { max-height: min(var(--size-menu-height), 50vh); }
-.floating-pane.select-list.in-place { max-height: none; }
-/* It scrolls with no fade, so the slab always shows in full: its rail and a choice cut at its edge say there's more. */
-.select-options { flex: 0 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; outline: none; }
-.select-options.own-scroll.shows-rail { padding-right: 18px; }
+.select-options { display: flex; flex-direction: column; gap: 2px; outline: none; }
 .select-option { position: relative; display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 8px calc(var(--pad-inside-words) - 4px) 11px; cursor: pointer; flex: none;
   font: var(--type-words); color: var(--ink-2); text-wrap: pretty; --face-color: transparent; background: var(--face-color); clip-path: var(--cut-shape); transition: --face-color 0.15s, color 0.15s; }
 /* Beside an icon, the field's words start after it, and so do its choices'. */

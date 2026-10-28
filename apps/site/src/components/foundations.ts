@@ -58,7 +58,9 @@ export function glassPane(options: GlassPaneOptions): Raw {
 export interface FloatingPaneOptions {
   /** Unique on the page: what opens it names it (aria-controls). */
   id: string;
-  /** What's in it. */
+  /** What stays at its top as its body scrolls (a menu's head: whose account, whether you're online). */
+  head?: Raw;
+  /** What's in it: past the pane's height (a menu's, or the room in the window), it scrolls inside it, with the rail and fades. */
   body: Raw;
   /**
    * Where it hangs from what opens it (its anchor): "under" it, or above it where there's no room below (a search's list, a menu), or "over"
@@ -78,13 +80,14 @@ export interface FloatingPaneOptions {
 /**
  * A floating pane: a pane of the menus' glass that hangs from what opens it, under it or over it, over everything on the page, casting a
  * shadow onto it. FLOATING (PLACE_SCRIPT's zaismaFloat) does all its floating: lifting it out to the page, its light or dark and hue, where it
- * goes and keeping it in the window, riding the page as it scrolls, closing on Esc or a press elsewhere, and its shadow.
+ * goes and keeping it in the window, riding the page as it scrolls, closing on Esc, a press elsewhere or a scroll away, and its shadow. It's
+ * no taller than a menu or the room in the window, and its body scrolls inside it past that, with the rail and scroll fades.
  */
 export function floatingPane(options: FloatingPaneOptions): Raw {
   const className = ["floating-pane", options.placement, options.kind ?? "", "glass", options.isShownInPlace ? "in-place" : ""].filter(Boolean).join(" ");
   return html`<div class="${className}" id="${options.id}"${options.role ? html` role="${options.role}"` : ""}${options.label ? html` aria-label="${options.label}"` : ""} data-glass data-glass-corners="menu"${
     options.isShownInPlace ? (options.lineFromTop ? html` style="--line-from-top: ${options.lineFromTop}"` : "") : raw(' popover="manual"')
-  }>${EDGE}${options.body}</div>`;
+  }>${EDGE}${options.head ? html`<div class="floating-head">${options.head}</div>` : ""}<div class="floating-body">${options.body}</div></div>`;
 }
 
 export interface WellOptions {

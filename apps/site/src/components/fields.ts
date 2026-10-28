@@ -435,7 +435,7 @@ export const FIELD_SCRIPT = `/* fields */(function () {
 export const SEARCH_SCRIPT = `/* search finishes */(function () {
   var WAIT_MS = 120;
   window.zaismaWatch.each("form.find[data-suggest]", function (form) {
-    var input = form.querySelector('input[type="search"]'), list = form.querySelector(".find-list"), box = list.querySelector('[role="listbox"]');
+    var input = form.querySelector('input[type="search"]'), list = form.querySelector(".find-list"), box = list.querySelector('[role="listbox"]'), scroller = list.querySelector(".floating-body");
     var ghost = form.querySelector(".find-finish"), typedPart = ghost.firstElementChild, restPart = ghost.lastElementChild, iconTemplate = form.querySelector("template.find-icon");
     var id = list.id.replace(/-list$/, ""), url = form.getAttribute("data-suggest"), rows = [], active = -1, timer = 0, asking = null, answers = new Map();
     // A Floating pane under the field, as wide as it; the cursor stays in the field, so Esc there closes it (below).
@@ -453,7 +453,7 @@ export const SEARCH_SCRIPT = `/* search finishes */(function () {
     function setActive(index) {
       active = index;
       rows.forEach(function (row, rowIndex) { row.classList.toggle("is-active", rowIndex === index); });
-      if (index >= 0) { input.setAttribute("aria-activedescendant", rows[index].id); var row = rows[index]; if (row.offsetTop < box.scrollTop) box.scrollTop = row.offsetTop; else if (row.offsetTop + row.offsetHeight > box.scrollTop + box.clientHeight) box.scrollTop = row.offsetTop + row.offsetHeight - box.clientHeight; }
+      if (index >= 0) { input.setAttribute("aria-activedescendant", rows[index].id); var row = rows[index]; if (row.offsetTop < scroller.scrollTop) scroller.scrollTop = row.offsetTop; else if (row.offsetTop + row.offsetHeight > scroller.scrollTop + scroller.clientHeight) scroller.scrollTop = row.offsetTop + row.offsetHeight - scroller.clientHeight; }
       else input.removeAttribute("aria-activedescendant");
       showFinish();
     }
