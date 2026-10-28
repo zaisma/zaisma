@@ -451,6 +451,8 @@ Every component, with the call that makes it and its options, is in the catalog 
   - `options`: `paneWidth: "full" | "fit"`, `body: Raw`, `label?: string`, `isStartedLow?: boolean`
 - **Tray** (`tray(options: { … })`, `foundations.ts`): A thinner, clearer sheet a pane extends into, holding everything that belongs to it: the pane's words on top, what they're about on the tray beneath, read as one. Every gallery section is one.
   - `options`: `head: Raw`, `body: Raw`, `label?: string`, `paneWidth?: "full" | "fit"`
+- **Groove** (`groove(options?: GrooveOptions)`, `foundations.ts`): A channel carved into the glass that fills with orange light from its start: how far along something is. A Slider's line and a Progress's track are one; with no end known yet, a light runs along it.
+  - `options`: `filledFraction?: number`, `kind?: string`
 - **Edge light**: The light a well or pane catches on its edge as you point at what's in it: the whole edge wakes, and beside the part you point at the edge brightens and floods up into the glass, gliding along as you move. A switch's tabs and places use it; it's never a slab or a line laid in the glass.
 - **Well** (`well(options: WellOptions)`, `foundations.ts`): A box carved into a pane's glass that holds things and is never a control itself: code to copy, a link, a line of words, a list of choices. One gallery control can sit at its end, as Copy does; what's longer than it can show scrolls inside it. A field or a carved button is carved too, but it's what you use, so it isn't a well. For glass that holds a task, use a Glass pane; for something to type in, a Cut field.
   - `options`: `body: Raw`, `end?: ControlMarkup`, `endNote?: Raw`, `kind?: string`, `state?: "is-focused"`, `scrollDirection?: "down" | "across"`, `cornerCutPx?: number`, `edgeLight?: "left" | "bottom"`
@@ -508,7 +510,7 @@ Every component, with the call that makes it and its options, is in the catalog 
   - `options`: `rows: ListRow[]`, `whenEmpty: Raw`, `id?: string`, `label?: string`, `shownRowCount?: number`, `isCompact?: boolean`
 - **Table** (`table(options: TableOptions)`, `data.ts`): Rows to compare: versions, requests, players, logs. Its header stays as the rows scroll under it, numbers line up on the right, and on a phone it scrolls sideways rather than folding rows into cards.
   - `options`: `caption: string`, `columns: TableColumn[]`, `rows: (Raw | string)[][]`, `hasRowHeads?: boolean`, `isCompact?: boolean`, `shownRowCount?: number`, `rowsPlaceholder?: Raw`, `whenEmpty: Raw`, `id?: string`
-- **Progress** (`progress(options: ProgressOptions)`, `reading.ts`): A task on its way that takes a while, like an upload or a scan: a carved track filling in ink as it goes, and how much is done in words. With no end known yet, a light runs along it.
+- **Progress** (`progress(options: ProgressOptions)`, `reading.ts`): A task on its way that takes a while, like an upload or a scan: a Groove filling with orange light as it goes, and how much is done in words. With no end known yet, a light runs along it.
   - `options`: `label: string`, `doneNumber?: number`, `totalNumber?: number`, `unit?: string`
 - **Numbers** (`numbers(options: { … })`, `data.ts`): A row of figures to take in at a glance: players, hours, plays. Each figure is big, its label sits under it, and how it moved is green when it's good news.
   - `options`: `items: NumberItem[]`

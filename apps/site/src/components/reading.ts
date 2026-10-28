@@ -1,7 +1,7 @@
 import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
 import { secondaryButton, textLink } from "./actions.ts";
-import { glassPane, icon, tag } from "./foundations.ts";
+import { glassPane, groove, icon, tag } from "./foundations.ts";
 import type { IconName } from "./icons.ts";
 import { row, stack } from "./layout.ts";
 
@@ -154,12 +154,12 @@ export interface ProgressOptions {
   unit?: string;
 }
 
-/** Progress: a task on its way that takes a while (an upload, a scan): a carved track filling in ink as it goes, and how much is done in words. With no end known yet, a light runs along it. */
+/** Progress: a task on its way that takes a while (an upload, a scan): a Groove filling with orange light as it goes, and how much is done in words. With no end known yet, a light runs along it. */
 export function progress(options: ProgressOptions): Raw {
   const isKnown = options.doneNumber !== undefined && options.totalNumber !== undefined && options.totalNumber > 0;
   const donePct = isKnown ? Math.max(0, Math.min(100, (options.doneNumber! / options.totalNumber!) * 100)) : 0;
   const amount = isKnown ? `${options.doneNumber!.toLocaleString("en-US")} of ${options.totalNumber!.toLocaleString("en-US")}${options.unit ? ` ${options.unit}` : ""}` : "";
-  return html`<div class="progress${isKnown ? "" : " is-unknown"}" role="progressbar" aria-label="${options.label}"${isKnown ? html` aria-valuemin="0" aria-valuemax="100" aria-valuenow="${String(Math.round(donePct))}" aria-valuetext="${amount}"` : ""}><div class="progress-words"><span>${options.label}</span>${amount ? html`<span class="progress-amount">${amount}</span>` : ""}</div><div class="progress-track" data-cut-line="0"><span class="progress-fill" style="--done-pct:${donePct.toFixed(1)}%"></span></div></div>`;
+  return html`<div class="progress${isKnown ? "" : " is-unknown"}" role="progressbar" aria-label="${options.label}"${isKnown ? html` aria-valuemin="0" aria-valuemax="100" aria-valuenow="${String(Math.round(donePct))}" aria-valuetext="${amount}"` : ""}><div class="progress-words"><span>${options.label}</span>${amount ? html`<span class="progress-amount">${amount}</span>` : ""}</div>${groove({ kind: "progress-groove", filledFraction: isKnown ? donePct / 100 : undefined })}</div>`;
 }
 
 component({
@@ -385,17 +385,12 @@ component({
   slug: "progress",
   group: "data",
   subgroup: "numbers",
-  summary: "A task on its way that takes a while, like an upload or a scan: a carved track filling in ink as it goes, and how much is done in words. With no end known yet, a light runs along it.",
+  summary: "A task on its way that takes a while, like an upload or a scan: a Groove filling with orange light as it goes, and how much is done in words. With no end known yet, a light runs along it.",
   styles: `
-/* Progress: its words over a carved track that fills in ink; with no end known, a light runs along the track instead. */
+/* Progress: its words over a Groove that fills with orange light; with no end known, a light runs along it instead. */
 .progress { display: grid; gap: var(--gap-words-control); min-width: 0; }
 .progress-words { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0 var(--gap-words-control); padding-inline: var(--pad-words); font: var(--type-words); color: var(--ink); }
 .progress-amount { color: var(--ink-2); font-variant-numeric: tabular-nums; }
-.progress-track { position: relative; height: 16px; overflow: hidden; background: var(--well); box-shadow: var(--well-shade); clip-path: var(--cut-shape); }
-.progress-fill { position: absolute; inset: 0 auto 0 0; width: var(--done-pct); background: var(--meter-fill); transition: width 0.3s ease; }
-.progress.is-unknown .progress-fill { width: 30%; background: linear-gradient(90deg, transparent, var(--meter-fill), transparent); animation: progress-run 1.4s ease-in-out infinite; }
-@keyframes progress-run { from { transform: translateX(-100%); } to { transform: translateX(340%); } }
-@media (prefers-reduced-motion: reduce) { .progress-fill { transition: none; } .progress.is-unknown .progress-fill { animation: none; width: 100%; opacity: 0.5; } }
 `,
   render: progress,
   examples: [

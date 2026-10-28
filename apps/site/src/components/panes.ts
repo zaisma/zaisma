@@ -1,7 +1,7 @@
 import { SIZED_IMAGE_WIDTHS_PX } from "@zaisma/core";
 import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
-import { CUT_LINE, EDGE, ago, floatingPane, glassPane, icon, sheetMarkup, tag, tray, well, type IconName } from "./foundations.ts";
+import { CUT_LINE, EDGE, ago, floatingPane, glassPane, groove, icon, sheetMarkup, tag, tray, well, type IconName } from "./foundations.ts";
 import { emptyState, glanceFacts, listRows, pictureFrame, pictureRow, type GlanceFacts } from "./data.ts";
 import { cardRow, secondaryButton, tertiaryButton, primaryButton, textLink, toggleButton } from "./actions.ts";
 import { REPORT_REASONS, STAND_IN_QR_CODE, choiceCards, copyField, cutField, longField, qrCode, tabSwitch, wheelField } from "./inputs.ts";
@@ -607,6 +607,35 @@ component({
       isWide: true,
       markup: tray({ paneWidth: "full", head: html`<h3 class="tray-sample-title">Continue playing</h3>`, body: grid({ whenEmpty: html`<p>No games here yet.</p>`, itemSize: "cover", items: ["ashen-crown", "neon-drift", "hollow-tide"].map((slug) => ({ kind: "block", markup: STAND_IN_COVERS[slug]! })) }) }),
     },
+  ],
+});
+
+component({
+  name: "Groove",
+  slug: "groove",
+  group: "panes",
+  subgroup: "glass",
+  summary: "A channel carved into the glass that fills with orange light from its start: how far along something is. A Slider's line and a Progress's track are one; with no end known yet, a light runs along it.",
+  styles: `
+/* A groove: carved into the glass and read by its edges alone, like every carving, but deep: a shade under its upper edge and a crisp line
+   of light along its lower lip, where the light from above lands (--groove-shade, --groove-lip); its face is the toggle slot's when off,
+   never brighter. It's cut by the edge rule. What's filled is orange light lying in it a pixel in from its lips, cut by the edge rule too,
+   its holder casting its glow past the lips. With no end known, a short light runs along it, inside it. */
+.groove { position: relative; display: block; height: 8px; }
+.groove::before { content: ""; position: absolute; inset: 0; background: var(--toggle-off); box-shadow: inset 0 3px 3px var(--groove-shade), inset 0 -1.5px 0 var(--groove-lip); clip-path: var(--cut-shape); }
+.groove-fill { position: absolute; z-index: 2; top: 1px; bottom: 1px; left: 0; width: var(--groove-filled-length, calc(var(--groove-filled, 0) * 100%)); filter: drop-shadow(0 0 3px var(--run)); transition: width 0.3s ease; }
+.groove-light { position: absolute; inset: 0; background: linear-gradient(180deg, var(--run-hi), var(--run)); clip-path: var(--cut-shape); }
+.groove.is-running { clip-path: var(--cut-shape); }
+.groove.is-running .groove-fill { width: 30%; animation: groove-run 1.4s ease-in-out infinite; }
+@keyframes groove-run { from { transform: translateX(-100%); } to { transform: translateX(340%); } }
+@media (prefers-reduced-motion: reduce) { .groove-fill { transition: none; } .groove.is-running .groove-fill { animation: none; width: 100%; opacity: 0.5; } }
+`,
+  render: groove,
+  examples: [
+    { label: "Empty", markup: examplePane(groove({ filledFraction: 0 })) },
+    { label: "Part filled", markup: examplePane(groove({ filledFraction: 0.44 })) },
+    { label: "Full", markup: examplePane(groove({ filledFraction: 1 })) },
+    { label: "No end known yet: a light runs along it", markup: examplePane(groove()) },
   ],
 });
 

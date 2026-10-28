@@ -1,6 +1,6 @@
 import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
-import { CUT_LINE, floatingPane, glassPane, icon, well } from "./foundations.ts";
+import { CUT_LINE, floatingPane, glassPane, groove, icon, well } from "./foundations.ts";
 import { cutField } from "./fields.ts";
 import { tabSwitch } from "./switch.ts";
 import { progress } from "./reading.ts";
@@ -42,7 +42,7 @@ export function slider(options: SliderOptions): Raw {
   const id = options.id ?? `slider-${options.name}`;
   const filledPct = (100 * (options.pickedNumber - options.minimumNumber)) / Math.max(1e-9, options.maximumNumber - options.minimumNumber);
   const className = ["slider", options.state ?? "", options.isDisabled ? "is-disabled" : ""].filter(Boolean).join(" ");
-  return html`<div class="${className}" style="--fill:${(Math.max(0, Math.min(100, filledPct)) / 100).toFixed(4)}"><div class="slider-head"><label for="${id}">${options.label}</label><output for="${id}" data-unit="${options.unit}">${numberWords(options.pickedNumber, options.unit)}</output></div><div class="slider-track"><span class="slider-line" aria-hidden="true" data-cut-line="3">${CUT_LINE}</span><span class="slider-fill" aria-hidden="true"><span class="slider-light" data-cut-line="3">${CUT_LINE}</span></span><input class="slider-input" type="range" id="${id}" name="${options.name}" min="${options.minimumNumber}" max="${options.maximumNumber}" step="${options.stepNumber}" value="${options.pickedNumber}"${options.isDisabled ? raw(" disabled") : ""} data-slider><span class="slider-thumb" aria-hidden="true"><span class="slider-slab cut-raised" data-cut-line="6">${CUT_LINE}</span></span></div></div>`;
+  return html`<div class="${className}" style="--fill:${(Math.max(0, Math.min(100, filledPct)) / 100).toFixed(4)}"><div class="slider-head"><label for="${id}">${options.label}</label><output for="${id}" data-unit="${options.unit}">${numberWords(options.pickedNumber, options.unit)}</output></div><div class="slider-track">${groove({ kind: "slider-groove", filledFraction: Math.max(0, Math.min(100, filledPct)) / 100 })}<input class="slider-input" type="range" id="${id}" name="${options.name}" min="${options.minimumNumber}" max="${options.maximumNumber}" step="${options.stepNumber}" value="${options.pickedNumber}"${options.isDisabled ? raw(" disabled") : ""} data-slider><span class="slider-thumb" aria-hidden="true"><span class="slider-slab cut-raised" data-cut-line="6">${CUT_LINE}</span></span></div></div>`;
 }
 
 /** A slider's fill and number follow its thumb. */
@@ -75,17 +75,11 @@ component({
 .slider-head > output { padding-inline-end: var(--pad-words); font: var(--type-label); color: var(--ink); white-space: nowrap; font-variant-numeric: tabular-nums; }
 /* It fills a pane's width; in a pane that fits what's in it, its track is a card's width (--size-card), or what room there is. */
 .slider-track { position: relative; height: var(--thumb); width: var(--size-card); min-width: 100%; max-width: 100%; }
-/* The line is a groove carved into the glass, 8px wide so its two edges read apart: deep shade under its near, upper edge and a crisp line of
-   light along its far, lower lip, where the light from above lands (--groove-shade, --groove-lip). Its face stays the toggle slot's when
-   off: a carving reads by its edges, never by a brighter face. What's filled is orange light running inside it, glowing faintly past its lips. */
-.slider-line, .slider-fill { position: absolute; pointer-events: none; left: calc(var(--thumb) / 2 - 4px); }
-.slider-line { top: calc(50% - 4px); height: 8px; right: calc(var(--thumb) / 2 - 4px); background: var(--toggle-off);
-  box-shadow: inset 0 3px 3px var(--groove-shade), inset 0 -1.5px 0 var(--groove-lip); clip-path: var(--cut-shape); }
-/* The light lies in the groove a pixel in from its lips, from its very start to under the thumb's middle; the groove and the light are both
-   cut by the edge rule, so where the groove's end meets the pane's cut corner, both are cut there. Its holder casts its glow, which follows
-   the light's cut and spills past the lips. */
-.slider-fill { top: calc(50% - 3px); height: 6px; width: calc(4px + (100% - var(--thumb)) * var(--fill)); filter: drop-shadow(0 0 3px var(--run)); }
-.slider-light { position: absolute; inset: 0; background: linear-gradient(180deg, var(--run-hi), var(--run)); clip-path: var(--cut-shape); }
+/* Its line is a Groove, from under the thumb's middle at one end to under it at the other, filled with orange light to the thumb's middle,
+   following it as it's dragged (with no lag). */
+.slider-track > .slider-groove { position: absolute; top: calc(50% - 4px); left: calc(var(--thumb) / 2 - 4px); right: calc(var(--thumb) / 2 - 4px); pointer-events: none;
+  --groove-filled-length: calc(4px + (100% - 8px) * var(--fill)); }
+.slider-groove .groove-fill { transition: none; }
 .slider-input { position: absolute; inset: 0; z-index: 3; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; -webkit-appearance: none; appearance: none; }
 /* On a phone the track takes a whole control's height (--control-height-regular) to touch, centered on it. */
 @media (pointer: coarse) { .slider-input { inset: min(0px, calc(50% - var(--touch-target) / 2)) 0; height: auto; } }
@@ -105,9 +99,9 @@ component({
 /* Can't be changed now: the thumb rests flat, the number goes quieter, and no orange, since there's nothing to do: the fill is grey. */
 .slider.is-disabled .slider-input { cursor: default; }
 .slider.is-disabled .slider-head > output { color: var(--muted); }
-.slider.is-disabled .slider-fill { filter: none; }
-.slider.is-disabled .slider-light { background: var(--muted); }
-.slider.is-disabled .slider-line { background: var(--off-face); box-shadow: none; }
+.slider.is-disabled .groove-fill { filter: none; }
+.slider.is-disabled .groove-light { background: var(--muted); }
+.slider.is-disabled .groove::before { background: var(--off-face); box-shadow: none; }
 /* Its thumb stays the slab it always is, as a toggle's does: the grey line and quiet number say it can't be moved. */
 .slider.is-disabled .slider-slab > .cut-line polygon { stroke: var(--line); }
 .slider-input:focus-visible + .slider-thumb > .slider-slab > .cut-line polygon, .slider.is-focused .slider-slab > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
@@ -174,7 +168,7 @@ const fileRow = (file: FileDropFile, dropId: string): Raw => {
   const about = isUploading
     ? progress({ label: file.fileName, doneNumber: rounded(file.uploadedByteCount ?? 0), totalNumber: rounded(file.byteCount), unit })
     : html`<span class="file-drop-top"><span class="file-drop-name">${file.fileName}</span><span class="file-drop-size">${byteWords(file.byteCount)}${isSent ? " · Sent" : ""}</span></span>`;
-  return html`<li class="file-drop-row cut-carved" data-cut-line="8">${CUT_LINE}<button type="button" class="file-drop-preview" data-cut-line="4" aria-controls="${dropId}-view" aria-label="View ${file.fileName}"${file.previewUrl ? html` style="background-image:url('${file.previewUrl}')" data-picture="${file.previewUrl}"` : raw(" disabled")}>${CUT_LINE}${file.previewUrl ? "" : icon("save")}</button><span class="file-drop-about">${about}</span><span class="file-drop-remove">${tertiaryButton(`Remove ${file.fileName}`, { type: "button", icon: "close", isLabelHidden: true, isSmall: true })}</span></li>`;
+  return html`<li class="file-drop-row cut-carved" data-cut-line="8">${CUT_LINE}<button type="button" class="file-drop-preview" data-cut-line="4" aria-controls="${dropId}-view" aria-label="View ${file.fileName}"${file.previewUrl ? html` style="background-image:url('${file.previewUrl}')" data-picture="${file.previewUrl}"` : raw(" disabled")}>${CUT_LINE}${file.previewUrl ? html`<span class="file-drop-zoom">${icon("search")}</span>` : icon("save")}</button><span class="file-drop-about">${about}</span><span class="file-drop-remove">${tertiaryButton(`Remove ${file.fileName}`, { type: "button", icon: "close", isLabelHidden: true, isSmall: true })}</span></li>`;
 };
 
 /**
@@ -187,7 +181,7 @@ export function fileDrop(options: FileDropOptions): Raw {
   const id = options.id ?? `drop-${options.name}`;
   const files = options.pickedFiles ?? [];
   const className = ["file-drop", "cut-carved", options.state === "over" ? "is-over" : "", options.error ? "is-marked" : "", options.isDisabled ? "is-disabled" : ""].filter(Boolean).join(" ");
-  return html`<div class="file-drop-wrap" data-file-drop${options.maximumByteCount ? html` data-most-bytes="${options.maximumByteCount}"` : ""}><div class="${className}" data-cut-line="10">${CUT_LINE}<input class="file-drop-input" type="file" id="${id}" name="${options.name}" accept="${options.accept}"${options.isMultiple ? raw(" multiple") : ""} aria-describedby="${id}-hint${options.error ? ` ${id}-error` : ""}"${options.error ? raw(' aria-invalid="true"') : ""}${options.isDisabled ? raw(" disabled") : ""}>${icon("upload")}<span class="file-drop-words"><label for="${id}">${options.label}</label><span id="${id}-hint">${options.hint}</span></span></div><p class="field-error" id="${id}-error"${options.error ? "" : raw(" hidden")}>${options.error ?? ""}</p><ul class="file-drop-list" aria-live="polite"${files.length ? "" : raw(" hidden")}>${files.map((file) => fileRow(file, id))}</ul><template class="file-drop-row-template">${fileRow({ fileName: "", byteCount: 0 }, id)}</template>${lightBox({ id: `${id}-view`, label: "A picked picture, large", closeLabel: "Close", body: html`<img class="file-drop-view" alt="">` })}</div>`;
+  return html`<div class="file-drop-wrap" data-file-drop${options.maximumByteCount ? html` data-most-bytes="${options.maximumByteCount}"` : ""}><div class="${className}" data-cut-line="10">${CUT_LINE}<input class="file-drop-input" type="file" id="${id}" name="${options.name}" accept="${options.accept}"${options.isMultiple ? raw(" multiple") : ""} aria-describedby="${id}-hint${options.error ? ` ${id}-error` : ""}"${options.error ? raw(' aria-invalid="true"') : ""}${options.isDisabled ? raw(" disabled") : ""}>${icon("upload")}<span class="file-drop-words"><label for="${id}">${options.label}</label><span id="${id}-hint">${options.hint}</span></span></div><p class="field-error" id="${id}-error"${options.error ? "" : raw(" hidden")}>${options.error ?? ""}</p><ul class="file-drop-list" aria-live="polite"${files.length ? "" : raw(" hidden")}>${files.map((file) => fileRow(file, id))}</ul><template class="file-drop-zoom-template"><span class="file-drop-zoom">${icon("search")}</span></template><template class="file-drop-row-template">${fileRow({ fileName: "", byteCount: 0 }, id)}</template>${lightBox({ id: `${id}-view`, label: "A picked picture, large", closeLabel: "Close", body: html`<img class="file-drop-view" alt="">` })}</div>`;
 }
 
 /**
@@ -233,13 +227,13 @@ export const FILE_DROP_SCRIPT = `/* file drops */(function () {
       show(picked);
     });
     // Each picked file is a row from the drop's own template: its picture when it's an image, its name and size, and Remove.
-    var template = root.querySelector(".file-drop-row-template"), shown = [];
+    var template = root.querySelector(".file-drop-row-template"), shown = [], zoom = root.querySelector(".file-drop-zoom-template").innerHTML;
     function show(picked) {
       shown.forEach(function (each) { if (each.url) URL.revokeObjectURL(each.url); });
       list.textContent = ""; shown = [];
       picked.forEach(function (file) {
         var row = template.content.firstElementChild.cloneNode(true), preview = row.querySelector(".file-drop-preview"), url = (file.type || "").indexOf("image/") === 0 ? URL.createObjectURL(file) : "";
-        if (url) { preview.style.backgroundImage = "url(" + JSON.stringify(url) + ")"; preview.setAttribute("data-picture", url); preview.disabled = false; var mark = preview.querySelector(".ico"); if (mark) mark.remove(); }
+        if (url) { preview.style.backgroundImage = "url(" + JSON.stringify(url) + ")"; preview.setAttribute("data-picture", url); preview.disabled = false; preview.querySelector(".ico").outerHTML = zoom; }
         preview.setAttribute("aria-label", "View " + file.name);
         row.querySelector(".file-drop-name").textContent = file.name; row.querySelector(".file-drop-size").textContent = sizeWords(file.size);
         var remove = row.querySelector(".file-drop-remove button"); remove.setAttribute("aria-label", "Remove " + file.name);
@@ -313,6 +307,11 @@ component({
 .file-drop-row { position: relative; display: flex; align-items: center; gap: var(--gap-words-control); padding: var(--gap-control-row); --face-color: var(--well); background: var(--face-color); clip-path: var(--cut-shape); --pad-words: 0px; }
 .file-drop-preview { position: relative; flex: none; display: grid; place-items: center; width: 64px; aspect-ratio: 16 / 9; padding: 0; border: 0; color: var(--muted); background: var(--field-face) center / cover no-repeat; clip-path: var(--cut-shape); cursor: zoom-in; }
 .file-drop-preview:disabled { cursor: default; }
+/* A picture opens large: the pointer is the zoom-in magnifier over all of it, and a magnifier lights on it while it's pointed at or focused. */
+.file-drop-preview:not(:disabled) * { cursor: zoom-in; }
+.file-drop-zoom { display: grid; place-items: center; color: #fff; opacity: 0; filter: drop-shadow(0 1px 2px rgba(0,0,0,0.6)); transition: opacity 0.2s; pointer-events: none; }
+.file-drop-zoom > .ico { width: 18px; height: 18px; stroke-width: 2.4; }
+.file-drop-preview:hover .file-drop-zoom, .file-drop-preview:focus-visible .file-drop-zoom { opacity: 1; }
 .file-drop-preview:focus-visible { outline: none; }
 .file-drop-preview:focus-visible > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 /* Large: the picture at its own size, every pixel of it, made smaller only where the screen is smaller, and never cut at its corners. */
@@ -700,8 +699,8 @@ component({
 /* The picked color is carved into the pane, the color lying in it as light inside the glass, its edges lit and shaded like every carving. */
 .color-swatch { position: relative; display: block; flex: 1; min-height: 32px; background: var(--color-picked); clip-path: var(--cut-shape); }
 /* Its brightness: the slider's groove runs from black to the full color, with no orange in it. */
-.color-side .slider-line { background: linear-gradient(90deg, #000, var(--color-full, #fff)); }
-.color-side .slider-fill { display: none; }
+.color-side .groove::before { background: linear-gradient(90deg, #000, var(--color-full, #fff)); }
+.color-side .groove-fill { display: none; }
 @media (prefers-reduced-motion: reduce) { .color-knob, .color-knob-slab::after { transition: none; } }
 `,
   render: colorField,
