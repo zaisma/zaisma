@@ -296,8 +296,8 @@ component({
   summary: "One of many, from a list: a region, a language, a category. It opens a list of Zaisma's glass over the field, the pick where the field was, on every device. For one of a few, use Choice cards or a Switch.",
   styles: `
 /* A select field: the cut field holding a button with the picked choice, at 16px on every screen (a pick needs no typing room); the birthday field's chevron sits at its end and turns as it opens.
-   Its list is a pane of the menus' glass opening over the field, as wide as it, the picked choice where the field was: the choice under the pointer or the arrow keys is
-   carved into its glass, with no line (one under it would read as one over the next), and the picked one has a tick at its end. */
+   Its list is a pane of the menus' glass opening over the field, as wide as it, the picked choice where the field was: the choice under the pointer or the arrow keys
+   catches the light, with no line (one under it would read as one over the next), and the picked one has a tick at its end. */
 .select-button { position: relative; z-index: 2; flex: 1; min-width: 0; width: 100%; height: 100%; padding: 0 calc(var(--pad-inside-words) + 24px) 0 calc(var(--pad-inside-words) + 34px); border: 0; border-radius: 0; cursor: pointer; text-align: left;
   font: 500 1rem var(--display); color: var(--ink);
   --face-color: var(--field-face); background: var(--face-color); box-shadow: var(--field-shade); clip-path: var(--cut-shape); transition: --face-color 0.25s; }
@@ -346,9 +346,12 @@ component({
 @media (pointer: coarse) { .select-option, .select-list.over-field .select-option { min-height: var(--control-height-regular); } }
 .select-option > :not(.cut-line) { position: relative; z-index: 2; }
 .select-option > span { flex: 1; }
-/* The row under the pointer or the arrow keys is carved into the list's glass, lit and shaded at its edges like every carving. */
-.select-option.is-active { color: var(--ink); background: var(--well); box-shadow: var(--well-shade), var(--well-shade); }
-.select-option.is-active > .cut-line { --band-top: var(--carve-top); --band-left: var(--carve-left); --band-right: var(--carve-right); --band-bottom: var(--carve-bottom); }
+/* The row under the pointer or the arrow keys catches the light: its glass clears, as a pointed field's does, and its cut edge is lit
+   above and shaded below. Nothing moves until it's pressed: then it carves into the list's glass, like every press. */
+.select-option.is-active { color: var(--ink); --face-color: var(--field-hover); }
+.select-option.is-active > .cut-line { --band-top: var(--raise-top); --band-left: var(--raise-left); --band-right: var(--raise-right); --band-bottom: var(--raise-bottom); }
+.select-option:active { --face-color: var(--well); box-shadow: var(--press-shade); transition-duration: 0.08s; }
+.select-option:active > .cut-line { --band-top: var(--carve-top); --band-left: var(--carve-left); --band-right: var(--carve-right); --band-bottom: var(--carve-bottom); }
 /* The pick: its words in full ink and a tick at its end, so it shows wherever the slab is. */
 .select-option[aria-selected="true"] { color: var(--ink); }
 .select-option > .select-tick { flex: none; display: inline-flex; visibility: hidden; color: var(--ink); }
