@@ -1141,7 +1141,7 @@ if (deviceNotes.length) {
 // The ⋯ menu is a dropdown, which opens and closes itself; closed, the game gets the keys back.
 const menuButton = document.getElementById("menu");
 // A tap into the game never reaches this page: the page losing focus closes an open menu instead.
-window.addEventListener("blur", () => document.querySelectorAll('.dropdown[role="menu"]:not(.shut)').forEach((menu) => { const opener = document.querySelector('[aria-controls="' + menu.id + '"][aria-expanded="true"]'); if (opener) opener.click(); }));
+window.addEventListener("blur", () => document.querySelectorAll('.dropdown[role="menu"]:popover-open').forEach((menu) => { const opener = document.querySelector('[aria-controls="' + menu.id + '"][aria-expanded="true"]'); if (opener) opener.click(); }));
 menuButton.addEventListener("click", () => setTimeout(() => { if (frame && menuButton.getAttribute("aria-expanded") === "false" && !document.querySelector("dialog.sheet[open]")) frame.focus(); }));
 // The room control: the room's code while the game is in a room (zaisma:room, then zaisma:players says
 // whether it takes others), Join otherwise; its sheet has the code with Copy, and Join by code. In streamer mode (an

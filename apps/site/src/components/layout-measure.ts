@@ -138,7 +138,7 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
       }
       return { left: 0, top: 0, right: innerWidth, bottom: innerHeight };
     }
-    var overPanes = Array.prototype.filter.call(document.querySelectorAll(".dropdown:not(.shut), dialog.sheet[open], .sheet.in-place, :popover-open, .notice, .playing-card"), function (pane) { return isShown(pane); });
+    var overPanes = Array.prototype.filter.call(document.querySelectorAll(".floating-pane.in-place, dialog.sheet[open], .sheet.in-place, :popover-open, .notice, .playing-card"), function (pane) { return isShown(pane); });
     overPanes.forEach(function (pane) {
       var r = pane.getBoundingClientRect(), kind = paneKind(pane), isInPlace = pane.matches(".in-place");
       if (kind && r.width > kind.widthPx + TOLERANCE_PX) report("a pane wider than its kind allows", pane, round(r.width) + "px wide, " + kind.name + " at most " + round(kind.widthPx) + "px");

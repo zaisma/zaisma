@@ -55,6 +55,38 @@ export function glassPane(options: GlassPaneOptions): Raw {
   return html`<section class="glass glass-pane ${options.paneWidth}${options.isStartedLow ? " is-started-low" : ""}" data-glass data-glass-corners="pane"${options.label ? html` aria-label="${options.label}"` : ""}>${EDGE}<div class="pane-in">${options.body}</div></section>`;
 }
 
+export interface FloatingPaneOptions {
+  /** Unique on the page: what opens it names it (aria-controls). */
+  id: string;
+  /** What's in it. */
+  body: Raw;
+  /**
+   * Where it hangs from what opens it (its anchor): "under" it, or above it where there's no room below (a search's list, a menu), or "over"
+   * it, the line its owner names on the anchor's own line, so a pick sits where the anchor's words were (a select's list, the wheels).
+   */
+  placement: "under" | "over";
+  /** Its owner's own classes, for the owner's styles and script: "select-list". */
+  kind?: string;
+  /** Its role and what a screen reader calls it, when it isn't a list the owner names (a menu, a group of wheels). */
+  role?: "menu" | "group";
+  label?: string;
+  /** Shown open where it is, in the page's flow: the gallery's still open states. Over, it lies on its anchor by lineFromTop (a CSS length). */
+  isShownInPlace?: boolean;
+  lineFromTop?: string;
+}
+
+/**
+ * A floating pane: a pane of the menus' glass that hangs from what opens it, under it or over it, over everything on the page, casting a
+ * shadow onto it. FLOATING (PLACE_SCRIPT's zaismaFloat) does all its floating: lifting it out to the page, its light or dark and hue, where it
+ * goes and keeping it in the window, riding the page as it scrolls, closing on Esc or a press elsewhere, and its shadow.
+ */
+export function floatingPane(options: FloatingPaneOptions): Raw {
+  const className = ["floating-pane", options.placement, options.kind ?? "", "glass", options.isShownInPlace ? "in-place" : ""].filter(Boolean).join(" ");
+  return html`<div class="${className}" id="${options.id}"${options.role ? html` role="${options.role}"` : ""}${options.label ? html` aria-label="${options.label}"` : ""} data-glass data-glass-corners="menu"${
+    options.isShownInPlace ? (options.lineFromTop ? html` style="--line-from-top: ${options.lineFromTop}"` : "") : raw(' popover="manual"')
+  }>${EDGE}${options.body}</div>`;
+}
+
 export interface WellOptions {
   /** What's carved into it: words, code, or a line of them with an icon. */
   body: Raw;

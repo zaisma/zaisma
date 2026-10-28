@@ -2,7 +2,7 @@ import { PURCHASE_PIN_LIMITS } from "@zaisma/core";
 import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
 import { controlMarkup, type ControlMarkup } from "./control-markup.ts";
-import { CUT_LINE, EDGE, glassPane, icon, type IconName } from "./foundations.ts";
+import { CUT_LINE, EDGE, floatingPane, glassPane, icon, type IconName } from "./foundations.ts";
 import { secondaryButton, toggleButton } from "./actions.ts";
 import { examplePane } from "./example-pane.ts";
 import { row } from "./layout.ts";
@@ -115,7 +115,7 @@ export function searchField(options: SearchFieldOptions): ControlMarkup {
   const suggests = options.suggestionsUrl !== undefined || isOpen;
   const combobox = suggests ? html` role="combobox" aria-autocomplete="both" aria-expanded="${isOpen ? "true" : "false"}" aria-controls="${id}-choices"${isOpen ? html` aria-activedescendant="${id}-row-0"` : ""}` : "";
   const list = suggests
-    ? html`<span class="find-finish" aria-hidden="true"><span class="find-typed">${typedFinish ? options.searchText : ""}</span><span>${typedFinish}</span></span><div class="select-list find-list glass${isOpen ? " in-place" : ""}" id="${id}-list" data-glass data-glass-corners="menu"${isOpen ? "" : raw(' popover="manual"')}>${EDGE}<div class="select-options" id="${id}-choices" role="listbox" aria-label="${options.label}" data-own-fade>${isOpen && options.shownSuggestions ? suggestionRows(id, options.searchText, options.shownSuggestions, 0) : ""}</div></div><template class="find-icon"><span class="find-row-icon">${icon("search")}</span></template>`
+    ? html`<span class="find-finish" aria-hidden="true"><span class="find-typed">${typedFinish ? options.searchText : ""}</span><span>${typedFinish}</span></span>${floatingPane({ id: `${id}-list`, placement: "under", kind: "select-list find-list", isShownInPlace: isOpen, body: html`<div class="select-options" id="${id}-choices" role="listbox" aria-label="${options.label}" data-own-fade>${isOpen && options.shownSuggestions ? suggestionRows(id, options.searchText, options.shownSuggestions, 0) : ""}</div>` })}<template class="find-icon"><span class="find-row-icon">${icon("search")}</span></template>`
     : "";
   const className = ["find", "cut-carved", options.state === "is-open" ? "is-focused is-open" : options.state ?? ""].filter(Boolean).join(" ");
   return controlMarkup(html`<form class="${className}" method="get" action="${options.action}" role="search" data-cut-line="10"${options.suggestionsUrl !== undefined ? html` data-suggest="${options.suggestionsUrl}"` : ""}>${CUT_LINE}${Object.entries(options.keep ?? {}).map(([name, keptValue]) => html`<input type="hidden" name="${name}" value="${keptValue}">`)}${icon("search")}<input type="search" name="${options.name}" value="${options.searchText}" maxlength="200" placeholder="${options.placeholder}" aria-label="${options.label}" autocomplete="off"${combobox}>${secondaryButton("Clear the search", { type: "button", icon: "close", isLabelHidden: true, isInWell: true })}${list}</form>`, "regular");
@@ -207,10 +207,17 @@ export function wheelField(options: WheelFieldOptions): ControlMarkup {
   return controlMarkup(html`<fieldset class="wheel-field" id="${id}" data-wheels="${options.wheelKind}"${options.minimumAt ? html` data-minimum-at="${options.minimumAt}"` : ""}${options.isRequired ? raw(" data-required") : ""}>
 <legend id="${id}-legend">${options.label}</legend>
 <button type="button" class="${buttonClass}" data-cut-line="10" aria-expanded="${isOpen ? "true" : "false"}" aria-controls="${id}-pick" aria-describedby="${describedBy}">${CUT_LINE}${fieldIcon ? icon(fieldIcon) : ""}<span class="wheel-value">${shown}</span><span class="wheel-chev">${icon("chevron-down")}</span></button>
-<div class="select-list over-field wheel-pick glass${isOpen ? " in-place" : ""}" id="${id}-pick" role="group" aria-label="${options.label}" data-glass data-glass-corners="menu"${isOpen ? "" : raw(' popover="manual"')}>${EDGE}
-<div class="wheels ${options.wheelKind}-wheels"${options.wheelKind === "custom" ? html` style="--wheel-count: ${columns.length}"` : ""}>${channels}</div>${isZone ? html`<p class="wheel-zone" id="${id}-zone"></p>` : ""}
-<span class="wheel-read sr" aria-live="polite"></span>
-</div>
+${floatingPane({
+    id: `${id}-pick`,
+    placement: "over",
+    kind: "wheel-pick",
+    role: "group",
+    label: options.label,
+    isShownInPlace: isOpen,
+    // The wheels' middle row: under the pane's room at its top, a row and a half down.
+    lineFromTop: "calc(var(--pad-inner-pane) + 54px)",
+    body: html`<div class="wheels ${options.wheelKind}-wheels"${options.wheelKind === "custom" ? html` style="--wheel-count: ${columns.length}"` : ""}>${channels}</div>${isZone ? html`<p class="wheel-zone" id="${id}-zone"></p>` : ""}<span class="wheel-read sr" aria-live="polite"></span>`,
+  })}
 <p class="field-error" id="${id}-error"${isMarked ? "" : raw(" hidden")}>${options.error ?? WHEEL_MISSING[options.wheelKind]}</p>${options.hint ? html`<p class="field-hint" id="${id}-hint"${isMarked ? raw(" hidden") : ""}>${options.hint}</p>` : ""}
 ${sent}
 </fieldset>`, "field", { hasOwnWords: true });
@@ -426,24 +433,17 @@ export const FIELD_SCRIPT = `/* fields */(function () {
  * a game opens it; Esc closes the list. Each finish taken is typed in as far as the page is concerned (an input event).
  */
 export const SEARCH_SCRIPT = `/* search finishes */(function () {
-  var GAP_PX = 6, EDGE_PX = 8, WAIT_MS = 120;
+  var WAIT_MS = 120;
   window.zaismaWatch.each("form.find[data-suggest]", function (form) {
     var input = form.querySelector('input[type="search"]'), list = form.querySelector(".find-list"), box = list.querySelector('[role="listbox"]');
     var ghost = form.querySelector(".find-finish"), typedPart = ghost.firstElementChild, restPart = ghost.lastElementChild, iconTemplate = form.querySelector("template.find-icon");
     var id = list.id.replace(/-list$/, ""), url = form.getAttribute("data-suggest"), rows = [], active = -1, timer = 0, asking = null, answers = new Map();
-    // Lifted out to the page, like a select field's list, so no pane's glass or clip is round it.
-    if (form.closest(".smoke")) list.classList.add("smoke");
-    document.body.appendChild(list);
-    function isOpen() { return list.matches(":popover-open"); }
-    function place() {
-      var r = form.getBoundingClientRect();
-      if (r.bottom < 0 || r.top > window.innerHeight) { hide(); return; }
-      list.style.width = r.width + "px";
-      var spot = window.zaismaPlace(r, { width: r.width, height: list.offsetHeight }, { gapPx: GAP_PX, edgePx: EDGE_PX });
-      list.style.left = Math.round(spot.leftPx) + "px"; list.style.top = Math.round(spot.topPx) + "px";
-      list.classList.toggle("is-above", spot.isAbove);
-      window.zaismaCast(list);
-    }
+    // A Floating pane under the field, as wide as it; the cursor stays in the field, so Esc there closes it (below).
+    var float = window.zaismaFloat(list, {
+      anchor: form, focusOnClose: input,
+      onToggle: function (isShown) { input.setAttribute("aria-expanded", String(isShown)); form.classList.toggle("is-open", isShown); showFinish(); }
+    });
+    function isOpen() { return float.isOpen(); }
     // The rest of the finish you're on, after what's typed, while what's typed is all in view.
     function showFinish() {
       var row = isOpen() && rows[active], typed = input.value, finish = row && row.getAttribute("data-finish");
@@ -457,16 +457,8 @@ export const SEARCH_SCRIPT = `/* search finishes */(function () {
       else input.removeAttribute("aria-activedescendant");
       showFinish();
     }
-    function show() {
-      if (!isOpen()) {
-        var themed = form.closest("[data-theme-choice]");
-        if (themed && themed !== document.documentElement) list.setAttribute("data-theme-choice", themed.getAttribute("data-theme-choice")); else list.removeAttribute("data-theme-choice");
-        list.style.setProperty("--glass-hue", getComputedStyle(form).getPropertyValue("--glass-hue"));
-        list.showPopover();
-      }
-      input.setAttribute("aria-expanded", "true"); form.classList.add("is-open"); place(); showFinish();
-    }
-    function hide() { if (isOpen()) list.hidePopover(); input.setAttribute("aria-expanded", "false"); form.classList.remove("is-open"); showFinish(); }
+    function show() { if (isOpen()) float.place(); else float.open(); showFinish(); }
+    function hide() { float.close(false); showFinish(); }
     // What's typed, the part of the words that matches it in bold.
     function words(text, typed) {
       var span = document.createElement("span"), at = typed ? text.toLowerCase().indexOf(typed.toLowerCase()) : -1;
@@ -533,8 +525,6 @@ export const SEARCH_SCRIPT = `/* search finishes */(function () {
     list.addEventListener("pointerdown", function (event) { event.preventDefault(); });
     list.addEventListener("pointermove", function (event) { var row = event.target.closest(".select-option"); var index = rows.indexOf(row); if (index >= 0 && index !== active) setActive(index); });
     list.addEventListener("click", function (event) { var row = event.target.closest(".select-option"); var index = rows.indexOf(row); if (index < 0) return; event.preventDefault(); setActive(index); go(); });
-    window.zaismaWatch.resize(function () { if (isOpen()) place(); });
-    window.zaismaWatch.scroll(function () { if (isOpen()) place(); });
   });
 })();
 `;
@@ -680,21 +670,13 @@ export const WHEEL_SCRIPT = String.raw`/* wheel fields */(function () {
     var placeholder = value.textContent, wheels = {};
     form.parts.forEach(function (part) { wheels[part] = { el: root.querySelector('.wheel[data-part="' + part + '"]'), count: 0 }; });
     var wheelRow = pick.querySelector(".wheels");
-    function isOpen() { return isInPlace || pick.matches(":popover-open"); }
-    // Lifted out to the page, as a select field's list is, so no pane's glass or clip is round it.
-    if (!isInPlace) { if (root.closest(".smoke")) pick.classList.add("smoke"); document.body.appendChild(pick); }
-    // Over the field, at least as wide as it: the wheels' middle row on the field's own line, moved only as far as keeps it in the window.
-    function placePane() {
-      if (isInPlace) return;
-      var r = field.getBoundingClientRect();
-      if (r.bottom < 0 || r.top > window.innerHeight) { close(false); return; }
-      pick.style.width = r.width + "px";
-      if (pick.scrollWidth > pick.clientWidth) pick.style.width = pick.scrollWidth + "px";
-      var heightPx = pick.offsetHeight, widthPx = pick.offsetWidth, rowMiddlePx = wheelRow.offsetTop + 1.5 * ROW;
-      pick.style.top = Math.round(Math.max(8, Math.min(window.innerHeight - heightPx - 8, r.top + r.height / 2 - rowMiddlePx))) + "px";
-      pick.style.left = Math.round(Math.max(8, Math.min(document.documentElement.clientWidth - widthPx - 8, r.left))) + "px";
-      window.zaismaCast(pick);
-    }
+    // A Floating pane over the field, at least as wide as it, the wheels' middle row on the field's own line.
+    var float = window.zaismaFloat(pick, {
+      anchor: field, home: root,
+      lineOf: function () { return wheelRow.offsetTop + 1.5 * ROW; },
+      onToggle: function (isShown) { field.setAttribute("aria-expanded", String(isShown)); }
+    });
+    function isOpen() { return float.isOpen(); }
     function mark(part) {
       var w = wheels[part], i = form.at[part];
       Array.prototype.forEach.call(w.el.children, function (option, j) { option.setAttribute("aria-selected", String(j === i)); });
@@ -765,24 +747,12 @@ export const WHEEL_SCRIPT = String.raw`/* wheel fields */(function () {
     // Shown open as the page loads (a gallery's state), it neither takes the focus nor scrolls the page to itself.
     function open(isOnLoad) {
       if (form.opening && form.opening()) { isPicked = true; form.parts.forEach(mark); show(); }
-      if (!isInPlace && !pick.matches(":popover-open")) {
-        // The page's own light or dark, and the hue of the glass where the field is, which the pane no longer inherits.
-        var themed = root.closest("[data-theme-choice]");
-        if (themed && themed !== document.documentElement) pick.setAttribute("data-theme-choice", themed.getAttribute("data-theme-choice")); else pick.removeAttribute("data-theme-choice");
-        pick.style.setProperty("--glass-hue", getComputedStyle(root).getPropertyValue("--glass-hue"));
-        pick.showPopover();
-      }
-      field.setAttribute("aria-expanded", "true"); placePane(); place(false);
+      float.open(); place(false);
       if (isOnLoad) return;
       wheels[form.firstPart()].el.focus({ preventScroll: true });
     }
-    function close(returnFocus) { if (!isInPlace && pick.matches(":popover-open")) pick.hidePopover(); field.setAttribute("aria-expanded", "false"); if (returnFocus) field.focus(); }
+    function close(returnFocus) { float.close(returnFocus); }
     field.addEventListener("click", function () { if (!isOpen()) open(); else close(false); });
-    // A press anywhere else closes it; it follows the field as the page scrolls or the window changes.
-    document.addEventListener("pointerdown", function (event) { if (!isInPlace && isOpen() && !pick.contains(event.target) && !field.contains(event.target)) close(false); });
-    window.zaismaWatch.resize(function () { if (!isInPlace && isOpen()) placePane(); });
-    window.zaismaWatch.scroll(function () { if (!isInPlace && isOpen()) placePane(); });
-    pick.addEventListener("keydown", function (event) { if (event.key === "Escape") { close(true); event.preventDefault(); } });
     if (isInPlace) { if (form.opening && !form.isComplete()) open(true); else requestAnimationFrame(function () { place(false); }); }
     show();
     // A form that needs it won't go on without a pick: the field says so and the wheels open.
@@ -1045,15 +1015,9 @@ component({
    line, so the picks sit where its words were (WHEEL_SCRIPT places it, moved only to stay in the window). Each wheel is a groove carved
    into it three rows tall; the picked row in the middle catches the light, as a pointed list row does (its glass clears, its edge lit above
    and shaded below), with a row above and below it, quieter. The wheel you're on by keyboard draws the focus line round its groove. */
-.select-list.wheel-pick { padding: var(--pad-inner-pane); max-height: none; gap: var(--gap-words-words); }
+.floating-pane.wheel-pick { padding: var(--pad-inner-pane); gap: var(--gap-words-words); }
 /* What a screen reader hears takes no room, so the wheels keep the same room to the pane's edge all round. */
 .wheel-pick > .wheel-read { position: absolute; }
-/* Shown open in place (the gallery's open states), it lies over its field the same way, the label and field it covers hidden: glass inside
-   a pane's glass isn't blurred, so they would show through it. */
-.wheel-field:has(> .wheel-pick.in-place) > :is(legend, .wheel-button) { visibility: hidden; }
-/* Its shadow, cast through the field, whose label and field are hidden, so only the wheels make one. */
-.wheel-field:has(> .wheel-pick.in-place) { filter: var(--float-cast); }
-.select-list.over-field.wheel-pick.in-place { position: relative; z-index: 6; margin-top: calc(-1 * (var(--gap-words-control) + var(--control-height-field) / 2 + var(--pad-inner-pane) + 1.5 * 36px)); }
 /* The month gets the room its longest name needs (September), the day the least. */
 /* Each wheel is at least as wide as its longest row (a month's name, a year, "Tomorrow", "AM"), so a pane that fits what's in it grows to them. */
 .wheels { --wheel-row: 36px; position: relative; display: grid; grid-template-columns: minmax(6.5rem, 1.9fr) minmax(2.75rem, 0.7fr) minmax(4rem, 1fr); gap: var(--gap-control-row); }

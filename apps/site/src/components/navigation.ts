@@ -2,7 +2,7 @@ import { html, raw, type Raw } from "../markup.ts";
 import { pageScript } from "../page-scripts.ts";
 import { component } from "./component.ts";
 import { controlMarkup, type ControlMarkup } from "./control-markup.ts";
-import { CUT_LINE, EDGE, glassPane, icon, logo, railMarkup, sheetMarkup, tag, type IconName } from "./foundations.ts";
+import { CUT_LINE, EDGE, floatingPane, glassPane, icon, logo, railMarkup, sheetMarkup, tag, type IconName } from "./foundations.ts";
 import { cutPolygon } from "./tokens.ts";
 import { secondaryButton, tertiaryButton, rowArrows, primaryButton, textLink } from "./actions.ts";
 import { searchField, tabSwitch, type SearchFieldOptions, type SwitchTab } from "./inputs.ts";
@@ -1601,7 +1601,7 @@ export function filterMenu(options: FilterMenuOptions): ControlMarkup {
     (group) =>
       html`<div class="dropdown-in filter-panel" data-filter-panel="${group.groupName}"${options.openGroupName === group.groupName ? "" : raw(" hidden")}>${opener("", html`${icon("arrow-back")}<span>${group.label}</span>`, "filter-back")}<hr role="separator">${group.choices.map((each) => choice(each.label, each.href, each.isCurrent))}</div>`,
   );
-  const menu = html`<div class="dropdown glass filter-menu${options.isOpen ? "" : " shut"}" id="${options.id}" role="menu" aria-label="Filter" aria-hidden="${options.isOpen ? "false" : "true"}" data-glass data-glass-corners="menu">${EDGE}${main}${panels}</div>`;
+  const menu = floatingPane({ id: options.id, placement: "under", kind: `dropdown filter-menu${options.isOpen ? " is-open-on-load" : ""}`, role: "menu", label: "Filter", body: html`${main}${panels}` });
   return controlMarkup(html`${button}${menu}`, "regular");
 }
 
@@ -1653,8 +1653,7 @@ component({
   styles: `
 /* A Filter menu: a Dropdown whose rows each open a group's choices in its place (a group's row ends in what's picked and a chevron),
    and whose group's choices start with the way back. It's at least wide enough for its longest group and what's picked in it. */
-/* Until DROPDOWN_SCRIPT places it, it waits shut at the window's corner, not where it sits in the row (past the window's edge). */
-.filter-menu { top: 0; left: 0; min-width: min(15rem, var(--menu-room-width, calc(100vw - 2 * var(--pad-frame)))); }
+.floating-pane.filter-menu { min-width: min(15rem, calc(100vw - 2 * var(--pad-frame))); }
 .filter-panel[hidden] { display: none; }
 .filter-group > .filter-picked { margin-left: auto; color: var(--muted); font: var(--type-facts); }
 .filter-group > .ico, .filter-back > .ico { flex: none; width: 12px; height: 12px; }
