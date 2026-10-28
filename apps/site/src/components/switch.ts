@@ -421,22 +421,6 @@ component({
       label: "Vertical, plain",
       markup: html`<div style="width:min(220px,100%)">${tabSwitch({ label: "Groups", switchSize: "big", isVertical: true, tabs: ["Foundations", "Actions", "Inputs", "Navigation"].map((label, tabIndex) => ({ label, isCurrent: tabIndex === 1 })) })}</div>`,
     },
-    {
-      label: "Framed: more tabs than fit scroll inside the frame, fading at its ends",
-      markup: html`<div style="width:min(300px,100%)">${tabSwitch({ label: "Groups", switchSize: "small", isFramed: true, tabs: ["Foundations", "Actions", "Inputs", "Navigation", "Panes", "Data"].map((label, tabIndex) => ({ label, href: "#switch", isCurrent: tabIndex === 2 })) })}</div>`,
-    },
-    {
-      label: "Framed, with Row arrows: a mouse scrolls the tabs that don't fit (a touch screen swipes and shows none)",
-      markup: html`<div style="width:min(360px,100%)">${tabSwitch({ label: "Genres", switchSize: "small", isFramed: true, rowId: "example-switch-arrows-row", tabs: ["Action", "Adventure", "Role-playing", "Shooter", "Strategy", "Simulation", "Racing", "Sports"].map((label, tabIndex) => ({ label, href: "#switch", isCurrent: tabIndex === 0 })) })}</div>`,
-    },
-    {
-      label: "Framed, with tabs folded away (the header off a developer page)",
-      markup: tabSwitch({ label: "Main", switchSize: "big", isFramed: true, tabs: [{ label: "Home", href: "#switch", isCurrent: true }, { label: "Your games", href: "#switch", isCurrent: false }, { label: "Developer", href: "#switch", isCurrent: false, isFoldable: true, isFolded: true }, { label: "Forum", href: "#switch", isCurrent: false, isFoldable: true, isFolded: true }] }),
-    },
-    {
-      label: "Links to pages",
-      markup: tabSwitch({ label: "Your games", switchSize: "small", tabs: [{ label: "Played", href: "#switch", isCurrent: false }, { label: "Saved", href: "#switch", isCurrent: true }, { label: "Bought", href: "#switch", isCurrent: false }] }),
-    },
   ],
 });
 
