@@ -290,9 +290,25 @@ component({
 .tab-switch:not(.vertical) { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; width: max-content; background: none; box-shadow: none; clip-path: none; }
 /* The one you're on is marked by its slab and full ink, at the same weight as the others, so its words never move as it's chosen. */
 .tab-switch [aria-current="page"], .tab-switch [aria-pressed="true"] { color: var(--ink); }
-/* Pointed at (a mouse's; a tap shows nothing), a tab you're not on lights only its words to full ink: nothing appears in the well. */
-@media (hover: hover) { .tab-switch > :is(a, button):not(:disabled, [aria-disabled="true"]):hover { color: var(--ink); } }
+/* Pointed at (a mouse's; a tap shows nothing), a tab you're not on takes full ink, and the well's carved edge beside it catches the light:
+   a line of light spreads along the well's lower edge under it (stacked, along its edge beside the place), as a carving's rim catches it.
+   Nothing is laid in the well: only light. */
+.tab-switch > :is(a, button)::after { content: ""; position: absolute; pointer-events: none; opacity: 0;
+  left: 18%; right: 18%; bottom: calc(2px - var(--switch-inset, 4px)); height: 2px; background: linear-gradient(90deg, transparent, var(--raise-top) 30%, var(--raise-top) 70%, transparent);
+  box-shadow: 0 0 6px 0 var(--raise-top);
+  transition: opacity 0.25s, left 0.35s cubic-bezier(.2, .8, .2, 1), right 0.35s cubic-bezier(.2, .8, .2, 1); }
+.tab-switch.small { --switch-inset: 3px; }
+.tab-switch.vertical > :is(a, button)::after { left: calc(2px - var(--switch-inset, 4px)); right: auto; top: 22%; bottom: 22%; width: 2px; height: auto;
+  background: linear-gradient(180deg, transparent, var(--raise-top) 30%, var(--raise-top) 70%, transparent); transition: opacity 0.25s, top 0.35s cubic-bezier(.2, .8, .2, 1), bottom 0.35s cubic-bezier(.2, .8, .2, 1); }
+@media (hover: hover) {
+  .tab-switch > :is(a, button):not(:disabled, [aria-disabled="true"], [aria-current="page"], [aria-pressed="true"]):hover { color: var(--ink); }
+  .tab-switch > :is(a, button):not(:disabled, [aria-disabled="true"], [aria-current="page"], [aria-pressed="true"]):hover::after { opacity: 1; left: 5%; right: 5%; }
+  .tab-switch.vertical > :is(a, button):not(:disabled, [aria-disabled="true"], [aria-current="page"], [aria-pressed="true"]):hover::after { left: calc(2px - var(--switch-inset, 4px)); right: auto; top: 8%; bottom: 8%; }
+}
 .tab-switch > .is-pointed { color: var(--ink); }
+.tab-switch > .is-pointed::after { opacity: 1; left: 5%; right: 5%; }
+.tab-switch.vertical > .is-pointed::after { left: calc(2px - var(--switch-inset, 4px)); right: auto; top: 8%; bottom: 8%; }
+@media (prefers-reduced-motion: reduce) { .tab-switch > :is(a, button)::after { transition: opacity 0.25s; } }
 /* One that can't be chosen now: faded, and it answers nothing (pointing at it lights nothing). */
 .tab-switch > [aria-disabled="true"], .tab-switch > :disabled { cursor: default; opacity: 0.4; }
 /* Before the script has measured, the one you're on carries its own slab. */
@@ -365,7 +381,7 @@ component({
       markup: html`<div style="width:min(16rem,100%)">${tabSwitch({ label: "Sort", switchSize: "small", tabs: ["Recently played", "Recently updated", "Most played", "Newest"].map((label, tabIndex) => ({ label, tabValue: String(tabIndex), isCurrent: tabIndex === 0 })) })}</div>`,
     },
     {
-      label: "Pointed: its words at full ink",
+      label: "Pointed: its words at full ink, the well's edge under it catching the light",
       markup: tabSwitch({ label: "Sort", switchSize: "small", tabs: [{ label: "Recently played", tabValue: "played", isCurrent: true }, { label: "Recently updated", tabValue: "updated", isCurrent: false, state: "is-pointed" }] }),
       isStill: true,
     },
