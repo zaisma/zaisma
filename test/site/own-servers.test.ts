@@ -106,7 +106,7 @@ describe("a game's own servers through the API and MCP", () => {
     expect(await ownServerLines()).toEqual([{ place: "menu", text: "Online play runs on the developer&#39;s own server: play.example.com" }]);
     // The menu doesn't repeat the description the details already show.
     await env.DB.prepare("UPDATE games SET description = 'Hop between floating islands.' WHERE slug = 'sky-hopper'").run();
-    expect((await gamePage()).match(/<div class="dropdown glass shut" id="menu-dialog"[\s\S]*?All games/)![0]).not.toContain("Hop between floating islands.");
+    expect((await gamePage()).match(/<div class="floating-pane placed-under dropdown glass" id="menu-dialog"[\s\S]*?All games/)![0]).not.toContain("Hop between floating islands.");
 
     expect((await tool("update_game", { slug: "sky-hopper", own_server_urls: [] })).game.own_server_urls).toEqual([]);
     expect(await storedText()).toBe("[]");

@@ -79,10 +79,10 @@ describe("game page controls", () => {
     expect(page).toContain('id="share"');
     expect(page).toContain('id="full"');
     expect(page).toMatch(/href="\/g\/solo\/report"[^>]*data-report/);
-    expect(page).toContain('<div class="dropdown glass shut" id="menu-dialog" role="menu"');
+    expect(page).toContain('<div class="floating-pane placed-under dropdown glass" id="menu-dialog" role="menu"');
     // The ⋯ button opens it, and Report this game is one of its choices.
     expect(page).toMatch(/id="menu"[^>]*aria-controls="menu-dialog" aria-expanded="false"/);
-    expect(page.match(/<div class="dropdown glass shut" id="menu-dialog"[\s\S]*?All games/)![0]).toContain('href="/g/solo/report"');
+    expect(page.match(/<div class="floating-pane placed-under dropdown glass" id="menu-dialog"[\s\S]*?All games/)![0]).toContain('href="/g/solo/report"');
     expect(page).not.toContain("More games");
     // Content rules open beside the game instead of replacing it.
     expect(page).toContain('href="/legal/content-rules" target="_blank"');
@@ -155,7 +155,7 @@ describe("room browsing on the game page", () => {
     expect(page).toContain('id="rooms-list"');
     // Codes stay in the links; a player with a code types it into the box.
     expect(page).toContain('<form method="get" action="/g/arena">');
-    expect(page).toContain('id="room-code" name="room" type="text" placeholder="ABC234" autocomplete="off" pattern="[2-9A-HJ-NP-Za-hj-np-z]{6}" required');
+    expect(page).toContain('id="room-code" name="room" type="text" placeholder="ABC234" autocomplete="off" pattern="[2-9A-HJ-NP-Z]{6}" data-characters="[2-9A-HJ-NP-Z]" maxlength="6" data-uppercase autocapitalize="characters" required');
     expect(page).not.toContain(">BCDFGH<");
 
     const fragment = await SELF.fetch("https://zaisma.test/g/arena/rooms");
@@ -215,7 +215,7 @@ describe("room browsing on the game page", () => {
     for (const [i, c] of codes.slice(0, 12).entries()) await room(id, c.repeat(6), 1 + (i % 3));
     await room(id, "ABC234", 31, 1, Date.now(), ["US", "NA"], 40);
     const list = await roomsList();
-    expect(list).toContain('<button type="button" data-region="EU" aria-pressed="false"><span>Europe</span><span class="tag count">12</span></button>');
+    expect(list).toContain('<button type="button" data-lights data-region="EU" aria-pressed="false"><span>Europe</span><span class="tag count">12</span></button>');
     expect(list).toContain('<span class="list-row-title">31 of 40 players</span>');
     // Only the first six rooms, the list scrolling inside itself past them, and Load more for the rest.
     expect(list).toContain('class="list-rows is-capped" style="--shown-row-count:6"');
@@ -227,7 +227,7 @@ describe("room browsing on the game page", () => {
     expect(pageProblems(list)).toEqual([]);
 
     const na = await roomsList("?region=NA");
-    expect(na).toContain('<button type="button" data-region="NA" aria-pressed="true"><span>North America</span>');
+    expect(na).toContain('<button type="button" data-lights data-region="NA" aria-pressed="true"><span>North America</span>');
     // The number by Rooms follows the region picked, like the rows.
     expect(na).toContain('data-count="1"');
     expect(na.match(/<div class="list-row">/g)).toHaveLength(1);
