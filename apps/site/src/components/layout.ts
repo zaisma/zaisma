@@ -273,7 +273,7 @@ export function paneParts(options: PanePartsOptions): Raw {
 const GAP_TOKENS: LayoutGap[] = ["control-row-boxes", "control-stack", "words-control", "words-words", "block-block"];
 
 /** What takes a control's height in each control (its --control-height), as it sits directly in a row's cell. */
-const HEIGHT_HOLDERS = [".cut-btn", ".tertiary-btn", ".run-wrap > .run", ".cut-field > .field", ".pin-box", ".find", ".tab-switch", ".steps"];
+const HEIGHT_HOLDERS = [".cut-btn", ".tertiary-btn", ".run-wrap > .run", ".cut-field > .field", ".pin-box", ".find", ".switch-room", ".tab-switch", ".steps"];
 
 /** What shows of a holder's children: not hidden, not a cell whose only thing is hidden (holds-only-hidden, ROW_LAYOUT_SCRIPT), not a slab's drawn edge (a tray's first child), and not a script, a template or a form's hidden field. */
 const SHOWN = ':not([hidden], .holds-only-hidden, .edge, script, template, input[type="hidden"])';

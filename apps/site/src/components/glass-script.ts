@@ -501,9 +501,13 @@ export const GLASS_SCRIPT = `/* glass */(function () {
     function draw() { runPass(drawLine); }
     function drawLine() {
       var size = sizeOf(el), w = size[0], h = size[1]; if (!w || !h) return;
-      var shape = controlOutline(el, w, h);
+      // Gliding, its two outlines (where it was, where it's going) are worked out once, at its size, not again each frame: they read the
+      // page's layout, and only the blend between them changes.
+      var sizeKey = w + "x" + h;
+      if (glide && glide.sizeKey !== sizeKey) { glide.sizeKey = sizeKey; glide.toShape = controlOutline(el, w, h); glide.fromShape = controlOutline(el, w, h, glide.from); }
+      var shape = glide ? glide.toShape : controlOutline(el, w, h);
       if (glide) {
-        var t = Math.min(1, (performance.now() - glide.startMs) / glide.ms), eased = glide.ease ? glide.ease(t) : 1 - Math.pow(1 - t, 3), from = controlOutline(el, w, h, glide.from);
+        var t = Math.min(1, (performance.now() - glide.startMs) / glide.ms), eased = glide.ease ? glide.ease(t) : 1 - Math.pow(1 - t, 3), from = glide.fromShape;
         shape = shape.map(function (p, i) { return [from[i][0] + (p[0] - from[i][0]) * eased, from[i][1] + (p[1] - from[i][1]) * eased]; });
         // A mover that draws it each frame itself (isDriven: a switch's slab) has it drawn once a frame, not twice.
         if (t >= 1) glide = null; else if (!glide.isDriven) requestAnimationFrame(draw);

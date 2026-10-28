@@ -925,6 +925,7 @@ const signInSwitch = (current: "signin" | "join", next: string | null) =>
   tabSwitch({
     label: "Sign in or make an account",
     switchSize: "big",
+    isFull: true,
     tabs: [
       { label: "Sign in", href: `/signin${nextQuery(next)}`, isCurrent: current === "signin" },
       { label: "Make an account", href: `/join${nextQuery(next)}`, isCurrent: current === "join" },
