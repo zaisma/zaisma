@@ -257,7 +257,7 @@ component({
   slug: "switch",
   group: "inputs",
   subgroup: "choices",
-  summary: "Choosing one of a few: Sign in or Make an account (big), Recently played or Recently updated (small). Stacked, it's a page's own places down its side.",
+  summary: "Choosing one of a few: Sign in or Make an account (big), Recently played or Recently updated (small). Of links, a page's own sections under its title (a game's dashboard, a profile); stacked, a page's own places down its side.",
   styles: `
 /* The switch: the header's and the home's. A carved well, a raised slab under the one you're on, lit like any raised glass, and a faint one under the
    one you point at. No orange: it's a choice, not the thing to do, so orange is left for keyboard focus.
@@ -379,6 +379,10 @@ component({
     {
       label: "With counts, the one you're on too",
       markup: tabSwitch({ label: "Inbox", switchSize: "small", tabs: [{ label: "Replies", href: "#switch", badgeCount: 3, isCurrent: true }, { label: "Mentions", href: "#switch", badgeCount: 12, isCurrent: false }] }),
+    },
+    {
+      label: "A page's sections: big, of links, with counts, scrolling sideways past its room (a game's dashboard)",
+      markup: html`<div style="width:min(30rem,100%)">${tabSwitch({ label: "Game sections", switchSize: "big", tabs: ["Overview", "Versions", "Players", "Rooms", "Saves", "Reports", "Stats", "Settings"].map((label) => ({ label, href: "#switch", isCurrent: label === "Players", badgeCount: label === "Players" ? 4 : label === "Reports" ? 12 : undefined })) })}</div>`,
     },
     {
       label: "On a loop",

@@ -309,7 +309,7 @@ Anything with a look of its own is a component in the gallery, or part of one, a
 - **Zaisma's logo is the Logo** (`logo`, `foundations.ts`): the wordmark at the top of a page, the mark in the footer, always a link home.
 - **Waiting is the Loader** (`loader`): the Z building itself (`brand/loader/`). Every button shows it in place of its icon or arrow once it's pressed and waiting (`isBusy`, and `BUSY_SCRIPT` for a form sent or a page opening), and can't be pressed twice.
 - **What belongs to a pane sits on its Tray** (`tray`): the same glass as the pane, only thinner and muted (a clearer tint, a fainter sheen, less blur, a fainter rim with the same bevel, smaller cuts at its foot, and `--pad-tray` instead of `--pad-pane`), so the pane stands out and the tray stays in the background. It runs on from the pane with no rim along its top (`data-glass-open="top"`). Every gallery section is one. What's on a tray fits it like anything on a pane: square under its square top, cut at an even gap into its cut foot. A gallery example's stage (`data-on-no-pane`) shows what's in it on no pane, though the stage sits on a tray.
-- **Every switch scrolls past its room.** Its well stays put and its tabs scroll inside it, fading at its ends, with the rail under it (stacked, beside its places): the header's tabs, a page's section tabs, the rooms' regions. A switch fills its place with `isFull` (the header's tabs, the sign-in pane's head). Its tabs can fold away (`isFoldable`), as the header's Developer and Forum do off a developer page.
+- **Every switch scrolls past its room.** Its well stays put and its tabs scroll inside it, fading at its ends, with the rail under it (stacked, beside its places): the header's tabs, a page's sections (a big switch of links), the rooms' regions. A switch fills its place with `isFull` (the header's tabs, the sign-in pane's head). Its tabs can fold away (`isFoldable`), as the header's Developer and Forum do off a developer page.
 - **Online is the Picture frame's** (`isOnline`); **you, signed in, are the Account button.**
 
 ## Components
@@ -398,7 +398,7 @@ Every component, with the call that makes it and its options, is in the catalog 
   - `options`: `name: string`, `label: string`, `wheelKind: "birthday" | "date-time" | "custom"`, `columns?: WheelColumn[]`, `id?: string`, `icon?: IconName`, `pickedValue?: string`, `minimumAt?: string`, `hint?: string`, `error?: string`, `isRequired?: boolean`, `state?: "open" | "marked" | "is-focused"`
 - **Copy field** (`copyField(options: CopyFieldOptions)`, `inputs.ts`): Something to copy and keep: a game's link, a room's, an API key shown once, an upload command. Words on one line by default, which a press anywhere copies; code shows all of it in code's letters. For something to type, use a Cut field.
   - `options`: `label: string`, `copiedText: string`, `isCode?: boolean`, `id?: string`, `isMasked?: boolean`, `state?: "is-copied" | "is-pointed" | "is-focused"`
-- **Switch** (`tabSwitch(options: { … })`, `switch.ts`): Choosing one of a few: Sign in or Make an account (big), Recently played or Recently updated (small). Stacked, it's a page's own places down its side.
+- **Switch** (`tabSwitch(options: { … })`, `switch.ts`): Choosing one of a few: Sign in or Make an account (big), Recently played or Recently updated (small). Of links, a page's own sections under its title (a game's dashboard, a profile); stacked, a page's own places down its side.
   - `options`: `label: string`, `tabs: SwitchTab[]`, `switchSize: "big" | "small"`, `isVertical?: boolean`, `isFull?: boolean`
 - **Check field** (`checkField(options: CheckFieldOptions)`, `choices.ts`): A yes or no sent with its form: I agree, Email me replies. A small carved box that turns orange with a dark tick. On a page that saves at once, use a Toggle.
   - `options`: `name: string`, `label: string`, `isChecked?: boolean`, `hint?: string`, `checkValue?: string`, `isRequired?: boolean`, `error?: string`, `isDisabled?: boolean`, `id?: string`, `state?: PressState`
@@ -437,8 +437,6 @@ Every component, with the call that makes it and its options, is in the catalog 
   - `options`: `id: string`, `label: string`, `places: SidebarPlace[]`, `rememberKey: string`
 - **Sidebar button** (`sidebarButton(options: { … })`, `navigation.ts`): The one button a Sidebar has, at the start of the page's header, over the sidebar: it folds the sidebar away and back, and on a phone slides it over the page.
   - `options`: `controls: string`, `label: string`, `isExpanded: boolean`
-- **Section tabs** (`sectionTabs(options: SectionTabsOptions)`, `navigation.ts`): A page's own sections, under its title: a game dashboard's Overview, Versions and Players, a profile's Games and Friends. On a phone they scroll sideways, fading at the edge with more.
-  - `options`: `label: string`, `tabs: SectionTab[]`
 - **Breadcrumbs** (`breadcrumbs(options: BreadcrumbsOptions)`, `reading.ts`): Where a page sits: the pages above it as quiet links, a chevron between, this one last. For pages a few levels deep, like a forum topic or a game's version. On a phone it scrolls sideways rather than wrapping.
   - `options`: `trail: { label: string; href: string }[]`, `current: string`
 

@@ -1097,20 +1097,6 @@ component({
   ],
 });
 
-/** A page's section: a link to it, with a count of what's new in it (unread reports) when there is one. */
-export type SectionTab = Pick<SwitchTab, "label" | "isCurrent" | "badgeCount" | "state"> & { href: string };
-
-export interface SectionTabsOptions {
-  /** What the sections are, for a screen reader: "Game sections". */
-  label: string;
-  tabs: SectionTab[];
-}
-
-/** A page's own sections as tabs (a game dashboard's Overview, Versions, Players; a profile's Games and Friends): the header's tabs, under the page's title. */
-export function sectionTabs(options: SectionTabsOptions): Raw {
-  return html`<nav class="section-tabs" aria-label="${options.label}">${tabSwitch({ label: options.label, switchSize: "big", tabs: options.tabs })}</nav>`;
-}
-
 /** A place in a sidebar: a link with its words, and an icon and a count when it has them. */
 export interface SidebarPlace {
   label: string;
@@ -1405,42 +1391,6 @@ html[data-page-shape="reading"] .sidebar-layout.is-collapsed > .sidebar-layout-i
       isStill: true,
       markup: sidebarLayout({ sidebar: stillSidebar("example-sidebar-folded", SETTINGS_PLACES), main: settingsPanes, isCollapsed: true }),
     },
-  ],
-});
-
-const DASHBOARD_SECTIONS = ["Overview", "Versions", "Players", "Rooms", "Saves", "Reports", "Stats", "Settings"];
-const PROFILE_SECTIONS = ["Games", "Friends", "Forum posts", "Saves", "Rooms"];
-
-component({
-  name: "Section tabs",
-  slug: "section-tabs",
-  group: "navigation",
-  subgroup: "places",
-  summary: "A page's own sections, under its title: a game dashboard's Overview, Versions and Players, a profile's Games and Friends. On a phone they scroll sideways, fading at the edge with more.",
-  styles: `
-/* Section tabs: a Switch for a page's own sections. As wide as its tabs, and never wider than the page: past that they scroll sideways
-   inside its well, fading out over a side with more, with the rail under it, starting where the one you're on shows whole. */
-.section-tabs { display: flex; flex-direction: column; min-width: 0; max-width: 100%; }
-`,
-  render: sectionTabs,
-  examples: [
-    { label: "A game's dashboard", isWide: true, markup: sectionTabs({ label: "Game sections", tabs: DASHBOARD_SECTIONS.map((label, tabIndex) => ({ label, href: "#section-tabs", isCurrent: tabIndex === 1 })) }) },
-    {
-      label: "With counts: reports waiting, players asking to join",
-      isWide: true,
-      markup: sectionTabs({ label: "Game sections", tabs: DASHBOARD_SECTIONS.map((label) => ({ label, href: "#section-tabs", isCurrent: label === "Players", badgeCount: label === "Players" ? 4 : label === "Reports" ? 12 : undefined })) }),
-    },
-    {
-      label: "Pointed",
-      isStill: true,
-      markup: sectionTabs({ label: "Profile sections", tabs: PROFILE_SECTIONS.slice(0, 3).map((label, tabIndex) => ({ label, href: "#section-tabs", isCurrent: tabIndex === 0, state: tabIndex === 1 ? "is-pointed" : undefined })) }),
-    },
-    {
-      label: "Keyboard focus",
-      isStill: true,
-      markup: sectionTabs({ label: "Profile sections", tabs: PROFILE_SECTIONS.slice(0, 3).map((label, tabIndex) => ({ label, href: "#section-tabs", isCurrent: tabIndex === 0, state: tabIndex === 1 ? "is-focused" : undefined })) }),
-    },
-    { label: "In a narrow pane: they scroll sideways, the rail under them", markup: glassPane({ paneWidth: "fit", body: sectionTabs({ label: "Profile sections", tabs: PROFILE_SECTIONS.map((label, tabIndex) => ({ label, href: "#section-tabs", isCurrent: tabIndex === 2 })) }) }) },
   ],
 });
 
