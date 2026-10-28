@@ -123,7 +123,10 @@ export const SWITCH_SCRIPT = `/* switches */(function () {
       if (isVertical) {
         var toY = { pos: tab.offsetTop, size: tab.offsetHeight }, msY = isGliding && !reduce ? slideMs(el) : 0;
         // The focus line runs along the well's own edge: on the first or last place, out to the well's end.
-        if (el.classList.contains("focus-ring")) { var topPx = isFirst ? 0 : tab.offsetTop, bottomPx = isLast ? sw.clientHeight : tab.offsetTop + tab.offsetHeight; toY = { pos: topPx, size: bottomPx - topPx }; }
+        if (el.classList.contains("focus-ring")) {
+          var topPx = isFirst ? 0 : tab.offsetTop, bottomPx = isLast ? sw.getBoundingClientRect().height : tab.offsetTop + tab.offsetHeight, heightPx = Math.round(bottomPx - topPx);
+          toY = { pos: isLast ? bottomPx - heightPx : topPx, size: heightPx };
+        }
         el.setAttribute("data-cut-beside", "");
         el.setAttribute("data-cut-stack", ((isFirst ? "first " : "") + (isLast ? "last" : "")).trim());
         if (el.redrawCut) el.redrawCut(msY && from.stack !== null ? { from: from, ms: msY, ease: slideEase, isDriven: true } : undefined);
@@ -134,7 +137,12 @@ export const SWITCH_SCRIPT = `/* switches */(function () {
       var reach = besideReach(el), start = isFirst ? 0 : reach, end = isLast ? 0 : reach;
       var to = { pos: onPixel(tab.offsetLeft - start), size: tab.offsetWidth + start + end }, ms = isGliding && !reduce ? slideMs(el) : 0;
       // The focus line runs along the well's own edge: on the first or last tab, out to the well's end.
-      if (el.classList.contains("focus-ring")) { var leftPx = isFirst ? 0 : tab.offsetLeft - start, rightPx = isLast ? sw.clientWidth : tab.offsetLeft + tab.offsetWidth + end; to = { pos: leftPx, size: rightPx - leftPx }; }
+      // Its size is whole pixels (place), so on the last tab it's set back from the well's end by what rounding adds, never past it, where the
+      // well's cut would trim its line.
+      if (el.classList.contains("focus-ring")) {
+        var leftPx = isFirst ? 0 : tab.offsetLeft - start, rightPx = isLast ? sw.getBoundingClientRect().width : tab.offsetLeft + tab.offsetWidth + end, sizePx = Math.round(rightPx - leftPx);
+        to = { pos: isLast ? rightPx - sizePx : leftPx, size: sizePx };
+      }
       // The edge rule: the slab slants only where another tab is beside it, and its end on the first or last tab follows the switch's end.
       el.setAttribute("data-cut-beside", ((isFirst ? "" : "start ") + (isLast ? "" : "end")).trim());
       var ends = ((isFirst ? "start " : "") + (isLast ? "end" : "")).trim();
