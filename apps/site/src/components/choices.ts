@@ -608,7 +608,9 @@ component({
 .choices:not(.is-disabled) .choice-card:active > :is(.ico, .choice-words), .choice-card.is-pressed > :is(.ico, .choice-words), .choice-card.is-pressed:has(.choice-input:checked) > :is(.ico, .choice-words) { transform: translateY(2px); transition-duration: 0.08s; }
 /* Picked: the slab rises out of the carving, its face coming up over the carved one, its light turned the other way. */
 .choice-card::before { content: ""; position: absolute; inset: 0; background: var(--slab); opacity: 0; pointer-events: none; transition: opacity 0.3s cubic-bezier(.4,0,.2,1), box-shadow 0.25s cubic-bezier(.4,0,.2,1); }
-.choice-card:has(.choice-input:checked) { box-shadow: var(--slab-shade); color: var(--ink); }
+/* Its card keeps no shade of its own (the slab's face is over it), and none an outer one: the press's inner shade and dim then ease out
+   under the rising slab as you let go, instead of vanishing at once, as an inner shade can't ease into an outer one. */
+.choice-card:has(.choice-input:checked) { box-shadow: none; color: var(--ink); }
 .choice-card:has(.choice-input:checked)::before { opacity: 1; }
 /* Its orange is light inside the glass along the edge that leads: a bright line at the edge, flooding a little way in and fading out. */
 .choice-card::after { content: ""; position: absolute; z-index: 2; left: 0; right: 0; bottom: 0; height: 16px; pointer-events: none; opacity: 0; transition: opacity 0.35s cubic-bezier(.4,0,.2,1);
@@ -642,7 +644,6 @@ component({
 .choice-list .choice-words { gap: 2px; }
 .choice-list .choice-card.cut-carved > .cut-line { --band-top: transparent; --band-left: transparent; --band-right: transparent; --band-bottom: transparent; }
 .choice-list .choice-card.cut-carved > .cut-line polygon { stroke: transparent; }
-.choice-list .choice-card:has(.choice-input:checked) { box-shadow: var(--slab-shade); }
 /* The picked slab is bevelled as a raised piece, every side: lit along its top and left, shaded along its bottom and right, as the carvings
    round it are bevelled the other way. A press dims its face but leaves the light on its edges alone. */
 .choice-card:has(.choice-input:checked) > .cut-line, .choice-list .choice-card:has(.choice-input:checked) > .cut-line { --band-top: var(--raise-top); --band-left: var(--raise-left); --band-right: var(--raise-right); --band-bottom: var(--raise-bottom); }
