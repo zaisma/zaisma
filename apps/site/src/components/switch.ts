@@ -205,6 +205,8 @@ export const SWITCH_SCRIPT = `/* switches */(function () {
     // A page script can pick a tab too (the gallery's Light or Dark, when the theme changes elsewhere).
     sw.pickTab = function (tab) {
       if (tab.tagName === "BUTTON") tabs.forEach(function (each) { each.setAttribute("aria-pressed", String(each === tab)); });
+      // A link within this page (or one a page script shows) becomes the one you're on, so pressing it again stays put and the one you left slides back.
+      else tabs.forEach(function (each) { if (each === tab) each.setAttribute("aria-current", "page"); else each.removeAttribute("aria-current"); });
       put(slab, tab, true);
       // In a row that scrolls, the picked tab comes whole into view, clear of the row's fades (SCROLL_FADE_SCRIPT's showWhole).
       var row = sw.closest("[data-fades-sideways]");
