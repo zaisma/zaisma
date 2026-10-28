@@ -86,13 +86,19 @@ export const SWITCH_SCRIPT = `/* switches */(function () {
       for (var i = 0; i < 6; i++) { var x = 3 * (1 - u) * (1 - u) * u * 0.3 + 3 * (1 - u) * u * u * 0.4 + u * u * u - t, dx = 3 * (1 - u) * (1 - u) * 0.3 + 6 * (1 - u) * u * (0.4 - 0.3) + 3 * u * u * (1 - 0.4); if (Math.abs(dx) < 1e-6) break; u -= x / dx; }
       return 3 * (1 - u) * (1 - u) * u * 1.2 + 3 * (1 - u) * u * u * 1 + u * u * u;
     }
-    function place(el, at) { el.slideAt = at; if (isVertical) { el.style.height = at.size + "px"; el.style.transform = "translateY(" + at.pos + "px)"; } else { el.style.width = at.size + "px"; el.style.transform = "translateX(" + at.pos + "px)"; } }
+    // Its size in whole pixels, as its cut shape measures it (offsetWidth): a size between two would have its shape drawn a pixel off, flipping
+    // as the slide settles. Its place can stay between pixels: moving it doesn't change its shape.
+    function place(el, at) {
+      el.slideAt = at; var sizePx = Math.round(at.size) + "px";
+      if (isVertical) { el.style.height = sizePx; el.style.transform = "translateY(" + at.pos + "px)"; } else { el.style.width = sizePx; el.style.transform = "translateX(" + at.pos + "px)"; }
+    }
     function slide(el, to, ms) {
       var from = el.slideAt || to, startMs = performance.now(), id = (el.slideId || 0) + 1; el.slideId = id;
       (function frame() {
         if (el.slideId !== id) return;
         var t = Math.min(1, (performance.now() - startMs) / ms), e = spring(t);
-        place(el, { pos: from.pos + (to.pos - from.pos) * e, size: from.size + (to.size - from.size) * e });
+        // Only its place springs past and back; its size stops at the tab's, so it never steps a pixel back as it settles.
+        place(el, { pos: from.pos + (to.pos - from.pos) * e, size: from.size + (to.size - from.size) * Math.min(1, e) });
         if (el.redrawCut) el.redrawCut();
         if (t < 1) requestAnimationFrame(frame);
       })();
