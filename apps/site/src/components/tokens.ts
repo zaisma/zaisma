@@ -25,7 +25,7 @@ export const LIGHT_GLASS = `color-scheme: light;
   --float-cast: drop-shadow(0 1px 3px rgba(20, 23, 28, 0.08)) drop-shadow(0 6px 16px rgba(20, 23, 28, 0.1));
   --slab: linear-gradient(180deg, rgba(255, 255, 255, 0.88), rgba(255, 255, 255, 0.6)); --slab-shade: 0 4px 10px rgba(20, 23, 28, 0.12); --slab-cast: drop-shadow(0 1px 1px rgba(20, 30, 50, 0.14)) drop-shadow(0 3px 6px rgba(20, 30, 50, 0.16)); --ghost: rgba(255, 255, 255, 0.45); --ghost-rest: rgba(255, 255, 255, 0); --wash-rest: rgba(20, 23, 28, 0); --wash: rgba(20, 23, 28, 0.08); --wash-press: rgba(20, 23, 28, 0.14);
   --btn: #F7F8FA; --btn-hover: #FFFFFF; --btn-press: rgba(226, 232, 240, 0.9);
-  --press-shade: inset 0 2px 5px rgba(20, 30, 50, 0.16); --press-deep: inset 0 2px 12px rgba(20, 30, 50, 0.14), inset 0 0 0 100vmax rgba(20, 30, 50, 0.05);
+  --press-shade: inset 0 2px 5px rgba(20, 30, 50, 0.16); --run-flood: rgba(247, 147, 26, 0.14); --press-deep: inset 0 2px 12px rgba(20, 30, 50, 0.14), inset 0 0 0 100vmax rgba(20, 30, 50, 0.05);
   /* The edge of something you press, at rest (a check's box, a toggle's slot, a choice card): 3:1 or more against the glass. */
   --press-rim: rgba(20, 23, 28, 0.5);
   /* A color swatch's rim against its well, so a color near the well's own (black in dark, white in light) still shows: 3:1 or more. */
@@ -75,7 +75,7 @@ export const SMOKED_GLASS = `color-scheme: dark;
   --float-cast: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.25)) drop-shadow(0 8px 20px rgba(0, 0, 0, 0.3));
   --slab: rgba(255, 255, 255, 0.2); --slab-shade: 0 0 0 transparent; --slab-cast: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.4)) drop-shadow(0 3px 8px rgba(0, 0, 0, 0.45)); --ghost: rgba(255, 255, 255, 0.1); --ghost-rest: rgba(255, 255, 255, 0); --wash-rest: rgba(255, 255, 255, 0); --wash: rgba(255, 255, 255, 0.14); --wash-press: rgba(255, 255, 255, 0.22);
   --btn: #3A3E47; --btn-hover: #444852; --btn-press: rgba(255, 255, 255, 0.07);
-  --press-shade: inset 0 2px 5px rgba(0, 0, 0, 0.4); --press-deep: inset 0 2px 14px rgba(0, 0, 0, 0.4), inset 0 0 0 100vmax rgba(0, 0, 0, 0.12);
+  --press-shade: inset 0 2px 5px rgba(0, 0, 0, 0.4); --run-flood: rgba(247, 147, 26, 0.28); --press-deep: inset 0 2px 14px rgba(0, 0, 0, 0.4), inset 0 0 0 100vmax rgba(0, 0, 0, 0.12);
   --press-rim: rgba(255, 255, 255, 0.45);
   --swatch-rim: rgba(255, 255, 255, 0.45);
   --off-face: rgba(0, 0, 0, 0.22);
@@ -198,7 +198,7 @@ html { -webkit-tap-highlight-color: transparent; }
 @media (prefers-reduced-motion: no-preference) { @view-transition { navigation: auto; } ::view-transition-group(root) { animation-duration: 0.12s; } }
 :root {
   color-scheme: light dark;
-  --run: #F7931A; --run-hi: #FFB24A; --run-lo: #A85A06; --run-flood: rgba(247, 147, 26, 0.28);
+  --run: #F7931A; --run-hi: #FFB24A; --run-lo: #A85A06;
   /* Words and marks on an orange face (the runner, a ticked box): dark ink in both themes, 7.8:1 against it (white is 2.3:1). */
   --on-run: #14171C;
   /* The only red: a delete's confirm step, never anything else. */
