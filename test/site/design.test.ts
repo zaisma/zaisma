@@ -714,7 +714,7 @@ const NOT_SPACING = new Set<string>([
   // Choice cards side by side slant toward each other as a row does, and go one under another (no overlap) once each can't have a card's width.
   ".choice-cards > .choice-card:not(:last-child) | margin-inline-end",
   // A control's own parts: a well's inset round its slab, the birthday's wheels, and a list of places, one control its slab glides along.
-  ".tab-switch | padding", ".tab-switch.small | padding", ".color-well | padding", ".steps | padding", ".wheels | gap", ".wheels | padding",
+  ".tab-switch | padding", ".tab-switch.small | padding", ".steps | padding", ".wheels | gap", ".wheels | padding",
   ".dropdown | gap", ".dropdown-in | gap", ".menu-choices | gap",
   // Room to scroll, or for a scrollbar or a page's rail.
   ".wheel | padding", "html | scroll-padding-top", ".gallery-layout | padding-right",

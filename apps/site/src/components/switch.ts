@@ -1,8 +1,7 @@
 import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
 import { controlMarkup, type ControlMarkup } from "./control-markup.ts";
-import { CUT_LINE, colorPicker, icon, tag, well, type ColorChoice, type IconName } from "./foundations.ts";
-import { TINT_CHOICES } from "./actions.ts";
+import { CUT_LINE, icon, tag, well, type IconName } from "./foundations.ts";
 
 /*
  * The switch, from the sign-in draft's Sign in / Make an account switch and the home draft's sort switch, and the three foundations
@@ -410,82 +409,6 @@ component({
   ],
 });
 
-
-component({
-  name: "Color picker",
-  slug: "color-picker",
-  group: "inputs",
-  subgroup: "pickers",
-  summary: "Pick one color from a few: a way in's tint, the glass's hue. Plain swatches in a carved well, like the switch's tabs; the picked one keeps its whole color, with an orange bar under it, and is named beside them.",
-  styles: `
-/* A color picker: plain swatches in a carved well, like the switch's tabs. A swatch is a control like any other, cut by the edge rule,
-   so swatches side by side slant toward each other and the end ones follow the well's corners. */
-.color-picker { display: flex; align-items: center; gap: 0; font: var(--type-facts); color: var(--ink-2); --clear-swatch: repeating-conic-gradient(var(--line) 0 25%, transparent 0 50%) 0 0 / 8px 8px; }
-.color-well { position: relative; display: flex; flex: none; padding: 4px 4px 13px; background: var(--well); box-shadow: var(--well-shade); clip-path: var(--cut-shape);
-  --swatch-size: 32px; }
-.color-well .color-pick:not(:last-of-type) { margin-inline-end: var(--gap-control-row-boxes); }
-.color-picker-name { margin-left: var(--gap-words-control); }
-.color-pick { position: relative; flex: none; width: var(--swatch-size); height: var(--swatch-size); padding: 0; border: 0; cursor: pointer; background: none; }
-/* Its color is painted inside its cut, and so is its line; the button itself isn't clipped, so on a touch screen its hit area can reach
-   past its color (below). */
-.color-pick::after { content: ""; position: absolute; inset: 0; background: var(--swatch); clip-path: var(--cut-shape); }
-.color-pick > .cut-line { clip-path: var(--cut-shape); }
-/* Its rim: a line inside its cut that stands out from the well by 3:1 at least in either theme, so a swatch of the well's own color (white
-   on light glass, black on smoked) still shows its shape. */
-.color-pick .cut-line polygon { stroke: var(--swatch-rim, var(--muted)); stroke-width: 2; }
-/* Pointed at: a light rim inside its cut. */
-.color-pick:hover .cut-line polygon { stroke: var(--raise-top); stroke-width: 4; }
-/* Picked: the swatch keeps its whole color, and an orange bar floats under it in the well's bottom: slanting with the swatches between
-   colors, carved like the well's corner under the first or last. COLOR_PICKER_SCRIPT places it and gives it its shape; it glides to the next pick. */
-.color-mark { position: absolute; left: 0; bottom: 4px; width: 0; height: 4px; background: var(--run); pointer-events: none; clip-path: var(--cut-shape);
-  transition: transform 0.45s var(--spring), width 0.45s var(--spring), clip-path 0.45s var(--spring); }
-/* Keyboard focus: the orange line round its cut, like every control's. */
-.color-pick:focus-visible { outline: none; }
-.color-pick:focus-visible .cut-line polygon, .color-pick.is-focused .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
-/* On a touch screen a swatch's hit area is a regular control tall: from the well's top (4px above it) down over the bar's room under it,
-   all inside the well, whose clip would cut off anything reaching further. */
-@media (pointer: coarse) { .color-pick::before { content: ""; position: absolute; left: 0; right: 0; top: -4px; height: var(--touch-target); } }
-@media (prefers-reduced-motion: reduce) { .color-mark { transition: none; } }
-`,
-  render: colorPicker,
-  examples: [
-    { label: "Picked", markup: colorPicker({ label: "Tint", choices: TINT_CHOICES, pickedValue: "indigo" }) },
-    { label: "Clear picked: a checker, the usual sign for see-through", markup: colorPicker({ label: "Tint", choices: TINT_CHOICES, pickedValue: "clear" }) },
-    { label: "Keyboard focus", markup: colorPicker({ label: "Tint", choices: TINT_CHOICES, pickedValue: "indigo", focusedValue: "blue" }) },
-  ],
-});
-
-// Page settings sits with the switch and the color picker, which it uses (foundations.ts can't import this file).
-/** Game-like colors for the gallery's hue example. */
-const HUE_CHOICES: ColorChoice[] = [
-  { name: "None", colorValue: "", swatch: "clear" },
-  { name: "Crimson", colorValue: "#C8384A", swatch: "#C8384A" },
-  { name: "Emerald", colorValue: "#2E9E6B", swatch: "#2E9E6B" },
-  { name: "Violet", colorValue: "#7A4FD8", swatch: "#7A4FD8" },
-  { name: "Gold", colorValue: "#D9A520", swatch: "#D9A520" },
-];
-
-
-component({
-  name: "Page settings",
-  slug: "page-settings",
-  group: "foundations",
-  subgroup: "look",
-  summary: "Every page has one set of settings that all its components follow: light or dark, and each component's own, like the glass's hue. One change covers every instance at once, and a page only carries the ones its components use.",
-  styles: "",
-  examples: [
-    {
-      label: "Light or dark: the whole gallery follows",
-      isWide: true,
-      markup: html`<div data-setting-theme>${tabSwitch({ label: "Light or dark", switchSize: "small", tabs: [{ label: "Light", tabValue: "light", isCurrent: true }, { label: "Dark", tabValue: "dark", isCurrent: false }] })}</div>`,
-    },
-    {
-      label: "Glass: its hue, on every piece of glass in the gallery at once",
-      isWide: true,
-      markup: html`<div data-setting-hue>${colorPicker({ label: "The glass's hue", choices: HUE_CHOICES, pickedValue: "" })}</div>`,
-    },
-  ],
-});
 
 // Motion sits with the switch, whose slab shows it, so it can use the real one (foundations.ts can't import this file).
 component({

@@ -1,6 +1,8 @@
 import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
-import { CUT_LINE, glassPane, icon, well } from "./foundations.ts";
+import { CUT_LINE, floatingPane, glassPane, icon, well, type ColorChoice } from "./foundations.ts";
+import { cutField } from "./fields.ts";
+import { tabSwitch } from "./switch.ts";
 import { tertiaryButton } from "./actions.ts";
 import { controlMarkup, type ControlMarkup } from "./control-markup.ts";
 import { examplePane } from "./example-pane.ts";
@@ -464,5 +466,214 @@ component({
     { label: "A game's link", markup: examplePane(qrCode({ id: "example-qr-game", label: "QR code for this link", caption: "Scan to play", imageUrl: STAND_IN_QR_CODE })) },
     { label: "Compact, on a wide screen: smaller, its line beside it", markup: examplePane(qrCode({ id: "example-qr-compact", label: "QR code for this link", caption: "Scan to play", imageUrl: STAND_IN_QR_CODE, isCompact: true })) },
     { label: "Masked, for a streamer: blurred until shown", markup: examplePane(qrCode({ id: "example-qr-masked", label: "QR code for this link", caption: "Scan to join this match", imageUrl: STAND_IN_QR_CODE, isMasked: true })), isStill: true },
+  ],
+});
+
+export interface ColorFieldOptions {
+  /** The name its color is sent under: a hex code ("#6D73E8"), or a named color's colorValue. */
+  name: string;
+  label: string;
+  /** Unique on the page. Defaults to color-<name>. */
+  id?: string;
+  /** The color it starts on: a hex code, or one of namedChoices' colorValue. */
+  pickedValue: string;
+  /** Colors a press away under the wheel, each with its name (a glass's hue presets, None); picking one sends its colorValue. */
+  namedChoices?: ColorChoice[];
+  /** The gallery's fixed states: "open" shows its pane where it is; "is-focused" is its wheel reached by keyboard. */
+  state?: "open" | "is-focused";
+}
+
+const HEX_CODE = /^#[0-9A-Fa-f]{6}$/;
+
+/**
+ * A color field: a field showing its color and hex code that opens a Floating pane with a wheel carved into its glass (hue round it, strength
+ * from its soft middle to its rim), the toggle's slab marking the pick, beside the picked color, a Cut field for its hex code and a Slider
+ * for its brightness; named colors, when it has them, a press away under them. Dragging the wheel, typing a code or picking a name moves
+ * every part to that color. The pick goes with its form, and each change fires `zaisma:color` on the field (`detail.colorValue`).
+ */
+export function colorField(options: ColorFieldOptions): Raw {
+  const id = options.id ?? `color-${options.name}`;
+  const isOpen = options.state === "open" || options.state === "is-focused";
+  const named = options.namedChoices?.find((choice) => choice.colorValue === options.pickedValue);
+  const firstHex = options.namedChoices?.map((choice) => choice.swatch).find((swatch) => HEX_CODE.test(swatch));
+  const hex = (HEX_CODE.test(options.pickedValue) ? options.pickedValue : named && HEX_CODE.test(named.swatch) ? named.swatch : firstHex ?? "#5865F2").toUpperCase();
+  const swatchOf = (swatch: string) => (swatch === "clear" ? "var(--clear-swatch)" : swatch);
+  return html`<fieldset class="wheel-field color-field" id="${id}" data-color-field data-color-hex="${hex}">
+<legend id="${id}-legend">${options.label}</legend>
+<button type="button" class="wheel-button color-button cut-carved no-icon" data-cut-line="10" aria-expanded="${isOpen ? "true" : "false"}" aria-controls="${id}-pick" aria-describedby="${id}-legend">${CUT_LINE}<span class="color-chip" aria-hidden="true" style="--swatch:${named ? swatchOf(named.swatch) : hex}"></span><span class="wheel-value color-value">${named?.name ?? hex}</span><span class="wheel-chev">${icon("chevron-down")}</span></button>
+${floatingPane({
+    id: `${id}-pick`,
+    placement: "under",
+    kind: "color-pick",
+    role: "group",
+    label: options.label,
+    isShownInPlace: isOpen,
+    body: html`<div class="color-pane"><div class="color-wheel cut-carved${options.state === "is-focused" ? " is-focused" : ""}" data-cut-line="10" tabindex="0" role="slider" aria-label="Hue and strength" aria-valuetext="${hex}">${CUT_LINE}<span class="color-wheel-light" aria-hidden="true"></span><span class="color-knob" aria-hidden="true" data-on-no-pane><span class="color-knob-slab cut-raised" data-cut-line="6">${CUT_LINE}</span></span></div><div class="color-side"><span class="color-swatch" aria-hidden="true"></span>${cutField({ name: `${options.name}_hex`, id: `${id}-hex`, label: "Hex code", type: "text", text: hex, autocomplete: "off", characterPattern: "[#0-9A-Fa-f]", maximumCharacterCount: 7, isUppercase: true })}${slider({ name: `${options.name}_brightness`, id: `${id}-brightness`, label: "Brightness", minimumNumber: 0, maximumNumber: 100, stepNumber: 1, pickedNumber: 100, unit: "%" })}</div>${
+      options.namedChoices
+        ? html`<div class="color-named" role="group" aria-label="Named colors">${options.namedChoices.map(
+            (choice) =>
+              html`<button type="button" class="color-named-pick" data-cut-line="6" data-cut-ring="3" data-color-value="${choice.colorValue}" aria-label="${choice.name}" aria-pressed="${choice === named ? "true" : "false"}" style="--swatch:${swatchOf(choice.swatch)}">${CUT_LINE}</button>`,
+          )}</div>`
+        : ""
+    }</div>`,
+  })}
+<input type="hidden" name="${options.name}" value="${named ? named.colorValue : hex}">
+</fieldset>`;
+}
+
+/** A color field's pane: the wheel, the hex code, the brightness and the names move together, and the field shows and sends the pick. */
+export const COLOR_FIELD_SCRIPT = `/* color fields */(function () {
+  function hexOf(rgb) { return "#" + rgb.map(function (x) { return x.toString(16).padStart(2, "0"); }).join("").toUpperCase(); }
+  function rgbOf(h, s, v) { function f(n) { var k = (n + h / 60) % 6; return Math.round((v - v * s * Math.max(0, Math.min(k, 4 - k, 1))) * 255); } return [f(5), f(3), f(1)]; }
+  function hsvOf(hex) {
+    var n = parseInt(hex.slice(1), 16), r = (n >> 16) / 255, g = ((n >> 8) & 255) / 255, b = (n & 255) / 255, most = Math.max(r, g, b), d = most - Math.min(r, g, b), h = 0;
+    if (d) { h = most === r ? ((g - b) / d) % 6 : most === g ? (b - r) / d + 2 : (r - g) / d + 4; h *= 60; if (h < 0) h += 360; }
+    return [h, most ? d / most : 0, most];
+  }
+  // What's typed: six digits, or three for short, with or without its #.
+  function typedHex(text) { var t = String(text || "").replace(/[^0-9a-f]/gi, ""); if (t.length === 3) t = t.replace(/./g, "$&$&"); return t.length === 6 ? "#" + t.toUpperCase() : null; }
+  function swatchHex(text) { var found = /^\\s*(#[0-9a-f]{6})\\s*$/i.exec(text || ""); return found ? found[1].toUpperCase() : null; }
+  window.zaismaWatch.each("[data-color-field]", function (root) {
+    var button = root.querySelector(".color-button"), pick = root.querySelector(".color-pick"), wheel = root.querySelector(".color-wheel"), knob = root.querySelector(".color-knob");
+    var hexField = root.querySelector(".color-side .cut-field input"), bright = root.querySelector(".color-side .slider-input"), sent = root.querySelector(':scope > input[type="hidden"]');
+    var shown = button.querySelector(".color-value"), chip = button.querySelector(".color-chip"), named = Array.prototype.slice.call(root.querySelectorAll(".color-named-pick"));
+    var hsv = hsvOf(swatchHex(sent.value) || root.getAttribute("data-color-hex")), namedPick = null, isSetting = false;
+    // It starts on a named color when what it sends is one's value (Emerald's "#2E9E6B" as much as None's "").
+    named.forEach(function (each) { if (each.getAttribute("data-color-value") === sent.value) namedPick = sent.value; });
+    // Floating, it's as wide as what's in it; shown open in place (the gallery's), it lies in the page's flow under the field.
+    var float = window.zaismaFloat(pick, { anchor: button, home: root, isAnchorWidth: pick.classList.contains("in-place"), onToggle: function (isShown) { button.setAttribute("aria-expanded", String(isShown)); if (isShown) draw(); } });
+    function draw(isTyping) {
+      var hex = hexOf(rgbOf(hsv[0], hsv[1], hsv[2])), choice = null;
+      named.forEach(function (each) { if (each.getAttribute("data-color-value") === namedPick) choice = each; });
+      var swatch = choice ? choice.style.getPropertyValue("--swatch").trim() : hex;
+      // On the field and on its pane, which floats out of the field to the page itself.
+      [root, pick].forEach(function (holder) {
+        holder.style.setProperty("--color-picked", swatch);
+        holder.style.setProperty("--color-full", hexOf(rgbOf(hsv[0], hsv[1], 1)));
+        holder.style.setProperty("--color-brightness", String(hsv[2]));
+      });
+      // The slab sits at the pick's hue round the middle, its strength out toward the rim (the round one's, inside the square well).
+      var r = wheel.clientWidth / 2, a = hsv[0] * Math.PI / 180;
+      knob.style.left = (r + hsv[1] * r * Math.cos(a)) + "px"; knob.style.top = (r + hsv[1] * r * Math.sin(a)) + "px";
+      wheel.setAttribute("aria-valuetext", hex);
+      chip.style.setProperty("--swatch", swatch);
+      shown.textContent = choice ? choice.getAttribute("aria-label") : hex;
+      sent.value = choice ? namedPick : hex;
+      named.forEach(function (each) { each.setAttribute("aria-pressed", String(each === choice)); });
+      if (!isTyping) hexField.value = hex;
+      var percent = Math.round(hsv[2] * 100);
+      if (Number(bright.value) !== percent) { bright.value = String(percent); isSetting = true; bright.dispatchEvent(new Event("input", { bubbles: true })); isSetting = false; }
+    }
+    function changed() { root.dispatchEvent(new CustomEvent("zaisma:color", { bubbles: true, detail: { colorValue: sent.value } })); }
+    function fromWheel(event) {
+      var box = wheel.getBoundingClientRect(), r = box.width / 2, dx = event.clientX - box.left - r, dy = event.clientY - box.top - r;
+      hsv[0] = (Math.atan2(dy, dx) * 180 / Math.PI + 360) % 360; hsv[1] = Math.min(1, Math.hypot(dx, dy) / r); namedPick = null; draw(); changed();
+    }
+    wheel.addEventListener("pointerdown", function (event) { wheel.setPointerCapture(event.pointerId); wheel.classList.add("is-held"); fromWheel(event); wheel.focus({ preventScroll: true }); event.preventDefault(); });
+    wheel.addEventListener("pointermove", function (event) { if (wheel.hasPointerCapture(event.pointerId)) fromWheel(event); });
+    wheel.addEventListener("pointerup", function () { wheel.classList.remove("is-held"); });
+    wheel.addEventListener("pointercancel", function () { wheel.classList.remove("is-held"); });
+    // The arrows turn the hue (left and right) and change its strength (up and down); with Shift, further.
+    wheel.addEventListener("keydown", function (event) {
+      var turn = event.shiftKey ? 30 : 5, more = event.shiftKey ? 0.2 : 0.05;
+      if (event.key === "ArrowLeft") hsv[0] = (hsv[0] + 360 - turn) % 360;
+      else if (event.key === "ArrowRight") hsv[0] = (hsv[0] + turn) % 360;
+      else if (event.key === "ArrowUp") hsv[1] = Math.min(1, hsv[1] + more);
+      else if (event.key === "ArrowDown") hsv[1] = Math.max(0, hsv[1] - more);
+      else return;
+      event.preventDefault(); namedPick = null; draw(); changed();
+    });
+    bright.addEventListener("input", function () { if (isSetting) return; hsv[2] = Number(bright.value) / 100; namedPick = null; draw(); changed(); });
+    hexField.addEventListener("input", function () { var hex = typedHex(hexField.value); if (!hex) return; hsv = hsvOf(hex); namedPick = null; draw(true); changed(); });
+    hexField.addEventListener("blur", function () { draw(); });
+    named.forEach(function (each) {
+      each.addEventListener("click", function () { namedPick = each.getAttribute("data-color-value"); var hex = swatchHex(each.style.getPropertyValue("--swatch")); if (hex) hsv = hsvOf(hex); draw(); changed(); });
+    });
+    button.addEventListener("click", function () { if (float.isOpen()) float.close(false); else float.open(); });
+    if (pick.classList.contains("in-place")) float.open();
+    draw();
+  });
+})();
+`;
+
+/** Game-like colors for the gallery's hue examples, None first. */
+const HUE_CHOICES: ColorChoice[] = [
+  { name: "None", colorValue: "", swatch: "clear" },
+  { name: "Crimson", colorValue: "#C8384A", swatch: "#C8384A" },
+  { name: "Emerald", colorValue: "#2E9E6B", swatch: "#2E9E6B" },
+  { name: "Violet", colorValue: "#7A4FD8", swatch: "#7A4FD8" },
+  { name: "Gold", colorValue: "#D9A520", swatch: "#D9A520" },
+];
+
+component({
+  name: "Color field",
+  slug: "color-field",
+  group: "inputs",
+  subgroup: "pickers",
+  summary: "Any color: a game's accent, the glass's hue. A field with its color and hex code that opens a wheel carved into glass, beside a field for the hex code and the brightness; named colors, when there are some, a press away. Typing a code moves the wheel to it.",
+  styles: `
+/* A color field: the wheel field's button, its color's chip before its hex code, opening a Floating pane under it. In the pane, a wheel carved into
+   the glass and cut by the edge rule like any carving there: hue round its middle, strength from its soft middle out to its rim, dimmed by the
+   brightness; the toggle's slab (the --thumb tokens) marks the pick. Beside it, the picked color, a Cut field for its hex code and a Slider
+   whose groove runs from black to the full color. Named colors sit under them as chips of colored glass, the picked one ringed in ink. */
+.color-field, .color-pick { --clear-swatch: repeating-conic-gradient(var(--line) 0 25%, transparent 0 50%) 0 0 / 8px 8px; }
+.color-chip { flex: none; width: 20px; height: 20px; background: var(--swatch); clip-path: polygon(5px 0, 100% 0, 100% 15px, 15px 100%, 0 100%, 0 5px); box-shadow: inset 0 1.5px 0 rgba(255,255,255,0.45), inset 0 -1.5px 0 rgba(0,0,0,0.22); }
+.color-value { font-variant-numeric: tabular-nums; }
+.color-pane { display: grid; grid-template-columns: 184px minmax(0, 220px); gap: var(--gap-control-stack) var(--gap-words-control); align-items: start; }
+@media (max-width: 480px) { .color-pane { grid-template-columns: minmax(0, 1fr); justify-items: center; } .color-side { width: 100%; } }
+.color-wheel { position: relative; width: 184px; height: 184px; cursor: crosshair; touch-action: none; outline: none; clip-path: var(--cut-shape); }
+.color-wheel-light { position: absolute; inset: 0; background: radial-gradient(circle closest-side, #fff, rgba(255,255,255,0) 100%), conic-gradient(from 90deg, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00); }
+/* Brightness dims the whole wheel, as less light comes through it; the well's own shade lies over it. */
+.color-wheel-light::after { content: ""; position: absolute; inset: 0; background: #000; opacity: calc(1 - var(--color-brightness, 1)); }
+.color-wheel::after { content: ""; position: absolute; inset: 0; box-shadow: inset 0 4px 6px var(--groove-shade), inset 0 -2px 0 var(--groove-lip); pointer-events: none; }
+.color-wheel > .cut-line { z-index: 2; }
+.color-knob { position: absolute; z-index: 3; width: 20px; height: 20px; margin: -10px 0 0 -10px; pointer-events: none; filter: var(--thumb-cast); transition: filter 0.2s; }
+.color-knob-slab { position: relative; display: block; width: 100%; height: 100%; background: var(--thumb-face); clip-path: var(--cut-shape); }
+.color-knob-slab::after { content: ""; position: absolute; inset: 0; background: var(--thumb-press-face); opacity: 0; transition: opacity 0.12s; }
+.color-wheel.is-held .color-knob { filter: var(--thumb-cast-pressed); transition-duration: 0.08s; }
+.color-wheel.is-held .color-knob-slab::after { opacity: 1; transition-duration: 0.08s; }
+.color-wheel:focus-visible > .cut-line polygon, .color-wheel.is-focused > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
+.color-side { display: grid; gap: var(--gap-control-stack); min-width: 0; }
+.color-swatch { height: 48px; background: var(--color-picked); clip-path: polygon(10px 0, 100% 0, 100% 100%, 0 100%, 0 10px); box-shadow: inset 0 1.5px 0 rgba(255,255,255,0.4), inset 0 -1.5px 0 rgba(0,0,0,0.2); }
+/* Its brightness: the slider's groove runs from black to the full color, with no orange in it. */
+.color-side .slider-line { background: linear-gradient(90deg, #000, var(--color-full, #fff)); }
+.color-side .slider-fill { display: none; }
+.color-named { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: var(--gap-control-stack); padding: 3px; }
+/* A named color: a chip of colored glass, its edges lit and shaded; the picked one is ringed in ink a gap out from it (data-cut-ring). */
+.color-named-pick { position: relative; width: 28px; height: 28px; padding: 0; border: 0; background: none; cursor: pointer; }
+.color-named-pick::before { content: ""; position: absolute; inset: 0; background: var(--swatch); clip-path: var(--cut-shape); box-shadow: inset 0 1.5px 0 rgba(255,255,255,0.45), inset 0 -1.5px 0 rgba(0,0,0,0.22); }
+.color-named-pick[aria-pressed="true"] > .cut-line .cut-ring { stroke: var(--ink); }
+.color-named-pick:focus-visible { outline: none; }
+.color-named-pick:focus-visible > .cut-line .cut-ring { stroke: var(--focus); }
+@media (prefers-reduced-motion: reduce) { .color-knob, .color-knob-slab::after { transition: none; } }
+`,
+  render: colorField,
+  examples: [
+    { label: "A color", markup: examplePane(colorField({ name: "accent", id: "example-color-accent", label: "Accent", pickedValue: "#6D73E8" })) },
+    { label: "Open", markup: examplePane(colorField({ name: "accent_open", id: "example-color-open", label: "Accent", pickedValue: "#6D73E8", state: "open" })), isWide: true },
+    { label: "With named colors, one picked", markup: examplePane(colorField({ name: "hue_named", id: "example-color-named", label: "The glass's hue", pickedValue: "#2E9E6B", namedChoices: HUE_CHOICES, state: "open" })), isWide: true },
+    { label: "Keyboard focus on its wheel", markup: examplePane(colorField({ name: "accent_focus", id: "example-color-focus", label: "Accent", pickedValue: "#C8384A", state: "is-focused" })), isWide: true, isStill: true },
+  ],
+});
+
+// Page settings sits with the color field and the switch, which it uses (foundations.ts can't import this file).
+component({
+  name: "Page settings",
+  slug: "page-settings",
+  group: "foundations",
+  subgroup: "look",
+  summary: "Every page has one set of settings that all its components follow: light or dark, and each component's own, like the glass's hue. One change covers every instance at once, and a page only carries the ones its components use.",
+  styles: "",
+  examples: [
+    {
+      label: "Light or dark: the whole gallery follows",
+      isWide: true,
+      markup: html`<div data-setting-theme>${tabSwitch({ label: "Light or dark", switchSize: "small", tabs: [{ label: "Light", tabValue: "light", isCurrent: true }, { label: "Dark", tabValue: "dark", isCurrent: false }] })}</div>`,
+    },
+    {
+      label: "Glass: its hue, on every piece of glass in the gallery at once",
+      isWide: true,
+      markup: html`<div data-setting-hue>${colorField({ name: "glass_hue", id: "setting-glass-hue", label: "The glass's hue", pickedValue: "", namedChoices: HUE_CHOICES })}</div>`,
+    },
   ],
 });

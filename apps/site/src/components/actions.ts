@@ -1,6 +1,6 @@
 import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
-import { CUT_LINE, EDGE, ICONS, backdrop, colorPicker, glassPane, icon, loader, type ColorChoice, type IconName } from "./foundations.ts";
+import { CUT_LINE, EDGE, ICONS, backdrop, glassPane, icon, loader, type ColorChoice, type IconName } from "./foundations.ts";
 import { TOKEN_STYLES } from "./tokens.ts";
 import { controlMarkup, type ControlMarkup } from "./control-markup.ts";
 import { paneParts } from "./layout.ts";
@@ -437,7 +437,7 @@ component({
  */
 const world = (standInSlug: string, glassKind: "light" | "smoked", body: Raw) =>
   html`<div ${glassKind === "light" ? raw('data-theme-choice="light"') : raw('class="smoke"')} style="position:relative;overflow:hidden;display:grid;gap:var(--gap-control-stack);width:min(380px,100%);padding:var(--pad-pane)">${backdrop({ isFramed: true, standInSlug })}${body}</div>`;
-/** A secondary button's tints, for a color picker (inputs.ts's Color picker, the gallery's tint palette). */
+/** A secondary button's tints, each with its name and swatch (the gallery shows every one). */
 export const TINT_CHOICES: (ColorChoice & { colorValue: ButtonTint })[] = [
   { name: "Clear", colorValue: "clear", swatch: "clear" },
   // Plain follows the glass: white on light, Google's near-black on smoked, so its swatch shows both, half and half.
@@ -446,7 +446,7 @@ export const TINT_CHOICES: (ColorChoice & { colorValue: ButtonTint })[] = [
   { name: "Indigo", colorValue: "indigo", swatch: "#5865F2" },
   { name: "Black", colorValue: "black", swatch: "#14171C" },
 ];
-const tintPalette = () => html`<div class="tint-try" data-tint-try>${wayButton("Continue with Discord", "discord")}${colorPicker({ label: "Tint", choices: TINT_CHOICES, pickedValue: "indigo" })}</div>`;
+const tintPalette = () => html`<div style="display:grid;gap:var(--gap-control-stack);${COLUMN}">${TINT_CHOICES.map((choice) => wayButton(choice.name, "discord", { tint: choice.colorValue }))}</div>`;
 const wayButton = (label: string, wayIn: WayIn, more: Omit<SecondaryButtonOptions, "wayIn"> = {}) => secondaryButton(label, { type: "button", wayIn, isFullWidth: true, ...more });
 const waysIn = () => html`${wayButton("Sign in with a passkey", "passkey")}${wayButton("Continue with Google", "google")}${wayButton("Continue with Discord", "discord")}`;
 
@@ -537,8 +537,6 @@ component({
 .cut-btn[aria-busy="true"] .way-mark { display: none; }
 .cut-btn:disabled:not([aria-busy="true"]) .way-mark { opacity: 0.45; }
 .cut-btn:disabled:not([aria-busy="true"]) .way-mark .one-color path { fill: currentColor; }
-/* The gallery's tint palette: a Color picker; pick one and the button above takes it (GALLERY_SCRIPT). */
-.tint-try { display: grid; gap: var(--gap-block-block); width: min(340px, 100%); }
 `,
   render: secondaryButton,
   examples: [
@@ -559,7 +557,7 @@ component({
     { label: "A way in, pressed: it carves in", markup: html`<div style="${COLUMN}">${wayButton("Continue with Discord", "discord", { state: "is-pressed" })}</div>`, isStill: true },
     { label: "A way in, busy", markup: html`<div style="${COLUMN}">${wayButton("Sign in with a passkey", "passkey", { isBusy: true })}</div>`, isStill: true },
     { label: "A way in, can't press", markup: html`<div style="display:grid;gap:var(--gap-control-stack);${COLUMN}">${wayButton("Sign in with a passkey", "passkey", { isDisabled: true })}${wayButton("Continue with Discord", "discord", { isDisabled: true })}</div>`, isStill: true },
-    { label: "Every tint: pick one", markup: tintPalette() },
+    { label: "Every tint, on a way in", markup: tintPalette(), isStill: true },
     // Over a game's world the glass follows the world, not the theme: light glass on a bright one, smoked on a dark one.
     { label: "Over a bright game world", markup: world("kestrel", "light", waysIn()) },
     { label: "Over a dark game world", markup: world("starward", "smoked", waysIn()) },

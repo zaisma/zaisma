@@ -415,8 +415,9 @@ export const GALLERY_SCRIPT = pageScript(
   document.addEventListener("click", function (event) {
     var themePick = event.target.closest && event.target.closest("[data-setting-theme] button");
     if (themePick) { apply(themePick.value); return; }
-    var huePick = event.target.closest && event.target.closest("[data-setting-hue] .color-pick");
-    if (huePick) window.zaismaSettings.set({ glass: { hueColor: huePick.getAttribute("data-color-value") || null } }, stage);
+  });
+  document.addEventListener("zaisma:color", function (event) {
+    if (event.target.closest && event.target.closest("[data-setting-hue]")) window.zaismaSettings.set({ glass: { hueColor: event.detail.colorValue || null } }, stage);
   });
   pickTheme(stage.dataset.themeChoice === "dark" ? "dark" : "light");
   document.querySelectorAll("[data-glass-play]").forEach(function (play) {
@@ -450,11 +451,6 @@ export const GALLERY_SCRIPT = pageScript(
       place(box);
     });
     place(now());
-  });
-  // The secondary button's tint palette: the button above takes the tint you pick.
-  document.addEventListener("click", function (event) {
-    var swatch = event.target.closest && event.target.closest("[data-tint-try] .color-pick"); if (!swatch) return;
-    swatch.closest("[data-tint-try]").querySelector(".cut-btn").setAttribute("data-tint", swatch.getAttribute("data-color-value"));
   });
 })();
 `,

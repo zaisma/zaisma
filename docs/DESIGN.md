@@ -333,8 +333,8 @@ Every component, with the call that makes it and its options, is in the catalog 
 - **Type**: Every word outside a control's own inside is set in one of these, picked by what the words are. Jost for display, the system's own face for reading; fields are 16px or more, so phones don't zoom in.
 - **Glass**: Zaisma's interface is glass over the game or the page's backdrop, never over a plain color. It's as thin as the words allow: light with dark words, or smoked with light words.
 - **Cut shapes**: Corners are cut, never rounded: 18 and 14 on panes, 16 and 12 on the header, 14 and 12 on menus. Controls follow the edge rule: a slant only beside another control in a row, and every other corner fits what holds it.
-- **Page settings**: Every page has one set of settings that all its components follow: light or dark, and each component's own, like the glass's hue. One change covers every instance at once, and a page only carries the ones its components use.
 - **Motion**: Things move only when pointed at, pressed or chosen: a slab springs across on the spring curve (--spring) in 0.55s, 0.4s for a small one, and a change of size takes 0.45s. Reduced motion stops all of it.
+- **Page settings**: Every page has one set of settings that all its components follow: light or dark, and each component's own, like the glass's hue. One change covers every instance at once, and a page only carries the ones its components use.
 - **Spacing**: Every gap, padding and margin is one of these tokens, picked by what sits on each side of it, never by how close two things feel. A control is anything from Actions & Inputs; words are a heading, label or line; a block is a group of controls with their words, a paragraph, a picture or a pane. If either side is a block, it's --gap-block-block. More room is a multiple of one, never a new number.
 - **Icons** (`icon(name: IconName)`, `icons.ts`): Thin line icons in the words' color, so a kind of fact can be found without reading. Never decoration.
 - **Logo** (`logo(kind: "wordmark" | "mark")`, `foundations.ts`): Zaisma's logo, always a link home: the wordmark at the top of a page, the mark alone in the footer. Drawn in the words' color, never restyled.
@@ -408,12 +408,12 @@ Every component, with the call that makes it and its options, is in the catalog 
   - `options`: `name: string`, `label: string`, `isOn: boolean`, `hint?: string`, `isBusy?: boolean`, `isDisabled?: boolean`, `id?: string`, `state?: PressState`
 - **Slider** (`slider(options: SliderOptions)`, `inputs.ts`): A number on a scale: players in a room, a volume. Dragged, tapped or stepped with the arrow keys; the number shows with its unit as it moves. There are no knobs: this covers them.
   - `options`: `name: string`, `label: string`, `minimumNumber: number`, `maximumNumber: number`, `stepNumber: number`, `pickedNumber: number`, `unit: string`, `isDisabled?: boolean`, `id?: string`, `state?: "is-focused" | "is-pressed"`
-- **Color picker** (`colorPicker(options: { … })`, `foundations.ts`): Pick one color from a few: a way in's tint, the glass's hue. Plain swatches in a carved well, like the switch's tabs; the picked one keeps its whole color, with an orange bar under it, and is named beside them.
-  - `options`: `label: string`, `choices: ColorChoice[]`, `pickedValue: string`, `focusedValue?: string`, `extra?: Raw`
 - **File drop** (`fileDrop(options: FileDropOptions)`, `inputs.ts`): Handing over files: a game's build, a cover, a screenshot for a report. Drop them on it, tap it, or reach it by keyboard; what's picked is listed with its size.
   - `options`: `name: string`, `label: string`, `accept: string`, `isMultiple?: boolean`, `hint: string`, `maximumByteCount?: number`, `error?: string`, `pickedFiles?: FileDropFile[]`, `isDisabled?: boolean`, `id?: string`, `state?: "over"`
 - **QR code** (`qrCode(options: QrCodeOptions)`, `inputs.ts`): A link as a picture a phone's camera reads: a game's address, or a room's, for someone in the same room. Black on white whatever the glass, with a line saying what it opens.
   - `options`: `id: string`, `label: string`, `caption: string`, `imageUrl?: string`, `isMasked?: boolean`, `isCompact?: boolean`, `isLarge?: boolean`
+- **Color field** (`colorField(options: ColorFieldOptions)`, `inputs.ts`): Any color: a game's accent, the glass's hue. A field with its color and hex code that opens a wheel carved into glass, beside a field for the hex code and the brightness; named colors, when there are some, a press away. Typing a code moves the wheel to it.
+  - `options`: `name: string`, `label: string`, `id?: string`, `pickedValue: string`, `namedChoices?: ColorChoice[]`, `state?: "open" | "is-focused"`
 
 ### Navigation
 

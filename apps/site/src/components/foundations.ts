@@ -158,7 +158,7 @@ export const tag = (words: string | number, tone: TagTone, options: { icon?: Ico
   html`<span class="tag ${tone}">${options.icon ? html`${icon(options.icon)}<span>${String(words)}</span>` : String(words)}</span>`;
 
 export interface ColorChoice {
-  /** What it's called, said by a screen reader and shown beside the picker when it's picked. */
+  /** What it's called, said by a screen reader and shown in its field when it's picked (a Color field's named colors). */
   name: string;
   /** The value a page script reads (data-color-value). */
   colorValue: string;
@@ -166,55 +166,6 @@ export interface ColorChoice {
   swatch: string;
 }
 
-/**
- * A color picker (inputs.ts's Color picker shows it): plain swatches in a carved well, like the switch's tabs, slanting toward each other.
- * The picked one keeps its whole color, with an orange bar under it that glides to the next pick (COLOR_PICKER_SCRIPT places it); its name sits beside the well.
- * focusedValue fixes keyboard focus on one, for the gallery.
- */
-export function colorPicker(options: { label: string; choices: ColorChoice[]; pickedValue: string; focusedValue?: string; extra?: Raw }): Raw {
-  const picked = options.choices.find((choice) => choice.colorValue === options.pickedValue);
-  return html`<div class="color-picker" role="group" aria-label="${options.label}"${options.extra ?? ""}><div class="color-well cut-carved" data-cut-line="9">${CUT_LINE}${options.choices.map(
-    (choice) =>
-      html`<button type="button" class="color-pick${choice.colorValue === options.focusedValue ? " is-focused" : ""}" data-cut-line="6" data-color-value="${choice.colorValue}" aria-label="${choice.name}" aria-pressed="${choice === picked ? "true" : "false"}" style="--swatch:${choice.swatch === "clear" ? "var(--clear-swatch)" : choice.swatch}">${CUT_LINE}</button>`,
-  )}<span class="color-mark" aria-hidden="true"${picked ? "" : raw(" hidden")}></span></div><span class="color-picker-name" aria-live="polite">${picked?.name ?? ""}</span></div>`;
-}
-
-/** A pick moves the bar and the name; what the color changes is the page's own script's (it reads data-color-value). */
-export const COLOR_PICKER_SCRIPT = `/* color pickers */(function () {
-  var root = getComputedStyle(document.documentElement);
-  var SLANT_PX = parseFloat(root.getPropertyValue("--control-slant")) || 10;
-  // The bar under the picked swatch: its sides carry on the swatch's own slants down to it, so between colors it slants with them;
-  // under the first or last color, its outer end is straight under the swatch's edge, and the well's own cut corner trims it.
-  function place(well, isGliding) {
-    var mark = well.querySelector(".color-mark"), picks = Array.prototype.slice.call(well.querySelectorAll(".color-pick"));
-    var pick = well.querySelector('.color-pick[aria-pressed="true"]');
-    if (!mark || !pick) { if (mark) mark.hidden = true; return; }
-    mark.hidden = false;
-    var size = pick.offsetHeight, run = SLANT_PX / size, left = pick.offsetLeft, right = left + pick.offsetWidth;
-    var top = mark.offsetTop, below = top - (pick.offsetTop + size), height = mark.offsetHeight;
-    var isFirst = pick === picks[0], isLast = pick === picks[picks.length - 1];
-    var x = isFirst ? [left, left] : [left - run * below, left - run * (below + height)];
-    var endX = isLast ? [right, right] : [right - SLANT_PX - run * below, right - SLANT_PX - run * (below + height)];
-    var from = Math.min(x[0], x[1]), to = Math.max(endX[0], endX[1]);
-    var points = [[x[0] - from, 0], [endX[0] - from, 0], [endX[1] - from, height], [x[1] - from, height]];
-    if (!isGliding) mark.style.transition = "none";
-    mark.style.width = (to - from) + "px"; mark.style.transform = "translateX(" + from + "px)";
-    mark.style.setProperty("--cut-shape", "polygon(" + points.map(function (p) { return p[0].toFixed(2) + "px " + p[1].toFixed(2) + "px"; }).join(", ") + ")");
-    if (!isGliding) { mark.offsetWidth; mark.style.transition = ""; }
-  }
-  function placeAll() { document.querySelectorAll(".color-well").forEach(function (well) { place(well, false); }); }
-  // After the edge rule has cut the wells (their corners), and again once the fonts have settled the layout.
-  requestAnimationFrame(placeAll);
-  if (document.fonts && document.fonts.ready) document.fonts.ready.then(placeAll);
-  document.addEventListener("click", function (event) {
-    var pick = event.target.closest && event.target.closest(".color-pick"); if (!pick) return;
-    var picker = pick.closest(".color-picker");
-    picker.querySelectorAll(".color-pick").forEach(function (each) { each.setAttribute("aria-pressed", String(each === pick)); });
-    place(pick.parentElement, true);
-    picker.querySelector(".color-picker-name").textContent = pick.getAttribute("aria-label");
-  });
-})();
-`;
 
 export interface SheetMarkupOptions {
   /** Unique on the page: what opens it names it (aria-controls). */
