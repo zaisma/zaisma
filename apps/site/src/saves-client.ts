@@ -180,7 +180,9 @@ export const SAVES_SCRIPT = pageScript("saves", `
       localStorage.setItem(playedKey, JSON.stringify(value));
     } catch { return null; }
   };
-  // The game sent its save: if it changed, this device played just now (on Zaisma's clock).
+  // The game sent its save: if it changed, this device played just now (on Zaisma's clock). noting is the latest one being written,
+  // so a refused save decides whose progress is newer only once it's down.
+  let noting = Promise.resolve();
   async function notePlayed(text) {
     const hash = await sha(text);
     const was = played();
@@ -535,6 +537,7 @@ export const SAVES_SCRIPT = pageScript("saves", `
     // Going back to an earlier version: a save that went through still moved the account on; anything else waits for that.
     if (isRestoringCopy && !(res && res.ok)) return;
     const out = res ? await res.json().catch(() => ({})) : {};
+    await noting;
     // A 409 for exactly this save: it landed before (its answer was lost), so it's saved.
     const isSavedBefore = res && res.status === 409 && out.error !== "account_changed" && out.sha256 && out.sha256 === (await sha(text));
     if (opened !== openCount) return;
@@ -736,7 +739,7 @@ export const SAVES_SCRIPT = pageScript("saves", `
     const m = e.data;
     if (!m || m.type !== "zaisma:saves" || typeof m.step !== "string") return;
     if ((m.step === "hello" || m.step === "save") && "versionId" in m) versionId = typeof m.versionId === "string" ? m.versionId : null;
-    if (m.step === "save" && typeof m.text === "string") notePlayed(m.text);
+    if (m.step === "save" && typeof m.text === "string") noting = notePlayed(m.text);
     // A game page starting: its game listens again if it wants the events.
     if (m.step === "hello" && m.phase === "game") listening.clear();
     if (guest) {
