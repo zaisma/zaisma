@@ -644,9 +644,8 @@ component({
 .choice-list .choice-card.cut-carved > .cut-line polygon { stroke: transparent; }
 .choice-list .choice-card:has(.choice-input:checked) { box-shadow: var(--slab-shade); }
 /* The picked slab is bevelled as a raised piece, every side: lit along its top and left, shaded along its bottom and right, as the carvings
-   round it are bevelled the other way. Pressed, its bevel turns round with it as it sinks. */
+   round it are bevelled the other way. A press dims its face but leaves the light on its edges alone. */
 .choice-card:has(.choice-input:checked) > .cut-line, .choice-list .choice-card:has(.choice-input:checked) > .cut-line { --band-top: var(--raise-top); --band-left: var(--raise-left); --band-right: var(--raise-right); --band-bottom: var(--raise-bottom); }
-.choices:not(.is-disabled) .choice-card:has(.choice-input:checked):active > .cut-line, .choice-card.is-pressed:has(.choice-input:checked) > .cut-line { --band-top: var(--carve-top); --band-left: var(--carve-left); --band-right: var(--carve-right); --band-bottom: var(--carve-bottom); }
 .choice-list .choice-card:has(.choice-input:focus-visible) > .cut-line polygon, .choice-list .choice-card.is-focused > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 /* On a phone it doesn't scroll by itself: the sheet or page it's in does, so there's never a scroll inside a scroll. */
 @media (max-width: 760px) { .choice-list { max-height: none; } }
