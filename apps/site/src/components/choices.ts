@@ -390,7 +390,7 @@ export function checkField(options: CheckFieldOptions): Raw {
   const id = options.id ?? `check-${options.name}`;
   const className = ["check", options.state ?? "", options.error ? "is-marked" : "", options.isDisabled ? "is-disabled" : ""].filter(Boolean).join(" ");
   const describedBy = options.error ? `${id}-error` : options.hint ? `${id}-hint` : "";
-  return html`<label class="${className}" for="${id}"><span class="check-box cut-carved" data-cut-line="6">${CUT_LINE}<input class="check-input" type="checkbox" id="${id}" name="${options.name}" value="${options.checkValue ?? "yes"}"${options.isChecked ? raw(" checked") : ""}${options.isRequired ? raw(" required") : ""}${options.isDisabled ? raw(" disabled") : ""}${options.error ? raw(' aria-invalid="true"') : ""} aria-labelledby="${id}-label"${describedBy ? html` aria-describedby="${describedBy}"` : ""}>${icon("check")}</span><span class="check-words"><span class="check-label" id="${id}-label">${options.label}</span>${options.error ? html`<span class="check-error" id="${id}-error">${options.error}</span>` : options.hint ? html`<span class="check-hint" id="${id}-hint">${options.hint}</span>` : ""}</span></label>`;
+  return html`<label class="${className}" for="${id}"><span class="check-box cut-raised" data-cut-line="6">${CUT_LINE}<input class="check-input" type="checkbox" id="${id}" name="${options.name}" value="${options.checkValue ?? "yes"}"${options.isChecked ? raw(" checked") : ""}${options.isRequired ? raw(" required") : ""}${options.isDisabled ? raw(" disabled") : ""}${options.error ? raw(' aria-invalid="true"') : ""} aria-labelledby="${id}-label"${describedBy ? html` aria-describedby="${describedBy}"` : ""}>${icon("check")}</span><span class="check-words"><span class="check-label" id="${id}-label">${options.label}</span>${options.error ? html`<span class="check-error" id="${id}-error">${options.error}</span>` : options.hint ? html`<span class="check-hint" id="${id}-hint">${options.hint}</span>` : ""}</span></label>`;
 }
 
 /** What you press that holds a value: its states, still, then one to try and one on a loop. */
@@ -409,48 +409,44 @@ component({
   slug: "check-field",
   group: "inputs",
   subgroup: "choices",
-  summary: "A yes or no sent with its form: I agree, Email me replies. A small carved box that turns orange with a dark tick. On a page that saves at once, use a Toggle.",
+  summary: "A yes or no sent with its form: I agree, Email me replies. A small raised tile with a tick cut through it, dark until it's ticked, when the cut lights orange and glows. On a page that saves at once, use a Toggle.",
   styles: `
-/* A check field: a small carved box of the fields' glass, cut by the edge rule, before its words. Ticked, the whole box turns orange
-   and raised, with a dark tick. The real checkbox lies over the box, unseen, so the keyboard, forms and screen readers get
-   the system's own; the whole line is its label, so a press anywhere on it ticks it. */
+/* A check field: a small raised tile of the buttons' glass, cut by the edge rule, before its words. A tick is cut clean through it: unticked,
+   you look through the cut into the dark inside the slab; ticked, the cut lights orange, light inside the glass, and glows around the tile.
+   Pointing warms the cut a little; pressing pushes the tile into the pane, its shadow shrinking. The real checkbox lies over the tile,
+   unseen, so the keyboard, forms and screen readers get the system's own; the whole line is its label, so a press anywhere on it ticks it. */
 .check { position: relative; display: inline-flex; align-items: flex-start; gap: var(--gap-words-control); cursor: pointer; -webkit-tap-highlight-color: transparent; }
 ${TOUCH_ROOM(".check")}
-.check-box { position: relative; flex: none; display: grid; place-items: center; width: 24px; height: 24px; color: transparent;
-  --face-color: var(--field-face); background: var(--face-color); box-shadow: var(--field-shade); clip-path: var(--cut-shape); transition: --face-color 0.2s, color 0.2s; }
-/* At rest it's carved into the glass, its edges lit and shaded like every carving; ticked, its orange is its edge. */
-.check-box:has(.check-input:checked) > .cut-line polygon { stroke: transparent; }
+.check-box { position: relative; flex: none; display: grid; place-items: center; width: 24px; height: 24px; color: var(--cut-dark);
+  filter: var(--slab-cast) drop-shadow(0 0 0 transparent); transition: filter 0.3s, transform 0.15s, color 0.25s; }
+/* Its face is cut to its shape below its edges and tick, so the shadow it casts isn't cut off with it. */
+.check-box::before { content: ""; position: absolute; inset: 0; background: var(--btn); clip-path: var(--cut-shape); }
 .check-input { position: absolute; inset: 0; z-index: 3; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
-.check-box > .ico { position: relative; z-index: 2; width: 16px; height: 16px; stroke-width: 2.4; transform: scale(0.6); transition: transform 0.3s var(--spring); }
-.check:not(.is-disabled):hover .check-box, .check.is-pointed .check-box { --face-color: var(--field-hover); }
-/* Ticked: the whole box turns orange, lit like the runner, with a dark tick. */
-.check-box:has(.check-input:checked) { --face-color: var(--run); color: var(--on-run); box-shadow: none; }
-.check-box:has(.check-input:checked) > .ico { transform: scale(1); }
-.check-box:has(.check-input:checked) > .cut-line { --band-top: rgba(255,240,214,0.85); --band-left: rgba(255,226,180,0.55); --band-right: rgba(150,72,0,0.32); --band-bottom: rgba(130,60,0,0.55); }
-.check:not(.is-disabled):hover .check-box:has(.check-input:checked), .check.is-pointed .check-box:has(.check-input:checked) { --face-color: var(--run-hi); }
-/* Pressed: the box sinks, darker and shaded from above; a ticked one deepens to the runner's foot, its light turned round, its tick a touch smaller. */
-.check:not(.is-disabled):active .check-box, .check.is-pressed .check-box { --face-color: var(--check-press); box-shadow: var(--press-shade); transition-duration: 0.08s; }
-.check:not(.is-disabled):active .check-box:has(.check-input:checked), .check.is-pressed .check-box:has(.check-input:checked) { --face-color: #D9730A; box-shadow: inset 0 2px 4px rgba(110,50,0,0.45); }
-.check:not(.is-disabled):active .check-box:has(.check-input:checked) > .cut-line, .check.is-pressed .check-box:has(.check-input:checked) > .cut-line { --band-top: rgba(130,60,0,0.5); --band-left: rgba(150,72,0,0.35); --band-right: rgba(255,226,180,0.45); --band-bottom: rgba(255,240,214,0.7); }
-.check:not(.is-disabled):active .check-box > .ico, .check.is-pressed .check-box > .ico { transform: scale(0.85); transition-duration: 0.08s; }
-/* Marked wrong: its outline in amber, and what's wrong said under its words. */
+.check-box > .ico { position: relative; z-index: 2; width: 16px; height: 16px; stroke-width: 2.4; transition: filter 0.3s; }
+.check:not(.is-disabled):hover .check-box, .check.is-pointed .check-box { color: var(--run-glow); }
+.check-box:has(.check-input:checked) { color: var(--run); filter: var(--slab-cast) drop-shadow(0 0 6px var(--run-glow)); }
+.check-box:has(.check-input:checked) > .ico { filter: drop-shadow(0 0 1.5px var(--run)); }
+.check:not(.is-disabled):hover .check-box:has(.check-input:checked), .check.is-pointed .check-box:has(.check-input:checked) { color: var(--run-hi); filter: var(--slab-cast) drop-shadow(0 0 9px var(--run-glow)); }
+/* Pressed, the tile goes into the pane: lower, its shadow shorter. */
+.check:not(.is-disabled):active .check-box, .check.is-pressed .check-box { transform: translateY(1px); filter: var(--slab-cast-pressed) drop-shadow(0 0 0 transparent); transition-duration: 0.08s; }
+.check:not(.is-disabled):active .check-box:has(.check-input:checked), .check.is-pressed .check-box:has(.check-input:checked) { filter: var(--slab-cast-pressed) drop-shadow(0 0 5px var(--run-glow)); }
+/* A required box left unticked is outlined in the marked colour. */
 .check.is-marked .check-box > .cut-line polygon { stroke: var(--marked); stroke-width: var(--focus-stroke); }
-/* Can't be changed now: flat, its words quieter, and no orange, since there's nothing to do: ticked, the box is filled in grey. */
+/* Can't be changed: frosted, flat on the pane, its cut dim and unlit. */
 .check.is-disabled { cursor: default; }
 .check.is-disabled .check-input { cursor: default; }
-.check.is-disabled .check-box { --face-color: var(--off-face); box-shadow: none; }
-.check.is-disabled .check-box > .cut-line polygon { stroke: var(--line); }
-.check.is-disabled .check-box:has(.check-input:checked) { --face-color: var(--muted); color: var(--page); }
-.check.is-disabled .check-box:has(.check-input:checked) > .cut-line { --band-top: transparent; --band-left: transparent; --band-right: transparent; --band-bottom: transparent; }
+.check.is-disabled .check-box, .check.is-disabled .check-box:has(.check-input:checked) { filter: none; color: var(--line); }
+.check.is-disabled .check-box::before { background: var(--off-face); }
+.check.is-disabled .check-box > .cut-line { --band-top: transparent; --band-left: transparent; --band-right: transparent; --band-bottom: transparent; }
+.check.is-disabled .check-box:has(.check-input:checked) { color: var(--muted); }
+.check.is-disabled .check-box:has(.check-input:checked) > .ico { filter: none; }
 .check.is-disabled .check-label { color: var(--muted); }
 .check-box:has(.check-input:focus-visible) > .cut-line polygon, .check.is-focused .check-box > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
-/* On the orange box, focus is the runner's deeper ring, drawn wider so it reads against the orange. */
-.check-box:has(.check-input:checked:focus-visible) > .cut-line polygon, .check.is-focused .check-box:has(.check-input:checked) > .cut-line polygon { stroke: var(--focus-on-run); stroke-width: calc(var(--focus-stroke) * 1.5); }
 .check-words { display: grid; gap: var(--gap-words-words); padding-top: 2px; padding-inline-end: var(--pad-words); }
 .check-label { font: var(--type-words); color: var(--ink); }
 .check-hint { font: var(--type-note); color: var(--muted); }
 .check-error { font: var(--type-words); color: var(--marked); }
-@media (prefers-reduced-motion: reduce) { .check-box > .ico { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .check-box, .check-box > .ico { transition: none; } }
 `,
   render: checkField,
   examples: [
