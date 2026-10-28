@@ -3,6 +3,7 @@
 //
 // It never deploys the checkout it's run from. It fetches origin/main into its own clean copy
 // (.claude/ship in the main checkout, a detached worktree), then from there:
+//   Deploys with a Cloudflare API token from the macOS keychain (scripts/ship-token.mjs), never wrangler's sign-in;
 //   0. stops unless GitHub's check (tests and typecheck) passed on that code: on the commit, or on the
 //      pull request branch or earlier commit with exactly its code (scripts/ship-github-check.mjs);
 //      waits for it while it's running;
@@ -33,6 +34,7 @@ import { fileURLToPath } from "node:url";
 import { applyEnginesProof, applyNightlySweep, checkState, enginesBaseCommits, judgeCheckedCode, sameCodeCommits, sweepFailedPages } from "./ship-github-check.mjs";
 import { CHECK_GAME_SLUG, CHECK_GAME_URL, PUBLISH_CLI_WORKFLOW_URL, PUBLISH_GAME_SERVER_WORKFLOW_URL, ROOMS_URL, SITE_URL, checkBuckets, checkPackageOnNpm, checkSecurityAddresses, checkUrl, publishedKeyCount, securityTxtProblems } from "./ship-checks.mjs";
 import { linkSkills, opsPlacesOf } from "./ops-setup.mjs";
+import { missingShipTokenHelp, useShipToken } from "./ship-token.mjs";
 // Microsoft's PhotoDNA SDK (Julius's machine only) and Docker, for the photodna Worker's container.
 import { ensureDocker, placePhotoDnaSdk } from "./photodna-sdk.mjs";
 
@@ -137,6 +139,12 @@ const commitSha = git(shipCopy, ["rev-parse", "HEAD"]);
 const shortSha = commitSha.slice(0, 7);
 const commitSubject = git(shipCopy, ["log", "-1", "--format=%s"]);
 say(`Shipping ${shortSha} ${commitSubject}`);
+// Every wrangler call below, and the checks that call Cloudflare, use this token from the keychain,
+// never wrangler's own sign-in. Without one nothing deploys.
+if (!useShipToken()) {
+  say(missingShipTokenHelp());
+  finish("FAIL", `${shortSha}: no Cloudflare API token for ship in the keychain (steps above); nothing deployed.`, 1);
+}
 let lastShip = null;
 try {
   lastShip = JSON.parse(readFileSync(lastShipFile, "utf8"));
