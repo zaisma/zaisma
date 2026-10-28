@@ -307,8 +307,8 @@ describe("the gallery", () => {
         const children = holder.children.filter((child) => child.tag !== "svg" && child.tag !== "template");
         // A control's own parts (a switch's tabs, the row arrows' two slabs, a dropdown's choices) are its inside, not controls beside each other.
         if (holder.classes.includes("shell") || holder.attributes.includes(" data-cut-line") || holder.attributes.includes(' role="menu"') || holder.classes.includes("dropdown-in") || holder.classes.includes("menu-choices") || holder.attributes.includes(' role="listbox"')) continue;
-        // A compact choice list's cards are its own inside, down its carved well like a vertical switch's places.
-        if (holder.classes.includes("choice-list-in")) continue;
+        // What a well holds is its own inside (a compact choice list's cards, down its carving like a vertical switch's places).
+        if (holder.classes.includes("well-body")) continue;
         if (children.length < 2 || !children.every((child) => child.classes.includes("shell") || child.attributes.includes(" data-cut-line"))) continue;
         const matching = rules.filter(({ subject }) => matchesSubject(holder, subject));
         const isStack = matching.some((rule) => rule.isStack) || /(^|;)\s*(display:\s*grid|flex-direction:\s*column)/.test(holder.style);
@@ -706,7 +706,7 @@ const NOT_SPACING = new Set<string>([
   ".me | padding", ".top .end .run | padding", ".top .end .run | gap", ".tag | padding", ".tag.count | padding",
   ".danger | padding", ".danger | gap", ".field.long textarea | padding", ".select-button | padding",
   ".field.select.no-icon .select-button | padding-left", ".choice-card | padding", ".list-row | padding", ".select-option | gap", ".select-option | padding",
-  ".choice-list .choice-card | padding", ".choice-list | padding", ".choice-list .choice-words | gap",
+  ".choice-well .choice-card | padding", ".well.choice-well > .well-body | padding", ".choice-well .choice-words | gap",
   // A select's list: its inset round its choices, and the choices' own gap, a control's parts.
   ".select-list | padding", ".select-options | gap",
   // A select's choice lines its words up with the field's, past the field's icon.
@@ -718,7 +718,7 @@ const NOT_SPACING = new Set<string>([
   ".dropdown | gap", ".dropdown-in | gap", ".menu-choices | gap",
   // Room to scroll, or for a scrollbar or a page's rail.
   ".wheel | padding", "html | scroll-padding-top", ".gallery-layout | padding-right",
-  ".choice-list-in.own-scroll.shows-rail | padding-right", ".sheet-in.own-scroll.shows-rail | padding-right", ".sheet-body.own-scroll.shows-rail | padding-right",
+  ".well.is-scrolling > .well-body.own-scroll.shows-rail | padding-right", ".sheet-in.own-scroll.shows-rail | padding-right", ".sheet-body.own-scroll.shows-rail | padding-right",
   ".floating-body.own-scroll.shows-rail | padding-right", ".field.long textarea.is-scrolling | padding-right",
   // Where a small thing sits on what it marks: a rail's tick, a cover's line.
   ".rail-mark | margin-top", ".rail.sideways .rail-mark | margin", ".cover-bar | margin-top",

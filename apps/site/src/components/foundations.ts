@@ -101,15 +101,21 @@ export interface WellOptions {
   kind?: string;
   /** The gallery's fixed keyboard focus on what's in it. */
   state?: "is-focused";
+  /** What's in it is longer than it can show (a list of choices): it scrolls inside the well, which stays still, fading at its ends, on Zaisma's rail. */
+  isScrolling?: boolean;
+  /** It holds parts you point at (a compact list's cards): its edge lights beside the pointed one (Edge light), along this side. */
+  edgeLight?: "left" | "bottom";
 }
 
 /**
- * A well: a box carved into the glass, holding words, code or controls, its insides at a field's inset and cut by the edge rule. A pane is
- * glass raised; a well is glass carved in. One gallery control can sit at its end, as far in from its end as from its top.
+ * A well: a box carved into a pane's glass that holds things (words, code, a list of controls) and is never a control itself: a field or a
+ * carved button is carved the same way but is what you use, so it isn't a well; a list of choices down a carving is held in one. Its insides
+ * sit at a field's inset, and it's cut by the edge rule. A pane is glass raised; a well is glass carved in. One gallery control can sit at
+ * its end, as far in from its end as from its top; what's longer than it can show scrolls inside it.
  */
 export function well(options: WellOptions): Raw {
-  const className = ["well", "cut-carved", options.kind ?? "", options.state ?? ""].filter(Boolean).join(" ");
-  return html`<div class="${className}" data-cut-line="10">${CUT_LINE}<div class="well-body">${options.body}</div>${
+  const className = ["well", "cut-carved", options.kind ?? "", options.isScrolling ? "is-scrolling" : "", options.state ?? ""].filter(Boolean).join(" ");
+  return html`<div class="${className}" data-cut-line="10"${options.edgeLight ? html` data-edge-light="${options.edgeLight}"` : ""}>${CUT_LINE}${options.edgeLight ? EDGE_LIGHT : ""}<div class="well-body">${options.body}</div>${
     options.end ? html`<div class="well-end">${options.end}${options.endNote ? html`<span class="well-end-note" aria-hidden="true">${options.endNote}</span>` : ""}</div>` : ""
   }</div>`;
 }

@@ -649,7 +649,7 @@ component({
   slug: "well",
   group: "panes",
   subgroup: "glass",
-  summary: "A box carved into the glass that holds what's set in it: code to copy, a link, a line of words. One gallery control can sit at its end, as Copy does. For glass that holds a task, use a Glass pane; for something to type in, a Cut field.",
+  summary: "A box carved into a pane's glass that holds things and is never a control itself: code to copy, a link, a line of words, a list of choices. One gallery control can sit at its end, as Copy does; what's longer than it can show scrolls inside it. A field or a carved button is carved too, but it's what you use, so it isn't a well. For glass that holds a task, use a Glass pane; for something to type in, a Cut field.",
   styles: `
 /* A well: carved into the glass, a field's height at least, lit and shaded at its edges like every carving and cut by the edge rule. What's
    in it keeps a field's inset (--pad-inside-words); an end control sits as far in from its end as from its top (--well-inset), over the
@@ -662,6 +662,12 @@ component({
 .well-end-note { position: absolute; inset: 0; display: none; place-items: center; pointer-events: none; color: var(--ink); }
 .well > .cut-line { z-index: 4; pointer-events: none; }
 .well:has(> .well-body :focus-visible) > .cut-line polygon, .well.is-focused > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
+/* Scrolling: what's in it scrolls inside it, never taller than a menu, while the well itself stays still (a carving never moves or fades):
+   what's in it fades at its ends, and with a mouse it scrolls on Zaisma's rail, inside its right edge, what's in it keeping clear of it. */
+/* Its owner can set its own limit (--well-height). */
+.well.is-scrolling { align-items: stretch; max-height: var(--well-height, var(--size-menu-height)); }
+.well.is-scrolling > .well-body { overflow-y: auto; overscroll-behavior-y: contain; }
+.well.is-scrolling > .well-body.own-scroll.shows-rail { padding-right: 18px; }
 `,
   render: well,
   examples: [
