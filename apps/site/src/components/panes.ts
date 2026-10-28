@@ -175,18 +175,19 @@ export const PLACE_SCRIPT = `/* place */(function () {
   };
   // A floating pane (floatingPane) casts a shadow onto the page, so it reads as on top. Its glass's cut shape would clip a shadow of its own,
   // and a filter round it would stop its glass blurring, so the shadow is a box of its own laid under it, riding the page as the pane does.
-  // The box takes the pane's cut shape and casts --float-cast from it, then has that shape cut out of it, so only the shadow outside the
-  // glass shows: the cut corners too, and nothing under the glass to blur.
+  // Inside it, a shape in the pane's cut casts --float-cast; the box then has that shape cut out of it, so only the shadow outside the glass
+  // shows: the cut corners too, and nothing under the glass to blur. The cast and the cut are on two boxes, one inside the other: on one
+  // box, Chrome cuts the whole box out, and the shadow stops square at the cut corners.
   var CAST_REACH_PX = 64;
   window.zaismaCast = function (pane) {
     var cast = pane.floatCast;
-    if (!cast) { cast = pane.floatCast = document.createElement("div"); cast.className = "floating-cast"; cast.setAttribute("aria-hidden", "true"); cast.appendChild(document.createElement("span")); document.body.appendChild(cast); }
+    if (!cast) { cast = pane.floatCast = document.createElement("div"); cast.className = "floating-cast"; cast.setAttribute("aria-hidden", "true"); cast.appendChild(document.createElement("div")).appendChild(document.createElement("span")); document.body.appendChild(cast); }
     if (!pane.isConnected || !pane.matches(":popover-open")) { cast.hidden = true; return; }
     var r = pane.getBoundingClientRect(), isOnPage = pane.classList.contains("is-on-page");
     var shape = getComputedStyle(pane).clipPath, points = /^polygon\\((.*)\\)$/.exec(shape);
     var far = "calc(100% + " + CAST_REACH_PX + "px)", near = -CAST_REACH_PX + "px";
     var inner = points ? points[1].replace(/^(nonzero|evenodd),\\s*/, "") : "0px 0px, 100% 0px, 100% 100%, 0px 100%";
-    cast.firstChild.style.clipPath = points ? shape : "";
+    cast.firstChild.firstChild.style.clipPath = points ? shape : "";
     cast.style.clipPath = "polygon(evenodd, " + near + " " + near + ", " + far + " " + near + ", " + far + " " + far + ", " + near + " " + far + ", " + near + " " + near + ", " + inner + ", " + inner.split(",")[0] + ", " + near + " " + near + ")";
     cast.hidden = false; cast.classList.toggle("is-on-page", isOnPage);
     cast.style.left = r.left + (isOnPage ? window.scrollX : 0) + "px"; cast.style.top = r.top + (isOnPage ? window.scrollY : 0) + "px"; cast.style.width = r.width + "px"; cast.style.height = r.height + "px";
@@ -638,8 +639,9 @@ component({
 .floating-pane.over:not(:popover-open):not(.in-place) { transform: scale(0.97); }
 @starting-style { .floating-pane:popover-open { opacity: 0; transform: translateY(-6px); } .floating-pane.is-above:popover-open { transform: translateY(6px); } .floating-pane.over:popover-open { transform: scale(0.97); } }
 /* The shadow it casts onto the page (zaismaCast): a box laid under it in its cut shape, with that shape cut out after it casts. */
-.floating-cast { position: fixed; z-index: 2147483646; pointer-events: none; filter: var(--float-cast); }
-.floating-cast > span { position: absolute; inset: 0; background: #000; }
+.floating-cast { position: fixed; z-index: 2147483646; pointer-events: none; }
+.floating-cast > div { position: absolute; inset: 0; filter: var(--float-cast); }
+.floating-cast > div > span { position: absolute; inset: 0; background: #000; }
 .floating-cast.is-on-page { position: absolute; }
 .is-under-float { opacity: 0; transition: opacity 0.2s; }
 /* Shown open in place (the gallery's open states), it's in the page's flow, holding all it has. Over, as wide as what's in it, it lies on
