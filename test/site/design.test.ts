@@ -336,6 +336,7 @@ describe("the gallery", () => {
     expect(problems).toEqual([]);
   });
 
+  // It renders every gallery page, one after another: more than the default 5s on a busy runner.
   it("builds everything on its pages from the gallery: every piece comes from a component, or is a named exception", async () => {
     // A class on a gallery page is a component's (its styles define it) or the gallery's own scaffolding (GALLERY_ONLY, with why).
     // The gallery may place a component (where it sits and how big its box is) or set the variables it offers, never restyle it.
@@ -373,7 +374,7 @@ describe("the gallery", () => {
       }
     }
     expect([...new Set(problems)]).toEqual([]);
-  });
+  }, 20_000);
 
   it("names no exception that's gone: every entry in the lists below is still in the code", async () => {
     const problems: string[] = [];
