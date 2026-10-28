@@ -38,7 +38,7 @@ export function slider(options: SliderOptions): Raw {
   const id = options.id ?? `slider-${options.name}`;
   const filledPct = (100 * (options.pickedNumber - options.minimumNumber)) / Math.max(1e-9, options.maximumNumber - options.minimumNumber);
   const className = ["slider", options.state ?? "", options.isDisabled ? "is-disabled" : ""].filter(Boolean).join(" ");
-  return html`<div class="${className}" style="--fill:${(Math.max(0, Math.min(100, filledPct)) / 100).toFixed(4)}"><div class="slider-head"><label for="${id}">${options.label}</label><output for="${id}" data-unit="${options.unit}">${numberWords(options.pickedNumber, options.unit)}</output></div><div class="slider-track"><span class="slider-line" aria-hidden="true"></span><span class="slider-fill" aria-hidden="true"></span><input class="slider-input" type="range" id="${id}" name="${options.name}" min="${options.minimumNumber}" max="${options.maximumNumber}" step="${options.stepNumber}" value="${options.pickedNumber}"${options.isDisabled ? raw(" disabled") : ""} data-slider><span class="slider-thumb" aria-hidden="true" data-on-no-pane><span class="slider-slab cut-raised" data-cut-line="6">${CUT_LINE}</span></span></div></div>`;
+  return html`<div class="${className}" style="--fill:${(Math.max(0, Math.min(100, filledPct)) / 100).toFixed(4)}"><div class="slider-head"><label for="${id}">${options.label}</label><output for="${id}" data-unit="${options.unit}">${numberWords(options.pickedNumber, options.unit)}</output></div><div class="slider-track"><span class="slider-line" aria-hidden="true"></span><span class="slider-fill" aria-hidden="true"></span><input class="slider-input" type="range" id="${id}" name="${options.name}" min="${options.minimumNumber}" max="${options.maximumNumber}" step="${options.stepNumber}" value="${options.pickedNumber}"${options.isDisabled ? raw(" disabled") : ""} data-slider><span class="slider-thumb" aria-hidden="true"><span class="slider-slab cut-raised" data-cut-line="6">${CUT_LINE}</span></span></div></div>`;
 }
 
 /** A slider's fill and number follow its thumb. */
@@ -65,16 +65,18 @@ component({
 /* A slider: a line for a track, filled orange up to a raised white slab, the thumb. The system's range input lies over the track,
    unseen, so dragging, tapping and the arrow keys work as they always do; SLIDER_SCRIPT moves the fill and the number with it. Its question
    sits at the start and its number at the end, apart, so they never read as one phrase. */
-.slider { --thumb: 30px; display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--gap-words-control); }
+.slider { --thumb: 22px; display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--gap-words-control); }
 .slider-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--gap-words-words); }
 .slider-head > label { padding-inline-start: var(--pad-words); font: var(--type-label); color: var(--ink-2); }
 .slider-head > output { padding-inline-end: var(--pad-words); font: var(--type-label); color: var(--ink); white-space: nowrap; font-variant-numeric: tabular-nums; }
 /* It fills a pane's width; in a pane that fits what's in it, its track is a card's width (--size-card), or what room there is. */
 .slider-track { position: relative; height: var(--thumb); width: var(--size-card); min-width: 100%; max-width: 100%; }
-/* The line is drawn as an edge you can press (--press-rim), so the scale can be found at a glance on any glass. */
-.slider-line, .slider-fill { position: absolute; top: calc(50% - 2px); height: 4px; left: calc(var(--thumb) / 2); pointer-events: none; }
+/* The line is a fine one, in the colour of an edge you can press (--press-rim), so the scale can be found at a glance on any glass. What's
+   filled is orange light along it, the choice cards' pick: a bright line with a soft flood round it (--run-flood). */
+.slider-line, .slider-fill { position: absolute; top: calc(50% - 1px); height: 2px; left: calc(var(--thumb) / 2); pointer-events: none; }
 .slider-line { right: calc(var(--thumb) / 2); background: var(--press-rim); }
-.slider-fill { width: calc((100% - var(--thumb)) * var(--fill)); height: 6px; top: calc(50% - 3px); background: var(--run); }
+.slider-fill { width: calc((100% - var(--thumb)) * var(--fill)); height: 3px; top: calc(50% - 1.5px); background: var(--run); }
+.slider-fill::after { content: ""; position: absolute; left: 0; right: 0; top: calc(50% - 9px); height: 18px; background: radial-gradient(100% 50% at 50% 50%, var(--run-flood), transparent 100%); }
 .slider-input { position: absolute; inset: 0; z-index: 3; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; -webkit-appearance: none; appearance: none; }
 /* On a phone the track takes a whole control's height (--control-height-regular) to touch, centered on it. */
 @media (pointer: coarse) { .slider-input { inset: min(0px, calc(50% - var(--touch-target) / 2)) 0; height: auto; } }
@@ -95,6 +97,7 @@ component({
 .slider.is-disabled .slider-input { cursor: default; }
 .slider.is-disabled .slider-head > output { color: var(--muted); }
 .slider.is-disabled .slider-fill { background: var(--muted); }
+.slider.is-disabled .slider-fill::after { content: none; }
 .slider.is-disabled .slider-line { background: var(--line); }
 /* Its thumb is dimmed too, faded into the glass, so it plainly can't be dragged. */
 .slider.is-disabled .slider-thumb { filter: none; opacity: 0.45; }
