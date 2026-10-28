@@ -511,7 +511,8 @@ component({
 /* Pressed: off, it sinks a pixel into the glass; on, it goes down a little, as a key would; both quickly. */
 .toggle-btn[aria-pressed="false"]:active, .toggle-btn[aria-pressed="false"].is-pressed { --toggle-rise: -1px; transition-duration: 0.2s, 0.08s; }
 .toggle-btn[aria-pressed="true"]:active, .toggle-btn[aria-pressed="true"].is-pressed { --toggle-rise: calc(var(--toggle-lift) - 2px); transition-duration: 0.2s, 0.08s; }
-.toggle-btn > .face, .toggle-btn:hover > .face, .toggle-btn.is-pointed > .face, .toggle-btn:active > .face, .toggle-btn.is-pressed > .face { transform: translateY(calc(-1 * var(--toggle-rise))); }
+/* Its height is the face's only movement: a cut button's lift under the pointer (more specific) never applies to it. */
+.toggle-btn > .face, .cut-btn.toggle-btn:not(.in-well):hover > .face, .cut-btn.toggle-btn:not(.in-well).is-pointed > .face, .toggle-btn:active > .face, .toggle-btn.is-pressed > .face { transform: translateY(calc(-1 * var(--toggle-rise))); }
 .toggle-btn > .face { position: relative; z-index: 1; transition: color 0.2s, box-shadow 0.2s, --face-color 0.2s; }
 /* The front surface: the top surface swept down to its footprint (TOGGLE_SCRIPT), in a box reaching up by the whole lift, joined to the face at
    every corner and along a slanted end, as a solid's sides are. It's out of sight off, once the face has landed. */
