@@ -1296,9 +1296,11 @@ component({
   styles: `
 /* A sidebar: one pane of glass, its places words on it, nothing carved. Only the page you're on sits on a raised slab with the orange line,
    the switch's own; the open group's name is strong, its arrow turned down, its places under it set in. */
-/* Its places scroll inside it (sidebar-scroll) when they're taller than it, so its glass and edge stay whole and still. */
+/* Its places scroll inside it (sidebar-scroll) only when they're taller than it, on Zaisma's rail, so its glass and edge stay whole and
+   still; the places keep clear of the rail. */
 .sidebar { display: flex; flex-direction: column; --sidebar-is-sheet: 0; }
-.sidebar-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; scrollbar-width: none; padding: var(--pad-inner-pane); }
+.sidebar-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: var(--pad-inner-pane); }
+.sidebar-scroll.own-scroll.shows-rail { padding-right: calc(var(--pad-inner-pane) + 14px); }
 .sidebar-places { display: flex; flex-direction: column; gap: var(--gap-control-row); margin: 0; padding: 0; list-style: none; }
 /* The first and last places' words keep the words margin from the pane's or sheet's edge, as compact rows leave less room round them. */
 .sidebar-places:not(.is-nested) { padding-block: var(--gap-control-stack); }
