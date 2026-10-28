@@ -293,7 +293,7 @@ const SPRING = "cubic-bezier(.25,.9,.3,1.25)";
 const RUN_STYLES = `
 /* The runner button: the one colored thing you can press. A raised orange slab, the same height as every other button,
    lit along its edges like the other raised controls (the edge rule's bands, in orange). It lifts, leans toward you and
-   a glint crosses it as you arrive; a press sinks it into the glass, its light turning round, and it springs back.
+   a glint crosses it as you arrive; a press brings it down toward the glass, never carving it, and it springs back.
    The shell (.run-wrap, the link or button) stays still; its face (.run) moves inside it.
    .over is the pointer on it (RUNNER_SCRIPT); is-pointed, is-pressed and is-focused fix those states for the gallery. */
 .run-wrap { isolation: isolate; vertical-align: middle; max-width: 100%; perspective: 600px; }
@@ -303,10 +303,12 @@ const RUN_STYLES = `
 .run > span:not([class]), .run > .label-idle, .run > .label-busy { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .run-wrap.is-full { display: flex; width: 100%; perspective: 700px; }
 /* Its warm glow on what's under it: it spreads as the slab lifts and gathers in as it's pressed. */
-.run-wrap::before { content: ""; position: absolute; z-index: -1; left: 8%; right: 8%; top: 40%; bottom: -8px; border-radius: 50%; pointer-events: none;
-  background: rgba(247,147,26,0.32); filter: blur(11px); opacity: 0.7; transition: opacity 0.5s, transform 0.5s cubic-bezier(.2,.7,.2,1); }
-.run-wrap.over::before, .run-wrap.is-pointed::before { opacity: 1; transform: translateY(3px) scaleX(1.05); }
-.run-wrap:active::before, .run-wrap.is-pressed::before { opacity: 0.45; transform: translateY(-2px) scaleX(0.94); transition-duration: 0.1s; }
+/* It floats over the glass, and what it casts on it comes from its own shape (--run-cast): an orange glow round all its edges on smoked
+   glass, strongest below; a shadow under it and a little round it on light glass. Pointed, it rises and its light or shadow spreads; pressed,
+   it comes down toward the glass and they pull in tight. */
+.run-wrap { filter: var(--run-cast); transition: filter 0.35s cubic-bezier(.2,.7,.2,1); }
+.run-wrap.over, .run-wrap.is-pointed { filter: var(--run-cast-up); }
+.run-wrap:active, .run-wrap.is-pressed { filter: var(--run-cast-down); transition-duration: 0.1s; }
 .run {
   --refl: 50%;
   --control-height: var(--control-height-regular);
@@ -343,8 +345,8 @@ const RUN_STYLES = `
 .run-wrap.over .run .play, .run-wrap.is-pointed .run .play { transform: translateX(3px) scale(1.08); }
 .run-wrap.is-pointed { --lift: -1.5px; }
 /* Pressed: it sinks into the glass, a touch darker, its light turned round as on a carved control; it springs back when let go. */
-.run-wrap:active > .run, .run-wrap.is-pressed > .run { --lift: 1px; filter: brightness(0.94) saturate(1.05); transition-duration: 0.08s; }
-.run-wrap:active > .run > .cut-line, .run-wrap.is-pressed > .run > .cut-line { --band-top: rgba(130,60,0,0.5); --band-left: rgba(150,72,0,0.35); --band-right: rgba(255,226,180,0.45); --band-bottom: rgba(255,240,214,0.7); }
+/* Pressed, it lands: down toward the glass, its light kept as it is. It floats, so it never carves. */
+.run-wrap:active > .run, .run-wrap.is-pressed > .run { --lift: 1px; transition-duration: 0.08s; }
 /* Keyboard focus: the focus line inside its cut, in the deeper orange, since it's orange itself. */
 .run-wrap:focus-visible > .run > .cut-line polygon, .run-wrap.is-focused > .run > .cut-line polygon { stroke: var(--focus-on-run); stroke-width: var(--focus-stroke); }
 /* Busy: pressed and waiting. The arrow drifts on; the label says what's happening when the page gave one. */
@@ -357,7 +359,7 @@ const RUN_STYLES = `
 /* Can't press yet: orange is only what you can act on, so it isn't orange. It's carved flat into the glass, as a disabled cut button is,
    its cut and edge kept, its words quieter, and it answers no pointer: no glow, no lift, no glint. */
 .run-wrap:disabled:not([aria-busy="true"]) { cursor: default; pointer-events: none; }
-.run-wrap:disabled:not([aria-busy="true"])::before { opacity: 0; }
+.run-wrap:disabled:not([aria-busy="true"]) { filter: none; }
 .run-wrap:disabled:not([aria-busy="true"]) > .run { background: var(--off-face); box-shadow: var(--well-shade); color: var(--muted); text-shadow: none; transform: none; }
 .run-wrap:disabled:not([aria-busy="true"]) > .run::before, .run-wrap:disabled:not([aria-busy="true"]) > .run::after { content: none; }
 .run-wrap:disabled:not([aria-busy="true"]) > .run > .cut-line { --band-top: var(--carve-top); --band-left: var(--carve-left); --band-right: var(--carve-right); --band-bottom: var(--carve-bottom); }
