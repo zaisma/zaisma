@@ -390,7 +390,7 @@ export function checkField(options: CheckFieldOptions): Raw {
   const id = options.id ?? `check-${options.name}`;
   const className = ["check", options.state ?? "", options.error ? "is-marked" : "", options.isDisabled ? "is-disabled" : ""].filter(Boolean).join(" ");
   const describedBy = options.error ? `${id}-error` : options.hint ? `${id}-hint` : "";
-  return html`<label class="${className}" for="${id}"><span class="check-box cut-carved" data-cut-line="6">${CUT_LINE}<input class="check-input" type="checkbox" id="${id}" name="${options.name}" value="${options.checkValue ?? "yes"}"${options.isChecked ? raw(" checked") : ""}${options.isRequired ? raw(" required") : ""}${options.isDisabled ? raw(" disabled") : ""}${options.error ? raw(' aria-invalid="true"') : ""} aria-labelledby="${id}-label"${describedBy ? html` aria-describedby="${describedBy}"` : ""}><span class="check-piece" aria-hidden="true">${icon("check")}</span></span><span class="check-words"><span class="check-label" id="${id}-label">${options.label}</span>${options.error ? html`<span class="check-error" id="${id}-error">${options.error}</span>` : options.hint ? html`<span class="check-hint" id="${id}-hint">${options.hint}</span>` : ""}</span></label>`;
+  return html`<label class="${className}" for="${id}"><span class="check-box cut-carved" data-cut-line="6" data-cut-ring="3">${CUT_LINE}<input class="check-input" type="checkbox" id="${id}" name="${options.name}" value="${options.checkValue ?? "yes"}"${options.isChecked ? raw(" checked") : ""}${options.isRequired ? raw(" required") : ""}${options.isDisabled ? raw(" disabled") : ""}${options.error ? raw(' aria-invalid="true"') : ""} aria-labelledby="${id}-label"${describedBy ? html` aria-describedby="${describedBy}"` : ""}><span class="check-well" aria-hidden="true"><span class="check-piece">${icon("check")}</span></span></span><span class="check-words"><span class="check-label" id="${id}-label">${options.label}</span>${options.error ? html`<span class="check-error" id="${id}-error">${options.error}</span>` : options.hint ? html`<span class="check-hint" id="${id}-hint">${options.hint}</span>` : ""}</span></label>`;
 }
 
 /** A check field just ticked under the pointer doesn't glint: its glint is for pointing at one already ticked, so it waits until the pointer leaves. */
@@ -428,9 +428,11 @@ component({
    keyboard, forms and screen readers get the system's own; the whole line is its label, so a press anywhere on it ticks it. */
 .check { position: relative; display: inline-flex; align-items: flex-start; gap: var(--gap-words-control); cursor: pointer; -webkit-tap-highlight-color: transparent; }
 ${TOUCH_ROOM(".check")}
-.check-box { position: relative; flex: none; width: 24px; height: 24px; background: var(--field-face); clip-path: var(--cut-shape); }
+.check-box { position: relative; flex: none; width: 24px; height: 24px; }
+/* The socket itself is cut to the box's shape; its edges and ring are drawn over it, unclipped, so the ring can sit outside. */
+.check-well { position: absolute; inset: 0; background: var(--field-face); clip-path: var(--cut-shape); }
 /* The socket's shade lies over whatever is in it, so a piece below the face is in its shadow. */
-.check-box::after { content: ""; position: absolute; inset: 0; z-index: 1; box-shadow: var(--field-shade); pointer-events: none; transition: box-shadow 0.08s, opacity 0.12s; }
+.check-well::after { content: ""; position: absolute; inset: 0; z-index: 1; box-shadow: var(--field-shade); pointer-events: none; transition: box-shadow 0.08s, opacity 0.12s; }
 .check-input { position: absolute; inset: 0; z-index: 3; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
 .check-piece { position: absolute; inset: 0; display: grid; place-items: center; background: var(--run); color: var(--on-run); overflow: hidden;
   transform: translateY(105%); transition: transform 0.38s cubic-bezier(.4,0,.2,1); }
@@ -438,41 +440,37 @@ ${TOUCH_ROOM(".check")}
 /* Pointed: an empty socket's piece rises a little into view, still under the carving, ready; a ticked piece's face catches a glint
    of light that runs across it once. */
 .check-piece::before { content: ""; position: absolute; inset: 0; background: linear-gradient(115deg, transparent 30%, rgba(255,255,255,0.55) 50%, transparent 70%); opacity: 0; transform: translateX(-110%); pointer-events: none; }
-.check:not(.is-disabled):hover .check-box:not(:has(.check-input:checked)) > .check-piece, .check.is-pointed .check-box:not(:has(.check-input:checked)) > .check-piece { transform: translateY(80%); }
-.check:not(.is-disabled):not(.is-just-ticked):hover .check-box:has(.check-input:checked) > .check-piece::before, .check.is-pointed .check-box:has(.check-input:checked) > .check-piece::before { opacity: 1; transform: translateX(110%); transition: transform 0.7s cubic-bezier(.4,0,.2,1); }
+.check:not(.is-disabled):hover .check-box:not(:has(.check-input:checked)) .check-piece, .check.is-pointed .check-box:not(:has(.check-input:checked)) .check-piece { transform: translateY(80%); }
+.check:not(.is-disabled):not(.is-just-ticked):hover .check-box:has(.check-input:checked) .check-piece::before, .check.is-pointed .check-box:has(.check-input:checked) .check-piece::before { opacity: 1; transform: translateX(110%); transition: transform 0.7s cubic-bezier(.4,0,.2,1); }
 /* Ticked: the piece seats flush, then rises out of the carving: the shade lifts off it and its own edges take the light. */
-.check-box:has(.check-input:checked) > .check-piece { transform: translateY(0); }
-.check-box:has(.check-input:checked)::after { opacity: 0; transition-delay: 0.3s; }
+.check-box:has(.check-input:checked) .check-piece { transform: translateY(0); }
+.check-box:has(.check-input:checked) .check-well::after { opacity: 0; transition-delay: 0.3s; }
 .check-box:has(.check-input:checked) > .cut-line { --band-top: rgba(255,240,214,0.85); --band-left: rgba(255,226,180,0.55); --band-right: rgba(150,72,0,0.32); --band-bottom: rgba(130,60,0,0.55); }
 .check-box:has(.check-input:checked) > .cut-line .cut-band { transition-delay: 0.3s; }
 .check-box:has(.check-input:checked) > .cut-line polygon { stroke: transparent; }
 /* Pressed: an empty socket deepens; a ticked piece is pushed back down under the carving, in its shade again. */
-.check:not(.is-disabled):active .check-box::after, .check.is-pressed .check-box::after { box-shadow: var(--press-shade); }
-.check:not(.is-disabled):active .check-box:has(.check-input:checked) > .check-piece, .check.is-pressed .check-box:has(.check-input:checked) > .check-piece { transform: translateY(2px); transition-duration: 0.08s; }
-.check:not(.is-disabled):active .check-box:has(.check-input:checked)::after, .check.is-pressed .check-box:has(.check-input:checked)::after { opacity: 1; transition-delay: 0s; }
+.check:not(.is-disabled):active .check-box .check-well::after, .check.is-pressed .check-box .check-well::after { box-shadow: var(--press-shade); }
+.check:not(.is-disabled):active .check-box:has(.check-input:checked) .check-piece, .check.is-pressed .check-box:has(.check-input:checked) .check-piece { transform: translateY(2px); transition-duration: 0.08s; }
+.check:not(.is-disabled):active .check-box:has(.check-input:checked) .check-well::after, .check.is-pressed .check-box:has(.check-input:checked) .check-well::after { opacity: 1; transition-delay: 0s; }
 .check:not(.is-disabled):active .check-box:has(.check-input:checked) > .cut-line, .check.is-pressed .check-box:has(.check-input:checked) > .cut-line { --band-top: var(--carve-top); --band-left: var(--carve-left); --band-right: var(--carve-right); --band-bottom: var(--carve-bottom); }
 .check:not(.is-disabled):active .check-box:has(.check-input:checked) > .cut-line .cut-band, .check.is-pressed .check-box:has(.check-input:checked) > .cut-line .cut-band { transition-delay: 0s; }
-/* A required box left unticked is outlined in the marked colour. */
-.check.is-marked .check-box > .cut-line polygon { stroke: var(--marked); stroke-width: var(--focus-stroke); }
 /* Can't be changed: frosted and still; a ticked piece is grey. */
 .check.is-disabled { cursor: default; }
 .check.is-disabled .check-input { cursor: default; }
-.check.is-disabled .check-box { background: var(--off-face); }
-.check.is-disabled .check-box > .cut-line polygon { stroke: var(--line); }
+.check.is-disabled .check-well { background: var(--off-face); }
+.check.is-disabled .check-box > .cut-line polygon:not(.cut-ring) { stroke: var(--line); }
 .check.is-disabled .check-piece { background: var(--muted); color: var(--page); transition: none; }
 .check.is-disabled .check-box:has(.check-input:checked) > .cut-line { --band-top: transparent; --band-left: transparent; --band-right: transparent; --band-bottom: transparent; }
 .check.is-disabled .check-label { color: var(--muted); }
-/* Keyboard focus: one orange ring, the socket's shape (the edge rule's 6px corners) set out around it with a 2px gap of glass between,
-   so it never touches the orange piece and reads the same ticked or not. */
-.check::after { content: ""; position: absolute; left: -4px; top: -4px; width: 32px; height: 32px; background: var(--focus); pointer-events: none; opacity: 0;
-  clip-path: polygon(evenodd, 0 8.34px, 8.34px 0, 23.66px 0, 32px 8.34px, 32px 23.66px, 23.66px 32px, 8.34px 32px, 0 23.66px, 0 8.34px,
-    2px 9.17px, 9.17px 2px, 22.83px 2px, 30px 9.17px, 30px 22.83px, 22.83px 30px, 9.17px 30px, 2px 22.83px, 2px 9.17px); }
-.check:has(.check-input:focus-visible)::after, .check.is-focused::after { opacity: 1; }
+/* Keyboard focus: one orange ring in the socket's own shape, set out around it with a 2px gap of glass between (data-cut-ring), so it
+   never touches the orange piece and reads the same ticked or not. A required box left unticked is ringed the same way, in the marked colour. */
+.check.is-marked .check-box > .cut-line .cut-ring { stroke: var(--marked); }
+.check-box:has(.check-input:focus-visible) > .cut-line .cut-ring, .check.is-focused .check-box > .cut-line .cut-ring { stroke: var(--focus); }
 .check-words { display: grid; gap: var(--gap-words-words); padding-top: 2px; padding-inline-end: var(--pad-words); }
 .check-label { font: var(--type-words); color: var(--ink); }
 .check-hint { font: var(--type-note); color: var(--muted); }
 .check-error { font: var(--type-words); color: var(--marked); }
-@media (prefers-reduced-motion: reduce) { .check-piece, .check-piece::before, .check-box::after, .check-box > .cut-line .cut-band { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .check-piece, .check-piece::before, .check-box .check-well::after, .check-box > .cut-line .cut-band { transition: none; } }
 `,
   render: checkField,
   examples: [

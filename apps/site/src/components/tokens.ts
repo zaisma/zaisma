@@ -348,6 +348,8 @@ ${WORDS_SURFACES.join(", ")} { padding: var(--pad-frame); --pad-words: var(--pad
 .cut-line.is-gliding .cut-band { transition: none; }
 .cut-raised > .cut-line { --band-top: var(--raise-top); --band-left: var(--raise-left); --band-right: var(--raise-right); --band-bottom: var(--raise-bottom); }
 .cut-carved > .cut-line { --band-top: var(--carve-top); --band-left: var(--carve-left); --band-right: var(--carve-right); --band-bottom: var(--carve-bottom); }
+/* A ring set out around a control (data-cut-ring) is unseen until its control's focus or mark colours it; no outline rule above reaches it. */
+svg.cut-line polygon.cut-ring { stroke: transparent; stroke-width: 2; }
 /* On smoked glass a carving's shaded top and left are dark on dark, so a faint light line traces its outer edge all round: the cut reads at
    its edge on every side, not at what's inside it. Light glass needs none (--carve-rim is transparent there). Half the stroke is clipped away. */
 .cut-carved > .cut-line polygon { stroke: var(--carve-rim); stroke-width: 2; }

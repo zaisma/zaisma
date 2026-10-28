@@ -524,6 +524,14 @@ export const GLASS_SCRIPT = `/* glass */(function () {
       // corner) would turn its neighbors' light every which way in its last frames, then snap as it went.
       shape = distinct(shape, 1);
       poly.setAttribute("points", list(insetShape(shape, 1)));
+      // data-cut-ring: a second outline set out around the shape by that many pixels, for a ring that mustn't touch what's inside (a check field's
+      // keyboard focus, clear of its orange piece). It's drawn in the control's own shape, whatever its corners.
+      var ringPx = Number(el.getAttribute("data-cut-ring")) || 0;
+      if (ringPx) {
+        var ring = svg.querySelector(".cut-ring");
+        if (!ring) { ring = document.createElementNS(SVG, "polygon"); ring.setAttribute("class", "cut-ring"); svg.appendChild(ring); }
+        ring.setAttribute("points", list(insetShape(shape, -ringPx)));
+      }
       // The raised or carved light: a 1.5px band along each side. data-cut-inset moves it inward, inside an outline drawn round the edge.
       var from = Number(el.getAttribute("data-cut-inset")) || 0, outer = insetShape(shape, from), inner = insetShape(shape, from + 1.5);
       while (bands.length < shape.length) { var band = document.createElementNS(SVG, "path"); svg.insertBefore(band, poly); bands.push(band); }
