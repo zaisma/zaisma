@@ -362,6 +362,9 @@ export const GLASS_SCRIPT = `/* glass */(function () {
   var SLANT_PX = token("--control-slant", 10), ROW_GAP_PX = token("--gap-control-row", 4), STACK_GAP_PX = token("--gap-control-stack", 8);
   // Neighbors side by side overlap their boxes by the slant less the row's gap (half a pixel either way, for gaps a layout rounds).
   var BESIDE_MIN_PX = ROW_GAP_PX - SLANT_PX - 0.5, BESIDE_MAX_PX = ROW_GAP_PX - SLANT_PX + 0.5, LONE_CORNERS = [16, 8, 16, 8];
+  // A corner's cut shorter than this is square: what's left of a pane's cut just past its reach can't be seen, and an outline or band drawn
+  // inside a cut that small turns it inside out, which a wide line (keyboard focus) draws as a spike.
+  var LEAST_CUT_PX = 2;
   function glassCorners(pane) {
     var cuts = corners(pane, "header"), size = sizeOf(pane), short = Math.min(size[0], size[1]);
     return cuts.map(function (cut) { return Math.min(cut, Math.round(short * 0.3)); });
@@ -446,7 +449,7 @@ export const GLASS_SCRIPT = `/* glass */(function () {
     // A corner's cut takes at most its side's height, shared with the corner above or below it when both are cut.
     var s = Math.min(slant, w / 3), c = cuts.map(function (cut) { return Math.min(cut, h); });
     [[0, 3], [1, 2]].forEach(function (pair) { var sum = c[pair[0]] + c[pair[1]]; if (sum > h) { c[pair[0]] *= h / sum; c[pair[1]] *= h / sum; } });
-    var corner = function (cut, a, b, sharp) { return cut > 0.5 ? [a, b] : [sharp, sharp]; };
+    var corner = function (cut, a, b, sharp) { return cut >= LEAST_CUT_PX ? [a, b] : [sharp, sharp]; };
     return [].concat(
       beside.start ? [[s, 0], [s, 0]] : corner(c[0], [0, c[0]], [c[0], 0], [0, 0]),
       beside.end ? [[w, 0], [w, 0]] : corner(c[1], [w - c[1], 0], [w, c[1]], [w, 0]),
