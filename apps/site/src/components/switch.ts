@@ -33,8 +33,6 @@ export interface SwitchTab {
   /** It can fold away into the end of the tabs (the header's Developer and Forum, off a developer page): folded, it takes no room and can't be reached. */
   isFoldable?: boolean;
   isFolded?: boolean;
-  /** What sits right under it inside the switch, apart from the tabs: a sidebar's current place's own places. */
-  after?: Raw;
   /** Can't be chosen now (a sort with nothing to sort by yet): it's faded and answers nothing. */
   isDisabled?: boolean;
   /** The gallery's fixed states: the ghost under it as if pointed at, or the focus line round it. */
@@ -66,7 +64,7 @@ export function tabSwitch(options: {
   return controlMarkup(html`${own}<span class="ghost" aria-hidden="true" data-cut-line="${isSmall ? 7 : 8}"></span><span class="slab cut-raised" aria-hidden="true" data-cut-line="${isSmall ? 7 : 8}">${CUT_LINE}</span><span class="focus-ring" aria-hidden="true" data-cut-line="${isSmall ? 7 : 8}">${CUT_LINE}</span>${options.tabs.map((tab) =>
     tab.href
       ? // A link that can't be followed now has no address, so nothing reaches it; it still says what it is.
-        html`<a${tab.isDisabled ? raw(' aria-disabled="true"') : html` href="${tab.href}"`}${folding(tab)}${tab.extra ?? ""}${tab.isCurrent ? raw(' aria-current="page"') : ""}>${inside(tab)}</a>${tab.after ?? ""}`
+        html`<a${tab.isDisabled ? raw(' aria-disabled="true"') : html` href="${tab.href}"`}${folding(tab)}${tab.extra ?? ""}${tab.isCurrent ? raw(' aria-current="page"') : ""}>${inside(tab)}</a>`
       : html`<button type="button"${folding(tab)}${tab.extra ?? ""}${tab.tabValue !== undefined ? html` value="${tab.tabValue}"` : ""} aria-pressed="${tab.isCurrent ? "true" : "false"}"${tab.isDisabled ? raw(" disabled") : ""}>${inside(tab)}</button>`,
   )}</div>${options.isFramed ? raw("</div></div>") : ""}${options.isFramed && options.rowId ? html`${rowArrows({ rowName: options.label, trackId: options.rowId })}</div>` : ""}`, isSmall ? "small" : "regular");
 }

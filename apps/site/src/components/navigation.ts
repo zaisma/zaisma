@@ -2,7 +2,7 @@ import { html, raw, type Raw } from "../markup.ts";
 import { pageScript } from "../page-scripts.ts";
 import { component } from "./component.ts";
 import { controlMarkup, type ControlMarkup } from "./control-markup.ts";
-import { CUT_LINE, EDGE, glassPane, icon, logo, railMarkup, sheetMarkup, type IconName } from "./foundations.ts";
+import { CUT_LINE, EDGE, glassPane, icon, logo, railMarkup, sheetMarkup, tag, type IconName } from "./foundations.ts";
 import { cutPolygon } from "./tokens.ts";
 import { cutButton, quietButton, rowArrows, runButton, textLink } from "./actions.ts";
 import { searchField, tabSwitch, type SearchFieldOptions, type SwitchTab } from "./inputs.ts";
@@ -42,6 +42,8 @@ export interface HeaderOptions {
   isSearchOpen?: boolean;
   /** Unique on the page, for the menu's id. Defaults to "top". */
   id?: string;
+  /** The page's Sidebar button (sidebarButton), at the header's start, over the sidebar it folds. */
+  sidebarButton?: ControlMarkup;
 }
 
 const tab = (label: string, href: string, isCurrent: boolean, isFoldable = false, isOpen = true): SwitchTab => ({ label, href, isCurrent, isFoldable, isFolded: isFoldable && !isOpen });
@@ -78,7 +80,7 @@ export function header(options: HeaderOptions): Raw {
       ]
     : [];
   return html`<header class="top glass${states}" id="${id}" data-compacts data-glass data-glass-corners="header"${options.isCompact ? raw(" data-stays-compact") : ""}>${EDGE}
-  ${wordmark}
+  ${options.sidebarButton ?? ""}${wordmark}
   ${options.isOnSignInPage ? "" : html`<nav class="nav" aria-label="Main"${hasTabRow ? "" : raw(" hidden")}>${tabSwitch({ label: "Where you are", switchSize: "big", isFramed: true, tabs })}</nav>`}
   ${options.search ? html`${searchField(options.search)}${cutButton(options.search.label, { type: "button", icon: "search", isLabelHidden: true, isSmall: true, isExpanded: Boolean(options.isSearchOpen) })}` : ""}
   ${options.isOnSignInPage ? "" : html`<div class="end">${
@@ -136,8 +138,9 @@ const HEADER_STYLES = `
 .top > :not(.edge) { position: relative; z-index: 3; }
 .top .find, .top .find input { transition: width 0.45s cubic-bezier(.2,.8,.2,1); }
 
-/* The header's gap is a row of controls' (their boxes overlap by the slant); the logo is words beside them. */
+/* The header's gap is a row of controls' (their boxes overlap by the slant); the logo is words beside them, and so beside the sidebar's button. */
 .top > .logo { margin-right: var(--gap-block-block); }
+.top > [data-sidebar-button] { margin-right: var(--gap-words-control); }
 /* Search beside Sign in is a row of two controls, so they slant toward each other; beside your account's picture it's words beside it. */
 .top .find:has(~ .end > .shell) { margin-inline-end: var(--gap-control-row-boxes); }
 .top .find:has(~ .end > .me) { margin-inline-end: var(--gap-words-control); }
@@ -166,6 +169,12 @@ const HEADER_STYLES = `
   .top > .logo svg { max-width: 100%; }
   .top > .find + .cut-btn { grid-area: 1 / 3; }
   .top > .end { grid-area: 1 / 4; }
+  /* With a sidebar's button it's first in the first row, the logo beside it. */
+  .top:has(> [data-sidebar-button]) { grid-template-columns: auto minmax(0, auto) minmax(0, 1fr) auto auto; }
+  .top > [data-sidebar-button] { grid-area: 1 / 1; margin-left: var(--pad-words); }
+  .top:has(> [data-sidebar-button]) > .logo { grid-area: 1 / 2; margin-left: 0; }
+  .top:has(> [data-sidebar-button]) > .find + .cut-btn { grid-area: 1 / 4; }
+  .top:has(> [data-sidebar-button]) > .end { grid-area: 1 / 5; }
   .top .nav, .top .find { grid-area: 2 / 1 / 3 / -1; }
   /* Compact keeps the same inset around the tabs as at rest; only the rows themselves get shorter. */
   .top.is-compact { top: calc(6px + env(safe-area-inset-top, 0px)); height: auto; padding: calc(var(--pad-inner-pane) * 2 / 3); }
@@ -1122,34 +1131,31 @@ export interface SidebarOptions {
   rememberKey: string;
 }
 
-const sidebarTabs = (places: SidebarPlace[], switchSize: "big" | "small"): ControlMarkup =>
-  tabSwitch({
-    label: "Places",
-    switchSize,
-    isVertical: true,
-    tabs: places.map((place) => ({
-      label: place.label,
-      href: place.places?.[0]?.href ?? place.href,
-      isCurrent: Boolean(place.isCurrent),
-      icon: place.icon,
-      badgeCount: place.badgeCount,
-      after: place.isCurrent && place.places?.length ? html`<div class="sidebar-nested">${sidebarTabs(place.places, "small")}</div>` : undefined,
-    })),
-  });
+/** The places as words on the sidebar's glass: only the page you're on has the slab; a group with its own places opens like a folder. */
+const sidebarPlaces = (places: SidebarPlace[], isNested = false): Raw =>
+  html`<ul class="sidebar-places${isNested ? " is-nested" : ""}">${places.map((place) => {
+    const isOpen = Boolean(place.isCurrent && place.places?.length);
+    const isHere = Boolean(place.isCurrent && !place.places?.length);
+    const words = html`${place.icon ? icon(place.icon) : ""}<span class="sidebar-words">${place.label}</span>${place.badgeCount ? tag(place.badgeCount, "count") : ""}${place.places?.length ? html`<span class="sidebar-arrow">${icon(isOpen ? "chevron-down" : "chevron-right")}</span>` : ""}`;
+    // The page you're on is the slab itself: raised and cut, its words inside it.
+    const link = html`<a class="sidebar-place${isOpen ? " is-open" : ""}${isHere ? " cut-raised" : ""}" href="${place.places?.[0]?.href ?? place.href}"${isHere ? raw(' aria-current="page" data-cut-line="8"') : ""}>${isHere ? CUT_LINE : ""}${words}</a>`;
+    return html`<li>${link}${isOpen ? sidebarPlaces(place.places!, true) : ""}</li>`;
+  })}</ul>`;
 
 /**
- * A page's own places down its side: one glass pane of them, a vertical switch, the current place's own places under it. On a wide screen it
- * sits beside the page (sidebarLayout) and its button folds it away; on a phone it's a sheet that slides over the page from the start edge,
+ * A page's own places down its side: one pane of glass, the places words on it, only the page you're on on a slab with an orange start edge, the open group's own places
+ * under it. Beside the page it runs from under the header to the screen's foot (sidebarLayout) and its button, at the header's start, folds it
+ * away; where the page can't have a column beside it, it's a sheet that slides over the page from the start edge,
  * on the layer stack like every sheet (LAYERS_SCRIPT), gone once a place is picked, on a press beside it or Esc.
  */
 export function sidebar(options: SidebarOptions): Raw {
-  const places = sidebarTabs(options.places, "big");
+  const places = sidebarPlaces(options.places);
   return html`<nav class="sidebar glass" id="${options.id}" aria-label="${options.label}" data-sidebar-remember="${options.rememberKey}" data-glass data-glass-corners="pane">${EDGE}${places}</nav>${sheetMarkup({ id: `${options.id}-sheet`, title: options.label, body: places, closeButton: quietButton("Close", { type: "submit", formMethod: "dialog", icon: "close", isLabelHidden: true, isSmall: true }), placement: "start" })}`;
 }
 
-/** The button that folds a sidebar away and back on a wide screen, and slides it over the page on a phone: in the page's bar, or above the page. */
+/** The button that folds a sidebar away and back on a wide screen, and slides it over the page on a phone: at the start of the page's header or bar. */
 export function sidebarButton(options: { controls: string; label: string; isExpanded: boolean }): ControlMarkup {
-  // Beside the page it's on the sidebar's side, over it: the start of the page's bar, or the top of the column next to it.
+  // Beside the page it's on the sidebar's side, over it: the start of the page's header (siteHeader's sidebarButton) or bar.
   return cutButton(options.label, { type: "button", icon: "sidebar", isLabelHidden: true, isSmall: true, controls: options.controls, isExpanded: options.isExpanded, dataAttributes: { "sidebar-button": "" } });
 }
 
@@ -1183,16 +1189,32 @@ export const SIDEBAR_SCRIPT = `/* sidebars */(function () {
       button.setAttribute("aria-expanded", String(isSheet(nav) ? Boolean(sheet && sheet.open) : Boolean(layout && !layout.classList.contains("is-collapsed"))));
     });
   }
+  // Folding moves only transforms and opacity: the sidebar leaves from where it was, held there out of the page's way, and the page, laid out
+  // at its new width at once, slides from where it was into its new place (first, last, invert, play), so nothing snaps.
   function fold(nav, isFolded, isKept) {
     var layout = nav.closest(".sidebar-layout");
     if (!layout) return;
     if (isKept) try { localStorage.setItem(keyOf(nav), isFolded ? "hidden" : "shown"); } catch (error) {}
-    if (!isFolded) { layout.classList.remove("is-collapsed", "is-folding"); say(nav); return; }
-    if (isReduced() || !isKept) { layout.classList.add("is-collapsed"); say(nav); return; }
-    layout.classList.add("is-folding");
-    var done = function () { if (!layout.classList.contains("is-folding")) return; layout.classList.remove("is-folding"); layout.classList.add("is-collapsed"); say(nav); };
-    nav.addEventListener("transitionend", function end(event) { if (event.target === nav) { nav.removeEventListener("transitionend", end); done(); } });
-    setTimeout(done, 300);
+    var main = layout.querySelector(".sidebar-main"), isMoving = isKept && !isReduced() && main;
+    var first = isMoving ? main.getBoundingClientRect() : null, held = isMoving && isFolded ? nav.getBoundingClientRect() : null;
+    if (held) {
+      nav.style.setProperty("--sidebar-left", held.left + "px"); nav.style.setProperty("--sidebar-top", held.top + "px");
+      nav.style.setProperty("--sidebar-width", held.width + "px"); nav.style.setProperty("--sidebar-height", held.height + "px");
+      layout.classList.add("is-folding");
+    }
+    layout.classList.toggle("is-collapsed", isFolded);
+    say(nav);
+    if (held) {
+      requestAnimationFrame(function () { nav.classList.add("is-leaving"); });
+      setTimeout(function () { layout.classList.remove("is-folding"); nav.classList.remove("is-leaving"); ["--sidebar-left", "--sidebar-top", "--sidebar-width", "--sidebar-height"].forEach(function (name) { nav.style.removeProperty(name); }); }, 350);
+    }
+    if (!isMoving) return;
+    var shiftPx = first.left - main.getBoundingClientRect().left;
+    if (Math.abs(shiftPx) < 1) return;
+    main.style.transition = "none"; main.style.transform = "translateX(" + shiftPx + "px)";
+    void main.offsetWidth;
+    main.style.transition = "transform 0.45s cubic-bezier(.2,.8,.2,1)"; main.style.transform = "";
+    setTimeout(function () { main.style.removeProperty("transition"); main.style.removeProperty("transform"); }, 500);
   }
   window.zaismaWatch.each("nav.sidebar[data-sidebar-remember]", function (nav) {
     try { var kept = localStorage.getItem(keyOf(nav)); if (kept === "shown" || kept === "hidden") fold(nav, kept === "hidden", false); } catch (error) {}
@@ -1256,32 +1278,43 @@ const settingsPanes = stack({
     { kind: "block", markup: glassPane({ paneWidth: "full", label: "Keys", body: stack({ items: [{ kind: "words", markup: html`<h2>Keys</h2>` }, { kind: "words", markup: html`<p>A key lets your AI tool or the upload command work on your games.</p>` }] }) }) },
   ],
 });
-const stillSidebar = (id: string, places: SidebarPlace[]) => html`<nav class="sidebar glass" id="${id}" aria-label="Design" data-glass data-glass-corners="pane">${EDGE}${sidebarTabs(places, "big")}</nav>`;
+const stillSidebar = (id: string, places: SidebarPlace[]) => html`<nav class="sidebar glass" id="${id}" aria-label="Design" data-glass data-glass-corners="pane">${EDGE}${sidebarPlaces(places)}</nav>`;
 
 component({
   name: "Sidebar",
   slug: "sidebar",
   group: "navigation",
   subgroup: "places",
-  summary: "A page's own places down its side: the gallery's groups, Developer settings' Hosting, Pro and Keys. Beside the page on a wide screen, where its button folds it away for the whole width and the browser remembers; over the page on a phone, where the same button slides it in. The current place's own places sit under it. Never a sidebar built in place.",
+  summary: "A page's own places down its side: the gallery's groups, Developer settings' Hosting, Pro and Keys. One pane of glass under the header, to the screen's foot; only the page you're on is on a slab, and a group opens like a folder. Its button, at the header's start, folds it away and the page glides into the width; on a phone the same button slides it over the page. Never a sidebar built in place.",
   styles: `
-/* A sidebar: one pane of glass holding a vertical switch of places, the current one's own places a small switch under it, indented. */
+/* A sidebar: one pane of glass, its places words on it, nothing carved. Only the page you're on sits on a raised slab with the orange line,
+   the switch's own; the open group's name is strong, its arrow turned down, its places under it set in. */
 .sidebar { padding: var(--pad-inner-pane); --sidebar-is-sheet: 0; }
-.sidebar > .tab-switch { width: 100%; }
-.sidebar-nested { padding: 0 0 var(--gap-control-row) var(--gap-block-block); }
-.sidebar-nested > .tab-switch { width: 100%; }
+.sidebar-places { display: flex; flex-direction: column; gap: var(--gap-control-row); margin: 0; padding: 0; list-style: none; }
+.sidebar-places.is-nested { padding: var(--gap-control-row) 0 var(--gap-control-row) var(--gap-block-block); }
+.sidebar-place { position: relative; display: flex; align-items: center; gap: var(--gap-words-words); min-height: var(--control-height-regular); padding: 0 var(--pad-inside-words);
+  font: var(--type-words); color: var(--ink-2); text-decoration: none; transition: color 0.2s; }
+.sidebar-words { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.sidebar-place > .ico { width: 18px; height: 18px; flex: none; }
+.sidebar-place:hover, .sidebar-place[aria-current="page"], .sidebar-place.is-open { color: var(--ink); }
+.sidebar-place.is-open { font-weight: 600; }
+/* Its orange is its start edge, its whole height: a line under it read as one over the place below. */
+.sidebar-place[aria-current="page"] { clip-path: var(--cut-shape); background: var(--slab); box-shadow: var(--slab-shade), inset 3px 0 0 var(--run); }
+/* A group's arrow is small and quiet: it says the group opens, nothing more. */
+.sidebar-arrow { display: flex; flex: none; color: var(--muted); }
+.sidebar-arrow > .ico { width: 12px; height: 12px; }
+.sidebar-place:focus-visible { outline: none; text-decoration: underline 2px var(--focus); text-underline-offset: 4px; }
 /* On a phone it's its sheet, sliding over the page from the start edge, as tall as the screen less the page's edge. */
 .sheet.placement-start:not(.in-place) { inset: var(--pad-pane) auto var(--pad-pane) var(--pad-pane); width: min(var(--size-sidebar), calc(100% - 3 * var(--pad-pane))); max-width: none; height: calc(100dvh - 2 * var(--pad-pane)); max-height: none; margin: 0; }
 .sheet.placement-start:not(.in-place) > .sheet-in { height: 100%; }
 .sheet.placement-start:is(:not([open]), .is-leaving) { transform: translateX(-40px); }
 @starting-style { .sheet.placement-start[open] { transform: translateX(-40px); } }
 .sheet.placement-start.in-place { width: min(var(--size-sidebar), 100%); max-width: none; }
-.sheet.placement-start .tab-switch { width: 100%; }
 @media (prefers-reduced-motion: reduce) {
   .sheet.placement-start:is(:not([open]), .is-leaving) { transform: none; } @starting-style { .sheet.placement-start[open] { transform: none; } }
 }
 /* The gallery's still copies: a sidebar as it sits, and a phone's screen with the sheet over its page. */
-.sidebar-example-phone { position: relative; width: 320px; max-width: 100%; height: 480px; overflow: hidden; box-shadow: var(--well-shade); }
+.sidebar-example-phone { position: relative; width: 320px; max-width: 100%; height: 600px; overflow: hidden; box-shadow: var(--well-shade); }
 .sidebar-example-phone > .sheet { position: absolute; inset: var(--gap-control-stack) auto var(--gap-control-stack) var(--gap-control-stack); height: auto; }
 .sidebar-example-phone > .sidebar-example-page { padding: var(--pad-pane); opacity: 0.45; }
 `,
@@ -1302,7 +1335,7 @@ component({
     {
       label: "On a phone, over the page",
       isStill: true,
-      markup: html`<div class="sidebar-example-phone glass" data-glass data-glass-corners="pane">${EDGE}<div class="sidebar-example-page">${settingsPanes}</div>${sheetMarkup({ id: "example-sidebar-phone", title: "Design", body: sidebarTabs(GALLERY_GROUPS, "big"), closeButton: quietButton("Close", { type: "button", icon: "close", isLabelHidden: true, isSmall: true }), placement: "start", isShown: true })}</div>`,
+      markup: html`<div class="sidebar-example-phone glass" data-glass data-glass-corners="pane">${EDGE}<div class="sidebar-example-page">${settingsPanes}</div>${sheetMarkup({ id: "example-sidebar-phone", title: "Design", body: sidebarPlaces(GALLERY_GROUPS), closeButton: quietButton("Close", { type: "button", icon: "close", isLabelHidden: true, isSmall: true }), placement: "start", isShown: true })}</div>`,
     },
   ],
 });
@@ -1312,7 +1345,7 @@ component({
   slug: "sidebar-button",
   group: "navigation",
   subgroup: "places",
-  summary: "The one button a Sidebar has. Beside the page it sits on the sidebar's side, over it: the start of the page's bar, or the top of the column next to it, and folds the sidebar away and back. On a phone it can sit in the bar's end corner, and slides the sidebar over the page.",
+  summary: "The one button a Sidebar has, at the start of the page's header, over the sidebar: it folds the sidebar away and back, and on a phone slides it over the page.",
   styles: "",
   render: sidebarButton,
   examples: [
@@ -1331,10 +1364,12 @@ component({
    comes in fading and sliding a little, and folds away the same way (SIDEBAR_SCRIPT), only then giving its column to the page. */
 .sidebar-layout { container: sidebar-layout / inline-size; width: 100%; min-width: 0; }
 .sidebar-layout-in { display: grid; grid-template-columns: var(--size-sidebar) minmax(0, 1fr); gap: var(--gap-block-block); align-items: start; }
-.sidebar-layout-in > .sidebar { position: sticky; top: var(--header-room, var(--pad-pane)); max-height: calc(100dvh - var(--header-room, var(--pad-pane)) - var(--pad-pane)); overflow-y: auto; scrollbar-width: none;
+.sidebar-layout-in > .sidebar { position: sticky; z-index: 1; top: var(--header-room, var(--pad-pane)); height: calc(100dvh - var(--header-room, var(--pad-pane)) - var(--pad-pane)); overflow-y: auto; scrollbar-width: none;
   transition: var(--glass-transition), opacity 0.2s, transform 0.2s cubic-bezier(.2,.8,.2,1); }
-@starting-style { .sidebar-layout-in > .sidebar { opacity: 0; transform: translateX(-12px); } }
-.sidebar-layout.is-folding > .sidebar-layout-in > .sidebar { opacity: 0; transform: translateX(-12px); }
+@starting-style { .sidebar-layout-in > .sidebar { opacity: 0; transform: translateX(-24px); } }
+/* Folding: the sidebar, held where it was out of the page's way, slides off toward the edge as the page glides into its room. */
+.sidebar-layout.is-folding > .sidebar-layout-in > .sidebar { display: block; position: fixed; left: var(--sidebar-left); top: var(--sidebar-top); width: var(--sidebar-width); height: var(--sidebar-height); z-index: 1; }
+.sidebar-layout.is-folding > .sidebar-layout-in > .sidebar.is-leaving { opacity: 0; transform: translateX(-24px); }
 .sidebar-main { min-width: 0; }
 .sidebar-layout.is-collapsed > .sidebar-layout-in { grid-template-columns: minmax(0, 1fr); }
 .sidebar-layout.is-collapsed > .sidebar-layout-in > .sidebar { display: none; }

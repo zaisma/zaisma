@@ -395,7 +395,7 @@ describe("the gallery", () => {
     for (const { group, subgroup } of GALLERY_PLACES()) {
       const { text } = await page(`${galleryPagePath(group, subgroup)}?theme=dark`);
       expect(text).toContain('<div id="stage" class="stage" data-theme-choice="dark">');
-      expect(text).toContain('<a href="/design/panes/glass?theme=dark"');
+      expect(text).toContain('<a class="sidebar-place" href="/design/panes/glass?theme=dark"');
     }
     // Anything but dark is light: the parameter is closed.
     expect((await page("/design?theme=purple")).text).toContain('<div id="stage" class="stage" data-theme-choice="light">');
@@ -407,13 +407,15 @@ describe("the gallery", () => {
 
   it("has a page for each subgroup, nested in the sidebar, and none for anything else", async () => {
     const open = (await page("/design")).text;
-    expect(open).toContain('<a href="/design" aria-current="page">Foundations</a><div class="sidebar-nested">');
-    expect(open).toContain('<a href="/design" aria-current="page">Look</a>');
+    // Only the page you're on is selected; its group is open, never selected itself.
+    expect(open).toMatch(/<a class="sidebar-place is-open" href="\/design"><span class="sidebar-words">Foundations<\/span>/);
+    expect(open).toMatch(/<a class="sidebar-place cut-raised" href="\/design" aria-current="page" data-cut-line="8">/);
+    expect(open.match(/aria-current="page"/g)?.length).toBe(2);
     expect(open).toContain("<title>Look · Foundations · Design · Zaisma</title>");
     const fields = await page("/design/inputs/fields");
     expect(fields.response.status).toBe(200);
-    expect(fields.text).toContain('<a href="/design/inputs/fields" aria-current="page">Inputs</a><div class="sidebar-nested">');
-    expect(fields.text).toContain('<a href="/design/inputs/fields" aria-current="page">Fields</a>');
+    expect(fields.text).toContain('<a class="sidebar-place is-open" href="/design/inputs/fields"><span class="sidebar-words">Inputs</span>');
+    expect(fields.text).toMatch(/<a class="sidebar-place cut-raised" href="\/design\/inputs\/fields" aria-current="page" data-cut-line="8">.*?<span class="sidebar-words">Fields<\/span>/);
     expect(fields.text).toContain('<h1 class="group-name">Fields · Inputs</h1>');
     expect(fields.text).toContain('id="cut-field"');
     expect(fields.text).not.toContain('id="slider"');
