@@ -450,11 +450,21 @@ export const GLASS_SCRIPT = `/* glass */(function () {
     var s = Math.min(slant, w / 3), c = cuts.map(function (cut) { return Math.min(cut, h); });
     [[0, 3], [1, 2]].forEach(function (pair) { var sum = c[pair[0]] + c[pair[1]]; if (sum > h) { c[pair[0]] *= h / sum; c[pair[1]] *= h / sum; } });
     var corner = function (cut, a, b, sharp) { return cut >= LEAST_CUT_PX ? [a, b] : [sharp, sharp]; };
-    return [].concat(
+    var points = [].concat(
       beside.start ? [[s, 0], [s, 0]] : corner(c[0], [0, c[0]], [c[0], 0], [0, 0]),
       beside.end ? [[w, 0], [w, 0]] : corner(c[1], [w - c[1], 0], [w, c[1]], [w, 0]),
       beside.end ? [[w - s, h], [w - s, h]] : corner(c[2], [w, h - c[2]], [w - c[2], h], [w, h]),
       beside.start ? [[0, h], [0, h]] : corner(c[3], [c[3], h], [0, h - c[3]], [0, h]));
+    // A thin bar (a groove along a row's foot) whose corner's cut runs deeper than it's tall: its whole end slides back along the corner's
+    // line, so it keeps the same gap to its holder's cut as its sides keep to its holder's sides, instead of stopping at its own height.
+    if (w >= 3 * h) {
+      var deep = cuts.map(function (cut) { return cut > h + 0.5 ? cut : 0; });
+      if (!beside.end && deep[2] && cuts[1] < LEAST_CUT_PX) { var x2 = w + h - deep[2]; points.splice(2, 4, [x2, 0], [x2, 0], [x2, 0], [w - deep[2], h]); }
+      if (!beside.end && deep[1] && cuts[2] < LEAST_CUT_PX) { var x1 = w - deep[1]; points.splice(2, 4, [x1, 0], [x1 + h, h], [x1 + h, h], [x1 + h, h]); }
+      if (!beside.start && deep[0] && cuts[3] < LEAST_CUT_PX) { var x0 = deep[0]; points.splice(6, 2, [x0 - h, h], [x0 - h, h]); points.splice(0, 2, [x0 - h, h], [x0, 0]); }
+      if (!beside.start && deep[3] && cuts[0] < LEAST_CUT_PX) { var x3 = deep[3]; points.splice(0, 2, [x3 - h, 0], [x3 - h, 0]); points.splice(6, 2, [x3, h], [x3 - h, 0]); }
+    }
+    return points;
   }
   function controlOutline(el, w, h, as) {
     var beside = besides(el, as), cuts = fitCuts(el, w, h, as);
