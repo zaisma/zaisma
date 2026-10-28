@@ -165,13 +165,14 @@ const fileRow = (file: FileDropFile, dropId: string): Raw => {
   const isSent = file.uploadedByteCount !== undefined && file.uploadedByteCount >= file.byteCount;
   const { divisor, unit } = byteUnit(file.byteCount);
   const rounded = (byteCount: number) => Number((byteCount / divisor).toFixed(1));
-  const sent = `${rounded(file.uploadedByteCount ?? 0)} of ${rounded(file.byteCount)} ${unit}`;
+  const sentPercent = Math.round(((file.uploadedByteCount ?? 0) / Math.max(1, file.byteCount)) * 100);
+  const sent = `${rounded(file.uploadedByteCount ?? 0)} of ${rounded(file.byteCount)} ${unit} · ${sentPercent}%`;
   const about = html`<span class="file-drop-top"><span class="file-drop-name">${file.fileName}</span><span class="file-drop-size">${isUploading ? sent : html`${byteWords(file.byteCount)}${isSent ? " · Sent" : ""}`}</span></span>`;
   // While it sends, a Groove runs along the row's whole foot, from one bottom corner to the other, filling as it goes.
   const sending = isUploading
-    ? html`<span class="file-drop-sending" role="progressbar" aria-label="Sending ${file.fileName}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${String(Math.round(((file.uploadedByteCount ?? 0) / Math.max(1, file.byteCount)) * 100))}" aria-valuetext="${sent}">${groove({ filledFraction: (file.uploadedByteCount ?? 0) / Math.max(1, file.byteCount) })}</span>`
+    ? html`<span class="file-drop-sending" role="progressbar" aria-label="Sending ${file.fileName}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${String(sentPercent)}" aria-valuetext="${sent}">${groove({ filledFraction: (file.uploadedByteCount ?? 0) / Math.max(1, file.byteCount) })}</span>`
     : "";
-  return html`<li class="file-drop-row cut-carved${isUploading ? " is-sending" : ""}" data-cut-line="8">${CUT_LINE}<button type="button" class="file-drop-preview" data-cut-line="4" aria-controls="${dropId}-view" aria-label="View ${file.fileName}"${file.previewUrl ? html` style="--picture:url('${file.previewUrl}')" data-picture="${file.previewUrl}"` : raw(" disabled")}>${CUT_LINE}${file.previewUrl ? html`<span class="file-drop-zoom">${icon("search")}</span>` : icon("save")}</button><span class="file-drop-about">${about}</span><span class="file-drop-remove">${tertiaryButton(`Remove ${file.fileName}`, { type: "button", icon: "close", isLabelHidden: true, isSmall: true })}</span>${sending}</li>`;
+  return html`<li class="file-drop-row cut-carved${isUploading ? " is-sending" : ""}" data-cut-line="8">${CUT_LINE}<button type="button" class="file-drop-preview cut-carved" data-cut-line="4" aria-controls="${dropId}-view" aria-label="View ${file.fileName}"${file.previewUrl ? html` style="--picture:url('${file.previewUrl}')" data-picture="${file.previewUrl}"` : raw(" disabled")}>${CUT_LINE}${file.previewUrl ? html`<span class="file-drop-zoom">${icon("search")}</span>` : icon("save")}</button><span class="file-drop-about">${about}</span><span class="file-drop-remove">${tertiaryButton(`Remove ${file.fileName}`, { type: "button", icon: "close", isLabelHidden: true, isSmall: true })}</span>${sending}</li>`;
 };
 
 /**
@@ -308,7 +309,7 @@ component({
    and a Groove lies along its whole foot, a part's gap in from its edges, from one bottom corner to the other, cut with the row. */
 .file-drop-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--gap-control-row); }
 .file-drop-row { position: relative; display: flex; align-items: center; gap: var(--gap-words-control); padding: var(--gap-control-row); --face-color: var(--well); background: var(--face-color); clip-path: var(--cut-shape); --pad-words: 0px; }
-/* The preview's picture lies on a layer cut by the edge rule; the button itself is never clipped, so the pointer over it always shows its
+/* The preview is carved into its row, its edges lit and shaded by the edge rule, its picture lying in it on a layer cut by the edge rule; the button itself is never clipped, so the pointer over it always shows its
    zoom-in magnifier (a browser can drop a clipped element's pointer). */
 .file-drop-preview { position: relative; flex: none; display: grid; place-items: center; width: 64px; aspect-ratio: 16 / 9; padding: 0; border: 0; color: var(--muted); background: none; cursor: zoom-in; }
 .file-drop-preview::before { content: ""; position: absolute; inset: 0; background: var(--field-face) var(--picture, none) center / cover no-repeat; clip-path: var(--cut-shape); }
