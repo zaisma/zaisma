@@ -407,7 +407,7 @@ export function linkField(options: LinkFieldOptions): ControlMarkup {
   const state = options.state && options.state !== "is-copied" ? ` ${options.state}` : "";
   return controlMarkup(html`<div class="link-field${isCopied ? " is-copied" : ""}${options.isMasked ? " is-masked" : ""}${state}"><span class="copy-head"><span class="link-field-label" id="${options.id}-label">${options.label}</span><span class="copy-said" role="status">${isCopied ? "Copied" : ""}</span></span>${well({
     kind: "link-well",
-    body: html`<span class="link-field-icon">${icon("link")}</span><span class="link-field-text" id="${options.id}" data-link="${options.url}">${shown}</span>`,
+    body: html`<span class="link-field-text" id="${options.id}" data-link="${options.url}">${shown}</span>`,
     end: tertiaryButton(`Copy ${options.label.toLowerCase()}`, { type: "button", icon: "copy", isLabelHidden: true, isSmall: true, controls: options.id, state: options.state === "is-pointed" || options.state === "is-focused" ? options.state : undefined }),
     endNote: icon("check"),
   })}</div>`, "field", { hasOwnWords: true });
@@ -420,17 +420,15 @@ component({
   subgroup: "fields",
   summary: "A link to copy: its address on one line, in the words' own letters, without https://. A press anywhere on it copies it, and it says so as a Code field does. Code to copy (a key, a command) is a Code field.",
   styles: `
-/* A link field: a carved well, like a code field's, one line tall: a link mark, the address in the words' letters (cut short at its end
+/* A link field: a carved well, like a code field's, one line tall: the address in the words' letters (cut short at its end
    when it's long), and a code field's Copy over its end, a small tertiary icon button, which the keyboard reaches. A press anywhere on the
    well copies too: pointed at, the well brings up Copy's slab; pressed, it's shaded from above. Copied, it says so as a code field does:
    Copy's icon is a tick and "Copied" shows at the end of the label's line, both in the ink, for a moment (COPY_SCRIPT); the address stays. */
 .link-field { display: flex; flex-direction: column; gap: var(--gap-words-control); min-width: 0; }
 .link-field-label { font: var(--type-label); color: var(--ink-2); }
-/* Its well is one line tall, the mark and the address in a row, and a press anywhere on it copies: pointed at, Copy's slab comes up. */
+/* Its well is one line tall, the address alone (its label says it's a link), and a press anywhere on it copies: pointed at, Copy's slab comes up. */
 .well.link-well { cursor: pointer; }
 .well.link-well > .well-body { display: flex; align-items: center; gap: var(--gap-words-words); padding-block: 0; }
-.link-field-icon { flex: none; display: inline-flex; color: var(--ink-2); }
-.link-field-icon > .ico { width: 18px; height: 18px; }
 .link-field-text { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .well.link-well:hover .well-end > .tertiary-btn > .face { color: var(--ink); --face-color: var(--wash); }
 .well.link-well:active { box-shadow: var(--press-shade); }
