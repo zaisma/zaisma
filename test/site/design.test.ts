@@ -692,7 +692,7 @@ const NOT_SPACING = new Set<string>([
   // A chart's last point: centered on its spot. A meter's track: its fill's inset, like a well's.
   ".chart-last | margin", ".chart-dot | margin",
   // A chart's room for the dots at its ends.
-  ".chart-inner | padding", ".usage-track | padding",
+  ".chart-inner | padding",
   // A chart's number where you point: a small label's own room round its words.
   ".chart-tip | padding",
   // A code field's code: clear of the field's edge, and of Copy and "Copied" at its end.

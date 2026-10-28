@@ -230,6 +230,8 @@ export interface GrooveOptions {
   kind?: string;
   /** It's still going (an upload on its way): a glint runs along its light, over and over, so it plainly isn't stuck. */
   isWorking?: boolean;
+  /** What lies in its light, for an owner whose light is more than one color: a Usage meter's parts, side by side. */
+  lightMarkup?: Raw;
 }
 
 /**
@@ -240,7 +242,7 @@ export interface GrooveOptions {
 export function groove(options: GrooveOptions = {}): Raw {
   const isRunning = options.filledFraction === undefined;
   const filled = isRunning ? 0 : Math.max(0, Math.min(1, options.filledFraction ?? 0));
-  return html`<span class="groove${options.kind ? ` ${options.kind}` : ""}${isRunning ? " is-running" : ""}${options.isWorking ? " is-working" : ""}" data-cut-line="3" aria-hidden="true" style="--groove-filled:${filled.toFixed(4)}">${CUT_LINE}<span class="groove-fill"><span class="groove-light" data-cut-line="3">${CUT_LINE}</span></span></span>`;
+  return html`<span class="groove${options.kind ? ` ${options.kind}` : ""}${isRunning ? " is-running" : ""}${options.isWorking ? " is-working" : ""}" data-cut-line="3" aria-hidden="true" style="--groove-filled:${filled.toFixed(4)}">${CUT_LINE}<span class="groove-fill"><span class="groove-light" data-cut-line="3">${CUT_LINE}${options.lightMarkup ?? ""}</span></span></span>`;
 }
 
 /**

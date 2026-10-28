@@ -2,7 +2,7 @@ import { accountPicture, html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
 import { secondaryButton, primaryButton, textLink } from "./actions.ts";
 import type { ControlMarkup } from "./control-markup.ts";
-import { CUT_LINE, MINUTE_MS, ago, glassPane, icon, tag, type IconName, type TagTone } from "./foundations.ts";
+import { CUT_LINE, MINUTE_MS, ago, glassPane, groove, icon, tag, type IconName, type TagTone } from "./foundations.ts";
 import { WHEN_EMPTY_STYLES, row } from "./layout.ts";
 
 /*
@@ -1110,10 +1110,8 @@ export function usageTrack(options: UsageMeterOptions): Raw {
 
 function meterTrack(options: UsageMeterOptions, sharePct: number): Raw {
   const parts = options.parts?.filter((part) => part.sharePct > 0) ?? [];
-  const fill = parts.length
-    ? html`<span class="usage-fill has-parts" data-cut-line="4" style="width:${sharePct.toFixed(2)}%">${parts.map((part) => html`<span class="usage-part" data-part="${String(part.partColorIndex)}" style="flex-grow:${String(part.sharePct)}"></span>`)}</span>`
-    : html`<span class="usage-fill" data-cut-line="4" style="width:${sharePct.toFixed(2)}%"></span>`;
-  return html`<div class="usage-track cut-carved" data-cut-line="6" role="meter" aria-label="${options.label}" aria-valuemin="0" aria-valuemax="${options.limitNumber}" aria-valuenow="${Math.min(options.usedNumber, options.limitNumber)}">${CUT_LINE}${fill}</div>`;
+  const lightMarkup = parts.length ? html`<span class="usage-parts">${parts.map((part) => html`<span class="usage-part" data-part="${String(part.partColorIndex)}" style="flex-grow:${String(part.sharePct)}"></span>`)}</span>` : undefined;
+  return html`<div class="usage-track" role="meter" aria-label="${options.label}" aria-valuemin="0" aria-valuemax="${options.limitNumber}" aria-valuenow="${Math.min(options.usedNumber, options.limitNumber)}">${groove({ kind: `usage-groove${parts.length ? " has-parts" : ""}`, filledFraction: sharePct / 100, lightMarkup })}</div>`;
 }
 
 /** The key under a meter with parts: each part's color, name and share, in the order given. */
@@ -1124,7 +1122,7 @@ function usageKey(options: UsageMeterOptions): Raw | "" {
 }
 
 /**
- * A usage meter: its label, its numbers under it, then a carved track filling in quiet ink, amber from 80%. Any use at all shows as a
+ * A usage meter: its label, its numbers under it, then a Groove filling in a quiet light, amber from 80%. Any use at all shows as a
  * sliver, never as an empty track. All used, it's unmistakable: the fill is striped amber across the whole track, a warning mark leads its
  * label, and its numbers end in "all used", or in how far over it is.
  */
@@ -1143,28 +1141,31 @@ component({
   slug: "usage-meter",
   group: "data",
   subgroup: "numbers",
-  summary: "How much of an allowance is used: player-hours, requests, storage. A carved track fills in ink, turns amber from 80%, and says so when it's all used, or over.",
+  summary: "How much of an allowance is used: player-hours, requests, storage. A Groove fills in a quiet light, turns amber from 80%, and says so when it's all used, or over.",
   styles: `
-/* A usage meter: its label on a line of its own, its numbers (and when it resets) under it, the track under them: a carved strip the fill
-   grows along, tall enough that at a pane's foot it takes a bevel of 4px (a quarter of its height). The fill is a quiet ink, amber from 80%;
-   any use at all shows at least a sliver. All used, it's amber striped with a deeper amber, like tape across a door, and a warning mark
-   leads the label. */
+/* A usage meter: its label on a line of its own, its numbers (and when it resets) under it, the track under them: a Groove (panes.ts), its
+   light the meter's own: a quiet light, amber from 80%, glowing as the Groove's orange does; any use at all shows at least a sliver. All
+   used, it's amber striped with a deeper amber, like tape across a door, and a warning mark leads the label. */
 .usage { display: grid; gap: var(--gap-words-words); }
 .usage-label { display: inline-flex; align-items: center; gap: var(--gap-words-words); padding-inline: var(--pad-words); font: var(--type-label); color: var(--ink); }
 .usage-label > .ico { width: 16px; height: 16px; color: var(--meter-full-ink); }
 .usage-numbers { margin: 0; padding-inline: var(--pad-words); font: var(--type-facts); color: var(--ink-2); font-variant-numeric: tabular-nums; }
 .usage-fact { display: inline-block; max-width: 100%; }
 .usage-numbers b { font-weight: 600; color: var(--meter-full-ink); }
-.usage-track { position: relative; height: 16px; padding: 3px; background: var(--well); box-shadow: var(--well-shade); clip-path: var(--cut-shape); }
-.usage-fill { display: block; height: 100%; background: var(--meter-fill); clip-path: var(--cut-shape); transition: width 0.6s var(--spring); }
-.usage:is(.is-used, .is-near) .usage-fill { min-width: 6px; }
-.usage.is-near .usage-fill { background: var(--meter-near); }
-.usage.is-full .usage-fill { background: repeating-linear-gradient(-45deg, var(--meter-near) 0 6px, var(--meter-full) 6px 12px); }
-/* With parts, the fill is what used it, side by side in each part's color, a hairline of the track between them; past 80% the colors
+.usage-track { display: block; }
+.usage-groove .groove-fill { filter: none; transition: width 0.6s var(--spring); }
+.usage-groove .groove-light { background: var(--meter-fill); }
+.usage:is(.is-used, .is-near) .usage-groove .groove-fill { min-width: 4px; }
+.usage:is(.is-near, .is-full) .usage-groove .groove-fill { filter: drop-shadow(0 0 1.5px var(--meter-near)); }
+.usage.is-near .usage-groove .groove-light { background: linear-gradient(180deg, color-mix(in srgb, var(--meter-near), #fff 30%), var(--meter-near)); }
+.usage.is-full .usage-groove .groove-light { background: repeating-linear-gradient(-45deg, var(--meter-near) 0 6px, var(--meter-full) 6px 12px); }
+/* With parts, the light is what used it, side by side in each part's color, a hairline of the groove between them; past 80% the colors
    stay and the numbers say so, and all used, amber stripes run across them. The key names each part with its share: over the track on a
    meter of its own, so the track stays its foot, and under it in a list row or another plate, where the row's lines are over it. Each
    swatch hangs before its words, so the words keep the margin. */
-.usage-fill.has-parts, .usage:is(.is-near, .is-full) .usage-fill.has-parts { display: flex; gap: var(--gap-control-row); background: none; }
+.usage .usage-groove.has-parts .groove-light { background: none; }
+.usage .usage-groove.has-parts .groove-fill { filter: none; }
+.usage-parts { position: absolute; inset: 0; display: flex; gap: var(--gap-control-row); }
 .usage-part { display: block; min-width: 3px; background: var(--part-color); }
 .usage.is-full .usage-part { background: repeating-linear-gradient(-45deg, var(--part-color) 0 6px, var(--meter-full) 6px 12px); }
 .usage [data-part="0"] { --part-color: var(--part-0); }
