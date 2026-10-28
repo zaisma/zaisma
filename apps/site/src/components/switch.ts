@@ -318,10 +318,11 @@ component({
 /* Across, the well is its room's, so the tabs' box in its track has none of its own (after .small, which would cut it to the well's shape). */
 .switch-track > .tab-switch { background: none; box-shadow: none; clip-path: none; }
 .switch-room.small { --control-height: var(--control-height-small); }
-/* The first and last tabs shown sit against the switch's cut corners, which eat into them at its ends: they take a slant's more room there.
-   A folded tab isn't shown, so the ends are the first and last tabs that aren't folded (the cut line, slab and ring are hidden from readers, so they never count). */
-.tab-switch:not(.vertical) > :nth-child(1 of :not(.folded):not([aria-hidden])) { padding-inline-start: calc(var(--tab-room) + var(--control-slant) / 2); }
-.tab-switch:not(.vertical) > :nth-last-child(1 of :not(.folded):not([aria-hidden])) { padding-inline-end: calc(var(--tab-room) + var(--control-slant) / 2); }
+/* A tab's words sit in the middle of its slab as it's seen. A slab between two tabs slants on both sides, so its words are in the middle
+   of the tab; on the first or last tab it slants only on its inner side, which pulls its seen middle a quarter of a slant toward the
+   switch's end, so the words move that far with it (a fifth of a slant more room on the inner side). The room round the words clears the switch's corners. */
+.tab-switch:not(.vertical) > :nth-child(1 of :not(.folded):not([aria-hidden])) { padding-inline-end: calc(var(--tab-room) + var(--control-slant) / 5); }
+.tab-switch:not(.vertical) > :nth-last-child(1 of :not(.folded):not([aria-hidden])) { padding-inline-start: calc(var(--tab-room) + var(--control-slant) / 5); }
 /* Vertical: the same switch stacked, its places down a carved well (a page's own places, the gallery's groups). Each place is a row of
    its icon, its words and a count at its end; the slab spans the well and moves down it, and a place you point at lights its words. */
 .tab-switch.vertical { flex-direction: column; }
