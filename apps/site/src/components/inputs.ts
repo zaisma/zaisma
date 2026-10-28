@@ -168,7 +168,7 @@ const fileRow = (file: FileDropFile, dropId: string): Raw => {
   const about = isUploading
     ? progress({ label: file.fileName, doneNumber: rounded(file.uploadedByteCount ?? 0), totalNumber: rounded(file.byteCount), unit })
     : html`<span class="file-drop-top"><span class="file-drop-name">${file.fileName}</span><span class="file-drop-size">${byteWords(file.byteCount)}${isSent ? " · Sent" : ""}</span></span>`;
-  return html`<li class="file-drop-row cut-carved" data-cut-line="8">${CUT_LINE}<button type="button" class="file-drop-preview" data-cut-line="4" aria-controls="${dropId}-view" aria-label="View ${file.fileName}"${file.previewUrl ? html` style="background-image:url('${file.previewUrl}')" data-picture="${file.previewUrl}"` : raw(" disabled")}>${CUT_LINE}${file.previewUrl ? html`<span class="file-drop-zoom">${icon("search")}</span>` : icon("save")}</button><span class="file-drop-about">${about}</span><span class="file-drop-remove">${tertiaryButton(`Remove ${file.fileName}`, { type: "button", icon: "close", isLabelHidden: true, isSmall: true })}</span></li>`;
+  return html`<li class="file-drop-row cut-carved" data-cut-line="8">${CUT_LINE}<button type="button" class="file-drop-preview" data-cut-line="4" aria-controls="${dropId}-view" aria-label="View ${file.fileName}"${file.previewUrl ? html` style="--picture:url('${file.previewUrl}')" data-picture="${file.previewUrl}"` : raw(" disabled")}>${CUT_LINE}${file.previewUrl ? html`<span class="file-drop-zoom">${icon("search")}</span>` : icon("save")}</button><span class="file-drop-about">${about}</span><span class="file-drop-remove">${tertiaryButton(`Remove ${file.fileName}`, { type: "button", icon: "close", isLabelHidden: true, isSmall: true })}</span></li>`;
 };
 
 /**
@@ -233,7 +233,7 @@ export const FILE_DROP_SCRIPT = `/* file drops */(function () {
       list.textContent = ""; shown = [];
       picked.forEach(function (file) {
         var row = template.content.firstElementChild.cloneNode(true), preview = row.querySelector(".file-drop-preview"), url = (file.type || "").indexOf("image/") === 0 ? URL.createObjectURL(file) : "";
-        if (url) { preview.style.backgroundImage = "url(" + JSON.stringify(url) + ")"; preview.setAttribute("data-picture", url); preview.disabled = false; preview.querySelector(".ico").outerHTML = zoom; }
+        if (url) { preview.style.setProperty("--picture", "url(" + JSON.stringify(url) + ")"); preview.setAttribute("data-picture", url); preview.disabled = false; preview.querySelector(".ico").outerHTML = zoom; }
         preview.setAttribute("aria-label", "View " + file.name);
         row.querySelector(".file-drop-name").textContent = file.name; row.querySelector(".file-drop-size").textContent = sizeWords(file.size);
         var remove = row.querySelector(".file-drop-remove button"); remove.setAttribute("aria-label", "Remove " + file.name);
@@ -305,7 +305,11 @@ component({
    place: its name and how much has gone over a carved track. */
 .file-drop-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--gap-control-row); }
 .file-drop-row { position: relative; display: flex; align-items: center; gap: var(--gap-words-control); padding: var(--gap-control-row); --face-color: var(--well); background: var(--face-color); clip-path: var(--cut-shape); --pad-words: 0px; }
-.file-drop-preview { position: relative; flex: none; display: grid; place-items: center; width: 64px; aspect-ratio: 16 / 9; padding: 0; border: 0; color: var(--muted); background: var(--field-face) center / cover no-repeat; clip-path: var(--cut-shape); cursor: zoom-in; }
+/* The preview's picture lies on a layer cut by the edge rule; the button itself is never clipped, so the pointer over it always shows its
+   zoom-in magnifier (a browser can drop a clipped element's pointer). */
+.file-drop-preview { position: relative; flex: none; display: grid; place-items: center; width: 64px; aspect-ratio: 16 / 9; padding: 0; border: 0; color: var(--muted); background: none; cursor: zoom-in; }
+.file-drop-preview::before { content: ""; position: absolute; inset: 0; background: var(--field-face) var(--picture, none) center / cover no-repeat; clip-path: var(--cut-shape); }
+.file-drop-preview > :not(.cut-line) { position: relative; }
 .file-drop-preview:disabled { cursor: default; }
 /* A picture opens large: the pointer is the zoom-in magnifier over all of it, and a magnifier lights on it while it's pointed at or focused. */
 .file-drop-preview:not(:disabled) * { cursor: zoom-in; }
