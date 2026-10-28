@@ -147,6 +147,7 @@ The glass is a real material, not a picture of one: things are carved into it, r
 - **Nothing is painted on.** No flat color washes, no ink slabs (a dark fill with light words), no underline or side line standing for a state, and nothing that looks like the browser's own selection or highlighting. A state that only works by filling a box with color is flat UI.
 - **Orange is light inside the glass,** never tinted glass: a glow along an edge (focus, the field you're in) or a part lit from within (the main action, the pick you're on).
 - **Disabled is frosted and still:** it catches no light, sinks on no press and its words go quieter, its shape where it was.
+- **A carving never moves or fades.** When what's in a well scrolls, only what's in it moves and fades at the well's ends; the well stays put, whole.
 - **Glass sits on glass, not in it.** A pane over another is its own piece of glass with its own edge and shadow, never a soft patch of the pane under it; what it covers is hidden, not seen through it.
 - **Motion has weight.** What rises or sinks moves on the spring, as a material settling.
 - **The glass stays calm over the game.** It bends the backdrop's light as thick glass does, but nothing in it moves or shimmers on its own: the game is what's lively.
