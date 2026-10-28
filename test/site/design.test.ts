@@ -43,6 +43,7 @@ import controlMarkupSource from "../../apps/site/src/components/control-markup.t
 import citySource from "../../apps/site/src/components/city.ts?raw";
 import screensSource from "../../apps/site/src/components/screens.ts?raw";
 import playingSource from "../../apps/site/src/components/playing.ts?raw";
+import layersSource from "../../apps/site/src/components/layers.ts?raw";
 import readingSource from "../../apps/site/src/components/reading.ts?raw";
 import peopleSource from "../../apps/site/src/components/people.ts?raw";
 import galleryPageSource from "../../apps/site/src/design-page.ts?raw";
@@ -51,7 +52,7 @@ import galleryPageSource from "../../apps/site/src/design-page.ts?raw";
 const SOURCES: Record<string, string> = {
   "components/foundations.ts": foundationsSource, "components/tokens.ts": tokensSource, "components/icons.ts": iconsSource, "components/glass-script.ts": glassScriptSource, 
   "components/backdrop-script.ts": backdropScriptSource, "components/actions.ts": actionsSource, "components/fields.ts": fieldsSource, "components/switch.ts": switchSource, "components/choices.ts": choicesSource, "components/example-pane.ts": examplePaneSource, "components/inputs.ts": inputsSource, "components/navigation.ts": navigationSource, "components/panes.ts": panesSource, "components/confirm-its-you.ts": confirmItsYouSource, "components/stripe-frame.ts": stripeFrameSource, "components/data.ts": dataSource,
-  "components/layout.ts": layoutSource, "components/layout-gallery.ts": layoutGallerySource, "components/control-markup.ts": controlMarkupSource, "components/city.ts": citySource, "components/screens.ts": screensSource, "components/playing.ts": playingSource,
+  "components/layout.ts": layoutSource, "components/layout-gallery.ts": layoutGallerySource, "components/control-markup.ts": controlMarkupSource, "components/city.ts": citySource, "components/screens.ts": screensSource, "components/playing.ts": playingSource, "components/layers.ts": layersSource,
   "components/reading.ts": readingSource, "components/people.ts": peopleSource,
   "design-page.ts": galleryPageSource,
 };
@@ -305,7 +306,7 @@ describe("the gallery", () => {
       for (const holder of elementTree((await page(groupPath(group))).text)) {
         const children = holder.children.filter((child) => child.tag !== "svg" && child.tag !== "template");
         // A control's own parts (a switch's tabs, the row arrows' two slabs, a dropdown's choices) are its inside, not controls beside each other.
-        if (holder.classes.includes("shell") || holder.attributes.includes(" data-cut-line") || holder.attributes.includes(' role="menu"') || holder.classes.includes("dropdown-in") || holder.attributes.includes(' role="listbox"')) continue;
+        if (holder.classes.includes("shell") || holder.attributes.includes(" data-cut-line") || holder.attributes.includes(' role="menu"') || holder.classes.includes("dropdown-in") || holder.classes.includes("menu-choices") || holder.attributes.includes(' role="listbox"')) continue;
         // A compact choice list's cards are its own inside, down its carved well like a vertical switch's places.
         if (holder.classes.includes("choice-list-in")) continue;
         // A switch with its Row arrows (tabSwitch's rowId) is one control: the frame and the arrows that scroll it are its own inside.
@@ -565,8 +566,8 @@ const HAND_CUT = new Set<string>([
   ".rail:not(.dragging) .rail-mark span", ".rail.sideways:not(.dragging) .rail-mark span", ".rail.sideways .rail-mark:not(.is-near) span",
   // Tags and a cover's line: slanted at both ends, a mark on what it labels rather than a thing of its own.
   ".tag", ".cover-bar",
-  // The same line under a text button's words, along a list row's foot and across a step flow's top.
-  ".text-line", ".step-mark",
+  // The same line under a quiet button's words, along a list row's foot and across a step flow's top.
+  ".quiet-line", ".step-mark",
   // The step line's two outer ends, cut by the pane's corners at the frame gap, worked out from the cut tokens (the edge rule's cut, by hand
   // for a bar four pixels tall).
   ".step-line > li:first-child .step-mark", ".step-line > li:last-child .step-mark", ".step-line > li:only-child .step-mark",
@@ -597,6 +598,7 @@ const OWN_SVG = new Map<string, string>([
   ["4527 3300", "Zaisma's mark (the Logo)"],
   ['class="cut-line"', "the edge rule's outline (CUT_LINE)"],
   ['class="edge"', "glass's drawn rim (EDGE)"],
+  ['<svg class="sheet-tab-outline"', "a sheet's tab row: what's behind its chosen tab, and that tab's shadow, drawn to the row"],
   ['<svg class="chart-drawing"', "a chart's own line or bars, drawn from its numbers"],
   ['<svg class="chart-drawing chart-area-drawing"', "the shade under a chart's line"],
   ['<svg class="ring-drawing"', "a ring chart's parts, drawn from its shares"],
@@ -692,13 +694,13 @@ const NOT_SPACING = new Set<string>([
   ".choice-cards > .choice-card:not(:last-child) | margin-inline-end",
   // A control's own parts: a well's inset round its slab, the birthday's wheels, and a list of places, one control its slab glides along.
   ".tab-switch | padding", ".tab-switch.small | padding", ".color-well | padding", ".steps | padding", ".wheels | gap", ".wheels | padding",
-  ".dropdown | gap", ".dropdown-in | gap",
+  ".dropdown | gap", ".dropdown-in | gap", ".menu-choices | gap",
   // Room to scroll, or for a scrollbar or a page's rail.
   ".wheel | padding", "html | scroll-padding-top", ".gallery-layout | padding-right",
   ".choice-list-in.own-scroll.shows-rail | padding-right", ".sheet-in.own-scroll.shows-rail | padding-right", ".sheet-body.own-scroll.shows-rail | padding-right",
   ".select-options.own-scroll.shows-rail | padding-right", ".field.long textarea.is-scrolling | padding-right",
   // Where a small thing sits on what it marks: a rail's tick, a cover's line.
-  ".rail-mark | margin-top", ".rail.sideways .rail-mark | margin", ".cover-bar | margin-top", ".text-line | margin-top",
+  ".rail-mark | margin-top", ".rail.sideways .rail-mark | margin", ".cover-bar | margin-top", ".quiet-line | margin-top",
   // Lines a box's or a card's icon up with the first line of its words.
   ".check-words | padding-top", ".choice-card > .ico | margin-top",
   // Lines words beside controls up with the controls' center line: half the tallest control's height less a line's, above the first line and below the last.
@@ -942,7 +944,7 @@ describe("page structure", () => {
     const orange = new Set(["--run", "--run-hi", "--run-lo"]);
     const tokens = [...STYLES().matchAll(/(--[a-z0-9-]+):\s*([^;}]+)/g)];
     for (let size = 0; size !== orange.size; ) { size = orange.size; for (const [, name = "", value = ""] of tokens) if ([...orange].some((each) => value.includes(`var(${each})`))) orange.add(name); }
-    const ACTED_ON = /(^|[\s>+~])(a|button|summary|label)\b|\.(run|link|cut-btn|glass-btn|guest-btn|text-btn|danger)\b|\[role="?(tab|button)/;
+    const ACTED_ON = /(^|[\s>+~])(a|button|summary|label)\b|\.(run|link|cut-btn|glass-btn|guest-btn|quiet-btn|danger)\b|\[role="?(tab|button)/;
     const problems = rulesOf(STYLES()).flatMap((rule) => [...rule.declarations.matchAll(/(?:^|[;\s])color:\s*([^;]+)/g)]
       .filter(([, value = ""]) => [...orange].some((each) => value.includes(`var(${each})`)))
       .flatMap(() => rule.selectors.split(",").map((selector) => selector.trim()).filter((selector) => !ACTED_ON.test(selector.split(/\s+/).pop()!))));
@@ -1071,10 +1073,10 @@ describe("layout", () => {
     expect(row({ widths: "lead-fills", items: [control(inputs.cutField({ name: "room", label: "Room code", type: "text", icon: "people" })), control(actions.cutButton("Join"))] }).html).toContain("is-on-field-boxes");
   });
 
-  it("puts a pane's corner control in its corner, a text button too", () => {
-    const markup = paneParts({ head: { words: html`<h2>Rooms</h2>`, end: actions.cutButton("Refresh") }, body: html`<p>Rooms here</p>`, foot: { end: actions.textButton("See all") } }).html;
+  it("puts a pane's corner control in its corner, a quiet button too", () => {
+    const markup = paneParts({ head: { words: html`<h2>Rooms</h2>`, end: actions.cutButton("Refresh") }, body: html`<p>Rooms here</p>`, foot: { end: actions.quietButton("See all") } }).html;
     expect(markup).toMatch(/<div class="pane-head" data-control-height="regular"><div class="pane-head-words"><h2>Rooms<\/h2><\/div><div class="pane-head-end"><button class="shell cut-btn"/);
-    // A text button is a control like any other: in a corner it takes the corner's cut, its words on the pane's margin inside it.
+    // A quiet button is a control like any other: in a corner it takes the corner's cut, its words on the pane's margin inside it.
     expect(markup).toContain('<div class="pane-foot" data-control-height="regular"><div class="pane-foot-end">');
     expect(PANE_PARTS_STYLES).toContain(".pane-head-end, .pane-foot-end { display: flex; margin-inline-start: auto; }");
   });

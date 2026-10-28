@@ -1,7 +1,7 @@
 import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
 import type { ControlMarkup } from "./control-markup.ts";
-import { cutButton, runButton, textLink } from "./actions.ts";
+import { cutButton, runButton, quietButton, textLink } from "./actions.ts";
 import { CUT_LINE, EDGE, logo } from "./foundations.ts";
 import { grid, row, stack } from "./layout.ts";
 import { gameCover, sheet, type GameCoverOptions } from "./panes.ts";
@@ -34,7 +34,12 @@ export interface PlayingCardOptions {
   title?: string;
   /** Its words and buttons, laid out with the layout components. */
   body: Raw;
-  /** Shown as the page opens; otherwise hidden until the page's script shows it. */
+  /**
+   * How it waits its turn over the game (zaismaLayers): "information" leaves by itself and waits behind asks, "ask" stays until it's
+   * answered. Left out, a card with nothing to press is information and any other an ask.
+   */
+  noticeUrgency?: "information" | "ask";
+  /** Open in place, as the gallery's still copies are; over a game the page's script shows it through zaismaLayers.show, never by itself. */
   isShown?: boolean;
   /** Where it is in the gallery, rather than over the game's corner. */
   isInPlace?: boolean;
@@ -43,7 +48,35 @@ export interface PlayingCardOptions {
 /** A card of glass over a running game's top corner, for what needs the player now (keep your progress, a game asking them to sign in) or what just happened (Saved). */
 export function playingCard(options: PlayingCardOptions): Raw {
   const named = options.title ? html` aria-labelledby="${options.id}-title"` : raw(' role="status"');
-  return html`<aside class="playing-card glass${options.isInPlace ? " in-place" : ""}" id="${options.id}"${named} data-glass data-glass-corners="pane"${options.isShown ? "" : raw(" hidden")}>${EDGE}<div class="playing-card-in">${options.title ? html`<h2 class="playing-card-title" id="${options.id}-title">${options.title}</h2>` : ""}${options.body}</div></aside>`;
+  const urgency = options.noticeUrgency ? html` data-notice-urgency="${options.noticeUrgency}"` : "";
+  return html`<aside class="playing-card glass${options.isInPlace ? " in-place" : ""}" id="${options.id}"${named}${urgency} data-glass data-glass-corners="pane"${options.isShown ? "" : raw(" hidden")}>${EDGE}<div class="playing-card-in">${options.title ? html`<h2 class="playing-card-title" id="${options.id}-title">${options.title}</h2>` : ""}${options.body}</div></aside>`;
+}
+
+export interface UrgentCardOptions {
+  /** Unique on the page: a page's script says it by its id (zaismaLayers.say({ cardId })). */
+  id: string;
+  /** What happened: "You've been signed out". */
+  title: string;
+  /** What it means now, in one or two sentences: "Nothing was charged. Sign in again to buy." */
+  text: string;
+  /** What the player can do about it (Sign in); Close is always there. */
+  buttons?: ControlMarkup[];
+  /** The sheets that can't go on under it (the buy sheet and its Confirm it's you after a sign-out): they close as it shows. */
+  sheetsToClose?: string[];
+  /** Where it is in the gallery: shown in place rather than over everything. */
+  isInPlace?: boolean;
+}
+
+/**
+ * An urgent card: news that goes over anything, sheets and full screen included (signed out, the connection lost while paying), as a playing
+ * card with an edge in the marked color. It's a popover the queue shows after everything else, so the top layer puts it on top. In the
+ * corner on a wide screen, across the top on a phone; it stays until the player closes it or presses what's in it.
+ */
+export function urgentCard(options: UrgentCardOptions): Raw {
+  const close = quietButton("Close", { type: "button", icon: "close", isLabelHidden: true, isSmall: true, dataAttributes: { "layer-close": "" } });
+  const buttons = options.buttons?.length ? row({ widths: "equal", items: options.buttons.map((button) => ({ kind: "control" as const, markup: button })) }) : "";
+  const sheetsToClose = options.sheetsToClose?.length ? html` data-sheets-to-close="${options.sheetsToClose.join(" ")}"` : "";
+  return html`<aside class="playing-card glass urgent-card${options.isInPlace ? " in-place" : ""}" id="${options.id}" role="alert" data-notice-urgency="urgent"${sheetsToClose}${options.isInPlace ? "" : raw(' popover="manual"')} data-glass data-glass-corners="pane">${EDGE}<div class="playing-card-in"><div class="urgent-card-head"><h2 class="playing-card-title">${options.title}</h2>${close}</div><p class="urgent-card-text">${options.text}</p>${buttons}</div></aside>`;
 }
 
 export interface ScreenshotOptions {
@@ -75,12 +108,12 @@ export const gameCard = (options: GameCardOptions): Raw => gameCover({ ...option
  * A card with nothing to press in it (a notification) dismisses on a tap or a click, or a swipe sideways or up past a threshold. While it's
  * swiped it follows the finger and fades (the card's --swipe-x, --swipe-y and --swipe-opacity), and it leaves with the card's own exit,
  * carrying on the way it was going. A press on a button or link in a card does nothing here; Escape dismisses too. Under reduced motion it
- * doesn't follow: it only fades out. The page's own timed hide stays: it sets the card's hidden as this does.
+ * doesn't follow: it only fades out. It leaves through the queue (zaismaLayers.leave), which then shows the next.
  */
 export const PLAYING_CARD_SCRIPT = `/* playing cards */(function () {
   var SIDEWAYS_PX = 56, UP_PX = 32, TAP_PX = 8, drag = null;
   var isReduced = function () { return matchMedia("(prefers-reduced-motion: reduce)").matches; };
-  var isNotice = function (card) { return !card.classList.contains("in-place") && !card.querySelector("a, button, input, select, textarea"); };
+  var isNotice = function (card) { return !card.classList.contains("in-place") && !card.classList.contains("urgent-card") && !card.querySelector("a, button, input, select, textarea"); };
   function reset(card) {
     card.classList.remove("is-swiping");
     ["--swipe-x", "--swipe-y", "--swipe-opacity"].forEach(function (name) { card.style.removeProperty(name); });
@@ -89,6 +122,7 @@ export const PLAYING_CARD_SCRIPT = `/* playing cards */(function () {
     card.classList.remove("is-swiping");
     if (!isReduced() && axis === "x") card.style.setProperty("--swipe-x", sign * card.offsetWidth + "px");
     if (!isReduced() && axis === "y") card.style.setProperty("--swipe-y", -card.offsetHeight + "px");
+    if (window.zaismaLayers) window.zaismaLayers.leave(card);
     card.hidden = true;
   }
   // When the page shows a card again, it starts from where it belongs, not where it was swiped to.
@@ -206,6 +240,17 @@ html.is-leaving body > main > :not(.playing-bar, .playing-card, .playing-check, 
 .playing-card-in p { margin: 0; }
 .playing-card-title { margin: 0; font: var(--type-heading); }
 @media (orientation: landscape) and (max-height: 500px) { .playing-card { top: var(--pad-frame); } }
+/* An urgent card: a playing card with its edge in the marked color, a popover over everything (zaismaLayers shows it last). The browser's own
+   popover look is put back to the card's; it comes and goes as a card does, kept in the top layer while it leaves. Across the top on a phone. */
+.playing-card.urgent-card { inset: auto; top: calc(var(--control-height-small) + 3 * var(--pad-frame)); right: var(--pad-frame); height: auto; padding: 0; border: 0; overflow: visible;
+  transition: var(--glass-transition), opacity 0.25s ease, transform 0.3s cubic-bezier(.2,.8,.2,1), display 0.3s allow-discrete, overlay 0.3s allow-discrete; }
+.playing-card.urgent-card:not(.in-place):not(:popover-open) { opacity: 0; transform: translateY(-8px); }
+.urgent-card > .edge :is(.rim, .hair) { stroke: var(--marked); }
+.playing-card.urgent-card.in-place { position: relative; inset: auto; }
+.urgent-card-head { display: flex; align-items: flex-start; gap: var(--gap-control-row-boxes); }
+.urgent-card-head > .playing-card-title { flex: 1; min-width: 0; }
+.urgent-card-text { color: var(--ink); }
+@media (max-width: 640px) { .playing-card.urgent-card:not(.in-place) { left: var(--pad-frame); right: var(--pad-frame); width: auto; margin: 0 auto; max-width: 360px; } }
 @media (prefers-reduced-motion: reduce) {
   .playing-card { transition: var(--glass-transition), opacity 0.2s ease, display 0.2s allow-discrete; }
   .playing-card, .playing-card[hidden] { transform: none; }
@@ -290,7 +335,7 @@ component({
   name: "Playing card",
   slug: "playing-card",
   group: "panes",
-  summary: "A card over a running game's top corner, for what needs the player now (keep your progress, a game asking them to sign in) or what just happened (Saved). The game keeps running and stays in view. One with nothing to press in it goes on a tap or a swipe.",
+  summary: "A card over a running game's top corner, for what needs the player now (keep your progress, a game asking them to sign in) or what just happened (Saved). The game keeps running and stays in view. One at a time over a game, asks before information, nothing but urgent while a sheet is open; one with nothing to press in it goes on a tap or a swipe. Urgent news (signed out) is an urgent card, over anything.",
   styles: "",
   render: playingCard,
   examples: [
@@ -311,5 +356,16 @@ component({
       }),
     },
     { label: "Saved", markup: playingCard({ id: "example-saved", isShown: true, isInPlace: true, body: html`<p>Saved to your account.</p>` }) },
+    { label: "Signed out while buying: urgent, over anything, the sheets it makes useless closed under it", markup: urgentCard({ id: "example-urgent", title: "You've been signed out", text: "Nothing was charged. Sign in again to buy.", buttons: [runButton("Sign in", { href: "#signin" })], isInPlace: true }) },
+    {
+      label: "Try it: urgent over a sheet, which closes under it",
+      markup: html`${cutButton("Buy Revive", { type: "button", controls: "example-urgent-sheet" })}${sheet({
+        id: "example-urgent-sheet",
+        title: "Revive",
+        body: stack({ items: [{ kind: "words", markup: html`<p>Bring your character back with half its health.</p>` }, { kind: "control", markup: cutButton("Sign out in another tab", { type: "button", isFullWidth: true, dataAttributes: { "layer-show": "example-urgent-over" } }) }] }),
+        closeLabel: "Close",
+        placement: "foot",
+      })}${urgentCard({ id: "example-urgent-over", title: "You've been signed out", text: "Nothing was charged. Sign in again to buy.", buttons: [runButton("Sign in", { href: "#signin" })], sheetsToClose: ["example-urgent-sheet"] })}`,
+    },
   ],
 });

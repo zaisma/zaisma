@@ -3,7 +3,7 @@ import { isProtectionOfferDue, markProtectionOffered, protectAccountWindow } fro
 import { currentSession } from "./auth.ts";
 import type { Env } from "./env.ts";
 import { backgroundsOfGames, type ShownBackground } from "./backgrounds.ts";
-import { textButton } from "./components/actions.ts";
+import { quietButton } from "./components/actions.ts";
 import { glassPane, icon, tag } from "./components/foundations.ts";
 import { row, stack, type LayoutItem } from "./components/layout.ts";
 import { shelf } from "./components/navigation.ts";
@@ -324,7 +324,7 @@ export async function home(env: Env, request: Request): Promise<Response> {
             ...(popular.length ? [homeShelf("popular", "Popular", "popular", popular, true, ownedGameIds)] : []),
             ...(trending.length ? [homeShelf("trending", "Trending", "trending", trending, !popular.length, ownedGameIds)] : []),
             ...(fresh.length ? [homeShelf("new", "New", "new", fresh, !popular.length && !trending.length, ownedGameIds)] : []),
-            { kind: "block", markup: row({ widths: "fit", alignment: "center", items: [{ kind: "control", markup: textButton("All games", { href: "/games" }) }] }) },
+            { kind: "block", markup: row({ widths: "fit", alignment: "center", items: [{ kind: "control", markup: quietButton("All games", { href: "/games" }) }] }) },
           ],
         })}`,
       })}</div>`

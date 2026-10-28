@@ -278,6 +278,8 @@ interface ListRowParts {
   secondDetail?: string;
   /** What leads the row, before its title: a Picture frame (a player, a friend) or an icon (a key, a passkey). */
   lead?: Raw;
+  /** An icon right after its title that says one thing about it (a friend), with its words for a screen reader and a pointer's tooltip. */
+  titleIcon?: { icon: IconName; label: string; isHidden?: boolean };
   /** What sits at its end: a Tag (a version's state is VERSION_STATE_TAGS') or a few words. */
   end?: Raw | string;
   /** A Usage meter's track under its lines, its numbers said in the detail: a game's hosting this month. */
@@ -306,7 +308,7 @@ const rowOf = (actions: ControlMarkup[]) => row({ widths: "fit", items: actions.
  * List rows: a list on glass, one thing a row with hairlines between (versions, keys, topics, players); a row with an address is a link as a whole.
  * whenEmpty (an Empty state) shows in its place while it has no rows shown, a page script's rows included (WHEN_EMPTY_STYLES).
  */
-export function listRows(options: { rows: ListRow[]; whenEmpty: Raw; id?: string; label?: string; shownRowCount?: number }): Raw {
+export function listRows(options: { rows: ListRow[]; whenEmpty: Raw; id?: string; label?: string; shownRowCount?: number; isCompact?: boolean }): Raw {
   const cap = options.shownRowCount ? html` style="--shown-row-count:${String(options.shownRowCount)}"` : "";
   return html`${listMarkup(options, cap)}${whenEmptyMarkup(options.whenEmpty, options.rows.some((row) => !row.isHidden))}`;
 }
@@ -317,10 +319,10 @@ export function listRows(options: { rows: ListRow[]; whenEmpty: Raw; id?: string
  */
 const whenEmptyMarkup = (whenEmpty: Raw, isListShown: boolean): Raw => html`<div class="when-empty"${isListShown ? raw(" hidden") : ""}>${whenEmpty}</div>`;
 
-function listMarkup(options: { rows: ListRow[]; id?: string; label?: string; shownRowCount?: number }, cap: Raw | ""): Raw {
-  return html`<ul class="list-rows${options.shownRowCount ? " is-capped" : ""}"${cap}${options.id ? html` id="${options.id}"` : ""}${options.label ? html` aria-label="${options.label}"` : ""}>${options.rows.map((row) => {
+function listMarkup(options: { rows: ListRow[]; id?: string; label?: string; shownRowCount?: number; isCompact?: boolean }, cap: Raw | ""): Raw {
+  return html`<ul class="list-rows${options.shownRowCount ? " is-capped" : ""}${options.isCompact ? " is-compact" : ""}"${cap}${options.id ? html` id="${options.id}"` : ""}${options.label ? html` aria-label="${options.label}"` : ""}>${options.rows.map((row) => {
     const details = [row.detail, row.secondDetail].filter((line): line is string => Boolean(line));
-    const inside = html`${row.lead ? html`<span class="list-row-lead">${row.lead}</span>` : ""}<span class="list-row-words"><span class="list-row-title">${row.title}</span>${details.map((line) => html`<span class="list-row-detail">${factLine(line, "list-row-fact")}</span>`)}${row.meter ? html`<span class="list-row-meter">${usageTrack(row.meter)}</span>` : ""}</span>${row.end !== undefined ? html`<span class="list-row-end">${row.end}</span>` : ""}`;
+    const inside = html`${row.lead ? html`<span class="list-row-lead">${row.lead}</span>` : ""}<span class="list-row-words">${row.titleIcon ? html`<span class="list-row-title-line"><span class="list-row-title">${row.title}</span><span class="list-row-title-icon" role="img" aria-label="${row.titleIcon.label}" title="${row.titleIcon.label}"${row.titleIcon.isHidden ? raw(" hidden") : ""}>${icon(row.titleIcon.icon)}</span></span>` : html`<span class="list-row-title">${row.title}</span>`}${details.map((line) => html`<span class="list-row-detail">${factLine(line, "list-row-fact")}</span>`)}${row.meter ? html`<span class="list-row-meter">${usageTrack(row.meter)}</span>` : ""}</span>${row.end !== undefined ? html`<span class="list-row-end">${row.end}</span>` : ""}`;
     return html`<li${row.isHidden ? raw(" hidden") : ""}>${row.href
       ? html`<a class="list-row is-link${row.state ? ` ${row.state}` : ""}" href="${row.href}"${row.isNewTab ? raw(' target="_blank" rel="noopener noreferrer"') : ""} data-cut-line="8">${CUT_LINE}${inside}<span class="list-row-go${row.isNewTab ? " is-new-tab" : ""}" aria-hidden="true">${icon(row.isNewTab ? "out-of-page" : "chevron-right")}</span></a>`
       : html`<div class="list-row">${inside}${row.action ? html`<span class="list-row-action">${Array.isArray(row.action) ? rowOf(row.action) : row.action}</span>` : ""}</div>`}</li>`;
@@ -354,12 +356,19 @@ component({
 .list-row.is-link { --face-color: transparent; background: var(--face-color); clip-path: var(--cut-shape); transition: --face-color 0.15s; -webkit-tap-highlight-color: transparent; }
 .list-row > :not(.cut-line) { position: relative; z-index: 2; }
 .list-row-lead { flex: none; display: inline-flex; color: var(--ink-2); }
+/* Compact: a long list in a narrow place (the players in a room): one line a row, its words taking what's left beside its picture and buttons. */
+.list-rows.is-compact > li > .list-row { flex-wrap: nowrap; min-height: 44px; padding-block: calc(var(--gap-control-stack) * 0.75); }
+.list-rows.is-compact .list-row-words { flex: 1 1 0; }
 .list-row-lead > .ico { width: 20px; height: 20px; }
 /* The words keep a card's width at least: where the buttons don't fit beside that, they go under the words, at the row's end. */
 .list-row-words { display: grid; gap: var(--gap-words-words); min-width: 0; flex: 1 1 min(100%, var(--size-card)); }
 /* A long title wraps rather than being cut short, a web address anywhere. */
 .list-row-title { font: var(--type-label); color: var(--ink); overflow-wrap: anywhere; }
 .list-row-detail { font: var(--type-facts); color: var(--muted); }
+/* An icon after the title (a friend's mark), in the second words' color, on the title's line. */
+.list-row-title-line { display: flex; align-items: center; gap: var(--gap-words-words); min-width: 0; }
+.list-row-title-icon { flex: none; display: inline-flex; color: var(--ink-2); }
+.list-row-title-icon > .ico { width: 16px; height: 16px; }
 /* A meter under its lines: only the track, its numbers in the detail above. */
 .list-row-meter { display: grid; padding-top: var(--gap-words-words); }
 .list-row-fact { display: inline-block; max-width: 100%; }
@@ -383,6 +392,10 @@ component({
   render: listRows,
   examples: [
     { label: "Rows that go somewhere", isWide: true, markup: listPane(VERSION_LIST_ROWS) },
+    {
+      label: "Compact: a long list in a narrow place, one line a row (the players in a room)",
+      markup: html`<div style="width:320px">${glassPane({ paneWidth: "full", body: listRows({ isCompact: true, whenEmpty: html`<p>Nobody here yet.</p>`, rows: ["Liam", "Sofia", "Emma Charlotte Fairweather-Lindqvist"].map((name, index) => ({ lead: pictureFrame(name, "sm"), title: name, titleIcon: index ? undefined : { icon: "friends" as const, label: "Friend" }, action: [cutButton(`Mute ${name}`, { type: "button", icon: "speaker", isLabelHidden: true, isSmall: true }), cutButton(`More for ${name}`, { type: "button", icon: "more", isLabelHidden: true, isSmall: true })] })) }) })}</div>`,
+    },
     { label: "Pointed", markup: listPane([{ title: "Ashen Crown", detail: "Unlisted · 2,318 players this week", href: "#list-rows", state: "is-pointed" }]), isStill: true },
     { label: "Pressed", markup: listPane([{ title: "Ashen Crown", detail: "Unlisted · 2,318 players this week", href: "#list-rows", state: "is-pressed" }]), isStill: true },
     { label: "Keyboard focus", markup: listPane([{ title: "Ashen Crown", detail: "Unlisted · 2,318 players this week", href: "#list-rows", state: "is-focused" }]), isStill: true },

@@ -168,6 +168,12 @@ export interface SheetMarkupOptions {
   isCompact?: boolean;
   /** A picture large (a screenshot, a screen on Screens): as wide as the screen allows, up to --size-sheet-picture, rather than --size-sheet. */
   isPicture?: boolean;
+  /** What its form holds in place of one head, body and foot: a sheet's steps, or its tabs (panes.ts's sheet), each made of Pane parts. */
+  parts?: Raw;
+  /** The id of the title that names it, when parts hold it: its first step's. */
+  titleId?: string;
+  /** A short yes or no that guards something (a confirm sheet, Confirm it's you): opened over another sheet it's drawn a size smaller, in the middle of it. */
+  isConfirm?: boolean;
 }
 
 /**
@@ -182,8 +188,9 @@ export function sheetMarkup(options: SheetMarkupOptions): Raw {
     body: html`<div class="sheet-scroll"><div class="sheet-body">${options.body}</div></div>`,
     foot: options.foot ? { start: { kind: "block", markup: options.foot } } : buttons.length ? { start: { kind: "block", markup: row({ widths: "equal", items: buttons.map((button) => ({ kind: "control" as const, markup: button })) }) } } : undefined,
   });
-  const form = options.action === undefined ? html`<form class="sheet-in" method="dialog">${parts}</form>` : html`<form class="sheet-in" method="post" action="${options.action}">${parts}</form>`;
-  return html`<dialog class="sheet glass${options.placement === "foot" ? " placement-foot" : options.placement === "side" ? " placement-side" : options.placement === "middle" ? " placement-middle" : ""}${options.isCompact ? " is-compact" : ""}${options.isPicture ? " is-picture" : ""}${options.isShown ? " in-place" : ""}" id="${options.id}" aria-labelledby="${options.id}-title" data-glass data-glass-corners="pane"${options.isShown ? raw(" open") : ""}>${EDGE}${form}</dialog>`;
+  const inside = options.parts ?? parts;
+  const form = options.action === undefined ? html`<form class="sheet-in" method="dialog">${inside}</form>` : html`<form class="sheet-in" method="post" action="${options.action}">${inside}</form>`;
+  return html`<dialog class="sheet glass${options.placement === "foot" ? " placement-foot" : options.placement === "side" ? " placement-side" : options.placement === "middle" ? " placement-middle" : ""}${options.isCompact ? " is-compact" : ""}${options.isPicture ? " is-picture" : ""}${options.isShown ? " in-place" : ""}" id="${options.id}" aria-labelledby="${options.titleId ?? `${options.id}-title`}"${options.isConfirm ? raw(" data-sheet-confirm") : ""} data-glass data-glass-corners="pane"${options.isShown ? raw(" open") : ""}>${EDGE}${form}</dialog>`;
 }
 
 /** An outline for a cut field or button (GLASS_SCRIPT draws it), and a slab's drawn rim. */

@@ -1147,6 +1147,26 @@ describe("versions published now, and the connection beside the game", () => {
     expect(sdk.page.posted.at(-1)).toEqual({ type: "zaisma:reload", code: null });
     expect(() => sdk.Zaisma.versions.on("updated", () => {})).toThrow('There\'s no "updated" event. Zaisma.versions has: update.');
   });
+
+  it("says when Zaisma's page covers the game, only on a change and only from the page, read-only", () => {
+    const sdk = loadSdk();
+    expect(sdk.Zaisma.page.coveredBy).toBeNull();
+    const heard: unknown[] = [];
+    sdk.Zaisma.page.on("coveredBy", (coveredBy: unknown) => heard.push(coveredBy));
+    sdk.page.say({ type: "zaisma:covered", coveredBy: "sheet" });
+    sdk.page.say({ type: "zaisma:covered", coveredBy: "sheet" });
+    expect(sdk.Zaisma.page.coveredBy).toBe("sheet");
+    sdk.page.say({ type: "zaisma:covered", coveredBy: "card" });
+    sdk.page.say({ type: "zaisma:covered", coveredBy: "something else" });
+    expect(heard).toEqual(["sheet", "card", null]);
+    // It's the page's to say, not the game's.
+    expect(() => {
+      "use strict";
+      (sdk.Zaisma.page as { coveredBy: unknown }).coveredBy = "sheet";
+    }).toThrow();
+    expect(sdk.Zaisma.page.coveredBy).toBeNull();
+    expect(() => sdk.Zaisma.page.on("covered", () => {})).toThrow('There\'s no "covered" event. Zaisma.page has: coveredBy.');
+  });
 });
 
 describe("state sync and latest-only sends in the SDK", () => {

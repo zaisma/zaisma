@@ -50,7 +50,7 @@ import { glassPane, tag, type IconName } from "./components/foundations.ts";
 import { grid, row, stack, track, type LayoutItem } from "./components/layout.ts";
 import { banner, dropdown, sheet } from "./components/panes.ts";
 import { person } from "./components/people.ts";
-import { gameCard, playingBar, playingCard, playingCheck, screenshot, screenshotLarge } from "./components/playing.ts";
+import { gameCard, playingBar, playingCard, playingCheck, screenshot, screenshotLarge, urgentCard } from "./components/playing.ts";
 import { facts, foldRows, readingText, type FoldRow } from "./components/reading.ts";
 import { backgroundMarkup, backgroundOf, type ShownBackground } from "./backgrounds.ts";
 import { glassMessage, html, layout, pageData, raw, scriptTags, type Raw } from "./html.ts";
@@ -58,7 +58,7 @@ import { pageScript } from "./page-scripts.ts";
 import { coverPriceText, paidGamesOwnedBy, showcase, type ShowGame } from "./home.ts";
 import { viewerOf, type Viewer } from "./viewer.ts";
 import { SAVES_SCRIPT } from "./saves-client.ts";
-import { reportSheet } from "./report.ts";
+import { reportScript, reportSheet, reportStep } from "./report.ts";
 import { blockSheet } from "./blocks.ts";
 import { playersSheet } from "./players-sheet.ts";
 import { friendRequestParts } from "./friend-requests.ts";
@@ -454,7 +454,8 @@ export function gamePageResponse(env: Env, view: GamePageView): Response {
   const menu = dropdown({
     id: "menu-dialog",
     label: game.title,
-    head: { title: game.title, note: ownServers.length ? ownServersLine(ownServers) : undefined },
+    // When the account last saved ("Saved 2 min ago"), written by the saves script: saving that works says nothing over the game.
+    head: { title: game.title, note: ownServers.length ? ownServersLine(ownServers) : undefined, lineId: saves ? "save-line" : undefined },
     items: [
       // Guests only: a signed-in player's progress is on their account already.
       ...(saves && !viewer.account ? [{ id: "keep-link", isHidden: true, label: "Keep your progress", icon: "save" as const, href: joinHere, dataAttributes: { keep: "/join" } }] : []),
@@ -510,11 +511,11 @@ ${playingBar({ title: game.title, controls: barControls })}
 ${roomSheet}
 ${isClosed ? "" : connectionPlate()}
 ${menu}
-${reportSheet(game, { isMultiplayer: multiplayer, gameOrigin })}
-${multiplayer ? blockSheet({ gameOrigin }) : ""}
-${multiplayer ? playersSheet({ gameOrigin, slug: game.slug, title: game.title, hasZaismaRooms: game.multiplayer_mode !== "none", canSignIn, signInPath: `/signin?next=${encodeURIComponent(`/g/${game.slug}`)}` }) : ""}
+${multiplayer
+  ? html`${playersSheet({ gameOrigin, slug: game.slug, title: game.title, hasZaismaRooms: game.multiplayer_mode !== "none", canSignIn, signInPath: `/signin?next=${encodeURIComponent(`/g/${game.slug}`)}`, reportStep: reportStep(game, { isMultiplayer: true }) })}${reportScript(game, { gameOrigin })}${blockSheet({ gameOrigin })}`
+  : reportSheet(game, { isMultiplayer: false, gameOrigin })}
 ${keepCard}
-${saves ? playingCard({ id: "save-toast", body: stack({ items: [{ kind: "words", markup: html`<p></p>` }] }) }) : ""}
+${saves ? urgentCard({ id: "signed-out", title: "You've been signed out", text: "Sign in again to keep saving to your account.", buttons: [runButton("Sign in", { href: signinHere })] }) : ""}
 ${signInCard}
 ${isClosed || !authConfigured(env) ? "" : friendRequestParts({ gameOrigin, slug: game.slug })}
 ${multiplayer ? stillThereCard() : ""}
@@ -1141,7 +1142,7 @@ if (deviceNotes.length) {
 const menuButton = document.getElementById("menu");
 // A tap into the game never reaches this page: the page losing focus closes an open menu instead.
 window.addEventListener("blur", () => document.querySelectorAll('.dropdown[role="menu"]:not(.shut)').forEach((menu) => { const opener = document.querySelector('[aria-controls="' + menu.id + '"][aria-expanded="true"]'); if (opener) opener.click(); }));
-menuButton.addEventListener("click", () => setTimeout(() => { if (frame && menuButton.getAttribute("aria-expanded") === "false" && !document.getElementById("report").open) frame.focus(); }));
+menuButton.addEventListener("click", () => setTimeout(() => { if (frame && menuButton.getAttribute("aria-expanded") === "false" && !document.querySelector("dialog.sheet[open]")) frame.focus(); }));
 // The room control: the room's code while the game is in a room (zaisma:room, then zaisma:players says
 // whether it takes others), Join otherwise; its sheet has the code with Copy, and Join by code. In streamer mode (an
 // account setting) the code starts hidden: the eye shows it on this page, and Share blurs it under Show.
@@ -1197,11 +1198,12 @@ if (roomOpen && roomDialog) {
 const shareBox = document.getElementById("share-dialog");
 const shareLink = document.getElementById("share-link");
 // What streamer mode masks: the QR code, the room code and the link (Copy still copies them).
-const shareSecrets = () => shareBox.querySelectorAll(".qr-code, .code-field");
+const shareSecrets = () => document.querySelectorAll("#share-dialog .code-field, #share-dialog .link-field, #share-qr-box .qr-code");
 function shareFrom(button) {
   const url = location.origin + location.pathname + location.search.replace(/[?&]play\b[^&]*/, "").replace(/^&/, "?");
   const room = new URLSearchParams(location.search).get("room");
-  shareLink.textContent = url;
+  shareLink.dataset.link = url;
+  shareLink.textContent = url.replace(/^https?:\/\//, "");
   document.getElementById("share-room").hidden = !room;
   document.getElementById("share-room-code").textContent = room || "";
   const isMasked = isRoomCodeHidden && Boolean(room);
@@ -1210,7 +1212,7 @@ function shareFrom(button) {
   const qr = document.getElementById("share-qr");
   if (qr) {
     qr.src = "/g/" + gamePage.slug + "/qr-code.svg" + (room ? "?room=" + encodeURIComponent(room) : "");
-    document.getElementById("share-qr-caption").textContent = room ? "Scan to join this match" : "Scan to play";
+    document.getElementById("share-qr-caption").textContent = room ? "Scan with a phone's camera to join this match" : "Scan with a phone's camera to play";
   }
   if (!shareBox.open) shareBox.showModal();
   shareBox.returnFocus = button;
@@ -1219,7 +1221,7 @@ const shareMore = document.getElementById("share-more");
 if (navigator.share) {
   shareMore.hidden = false;
   shareMore.onclick = async () => {
-    try { await navigator.share({ title: document.title, url: shareLink.textContent }); shareBox.close(); } catch {}
+    try { await navigator.share({ title: document.title, url: shareLink.dataset.link }); shareBox.close(); } catch {}
   };
 }
 // Show, or a tap on the blurred link or room code, reveals them for this time.
@@ -1230,6 +1232,8 @@ shareBox.addEventListener("close", () => { if (frame) frame.focus(); else if (sh
 share.onclick = () => shareFrom(share);
 // The game says which room it's in, so the address bar (and so Share) points to that match.
 const gameOrigin = new URL(gamePage.frame_url).origin;
+// Whenever a sheet or card of Zaisma's covers the game, or stops, the game hears it (Zaisma.page.coveredBy), so it can pause.
+addEventListener("zaisma:covered", (e) => { if (frame && frame.contentWindow) frame.contentWindow.postMessage({ type: "zaisma:covered", coveredBy: e.detail.coveredBy }, gameOrigin); });
 addEventListener("message", (e) => {
   if (!frame || e.origin !== gameOrigin || e.source !== frame.contentWindow) return;
   const d = e.data;
@@ -1375,7 +1379,7 @@ function tellSignedIn() {
     telling = null;
     if (!answer) return false;
     if (answer.key) roomKey = Promise.resolve({ key: answer.key, playerKind: answer.playerKind });
-    signInAsk.hidden = true;
+    zaismaLayers.leave(signInAsk);
     frame.contentWindow.postMessage({ type: "zaisma:signed-in", player: answer.player }, gameOrigin);
     return true;
   })();
@@ -1388,12 +1392,12 @@ window.askSignIn = async () => {
   wasGuest = true;
   signInText.textContent = "Make a free Zaisma account or sign in. The game keeps running here while you do.";
   const keep = document.getElementById("keep");
-  if (keep) keep.hidden = true;
-  signInAsk.hidden = false;
-  signInAsk.querySelector("[data-sign-in]").focus();
+  if (keep) zaismaLayers.leave(keep);
+  zaismaLayers.show(signInAsk);
+  if (!signInAsk.hidden) signInAsk.querySelector("[data-sign-in]").focus();
 };
 document.getElementById("sign-in-later").onclick = () => {
-  signInAsk.hidden = true;
+  zaismaLayers.leave(signInAsk);
   if (!frame) return;
   frame.contentWindow.postMessage({ type: "zaisma:sign-in", status: "declined" }, gameOrigin);
   frame.focus();

@@ -63,7 +63,7 @@ export const SAVES_SCRIPT = pageScript("saves", `
   const offer = document.getElementById("keep");
   const offerBar = document.getElementById("keep-bar");
   const offerLink = document.getElementById("keep-link");
-  const toast = document.getElementById("save-toast");
+  const savedLine = document.getElementById("save-line");
   let cloud = null;       // the account's save as last seen: { tag, version_number, sha256, saved_at, changed_by_kind, save_data }
   let synced = null;      // the save text the game and the account both have
   let paused = true;
@@ -141,20 +141,28 @@ export const SAVES_SCRIPT = pageScript("saves", `
     const m = Math.round((serverNow() - Date.parse(savedAt)) / 60000);
     return m < 1 ? "just now" : m < 60 ? m + " min ago" : m < 1440 ? Math.round(m / 60) + " h ago" : Math.round(m / 1440) + " days ago";
   };
-  // Where progress goes, in the Keep your progress card.
-  let toastTimer = null;
-  // What happened to the account's save: in the Keep card while it shows (a guest's), otherwise a card over the game for a few seconds.
+  // Zaisma speaks over the game only when something changed or needs the player (zaismaLayers, components/layers.ts): saving that
+  // works says nothing, and the ⋯ menu keeps a quiet line of when the account last saved.
+  const layers = () => window.zaismaLayers || null;
+  // Something that went wrong with the account's save: in the Keep card while it shows (a guest's), otherwise a card over the game
+  // that stays until it's closed. The same words while they're up are one card.
+  let problemShown = null;
   const say = (text) => {
     if (status && offer && !offer.hidden) { (status.querySelector("p") || status).textContent = text; status.hidden = false; return; }
-    pop(text);
+    if (layers()) problemShown = layers().say({ text, noticeUrgency: "information", tone: "problem" });
   };
-  function pop(text) {
-    if (!toast) return;
-    (toast.querySelector("p") || toast).textContent = text;
-    toast.hidden = false;
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => (toast.hidden = true), 8000);
-  }
+  // Something that went through and is worth hearing once (the first save after signing in): it leaves by itself.
+  const tellDone = (text) => layers() && layers().say({ text, noticeUrgency: "information", tone: "done" });
+  // Saving works again: a problem it had is over.
+  const clearProblem = () => { if (problemShown) problemShown.leave(); problemShown = null; };
+  // When the account last saved, in the ⋯ menu, kept current while the page is open.
+  let savedAtText = null;
+  const drawSaved = () => { if (!savedLine || !savedAtText) return; savedLine.textContent = "Saved " + ago(savedAtText); savedLine.hidden = false; };
+  const showSaved = (savedAt) => { savedAtText = savedAt; clearProblem(); drawSaved(); };
+  setInterval(drawSaved, 30000);
+  // The Keep your progress card waits its turn over the game like any card, and leaves through the queue.
+  const showCard = (card) => { if (layers()) layers().show(card); else card.hidden = false; };
+  const hideCard = (card) => { if (layers()) layers().leave(card); card.hidden = true; };
   // The account's progress wins: keep this device's as an earlier version on the account, dated when this device
   // last played it (played_at; null when that isn't known). Answers the copy's ID, or null.
   const keepDevice = (text, playedAtMs = (played() || {}).played_at_ms) => {
@@ -172,7 +180,9 @@ export const SAVES_SCRIPT = pageScript("saves", `
       localStorage.setItem(playedKey, JSON.stringify(value));
     } catch { return null; }
   };
-  // The game sent its save: if it changed, this device played just now (on Zaisma's clock).
+  // The game sent its save: if it changed, this device played just now (on Zaisma's clock). noting is the latest one being written,
+  // so a refused save decides whose progress is newer only once it's down.
+  let noting = Promise.resolve();
   async function notePlayed(text) {
     const hash = await sha(text);
     const was = played();
@@ -281,18 +291,20 @@ export const SAVES_SCRIPT = pageScript("saves", `
     return Date.now() - quietSince < OFFER_QUIET;
   };
 
+  let isOnlyHereSaid = false;
   function maybeOffer() {
     if (!guest || !guestText || guestText === EMPTY_SAVE_TEXT) return;
     if (offerBar) offerBar.hidden = false;
     if (offerLink) offerLink.hidden = false;
-    say("Your progress is only saved in this browser.");
+    // Said once a visit, when there's first progress to keep (the Keep card says it again when it shows).
+    if (!isOnlyHereSaid) { isOnlyHereSaid = true; say("Your progress is only saved in this browser."); }
     // The card by itself, after a while, unless the game picks the moment instead. Either way it shows once a visit.
     if (offered || !SAVES.isAccountOfferEnabled || playedMs < SAVES.offerAfter || !offer) return;
     // Never over the game's own ask to sign in: the offer waits until that card is gone.
     const ask = document.getElementById("sign-in-ask");
     if (ask && !ask.hidden) return;
     offered = true;
-    if (!isQuiet()) offer.hidden = false;
+    if (!isQuiet()) showCard(offer);
   }
 
   // The game asks for the card (Zaisma.player.offerAccount): signing in reaches it as zaisma:signed-in.
@@ -309,8 +321,8 @@ export const SAVES_SCRIPT = pageScript("saves", `
     isGameAsking = true;
     answer("asking");
     const signInAsk = document.getElementById("sign-in-ask");
-    if (signInAsk) signInAsk.hidden = true;
-    offer.hidden = false;
+    if (signInAsk) hideCard(signInAsk);
+    showCard(offer);
   };
 
   // Make an account (or sign in) in a new tab, so the game keeps running here. If the browser
@@ -320,13 +332,13 @@ export const SAVES_SCRIPT = pageScript("saves", `
       const next = "/account/kept?game=" + SAVES.slug;
       const opened = window.open(a.dataset.keep + "?next=" + encodeURIComponent(next), "_blank");
       if (opened) e.preventDefault();
-      if (offer) offer.hidden = true;
+      if (offer) hideCard(offer);
       if (dialog && dialog.open) dialog.close();
     });
   });
   const later = document.getElementById("keep-later");
   if (later) later.onclick = () => {
-    offer.hidden = true;
+    hideCard(offer);
     try { localStorage.setItem(quietKey, String(Date.now())); } catch {}
     if (isGameAsking) toGame({ type: "zaisma:account-offer", status: "declined" });
     isGameAsking = false;
@@ -336,7 +348,8 @@ export const SAVES_SCRIPT = pageScript("saves", `
   async function joined() {
     if (!guest || !signedIn()) return;
     guest = false;
-    for (const el of [offer, offerBar, offerLink]) if (el) el.hidden = true;
+    for (const el of [offerBar, offerLink]) if (el) el.hidden = true;
+    if (offer) hideCard(offer);
     if (!frame) return; // Not playing yet: Play opens the game through the restore page as usual.
     const c = await load();
     if (!c) return say("Couldn't reach your saved progress, so this visit won't save to your account.");
@@ -353,8 +366,8 @@ export const SAVES_SCRIPT = pageScript("saves", `
       paused = false;
       synced = guestText;
       tell({ step: "sync", text: guestText });
-      say("Progress saves to your account.");
-      pop("Your progress now saves to your account.");
+      showSaved(c.saved_at);
+      tellDone("Your progress now saves to your account.");
     } else if (!guestText || guestText === EMPTY_SAVE_TEXT) {
       // Nothing on this device: the game reopens with the account's progress.
       forceCloud = true;
@@ -374,7 +387,8 @@ export const SAVES_SCRIPT = pageScript("saves", `
       forceCloud = true;
       openThroughRestore();
       conflicted("account", keeping);
-      pop("You're signed in. Your account's progress in this game is newer, so the game reloaded with it.");
+      // Nothing to press, but it waits its turn rather than being dropped: an ask.
+      if (layers()) layers().say({ text: "You're signed in. Your account's progress in this game is newer, so the game reloaded with it.", noticeUrgency: "ask" });
     }
   }
   // Saving paused after a 401 or another account signing in: once the account answers again, the game reopens
@@ -392,7 +406,8 @@ export const SAVES_SCRIPT = pageScript("saves", `
     tell({ step: "pause" });
     isAwaitingSignIn = true;
     if (isOtherAccount) signedInAgain();
-    else say("Sign in again to keep saving to your account.");
+    // Signed out: urgent, over anything (the page's signed-out card, with Sign in).
+    else if (layers()) layers().say(document.getElementById("signed-out") ? { cardId: "signed-out", noticeUrgency: "urgent" } : { text: "You've been signed out. Sign in again to keep saving to your account.", noticeUrgency: "urgent" });
   }
   const heardSignIn = () => { joined(); signedInAgain(); };
   addEventListener("focus", heardSignIn);
@@ -481,7 +496,7 @@ export const SAVES_SCRIPT = pageScript("saves", `
       // Keep this device's save; the game sends it as soon as it starts.
       synced = empty && !hasCloudSave ? text : null;
       tell({ step: "restore", action: "keep" });
-      say("Progress saves to your account.");
+      if (hasCloudSave) showSaved(c.saved_at);
     }
   }
 
@@ -506,7 +521,7 @@ export const SAVES_SCRIPT = pageScript("saves", `
     } else {
       sha(canonical(r.saveData)).then((hash) => played({ sha256: hash, played_at_ms: r.isDeviceProgress ? r.aside.played_at_ms || null : null }));
     }
-    say(isAccountSave ? "Progress saves to your account. Last saved " + ago(c.saved_at) + "." : "Progress saves to your account.");
+    if (isAccountSave) showSaved(c.saved_at);
   }
 
   async function store(text) {
@@ -522,6 +537,7 @@ export const SAVES_SCRIPT = pageScript("saves", `
     // Going back to an earlier version: a save that went through still moved the account on; anything else waits for that.
     if (isRestoringCopy && !(res && res.ok)) return;
     const out = res ? await res.json().catch(() => ({})) : {};
+    await noting;
     // A 409 for exactly this save: it landed before (its answer was lost), so it's saved.
     const isSavedBefore = res && res.status === 409 && out.error !== "account_changed" && out.sha256 && out.sha256 === (await sha(text));
     if (opened !== openCount) return;
@@ -533,8 +549,8 @@ export const SAVES_SCRIPT = pageScript("saves", `
       cloud.sha256 = out.sha256;
       synced = text;
       marker(cloud.tag, { version_number: out.version_number, sha256: out.sha256 });
-      say("Progress saves to your account. Last saved just now.");
-      if (welcome) pop("Your progress now saves to your account.");
+      showSaved(new Date(serverNow()).toISOString());
+      if (welcome) tellDone("Your progress now saves to your account.");
       welcome = false;
     } else if (res && res.status === 409 && out.error === "account_changed") {
       // Another account signed in on this browser: this page's progress never goes to it.
@@ -642,7 +658,7 @@ export const SAVES_SCRIPT = pageScript("saves", `
     played({ sha256: c.sha256, played_at_ms: Date.parse(c.saved_at) || null });
     paused = false;
     tell({ step: "sync", text: synced });
-    say("Progress saves to your account. Last saved " + ago(c.saved_at) + ".");
+    showSaved(c.saved_at);
     const keptSaveCopyId = await taking.keeping;
     const keptSaveCopy = keptSaveCopyId ? await copyById(keptSaveCopyId) : null;
     if (opened === openCount && listening.has("developerChange")) sendEvent("developerChange", { savedAt: c.saved_at, keptSaveCopy });
@@ -723,7 +739,7 @@ export const SAVES_SCRIPT = pageScript("saves", `
     const m = e.data;
     if (!m || m.type !== "zaisma:saves" || typeof m.step !== "string") return;
     if ((m.step === "hello" || m.step === "save") && "versionId" in m) versionId = typeof m.versionId === "string" ? m.versionId : null;
-    if (m.step === "save" && typeof m.text === "string") notePlayed(m.text);
+    if (m.step === "save" && typeof m.text === "string") noting = notePlayed(m.text);
     // A game page starting: its game listens again if it wants the events.
     if (m.step === "hello" && m.phase === "game") listening.clear();
     if (guest) {

@@ -1,13 +1,14 @@
 import { html, pageData, type Raw } from "./html.ts";
 import { pageScript } from "./page-scripts.ts";
 import type { Env } from "./env.ts";
-import { cardRow, cutButton, runButton, textButton } from "./components/actions.ts";
+import { cardRow, cutButton, runButton, quietButton } from "./components/actions.ts";
 import { cutField } from "./components/fields.ts";
 import { stripeFrame } from "./components/stripe-frame.ts";
 import { doneState, loadingState, problemState } from "./components/data.ts";
 import { confirmItsYouSheet } from "./components/confirm-its-you.ts";
 import { row, stack } from "./components/layout.ts";
 import { storeItem, storePanel } from "./components/panes.ts";
+import { urgentCard } from "./components/playing.ts";
 import { isLocalPreview } from "./stripe.ts";
 
 /**
@@ -36,7 +37,7 @@ export function buySheet(options: { joinHref: string; signInHref: string; coverU
             // Stripe's card form goes here; the local preview's stand-in Stripe has no form, so its test card's number stands in for it.
             { kind: "block", id: "buy-card-form", markup: stripeFrame({ id: "buy-card-frame", title: "Card details" }) },
             { kind: "control", id: "buy-test-card", isHidden: true, markup: cutField({ name: "test_card_number", id: "buy-test-card-field", label: "Card number", type: "text", text: "4242 4242 4242 4242", isReadOnly: true, autocomplete: "off", hint: "The preview's test card. On zaisma.com, Stripe's card form is here." }) },
-            { kind: "control", id: "buy-keep-card", isHidden: true, markup: textButton("Keep your saved card", { type: "button" }) },
+            { kind: "control", id: "buy-keep-card", isHidden: true, markup: quietButton("Keep your saved card", { type: "button" }) },
           ],
         }),
       },
@@ -68,7 +69,11 @@ export function buySheet(options: { joinHref: string; signInHref: string; coverU
       { kind: "control", markup: cutButton("Back to the game", { id: "buy-back", type: "submit", formMethod: "dialog", isFullWidth: true, isHidden: true }) },
     ],
   });
-  return html`${storePanel({ id: "buy-sheet", title: "Buy", closeLabel: "Close", body, foot })}${confirmItsYouSheet({ id: "buy-confirm-you" })}${stripeFrame({ id: "buy-check-frame", title: "Your bank's check" })}`;
+  // Urgent news while buying, over the sheet and full screen (zaismaLayers): a sign-out ends the purchase, so the sheet and its Confirm it's
+  // you close under it; a connection lost while paying keeps the sheet, which says what it knows.
+  const signedOut = urgentCard({ id: "buy-signed-out", title: "You've been signed out", text: "Nothing was charged. Sign in again to buy.", buttons: [runButton("Sign in", { href: options.signInHref })], sheetsToClose: ["buy-sheet", "buy-confirm-you"] });
+  const unreachable = urgentCard({ id: "buy-unreachable", title: "Couldn't reach Zaisma", text: "If you were charged, the item arrives when you're back." });
+  return html`${storePanel({ id: "buy-sheet", title: "Buy", closeLabel: "Close", body, foot })}${confirmItsYouSheet({ id: "buy-confirm-you" })}${stripeFrame({ id: "buy-check-frame", title: "Your bank's check" })}${signedOut}${unreachable}`;
 }
 
 /** What the sheet's script needs from the page that holds it (pageData "buy-sheet-data"). */
@@ -207,7 +212,9 @@ function open(asked) {
   latestPurchase = null;
   tell(asked, "open");
   const keep = byId("keep");
-  if (keep) keep.hidden = true;
+  if (keep) zaismaLayers.leave(keep);
+  // Full screen is the game's alone: it ends first, so the sheet shows over the page.
+  if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
   if (!buySheet.open) buySheet.showModal();
   start();
 }
@@ -387,6 +394,10 @@ async function paid(answer) {
   if (answer.error) {
     // The confirmation ran out or was used up while paying: ask again, the dialog saying why.
     if (answer.error.code === "purchase_confirmation_needed") { sale.is_confirmation_needed = true; return askToConfirm(); }
+    // Signed out while buying (another tab, another device): nothing was charged, and the sheet can't go on.
+    if (answer.error.code === "account_needed") { busy(false); zaismaLayers.say({ cardId: "buy-signed-out" }); return; }
+    // The connection went while paying: whether it went through isn't known here, so the sheet stays and says so too.
+    if (answer.error.code === "request_failed") zaismaLayers.say({ cardId: "buy-unreachable" });
     if (answer.error.code === "payment_declined") return declined(answer.error.message);
     return problem("Couldn't buy it", answer.error.message);
   }
@@ -460,7 +471,7 @@ function enterCard() {
   byId("buy-test-card").hidden = buyData.stripe_mode !== "stand_in";
   setText("buy-card-words", sale.saved_card ? "A new card for this buy. It takes the place of " + cardWords(sale.saved_card) + " for your next buys too." : "Add a card to pay with. It's saved to your account, so your next buy is one press.");
   byId("buy-keep-card").hidden = !sale.saved_card;
-  if (sale.saved_card) byId("buy-keep-card").querySelector(".text-label").textContent = "Keep " + cardWords(sale.saved_card);
+  if (sale.saved_card) byId("buy-keep-card").querySelector(".quiet-label").textContent = "Keep " + cardWords(sale.saved_card);
   showWallet(shown);
   if (sale.is_eu_withdrawal_line_shown) shown.push("buy-eu");
   showCells(shown, true);

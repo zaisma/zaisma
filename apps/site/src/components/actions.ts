@@ -3,6 +3,7 @@ import { component } from "./component.ts";
 import { CUT_LINE, EDGE, ICONS, backdrop, colorPicker, glassPane, icon, loader, sheetMarkup, type ColorChoice, type IconName } from "./foundations.ts";
 import { TOKEN_STYLES } from "./tokens.ts";
 import { controlMarkup, type ControlMarkup } from "./control-markup.ts";
+import { paneParts } from "./layout.ts";
 
 /*
  * Actions, loudest to quietest: the runner button (the one colored thing you press), the cut button beside it,
@@ -695,14 +696,16 @@ component({
   ],
 });
 
-export interface TextButtonOptions {
-  href?: string;
-  type?: "submit" | "button";
-  name?: string;
-  buttonValue?: string;
-  formMethod?: "dialog";
+export interface QuietButtonOptions extends ButtonTarget {
   /** An icon before its words, like Show all's chevron. */
   icon?: IconName;
+  /**
+   * Only its icon shows, its words said to a screen reader, and pointing brings up its slab with no orange line under it: a pane's Close and
+   * a sheet's Back, which sit quietly in its corners until they're wanted.
+   */
+  isLabelHidden?: boolean;
+  /** A small control's height, as a pane's corner buttons are. */
+  isSmall?: boolean;
   /** Can't be pressed now: its words fade further and it answers no pointer. */
   isDisabled?: boolean;
   isBusy?: boolean;
@@ -710,62 +713,75 @@ export interface TextButtonOptions {
 }
 
 /**
- * A text button: words alone at rest, the quietest thing you press (Skip for now, Show all, Undo). It's a control's size with a slab that
+ * A quiet button: words, an icon or both alone at rest, the quietest thing you press (Skip for now, Show all, Undo; a sheet's Back and Close). It's a control's size with a slab that
  * shows only when you point at it, so it sits and is cut like any control, its words as far in as a field's (--pad-inside-words: on a
  * pane's edge, at the pane's margin). Pointing brings up the slab and draws the orange line in under its words; keyboard focus is the cut
  * stroke round the slab, as on every button.
  */
-export function textButton(label: string, options: TextButtonOptions = {}): ControlMarkup {
-  return controlMarkup(html`${opening(classes("text-btn", options.state), options, options.isBusy, disabledAttribute(options))}<span class="face" data-cut-line="10">${CUT_LINE}<span class="text-words">${loader()}${options.icon ? icon(options.icon) : ""}<span class="text-label">${label}</span></span><span class="text-line" aria-hidden="true"></span></span>${closing(options)}`, "regular");
+export function quietButton(label: string, options: QuietButtonOptions = {}): ControlMarkup {
+  const isIconOnly = Boolean(options.isLabelHidden && options.icon);
+  const extra = html`${disabledAttribute(options)}${isIconOnly ? html` aria-label="${label}"` : ""}`;
+  return controlMarkup(html`${opening(classes("quiet-btn", isIconOnly && "icon-only", options.isSmall && "small", options.state), options, options.isBusy, extra)}<span class="face" data-cut-line="${options.isSmall ? 9 : 10}">${CUT_LINE}<span class="quiet-words">${loader()}${options.icon ? icon(options.icon) : ""}${isIconOnly ? "" : html`<span class="quiet-label">${label}</span>`}</span>${isIconOnly ? "" : raw('<span class="quiet-line" aria-hidden="true"></span>')}</span>${closing(options)}`, options.isSmall ? "small" : "regular");
 }
 
 component({
-  name: "Text button",
-  slug: "text-button",
+  name: "Quiet button",
+  slug: "quiet-button",
   group: "actions",
-  summary: "The quietest thing to press, words alone: Skip for now, Show all, Undo. Beside a cut button it's the way out; never the one thing to do.",
+  summary: "The quietest thing to press: words, an icon, or both, with no slab until it's pointed at. Skip for now, Show all, Undo; only its icon, a sheet's Back and Close. Beside a cut button it's the way out; never the one thing to do.",
   styles: `
-/* A text button: words only, at rest, in a control's box: its words keep a field's inset (--pad-inside-words), so on a pane's edge they're
+/* A quiet button: words only, at rest, in a control's box: its words keep a field's inset (--pad-inside-words), so on a pane's edge they're
    at the pane's margin while its box is at the frame gap, cut by the edge rule like any control's (slanting toward a control beside it).
    Pointing at it brings up its slab, faint (--wash), and draws the orange line in under its words from the left, a light running ahead
    along it, the way a cover's line does; leaving, the line runs on out to the right, quicker than it came. A press sinks it a pixel.
    Keyboard focus is the cut stroke round its slab, as on every other button. The shell (the button) stays still; its face moves. */
-.text-btn { --control-height: var(--control-height-regular); vertical-align: middle; max-width: 100%; }
-.text-btn:focus-visible { outline: none; }
-.text-btn > .face { position: relative; display: flex; flex: auto; flex-direction: column; justify-content: center; min-width: 0; height: var(--control-height); padding: 0 var(--pad-inside-words);
+.quiet-btn { --control-height: var(--control-height-regular); vertical-align: middle; max-width: 100%; }
+/* Small, and only its icon (a pane's Close, a sheet's Back): a square of a small control's size, its slab and no line under it when pointed at. */
+.quiet-btn.small { --control-height: var(--control-height-small); }
+/* On a touch screen a small one still takes a finger, as a small cut button does: its hit area reaches out to 44px, its look unchanged. */
+@media (pointer: coarse) { .quiet-btn.small { position: relative; } .quiet-btn.small::after { content: ""; position: absolute; inset: calc((var(--control-height) - var(--touch-target)) / 2); } }
+.quiet-btn.icon-only > .face { width: var(--control-height); padding: 0; align-items: center; }
+.quiet-btn.icon-only .ico { width: 18px; height: 18px; }
+.quiet-btn:focus-visible { outline: none; }
+.quiet-btn > .face { position: relative; display: flex; flex: auto; flex-direction: column; justify-content: center; min-width: 0; height: var(--control-height); padding: 0 var(--pad-inside-words);
   font: var(--type-label); color: var(--ink-2); white-space: nowrap; --face-color: transparent; background-color: var(--face-color); clip-path: var(--cut-shape);
   transition: --face-color 0.2s, color 0.2s, opacity 0.2s, transform 0.4s ${SPRING}; }
-.text-words { position: relative; z-index: 2; display: flex; align-items: center; justify-content: center; gap: var(--gap-words-words); min-width: 0; font: var(--type-label); }
+.quiet-words { position: relative; z-index: 2; display: flex; align-items: center; justify-content: center; gap: var(--gap-words-words); min-width: 0; font: var(--type-label); }
 /* Words longer than the room it has end in an ellipsis on one line. */
-.text-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.quiet-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 /* The line sits just under the words, which stay on the control's center line, level with a cut button's beside it. */
-.text-line { position: absolute; z-index: 2; left: var(--pad-inside-words); right: var(--pad-inside-words); top: calc(50% + 0.5lh); display: block; height: 3px; margin-top: 5px; overflow: hidden; clip-path: polygon(3px 0, 100% 0, calc(100% - 3px) 100%, 0 100%);
+.quiet-line { position: absolute; z-index: 2; left: var(--pad-inside-words); right: var(--pad-inside-words); top: calc(50% + 0.5lh); display: block; height: 3px; margin-top: 5px; overflow: hidden; clip-path: polygon(3px 0, 100% 0, calc(100% - 3px) 100%, 0 100%);
   background: linear-gradient(90deg, #E9820C, var(--run) 40%, #FFB54D); transform: scaleX(0); transform-origin: right; transition: transform 0.22s cubic-bezier(.4,0,1,1); }
-.text-line::after { content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 38%; opacity: 0; background: linear-gradient(90deg, rgba(255,255,255,0), rgba(255,246,228,0.95) 70%, rgba(255,255,255,0)); }
-.text-btn:hover > .face, .text-btn.is-pointed > .face { color: var(--ink); --face-color: var(--wash); }
-.text-btn:focus-visible > .face, .text-btn.is-focused > .face { color: var(--ink); }
-.text-btn:hover .text-line, .text-btn.is-pointed .text-line { transform: scaleX(1); transform-origin: left; transition: transform 0.42s cubic-bezier(.2,.8,.2,1); }
-.text-btn:hover .text-line::after, .text-btn.is-pointed .text-line::after { animation: text-glint 0.7s cubic-bezier(.3,.6,.3,1) both; }
-@keyframes text-glint { 0% { transform: translateX(-100%); opacity: 1; } 75% { opacity: 1; } 100% { transform: translateX(270%); opacity: 0; } }
-.text-btn:active > .face, .text-btn.is-pressed > .face { color: var(--ink); --face-color: var(--wash-press); transform: translateY(1px); transition-duration: 0.08s; }
+.quiet-line::after { content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 38%; opacity: 0; background: linear-gradient(90deg, rgba(255,255,255,0), rgba(255,246,228,0.95) 70%, rgba(255,255,255,0)); }
+.quiet-btn:hover > .face, .quiet-btn.is-pointed > .face { color: var(--ink); --face-color: var(--wash); }
+.quiet-btn:focus-visible > .face, .quiet-btn.is-focused > .face { color: var(--ink); }
+.quiet-btn:hover .quiet-line, .quiet-btn.is-pointed .quiet-line { transform: scaleX(1); transform-origin: left; transition: transform 0.42s cubic-bezier(.2,.8,.2,1); }
+.quiet-btn:hover .quiet-line::after, .quiet-btn.is-pointed .quiet-line::after { animation: quiet-glint 0.7s cubic-bezier(.3,.6,.3,1) both; }
+@keyframes quiet-glint { 0% { transform: translateX(-100%); opacity: 1; } 75% { opacity: 1; } 100% { transform: translateX(270%); opacity: 0; } }
+.quiet-btn:active > .face, .quiet-btn.is-pressed > .face { color: var(--ink); --face-color: var(--wash-press); transform: translateY(1px); transition-duration: 0.08s; }
 /* Keyboard focus: the cut stroke round its slab, as on every other button. */
-.text-btn:focus-visible .cut-line polygon, .text-btn.is-focused .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
+.quiet-btn:focus-visible .cut-line polygon, .quiet-btn.is-focused .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 /* Can't press: its words fade further than at rest, and it answers no pointer. */
-.text-btn:disabled:not([aria-busy="true"]) { cursor: default; pointer-events: none; }
-.text-btn:disabled:not([aria-busy="true"]) > .face { color: var(--muted); opacity: 0.6; }
+.quiet-btn:disabled:not([aria-busy="true"]) { cursor: default; pointer-events: none; }
+.quiet-btn:disabled:not([aria-busy="true"]) > .face { color: var(--muted); opacity: 0.6; }
 /* Waiting: the loader before its words, in the icon's place. */
-.text-btn:not([aria-busy="true"]) .loader, .text-btn[aria-busy="true"] .text-words > .ico { display: none; }
-.text-btn[aria-busy="true"] { cursor: progress; }
-@media (prefers-reduced-motion: reduce) { .text-btn > .face, .text-line { transition: --face-color 0.2s, color 0.2s; } .text-line::after { animation: none !important; } }
+.quiet-btn:not([aria-busy="true"]) .loader, .quiet-btn[aria-busy="true"] .quiet-words > .ico { display: none; }
+.quiet-btn[aria-busy="true"] { cursor: progress; }
+@media (prefers-reduced-motion: reduce) { .quiet-btn > .face, .quiet-line { transition: --face-color 0.2s, color 0.2s; } .quiet-line::after { animation: none !important; } }
 `,
-  render: textButton,
+  render: quietButton,
   examples: [
-    ...stateExamples((state) => textButton("Skip for now", { type: "button", state }), "text"),
-    { label: "Busy", markup: textButton("Undo", { type: "button", isBusy: true }), isStill: true },
-    { label: "Can't press", markup: textButton("Undo", { type: "button", isDisabled: true }), isStill: true },
-    { label: "With an icon", markup: textButton("Show all 1,284 replies", { type: "button", icon: "chevron-down" }) },
-    { label: "Beside a cut button: the way out", markup: html`<div class="control-row">${cutButton("Save", { type: "button" })}${textButton("Cancel", { type: "button" })}</div>` },
-    { label: "Long words: one line, ending in an ellipsis", markup: html`<div style="${COLUMN}">${textButton("Skip the tutorial and go straight to the first match", { type: "button" })}</div>` },
+    ...stateExamples((state) => quietButton("Skip for now", { type: "button", state }), "text"),
+    { label: "Busy", markup: quietButton("Undo", { type: "button", isBusy: true }), isStill: true },
+    { label: "Can't press", markup: quietButton("Undo", { type: "button", isDisabled: true }), isStill: true },
+    { label: "With an icon", markup: quietButton("Show all 1,284 replies", { type: "button", icon: "chevron-down" }) },
+    { label: "Beside a cut button: the way out", markup: html`<div class="control-row">${cutButton("Save", { type: "button" })}${quietButton("Cancel", { type: "button" })}</div>` },
+    { label: "Long words: one line, ending in an ellipsis", markup: html`<div style="${COLUMN}">${quietButton("Skip the tutorial and go straight to the first match", { type: "button" })}</div>` },
+    {
+      label: "Only its icon, small: a sheet's Back and Close in its top corners, nothing behind them until pointed at",
+      markup: html`<div style="width:300px">${glassPane({ paneWidth: "full", body: paneParts({ head: { start: quietButton("Back", { type: "button", icon: "chevron-back", isLabelHidden: true, isSmall: true }), words: html`<h2 class="sheet-title">Liam</h2>`, end: quietButton("Close", { type: "button", icon: "close", isLabelHidden: true, isSmall: true }) }, body: html`<p>Profile, Block and Report go here.</p>` }) })}</div>`,
+    },
+    { label: "Only its icon, pointed: its slab, with no orange line under it", markup: quietButton("Close", { type: "button", icon: "close", isLabelHidden: true, isSmall: true, state: "is-pointed" }), isStill: true },
   ],
 });
 
@@ -797,10 +813,11 @@ export function deleteButton(label: string, options: DeleteButtonOptions): Contr
     id,
     title: `${label}?`,
     body: html`<p class="sheet-text">${options.confirmText}</p>`,
-    closeButton: cutButton("Close", { type: "submit", formMethod: "dialog", icon: "close", isLabelHidden: true, isSmall: true }),
+    closeButton: quietButton("Close", { type: "submit", formMethod: "dialog", icon: "close", isLabelHidden: true, isSmall: true }),
     buttons: [cutButton("Cancel", { type: "submit", formMethod: "dialog", isAutofocused: true }), controlMarkup(dangerButton(options.confirmLabel, options.isConfirmBusy), "regular")],
     action: options.action,
     isShown: options.isConfirmShown,
+    isConfirm: true,
   });
   return controlMarkup(options.isConfirmShown ? sheet : html`${sheet}${cutButton(label, { type: "button", icon: "trash", controls: id, isFullWidth: options.isFullWidth, state: options.state })}`, "regular");
 }

@@ -38,6 +38,8 @@ export const ICONS = {
     ' stroke-width="1.8"',
   ),
   trash: stroke("0 0 20 20", '<path d="M3.5 5.5h13M8 5.5V3.5h4v2M5.2 5.5l.8 11h8l.8-11"/><path d="M8.5 8.6v5M11.5 8.6v5"/>'),
+  "qr-code": stroke("0 0 20 20", '<rect x="3" y="3" width="5" height="5" rx="0.6"/><rect x="12" y="3" width="5" height="5" rx="0.6"/><rect x="3" y="12" width="5" height="5" rx="0.6"/><path d="M12 12h2v2M17 12v1M12 17h1M15.5 15.5v1.5h1.5"/>'),
+  "chevron-back": stroke("0 0 20 20", '<path d="M12.5 4.5 7 10l5.5 5.5"/>', ' stroke-width="1.8"'),
   close: stroke("0 0 20 20", '<path d="M5 5l10 10M15 5 5 15"/>', ' stroke-width="1.8"'),
   check: stroke("0 0 20 20", '<path d="M4.2 10.4l3.9 3.9 7.7-8.6"/>', ' stroke-width="2.2"'),
   copy: stroke("0 0 20 20", '<path d="M7 7h9.5v9.5H7z"/><path d="M13 7V3.5H3.5V13H7"/>'),
@@ -86,6 +88,8 @@ export const ICONS = {
   link: stroke("0 0 20 20", '<path d="M8.7 11.3a3.2 3.2 0 0 0 4.5 0l2.7-2.7a3.2 3.2 0 0 0-4.5-4.5l-1.1 1.1"/><path d="M11.3 8.7a3.2 3.2 0 0 0-4.5 0l-2.7 2.7a3.2 3.2 0 0 0 4.5 4.5l1.1-1.1"/>'),
   pause: stroke("0 0 20 20", '<path d="M7 4.5v11M13 4.5v11"/>', ' stroke-width="2.2"'),
   // Someone blocked, or something turned off.
+  speaker: stroke("0 0 20 20", '<path d="M3.2 7.6h2.9l4-3.3v11.4l-4-3.3H3.2z"/><path d="M13.3 7.4a3.7 3.7 0 0 1 0 5.2M15.6 5.2a6.8 6.8 0 0 1 0 9.6"/>'),
+  "speaker-off": stroke("0 0 20 20", '<path d="M3.2 7.6h2.9l4-3.3v11.4l-4-3.3H3.2z"/><path d="M13.4 7.6l4.8 4.8M18.2 7.6l-4.8 4.8"/>'),
   ban: stroke("0 0 20 20", '<circle cx="10" cy="10" r="6.8"/><path d="M5.2 5.2l9.6 9.6"/>'),
   bell: stroke("0 0 20 20", '<path d="M5 13.6V9a5 5 0 0 1 10 0v4.6l1.6 2H3.4z"/><path d="M8.3 17.3a1.8 1.8 0 0 0 3.4 0"/>'),
   info: stroke("0 0 20 20", '<circle cx="10" cy="10" r="7.2"/><path d="M10 9v5M10 6.3v.1"/>'),

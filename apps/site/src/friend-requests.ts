@@ -304,11 +304,11 @@ const FRIEND_REQUEST_SCRIPT = pageScript("friend-requests", String.raw`(() => {
   const newsCard = $("friend-accepted-card");
   let newsTimer = null;
   function showNews() {
-    if (!newsCard || !news.length || !newsCard.hidden || !isPlaying()) return;
+    if (!newsCard || !news.length || newsTimer || !isPlaying()) return;
     $("friend-accepted-name").textContent = news.shift();
-    newsCard.hidden = false;
-    clearTimeout(newsTimer);
-    newsTimer = setTimeout(() => { newsCard.hidden = true; setTimeout(showNews, 600); }, ${NEWS_SHOWN_MS});
+    // Through the page's notices (zaismaLayers), one card at a time over the game.
+    zaismaLayers.say({ cardId: "friend-accepted-card" });
+    newsTimer = setTimeout(() => { zaismaLayers.leave(newsCard); newsTimer = null; setTimeout(showNews, 600); }, ${NEWS_SHOWN_MS});
   }
   function showNext() {
     showNews();
@@ -320,13 +320,13 @@ const FRIEND_REQUEST_SCRIPT = pageScript("friend-requests", String.raw`(() => {
     keepShown(seen);
     showing = next;
     $("friend-request-card-name").textContent = next.name;
-    card.hidden = false;
+    zaismaLayers.say({ cardId: "friend-request-card", noticeUrgency: "ask" });
     clearTimeout(cardTimer);
     cardTimer = setTimeout(hideCard, ${CARD_SHOWN_MS});
   }
   function hideCard() {
     clearTimeout(cardTimer);
-    card.hidden = true;
+    zaismaLayers.leave(card);
     showing = null;
     setTimeout(showNext, 600);
   }

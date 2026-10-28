@@ -37,6 +37,7 @@
   var SAVES_EVENTS = ["conflict", "developerChange"];
   var ITEMS_EVENTS = ["purchase", "refund", "sheetOpen", "sheetClose"];
   var VERSIONS_EVENTS = ["update"];
+  var PAGE_EVENTS = ["coveredBy"];
   var BUY_OPTIONS = ["itemCount", "gameAccountId"];
   /** The room messages this SDK speaks (zaisma.d.ts: the wire protocol), sent in the hello. */
   var PROTOCOL_VERSION_NUMBER = 1;
@@ -2024,6 +2025,34 @@
   }
 
   /*
+   * Whether Zaisma's page covers the game: "sheet" while one of its sheets is open over it (buying, Players, Report), "card" while one of
+   * its cards is over the game's corner, null otherwise, and always null outside Zaisma's page. The page says so whenever it changes
+   * (zaisma:covered), and only the page is heard. A game can pause while a sheet covers it.
+   */
+  var pageEvents = new Emitter(PAGE_EVENTS, "Zaisma.page has");
+  var coveredBy = null;
+  var zaismaPage = {
+    on: function (event, listener) {
+      pageEvents.on(event, listener);
+      return zaismaPage;
+    },
+    off: function (event, listener) {
+      pageEvents.off(event, listener);
+      return zaismaPage;
+    },
+  };
+  Object.defineProperty(zaismaPage, "coveredBy", { enumerable: true, get: function () { return coveredBy; } });
+  if (config.site && window.parent !== window) {
+    window.addEventListener("message", function (event) {
+      if (event.origin !== config.site || event.source !== window.parent || !event.data || event.data.type !== "zaisma:covered") return;
+      var now = event.data.coveredBy === "sheet" || event.data.coveredBy === "card" ? event.data.coveredBy : null;
+      if (now === coveredBy) return;
+      coveredBy = now;
+      pageEvents._emit("coveredBy", now);
+    });
+  }
+
+  /*
    * The player's cloud saves, for games that draw their own save screens. The game page on Zaisma holds
    * the player's session and answers (apps/site/src/saves-client.ts); the game never talks to a server.
    */
@@ -2506,5 +2535,5 @@
   });
 
   var friends = { list: listFriends, setRoom: setOwnRoom, sendRequest: sendFriendRequest };
-  window.Zaisma = { sdkVersionNumber: 1, gameSlug: config.game || null, player: player, joinRoom: joinRoom, rooms: rooms, server: server, invite: invite, checkChat: checkChat, openPlayersPanel: openPlayersPanel, links: links, items: items, friends: friends, saves: saves, versions: versions };
+  window.Zaisma = { sdkVersionNumber: 1, gameSlug: config.game || null, player: player, joinRoom: joinRoom, rooms: rooms, server: server, invite: invite, checkChat: checkChat, openPlayersPanel: openPlayersPanel, links: links, items: items, friends: friends, saves: saves, versions: versions, page: zaismaPage };
 })();

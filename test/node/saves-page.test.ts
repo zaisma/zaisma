@@ -60,8 +60,21 @@ function loadGamePage({ isSignedIn = true, isAccountOfferEnabled = true, localIt
     "keep-bar": element(),
     "keep-link": element(),
     "keep-later": element(),
-    "save-toast": element(),
+    "save-line": element(),
+    "signed-out": element(),
     "sign-in-ask": element(),
+  };
+  // The queue over the game (components/layers.ts), standing in: what was said, and cards shown and left.
+  const said: Record<string, unknown>[] = [];
+  const zaismaLayers = {
+    // The same words while they're up are one notice, as the queue has it.
+    say: (options: Record<string, unknown>) => {
+      const known = said.find((each) => options.text !== undefined && each.text === options.text) ?? options;
+      if (known === options) said.push(options);
+      return { leave: () => void (said.includes(known) && said.splice(said.indexOf(known), 1)) };
+    },
+    show: (card: { hidden: boolean }) => void (card.hidden = false),
+    leave: (card: { hidden: boolean }) => void (card.hidden = true),
   };
   const toGame: Message[] = [];
   const opened: string[] = [];
@@ -103,10 +116,11 @@ function loadGamePage({ isSignedIn = true, isAccountOfferEnabled = true, localIt
     setTimeout: (run: () => void, delayMs = 0) => (delayMs >= 30_000 ? `retry-${retries.push({ run, delayMs })}` : setTimeout(run, delayMs)),
   };
   // The game page's own script defines these for the saves script (pages.ts).
-  Object.assign(window, { tellSignedIn: undefined });
+  Object.assign(window, { tellSignedIn: undefined, zaismaLayers });
   new Function(...Object.keys(browser), SAVES_SCRIPT.sourceText)(...Object.values(browser));
   const page = {
     elements: elements as Record<string, ReturnType<typeof element>>,
+    said,
     window: window as { startSaves: (f: unknown) => void; savesRequest: (m: Message) => Promise<void>; offerAccount: () => void },
     answer,
     asked,
@@ -441,7 +455,9 @@ function loadGameFrame({ localItems = {} as Record<string, string>, indexedDB = 
 describe("the game page's saves script, keeping every promise", () => {
   const puts = (page: ReturnType<typeof loadGamePage>) => page.asked.filter((each) => each.method === "PUT").map((each) => each.body as Record<string, unknown>);
   const savedAnswer = (versionNumber: number) => ({ version_number: versionNumber, sha256: "x", saved_at: new Date().toISOString(), kept_save_copy_id: null });
-  const toast = (page: ReturnType<typeof loadGamePage>) => page.elements["save-toast"]!.textContent;
+  // What the queue was last told over the game, and the ⋯ menu's quiet line.
+  const toast = (page: ReturnType<typeof loadGamePage>) => page.said.at(-1)?.text;
+  const savedLine = (page: ReturnType<typeof loadGamePage>) => page.elements["save-line"]!.textContent;
 
   it("waits before sending a failed save again, longer each time and as long as Retry-After says, never in a loop", async () => {
     const page = loadGamePage();
@@ -467,7 +483,9 @@ describe("the game page's saves script, keeping every promise", () => {
     expect(page.retries[2]!.delayMs).toBe(300_000);
     page.answer("PUT", API, savedAnswer(3));
     page.retries[2]!.run();
-    await vi.waitFor(() => expect(toast(page)).toBe("Progress saves to your account. Last saved just now."));
+    await vi.waitFor(() => expect(savedLine(page)).toBe("Saved just now"));
+    // Saving works again: the problem card is gone, and nothing else is said.
+    expect(page.said).toEqual([]);
     expect(puts(page)).toHaveLength(4);
     expect(page.told("sync")).toHaveLength(syncCount);
 
@@ -489,7 +507,7 @@ describe("the game page's saves script, keeping every promise", () => {
     const text = saveTextOf({ level: "4" });
     page.answer("PUT", API, { error: "Played on another device.", version_number: 3, sha256: await saveHash(text), saved_at: new Date().toISOString(), changed_by_kind: "player" }, 409);
     page.fromGame({ step: "save", text });
-    await vi.waitFor(() => expect(toast(page)).toBe("Progress saves to your account. Last saved just now."));
+    await vi.waitFor(() => expect(savedLine(page)).toBe("Saved just now"));
     expect(page.told("pause")).toEqual([]);
     expect(page.opened).toHaveLength(1);
     expect(page.events("conflict")).toEqual([]);
@@ -498,6 +516,17 @@ describe("the game page's saves script, keeping every promise", () => {
     await vi.waitFor(() => expect(puts(page)).toHaveLength(2));
     // No keep: the next save goes on from the version it adopted.
     expect(puts(page)[1]).toMatchObject({ base_version_number: 3, save_json: saveTextOf({ level: "5" }) });
+  });
+
+  it("says nothing over the game when Play opens a working account save: the ⋯ menu says when it last saved", async () => {
+    const page = loadGamePage();
+    await playing(page, { level: "3" });
+    expect(page.said).toEqual([]);
+    expect(savedLine(page)).toMatch(/^Saved /);
+    page.answer("PUT", API, savedAnswer(3));
+    page.fromGame({ step: "save", text: saveTextOf({ level: "4" }) });
+    await vi.waitFor(() => expect(savedLine(page)).toBe("Saved just now"));
+    expect(page.said).toEqual([]);
   });
 
   it("drops a save waiting behind one the account refused, keeping the newest progress instead", async () => {
@@ -520,7 +549,8 @@ describe("the game page's saves script, keeping every promise", () => {
     page.answer("PUT", API, { error: "Sign in to save to your account." }, 401);
     page.fromGame({ step: "save", text: saveTextOf({ level: "4" }) });
     await vi.waitFor(() => expect(page.told("pause")).toHaveLength(1));
-    expect(toast(page)).toBe("Sign in again to keep saving to your account.");
+    // Signed out is urgent: the page's own card, with Sign in, over anything.
+    expect(page.said).toEqual([{ cardId: "signed-out", noticeUrgency: "urgent" }]);
     // Not signed in yet: nothing is asked.
     page.setSignedIn(false);
     page.hearSignedIn();
@@ -677,9 +707,8 @@ describe("the game domain's saves script, past the save limit", () => {
     await playing(page, { level: "3" });
     page.fromGame({ step: "over_limit" });
     expect(page.told("pause")).toHaveLength(1);
-    // The Keep card isn't showing, so the word comes as a card over the game that stays until the next one.
-    expect(page.elements["save-toast"]!.textContent).toBe("This game's save is over 5 MB, so it stays on this device.");
-    expect((page.elements["save-toast"] as { hidden: boolean }).hidden).toBe(false);
+    // The Keep card isn't showing, so the word comes as a problem card over the game, which stays until it's closed.
+    expect(page.said).toEqual([{ text: "This game's save is over 5 MB, so it stays on this device.", noticeUrgency: "information", tone: "problem" }]);
     // Paused: a later save isn't sent to the account.
     page.fromGame({ step: "save", text: saveTextOf({ level: "4" }) });
     await new Promise((resolve) => setTimeout(resolve, 0));

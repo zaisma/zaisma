@@ -1,7 +1,7 @@
 import { html, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
 import { glassPane, tag } from "./foundations.ts";
-import { cutButton, runButton, textButton, textLink } from "./actions.ts";
+import { cutButton, runButton, quietButton, textLink } from "./actions.ts";
 import { cutField, selectField } from "./inputs.ts";
 import { shelf } from "./navigation.ts";
 import { STAND_IN_COVERS, banner } from "./panes.ts";
@@ -205,7 +205,7 @@ component({
     { label: "A head with Refresh in its corner, a table, a foot with a control in its corner", isWide: true, markup: roomsPane() },
     {
       label: "In a pane that fits what's in it",
-      markup: glassPane({ paneWidth: "fit", body: paneParts({ head: { words: html`<h2>Friends</h2>`, end: cutButton("Add a friend", { type: "button", icon: "friends", isSmall: true }) }, body: stack({ items: [words(html`<p>Liam, Sofia and Noah are online.</p>`)] }), foot: { end: textButton("See all", { type: "button" }) } }) }),
+      markup: glassPane({ paneWidth: "fit", body: paneParts({ head: { words: html`<h2>Friends</h2>`, end: cutButton("Add a friend", { type: "button", icon: "friends", isSmall: true }) }, body: stack({ items: [words(html`<p>Liam, Sofia and Noah are online.</p>`)] }), foot: { end: quietButton("See all", { type: "button" }) } }) }),
     },
     {
       label: "A long heading beside its corner control: it wraps, its first line on the control's center line",

@@ -292,13 +292,22 @@ export const GLASS_SCRIPT = `/* glass */(function () {
         }
         // An open side (data-glass-open="top", a tray under its pane) draws its rim past the slab, where the clip hides it, so the glass runs straight on into what's above.
         var reach = el.getAttribute("data-glass-open") === "top" ? Math.ceil(band * 1.6) + 2 : 0;
+        // A pane whose glass in front isn't its whole box (a sheet whose chosen tab rises from it, el.zaismaEdgeShape) draws its rim along that
+        // outline instead, with the same layers and light; what lies outside it in the box is behind (the clip stays the box's).
+        var outlined = el.zaismaEdgeShape ? el.zaismaEdgeShape(w, h, c) : null;
+        if (outlined) outlined = distinct(outlined);
         // A rim drawn at this size, with these cuts, is already there: nothing is written again.
-        var paneKey = w + "x" + h + ":" + band + ":" + reach + ":" + cornerKey;
+        var paneKey = w + "x" + h + ":" + band + ":" + reach + ":" + cornerKey + (outlined ? ":" + pointList(outlined) : "");
         if (paneKey === lastPane) return;
         if (lastPane) paneResized(el);
         lastPane = paneKey;
-        at = function (inset) { return cutPoints(w, h + reach, c, inset).map(function (p) { return [p[0], p[1] - reach]; }); };
-        lights = SIDE_LIGHT;
+        if (outlined) {
+          at = function (inset) { return insetShape(outlined, inset); };
+          lights = outlined.map(function (p, i) { return FACING_LIGHT[facing(p, outlined[(i + 1) % outlined.length])]; });
+        } else {
+          at = function (inset) { return cutPoints(w, h + reach, c, inset).map(function (p) { return [p[0], p[1] - reach]; }); };
+          lights = SIDE_LIGHT;
+        }
       }
       // No viewBox: the rim is drawn in CSS pixels, so a frame where the slab has grown before its points move never stretches it.
       edge.removeAttribute("viewBox");
@@ -330,6 +339,8 @@ export const GLASS_SCRIPT = `/* glass */(function () {
       });
     }
     draw();
+    // A page's script that changes the outline (a sheet's chosen tab) draws the rim again at once.
+    el.redrawGlass = function () { draw(); };
     window.zaismaWatch.size(el, draw, runBatch);
     if (isControl) { edgeDraws.set(el, draw); drawEdgeAfterFonts(); }
     return draw;
@@ -603,7 +614,7 @@ export const GLASS_SCRIPT = `/* glass */(function () {
   window.zaismaGlass = glass;
   window.zaismaCutLine = cutLine;
   // How the page was last used, keyboard or pointer (a mouse, a touch, a pen): a ring only ever shows for the keyboard (:focus-visible), so a sheet
-  // opened by a press focuses itself, not its first button, and only one opened from the keyboard focuses its first control (SHEET_SCRIPT).
+  // opened by a press focuses itself, not its first button, and only one opened from the keyboard focuses its first control (LAYERS_SCRIPT).
   window.zaismaInput = (function () {
     var isKeyboard = false;
     document.addEventListener("keydown", function (event) { if (!/^(Shift|Control|Alt|Meta|AltGraph|CapsLock)$/.test(event.key)) isKeyboard = true; }, true);

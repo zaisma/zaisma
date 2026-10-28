@@ -9,7 +9,7 @@ import { checkField, choiceCards, longField, type ChoiceCard } from "./component
 import { doneState } from "./components/data.ts";
 import { row, stack } from "./components/layout.ts";
 import { glassPane } from "./components/foundations.ts";
-import { banner, sheet } from "./components/panes.ts";
+import { banner, sheet, type SheetStep } from "./components/panes.ts";
 import { readingText } from "./components/reading.ts";
 import { pageScript } from "./page-scripts.ts";
 import type { Viewer } from "./viewer.ts";
@@ -49,12 +49,13 @@ const PLAYER_WHYS: [PlayerReportReason, string, string][] = [
 const reasonChoices = (whys: [string, string, string][]): ChoiceCard[] => whys.map(([reason, label, hint]) => ({ choiceValue: reason, label, ...(hint ? { text: hint } : {}) }));
 
 /**
- * The report sheet for the game page, with its script. One form: what's wrong (the game's reasons, or a player's when a game hands
+ * Report, as the last step of the game page's Players sheet in a game that goes online (Players, then a player, then Report: one sheet),
+ * or a sheet of its own in one that doesn't (reportSheet). One form: what's wrong (the game's reasons, or a player's when a game hands
  * one over), anything else to say, the picture of the game, then a done state in its place once it's sent. Report links
- * (a[data-report]) and a room's report button (data-report-room) open it.
+ * (a[data-report]) and a room's report button (data-report-room) open it at this step, with no Back; a player's ⋯ moves to it.
+ * Its script comes with it once (reportScript).
  */
-export function reportSheet(game: Game, options: { isMultiplayer: boolean; gameOrigin: string }): Raw {
-  const config = { slug: game.slug, title: game.title, gameOrigin: options.gameOrigin, hold: AUTO_HOLD_REASONS, zaisma: ZAISMA_PLAYER_REPORT_REASONS };
+export function reportStep(game: Game, options: { isMultiplayer: boolean }): SheetStep {
   const gameWhys = GAME_WHYS.filter(([reason]) => reason !== "player" || options.isMultiplayer);
   const tell = stack({
     items: [
@@ -89,21 +90,35 @@ export function reportSheet(game: Game, options: { isMultiplayer: boolean; gameO
       { kind: "block", id: "report-sent", isHidden: true, markup: html`<div role="status">${doneState({ title: "Thanks for the report", text: "We'll look at it soon." })}</div>` },
     ],
   });
-  return html`${sheet({
-    id: "report",
+  return {
+    stepName: "report",
     title: `Report ${game.title}`,
     body,
-    closeLabel: "Close",
     buttons: [cutButton("Back to the game", { id: "report-done", type: "submit", formMethod: "dialog", isHidden: true }), runButton("Send report", { id: "report-send", type: "submit" })],
-  })}
-${pageData("report-data", config)}
+  };
+}
+
+/** The report sheet of its own, for a game that doesn't go online, with its script. */
+export function reportSheet(game: Game, options: { isMultiplayer: boolean; gameOrigin: string }): Raw {
+  const step = reportStep(game, options);
+  return html`${sheet({ id: "report", title: step.title, body: step.body, closeLabel: "Close", buttons: step.buttons })}
+${reportScript(game, options)}`;
+}
+
+/** What the report's script needs from the page (the game's slug, title and origin, and which reasons go straight to a person), and the script. */
+export function reportScript(game: Game, options: { gameOrigin: string }): Raw {
+  const config = { slug: game.slug, title: game.title, gameOrigin: options.gameOrigin, hold: AUTO_HOLD_REASONS, zaisma: ZAISMA_PLAYER_REPORT_REASONS };
+  return html`${pageData("report-data", config)}
 ${scriptTags(REPORT_SHEET_SCRIPT)}`;
 }
 
 // The report sheet's script. What it needs from the page (the game's slug, title and origin, and which reasons go straight to a
 // person) comes in the report-data block.
 const REPORT_SHEET_SCRIPT = pageScript("report-sheet", `(() => {
-  const sheet = document.getElementById("report");
+  // The Players sheet's report step, or the report sheet of its own.
+  const step = document.querySelector('[data-sheet-step="report"]');
+  const sheet = step ? step.closest("dialog") : document.getElementById("report");
+  const title = (step || sheet).querySelector(".sheet-title");
   const C = JSON.parse(document.getElementById("report-data").textContent);
   const form = sheet.querySelector("form");
   const $ = (id) => document.getElementById(id);
@@ -139,8 +154,9 @@ const REPORT_SHEET_SCRIPT = pageScript("report-sheet", `(() => {
     send.hidden = isSent;
     done.hidden = !isSent;
   }
-  // Open for the game, for a player a game handed over ({ id, name, code }), or for a room's name.
-  function open(player, room) {
+  // Open for the game, for a player a game handed over ({ id, name, code }), or for a room's name. From a player's ⋯ in the Players
+  // sheet it's that sheet's next step, with Back; from anywhere else it opens at it.
+  function open(player, room, isFromPlayers) {
     about = player || null;
     aboutRoom = room || null;
     reason = "";
@@ -148,7 +164,7 @@ const REPORT_SHEET_SCRIPT = pageScript("report-sheet", `(() => {
     if (aboutRoom) picture = null;
     else if (about || Date.now() - asked > 30000) takePicture();
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
-    $("report-title").textContent = aboutRoom ? "Report this room" : "Report " + (about ? about.name : C.title);
+    title.textContent = aboutRoom ? "Report this room" : "Report " + (about ? about.name : C.title);
     $("report-sub").textContent = (aboutRoom ? "“" + aboutRoom.name + "”. " : about && about.code ? "In room " + about.code + ". " : "") + "We don't record who you are.";
     $("report-reasons-game").hidden = Boolean(about);
     $("report-reasons-player").hidden = !about;
@@ -163,11 +179,12 @@ const REPORT_SHEET_SCRIPT = pageScript("report-sheet", `(() => {
     $("report-error").hidden = true;
     showPicture();
     showSent(false);
+    if (step) zaismaLayers.step(sheet, "report", { isBackShown: Boolean(isFromPlayers) && sheet.open });
     if (!sheet.open) sheet.showModal();
     const first = firstReason();
     if (first) first.focus();
   }
-  sheet.addEventListener("close", () => { const f = frame(); if (f) f.focus(); });
+  if (!step) sheet.addEventListener("close", () => { const f = frame(); if (f) f.focus(); });
   form.addEventListener("change", (e) => {
     if (e.target.name !== "reason") return;
     reason = e.target.value;
@@ -178,7 +195,7 @@ const REPORT_SHEET_SCRIPT = pageScript("report-sheet", `(() => {
   });
   // Enter in a field sends the report: the sheet's first submit button is its Close, which the browser would press.
   form.addEventListener("keydown", (e) => {
-    if (e.key !== "Enter" || !(e.target instanceof HTMLInputElement) || send.hidden) return;
+    if (e.key !== "Enter" || !(e.target instanceof HTMLInputElement) || send.hidden || (step && !step.contains(e.target))) return;
     e.preventDefault();
     form.requestSubmit(send);
   });
@@ -255,7 +272,7 @@ const REPORT_SHEET_SCRIPT = pageScript("report-sheet", `(() => {
     const p = e.detail || {};
     if (typeof p.id !== "string" || !/^[A-Za-z0-9_-]{1,40}$/.test(p.id)) return;
     const code = typeof p.code === "string" && /^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$/.test(p.code) ? p.code : roomCode();
-    open({ id: p.id, name: typeof p.name === "string" && p.name.trim() ? p.name.trim().slice(0, 40) : "a player", code, fromGame: true });
+    open({ id: p.id, name: typeof p.name === "string" && p.name.trim() ? p.name.trim().slice(0, 40) : "a player", code, fromGame: true }, null, true);
   });
 })();`);
 

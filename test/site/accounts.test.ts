@@ -24,6 +24,7 @@ import { unzipSync } from "fflate";
 import { ACCOUNT_COLUMNS_LEFT_OUT, ACCOUNT_DATA_TABLES } from "../../apps/site/src/account-data.ts";
 import { pageProblems } from "./page-rules.ts";
 import { playersSheet } from "../../apps/site/src/players-sheet.ts";
+import { html } from "../../apps/site/src/markup.ts";
 import { blockSheet } from "../../apps/site/src/blocks.ts";
 import { configuredRateLimit, countingRateLimiter } from "../rate-limits.ts";
 import siteWranglerText from "../../apps/site/wrangler.jsonc?raw";
@@ -1570,8 +1571,11 @@ describe("friends", () => {
     expect((await playerProfile(env.DB, benPlayerId, "https://zaisma.test"))!.playing_now).toEqual({ slug: "own-game", title: "Own Servers", page_url: "https://zaisma.test/g/own-game" });
   });
 
-  it("builds the Players and Block sheets from gallery components only, their row templates too", () => {
-    const players = playersSheet({ gameOrigin: "https://games.zaisma.test", slug: "arena-game", title: "Arena", hasZaismaRooms: true, canSignIn: true, signInPath: "/signin" }).html;
+  it("builds the Players and Block sheets from gallery components only, their row templates too: Players, a player and Report are steps of one sheet", () => {
+    const reportStep = { stepName: "report", title: "Report Arena", body: html`<p>What's wrong</p>` };
+    const players = playersSheet({ gameOrigin: "https://games.zaisma.test", slug: "arena-game", title: "Arena", hasZaismaRooms: true, canSignIn: true, signInPath: "/signin", reportStep }).html;
+    expect(players.match(/<dialog /g)).toHaveLength(1);
+    for (const stepName of ["players", "player", "report"]) expect(players).toContain(`data-sheet-step="${stepName}"`);
     const block = blockSheet({ gameOrigin: "https://games.zaisma.test" }).html;
     for (const markup of [players, block]) expect(pageProblems(markup)).toEqual([]);
     // pageProblems leaves templates out, so the room's row template is held to it on its own.
@@ -1580,7 +1584,7 @@ describe("friends", () => {
     expect(rowTemplate).toContain('data-player-action="mute"');
     expect(rowTemplate).toContain('data-player-action="more"');
     // The hooks their scripts use.
-    for (const id of ["players-count", "players-list", "players-note", "players-watching", "players-friends", "players-friends-list", "players-sign-in", "players-player-title", "players-player-profile", "players-player-block", "players-player-report", "players-data"]) expect(players).toContain(`id="${id}"`);
+    for (const id of ["players-find-field", "players-list", "players-note", "players-watching", "players-friends", "players-friends-list", "players-sign-in", "players-player-title", "players-player-profile", "players-player-block", "players-player-report", "players-data"]) expect(players).toContain(`id="${id}"`);
     for (const id of ["block-title", "block-who", "block-friend", "block-told", "block-error", "block-yes", "block-data"]) expect(block).toContain(`id="${id}"`);
   });
 
@@ -1600,7 +1604,7 @@ describe("friends", () => {
     // Only games that go online get the button and the plate.
     const page = await (await ana.go("/g/arena-game")).text();
     expect(page).toContain('id="players-open"');
-    expect(page).toMatch(/<dialog class="sheet glass placement-foot" id="players"/);
+    expect(page).toMatch(/<dialog class="sheet glass placement-foot is-compact"[^>]* id="players"/);
     expect(page).toMatch(/<dialog class="sheet glass placement-foot" id="block"/);
     const solo = await (await ana.go("/g/solo-game")).text();
     expect(solo).not.toContain('id="players-open"');
@@ -1620,7 +1624,7 @@ describe("friends", () => {
     // Signed out: the same names, nobody a friend.
     const { answer: forGuest } = await among(new Browser(), [benPlayerId]);
     expect(forGuest.players).toEqual([{ player_id: benPlayerId, name: "Quiet_Comet", is_friend: false }]);
-    const tooMany = await among(ana, Array.from({ length: 51 }, (_, i) => `player_x${i}`));
+    const tooMany = await among(ana, Array.from({ length: 101 }, (_, i) => `player_x${i}`));
     expect(tooMany).toMatchObject({ status: 400, answer: { error: { code: "bad_player_ids" } } });
     expect((await among(ana, ["not-a-player"])).answer.error.code).toBe("bad_player_ids");
 
