@@ -207,11 +207,11 @@ export function wheelField(options: WheelFieldOptions): ControlMarkup {
   return controlMarkup(html`<fieldset class="wheel-field" id="${id}" data-wheels="${options.wheelKind}"${options.minimumAt ? html` data-minimum-at="${options.minimumAt}"` : ""}${options.isRequired ? raw(" data-required") : ""}>
 <legend id="${id}-legend">${options.label}</legend>
 <button type="button" class="${buttonClass}" data-cut-line="10" aria-expanded="${isOpen ? "true" : "false"}" aria-controls="${id}-pick" aria-describedby="${describedBy}">${CUT_LINE}${fieldIcon ? icon(fieldIcon) : ""}<span class="wheel-value">${shown}</span><span class="wheel-chev">${icon("chevron-down")}</span></button>
-<p class="field-error" id="${id}-error"${isMarked ? "" : raw(" hidden")}>${options.error ?? WHEEL_MISSING[options.wheelKind]}</p>${options.hint ? html`<p class="field-hint" id="${id}-hint"${isMarked ? raw(" hidden") : ""}>${options.hint}</p>` : ""}${isZone ? html`<p class="wheel-zone" id="${id}-zone"></p>` : ""}
-<div class="wheel-pick" data-cut-line="10" id="${id}-pick" role="group" aria-label="${options.label}"${isOpen ? "" : raw(" hidden")}>
-<div class="wheels ${options.wheelKind}-wheels"${options.wheelKind === "custom" ? html` style="--wheel-count: ${columns.length}"` : ""}>${channels}</div>
+<div class="select-list over-field wheel-pick glass${isOpen ? " in-place" : ""}" id="${id}-pick" role="group" aria-label="${options.label}" data-glass data-glass-corners="menu"${isOpen ? "" : raw(' popover="manual"')}>${EDGE}
+<div class="wheels ${options.wheelKind}-wheels"${options.wheelKind === "custom" ? html` style="--wheel-count: ${columns.length}"` : ""}>${channels}</div>${isZone ? html`<p class="wheel-zone" id="${id}-zone"></p>` : ""}
 <span class="wheel-read sr" aria-live="polite"></span>
 </div>
+<p class="field-error" id="${id}-error"${isMarked ? "" : raw(" hidden")}>${options.error ?? WHEEL_MISSING[options.wheelKind]}</p>${options.hint ? html`<p class="field-hint" id="${id}-hint"${isMarked ? raw(" hidden") : ""}>${options.hint}</p>` : ""}
 ${sent}
 </fieldset>`, "field", { hasOwnWords: true });
 }
@@ -672,12 +672,27 @@ export const WHEEL_SCRIPT = String.raw`/* wheel fields */(function () {
 
   window.zaismaWatch.each("[data-wheels]", function (root) {
     var kind = root.getAttribute("data-wheels"), id = root.id;
-    var field = root.querySelector(".wheel-button"), pick = root.querySelector(".wheel-pick"), value = root.querySelector(".wheel-value");
+    var field = root.querySelector(".wheel-button"), pick = root.querySelector(".wheel-pick"), value = root.querySelector(".wheel-value"), isInPlace = pick.classList.contains("in-place");
     var error = root.querySelector(".field-error"), hint = root.querySelector(".field-hint"), read = root.querySelector(".wheel-read");
     var hidden = root.querySelector('input[type="hidden"]:not([data-part])');
     var form = kind === "birthday" ? birthdayForm(root, hidden) : kind === "date-time" ? dateTimeForm(root, hidden, field) : customForm(root);
     var placeholder = value.textContent, wheels = {};
     form.parts.forEach(function (part) { wheels[part] = { el: root.querySelector('.wheel[data-part="' + part + '"]'), count: 0 }; });
+    var wheelRow = pick.querySelector(".wheels");
+    function isOpen() { return isInPlace || pick.matches(":popover-open"); }
+    // Lifted out to the page, as a select field's list is, so no pane's glass or clip is round it.
+    if (!isInPlace) { if (root.closest(".smoke")) pick.classList.add("smoke"); document.body.appendChild(pick); }
+    // Over the field, at least as wide as it: the wheels' middle row on the field's own line, moved only as far as keeps it in the window.
+    function placePane() {
+      if (isInPlace) return;
+      var r = field.getBoundingClientRect();
+      if (r.bottom < 0 || r.top > window.innerHeight) { close(false); return; }
+      pick.style.width = r.width + "px";
+      if (pick.scrollWidth > pick.clientWidth) pick.style.width = pick.scrollWidth + "px";
+      var heightPx = pick.offsetHeight, widthPx = pick.offsetWidth, rowMiddlePx = wheelRow.offsetTop + 1.5 * ROW;
+      pick.style.top = Math.round(Math.max(8, Math.min(window.innerHeight - heightPx - 8, r.top + r.height / 2 - rowMiddlePx))) + "px";
+      pick.style.left = Math.round(Math.max(8, Math.min(document.documentElement.clientWidth - widthPx - 8, r.left))) + "px";
+    }
     function mark(part) {
       var w = wheels[part], i = form.at[part];
       Array.prototype.forEach.call(w.el.children, function (option, j) { option.setAttribute("aria-selected", String(j === i)); });
@@ -729,7 +744,7 @@ export const WHEEL_SCRIPT = String.raw`/* wheel fields */(function () {
       // When a scroll comes to rest, the row in the middle is the one picked.
       w.el.addEventListener("scroll", function () {
         clearTimeout(timer);
-        timer = setTimeout(function () { if (!pick.hidden) setRow(part, Math.round(w.el.scrollTop / ROW)); }, 110);
+        timer = setTimeout(function () { if (isOpen()) setRow(part, Math.round(w.el.scrollTop / ROW)); }, 110);
       }, { passive: true });
       w.el.addEventListener("keydown", function (event) {
         var i = form.at[part], key = event.key, step = { ArrowDown: 1, ArrowUp: -1, PageDown: 5, PageUp: -5 }[key];
@@ -748,15 +763,25 @@ export const WHEEL_SCRIPT = String.raw`/* wheel fields */(function () {
     // Shown open as the page loads (a gallery's state), it neither takes the focus nor scrolls the page to itself.
     function open(isOnLoad) {
       if (form.opening && form.opening()) { isPicked = true; form.parts.forEach(mark); show(); }
-      pick.hidden = false; field.setAttribute("aria-expanded", "true"); place(false);
+      if (!isInPlace && !pick.matches(":popover-open")) {
+        // The page's own light or dark, and the hue of the glass where the field is, which the pane no longer inherits.
+        var themed = root.closest("[data-theme-choice]");
+        if (themed && themed !== document.documentElement) pick.setAttribute("data-theme-choice", themed.getAttribute("data-theme-choice")); else pick.removeAttribute("data-theme-choice");
+        pick.style.setProperty("--glass-hue", getComputedStyle(root).getPropertyValue("--glass-hue"));
+        pick.showPopover();
+      }
+      field.setAttribute("aria-expanded", "true"); placePane(); place(false);
       if (isOnLoad) return;
       wheels[form.firstPart()].el.focus({ preventScroll: true });
-      pick.scrollIntoView({ block: "nearest", behavior: reduce ? "auto" : "smooth" });
     }
-    function close(returnFocus) { pick.hidden = true; field.setAttribute("aria-expanded", "false"); if (returnFocus) field.focus(); }
-    field.addEventListener("click", function () { if (pick.hidden) open(); else close(false); });
+    function close(returnFocus) { if (!isInPlace && pick.matches(":popover-open")) pick.hidePopover(); field.setAttribute("aria-expanded", "false"); if (returnFocus) field.focus(); }
+    field.addEventListener("click", function () { if (!isOpen()) open(); else close(false); });
+    // A press anywhere else closes it; it follows the field as the page scrolls or the window changes.
+    document.addEventListener("pointerdown", function (event) { if (!isInPlace && isOpen() && !pick.contains(event.target) && !field.contains(event.target)) close(false); });
+    window.zaismaWatch.resize(function () { if (!isInPlace && isOpen()) placePane(); });
+    window.zaismaWatch.scroll(function () { if (!isInPlace && isOpen()) placePane(); });
     pick.addEventListener("keydown", function (event) { if (event.key === "Escape") { close(true); event.preventDefault(); } });
-    if (!pick.hidden) { if (form.opening && !form.isComplete()) open(true); else requestAnimationFrame(function () { place(false); }); }
+    if (isInPlace) { if (form.opening && !form.isComplete()) open(true); else requestAnimationFrame(function () { place(false); }); }
     show();
     // A form that needs it won't go on without a pick: the field says so and the wheels open.
     var owner = root.closest("form");
@@ -1014,11 +1039,15 @@ component({
 .wheel-value { min-width: 0; flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .wheel-button > span { position: relative; z-index: 2; }
 .wheel-button.no-icon { padding-left: var(--pad-inside-words); }
-/* The picker: a pane of clearer glass holding its wheels, each a groove carved into it three rows tall. The picked row is in the middle and
-   catches the light, as a pointed list row does (its glass clears, its edge lit above and shaded below); a row shows above and below it,
-   quieter, so there's always more to see both ways. The wheel you're on by keyboard draws the focus line round its groove. */
-.wheel-pick { position: relative; margin-top: 0; padding: var(--pad-inner-pane); border: 0; background: var(--pick); box-shadow: var(--pick-shade);
-  clip-path: var(--cut-shape); }
+/* The picker: a pane of the menus' glass, as a select field's list is, opening over the field with the wheels' middle row on the field's own
+   line, so the picks sit where its words were (WHEEL_SCRIPT places it, moved only to stay in the window). Each wheel is a groove carved
+   into it three rows tall; the picked row in the middle catches the light, as a pointed list row does (its glass clears, its edge lit above
+   and shaded below), with a row above and below it, quieter. The wheel you're on by keyboard draws the focus line round its groove. */
+.select-list.wheel-pick { padding: var(--pad-inner-pane); max-height: none; gap: var(--gap-words-words); }
+/* Shown open in place (the gallery's open states), it lies over its field the same way, the field it covers hidden: glass inside a pane's
+   glass isn't blurred, so the field would show through it. */
+.wheel-field:has(> .wheel-pick.in-place) > .wheel-button { visibility: hidden; }
+.select-list.over-field.wheel-pick.in-place { position: relative; z-index: 6; margin-top: calc(-1 * (var(--gap-words-control) + var(--control-height-field) / 2 + var(--pad-inner-pane) + 1.5 * 36px)); }
 /* The month gets the room its longest name needs (September), the day the least. */
 /* Each wheel is at least as wide as its longest row (a month's name, a year, "Tomorrow", "AM"), so a pane that fits what's in it grows to them. */
 .wheels { --wheel-row: 36px; position: relative; display: grid; grid-template-columns: minmax(6.5rem, 1.9fr) minmax(2.75rem, 0.7fr) minmax(4rem, 1fr); gap: var(--gap-control-row); }
@@ -1039,7 +1068,7 @@ component({
 .wheel [role="option"][aria-selected="true"] { color: var(--ink); font-weight: 600; }
 .wheel [role="option"][aria-selected="true"].blank { color: var(--muted); font-weight: 500; }
 /* A date and time says its time zone under it. Its day wheel gets the room "Jan 15, 2027" needs. Custom wheels share the width evenly. */
-.wheel-zone { margin: 0; padding-inline: var(--pad-words); font: var(--type-facts); color: var(--muted); }
+.wheel-zone { margin: 0; padding-inline: calc(var(--pad-words) - var(--pad-inner-pane)); font: var(--type-facts); color: var(--muted); }
 .wheel-zone:empty { display: none; }
 .date-time-wheels { grid-template-columns: minmax(7rem, 2.5fr) repeat(3, minmax(2.75rem, 0.8fr)); }
 .custom-wheels { grid-template-columns: repeat(var(--wheel-count), minmax(3.5rem, 1fr)); }
