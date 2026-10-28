@@ -1286,7 +1286,7 @@ component({
       isWide: true,
       markup: stack({
         items: [
-          { kind: "control", markup: sidebarButton({ controls: "example-sidebar", label: "Settings", isExpanded: true }) },
+          { kind: "block", markup: row({ widths: "fit", alignment: "start", items: [{ kind: "control", markup: sidebarButton({ controls: "example-sidebar", label: "Settings", isExpanded: true }) }] }) },
           { kind: "block", markup: sidebarLayout({ sidebar: sidebar({ id: "example-sidebar", label: "Settings", places: SETTINGS_PLACES, rememberKey: "gallery-example" }), main: settingsPanes }) },
         ],
       }),

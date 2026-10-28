@@ -14,7 +14,7 @@ import { stripeAccountRow, stripeAccountWithBalance } from "./stripe-account-api
 import { waitEndsText } from "./email-codes.ts";
 import { cutButton, runButton, textLink } from "./components/actions.ts";
 import { glassPane, icon, tag } from "./components/foundations.ts";
-import { paneParts, stack, type LayoutItem } from "./components/layout.ts";
+import { paneParts, row, stack, type LayoutItem } from "./components/layout.ts";
 import type { ControlMarkup } from "./components/control-markup.ts";
 import { sidebar, sidebarButton, sidebarLayout } from "./components/navigation.ts";
 import { confirmItsYouSheet } from "./components/confirm-its-you.ts";
@@ -928,7 +928,7 @@ async function settingsPage(env: Env, request: Request, session: SignedIn, calle
     signInAppsPane(settings),
     keysPane(keys, settings.games.map((game) => ({ slug: game.slug, title: game.title })), making),
   ];
-  const panes = stack({ items: [{ kind: "control", markup: sidebarButton({ controls: "settings-places", label: "Settings", isExpanded: true }) }, ...topNotes, ...paneItems] });
+  const panes = stack({ items: [{ kind: "block", markup: row({ widths: "fit", alignment: "start", items: [{ kind: "control", markup: sidebarButton({ controls: "settings-places", label: "Settings", isExpanded: true }) }] }) }, ...topNotes, ...paneItems] });
   const body = html`<h1 class="sr">Developer settings</h1>${sidebarLayout({ sidebar: sidebar({ id: "settings-places", label: "Settings", rememberKey: "developer-settings", places: TAB_PANES.map((pane, index) => ({ label: pane.label, icon: pane.icon, href: `#${pane.id}`, isCurrent: index === 0 })) }), main: panes })}${paneItems.map((paneItem) => PANE_LAYERS.get(paneItem) ?? "")}${spendingSheet}${confirmItsYouSheet({ id: "settings-confirm" })}${state.done && DONE_WORDS[state.done] ? notice({ text: DONE_WORDS[state.done]!, tone: "done" }) : ""}${state.problem ? notice({ text: state.problem, tone: "problem", link: state.problemLink }) : ""}${scriptTags(PASSKEY_SCRIPT, SETTINGS_SCRIPT)}`;
   const response = layout(env, { title: "Developer settings · Zaisma", body, checkedPage: "Developer settings", pageShape: "reading", nav: "developer", viewer: { account }, isPrivate: true });
   const answered = new Response(response.body, { status: httpStatus, headers: response.headers });

@@ -73,7 +73,7 @@ const themeButton = (path: string, theme: GalleryTheme) => {
   const other = new URL(path, "https://zaisma.com");
   if (theme === "dark") other.searchParams.delete("theme");
   else other.searchParams.set("theme", "dark");
-  return cutButton(theme === "dark" ? "Dark. Switch to light" : "Light. Switch to dark", { href: `${other.pathname}${other.search}`, icon: "light-dark", isLabelHidden: true });
+  return cutButton(theme === "dark" ? "Dark. Switch to light" : "Light. Switch to dark", { href: `${other.pathname}${other.search}`, icon: "light-dark", isLabelHidden: true, isSmall: true });
 };
 
 function head(title: string, group: ComponentGroup, scripts: PageScript[] = []): Raw {
