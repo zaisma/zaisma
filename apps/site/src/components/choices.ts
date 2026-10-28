@@ -393,6 +393,17 @@ export function checkField(options: CheckFieldOptions): Raw {
   return html`<label class="${className}" for="${id}"><span class="check-box cut-carved" data-cut-line="6">${CUT_LINE}<input class="check-input" type="checkbox" id="${id}" name="${options.name}" value="${options.checkValue ?? "yes"}"${options.isChecked ? raw(" checked") : ""}${options.isRequired ? raw(" required") : ""}${options.isDisabled ? raw(" disabled") : ""}${options.error ? raw(' aria-invalid="true"') : ""} aria-labelledby="${id}-label"${describedBy ? html` aria-describedby="${describedBy}"` : ""}><span class="check-piece" aria-hidden="true">${icon("check")}</span></span><span class="check-words"><span class="check-label" id="${id}-label">${options.label}</span>${options.error ? html`<span class="check-error" id="${id}-error">${options.error}</span>` : options.hint ? html`<span class="check-hint" id="${id}-hint">${options.hint}</span>` : ""}</span></label>`;
 }
 
+/** A check field just ticked under the pointer doesn't glint: its glint is for pointing at one already ticked, so it waits until the pointer leaves. */
+export const CHECK_SCRIPT = `/* check fields */(function () {
+  document.addEventListener("change", function (event) {
+    var input = event.target; if (!input.classList || !input.classList.contains("check-input")) return;
+    var check = input.closest(".check"); if (!check || !input.checked) return;
+    check.classList.add("is-just-ticked");
+    check.addEventListener("pointerleave", function () { check.classList.remove("is-just-ticked"); }, { once: true });
+  });
+})();
+`;
+
 /** What you press that holds a value: its states, still, then one to try and one on a loop. */
 /** Each copy gets its own key (for its ids and names), so copies of radios never share a group. */
 const pressExamples = (render: (state: PressState | undefined, exampleKey: string) => Raw, loopKind: "check" | "choice" | "toggle") => [
@@ -428,7 +439,7 @@ ${TOUCH_ROOM(".check")}
    of light that runs across it once. */
 .check-piece::before { content: ""; position: absolute; inset: 0; background: linear-gradient(115deg, transparent 30%, rgba(255,255,255,0.55) 50%, transparent 70%); opacity: 0; transform: translateX(-110%); pointer-events: none; }
 .check:not(.is-disabled):hover .check-box:not(:has(.check-input:checked)) > .check-piece, .check.is-pointed .check-box:not(:has(.check-input:checked)) > .check-piece { transform: translateY(80%); }
-.check:not(.is-disabled):hover .check-box:has(.check-input:checked) > .check-piece::before, .check.is-pointed .check-box:has(.check-input:checked) > .check-piece::before { opacity: 1; transform: translateX(110%); transition: transform 0.7s cubic-bezier(.4,0,.2,1); }
+.check:not(.is-disabled):not(.is-just-ticked):hover .check-box:has(.check-input:checked) > .check-piece::before, .check.is-pointed .check-box:has(.check-input:checked) > .check-piece::before { opacity: 1; transform: translateX(110%); transition: transform 0.7s cubic-bezier(.4,0,.2,1); }
 /* Ticked: the piece seats flush, then rises out of the carving: the shade lifts off it and its own edges take the light. */
 .check-box:has(.check-input:checked) > .check-piece { transform: translateY(0); }
 .check-box:has(.check-input:checked)::after { opacity: 0; transition-delay: 0.3s; }
@@ -451,9 +462,12 @@ ${TOUCH_ROOM(".check")}
 .check.is-disabled .check-piece { background: var(--muted); color: var(--page); transition: none; }
 .check.is-disabled .check-box:has(.check-input:checked) > .cut-line { --band-top: transparent; --band-left: transparent; --band-right: transparent; --band-bottom: transparent; }
 .check.is-disabled .check-label { color: var(--muted); }
-.check-box:has(.check-input:focus-visible) > .cut-line polygon, .check.is-focused .check-box > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
-/* On the orange piece the ring is the runner's dark foot, thicker, so it shows. */
-.check-box:has(.check-input:checked:focus-visible) > .cut-line polygon, .check.is-focused .check-box:has(.check-input:checked) > .cut-line polygon { stroke: var(--focus-on-run); stroke-width: calc(var(--focus-stroke) * 1.5); }
+/* Keyboard focus: one orange ring, the socket's shape (the edge rule's 6px corners) set out around it with a 2px gap of glass between,
+   so it never touches the orange piece and reads the same ticked or not. */
+.check::after { content: ""; position: absolute; left: -4px; top: -4px; width: 32px; height: 32px; background: var(--focus); pointer-events: none; opacity: 0;
+  clip-path: polygon(evenodd, 0 8.34px, 8.34px 0, 23.66px 0, 32px 8.34px, 32px 23.66px, 23.66px 32px, 8.34px 32px, 0 23.66px, 0 8.34px,
+    2px 9.17px, 9.17px 2px, 22.83px 2px, 30px 9.17px, 30px 22.83px, 22.83px 30px, 9.17px 30px, 2px 22.83px, 2px 9.17px); }
+.check:has(.check-input:focus-visible)::after, .check.is-focused::after { opacity: 1; }
 .check-words { display: grid; gap: var(--gap-words-words); padding-top: 2px; padding-inline-end: var(--pad-words); }
 .check-label { font: var(--type-words); color: var(--ink); }
 .check-hint { font: var(--type-note); color: var(--muted); }
