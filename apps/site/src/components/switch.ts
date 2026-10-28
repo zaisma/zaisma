@@ -2,7 +2,7 @@ import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
 import { controlMarkup, type ControlMarkup } from "./control-markup.ts";
 import { CUT_LINE, colorPicker, icon, tag, type ColorChoice, type IconName } from "./foundations.ts";
-import { TINT_CHOICES, rowArrows } from "./actions.ts";
+import { TINT_CHOICES } from "./actions.ts";
 
 /*
  * The switch, from the sign-in draft's Sign in / Make an account switch and the home draft's sort switch, and the three foundations
@@ -44,12 +44,9 @@ export function tabSwitch(options: {
   label: string;
   tabs: SwitchTab[];
   switchSize: "big" | "small";
-  isFramed?: boolean;
   isVertical?: boolean;
   /** Across only: it fills the width it's in, its tabs sharing it (a pane's head: Sign in or Make an account), rather than its words' width. */
   isFull?: boolean;
-  /** Framed only: the id of the row its tabs scroll in. With one, a mouse gets Row arrows after the frame to scroll it while its tabs don't fit. */
-  rowId?: string;
 }): ControlMarkup {
   const isSmall = options.switchSize === "small";
   const inside = (tab: SwitchTab) =>
@@ -58,11 +55,8 @@ export function tabSwitch(options: {
   const classNames = (tab: SwitchTab) => [tab.isFoldable ? "foldable" : "", tab.isFoldable && tab.isFolded ? "folded" : "", tab.state ?? ""].filter(Boolean).join(" ");
   const folding = (tab: SwitchTab) =>
     html`${classNames(tab) ? html` class="${classNames(tab)}"` : ""}${tab.isFoldable && tab.isFolded ? raw(' tabindex="-1" aria-hidden="true"') : ""}`;
-  // Framed: in a carved frame of its own that it scrolls inside, fading at its ends (the header's tabs, the gallery's groups on a phone), so
-  // the switch has no well or cut of its own, and its slab's ends on the first and last tabs follow the frame's ends.
-  const own = options.isFramed
-    ? html`${options.rowId ? raw('<div class="switch-scroll">') : ""}<div class="switch-frame cut-carved ${options.switchSize}" data-cut-line="${isSmall ? 9 : 10}">${CUT_LINE}<div class="switch-frame-row"${options.rowId ? html` id="${options.rowId}"` : ""} data-fades-sideways><div class="tab-switch framed ${kind}" role="group" aria-label="${options.label}">`
-    : // The well (.switch-room) stays put, and what's in it scrolls inside it (.switch-track), fading at its ends: across, with the rail
+  const own =
+    // The well (.switch-room) stays put, and what's in it scrolls inside it (.switch-track), fading at its ends: across, with the rail
       // under the well; stacked, with the rail beside its places.
       options.isVertical
         ? html`<div class="switch-room cut-carved ${kind}" data-cut-line="${isSmall ? 9 : 10}">${CUT_LINE}<div class="switch-track"><div class="tab-switch ${kind}" role="group" aria-label="${options.label}">`
@@ -72,7 +66,7 @@ export function tabSwitch(options: {
       ? // A link that can't be followed now has no address, so nothing reaches it; it still says what it is.
         html`<a${tab.isDisabled ? raw(' aria-disabled="true"') : html` href="${tab.href}"`}${folding(tab)}${tab.extra ?? ""}${tab.isCurrent ? raw(' aria-current="page"') : ""}>${inside(tab)}</a>`
       : html`<button type="button"${folding(tab)}${tab.extra ?? ""}${tab.tabValue !== undefined ? html` value="${tab.tabValue}"` : ""} aria-pressed="${tab.isCurrent ? "true" : "false"}"${tab.isDisabled ? raw(" disabled") : ""}>${inside(tab)}</button>`,
-  )}</div>${raw("</div></div>")}${options.isFramed && options.rowId ? html`${rowArrows({ rowName: options.label, trackId: options.rowId })}</div>` : ""}`, isSmall ? "small" : "regular");
+  )}</div></div></div>`, isSmall ? "small" : "regular");
 }
 
 /** The switch's slab sits under the one you're on, sliding on the spring; a tab you point at only lights its words (CSS). */
@@ -207,7 +201,7 @@ export const SWITCH_SCRIPT = `/* switches */(function () {
     if (document.fonts && document.fonts.ready) document.fonts.ready.then(settle);
     window.zaismaWatch.size(sw, settle);
     // A switch as wide as its tabs doesn't change size when its room grows, so the room it has is watched too, to give its tabs back their room.
-    if (!isVertical && !sw.classList.contains("framed") && sw.parentElement) window.zaismaWatch.size(sw.parentElement, settle);
+    if (!isVertical && sw.parentElement) window.zaismaWatch.size(sw.parentElement, settle);
     // A page script can pick a tab too (the gallery's Light or Dark, when the theme changes elsewhere).
     sw.pickTab = function (tab) {
       if (tab.tagName === "BUTTON") tabs.forEach(function (each) { each.setAttribute("aria-pressed", String(each === tab)); });
@@ -268,7 +262,7 @@ component({
    It's as big as what's in it: its size is its words' (a small switch's are 14px, a big one's 16px) and the room round them, all round
    (--tab-room across, --tab-room-y up and down), never a height of its own. Past its room across it scrolls sideways (.switch-room, with the
    rail under it), and stacked, past a menu's height it scrolls down (with the rail beside it). */
-.tab-switch { --control-height: var(--control-height-regular); --tab-room: 20px; --tab-room-y: 10px; position: relative; display: flex; min-width: 0; padding: 4px; background: var(--well); box-shadow: var(--well-shade);
+.tab-switch { --control-height: var(--control-height-regular); --tab-room: 20px; --tab-room-y: 9px; position: relative; display: flex; min-width: 0; padding: 4px; background: var(--well); box-shadow: var(--well-shade);
   clip-path: var(--cut-shape); }
 /* It slides for --slide-ms (SWITCH_SCRIPT moves it frame by frame, its shape with it), never by a CSS transition, on a layer of its own so a
    frame that only moves it isn't painted again. */
@@ -290,7 +284,7 @@ component({
 .switch-room.is-full { width: 100%; }
 .switch-room.is-full > .switch-track { flex: 1; }
 .switch-room.is-full .tab-switch { width: auto; min-width: 100%; }
-.tab-switch:not(.vertical, .framed) { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; width: max-content; background: none; box-shadow: none; clip-path: none; }
+.tab-switch:not(.vertical) { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; width: max-content; background: none; box-shadow: none; clip-path: none; }
 /* The one you're on is marked by its slab and full ink, at the same weight as the others, so its words never move as it's chosen. */
 .tab-switch [aria-current="page"], .tab-switch [aria-pressed="true"] { color: var(--ink); }
 /* Pointed at (a mouse's; a tap shows nothing), a tab you're not on lights only its words to full ink: nothing appears in the well. */
@@ -300,29 +294,10 @@ component({
 .tab-switch > [aria-disabled="true"], .tab-switch > :disabled { cursor: default; opacity: 0.4; }
 /* Before the script has measured, the one you're on carries its own slab. */
 .tab-switch:not(.is-ready) [aria-current="page"], .tab-switch:not(.is-ready) [aria-pressed="true"] { background: var(--btn); box-shadow: var(--slab-shade); }
-/* Framed: the carved frame is its own (.switch-frame), --switch-height tall (a size class's height), and the tabs scroll inside it. */
-.switch-frame { position: relative; display: flex; flex: none; min-width: 0; height: var(--switch-height, var(--control-height-regular)); background: var(--well); box-shadow: var(--well-shade); clip-path: var(--cut-shape);
-  transition: height 0.45s cubic-bezier(.2,.8,.2,1); }
-.switch-frame.small { height: var(--switch-height, var(--control-height-small)); }
-/* With Row arrows (rowId): one control, the frame then the arrows a mouse scrolls it with, which show only while its tabs don't fit. */
-.switch-scroll { display: flex; align-items: center; min-width: 0; max-width: 100%; }
-/* The room between them goes on the arrows, so the frame reaches the row's end where they're hidden (a touch screen, or tabs that fit);
-   they're as tall as the frame, so a big switch's arrows keep to the pane's edges as it does. */
-.switch-scroll > .switch-frame { flex: 0 1 auto; margin-inline-end: 0; }
-.switch-scroll > .steps { align-self: stretch; height: auto; margin-inline-start: var(--gap-control-row-boxes); }
-/* At rest a row of tabs that scrolls shows them whole at its start: it snaps a tab's start to just past the fade there (SCROLL_FADE_SCRIPT
-   starts it where the one you're on shows whole). That fade is as wide as a tab's room round its words, so the words of the tab before
-   are wholly out of view, never cut, and the slab of the one you're on is never faded; the fade at its end stays the usual one
-   (--fade-sideways-px), over whatever runs on past it. */
-.switch-frame-row { --fade-sideways-px: 34px; --tab-fade: 18px; position: relative; display: flex; flex: 1; min-width: 0; height: 100%; scroll-snap-type: x mandatory; scroll-padding-inline-start: var(--tab-fade); }
-.switch-frame.small > .switch-frame-row { --tab-fade: 14px; }
-.switch-frame > .switch-frame-row.more-left { --fade-left: var(--tab-fade); }
-.tab-switch.framed > :not([aria-hidden]) { scroll-snap-align: start; }
-.tab-switch.framed, .tab-switch.framed.small { height: 100%; width: max-content; min-width: 100%; max-width: none; background: none; box-shadow: none; clip-path: none; }
-/* When they fit, the tabs share out the frame's width; when they don't, they keep their own and scroll. */
-.tab-switch.framed > a, .tab-switch.framed > button { flex: 1 0 auto; }
 /* A tab that folds away into the end of the tabs and opens out of it again. */
 .tab-switch > .foldable { max-width: 10rem; overflow: hidden; transition: max-width 0.45s cubic-bezier(.2,.8,.2,1), padding 0.45s cubic-bezier(.2,.8,.2,1), opacity 0.3s 0.08s; }
+/* Its tabs share one width, so a folded tab takes no column at all: it goes, and comes back, at once. */
+.tab-switch:not(.vertical) > .foldable.folded { display: none; }
 .tab-switch > .foldable.folded { max-width: 0; padding-left: 0; padding-right: 0; opacity: 0; pointer-events: none; transition: max-width 0.4s cubic-bezier(.4,0,.2,1), padding 0.4s cubic-bezier(.4,0,.2,1), opacity 0.16s; }
 /* Keyboard focus: a line round the focused tab that follows its cut, like the slab's (the focus ring, set by SWITCH_SCRIPT). */
 .tab-switch > :focus-visible { outline: none; }
@@ -362,8 +337,7 @@ component({
 /* On a touch screen a switch is at least a regular control tall, and each tab's hit area takes in the well's inset above and below it, so a
    finger always has a regular control's height to land on (the clip round the well would cut off anything reaching further). */
 @media (pointer: coarse) {
-  .tab-switch:not(.vertical, .framed) { min-height: var(--control-height-regular); }
-  .switch-frame, .switch-frame.small { height: max(var(--switch-height, var(--control-height-small)), var(--control-height-regular)); }
+  .tab-switch:not(.vertical) { min-height: var(--control-height-regular); }
   .tab-switch > :not([aria-hidden])::before { content: ""; position: absolute; left: 0; right: 0; top: min(0px, calc((100% - var(--touch-target)) / 2)); bottom: min(0px, calc((100% - var(--touch-target)) / 2)); }
 }
 @media (prefers-reduced-motion: reduce) { .tab-switch .slab, .tab-switch > .foldable { transition: none; } }

@@ -81,7 +81,7 @@ export function header(options: HeaderOptions): Raw {
     : [];
   return html`<header class="top glass${states}" id="${id}" data-compacts data-glass data-glass-corners="header"${options.isCompact ? raw(" data-stays-compact") : ""}>${EDGE}
   ${options.sidebarButton ?? ""}${wordmark}
-  ${options.isOnSignInPage ? "" : html`<nav class="nav" aria-label="Main"${hasTabRow ? "" : raw(" hidden")}>${tabSwitch({ label: "Where you are", switchSize: "big", isFramed: true, tabs })}</nav>`}
+  ${options.isOnSignInPage ? "" : html`<nav class="nav" aria-label="Main"${hasTabRow ? "" : raw(" hidden")}>${tabSwitch({ label: "Where you are", switchSize: "big", isFull: true, tabs })}</nav>`}
   ${options.search ? html`${searchField(options.search)}${secondaryButton(options.search.label, { type: "button", icon: "search", isLabelHidden: true, isSmall: true, isExpanded: Boolean(options.isSearchOpen) })}` : ""}
   ${options.isOnSignInPage ? "" : html`<div class="end">${
     account ? accountButton({ username: account.username, pictureMarkup: account.pictureMarkup, menuId, isMenuOpen: options.isMenuOpen }) : signIn
@@ -145,11 +145,11 @@ const HEADER_STYLES = `
 .top .find:has(~ .end > .shell) { margin-inline-end: var(--gap-control-row-boxes); }
 .top .find:has(~ .end > .me) { margin-inline-end: var(--gap-words-control); }
 
-/* Where you are: a framed Switch (inputs.ts), its tabs at their own widths; the header only places it and sets its height as it slims.
+/* Where you are: a Switch (switch.ts), filling the room the header gives it; the header only places it.
    With fewer than two tabs to show it isn't a choice, so it's hidden (header()). */
 .nav { display: flex; flex: none; min-width: 0; }
 .top .nav[hidden] { display: none; }
-.nav > .switch-frame { flex: 1; }
+.nav > .switch-room { flex: 1; }
 
 /* Search sits after the tabs, pushed to the end; with neither, the end goes to the end by itself. */
 .top .find { margin-left: auto; }
@@ -188,7 +188,7 @@ const HEADER_STYLES = `
   .top.searching .nav { display: none; }
   .top > .find + .cut-btn { display: inline-flex; margin-left: auto; margin-right: var(--gap-words-control); }
   /* The tabs are a row of regular height: a finger's. */
-  .top .nav, .top.is-compact .nav { order: 4; flex-basis: 100%; --switch-height: var(--control-height-regular); }
+  .top .nav, .top.is-compact .nav { order: 4; flex-basis: 100%; }
   /* The first row is small controls, so it shares Zaisma, search and Sign in or you on the narrowest phones; Sign in is the compact runner, or
      a small secondary button beside the page's own runner. */
   .top .end > .run-wrap > .run, .top .end > .cut-btn { --control-height: var(--control-height-small); }
@@ -1104,13 +1104,11 @@ export interface SectionTabsOptions {
   /** What the sections are, for a screen reader: "Game sections". */
   label: string;
   tabs: SectionTab[];
-  /** Unique on the page: the id of the row the tabs scroll in, so a mouse gets Row arrows when they don't fit across. */
-  rowId?: string;
 }
 
 /** A page's own sections as tabs (a game dashboard's Overview, Versions, Players; a profile's Games and Friends): the header's tabs, under the page's title. */
 export function sectionTabs(options: SectionTabsOptions): Raw {
-  return html`<nav class="section-tabs" aria-label="${options.label}">${tabSwitch({ label: options.label, switchSize: "big", isFramed: true, rowId: options.rowId, tabs: options.tabs })}</nav>`;
+  return html`<nav class="section-tabs" aria-label="${options.label}">${tabSwitch({ label: options.label, switchSize: "big", tabs: options.tabs })}</nav>`;
 }
 
 /** A place in a sidebar: a link with its words, and an icon and a count when it has them. */
@@ -1420,10 +1418,9 @@ component({
   subgroup: "places",
   summary: "A page's own sections, under its title: a game dashboard's Overview, Versions and Players, a profile's Games and Friends. On a phone they scroll sideways, fading at the edge with more.",
   styles: `
-/* Section tabs: the header's framed switch for a page's own sections. As wide as its tabs, and never wider than the page: past that
-   they scroll sideways inside their frame, fading out over a side with more, and rest on whole tabs, starting where the one you're on shows whole. */
-.section-tabs { display: flex; min-width: 0; max-width: 100%; }
-.section-tabs > .switch-frame, .section-tabs > .switch-scroll { flex: 0 1 auto; }
+/* Section tabs: a Switch for a page's own sections. As wide as its tabs, and never wider than the page: past that they scroll sideways
+   inside its well, fading out over a side with more, with the rail under it, starting where the one you're on shows whole. */
+.section-tabs { display: flex; flex-direction: column; min-width: 0; max-width: 100%; }
 `,
   render: sectionTabs,
   examples: [
@@ -1443,7 +1440,7 @@ component({
       isStill: true,
       markup: sectionTabs({ label: "Profile sections", tabs: PROFILE_SECTIONS.slice(0, 3).map((label, tabIndex) => ({ label, href: "#section-tabs", isCurrent: tabIndex === 0, state: tabIndex === 1 ? "is-focused" : undefined })) }),
     },
-    { label: "In a narrow pane: they scroll to the one you pick, and a mouse has Row arrows", markup: glassPane({ paneWidth: "fit", body: sectionTabs({ label: "Profile sections", rowId: "example-section-tabs-row", tabs: PROFILE_SECTIONS.map((label, tabIndex) => ({ label, href: "#section-tabs", isCurrent: tabIndex === 2 })) }) }) },
+    { label: "In a narrow pane: they scroll sideways, the rail under them", markup: glassPane({ paneWidth: "fit", body: sectionTabs({ label: "Profile sections", tabs: PROFILE_SECTIONS.map((label, tabIndex) => ({ label, href: "#section-tabs", isCurrent: tabIndex === 2 })) }) }) },
   ],
 });
 

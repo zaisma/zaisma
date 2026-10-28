@@ -142,13 +142,11 @@ export async function pageStructureProblems(markup: string): Promise<string[]> {
     if (/\b[A-Z]{3,}\s+[A-Z]{3,}\b/.test(node.words)) problems.push(`words in capitals: ${nameOf(node)}`);
     if (/--[a-z]/.test(node.words)) problems.push(`a token's name outside code: ${nameOf(node)}, set it in code`);
   }
-  // Hick's law and choice overload: few equal choices in a row or a switch, and a long menu in groups. A framed switch is a strip that
-  // scrolls sideways (filters, places), read as one control.
-  const isChoiceGroup = (node: PageNode) => (node.classes.includes("layout-row") && node.attributes.has("data-control-height")) || (node.classes.includes("tab-switch") && !node.classes.includes("vertical") && !node.classes.includes("framed"));
+  // Hick's law and choice overload: few equal choices in a row, and a long menu in groups. A switch is a strip that scrolls sideways past its
+  // room (filters, places, regions), read as one control, so it isn't counted.
+  const isChoiceGroup = (node: PageNode) => node.classes.includes("layout-row") && node.attributes.has("data-control-height");
   for (const group of nodes.filter((node) => isChoiceGroup(node) && !isInside(node, EXAMPLE))) {
-    const choices = group.classes.includes("tab-switch")
-      ? group.children.filter((child) => child.tag === "button" && !child.attributes.has("hidden"))
-      : group.children.filter((cell) => cell.classes.includes("row-cell") && cell.classes.includes("is-control") && !cell.attributes.has("hidden") && cell.children.some((child) => (child.classes.includes("shell") || child.classes.includes("run-wrap")) && !child.attributes.has("hidden")));
+    const choices = group.children.filter((cell) => cell.classes.includes("row-cell") && cell.classes.includes("is-control") && !cell.attributes.has("hidden") && cell.children.some((child) => (child.classes.includes("shell") || child.classes.includes("run-wrap")) && !child.attributes.has("hidden")));
     if (choices.length > MAXIMUM_EQUAL_CHOICE_COUNT) problems.push(`too many equal choices: ${nameOf(group)}, ${choices.length} side by side, at most ${MAXIMUM_EQUAL_CHOICE_COUNT}`);
   }
   for (const menu of nodes.filter((node) => node.classes.includes("dropdown") && node.attributes.get("role") === "menu" && !isInside(node, EXAMPLE))) {

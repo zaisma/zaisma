@@ -309,8 +309,6 @@ describe("the gallery", () => {
         if (holder.classes.includes("shell") || holder.attributes.includes(" data-cut-line") || holder.attributes.includes(' role="menu"') || holder.classes.includes("dropdown-in") || holder.classes.includes("menu-choices") || holder.attributes.includes(' role="listbox"')) continue;
         // A compact choice list's cards are its own inside, down its carved well like a vertical switch's places.
         if (holder.classes.includes("choice-list-in")) continue;
-        // A switch with its Row arrows (tabSwitch's rowId) is one control: the frame and the arrows that scroll it are its own inside.
-        if (holder.classes.includes("switch-scroll")) continue;
         if (children.length < 2 || !children.every((child) => child.classes.includes("shell") || child.attributes.includes(" data-cut-line"))) continue;
         const matching = rules.filter(({ subject }) => matchesSubject(holder, subject));
         const isStack = matching.some((rule) => rule.isStack) || /(^|;)\s*(display:\s*grid|flex-direction:\s*column)/.test(holder.style);
@@ -660,7 +658,7 @@ const OWN_GLASS = new Map<string, string>([
 const LINK_IN_CONTROL = new Set<string>([
   // A tab: the header's tabs and a switch's.
   ".tab-switch > a",
-  ".tab-switch.big > a", ".tab-switch.small > a", ".tab-switch.vertical > a", ".tab-switch.framed > a",
+  ".tab-switch.big > a", ".tab-switch.small > a", ".tab-switch.vertical > a",
 ]);
 
 const NOT_TYPE = new Set<string>([
