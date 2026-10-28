@@ -106,8 +106,9 @@ export const SWITCH_SCRIPT = `/* switches */(function () {
       (function frame() {
         if (el.slideId !== id) return;
         var t = Math.min(1, (performance.now() - startMs) / ms), e = slideEase(t);
-        place(el, { pos: t < 1 ? onPixel(from.pos + (to.pos - from.pos) * e) : to.pos, size: to.size });
+        // Its shape is drawn before it's moved: drawing reads its size, and reading after a move would lay the page out again mid-frame.
         if (el.redrawCut) el.redrawCut();
+        place(el, { pos: t < 1 ? onPixel(from.pos + (to.pos - from.pos) * e) : to.pos, size: to.size });
         if (t < 1) requestAnimationFrame(frame);
       })();
     }
@@ -123,7 +124,7 @@ export const SWITCH_SCRIPT = `/* switches */(function () {
         var toY = { pos: tab.offsetTop, size: tab.offsetHeight }, msY = isGliding && !reduce ? slideMs(el) : 0;
         el.setAttribute("data-cut-beside", "");
         el.setAttribute("data-cut-stack", ((isFirst ? "first " : "") + (isLast ? "last" : "")).trim());
-        if (el.redrawCut) el.redrawCut(msY && from.stack !== null ? { from: from, ms: msY, ease: slideEase } : undefined);
+        if (el.redrawCut) el.redrawCut(msY && from.stack !== null ? { from: from, ms: msY, ease: slideEase, isDriven: true } : undefined);
         if (msY) slide(el, toY, msY); else { el.slideId = (el.slideId || 0) + 1; place(el, toY); if (el.redrawCut) el.redrawCut(); }
         return;
       }
@@ -134,7 +135,7 @@ export const SWITCH_SCRIPT = `/* switches */(function () {
       el.setAttribute("data-cut-beside", ((isFirst ? "" : "start ") + (isLast ? "" : "end")).trim());
       var ends = ((isFirst ? "start " : "") + (isLast ? "end" : "")).trim();
       if (ends) el.setAttribute("data-cut-ends", ends); else el.removeAttribute("data-cut-ends");
-      if (el.redrawCut) el.redrawCut(ms && from.beside !== null ? { from: from, ms: ms, ease: slideEase } : undefined);
+      if (el.redrawCut) el.redrawCut(ms && from.beside !== null ? { from: from, ms: ms, ease: slideEase, isDriven: true } : undefined);
       if (ms) slide(el, to, ms); else { el.slideId = (el.slideId || 0) + 1; place(el, to); if (el.redrawCut) el.redrawCut(); }
     }
     function slideMs(el) { return parseFloat(getComputedStyle(el).getPropertyValue("--slide-ms")) || 550; }
@@ -260,8 +261,9 @@ component({
    It's never wider than its room: where its tabs don't fit, they keep less room round their words (--tab-room, SWITCH_SCRIPT) and share it. */
 .tab-switch { --control-height: var(--control-height-regular); --tab-room: 18px; position: relative; display: flex; min-width: 0; max-width: 100%; height: var(--control-height); padding: 4px; background: var(--well); box-shadow: var(--well-shade);
   clip-path: var(--cut-shape); }
-/* It slides for --slide-ms (SWITCH_SCRIPT moves it frame by frame, its shape with it), never by a CSS transition. */
-.tab-switch .slab { --slide-ms: 450; position: absolute; top: 4px; bottom: 4px; left: 0; width: 0; pointer-events: none; clip-path: var(--cut-shape); transition: opacity 0.3s; }
+/* It slides for --slide-ms (SWITCH_SCRIPT moves it frame by frame, its shape with it), never by a CSS transition, on a layer of its own so a
+   frame that only moves it isn't painted again. */
+.tab-switch .slab { --slide-ms: 450; position: absolute; top: 4px; bottom: 4px; left: 0; width: 0; pointer-events: none; clip-path: var(--cut-shape); transition: opacity 0.3s; will-change: transform; }
 /* The slab is a raised piece of glass with the face and bevel of a raised button (--btn, the raise bands), so its edges catch the light, and it
    casts a soft shadow into the well under it (--slab-cast), which the well's cut keeps inside it. Its face is cut to its shape below its
    bevel, so the slab itself isn't clipped and its shadow shows. */

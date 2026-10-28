@@ -505,7 +505,8 @@ export const GLASS_SCRIPT = `/* glass */(function () {
       if (glide) {
         var t = Math.min(1, (performance.now() - glide.startMs) / glide.ms), eased = glide.ease ? glide.ease(t) : 1 - Math.pow(1 - t, 3), from = controlOutline(el, w, h, glide.from);
         shape = shape.map(function (p, i) { return [from[i][0] + (p[0] - from[i][0]) * eased, from[i][1] + (p[1] - from[i][1]) * eased]; });
-        if (t < 1) requestAnimationFrame(draw); else glide = null;
+        // A mover that draws it each frame itself (isDriven: a switch's slab) has it drawn once a frame, not twice.
+        if (t >= 1) glide = null; else if (!glide.isDriven) requestAnimationFrame(draw);
       }
       shape = distinct(shape);
       var key = w + "x" + h + ":" + list(shape);
@@ -531,7 +532,7 @@ export const GLASS_SCRIPT = `/* glass */(function () {
     // redrawCut() draws it again; redrawCut({ from: { beside, ends }, ms, ease }) glides there from the shape those attributes gave, on its
     // mover's ease (a cubic ease-out by default), so its shape lands as it does.
     el.redrawCut = function (move) {
-      if (move && move.ms > 0 && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) glide = { from: move.from, ms: move.ms, ease: move.ease, startMs: performance.now() };
+      if (move && move.ms > 0 && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) glide = { from: move.from, ms: move.ms, ease: move.ease, isDriven: Boolean(move.isDriven), startMs: performance.now() };
       draw();
     };
     window.zaismaWatch.size(el, draw, runBatch);
