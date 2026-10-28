@@ -543,7 +543,7 @@ export function choiceCards(options: ChoiceCardsOptions): Raw {
     html`<label class="choice-card cut-carved${choiceIndex === 0 && options.state ? ` ${options.state}` : ""}" data-cut-line="10" data-lights${options.isCompact ? "" : raw(' data-edge-light="bottom"')}>${CUT_LINE}${options.isCompact ? "" : EDGE_LIGHT}<input class="choice-input" type="radio" name="${options.name}" id="${id}-${choice.choiceValue}" value="${choice.choiceValue}"${choice.choiceValue === options.pickedValue ? raw(" checked") : ""}>${choice.icon ? icon(choice.icon) : ""}<span class="choice-words"><span class="choice-label">${choice.label}</span>${choice.text ? html`<span class="choice-text">${choice.text}</span>` : ""}</span></label>`;
   const className = ["choices", options.error ? "is-marked" : "", options.isDisabled ? "is-disabled" : ""].filter(Boolean).join(" ");
   const cards = options.isCompact
-    ? well({ kind: "choice-well", isScrolling: true, edgeLight: "left", body: html`${options.choices.map(card)}` })
+    ? well({ kind: "choice-well", scrollDirection: "down", edgeLight: "left", body: html`${options.choices.map(card)}` })
     : html`<div class="choice-cards" style="--choice-count: ${options.choices.length}">${options.choices.map(card)}</div>`;
   return html`<fieldset class="${className}"${options.isDisabled ? raw(" disabled") : ""}${options.error ? html` aria-describedby="${id}-error"` : ""}><legend${options.isLabelHidden ? raw(' class="sr"') : ""}>${options.label}</legend>${cards}${options.error ? html`<p class="field-error" id="${id}-error">${options.error}</p>` : ""}</fieldset>`;
 }

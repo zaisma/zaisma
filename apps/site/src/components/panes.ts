@@ -661,13 +661,16 @@ component({
 .well > .well-end { position: absolute; z-index: 3; top: var(--well-inset); right: var(--well-inset); display: flex; }
 .well-end-note { position: absolute; inset: 0; display: none; place-items: center; pointer-events: none; color: var(--ink); }
 .well > .cut-line { z-index: 4; pointer-events: none; }
-.well:has(> .well-body :focus-visible) > .cut-line polygon, .well.is-focused > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
-/* Scrolling: what's in it scrolls inside it, never taller than a menu, while the well itself stays still (a carving never moves or fades):
-   what's in it fades at its ends, and with a mouse it scrolls on Zaisma's rail, inside its right edge, what's in it keeping clear of it. */
-/* Its owner can set its own limit (--well-height). */
-.well.is-scrolling { align-items: stretch; max-height: var(--well-height, var(--size-menu-height)); }
-.well.is-scrolling > .well-body { overflow-y: auto; overscroll-behavior-y: contain; }
-.well.is-scrolling > .well-body.own-scroll.shows-rail { padding-right: 18px; }
+/* A control held in it (a choice card, a switch's tab) draws its own ring; what isn't a control (a link, the scrolling body) is ringed round the well. */
+.well:has(> .well-body:focus-visible, > .well-body > :focus-visible) > .cut-line polygon, .well.is-focused > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
+/* Scrolling: what's in it scrolls inside it while the well itself stays still (a carving never moves or fades), and what's in it fades at
+   its ends. Down, it's never taller than a menu (or its owner's --well-height), and with a mouse it scrolls on Zaisma's rail inside its
+   right edge, what's in it keeping clear of it; across, the rail runs under the well (data-side-rail). */
+.well.scrolls-down { align-items: stretch; max-height: var(--well-height, var(--size-menu-height)); }
+.well.scrolls-down > .well-body { overflow-y: auto; overscroll-behavior-y: contain; }
+.well.scrolls-down > .well-body.own-scroll.shows-rail { padding-right: 18px; }
+.well.scrolls-across > .well-body { overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; }
+.well.scrolls-across > .well-body::-webkit-scrollbar { display: none; }
 `,
   render: well,
   examples: [

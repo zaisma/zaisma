@@ -1,7 +1,7 @@
 import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
 import { controlMarkup, type ControlMarkup } from "./control-markup.ts";
-import { CUT_LINE, EDGE_LIGHT, colorPicker, icon, tag, type ColorChoice, type IconName } from "./foundations.ts";
+import { CUT_LINE, colorPicker, icon, tag, well, type ColorChoice, type IconName } from "./foundations.ts";
 import { TINT_CHOICES } from "./actions.ts";
 
 /*
@@ -55,18 +55,24 @@ export function tabSwitch(options: {
   const classNames = (tab: SwitchTab) => [tab.isFoldable ? "foldable" : "", tab.isFoldable && tab.isFolded ? "folded" : "", tab.state ?? ""].filter(Boolean).join(" ");
   const folding = (tab: SwitchTab) =>
     html`${classNames(tab) ? html` class="${classNames(tab)}"` : ""}${tab.isFoldable && tab.isFolded ? raw(' tabindex="-1" aria-hidden="true"') : ""}`;
-  const own =
-    // The well (.switch-room) stays put, and what's in it scrolls inside it (.switch-track), fading at its ends: across, with the rail
-      // under the well; stacked, with the rail beside its places.
-      options.isVertical
-        ? html`<div class="switch-room cut-carved ${kind}" data-cut-line="${isSmall ? 9 : 10}" data-edge-light="left">${CUT_LINE}${EDGE_LIGHT}<div class="switch-track"><div class="tab-switch ${kind}" role="group" aria-label="${options.label}">`
-        : html`<div class="switch-room cut-carved ${kind}${options.isFull ? " is-full" : ""}" data-cut-line="${isSmall ? 9 : 10}" data-side-rail data-edge-light="bottom">${CUT_LINE}${EDGE_LIGHT}<div class="switch-track" data-fades-sideways data-rail-scroller><div class="tab-switch ${kind}" role="group" aria-label="${options.label}">`;
-  return controlMarkup(html`${own}<span class="slab cut-raised" aria-hidden="true" data-cut-line="${isSmall ? 7 : 8}">${CUT_LINE}</span><span class="focus-ring" aria-hidden="true" data-cut-line="${isSmall ? 9 : 10}">${CUT_LINE}</span>${options.tabs.map((tab) =>
+  const tabSwitch = html`<div class="tab-switch ${kind}" role="group" aria-label="${options.label}"><span class="slab cut-raised" aria-hidden="true" data-cut-line="${isSmall ? 7 : 8}">${CUT_LINE}</span><span class="focus-ring" aria-hidden="true" data-cut-line="${isSmall ? 9 : 10}">${CUT_LINE}</span>${options.tabs.map((tab) =>
     tab.href
       ? // A link that can't be followed now has no address, so nothing reaches it; it still says what it is.
         html`<a data-lights${tab.isDisabled ? raw(' aria-disabled="true"') : html` href="${tab.href}"`}${folding(tab)}${tab.extra ?? ""}${tab.isCurrent ? raw(' aria-current="page"') : ""}>${inside(tab)}</a>`
       : html`<button type="button" data-lights${folding(tab)}${tab.extra ?? ""}${tab.tabValue !== undefined ? html` value="${tab.tabValue}"` : ""} aria-pressed="${tab.isCurrent ? "true" : "false"}"${tab.isDisabled ? raw(" disabled") : ""}>${inside(tab)}</button>`,
-  )}</div></div></div>`, isSmall ? "small" : "regular");
+  )}</div>`;
+  // Its tabs sit in a Well, which stays put while they scroll inside it, fading at its ends: across, with the rail under the well;
+  // stacked, with the rail beside its places.
+  return controlMarkup(
+    well({
+      kind: `switch-well ${kind}${options.isFull && !options.isVertical ? " is-full" : ""}`,
+      scrollDirection: options.isVertical ? "down" : "across",
+      cornerCutPx: isSmall ? 9 : 10,
+      edgeLight: options.isVertical ? "left" : "bottom",
+      body: tabSwitch,
+    }),
+    isSmall ? "small" : "regular",
+  );
 }
 
 /** The switch's slab sits under the one you're on, sliding on the spring; a tab you point at only lights its words (CSS). */
@@ -263,7 +269,7 @@ component({
 /* The switch: the header's and the home's. A carved well, a raised slab under the one you're on, lit like any raised glass, and a faint one under the
    one you point at. No orange: it's a choice, not the thing to do, so orange is left for keyboard focus.
    It's as big as what's in it: its size is its words' (a small switch's are 14px, a big one's 16px) and the room round them, all round
-   (--tab-room across, --tab-room-y up and down), never a height of its own. Past its room across it scrolls sideways (.switch-room, with the
+   (--tab-room across, --tab-room-y up and down), never a height of its own. Past its room across it scrolls sideways (in its Well, with the
    rail under it), and stacked, past a menu's height it scrolls down (with the rail beside it). */
 .tab-switch { --control-height: var(--control-height-regular); --tab-room: 20px; --tab-room-y: 9px; position: relative; display: flex; min-width: 0; padding: 4px; background: var(--well); box-shadow: var(--well-shade);
   clip-path: var(--cut-shape); }
@@ -278,15 +284,13 @@ component({
 .tab-switch > a, .tab-switch > button { position: relative; z-index: 2; display: grid; place-content: center; padding: var(--tab-room-y) var(--tab-room); border: 0; background: none; cursor: pointer;
   font: 500 1rem/1.1 var(--display); color: var(--ink-2); text-decoration: none; white-space: nowrap; }
 /* Across, it's as wide as its tabs, one line each, and its tabs are all one width, the widest's, so the slab is one size on every tab and
-   only slides: glass doesn't change size as it moves. Past the room it has, the well (.switch-room) stays put, a carving can't move or
-   fade, and what's in it scrolls inside it (.switch-track), fading at its ends, with the rail under the well. */
-.switch-room { position: relative; display: flex; width: max-content; max-width: 100%; --face-color: var(--well); background: var(--face-color); box-shadow: var(--well-shade); clip-path: var(--cut-shape); transition: --face-color 0.45s cubic-bezier(.4, 0, .2, 1); }
-.switch-track { position: relative; min-width: 0; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; }
-.switch-track::-webkit-scrollbar { display: none; }
+   only slides: glass doesn't change size as it moves. Past the room it has, its Well stays put, a carving can't move or
+   fade, and what's in it scrolls inside it, fading at its ends, with the rail under the well. */
+.well.switch-well { align-items: stretch; width: max-content; max-width: 100%; min-height: 0; }
+.well.switch-well > .well-body { min-width: 0; padding: 0; font: inherit; }
 /* Full: it fills the width it's in, its tabs sharing it, past their words' width. */
-.switch-room.is-full { width: 100%; }
-.switch-room.is-full > .switch-track { flex: 1; }
-.switch-room.is-full .tab-switch { width: auto; min-width: 100%; }
+.well.switch-well.is-full { width: 100%; }
+.well.switch-well.is-full .tab-switch { width: auto; min-width: 100%; }
 .tab-switch:not(.vertical) { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; width: max-content; background: none; box-shadow: none; clip-path: none; }
 /* The one you're on is marked by its slab and full ink, at the same weight as the others, so its words never move as it's chosen. */
 .tab-switch [aria-current="page"], .tab-switch [aria-pressed="true"] { color: var(--ink); }
@@ -318,8 +322,8 @@ component({
 .tab-switch.small .slab { --slide-ms: 380; top: 3px; bottom: 3px; }
 .tab-switch.small > a, .tab-switch.small > button { font-size: 0.875rem; }
 /* Across, the well is its room's, so the tabs' box in its track has none of its own (after .small, which would cut it to the well's shape). */
-.switch-track > .tab-switch { background: none; box-shadow: none; clip-path: none; }
-.switch-room.small { --control-height: var(--control-height-small); }
+.switch-well > .well-body > .tab-switch { background: none; box-shadow: none; clip-path: none; }
+.well.switch-well.small { --control-height: var(--control-height-small); }
 /* A tab's words sit in the middle of its slab as it's seen. A slab between two tabs slants on both sides, so its words are in the middle
    of the tab; on the first or last tab it slants only on its inner side, which pulls its seen middle a quarter of a slant toward the
    switch's end, so the words move that far with it (a fifth of a slant more room on the inner side). The room round the words clears the switch's corners. */
@@ -329,9 +333,8 @@ component({
    its icon, its words and a count at its end; the slab spans the well and moves down it, and a place you point at lights its words. */
 .tab-switch.vertical { flex-direction: column; }
 /* Stacked, the well is no taller than a menu; past that its places scroll inside it, the rail beside them. */
-.switch-room.vertical { flex-direction: column; width: auto; max-height: var(--size-menu-height); }
-.switch-room.vertical > .switch-track { flex: 0 1 auto; min-height: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: auto; }
-.switch-room.vertical > .switch-track.own-scroll.shows-rail { padding-right: 18px; }
+.well.switch-well.vertical { flex-direction: column; width: auto; }
+.well.switch-well.vertical > .well-body { flex: 0 1 auto; min-height: 0; overflow-x: hidden; }
 .tab-switch.vertical .slab { top: 0; bottom: auto; left: 4px; right: 4px; width: auto; height: 0; }
 .tab-switch.vertical.small .slab { left: 3px; right: 3px; }
 .tab-switch.vertical > a, .tab-switch.vertical > button { flex: none; display: flex; align-items: center; justify-content: flex-start; gap: 10px; padding: var(--tab-room-y) 14px; text-align: left; }

@@ -149,7 +149,7 @@ const HEADER_STYLES = `
    With fewer than two tabs to show it isn't a choice, so it's hidden (header()). */
 .nav { display: flex; flex: none; min-width: 0; }
 .top .nav[hidden] { display: none; }
-.nav > .switch-room { flex: 1; }
+.nav > .switch-well { flex: 1; }
 
 /* Search sits after the tabs, pushed to the end; with neither, the end goes to the end by itself. */
 .top .find { margin-left: auto; }

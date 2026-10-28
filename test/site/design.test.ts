@@ -718,7 +718,7 @@ const NOT_SPACING = new Set<string>([
   ".dropdown | gap", ".dropdown-in | gap", ".menu-choices | gap",
   // Room to scroll, or for a scrollbar or a page's rail.
   ".wheel | padding", "html | scroll-padding-top", ".gallery-layout | padding-right",
-  ".well.is-scrolling > .well-body.own-scroll.shows-rail | padding-right", ".sheet-in.own-scroll.shows-rail | padding-right", ".sheet-body.own-scroll.shows-rail | padding-right",
+  ".well.scrolls-down > .well-body.own-scroll.shows-rail | padding-right", ".sheet-in.own-scroll.shows-rail | padding-right", ".sheet-body.own-scroll.shows-rail | padding-right",
   ".floating-body.own-scroll.shows-rail | padding-right", ".field.long textarea.is-scrolling | padding-right",
   // Where a small thing sits on what it marks: a rail's tick, a cover's line.
   ".rail-mark | margin-top", ".rail.sideways .rail-mark | margin", ".cover-bar | margin-top",

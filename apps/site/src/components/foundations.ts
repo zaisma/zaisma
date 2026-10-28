@@ -97,12 +97,16 @@ export interface WellOptions {
   end?: ControlMarkup;
   /** What shows over the end control for a moment, in its place (a field's Copied tick); its owner shows it. */
   endNote?: Raw;
-  /** Its owner's name for it, for the owner's own styles and script, ending in -well so it never meets another component's class: "code-well". */
+  /** Its owner's name for it, for the owner's own styles and script, ending in -well so it never meets another component's class: "code-well";
+   * the owner's own modifiers may follow it ("switch-well small"). */
   kind?: string;
   /** The gallery's fixed keyboard focus on what's in it. */
   state?: "is-focused";
-  /** What's in it is longer than it can show (a list of choices): it scrolls inside the well, which stays still, fading at its ends, on Zaisma's rail. */
-  isScrolling?: boolean;
+  /** What's in it is longer than it can show: it scrolls inside the well, which stays still, fading at its ends, on Zaisma's rail; down (a
+   * list of choices, a stacked switch's places, the rail beside them) or across (a switch's tabs, the rail under the well). */
+  scrollDirection?: "down" | "across";
+  /** How far the edge rule cuts its corners, in pixels: 10 unless its owner is smaller (a small switch's 9). */
+  cornerCutPx?: number;
   /** It holds parts you point at (a compact list's cards): its edge lights beside the pointed one (Edge light), along this side. */
   edgeLight?: "left" | "bottom";
 }
@@ -114,8 +118,9 @@ export interface WellOptions {
  * its end, as far in from its end as from its top; what's longer than it can show scrolls inside it.
  */
 export function well(options: WellOptions): Raw {
-  const className = ["well", "cut-carved", options.kind ?? "", options.isScrolling ? "is-scrolling" : "", options.state ?? ""].filter(Boolean).join(" ");
-  return html`<div class="${className}" data-cut-line="10"${options.edgeLight ? html` data-edge-light="${options.edgeLight}"` : ""}>${CUT_LINE}${options.edgeLight ? EDGE_LIGHT : ""}<div class="well-body">${options.body}</div>${
+  const isAcross = options.scrollDirection === "across";
+  const className = ["well", "cut-carved", options.kind ?? "", options.scrollDirection ? `scrolls-${options.scrollDirection}` : "", options.state ?? ""].filter(Boolean).join(" ");
+  return html`<div class="${className}" data-cut-line="${options.cornerCutPx ?? 10}"${isAcross ? raw(" data-side-rail") : ""}${options.edgeLight ? html` data-edge-light="${options.edgeLight}"` : ""}>${CUT_LINE}${options.edgeLight ? EDGE_LIGHT : ""}<div class="well-body"${isAcross ? raw(" data-fades-sideways data-rail-scroller") : ""}>${options.body}</div>${
     options.end ? html`<div class="well-end">${options.end}${options.endNote ? html`<span class="well-end-note" aria-hidden="true">${options.endNote}</span>` : ""}</div>` : ""
   }</div>`;
 }
