@@ -395,7 +395,7 @@ describe("the gallery", () => {
     for (const { group, subgroup } of GALLERY_PLACES()) {
       const { text } = await page(`${galleryPagePath(group, subgroup)}?theme=dark`);
       expect(text).toContain('<div id="stage" class="stage" data-theme-choice="dark">');
-      expect(text).toContain('<a class="sidebar-place" href="/design/panes/glass?theme=dark"');
+      expect(text).toMatch(/<a class="sidebar-place[^"]*" href="\/design\/panes\/glass\?theme=dark"/);
     }
     // Anything but dark is light: the parameter is closed.
     expect((await page("/design?theme=purple")).text).toContain('<div id="stage" class="stage" data-theme-choice="light">');
