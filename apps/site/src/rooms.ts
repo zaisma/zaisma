@@ -174,9 +174,12 @@ function roomRow(slug: string, room: ListedRoom): ListRow {
   return { title, detail: detail || undefined, end: hasSpace(room) ? undefined : room.isOpen ? "Full" : "In a match", action: actions.length > 1 ? actions : actions[0] };
 }
 
+/** What a field for a room code takes: its six capitals and numbers (no 0, 1, I or O), so nothing else can be typed or pasted in. */
+export const ROOM_CODE_TYPING = { characterPattern: "[2-9A-HJ-NP-Z]", maximumCharacterCount: 6, isUppercase: true } as const;
+
 /** A box for a room code a friend shared. It opens the same room link an invite does. The page's script reads #room-code. */
 export function codeBox(slug: string): Raw {
-  const field = cutField({ id: "room-code", name: "room", label: "Have a room code?", type: "text", placeholder: "ABC234", autocomplete: "off", pattern: "[2-9A-HJ-NP-Za-hj-np-z]{6}", isRequired: true });
+  const field = cutField({ id: "room-code", name: "room", label: "Have a room code?", type: "text", placeholder: "ABC234", autocomplete: "off", ...ROOM_CODE_TYPING, pattern: "[2-9A-HJ-NP-Z]{6}", isRequired: true });
   return html`<form method="get" action="/g/${slug}">${row({ widths: "lead-fills", items: [{ kind: "control", markup: field }, { kind: "control", markup: secondaryButton("Join", { type: "submit" }) }] })}</form>`;
 }
 

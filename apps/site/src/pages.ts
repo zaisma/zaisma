@@ -65,7 +65,7 @@ import { friendRequestParts } from "./friend-requests.ts";
 import { GAME_UPDATES_SCRIPT, connectionPlate, updateBarButtons } from "./game-updates.ts";
 import { MINIMUM_PLAYING_NOW_PLAYER_COUNT, PLAY_COUNTER_SCRIPT, ageRefusal, playingNowCounts } from "./plays.ts";
 import { profilePath } from "./profiles.ts";
-import { MAXIMUM_REFRESHED_ROOM_COUNT, codeBox, pageRooms, readRoomPick, roomsOnPage, roomsPanel, tabCount } from "./rooms.ts";
+import { MAXIMUM_REFRESHED_ROOM_COUNT, ROOM_CODE_TYPING, codeBox, pageRooms, readRoomPick, roomsOnPage, roomsPanel, tabCount } from "./rooms.ts";
 import { checkPreviewLinkToken, readPreviewLinkToken } from "./preview-links.ts";
 import { GAME_LINKS_SCRIPT, developerLinks, leavingCard } from "./game-links.ts";
 import { BUY_SHEET_SCRIPT, buySheet, buySheetData, buySheetStripe } from "./buy-sheet.ts";
@@ -444,7 +444,7 @@ export function gamePageResponse(env: Env, view: GamePageView): Response {
               { kind: "control", markup: secondaryButton("Hide the room code", { id: "room-eye", type: "button", icon: "eye", isHidden: true }) },
               { kind: "words", id: "room-closed", isHidden: true, markup: html`<p>This room doesn't take new players.</p>` },
             ] }) },
-            { kind: "control", markup: cutField({ id: "bar-join-code", name: "room", label: "Join a room by its code", type: "text", icon: "hash", placeholder: "ABC234", autocomplete: "off" }) },
+            { kind: "control", markup: cutField({ id: "bar-join-code", name: "room", label: "Join a room by its code", type: "text", icon: "hash", placeholder: "ABC234", autocomplete: "off", ...ROOM_CODE_TYPING }) },
             { kind: "words", id: "join-leaves", isHidden: true, markup: html`<p>It leaves the room you're in.</p>` },
           ],
         }),
@@ -1106,7 +1106,7 @@ if (roomsPanel) {
 }
 const codeInput = document.getElementById("room-code");
 if (codeInput) {
-  codeInput.addEventListener("input", () => { codeInput.value = codeInput.value.toUpperCase().replace(/\s/g, ""); codeInput.setCustomValidity(""); });
+  codeInput.addEventListener("input", () => codeInput.setCustomValidity(""));
   codeInput.addEventListener("invalid", () => codeInput.setCustomValidity("Room codes are 6 letters and numbers, like ABC234."));
 }
 // Games for other devices still open, with a word of warning.
@@ -1174,7 +1174,7 @@ if (roomOpen && roomDialog) {
   roomDialog.addEventListener("close", () => { if (frame) frame.focus(); });
   // Enter joins: the sheet's first submit button is its Close, which the browser would press.
   joinInput.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); joinInput.form.requestSubmit(document.getElementById("room-join")); } });
-  joinInput.addEventListener("input", () => { joinInput.value = joinInput.value.toUpperCase().replace(/[^0-9A-Z]/g, ""); joinInput.setCustomValidity(""); });
+  joinInput.addEventListener("input", () => joinInput.setCustomValidity(""));
   // Join goes to the room's link; the room the player is in already has nothing to leave.
   roomDialog.querySelector("form").addEventListener("submit", (e) => {
     if (!e.submitter || e.submitter.id !== "room-join") return;

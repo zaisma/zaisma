@@ -33,6 +33,12 @@ export interface CutFieldOptions {
   inputMode?: "numeric";
   /** What it must match to be sent, as a regular expression (a room code's six letters and numbers); a page script says what's wrong. */
   pattern?: string;
+  /** The only characters it takes, as one regular expression character class ("[2-9A-HJ-NP-Z]"): any other is dropped as it's typed, pasted or filled in, so it never shows. */
+  characterPattern?: string;
+  /** At most this many characters: typing stops there, and a longer paste is cut to it. */
+  maximumCharacterCount?: number;
+  /** Letters turn to capitals as they go in (a room code), before characterPattern is checked. */
+  isUppercase?: boolean;
   /** A password that starts shown (Show pressed). */
   isPasswordShown?: boolean;
   /** Can be read, selected and copied but not changed here: carved into the glass, with nothing to type. */
@@ -52,7 +58,7 @@ export function cutField(options: CutFieldOptions): ControlMarkup {
   const className = ["field", "cut-carved", options.icon ? "" : "no-icon", isPassword ? "with-toggle" : "", options.error ? "is-marked" : "", options.state ?? ""].filter(Boolean).join(" ");
   const inputType = isPassword && options.isPasswordShown ? "text" : options.type;
   return controlMarkup(html`<div class="cut-field"><label for="${id}">${options.label}</label>
-<span class="${className}" data-cut-line="10">${CUT_LINE}${options.icon ? icon(options.icon) : ""}<input id="${id}" name="${options.name}" type="${inputType}"${options.text !== undefined ? html` value="${options.text}"` : ""}${options.placeholder ? html` placeholder="${options.placeholder}"` : ""}${options.autocomplete ? html` autocomplete="${options.autocomplete}"` : ""}${options.type === "email" || options.name === "username" ? raw(' autocapitalize="off" spellcheck="false"') : ""}${options.inputMode ? html` inputmode="${options.inputMode}"` : ""}${options.pattern ? html` pattern="${options.pattern}"` : ""}${options.isRequired ? raw(" required") : ""}${options.isReadOnly ? raw(" readonly") : ""}${options.isDisabled ? raw(" disabled") : ""}${options.error ? html` aria-invalid="true" aria-describedby="${errorId}"` : options.hint ? html` aria-describedby="${hintId}"` : ""}>${isPassword ? toggleButton(options.isPasswordShown ? "Hide" : "Show", { type: "button", isSmall: true, isPressed: Boolean(options.isPasswordShown), controls: id, isDisabled: options.isDisabled }) : ""}</span>
+<span class="${className}" data-cut-line="10">${CUT_LINE}${options.icon ? icon(options.icon) : ""}<input id="${id}" name="${options.name}" type="${inputType}"${options.text !== undefined ? html` value="${options.text}"` : ""}${options.placeholder ? html` placeholder="${options.placeholder}"` : ""}${options.autocomplete ? html` autocomplete="${options.autocomplete}"` : ""}${options.type === "email" || options.name === "username" ? raw(' autocapitalize="off" spellcheck="false"') : ""}${options.inputMode ? html` inputmode="${options.inputMode}"` : ""}${options.pattern ? html` pattern="${options.pattern}"` : ""}${options.characterPattern ? html` data-characters="${options.characterPattern}"` : ""}${options.maximumCharacterCount !== undefined ? html` maxlength="${options.maximumCharacterCount}"` : ""}${options.isUppercase ? raw(' data-uppercase autocapitalize="characters"') : ""}${options.isRequired ? raw(" required") : ""}${options.isReadOnly ? raw(" readonly") : ""}${options.isDisabled ? raw(" disabled") : ""}${options.error ? html` aria-invalid="true" aria-describedby="${errorId}"` : options.hint ? html` aria-describedby="${hintId}"` : ""}>${isPassword ? toggleButton(options.isPasswordShown ? "Hide" : "Show", { type: "button", isSmall: true, isPressed: Boolean(options.isPasswordShown), controls: id, isDisabled: options.isDisabled }) : ""}</span>
 ${options.error ? html`<p class="field-error" id="${errorId}">${options.error}</p>` : options.hint ? html`<p class="field-hint" id="${hintId}">${options.hint}</p>` : ""}</div>`, "field", { hasOwnWords: true });
 }
 
@@ -296,6 +302,46 @@ export const FIELD_SCRIPT = `/* fields */(function () {
     show.querySelector(".face > span:not(.loader)").textContent = on ? "Hide" : "Show";
     show.setAttribute("aria-pressed", String(on));
   });
+  // A field that takes only some characters (data-characters) drops every other before it shows, letters first turned to capitals where
+  // it's made of them (data-uppercase); its maxlength holds what's left to its length, a paste cut to the room it has.
+  var TAKES = "input[data-characters]";
+  function kept(input, text) {
+    var one = new RegExp("^" + input.getAttribute("data-characters") + "$");
+    if (input.hasAttribute("data-uppercase")) text = text.toUpperCase();
+    return Array.from(text).filter(function (character) { return one.test(character); }).join("");
+  }
+  // Text going in where the cursor is, in place of the browser's own insert: only what it takes, as much as there's room for.
+  function put(input, text, event) {
+    var keep = kept(input, text);
+    if (keep === text && event.type !== "paste") return;
+    event.preventDefault();
+    var start = input.selectionStart, end = input.selectionEnd, room = input.maxLength >= 0 ? input.maxLength - input.value.length + end - start : keep.length;
+    keep = keep.slice(0, Math.max(0, room));
+    if (!keep) return;
+    input.setRangeText(keep, start, end, "end");
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+  // A paste is taken whole before maxlength would cut it, so "K7Q-2MX" keeps all six of its characters.
+  document.addEventListener("paste", function (event) {
+    var input = event.target;
+    if (input.matches && input.matches(TAKES) && event.clipboardData) put(input, event.clipboardData.getData("text/plain"), event);
+  });
+  document.addEventListener("beforeinput", function (event) {
+    var input = event.target;
+    if (!input.matches || !input.matches(TAKES) || event.inputType !== "insertText" || event.isComposing || typeof event.data !== "string") return;
+    put(input, event.data, event);
+  });
+  // What goes in with no change a page can stop first (autofill, a word a phone's keyboard was composing): cleaned once it's in, the
+  // cursor kept after the same characters.
+  function clean(input) {
+    var keep = kept(input, input.value);
+    if (input.maxLength >= 0) keep = keep.slice(0, input.maxLength);
+    if (keep === input.value) return;
+    var at = kept(input, input.value.slice(0, input.selectionStart || 0)).length;
+    input.value = keep; input.setSelectionRange(Math.min(at, keep.length), Math.min(at, keep.length));
+  }
+  document.addEventListener("input", function (event) { if (event.target.matches && event.target.matches(TAKES) && !event.isComposing) clean(event.target); }, true);
+  document.addEventListener("compositionend", function (event) { if (event.target.matches && event.target.matches(TAKES)) clean(event.target); }, true);
   // Words in a field fade out at an end with more of them past it, never cut off hard there: as they're typed, the caret moves or the
   // field scrolls, and when it's resized.
   var TEXT = ".field > input:not([type='hidden']), .find > input[type='search']";
@@ -639,7 +685,10 @@ component({
       markup: examplePane(cutField({ id: "example-password-error", name: "password", label: "Password", type: "password", icon: "lock", text: "sofia", hint: "At least 8 characters. A few words you'll remember work well.", error: "That's 5 characters. Use at least 8." })),
     },
     { label: "A long value", markup: examplePane(cutField({ id: "example-email-long", name: "email", label: "Email", type: "email", icon: "mail", text: "sofia.lindqvist-montgomery@northern-lights-studio.example" })) },
-    { label: "A code it must match: a room's", markup: examplePane(cutField({ id: "example-room-code", name: "room", label: "Have a room code?", type: "text", placeholder: "ABC234", autocomplete: "off", pattern: "[2-9A-HJ-NP-Za-hj-np-z]{6}", isRequired: true })) },
+    {
+      label: "Only a room code's characters, 6 at most: try typing or pasting",
+      markup: examplePane(cutField({ id: "example-room-code", name: "room", label: "Have a room code?", type: "text", placeholder: "ABC234", autocomplete: "off", pattern: "[2-9A-HJ-NP-Z]{6}", characterPattern: "[2-9A-HJ-NP-Z]", maximumCharacterCount: 6, isUppercase: true, isRequired: true })),
+    },
     { label: "No icon", markup: examplePane(cutField({ id: "example-title", name: "title", label: "Title", type: "text", text: "Ashen Crown" })) },
     { label: "Read-only", markup: examplePane(cutField({ id: "example-username-read-only", name: "username", label: "Username", type: "text", icon: "person", text: "liam_hart", isReadOnly: true })) },
     { label: "Can't change now", markup: examplePane(cutField({ id: "example-email-disabled", name: "email", label: "Email", type: "email", icon: "mail", text: "emma@example.com", isDisabled: true })), isStill: true },
