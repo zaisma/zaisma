@@ -424,15 +424,12 @@ ${TOUCH_ROOM(".check")}
 .check-piece { position: absolute; inset: 0; display: grid; place-items: center; background: var(--run); color: var(--on-run);
   transform: translateY(105%); transition: transform 0.38s cubic-bezier(.4,0,.2,1); }
 .check-piece > .ico { width: 16px; height: 16px; stroke-width: 2.4; }
-/* Pointed: light catches the socket's lit edge. */
-.check:not(.is-disabled):hover .check-box > .cut-line, .check.is-pointed .check-box > .cut-line { --band-bottom: var(--edge-light); }
 /* Ticked: the piece seats flush, then rises out of the carving: the shade lifts off it and its own edges take the light. */
 .check-box:has(.check-input:checked) > .check-piece { transform: translateY(0); }
 .check-box:has(.check-input:checked)::after { opacity: 0; transition-delay: 0.3s; }
 .check-box:has(.check-input:checked) > .cut-line { --band-top: rgba(255,240,214,0.85); --band-left: rgba(255,226,180,0.55); --band-right: rgba(150,72,0,0.32); --band-bottom: rgba(130,60,0,0.55); }
 .check-box:has(.check-input:checked) > .cut-line .cut-band { transition-delay: 0.3s; }
 .check-box:has(.check-input:checked) > .cut-line polygon { stroke: transparent; }
-.check:not(.is-disabled):hover .check-box:has(.check-input:checked) > .cut-line, .check.is-pointed .check-box:has(.check-input:checked) > .cut-line { --band-top: #FFFFFF; --band-left: rgba(255,240,214,0.8); }
 /* Pressed: an empty socket deepens; a ticked piece is pushed back down under the carving, in its shade again. */
 .check:not(.is-disabled):active .check-box::after, .check.is-pressed .check-box::after { box-shadow: var(--press-shade); }
 .check:not(.is-disabled):active .check-box:has(.check-input:checked) > .check-piece, .check.is-pressed .check-box:has(.check-input:checked) > .check-piece { transform: translateY(2px); transition-duration: 0.08s; }

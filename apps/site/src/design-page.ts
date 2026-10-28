@@ -463,7 +463,8 @@ export const GALLERY_SCRIPT = pageScript(
 /**
  * The gallery's loops: a still copy of a button, a switch or a cover with a pointer of its own that moves onto it, presses,
  * lets go and moves off, over and over. The copy shows each moment through the same state classes the still examples
- * use; a switch is played through its own script, by the events a pointer would send. Reduced motion holds them still.
+ * use; a check field or a toggle flips as it's let go, so the loop shows both its sides; a switch is played through its own
+ * script, by the events a pointer would send. Reduced motion holds them still.
  */
 export const DESIGN_LOOPS_SCRIPT = pageScript(
   "design-loops",
@@ -525,7 +526,7 @@ export const DESIGN_LOOPS_SCRIPT = pageScript(
         await moveTo(point(el, 0.62, 0.58));
         await wait(800);
         press(true); await wait(PRESS_MS + 60);
-        press(false); await wait(700);
+        press(false); if (kind === "check" || kind === "toggle") el.querySelector("input").click(); await wait(700);
         await moveTo(away());
       }
     }
