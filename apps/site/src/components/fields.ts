@@ -637,6 +637,8 @@ const FIELD_STYLES = `
   -webkit-mask-image: linear-gradient(90deg, transparent var(--text-start), #000 calc(var(--text-start) + var(--fade-start)), #000 calc(100% - var(--text-end) - var(--fade-end)), transparent calc(100% - var(--text-end)));
   mask-image: linear-gradient(90deg, transparent var(--text-start), #000 calc(var(--text-start) + var(--fade-start)), #000 calc(100% - var(--text-end) - var(--fade-end)), transparent calc(100% - var(--text-end))); }
 .field input::placeholder { color: var(--muted); }
+/* A hidden password's dots: the display face's are too small to count, so they're Verdana's, larger and a little apart. */
+.field input[type="password"]:not(:placeholder-shown) { font-family: Verdana, var(--body); font-size: 1.375rem; letter-spacing: 0.12em; }
 .field input:-webkit-autofill { -webkit-text-fill-color: var(--ink); transition: background-color 600000s 0s; }
 .field > .ico { position: absolute; z-index: 3; left: var(--pad-inside-words); width: 20px; height: 20px; pointer-events: none; transition: color 0.25s; }
 .field:has(:focus-visible), .field.is-focused { color: var(--ink); }
