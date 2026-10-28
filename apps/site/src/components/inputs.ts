@@ -3,6 +3,7 @@ import { component } from "./component.ts";
 import { CUT_LINE, floatingPane, glassPane, icon, well } from "./foundations.ts";
 import { cutField } from "./fields.ts";
 import { tabSwitch } from "./switch.ts";
+import { progress } from "./reading.ts";
 import { tertiaryButton } from "./actions.ts";
 import { controlMarkup, type ControlMarkup } from "./control-markup.ts";
 import { examplePane } from "./example-pane.ts";
@@ -124,8 +125,10 @@ component({
 export interface FileDropFile {
   fileName: string;
   byteCount: number;
-  /** While it uploads: how much of it has gone so far. */
+  /** While it uploads: how much of it has gone so far; all of it once it's sent. */
   uploadedByteCount?: number;
+  /** An image's own picture, shown in its row: for a page that lists files it already has (the gallery's stand-ins). */
+  previewUrl?: string;
 }
 
 export interface FileDropOptions {
@@ -154,23 +157,36 @@ export interface FileDropOptions {
 const byteWords = (byteCount: number): string =>
   byteCount < 1e3 ? `${byteCount}\u00a0bytes` : byteCount < 1e6 ? `${Math.round(byteCount / 1e3)}\u00a0KB` : byteCount < 1e9 ? `${Number((byteCount / 1e6).toFixed(1))}\u00a0MB` : `${Number((byteCount / 1e9).toFixed(2))}\u00a0GB`;
 
-/** One picked file's row: its name, its size, and while it uploads, how much has gone, with a line that fills as it goes. */
+/** A size in a unit that suits it, as a number and its unit, for a Progress: 211 of 482.3 MB. */
+const byteUnit = (byteCount: number): { divisor: number; unit: string } =>
+  byteCount < 1e6 ? { divisor: 1e3, unit: "KB" } : byteCount < 1e9 ? { divisor: 1e6, unit: "MB" } : { divisor: 1e9, unit: "GB" };
+
+/**
+ * One picked file's row, carved into the pane: a 16:9 preview (its picture, or a mark for a file that isn't one), its name and size, and
+ * Remove at its end. While it uploads, its name and how much has gone sit over a Progress; once it's sent, it says so.
+ */
 const fileRow = (file: FileDropFile): Raw => {
   const isUploading = file.uploadedByteCount !== undefined && file.uploadedByteCount < file.byteCount;
-  const sentNumber = isUploading ? Math.max(0, Math.min(1, (file.uploadedByteCount ?? 0) / Math.max(1, file.byteCount))) : 0;
-  return html`<li${isUploading ? html` class="is-uploading" style="--sent:${sentNumber.toFixed(4)}"` : ""}><span class="file-drop-name">${file.fileName}</span><span class="file-drop-size">${isUploading ? `${byteWords(file.uploadedByteCount ?? 0)} of ${byteWords(file.byteCount)}` : byteWords(file.byteCount)}</span></li>`;
+  const isSent = file.uploadedByteCount !== undefined && file.uploadedByteCount >= file.byteCount;
+  const { divisor, unit } = byteUnit(file.byteCount);
+  const rounded = (byteCount: number) => Number((byteCount / divisor).toFixed(1));
+  const about = isUploading
+    ? progress({ label: file.fileName, doneNumber: rounded(file.uploadedByteCount ?? 0), totalNumber: rounded(file.byteCount), unit })
+    : html`<span class="file-drop-top"><span class="file-drop-name">${file.fileName}</span><span class="file-drop-size">${byteWords(file.byteCount)}${isSent ? " · Sent" : ""}</span></span>`;
+  return html`<li class="file-drop-row cut-carved" data-cut-line="8">${CUT_LINE}<span class="file-drop-preview" data-cut-line="4"${file.previewUrl ? html` style="background-image:url('${file.previewUrl}')"` : ""}>${CUT_LINE}${file.previewUrl ? "" : icon("save")}</span><span class="file-drop-about">${about}</span><span class="file-drop-remove">${tertiaryButton(`Remove ${file.fileName}`, { type: "button", icon: "close", isLabelHidden: true, isSmall: true })}</span></li>`;
 };
 
 /**
  * A file drop: a carved field the size of a pane, its outline drawn dashed, turning orange while a file is held over it. It's a real file
- * input across the whole field, so a drop, a tap and the keyboard all reach it; the files picked are listed under it with their sizes,
- * and a file of the wrong kind or too big is refused, in words, before it's sent.
+ * input across the whole field, so a drop, a tap and the keyboard all reach it; the files picked are listed under it, each with a preview, its
+ * size and Remove, and a file of the wrong kind or too big is refused, in words, before it's sent. Remove takes a file out of what's picked
+ * and fires `zaisma:file-remove` on the drop (`detail.fileName`), so a page that sends them itself can stop sending that one.
  */
 export function fileDrop(options: FileDropOptions): Raw {
   const id = options.id ?? `drop-${options.name}`;
   const files = options.pickedFiles ?? [];
   const className = ["file-drop", "cut-carved", options.state === "over" ? "is-over" : "", options.error ? "is-marked" : "", options.isDisabled ? "is-disabled" : ""].filter(Boolean).join(" ");
-  return html`<div class="file-drop-wrap" data-file-drop${options.maximumByteCount ? html` data-most-bytes="${options.maximumByteCount}"` : ""}><div class="${className}" data-cut-line="10">${CUT_LINE}<input class="file-drop-input" type="file" id="${id}" name="${options.name}" accept="${options.accept}"${options.isMultiple ? raw(" multiple") : ""} aria-describedby="${id}-hint${options.error ? ` ${id}-error` : ""}"${options.error ? raw(' aria-invalid="true"') : ""}${options.isDisabled ? raw(" disabled") : ""}>${icon("upload")}<span class="file-drop-words"><label for="${id}">${options.label}</label><span id="${id}-hint">${options.hint}</span></span></div><p class="field-error" id="${id}-error"${options.error ? "" : raw(" hidden")}>${options.error ?? ""}</p><ul class="file-drop-list" aria-live="polite"${files.length ? "" : raw(" hidden")}>${files.map(fileRow)}</ul></div>`;
+  return html`<div class="file-drop-wrap" data-file-drop${options.maximumByteCount ? html` data-most-bytes="${options.maximumByteCount}"` : ""}><div class="${className}" data-cut-line="10">${CUT_LINE}<input class="file-drop-input" type="file" id="${id}" name="${options.name}" accept="${options.accept}"${options.isMultiple ? raw(" multiple") : ""} aria-describedby="${id}-hint${options.error ? ` ${id}-error` : ""}"${options.error ? raw(' aria-invalid="true"') : ""}${options.isDisabled ? raw(" disabled") : ""}>${icon("upload")}<span class="file-drop-words"><label for="${id}">${options.label}</label><span id="${id}-hint">${options.hint}</span></span></div><p class="field-error" id="${id}-error"${options.error ? "" : raw(" hidden")}>${options.error ?? ""}</p><ul class="file-drop-list" aria-live="polite"${files.length ? "" : raw(" hidden")}>${files.map(fileRow)}</ul><template class="file-drop-row-template">${fileRow({ fileName: "", byteCount: 0 })}</template></div>`;
 }
 
 /**
@@ -213,13 +229,35 @@ export const FILE_DROP_SCRIPT = `/* file drops */(function () {
       var words = wrong ? wrong.name + " isn't a " + kindsWords() + "." : big ? big.name + " is " + sizeWords(big.size) + "; the most is " + sizeWords(most) + "." : "";
       if (words) { input.value = ""; picked = []; }
       say(words);
-      list.textContent = "";
+      show(picked);
+    });
+    // Each picked file is a row from the drop's own template: its picture when it's an image, its name and size, and Remove.
+    var template = root.querySelector(".file-drop-row-template"), shown = [];
+    function show(picked) {
+      shown.forEach(function (each) { if (each.url) URL.revokeObjectURL(each.url); });
+      list.textContent = ""; shown = [];
       picked.forEach(function (file) {
-        var row = document.createElement("li"), name = document.createElement("span"), size = document.createElement("span");
-        name.className = "file-drop-name"; name.textContent = file.name; size.className = "file-drop-size"; size.textContent = sizeWords(file.size);
-        row.appendChild(name); row.appendChild(size); list.appendChild(row);
+        var row = template.content.firstElementChild.cloneNode(true), preview = row.querySelector(".file-drop-preview"), url = (file.type || "").indexOf("image/") === 0 ? URL.createObjectURL(file) : "";
+        if (url) { preview.style.backgroundImage = "url(" + JSON.stringify(url) + ")"; var mark = preview.querySelector(".ico"); if (mark) mark.remove(); }
+        row.querySelector(".file-drop-name").textContent = file.name; row.querySelector(".file-drop-size").textContent = sizeWords(file.size);
+        var remove = row.querySelector(".file-drop-remove button"); remove.setAttribute("aria-label", "Remove " + file.name);
+        list.appendChild(row); shown.push({ file: file, url: url });
       });
       list.hidden = !picked.length;
+    }
+    // Remove: the file leaves what's picked (and the form), its row goes, and the drop says which, for a page sending them itself.
+    list.addEventListener("click", function (event) {
+      var remove = event.target.closest && event.target.closest(".file-drop-remove button"); if (!remove) return;
+      var row = remove.closest(".file-drop-row"), at = Array.prototype.indexOf.call(list.children, row), name = row.querySelector(".file-drop-name, .progress-words > span").textContent;
+      if (shown[at]) {
+        var kept = new DataTransfer();
+        shown.forEach(function (each, i) { if (i !== at) kept.items.add(each.file); });
+        if (shown[at].url) URL.revokeObjectURL(shown[at].url);
+        input.files = kept.files; shown.splice(at, 1);
+      }
+      row.remove(); list.hidden = !list.children.length;
+      root.dispatchEvent(new CustomEvent("zaisma:file-remove", { bubbles: true, detail: { fileName: name } }));
+      if (list.children.length) list.children[Math.min(at, list.children.length - 1)].querySelector(".file-drop-remove button").focus(); else input.focus();
     });
   });
 })();
@@ -260,14 +298,18 @@ component({
 .file-drop.is-disabled .file-drop-words label { color: var(--muted); }
 .file-drop.is-disabled > .cut-line polygon { stroke: var(--line); }
 .file-drop:has(:focus-visible) > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); stroke-dasharray: none; }
-/* What's picked: a row for each file, its words keeping the pane's margin all round (so the last row's keep it at a pane's foot), its name
-   whole, on more lines where it's long; while one uploads, a line along its foot fills as it goes. */
-.file-drop-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); }
-.file-drop-list li { position: relative; display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 0 var(--gap-words-control); padding: max(var(--gap-words-words), var(--pad-words)) var(--pad-words); border-top: var(--divider); font: var(--type-words); color: var(--ink); }
-.file-drop-list li:first-child { border-top: 0; }
-.file-drop-list li.is-uploading::after { content: ""; position: absolute; left: var(--pad-words); right: var(--pad-words); bottom: 0; height: 2px; background: linear-gradient(90deg, var(--meter-fill) calc(var(--sent) * 100%), var(--line) 0); }
-.file-drop-name { min-width: 0; overflow-wrap: anywhere; }
+/* What's picked: a row for each file, carved into the pane, close together: its 16:9 preview (its picture, or a mark for a file that isn't
+   one), its name whole (on more lines where it's long) and its size, and Remove at its end. While it uploads, a Progress takes the name's
+   place: its name and how much has gone over a carved track. */
+.file-drop-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--gap-control-row); }
+.file-drop-row { position: relative; display: flex; align-items: center; gap: var(--gap-words-control); padding: var(--gap-control-row); --face-color: var(--well); background: var(--face-color); clip-path: var(--cut-shape); --pad-words: 0px; }
+.file-drop-preview { position: relative; flex: none; display: grid; place-items: center; width: 64px; aspect-ratio: 16 / 9; color: var(--muted); background: var(--field-face) center / cover no-repeat; clip-path: var(--cut-shape); }
+.file-drop-preview > .ico { width: 18px; height: 18px; }
+.file-drop-about { flex: 1; min-width: 0; }
+.file-drop-top { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 0 var(--gap-words-control); }
+.file-drop-name { min-width: 0; overflow-wrap: anywhere; font: var(--type-words); color: var(--ink); }
 .file-drop-size { flex: none; font: var(--type-facts); color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.file-drop-remove { flex: none; display: flex; }
 @media (prefers-reduced-motion: reduce) { .file-drop > .ico { transition: none; } }
 `,
   render: fileDrop,
@@ -276,8 +318,8 @@ component({
     { label: "A file held over it", isWide: true, markup: glassPane({ paneWidth: "full", body: fileDrop({ id: "example-drop-over", name: "build", label: "Drop your game's folder as a .zip", accept: ".zip", hint: BUILD_HINT, state: "over" }) }) },
     { label: "Several images", markup: examplePane(fileDrop({ id: "example-drop-images", name: "screenshots", label: "Add screenshots", accept: "image/png,image/jpeg,image/webp", isMultiple: true, hint: "PNG, JPEG or WebP, 16:9." })) },
     {
-      label: "Picked: listed with their sizes",
-      markup: examplePane(fileDrop({ id: "example-drop-picked", name: "screenshots_picked", label: "Add screenshots", accept: "image/png,image/jpeg,image/webp", isMultiple: true, hint: "PNG, JPEG or WebP, 16:9.", pickedFiles: [{ fileName: "ashen-crown-iron-vigil-siege-at-dawn.png", byteCount: 4_812_000 }, { fileName: "boss-arena.webp", byteCount: 912_000 }] })),
+      label: "Picked: each with its picture, its size and Remove; one sent",
+      markup: examplePane(fileDrop({ id: "example-drop-picked", name: "screenshots_picked", label: "Add screenshots", accept: "image/png,image/jpeg,image/webp", isMultiple: true, hint: "PNG, JPEG or WebP, 16:9.", pickedFiles: [{ fileName: "ashen-crown-iron-vigil-siege-at-dawn.webp", byteCount: 4_812_000, previewUrl: "/design/covers/kestrel.webp" }, { fileName: "boss-arena.webp", byteCount: 912_000, previewUrl: "/design/covers/verdant.webp" }, { fileName: "night-siege.webp", byteCount: 1_204_000, uploadedByteCount: 1_204_000, previewUrl: "/design/covers/hollow-tide.webp" }] })),
     },
     { label: "Uploading", isWide: true, markup: glassPane({ paneWidth: "full", body: fileDrop({ id: "example-drop-uploading", name: "build_uploading", label: "Drop your game's folder as a .zip", accept: ".zip", hint: BUILD_HINT, pickedFiles: [{ fileName: "ashen-crown-1.4.2-the-long-night.zip", byteCount: 482_300_000, uploadedByteCount: 211_000_000 }] }) }) },
     { label: "Too big: refused, in words", isWide: true, markup: glassPane({ paneWidth: "full", body: fileDrop({ id: "example-drop-error", name: "build_error", label: "Drop your game's folder as a .zip", accept: ".zip", hint: BUILD_HINT, maximumByteCount: 500_000_000, error: "ashen-crown-1.4.2-with-cinematics.zip is 1.12\u00a0GB; the most is 500\u00a0MB. The upload command takes bigger builds." }) }) },

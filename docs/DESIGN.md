@@ -424,6 +424,8 @@ Every component, with the call that makes it and its options, is in the catalog 
 - **Footer** (`footer()`, `navigation.ts`): The end of every page: for game developers, the forum, the source and the rules.
 - **Playing bar** (`playingBar(options: PlayingBarOptions)`, `playing.ts`): The one slim bar beside a running game: Zaisma's mark back to every game, the game's name, and its small buttons. Everything else on the page steps aside while a game plays; on a landscape phone the bar runs down the left edge.
   - `options`: `title: string`, `controls: ControlMarkup[]`, `isShown?: boolean`
+- **Pager** (`pager(options: PagerOptions)`, `reading.ts`): Newer and Older under a list read a page at a time, like a topic's replies. The end you're at can't be pressed. A list you add to in place has Load more instead.
+  - `options`: `label: string`, `newerHref?: string`, `olderHref?: string`
 - **Rail** (`rail(scrollKind: "box" | "page" | "side")`, `navigation.ts`): Zaisma's own scrollbar, on every device: it rests faintly and wakes while things move. On a touch screen its thumb is a little wider and drags with a finger.
 - **Row arrows** (`rowArrows(options: RowArrowsOptions)`, `actions.ts`): Scrolling a row of games with a mouse or trackpad: two raised slabs in a carved well. At a row's end that arrow lies flat; touch screens swipe instead.
   - `options`: `rowName: string`, `trackId: string`, `scrolledTo?: "middle" | "end"`
@@ -431,17 +433,20 @@ Every component, with the call that makes it and its options, is in the catalog 
   - `options`: `id: string`, `trackId: string`, `title: string`, `titleHref?: string`, `sortTabs?: SwitchTab[]`, `items: LayoutItem[]`, `emptyText?: string`, `scrolledTo?: "middle" | "end"`
 - **Load more** (`loadMore(options: LoadMoreOptions)`, `navigation.ts`): Under a long list (versions, players, topics): the next page added in place, busy while it comes; under a grid of covers it loads by itself as you scroll. Without scripts it's a link to that page.
   - `options`: `href?: string`, `label: string`, `listId: string`, `moreListIds?: string[]`, `isLoadedOnScroll?: boolean`, `endText?: string`, `isFailed?: boolean`
-- **Pager** (`pager(options: PagerOptions)`, `reading.ts`): Newer and Older under a list read a page at a time, like a topic's replies. The end you're at can't be pressed. A list you add to in place has Load more instead.
-  - `options`: `label: string`, `newerHref?: string`, `olderHref?: string`
+- **Breadcrumbs** (`breadcrumbs(options: BreadcrumbsOptions)`, `reading.ts`): Where a page sits: the pages above it as quiet links, a chevron between, this one last. For pages a few levels deep, like a forum topic or a game's version. On a phone it scrolls sideways rather than wrapping.
+  - `options`: `trail: { label: string; href: string }[]`, `current: string`
 - **Sidebar** (`sidebar(options: SidebarOptions)`, `navigation.ts`): A page's own places down its side: the gallery's groups, Developer settings' Hosting, Pro and Keys. One pane of glass under the header, to the screen's foot; only the page you're on is on a slab, and a group opens like a folder. Its button, at the header's start, folds it away and the page glides into the width; on a phone the same button slides it over the page. Never a sidebar built in place.
   - `options`: `id: string`, `label: string`, `places: SidebarPlace[]`, `rememberKey: string`
 - **Sidebar button** (`sidebarButton(options: { … })`, `navigation.ts`): The one button a Sidebar has, at the start of the page's header, over the sidebar: it folds the sidebar away and back, and on a phone slides it over the page.
   - `options`: `controls: string`, `label: string`, `isExpanded: boolean`
-- **Breadcrumbs** (`breadcrumbs(options: BreadcrumbsOptions)`, `reading.ts`): Where a page sits: the pages above it as quiet links, a chevron between, this one last. For pages a few levels deep, like a forum topic or a game's version. On a phone it scrolls sideways rather than wrapping.
-  - `options`: `trail: { label: string; href: string }[]`, `current: string`
 
 ### Panes
 
+- **Folded part** (`foldedPart(options: FoldedPartOptions)`, `reading.ts`): Something that belongs on the page but out of the way, behind its title and how many are in it: earlier versions, blocked people, preview links. Pressing the title opens it in place.
+  - `options`: `title: string`, `entryCount?: number`, `body: Raw`, `isOpen?: boolean`, `id?: string`
+- **Fold rows** (`foldRows(options: FoldRowsOptions)`, `reading.ts`): Things to scan by a title and one line, each opening in place to what's under it, like the content rules with their tests: the title and line always show, the rest folds. A link to a row opens it.
+  - `options`: `rows: FoldRow[]`, `label?: string`
+- **Divider with words** (`dividerWords(words: string)`, `reading.ts`): A hairline across a pane with a word or two in its middle, between two ways to do one thing: or, between signing in with a password and with a passkey.
 - **Glass pane** (`glassPane(options: GlassPaneOptions)`, `foundations.ts`): A sheet of glass that holds a task: signing in, a game at a glance, a form. It's as wide as what holds it, or as wide as what's in it, its paragraphs running to a reading width at most; never a width of its own. Its content scrolls inside it rather than shrinking. A game's page starts its pane lower on a phone (isStartedLow), so the game's art shows above it.
   - `options`: `paneWidth: "full" | "fit"`, `body: Raw`, `label?: string`, `isStartedLow?: boolean`
 - **Tray** (`tray(options: { … })`, `foundations.ts`): A thinner, clearer sheet a pane extends into, holding everything that belongs to it: the pane's words on top, what they're about on the tray beneath, read as one. Every gallery section is one.
@@ -449,11 +454,6 @@ Every component, with the call that makes it and its options, is in the catalog 
 - **Edge light**: The light a well or pane catches on its edge as you point at what's in it: the whole edge wakes, and beside the part you point at the edge brightens and floods up into the glass, gliding along as you move. A switch's tabs and places use it; it's never a slab or a line laid in the glass.
 - **Well** (`well(options: WellOptions)`, `foundations.ts`): A box carved into a pane's glass that holds things and is never a control itself: code to copy, a link, a line of words, a list of choices. One gallery control can sit at its end, as Copy does; what's longer than it can show scrolls inside it. A field or a carved button is carved too, but it's what you use, so it isn't a well. For glass that holds a task, use a Glass pane; for something to type in, a Cut field.
   - `options`: `body: Raw`, `end?: ControlMarkup`, `endNote?: Raw`, `kind?: string`, `state?: "is-focused"`, `scrollDirection?: "down" | "across"`, `cornerCutPx?: number`, `edgeLight?: "left" | "bottom"`
-- **Folded part** (`foldedPart(options: FoldedPartOptions)`, `reading.ts`): Something that belongs on the page but out of the way, behind its title and how many are in it: earlier versions, blocked people, preview links. Pressing the title opens it in place.
-  - `options`: `title: string`, `entryCount?: number`, `body: Raw`, `isOpen?: boolean`, `id?: string`
-- **Fold rows** (`foldRows(options: FoldRowsOptions)`, `reading.ts`): Things to scan by a title and one line, each opening in place to what's under it, like the content rules with their tests: the title and line always show, the rest folds. A link to a row opens it.
-  - `options`: `rows: FoldRow[]`, `label?: string`
-- **Divider with words** (`dividerWords(words: string)`, `reading.ts`): A hairline across a pane with a word or two in its middle, between two ways to do one thing: or, between signing in with a password and with a passkey.
 - **Floating pane** (`floatingPane(options: FloatingPaneOptions)`, `foundations.ts`): A pane of the menus' glass that hangs from what opens it, over everything on the page: under it (a menu, a search's list) or over it, its pick on the anchor's own line (a select's list, the wheels). Every dropdown, list and picker that floats is one; it does all the floating once, so none of them redo it.
   - `options`: `id: string`, `head?: Raw`, `body: Raw`, `placement: "under" | "over"`, `kind?: string`, `role?: "menu" | "group"`, `label?: string`, `isShownInPlace?: boolean`, `lineFromTop?: string`
 - **Dropdown** (`dropdown(options: DropdownOptions)`, `panes.ts`): A short list of choices that hangs from a button, like the account button's in the header: with a head, rules, icons, counts and the current one, as each needs. A choice that's hard to take back asks first, in a confirm sheet.
@@ -498,6 +498,8 @@ Every component, with the call that makes it and its options, is in the catalog 
   - `options`: `imageUrl: string`, `label: string`, `sheetId: string`
 - **Person** (`person(options: PersonOptions)`, `people.ts`): Someone on Zaisma named on a page: a game's developer, a post's author, a friend in a room. Their picture in its frame, their name a quiet link to their profile, a line about them, and at most one thing to do at the end. A list of people is List rows, each led by their picture.
   - `options`: `username: string`, `href: string`, `note?: string`, `pictureSize?: "sm" | "md"`, `presence?: "online" | "playing"`, `marks?: Raw`, `end?: ControlMarkup`
+- **Facts** (`facts(options: FactsOptions)`, `reading.ts`): What something is, in a few short facts, each a quiet label with its words: who a game is for and what it runs on (side by side), or a version's or a key's details (one a line).
+  - `options`: `facts: Fact[]`, `arrangement: "across" | "down"`, `label?: string`
 - **Tag** (`tag(words: string | number, tone: TagTone, options?: { … })`, `foundations.ts`): A few words or a number carved into what they label, slanted at both ends: Updated on a game, the count of unread topics on a place, a version's state. On glass, a mark's name on the rail.
   - `options`: `icon?: IconName`
 - **Glance facts** (`glanceFacts(facts: GlanceFacts)`, `data.ts`): What concerns you about a game at a glance: players now, friends playing, when you played, an update. Only what's true, one line each.
@@ -506,8 +508,8 @@ Every component, with the call that makes it and its options, is in the catalog 
   - `options`: `rows: ListRow[]`, `whenEmpty: Raw`, `id?: string`, `label?: string`, `shownRowCount?: number`, `isCompact?: boolean`
 - **Table** (`table(options: TableOptions)`, `data.ts`): Rows to compare: versions, requests, players, logs. Its header stays as the rows scroll under it, numbers line up on the right, and on a phone it scrolls sideways rather than folding rows into cards.
   - `options`: `caption: string`, `columns: TableColumn[]`, `rows: (Raw | string)[][]`, `hasRowHeads?: boolean`, `isCompact?: boolean`, `shownRowCount?: number`, `rowsPlaceholder?: Raw`, `whenEmpty: Raw`, `id?: string`
-- **Facts** (`facts(options: FactsOptions)`, `reading.ts`): What something is, in a few short facts, each a quiet label with its words: who a game is for and what it runs on (side by side), or a version's or a key's details (one a line).
-  - `options`: `facts: Fact[]`, `arrangement: "across" | "down"`, `label?: string`
+- **Progress** (`progress(options: ProgressOptions)`, `reading.ts`): A task on its way that takes a while, like an upload or a scan: a carved track filling in ink as it goes, and how much is done in words. With no end known yet, a light runs along it.
+  - `options`: `label: string`, `doneNumber?: number`, `totalNumber?: number`, `unit?: string`
 - **Numbers** (`numbers(options: { … })`, `data.ts`): A row of figures to take in at a glance: players, hours, plays. Each figure is big, its label sits under it, and how it moved is green when it's good news.
   - `options`: `items: NumberItem[]`
 - **Chart** (`chart(options: ChartOptions)`, `data.ts`): How something moved over time, drawn on the page with nothing to wait for: a line or bars on a hairline grid, the last point marked with its number, and any point's number where you point or step with the arrow keys. Or how a whole splits, as a ring with its key. Screen readers get the same numbers.
@@ -516,8 +518,6 @@ Every component, with the call that makes it and its options, is in the catalog 
   - `options`: `label: string`, `usedNumber: number`, `limitNumber: number`, `unit: string`, `resetDate?: string`, `shownWords?: string`, `warnFromNumber?: number`, `isFullFine?: boolean`, `parts?: UsagePart[]`
 - **Usage track** (`usageTrack(options: UsageMeterOptions)`, `data.ts`): A usage meter's track and its parts' key alone, for a list row or a plate whose own lines say the numbers: a game's hosting in developer settings and on its dashboard.
   - `options`: `label: string`, `usedNumber: number`, `limitNumber: number`, `unit: string`, `resetDate?: string`, `shownWords?: string`, `warnFromNumber?: number`, `isFullFine?: boolean`, `parts?: UsagePart[]`
-- **Progress** (`progress(options: ProgressOptions)`, `reading.ts`): A task on its way that takes a while, like an upload or a scan: a carved track filling in ink as it goes, and how much is done in words. With no end known yet, a light runs along it.
-  - `options`: `label: string`, `doneNumber?: number`, `totalNumber?: number`, `unit?: string`
 - **Empty state** (`emptyState(options: StateNoteOptions)`, `data.ts`): Where a list has nothing yet: what will be here, how it gets here, and the button that starts it. In the voice, never a picture.
   - `options`: `title: string`, `text: string`, `action?: ControlMarkup`
 - **Problem state** (`problemState(options: StateNoteOptions)`, `data.ts`): Where content couldn't come: what went wrong in plain words, and what to do about it, like Try again.
