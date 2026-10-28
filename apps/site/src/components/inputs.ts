@@ -613,11 +613,11 @@ component({
 /* Shown open in place, it's as wide as what's in it, as it is floating. */
 .floating-pane.color-pick.in-place { width: max-content; max-width: 100%; }
 .color-field, .color-pick { --clear-swatch: repeating-conic-gradient(var(--line) 0 25%, transparent 0 50%) 0 0 / 8px 8px; }
-/* The field shows its color first: a strip carved into its start, a part's gap in from its edges, the color lying in it as light, shaded
-   along its top like the picked color in the pane. It and the picked color are cut by the edge rule like every piece: a corner is cut where
+/* The field shows its color first: a strip carved into its start, a part's gap in from its edges, the color lying in it as light, its
+   edges carved like the picked color's in the pane. It and the picked color are cut by the edge rule like every piece: a corner is cut where
    it meets its holder's cut corner (the strip, the field's start), square elsewhere. */
 .wheel-button.color-button { padding-left: var(--gap-control-row); }
-.color-chip { position: relative; flex: none; align-self: stretch; width: 40px; margin-block: var(--gap-control-row); background: var(--swatch); clip-path: var(--cut-shape); box-shadow: inset 0 3px 5px var(--groove-shade), inset 0 -1.5px 0 var(--groove-lip); }
+.color-chip { position: relative; flex: none; align-self: stretch; width: 40px; margin-block: var(--gap-control-row); background: var(--swatch); clip-path: var(--cut-shape); }
 .color-value { font-variant-numeric: tabular-nums; }
 /* The square has the pane's whole left side: it's as tall as what's beside it (at least 184px) and as wide as it's tall, and the picked
    color takes what room is left beside it, so no gap opens under the square or beside it. */
@@ -629,9 +629,8 @@ component({
 .color-square-light { position: absolute; inset: 0; --reach: 10px;
   background: linear-gradient(to bottom, rgba(255,255,255,0) var(--reach), #fff calc(100% - var(--reach))),
     linear-gradient(to right, #f00 var(--reach), #ff0 calc(var(--reach) + (100% - 2 * var(--reach)) / 6), #0f0 calc(var(--reach) + (100% - 2 * var(--reach)) / 3), #0ff calc(50%), #00f calc(var(--reach) + (100% - 2 * var(--reach)) * 2 / 3), #f0f calc(var(--reach) + (100% - 2 * var(--reach)) * 5 / 6), #f00 calc(100% - var(--reach))); }
-/* Brightness dims the whole square, as less light comes through it; the well's own shade lies over it. */
+/* Brightness dims the whole square, as less light comes through it; its carved edges, lit and shaded by the edge rule, lie over it. */
 .color-square-light::after { content: ""; position: absolute; inset: 0; background: #000; opacity: calc(1 - var(--color-brightness, 1)); }
-.color-square::after { content: ""; position: absolute; inset: 0; box-shadow: inset 0 4px 6px var(--groove-shade), inset 0 -2px 0 var(--groove-lip); pointer-events: none; }
 .color-square > .cut-line { z-index: 2; }
 .color-knob { position: absolute; z-index: 3; width: 20px; height: 20px; margin: -10px 0 0 -10px; pointer-events: none; filter: var(--thumb-cast); transition: filter 0.2s; }
 .color-knob-slab { position: relative; display: block; width: 100%; height: 100%; background: var(--thumb-face); clip-path: var(--cut-shape); }
@@ -643,8 +642,8 @@ component({
    at the pane's right edge, keeps it. */
 .color-side { display: flex; flex-direction: column; gap: var(--gap-control-stack); min-width: 0; --pad-words: 0px; }
 .color-side .slider-head > output { padding-inline-end: var(--pad-inside-words); }
-/* The picked color is carved into the pane, the color lying in it as light inside the glass, shaded along its top and lit along its lip. */
-.color-swatch { position: relative; display: block; flex: 1; min-height: 32px; background: var(--color-picked); clip-path: var(--cut-shape); box-shadow: inset 0 3px 5px var(--groove-shade), inset 0 -1.5px 0 var(--groove-lip); }
+/* The picked color is carved into the pane, the color lying in it as light inside the glass, its edges lit and shaded like every carving. */
+.color-swatch { position: relative; display: block; flex: 1; min-height: 32px; background: var(--color-picked); clip-path: var(--cut-shape); }
 /* Its brightness: the slider's groove runs from black to the full color, with no orange in it. */
 .color-side .slider-line { background: linear-gradient(90deg, #000, var(--color-full, #fff)); }
 .color-side .slider-fill { display: none; }
