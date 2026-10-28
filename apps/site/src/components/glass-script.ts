@@ -581,7 +581,8 @@ export const GLASS_SCRIPT = `/* glass */(function () {
     }
     function walk(el) {
       Array.prototype.forEach.call(el.children, function (child) {
-        if (child instanceof SVGElement || child.matches("[data-glass], [data-cut-line], .edge, .cut-line")) return;
+        // A dialog (a sheet, a light box) opens over everything, out of the pane it's written in, so nothing in it takes that pane's corners.
+        if (child instanceof SVGElement || child.matches("[data-glass], [data-cut-line], .edge, .cut-line, dialog")) return;
         var r = child.getBoundingClientRect();
         if (!r.width || !r.height || !nearCorner(r)) return;
         if (edgedCuts.has(child)) { found.push(child); return; }

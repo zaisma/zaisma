@@ -315,8 +315,8 @@ component({
 .file-drop-preview:disabled { cursor: default; }
 .file-drop-preview:focus-visible { outline: none; }
 .file-drop-preview:focus-visible > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
-/* Large, the picture as big as the screen allows, whole. */
-.file-drop-view { display: block; max-width: min(100%, 1280px); max-height: calc(100dvh - 2 * var(--pad-pane) - 48px); object-fit: contain; }
+/* Large: the picture at its own size, every pixel of it, made smaller only where the screen is smaller, and never cut at its corners. */
+.file-drop-view { display: block; width: auto; height: auto; max-width: 100%; max-height: calc(100dvh - 2 * var(--pad-pane) - 48px); object-fit: contain; image-rendering: auto; }
 .file-drop-preview > .ico { width: 18px; height: 18px; }
 .file-drop-about { flex: 1; min-width: 0; }
 .file-drop-top { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 0 var(--gap-words-control); }
