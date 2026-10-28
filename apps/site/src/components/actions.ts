@@ -184,9 +184,9 @@ function secondaryButtonMarkup(label: string, options: SecondaryButtonOptions, i
   // The label's span has no class of its own, as on the runner (html.ts's account link finds it that way).
   const words = !options.isLabelHidden ? html`<span>${label}</span>` : hasCount ? html`<span class="sr">${label}, </span>` : "";
   const reactionMarkup = hasCount ? html`<span class="cut-count">${countWords}</span>` : "";
-  const cutLine = options.isBig ? 13 : 10;
+  const cutLineNumber = options.isBig ? 13 : 10;
   const front = isToggle ? html`<span class="toggle-front" aria-hidden="true"></span>` : "";
-  return controlMarkup(html`${opening(className, options, options.isBusy, extra)}${front}<span class="face cut-raised" data-cut-line="${cutLine}">${CUT_LINE}${loader()}${options.wayIn ? html`<span class="way-mark">${WAY_MARKS[options.wayIn]}</span>` : options.icon ? icon(options.icon) : ""}${words}${reactionMarkup}</span>${closing(options)}`, options.isBig ? "big" : options.isSmall || options.isInWell ? "small" : "regular");
+  return controlMarkup(html`${opening(className, options, options.isBusy, extra)}${front}<span class="face cut-raised" data-cut-line="${cutLineNumber}">${CUT_LINE}${loader()}${options.wayIn ? html`<span class="way-mark">${WAY_MARKS[options.wayIn]}</span>` : options.icon ? icon(options.icon) : ""}${words}${reactionMarkup}</span>${closing(options)}`, options.isBig ? "big" : options.isSmall || options.isInWell ? "small" : "regular");
 }
 
 const GOOGLE = raw(
@@ -481,8 +481,11 @@ component({
 .cut-btn > .face[data-slanted="start"] { --face-shift: calc(var(--control-slant) / 4); }
 .cut-btn > .face[data-slanted="end"] { --face-shift: calc(var(--control-slant) / -4); }
 /* Only its icon: as wide as a little more than it's tall, and never narrower, even sharing a row's width. */
-.cut-btn.icon-only > .face { width: 52px; min-width: 52px; padding: 0; }
-.cut-btn.small.icon-only > .face { width: 42px; min-width: 42px; }
+.cut-btn.icon-only > .face { width: 52px; padding: 0; }
+.cut-btn.small.icon-only > .face { width: 42px; }
+/* In a row of controls, which share the row (flex: 1 1 0), an icon keeps its square instead of being squeezed. */
+[data-glass] .control-row > .cut-btn.icon-only > .face { min-width: 52px; }
+[data-glass] .control-row > .cut-btn.small.icon-only > .face { min-width: 42px; }
 /* An icon alone centers in what shows of the button: a slanted end gives up half its slant. */
 .cut-btn.icon-only > .face[data-slanted~="start"] { padding-left: calc(var(--control-slant) / 2); }
 .cut-btn.icon-only > .face[data-slanted~="end"] { padding-right: calc(var(--control-slant) / 2); }
@@ -711,7 +714,7 @@ component({
 .toggle-btn[aria-pressed="true"]:active > .face > .cut-line, .toggle-btn[aria-pressed="true"].is-pressed > .face > .cut-line { --band-top: var(--raise-top); --band-left: var(--raise-left); --band-right: var(--raise-right); --band-bottom: var(--raise-bottom); }
 /* Keyboard focus: one ring round the whole button as you see it, top and front surfaces together, not one round each. */
 .toggle-btn:focus-visible > .face, .toggle-btn.is-focused > .face { --face-color: var(--btn-hover); }
-.toggle-btn:focus-visible .cut-line polygon, .toggle-btn.is-focused .cut-line polygon { stroke: transparent; }
+.toggle-btn:focus-visible .cut-line polygon, .toggle-btn.is-focused .cut-line polygon { stroke: none; }
 .toggle-btn:focus-visible, .toggle-btn.is-focused { filter: var(--toggle-ring); }
 .toggle-btn[aria-pressed="true"]:focus-visible, .toggle-btn[aria-pressed="true"].is-focused { filter: var(--toggle-ring) var(--toggle-cast); }
 @media (prefers-reduced-motion: reduce) { .toggle-btn, .toggle-btn:active, .toggle-btn.is-pressed { transition: filter 0.2s; } }

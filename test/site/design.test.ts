@@ -579,6 +579,8 @@ const HAND_CUT = new Set<string>([
   ".top", ".foot", ".header-frame", ".backdrop-frame", ".city-frame", ".glass-strip", ".glass-play",
   // A shape for the glass demo to blur: what's behind the glass, not part of Zaisma.
   ".glass-play .cut",
+  // A toggle's front surface: swept down from its slab's own cut (TOGGLE_SCRIPT reads the edge rule's shape), so it keeps the rule's corners.
+  ".toggle-front",
   // The scroll rail's thumb and the labels its marks open.
   ".rail-thumb", ".rail:hover .rail-thumb, .rail.dragging .rail-thumb", ".rail[data-rail=\"page\"] .rail-thumb",
   ".rail[data-rail=\"page\"]:hover .rail-thumb, .rail[data-rail=\"page\"].dragging .rail-thumb", ".rail .rail-thumb",
@@ -964,10 +966,11 @@ describe("page structure", () => {
     const orange = new Set(["--run", "--run-hi", "--run-lo"]);
     const tokens = [...STYLES().matchAll(/(--[a-z0-9-]+):\s*([^;}]+)/g)];
     for (let size = 0; size !== orange.size; ) { size = orange.size; for (const [, name = "", value = ""] of tokens) if ([...orange].some((each) => value.includes(`var(${each})`))) orange.add(name); }
-    const ACTED_ON = /(^|[\s>+~])(a|button|summary|label)\b|\.(run|link|cut-btn|tertiary-btn|danger)\b|\[role="?(tab|button)/;
+    // A part of something you act on counts too: a toggle's icon, on.
+    const ACTED_ON = /(^|[\s>+~])(a|button|summary|label)\b|\.(run|link|cut-btn|toggle-btn|tertiary-btn|danger)\b|\[role="?(tab|button)/;
     const problems = rulesOf(STYLES()).flatMap((rule) => [...rule.declarations.matchAll(/(?:^|[;\s])color:\s*([^;]+)/g)]
       .filter(([, value = ""]) => [...orange].some((each) => value.includes(`var(${each})`)))
-      .flatMap(() => rule.selectors.split(",").map((selector) => selector.trim()).filter((selector) => !ACTED_ON.test(selector.split(/\s+/).pop()!))));
+      .flatMap(() => rule.selectors.split(",").map((selector) => selector.trim()).filter((selector) => !ACTED_ON.test(selector))));
     expect(problems).toEqual([]);
   });
 
