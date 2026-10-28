@@ -72,10 +72,10 @@ component({
 /* It fills a pane's width; in a pane that fits what's in it, its track is a card's width (--size-card), or what room there is. */
 .slider-track { position: relative; height: var(--thumb); width: var(--size-card); min-width: 100%; max-width: 100%; }
 /* The line is a thin groove carved into the glass, shaded along its top and lit along its lip like every carving; what's filled is orange
-   light running inside it, glowing faintly past its lips. Carved, it's the toggle's slot when off (--toggle-off); on smoked glass
-   a faint light line traces its edge (--carve-rim), as round every carving there, so it reads empty too. */
+   light running inside it, glowing faintly past its lips. Carved, its face is --groove: on light glass the toggle slot's when off, on smoked
+   glass a lighter grey, since a dark carving on dark glass all but vanishes; there a faint light line traces its edge too (--carve-rim). */
 .slider-line, .slider-fill { position: absolute; pointer-events: none; }
-.slider-line { top: calc(50% - 3px); height: 6px; left: calc(var(--thumb) / 2 - 3px); right: calc(var(--thumb) / 2 - 3px); background: var(--toggle-off);
+.slider-line { top: calc(50% - 3px); height: 6px; left: calc(var(--thumb) / 2 - 3px); right: calc(var(--thumb) / 2 - 3px); background: var(--groove);
   box-shadow: var(--well-shade), inset 0 1px 2px rgba(10,16,28,0.18), inset 0 -1px 0 var(--carve-bottom), inset 0 0 0 1px var(--carve-rim); clip-path: polygon(3px 0, 100% 0, 100% calc(100% - 3px), calc(100% - 3px) 100%, 0 100%, 0 3px); }
 .slider-fill { top: calc(50% - 2px); height: 4px; left: calc(var(--thumb) / 2); width: calc((100% - var(--thumb)) * var(--fill)); background: linear-gradient(180deg, var(--run-hi), var(--run)); filter: drop-shadow(0 0 3px var(--run)); }
 .slider-input { position: absolute; inset: 0; z-index: 3; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; -webkit-appearance: none; appearance: none; }
