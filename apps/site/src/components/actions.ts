@@ -121,7 +121,7 @@ export function toggleButton(label: string, options: ToggleButtonOptions): Contr
 
 /**
  * The front surface is the top surface swept down to where it rests, as a solid's sides are: the face's own cut (the edge rule draws it),
- * its upper edges raised by the lift and joined to its lower edges at the far left and right, so it meets the face at every corner and slant.
+ * its lower edges raised with the face and joined to where they rest, so it meets the face at every corner and slant.
  * Its upper edges follow the face's height as it animates, so the two can't part, however the toggle is pressed or turned midway.
  */
 export const TOGGLE_SCRIPT = `/* toggle buttons */(function () {
@@ -129,9 +129,9 @@ export const TOGGLE_SCRIPT = `/* toggle buttons */(function () {
     var found = /polygon\\(([^)]*)\\)/.exec(shape || "");
     return found ? found[1].split(",").map(function (pair) { var xy = pair.trim().split(/\\s+/); return [parseFloat(xy[0]), parseFloat(xy[1])]; }) : null;
   }
-  // The top surface's outline with its upper edges (from its leftmost point to its rightmost one, the way that runs over the top) raised as
-  // high as the face is now (--toggle-rise, which the CSS animates), its lower edges where it rests: in the front surface's box, which reaches
-  // up by the whole lift, so both follow the face frame by frame.
+  // What shows of the front surface: between the face's lower edges (from its rightmost point to its leftmost one, the way that runs under it),
+  // raised as high as the face is now (--toggle-rise, which the CSS animates, never below where it rests), and the same edges where it rests.
+  // In the front surface's box, which reaches up by the whole lift. Resting, it has no area at all: nothing of it can show.
   function swept(points, liftPx) {
     var n = points.length, xs = points.map(function (p) { return p[0]; }), minX = Math.min.apply(null, xs), maxX = Math.max.apply(null, xs);
     function extreme(x, isTop) { var best = -1; points.forEach(function (p, i) { if (Math.abs(p[0] - x) < 0.01 && (best < 0 || (isTop ? p[1] < points[best][1] : p[1] > points[best][1]))) best = i; }); return best; }
@@ -140,9 +140,10 @@ export const TOGGLE_SCRIPT = `/* toggle buttons */(function () {
     var step = 1;
     for (var i = leftTop, guard = 0; guard < n; guard++, i = (i + 1) % n) { if (i === rightTop) break; if (i === rightBottom && rightBottom !== rightTop) { step = -1; break; } }
     function walk(from, to) { var chain = [], i = from; for (var guard = 0; guard <= n; guard++) { chain.push(points[i]); if (i === to) break; i = (i + step + n) % n; } return chain; }
-    var upper = walk(leftTop, rightTop).map(function (p) { return p[0].toFixed(2) + "px calc(" + (p[1] + liftPx).toFixed(2) + "px - var(--toggle-rise))"; });
-    var lower = walk(rightBottom, leftBottom).map(function (p) { return p[0].toFixed(2) + "px " + (p[1] + liftPx).toFixed(2) + "px"; });
-    return "polygon(" + upper.concat(lower).join(", ") + ")";
+    var lower = walk(rightTop, leftTop);
+    var raised = lower.map(function (p) { return p[0].toFixed(2) + "px calc(" + (p[1] + liftPx).toFixed(2) + "px - max(var(--toggle-rise), 0px))"; });
+    var resting = lower.slice().reverse().map(function (p) { return p[0].toFixed(2) + "px " + (p[1] + liftPx).toFixed(2) + "px"; });
+    return "polygon(" + raised.concat(resting).join(", ") + ")";
   }
   window.zaismaWatch.each(".toggle-btn", function (button) {
     var face = button.querySelector(":scope > .face"), front = button.querySelector(":scope > .toggle-front");
@@ -515,13 +516,11 @@ component({
 /* Its height is the face's only movement: a cut button's lift under the pointer (more specific) never applies to it. */
 .toggle-btn > .face, .cut-btn.toggle-btn:not(.in-well):hover > .face, .cut-btn.toggle-btn:not(.in-well).is-pointed > .face, .toggle-btn:active > .face, .toggle-btn.is-pressed > .face { transform: translateY(calc(-1 * var(--toggle-rise))); }
 .toggle-btn > .face { position: relative; z-index: 1; transition: color 0.2s, box-shadow 0.2s, --face-color 0.2s; }
-/* The front surface: the top surface swept down to its footprint (TOGGLE_SCRIPT), in a box reaching up by the whole lift, joined to the face at
-   every corner and along a slanted end, as a solid's sides are. It's out of sight off, once the face has landed. */
+/* The front surface: what the top surface leaves showing as it rises, swept down to its footprint (TOGGLE_SCRIPT), in a box reaching up by
+   the whole lift, joined to the face at every corner and along a slanted end, as a solid's sides are. It follows the face's height frame by
+   frame and has no area while the face rests or sinks, so nothing of it ever shows through or past the face. */
 .toggle-front { position: absolute; top: calc(-1 * var(--toggle-lift)); right: 0; bottom: 0; left: 0; z-index: 0; clip-path: var(--front-shape);
-  background: linear-gradient(180deg, var(--run-hi), var(--run) 40%, var(--run-lo)); visibility: hidden; transition: visibility 0s 0.35s; }
-.toggle-btn[aria-pressed="true"] > .toggle-front { visibility: visible; transition: visibility 0s; }
-/* Pressed while off, even mid-landing, it's carving in: its front surface goes at once, so none shows through the carved face. */
-.toggle-btn[aria-pressed="false"]:active > .toggle-front, .toggle-btn[aria-pressed="false"].is-pressed > .toggle-front { visibility: hidden; transition: visibility 0s; }
+  background: linear-gradient(180deg, var(--run-hi), var(--run) 40%, var(--run-lo)); }
 /* Off: the same slab as on, its bevels and all, resting level in the glass. It answers the pointer by brightening, never lifting; pressed,
    it carves in, and let go it rises (on). */
 .toggle-btn > .face { --face-color: var(--toggle-face); }
@@ -542,7 +541,7 @@ component({
 .toggle-btn:focus-visible .cut-line polygon, .toggle-btn.is-focused .cut-line polygon { stroke: transparent; }
 .toggle-btn:focus-visible, .toggle-btn.is-focused { filter: var(--toggle-ring); }
 .toggle-btn[aria-pressed="true"]:focus-visible, .toggle-btn[aria-pressed="true"].is-focused { filter: var(--toggle-ring) var(--toggle-cast); }
-@media (prefers-reduced-motion: reduce) { .toggle-btn, .toggle-btn:active, .toggle-btn.is-pressed { transition: filter 0.2s; } .toggle-front, .toggle-btn[aria-pressed="true"] > .toggle-front { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .toggle-btn, .toggle-btn:active, .toggle-btn.is-pressed { transition: filter 0.2s; } }
 `,
   render: toggleButton,
   examples: [
