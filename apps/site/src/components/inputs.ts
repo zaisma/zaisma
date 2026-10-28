@@ -1,7 +1,7 @@
 import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
 import { CUT_LINE, glassPane, icon } from "./foundations.ts";
-import { secondaryButton } from "./actions.ts";
+import { tertiaryButton } from "./actions.ts";
 import { controlMarkup, type ControlMarkup } from "./control-markup.ts";
 import { examplePane } from "./example-pane.ts";
 import { qrCodeSvg } from "@zaisma/core";
@@ -294,7 +294,7 @@ export function codeField(options: CodeFieldOptions): Raw {
   const isCommand = / /.test(options.code.trim());
   const code = isCommand ? options.code.split(" ").map((word, wordIndex) => html`${wordIndex ? " " : ""}<span class="code-word">${word}</span>`) : options.code;
   const isCopied = options.state === "is-copied";
-  return html`<div class="cut-field code-field${isCopied ? " is-copied" : ""}${options.isMasked ? " is-masked" : ""}"><span class="code-head"><span class="code-label" id="${id}-label">${options.label}</span><span class="code-copied" role="status">${isCopied ? "Copied" : ""}</span></span><div class="field code cut-carved${options.state === "is-focused" ? " is-focused" : ""}" data-cut-line="10">${CUT_LINE}<code class="code-text" id="${id}" tabindex="0" aria-labelledby="${id}-label">${code}</code>${secondaryButton("Copy", { type: "button", icon: "copy", isLabelHidden: true, isSmall: true, controls: id })}</div></div>`;
+  return html`<div class="cut-field code-field${isCopied ? " is-copied" : ""}${options.isMasked ? " is-masked" : ""}"><span class="code-head"><span class="code-label" id="${id}-label">${options.label}</span><span class="code-copied" role="status">${isCopied ? "Copied" : ""}</span></span><div class="field code cut-carved${options.state === "is-focused" ? " is-focused" : ""}" data-cut-line="10">${CUT_LINE}<code class="code-text" id="${id}" tabindex="0" aria-labelledby="${id}-label">${code}</code>${tertiaryButton("Copy", { type: "button", icon: "copy", isLabelHidden: true, isSmall: true, controls: id })}</div></div>`;
 }
 
 /**
@@ -317,7 +317,7 @@ export const COPY_SCRIPT = `/* code fields */(function () {
     }
     var code = event.target.closest && event.target.closest(".field.code > .code-text");
     if (code) { selectAll(code); return; }
-    var copy = event.target.closest && event.target.closest(".field.code > .cut-btn[aria-controls]");
+    var copy = event.target.closest && event.target.closest(".field.code > .tertiary-btn[aria-controls]");
     if (!copy) return;
     var text = document.getElementById(copy.getAttribute("aria-controls")), holder = copy.closest(".code-field"), said = holder && holder.querySelector(".code-copied");
     if (!text || !said) return;
@@ -339,11 +339,11 @@ component({
   slug: "code-field",
   group: "inputs",
   subgroup: "fields",
-  summary: "Code to copy and keep: an API key shown once, a game's address, an upload command. It's read-only, in code's own letters, with a Copy button at its end.",
+  summary: "Code to copy and keep: an API key shown once, a game's address, an upload command. It's read-only, in code's own letters, with a quiet Copy at its end.",
   styles: `
 /* A code field: code set into the glass, a carved well like a switch's (nothing to type, so it isn't a field's lighter face), all of it in
-   code's letters, wrapping onto more lines rather than hiding any. Copy is the small raised secondary button at its end, standing out from the
-   well; once it's copied, "Copied" shows at the end of its label for a moment, over Copy. */
+   code's letters, wrapping onto more lines rather than hiding any. Copy is a small tertiary icon button at its end, lying in the
+   well's glass until it's pointed at (a small one takes a finger's 44px on a phone); once it's copied, "Copied" shows at the end of its label for a moment, over Copy. */
 .code-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--gap-words-words); padding-inline: var(--pad-words); }
 .code-label { font: var(--type-label); color: var(--ink-2); }
 .code-copied { font: var(--type-facts); color: var(--ink-2); opacity: 0; transition: opacity 0.2s; }
@@ -361,8 +361,6 @@ component({
 /* Masked: the code's letters blur into their own glow, unreadable, until the page shows them; Copy still copies them. */
 .code-field.is-masked .code-text { color: transparent; text-shadow: 0 0 10px var(--ink); cursor: pointer; }
 .field.code:has(:focus-visible) > .cut-line polygon, .field.code.is-focused > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
-/* On a phone, Copy takes a whole control's height (--control-height-regular, 44px) to touch. */
-@media (pointer: coarse) { .field.code > .cut-btn::before { content: ""; position: absolute; inset: calc((var(--control-height-small) - var(--touch-target)) / 2); } }
 `,
   render: codeField,
   examples: [

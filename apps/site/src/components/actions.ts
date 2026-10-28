@@ -577,6 +577,8 @@ export interface TertiaryButtonOptions extends ButtonTarget {
   isLabelHidden?: boolean;
   /** A small control's height, as a pane's corner buttons are. */
   isSmall?: boolean;
+  /** The id of what it acts on (aria-controls): a code field's code, for its Copy. */
+  controls?: string;
   /** An arrow after its words that steps on as you point at it: a way on, like Continue as guest under the ways in. */
   hasArrow?: boolean;
   /** As wide as the column, its words in the middle: under the ways in, as wide as they are. */
@@ -597,7 +599,7 @@ const TERTIARY_ARROW = html`<span class="tertiary-arrow" aria-hidden="true">${ic
  */
 export function tertiaryButton(label: string, options: TertiaryButtonOptions = {}): ControlMarkup {
   const isIconOnly = Boolean(options.isLabelHidden && options.icon);
-  const extra = html`${disabledAttribute(options)}${isIconOnly ? html` aria-label="${label}"` : ""}`;
+  const extra = html`${disabledAttribute(options)}${isIconOnly ? html` aria-label="${label}"` : ""}${options.controls ? html` aria-controls="${options.controls}"` : ""}`;
   return controlMarkup(html`${opening(classes("tertiary-btn", isIconOnly && "icon-only", options.isSmall && "small", options.isFullWidth && "is-full", options.state), options, options.isBusy, extra)}<span class="face" data-cut-line="${options.isSmall ? 9 : 10}">${CUT_LINE}<span class="tertiary-words">${loader()}${options.icon ? icon(options.icon) : ""}${isIconOnly ? "" : html`<span class="tertiary-label">${label}</span>`}${options.hasArrow ? TERTIARY_ARROW : ""}</span>${isIconOnly || options.hasArrow ? "" : raw('<span class="tertiary-line" aria-hidden="true"></span>')}</span>${closing(options)}`, options.isSmall ? "small" : "regular");
 }
 
