@@ -415,8 +415,8 @@ component({
   summary: "Everything else you can press: Details, Make an account, Cancel. A delete is a cut button too, never orange; only its confirm step turns red.",
   styles: `
 /* A secondary button: a solid cut slab with a drawn outline, the same slab a Toggle button is. Under the pointer it brightens and stays
-   where it is; a press sinks it (down a pixel, shaded from above, its light turned round), never shrinking it, quickly, and it springs back
-   when let go. The shell (the button) stays still; the slab is its face. */
+   where it is; a press carves it in where it is (shaded from above, its light turned round), never moving or shrinking it, quickly, and it
+   comes back when let go. The shell (the button) stays still; the slab is its face. */
 .cut-btn { --control-height: var(--control-height-regular); flex: none; vertical-align: middle; max-width: 100%; transition: filter 0.2s; }
 .cut-btn.big { --control-height: var(--control-height-big); }
 .cut-btn.small { --control-height: var(--control-height-small); }
@@ -446,7 +446,7 @@ component({
 .cut-btn.in-well > .face { height: 30px; --face-padding: 14px; color: var(--ink-2); }
 .cut-btn.in-well.icon-only > .face { width: 46px; padding: 0; }
 .cut-btn:hover > .face, .cut-btn.is-pointed > .face { --face-color: var(--btn-hover); }
-.cut-btn:active > .face, .cut-btn.is-pressed > .face { --face-color: var(--btn-press); box-shadow: var(--press-shade); transform: translateY(1px); transition-duration: 0.08s; }
+.cut-btn:active > .face, .cut-btn.is-pressed > .face { --face-color: var(--btn-press); box-shadow: var(--press-shade); transition-duration: 0.08s; }
 /* A press sinks it into the glass: its light turns round, as on a carved field, and its shade goes. */
 .cut-btn:active, .cut-btn.is-pressed { filter: none; }
 .cut-btn:active > .face > .cut-line, .cut-btn.is-pressed > .face > .cut-line { --band-top: var(--carve-top); --band-left: var(--carve-left); --band-right: var(--carve-right); --band-bottom: var(--carve-bottom); }
@@ -505,9 +505,9 @@ component({
 .toggle-btn { position: relative; --toggle-lift: 5px; --toggle-rise: 0px; transition: filter 0.2s, --toggle-rise 0.35s cubic-bezier(.2,.8,.2,1); }
 .toggle-btn.small { --toggle-lift: 4px; }
 .toggle-btn[aria-pressed="true"] { --toggle-rise: var(--toggle-lift); }
-/* Pressed: off, it sinks a pixel into the glass; on, it goes down a little, as a key would; both quickly. */
+/* Pressed: off, it carves in where it is (the carving is its sinking: it never moves); on, it goes down a little, as a key would; both quickly. */
 /* Pressed while off, even mid-landing, its glow or shadow goes at once too: cast by its own shape, it would show through the carved face. */
-.toggle-btn[aria-pressed="false"]:active, .toggle-btn[aria-pressed="false"].is-pressed { --toggle-rise: -1px; transition-duration: 0s, 0.08s; }
+.toggle-btn[aria-pressed="false"]:active, .toggle-btn[aria-pressed="false"].is-pressed { --toggle-rise: 0px; transition-duration: 0s, 0.08s; }
 .toggle-btn[aria-pressed="true"]:active, .toggle-btn[aria-pressed="true"].is-pressed { --toggle-rise: calc(var(--toggle-lift) - 2px); transition-duration: 0.2s, 0.08s; }
 /* Its height is the face's only movement. */
 .toggle-btn > .face, .toggle-btn:hover > .face, .toggle-btn.is-pointed > .face, .toggle-btn:active > .face, .toggle-btn.is-pressed > .face { transform: translateY(calc(-1 * var(--toggle-rise))); }
