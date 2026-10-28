@@ -6,6 +6,8 @@ import { emptyState, glanceFacts, listRows, pictureFrame, pictureRow, type Glanc
 import { cardRow, secondaryButton, tertiaryButton, primaryButton, textLink, toggleButton } from "./actions.ts";
 import { REPORT_REASONS, STAND_IN_QR_CODE, choiceCards, copyField, cutField, longField, qrCode, tabSwitch, wheelField } from "./inputs.ts";
 import { examplePane } from "./example-pane.ts";
+import { lightBox } from "./light-box.ts";
+export { lightBox, type LightBoxOptions } from "./light-box.ts";
 import { grid, paneParts, row, stack, type ControlMarkup, type LayoutItem } from "./layout.ts";
 
 /*
@@ -804,25 +806,6 @@ component({
     },
   ],
 });
-
-export interface LightBoxOptions {
-  /** Unique on the page: the button that opens it names it (aria-controls). */
-  id: string;
-  /** What it shows, for a screen reader: "QR code for Ashen Crown". */
-  label: string;
-  /** The one thing it shows large (a QR code), and its words under it. */
-  body: Raw;
-  /** What its close button says to a screen reader: "Close". */
-  closeLabel: string;
-}
-
-/**
- * A light box: one thing shown large in the middle of a dimmed screen (a QR code to hold up to a friend), with nothing round it. It opens on
- * top of what opened it, as that sheet's second layer, and a press anywhere, Close or Esc lands back on it.
- */
-export function lightBox(options: LightBoxOptions): Raw {
-  return html`<dialog class="sheet light-box" id="${options.id}" aria-label="${options.label}"><form class="light-box-in" method="dialog"><span class="light-box-close">${tertiaryButton(options.closeLabel, { type: "submit", formMethod: "dialog", icon: "close", isLabelHidden: true })}</span>${options.body}</form></dialog>`;
-}
 
 component({
   name: "Light box",

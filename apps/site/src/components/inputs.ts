@@ -4,6 +4,7 @@ import { CUT_LINE, floatingPane, glassPane, icon, well } from "./foundations.ts"
 import { cutField } from "./fields.ts";
 import { tabSwitch } from "./switch.ts";
 import { progress } from "./reading.ts";
+import { lightBox } from "./light-box.ts";
 import { tertiaryButton } from "./actions.ts";
 import { controlMarkup, type ControlMarkup } from "./control-markup.ts";
 import { examplePane } from "./example-pane.ts";
@@ -162,10 +163,10 @@ const byteUnit = (byteCount: number): { divisor: number; unit: string } =>
   byteCount < 1e6 ? { divisor: 1e3, unit: "KB" } : byteCount < 1e9 ? { divisor: 1e6, unit: "MB" } : { divisor: 1e9, unit: "GB" };
 
 /**
- * One picked file's row, carved into the pane: a 16:9 preview (its picture, or a mark for a file that isn't one), its name and size, and
- * Remove at its end. While it uploads, its name and how much has gone sit over a Progress; once it's sent, it says so.
+ * One picked file's row, carved into the pane: a 16:9 preview (its picture, which opens large in the drop's Light box, or a mark for a file
+ * that isn't one), its name and size, and Remove at its end. While it uploads, its name and how much has gone sit over a Progress; once it's sent, it says so.
  */
-const fileRow = (file: FileDropFile): Raw => {
+const fileRow = (file: FileDropFile, dropId: string): Raw => {
   const isUploading = file.uploadedByteCount !== undefined && file.uploadedByteCount < file.byteCount;
   const isSent = file.uploadedByteCount !== undefined && file.uploadedByteCount >= file.byteCount;
   const { divisor, unit } = byteUnit(file.byteCount);
@@ -173,7 +174,7 @@ const fileRow = (file: FileDropFile): Raw => {
   const about = isUploading
     ? progress({ label: file.fileName, doneNumber: rounded(file.uploadedByteCount ?? 0), totalNumber: rounded(file.byteCount), unit })
     : html`<span class="file-drop-top"><span class="file-drop-name">${file.fileName}</span><span class="file-drop-size">${byteWords(file.byteCount)}${isSent ? " · Sent" : ""}</span></span>`;
-  return html`<li class="file-drop-row cut-carved" data-cut-line="8">${CUT_LINE}<span class="file-drop-preview" data-cut-line="4"${file.previewUrl ? html` style="background-image:url('${file.previewUrl}')"` : ""}>${CUT_LINE}${file.previewUrl ? "" : icon("save")}</span><span class="file-drop-about">${about}</span><span class="file-drop-remove">${tertiaryButton(`Remove ${file.fileName}`, { type: "button", icon: "close", isLabelHidden: true, isSmall: true })}</span></li>`;
+  return html`<li class="file-drop-row cut-carved" data-cut-line="8">${CUT_LINE}<button type="button" class="file-drop-preview" data-cut-line="4" aria-controls="${dropId}-view" aria-label="View ${file.fileName}"${file.previewUrl ? html` style="background-image:url('${file.previewUrl}')" data-picture="${file.previewUrl}"` : raw(" disabled")}>${CUT_LINE}${file.previewUrl ? "" : icon("save")}</button><span class="file-drop-about">${about}</span><span class="file-drop-remove">${tertiaryButton(`Remove ${file.fileName}`, { type: "button", icon: "close", isLabelHidden: true, isSmall: true })}</span></li>`;
 };
 
 /**
@@ -186,7 +187,7 @@ export function fileDrop(options: FileDropOptions): Raw {
   const id = options.id ?? `drop-${options.name}`;
   const files = options.pickedFiles ?? [];
   const className = ["file-drop", "cut-carved", options.state === "over" ? "is-over" : "", options.error ? "is-marked" : "", options.isDisabled ? "is-disabled" : ""].filter(Boolean).join(" ");
-  return html`<div class="file-drop-wrap" data-file-drop${options.maximumByteCount ? html` data-most-bytes="${options.maximumByteCount}"` : ""}><div class="${className}" data-cut-line="10">${CUT_LINE}<input class="file-drop-input" type="file" id="${id}" name="${options.name}" accept="${options.accept}"${options.isMultiple ? raw(" multiple") : ""} aria-describedby="${id}-hint${options.error ? ` ${id}-error` : ""}"${options.error ? raw(' aria-invalid="true"') : ""}${options.isDisabled ? raw(" disabled") : ""}>${icon("upload")}<span class="file-drop-words"><label for="${id}">${options.label}</label><span id="${id}-hint">${options.hint}</span></span></div><p class="field-error" id="${id}-error"${options.error ? "" : raw(" hidden")}>${options.error ?? ""}</p><ul class="file-drop-list" aria-live="polite"${files.length ? "" : raw(" hidden")}>${files.map(fileRow)}</ul><template class="file-drop-row-template">${fileRow({ fileName: "", byteCount: 0 })}</template></div>`;
+  return html`<div class="file-drop-wrap" data-file-drop${options.maximumByteCount ? html` data-most-bytes="${options.maximumByteCount}"` : ""}><div class="${className}" data-cut-line="10">${CUT_LINE}<input class="file-drop-input" type="file" id="${id}" name="${options.name}" accept="${options.accept}"${options.isMultiple ? raw(" multiple") : ""} aria-describedby="${id}-hint${options.error ? ` ${id}-error` : ""}"${options.error ? raw(' aria-invalid="true"') : ""}${options.isDisabled ? raw(" disabled") : ""}>${icon("upload")}<span class="file-drop-words"><label for="${id}">${options.label}</label><span id="${id}-hint">${options.hint}</span></span></div><p class="field-error" id="${id}-error"${options.error ? "" : raw(" hidden")}>${options.error ?? ""}</p><ul class="file-drop-list" aria-live="polite"${files.length ? "" : raw(" hidden")}>${files.map((file) => fileRow(file, id))}</ul><template class="file-drop-row-template">${fileRow({ fileName: "", byteCount: 0 }, id)}</template>${lightBox({ id: `${id}-view`, label: "A picked picture, large", closeLabel: "Close", body: html`<img class="file-drop-view" alt="">` })}</div>`;
 }
 
 /**
@@ -238,13 +239,20 @@ export const FILE_DROP_SCRIPT = `/* file drops */(function () {
       list.textContent = ""; shown = [];
       picked.forEach(function (file) {
         var row = template.content.firstElementChild.cloneNode(true), preview = row.querySelector(".file-drop-preview"), url = (file.type || "").indexOf("image/") === 0 ? URL.createObjectURL(file) : "";
-        if (url) { preview.style.backgroundImage = "url(" + JSON.stringify(url) + ")"; var mark = preview.querySelector(".ico"); if (mark) mark.remove(); }
+        if (url) { preview.style.backgroundImage = "url(" + JSON.stringify(url) + ")"; preview.setAttribute("data-picture", url); preview.disabled = false; var mark = preview.querySelector(".ico"); if (mark) mark.remove(); }
+        preview.setAttribute("aria-label", "View " + file.name);
         row.querySelector(".file-drop-name").textContent = file.name; row.querySelector(".file-drop-size").textContent = sizeWords(file.size);
         var remove = row.querySelector(".file-drop-remove button"); remove.setAttribute("aria-label", "Remove " + file.name);
         list.appendChild(row); shown.push({ file: file, url: url });
       });
       list.hidden = !picked.length;
     }
+    // A picture's preview opens it large in the drop's Light box (the layers open it, by its aria-controls); it's given its picture first.
+    var view = root.querySelector(".file-drop-view");
+    list.addEventListener("click", function (event) {
+      var preview = event.target.closest && event.target.closest(".file-drop-preview[data-picture]"); if (!preview) return;
+      view.src = preview.getAttribute("data-picture"); view.alt = preview.getAttribute("aria-label").replace(/^View /, "");
+    });
     // Remove: the file leaves what's picked (and the form), its row goes, and the drop says which, for a page sending them itself.
     list.addEventListener("click", function (event) {
       var remove = event.target.closest && event.target.closest(".file-drop-remove button"); if (!remove) return;
@@ -303,7 +311,12 @@ component({
    place: its name and how much has gone over a carved track. */
 .file-drop-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--gap-control-row); }
 .file-drop-row { position: relative; display: flex; align-items: center; gap: var(--gap-words-control); padding: var(--gap-control-row); --face-color: var(--well); background: var(--face-color); clip-path: var(--cut-shape); --pad-words: 0px; }
-.file-drop-preview { position: relative; flex: none; display: grid; place-items: center; width: 64px; aspect-ratio: 16 / 9; color: var(--muted); background: var(--field-face) center / cover no-repeat; clip-path: var(--cut-shape); }
+.file-drop-preview { position: relative; flex: none; display: grid; place-items: center; width: 64px; aspect-ratio: 16 / 9; padding: 0; border: 0; color: var(--muted); background: var(--field-face) center / cover no-repeat; clip-path: var(--cut-shape); cursor: zoom-in; }
+.file-drop-preview:disabled { cursor: default; }
+.file-drop-preview:focus-visible { outline: none; }
+.file-drop-preview:focus-visible > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
+/* Large, the picture as big as the screen allows, whole. */
+.file-drop-view { display: block; max-width: min(100%, 1280px); max-height: calc(100dvh - 2 * var(--pad-pane) - 48px); object-fit: contain; }
 .file-drop-preview > .ico { width: 18px; height: 18px; }
 .file-drop-about { flex: 1; min-width: 0; }
 .file-drop-top { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 0 var(--gap-words-control); }
