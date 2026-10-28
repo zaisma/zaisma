@@ -77,27 +77,32 @@ export const SWITCH_SCRIPT = `/* switches */(function () {
     // How far a part reaches past a tab's box on a side where another tab is beside it: its slant, less the gap a row of controls keeps.
     var rowGapPx = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--gap-control-row")) || 4;
     function besideReach(el) { return Math.max(0, ((Number(el.getAttribute("data-cut-line")) || 0) - rowGapPx) / 2); }
-    // The slab is one size on every tab (its tabs are one width), so it slides as a fixed piece of glass: its size and shape are set for where
-    // it's going at once, and only its place moves, on the compositor (smooth between pixels), on the spring for --slide-ms. It lands on a
-    // whole device pixel and keeps its own layer (will-change), so nothing snaps as it settles.
+    // The slab is one size on every tab (its tabs are one width), so it slides as a fixed piece of glass. One clock moves it: each frame its
+    // place is set and its cut shape and bevel (which blend between a tab at the switch's end and one beside another) drawn in the same step,
+    // so nothing trails it. It eases out to its tab with no overshoot (cubic-bezier(.2, .8, .2, 1)), on whole device pixels, so it never
+    // swings back past its place or snaps a pixel as it settles. --slide-ms long.
     var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     function onPixel(px) { var ratio = window.devicePixelRatio || 1; return Math.round(px * ratio) / ratio; }
-    function moveOf(pos) { return (isVertical ? "translateY(" : "translateX(") + pos + "px)"; }
+    function easeOut(t) {
+      // cubic-bezier(.2, .8, .2, 1): x(u) solved for u by Newton's method, then y(u).
+      var u = t;
+      for (var i = 0; i < 6; i++) { var x = 0.6 * (1 - u) * (1 - u) * u + 0.6 * (1 - u) * u * u + u * u * u - t, dx = 0.6 * (1 - u) * (1 - u) + 2.4 * u * u; if (Math.abs(dx) < 1e-6) break; u -= x / dx; }
+      return 2.4 * (1 - u) * (1 - u) * u + 3 * (1 - u) * u * u + u * u * u;
+    }
     // Its size in whole pixels, as its cut shape measures it (offsetWidth), so the shape is drawn for the size it has.
     function place(el, at) {
       el.slideAt = at; var sizePx = Math.round(at.size) + "px";
-      if (isVertical) el.style.height = sizePx; else el.style.width = sizePx;
-      el.style.transform = moveOf(at.pos);
+      if (isVertical) { el.style.height = sizePx; el.style.transform = "translateY(" + at.pos + "px)"; } else { el.style.width = sizePx; el.style.transform = "translateX(" + at.pos + "px)"; }
     }
     function slide(el, to, ms) {
-      // From where it shows now, mid-slide too.
-      var fromPos = el.slideAt ? el.slideAt.pos : to.pos;
-      if (el.sliding) { var shown = new DOMMatrixReadOnly(getComputedStyle(el).transform); fromPos = isVertical ? shown.m42 : shown.m41; el.sliding.cancel(); }
-      place(el, to);
-      if (el.redrawCut) el.redrawCut();
-      if (!el.animate || Math.abs(fromPos - to.pos) < 0.5) return;
-      el.sliding = el.animate([{ transform: moveOf(fromPos) }, { transform: moveOf(to.pos) }], { duration: ms, easing: "cubic-bezier(.3, 1.2, .4, 1)" });
-      el.sliding.onfinish = function () { el.sliding = null; };
+      var from = el.slideAt || to, startMs = performance.now(), id = (el.slideId || 0) + 1; el.slideId = id;
+      (function frame() {
+        if (el.slideId !== id) return;
+        var t = Math.min(1, (performance.now() - startMs) / ms), e = easeOut(t);
+        place(el, { pos: t < 1 ? onPixel(from.pos + (to.pos - from.pos) * e) : to.pos, size: to.size });
+        if (el.redrawCut) el.redrawCut();
+        if (t < 1) requestAnimationFrame(frame);
+      })();
     }
     // isGliding: the slab is moving there, so its shape blends from the old place's to the new one's over the move.
     function put(el, tab, isGliding) {
@@ -112,7 +117,7 @@ export const SWITCH_SCRIPT = `/* switches */(function () {
         el.setAttribute("data-cut-beside", "");
         el.setAttribute("data-cut-stack", ((isFirst ? "first " : "") + (isLast ? "last" : "")).trim());
         if (el.redrawCut) el.redrawCut(msY && from.stack !== null ? { from: from, ms: msY } : undefined);
-        if (msY) slide(el, toY, msY); else { if (el.sliding) { el.sliding.cancel(); el.sliding = null; } place(el, toY); if (el.redrawCut) el.redrawCut(); }
+        if (msY) slide(el, toY, msY); else { el.slideId = (el.slideId || 0) + 1; place(el, toY); if (el.redrawCut) el.redrawCut(); }
         return;
       }
       // Beside another tab, it reaches into the slant between them, so only the row's gap is left between its place and the next one's.
@@ -123,7 +128,7 @@ export const SWITCH_SCRIPT = `/* switches */(function () {
       var ends = ((isFirst ? "start " : "") + (isLast ? "end" : "")).trim();
       if (ends) el.setAttribute("data-cut-ends", ends); else el.removeAttribute("data-cut-ends");
       if (el.redrawCut) el.redrawCut(ms && from.beside !== null ? { from: from, ms: ms } : undefined);
-      if (ms) slide(el, to, ms); else { if (el.sliding) { el.sliding.cancel(); el.sliding = null; } place(el, to); if (el.redrawCut) el.redrawCut(); }
+      if (ms) slide(el, to, ms); else { el.slideId = (el.slideId || 0) + 1; place(el, to); if (el.redrawCut) el.redrawCut(); }
     }
     function slideMs(el) { return parseFloat(getComputedStyle(el).getPropertyValue("--slide-ms")) || 550; }
     // A switch on its own (not framed, so it can't scroll) is never wider than its room: where its tabs don't fit, each gives up the same
@@ -248,9 +253,8 @@ component({
    It's never wider than its room: where its tabs don't fit, they keep less room round their words (--tab-room, SWITCH_SCRIPT) and share it. */
 .tab-switch { --control-height: var(--control-height-regular); --tab-room: 18px; position: relative; display: flex; min-width: 0; max-width: 100%; height: var(--control-height); padding: 4px; background: var(--well); box-shadow: var(--well-shade);
   clip-path: var(--cut-shape); }
-/* It slides on the spring for --slide-ms (SWITCH_SCRIPT, on the compositor), never by a CSS transition, on a layer of its own so it never
-   snaps to a pixel as it settles. */
-.tab-switch .slab { --slide-ms: 550; position: absolute; top: 4px; bottom: 4px; left: 0; width: 0; pointer-events: none; clip-path: var(--cut-shape); transition: opacity 0.3s; will-change: transform; }
+/* It slides for --slide-ms (SWITCH_SCRIPT moves it frame by frame, its shape with it), never by a CSS transition. */
+.tab-switch .slab { --slide-ms: 450; position: absolute; top: 4px; bottom: 4px; left: 0; width: 0; pointer-events: none; clip-path: var(--cut-shape); transition: opacity 0.3s; }
 /* The slab is a raised piece of glass with the face and bevel of a raised button (--btn, the raise bands), so its edges catch the light, and it
    casts a soft shadow into the well under it (--slab-cast), which the well's cut keeps inside it. Its face is cut to its shape below its
    bevel, so the slab itself isn't clipped and its shadow shows. */
@@ -309,7 +313,7 @@ component({
 .tab-switch .focus-ring > .cut-line { --band-top: transparent; --band-left: transparent; --band-right: transparent; --band-bottom: transparent; }
 /* The sort switch: the header's switch, smaller. */
 .tab-switch.small { --control-height: var(--control-height-small); --tab-room: 14px; padding: 3px; clip-path: var(--cut-shape); }
-.tab-switch.small .slab { --slide-ms: 400; top: 3px; bottom: 3px; }
+.tab-switch.small .slab { --slide-ms: 380; top: 3px; bottom: 3px; }
 /* Its tabs, one width as every switch's, share out any room past them evenly (a sort filling its line under a heading on a phone). */
 .tab-switch.small > a, .tab-switch.small > button { font-size: 0.875rem; }
 /* The first and last tabs shown sit against the switch's cut corners, which eat into them at its ends: they take a slant's more room there.
