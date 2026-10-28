@@ -56,7 +56,7 @@ export const LIGHT_GLASS = `color-scheme: light;
   /* A warning and a field marked wrong: amber, a yellower hue than the runner's orange, so it never reads as something to press or as focus. */
   --warning: #7D5C00; --link-hover: var(--run-lo); --marked: var(--warning);
   --glass-base: 255, 255, 255; --glass-kind: "Light glass, dark words."; --glass-hue-strength: 14%; --track: rgba(186, 198, 216, 0.28);
-  --edge-light: #FFFFFF; --edge-flood: rgba(255, 255, 255, 0.42); --edge-flood-far: rgba(255, 255, 255, 0.14); --edge-wake: rgba(255, 255, 255, 0.8);
+  --edge-light: #FFFFFF; --edge-flood: rgba(255, 255, 255, 0.62); --edge-flood-far: rgba(255, 255, 255, 0.24); --edge-wake: rgba(255, 255, 255, 0.8);
   --raise-top: rgba(255, 255, 255, 0.95); --raise-left: rgba(255, 255, 255, 0.6); --raise-right: rgba(96, 108, 128, 0.22); --raise-bottom: rgba(70, 82, 104, 0.34);
   --carve-rim: transparent; --carve-top: rgba(60, 72, 94, 0.3); --carve-left: rgba(60, 72, 94, 0.2); --carve-right: rgba(255, 255, 255, 0.55); --carve-bottom: rgba(255, 255, 255, 0.9);
   --backdrop-base: #E3E0DB; --backdrop-a: #F6F4F0; --backdrop-b: #CCC8C1; --backdrop-c: #ECE9E4;`;
