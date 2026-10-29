@@ -205,8 +205,12 @@ export const PLACE_SCRIPT = `/* place */(function () {
     if (!cast) { cast = pane.floatCast = document.createElement("div"); cast.className = "floating-cast"; cast.setAttribute("aria-hidden", "true"); cast.appendChild(document.createElement("div")).appendChild(document.createElement("span")); document.body.appendChild(cast); }
     if (!pane.isConnected || !pane.matches(":popover-open")) { cast.hidden = true; return; }
     var r = pane.getBoundingClientRect(), isOnPage = pane.classList.contains("is-on-page");
-    var shape = getComputedStyle(pane).clipPath, points = /^polygon\\((.*)\\)$/.exec(shape);
+    // The cut is its glass's (--glass-clip, GLASS_SCRIPT): the pane itself isn't clipped, so what stands on it can cast past its edge.
+    var paneStyle = getComputedStyle(pane), shape = paneStyle.getPropertyValue("--glass-clip").trim() || paneStyle.clipPath, points = /^polygon\\((.*)\\)$/.exec(shape);
     var far = "calc(100% + " + CAST_REACH_PX + "px)", near = -CAST_REACH_PX + "px";
+    // Its glass's cut is measured a frame or more after it opens: until then it casts nothing, rather than a square.
+    if (!points) { cast.hidden = true; pane.castTries = (pane.castTries || 0) + 1; if (pane.castTries < 60) requestAnimationFrame(function () { window.zaismaCast(pane); }); return; }
+    pane.castTries = 0;
     var inner = points ? points[1].replace(/^(nonzero|evenodd),\\s*/, "") : "0px 0px, 100% 0px, 100% 100%, 0px 100%";
     cast.firstChild.firstChild.style.clipPath = points ? shape : "";
     cast.style.clipPath = "polygon(evenodd, " + near + " " + near + ", " + far + " " + near + ", " + far + " " + far + ", " + near + " " + far + ", " + near + " " + near + ", " + inner + ", " + inner.split(",")[0] + ", " + near + " " + near + ")";
