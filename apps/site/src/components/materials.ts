@@ -76,7 +76,10 @@ export const MATERIAL_STYLES = `
 /* The face of a button (a tertiary button): its button's height, its words a field's inset in wherever it is, its states its button's. */
 .shell > .flush-row { --row-height: var(--control-height); padding: 0 var(--pad-inside-words); }
 :is(.shell:hover, .shell.is-pointed, .shell:focus-visible, .shell.is-focused) > .flush-row:not(.quiet) { --face-color: var(--wash); color: var(--ink); }
-:is(.shell:active, .shell.is-pressed) > .flush-row { --face-color: var(--wash-press); color: var(--ink); transition-duration: var(--motion-press); }
+:is(.shell:active, .shell.is-pressed) > .flush-row, .flush-row:not(.quiet):is(:active, .is-pressed) { --face-color: var(--wash-press); color: var(--ink); box-shadow: var(--press-shade); transition-duration: var(--motion-press); }
+/* Press spring-back, as on a slab: what's on it sinks a hair as it's pressed and springs back when let go. */
+.flush-row > :where(:not(.cut-line)) { transition: transform var(--motion-glide) var(--ease-spring); }
+:is(.shell:active, .shell.is-pressed) > .flush-row > :where(:not(.cut-line)), .flush-row:not(.quiet):is(:active, .is-pressed) > :where(:not(.cut-line)) { transform: translateY(1px); transition-duration: var(--motion-press); }
 :is(.shell:focus-visible, .shell.is-focused) > .flush-row > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 /* What's in it sits over its face; zero specificity, so a part placed by its owner (a tertiary button's line) keeps its place. */
 .flush-row > :where(:not(.cut-line)) { position: relative; z-index: 2; }
@@ -197,7 +200,7 @@ span.hairline { flex: 1; border-top: var(--divider); }
 :is(.shell:disabled:not([aria-busy="true"]), .shell[aria-disabled="true"]) > .slab.lit:is(::before, ::after) { content: none; }
 /* A lit slab's front: the orange face it shows below its top as it rises (a toggle on). */
 .slab-front { background: linear-gradient(180deg, var(--run-hi), var(--run) 40%, var(--run-lo)); }
-@media (prefers-reduced-motion: reduce) { .carving, .slab, .slab > * { transition: none; } .slab.lit.glint::after { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .carving, .slab, .slab > *, .flush-row > * { transition: none; } .slab.lit.glint::after { animation: none; } }
 `;
 
 /**
