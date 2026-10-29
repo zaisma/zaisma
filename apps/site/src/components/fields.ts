@@ -3,7 +3,7 @@ import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
 import { controlMarkup, type ControlMarkup } from "./control-markup.ts";
 import { CUT_LINE, EDGE, floatingPane, glassPane, icon, type IconName } from "./foundations.ts";
-import { secondaryButton, toggleButton } from "./actions.ts";
+import { tertiaryButton, toggleButton } from "./actions.ts";
 import { examplePane } from "./example-pane.ts";
 import { row } from "./layout.ts";
 
@@ -118,7 +118,7 @@ export function searchField(options: SearchFieldOptions): ControlMarkup {
     ? html`<span class="find-finish" aria-hidden="true"><span class="find-typed">${typedFinish ? options.searchText : ""}</span><span>${typedFinish}</span></span>${floatingPane({ id: `${id}-list`, placement: "under", kind: "select-list find-list", isShownInPlace: isOpen, body: html`<div class="select-options" id="${id}-choices" role="listbox" aria-label="${options.label}" data-own-fade>${isOpen && options.shownSuggestions ? suggestionRows(id, options.searchText, options.shownSuggestions, 0) : ""}</div>` })}<template class="find-icon"><span class="find-row-icon">${icon("search")}</span></template>`
     : "";
   const className = ["find", "carving", "layered", "is-used", "sized", options.state === "is-open" ? "is-focused is-open" : options.state ?? ""].filter(Boolean).join(" ");
-  return controlMarkup(html`<form class="${className}" method="get" action="${options.action}" role="search" data-cut-line="10"${options.suggestionsUrl !== undefined ? html` data-suggest="${options.suggestionsUrl}"` : ""}>${CUT_LINE}${Object.entries(options.keep ?? {}).map(([name, keptValue]) => html`<input type="hidden" name="${name}" value="${keptValue}">`)}${icon("search")}<input type="search" name="${options.name}" value="${options.searchText}" maxlength="200" placeholder="${options.placeholder}" aria-label="${options.label}" autocomplete="off"${combobox}>${secondaryButton("Clear the search", { type: "button", icon: "close", isLabelHidden: true, isInWell: true })}${list}</form>`, "regular");
+  return controlMarkup(html`<form class="${className}" method="get" action="${options.action}" role="search" data-cut-line="10"${options.suggestionsUrl !== undefined ? html` data-suggest="${options.suggestionsUrl}"` : ""}>${CUT_LINE}${Object.entries(options.keep ?? {}).map(([name, keptValue]) => html`<input type="hidden" name="${name}" value="${keptValue}">`)}${icon("search")}<input type="search" name="${options.name}" value="${options.searchText}" maxlength="200" placeholder="${options.placeholder}" aria-label="${options.label}" autocomplete="off"${combobox}>${tertiaryButton("Clear the search", { type: "button", icon: "close", isLabelHidden: true, isSmall: true })}${list}</form>`, "regular");
 }
 
 export interface WheelColumn {
@@ -354,7 +354,7 @@ export const PIN_FIELD_SCRIPT = String.raw`/* pin fields */(function () {
 /** Show/Hide: shows the password it controls, and hides it again. Clear: empties a search and puts you back in it. */
 export const FIELD_SCRIPT = `/* fields */(function () {
   document.addEventListener("click", function (event) {
-    var clear = event.target.closest && event.target.closest(".find > .cut-btn");
+    var clear = event.target.closest && event.target.closest(".find > .tertiary-btn");
     if (clear) {
       var search = clear.parentElement.querySelector('input[type="search"]');
       if (search) { search.value = ""; search.dispatchEvent(new Event("input", { bubbles: true })); search.focus(); }
@@ -912,9 +912,8 @@ component({
   styles: `
 /* Search: the cut field's sibling, at a control's height (it sits in the header's row). The same face, carving and shade, the same
    brightening under the pointer and whitening with the orange outline as you type, the same icon (20px, quiet until you're in it), indent
-   and words (18px, 16 on a phone). Clear sits at its end once something's typed: an icon in a well of its own, filling the field's height
-   for a finger, so the browser's own clear button is hidden. "/" jumps to it. */
-.find { --control-height: var(--control-height-regular); --search-end-room: 16px; --clear-inset: calc((var(--control-height) - 30px) / 2); display: flex; align-items: center; flex: 1; max-width: 460px; margin: 0; color: var(--muted); }
+   and words (18px, 16 on a phone). Clear, a small tertiary button, sits at its end once something's typed, so the browser's own clear button is hidden. "/" jumps to it. */
+.find { --control-height: var(--control-height-regular); --search-end-room: 16px; --clear-inset: calc((var(--control-height) - var(--control-height-small)) / 2); display: flex; align-items: center; flex: 1; max-width: 460px; margin: 0; color: var(--muted); }
 .find input[type="search"] {
   --text-start: calc(var(--pad-inside-words) + 34px); --text-end: var(--search-end-room);
   position: relative; z-index: 2; width: 100%;
@@ -929,11 +928,11 @@ component({
 .find:has(:focus-visible) > .cut-line polygon, .find.is-focused > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 .find input::-webkit-search-cancel-button { display: none; }
 .find > .ico { position: absolute; z-index: 3; left: var(--pad-inside-words); width: 20px; height: 20px; pointer-events: none; transition: color var(--motion-state); }
-/* Clear: only once something's typed, and then what's typed stops short of it: its width (46px) and its inset on each side. */
-/* Clear sits as far in from the end as from the top and foot: measured on the search, whose height it is (Clear has a height of its own). */
-.find > .cut-btn { position: absolute; z-index: 5; top: 0; bottom: 0; right: var(--clear-inset); align-items: center; }
-.find:has(input:placeholder-shown) > .cut-btn { display: none; }
-.find:not(:has(input:placeholder-shown)) { --search-end-room: calc(46px + var(--control-height) - 30px); }
+/* Clear: a small tertiary button, square, only once something's typed. It sits as far in from the end as from the top and foot, measured on
+   the search, whose height it is (Clear has a height of its own); what's typed stops short of it, so its room is the search's height. */
+.find > .tertiary-btn { position: absolute; z-index: 5; top: var(--clear-inset); right: var(--clear-inset); }
+.find:has(input:placeholder-shown) > .tertiary-btn { display: none; }
+.find:not(:has(input:placeholder-shown)) { --search-end-room: var(--control-height); }
 /* Finishes and games as you type (suggestionsUrl, SEARCH_SCRIPT): a select field's list hangs under it. The row you're on catches the
    light, and when it's a finish, the rest of it shows after what's typed, quieter, in the field itself: Tab takes it, Enter takes it and
    searches. On a game, Enter opens the game. */
