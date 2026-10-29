@@ -637,7 +637,7 @@ try {
 console.log(`
 Zaisma preview is running. Nothing here touches the live site.
 
-  Payments        ${STRIPE_TEST_VARS ? "Stripe test mode" : "stand-in Stripe"}
+  Payments        ${STRIPE_TEST_VARS ? "Stripe test mode: try top-ups and Pro as Empty_Handed, whose payments are all Stripe's (add an email first)" : "stand-in Stripe"}
   Home            ${SITE}/  (the game in focus fills the screen with its background: point at covers to move between Shard Dodge's picture,
                   Four in a Row's picture, Cave Crew's Emberfall shader, Tiny Farm's Verdant shader and Zaisma's own for the rest;
                   Play starts the game in place and Back returns)
@@ -2120,7 +2120,8 @@ function seedDeveloperSettings() {
   const owner = "(SELECT owners.id FROM owners JOIN accounts ON accounts.id = owners.account_id WHERE accounts.username = 'Preview_Studio')";
   const account = "(SELECT id FROM accounts WHERE username = 'Preview_Studio')";
   runSql([
-    `UPDATE owners SET pro_until_ms = ${now + 27 * 86400_000}, is_pro_cancelled = 0, stripe_subscription_id = 'sub_preview_pro', stripe_customer_id = COALESCE(stripe_customer_id, 'cus_preview_pro') WHERE id = ${owner}`,
+    // In Stripe's test mode a made-up customer and subscription would be ones Stripe doesn't know, so Pro starts from Get Pro there.
+    ...(STRIPE_TEST_VARS ? [] : [`UPDATE owners SET pro_until_ms = ${now + 27 * 86400_000}, is_pro_cancelled = 0, stripe_subscription_id = 'sub_preview_pro', stripe_customer_id = COALESCE(stripe_customer_id, 'cus_preview_pro') WHERE id = ${owner}`]),
     `UPDATE owners SET automatic_top_up_enabled = 1, top_up_below_cents = 500, top_up_amount_cents = 2000, monthly_top_up_limit_cents = 6000 WHERE id = ${owner}`,
     "DELETE FROM spending_requests WHERE id LIKE 'spending_request_preview%'",
     `INSERT INTO spending_requests (id, account_id, request_kind, game_id, monthly_budget_cents, created_at_ms, expires_at_ms) SELECT 'spending_request_preview0waiting', ${account}, 'game_budget', id, 4000, ${now - 600_000}, ${now + 85_800_000} FROM games WHERE slug = 'arena'`,
