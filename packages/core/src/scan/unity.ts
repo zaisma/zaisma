@@ -1,4 +1,5 @@
 import { sha256Hex } from "../ids.ts";
+import { CRUNCH_HEADER_MAXIMUM_SIZE_BYTES, readCrunchHeader, unpackCrunchLevel, type CrunchFormat } from "./crunch.ts";
 import { matroskaHasVideo, picturesInside, sniffMedia } from "./images.ts";
 import { decompressLz4Block } from "./lz4.ts";
 import { decompressLzma } from "./lzma.ts";
@@ -45,26 +46,38 @@ const TEXTURE_CLASS_NUMBER = 28;
 const SPRITE_CLASS_NUMBER = 213;
 const VIDEO_CLIP_CLASS_NUMBER = 329;
 
-/** Unity's TextureFormat numbers for the formats decoded; the rest (alpha, single channel, HDR, PVRTC, crunched) aren't. */
+/** Unity's TextureFormat numbers for the formats decoded; the rest (alpha only, two channel, HDR, PVRTC) aren't; crunched ones are in UNITY_CRUNCHED_FORMATS. */
 const UNITY_TEXTURE_FORMATS: Record<number, TextureFormat> = {
   2: "argb4444",
   3: "rgb8",
   4: "rgba8",
   5: "argb8",
   7: "rgb565",
+  9: "r16",
   10: "bc1",
   11: "bc2",
   12: "bc3",
   13: "rgba4444",
   14: "bgra8",
   25: "bc7",
+  26: "bc4",
   34: "etc1",
+  41: "eac_r",
   45: "etc2_rgb",
   46: "etc2_rgba1",
   47: "etc2_rgba8",
   60: "etc1",
   61: "etc2_rgba8",
+  63: "r8",
   ...Object.fromEntries([4, 5, 6, 8, 10, 12].flatMap((sidePixelCount, i) => [[48 + i, `astc_${sidePixelCount}x${sidePixelCount}`], [54 + i, `astc_${sidePixelCount}x${sidePixelCount}`]])),
+};
+
+/** Unity's crunched TextureFormat numbers, each the block format crunch unpacks it to and the crunch format its header says. */
+const UNITY_CRUNCHED_FORMATS: Record<number, { format: TextureFormat; crunchFormat: CrunchFormat }> = {
+  28: { format: "bc1", crunchFormat: "dxt1" },
+  29: { format: "bc3", crunchFormat: "dxt5" },
+  64: { format: "etc1", crunchFormat: "etc1" },
+  65: { format: "etc2_rgba8", crunchFormat: "etc2a" },
 };
 
 /** Whether these first bytes start a Unity web build's .data file or an asset bundle. */
@@ -437,6 +450,8 @@ interface UnityTexture {
   widthPixelCount: number;
   heightPixelCount: number;
   levelCount: number;
+  /** Whether its data is a crunched file (format is then the block format it unpacks to), not plain levels. */
+  isCrunched: boolean;
   /** Where its pixel data is: inside the object, or in a resource file beside it. */
   pixelSource: ByteSource;
 }
@@ -483,6 +498,7 @@ async function* serializedPictures(fileName: string, file: SerializedFile, resou
 }
 
 async function texturePicture(texture: UnityTexture, label: string, region?: TextureRegion): Promise<PictureFound | null> {
+  if (texture.isCrunched) return crunchedTexturePicture(texture, label, region);
   const levels = textureLevels(texture.format, texture.widthPixelCount, texture.heightPixelCount, texture.levelCount);
   if (!levels) return null;
   // The first mip level small enough to send whole; a crop always comes from the full-size level.
@@ -499,6 +515,38 @@ async function texturePicture(texture: UnityTexture, label: string, region?: Tex
     sha256,
     async body() {
       const picture = decodeTexture(texture.format, await read(), level.widthPixelCount, level.heightPixelCount, { isBottomUp: true, region });
+      if (!picture) throw new Error(`${label} couldn't be decoded`);
+      return encodePng(picture);
+    },
+  };
+}
+
+/**
+ * A crunched texture's picture: the same mip level an uncrunched one would send, unpacked from the whole crunched
+ * file. Its cache name hashes the whole file, since a level's blocks aren't known without unpacking it.
+ */
+async function crunchedTexturePicture(texture: UnityTexture, label: string, region?: TextureRegion): Promise<PictureFound | null> {
+  const sizeBytes = texture.pixelSource.sizeBytes;
+  if (sizeBytes > MAXIMUM_READ_INSIDE_SIZE_BYTES) return null;
+  const read = () => texture.pixelSource.read(0, sizeBytes);
+  const bytes = await read();
+  const header = readCrunchHeader(bytes);
+  const levels = header && textureLevels(texture.format, header.widthPixelCount, header.heightPixelCount, header.levelCount);
+  if (!header || !levels) return null;
+  const levelIndex = region ? 0 : Math.max(0, levels.findIndex((candidate) => Math.max(candidate.widthPixelCount, candidate.heightPixelCount) <= MAXIMUM_SENT_PICTURE_SIDE_PIXEL_COUNT));
+  const level = levels[levelIndex]!;
+  if (level.sizeBytes > MAXIMUM_READ_INSIDE_SIZE_BYTES) return null;
+  const description = new TextEncoder().encode(`unity-texture:crunched-${texture.format}:${level.widthPixelCount}x${level.heightPixelCount}:${region ? `${region.columnIndex},${region.rowIndex},${region.widthPixelCount},${region.heightPixelCount}` : "whole"}:`);
+  const sha256 = await sha256Hex(concat(description, bytes));
+  return {
+    label,
+    type: "image/png",
+    sha256,
+    async body() {
+      const crunched = await read();
+      const crunchedHeader = readCrunchHeader(crunched);
+      const blocks = crunchedHeader && unpackCrunchLevel(crunched, crunchedHeader, levelIndex);
+      const picture = blocks && decodeTexture(texture.format, blocks, level.widthPixelCount, level.heightPixelCount, { isBottomUp: true, region });
       if (!picture) throw new Error(`${label} couldn't be decoded`);
       return encodePng(picture);
     },
@@ -533,14 +581,24 @@ async function readTexture(file: SerializedFile, object: SerializedObject, resou
     const completeSizeBytes = int32At(index + 8);
     if (widthPixelCount < 1 || heightPixelCount < 1 || widthPixelCount > MAXIMUM_TEXTURE_SIDE_PIXEL_COUNT || heightPixelCount > MAXIMUM_TEXTURE_SIDE_PIXEL_COUNT || completeSizeBytes < 1) continue;
     for (const formatIndex of [index + 12, index + 16]) {
-      const format = UNITY_TEXTURE_FORMATS[int32At(formatIndex)];
       const levelCount = int32At(formatIndex + 4);
-      if (!format || levelCount < 1 || levelCount > 15) continue;
+      if (levelCount < 1 || levelCount > 15) continue;
+      const crunched = UNITY_CRUNCHED_FORMATS[int32At(formatIndex)];
+      if (crunched) {
+        // A crunched texture's data is a crunched file as big as the whole data size, holding the same picture size.
+        const pixelSource = findImageData(file, object, reader.bytes, formatIndex + 8, completeSizeBytes, resources);
+        if (!pixelSource) continue;
+        const header = readCrunchHeader(await pixelSource.read(0, Math.min(completeSizeBytes, CRUNCH_HEADER_MAXIMUM_SIZE_BYTES)), completeSizeBytes);
+        if (!header || header.crunchFormat !== crunched.crunchFormat || header.widthPixelCount !== widthPixelCount || header.heightPixelCount !== heightPixelCount || header.dataSizeBytes !== completeSizeBytes) continue;
+        return { name, format: crunched.format, widthPixelCount, heightPixelCount, levelCount: header.levelCount, isCrunched: true, pixelSource };
+      }
+      const format = UNITY_TEXTURE_FORMATS[int32At(formatIndex)];
+      if (!format) continue;
       const levels = textureLevels(format, widthPixelCount, heightPixelCount, levelCount);
       const last = levels?.[levels.length - 1];
       if (!last || last.startIndex + last.sizeBytes !== completeSizeBytes) continue;
       const pixelSource = findImageData(file, object, reader.bytes, formatIndex + 8, completeSizeBytes, resources);
-      if (pixelSource) return { name, format, widthPixelCount, heightPixelCount, levelCount, pixelSource };
+      if (pixelSource) return { name, format, widthPixelCount, heightPixelCount, levelCount, isCrunched: false, pixelSource };
     }
   }
   return null;

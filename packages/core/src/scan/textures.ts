@@ -6,7 +6,7 @@
  * AssetStudio (MIT License, Copyright (c) 2016 Radu, Copyright (c) 2016-2020 Perfare).
  */
 
-/** The texture formats Zaisma decodes, named by engine-neutral block format. Anything else is never a picture or isn't decoded. */
+/** The texture formats Zaisma decodes, named by engine-neutral block format; single-channel ones decode as gray. Anything else is never a picture or isn't decoded. */
 export type TextureFormat =
   | "rgba8"
   | "argb8"
@@ -16,14 +16,18 @@ export type TextureFormat =
   | "rgba4444"
   | "argb4444"
   | "la8"
+  | "r8"
+  | "r16"
   | "bc1"
   | "bc2"
   | "bc3"
   | "bc7"
+  | "bc4"
   | "etc1"
   | "etc2_rgb"
   | "etc2_rgba1"
   | "etc2_rgba8"
+  | "eac_r"
   | `astc_${number}x${number}`;
 
 /** A sent picture's longer side is at most this: both matchers match a smaller copy, and it keeps memory and time small. */
@@ -54,8 +58,8 @@ interface Layout {
   blockSizeBytes: number;
 }
 
-const PIXEL_SIZES_BYTES: Partial<Record<TextureFormat, number>> = { rgba8: 4, argb8: 4, bgra8: 4, rgb8: 3, rgb565: 2, rgba4444: 2, argb4444: 2, la8: 2 };
-const BLOCK_SIZES_BYTES: Partial<Record<TextureFormat, number>> = { bc1: 8, bc2: 16, bc3: 16, bc7: 16, etc1: 8, etc2_rgb: 8, etc2_rgba1: 8, etc2_rgba8: 16 };
+const PIXEL_SIZES_BYTES: Partial<Record<TextureFormat, number>> = { rgba8: 4, argb8: 4, bgra8: 4, rgb8: 3, rgb565: 2, rgba4444: 2, argb4444: 2, la8: 2, r8: 1, r16: 2 };
+const BLOCK_SIZES_BYTES: Partial<Record<TextureFormat, number>> = { bc1: 8, bc2: 16, bc3: 16, bc7: 16, etc1: 8, etc2_rgb: 8, etc2_rgba1: 8, etc2_rgba8: 16, bc4: 8, eac_r: 8 };
 const ASTC_BLOCK_SIDE_PIXEL_COUNTS = new Set([4, 5, 6, 8, 10, 12]);
 
 function layoutOf(format: TextureFormat): Layout | null {
@@ -195,6 +199,11 @@ function blockDecoder(format: TextureFormat, layout: Layout): BlockDecoder {
       return (bytes, startIndex, out) => setPixel(out, 0, [bytes[startIndex]!, bytes[startIndex + 1]!, bytes[startIndex + 2]!, 255]);
     case "la8":
       return (bytes, startIndex, out) => setPixel(out, 0, [bytes[startIndex]!, bytes[startIndex]!, bytes[startIndex]!, bytes[startIndex + 1]!]);
+    case "r8":
+      return (bytes, startIndex, out) => setPixel(out, 0, [bytes[startIndex]!, bytes[startIndex]!, bytes[startIndex]!, 255]);
+    case "r16":
+      // The high byte of each little-endian 16-bit value.
+      return (bytes, startIndex, out) => setPixel(out, 0, [bytes[startIndex + 1]!, bytes[startIndex + 1]!, bytes[startIndex + 1]!, 255]);
     case "rgb565":
       return (bytes, startIndex, out) => setPixel(out, 0, rgb565(sixteenBits(bytes, startIndex)));
     case "rgba4444":
@@ -221,6 +230,11 @@ function blockDecoder(format: TextureFormat, layout: Layout): BlockDecoder {
       };
     case "bc7":
       return decodeBc7;
+    case "bc4":
+      return (bytes, startIndex, out) => {
+        decodeBc3Alpha(bytes, startIndex, out);
+        alphaToGray(out);
+      };
     case "etc1":
       return (bytes, startIndex, out) => decodeEtc2Color(bytes.subarray(startIndex, startIndex + 8), out, "etc1");
     case "etc2_rgb":
@@ -232,6 +246,11 @@ function blockDecoder(format: TextureFormat, layout: Layout): BlockDecoder {
         decodeEtc2Color(bytes.subarray(startIndex + 8, startIndex + 16), out, "rgb");
         decodeEtc2Alpha(bytes.subarray(startIndex, startIndex + 8), out);
       };
+    case "eac_r":
+      return (bytes, startIndex, out) => {
+        decodeEtc2Alpha(bytes.subarray(startIndex, startIndex + 8), out);
+        alphaToGray(out);
+      };
     default:
       return (bytes, startIndex, out) => decodeAstcBlock(bytes.subarray(startIndex, startIndex + 16), layout, out);
   }
@@ -241,6 +260,11 @@ function blockDecoder(format: TextureFormat, layout: Layout): BlockDecoder {
 const expandBits = (quantizedNumber: number, bitCount: number) => (quantizedNumber << (8 - bitCount)) | (quantizedNumber >> (2 * bitCount - 8));
 const clampByte = (unclampedNumber: number) => (unclampedNumber < 0 ? 0 : unclampedNumber > 255 ? 255 : unclampedNumber);
 const rgb565 = (colorCode: number) => [expandBits(colorCode >> 11, 5), expandBits((colorCode >> 5) & 63, 6), expandBits(colorCode & 31, 5), 255];
+
+/** A single-channel block decoded into the alpha bytes, moved into gray and made opaque. */
+function alphaToGray(out: Uint8Array): void {
+  for (let pixelIndex = 0; pixelIndex < out.length / 4; pixelIndex++) setPixel(out, pixelIndex, [out[pixelIndex * 4 + 3]!, out[pixelIndex * 4 + 3]!, out[pixelIndex * 4 + 3]!, 255]);
+}
 
 /** Writes one pixel's red, green, blue and alpha bytes. */
 function setPixel(out: Uint8Array, pixelIndex: number, color: number[]): void {
