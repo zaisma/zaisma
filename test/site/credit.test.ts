@@ -114,6 +114,8 @@ describe("a top-up", () => {
       "metadata[owner_id]": ownerId,
       success_url: `${SITE}/dashboard/settings#hosting`,
     });
+    // Nothing Managed Payments refuses (Stripe answers "You cannot use custom_text with Managed Payments").
+    expect([...session.keys()].filter((name) => /^(custom_text|automatic_tax|tax_id_collection|payment_method_|saved_payment_method_options|shipping_)/.test(name))).toEqual([]);
     // One Stripe customer per owner, kept.
     expect((await creditOf(env.DB, ownerId)).stripeCustomerId).toBe("cus_test_1");
 

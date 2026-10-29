@@ -104,6 +104,8 @@ describe("Zaisma Pro", () => {
     expect(started).toMatchObject({ checkout_url: "https://checkout.stripe.com/c/pay/cs_test_pro", next_steps: [expect.objectContaining({ tool: "get_pro" })] });
     const session = Object.fromEntries(stripeCalls.find((call) => call.path === "/v1/checkout/sessions")!.form);
     expect(session).toMatchObject({ mode: "subscription", customer: "cus_test_1", "line_items[0][price]": "price_test_pro", "line_items[0][quantity]": "1", "subscription_data[metadata][owner_id]": ownerId, "managed_payments[enabled]": "true" });
+    // Nothing Managed Payments refuses (Stripe answers "You cannot use custom_text with Managed Payments").
+    expect(Object.keys(session).filter((name) => /^(custom_text|automatic_tax|tax_id_collection|payment_method_|saved_payment_method_options|shipping_)/.test(name))).toEqual([]);
     expect((await env.DB.prepare("SELECT kind FROM security_events WHERE kind = 'pro_checkout_started'").first())).not.toBeNull();
   });
 
