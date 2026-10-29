@@ -411,7 +411,7 @@ function pictures() {
   const [markWidth, markHeight] = viewBoxSize(MARK_FILE_VIEW_BOX), [wordmarkWidth, wordmarkHeight] = viewBoxSize(WORDMARK_FILE_VIEW_BOX);
   const markFile = (glassName) => drawingFile(MARK_FILE_VIEW_BOX, markDrawing(glassName));
   const wordmarkFile = (glassName) => drawingFile(WORDMARK_FILE_VIEW_BOX, wordmarkDrawing(glassName));
-  const light = iconSvg("light"), square = iconSvg("light", { isRounded: false });
+  const light = iconSvg("light"), square = iconSvg("light", { isRounded: false }), circle = iconSvg("light", { isRounded: false, zShare: MASKABLE_Z_SHARE });
   return [
     ["zaisma-mark-glass-black-2048.png", markFile("black"), 2048, Math.round((2048 * markHeight) / markWidth)],
     ["zaisma-mark-glass-white-2048.png", markFile("white"), 2048, Math.round((2048 * markHeight) / markWidth)],
@@ -421,10 +421,10 @@ function pictures() {
     ["app-icon-512.png", light, 512, 512],
     ["app-icon-192.png", light, 192, 192],
     ["app-icon-dark-512.png", iconSvg("dark"), 512, 512],
-    // A home screen and Stripe round the corners themselves, and a maskable icon may be cut to a circle.
+    // A home screen rounds the corners itself; Stripe and a maskable icon may cut it to a circle.
     ["apple-touch-icon.png", square, 180, 180],
-    ["stripe-icon.png", square, 512, 512],
-    ["app-icon-maskable-512.png", iconSvg("light", { isRounded: false, zShare: MASKABLE_Z_SHARE }), 512, 512],
+    ["stripe-icon.png", circle, 512, 512],
+    ["app-icon-maskable-512.png", circle, 512, 512],
     ["favicon-32.png", faviconSvg(), 32, 32],
     ["share-card-light.png", cardSvg("light"), 1200, 630],
     ["share-card-dark.png", cardSvg("dark"), 1200, 630],

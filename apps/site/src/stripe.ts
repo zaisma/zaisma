@@ -15,6 +15,7 @@ import type { Env } from "./env.ts";
 
 const STRIPE_API_ORIGIN = "https://api.stripe.com";
 const STRIPE_CONNECT_ORIGIN = "https://connect.stripe.com";
+const STRIPE_CHECKOUT_ORIGIN = "https://checkout.stripe.com";
 /** The API version every call is made with: Managed Payments needs 2025-03-31.basil or later. */
 const STRIPE_VERSION = "2026-04-22.dahlia";
 /** Platform as a service, business use: eligible for Managed Payments. */
@@ -52,6 +53,14 @@ export function isLocalPreview(env: Env): boolean {
  * (STRIPE_API_ORIGIN, scripts/preview/fake-stripe.mjs), and only while the site itself is the local preview, so a
  * deployed Zaisma can never talk to anything but Stripe.
  */
+/**
+ * Where a form on the settings page goes on to, for its form-action: Stripe's Checkout (credit and Pro) and its
+ * Connect sign-in. A browser holds every redirect a form makes to that list, so without them the page just waits.
+ */
+export function stripeFormTargets(env: Env): string[] {
+  return [STRIPE_CHECKOUT_ORIGIN, stripeOrigins(env).connectOrigin];
+}
+
 export function stripeOrigins(env: Env): { apiOrigin: string; connectOrigin: string } {
   if (!env.STRIPE_API_ORIGIN) return { apiOrigin: STRIPE_API_ORIGIN, connectOrigin: STRIPE_CONNECT_ORIGIN };
   if (!isLocalPreview(env)) throw unavailable("STRIPE_API_ORIGIN only works in the local preview.");
@@ -120,7 +129,8 @@ export async function customerFor(env: Env, ownerId: string): Promise<string> {
 
 /**
  * Stripe's page for buying credit: one line, "Zaisma hosting credit", for amountCents, with Managed Payments on and
- * the card saved for automatic top-ups. Back to the credit settings either way.
+ * the card saved for automatic top-ups. Back to the credit settings either way. Managed Payments refuses custom_text,
+ * so the refund terms are on the settings page above the button instead.
  */
 export async function topUpCheckout(env: Env, ownerId: string, amountCents: number): Promise<{ checkoutUrl: string; expiresAtMs: number }> {
   const customer = await customerFor(env, ownerId);
@@ -130,7 +140,6 @@ export async function topUpCheckout(env: Env, ownerId: string, amountCents: numb
     customer,
     managed_payments: { enabled: true },
     line_items: [{ quantity: 1, price_data: { currency: "usd", unit_amount: amountCents, product_data: { name: "Zaisma hosting credit", tax_code: CREDIT_TAX_CODE } } }],
-    custom_text: { submit: { message: `Unused credit refunds to your card for ${CREDIT_LIMITS.refundableDurationDays} days. Terms: zaisma.com/legal/terms` } },
     payment_intent_data: { setup_future_usage: "off_session", metadata: { owner_id: ownerId, top_up_kind: "checkout" } },
     metadata: { owner_id: ownerId },
     success_url: backUrl,
@@ -153,7 +162,6 @@ export async function proCheckout(env: Env, ownerId: string): Promise<{ checkout
     customer,
     managed_payments: { enabled: true },
     line_items: [{ price: env.STRIPE_PRO_PRICE_ID, quantity: 1 }],
-    custom_text: { submit: { message: `Cancel any time. Your first payment refunds within ${PRO_REFUND_LIMITS.refundableDurationDays} days. Terms: zaisma.com/legal/terms` } },
     subscription_data: { metadata: { owner_id: ownerId } },
     metadata: { owner_id: ownerId },
     success_url: backUrl,

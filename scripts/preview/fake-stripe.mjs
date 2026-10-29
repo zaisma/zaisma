@@ -91,6 +91,9 @@ export function startFakeStripe(port) {
     if (kind === "customers" && !id && method === "POST") return { status: 200, body: keep({ id: newId("cus"), object: "customer", created: now(), metadata: form.metadata ?? {} }) };
 
     if (kind === "checkout/sessions" && !id && method === "POST") {
+      // Like Stripe: Managed Payments refuses these Checkout options.
+      const refused = ["custom_text", "automatic_tax", "tax_id_collection", "payment_method_collection", "payment_method_configuration", "payment_method_options", "payment_method_types", "saved_payment_method_options", "shipping_address_collection", "shipping_options"].find((name) => form[name] !== undefined);
+      if (form.managed_payments?.enabled === "true" && refused) return { status: 400, body: { error: { type: "invalid_request_error", param: refused, message: `You cannot use ${refused} with Managed Payments.` } } };
       return { status: 200, body: keep({ id: newId("cs"), object: "checkout.session", mode: form.mode ?? "payment", url: form.success_url ?? "", success_url: form.success_url ?? "", expires_at: now() + 86_400, created: now(), metadata: form.metadata ?? {} }) };
     }
 
