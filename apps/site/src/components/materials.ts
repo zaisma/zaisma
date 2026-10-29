@@ -159,6 +159,10 @@ span.hairline { flex: 1; border-top: var(--divider); }
 :is(.shell:hover, .shell.is-pointed, .shell:focus-visible, .shell.is-focused) > .slab, .slab.is-pointed, .slab.is-focused { --face-color: var(--slab-face-pointed); }
 :is(.shell:active, .shell.is-pressed) > .slab, .slab.is-pressed { --face-color: var(--slab-face-pressed); box-shadow: var(--press-shade); transition-duration: var(--motion-press); }
 :is(.shell:active, .shell.is-pressed):has(> .slab), .slab-holder:has(> .slab.is-pressed) { filter: none; }
+/* Press spring-back: what's on a slab goes down with it, a hair, quickly, and springs back up when it's let go. The slab itself never
+   moves out of its place. A lit slab floats, so it moves as a whole instead (its button lifts and lands it). */
+.slab:not(.lit) > :where(:not(.cut-line)) { transition: transform var(--motion-glide) var(--ease-spring); }
+:is(.shell:active, .shell.is-pressed) > .slab:not(.lit) > :where(:not(.cut-line)), .slab.is-pressed:not(.lit) > :where(:not(.cut-line)) { transform: translateY(1px); transition-duration: var(--motion-press); }
 :is(.shell:active, .shell.is-pressed) > .slab > .cut-line, .slab.is-pressed > .cut-line { --band-top: color-mix(in srgb, var(--way, transparent) calc(var(--way-mix, 0%) * 0.4), var(--carve-top)); --band-left: color-mix(in srgb, var(--way, transparent) calc(var(--way-mix, 0%) * 0.4), var(--carve-left));
   --band-right: color-mix(in srgb, var(--way, transparent) calc(var(--way-mix, 0%) * 0.4), var(--carve-right)); --band-bottom: color-mix(in srgb, var(--way, transparent) calc(var(--way-mix, 0%) * 0.4), var(--carve-bottom)); }
 :is(.shell:focus-visible, .shell.is-focused) > .slab > .cut-line polygon, .slab.is-focused > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
@@ -186,7 +190,7 @@ span.hairline { flex: 1; border-top: var(--divider); }
 :is(.shell:disabled:not([aria-busy="true"]), .shell[aria-disabled="true"]) > .slab.lit:is(::before, ::after) { content: none; }
 /* A lit slab's front: the orange face it shows below its top as it rises (a toggle on). */
 .slab-front { background: linear-gradient(180deg, var(--run-hi), var(--run) 40%, var(--run-lo)); }
-@media (prefers-reduced-motion: reduce) { .carving, .slab { transition: none; } .slab.lit.glint::after { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .carving, .slab, .slab > * { transition: none; } .slab.lit.glint::after { animation: none; } }
 `;
 
 /**
