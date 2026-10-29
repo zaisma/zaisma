@@ -144,6 +144,8 @@ const HEADER_STYLES = `
 /* Search beside Sign in is a row of two controls, so they slant toward each other; beside your account's picture it's words beside it. */
 .top .find:has(~ .end > .shell) { margin-inline-end: var(--gap-control-row-boxes); }
 .top .find:has(~ .end > .me) { margin-inline-end: var(--gap-words-control); }
+/* Where you are beside search is a row of two controls too: however little room the header has, they slant toward each other, never touch. */
+.top .nav:has(~ .find) { margin-inline-end: var(--gap-control-row-boxes); }
 
 /* Where you are: a Switch (switch.ts), filling the room the header gives it; the header only places it.
    With fewer than two tabs to show it isn't a choice, so it's hidden (header()). */
@@ -187,7 +189,7 @@ const HEADER_STYLES = `
   .top.searching .nav { display: none; }
   .top > .find + .cut-btn { display: inline-flex; margin-left: auto; margin-right: var(--gap-words-control); }
   /* The tabs are a row of regular height: a finger's. */
-  .top .nav, .top.is-compact .nav { order: 4; flex-basis: 100%; }
+  .top .nav, .top.is-compact .nav { order: 4; flex-basis: 100%; margin-inline-end: 0; }
   /* The first row is small controls, so it shares Zaisma, search and Sign in or you on the narrowest phones; Sign in is the compact runner, or
      a small secondary button beside the page's own runner. */
   .top .end > .run-wrap > .run, .top .end > .cut-btn { --control-height: var(--control-height-small); }

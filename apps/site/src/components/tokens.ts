@@ -43,7 +43,7 @@ export const LIGHT_GLASS = `color-scheme: light;
   /* What can't be pressed now: carved flat into the glass, unlike a field's or a button's face in either theme. */
   --off-face: rgba(70, 84, 108, 0.08);
   --field-face: var(--carving-face); --field-hover: var(--carving-face-pointed); --field-focus: rgba(255, 255, 255, 0.94); --carving-face-focus: var(--field-focus);
-  --field-shade: var(--carving-shade); --field-outline: transparent;
+  --field-shade: var(--carving-shade);
   --show: rgba(255, 255, 255, 0.55); --show-on: #fff;
   --pick: rgba(255, 255, 255, 0.42); --pick-shade: inset 0 1px 3px rgba(20, 23, 28, 0.1), inset 0 0 0 1px rgba(255, 255, 255, 0.5);
   --done: rgba(255, 255, 255, 0.7); --done-line: inset 0 0 0 1px rgba(20, 23, 28, 0.1);
@@ -95,7 +95,7 @@ export const SMOKED_GLASS = `color-scheme: dark;
   --swatch-rim: rgba(255, 255, 255, 0.45);
   --off-face: rgba(0, 0, 0, 0.22);
   --field-face: var(--carving-face); --field-hover: var(--carving-face-pointed); --field-focus: rgba(255, 255, 255, 0.16); --carving-face-focus: var(--field-focus);
-  --field-shade: var(--carving-shade); --field-outline: transparent;
+  --field-shade: var(--carving-shade);
   --show: rgba(255, 255, 255, 0.1); --show-on: rgba(255, 255, 255, 0.22);
   --pick: rgba(255, 255, 255, 0.06); --pick-shade: inset 0 1px 3px rgba(0, 0, 0, 0.3), inset 0 0 0 1px rgba(255, 255, 255, 0.08);
   --done: rgba(255, 255, 255, 0.12); --done-line: inset 0 0 0 1px rgba(255, 255, 255, 0.12);

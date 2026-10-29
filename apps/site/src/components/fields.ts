@@ -798,7 +798,6 @@ const FIELD_STYLES = `
 .field > .ico { position: absolute; z-index: 3; left: var(--pad-inside-words); width: 20px; height: 20px; pointer-events: none; transition: color var(--motion-state); }
 .field:has(:focus-visible), .field.is-focused { color: var(--ink); }
 .field > .cut-line { z-index: 4; }
-.field > .cut-line polygon { stroke: var(--field-outline); }
 .field:has(:focus-visible) > .cut-line polygon, .field.is-focused > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 .field.is-marked > .cut-line polygon { stroke: var(--marked); stroke-width: 2; }
 .field-error { margin: 0; font: var(--type-words); color: var(--marked); }
@@ -927,7 +926,6 @@ component({
 .find input:focus-visible, .find.is-focused input { outline: none; }
 .find:has(:focus-visible), .find.is-focused { color: var(--ink); }
 .find > .cut-line { z-index: 4; }
-.find > .cut-line polygon { stroke: var(--field-outline); }
 .find:has(:focus-visible) > .cut-line polygon, .find.is-focused > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 .find input::-webkit-search-cancel-button { display: none; }
 .find > .ico { position: absolute; z-index: 3; left: var(--pad-inside-words); width: 20px; height: 20px; pointer-events: none; transition: color var(--motion-state); }
@@ -1000,7 +998,6 @@ component({
 /* Only the chevron turns when the picker opens; the outline and the icon stay still. */
 .wheel-button[aria-expanded="true"] .wheel-chev { transform: rotate(180deg); }
 .wheel-button > .cut-line { z-index: 4; }
-.wheel-button > .cut-line polygon { stroke: var(--field-outline); }
 .wheel-button[aria-expanded="true"] > .cut-line polygon, .wheel-button:focus-visible > .cut-line polygon, .wheel-button.is-focused > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 .wheel-button.is-marked > .cut-line polygon { stroke: var(--marked); stroke-width: 2; }
 /* Its words stay on one line, never crowding its edges; its chevron keeps the same inset from its end as its icon from its start, so a long
