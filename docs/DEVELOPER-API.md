@@ -892,7 +892,20 @@ An optional building block for real-time worlds, the same in Zaisma rooms and on
 - **`delivery: "reliable"`** (the default) reaches every player, in order.
 - **`delivery: "latest_only"`** may be dropped: while a player's connection is backed up, a newer latest-only message with the same `latestKey` replaces the one waiting, and the newest goes once they catch up (oldest key first, before anything newer). For positions sent every tick, or where a player aims. A player keeps up to 64 waiting, one per key; past it, the least recently replaced is dropped.
 - **`latestKey`**, up to 40 characters, says which messages replace each other, like `"position"`, and `latest_only` needs one: without it the send throws: in the game (the SDK) the error's code is `bad_send_option`, and on the game server it is a `GameServerError` with the code `bad_room_call` and the room call (like `room.broadcast`) as its field. Bytes have their own keys.
-- **Zaisma rooms carry them over the WebSocket today**, since Cloudflare doesn't yet let Workers take WebTransport or WebRTC data channels; the same `delivery: "latest_only"` moves to real datagrams once it does, with no change to your game. Anything else for `delivery` or `latestKey` throws in your code, naming what to give: the SDK's error has the code `bad_send_option`; the game server's is a `GameServerError` (`bad_room_call`) saying the same.
+- **Zaisma rooms carry them over the WebSocket today**, since Cloudflare doesn't yet let Workers take WebTransport or WebRTC data channels; the same `delivery: "latest_only"` moves to real datagrams once it does, with no change to your game. **On your own server, the fast lane carries them as datagrams already** (below). Anything else for `delivery` or `latestKey` throws in your code, naming what to give: the SDK's error has the code `bad_send_option`; the game server's is a `GameServerError` (`bad_room_call`) saying the same.
+
+### The fast lane to your own server
+
+`Zaisma.joinRoom({ serverUrl: "wss://play.example.com", transport: "webtransport" })` joins a room on your own server over WebTransport (HTTP/3 over UDP) instead of the WebSocket. The Node runner serves it with `--webtransport-port`, `--certificate-path` and `--certificate-key-path` (`startServer({ webtransportPort, certificatePath, certificateKeyPath })`, all three or none); any other server can speak it too. `transport` is `"websocket"` (the default) or `"webtransport"`, else the SDK refuses it with `bad_transport`; a `serverUrl` that isn't `wss://` or `https://`, and Zaisma's own rooms, use the WebSocket either way. If WebTransport isn't there, its session is refused, or it isn't up within 3 seconds (`FAST_LANE_CONNECT_TIMEOUT_MS`), the room uses the WebSocket for the rest of its life and logs one console warning; a fast lane that worked and then dropped is tried again first. `room.transport` says what the connection uses now.
+
+The wire:
+
+- **The session** is at `https://<server>/v1/rooms/<game>/<code>`: the `serverUrl`'s host and port, with `wss:` read as `https:`. The browser sends the page's `Origin`; check it as you do for the WebSocket. The certificate must be a real one for that name (browsers check it as for any HTTPS site).
+- **One bidirectional stream**, opened by the client first, carries every frame the WebSocket carries, in order: each is `[4-byte big-endian payload length][1-byte kind: 0 text, 1 bytes][payload]`. Text is the same UTF-8: the JSON messages (`hello`, `welcome`, `probe`, `probe_answer`, ...) and `ping`/`pong`. Bytes are the same binary frames: from the room, `[1-byte sender ID length][sender ID][bytes]`; from the client, the bytes alone.
+- **A datagram** is `[1-byte kind][payload]`, with the same payloads, and carries only `latest_only` sends, both ways, when it fits the session's `maxDatagramSize`; a bigger one goes on the stream. Take datagrams only from a player you let in.
+- **Closing:** the session's close info carries the WebSocket's close codes and reasons (`closeCode` 4000 to 4004, as in [Close codes](#close-codes)).
+
+A server of your own that isn't the Node runner (Rust, C++, a studio's engine) needs to: accept WebTransport sessions at that path and check `Origin`; read the hello from the stream and verify its pass against `https://rooms.zaisma.com/.well-known/jwks.json`; answer each `probe` the room protocol says to send, and every `ping` with `pong`; send the same frames on the stream, and `latest_only` ones as datagrams when they fit.
 
 ### Room error codes
 
@@ -931,6 +944,7 @@ A room answers a refusal with `{ type: "error", code, message }`, then closes th
 | `chat_too_fast` | More than 20 chat messages in 10 seconds from one player. |
 | `bad_region` | The SDK's own: a `region` that isn't a continent code (`"AF"`, `"AN"`, `"AS"`, `"EU"`, `"NA"`, `"OC"` or `"SA"`). |
 | `bad_idle_timeout` | The SDK's own: an `idleTimeoutSec` that isn't from 30 to 86400. |
+| `bad_transport` | The SDK's own: a `transport` that isn't `"websocket"` or `"webtransport"`. |
 | `zaisma_rooms_not_used` | The SDK's own: the game doesn't use Zaisma rooms, so there are none to join or list. |
 
 ### Close codes

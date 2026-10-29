@@ -60,8 +60,9 @@ function addressBytes(address) {
  * A self-signed certificate for these names and addresses ("localhost", "192.168.1.20"), with its key, as PEM text:
  * { certificatePem, keyPem }. ECDSA P-256 and SHA-256, for server authentication, as phones ask of a server's certificate.
  * The serial is 16 random bytes unless serialBytes is given (a test's way to try the serials that are hard to write).
+ * It lasts durationDays from now (and a day before, for clocks a little behind).
  */
-export function makeCertificate(names, nowMs = Date.now(), serialBytes = randomBytes(16)) {
+export function makeCertificate(names, nowMs = Date.now(), serialBytes = randomBytes(16), durationDays = CERTIFICATE_DURATION_DAYS) {
   const { privateKey, publicKey } = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
   const name = sequence(set(sequence(objectId("2.5.4.3"), utf8("Zaisma test bench"))));
   const signatureAlgorithm = sequence(objectId("1.2.840.10045.4.3.2"));
@@ -80,7 +81,7 @@ export function makeCertificate(names, nowMs = Date.now(), serialBytes = randomB
     integer(serial),
     signatureAlgorithm,
     name,
-    sequence(utcTime(nowMs - DAY_MS), utcTime(nowMs + CERTIFICATE_DURATION_DAYS * DAY_MS)),
+    sequence(utcTime(nowMs - DAY_MS), utcTime(nowMs + durationDays * DAY_MS)),
     name,
     publicKey.export({ type: "spki", format: "der" }),
     extensions,

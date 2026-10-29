@@ -17,13 +17,16 @@
 // Its rooms' states are another, --room-state-file, so a restarted server brings its matches back (onRestored).
 // Its secrets (room.secrets, server.secrets) are this process's environment variables, and it calls
 // other servers with plain fetch(), with no list: on your own server nothing stands in between.
+// With --webtransport-port, --certificate-path and --certificate-key-path, it also serves the fast lane:
+// WebTransport on that UDP port, for games that join with transport: "webtransport" (bin/fast-lane.js).
 import { WebSocketServer } from "ws";
 import { createServer } from "node:http";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { resolve } from "node:path";
-import { realpathSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { BUSY_CLOSE_CODE, ENDED_CLOSE_CODE, ERROR_TEXT, NO_ANSWER_CLOSE_CODE, PASS_ISSUER_URL, PassError, ReceiptError, REMOVED_CLOSE_CODE, REQUEST_ERROR_HTTP_STATUS, REQUEST_LIMITS, ROOM_LIMITS, ROOM_TUNING, WEBHOOK_LIMITS, GameServerError, RoomCore, chatSettingsOf, checkChat, readChatMessage, restoreInfoOf, passesAreFriends, passesHaveBlockBetween, answerRequest, startSchedules, checkRoomData, clientIdle, defineGameServer, errorMessage, isRoomCode, readRequestBody, relay, requestError, runWebhook, tidyRoomInfo, verifyPass, verifyReceipt, verifyWebhook } from "../src/internal.ts";
 import { OutsideCallError } from "../src/outside-calls.ts";
+import { startFastLane } from "./fast-lane.js";
 import { checkedStartServerOptions, localDatabase, localRoomStates, passKeysFrom, profilesFrom, receiptKeysFrom, secretsFromEnvironment } from "./node-parts.js";
 
 // Code that names OutsideCallError, as Zaisma's sandbox lets it, moves unchanged: nothing here refuses a call, so instanceof is simply false.
@@ -69,16 +72,28 @@ const CATCH_UP_MS = 50;
  * rooms save their states, so a restart brings matches back; by default zaisma-room-states.sqlite, null to keep none),
  * zaismaKey (an API key with purchase_access write for this game, which onPurchase and onRefund need; by default
  * the ZAISMA_KEY environment variable) and developerApiUrl (Zaisma's developer API; by default https://zaisma.com/api/dev).
- * Answers { close(), httpServer }: close() saves every room first and finishes once the server has stopped.
+ * webtransportPort (a UDP port), certificatePath and certificateKeyPath (the server's certificate and its key,
+ * PEM files), all three or none, also serve the fast lane (WebTransport) beside the WebSocket.
+ * Answers { close(), httpServer, fastLaneReady }: close() saves every room first and finishes once the server
+ * has stopped; fastLaneReady settles once the fast lane listens (at once without one), or rejects saying why it can't.
  */
 export function startServer(options) {
-  const { gameServer, gameSlug, port: portNumber, origins, issuerUrl, loadPassKeys = passKeysFrom(`${issuerUrl}/.well-known/jwks.json`), loadReceiptKeys = receiptKeysFrom(`${issuerUrl}/.well-known/receipt-jwks.json`), loadProfile = profilesFrom(issuerUrl), database = localDatabase("zaisma-database.sqlite"), secrets = secretsFromEnvironment(), webhookSigningSecret = process.env.ZAISMA_WEBHOOK_SIGNING_SECRET, roomStateFile = "zaisma-room-states.sqlite", zaismaKey = process.env.ZAISMA_KEY, developerApiUrl = "https://zaisma.com/api/dev" } = checkedStartServerOptions(options, PASS_ISSUER_URL);
+  const { gameServer, gameSlug, port: portNumber, origins, issuerUrl, loadPassKeys = passKeysFrom(`${issuerUrl}/.well-known/jwks.json`), loadReceiptKeys = receiptKeysFrom(`${issuerUrl}/.well-known/receipt-jwks.json`), loadProfile = profilesFrom(issuerUrl), database = localDatabase("zaisma-database.sqlite"), secrets = secretsFromEnvironment(), webhookSigningSecret = process.env.ZAISMA_WEBHOOK_SIGNING_SECRET, roomStateFile = "zaisma-room-states.sqlite", zaismaKey = process.env.ZAISMA_KEY, developerApiUrl = "https://zaisma.com/api/dev", webtransportPort, certificatePath, certificateKeyPath } = checkedStartServerOptions(options, PASS_ISSUER_URL);
   const definition = defineGameServer(gameServer);
   // Exactly once needs Zaisma's record of what's handled: without a key, purchases would come twice, so it doesn't start.
   if ((definition.onPurchase || definition.onRefund) && !zaismaKey) {
     const hook = definition.onPurchase ? "onPurchase" : "onRefund";
     throw new GameServerError("bad_option", "zaismaKey", `${hook} needs zaismaKey, so each purchase is delivered once.`, "Give an API key with purchase_access write for this game as zaismaKey, or set ZAISMA_KEY.");
   }
+  // The fast lane's certificate, read before anything listens, so a wrong path says so at once.
+  const readPem = (path, field) => {
+    try {
+      return readFileSync(path, "utf8");
+    } catch (error) {
+      throw new GameServerError("bad_option", field, `${field} ${path} couldn't be read (${error.code ?? error.message}).`, "Give the path of a PEM file this process can read, like the fullchain.pem and privkey.pem Let's Encrypt makes.");
+    }
+  };
+  const fastLaneCertificate = webtransportPort === undefined ? null : { certificatePem: readPem(certificatePath, "certificatePath"), keyPem: readPem(certificateKeyPath, "certificateKeyPath") };
   const purchaseHandling = definition.onPurchase || definition.onRefund ? ownServerPurchaseHandling(gameSlug, zaismaKey, developerApiUrl) : undefined;
   const roomStates = roomStateFile === null ? null : localRoomStates(roomStateFile);
   const stateSaveIntervalMs = (definition.stateSaveIntervalSec ?? ROOM_LIMITS.defaultStateSaveIntervalSec) * 1000;
@@ -88,6 +103,9 @@ export function startServer(options) {
   const httpServer = createServer((request, response) => answerHttp(request, response));
   const wss = new WebSocketServer({ server: httpServer, maxPayload: MAXIMUM_SOCKET_MESSAGE_SIZE_BYTES });
   httpServer.listen(portNumber);
+  // The fast lane's players come in the same way as the WebSocket's (connected), on a socket with the same surface.
+  const fastLaneReady = fastLaneCertificate ? startFastLane({ port: webtransportPort, ...fastLaneCertificate, helloMs: HELLO_MS, maximumFrameSizeBytes: MAXIMUM_SOCKET_MESSAGE_SIZE_BYTES, onConnection: connected }) : Promise.resolve(null);
+  fastLaneReady.catch(() => {});
 
   /** room.verifyReceipt and server.verifyReceipt: a receipt for this game from Zaisma's receipt issuer, checked against its keys (fetched again once when its key is new). */
   async function receiptClaims(receipt) {
@@ -256,8 +274,9 @@ export function startServer(options) {
         secrets,
         verifyReceipt: receiptClaims,
         purchaseHandling,
-        send: (id, text) => sockets.get(id)?.send(text),
-        sendBytes: (id, frame) => sockets.get(id)?.send(frame, { binary: true }),
+        // delivery reaches a fast-lane socket, which sends latest-only ones as datagrams; ws doesn't read it.
+        send: (id, text, delivery) => sockets.get(id)?.send(text, { delivery }),
+        sendBytes: (id, frame, delivery) => sockets.get(id)?.send(frame, { binary: true, delivery }),
         isBackedUp: (id) => (sockets.get(id)?.bufferedAmount ?? 0) >= BACKED_UP_SIZE_BYTES,
         close: (id, code, reason) => {
           const ws = sockets.get(id);
@@ -485,8 +504,11 @@ export function startServer(options) {
   }, CATCH_UP_MS);
   catcher.unref?.();
 
-  wss.on("connection", (ws, request) => {
-    const address = /^\/v1\/rooms\/([a-z0-9-]{1,40})\/([A-Z0-9]{6})$/.exec(request.url ?? "");
+  wss.on("connection", (ws, request) => connected(ws, request.url ?? "", request.headers.origin));
+
+  /** A player's connection to /v1/rooms/<game>/<code>: a ws WebSocket, or a fast-lane socket with the same surface. */
+  function connected(ws, url, origin) {
+    const address = /^\/v1\/rooms\/([a-z0-9-]{1,40})\/([A-Z0-9]{6})$/.exec(url);
     const refuse = (code, message) => {
       ws.send(errorMessage(code, message));
       // Busy is a try-again (1013); every other refusal is final (4001).
@@ -494,14 +516,16 @@ export function startServer(options) {
     };
     // Refused before the hello too, with a code the SDK reads: a browser never sees why a socket closed otherwise.
     if (!address || address[1] !== gameSlug || !isRoomCode(address[2])) return refuse("game_unavailable");
-    if (origins.length && !origins.includes(request.headers.origin)) return refuse("bad_origin");
+    if (origins.length && !origins.includes(origin)) return refuse("bad_origin");
     if (typeof definition.setup !== "function") return refuse("game_unavailable", "This game server has no setup(), so it runs no rooms: it only answers requests, runs on schedules or takes webhooks.");
     const code = address[2];
     let playerId = null;
     const helloTimer = setTimeout(() => playerId || refuse("no_hello"), HELLO_MS);
     ws.zaismaSeenAtMs = Date.now();
 
-    const onMessage = async (received, isBinary) => {
+    const onMessage = async (received, isBinary, isDatagram) => {
+      // Datagrams carry only latest-only sends, from a player already in.
+      if (isDatagram && !playerId) return;
       const text = isBinary ? null : received.toString();
       ws.zaismaSeenAtMs = Date.now();
       // Games ping every 25 seconds or so, so a connection that stops answering can be dropped.
@@ -587,8 +611,8 @@ export function startServer(options) {
       pace(code, room);
     };
     // Whatever a message hits, it ends that connection or that message, never the process and the matches on it.
-    ws.on("message", (received, isBinary) => {
-      onMessage(received, isBinary).catch((error) => {
+    ws.on("message", (received, isBinary, isDatagram = false) => {
+      onMessage(received, isBinary, isDatagram).catch((error) => {
         console.error("Couldn't handle a message:", error);
         if (!playerId) refuse("busy");
       });
@@ -608,7 +632,7 @@ export function startServer(options) {
       pace(code, room);
       closeIfEmpty(code, room);
     });
-  });
+  }
 
   // Every room saves as the server stops, so a clean restart loses nothing.
   const close = () =>
@@ -625,10 +649,15 @@ export function startServer(options) {
       setTimeout(() => {
         for (const ws of wss.clients) ws.terminate();
       }, 2000).unref?.();
+      void fastLaneReady.then((fastLane) => {
+        if (!fastLane) return;
+        for (const socket of fastLane.sockets) socket.close(1012, "Server restarting");
+        setTimeout(() => fastLane.close(), 2000).unref?.();
+      }, () => {});
       wss.close(() => httpServer.close(() => done()));
       httpServer.closeAllConnections?.();
     });
-  return { close, httpServer };
+  return { close, httpServer, fastLaneReady: fastLaneReady.then(() => undefined) };
 }
 
 /** A saved state's key: its JSON, who was in the match and whether the room is kept, since any of them changing is worth a save. */
@@ -720,8 +749,10 @@ function binaryBytes(received) {
   return new Uint8Array(received.buffer.slice(received.byteOffset, received.byteOffset + received.byteLength));
 }
 
-const USAGE = "Usage: zaisma-game-server <server.ts | relay> --game <slug> [--port 8080] [--origin <url>,<url>] [--issuer-url https://rooms.zaisma.com] [--database-file zaisma-database.sqlite] [--room-state-file zaisma-room-states.sqlite]\n   or: zaisma-game-server play-locally [folder] [--port 4800] [--game <slug>] [--on-network] [--no-open] [--json]";
-const FLAGS = ["game", "port", "origin", "issuer-url", "database-file", "room-state-file"];
+const USAGE = "Usage: zaisma-game-server <server.ts | relay> --game <slug> [--port 8080] [--origin <url>,<url>] [--issuer-url https://rooms.zaisma.com] [--database-file zaisma-database.sqlite] [--room-state-file zaisma-room-states.sqlite] [--webtransport-port 443 --certificate-path fullchain.pem --certificate-key-path privkey.pem]\n   or: zaisma-game-server play-locally [folder] [--port 4800] [--game <slug>] [--on-network] [--no-open] [--json]";
+const FLAGS = ["game", "port", "origin", "issuer-url", "database-file", "room-state-file", "webtransport-port", "certificate-path", "certificate-key-path"];
+/** The fast lane's flags: all three or none. */
+const FAST_LANE_FLAGS = ["webtransport-port", "certificate-path", "certificate-key-path"];
 
 /** The command line's flags by name, or null for one this runner doesn't take (or one missing its value). */
 function flagsFrom(argumentList) {
@@ -807,6 +838,11 @@ async function runCommand() {
     console.log(USAGE);
     process.exit(1);
   }
+  const missingFastLaneFlags = FAST_LANE_FLAGS.filter((name) => flags[name] === undefined);
+  if (missingFastLaneFlags.length && missingFastLaneFlags.length < FAST_LANE_FLAGS.length) {
+    console.log(`The fast lane needs ${missingFastLaneFlags.map((name) => `--${name}`).join(" and ")} too: give all three of ${FAST_LANE_FLAGS.map((name) => `--${name}`).join(", ")}, or none.\n${USAGE}`);
+    process.exit(1);
+  }
   const gameServer = file === "relay" ? relay : (await import(pathToFileURL(resolve(file)).href)).default;
   const portNumber = Number(flags.port ?? "8080");
   let running;
@@ -819,6 +855,7 @@ async function runCommand() {
       ...(flags["issuer-url"] !== undefined ? { issuerUrl: flags["issuer-url"] } : {}),
       ...(flags["database-file"] !== undefined ? { database: localDatabase(resolve(flags["database-file"])) } : {}),
       roomStateFile: resolve(flags["room-state-file"] ?? "zaisma-room-states.sqlite"),
+      ...(flags["webtransport-port"] !== undefined ? { webtransportPort: Number(flags["webtransport-port"]), certificatePath: resolve(flags["certificate-path"]), certificateKeyPath: resolve(flags["certificate-key-path"]) } : {}),
     });
   } catch (error) {
     // A bad flag, or an option the runner refuses: said plainly, before anything listens.
@@ -829,6 +866,13 @@ async function runCommand() {
   for (const signal of ["SIGTERM", "SIGINT"]) process.once(signal, () => running.close().then(() => process.exit(0)));
   const scheduleNames = (gameServer.schedules ?? []).map((schedule) => `${schedule.name} (${schedule.cron})`);
   const webhookNote = ` Webhooks come to POST /v1/webhooks${process.env.ZAISMA_WEBHOOK_SIGNING_SECRET ? "" : " once ZAISMA_WEBHOOK_SIGNING_SECRET is set"}${typeof gameServer.onWebhook === "function" ? "" : " (account_deleted only: it erases the player from the database)"}.`;
+  running.fastLaneReady.then(
+    () => flags["webtransport-port"] !== undefined && console.log(`Fast lane (WebTransport) on UDP port ${flags["webtransport-port"]}, for games that join with transport: "webtransport".`),
+    (error) => {
+      console.error(error instanceof GameServerError ? error.message : error);
+      process.exit(1);
+    },
+  );
   console.log(`Game server for "${flags.game}" on port ${portNumber}. Players connect to /v1/rooms/${flags.game}/<code>; requests come to POST /v1/requests/${flags.game}.${scheduleNames.length ? ` Schedules, in UTC: ${scheduleNames.join(", ")}.` : ""}${webhookNote}`);
 }
 

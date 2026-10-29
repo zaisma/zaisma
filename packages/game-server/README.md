@@ -31,6 +31,15 @@ const running = startServer({ gameServer, gameSlug: "your-game-slug", port: 8080
 // Later: await running.close(); every room saves first.
 ```
 
+For the fast lane (WebTransport, where `latest_only` sends go as datagrams), install its two optional packages beside the runner and give it all three of `--webtransport-port`, `--certificate-path` and `--certificate-key-path` (`startServer({ webtransportPort, certificatePath, certificateKeyPath })`):
+
+```
+npm install @fails-components/webtransport@1.6.11 @fails-components/webtransport-transport-http3-quiche@1.6.11
+npx @zaisma/game-server@1 ./server.ts --game <your-game-slug> --port 8080 --webtransport-port 443 --certificate-path fullchain.pem --certificate-key-path privkey.pem
+```
+
+Games join it with `Zaisma.joinRoom({ serverUrl, transport: "webtransport" })`, and fall back to the WebSocket by themselves where it doesn't connect.
+
 A mistake in your game server's code becomes a coded error in the game's logs, never a silent success, and the Node runner behaves the same as Zaisma's rooms. Versions follow semver: within 1.x the package only gains things.
 
 - The game server, handler by handler: the "Game servers" section of the [README](https://github.com/zaisma/zaisma#readme) and [`docs/DEVELOPER-API.md`](https://github.com/zaisma/zaisma/blob/main/docs/DEVELOPER-API.md).

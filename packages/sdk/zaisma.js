@@ -18,16 +18,20 @@
   var OWN_SERVER_URL = /^(wss|https):\/\/[^/]/;
 
   // What each call takes. Anything else is refused, so a misspelled or old option never goes quietly unused.
-  var JOIN_OPTIONS = ["roomCode", "serverUrl", "isListed", "friendJoinsEnabled", "name", "labels", "joinData", "idleTimeoutSec", "idleCheckEnabled", "isSpectator"];
+  var JOIN_OPTIONS = ["roomCode", "serverUrl", "transport", "isListed", "friendJoinsEnabled", "name", "labels", "joinData", "idleTimeoutSec", "idleCheckEnabled", "isSpectator"];
   // quickJoin finds Zaisma rooms, so it takes no serverUrl.
   var QUICK_JOIN_OPTIONS = ["isListed", "friendJoinsEnabled", "name", "labels", "joinData", "idleTimeoutSec", "idleCheckEnabled", "region"];
   var LIST_OPTIONS = ["region", "labels"];
-  // move.join joins the room the move names, on this room's server, as a player: the game server moves only players.
-  var MOVE_JOIN_OPTIONS = JOIN_OPTIONS.filter(function (name) { return name !== "roomCode" && name !== "serverUrl" && name !== "isSpectator"; });
+  // move.join joins the room the move names, on this room's server and over its transport, as a player: the game server moves only players.
+  var MOVE_JOIN_OPTIONS = JOIN_OPTIONS.filter(function (name) { return name !== "roomCode" && name !== "serverUrl" && name !== "transport" && name !== "isSpectator"; });
   var KICK_OPTIONS = ["keepOut"];
   var SEND_OPTIONS = ["delivery", "latestKey"];
   var SMOOTHING_OPTIONS = ["delayMs"];
   var DELIVERIES = ["reliable", "latest_only"];
+  /** How a room on the game's own server is reached: the WebSocket, or the fast lane (WebTransport), which carries latest-only sends as datagrams. */
+  var TRANSPORTS = ["websocket", "webtransport"];
+  /** A fast lane that isn't up in this long gives way to the WebSocket, for the rest of the room's life. */
+  var FAST_LANE_CONNECT_TIMEOUT_MS = 3000;
   var ROOM_INFO_FIELDS = ["name", "labels"];
   var ROOM_EVENTS = ["message", "bytes", "state", "players", "connectionStatus", "ended", "ending", "endingCancelled", "kicked", "settings", "move", "moved", "idle", "away", "back", "muted", "error", "versionUpdate", "chat"];
   /** Chat (room.chat): the longest message, the lines a room keeps in memory for reports, and how many of them a report carries. */
@@ -425,6 +429,11 @@
     this.isSpectator = setup.isSpectator === true;
     this.spectatorCount = 0;
     this._url = setup.url;
+    // The fast lane's address (joinRoom({ transport: "webtransport" }) on an own server), or null, and whether this room gave it up for the WebSocket.
+    this._fastLaneUrl = setup.fastLaneUrl || null;
+    this._isFastLaneOff = false;
+    // What this connection uses now: "webtransport" once the fast lane opens, else "websocket".
+    this.transport = "websocket";
     this._pass = setup.pass;
     this._made = { isListed: this.isListed, friendJoinsEnabled: setup.friendJoinsEnabled === false ? false : undefined, name: setup.name, labels: setup.labels };
     this._joinData = setup.joinData === undefined ? null : setup.joinData;
@@ -472,6 +481,135 @@
     this._chatLines = [];
   }
   Room.prototype = Object.create(Emitter.prototype);
+
+  /**
+   * The fast lane to the game's own server (WebTransport), with what the room uses on a WebSocket: readyState,
+   * bufferedAmount, send(text or bytes), close(code, reason), onopen, onmessage and onclose; and sendDatagram
+   * for latest-only sends, and onfail when it never came up. One stream carries every frame in order, each
+   * [4-byte big-endian payload length][1-byte kind: 0 text, 1 bytes][payload]; a datagram is [kind][payload]
+   * (the wire: packages/game-server/src/room.ts, above ServerMessage).
+   */
+  function FastLane(url) {
+    var lane = this;
+    this.readyState = 0;
+    this.bufferedAmount = 0;
+    this.onopen = this.onmessage = this.onclose = this.onfail = null;
+    this._writer = null;
+    this._datagrams = null;
+    this._datagramWriter = null;
+    var session;
+    function fail(reason) {
+      if (lane.readyState !== 0) return;
+      lane.readyState = 3;
+      clearTimeout(timer);
+      try { session.close(); } catch (error) { /* fine */ }
+      if (lane.onfail) lane.onfail(reason);
+    }
+    var timer = setTimeout(function () { fail("no answer in " + FAST_LANE_CONNECT_TIMEOUT_MS / 1000 + " seconds"); }, FAST_LANE_CONNECT_TIMEOUT_MS);
+    try {
+      session = new WebTransport(url);
+    } catch (error) {
+      session = null;
+      // Called from the room's _connect: it hears the failure once that has set it up.
+      setTimeout(function () { fail(error && error.message ? error.message : "refused"); }, 0);
+      return;
+    }
+    this._session = session;
+    session.ready.then(function () { return session.createBidirectionalStream(); }).then(function (stream) {
+      if (lane.readyState !== 0) return;
+      clearTimeout(timer);
+      lane._writer = stream.writable.getWriter();
+      lane._datagrams = session.datagrams;
+      lane._datagramWriter = (typeof session.datagrams.createWritable === "function" ? session.datagrams.createWritable() : session.datagrams.writable).getWriter();
+      lane.readyState = 1;
+      session.closed.then(function (closeInfo) { lane._closed(closeInfo && typeof closeInfo.closeCode === "number" ? closeInfo.closeCode : 1005, closeInfo && closeInfo.reason ? closeInfo.reason : ""); }, function () { lane._closed(1006, ""); });
+      lane._read(stream.readable);
+      lane._readDatagrams(session.datagrams.readable);
+      if (lane.onopen) lane.onopen();
+    }, function (error) {
+      fail(error && error.message ? error.message : "refused");
+    });
+  }
+  FastLane.prototype._closed = function (code, reason) {
+    if (this.readyState === 3) return;
+    this.readyState = 3;
+    if (this.onclose) this.onclose({ code: code, reason: reason });
+  };
+  /** A frame from the stream or a datagram, to the room as a WebSocket's message: text as a string, bytes as an ArrayBuffer. */
+  FastLane.prototype._take = function (kind, payload) {
+    if (this.readyState !== 1 || !this.onmessage) return;
+    if (kind === 0) this.onmessage({ data: new TextDecoder().decode(payload) });
+    else if (kind === 1) this.onmessage({ data: payload.slice().buffer });
+  };
+  FastLane.prototype._read = function (readable) {
+    var lane = this;
+    var reader = readable.getReader();
+    var buffered = new Uint8Array(0);
+    function next() {
+      reader.read().then(function (read) {
+        if (read.done) return;
+        var joined = new Uint8Array(buffered.length + read.value.length);
+        joined.set(buffered);
+        joined.set(read.value, buffered.length);
+        buffered = joined;
+        while (buffered.length >= 5) {
+          var payloadSizeBytes = new DataView(buffered.buffer, buffered.byteOffset, 4).getUint32(0);
+          if (buffered.length < 5 + payloadSizeBytes) break;
+          lane._take(buffered[4], buffered.subarray(5, 5 + payloadSizeBytes));
+          buffered = buffered.subarray(5 + payloadSizeBytes);
+        }
+        next();
+      }, function () { /* the session closed: closed says how */ });
+    }
+    next();
+  };
+  FastLane.prototype._readDatagrams = function (readable) {
+    var lane = this;
+    var reader = readable.getReader();
+    function next() {
+      reader.read().then(function (read) {
+        if (read.done) return;
+        if (read.value.length) lane._take(read.value[0], read.value.subarray(1));
+        next();
+      }, function () { /* the session closed */ });
+    }
+    next();
+  };
+  /** A text or bytes, as [kind][payload]. */
+  function fastLanePayload(message) {
+    var payload = typeof message === "string" ? new TextEncoder().encode(message) : new Uint8Array(message);
+    var framed = new Uint8Array(1 + payload.length);
+    framed[0] = typeof message === "string" ? 0 : 1;
+    framed.set(payload, 1);
+    return framed;
+  }
+  /** On the stream, in order, after everything sent before it. */
+  FastLane.prototype.send = function (message) {
+    if (this.readyState !== 1) return;
+    var payload = fastLanePayload(message);
+    var frame = new Uint8Array(4 + payload.length);
+    new DataView(frame.buffer).setUint32(0, payload.length - 1);
+    frame.set(payload, 4);
+    var lane = this;
+    this.bufferedAmount += frame.length;
+    this._writer.write(frame).then(function () { lane.bufferedAmount -= frame.length; }, function () { /* the session closed */ });
+  };
+  /** As a datagram, when it fits one: false when it doesn't, for the stream to carry it instead. */
+  FastLane.prototype.sendDatagram = function (message) {
+    if (this.readyState !== 1) return false;
+    var datagram = fastLanePayload(message);
+    var maximumSizeBytes = this._datagrams.maxDatagramSize;
+    if (typeof maximumSizeBytes !== "number" || datagram.length > maximumSizeBytes) return false;
+    this._datagramWriter.write(datagram).catch(function () { /* dropped, like a lost one */ });
+    return true;
+  };
+  FastLane.prototype.close = function (code, reason) {
+    if (this.readyState === 3) return;
+    var wasConnecting = this.readyState === 0;
+    this.readyState = 3;
+    if (!this._session) return;
+    try { this._session.close(wasConnecting ? undefined : { closeCode: typeof code === "number" ? code : 1000, reason: reason || "" }); } catch (error) { /* fine */ }
+  };
 
   /** The link that opens this room: on Zaisma, the game's page with ?room=, and &server= for a room on the game's own server. */
   function inviteUrlFor(roomCode, serverUrl) {
@@ -528,13 +666,23 @@
 
   Room.prototype._connect = function () {
     var room = this;
+    var isFastLane = Boolean(this._fastLaneUrl && !this._isFastLaneOff && typeof WebTransport === "function");
     // From a tester link, Zaisma rooms hear which one, so its players leave when it's turned off.
-    var ws = new WebSocket(this._url + (config.tester && !this._serverUrl ? "?tester=" + config.tester : ""));
-    ws.binaryType = "arraybuffer";
+    var ws = isFastLane ? new FastLane(this._fastLaneUrl) : new WebSocket(this._url + (config.tester && !this._serverUrl ? "?tester=" + config.tester : ""));
+    if (!isFastLane) ws.binaryType = "arraybuffer";
     this._ws = ws;
     this._isWelcomed = false;
     watch();
+    // The fast lane didn't come up (no UDP on this network, a server without it): the WebSocket, from now on.
+    ws.onfail = function (reason) {
+      if (room._ws !== ws) return;
+      room._isFastLaneOff = true;
+      if (typeof console !== "undefined") console.warn("Zaisma: the fast lane (WebTransport) to " + room._fastLaneUrl + " didn't connect (" + reason + "), so this room uses the WebSocket.");
+      room._ws = null;
+      if (!room._done) room._connect();
+    };
     ws.onopen = function () {
+      room.transport = isFastLane ? "webtransport" : "websocket";
       room._pingAtMs = room._pongAtMs = room._heardAtMs = Date.now();
       room._probeIntervalSec = null;
       var hello = { type: "hello", protocolVersionNumber: PROTOCOL_VERSION_NUMBER, pass: room._pass, room: room._made, joinData: room._joinData, idleTimeoutSec: room._clientIdle.idleTimeoutSec, idleCheckEnabled: room._clientIdle.idleCheckEnabled };
@@ -873,6 +1021,11 @@
 
   /** A latest-only send: now, after anything still waiting, or into its slot while the socket is backed up. */
   Room.prototype._sendLatest = function (slotKey, payload) {
+    // On the fast lane, a datagram: a late one is lost rather than waited for, so it skips the slots.
+    if (this._canSend() && !this._queue.length && this._ws.sendDatagram && this._ws.sendDatagram(payload)) {
+      this._sentAtMs = Date.now();
+      return;
+    }
     if (this._canSend() && !this._queue.length && !(this._ws.bufferedAmount >= BACKED_UP_SIZE_BYTES)) {
       this._sendWaiting();
       this._ws.send(payload);
@@ -1043,6 +1196,7 @@
    */
   Room.prototype._move = function (message) {
     var serverUrl = this._serverUrl;
+    var transport = this._fastLaneUrl ? "webtransport" : undefined;
     var room = this;
     return {
       roomCode: message.roomCode,
@@ -1050,7 +1204,7 @@
       join: function (joinOptions) {
         var refused = unknownOption(joinOptions, MOVE_JOIN_OPTIONS, "move.join");
         if (refused) return Promise.reject(refused);
-        return connect(message.roomCode, Object.assign({}, joinOptions || {}, { serverUrl: serverUrl }));
+        return connect(message.roomCode, Object.assign({}, joinOptions || {}, { serverUrl: serverUrl, transport: transport }));
       },
     };
   };
@@ -1071,6 +1225,7 @@
     var fromRoomCode = this.roomCode;
     this.roomCode = roomCode;
     this._url = this._url.replace(/[A-Z0-9]{6}$/, roomCode);
+    if (this._fastLaneUrl) this._fastLaneUrl = this._fastLaneUrl.replace(/[A-Z0-9]{6}$/, roomCode);
     this.inviteUrl = inviteUrlFor(roomCode, this._serverUrl);
     // A room the game server moves players to is listed only if the game server lists it.
     this._made = { isListed: false };
@@ -1372,6 +1527,7 @@
     var idleTimeoutSec = joinOptions.idleTimeoutSec;
     if (idleTimeoutSec !== undefined && !(typeof idleTimeoutSec === "number" && idleTimeoutSec >= MINIMUM_IDLE_TIMEOUT_SEC && idleTimeoutSec <= MAXIMUM_IDLE_TIMEOUT_SEC)) return Promise.reject(codedError("bad_idle_timeout", "idleTimeoutSec runs from " + MINIMUM_IDLE_TIMEOUT_SEC + " to " + MAXIMUM_IDLE_TIMEOUT_SEC + "."));
     if (serverUrl && !SERVER_URL.test(serverUrl)) return Promise.reject(codedError("bad_server_url", "serverUrl takes a full address starting with wss://, ws://, https:// or http://, like \"wss://play.example.com\"."));
+    if (joinOptions.transport !== undefined && TRANSPORTS.indexOf(joinOptions.transport) === -1) return Promise.reject(codedError("bad_transport", "transport is " + JSON.stringify(joinOptions.transport) + '. Give "websocket" (the default) or "webtransport" (the fast lane to your own server).'));
     if (roomCode && !ROOM_CODE.test(roomCode)) return Promise.reject(codedError("bad_room_code", JSON.stringify(roomCode) + " isn't a room code: room codes are six characters like \"K7Q2MX\", from 2 to 9 and A to Z without I or O."));
 
     var roomCodeReady = roomCode
@@ -1381,10 +1537,13 @@
         : post("/v1/rooms", { gameSlug: config.game }).then(function (answer) { return answer.roomCode; });
     return Promise.all([roomCodeReady, getPass()]).then(function (ready) {
       var base = (serverUrl || config.rooms).replace(/^http/, "ws");
+      var path = "/v1/rooms/" + config.game + "/" + ready[0];
       var room = new Room({
         roomCode: ready[0],
         pass: ready[1].pass,
-        url: base + "/v1/rooms/" + config.game + "/" + ready[0],
+        url: base + path,
+        // The fast lane reaches only the game's own secure servers: Zaisma's rooms take the WebSocket, whatever transport says.
+        fastLaneUrl: joinOptions.transport === "webtransport" && serverUrl && OWN_SERVER_URL.test(serverUrl) ? serverUrl.replace(/^wss:/, "https:") + path : null,
         isListed: joinOptions.isListed,
         friendJoinsEnabled: joinOptions.friendJoinsEnabled,
         name: joinOptions.name,
