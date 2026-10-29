@@ -165,7 +165,9 @@ span.hairline { flex: 1; border-top: var(--divider); }
    foot; on smoked glass it glows onto what's round it, on light glass it casts a shadow (--run-cast). */
 .slab.lit { --face-color: var(--run); background: radial-gradient(130% 110% at 50% -35%, rgba(255,255,255,0.3), rgba(255,255,255,0) 62%), linear-gradient(180deg, var(--run-hi), var(--run) 52%, #E57F0C);
   color: var(--on-run); text-shadow: 0 1px 0 rgba(255,226,180,0.45); font-size: 1rem; letter-spacing: 0.01em; }
-.slab.lit > .cut-line { --band-top: rgba(255,240,214,0.85); --band-left: rgba(255,226,180,0.55); --band-right: rgba(150,72,0,0.32); --band-bottom: rgba(130,60,0,0.55); }
+.slab.lit > .cut-line, :is(.shell:active, .shell.is-pressed) > .slab.lit > .cut-line, .slab.lit.is-pressed > .cut-line { --band-top: rgba(255,240,214,0.85); --band-left: rgba(255,226,180,0.55); --band-right: rgba(150,72,0,0.32); --band-bottom: rgba(130,60,0,0.55); }
+/* A lit slab floats: pressed, it lands flush on the glass, its light kept, never carved in (its button brings it down, RUNNER_SCRIPT). */
+:is(.shell:active, .shell.is-pressed) > .slab.lit, .slab.lit.is-pressed { box-shadow: none; }
 :where(.shell, .slab-holder):has(> .slab.lit) { filter: var(--run-cast); }
 :is(.shell:hover, .shell.is-pointed):has(> .slab.lit), .slab-holder:has(> .slab.lit.is-pointed) { filter: var(--run-cast-up); }
 :is(.shell:active, .shell.is-pressed):has(> .slab.lit), .slab-holder:has(> .slab.lit.is-pressed) { filter: var(--run-cast-down); }
