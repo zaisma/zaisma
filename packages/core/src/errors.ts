@@ -172,7 +172,7 @@ export const ERROR_CODES = {
   no_room: { httpStatus: 404, meaning: "The game has no live room with that code on Zaisma." },
   no_player_in_room: { httpStatus: 404, meaning: "That player isn't in the room now." },
   bad_room_message: { httpStatus: 400, meaning: "message isn't plain JSON of up to 16 KB." },
-  bad_labels: { httpStatus: 400, meaning: "labels isn't an object of up to 4 labels, each text." },
+  bad_labels: { httpStatus: 400, meaning: "labels isn't a list of up to 4 labels, each { label_name, label_value } of text." },
   bad_kick_message: { httpStatus: 400, meaning: "A kick's message isn't text of up to 200 characters." },
   bad_end_message: { httpStatus: 400, meaning: "An end's message isn't text of up to 200 characters." },
   room_busy: { httpStatus: 429, meaning: "The room took 100 room messages in the last second." },

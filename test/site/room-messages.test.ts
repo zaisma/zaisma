@@ -73,8 +73,8 @@ describe("reaching live rooms through the API and MCP", () => {
     expect(listed.rooms.map((room: { room_code: string }) => room.room_code)).toEqual(["CCCCCC", "BBBBBB", "AAAAAA", "KKKKKK"]);
     expect(listed.room_count).toBe(4);
     expect(listed.next_cursor).toBeNull();
-    expect(listed.rooms[0]).toEqual({ room_code: "CCCCCC", name: null, labels: { Region: "North", Mode: "Hardcore" }, player_count: 1, maximum_player_count: 8, spectator_count: 0, is_listed: true, is_open: true, is_kept: false, version_id: null, continent: "EU", created_at: new Date(nowMs - 1000).toISOString() });
-    expect((await tool("list_rooms", { slug: "frostbound", labels: { Region: "North" } })).rooms.map((room: { room_code: string }) => room.room_code)).toEqual(["CCCCCC", "AAAAAA"]);
+    expect(listed.rooms[0]).toEqual({ room_code: "CCCCCC", name: null, labels: [{ label_name: "Region", label_value: "North" }, { label_name: "Mode", label_value: "Hardcore" }], player_count: 1, maximum_player_count: 8, spectator_count: 0, is_listed: true, is_open: true, is_kept: false, version_id: null, continent: "EU", created_at: new Date(nowMs - 1000).toISOString() });
+    expect((await tool("list_rooms", { slug: "frostbound", labels: [{ label_name: "Region", label_value: "North" }] })).rooms.map((room: { room_code: string }) => room.room_code)).toEqual(["CCCCCC", "AAAAAA"]);
 
     const { status, answer } = await api("GET", "/games/frostbound/rooms?labels=north");
     expect([status, answer.error.code, answer.error.field]).toEqual([400, "bad_labels", "labels"]);
@@ -109,14 +109,14 @@ describe("reaching live rooms through the API and MCP", () => {
   });
 
   it("sends to every room now, past the game's limit refuses, and only a write key sends", async () => {
-    const sent = await tool("send_to_every_room", { slug: "frostbound", message: { kind: "announcement" }, labels: { Region: "North" } });
+    const sent = await tool("send_to_every_room", { slug: "frostbound", message: { kind: "announcement" }, labels: [{ label_name: "Region", label_value: "North" }] });
     expect(sent).toMatchObject({ room_count: 3, scheduled_room_message: null });
     expect(schemaProblems(EVERY_ROOM_SENT, sent)).toEqual([]);
     expect(await rooms().takeRoomReachCalls({ sendToEveryRoom: { roomCount: 0, isLimited: true } })).toEqual([{ call: "sendToEveryRoom", asked: { gameId, slug: "frostbound", labels: { Region: "North" }, message: { kind: "announcement" } } }]);
     const limited = await api("POST", "/games/frostbound/room-messages", { message: 1 });
     expect([limited.status, limited.answer.error.code]).toEqual([429, "every_room_send_limit"]);
     await rooms().takeRoomReachCalls();
-    expect((await api("POST", "/games/frostbound/room-messages", { message: 1, labels: ["North"] })).answer.error.code).toBe("bad_labels");
+    expect((await api("POST", "/games/frostbound/room-messages", { message: 1, labels: { Region: "North" } })).answer.error.code).toBe("bad_labels");
     const reader = await readKey();
     expect((await api("POST", "/games/frostbound/room-messages", { message: 1 }, reader)).answer.error.code).toBe("key_not_allowed");
     expect((await api("GET", "/games/frostbound/rooms", undefined, reader)).status).toBe(200);

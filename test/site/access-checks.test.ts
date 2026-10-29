@@ -192,7 +192,7 @@ const SAMPLES: Record<string, (world: World) => Sample> = {
   "POST /games/:slug/purchases/:purchase_id/handled": () => ({}),
   "GET /games/:slug/players/:player_id/items": () => ({}),
   "DELETE /games/:slug/kept-rooms/:room_code": () => ({}),
-  "GET /games/:slug/rooms": () => ({ query: { labels: '{"Region":"North"}' } }),
+  "GET /games/:slug/rooms": () => ({ query: { labels: '[{"label_name":"Region","label_value":"North"}]' } }),
   "GET /games/:slug/rooms/:room_code": () => ({}),
   "POST /games/:slug/rooms/:room_code/messages": () => ({ body: { message: { kind: "freeze" } } }),
   "POST /games/:slug/rooms/:room_code/kick": (world) => ({ body: { player_id: world.values.player_id, message: "Removed for griefing." } }),

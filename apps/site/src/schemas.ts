@@ -1105,8 +1105,8 @@ export const KEPT_ROOM_DELETED = object({
   next_steps: NEXT,
 });
 
-/** Labels a room holds, or a call's room selection: text by name, up to 4. */
-const ROOM_LABELS = describe({ type: "object", additionalProperties: { type: "string" }, maxProperties: 4 }, 'Up to 4 labels by name, like {"Map": "Docks"}.');
+/** Labels a room holds, or a call's room selection: up to 4, each a name and its text. */
+const ROOM_LABELS = describe(list(object({ label_name: text("The label's name, as the game server set it, like Map."), label_value: text("Its text, like Docks.") })), 'Up to 4 labels, like [{"label_name": "Map", "label_value": "Docks"}].');
 
 /** One of the game's live rooms on Zaisma. */
 const LIVE_ROOM = object({

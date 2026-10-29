@@ -33,7 +33,7 @@ function roomJson(room: LiveRoom) {
   return {
     room_code: room.roomCode,
     name: room.name,
-    labels: room.labels,
+    labels: labelListOf(room.labels),
     player_count: room.playerCount,
     maximum_player_count: room.maximumPlayerCount,
     spectator_count: room.spectatorCount,
@@ -64,7 +64,7 @@ function scheduledJson(row: ScheduledRoomMessageRow) {
   return {
     id: row.id,
     message: JSON.parse(row.room_message_json) as unknown,
-    labels: row.labels_json ? (JSON.parse(row.labels_json) as Record<string, string>) : null,
+    labels: row.labels_json ? labelListOf(JSON.parse(row.labels_json) as Record<string, string>) : null,
     send_at: iso(row.send_at_ms),
     created_at: iso(row.created_at_ms),
     sent_at: iso(row.sent_at_ms),
@@ -79,11 +79,20 @@ function readRoomCode(given: string): string {
   return code;
 }
 
-/** Labels a room must hold, as a JSON object of text: from the body, or the query as JSON. Null for every room. */
+/** Labels as the API gives them: a list of { label_name, label_value }. */
+function labelListOf(labels: Record<string, string>): { label_name: string; label_value: string }[] {
+  return Object.entries(labels).map(([labelName, labelValue]) => ({ label_name: labelName, label_value: labelValue }));
+}
+
+/** Labels a room must hold, as a list of { label_name, label_value }: from the body, or the query as JSON. Null for every room. */
 function readLabels(given: unknown): Record<string, string> | null {
   if (given === undefined || given === null) return null;
-  if (!isRoomLabels(given)) throw new ApiError("bad_labels", { message: "labels isn't an object of up to 4 labels, each text.", field: "labels", fix: 'Give the labels the rooms hold, like {"Map": "Docks"}, or leave labels out for every room.' });
-  return Object.keys(given).length ? given : null;
+  const isLabel = (label: unknown) => typeof label === "object" && label !== null && Object.keys(label).sort().join() === "label_name,label_value" && typeof (label as { label_name: unknown }).label_name === "string" && typeof (label as { label_value: unknown }).label_value === "string";
+  const labels = Array.isArray(given) && given.every(isLabel) ? Object.fromEntries((given as { label_name: string; label_value: string }[]).map((label) => [label.label_name, label.label_value])) : null;
+  if (!labels || (given as unknown[]).length !== Object.keys(labels).length || !isRoomLabels(labels)) {
+    throw new ApiError("bad_labels", { message: "labels isn't a list of up to 4 labels, each { label_name, label_value } of text with its own name.", field: "labels", fix: 'Give the labels the rooms hold, like [{"label_name": "Map", "label_value": "Docks"}], or leave labels out for every room.' });
+  }
+  return Object.keys(labels).length ? labels : null;
 }
 
 function readQueryLabels(given: string | null): Record<string, string> | null {

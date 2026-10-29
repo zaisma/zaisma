@@ -142,7 +142,7 @@ describe("reaching live rooms on Zaisma", () => {
     await addSandboxGame("moderated", WORLDS);
     const ana = await join("moderated", "MMMMMM");
     const ben = await join("moderated", "MMMMMM");
-    await untilListed(async () => (await listedCount("moderated")) === 1);
+    await untilListed(async () => (await e.DB.prepare("SELECT player_count FROM live_rooms WHERE game_id = ?").bind(gameIdOf("moderated")).first<number>("player_count")) === 2);
     const game = { gameId: gameIdOf("moderated"), slug: "moderated" };
     const found = await service().getRoom({ ...game, roomCode: "MMMMMM" });
     expect(found!.room).toMatchObject({ roomCode: "MMMMMM", playerCount: 2, isKept: false });

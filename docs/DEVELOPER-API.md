@@ -226,7 +226,7 @@ The HTTP status goes with the code, as listed. The list lives in `ERROR_CODES` (
 | `no_room` | 404 | The game has no live room with that code on Zaisma. |
 | `no_player_in_room` | 404 | That player isn't in the room now. |
 | `bad_room_message` | 400 | message isn't plain JSON of up to 16 KB. |
-| `bad_labels` | 400 | labels isn't an object of up to 4 labels, each text. |
+| `bad_labels` | 400 | labels isn't a list of up to 4 labels, each { label_name, label_value } of text. |
 | `bad_kick_message` | 400 | A kick's message isn't text of up to 200 characters. |
 | `bad_end_message` | 400 | An end's message isn't text of up to 200 characters. |
 | `room_busy` | 429 | The room took 100 room messages in the last second. |
@@ -1212,7 +1212,7 @@ A room message goes to the room's game server, `onRoomMessage(state, roomMessage
 
 | Call | What it does |
 | --- | --- |
-| `GET /games/:slug/rooms` | The game's live rooms on Zaisma, newest first: rooms that are running, and kept rooms asleep with nobody in them. Each `{"room_code", "name", "labels", "player_count", "maximum_player_count", "spectator_count", "is_listed", "is_open", "is_kept", "version_id", "continent", "created_at"}`; `room_count`; up to 500, with `next_cursor` for the rest (pass it as `cursor`). `?labels={"Map":"Docks"}` (as JSON) gives only rooms holding every label given. |
+| `GET /games/:slug/rooms` | The game's live rooms on Zaisma, newest first: rooms that are running, and kept rooms asleep with nobody in them. Each `{"room_code", "name", "labels", "player_count", "maximum_player_count", "spectator_count", "is_listed", "is_open", "is_kept", "version_id", "continent", "created_at"}`; `room_count`; up to 500, with `next_cursor` for the rest (pass it as `cursor`). A room's `labels` are a list of `{"label_name", "label_value"}`; `?labels=[{"label_name":"Map","label_value":"Docks"}]` (as JSON) gives only rooms holding every label given. |
 | `GET /games/:slug/rooms/:room_code` | One live room as `room`, and who's in it as `players`: its players in join order, then its spectators, each `{"player_id", "name", "kind", "is_away", "away_reason", "joined_at", "is_spectator"}`. A kept room asleep has nobody. An unknown code is `no_room`. |
 | `POST /games/:slug/rooms/:room_code/messages` | A room message to one room, `{ "message" }`: answers `is_delivered`. A kept room with nobody in it wakes for it. `no_room` when it isn't running, `room_busy` when it took 100 room messages in the last second. |
 | `POST /games/:slug/room-messages` | A room message to every live room with someone in it, `{ "message", "labels", "send_at" }`: `labels` (optional) only rooms holding every one of them. Kept rooms asleep with nobody in them don't wake for it. Now, it answers `room_count`, how many rooms took it. With `send_at`, an ISO time from 10 seconds to 90 days ahead, it waits and answers `scheduled_room_message` (`{"id", "send_at", "labels", "created_at"}`, a `scheduled_room_message_…` ID), going out within a minute after its time; the other field is null. |

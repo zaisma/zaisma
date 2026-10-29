@@ -383,7 +383,7 @@ describe("RoomCore", () => {
     expect(refusal).toBeInstanceOf(GameServerError);
     expect(refusal).toMatchObject({ code: "unknown_option", field: "tickRate" });
     expect(refusal!.message).toBe(
-      "tickRate isn't a game server option. A game server takes: maximumPlayerCount, maximumSpectatorCount, ticksPerSec, hostControlsEnabled, idleCheck, idleTimeoutSec, awayMode, seatHoldDurationSec, stateSyncEnabled, adultChatFilterEnabled, reconnectTimeoutSec, maximumRoomCountPerPlayer, stateSaveIntervalSec, setup, onJoin, canJoin, onChat, onMoved, onLeave, onSpectatorJoin, onSpectatorLeave, onAway, onBack, onMessage, onBytes, onPurchase, onRefund, onTick, onEnding, onEndingCancelled, onRestored, stateView, onVersionUpdate, onRequest, schedules, onSchedule, onWebhook. (unknown_option)",
+      "tickRate isn't a game server option. A game server takes: maximumPlayerCount, maximumSpectatorCount, ticksPerSec, hostControlsEnabled, idleCheck, idleTimeoutSec, awayMode, seatHoldDurationSec, stateSyncEnabled, adultChatFilterEnabled, reconnectTimeoutSec, maximumRoomCountPerPlayer, stateSaveIntervalSec, setup, onJoin, canJoin, onChat, onMoved, onLeave, onSpectatorJoin, onSpectatorLeave, onAway, onBack, onMessage, onBytes, onPurchase, onRefund, onTick, onEnding, onEndingCancelled, onRestored, stateView, onVersionUpdate, onRoomMessage, onRequest, schedules, onSchedule, onWebhook. (unknown_option)",
     );
   });
 

@@ -259,6 +259,8 @@ const pick = (toolArguments: Record<string, unknown>, keys: string[]) => Object.
 const pathPart = (given: unknown) => encodeURIComponent(String(given ?? ""));
 /** A live room's code, as the room tools take it. */
 const ROOM_CODE_INPUT = { type: "string", pattern: "^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$", description: "A live room's code from list_rooms, like K7Q2MX." };
+/** Which rooms a room tool means: those holding every label given. */
+const ROOM_LABELS_INPUT = { type: "array", maxItems: 4, items: { type: "object", properties: { label_name: { type: "string", description: "A label's name, as the game server set it." }, label_value: { type: "string", description: "Its text." } }, required: ["label_name", "label_value"], additionalProperties: false } };
 /** A room message, as onRoomMessage reads it. */
 const ROOM_MESSAGE_INPUT = { description: 'What the room\'s game server reads in onRoomMessage(state, roomMessage, room) as roomMessage.message: plain JSON, up to 16 KB, like {"kind": "blood_moon"}.' };
 
@@ -1561,8 +1563,8 @@ export const TOOLS: Tool[] = [
     description:
       "The game's live rooms on Zaisma, newest first: rooms that are running, and kept rooms asleep with nobody in them. Each with its code, name, labels, players, spectators, whether it's listed, open and kept, the version it runs, where it runs and when it started; labels gives only rooms holding every label given. Up to 500 a page (next_cursor). For the game's own moderation tools and live events: get_room says who's in one, send_room_message and send_to_every_room reach them, kick_player and end_room act on one. Rooms on the developer's own servers aren't here: their game server reaches them with the Node runner's same calls.",
     inputSchema: {
-      ...object({ slug, labels: { type: "object", additionalProperties: { type: "string" }, maxProperties: 4, description: 'Only rooms holding every one of these labels, like {"Map": "Docks"}.' }, cursor: { type: "string", description: "next_cursor from the last answer, for the rooms after it." } }, ["slug"]),
-      examples: [{ slug: "frostbound" }, { slug: "frostbound", labels: { Mode: "Hardcore" } }],
+      ...object({ slug, labels: { ...ROOM_LABELS_INPUT, description: 'Only rooms holding every one of these labels, like [{"label_name": "Map", "label_value": "Docks"}].' }, cursor: { type: "string", description: "next_cursor from the last answer, for the rooms after it." } }, ["slug"]),
+      examples: [{ slug: "frostbound" }, { slug: "frostbound", labels: [{ label_name: "Mode", label_value: "Hardcore" }] }],
     },
     outputSchema: LIVE_ROOMS,
     annotations: read,
@@ -1596,7 +1598,7 @@ export const TOOLS: Tool[] = [
     description:
       "Sends a message to every live room of the game with someone in it, or only those holding every label given, now or at send_at: an announcement, or a live event starting everywhere at once, like a blood moon at 8pm. Each room takes it as with send_room_message (onRoomMessage, or its players' roomMessage event); kept rooms asleep with nobody in them don't wake for it. Now answers room_count, how many rooms took it; with send_at (from 10 seconds to 90 days ahead) it waits and answers scheduled_room_message, going out within a minute after its time (list_room_messages, cancel_room_message). Up to 10 sends a minute for the whole game, its game server's included (every_room_send_limit), and 100 scheduled waiting (too_many_scheduled_room_messages).",
     inputSchema: {
-      ...object({ slug, message: ROOM_MESSAGE_INPUT, labels: { type: "object", additionalProperties: { type: "string" }, maxProperties: 4, description: 'Only rooms holding every one of these labels, like {"Region": "North"}.' }, send_at: { type: "string", format: "date-time", description: "When to send it, an ISO time from 10 seconds to 90 days ahead; leave it out to send now." } }, ["slug", "message"]),
+      ...object({ slug, message: ROOM_MESSAGE_INPUT, labels: { ...ROOM_LABELS_INPUT, description: 'Only rooms holding every one of these labels, like [{"label_name": "Region", "label_value": "North"}].' }, send_at: { type: "string", format: "date-time", description: "When to send it, an ISO time from 10 seconds to 90 days ahead; leave it out to send now." } }, ["slug", "message"]),
       examples: [{ slug: "frostbound", message: { kind: "blood_moon", duration_sec: 600 }, send_at: "2026-11-06T20:00:00Z" }, { slug: "frostbound", message: { kind: "announcement", text: "Servers restart in 10 minutes." } }],
     },
     outputSchema: EVERY_ROOM_SENT,
