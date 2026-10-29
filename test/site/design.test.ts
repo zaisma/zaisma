@@ -650,7 +650,7 @@ const OWN_GLASS = new Map<string, string>([
   ['class="playing-bar glass', "the bar beside a running game"],
   ['class="playing-card glass', "a card over a running game's corner"],
   ['class="gallery-bar glass', "the gallery's bar"],
-  ['class="sidebar glass"', "Sidebar itself"],
+  ['class="sidebar glass pinned"', "Sidebar itself"],
   ['class="sidebar-example-phone glass"', "Sidebar's still phone screen, the sheet over its page"],
   ['data-glass-play', "the Glass foundation's own demo: a window to drag over drifting shapes"],
   ["glassOpacityPct", "the Glass foundation's own demo: three strengths side by side"],

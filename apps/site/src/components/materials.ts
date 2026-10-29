@@ -52,6 +52,10 @@ export const MATERIAL_STYLES = `
    behind its cut corners, and a scroll (or a clip) on the pane itself leaves its glass nothing to blur but what's in it, so what's behind
    shows through sharp. Its inside scrolls (Caps and scrolls). */
 .glass:is([popover], dialog) { background: none; overflow: visible; }
+/* Pinned glass: a bar or a sidebar that stays put as the page moves under it. A browser blurs nothing behind the layer under what's on such
+   glass, so the glass blurs its own box instead, cut to its shape; what stands on it is cut at its edge too. */
+.glass.pinned { clip-path: var(--glass-clip, none); -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate)); backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate)); }
+.glass.pinned::before { -webkit-backdrop-filter: none; backdrop-filter: none; }
 /* A carving with a control at its end (a well's Copy): what's in it stops short of the control. */
 .carving:has(> .carving-end) > .carving-words { padding-inline-end: calc(var(--control-height-small) + var(--well-inset, 8px) + var(--gap-words-words)); }
 /* Over everything (a sheet, a light box, a store panel): a pane of thick glass over the page, capped at the screen, with the page dimmed

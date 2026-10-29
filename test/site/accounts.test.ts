@@ -2515,8 +2515,8 @@ describe("cloud saves", () => {
     // Every step swaps into the pane in place, so the city never starts over; the passkey script can run again for it.
     expect(plain).toMatch(/<script src="\/js\/city-pane\.[0-9a-f]+\.js" defer><\/script>/);
     expect(plain).toContain('<div class="city-still is-day"></div><div class="city-still is-night"></div><canvas class="city"></canvas>');
-    expect(plain).toMatch(/<header class="top glass"[^>]*>[\s\S]*?<\/header>/);
-    expect(plain.match(/<header class="top glass"[\s\S]*?<\/header>/)![0]).not.toMatch(/class="end"|class="nav"|href="\/signin"/);
+    expect(plain).toMatch(/<header class="top glass pinned"[^>]*>[\s\S]*?<\/header>/);
+    expect(plain.match(/<header class="top glass pinned"[\s\S]*?<\/header>/)![0]).not.toMatch(/class="end"|class="nav"|href="\/signin"/);
     expect(plain).toContain('<a data-lights href="/signin" aria-current="page">Sign in</a>');
     expect(plain).toContain('<a data-lights href="/join">Make an account</a>');
     expect(plain).toContain("Continue as guest");

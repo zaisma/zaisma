@@ -138,7 +138,7 @@ ${checkedPageTag(options.checkedPage)}
 </head>
 <body class="gallery">
 <div id="stage" class="stage"${pageSettingsAttributes({ theme })}>${backdrop()}
-<header class="gallery-bar glass glass-bar" data-compacts data-rail-starts-below data-glass data-glass-corners="header">${EDGE}<span class="gallery-start">${sidebarButton({ controls: "gallery-places", label: "Groups", isExpanded: !options.isScreens })}</span>${logo("wordmark")}<span class="gallery-title">Design</span>
+<header class="gallery-bar glass glass-bar pinned" data-compacts data-rail-starts-below data-glass data-glass-corners="header">${EDGE}<span class="gallery-start">${sidebarButton({ controls: "gallery-places", label: "Groups", isExpanded: !options.isScreens })}</span>${logo("wordmark")}<span class="gallery-title">Design</span>
 <span class="gallery-buttons">${row({ widths: "fit", alignment: "end", items: [{ kind: "control", markup: sidebarButton({ controls: "gallery-places", label: "Groups", isExpanded: !options.isScreens }) }, { kind: "control", markup: themeButton(options.path, theme) }] })}</span></header>
 <div class="gallery-layout">${sidebarLayout({
     sidebar: sidebar({ id: "gallery-places", label: "Design", places, rememberKey: options.isScreens ? "gallery-screens" : "gallery" }),
