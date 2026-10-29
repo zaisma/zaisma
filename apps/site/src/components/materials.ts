@@ -76,7 +76,8 @@ export const MATERIAL_STYLES = `
 /* The face of a button (a tertiary button): its button's height, its words a field's inset in wherever it is, its states its button's. */
 .shell > .flush-row { --row-height: var(--control-height); padding: 0 var(--pad-inside-words); }
 :is(.shell:hover, .shell.is-pointed, .shell:focus-visible, .shell.is-focused) > .flush-row:not(.quiet) { --face-color: var(--wash); color: var(--ink); }
-:is(.shell:active, .shell.is-pressed) > .flush-row, .flush-row:not(.quiet):is(:active, .is-pressed) { --face-color: var(--wash-press); color: var(--ink); box-shadow: var(--press-shade); transition-duration: var(--motion-press); }
+/* Pressed outranks pointed: a press is always under the pointer too. */
+:is(.shell:active, .shell.is-pressed) > .flush-row:not(.quiet), .flush-row:not(.quiet):is(:active, .is-pressed) { --face-color: var(--wash-press); color: var(--ink); box-shadow: var(--press-shade); transition-duration: var(--motion-press); }
 /* Press spring-back, as on a slab: what's on it sinks a hair as it's pressed and springs back when let go. */
 .flush-row > :where(:not(.cut-line)) { transition: transform var(--motion-glide) var(--ease-spring); }
 :is(.shell:active, .shell.is-pressed) > .flush-row > :where(:not(.cut-line)), .flush-row:not(.quiet):is(:active, .is-pressed) > :where(:not(.cut-line)) { transform: translateY(1px); transition-duration: var(--motion-press); }
