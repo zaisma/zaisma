@@ -19,7 +19,7 @@ import type { ControlMarkup } from "./components/control-markup.ts";
 import { sidebar, sidebarButton, sidebarLayout } from "./components/navigation.ts";
 import { confirmItsYouSheet } from "./components/confirm-its-you.ts";
 import { confirmSheet, dropdown, notice, sheet } from "./components/panes.ts";
-import { checkField, choiceCards, codeField, cutField, longField, selectField, toggle } from "./components/inputs.ts";
+import { checkField, choiceCards, copyField, cutField, longField, selectField, toggle } from "./components/inputs.ts";
 import { emptyState, listRows, numbers, table, type ListRow } from "./components/data.ts";
 import { hostingMeter } from "./hosting-meter.ts";
 import { foldedPart } from "./components/reading.ts";
@@ -898,7 +898,7 @@ async function settingsPage(env: Env, request: Request, session: SignedIn, calle
       block(
         glassPane({
           paneWidth: "full",
-          body: stack({ items: [{ kind: "words", markup: html`<h2>${state.shownOnce.title}</h2>` }, words(state.shownOnce.text), ...state.shownOnce.lines.map((line): LayoutItem => ({ kind: "block", markup: codeField({ label: line.label, code: line.code }) }))] }),
+          body: stack({ items: [{ kind: "words", markup: html`<h2>${state.shownOnce.title}</h2>` }, words(state.shownOnce.text), ...state.shownOnce.lines.map((line): LayoutItem => ({ kind: "block", markup: copyField({ label: line.label, copiedText: line.code, isCode: true }) }))] }),
         }),
       ),
     );

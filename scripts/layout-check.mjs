@@ -80,14 +80,15 @@ export const LAYOUT_CHECK_RUNS = {
 /** Pages open at once, each in its own window (tabs that share one aren't drawn): one fewer than the cores, so the preview keeps one. */
 /** How long one page at one size and theme may take, loading and settling included, before it fails. */
 const RUN_TIME_LIMIT_MS = 90_000;
-export const DEFAULT_TAB_COUNT = Math.max(1, Math.min(4, availableParallelism() - 1));
+// On GitHub's runners four; on a laptop two, so a local run stays cool (Julius, Oct 29, 2026).
+export const DEFAULT_TAB_COUNT = Math.max(1, Math.min(process.env.CI ? 4 : 2, availableParallelism() - 1));
 
 // Each page's time in a tab on GitHub's runners, in seconds, from a pull request's run (a phone and a laptop, in light; measured Oct 26,
 // 2026: the Layout check job prints it as secondsByPage), by name: the nightly sweep deals the pages to its four runners by it
 // (layoutCheckShard), each page's share of the whole being about the same at every screen. A page that isn't here (under 10s) costs
 // UNLISTED_PAGE_COST_SEC.
 const PAGE_COSTS_SEC = {
-  "Gallery: layout": 54.9,
+  "Gallery: layout": 28.6,
   Screens: 43.8,
   Home: 16.7,
   "Buying, confirm with a PIN": 14.1,
@@ -100,6 +101,21 @@ const PAGE_COSTS_SEC = {
   "Buying, one press": 11.1,
   "Buying, a first card": 10.2,
   "Playing a game, asked to sign in": 10,
+  // The gallery's pages, on every screen (npm run layout:check -- --gallery, measured Oct 29, 2026 on a Mac, scaled to two runs): its
+  // runners are dealt them by these too.
+  "Gallery: the sidebar over the page": 33.0,
+  "Gallery: inputs fields": 27.0,
+  "Gallery: panes menus": 24.1,
+  "Gallery: panes layers": 22.8,
+  "Gallery: navigation bars": 21.5,
+  "Gallery: actions buttons": 18.5,
+  "Gallery: inputs pickers": 16.7,
+  "Gallery: foundations look": 14.7,
+  "Gallery: inputs choices": 12.7,
+  "Gallery: panes cards": 12.4,
+  "Gallery: panes buying": 12.0,
+  "Gallery: navigation scrolling": 11.5,
+  "Gallery: data pictures": 11.4,
 };
 const UNLISTED_PAGE_COST_SEC = 6;
 
@@ -120,14 +136,53 @@ export function layoutCheckShard(pages, shard) {
   return pages.filter((page) => shares[index - 1].pages.includes(page));
 }
 
+/**
+ * Glass without its blur, over a backdrop that isn't drawn: where things sit is the same, and a frame takes milliseconds instead of the
+ * seconds a large screen's blurred panes take to draw without a graphics card (Desktop's layout gallery took over a second a frame). A run
+ * that takes pictures (--pictures) keeps the real look.
+ */
+const PLAIN_GLASS = `(() => {
+  if (!document.querySelector("style[data-layout-check-plain]")) {
+    const style = document.createElement("style");
+    style.setAttribute("data-layout-check-plain", "");
+    // And every gallery section laid out, whatever its script does after a resize (it skips the ones off screen again 150 ms after one).
+    style.textContent = "*, *::before, *::after { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; } .component-section { content-visibility: visible !important; }";
+    document.head.append(style);
+  }
+  document.querySelectorAll("canvas").forEach((canvas) => canvas.setAttribute("data-backdrop-paused", ""));
+  return true;
+})()`;
+
+/**
+ * What measuring doesn't draw, from before the page's scripts run: its WebGL is gone (getContext answers null for "webgl" and "webgl2",
+ * as a browser without it does), and every canvas is paused as it's added, so the backdrop never starts.
+ */
+const MEASURE_ONLY = `(() => {
+  const getContext = HTMLCanvasElement.prototype.getContext;
+  HTMLCanvasElement.prototype.getContext = function (kind, ...rest) { return /^webgl2?$/.test(kind) ? null : getContext.call(this, kind, ...rest); };
+  const pause = (node) => { if (node.nodeType !== 1) return; if (node.tagName === "CANVAS") node.setAttribute("data-backdrop-paused", ""); node.querySelectorAll?.("canvas").forEach((canvas) => canvas.setAttribute("data-backdrop-paused", "")); };
+  new MutationObserver((records) => records.forEach((record) => record.addedNodes.forEach(pause))).observe(document, { childList: true, subtree: true });
+})();`;
+
 /** Waits until the page has drawn: loaded, its fonts in, the gallery's skipped sections laid out, the edge rule's shapes drawn. */
 const SETTLE = `(async () => {
   // The page's load, or 15 seconds: a game's frame on a busy machine may never finish loading, and the page is measured all the same.
   if (document.readyState !== "complete") await Promise.race([new Promise((done) => addEventListener("load", done, { once: true })), new Promise((done) => setTimeout(done, 15000))]);
   if (document.fonts) await document.fonts.ready;
   document.querySelectorAll(".component-section").forEach((section) => { section.style.contentVisibility = "visible"; });
-  for (let frame = 0; frame < 4; frame++) await new Promise((done) => requestAnimationFrame(done));
-  await new Promise((done) => setTimeout(done, 400));
+  // The edge rule draws on demand (zaismaWatch.drawAll) instead of waiting on the frames' ResizeObserver, a few times over so a part fits a
+  // holder drawn in the same pass; scripts that answer a change (a page's own MutationObservers) get a timer's turn between.
+  const turn = () => new Promise((done) => setTimeout(done, 0));
+  // What a page's scripts do on a frame (a sheet opened as it loads, a card placed) still gets two frames, cheap with nothing drawn.
+  if (window.zaismaWatch?.drawAll) for (let pass = 0; pass < 3; pass++) { await turn(); window.zaismaWatch.drawAll(); }
+  for (let frame = 0; frame < 2; frame++) await new Promise((done) => requestAnimationFrame(done));
+  // What's still moving in (a sheet's entrance), up to 400 ms: nothing to wait for when nothing moves.
+  const moving = document.getAnimations().filter((animation) => animation.effect?.getTiming().iterations !== Infinity && animation.playState === "running");
+  await Promise.race([Promise.all(moving.map((animation) => animation.finished.catch(() => {}))), new Promise((done) => setTimeout(done, 400))]);
+  window.zaismaWatch?.drawAll?.();
+  // Freshly loaded, a page's own timers (a sheet shown as it loads) get 400 ms; a screen switched in place, 50.
+  await new Promise((done) => setTimeout(done, window.__zaismaLayoutSettled ? 50 : 400));
+  window.__zaismaLayoutSettled = true;
   return true;
 })()`;
 
@@ -202,17 +257,27 @@ const openEveryPane = () => `(async () => {
     return pane && pane.matches(".dropdown, dialog.sheet, [popover]") && el.getClientRects().length && !el.closest("[inert], dialog, .dropdown");
   });
   const failures = [];
+  // A pane is measured once it's done moving: its opening (or closing) animations finished, never more than 450 ms (a press's most), and
+  // never a fixed wait, so a page of many panes takes as long as its panes take to open. Where things sit is worked out before a frame is
+  // drawn, so it waits on the page's scripts (a timer's turn), never on drawing, which a large screen takes long over without a graphics card.
+  const frame = () => new Promise((done) => setTimeout(done, 16));
+  const settled = async (pane) => {
+    await frame(); await frame();
+    const moving = pane.getAnimations({ subtree: true }).filter((animation) => animation.effect?.getTiming().iterations !== Infinity);
+    await Promise.race([Promise.all(moving.map((animation) => animation.finished.catch(() => {}))), new Promise((done) => setTimeout(done, 450))]);
+  };
   for (const opener of openers) {
+    const pane = document.getElementById(opener.getAttribute("aria-controls") || opener.getAttribute("popovertarget"));
     opener.scrollIntoView({ block: "center" });
-    await new Promise((done) => setTimeout(done, 100));
+    await frame();
     opener.click();
-    await new Promise((done) => setTimeout(done, 450));
+    await settled(pane);
     const label = (opener.getAttribute("aria-label") || opener.textContent || "").trim().replace(/\\s+/g, " ").slice(0, 40);
     failures.push(...measure({ isPanesOnly: true }).map((failure) => ({ ...failure, element: failure.element + ", opened from " + JSON.stringify(label) })));
     document.querySelectorAll("dialog[open]").forEach((dialog) => dialog.close());
     document.querySelectorAll(":popover-open").forEach((popover) => popover.hidePopover());
     document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
-    await new Promise((done) => setTimeout(done, 450));
+    await settled(pane);
   }
   return failures;
 })()`;
@@ -233,6 +298,9 @@ async function checkPage(chrome, contextId, url, looks, options) {
   const said = async () => (await send("Runtime.evaluate", { expression: SAID_STATE, returnByValue: true }).catch(() => null))?.result?.value ?? null;
   try {
     await send("Page.enable");
+    // Measuring needs no WebGL drawing: a page asks for a context and is told there's none (as on a machine without it), which skips the
+    // seconds a first context and its shaders take with no graphics card. A run that takes pictures draws everything.
+    if (!options.pictureOf) await send("Page.addScriptToEvaluateOnNewDocument", { source: MEASURE_ONLY });
     await look(looks[0]);
     const loaded = () => new Promise((done) => {
       const off = chrome.listen(sessionId, (method) => method === "Page.loadEventFired" && (off(), done()));
@@ -252,7 +320,9 @@ async function checkPage(chrome, contextId, url, looks, options) {
     }
     if (options.markup) await send("Runtime.evaluate", { expression: `document.querySelector("main").innerHTML = ${JSON.stringify(options.markup)}; true`, returnByValue: true });
     // What the page starts hidden (a sheet, a card over the game) is opened first, and settled in each look below.
+    const plain = async () => { if (!options.pictureOf) await send("Runtime.evaluate", { expression: PLAIN_GLASS, returnByValue: true }); };
     if (options.setUp) {
+      await plain();
       await send("Runtime.evaluate", { expression: SETTLE, awaitPromise: true, returnByValue: true });
       const opened = await send("Runtime.evaluate", { expression: options.setUp, awaitPromise: true, returnByValue: true });
       if (opened.exceptionDetails) return looks.map(() => [{ check: "the check couldn't open the page's hidden state", element: "", said: opened.exceptionDetails.exception?.description ?? opened.exceptionDetails.text }]);
@@ -260,6 +330,7 @@ async function checkPage(chrome, contextId, url, looks, options) {
     const foundByLook = [];
     for (const [lookIndex, { size, theme }] of looks.entries()) {
       if (lookIndex > 0) await look({ size, theme });
+      await plain();
       await send("Runtime.evaluate", { expression: SETTLE, awaitPromise: true, returnByValue: true });
       const isMainActionChecked = size.isRunnerChecked !== false && (options.mainActionShows === "everywhere" || (options.mainActionShows === "desktop" && !size.isPhone));
       const measured = { isMainActionChecked, isCoverAboveFold: Boolean(options.isCoverAboveFold) && size.isRunnerChecked !== false, isTouch: Boolean(size.hasTouch), tiers: options.tiers };
@@ -356,8 +427,9 @@ export async function checkPages({ site, signInSite, pages = LAYOUT_CHECK_PAGES,
   const picturesByPage = new Map();
   const chrome = await openChrome(chromePath, "zaisma-layout-");
   const looks = sizes.flatMap((size) => themes.map((theme) => ({ size, theme })));
-  // A page is opened once for each size and theme; one that sends forms is opened once, its answer measured at each.
-  const runs = pages.flatMap((page) => (page.stepsToTake ? [{ page, looks }] : looks.map((one) => ({ page, looks: [one] }))));
+  // A page is opened once for each theme (the gallery takes it from its address) and measured at each size in place, the screen switched
+  // without a reload; one that sends forms is opened once, its answer measured at each size and theme.
+  const runs = pages.flatMap((page) => (page.stepsToTake ? [{ page, looks }] : themes.map((theme) => ({ page, looks: looks.filter((one) => one.theme === theme) }))));
   const foundByRun = [];
   const secondsByPage = {};
   try {
@@ -471,7 +543,7 @@ async function main() {
   if (!pages.length) stop(`No page's path has ${only} in it.`, isJson);
   if (picturesFolder) mkdirSync(picturesFolder, { recursive: true });
   const startedMs = Date.now();
-  const { checkedCount, failures } = await checkPages({
+  const { checkedCount, failures, secondsByPage } = await checkPages({
     ...sites,
     pages,
     sizes,
@@ -482,7 +554,7 @@ async function main() {
     picturesFolder,
     onPage: (page, size, theme, found) => !isJson && console.log(`${found.length ? "FAIL" : "  ok"} ${page.name}${page.path.length < 40 ? ` (${page.path})` : ""} ${size.name} ${theme}${found.length ? `: ${found.length}` : ""}`),
   });
-  if (isJson) console.log(JSON.stringify({ checked_page_count: checkedCount, failures }, null, 2));
+  if (isJson) console.log(JSON.stringify({ checked_page_count: checkedCount, failures, seconds_by_page: secondsByPage }, null, 2));
   else {
     for (const failure of failures) console.log(`  ${failure.page} ${failure.size} ${failure.theme}: ${failure.check}: ${failure.element}: ${failure.said}`);
     if (picturesFolder) console.log(`Contact sheets: ${picturesFolder}`);

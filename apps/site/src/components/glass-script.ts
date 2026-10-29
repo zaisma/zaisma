@@ -10,6 +10,8 @@
  *   A callback watching several elements runs once for the ones that changed together. batch(work), when given, wraps every callback of
  *   the same batch that is due together, so they can read the page once before any of them writes.
  * - resize(callback, batch) and scroll(callback): callback() on the window's resize, and on any scroll anywhere (captured, passive).
+ * - drawAll(): every size and resize callback, now, in their batches: what waits on a frame's ResizeObserver, done at once (the layout check
+ *   settles a page with it instead of waiting on frames).
  * - each(selector, callback): callback(element) once for every element matching the selector, those on the page now and any added later
  *   (a pane whose content is swapped in place), so a component's wiring reaches new content as a page load's would.
  * - scrollBoxes(): the boxes on the page that scroll up and down (overflow-y auto or scroll), in the page's order, found once. Only what the
@@ -75,6 +77,11 @@ export const WATCH_SCRIPT = `/* watch */(function () {
       entries.push({ callback: callback, batch: batch });
     },
     resize: function (callback, batch) { watchWindow("resize", resizeCallbacks, callback, batch); },
+    drawAll: function () {
+      var due = resizeCallbacks.slice();
+      sizeCallbacks.forEach(function (entries, element) { if (element.isConnected) entries.forEach(function (entry) { due.push(entry); }); });
+      runBatched(due);
+    },
     scroll: function (callback) { watchWindow("scroll", scrollCallbacks, callback); },
     scrollBoxes: function () {
       if (scrollBoxes) return scrollBoxes;
@@ -362,6 +369,9 @@ export const GLASS_SCRIPT = `/* glass */(function () {
   var SLANT_PX = token("--control-slant", 10), ROW_GAP_PX = token("--gap-control-row", 4), STACK_GAP_PX = token("--gap-control-stack", 8);
   // Neighbors side by side overlap their boxes by the slant less the row's gap (half a pixel either way, for gaps a layout rounds).
   var BESIDE_MIN_PX = ROW_GAP_PX - SLANT_PX - 0.5, BESIDE_MAX_PX = ROW_GAP_PX - SLANT_PX + 0.5, LONE_CORNERS = [16, 8, 16, 8];
+  // A corner's cut shorter than this is square: what's left of a pane's cut just past its reach can't be seen, and an outline or band drawn
+  // inside a cut that small turns it inside out, which a wide line (keyboard focus) draws as a spike.
+  var LEAST_CUT_PX = 2;
   function glassCorners(pane) {
     var cuts = corners(pane, "header"), size = sizeOf(pane), short = Math.min(size[0], size[1]);
     return cuts.map(function (cut) { return Math.min(cut, Math.round(short * 0.3)); });
@@ -441,17 +451,30 @@ export const GLASS_SCRIPT = `/* glass */(function () {
     return found;
   }
   // The outline, clockwise from the top left.
-  function controlShape(w, h, slant, cuts, beside) {
+  function controlShape(w, h, slant, cuts, beside, isBar) {
     // Always two points a corner, the same one twice where it's square or slanted, so any two shapes blend point for point (a glide).
     // A corner's cut takes at most its side's height, shared with the corner above or below it when both are cut.
     var s = Math.min(slant, w / 3), c = cuts.map(function (cut) { return Math.min(cut, h); });
     [[0, 3], [1, 2]].forEach(function (pair) { var sum = c[pair[0]] + c[pair[1]]; if (sum > h) { c[pair[0]] *= h / sum; c[pair[1]] *= h / sum; } });
-    var corner = function (cut, a, b, sharp) { return cut > 0.5 ? [a, b] : [sharp, sharp]; };
-    return [].concat(
+    var corner = function (cut, a, b, sharp) { return cut >= LEAST_CUT_PX ? [a, b] : [sharp, sharp]; };
+    var points = [].concat(
       beside.start ? [[s, 0], [s, 0]] : corner(c[0], [0, c[0]], [c[0], 0], [0, 0]),
       beside.end ? [[w, 0], [w, 0]] : corner(c[1], [w - c[1], 0], [w, c[1]], [w, 0]),
       beside.end ? [[w - s, h], [w - s, h]] : corner(c[2], [w, h - c[2]], [w - c[2], h], [w, h]),
       beside.start ? [[0, h], [0, h]] : corner(c[3], [c[3], h], [0, h - c[3]], [0, h]));
+    // A thin bar (a groove along a row's foot) whose corner's cut runs deeper than it's tall: its whole end slides back along the corner's
+    // line, so it keeps the same gap to its holder's cut as its sides keep to its holder's sides, instead of stopping at its own height.
+    // A bar however short (data-cut-bar: a groove's light, a sliver of it at a cut corner) does too, and what of it lies past the line
+    // isn't drawn: a sliver shorter than the cut is a triangle along it, or nothing, never a square over the carving's cut.
+    if (w >= 3 * h || isBar) {
+      var deep = cuts.map(function (cut) { return cut > h + 0.5 ? cut : 0; });
+      var inX = function (x) { return Math.max(0, Math.min(w, x)); };
+      if (!beside.end && deep[2] && cuts[1] < LEAST_CUT_PX) { var x2 = w + h - deep[2]; points.splice(2, 4, [inX(x2), 0], [inX(x2), 0], [inX(x2), 0], [inX(w - deep[2]), h]); }
+      if (!beside.end && deep[1] && cuts[2] < LEAST_CUT_PX) { var x1 = w - deep[1]; points.splice(2, 4, [inX(x1), 0], [inX(x1 + h), h], [inX(x1 + h), h], [inX(x1 + h), h]); }
+      if (!beside.start && deep[0] && cuts[3] < LEAST_CUT_PX) { var x0 = deep[0]; points.splice(6, 2, [inX(x0 - h), h], [inX(x0 - h), h]); points.splice(0, 2, [inX(x0 - h), h], [inX(x0), 0]); }
+      if (!beside.start && deep[3] && cuts[0] < LEAST_CUT_PX) { var x3 = deep[3]; points.splice(0, 2, [inX(x3 - h), 0], [inX(x3 - h), 0]); points.splice(6, 2, [inX(x3), h], [inX(x3 - h), 0]); }
+    }
+    return points;
   }
   function controlOutline(el, w, h, as) {
     var beside = besides(el, as), cuts = fitCuts(el, w, h, as);
@@ -464,8 +487,10 @@ export const GLASS_SCRIPT = `/* glass */(function () {
     return controlShape(w, h, el.hasAttribute("data-cut-beside") ? Number(el.getAttribute("data-cut-line")) || SLANT_PX : SLANT_PX, cuts, beside);
   }
   // The shape drawn: repeated points dropped, so every side drawn has a length.
-  function distinct(points) {
-    return points.filter(function (p, i) { var q = points[(i + points.length - 1) % points.length]; return Math.abs(p[0] - q[0]) > 0.01 || Math.abs(p[1] - q[1]) > 0.01; });
+  // An outline with no point on the one before it (within leastPx, 0.01 by default).
+  function distinct(points, leastPx) {
+    var least = leastPx || 0.01;
+    return points.filter(function (p, i) { var q = points[(i + points.length - 1) % points.length]; return Math.abs(p[0] - q[0]) > least || Math.abs(p[1] - q[1]) > least; });
   }
   function cssPolygon(points) { return "polygon(" + points.map(function (p) { return p[0].toFixed(2) + "px " + p[1].toFixed(2) + "px"; }).join(", ") + ")"; }
   // The same outline moved inward by d on every side: each side's line shifted along its inner normal, meeting its neighbors.
@@ -496,11 +521,16 @@ export const GLASS_SCRIPT = `/* glass */(function () {
     function draw() { runPass(drawLine); }
     function drawLine() {
       var size = sizeOf(el), w = size[0], h = size[1]; if (!w || !h) return;
-      var shape = controlOutline(el, w, h);
+      // Gliding, its two outlines (where it was, where it's going) are worked out once, at its size, not again each frame: they read the
+      // page's layout, and only the blend between them changes.
+      var sizeKey = w + "x" + h;
+      if (glide && glide.sizeKey !== sizeKey) { glide.sizeKey = sizeKey; glide.toShape = controlOutline(el, w, h); glide.fromShape = controlOutline(el, w, h, glide.from); }
+      var shape = glide ? glide.toShape : controlOutline(el, w, h);
       if (glide) {
-        var t = Math.min(1, (performance.now() - glide.startMs) / glide.ms), eased = 1 - Math.pow(1 - t, 3), from = controlOutline(el, w, h, glide.from);
+        var t = Math.min(1, (performance.now() - glide.startMs) / glide.ms), eased = glide.ease ? glide.ease(t) : 1 - Math.pow(1 - t, 3), from = glide.fromShape;
         shape = shape.map(function (p, i) { return [from[i][0] + (p[0] - from[i][0]) * eased, from[i][1] + (p[1] - from[i][1]) * eased]; });
-        if (t < 1) requestAnimationFrame(draw); else glide = null;
+        // A mover that draws it each frame itself (isDriven: a switch's slab) has it drawn once a frame, not twice.
+        if (t >= 1) glide = null; else if (!glide.isDriven) requestAnimationFrame(draw);
       }
       shape = distinct(shape);
       var key = w + "x" + h + ":" + list(shape);
@@ -508,7 +538,20 @@ export const GLASS_SCRIPT = `/* glass */(function () {
       last = key;
       el.style.setProperty("--cut-shape", cssPolygon(shape));
       svg.setAttribute("viewBox", "0 0 " + w + " " + h);
+      // Kept a moment past its last frame, so the light it lands with doesn't fade in either.
+      if (glide) { svg.classList.add("is-gliding"); clearTimeout(svg.glideEnd); svg.glideEnd = setTimeout(function () { svg.classList.remove("is-gliding"); }, glide.ms + 200); }
+      // Its line and light are drawn round the outline with no side under a pixel: a side shrinking away as it glides (a slant becoming a
+      // corner) would turn its neighbors' light every which way in its last frames, then snap as it went.
+      shape = distinct(shape, 1);
       poly.setAttribute("points", list(insetShape(shape, 1)));
+      // data-cut-ring: a second outline set out around the shape by that many pixels, for a ring that mustn't touch what's inside (a check field's
+      // keyboard focus, clear of its orange piece). It's drawn in the control's own shape, whatever its corners.
+      var ringPx = Number(el.getAttribute("data-cut-ring")) || 0;
+      if (ringPx) {
+        var ring = svg.querySelector(".cut-ring");
+        if (!ring) { ring = document.createElementNS(SVG, "polygon"); ring.setAttribute("class", "cut-ring"); svg.appendChild(ring); }
+        ring.setAttribute("points", list(insetShape(shape, -ringPx)));
+      }
       // The raised or carved light: a 1.5px band along each side. data-cut-inset moves it inward, inside an outline drawn round the edge.
       var from = Number(el.getAttribute("data-cut-inset")) || 0, outer = insetShape(shape, from), inner = insetShape(shape, from + 1.5);
       while (bands.length < shape.length) { var band = document.createElementNS(SVG, "path"); svg.insertBefore(band, poly); bands.push(band); }
@@ -520,9 +563,10 @@ export const GLASS_SCRIPT = `/* glass */(function () {
       });
     }
     draw();
-    // redrawCut() draws it again; redrawCut({ from: { beside, ends }, ms }) glides there from the shape those attributes gave.
+    // redrawCut() draws it again; redrawCut({ from: { beside, ends }, ms, ease }) glides there from the shape those attributes gave, on its
+    // mover's ease (a cubic ease-out by default), so its shape lands as it does.
     el.redrawCut = function (move) {
-      if (move && move.ms > 0 && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) glide = { from: move.from, ms: move.ms, startMs: performance.now() };
+      if (move && move.ms > 0 && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) glide = { from: move.from, ms: move.ms, ease: move.ease, isDriven: Boolean(move.isDriven), startMs: performance.now() };
       draw();
     };
     window.zaismaWatch.size(el, draw, runBatch);
@@ -557,7 +601,8 @@ export const GLASS_SCRIPT = `/* glass */(function () {
     }
     function walk(el) {
       Array.prototype.forEach.call(el.children, function (child) {
-        if (child instanceof SVGElement || child.matches("[data-glass], [data-cut-line], .edge, .cut-line")) return;
+        // A dialog (a sheet, a light box) opens over everything, out of the pane it's written in, so nothing in it takes that pane's corners.
+        if (child instanceof SVGElement || child.matches("[data-glass], [data-cut-line], .edge, .cut-line, dialog")) return;
         var r = child.getBoundingClientRect();
         if (!r.width || !r.height || !nearCorner(r)) return;
         if (edgedCuts.has(child)) { found.push(child); return; }
@@ -580,7 +625,7 @@ export const GLASS_SCRIPT = `/* glass */(function () {
     function drawCut() {
       var size = sizeOf(el), w = size[0], h = size[1];
       if (!w || !h || !el.isConnected) return;
-      var shape = distinct(controlShape(w, h, 0, fitCuts(el, w, h), { start: false, end: false })), cut = shape.length > 4 ? cssPolygon(shape) : "";
+      var shape = distinct(controlShape(w, h, 0, fitCuts(el, w, h), { start: false, end: false }, el.hasAttribute("data-cut-bar"))), isBox = shape.length === 4 && shape.every(function (p) { return (p[0] === 0 || p[0] === w) && (p[1] === 0 || p[1] === h); }), cut = isBox ? "" : cssPolygon(shape.length ? shape : [[0, 0]]);
       if (cut === last) return;
       last = cut;
       if (cut) { el.style.setProperty("--cut-shape", cut); el.style.clipPath = cut; }

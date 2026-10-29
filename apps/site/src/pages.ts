@@ -43,7 +43,7 @@ import {
 import { authConfigured } from "./auth.ts";
 import { gameUrl, type Env } from "./env.ts";
 import { secondaryButton, primaryButton, textLink } from "./components/actions.ts";
-import { codeField } from "./components/inputs.ts";
+import { copyField } from "./components/inputs.ts";
 import { cutField } from "./components/fields.ts";
 import { emptyState, glanceFacts, listRows } from "./components/data.ts";
 import { glassPane, tag, type IconName } from "./components/foundations.ts";
@@ -65,7 +65,7 @@ import { friendRequestParts } from "./friend-requests.ts";
 import { GAME_UPDATES_SCRIPT, connectionPlate, updateBarButtons } from "./game-updates.ts";
 import { MINIMUM_PLAYING_NOW_PLAYER_COUNT, PLAY_COUNTER_SCRIPT, ageRefusal, playingNowCounts } from "./plays.ts";
 import { profilePath } from "./profiles.ts";
-import { MAXIMUM_REFRESHED_ROOM_COUNT, codeBox, pageRooms, readRoomPick, roomsOnPage, roomsPanel, tabCount } from "./rooms.ts";
+import { MAXIMUM_REFRESHED_ROOM_COUNT, ROOM_CODE_TYPING, codeBox, pageRooms, readRoomPick, roomsOnPage, roomsPanel, tabCount } from "./rooms.ts";
 import { checkPreviewLinkToken, readPreviewLinkToken } from "./preview-links.ts";
 import { GAME_LINKS_SCRIPT, developerLinks, leavingCard } from "./game-links.ts";
 import { BUY_SHEET_SCRIPT, buySheet, buySheetData, buySheetStripe } from "./buy-sheet.ts";
@@ -440,11 +440,11 @@ export function gamePageResponse(env: Env, view: GamePageView): Response {
         body: stack({
           items: [
             { kind: "block", id: "room-here", isHidden: true, markup: stack({ items: [
-              { kind: "block", id: "room-code-shown", markup: codeField({ id: "room-code-text", label: "This room", code: "" }) },
+              { kind: "block", id: "room-code-shown", markup: copyField({ id: "room-code-text", label: "This room", copiedText: "", isCode: true }) },
               { kind: "control", markup: secondaryButton("Hide the room code", { id: "room-eye", type: "button", icon: "eye", isHidden: true }) },
               { kind: "words", id: "room-closed", isHidden: true, markup: html`<p>This room doesn't take new players.</p>` },
             ] }) },
-            { kind: "control", markup: cutField({ id: "bar-join-code", name: "room", label: "Join a room by its code", type: "text", icon: "hash", placeholder: "ABC234", autocomplete: "off" }) },
+            { kind: "control", markup: cutField({ id: "bar-join-code", name: "room", label: "Join a room by its code", type: "text", icon: "hash", placeholder: "ABC234", autocomplete: "off", ...ROOM_CODE_TYPING }) },
             { kind: "words", id: "join-leaves", isHidden: true, markup: html`<p>It leaves the room you're in.</p>` },
           ],
         }),
@@ -1106,7 +1106,7 @@ if (roomsPanel) {
 }
 const codeInput = document.getElementById("room-code");
 if (codeInput) {
-  codeInput.addEventListener("input", () => { codeInput.value = codeInput.value.toUpperCase().replace(/\s/g, ""); codeInput.setCustomValidity(""); });
+  codeInput.addEventListener("input", () => codeInput.setCustomValidity(""));
   codeInput.addEventListener("invalid", () => codeInput.setCustomValidity("Room codes are 6 letters and numbers, like ABC234."));
 }
 // Games for other devices still open, with a word of warning.
@@ -1141,7 +1141,7 @@ if (deviceNotes.length) {
 // The ⋯ menu is a dropdown, which opens and closes itself; closed, the game gets the keys back.
 const menuButton = document.getElementById("menu");
 // A tap into the game never reaches this page: the page losing focus closes an open menu instead.
-window.addEventListener("blur", () => document.querySelectorAll('.dropdown[role="menu"]:not(.shut)').forEach((menu) => { const opener = document.querySelector('[aria-controls="' + menu.id + '"][aria-expanded="true"]'); if (opener) opener.click(); }));
+window.addEventListener("blur", () => document.querySelectorAll('.dropdown[role="menu"]:popover-open').forEach((menu) => { const opener = document.querySelector('[aria-controls="' + menu.id + '"][aria-expanded="true"]'); if (opener) opener.click(); }));
 menuButton.addEventListener("click", () => setTimeout(() => { if (frame && menuButton.getAttribute("aria-expanded") === "false" && !document.querySelector("dialog.sheet[open]")) frame.focus(); }));
 // The room control: the room's code while the game is in a room (zaisma:room, then zaisma:players says
 // whether it takes others), Join otherwise; its sheet has the code with Copy, and Join by code. In streamer mode (an
@@ -1161,8 +1161,8 @@ function showRoomCode(room) {
   document.getElementById("room-closed").hidden = !room || room.isOpen;
   const codeText = document.getElementById("room-code-text");
   codeText.textContent = room ? (isRoomCodeHidden ? "••••••" : room.code) : "";
-  codeText.setAttribute("data-code", room ? room.code : "");
-  codeText.closest(".code-field").classList.toggle("is-masked", isRoomCodeHidden);
+  codeText.setAttribute("data-copy", room ? room.code : "");
+  codeText.closest(".copy-field").classList.toggle("is-masked", isRoomCodeHidden);
   document.getElementById("room-code-shown").hidden = !room || !room.isOpen;
   const roomEye = document.getElementById("room-eye");
   roomEye.hidden = !isStreamerModeOn || !room || !room.isOpen;
@@ -1174,7 +1174,7 @@ if (roomOpen && roomDialog) {
   roomDialog.addEventListener("close", () => { if (frame) frame.focus(); });
   // Enter joins: the sheet's first submit button is its Close, which the browser would press.
   joinInput.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); joinInput.form.requestSubmit(document.getElementById("room-join")); } });
-  joinInput.addEventListener("input", () => { joinInput.value = joinInput.value.toUpperCase().replace(/[^0-9A-Z]/g, ""); joinInput.setCustomValidity(""); });
+  joinInput.addEventListener("input", () => joinInput.setCustomValidity(""));
   // Join goes to the room's link; the room the player is in already has nothing to leave.
   roomDialog.querySelector("form").addEventListener("submit", (e) => {
     if (!e.submitter || e.submitter.id !== "room-join") return;
@@ -1198,11 +1198,11 @@ if (roomOpen && roomDialog) {
 const shareBox = document.getElementById("share-dialog");
 const shareLink = document.getElementById("share-link");
 // What streamer mode masks: the QR code, the room code and the link (Copy still copies them).
-const shareSecrets = () => document.querySelectorAll("#share-dialog .code-field, #share-dialog .link-field, #share-qr-box .qr-code");
+const shareSecrets = () => document.querySelectorAll("#share-dialog .copy-field, #share-qr-box .qr-code");
 function shareFrom(button) {
   const url = location.origin + location.pathname + location.search.replace(/[?&]play\b[^&]*/, "").replace(/^&/, "?");
   const room = new URLSearchParams(location.search).get("room");
-  shareLink.dataset.link = url;
+  shareLink.dataset.copy = url;
   shareLink.textContent = url.replace(/^https?:\/\//, "");
   document.getElementById("share-room").hidden = !room;
   document.getElementById("share-room-code").textContent = room || "";
@@ -1221,13 +1221,13 @@ const shareMore = document.getElementById("share-more");
 if (navigator.share) {
   shareMore.hidden = false;
   shareMore.onclick = async () => {
-    try { await navigator.share({ title: document.title, url: shareLink.dataset.link }); shareBox.close(); } catch {}
+    try { await navigator.share({ title: document.title, url: shareLink.dataset.copy }); shareBox.close(); } catch {}
   };
 }
 // Show, or a tap on the blurred link or room code, reveals them for this time.
 const revealShare = () => { for (const secret of shareSecrets()) secret.classList.remove("is-masked"); document.getElementById("share-reveal").hidden = true; };
 document.getElementById("share-reveal").onclick = revealShare;
-shareBox.addEventListener("click", (e) => { if (e.target.closest && e.target.closest(".code-field.is-masked .code-text")) revealShare(); });
+shareBox.addEventListener("click", (e) => { if (e.target.closest && e.target.closest(".copy-field.is-masked .copy-field-text")) revealShare(); });
 shareBox.addEventListener("close", () => { if (frame) frame.focus(); else if (shareBox.returnFocus) shareBox.returnFocus.focus(); });
 share.onclick = () => shareFrom(share);
 // The game says which room it's in, so the address bar (and so Share) points to that match.

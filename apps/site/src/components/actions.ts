@@ -1,6 +1,6 @@
 import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
-import { CUT_LINE, EDGE, ICONS, backdrop, colorPicker, glassPane, icon, loader, type ColorChoice, type IconName } from "./foundations.ts";
+import { CUT_LINE, EDGE, ICONS, backdrop, glassPane, icon, loader, type ColorChoice, type IconName } from "./foundations.ts";
 import { TOKEN_STYLES } from "./tokens.ts";
 import { controlMarkup, type ControlMarkup } from "./control-markup.ts";
 import { paneParts } from "./layout.ts";
@@ -21,6 +21,8 @@ interface ButtonTarget {
   /** data-* attributes a page's script reads ({ keep: "/join" } is data-keep="/join"), names in lowercase words joined by dashes. */
   dataAttributes?: Record<string, string>;
   href?: string;
+  /** With href: the link saves its file under this name instead of opening it (a QR code's Download SVG). */
+  downloadName?: string;
   type?: "submit" | "button";
   name?: string;
   buttonValue?: string;
@@ -36,7 +38,7 @@ type ButtonState = "is-pointed" | "is-pressed" | "is-focused";
 /** The button itself: a still shell that takes the pointer (TOKEN_STYLES, "Still under the pointer"). What moves goes inside it, in its face. */
 const opening = (className: string, target: ButtonTarget, isBusy: boolean | undefined, extra: Raw | "" = "") =>
   target.href
-    ? html`<a class="shell ${className}"${target.id ? html` id="${target.id}"` : ""}${dataMarkup(target)} href="${target.href}"${extra}${isBusy ? raw(' aria-busy="true"') : ""}>`
+    ? html`<a class="shell ${className}"${target.id ? html` id="${target.id}"` : ""}${dataMarkup(target)} href="${target.href}"${target.downloadName ? html` download="${target.downloadName}"` : ""}${extra}${isBusy ? raw(' aria-busy="true"') : ""}>`
     : html`<button class="shell ${className}"${target.id ? html` id="${target.id}"` : ""}${dataMarkup(target)} type="${target.type ?? "submit"}"${extra}${target.name ? html` name="${target.name}"` : ""}${target.buttonValue !== undefined ? html` value="${target.buttonValue}"` : ""}${target.formMethod ? raw(' formmethod="dialog" formnovalidate') : ""}${target.isAutofocused ? raw(" autofocus") : ""}${isBusy ? raw(' aria-busy="true" disabled') : ""}>`;
 const dataMarkup = (target: ButtonTarget): Raw | "" =>
   target.dataAttributes ? html`${Object.entries(target.dataAttributes).map(([name, text]) => html` data-${name}="${text}"`)}` : "";
@@ -437,7 +439,7 @@ component({
  */
 const world = (standInSlug: string, glassKind: "light" | "smoked", body: Raw) =>
   html`<div ${glassKind === "light" ? raw('data-theme-choice="light"') : raw('class="smoke"')} style="position:relative;overflow:hidden;display:grid;gap:var(--gap-control-stack);width:min(380px,100%);padding:var(--pad-pane)">${backdrop({ isFramed: true, standInSlug })}${body}</div>`;
-/** A secondary button's tints, for a color picker (inputs.ts's Color picker, the gallery's tint palette). */
+/** A secondary button's tints, each with its name and swatch (the gallery shows every one). */
 export const TINT_CHOICES: (ColorChoice & { colorValue: ButtonTint })[] = [
   { name: "Clear", colorValue: "clear", swatch: "clear" },
   // Plain follows the glass: white on light, Google's near-black on smoked, so its swatch shows both, half and half.
@@ -446,7 +448,7 @@ export const TINT_CHOICES: (ColorChoice & { colorValue: ButtonTint })[] = [
   { name: "Indigo", colorValue: "indigo", swatch: "#5865F2" },
   { name: "Black", colorValue: "black", swatch: "#14171C" },
 ];
-const tintPalette = () => html`<div class="tint-try" data-tint-try>${wayButton("Continue with Discord", "discord")}${colorPicker({ label: "Tint", choices: TINT_CHOICES, pickedValue: "indigo" })}</div>`;
+const tintPalette = () => html`<div style="display:grid;gap:var(--gap-control-stack);${COLUMN}">${TINT_CHOICES.map((choice) => wayButton(choice.name, "discord", { tint: choice.colorValue }))}</div>`;
 const wayButton = (label: string, wayIn: WayIn, more: Omit<SecondaryButtonOptions, "wayIn"> = {}) => secondaryButton(label, { type: "button", wayIn, isFullWidth: true, ...more });
 const waysIn = () => html`${wayButton("Sign in with a passkey", "passkey")}${wayButton("Continue with Google", "google")}${wayButton("Continue with Discord", "discord")}`;
 
@@ -537,8 +539,6 @@ component({
 .cut-btn[aria-busy="true"] .way-mark { display: none; }
 .cut-btn:disabled:not([aria-busy="true"]) .way-mark { opacity: 0.45; }
 .cut-btn:disabled:not([aria-busy="true"]) .way-mark .one-color path { fill: currentColor; }
-/* The gallery's tint palette: a Color picker; pick one and the button above takes it (GALLERY_SCRIPT). */
-.tint-try { display: grid; gap: var(--gap-block-block); width: min(340px, 100%); }
 `,
   render: secondaryButton,
   examples: [
@@ -559,7 +559,7 @@ component({
     { label: "A way in, pressed: it carves in", markup: html`<div style="${COLUMN}">${wayButton("Continue with Discord", "discord", { state: "is-pressed" })}</div>`, isStill: true },
     { label: "A way in, busy", markup: html`<div style="${COLUMN}">${wayButton("Sign in with a passkey", "passkey", { isBusy: true })}</div>`, isStill: true },
     { label: "A way in, can't press", markup: html`<div style="display:grid;gap:var(--gap-control-stack);${COLUMN}">${wayButton("Sign in with a passkey", "passkey", { isDisabled: true })}${wayButton("Continue with Discord", "discord", { isDisabled: true })}</div>`, isStill: true },
-    { label: "Every tint: pick one", markup: tintPalette() },
+    { label: "Every tint, on a way in", markup: tintPalette(), isStill: true },
     // Over a game's world the glass follows the world, not the theme: light glass on a bright one, smoked on a dark one.
     { label: "Over a bright game world", markup: world("kestrel", "light", waysIn()) },
     { label: "Over a dark game world", markup: world("starward", "smoked", waysIn()) },
@@ -577,6 +577,8 @@ export interface TertiaryButtonOptions extends ButtonTarget {
   isLabelHidden?: boolean;
   /** A small control's height, as a pane's corner buttons are. */
   isSmall?: boolean;
+  /** The id of what it acts on (aria-controls): a copy field's text, for its Copy. */
+  controls?: string;
   /** An arrow after its words that steps on as you point at it: a way on, like Continue as guest under the ways in. */
   hasArrow?: boolean;
   /** As wide as the column, its words in the middle: under the ways in, as wide as they are. */
@@ -597,7 +599,7 @@ const TERTIARY_ARROW = html`<span class="tertiary-arrow" aria-hidden="true">${ic
  */
 export function tertiaryButton(label: string, options: TertiaryButtonOptions = {}): ControlMarkup {
   const isIconOnly = Boolean(options.isLabelHidden && options.icon);
-  const extra = html`${disabledAttribute(options)}${isIconOnly ? html` aria-label="${label}"` : ""}`;
+  const extra = html`${disabledAttribute(options)}${isIconOnly ? html` aria-label="${label}"` : ""}${options.controls ? html` aria-controls="${options.controls}"` : ""}`;
   return controlMarkup(html`${opening(classes("tertiary-btn", isIconOnly && "icon-only", options.isSmall && "small", options.isFullWidth && "is-full", options.state), options, options.isBusy, extra)}<span class="face" data-cut-line="${options.isSmall ? 9 : 10}">${CUT_LINE}<span class="tertiary-words">${loader()}${options.icon ? icon(options.icon) : ""}${isIconOnly ? "" : html`<span class="tertiary-label">${label}</span>`}${options.hasArrow ? TERTIARY_ARROW : ""}</span>${isIconOnly || options.hasArrow ? "" : raw('<span class="tertiary-line" aria-hidden="true"></span>')}</span>${closing(options)}`, options.isSmall ? "small" : "regular");
 }
 

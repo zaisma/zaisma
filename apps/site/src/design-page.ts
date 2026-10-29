@@ -10,7 +10,7 @@ import { COMPONENT_GROUPS, COMPONENT_SUBGROUPS, GALLERY_PLACES, galleryPagePath,
 import { COMPONENTS, COMPONENT_SCRIPT, COMPONENT_STYLES, HEADER_SCRIPT } from "./components/index.ts";
 import { EDGE, STAND_IN_BACKGROUNDS_SCRIPT, backdrop, logo, pageSettingsAttributes, railMarkup } from "./components/foundations.ts";
 import { secondaryButton, primaryButton, textLink } from "./components/actions.ts";
-import { cutField } from "./components/inputs.ts";
+import { SEARCH_STAND_IN, cutField } from "./components/inputs.ts";
 import { loadMore, sidebar, sidebarButton, sidebarLayout, type SidebarPlace } from "./components/navigation.ts";
 import { row, stack } from "./components/layout.ts";
 import { listRows, emptyState } from "./components/data.ts";
@@ -102,6 +102,7 @@ function olderVersionsPage(env: Env, url: URL): Response {
 
 export function designPage(env: Env, url: URL): Response | null {
   if (url.pathname === "/design/examples/older-versions") return olderVersionsPage(env, url);
+  if (url.pathname === "/design/examples/search-suggestions") return new Response(JSON.stringify(SEARCH_STAND_IN.suggestionsFor(url.searchParams.get("search") ?? "")), { headers: securityHeaders(env, { "Content-Type": "application/json" }) });
   if (url.pathname === "/design/example") return examplePage(env);
   if (url.pathname === SCREENS_PATH) return isLocalSite(env) ? screensPage(env, url) : null;
   const found = placeOfPath(url.pathname.replace(/\/+$/, "") || "/");
@@ -414,8 +415,9 @@ export const GALLERY_SCRIPT = pageScript(
   document.addEventListener("click", function (event) {
     var themePick = event.target.closest && event.target.closest("[data-setting-theme] button");
     if (themePick) { apply(themePick.value); return; }
-    var huePick = event.target.closest && event.target.closest("[data-setting-hue] .color-pick");
-    if (huePick) window.zaismaSettings.set({ glass: { hueColor: huePick.getAttribute("data-color-value") || null } }, stage);
+  });
+  document.addEventListener("zaisma:color", function (event) {
+    if (event.target.closest && event.target.closest("[data-setting-hue]")) window.zaismaSettings.set({ glass: { hueColor: event.detail.colorValue || null } }, stage);
   });
   pickTheme(stage.dataset.themeChoice === "dark" ? "dark" : "light");
   document.querySelectorAll("[data-glass-play]").forEach(function (play) {
@@ -450,11 +452,6 @@ export const GALLERY_SCRIPT = pageScript(
     });
     place(now());
   });
-  // The secondary button's tint palette: the button above takes the tint you pick.
-  document.addEventListener("click", function (event) {
-    var swatch = event.target.closest && event.target.closest("[data-tint-try] .color-pick"); if (!swatch) return;
-    swatch.closest("[data-tint-try]").querySelector(".cut-btn").setAttribute("data-tint", swatch.getAttribute("data-color-value"));
-  });
 })();
 `,
 );
@@ -462,7 +459,8 @@ export const GALLERY_SCRIPT = pageScript(
 /**
  * The gallery's loops: a still copy of a button, a switch or a cover with a pointer of its own that moves onto it, presses,
  * lets go and moves off, over and over. The copy shows each moment through the same state classes the still examples
- * use; a switch is played through its own script, by the events a pointer would send. Reduced motion holds them still.
+ * use; a check field or a toggle flips as it's let go, so the loop shows both its sides; a switch is played through its own
+ * script, by the events a pointer would send. Reduced motion holds them still.
  */
 export const DESIGN_LOOPS_SCRIPT = pageScript(
   "design-loops",
@@ -524,7 +522,7 @@ export const DESIGN_LOOPS_SCRIPT = pageScript(
         await moveTo(point(el, 0.62, 0.58));
         await wait(800);
         press(true); await wait(PRESS_MS + 60);
-        press(false); await wait(700);
+        press(false); if (kind === "check" || kind === "toggle") el.querySelector("input").click(); await wait(700);
         await moveTo(away());
       }
     }

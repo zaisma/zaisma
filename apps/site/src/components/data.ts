@@ -2,7 +2,7 @@ import { accountPicture, html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
 import { secondaryButton, primaryButton, textLink } from "./actions.ts";
 import type { ControlMarkup } from "./control-markup.ts";
-import { CUT_LINE, MINUTE_MS, ago, glassPane, icon, tag, type IconName, type TagTone } from "./foundations.ts";
+import { CUT_LINE, MINUTE_MS, ago, glassPane, groove, icon, tag, type IconName, type TagTone } from "./foundations.ts";
 import { WHEN_EMPTY_STYLES, row } from "./layout.ts";
 
 /*
@@ -224,11 +224,13 @@ component({
   styles: `
 /* A tag: slanted at both ends, in --type-tag, carved into the glass it's on: shaded along its top, lit along its foot. Its tone says what it is:
    new or live (green), a count or plain words (the glass's own carving), a warning (amber), or glass (a sliver of the menus' glass, floating over the page). */
-.tag { display: inline-flex; align-items: center; justify-content: center; height: 22px; min-width: 22px; padding: 0 10px 0 9px; flex: none; white-space: nowrap;
+/* Its words sit a pixel up from its box's middle (padding-bottom): Jost leaves more room above its letters and figures than below, so
+   set in the box's middle they look low. */
+.tag { display: inline-flex; align-items: center; justify-content: center; height: 22px; min-width: 22px; padding: 0 10px 2px 9px; flex: none; white-space: nowrap;
   font: var(--type-tag); clip-path: polygon(5px 0, 100% 0, calc(100% - 5px) 100%, 0 100%); }
 .tag.new, .tag.count, .tag.plain, .tag.warning { box-shadow: var(--tag-carve); }
 .tag.new { color: var(--tag-new-ink); background: var(--tag-new); }
-.tag.count { padding: 0 8px; color: var(--ink-2); background: var(--tag-plain); font-variant-numeric: tabular-nums; }
+.tag.count { padding: 0 8px 2px; color: var(--ink-2); background: var(--tag-plain); font-variant-numeric: tabular-nums; }
 .tag.plain { color: var(--ink-2); background: var(--tag-plain); }
 .tag.warning { color: var(--tag-warning-ink); background: var(--tag-warning); }
 /* An icon before its words, small and in their color, says what kind of tag it is at a glance. */
@@ -657,9 +659,9 @@ component({
 /* A capped table's rows fade out under its head and over its foot while there's more that way (SCROLL_FADE_SCRIPT, from its head's height,
    --fade-from), as well as at its sides: both masks at once. */
 .table-scroll.is-capped.scroll-fades.is-fading {
-  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 var(--fade-left), #000 calc(100% - var(--fade-right)), transparent 100%),
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, rgba(0,0,0,0.22) calc(var(--fade-left) * 0.35), rgba(0,0,0,0.66) calc(var(--fade-left) * 0.7), #000 var(--fade-left), #000 calc(100% - var(--fade-right)), rgba(0,0,0,0.66) calc(100% - var(--fade-right) * 0.7), rgba(0,0,0,0.22) calc(100% - var(--fade-right) * 0.35), transparent 100%),
     linear-gradient(to bottom, #000 var(--fade-from, 0px), transparent var(--fade-from, 0px), #000 calc(var(--fade-from, 0px) + var(--fade-top)), #000 calc(100% - var(--fade-bottom)), transparent);
-  mask-image: linear-gradient(90deg, transparent 0, #000 var(--fade-left), #000 calc(100% - var(--fade-right)), transparent 100%),
+  mask-image: linear-gradient(90deg, transparent 0, rgba(0,0,0,0.22) calc(var(--fade-left) * 0.35), rgba(0,0,0,0.66) calc(var(--fade-left) * 0.7), #000 var(--fade-left), #000 calc(100% - var(--fade-right)), rgba(0,0,0,0.66) calc(100% - var(--fade-right) * 0.7), rgba(0,0,0,0.22) calc(100% - var(--fade-right) * 0.35), transparent 100%),
     linear-gradient(to bottom, #000 var(--fade-from, 0px), transparent var(--fade-from, 0px), #000 calc(var(--fade-from, 0px) + var(--fade-top)), #000 calc(100% - var(--fade-bottom)), transparent);
   -webkit-mask-composite: source-in; mask-composite: intersect; }
 /* The rows' heads stay put as it scrolls sideways, so it never fades out under them. */
@@ -1076,7 +1078,7 @@ export interface UsageMeterOptions {
   resetDate?: string;
   /** The numbers said in words of the page's own instead ("62% of this month's free hosting"), for a meter whose figures are a share or two allowances in one. */
   shownWords?: string;
-  /** Amber from this number up, where that isn't 80% of the limit (a free allowance then a budget on one track). */
+  /** Red from this number up, where that isn't 80% of the limit (a free allowance then a budget on one track). */
   warnFromNumber?: number;
   /** Used up isn't a warning: the track fills but isn't striped, and says nothing is wrong (a free allowance a budget carries on from). */
   isFullFine?: boolean;
@@ -1091,7 +1093,7 @@ export interface UsagePart {
   partColorIndex: number;
 }
 
-/** How full a meter is, and its tone: amber from its warning point, striped when all used. */
+/** How full a meter is, and its tone: red from its warning point, striped when all used. */
 function meterState(options: UsageMeterOptions) {
   const sharePct = Math.min(100, (options.usedNumber / Math.max(options.limitNumber, 1)) * 100);
   const isAllUsed = options.usedNumber >= options.limitNumber && !options.isFullFine;
@@ -1108,10 +1110,8 @@ export function usageTrack(options: UsageMeterOptions): Raw {
 
 function meterTrack(options: UsageMeterOptions, sharePct: number): Raw {
   const parts = options.parts?.filter((part) => part.sharePct > 0) ?? [];
-  const fill = parts.length
-    ? html`<span class="usage-fill has-parts" data-cut-line="4" style="width:${sharePct.toFixed(2)}%">${parts.map((part) => html`<span class="usage-part" data-part="${String(part.partColorIndex)}" style="flex-grow:${String(part.sharePct)}"></span>`)}</span>`
-    : html`<span class="usage-fill" data-cut-line="4" style="width:${sharePct.toFixed(2)}%"></span>`;
-  return html`<div class="usage-track cut-carved" data-cut-line="6" role="meter" aria-label="${options.label}" aria-valuemin="0" aria-valuemax="${options.limitNumber}" aria-valuenow="${Math.min(options.usedNumber, options.limitNumber)}">${CUT_LINE}${fill}</div>`;
+  const lightMarkup = parts.length ? html`<span class="usage-parts">${parts.map((part) => html`<span class="usage-part" data-part="${String(part.partColorIndex)}" style="flex-grow:${String(part.sharePct)}"></span>`)}</span>` : undefined;
+  return html`<div class="usage-track" role="meter" aria-label="${options.label}" aria-valuemin="0" aria-valuemax="${options.limitNumber}" aria-valuenow="${Math.min(options.usedNumber, options.limitNumber)}">${groove({ kind: `usage-groove${parts.length ? " has-parts" : ""}`, filledPct: sharePct, lightMarkup })}</div>`;
 }
 
 /** The key under a meter with parts: each part's color, name and share, in the order given. */
@@ -1122,8 +1122,8 @@ function usageKey(options: UsageMeterOptions): Raw | "" {
 }
 
 /**
- * A usage meter: its label, its numbers under it, then a carved track filling in quiet ink, amber from 80%. Any use at all shows as a
- * sliver, never as an empty track. All used, it's unmistakable: the fill is striped amber across the whole track, a warning mark leads its
+ * A usage meter: its label, its numbers under it, then a Groove filling in its orange light, red from 80%. Any use at all shows as a
+ * sliver, never as an empty track. All used, it's unmistakable: the fill is striped red across the whole track, a warning mark leads its
  * label, and its numbers end in "all used", or in how far over it is.
  */
 export function usageMeter(options: UsageMeterOptions): Raw {
@@ -1141,28 +1141,31 @@ component({
   slug: "usage-meter",
   group: "data",
   subgroup: "numbers",
-  summary: "How much of an allowance is used: player-hours, requests, storage. A carved track fills in ink, turns amber from 80%, and says so when it's all used, or over.",
+  summary: "How much of an allowance is used: player-hours, requests, storage. A Groove fills in its orange light, turns red from 80%, and says so when it's all used, or over.",
   styles: `
-/* A usage meter: its label on a line of its own, its numbers (and when it resets) under it, the track under them: a carved strip the fill
-   grows along, tall enough that at a pane's foot it takes a bevel of 4px (a quarter of its height). The fill is a quiet ink, amber from 80%;
-   any use at all shows at least a sliver. All used, it's amber striped with a deeper amber, like tape across a door, and a warning mark
-   leads the label. */
+/* A usage meter: its label on a line of its own, its numbers (and when it resets) under it, the track under them: a Groove (panes.ts), its
+   light the Groove's own orange, red from 80%, the warning growing hotter as it fills; any use at all shows at least a sliver. All used,
+   it's red striped with a deeper red, like tape across a door, a warning mark leads the label and its words say so in red. */
 .usage { display: grid; gap: var(--gap-words-words); }
 .usage-label { display: inline-flex; align-items: center; gap: var(--gap-words-words); padding-inline: var(--pad-words); font: var(--type-label); color: var(--ink); }
 .usage-label > .ico { width: 16px; height: 16px; color: var(--meter-full-ink); }
 .usage-numbers { margin: 0; padding-inline: var(--pad-words); font: var(--type-facts); color: var(--ink-2); font-variant-numeric: tabular-nums; }
 .usage-fact { display: inline-block; max-width: 100%; }
 .usage-numbers b { font-weight: 600; color: var(--meter-full-ink); }
-.usage-track { position: relative; height: 16px; padding: 3px; background: var(--well); box-shadow: var(--well-shade); clip-path: var(--cut-shape); }
-.usage-fill { display: block; height: 100%; background: var(--meter-fill); clip-path: var(--cut-shape); transition: width 0.6s var(--spring); }
-.usage:is(.is-used, .is-near) .usage-fill { min-width: 6px; }
-.usage.is-near .usage-fill { background: var(--meter-near); }
-.usage.is-full .usage-fill { background: repeating-linear-gradient(-45deg, var(--meter-near) 0 6px, var(--meter-full) 6px 12px); }
-/* With parts, the fill is what used it, side by side in each part's color, a hairline of the track between them; past 80% the colors
-   stay and the numbers say so, and all used, amber stripes run across them. The key names each part with its share: over the track on a
+.usage-track { display: block; }
+.usage-groove .groove-fill { transition: width 0.6s var(--spring); }
+/* Any use at all shows: a sliver long enough to show past a cut corner's line at its start. */
+.usage:is(.is-used, .is-near) .usage-groove .groove-fill { min-width: 14px; }
+.usage:is(.is-near, .is-full) .usage-groove .groove-fill { filter: drop-shadow(0 0 1.5px var(--meter-near)); }
+.usage.is-near .usage-groove .groove-light { background: linear-gradient(180deg, var(--meter-near-hi), var(--meter-near)); }
+.usage.is-full .usage-groove .groove-light { background: repeating-linear-gradient(-45deg, var(--meter-near) 0 6px, var(--meter-full) 6px 12px); }
+/* With parts, the light is what used it, side by side in each part's color, a hairline of the groove between them; past 80% the colors
+   stay and the numbers say so, and all used, red stripes run across them. The key names each part with its share: over the track on a
    meter of its own, so the track stays its foot, and under it in a list row or another plate, where the row's lines are over it. Each
    swatch hangs before its words, so the words keep the margin. */
-.usage-fill.has-parts, .usage:is(.is-near, .is-full) .usage-fill.has-parts { display: flex; gap: var(--gap-control-row); background: none; }
+.usage .usage-groove.has-parts .groove-light { background: none; }
+.usage .usage-groove.has-parts .groove-fill { filter: none; }
+.usage-parts { position: absolute; inset: 0; display: flex; gap: var(--gap-control-row); }
 .usage-part { display: block; min-width: 3px; background: var(--part-color); }
 .usage.is-full .usage-part { background: repeating-linear-gradient(-45deg, var(--part-color) 0 6px, var(--meter-full) 6px 12px); }
 .usage [data-part="0"] { --part-color: var(--part-0); }

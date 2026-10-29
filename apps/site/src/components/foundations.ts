@@ -55,6 +55,76 @@ export function glassPane(options: GlassPaneOptions): Raw {
   return html`<section class="glass glass-pane ${options.paneWidth}${options.isStartedLow ? " is-started-low" : ""}" data-glass data-glass-corners="pane"${options.label ? html` aria-label="${options.label}"` : ""}>${EDGE}<div class="pane-in">${options.body}</div></section>`;
 }
 
+export interface FloatingPaneOptions {
+  /** Unique on the page: what opens it names it (aria-controls). */
+  id: string;
+  /** What stays at its top as its body scrolls (a menu's head: whose account, whether you're online). */
+  head?: Raw;
+  /** What's in it: past the pane's height (a menu's, or the room in the window), it scrolls inside it, with the rail and fades. */
+  body: Raw;
+  /**
+   * Where it hangs from what opens it (its anchor): "under" it, or above it where there's no room below (a search's list, a menu), or "over"
+   * it, the line its owner names on the anchor's own line, so a pick sits where the anchor's words were (a select's list, the wheels).
+   */
+  placement: "under" | "over";
+  /** Its owner's own classes, for the owner's styles and script: "select-list". */
+  kind?: string;
+  /** Its role and what a screen reader calls it, when it isn't a list the owner names (a menu, a group of wheels). */
+  role?: "menu" | "group";
+  label?: string;
+  /** Shown open where it is, in the page's flow: the gallery's still open states. Over, it lies on its anchor by lineFromTop (a CSS length). */
+  isShownInPlace?: boolean;
+  lineFromTop?: string;
+}
+
+/**
+ * A floating pane: a pane of the menus' glass that hangs from what opens it, under it or over it, over everything on the page, casting a
+ * shadow onto it. FLOATING (PLACE_SCRIPT's zaismaFloat) does all its floating: lifting it out to the page, its light or dark and hue, where it
+ * goes and keeping it in the window, riding the page as it scrolls, closing on Esc, a press elsewhere or a scroll away, and its shadow. It's
+ * no taller than a menu or the room in the window, and its body scrolls inside it past that, with the rail and scroll fades.
+ */
+export function floatingPane(options: FloatingPaneOptions): Raw {
+  const className = [`placed-${options.placement}`, options.kind ?? "", "glass", options.isShownInPlace ? "in-place" : ""].filter(Boolean).join(" ");
+  return html`<div class="floating-pane ${className}" id="${options.id}"${options.role ? html` role="${options.role}"` : ""}${options.label ? html` aria-label="${options.label}"` : ""} data-glass data-glass-corners="menu"${
+    options.isShownInPlace ? (options.lineFromTop ? html` style="--line-from-top: ${options.lineFromTop}"` : "") : raw(' popover="manual"')
+  }>${EDGE}${options.head ? html`<div class="floating-head">${options.head}</div>` : ""}<div class="floating-body">${options.body}</div></div>`;
+}
+
+export interface WellOptions {
+  /** What's carved into it: words, code, or a line of them with an icon. */
+  body: Raw;
+  /** One gallery control at its end, as far in from its end as from its top (a field's Copy); what's in it stops short of it. */
+  end?: ControlMarkup;
+  /** What shows over the end control for a moment, in its place (a field's Copied tick); its owner shows it. */
+  endNote?: Raw;
+  /** Its owner's name for it, for the owner's own styles and script, ending in -well so it never meets another component's class: "code-well";
+   * the owner's own modifiers may follow it ("switch-well small"). */
+  kind?: string;
+  /** The gallery's fixed keyboard focus on what's in it. */
+  state?: "is-focused";
+  /** What's in it is longer than it can show: it scrolls inside the well, which stays still, fading at its ends, on Zaisma's rail; down (a
+   * list of choices, a stacked switch's places, the rail beside them) or across (a switch's tabs, the rail under the well). */
+  scrollDirection?: "down" | "across";
+  /** How far the edge rule cuts its corners, in pixels: 10 unless its owner is smaller (a small switch's 9). */
+  cornerCutPx?: number;
+  /** It holds parts you point at (a compact list's cards): its edge lights beside the pointed one (Edge light), along this side. */
+  edgeLight?: "left" | "bottom";
+}
+
+/**
+ * A well: a box carved into a pane's glass that holds things (words, code, a list of controls) and is never a control itself: a field or a
+ * carved button is carved the same way but is what you use, so it isn't a well; a list of choices down a carving is held in one. Its insides
+ * sit at a field's inset, and it's cut by the edge rule. A pane is glass raised; a well is glass carved in. One gallery control can sit at
+ * its end, as far in from its end as from its top; what's longer than it can show scrolls inside it.
+ */
+export function well(options: WellOptions): Raw {
+  const isAcross = options.scrollDirection === "across";
+  const className = ["well", "cut-carved", options.kind ?? "", options.scrollDirection ? `scrolls-${options.scrollDirection}` : "", options.state ?? ""].filter(Boolean).join(" ");
+  return html`<div class="${className}" data-cut-line="${options.cornerCutPx ?? 10}"${isAcross ? raw(" data-side-rail") : ""}${options.edgeLight ? html` data-edge-light="${options.edgeLight}"` : ""}>${CUT_LINE}${options.edgeLight ? EDGE_LIGHT : ""}<div class="well-body"${isAcross ? raw(" data-fades-sideways data-rail-scroller") : ""}>${options.body}</div>${
+    options.end ? html`<div class="well-end">${options.end}${options.endNote ? html`<span class="well-end-note" aria-hidden="true">${options.endNote}</span>` : ""}</div>` : ""
+  }</div>`;
+}
+
 /**
  * A tray: a thinner, clearer sheet of glass that a pane extends into, holding a whole area under it, so what's in the area reads as one
  * with its head (the gallery's sections: a head of words, then every example on the tray). The head's bottom corners and the tray's top
@@ -88,7 +158,7 @@ export const tag = (words: string | number, tone: TagTone, options: { icon?: Ico
   html`<span class="tag ${tone}">${options.icon ? html`${icon(options.icon)}<span>${String(words)}</span>` : String(words)}</span>`;
 
 export interface ColorChoice {
-  /** What it's called, said by a screen reader and shown beside the picker when it's picked. */
+  /** What it's called, said by a screen reader and shown in its field when it's picked (a Color field's named colors). */
   name: string;
   /** The value a page script reads (data-color-value). */
   colorValue: string;
@@ -96,55 +166,6 @@ export interface ColorChoice {
   swatch: string;
 }
 
-/**
- * A color picker (inputs.ts's Color picker shows it): plain swatches in a carved well, like the switch's tabs, slanting toward each other.
- * The picked one keeps its whole color, with an orange bar under it that glides to the next pick (COLOR_PICKER_SCRIPT places it); its name sits beside the well.
- * focusedValue fixes keyboard focus on one, for the gallery.
- */
-export function colorPicker(options: { label: string; choices: ColorChoice[]; pickedValue: string; focusedValue?: string; extra?: Raw }): Raw {
-  const picked = options.choices.find((choice) => choice.colorValue === options.pickedValue);
-  return html`<div class="color-picker" role="group" aria-label="${options.label}"${options.extra ?? ""}><div class="color-well cut-carved" data-cut-line="9">${CUT_LINE}${options.choices.map(
-    (choice) =>
-      html`<button type="button" class="color-pick${choice.colorValue === options.focusedValue ? " is-focused" : ""}" data-cut-line="6" data-color-value="${choice.colorValue}" aria-label="${choice.name}" aria-pressed="${choice === picked ? "true" : "false"}" style="--swatch:${choice.swatch === "clear" ? "var(--clear-swatch)" : choice.swatch}">${CUT_LINE}</button>`,
-  )}<span class="color-mark" aria-hidden="true"${picked ? "" : raw(" hidden")}></span></div><span class="color-picker-name" aria-live="polite">${picked?.name ?? ""}</span></div>`;
-}
-
-/** A pick moves the bar and the name; what the color changes is the page's own script's (it reads data-color-value). */
-export const COLOR_PICKER_SCRIPT = `/* color pickers */(function () {
-  var root = getComputedStyle(document.documentElement);
-  var SLANT_PX = parseFloat(root.getPropertyValue("--control-slant")) || 10;
-  // The bar under the picked swatch: its sides carry on the swatch's own slants down to it, so between colors it slants with them;
-  // under the first or last color, its outer end is straight under the swatch's edge, and the well's own cut corner trims it.
-  function place(well, isGliding) {
-    var mark = well.querySelector(".color-mark"), picks = Array.prototype.slice.call(well.querySelectorAll(".color-pick"));
-    var pick = well.querySelector('.color-pick[aria-pressed="true"]');
-    if (!mark || !pick) { if (mark) mark.hidden = true; return; }
-    mark.hidden = false;
-    var size = pick.offsetHeight, run = SLANT_PX / size, left = pick.offsetLeft, right = left + pick.offsetWidth;
-    var top = mark.offsetTop, below = top - (pick.offsetTop + size), height = mark.offsetHeight;
-    var isFirst = pick === picks[0], isLast = pick === picks[picks.length - 1];
-    var x = isFirst ? [left, left] : [left - run * below, left - run * (below + height)];
-    var endX = isLast ? [right, right] : [right - SLANT_PX - run * below, right - SLANT_PX - run * (below + height)];
-    var from = Math.min(x[0], x[1]), to = Math.max(endX[0], endX[1]);
-    var points = [[x[0] - from, 0], [endX[0] - from, 0], [endX[1] - from, height], [x[1] - from, height]];
-    if (!isGliding) mark.style.transition = "none";
-    mark.style.width = (to - from) + "px"; mark.style.transform = "translateX(" + from + "px)";
-    mark.style.setProperty("--cut-shape", "polygon(" + points.map(function (p) { return p[0].toFixed(2) + "px " + p[1].toFixed(2) + "px"; }).join(", ") + ")");
-    if (!isGliding) { mark.offsetWidth; mark.style.transition = ""; }
-  }
-  function placeAll() { document.querySelectorAll(".color-well").forEach(function (well) { place(well, false); }); }
-  // After the edge rule has cut the wells (their corners), and again once the fonts have settled the layout.
-  requestAnimationFrame(placeAll);
-  if (document.fonts && document.fonts.ready) document.fonts.ready.then(placeAll);
-  document.addEventListener("click", function (event) {
-    var pick = event.target.closest && event.target.closest(".color-pick"); if (!pick) return;
-    var picker = pick.closest(".color-picker");
-    picker.querySelectorAll(".color-pick").forEach(function (each) { each.setAttribute("aria-pressed", String(each === pick)); });
-    place(pick.parentElement, true);
-    picker.querySelector(".color-picker-name").textContent = pick.getAttribute("aria-label");
-  });
-})();
-`;
 
 export interface SheetMarkupOptions {
   /** Unique on the page: what opens it names it (aria-controls). */
@@ -196,6 +217,74 @@ export function sheetMarkup(options: SheetMarkupOptions): Raw {
 /** An outline for a cut field or button (GLASS_SCRIPT draws it), and a slab's drawn rim. */
 export const CUT_LINE = raw('<svg class="cut-line" aria-hidden="true"><polygon/></svg>');
 export const EDGE = raw('<svg class="edge" aria-hidden="true"></svg>');
+/**
+ * An edge light (Panes › Glass): the light a well or pane catches on its edge, laid in it before what it holds. The holder names the edge
+ * (data-edge-light="bottom" or "left"), and the parts that light it carry data-lights (a switch's tabs); EDGE_LIGHT_SCRIPT does the rest.
+ */
+export const EDGE_LIGHT = raw('<span class="edge-light" aria-hidden="true"></span>');
+
+export interface GrooveOptions {
+  /** How much of it is filled with light, from its start: 0 to 100. Left out, a light runs along it: on its way, with no end known yet. */
+  filledPct?: number;
+  /** Its owner's name for it, for the owner's own styles: "slider-groove". */
+  kind?: string;
+  /** It's still going (an upload on its way): a glint runs along its light, over and over, so it plainly isn't stuck. */
+  isWorking?: boolean;
+  /** What lies in its light, for an owner whose light is more than one color: a Usage meter's parts, side by side. */
+  lightMarkup?: Raw;
+}
+
+/**
+ * A groove: a channel carved into the glass, read by its edges (a deep shade under its upper edge, a crisp lit lower lip), filled from its
+ * start with orange light, light inside the glass, as far as it's filled. panes.ts's Groove shows it; a Slider's line and a Progress's track
+ * are one. Its owner can set where the fill ends itself (--groove-filled-length), as a slider does, to its thumb's middle.
+ */
+export function groove(options: GrooveOptions = {}): Raw {
+  const isRunning = options.filledPct === undefined;
+  const shownPct = isRunning ? 0 : Math.max(0, Math.min(100, options.filledPct ?? 0));
+  return html`<span class="groove${options.kind ? ` ${options.kind}` : ""}${isRunning ? " is-running" : ""}${options.isWorking ? " is-working" : ""}" data-cut-line="3" aria-hidden="true" style="--groove-filled:${(shownPct / 100).toFixed(4)}">${CUT_LINE}<span class="groove-fill"><span class="groove-light" data-cut-line="3" data-cut-bar>${CUT_LINE}${options.lightMarkup ?? ""}</span></span></span>`;
+}
+
+/**
+ * Edge lights: pointing (with a mouse) anywhere on a holder ([data-edge-light]) wakes its whole edge (is-awake), and pointing at a part that
+ * lights it ([data-lights], not the one you're on or one that can't be chosen) floods light up from the edge beside it (is-lit, at
+ * --light-at, --light-span wide), gliding to the next part as you move. A part marked is-pointed (the gallery's still) keeps it lit.
+ */
+export const EDGE_LIGHT_SCRIPT = `/* edge light */(function () {
+  function canLight(part) { return Boolean(part) && !part.matches('[aria-current="page"], [aria-pressed="true"], :disabled, [aria-disabled="true"], :has(> input:checked), :has(> input:disabled)'); }
+  window.zaismaWatch.each("[data-edge-light]", function (holder) {
+    var light = holder.querySelector(":scope > .edge-light");
+    if (!light) return;
+    var side = holder.getAttribute("data-edge-light"), isAcross = side === "bottom" || side === "top", lit = null, dimLater = null;
+    // Passing over a part that doesn't light (the one you're on), the light waits a moment before it goes, so crossing it on the way to the
+    // next one glides straight on instead of going out and coming back.
+    var PASSING_MS = 250;
+    function place(part, isGliding) {
+      var h = holder.getBoundingClientRect(), r = part.getBoundingClientRect();
+      // The first light comes up where it is; after that it glides along the edge to the next part.
+      if (!isGliding) light.style.transition = "none";
+      light.style.setProperty("--light-at", (isAcross ? r.left + r.width / 2 - h.left : r.top + r.height / 2 - h.top) + "px");
+      light.style.setProperty("--light-span", (isAcross ? r.width : r.height) + "px");
+      if (!isGliding) { void light.offsetWidth; light.style.transition = ""; }
+    }
+    function lightUp(part) { clearTimeout(dimLater); dimLater = null; place(part, holder.classList.contains("is-lit")); lit = part; holder.classList.add("is-awake", "is-lit"); }
+    function dim() { clearTimeout(dimLater); dimLater = null; lit = null; holder.classList.remove("is-lit"); }
+    function dimSoon() { if (!dimLater && lit) dimLater = setTimeout(dim, PASSING_MS); }
+    holder.addEventListener("pointerover", function (event) {
+      if (event.pointerType && event.pointerType !== "mouse") return;
+      holder.classList.add("is-awake");
+      var part = event.target.closest("[data-lights]");
+      if (part && holder.contains(part) && canLight(part)) lightUp(part); else dimSoon();
+    });
+    holder.addEventListener("pointerleave", function () { dim(); holder.classList.remove("is-awake"); });
+    // A part picked (the one you're on now) no longer lights; one that scrolls inside the holder keeps its light beside it.
+    holder.addEventListener("click", function () { setTimeout(function () { if (lit && !canLight(lit)) dim(); }, 0); });
+    holder.addEventListener("scroll", function () { if (lit) place(lit, false); }, true);
+    var still = holder.matches("[data-lights].is-pointed") ? holder : holder.querySelector("[data-lights].is-pointed");
+    if (still) lightUp(still);
+  });
+})();
+`;
 
 /* ---- The foundations in the gallery: tokens, type, glass, backdrop, cut shapes, motion and icons. ---- */
 

@@ -65,9 +65,9 @@ export const GAME_UPDATES_SCRIPT = pageScript(
   const plate = document.getElementById("conn-dialog");
   const plateTitle = plate.querySelector(".dropdown-head strong");
   const plateLine = plate.querySelector(".dropdown-head span");
-  const isPlateOpen = () => !plate.classList.contains("shut");
+  const isPlateOpen = () => plate.matches(":popover-open");
   // The dropdown hangs from the button that names it with aria-expanded: only the one shown has it.
-  const closePlate = () => { plate.classList.add("shut"); plate.setAttribute("aria-hidden", "true"); Object.values(conns).forEach((b) => b.hasAttribute("aria-expanded") && b.setAttribute("aria-expanded", "false")); };
+  const closePlate = () => { if (plate.floating) plate.floating.close(false); Object.values(conns).forEach((b) => b.hasAttribute("aria-expanded") && b.setAttribute("aria-expanded", "false")); };
   const gameOrigin = new URL(gamePage.frame_url).origin;
   const CODE = /^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$/;
   const LOST_AFTER_MS = 10000;

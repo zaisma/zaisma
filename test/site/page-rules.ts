@@ -8,9 +8,13 @@ import { COMPONENT_STYLES } from "../../apps/site/src/components/index.ts";
 
 /** Classes a script or a screen reader uses, with no look of their own. */
 export const UNSTYLED_HOOKS = new Set<string>([
-  "bday-read", // The birthday's spoken summary (and .sr hides it).
+  "wheel-read", // The birthday's spoken summary (and .sr hides it).
   // What a layout's cell holds (layout.ts), which the measuring check reads (scripts/layout-check.mjs); words' cells are styled.
   "is-control", "is-block",
+  // Hooks a component's script finds its parts by: a Color field's None, a wheel field's kind of wheels, a search's icon and its typed
+  // finish's row, a file drop's templates for a new row and its zoom mark, a filter menu open as its page loads, and a Progress whose end
+  // isn't known yet (its Groove runs; the class says so to a script).
+  "color-none", "birthday-wheels", "find-icon", "find-finish-row", "file-drop-zoom-template", "file-drop-row-template", "is-open-on-load", "is-unknown",
 ]);
 
 /** A component's own insides, styled for it but never for a page to place things with: a page lays out with layout.ts instead. */
@@ -33,6 +37,7 @@ export const STYLE_ATTRIBUTE: { pattern: RegExp; why: string }[] = [
   { pattern: /^--shown-row-count:\d+$/, why: "a table capped to a number of rows" },
   { pattern: /^--sent:[0-9.]+$/, why: "a file drop's upload, the share sent" },
   { pattern: /^--done-pct:[0-9.]+%$/, why: "Progress, the share done" },
+  { pattern: /^--groove-filled:[0-9.]+$/, why: "a Groove's light, the share filled (a Progress, an upload, a usage meter)" },
 ];
 
 /** The page sheets pages may link: the site's and the gallery's, each every component's styles with the shell's or the gallery's. */
@@ -118,7 +123,7 @@ export const MAXIMUM_EQUAL_CHOICE_COUNT = 5;
 export const MAXIMUM_UNGROUPED_MENU_ITEM_COUNT = 9;
 /** At most this many fields in a pane with no heading between them (Miller's law). */
 export const MAXIMUM_UNBROKEN_FIELD_COUNT = 7;
-const FIELDS = [".cut-field", ".bday", ".pin-field", ".choice-cards", ".toggle", ".check", ".slider"];
+const FIELDS = [".cut-field", ".wheel-field", ".pin-field", ".choice-cards", ".toggle", ".check", ".slider"];
 
 /**
  * The layout rules a rendered page can't break unseen, scanned on its markup (docs/DESIGN.md, Rules: made impossible before they're
@@ -142,13 +147,11 @@ export async function pageStructureProblems(markup: string): Promise<string[]> {
     if (/\b[A-Z]{3,}\s+[A-Z]{3,}\b/.test(node.words)) problems.push(`words in capitals: ${nameOf(node)}`);
     if (/--[a-z]/.test(node.words)) problems.push(`a token's name outside code: ${nameOf(node)}, set it in code`);
   }
-  // Hick's law and choice overload: few equal choices in a row or a switch, and a long menu in groups. A framed switch is a strip that
-  // scrolls sideways (filters, places), read as one control.
-  const isChoiceGroup = (node: PageNode) => (node.classes.includes("layout-row") && node.attributes.has("data-control-height")) || (node.classes.includes("tab-switch") && !node.classes.includes("vertical") && !node.classes.includes("framed"));
+  // Hick's law and choice overload: few equal choices in a row, and a long menu in groups. A switch is a strip that scrolls sideways past its
+  // room (filters, places, regions), read as one control, so it isn't counted.
+  const isChoiceGroup = (node: PageNode) => node.classes.includes("layout-row") && node.attributes.has("data-control-height");
   for (const group of nodes.filter((node) => isChoiceGroup(node) && !isInside(node, EXAMPLE))) {
-    const choices = group.classes.includes("tab-switch")
-      ? group.children.filter((child) => child.tag === "button" && !child.attributes.has("hidden"))
-      : group.children.filter((cell) => cell.classes.includes("row-cell") && cell.classes.includes("is-control") && !cell.attributes.has("hidden") && cell.children.some((child) => (child.classes.includes("shell") || child.classes.includes("run-wrap")) && !child.attributes.has("hidden")));
+    const choices = group.children.filter((cell) => cell.classes.includes("row-cell") && cell.classes.includes("is-control") && !cell.attributes.has("hidden") && cell.children.some((child) => (child.classes.includes("shell") || child.classes.includes("run-wrap")) && !child.attributes.has("hidden")));
     if (choices.length > MAXIMUM_EQUAL_CHOICE_COUNT) problems.push(`too many equal choices: ${nameOf(group)}, ${choices.length} side by side, at most ${MAXIMUM_EQUAL_CHOICE_COUNT}`);
   }
   for (const menu of nodes.filter((node) => node.classes.includes("dropdown") && node.attributes.get("role") === "menu" && !isInside(node, EXAMPLE))) {

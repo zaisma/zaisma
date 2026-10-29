@@ -1,23 +1,24 @@
 /**
  * QR codes for game and room links (docs/DECISIONS.md, "QR codes"): players get one behind Share,
- * developers on the dashboard and through the API and MCP. Byte mode, error correction level M,
- * versions 1 to 10 (up to 213 bytes, far more than a link needs). Written here rather than taken from a
+ * developers on the dashboard and through the API and MCP. Byte mode, error correction level H, so a
+ * small picture over its middle (a game's icon) still leaves it readable, versions 1 to 10 (up to 119
+ * bytes, far more than a link needs). Written here rather than taken from a
  * package so the site's page and the API draw the same code with no dependency; it follows ISO/IEC
  * 18004 the way Project Nayuki's reference encoder does.
  */
 
 export const QR_CODE_LIMITS = {
-  /** Version 10 at level M holds 213 bytes. */
-  maximumTextBytes: 213,
+  /** Version 10 at level H holds 119 bytes. */
+  maximumTextBytes: 119,
   /** Light modules around the code, as the standard asks. */
   quietZoneModuleCount: 4,
 } as const;
 
-// Level M: error correction codewords per block and blocks, by version (index 0 unused).
-const ERROR_CORRECTION_CODEWORD_COUNTS_PER_BLOCK = [0, 10, 16, 26, 18, 24, 16, 18, 22, 22, 26];
-const ERROR_CORRECTION_BLOCK_COUNTS = [0, 1, 1, 1, 2, 2, 4, 4, 4, 5, 5];
-/** Error correction level M (medium)'s two bits in the format information. */
-const MEDIUM_CORRECTION_FORMAT_NUMBER = 0;
+// Level H: error correction codewords per block and blocks, by version (index 0 unused).
+const ERROR_CORRECTION_CODEWORD_COUNTS_PER_BLOCK = [0, 17, 28, 22, 16, 22, 28, 26, 26, 24, 28];
+const ERROR_CORRECTION_BLOCK_COUNTS = [0, 1, 1, 2, 4, 4, 4, 5, 6, 8, 8];
+/** Error correction level H (high)'s two bits in the format information. */
+const HIGH_CORRECTION_FORMAT_NUMBER = 2;
 const HIGHEST_VERSION_NUMBER = 10;
 
 const isBitSet = (bitsNumber: number, bitIndex: number) => ((bitsNumber >>> bitIndex) & 1) !== 0;
@@ -226,7 +227,7 @@ export function qrCodeModules(text: string): boolean[][] {
     }),
   );
   const drawFormat = (maskIndex: number) => {
-    const formatNumber = (MEDIUM_CORRECTION_FORMAT_NUMBER << 3) | maskIndex;
+    const formatNumber = (HIGH_CORRECTION_FORMAT_NUMBER << 3) | maskIndex;
     let remainderNumber = formatNumber;
     for (let stepIndex = 0; stepIndex < 10; stepIndex++) remainderNumber = (remainderNumber << 1) ^ ((remainderNumber >>> 9) * 0x537);
     const formatBitsNumber = ((formatNumber << 10) | remainderNumber) ^ 0x5412;

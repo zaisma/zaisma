@@ -1,7 +1,7 @@
 import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
 import { controlMarkup, type ControlMarkup } from "./control-markup.ts";
-import { CUT_LINE, EDGE, glassPane, icon, loader, type IconName } from "./foundations.ts";
+import { CUT_LINE, EDGE, EDGE_LIGHT, floatingPane, glassPane, icon, loader, well, type IconName } from "./foundations.ts";
 import { examplePane } from "./example-pane.ts";
 import { LEAST_SCROLL_PX } from "./tokens.ts";
 
@@ -149,102 +149,102 @@ export interface SelectFieldOptions {
   error?: string;
   /** data-* attributes on the hidden field it sends, as on a button: what a page's script reads when a pick changes it ({ label: "Mode" } is data-label="Mode"). */
   dataAttributes?: Record<string, string>;
-  /** The gallery's fixed states: focused, or open with its list under it, or above it where there's no room below. */
-  state?: "is-focused" | "is-open" | "is-open-above";
+  /** The gallery's fixed states: focused, or open, its list over the field. */
+  state?: "is-focused" | "is-open";
 }
 
 /**
- * A select field: a cut field that opens a list of Zaisma's glass under it, on every device, so picking from a list looks and feels like
+ * A select field: a cut field that opens a list of Zaisma's glass over it, on every device, so picking from a list looks and feels like
  * the rest of the page. For one of many (a region, a language); one of a few is Choice cards or a Switch. The pick is sent as a hidden field.
  * It's as wide as its longest choice wherever it fits what's in it, so it never changes width as you pick.
  */
 export function selectField(options: SelectFieldOptions): ControlMarkup {
   const id = options.id ?? `field-${options.name}`;
   const picked = options.choices.find((choice) => choice.choiceValue === options.pickedValue) ?? (options.placeholder ? undefined : options.choices[0]);
-  const isOpen = options.state === "is-open" || options.state === "is-open-above";
-  const isAbove = options.state === "is-open-above";
+  const isOpen = options.state === "is-open";
+  const pickedIndex = Math.max(0, picked ? options.choices.indexOf(picked) : 0);
   const className = ["field", "select", "cut-carved", options.icon ? "" : "no-icon", options.error ? "is-marked" : "", options.isDisabled ? "is-disabled" : "", options.state === "is-focused" ? "is-focused" : "", isOpen ? "is-open" : ""].filter(Boolean).join(" ");
-  // The list is a pane of glass (the popover) holding the listbox, which scrolls inside it, so its rail and its cut edge stay inside the glass.
-  const list = html`<div class="select-list glass${options.icon ? " after-icon" : ""}${isOpen ? " in-place" : ""}${isAbove ? " is-above" : ""}" id="${id}-list" data-glass data-glass-corners="menu"${isOpen ? "" : raw(" popover")}>${EDGE}<div class="select-options" id="${id}-choices" role="listbox" aria-labelledby="${id}-label" tabindex="-1" data-own-fade>${options.choices.map(
-    (choice, choiceIndex) =>
-      html`<div class="select-option" role="option" id="${id}-option-${choiceIndex}" data-choice-value="${choice.choiceValue}" aria-selected="${choice === picked ? "true" : "false"}" data-cut-line="8">${CUT_LINE}<span>${choice.label}</span></div>`,
-  )}</div></div>`;
+  // The list is a Floating pane over the field holding the listbox, which scrolls inside it, so its rail and its cut edge stay inside the
+  // glass. Shown open in place, its picked row (36px rows, 2px apart, under its 4px edge) lies on the field's line.
+  const list = floatingPane({
+    id: `${id}-list`,
+    placement: "over",
+    kind: `select-list${options.icon ? " after-icon" : ""}`,
+    isShownInPlace: isOpen,
+    lineFromTop: `${4 + pickedIndex * 38 + 18}px`,
+    body: html`<div class="select-options" id="${id}-choices" role="listbox" aria-labelledby="${id}-label" tabindex="-1">${options.choices.map(
+      (choice, choiceIndex) =>
+        html`<div class="select-option${isOpen && choice === picked ? " is-active" : ""}" role="option" id="${id}-option-${choiceIndex}" data-choice-value="${choice.choiceValue}" aria-selected="${choice === picked ? "true" : "false"}" data-cut-line="8">${CUT_LINE}<span>${choice.label}</span><span class="select-tick">${icon("check")}</span></div>`,
+    )}</div>`,
+  });
   const sizes = html`<span class="select-sizes" aria-hidden="true">${options.placeholder ? html`<span>${options.placeholder}</span>` : ""}${options.choices.map((choice) => html`<span>${choice.label}</span>`)}</span>`;
-  const opens = isOpen || options.isDisabled ? raw("") : html` popovertarget="${id}-list"`;
   return controlMarkup(html`<div class="cut-field" data-select><label id="${id}-label" for="${id}">${options.label}</label>
-${isAbove ? list : ""}<span class="${className}" data-cut-line="10">${CUT_LINE}${options.icon ? icon(options.icon) : ""}<button type="button" class="select-button" id="${id}" aria-haspopup="listbox" aria-expanded="${isOpen ? "true" : "false"}" aria-controls="${id}-choices"${opens}${options.isDisabled ? raw(" disabled") : ""}${options.error ? html` aria-invalid="true" aria-describedby="${id}-error"` : ""}><span class="select-value${picked ? "" : " is-placeholder"}">${picked?.label ?? options.placeholder ?? ""}</span>${sizes}</button><span class="select-chev">${icon("chevron-down")}</span></span>
-${isAbove ? "" : list}<input type="hidden" name="${options.name}" value="${picked?.choiceValue ?? ""}"${options.isDisabled ? raw(" disabled") : ""}${Object.entries(options.dataAttributes ?? {}).map(([attributeName, attributeValue]) => html` data-${attributeName}="${attributeValue}"`)}>
+<span class="${className}" data-cut-line="10">${CUT_LINE}${options.icon ? icon(options.icon) : ""}<button type="button" class="select-button" id="${id}" aria-haspopup="listbox" aria-expanded="${isOpen ? "true" : "false"}" aria-controls="${id}-choices"${options.isDisabled ? raw(" disabled") : ""}${options.error ? html` aria-invalid="true" aria-describedby="${id}-error"` : ""}><span class="select-value${picked ? "" : " is-placeholder"}">${picked?.label ?? options.placeholder ?? ""}</span>${sizes}</button><span class="select-chev">${icon("chevron-down")}</span></span>
+${list}<input type="hidden" name="${options.name}" value="${picked?.choiceValue ?? ""}"${options.isDisabled ? raw(" disabled") : ""}${Object.entries(options.dataAttributes ?? {}).map(([attributeName, attributeValue]) => html` data-${attributeName}="${attributeValue}"`)}>
 ${options.error ? html`<p class="field-error" id="${id}-error">${options.error}</p>` : ""}</div>`, "field", { hasOwnWords: true });
 }
 
 /**
- * Select fields: the list opens as a popover, moved out to the page so no pane's glass is round it (over everything, never clipped by the pane it's in) attached to its field, as wide as it:
- * under it, or above it where zaismaPlace (panes.ts's PLACE_SCRIPT) puts it, and following it as the page scrolls. The arrow keys move through it, a letter jumps to a choice, Enter or a press picks one and
- * closes it, Esc or a press elsewhere closes it. A pick sets the hidden field and sends it a change event.
+ * Select fields: the list is a Floating pane over its field (zaismaFloat), as wide as it, the picked choice (the first, with none) on the
+ * field's own line, so its words sit on the field's; a list that scrolls brings the pick to its middle first. The arrow keys move through it,
+ * a letter jumps to a choice, Enter or a press picks one and closes it, Esc or a press elsewhere closes it. A pick sets the hidden field and
+ * sends it a change event.
  */
 export const SELECT_SCRIPT = `/* select fields */(function () {
-  var GAP_PX = 6, EDGE_PX = 8, LEAST_SCROLL_PX = ${LEAST_SCROLL_PX}, owners = new WeakMap();
+  var LEAST_SCROLL_PX = ${LEAST_SCROLL_PX};
   window.zaismaWatch.each("[data-select]", function (root) {
-    var button = root.querySelector(".select-button"), list = root.querySelector(".select-list"), box = list.querySelector('[role="listbox"]'), hidden = root.querySelector('input[type="hidden"]'), field = button.closest(".field"), value = root.querySelector(".select-value");
+    var button = root.querySelector(".select-button"), list = root.querySelector(".select-list"), box = list.querySelector('[role="listbox"]'), scroller = list.querySelector(".floating-body"), hidden = root.querySelector('input[type="hidden"]'), field = button.closest(".field"), value = root.querySelector(".select-value");
     // A list a little taller than its ceiling would scroll by a sliver (and its rail, showing, narrow it): it stops shorter instead, so it
     // scrolls by at least LEAST_SCROLL_PX. Its rail only ever adds to what it scrolls by, so this holds once it's set.
     function keepOffSliver() {
       list.style.maxHeight = "";
-      var extraPx = box.scrollHeight - box.clientHeight;
+      var extraPx = scroller.scrollHeight - scroller.clientHeight;
       if (extraPx > 0 && extraPx < LEAST_SCROLL_PX) list.style.maxHeight = Math.floor(list.getBoundingClientRect().height - (LEAST_SCROLL_PX - extraPx)) + "px";
     }
     if (document.fonts) document.fonts.ready.then(keepOffSliver); else keepOffSliver();
     window.zaismaWatch.resize(keepOffSliver);
-    if (!list.hasAttribute("popover")) return;
-    // Lifted out of the pane it's in to the page itself, so no pane's glass, clip or filter is round it: it paints and blurs over everything
-    // in every browser (Safari draws glass inside glass unblurred, so rows below showed through it). A list left by a field gone from the page goes,
-    // even when its field's replacement (a panel the page refreshed) has the same id: a button opens the first list of its id, so a left one must never stay.
-    document.querySelectorAll("body > .select-list").forEach(function (left) { var owner = owners.get(left); if (owner && !owner.isConnected) left.remove(); });
-    if (root.closest(".smoke")) list.classList.add("smoke");
-    owners.set(list, root);
-    document.body.appendChild(list);
+    // Shown open in place, a list that scrolls brings its pick to its middle, and its line follows the pick.
+    if (list.classList.contains("in-place")) {
+      var still = list.querySelector('[aria-selected="true"]') || list.querySelector('[role="option"]');
+      if (still && scroller.scrollHeight > scroller.clientHeight) {
+        scroller.scrollTop = still.offsetTop - (scroller.clientHeight - still.offsetHeight) / 2;
+        list.style.setProperty("--line-from-top", scroller.offsetTop + still.offsetTop - scroller.scrollTop + still.offsetHeight / 2 + "px");
+      }
+      return;
+    }
     var options = Array.prototype.slice.call(box.querySelectorAll('[role="option"]')), active = -1, typed = "", typedAt = 0;
     function picked() { return options.findIndex(function (o) { return o.getAttribute("aria-selected") === "true"; }); }
     function setActive(i) {
       active = Math.max(0, Math.min(options.length - 1, i));
       options.forEach(function (o, j) { o.classList.toggle("is-active", j === active); });
       box.setAttribute("aria-activedescendant", options[active].id);
-      var o = options[active], top = o.offsetTop; if (top < box.scrollTop) box.scrollTop = top; else if (top + o.offsetHeight > box.scrollTop + box.clientHeight) box.scrollTop = top + o.offsetHeight - box.clientHeight;
+      var o = options[active], top = o.offsetTop; if (top < scroller.scrollTop) scroller.scrollTop = top; else if (top + o.offsetHeight > scroller.scrollTop + scroller.clientHeight) scroller.scrollTop = top + o.offsetHeight - scroller.clientHeight;
     }
-    // Attached to the field, as wide as it: under it or above it where zaismaPlace puts it, inside the window, following the field as the page
-    // scrolls or the window changes, and gone once the field has left the window.
-    function place() {
-      var r = field.getBoundingClientRect();
-      if (!field.isConnected || r.bottom < 0 || r.top > window.innerHeight || r.right < 0 || r.left > document.documentElement.clientWidth) { list.hidePopover(); return; }
-      list.style.width = r.width + "px";
-      var spot = window.zaismaPlace(r, { width: r.width, height: list.offsetHeight }, { gapPx: GAP_PX, edgePx: EDGE_PX });
-      list.style.left = Math.round(spot.leftPx) + "px"; list.style.top = Math.round(spot.topPx) + "px";
-      list.classList.toggle("is-above", spot.isAbove);
-    }
+    var float = window.zaismaFloat(list, {
+      anchor: field, home: root, focusOnClose: button,
+      // The pick's middle, by offsets: while it opens out of the field its scale isn't whole yet.
+      lineOf: function () { var row = options[Math.max(0, picked())]; return scroller.offsetTop + row.offsetTop - scroller.scrollTop + row.offsetHeight / 2; },
+      onShown: function () {
+        keepOffSliver();
+        var row = options[Math.max(0, picked())];
+        if (scroller.scrollHeight > scroller.clientHeight) scroller.scrollTop = row.offsetTop - (scroller.clientHeight - row.offsetHeight) / 2;
+      },
+      onToggle: function (isOpen) {
+        button.setAttribute("aria-expanded", String(isOpen)); field.classList.toggle("is-open", isOpen);
+        if (isOpen) { setActive(Math.max(0, picked())); box.focus({ preventScroll: true }); }
+      }
+    });
     function pick(i) {
       options.forEach(function (o, j) { o.setAttribute("aria-selected", String(j === i)); });
       value.textContent = options[i].textContent; value.classList.remove("is-placeholder");
       // A first pick from nothing always changes it, even to a choice whose value is empty.
       if (hidden.value !== options[i].getAttribute("data-choice-value") || !isPicked) { hidden.value = options[i].getAttribute("data-choice-value"); hidden.dispatchEvent(new Event("change", { bubbles: true })); }
-      isPicked = true; list.hidePopover(); button.focus();
+      isPicked = true; float.close(true);
     }
     var isPicked = picked() >= 0;
-    list.addEventListener("toggle", function (event) {
-      var isOpen = event.newState === "open";
-      button.setAttribute("aria-expanded", String(isOpen)); field.classList.toggle("is-open", isOpen);
-      if (isOpen && !root.isConnected) { list.hidePopover(); list.remove(); return; }
-      if (isOpen) {
-        // The page's own light or dark, and the hue of the glass where the field is, which the list no longer inherits.
-        var themed = root.closest("[data-theme-choice]");
-        if (themed && themed !== document.documentElement) list.setAttribute("data-theme-choice", themed.getAttribute("data-theme-choice")); else list.removeAttribute("data-theme-choice");
-        list.style.setProperty("--glass-hue", getComputedStyle(root).getPropertyValue("--glass-hue"));
-        keepOffSliver(); place(); setActive(Math.max(0, picked())); box.focus({ preventScroll: true });
-      }
-    });
-    window.zaismaWatch.resize(function () { if (list.matches(":popover-open")) place(); });
-    window.zaismaWatch.scroll(function () { if (list.matches(":popover-open")) place(); });
+    button.addEventListener("click", function () { if (button.disabled) return; if (float.isOpen()) float.close(false); else float.open(); });
     button.addEventListener("keydown", function (event) {
-      if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); if (!button.disabled) list.showPopover(); }
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); if (!button.disabled) float.open(); }
     });
     box.addEventListener("click", function (event) { var o = event.target.closest('[role="option"]'); if (o) pick(options.indexOf(o)); });
     box.addEventListener("pointermove", function (event) { var o = event.target.closest('[role="option"]'); if (o && options.indexOf(o) !== active) setActive(options.indexOf(o)); });
@@ -253,7 +253,7 @@ export const SELECT_SCRIPT = `/* select fields */(function () {
       if (step) { setActive(active + step); event.preventDefault(); return; }
       if (key === "Home" || key === "End") { setActive(key === "Home" ? 0 : options.length - 1); event.preventDefault(); return; }
       if (key === "Enter" || key === " ") { pick(active); event.preventDefault(); return; }
-      if (key === "Tab") { list.hidePopover(); return; }
+      if (key === "Tab") { float.close(false); return; }
       if (key.length !== 1 || event.metaKey || event.ctrlKey) return;
       var now = Date.now(); typed = now - typedAt > 900 ? key.toLowerCase() : typed + key.toLowerCase(); typedAt = now;
       var hit = options.findIndex(function (o) { return o.textContent.toLowerCase().indexOf(typed) === 0; });
@@ -288,15 +288,14 @@ component({
   slug: "select-field",
   group: "inputs",
   subgroup: "fields",
-  summary: "One of many, from a list: a region, a language, a category. It opens a list of Zaisma's glass under the field, on every device. For one of a few, use Choice cards or a Switch.",
+  summary: "One of many, from a list: a region, a language, a category. It opens a list of Zaisma's glass over the field, the pick where the field was, on every device. For one of a few, use Choice cards or a Switch.",
   styles: `
-/* A select field: the cut field holding a button with the picked choice; the birthday field's chevron sits at its end and turns as it opens.
-   Its list is a pane of the menus' glass hanging just under the field, as wide as it, its choices on the switch's slabs: a faint one under
-   the pointer or the arrow keys, the white one with the orange line on the picked. */
+/* A select field: the cut field holding a button with the picked choice, at 16px on every screen (a pick needs no typing room); the birthday field's chevron sits at its end and turns as it opens.
+   Its list is a pane of the menus' glass opening over the field, as wide as it, the picked choice where the field was: the choice under the pointer or the arrow keys
+   catches the light, with no line (one under it would read as one over the next), and the picked one has a tick at its end. */
 .select-button { position: relative; z-index: 2; flex: 1; min-width: 0; width: 100%; height: 100%; padding: 0 calc(var(--pad-inside-words) + 24px) 0 calc(var(--pad-inside-words) + 34px); border: 0; border-radius: 0; cursor: pointer; text-align: left;
-  font: 500 1.125rem var(--display); color: var(--ink);
+  font: 500 1rem var(--display); color: var(--ink);
   --face-color: var(--field-face); background: var(--face-color); box-shadow: var(--field-shade); clip-path: var(--cut-shape); transition: --face-color 0.25s; }
-@media (max-width: 760px) { .select-button { font-size: 1rem; } }
 .field.select.no-icon .select-button { padding-left: var(--pad-inside-words); }
 .select-value { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .select-value.is-placeholder { color: var(--muted); }
@@ -313,34 +312,31 @@ component({
 /* Can't be changed now: flat in the glass, its pick and chevron quieter, and nothing changes as you point at it. */
 .field.select.is-disabled .select-button { --face-color: var(--off-face); color: var(--muted); box-shadow: none; cursor: default; }
 .field.select.is-disabled .select-chev { color: var(--muted); }
-/* The list: the popover's own place is the window, so it's set just under the field by SELECT_SCRIPT. Its choices sit close to its edge,
-   inset like a well's slabs, so their words start where the field's do. */
-.select-list { position: fixed; inset: auto; margin: 0; max-height: min(var(--size-menu-height), 50vh); padding: 4px; border: 0; color: var(--ink);
-  display: flex; flex-direction: column; --glass-tint: var(--glass-dropdown);
-  transition: var(--glass-transition), opacity 0.2s, transform 0.3s cubic-bezier(.2,.8,.2,1), overlay 0.3s allow-discrete, display 0.3s allow-discrete; }
-/* A browser that can't keep it in the top layer while it fades (Safari) would let it fall under what follows it on the page: it goes at once. */
-@supports not (overlay: auto) { .select-list { transition: var(--glass-transition), opacity 0.2s, transform 0.3s cubic-bezier(.2,.8,.2,1); } }
-/* Closed, it takes no room and no presses: it fades out toward the field, then goes. */
-.select-list:not(:popover-open):not(.in-place) { display: none; opacity: 0; transform: translateY(-6px); pointer-events: none; }
-.select-list.is-above:not(:popover-open):not(.in-place) { transform: translateY(6px); }
-@starting-style { .select-list:popover-open { opacity: 0; transform: translateY(-6px); } .select-list.is-above:popover-open { transform: translateY(6px); } }
-/* Shown open in place (the gallery's open states), it holds every choice: there's no window edge to keep it from. */
-.select-list.in-place { position: relative; display: flex; width: 100%; max-height: none; }
-/* It scrolls with no fade, so the pick's orange line always shows in full: its rail and a choice cut at its edge say there's more. */
-.select-options { flex: 0 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; outline: none; }
-.select-options.own-scroll.shows-rail { padding-right: 18px; }
+/* The list: a Floating pane over the field, scrolling in its body past a menu's height. Its choices sit close to its edge, inset like a
+   well's slabs, so their words start where the field's do. */
+.select-options { display: flex; flex-direction: column; gap: 2px; outline: none; }
 .select-option { position: relative; display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 8px calc(var(--pad-inside-words) - 4px) 11px; cursor: pointer; flex: none;
   font: var(--type-words); color: var(--ink-2); text-wrap: pretty; --face-color: transparent; background: var(--face-color); clip-path: var(--cut-shape); transition: --face-color 0.15s, color 0.15s; }
 /* Beside an icon, the field's words start after it, and so do its choices'. */
 .select-list.after-icon .select-option { padding-inline-start: calc(var(--pad-inside-words) + 30px); }
-@media (pointer: coarse) { .select-option { min-height: var(--control-height-regular); } }
+/* Over the field, its rows are slimmer: the list is about the choices, not a second field. */
+.select-list.placed-over .select-option { min-height: 36px; padding-block: 6px 7px; }
+@media (pointer: coarse) { .select-option, .select-list.placed-over .select-option { min-height: var(--control-height-regular); } }
 .select-option > :not(.cut-line) { position: relative; z-index: 2; }
 .select-option > span { flex: 1; }
-.select-option.is-active { --face-color: var(--ghost); color: var(--ink); }
-/* The pick is marked once: the white slab with the orange line along its foot, as on a switch. */
-.select-option[aria-selected="true"] { color: var(--ink); background: var(--slab); box-shadow: var(--slab-shade), inset 0 -3px 0 var(--run); }
+/* The row under the pointer or the arrow keys catches the light: its glass clears, as a pointed field's does, and its cut edge is lit
+   above and shaded below. Nothing moves until it's pressed: then it carves into the list's glass, like every press. */
+.select-option.is-active { color: var(--ink); --face-color: var(--field-hover); }
+.select-option.is-active > .cut-line { --band-top: var(--raise-top); --band-left: var(--raise-left); --band-right: var(--raise-right); --band-bottom: var(--raise-bottom); }
+.select-option:active { --face-color: var(--well); box-shadow: var(--press-shade); transition-duration: 0.08s; }
+.select-option:active > .cut-line { --band-top: var(--carve-top); --band-left: var(--carve-left); --band-right: var(--carve-right); --band-bottom: var(--carve-bottom); }
+/* The pick: its words in full ink and a tick at its end, so it shows wherever the slab is. */
+.select-option[aria-selected="true"] { color: var(--ink); }
+.select-option > .select-tick { flex: none; display: inline-flex; visibility: hidden; color: var(--ink); }
+.select-tick > .ico { width: 18px; height: 18px; stroke-width: 2.2; }
+.select-option[aria-selected="true"] > .select-tick { visibility: visible; }
 .select-options:focus-visible .select-option.is-active > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
-@media (prefers-reduced-motion: reduce) { .select-list, .select-chev { transition: var(--glass-transition); } }
+@media (prefers-reduced-motion: reduce) { .select-chev { transition: none; } }
 `,
   render: selectField,
   examples: [
@@ -350,7 +346,6 @@ component({
     { label: "With a data attribute a script reads: a room list's filter", markup: examplePane(selectField({ id: "example-select-filter", name: "room_mode", label: "Mode", choices: [{ label: "Any", choiceValue: "" }, { label: "Classic", choiceValue: "Classic" }, { label: "Hardcore", choiceValue: "Hardcore" }], dataAttributes: { label: "Mode" } })) },
     { label: "Focused", markup: examplePane(selectField({ id: "example-select-focused", name: "room_region", label: "Where rooms run", choices: REGIONS, pickedValue: "europe", state: "is-focused" })), isStill: true },
     { label: "Open", markup: examplePane(selectField({ id: "example-select-open", name: "room_region", label: "Where rooms run", choices: REGIONS, pickedValue: "europe", state: "is-open" })), isStill: true },
-    { label: "Open above, with no room below", markup: examplePane(selectField({ id: "example-select-above", name: "room_region", label: "Where rooms run", choices: REGIONS, pickedValue: "asia-pacific", state: "is-open-above" })), isStill: true },
     { label: "Many choices: the list scrolls", markup: examplePane(selectField({ id: "example-select-many", name: "language", label: "Language", choices: LANGUAGES, pickedValue: "deutsch", state: "is-open" })), isStill: true },
     { label: "A long choice: cut in the field, whole in the list", markup: examplePane(selectField({ id: "example-select-long", name: "genre", label: "Genre", choices: GENRES, pickedValue: "mmorpg", state: "is-open" })), isStill: true },
     { label: "Error: nothing picked", markup: examplePane(selectField({ id: "example-select-error", name: "room_region", label: "Where rooms run", choices: REGIONS, placeholder: "Pick a region", error: "Pick where your rooms run to go on." })) },
@@ -395,8 +390,36 @@ export function checkField(options: CheckFieldOptions): Raw {
   const id = options.id ?? `check-${options.name}`;
   const className = ["check", options.state ?? "", options.error ? "is-marked" : "", options.isDisabled ? "is-disabled" : ""].filter(Boolean).join(" ");
   const describedBy = options.error ? `${id}-error` : options.hint ? `${id}-hint` : "";
-  return html`<label class="${className}" for="${id}"><span class="check-box cut-carved" data-cut-line="6">${CUT_LINE}<input class="check-input" type="checkbox" id="${id}" name="${options.name}" value="${options.checkValue ?? "yes"}"${options.isChecked ? raw(" checked") : ""}${options.isRequired ? raw(" required") : ""}${options.isDisabled ? raw(" disabled") : ""}${options.error ? raw(' aria-invalid="true"') : ""} aria-labelledby="${id}-label"${describedBy ? html` aria-describedby="${describedBy}"` : ""}>${icon("check")}</span><span class="check-words"><span class="check-label" id="${id}-label">${options.label}</span>${options.error ? html`<span class="check-error" id="${id}-error">${options.error}</span>` : options.hint ? html`<span class="check-hint" id="${id}-hint">${options.hint}</span>` : ""}</span></label>`;
+  return html`<label class="${className}" for="${id}"><span class="check-box cut-carved" data-cut-line="6" data-cut-ring="3">${CUT_LINE}<input class="check-input" type="checkbox" id="${id}" name="${options.name}" value="${options.checkValue ?? "yes"}"${options.isChecked ? raw(" checked") : ""}${options.isRequired ? raw(" required") : ""}${options.isDisabled ? raw(" disabled") : ""}${options.error ? raw(' aria-invalid="true"') : ""} aria-labelledby="${id}-label"${describedBy ? html` aria-describedby="${describedBy}"` : ""}><span class="check-well" aria-hidden="true"><span class="check-piece">${icon("check")}</span></span></span><span class="check-words"><span class="check-label" id="${id}-label">${options.label}</span>${options.error ? html`<span class="check-error" id="${id}-error">${options.error}</span>` : options.hint ? html`<span class="check-hint" id="${id}-hint">${options.hint}</span>` : ""}</span></label>`;
 }
+
+/** A check field just ticked under the pointer doesn't glint: its glint is for pointing at one already ticked, so it waits until the pointer leaves. */
+export const CHECK_SCRIPT = `/* check fields */(function () {
+  document.addEventListener("change", function (event) {
+    var input = event.target; if (!input.classList || !input.classList.contains("check-input")) return;
+    var check = input.closest(".check"); if (!check || !input.checked) return;
+    check.classList.add("is-just-ticked");
+    check.addEventListener("pointerleave", function () { check.classList.remove("is-just-ticked"); }, { once: true });
+  });
+})();
+`;
+
+/**
+ * Choice cards say which way they lie: side by side, or each on its own line once they don't fit (is-stacked), so the pick's light and the
+ * pointer's edge light run along the edge that leads, their foot side by side and their start stacked, never a line over the card below.
+ */
+export const CHOICE_CARDS_SCRIPT = `/* choice cards */(function () {
+  window.zaismaWatch.each(".choice-cards", function (row) {
+    function lie() {
+      var cards = row.children, isStacked = cards.length > 1 && cards[1].offsetTop > cards[0].offsetTop + 1;
+      row.classList.toggle("is-stacked", isStacked);
+      Array.prototype.forEach.call(cards, function (card) { card.setAttribute("data-edge-light", isStacked ? "left" : "bottom"); });
+    }
+    lie();
+    window.zaismaWatch.size(row, lie);
+  });
+})();
+`;
 
 /** What you press that holds a value: its states, still, then one to try and one on a loop. */
 /** Each copy gets its own key (for its ids and names), so copies of radios never share a group. */
@@ -414,48 +437,57 @@ component({
   slug: "check-field",
   group: "inputs",
   subgroup: "choices",
-  summary: "A yes or no sent with its form: I agree, Email me replies. A small carved box that turns orange with a dark tick. On a page that saves at once, use a Toggle.",
+  summary: "A yes or no sent with its form: I agree, Email me replies. A small carved socket; ticked, an orange piece with a dark tick slides up into it and seats flush. On a page that saves at once, use a Toggle.",
   styles: `
-/* A check field: a small carved box of the fields' glass, cut by the edge rule, before its words. Ticked, the whole box turns orange
-   and raised, with a dark tick. The real checkbox lies over the box, unseen, so the keyboard, forms and screen readers get
-   the system's own; the whole line is its label, so a press anywhere on it ticks it. */
+/* A check field: a small socket carved into the fields' glass, cut by the edge rule, before its words. Ticking slides an orange piece
+   up from under the pane: while it moves it's below the carving, the socket's shade and edges over it; once it sits flush it rises out
+   of the carving, lit and shaded as its own piece, with a dark tick cut in it. The real checkbox lies over the socket, unseen, so the
+   keyboard, forms and screen readers get the system's own; the whole line is its label, so a press anywhere on it ticks it. */
 .check { position: relative; display: inline-flex; align-items: flex-start; gap: var(--gap-words-control); cursor: pointer; -webkit-tap-highlight-color: transparent; }
 ${TOUCH_ROOM(".check")}
-.check-box { position: relative; flex: none; display: grid; place-items: center; width: 24px; height: 24px; color: transparent;
-  --face-color: var(--field-face); background: var(--face-color); box-shadow: var(--field-shade); clip-path: var(--cut-shape); transition: --face-color 0.2s, color 0.2s; }
-/* At rest it's carved into the glass, its edges lit and shaded like every carving; ticked, its orange is its edge. */
-.check-box:has(.check-input:checked) > .cut-line polygon { stroke: transparent; }
+.check-box { position: relative; flex: none; width: 24px; height: 24px; }
+/* The socket itself is cut to the box's shape; its edges and ring are drawn over it, unclipped, so the ring can sit outside. */
+.check-well { position: absolute; inset: 0; background: var(--field-face); clip-path: var(--cut-shape); }
+/* The socket's shade lies over whatever is in it, so a piece below the face is in its shadow. */
+.check-well::after { content: ""; position: absolute; inset: 0; z-index: 1; box-shadow: var(--field-shade); pointer-events: none; transition: box-shadow 0.08s, opacity 0.12s; }
 .check-input { position: absolute; inset: 0; z-index: 3; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
-.check-box > .ico { position: relative; z-index: 2; width: 16px; height: 16px; stroke-width: 2.4; transform: scale(0.6); transition: transform 0.3s var(--spring); }
-.check:not(.is-disabled):hover .check-box, .check.is-pointed .check-box { --face-color: var(--field-hover); }
-/* Ticked: the whole box turns orange, lit like the runner, with a dark tick. */
-.check-box:has(.check-input:checked) { --face-color: var(--run); color: var(--on-run); box-shadow: none; }
-.check-box:has(.check-input:checked) > .ico { transform: scale(1); }
+.check-piece { position: absolute; inset: 0; display: grid; place-items: center; background: var(--run); color: var(--on-run); overflow: hidden;
+  transform: translateY(105%); transition: transform 0.38s cubic-bezier(.4,0,.2,1); }
+.check-piece > .ico { width: 16px; height: 16px; stroke-width: 2.4; }
+/* Pointed: an empty socket's piece rises a little into view, still under the carving, ready; a ticked piece's face catches a glint
+   of light that runs across it once. */
+.check-piece::before { content: ""; position: absolute; inset: 0; background: linear-gradient(115deg, transparent 30%, rgba(255,255,255,0.55) 50%, transparent 70%); opacity: 0; transform: translateX(-110%); pointer-events: none; }
+.check:not(.is-disabled):hover .check-box:not(:has(.check-input:checked)) .check-piece, .check.is-pointed .check-box:not(:has(.check-input:checked)) .check-piece { transform: translateY(80%); }
+.check:not(.is-disabled):not(.is-just-ticked):hover .check-box:has(.check-input:checked) .check-piece::before, .check.is-pointed .check-box:has(.check-input:checked) .check-piece::before { opacity: 1; transform: translateX(110%); transition: transform 0.7s cubic-bezier(.4,0,.2,1); }
+/* Ticked: the piece seats flush, then rises out of the carving: the shade lifts off it and its own edges take the light. */
+.check-box:has(.check-input:checked) .check-piece { transform: translateY(0); }
+.check-box:has(.check-input:checked) .check-well::after { opacity: 0; transition-delay: 0.3s; }
 .check-box:has(.check-input:checked) > .cut-line { --band-top: rgba(255,240,214,0.85); --band-left: rgba(255,226,180,0.55); --band-right: rgba(150,72,0,0.32); --band-bottom: rgba(130,60,0,0.55); }
-.check:not(.is-disabled):hover .check-box:has(.check-input:checked), .check.is-pointed .check-box:has(.check-input:checked) { --face-color: var(--run-hi); }
-/* Pressed: the box sinks, darker and shaded from above; a ticked one deepens to the runner's foot, its light turned round, its tick a touch smaller. */
-.check:not(.is-disabled):active .check-box, .check.is-pressed .check-box { --face-color: var(--check-press); box-shadow: var(--press-shade); transition-duration: 0.08s; }
-.check:not(.is-disabled):active .check-box:has(.check-input:checked), .check.is-pressed .check-box:has(.check-input:checked) { --face-color: #D9730A; box-shadow: inset 0 2px 4px rgba(110,50,0,0.45); }
-.check:not(.is-disabled):active .check-box:has(.check-input:checked) > .cut-line, .check.is-pressed .check-box:has(.check-input:checked) > .cut-line { --band-top: rgba(130,60,0,0.5); --band-left: rgba(150,72,0,0.35); --band-right: rgba(255,226,180,0.45); --band-bottom: rgba(255,240,214,0.7); }
-.check:not(.is-disabled):active .check-box > .ico, .check.is-pressed .check-box > .ico { transform: scale(0.85); transition-duration: 0.08s; }
-/* Marked wrong: its outline in amber, and what's wrong said under its words. */
-.check.is-marked .check-box > .cut-line polygon { stroke: var(--marked); stroke-width: var(--focus-stroke); }
-/* Can't be changed now: flat, its words quieter, and no orange, since there's nothing to do: ticked, the box is filled in grey. */
+.check-box:has(.check-input:checked) > .cut-line .cut-band { transition-delay: 0.3s; }
+.check-box:has(.check-input:checked) > .cut-line polygon { stroke: transparent; }
+/* Pressed: an empty socket deepens; a ticked piece is pushed back down under the carving, in its shade again. */
+.check:not(.is-disabled):active .check-box .check-well::after, .check.is-pressed .check-box .check-well::after { box-shadow: var(--press-shade); }
+.check:not(.is-disabled):active .check-box:has(.check-input:checked) .check-piece, .check.is-pressed .check-box:has(.check-input:checked) .check-piece { transform: translateY(2px); transition-duration: 0.08s; }
+.check:not(.is-disabled):active .check-box:has(.check-input:checked) .check-well::after, .check.is-pressed .check-box:has(.check-input:checked) .check-well::after { opacity: 1; transition-delay: 0s; }
+.check:not(.is-disabled):active .check-box:has(.check-input:checked) > .cut-line, .check.is-pressed .check-box:has(.check-input:checked) > .cut-line { --band-top: var(--carve-top); --band-left: var(--carve-left); --band-right: var(--carve-right); --band-bottom: var(--carve-bottom); }
+.check:not(.is-disabled):active .check-box:has(.check-input:checked) > .cut-line .cut-band, .check.is-pressed .check-box:has(.check-input:checked) > .cut-line .cut-band { transition-delay: 0s; }
+/* Can't be changed: frosted and still; a ticked piece is grey. */
 .check.is-disabled { cursor: default; }
 .check.is-disabled .check-input { cursor: default; }
-.check.is-disabled .check-box { --face-color: var(--off-face); box-shadow: none; }
-.check.is-disabled .check-box > .cut-line polygon { stroke: var(--line); }
-.check.is-disabled .check-box:has(.check-input:checked) { --face-color: var(--muted); color: var(--page); }
+.check.is-disabled .check-well { background: var(--off-face); }
+.check.is-disabled .check-box > .cut-line polygon:not(.cut-ring) { stroke: var(--line); }
+.check.is-disabled .check-piece { background: var(--muted); color: var(--page); transition: none; }
 .check.is-disabled .check-box:has(.check-input:checked) > .cut-line { --band-top: transparent; --band-left: transparent; --band-right: transparent; --band-bottom: transparent; }
 .check.is-disabled .check-label { color: var(--muted); }
-.check-box:has(.check-input:focus-visible) > .cut-line polygon, .check.is-focused .check-box > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
-/* On the orange box, focus is the runner's deeper ring, drawn wider so it reads against the orange. */
-.check-box:has(.check-input:checked:focus-visible) > .cut-line polygon, .check.is-focused .check-box:has(.check-input:checked) > .cut-line polygon { stroke: var(--focus-on-run); stroke-width: calc(var(--focus-stroke) * 1.5); }
+/* Keyboard focus: one orange ring in the socket's own shape, set out around it with a 2px gap of glass between (data-cut-ring), so it
+   never touches the orange piece and reads the same ticked or not. A required box left unticked is ringed the same way, in the marked colour. */
+.check.is-marked .check-box > .cut-line .cut-ring { stroke: var(--marked); }
+.check-box:has(.check-input:focus-visible) > .cut-line .cut-ring, .check.is-focused .check-box > .cut-line .cut-ring { stroke: var(--focus); }
 .check-words { display: grid; gap: var(--gap-words-words); padding-top: 2px; padding-inline-end: var(--pad-words); }
 .check-label { font: var(--type-words); color: var(--ink); }
 .check-hint { font: var(--type-note); color: var(--muted); }
 .check-error { font: var(--type-words); color: var(--marked); }
-@media (prefers-reduced-motion: reduce) { .check-box > .ico { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .check-piece, .check-piece::before, .check-box .check-well::after, .check-box > .cut-line .cut-band { transition: none; } }
 `,
   render: checkField,
   examples: [
@@ -508,10 +540,10 @@ export interface ChoiceCardsOptions {
 export function choiceCards(options: ChoiceCardsOptions): Raw {
   const id = options.id ?? `choice-${options.name}`;
   const card = (choice: ChoiceCard, choiceIndex: number) =>
-    html`<label class="choice-card cut-carved${choiceIndex === 0 && options.state ? ` ${options.state}` : ""}" data-cut-line="10">${CUT_LINE}<input class="choice-input" type="radio" name="${options.name}" id="${id}-${choice.choiceValue}" value="${choice.choiceValue}"${choice.choiceValue === options.pickedValue ? raw(" checked") : ""}>${choice.icon ? icon(choice.icon) : ""}<span class="choice-words"><span class="choice-label">${choice.label}</span>${choice.text ? html`<span class="choice-text">${choice.text}</span>` : ""}</span></label>`;
+    html`<label class="choice-card cut-carved${choiceIndex === 0 && options.state ? ` ${options.state}` : ""}" data-cut-line="10" data-lights${options.isCompact ? "" : raw(' data-edge-light="bottom"')}>${CUT_LINE}${options.isCompact ? "" : EDGE_LIGHT}<input class="choice-input" type="radio" name="${options.name}" id="${id}-${choice.choiceValue}" value="${choice.choiceValue}"${choice.choiceValue === options.pickedValue ? raw(" checked") : ""}>${choice.icon ? icon(choice.icon) : ""}<span class="choice-words"><span class="choice-label">${choice.label}</span>${choice.text ? html`<span class="choice-text">${choice.text}</span>` : ""}</span></label>`;
   const className = ["choices", options.error ? "is-marked" : "", options.isDisabled ? "is-disabled" : ""].filter(Boolean).join(" ");
   const cards = options.isCompact
-    ? html`<div class="choice-list cut-carved" data-cut-line="10">${CUT_LINE}<div class="choice-list-in" data-own-fade>${options.choices.map(card)}</div></div>`
+    ? well({ kind: "choice-well", scrollDirection: "down", edgeLight: "left", body: html`${options.choices.map(card)}` })
     : html`<div class="choice-cards" style="--choice-count: ${options.choices.length}">${options.choices.map(card)}</div>`;
   return html`<fieldset class="${className}"${options.isDisabled ? raw(" disabled") : ""}${options.error ? html` aria-describedby="${id}-error"` : ""}><legend${options.isLabelHidden ? raw(' class="sr"') : ""}>${options.label}</legend>${cards}${options.error ? html`<p class="field-error" id="${id}-error">${options.error}</p>` : ""}</fieldset>`;
 }
@@ -539,11 +571,13 @@ component({
   slug: "choice-cards",
   group: "inputs",
   subgroup: "choices",
-  summary: "One of a few, when each needs a line to say what it means: who can see a game, how its rooms run. Compact for many (a report's reasons): close together down a carved well that scrolls. The picked one is the raised white slab with the orange line; the rest sit carved and quieter.",
+  summary: "One of a few, when each needs a line to say what it means: who can see a game, how its rooms run. Compact for many (a report's reasons): close together down a carved well that scrolls. The picked one rises as the white slab, orange light along its leading edge (its foot side by side, its start stacked); the rest sit carved and quieter.",
   styles: `
 /* Choice cards: radios as cut slabs. The ones not picked are carved into the glass, their words quieter; the picked one rises out of it as
-   the switch's white slab, lit, with its orange line along its foot and its words in full ink. Pointing at one brightens its carving. The
-   real radio lies over the card, unseen, so the arrow keys move between them as the system's do. */
+   the switch's white slab, its words in full ink, with orange light inside the glass along the edge that leads: its foot when the cards sit
+   side by side, its start when they're stacked (is-stacked, from their script) or down a compact list, so it never reads as a line over the
+   card below. Pointing wakes the edge light along that same edge; a press sinks the card, easing in and back out. The real radio lies over
+   the card, unseen, so the arrow keys move between them as the system's do. */
 .choices { margin: 0; padding: 0; border: 0; min-width: 0; display: flex; flex-direction: column; gap: var(--gap-words-control); }
 .choices > legend { padding: 0 var(--pad-words); margin-bottom: var(--gap-words-control); font: var(--type-label); color: var(--ink-2); }
 /* Side by side, a row of controls: their boxes overlap so the edge rule slants them toward each other, while each can have a
@@ -553,51 +587,66 @@ component({
 .choice-cards > .choice-card { flex: 1 1 calc((var(--choice-row-least) - 100%) * 999); }
 .choice-cards > .choice-card:not(:last-child) { margin-inline-end: max(var(--gap-control-row-boxes), min(0px, (var(--choice-row-least) - 100%) * 999)); }
 .choice-card { position: relative; display: flex; align-items: flex-start; gap: var(--gap-words-words); min-height: 44px; padding: 14px var(--pad-inside-words); cursor: pointer; -webkit-tap-highlight-color: transparent;
-  color: var(--muted); --face-color: var(--well); background: var(--face-color); box-shadow: var(--well-shade); clip-path: var(--cut-shape); transition: --face-color 0.2s, box-shadow 0.2s, color 0.2s; }
+  color: var(--muted); --face-color: var(--well); background: var(--face-color); box-shadow: var(--well-shade); clip-path: var(--cut-shape);
+  --pick-light: var(--run); --pick-flood: var(--run-flood); transition: box-shadow 0.25s cubic-bezier(.4,0,.2,1), color 0.2s; }
 /* A card with a line on what it means has room for it; one with only its name (an amount) is as tall as its name, never taller than its content. */
 .choice-card:has(.choice-text) { min-height: 76px; }
-.choice-card > :not(.cut-line):not(.choice-input) { position: relative; z-index: 2; }
+.choice-card > :not(.cut-line):not(.choice-input):not(.edge-light) { position: relative; z-index: 2; }
 .choice-input { position: absolute; inset: 0; z-index: 3; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
 .choice-card > .ico { flex: none; margin-top: 1px; color: var(--muted); }
+.choice-card > .ico, .choice-card > .choice-words { transition: transform 0.3s cubic-bezier(.4,0,.2,1); }
+/* What's on a card goes up and down with it, as a page can show depth: down a pixel in its carving, up a pixel when it rises as the
+   picked slab, and down further while a press sinks it. */
+.choice-card > :is(.ico, .choice-words) { transform: translateY(1px); }
+.choice-card:has(.choice-input:checked) > :is(.ico, .choice-words) { transform: translateY(-1px); }
 .choice-words { display: grid; gap: var(--gap-words-words); }
 .choice-label { font: var(--type-label); color: var(--ink-2); }
 .choice-text { font: var(--type-note); color: var(--muted); }
-.choices:not(.is-disabled) .choice-card:hover, .choice-card.is-pointed { --face-color: var(--field-hover); color: var(--ink-2); }
-.choices:not(.is-disabled) .choice-card:active, .choice-card.is-pressed { --face-color: var(--check-press); box-shadow: var(--press-shade), var(--press-shade); color: var(--ink-2); transition-duration: 0.08s; }
-/* Picked: raised out of the carving, the switch's white slab with its light turned the other way and the orange line along its foot. */
-.choice-card:has(.choice-input:checked) { background: var(--slab); box-shadow: var(--slab-shade); color: var(--ink); }
-/* The orange line lies over its outline, so it always shows in full. */
-.choice-card:has(.choice-input:checked)::after { content: ""; position: absolute; z-index: 2; left: 0; right: 0; bottom: 0; height: 3px; background: var(--run); pointer-events: none; }
+.choices:not(.is-disabled) .choice-card:hover, .choice-card.is-pointed { color: var(--ink-2); }
+/* Pressed: it sinks, quickly, its carving deep and shaded from above and its words a pixel down; let go, it eases back. */
+.choices:not(.is-disabled) .choice-card:active, .choice-card.is-pressed { box-shadow: var(--press-deep); color: var(--ink-2); transition-duration: 0.08s; }
+.choices:not(.is-disabled) .choice-card:active > :is(.ico, .choice-words), .choice-card.is-pressed > :is(.ico, .choice-words), .choice-card.is-pressed:has(.choice-input:checked) > :is(.ico, .choice-words) { transform: translateY(2px); transition-duration: 0.08s; }
+/* Picked: the slab rises out of the carving, its face coming up over the carved one, its light turned the other way. */
+.choice-card::before { content: ""; position: absolute; inset: 0; background: var(--slab); opacity: 0; pointer-events: none; transition: opacity 0.3s cubic-bezier(.4,0,.2,1), box-shadow 0.25s cubic-bezier(.4,0,.2,1); }
+/* Its card keeps no shade of its own (the slab's face is over it), and none an outer one: the press's inner shade and dim then ease out
+   under the rising slab as you let go, instead of vanishing at once, as an inner shade can't ease into an outer one. */
+.choice-card:has(.choice-input:checked) { box-shadow: none; color: var(--ink); }
+.choice-card:has(.choice-input:checked)::before { opacity: 1; }
+/* Its orange is light inside the glass along the edge that leads: a bright line at the edge, flooding a little way in and fading out. */
+/* One light whichever way it runs: the same line and the same reach, along the foot or down the start. */
+.choice-card::after { content: ""; position: absolute; z-index: 2; left: 0; right: 0; bottom: 0; height: 18px; pointer-events: none; opacity: 0; transition: opacity 0.35s cubic-bezier(.4,0,.2,1);
+  --pick-light-run: to top; background: linear-gradient(var(--pick-light-run), var(--pick-light) 0, var(--pick-light) 2.5px, var(--pick-flood) 3.5px, transparent 100%); }
+.choice-cards.is-stacked > .choice-card::after, .choice-well .choice-card::after { top: 0; right: auto; width: 18px; height: auto; --pick-light-run: to right; }
+.choice-card:has(.choice-input:checked)::after { opacity: 1; }
 .choice-card:has(.choice-input:checked) .choice-label, .choice-card:has(.choice-input:checked) > .ico { color: var(--ink); }
 .choice-card:has(.choice-input:checked) .choice-text { color: var(--ink-2); }
-.choice-card:has(.choice-input:checked) > .cut-line { --band-top: var(--raise-top); --band-left: var(--raise-left); --band-right: var(--raise-right); --band-bottom: transparent; }
-/* Pressing the picked one sinks it too: shaded from above and a touch darker, its orange line staying. */
-.choices:not(.is-disabled) .choice-card:has(.choice-input:checked):active, .choice-card.is-pressed:has(.choice-input:checked) { filter: brightness(0.92); box-shadow: var(--press-shade); }
+/* Pressing the picked one sinks it too: its slab goes down into the glass, shaded from above with its light turned round, its orange staying. */
+.choices:not(.is-disabled) .choice-card:has(.choice-input:checked):active::before, .choice-card.is-pressed:has(.choice-input:checked)::before { box-shadow: var(--press-deep); transition-duration: 0.08s; }
 /* Marked wrong: every card's outline in amber, and what's wrong said under them. */
-.choices.is-marked .choice-card > .cut-line polygon, .choices.is-marked .choice-list > .cut-line polygon { stroke: var(--marked); stroke-width: var(--focus-stroke); }
-/* None can be picked now: flat and quieter, and no orange, since there's nothing to do: the pick's line is grey. */
+.choices.is-marked .choice-card > .cut-line polygon, .choices.is-marked .choice-well > .cut-line polygon { stroke: var(--marked); stroke-width: var(--focus-stroke); }
+/* None can be picked now: flat and quieter, and no orange, since there's nothing to do: the pick's light is grey. */
 .choices.is-disabled .choice-card, .choices.is-disabled .choice-input { cursor: default; }
 .choices.is-disabled .choice-card:not(:has(.choice-input:checked)) { --face-color: transparent; box-shadow: none; }
-.choices.is-disabled .choice-card > .cut-line polygon, .choices.is-disabled .choice-list > .cut-line polygon { stroke: var(--line); }
-.choices.is-disabled .choice-card:has(.choice-input:checked)::after { background: var(--muted); }
+.choices.is-disabled .choice-card > .cut-line polygon, .choices.is-disabled .choice-well > .cut-line polygon { stroke: var(--line); }
+.choices.is-disabled .choice-card { --pick-light: var(--muted); --pick-flood: transparent; }
 .choices.is-disabled .choice-card .choice-label, .choices.is-disabled .choice-card > .ico { color: var(--muted); }
 .choice-card:has(.choice-input:focus-visible) > .cut-line polygon, .choice-card.is-focused.cut-carved > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
-/* Compact: a carved well, like a vertical switch's, scrolling once it's taller than about six choices. The cards inside are flat and close
-   together, their line under their name, with no outline of their own: the well is carved, and only the picked one is a slab.
-   It scrolls with no fade, so the picked card's orange line always shows in full: its rail and a card cut at its edge say there's more. */
-.choice-list { position: relative; display: flex; max-height: 336px; padding: 4px; background: var(--well); box-shadow: var(--well-shade); clip-path: var(--cut-shape); }
-.choice-list-in { flex: 1; min-width: 0; overflow-y: auto; display: flex; flex-direction: column; gap: var(--gap-control-row); }
-/* With a mouse it scrolls on Zaisma's rail, inside its right edge: the cards keep clear of it. */
-.choice-list-in.own-scroll.shows-rail { padding-right: 18px; }
-.choice-list .choice-card { min-height: 44px; padding: 10px 14px; --face-color: transparent; box-shadow: none; flex: none; }
-.choice-list .choice-words { gap: 2px; }
-.choice-list .choice-card.cut-carved > .cut-line { --band-top: transparent; --band-left: transparent; --band-right: transparent; --band-bottom: transparent; }
-.choice-list .choice-card.cut-carved > .cut-line polygon { stroke: transparent; }
-.choice-list .choice-card:hover, .choice-list .choice-card.is-pointed { --face-color: var(--ghost); }
-.choice-list .choice-card:has(.choice-input:checked) { box-shadow: var(--slab-shade); }
-.choice-list .choice-card:has(.choice-input:focus-visible) > .cut-line polygon, .choice-list .choice-card.is-focused > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
+/* Compact: the cards down a scrolling Well, like a vertical switch's places, fading at its ends and on the rail once it's taller than about
+   six choices. The cards inside are flat and close together, their line under their name, with no outline of their own: the well is
+   carved, and only the picked one is a slab. Pointing wakes the well's edge light down its side, beside the card, as a vertical switch's does. */
+.well.choice-well { --well-height: 336px; }
+.well.choice-well > .well-body { display: flex; flex-direction: column; gap: var(--gap-control-row); padding: 4px; font: inherit; }
+.choice-well .choice-card { min-height: 44px; padding: 10px 14px; --face-color: transparent; box-shadow: none; flex: none; }
+.choices:not(.is-disabled) .choice-well .choice-card:active, .choice-well .choice-card.is-pressed { box-shadow: var(--press-deep); }
+.choice-well .choice-words { gap: 2px; }
+.choice-well .choice-card.cut-carved > .cut-line { --band-top: transparent; --band-left: transparent; --band-right: transparent; --band-bottom: transparent; }
+.choice-well .choice-card.cut-carved > .cut-line polygon { stroke: transparent; }
+/* The picked slab is bevelled as a raised piece, every side: lit along its top and left, shaded along its bottom and right, as the carvings
+   round it are bevelled the other way. A press dims its face but leaves the light on its edges alone. */
+.choice-card:has(.choice-input:checked) > .cut-line, .choice-well .choice-card:has(.choice-input:checked) > .cut-line { --band-top: var(--raise-top); --band-left: var(--raise-left); --band-right: var(--raise-right); --band-bottom: var(--raise-bottom); }
+.choice-well .choice-card:has(.choice-input:focus-visible) > .cut-line polygon, .choice-well .choice-card.is-focused > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 /* On a phone it doesn't scroll by itself: the sheet or page it's in does, so there's never a scroll inside a scroll. */
-@media (max-width: 760px) { .choice-list { max-height: none; } }
+@media (max-width: 760px) { .well.choice-well { --well-height: none; } }
 `,
   render: choiceCards,
   examples: [
@@ -653,22 +702,22 @@ ${TOUCH_ROOM(".toggle")}
 .toggle-slot:has(.toggle-input:checked) > .cut-line polygon { stroke: transparent; }
 .toggle-input { position: absolute; inset: 0; z-index: 4; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
 /* The slab casts a shadow onto the slot it rests in: the shadow is the holder's, so it follows the slab's cut. */
-.toggle-thumb { position: absolute; z-index: 2; left: 4px; top: 4px; width: 24px; height: 24px; filter: drop-shadow(0 1px 1px rgba(10,16,28,0.24)) drop-shadow(0 2px 3px rgba(10,16,28,0.12));
-  transition: transform 0.4s var(--spring), scale 0.2s var(--spring), filter 0.2s; }
+.toggle-thumb { position: absolute; z-index: 2; left: 4px; top: 4px; width: 24px; height: 24px; filter: var(--thumb-cast);
+  transition: transform 0.4s var(--spring), filter 0.2s; }
 /* The slab is solid and lit from above, so the orange behind it never tints it. */
-.toggle-slab { position: relative; display: grid; place-items: center; width: 100%; height: 100%; color: var(--ink-2); background: radial-gradient(120% 90% at 50% 0%, #fff, #F1F4F8 55%, #D9DFE7); clip-path: var(--cut-shape); transition: box-shadow 0.12s; }
-/* Its pressed face: a shade from above that fades in and out with the press, as the slab shrinks. */
-.toggle-slab::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(10,16,28,0.16), rgba(10,16,28,0.04) 55%, rgba(255,255,255,0.1)); opacity: 0; transition: opacity 0.12s; }
+.toggle-slab { position: relative; display: grid; place-items: center; width: 100%; height: 100%; color: var(--ink-2); background: var(--thumb-face); clip-path: var(--cut-shape); transition: box-shadow 0.12s; }
+/* Its pressed face: a shade from above that fades in and out with the press. */
+.toggle-slab::after { content: ""; position: absolute; inset: 0; background: var(--thumb-press-face); opacity: 0; transition: opacity 0.12s; }
 /* Saving: the loader on the slab, in the slab's own dark words (it's white on either glass), until the change is saved. */
 .toggle-slab > .loader { --loader-width: 14px; position: relative; z-index: 2; color: #3D444E; }
 .toggle:not(:has(.toggle-input[aria-busy="true"])) .toggle-slab > .loader { display: none; }
 .toggle:has(.toggle-input[aria-busy="true"]), .toggle:has(.toggle-input[aria-busy="true"]) .toggle-input { cursor: progress; }
 .toggle-slot:has(.toggle-input:checked) { --face-color: var(--run); }
 .toggle-slot:has(.toggle-input:checked) > .toggle-thumb { transform: translateX(24px); }
-.toggle:not(.is-disabled):hover .toggle-thumb, .toggle.is-pointed .toggle-thumb { filter: drop-shadow(0 1.5px 1.5px rgba(10,16,28,0.28)) drop-shadow(0 3px 4px rgba(10,16,28,0.14)); }
-/* Pressed: the slab is pushed down into the slot, a touch smaller, its shadow drawn in close and its face shaded from above. */
-.toggle:not(.is-disabled):active .toggle-thumb, .toggle.is-pressed .toggle-thumb { scale: 0.92; filter: drop-shadow(0 0.5px 0.5px rgba(10,16,28,0.3)); transition-duration: 0.4s, 0.08s, 0.08s; }
-.toggle:not(.is-disabled):active .toggle-slab, .toggle.is-pressed .toggle-slab { box-shadow: inset 0 2px 3px rgba(10,16,28,0.18); }
+.toggle:not(.is-disabled):hover .toggle-thumb, .toggle.is-pointed .toggle-thumb { filter: var(--thumb-cast-pointed); }
+/* Pressed: the slab is pushed down into the slot, its size kept (glass doesn't shrink), its shadow drawn in close and its face shaded from above. */
+.toggle:not(.is-disabled):active .toggle-thumb, .toggle.is-pressed .toggle-thumb { filter: var(--thumb-cast-pressed); transition-duration: 0.4s, 0.08s; }
+.toggle:not(.is-disabled):active .toggle-slab, .toggle.is-pressed .toggle-slab { box-shadow: var(--thumb-press-shade); }
 .toggle:not(.is-disabled):active .toggle-slab::after, .toggle.is-pressed .toggle-slab::after { opacity: 1; transition-duration: 0.08s; }
 /* Can't be changed now: the slot flat, the words quieter, and no orange, since there's nothing to do: on, the slot is filled in the grey of
    an edge (--press-rim), which the white slab stands out from in either glass. */

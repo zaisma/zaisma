@@ -2,7 +2,7 @@ import { html, raw, type Raw } from "../markup.ts";
 import { pageScript } from "../page-scripts.ts";
 import { component } from "./component.ts";
 import { controlMarkup, type ControlMarkup } from "./control-markup.ts";
-import { CUT_LINE, EDGE, glassPane, icon, logo, railMarkup, sheetMarkup, tag, type IconName } from "./foundations.ts";
+import { CUT_LINE, EDGE, floatingPane, glassPane, icon, logo, railMarkup, sheetMarkup, tag, type IconName } from "./foundations.ts";
 import { cutPolygon } from "./tokens.ts";
 import { secondaryButton, tertiaryButton, rowArrows, primaryButton, textLink } from "./actions.ts";
 import { searchField, tabSwitch, type SearchFieldOptions, type SwitchTab } from "./inputs.ts";
@@ -81,7 +81,7 @@ export function header(options: HeaderOptions): Raw {
     : [];
   return html`<header class="top glass${states}" id="${id}" data-compacts data-glass data-glass-corners="header"${options.isCompact ? raw(" data-stays-compact") : ""}>${EDGE}
   ${options.sidebarButton ?? ""}${wordmark}
-  ${options.isOnSignInPage ? "" : html`<nav class="nav" aria-label="Main"${hasTabRow ? "" : raw(" hidden")}>${tabSwitch({ label: "Where you are", switchSize: "big", isFramed: true, tabs })}</nav>`}
+  ${options.isOnSignInPage ? "" : html`<nav class="nav" aria-label="Main"${hasTabRow ? "" : raw(" hidden")}>${tabSwitch({ label: "Where you are", switchSize: "big", isFull: true, tabs })}</nav>`}
   ${options.search ? html`${searchField(options.search)}${secondaryButton(options.search.label, { type: "button", icon: "search", isLabelHidden: true, isSmall: true, isExpanded: Boolean(options.isSearchOpen) })}` : ""}
   ${options.isOnSignInPage ? "" : html`<div class="end">${
     account ? accountButton({ username: account.username, pictureMarkup: account.pictureMarkup, menuId, isMenuOpen: options.isMenuOpen }) : signIn
@@ -145,11 +145,11 @@ const HEADER_STYLES = `
 .top .find:has(~ .end > .shell) { margin-inline-end: var(--gap-control-row-boxes); }
 .top .find:has(~ .end > .me) { margin-inline-end: var(--gap-words-control); }
 
-/* Where you are: a framed Switch (inputs.ts), its tabs at their own widths; the header only places it and sets its height as it slims.
+/* Where you are: a Switch (switch.ts), filling the room the header gives it; the header only places it.
    With fewer than two tabs to show it isn't a choice, so it's hidden (header()). */
 .nav { display: flex; flex: none; min-width: 0; }
 .top .nav[hidden] { display: none; }
-.nav > .switch-frame { flex: 1; }
+.nav > .switch-well { flex: 1; }
 
 /* Search sits after the tabs, pushed to the end; with neither, the end goes to the end by itself. */
 .top .find { margin-left: auto; }
@@ -188,7 +188,7 @@ const HEADER_STYLES = `
   .top.searching .nav { display: none; }
   .top > .find + .cut-btn { display: inline-flex; margin-left: auto; margin-right: var(--gap-words-control); }
   /* The tabs are a row of regular height: a finger's. */
-  .top .nav, .top.is-compact .nav { order: 4; flex-basis: 100%; --switch-height: var(--control-height-regular); }
+  .top .nav, .top.is-compact .nav { order: 4; flex-basis: 100%; }
   /* The first row is small controls, so it shares Zaisma, search and Sign in or you on the narrowest phones; Sign in is the compact runner, or
      a small secondary button beside the page's own runner. */
   .top .end > .run-wrap > .run, .top .end > .cut-btn { --control-height: var(--control-height-small); }
@@ -349,6 +349,8 @@ export const RAIL_SCRIPT = `/* rail */(function () {
     if (wiredBars.has(bar)) return;
     wiredBars.add(bar);
     var isPage = bar.getAttribute("data-rail") === "page", isSide = bar.getAttribute("data-rail") === "side", scroller = isPage ? null : bar.previousElementSibling;
+    // A box laid out round what scrolls (a switch's well round its tabs) names it: the rail goes under the box, and follows what's in it.
+    if (scroller && !scroller.matches("[data-rail-scroller]")) scroller = scroller.querySelector("[data-rail-scroller]") || scroller;
     if (!isPage && !scroller) return;
     var line = bar.querySelector(".rail-line"), thumb = bar.querySelector(".rail-thumb");
     if (isPage) document.documentElement.classList.add("own-scroll"); else scroller.classList.add("own-scroll");
@@ -564,7 +566,7 @@ export const RAIL_SCRIPT = `/* rail */(function () {
  * (data-own-fade, a birthday wheel) and form fields are left alone.
  */
 export const SCROLL_FADE_SCRIPT = `/* scroll fades */(function () {
-  var FADE_PX = 28, boxes = [], dueBoxes = null;
+  var FADE_PX = 34, boxes = [], dueBoxes = null;
   // Everything is read before anything is written, so a box syncing reads the page's layout once.
   function measure(box) {
     // A table's rows fade out under its head, which stays as they scroll: the fade starts where the head ends.
@@ -573,7 +575,9 @@ export const SCROLL_FADE_SCRIPT = `/* scroll fades */(function () {
   }
   function put(box, read) {
     var isScrollable = read.scrollHeight > read.clientHeight + 1;
-    var top = Math.min(FADE_PX, read.scrollTop), bottom = Math.min(FADE_PX, read.scrollHeight - read.clientHeight - read.scrollTop);
+    // Its whole length while there's anything more that way, however little, so the last words never sit whole against the edge; it eases
+    // away (the --fade transition) once there's nothing more.
+    var top = read.scrollTop > 0.5 ? FADE_PX : 0, bottom = read.scrollHeight - read.clientHeight - read.scrollTop > 0.5 ? FADE_PX : 0;
     box.style.setProperty("--fade-top", Math.max(0, top) + "px"); box.style.setProperty("--fade-bottom", Math.max(0, bottom) + "px");
     if (read.headPx !== null) box.style.setProperty("--fade-from", read.headPx + "px");
     // Masked only while there's something to fade: a mask on a box that doesn't scroll would only cost its repaints.
@@ -1093,22 +1097,6 @@ component({
   ],
 });
 
-/** A page's section: a link to it, with a count of what's new in it (unread reports) when there is one. */
-export type SectionTab = Pick<SwitchTab, "label" | "isCurrent" | "badgeCount" | "state"> & { href: string };
-
-export interface SectionTabsOptions {
-  /** What the sections are, for a screen reader: "Game sections". */
-  label: string;
-  tabs: SectionTab[];
-  /** Unique on the page: the id of the row the tabs scroll in, so a mouse gets Row arrows when they don't fit across. */
-  rowId?: string;
-}
-
-/** A page's own sections as tabs (a game dashboard's Overview, Versions, Players; a profile's Games and Friends): the header's tabs, under the page's title. */
-export function sectionTabs(options: SectionTabsOptions): Raw {
-  return html`<nav class="section-tabs" aria-label="${options.label}">${tabSwitch({ label: options.label, switchSize: "big", isFramed: true, rowId: options.rowId, tabs: options.tabs })}</nav>`;
-}
-
 /** A place in a sidebar: a link with its words, and an icon and a count when it has them. */
 export interface SidebarPlace {
   label: string;
@@ -1154,7 +1142,7 @@ const sidebarPlaces = (places: SidebarPlace[], isNested = false, isShut = false)
  */
 export function sidebar(options: SidebarOptions): Raw {
   const places = sidebarPlaces(options.places);
-  return html`<nav class="sidebar glass" id="${options.id}" aria-label="${options.label}" data-sidebar-remember="${options.rememberKey}" data-glass data-glass-corners="pane">${EDGE}${places}</nav>${sheetMarkup({ id: `${options.id}-sheet`, title: options.label, body: places, closeButton: tertiaryButton("Close", { type: "submit", formMethod: "dialog", icon: "close", isLabelHidden: true, isSmall: true }), placement: "start" })}`;
+  return html`<nav class="sidebar glass" id="${options.id}" aria-label="${options.label}" data-sidebar-remember="${options.rememberKey}" data-glass data-glass-corners="pane">${EDGE}<div class="sidebar-scroll">${places}</div></nav>${sheetMarkup({ id: `${options.id}-sheet`, title: options.label, body: places, closeButton: tertiaryButton("Close", { type: "submit", formMethod: "dialog", icon: "close", isLabelHidden: true, isSmall: true }), placement: "start" })}`;
 }
 
 /** The button that folds a sidebar away and back on a wide screen, and slides it over the page on a phone: at the start of the page's header or bar. */
@@ -1264,7 +1252,6 @@ const GALLERY_GROUPS: SidebarPlace[] = [
     isCurrent: true,
     places: [
       { label: "Fields", href: "#sidebar", isCurrent: true },
-      { label: "Dates", href: "#sidebar" },
       { label: "Choices", href: "#sidebar" },
       { label: "Pickers", href: "#sidebar" },
     ],
@@ -1285,7 +1272,7 @@ const settingsPanes = stack({
     { kind: "block", markup: glassPane({ paneWidth: "full", label: "Keys", body: stack({ items: [{ kind: "words", markup: html`<h2>Keys</h2>` }, { kind: "words", markup: html`<p>A key lets your AI tool or the upload command work on your games.</p>` }] }) }) },
   ],
 });
-const stillSidebar = (id: string, places: SidebarPlace[]) => html`<nav class="sidebar glass" id="${id}" aria-label="Design" data-glass data-glass-corners="pane">${EDGE}${sidebarPlaces(places)}</nav>`;
+const stillSidebar = (id: string, places: SidebarPlace[]) => html`<nav class="sidebar glass" id="${id}" aria-label="Design" data-glass data-glass-corners="pane">${EDGE}<div class="sidebar-scroll">${sidebarPlaces(places)}</div></nav>`;
 
 component({
   name: "Sidebar",
@@ -1296,10 +1283,16 @@ component({
   styles: `
 /* A sidebar: one pane of glass, its places words on it, nothing carved. Only the page you're on sits on a raised slab with the orange line,
    the switch's own; the open group's name is strong, its arrow turned down, its places under it set in. */
-.sidebar { padding: var(--pad-inner-pane); --sidebar-is-sheet: 0; }
+/* Its places scroll inside it (sidebar-scroll) only when they're taller than it, on Zaisma's rail, so its glass and edge stay whole and
+   still; the places keep clear of the rail. */
+.sidebar { display: flex; flex-direction: column; --sidebar-is-sheet: 0; }
+.sidebar-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: var(--pad-inner-pane); }
+.sidebar-scroll.own-scroll.shows-rail { padding-right: calc(var(--pad-inner-pane) + 14px); }
 .sidebar-places { display: flex; flex-direction: column; gap: var(--gap-control-row); margin: 0; padding: 0; list-style: none; }
 /* The first and last places' words keep the words margin from the pane's or sheet's edge, as compact rows leave less room round them. */
 .sidebar-places:not(.is-nested) { padding-block: var(--gap-control-stack); }
+/* In a sheet, its body starts under the sheet's head: the list adds only a control row's gap above its first place. */
+.sheet-body > .sidebar-places:not(.is-nested) { padding-top: var(--gap-control-row); }
 .sidebar-places.is-nested { padding: var(--gap-control-row) 0 var(--gap-control-row) var(--gap-block-block); }
 /* A row is a small control's height with a mouse, compact as a list of places should be; a finger gets a regular control's. */
 .sidebar-place { position: relative; display: flex; align-items: center; gap: var(--gap-words-words); min-height: var(--control-height-small); padding: 0 var(--pad-inside-words);
@@ -1369,7 +1362,7 @@ component({
    comes in fading and sliding a little, and folds away the same way (SIDEBAR_SCRIPT), only then giving its column to the page. */
 .sidebar-layout { container: sidebar-layout / inline-size; width: 100%; min-width: 0; }
 .sidebar-layout-in { display: grid; grid-template-columns: var(--size-sidebar) minmax(0, 1fr); gap: var(--gap-block-block); align-items: start; }
-.sidebar-layout-in > .sidebar { position: sticky; z-index: 1; top: var(--header-room, var(--pad-pane)); height: calc(100dvh - var(--header-room, var(--pad-pane)) - var(--pad-pane)); overflow-y: auto; scrollbar-width: none;
+.sidebar-layout-in > .sidebar { position: sticky; z-index: 1; top: var(--header-room, var(--pad-pane)); height: calc(100dvh - var(--header-room, var(--pad-pane)) - var(--pad-pane)); overflow: hidden;
   transition: var(--glass-transition), opacity 0.2s, transform 0.2s cubic-bezier(.2,.8,.2,1); }
 @starting-style { .sidebar-layout-in > .sidebar { opacity: 0; transform: translateX(-24px); } }
 /* Folding: the sidebar, held where it was out of the page's way, slides off toward the edge as the page glides into its room. */
@@ -1401,43 +1394,6 @@ html[data-page-shape="reading"] .sidebar-layout.is-collapsed > .sidebar-layout-i
       isStill: true,
       markup: sidebarLayout({ sidebar: stillSidebar("example-sidebar-folded", SETTINGS_PLACES), main: settingsPanes, isCollapsed: true }),
     },
-  ],
-});
-
-const DASHBOARD_SECTIONS = ["Overview", "Versions", "Players", "Rooms", "Saves", "Reports", "Stats", "Settings"];
-const PROFILE_SECTIONS = ["Games", "Friends", "Forum posts", "Saves", "Rooms"];
-
-component({
-  name: "Section tabs",
-  slug: "section-tabs",
-  group: "navigation",
-  subgroup: "places",
-  summary: "A page's own sections, under its title: a game dashboard's Overview, Versions and Players, a profile's Games and Friends. On a phone they scroll sideways, fading at the edge with more.",
-  styles: `
-/* Section tabs: the header's framed switch for a page's own sections. As wide as its tabs, and never wider than the page: past that
-   they scroll sideways inside their frame, fading out over a side with more, and rest on whole tabs, starting where the one you're on shows whole. */
-.section-tabs { display: flex; min-width: 0; max-width: 100%; }
-.section-tabs > .switch-frame, .section-tabs > .switch-scroll { flex: 0 1 auto; }
-`,
-  render: sectionTabs,
-  examples: [
-    { label: "A game's dashboard", isWide: true, markup: sectionTabs({ label: "Game sections", tabs: DASHBOARD_SECTIONS.map((label, tabIndex) => ({ label, href: "#section-tabs", isCurrent: tabIndex === 1 })) }) },
-    {
-      label: "With counts: reports waiting, players asking to join",
-      isWide: true,
-      markup: sectionTabs({ label: "Game sections", tabs: DASHBOARD_SECTIONS.map((label) => ({ label, href: "#section-tabs", isCurrent: label === "Players", badgeCount: label === "Players" ? 4 : label === "Reports" ? 12 : undefined })) }),
-    },
-    {
-      label: "Pointed",
-      isStill: true,
-      markup: sectionTabs({ label: "Profile sections", tabs: PROFILE_SECTIONS.slice(0, 3).map((label, tabIndex) => ({ label, href: "#section-tabs", isCurrent: tabIndex === 0, state: tabIndex === 1 ? "is-pointed" : undefined })) }),
-    },
-    {
-      label: "Keyboard focus",
-      isStill: true,
-      markup: sectionTabs({ label: "Profile sections", tabs: PROFILE_SECTIONS.slice(0, 3).map((label, tabIndex) => ({ label, href: "#section-tabs", isCurrent: tabIndex === 0, state: tabIndex === 1 ? "is-focused" : undefined })) }),
-    },
-    { label: "In a narrow pane: they scroll to the one you pick, and a mouse has Row arrows", markup: glassPane({ paneWidth: "fit", body: sectionTabs({ label: "Profile sections", rowId: "example-section-tabs-row", tabs: PROFILE_SECTIONS.map((label, tabIndex) => ({ label, href: "#section-tabs", isCurrent: tabIndex === 2 })) }) }) },
   ],
 });
 
@@ -1598,7 +1554,7 @@ export function filterMenu(options: FilterMenuOptions): ControlMarkup {
     (group) =>
       html`<div class="dropdown-in filter-panel" data-filter-panel="${group.groupName}"${options.openGroupName === group.groupName ? "" : raw(" hidden")}>${opener("", html`${icon("arrow-back")}<span>${group.label}</span>`, "filter-back")}<hr role="separator">${group.choices.map((each) => choice(each.label, each.href, each.isCurrent))}</div>`,
   );
-  const menu = html`<div class="dropdown glass filter-menu${options.isOpen ? "" : " shut"}" id="${options.id}" role="menu" aria-label="Filter" aria-hidden="${options.isOpen ? "false" : "true"}" data-glass data-glass-corners="menu">${EDGE}${main}${panels}</div>`;
+  const menu = floatingPane({ id: options.id, placement: "under", kind: `dropdown filter-menu${options.isOpen ? " is-open-on-load" : ""}`, role: "menu", label: "Filter", body: html`${main}${panels}` });
   return controlMarkup(html`${button}${menu}`, "regular");
 }
 
@@ -1650,8 +1606,7 @@ component({
   styles: `
 /* A Filter menu: a Dropdown whose rows each open a group's choices in its place (a group's row ends in what's picked and a chevron),
    and whose group's choices start with the way back. It's at least wide enough for its longest group and what's picked in it. */
-/* Until DROPDOWN_SCRIPT places it, it waits shut at the window's corner, not where it sits in the row (past the window's edge). */
-.filter-menu { top: 0; left: 0; min-width: min(15rem, var(--menu-room-width, calc(100vw - 2 * var(--pad-frame)))); }
+.floating-pane.filter-menu { min-width: min(15rem, calc(100vw - 2 * var(--pad-frame))); }
 .filter-panel[hidden] { display: none; }
 .filter-group > .filter-picked { margin-left: auto; color: var(--muted); font: var(--type-facts); }
 .filter-group > .ico, .filter-back > .ico { flex: none; width: 12px; height: 12px; }
