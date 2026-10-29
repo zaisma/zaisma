@@ -377,11 +377,12 @@ component({
 });
 
 /**
- * A game's world for buttons to sit on: a shader background with no words in it (never a cover, whose art has its title), and the glass
- * fixed to what it is, light over a bright world and smoked over a dark one, as the world's measured glass would be.
+ * A game's world with a pane over it for buttons to sit on (a button is always on a pane or a tray, never on the world itself): a shader
+ * background with no words in it (never a cover, whose art has its title), and the glass fixed to what it is, light over a bright world and
+ * smoked over a dark one, as the world's measured glass would be.
  */
 const world = (standInSlug: string, glassKind: "light" | "smoked", body: Raw) =>
-  html`<div ${glassKind === "light" ? raw('data-theme-choice="light"') : raw('class="smoke"')} style="position:relative;overflow:hidden;display:grid;gap:var(--gap-control-stack);width:min(380px,100%);padding:var(--pad-pane)">${backdrop({ isFramed: true, standInSlug })}${body}</div>`;
+  html`<div ${glassKind === "light" ? raw('data-theme-choice="light"') : raw('class="smoke"')} style="position:relative;overflow:hidden;display:grid;width:min(380px,100%);padding:var(--pad-pane)">${backdrop({ isFramed: true, standInSlug })}${glassPane({ paneWidth: "full", body })}</div>`;
 /** A secondary button's tints, each with its name and swatch (the gallery shows every one). */
 export const TINT_CHOICES: (ColorChoice & { colorValue: ButtonTint })[] = [
   { name: "Clear", colorValue: "clear", swatch: "clear" },
@@ -488,7 +489,6 @@ component({
     // Over a game's world the glass follows the world, not the theme: light glass on a bright one, smoked on a dark one.
     { label: "Over a bright game world", markup: world("kestrel", "light", waysIn()) },
     { label: "Over a dark game world", markup: world("starward", "smoked", waysIn()) },
-    { label: "An action floating on a world", markup: world("emberfall", "smoked", html`<div style="display:flex;justify-content:center">${secondaryButton("More games", { icon: "chevron-down", type: "button" })}</div>`) },
   ],
 });
 
