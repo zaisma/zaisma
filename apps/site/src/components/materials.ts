@@ -1,0 +1,186 @@
+import { html, raw, type Raw } from "../markup.ts";
+import { component } from "./component.ts";
+import { CUT_LINE, glassPane } from "./foundations.ts";
+
+/*
+ * The materials (docs/DESIGN.md, Materials): everything in the gallery is built of these, and nothing else paints, shades, rims or pads
+ * itself. Each is defined here once, with its look, its edge, its thickness, the room it keeps inside it and its sizes, so changing one
+ * changes it everywhere it's used. A component only puts them together and lays them out (layout.ts); design.test.ts fails a component
+ * that gives itself a background, a shadow, a backdrop, a border or padding of its own.
+ *
+ *   - Glass pane (foundations.ts's glassPane, the header, bars, banners): flush glass of the regular thickness.
+ *   - Tray (foundations.ts's tray): the thinnest glass, under the pane whose words it belongs to.
+ *   - Floating pane (foundations.ts's floatingPane), a sheet, a notice, a playing card: thick glass, over what's under it.
+ *   - Carving: the glass cut away, for what's held in it (a well, a field, a slot) and, deep, a groove.
+ *   - Slab: a raised piece of the same glass, for what's pressed or moved (a button, a switch's tab, a thumb); lit, the orange one.
+ *
+ * Each comes regular or compact (a menu, a small button, a compact sheet): compact keeps less room inside it, the same look.
+ */
+export const MATERIAL_STYLES = `
+/* Thickness: one per material, wherever it's used (the tokens --glass-tray, -thin, -regular and -thick). Every glass is regular unless its
+   material is another; thin is there to try. */
+.glass.thin { --glass-tint: var(--glass-thin); }
+.glass.thick, .floating-pane, .sheet, .notice, .playing-card { --glass-tint: var(--glass-thick); }
+
+/* A bar (the header, the gallery's bar, the footer): a strip of the same glass, as tall as what's in it and the frame gap round it, the same
+   on every side, so its controls sit as far from its top and foot as from its ends; compact, the compact frame gap. */
+.glass-bar { padding: var(--pad-frame); --pad-words: var(--pad-inside-words); }
+.glass-bar.compact { padding: var(--pad-frame-compact); }
+/* A compact pane keeps edged things at the compact frame gap and its words at the tray's margin. */
+.glass-pane.compact > .pane-in { padding: var(--pad-frame-compact); --pad-words: calc(var(--pad-tray) - var(--pad-frame-compact)); }
+
+/* A carving: the glass cut away, cut by the edge rule, its face a touch darker than the glass round it and shaded under its top edge; its
+   edge lit along its foot and shaded along its top (the edge rule's bands, turned round from a slab's). What has words in it keeps them a
+   field's inset from its edge. Pointed at, where it's something you use (a field), it catches the light. Deep, it's a groove or a slot. */
+.carving { position: relative; --face-color: var(--carving-face); background: var(--face-color); box-shadow: var(--carving-shade); clip-path: var(--cut-shape);
+  --pad-words: var(--pad-inside-words); transition: --face-color 0.25s; }
+.carving.compact { --pad-words: calc(var(--pad-inside-words) - 4px); }
+.carving > .cut-line { --band-top: var(--carve-top); --band-left: var(--carve-left); --band-right: var(--carve-right); --band-bottom: var(--carve-bottom); }
+.carving > .cut-line polygon { stroke: var(--carve-rim); stroke-width: 2; }
+:is(label, a, button, .shell):hover > .carving.is-used, .carving.is-used:hover, .carving.is-pointed { --face-color: var(--carving-face-pointed); }
+.carving.deep { --face-color: var(--carving-deep-face); box-shadow: var(--carving-deep-shade); }
+.carving:is(.is-focused, :has(:focus-visible)) > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
+.carving-words { position: relative; z-index: 2; display: block; padding: 14px var(--pad-words); font: var(--type-words); }
+.carving.compact > .carving-words { padding-block: 8px; }
+
+/* A slab: a raised piece of the same glass, clearer than the pane under it and lit from above (a sheen over its face), its edge lit along
+   its top and shaded along its foot, casting its shadow onto the glass round it. Its words keep its own inset; compact keeps less, big more.
+   Pointed at, it catches more light; pressed, it sinks into the glass, its light turned round like a carving's. It can't be pressed: carved
+   flat into the glass, its words quieter. Lit, it's the orange one: the one thing to do. */
+.slab { position: relative; display: flex; align-items: center; justify-content: center; gap: var(--gap-words-words); min-width: 0;
+  height: var(--control-height, var(--control-height-regular));
+  padding: 0 calc(var(--slab-words, 24px) - var(--slab-shift, 0px)) 0 calc(var(--slab-words, 24px) + var(--slab-shift, 0px));
+  --face-color: var(--slab-face); background: var(--slab-sheen) var(--face-color); clip-path: var(--cut-shape);
+  color: var(--ink); font: 600 0.9375rem var(--display); white-space: nowrap;
+  transition: --face-color 0.2s, color 0.2s, box-shadow 0.2s; }
+/* Its height is its holder's control height (a button's size, or a row that evens its controls out); compact and big set their room. */
+.slab.compact { --slab-words: 14px; }
+.slab-holder:has(> .slab.compact) { --control-height: var(--control-height-small); }
+.slab-holder:has(> .slab.big) { --control-height: var(--control-height-big); }
+.slab .loader { position: relative; z-index: 2; }
+.slab.big { --slab-words: 28px; font-size: 1.0625rem; }
+.slab > .cut-line { --band-top: var(--raise-top); --band-left: var(--raise-left); --band-right: var(--raise-right); --band-bottom: var(--raise-bottom); }
+.slab > :not(.cut-line) { position: relative; z-index: 2; }
+.slab-holder { display: inline-flex; max-width: 100%; }
+:where(.shell, .slab-holder):has(> .slab) { filter: var(--slab-cast); transition: filter 0.2s; }
+:is(.shell:hover, .shell.is-pointed, .shell:focus-visible, .shell.is-focused) > .slab, .slab.is-pointed, .slab.is-focused { --face-color: var(--slab-face-pointed); }
+:is(.shell:active, .shell.is-pressed) > .slab, .slab.is-pressed { --face-color: var(--slab-face-pressed); box-shadow: var(--press-shade); transition-duration: 0.08s; }
+:is(.shell:active, .shell.is-pressed):has(> .slab), .slab-holder:has(> .slab.is-pressed) { filter: none; }
+:is(.shell:active, .shell.is-pressed) > .slab > .cut-line, .slab.is-pressed > .cut-line { --band-top: var(--carve-top); --band-left: var(--carve-left); --band-right: var(--carve-right); --band-bottom: var(--carve-bottom); }
+:is(.shell:focus-visible, .shell.is-focused) > .slab > .cut-line polygon, .slab.is-focused > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
+:is(.shell:disabled:not([aria-busy="true"]), .shell[aria-disabled="true"]) > .slab, .slab.is-disabled { --face-color: var(--carving-face); background: var(--face-color); box-shadow: var(--carving-shade); color: var(--muted); }
+:is(.shell:disabled:not([aria-busy="true"]), .shell[aria-disabled="true"]):has(> .slab), .slab-holder:has(> .slab.is-disabled) { filter: none; }
+:is(.shell:disabled:not([aria-busy="true"]), .shell[aria-disabled="true"]) > .slab > .cut-line, .slab.is-disabled > .cut-line { --band-top: var(--carve-top); --band-left: var(--carve-left); --band-right: var(--carve-right); --band-bottom: var(--carve-bottom); }
+/* Lit: the orange slab, lit from above and deepening toward its foot, its edge bright along its top and its own orange's shade along its
+   foot; on smoked glass it glows onto what's round it, on light glass it casts a shadow (--run-cast). */
+.slab.lit { --face-color: var(--run); background: radial-gradient(130% 110% at 50% -35%, rgba(255,255,255,0.3), rgba(255,255,255,0) 62%), linear-gradient(180deg, var(--run-hi), var(--run) 52%, #E57F0C);
+  color: var(--on-run); text-shadow: 0 1px 0 rgba(255,226,180,0.45); font-size: 1rem; letter-spacing: 0.01em; }
+.slab.lit > .cut-line { --band-top: rgba(255,240,214,0.85); --band-left: rgba(255,226,180,0.55); --band-right: rgba(150,72,0,0.32); --band-bottom: rgba(130,60,0,0.55); }
+:where(.shell, .slab-holder):has(> .slab.lit) { filter: var(--run-cast); }
+:is(.shell:hover, .shell.is-pointed):has(> .slab.lit), .slab-holder:has(> .slab.lit.is-pointed) { filter: var(--run-cast-up); }
+:is(.shell:active, .shell.is-pressed):has(> .slab.lit), .slab-holder:has(> .slab.lit.is-pressed) { filter: var(--run-cast-down); }
+@media (prefers-reduced-motion: reduce) { .carving, .slab { transition: none; } }
+`;
+
+export interface CarvingOptions {
+  /** What's held in it: words (in .carving-words, at its inset), or controls laid out by the layout components. */
+  body: Raw;
+  /** A groove or a slot: darker, lit along its lower lip. */
+  isDeep?: boolean;
+  isCompact?: boolean;
+  /** It's something you use (a field): pointed at, it catches the light. A well only holds things, so it doesn't. */
+  isUsed?: boolean;
+  /** The gallery's still states. */
+  state?: "is-pointed" | "is-focused";
+  /** How far the edge rule cuts its corners, in pixels: 10 unless its owner is smaller. */
+  cornerCutPx?: number;
+  /** Its owner's own classes, for the owner's layout and script: "well". */
+  kind?: string;
+}
+
+/** A carving: the glass cut away, holding what's put in it. */
+export function carving(options: CarvingOptions): Raw {
+  const className = ["carving", options.isDeep ? "deep" : "", options.isCompact ? "compact" : "", options.isUsed ? "is-used" : "", options.state ?? "", options.kind ?? ""].filter(Boolean).join(" ");
+  return html`<div class="${className}" data-cut-line="${options.cornerCutPx ?? 10}">${CUT_LINE}${options.body}</div>`;
+}
+
+export interface SlabOptions {
+  /** Its words, an icon, or both. */
+  body: Raw;
+  /** The orange one: the one thing to do. */
+  isLit?: boolean;
+  slabSize?: "compact" | "regular" | "big";
+  /** The gallery's still states; a real slab takes them from the button it's the face of. */
+  state?: "is-pointed" | "is-pressed" | "is-focused" | "is-disabled";
+}
+
+/** A slab, on its own: the gallery's look at the material. A button's face is one (actions.ts), its states from the button. */
+export function slab(options: SlabOptions): Raw {
+  const className = ["slab", options.isLit ? "lit" : "", options.slabSize && options.slabSize !== "regular" ? options.slabSize : "", options.state ?? ""].filter(Boolean).join(" ");
+  return html`<span class="slab-holder"><span class="${className}" data-cut-line="12">${CUT_LINE}<span>${options.body}</span></span></span>`;
+}
+
+/** The four thicknesses side by side over shapes, so what shows through each tells them apart. */
+const thicknessStrip = (theme: "light" | "dark") =>
+  html`<div class="glass-strip" data-theme-choice="${theme}"><i></i><i></i><i></i>${([["Tray", "tray", "Under a pane"], ["Thin", "thin", "To try out"], ["Regular", "regular", "Every glass pane, the header, banners"], ["Thick", "thick", "Floating panes, sheets, notices, playing cards"]] as const).map(
+    ([name, thickness, use]) => html`<div class="glass" data-glass data-glass-corners="pane" style="--glass-tint:var(--glass-${thickness})"><strong>${name}</strong>${use}</div>`,
+  )}</div>`;
+
+component({
+  name: "Thickness",
+  slug: "thickness",
+  group: "panes",
+  subgroup: "materials",
+  summary:
+    "Glass comes in four thicknesses, and each material is one of them wherever it's used: a tray the thinnest, every glass pane regular, a floating pane, a sheet, a notice and a playing card thick. Thin is there to try. A component never picks its own.",
+  styles: MATERIAL_STYLES,
+  examples: [
+    { label: "Light glass", isWide: true, markup: thicknessStrip("light") },
+    { label: "Smoked glass", isWide: true, markup: thicknessStrip("dark") },
+  ],
+});
+
+const carvingSample = (markup: Raw) => glassPane({ paneWidth: "fit", body: html`<div style="width:300px;max-width:100%">${markup}</div>` });
+const carvingWords = (words: string) => html`<span class="carving-words">${words}</span>`;
+
+component({
+  name: "Carving",
+  slug: "carving",
+  group: "panes",
+  subgroup: "materials",
+  summary:
+    "The glass cut away: what holds things (a well, a switch's tabs) and what you put things in (a field), shaded under its top edge and lit along its foot. Deep, it's a groove or a toggle's slot. Every field, well, slot and groove is one; nothing else is carved.",
+  styles: "",
+  render: carving,
+  examples: [
+    { label: "Holding words", markup: carvingSample(carving({ body: carvingWords("zaisma.com/g/ashen-crown") })) },
+    { label: "Something you use, pointed at", isStill: true, markup: carvingSample(carving({ body: carvingWords("emma_r"), isUsed: true, state: "is-pointed" })) },
+    { label: "Keyboard focus", isStill: true, markup: carvingSample(carving({ body: carvingWords("emma_r"), isUsed: true, state: "is-focused" })) },
+    { label: "Compact", markup: carvingSample(carving({ body: carvingWords("zaisma.com/g/ashen-crown"), isCompact: true })) },
+    // On its own, a card's width, as a Groove sits: in a pane of its own it would squeeze the pane to a sliver.
+    { label: "Deep: a groove", markup: html`<div style="width:var(--size-card);max-width:100%">${carving({ body: raw('<span style="display:block;height:8px"></span>'), isDeep: true, cornerCutPx: 3 })}</div>` },
+  ],
+});
+
+component({
+  name: "Slab",
+  slug: "slab",
+  group: "panes",
+  subgroup: "materials",
+  summary:
+    "A raised piece of the same glass, clearer than the pane under it and casting its shadow on it: what you press or move (a button, a switch's tab, a thumb). Lit, it's the orange one, the one thing to do. Pointed at it catches the light; pressed, it sinks into the glass. Nothing else is raised.",
+  styles: "",
+  render: slab,
+  examples: [
+    { label: "Rest", markup: carvingSample(slab({ body: html`Details` })) },
+    { label: "Pointed at", isStill: true, markup: carvingSample(slab({ body: html`Details`, state: "is-pointed" })) },
+    { label: "Pressed", isStill: true, markup: carvingSample(slab({ body: html`Details`, state: "is-pressed" })) },
+    { label: "Keyboard focus", isStill: true, markup: carvingSample(slab({ body: html`Details`, state: "is-focused" })) },
+    { label: "Can't be pressed", isStill: true, markup: carvingSample(slab({ body: html`Details`, state: "is-disabled" })) },
+    { label: "Compact", markup: carvingSample(slab({ body: html`Details`, slabSize: "compact" })) },
+    { label: "Lit: the orange one", markup: carvingSample(slab({ body: html`Play`, isLit: true })) },
+    { label: "Lit, pointed at", isStill: true, markup: carvingSample(slab({ body: html`Play`, isLit: true, state: "is-pointed" })) },
+    { label: "Lit, pressed", isStill: true, markup: carvingSample(slab({ body: html`Play`, isLit: true, state: "is-pressed" })) },
+  ],
+});
+

@@ -188,7 +188,7 @@ function secondaryButtonMarkup(label: string, options: SecondaryButtonOptions, i
   const reactionMarkup = hasCount ? html`<span class="cut-count">${countWords}</span>` : "";
   const cutLineNumber = options.isBig ? 13 : 10;
   const front = isToggle ? html`<span class="toggle-front" aria-hidden="true"></span>` : "";
-  return controlMarkup(html`${opening(className, options, options.isBusy, extra)}${front}<span class="face cut-raised" data-cut-line="${cutLineNumber}">${CUT_LINE}${loader()}${options.wayIn ? html`<span class="way-mark">${WAY_MARKS[options.wayIn]}</span>` : options.icon ? icon(options.icon) : ""}${words}${reactionMarkup}</span>${closing(options)}`, options.isBig ? "big" : options.isSmall || options.isInWell ? "small" : "regular");
+  return controlMarkup(html`${opening(className, options, options.isBusy, extra)}${front}<span class="face slab${options.isBig ? " big" : options.isSmall ? " compact" : ""}" data-cut-line="${cutLineNumber}">${CUT_LINE}${loader()}${options.wayIn ? html`<span class="way-mark">${WAY_MARKS[options.wayIn]}</span>` : options.icon ? icon(options.icon) : ""}${words}${reactionMarkup}</span>${closing(options)}`, options.isBig ? "big" : options.isSmall || options.isInWell ? "small" : "regular");
 }
 
 const GOOGLE = raw(
@@ -462,70 +462,48 @@ component({
 /* A secondary button: a solid cut slab with a drawn outline, the same slab a Toggle button is. Under the pointer it brightens and stays
    where it is; a press carves it in where it is (shaded from above, its light turned round), never moving or shrinking it, quickly, and it
    comes back when let go. The shell (the button) stays still; the slab is its face. */
-.cut-btn { --control-height: var(--control-height-regular); flex: none; vertical-align: middle; max-width: 100%; transition: filter 0.2s; }
+.cut-btn { --control-height: var(--control-height-regular); flex: none; vertical-align: middle; max-width: 100%; }
 .cut-btn.big { --control-height: var(--control-height-big); }
 .cut-btn.small { --control-height: var(--control-height-small); }
 .cut-btn.is-full { display: flex; width: 100%; }
-.cut-btn > .face { display: flex; flex: auto; align-items: center; justify-content: center; gap: 8px; min-width: 0; height: var(--control-height);
-  --face-padding: 24px; --face-shift: 0px; padding: 0 calc(var(--face-padding) - var(--face-shift)) 0 calc(var(--face-padding) + var(--face-shift));
-  font: 600 0.9375rem var(--display); color: var(--ink); white-space: nowrap;
-  --face-color: var(--btn); background: var(--face-color); clip-path: var(--cut-shape);
-  transition: --face-color 0.2s, color 0.2s, box-shadow 0.2s, opacity 0.15s, transform 0.4s ${SPRING}; }
+/* Its face is a slab (materials.ts): its look, its room and its states are the slab's. */
+.cut-btn > .face { flex: auto; gap: 8px; }
 /* Words longer than the room it has end in an ellipsis on one line. */
 .cut-btn .face > span:not([class]) { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 /* A count (a post's likes): figures of one width, so it never shifts as it changes, a weight lighter than the words. */
 .cut-count { font-weight: 500; font-variant-numeric: tabular-nums; }
-/* Big keeps the same slant angle as the rest, so it is the same button, larger. */
-.cut-btn.big > .face { --face-padding: 28px; font-size: 1.0625rem; }
-.cut-btn.small > .face { --face-padding: 14px; }
 /* Its words center in what shows of the button, as an icon alone does: one slanted end (beside another control in a row) loses half its
    slant at mid-height, so the words move a quarter slant away from it; the button keeps its width. Slanted at both ends, they stay put. */
-.cut-btn > .face[data-slanted="start"] { --face-shift: calc(var(--control-slant) / 4); }
-.cut-btn > .face[data-slanted="end"] { --face-shift: calc(var(--control-slant) / -4); }
+.cut-btn > .face[data-slanted="start"] { --slab-shift: calc(var(--control-slant) / 4); }
+.cut-btn > .face[data-slanted="end"] { --slab-shift: calc(var(--control-slant) / -4); }
 /* Only its icon: as wide as a little more than it's tall, and never narrower, even sharing a row's width. */
-.cut-btn.icon-only > .face { width: 52px; padding: 0; }
+.cut-btn.icon-only > .face { width: 52px; --slab-words: 0px; }
 .cut-btn.small.icon-only > .face { width: 42px; }
 /* In a row of controls, which share the row (flex: 1 1 0), an icon keeps its square instead of being squeezed. */
 [data-glass] .control-row > .cut-btn.icon-only > .face { min-width: 52px; }
 [data-glass] .control-row > .cut-btn.small.icon-only > .face { min-width: 42px; }
 /* An icon alone centers in what shows of the button: a slanted end gives up half its slant. */
-.cut-btn.icon-only > .face[data-slanted~="start"] { padding-left: calc(var(--control-slant) / 2); }
-.cut-btn.icon-only > .face[data-slanted~="end"] { padding-right: calc(var(--control-slant) / 2); }
-.cut-btn.in-well > .face { height: 30px; --face-padding: 14px; color: var(--ink-2); }
-.cut-btn.in-well.icon-only > .face { width: 46px; padding: 0; }
-.cut-btn:hover > .face, .cut-btn.is-pointed > .face { --face-color: var(--btn-hover); }
-.cut-btn:active > .face, .cut-btn.is-pressed > .face { --face-color: var(--btn-press); box-shadow: var(--press-shade); transition-duration: 0.08s; }
-/* A press sinks it into the glass: its light turns round, as on a carved field, and its shade goes. */
-.cut-btn:active, .cut-btn.is-pressed { filter: none; }
-.cut-btn:active > .face > .cut-line, .cut-btn.is-pressed > .face > .cut-line { --band-top: var(--carve-top); --band-left: var(--carve-left); --band-right: var(--carve-right); --band-bottom: var(--carve-bottom); }
+.cut-btn.icon-only > .face[data-slanted~="start"] { --slab-shift: calc(var(--control-slant) / 4); }
+.cut-btn.icon-only > .face[data-slanted~="end"] { --slab-shift: calc(var(--control-slant) / -4); }
+.cut-btn.in-well { --control-height: 30px; }
+.cut-btn.in-well > .face { color: var(--ink-2); }
+.cut-btn.in-well.icon-only > .face { width: 46px; }
 .cut-btn:focus-visible { outline: none; }
-.cut-btn:focus-visible > .face, .cut-btn.is-focused > .face { --face-color: var(--btn-hover); }
-.cut-btn:focus-visible .cut-line polygon, .cut-btn.is-focused .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
-.cut-btn .face > span:not(.sr), .cut-btn .face > .ico { position: relative; z-index: 2; }
-/* Can't press: carved flat into the glass like a field, its cut and edge kept (on smoked glass, with a carving's light rim), its words
-   quieter, and it answers no pointer. */
+/* Can't press: it answers no pointer (the slab lies carved flat). In a well of its own (a row's arrow at its end) it fades. */
 .cut-btn:disabled:not([aria-busy="true"]) { cursor: default; pointer-events: none; }
-.cut-btn:disabled:not([aria-busy="true"]) > .face { --face-color: var(--off-face); box-shadow: var(--well-shade); color: var(--muted); transform: none; }
-.cut-btn:disabled:not([aria-busy="true"]) > .face > .cut-line { --band-top: var(--carve-top); --band-left: var(--carve-left); --band-right: var(--carve-right); --band-bottom: var(--carve-bottom); }
-.cut-btn:disabled:not([aria-busy="true"]) > .face > .cut-line polygon { stroke: var(--carve-rim); stroke-width: 2; }
-/* In a well of its own (a row's arrow at its end) it lies flat in the well, faded. */
-.cut-btn.in-well:disabled:not([aria-busy="true"]) > .face { --face-color: transparent; box-shadow: none; color: var(--ink-2); opacity: 0.35; }
-.cut-btn.in-well:disabled:not([aria-busy="true"]) > .face > .cut-line { --band-top: transparent; --band-left: transparent; --band-right: transparent; --band-bottom: transparent; }
-.cut-btn.in-well:disabled:not([aria-busy="true"]) > .face > .cut-line polygon { stroke: transparent; }
+.cut-btn.in-well:disabled:not([aria-busy="true"]) > .face { opacity: 0.35; }
 .cut-btn[aria-busy="true"] { cursor: progress; }
 /* Waiting: the loader before its words, in the icon's place. */
 .cut-btn:not([aria-busy="true"]) .loader, .cut-btn[aria-busy="true"] .face > .ico { display: none; }
-.cut-btn .face > .loader { position: relative; z-index: 2; }
 /* On a touch screen a small one (36px) still takes a finger: its hit area reaches out to a regular control's 44px, its look unchanged. */
 @media (pointer: coarse) { .cut-btn.small::after { content: ""; position: absolute; inset: calc((var(--control-height) - var(--touch-target)) / 2); } }
-@media (max-width: 760px) { .cut-btn.big > .face { --face-padding: 20px; } }
-@media (prefers-reduced-motion: reduce) { .cut-btn > .face { transition: --face-color 0.2s, color 0.2s; } }
+@media (max-width: 760px) { .cut-btn.big { --slab-words: 20px; } }
 /* Another way in: its mark before its words, and the way's color mixed into its slab (a brand's color is how you recognize it, so it
    doesn't follow light or dark; mixed in, the words keep the ink's color in either theme). Plain is the glass's own tone, as Google's
    buttons are; clear is the slab as it is. It points and carves like any secondary button. */
-.cut-btn[data-tint] > .face { --way: var(--btn); --way-mix: 0%; --face-color: color-mix(in srgb, var(--way) var(--way-mix), var(--btn)); }
-.cut-btn[data-tint]:hover > .face, .cut-btn[data-tint].is-pointed > .face, .cut-btn[data-tint]:focus-visible > .face, .cut-btn[data-tint].is-focused > .face { --face-color: color-mix(in srgb, var(--way) var(--way-mix), var(--btn-hover)); }
-.cut-btn[data-tint]:active > .face, .cut-btn[data-tint].is-pressed > .face { --face-color: color-mix(in srgb, var(--way) var(--way-mix), var(--btn-press)); }
+.cut-btn[data-tint] > .face { --way: var(--slab-face); --way-mix: 0%; --face-color: color-mix(in srgb, var(--way) var(--way-mix), var(--slab-face)); }
+.cut-btn[data-tint]:hover > .face, .cut-btn[data-tint].is-pointed > .face, .cut-btn[data-tint]:focus-visible > .face, .cut-btn[data-tint].is-focused > .face { --face-color: color-mix(in srgb, var(--way) var(--way-mix), var(--slab-face-pointed)); }
+.cut-btn[data-tint]:active > .face, .cut-btn[data-tint].is-pressed > .face { --face-color: color-mix(in srgb, var(--way) var(--way-mix), var(--slab-face-pressed)); }
 .cut-btn[data-tint]:not([data-tint="clear"]) > .face { --way-mix: 22%; }
 .cut-btn[data-tint="plain"] > .face { --way: light-dark(#fff, #131314); --way-mix: 60%; }
 .cut-btn[data-tint="blue"] > .face { --way: #2A75E8; }
@@ -776,7 +754,7 @@ const cardBrandImage = (brand: string) => `url("data:image/svg+xml,${encodeURICo
 export function cardRow(label: string, options: CardRowOptions = {}): ControlMarkup {
   const extra = html`${options.isHidden ? raw(" hidden") : ""}${options.cardBrand ? html` data-card-brand="${options.cardBrand}"` : ""}`;
   return controlMarkup(
-    html`${opening(classes("cut-btn", "card-row", "is-full", options.state), options, undefined, extra)}<span class="face cut-raised" data-cut-line="10">${CUT_LINE}<span class="card-row-mark">${icon("card")}<span class="card-brand" aria-hidden="true"></span></span><span>${label}</span>${options.hiddenText ? html`<span class="sr">. ${options.hiddenText}</span>` : ""}<span class="card-row-go" aria-hidden="true">${options.changeText ? html`<span class="card-row-change">${options.changeText}</span>` : ""}${icon("chevron-right")}</span></span>${closing(options)}`,
+    html`${opening(classes("cut-btn", "card-row", "is-full", options.state), options, undefined, extra)}<span class="face slab" data-cut-line="10">${CUT_LINE}<span class="card-row-mark">${icon("card")}<span class="card-brand" aria-hidden="true"></span></span><span>${label}</span>${options.hiddenText ? html`<span class="sr">. ${options.hiddenText}</span>` : ""}<span class="card-row-go" aria-hidden="true">${options.changeText ? html`<span class="card-row-change">${options.changeText}</span>` : ""}${icon("chevron-right")}</span></span>${closing(options)}`,
     "field",
   );
 }
@@ -790,7 +768,7 @@ component({
   styles: `
 /* A card row: a secondary button at a field's height, its words starting where a pane's words do (as a field's do), the chevron at its far end. */
 .cut-btn.card-row { --control-height: var(--control-height-field); }
-.cut-btn.card-row > .face { justify-content: flex-start; --face-padding: var(--pad-inside-words); }
+.cut-btn.card-row > .face { justify-content: flex-start; --slab-words: var(--pad-inside-words); }
 .cut-btn.card-row > .face > span:not([class]) { flex: 1 1 auto; text-align: start; }
 /* The card's brand mark in place of the plain card, when the brand is one it knows. */
 .card-row-mark { flex: none; display: inline-flex; align-items: center; }

@@ -138,7 +138,7 @@ ${checkedPageTag(options.checkedPage)}
 </head>
 <body class="gallery">
 <div id="stage" class="stage"${pageSettingsAttributes({ theme })}>${backdrop()}
-<header class="gallery-bar glass" data-compacts data-rail-starts-below data-glass data-glass-corners="header">${EDGE}<span class="gallery-start">${sidebarButton({ controls: "gallery-places", label: "Groups", isExpanded: !options.isScreens })}</span>${logo("wordmark")}<span class="gallery-title">Design</span>
+<header class="gallery-bar glass glass-bar" data-compacts data-rail-starts-below data-glass data-glass-corners="header">${EDGE}<span class="gallery-start">${sidebarButton({ controls: "gallery-places", label: "Groups", isExpanded: !options.isScreens })}</span>${logo("wordmark")}<span class="gallery-title">Design</span>
 <span class="gallery-buttons">${row({ widths: "fit", alignment: "end", items: [{ kind: "control", markup: sidebarButton({ controls: "gallery-places", label: "Groups", isExpanded: !options.isScreens }) }, { kind: "control", markup: themeButton(options.path, theme) }] })}</span></header>
 <div class="gallery-layout">${sidebarLayout({
     sidebar: sidebar({ id: "gallery-places", label: "Design", places, rememberKey: options.isScreens ? "gallery-screens" : "gallery" }),
@@ -176,13 +176,13 @@ function screensPage(env: Env, url: URL): Response {
 export const GALLERY_STYLES = `
 /* The gallery: Zaisma's own page, a glass bar with the light or dark button, the groups, and each component's examples in labeled cells. */
 /* Where things rest under the bar: its inset, its height and the gap between blocks, so the stuck index sits where it sat at the top. */
-html { --gallery-bar-height: 68px; --under-gallery-bar: calc(var(--pad-pane) + var(--gallery-bar-height) + var(--gap-block-block)); --header-room: var(--under-gallery-bar); scroll-padding-top: var(--under-gallery-bar); }
+html { --gallery-bar-height: calc(var(--control-height-small) + 2 * var(--pad-frame)); --under-gallery-bar: calc(var(--pad-pane) + var(--gallery-bar-height) + var(--gap-block-block)); --header-room: var(--under-gallery-bar); scroll-padding-top: var(--under-gallery-bar); }
 body.gallery { margin: 0; min-height: 100vh; font: var(--type-reading); }
 .stage { min-height: 100vh; color: var(--ink); background: var(--page); }
 /* Padding, not the bar's margin, keeps it off the top: a margin would collapse through the stage and show a strip of nothing above it. */
 .stage { padding-top: var(--pad-pane); }
-/* The bar floats like the header: inset from the top and both sides, with the header's own padding around what's in it. */
-.gallery-bar { position: sticky; top: var(--pad-pane); z-index: 20; margin: 0 auto; width: calc(100% - 2 * var(--pad-pane)); max-width: calc(1480px - 2 * var(--pad-pane)); min-height: var(--gallery-bar-height); display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-control-stack) var(--gap-words-words); padding: var(--pad-inner-pane);
+/* The bar floats like the header, inset from the top and both sides; it's a bar of glass (materials.ts), as tall as its buttons and the frame gap round them. */
+.gallery-bar { position: sticky; top: var(--pad-pane); z-index: 20; margin: 0 auto; width: calc(100% - 2 * var(--pad-pane)); max-width: calc(1480px - 2 * var(--pad-pane)); display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-control-stack) var(--gap-words-words);
   --glass-tint: var(--glass-top); view-transition-name: gallery-bar; }
 .gallery-bar > .logo { --logo-height: 24px; }
 .gallery-title { font: var(--type-name); color: var(--ink-2); padding-left: var(--gap-words-words); border-left: var(--divider); }
@@ -237,8 +237,7 @@ body.gallery { margin: 0; min-height: 100vh; font: var(--type-reading); }
 @media (max-width: 760px) {
   .gallery-start { display: none; }
   /* One even inset all round, so the buttons sit the same distance from every edge of the pane; compact keeps it even, only smaller. */
-  .gallery-bar { min-height: 56px; transition: var(--glass-transition), padding 0.25s, gap 0.25s; }
-  .gallery-bar.is-compact { padding: calc(var(--pad-inner-pane) * 2 / 3); }
+  .gallery-bar { transition: var(--glass-transition), padding 0.25s, gap 0.25s; }
   .gallery-bar > .logo { --logo-height: 22px; }
   .gallery-bar.is-compact > .logo { --logo-height: 18px; }
   .examples { grid-template-columns: minmax(0, 1fr); }

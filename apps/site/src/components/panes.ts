@@ -1,6 +1,8 @@
 import { SIZED_IMAGE_WIDTHS_PX } from "@zaisma/core";
 import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
+// The materials register first: the Materials page starts with them.
+import "./materials.ts";
 import { CUT_LINE, EDGE, ago, floatingPane, glassPane, groove, icon, sheetMarkup, tag, tray, well, type IconName } from "./foundations.ts";
 import { doneState, emptyState, glanceFacts, problemState, listRows, pictureFrame, pictureRow, type GlanceFacts } from "./data.ts";
 import { cardRow, secondaryButton, tertiaryButton, primaryButton, textLink, toggleButton } from "./actions.ts";
@@ -555,7 +557,8 @@ component({
   name: "Glass pane",
   slug: "glass-pane",
   group: "panes",
-  subgroup: "glass",
+  subgroup: "materials",
+  after: "thickness",
   summary: "A sheet of glass that holds a task: signing in, a game at a glance, a form. It's as wide as what holds it, or as wide as what's in it, its paragraphs running to a reading width at most; never a width of its own. Its content scrolls inside it rather than shrinking. A game's page starts its pane lower on a phone (isStartedLow), so the game's art shows above it. Not for a task that comes and goes over the page (a Sheet) or choices that hang from a button (a Floating pane).",
   styles: PANE_STYLES,
   render: glassPane,
@@ -588,7 +591,8 @@ component({
   name: "Tray",
   slug: "tray",
   group: "panes",
-  subgroup: "glass",
+  subgroup: "materials",
+  after: "glass-pane",
   summary: "A thinner, clearer sheet a pane extends into, holding everything that belongs to it: the pane's words on top, what they're about on the tray beneath, read as one. Every gallery section is one. Never on its own: a tray runs on from the pane whose words it belongs to; a second task is a Glass pane of its own.",
   styles: `
 /* A tray: the pane above holds the words, square along its foot; the tray runs on from it with no rim of its own along the top. It's
@@ -749,7 +753,8 @@ component({
   name: "Floating pane",
   slug: "floating-pane",
   group: "panes",
-  subgroup: "menus",
+  subgroup: "materials",
+  after: "tray",
   summary: "A pane of the menus' glass that hangs from what opens it, over everything on the page: under it (a menu, a search's list) or over it, its pick on the anchor's own line (a select's list, the wheels). Every dropdown, list and picker that floats is one; it does all the floating once, so none of them redo it. Not for a task with fields and buttons: that's a Sheet.",
   styles: `
 /* A floating pane: the menus' glass, out of the page's flow in the top layer (a popover), placed by zaismaFloat over everything, at its

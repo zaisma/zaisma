@@ -10,21 +10,31 @@ export const cutPolygon = (kind: "pane" | "header" | "menu"): string => {
 export const LIGHT_GLASS = `color-scheme: light;
   --ink: #14171C; --ink-2: #3D444E; --muted: #59606A; --line: rgba(20, 23, 28, 0.14);
   --glass: rgba(255, 255, 255, 0.4); --glass-edge: rgba(255, 255, 255, 0.92); --field: rgba(255, 255, 255, 0.62);
-  --glass-tint: rgba(250, 252, 255, 0.5); --glass-top: rgba(250, 252, 255, 0.56); --glass-dropdown: rgba(250, 252, 255, 0.62); --glass-tray: rgba(250, 252, 255, 0.14);
+  /* The materials (materials.ts): glass comes in four thicknesses, and each material is one of them wherever it's used. */
+  --glass-tray: rgba(250, 252, 255, 0.14); --glass-thin: rgba(250, 252, 255, 0.35); --glass-regular: rgba(250, 252, 255, 0.55); --glass-thick: rgba(250, 252, 255, 0.72);
+  --glass-tint: var(--glass-regular); --glass-top: var(--glass-regular); --glass-dropdown: var(--glass-thick);
+  /* A carving: the glass cut away, a touch darker than the glass round it, shaded under its top edge; pointed at, it catches the light.
+     Deep (a groove, a toggle's slot), it's darker and lit along its lower lip. */
+  --carving-face: rgba(70, 84, 108, 0.08); --carving-face-pointed: rgba(255, 255, 255, 0.34); --carving-shade: inset 0 1px 3px rgba(20, 23, 28, 0.1);
+  --carving-deep-face: rgba(60, 72, 94, 0.2); --carving-deep-shade: inset 0 3px 3px rgba(20, 30, 50, 0.3), inset 0 -1.5px 0 rgba(255, 255, 255, 0.95);
+  /* A slab: a raised piece of the same glass, clearer than the pane it stands on and lit from above, casting its shadow onto it. Pointed at,
+     it catches more light; pressed, it sinks into the glass. */
+  --slab-face: rgba(255, 255, 255, 0.5); --slab-face-pointed: rgba(255, 255, 255, 0.76); --slab-face-pressed: rgba(255, 255, 255, 0.24);
+  --slab-sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.38), rgba(255, 255, 255, 0) 70%);
   --glass-sheen: radial-gradient(140% 90% at 0% 0%, rgba(255, 255, 255, 0.34), rgba(255, 255, 255, 0) 55%), linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0) 38%, rgba(30, 60, 110, 0) 70%, rgba(30, 60, 110, 0.05));
   /* A tray's light: the same sheen at a third of the strength, so the tray stays muted under its pane. */
   --glass-tray-sheen: radial-gradient(140% 90% at 0% 0%, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0) 55%), linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0) 38%, rgba(30, 60, 110, 0) 70%, rgba(30, 60, 110, 0.02));
   --glass-saturate: 1.8; --edge-hair: rgba(40, 60, 100, 0.1);
   /* A well is carved into the glass: a touch darker than it, so it reads on a pale backdrop too. */
-  --well: rgba(70, 84, 108, 0.08); --well-shade: inset 0 1px 3px rgba(20, 23, 28, 0.1);
+  --well: var(--carving-face); --well-shade: var(--carving-shade);
   --toggle-icon-on: var(--ink);
   /* Orange words (a pointed link): dark enough on light glass to read as easily as the ink. */
   --run-words: var(--run-lo);
   --run-cast: drop-shadow(0 2px 3px rgba(20, 23, 28, 0.18)) drop-shadow(0 8px 14px rgba(20, 23, 28, 0.18)); --run-cast-up: drop-shadow(0 3px 4px rgba(20, 23, 28, 0.16)) drop-shadow(0 12px 20px rgba(20, 23, 28, 0.16)); --run-cast-down: drop-shadow(0 1px 1.5px rgba(20, 23, 28, 0.22)) drop-shadow(0 2px 4px rgba(20, 23, 28, 0.12)); --run-flare: drop-shadow(0 0 6px rgba(247, 147, 26, 0.55)) drop-shadow(0 4px 10px rgba(20, 23, 28, 0.14)); --toggle-ring: drop-shadow(1.5px 0 0 var(--run)) drop-shadow(-1.5px 0 0 var(--run)) drop-shadow(0 1.5px 0 var(--run)) drop-shadow(0 -1.5px 0 var(--run)); --toggle-cast: drop-shadow(0 1px 2px rgba(247, 147, 26, 0.4)) drop-shadow(0 6px 10px rgba(20, 23, 28, 0.1));
   /* A pane floating over the page (a list, the wheels): the shadow it casts, outside its edge, so it reads as on top; and the same as a filter. */
   --float-cast: drop-shadow(0 1px 3px rgba(20, 23, 28, 0.08)) drop-shadow(0 6px 16px rgba(20, 23, 28, 0.1));
-  --slab: linear-gradient(180deg, rgba(255, 255, 255, 0.88), rgba(255, 255, 255, 0.6)); --slab-shade: 0 4px 10px rgba(20, 23, 28, 0.12); --slab-cast: drop-shadow(0 1px 1px rgba(20, 30, 50, 0.14)) drop-shadow(0 3px 6px rgba(20, 30, 50, 0.16)); --ghost: rgba(255, 255, 255, 0.45); --ghost-rest: rgba(255, 255, 255, 0); --wash-rest: rgba(20, 23, 28, 0); --wash: rgba(20, 23, 28, 0.08); --wash-press: rgba(20, 23, 28, 0.14);
-  --btn: #F7F8FA; --btn-hover: #FFFFFF; --btn-press: rgba(226, 232, 240, 0.9);
+  --slab: var(--slab-sheen), var(--slab-face); --slab-shade: 0 4px 10px rgba(20, 23, 28, 0.12); --slab-cast: drop-shadow(0 1px 1px rgba(20, 30, 50, 0.14)) drop-shadow(0 3px 6px rgba(20, 30, 50, 0.16)); --ghost: rgba(255, 255, 255, 0.45); --ghost-rest: rgba(255, 255, 255, 0); --wash-rest: rgba(20, 23, 28, 0); --wash: rgba(20, 23, 28, 0.08); --wash-press: rgba(20, 23, 28, 0.14);
+  --btn: var(--slab-face); --btn-hover: var(--slab-face-pointed); --btn-press: var(--slab-face-pressed);
   --press-shade: inset 0 2px 5px rgba(20, 30, 50, 0.16); --run-flood: rgba(247, 147, 26, 0.14); --groove-shade: rgba(20, 30, 50, 0.3); --groove-lip: rgba(255, 255, 255, 0.95); --press-deep: inset 0 2px 12px rgba(20, 30, 50, 0.14), inset 0 0 0 100vmax rgba(20, 30, 50, 0.05);
   /* The edge of something you press, at rest (a check's box, a toggle's slot, a choice card): 3:1 or more against the glass. */
   --press-rim: rgba(20, 23, 28, 0.5);
@@ -32,8 +42,8 @@ export const LIGHT_GLASS = `color-scheme: light;
   --swatch-rim: rgba(20, 23, 28, 0.5);
   /* What can't be pressed now: carved flat into the glass, unlike a field's or a button's face in either theme. */
   --off-face: rgba(70, 84, 108, 0.08);
-  --field-face: rgba(255, 255, 255, 0.5); --field-hover: rgba(255, 255, 255, 0.66); --field-focus: rgba(255, 255, 255, 0.94);
-  --field-shade: inset 0 1px 3px rgba(20, 23, 28, 0.1); --field-outline: transparent;
+  --field-face: var(--carving-face); --field-hover: var(--carving-face-pointed); --field-focus: rgba(255, 255, 255, 0.94);
+  --field-shade: var(--carving-shade); --field-outline: transparent;
   --show: rgba(255, 255, 255, 0.55); --show-on: #fff;
   --pick: rgba(255, 255, 255, 0.42); --pick-shade: inset 0 1px 3px rgba(20, 23, 28, 0.1), inset 0 0 0 1px rgba(255, 255, 255, 0.5);
   --done: rgba(255, 255, 255, 0.7); --done-line: inset 0 0 0 1px rgba(20, 23, 28, 0.1);
@@ -64,23 +74,28 @@ export const LIGHT_GLASS = `color-scheme: light;
 export const SMOKED_GLASS = `color-scheme: dark;
   --ink: #F7F9FC; --ink-2: rgba(247, 249, 252, 0.86); --muted: rgba(247, 249, 252, 0.7); --line: rgba(255, 255, 255, 0.2);
   --glass-edge: rgba(255, 255, 255, 0.16); --field: rgba(255, 255, 255, 0.08);
-  --glass-tint: rgba(14, 17, 24, 0.55); --glass-top: rgba(18, 21, 27, 0.5); --glass-dropdown: rgba(18, 21, 27, 0.62); --glass-tray: rgba(14, 17, 24, 0.18);
+  --glass-tray: rgba(14, 17, 24, 0.18); --glass-thin: rgba(14, 17, 24, 0.35); --glass-regular: rgba(14, 17, 24, 0.55); --glass-thick: rgba(14, 17, 24, 0.72);
+  --glass-tint: var(--glass-regular); --glass-top: var(--glass-regular); --glass-dropdown: var(--glass-thick);
+  --carving-face: rgba(255, 255, 255, 0.08); --carving-face-pointed: rgba(255, 255, 255, 0.13); --carving-shade: inset 0 1px 3px rgba(0, 0, 0, 0.3);
+  --carving-deep-face: rgba(0, 0, 0, 0.24); --carving-deep-shade: inset 0 3px 3px rgba(0, 0, 0, 0.75), inset 0 -1.5px 0 rgba(214, 228, 255, 0.45);
+  --slab-face: rgba(255, 255, 255, 0.13); --slab-face-pointed: rgba(255, 255, 255, 0.2); --slab-face-pressed: rgba(255, 255, 255, 0.05);
+  --slab-sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0) 70%);
   --glass-sheen: radial-gradient(140% 90% at 0% 0%, rgba(190, 215, 255, 0.12), rgba(190, 215, 255, 0) 55%), linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0) 38%, rgba(0, 0, 0, 0) 70%, rgba(0, 0, 0, 0.03));
   --glass-tray-sheen: radial-gradient(140% 90% at 0% 0%, rgba(190, 215, 255, 0.04), rgba(190, 215, 255, 0) 55%), linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0) 38%, rgba(0, 0, 0, 0) 70%, rgba(0, 0, 0, 0.04));
   --glass-saturate: 1.9; --edge-hair: rgba(0, 0, 0, 0.09);
-  --well: rgba(255, 255, 255, 0.08); --well-shade: inset 0 1px 3px rgba(0, 0, 0, 0.3);
+  --well: var(--carving-face); --well-shade: var(--carving-shade);
   --toggle-icon-on: var(--run);
   --run-words: var(--run-hi);
   --run-cast: drop-shadow(0 3px 10px rgba(247, 147, 26, 0.3)) drop-shadow(0 0 2px rgba(247, 147, 26, 0.25)); --run-cast-up: drop-shadow(0 5px 16px rgba(247, 147, 26, 0.34)) drop-shadow(0 0 3px rgba(247, 147, 26, 0.28)); --run-cast-down: drop-shadow(0 1px 4px rgba(247, 147, 26, 0.42)) drop-shadow(0 0 1.5px rgba(247, 147, 26, 0.34)); --run-flare: drop-shadow(0 2px 18px rgba(247, 147, 26, 0.7)) drop-shadow(0 0 4px rgba(255, 190, 110, 0.65)); --toggle-ring: drop-shadow(1.5px 0 0 var(--run)) drop-shadow(-1.5px 0 0 var(--run)) drop-shadow(0 1.5px 0 var(--run)) drop-shadow(0 -1.5px 0 var(--run)); --toggle-cast: drop-shadow(0 3px 8px rgba(247, 147, 26, 0.45)) drop-shadow(0 1px 1.5px rgba(247, 147, 26, 0.35));
   --float-cast: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.25)) drop-shadow(0 8px 20px rgba(0, 0, 0, 0.3));
-  --slab: rgba(255, 255, 255, 0.2); --slab-shade: 0 0 0 transparent; --slab-cast: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.4)) drop-shadow(0 3px 8px rgba(0, 0, 0, 0.45)); --ghost: rgba(255, 255, 255, 0.1); --ghost-rest: rgba(255, 255, 255, 0); --wash-rest: rgba(255, 255, 255, 0); --wash: rgba(255, 255, 255, 0.14); --wash-press: rgba(255, 255, 255, 0.22);
-  --btn: #3A3E47; --btn-hover: #444852; --btn-press: rgba(255, 255, 255, 0.07);
+  --slab: var(--slab-sheen), var(--slab-face); --slab-shade: 0 0 0 transparent; --slab-cast: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.4)) drop-shadow(0 3px 8px rgba(0, 0, 0, 0.45)); --ghost: rgba(255, 255, 255, 0.1); --ghost-rest: rgba(255, 255, 255, 0); --wash-rest: rgba(255, 255, 255, 0); --wash: rgba(255, 255, 255, 0.14); --wash-press: rgba(255, 255, 255, 0.22);
+  --btn: var(--slab-face); --btn-hover: var(--slab-face-pointed); --btn-press: var(--slab-face-pressed);
   --press-shade: inset 0 2px 5px rgba(0, 0, 0, 0.4); --run-flood: rgba(247, 147, 26, 0.28); --groove-shade: rgba(0, 0, 0, 0.75); --groove-lip: rgba(214, 228, 255, 0.45); --press-deep: inset 0 2px 14px rgba(0, 0, 0, 0.4), inset 0 0 0 100vmax rgba(0, 0, 0, 0.12);
   --press-rim: rgba(255, 255, 255, 0.45);
   --swatch-rim: rgba(255, 255, 255, 0.45);
   --off-face: rgba(0, 0, 0, 0.22);
-  --field-face: rgba(255, 255, 255, 0.08); --field-hover: rgba(255, 255, 255, 0.12); --field-focus: rgba(255, 255, 255, 0.16);
-  --field-shade: inset 0 1px 3px rgba(0, 0, 0, 0.25); --field-outline: transparent;
+  --field-face: var(--carving-face); --field-hover: var(--carving-face-pointed); --field-focus: rgba(255, 255, 255, 0.16);
+  --field-shade: var(--carving-shade); --field-outline: transparent;
   --show: rgba(255, 255, 255, 0.1); --show-on: rgba(255, 255, 255, 0.22);
   --pick: rgba(255, 255, 255, 0.06); --pick-shade: inset 0 1px 3px rgba(0, 0, 0, 0.3), inset 0 0 0 1px rgba(255, 255, 255, 0.08);
   --done: rgba(255, 255, 255, 0.12); --done-line: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
@@ -245,6 +260,8 @@ html { -webkit-tap-highlight-color: transparent; }
   --pad-inside-words: calc(var(--pad-pane) - var(--pad-frame));
   --pad-inner-pane: 12px;
   --pad-tray: 16px;
+  /* A compact material (a menu, a compact sheet, a small bar): edged things this close to its edge, words at --pad-tray. */
+  --pad-frame-compact: 4px;
   /* Cut corners (docs/DESIGN.md, Shapes): a pane's, the header's and a bar's, a menu's, large and small, read by the edge rule (GLASS_SCRIPT)
      from data-glass-corners, so everything inside fits them. A framed thing in a corner keeps a bevel of at least 4px at the frame gap. */
   --pane-cut-large: 18px; --pane-cut-small: 14px;
