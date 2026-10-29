@@ -52,6 +52,9 @@ export const MATERIAL_STYLES = `
    behind its cut corners, and a scroll (or a clip) on the pane itself leaves its glass nothing to blur but what's in it, so what's behind
    shows through sharp. Its inside scrolls (Caps and scrolls). */
 .glass:is([popover], dialog) { background: none; overflow: visible; }
+/* Open over the page, its glass is cut by the mask of its shape as well as its clip (--glass-mask, GLASS_SCRIPT): some browsers drawing on
+   the GPU blur the whole box past a clip, which shows as a faint square behind its cut corners over busy content. */
+.glass:is(:popover-open, :modal)::before { -webkit-mask: var(--glass-mask, none); mask: var(--glass-mask, none); -webkit-mask-composite: source-in; mask-composite: intersect; }
 /* A carving with a control at its end (a well's Copy): what's in it stops short of the control. */
 .carving:has(> .carving-end) > .carving-words { padding-inline-end: calc(var(--control-height-small) + var(--well-inset, 8px) + var(--gap-words-words)); }
 /* Over everything (a sheet, a light box, a store panel): a pane of thick glass over the page, capped at the screen, with the page dimmed

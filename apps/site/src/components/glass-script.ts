@@ -297,6 +297,9 @@ export const GLASS_SCRIPT = `/* glass */(function () {
           lastCorners = cornerKey;
           // The cut is the glass's own (its body and rim, --glass-clip), not the pane's: what stands on it can cast its shadow or glow past its edge.
           el.style.setProperty("--glass-clip", "polygon(0 " + c[0] + "px, " + c[0] + "px 0, calc(100% - " + c[1] + "px) 0, 100% " + c[1] + "px, 100% calc(100% - " + c[2] + "px), calc(100% - " + c[2] + "px) 100%, " + c[3] + "px 100%, 0 calc(100% - " + c[3] + "px))");
+          // The same cut as a mask, a corner each: over the page a browser drawing on the GPU may blur the glass's whole box past a clip, never past a mask.
+          var corner = function (angle, cutPx) { return "linear-gradient(" + angle + "deg, transparent " + (cutPx * Math.SQRT1_2).toFixed(2) + "px, #000 0)"; };
+          el.style.setProperty("--glass-mask", [corner(135, c[0]), corner(225, c[1]), corner(315, c[2]), corner(45, c[3])].join(", "));
         }
         // An open side (data-glass-open="top", a tray under its pane) draws its rim past the slab, where the clip hides it, so the glass runs straight on into what's above.
         var reach = el.getAttribute("data-glass-open") === "top" ? Math.ceil(band * 1.6) + 2 : 0;
