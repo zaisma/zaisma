@@ -9,6 +9,7 @@ import { COMPACT_SCRIPT, FILTER_MENU_SCRIPT, LOAD_MORE_SCRIPT, RAIL_SCRIPT, ROW_
 import { ROW_LAYOUT_SCRIPT } from "./layout.ts";
 import { DROPDOWN_SCRIPT, PLACE_SCRIPT, STARTED_LOW_SCRIPT, STEP_FLOW_SCRIPT } from "./panes.ts";
 import { LAYERS_SCRIPT } from "./layers.ts";
+import { MATERIAL_STYLES } from "./materials.ts";
 import { CHART_SCRIPT } from "./data.ts";
 import { QR_CODE_SCRIPT } from "./qr-code.ts";
 import { PLAYING_CARD_SCRIPT } from "./playing.ts";
@@ -35,8 +36,8 @@ export { COMPONENTS, COMPONENT_GROUPS, componentBySlug } from "./component.ts";
 export { HEADER_SCRIPT } from "./navigation.ts";
 export { columns, grid, paneParts, row, stack, track, type LayoutControl, type LayoutItem } from "./layout.ts";
 
-/** The tokens, then every component's CSS in gallery order. */
-export const COMPONENT_STYLES = (): string => TOKEN_STYLES + COMPONENTS().map((each) => each.styles).join("");
+/** The tokens, the materials (so a component's own rules come after them), then every component's CSS in gallery order. */
+export const COMPONENT_STYLES = (): string => TOKEN_STYLES + MATERIAL_STYLES + COMPONENTS().map((each) => each.styles).join("");
 
 /** The components' script, readable: what scripts/minify-components.mjs minifies. */
 export const COMPONENT_SCRIPT_SOURCE = WATCH_SCRIPT + GLASS_SCRIPT + PLACE_SCRIPT + EDGE_LIGHT_SCRIPT + BACKDROP_SCRIPT + FIELD_SCRIPT + PIN_FIELD_SCRIPT + SWITCH_SCRIPT + RUNNER_SCRIPT + BUSY_SCRIPT + TOGGLE_SCRIPT + CHECK_SCRIPT + CHOICE_CARDS_SCRIPT + WHEEL_SCRIPT + FILE_DROP_SCRIPT + COPY_SCRIPT + CHART_SCRIPT + QR_CODE_SCRIPT + LONG_FIELD_SCRIPT + SLIDER_SCRIPT + COLOR_FIELD_SCRIPT + SELECT_SCRIPT + SEARCH_SCRIPT + DROPDOWN_SCRIPT + FILTER_MENU_SCRIPT + LAYERS_SCRIPT + STARTED_LOW_SCRIPT + STEP_FLOW_SCRIPT + CONFIRM_ITS_YOU_SCRIPT + RAIL_SCRIPT + ROW_SCRIPT + ROW_LAYOUT_SCRIPT + SCROLL_FADE_SCRIPT + SIDEBAR_SCRIPT + COMPACT_SCRIPT + LOAD_MORE_SCRIPT + PLAYING_CARD_SCRIPT + FOLD_ROWS_SCRIPT;

@@ -223,6 +223,10 @@ html { -webkit-tap-highlight-color: transparent; }
   --thumb-press-shade: inset 0 2px 3px rgba(10, 16, 28, 0.18);
   --thumb-press-face: linear-gradient(180deg, rgba(10, 16, 28, 0.16), rgba(10, 16, 28, 0.04) 55%, rgba(255, 255, 255, 0.1));
   --run: #F7931A; --run-hi: #FFB24A; --run-lo: #A85A06;
+  /* Orange light's other tones (Light, panes.ts): deeper at its start, and the bright tip and white-hot spark at its leading end; a glint is white light running along it. */
+  /* What's behind something over everything: dimmed for a task (a sheet), a little for one hanging from its button, deep for one thing large (a light box), whose words are light. */
+  --dim: rgba(6, 9, 14, 0.42); --dim-light: rgba(6, 9, 14, 0.16); --dim-deep: rgba(6, 9, 14, 0.78); --ink-on-dim: #F7F9FC; --ink-2-on-dim: rgba(247, 249, 252, 0.8);
+  --run-deep: #E9820C; --run-tip: #FFC277; --run-spark: #FFF4E2; --glint: rgba(255, 255, 255, 0.7); --glint-warm: rgba(255, 246, 228, 0.95);
   /* Words and marks on an orange face (the runner, a ticked box): dark ink in both themes, 7.8:1 against it (white is 2.3:1). */
   --on-run: #14171C;
   /* The only red: a delete's confirm step, never anything else. */

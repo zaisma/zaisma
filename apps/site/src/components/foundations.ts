@@ -207,11 +207,11 @@ export function sheetMarkup(options: SheetMarkupOptions): Raw {
   const buttons = options.buttons ?? [];
   const parts = paneParts({
     head: { words: html`<h2 class="sheet-title" id="${options.id}-title">${options.title}</h2>`, end: options.closeButton },
-    body: html`<div class="sheet-scroll"><div class="sheet-body">${options.body}</div></div>`,
+    body: html`<div class="sheet-scroll"><div class="sheet-body scrolls to-edge">${options.body}</div></div>`,
     foot: options.foot ? { start: { kind: "block", markup: options.foot } } : buttons.length ? { start: { kind: "block", markup: row({ widths: "equal", items: buttons.map((button) => ({ kind: "control" as const, markup: button })) }) } } : undefined,
   });
   const inside = options.parts ?? parts;
-  const form = options.action === undefined ? html`<form class="sheet-in" method="dialog">${inside}</form>` : html`<form class="sheet-in" method="post" action="${options.action}">${inside}</form>`;
+  const form = options.action === undefined ? html`<form class="sheet-in scrolls" method="dialog">${inside}</form>` : html`<form class="sheet-in scrolls" method="post" action="${options.action}">${inside}</form>`;
   return html`<dialog class="sheet glass${options.placement === "foot" ? " placement-foot" : options.placement === "side" ? " placement-side" : options.placement === "middle" ? " placement-middle" : options.placement === "start" ? " placement-start" : ""}${options.isCompact ? " is-compact" : ""}${options.isPicture ? " is-picture" : ""}${options.isShown ? " in-place" : ""}" id="${options.id}" aria-labelledby="${options.titleId ?? `${options.id}-title`}"${options.isConfirm ? raw(" data-sheet-confirm") : ""} data-glass data-glass-corners="pane"${options.isShown ? raw(" open") : ""}>${EDGE}${form}</dialog>`;
 }
 
@@ -243,7 +243,7 @@ export interface GrooveOptions {
 export function groove(options: GrooveOptions = {}): Raw {
   const isRunning = options.filledPct === undefined;
   const shownPct = isRunning ? 0 : Math.max(0, Math.min(100, options.filledPct ?? 0));
-  return html`<span class="groove${options.kind ? ` ${options.kind}` : ""}${isRunning ? " is-running" : ""}${options.isWorking ? " is-working" : ""}" data-cut-line="3" aria-hidden="true" style="--groove-filled:${(shownPct / 100).toFixed(4)}">${CUT_LINE}<span class="groove-fill"><span class="groove-light" data-cut-line="3" data-cut-bar>${CUT_LINE}${options.lightMarkup ?? ""}</span></span></span>`;
+  return html`<span class="groove carving deep line${options.kind ? ` ${options.kind}` : ""}${isRunning ? " is-running" : ""}${options.isWorking ? " is-working" : ""}" data-cut-line="3" aria-hidden="true" style="--groove-filled:${(shownPct / 100).toFixed(4)}">${CUT_LINE}<span class="groove-fill light-glow"><span class="groove-light light-fill${options.isWorking ? " light-glint loops" : ""}" data-cut-line="3" data-cut-bar>${CUT_LINE}${options.lightMarkup ?? ""}</span></span></span>`;
 }
 
 /**

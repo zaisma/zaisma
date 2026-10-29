@@ -60,9 +60,9 @@ export type DropdownItem = DropdownChoice | { kind: "rule" };
  * In a dropdown it's a menu item the arrow keys move between; in Menu choices it's an ordinary link or button Tab reaches.
  */
 function dropdownChoice(choice: DropdownChoice, isInMenu = true): Raw {
-  const inside = html`${CUT_LINE}${choice.icon ? icon(choice.icon) : ""}<span>${choice.label}</span>${choice.badgeCount ? tag(choice.badgeCount, "count") : ""}${choice.isNewTab ? html`<span class="dropdown-out" aria-hidden="true">${icon("out-of-page")}</span>` : ""}`;
+  const inside = html`${CUT_LINE}${choice.icon ? icon(choice.icon) : ""}<span class="one-line">${choice.label}</span>${choice.badgeCount ? tag(choice.badgeCount, "count") : ""}${choice.isNewTab ? html`<span class="dropdown-out" aria-hidden="true">${icon("out-of-page")}</span>` : ""}`;
   const dataMarkup = choice.dataAttributes ? html`${Object.entries(choice.dataAttributes).map(([name, text]) => html` data-${name}="${text}"`)}` : "";
-  const shared = html` class="dropdown-choice${choice.state ? ` ${choice.state}` : ""}"${isInMenu ? raw(' role="menuitem" tabindex="-1"') : ""} data-cut-line="8"${choice.id ? html` id="${choice.id}"` : ""}${choice.isHidden ? raw(" hidden") : ""}${choice.isCurrent ? raw(' aria-current="page"') : ""}`;
+  const shared = html` class="dropdown-choice flush-row compact${choice.state ? ` ${choice.state}` : ""}"${isInMenu ? raw(' role="menuitem" tabindex="-1"') : ""} data-cut-line="8"${choice.id ? html` id="${choice.id}"` : ""}${choice.isHidden ? raw(" hidden") : ""}${choice.isCurrent ? raw(' aria-current="page"') : ""}`;
   if (choice.action !== undefined) return html`<form class="dropdown-form" method="post" action="${choice.action}"><button type="submit"${shared}>${inside}</button></form>`;
   if (choice.confirmSheetId !== undefined) return html`<button type="button" aria-controls="${choice.confirmSheetId}"${shared}>${inside}</button>`;
   if (choice.controls !== undefined) return html`<button type="button" aria-controls="${choice.controls}"${dataMarkup}${shared}>${inside}</button>`;
@@ -86,8 +86,8 @@ export interface DropdownOptions {
 
 /** A dropdown: a Floating pane that hangs from any button (aria-controls its id), holding a short list of choices. */
 export function dropdown(options: DropdownOptions): Raw {
-  const head = options.head ? html`<div class="dropdown-head"><strong>${options.head.title}</strong>${options.head.note ? html`<span>${options.head.note}</span>` : ""}${options.head.lineId ? html`<span id="${options.head.lineId}" role="status" hidden></span>` : ""}</div>` : "";
-  const choices = html`<div class="dropdown-in">${options.items.map((menuItem) => ("kind" in menuItem ? raw('<hr role="separator">') : dropdownChoice(menuItem)))}</div>`;
+  const head = options.head ? html`<div class="dropdown-head words-margin"><strong>${options.head.title}</strong>${options.head.note ? html`<span>${options.head.note}</span>` : ""}${options.head.lineId ? html`<span id="${options.head.lineId}" role="status" hidden></span>` : ""}</div><hr class="hairline" aria-hidden="true">` : "";
+  const choices = html`<div class="dropdown-in">${options.items.map((menuItem) => ("kind" in menuItem ? raw('<hr class="hairline" role="separator">') : dropdownChoice(menuItem)))}</div>`;
   return html`${floatingPane({ id: options.id, placement: "under", kind: "dropdown", role: "menu", label: options.label, isShownInPlace: options.isOpen, head: head || undefined, body: choices })}`;
 }
 
@@ -105,7 +105,7 @@ function coverFacts(facts: GlanceFacts, title?: string): Raw {
   // A paid game's price to play leads what's said under its cover.
   const priced = facts.priceText ? html`${tag(facts.priceText, "plain")}${left}` : left;
   // With its title shown, the title leads the row and anything else it has to say goes on a line of its own under it.
-  if (title !== undefined) return html`<div class="cover-meta has-title"><span class="cover-name">${title}</span>${facts.playerCount !== undefined ? html`<span class="count">${icon("people")}<span>${facts.playerCount.toLocaleString("en-US")}<span class="sr"> playing now</span></span></span>` : ""}${priced ? html`<span class="cover-more">${priced}</span>` : ""}</div>`;
+  if (title !== undefined) return html`<div class="cover-meta has-title"><span class="cover-name one-line">${title}</span>${facts.playerCount !== undefined ? html`<span class="count">${icon("people")}<span>${facts.playerCount.toLocaleString("en-US")}<span class="sr"> playing now</span></span></span>` : ""}${priced ? html`<span class="cover-more">${priced}</span>` : ""}</div>`;
   return html`<div class="cover-meta">${priced}${facts.playerCount !== undefined ? html`<span class="count">${icon("people")}<span>${facts.playerCount.toLocaleString("en-US")}<span class="sr"> playing now</span></span></span>` : ""}</div>`;
 }
 
@@ -144,7 +144,7 @@ const COVER_LARGEST_PX = 960;
 export function gameCover(options: GameCoverOptions): Raw {
   const isUpdated = options.facts.updatedAtMs !== undefined && options.facts.playedAtMs !== undefined;
   const isPlaceholder = options.imageUrl === null;
-  return html`<div class="cover${isPlaceholder ? " is-placeholder" : ""}"${options.isCurrent ? raw(' aria-current="true"') : ""}><a class="cover-art cut-carved" data-cut-line="0" href="${options.href}" aria-label="${options.title}${isUpdated ? ", updated" : ""}">${CUT_LINE}${options.imageUrl === null ? (options.isTitleShown ? "" : html`<span class="cover-title" aria-hidden="true">${options.title}</span>`) : html`<span class="cover-picture" data-cut-line="0"><img src="${options.imageUrl}"${coverSizes(options.imageUrl)} alt="" loading="${options.isEager ? "eager" : "lazy"}"${options.hasHighPriority ? raw(' fetchpriority="high"') : ""} decoding="async"></span>`}</a><span class="cover-bar" aria-hidden="true"></span>${coverFacts(options.facts, options.isTitleShown ? options.title : undefined)}</div>`;
+  return html`<div class="cover${isPlaceholder ? " is-placeholder" : ""}"${options.isCurrent ? raw(' aria-current="true"') : ""}><a class="cover-art carving holds-art" data-cut-line="0" href="${options.href}" aria-label="${options.title}${isUpdated ? ", updated" : ""}">${CUT_LINE}${options.imageUrl === null ? (options.isTitleShown ? "" : html`<span class="cover-title carving-words compact one-line" aria-hidden="true">${options.title}</span>`) : html`<span class="cover-picture carving-art" data-cut-line="0"><img src="${options.imageUrl}"${coverSizes(options.imageUrl)} alt="" loading="${options.isEager ? "eager" : "lazy"}"${options.hasHighPriority ? raw(' fetchpriority="high"') : ""} decoding="async"></span>`}</a><span class="cover-bar light-fill across light-line light-glint" aria-hidden="true"></span>${coverFacts(options.facts, options.isTitleShown ? options.title : undefined)}</div>`;
 }
 
 /**
@@ -403,7 +403,7 @@ const DROPDOWN_STYLES = `
    room beside its button (--floating-room): past that its choices scroll inside it, never the page. It grows from the button's end, or from
    its start when it hangs from there (from-start). */
 .floating-pane.dropdown { width: max-content; max-width: min(var(--size-menu), calc(100vw - 2 * var(--pad-frame)));
-  padding: var(--pad-inner-pane); --pad-words: var(--pad-inside-words); gap: 2px; transform-origin: top right; }
+  gap: 2px; transform-origin: top right; }
 .floating-pane.dropdown.from-start { transform-origin: top left; }
 .floating-pane.dropdown.is-above { transform-origin: bottom right; }
 .floating-pane.dropdown.is-above.from-start { transform-origin: bottom left; }
@@ -412,27 +412,15 @@ const DROPDOWN_STYLES = `
 .dropdown-in > * { flex: none; }
 /* Its own words (its head's) keep its margin, --pad-words in from its padding: as far in as the choices' words, which sit that far into
    each choice. The head's rule is as long as the rules between the choices. */
-.dropdown-head { display: flex; flex-direction: column; padding: var(--pad-words) var(--pad-words) var(--gap-words-control); margin-bottom: var(--gap-control-stack); border-bottom: var(--divider); }
+.dropdown-head { display: flex; flex-direction: column; margin-top: var(--pad-words); }
 .dropdown-head strong { font: var(--type-name); color: var(--ink); overflow-wrap: anywhere; text-wrap: balance; }
 .dropdown-head span { color: var(--muted); font: var(--type-facts); }
-.dropdown hr { border: 0; border-top: var(--divider); margin: var(--gap-control-stack) 0; }
 /* A choice: words on the glass, a small control's height (a regular one's on a touch screen); under the pointer a faint slab, cut by the
    edge rule; the current one on the switch's slab. Its words sit as far in as a field's. */
 .dropdown-form { margin: 0; }
-.dropdown-choice { --control-height: var(--control-height-small); position: relative; display: flex; align-items: center; gap: var(--gap-words-words); width: 100%; height: var(--control-height); padding: 0 var(--pad-inside-words); margin: 0; border: 0; cursor: pointer;
-  font: var(--type-words); color: var(--ink-2); text-align: left; text-decoration: none; white-space: nowrap;
-  --face-color: transparent; background: var(--face-color); clip-path: var(--cut-shape); transition: --face-color var(--motion-state), color var(--motion-state); }
-@media (pointer: coarse) { .dropdown-choice { --control-height: var(--control-height-regular); } }
-.dropdown-choice > :not(.cut-line) { position: relative; z-index: 2; }
-.dropdown-choice > span:not(.tag) { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.dropdown-choice { width: 100%; white-space: nowrap; }
 .dropdown-choice > .tag { margin-left: auto; }
 .dropdown-choice > span.dropdown-out { display: flex; margin-left: auto; overflow: visible; }
-/* Pointed at, a choice takes a wash of the words' own color: darker on light glass, lighter on smoked, so it shows on either. */
-.dropdown-choice:hover, .dropdown-choice.is-pointed, .dropdown-choice:focus-visible, .dropdown-choice.is-focused { --face-color: var(--wash); color: var(--ink); }
-/* The page you're on is the slab alone: a line under it would read as one over the choice below. */
-.dropdown-choice[aria-current="page"] { color: var(--ink); background: var(--slab); box-shadow: var(--slab-shade); }
-.dropdown-choice:focus-visible { outline: none; }
-.dropdown-choice:focus-visible > .cut-line polygon, .dropdown-choice.is-focused > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 
 `;
 
@@ -475,29 +463,24 @@ const COVER_STYLES = `
    middle of it is square: never a rectangle against a cut corner. The well keeps the cover's 16:9, and the art fills it up to its carved rim (2px), so the rim frames the art without lying on it.
    Under the art, Zaisma's mark sits in the well: it shows until the art has loaded, and stays where a game has none (is-placeholder). */
 .cover { position: relative; min-width: 0; }
-.cover-art { position: relative; display: block; aspect-ratio: 16 / 9; overflow: hidden; clip-path: var(--cut-shape); text-decoration: none;
-  background: url("/zaisma-mark-metal.svg") center / auto 50% no-repeat var(--well); box-shadow: var(--well-shade); }
-.cover-picture { position: absolute; inset: 2px; display: block; overflow: hidden; clip-path: var(--cut-shape); }
-.cover-art img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+.cover-art { display: block; aspect-ratio: 16 / 9; text-decoration: none; }
 .cover.is-placeholder .cover-art img { display: none; }
 /* A game with no cover has its title under the mark, so it's never a blank in a list. */
-.cover.is-placeholder .cover-art { display: flex; align-items: flex-end; justify-content: center; background-position: center 38%; }
-.cover-title { position: relative; z-index: 2; max-width: 100%; padding: var(--pad-frame); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: var(--type-name); color: var(--ink-2); }
+.cover.is-placeholder .cover-art { display: flex; align-items: flex-end; justify-content: center; --mark-at: center 38%; }
+.cover-title { max-width: 100%; font: var(--type-name); color: var(--ink-2); }
 .cover-art:focus-visible { outline: none; }
 .cover-art:focus-visible > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 /* The orange line under a cover: it draws in from the left the moment you point at a cover, with a light running ahead along it,
    and stays under the game in the pane. Leaving, it runs on out to the right, quicker than it came, as if it moved on to the next cover. */
-.cover-bar { position: relative; display: block; height: 4px; margin-top: 6px; overflow: hidden; clip-path: polygon(4px 0, 100% 0, calc(100% - 4px) 100%, 0 100%);
-  background: linear-gradient(90deg, #E9820C, var(--run) 40%, #FFB54D);
+.cover-bar { position: relative; margin-top: 6px;
   transform: scaleX(0); transform-origin: right; transition: transform var(--motion-state) var(--ease-leave); }
-.cover-bar::after { content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 38%; opacity: 0;
-  background: linear-gradient(90deg, rgba(255,255,255,0), rgba(255,246,228,0.95) 70%, rgba(255,255,255,0)); }
+.cover-bar::after { width: 38%; }
 .cover:hover .cover-bar, .cover.is-pointed .cover-bar, .cover[aria-current="true"] .cover-bar, .cover-art:focus-visible + .cover-bar { transform: scaleX(1); transform-origin: left; transition: transform var(--motion-arrive) var(--ease-glide); }
 .cover:hover .cover-bar::after, .cover.is-pointed .cover-bar::after, .cover[aria-current="true"] .cover-bar::after, .cover-art:focus-visible + .cover-bar::after { animation: cover-glint var(--motion-settle) var(--ease-glide) both; }
 @keyframes cover-glint { 0% { transform: translateX(-100%); opacity: 1; } 75% { opacity: 1; } 100% { transform: translateX(270%); opacity: 0; } }
 /* Under a cover: what concerns you on the left (when you played, an update, friends), players now on the right. */
 /* Where they can't share a line, players now goes on to the next, never cut short. */
-.cover-meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-words-words); min-height: 24px; margin-top: var(--gap-words-words); font: var(--type-facts); color: var(--muted); }
+.cover-meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-words-words); margin-top: var(--gap-words-words); font: var(--type-facts); color: var(--muted); }
 .cover-meta .ico { width: 15px; height: 15px; stroke-width: 1.5; }
 .cover-meta .when, .cover-meta .count, .cover-meta .friends { display: inline-flex; align-items: center; gap: var(--gap-words-words); min-width: 0; }
 .cover-meta .when, .cover-meta .count, .cover-meta .device-note { white-space: nowrap; }
@@ -508,7 +491,7 @@ const COVER_STYLES = `
    (--pad-words past the frame gap) from the surface's edge, at its start, end and foot, with nothing placed apart. With a title it belongs
    to the cover above it: just under the orange line, with more room after it before the next row. */
 .cover-meta.has-title { margin-top: var(--gap-control-row); margin-bottom: var(--gap-words-words); }
-.cover-meta .cover-name { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: var(--type-name); color: var(--ink); }
+.cover-meta .cover-name { flex: 1 1 0; font: var(--type-name); color: var(--ink); }
 .cover-meta .cover-more { flex: 1 0 100%; display: flex; align-items: center; gap: var(--gap-words-words); min-width: 0; }
 @media (prefers-reduced-motion: reduce) { .cover-art, .cover-bar { transition: none !important; } .cover-bar::after { animation: none !important; } }
 `;
@@ -636,23 +619,14 @@ component({
   subgroup: "glass",
   summary: "A channel carved into the glass that fills with orange light from its start: how far along something is. A Slider's line and a Progress's track are one; with no end known yet, a light runs along it. It shows and is never pressed: to set a value, a Slider; for the steps of a task, a Step flow.",
   styles: `
-/* A groove: carved into the glass and read by its edges alone, like every carving, but deep: a shade under its upper edge and a crisp line
-   of light along its lower lip, where the light from above lands (--groove-shade, --groove-lip); its face is the toggle slot's when off,
-   never brighter. It's cut by the edge rule. What's filled is orange light lying inside the carving, 2px in from every edge (clear of the
-   shade along its top and above its lit lip), cut by the edge rule too, its glow soft enough to stay within the carving. It never starts
-   at the carving's very edge or covers its lip, so it never reads fuller than it is. With no end known, a short light runs along it, inside it. */
-.groove { position: relative; display: block; height: 8px; }
-.groove::before { content: ""; position: absolute; inset: 0; background: var(--toggle-off); box-shadow: inset 0 3px 3px var(--groove-shade), inset 0 -1.5px 0 var(--groove-lip); clip-path: var(--cut-shape); }
-.groove-fill { position: absolute; z-index: 2; top: 2px; bottom: 2px; left: 2px; width: max(0px, calc(var(--groove-filled-length, calc(var(--groove-filled, 0) * 100%)) - 2px)); max-width: calc(100% - 4px); filter: drop-shadow(0 0 1.5px var(--run)); transition: width var(--motion-arrive) ease; }
-.groove-light { position: absolute; inset: 0; background: linear-gradient(180deg, var(--run-hi), var(--run)); clip-path: var(--cut-shape); }
-/* Still going: a glint of light runs along the orange, inside it, over and over. */
-.groove.is-working .groove-light { overflow: hidden; }
-.groove.is-working .groove-light::after { content: ""; position: absolute; top: 0; bottom: 0; left: -48px; width: 48px; background: linear-gradient(90deg, rgba(255,255,255,0), rgba(255,255,255,0.7) 50%, rgba(255,255,255,0)); animation: groove-glint var(--motion-loop) var(--ease-standard) infinite; }
-@keyframes groove-glint { from { left: -48px; } to { left: 100%; } }
-.groove.is-running { clip-path: var(--cut-shape); }
+/* A groove: a deep carving that's a line (materials.ts), filled from its start with orange light (Light): the light lies inside the carving,
+   2px in from every edge, so it never covers its lit lip or reads fuller than it is. Still going, a glint runs along the light; with no
+   end known yet, a short light runs along the groove. */
+.groove-fill { position: absolute; z-index: 2; top: 2px; bottom: 2px; left: 2px; width: max(0px, calc(var(--groove-filled-length, calc(var(--groove-filled, 0) * 100%)) - 2px)); max-width: calc(100% - 4px); transition: width var(--motion-arrive) ease; }
+.groove-light { position: absolute; inset: 0; clip-path: var(--cut-shape); }
 .groove.is-running .groove-fill { width: 30%; animation: groove-run var(--motion-loop) ease-in-out infinite; }
 @keyframes groove-run { from { transform: translateX(-100%); } to { transform: translateX(340%); } }
-@media (prefers-reduced-motion: reduce) { .groove-fill { transition: none; } .groove.is-running .groove-fill { animation: none; width: 100%; opacity: 0.5; } .groove.is-working .groove-light::after { animation: none; display: none; } }
+@media (prefers-reduced-motion: reduce) { .groove-fill { transition: none; } .groove.is-running .groove-fill { animation: none; width: 100%; opacity: 0.5; } }
 `,
   render: groove,
   // On its own, a card's width, the way a slider's or a Progress's sits: in a pane of its own it would squeeze the pane to a sliver.
@@ -666,12 +640,25 @@ component({
 });
 
 component({
-  name: "Edge light",
-  slug: "edge-light",
+  name: "Light",
+  slug: "light",
   group: "panes",
-  subgroup: "glass",
-  summary: "The light a well or pane catches on its edge as you point at what's in it: the whole edge wakes, and beside the part you point at the edge brightens and floods up into the glass, gliding along as you move. A switch's tabs and places use it; it's never a slab or a line laid in the glass. What's picked is carved or raised, never lit.",
+  subgroup: "materials",
+  summary: "The light in the glass, owned here and nowhere else. The light a well or pane catches on its edge as you point at what's in it: the whole edge wakes, and beside the part you point at the edge brightens and floods up into the glass, gliding along as you move. A switch's tabs and places use it; it's never a slab or a line laid in the glass. What's picked is carved or raised, never lit.",
   styles: `
+/* Light: the only things lit in the glass, each defined here once. Orange light lies inside a carving (light-fill: a groove's fill, a step's
+   line), deeper at its start across a line (across), glowing softly (light-glow), with a bright tip at its leading end (light-tip, shown by
+   its owner). A glint is white light running along it (light-glint; loops while something's still going). A line of light is 4px (light-line). */
+.light-fill { background: linear-gradient(180deg, var(--run-hi), var(--run)); }
+.light-fill.across { background: linear-gradient(90deg, var(--run-deep), var(--run) 40%, var(--run-hi)); }
+.light-glow { filter: drop-shadow(0 0 1.5px var(--run)); }
+.light-line { display: block; height: 4px; }
+.light-tip::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, transparent 55%, var(--run-tip) 82%, var(--run-spark)); opacity: 0; transition: opacity var(--motion-arrive) ease; }
+.light-glint { overflow: hidden; }
+.light-glint::after { content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 48px; background: linear-gradient(90deg, transparent, var(--glint) 50%, transparent); opacity: 0; }
+.light-glint.loops::after { left: -48px; opacity: 1; animation: light-glint var(--motion-loop) var(--ease-standard) infinite; }
+@keyframes light-glint { from { left: -48px; } to { left: 100%; } }
+@media (prefers-reduced-motion: reduce) { .light-glint.loops::after { animation: none; display: none; } }
 /* An edge light (EDGE_LIGHT, EDGE_LIGHT_SCRIPT): laid in its holder before what it holds, cut to the holder's own shape (--cut-shape), so
    it stops at a cut corner instead of spilling past it. Pointed at, the whole edge wakes (--edge-wake); beside the part you point at, the
    edge itself brightens (--edge-light) and the light floods up from it into the glass (--edge-flood, --edge-flood-far), spilling past the
@@ -712,7 +699,7 @@ component({
    in it keeps a field's inset (--pad-inside-words); an end control sits as far in from its end as from its top (--well-inset), over the
    well, and what's in it stops short of it. Keyboard focus on what's in it is the cut stroke round the well. */
 /* It's a carving (materials.ts): its look, its words' inset, its focus ring and its scrolling are the carving's. */
-.well { --well-inset: calc((var(--control-height-field) - var(--control-height-small)) / 2); display: flex; align-items: center; min-width: 0; min-height: var(--control-height-field); color: var(--ink); }
+.well { --well-inset: calc((var(--control-height-field) - var(--control-height-small)) / 2); display: flex; align-items: center; min-width: 0; color: var(--ink); }
 .well > .well-body { flex: 1; min-width: 0; }
 .well > .well-end { position: absolute; z-index: 3; top: var(--well-inset); right: var(--well-inset); display: flex; }
 .well-end-note { position: absolute; inset: 0; display: none; place-items: center; pointer-events: none; color: var(--ink); }
@@ -780,16 +767,16 @@ component({
 `,
   render: floatingPane,
   examples: [
-    { label: "Holding words, shown in place", markup: html`<div style="width:min(320px,100%)">${floatingPane({ id: "example-floating-words", placement: "under", isShownInPlace: true, body: html`<p style="margin:0;padding:var(--pad-pane)">Rooms run nearest to most of their players.</p>` })}</div>` },
+    { label: "Holding words, shown in place", markup: html`<div style="width:min(320px,100%)">${floatingPane({ id: "example-floating-words", placement: "under", isShownInPlace: true, body: html`<p class="words-margin round" style="margin:0">Rooms run nearest to most of their players.</p>` })}</div>` },
     {
       label: "Over what's behind it: thick glass, the shapes showing through blurred (shown in place, on a tray, it can only show the tray)",
       isWide: true,
-      markup: html`<div class="glass-strip"><i></i><i></i><i></i><div style="width:min(320px,100%)">${floatingPane({ id: "example-floating-over", placement: "under", isShownInPlace: true, body: html`<p style="margin:0;padding:var(--pad-pane)">Rooms run nearest to most of their players.</p>` })}</div></div>`,
+      markup: html`<div class="glass-strip"><i></i><i></i><i></i><div style="width:min(320px,100%)">${floatingPane({ id: "example-floating-over", placement: "under", isShownInPlace: true, body: html`<p class="words-margin round" style="margin:0">Rooms run nearest to most of their players.</p>` })}</div></div>`,
     },
     { label: "Try it: it floats over the page, which shows through it", markup: html`${secondaryButton("Your account", { type: "button", controls: "example-floating-try" })}${dropdown({ id: "example-floating-try", label: "Your account", head: { title: "emma_r", note: "Online" }, items: ACCOUNT_ITEMS })}` },
     {
       label: "Longer than a menu: its body scrolls, its head staying put",
-      markup: html`<div style="width:min(320px,100%)">${floatingPane({ id: "example-floating-long", placement: "under", isShownInPlace: true, head: html`<p style="margin:0;padding:var(--pad-pane) var(--pad-pane) 0;font:var(--type-label)">Regions</p>`, body: html`<p style="margin:0;padding:var(--pad-pane)">${["Frankfurt", "London", "Amsterdam", "Paris", "Madrid", "Stockholm", "Warsaw", "Virginia", "Ohio", "Oregon", "São Paulo", "Tokyo", "Singapore", "Sydney", "Mumbai", "Seoul", "Hong Kong", "Jakarta", "Johannesburg", "Cape Town", "Lagos", "Dubai", "Istanbul", "Milan", "Dublin", "Toronto", "Montreal", "Chicago", "Dallas", "Mexico City", "Bogotá", "Santiago", "Auckland"].map((place) => html`${place}<br>`)}</p>` })}</div>`,
+      markup: html`<div style="width:min(320px,100%)">${floatingPane({ id: "example-floating-long", placement: "under", isShownInPlace: true, head: html`<p class="words-margin round" style="margin:0;font:var(--type-label)">Regions</p>`, body: html`<p class="words-margin round" style="margin:0">${["Frankfurt", "London", "Amsterdam", "Paris", "Madrid", "Stockholm", "Warsaw", "Virginia", "Ohio", "Oregon", "São Paulo", "Tokyo", "Singapore", "Sydney", "Mumbai", "Seoul", "Hong Kong", "Jakarta", "Johannesburg", "Cape Town", "Lagos", "Dubai", "Istanbul", "Milan", "Dublin", "Toronto", "Montreal", "Chicago", "Dallas", "Mexico City", "Bogotá", "Santiago", "Auckland"].map((place) => html`${place}<br>`)}</p>` })}</div>`,
     },
   ],
 });
@@ -879,11 +866,10 @@ component({
   styles: `
 /* A light box: no glass of its own, the screen dimmed deep behind what it shows, which sits in the middle in light words (a QR code keeps
    its white). It fades in and grows a little; it's a sheet to the stack (LAYERS_SCRIPT), so it's the top layer and closes like one. */
-.sheet.light-box:not(.in-place) { inset: 0; width: 100%; max-width: none; height: 100%; max-height: none; margin: 0; padding: var(--pad-pane); background: transparent; box-shadow: none; cursor: zoom-out; --ink: #F7F9FC; --ink-2: rgba(247, 249, 252, 0.8); }
-.sheet.light-box::backdrop { background: rgba(6, 9, 14, 0.78); }
+.sheet.light-box:not(.in-place) { inset: 0; width: 100%; max-width: none; max-height: none; margin: 0; background: transparent; box-shadow: none; cursor: zoom-out; }
 .sheet.light-box:is(:not([open]), .is-leaving) { transform: scale(0.96); }
 @starting-style { .sheet.light-box[open] { transform: scale(0.96); } }
-.light-box-in { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--gap-words-control); height: 100%; margin: 0; }
+.light-box-in { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--gap-words-control); margin: 0; }
 .light-box-close { position: absolute; top: var(--pad-frame); right: var(--pad-frame); }
 .light-box-close .tertiary-btn { color: var(--ink); }
 @media (prefers-reduced-motion: reduce) { .sheet.light-box:is(:not([open]), .is-leaving) { transform: none; } @starting-style { .sheet.light-box[open] { transform: none; } } }
@@ -1020,7 +1006,7 @@ function sheetClose(closeLabel: string) {
   return tertiaryButton(closeLabel, { type: "submit", formMethod: "dialog", icon: "close", isLabelHidden: true, isSmall: true });
 }
 function sheetScroll(body: Raw) {
-  return html`<div class="sheet-scroll"><div class="sheet-body">${body}</div></div>`;
+  return html`<div class="sheet-scroll"><div class="sheet-body scrolls to-edge">${body}</div></div>`;
 }
 function sheetFoot(buttons: ControlMarkup[] | undefined) {
   return buttons?.length ? { start: { kind: "block" as const, markup: row({ widths: "equal", items: buttons.map((button) => ({ kind: "control" as const, markup: button })) }) } } : undefined;
@@ -1083,7 +1069,7 @@ export function confirmSheet(options: ConfirmSheetOptions): Raw {
     closeButton: sheetClose("Close"),
     id: options.id,
     title: options.title,
-    body: html`<p class="sheet-text">${options.text}</p>`,
+    body: html`<p class="sheet-text words-margin">${options.text}</p>`,
     action: options.action,
     buttons: [secondaryButton("Cancel", { type: "submit", formMethod: "dialog", isAutofocused: !options.isBusy }), primaryButton(options.confirmLabel, { type: "submit", isBusy: options.isBusy, isDelete: options.isDelete })],
     isShown: options.isShown,
@@ -1101,7 +1087,7 @@ const SHEET_STYLES = `
    little as it opens and drops away as it closes, the dimming fading with it; nothing in it waits for that. Centered on a wide screen; on
    a phone it rises from the foot of the screen, a gap from its edges. Like a pane that fits, it's as wide as what's in it, its words running
    to a reading width at most, and never wider than a sheet (--size-sheet) or the screen less its margins: past its height, its body scrolls. */
-.sheet { width: fit-content; max-width: min(var(--size-sheet), calc(100% - 2 * var(--pad-pane))); max-height: calc(100dvh - 2 * var(--pad-pane)); margin: auto; padding: 0; border: 0; overflow: visible; color: var(--ink);
+.sheet { width: fit-content; max-width: min(var(--size-sheet), calc(100% - 2 * var(--pad-pane))); margin: auto; padding: 0; border: 0; overflow: visible; color: var(--ink);
   --glass-tint: var(--glass-dropdown);
   transition: var(--glass-transition), opacity var(--motion-state), transform var(--motion-arrive) var(--ease-glide), overlay var(--motion-arrive) allow-discrete, display var(--motion-arrive) allow-discrete; }
 /* A picture's sheet: as wide as the screen allows, up to its own size, so a screenshot or a screen shows large. */
@@ -1112,7 +1098,7 @@ const SHEET_STYLES = `
 .sheet:focus-visible { outline: none; }
 .sheet:is(:not([open]), .is-leaving) { opacity: 0; transform: translateY(16px) scale(0.98); pointer-events: none; transition-timing-function: ease, ease, var(--ease-leave); }
 @starting-style { .sheet[open] { opacity: 0; transform: translateY(12px) scale(0.985); } }
-.sheet::backdrop { background: rgba(6, 9, 14, 0.42); opacity: 1; transition: opacity var(--motion-arrive), overlay var(--motion-arrive) allow-discrete, display var(--motion-arrive) allow-discrete; }
+.sheet::backdrop { opacity: 1; transition: opacity var(--motion-arrive), overlay var(--motion-arrive) allow-discrete, display var(--motion-arrive) allow-discrete; }
 .sheet:is(:not([open]), .is-leaving)::backdrop { opacity: 0; }
 @starting-style { .sheet[open]::backdrop { opacity: 0; } }
 /* At the foot: risen from the bottom of the screen over a running game, which stays in view, never dimmed (a buy sheet). */
@@ -1125,7 +1111,7 @@ const SHEET_STYLES = `
 /* A sheet is a pane: it pads at the frame gap and its words keep the pane's margin (--pad-words). It's one form, its head (the title, and
    Close in the top end corner, taking the corner's cut, Pane parts' head), its body and its buttons at its foot. Only the body scrolls, so
    the head and the buttons stay in view, and Close keeps its corner. */
-.sheet-in { display: flex; flex-direction: column; gap: var(--gap-block-block); max-height: inherit; min-height: 0; overflow-y: auto; margin: 0; }
+.sheet-in { display: flex; flex-direction: column; gap: var(--gap-block-block); margin: 0; }
 .sheet-in :where(p, .sheet-text) { max-width: var(--size-reading); }
 .sheet-in > .pane-parts, .sheet-in > .pane-parts > .pane-body, .sheet-step > .pane-parts, .sheet-step > .pane-parts > .pane-body { flex: 1 1 auto; min-height: 0; }
 /* Steps: one task moving forward inside the same sheet, one step shown at a time (zaismaLayers.step). The one shown comes in from its side
@@ -1171,24 +1157,22 @@ const SHEET_STYLES = `
 .sheet-body :where(h3) { font: var(--type-name); }
 .sheet-title { margin: 0; font: var(--type-section); color: var(--ink); text-wrap: balance; }
 /* The body scrolls across the sheet's whole width, so its rail sits where a pane's does, and what's in it keeps the frame gap. */
-.sheet-scroll { position: relative; flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; margin-inline: calc(-1 * var(--pad-frame)); }
-.sheet-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: var(--gap-block-block); padding-inline: var(--pad-frame); }
+.sheet-scroll { position: relative; flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.sheet-body { flex: 1 1 auto; display: flex; flex-direction: column; gap: var(--gap-block-block); }
 /* With its rail showing, the body keeps room for it along its right edge. */
-.sheet-body.own-scroll.shows-rail { padding-right: calc(var(--pad-frame) + 14px); }
-.sheet-text { margin: 0; padding-inline: var(--pad-words); font: var(--type-words); color: var(--ink-2); }
+.sheet-text { margin: 0; font: var(--type-words); color: var(--ink-2); }
 /* A sheet made by sheetMarkup (foundations.ts: a delete's confirm step): its head and words in one box that scrolls. */
-.sheet-in.own-scroll.shows-rail { padding-right: calc(var(--pad-frame) + 14px); }
 ${touchReach(".sheet")}
 @media (max-width: 760px) {
   /* On a phone it rises from the foot of the screen and stops well short of the top, so the page stays in view above it. */
-  .sheet:not(.in-place) { width: calc(100% - 2 * var(--gap-control-stack)); max-width: none; max-height: 78dvh; margin: auto var(--gap-control-stack) var(--gap-control-stack); }
+  .sheet:not(.in-place) { width: calc(100% - 2 * var(--gap-control-stack)); max-width: none; margin: auto var(--gap-control-stack) var(--gap-control-stack); }
   .sheet:not(.in-place):is(:not([open]), .is-leaving) { transform: translateY(40px); }
   @starting-style { .sheet:not(.in-place)[open] { transform: translateY(40px); } }
 }
 /* A small sheet (compact) hangs from the button that opened it, like a dropdown, on every screen (LAYERS_SCRIPT sets where and decides it
    fits): under it or above it where there's no room, coming in from the button's side. The page behind is dimmed only a little, and not at all
    over a running game (at the foot). A task sheet never hangs: centered on a wide screen, risen from the foot on a phone. */
-.sheet.is-anchored:not(.in-place) { inset: auto; left: var(--sheet-left); top: var(--sheet-top); width: min(var(--size-sheet-compact), calc(100% - 2 * var(--pad-frame))); margin: 0; max-height: var(--sheet-max-height); transform-origin: 0 0; }
+.sheet.is-anchored:not(.in-place) { inset: auto; left: var(--sheet-left); top: var(--sheet-top); width: min(var(--size-sheet-compact), calc(100% - 2 * var(--pad-frame))); margin: 0; transform-origin: 0 0; }
 /* Riding the page (LAYERS_SCRIPT, zaismaIsOnPage): in the top layer an absolute sheet is placed in the page's coordinates, so it scrolls with the page frame for frame. */
 .sheet.is-anchored.is-on-page:not(.in-place) { position: absolute; }
 .sheet.is-anchored.is-at-end:not(.in-place) { transform-origin: 100% 0; }
@@ -1197,7 +1181,6 @@ ${touchReach(".sheet")}
 .sheet.is-anchored:not(.in-place):is(:not([open]), .is-leaving) { transform: translateY(-8px) scale(0.98); }
 .sheet.is-anchored.is-above:not(.in-place):is(:not([open]), .is-leaving) { transform: translateY(8px) scale(0.98); }
 @starting-style { .sheet.is-anchored:not(.in-place)[open] { transform: translateY(-8px) scale(0.98); } .sheet.is-anchored.is-above:not(.in-place)[open] { transform: translateY(8px) scale(0.98); } }
-.sheet.is-anchored:not(.in-place)::backdrop { background: rgba(6, 9, 14, 0.16); }
 /* A small sheet's gaps closed up and its title at a name's size, as a dropdown's are, on every screen (it hangs from its button on a phone too). */
 .sheet:is(.is-compact, [data-sheet-confirm].is-over-sheet) :is(.sheet-in, .sheet-body) { gap: var(--gap-control-stack); }
 .sheet:is(.is-compact, [data-sheet-confirm].is-over-sheet) .layout-stack > .stack-cell[class*="gap-top-"] { margin-top: var(--gap-control-stack); }
@@ -1328,8 +1311,8 @@ export interface StoreItemOptions {
  */
 export function storeItem(options: StoreItemOptions): Raw {
   const picture = options.imageUrl === null
-    ? html`<div class="store-picture is-placeholder cut-carved" data-cut-line="0">${CUT_LINE}</div>`
-    : html`<div class="store-picture cut-carved" data-cut-line="0">${CUT_LINE}<span class="store-picture-art" data-cut-line="0"><img src="${options.imageUrl}"${coverSizes(options.imageUrl, "(max-width: 760px) 100vw, 400px", 1440)} alt="" loading="lazy" decoding="async"></span></div>`;
+    ? html`<div class="store-picture carving holds-art is-placeholder" data-cut-line="0">${CUT_LINE}</div>`
+    : html`<div class="store-picture carving holds-art" data-cut-line="0">${CUT_LINE}<span class="store-picture-art carving-art" data-cut-line="0"><img src="${options.imageUrl}"${coverSizes(options.imageUrl, "(max-width: 760px) 100vw, 400px", 1440)} alt="" loading="lazy" decoding="async"></span></div>`;
   return html`<div class="store-item" id="${options.id}">${picture}<div class="store-item-words" id="${options.id}-words"><h3 class="store-item-name" id="${options.id}-name">${options.name}</h3><p class="store-item-price" id="${options.id}-price">${options.priceText}</p><p class="store-item-description" id="${options.id}-description">${options.description ?? ""}</p><p class="store-item-note" id="${options.id}-note">${options.noteText ?? ""}</p></div></div>`;
 }
 
@@ -1343,13 +1326,10 @@ component({
 /* A store item: the picture is a carved well cut like a game cover's, the art filling it up to its rim (2px); both are cut by the edge rule, so
    it takes a pane's corner's cut where it sits in one and is square in the middle. Under it the words, a words' gap apart, keep the pane's margin. */
 .store-item { display: flex; flex-direction: column; gap: var(--gap-block-block); min-width: 0; }
-.store-picture { position: relative; display: block; aspect-ratio: 16 / 9; overflow: hidden; clip-path: var(--cut-shape);
-  background: url("/zaisma-mark-metal.svg") center / auto 50% no-repeat var(--well); box-shadow: var(--well-shade); }
+.store-picture { display: block; aspect-ratio: 16 / 9; }
 /* On a short screen (a Steam Deck, a phone on its side, a laptop at a large text size) the picture over the game is shorter, its art still covering
    it, so the item's words and Buy have room rather than the panel scrolling by a sliver. */
 @media (max-height: 52em) { .sheet:not(.in-place) .store-picture { max-height: min(9rem, 30dvh); } }
-.store-picture-art { position: absolute; inset: 2px; display: block; overflow: hidden; clip-path: var(--cut-shape); }
-.store-picture img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
 .store-item-words { display: flex; flex-direction: column; gap: var(--gap-words-words); min-width: 0; }
 .store-item-words > :empty { display: none; }
 .store-item-name { margin: 0; font: var(--type-heading); color: var(--ink); text-wrap: balance; overflow-wrap: anywhere; }
@@ -1406,14 +1386,13 @@ component({
   styles: `
 /* A store panel is a sheet standing at the right edge of the screen, as tall as the screen less the page's edge, so the game keeps its middle.
    Nothing dims it. It slides in from its side; on a phone it rises from the foot like the other sheets, nearly the screen's height. */
-.sheet.placement-side:not(.in-place) { inset: var(--pad-pane) var(--pad-pane) var(--pad-pane) auto; width: min(var(--size-sheet-side), calc(100% - 2 * var(--pad-pane))); max-width: none; height: calc(100dvh - 2 * var(--pad-pane)); max-height: none; margin: 0; }
-.sheet.placement-side:not(.in-place) > .sheet-in { height: 100%; }
+.sheet.placement-side:not(.in-place) { inset: var(--pad-pane) var(--pad-pane) var(--pad-pane) auto; width: min(var(--size-sheet-side), calc(100% - 2 * var(--pad-pane))); max-width: none; max-height: none; margin: 0; }
 .sheet.placement-side:is(:not([open]), .is-leaving) { transform: translateX(40px); }
 @starting-style { .sheet.placement-side[open] { transform: translateX(40px); } }
 .sheet.placement-side::backdrop { background: transparent; }
 .sheet.placement-side.in-place { width: min(var(--size-sheet-side), 100%); max-width: none; }
 @media (max-width: 760px) {
-  .sheet.placement-side:not(.in-place) { inset: 0; width: calc(100% - 2 * var(--gap-control-stack)); height: calc(100dvh - 2 * var(--pad-pane)); margin: auto var(--gap-control-stack) var(--gap-control-stack); }
+  .sheet.placement-side:not(.in-place) { inset: 0; width: calc(100% - 2 * var(--gap-control-stack)); margin: auto var(--gap-control-stack) var(--gap-control-stack); }
   .sheet.placement-side:is(:not([open]), .is-leaving) { transform: translateY(40px); }
   @starting-style { .sheet.placement-side[open] { transform: translateY(40px); } }
 }
@@ -1512,7 +1491,7 @@ export function notice(options: NoticeOptions): Raw {
   const isProblem = options.tone === "problem";
   const noticeUrgency = options.noticeUrgency ?? "information";
   const undo = options.undoAction === undefined ? "" : html`<form class="notice-undo" method="post" action="${options.undoAction}">${tertiaryButton("Undo", { type: "submit" })}</form>`;
-  return html`<div class="notice glass ${options.tone}${options.isInPlace ? " in-place" : ""}" role="${isProblem || noticeUrgency === "urgent" ? "alert" : "status"}" data-notice="${options.tone}" data-notice-urgency="${noticeUrgency}"${undo ? raw(" data-notice-undo") : ""} data-glass data-glass-corners="menu">${EDGE}${icon(isProblem ? "warning" : "check")}<span class="notice-text">${options.text}${options.link ? html` ${textLink(options.link.words, options.link.href)}` : ""}</span>${undo}${isProblem ? tertiaryButton("Close", { type: "button", icon: "close", isLabelHidden: true, isSmall: true, dataAttributes: { "layer-close": "" } }) : ""}</div>`;
+  return html`<div class="notice glass glass-bar ${options.tone}${options.isInPlace ? " in-place" : ""}" role="${isProblem || noticeUrgency === "urgent" ? "alert" : "status"}" data-notice="${options.tone}" data-notice-urgency="${noticeUrgency}"${undo ? raw(" data-notice-undo") : ""} data-glass data-glass-corners="menu">${EDGE}${icon(isProblem ? "warning" : "check")}<span class="notice-text words-margin beside-controls${undo ? "" : " compact"}">${options.text}${options.link ? html` ${textLink(options.link.words, options.link.href)}` : ""}</span>${undo}${isProblem ? tertiaryButton("Close", { type: "button", icon: "close", isLabelHidden: true, isSmall: true, dataAttributes: { "layer-close": "" } }) : ""}</div>`;
 }
 
 /**
@@ -1545,17 +1524,18 @@ component({
    little as it arrives and fades up as it leaves. A done one carries a green tick, a problem the warning in the marked color and a close
    button. Its height is a small control's and the room round it, so a notice with Close or Undo is as tall as one without. */
 .notice { position: fixed; z-index: 30; top: calc(var(--under-header, 96px) + var(--notice-shift, 0px)); left: 0; right: 0; width: max-content; max-width: calc(100% - 2 * var(--pad-pane)); margin: 0 auto;
-  display: flex; align-items: center; gap: var(--gap-words-words); min-height: calc(var(--control-height-small) + 2 * var(--pad-inner-pane)); padding: var(--pad-inner-pane) var(--pad-pane); --glass-tint: var(--glass-top);
+  display: flex; align-items: center; align-items: flex-start; gap: 0; --glass-tint: var(--glass-thick); --pad-words: var(--pad-inside-words); --notice-line: var(--control-height-small);
   font: var(--type-words); color: var(--ink);
   transition: var(--glass-transition), opacity var(--motion-arrive), transform var(--motion-arrive) var(--ease-glide), top var(--motion-arrive) var(--ease-glide); }
 @starting-style { .notice { opacity: 0; transform: translateY(-8px); } }
 .notice.is-leaving { opacity: 0; transform: translateY(-8px); }
 .notice.in-place { position: relative; top: auto; left: auto; right: auto; z-index: auto; margin: 0; }
-.notice > .ico { width: 20px; height: 20px; }
+.notice:has(> .notice-undo) { --notice-line: var(--control-height-regular); }
+/* Its icon sits on its words' first line, which sits on its controls' center line. */
+.notice > .ico { width: 20px; height: 20px; margin-block: calc((var(--notice-line) - 20px) / 2); }
 .notice.done > .ico { color: var(--online); stroke-width: 2.4; }
 .notice.problem > .ico { color: var(--marked); }
 /* A control at its end (Close, Undo) sits at the inner pane's gap from its end, as at its top and foot, and takes its corners' cut. */
-.notice:is(.problem, :has(> .notice-undo)) { padding-right: var(--pad-inner-pane); }
 .notice-text { min-width: 0; }
 .notice-undo { display: flex; }
 /* Two or more in place, one under another, as floating ones stack. */
@@ -1603,7 +1583,7 @@ export function banner(options: BannerOptions): Raw {
   const action = options.action ? (formAction === undefined ? secondaryButton(options.action.label, { href: options.action.href ?? "#" }) : secondaryButton(options.action.label, { type: "submit" })) : undefined;
   const close = options.closeLabel ? tertiaryButton(options.closeLabel, { type: "button", name: "banner_close", icon: "close", isLabelHidden: true }) : undefined;
   const controls = [action, close].filter((each): each is ControlMarkup => each !== undefined);
-  const inside = html`<div class="banner-words">${options.icon ? html`<span class="banner-icon">${icon(options.icon)}</span>` : ""}<p class="banner-text">${options.text}</p></div>${controls.length ? row({ widths: "fit", alignment: "end", items: controls.map(control) }) : ""}`;
+  const inside = html`<div class="banner-words words-margin${action || close ? " beside-controls" : " round"}">${options.icon ? html`<span class="banner-icon">${icon(options.icon)}</span>` : ""}<p class="banner-text">${options.text}</p></div>${controls.length ? row({ widths: "fit", alignment: "end", items: controls.map(control) }) : ""}`;
   const holder = `banner-in${options.tone === "warning" ? " tone-warning" : ""}${action ? " has-action" : ""}${close ? " has-close" : ""}`;
   return html`<div class="banner glass" data-glass data-glass-corners="header">${EDGE}${formAction === undefined ? html`<div class="${holder}">${inside}</div>` : html`<form class="${holder}" method="post" action="${formAction}">${inside}</form>`}</div>`;
 }
@@ -1622,8 +1602,7 @@ component({
    line, and the button goes under them, as wide as the strip. */
 .banner { width: 100%; container-type: inline-size; color: var(--ink); }
 .banner-in { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; column-gap: var(--gap-words-control); margin: 0; }
-.banner-words { display: flex; align-items: flex-start; gap: var(--gap-words-words); min-width: 0; padding: var(--pad-words); font: var(--type-words); }
-.banner-in:is(.has-action, .has-close) > .banner-words { padding-block: calc((var(--control-height-regular) - 1lh) / 2); }
+.banner-words { display: flex; align-items: flex-start; gap: var(--gap-words-words); min-width: 0; font: var(--type-words); }
 /* The icon sits on the words' first line. */
 .banner-icon { flex: none; display: flex; align-items: center; height: 1lh; color: var(--ink-2); }
 .banner-in.tone-warning .banner-icon { color: var(--warning); }
@@ -1691,7 +1670,7 @@ export function stepFlow(options: StepFlowOptions): Raw {
   const lastIndex = options.steps.length - 1;
   const stepLine = html`<ol class="step-line" aria-label="Steps">${options.steps.map((step, stepIndex) => {
     const kind = stepIndex < options.currentIndex ? "is-done" : stepIndex === options.currentIndex ? "is-current" : "";
-    return html`<li${kind ? html` class="${kind}"` : ""}${stepIndex === options.currentIndex ? raw(' aria-current="step"') : ""}><span class="step-mark" aria-hidden="true"><span class="step-fill"></span></span><span class="step-label">${step.label}</span></li>`;
+    return html`<li${kind ? html` class="${kind}"` : ""}${stepIndex === options.currentIndex ? raw(' aria-current="step"') : ""}><span class="step-mark carving deep line" data-cut-line="3" aria-hidden="true">${CUT_LINE}<span class="step-fill light-fill across light-tip" data-cut-line="3" data-cut-bar></span></span><span class="step-label words-margin">${step.label}</span></li>`;
   })}</ol>`;
   const finishLabel = options.finishLabel ?? "Done";
   const nextLabel = options.currentIndex === lastIndex ? finishLabel : "Next";
@@ -1776,17 +1755,11 @@ component({
   container-type: inline-size; }
 /* Each name sits under its line at the words' gap, or further down where the pane's margin above it is more. */
 .step-line > li { display: grid; align-content: start; gap: max(var(--gap-words-control), calc(var(--pad-words) - 4px)); font: var(--type-facts); color: var(--muted); transition: color var(--motion-arrive); }
-.step-mark { position: relative; display: block; height: 4px; overflow: hidden; background: var(--line); clip-path: polygon(3px 0, 100% 0, calc(100% - 3px) 100%, 0 100%);
-  --corner-start: calc(var(--pane-cut-large) - 0.586 * var(--pad-frame)); --corner-end: calc(var(--pane-cut-small) - 0.586 * var(--pad-frame)); }
-.step-line > li:first-child .step-mark { clip-path: polygon(var(--corner-start) 0, 100% 0, calc(100% - 3px) 100%, calc(var(--corner-start) - 4px) 100%); }
-.step-line > li:last-child .step-mark { clip-path: polygon(3px 0, calc(100% - var(--corner-end)) 0, calc(100% - var(--corner-end) + 4px) 100%, 0 100%); }
-.step-line > li:only-child .step-mark { clip-path: polygon(var(--corner-start) 0, calc(100% - var(--corner-end)) 0, calc(100% - var(--corner-end) + 4px) 100%, calc(var(--corner-start) - 4px) 100%); }
+.step-mark { position: relative; }
 /* A step's name keeps the margin at both ends, the last one's at the pane's edge too, and breaks a word that's longer than its room (at a large text size). */
-.step-label { padding-inline: var(--pad-words); overflow-wrap: break-word; }
-.step-fill { position: absolute; inset: 0; background: linear-gradient(90deg, #E9820C, var(--run)); transform: scaleX(0); transform-origin: left; transition: transform var(--motion-settle) var(--ease-glide); }
-/* The light at the leading end of the step you're on is a layer of its own over the fill, fading in and out, so it moves from line to line
-   smoothly as you go on or back. */
-.step-fill::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, transparent 55%, #FFC277 82%, #FFF4E2); opacity: 0; transition: opacity var(--motion-arrive) ease; }
+.step-label { overflow-wrap: break-word; }
+/* Its light lies inside the line's carving, 2px in, as a groove's does; it fills from its start, deeper there, its tip lit while it's the step you're on. */
+.step-fill { position: absolute; z-index: 2; inset: 2px; clip-path: var(--cut-shape); transform: scaleX(0); transform-origin: left; transition: transform var(--motion-settle) var(--ease-glide); }
 .step-line > li:is(.is-current, .is-leaving) .step-fill::after { opacity: 1; }
 .step-line > li.is-done { color: var(--ink-2); }
 .step-line > li.is-done .step-fill { transform: scaleX(1); }

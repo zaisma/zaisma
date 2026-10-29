@@ -54,7 +54,7 @@ export function tabSwitch(options: {
   const classNames = (tab: SwitchTab) => [tab.isFoldable ? "foldable" : "", tab.isFoldable && tab.isFolded ? "folded" : "", tab.state ?? ""].filter(Boolean).join(" ");
   const folding = (tab: SwitchTab) =>
     html`${classNames(tab) ? html` class="${classNames(tab)}"` : ""}${tab.isFoldable && tab.isFolded ? raw(' tabindex="-1" aria-hidden="true"') : ""}`;
-  const tabSwitch = html`<div class="tab-switch ${kind}" role="group" aria-label="${options.label}"><span class="slab cut-raised" aria-hidden="true" data-cut-line="${isSmall ? 7 : 8}">${CUT_LINE}</span><span class="focus-ring" aria-hidden="true" data-cut-line="${isSmall ? 9 : 10}">${CUT_LINE}</span>${options.tabs.map((tab) =>
+  const tabSwitch = html`<div class="tab-switch ${kind}" role="group" aria-label="${options.label}"><span class="switch-slab cut-raised" aria-hidden="true" data-cut-line="${isSmall ? 7 : 8}">${CUT_LINE}</span><span class="focus-ring" aria-hidden="true" data-cut-line="${isSmall ? 9 : 10}">${CUT_LINE}</span>${options.tabs.map((tab) =>
     tab.href
       ? // A link that can't be followed now has no address, so nothing reaches it; it still says what it is.
         html`<a data-lights${tab.isDisabled ? raw(' aria-disabled="true"') : html` href="${tab.href}"`}${folding(tab)}${tab.extra ?? ""}${tab.isCurrent ? raw(' aria-current="page"') : ""}>${inside(tab)}</a>`
@@ -77,7 +77,7 @@ export function tabSwitch(options: {
 /** The switch's slab sits under the one you're on, sliding on the spring; a tab you point at only lights its words (CSS). */
 export const SWITCH_SCRIPT = `/* switches */(function () {
   window.zaismaWatch.each(".tab-switch", function (sw) {
-    var slab = sw.querySelector(".slab"), tabs = sw.querySelectorAll(":scope > a, :scope > button"), isVertical = sw.classList.contains("vertical");
+    var slab = sw.querySelector(".switch-slab"), tabs = sw.querySelectorAll(":scope > a, :scope > button"), isVertical = sw.classList.contains("vertical");
     function current() { return sw.querySelector('[aria-current="page"], [aria-pressed="true"]'); }
     // How far a part reaches past a tab's box on a side where another tab is beside it: its slant, less the gap a row of controls keeps.
     var rowGapPx = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--gap-control-row")) || 4;
@@ -248,13 +248,13 @@ export const SWITCH_SCRIPT = `/* switches */(function () {
     if (!event.viewTransition || !event.activation || !event.activation.entry || !event.activation.entry.url) return;
     var to = new URL(event.activation.entry.url);
     document.querySelectorAll(".tab-switch").forEach(function (sw) {
-      var slab = sw.querySelector(":scope > .slab");
+      var slab = sw.querySelector(":scope > .switch-slab");
       var isGoing = Array.prototype.some.call(sw.querySelectorAll(":scope > a[href]"), function (tab) { return new URL(tab.href).pathname === to.pathname && tab.getAttribute("aria-current") !== "page"; });
       if (slab && isGoing) slab.style.visibility = "hidden";
     });
   });
   // A page kept to go back to gets its slabs back.
-  window.addEventListener("pageshow", function () { document.querySelectorAll(".tab-switch > .slab").forEach(function (slab) { slab.style.visibility = ""; }); });
+  window.addEventListener("pageshow", function () { document.querySelectorAll(".tab-switch > .switch-slab").forEach(function (slab) { slab.style.visibility = ""; }); });
 })();
 `;
 
@@ -274,12 +274,12 @@ component({
   clip-path: var(--cut-shape); }
 /* It slides for --slide-ms (SWITCH_SCRIPT moves it frame by frame, its shape with it), never by a CSS transition, on a layer of its own so a
    frame that only moves it isn't painted again. */
-.tab-switch .slab { --slide-ms: 450; position: absolute; top: 4px; bottom: 4px; left: 0; width: 0; pointer-events: none; clip-path: var(--cut-shape); transition: opacity var(--motion-arrive); will-change: transform; }
+.tab-switch .switch-slab { --slide-ms: 450; position: absolute; top: 4px; bottom: 4px; left: 0; width: 0; pointer-events: none; clip-path: var(--cut-shape); transition: opacity var(--motion-arrive); will-change: transform; }
 /* The slab is a raised piece of glass with the face and bevel of a raised button (--btn, the raise bands), so its edges catch the light, and it
    casts a soft shadow into the well under it (--slab-cast), which the well's cut keeps inside it. Its face is cut to its shape below its
    bevel, so the slab itself isn't clipped and its shadow shows. */
-.tab-switch .slab { clip-path: none; filter: var(--slab-cast); }
-.tab-switch .slab::before { content: ""; position: absolute; inset: 0; background: var(--btn); clip-path: var(--cut-shape); }
+.tab-switch .switch-slab { clip-path: none; filter: var(--slab-cast); }
+.tab-switch .switch-slab::before { content: ""; position: absolute; inset: 0; background: var(--btn); clip-path: var(--cut-shape); }
 .tab-switch > a, .tab-switch > button { position: relative; z-index: 2; display: grid; place-content: center; min-height: calc(var(--control-height) - 2 * var(--switch-inset, 4px)); padding: var(--tab-room-y) var(--tab-room); border: 0; background: none; cursor: pointer;
   font: 500 1rem/1.1 var(--display); color: var(--ink-2); text-decoration: none; white-space: nowrap; }
 /* Its tabs are at least its size's control height, less its inset, so it lines up with the controls beside it at any text size. */
@@ -321,7 +321,7 @@ component({
 .tab-switch .focus-ring > .cut-line { --band-top: transparent; --band-left: transparent; --band-right: transparent; --band-bottom: transparent; }
 /* Small: a sort under a heading, the header's switch. */
 .tab-switch.small { --control-height: var(--control-height-small); --switch-inset: 3px; --tab-room: 14px; --tab-room-y: 7px; padding: 3px; clip-path: var(--cut-shape); }
-.tab-switch.small .slab { --slide-ms: 380; top: 3px; bottom: 3px; }
+.tab-switch.small .switch-slab { --slide-ms: 380; top: 3px; bottom: 3px; }
 .tab-switch.small > a, .tab-switch.small > button { font-size: 0.875rem; }
 /* Across, the well is its room's, so the tabs' box in its track has none of its own (after .small, which would cut it to the well's shape). */
 .switch-well > .well-body > .tab-switch { background: none; box-shadow: none; clip-path: none; }
@@ -337,8 +337,8 @@ component({
 /* Stacked, the well is no taller than a menu; past that its places scroll inside it, the rail beside them. */
 .well.switch-well.vertical { flex-direction: column; width: auto; }
 .well.switch-well.vertical > .well-body { flex: 0 1 auto; min-height: 0; overflow-x: hidden; }
-.tab-switch.vertical .slab { top: 0; bottom: auto; left: 4px; right: 4px; width: auto; height: 0; }
-.tab-switch.vertical.small .slab { left: 3px; right: 3px; }
+.tab-switch.vertical .switch-slab { top: 0; bottom: auto; left: 4px; right: 4px; width: auto; height: 0; }
+.tab-switch.vertical.small .switch-slab { left: 3px; right: 3px; }
 .tab-switch.vertical > a, .tab-switch.vertical > button { flex: none; display: flex; align-items: center; justify-content: flex-start; gap: 10px; padding: var(--tab-room-y) 14px; text-align: left; }
 .tab-switch.vertical > a > .tag, .tab-switch.vertical > button > .tag { margin-left: auto; }
 .tab-switch.vertical .ico { width: 18px; height: 18px; }
@@ -350,7 +350,7 @@ component({
   .tab-switch:not(.vertical) { min-height: var(--control-height-regular); }
   .tab-switch > :not([aria-hidden])::before { content: ""; position: absolute; left: 0; right: 0; top: min(0px, calc((100% - var(--touch-target)) / 2)); bottom: min(0px, calc((100% - var(--touch-target)) / 2)); }
 }
-@media (prefers-reduced-motion: reduce) { .tab-switch .slab, .tab-switch > .foldable { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .tab-switch .switch-slab, .tab-switch > .foldable { transition: none; } }
 `,
   render: tabSwitch,
   examples: [

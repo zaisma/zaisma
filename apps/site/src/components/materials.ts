@@ -34,15 +34,71 @@ export const MATERIAL_STYLES = `
    with fades at its ends, its head and foot staying put and the material itself still. Each caps at its own: a glass pane at what holds
    it, a sheet at the screen, a floating pane at a menu's height or the room in the window, a carving at its owner's cap (--well-height, a
    menu's height unless its owner says). Across, the rail runs under it (data-side-rail). A slab never scrolls. */
-.scrolls { position: relative; min-height: 0; overflow-y: auto; overscroll-behavior-y: contain; }
+/* Only while it has something to scroll (is-scrollable) does it keep a swipe or a wheel to itself, so one that can't scroll never catches them. */
+.scrolls { position: relative; min-height: 0; overflow-y: auto; }
+.scrolls.is-scrollable { overscroll-behavior-y: contain; }
 .scrolls.own-scroll.shows-rail { padding-inline-end: calc(var(--scroll-inset, 0px) + 16px); }
 .scrolls.across { min-height: auto; overflow: auto hidden; overscroll-behavior-x: contain; scrollbar-width: none; }
 .scrolls.across::-webkit-scrollbar { display: none; }
 .glass-pane > .scrolls { --scroll-inset: var(--pad-frame); }
 .carving:has(> .scrolls:not(.across)) { align-items: stretch; max-height: var(--well-height, var(--size-menu-height)); }
-.floating-pane { max-height: min(var(--size-menu-height), var(--floating-room, calc(100dvh - 2 * var(--pad-frame)))); padding: var(--pad-frame-compact); }
+.floating-pane { max-height: min(var(--size-menu-height), var(--floating-room, calc(100dvh - 2 * var(--pad-frame)))); padding: var(--pad-frame-compact); --pad-words: calc(var(--pad-tray) - var(--pad-frame-compact)); }
 /* A carving with a control at its end (a well's Copy): what's in it stops short of the control. */
 .carving:has(> .carving-end) > .carving-words { padding-inline-end: calc(var(--control-height-small) + var(--well-inset, 8px) + var(--gap-words-words)); }
+/* Over everything (a sheet, a light box, a store panel): a pane of thick glass over the page, capped at the screen, with the page dimmed
+   behind it: a task's dim, a little for one hanging from its button, deep for one thing large, whose words turn light; a store panel and a
+   buy sheet over a running game dim nothing. Past its cap what's in it scrolls, its head and buttons staying put. */
+.sheet { max-height: calc(100dvh - 2 * var(--pad-pane)); }
+.sheet::backdrop { background: var(--dim); }
+.sheet.is-anchored:not(.in-place) { max-height: var(--sheet-max-height); }
+.sheet.is-anchored:not(.in-place)::backdrop { background: var(--dim-light); }
+.sheet.light-box:not(.in-place) { height: 100%; padding: var(--pad-pane); --ink: var(--ink-on-dim); --ink-2: var(--ink-2-on-dim); }
+.sheet.light-box::backdrop { background: var(--dim-deep); }
+.sheet.placement-side:not(.in-place) { height: calc(100dvh - 2 * var(--pad-pane)); }
+.sheet.placement-side:not(.in-place) > .sheet-in, .light-box-in { height: 100%; }
+@media (max-width: 760px) { .sheet:not(.in-place) { max-height: 78dvh; } }
+/* A scroller that runs to its material's edge keeps what's in it at the frame gap, its rail outside it. */
+.scrolls.to-edge { margin-inline: calc(-1 * var(--pad-frame)); padding-inline: var(--pad-frame); --scroll-inset: var(--pad-frame); }
+.sheet > .sheet-in.scrolls { max-height: inherit; --scroll-inset: var(--pad-frame); }
+
+/* A flush row: words (an icon, a count) flush with the glass they're on, a control's height to press (compact: a small one's; on a touch
+   screen a regular one's), its words the margin in (--pad-words: a pane's, a compact pane's), cut by the edge rule. Pointed at, it takes a
+   faint wash of the words' own color; the current one is a slab; keyboard focus is the cut stroke. A quiet one (a fold's head) only darkens
+   its words: it opens what's under it rather than taking you somewhere. A menu's choices, a fold's head and a list's rows are flush rows. */
+.flush-row { --control-height: var(--control-height-regular); position: relative; display: flex; align-items: center; gap: var(--gap-words-words); min-height: var(--control-height);
+  padding: var(--gap-words-control) var(--pad-words); margin: 0; border: 0; font: var(--type-words); color: var(--ink-2); text-align: start; text-decoration: none; cursor: pointer;
+  --face-color: transparent; background: var(--face-color); clip-path: var(--cut-shape); transition: --face-color var(--motion-state), color var(--motion-state); -webkit-tap-highlight-color: transparent; }
+.flush-row.compact { --control-height: var(--control-height-small); padding-block: 0; }
+@media (pointer: coarse) { .flush-row.compact { --control-height: var(--control-height-regular); } }
+.flush-row > :not(.cut-line) { position: relative; z-index: 2; }
+.flush-row:not(.quiet):is(:hover, .is-pointed, :focus-visible, .is-focused) { --face-color: var(--wash); color: var(--ink); }
+.flush-row.quiet:is(:hover, .is-pointed) { color: var(--ink); }
+.flush-row[aria-current="page"] { color: var(--ink); background: var(--slab-sheen), linear-gradient(var(--slab-wash), var(--slab-wash)), var(--slab-face); box-shadow: var(--slab-shade); }
+.flush-row { --slab-wash: color-mix(in srgb, var(--glass-hue) var(--glass-hue-strength), transparent); }
+.flush-row:focus-visible { outline: none; }
+.flush-row:is(:focus-visible, .is-focused) > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
+
+/* A hairline: the one line drawn on glass, between things (a menu's head and its choices, rows one under another, or either side of a word). */
+hr.hairline { border: 0; border-top: var(--divider); margin: var(--gap-control-stack) 0; }
+.hairline-below { border-bottom: var(--divider); }
+.hairlines > * + * { border-top: var(--divider); }
+span.hairline { flex: 1; border-top: var(--divider); }
+
+/* Words on the glass keep its margin (--pad-words), however they sit; beside controls, they line up with the controls' center line. */
+.words-margin { padding-inline: var(--pad-words); }
+.words-margin.beside-controls { padding-block: calc((var(--control-height-regular) - 1lh) / 2); }
+.words-margin.beside-controls.compact { padding-block: calc((var(--control-height-small) - 1lh) / 2); }
+/* With nothing beside them, they keep the margin all round. */
+.words-margin.round { padding-block: var(--pad-words); }
+/* Words that end in an ellipsis on one line rather than wrapping (a game's title under its cover, a menu's choice). */
+.one-line { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* A carving that holds art (a game's cover, a store item's picture): the art fills it to its carved rim (2px), cut by the edge rule, and
+   Zaisma's mark sits in the carving under it until the art has loaded, and stays where there's none. */
+.carving.holds-art { overflow: hidden; background: url("/zaisma-mark-metal.svg") var(--mark-at, center) / auto 50% no-repeat, linear-gradient(var(--carving-wash), var(--carving-wash)), var(--face-color); }
+.carving-art { position: absolute; inset: 2px; display: block; overflow: hidden; clip-path: var(--cut-shape); }
+.carving-art img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+
 /* A bar (the header, the gallery's bar, the footer): a strip of the same glass, as tall as what's in it and the frame gap round it, the same
    on every side, so its controls sit as far from its top and foot as from its ends; compact, the compact frame gap. */
 .glass-bar { padding: var(--pad-frame); --pad-words: var(--pad-inside-words); }
@@ -60,6 +116,8 @@ export const MATERIAL_STYLES = `
 .carving > .cut-line polygon { stroke: var(--carve-rim); stroke-width: 2; }
 :is(label, a, button, .shell):hover > .carving.is-used, .carving.is-used:hover, .carving.is-pointed { --face-color: var(--carving-face-pointed); }
 .carving.deep { --face-color: var(--carving-deep-face); box-shadow: var(--carving-deep-shade); }
+/* A deep carving that holds only light is a line: a groove, a step's line. */
+.carving.deep.line { display: block; height: 8px; }
 .carving:is(.is-focused, :has(:focus-visible)) > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 .carving-words { position: relative; z-index: 2; display: block; padding: 14px var(--pad-words); font: var(--type-words); }
 .carving.compact > .carving-words { padding-block: 8px; }
@@ -161,7 +219,8 @@ component({
   subgroup: "materials",
   summary:
     "Glass comes in four thicknesses, and each material is one of them wherever it's used: a tray the thinnest, every glass pane regular, a floating pane, a sheet, a notice and a playing card thick. Thin is there to try. A component never picks its own.",
-  styles: MATERIAL_STYLES,
+  // MATERIAL_STYLES come right after the tokens (index.ts's COMPONENT_STYLES), before every component's own.
+  styles: "",
   examples: [
     { label: "Light glass", isWide: true, markup: thicknessStrip("light") },
     { label: "Smoked glass", isWide: true, markup: thicknessStrip("dark") },

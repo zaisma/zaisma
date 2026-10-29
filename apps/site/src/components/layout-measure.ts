@@ -239,7 +239,8 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
     var words = parseFloat(css.getPropertyValue("--pad-words")) || 0;
     // The words margin, one rule for every surface of glass (tokens.ts): words are never closer to its edge than --pad-pane (a tray's, --pad-tray),
     // whatever the surface pads itself. Only what has an edge of its own may sit closer, at the frame gap.
-    var marginPx = parseFloat(root.getPropertyValue(pane.matches(".tray") ? "--pad-tray" : "--pad-pane")) || 0;
+    // A compact material (a tray, a floating pane, a compact pane) keeps the compact margin, --pad-tray.
+    var marginPx = parseFloat(root.getPropertyValue(pane.matches(".tray, .floating-pane, .compact") ? "--pad-tray" : "--pad-pane")) || 0;
     // A pane that scrolls inside itself: its top and bottom are its content's, wherever it's scrolled to.
     var isScrolling = holder.scrollHeight > holder.clientHeight + 1, contentTop = holder.getBoundingClientRect().top - holder.scrollTop;
     var box = { left: p.left, right: p.right, top: isScrolling ? contentTop : p.top, bottom: isScrolling ? contentTop + holder.scrollHeight : p.bottom };

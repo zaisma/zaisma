@@ -1,7 +1,7 @@
 import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
 import { secondaryButton, textLink } from "./actions.ts";
-import { glassPane, groove, icon, tag } from "./foundations.ts";
+import { CUT_LINE, glassPane, groove, icon, tag } from "./foundations.ts";
 import type { IconName } from "./icons.ts";
 import { row, stack } from "./layout.ts";
 
@@ -77,7 +77,7 @@ export interface FoldedPartOptions {
  * in it. Pressing the title opens it in place; it works without a script (a details element).
  */
 export function foldedPart(options: FoldedPartOptions): Raw {
-  return html`<details class="folded"${options.id ? html` id="${options.id}"` : ""}${options.isOpen ? raw(" open") : ""}><summary class="folded-head"><span class="folded-chevron" aria-hidden="true">${icon("chevron-right")}</span><span>${options.title}</span>${options.entryCount !== undefined ? tag(options.entryCount, "count") : ""}</summary><div class="folded-body">${options.body}</div></details>`;
+  return html`<details class="folded"${options.id ? html` id="${options.id}"` : ""}${options.isOpen ? raw(" open") : ""}><summary class="folded-head flush-row quiet" data-cut-line="8">${CUT_LINE}<span class="folded-chevron" aria-hidden="true">${icon("chevron-right")}</span><span>${options.title}</span>${options.entryCount !== undefined ? tag(options.entryCount, "count") : ""}</summary><div class="folded-body">${options.body}</div></details>`;
 }
 
 export interface FoldRow {
@@ -101,8 +101,8 @@ export interface FoldRowsOptions {
  * hairlines between. A row is a details element, so it opens without a script; a link to its anchor opens it too (FOLD_ROWS_SCRIPT).
  */
 export function foldRows(options: FoldRowsOptions): Raw {
-  return html`<div class="fold-rows"${options.label ? html` role="group" aria-label="${options.label}"` : ""}>${options.rows.map(
-    (foldRow) => html`<details class="fold-row" id="${foldRow.id}"><summary class="fold-row-head"><span class="fold-row-title">${foldRow.title}</span><span class="fold-row-detail">${foldRow.detail}</span><span class="fold-row-chevron" aria-hidden="true">${icon("chevron-right")}</span></summary><div class="fold-row-body">${foldRow.body}</div></details>`,
+  return html`<div class="fold-rows hairlines"${options.label ? html` role="group" aria-label="${options.label}"` : ""}>${options.rows.map(
+    (foldRow) => html`<details class="fold-row" id="${foldRow.id}"><summary class="fold-row-head flush-row quiet" data-cut-line="8">${CUT_LINE}<span class="fold-row-title">${foldRow.title}</span><span class="fold-row-detail">${foldRow.detail}</span><span class="fold-row-chevron" aria-hidden="true">${icon("chevron-right")}</span></summary><div class="fold-row-body words-margin">${foldRow.body}</div></details>`,
   )}</div>`;
 }
 
@@ -141,7 +141,7 @@ export function pager(options: PagerOptions): Raw {
 
 /** A divider with words: a hairline across a pane with a word or two in its middle, between two ways to do one thing (or). */
 export function dividerWords(words: string): Raw {
-  return html`<p class="divider-words"><span>${words}</span></p>`;
+  return html`<p class="divider-words words-margin"><span class="hairline"></span><span>${words}</span><span class="hairline"></span></p>`;
 }
 
 export interface ProgressOptions {
@@ -280,18 +280,15 @@ component({
    a block's gap below. The title keeps the pane's margin like words, and is a control's height to press. */
 .folded { min-width: 0; }
 /* It's words, keeping the pane's margin at its edges (layout.ts's edge words), and a control's height to press. */
-.folded-head { display: flex; align-items: center; gap: var(--gap-words-words); min-height: var(--control-height-regular); padding-inline: var(--pad-words); cursor: pointer; list-style: none;
-  font: var(--type-label); color: var(--ink-2); transition: color var(--motion-state); -webkit-tap-highlight-color: transparent; }
+.folded-head { padding-block: 0; list-style: none; font: var(--type-label); }
 .folded-head::-webkit-details-marker { display: none; }
 /* Pointed at, its words darken and its chevron steps on, the way a tertiary button's arrow does. */
-.folded-head:hover { color: var(--ink); }
 .folded-head:hover .folded-chevron { transform: translateX(2px); }
 .folded[open] > .folded-head:hover .folded-chevron { transform: rotate(90deg) translateX(2px); }
-.folded-head:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .folded-chevron { display: flex; color: var(--muted); transition: transform var(--motion-arrive) var(--spring); }
 .folded-chevron > .ico { width: 8px; height: 13px; }
 .folded[open] > .folded-head .folded-chevron { transform: rotate(90deg); }
-.folded-body { padding-top: var(--gap-block-block); }
+.folded-body { margin-top: var(--gap-block-block); }
 @media (prefers-reduced-motion: reduce) { .folded-chevron { transition: none; } }
 `,
   render: foldedPart,
@@ -311,9 +308,7 @@ component({
 /* Fold rows: one thing a row, hairlines between. The head is the title, its line beside it, and a chevron at the end that turns as it opens;
    on a narrow pane the line goes under the title. The head is words, keeping the pane's margin, and at least a control's height to press. */
 .fold-rows { display: grid; min-width: 0; container-type: inline-size; }
-.fold-row + .fold-row { border-top: var(--divider); }
-.fold-row-head { display: grid; grid-template-columns: minmax(0, 11rem) minmax(0, 1fr) auto; align-items: baseline; gap: var(--gap-words-words) var(--gap-words-control);
-  min-height: var(--control-height-regular); padding: var(--gap-words-control) var(--pad-words); cursor: pointer; list-style: none; -webkit-tap-highlight-color: transparent; }
+.fold-row-head { display: grid; grid-template-columns: minmax(0, 11rem) minmax(0, 1fr) auto; align-items: baseline; gap: var(--gap-words-words) var(--gap-words-control); list-style: none; }
 .fold-row-head::-webkit-details-marker { display: none; }
 .fold-row-title { font: var(--type-label); color: var(--ink); overflow-wrap: anywhere; }
 .fold-row-detail { font: var(--type-words); color: var(--ink-2); }
@@ -322,8 +317,7 @@ component({
 /* Pointed at, its title darkens and its chevron steps on, the way a folded part's does. */
 .fold-row-head:hover .fold-row-chevron { transform: translateX(2px); }
 .fold-row[open] > .fold-row-head .fold-row-chevron { transform: rotate(90deg); }
-.fold-row-head:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
-.fold-row-body { padding: 0 var(--pad-words) var(--gap-block-block); }
+.fold-row-body { margin-bottom: var(--gap-block-block); }
 /* At a pane's edge the first and last rows' words keep the pane's margin, as words do. */
 .fold-row:first-child > .fold-row-head { padding-top: var(--pad-words); }
 .fold-row:last-child:not([open]) > .fold-row-head { padding-bottom: var(--pad-words); }
@@ -373,8 +367,7 @@ component({
   summary: "A hairline across a pane with a word or two in its middle, between two ways to do one thing: or, between signing in with a password and with a passkey. Not between parts that aren't alternatives: the gap between them does that.",
   styles: `
 /* A divider with words: a hairline each side of its words, in facts. */
-.divider-words { display: flex; align-items: center; gap: var(--gap-words-words); margin: 0; padding-inline: var(--pad-words); font: var(--type-facts); color: var(--muted); }
-.divider-words::before, .divider-words::after { content: ""; flex: 1; border-top: var(--divider); }
+.divider-words { display: flex; align-items: center; gap: var(--gap-words-words); margin: 0; font: var(--type-facts); color: var(--muted); }
 `,
   render: dividerWords,
   examples: [{ label: "Between two ways in", isWide: true, markup: glassPane({ paneWidth: "full", body: dividerWords("or") }) }],
