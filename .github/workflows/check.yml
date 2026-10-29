@@ -379,8 +379,7 @@ jobs:
     needs: [changes, seed]
     if: ${{ !cancelled() && needs.changes.outputs.is_code_changed == 'true' && needs.changes.outputs.is_gallery_changed == 'true' && needs.changes.outputs.is_checked_in_queue != 'true' && (needs.seed.result == 'success' || needs.seed.result == 'skipped') }}
     runs-on: ubuntu-latest
-    # A share takes 10 to 15 minutes, so 20 leaves room for a slow runner.
-    timeout-minutes: 20
+    timeout-minutes: 15
     # A page per subgroup is more pages than one runner measures on every screen in time: they're dealt to three, by their time (layoutCheckShard).
     strategy:
       fail-fast: false
