@@ -81,7 +81,7 @@ export function primaryButton(label: string, options: PrimaryButtonOptions = {})
   const shell = classes("run-wrap", options.isFullWidth && "is-full", options.state);
   const hasTrailing = options.trailingText !== undefined;
   const ending = hasTrailing ? html`<span class="run-trailing">${options.trailingText}</span>` : options.icon ? "" : ARROW;
-  return controlMarkup(html`${opening(shell, options, options.isBusy, html`${disabledAttribute(options)}${options.isHidden ? raw(" hidden") : ""}`)}<span class="${options.isBig ? "face run big" : "face run"}${hasTrailing ? " has-trailing" : ""} cut-raised" data-cut-line="${options.isBig ? 14 : 12}">${CUT_LINE}${loader()}${options.icon ? icon(options.icon) : ""}${words}${ending}</span>${closing(options)}`, options.isBig ? "big" : "regular");
+  return controlMarkup(html`${opening(shell, options, options.isBusy, html`${disabledAttribute(options)}${options.isHidden ? raw(" hidden") : ""}`)}<span class="${options.isBig ? "face run slab lit big" : "face run slab lit"}${hasTrailing ? " has-trailing" : ""}" data-cut-line="${options.isBig ? 14 : 12}">${CUT_LINE}${loader()}${options.icon ? icon(options.icon) : ""}${words}${ending}</span>${closing(options)}`, options.isBig ? "big" : "regular");
 }
 
 export interface SecondaryButtonOptions extends ButtonTarget {
@@ -187,7 +187,7 @@ function secondaryButtonMarkup(label: string, options: SecondaryButtonOptions, i
   const words = !options.isLabelHidden ? html`<span>${label}</span>` : hasCount ? html`<span class="sr">${label}, </span>` : "";
   const reactionMarkup = hasCount ? html`<span class="cut-count">${countWords}</span>` : "";
   const cutLineNumber = options.isBig ? 13 : 10;
-  const front = isToggle ? html`<span class="toggle-front" aria-hidden="true"></span>` : "";
+  const front = isToggle ? html`<span class="toggle-front slab-front" aria-hidden="true"></span>` : "";
   return controlMarkup(html`${opening(className, options, options.isBusy, extra)}${front}<span class="face slab${options.isBig ? " big" : options.isSmall ? " compact" : ""}" data-cut-line="${cutLineNumber}">${CUT_LINE}${loader()}${options.wayIn ? html`<span class="way-mark">${WAY_MARKS[options.wayIn]}</span>` : options.icon ? icon(options.icon) : ""}${words}${reactionMarkup}</span>${closing(options)}`, options.isBig ? "big" : options.isSmall || options.isInWell ? "small" : "regular");
 }
 
@@ -262,7 +262,7 @@ export const RUNNER_SCRIPT = `/* runner */(function () {
       shell.classList.add("over"); shell.style.setProperty("--lift", "-1.5px");
       if (!face.classList.contains("glint")) face.classList.add("glint");
     });
-    face.addEventListener("animationend", function (event) { if (event.animationName === "run-glint") face.classList.remove("glint"); });
+    face.addEventListener("animationend", function (event) { if (event.animationName === "slab-glint") face.classList.remove("glint"); });
     shell.addEventListener("pointerleave", function () { shell.classList.remove("over"); ["--lift", "--rx", "--ry"].forEach(function (p) { shell.style.removeProperty(p); }); face.style.removeProperty("--refl"); });
     shell.addEventListener("pointermove", function (event) {
       var r = shell.getBoundingClientRect(), px = (event.clientX - r.left) / r.width - 0.5, py = (event.clientY - r.top) / r.height - 0.5;
@@ -285,7 +285,6 @@ const RUN_STYLES = `
 .run-wrap:focus-visible { outline: none; }
 /* Words longer than the room it has end in an ellipsis on one line, never spilling out of it or growing it past its height. */
 .run { min-width: 0; }
-.run > span:not([class]), .run > .label-idle, .run > .label-busy { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .run-wrap.is-full { display: flex; width: 100%; perspective: 700px; }
 /* Its warm glow on what's under it: it spreads as the slab lifts and gathers in as it's pressed. */
 /* It floats over the glass, and what it casts on it comes from its own shape (--run-cast): an orange glow round all its edges on smoked
@@ -302,33 +301,18 @@ const RUN_STYLES = `
 .run {
   --refl: 50%;
   --control-height: var(--control-height-regular);
-  position: relative; z-index: 1; overflow: hidden; height: var(--control-height); padding: 0 24px 0 22px;
-  display: flex; align-items: center; gap: 10px; white-space: nowrap;
-  color: var(--on-run); text-shadow: 0 1px 0 rgba(255,226,180,0.45);
-  font: 600 1rem var(--display); letter-spacing: 0.01em;
-  /* The face: lit from above, deepening toward its foot. */
-  background: radial-gradient(130% 110% at 50% -35%, rgba(255,255,255,0.3), rgba(255,255,255,0) 62%), linear-gradient(180deg, var(--run-hi), var(--run) 52%, #E57F0C);
-  clip-path: var(--cut-shape);
+  /* Its face is a lit slab (materials.ts): its look, room, edge light, reflection and glint are the slab's. It leans and lifts. */
+  z-index: 1; gap: 10px; justify-content: flex-start;
   transform: translateY(var(--lift, 0px)) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg));
   transition: transform var(--motion-glide) var(--ease-spring), --refl var(--motion-settle) var(--ease-glide), filter var(--motion-state);
 }
-/* Its edge light: bright where the light lands on its top and leading edges, its own orange's shade along its foot. */
-.run.cut-raised > .cut-line { --band-top: rgba(255,240,214,0.85); --band-left: rgba(255,226,180,0.55); --band-right: rgba(150,72,0,0.32); --band-bottom: rgba(130,60,0,0.55); }
 .is-full > .run { width: 100%; justify-content: center; }
 /* With words at its far end (a price): the label leads from the start and the words close it at the end, nothing between but the room. */
 .is-full > .run.has-trailing { justify-content: flex-start; }
 .run.has-trailing > :is(span:not([class]), .label-idle, .label-busy) { flex: 1 1 auto; text-align: start; }
 .run-trailing { flex: none; font-variant-numeric: tabular-nums; }
 .run-trailing:empty { display: none; }
-.run.big { --control-height: var(--control-height-big); justify-content: center; padding: 0 30px 0 26px; font-size: 1.1875rem; gap: 12px; }
-/* The reflection of a fixed light: a soft band that slides the opposite way to the pointer. */
-.run::before { content: ""; position: absolute; inset: 0; background: linear-gradient(105deg, rgba(255,255,255,0) calc(var(--refl) - 22%), rgba(255,255,255,0.2) var(--refl), rgba(255,255,255,0) calc(var(--refl) + 22%)); opacity: 0; transition: opacity var(--motion-settle); }
-.run-wrap.over .run::before, .run-wrap.is-pointed .run::before { opacity: 1; }
-/* The glint: one sweep as the pointer arrives, always finished. */
-.run::after { content: ""; position: absolute; top: -20%; bottom: -20%; width: 36%; left: -50%; background: linear-gradient(100deg, rgba(255,255,255,0), rgba(255,255,255,0.7), rgba(255,255,255,0)); transform: skewX(-20deg); pointer-events: none; }
-.run.glint::after { animation: run-glint var(--motion-glide) var(--ease-glide) both; }
-@keyframes run-glint { from { left: -50%; } to { left: 120%; } }
-.run > :not(.cut-line) { position: relative; z-index: 2; }
+.run.big { --control-height: var(--control-height-big); justify-content: center; font-size: 1.1875rem; gap: 12px; }
 .run .arrow, .run .play { display: inline-flex; flex: none; transition: transform var(--motion-settle) var(--ease-glide); }
 .run .arrow > .ico { width: 9px; height: 14px; stroke-width: 2.6; }
 .run-wrap.over .run .arrow, .run-wrap.is-pointed .run .arrow { transform: translateX(4px); }
@@ -350,13 +334,11 @@ const RUN_STYLES = `
    its cut and edge kept, its words quieter, and it answers no pointer: no glow, no lift, no glint. */
 .run-wrap:disabled:not([aria-busy="true"]) { cursor: default; pointer-events: none; }
 .run-wrap:disabled:not([aria-busy="true"]) { filter: none; }
-.run-wrap:disabled:not([aria-busy="true"]) > .run { background: var(--off-face); box-shadow: var(--well-shade); color: var(--muted); text-shadow: none; transform: none; }
-.run-wrap:disabled:not([aria-busy="true"]) > .run::before, .run-wrap:disabled:not([aria-busy="true"]) > .run::after { content: none; }
-.run-wrap:disabled:not([aria-busy="true"]) > .run > .cut-line { --band-top: var(--carve-top); --band-left: var(--carve-left); --band-right: var(--carve-right); --band-bottom: var(--carve-bottom); }
+.run-wrap:disabled:not([aria-busy="true"]) > .run { transform: none; }
 .run-wrap:disabled:not([aria-busy="true"]) > .run > .cut-line polygon { stroke: var(--carve-rim); stroke-width: 2; }
 /* On a phone it keeps the other buttons' heights: 44px, and big 48px (--control-height-big). */
-@media (max-width: 760px) { .run { padding: 0 20px 0 16px; font-size: 0.9375rem; } .run.big { font-size: 1.0625rem; } }
-@media (prefers-reduced-motion: reduce) { .run, .run .arrow, .run .play, .run-wrap::before { transition: none; } .run.glint::after { animation: none; } }
+@media (max-width: 760px) { .run { --slab-words: 18px; font-size: 0.9375rem; } .run.big { font-size: 1.0625rem; } }
+@media (prefers-reduced-motion: reduce) { .run, .run .arrow, .run .play, .run-wrap::before { transition: none; } }
 `;
 
 /** A full-width button's examples sit in a column this wide. */
@@ -380,7 +362,7 @@ const stateExamples = (render: (state?: ButtonState) => Raw, loopKind: "runner" 
 
 /** The red one: the runner's shape and edge light, in red, with no glint and no lean. Only a delete's confirm step has it (primaryButton's isDelete). */
 function dangerButton(label: string, options: PrimaryButtonOptions): Raw {
-  return html`${opening(classes("danger-wrap", options.state), { type: options.type ?? "submit" }, options.isBusy)}<span class="face danger cut-raised" data-cut-line="12">${CUT_LINE}${loader()}<span class="danger-words">${label}</span></span>${closing({})}`;
+  return html`${opening(classes("danger-wrap", options.state), { type: options.type ?? "submit" }, options.isBusy)}<span class="face slab danger" data-cut-line="12">${CUT_LINE}${loader()}<span class="danger-words one-line">${label}</span></span>${closing({})}`;
 }
 
 const DANGER_STYLES = `
@@ -388,23 +370,9 @@ const DANGER_STYLES = `
    A press carves it in where it is, its light turned round, never moving it. The shell stays still. */
 .danger-wrap { vertical-align: middle; max-width: 100%; }
 .danger-wrap:focus-visible { outline: none; }
-.danger { --control-height: var(--control-height-regular); position: relative; overflow: hidden; display: flex; flex: auto; align-items: center; justify-content: center; gap: 10px; min-width: 0; height: var(--control-height); padding: 0 24px;
-  color: #fff; text-shadow: 0 1px 1px rgba(90,10,0,0.35); font: 600 1rem var(--display); white-space: nowrap;
-  --face-color: var(--danger); background: radial-gradient(130% 110% at 50% -35%, rgba(255,255,255,0.24), rgba(255,255,255,0) 62%), linear-gradient(180deg, rgba(255,255,255,0.06), rgba(80,0,0,0.14)), var(--face-color);
-  clip-path: var(--cut-shape); transition: --face-color var(--motion-state), box-shadow var(--motion-state), transform var(--motion-arrive) var(--ease-spring); }
-.danger.cut-raised > .cut-line { --band-top: rgba(255,214,206,0.8); --band-left: rgba(255,196,186,0.5); --band-right: rgba(110,20,10,0.35); --band-bottom: rgba(96,14,4,0.55); }
-.danger > :not(.cut-line) { position: relative; z-index: 2; }
-/* A long name ("Delete Ashen Crown: The Long Night") ends in an ellipsis on one line; the sheet's sentence above says what goes in full. */
-.danger-words { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.danger-wrap:hover > .danger, .danger-wrap.is-pointed > .danger { --face-color: #E44A3B; }
-.danger-wrap:active > .danger, .danger-wrap.is-pressed > .danger { --face-color: var(--danger-lo); box-shadow: inset 0 2px 5px rgba(60,0,0,0.35); transition-duration: var(--motion-press); }
-.danger-wrap:active > .danger > .cut-line, .danger-wrap.is-pressed > .danger > .cut-line { --band-top: rgba(96,14,4,0.5); --band-left: rgba(110,20,10,0.35); --band-right: rgba(255,196,186,0.4); --band-bottom: rgba(255,214,206,0.6); }
-.danger-wrap:focus-visible > .danger > .cut-line polygon, .danger-wrap.is-focused > .danger > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
-.danger-wrap[aria-busy="true"] { cursor: progress; }
-.danger-wrap:not([aria-busy="true"]) .loader { display: none; }
+.danger { flex: auto; gap: 10px; }
 [data-glass] .control-row > .danger-wrap > .danger { width: 100%; }
-@media (max-width: 760px) { .danger { padding: 0 20px; font-size: 0.9375rem; } }
-@media (prefers-reduced-motion: reduce) { .danger { transition: --face-color var(--motion-state); } }
+@media (max-width: 760px) { .danger { --slab-words: 20px; font-size: 0.9375rem; } }
 `;
 
 component({
@@ -467,8 +435,6 @@ component({
 .cut-btn.is-full { display: flex; width: 100%; }
 /* Its face is a slab (materials.ts): its look, its room and its states are the slab's. */
 .cut-btn > .face { flex: auto; gap: 8px; }
-/* Words longer than the room it has end in an ellipsis on one line. */
-.cut-btn .face > span:not([class]) { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 /* A count (a post's likes): figures of one width, so it never shifts as it changes, a weight lighter than the words. */
 .cut-count { font-weight: 500; font-variant-numeric: tabular-nums; }
 /* Its words center in what shows of the button, as an icon alone does: one slanted end (beside another control in a row) loses half its
@@ -577,7 +543,7 @@ const TERTIARY_ARROW = html`<span class="tertiary-arrow" aria-hidden="true">${ic
 export function tertiaryButton(label: string, options: TertiaryButtonOptions = {}): ControlMarkup {
   const isIconOnly = Boolean(options.isLabelHidden && options.icon);
   const extra = html`${disabledAttribute(options)}${isIconOnly ? html` aria-label="${label}"` : ""}${options.controls ? html` aria-controls="${options.controls}"` : ""}`;
-  return controlMarkup(html`${opening(classes("tertiary-btn", isIconOnly && "icon-only", options.isSmall && "small", options.isFullWidth && "is-full", options.state), options, options.isBusy, extra)}<span class="face" data-cut-line="${options.isSmall ? 9 : 10}">${CUT_LINE}<span class="tertiary-words">${loader()}${options.icon ? icon(options.icon) : ""}${isIconOnly ? "" : html`<span class="tertiary-label">${label}</span>`}${options.hasArrow ? TERTIARY_ARROW : ""}</span>${isIconOnly || options.hasArrow ? "" : raw('<span class="tertiary-line" aria-hidden="true"></span>')}</span>${closing(options)}`, options.isSmall ? "small" : "regular");
+  return controlMarkup(html`${opening(classes("tertiary-btn", isIconOnly && "icon-only", options.isSmall && "small", options.isFullWidth && "is-full", options.state), options, options.isBusy, extra)}<span class="face flush-row" data-cut-line="${options.isSmall ? 9 : 10}">${CUT_LINE}<span class="tertiary-words">${loader()}${options.icon ? icon(options.icon) : ""}${isIconOnly ? "" : html`<span class="tertiary-label one-line">${label}</span>`}${options.hasArrow ? TERTIARY_ARROW : ""}</span>${isIconOnly || options.hasArrow ? "" : raw('<span class="tertiary-line light-fill across light-line light-glint" aria-hidden="true"></span>')}</span>${closing(options)}`, options.isSmall ? "small" : "regular");
 }
 
 component({
@@ -597,25 +563,18 @@ component({
 .tertiary-btn.small { --control-height: var(--control-height-small); }
 /* On a touch screen a small one still takes a finger, as a small secondary button does: its hit area reaches out to 44px, its look unchanged. */
 @media (pointer: coarse) { .tertiary-btn.small { position: relative; } .tertiary-btn.small::after { content: ""; position: absolute; inset: calc((var(--control-height) - var(--touch-target)) / 2); } }
-.tertiary-btn.icon-only > .face { width: var(--control-height); padding: 0; align-items: center; }
+.tertiary-btn.icon-only > .face { width: var(--control-height); padding-inline: 0; align-items: center; }
 .tertiary-btn.icon-only .ico { width: 18px; height: 18px; }
 .tertiary-btn:focus-visible { outline: none; }
-.tertiary-btn > .face { position: relative; display: flex; flex: auto; flex-direction: column; justify-content: center; min-width: 0; height: var(--control-height); padding: 0 var(--pad-inside-words);
-  font: var(--type-label); color: var(--ink-2); white-space: nowrap; --face-color: transparent; background-color: var(--face-color); clip-path: var(--cut-shape);
-  transition: --face-color var(--motion-state), color var(--motion-state), opacity var(--motion-state), transform var(--motion-arrive) var(--ease-spring); }
+.tertiary-btn > .face { flex: auto; flex-direction: column; justify-content: center; min-width: 0; font: var(--type-label); white-space: nowrap; }
 .tertiary-words { position: relative; z-index: 2; display: flex; align-items: center; justify-content: center; gap: var(--gap-words-words); min-width: 0; font: var(--type-label); }
 /* Words longer than the room it has end in an ellipsis on one line. */
-.tertiary-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 /* The line lies along the slab's foot, corner to corner, and the slab's own cut trims its ends, so it follows whatever shape the edge rule gives it. */
-.tertiary-line { position: absolute; z-index: 2; left: 0; right: 0; bottom: 0; display: block; height: 3px; overflow: hidden;
-  background: linear-gradient(90deg, #E9820C, var(--run) 40%, #FFB54D); transform: scaleX(0); transform-origin: right; transition: transform var(--motion-state) var(--ease-leave); }
-.tertiary-line::after { content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 38%; opacity: 0; background: linear-gradient(90deg, rgba(255,255,255,0), rgba(255,246,228,0.95) 70%, rgba(255,255,255,0)); }
-.tertiary-btn:hover > .face, .tertiary-btn.is-pointed > .face { color: var(--ink); --face-color: var(--wash); }
-.tertiary-btn:focus-visible > .face, .tertiary-btn.is-focused > .face { color: var(--ink); }
+.tertiary-line { position: absolute; z-index: 2; left: 0; right: 0; bottom: 0; transform: scaleX(0); transform-origin: right; transition: transform var(--motion-state) var(--ease-leave); }
+.tertiary-line::after { width: 38%; }
 .tertiary-btn:hover .tertiary-line, .tertiary-btn.is-pointed .tertiary-line { transform: scaleX(1); transform-origin: left; transition: transform var(--motion-arrive) var(--ease-glide); }
 .tertiary-btn:hover .tertiary-line::after, .tertiary-btn.is-pointed .tertiary-line::after { animation: tertiary-glint var(--motion-settle) var(--ease-glide) both; }
 @keyframes tertiary-glint { 0% { transform: translateX(-100%); opacity: 1; } 75% { opacity: 1; } 100% { transform: translateX(270%); opacity: 0; } }
-.tertiary-btn:active > .face, .tertiary-btn.is-pressed > .face { color: var(--ink); --face-color: var(--wash-press); transition-duration: var(--motion-press); }
 /* With an arrow: it follows the words and steps on as you point at it, further under a press, in the line's place. As wide as the column, the words in the middle. */
 .tertiary-btn.is-full { display: flex; width: 100%; }
 .tertiary-arrow { display: inline-flex; transition: transform var(--motion-glide) var(--ease-glide); }
@@ -623,8 +582,6 @@ component({
 .tertiary-btn:hover .tertiary-arrow, .tertiary-btn.is-pointed .tertiary-arrow { transform: translateX(4px); }
 .tertiary-btn:active .tertiary-arrow, .tertiary-btn.is-pressed .tertiary-arrow { transform: translateX(7px); transition-duration: var(--motion-state); }
 .tertiary-btn[aria-busy="true"] .tertiary-arrow { visibility: hidden; }
-/* Keyboard focus: the cut stroke round its slab, as on every other button. */
-.tertiary-btn:focus-visible .cut-line polygon, .tertiary-btn.is-focused .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 /* Can't press: its words fade further than at rest, and it answers no pointer. */
 .tertiary-btn:disabled:not([aria-busy="true"]) { cursor: default; pointer-events: none; }
 .tertiary-btn:disabled:not([aria-busy="true"]) > .face { color: var(--muted); opacity: 0.6; }
@@ -676,14 +633,12 @@ component({
 /* The front surface: what the top surface leaves showing as it rises, swept down to its footprint (TOGGLE_SCRIPT), in a box reaching up by
    the whole lift, joined to the face at every corner and along a slanted end, as a solid's sides are. It follows the face's height frame by
    frame and has no area while the face rests or sinks, so nothing of it ever shows through or past the face. */
-.toggle-front { position: absolute; top: calc(-1 * var(--toggle-lift)); right: 0; bottom: 0; left: 0; z-index: 0; clip-path: var(--front-shape);
-  background: linear-gradient(180deg, var(--run-hi), var(--run) 40%, var(--run-lo)); }
+.toggle-front { position: absolute; top: calc(-1 * var(--toggle-lift)); right: 0; bottom: 0; left: 0; z-index: 0; clip-path: var(--front-shape); }
 /* Off: the same slab as on, its bevels and all, resting level in the glass. It answers the pointer by brightening, never lifting; pressed,
    it carves in, and let go it rises (on). */
 .toggle-btn[aria-pressed="false"] > .face { color: var(--ink-2); }
 .toggle-btn[aria-pressed="false"]:hover > .face, .toggle-btn[aria-pressed="false"].is-pointed > .face { color: var(--ink); }
 .toggle-btn[aria-pressed="false"]:active, .toggle-btn[aria-pressed="false"].is-pressed { filter: none; }
-.toggle-btn[aria-pressed="false"]:active > .face, .toggle-btn[aria-pressed="false"].is-pressed > .face { box-shadow: var(--press-shade); --face-color: var(--btn-press); }
 .toggle-btn[aria-pressed="false"]:active > .face > .cut-line, .toggle-btn[aria-pressed="false"].is-pressed > .face > .cut-line { --band-top: var(--carve-top); --band-left: var(--carve-left); --band-right: var(--carve-right); --band-bottom: var(--carve-bottom); }
 /* On: risen over its front surface, the glass lit or shadowed below it. Turning on, the face is solid at once. */
 .toggle-btn[aria-pressed="true"] > .face { transition: color var(--motion-state), box-shadow var(--motion-state), --face-color 0s; }

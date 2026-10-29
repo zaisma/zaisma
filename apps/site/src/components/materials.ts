@@ -68,12 +68,18 @@ export const MATERIAL_STYLES = `
    screen a regular one's), its words the margin in (--pad-words: a pane's, a compact pane's), cut by the edge rule. Pointed at, it takes a
    faint wash of the words' own color; the current one is a slab; keyboard focus is the cut stroke. A quiet one (a fold's head) only darkens
    its words: it opens what's under it rather than taking you somewhere. A menu's choices, a fold's head and a list's rows are flush rows. */
-.flush-row { --control-height: var(--control-height-regular); position: relative; display: flex; align-items: center; gap: var(--gap-words-words); min-height: var(--control-height);
+.flush-row { position: relative; display: flex; align-items: center; gap: var(--gap-words-words); min-height: var(--row-height, var(--control-height-regular));
   padding: var(--gap-words-control) var(--pad-words); margin: 0; border: 0; font: var(--type-words); color: var(--ink-2); text-align: start; text-decoration: none; cursor: pointer;
   --face-color: transparent; background: var(--face-color); clip-path: var(--cut-shape); transition: --face-color var(--motion-state), color var(--motion-state); -webkit-tap-highlight-color: transparent; }
-.flush-row.compact { --control-height: var(--control-height-small); padding-block: 0; }
-@media (pointer: coarse) { .flush-row.compact { --control-height: var(--control-height-regular); } }
-.flush-row > :not(.cut-line) { position: relative; z-index: 2; }
+.flush-row.compact { --row-height: var(--control-height-small); padding-block: 0; }
+@media (pointer: coarse) { .flush-row.compact { --row-height: var(--control-height-regular); } }
+/* The face of a button (a tertiary button): its button's height, its words a field's inset in wherever it is, its states its button's. */
+.shell > .flush-row { --row-height: var(--control-height); padding: 0 var(--pad-inside-words); }
+:is(.shell:hover, .shell.is-pointed, .shell:focus-visible, .shell.is-focused) > .flush-row:not(.quiet) { --face-color: var(--wash); color: var(--ink); }
+:is(.shell:active, .shell.is-pressed) > .flush-row { --face-color: var(--wash-press); color: var(--ink); transition-duration: var(--motion-press); }
+:is(.shell:focus-visible, .shell.is-focused) > .flush-row > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
+/* What's in it sits over its face; zero specificity, so a part placed by its owner (a tertiary button's line) keeps its place. */
+.flush-row > :where(:not(.cut-line)) { position: relative; z-index: 2; }
 .flush-row:not(.quiet):is(:hover, .is-pointed, :focus-visible, .is-focused) { --face-color: var(--wash); color: var(--ink); }
 .flush-row.quiet:is(:hover, .is-pointed) { color: var(--ink); }
 .flush-row[aria-current="page"] { color: var(--ink); background: var(--slab-sheen), linear-gradient(var(--slab-wash), var(--slab-wash)), var(--slab-face); box-shadow: var(--slab-shade); }
@@ -142,7 +148,9 @@ span.hairline { flex: 1; border-top: var(--divider); }
 .slab .loader { position: relative; z-index: 2; }
 .slab.big { --slab-words: 28px; font-size: 1.0625rem; }
 .slab > .cut-line { --band-top: var(--raise-top); --band-left: var(--raise-left); --band-right: var(--raise-right); --band-bottom: var(--raise-bottom); }
-.slab > :not(.cut-line) { position: relative; z-index: 2; }
+.slab > :where(:not(.cut-line)) { position: relative; z-index: 2; }
+/* Its words end in an ellipsis on one line, never spilling out of it or growing it past its height. */
+.slab > :is(span:not([class]), .label-idle, .label-busy) { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .slab-holder { display: inline-flex; max-width: 100%; }
 :where(.shell, .slab-holder):has(> .slab) { filter: var(--slab-cast); transition: filter var(--motion-state); }
 :is(.shell:hover, .shell.is-pointed, .shell:focus-visible, .shell.is-focused) > .slab, .slab.is-pointed, .slab.is-focused { --face-color: var(--slab-face-pointed); }
@@ -161,7 +169,26 @@ span.hairline { flex: 1; border-top: var(--divider); }
 :where(.shell, .slab-holder):has(> .slab.lit) { filter: var(--run-cast); }
 :is(.shell:hover, .shell.is-pointed):has(> .slab.lit), .slab-holder:has(> .slab.lit.is-pointed) { filter: var(--run-cast-up); }
 :is(.shell:active, .shell.is-pressed):has(> .slab.lit), .slab-holder:has(> .slab.lit.is-pressed) { filter: var(--run-cast-down); }
-@media (prefers-reduced-motion: reduce) { .carving, .slab { transition: none; } }
+/* A lit slab's light: the reflection of the one light, a soft band sliding the opposite way to the pointer (--refl, RUNNER_SCRIPT), and one
+   glint sweeping it as the pointer arrives (glint). It can't be pressed: no light at all. */
+.slab.lit::before { content: ""; position: absolute; inset: 0; background: linear-gradient(105deg, transparent calc(var(--refl, 50%) - 22%), rgba(255,255,255,0.2) var(--refl, 50%), transparent calc(var(--refl, 50%) + 22%)); opacity: 0; transition: opacity var(--motion-settle); }
+:is(.shell.over, .shell.is-pointed) > .slab.lit::before { opacity: 1; }
+.slab.lit::after { content: ""; position: absolute; top: -20%; bottom: -20%; width: 36%; left: -50%; background: linear-gradient(100deg, transparent, var(--glint), transparent); transform: skewX(-20deg); pointer-events: none; }
+.slab.lit.glint::after { animation: slab-glint var(--motion-glide) var(--ease-glide) both; }
+@keyframes slab-glint { from { left: -50%; } to { left: 120%; } }
+:is(.shell:disabled:not([aria-busy="true"]), .shell[aria-disabled="true"]) > .slab.lit, .slab.lit.is-disabled { text-shadow: none; }
+:is(.shell:disabled:not([aria-busy="true"]), .shell[aria-disabled="true"]) > .slab.lit:is(::before, ::after) { content: none; }
+/* A lit slab's front: the orange face it shows below its top as it rises (a toggle on). */
+.slab-front { background: linear-gradient(180deg, var(--run-hi), var(--run) 40%, var(--run-lo)); }
+/* Danger: the one red slab, a delete's confirm step. It never glints or leans: it's the moment to stop and read. Pointed at it brightens;
+   pressed it sinks in, its light turned round. */
+.slab.danger { --face-color: var(--danger); background: radial-gradient(130% 110% at 50% -35%, rgba(255,255,255,0.24), transparent 62%), linear-gradient(180deg, rgba(255,255,255,0.06), rgba(80,0,0,0.14)), var(--face-color);
+  color: #fff; text-shadow: 0 1px 1px rgba(90,10,0,0.35); font-size: 1rem; }
+.slab.danger > .cut-line { --band-top: rgba(255,214,206,0.8); --band-left: rgba(255,196,186,0.5); --band-right: rgba(110,20,10,0.35); --band-bottom: rgba(96,14,4,0.55); }
+:is(.shell:hover, .shell.is-pointed) > .slab.danger { --face-color: #E44A3B; }
+:is(.shell:active, .shell.is-pressed) > .slab.danger { --face-color: var(--danger-lo); box-shadow: inset 0 2px 5px rgba(60,0,0,0.35); }
+:is(.shell:active, .shell.is-pressed) > .slab.danger > .cut-line { --band-top: rgba(96,14,4,0.5); --band-left: rgba(110,20,10,0.35); --band-right: rgba(255,196,186,0.4); --band-bottom: rgba(255,214,206,0.6); }
+@media (prefers-reduced-motion: reduce) { .carving, .slab { transition: none; } .slab.lit.glint::after { animation: none; } }
 `;
 
 /**

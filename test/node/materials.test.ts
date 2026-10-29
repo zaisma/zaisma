@@ -39,6 +39,15 @@ const NOT_MADE_OF_MATERIALS = new Map<string, string>([
   [".banner-icon | height", "the icon sits on the words' first line"],
   [".banner-in:not(.has-close) > .banner-words | padding-block-start", "narrow, with no Close, its words keep the margin at its top"],
   [".banner-in.has-close .banner-text::before | height", "narrow, its words make room for Close beside their first line"],
+  // A way in's own color, its brand's, mixed into its slab; and a mark that may be one color.
+  [".cut-btn[data-tint=\"plain\"] > .face | --way", "Google's plain white or black"],
+  [".cut-btn[data-tint=\"blue\"] > .face | --way", "a way in's own blue"],
+  [".cut-btn[data-tint=\"indigo\"] > .face | --way", "Discord's indigo"],
+  [".cut-btn[data-tint=\"black\"] > .face | --way", "a way in's own black"],
+  [".way-mark .one-color path | fill", "Discord's mark in its own color"],
+  // A card's brand mark, a picture of its own size.
+  [".card-row-mark > .card-brand | height", "a card brand's mark is 32 by 20"],
+  [".card-row-mark > .card-brand | background", "the mark fits its box"],
   // Named caps (materials.ts, Caps and scrolls).
   [".sheet:not(.in-place) .store-picture | max-height", "a store panel's picture is shorter on a short screen, so Buy keeps its room"],
   [".stripe-frame | height", "as tall as what Stripe draws in it, which its script says"],
@@ -66,6 +75,8 @@ function declarations() {
 function ownLookOf(property: string, value: string, selector: string): string | undefined {
   // A mask is how much of something shows, not a color: its black is only "all of it".
   if (/^(-webkit-)?mask(-image)?$/.test(property)) return undefined;
+  // A picture drawn into a box (a card brand's mark) is the picture's own, colors and all.
+  if (property === "background-image" && /^url\(/.test(value)) return undefined;
   if (RAW_COLOR.test(value)) return "a color of its own";
   if (property.startsWith("--")) return undefined;
   if (/^(transition|animation)(-[a-z]+)?$/.test(property) && OWN_TIMING.test(value)) return "a timing of its own";
