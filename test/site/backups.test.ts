@@ -333,7 +333,7 @@ describe("the privacy page", () => {
   it("names Backblaze, says the backup is in the United States and that deleted data leaves it within 30 days", async () => {
     const page = await (await SELF.fetch(`${SITE}/legal/privacy`)).text();
     expect(page).toContain("<strong>Backblaze</strong> keeps Zaisma's nightly backup, in the United States.");
-    expect(page).toContain("for up to 30 days after something is deleted, a copy of it may remain in the backup");
+    expect(page).toContain("For up to 30 days after something is deleted, a copy of it may remain in the backup");
     expect(page).toContain("Their copies in the backup are gone within 30 days.");
   });
 });
