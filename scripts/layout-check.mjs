@@ -87,7 +87,7 @@ export const DEFAULT_TAB_COUNT = Math.max(1, Math.min(4, availableParallelism() 
 // (layoutCheckShard), each page's share of the whole being about the same at every screen. A page that isn't here (under 10s) costs
 // UNLISTED_PAGE_COST_SEC.
 const PAGE_COSTS_SEC = {
-  "Gallery: layout": 54.9,
+  "Gallery: layout": 75.2,
   Screens: 43.8,
   Home: 16.7,
   "Buying, confirm with a PIN": 14.1,
@@ -100,6 +100,23 @@ const PAGE_COSTS_SEC = {
   "Buying, one press": 11.1,
   "Buying, a first card": 10.2,
   "Playing a game, asked to sign in": 10,
+  // The gallery's pages, on every screen (npm run layout:check -- --gallery, measured Oct 28, 2026 on a Mac, scaled to two runs): its
+  // three runners are dealt them by these too.
+  "Gallery: the sidebar over the page": 66.3,
+  "Gallery: panes layers": 46.3,
+  "Gallery: inputs fields": 45.7,
+  "Gallery: panes menus": 31.9,
+  "Gallery: navigation bars": 26.7,
+  "Gallery: inputs pickers": 26.4,
+  "Gallery: actions buttons": 21.0,
+  "Gallery: foundations look": 20.2,
+  "Gallery: panes buying": 17.1,
+  "Gallery: data pictures": 16.7,
+  "Gallery: panes cards": 14.9,
+  "Gallery: data lists": 14.5,
+  "Gallery: inputs choices": 12.9,
+  "Gallery: navigation scrolling": 11.7,
+  "Gallery: data numbers": 10.8,
 };
 const UNLISTED_PAGE_COST_SEC = 6;
 
@@ -471,7 +488,7 @@ async function main() {
   if (!pages.length) stop(`No page's path has ${only} in it.`, isJson);
   if (picturesFolder) mkdirSync(picturesFolder, { recursive: true });
   const startedMs = Date.now();
-  const { checkedCount, failures } = await checkPages({
+  const { checkedCount, failures, secondsByPage } = await checkPages({
     ...sites,
     pages,
     sizes,
@@ -482,7 +499,7 @@ async function main() {
     picturesFolder,
     onPage: (page, size, theme, found) => !isJson && console.log(`${found.length ? "FAIL" : "  ok"} ${page.name}${page.path.length < 40 ? ` (${page.path})` : ""} ${size.name} ${theme}${found.length ? `: ${found.length}` : ""}`),
   });
-  if (isJson) console.log(JSON.stringify({ checked_page_count: checkedCount, failures }, null, 2));
+  if (isJson) console.log(JSON.stringify({ checked_page_count: checkedCount, failures, seconds_by_page: secondsByPage }, null, 2));
   else {
     for (const failure of failures) console.log(`  ${failure.page} ${failure.size} ${failure.theme}: ${failure.check}: ${failure.element}: ${failure.said}`);
     if (picturesFolder) console.log(`Contact sheets: ${picturesFolder}`);
