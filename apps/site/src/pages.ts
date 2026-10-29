@@ -686,7 +686,7 @@ function termsBody(): Raw {
 <li>If Zaisma stops hosting games, it will give 90 days' notice and refund all unspent hosting credit.</li>
 </ul>
 <h2>Content rules and takedowns</h2>
-<p>Games, names and posts must comply with the ${textLink("content rules", "/legal/content-rules")}. A game that breaks them or the law may be held or removed. Every hold states the rule concerned, what was found and how to fix it.</p>
+<p>Games, names and posts must comply with the ${textLink("content rules", "/legal/content-rules")}. A game that breaks them or the law may be held, meaning it is hidden from players until a corrected version is published, or removed. Every hold or removal states the rule concerned, what was found and how to fix it.</p>
 <p>Copyright notices follow the ${textLink("copyright policy", "/legal/dmca")}. An account is closed after 3 copyright notices that stand within 12 months. Notices that a game falsely accuses a person of a crime follow the ${textLink("defamation policy", "/legal/defamation")}.</p>`,
       ),
       pane(
