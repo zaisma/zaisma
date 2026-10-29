@@ -33,6 +33,9 @@ export const PLAN_LIMITS: Record<PlanKind, PlanLimits> = {
 
 export const PRO_PRICE_CENTS_PER_MONTH = 1000;
 
+/** Zaisma Pro's first payment refunds on request within these days of it, and Pro ends then (docs/DECISIONS.md, "Zaisma Pro refunds"). */
+export const PRO_REFUND_LIMITS = { refundableDurationDays: 14 } as const;
+
 /** pro while pro_until_ms (the end of the period Stripe last said was paid) is in the future, else free. */
 export function planOf(owner: { pro_until_ms: number | null }, nowMs = Date.now()): PlanKind {
   return owner.pro_until_ms !== null && owner.pro_until_ms > nowMs ? "pro" : "free";

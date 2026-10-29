@@ -146,7 +146,7 @@ export async function creditRoute(env: Env, path: string, method: string, body: 
     const topUp = topUps.find((each) => each.id === body.top_up_id);
     if (!topUp) throw new ApiError("no_top_up", { message: `You have no top-up ${JSON.stringify(String(body.top_up_id ?? "").slice(0, 40))}.`, field: "top_up_id", fix: topUpFix });
     if (topUp.refundableCents <= 0 || !topUp.stripeObjectId) {
-      throw new ApiError("top_up_not_refundable", { message: topUp.unspentCents <= 0 ? "That top-up is spent or refunded already." : "That top-up is over 180 days old, so it doesn't refund.", field: "top_up_id", fix: topUpFix });
+      throw new ApiError("top_up_not_refundable", { message: topUp.unspentCents <= 0 ? "That top-up is spent or refunded already." : "That top-up is over 30 days old, so it doesn't refund.", field: "top_up_id", fix: topUpFix });
     }
     const refundedCents = await refundTopUp(env, ownerId, topUp.id, topUp.stripeObjectId, topUp.refundableCents);
     await logCallerEvent(env, caller, "credit_refunded");
@@ -219,6 +219,13 @@ async function refundTopUp(env: Env, ownerId: string, topUpId: string, paymentIn
     ]);
     throw error;
   }
+}
+
+/** Unspent credit past its 30 days, which deleting the account doesn't refund: the delete box names it first. */
+export async function creditKeptOnDeletionCents(env: Env, accountId: string, nowMs = Date.now()): Promise<number> {
+  const owner = await env.DB.prepare("SELECT id FROM owners WHERE account_id = ?").bind(accountId).first<{ id: string }>();
+  if (!owner) return 0;
+  return (await refundableTopUps(env.DB, owner.id, nowMs)).reduce((keptCents, topUp) => keptCents + topUp.unspentCents - topUp.refundableCents, 0);
 }
 
 /**

@@ -2,7 +2,7 @@ import { ApiError, CONTROLS, DEVICES, GENRES, MAXIMUM_GENRE_COUNT, FORUM_CATEGOR
 import { INTERNAL_ERROR, apiCall, authenticate, type Caller } from "./developer.ts";
 import type { Env } from "./env.ts";
 import { CHECKED_TEXT_EXTENSIONS, extensionOf } from "../../../packages/cli/check.mjs";
-import { ACCESS, ACTIVITY, PRO, PRO_CHANGED, PRO_CHECKOUT, CREDIT, CREDIT_CHANGED, TOP_UP_CHECKOUT, TOP_UP_REFUNDED, STRIPE_ACCOUNT, STRIPE_ACCOUNT_CHANGED, SPENDING_REQUEST, CONNECTION_LINK, GAME_CHECK_FIELDS, API_KEYS, DATABASE, DATABASE_EXPORT, DATABASE_IMPORT, DATABASE_RESTORED, ERASED_PLAYER, GAME, GAME_ALERTS, GAME_EXPORT, HISTORY, KEPT_ROOMS, KEPT_ROOM_DELETED, BACKGROUND, SHADER, SHADER_CHECK, LISTED_GAME, QR_CODE, STATEMENT_RESULT, IMAGE, LOGS, SAVE, SAVE_CHANGED, SAVE_COPY, SAVE_COPY_LIST, SAVE_LIST, INDEXEDDB_DATABASE, NEW_REPLY, NEW_TOPIC, NEXT, PLAYER_PROFILE, POST, POST_BOOKMARK, POST_RATING, REPORTS, SIGN_IN_APP, SECRET, STATS, TESTER, TOPIC_PAGE, TOPIC_WITH_POSTS, VERSION, WEBHOOK, WEBHOOK_DELIVERY, answerOrError, choice, countOf, idOf, list, nullable, object as answer, text, yes, GAME_ITEM, ITEMS, PURCHASE, PURCHASE_SETTINGS } from "./schemas.ts";
+import { ACCESS, ACTIVITY, PRO, PRO_CHANGED, PRO_CHECKOUT, PRO_REFUNDED, CREDIT, CREDIT_CHANGED, TOP_UP_CHECKOUT, TOP_UP_REFUNDED, STRIPE_ACCOUNT, STRIPE_ACCOUNT_CHANGED, SPENDING_REQUEST, CONNECTION_LINK, GAME_CHECK_FIELDS, API_KEYS, DATABASE, DATABASE_EXPORT, DATABASE_IMPORT, DATABASE_RESTORED, ERASED_PLAYER, GAME, GAME_ALERTS, GAME_EXPORT, HISTORY, KEPT_ROOMS, KEPT_ROOM_DELETED, BACKGROUND, SHADER, SHADER_CHECK, LISTED_GAME, QR_CODE, STATEMENT_RESULT, IMAGE, LOGS, SAVE, SAVE_CHANGED, SAVE_COPY, SAVE_COPY_LIST, SAVE_LIST, INDEXEDDB_DATABASE, NEW_REPLY, NEW_TOPIC, NEXT, PLAYER_PROFILE, POST, POST_BOOKMARK, POST_RATING, REPORTS, SIGN_IN_APP, SECRET, STATS, TESTER, TOPIC_PAGE, TOPIC_WITH_POSTS, VERSION, WEBHOOK, WEBHOOK_DELIVERY, answerOrError, choice, countOf, idOf, list, nullable, object as answer, text, yes, GAME_ITEM, ITEMS, PURCHASE, PURCHASE_SETTINGS } from "./schemas.ts";
 
 /**
  * The developer MCP at /mcp: every tool is a call to the developer API, so the MCP, the upload command
@@ -743,7 +743,7 @@ export const TOOLS: Tool[] = [
     name: "get_credit",
     title: "My hosting credit",
     description:
-      "The developer's hosting credit: the balance (in cents, never in dollars), whether it's low (is_credit_low: under 20% of what there was after the last top-up), automatic top-up, the last 180 days' top-ups with what each still refunds, each game's budget and what credit paid for it this month, and the last 90 days' entries. Every game gets free hosting each month on one meter (get_stats' hosting_use_this_month, a percentage); past it, only a game with a budget (update_game, monthly_budget_cents) draws from credit, never past its budget. Credit never expires and is never paid out.",
+      "The developer's hosting credit: the balance (in cents, never in dollars), whether it's low (is_credit_low: under 20% of what there was after the last top-up), automatic top-up, the last 30 days' top-ups with what each still refunds, each game's budget and what credit paid for it this month, and the last 90 days' entries. Every game gets free hosting each month on one meter (get_stats' hosting_use_this_month, a percentage); past it, only a game with a budget (update_game, monthly_budget_cents) draws from credit, never past its budget. Credit never expires and is never paid out.",
     inputSchema: object({}),
     outputSchema: CREDIT,
     annotations: read,
@@ -815,7 +815,7 @@ export const TOOLS: Tool[] = [
     name: "get_pro",
     title: "My plan",
     description:
-      "The developer's plan: free, or Zaisma Pro ($10 a month on their card, apart from credit). Pro raises the daily limits: 20 large and 100 small AI reviews a day (free 5 and 30), 60 performance checks (20), 100 versions a game (20), and games up to 10 GB (2 GB). Answers both plans' limits, what today used, and when Pro ends or renews (pro_ends_at) and whether it is cancelled. Seats come with Teams and custom domains with Custom game domains, not Pro.",
+      "The developer's plan: free, or Zaisma Pro ($10 a month on their card, apart from credit). Pro raises the daily limits: 20 large and 100 small AI reviews a day (free 5 and 30), 60 performance checks (20), 100 versions a game (20), and games up to 10 GB (2 GB). Answers both plans' limits, what today used, when Pro ends or renews (pro_ends_at), whether it is cancelled, and until when its first payment refunds (refund_ends_at, refund_pro). Seats come with Teams and custom domains with Custom game domains, not Pro.",
     inputSchema: object({}),
     outputSchema: PRO,
     annotations: read,
@@ -849,9 +849,18 @@ export const TOOLS: Tool[] = [
     run: (_, call) => call("POST", "/pro/resume"),
   },
   {
+    name: "refund_pro",
+    title: "Refund Zaisma Pro",
+    description: "Refund the first Zaisma Pro payment, within 14 days of it; Pro ends now and the free limits come back. Only the account's first payment refunds, while it's the only one (get_pro's refund_ends_at says until when); after that, cancel_pro ends Pro at the end of the paid month, with no part-month refunds. Answers pro_not_refundable otherwise. Ask the developer first.",
+    inputSchema: object({}),
+    outputSchema: PRO_REFUNDED,
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+    run: (_, call) => call("POST", "/pro/refund"),
+  },
+  {
     name: "refund_top_up",
     title: "Refund a top-up",
-    description: "Give back what's unspent of one top-up to the card it came from, within 180 days of it. Credit is spent oldest first, so the newest top-ups hold the balance. get_credit lists each top-up's refundable_cents. Ask the developer first: it takes that credit away.",
+    description: "Give back what's unspent of one top-up to the card it came from, within 30 days of it. Credit is spent oldest first, so the newest top-ups hold the balance. get_credit lists each top-up's refundable_cents. Ask the developer first: it takes that credit away.",
     inputSchema: object({ top_up_id: { type: "string", pattern: "^top_up_[a-z0-9]+$", description: "A top-up's id from get_credit, like top_up_k2m9x4…" } }, ["top_up_id"]),
     outputSchema: TOP_UP_REFUNDED,
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },

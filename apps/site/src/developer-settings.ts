@@ -1,4 +1,4 @@
-import { ApiError, CREDIT_LIMITS, PRO_PRICE_CENTS_PER_MONTH, accountById, gameBySlug, hostingUseThisMonth, gameHostingMonth, apiKeysFor, createApiKey, checkKeyScope, revokeApiKey, passkeysFor, liveApiKeyCount, MAXIMUM_API_KEY_COUNT, ACCESS_AREAS, ACCESS_LEVELS, AREA_ACCESS_CHOICES, WEBHOOK_EVENT_KINDS, type Account, type ApiKey, type Game } from "@zaisma/core";
+import { ApiError, CREDIT_LIMITS, PRO_PRICE_CENTS_PER_MONTH, PRO_REFUND_LIMITS, accountById, gameBySlug, hostingUseThisMonth, gameHostingMonth, apiKeysFor, createApiKey, checkKeyScope, revokeApiKey, passkeysFor, liveApiKeyCount, MAXIMUM_API_KEY_COUNT, ACCESS_AREAS, ACCESS_LEVELS, AREA_ACCESS_CHOICES, WEBHOOK_EVENT_KINDS, type Account, type ApiKey, type Game } from "@zaisma/core";
 import { currentSession } from "./auth.ts";
 import { AREA_LABELS, CHOICE_LABELS, LEVEL_LABELS, keyMakingState, keyScopeFromForm, keyScopeText, keyStandingText, passkeyTapFromForm } from "./account.ts";
 import { apiCall, callerFor, hostingUseJson, type Caller } from "./developer.ts";
@@ -51,6 +51,7 @@ const DONE_WORDS: Record<string, string> = {
   declined: "Declined. Nothing changed.",
   cancelled: "Zaisma Pro will end at the end of the paid month.",
   resumed: "Zaisma Pro will renew as before.",
+  "pro-refunded": "Refunded to your card. Zaisma Pro has ended.",
   tax: "Stripe Tax saved.",
   disconnected: "Stripe is disconnected. Players can't buy until you connect again.",
   webhook: "Webhook saved.",
@@ -159,6 +160,7 @@ interface ProJson {
   plan: "free" | "pro";
   pro_ends_at: string | null;
   is_pro_cancelled: boolean;
+  refund_ends_at: string | null;
   limits: Record<"free" | "pro", Record<string, number>>;
   used_today: Record<string, number>;
 }
@@ -287,6 +289,7 @@ function hostingPane(settings: Settings): LayoutItem {
           items: [
             { kind: "block", markup: choiceCards({ id: "top-up-amount", name: "amount_cents", label: "How much", choices: [1000, 2500, 5000, 10000].map((cents) => ({ label: dollars(cents), choiceValue: String(cents) })).concat([{ label: "Other", choiceValue: "other" }]) }) },
             { kind: "control", markup: cutField({ id: "top-up-other", name: "other_dollars", label: "If other, in dollars", type: "text", icon: "card", inputMode: "numeric", hint: `${dollars(CREDIT_LIMITS.minimumTopUpCents)} to ${dollars(CREDIT_LIMITS.maximumTopUpCents)}. You pay on Stripe's page.` }) },
+            words(html`<p>Unused credit refunds to your card for ${CREDIT_LIMITS.refundableDurationDays} days. ${textLink("Terms", "/legal/terms")}</p>`),
           ],
         }),
         buttons: [secondaryButton("Cancel", { type: "submit", formMethod: "dialog" }), primaryButton("Pay on Stripe", { type: "submit" })],
@@ -428,6 +431,16 @@ function proPane(settings: Settings): LayoutItem {
   const items: LayoutItem[] = [
     block(numbers({ items: [{ label: isPro ? (pro.is_pro_cancelled ? `Your plan, until ${shownDate(pro.pro_ends_at)}` : `Your plan, renews ${shownDate(pro.pro_ends_at)}`) : "Your plan", figure: isPro ? "Pro" : "Free" }] })),
     words(isPro ? (pro.is_pro_cancelled ? `You have Zaisma Pro until ${shownDate(pro.pro_ends_at)}. It won't renew.` : `You have Zaisma Pro. It renews ${shownDate(pro.pro_ends_at)}.`) : `Zaisma Pro raises your daily limits for ${dollars(PRO_PRICE_CENTS_PER_MONTH)} a month on your card. It's separate from hosting credit.`),
+    ...(isPro ? [] : [words(`Cancel any time. Your first payment refunds within ${PRO_REFUND_LIMITS.refundableDurationDays} days.`)]),
+    ...(isPro && pro.refund_ends_at
+      ? [
+          block(listRows({ whenEmpty: emptyState({ title: "Nothing to refund", text: "Your first payment's refund shows here." }),
+            label: "Refund",
+            rows: [{ title: "Your first payment", detail: `Refunds until ${shownDate(pro.refund_ends_at)}`, action: opens("Refund", "pro-refund") }],
+          })),
+          layer(askSheet("pro-refund", `Refund ${dollars(PRO_PRICE_CENTS_PER_MONTH)}?`, "Pro ends now, and it goes back to the card you paid with.", `${PAGE}/pro/refund`, "Refund")),
+        ]
+      : []),
     block(
       table({ whenEmpty: emptyState({ title: "No limits", text: "Your daily limits show here." }),
         caption: "Daily limits",
@@ -1035,6 +1048,10 @@ export async function handleDeveloperSettings(request: Request, env: Env, path: 
     if (sub === "pro/checkout") {
       const made = (await call("POST", "/pro/checkout")) as { checkout_url: string };
       return redirect(made.checkout_url, session.cookies);
+    }
+    if (sub === "pro/refund") {
+      await call("POST", "/pro/refund");
+      return back("pro-refunded", "pro");
     }
     if (sub === "pro/cancel" || sub === "pro/resume") {
       await call("POST", `/pro/${sub.slice(4)}`);

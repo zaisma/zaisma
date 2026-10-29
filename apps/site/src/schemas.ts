@@ -627,10 +627,10 @@ export const CREDIT = object({
         id: idOf("top_up"),
         amount_cents: countOf(),
         refundable_cents: countOf("What refund_top_up gives back now: the unspent part (credit is spent oldest first), until refund_ends_at."),
-        refund_ends_at: nullable(isoTime("180 days after the top-up.")),
+        refund_ends_at: nullable(isoTime("30 days after the top-up.")),
         created_at: isoTime(),
       }),
-      "The last 180 days' top-ups, newest first.",
+      "The last 30 days' top-ups, newest first.",
     ),
     games: list(object({ slug: text(), title: text(), monthly_budget_cents: nullable(countOf()), spent_from_credit_this_month_cents: countOf(), last_month_beyond_free_cents: countOf("What last month's use past the free allowance would have cost at today's prices; 0 when it stayed inside the free allowance.") }), "Games with a budget, spending this month, or use past the free allowance last month."),
     entries: list(
@@ -676,6 +676,7 @@ export const PRO = object({
     plan: PLAN_CHOICES,
     pro_ends_at: nullable(isoTime("When Zaisma Pro ends or renews: the end of the paid month. null on the free plan.")),
     is_pro_cancelled: yes("Whether Pro ends at pro_ends_at instead of renewing (cancel_pro did it; resume_pro takes it back)."),
+    refund_ends_at: nullable(isoTime("Until when refund_pro refunds the first payment: 14 days after it, while it's the only one. null after that, on the free plan, or when Stripe didn't answer within 3 seconds.")),
     monthly_price_cents: countOf("What Zaisma Pro costs a month on the developer's card, in cents (1000 is $10). Apart from hosting credit."),
     limits: object({ free: PLAN_LIMITS_SCHEMA, pro: PLAN_LIMITS_SCHEMA }),
     used_today: object({
@@ -687,6 +688,11 @@ export const PRO = object({
 });
 /** The plan after cancel_pro or resume_pro. */
 export const PRO_CHANGED = object({ ...(PRO.properties as Record<string, Schema>), next_steps: NEXT });
+/** A refund of Zaisma Pro's first payment (refund_pro). */
+export const PRO_REFUNDED = object({
+  refunded_cents: countOf("What goes back to the card it came from."),
+  next_steps: NEXT,
+});
 /** Stripe's page for starting Zaisma Pro (start_pro). */
 export const PRO_CHECKOUT = object({
   checkout_url: url("Stripe's page where the developer pays. Only a person can pay there."),

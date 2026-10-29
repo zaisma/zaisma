@@ -708,6 +708,7 @@ export const API_ROUTES: readonly ApiRoute[] = [
   call({ method: "POST", path: "/pro/checkout", reaches: "account", access: needs("credit_access", "write"), isAccountWide: true }),
   call({ method: "POST", path: "/pro/cancel", reaches: "account", access: needs("credit_access", "write"), isAccountWide: true }),
   call({ method: "POST", path: "/pro/resume", reaches: "account", access: needs("credit_access", "write"), isAccountWide: true }),
+  call({ method: "POST", path: "/pro/refund", reaches: "account", access: needs("credit_access", "write"), isAccountWide: true }),
   call({ method: "POST", path: "/credit/refunds", reaches: "account", access: needs("credit_access", "write"), isAccountWide: true, body: { inputs: plainInputs("top_up_id") } }),
   call({ method: "PATCH", path: "/credit/automatic-top-up", reaches: "account", access: needs("credit_access", "write"), isAccountWide: true, body: { inputs: plainInputs("is_enabled", "top_up_below_cents", "top_up_amount_cents", "monthly_top_up_limit_cents") } }),
   call({ method: "GET", path: "/stripe-account", reaches: "account", access: needs("stripe_account_access", "read"), isAccountWide: true }),
