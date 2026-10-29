@@ -45,7 +45,9 @@ const OWN_WORKERS_WORKER_COUNT = 2;
  */
 export function splitTestFiles(testFiles, changedPaths, { isWorkersRunGoing = false } = {}) {
   const changed = new Set(changedPaths);
-  const here = testFiles.filter((path) => NODE_TEST_FILE.test(path) || (!isWorkersRunGoing && changed.has(path)));
+  // The Layout check's own tests measure every page: GitHub's, never a laptop's (the change's pages are measured here instead, below).
+  const isWholeLayout = (path) => path.startsWith("test/layout/");
+  const here = testFiles.filter((path) => !isWholeLayout(path) && (NODE_TEST_FILE.test(path) || (!isWorkersRunGoing && changed.has(path))));
   return { here, leftToGithub: testFiles.filter((path) => !here.includes(path)) };
 }
 
@@ -79,10 +81,17 @@ export function parseTypecheck(output) {
     .map(([, file, line, message]) => ({ file, line: Number(line), message }));
 }
 
-/** The layout-check pages (their paths) that changed files name: apps/site/src/browse.ts is the page /browse. Only where the file's name is a page's path. */
-export function pagesForChangedFiles(changedPaths, pagePaths) {
+/**
+ * The layout-check pages (their paths) that changed files name: apps/site/src/browse.ts is the page /browse, only where the file's name is a
+ * page's path. A changed component file names the gallery pages that show its components (each component({ group, subgroup }) in it is
+ * /design/<group>/<subgroup>, or /design/<group> for a group of one page): sourceOf(path) reads a changed file's text.
+ */
+export function pagesForChangedFiles(changedPaths, pagePaths, sourceOf = () => "") {
   const names = changedPaths.filter((path) => /^apps\/site\/src\/.+\.ts$/.test(path)).map((path) => path.replace(/^.*\//, "").replace(/\.ts$/, ""));
-  return [...new Set(pagePaths.filter((pagePath) => pagePath !== "/" && names.some((name) => pagePath.split("/").includes(name))))];
+  const named = pagePaths.filter((pagePath) => pagePath !== "/" && names.some((name) => pagePath.split("/").includes(name)));
+  const galleryPaths = changedPaths.filter((path) => /^apps\/site\/src\/components\/.+\.ts$/.test(path)).flatMap((path) =>
+    [...sourceOf(path).matchAll(/component\(\{[^}]*?group:\s*"([a-z-]+)"(?:,\s*subgroup:\s*"([a-z-]+)")?/g)].map(([, group, subgroup]) => (subgroup ? `/design/${group}/${subgroup}` : `/design/${group}`)));
+  return [...new Set([...named, ...galleryPaths.filter((galleryPath) => pagePaths.includes(galleryPath))])];
 }
 
 /** The text a run prints: PASS or FAIL with each failure, ending on that word. */
@@ -263,7 +272,7 @@ async function checkLayout(changedPaths, affected, notes) {
     notes.push("The change reaches the Layout check, but this checkout's preview isn't awake: npm run preview:start, then npm run layout:check -- --only <path>.");
     return [];
   }
-  const pagePaths = pagesForChangedFiles(changedPaths, layoutPagePaths());
+  const pagePaths = pagesForChangedFiles(changedPaths, layoutPagePaths(), (path) => { try { return readFileSync(join(ROOT, path), "utf8"); } catch { return ""; } });
   if (!pagePaths.length) {
     notes.push(`The change reaches the Layout check (${affected.layout_check_reached_by}) but names no page: npm run layout:check -- --only <path> for the pages you changed.`);
     return [];

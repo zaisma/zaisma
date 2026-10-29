@@ -41,6 +41,10 @@ describe("pagesForChangedFiles", () => {
     expect(pagesForChangedFiles(["apps/site/src/browse.ts", "README.md"], ["/", "/browse", "/signin"])).toEqual(["/browse"]);
     expect(pagesForChangedFiles(["docs/NAMING.md"], ["/browse"])).toEqual([]);
   });
+  it("maps a changed component file to the gallery pages that show its components", () => {
+    const source = 'component({ name: "QR code", slug: "qr-code", group: "data", subgroup: "pictures", summary: "" }); component({ name: "Thing", slug: "thing", group: "layout", summary: "" });';
+    expect(pagesForChangedFiles(["apps/site/src/components/qr-code.ts"], ["/design/data/pictures", "/design/layout", "/design/inputs/fields"], () => source)).toEqual(["/design/data/pictures", "/design/layout"]);
+  });
 });
 
 describe("splitTestFiles", () => {
@@ -48,6 +52,9 @@ describe("splitTestFiles", () => {
   const changed = ["apps/site/src/x.ts", "test/site/own.test.ts", "test/node/a.test.ts"];
   it("runs the Node files and the change's own Workers files here, and leaves the other Workers files to GitHub", () => {
     expect(splitTestFiles(reached, changed)).toEqual({ here: ["test/node/a.test.ts", "test/contracts/b.test.ts", "test/site/own.test.ts"], leftToGithub: ["test/site/other.test.ts", "test/rooms/rooms.test.ts"] });
+  });
+  it("leaves the Layout check's own tests, which measure every page, to GitHub", () => {
+    expect(splitTestFiles(["test/layout/layout-check.test.ts", "test/node/a.test.ts"], ["test/layout/layout-check.test.ts"])).toEqual({ here: ["test/node/a.test.ts"], leftToGithub: ["test/layout/layout-check.test.ts"] });
   });
   it("leaves its own Workers files to GitHub too while another Workers run is going on this machine", () => {
     expect(splitTestFiles(reached, changed, { isWorkersRunGoing: true }).leftToGithub).toEqual(["test/site/own.test.ts", "test/site/other.test.ts", "test/rooms/rooms.test.ts"]);

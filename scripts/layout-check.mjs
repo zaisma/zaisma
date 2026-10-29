@@ -80,7 +80,8 @@ export const LAYOUT_CHECK_RUNS = {
 /** Pages open at once, each in its own window (tabs that share one aren't drawn): one fewer than the cores, so the preview keeps one. */
 /** How long one page at one size and theme may take, loading and settling included, before it fails. */
 const RUN_TIME_LIMIT_MS = 90_000;
-export const DEFAULT_TAB_COUNT = Math.max(1, Math.min(4, availableParallelism() - 1));
+// On GitHub's runners four; on a laptop two, so a local run stays cool (Julius, Oct 29, 2026).
+export const DEFAULT_TAB_COUNT = Math.max(1, Math.min(process.env.CI ? 4 : 2, availableParallelism() - 1));
 
 // Each page's time in a tab on GitHub's runners, in seconds, from a pull request's run (a phone and a laptop, in light; measured Oct 26,
 // 2026: the Layout check job prints it as secondsByPage), by name: the nightly sweep deals the pages to its four runners by it
@@ -144,17 +145,23 @@ const PLAIN_GLASS = `(() => {
   if (!document.querySelector("style[data-layout-check-plain]")) {
     const style = document.createElement("style");
     style.setAttribute("data-layout-check-plain", "");
-    style.textContent = "*, *::before, *::after { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }";
+    // And every gallery section laid out, whatever its script does after a resize (it skips the ones off screen again 150 ms after one).
+    style.textContent = "*, *::before, *::after { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; } .component-section { content-visibility: visible !important; }";
     document.head.append(style);
   }
   document.querySelectorAll("canvas").forEach((canvas) => canvas.setAttribute("data-backdrop-paused", ""));
   return true;
 })()`;
 
-/** A page's WebGL, gone: getContext answers null for "webgl" and "webgl2", as a browser without it does. */
-const NO_WEBGL = `(() => {
+/**
+ * What measuring doesn't draw, from before the page's scripts run: its WebGL is gone (getContext answers null for "webgl" and "webgl2",
+ * as a browser without it does), and every canvas is paused as it's added, so the backdrop never starts.
+ */
+const MEASURE_ONLY = `(() => {
   const getContext = HTMLCanvasElement.prototype.getContext;
   HTMLCanvasElement.prototype.getContext = function (kind, ...rest) { return /^webgl2?$/.test(kind) ? null : getContext.call(this, kind, ...rest); };
+  const pause = (node) => { if (node.nodeType !== 1) return; if (node.tagName === "CANVAS") node.setAttribute("data-backdrop-paused", ""); node.querySelectorAll?.("canvas").forEach((canvas) => canvas.setAttribute("data-backdrop-paused", "")); };
+  new MutationObserver((records) => records.forEach((record) => record.addedNodes.forEach(pause))).observe(document, { childList: true, subtree: true });
 })();`;
 
 /** Waits until the page has drawn: loaded, its fonts in, the gallery's skipped sections laid out, the edge rule's shapes drawn. */
@@ -163,8 +170,19 @@ const SETTLE = `(async () => {
   if (document.readyState !== "complete") await Promise.race([new Promise((done) => addEventListener("load", done, { once: true })), new Promise((done) => setTimeout(done, 15000))]);
   if (document.fonts) await document.fonts.ready;
   document.querySelectorAll(".component-section").forEach((section) => { section.style.contentVisibility = "visible"; });
-  for (let frame = 0; frame < 4; frame++) await new Promise((done) => requestAnimationFrame(done));
-  await new Promise((done) => setTimeout(done, 400));
+  // The edge rule draws on demand (zaismaWatch.drawAll) instead of waiting on the frames' ResizeObserver, a few times over so a part fits a
+  // holder drawn in the same pass; scripts that answer a change (a page's own MutationObservers) get a timer's turn between.
+  const turn = () => new Promise((done) => setTimeout(done, 0));
+  // What a page's scripts do on a frame (a sheet opened as it loads, a card placed) still gets two frames, cheap with nothing drawn.
+  if (window.zaismaWatch?.drawAll) for (let pass = 0; pass < 3; pass++) { await turn(); window.zaismaWatch.drawAll(); }
+  for (let frame = 0; frame < 2; frame++) await new Promise((done) => requestAnimationFrame(done));
+  // What's still moving in (a sheet's entrance), up to 400 ms: nothing to wait for when nothing moves.
+  const moving = document.getAnimations().filter((animation) => animation.effect?.getTiming().iterations !== Infinity && animation.playState === "running");
+  await Promise.race([Promise.all(moving.map((animation) => animation.finished.catch(() => {}))), new Promise((done) => setTimeout(done, 400))]);
+  window.zaismaWatch?.drawAll?.();
+  // Freshly loaded, a page's own timers (a sheet shown as it loads) get 400 ms; a screen switched in place, 50.
+  await new Promise((done) => setTimeout(done, window.__zaismaLayoutSettled ? 50 : 400));
+  window.__zaismaLayoutSettled = true;
   return true;
 })()`;
 
@@ -282,7 +300,7 @@ async function checkPage(chrome, contextId, url, looks, options) {
     await send("Page.enable");
     // Measuring needs no WebGL drawing: a page asks for a context and is told there's none (as on a machine without it), which skips the
     // seconds a first context and its shaders take with no graphics card. A run that takes pictures draws everything.
-    if (!options.pictureOf) await send("Page.addScriptToEvaluateOnNewDocument", { source: NO_WEBGL });
+    if (!options.pictureOf) await send("Page.addScriptToEvaluateOnNewDocument", { source: MEASURE_ONLY });
     await look(looks[0]);
     const loaded = () => new Promise((done) => {
       const off = chrome.listen(sessionId, (method) => method === "Page.loadEventFired" && (off(), done()));
@@ -409,8 +427,9 @@ export async function checkPages({ site, signInSite, pages = LAYOUT_CHECK_PAGES,
   const picturesByPage = new Map();
   const chrome = await openChrome(chromePath, "zaisma-layout-");
   const looks = sizes.flatMap((size) => themes.map((theme) => ({ size, theme })));
-  // A page is opened once for each size and theme; one that sends forms is opened once, its answer measured at each.
-  const runs = pages.flatMap((page) => (page.stepsToTake ? [{ page, looks }] : looks.map((one) => ({ page, looks: [one] }))));
+  // A page is opened once for each theme (the gallery takes it from its address) and measured at each size in place, the screen switched
+  // without a reload; one that sends forms is opened once, its answer measured at each size and theme.
+  const runs = pages.flatMap((page) => (page.stepsToTake ? [{ page, looks }] : themes.map((theme) => ({ page, looks: looks.filter((one) => one.theme === theme) }))));
   const foundByRun = [];
   const secondsByPage = {};
   try {

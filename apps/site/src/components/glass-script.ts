@@ -10,6 +10,8 @@
  *   A callback watching several elements runs once for the ones that changed together. batch(work), when given, wraps every callback of
  *   the same batch that is due together, so they can read the page once before any of them writes.
  * - resize(callback, batch) and scroll(callback): callback() on the window's resize, and on any scroll anywhere (captured, passive).
+ * - drawAll(): every size and resize callback, now, in their batches: what waits on a frame's ResizeObserver, done at once (the layout check
+ *   settles a page with it instead of waiting on frames).
  * - each(selector, callback): callback(element) once for every element matching the selector, those on the page now and any added later
  *   (a pane whose content is swapped in place), so a component's wiring reaches new content as a page load's would.
  * - scrollBoxes(): the boxes on the page that scroll up and down (overflow-y auto or scroll), in the page's order, found once. Only what the
@@ -75,6 +77,11 @@ export const WATCH_SCRIPT = `/* watch */(function () {
       entries.push({ callback: callback, batch: batch });
     },
     resize: function (callback, batch) { watchWindow("resize", resizeCallbacks, callback, batch); },
+    drawAll: function () {
+      var due = resizeCallbacks.slice();
+      sizeCallbacks.forEach(function (entries, element) { if (element.isConnected) entries.forEach(function (entry) { due.push(entry); }); });
+      runBatched(due);
+    },
     scroll: function (callback) { watchWindow("scroll", scrollCallbacks, callback); },
     scrollBoxes: function () {
       if (scrollBoxes) return scrollBoxes;
