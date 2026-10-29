@@ -24,7 +24,7 @@ export interface PlayingBarOptions {
 
 /** The bar beside a running game: Zaisma's mark (back to every game), the game's name, and the game's buttons. */
 export function playingBar(options: PlayingBarOptions): Raw {
-  return html`<div class="playing-bar glass${options.isShown ? " in-place" : ""}" data-glass data-glass-corners="0 0 0 0">${EDGE}${logo("mark")}<strong class="playing-title">${options.title}</strong><div class="playing-controls">${row({ widths: "fit", label: "The game's buttons", items: options.controls.map((control) => ({ kind: "control" as const, markup: control })) })}</div></div>`;
+  return html`<div class="playing-bar glass glass-bar at-screen-edge${options.isShown ? " in-place" : ""}" data-glass data-glass-corners="0 0 0 0">${EDGE}${logo("mark")}<strong class="playing-title one-line">${options.title}</strong><div class="playing-controls">${row({ widths: "fit", label: "The game's buttons", items: options.controls.map((control) => ({ kind: "control" as const, markup: control })) })}</div></div>`;
 }
 
 export interface PlayingCardOptions {
@@ -93,7 +93,7 @@ export interface ScreenshotOptions {
  * other corner, and every one between is square, wherever the row is scrolled to.
  */
 export const screenshot = (options: ScreenshotOptions): Raw =>
-  html`<button class="screenshot cut-carved" type="button" data-cut-line="0" aria-controls="${options.sheetId}" aria-label="${options.label}">${CUT_LINE}<span class="screenshot-picture" data-cut-line="0"><img src="${options.imageUrl}" alt="" loading="lazy" decoding="async"></span></button>`;
+  html`<button class="screenshot carving holds-art" type="button" data-cut-line="0" aria-controls="${options.sheetId}" aria-label="${options.label}">${CUT_LINE}<span class="screenshot-picture carving-art" data-cut-line="0"><img src="${options.imageUrl}" alt="" loading="lazy" decoding="async"></span></button>`;
 
 /** A game card's options: a game cover's, less what only a cover alone takes (its title is always shown; no list keeps one in focus). */
 export type GameCardOptions = Omit<GameCoverOptions, "isTitleShown" | "isCurrent">;
@@ -197,12 +197,12 @@ html.is-leaving body > main > :not(.playing-bar, .playing-card, .playing-check, 
 @media (prefers-reduced-motion: reduce) { html.is-leaving body > * { transition: none; } }
 
 /* The bar: one slim slab of glass above the game, Zaisma's mark at its start and the game's buttons at its end. */
-.playing-bar { display: none; position: relative; z-index: 2; flex: none; align-items: center; gap: var(--gap-control-row-boxes); padding: var(--pad-frame) var(--pad-inner-pane); padding-top: max(var(--pad-frame), env(safe-area-inset-top, 0)); --glass-tint: var(--glass-top); }
+.playing-bar { display: none; position: relative; z-index: 2; flex: none; align-items: center; gap: var(--gap-control-row-boxes); --glass-tint: var(--glass-top); }
 .playing-bar.in-place, html.is-playing .playing-bar { display: flex; }
 .playing-bar > :not(.edge) { position: relative; z-index: 1; }
 .playing-bar > .logo { flex: none; display: flex; align-items: center; height: var(--control-height-small); }
 .playing-bar > .logo svg { height: 100%; width: auto; }
-.playing-title { flex: 1; min-width: 0; font: var(--type-name); color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.playing-title { flex: 1; font: var(--type-name); color: var(--ink); }
 .playing-controls { flex: none; min-width: 0; }
 /* Phones: the buttons have the bar; the ⋯ menu names the game. They scroll sideways if there are more than fit, Zaisma's mark staying put. */
 @media (max-width: 640px) {
@@ -214,7 +214,7 @@ html.is-leaving body > main > :not(.playing-bar, .playing-card, .playing-check, 
 /* Landscape phones: the bar is a slim strip down the left edge, so the game keeps the screen's whole height. */
 @media (orientation: landscape) and (max-height: 500px) {
   html.is-playing body { flex-direction: row; }
-  .playing-bar { flex-direction: column; padding: var(--pad-frame); padding-left: max(var(--pad-frame), env(safe-area-inset-left, 0)); overflow-y: auto; scrollbar-width: none; }
+  .playing-bar { flex-direction: column; overflow-y: auto; scrollbar-width: none; }
   .playing-title { display: none; }
   /* One control wide, so the row wraps into a column, --gap-control-stack apart. */
   .playing-controls { margin-top: auto; width: var(--control-height-small); }
@@ -260,9 +260,9 @@ html.is-leaving body > main > :not(.playing-bar, .playing-card, .playing-check, 
 
 /* Screenshots: a carved well like a game card's, the picture filling it up to its rim (2px); pointed at, the picture comes a little closer.
    Large, it's whole, as big as the screen allows. */
-.screenshot { position: relative; display: block; width: 100%; aspect-ratio: 16 / 9; padding: 0; border: 0; overflow: hidden; background: var(--well); box-shadow: var(--well-shade); cursor: zoom-in; clip-path: var(--cut-shape); }
-.screenshot-picture { position: absolute; inset: 2px; display: block; overflow: hidden; clip-path: var(--cut-shape); }
-.screenshot img { position: absolute; inset: 0; display: block; width: 100%; height: 100%; object-fit: cover; transition: transform var(--motion-arrive) var(--ease-glide); }
+/* A carving that holds art (materials.ts), the screenshot its art. */
+.screenshot { display: block; width: 100%; aspect-ratio: 16 / 9; padding: 0; border: 0; cursor: zoom-in; }
+.screenshot img { transition: transform var(--motion-arrive) var(--ease-glide); }
 .screenshot:hover img { transform: scale(1.03); }
 .screenshot:focus-visible { outline: none; }
 .screenshot:focus-visible > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }

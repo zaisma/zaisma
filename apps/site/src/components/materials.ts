@@ -98,6 +98,8 @@ export const MATERIAL_STYLES = `
 .flush-row > :where(:not(.cut-line)) { position: relative; z-index: 2; }
 .flush-row:not(.quiet):is(:hover, .is-pointed, :focus-visible, .is-focused) { --face-color: var(--wash); color: var(--ink); }
 .flush-row.quiet:is(:hover, .is-pointed) { color: var(--ink); }
+/* Lit at its start (lights-start, a sidebar's place you're on): orange light inside the slab along its start edge, as a picked card's. */
+.flush-row.lights-start[aria-current="page"]::after { content: ""; position: absolute; z-index: 1; inset: 0 auto 0 0; width: 18px; pointer-events: none; background: linear-gradient(to right, var(--run) 0, var(--run) 2.5px, var(--run-flood) 3.5px, transparent 100%); clip-path: var(--cut-shape); }
 .flush-row:is([aria-current="page"], [aria-pressed="true"]) { color: var(--ink); background: var(--slab-sheen), linear-gradient(var(--slab-wash), var(--slab-wash)), var(--slab-face); box-shadow: var(--slab-shade); }
 .flush-row { --slab-wash: color-mix(in srgb, var(--glass-hue) var(--glass-hue-strength), transparent); }
 .flush-row:focus-visible { outline: none; }
@@ -132,6 +134,9 @@ span.hairline { flex: 1; border-top: var(--divider); }
    on every side, so its controls sit as far from its top and foot as from its ends; compact, the compact frame gap. */
 .glass-bar { padding: var(--pad-frame); --pad-words: var(--pad-inside-words); }
 .glass-bar.compact { padding: var(--pad-frame-compact); }
+/* A bar against the screen's own edge (the playing bar, over a game) keeps clear of a phone's notch at its top, or at its start when it
+   runs down the screen's side. */
+.glass-bar.at-screen-edge { padding-top: max(var(--pad-frame), env(safe-area-inset-top, 0px)); padding-left: max(var(--pad-frame), env(safe-area-inset-left, 0px)); }
 /* A compact pane keeps edged things at the compact frame gap and its words at the tray's margin. */
 .glass-pane.compact > .pane-in { padding: var(--pad-frame-compact); --pad-words: calc(var(--pad-tray) - var(--pad-frame-compact)); }
 
@@ -199,6 +204,8 @@ span.hairline { flex: 1; border-top: var(--divider); }
 .carving.holds-parts > .carving-words, .carving-parts { padding: var(--pad-frame-compact); --scroll-inset: var(--pad-frame-compact); }
 /* Its parts stop short of its rail when they scroll, as words do. */
 .carving.holds-parts > .carving-words.shows-rail { padding-inline-end: calc(var(--scroll-inset) + 16px); }
+/* Slabs side by side in it are a row of controls: their boxes overlap, so the edge rule slants them toward each other (a row's arrows). */
+.carving-parts > .cut-btn + .cut-btn { margin-inline-start: var(--gap-control-row-boxes); }
 /* A slab layer: a slab whose face is a layer of its own (a switch's sliding slab), cut to its shape under its bevel, so the slab itself
    isn't clipped and the shadow it casts shows. */
 .slab-layer { filter: var(--slab-cast); --slab-wash: color-mix(in srgb, var(--glass-hue) var(--glass-hue-strength), transparent); }

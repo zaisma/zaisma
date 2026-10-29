@@ -18,8 +18,8 @@ const OWN_LOOK = /^(background(-[a-z]+)?|box-shadow|-webkit-backdrop-filter|back
 const RESET = /^(none|0|0px|auto|visible|transparent|inherit|unset|initial|100%)$/;
 const RAW_COLOR = /#[0-9a-fA-F]{3,8}\b|\brgba?\(|\bhsla?\(/;
 const OWN_TIMING = /(?<![\w.-])(?!0s\b)\d*\.?\d+m?s\b|cubic-bezier\(|steps\(/;
-/** Pictures and icons are sized, not built: a picture's or an icon's own height is its size. */
-const PICTURE_OR_ICON = /(^|[\s>+~(])(img|svg|video|canvas|iframe|picture|\.ico)(\.[\w-]+|:[\w-]+(\([^)]*\))?)*\)?$/;
+/** Pictures, icons and Zaisma's logo are sized, not built: their own height is their size. */
+const PICTURE_OR_ICON = /(^|[\s>+~(])(img|svg|video|canvas|iframe|picture|\.ico|\.logo)(\.[\w-]+|:[\w-]+(\([^)]*\))?)*\)?$/;
 
 /**
  * The few that aren't made of the materials, each with its reason: "selector | property". A picture's own colors, a brand's marks, the
@@ -78,6 +78,18 @@ const NOT_MADE_OF_MATERIALS = new Map<string, string>([
   [".file-drop-preview::before | background", "the picked file's own picture, on the carving's face"],
   [".file-drop-view | max-height", "the picture at its own size, made smaller only where the screen is"],
   [".file-drop-row.is-sending | padding-bottom", "room at its foot for the groove that shows how much has gone"],
+  // The playing screen is the game's own: the page is the window's height, scrolls nothing, and is black behind the game.
+  ["html.is-playing body | height", "the playing screen is the window's height"],
+  ["html.is-playing body | overflow", "the playing screen scrolls nothing; the game has it all"],
+  ["html.is-playing body | background", "black behind the game, as a game's own screen"],
+  [".game-frame | background", "black behind the game while it loads, as a game's own screen"],
+  [".screenshot-large | max-height", "a screenshot at its own size, made smaller only where the screen is"],
+  // Where a page puts its foot and a sidebar's sheet: the page's own placing, not the pieces'.
+  [".foot | margin", "the footer sits a block's gap under the page, the page's margin above the window's foot"],
+  [".sheet.placement-start:not(.in-place) | height", "a sidebar's sheet is the screen's height less a gap at its top and foot"],
+  // The gallery's stand-in phone round a sidebar's sheet.
+  [".sidebar-example-phone | padding", "the stand-in phone's screen round the sheet"],
+  [".sidebar-example-phone | box-shadow", "the stand-in phone's screen is carved"],
   // A card's brand mark, a picture of its own size.
   [".card-row-mark > .card-brand | height", "a card brand's mark is 32 by 20"],
   [".card-row-mark > .card-brand | background", "the mark fits its box"],

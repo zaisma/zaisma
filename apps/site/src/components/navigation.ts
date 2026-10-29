@@ -275,11 +275,11 @@ const FOOTER_LINKS: [string, string][] = [
 ];
 
 export function footer(): Raw {
-  return html`<footer class="foot glass" data-glass data-glass-corners="header">${EDGE}
+  return html`<footer class="foot glass glass-bar" data-glass data-glass-corners="header">${EDGE}<div class="foot-in words-margin round">
   ${logo("mark")}
   <nav aria-label="More from Zaisma">${FOOTER_LINKS.map(([words, href]) => textLink(words, href, { isQuiet: true }))}</nav>
   <p>Zaisma is open source, under the MIT license.</p>
-</footer>`;
+</div></footer>`;
 }
 
 /**
@@ -818,20 +818,21 @@ component({
 /* The footer: a slab of the header's glass across the bottom of the page, where the page ends, never floating over it. Its words are all of
    it, so they keep a pane's margin from its edge. */
 .foot {
-  position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-block-block);
-  width: min(var(--size-page-wide), calc(100% - 2 * var(--pad-pane))); margin: var(--gap-block-block) auto var(--pad-pane); padding: var(--pad-pane);
+  position: relative; width: min(var(--size-page-wide), calc(100% - 2 * var(--pad-pane))); margin: var(--gap-block-block) auto var(--pad-pane);
   color: var(--muted); font: var(--type-note); --glass-tint: var(--glass-top);
   clip-path: ${cutPolygon("header")};
   transition: var(--glass-transition);
 }
 .foot > :not(.edge) { position: relative; z-index: 3; }
+/* A bar of glass (materials.ts), its words all of it, so they keep the words margin all round. */
+.foot-in { display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-block-block); }
 /* Quiet links in a row read as one sentence at a word's gap, so each sits a block's gap apart: a list of places, not a line of words. Each
    link is whole on its line (its words never wrap), and the row wraps between links. */
 .foot nav { display: flex; flex-wrap: wrap; gap: var(--gap-words-words) var(--gap-block-block); white-space: nowrap; }
 .foot p { margin: 0 0 0 auto; }
 /* On a phone it stacks, centered: the mark, the links on centered lines as many as fit, then the license. */
 @media (max-width: 760px) {
-  .foot { flex-direction: column; align-items: center; text-align: center; }
+  .foot-in { flex-direction: column; align-items: center; text-align: center; }
   .foot nav { justify-content: center; width: 100%; }
   .foot p { margin: 0; }
 }
@@ -843,8 +844,9 @@ component({
 component({
   name: "Rail",
   slug: "rail",
-  group: "navigation",
-  subgroup: "scrolling",
+  group: "panes",
+  subgroup: "materials",
+  after: "light",
   summary: "Zaisma's own scrollbar, on every device: it rests faintly and wakes while things move. On a touch screen its thumb is a little wider and drags with a finger.",
   styles: `
 /* Zaisma's own scrollbar, on every device: a hairline with a slim glass thumb that wakes while it moves.
@@ -967,9 +969,9 @@ component({
 /* Arrows to scroll a row, for a mouse or trackpad, at the right of the row's heading: a carved well like a switch's, holding two raised
    slabs that slant where they meet. Pointing lifts one and sends its arrow on; a press sinks it, its light turning round. At a row's end
    that arrow lies flat in the well, faded. Touch screens swipe instead. */
-.steps { --control-height: var(--control-height-small); position: relative; display: none; gap: 0; height: var(--control-height); padding: 3px; background: var(--well); box-shadow: var(--well-shade); clip-path: var(--cut-shape); }
+/* The well is a carving holding parts (materials.ts): the arrows sit the compact frame gap in, slanting toward each other. */
+.steps { --control-height: var(--control-height-small); display: none; gap: 0; }
 /* Each arrow is a Secondary button sized for a well (actions.ts), icon only; at the row's end it can't be pressed. */
-.steps > .cut-btn:first-of-type { margin-inline-end: var(--gap-control-row-boxes); }
 @media (hover: hover) and (pointer: fine) { .steps { display: flex; } .steps[hidden] { display: none; } }
 /* Without a mouse there are none, and a row holding them closes up before them (layout.ts, ROW_STYLES). */
 .steps .ico { width: 10px; height: 13px; transition: transform var(--motion-state) var(--ease-glide); }
@@ -1128,10 +1130,10 @@ const sidebarPlaces = (places: SidebarPlace[], isNested = false, isShut = false)
     const words = html`${place.icon ? icon(place.icon) : ""}<span class="sidebar-words">${place.label}</span>${place.badgeCount ? tag(place.badgeCount, "count") : ""}`;
     if (place.places?.length) {
       const isOpen = Boolean(place.isCurrent);
-      return html`<li><button class="sidebar-place sidebar-group" type="button" aria-expanded="${isOpen ? "true" : "false"}">${words}<span class="sidebar-arrow">${icon("chevron-right")}</span></button>${sidebarPlaces(place.places, true, !isOpen)}</li>`;
+      return html`<li><button class="sidebar-place sidebar-group flush-row compact quiet" type="button" aria-expanded="${isOpen ? "true" : "false"}">${words}<span class="sidebar-arrow">${icon("chevron-right")}</span></button>${sidebarPlaces(place.places, true, !isOpen)}</li>`;
     }
     // The page you're on is the slab itself: raised and cut, its words inside it.
-    return html`<li><a class="sidebar-place${place.isCurrent ? " cut-raised" : ""}" href="${place.href}"${place.isCurrent ? raw(' aria-current="page" data-cut-line="8"') : ""}>${place.isCurrent ? CUT_LINE : ""}${words}</a></li>`;
+    return html`<li><a class="sidebar-place flush-row compact quiet${place.isCurrent ? " lights-start" : ""}" href="${place.href}"${place.isCurrent ? raw(' aria-current="page" data-cut-line="8"') : ""}>${place.isCurrent ? CUT_LINE : ""}${words}</a></li>`;
   })}</ul>`;
 
 /**
@@ -1142,7 +1144,7 @@ const sidebarPlaces = (places: SidebarPlace[], isNested = false, isShut = false)
  */
 export function sidebar(options: SidebarOptions): Raw {
   const places = sidebarPlaces(options.places);
-  return html`<nav class="sidebar glass pinned" id="${options.id}" aria-label="${options.label}" data-sidebar-remember="${options.rememberKey}" data-glass data-glass-corners="pane">${EDGE}<div class="sidebar-scroll">${places}</div></nav>${sheetMarkup({ id: `${options.id}-sheet`, title: options.label, body: places, closeButton: tertiaryButton("Close", { type: "submit", formMethod: "dialog", icon: "close", isLabelHidden: true, isSmall: true }), placement: "start" })}`;
+  return html`<nav class="sidebar glass glass-pane pinned" id="${options.id}" aria-label="${options.label}" data-sidebar-remember="${options.rememberKey}" data-glass data-glass-corners="pane">${EDGE}<div class="sidebar-scroll pane-in scrolls">${places}</div></nav>${sheetMarkup({ id: `${options.id}-sheet`, title: options.label, body: places, closeButton: tertiaryButton("Close", { type: "submit", formMethod: "dialog", icon: "close", isLabelHidden: true, isSmall: true }), placement: "start" })}`;
 }
 
 /** The button that folds a sidebar away and back on a wide screen, and slides it over the page on a phone: at the start of the page's header or bar. */
@@ -1272,7 +1274,7 @@ const settingsPanes = stack({
     { kind: "block", markup: glassPane({ paneWidth: "full", label: "Keys", body: stack({ items: [{ kind: "words", markup: html`<h2>Keys</h2>` }, { kind: "words", markup: html`<p>A key lets your AI tool or the upload command work on your games.</p>` }] }) }) },
   ],
 });
-const stillSidebar = (id: string, places: SidebarPlace[]) => html`<nav class="sidebar glass pinned" id="${id}" aria-label="Design" data-glass data-glass-corners="pane">${EDGE}<div class="sidebar-scroll">${sidebarPlaces(places)}</div></nav>`;
+const stillSidebar = (id: string, places: SidebarPlace[]) => html`<nav class="sidebar glass glass-pane pinned" id="${id}" aria-label="Design" data-glass data-glass-corners="pane">${EDGE}<div class="sidebar-scroll pane-in scrolls">${sidebarPlaces(places)}</div></nav>`;
 
 component({
   name: "Sidebar",
@@ -1286,25 +1288,18 @@ component({
 /* Its places scroll inside it (sidebar-scroll) only when they're taller than it, on Zaisma's rail, so its glass and edge stay whole and
    still; the places keep clear of the rail. */
 .sidebar { display: flex; flex-direction: column; --sidebar-is-sheet: 0; }
-.sidebar-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: var(--pad-inner-pane); }
-.sidebar-scroll.own-scroll.shows-rail { padding-right: calc(var(--pad-inner-pane) + 14px); }
+.sidebar-scroll { flex: 1 1 auto; }
+/* Its places are compact flush rows, close together as a menu's (materials.ts): a small control's height with a mouse, a regular one's for a
+   finger. A group's places are set in under it by a block's gap. */
 .sidebar-places { display: flex; flex-direction: column; gap: var(--gap-control-row); margin: 0; padding: 0; list-style: none; }
-/* The first and last places' words keep the words margin from the pane's or sheet's edge, as compact rows leave less room round them. */
-.sidebar-places:not(.is-nested) { padding-block: var(--gap-control-stack); }
-/* In a sheet, its body starts under the sheet's head: the list adds only a control row's gap above its first place. */
-.sheet-body > .sidebar-places:not(.is-nested) { padding-top: var(--gap-control-row); }
-.sidebar-places.is-nested { padding: var(--gap-control-row) 0 var(--gap-control-row) var(--gap-block-block); }
-/* A row is a small control's height with a mouse, compact as a list of places should be; a finger gets a regular control's. */
-.sidebar-place { position: relative; display: flex; align-items: center; gap: var(--gap-words-words); min-height: var(--control-height-small); padding: 0 var(--pad-inside-words);
-  font: var(--type-words); color: var(--ink-2); text-decoration: none; transition: color var(--motion-state); }
+.sidebar-places > li { display: flex; flex-direction: column; gap: var(--gap-control-row); }
+.sidebar-places.is-nested { --row-start: calc(var(--pad-words) + var(--gap-block-block)); }
 .sidebar-words { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .sidebar-place > .ico { width: 18px; height: 18px; flex: none; }
-@media (pointer: coarse) { .sidebar-place { min-height: var(--control-height-regular); } }
 .sidebar-place:hover, .sidebar-place[aria-current="page"], .sidebar-group[aria-expanded="true"] { color: var(--ink); }
 .sidebar-group { width: 100%; margin: 0; border: 0; background: none; cursor: pointer; text-align: start; }
 .sidebar-group[aria-expanded="true"] { font-weight: 600; }
-/* Its orange is its start edge, its whole height: a line under it read as one over the place below. */
-.sidebar-place[aria-current="page"] { clip-path: var(--cut-shape); background: var(--slab); box-shadow: var(--slab-shade), inset 3px 0 0 var(--run); }
+/* The place you're on is the row's slab, lit along its start edge (materials.ts): a line under it would read as one over the place below. */
 /* A group's arrow is small and quiet: it says the group opens, nothing more. */
 .sidebar-arrow { display: flex; flex: none; color: var(--muted); transition: transform var(--motion-state) var(--ease-glide); }
 .sidebar-group[aria-expanded="true"] > .sidebar-arrow { transform: rotate(90deg); }

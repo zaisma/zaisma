@@ -254,11 +254,11 @@ component({
 /* Breadcrumbs: quiet links in notes, a small chevron between, the page you're on last in ink. One line: on a narrow screen it scrolls
    sideways, fading at the edge with more. Each link's hit area is a control's height on a touch screen. */
 .breadcrumbs { min-width: 0; font: var(--type-note); }
-.breadcrumbs ol { list-style: none; margin: 0; padding: 0; display: flex; align-items: center; white-space: nowrap; }
-.breadcrumbs li { display: flex; align-items: center; flex: none; }
+.breadcrumbs ol { list-style: none; margin: 0; padding: 0; display: flex; align-items: center; gap: var(--gap-words-words); white-space: nowrap; }
+.breadcrumbs li { display: flex; align-items: center; gap: var(--gap-words-words); flex: none; }
 .breadcrumbs .link { position: relative; color: var(--ink-2); }
 .breadcrumbs [aria-current] { color: var(--ink); font-weight: 600; }
-.crumb-chevron { display: flex; padding-inline: var(--gap-words-words); color: var(--muted); }
+.crumb-chevron { display: flex; color: var(--muted); }
 .crumb-chevron > .ico { width: 7px; height: 11px; }
 @media (pointer: coarse) { .breadcrumbs .link::before { content: ""; position: absolute; inset: calc((var(--touch-target) - 1lh) / -2) 0; } }
 `,

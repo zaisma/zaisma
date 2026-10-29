@@ -427,7 +427,7 @@ component({
 /* An icon alone centers in what shows of the button: a slanted end gives up half its slant. */
 .cut-btn.icon-only > .face[data-slanted~="start"] { --slab-shift: calc(var(--control-slant) / 4); }
 .cut-btn.icon-only > .face[data-slanted~="end"] { --slab-shift: calc(var(--control-slant) / -4); }
-.cut-btn.in-well { --control-height: 30px; }
+.cut-btn.in-well { --control-height: calc(var(--control-height-small) - 2 * var(--pad-frame-compact)); }
 .cut-btn.in-well > .face { color: var(--ink-2); }
 .cut-btn.in-well.icon-only > .face { width: 46px; }
 .cut-btn:focus-visible { outline: none; }
@@ -845,5 +845,5 @@ export interface RowArrowsOptions {
 export function rowArrows(options: RowArrowsOptions): ControlMarkup {
   const arrow = (way: "back" | "on") =>
     secondaryButton(`Scroll ${options.rowName} ${way}`, { type: "button", icon: way === "back" ? "arrow-back" : "arrow-on", isLabelHidden: true, isInWell: true, controls: options.trackId });
-  return controlMarkup(html`<div class="steps cut-carved" data-row-arrows${options.scrolledTo ? html` data-scrolled-to="${options.scrolledTo}"` : ""} data-cut-line="9">${CUT_LINE}${arrow("back")}${arrow("on")}</div>`, "small", { isPointerOnly: true });
+  return controlMarkup(html`<div class="steps carving carving-parts" data-row-arrows${options.scrolledTo ? html` data-scrolled-to="${options.scrolledTo}"` : ""} data-cut-line="9">${CUT_LINE}${arrow("back")}${arrow("on")}</div>`, "small", { isPointerOnly: true });
 }
