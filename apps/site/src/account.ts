@@ -128,7 +128,7 @@ import { deleteSaveFiles } from "./saves.ts";
 import { accountDataFileName, accountDataZip } from "./account-data.ts";
 import { tellAccountDeleted, type WaitUntil } from "./webhooks.ts";
 import { carryProof, confirmationOf, recordProof } from "./session-proofs.ts";
-import { refundForDeletion } from "./credit-api.ts";
+import { creditKeptOnDeletionCents, refundForDeletion } from "./credit-api.ts";
 import { forgetCardForDeletion } from "./buy.ts";
 import { disconnect } from "./stripe.ts";
 import { BOT_CHECK_SCRIPT, isRealBrowser, type TurnstileAction } from "./turnstile.ts";
@@ -1273,7 +1273,7 @@ function usernameCutField(given: JoinGiven): Raw {
 <template id="username-suggestion">${suggestions([""])}</template></div>`;
 }
 
-const TERMS_LINE = html`<p class="note">By making an account you agree to the ${textLink("content rules", "/legal/content-rules")} and our ${textLink("privacy policy", "/legal/privacy")}.</p>`;
+const TERMS_LINE = html`<p class="note">By making an account you agree to the ${textLink("terms of service", "/legal/terms")}, including the ${textLink("content rules", "/legal/content-rules")} and our ${textLink("privacy policy", "/legal/privacy")}.</p>`;
 
 /** Step A: a username and a password, or Google or Discord instead (then a username on its own, joinUsernamePage). The account is made here. */
 async function joinAccountPage(env: Env, next: string | null, error?: string, given: JoinGiven = {}): Promise<Response> {
@@ -1750,12 +1750,13 @@ interface UsernameGiven {
 
 async function accountPage(env: Env, session: Session, welcome: boolean, error?: string, made?: { name: string; token: string }, query = new URLSearchParams(), usernameGiven?: UsernameGiven): Promise<Response> {
   const account = (await accountById(env.DB, session.userId))!;
-  const [games, keys, passkeys, signIns, activity] = await Promise.all([
+  const [games, keys, passkeys, signIns, activity, creditKeptCents] = await Promise.all([
     gamesOwnedBy(env.DB, account.id),
     apiKeysFor(env.DB, account.id),
     passkeysFor(env.DB, account.id),
     signInGrantsFor(env.DB, account.id),
     activityAnswer(env, account, null),
+    creditKeptOnDeletionCents(env, account.id),
   ]);
   // Changing how they sign in, and deleting the account, need the strongest proof the account has; otherwise "Confirm it's you" first.
   const { isConfirmed, isPasskeyNeeded, remainingMs } = await confirmationOf(env, session, account.id);
@@ -1886,7 +1887,7 @@ ${games.length
 <p><a class="btn ghost" href="/account/data.zip" data-download${isConfirmed ? "" : needsConfirm()}>Download your data</a></p>
 <h2 id="delete-account">Delete account</h2>
 <details><summary>Delete your account</summary>
-<p>This deletes your username, any email, game saves and everything else on your account straight away. Unused hosting credit from the last 180 days goes back to the card it was paid with. Games you played and sites you signed in to with Zaisma are told, so their developers can erase what they kept about you. It can't be undone.</p>
+<p>This deletes your username, any email, game saves and everything else on your account straight away. Unused hosting credit from the last 30 days goes back to the card it was paid with; older credit doesn't come back.${creditKeptCents > 0 ? ` That's $${(creditKeptCents / 100).toFixed(2)} of your credit.` : ""} Games you played and sites you signed in to with Zaisma are told, so their developers can erase what they kept about you. It can't be undone.</p>
 ${games.length
           ? html`<p>Your games are deleted with it, with their files, database and every player's saves, and their links never go to another game:</p>
 <ul>${games.map((game) => html`<li>${game.title} <span class="muted">(zaisma.com/g/${game.slug})</span></li>`)}</ul>`

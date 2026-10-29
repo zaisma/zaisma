@@ -209,7 +209,7 @@ async function settleTopUpAttempt(env: Env, ownerId: string, attemptCount: numbe
 
 /**
  * A top-up that went through, from whichever path counts it first (this job, or Stripe's event): the credit,
- * refundable for 180 days; the credit-low line, creditLowPct of the balance after it; the developer told of an
+ * refundable for 30 days; the credit-low line, creditLowPct of the balance after it; the developer told of an
  * automatic one; and every paused game of the owner's starts again if it can.
  */
 export async function addTopUp(env: Env, topUp: { ownerId: string; amountCents: number; paymentIntentId: string; isAutomatic: boolean; nowMs?: number }): Promise<boolean> {

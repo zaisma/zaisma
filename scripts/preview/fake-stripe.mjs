@@ -32,6 +32,7 @@ const listOf = (value) => (value === undefined ? [] : typeof value === "object" 
 export function startFakeStripe(port) {
   const newId = (prefix) => `${prefix}_preview_${randomBytes(6).toString("hex")}`;
   const now = () => Math.floor(Date.now() / 1000);
+  const startedAtSec = now();
   const objects = new Map();
   // The first answer to a call with an Idempotency-Key, given again to the same key on the same path.
   const answered = new Map();
@@ -97,6 +98,17 @@ export function startFakeStripe(port) {
       const subscription = objects.get(id) ?? keep({ id, object: "subscription", status: "active", cancel_at_period_end: false, created: now() });
       if (form.cancel_at_period_end !== undefined) subscription.cancel_at_period_end = form.cancel_at_period_end === "true";
       return { status: 200, body: subscription };
+    }
+
+    if (kind === "subscriptions" && id && !action && method === "DELETE") {
+      const subscription = objects.get(id) ?? keep({ id, object: "subscription", created: now() });
+      subscription.status = "canceled";
+      return { status: 200, body: subscription };
+    }
+    // Zaisma Pro's invoices: the preview's Pro (sub_preview_pro) was paid once, 3 days before the stand-in started.
+    if (kind === "invoices" && !id && method === "GET") {
+      const paidAtSec = startedAtSec - 3 * 86_400;
+      return { status: 200, body: { object: "list", data: [{ id: "in_preview_pro", object: "invoice", status: "paid", amount_paid: 1000, currency: "usd", customer: query.get("customer"), status_transitions: { paid_at: paidAtSec }, parent: { type: "subscription_details", subscription_details: { subscription: "sub_preview_pro" } }, payments: { object: "list", data: [{ object: "invoice_payment", status: "paid", payment: { type: "payment_intent", payment_intent: "pi_preview_pro" } }] } }] } };
     }
 
     if (kind === "refunds" && !id && method === "POST") {

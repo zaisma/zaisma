@@ -3,14 +3,15 @@ import { newId } from "./ids.ts";
 /**
  * A developer's prepaid hosting credit (docs/DECISIONS.md, "Hosting is priced with a margin, with a free tier, and
  * prepaid above it"): one balance per owner, bought on Stripe's page or topped up by itself, spent only by games
- * with a monthly budget. It never expires, never goes below zero, refunds unused for 180 days and is never paid out.
+ * with a monthly budget. It never expires, never goes below zero, refunds unused for 30 days and is never paid out
+ * ("Credit is ours once spent, or once its 30 days pass").
  * Every change is a row in credit_entries; owners.credit_balance_cents is their sum, kept in the same batch.
  */
 export const CREDIT_LIMITS = {
   minimumTopUpCents: 1000,
   /** Caps what one stolen card can charge in one go. */
   maximumTopUpCents: 100_000,
-  refundableDurationDays: 180,
+  refundableDurationDays: 30,
   /** The owner hears their credit is low once it's under this share of the balance right after their last top-up. */
   creditLowPct: 20,
   minimumAutomaticTopUpCents: 1000,
