@@ -148,7 +148,8 @@ span.hairline { flex: 1; border-top: var(--divider); }
 .slab .loader { position: relative; z-index: 2; }
 .slab.big { --slab-words: 28px; font-size: 1.0625rem; }
 /* Its edge light takes some of its tint (--way, --way-mix: a way in's color, a delete's red), so a tinted slab's lit edge is never a white
-   rim round it, yet keeps the light that lands on it: resting, its top and leading edges still catch the highlight that makes it raised. */
+   rim round it, yet keeps the light that lands on it: resting, its top and leading edges still catch the highlight that makes it raised;
+   pressed, its lit lip takes the whole tint, so a deep tint never shows a light rim along its foot. */
 .slab > .cut-line { --band-top: color-mix(in srgb, var(--way, transparent) calc(var(--way-mix, 0%) * 0.4), var(--raise-top)); --band-left: color-mix(in srgb, var(--way, transparent) calc(var(--way-mix, 0%) * 0.4), var(--raise-left));
   --band-right: color-mix(in srgb, var(--way, transparent) calc(var(--way-mix, 0%) * 0.4), var(--raise-right)); --band-bottom: color-mix(in srgb, var(--way, transparent) calc(var(--way-mix, 0%) * 0.4), var(--raise-bottom)); }
 .slab > :where(:not(.cut-line)) { position: relative; z-index: 2; }
@@ -163,8 +164,8 @@ span.hairline { flex: 1; border-top: var(--divider); }
    moves out of its place. A lit slab floats, so it moves as a whole instead (its button lifts and lands it). */
 .slab:not(.lit) > :where(:not(.cut-line)) { transition: transform var(--motion-glide) var(--ease-spring); }
 :is(.shell:active, .shell.is-pressed) > .slab:not(.lit) > :where(:not(.cut-line)), .slab.is-pressed:not(.lit) > :where(:not(.cut-line)) { transform: translateY(1px); transition-duration: var(--motion-press); }
-:is(.shell:active, .shell.is-pressed) > .slab > .cut-line, .slab.is-pressed > .cut-line { --band-top: color-mix(in srgb, var(--way, transparent) calc(var(--way-mix, 0%) * 0.4), var(--carve-top)); --band-left: color-mix(in srgb, var(--way, transparent) calc(var(--way-mix, 0%) * 0.4), var(--carve-left));
-  --band-right: color-mix(in srgb, var(--way, transparent) calc(var(--way-mix, 0%) * 0.4), var(--carve-right)); --band-bottom: color-mix(in srgb, var(--way, transparent) calc(var(--way-mix, 0%) * 0.4), var(--carve-bottom)); }
+:is(.shell:active, .shell.is-pressed) > .slab > .cut-line, .slab.is-pressed > .cut-line { --band-top: color-mix(in srgb, var(--way, transparent) var(--way-mix, 0%), var(--carve-top)); --band-left: color-mix(in srgb, var(--way, transparent) var(--way-mix, 0%), var(--carve-left));
+  --band-right: color-mix(in srgb, var(--way, transparent) var(--way-mix, 0%), var(--carve-right)); --band-bottom: color-mix(in srgb, var(--way, transparent) var(--way-mix, 0%), var(--carve-bottom)); }
 :is(.shell:focus-visible, .shell.is-focused) > .slab > .cut-line polygon, .slab.is-focused > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 :is(.shell:disabled:not([aria-busy="true"]), .shell[aria-disabled="true"]) > .slab, .slab.is-disabled { --face-color: var(--carving-face); background: var(--face-color); box-shadow: var(--carving-shade); color: var(--muted); }
 :is(.shell:disabled:not([aria-busy="true"]), .shell[aria-disabled="true"]):has(> .slab), .slab-holder:has(> .slab.is-disabled) { filter: none; }
