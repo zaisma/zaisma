@@ -1450,14 +1450,14 @@ component({
   slug: "confirm-sheet",
   group: "panes",
   subgroup: "layers",
-  summary: "One sentence, the action and Cancel, before something that's hard to take back: signing out everywhere, ending a room. Over another sheet it opens a size smaller, and closing it lands on the sheet beneath. A delete's is red, the only red in Zaisma, and the button that opens it is a secondary button with a trash icon, never orange. Not for what's easy to take back: do it, and offer Undo in a Notice.",
+  summary: "One sentence, the action and Cancel, before something that's hard to take back: signing out everywhere, ending a room. Over another sheet it opens a size smaller, and closing it lands on the sheet beneath. A delete's is a secondary button tinted red, the only red in Zaisma, and the button that opens it is a secondary button with a trash icon, never orange. Not for what's easy to take back: do it, and offer Undo in a Notice.",
   styles: "",
   render: confirmSheet,
   examples: [
     { label: "Try it: from its button", markup: html`${secondaryButton("Sign out everywhere", { type: "button", controls: "example-confirm-try" })}${confirmSheet({ id: "example-confirm-try", ...SIGN_OUT_EVERYWHERE })}` },
     { label: "Open", markup: confirmSheet({ id: "example-confirm-shown", ...SIGN_OUT_EVERYWHERE, isShown: true }), isWide: true, isStill: true },
     { label: "A delete: from a secondary button with a trash icon", markup: html`${secondaryButton("Delete this game", { type: "button", icon: "trash", controls: "example-confirm-delete-try" })}${confirmSheet({ id: "example-confirm-delete-try", ...GAME_DELETE })}` },
-    { label: "A delete, open: the one red button", markup: confirmSheet({ id: "example-confirm-delete-shown", ...GAME_DELETE, isShown: true }), isWide: true, isStill: true },
+    { label: "A delete, open: its confirm tinted red", markup: confirmSheet({ id: "example-confirm-delete-shown", ...GAME_DELETE, isShown: true }), isWide: true, isStill: true },
     { label: "A delete, deleting", markup: confirmSheet({ id: "example-confirm-delete-busy", ...GAME_DELETE, isShown: true, isBusy: true }), isWide: true, isStill: true },
     {
       label: "A delete, a long game title",

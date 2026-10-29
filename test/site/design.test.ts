@@ -680,7 +680,7 @@ const NOT_TYPE = new Set<string>([
   // A picture's initials, sized to the picture.
   ".frame .av | font", ".frame.xs .av | font-size", ".frame.xs .av::first-letter | font-size",
   ".picture-row-place + .picture-row-place .av | font-size", ".picture-row-place + .picture-row-place .av::first-letter | font-size",
-  ".danger | font", ".danger | font-size", ".field.long textarea | font", ".select-button | font",
+  ".field.long textarea | font", ".select-button | font",
   // On a phone what's typed is 16px, the least that keeps a phone from zooming in.
   '.field input, .find input[type="search"], .find-finish, .wheel-button | font-size',
   // The +N at the back of a row of pictures, sized to the pictures.
@@ -721,7 +721,7 @@ const NOT_SPACING = new Set<string>([
   ".wheel-button | padding", ".wheel-chev | margin-right",
   ".logo | padding",
   ".me | padding", ".top .end .run | padding", ".top .end .run | gap", ".tag | padding", ".tag.count | padding",
-  ".danger | padding", ".danger | gap", ".field.long textarea | padding", ".select-button | padding",
+  ".field.long textarea | padding", ".select-button | padding",
   ".field.select.no-icon .select-button | padding-left", ".choice-card | padding", ".list-row | padding", ".select-option | gap", ".select-option | padding",
   ".choice-well .choice-card | padding", ".well.choice-well > .well-body | padding", ".choice-well .choice-words | gap",
   // A floating pane: its inset round its choices, and the choices' own gap, a control's parts; a select's list over its field lines its

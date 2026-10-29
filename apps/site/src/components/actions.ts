@@ -67,15 +67,15 @@ export interface PrimaryButtonOptions extends ButtonTarget {
    */
   trailingText?: string;
   /**
-   * Red, the one red in Zaisma, for a delete's confirm step and nowhere else (a Confirm sheet's isDelete): the runner's shape and edge
-   * light with no glint and no lean, since it's the moment to stop and read. It takes only its label, type, busy and state.
+   * A delete's confirm step (a Confirm sheet's isDelete): a secondary button tinted red, the one red in Zaisma, and nowhere else. It's the
+   * moment to stop and read, so it never glints or leans, and it isn't orange. It takes only its label, type, busy and state.
    */
   isDelete?: boolean;
 }
 
 /** The primary button: a raised orange slab, the same height as the other buttons, lit along its edges. It lifts, leans toward the pointer and catches the light; pressing sinks it into the glass. */
 export function primaryButton(label: string, options: PrimaryButtonOptions = {}): ControlMarkup {
-  if (options.isDelete) return controlMarkup(dangerButton(label, options), "regular");
+  if (options.isDelete) return secondaryButton(label, { type: options.type ?? "submit", isBusy: options.isBusy, state: options.state, tint: "red" });
   // The label's span has no class of its own: html.ts's account link finds it as the header's runner's span without one.
   const words = options.busyLabel ? html`<span class="label-idle">${label}</span><span class="label-busy">${options.busyLabel}</span>` : html`<span>${label}</span>`;
   const shell = classes("run-wrap", options.isFullWidth && "is-full", options.state);
@@ -205,7 +205,7 @@ export type WayIn = keyof typeof WAY_MARKS;
  * A secondary button's tint: none ("clear"), or a way in's color mixed into its slab. Each way has its own unless the page picks one. "plain" is
  * the glass's own tone, as Google's buttons are: whiter on light glass, nearer Google's black on smoked.
  */
-export type ButtonTint = "clear" | "plain" | "blue" | "indigo" | "black";
+export type ButtonTint = "clear" | "plain" | "blue" | "indigo" | "black" | "red";
 const WAY_TINTS: Record<WayIn, ButtonTint> = { google: "plain", discord: "indigo", passkey: "clear" };
 
 /**
@@ -360,20 +360,6 @@ const stateExamples = (render: (state?: ButtonState) => Raw, loopKind: "runner" 
   ];
 };
 
-/** The red one: the runner's shape and edge light, in red, with no glint and no lean. Only a delete's confirm step has it (primaryButton's isDelete). */
-function dangerButton(label: string, options: PrimaryButtonOptions): Raw {
-  return html`${opening(classes("danger-wrap", options.state), { type: options.type ?? "submit" }, options.isBusy)}<span class="face slab danger" data-cut-line="12">${CUT_LINE}${loader()}<span class="danger-words one-line">${label}</span></span>${closing({})}`;
-}
-
-const DANGER_STYLES = `
-/* A delete's confirm: the runner's shape, height and edge light, in red; no glint and no lean, since it's the moment to stop and read.
-   A press carves it in where it is, its light turned round, never moving it. The shell stays still. */
-.danger-wrap { vertical-align: middle; max-width: 100%; }
-.danger-wrap:focus-visible { outline: none; }
-.danger { flex: auto; gap: 10px; }
-[data-glass] .control-row > .danger-wrap > .danger { width: 100%; }
-@media (max-width: 760px) { .danger { --slab-words: 20px; font-size: 0.9375rem; } }
-`;
 
 component({
   name: "Primary button",
@@ -381,7 +367,7 @@ component({
   group: "actions",
   subgroup: "buttons",
   summary: "The one thing to do on a screen: Play, Sign in, Next. Never more than one in view, and visible without scrolling.",
-  styles: RUN_STYLES + DANGER_STYLES,
+  styles: RUN_STYLES,
   render: primaryButton,
   examples: [
     ...stateExamples((state) => primaryButton("Sign in", { type: "button", state }), "runner"),
@@ -393,10 +379,10 @@ component({
     { label: "With its price at the other end (a buy button)", markup: html`<div style="${COLUMN}">${primaryButton("Buy", { type: "button", isFullWidth: true, trailingText: "$19.99" })}</div>` },
     { label: "With its price, busy", markup: html`<div style="${COLUMN}">${primaryButton("Buy", { type: "button", isFullWidth: true, trailingText: "$19.99", isBusy: true, busyLabel: "Buying" })}</div>`, isStill: true },
     { label: "Long words: one line, ending in an ellipsis", markup: html`<div style="${COLUMN}">${primaryButton("Play Ashen Crown: The Long Night of the Iron Vigil", { type: "button", isFullWidth: true, isBig: true, icon: "play" })}</div>` },
-    { label: "Red: a delete's confirm, only in a Confirm sheet", markup: primaryButton("Delete Ashen Crown", { isDelete: true }) },
-    { label: "Red, pointed", markup: primaryButton("Delete Ashen Crown", { isDelete: true, state: "is-pointed" }), isStill: true },
-    { label: "Red, pressed: it carves in", markup: primaryButton("Delete Ashen Crown", { isDelete: true, state: "is-pressed" }), isStill: true },
-    { label: "Red, deleting", markup: primaryButton("Delete Ashen Crown", { isDelete: true, isBusy: true }), isStill: true },
+    { label: "A delete's confirm: tinted red, only in a Confirm sheet", markup: primaryButton("Delete Ashen Crown", { isDelete: true }) },
+    { label: "A delete's confirm, pointed", markup: primaryButton("Delete Ashen Crown", { isDelete: true, state: "is-pointed" }), isStill: true },
+    { label: "A delete's confirm, pressed: it carves in", markup: primaryButton("Delete Ashen Crown", { isDelete: true, state: "is-pressed" }), isStill: true },
+    { label: "A delete's confirm, deleting", markup: primaryButton("Delete Ashen Crown", { isDelete: true, isBusy: true }), isStill: true },
   ],
 });
 
@@ -474,6 +460,8 @@ component({
 .cut-btn[data-tint="blue"] > .face { --way: #2A75E8; }
 .cut-btn[data-tint="indigo"] > .face { --way: #5865F2; }
 .cut-btn[data-tint="black"] > .face { --way: #14171C; }
+/* A delete's confirm (primaryButton's isDelete): the one red in Zaisma, in the glass of a secondary button. */
+.cut-btn[data-tint="red"] > .face { --way: var(--danger); }
 .way-mark { display: inline-flex; flex: none; }
 .way-mark > svg { width: 20px; height: 20px; }
 /* A mark that may be one color (Discord's) is white over smoked glass and its own blue over light (the fallback, since light glass leaves

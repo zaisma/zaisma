@@ -182,14 +182,6 @@ span.hairline { flex: 1; border-top: var(--divider); }
 :is(.shell:disabled:not([aria-busy="true"]), .shell[aria-disabled="true"]) > .slab.lit:is(::before, ::after) { content: none; }
 /* A lit slab's front: the orange face it shows below its top as it rises (a toggle on). */
 .slab-front { background: linear-gradient(180deg, var(--run-hi), var(--run) 40%, var(--run-lo)); }
-/* Danger: the one red slab, a delete's confirm step. It never glints or leans: it's the moment to stop and read. Pointed at it brightens;
-   pressed it sinks in, its light turned round. */
-.slab.danger { --face-color: var(--danger); background: radial-gradient(130% 110% at 50% -35%, rgba(255,255,255,0.24), transparent 62%), linear-gradient(180deg, rgba(255,255,255,0.06), rgba(80,0,0,0.14)), var(--face-color);
-  color: #fff; text-shadow: 0 1px 1px rgba(90,10,0,0.35); font-size: 1rem; }
-.slab.danger > .cut-line { --band-top: rgba(255,214,206,0.8); --band-left: rgba(255,196,186,0.5); --band-right: rgba(110,20,10,0.35); --band-bottom: rgba(96,14,4,0.55); }
-:is(.shell:hover, .shell.is-pointed) > .slab.danger { --face-color: #E44A3B; }
-:is(.shell:active, .shell.is-pressed) > .slab.danger { --face-color: var(--danger-lo); box-shadow: inset 0 2px 5px rgba(60,0,0,0.35); }
-:is(.shell:active, .shell.is-pressed) > .slab.danger > .cut-line { --band-top: rgba(96,14,4,0.5); --band-left: rgba(110,20,10,0.35); --band-right: rgba(255,196,186,0.4); --band-bottom: rgba(255,214,206,0.6); }
 @media (prefers-reduced-motion: reduce) { .carving, .slab { transition: none; } .slab.lit.glint::after { animation: none; } }
 `;
 
