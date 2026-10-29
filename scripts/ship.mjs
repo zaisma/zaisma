@@ -22,6 +22,10 @@
 // ops repo's skills into it when this machine has an ops clone (scripts/ops-setup.mjs --links).
 // The last line says how it went, for Claude to read: SHIP PASS, SHIP WAITING or SHIP FAIL.
 //
+// An interruption isn't a failure (scripts/ship-resume.mjs): a step that loses the network (a Mac that slept, Wi-Fi)
+// waits for it and runs again; when it stays away the last line is `SHIP FAIL interrupted: …` (exit code 3), and
+// running it again picks up where it stopped, keeping the Workers this commit's ship already deployed.
+//
 //   npm run ship                              ship
 //   npm run ship -- --dry                     say what it would ship; deploy and change nothing
 //   npm run ship -- --dry --commit <ref>      the same for another commit, e.g. HEAD to try a change
@@ -34,6 +38,7 @@ import { fileURLToPath } from "node:url";
 import { applyEnginesProof, applyNightlySweep, checkState, enginesBaseCommits, judgeCheckedCode, sameCodeCommits, sweepFailedPages } from "./ship-github-check.mjs";
 import { CHECK_GAME_SLUG, CHECK_GAME_URL, PUBLISH_CLI_WORKFLOW_URL, PUBLISH_GAME_SERVER_WORKFLOW_URL, ROOMS_URL, SITE_URL, checkBuckets, checkPackageOnNpm, checkSecurityAddresses, checkUrl, publishedKeyCount, securityTxtProblems } from "./ship-checks.mjs";
 import { linkSkills, opsPlacesOf } from "./ops-setup.mjs";
+import { INTERRUPTED_EXIT_CODE, INTERRUPTED_LINE_START, deployWorkers, liveVersionIdOf, readShipProgress, runThroughInterruptions, writeShipProgress } from "./ship-resume.mjs";
 import { missingShipTokenHelp, useShipToken } from "./ship-token.mjs";
 // Microsoft's PhotoDNA SDK (Julius's machine only) and Docker, for the photodna Worker's container.
 import { ensureDocker, placePhotoDnaSdk } from "./photodna-sdk.mjs";
@@ -79,7 +84,31 @@ const gitFolder = git(process.cwd(), ["rev-parse", "--path-format=absolute", "--
 const mainCheckout = dirname(gitFolder);
 const shipCopy = join(mainCheckout, ".claude", "ship");
 const lastShipFile = join(gitFolder, "zaisma-ship-last.json");
+const progressFile = join(gitFolder, "zaisma-ship-progress.json");
 const logFolder = join(gitFolder, "zaisma-ship-logs");
+
+// The commit being shipped, once it's known: an interrupted ship names it and what of it is live.
+let shippingSha = null;
+function finishInterrupted(label) {
+  const liveWorkers = shippingSha ? Object.keys(readShipProgress(progressFile, shippingSha).version_ids) : [];
+  say();
+  say(`${INTERRUPTED_LINE_START} ${shippingSha ? `${shippingSha.slice(0, 7)}: ` : ""}the network stayed away while ${label}; ${liveWorkers.length ? `${liveWorkers.join(", ")} deployed` : "nothing deployed"}. Nothing failed: npm run ship again picks up where this one stopped.`);
+  process.exit(INTERRUPTED_EXIT_CODE);
+}
+
+/** A command that needs the network: run again once the network is back, and the ship ends interrupted when it stays away. */
+async function runOnline(label, command, commandArguments, options = {}, { beforeRetry = () => {} } = {}) {
+  const answer = await runThroughInterruptions(
+    label,
+    (retryIndex) => {
+      if (retryIndex) beforeRetry();
+      return run(command, commandArguments, options);
+    },
+    { say },
+  );
+  if (answer.isInterrupted) finishInterrupted(label);
+  return answer;
+}
 const isInShipCopy = realpathSync(fileURLToPath(import.meta.url)) === (existsSync(join(shipCopy, "scripts/ship.mjs")) ? realpathSync(join(shipCopy, "scripts/ship.mjs")) : "");
 
 if (!isInShipCopy) {
@@ -117,10 +146,13 @@ if (!isInShipCopy) {
   for (const signal of ["SIGINT", "SIGTERM"]) process.on(signal, () => process.exit(130));
 
   say("Fetching GitHub's main…");
-  git(mainCheckout, ["fetch", "--quiet", "origin", "main"]);
+  const fetched = await runOnline("fetching GitHub's main", "git", ["-C", mainCheckout, "fetch", "--quiet", "origin", "main"]);
+  if (fetched.exitCode !== 0) finish("FAIL", `couldn't fetch GitHub's main (${fetched.output.trim().split("\n").at(-1)}); nothing deployed.`, 1);
   // A ref is read where the command runs, so HEAD is this checkout's.
   const commitSha = commitRef ? git(process.cwd(), ["rev-parse", "--verify", `${commitRef}^{commit}`]) : git(mainCheckout, ["rev-parse", "origin/main"]);
   if (existsSync(join(shipCopy, ".git"))) {
+    // A ship killed in the middle of a checkout leaves git's lock behind; this one holds the ship lock, so it's nobody's.
+    rmSync(join(git(shipCopy, ["rev-parse", "--absolute-git-dir"]), "index.lock"), { force: true });
     git(shipCopy, ["checkout", "--quiet", "--detach", "--force", commitSha]);
     // Everything not on main goes, except installed packages (reinstalled when the lockfile changes).
     git(shipCopy, ["clean", "-ffdxq", "-e", "node_modules"]);
@@ -136,6 +168,7 @@ if (!isInShipCopy) {
 
 // From here on this is main's copy of the script, running in the clean copy.
 const commitSha = git(shipCopy, ["rev-parse", "HEAD"]);
+shippingSha = commitSha;
 const shortSha = commitSha.slice(0, 7);
 const commitSubject = git(shipCopy, ["log", "-1", "--format=%s"]);
 say(`Shipping ${shortSha} ${commitSubject}`);
@@ -158,19 +191,19 @@ if (lastShip?.commit_sha && lastShip.commit_sha !== commitSha) {
     if (newCommits.length > 20) say(`  … and ${newCommits.length - 20} more`);
   }
 } else if (lastShip?.commit_sha === commitSha) {
-  say("Same commit as the last ship from this machine: shipping it again.");
+  say("Same commit as the last ship from this machine: shipping it again, keeping each Worker whose live version it deployed.");
 }
 
 // GitHub's check on this code (.github/workflows/check.yml): the full tests and typecheck, on this
 // commit or on one with exactly its code (scripts/ship-github-check.mjs), so a merge that's up to date
 // ships on its pull request's run at once. A failed one stops the ship; one that may still decide it is
 // waited for; no full check on this code, or no way to read it, stops it too.
-function readCheckState(sha) {
+async function readCheckState(sha) {
   let result;
   try {
     // Every run and attempt (filter=all): the default shows only the newest, which can be main's own push run that steps aside for
     // the merge queue's (checkState reads each check by its latest run).
-    result = run("gh", ["api", "--paginate", `repos/${GITHUB_REPOSITORY}/commits/${sha}/check-runs?filter=all&per_page=100`, "--jq", ".check_runs[] | {name, status, conclusion, html_url, completed_at}"]);
+    result = await runOnline("reading GitHub's check", "gh", ["api", "--paginate", `repos/${GITHUB_REPOSITORY}/commits/${sha}/check-runs?filter=all&per_page=100`, "--jq", ".check_runs[] | {name, status, conclusion, html_url, completed_at}"]);
   } catch (error) {
     return { problem: error.message };
   }
@@ -182,23 +215,28 @@ const runShipCopyGit = (gitArguments) => {
   return result.exitCode === 0 ? result.output : null;
 };
 const sameCodeShas = sameCodeCommits(runShipCopyGit, commitSha);
-function readCheckedCode() {
-  const commitStates = sameCodeShas.map(readCheckState);
+async function readCheckStates(shas) {
+  const commitStates = [];
+  for (const sha of shas) commitStates.push(await readCheckState(sha));
+  return commitStates;
+}
+async function readCheckedCode() {
+  const commitStates = await readCheckStates(sameCodeShas);
   const problem = commitStates.find((commitState) => commitState.problem);
   if (problem) return { verdict: "unreadable", ...problem };
   const checked = judgeCheckedCode(commitStates);
   // A pull request's run that skipped Engine exports (none of its code changed) stands on the engines' pass before it.
   if (checked.verdict !== "passed" || checked.engines !== "skipped") return checked;
-  const baseStates = enginesBaseCommits(runShipCopyGit, sameCodeShas, checked.commitSha).map(readCheckState);
+  const baseStates = await readCheckStates(enginesBaseCommits(runShipCopyGit, sameCodeShas, checked.commitSha));
   const baseProblem = baseStates.find((baseState) => baseState.problem);
   return baseProblem ? { verdict: "unreadable", ...baseProblem } : applyEnginesProof(checked, baseStates);
 }
 say("Reading GitHub's check…");
-let checkedCode = readCheckedCode();
+let checkedCode = await readCheckedCode();
 for (let waitedSec = 0; !isDryRun && checkedCode.verdict === "running" && waitedSec < GITHUB_CHECK_WAIT_SEC; waitedSec += 15) {
   if (waitedSec === 0) say(`Waiting for GitHub's check to finish (${checkedCode.url})…`);
   await new Promise((resolve) => setTimeout(resolve, 15000));
-  checkedCode = readCheckedCode();
+  checkedCode = await readCheckedCode();
 }
 const checkedCommitNote = checkedCode.commitSha && checkedCode.commitSha !== commitSha ? ` on ${checkedCode.commitSha.slice(0, 7)}, which has exactly this code` : "";
 let githubCheckNote;
@@ -214,10 +252,10 @@ say(githubCheckNote);
 
 // Main's latest nightly layout sweep (.github/workflows/nightly.yml), which measures every page on every screen: a failed one stops the
 // ship until the pages are fixed and it passes again. Only a pass or a failure decides; before the first run, nothing stops it.
-function readNightlySweep() {
+async function readNightlySweep() {
   let listed;
   try {
-    listed = run("gh", ["run", "list", "--repo", GITHUB_REPOSITORY, "--workflow", "nightly.yml", "--branch", "main", "--status", "completed", "--limit", "10", "--json", "databaseId,conclusion,url"]);
+    listed = await runOnline("reading main's nightly layout sweep", "gh", ["run", "list", "--repo", GITHUB_REPOSITORY, "--workflow", "nightly.yml", "--branch", "main", "--status", "completed", "--limit", "10", "--json", "databaseId,conclusion,url"]);
   } catch (error) {
     return { problem: error.message };
   }
@@ -230,10 +268,10 @@ function readNightlySweep() {
   }
   const latest = runs.find((each) => each.conclusion === "success" || each.conclusion === "failure");
   if (!latest) return null;
-  const failedPages = latest.conclusion === "failure" ? sweepFailedPages(run("gh", ["run", "view", String(latest.databaseId), "--repo", GITHUB_REPOSITORY, "--log-failed"]).output) : [];
+  const failedPages = latest.conclusion === "failure" ? sweepFailedPages((await runOnline("reading the nightly sweep's failed pages", "gh", ["run", "view", String(latest.databaseId), "--repo", GITHUB_REPOSITORY, "--log-failed"])).output) : [];
   return { conclusion: latest.conclusion, url: latest.url, failedPages };
 }
-const nightlySweep = readNightlySweep();
+const nightlySweep = await readNightlySweep();
 if (!isDryRun && nightlySweep?.problem) finish("FAIL", `${shortSha}: couldn't read main's nightly layout sweep (${nightlySweep.problem}); nothing deployed.`, 1);
 const sweptCode = applyNightlySweep(checkedCode, nightlySweep?.problem ? null : nightlySweep);
 if (!isDryRun && sweptCode.verdict === "sweep_failed") finish("FAIL", `${shortSha}: ${sweptCode.sweepNote}; nothing deployed.`, 1);
@@ -270,7 +308,7 @@ const lockfileHash = createHash("sha256").update(readFileSync(join(shipCopy, "pa
 const installedHashFile = join(shipCopy, "node_modules", ".zaisma-ship-lockfile-hash");
 if (!existsSync(installedHashFile) || readFileSync(installedHashFile, "utf8") !== lockfileHash) {
   say("Installing packages…");
-  const install = run("npm", ["ci", "--no-audit", "--no-fund", "--loglevel=error"], { cwd: shipCopy });
+  const install = await runOnline("installing packages", "npm", ["ci", "--no-audit", "--no-fund", "--loglevel=error"], { cwd: shipCopy });
   if (install.exitCode !== 0) {
     say(install.output.trim());
     finish("FAIL", `${shortSha}: npm ci failed in the ship copy; nothing deployed.`, 1);
@@ -281,8 +319,8 @@ const wranglerBin = join(shipCopy, "node_modules", ".bin", "wrangler");
 const siteFolder = join(shipCopy, "apps", "site");
 const runWrangler = (argumentList) => run(wranglerBin, argumentList, { cwd: siteFolder, env: { ...process.env, FORCE_COLOR: "0" } });
 
-function listPendingMigrations() {
-  const result = run(wranglerBin, ["d1", "migrations", "list", "zaisma", "--remote"], { cwd: siteFolder, env: { ...process.env, FORCE_COLOR: "0" } });
+async function listPendingMigrations() {
+  const result = await runOnline("reading the live database's migrations", wranglerBin, ["d1", "migrations", "list", "zaisma", "--remote"], { cwd: siteFolder, env: { ...process.env, FORCE_COLOR: "0" } });
   if (result.exitCode !== 0) {
     say(result.output.trim());
     finish("FAIL", `${shortSha}: couldn't read the live database's migrations (above); nothing deployed.`, 1);
@@ -312,8 +350,9 @@ function deletingStatements(migrationFiles) {
 }
 
 say("Checking the live database's migrations…");
-const pendingMigrations = listPendingMigrations();
-let appliedMigrations = [];
+const pendingMigrations = await listPendingMigrations();
+// Ones an earlier, interrupted ship of this commit applied are said in the summary too.
+let appliedMigrations = isDryRun ? [] : readShipProgress(progressFile, commitSha).applied_migrations;
 const pendingDeletions = deletingStatements(pendingMigrations);
 if (pendingMigrations.length) {
   say(`Pending migrations: ${pendingMigrations.join(", ")}`);
@@ -328,16 +367,19 @@ if (pendingMigrations.length) {
     );
   } else {
     // A migration that deletes data: wrangler asks "continue? (Y/n)" in the terminal. Otherwise
-    // CI=1 makes it answer yes itself. Either way it prints each migration's ✅.
-    const isAsking = pendingDeletions.length > 0;
-    spawnSync(wranglerBin, ["d1", "migrations", "apply", "zaisma", "--remote"], {
-      cwd: siteFolder,
-      stdio: isAsking ? "inherit" : ["ignore", "inherit", "inherit"],
-      env: isAsking ? process.env : { ...process.env, CI: "1" },
-    });
-    const stillPendingMigrations = listPendingMigrations();
+    // CI=1 makes it answer yes itself, run again when the network went away under it: the live database
+    // lists the ones that applied, so it applies the rest. Either way it prints each migration's ✅.
+    if (pendingDeletions.length) {
+      spawnSync(wranglerBin, ["d1", "migrations", "apply", "zaisma", "--remote"], { cwd: siteFolder, stdio: "inherit" });
+    } else {
+      const applied = await runOnline("applying migrations", wranglerBin, ["d1", "migrations", "apply", "zaisma", "--remote"], { cwd: siteFolder, stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, CI: "1" } });
+      say(applied.output.trim());
+    }
+    const stillPendingMigrations = await listPendingMigrations();
     if (stillPendingMigrations.length) finish("FAIL", `${shortSha}: still pending: ${stillPendingMigrations.join(", ")}; nothing deployed.`, 1);
-    appliedMigrations = [...pendingMigrations];
+    const progress = readShipProgress(progressFile, commitSha);
+    appliedMigrations = [...new Set([...progress.applied_migrations, ...pendingMigrations])];
+    writeShipProgress(progressFile, { ...progress, applied_migrations: appliedMigrations });
     say("Migrations applied.");
   }
 } else {
@@ -347,7 +389,8 @@ if (pendingMigrations.length) {
 // Queues the Workers use that the account doesn't have yet, made before anything deploys: like a migration
 // that only adds, a new queue holds nothing, so it's made by itself.
 const queueNames = [...new Set(WORKERS.flatMap((worker) => [...readFileSync(join(shipCopy, "apps", worker, "wrangler.jsonc"), "utf8").matchAll(/"queue":\s*"([\w-]+)"/g)].map((match) => match[1])))];
-const listedQueues = queueNames.length ? runWrangler(["queues", "list"]) : { exitCode: 0, output: "" };
+const runWranglerOnline = (label, argumentList) => runOnline(label, wranglerBin, argumentList, { cwd: siteFolder, env: { ...process.env, FORCE_COLOR: "0" } });
+const listedQueues = queueNames.length ? await runWranglerOnline("listing the queues", ["queues", "list"]) : { exitCode: 0, output: "" };
 if (listedQueues.exitCode !== 0) {
   say(listedQueues.output.trim());
   finish("FAIL", `${shortSha}: couldn't list the account's queues (above); nothing deployed.`, 1);
@@ -355,8 +398,9 @@ if (listedQueues.exitCode !== 0) {
 const missingQueues = queueNames.filter((name) => !new RegExp(`\\s${name}\\s`).test(listedQueues.output));
 if (missingQueues.length && !isDryRun) {
   for (const name of missingQueues) {
-    const made = runWrangler(["queues", "create", name]);
-    if (made.exitCode !== 0) {
+    const made = await runWranglerOnline(`making the queue ${name}`, ["queues", "create", name]);
+    // One made just before the network went away is there already.
+    if (made.exitCode !== 0 && !/already exists/i.test(made.output)) {
       say(made.output.trim());
       finish("FAIL", `${shortSha}: couldn't make the queue ${name} (above); nothing deployed.`, 1);
     }
@@ -368,7 +412,7 @@ if (missingQueues.length && !isDryRun) {
 // RECEIPT_SIGNING_KEY, and without it every purchase read answers receipts_unavailable.
 const REQUIRED_SECRETS = { "zaisma-rooms": ["PASS_SIGNING_KEY", "RECEIPT_SIGNING_KEY"] };
 for (const [workerName, secretNames] of Object.entries(REQUIRED_SECRETS)) {
-  const listed = runWrangler(["secret", "list", "--name", workerName, "--format", "json"]);
+  const listed = await runWranglerOnline(`listing ${workerName}'s secrets`, ["secret", "list", "--name", workerName, "--format", "json"]);
   if (listed.exitCode !== 0) {
     say(listed.output.trim());
     finish("FAIL", `${shortSha}: couldn't list ${workerName}'s secrets (above); nothing deployed.`, 1);
@@ -400,50 +444,81 @@ if (isDryRun) {
   finish("DRY", `${shortSha}: would deploy ${WORKERS.join(", ")}; ${githubCheckNote}; ${migrationsNote}; ${queuesNote}; ${npmNote}; ${securityNote}.`, 0);
 }
 
-// Deploys. Each Worker version is tagged with the commit, so the dashboard shows what's live.
+// Deploys. Each Worker version is tagged with the commit, so the dashboard shows what's live. One this commit's
+// ship deployed before it was interrupted, still live, is kept (scripts/ship-resume.mjs).
 mkdirSync(logFolder, { recursive: true });
-for (const worker of WORKERS) {
-  process.stdout.write(`Deploying ${worker}… `);
-  const started = Date.now();
-  const deployMessage = `${shortSha} ${commitSubject}`.slice(0, 100);
-  const result = run(wranglerBin, ["deploy", "--tag", shortSha, "--message", deployMessage], { cwd: join(shipCopy, "apps", worker), env: { ...process.env, FORCE_COLOR: "0" } });
-  writeFileSync(join(logFolder, `${worker}.log`), result.output);
-  if (result.exitCode !== 0) {
-    say("failed");
-    say(result.output.trim().split("\n").slice(-30).join("\n"));
-    const liveNote = WORKERS.indexOf(worker) ? `${WORKERS.slice(0, WORKERS.indexOf(worker)).join(" and ")} deployed, ` : "";
-    finish("FAIL", `${shortSha}: ${liveNote}${worker} failed (above; full log in ${join(logFolder, `${worker}.log`)}).`, 1);
-  }
-  const versionId = result.output.match(/Current Version ID: ([\w-]+)/)?.[1];
-  say(`done in ${Math.round((Date.now() - started) / 1000)}s${versionId ? ` (version ${versionId.slice(0, 8)})` : ""}`);
-}
+const workerEnvironment = { ...process.env, FORCE_COLOR: "0" };
+await deployWorkers({
+  workers: WORKERS,
+  commitSha,
+  progressPath: progressFile,
+  say,
+  readLiveVersionId: async (worker) => {
+    const status = await runOnline(`reading ${worker}'s live version`, wranglerBin, ["deployments", "status", "--json"], { cwd: join(shipCopy, "apps", worker), env: workerEnvironment });
+    return status.exitCode === 0 ? liveVersionIdOf(status.output) : null;
+  },
+  deployWorker: async (worker) => {
+    process.stdout.write(`Deploying ${worker}… `);
+    const started = Date.now();
+    const deployMessage = `${shortSha} ${commitSubject}`.slice(0, 100);
+    // Docker can stop while the Mac sleeps: photodna's container needs it started again before another try.
+    const beforeRetry = () => (worker === "photodna" ? ensureDocker() : null);
+    const result = await runOnline(`deploying ${worker}`, wranglerBin, ["deploy", "--tag", shortSha, "--message", deployMessage], { cwd: join(shipCopy, "apps", worker), env: workerEnvironment }, { beforeRetry });
+    writeFileSync(join(logFolder, `${worker}.log`), result.output);
+    if (result.exitCode !== 0) {
+      say("failed");
+      say(result.output.trim().split("\n").slice(-30).join("\n"));
+      const liveNote = WORKERS.indexOf(worker) ? `${WORKERS.slice(0, WORKERS.indexOf(worker)).join(" and ")} deployed, ` : "";
+      finish("FAIL", `${shortSha}: ${liveNote}${worker} failed (above; full log in ${join(logFolder, `${worker}.log`)}).`, 1);
+    }
+    const versionId = result.output.match(/Current Version ID: ([\w-]+)/)?.[1] ?? null;
+    say(`done in ${Math.round((Date.now() - started) / 1000)}s${versionId ? ` (version ${versionId.slice(0, 8)})` : ""}`);
+    return versionId;
+  },
+});
 writeFileSync(lastShipFile, JSON.stringify({ commit_sha: commitSha, shipped_at: new Date().toISOString() }));
 
-// The live site, the way a player and an AI reach it, with a few tries while the new versions spread.
+// The live site, the way a player and an AI reach it, with a few tries while the new versions spread. Checks that
+// failed because the network went away run again once it's back.
 say("Checking the live site…");
 const zaismaKey = process.env.ZAISMA_KEY;
 const mcpInitialize = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "zaisma-ship", version: "1" } } });
-// The wrangler calls are synchronous, so they run before any fetch starts and no timeout fires while they block.
-const bucketResults = checkBuckets(runWrangler);
 const ok = (isGood) => (response, body) => (isGood(response, body) ? [] : ["unexpected answer"]);
-const [gamePage, mcp, gameFiles, rooms, receiptKeys, securityTxt, cliResult, gameServerResult, securityResults] = await Promise.all([
-  checkUrl("game page", `${SITE_URL}/g/${CHECK_GAME_SLUG}`, {}, ok((response, body) => response.status === 200 && body.includes("<iframe"))),
-  // With a key: a real MCP session starts. Without one: the MCP answers with its structured no_key error.
-  zaismaKey
-    ? checkUrl("MCP", `${SITE_URL}/mcp`, { method: "POST", headers: { "content-type": "application/json", accept: "application/json, text/event-stream", authorization: `Bearer ${zaismaKey}` }, body: mcpInitialize }, ok((response, body) => response.status === 200 && body.includes('"serverInfo"')))
-    : checkUrl("MCP", `${SITE_URL}/mcp`, { method: "POST", headers: { "content-type": "application/json", accept: "application/json, text/event-stream" }, body: mcpInitialize }, ok((response, body) => response.status === 401 && body.includes('"no_key"')), { passNote: " (its no_key answer, as expected without ZAISMA_KEY)" }),
-  // The game's page opens at its version's own address: followed there.
-  checkUrl("game files", CHECK_GAME_URL, {}, ok((response) => response.status === 200), { isSameOriginRedirectFollowed: true }),
-  checkUrl("rooms", `${ROOMS_URL}/.well-known/jwks.json`, {}, ok((response, body) => response.status === 200 && publishedKeyCount(body) >= 1)),
-  // It answers 503 when RECEIPT_SIGNING_KEY isn't set or a receipt setting doesn't load: then receipts answer receipts_unavailable.
-  checkUrl("receipt keys", `${ROOMS_URL}/.well-known/receipt-jwks.json`, {}, ok((response, body) => response.status === 200 && publishedKeyCount(body) >= 1)),
-  checkUrl("security.txt", `${SITE_URL}/.well-known/security.txt`, {}, securityTxtProblems),
-  checkPackageOnNpm("@zaisma/cli", cliVersion, PUBLISH_CLI_WORKFLOW_URL),
-  checkPackageOnNpm("@zaisma/game-server", gameServerVersion, PUBLISH_GAME_SERVER_WORKFLOW_URL),
-  checkSecurityAddresses({ zaismaKey }),
-]);
-const checks = [gamePage, mcp, gameFiles, rooms, receiptKeys, securityTxt];
-const securityChecks = [...bucketResults, ...securityResults];
+async function checkLiveSite() {
+  // The wrangler calls are synchronous, so they run before any fetch starts and no timeout fires while they block.
+  const bucketResults = checkBuckets(runWrangler);
+  const [gamePage, mcp, gameFiles, rooms, receiptKeys, securityTxt, cliResult, gameServerResult, securityResults] = await Promise.all([
+    checkUrl("game page", `${SITE_URL}/g/${CHECK_GAME_SLUG}`, {}, ok((response, body) => response.status === 200 && body.includes("<iframe"))),
+    // With a key: a real MCP session starts. Without one: the MCP answers with its structured no_key error.
+    zaismaKey
+      ? checkUrl("MCP", `${SITE_URL}/mcp`, { method: "POST", headers: { "content-type": "application/json", accept: "application/json, text/event-stream", authorization: `Bearer ${zaismaKey}` }, body: mcpInitialize }, ok((response, body) => response.status === 200 && body.includes('"serverInfo"')))
+      : checkUrl("MCP", `${SITE_URL}/mcp`, { method: "POST", headers: { "content-type": "application/json", accept: "application/json, text/event-stream" }, body: mcpInitialize }, ok((response, body) => response.status === 401 && body.includes('"no_key"')), { passNote: " (its no_key answer, as expected without ZAISMA_KEY)" }),
+    // The game's page opens at its version's own address: followed there.
+    checkUrl("game files", CHECK_GAME_URL, {}, ok((response) => response.status === 200), { isSameOriginRedirectFollowed: true }),
+    checkUrl("rooms", `${ROOMS_URL}/.well-known/jwks.json`, {}, ok((response, body) => response.status === 200 && publishedKeyCount(body) >= 1)),
+    // It answers 503 when RECEIPT_SIGNING_KEY isn't set or a receipt setting doesn't load: then receipts answer receipts_unavailable.
+    checkUrl("receipt keys", `${ROOMS_URL}/.well-known/receipt-jwks.json`, {}, ok((response, body) => response.status === 200 && publishedKeyCount(body) >= 1)),
+    checkUrl("security.txt", `${SITE_URL}/.well-known/security.txt`, {}, securityTxtProblems),
+    checkPackageOnNpm("@zaisma/cli", cliVersion, PUBLISH_CLI_WORKFLOW_URL),
+    checkPackageOnNpm("@zaisma/game-server", gameServerVersion, PUBLISH_GAME_SERVER_WORKFLOW_URL),
+    checkSecurityAddresses({ zaismaKey }),
+  ]);
+  const checks = [gamePage, mcp, gameFiles, rooms, receiptKeys, securityTxt];
+  const securityChecks = [...bucketResults, ...securityResults];
+  return { checks, cliResult, gameServerResult, securityChecks };
+}
+let liveSite;
+const liveCheck = await runThroughInterruptions(
+  "checking the live site",
+  async () => {
+    liveSite = await checkLiveSite();
+    const failedNotes = [...liveSite.checks, liveSite.cliResult, liveSite.gameServerResult, ...liveSite.securityChecks].filter((result) => !result.isPass).map((result) => result.note);
+    return { exitCode: failedNotes.length ? 1 : 0, output: failedNotes.join("\n") };
+  },
+  { say },
+);
+if (liveCheck.isInterrupted) finishInterrupted("checking the live site");
+const { checks, cliResult, gameServerResult, securityChecks } = liveSite;
 for (const result of [...checks, cliResult, gameServerResult, ...securityChecks]) say(`  ${result.isPass ? "✓" : "✗"} ${result.note}`);
 
 const migrationsNote = appliedMigrations.length ? `migrations applied: ${appliedMigrations.join(", ")}` : "no migrations";
