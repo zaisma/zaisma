@@ -3057,7 +3057,9 @@ describe("the dashboard", () => {
     const refused = await b.go("/dashboard/hop/details", { title: "" });
     expect(refused.status).toBe(400);
     const refusedText = await refused.text();
-    expect(refusedText).toContain("title is empty. Give 1 to 80 characters.");
+    // The page shows the refusal in its own words, never the AI's fix.
+    expect(refusedText).toContain("A title can&#39;t be empty or longer than the field allows.");
+    expect(refusedText).not.toContain("Give 1 to 80 characters");
     expect(refusedText).toContain('<a href="/dashboard/hop/details" aria-current="page">');
   });
 
@@ -4578,7 +4580,7 @@ describe("Developer settings", () => {
     // A budget below $1 is refused at approval, as a direct confirmed call would refuse it.
     const small = await idOf(4000);
     await env.DB.prepare("UPDATE spending_requests SET monthly_budget_cents = 50 WHERE id = ?").bind(small).run();
-    expect(await (await b.go(`/dashboard/settings/spending/${small}`, { answer: "approved" })).text()).toContain("isn&#39;t a budget");
+    expect(await (await b.go(`/dashboard/settings/spending/${small}`, { answer: "approved" })).text()).toContain("A budget is at least $1 a month");
     expect(await budgetOf()).toBeNull();
     expect(accountId).toBeTruthy();
   });
