@@ -510,6 +510,10 @@ export const SEARCH_SCRIPT = `/* search finishes */(function () {
     }
     input.addEventListener("input", function () { clearTimeout(timer); showFinish(); timer = setTimeout(ask, WAIT_MS); });
     input.addEventListener("scroll", showFinish);
+    // Back in a search that has words in it (clicked, tapped or tabbed to), its predictions show again, as if just typed.
+    function reopen() { if (!isOpen() && input.value.trim()) { clearTimeout(timer); ask(); } }
+    input.addEventListener("focus", reopen);
+    input.addEventListener("click", reopen);
     input.addEventListener("keydown", function (event) {
       var key = event.key;
       if (key === "ArrowDown" || key === "ArrowUp") {
