@@ -72,7 +72,8 @@ const shadeFor = (tones, normal) => {
   return facing >= 0 ? mix(tones.middle, tones.lit, facing) : mix(tones.middle, tones.dark, -facing);
 };
 const round = (value, digits) => {
-  const text = value.toFixed(digits).replace(/\.?0+$/, "");
+  // Only a fraction's trailing zeros go: a whole number keeps its own (4000, not 4).
+  const fixed = value.toFixed(digits), text = fixed.includes(".") ? fixed.replace(/\.?0+$/, "") : fixed;
   return text === "-0" ? "0" : text;
 };
 const pointsOf = (points, digits = 1) => points.map(([x, y]) => `${round(x, digits)},${round(y, digits)}`).join(" ");
