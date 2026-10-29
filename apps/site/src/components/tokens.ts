@@ -176,7 +176,7 @@ export const TOKEN_STYLES = `
 @property --pad-words { syntax: "<length>"; inherits: true; initial-value: 0px; }
 @property --fade-bottom { syntax: "<length>"; inherits: false; initial-value: 0px; }
 .scroll-fades.is-fading { -webkit-mask-image: linear-gradient(to bottom, transparent, rgba(0,0,0,0.22) calc(var(--fade-top) * 0.35), rgba(0,0,0,0.66) calc(var(--fade-top) * 0.7), #000 var(--fade-top), #000 calc(100% - var(--fade-bottom)), rgba(0,0,0,0.66) calc(100% - var(--fade-bottom) * 0.7), rgba(0,0,0,0.22) calc(100% - var(--fade-bottom) * 0.35), transparent);
-  mask-image: linear-gradient(to bottom, transparent, rgba(0,0,0,0.22) calc(var(--fade-top) * 0.35), rgba(0,0,0,0.66) calc(var(--fade-top) * 0.7), #000 var(--fade-top), #000 calc(100% - var(--fade-bottom)), rgba(0,0,0,0.66) calc(100% - var(--fade-bottom) * 0.7), rgba(0,0,0,0.22) calc(100% - var(--fade-bottom) * 0.35), transparent); transition: --fade-top 0.45s cubic-bezier(.4, 0, .2, 1), --fade-bottom 0.45s cubic-bezier(.4, 0, .2, 1); }
+  mask-image: linear-gradient(to bottom, transparent, rgba(0,0,0,0.22) calc(var(--fade-top) * 0.35), rgba(0,0,0,0.66) calc(var(--fade-top) * 0.7), #000 var(--fade-top), #000 calc(100% - var(--fade-bottom)), rgba(0,0,0,0.66) calc(100% - var(--fade-bottom) * 0.7), rgba(0,0,0,0.22) calc(100% - var(--fade-bottom) * 0.35), transparent); transition: --fade-top var(--motion-glide) var(--ease-standard), --fade-bottom var(--motion-glide) var(--ease-standard); }
 /* A row that scrolls sideways (data-fades-sideways: a header's tabs, the gallery's groups on a phone) fades out over a side with more past it,
    easing in and out, with no scrollbar; it starts scrolled to the one you're on, and never scrolls up and down. */
 @property --fade-left { syntax: "<length>"; inherits: false; initial-value: 0px; }
@@ -190,7 +190,7 @@ export const TOKEN_STYLES = `
 html, body { overscroll-behavior: none; }
 html { -webkit-tap-highlight-color: transparent; }
 .is-scrollable-sideways { overscroll-behavior-x: contain; }
-[data-fades-sideways] { overflow-x: auto; overflow-y: hidden; scrollbar-width: none; transition: --fade-left 0.45s cubic-bezier(.4, 0, .2, 1), --fade-right 0.45s cubic-bezier(.4, 0, .2, 1); }
+[data-fades-sideways] { overflow-x: auto; overflow-y: hidden; scrollbar-width: none; transition: --fade-left var(--motion-glide) var(--ease-standard), --fade-right var(--motion-glide) var(--ease-standard); }
 [data-fades-sideways]::-webkit-scrollbar { display: none; }
 [data-fades-sideways].more-left, [data-fades-sideways].more-right {
   -webkit-mask-image: linear-gradient(90deg, transparent 0, rgba(0,0,0,0.22) calc(var(--fade-left) * 0.35), rgba(0,0,0,0.66) calc(var(--fade-left) * 0.7), #000 var(--fade-left), #000 calc(100% - var(--fade-right)), rgba(0,0,0,0.66) calc(100% - var(--fade-right) * 0.7), rgba(0,0,0,0.22) calc(100% - var(--fade-right) * 0.35), transparent 100%);
@@ -206,11 +206,11 @@ html { -webkit-tap-highlight-color: transparent; }
 /* They share the row, but never shrink below their words: when two don't fit side by side (a narrow phone), the second wraps under the first. */
 [data-glass] .control-row > .shell { display: flex; flex: 1 1 0; }
 [data-glass] .control-row > .shell > .face { width: 100%; justify-content: center; }
-.eases-settings { transition: --glass-hue 0.5s ease; }
+.eases-settings { transition: --glass-hue var(--motion-glide) ease; }
 @media (prefers-reduced-motion: reduce) { .eases-settings { transition: none; } }
 /* Moving between Zaisma's pages crossfades, so a page change never flashes. It's quick: a switch's slab slides over from the last page's
    tab only once the crossfade is over (SWITCH_SCRIPT), so a long one would hold the slab still. */
-@media (prefers-reduced-motion: no-preference) { @view-transition { navigation: auto; } ::view-transition-group(root) { animation-duration: 0.12s; } }
+@media (prefers-reduced-motion: no-preference) { @view-transition { navigation: auto; } ::view-transition-group(root) { animation-duration: var(--motion-state); } }
 :root {
   color-scheme: light dark;
   /* A thumb: the white slab you flip or drag (a toggle's, a slider's), solid and lit from above on either glass, casting its shadow onto
@@ -230,12 +230,16 @@ html { -webkit-tap-highlight-color: transparent; }
   --page: #E7E4DF;
   --glass-blur: 24px;
   /* How every piece of glass changes (light to dark, a hover's tint): a component that adds its own transitions starts its list with this. */
-  --glass-transition: --glass-shown-tint 0.5s ease, color 0.3s ease;
+  --glass-transition: --glass-shown-tint var(--motion-glide) ease, color var(--motion-arrive) ease;
   /* The glass's hue (PageSettings' glass.hueColor): tints every piece of glass under where it's set. Glass tinted for a brand keeps its own color. */
   --glass-hue: transparent;
   --display: "Jost", Futura, "Century Gothic", "Avenir Next", sans-serif;
   --body: -apple-system, "Segoe UI", system-ui, sans-serif;
-  --spring: cubic-bezier(.3, 1.2, .4, 1);
+  /* Motion (materials.ts), one set for everything: how long a press takes to sink, a state to fade, a layer to arrive or leave, a slab to
+     glide, a flare to settle and a light to loop; and the curves they take. Nothing else times itself. */
+  --motion-press: 0.08s; --motion-state: 0.2s; --motion-arrive: 0.3s; --motion-glide: 0.45s; --motion-settle: 0.6s; --motion-loop: 1.6s; --motion-loop-slow: 2.4s;
+  --ease-glide: cubic-bezier(.2, .8, .2, 1); --ease-standard: cubic-bezier(.4, 0, .2, 1); --ease-leave: cubic-bezier(.4, 0, 1, 1); --ease-spring: cubic-bezier(.25, .9, .3, 1.25);
+  --spring: var(--ease-spring);
   /* Keyboard focus, the same on everything: orange. A control's cut line is stroked --focus-stroke wide (half of it shows inside
      its cut, 2px), anything else gets a 2px outline. On an orange face (the runner) it's the deeper --focus-on-run. */
   --focus: var(--run); --focus-on-run: #7A4100; --focus-stroke: 4;
@@ -364,11 +368,11 @@ ${WORDS_SURFACES.join(", ")} { padding: var(--pad-frame); --pad-words: var(--pad
 .edge .caustic.step-1 { --caustic-step: 0.32; } .edge .caustic.step-2 { --caustic-step: 0.18; } .edge .caustic.step-3 { --caustic-step: 0.09; } .edge .caustic.step-4 { --caustic-step: 0.035; }
 /* A slanted outline drawn just inside a cut field or button, so its slanted ends are outlined like its top and bottom. */
 .cut-line { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1; overflow: visible; }
-.cut-line polygon { fill: none; stroke: transparent; stroke-width: 1; transition: stroke 0.3s; }
+.cut-line polygon { fill: none; stroke: transparent; stroke-width: 1; transition: stroke var(--motion-arrive); }
 /* Raised and carved: the light that falls on the panes falls on what's on them. A raised control (a button, the slab under the tab you're on)
    is lit along its top and shaded along its bottom; a carved one (a field, a switch's track) the other way round. Each side is one flat tone,
    so every turn of the cut steps in brightness, like the panes' edges. The outline polygon is left for focus and marks. */
-.cut-line .cut-band { fill: transparent; transition: fill 0.15s; }
+.cut-line .cut-band { fill: transparent; transition: fill var(--motion-state); }
 /* While its shape glides (a switch's slab), a side's light changes at once: sides come and go as its corners turn, and a band taking
    another side's place would fade from that side's light, blinking. */
 .cut-line.is-gliding .cut-band { transition: none; }

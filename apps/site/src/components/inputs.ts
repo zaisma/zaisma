@@ -88,13 +88,13 @@ component({
    its holder, so the shadow follows the slab's cut. Pointed, it lifts a touch; pressed, it's pushed down in place, never smaller, its shadow
    drawn in close and its face shaded from above. */
 .slider-thumb { position: absolute; z-index: 2; top: calc(50% - var(--thumb) / 2); left: calc((100% - var(--thumb)) * var(--fill)); width: var(--thumb); height: var(--thumb); pointer-events: none;
-  filter: var(--thumb-cast); transition: filter 0.2s; }
-.slider-slab { position: relative; display: block; width: 100%; height: 100%; background: var(--thumb-face); clip-path: var(--cut-shape); transition: box-shadow 0.12s; }
-.slider-slab::after { content: ""; position: absolute; inset: 0; background: var(--thumb-press-face); opacity: 0; transition: opacity 0.12s; }
+  filter: var(--thumb-cast); transition: filter var(--motion-state); }
+.slider-slab { position: relative; display: block; width: 100%; height: 100%; background: var(--thumb-face); clip-path: var(--cut-shape); transition: box-shadow var(--motion-state); }
+.slider-slab::after { content: ""; position: absolute; inset: 0; background: var(--thumb-press-face); opacity: 0; transition: opacity var(--motion-state); }
 .slider:not(.is-disabled):hover .slider-thumb, .slider.is-pointed .slider-thumb { filter: var(--thumb-cast-pointed); }
-.slider-input:active + .slider-thumb, .slider.is-pressed .slider-thumb { filter: var(--thumb-cast-pressed); transition-duration: 0.08s; }
+.slider-input:active + .slider-thumb, .slider.is-pressed .slider-thumb { filter: var(--thumb-cast-pressed); transition-duration: var(--motion-press); }
 .slider-input:active + .slider-thumb > .slider-slab, .slider.is-pressed .slider-slab { box-shadow: var(--thumb-press-shade); }
-.slider-input:active + .slider-thumb > .slider-slab::after, .slider.is-pressed .slider-slab::after { opacity: 1; transition-duration: 0.08s; }
+.slider-input:active + .slider-thumb > .slider-slab::after, .slider.is-pressed .slider-slab::after { opacity: 1; transition-duration: var(--motion-press); }
 /* Can't be changed now: the thumb rests flat, the number goes quieter, and no orange, since there's nothing to do: the fill is grey. */
 .slider.is-disabled .slider-input { cursor: default; }
 .slider.is-disabled .slider-head > output { color: var(--muted); }
@@ -284,10 +284,10 @@ component({
 .file-drop-wrap { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--gap-words-control); }
 .file-drop { position: relative; overflow: hidden; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--gap-words-control); min-height: 168px;
   padding: var(--pad-pane); text-align: center; color: var(--muted); --face-color: var(--field-face); background: var(--face-color); box-shadow: var(--field-shade);
-  clip-path: var(--cut-shape); transition: --face-color 0.25s; }
+  clip-path: var(--cut-shape); transition: --face-color var(--motion-state); }
 .file-drop:not(.is-disabled):hover { --face-color: var(--field-hover); }
 .file-drop.is-over { --face-color: var(--field-focus); color: var(--ink); }
-.file-drop > .ico { width: 28px; height: 28px; transition: transform 0.3s var(--spring); }
+.file-drop > .ico { width: 28px; height: 28px; transition: transform var(--motion-arrive) var(--spring); }
 .file-drop.is-over > .ico { transform: translateY(-3px); }
 .file-drop-input { position: absolute; inset: 0; z-index: 5; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
 .file-drop-words { display: grid; gap: var(--gap-words-words); text-wrap: pretty; }
@@ -319,7 +319,7 @@ component({
 @media (pointer: coarse) { .file-drop-preview { width: calc(var(--control-height-regular) * 16 / 9); } }
 /* A picture opens large: the pointer is the zoom-in magnifier over all of it, and a magnifier lights on it while it's pointed at or focused. */
 .file-drop-preview:not(:disabled) * { cursor: zoom-in; }
-.file-drop-zoom { display: grid; place-items: center; color: #fff; opacity: 0; filter: drop-shadow(0 1px 2px rgba(0,0,0,0.6)); transition: opacity 0.2s; pointer-events: none; }
+.file-drop-zoom { display: grid; place-items: center; color: #fff; opacity: 0; filter: drop-shadow(0 1px 2px rgba(0,0,0,0.6)); transition: opacity var(--motion-state); pointer-events: none; }
 .file-drop-zoom > .ico { width: 18px; height: 18px; stroke-width: 2.4; }
 .file-drop-preview:hover .file-drop-zoom, .file-drop-preview:focus-visible .file-drop-zoom { opacity: 1; }
 .file-drop-preview:focus-visible { outline: none; }
@@ -437,7 +437,7 @@ component({
    stays where it is. */
 .copy-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--gap-words-words); padding-inline: var(--pad-words); }
 .copy-label { font: var(--type-label); color: var(--ink-2); }
-.copy-said { font: var(--type-facts); color: var(--ink); opacity: 0; transition: opacity 0.2s; }
+.copy-said { font: var(--type-facts); color: var(--ink); opacity: 0; transition: opacity var(--motion-state); }
 .copy-field.is-copied .copy-said { opacity: 1; }
 .copy-field.is-copied .well-end-note { display: grid; }
 .copy-field.is-copied .well-end > .tertiary-btn .ico { visibility: hidden; }
@@ -642,11 +642,11 @@ component({
 /* Brightness dims the whole square, as less light comes through it; its carved edges, lit and shaded by the edge rule, lie over it. */
 .color-square-light::after { content: ""; position: absolute; inset: 0; background: #000; opacity: calc(1 - var(--color-brightness, 1)); }
 .color-square > .cut-line { z-index: 2; }
-.color-knob { position: absolute; z-index: 3; width: 20px; height: 20px; margin: -10px 0 0 -10px; pointer-events: none; filter: var(--thumb-cast); transition: filter 0.2s; }
+.color-knob { position: absolute; z-index: 3; width: 20px; height: 20px; margin: -10px 0 0 -10px; pointer-events: none; filter: var(--thumb-cast); transition: filter var(--motion-state); }
 .color-knob-slab { position: relative; display: block; width: 100%; height: 100%; background: var(--thumb-face); clip-path: var(--cut-shape); }
-.color-knob-slab::after { content: ""; position: absolute; inset: 0; background: var(--thumb-press-face); opacity: 0; transition: opacity 0.12s; }
-.color-square.is-held .color-knob { filter: var(--thumb-cast-pressed); transition-duration: 0.08s; }
-.color-square.is-held .color-knob-slab::after { opacity: 1; transition-duration: 0.08s; }
+.color-knob-slab::after { content: ""; position: absolute; inset: 0; background: var(--thumb-press-face); opacity: 0; transition: opacity var(--motion-state); }
+.color-square.is-held .color-knob { filter: var(--thumb-cast-pressed); transition-duration: var(--motion-press); }
+.color-square.is-held .color-knob-slab::after { opacity: 1; transition-duration: var(--motion-press); }
 .color-square:focus-visible > .cut-line polygon, .color-square.is-focused > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 /* Beside the square, not at the pane's edge, the column's labels have no pane margin to keep and start at its edge; the brightness's number,
    at the pane's right edge, keeps it. */

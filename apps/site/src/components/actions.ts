@@ -274,7 +274,6 @@ export const RUNNER_SCRIPT = `/* runner */(function () {
 })();
 `;
 
-const SPRING = "cubic-bezier(.25,.9,.3,1.25)";
 
 const RUN_STYLES = `
 /* The primary button: the one colored thing you can press. A raised orange slab, the same height as every other button,
@@ -292,12 +291,12 @@ const RUN_STYLES = `
 /* It floats over the glass, and what it casts on it comes from its own shape (--run-cast): an orange glow round all its edges on smoked
    glass, strongest below; a shadow under it and a little round it on light glass. Pointed, it rises and its light or shadow spreads; pressed,
    it comes down toward the glass and they pull in tight. */
-.run-wrap { filter: var(--run-cast); transition: filter 0.35s cubic-bezier(.2,.7,.2,1); }
+.run-wrap { filter: var(--run-cast); transition: filter var(--motion-arrive) var(--ease-glide); }
 .run-wrap.over, .run-wrap.is-pointed { filter: var(--run-cast-up); }
-.run-wrap:active, .run-wrap.is-pressed { filter: var(--run-cast-down); transition-duration: 0.1s; }
+.run-wrap:active, .run-wrap.is-pressed { filter: var(--run-cast-down); transition-duration: var(--motion-press); }
 /* Clicked, its light flares, brighter and wider (--run-flare), and settles back to what it was over half a second (RUNNER_SCRIPT). */
-.run-wrap.is-flaring { animation: run-flare 0.6s ease-out; }
-.run-wrap.is-flaring > .run { animation: run-flare-face 0.45s ease-out; }
+.run-wrap.is-flaring { animation: run-flare var(--motion-settle) ease-out; }
+.run-wrap.is-flaring > .run { animation: run-flare-face var(--motion-glide) ease-out; }
 @keyframes run-flare { from { filter: var(--run-flare); } }
 @keyframes run-flare-face { from { filter: brightness(1.16); } }
 .run {
@@ -311,7 +310,7 @@ const RUN_STYLES = `
   background: radial-gradient(130% 110% at 50% -35%, rgba(255,255,255,0.3), rgba(255,255,255,0) 62%), linear-gradient(180deg, var(--run-hi), var(--run) 52%, #E57F0C);
   clip-path: var(--cut-shape);
   transform: translateY(var(--lift, 0px)) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg));
-  transition: transform 0.45s ${SPRING}, --refl 0.6s cubic-bezier(.2,.7,.2,1), filter 0.2s;
+  transition: transform var(--motion-glide) var(--ease-spring), --refl var(--motion-settle) var(--ease-glide), filter var(--motion-state);
 }
 /* Its edge light: bright where the light lands on its top and leading edges, its own orange's shade along its foot. */
 .run.cut-raised > .cut-line { --band-top: rgba(255,240,214,0.85); --band-left: rgba(255,226,180,0.55); --band-right: rgba(150,72,0,0.32); --band-bottom: rgba(130,60,0,0.55); }
@@ -323,21 +322,21 @@ const RUN_STYLES = `
 .run-trailing:empty { display: none; }
 .run.big { --control-height: var(--control-height-big); justify-content: center; padding: 0 30px 0 26px; font-size: 1.1875rem; gap: 12px; }
 /* The reflection of a fixed light: a soft band that slides the opposite way to the pointer. */
-.run::before { content: ""; position: absolute; inset: 0; background: linear-gradient(105deg, rgba(255,255,255,0) calc(var(--refl) - 22%), rgba(255,255,255,0.2) var(--refl), rgba(255,255,255,0) calc(var(--refl) + 22%)); opacity: 0; transition: opacity 0.6s; }
+.run::before { content: ""; position: absolute; inset: 0; background: linear-gradient(105deg, rgba(255,255,255,0) calc(var(--refl) - 22%), rgba(255,255,255,0.2) var(--refl), rgba(255,255,255,0) calc(var(--refl) + 22%)); opacity: 0; transition: opacity var(--motion-settle); }
 .run-wrap.over .run::before, .run-wrap.is-pointed .run::before { opacity: 1; }
 /* The glint: one sweep as the pointer arrives, always finished. */
 .run::after { content: ""; position: absolute; top: -20%; bottom: -20%; width: 36%; left: -50%; background: linear-gradient(100deg, rgba(255,255,255,0), rgba(255,255,255,0.7), rgba(255,255,255,0)); transform: skewX(-20deg); pointer-events: none; }
-.run.glint::after { animation: run-glint 0.45s cubic-bezier(.3,.1,.3,1) both; }
+.run.glint::after { animation: run-glint var(--motion-glide) var(--ease-glide) both; }
 @keyframes run-glint { from { left: -50%; } to { left: 120%; } }
 .run > :not(.cut-line) { position: relative; z-index: 2; }
-.run .arrow, .run .play { display: inline-flex; flex: none; transition: transform 0.6s cubic-bezier(.2,.7,.2,1); }
+.run .arrow, .run .play { display: inline-flex; flex: none; transition: transform var(--motion-settle) var(--ease-glide); }
 .run .arrow > .ico { width: 9px; height: 14px; stroke-width: 2.6; }
 .run-wrap.over .run .arrow, .run-wrap.is-pointed .run .arrow { transform: translateX(4px); }
 .run-wrap.over .run .play, .run-wrap.is-pointed .run .play { transform: translateX(3px) scale(1.08); }
 .run-wrap.is-pointed { --lift: -1.5px; }
 /* Pressed: it sinks into the glass, a touch darker, its light turned round as on a carved control; it springs back when let go. */
 /* Pressed, it lands: down toward the glass, its light kept as it is. It floats, so it never carves. */
-.run-wrap:active > .run, .run-wrap.is-pressed > .run { --lift: 1px; transition-duration: 0.08s; }
+.run-wrap:active > .run, .run-wrap.is-pressed > .run { --lift: 1px; transition-duration: var(--motion-press); }
 /* Keyboard focus: the focus line inside its cut, in the deeper orange, since it's orange itself. */
 .run-wrap:focus-visible > .run > .cut-line polygon, .run-wrap.is-focused > .run > .cut-line polygon { stroke: var(--focus-on-run); stroke-width: var(--focus-stroke); }
 /* Busy: pressed and waiting. The arrow drifts on; the label says what's happening when the page gave one. */
@@ -392,20 +391,20 @@ const DANGER_STYLES = `
 .danger { --control-height: var(--control-height-regular); position: relative; overflow: hidden; display: flex; flex: auto; align-items: center; justify-content: center; gap: 10px; min-width: 0; height: var(--control-height); padding: 0 24px;
   color: #fff; text-shadow: 0 1px 1px rgba(90,10,0,0.35); font: 600 1rem var(--display); white-space: nowrap;
   --face-color: var(--danger); background: radial-gradient(130% 110% at 50% -35%, rgba(255,255,255,0.24), rgba(255,255,255,0) 62%), linear-gradient(180deg, rgba(255,255,255,0.06), rgba(80,0,0,0.14)), var(--face-color);
-  clip-path: var(--cut-shape); transition: --face-color 0.2s, box-shadow 0.2s, transform 0.4s ${SPRING}; }
+  clip-path: var(--cut-shape); transition: --face-color var(--motion-state), box-shadow var(--motion-state), transform var(--motion-arrive) var(--ease-spring); }
 .danger.cut-raised > .cut-line { --band-top: rgba(255,214,206,0.8); --band-left: rgba(255,196,186,0.5); --band-right: rgba(110,20,10,0.35); --band-bottom: rgba(96,14,4,0.55); }
 .danger > :not(.cut-line) { position: relative; z-index: 2; }
 /* A long name ("Delete Ashen Crown: The Long Night") ends in an ellipsis on one line; the sheet's sentence above says what goes in full. */
 .danger-words { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .danger-wrap:hover > .danger, .danger-wrap.is-pointed > .danger { --face-color: #E44A3B; }
-.danger-wrap:active > .danger, .danger-wrap.is-pressed > .danger { --face-color: var(--danger-lo); box-shadow: inset 0 2px 5px rgba(60,0,0,0.35); transition-duration: 0.08s; }
+.danger-wrap:active > .danger, .danger-wrap.is-pressed > .danger { --face-color: var(--danger-lo); box-shadow: inset 0 2px 5px rgba(60,0,0,0.35); transition-duration: var(--motion-press); }
 .danger-wrap:active > .danger > .cut-line, .danger-wrap.is-pressed > .danger > .cut-line { --band-top: rgba(96,14,4,0.5); --band-left: rgba(110,20,10,0.35); --band-right: rgba(255,196,186,0.4); --band-bottom: rgba(255,214,206,0.6); }
 .danger-wrap:focus-visible > .danger > .cut-line polygon, .danger-wrap.is-focused > .danger > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 .danger-wrap[aria-busy="true"] { cursor: progress; }
 .danger-wrap:not([aria-busy="true"]) .loader { display: none; }
 [data-glass] .control-row > .danger-wrap > .danger { width: 100%; }
 @media (max-width: 760px) { .danger { padding: 0 20px; font-size: 0.9375rem; } }
-@media (prefers-reduced-motion: reduce) { .danger { transition: --face-color 0.2s; } }
+@media (prefers-reduced-motion: reduce) { .danger { transition: --face-color var(--motion-state); } }
 `;
 
 component({
@@ -513,7 +512,7 @@ component({
 .way-mark > svg { width: 20px; height: 20px; }
 /* A mark that may be one color (Discord's) is white over smoked glass and its own blue over light (the fallback, since light glass leaves
    --clear-glass-mark unset). Google's G stays in its colors. Waiting, the loader takes the mark's place; can't press, the mark fades. */
-.way-mark .one-color path { fill: var(--clear-glass-mark, #5865F2); transition: fill 0.3s; }
+.way-mark .one-color path { fill: var(--clear-glass-mark, #5865F2); transition: fill var(--motion-arrive); }
 .cut-btn[aria-busy="true"] .way-mark { display: none; }
 .cut-btn:disabled:not([aria-busy="true"]) .way-mark { opacity: 0.45; }
 .cut-btn:disabled:not([aria-busy="true"]) .way-mark .one-color path { fill: currentColor; }
@@ -603,26 +602,26 @@ component({
 .tertiary-btn:focus-visible { outline: none; }
 .tertiary-btn > .face { position: relative; display: flex; flex: auto; flex-direction: column; justify-content: center; min-width: 0; height: var(--control-height); padding: 0 var(--pad-inside-words);
   font: var(--type-label); color: var(--ink-2); white-space: nowrap; --face-color: transparent; background-color: var(--face-color); clip-path: var(--cut-shape);
-  transition: --face-color 0.2s, color 0.2s, opacity 0.2s, transform 0.4s ${SPRING}; }
+  transition: --face-color var(--motion-state), color var(--motion-state), opacity var(--motion-state), transform var(--motion-arrive) var(--ease-spring); }
 .tertiary-words { position: relative; z-index: 2; display: flex; align-items: center; justify-content: center; gap: var(--gap-words-words); min-width: 0; font: var(--type-label); }
 /* Words longer than the room it has end in an ellipsis on one line. */
 .tertiary-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 /* The line lies along the slab's foot, corner to corner, and the slab's own cut trims its ends, so it follows whatever shape the edge rule gives it. */
 .tertiary-line { position: absolute; z-index: 2; left: 0; right: 0; bottom: 0; display: block; height: 3px; overflow: hidden;
-  background: linear-gradient(90deg, #E9820C, var(--run) 40%, #FFB54D); transform: scaleX(0); transform-origin: right; transition: transform 0.22s cubic-bezier(.4,0,1,1); }
+  background: linear-gradient(90deg, #E9820C, var(--run) 40%, #FFB54D); transform: scaleX(0); transform-origin: right; transition: transform var(--motion-state) var(--ease-leave); }
 .tertiary-line::after { content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 38%; opacity: 0; background: linear-gradient(90deg, rgba(255,255,255,0), rgba(255,246,228,0.95) 70%, rgba(255,255,255,0)); }
 .tertiary-btn:hover > .face, .tertiary-btn.is-pointed > .face { color: var(--ink); --face-color: var(--wash); }
 .tertiary-btn:focus-visible > .face, .tertiary-btn.is-focused > .face { color: var(--ink); }
-.tertiary-btn:hover .tertiary-line, .tertiary-btn.is-pointed .tertiary-line { transform: scaleX(1); transform-origin: left; transition: transform 0.42s cubic-bezier(.2,.8,.2,1); }
-.tertiary-btn:hover .tertiary-line::after, .tertiary-btn.is-pointed .tertiary-line::after { animation: tertiary-glint 0.7s cubic-bezier(.3,.6,.3,1) both; }
+.tertiary-btn:hover .tertiary-line, .tertiary-btn.is-pointed .tertiary-line { transform: scaleX(1); transform-origin: left; transition: transform var(--motion-arrive) var(--ease-glide); }
+.tertiary-btn:hover .tertiary-line::after, .tertiary-btn.is-pointed .tertiary-line::after { animation: tertiary-glint var(--motion-settle) var(--ease-glide) both; }
 @keyframes tertiary-glint { 0% { transform: translateX(-100%); opacity: 1; } 75% { opacity: 1; } 100% { transform: translateX(270%); opacity: 0; } }
-.tertiary-btn:active > .face, .tertiary-btn.is-pressed > .face { color: var(--ink); --face-color: var(--wash-press); transition-duration: 0.08s; }
+.tertiary-btn:active > .face, .tertiary-btn.is-pressed > .face { color: var(--ink); --face-color: var(--wash-press); transition-duration: var(--motion-press); }
 /* With an arrow: it follows the words and steps on as you point at it, further under a press, in the line's place. As wide as the column, the words in the middle. */
 .tertiary-btn.is-full { display: flex; width: 100%; }
-.tertiary-arrow { display: inline-flex; transition: transform 0.45s cubic-bezier(.2,.7,.2,1); }
+.tertiary-arrow { display: inline-flex; transition: transform var(--motion-glide) var(--ease-glide); }
 .tertiary-arrow > .ico { width: 8px; height: 12px; stroke-width: 2.4; }
 .tertiary-btn:hover .tertiary-arrow, .tertiary-btn.is-pointed .tertiary-arrow { transform: translateX(4px); }
-.tertiary-btn:active .tertiary-arrow, .tertiary-btn.is-pressed .tertiary-arrow { transform: translateX(7px); transition-duration: 0.12s; }
+.tertiary-btn:active .tertiary-arrow, .tertiary-btn.is-pressed .tertiary-arrow { transform: translateX(7px); transition-duration: var(--motion-state); }
 .tertiary-btn[aria-busy="true"] .tertiary-arrow { visibility: hidden; }
 /* Keyboard focus: the cut stroke round its slab, as on every other button. */
 .tertiary-btn:focus-visible .cut-line polygon, .tertiary-btn.is-focused .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
@@ -632,7 +631,7 @@ component({
 /* Waiting: the loader before its words, in the icon's place. */
 .tertiary-btn:not([aria-busy="true"]) .loader, .tertiary-btn[aria-busy="true"] .tertiary-words > .ico { display: none; }
 .tertiary-btn[aria-busy="true"] { cursor: progress; }
-@media (prefers-reduced-motion: reduce) { .tertiary-btn > .face, .tertiary-line, .tertiary-arrow { transition: --face-color 0.2s, color 0.2s; } .tertiary-line::after { animation: none !important; } }
+@media (prefers-reduced-motion: reduce) { .tertiary-btn > .face, .tertiary-line, .tertiary-arrow { transition: --face-color var(--motion-state), color var(--motion-state); } .tertiary-line::after { animation: none !important; } }
 `,
   render: tertiaryButton,
   examples: [
@@ -664,16 +663,16 @@ component({
    and shadowed on light (--toggle-cast, which follows the button's own cut and reaches furthest below it). */
 @property --toggle-rise { syntax: "<length>"; inherits: true; initial-value: 0px; }
 /* How high the face stands (--toggle-rise), animated once on the button, moves the face and the front surface's upper edges together. */
-.toggle-btn { position: relative; --toggle-lift: 5px; --toggle-rise: 0px; transition: filter 0.2s, --toggle-rise 0.35s cubic-bezier(.2,.8,.2,1); }
+.toggle-btn { position: relative; --toggle-lift: 5px; --toggle-rise: 0px; transition: filter var(--motion-state), --toggle-rise var(--motion-arrive) var(--ease-glide); }
 .toggle-btn.small { --toggle-lift: 4px; }
 .toggle-btn[aria-pressed="true"] { --toggle-rise: var(--toggle-lift); }
 /* Pressed: off, it carves in where it is (the carving is its sinking: it never moves); on, it goes down a little, as a key would; both quickly. */
 /* Pressed while off, even mid-landing, its glow or shadow goes at once too: cast by its own shape, it would show through the carved face. */
-.toggle-btn[aria-pressed="false"]:active, .toggle-btn[aria-pressed="false"].is-pressed { --toggle-rise: 0px; transition-duration: 0s, 0.08s; }
-.toggle-btn[aria-pressed="true"]:active, .toggle-btn[aria-pressed="true"].is-pressed { --toggle-rise: calc(var(--toggle-lift) - 2px); transition-duration: 0.2s, 0.08s; }
+.toggle-btn[aria-pressed="false"]:active, .toggle-btn[aria-pressed="false"].is-pressed { --toggle-rise: 0px; transition-duration: 0s, var(--motion-press); }
+.toggle-btn[aria-pressed="true"]:active, .toggle-btn[aria-pressed="true"].is-pressed { --toggle-rise: calc(var(--toggle-lift) - 2px); transition-duration: var(--motion-state), var(--motion-press); }
 /* Its height is the face's only movement. */
 .toggle-btn > .face, .toggle-btn:hover > .face, .toggle-btn.is-pointed > .face, .toggle-btn:active > .face, .toggle-btn.is-pressed > .face { transform: translateY(calc(-1 * var(--toggle-rise))); }
-.toggle-btn > .face { position: relative; z-index: 1; transition: color 0.2s, box-shadow 0.2s, --face-color 0.2s; }
+.toggle-btn > .face { position: relative; z-index: 1; transition: color var(--motion-state), box-shadow var(--motion-state), --face-color var(--motion-state); }
 /* The front surface: what the top surface leaves showing as it rises, swept down to its footprint (TOGGLE_SCRIPT), in a box reaching up by
    the whole lift, joined to the face at every corner and along a slanted end, as a solid's sides are. It follows the face's height frame by
    frame and has no area while the face rests or sinks, so nothing of it ever shows through or past the face. */
@@ -687,7 +686,7 @@ component({
 .toggle-btn[aria-pressed="false"]:active > .face, .toggle-btn[aria-pressed="false"].is-pressed > .face { box-shadow: var(--press-shade); --face-color: var(--btn-press); }
 .toggle-btn[aria-pressed="false"]:active > .face > .cut-line, .toggle-btn[aria-pressed="false"].is-pressed > .face > .cut-line { --band-top: var(--carve-top); --band-left: var(--carve-left); --band-right: var(--carve-right); --band-bottom: var(--carve-bottom); }
 /* On: risen over its front surface, the glass lit or shadowed below it. Turning on, the face is solid at once. */
-.toggle-btn[aria-pressed="true"] > .face { transition: color 0.2s, box-shadow 0.2s, --face-color 0s; }
+.toggle-btn[aria-pressed="true"] > .face { transition: color var(--motion-state), box-shadow var(--motion-state), --face-color 0s; }
 .toggle-btn[aria-pressed="true"], .toggle-btn[aria-pressed="true"]:not(.in-well):hover, .toggle-btn[aria-pressed="true"].is-pointed, .toggle-btn[aria-pressed="true"]:active, .toggle-btn[aria-pressed="true"].is-pressed { filter: var(--toggle-cast); }
 .toggle-btn[aria-pressed="true"] > .face > .ico { color: var(--toggle-icon-on); }
 .toggle-btn[aria-pressed="true"]:active > .face, .toggle-btn[aria-pressed="true"].is-pressed > .face { box-shadow: none; --face-color: var(--btn); }
@@ -697,7 +696,7 @@ component({
 .toggle-btn:focus-visible .cut-line polygon, .toggle-btn.is-focused .cut-line polygon { stroke: none; }
 .toggle-btn:focus-visible, .toggle-btn.is-focused { filter: var(--toggle-ring); }
 .toggle-btn[aria-pressed="true"]:focus-visible, .toggle-btn[aria-pressed="true"].is-focused { filter: var(--toggle-ring) var(--toggle-cast); }
-@media (prefers-reduced-motion: reduce) { .toggle-btn, .toggle-btn:active, .toggle-btn.is-pressed { transition: filter 0.2s; } }
+@media (prefers-reduced-motion: reduce) { .toggle-btn, .toggle-btn:active, .toggle-btn.is-pressed { transition: filter var(--motion-state); } }
 `,
   render: toggleButton,
   examples: [
@@ -776,7 +775,7 @@ component({
 .card-row-mark > .card-brand { display: none; width: 32px; height: 20px; background: no-repeat center / contain; }
 ${CARD_BRANDS.map((brand) => `.cut-btn.card-row[data-card-brand="${brand}"] .card-brand { display: block; background-image: ${cardBrandImage(brand)}; }`).join("\n")}
 .cut-btn.card-row:is(${CARD_BRANDS.map((brand) => `[data-card-brand="${brand}"]`).join(", ")}) .card-row-mark > .ico { display: none; }
-.card-row-go { flex: none; display: inline-flex; align-items: center; gap: var(--gap-words-words); color: var(--muted); transition: transform 0.45s cubic-bezier(.2,.7,.2,1), color 0.2s; }
+.card-row-go { flex: none; display: inline-flex; align-items: center; gap: var(--gap-words-words); color: var(--muted); transition: transform var(--motion-glide) var(--ease-glide), color var(--motion-state); }
 .card-row-go > .ico { width: 8px; height: 13px; stroke-width: 2.2; }
 .cut-btn.card-row:hover .card-row-go, .cut-btn.card-row.is-pointed .card-row-go { transform: translateX(2px); color: var(--ink); }
 @media (prefers-reduced-motion: reduce) { .card-row-go { transition: none; } }
@@ -821,7 +820,7 @@ component({
    until pointed at, when the line comes up and the words turn orange. Keyboard focus is the focus outline: a link can wrap across lines,
    so it can't take a control's cut. */
 .link { color: var(--ink); font-weight: 600; text-decoration: underline; text-decoration-color: var(--run); text-decoration-thickness: 2px; text-underline-offset: 3px;
-  transition: text-decoration-color 0.15s, color 0.15s; }
+  transition: text-decoration-color var(--motion-state), color var(--motion-state); }
 .link:hover, .link.is-pointed, .link:active { color: var(--run-words); }
 .link.quiet { color: inherit; font-weight: inherit; text-decoration-color: transparent; }
 .link.quiet:hover, .link.quiet.is-pointed { color: var(--run-words); text-decoration-color: var(--run); }

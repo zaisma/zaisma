@@ -779,7 +779,7 @@ const FIELD_STYLES = `
   font: 500 1.125rem var(--display); color: var(--ink); caret-color: var(--run-lo);
   background: transparent; border: 0; border-radius: 0; clip-path: var(--cut-shape); }
 .field:has(> input)::before { content: ""; position: absolute; inset: 0; z-index: 1; pointer-events: none; --face-color: var(--field-face); background: var(--face-color);
-  box-shadow: var(--field-shade); clip-path: var(--cut-shape); transition: --face-color 0.25s; }
+  box-shadow: var(--field-shade); clip-path: var(--cut-shape); transition: --face-color var(--motion-state); }
 .field:has(> input):hover::before { --face-color: var(--field-hover); }
 .field:has(> input:focus-visible)::before, .field.is-focused::before { --face-color: var(--field-focus); }
 .field input:focus-visible, .field.is-focused input { outline: none; border: 0; }
@@ -793,7 +793,7 @@ const FIELD_STYLES = `
 /* A hidden password's dots: the display face's are too small to count, so they're Verdana's, larger and a little apart. */
 .field input[type="password"]:not(:placeholder-shown) { font-family: Verdana, var(--body); font-size: 1.375rem; letter-spacing: 0.12em; }
 .field input:-webkit-autofill { -webkit-text-fill-color: var(--ink); transition: background-color 600000s 0s; }
-.field > .ico { position: absolute; z-index: 3; left: var(--pad-inside-words); width: 20px; height: 20px; pointer-events: none; transition: color 0.25s; }
+.field > .ico { position: absolute; z-index: 3; left: var(--pad-inside-words); width: 20px; height: 20px; pointer-events: none; transition: color var(--motion-state); }
 .field:has(:focus-visible), .field.is-focused { color: var(--ink); }
 .field > .cut-line { z-index: 4; }
 .field > .cut-line polygon { stroke: var(--field-outline); }
@@ -925,7 +925,7 @@ component({
 }
 /* Its face is a layer under its words, as a cut field's is, so its words fade at an end with more past it. */
 .find::before { content: ""; position: absolute; inset: 0; z-index: 1; pointer-events: none; --face-color: var(--field-face); background: var(--face-color);
-  box-shadow: var(--field-shade); clip-path: var(--cut-shape); transition: --face-color 0.25s; }
+  box-shadow: var(--field-shade); clip-path: var(--cut-shape); transition: --face-color var(--motion-state); }
 .find:hover::before { --face-color: var(--field-hover); }
 .find input::placeholder { color: var(--muted); }
 .find input:focus-visible, .find.is-focused input { outline: none; }
@@ -935,7 +935,7 @@ component({
 .find > .cut-line polygon { stroke: var(--field-outline); }
 .find:has(:focus-visible) > .cut-line polygon, .find.is-focused > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 .find input::-webkit-search-cancel-button { display: none; }
-.find > .ico { position: absolute; z-index: 3; left: var(--pad-inside-words); width: 20px; height: 20px; pointer-events: none; transition: color 0.25s; }
+.find > .ico { position: absolute; z-index: 3; left: var(--pad-inside-words); width: 20px; height: 20px; pointer-events: none; transition: color var(--motion-state); }
 /* Clear: only once something's typed, and then what's typed stops short of it: its width (46px) and its inset on each side. */
 .find > .cut-btn { position: absolute; z-index: 5; top: 0; bottom: 0; right: calc((var(--control-height) - 30px) / 2); align-items: center; }
 .find:has(input:placeholder-shown) > .cut-btn { display: none; }
@@ -995,13 +995,13 @@ component({
 .wheel-field legend { padding: 0 var(--pad-words); margin-bottom: var(--gap-words-control); font: var(--type-label); color: var(--ink-2); }
 .wheel-button { position: relative; display: flex; align-items: center; justify-content: space-between; gap: var(--gap-words-words); width: 100%; height: var(--control-height-field); padding: 0 var(--pad-inside-words) 0 calc(var(--pad-inside-words) + 34px); border: 0; cursor: pointer; text-align: left;
   font: 500 1.125rem var(--display); color: var(--muted); --face-color: var(--field-face); background: var(--face-color); box-shadow: var(--field-shade);
-  clip-path: var(--cut-shape); transition: --face-color 0.25s; }
+  clip-path: var(--cut-shape); transition: --face-color var(--motion-state); }
 .wheel-button:hover { --face-color: var(--field-hover); }
 .wheel-button[aria-expanded="true"], .wheel-button:focus-visible, .wheel-button.is-focused { outline: none; --face-color: var(--field-focus); }
 .wheel-button.set { color: var(--ink); font-weight: 500; }
 .wheel-button > .ico { position: absolute; left: var(--pad-inside-words); top: 50%; width: 20px; height: 20px; transform: translateY(-50%); color: var(--muted); }
 .wheel-button[aria-expanded="true"] > .ico, .wheel-button.set > .ico { color: var(--ink); }
-.wheel-chev { display: inline-flex; flex: none; margin-right: 4px; color: var(--ink); transition: transform 0.4s cubic-bezier(.2,.7,.2,1); }
+.wheel-chev { display: inline-flex; flex: none; margin-right: 4px; color: var(--ink); transition: transform var(--motion-arrive) var(--ease-glide); }
 .wheel-chev > .ico { width: 16px; height: 10px; stroke-width: 2.2; }
 /* Only the chevron turns when the picker opens; the outline and the icon stay still. */
 .wheel-button[aria-expanded="true"] .wheel-chev { transform: rotate(180deg); }
@@ -1038,7 +1038,7 @@ component({
 /* A row is as wide as it is picked, in bold (its label again, unseen and unheard, holds that width), with the room words get inside a
    control each side, so the lit slab never touches its words and the pane doesn't change size as the pick moves. */
 .wheel [role="option"] { height: var(--wheel-row); display: flex; flex-direction: column; align-items: center; justify-content: center; scroll-snap-align: start;
-  padding-inline: var(--pad-inside-words); white-space: nowrap; font: 500 1rem var(--display); color: var(--ink-2); cursor: pointer; user-select: none; -webkit-user-select: none; transition: color 0.2s, font-size 0.2s; }
+  padding-inline: var(--pad-inside-words); white-space: nowrap; font: 500 1rem var(--display); color: var(--ink-2); cursor: pointer; user-select: none; -webkit-user-select: none; transition: color var(--motion-state), font-size var(--motion-state); }
 .wheel [role="option"].blank { color: var(--muted); font-weight: 400; }
 .wheel [role="option"][aria-selected="true"] { color: var(--ink); font-weight: 600; }
 .wheel [role="option"][aria-selected="true"].blank { color: var(--muted); font-weight: 500; }

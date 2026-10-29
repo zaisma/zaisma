@@ -188,12 +188,12 @@ html.is-playing body > :is(.top, .dropdown, .backdrop, .foot, .rail) { display: 
 html.is-playing body > main { display: contents; }
 html.is-playing body > main > :not(.playing-bar, .playing-card, .playing-check, .dropdown, dialog) { display: none; }
 .game-frame { display: none; flex: 1; width: 100%; min-width: 0; min-height: 0; border: 0; background: #000; }
-html.is-playing .game-frame { display: block; animation: playing-in 0.4s cubic-bezier(.2,.8,.2,1); }
+html.is-playing .game-frame { display: block; animation: playing-in var(--motion-arrive) var(--ease-glide); }
 /* The game takes the keys while it's played: no focus ring around it. */
 .game-frame:focus-visible { outline: none; }
 @keyframes playing-in { from { opacity: 0; } }
 /* Going in: the panes and the background fade first (is-leaving), then the page turns into the game. */
-html.is-leaving body > main > :not(.playing-bar, .playing-card, .playing-check, .dropdown, dialog), html.is-leaving body > :is(.top, .backdrop, .foot, .rail) { opacity: 0; transition: var(--glass-transition), opacity 0.25s ease; }
+html.is-leaving body > main > :not(.playing-bar, .playing-card, .playing-check, .dropdown, dialog), html.is-leaving body > :is(.top, .backdrop, .foot, .rail) { opacity: 0; transition: var(--glass-transition), opacity var(--motion-state) ease; }
 @media (prefers-reduced-motion: reduce) { html.is-leaving body > * { transition: none; } }
 
 /* The bar: one slim slab of glass above the game, Zaisma's mark at its start and the game's buttons at its end. */
@@ -225,7 +225,7 @@ html.is-leaving body > main > :not(.playing-bar, .playing-card, .playing-check, 
    It comes in with a short fade and a rise and leaves with the same, shown or hidden by the page (hidden): display changes at the ends of
    the fade, so it's still there while it leaves. Under reduced motion it only fades. */
 .playing-card { position: fixed; z-index: 20; top: calc(var(--control-height-small) + 3 * var(--pad-frame)); right: var(--pad-frame); width: min(360px, calc(100vw - 2 * var(--pad-frame))); margin: 0; color: var(--ink); --glass-tint: var(--glass-dropdown);
-  transition: var(--glass-transition), opacity 0.25s ease, transform 0.3s cubic-bezier(.2,.8,.2,1), display 0.3s allow-discrete; }
+  transition: var(--glass-transition), opacity var(--motion-state) ease, transform var(--motion-arrive) var(--ease-glide), display var(--motion-arrive) allow-discrete; }
 .playing-card { transform: translate(var(--swipe-x, 0px), var(--swipe-y, 0px)); opacity: var(--swipe-opacity, 1); }
 .playing-card[hidden] { display: none; opacity: 0; transform: translate(var(--swipe-x, 0px), calc(var(--swipe-y, 0px) - 8px)); pointer-events: none; }
 @starting-style { .playing-card { opacity: 0; transform: translateY(-8px); } }
@@ -243,7 +243,7 @@ html.is-leaving body > main > :not(.playing-bar, .playing-card, .playing-check, 
 /* An urgent card: a playing card with its edge in the marked color, a popover over everything (zaismaLayers shows it last). The browser's own
    popover look is put back to the card's; it comes and goes as a card does, kept in the top layer while it leaves. Across the top on a phone. */
 .playing-card.urgent-card { inset: auto; top: calc(var(--control-height-small) + 3 * var(--pad-frame)); right: var(--pad-frame); height: auto; padding: 0; border: 0; overflow: visible;
-  transition: var(--glass-transition), opacity 0.25s ease, transform 0.3s cubic-bezier(.2,.8,.2,1), display 0.3s allow-discrete, overlay 0.3s allow-discrete; }
+  transition: var(--glass-transition), opacity var(--motion-state) ease, transform var(--motion-arrive) var(--ease-glide), display var(--motion-arrive) allow-discrete, overlay var(--motion-arrive) allow-discrete; }
 .playing-card.urgent-card:not(.in-place):not(:popover-open) { opacity: 0; transform: translateY(-8px); }
 .urgent-card > .edge :is(.rim, .hair) { stroke: var(--marked); }
 .playing-card.urgent-card.in-place { position: relative; inset: auto; }
@@ -252,7 +252,7 @@ html.is-leaving body > main > :not(.playing-bar, .playing-card, .playing-check, 
 .urgent-card-text { color: var(--ink); }
 @media (max-width: 640px) { .playing-card.urgent-card:not(.in-place) { left: var(--pad-frame); right: var(--pad-frame); width: auto; margin: 0 auto; max-width: 360px; } }
 @media (prefers-reduced-motion: reduce) {
-  .playing-card { transition: var(--glass-transition), opacity 0.2s ease, display 0.2s allow-discrete; }
+  .playing-card { transition: var(--glass-transition), opacity var(--motion-state) ease, display var(--motion-state) allow-discrete; }
   .playing-card, .playing-card[hidden] { transform: none; }
   @starting-style { .playing-card { transform: none; } }
   html.is-playing .game-frame { animation: none; }
@@ -262,7 +262,7 @@ html.is-leaving body > main > :not(.playing-bar, .playing-card, .playing-check, 
    Large, it's whole, as big as the screen allows. */
 .screenshot { position: relative; display: block; width: 100%; aspect-ratio: 16 / 9; padding: 0; border: 0; overflow: hidden; background: var(--well); box-shadow: var(--well-shade); cursor: zoom-in; clip-path: var(--cut-shape); }
 .screenshot-picture { position: absolute; inset: 2px; display: block; overflow: hidden; clip-path: var(--cut-shape); }
-.screenshot img { position: absolute; inset: 0; display: block; width: 100%; height: 100%; object-fit: cover; transition: transform 0.3s cubic-bezier(.2,.8,.2,1); }
+.screenshot img { position: absolute; inset: 0; display: block; width: 100%; height: 100%; object-fit: cover; transition: transform var(--motion-arrive) var(--ease-glide); }
 .screenshot:hover img { transform: scale(1.03); }
 .screenshot:focus-visible { outline: none; }
 .screenshot:focus-visible > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }

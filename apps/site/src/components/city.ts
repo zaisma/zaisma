@@ -2756,14 +2756,14 @@ const CITY_STYLES = `
   .city-stage .city-still.is-night { --still-tiny: url(data:image/webp;base64,UklGRnYCAABXRUJQVlA4WAoAAAAgAAAAIwAAIwAASUNDUMgBAAAAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADZWUDggiAAAAJAEAJ0BKiQAJAA+tU6fSqckoqIuKADgFolnAMM0J9dsL/7P3Kl/ivMZ2LyE4AD+9CHRns/G7/kygB9Gl13jM12iIlNP6EeopjSLQnE36e4rBA6RjLHUrCuBHzzGoRN8z+3INyi7+a6y1u9vFcWHABZ5yBBAoWb/z3DoCQHVBjqp+S90mvoKAAA=); --still-full: url(/sign-in/city-night-phone.webp); }
 }
 .city-stage.is-still .city-still { background-image: var(--still-full); filter: none; }
-.city-stage .city { opacity: 0; transform: scale(1.035); transition: opacity 1.1s ease, transform 1.6s cubic-bezier(.2,.8,.2,1); touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+.city-stage .city { opacity: 0; transform: scale(1.035); transition: opacity 1.1s ease, transform var(--motion-loop) var(--ease-glide); touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
 .city-stage .city.on { opacity: 1; transform: none; }
 /* While it settles, hidden, it draws at the faintest opacity rather than none, so the browser composites it, and the glass over it,
    as it will once it shows. */
 .city-stage .city.is-warming { opacity: 0.01; transition: none; }
 /* Its context given back while out of sight, or taken by the browser: out of sight at once (its canvas is blank), over the still or a
    snapshot of its moment (a plain canvas CITY_SCRIPT puts behind it). Made again, it fades back in quickly over that snapshot. */
-.city-stage .city.is-back { transform: none; transition: opacity .35s ease; }
+.city-stage .city.is-back { transform: none; transition: opacity var(--motion-arrive) ease; }
 .city-stage .city.is-away { opacity: 0; transition: none; }
 .city-stage .city-snapshot { position: absolute; inset: 0; width: 100%; height: 100%; display: none; }
 .city-stage.has-snapshot .city-snapshot { display: block; }

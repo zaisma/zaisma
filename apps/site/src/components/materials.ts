@@ -17,6 +17,9 @@ import { CUT_LINE, glassPane } from "./foundations.ts";
  * Each comes regular or compact (a menu, a small button, a compact sheet): compact keeps less room inside it, the same look.
  */
 export const MATERIAL_STYLES = `
+/* The tint: a game's hue (--glass-hue, set on what holds the glass) reaches every material, each at its own strength: a pane and a slab
+   as much as glass takes it, a carving half as much, so everything over a game reads as one tinted glass. */
+.carving, .slab { --carving-wash: color-mix(in srgb, var(--glass-hue) calc(var(--glass-hue-strength) / 2), transparent); --slab-wash: color-mix(in srgb, var(--glass-hue) var(--glass-hue-strength), transparent); }
 /* Thickness: one per material, wherever it's used (the tokens --glass-tray, -thin, -regular and -thick). Every glass is regular unless its
    material is another; thin is there to try. */
 .glass.thin { --glass-tint: var(--glass-thin); }
@@ -27,6 +30,19 @@ export const MATERIAL_STYLES = `
    through both, as through two real sheets, and it costs one blur less. A floating pane, sheet or notice open over the page (the top layer)
    blurs the page itself; the gallery's strips of shapes blur the shapes they hold, to show what glass does. */
 .glass .glass:not(:popover-open, :modal, .glass-strip .glass) { -webkit-backdrop-filter: none; backdrop-filter: none; }
+/* Caps and scrolls: past its cap, what's in a material scrolls inside it (the part marked scrolls), on Zaisma's rail (RAIL_SCRIPT finds it)
+   with fades at its ends, its head and foot staying put and the material itself still. Each caps at its own: a glass pane at what holds
+   it, a sheet at the screen, a floating pane at a menu's height or the room in the window, a carving at its owner's cap (--well-height, a
+   menu's height unless its owner says). Across, the rail runs under it (data-side-rail). A slab never scrolls. */
+.scrolls { position: relative; min-height: 0; overflow-y: auto; overscroll-behavior-y: contain; }
+.scrolls.own-scroll.shows-rail { padding-inline-end: calc(var(--scroll-inset, 0px) + 16px); }
+.scrolls.across { min-height: auto; overflow: auto hidden; overscroll-behavior-x: contain; scrollbar-width: none; }
+.scrolls.across::-webkit-scrollbar { display: none; }
+.glass-pane > .scrolls { --scroll-inset: var(--pad-frame); }
+.carving:has(> .scrolls:not(.across)) { align-items: stretch; max-height: var(--well-height, var(--size-menu-height)); }
+.floating-pane { max-height: min(var(--size-menu-height), var(--floating-room, calc(100dvh - 2 * var(--pad-frame)))); padding: var(--pad-frame-compact); }
+/* A carving with a control at its end (a well's Copy): what's in it stops short of the control. */
+.carving:has(> .carving-end) > .carving-words { padding-inline-end: calc(var(--control-height-small) + var(--well-inset, 8px) + var(--gap-words-words)); }
 /* A bar (the header, the gallery's bar, the footer): a strip of the same glass, as tall as what's in it and the frame gap round it, the same
    on every side, so its controls sit as far from its top and foot as from its ends; compact, the compact frame gap. */
 .glass-bar { padding: var(--pad-frame); --pad-words: var(--pad-inside-words); }
@@ -37,8 +53,8 @@ export const MATERIAL_STYLES = `
 /* A carving: the glass cut away, cut by the edge rule, its face a touch darker than the glass round it and shaded under its top edge; its
    edge lit along its foot and shaded along its top (the edge rule's bands, turned round from a slab's). What has words in it keeps them a
    field's inset from its edge. Pointed at, where it's something you use (a field), it catches the light. Deep, it's a groove or a slot. */
-.carving { position: relative; --face-color: var(--carving-face); background: var(--face-color); box-shadow: var(--carving-shade); clip-path: var(--cut-shape);
-  --pad-words: var(--pad-inside-words); transition: --face-color 0.25s; }
+.carving { position: relative; --face-color: var(--carving-face); background: linear-gradient(var(--carving-wash), var(--carving-wash)), var(--face-color); box-shadow: var(--carving-shade); clip-path: var(--cut-shape);
+  --pad-words: var(--pad-inside-words); transition: --face-color var(--motion-state); }
 .carving.compact { --pad-words: calc(var(--pad-inside-words) - 4px); }
 .carving > .cut-line { --band-top: var(--carve-top); --band-left: var(--carve-left); --band-right: var(--carve-right); --band-bottom: var(--carve-bottom); }
 .carving > .cut-line polygon { stroke: var(--carve-rim); stroke-width: 2; }
@@ -55,9 +71,9 @@ export const MATERIAL_STYLES = `
 .slab { position: relative; display: flex; align-items: center; justify-content: center; gap: var(--gap-words-words); min-width: 0;
   height: var(--control-height, var(--control-height-regular));
   padding: 0 calc(var(--slab-words, 24px) - var(--slab-shift, 0px)) 0 calc(var(--slab-words, 24px) + var(--slab-shift, 0px));
-  --face-color: var(--slab-face); background: var(--slab-sheen) var(--face-color); clip-path: var(--cut-shape);
+  --face-color: var(--slab-face); background: var(--slab-sheen), linear-gradient(var(--slab-wash), var(--slab-wash)), var(--face-color); clip-path: var(--cut-shape);
   color: var(--ink); font: 600 0.9375rem var(--display); white-space: nowrap;
-  transition: --face-color 0.2s, color 0.2s, box-shadow 0.2s; }
+  transition: --face-color var(--motion-state), color var(--motion-state), box-shadow var(--motion-state); }
 /* Its height is its holder's control height (a button's size, or a row that evens its controls out); compact and big set their room. */
 .slab.compact { --slab-words: 14px; }
 .slab-holder:has(> .slab.compact) { --control-height: var(--control-height-small); }
@@ -67,9 +83,9 @@ export const MATERIAL_STYLES = `
 .slab > .cut-line { --band-top: var(--raise-top); --band-left: var(--raise-left); --band-right: var(--raise-right); --band-bottom: var(--raise-bottom); }
 .slab > :not(.cut-line) { position: relative; z-index: 2; }
 .slab-holder { display: inline-flex; max-width: 100%; }
-:where(.shell, .slab-holder):has(> .slab) { filter: var(--slab-cast); transition: filter 0.2s; }
+:where(.shell, .slab-holder):has(> .slab) { filter: var(--slab-cast); transition: filter var(--motion-state); }
 :is(.shell:hover, .shell.is-pointed, .shell:focus-visible, .shell.is-focused) > .slab, .slab.is-pointed, .slab.is-focused { --face-color: var(--slab-face-pointed); }
-:is(.shell:active, .shell.is-pressed) > .slab, .slab.is-pressed { --face-color: var(--slab-face-pressed); box-shadow: var(--press-shade); transition-duration: 0.08s; }
+:is(.shell:active, .shell.is-pressed) > .slab, .slab.is-pressed { --face-color: var(--slab-face-pressed); box-shadow: var(--press-shade); transition-duration: var(--motion-press); }
 :is(.shell:active, .shell.is-pressed):has(> .slab), .slab-holder:has(> .slab.is-pressed) { filter: none; }
 :is(.shell:active, .shell.is-pressed) > .slab > .cut-line, .slab.is-pressed > .cut-line { --band-top: var(--carve-top); --band-left: var(--carve-left); --band-right: var(--carve-right); --band-bottom: var(--carve-bottom); }
 :is(.shell:focus-visible, .shell.is-focused) > .slab > .cut-line polygon, .slab.is-focused > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
@@ -131,6 +147,13 @@ const thicknessStrip = (theme: "light" | "dark") =>
     ([name, thickness, use]) => html`<div class="glass" data-glass data-glass-corners="pane" style="--glass-tint:var(--glass-${thickness})"><strong>${name}</strong>${use}</div>`,
   )}</div>`;
 
+/** Every material over a game's art, tinted with the game's hue, so the tint shows on each: a pane, a carving, a slab and a lit one. */
+const tintedSample = (theme: "light" | "dark") =>
+  html`<div class="glass-strip" data-theme-choice="${theme}" style="background: center / cover no-repeat url('/design/covers/neon-drift.webp'); --glass-hue: #9B4DFF">${glassPane({
+    paneWidth: "fit",
+    body: html`<h2>Neon Drift</h2>${carving({ body: html`<span class="carving-words">zaisma.com/g/neon-drift</span>` })}<div style="display:flex;gap:var(--gap-control-stack)">${slab({ body: html`Details` })}${slab({ body: html`Play`, isLit: true })}</div>`,
+  })}</div>`;
+
 component({
   name: "Thickness",
   slug: "thickness",
@@ -142,6 +165,8 @@ component({
   examples: [
     { label: "Light glass", isWide: true, markup: thicknessStrip("light") },
     { label: "Smoked glass", isWide: true, markup: thicknessStrip("dark") },
+    { label: "Over a game, light: its hue tints every material, a carving half as much", isWide: true, markup: tintedSample("light") },
+    { label: "Over a game, smoked", isWide: true, markup: tintedSample("dark") },
   ],
 });
 

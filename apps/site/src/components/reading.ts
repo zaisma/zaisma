@@ -281,14 +281,14 @@ component({
 .folded { min-width: 0; }
 /* It's words, keeping the pane's margin at its edges (layout.ts's edge words), and a control's height to press. */
 .folded-head { display: flex; align-items: center; gap: var(--gap-words-words); min-height: var(--control-height-regular); padding-inline: var(--pad-words); cursor: pointer; list-style: none;
-  font: var(--type-label); color: var(--ink-2); transition: color 0.15s; -webkit-tap-highlight-color: transparent; }
+  font: var(--type-label); color: var(--ink-2); transition: color var(--motion-state); -webkit-tap-highlight-color: transparent; }
 .folded-head::-webkit-details-marker { display: none; }
 /* Pointed at, its words darken and its chevron steps on, the way a tertiary button's arrow does. */
 .folded-head:hover { color: var(--ink); }
 .folded-head:hover .folded-chevron { transform: translateX(2px); }
 .folded[open] > .folded-head:hover .folded-chevron { transform: rotate(90deg) translateX(2px); }
 .folded-head:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
-.folded-chevron { display: flex; color: var(--muted); transition: transform 0.3s var(--spring); }
+.folded-chevron { display: flex; color: var(--muted); transition: transform var(--motion-arrive) var(--spring); }
 .folded-chevron > .ico { width: 8px; height: 13px; }
 .folded[open] > .folded-head .folded-chevron { transform: rotate(90deg); }
 .folded-body { padding-top: var(--gap-block-block); }
@@ -317,7 +317,7 @@ component({
 .fold-row-head::-webkit-details-marker { display: none; }
 .fold-row-title { font: var(--type-label); color: var(--ink); overflow-wrap: anywhere; }
 .fold-row-detail { font: var(--type-words); color: var(--ink-2); }
-.fold-row-chevron { display: flex; align-self: center; color: var(--muted); transition: transform 0.3s var(--spring); }
+.fold-row-chevron { display: flex; align-self: center; color: var(--muted); transition: transform var(--motion-arrive) var(--spring); }
 .fold-row-chevron > .ico { width: 8px; height: 13px; }
 /* Pointed at, its title darkens and its chevron steps on, the way a folded part's does. */
 .fold-row-head:hover .fold-row-chevron { transform: translateX(2px); }

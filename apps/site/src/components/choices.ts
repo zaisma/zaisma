@@ -81,7 +81,7 @@ const LONG_STYLES = `
 .field.long textarea { position: relative; z-index: 2; display: block; flex: 1; min-width: 0; width: var(--size-reading); max-width: 100%; padding: 14px var(--pad-inside-words); resize: none; overflow-y: auto;
   font: 400 1rem/1.5 var(--body); color: var(--ink); caret-color: var(--run-lo);
   --face-color: var(--field-face); background: var(--face-color); border: 0; border-radius: 0; box-shadow: var(--field-shade);
-  clip-path: var(--cut-shape); transition: --face-color 0.25s; }
+  clip-path: var(--cut-shape); transition: --face-color var(--motion-state); }
 .field.long:not(.is-disabled):hover textarea { --face-color: var(--field-hover); }
 .field.long textarea:focus-visible, .field.long.is-focused textarea { outline: none; --face-color: var(--field-focus); }
 .field.long textarea::placeholder { color: var(--muted); }
@@ -295,7 +295,7 @@ component({
    catches the light, with no line (one under it would read as one over the next), and the picked one has a tick at its end. */
 .select-button { position: relative; z-index: 2; flex: 1; min-width: 0; width: 100%; height: 100%; padding: 0 calc(var(--pad-inside-words) + 24px) 0 calc(var(--pad-inside-words) + 34px); border: 0; border-radius: 0; cursor: pointer; text-align: left;
   font: 500 1rem var(--display); color: var(--ink);
-  --face-color: var(--field-face); background: var(--face-color); box-shadow: var(--field-shade); clip-path: var(--cut-shape); transition: --face-color 0.25s; }
+  --face-color: var(--field-face); background: var(--face-color); box-shadow: var(--field-shade); clip-path: var(--cut-shape); transition: --face-color var(--motion-state); }
 .field.select.no-icon .select-button { padding-left: var(--pad-inside-words); }
 .select-value { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .select-value.is-placeholder { color: var(--muted); }
@@ -306,7 +306,7 @@ component({
 .field.select:not(.is-disabled):hover .select-button { --face-color: var(--field-hover); }
 .select-button:focus-visible, .field.select.is-focused .select-button, .field.select.is-open .select-button { outline: none; --face-color: var(--field-focus); }
 .field.select:has(:focus-visible) > .cut-line polygon, .field.select.is-focused > .cut-line polygon, .field.select.is-open > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
-.select-chev { position: absolute; z-index: 3; right: var(--pad-inside-words); display: inline-flex; color: var(--ink); pointer-events: none; transition: transform 0.4s cubic-bezier(.2,.7,.2,1); }
+.select-chev { position: absolute; z-index: 3; right: var(--pad-inside-words); display: inline-flex; color: var(--ink); pointer-events: none; transition: transform var(--motion-arrive) var(--ease-glide); }
 .select-chev > .ico { position: static; width: 16px; height: 10px; stroke-width: 2.2; }
 .field.select.is-open .select-chev { transform: rotate(180deg); }
 /* Can't be changed now: flat in the glass, its pick and chevron quieter, and nothing changes as you point at it. */
@@ -316,7 +316,7 @@ component({
    well's slabs, so their words start where the field's do. */
 .select-options { display: flex; flex-direction: column; gap: 2px; outline: none; }
 .select-option { position: relative; display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 8px calc(var(--pad-inside-words) - 4px) 11px; cursor: pointer; flex: none;
-  font: var(--type-words); color: var(--ink-2); text-wrap: pretty; --face-color: transparent; background: var(--face-color); clip-path: var(--cut-shape); transition: --face-color 0.15s, color 0.15s; }
+  font: var(--type-words); color: var(--ink-2); text-wrap: pretty; --face-color: transparent; background: var(--face-color); clip-path: var(--cut-shape); transition: --face-color var(--motion-state), color var(--motion-state); }
 /* Beside an icon, the field's words start after it, and so do its choices'. */
 .select-list.after-icon .select-option { padding-inline-start: calc(var(--pad-inside-words) + 30px); }
 /* Over the field, its rows are slimmer: the list is about the choices, not a second field. */
@@ -328,7 +328,7 @@ component({
    above and shaded below. Nothing moves until it's pressed: then it carves into the list's glass, like every press. */
 .select-option.is-active { color: var(--ink); --face-color: var(--field-hover); }
 .select-option.is-active > .cut-line { --band-top: var(--raise-top); --band-left: var(--raise-left); --band-right: var(--raise-right); --band-bottom: var(--raise-bottom); }
-.select-option:active { --face-color: var(--well); box-shadow: var(--press-shade); transition-duration: 0.08s; }
+.select-option:active { --face-color: var(--well); box-shadow: var(--press-shade); transition-duration: var(--motion-press); }
 .select-option:active > .cut-line { --band-top: var(--carve-top); --band-left: var(--carve-left); --band-right: var(--carve-right); --band-bottom: var(--carve-bottom); }
 /* The pick: its words in full ink and a tick at its end, so it shows wherever the slab is. */
 .select-option[aria-selected="true"] { color: var(--ink); }
@@ -449,25 +449,25 @@ ${TOUCH_ROOM(".check")}
 /* The socket itself is cut to the box's shape; its edges and ring are drawn over it, unclipped, so the ring can sit outside. */
 .check-well { position: absolute; inset: 0; background: var(--field-face); clip-path: var(--cut-shape); }
 /* The socket's shade lies over whatever is in it, so a piece below the face is in its shadow. */
-.check-well::after { content: ""; position: absolute; inset: 0; z-index: 1; box-shadow: var(--field-shade); pointer-events: none; transition: box-shadow 0.08s, opacity 0.12s; }
+.check-well::after { content: ""; position: absolute; inset: 0; z-index: 1; box-shadow: var(--field-shade); pointer-events: none; transition: box-shadow var(--motion-press), opacity var(--motion-state); }
 .check-input { position: absolute; inset: 0; z-index: 3; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
 .check-piece { position: absolute; inset: 0; display: grid; place-items: center; background: var(--run); color: var(--on-run); overflow: hidden;
-  transform: translateY(105%); transition: transform 0.38s cubic-bezier(.4,0,.2,1); }
+  transform: translateY(105%); transition: transform var(--motion-arrive) var(--ease-standard); }
 .check-piece > .ico { width: 16px; height: 16px; stroke-width: 2.4; }
 /* Pointed: an empty socket's piece rises a little into view, still under the carving, ready; a ticked piece's face catches a glint
    of light that runs across it once. */
 .check-piece::before { content: ""; position: absolute; inset: 0; background: linear-gradient(115deg, transparent 30%, rgba(255,255,255,0.55) 50%, transparent 70%); opacity: 0; transform: translateX(-110%); pointer-events: none; }
 .check:not(.is-disabled):hover .check-box:not(:has(.check-input:checked)) .check-piece, .check.is-pointed .check-box:not(:has(.check-input:checked)) .check-piece { transform: translateY(80%); }
-.check:not(.is-disabled):not(.is-just-ticked):hover .check-box:has(.check-input:checked) .check-piece::before, .check.is-pointed .check-box:has(.check-input:checked) .check-piece::before { opacity: 1; transform: translateX(110%); transition: transform 0.7s cubic-bezier(.4,0,.2,1); }
+.check:not(.is-disabled):not(.is-just-ticked):hover .check-box:has(.check-input:checked) .check-piece::before, .check.is-pointed .check-box:has(.check-input:checked) .check-piece::before { opacity: 1; transform: translateX(110%); transition: transform var(--motion-settle) var(--ease-standard); }
 /* Ticked: the piece seats flush, then rises out of the carving: the shade lifts off it and its own edges take the light. */
 .check-box:has(.check-input:checked) .check-piece { transform: translateY(0); }
-.check-box:has(.check-input:checked) .check-well::after { opacity: 0; transition-delay: 0.3s; }
+.check-box:has(.check-input:checked) .check-well::after { opacity: 0; transition-delay: var(--motion-arrive); }
 .check-box:has(.check-input:checked) > .cut-line { --band-top: rgba(255,240,214,0.85); --band-left: rgba(255,226,180,0.55); --band-right: rgba(150,72,0,0.32); --band-bottom: rgba(130,60,0,0.55); }
-.check-box:has(.check-input:checked) > .cut-line .cut-band { transition-delay: 0.3s; }
+.check-box:has(.check-input:checked) > .cut-line .cut-band { transition-delay: var(--motion-arrive); }
 .check-box:has(.check-input:checked) > .cut-line polygon { stroke: transparent; }
 /* Pressed: an empty socket deepens; a ticked piece is pushed back down under the carving, in its shade again. */
 .check:not(.is-disabled):active .check-box .check-well::after, .check.is-pressed .check-box .check-well::after { box-shadow: var(--press-shade); }
-.check:not(.is-disabled):active .check-box:has(.check-input:checked) .check-piece, .check.is-pressed .check-box:has(.check-input:checked) .check-piece { transform: translateY(2px); transition-duration: 0.08s; }
+.check:not(.is-disabled):active .check-box:has(.check-input:checked) .check-piece, .check.is-pressed .check-box:has(.check-input:checked) .check-piece { transform: translateY(2px); transition-duration: var(--motion-press); }
 .check:not(.is-disabled):active .check-box:has(.check-input:checked) .check-well::after, .check.is-pressed .check-box:has(.check-input:checked) .check-well::after { opacity: 1; transition-delay: 0s; }
 .check:not(.is-disabled):active .check-box:has(.check-input:checked) > .cut-line, .check.is-pressed .check-box:has(.check-input:checked) > .cut-line { --band-top: var(--carve-top); --band-left: var(--carve-left); --band-right: var(--carve-right); --band-bottom: var(--carve-bottom); }
 .check:not(.is-disabled):active .check-box:has(.check-input:checked) > .cut-line .cut-band, .check.is-pressed .check-box:has(.check-input:checked) > .cut-line .cut-band { transition-delay: 0s; }
@@ -588,13 +588,13 @@ component({
 .choice-cards > .choice-card:not(:last-child) { margin-inline-end: max(var(--gap-control-row-boxes), min(0px, (var(--choice-row-least) - 100%) * 999)); }
 .choice-card { position: relative; display: flex; align-items: flex-start; gap: var(--gap-words-words); min-height: 44px; padding: 14px var(--pad-inside-words); cursor: pointer; -webkit-tap-highlight-color: transparent;
   color: var(--muted); --face-color: var(--well); background: var(--face-color); box-shadow: var(--well-shade); clip-path: var(--cut-shape);
-  --pick-light: var(--run); --pick-flood: var(--run-flood); transition: box-shadow 0.25s cubic-bezier(.4,0,.2,1), color 0.2s; }
+  --pick-light: var(--run); --pick-flood: var(--run-flood); transition: box-shadow var(--motion-state) var(--ease-standard), color var(--motion-state); }
 /* A card with a line on what it means has room for it; one with only its name (an amount) is as tall as its name, never taller than its content. */
 .choice-card:has(.choice-text) { min-height: 76px; }
 .choice-card > :not(.cut-line):not(.choice-input):not(.edge-light) { position: relative; z-index: 2; }
 .choice-input { position: absolute; inset: 0; z-index: 3; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
 .choice-card > .ico { flex: none; margin-top: 1px; color: var(--muted); }
-.choice-card > .ico, .choice-card > .choice-words { transition: transform 0.3s cubic-bezier(.4,0,.2,1); }
+.choice-card > .ico, .choice-card > .choice-words { transition: transform var(--motion-arrive) var(--ease-standard); }
 /* What's on a card goes up and down with it, as a page can show depth: down a pixel in its carving, up a pixel when it rises as the
    picked slab, and down further while a press sinks it. */
 .choice-card > :is(.ico, .choice-words) { transform: translateY(1px); }
@@ -604,24 +604,24 @@ component({
 .choice-text { font: var(--type-note); color: var(--muted); }
 .choices:not(.is-disabled) .choice-card:hover, .choice-card.is-pointed { color: var(--ink-2); }
 /* Pressed: it sinks, quickly, its carving deep and shaded from above and its words a pixel down; let go, it eases back. */
-.choices:not(.is-disabled) .choice-card:active, .choice-card.is-pressed { box-shadow: var(--press-deep); color: var(--ink-2); transition-duration: 0.08s; }
-.choices:not(.is-disabled) .choice-card:active > :is(.ico, .choice-words), .choice-card.is-pressed > :is(.ico, .choice-words), .choice-card.is-pressed:has(.choice-input:checked) > :is(.ico, .choice-words) { transform: translateY(2px); transition-duration: 0.08s; }
+.choices:not(.is-disabled) .choice-card:active, .choice-card.is-pressed { box-shadow: var(--press-deep); color: var(--ink-2); transition-duration: var(--motion-press); }
+.choices:not(.is-disabled) .choice-card:active > :is(.ico, .choice-words), .choice-card.is-pressed > :is(.ico, .choice-words), .choice-card.is-pressed:has(.choice-input:checked) > :is(.ico, .choice-words) { transform: translateY(2px); transition-duration: var(--motion-press); }
 /* Picked: the slab rises out of the carving, its face coming up over the carved one, its light turned the other way. */
-.choice-card::before { content: ""; position: absolute; inset: 0; background: var(--slab); opacity: 0; pointer-events: none; transition: opacity 0.3s cubic-bezier(.4,0,.2,1), box-shadow 0.25s cubic-bezier(.4,0,.2,1); }
+.choice-card::before { content: ""; position: absolute; inset: 0; background: var(--slab); opacity: 0; pointer-events: none; transition: opacity var(--motion-arrive) var(--ease-standard), box-shadow var(--motion-state) var(--ease-standard); }
 /* Its card keeps no shade of its own (the slab's face is over it), and none an outer one: the press's inner shade and dim then ease out
    under the rising slab as you let go, instead of vanishing at once, as an inner shade can't ease into an outer one. */
 .choice-card:has(.choice-input:checked) { box-shadow: none; color: var(--ink); }
 .choice-card:has(.choice-input:checked)::before { opacity: 1; }
 /* Its orange is light inside the glass along the edge that leads: a bright line at the edge, flooding a little way in and fading out. */
 /* One light whichever way it runs: the same line and the same reach, along the foot or down the start. */
-.choice-card::after { content: ""; position: absolute; z-index: 2; left: 0; right: 0; bottom: 0; height: 18px; pointer-events: none; opacity: 0; transition: opacity 0.35s cubic-bezier(.4,0,.2,1);
+.choice-card::after { content: ""; position: absolute; z-index: 2; left: 0; right: 0; bottom: 0; height: 18px; pointer-events: none; opacity: 0; transition: opacity var(--motion-arrive) var(--ease-standard);
   --pick-light-run: to top; background: linear-gradient(var(--pick-light-run), var(--pick-light) 0, var(--pick-light) 2.5px, var(--pick-flood) 3.5px, transparent 100%); }
 .choice-cards.is-stacked > .choice-card::after, .choice-well .choice-card::after { top: 0; right: auto; width: 18px; height: auto; --pick-light-run: to right; }
 .choice-card:has(.choice-input:checked)::after { opacity: 1; }
 .choice-card:has(.choice-input:checked) .choice-label, .choice-card:has(.choice-input:checked) > .ico { color: var(--ink); }
 .choice-card:has(.choice-input:checked) .choice-text { color: var(--ink-2); }
 /* Pressing the picked one sinks it too: its slab goes down into the glass, shaded from above with its light turned round, its orange staying. */
-.choices:not(.is-disabled) .choice-card:has(.choice-input:checked):active::before, .choice-card.is-pressed:has(.choice-input:checked)::before { box-shadow: var(--press-deep); transition-duration: 0.08s; }
+.choices:not(.is-disabled) .choice-card:has(.choice-input:checked):active::before, .choice-card.is-pressed:has(.choice-input:checked)::before { box-shadow: var(--press-deep); transition-duration: var(--motion-press); }
 /* Marked wrong: every card's outline in amber, and what's wrong said under them. */
 .choices.is-marked .choice-card > .cut-line polygon, .choices.is-marked .choice-well > .cut-line polygon { stroke: var(--marked); stroke-width: var(--focus-stroke); }
 /* None can be picked now: flat and quieter, and no orange, since there's nothing to do: the pick's light is grey. */
@@ -697,17 +697,17 @@ ${TOUCH_ROOM(".toggle")}
 .toggle-words { display: grid; gap: var(--gap-words-words); min-width: 0; padding-inline-start: var(--pad-words); }
 .toggle-label { font: var(--type-words); color: var(--ink); }
 .toggle-hint { font: var(--type-note); color: var(--muted); }
-.toggle-slot { position: relative; flex: none; width: 56px; height: 32px; --face-color: var(--toggle-off); background: var(--face-color); box-shadow: var(--well-shade), inset 0 2px 4px rgba(10,16,28,0.18); clip-path: var(--cut-shape); transition: --face-color 0.3s; }
+.toggle-slot { position: relative; flex: none; width: 56px; height: 32px; --face-color: var(--toggle-off); background: var(--face-color); box-shadow: var(--well-shade), inset 0 2px 4px rgba(10,16,28,0.18); clip-path: var(--cut-shape); transition: --face-color var(--motion-arrive); }
 /* Off, it's carved into the glass, its edges lit and shaded like every carving; on, its orange is its edge. */
 .toggle-slot:has(.toggle-input:checked) > .cut-line polygon { stroke: transparent; }
 .toggle-input { position: absolute; inset: 0; z-index: 4; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
 /* The slab casts a shadow onto the slot it rests in: the shadow is the holder's, so it follows the slab's cut. */
 .toggle-thumb { position: absolute; z-index: 2; left: 4px; top: 4px; width: 24px; height: 24px; filter: var(--thumb-cast);
-  transition: transform 0.4s var(--spring), filter 0.2s; }
+  transition: transform var(--motion-arrive) var(--spring), filter var(--motion-state); }
 /* The slab is solid and lit from above, so the orange behind it never tints it. */
-.toggle-slab { position: relative; display: grid; place-items: center; width: 100%; height: 100%; color: var(--ink-2); background: var(--thumb-face); clip-path: var(--cut-shape); transition: box-shadow 0.12s; }
+.toggle-slab { position: relative; display: grid; place-items: center; width: 100%; height: 100%; color: var(--ink-2); background: var(--thumb-face); clip-path: var(--cut-shape); transition: box-shadow var(--motion-state); }
 /* Its pressed face: a shade from above that fades in and out with the press. */
-.toggle-slab::after { content: ""; position: absolute; inset: 0; background: var(--thumb-press-face); opacity: 0; transition: opacity 0.12s; }
+.toggle-slab::after { content: ""; position: absolute; inset: 0; background: var(--thumb-press-face); opacity: 0; transition: opacity var(--motion-state); }
 /* Saving: the loader on the slab, in the slab's own dark words (it's white on either glass), until the change is saved. */
 .toggle-slab > .loader { --loader-width: 14px; position: relative; z-index: 2; color: #3D444E; }
 .toggle:not(:has(.toggle-input[aria-busy="true"])) .toggle-slab > .loader { display: none; }
@@ -716,9 +716,9 @@ ${TOUCH_ROOM(".toggle")}
 .toggle-slot:has(.toggle-input:checked) > .toggle-thumb { transform: translateX(24px); }
 .toggle:not(.is-disabled):hover .toggle-thumb, .toggle.is-pointed .toggle-thumb { filter: var(--thumb-cast-pointed); }
 /* Pressed: the slab is pushed down into the slot, its size kept (glass doesn't shrink), its shadow drawn in close and its face shaded from above. */
-.toggle:not(.is-disabled):active .toggle-thumb, .toggle.is-pressed .toggle-thumb { filter: var(--thumb-cast-pressed); transition-duration: 0.4s, 0.08s; }
+.toggle:not(.is-disabled):active .toggle-thumb, .toggle.is-pressed .toggle-thumb { filter: var(--thumb-cast-pressed); transition-duration: var(--motion-arrive), var(--motion-press); }
 .toggle:not(.is-disabled):active .toggle-slab, .toggle.is-pressed .toggle-slab { box-shadow: var(--thumb-press-shade); }
-.toggle:not(.is-disabled):active .toggle-slab::after, .toggle.is-pressed .toggle-slab::after { opacity: 1; transition-duration: 0.08s; }
+.toggle:not(.is-disabled):active .toggle-slab::after, .toggle.is-pressed .toggle-slab::after { opacity: 1; transition-duration: var(--motion-press); }
 /* Can't be changed now: the slot flat, the words quieter, and no orange, since there's nothing to do: on, the slot is filled in the grey of
    an edge (--press-rim), which the white slab stands out from in either glass. */
 .toggle.is-disabled, .toggle.is-disabled .toggle-input { cursor: default; }

@@ -421,7 +421,7 @@ const DROPDOWN_STYLES = `
 .dropdown-form { margin: 0; }
 .dropdown-choice { --control-height: var(--control-height-small); position: relative; display: flex; align-items: center; gap: var(--gap-words-words); width: 100%; height: var(--control-height); padding: 0 var(--pad-inside-words); margin: 0; border: 0; cursor: pointer;
   font: var(--type-words); color: var(--ink-2); text-align: left; text-decoration: none; white-space: nowrap;
-  --face-color: transparent; background: var(--face-color); clip-path: var(--cut-shape); transition: --face-color 0.15s, color 0.15s; }
+  --face-color: transparent; background: var(--face-color); clip-path: var(--cut-shape); transition: --face-color var(--motion-state), color var(--motion-state); }
 @media (pointer: coarse) { .dropdown-choice { --control-height: var(--control-height-regular); } }
 .dropdown-choice > :not(.cut-line) { position: relative; z-index: 2; }
 .dropdown-choice > span:not(.tag) { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
@@ -452,10 +452,9 @@ const PANE_STYLES = `
 .glass-pane { position: relative; }
 /* Long content scrolls inside it, on Zaisma's own rail (RAIL_SCRIPT gives any box that scrolls one). It pads at the frame gap: what has an
    edge of its own sits there, and its words keep the pane's margin, --pad-words further in (tokens.ts sets both, once). */
-.glass-pane > .pane-in { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: var(--gap-block-block); }
+.glass-pane > .pane-in { flex: 1; display: flex; flex-direction: column; gap: var(--gap-block-block); }
 /* With its rail showing, the pane keeps room for it along its right edge, so the rail never sits against what's in it; while nothing
    scrolls the rail is hidden and the pane keeps the frame gap, so what sits in its corner still takes the corner's cut. */
-.glass-pane > .pane-in.own-scroll.shows-rail { padding-right: calc(var(--pad-frame) + 16px); }
 /* Nothing in the pane shrinks when its content is long: it scrolls instead. */
 .glass-pane > .pane-in > * { flex-shrink: 0; }
 /* A form in a pane stacks what it holds as the pane does, and so does any group of blocks in it (pane-stack: a step that shows or hides). */
@@ -490,11 +489,11 @@ const COVER_STYLES = `
    and stays under the game in the pane. Leaving, it runs on out to the right, quicker than it came, as if it moved on to the next cover. */
 .cover-bar { position: relative; display: block; height: 4px; margin-top: 6px; overflow: hidden; clip-path: polygon(4px 0, 100% 0, calc(100% - 4px) 100%, 0 100%);
   background: linear-gradient(90deg, #E9820C, var(--run) 40%, #FFB54D);
-  transform: scaleX(0); transform-origin: right; transition: transform 0.22s cubic-bezier(.4,0,1,1); }
+  transform: scaleX(0); transform-origin: right; transition: transform var(--motion-state) var(--ease-leave); }
 .cover-bar::after { content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 38%; opacity: 0;
   background: linear-gradient(90deg, rgba(255,255,255,0), rgba(255,246,228,0.95) 70%, rgba(255,255,255,0)); }
-.cover:hover .cover-bar, .cover.is-pointed .cover-bar, .cover[aria-current="true"] .cover-bar, .cover-art:focus-visible + .cover-bar { transform: scaleX(1); transform-origin: left; transition: transform 0.42s cubic-bezier(.2,.8,.2,1); }
-.cover:hover .cover-bar::after, .cover.is-pointed .cover-bar::after, .cover[aria-current="true"] .cover-bar::after, .cover-art:focus-visible + .cover-bar::after { animation: cover-glint 0.7s cubic-bezier(.3,.6,.3,1) both; }
+.cover:hover .cover-bar, .cover.is-pointed .cover-bar, .cover[aria-current="true"] .cover-bar, .cover-art:focus-visible + .cover-bar { transform: scaleX(1); transform-origin: left; transition: transform var(--motion-arrive) var(--ease-glide); }
+.cover:hover .cover-bar::after, .cover.is-pointed .cover-bar::after, .cover[aria-current="true"] .cover-bar::after, .cover-art:focus-visible + .cover-bar::after { animation: cover-glint var(--motion-settle) var(--ease-glide) both; }
 @keyframes cover-glint { 0% { transform: translateX(-100%); opacity: 1; } 75% { opacity: 1; } 100% { transform: translateX(270%); opacity: 0; } }
 /* Under a cover: what concerns you on the left (when you played, an update, friends), players now on the right. */
 /* Where they can't share a line, players now goes on to the next, never cut short. */
@@ -644,14 +643,14 @@ component({
    at the carving's very edge or covers its lip, so it never reads fuller than it is. With no end known, a short light runs along it, inside it. */
 .groove { position: relative; display: block; height: 8px; }
 .groove::before { content: ""; position: absolute; inset: 0; background: var(--toggle-off); box-shadow: inset 0 3px 3px var(--groove-shade), inset 0 -1.5px 0 var(--groove-lip); clip-path: var(--cut-shape); }
-.groove-fill { position: absolute; z-index: 2; top: 2px; bottom: 2px; left: 2px; width: max(0px, calc(var(--groove-filled-length, calc(var(--groove-filled, 0) * 100%)) - 2px)); max-width: calc(100% - 4px); filter: drop-shadow(0 0 1.5px var(--run)); transition: width 0.3s ease; }
+.groove-fill { position: absolute; z-index: 2; top: 2px; bottom: 2px; left: 2px; width: max(0px, calc(var(--groove-filled-length, calc(var(--groove-filled, 0) * 100%)) - 2px)); max-width: calc(100% - 4px); filter: drop-shadow(0 0 1.5px var(--run)); transition: width var(--motion-arrive) ease; }
 .groove-light { position: absolute; inset: 0; background: linear-gradient(180deg, var(--run-hi), var(--run)); clip-path: var(--cut-shape); }
 /* Still going: a glint of light runs along the orange, inside it, over and over. */
 .groove.is-working .groove-light { overflow: hidden; }
-.groove.is-working .groove-light::after { content: ""; position: absolute; top: 0; bottom: 0; left: -48px; width: 48px; background: linear-gradient(90deg, rgba(255,255,255,0), rgba(255,255,255,0.7) 50%, rgba(255,255,255,0)); animation: groove-glint 1.6s cubic-bezier(.4,0,.2,1) infinite; }
+.groove.is-working .groove-light::after { content: ""; position: absolute; top: 0; bottom: 0; left: -48px; width: 48px; background: linear-gradient(90deg, rgba(255,255,255,0), rgba(255,255,255,0.7) 50%, rgba(255,255,255,0)); animation: groove-glint var(--motion-loop) var(--ease-standard) infinite; }
 @keyframes groove-glint { from { left: -48px; } to { left: 100%; } }
 .groove.is-running { clip-path: var(--cut-shape); }
-.groove.is-running .groove-fill { width: 30%; animation: groove-run 1.4s ease-in-out infinite; }
+.groove.is-running .groove-fill { width: 30%; animation: groove-run var(--motion-loop) ease-in-out infinite; }
 @keyframes groove-run { from { transform: translateX(-100%); } to { transform: translateX(340%); } }
 @media (prefers-reduced-motion: reduce) { .groove-fill { transition: none; } .groove.is-running .groove-fill { animation: none; width: 100%; opacity: 0.5; } .groove.is-working .groove-light::after { animation: none; display: none; } }
 `,
@@ -681,8 +680,8 @@ component({
 @property --light-span { syntax: "<length>"; inherits: true; initial-value: 0px; }
 /* It follows the pointer closely as it glides (0.2s, easing out), and comes and goes more slowly (0.45s). Its flood reaches past the
    part it lights, so it's cut off at its holder's edge: a clip only hides it, and the pane round it would still get more to scroll. */
-.edge-light { position: absolute; inset: 0; overflow: hidden; pointer-events: none; clip-path: var(--cut-shape); transition: --light-at 0.2s cubic-bezier(.2, .8, .2, 1), --light-span 0.2s cubic-bezier(.2, .8, .2, 1); }
-.edge-light::before, .edge-light::after { content: ""; position: absolute; opacity: 0; transition: opacity 0.45s cubic-bezier(.4, 0, .2, 1); }
+.edge-light { position: absolute; inset: 0; overflow: hidden; pointer-events: none; clip-path: var(--cut-shape); transition: --light-at var(--motion-state) var(--ease-glide), --light-span var(--motion-state) var(--ease-glide); }
+.edge-light::before, .edge-light::after { content: ""; position: absolute; opacity: 0; transition: opacity var(--motion-glide) var(--ease-standard); }
 .edge-light::before { inset: 0; }
 [data-edge-light="bottom"] > .edge-light::before { box-shadow: inset 0 -1.5px 0 var(--edge-wake); }
 [data-edge-light="left"] > .edge-light::before { box-shadow: inset 1.5px 0 0 var(--edge-wake); }
@@ -712,23 +711,12 @@ component({
 /* A well: carved into the glass, a field's height at least, lit and shaded at its edges like every carving and cut by the edge rule. What's
    in it keeps a field's inset (--pad-inside-words); an end control sits as far in from its end as from its top (--well-inset), over the
    well, and what's in it stops short of it. Keyboard focus on what's in it is the cut stroke round the well. */
-.well { --well-inset: calc((var(--control-height-field) - var(--control-height-small)) / 2); position: relative; display: flex; align-items: center; min-width: 0; min-height: var(--control-height-field);
-  color: var(--ink); background: var(--well); box-shadow: var(--well-shade); clip-path: var(--cut-shape); }
-.well > .well-body { position: relative; z-index: 2; flex: 1; min-width: 0; padding: 14px var(--pad-inside-words); font: var(--type-words); }
-.well:has(> .well-end) > .well-body { padding-inline-end: calc(var(--control-height-small) + var(--well-inset) + var(--gap-words-words)); }
+/* It's a carving (materials.ts): its look, its words' inset, its focus ring and its scrolling are the carving's. */
+.well { --well-inset: calc((var(--control-height-field) - var(--control-height-small)) / 2); display: flex; align-items: center; min-width: 0; min-height: var(--control-height-field); color: var(--ink); }
+.well > .well-body { flex: 1; min-width: 0; }
 .well > .well-end { position: absolute; z-index: 3; top: var(--well-inset); right: var(--well-inset); display: flex; }
 .well-end-note { position: absolute; inset: 0; display: none; place-items: center; pointer-events: none; color: var(--ink); }
 .well > .cut-line { z-index: 4; pointer-events: none; }
-/* A control held in it (a choice card, a switch's tab) draws its own ring; what isn't a control (a link, the scrolling body) is ringed round the well. */
-.well:has(> .well-body:focus-visible, > .well-body > :focus-visible) > .cut-line polygon, .well.is-focused > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
-/* Scrolling: what's in it scrolls inside it while the well itself stays still (a carving never moves or fades), and what's in it fades at
-   its ends. Down, it's never taller than a menu (or its owner's --well-height), and with a mouse it scrolls on Zaisma's rail inside its
-   right edge, what's in it keeping clear of it; across, the rail runs under the well (data-side-rail). */
-.well.scrolls-down { align-items: stretch; max-height: var(--well-height, var(--size-menu-height)); }
-.well.scrolls-down > .well-body { overflow-y: auto; overscroll-behavior-y: contain; }
-.well.scrolls-down > .well-body.own-scroll.shows-rail { padding-right: 18px; }
-.well.scrolls-across > .well-body { overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; }
-.well.scrolls-across > .well-body::-webkit-scrollbar { display: none; }
 `,
   render: well,
   examples: [
@@ -760,18 +748,16 @@ component({
 /* A floating pane: the menus' glass, out of the page's flow in the top layer (a popover), placed by zaismaFloat over everything, at its
    anchor. Closed, it takes no room and no presses: it fades toward its anchor, then goes. Under, it slides from its anchor (from above it,
    is-above); over, it opens out of it, from a touch smaller. Riding the page (is-on-page), it's placed in the page's coordinates. */
-.floating-pane { position: fixed; inset: auto; margin: 0; padding: 4px; border: 0; color: var(--ink); display: flex; flex-direction: column; max-width: calc(100vw - 2 * var(--pad-frame)); --glass-tint: var(--glass-dropdown);
-  transition: var(--glass-transition), opacity 0.2s, transform 0.3s cubic-bezier(.2,.8,.2,1), overlay 0.3s allow-discrete, display 0.3s allow-discrete; }
+.floating-pane { position: fixed; inset: auto; margin: 0; border: 0; color: var(--ink); display: flex; flex-direction: column; max-width: calc(100vw - 2 * var(--pad-frame)); --glass-tint: var(--glass-dropdown);
+  transition: var(--glass-transition), opacity var(--motion-state), transform var(--motion-arrive) var(--ease-glide), overlay var(--motion-arrive) allow-discrete, display var(--motion-arrive) allow-discrete; }
 .floating-pane.is-on-page { position: absolute; }
 /* No taller than a menu, or the room in the window (--floating-room, zaismaFloat's place): past that its body scrolls inside it, where the
    rail and scroll fades find it, its head and its glass's edge staying put. What's in its body keeps its height as it scrolls. */
-.floating-pane { max-height: min(var(--size-menu-height), var(--floating-room, calc(100dvh - 2 * var(--pad-frame)))); }
 .floating-head { flex: none; }
-.floating-body { position: relative; flex: 0 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; display: flex; flex-direction: column; }
+.floating-body { flex: 0 1 auto; display: flex; flex-direction: column; }
 .floating-body > * { flex: none; }
-.floating-body.own-scroll.shows-rail { padding-right: 18px; }
 /* A browser that can't keep it in the top layer while it fades (Safari) would let it fall under what follows it on the page: it goes at once. */
-@supports not (overlay: auto) { .floating-pane { transition: var(--glass-transition), opacity 0.2s, transform 0.3s cubic-bezier(.2,.8,.2,1); } }
+@supports not (overlay: auto) { .floating-pane { transition: var(--glass-transition), opacity var(--motion-state), transform var(--motion-arrive) var(--ease-glide); } }
 .floating-pane:not(:popover-open):not(.in-place) { display: none; opacity: 0; transform: translateY(-6px); pointer-events: none; }
 .floating-pane.is-above:not(:popover-open):not(.in-place) { transform: translateY(6px); }
 .floating-pane.placed-over:not(:popover-open):not(.in-place) { transform: scale(0.97); }
@@ -1117,16 +1103,16 @@ const SHEET_STYLES = `
    to a reading width at most, and never wider than a sheet (--size-sheet) or the screen less its margins: past its height, its body scrolls. */
 .sheet { width: fit-content; max-width: min(var(--size-sheet), calc(100% - 2 * var(--pad-pane))); max-height: calc(100dvh - 2 * var(--pad-pane)); margin: auto; padding: 0; border: 0; overflow: visible; color: var(--ink);
   --glass-tint: var(--glass-dropdown);
-  transition: var(--glass-transition), opacity 0.25s, transform 0.3s cubic-bezier(.2,.8,.2,1), overlay 0.3s allow-discrete, display 0.3s allow-discrete; }
+  transition: var(--glass-transition), opacity var(--motion-state), transform var(--motion-arrive) var(--ease-glide), overlay var(--motion-arrive) allow-discrete, display var(--motion-arrive) allow-discrete; }
 /* A picture's sheet: as wide as the screen allows, up to its own size, so a screenshot or a screen shows large. */
 .sheet.is-picture { max-width: min(var(--size-sheet-picture), calc(100% - 2 * var(--pad-pane))); }
 /* Over the page, fixed to the window whether it's opening, open or closing (it stops being :modal the moment it starts to close). */
 .sheet:not(.in-place) { position: fixed; inset: 0; z-index: 40; }
 /* The sheet itself takes the focus when a press opened it (LAYERS_SCRIPT): no ring, a ring is for the keyboard. */
 .sheet:focus-visible { outline: none; }
-.sheet:is(:not([open]), .is-leaving) { opacity: 0; transform: translateY(16px) scale(0.98); pointer-events: none; transition-timing-function: ease, ease, cubic-bezier(.4,0,1,1); }
+.sheet:is(:not([open]), .is-leaving) { opacity: 0; transform: translateY(16px) scale(0.98); pointer-events: none; transition-timing-function: ease, ease, var(--ease-leave); }
 @starting-style { .sheet[open] { opacity: 0; transform: translateY(12px) scale(0.985); } }
-.sheet::backdrop { background: rgba(6, 9, 14, 0.42); opacity: 1; transition: opacity 0.3s, overlay 0.3s allow-discrete, display 0.3s allow-discrete; }
+.sheet::backdrop { background: rgba(6, 9, 14, 0.42); opacity: 1; transition: opacity var(--motion-arrive), overlay var(--motion-arrive) allow-discrete, display var(--motion-arrive) allow-discrete; }
 .sheet:is(:not([open]), .is-leaving)::backdrop { opacity: 0; }
 @starting-style { .sheet[open]::backdrop { opacity: 0; } }
 /* At the foot: risen from the bottom of the screen over a running game, which stays in view, never dimmed (a buy sheet). */
@@ -1145,8 +1131,8 @@ const SHEET_STYLES = `
 /* Steps: one task moving forward inside the same sheet, one step shown at a time (zaismaLayers.step). The one shown comes in from its side
    (forward from the end, Back from the start) in 0.2s; the sheet keeps its tallest height on a wide screen, so it doesn't jump. */
 .sheet-in > .sheet-step:not([hidden]) { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
-.sheet-step.is-from-end { animation: sheet-step-from-end 0.2s cubic-bezier(.2,.8,.2,1); }
-.sheet-step.is-from-start { animation: sheet-step-from-start 0.2s cubic-bezier(.2,.8,.2,1); }
+.sheet-step.is-from-end { animation: sheet-step-from-end var(--motion-state) var(--ease-glide); }
+.sheet-step.is-from-start { animation: sheet-step-from-start var(--motion-state) var(--ease-glide); }
 @keyframes sheet-step-from-end { from { opacity: 0; transform: translateX(16px); } }
 @keyframes sheet-step-from-start { from { opacity: 0; transform: translateX(-16px); } }
 /* Tabs in its head, under the title, swap what's in it: one tab's part shown at a time. */
@@ -1170,7 +1156,7 @@ const SHEET_STYLES = `
    round the chosen tab's slants and along the foot with no seam; under Close's end the same fall-off is a gradient, to the sheet's edge. */
 .sheet-tab-outline .front-shadow { fill: var(--tab-shadow); filter: blur(4px); }
 .sheet-tab-button { --tab-slant: 8px; position: relative; flex: none; display: flex; align-items: center; gap: var(--gap-words-words); padding: 0 calc(var(--pad-inside-words) + var(--tab-slant)); margin: 0; border: 0;
-  font: var(--type-label); color: var(--ink-2); white-space: nowrap; background: transparent; cursor: pointer; transition: color 0.15s; }
+  font: var(--type-label); color: var(--ink-2); white-space: nowrap; background: transparent; cursor: pointer; transition: color var(--motion-state); }
 .sheet-tab-words { position: relative; z-index: 1; }
 .sheet-tab-count { margin-left: var(--gap-words-words); font: var(--type-facts); color: var(--muted); }
 .sheet-tab-button[aria-pressed="true"] { color: var(--ink); cursor: default; }
@@ -1224,7 +1210,7 @@ ${touchReach(".sheet")}
 
 }
 @media (prefers-reduced-motion: reduce) { .sheet-step { animation: none; } }
-@media (prefers-reduced-motion: reduce) { .sheet { transition: var(--glass-transition), opacity 0.2s, overlay 0.2s allow-discrete, display 0.2s allow-discrete; } .sheet:not(.in-place):is(:not([open]), .is-leaving), .sheet.is-anchored:not(.in-place):is(:not([open]), .is-leaving), .sheet.is-anchored.is-above:not(.in-place):is(:not([open]), .is-leaving) { transform: none; } @starting-style { .sheet.is-anchored:not(.in-place)[open], .sheet.is-anchored.is-above:not(.in-place)[open] { transform: none; } } }
+@media (prefers-reduced-motion: reduce) { .sheet { transition: var(--glass-transition), opacity var(--motion-state), overlay var(--motion-state) allow-discrete, display var(--motion-state) allow-discrete; } .sheet:not(.in-place):is(:not([open]), .is-leaving), .sheet.is-anchored:not(.in-place):is(:not([open]), .is-leaving), .sheet.is-anchored.is-above:not(.in-place):is(:not([open]), .is-leaving) { transform: none; } @starting-style { .sheet.is-anchored:not(.in-place)[open], .sheet.is-anchored.is-above:not(.in-place)[open] { transform: none; } } }
 `;
 
 const reportBody = (idPrefix: string) =>
@@ -1561,7 +1547,7 @@ component({
 .notice { position: fixed; z-index: 30; top: calc(var(--under-header, 96px) + var(--notice-shift, 0px)); left: 0; right: 0; width: max-content; max-width: calc(100% - 2 * var(--pad-pane)); margin: 0 auto;
   display: flex; align-items: center; gap: var(--gap-words-words); min-height: calc(var(--control-height-small) + 2 * var(--pad-inner-pane)); padding: var(--pad-inner-pane) var(--pad-pane); --glass-tint: var(--glass-top);
   font: var(--type-words); color: var(--ink);
-  transition: var(--glass-transition), opacity 0.3s, transform 0.3s cubic-bezier(.2,.8,.2,1), top 0.3s cubic-bezier(.2,.8,.2,1); }
+  transition: var(--glass-transition), opacity var(--motion-arrive), transform var(--motion-arrive) var(--ease-glide), top var(--motion-arrive) var(--ease-glide); }
 @starting-style { .notice { opacity: 0; transform: translateY(-8px); } }
 .notice.is-leaving { opacity: 0; transform: translateY(-8px); }
 .notice.in-place { position: relative; top: auto; left: auto; right: auto; z-index: auto; margin: 0; }
@@ -1575,7 +1561,7 @@ component({
 /* Two or more in place, one under another, as floating ones stack. */
 .notice-stack { display: flex; flex-direction: column; align-items: flex-start; gap: var(--gap-control-stack); }
 ${touchReach(".notice")}
-@media (prefers-reduced-motion: reduce) { .notice { transition: var(--glass-transition), opacity 0.3s; } }
+@media (prefers-reduced-motion: reduce) { .notice { transition: var(--glass-transition), opacity var(--motion-arrive); } }
 `,
   render: notice,
   examples: [
@@ -1789,7 +1775,7 @@ component({
 .step-line { list-style: none; margin: 0; padding: 0; display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); column-gap: var(--gap-control-row); row-gap: max(var(--gap-words-control), calc(var(--pad-words) - 4px));
   container-type: inline-size; }
 /* Each name sits under its line at the words' gap, or further down where the pane's margin above it is more. */
-.step-line > li { display: grid; align-content: start; gap: max(var(--gap-words-control), calc(var(--pad-words) - 4px)); font: var(--type-facts); color: var(--muted); transition: color 0.3s; }
+.step-line > li { display: grid; align-content: start; gap: max(var(--gap-words-control), calc(var(--pad-words) - 4px)); font: var(--type-facts); color: var(--muted); transition: color var(--motion-arrive); }
 .step-mark { position: relative; display: block; height: 4px; overflow: hidden; background: var(--line); clip-path: polygon(3px 0, 100% 0, calc(100% - 3px) 100%, 0 100%);
   --corner-start: calc(var(--pane-cut-large) - 0.586 * var(--pad-frame)); --corner-end: calc(var(--pane-cut-small) - 0.586 * var(--pad-frame)); }
 .step-line > li:first-child .step-mark { clip-path: polygon(var(--corner-start) 0, 100% 0, calc(100% - 3px) 100%, calc(var(--corner-start) - 4px) 100%); }
@@ -1797,18 +1783,18 @@ component({
 .step-line > li:only-child .step-mark { clip-path: polygon(var(--corner-start) 0, calc(100% - var(--corner-end)) 0, calc(100% - var(--corner-end) + 4px) 100%, calc(var(--corner-start) - 4px) 100%); }
 /* A step's name keeps the margin at both ends, the last one's at the pane's edge too, and breaks a word that's longer than its room (at a large text size). */
 .step-label { padding-inline: var(--pad-words); overflow-wrap: break-word; }
-.step-fill { position: absolute; inset: 0; background: linear-gradient(90deg, #E9820C, var(--run)); transform: scaleX(0); transform-origin: left; transition: transform 0.6s cubic-bezier(.2,.8,.2,1); }
+.step-fill { position: absolute; inset: 0; background: linear-gradient(90deg, #E9820C, var(--run)); transform: scaleX(0); transform-origin: left; transition: transform var(--motion-settle) var(--ease-glide); }
 /* The light at the leading end of the step you're on is a layer of its own over the fill, fading in and out, so it moves from line to line
    smoothly as you go on or back. */
-.step-fill::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, transparent 55%, #FFC277 82%, #FFF4E2); opacity: 0; transition: opacity 0.3s ease; }
+.step-fill::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, transparent 55%, #FFC277 82%, #FFF4E2); opacity: 0; transition: opacity var(--motion-arrive) ease; }
 .step-line > li:is(.is-current, .is-leaving) .step-fill::after { opacity: 1; }
 .step-line > li.is-done { color: var(--ink-2); }
 .step-line > li.is-done .step-fill { transform: scaleX(1); }
 .step-line > li.is-current { color: var(--ink); }
-.step-line > li.is-current .step-fill { transform: scaleX(1); transition-delay: 0.1s; }
+.step-line > li.is-current .step-fill { transform: scaleX(1); transition-delay: var(--motion-press); }
 @starting-style { .step-line > li.is-current .step-fill { transform: scaleX(0); } }
 /* Going back, a line shrinks away with its light still at its tip, and halfway through the step it goes back to takes the light, fading in. */
-.step-line > li.is-leaving .step-fill { transform: scaleX(0); transition-duration: 0.45s; transition-timing-function: cubic-bezier(.4,0,.2,1); }
+.step-line > li.is-leaving .step-fill { transform: scaleX(0); transition-duration: var(--motion-glide); transition-timing-function: var(--ease-standard); }
 .step-form { margin: 0; display: flex; flex-direction: column; gap: var(--gap-block-block); }
 .step-body { display: flex; flex-direction: column; gap: var(--gap-block-block); }
 /* Narrow (by the line's own width, as on a phone), only the step you're on is named, under the whole line. */
@@ -1820,7 +1806,7 @@ component({
 }
 /* Going back, the step you return to shows as current at once, its line full while the line past it shrinks away, its light fading in. */
 .step-line > li.is-waiting .step-fill { transform: scaleX(1); transition: none; }
-.step-line > li.is-waiting .step-fill::after { transition-delay: 0.2s; }
+.step-line > li.is-waiting .step-fill::after { transition-delay: var(--motion-state); }
 @media (prefers-reduced-motion: reduce) { .step-fill { transition: none; } }
 `,
   render: stepFlow,

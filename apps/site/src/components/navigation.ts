@@ -130,13 +130,13 @@ const HEADER_STYLES = `
   display: flex; align-items: center; gap: 0; padding: 0 var(--pad-inner-pane);
   --glass-tint: var(--glass-top);
   clip-path: ${cutPolygon("header")};
-  transition: var(--glass-transition), height 0.45s cubic-bezier(.2,.8,.2,1), top 0.45s cubic-bezier(.2,.8,.2,1), transform 0.45s cubic-bezier(.4,0,.2,1);
+  transition: var(--glass-transition), height var(--motion-glide) var(--ease-glide), top var(--motion-glide) var(--ease-glide), transform var(--motion-glide) var(--ease-standard);
 }
 /* Compact, once the page scrolls: it rises and its inset above and below its controls closes to the frame gap. Its controls keep their size,
    so only the slab moves and changes height: nothing in it is laid out again or redrawn as it slims, and it stays smooth. */
 .top.is-compact { height: calc(var(--control-height-regular) + 2 * var(--pad-frame)); top: var(--pad-frame); }
 .top > :not(.edge) { position: relative; z-index: 3; }
-.top .find, .top .find input { transition: width 0.45s cubic-bezier(.2,.8,.2,1); }
+.top .find, .top .find input { transition: width var(--motion-glide) var(--ease-glide); }
 
 /* The header's gap is a row of controls' (their boxes overlap by the slant); the logo is words beside them, and so beside the sidebar's button. */
 .top > .logo { margin-right: var(--gap-block-block); }
@@ -785,8 +785,8 @@ component({
    inside its cut, as on every control. Online, its green line runs inside the frame's foot, so nothing sits outside the button to crowd the
    header's edge or what's below it. */
 .me { --frame: var(--control-height-regular); position: relative; display: flex; padding: 0; border: 0; background: none; cursor: pointer; -webkit-tap-highlight-color: transparent; }
-.me .frame { --frame: inherit; transition: var(--glass-transition), width 0.45s cubic-bezier(.2,.8,.2,1), height 0.45s cubic-bezier(.2,.8,.2,1), scale 0.15s; }
-.me .frame-picture { transition: filter 0.2s; }
+.me .frame { --frame: inherit; transition: var(--glass-transition), width var(--motion-glide) var(--ease-glide), height var(--motion-glide) var(--ease-glide), scale var(--motion-state); }
+.me .frame-picture { transition: filter var(--motion-state); }
 .me:hover .frame-picture, .me.is-pointed .frame-picture, .me[aria-expanded="true"] .frame-picture { filter: brightness(1.1); }
 .me:active .frame, .me.is-pressed .frame { scale: 0.95; }
 .me:focus-visible { outline: none; }
@@ -851,7 +851,7 @@ component({
    In a box it runs down the inside of the box's right edge; for the page, down the page's right gutter; sideways, under the box. */
 .own-scroll { scrollbar-width: none; }
 .own-scroll::-webkit-scrollbar { display: none; }
-.rail { display: none; position: absolute; z-index: 6; right: 8px; top: 30px; bottom: 30px; width: 14px; opacity: 0.6; transition: opacity 0.35s; }
+.rail { display: none; position: absolute; z-index: 6; right: 8px; top: 30px; bottom: 30px; width: 14px; opacity: 0.6; transition: opacity var(--motion-arrive); }
 .rail.is-on { display: block; }
 .glass > .rail { position: absolute; z-index: 6; }
 .rail[data-rail="page"] { position: fixed; z-index: 12; right: 0; top: 90px; bottom: 14px; }
@@ -859,41 +859,41 @@ component({
 .rail-line { position: absolute; inset: 0; cursor: pointer; background: linear-gradient(90deg, transparent 6px, var(--rail-line) 6px, var(--rail-line) 7px, transparent 7px); }
 .rail-thumb { position: absolute; top: 0; left: 4px; width: 5px; cursor: grab; --glass-tint: var(--rail-thumb); box-shadow: inset 1px 0 0 var(--rail-edge), 0 2px 6px rgba(10,20,40,0.18);
   clip-path: polygon(0 4px, 4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%);
-  transition: var(--glass-transition), left 0.2s, width 0.2s; }
+  transition: var(--glass-transition), left var(--motion-state), width var(--motion-state); }
 .rail:hover .rail-thumb, .rail.dragging .rail-thumb { left: 2px; width: 9px; clip-path: polygon(0 5px, 5px 0, 100% 0, 100% calc(100% - 5px), calc(100% - 5px) 100%, 0 100%); }
 .rail.dragging .rail-thumb { cursor: grabbing; box-shadow: inset 2px 0 0 var(--run), 0 2px 8px rgba(10,20,40,0.22); }
 /* Sideways (a table, a chart): the same rail laid on its side, under the box. */
 .rail.sideways { position: relative; inset: auto; width: auto; height: 14px; user-select: none; -webkit-user-select: none; clip-path: var(--cut-shape); }
 .rail.sideways .rail-line { background: linear-gradient(180deg, transparent 6px, var(--rail-line) 6px, var(--rail-line) 7px, transparent 7px); }
-.rail.sideways .rail-thumb { top: 4px; left: 0; width: auto; height: 5px; box-shadow: inset 0 1px 0 var(--rail-edge), 0 2px 6px rgba(10,20,40,0.18); transition: var(--glass-transition), top 0.2s, height 0.2s; }
+.rail.sideways .rail-thumb { top: 4px; left: 0; width: auto; height: 5px; box-shadow: inset 0 1px 0 var(--rail-edge), 0 2px 6px rgba(10,20,40,0.18); transition: var(--glass-transition), top var(--motion-state), height var(--motion-state); }
 .rail.sideways:hover .rail-thumb, .rail.sideways.dragging .rail-thumb { top: 2px; left: 0; width: auto; height: 9px; }
 .rail.sideways.dragging .rail-thumb { box-shadow: inset 0 2px 0 var(--run), 0 2px 8px rgba(10,20,40,0.22); }
 /* A mark per part of the page: a short tick on the line that turns orange when pointed at. Pointing anywhere on the rail opens every mark's name on a small glass label to its left. */
 /* Its click area is far bigger than the tick: 24px tall and reaching in over the page, so a mark is easy to hit. */
 .rail-mark { position: absolute; left: -12px; width: 26px; height: 24px; margin-top: -12px; padding: 0; border: 0; cursor: pointer; background: none; }
-.rail-mark::before { content: ""; position: absolute; left: 15px; right: 2px; top: 11px; height: 2px; --face-color: var(--rail-mark); background: var(--face-color); transition: --face-color 0.2s, left 0.2s; }
+.rail-mark::before { content: ""; position: absolute; left: 15px; right: 2px; top: 11px; height: 2px; --face-color: var(--rail-mark); background: var(--face-color); transition: --face-color var(--motion-state), left var(--motion-state); }
 .rail-mark:hover::before { --face-color: var(--run); left: 9px; }
 .rail-mark[hidden] { display: none; }
 /* Its name is a Tag on glass (data.ts), wiped open from the rail. */
 .rail-mark span { position: absolute; right: 28px; top: 50%; transform: translate(0, calc(-50% + var(--label-shift, 0px))); pointer-events: none;
   clip-path: polygon(100% 0, 100% 0, calc(100% - 5px) 100%, calc(100% - 5px) 100%); visibility: hidden;
-  transition: var(--glass-transition), clip-path 0.18s ease-out, visibility 0s 0.18s; }
+  transition: var(--glass-transition), clip-path var(--motion-state) ease-out, visibility 0s var(--motion-state); }
 /* A label opens by wiping out from the rail, never by fading: a fading blur draws without its glass and turns solid at the end. */
 /* Closed, a label is hidden as well as wiped shut, so its glass isn't drawn under the page's scrolling while nobody can see it. */
-.rail:hover .rail-mark span, .rail.dragging .rail-mark span { clip-path: polygon(5px 0, 100% 0, calc(100% - 5px) 100%, 0 100%); visibility: visible; transition: var(--glass-transition), clip-path 0.18s ease-out, visibility 0s; }
+.rail:hover .rail-mark span, .rail.dragging .rail-mark span { clip-path: polygon(5px 0, 100% 0, calc(100% - 5px) 100%, 0 100%); visibility: visible; transition: var(--glass-transition), clip-path var(--motion-state) ease-out, visibility 0s; }
 /* In a box, the words under a label are close by and a pane's glass can't blur them again, so its glass is denser. */
 .rail:not([data-rail="page"]) .rail-mark span { --glass-tint: var(--table-row-head); }
 /* Along a sideways rail, a mark is a short upright tick across the line, and its name opens above it, wiped up from the rail. */
 .rail.sideways .rail-mark { left: auto; top: -10px; width: 24px; height: 26px; margin: 0 0 0 -12px; }
 /* Its tick crosses the line as a down rail's does (3px to 12px across the rail), reaching further toward the box when pointed at. */
-.rail.sideways .rail-mark::before { left: 11px; right: auto; top: 13px; bottom: 4px; width: 2px; height: auto; transition: --face-color 0.2s, top 0.2s; }
+.rail.sideways .rail-mark::before { left: 11px; right: auto; top: 13px; bottom: 4px; width: 2px; height: auto; transition: --face-color var(--motion-state), top var(--motion-state); }
 .rail.sideways .rail-mark:hover::before { left: 11px; top: 7px; }
 .rail.sideways .rail-mark span { right: auto; top: auto; left: 50%; bottom: 26px; transform: translateX(calc(-50% + var(--label-shift, 0px)));
   clip-path: polygon(0 100%, 100% 100%, 100% 100%, 0 100%); }
 .rail.sideways:hover .rail-mark span, .rail.sideways.dragging .rail-mark span { clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%); }
 /* A sideways rail has room for one name at a time: the nearest mark's (is-near); the rest stay shut. */
 .rail.sideways .rail-mark:not(.is-near) span { clip-path: polygon(0 100%, 100% 100%, 100% 100%, 0 100%); visibility: hidden;
-  transition: var(--glass-transition), clip-path 0.18s ease-out, visibility 0s 0.18s; }
+  transition: var(--glass-transition), clip-path var(--motion-state) ease-out, visibility 0s var(--motion-state); }
 /* In the narrow layout (a phone, or a small window), the page's bar fits in the gutter beside the glass, centered in it, clear of the
    screen's edge, and starts below the header. */
 @media (max-width: 760px) {
@@ -919,7 +919,7 @@ component({
   .rail .rail-mark { pointer-events: none; }
   .rail:not(.dragging) .rail-mark::before { opacity: 0.4; }
   .rail:not(.dragging) .rail-mark span { clip-path: polygon(100% 0, 100% 0, calc(100% - 5px) 100%, calc(100% - 5px) 100%); visibility: hidden;
-    transition: var(--glass-transition), clip-path 0.18s ease-out, visibility 0s 0.18s; }
+    transition: var(--glass-transition), clip-path var(--motion-state) ease-out, visibility 0s var(--motion-state); }
   .rail.sideways:not(.dragging) .rail-mark span { clip-path: polygon(0 100%, 100% 100%, 100% 100%, 0 100%); }
 }
 @media (hover: none) and (max-width: 760px), (pointer: coarse) and (max-width: 760px) {
@@ -972,7 +972,7 @@ component({
 .steps > .cut-btn:first-of-type { margin-inline-end: var(--gap-control-row-boxes); }
 @media (hover: hover) and (pointer: fine) { .steps { display: flex; } .steps[hidden] { display: none; } }
 /* Without a mouse there are none, and a row holding them closes up before them (layout.ts, ROW_STYLES). */
-.steps .ico { width: 10px; height: 13px; transition: transform 0.2s cubic-bezier(.2,.8,.2,1); }
+.steps .ico { width: 10px; height: 13px; transition: transform var(--motion-state) var(--ease-glide); }
 .steps > .cut-btn:first-of-type:hover:not(:disabled) .ico { transform: translateX(-2px); }
 .steps > .cut-btn:last-of-type:hover:not(:disabled) .ico { transform: translateX(2px); }
 `,
@@ -1296,7 +1296,7 @@ component({
 .sidebar-places.is-nested { padding: var(--gap-control-row) 0 var(--gap-control-row) var(--gap-block-block); }
 /* A row is a small control's height with a mouse, compact as a list of places should be; a finger gets a regular control's. */
 .sidebar-place { position: relative; display: flex; align-items: center; gap: var(--gap-words-words); min-height: var(--control-height-small); padding: 0 var(--pad-inside-words);
-  font: var(--type-words); color: var(--ink-2); text-decoration: none; transition: color 0.2s; }
+  font: var(--type-words); color: var(--ink-2); text-decoration: none; transition: color var(--motion-state); }
 .sidebar-words { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .sidebar-place > .ico { width: 18px; height: 18px; flex: none; }
 @media (pointer: coarse) { .sidebar-place { min-height: var(--control-height-regular); } }
@@ -1306,7 +1306,7 @@ component({
 /* Its orange is its start edge, its whole height: a line under it read as one over the place below. */
 .sidebar-place[aria-current="page"] { clip-path: var(--cut-shape); background: var(--slab); box-shadow: var(--slab-shade), inset 3px 0 0 var(--run); }
 /* A group's arrow is small and quiet: it says the group opens, nothing more. */
-.sidebar-arrow { display: flex; flex: none; color: var(--muted); transition: transform 0.2s cubic-bezier(.2,.8,.2,1); }
+.sidebar-arrow { display: flex; flex: none; color: var(--muted); transition: transform var(--motion-state) var(--ease-glide); }
 .sidebar-group[aria-expanded="true"] > .sidebar-arrow { transform: rotate(90deg); }
 @media (prefers-reduced-motion: reduce) { .sidebar-arrow { transition: none; } }
 .sidebar-arrow > .ico { width: 12px; height: 12px; }
@@ -1363,7 +1363,7 @@ component({
 .sidebar-layout { container: sidebar-layout / inline-size; width: 100%; min-width: 0; }
 .sidebar-layout-in { display: grid; grid-template-columns: var(--size-sidebar) minmax(0, 1fr); gap: var(--gap-block-block); align-items: start; }
 .sidebar-layout-in > .sidebar { position: sticky; z-index: 1; top: var(--header-room, var(--pad-pane)); height: calc(100dvh - var(--header-room, var(--pad-pane)) - var(--pad-pane)); overflow: hidden;
-  transition: var(--glass-transition), opacity 0.2s, transform 0.2s cubic-bezier(.2,.8,.2,1); }
+  transition: var(--glass-transition), opacity var(--motion-state), transform var(--motion-state) var(--ease-glide); }
 @starting-style { .sidebar-layout-in > .sidebar { opacity: 0; transform: translateX(-24px); } }
 /* Folding: the sidebar, held where it was out of the page's way, slides off toward the edge as the page glides into its room. */
 .sidebar-layout.is-folding > .sidebar-layout-in > .sidebar { display: block; position: fixed; left: var(--sidebar-left); top: var(--sidebar-top); width: var(--sidebar-width); height: var(--sidebar-height); z-index: 1; }

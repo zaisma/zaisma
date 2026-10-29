@@ -360,7 +360,7 @@ component({
 /* With its rail showing (the rail lies along its right edge), the rows keep clear of it, so a row's button never sits against the rail. */
 .list-rows.is-capped.shows-rail { padding-right: calc(var(--pad-frame) + 8px); }
 .list-row { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-words-control); min-height: 60px; padding: 10px var(--pad-inside-words); color: var(--ink); text-decoration: none; }
-.list-row.is-link { --face-color: transparent; background: var(--face-color); clip-path: var(--cut-shape); transition: --face-color 0.15s; -webkit-tap-highlight-color: transparent; }
+.list-row.is-link { --face-color: transparent; background: var(--face-color); clip-path: var(--cut-shape); transition: --face-color var(--motion-state); -webkit-tap-highlight-color: transparent; }
 .list-row > :not(.cut-line) { position: relative; z-index: 2; }
 .list-row-lead { flex: none; display: inline-flex; color: var(--ink-2); }
 /* Compact: a long list in a narrow place (the players in a room): one line a row, its words taking what's left beside its picture and buttons. */
@@ -381,12 +381,12 @@ component({
 .list-row-fact { display: inline-block; max-width: 100%; }
 .list-row-end { flex: none; display: inline-flex; align-items: center; gap: var(--gap-words-words); font: var(--type-facts); color: var(--ink-2); }
 .list-row-action { flex: none; display: inline-flex; margin-left: auto; }
-.list-row-go { flex: none; display: inline-flex; color: var(--muted); transition: transform 0.45s cubic-bezier(.2,.7,.2,1), color 0.2s; }
+.list-row-go { flex: none; display: inline-flex; color: var(--muted); transition: transform var(--motion-glide) var(--ease-glide), color var(--motion-state); }
 .list-row-go > .ico { width: 8px; height: 13px; stroke-width: 2.2; }
 /* A row that opens a new tab ends in the out-of-the-page arrow, which steps up and out as you point. */
 .list-row-go.is-new-tab > .ico { width: 16px; height: 16px; stroke-width: 1.8; }
 /* The mark at its start: a short orange bar, cut at its ends, growing from its middle, halfway between the row's edge and its words. */
-.list-row.is-link::before { content: ""; position: absolute; z-index: 2; left: 0; top: 30%; bottom: 30%; width: 3px; background: var(--run); transform: scaleY(0); transition: transform 0.3s cubic-bezier(.2,.8,.2,1); }
+.list-row.is-link::before { content: ""; position: absolute; z-index: 2; left: 0; top: 30%; bottom: 30%; width: 3px; background: var(--run); transform: scaleY(0); transition: transform var(--motion-arrive) var(--ease-glide); }
 .list-row.is-link:hover, .list-row.is-link.is-pointed { --face-color: var(--row-hover); }
 .list-row.is-link:hover::before, .list-row.is-link.is-pointed::before, .list-row.is-link.is-pressed::before, .list-row.is-link:focus-visible::before { transform: scaleY(1); }
 .list-row.is-link:hover > .list-row-go, .list-row.is-link.is-pointed > .list-row-go { transform: translateX(3px); color: var(--ink); }
@@ -553,7 +553,7 @@ component({
    under it. Under reduced motion the light rests in the middle. */
 .loading-state { display: grid; gap: var(--gap-words-control); justify-items: center; padding: var(--gap-block-block) var(--pad-words); }
 .loading-line { position: relative; display: block; width: min(240px, 100%); height: 2px; overflow: hidden; background: var(--line); }
-.loading-line::after { content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 40%; background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--ink) 70%, transparent), transparent); animation: loading-run 1.3s cubic-bezier(.45,0,.25,1) infinite; }
+.loading-line::after { content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 40%; background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--ink) 70%, transparent), transparent); animation: loading-run var(--motion-loop) var(--ease-standard) infinite; }
 @keyframes loading-run { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
 .loading-label { font: var(--type-facts); color: var(--muted); }
 @media (prefers-reduced-motion: reduce) { .loading-line::after { animation: none; transform: translateX(75%); } }
@@ -993,7 +993,7 @@ component({
 .chart-bar { fill: var(--chart-bar); }
 .chart-bar.last { fill: var(--ink-2); }
 .chart-last { position: absolute; width: 10px; height: 10px; margin: -5px 0 0 -5px; background: var(--ink); border-radius: 50%; box-shadow: 0 0 0 3px var(--chart-ring); pointer-events: none; }
-.chart-last-words { position: absolute; right: 0; bottom: 14px; font: var(--type-label); color: var(--ink); font-variant-numeric: tabular-nums; white-space: nowrap; transition: opacity 0.15s; }
+.chart-last-words { position: absolute; right: 0; bottom: 14px; font: var(--type-label); color: var(--ink); font-variant-numeric: tabular-nums; white-space: nowrap; transition: opacity var(--motion-state); }
 .chart-last.is-alone .chart-last-words { right: auto; left: 50%; transform: translateX(-50%); }
 /* Over the last bar it spans the bar: its number centered on it, or ending at its right edge when wider. */
 .chart-last.is-bar { height: 0; margin: 0; background: none; border-radius: 0; box-shadow: none; }
@@ -1008,11 +1008,11 @@ component({
 .chart:focus-visible { outline: none; }
 .chart-inner.is-bars .chart-hit:is(:hover, .is-pointed), .chart:focus-visible .chart-inner.is-bars .chart-hit.is-focused { background: var(--row-hover); }
 .chart:focus-visible .chart-inner.is-bars .chart-hit.is-focused { outline: 2px solid var(--focus); outline-offset: -2px; }
-.chart-dot { position: absolute; left: var(--point-left); top: var(--point-top); width: 10px; height: 10px; margin: -5px 0 0 -5px; border-radius: 50%; background: var(--ink); box-shadow: 0 0 0 3px var(--chart-ring); opacity: 0; transition: opacity 0.15s; }
+.chart-dot { position: absolute; left: var(--point-left); top: var(--point-top); width: 10px; height: 10px; margin: -5px 0 0 -5px; border-radius: 50%; background: var(--ink); box-shadow: 0 0 0 3px var(--chart-ring); opacity: 0; transition: opacity var(--motion-state); }
 .chart:focus-visible .chart-hit.is-focused .chart-dot { outline: 2px solid var(--focus); outline-offset: 3px; }
 .chart-inner.is-bars .chart-dot { display: none; }
 .chart-tip { position: absolute; left: var(--point-left); bottom: calc(100% - var(--point-top) + 12px); transform: translateX(-12px); display: grid; padding: 4px 8px; white-space: nowrap;
-  font: var(--type-facts); color: var(--ink-2); background: var(--chart-tip); box-shadow: var(--slab-shade); opacity: 0; transition: opacity 0.15s; pointer-events: none; }
+  font: var(--type-facts); color: var(--ink-2); background: var(--chart-tip); box-shadow: var(--slab-shade); opacity: 0; transition: opacity var(--motion-state); pointer-events: none; }
 .chart-tip b { font-weight: 600; color: var(--ink); }
 .chart-hit.is-end .chart-tip { transform: translateX(calc(-100% + 12px)); }
 .chart-hit.is-high .chart-tip { bottom: auto; top: calc(var(--point-top) + 12px); }
@@ -1030,7 +1030,7 @@ component({
 .ring-body { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: var(--gap-block-block); }
 .ring-picture { position: relative; flex: none; width: 168px; height: 168px; }
 .ring-drawing { width: 100%; height: 100%; }
-.ring-part { fill: none; stroke-width: 16; stroke: var(--share-color); transition: stroke 0.15s; cursor: default; }
+.ring-part { fill: none; stroke-width: 16; stroke: var(--share-color); transition: stroke var(--motion-state); cursor: default; }
 .ring-total { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; font: var(--type-facts); color: var(--muted); }
 .ring-total b { font: var(--type-section); color: var(--ink); font-variant-numeric: tabular-nums; }
 .ring-key { flex: 0 1 var(--size-card); list-style: none; margin: 0; padding: 0; display: grid; }
@@ -1153,7 +1153,7 @@ component({
 .usage-fact { display: inline-block; max-width: 100%; }
 .usage-numbers b { font-weight: 600; color: var(--meter-full-ink); }
 .usage-track { display: block; }
-.usage-groove .groove-fill { transition: width 0.6s var(--spring); }
+.usage-groove .groove-fill { transition: width var(--motion-settle) var(--spring); }
 /* Any use at all shows: a sliver long enough to show past a cut corner's line at its start. */
 .usage:is(.is-used, .is-near) .usage-groove .groove-fill { min-width: 14px; }
 .usage:is(.is-near, .is-full) .usage-groove .groove-fill { filter: drop-shadow(0 0 1.5px var(--meter-near)); }

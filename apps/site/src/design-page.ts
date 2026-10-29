@@ -210,8 +210,8 @@ body.gallery { margin: 0; min-height: 100vh; font: var(--type-reading); }
 .cover-sample { width: 260px; }
 /* The loops' own pointer, moving onto the copy it plays. It sinks a little while it presses. */
 [data-state-loop] { position: relative; display: inline-block; }
-.loop-cursor { position: absolute; left: 0; top: 0; z-index: 8; pointer-events: none; transition: transform 0.65s cubic-bezier(.45,0,.25,1); filter: drop-shadow(0 2px 3px rgba(10,20,40,0.35)); }
-.loop-cursor svg { display: block; transform-origin: 4px 3px; transition: transform 0.12s ease-out; }
+.loop-cursor { position: absolute; left: 0; top: 0; z-index: 8; pointer-events: none; transition: transform var(--motion-settle) var(--ease-standard); filter: drop-shadow(0 2px 3px rgba(10,20,40,0.35)); }
+.loop-cursor svg { display: block; transform-origin: 4px 3px; transition: transform var(--motion-state) ease-out; }
 .loop-cursor.is-down svg { transform: scale(0.84); }
 .dropdown-frame { position: relative; width: 100%; height: 410px; transform: translateZ(0); }
 .dropdown-frame > .cut-btn { position: absolute; right: 20px; top: 0; }
@@ -237,7 +237,7 @@ body.gallery { margin: 0; min-height: 100vh; font: var(--type-reading); }
 @media (max-width: 760px) {
   .gallery-start { display: none; }
   /* One even inset all round, so the buttons sit the same distance from every edge of the pane; compact keeps it even, only smaller. */
-  .gallery-bar { transition: var(--glass-transition), padding 0.25s, gap 0.25s; }
+  .gallery-bar { transition: var(--glass-transition), padding var(--motion-state), gap var(--motion-state); }
   .gallery-bar > .logo { --logo-height: 22px; }
   .gallery-bar.is-compact > .logo { --logo-height: 18px; }
   .examples { grid-template-columns: minmax(0, 1fr); }

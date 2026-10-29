@@ -274,7 +274,7 @@ component({
   clip-path: var(--cut-shape); }
 /* It slides for --slide-ms (SWITCH_SCRIPT moves it frame by frame, its shape with it), never by a CSS transition, on a layer of its own so a
    frame that only moves it isn't painted again. */
-.tab-switch .slab { --slide-ms: 450; position: absolute; top: 4px; bottom: 4px; left: 0; width: 0; pointer-events: none; clip-path: var(--cut-shape); transition: opacity 0.3s; will-change: transform; }
+.tab-switch .slab { --slide-ms: 450; position: absolute; top: 4px; bottom: 4px; left: 0; width: 0; pointer-events: none; clip-path: var(--cut-shape); transition: opacity var(--motion-arrive); will-change: transform; }
 /* The slab is a raised piece of glass with the face and bevel of a raised button (--btn, the raise bands), so its edges catch the light, and it
    casts a soft shadow into the well under it (--slab-cast), which the well's cut keeps inside it. Its face is cut to its shape below its
    bevel, so the slab itself isn't clipped and its shadow shows. */
@@ -303,12 +303,12 @@ component({
 /* Before the script has measured, the one you're on carries its own slab. */
 .tab-switch:not(.is-ready) [aria-current="page"], .tab-switch:not(.is-ready) [aria-pressed="true"] { background: var(--btn); box-shadow: var(--slab-shade); }
 /* A tab that folds away into the end of the tabs and opens out of it again. */
-.tab-switch > .foldable { max-width: 10rem; overflow: hidden; transition: max-width 0.45s cubic-bezier(.2,.8,.2,1), padding 0.45s cubic-bezier(.2,.8,.2,1), opacity 0.3s 0.08s; }
+.tab-switch > .foldable { max-width: 10rem; overflow: hidden; transition: max-width var(--motion-glide) var(--ease-glide), padding var(--motion-glide) var(--ease-glide), opacity var(--motion-arrive) var(--motion-press); }
 /* Its tabs share one width, so a folded tab takes no column at all: it goes, and comes back, at once. */
 .tab-switch:not(.vertical) > .foldable.folded { display: none; }
 /* Across, an open foldable tab keeps its words' width (its clip for folding would let it shrink), so a narrow row scrolls rather than cut it. */
 .tab-switch:not(.vertical) > .foldable:not(.folded) { min-width: max-content; }
-.tab-switch > .foldable.folded { max-width: 0; padding-left: 0; padding-right: 0; opacity: 0; pointer-events: none; transition: max-width 0.4s cubic-bezier(.4,0,.2,1), padding 0.4s cubic-bezier(.4,0,.2,1), opacity 0.16s; }
+.tab-switch > .foldable.folded { max-width: 0; padding-left: 0; padding-right: 0; opacity: 0; pointer-events: none; transition: max-width var(--motion-arrive) var(--ease-standard), padding var(--motion-arrive) var(--ease-standard), opacity 0.16s; }
 /* Keyboard focus: a line round the focused tab that follows its cut, like the slab's (the focus ring, set by SWITCH_SCRIPT). */
 .tab-switch > :focus-visible { outline: none; }
 /* It runs along the well's own edge, the switch's full height (its full width stacked), with the well's cuts at the switch's ends, so

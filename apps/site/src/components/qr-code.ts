@@ -76,8 +76,8 @@ component({
 .qr-cast { display: block; width: min(220px, 100%); filter: var(--thumb-cast); }
 .qr-tile { position: relative; display: block; padding: 6px; background: #fff; clip-path: var(--cut-shape); }
 .qr-tile > .cut-line { --band-top: rgba(255,255,255,1); --band-left: rgba(255,255,255,0.9); --band-right: rgba(20,30,50,0.14); --band-bottom: rgba(20,30,50,0.22); }
-.qr-picture { display: block; width: 100%; height: auto; aspect-ratio: 1; background: #fff; transition: filter 0.25s; }
-.qr-icon { position: absolute; left: 50%; top: 50%; width: 20%; height: auto; aspect-ratio: 1; transform: translate(-50%, -50%); outline: 3px solid #fff; object-fit: cover; transition: filter 0.25s; }
+.qr-picture { display: block; width: 100%; height: auto; aspect-ratio: 1; background: #fff; transition: filter var(--motion-state); }
+.qr-icon { position: absolute; left: 50%; top: 50%; width: 20%; height: auto; aspect-ratio: 1; transform: translate(-50%, -50%); outline: 3px solid #fff; object-fit: cover; transition: filter var(--motion-state); }
 /* Its words keep the margin inside it, as a field's do, however wide they run (a masked code's caption, at a large text size). */
 .qr-caption { font: var(--type-label); color: var(--ink); text-align: center; padding-inline: var(--pad-inside-words); }
 .qr-code.is-masked :is(.qr-picture, .qr-icon) { filter: blur(8px); }
