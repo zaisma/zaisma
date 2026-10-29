@@ -45,6 +45,8 @@ const NOT_MADE_OF_MATERIALS = new Map<string, string>([
   [".cut-btn[data-tint=\"indigo\"] > .face | --way", "Discord's indigo"],
   [".cut-btn[data-tint=\"black\"] > .face | --way", "a way in's own black"],
   [".way-mark .one-color path | fill", "Discord's mark in its own color"],
+  [".way-mark.way-google | padding", "Google's G on smoked glass sits on a white disc a little larger than it, as Google asks"],
+  [".way-mark.way-google | background", "the white disc, only on smoked glass (--brand-mark-backing)"],
   // A card's brand mark, a picture of its own size.
   [".card-row-mark > .card-brand | height", "a card brand's mark is 32 by 20"],
   [".card-row-mark > .card-brand | background", "the mark fits its box"],

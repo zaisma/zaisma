@@ -182,7 +182,7 @@ function secondaryButtonMarkup(label: string, options: SecondaryButtonOptions, i
   const reactionMarkup = hasCount ? html`<span class="cut-count">${countWords}</span>` : "";
   const cutLineNumber = options.isBig ? 13 : 10;
   const front = isToggle ? html`<span class="toggle-front slab-front" aria-hidden="true"></span>` : "";
-  return controlMarkup(html`${opening(className, options, options.isBusy, extra)}${front}<span class="face slab${options.isBig ? " big" : options.isSmall ? " compact" : ""}" data-cut-line="${cutLineNumber}">${CUT_LINE}${loader()}${options.wayIn ? html`<span class="way-mark">${WAY_MARKS[options.wayIn]}</span>` : options.icon ? icon(options.icon) : ""}${words}${reactionMarkup}</span>${closing(options)}`, options.isBig ? "big" : options.isSmall || options.isInWell ? "small" : "regular");
+  return controlMarkup(html`${opening(className, options, options.isBusy, extra)}${front}<span class="face slab${options.isBig ? " big" : options.isSmall ? " compact" : ""}" data-cut-line="${cutLineNumber}">${CUT_LINE}${loader()}${options.wayIn ? html`<span class="way-mark way-${options.wayIn}">${WAY_MARKS[options.wayIn]}</span>` : options.icon ? icon(options.icon) : ""}${words}${reactionMarkup}</span>${closing(options)}`, options.isBig ? "big" : options.isSmall || options.isInWell ? "small" : "regular");
 }
 
 const GOOGLE = raw(
@@ -459,6 +459,8 @@ component({
   --slab-press-shade: inset 0 2px 6px color-mix(in srgb, black 55%, transparent); }
 .way-mark { display: inline-flex; flex: none; }
 .way-mark > svg { width: 20px; height: 20px; }
+/* Google's G on smoked glass sits on a white disc, as Google asks for a dark surface, so its blue and red never sink into the dark glass. */
+.way-mark.way-google { border-radius: 50%; padding: 2px; margin: -2px; background: var(--brand-mark-backing); }
 /* A mark that may be one color (Discord's) is white over smoked glass and its own blue over light (the fallback, since light glass leaves
    --clear-glass-mark unset). Google's G stays in its colors. Waiting, the loader takes the mark's place; can't press, the mark fades. */
 .way-mark .one-color path { fill: var(--clear-glass-mark, #5865F2); transition: fill var(--motion-arrive); }

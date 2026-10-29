@@ -19,7 +19,7 @@ export const LIGHT_GLASS = `color-scheme: light;
   --carving-deep-face: rgba(60, 72, 94, 0.2); --carving-deep-shade: inset 0 3px 3px rgba(20, 30, 50, 0.3), inset 0 -1.5px 0 rgba(255, 255, 255, 0.95);
   /* A slab: a raised piece of the same glass, clearer than the pane it stands on and lit from above, casting its shadow onto it. Pointed at,
      it catches more light; pressed, it sinks into the glass. */
-  --slab-face: rgba(255, 255, 255, 0.64); --slab-face-pointed: rgba(255, 255, 255, 0.84); --slab-face-pressed: rgba(255, 255, 255, 0.34);
+  --brand-mark-backing: transparent; --slab-face: rgba(255, 255, 255, 0.64); --slab-face-pointed: rgba(255, 255, 255, 0.84); --slab-face-pressed: rgba(255, 255, 255, 0.34);
   --slab-sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.38), rgba(255, 255, 255, 0) 70%);
   --glass-sheen: radial-gradient(140% 90% at 0% 0%, rgba(255, 255, 255, 0.34), rgba(255, 255, 255, 0) 55%), linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0) 38%, rgba(30, 60, 110, 0) 70%, rgba(30, 60, 110, 0.05));
   /* A tray's light: the same sheen at a third of the strength, so the tray stays muted under its pane. */
@@ -78,7 +78,7 @@ export const SMOKED_GLASS = `color-scheme: dark;
   --glass-tint: var(--glass-regular); --glass-top: var(--glass-regular); --glass-dropdown: var(--glass-thick);
   --carving-face: rgba(255, 255, 255, 0.08); --carving-face-pointed: rgba(255, 255, 255, 0.13); --carving-shade: inset 0 1px 3px rgba(0, 0, 0, 0.3);
   --carving-deep-face: rgba(0, 0, 0, 0.24); --carving-deep-shade: inset 0 3px 3px rgba(0, 0, 0, 0.75), inset 0 -1.5px 0 rgba(214, 228, 255, 0.45);
-  --slab-face: rgba(255, 255, 255, 0.22); --slab-face-pointed: rgba(255, 255, 255, 0.3); --slab-face-pressed: rgba(255, 255, 255, 0.1);
+  --brand-mark-backing: #FFFFFF; --slab-face: rgba(255, 255, 255, 0.22); --slab-face-pointed: rgba(255, 255, 255, 0.3); --slab-face-pressed: rgba(255, 255, 255, 0.1);
   --slab-sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0) 70%);
   --glass-sheen: radial-gradient(140% 90% at 0% 0%, rgba(190, 215, 255, 0.12), rgba(190, 215, 255, 0) 55%), linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0) 38%, rgba(0, 0, 0, 0) 70%, rgba(0, 0, 0, 0.03));
   --glass-tray-sheen: radial-gradient(140% 90% at 0% 0%, rgba(190, 215, 255, 0.04), rgba(190, 215, 255, 0) 55%), linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0) 38%, rgba(0, 0, 0, 0) 70%, rgba(0, 0, 0, 0.04));
