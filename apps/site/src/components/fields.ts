@@ -5,7 +5,7 @@ import { controlMarkup, type ControlMarkup } from "./control-markup.ts";
 import { CUT_LINE, EDGE, floatingPane, glassPane, icon, type IconName } from "./foundations.ts";
 import { tertiaryButton, toggleButton } from "./actions.ts";
 import { examplePane } from "./example-pane.ts";
-import { row, stack } from "./layout.ts";
+import { row } from "./layout.ts";
 
 /*
  * Fields: the cut field, search, the PIN field and the wheel field. From the sign-in draft (fields, the
@@ -138,7 +138,7 @@ export interface WheelFieldOptions {
   label: string;
   /**
    * What it picks: "birthday" (month, day and year, each starting blank so nothing suggests an age, sent as YYYY-MM-DD), "date-time" (the
-   * day, hour, minute and AM or PM in the viewer's own time zone, which it says, sent as ISO 8601 with its offset), or "custom" (its columns).
+   * day, hour, minute and AM or PM in the viewer's own time zone, which the field's time ends with (7:00 PM EDT), sent as ISO 8601 with its offset), or "custom" (its columns).
    */
   wheelKind: "birthday" | "date-time" | "custom";
   /** A custom field's wheels, in the order they're read: it shows their picked rows' labels in that order ("1 h 30 min"). */
@@ -195,9 +195,8 @@ export function wheelField(options: WheelFieldOptions): ControlMarkup {
   const shown = options.wheelKind === "custom"
     ? columns.map((column) => (column.rows.find((row) => row.rowValue === column.pickedValue) ?? column.rows[0])?.label ?? "").join(" ")
     : options.wheelKind === "birthday" ? "Choose a date" : "Choose a time";
-  const isZone = options.wheelKind === "date-time";
   const buttonClass = ["wheel-button", "carving", "is-used", "sized", "is-button", fieldIcon ? "" : "no-icon", options.wheelKind === "custom" ? "set" : "", isMarked ? "is-marked" : "", options.state === "is-focused" ? "is-focused" : ""].filter(Boolean).join(" ");
-  const describedBy = [`${id}-legend`, `${id}-error`, options.hint ? `${id}-hint` : "", isZone ? `${id}-zone` : ""].filter(Boolean).join(" ");
+  const describedBy = [`${id}-legend`, `${id}-error`, options.hint ? `${id}-hint` : ""].filter(Boolean).join(" ");
   const channels = options.wheelKind === "custom"
     ? columns.map((column) => wheelChannel(column.name, column.label, column))
     : DATE_WHEELS[options.wheelKind].map(([part, label]) => wheelChannel(part, label));
@@ -216,7 +215,7 @@ ${floatingPane({
     isShownInPlace: isOpen,
     // The wheels' middle row: under the pane's room at its top, a row and a half down.
     lineFromTop: "calc(var(--pad-inner-pane) + 54px)",
-    body: html`<span class="wheel-read sr" aria-live="polite"></span>${stack({ items: [{ kind: "block", markup: html`<div class="wheels ${options.wheelKind}-wheels"${options.wheelKind === "custom" ? html` style="--wheel-count: ${columns.length}"` : ""}>${channels}</div>` }, ...(isZone ? [{ kind: "words" as const, markup: html`<p class="wheel-zone" id="${id}-zone"></p>` }] : [])] })}`,
+    body: html`<span class="wheel-read sr" aria-live="polite"></span><div class="wheels ${options.wheelKind}-wheels"${options.wheelKind === "custom" ? html` style="--wheel-count: ${columns.length}"` : ""}>${channels}</div>`,
   })}
 <p class="field-error words-margin" id="${id}-error"${isMarked ? "" : raw(" hidden")}>${options.error ?? WHEEL_MISSING[options.wheelKind]}</p>${options.hint ? html`<p class="field-hint words-margin" id="${id}-hint"${isMarked ? raw(" hidden") : ""}>${options.hint}</p>` : ""}
 ${sent}
@@ -538,7 +537,7 @@ export const SEARCH_SCRIPT = `/* search finishes */(function () {
  * Page Up and Down, Home and End, or type a row's start); the row in the middle is the pick. Enter closes it once it's picked, Esc closes it.
  * A form that needs it (data-required) won't go on without a pick: the field says so and the wheels open.
  *   birthday   month, day and year, each starting blank; 29 February only in a leap year. Sends YYYY-MM-DD.
- *   date-time  the day (a year from the earliest it takes), hour, minute in fives and AM or PM, in the viewer's time zone, which it says. It
+ *   date-time  the day (a year from the earliest it takes), hour, minute in fives and AM or PM, in the viewer's time zone, which the field's time ends with (7:00 PM EDT). It
  *              starts on the time given, or the next whole hour once it opens; a pick earlier than the earliest moves up to it. Sends ISO
  *              8601 with the viewer's offset.
  *   custom     the page's own wheels (data-rows), each sending its pick under its own name.
@@ -587,7 +586,6 @@ export const WHEEL_SCRIPT = String.raw`/* wheel fields */(function () {
     var HOURS = [], MINUTES = [], HALVES = ["AM", "PM"];
     for (var h = 1; h <= 12; h++) HOURS.push(String(h));
     for (var m = 0; m < 60; m += 5) MINUTES.push(two(m));
-    var zone = root.querySelector(".wheel-zone");
     var minimum = root.hasAttribute("data-minimum-at") ? new Date(root.getAttribute("data-minimum-at")) : new Date();
     if (isNaN(minimum)) minimum = new Date();
     minimum = new Date(Math.ceil(minimum.getTime() / FIVE_MS) * FIVE_MS);
@@ -604,7 +602,8 @@ export const WHEEL_SCRIPT = String.raw`/* wheel fields */(function () {
       return (day.getFullYear() === thisYear ? thisYearWords : laterYearWords).format(day);
     }
     var dayRows = days.map(dayWords);
-    function zoneName(date) { try { var part = new Intl.DateTimeFormat("en-US", { timeZoneName: "long" }).formatToParts(date).find(function (each) { return each.type === "timeZoneName"; }); return part ? part.value : ""; } catch (error) { return ""; } }
+    // The viewer's time zone at that moment, short in the field (EDT, or GMT+5:30 where a zone has no short name) and whole when read out.
+    function zoneName(date, length) { try { var part = new Intl.DateTimeFormat("en-US", { timeZoneName: length }).formatToParts(date).find(function (each) { return each.type === "timeZoneName"; }); return part ? part.value : ""; } catch (error) { return ""; } }
     function iso(date) {
       var offset = -date.getTimezoneOffset(), sign = offset < 0 ? "-" : "+", whole = Math.abs(offset);
       return date.getFullYear() + "-" + two(date.getMonth() + 1) + "-" + two(date.getDate()) + "T" + two(date.getHours()) + ":" + two(date.getMinutes()) + sign + two(Math.floor(whole / 60)) + ":" + two(whole % 60);
@@ -631,14 +630,14 @@ export const WHEEL_SCRIPT = String.raw`/* wheel fields */(function () {
       firstPart: function () { return "day"; },
       words: function () {
         var shownAt = sentAt || timeOf(at);
-        zone.textContent = "Your time" + (zoneName(shownAt) ? ": " + zoneName(shownAt) : "");
         if (!isSet) return { shown: null, read: "", sent: "" };
         var timeWords = shownAt.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
         // The field says it short (Today, Oct 23, or Jan 15, 2027 in another year), its month in words so no player reads it the other way
         // round, and it fits a phone; the wheels and the screen reader say it whole.
         var day = startOfDay(shownAt), gap = Math.round((day.getTime() - today) / DAY_MS);
         var shortDay = gap === 0 ? "Today" : gap === 1 ? "Tomorrow" : day.toLocaleDateString("en-US", day.getFullYear() === thisYear ? { month: "short", day: "numeric" } : { month: "short", day: "numeric", year: "numeric" });
-        return { shown: shortDay + ", " + timeWords, read: shownAt.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" }) + " at " + timeWords, sent: iso(shownAt) };
+        var shortZone = zoneName(shownAt, "short"), longZone = zoneName(shownAt, "long");
+        return { shown: shortDay + ", " + timeWords + (shortZone ? " " + shortZone : ""), read: shownAt.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" }) + " at " + timeWords + (longZone ? ", " + longZone : ""), sent: iso(shownAt) };
       }
     };
   }
@@ -983,7 +982,7 @@ component({
   subgroup: "fields",
   // Beside the Select field: both open their own pane over the field.
   after: "select-field",
-  summary: "A value made of parts read together, picked on wheels: a birthday (starting blank, so nothing suggests an age), when something happens (in your own time zone, which it says), or wheels of a page's own, like a match's length. One of many from a list is a Select field; a number on a scale, a Slider.",
+  summary: "A value made of parts read together, picked on wheels: a birthday (starting blank, so nothing suggests an age), when something happens (in your own time zone, which its time ends with), or wheels of a page's own, like a match's length. One of many from a list is a Select field; a number on a scale, a Slider.",
   styles: `
 /* A wheel field: the same cut field, with what it picks said by its icon; open, it's whitened with the orange outline, like a field you're
    typing in. With no icon its words start where an icon would. */
@@ -1037,9 +1036,7 @@ component({
 .wheel [role="option"][aria-selected="true"] { color: var(--ink); font-weight: 600; }
 .wheel [role="option"][aria-selected="true"].blank { color: var(--muted); font-weight: 500; }
 .wheel [role="option"]::after { content: attr(data-label) / ""; height: 0; overflow: hidden; visibility: hidden; font-weight: 600; }
-/* A date and time says its time zone under it. Custom wheels share the width evenly, each as wide as the widest. */
-.wheel-zone { margin: 0; font: var(--type-facts); color: var(--muted); }
-.wheel-zone:empty { display: none; }
+/* Custom wheels share the width evenly, each as wide as the widest. */
 .date-time-wheels { grid-template-columns: repeat(4, auto); }
 .custom-wheels { grid-template-columns: repeat(var(--wheel-count), 1fr); }
 /* On a phone what's typed or picked is 16px, the least that keeps a phone from zooming in, so more of it fits: in a cut field, a search, a
