@@ -199,7 +199,9 @@ span.hairline { flex: 1; border-top: var(--divider); }
 .carving.pick:not(:has(:disabled)):has(:checked):is(:active, .is-pressed)::before { box-shadow: var(--press-deep); transition-duration: var(--motion-press); }
 /* A carving that holds parts close (a compact list of picks, a switch's tabs) keeps them the compact frame gap from its edge: on what's in
    it (holds-parts) or on the box of parts itself (carving-parts). */
-.carving.holds-parts > .carving-words, .carving-parts { padding: var(--pad-frame-compact); }
+.carving.holds-parts > .carving-words, .carving-parts { padding: var(--pad-frame-compact); --scroll-inset: var(--pad-frame-compact); }
+/* Its parts stop short of its rail when they scroll, as words do. */
+.carving.holds-parts > .carving-words.shows-rail { padding-inline-end: calc(var(--scroll-inset) + 16px); }
 /* A slab layer: a slab whose face is a layer of its own (a switch's sliding slab), cut to its shape under its bevel, so the slab itself
    isn't clipped and the shadow it casts shows. */
 .slab-layer { filter: var(--slab-cast); --slab-wash: color-mix(in srgb, var(--glass-hue) var(--glass-hue-strength), transparent); }
