@@ -451,8 +451,9 @@ component({
 .cut-btn[data-tint="blue"] > .face { --way: #2A75E8; }
 .cut-btn[data-tint="indigo"] > .face { --way: #5865F2; }
 .cut-btn[data-tint="black"] > .face { --way: #14171C; }
-/* A delete's confirm (a Confirm sheet's isDelete): the one red in Zaisma, in the glass of a secondary button. */
-.cut-btn[data-tint="red"] > .face { --way: var(--danger); }
+/* A delete's confirm (a Confirm sheet's isDelete): the one red in Zaisma, deep red glass with only a little of the pane through it, so it
+   reads as red, never pink; its words white, which a red that deep needs (5.5:1 on light glass, 8.3:1 on smoked). */
+.cut-btn[data-tint="red"]:not([data-tint="clear"]) > .face { --way: var(--danger-lo); --way-mix: 85%; color: var(--on-danger); }
 .way-mark { display: inline-flex; flex: none; }
 .way-mark > svg { width: 20px; height: 20px; }
 /* A mark that may be one color (Discord's) is white over smoked glass and its own blue over light (the fallback, since light glass leaves

@@ -230,7 +230,7 @@ html { -webkit-tap-highlight-color: transparent; }
   /* Words and marks on an orange face (the runner, a ticked box): dark ink in both themes, 7.8:1 against it (white is 2.3:1). */
   --on-run: #14171C;
   /* The only red: a delete's confirm step, never anything else. */
-  --danger: #D93A2B; --danger-lo: #A82718;
+  --danger: #D93A2B; --danger-lo: #A82718; --on-danger: #FFFFFF;
   --page: #E7E4DF;
   --glass-blur: 24px;
   /* How every piece of glass changes (light to dark, a hover's tint): a component that adds its own transitions starts its list with this. */
