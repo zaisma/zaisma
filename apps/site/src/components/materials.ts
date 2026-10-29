@@ -35,7 +35,7 @@ export const MATERIAL_STYLES = `
    it, a sheet at the screen, a floating pane at a menu's height or the room in the window, a carving at its owner's cap (--well-height, a
    menu's height unless its owner says). Across, the rail runs under it (data-side-rail). A slab never scrolls. */
 /* Only while it has something to scroll (is-scrollable) does it keep a swipe or a wheel to itself, so one that can't scroll never catches them. */
-.scrolls { position: relative; min-height: 0; overflow-y: auto; }
+.scrolls { position: relative; min-height: 0; overflow: hidden auto; }
 .scrolls.is-scrollable { overscroll-behavior-y: contain; }
 /* What's in it fits (MATERIAL_SCRIPT): it clips nothing, so a slab's shadow or glow near its edge falls past it. Only while it scrolls is it cut. */
 .scrolls.fits { overflow: visible; }
@@ -45,6 +45,8 @@ export const MATERIAL_STYLES = `
 .glass-pane > .scrolls { --scroll-inset: var(--pad-frame); }
 .carving:has(> .scrolls:not(.across)) { align-items: stretch; max-height: var(--well-height, var(--size-menu-height)); }
 .floating-pane { max-height: min(var(--size-menu-height), var(--floating-room, calc(100dvh - 2 * var(--pad-frame)))); padding: var(--pad-frame-compact); --pad-words: calc(var(--pad-tray) - var(--pad-frame-compact)); }
+/* Holding edged parts beside words (a color picker, wheels), it keeps the regular frame gap and a field's words margin. */
+.floating-pane.regular { padding: var(--pad-frame); --pad-words: var(--pad-inside-words); }
 /* A carving with a control at its end (a well's Copy): what's in it stops short of the control. */
 .carving:has(> .carving-end) > .carving-words { padding-inline-end: calc(var(--control-height-small) + var(--well-inset, 8px) + var(--gap-words-words)); }
 /* Over everything (a sheet, a light box, a store panel): a pane of thick glass over the page, capped at the screen, with the page dimmed
@@ -69,9 +71,9 @@ export const MATERIAL_STYLES = `
    faint wash of the words' own color; the current one is a slab; keyboard focus is the cut stroke. A quiet one (a fold's head) only darkens
    its words: it opens what's under it rather than taking you somewhere. A menu's choices, a fold's head and a list's rows are flush rows. */
 .flush-row { position: relative; display: flex; align-items: center; gap: var(--gap-words-words); min-height: var(--row-height, var(--control-height-regular));
-  padding: var(--gap-words-control) var(--pad-words); margin: 0; border: 0; font: var(--type-words); color: var(--ink-2); text-align: start; text-decoration: none; cursor: pointer;
+  padding: var(--row-block, var(--gap-words-control)) var(--row-end, var(--pad-words)) var(--row-block, var(--gap-words-control)) var(--row-start, var(--pad-words)); margin: 0; border: 0; font: var(--type-words); color: var(--ink-2); text-align: start; text-decoration: none; cursor: pointer;
   --face-color: transparent; background: var(--face-color); clip-path: var(--cut-shape); transition: --face-color var(--motion-state), color var(--motion-state); -webkit-tap-highlight-color: transparent; }
-.flush-row.compact { --row-height: var(--control-height-small); padding-block: 0; }
+.flush-row.compact { --row-height: var(--control-height-small); padding-block: var(--pad-frame-compact); }
 @media (pointer: coarse) { .flush-row.compact { --row-height: var(--control-height-regular); } }
 /* The face of a button (a tertiary button): its button's height, its words a field's inset in wherever it is, its states its button's. */
 .shell > .flush-row { --row-height: var(--control-height); padding: 0 var(--pad-inside-words); }
@@ -86,7 +88,7 @@ export const MATERIAL_STYLES = `
 .flush-row > :where(:not(.cut-line)) { position: relative; z-index: 2; }
 .flush-row:not(.quiet):is(:hover, .is-pointed, :focus-visible, .is-focused) { --face-color: var(--wash); color: var(--ink); }
 .flush-row.quiet:is(:hover, .is-pointed) { color: var(--ink); }
-.flush-row[aria-current="page"] { color: var(--ink); background: var(--slab-sheen), linear-gradient(var(--slab-wash), var(--slab-wash)), var(--slab-face); box-shadow: var(--slab-shade); }
+.flush-row:is([aria-current="page"], [aria-pressed="true"]) { color: var(--ink); background: var(--slab-sheen), linear-gradient(var(--slab-wash), var(--slab-wash)), var(--slab-face); box-shadow: var(--slab-shade); }
 .flush-row { --slab-wash: color-mix(in srgb, var(--glass-hue) var(--glass-hue-strength), transparent); }
 .flush-row:focus-visible { outline: none; }
 .flush-row:is(:focus-visible, .is-focused) > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
@@ -133,6 +135,77 @@ span.hairline { flex: 1; border-top: var(--divider); }
 .carving.deep.line { display: block; height: 8px; }
 .carving:is(.is-focused, :has(:focus-visible)) > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 .carving-words { position: relative; z-index: 2; display: block; padding: 14px var(--pad-words); font: var(--type-words); }
+/* A carving you type in or press (a field, a search, a select): a control's height (sized: a field's, unless its owner says), what's typed in
+   it or written on it keeping its words inset, past an icon at its start or a control at its end (--text-start, --text-end). With focus, it
+   clears (--carving-face-focus). A press carves it a little deeper. */
+.carving.sized { height: var(--control-height, var(--control-height-field)); }
+.carving > :is(input, textarea, .carving-control) { padding: var(--text-block, 0) var(--text-end, var(--pad-words)) var(--text-block, 0) var(--text-start, var(--pad-words)); background: transparent; border: 0; border-radius: 0; }
+.carving.sized > :is(input, .carving-control) { height: 100%; }
+/* A big carving: a target you drop onto (a file drop), what's in it a pane's margin in, at least 168px tall so it's a place to aim for. */
+.carving.big { padding: var(--pad-pane); min-height: 168px; }
+/* A carving that is itself a button you press (a wheel field's) keeps its words inset the same way. */
+.carving.is-button { padding: 0 var(--text-end, var(--pad-words)) 0 var(--text-start, var(--pad-words)); border: 0; }
+/* A pointed place in a carving (a wheel's picked row): its face cleared as a pointed field's, its edges raised. */
+.carving-pointed { background: var(--carving-face-pointed); clip-path: var(--cut-shape); }
+.carving-pointed > .cut-line { --band-top: var(--raise-top); --band-left: var(--raise-left); --band-right: var(--raise-right); --band-bottom: var(--raise-bottom); }
+.carving > textarea { --text-block: 14px; }
+.carving > textarea.is-scrolling { padding-inline-end: calc(var(--pad-words) + 16px); }
+.carving.is-used:is(:focus-visible, :has(:focus-visible), .is-focused) { --face-color: var(--carving-face-focus); }
+.carving.is-used:is(:active, .is-pressed):not(:has(input, textarea)) { box-shadow: var(--press-shade); transition-duration: var(--motion-press); }
+/* A socket: a small carving a piece seats in (a check field's box), 24px across. Its face is a layer of its own (.socket-face) cut to its
+   shape, and its shade lies over whatever is in it, so a piece below the face sits in its shadow. The piece (.socket-piece) is orange, a
+   glint ready on it; seated (a checked input in the socket), the shade lifts off it and its edges take the lit slab's light. Pressed, the
+   socket deepens. Its ring can sit outside it, unclipped. */
+.carving.socket { flex: none; width: 24px; height: 24px; background: none; box-shadow: none; clip-path: none; }
+.socket-face { position: absolute; inset: 0; --face-color: var(--carving-face); background: linear-gradient(var(--carving-wash), var(--carving-wash)), var(--face-color); clip-path: var(--cut-shape); }
+.socket-face::after { content: ""; position: absolute; inset: 0; z-index: 1; box-shadow: var(--carving-shade); pointer-events: none; transition: box-shadow var(--motion-press), opacity var(--motion-state); }
+.socket-piece { position: absolute; inset: 0; display: grid; place-items: center; background: var(--piece-color, var(--run)); color: var(--on-run); overflow: hidden; }
+.socket-piece::before { content: ""; position: absolute; inset: 0; background: linear-gradient(115deg, transparent 30%, var(--glint) 50%, transparent 70%); pointer-events: none; }
+.carving.socket:has(:checked) > .cut-line { --band-top: rgba(255,240,214,0.85); --band-left: rgba(255,226,180,0.55); --band-right: rgba(150,72,0,0.32); --band-bottom: rgba(130,60,0,0.55); }
+:is(label:not(.is-disabled):active, .is-pressed) > .carving.socket > .socket-face::after { box-shadow: var(--press-shade); }
+/* A pick: a carving a slab rises in once it's picked (a choice card). Not picked, it's carved; picked (a checked input in it), the slab's
+   face comes up over the carving (::before), with orange light inside the glass along the edge that leads (::after, its foot; its owner
+   turns it to run down its start). Pressed, it sinks deep, picked or not, quickly, and eases back. Compact, it's flat in the carving that
+   holds it, only the picked one a slab. */
+.carving.pick { display: flex; align-items: flex-start; gap: var(--gap-words-words); padding: 14px var(--pad-words); --pick-light: var(--run); --pick-flood: var(--run-flood);
+  transition: box-shadow var(--motion-state) var(--ease-standard), color var(--motion-state); }
+.carving.pick.compact { padding: 10px var(--pad-words); --face-color: transparent; box-shadow: none; }
+.carving.pick::before { content: ""; position: absolute; inset: 0; background: var(--slab-sheen), linear-gradient(var(--slab-wash), var(--slab-wash)), var(--slab-face); opacity: 0; pointer-events: none;
+  transition: opacity var(--motion-arrive) var(--ease-standard), box-shadow var(--motion-state) var(--ease-standard); }
+.carving.pick { --slab-wash: color-mix(in srgb, var(--glass-hue) var(--glass-hue-strength), transparent); }
+.carving.pick::after { content: ""; position: absolute; z-index: 2; left: 0; right: 0; bottom: 0; height: 18px; pointer-events: none; opacity: 0; transition: opacity var(--motion-arrive) var(--ease-standard);
+  --pick-light-run: to top; background: linear-gradient(var(--pick-light-run), var(--pick-light) 0, var(--pick-light) 2.5px, var(--pick-flood) 3.5px, transparent 100%); }
+.carving.pick:has(:checked) { box-shadow: none; }
+.carving.pick:has(:checked)::before, .carving.pick:has(:checked)::after { opacity: 1; }
+.carving.pick:has(:checked) > .cut-line { --band-top: var(--raise-top); --band-left: var(--raise-left); --band-right: var(--raise-right); --band-bottom: var(--raise-bottom); }
+.carving.pick:not(:has(:disabled)):is(:active, .is-pressed) { box-shadow: var(--press-deep); transition-duration: var(--motion-press); }
+.carving.pick:not(:has(:disabled)):has(:checked):is(:active, .is-pressed)::before { box-shadow: var(--press-deep); transition-duration: var(--motion-press); }
+/* A carving that holds parts close (a compact list of picks, a switch's tabs) keeps them the compact frame gap from its edge: on what's in
+   it (holds-parts) or on the box of parts itself (carving-parts). */
+.carving.holds-parts > .carving-words, .carving-parts { padding: var(--pad-frame-compact); }
+/* A slab layer: a slab whose face is a layer of its own (a switch's sliding slab), cut to its shape under its bevel, so the slab itself
+   isn't clipped and the shadow it casts shows. */
+.slab-layer { filter: var(--slab-cast); --slab-wash: color-mix(in srgb, var(--glass-hue) var(--glass-hue-strength), transparent); }
+.slab-layer::before { content: ""; position: absolute; inset: 0; background: var(--slab-sheen), linear-gradient(var(--slab-wash), var(--slab-wash)), var(--slab-face); clip-path: var(--cut-shape); }
+/* A slot: a deep carving a thumb runs along (a toggle's), 56 by 32, shaded deeper than a field; its owner fills it (--face-color). */
+.carving.slot { flex: none; width: 56px; height: 32px; --face-color: var(--toggle-off); box-shadow: var(--carving-shade), inset 0 2px 4px rgba(10,16,28,0.18); transition: --face-color var(--motion-arrive); }
+/* A thumb: the small solid slab you flip or drag (a toggle's, a slider's), square at its size (--thumb, 24px), white and lit from above on
+   either glass so nothing behind it tints it. Its holder (.thumb) casts its shadow onto what it rests on, so the shadow follows its cut;
+   pointed, it lifts a touch (its owner says when: --thumb-cast-pointed). Pressed (under a pressed label, its input pressed, or .is-pressed
+   on its owner), it's pushed down in place, never smaller: its shadow drawn in close and its face shaded from above. */
+.thumb { width: var(--thumb, 24px); height: var(--thumb, 24px); filter: var(--thumb-cast); transition: filter var(--motion-state); }
+.thumb-slab { position: relative; display: grid; place-items: center; width: 100%; height: 100%; color: var(--ink-2); background: var(--thumb-face); clip-path: var(--cut-shape); transition: box-shadow var(--motion-state); }
+.thumb-slab::after { content: ""; position: absolute; inset: 0; background: var(--thumb-press-face); opacity: 0; transition: opacity var(--motion-state); }
+:is(label:not(.is-disabled):active, .is-pressed, .is-held) .thumb, input:active ~ .thumb { filter: var(--thumb-cast-pressed); transition-duration: var(--motion-press); }
+:is(label:not(.is-disabled):active, .is-pressed, .is-held) .thumb > .thumb-slab, input:active ~ .thumb > .thumb-slab { box-shadow: var(--thumb-press-shade); }
+:is(label:not(.is-disabled):active, .is-pressed, .is-held) .thumb > .thumb-slab::after, input:active ~ .thumb > .thumb-slab::after { opacity: 1; transition-duration: var(--motion-press); }
+/* Layered: its face is a layer of its own under what's typed in it, so the words can fade at an end with more past it while the face stays
+   whole (a field, a search, a long field). */
+.carving.layered { background: none; box-shadow: none; }
+.carving.layered::before { content: ""; position: absolute; inset: 0; z-index: 1; pointer-events: none; --face-color: var(--carving-face);
+  background: linear-gradient(var(--carving-wash), var(--carving-wash)), var(--face-color); box-shadow: var(--carving-shade); clip-path: var(--cut-shape); transition: --face-color var(--motion-state); }
+.carving.layered.is-used:not(:has(:disabled), .is-disabled):hover::before { --face-color: var(--carving-face-pointed); }
+.carving.layered.is-used:is(:has(:focus-visible), .is-focused)::before { --face-color: var(--carving-face-focus); }
 .carving.compact > .carving-words { padding-block: 8px; }
 
 /* A slab: a raised piece of the same glass, clearer than the pane under it and lit from above (a sheen over its face), its edge lit along

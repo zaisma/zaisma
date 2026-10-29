@@ -42,7 +42,7 @@ export const LIGHT_GLASS = `color-scheme: light;
   --swatch-rim: rgba(20, 23, 28, 0.5);
   /* What can't be pressed now: carved flat into the glass, unlike a field's or a button's face in either theme. */
   --off-face: rgba(70, 84, 108, 0.08);
-  --field-face: var(--carving-face); --field-hover: var(--carving-face-pointed); --field-focus: rgba(255, 255, 255, 0.94);
+  --field-face: var(--carving-face); --field-hover: var(--carving-face-pointed); --field-focus: rgba(255, 255, 255, 0.94); --carving-face-focus: var(--field-focus);
   --field-shade: var(--carving-shade); --field-outline: transparent;
   --show: rgba(255, 255, 255, 0.55); --show-on: #fff;
   --pick: rgba(255, 255, 255, 0.42); --pick-shade: inset 0 1px 3px rgba(20, 23, 28, 0.1), inset 0 0 0 1px rgba(255, 255, 255, 0.5);
@@ -94,7 +94,7 @@ export const SMOKED_GLASS = `color-scheme: dark;
   --press-rim: rgba(255, 255, 255, 0.45);
   --swatch-rim: rgba(255, 255, 255, 0.45);
   --off-face: rgba(0, 0, 0, 0.22);
-  --field-face: var(--carving-face); --field-hover: var(--carving-face-pointed); --field-focus: rgba(255, 255, 255, 0.16);
+  --field-face: var(--carving-face); --field-hover: var(--carving-face-pointed); --field-focus: rgba(255, 255, 255, 0.16); --carving-face-focus: var(--field-focus);
   --field-shade: var(--carving-shade); --field-outline: transparent;
   --show: rgba(255, 255, 255, 0.1); --show-on: rgba(255, 255, 255, 0.22);
   --pick: rgba(255, 255, 255, 0.06); --pick-shade: inset 0 1px 3px rgba(0, 0, 0, 0.3), inset 0 0 0 1px rgba(255, 255, 255, 0.08);
@@ -221,11 +221,12 @@ html { -webkit-tap-highlight-color: transparent; }
   --thumb-cast-pointed: drop-shadow(0 1.5px 1.5px rgba(10, 16, 28, 0.28)) drop-shadow(0 3px 4px rgba(10, 16, 28, 0.14));
   --thumb-cast-pressed: drop-shadow(0 0.5px 0.5px rgba(10, 16, 28, 0.3)) drop-shadow(0 0 0 transparent);
   --thumb-press-shade: inset 0 2px 3px rgba(10, 16, 28, 0.18);
+  --thumb-ink: #3D444E;
   --thumb-press-face: linear-gradient(180deg, rgba(10, 16, 28, 0.16), rgba(10, 16, 28, 0.04) 55%, rgba(255, 255, 255, 0.1));
   --run: #F7931A; --run-hi: #FFB24A; --run-lo: #A85A06;
   /* Orange light's other tones (Light, panes.ts): deeper at its start, and the bright tip and white-hot spark at its leading end; a glint is white light running along it. */
   /* What's behind something over everything: dimmed for a task (a sheet), a little for one hanging from its button, deep for one thing large (a light box), whose words are light. */
-  --dim: rgba(6, 9, 14, 0.42); --dim-light: rgba(6, 9, 14, 0.16); --dim-deep: rgba(6, 9, 14, 0.78); --ink-on-dim: #F7F9FC; --ink-2-on-dim: rgba(247, 249, 252, 0.8);
+  --dim: rgba(6, 9, 14, 0.42); --dim-light: rgba(6, 9, 14, 0.16); --dim-deep: rgba(6, 9, 14, 0.78); --ink-on-dim: #F7F9FC; --on-picture: #FFFFFF; --on-picture-shade: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.6)); --ink-2-on-dim: rgba(247, 249, 252, 0.8);
   --run-deep: #E9820C; --run-tip: #FFC277; --run-spark: #FFF4E2; --glint: rgba(255, 255, 255, 0.7); --glint-warm: rgba(255, 246, 228, 0.95);
   /* Words and marks on an orange face (the runner, a ticked box): dark ink in both themes, 7.8:1 against it (white is 2.3:1). */
   --on-run: #14171C;

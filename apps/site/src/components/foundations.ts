@@ -69,6 +69,8 @@ export interface FloatingPaneOptions {
   placement: "under" | "over";
   /** Its owner's own classes, for the owner's styles and script: "select-list". */
   kind?: string;
+  /** It holds edged parts beside words (a color picker, wheels), not a list of rows: they sit at the regular frame gap, not a menu's compact one. */
+  holdsParts?: boolean;
   /** Its role and what a screen reader calls it, when it isn't a list the owner names (a menu, a group of wheels). */
   role?: "menu" | "group";
   label?: string;
@@ -84,7 +86,7 @@ export interface FloatingPaneOptions {
  * no taller than a menu or the room in the window, and its body scrolls inside it past that, with the rail and scroll fades.
  */
 export function floatingPane(options: FloatingPaneOptions): Raw {
-  const className = [`placed-${options.placement}`, options.kind ?? "", "glass", options.isShownInPlace ? "in-place" : ""].filter(Boolean).join(" ");
+  const className = [`placed-${options.placement}`, options.kind ?? "", options.holdsParts ? "regular" : "", "glass", options.isShownInPlace ? "in-place" : ""].filter(Boolean).join(" ");
   return html`<div class="floating-pane ${className}" id="${options.id}"${options.role ? html` role="${options.role}"` : ""}${options.label ? html` aria-label="${options.label}"` : ""} data-glass data-glass-corners="menu"${
     options.isShownInPlace ? (options.lineFromTop ? html` style="--line-from-top: ${options.lineFromTop}"` : "") : raw(' popover="manual"')
   }>${EDGE}${options.head ? html`<div class="floating-head">${options.head}</div>` : ""}<div class="floating-body scrolls">${options.body}</div></div>`;
@@ -102,6 +104,8 @@ export interface WellOptions {
   kind?: string;
   /** The gallery's fixed keyboard focus on what's in it. */
   state?: "is-focused";
+  /** You press it as a whole (a field you copy from by pressing it anywhere): a field's height, with the carving's pointed and pressed states. */
+  isUsed?: boolean;
   /** What's in it is longer than it can show: it scrolls inside the well, which stays still, fading at its ends, on Zaisma's rail; down (a
    * list of choices, a stacked switch's places, the rail beside them) or across (a switch's tabs, the rail under the well). */
   scrollDirection?: "down" | "across";
@@ -119,7 +123,7 @@ export interface WellOptions {
  */
 export function well(options: WellOptions): Raw {
   const isAcross = options.scrollDirection === "across";
-  const className = ["well", "carving", options.kind ?? "", options.scrollDirection ? `scrolls-${options.scrollDirection}` : "", options.state ?? ""].filter(Boolean).join(" ");
+  const className = ["well", "carving", options.isUsed ? "is-used sized" : "", options.kind ?? "", options.scrollDirection ? `scrolls-${options.scrollDirection}` : "", options.state ?? ""].filter(Boolean).join(" ");
   const bodyClass = ["well-body", "carving-words", options.scrollDirection ? "scrolls" : "", isAcross ? "across" : ""].filter(Boolean).join(" ");
   return html`<div class="${className}" data-cut-line="${options.cornerCutPx ?? 10}"${isAcross ? raw(" data-side-rail") : ""}${options.edgeLight ? html` data-edge-light="${options.edgeLight}"` : ""}>${CUT_LINE}${options.edgeLight ? EDGE_LIGHT : ""}<div class="${bodyClass}"${isAcross ? raw(" data-fades-sideways data-rail-scroller") : ""}>${options.body}</div>${
     options.end ? html`<div class="well-end carving-end">${options.end}${options.endNote ? html`<span class="well-end-note" aria-hidden="true">${options.endNote}</span>` : ""}</div>` : ""

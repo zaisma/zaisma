@@ -13,8 +13,8 @@ import { COMPONENTS } from "../../apps/site/src/components/index.ts";
 const isMaterialOrLayout = (component: { group: string; subgroup?: string }) => component.group === "layout" || (component.group === "panes" && component.subgroup === "materials");
 
 const OWN_LOOK = /^(background(-[a-z]+)?|box-shadow|-webkit-backdrop-filter|backdrop-filter|border(-[a-z]+)*|padding(-[a-z]+)*|height|min-height|max-height|overflow(-[xy])?)$/;
-/** Taking a look away is never a look of its own. */
-const RESET = /^(none|0|0px|auto|visible|transparent|inherit|unset|initial)$/;
+/** Taking a look away is never a look of its own, and filling what holds it is never a size of its own. */
+const RESET = /^(none|0|0px|auto|visible|transparent|inherit|unset|initial|100%)$/;
 const RAW_COLOR = /#[0-9a-fA-F]{3,8}\b|\brgba?\(|\bhsla?\(/;
 const OWN_TIMING = /(?<![\w.-])(?!0s\b)\d*\.?\d+m?s\b|cubic-bezier\(|steps\(/;
 /** Pictures and icons are sized, not built: a picture's or an icon's own height is its size. */
@@ -47,6 +47,35 @@ const NOT_MADE_OF_MATERIALS = new Map<string, string>([
   [".way-mark .one-color path | fill", "Discord's mark in its own color"],
   [".way-mark.way-google | padding", "Google's G on smoked glass sits on a white disc a little larger than it, as Google asks"],
   [".way-mark.way-google | background", "the white disc, only on smoked glass (--brand-mark-backing)"],
+  [".way-mark.way-google | border-radius", "the disc is round"],
+  // A field's drawn and hidden parts.
+  [".pin-box:has(> input:not(:placeholder-shown))::after | height", "a digit typed in a PIN shows as a dot, 14px across"],
+  [".pin-box:has(> input:not(:placeholder-shown))::after | border-radius", "the dot is round"],
+  [".pin-box:has(> input:not(:placeholder-shown))::after | background", "the dot is drawn in the words' color"],
+  [".find-finish | overflow", "the finish a search offers ends where the field's end controls begin"],
+  [".find-game > img | background", "a game's picture shows the carving's face while it loads"],
+  [".select-sizes | overflow", "the hidden list of choices that holds a select as wide as its longest, at no height"],
+  [".slider-input::-webkit-slider-thumb | height", "the system's own thumb, unseen, is the drawn thumb's size, so a press lands where it shows"],
+  [".slider-input::-moz-range-thumb | height", "the system's own thumb, unseen, is the drawn thumb's size, so a press lands where it shows"],
+  [".copy-field.is-masked:not(.is-code) .copy-field-text | padding", "a blurred secret's blur reaches past its words, inside its own clip"],
+  [".tab-switch > .foldable | overflow", "a tab folding away narrows to nothing, its words cut as it goes"],
+  // A wheel turns by scrolling inside its groove, three rows tall, the picked one snapped to the middle.
+  [".wheel-channel | height", "three rows: the picked one in the middle, one above and one below"],
+  [".wheel | overflow-y", "the wheel turns by scrolling inside its groove"],
+  [".wheel | padding", "a row's room above the first and below the last, so either can come to the middle"],
+  [".wheel [role=\"option\"]::after | overflow", "the label again in bold, unseen, holding the row as wide as when it's picked"],
+  [".field input:-webkit-autofill | transition", "the browser's autofill color held off for good, so a filled field keeps the carving's face"],
+  // A color field shows the color itself: the color picked, the square of hues and strengths, the brightness ramp.
+  [".color-chip | background", "the color picked, in the field"],
+  [".color-swatch | background", "the color picked, in the pane"],
+  [".color-swatch | min-height", "the color picked shows at least a strip, however little room the column leaves"],
+  [".color-square-light | background", "the square of hues across and strengths down"],
+  [".color-square-light::after | background", "the square dimmed by the brightness"],
+  [".color-side .groove | background", "the brightness slider's groove runs from black to the full color"],
+  // A file drop's picked files.
+  [".file-drop-preview::before | background", "the picked file's own picture, on the carving's face"],
+  [".file-drop-view | max-height", "the picture at its own size, made smaller only where the screen is"],
+  [".file-drop-row.is-sending | padding-bottom", "room at its foot for the groove that shows how much has gone"],
   // A card's brand mark, a picture of its own size.
   [".card-row-mark > .card-brand | height", "a card brand's mark is 32 by 20"],
   [".card-row-mark > .card-brand | background", "the mark fits its box"],

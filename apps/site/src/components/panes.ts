@@ -649,7 +649,7 @@ component({
 /* Light: the only things lit in the glass, each defined here once. Orange light lies inside a carving (light-fill: a groove's fill, a step's
    line), deeper at its start across a line (across), glowing softly (light-glow), with a bright tip at its leading end (light-tip, shown by
    its owner). A glint is white light running along it (light-glint; loops while something's still going). A line of light is 4px (light-line). */
-.light-fill { background: linear-gradient(180deg, var(--run-hi), var(--run)); }
+.light-fill { background: linear-gradient(180deg, var(--light-hi, var(--run-hi)), var(--light, var(--run))); }
 .light-fill.across { background: linear-gradient(90deg, var(--run-deep), var(--run) 40%, var(--run-hi)); }
 .light-glow { filter: drop-shadow(0 0 1.5px var(--run)); }
 .light-line { display: block; height: 4px; }
