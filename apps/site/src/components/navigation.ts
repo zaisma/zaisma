@@ -79,7 +79,7 @@ export function header(options: HeaderOptions): Raw {
         { label: "Sign out", icon: "sign-out", action: "/signout" },
       ]
     : [];
-  return html`<header class="top glass pinned${states}" id="${id}" data-compacts data-glass data-glass-corners="header"${options.isCompact ? raw(" data-stays-compact") : ""}>${EDGE}
+  return html`<header class="top glass glass-bar pinned${states}" id="${id}" data-compacts data-glass data-glass-corners="header"${options.isCompact ? raw(" data-stays-compact") : ""}>${EDGE}
   ${options.sidebarButton ?? ""}${wordmark}
   ${options.isOnSignInPage ? "" : html`<nav class="nav" aria-label="Main"${hasTabRow ? "" : raw(" hidden")}>${tabSwitch({ label: "Where you are", switchSize: "big", isFull: true, tabs })}</nav>`}
   ${options.search ? html`${searchField(options.search)}${secondaryButton(options.search.label, { type: "button", icon: "search", isLabelHidden: true, isSmall: true, isExpanded: Boolean(options.isSearchOpen) })}` : ""}
@@ -117,24 +117,24 @@ export const HEADER_TWO_ROWS_MEDIA = "(max-width: 64em)";
 const HEADER_STYLES = `
 /* The header's height at rest, from its size classes, for the page under it to clear (html.ts's --header-room): one row of regular controls
    inside its inset. On a phone its first row is small controls, and the tabs, where there are any, a row of regular height under it. */
-:root { --header-height: calc(var(--control-height-regular) + 2 * var(--pad-inner-pane)); }
+:root { --header-height: calc(var(--control-height-regular) + 2 * var(--pad-frame)); }
 @media ${HEADER_TWO_ROWS_MEDIA} {
-  :root { --header-height: calc(var(--control-height-small) + 2 * var(--pad-inner-pane)); }
-  :root:has(#top.has-tab-row) { --header-height: calc(var(--control-height-small) + var(--gap-control-stack) + var(--control-height-regular) + 2 * var(--pad-inner-pane)); }
+  :root { --header-height: calc(var(--control-height-small) + 2 * var(--pad-frame)); }
+  :root:has(#top.has-tab-row) { --header-height: calc(var(--control-height-small) + var(--gap-control-stack) + var(--control-height-regular) + 2 * var(--pad-frame)); }
 }
 /* The header: a floating slab of the sign-in's glass, cut corners and a drawn rim, over the page. Orange only on what you act on.
    It's adaptive glass: --glass-top sets its tint and thickness, and smoked glass (dark, or .smoke) gives it light words. */
 .top {
   position: fixed; z-index: 10; top: var(--pad-pane); left: 50%; transform: translateX(-50%);
-  width: min(var(--size-page-wide), calc(100% - 2 * var(--pad-pane))); height: var(--header-height);
-  display: flex; align-items: center; gap: 0; padding: 0 var(--pad-inner-pane);
+  width: min(var(--size-page-wide), calc(100% - 2 * var(--pad-pane)));
+  display: flex; align-items: center; gap: 0;
   --glass-tint: var(--glass-top);
   clip-path: ${cutPolygon("header")};
   transition: var(--glass-transition), height var(--motion-glide) var(--ease-glide), top var(--motion-glide) var(--ease-glide), transform var(--motion-glide) var(--ease-standard);
 }
-/* Compact, once the page scrolls: it rises and its inset above and below its controls closes to the frame gap. Its controls keep their size,
-   so only the slab moves and changes height: nothing in it is laid out again or redrawn as it slims, and it stays smooth. */
-.top.is-compact { height: calc(var(--control-height-regular) + 2 * var(--pad-frame)); top: var(--pad-frame); }
+/* A bar of glass (materials.ts): its controls the frame gap from its edge on every side, its height theirs and that gap. Compact, once the
+   page scrolls, it rises to the frame gap from the window's top; nothing in it is laid out again, and it stays smooth. */
+.top.is-compact { top: var(--pad-frame); }
 .top > :not(.edge) { position: relative; z-index: 3; }
 .top .find, .top .find input { transition: width var(--motion-glide) var(--ease-glide); }
 
@@ -163,7 +163,7 @@ const HEADER_STYLES = `
 @media ${HEADER_TWO_ROWS_MEDIA} {
   /* The header floats on phones too: a slab of glass inset from every edge (below the notch), never touching the screen's sides. */
   /* Two rows at most, at rest or compact: Zaisma, search and you (or Sign in) always share the first, the tabs or the field the second. */
-  .top { top: calc(var(--pad-pane) + env(safe-area-inset-top, 0px)); width: calc(100% - 2 * var(--pad-pane)); height: auto; display: grid; grid-template-columns: minmax(0, auto) minmax(0, 1fr) auto auto; align-items: center; gap: var(--gap-control-stack) 0; padding: var(--pad-inner-pane); }
+  .top { top: calc(var(--pad-pane) + env(safe-area-inset-top, 0px)); width: calc(100% - 2 * var(--pad-pane)); height: auto; display: grid; grid-template-columns: minmax(0, auto) minmax(0, 1fr) auto auto; align-items: center; gap: var(--gap-control-stack) 0; }
   /* Where the first row is tight (Sign in on a 320px phone), the logo gives way: it draws smaller in the room left, never pushing the row wider. */
   .top > .logo { grid-area: 1 / 1; min-width: 0; }
   .top > .logo svg { max-width: 100%; }
@@ -177,9 +177,8 @@ const HEADER_STYLES = `
   .top:has(> [data-sidebar-button]) > .end { grid-area: 1 / 5; }
   .top .nav, .top .find { grid-area: 2 / 1 / 3 / -1; }
   /* Compact keeps the same inset around the tabs as at rest; only the rows themselves get shorter. */
-  .top.is-compact { top: calc(6px + env(safe-area-inset-top, 0px)); height: auto; padding: calc(var(--pad-inner-pane) * 2 / 3); }
-  /* Words keep the page's margin from the header's edge, as in a pane: the logo, and the open search field's words (its icon first). */
-  .top { --pad-words: calc(var(--pad-pane) - var(--pad-inner-pane)); }
+  .top.is-compact { top: calc(6px + env(safe-area-inset-top, 0px)); }
+  /* Words keep the bar's words margin from its edge (materials.ts): the logo, and the open search field's words (its icon first). */
   .top > .logo { margin-left: var(--pad-words); }
   .top .find { --pad-inside-words: var(--pad-words); }
   .top > .logo, .top.is-compact > .logo { --logo-height: 22px; }
@@ -192,7 +191,7 @@ const HEADER_STYLES = `
   /* The first row is small controls, so it shares Zaisma, search and Sign in or you on the narrowest phones; Sign in is the compact runner, or
      a small secondary button beside the page's own runner. */
   .top .end > .run-wrap > .run, .top .end > .cut-btn { --control-height: var(--control-height-small); }
-  .top .end .run { padding: 0 16px 0 14px; font-size: 0.875rem; gap: 6px; }
+  .top .end .run { --slab-words: 15px; font-size: 0.875rem; gap: 6px; }
   /* The picture is as tall as the search button beside it, at rest or compact. */
   .top .me, .top.is-compact .me { --frame: var(--control-height-small); }
   /* The search button and Sign in are a row of two controls, slanting toward each other; beside your picture, which never slants, it keeps a control's gap. */
