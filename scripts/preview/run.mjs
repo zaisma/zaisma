@@ -704,7 +704,7 @@ Zaisma preview is running. Nothing here touches the live site.
   Hosting         ${SITE}/dashboard/rocket-lab/players#hosting  (Free this month: 100% used, paused),  ${SITE}/dashboard/four-in-a-row/players#hosting
                   (85%: the heads-up),  ${SITE}/dashboard/cave-crew/players#hosting  (40%, mostly the relay),  ${SITE}/dashboard/arena/players#hosting
                   (100% free, "$3.40 of $5 budget this month", shares of every kind: rooms, game server, requests, database),  ${SITE}/dashboard/star-haul/players#hosting  (paused: its budget is used)
-  Credit is low   ${SITE}/dashboard/arena  (the credit_low alert on Arena's Overview: "Credit is low: add credit or turn on automatic top-up"),
+  Credit is low   ${SITE}/dashboard/arena  (the credit_low alert on Arena's Overview: "Credit is low: add credit"),
                   ${SITE}/dashboard/settings#hosting  (the same line under the credit's numbers)
   Own servers     ${SITE}/dashboard/tiny-farm/details#own-servers  (Your own servers: wss://play.example.com; the ⋯ menu on
                   ${SITE}/g/tiny-farm?play names it: "Online play runs on the developer's own server: play.example.com")
@@ -726,12 +726,12 @@ Zaisma preview is running. Nothing here touches the live site.
                   account deletes both, and their links never go to another game. Made again at the next start)
   Activity        ${SITE}/account#activity  (as Preview_Studio: a new device in Manchester, keys made and used from a new
                   place, an AI connected; as Moss_Runner: Keep where my account is used from is off)
-  Developer settings ${SITE}/dashboard/settings  (as Preview_Studio: hosting with automatic top-up on, a webhook with three failed deliveries, ${SITE}/dashboard/settings?spending_request=spending_request_preview0waiting asks to raise Arena's budget to $40, ...0expired is no longer waiting, Payments connected on the stand-in with a balance and a next payout)
+  Developer settings ${SITE}/dashboard/settings  (as Preview_Studio: hosting with a top-up's Refund in its row of The last 90 days, a webhook with three failed deliveries, ${SITE}/dashboard/settings?spending_request=spending_request_preview0waiting asks to raise Arena's budget to $40, ...0expired is no longer waiting, Payments connected on the stand-in with a balance and a next payout)
   Leaked keys     ${SITE}/account#developer  (as Preview_Studio: three key rows, one working with a last use and an end date, one
                   turned off after GitHub found it, one that ended yesterday; Make an API key shows the Ends choice) and
                   ${SITE}/account#activity  (Zaisma turned off an API key found in public)
   Terms of service ${SITE}/legal/terms  (the whole page; ${SITE}/legal/dmca has Repeat infringers, and the footer's Terms links here)
-  Pro's refund    ${SITE}/dashboard/settings#pro  (as Preview_Studio: Pro started 3 days ago, so its first payment refunds: Refund ends Pro now; the $25 top-up refunds and the 40-day $10 one doesn't, on #hosting; /account's delete box names the $4.60 that won't come back)
+  Pro's refund    ${SITE}/dashboard/settings#pro  (as Preview_Studio: Pro started 3 days ago, so Cancel Pro has two ways out: cancel at renewal, or end now and refund; as Key_Maker, Pro past its 14 days: Cancel Pro is one button. On #hosting the $25 top-up's row has its Refund and the 40-day $10 one's doesn't; /account's delete box names the $4.60 that won't come back)
   Add credit      ${SITE}/dashboard/settings#hosting  (as Quiet_Builder, no passkey or email: Add credit, then Pay on Stripe, says to add one first; as Key_Maker, with an email, it goes on to Stripe)
   Security alerts ${SITE}/account  (as Quiet_Builder, no email: two alerts with That was me and Not you?, then
                   Where should we tell you…? with Skip) and ${SITE}/dashboard  (the same two); the mailbox has the
@@ -2111,9 +2111,9 @@ function seedLeakedKeys() {
  * for AI apps says when it can connect them.
  */
 /**
- * Developer settings (docs: /dashboard/settings): Preview_Studio's automatic top-up on, a waiting and an expired spending request,
- * a webhook with three failed deliveries and Zaisma Pro started 3 days ago, so its first payment still refunds (the Stripe stand-in's
- * invoice for sub_preview_pro). Idempotent, so it holds on every run.
+ * Developer settings (docs: /dashboard/settings): Preview_Studio's waiting and expired spending requests, a webhook with three
+ * failed deliveries and Zaisma Pro started 3 days ago, so its first payment still refunds (the Stripe stand-in's invoice for
+ * sub_preview_pro); Key_Maker's Pro started 20 days ago, past its refund. Idempotent, so it holds on every run.
  */
 function seedDeveloperSettings() {
   const now = Date.now();
@@ -2122,7 +2122,12 @@ function seedDeveloperSettings() {
   runSql([
     // In Stripe's test mode a made-up customer and subscription would be ones Stripe doesn't know, so Pro starts from Get Pro there.
     ...(STRIPE_TEST_VARS ? [] : [`UPDATE owners SET pro_until_ms = ${now + 27 * 86400_000}, is_pro_cancelled = 0, stripe_subscription_id = 'sub_preview_pro', stripe_customer_id = COALESCE(stripe_customer_id, 'cus_preview_pro') WHERE id = ${owner}`]),
-    `UPDATE owners SET automatic_top_up_enabled = 1, top_up_below_cents = 500, top_up_amount_cents = 2000, monthly_top_up_limit_cents = 6000 WHERE id = ${owner}`,
+    ...(STRIPE_TEST_VARS
+      ? []
+      : [
+          `INSERT INTO owners (id, kind, account_id, created_at_ms) SELECT 'owner_previewkeymaker', 'person', id, ${now} FROM accounts WHERE username = 'Key_Maker' ON CONFLICT (account_id) DO NOTHING`,
+          `UPDATE owners SET pro_until_ms = ${now + 10 * 86400_000}, is_pro_cancelled = 0, stripe_subscription_id = 'sub_preview_pro_old', stripe_customer_id = 'cus_preview_pro_old' WHERE account_id = (SELECT id FROM accounts WHERE username = 'Key_Maker')`,
+        ]),
     "DELETE FROM spending_requests WHERE id LIKE 'spending_request_preview%'",
     `INSERT INTO spending_requests (id, account_id, request_kind, game_id, monthly_budget_cents, created_at_ms, expires_at_ms) SELECT 'spending_request_preview0waiting', ${account}, 'game_budget', id, 4000, ${now - 600_000}, ${now + 85_800_000} FROM games WHERE slug = 'arena'`,
     `INSERT INTO spending_requests (id, account_id, request_kind, game_id, monthly_budget_cents, created_at_ms, expires_at_ms) SELECT 'spending_request_preview0expired', ${account}, 'game_budget', id, 9000, ${now - 100_000_000}, ${now - 13_600_000} FROM games WHERE slug = 'star-haul'`,

@@ -123,7 +123,7 @@ export function apiKeyTokensIn(text: string): string[] {
  *   sign_in_app_access  Sign in with Zaisma apps (the whole account's)
  *   webhook_access      webhooks (the whole account's)
  *   credit_access       hosting credit (the whole account's). read: balance, top-ups and spending. write: also start a top-up,
- *                       refund one, and turn automatic top-up off or down (on or up needs the developer's passkey on zaisma.com)
+ *                       refund one, change a game's budget and Pro
  *   stripe_account_access  the Stripe account sales go to (the whole account's). read: whether it's connected and can take
  *                       payments. write: also turn Stripe Tax on or off, disconnect, and ask for a connection link (connecting
  *                       itself needs the developer's passkey on zaisma.com)

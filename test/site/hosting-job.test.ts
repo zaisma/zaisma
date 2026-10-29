@@ -1,24 +1,18 @@
 import { env } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { HOSTING_PRICES, addCreditEntry, createAccount, createGame, creditOf, gameHostingMonth, monthStartDateOf, personOwner, type Game } from "@zaisma/core";
+import { HOSTING_PRICES, addCreditEntry, createAccount, createGame, creditOf, gameHostingMonth, personOwner, type Game } from "@zaisma/core";
 import { addTopUp, runHostingJob } from "../../apps/site/src/hosting-job.ts";
 import { apiCall, callerFor } from "../../apps/site/src/developer.ts";
 import { handleStripeEvents } from "../../apps/site/src/stripe-events.ts";
 
 // The site's 5-minute hosting job (apps/site/src/hosting-job.ts): the one judge of every game's month on the meter.
 // It charges what's past the free allowance to games with a budget, pauses at the allowance, the budget or an empty
-// balance, writes off what's past them, runs automatic top-ups first, and tells the developer once by email.
+// balance, writes off what's past them, never charges a card, and tells the developer once by email.
 
 const testEnv = { ...env, EMAIL_OUTBOX_URL: "https://outbox.test" } as typeof env;
 const HOUR_SEC = 3600;
 let emails: { to: string; subject: string; text: string }[] = [];
 let stripeCalls: { path: string; form: URLSearchParams; idempotencyKey: string | null }[] = [];
-let isCardDeclined = false;
-/** Stripe can't be reached at all, or answers with its own server error. */
-let isStripeDown = false;
-let isStripeFailing = false;
-/** As Stripe keeps a key's first answer for a day, a declined one included. */
-let stripeAnswers = new Map<string, { status: number; body: unknown }>();
 let ownerId = "";
 let game: Game;
 
@@ -26,10 +20,6 @@ beforeEach(async () => {
   await env.DB.exec("DELETE FROM credit_entries; DELETE FROM game_hosting_months; DELETE FROM alert_notices; DELETE FROM room_usage; DELETE FROM security_events; DELETE FROM audit_log; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM accounts;");
   emails = [];
   stripeCalls = [];
-  isCardDeclined = false;
-  isStripeDown = false;
-  isStripeFailing = false;
-  stripeAnswers = new Map();
   await createAccount(env.DB, { id: "dev-1", username: "Emma_Builds", ageBand: "18+" });
   ownerId = (await personOwner(env.DB, "dev-1")).id;
   game = await createGame(env.DB, { slug: "arena", title: "Arena", description: "", ownerId, visibility: "listed" });
@@ -43,14 +33,9 @@ beforeEach(async () => {
     }
     if (url.origin === "https://supabase.test" && url.pathname.startsWith("/auth/v1/admin/users/")) return Response.json({ id: "dev-1", email: "emma@example.com" });
     if (url.hostname === "api.stripe.com") {
-      const idempotencyKey = new Headers(init?.headers).get("idempotency-key");
-      stripeCalls.push({ path: url.pathname, form: new URLSearchParams(String(init?.body ?? "")), idempotencyKey });
-      if (isStripeDown) throw new TypeError("fetch failed");
-      if (isStripeFailing) return Response.json({ error: { message: "An unknown error occurred.", type: "api_error" } }, { status: 500 });
-      const kept = idempotencyKey ? stripeAnswers.get(idempotencyKey) : undefined;
-      const answer = kept ?? (isCardDeclined ? { status: 402, body: { error: { message: "Your card was declined.", decline_code: "insufficient_funds", type: "card_error" } } } : { status: 200, body: { id: `pi_auto_${stripeCalls.length}`, status: "succeeded" } });
-      if (idempotencyKey) stripeAnswers.set(idempotencyKey, answer);
-      return Response.json(answer.body, { status: answer.status });
+      // The job never charges a card: any call to Stripe is counted, and the tests expect none.
+      stripeCalls.push({ path: url.pathname, form: new URLSearchParams(String(init?.body ?? "")), idempotencyKey: new Headers(init?.headers).get("idempotency-key") });
+      return Response.json({ error: { message: "The hosting job has no call to Stripe." } }, { status: 400 });
     }
     return realFetch(input, init);
   });
@@ -202,38 +187,24 @@ describe("a game with a budget", () => {
   });
 });
 
-describe("automatic top-up", () => {
-  async function turnOn(limitCents: number) {
-    await env.DB.prepare("UPDATE owners SET stripe_customer_id = 'cus_1', stripe_payment_method_id = 'pm_1', automatic_top_up_enabled = 1, top_up_below_cents = 500, top_up_amount_cents = 1000, monthly_top_up_limit_cents = ? WHERE id = ?").bind(limitCents, ownerId).run();
-  }
-
-  it("charges the saved card before a game would pause, within the month's limit, and says so", async () => {
-    await turnOn(1000);
+describe("credit", () => {
+  it("pauses a game with a budget and no balance once its free hosting is used, and charges no card", async () => {
+    await env.DB.prepare("UPDATE owners SET stripe_customer_id = 'cus_1' WHERE id = ?").bind(ownerId).run();
     await setBudget(5000);
     await setUseCents(1200);
     await runHostingJob(testEnv);
-    expect(stripeCalls.map((call) => [call.path, call.form.get("amount"), call.form.get("off_session"), call.idempotencyKey])).toEqual([["/v1/payment_intents", "1000", "true", `automatic-top-up:${ownerId}:${monthStartDateOf().slice(0, 7)}:0:0`]]);
-    expect(await balance()).toBe(800);
-    expect((await month()).paused_at_ms).toBeNull();
-    expect(emails.map((email) => email.text)).toEqual([expect.stringContaining("Zaisma added $10 of credit. $0 of your $10 for")]);
-
-    // The month's limit is used: no second top-up, so the game pauses when the balance runs out.
-    await setUseCents(2100);
-    await runHostingJob(testEnv);
-    expect(stripeCalls).toHaveLength(1);
-    expect(await month()).toMatchObject({ charged_cents: 1000, paused_reason: "credit_used" });
+    expect(await month()).toMatchObject({ charged_cents: 0, paused_reason: "credit_used" });
+    expect(stripeCalls).toEqual([]);
   });
 
-  it("turns off and says why when the card is declined", async () => {
-    await turnOn(5000);
+  it("lets a game with a budget and a balance go past its free hosting", async () => {
+    await topUp(2000);
     await setBudget(5000);
-    isCardDeclined = true;
     await setUseCents(1200);
     await runHostingJob(testEnv);
-    expect((await creditOf(env.DB, ownerId)).automaticTopUp.isEnabled).toBe(false);
-    // With no credit left to spend, its heads-up at 80% of the free hosting goes with the pause.
-    expect(emails.map((email) => email.subject)).toEqual(["Your automatic top-up didn't go through", "Arena has used most of its free hosting", "Arena's hosting is paused"]);
-    expect(emails[0]!.text).toContain("Your card was declined.");
+    expect(await month()).toMatchObject({ charged_cents: 200, paused_at_ms: null });
+    expect(await balance()).toBe(1800);
+    expect(stripeCalls).toEqual([]);
   });
 });
 
@@ -242,11 +213,8 @@ describe("the meter keeps its promises", () => {
   const START_MS = Date.parse("2031-03-10T12:00:00Z");
   const subjects = () => emails.map((email) => email.subject);
   const caller = async () => (await callerFor(testEnv, new Request("https://zaisma.test"), "dev-1"))!;
-  /** Automatic top-up on: under $5, add $10, up to limitCents a month. */
-  const turnOnTopUp = (limitCents: number) =>
-    env.DB.prepare("UPDATE owners SET stripe_customer_id = 'cus_1', stripe_payment_method_id = 'pm_1', automatic_top_up_enabled = 1, top_up_below_cents = 500, top_up_amount_cents = 1000, monthly_top_up_limit_cents = ? WHERE id = ?").bind(limitCents, ownerId).run();
   /** A top-up as Stripe's event adds it, which sets the credit-low line. */
-  const paidTopUp = (cents: number) => addTopUp(testEnv, { ownerId, amountCents: cents, paymentIntentId: `pi_${crypto.randomUUID()}`, isAutomatic: false });
+  const paidTopUp = (cents: number) => addTopUp(testEnv, { ownerId, amountCents: cents, paymentIntentId: `pi_${crypto.randomUUID()}` });
   const later = (minutes: number) => vi.setSystemTime(START_MS + minutes * 60_000);
 
   beforeEach(() => {
@@ -329,83 +297,6 @@ describe("the meter keeps its promises", () => {
     expect(emails.map((email) => email.text)).toEqual([expect.stringContaining("Arena has a budget, but there's no credit for it to spend")]);
     const answer = (await apiCall(testEnv, await caller(), "GET", "/games/arena")) as { alerts: { kind: string }[] };
     expect(answer.alerts.map((alert) => alert.kind)).toContain("hosting_nearly_paused");
-  });
-
-  it("keeps a game running when a charge takes the balance to exactly 0 while automatic top-up has room", async () => {
-    await topUp(200);
-    await turnOnTopUp(5000);
-    await setBudget(5000);
-    await setUseCents(1200);
-    await runHostingJob(testEnv);
-    expect(await month()).toMatchObject({ charged_cents: 200, paused_at_ms: null });
-    expect(await balance()).toBe(1000);
-  });
-
-  it("tops up before a game would pause for credit, also when one run owes more than a balance still above the line", async () => {
-    await topUp(600);
-    await turnOnTopUp(5000);
-    await setBudget(5000);
-    await setUseCents(1800);
-    await runHostingJob(testEnv);
-    expect(await month()).toMatchObject({ charged_cents: 800, paused_at_ms: null, written_off_cents: 0 });
-    expect(await balance()).toBe(800);
-  });
-
-  it("still pauses a game whose credit ran out when Stripe can't be reached, keeps automatic top-up on, and tries the same charge again", async () => {
-    await topUp(100);
-    await turnOnTopUp(5000);
-    await setBudget(5000);
-    await setUseCents(1200);
-    isStripeDown = true;
-    await runHostingJob(testEnv);
-    expect(await month()).toMatchObject({ charged_cents: 100, paused_reason: "credit_used" });
-    expect((await creditOf(env.DB, ownerId)).automaticTopUp.isEnabled).toBe(true);
-    expect(subjects()).not.toContain("Your automatic top-up didn't go through");
-
-    isStripeDown = false;
-    later(5);
-    await runHostingJob(testEnv);
-    expect(stripeCalls[1]!.idempotencyKey).toBe(stripeCalls[0]!.idempotencyKey);
-    expect((await month()).paused_at_ms).toBeNull();
-    expect(await balance()).toBe(1000);
-  });
-
-  it("keeps automatic top-up on when Stripe answers with its own server error, which isn't a declined card", async () => {
-    await turnOnTopUp(5000);
-    await setBudget(5000);
-    await setUseCents(1200);
-    isStripeFailing = true;
-    await runHostingJob(testEnv);
-    expect((await creditOf(env.DB, ownerId)).automaticTopUp.isEnabled).toBe(true);
-    expect(subjects()).not.toContain("Your automatic top-up didn't go through");
-  });
-
-  it("tops up again once the developer fixes their card and turns automatic top-up back on, the same month", async () => {
-    await turnOnTopUp(5000);
-    await setBudget(5000);
-    await setUseCents(1200);
-    isCardDeclined = true;
-    await runHostingJob(testEnv);
-    expect((await creditOf(env.DB, ownerId)).automaticTopUp.isEnabled).toBe(false);
-
-    isCardDeclined = false;
-    later(30);
-    await apiCall(testEnv, { ...(await caller()), isSpendingConfirmed: true }, "PATCH", "/credit/automatic-top-up", { is_enabled: true });
-    later(35);
-    await runHostingJob(testEnv);
-    expect(stripeCalls.map((call) => call.idempotencyKey)).toEqual([`automatic-top-up:${ownerId}:2031-03:0:0`, `automatic-top-up:${ownerId}:2031-03:1:${START_MS + 30 * 60_000}`]);
-    expect((await creditOf(env.DB, ownerId)).automaticTopUp.isEnabled).toBe(true);
-    // What it used while paused was written off then, so the top-up is all still there.
-    expect((await month()).paused_at_ms).toBeNull();
-    expect(await balance()).toBe(1000);
-  });
-
-  it("tells the developer each time it tops up, also when Stripe's event for the charge lands first", async () => {
-    await turnOnTopUp(5000);
-    // Stripe's payment_intent.succeeded counts it, then the job's own answer finds it counted.
-    expect(await addTopUp(testEnv, { ownerId, amountCents: 1000, paymentIntentId: "pi_event_first", isAutomatic: true })).toBe(true);
-    expect(await addTopUp(testEnv, { ownerId, amountCents: 1000, paymentIntentId: "pi_event_first", isAutomatic: true })).toBe(false);
-    expect(emails.map((email) => email.text)).toEqual([expect.stringContaining("Zaisma added $10 of credit. $40 of your $50 for March is left.")]);
   });
 
   it("warns that credit is low before it runs out, even when one run takes it from 30% to 0", async () => {

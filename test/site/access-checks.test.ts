@@ -236,7 +236,6 @@ const SAMPLES: Record<string, (world: World) => Sample> = {
   "POST /pro/resume": () => ({}),
   "POST /pro/refund": () => ({}),
   "POST /credit/refunds": (world) => ({ body: { top_up_id: world.values.top_up_id } }),
-  "PATCH /credit/automatic-top-up": () => ({ body: { is_enabled: false } }),
   "GET /stripe-account": () => ({}),
   "POST /stripe-account/connection-links": () => ({}),
   "PATCH /stripe-account": () => ({ body: { is_stripe_tax_used: true } }),

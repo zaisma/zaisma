@@ -110,11 +110,6 @@ export class StripeRefusal extends ApiError {
   ) {
     super("stripe_unavailable", { message: `Stripe didn't take it: ${stripeMessage}`, fix: "Try again in a minute; if it keeps happening, tell Zaisma with message_zaisma." });
   }
-
-  /** The card itself was refused (HTTP 402, card_error), not Stripe's own trouble, a rate limit or a key in use: trying again won't help. */
-  get isCardRefused(): boolean {
-    return this.stripeHttpStatusNumber === 402 || this.stripeErrorKind === "card_error";
-  }
 }
 
 /** The owner's Stripe customer, made the first time: one per owner, for credit and later Pro. */
@@ -128,8 +123,9 @@ export async function customerFor(env: Env, ownerId: string): Promise<string> {
 }
 
 /**
- * Stripe's page for buying credit: one line, "Zaisma hosting credit", for amountCents, with Managed Payments on and
- * the card saved for automatic top-ups. Back to the credit settings either way. Managed Payments refuses custom_text,
+ * Stripe's page for buying credit: one line, "Zaisma hosting credit", for amountCents, with Managed Payments on. No
+ * card is saved: credit only comes in through this page, so Stripe is the seller of every top-up. Back to the credit
+ * settings either way. Managed Payments refuses custom_text,
  * so the refund terms are on the settings page above the button instead.
  */
 export async function topUpCheckout(env: Env, ownerId: string, amountCents: number): Promise<{ checkoutUrl: string; expiresAtMs: number }> {
@@ -140,7 +136,7 @@ export async function topUpCheckout(env: Env, ownerId: string, amountCents: numb
     customer,
     managed_payments: { enabled: true },
     line_items: [{ quantity: 1, price_data: { currency: "usd", unit_amount: amountCents, product_data: { name: "Zaisma hosting credit", tax_code: CREDIT_TAX_CODE } } }],
-    payment_intent_data: { setup_future_usage: "off_session", metadata: { owner_id: ownerId, top_up_kind: "checkout" } },
+    payment_intent_data: { metadata: { owner_id: ownerId, top_up_kind: "checkout" } },
     metadata: { owner_id: ownerId },
     success_url: backUrl,
     cancel_url: backUrl,
@@ -237,26 +233,6 @@ export async function refundFirstProPayment(env: Env, customerId: string, subscr
 
 export async function setProCancelled(env: Env, subscriptionId: string, isCancelled: boolean): Promise<StripeObject> {
   return stripeCall(env, "POST", `/subscriptions/${encodeURIComponent(subscriptionId)}`, { cancel_at_period_end: isCancelled });
-}
-
-/** Charges the owner's saved card, off-session, for an automatic top-up. The key makes a retry the same charge. */
-export async function chargeSavedCard(env: Env, charge: { ownerId: string; customerId: string; paymentMethodId: string; amountCents: number; idempotencyKey: string }): Promise<StripeObject> {
-  return stripeCall(
-    env,
-    "POST",
-    "/payment_intents",
-    {
-      amount: charge.amountCents,
-      currency: "usd",
-      customer: charge.customerId,
-      payment_method: charge.paymentMethodId,
-      off_session: true,
-      confirm: true,
-      description: "Zaisma hosting credit (automatic top-up)",
-      metadata: { owner_id: charge.ownerId, top_up_kind: "automatic" },
-    },
-    charge.idempotencyKey,
-  );
 }
 
 /** Gives amountCents of a payment back to the card it came from. */

@@ -108,10 +108,13 @@ export function startFakeStripe(port) {
       subscription.status = "canceled";
       return { status: 200, body: subscription };
     }
-    // Zaisma Pro's invoices: the preview's Pro (sub_preview_pro) was paid once, 3 days before the stand-in started.
+    // Zaisma Pro's invoices: the preview's Pro (sub_preview_pro) was paid once, 3 days before the stand-in started, so it still
+    // refunds; Key_Maker's (sub_preview_pro_old, customer cus_preview_pro_old) 20 days before, past its 14.
     if (kind === "invoices" && !id && method === "GET") {
-      const paidAtSec = startedAtSec - 3 * 86_400;
-      return { status: 200, body: { object: "list", data: [{ id: "in_preview_pro", object: "invoice", status: "paid", amount_paid: 1000, currency: "usd", customer: query.get("customer"), status_transitions: { paid_at: paidAtSec }, parent: { type: "subscription_details", subscription_details: { subscription: "sub_preview_pro" } }, payments: { object: "list", data: [{ object: "invoice_payment", status: "paid", payment: { type: "payment_intent", payment_intent: "pi_preview_pro" } }] } }] } };
+      const isOld = query.get("customer") === "cus_preview_pro_old";
+      const paidAtSec = startedAtSec - (isOld ? 20 : 3) * 86_400;
+      const subscriptionId = isOld ? "sub_preview_pro_old" : "sub_preview_pro";
+      return { status: 200, body: { object: "list", data: [{ id: `in_${subscriptionId}`, object: "invoice", status: "paid", amount_paid: 1000, currency: "usd", customer: query.get("customer"), status_transitions: { paid_at: paidAtSec }, parent: { type: "subscription_details", subscription_details: { subscription: subscriptionId } }, payments: { object: "list", data: [{ object: "invoice_payment", status: "paid", payment: { type: "payment_intent", payment_intent: `pi_${subscriptionId}` } }] } }] } };
     }
 
     if (kind === "refunds" && !id && method === "POST") {

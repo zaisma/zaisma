@@ -37,7 +37,6 @@ beforeAll(() => {
     if (url.pathname === "/v1/customers") return Response.json({ id: "cus_test_1" });
     if (url.pathname === "/v1/checkout/sessions") return Response.json({ id: "cs_test_1", url: "https://checkout.stripe.com/c/pay/cs_test_1", expires_at: 1_900_000_000 });
     if (url.pathname === "/v1/refunds") return Response.json({ id: `re_test_${stripeCalls.length}` });
-    if (url.pathname.startsWith("/v1/payment_intents/")) return Response.json({ id: url.pathname.split("/").at(-1), payment_method: "pm_test_card" });
     return Response.json({ error: { message: "No such call in the stand-in." } }, { status: 400 });
   }) as typeof fetch;
 });
@@ -99,7 +98,7 @@ beforeEach(async () => {
 });
 
 describe("a top-up", () => {
-  it("answers Stripe's page for whole cents from $10 to $1,000, with Managed Payments on and the card kept", async () => {
+  it("answers Stripe's page for whole cents from $10 to $1,000, with Managed Payments on and no card kept", async () => {
     const started = await tool("top_up_credit", { amount_cents: 2000 });
     expect(started).toMatchObject({ checkout_url: "https://checkout.stripe.com/c/pay/cs_test_1", next_steps: [expect.objectContaining({ tool: "get_credit" })] });
     const session = stripeCalls.find((call) => call.path === "/v1/checkout/sessions")!.form;
@@ -110,10 +109,12 @@ describe("a top-up", () => {
       "line_items[0][price_data][unit_amount]": "2000",
       "line_items[0][price_data][currency]": "usd",
       "line_items[0][price_data][product_data][name]": "Zaisma hosting credit",
-      "payment_intent_data[setup_future_usage]": "off_session",
+      "payment_intent_data[metadata][top_up_kind]": "checkout",
       "metadata[owner_id]": ownerId,
       success_url: `${SITE}/dashboard/settings#hosting`,
     });
+    // Stripe is the seller of every top-up: no card is saved for a charge later.
+    expect(session.has("payment_intent_data[setup_future_usage]")).toBe(false);
     // Nothing Managed Payments refuses (Stripe answers "You cannot use custom_text with Managed Payments").
     expect([...session.keys()].filter((name) => /^(custom_text|automatic_tax|tax_id_collection|payment_method_|saved_payment_method_options|shipping_)/.test(name))).toEqual([]);
     // One Stripe customer per owner, kept.
@@ -125,7 +126,7 @@ describe("a top-up", () => {
     }
   });
 
-  it("is refused for an account with neither a passkey nor an email, which a card kept for later would leave with no way back in", async () => {
+  it("is refused for an account with neither a passkey nor an email, which would leave the credit with no way back in", async () => {
     accountEmail = "dev-1@no-mail.zaisma.com";
     const refused = await api("/credit/top-ups", { body: { amount_cents: 2000 } });
     expect(refused.status).toBe(403);
@@ -137,14 +138,15 @@ describe("a top-up", () => {
     expect((await api("/credit/top-ups", { body: { amount_cents: 2000 } })).status).toBe(201);
   });
 
-  it("adds credit once when Stripe says it's paid, even when the event comes twice, and keeps the card", async () => {
+  it("adds credit once when Stripe says it's paid, even when the event comes twice, and asks Stripe for no card", async () => {
     expect((await stripeEvent(checkoutCompleted("pi_test_1", 2000))).status).toBe(200);
     expect((await stripeEvent(checkoutCompleted("pi_test_1", 2000))).status).toBe(200);
     const { credit } = await tool("get_credit", {});
     expect(credit.balance_cents).toBe(2000);
     expect(credit.top_ups).toEqual([{ id: expect.stringMatching(/^top_up_/), amount_cents: 2000, refundable_cents: 2000, refund_ends_at: expect.any(String), created_at: expect.any(String) }]);
     expect(Date.parse(credit.top_ups[0].refund_ends_at) - Date.parse(credit.top_ups[0].created_at)).toBe(30 * DAY_MS);
-    expect((await creditOf(env.DB, ownerId)).stripePaymentMethodId).toBe("pm_test_card");
+    expect(credit).not.toHaveProperty("automatic_top_up");
+    expect(stripeCalls.filter((call) => call.path.startsWith("/v1/payment_intents"))).toEqual([]);
     expect((await api("/access")).answer.credit_balance_cents).toBe(2000);
   });
 
@@ -184,25 +186,11 @@ describe("a refund", () => {
   });
 });
 
-describe("automatic top-up and budgets", () => {
-  it("turn off or down with a key, and on or up only with the developer's passkey on zaisma.com", async () => {
-    await stripeEvent(checkoutCompleted("pi_test_4", 2000));
-    const on = { is_enabled: true, top_up_below_cents: 500, top_up_amount_cents: 2000, monthly_top_up_limit_cents: 6000 };
-    const refused = await api("/credit/automatic-top-up", { method: "PATCH", body: on });
-    expect(refused.status).toBe(403);
-    expect(refused.answer.error).toMatchObject({ code: "confirmation_needed", confirm_url: expect.stringContaining(`${SITE}/dashboard/settings?spending_request=spending_request_`) });
-    expect((await creditOf(env.DB, ownerId)).automaticTopUp.isEnabled).toBe(false);
-
-    // Our own page, with a passkey tapped in the last 10 minutes (withSpendingConfirmation).
-    const caller = (await callerFor(env, new Request(SITE), "dev-1"))!;
-    const [changed] = await creditRoute(env, "/credit/automatic-top-up", "PATCH", on, { ...caller, isSpendingConfirmed: true });
-    expect((changed as any).credit.automatic_top_up).toMatchObject({ is_enabled: true, top_up_amount_cents: 2000, monthly_top_up_limit_cents: 6000 });
-
-    // Down and off work with a key.
-    expect((await api("/credit/automatic-top-up", { method: "PATCH", body: { top_up_amount_cents: 1000 } })).status).toBe(200);
-    expect((await api("/credit/automatic-top-up", { method: "PATCH", body: { top_up_amount_cents: 1500 } })).answer.error.code).toBe("confirmation_needed");
-    expect((await api("/credit/automatic-top-up", { method: "PATCH", body: { is_enabled: false } })).answer.credit.automatic_top_up.is_enabled).toBe(false);
-    expect((await api("/credit/automatic-top-up", { method: "PATCH", body: { is_enabled: true, top_up_amount_cents: 2000, monthly_top_up_limit_cents: 1000 } })).answer.error.code).toBe("bad_automatic_top_up");
+describe("budgets", () => {
+  it("have no automatic top-up beside them: its call is gone", async () => {
+    const gone = await api("/credit/automatic-top-up", { method: "PATCH", body: { is_enabled: true } });
+    expect(gone.status).toBe(404);
+    expect(gone.answer.error.code).toBe("not_found");
   });
 
   it("give a game a budget only with the passkey, and take it off or down with a key", async () => {
@@ -232,17 +220,18 @@ describe("automatic top-up and budgets", () => {
     expect((await env.DB.prepare("SELECT COUNT(*) AS request_count FROM spending_requests").first<{ request_count: number }>())!.request_count).toBe(before);
   });
 
-  it("keep an automatic top-up raise as a request, approve it with a confirmed caller, and hold at most 20 waiting", async () => {
-    await stripeEvent(checkoutCompleted("pi_test_5", 2000));
-    const asked = await tool("update_automatic_top_up", { is_enabled: true, top_up_below_cents: 500, top_up_amount_cents: 2000, monthly_top_up_limit_cents: 6000 });
+  it("keep a budget raise as a request, approve it with a confirmed caller, and hold at most 20 waiting", async () => {
+    await api("/games", { body: { title: "Sky Hopper", slug: "sky-hopper" } });
+    const asked = await tool("update_game", { slug: "sky-hopper", monthly_budget_cents: 4000 });
     expect(asked).toMatchObject({ code: "confirmation_needed", spending_request_id: expect.stringMatching(/^spending_request_/) });
     const waiting = (await tool("get_spending_request", { spending_request_id: asked.spending_request_id })).spending_request;
-    expect(waiting).toMatchObject({ request_kind: "automatic_top_up", requested_change: { is_enabled: true, top_up_amount_cents: 2000 }, current_setting: { is_enabled: false } });
+    expect(waiting).toMatchObject({ request_kind: "game_budget", requested_change: { monthly_budget_cents: 4000 }, current_setting: { monthly_budget_cents: null } });
+    expect(Object.keys(waiting.requested_change)).toEqual(["monthly_budget_cents"]);
     const caller = (await callerFor(env, new Request(SITE), "dev-1"))!;
     // An unconfirmed caller can't approve; a confirmed one makes the same change the confirmed call would.
     await expect(answerSpendingRequest(env, caller, asked.spending_request_id, "approved")).rejects.toMatchObject({ code: "confirmation_needed" });
     expect(await answerSpendingRequest(env, { ...caller, isSpendingConfirmed: true }, asked.spending_request_id, "approved")).toBe("answered");
-    expect((await creditOf(env.DB, ownerId)).automaticTopUp).toMatchObject({ isEnabled: true, topUpAmountCents: 2000, monthlyTopUpLimitCents: 6000 });
+    expect((await env.DB.prepare("SELECT monthly_budget_cents FROM games WHERE slug = 'sky-hopper'").first<{ monthly_budget_cents: number }>())!.monthly_budget_cents).toBe(4000);
     expect((await tool("get_spending_request", { spending_request_id: asked.spending_request_id })).spending_request.request_status).toBe("approved");
     // Another account's request can't be answered, and the 21st waiting one replaces the oldest.
     expect(await answerSpendingRequest(env, { ...caller, accountId: "someone-else", isSpendingConfirmed: true }, asked.spending_request_id, "declined")).toBe("not_waiting");

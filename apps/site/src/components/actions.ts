@@ -28,6 +28,8 @@ interface ButtonTarget {
   buttonValue?: string;
   /** "dialog": it closes the sheet it's in instead of sending its form (a Cancel). */
   formMethod?: "dialog";
+  /** Where it sends its form, in place of the form's own action: the second way out of a sheet with two (Cancel Pro's End now and refund). */
+  formAction?: string;
   /** Focused as its sheet opens: a confirm step's Cancel, so a stray Enter never confirms. */
   isAutofocused?: boolean;
 }
@@ -39,7 +41,7 @@ type ButtonState = "is-pointed" | "is-pressed" | "is-focused";
 const opening = (className: string, target: ButtonTarget, isBusy: boolean | undefined, extra: Raw | "" = "") =>
   target.href
     ? html`<a class="shell ${className}"${target.id ? html` id="${target.id}"` : ""}${dataMarkup(target)} href="${target.href}"${target.downloadName ? html` download="${target.downloadName}"` : ""}${extra}${isBusy ? raw(' aria-busy="true"') : ""}>`
-    : html`<button class="shell ${className}"${target.id ? html` id="${target.id}"` : ""}${dataMarkup(target)} type="${target.type ?? "submit"}"${extra}${target.name ? html` name="${target.name}"` : ""}${target.buttonValue !== undefined ? html` value="${target.buttonValue}"` : ""}${target.formMethod ? raw(' formmethod="dialog" formnovalidate') : ""}${target.isAutofocused ? raw(" autofocus") : ""}${isBusy ? raw(' aria-busy="true" disabled') : ""}>`;
+    : html`<button class="shell ${className}"${target.id ? html` id="${target.id}"` : ""}${dataMarkup(target)} type="${target.type ?? "submit"}"${extra}${target.name ? html` name="${target.name}"` : ""}${target.buttonValue !== undefined ? html` value="${target.buttonValue}"` : ""}${target.formMethod ? raw(' formmethod="dialog" formnovalidate') : ""}${target.formAction ? html` formaction="${target.formAction}"` : ""}${target.isAutofocused ? raw(" autofocus") : ""}${isBusy ? raw(' aria-busy="true" disabled') : ""}>`;
 const dataMarkup = (target: ButtonTarget): Raw | "" =>
   target.dataAttributes ? html`${Object.entries(target.dataAttributes).map(([name, text]) => html` data-${name}="${text}"`)}` : "";
 const closing = (target: ButtonTarget) => raw(target.href ? "</a>" : "</button>");
