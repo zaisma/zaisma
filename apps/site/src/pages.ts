@@ -908,6 +908,7 @@ function privacyBody(): Raw {
       pane(
         "Accounts",
         html`<h2>If you create an account</h2>
+<p>If you create an account, Zaisma keeps the following:</p>
 <ul>
 <li><strong>Your username</strong>, which you choose. It is public.</li>
 <li><strong>Your password.</strong> Only Supabase, Zaisma's sign-in provider, keeps it, as a hash.</li>
