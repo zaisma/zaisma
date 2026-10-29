@@ -106,9 +106,17 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
   function report(check, el, said) { if (isMeasured(check)) failures.push({ check: check, element: describe(el), said: said }); }
   var round = function (n) { return Math.round(n * 10) / 10; };
   // A length as the page works it out (a token in rem, a calc), in px: a probe takes it as its width for a moment, inside what sets it.
+  // Each probe changes the page, so the next read lays it all out again: a length is worked out once for what decides it (the tokens it
+  // names, as they are where it's measured, and that place's font), and remembered.
+  var lengthsByKey = new Map();
   function lengthPx(expression, inside) {
+    var place = inside || document.body, css = getComputedStyle(place), names = expression.match(/--[\w-]+/g) || [];
+    var key = expression + "|" + css.fontFamily + "|" + css.fontSize + "|" + css.fontWeight + "|" + names.map(function (name) { return css.getPropertyValue(name).trim(); }).join("|");
+    if (lengthsByKey.has(key)) return lengthsByKey.get(key);
     var probe = document.createElement("i"); probe.style.cssText = "position:absolute;visibility:hidden;display:block;height:0;width:" + expression;
-    (inside || document.body).appendChild(probe); var found = probe.getBoundingClientRect().width; probe.remove(); return found;
+    place.appendChild(probe); var found = probe.getBoundingClientRect().width; probe.remove();
+    lengthsByKey.set(key, found);
+    return found;
   }
   // What sits over the page, fixed to the window: a sheet, a menu, a popover, a notice, a card over the game. Measured as panes over the page.
   var OVER_PAGE = ".sheet:not(.in-place), .dropdown, [popover], .notice, .playing-card, .playing-bar, .playing-check";

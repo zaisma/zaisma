@@ -87,7 +87,7 @@ export const DEFAULT_TAB_COUNT = Math.max(1, Math.min(4, availableParallelism() 
 // (layoutCheckShard), each page's share of the whole being about the same at every screen. A page that isn't here (under 10s) costs
 // UNLISTED_PAGE_COST_SEC.
 const PAGE_COSTS_SEC = {
-  "Gallery: layout": 75.2,
+  "Gallery: layout": 28.6,
   Screens: 43.8,
   Home: 16.7,
   "Buying, confirm with a PIN": 14.1,
@@ -100,23 +100,21 @@ const PAGE_COSTS_SEC = {
   "Buying, one press": 11.1,
   "Buying, a first card": 10.2,
   "Playing a game, asked to sign in": 10,
-  // The gallery's pages, on every screen (npm run layout:check -- --gallery, measured Oct 28, 2026 on a Mac, scaled to two runs): its
-  // three runners are dealt them by these too.
-  "Gallery: the sidebar over the page": 66.3,
-  "Gallery: panes layers": 46.3,
-  "Gallery: inputs fields": 45.7,
-  "Gallery: panes menus": 31.9,
-  "Gallery: navigation bars": 26.7,
-  "Gallery: inputs pickers": 26.4,
-  "Gallery: actions buttons": 21.0,
-  "Gallery: foundations look": 20.2,
-  "Gallery: panes buying": 17.1,
-  "Gallery: data pictures": 16.7,
-  "Gallery: panes cards": 14.9,
-  "Gallery: data lists": 14.5,
-  "Gallery: inputs choices": 12.9,
-  "Gallery: navigation scrolling": 11.7,
-  "Gallery: data numbers": 10.8,
+  // The gallery's pages, on every screen (npm run layout:check -- --gallery, measured Oct 29, 2026 on a Mac, scaled to two runs): its
+  // runners are dealt them by these too.
+  "Gallery: the sidebar over the page": 33.0,
+  "Gallery: inputs fields": 27.0,
+  "Gallery: panes menus": 24.1,
+  "Gallery: panes layers": 22.8,
+  "Gallery: navigation bars": 21.5,
+  "Gallery: actions buttons": 18.5,
+  "Gallery: inputs pickers": 16.7,
+  "Gallery: foundations look": 14.7,
+  "Gallery: inputs choices": 12.7,
+  "Gallery: panes cards": 12.4,
+  "Gallery: panes buying": 12.0,
+  "Gallery: navigation scrolling": 11.5,
+  "Gallery: data pictures": 11.4,
 };
 const UNLISTED_PAGE_COST_SEC = 6;
 
@@ -136,6 +134,28 @@ export function layoutCheckShard(pages, shard) {
   }
   return pages.filter((page) => shares[index - 1].pages.includes(page));
 }
+
+/**
+ * Glass without its blur, over a backdrop that isn't drawn: where things sit is the same, and a frame takes milliseconds instead of the
+ * seconds a large screen's blurred panes take to draw without a graphics card (Desktop's layout gallery took over a second a frame). A run
+ * that takes pictures (--pictures) keeps the real look.
+ */
+const PLAIN_GLASS = `(() => {
+  if (!document.querySelector("style[data-layout-check-plain]")) {
+    const style = document.createElement("style");
+    style.setAttribute("data-layout-check-plain", "");
+    style.textContent = "*, *::before, *::after { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }";
+    document.head.append(style);
+  }
+  document.querySelectorAll("canvas").forEach((canvas) => canvas.setAttribute("data-backdrop-paused", ""));
+  return true;
+})()`;
+
+/** A page's WebGL, gone: getContext answers null for "webgl" and "webgl2", as a browser without it does. */
+const NO_WEBGL = `(() => {
+  const getContext = HTMLCanvasElement.prototype.getContext;
+  HTMLCanvasElement.prototype.getContext = function (kind, ...rest) { return /^webgl2?$/.test(kind) ? null : getContext.call(this, kind, ...rest); };
+})();`;
 
 /** Waits until the page has drawn: loaded, its fonts in, the gallery's skipped sections laid out, the edge rule's shapes drawn. */
 const SETTLE = `(async () => {
@@ -219,17 +239,27 @@ const openEveryPane = () => `(async () => {
     return pane && pane.matches(".dropdown, dialog.sheet, [popover]") && el.getClientRects().length && !el.closest("[inert], dialog, .dropdown");
   });
   const failures = [];
+  // A pane is measured once it's done moving: its opening (or closing) animations finished, never more than 450 ms (a press's most), and
+  // never a fixed wait, so a page of many panes takes as long as its panes take to open. Where things sit is worked out before a frame is
+  // drawn, so it waits on the page's scripts (a timer's turn), never on drawing, which a large screen takes long over without a graphics card.
+  const frame = () => new Promise((done) => setTimeout(done, 16));
+  const settled = async (pane) => {
+    await frame(); await frame();
+    const moving = pane.getAnimations({ subtree: true }).filter((animation) => animation.effect?.getTiming().iterations !== Infinity);
+    await Promise.race([Promise.all(moving.map((animation) => animation.finished.catch(() => {}))), new Promise((done) => setTimeout(done, 450))]);
+  };
   for (const opener of openers) {
+    const pane = document.getElementById(opener.getAttribute("aria-controls") || opener.getAttribute("popovertarget"));
     opener.scrollIntoView({ block: "center" });
-    await new Promise((done) => setTimeout(done, 100));
+    await frame();
     opener.click();
-    await new Promise((done) => setTimeout(done, 450));
+    await settled(pane);
     const label = (opener.getAttribute("aria-label") || opener.textContent || "").trim().replace(/\\s+/g, " ").slice(0, 40);
     failures.push(...measure({ isPanesOnly: true }).map((failure) => ({ ...failure, element: failure.element + ", opened from " + JSON.stringify(label) })));
     document.querySelectorAll("dialog[open]").forEach((dialog) => dialog.close());
     document.querySelectorAll(":popover-open").forEach((popover) => popover.hidePopover());
     document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
-    await new Promise((done) => setTimeout(done, 450));
+    await settled(pane);
   }
   return failures;
 })()`;
@@ -250,6 +280,9 @@ async function checkPage(chrome, contextId, url, looks, options) {
   const said = async () => (await send("Runtime.evaluate", { expression: SAID_STATE, returnByValue: true }).catch(() => null))?.result?.value ?? null;
   try {
     await send("Page.enable");
+    // Measuring needs no WebGL drawing: a page asks for a context and is told there's none (as on a machine without it), which skips the
+    // seconds a first context and its shaders take with no graphics card. A run that takes pictures draws everything.
+    if (!options.pictureOf) await send("Page.addScriptToEvaluateOnNewDocument", { source: NO_WEBGL });
     await look(looks[0]);
     const loaded = () => new Promise((done) => {
       const off = chrome.listen(sessionId, (method) => method === "Page.loadEventFired" && (off(), done()));
@@ -269,7 +302,9 @@ async function checkPage(chrome, contextId, url, looks, options) {
     }
     if (options.markup) await send("Runtime.evaluate", { expression: `document.querySelector("main").innerHTML = ${JSON.stringify(options.markup)}; true`, returnByValue: true });
     // What the page starts hidden (a sheet, a card over the game) is opened first, and settled in each look below.
+    const plain = async () => { if (!options.pictureOf) await send("Runtime.evaluate", { expression: PLAIN_GLASS, returnByValue: true }); };
     if (options.setUp) {
+      await plain();
       await send("Runtime.evaluate", { expression: SETTLE, awaitPromise: true, returnByValue: true });
       const opened = await send("Runtime.evaluate", { expression: options.setUp, awaitPromise: true, returnByValue: true });
       if (opened.exceptionDetails) return looks.map(() => [{ check: "the check couldn't open the page's hidden state", element: "", said: opened.exceptionDetails.exception?.description ?? opened.exceptionDetails.text }]);
@@ -277,6 +312,7 @@ async function checkPage(chrome, contextId, url, looks, options) {
     const foundByLook = [];
     for (const [lookIndex, { size, theme }] of looks.entries()) {
       if (lookIndex > 0) await look({ size, theme });
+      await plain();
       await send("Runtime.evaluate", { expression: SETTLE, awaitPromise: true, returnByValue: true });
       const isMainActionChecked = size.isRunnerChecked !== false && (options.mainActionShows === "everywhere" || (options.mainActionShows === "desktop" && !size.isPhone));
       const measured = { isMainActionChecked, isCoverAboveFold: Boolean(options.isCoverAboveFold) && size.isRunnerChecked !== false, isTouch: Boolean(size.hasTouch), tiers: options.tiers };

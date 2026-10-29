@@ -174,12 +174,14 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
    * drawn, and if the context is lost anyway every canvas keeps its last frame until it's back. A shader draws into one shared picture at
    * fewer pixels (in its bottom left), and the upscale draws that onto the board at its canvas's size.
    */
-  var shared = null;
+  // A browser that can't make one (no WebGL2, or none left) is asked once: asking again each frame costs seconds where there's no graphics card.
+  var shared = null, isWithoutContext = false;
   function sharedContext() {
     if (shared) return shared.isLost ? null : shared;
+    if (isWithoutContext) return null;
     var board = document.createElement("canvas"); board.width = 2; board.height = 2;
     var gl = board.getContext("webgl2", { antialias: false, depth: false, stencil: false, alpha: false, powerPreference: "low-power" });
-    if (!gl) return null;
+    if (!gl) { isWithoutContext = true; return null; }
     // Shaders compile in the background where the browser can (KHR_parallel_shader_compile): a backdrop draws once its program is ready.
     shared = { board: board, gl: gl, programs: {}, isLost: false, parallel: gl.getExtension("KHR_parallel_shader_compile") };
     function prepare() {
