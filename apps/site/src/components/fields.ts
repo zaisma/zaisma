@@ -1038,7 +1038,7 @@ component({
 .wheel [role="option"][aria-selected="true"].blank { color: var(--muted); font-weight: 500; }
 .wheel [role="option"]::after { content: attr(data-label) / ""; height: 0; overflow: hidden; visibility: hidden; font-weight: 600; }
 /* A date and time says its time zone under it. Custom wheels share the width evenly, each as wide as the widest. */
-.wheel-zone { margin: 0 0 var(--pad-words); font: var(--type-facts); color: var(--muted); }
+.wheel-zone { margin: var(--gap-words-control) 0 var(--pad-words); font: var(--type-facts); color: var(--muted); }
 .wheel-zone:empty { display: none; }
 .date-time-wheels { grid-template-columns: repeat(4, auto); }
 .custom-wheels { grid-template-columns: repeat(var(--wheel-count), 1fr); }
