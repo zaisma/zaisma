@@ -1927,9 +1927,9 @@ describe("pages", () => {
     const terms = await SELF.fetch(`${SITE}/legal/terms`);
     expect(terms.status).toBe(200);
     const termsPage = await terms.text();
-    for (const heading of ["Terms of service", "Who this is between", "Your account", "Privacy", "Closing accounts", "Your games are yours", "What we promise developers", "Content rules and takedowns", "Hosting credit", "Zaisma Pro", "Buying and age", "As it is, and our limits", "Disputes", "Changes", "Contact"])
+    for (const heading of ["Terms of service", "Who this is between", "Your account", "Privacy", "Closing accounts", "Your games are yours", "Commitments to developers", "Content rules and takedowns", "Hosting credit", "Zaisma Pro", "Purchases and age", "Disclaimer and limitation of liability", "Disputes", "Changes", "Contact"])
       expect(termsPage).toMatch(new RegExp(`<h[12]>${heading}</h[12]>`));
-    expect(termsPage).toContain("refunds to its card on request for 30 days");
+    expect(termsPage).toContain("refundable to its card on request for 30 days");
     expect(await (await SELF.fetch(`${SITE}/legal/dmca`)).text()).toContain("<h2>Repeat infringers</h2>");
     expect(home).toContain('href="/legal/terms"');
     expect((await SELF.fetch(`${SITE}/signin`)).headers.get("cache-control")).toBe("no-store");
