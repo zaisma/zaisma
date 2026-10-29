@@ -541,6 +541,9 @@ export const GLASS_SCRIPT = `/* glass */(function () {
       last = key;
       el.style.setProperty("--cut-shape", cssPolygon(shape));
       svg.setAttribute("viewBox", "0 0 " + w + " " + h);
+      // Stretched to its box exactly: measured in whole pixels, a box a fraction of a pixel off would otherwise shrink the whole line to keep
+      // its proportions, and the edge would stop short of the face it lines.
+      svg.setAttribute("preserveAspectRatio", "none");
       // Kept a moment past its last frame, so the light it lands with doesn't fade in either.
       if (glide) { svg.classList.add("is-gliding"); clearTimeout(svg.glideEnd); svg.glideEnd = setTimeout(function () { svg.classList.remove("is-gliding"); }, glide.ms + 200); }
       // Its line and light are drawn round the outline with no side under a pixel: a side shrinking away as it glides (a slant becoming a

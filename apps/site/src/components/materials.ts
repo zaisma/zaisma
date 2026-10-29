@@ -184,10 +184,6 @@ span.hairline { flex: 1; border-top: var(--divider); }
 .carving.pick { display: flex; align-items: flex-start; gap: var(--gap-words-words); padding: 14px var(--pad-words); --pick-light: var(--run); --pick-flood: var(--run-flood);
   transition: box-shadow var(--motion-state) var(--ease-standard), color var(--motion-state); }
 .carving.pick.compact { padding: 10px var(--pad-words); --face-color: transparent; box-shadow: none; }
-/* Compact, it has no face of its own, so only its slab, its light and its edge are cut: the card itself isn't, so a press at its corners
-   lands on it. */
-.carving.pick.compact { clip-path: none; }
-.carving.pick.compact::before, .carving.pick.compact::after, .carving.pick.compact > .cut-line { clip-path: var(--cut-shape); }
 .carving.pick::before { content: ""; position: absolute; inset: 0; background: var(--slab-sheen), linear-gradient(var(--slab-wash), var(--slab-wash)), var(--slab-face); opacity: 0; pointer-events: none;
   transition: opacity var(--motion-arrive) var(--ease-standard), box-shadow var(--motion-state) var(--ease-standard); }
 .carving.pick { --slab-wash: color-mix(in srgb, var(--glass-hue) var(--glass-hue-strength), transparent); }
