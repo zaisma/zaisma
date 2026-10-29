@@ -162,8 +162,6 @@ export const TOKEN_STYLES = `
 @property --tint-pct { syntax: "<percentage>"; inherits: false; initial-value: 0%; }
 /* Registered, so a change of hue eases over half a second, like a change of theme, instead of cutting. */
 @property --glass-hue { syntax: "<color>"; inherits: true; initial-value: transparent; }
-/* How much of a floating pane or sheet shows as it arrives and leaves (panes.ts): its glass and what's on it fade, never the pane itself. */
-@property --pane-shown { syntax: "<number>"; inherits: true; initial-value: 1; }
 /* The tint a piece of glass shows right now, faded towards its --glass-tint. A registered color fades in the page itself, so the browser
    never lifts the glass onto a layer of its own for the fade and drops it at the end, which flashed blurred glass as a fade finished. */
 @property --glass-shown-tint { syntax: "<color>"; inherits: true; initial-value: transparent; }

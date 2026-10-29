@@ -740,9 +740,12 @@ component({
    anchor. Closed, it takes no room and no presses: it fades toward its anchor, then goes. Under, it slides from its anchor (from above it,
    is-above); over, it opens out of it, from a touch smaller. Riding the page (is-on-page), it's placed in the page's coordinates. */
 .floating-pane { position: fixed; inset: auto; margin: 0; border: 0; color: var(--ink); display: flex; flex-direction: column; max-width: calc(100vw - 2 * var(--pad-frame)); --glass-tint: var(--glass-dropdown);
-  transition: var(--glass-transition), --pane-shown var(--motion-state), transform var(--motion-arrive) var(--ease-glide), overlay var(--motion-arrive) allow-discrete, display var(--motion-arrive) allow-discrete; }
-/* It fades its glass and what's on it (--pane-shown, tokens.ts), never itself: a pane faded as a whole blurs nothing behind it until it's whole. */
-.floating-pane::before, .floating-pane > * { opacity: var(--pane-shown); }
+  transition: var(--glass-transition), transform var(--motion-arrive) var(--ease-glide), overlay var(--motion-arrive) allow-discrete, display var(--motion-arrive) allow-discrete; }
+/* It fades its glass and what's on it, never itself: a pane faded as a whole blurs nothing behind it until it's whole. Each fades by its own
+   opacity, which the browser draws on the GPU, never a custom property, which would restyle all of it every frame. */
+.floating-pane::before, .floating-pane > * { transition: opacity var(--motion-state); }
+.floating-pane:not(:popover-open):not(.in-place)::before, .floating-pane:not(:popover-open):not(.in-place) > * { opacity: 0; }
+@starting-style { .floating-pane:popover-open::before, .floating-pane:popover-open > * { opacity: 0; } }
 .floating-pane.is-on-page { position: absolute; }
 /* No taller than a menu, or the room in the window (--floating-room, zaismaFloat's place): past that its body scrolls inside it, where the
    rail and scroll fades find it, its head and its glass's edge staying put. What's in its body keeps its height as it scrolls. */
@@ -750,11 +753,11 @@ component({
 .floating-body { flex: 0 1 auto; display: flex; flex-direction: column; }
 .floating-body > * { flex: none; }
 /* A browser that can't keep it in the top layer while it fades (Safari) would let it fall under what follows it on the page: it goes at once. */
-@supports not (overlay: auto) { .floating-pane { transition: var(--glass-transition), --pane-shown var(--motion-state), transform var(--motion-arrive) var(--ease-glide); } }
-.floating-pane:not(:popover-open):not(.in-place) { display: none; --pane-shown: 0; transform: translateY(-6px); pointer-events: none; }
+@supports not (overlay: auto) { .floating-pane { transition: var(--glass-transition), transform var(--motion-arrive) var(--ease-glide); } }
+.floating-pane:not(:popover-open):not(.in-place) { display: none; transform: translateY(-6px); pointer-events: none; }
 .floating-pane.is-above:not(:popover-open):not(.in-place) { transform: translateY(6px); }
 .floating-pane.placed-over:not(:popover-open):not(.in-place) { transform: scale(0.97); }
-@starting-style { .floating-pane:popover-open { --pane-shown: 0; transform: translateY(-6px); } .floating-pane.is-above:popover-open { transform: translateY(6px); } .floating-pane.placed-over:popover-open { transform: scale(0.97); } }
+@starting-style { .floating-pane:popover-open { transform: translateY(-6px); } .floating-pane.is-above:popover-open { transform: translateY(6px); } .floating-pane.placed-over:popover-open { transform: scale(0.97); } }
 /* The shadow it casts onto the page (zaismaCast): a box laid under it in its cut shape, with that shape cut out after it casts. */
 .floating-cast { position: fixed; z-index: 2147483646; pointer-events: none; }
 .floating-cast > div { position: absolute; inset: 0; filter: var(--float-cast); }
@@ -1095,17 +1098,19 @@ const SHEET_STYLES = `
    to a reading width at most, and never wider than a sheet (--size-sheet) or the screen less its margins: past its height, its body scrolls. */
 .sheet { width: fit-content; max-width: min(var(--size-sheet), calc(100% - 2 * var(--pad-pane))); margin: auto; padding: 0; border: 0; overflow: visible; color: var(--ink);
   --glass-tint: var(--glass-dropdown);
-  transition: var(--glass-transition), --pane-shown var(--motion-state), transform var(--motion-arrive) var(--ease-glide), overlay var(--motion-arrive) allow-discrete, display var(--motion-arrive) allow-discrete; }
-/* It fades its glass and what's on it (--pane-shown), never itself, as a floating pane does, so it blurs what's behind it all the way in. */
-.sheet::before, .sheet > * { opacity: var(--pane-shown); }
+  transition: var(--glass-transition), transform var(--motion-arrive) var(--ease-glide), overlay var(--motion-arrive) allow-discrete, display var(--motion-arrive) allow-discrete; }
+/* It fades its glass and what's on it, never itself, as a floating pane does, so it blurs what's behind it all the way in. */
+.sheet::before, .sheet > * { transition: opacity var(--motion-state); }
+.sheet:is(:not([open]), .is-leaving)::before, .sheet:is(:not([open]), .is-leaving) > * { opacity: 0; }
+@starting-style { .sheet[open]::before, .sheet[open] > * { opacity: 0; } }
 /* A picture's sheet: as wide as the screen allows, up to its own size, so a screenshot or a screen shows large. */
 .sheet.is-picture { max-width: min(var(--size-sheet-picture), calc(100% - 2 * var(--pad-pane))); }
 /* Over the page, fixed to the window whether it's opening, open or closing (it stops being :modal the moment it starts to close). */
 .sheet:not(.in-place) { position: fixed; inset: 0; z-index: 40; }
 /* The sheet itself takes the focus when a press opened it (LAYERS_SCRIPT): no ring, a ring is for the keyboard. */
 .sheet:focus-visible { outline: none; }
-.sheet:is(:not([open]), .is-leaving) { --pane-shown: 0; transform: translateY(16px) scale(0.98); pointer-events: none; transition-timing-function: ease, ease, var(--ease-leave); }
-@starting-style { .sheet[open] { --pane-shown: 0; transform: translateY(12px) scale(0.985); } }
+.sheet:is(:not([open]), .is-leaving) { transform: translateY(16px) scale(0.98); pointer-events: none; transition-timing-function: ease, ease, var(--ease-leave); }
+@starting-style { .sheet[open] { transform: translateY(12px) scale(0.985); } }
 .sheet::backdrop { opacity: 1; transition: opacity var(--motion-arrive), overlay var(--motion-arrive) allow-discrete, display var(--motion-arrive) allow-discrete; }
 .sheet:is(:not([open]), .is-leaving)::backdrop { opacity: 0; }
 @starting-style { .sheet[open]::backdrop { opacity: 0; } }
