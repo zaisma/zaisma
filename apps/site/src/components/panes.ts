@@ -1071,7 +1071,7 @@ export function confirmSheet(options: ConfirmSheetOptions): Raw {
     title: options.title,
     body: html`<p class="sheet-text words-margin">${options.text}</p>`,
     action: options.action,
-    buttons: [secondaryButton("Cancel", { type: "submit", formMethod: "dialog", isAutofocused: !options.isBusy }), primaryButton(options.confirmLabel, { type: "submit", isBusy: options.isBusy, isDelete: options.isDelete })],
+    buttons: [secondaryButton("Cancel", { type: "submit", formMethod: "dialog", isAutofocused: !options.isBusy }), (options.isDelete ? secondaryButton(options.confirmLabel, { type: "submit", isBusy: options.isBusy, tint: "red" }) : primaryButton(options.confirmLabel, { type: "submit", isBusy: options.isBusy }))],
     isShown: options.isShown,
     isConfirm: true,
   });

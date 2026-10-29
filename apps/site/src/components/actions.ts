@@ -66,16 +66,10 @@ export interface PrimaryButtonOptions extends ButtonTarget {
    * Left out, the label leads and the arrow follows. An empty string keeps the place for a script to fill (it takes no room until it has words).
    */
   trailingText?: string;
-  /**
-   * A delete's confirm step (a Confirm sheet's isDelete): a secondary button tinted red, the one red in Zaisma, and nowhere else. It's the
-   * moment to stop and read, so it never glints or leans, and it isn't orange. It takes only its label, type, busy and state.
-   */
-  isDelete?: boolean;
 }
 
 /** The primary button: a raised orange slab, the same height as the other buttons, lit along its edges. It lifts, leans toward the pointer and catches the light; pressing sinks it into the glass. */
 export function primaryButton(label: string, options: PrimaryButtonOptions = {}): ControlMarkup {
-  if (options.isDelete) return secondaryButton(label, { type: options.type ?? "submit", isBusy: options.isBusy, state: options.state, tint: "red" });
   // The label's span has no class of its own: html.ts's account link finds it as the header's runner's span without one.
   const words = options.busyLabel ? html`<span class="label-idle">${label}</span><span class="label-busy">${options.busyLabel}</span>` : html`<span>${label}</span>`;
   const shell = classes("run-wrap", options.isFullWidth && "is-full", options.state);
@@ -379,10 +373,6 @@ component({
     { label: "With its price at the other end (a buy button)", markup: html`<div style="${COLUMN}">${primaryButton("Buy", { type: "button", isFullWidth: true, trailingText: "$19.99" })}</div>` },
     { label: "With its price, busy", markup: html`<div style="${COLUMN}">${primaryButton("Buy", { type: "button", isFullWidth: true, trailingText: "$19.99", isBusy: true, busyLabel: "Buying" })}</div>`, isStill: true },
     { label: "Long words: one line, ending in an ellipsis", markup: html`<div style="${COLUMN}">${primaryButton("Play Ashen Crown: The Long Night of the Iron Vigil", { type: "button", isFullWidth: true, isBig: true, icon: "play" })}</div>` },
-    { label: "A delete's confirm: tinted red, only in a Confirm sheet", markup: primaryButton("Delete Ashen Crown", { isDelete: true }) },
-    { label: "A delete's confirm, pointed", markup: primaryButton("Delete Ashen Crown", { isDelete: true, state: "is-pointed" }), isStill: true },
-    { label: "A delete's confirm, pressed: it carves in", markup: primaryButton("Delete Ashen Crown", { isDelete: true, state: "is-pressed" }), isStill: true },
-    { label: "A delete's confirm, deleting", markup: primaryButton("Delete Ashen Crown", { isDelete: true, isBusy: true }), isStill: true },
   ],
 });
 
@@ -460,7 +450,7 @@ component({
 .cut-btn[data-tint="blue"] > .face { --way: #2A75E8; }
 .cut-btn[data-tint="indigo"] > .face { --way: #5865F2; }
 .cut-btn[data-tint="black"] > .face { --way: #14171C; }
-/* A delete's confirm (primaryButton's isDelete): the one red in Zaisma, in the glass of a secondary button. */
+/* A delete's confirm (a Confirm sheet's isDelete): the one red in Zaisma, in the glass of a secondary button. */
 .cut-btn[data-tint="red"] > .face { --way: var(--danger); }
 .way-mark { display: inline-flex; flex: none; }
 .way-mark > svg { width: 20px; height: 20px; }
@@ -478,6 +468,10 @@ component({
     { label: "With an icon", markup: secondaryButton("Settings", { type: "button", icon: "gear" }) },
     { label: "Only its icon", markup: secondaryButton("Light. Switch to dark", { type: "button", icon: "light-dark", isLabelHidden: true }) },
     { label: "Small", markup: secondaryButton("Show", { type: "button", isSmall: true }) },
+    { label: "A delete's confirm: tinted red, the one red, only in a Confirm sheet", markup: secondaryButton("Delete Ashen Crown", { type: "submit", tint: "red" }) },
+    { label: "A delete's confirm, pointed", markup: secondaryButton("Delete Ashen Crown", { type: "submit", tint: "red", state: "is-pointed" }), isStill: true },
+    { label: "A delete's confirm, pressed: it carves in", markup: secondaryButton("Delete Ashen Crown", { type: "submit", tint: "red", state: "is-pressed" }), isStill: true },
+    { label: "A delete's confirm, deleting", markup: secondaryButton("Delete Ashen Crown", { type: "submit", tint: "red", isBusy: true }), isStill: true },
     { label: "Small, only its icon: a sheet's Close, a Copy", markup: html`<div class="control-row">${secondaryButton("Close", { type: "button", icon: "close", isLabelHidden: true, isSmall: true })}${secondaryButton("Copy", { type: "button", icon: "copy", isLabelHidden: true, isSmall: true })}</div>` },
     { label: "Can't press", markup: html`<div class="control-row">${secondaryButton("Details", { type: "button", isDisabled: true })}${secondaryButton("Settings", { type: "button", icon: "gear", isDisabled: true })}</div>`, isStill: true },
     { label: "With a count: the players in a room", markup: secondaryButton("Players", { type: "button", icon: "people", isLabelHidden: true, reactionCount: 3 }) },

@@ -458,17 +458,17 @@ describe("components", () => {
     expect(marked).toContain('<p class="field-error" id="field-username-error">Use letters only.</p>');
   });
 
-  it("give a delete's confirm step the one red button and no runner", () => {
+  it("give a delete's confirm step a secondary button tinted red and no runner", () => {
     const markup = panes.confirmSheet({ id: "delete-ashen-crown", title: "Delete Ashen Crown?", action: "/dashboard/games/ashen-crown/delete", confirmLabel: "Delete Ashen Crown", text: "It's gone for good.", isDelete: true }).html;
     // The sheet is one form, posting the delete; its buttons sit at its foot.
-    expect(markup).toContain('<form class="sheet-in" method="post" action="/dashboard/games/ashen-crown/delete">');
+    expect(markup).toContain('<form class="sheet-in scrolls" method="post" action="/dashboard/games/ashen-crown/delete">');
     const confirmForm = markup.slice(markup.indexOf('<div class="pane-foot"'), markup.indexOf("</form>"));
-    expect(confirmForm).toMatch(/<span class="face danger cut-raised"/);
+    expect(confirmForm).toMatch(/class="cut-btn[^"]*"[^>]*data-tint="red"/);
     expect(confirmForm).not.toMatch(/class="[^"]*\brun\b/);
     // Cancel closes the sheet without sending the delete.
     expect(confirmForm).toContain('formmethod="dialog" formnovalidate');
     // Any other confirm's action is the runner, never red.
-    expect(panes.confirmSheet({ id: "sign-out", title: "Sign out everywhere?", action: "/account/sign-out-everywhere", confirmLabel: "Sign out everywhere", text: "Every device is signed out." }).html).not.toContain("danger");
+    expect(panes.confirmSheet({ id: "sign-out", title: "Sign out everywhere?", action: "/account/sign-out-everywhere", confirmLabel: "Sign out everywhere", text: "Every device is signed out." }).html).not.toContain('data-tint="red"');
   });
 
   it("make a toggle a checkbox that posts with its form, with no script", () => {
