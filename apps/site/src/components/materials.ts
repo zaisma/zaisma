@@ -10,7 +10,7 @@ import { CUT_LINE, glassPane } from "./foundations.ts";
  *
  *   - Glass pane (foundations.ts's glassPane, the header, bars, banners): flush glass of the regular thickness.
  *   - Tray (foundations.ts's tray): the thinnest glass, under the pane whose words it belongs to.
- *   - Floating pane (foundations.ts's floatingPane), a sheet, a notice, a playing card: thick glass, over what's under it.
+ *   - Floating pane (foundations.ts's floatingPane), a sheet, a notice, a playing card: thin glass, over what's under it, blurred.
  *   - Carving: the glass cut away, for what's held in it (a well, a field, a slot) and, deep, a groove.
  *   - Slab: a raised piece of the same glass, for what's pressed or moved (a button, a switch's tab, a thumb); lit, the orange one.
  *
@@ -21,9 +21,10 @@ export const MATERIAL_STYLES = `
    as much as glass takes it, a carving half as much, so everything over a game reads as one tinted glass. */
 .carving, .slab { --carving-wash: color-mix(in srgb, var(--glass-hue) calc(var(--glass-hue-strength) / 2), transparent); --slab-wash: color-mix(in srgb, var(--glass-hue) var(--glass-hue-strength), transparent); }
 /* Thickness: one per material, wherever it's used (the tokens --glass-tray, -thin, -regular and -thick). Every glass is regular unless its
-   material is another; thin is there to try. */
-.glass.thin { --glass-tint: var(--glass-thin); }
-.glass.thick, .floating-pane, .sheet, .notice, .playing-card { --glass-tint: var(--glass-thick); }
+   material is another: what floats over the page (a floating pane, a sheet, a notice, a playing card) is thin, since the page under it is
+   blurred; thick is there to try. */
+.glass.thick { --glass-tint: var(--glass-thick); }
+.glass.thin, .floating-pane, .sheet, .notice, .playing-card { --glass-tint: var(--glass-thin); }
 
 /* Glass on glass: a browser blurs only what's inside the nearest blurred glass round it, so a second blur inside a pane would see nothing of
    the page and turn the inner glass flat white. Glass inside glass only tints: the pane round it has already blurred the page, which shows
@@ -58,7 +59,7 @@ export const MATERIAL_STYLES = `
 .glass.pinned::before { -webkit-backdrop-filter: none; backdrop-filter: none; }
 /* A carving with a control at its end (a well's Copy): what's in it stops short of the control. */
 .carving:has(> .carving-end) > .carving-words { padding-inline-end: calc(var(--control-height-small) + var(--well-inset, 8px) + var(--gap-words-words)); }
-/* Over everything (a sheet, a light box, a store panel): a pane of thick glass over the page, capped at the screen, with the page dimmed
+/* Over everything (a sheet, a light box, a store panel): a pane of thin glass over the page, capped at the screen, with the page dimmed
    behind it: a task's dim, a little for one hanging from its button, deep for one thing large, whose words turn light; a store panel and a
    buy sheet over a running game dim nothing. Past its cap what's in it scrolls, its head and buttons staying put. */
 .sheet { max-height: calc(100dvh - 2 * var(--pad-pane)); }
@@ -342,7 +343,7 @@ export function slab(options: SlabOptions): Raw {
 
 /** The four thicknesses side by side over shapes, so what shows through each tells them apart. */
 const thicknessStrip = (theme: "light" | "dark") =>
-  html`<div class="glass-strip" data-theme-choice="${theme}"><i></i><i></i><i></i>${([["Tray", "tray", "Under a pane"], ["Thin", "thin", "To try out"], ["Regular", "regular", "Every glass pane, the header, banners"], ["Thick", "thick", "Floating panes, sheets, notices, playing cards"]] as const).map(
+  html`<div class="glass-strip" data-theme-choice="${theme}"><i></i><i></i><i></i>${([["Tray", "tray", "Under a pane"], ["Thin", "thin", "Floating panes, sheets, notices, playing cards"], ["Regular", "regular", "Every glass pane, the header, banners"], ["Thick", "thick", "To try out"]] as const).map(
     ([name, thickness, use]) => html`<div class="glass" data-glass data-glass-corners="pane" style="--glass-tint:var(--glass-${thickness})"><strong>${name}</strong>${use}</div>`,
   )}</div>`;
 
@@ -359,7 +360,7 @@ component({
   group: "panes",
   subgroup: "materials",
   summary:
-    "Glass comes in four thicknesses, and each material is one of them wherever it's used: a tray the thinnest, every glass pane regular, a floating pane, a sheet, a notice and a playing card thick. Thin is there to try. A component never picks its own.",
+    "Glass comes in four thicknesses, and each material is one of them wherever it's used: a tray the thinnest, a floating pane, a sheet, a notice and a playing card thin (what's under them is blurred), every glass pane regular. Thick is there to try. A component never picks its own.",
   // MATERIAL_STYLES come right after the tokens (index.ts's COMPONENT_STYLES), before every component's own.
   styles: "",
   examples: [

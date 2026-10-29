@@ -12,7 +12,7 @@ export const LIGHT_GLASS = `color-scheme: light;
   --glass: rgba(255, 255, 255, 0.4); --glass-edge: rgba(255, 255, 255, 0.92); --field: rgba(255, 255, 255, 0.62);
   /* The materials (materials.ts): glass comes in four thicknesses, and each material is one of them wherever it's used. */
   --glass-tray: rgba(250, 252, 255, 0.14); --glass-thin: rgba(250, 252, 255, 0.35); --glass-regular: rgba(250, 252, 255, 0.55); --glass-thick: rgba(250, 252, 255, 0.72);
-  --glass-tint: var(--glass-regular); --glass-top: var(--glass-regular); --glass-dropdown: var(--glass-thick);
+  --glass-tint: var(--glass-regular); --glass-top: var(--glass-regular); --glass-dropdown: var(--glass-thin);
   /* A carving: the glass cut away, a touch darker than the glass round it, shaded under its top edge; pointed at, it catches the light.
      Deep (a groove, a toggle's slot), it's darker and lit along its lower lip. */
   --carving-face: rgba(70, 84, 108, 0.08); --carving-face-pointed: rgba(255, 255, 255, 0.34); --carving-shade: inset 0 1px 3px rgba(20, 23, 28, 0.1);
@@ -75,7 +75,7 @@ export const SMOKED_GLASS = `color-scheme: dark;
   --ink: #F7F9FC; --ink-2: rgba(247, 249, 252, 0.86); --muted: rgba(247, 249, 252, 0.7); --line: rgba(255, 255, 255, 0.2);
   --glass-edge: rgba(255, 255, 255, 0.16); --field: rgba(255, 255, 255, 0.08);
   --glass-tray: rgba(14, 17, 24, 0.18); --glass-thin: rgba(14, 17, 24, 0.35); --glass-regular: rgba(14, 17, 24, 0.55); --glass-thick: rgba(14, 17, 24, 0.72);
-  --glass-tint: var(--glass-regular); --glass-top: var(--glass-regular); --glass-dropdown: var(--glass-thick);
+  --glass-tint: var(--glass-regular); --glass-top: var(--glass-regular); --glass-dropdown: var(--glass-thin);
   --carving-face: rgba(255, 255, 255, 0.08); --carving-face-pointed: rgba(255, 255, 255, 0.13); --carving-shade: inset 0 1px 3px rgba(0, 0, 0, 0.3);
   --carving-deep-face: rgba(0, 0, 0, 0.24); --carving-deep-shade: inset 0 3px 3px rgba(0, 0, 0, 0.75), inset 0 -1.5px 0 rgba(214, 228, 255, 0.45);
   --brand-mark-backing: #FFFFFF; --slab-face: rgba(255, 255, 255, 0.13); --slab-face-pointed: rgba(255, 255, 255, 0.2); --slab-face-pressed: rgba(255, 255, 255, 0.05);

@@ -775,7 +775,7 @@ component({
   examples: [
     { label: "Holding words, shown in place", markup: html`<div style="width:min(320px,100%)">${floatingPane({ id: "example-floating-words", placement: "under", isShownInPlace: true, body: html`<p class="words-margin round" style="margin:0">Rooms run nearest to most of their players.</p>` })}</div>` },
     {
-      label: "Over what's behind it: thick glass, the shapes showing through blurred (shown in place, on a tray, it can only show the tray)",
+      label: "Over what's behind it: thin glass, the shapes showing through blurred (shown in place, on a tray, it can only show the tray)",
       isWide: true,
       markup: html`<div class="glass-strip"><i></i><i></i><i></i><div style="width:min(320px,100%)">${floatingPane({ id: "example-floating-over", placement: "under", isShownInPlace: true, body: html`<p class="words-margin round" style="margin:0">Rooms run nearest to most of their players.</p>` })}</div></div>`,
     },
@@ -1532,7 +1532,7 @@ component({
    little as it arrives and fades up as it leaves. A done one carries a green tick, a problem the warning in the marked color and a close
    button. Its height is a small control's and the room round it, so a notice with Close or Undo is as tall as one without. */
 .notice { position: fixed; z-index: 30; top: calc(var(--under-header, 96px) + var(--notice-shift, 0px)); left: 0; right: 0; width: max-content; max-width: calc(100% - 2 * var(--pad-pane)); margin: 0 auto;
-  display: flex; align-items: center; align-items: flex-start; gap: 0; --glass-tint: var(--glass-thick); --pad-words: var(--pad-inside-words); --notice-line: var(--control-height-small);
+  display: flex; align-items: center; align-items: flex-start; gap: 0; --glass-tint: var(--glass-thin); --pad-words: var(--pad-inside-words); --notice-line: var(--control-height-small);
   font: var(--type-words); color: var(--ink);
   transition: var(--glass-transition), opacity var(--motion-arrive), transform var(--motion-arrive) var(--ease-glide), top var(--motion-arrive) var(--ease-glide); }
 @starting-style { .notice { opacity: 0; transform: translateY(-8px); } }
