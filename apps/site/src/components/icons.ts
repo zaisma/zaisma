@@ -1,5 +1,4 @@
 import { raw, type Raw } from "../markup.ts";
-import { MARK_GLASS_BLACK, MARK_GLASS_VIEW_BOX, MARK_GLASS_WHITE, WORDMARK_GLASS_BLACK, WORDMARK_GLASS_VIEW_BOX, WORDMARK_GLASS_WHITE } from "./logo-glass.ts";
 
 const stroke = (viewBox: string, paths: string, extra = "") => `<svg class="ico" viewBox="${viewBox}" aria-hidden="true"${extra}>${paths}</svg>`;
 
@@ -118,11 +117,10 @@ export const icon = (name: IconName): Raw => raw(ICONS[name]);
 const MARK_PATHS = '<path d="M1884.08,3033.91c767.645,0 1535.29,0 2302.930,0c33.233,248.238 66.466,496.475 99.699,744.712l-4286.71,-0c627.367,-243.599 1255.990,-491.890 1884.080,-744.712Z"/><path d="M415.598,3484.54c777.297,-719.363 1475.76,-1400.24 2108.05,-2044.32c404.715,-158.588 821.55,-323.759 1248.51,-495.17c-547.607,610.584 -1151.51,1254.04 -1823.08,1932.14c-520.17,209.105 -1032.22,411.7 -1533.48,607.345Z"/><path d="M2575.7,1305.06l-1740.58,0c21.608,-194.559 43.215,-389.119 64.823,-583.678l3147.9,0c-485.752,195.366 -976.426,389.899 -1472.14,583.678Z"/>';
 export const MARK_FLAT = raw(`<svg viewBox="-120 600 4527 3300" aria-hidden="true"><g fill="currentColor">${MARK_PATHS}</g></svg>`);
 /**
- * Zaisma's wordmark and mark in glass (brand/README.md, made by scripts/brand.mjs): black glass on light glass, white glass on smoked, by
- * --on-light and --on-smoked. Both drawings' gradients sit outside the two groups, so a hidden group never hides what a shown one uses.
+ * Zaisma's wordmark and mark in glass (brand/README.md, made by scripts/brand.mjs), from the brand files, which browsers keep: black glass
+ * on light glass, white on smoked, by --on-light and --on-smoked. The link round it names it.
  */
-const glassLogo = (viewBox: string, black: GlassDrawing, white: GlassDrawing, label: string | null): Raw =>
-  raw(`<svg viewBox="${viewBox}" overflow="visible" ${label ? `role="img" aria-label="${label}"` : 'aria-hidden="true"'}><defs>${black.definitions}${white.definitions}</defs><g class="on-light">${black.shapes}</g><g class="on-smoked">${white.shapes}</g></svg>`);
-type GlassDrawing = { readonly definitions: string; readonly shapes: string };
-export const WORDMARK = glassLogo(WORDMARK_GLASS_VIEW_BOX, WORDMARK_GLASS_BLACK, WORDMARK_GLASS_WHITE, "Zaisma");
-export const MARK = glassLogo(MARK_GLASS_VIEW_BOX, MARK_GLASS_BLACK, MARK_GLASS_WHITE, null);
+const glassLogo = (fileName: "wordmark" | "mark"): Raw =>
+  raw(`<img class="on-light" src="/zaisma-${fileName}-glass-black.svg" alt=""><img class="on-smoked" src="/zaisma-${fileName}-glass-white.svg" alt="">`);
+export const WORDMARK = glassLogo("wordmark");
+export const MARK = glassLogo("mark");

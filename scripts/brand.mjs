@@ -1,11 +1,10 @@
 // Zaisma's own marks in glass (brand/README.md): the one generator for the glass mark and wordmark, the app icons, the favicon and the
-// share cards, from Julius's drawing kept here as data. It writes the SVGs, brand/manifest.webmanifest and
-// apps/site/src/components/logo-glass.ts, then renders the PNGs and favicon.ico through headless Chrome (scripts/chrome.mjs). Everything
+// share cards, from Julius's drawing kept here as data. It writes the SVGs and brand/manifest.webmanifest, then renders the PNGs and favicon.ico through headless Chrome (scripts/chrome.mjs). Everything
 // it writes is checked in, and test/node/brand-files.test.ts checks the text files are exactly what it makes, so nobody hand-edits one.
 //
 //   npm run brand                                   every file
 //   node scripts/brand.mjs --svg-only [--out <folder>]
-//       The text files only (SVGs, the manifest, logo-glass.ts), with no Chrome: into brand/ and the components folder, or all into <folder>.
+//       The text files only (the SVGs and the manifest), with no Chrome: into brand/, or into <folder>.
 //
 // Glass is drawn as flat-filled polygons, one per facet, never SVG lighting: crisp at every size and the same in every browser and email.
 // Each shard (or letter) is a face, a bevel facet along every edge, walls along the edges that face the depth, a hairline edge, a white
@@ -16,7 +15,6 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const BRAND = join(ROOT, "brand");
-const COMPONENTS = join(ROOT, "apps/site/src/components");
 
 /* The drawing. */
 
@@ -59,12 +57,10 @@ const GLASSES = {
 const MARK_LOOK = { bevelUnits: 125, depth: [71, 220], strokes: { wall: 16.2, bevel: 13.5, edge: 24.3, highlight: 37.8 }, shadowBlurUnits: 162, shadowAlpha: { black: 0.3, white: 0.75 } };
 // The wordmark, in its own units (the Z at 0.62132): the Z's bevel 73 and its walls 45 by 140; the letters shallower, so the Z leads.
 const WORDMARK_LOOK = { bevelUnits: 73, depth: [45, 140], letterDepthShare: 0.55, letterBevelShare: 0.7, strokes: { wall: 13.6, bevel: 11.4, edge: 20.5, highlight: 31.8 }, shadowBlurUnits: 70, shadowAlpha: { black: 0.22, white: 0.65 } };
-// What each drawing shows: the inline one (the page's logo) centered on the glass and its walls, so it sits in the middle of a bar, its
-// shadow (and the wordmark's i dot) free to spill; the file's with room for all of it.
-const MARK_VIEW_BOX = "-120 650 4527 3420";
-const MARK_FILE_VIEW_BOX = "-330 400 5050 4020";
-const WORDMARK_VIEW_BOX = "-120 1469 9988 2860";
-const WORDMARK_FILE_VIEW_BOX = "-200 1000 10200 3150";
+// What each file shows: centered on the glass and its walls, so a page's logo sits in the middle of its bar, with room for the shadow and
+// the wordmark's i dot. apps/site/src/components/foundations.ts sizes the logo by these heights over the glass's (--logo-file-share).
+const MARK_FILE_VIEW_BOX = "-350 300 5060 4120";
+const WORDMARK_FILE_VIEW_BOX = "-120 1239 10080 3320";
 
 const hexToRgb = (hex) => [1, 3, 5].map((start) => parseInt(hex.slice(start, start + 2), 16));
 const mix = (from, to, share) => {
@@ -392,18 +388,6 @@ const MANIFEST = `${JSON.stringify({
   ],
 }, null, 2)}\n`;
 
-function logoGlassModule() {
-  const entry = (name, drawing) => `export const ${name} = ${JSON.stringify(drawing, null, 2)} as const;\n`;
-  return `// Made by scripts/brand.mjs from Julius's drawing: don't edit it. npm run brand remakes it, and test/node/brand-files.test.ts checks it.
-/**
- * Zaisma's mark and wordmark in glass (brand/README.md), for icons.ts: each drawing's gradients and shadow (definitions, ids starting
- * logo-) and its shapes, in the view box beside them. Black glass is for light surfaces, white glass for smoked ones.
- */
-export const MARK_GLASS_VIEW_BOX = "${MARK_VIEW_BOX}";
-export const WORDMARK_GLASS_VIEW_BOX = "${WORDMARK_VIEW_BOX}";
-${entry("MARK_GLASS_BLACK", markDrawing("black"))}${entry("MARK_GLASS_WHITE", markDrawing("white"))}${entry("WORDMARK_GLASS_BLACK", wordmarkDrawing("black"))}${entry("WORDMARK_GLASS_WHITE", wordmarkDrawing("white"))}`;
-}
-
 /** Every text file: its name, the folder it goes in, and its text. */
 function textFiles() {
   return [
@@ -417,7 +401,6 @@ function textFiles() {
     ["share-card-light.svg", BRAND, cardSvg("light")],
     ["share-card-dark.svg", BRAND, cardSvg("dark")],
     ["manifest.webmanifest", BRAND, MANIFEST],
-    ["logo-glass.ts", COMPONENTS, logoGlassModule()],
   ];
 }
 
@@ -508,6 +491,6 @@ for (const [name, folder, text] of textFiles()) {
   const target = out ?? folder;
   mkdirSync(target, { recursive: true });
   writeFileSync(join(target, name), text);
-  if (!out) console.log(`${folder === BRAND ? "brand" : "apps/site/src/components"}/${name} (${Math.round(text.length / 1024)} KB)`);
+  if (!out) console.log(`brand/${name} (${Math.round(text.length / 1024)} KB)`);
 }
 if (!args.includes("--svg-only")) await renderPictures();

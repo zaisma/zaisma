@@ -1,6 +1,6 @@
 # Zaisma brand
 
-The Z is the brand: Julius's own drawing, based on Futura, made of glass. `npm run brand` (`scripts/brand.mjs`) makes every glass file here from the drawing, and the site's inline logo (`apps/site/src/components/logo-glass.ts`); never edit one by hand.
+The Z is the brand: Julius's own drawing, based on Futura, made of glass. `npm run brand` (`scripts/brand.mjs`) makes every glass file here from the drawing, the ones the site's logo shows included; never edit one by hand.
 
 ## Which file to use
 

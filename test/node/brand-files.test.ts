@@ -69,15 +69,14 @@ describe("brand files", () => {
     for (const path of ["/favicon.svg", "/zaisma-mark-glass-black.svg", "/share-card-light.png", "/loader/zaisma-loader.svg", "/flags/de.png", "/design/covers/verdant.webp"]) expect(cacheControlOf(headersText, path), path).toBe("public, max-age=86400, stale-while-revalidate=604800");
   });
 
-  it("are what scripts/brand.mjs makes: its SVGs, manifest and logo-glass.ts, unedited", () => {
+  it("are what scripts/brand.mjs makes: its SVGs and manifest, unedited", () => {
     const out = mkdtempSync(join(tmpdir(), "zaisma-brand-"));
     try {
       execFileSync(process.execPath, [join(ROOT, "scripts/brand.mjs"), "--svg-only", "--out", out]);
       const made = readdirSync(out);
-      expect(made).toContain("logo-glass.ts");
+      expect(made).toContain("zaisma-wordmark-glass-black.svg");
       for (const name of made) {
-        const checkedIn = name === "logo-glass.ts" ? join(ROOT, "apps/site/src/components", name) : join(BRAND, name);
-        expect(readFileSync(join(out, name), "utf8"), `${name} differs from what npm run brand makes: run it, never edit the file`).toBe(readFileSync(checkedIn, "utf8"));
+        expect(readFileSync(join(out, name), "utf8"), `${name} differs from what npm run brand makes: run it, never edit the file`).toBe(readFileSync(join(BRAND, name), "utf8"));
       }
     } finally {
       rmSync(out, { recursive: true, force: true });
