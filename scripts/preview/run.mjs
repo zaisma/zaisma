@@ -94,7 +94,8 @@ const STRIPE_TEST_VARS = (() => {
   try {
     const vars = Object.fromEntries(readFileSync(join(ROOT, "apps/site/.dev.vars"), "utf8").split("\n").map((line) => line.match(/^\s*([A-Z0-9_]+)\s*=\s*"?([^"\r]*)"?\s*$/)).filter(Boolean).map(([, name, value]) => [name, value]));
     if (!vars.STRIPE_SECRET_KEY?.startsWith("sk_test_") || !vars.STRIPE_PUBLISHABLE_KEY?.startsWith("pk_test_")) return null;
-    return { STRIPE_SECRET_KEY: vars.STRIPE_SECRET_KEY, STRIPE_PUBLISHABLE_KEY: vars.STRIPE_PUBLISHABLE_KEY, ...(vars.STRIPE_CONNECT_CLIENT_ID ? { STRIPE_CONNECT_CLIENT_ID: vars.STRIPE_CONNECT_CLIENT_ID } : {}) };
+    const optional = ["STRIPE_PRO_PRICE_ID", "STRIPE_CONNECT_CLIENT_ID", "STRIPE_EVENTS_SECRET", "STRIPE_CONNECT_EVENTS_SECRET"].filter((name) => vars[name]);
+    return { STRIPE_SECRET_KEY: vars.STRIPE_SECRET_KEY, STRIPE_PUBLISHABLE_KEY: vars.STRIPE_PUBLISHABLE_KEY, ...Object.fromEntries(optional.map((name) => [name, vars[name]])) };
   } catch {
     return null;
   }

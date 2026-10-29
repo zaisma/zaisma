@@ -14,7 +14,7 @@ The Z is the brand: Julius's own drawing, based on Futura, made of glass. `npm r
 | Icons 32 px and smaller | `zaisma-mark-small-black.svg` / `zaisma-mark-small-white.svg` |
 | App icon | `zaisma-icon-light.svg` (the default) and `zaisma-icon-dark.svg`; `app-icon-1024.png`, `app-icon-512.png`, `app-icon-192.png`, `app-icon-dark-512.png` |
 | Home screens | `apple-touch-icon.png` (square: the phone rounds it), `app-icon-maskable-512.png` (the Z inside the middle 80%), `manifest.webmanifest` |
-| Stripe's icon | `stripe-icon.png` (square: Stripe rounds it) |
+| Stripe's icon | `stripe-icon.png` (the Z inside the middle 80%, like the maskable icon: Stripe cuts it to a circle) |
 | Browser tab | `favicon.svg` (light and dark in one file), `favicon.ico` (16, 32 and 48 px), `favicon-32.png` |
 | A shared link with no picture of its own | `share-card-light.png` (1200 × 630, from `share-card-light.svg`); `share-card-dark.png` for places that take a dark card |
 | Loading | `loader/` (see below) |
