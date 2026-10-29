@@ -402,7 +402,7 @@ function proPane(settings: Settings): LayoutItem {
     items.push(layer(askSheet("pro-resume", "Keep Zaisma Pro?", "It renews as before.", `${PAGE}/pro/resume`, "Keep it")));
   } else {
     end = secondaryButton("Cancel Pro", { type: "button", isSmall: true, controls: "pro-cancel" });
-    // Inside the first payment's 14 days, two ways out: cancel at renewal, or end now and get it back. Refunding never sits on the page's face.
+    // Inside the first payment's 14 days, three ways: keep it, cancel at renewal, or end now and get it back. Refunding never sits on the page's face.
     const price = dollars(PRO_PRICE_CENTS_PER_MONTH);
     items.push(
       layer(
@@ -410,10 +410,14 @@ function proPane(settings: Settings): LayoutItem {
           ? sheet({
               id: "pro-cancel",
               title: "Cancel Zaisma Pro?",
-              closeLabel: "Keep Pro",
+              closeLabel: "Close",
               action: `${PAGE}/pro/cancel`,
               body: stack({ items: [words(`Keep it until ${shownDate(pro.pro_ends_at)}, or end it now and get your ${price} back (until ${shownDate(pro.refund_ends_at)}).`)] }),
-              buttons: [secondaryButton(`End now and refund ${price}`, { type: "submit", formAction: `${PAGE}/pro/refund` }), primaryButton(`Cancel at ${shownDate(pro.pro_ends_at)}`, { type: "submit" })],
+              buttons: [
+                secondaryButton("Keep Pro", { type: "submit", formMethod: "dialog", isAutofocused: true }),
+                secondaryButton(`End now and refund ${price}`, { type: "submit", formAction: `${PAGE}/pro/refund` }),
+                primaryButton(`Cancel at ${shownDate(pro.pro_ends_at)}`, { type: "submit" }),
+              ],
             })
           : askSheet("pro-cancel", "Cancel Zaisma Pro?", `You keep it until ${shownDate(pro.pro_ends_at)}, then the free limits apply.`, `${PAGE}/pro/cancel`, "Cancel Pro"),
       ),
