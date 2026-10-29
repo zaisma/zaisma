@@ -280,6 +280,9 @@ span.hairline { flex: 1; border-top: var(--divider); }
 :is(.shell:disabled:not([aria-busy="true"]), .shell[aria-disabled="true"]) > .slab > .cut-line, .slab.is-disabled > .cut-line { --band-top: var(--carve-top); --band-left: var(--carve-left); --band-right: var(--carve-right); --band-bottom: var(--carve-bottom); }
 /* Lit: the orange slab, lit from above and deepening toward its foot, its edge bright along its top and its own orange's shade along its
    foot; on smoked glass it glows onto what's round it, on light glass it casts a shadow (--run-cast). */
+/* Its glint runs past its face's box as it sweeps (cut away by its shape); clipped to its box, it never counts as what's in a pane, so a
+   pane holding it never scrolls for it. */
+.slab.lit { overflow: clip; }
 .slab.lit { --face-color: var(--run); background: radial-gradient(130% 110% at 50% -35%, rgba(255,255,255,0.3), rgba(255,255,255,0) 62%), linear-gradient(180deg, var(--run-hi), var(--run) 52%, #E57F0C);
   color: var(--on-run); text-shadow: 0 1px 0 rgba(255,226,180,0.45); font-size: 1rem; letter-spacing: 0.01em; }
 .slab.lit > .cut-line, :is(.shell:active, .shell.is-pressed) > .slab.lit > .cut-line, .slab.lit.is-pressed > .cut-line { --band-top: rgba(255,240,214,0.85); --band-left: rgba(255,226,180,0.55); --band-right: rgba(150,72,0,0.32); --band-bottom: rgba(130,60,0,0.55); }
