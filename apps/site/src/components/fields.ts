@@ -478,7 +478,7 @@ export const SEARCH_SCRIPT = `/* search finishes */(function () {
         row.append(iconTemplate.content.cloneNode(true), words(finish, typed)); box.appendChild(row); rows.push(row);
       });
       var games = (answer.games || []).slice(0, 3);
-      if (games.length) { var head = document.createElement("div"); head.className = "find-head"; head.setAttribute("role", "presentation"); head.textContent = "Games"; box.appendChild(head); }
+      if (games.length) { var head = document.createElement("div"); head.className = "find-head words-margin"; head.setAttribute("role", "presentation"); head.textContent = "Games"; box.appendChild(head); }
       games.forEach(function (game) {
         var row = newRow("a", "game"); row.href = game.page_url; row.tabIndex = -1;
         var cover = document.createElement("img"); cover.src = game.cover_url; cover.alt = ""; cover.width = 64; cover.height = 36;
