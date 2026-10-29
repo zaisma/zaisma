@@ -47,10 +47,10 @@ export const MATERIAL_STYLES = `
 .floating-pane { max-height: min(var(--size-menu-height), var(--floating-room, calc(100dvh - 2 * var(--pad-frame)))); padding: var(--pad-frame-compact); --pad-words: calc(var(--pad-tray) - var(--pad-frame-compact)); }
 /* Holding edged parts beside words (a color picker, wheels), it keeps the regular frame gap and a field's words margin. */
 .floating-pane.regular { padding: var(--pad-frame); --pad-words: var(--pad-inside-words); }
-/* Its glass is a layer of its own (.glass::before), so the browser's own popover face never shows square behind its cut corners. */
-.glass[popover] { background: none; }
-/* Over the page, its blur stays inside its cut too: some browsers blur a layer's whole box whatever its cut, so the pane itself is cut. */
-.glass:popover-open { clip-path: var(--glass-clip, none); }
+/* Its glass is a layer of its own (.glass::before), so the browser's own face and scroll for a popover or a dialog never apply: the face would show square
+   behind its cut corners, and a scroll (or a clip) on the pane itself leaves its glass nothing to blur but what's in it, so what's behind
+   shows through sharp. Its inside scrolls (Caps and scrolls). */
+.glass:is([popover], dialog) { background: none; overflow: visible; }
 /* A carving with a control at its end (a well's Copy): what's in it stops short of the control. */
 .carving:has(> .carving-end) > .carving-words { padding-inline-end: calc(var(--control-height-small) + var(--well-inset, 8px) + var(--gap-words-words)); }
 /* Over everything (a sheet, a light box, a store panel): a pane of thick glass over the page, capped at the screen, with the page dimmed
