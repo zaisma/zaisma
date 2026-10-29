@@ -155,8 +155,8 @@ span.hairline { flex: 1; border-top: var(--divider); }
 .carving.sized { height: var(--control-height, var(--control-height-field)); }
 .carving > :is(input, textarea, .carving-control) { padding: var(--text-block, 0) var(--text-end, var(--pad-words)) var(--text-block, 0) var(--text-start, var(--pad-words)); background: transparent; border: 0; border-radius: 0; }
 .carving.sized > :is(input, .carving-control) { height: 100%; }
-/* A big carving: a target you drop onto (a file drop), what's in it a pane's margin in, at least 168px tall so it's a place to aim for. */
-.carving.big { padding: var(--pad-pane); min-height: 168px; }
+/* A drop zone: a carving you drop files onto (a file drop), what's in it a pane's margin in, at least 168px tall so it's a place to aim for. */
+.carving.drop-zone { padding: var(--pad-pane); min-height: 168px; }
 /* A carving that is itself a button you press (a wheel field's) keeps its words inset the same way. */
 .carving.is-button { padding: 0 var(--text-end, var(--pad-words)) 0 var(--text-start, var(--pad-words)); border: 0; }
 /* A pointed place in a carving (a wheel's picked row): its face cleared as a pointed field's, its edges raised. */
