@@ -796,6 +796,12 @@ component({
   examples: [
     { label: "Holding words, shown in place", markup: html`<div style="width:min(320px,100%)">${floatingPane({ id: "example-floating-words", placement: "under", isShownInPlace: true, body: html`<p style="margin:0;padding:var(--pad-pane)">Rooms run nearest to most of their players.</p>` })}</div>` },
     {
+      label: "Over what's behind it: thick glass, the shapes showing through blurred (shown in place, on a tray, it can only show the tray)",
+      isWide: true,
+      markup: html`<div class="glass-strip"><i></i><i></i><i></i><div style="width:min(320px,100%)">${floatingPane({ id: "example-floating-over", placement: "under", isShownInPlace: true, body: html`<p style="margin:0;padding:var(--pad-pane)">Rooms run nearest to most of their players.</p>` })}</div></div>`,
+    },
+    { label: "Try it: it floats over the page, which shows through it", markup: html`${secondaryButton("Your account", { type: "button", controls: "example-floating-try" })}${dropdown({ id: "example-floating-try", label: "Your account", head: { title: "emma_r", note: "Online" }, items: ACCOUNT_ITEMS })}` },
+    {
       label: "Longer than a menu: its body scrolls, its head staying put",
       markup: html`<div style="width:min(320px,100%)">${floatingPane({ id: "example-floating-long", placement: "under", isShownInPlace: true, head: html`<p style="margin:0;padding:var(--pad-pane) var(--pad-pane) 0;font:var(--type-label)">Regions</p>`, body: html`<p style="margin:0;padding:var(--pad-pane)">${["Frankfurt", "London", "Amsterdam", "Paris", "Madrid", "Stockholm", "Warsaw", "Virginia", "Ohio", "Oregon", "São Paulo", "Tokyo", "Singapore", "Sydney", "Mumbai", "Seoul", "Hong Kong", "Jakarta", "Johannesburg", "Cape Town", "Lagos", "Dubai", "Istanbul", "Milan", "Dublin", "Toronto", "Montreal", "Chicago", "Dallas", "Mexico City", "Bogotá", "Santiago", "Auckland"].map((place) => html`${place}<br>`)}</p>` })}</div>`,
     },
