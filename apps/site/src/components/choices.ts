@@ -607,7 +607,8 @@ component({
    six choices. The cards inside are flat and close together, their line under their name, with no outline of their own: the well is
    carved, and only the picked one is a slab. Pointing wakes the well's edge light down its side, beside the card, as a vertical switch's does. */
 .well.choice-well { --well-height: 336px; }
-.well.choice-well > .well-body { display: flex; flex-direction: column; gap: var(--gap-control-row); font: inherit; }
+/* Its rows touch, as a menu's do, so a press anywhere down the list lands on a card, never a gap between two. */
+.well.choice-well > .well-body { display: flex; flex-direction: column; font: inherit; }
 .choice-well .choice-card { flex: none; }
 .choice-well .choice-words { gap: 2px; }
 .choice-well .choice-card > .cut-line { --band-top: transparent; --band-left: transparent; --band-right: transparent; --band-bottom: transparent; }
