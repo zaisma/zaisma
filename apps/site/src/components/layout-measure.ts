@@ -253,7 +253,8 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
       if (isScrolledAway(el, pane)) return;
       var r = el.getBoundingClientRect(), d = distances(r);
       // Inside what scrolls with its rail showing, the rail's room at the right is part of the gap there.
-      var railed = el.closest(".shows-rail"), railPx = railed && pane.contains(railed) ? Math.max(0, parseFloat(getComputedStyle(railed).paddingRight) - gap.right) : 0;
+      // What scrolls pads nothing of its own but the rail's room, unless it's what holds the pane's content, which pads the frame gap too.
+      var railed = el.closest(".shows-rail"), railPx = railed && pane.contains(railed) ? Math.max(0, parseFloat(getComputedStyle(railed).paddingRight) - (railed === holder ? gap.right : 0)) : 0;
       if (railPx) d = { left: d.left, right: Math.max(gap.right, d.right - railPx), top: d.top, bottom: d.bottom };
       // In a list that scrolls up and down inside the pane (a long menu's choices), what shows sits wherever it's scrolled to: only its sides are measured.
       var holdingScroller = scrollerIn(el, pane), isInScrolledList = holdingScroller && !holdingScroller.matches(".pane-in, .sheet-in") && holdingScroller.scrollHeight > holdingScroller.clientHeight + 1;

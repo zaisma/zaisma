@@ -29,7 +29,7 @@ export const MATERIAL_STYLES = `
    the page and turn the inner glass flat white. Glass inside glass only tints: the pane round it has already blurred the page, which shows
    through both, as through two real sheets, and it costs one blur less. A floating pane, sheet or notice open over the page (the top layer)
    blurs the page itself; the gallery's strips of shapes blur the shapes they hold, to show what glass does. */
-.glass .glass:not(:popover-open, :modal, .glass-strip .glass) { -webkit-backdrop-filter: none; backdrop-filter: none; }
+.glass .glass:not(:popover-open, :modal, .glass-strip .glass)::before { -webkit-backdrop-filter: none; backdrop-filter: none; }
 /* Caps and scrolls: past its cap, what's in a material scrolls inside it (the part marked scrolls), on Zaisma's rail (RAIL_SCRIPT finds it)
    with fades at its ends, its head and foot staying put and the material itself still. Each caps at its own: a glass pane at what holds
    it, a sheet at the screen, a floating pane at a menu's height or the room in the window, a carving at its owner's cap (--well-height, a
@@ -37,6 +37,8 @@ export const MATERIAL_STYLES = `
 /* Only while it has something to scroll (is-scrollable) does it keep a swipe or a wheel to itself, so one that can't scroll never catches them. */
 .scrolls { position: relative; min-height: 0; overflow-y: auto; }
 .scrolls.is-scrollable { overscroll-behavior-y: contain; }
+/* What's in it fits (MATERIAL_SCRIPT): it clips nothing, so a slab's shadow or glow near its edge falls past it. Only while it scrolls is it cut. */
+.scrolls.fits { overflow: visible; }
 .scrolls.own-scroll.shows-rail { padding-inline-end: calc(var(--scroll-inset, 0px) + 16px); }
 .scrolls.across { min-height: auto; overflow: auto hidden; overscroll-behavior-x: contain; scrollbar-width: none; }
 .scrolls.across::-webkit-scrollbar { display: none; }
@@ -52,6 +54,7 @@ export const MATERIAL_STYLES = `
 .sheet::backdrop { background: var(--dim); }
 .sheet.is-anchored:not(.in-place) { max-height: var(--sheet-max-height); }
 .sheet.is-anchored:not(.in-place)::backdrop { background: var(--dim-light); }
+.sheet.light-box::before { display: none; }
 .sheet.light-box:not(.in-place) { height: 100%; padding: var(--pad-pane); --ink: var(--ink-on-dim); --ink-2: var(--ink-2-on-dim); }
 .sheet.light-box::backdrop { background: var(--dim-deep); }
 .sheet.placement-side:not(.in-place) { height: calc(100dvh - 2 * var(--pad-pane)); }
@@ -161,6 +164,20 @@ span.hairline { flex: 1; border-top: var(--divider); }
 @media (prefers-reduced-motion: reduce) { .carving, .slab { transition: none; } }
 `;
 
+/**
+ * Caps and scrolls: a material's part that scrolls is cut at its edge only while what's in it is longer than its cap. Otherwise it fits
+ * (fits), clips nothing, and lets the wheel through; it's measured again whenever it or what's in it changes size.
+ */
+export const MATERIAL_SCRIPT = `/* materials */(function () {
+  function fit(box) { box.classList.toggle("fits", box.scrollHeight <= box.clientHeight + 1 && box.scrollWidth <= box.clientWidth + 1); }
+  window.zaismaWatch.each(".scrolls", function (box) {
+    fit(box);
+    window.zaismaWatch.size(box, function () { fit(box); });
+    Array.prototype.forEach.call(box.children, function (child) { window.zaismaWatch.size(child, function () { fit(box); }); });
+  });
+})();
+`;
+
 export interface CarvingOptions {
   /** What's held in it: words (in .carving-words, at its inset), or controls laid out by the layout components. */
   body: Raw;
@@ -207,7 +224,7 @@ const thicknessStrip = (theme: "light" | "dark") =>
 
 /** Every material over a game's art, tinted with the game's hue, so the tint shows on each: a pane, a carving, a slab and a lit one. */
 const tintedSample = (theme: "light" | "dark") =>
-  html`<div class="glass-strip" data-theme-choice="${theme}" style="background: center / cover no-repeat url('/design/covers/neon-drift.webp'); --glass-hue: #9B4DFF">${glassPane({
+  html`<div class="glass-strip" data-theme-choice="${theme}" style="background: center / cover no-repeat url('/design/covers/neon-drift.webp'); --glass-hue: #9B4DFF; padding: var(--gap-block-block)">${glassPane({
     paneWidth: "fit",
     body: html`<h2>Neon Drift</h2>${carving({ body: html`<span class="carving-words">zaisma.com/g/neon-drift</span>` })}<div style="display:flex;gap:var(--gap-control-stack)">${slab({ body: html`Details` })}${slab({ body: html`Play`, isLit: true })}</div>`,
   })}</div>`;

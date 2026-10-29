@@ -164,7 +164,7 @@ export const TOKEN_STYLES = `
 @property --glass-hue { syntax: "<color>"; inherits: true; initial-value: transparent; }
 /* The tint a piece of glass shows right now, faded towards its --glass-tint. A registered color fades in the page itself, so the browser
    never lifts the glass onto a layer of its own for the fade and drops it at the end, which flashed blurred glass as a fade finished. */
-@property --glass-shown-tint { syntax: "<color>"; inherits: false; initial-value: transparent; }
+@property --glass-shown-tint { syntax: "<color>"; inherits: true; initial-value: transparent; }
 /* A control's face color, the same way: every control that changes color (a hover, a press, light to dark) sets --face-color and
    fades it, never its background, so no control flashes as a fade ends. design.test.ts checks that nothing fades a background. */
 @property --face-color { syntax: "<color>"; inherits: false; initial-value: transparent; }
@@ -350,9 +350,13 @@ ${WORDS_SURFACES.join(", ")} { padding: var(--pad-frame); --pad-words: var(--pad
    at a large text size) breaks rather than run past the margin. */
 :where(${WORDS_HOLDERS.join(", ")}, .tray-head) :where(p, li) { max-width: 75ch; overflow-wrap: break-word; }
 /* Bare groups (BARE_GROUPS above): a game card, a person. The unit takes the margin as a whole, at its sides here and its top and bottom in layout.ts. */${BARE_GROUPS_STYLES}
-.glass { position: relative; color: var(--ink); --glass-shown-tint: var(--glass-tint); background-color: var(--glass-shown-tint); background-image: var(--glass-layer, linear-gradient(transparent, transparent)), var(--glass-wash), var(--glass-sheen);
-  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate)); backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
-  transition: var(--glass-transition); }
+/* The glass's body is a layer of its own under what's on it, cut to its shape (--glass-clip, GLASS_SCRIPT): the glass is cut, not what
+   stands on it, so a slab's shadow or a lit one's glow falls past its edge as light would. */
+.glass { position: relative; isolation: isolate; color: var(--ink); --glass-shown-tint: var(--glass-tint); transition: var(--glass-transition); }
+.glass::before { content: ""; position: absolute; inset: 0; z-index: 0; pointer-events: none; clip-path: var(--glass-clip, none);
+  background-color: var(--glass-shown-tint); background-image: var(--glass-layer, linear-gradient(transparent, transparent)), var(--glass-wash), var(--glass-sheen);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate)); backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate)); }
+.glass > .edge { clip-path: var(--glass-clip, none); }
 .glass > :not(.edge) { position: relative; z-index: 3; }
 .edge { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 2; overflow: visible; }
 /* Light and smoked glass share one frame: a straight-cut glass edge whose every side is one flat tone between --edge-lit and --edge-shade

@@ -951,7 +951,7 @@ component({
 .find-list .select-option > .find-row-icon { flex: none; display: inline-flex; color: var(--muted); }
 .find-row-icon > .ico { width: 18px; height: 18px; }
 .find-list .select-option.is-active .find-row-icon { color: var(--ink); }
-.find-head { padding: 8px calc(var(--pad-pane) - 4px) 2px; font: var(--type-note); color: var(--muted); }
+.find-head { padding: 8px var(--pad-words) 2px; font: var(--type-note); color: var(--muted); }
 .find-game > img { flex: none; width: 64px; height: 36px; object-fit: cover; background: var(--well); }
 .find-game-words { display: grid; gap: 2px; min-width: 0; }
 .find-game-fact { font: var(--type-note); color: var(--muted); }
