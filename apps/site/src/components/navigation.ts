@@ -1602,7 +1602,7 @@ component({
   slug: "filter-menu",
   group: "panes",
   subgroup: "menus",
-  summary: "The ways to narrow a list, in one menu from a Filter button that counts the ones in use: each way says what's picked, and opens its choices in the same pane, with a way back.",
+  summary: "The ways to narrow a list, in one menu from a Filter button that counts the ones in use: each way says what's picked, and opens its choices in the same pane, with a way back. Not for one order to sort by: a Dropdown.",
   styles: `
 /* A Filter menu: a Dropdown whose rows each open a group's choices in its place (a group's row ends in what's picked and a chevron),
    and whose group's choices start with the way back. It's at least wide enough for its longest group and what's picked in it. */

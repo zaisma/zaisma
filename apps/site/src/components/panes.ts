@@ -2,7 +2,7 @@ import { SIZED_IMAGE_WIDTHS_PX } from "@zaisma/core";
 import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
 import { CUT_LINE, EDGE, ago, floatingPane, glassPane, groove, icon, sheetMarkup, tag, tray, well, type IconName } from "./foundations.ts";
-import { emptyState, glanceFacts, listRows, pictureFrame, pictureRow, type GlanceFacts } from "./data.ts";
+import { doneState, emptyState, glanceFacts, problemState, listRows, pictureFrame, pictureRow, type GlanceFacts } from "./data.ts";
 import { cardRow, secondaryButton, tertiaryButton, primaryButton, textLink, toggleButton } from "./actions.ts";
 import { REPORT_REASONS, choiceCards, copyField, cutField, longField, tabSwitch, wheelField } from "./inputs.ts";
 import { STAND_IN_GAME_ICON, STAND_IN_QR_CODE, qrCode } from "./qr-code.ts";
@@ -556,11 +556,16 @@ component({
   slug: "glass-pane",
   group: "panes",
   subgroup: "glass",
-  summary: "A sheet of glass that holds a task: signing in, a game at a glance, a form. It's as wide as what holds it, or as wide as what's in it, its paragraphs running to a reading width at most; never a width of its own. Its content scrolls inside it rather than shrinking. A game's page starts its pane lower on a phone (isStartedLow), so the game's art shows above it.",
+  summary: "A sheet of glass that holds a task: signing in, a game at a glance, a form. It's as wide as what holds it, or as wide as what's in it, its paragraphs running to a reading width at most; never a width of its own. Its content scrolls inside it rather than shrinking. A game's page starts its pane lower on a phone (isStartedLow), so the game's art shows above it. Not for a task that comes and goes over the page (a Sheet) or choices that hang from a button (a Floating pane).",
   styles: PANE_STYLES,
   render: glassPane,
   examples: [
     { label: "Fit: as wide as what's in it", markup: glassPane({ paneWidth: "fit", body: signInBody("example-pane-fit") }), isWide: true },
+    {
+      label: "Fit, long words: they run to a reading width, no wider",
+      isWide: true,
+      markup: glassPane({ paneWidth: "fit", body: stack({ items: [{ kind: "words", markup: html`<h2>About Ashen Crown</h2>` }, { kind: "words", markup: html`<p>A siege across one long night for up to 64 players. Hold the walls of Ember Keep while the dead climb from the marsh, trade what you scavenge between waves, and keep the last fire burning until dawn. Every Sunday the map turns and the leaderboard starts again.</p>` }] }) }),
+    },
     { label: "Full: as wide as what holds it (one that should take half the screen goes in Columns)", markup: glassPane({ paneWidth: "full", body: stack({ items: [{ kind: "words", markup: html`<h2>Rooms</h2>` }, { kind: "words", markup: html`<p>267 playing now in 78 rooms.</p>` }] }) }), isWide: true },
   ],
 });
@@ -584,7 +589,7 @@ component({
   slug: "tray",
   group: "panes",
   subgroup: "glass",
-  summary: "A thinner, clearer sheet a pane extends into, holding everything that belongs to it: the pane's words on top, what they're about on the tray beneath, read as one. Every gallery section is one.",
+  summary: "A thinner, clearer sheet a pane extends into, holding everything that belongs to it: the pane's words on top, what they're about on the tray beneath, read as one. Every gallery section is one. Never on its own: a tray runs on from the pane whose words it belongs to; a second task is a Glass pane of its own.",
   styles: `
 /* A tray: the pane above holds the words, square along its foot; the tray runs on from it with no rim of its own along the top. It's
    the same glass, light or smoked, only thinner and muted, so the pane stands out and the tray stays in the background: a clearer
@@ -611,6 +616,11 @@ component({
       isWide: true,
       markup: tray({ paneWidth: "full", head: html`<h3 class="tray-sample-title">Continue playing</h3>`, body: grid({ whenEmpty: html`<p>No games here yet.</p>`, itemSize: "cover", items: ["ashen-crown", "neon-drift", "hollow-tide"].map((slug) => ({ kind: "block", markup: STAND_IN_COVERS[slug]! })) }) }),
     },
+    {
+      label: "Full, holding nothing yet: what it says in its place",
+      isWide: true,
+      markup: tray({ paneWidth: "full", head: html`<h3 class="tray-sample-title">Continue playing</h3>`, body: grid({ whenEmpty: emptyState({ title: "Nothing played yet", text: "Games you play show here, so you can pick up where you left off." }), itemSize: "cover", items: [] }) }),
+    },
   ],
 });
 
@@ -621,7 +631,7 @@ component({
   slug: "groove",
   group: "panes",
   subgroup: "glass",
-  summary: "A channel carved into the glass that fills with orange light from its start: how far along something is. A Slider's line and a Progress's track are one; with no end known yet, a light runs along it.",
+  summary: "A channel carved into the glass that fills with orange light from its start: how far along something is. A Slider's line and a Progress's track are one; with no end known yet, a light runs along it. It shows and is never pressed: to set a value, a Slider; for the steps of a task, a Step flow.",
   styles: `
 /* A groove: carved into the glass and read by its edges alone, like every carving, but deep: a shade under its upper edge and a crisp line
    of light along its lower lip, where the light from above lands (--groove-shade, --groove-lip); its face is the toggle slot's when off,
@@ -657,7 +667,7 @@ component({
   slug: "edge-light",
   group: "panes",
   subgroup: "glass",
-  summary: "The light a well or pane catches on its edge as you point at what's in it: the whole edge wakes, and beside the part you point at the edge brightens and floods up into the glass, gliding along as you move. A switch's tabs and places use it; it's never a slab or a line laid in the glass.",
+  summary: "The light a well or pane catches on its edge as you point at what's in it: the whole edge wakes, and beside the part you point at the edge brightens and floods up into the glass, gliding along as you move. A switch's tabs and places use it; it's never a slab or a line laid in the glass. What's picked is carved or raised, never lit.",
   styles: `
 /* An edge light (EDGE_LIGHT, EDGE_LIGHT_SCRIPT): laid in its holder before what it holds, cut to the holder's own shape (--cut-shape), so
    it stops at a cut corner instead of spilling past it. Pointed at, the whole edge wakes (--edge-wake); beside the part you point at, the
@@ -724,6 +734,11 @@ component({
       label: "Long words: they stop short of its end control",
       markup: examplePane(well({ body: html`The Iron Vigil is a night-long siege for up to 64 players, with its own map, three new bosses and a leaderboard that resets every Sunday.`, end: tertiaryButton("Copy", { type: "button", icon: "copy", isLabelHidden: true, isSmall: true }) })),
     },
+    {
+      label: "Longer than it shows: what's in it scrolls, the well staying still",
+      // A well no taller than five lines here, as its owner would set (--well-height), so it scrolls.
+      markup: html`<div style="--well-height:9rem">${examplePane(well({ scrollDirection: "down", body: html`<p style="margin:0">${["Version 14 · the Sunday map turns", "Version 13 · three new bosses", "Version 12 · trading between waves", "Version 11 · Ember Keep's walls", "Version 10 · the marsh at night", "Version 9 · 64 players a room", "Version 8 · the leaderboard", "Version 7 · the first siege"].map((line) => html`${line}<br>`)}</p>` }))}</div>`,
+    },
     { label: "Keyboard focus on what's in it", markup: examplePane(well({ body: html`zaisma.com/g/ashen-crown`, state: "is-focused" })), isStill: true },
   ],
 });
@@ -735,7 +750,7 @@ component({
   slug: "floating-pane",
   group: "panes",
   subgroup: "menus",
-  summary: "A pane of the menus' glass that hangs from what opens it, over everything on the page: under it (a menu, a search's list) or over it, its pick on the anchor's own line (a select's list, the wheels). Every dropdown, list and picker that floats is one; it does all the floating once, so none of them redo it.",
+  summary: "A pane of the menus' glass that hangs from what opens it, over everything on the page: under it (a menu, a search's list) or over it, its pick on the anchor's own line (a select's list, the wheels). Every dropdown, list and picker that floats is one; it does all the floating once, so none of them redo it. Not for a task with fields and buttons: that's a Sheet.",
   styles: `
 /* A floating pane: the menus' glass, out of the page's flow in the top layer (a popover), placed by zaismaFloat over everything, at its
    anchor. Closed, it takes no room and no presses: it fades toward its anchor, then goes. Under, it slides from its anchor (from above it,
@@ -775,6 +790,10 @@ component({
   render: floatingPane,
   examples: [
     { label: "Holding words, shown in place", markup: html`<div style="width:min(320px,100%)">${floatingPane({ id: "example-floating-words", placement: "under", isShownInPlace: true, body: html`<p style="margin:0;padding:var(--pad-pane)">Rooms run nearest to most of their players.</p>` })}</div>` },
+    {
+      label: "Longer than a menu: its body scrolls, its head staying put",
+      markup: html`<div style="width:min(320px,100%)">${floatingPane({ id: "example-floating-long", placement: "under", isShownInPlace: true, head: html`<p style="margin:0;padding:var(--pad-pane) var(--pad-pane) 0;font:var(--type-label)">Regions</p>`, body: html`<p style="margin:0;padding:var(--pad-pane)">${["Frankfurt", "London", "Amsterdam", "Paris", "Madrid", "Stockholm", "Warsaw", "Virginia", "Ohio", "Oregon", "São Paulo", "Tokyo", "Singapore", "Sydney", "Mumbai", "Seoul", "Hong Kong", "Jakarta", "Johannesburg", "Cape Town", "Lagos", "Dubai", "Istanbul", "Milan", "Dublin", "Toronto", "Montreal", "Chicago", "Dallas", "Mexico City", "Bogotá", "Santiago", "Auckland"].map((place) => html`${place}<br>`)}</p>` })}</div>`,
+    },
   ],
 });
 
@@ -783,7 +802,7 @@ component({
   slug: "dropdown",
   group: "panes",
   subgroup: "menus",
-  summary: "A short list of choices that hangs from a button, like the account button's in the header: with a head, rules, icons, counts and the current one, as each needs. A choice that's hard to take back asks first, in a confirm sheet.",
+  summary: "A short list of choices that hangs from a button, like the account button's in the header: with a head, rules, icons, counts and the current one, as each needs. A choice that's hard to take back asks first, in a confirm sheet. Not for a task with fields (a Sheet) or a value in a form (a Select field).",
   styles: DROPDOWN_STYLES,
   render: dropdown,
   examples: [
@@ -846,6 +865,11 @@ component({
       label: "A player's choices",
       markup: html`<div style="width:320px">${glassPane({ paneWidth: "full", body: menuChoices({ label: "Liam", choices: [{ label: "Profile", icon: "person", href: "#menu-choices" }, { label: "Block", icon: "ban", isButton: true }, { label: "Report", icon: "flag", isButton: true, state: "is-pointed" }] }) })}</div>`,
     },
+    {
+      label: "Keyboard focus",
+      isStill: true,
+      markup: html`<div style="width:320px">${glassPane({ paneWidth: "full", body: menuChoices({ label: "Sofia", choices: [{ label: "Profile", icon: "person", href: "#menu-choices", state: "is-focused" }, { label: "Block", icon: "ban", isButton: true }, { label: "Report", icon: "flag", isButton: true }] }) })}</div>`,
+    },
   ],
 });
 
@@ -854,7 +878,7 @@ component({
   slug: "light-box",
   group: "panes",
   subgroup: "layers",
-  summary: "One thing large in the middle of a dimmed screen, like a QR code to hold up to a friend across a room: nothing else round it, and a press anywhere, Close or Esc takes it away, back to the sheet that opened it.",
+  summary: "One thing large in the middle of a dimmed screen, like a QR code to hold up to a friend across a room: nothing else round it, and a press anywhere, Close or Esc takes it away, back to the sheet that opened it. Not for something to read or act on: that's a Sheet.",
   styles: `
 /* A light box: no glass of its own, the screen dimmed deep behind what it shows, which sits in the middle in light words (a QR code keeps
    its white). It fades in and grows a little; it's a sheet to the stack (LAYERS_SCRIPT), so it's the top layer and closes like one. */
@@ -892,7 +916,7 @@ component({
   slug: "filter-tags",
   group: "panes",
   subgroup: "menus",
-  summary: "The filters in use on a list, under its Filter button: one small button each, with a close mark, that takes it away.",
+  summary: "The filters in use on a list, under its Filter button: one small button each, with a close mark, that takes it away. Choosing filters is the Filter menu's.",
   // A Row of its buttons (layout.ts): they wrap onto more lines where they don't fit across.
   styles: "",
   render: filterTags,
@@ -907,7 +931,7 @@ component({
   slug: "game-cover",
   group: "panes",
   subgroup: "cards",
-  summary: "A game in a list: the studio's art, bare, set in a carved well, with only what concerns you under it. Zaisma's mark stands in while the art loads, and for a game with none yet.",
+  summary: "A game in a list: the studio's art, bare, set in a carved well, with only what concerns you under it. Zaisma's mark stands in while the art loads, and for a game with none yet. Bare, for a shelf of games the player knows (Continue playing); where they're finding games, a Game card, with its title.",
   styles: COVER_STYLES,
   render: gameCover,
   examples: [
@@ -1202,7 +1226,7 @@ component({
   slug: "sheet",
   group: "panes",
   subgroup: "layers",
-  summary: "A task that comes and goes over the page: report a game, block someone, add a key. Opened by a button that names it: on a phone it rises from the foot, on a wide screen it hangs from that button like a dropdown, under it or above it; Esc, its close button or a press beside it close it, and it drops away as it goes in every browser (it stays open while it leaves, so no browser drops it early or draws it out of place). Its title, Close and its buttons stay in view while the rest scrolls. A task of steps moves forward inside it with Back, and tabs in its head swap what's in it; a confirm opens a size smaller on top, never more than two deep.",
+  summary: "A task that comes and goes over the page: report a game, block someone, add a key. Opened by a button that names it: on a phone it rises from the foot, on a wide screen it hangs from that button like a dropdown, under it or above it; Esc, its close button or a press beside it close it, and it drops away as it goes in every browser (it stays open while it leaves, so no browser drops it early or draws it out of place). Its title, Close and its buttons stay in view while the rest scrolls. A task of steps moves forward inside it with Back, and tabs in its head swap what's in it; a confirm opens a size smaller on top, never more than two deep. Not for one yes or no (a Confirm sheet) or a moment that just happened (a Notice).",
   styles: SHEET_STYLES,
   render: sheet,
   examples: [
@@ -1212,6 +1236,16 @@ component({
       label: "Compact, on a wide screen: narrow, its gaps closed up like a dropdown's (the share sheet)",
       isStill: true,
       markup: sheet({ id: "example-sheet-compact", title: "Share Ashen Crown", body: stack({ items: [{ kind: "control", markup: copyField({ id: "example-sheet-compact-link", label: "Link", copiedText: "https://zaisma.com/g/ashen-crown" }) }, { kind: "block", markup: menuChoices({ label: "More ways to share", choices: [{ label: "Show QR code", icon: "qr-code", isButton: true }, { label: "More ways to share", icon: "share", isButton: true }] }) }] }), closeLabel: "Close", isShown: true, isCompact: true }),
+    },
+    {
+      label: "Sending: its button busy",
+      isStill: true,
+      markup: sheet({ id: "example-sheet-busy", title: "Report Ashen Crown", body: longField({ id: "example-sheet-busy-details", name: "report_text", label: "What you saw", rowCount: 3, maximumCharacterCount: 2000, text: "The game asks for my password on its own page, styled like Zaisma's." }), closeLabel: "Close", action: "#sheet", buttons: [primaryButton("Send report", { type: "submit", isBusy: true })], isShown: true }),
+    },
+    {
+      label: "A problem: what's wrong, on its field",
+      isStill: true,
+      markup: sheet({ id: "example-sheet-problem", title: "Report Ashen Crown", body: longField({ id: "example-sheet-problem-details", name: "report_text", label: "What you saw", rowCount: 3, maximumCharacterCount: 2000, error: "Say what you saw, so a person can find it." }), closeLabel: "Close", action: "#sheet", buttons: [primaryButton("Send report", { type: "submit" })], isShown: true }),
     },
     {
       label: "A long title",
@@ -1307,7 +1341,7 @@ component({
   slug: "store-item",
   group: "panes",
   subgroup: "buying",
-  summary: "What a store panel sells: the game's own cover across the top, then the item's name, its price large under it, what it is, and one quiet line on who sells it and what refunds there are. Items have no pictures of their own, so the cover is the developer's image, bare; with none, Zaisma's mark stands in.",
+  summary: "What a store panel sells: the game's own cover across the top, then the item's name, its price large under it, what it is, and one quiet line on who sells it and what refunds there are. Items have no pictures of their own, so the cover is the developer's image, bare; with none, Zaisma's mark stands in. Only ever in a Store panel.",
   styles: `
 /* A store item: the picture is a carved well cut like a game cover's, the art filling it up to its rim (2px); both are cut by the edge rule, so
    it takes a pane's corner's cut where it sits in one and is square in the middle. Under it the words, a words' gap apart, keep the pane's margin. */
@@ -1363,7 +1397,8 @@ export function storePanel(options: StorePanelOptions): Raw {
 const STORE_NOTE = "Sold by Preview Studio. Refunds for items you haven't used yet, within 14 days.";
 /** The panel's item, as the examples show it. */
 const storeExampleItem = (id: string, noteText = STORE_NOTE) => ({ kind: "block" as const, markup: storeItem({ id, imageUrl: "/design/covers/hollow-tide.webp", name: "Revive", priceText: "$1.99", description: "Bring your character back with half its health.", noteText }) });
-const storeExampleBuy = (id: string, label = "Buy") => ({ kind: "control" as const, markup: primaryButton(label, { id, type: "button", isFullWidth: true, trailingText: "$1.99" }) });
+const storeExampleBuy = (id: string, label = "Buy", isBusy = false) => ({ kind: "control" as const, markup: primaryButton(label, { id, type: "button", busyLabel: "Buying", isFullWidth: true, trailingText: "$1.99", isBusy }) });
+const storeExampleCard = { kind: "control" as const, markup: cardRow("Visa ending 4242", { type: "button", hiddenText: "Use another card" }) };
 
 component({
   name: "Store panel",
@@ -1409,6 +1444,21 @@ component({
       markup: storePanel({ id: "example-store-panel-card", title: "Buy", closeLabel: "Close", isShown: true, body: stack({ items: [storeExampleItem("example-store-panel-card-item")] }), foot: stack({ items: [storeExampleBuy("example-store-panel-card-buy")] }) }),
     },
     {
+      label: "Buying: Buy pressed, waiting",
+      isStill: true,
+      markup: storePanel({ id: "example-store-panel-busy", title: "Buy", closeLabel: "Close", isShown: true, body: stack({ items: [storeExampleItem("example-store-panel-busy-item")] }), foot: stack({ items: [storeExampleCard, storeExampleBuy("example-store-panel-busy-buy", "Buy", true)] }) }),
+    },
+    {
+      label: "It didn't go through: what went wrong, nothing charged, and Try again",
+      isStill: true,
+      markup: storePanel({ id: "example-store-panel-declined", title: "Buy", closeLabel: "Close", isShown: true, body: stack({ items: [storeExampleItem("example-store-panel-declined-item"), { kind: "block", markup: problemState({ title: "The payment didn't go through", text: "Your card was declined. Nothing was charged." }) }] }), foot: stack({ items: [storeExampleCard, storeExampleBuy("example-store-panel-declined-buy", "Try again")] }) }),
+    },
+    {
+      label: "Bought: it's theirs, and back to the game",
+      isStill: true,
+      markup: storePanel({ id: "example-store-panel-bought", title: "Buy", closeLabel: "Close", isShown: true, body: stack({ items: [storeExampleItem("example-store-panel-bought-item"), { kind: "block", markup: doneState({ title: "Bought", text: "Revive is yours. The receipt is on its way to your account's email." }) }] }), foot: stack({ items: [{ kind: "control", markup: secondaryButton("Back to the game", { type: "submit", formMethod: "dialog", isFullWidth: true }) }] }) }),
+    },
+    {
       label: "A guest: a way to an account, the game running on",
       isStill: true,
       markup: storePanel({ id: "example-store-panel-guest", title: "Make a free account to buy", closeLabel: "Close", isShown: true, body: stack({ items: [storeExampleItem("example-store-panel-guest-item"), { kind: "words", markup: html`<p>Your game keeps running while you make one or sign in, and you come back to this.</p>` }] }), foot: row({ widths: "equal", items: [{ kind: "control", markup: secondaryButton("Sign in", { type: "button" }) }, { kind: "control", markup: primaryButton("Make an account", { type: "button" }) }] }) }),
@@ -1424,7 +1474,7 @@ component({
   slug: "confirm-sheet",
   group: "panes",
   subgroup: "layers",
-  summary: "One sentence, the action and Cancel, before something that's hard to take back: signing out everywhere, ending a room. Over another sheet it opens a size smaller, and closing it lands on the sheet beneath. A delete's is red, the only red in Zaisma, and the button that opens it is a secondary button with a trash icon, never orange.",
+  summary: "One sentence, the action and Cancel, before something that's hard to take back: signing out everywhere, ending a room. Over another sheet it opens a size smaller, and closing it lands on the sheet beneath. A delete's is red, the only red in Zaisma, and the button that opens it is a secondary button with a trash icon, never orange. Not for what's easy to take back: do it, and offer Undo in a Notice.",
   styles: "",
   render: confirmSheet,
   examples: [
@@ -1492,7 +1542,7 @@ component({
   slug: "notice",
   group: "panes",
   subgroup: "layers",
-  summary: "A moment that just happened, just under the header: Saved, Copied, or what went wrong. A done one leaves by itself after 4 seconds (8 with Undo), waiting while it's pointed at or touched; a problem stays until it's closed. Up to three stack, and the rest wait their turn (zaismaLayers.say makes one from a page's script).",
+  summary: "A moment that just happened, just under the header: Saved, Copied, or what went wrong. A done one leaves by itself after 4 seconds (8 with Undo), waiting while it's pointed at or touched; a problem stays until it's closed. Up to three stack, and the rest wait their turn (zaismaLayers.say makes one from a page's script). Not for what holds while you're on the page: that's a Banner.",
   styles: `
 /* A notice: a small slab of the header's glass floating just under the header, in the middle, under any notices before it. It comes down a
    little as it arrives and fades up as it leaves. A done one carries a green tick, a problem the warning in the marked color and a close
@@ -1566,7 +1616,7 @@ component({
   slug: "banner",
   group: "panes",
   subgroup: "layers",
-  summary: "Something that holds while you're on a page, across the top of its content: you're playing as a guest, a version is held, Zaisma's news on the home. A line of words, at most one button, and a Close for what a player can put away.",
+  summary: "Something that holds while you're on a page, across the top of its content: you're playing as a guest, a version is held, Zaisma's news on the home. A line of words, at most one button, and a Close for what a player can put away. Not for a moment that just happened: that's a Notice.",
   styles: `
 /* A banner: a strip of the panes' glass, the width of the page's content, with a pane's two margins: what has an edge sits at the frame
    gap, so its buttons take the strip's corners, and its words keep the pane's margin. Its icon and words start at the start; its button
@@ -1718,7 +1768,7 @@ component({
   slug: "step-flow",
   group: "panes",
   subgroup: "layers",
-  summary: "A task in a few steps, like protecting your account: a pane with a thin step line across its top that fills in orange as you go, the step you're on ending in light, and Back and Next.",
+  summary: "A task in a few steps, like protecting your account: a pane with a thin step line across its top that fills in orange as you go, the step you're on ending in light, and Back and Next. Not for a task of one screen (a Glass pane), or steps inside a sheet (a Sheet's steps, with Back).",
   styles: `
 /* A step flow: a pane whose top is a row of thin cut lines, one per step, each with its name under it. Done steps are filled orange; the one
    you're on fills in orange as you reach it, brightening to a light at its leading end, so it reads as moving on; the ones ahead are faint.

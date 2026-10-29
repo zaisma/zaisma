@@ -274,7 +274,7 @@ component({
   slug: "folded-part",
   group: "panes",
   subgroup: "glass",
-  summary: "Something that belongs on the page but out of the way, behind its title and how many are in it: earlier versions, blocked people, preview links. Pressing the title opens it in place.",
+  summary: "Something that belongs on the page but out of the way, behind its title and how many are in it: earlier versions, blocked people, preview links. Pressing the title opens it in place. Not for what the player came to the page for, which stays open; for a list to scan by its titles, Fold rows.",
   styles: `
 /* A folded part: its title a pressable line of words with a chevron that turns as it opens, and its count's Tag; what's in it under the title,
    a block's gap below. The title keeps the pane's margin like words, and is a control's height to press. */
@@ -306,7 +306,7 @@ component({
   slug: "fold-rows",
   group: "panes",
   subgroup: "glass",
-  summary: "Things to scan by a title and one line, each opening in place to what's under it, like the content rules with their tests: the title and line always show, the rest folds. A link to a row opens it.",
+  summary: "Things to scan by a title and one line, each opening in place to what's under it, like the content rules with their tests: the title and line always show, the rest folds. A link to a row opens it. Not for one thing out of the way (a Folded part) or rows to act on (a List).",
   styles: `
 /* Fold rows: one thing a row, hairlines between. The head is the title, its line beside it, and a chevron at the end that turns as it opens;
    on a narrow pane the line goes under the title. The head is words, keeping the pane's margin, and at least a control's height to press. */
@@ -370,7 +370,7 @@ component({
   slug: "divider-with-words",
   group: "panes",
   subgroup: "glass",
-  summary: "A hairline across a pane with a word or two in its middle, between two ways to do one thing: or, between signing in with a password and with a passkey.",
+  summary: "A hairline across a pane with a word or two in its middle, between two ways to do one thing: or, between signing in with a password and with a passkey. Not between parts that aren't alternatives: the gap between them does that.",
   styles: `
 /* A divider with words: a hairline each side of its words, in facts. */
 .divider-words { display: flex; align-items: center; gap: var(--gap-words-words); margin: 0; padding-inline: var(--pad-words); font: var(--type-facts); color: var(--muted); }

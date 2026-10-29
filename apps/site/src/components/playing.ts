@@ -299,7 +299,7 @@ component({
   slug: "game-card",
   group: "panes",
   subgroup: "cards",
-  summary: "A game in a list of games, like Browse or More from a developer: its cover, its title beneath with players now, and what else concerns you under that.",
+  summary: "A game in a list of games, like Browse or More from a developer: its cover, its title beneath with players now, and what else concerns you under that. On a shelf of games the player knows (Continue playing), a Game cover, bare.",
   styles: "",
   render: gameCard,
   examples: [
@@ -317,6 +317,7 @@ component({
     },
     { label: "Made for another device", markup: html`<div style="width:280px">${gameCard({ title: "Hollow Tide", imageUrl: "/design/covers/hollow-tide.webp", href: "#hollow-tide", facts: { playerCount: 38, deviceNote: "Needs a keyboard" } })}</div>` },
     { label: "No cover yet", markup: html`<div style="width:280px">${gameCard({ title: "The Last Lighthouse Keeper", imageUrl: null, href: "#game-card", facts: { playerCount: 38 } })}</div>` },
+    { label: "A long title: it ends in an ellipsis on one line", markup: html`<div style="width:280px">${gameCard({ title: "Ashen Crown: The Long Night of the Iron Vigil", imageUrl: "/design/covers/ashen-crown.webp", href: "#game-card", facts: { playerCount: 1204 } })}</div>` },
   ],
 });
 
