@@ -914,7 +914,7 @@ component({
    brightening under the pointer and whitening with the orange outline as you type, the same icon (20px, quiet until you're in it), indent
    and words (18px, 16 on a phone). Clear sits at its end once something's typed: an icon in a well of its own, filling the field's height
    for a finger, so the browser's own clear button is hidden. "/" jumps to it. */
-.find { --control-height: var(--control-height-regular); --search-end-room: 16px; display: flex; align-items: center; flex: 1; max-width: 460px; margin: 0; color: var(--muted); }
+.find { --control-height: var(--control-height-regular); --search-end-room: 16px; --clear-inset: calc((var(--control-height) - 30px) / 2); display: flex; align-items: center; flex: 1; max-width: 460px; margin: 0; color: var(--muted); }
 .find input[type="search"] {
   --text-start: calc(var(--pad-inside-words) + 34px); --text-end: var(--search-end-room);
   position: relative; z-index: 2; width: 100%;
@@ -930,7 +930,8 @@ component({
 .find input::-webkit-search-cancel-button { display: none; }
 .find > .ico { position: absolute; z-index: 3; left: var(--pad-inside-words); width: 20px; height: 20px; pointer-events: none; transition: color var(--motion-state); }
 /* Clear: only once something's typed, and then what's typed stops short of it: its width (46px) and its inset on each side. */
-.find > .cut-btn { position: absolute; z-index: 5; top: 0; bottom: 0; right: calc((var(--control-height) - 30px) / 2); align-items: center; }
+/* Clear sits as far in from the end as from the top and foot: measured on the search, whose height it is (Clear has a height of its own). */
+.find > .cut-btn { position: absolute; z-index: 5; top: 0; bottom: 0; right: var(--clear-inset); align-items: center; }
 .find:has(input:placeholder-shown) > .cut-btn { display: none; }
 .find:not(:has(input:placeholder-shown)) { --search-end-room: calc(46px + var(--control-height) - 30px); }
 /* Finishes and games as you type (suggestionsUrl, SEARCH_SCRIPT): a select field's list hangs under it. The row you're on catches the
