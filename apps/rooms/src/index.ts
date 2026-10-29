@@ -8,6 +8,7 @@ import type { GameSecretsObject } from "./secrets.ts";
 import { syncSchedules, type GameServerObject, type RequestOutcome } from "./game-server.ts";
 import { relayCredentials, syncRelayUse, type RelayEnv } from "./relay.ts";
 import { filterChatMessage } from "./chat-filter.ts";
+import { sendDueRoomMessages } from "./room-reach.ts";
 import type { ChatCheckService } from "../../site/src/chat-check.ts";
 
 export { Room } from "./room.ts";
@@ -18,6 +19,7 @@ export { GameServerOutbound } from "./outbound.ts";
 export { GameStorageService } from "./game-storage.ts";
 export { GameRoomsService } from "./room-updates.ts";
 export { ReceiptCheckBinding, ReceiptSigningService } from "./receipts.ts";
+export { RoomReachBinding } from "./room-reach.ts";
 
 export interface Env extends RelayEnv {
   DB: D1Database;
@@ -33,6 +35,8 @@ export interface Env extends RelayEnv {
   REPORT_LIMIT?: RateLimit;
   FILTER_LIMIT?: RateLimit;
   CONNECT_LIMIT?: RateLimit;
+  /** A game's sends to every room a minute, from its game server, the API and the MCP together (room-reach.ts). */
+  EVERY_ROOM_SEND_LIMIT?: RateLimit;
   PROFILE_LIMIT?: RateLimit;
   REQUEST_LIMIT?: RateLimit;
   /** Relay credentials for connections between players (relay.ts), like passes. */
@@ -699,9 +703,10 @@ export default {
     return new Response("Not found", { status: 404 });
   },
 
-  // Every minute: games' schedules after a publish (game-server.ts), and the relay's use of the games due to be read (relay.ts).
+  // Every minute: games' schedules after a publish (game-server.ts), scheduled sends to every room (room-reach.ts), and the relay's use of the games due to be read (relay.ts).
   async scheduled(event, env, ctx): Promise<void> {
     ctx.waitUntil(syncSchedules(env));
+    ctx.waitUntil(sendDueRoomMessages(env, event.scheduledTime));
     ctx.waitUntil(syncRelayUse(env, env.DB, event.scheduledTime));
   },
 } satisfies ExportedHandler<Env>;

@@ -103,6 +103,9 @@ export const STORED_VALUES: readonly StoredValue[] = [
   { stored: "live_rooms.name", format: "escaped_text", source: "outside", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },
   { stored: "kept_rooms.name", format: "escaped_text", source: "outside", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },
   { stored: "live_rooms.labels", format: "escaped_text", source: "outside", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },
+  // A send to every room scheduled for later: plain JSON the game server reads, never shown on a page; the API answers it as JSON.
+  { stored: "scheduled_room_messages.room_message_json", format: "escaped_text", source: "developer", checked_by: checkedIn("packages/core/src/room-messages.ts", "checkRoomMessage"), saved_by_door_ids: [], shown_on_door_ids: [] },
+  { stored: "scheduled_room_messages.labels_json", format: "escaped_text", source: "developer", checked_by: checkedIn("packages/core/src/room-messages.ts", "isRoomLabels"), saved_by_door_ids: [], shown_on_door_ids: [] },
   { stored: "room_players.server_url", format: "escaped_text", source: "outside", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },
   { stored: "room_visits.server_url", format: "escaped_text", source: "outside", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },
   { stored: "game_deletions.failure_message", format: "escaped_text", source: "outside", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [ADMIN_GAME] },

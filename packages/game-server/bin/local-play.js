@@ -560,6 +560,14 @@ export async function startLocalPlay(givenOptions) {
       });
     }
     if (path === "/bench/api/log" && method === "GET") return reply(200, { log_lines: [...logLines] });
+    // A room message to one room (room_code) or every room with someone in it, as send_room_message and send_to_every_room send on Zaisma (senderKind "developer").
+    if (path === "/bench/api/room-messages" && method === "POST") {
+      const roomCode = body.room_code === undefined || body.room_code === null ? null : String(body.room_code).toUpperCase();
+      const answer = await askRunner(body.message ?? null, roomCode);
+      if (!answer) return fail(503, "game_unavailable", "Your game server isn't running.", "Fix what its output says and save the file: it starts again by itself.");
+      if (answer.errorMessage) return fail(400, answer.errorMessage.includes("plain JSON") ? "bad_room_message" : "every_room_send_limit", answer.errorMessage, "Send plain JSON up to 16 KB, at most 10 sends to every room a minute.");
+      return reply(200, roomCode ? { is_delivered: answer.isDelivered } : { room_count: answer.roomCount });
+    }
     if (path === "/bench/api/players" && method === "GET") return reply(200, { players: playersByName().map(apiPlayer) });
     // A new player: any of a name, an age band and a social mode, each left out taking the next example name and Zaisma's defaults.
     if (path === "/bench/api/players" && method === "POST") {
@@ -1445,6 +1453,19 @@ export async function startLocalPlay(givenOptions) {
   // --- The game server: the Node runner, as its own process, so a change starts it again with fresh code ---
   let runner = null;
   let runnerStartCount = 0;
+  // The bench's sends to rooms waiting for the game server's answer, by their number (askRunner).
+  const runnerAsks = new Map();
+  let runnerAskCount = 0;
+  /** A send to rooms through the running game server, as the developer API sends: its answer, or null when no game server is running. */
+  function askRunner(message, roomCode) {
+    if (!runner?.stdin.writable) return Promise.resolve(null);
+    const askNumber = ++runnerAskCount;
+    return new Promise((resolve) => {
+      runnerAsks.set(askNumber, resolve);
+      runner.stdin.write(`${JSON.stringify({ askNumber, message, roomCode })}\n`);
+      setTimeout(() => runnerAsks.delete(askNumber) && resolve(null), RUNNER_START_TIMEOUT_MS).unref?.();
+    });
+  }
   // The game server's source as the running one started with it: a change event with nothing changed (a late or repeated one) starts nothing.
   let runnerSource = null;
   let isClosing = false;
@@ -1483,6 +1504,10 @@ export async function startLocalPlay(givenOptions) {
               isReady = true;
               clearTimeout(timeout);
               done(child);
+            } else if (line.startsWith("ZAISMA_LOCAL_RUNNER_ANSWER ")) {
+              const answer = JSON.parse(line.slice("ZAISMA_LOCAL_RUNNER_ANSWER ".length));
+              runnerAsks.get(answer.askNumber)?.(answer);
+              runnerAsks.delete(answer.askNumber);
             } else log(`${label}${line}`);
           }
         });

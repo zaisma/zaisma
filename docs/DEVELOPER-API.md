@@ -14,7 +14,7 @@ claude mcp add --transport http zaisma https://zaisma.com/mcp --header "Authoriz
 
 Apps that can't send a key connect by signing in instead. In claude.ai: Settings → Connectors → Add custom connector, with `https://zaisma.com/mcp`; ChatGPT and other apps the same way, wherever they add a remote MCP server. The app opens a Zaisma page where you choose what it may do and tap your passkey, then you're back in the app with every tool working. The key command above stays the way for Claude Code and the upload command.
 
-Every tool is a call to this API (`apps/site/src/mcp.ts`): `list_games`, `create_game`, `get_game`, `update_game`, `check_game` (what Zaisma would refuse in a game and what won't work on Zaisma, before uploading; see Checking a game below), `upload_files` (small games up to 5 MB, sent as file contents), `get_version`, `publish_version` (also rolls back and publishes later), `cancel_scheduled_publish`, `end_preview_links`, `add_image`, `remove_image`, `add_shader`, `check_shader` (a shader drawn as the check would, before it's sent; see Backgrounds below), `remove_shader`, `set_background`, `add_tester_link`, `update_tester_link`, `remove_tester_link`, `get_reports`, `get_stats`, `get_history`, `get_qr_code` (the game's link, or a room's, as a QR code), `export_game` (everything about a game as one .zip; see Export everything below), `get_logs` (what the game server printed, see A game server's logs below), `get_player`, `get_access` (what the key can do), `get_activity` (your account's activity, needs a full key), `list_api_keys` (your keys and connected apps with their end dates, last use and whether Zaisma turned one off; needs a full key), the sign-in apps' `list_sign_in_apps`, `create_sign_in_app`, `update_sign_in_app` and `delete_sign_in_app`, hosting credit's `get_credit`, `top_up_credit`, `refund_top_up` and `get_spending_request` (see Hosting and credit below), Zaisma Pro's `get_pro`, `start_pro`, `cancel_pro`, `resume_pro` and `refund_pro` (see Zaisma Pro below), the Stripe account's `get_stripe_account`, `connect_stripe_account`, `update_stripe_account` and `disconnect_stripe_account` (see Selling with the buy sheet below), the webhooks' `list_webhooks`, `create_webhook`, `update_webhook`, `delete_webhook`, `test_webhook` and `list_webhook_deliveries` (see Webhooks below), a game's secrets' `list_secrets`, `set_secret` and `delete_secret` (see Secrets below), the items' `list_items`, `set_item`, `remove_item`, `set_purchase_settings`, `grant_item`, `list_purchases`, `get_purchase`, `refund_purchase`, `mark_purchase_handled` and `get_player_items` (see Items and purchases below), a game's kept rooms' `list_kept_rooms` and `delete_kept_room` (see Kept rooms below), the game database's `get_database`, `query_database`, `batch_database`, `export_database`, `import_database`, `erase_player`, `restore_database` and `undo_database_restore` (see The game database below), cloud saves' `list_saves`, `get_save`, `change_save`, `replace_save`, `reset_save`, `list_save_copies`, `get_save_copy` and `restore_save_copy` (see Cloud saves below), and the developer forum's `search_forum`, `get_topic`, `post_topic`, `message_zaisma`, `reply_to_topic`, `vote`, `rate_post`, `bookmark_post`, `report_post`, `forum_people`, `still_happening`, `flag_misplaced`, `follow_topic` and `mark_answer` (see The developer forum below). Bigger builds go through the upload command. Making a game players can play private or a draft again needs `"confirm": true`, so the AI asks you first.
+Every tool is a call to this API (`apps/site/src/mcp.ts`): `list_games`, `create_game`, `get_game`, `update_game`, `check_game` (what Zaisma would refuse in a game and what won't work on Zaisma, before uploading; see Checking a game below), `upload_files` (small games up to 5 MB, sent as file contents), `get_version`, `publish_version` (also rolls back and publishes later), `cancel_scheduled_publish`, `end_preview_links`, `add_image`, `remove_image`, `add_shader`, `check_shader` (a shader drawn as the check would, before it's sent; see Backgrounds below), `remove_shader`, `set_background`, `add_tester_link`, `update_tester_link`, `remove_tester_link`, `get_reports`, `get_stats`, `get_history`, `get_qr_code` (the game's link, or a room's, as a QR code), `export_game` (everything about a game as one .zip; see Export everything below), `get_logs` (what the game server printed, see A game server's logs below), `get_player`, `get_access` (what the key can do), `get_activity` (your account's activity, needs a full key), `list_api_keys` (your keys and connected apps with their end dates, last use and whether Zaisma turned one off; needs a full key), the sign-in apps' `list_sign_in_apps`, `create_sign_in_app`, `update_sign_in_app` and `delete_sign_in_app`, hosting credit's `get_credit`, `top_up_credit`, `refund_top_up` and `get_spending_request` (see Hosting and credit below), Zaisma Pro's `get_pro`, `start_pro`, `cancel_pro`, `resume_pro` and `refund_pro` (see Zaisma Pro below), the Stripe account's `get_stripe_account`, `connect_stripe_account`, `update_stripe_account` and `disconnect_stripe_account` (see Selling with the buy sheet below), the webhooks' `list_webhooks`, `create_webhook`, `update_webhook`, `delete_webhook`, `test_webhook` and `list_webhook_deliveries` (see Webhooks below), a game's secrets' `list_secrets`, `set_secret` and `delete_secret` (see Secrets below), the items' `list_items`, `set_item`, `remove_item`, `set_purchase_settings`, `grant_item`, `list_purchases`, `get_purchase`, `refund_purchase`, `mark_purchase_handled` and `get_player_items` (see Items and purchases below), a game's kept rooms' `list_kept_rooms` and `delete_kept_room` (see Kept rooms below), a game's live rooms' `list_rooms`, `get_room`, `send_room_message`, `send_to_every_room`, `list_room_messages`, `cancel_room_message`, `kick_player` and `end_room` (see Reaching live rooms below), the game database's `get_database`, `query_database`, `batch_database`, `export_database`, `import_database`, `erase_player`, `restore_database` and `undo_database_restore` (see The game database below), cloud saves' `list_saves`, `get_save`, `change_save`, `replace_save`, `reset_save`, `list_save_copies`, `get_save_copy` and `restore_save_copy` (see Cloud saves below), and the developer forum's `search_forum`, `get_topic`, `post_topic`, `message_zaisma`, `reply_to_topic`, `vote`, `rate_post`, `bookmark_post`, `report_post`, `forum_people`, `still_happening`, `flag_misplaced`, `follow_topic` and `mark_answer` (see The developer forum below). Bigger builds go through the upload command. Making a game players can play private or a draft again, and ending a live room (`end_room`), need `"confirm": true`, so the AI asks you first.
 
 Every tool has an output schema, and answers are compact JSON. Arguments are closed: one a tool doesn't take is refused (`unknown_field`, with the arguments it does take), never quietly dropped, and a missing required one is `missing_field`. A refused call is a tool result with `isError: true`, the error object below as its `structuredContent` and its message, fix and code as its text; each tool's listed output schema is its answer or that error, because MCP clients check both against it. The tools that are easy to get wrong (`update_game`, `check_game`, `upload_files`, `publish_version`, `search_forum`, `post_topic`, `change_save`, `replace_save`, `set_secret`) carry good examples in their input schema and bad ones at the end of their description.
 
@@ -95,7 +95,7 @@ The HTTP status goes with the code, as listed. The list lives in `ERROR_CODES` (
 | `bad_game_server_allowed_hosts` | 400 | game_server_allowed_hosts isn't a list of up to 20 host names (like discord.com or *.example.com), or one is an IP address or on Zaisma's own domains. |
 | `built_in_server` | 403 | The game runs a game server built into Zaisma, which only Zaisma changes. |
 | `game_removed` | 403 | Zaisma took the game down, so this can't change. |
-| `needs_confirm` | 409 | Hiding a game players can play needs the developer's OK. |
+| `needs_confirm` | 409 | Hiding a game players can play, or ending a live room, needs the developer's OK. |
 | `bad_period_duration_days` | 400 | period_duration_days isn't a whole number from 1 to 90. |
 | `bad_cursor` | 400 | cursor isn't a next_cursor from an earlier answer. |
 
@@ -174,7 +174,7 @@ The HTTP status goes with the code, as listed. The list lives in `ERROR_CODES` (
 | Code | HTTP | Meaning |
 | --- | --- | --- |
 | `no_version` | 404 | The game has no version with that ID. |
-| `bad_time` | 400 | A time isn't an ISO time in the range it takes: scheduled_publish_at from a few minutes to 90 days ahead, a tester link's ends_at from now to a year ahead, a database restore's restore_to_at within the last 30 days and not before the game was made, an announcement's starts_at from an hour ago to 90 days ahead and its ends_at after now and starts_at and at most 60 days after it. |
+| `bad_time` | 400 | A time isn't an ISO time in the range it takes: scheduled_publish_at from a few minutes to 90 days ahead, a tester link's ends_at from now to a year ahead, a database restore's restore_to_at within the last 30 days and not before the game was made, a room message's send_at from 10 seconds to 90 days ahead, an announcement's starts_at from an hour ago to 90 days ahead and its ends_at after now and starts_at and at most 60 days after it. |
 | `still_scanning` | 409 | The version is still being scanned. |
 | `not_approved` | 409 | The version didn't pass review, so it can't be published. |
 
@@ -223,6 +223,16 @@ The HTTP status goes with the code, as listed. The list lives in `ERROR_CODES` (
 | `too_many_secrets` | 403 | The game has 50 secrets, the most it can have. |
 | `secrets_unavailable` | 503 | The game's secrets didn't answer. |
 | `no_kept_room` | 404 | The game has no kept room with that code. |
+| `no_room` | 404 | The game has no live room with that code on Zaisma. |
+| `no_player_in_room` | 404 | That player isn't in the room now. |
+| `bad_room_message` | 400 | message isn't plain JSON of up to 16 KB. |
+| `bad_labels` | 400 | labels isn't an object of up to 4 labels, each text. |
+| `bad_kick_message` | 400 | A kick's message isn't text of up to 200 characters. |
+| `bad_end_message` | 400 | An end's message isn't text of up to 200 characters. |
+| `room_busy` | 429 | The room took 100 room messages in the last second. |
+| `every_room_send_limit` | 429 | The game sent to every room 10 times in the last minute, from its game server, the API and the MCP together. |
+| `too_many_scheduled_room_messages` | 409 | The game has 100 scheduled room messages waiting, the most it can have. |
+| `no_scheduled_room_message` | 404 | The game has no scheduled room message with that ID waiting. |
 | `dump_too_big` | 413 | dump_sql is over 5 MB: import a dump in parts, each ending on a whole statement. |
 
 **Hosting and credit**
@@ -356,7 +366,7 @@ Every call that changes something answers with `next_steps`: the calls that usua
 
 - `tool` is the MCP tool's name (each maps to a call on this page); `arguments` are filled in as far as Zaisma knows, and `reason` says what to add (like a new game's files).
 - `after_sec`: how long to wait first, or `null` for straight away.
-- What follows today: a new game, its upload (`upload_files`); a new version, checking its scan (`get_version`); publishing while the game is a draft or private, making it `listed` when the developer wants players in (`update_game`); making a game `listed` or `unlisted` with nothing live, publishing the version that passed (`publish_version`), checking the one being scanned, or uploading one; `multiplayer_mode: "own"` without a game server, uploading one; scheduling a version still being scanned, checking its scan; a new webhook, or a new `endpoint_url` or signing secret, sending it a test event (`test_webhook`); a database restore, seeing the tables it went back to (`get_database`) and undoing it (`undo_database_restore`); an undo, `get_database`; a new image or shader, checking it (`get_game`); a shader check that passed, sending the same shader (`add_shader`, with its `image` and `buffers` to add); a new credit checkout or refund, `get_credit`; a new Zaisma Pro checkout or a Pro refund, `get_pro`; a kept room deleted, `list_kept_rooms`; a secret set while the game server has no allowed hosts, `update_game` with `game_server_allowed_hosts`; a database import, `get_database`; `minimum_player_age_years` set to 16 or 18, which passes the versions held only for lifelike gore, `get_version`; a priced item before the Stripe account is connected or can take payments, and a new Stripe account connection, `get_stripe_account`. Other calls answer `[]` today; read `next_steps` on every answer, since more calls fill it within v1.
+- What follows today: a new game, its upload (`upload_files`); a new version, checking its scan (`get_version`); publishing while the game is a draft or private, making it `listed` when the developer wants players in (`update_game`); making a game `listed` or `unlisted` with nothing live, publishing the version that passed (`publish_version`), checking the one being scanned, or uploading one; `multiplayer_mode: "own"` without a game server, uploading one; scheduling a version still being scanned, checking its scan; a new webhook, or a new `endpoint_url` or signing secret, sending it a test event (`test_webhook`); a database restore, seeing the tables it went back to (`get_database`) and undoing it (`undo_database_restore`); an undo, `get_database`; a new image or shader, checking it (`get_game`); a shader check that passed, sending the same shader (`add_shader`, with its `image` and `buffers` to add); a new credit checkout or refund, `get_credit`; a new Zaisma Pro checkout or a Pro refund, `get_pro`; a kept room deleted, `list_kept_rooms`; a send to every room, `list_rooms`; a scheduled one, `list_room_messages` once it's due and `cancel_room_message`; a kick, `get_room`; an ended room, `list_rooms`; a secret set while the game server has no allowed hosts, `update_game` with `game_server_allowed_hosts`; a database import, `get_database`; `minimum_player_age_years` set to 16 or 18, which passes the versions held only for lifelike gore, `get_version`; a priced item before the Stripe account is connected or can take payments, and a new Stripe account connection, `get_stripe_account`. Other calls answer `[]` today; read `next_steps` on every answer, since more calls fill it within v1.
 
 ## Holds and takedowns
 
@@ -986,6 +996,7 @@ Every event the game's room object has, and what its listener gets. Within v1, e
 | `muted` | `(playerIds)` |
 | `error` | `{ code, message }` |
 | `versionUpdate` | `{ versionId, appliesAt, isReloading }` |
+| `roomMessage` | `{ message, senderKind, fromRoomCode, sentAt }`: a room message for a room whose game server has no `onRoomMessage` (see Reaching live rooms) |
 
 The SDK and rooms say which messages they speak with `protocolVersionNumber` (1 today): the SDK sends it in its hello, and the welcome answers the room's. A room skips a message type it doesn't know, so a newer SDK still plays in an older room.
 
@@ -1192,6 +1203,49 @@ Rooms a game server keeps with `room.setKept(true)`, for worlds that last, like 
 - **One shared world:** `room.roomCode` tells the game server which room it's in, so it can keep only its world's room and refuse players elsewhere in `canJoin`.
 - **On your own server** the Node runner keeps kept rooms' states in its `--room-state-file` until they end.
 - A key lists with `game_access` `read` and deletes with `write`.
+
+## Reaching live rooms
+
+A game reaches its own live rooms from anywhere it runs: its game server in a room (`room.sendToRoom`, `room.sendToEveryRoom`, `room.listRooms`) or in its requests, schedules and webhooks (`server.` the same, plus `getRoom`, `kickFromRoom` and `endRoom`), its developer's scripts through these calls, and their AI through the MCP. A survival game with 400 worlds starts its blood moon in all of them at 8pm; one world tells another that a party is on its way; the game's own moderation page tells world 213 to freeze a griefer. Zaisma draws nothing: there's no screen for it, so a game builds its own tools on the calls.
+
+A room message goes to the room's game server, `onRoomMessage(state, roomMessage, room)`, which decides what players see. A room whose game server has no `onRoomMessage` hands it to every player's and spectator's game as the room's `roomMessage` event, so a game with no server code still gets announcements. `roomMessage` is `{ message, senderKind, fromRoomCode, sentAt }`: the message as sent (plain JSON, up to 16 KB), who sent it (`room`, another room's game server; `server`, the game server outside rooms; `developer`, these calls and the MCP, scheduled sends included), the sending room's code (null unless `senderKind` is `room`) and when.
+
+| Call | What it does |
+| --- | --- |
+| `GET /games/:slug/rooms` | The game's live rooms on Zaisma, newest first: rooms that are running, and kept rooms asleep with nobody in them. Each `{"room_code", "name", "labels", "player_count", "maximum_player_count", "spectator_count", "is_listed", "is_open", "is_kept", "version_id", "continent", "created_at"}`; `room_count`; up to 500, with `next_cursor` for the rest (pass it as `cursor`). `?labels={"Map":"Docks"}` (as JSON) gives only rooms holding every label given. |
+| `GET /games/:slug/rooms/:room_code` | One live room as `room`, and who's in it as `players`: its players in join order, then its spectators, each `{"player_id", "name", "kind", "is_away", "away_reason", "joined_at", "is_spectator"}`. A kept room asleep has nobody. An unknown code is `no_room`. |
+| `POST /games/:slug/rooms/:room_code/messages` | A room message to one room, `{ "message" }`: answers `is_delivered`. A kept room with nobody in it wakes for it. `no_room` when it isn't running, `room_busy` when it took 100 room messages in the last second. |
+| `POST /games/:slug/room-messages` | A room message to every live room with someone in it, `{ "message", "labels", "send_at" }`: `labels` (optional) only rooms holding every one of them. Kept rooms asleep with nobody in them don't wake for it. Now, it answers `room_count`, how many rooms took it. With `send_at`, an ISO time from 10 seconds to 90 days ahead, it waits and answers `scheduled_room_message` (`{"id", "send_at", "labels", "created_at"}`, a `scheduled_room_message_…` ID), going out within a minute after its time; the other field is null. |
+| `GET /games/:slug/room-messages` | The scheduled ones waiting, soonest first, then the last 20 that went out, each `{"id", "message", "labels", "send_at", "created_at", "sent_at", "delivered_room_count"}`. |
+| `DELETE /games/:slug/room-messages/:scheduled_room_message_id` | Cancel one waiting: `is_cancelled`. One that went out is `no_scheduled_room_message`. |
+| `POST /games/:slug/rooms/:room_code/kick` | Remove a player or spectator, `{ "player_id", "message", "is_kept_out" }`, as the room's own `room.kick` would: they're told `message` (up to 200 characters, your game's words within the content rules) and sent out, `onLeave` hears reason `kicked`, and `is_kept_out` keeps them out for the rest of the match. Answers `is_kicked`; `no_player_in_room` when they aren't in it. |
+| `POST /games/:slug/rooms/:room_code/end` | End a room's match, `{ "message", "confirm": true }`, as the room's own `room.end` would: everyone in it hears `message` (up to 200 characters) and is sent out, and a kept room's world ends for good. Without `"confirm": true` it's `needs_confirm`, so an AI asks you first. Answers `is_ended`. |
+
+- **Limits:** a room's game server sends up to 20 room messages a second (`room_call_limit` past it), and a room takes up to 100 a second (`room_busy`, and `isDelivered` false for a game server). Sends to every room are up to 10 a minute for the whole game, from its game server, these calls and the MCP together (`every_room_send_limit` here, `room_call_limit` in the game server), and up to 100 scheduled ones wait at once (`too_many_scheduled_room_messages`). `ROOM_MESSAGE_LIMITS` in the game server package has them all.
+- **What it costs:** each room a message reaches is one request to that room on the game's hosting meter, with the time it keeps the room awake and its game server's CPU, as its players' messages are. A send to every room costs as many requests as rooms it reaches.
+- **A scheduled send** goes out with the game's live version's rooms at the time. A game that can't be played then (nothing live, held, taken down, or its hosting paused) has it recorded as sent with `delivered_room_count` 0.
+- **On your own server** the Node runner gives its game server the same calls among its own rooms, in the same process: `room.listRooms` lists the runner's rooms, a send to a kept room asleep in its `--room-state-file` wakes it, and every-room sends share the same 10 a minute. These calls and the MCP reach only rooms on Zaisma: rooms on your own servers are your game server's to reach. The local bench sends as these calls do with `POST /bench/api/room-messages` (see the README's "The bench's API, for your AI").
+- A key lists and looks with `game_access` `read`, and sends, kicks and ends with `write`.
+
+A live event that starts everywhere at 8pm, sent with `send_at`:
+
+```js
+// zaisma-server.js
+export default {
+  setup: () => ({ isBloodMoon: false }),
+  onRoomMessage(state, roomMessage, room) {
+    if (roomMessage.message.kind !== "blood_moon") return;
+    room.broadcast({ kind: "blood_moon", durationSec: roomMessage.message.duration_sec });
+    return { ...state, isBloodMoon: true };
+  },
+};
+```
+
+```bash
+curl -X POST https://zaisma.com/api/dev/games/frostbound/room-messages \
+  -H "Authorization: Bearer $ZAISMA_KEY" -H "Content-Type: application/json" \
+  -d '{"message": {"kind": "blood_moon", "duration_sec": 600}, "send_at": "2026-11-06T20:00:00Z"}'
+```
 
 ## A game server's logs
 
@@ -1642,6 +1696,7 @@ The files a version needed before its first frame in its run in Chrome are prelo
 | `zaisma items remove <slug> <item_name>` | Remove an item nobody owns | `DELETE /games/:slug/items/:item_name` |
 | `zaisma kept-rooms <slug>` | The game's kept rooms, each one's size and when it was last played, and the game's storage | `GET /games/:slug/kept-rooms` |
 | `zaisma kept-rooms delete <slug> <room_code>` | Delete a kept room's world for good | `DELETE /games/:slug/kept-rooms/:room_code` |
+| `zaisma rooms <slug>` | The game's live rooms on Zaisma, newest first: each one's code, name, players, spectators and labels, and whether it's kept | `GET /games/:slug/rooms` |
 | `zaisma logs <slug> [--follow] [--room-code <code>] [--minimum-level debug\|info\|warn\|error] [--source-kind room\|request\|schedule\|webhook] [--search-text "…"] [--maximum-line-count <count>] [--cursor <next_cursor>]` | What the game server printed, oldest first; `--follow` keeps printing new lines every 2 seconds (with `--json`, one answer per line) | `GET /games/:slug/logs` |
 | `zaisma forum [<topic_id>] [--search "words"]` | Your topics and messages, one topic, or a search | `GET /forum`, `GET /forum/:id` |
 | `zaisma forum post --kind … --title "…" --category … [--text "…"] [--by-me]` | A public topic | `POST /forum` |

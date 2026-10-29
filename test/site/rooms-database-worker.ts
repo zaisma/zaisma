@@ -93,7 +93,40 @@ let matchUpdates: { gameId: string; slug: string; versionId: string; hasGameFile
 let keptRoomDeletes: { gameId: string; slug: string; roomCode: string }[] = [];
 let isKeptRoomDeleted = true;
 
+// The game reaching its live rooms (GAME_ROOMS): recorded, and answered as the test asks, by default as a room that took it. The real one: test/rooms/room-messages.test.ts.
+let roomReachCalls: { call: string; asked: Record<string, unknown> }[] = [];
+let roomReachAnswers: Record<string, unknown> = {};
+const STAND_IN_ROOM = { roomCode: "K7Q2MX", name: "Frostbound", labels: { Region: "North" }, playerCount: 1, maximumPlayerCount: 8, spectatorCount: 0, isListed: true, isOpen: true, isKept: true, versionId: null, continent: "EU", createdAt: "2026-10-29T12:00:00.000Z" };
+const STAND_IN_PLAYER = { playerId: "player_standinplayer000001", name: "Ana", kind: "account", isAway: false, awayReason: null, joinedAt: "2026-10-29T12:00:00.000Z", isSpectator: false };
+
 export class GameRoomsService extends WorkerEntrypoint {
+  async sendRoomMessage(sending: Record<string, unknown>) {
+    roomReachCalls.push({ call: "sendRoomMessage", asked: sending });
+    return roomReachAnswers.sendRoomMessage ?? { deliveryOutcome: "delivered" };
+  }
+  async sendToEveryRoom(sending: Record<string, unknown>) {
+    roomReachCalls.push({ call: "sendToEveryRoom", asked: sending });
+    return roomReachAnswers.sendToEveryRoom ?? { roomCount: 3, isLimited: false };
+  }
+  async getRoom(asked: Record<string, unknown>) {
+    roomReachCalls.push({ call: "getRoom", asked });
+    return "getRoom" in roomReachAnswers ? roomReachAnswers.getRoom : { room: { ...STAND_IN_ROOM, roomCode: asked.roomCode }, players: [STAND_IN_PLAYER] };
+  }
+  async kickPlayer(kick: Record<string, unknown>) {
+    roomReachCalls.push({ call: "kickPlayer", asked: kick });
+    return roomReachAnswers.kickPlayer ?? { kickOutcome: "kicked" };
+  }
+  async endRoom(ending: Record<string, unknown>) {
+    roomReachCalls.push({ call: "endRoom", asked: ending });
+    return roomReachAnswers.endRoom ?? { endOutcome: "ended" };
+  }
+  /** For tests: the calls the site made to the rooms since the last call, and how the next ones are answered (by method name). */
+  takeRoomReachCalls(nextAnswers: Record<string, unknown> = {}) {
+    const taken = roomReachCalls;
+    roomReachCalls = [];
+    roomReachAnswers = nextAnswers;
+    return taken;
+  }
   async updateMatches(update: { gameId: string; slug: string; versionId: string; hasGameFileChanges: boolean }) {
     matchUpdates.push(update);
     return { toldRoomCount: 0 };

@@ -3,9 +3,12 @@
 // Not a command: local-play.js starts it with one JSON argument and hears ZAISMA_LOCAL_RUNNER_READY when it listens.
 import { createServer } from "node:net";
 import { pathToFileURL } from "node:url";
-import { relay } from "../src/internal.ts";
+import { ROOM_MESSAGE_LIMITS, checkRoomData, isRoomCode, relay } from "../src/internal.ts";
 import { localDatabase } from "./node-parts.js";
 import { startServer } from "./node.js";
+
+// How startServer hands this runner its way to send room messages as the developer (node.js).
+const LOCAL_BENCH_ROOM_MESSAGE = Symbol.for("zaisma.localBenchRoomMessage");
 
 const config = JSON.parse(process.argv[2] ?? "{}");
 try {
@@ -33,6 +36,29 @@ try {
   for (const signal of ["SIGTERM", "SIGINT"]) process.once(signal, stop);
   // The bench holds this pipe open while it runs: when it ends, however it ended, this game server stops too (rooms save first).
   process.stdin.once("close", stop);
+  // The bench's sends to rooms come as JSON lines on the same pipe, { askNumber, message, roomCode }, each answered on a line of its own.
+  let rest = "";
+  process.stdin.setEncoding("utf8");
+  process.stdin.on("data", (chunk) => {
+    rest += chunk;
+    const lines = rest.split("\n");
+    rest = lines.pop();
+    for (const line of lines) {
+      let asked;
+      try {
+        asked = JSON.parse(line);
+      } catch {
+        continue;
+      }
+      const checked = checkRoomData(asked?.message, ROOM_MESSAGE_LIMITS.maximumRoomMessageSizeBytes);
+      const roomCode = typeof asked?.roomCode === "string" && isRoomCode(asked.roomCode) ? asked.roomCode : null;
+      const sending = checked.isValid && asked.message !== null ? Promise.resolve().then(() => running[LOCAL_BENCH_ROOM_MESSAGE](checked.checkedData, roomCode)) : Promise.reject(new Error("message isn't plain JSON of up to 16 KB."));
+      void sending.then(
+        (answer) => console.log(`ZAISMA_LOCAL_RUNNER_ANSWER ${JSON.stringify({ askNumber: asked.askNumber, ...answer })}`),
+        (error) => console.log(`ZAISMA_LOCAL_RUNNER_ANSWER ${JSON.stringify({ askNumber: asked.askNumber, errorMessage: error instanceof Error ? error.message : String(error) })}`),
+      );
+    }
+  });
   process.stdin.resume();
   const isListening = () => console.log("ZAISMA_LOCAL_RUNNER_READY");
   if (running.httpServer.listening) isListening();

@@ -196,9 +196,11 @@
       "onRefund",
       "onTick",
       "onEnding",
+      "onEndingCancelled",
       "onRestored",
       "stateView",
       "onVersionUpdate",
+      "onRoomMessage",
       "onRequest",
       "schedules",
       "onSchedule",
@@ -249,9 +251,11 @@
       "onBytes": "?: ((state: S, player: Player, room: Room, bytes: Uint8Array<ArrayBufferLike>) => HandlerResult<S>) | undefined",
       "onTick": "?: ((state: S, tickDurationSec: number, room: Room) => HandlerResult<S>) | undefined",
       "onEnding": "?: ((state: S, room: Room) => HandlerResult<S>) | undefined",
+      "onEndingCancelled": "?: ((state: S, room: Room) => HandlerResult<S>) | undefined",
       "onRestored": "?: ((state: S, restoreInfo: RestoreInfo, room: Room) => HandlerResult<S>) | undefined",
       "stateView": "?: ((state: S, viewer: Player, room: Room) => unknown) | undefined",
-      "onVersionUpdate": "?: ((state: S, versionUpdate: VersionUpdate, room: Room) => HandlerResult<S>) | undefined"
+      "onVersionUpdate": "?: ((state: S, versionUpdate: VersionUpdate, room: Room) => HandlerResult<S>) | undefined",
+      "onRoomMessage": "?: ((state: S, roomMessage: RoomMessage, room: Room) => HandlerResult<S>) | undefined"
     }
   },
   "GameServerError": {
@@ -317,6 +321,23 @@
       "left",
       "lost"
     ]
+  },
+  "LiveRoom": {
+    "kind": "fields",
+    "fields": {
+      "roomCode": ": string",
+      "name": ": string | null",
+      "labels": ": Record<string, string>",
+      "playerCount": ": number",
+      "maximumPlayerCount": ": number",
+      "spectatorCount": ": number",
+      "isListed": ": boolean",
+      "isOpen": ": boolean",
+      "isKept": ": boolean",
+      "versionId": ": string | null",
+      "continent": ": string | null",
+      "createdAt": ": string"
+    }
   },
   "MoveOptions": {
     "kind": "fields",
@@ -539,6 +560,26 @@
       "maximumLatestOnlySlotCount": 64
     }
   },
+  "ROOM_MESSAGE_LIMITS": {
+    "kind": "constant",
+    "value": {
+      "maximumRoomMessageSizeBytes": 16384,
+      "maximumRoomSendsPerSec": 20,
+      "maximumReceivedRoomMessagesPerSec": 100,
+      "maximumEveryRoomSendsPerMin": 10,
+      "maximumScheduledRoomMessageCount": 100,
+      "maximumScheduleAheadDurationDays": 90,
+      "maximumListedRoomCount": 500
+    }
+  },
+  "ROOM_MESSAGE_SENDER_KINDS": {
+    "kind": "constant",
+    "value": [
+      "room",
+      "server",
+      "developer"
+    ]
+  },
   "ReceiptClaims": {
     "kind": "fields",
     "fields": {
@@ -657,6 +698,9 @@
       "reserve": ": (reserveOptions: ReserveOptions) => string",
       "kick": ": (playerId: string, kickOptions?: KickOptions | undefined) => void",
       "moveTo": ": (roomCode: string, moveOptions: MoveOptions) => void",
+      "sendToRoom": ": (roomCode: string, message: unknown) => Promise<{ isDelivered: boolean; }>",
+      "sendToEveryRoom": ": (message: unknown, roomSelection?: RoomSelection | undefined) => Promise<{ roomCount: number; }>",
+      "listRooms": ": (roomSelection?: RoomSelection | undefined) => Promise<{ rooms: Array<LiveRoom>; }>",
       "database": ": GameDatabase",
       "secrets": ": Readonly<Record<string, string>>",
       "verifyReceipt": ": (receipt: string) => Promise<ReceiptClaims>",
@@ -709,6 +753,41 @@
       "labels": "?: Record<string, string | number> | null | undefined"
     }
   },
+  "RoomMessage": {
+    "kind": "fields",
+    "fields": {
+      "message": ": unknown",
+      "senderKind": ": RoomMessageSenderKind",
+      "fromRoomCode": ": string | null",
+      "sentAt": ": string"
+    }
+  },
+  "RoomMessageSenderKind": {
+    "kind": "values",
+    "values": [
+      "developer",
+      "room",
+      "server"
+    ]
+  },
+  "RoomPlayer": {
+    "kind": "fields",
+    "fields": {
+      "playerId": ": string",
+      "name": ": string",
+      "kind": ": PlayerKind",
+      "isAway": ": boolean",
+      "awayReason": ": AwayReason | null",
+      "joinedAt": ": string",
+      "isSpectator": ": boolean"
+    }
+  },
+  "RoomSelection": {
+    "kind": "fields",
+    "fields": {
+      "labels": "?: Record<string, string> | undefined"
+    }
+  },
   "SCHEDULE_LIMITS": {
     "kind": "constant",
     "value": {
@@ -749,7 +828,13 @@
     "fields": {
       "database": ": GameDatabase",
       "secrets": ": Readonly<Record<string, string>>",
-      "verifyReceipt": ": (receipt: string) => Promise<ReceiptClaims>"
+      "verifyReceipt": ": (receipt: string) => Promise<ReceiptClaims>",
+      "sendToRoom": ": (roomCode: string, message: unknown) => Promise<{ isDelivered: boolean; }>",
+      "sendToEveryRoom": ": (message: unknown, roomSelection?: RoomSelection | undefined) => Promise<{ roomCount: number; }>",
+      "listRooms": ": (roomSelection?: RoomSelection | undefined) => Promise<{ rooms: Array<LiveRoom>; }>",
+      "getRoom": ": (roomCode: string) => Promise<{ room: LiveRoom; players: Array<RoomPlayer>; } | null>",
+      "kickFromRoom": ": (roomCode: string, playerId: string, kickOptions?: KickOptions | undefined) => Promise<{ isDone: boolean; }>",
+      "endRoom": ": (roomCode: string, message?: string | undefined) => Promise<{ isDone: boolean; }>"
     }
   },
   "VERSION_UPDATE_CLOSE_CODE": {
@@ -893,7 +978,8 @@
     "kind": "fields",
     "fields": {
       "close": ": () => Promise<void>",
-      "httpServer": ": Server"
+      "httpServer": ": Server",
+      "fastLaneReady": ": Promise<void>"
     }
   },
   "StartServerOptions": {
@@ -912,7 +998,10 @@
       "webhookSigningSecret": "?: string | undefined",
       "roomStateFile": "?: string | null | undefined",
       "zaismaKey": "?: string | undefined",
-      "developerApiUrl": "?: string | undefined"
+      "developerApiUrl": "?: string | undefined",
+      "webtransportPort": "?: number | undefined",
+      "certificatePath": "?: string | undefined",
+      "certificateKeyPath": "?: string | undefined"
     }
   },
   "startServer": {

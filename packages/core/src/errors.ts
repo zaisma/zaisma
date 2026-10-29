@@ -58,7 +58,7 @@ export const ERROR_CODES = {
   bad_game_server_allowed_hosts: { httpStatus: 400, meaning: "game_server_allowed_hosts isn't a list of up to 20 host names (like discord.com or *.example.com), or one is an IP address or on Zaisma's own domains." },
   built_in_server: { httpStatus: 403, meaning: "The game runs a game server built into Zaisma, which only Zaisma changes." },
   game_removed: { httpStatus: 403, meaning: "Zaisma took the game down, so this can't change." },
-  needs_confirm: { httpStatus: 409, meaning: "Hiding a game players can play needs the developer's OK." },
+  needs_confirm: { httpStatus: 409, meaning: "Hiding a game players can play, or ending a live room, needs the developer's OK." },
   bad_period_duration_days: { httpStatus: 400, meaning: "period_duration_days isn't a whole number from 1 to 90." },
   bad_cursor: { httpStatus: 400, meaning: "cursor isn't a next_cursor from an earlier answer." },
 
@@ -125,7 +125,7 @@ export const ERROR_CODES = {
 
   // Versions and publishing
   no_version: { httpStatus: 404, meaning: "The game has no version with that ID." },
-  bad_time: { httpStatus: 400, meaning: "A time isn't an ISO time in the range it takes: scheduled_publish_at from a few minutes to 90 days ahead, a tester link's ends_at from now to a year ahead, a database restore's restore_to_at within the last 30 days and not before the game was made, an announcement's starts_at from an hour ago to 90 days ahead and its ends_at after now and starts_at and at most 60 days after it." },
+  bad_time: { httpStatus: 400, meaning: "A time isn't an ISO time in the range it takes: scheduled_publish_at from a few minutes to 90 days ahead, a tester link's ends_at from now to a year ahead, a database restore's restore_to_at within the last 30 days and not before the game was made, a room message's send_at from 10 seconds to 90 days ahead, an announcement's starts_at from an hour ago to 90 days ahead and its ends_at after now and starts_at and at most 60 days after it." },
   still_scanning: { httpStatus: 409, meaning: "The version is still being scanned." },
   not_approved: { httpStatus: 409, meaning: "The version didn't pass review, so it can't be published." },
 
@@ -167,6 +167,18 @@ export const ERROR_CODES = {
   too_many_secrets: { httpStatus: 403, meaning: "The game has 50 secrets, the most it can have." },
   secrets_unavailable: { httpStatus: 503, meaning: "The game's secrets didn't answer." },
   no_kept_room: { httpStatus: 404, meaning: "The game has no kept room with that code." },
+
+  // Reaching live rooms
+  no_room: { httpStatus: 404, meaning: "The game has no live room with that code on Zaisma." },
+  no_player_in_room: { httpStatus: 404, meaning: "That player isn't in the room now." },
+  bad_room_message: { httpStatus: 400, meaning: "message isn't plain JSON of up to 16 KB." },
+  bad_labels: { httpStatus: 400, meaning: "labels isn't an object of up to 4 labels, each text." },
+  bad_kick_message: { httpStatus: 400, meaning: "A kick's message isn't text of up to 200 characters." },
+  bad_end_message: { httpStatus: 400, meaning: "An end's message isn't text of up to 200 characters." },
+  room_busy: { httpStatus: 429, meaning: "The room took 100 room messages in the last second." },
+  every_room_send_limit: { httpStatus: 429, meaning: "The game sent to every room 10 times in the last minute, from its game server, the API and the MCP together." },
+  too_many_scheduled_room_messages: { httpStatus: 409, meaning: "The game has 100 scheduled room messages waiting, the most it can have." },
+  no_scheduled_room_message: { httpStatus: 404, meaning: "The game has no scheduled room message with that ID waiting." },
   dump_too_big: { httpStatus: 413, meaning: "dump_sql is over 5 MB: import a dump in parts, each ending on a whole statement." },
 
   // Hosting and credit

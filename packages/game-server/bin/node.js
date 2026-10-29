@@ -24,7 +24,7 @@ import { createServer } from "node:http";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { resolve } from "node:path";
 import { readFileSync, realpathSync } from "node:fs";
-import { BUSY_CLOSE_CODE, ENDED_CLOSE_CODE, ERROR_TEXT, NO_ANSWER_CLOSE_CODE, PASS_ISSUER_URL, PassError, ReceiptError, REMOVED_CLOSE_CODE, REQUEST_ERROR_HTTP_STATUS, REQUEST_LIMITS, ROOM_LIMITS, ROOM_TUNING, WEBHOOK_LIMITS, GameServerError, RoomCore, chatSettingsOf, checkChat, readChatMessage, restoreInfoOf, passesAreFriends, passesHaveBlockBetween, answerRequest, startSchedules, checkRoomData, clientIdle, defineGameServer, errorMessage, isRoomCode, readRequestBody, relay, requestError, runWebhook, tidyRoomInfo, verifyPass, verifyReceipt, verifyWebhook } from "../src/internal.ts";
+import { BUSY_CLOSE_CODE, ENDED_CLOSE_CODE, ERROR_TEXT, NO_ANSWER_CLOSE_CODE, PASS_ISSUER_URL, PassError, ReceiptError, REMOVED_CLOSE_CODE, REQUEST_ERROR_HTTP_STATUS, REQUEST_LIMITS, ROOM_LIMITS, ROOM_MESSAGE_LIMITS, ROOM_TUNING, WEBHOOK_LIMITS, GameServerError, RoomCore, chatSettingsOf, checkChat, readChatMessage, restoreInfoOf, passesAreFriends, passesHaveBlockBetween, answerRequest, startSchedules, checkRoomData, clientIdle, defineGameServer, errorMessage, newServer, isRoomCode, readRequestBody, relay, requestError, runWebhook, tidyRoomInfo, verifyPass, verifyReceipt, verifyWebhook } from "../src/internal.ts";
 import { OutsideCallError } from "../src/outside-calls.ts";
 import { startFastLane } from "./fast-lane.js";
 import { checkedStartServerOptions, localDatabase, localRoomStates, passKeysFrom, profilesFrom, receiptKeysFrom, secretsFromEnvironment } from "./node-parts.js";
@@ -98,8 +98,12 @@ export function startServer(options) {
   const roomStates = roomStateFile === null ? null : localRoomStates(roomStateFile);
   const stateSaveIntervalMs = (definition.stateSaveIntervalSec ?? ROOM_LIMITS.defaultStateSaveIntervalSec) * 1000;
   // Schedules run while this server is up; one that's down when a run is due misses that run.
-  const schedules = startSchedules(definition, { database, secrets, verifyReceipt: receiptClaims }, (run, failure) => console.error(`Game server error in onSchedule ("${run.name}", due ${run.scheduledAt}):`, failure));
+  // What onRequest, onSchedule and onWebhook get: the game's database, secrets, receipt checks and this server's rooms.
+  const server = newServer({ database, secrets, verifyReceipt: receiptClaims }, roomReachFrom(null));
+  const schedules = startSchedules(definition, server, (run, failure) => console.error(`Game server error in onSchedule ("${run.name}", due ${run.scheduledAt}):`, failure));
   const rooms = new Map(); // code -> { core, sockets: Map<playerId, ws>, timer }
+  // When the game last sent to every room, within the last minute (ROOM_MESSAGE_LIMITS.maximumEveryRoomSendsPerMin).
+  let everyRoomSentAtMs = [];
   const httpServer = createServer((request, response) => answerHttp(request, response));
   const wss = new WebSocketServer({ server: httpServer, maxPayload: MAXIMUM_SOCKET_MESSAGE_SIZE_BYTES });
   httpServer.listen(portNumber);
@@ -177,7 +181,7 @@ export function startServer(options) {
           throw error;
         }
         if (!checked) return fail("bad_pass");
-        const outcome = await answerRequest(definition, checked.player, body.request, { database, secrets, verifyReceipt: receiptClaims });
+        const outcome = await answerRequest(definition, checked.player, body.request, server);
         if ("answer" in outcome) return reply(200, { answer: outcome.answer });
         if (outcome.code === "game_server_error") console.error("Game server error in onRequest:", outcome.failure);
         fail(outcome.code);
@@ -246,7 +250,7 @@ export function startServer(options) {
           }
         }
         if (typeof definition.onWebhook !== "function") return isAccountDeleted ? reply(204, "") : reply(404, "This game server has no onWebhook.");
-        const outcome = await runWebhook(definition, event, { database, secrets, verifyReceipt: receiptClaims });
+        const outcome = await runWebhook(definition, event, server);
         if ("error" in outcome) {
           console.error(`Game server error in onWebhook (${checked.event.kind}, ${checked.event.id}):`, outcome.error.message);
           return reply(500, "onWebhook failed; Zaisma tries the event again later.");
@@ -274,6 +278,7 @@ export function startServer(options) {
         secrets,
         verifyReceipt: receiptClaims,
         purchaseHandling,
+        roomReach: roomReachFrom(code),
         // delivery reaches a fast-lane socket, which sends latest-only ones as datagrams; ws doesn't read it.
         send: (id, text, delivery) => sockets.get(id)?.send(text, { delivery }),
         sendBytes: (id, frame, delivery) => sockets.get(id)?.send(frame, { binary: true, delivery }),
@@ -313,9 +318,83 @@ export function startServer(options) {
     // passTexts: the same passes as the players sent them, for Zaisma's chat filter (checkChat).
     // savedStateKey: what the room last saved (its state and its match's players), so an unchanged one isn't written again.
     // seatedAtMs: when each player came into this room on their own, for the game's one-room rule (the oldest seat closes first).
-    room = { core, sockets, passes: new Map(), passTexts: new Map(), seatedAtMs: new Map(), timer: null, probeTimer: null, waiting: false, savedStateKey: saved ? stateKeyOf(saved.stateJson, saved.matchPlayers, saved.savedRoom.isKept === true) : null, hasReportedStateSize: false };
+    // joinedAtMs: when each player and spectator joined, for server.getRoom; createdAtMs: when the room started here, for listRooms.
+    room = { core, sockets, joinedAtMs: new Map(), createdAtMs: Date.now(), passes: new Map(), passTexts: new Map(), seatedAtMs: new Map(), timer: null, probeTimer: null, waiting: false, savedStateKey: saved ? stateKeyOf(saved.stateJson, saved.matchPlayers, saved.savedRoom.isKept === true) : null, hasReportedStateSize: false };
     rooms.set(code, room);
     return room;
+  }
+
+  /**
+   * Room messages and the game server's room calls among this server's own rooms (room.sendToRoom, sendToEveryRoom and
+   * listRooms from the room fromRoomCode; server's, with getRoom, kickFromRoom and endRoom, from null), as Zaisma's rooms
+   * do among theirs. A message sent to a kept room asleep in the saved states by its code wakes it.
+   */
+  function roomReachFrom(fromRoomCode, senderKind = fromRoomCode === null ? "server" : "room") {
+    const caller = fromRoomCode === null ? "server" : "room";
+    return {
+      sendToRoom: async (code, message) => {
+        const room = runningRoom(code, true);
+        return { isDelivered: room ? deliverRoomMessage(code, room, { message, senderKind, fromRoomCode, sentAt: new Date().toISOString() }) : false };
+      },
+      sendToEveryRoom: async (message, labels) => {
+        const nowMs = Date.now();
+        everyRoomSentAtMs = everyRoomSentAtMs.filter((sentAtMs) => nowMs - sentAtMs < 60_000);
+        if (everyRoomSentAtMs.length >= ROOM_MESSAGE_LIMITS.maximumEveryRoomSendsPerMin) throw new GameServerError("room_call_limit", `${caller}.sendToEveryRoom`, `A game can send to every room up to ${ROOM_MESSAGE_LIMITS.maximumEveryRoomSendsPerMin} times a minute.`, "Put what you send in one message, or wait a minute.");
+        everyRoomSentAtMs.push(nowMs);
+        const roomMessage = { message, senderKind, fromRoomCode, sentAt: new Date(nowMs).toISOString() };
+        let roomCount = 0;
+        for (const [code, room] of [...rooms]) {
+          if (code !== fromRoomCode && !room.core.ended && room.sockets.size > 0 && hasLabels(room.core.labels, labels) && deliverRoomMessage(code, room, roomMessage)) roomCount++;
+        }
+        return { roomCount };
+      },
+      listRooms: async (labels) => ({
+        rooms: [...rooms]
+          .filter(([, room]) => !room.core.ended && hasLabels(room.core.labels, labels))
+          .map(([code, room]) => liveRoomOf(code, room))
+          .sort((first, second) => second.createdAt.localeCompare(first.createdAt))
+          .slice(0, ROOM_MESSAGE_LIMITS.maximumListedRoomCount),
+      }),
+      getRoom: async (code) => {
+        const room = runningRoom(code, false);
+        return room ? { room: liveRoomOf(code, room), players: room.core.roomPlayers((id) => room.joinedAtMs.get(id) ?? room.createdAtMs) } : null;
+      },
+      kickFromRoom: async (code, playerId, message, isKeptOut) => {
+        const room = runningRoom(code, false);
+        if (!room || !(room.core.players.has(playerId) || room.core.spectators.has(playerId))) return { isDone: false };
+        room.core.kick(playerId, { message, keepOut: isKeptOut });
+        pace(code, room);
+        return { isDone: true };
+      },
+      endRoom: async (code, message) => {
+        const room = runningRoom(code, false);
+        if (!room) return { isDone: false };
+        room.core.end(message ?? "The match is over.", "game");
+        closeIfEmpty(code, room);
+        return { isDone: true };
+      },
+    };
+  }
+
+  /** A room here by its code that hasn't ended, or, when isWaking, a kept one asleep in the saved states, woken. */
+  function runningRoom(code, isWaking) {
+    const running = rooms.get(code);
+    if (running) return running.core.ended ? null : running;
+    if (!isWaking || readSaved(code)?.savedRoom?.isKept !== true) return null;
+    return roomFor(code);
+  }
+
+  /** Hand a room a room message; a room woken for it with nobody in it goes back to sleep once its game server is done. */
+  function deliverRoomMessage(code, room, roomMessage) {
+    const isTaken = room.core.receiveRoomMessage(roomMessage);
+    pace(code, room);
+    void room.core.settled().then(() => closeIfEmpty(code, room));
+    return isTaken;
+  }
+
+  function liveRoomOf(code, room) {
+    const core = room.core;
+    return { roomCode: code, name: core.name, labels: { ...core.labels }, playerCount: core.players.size, maximumPlayerCount: definition.maximumPlayerCount ?? ROOM_LIMITS.defaultMaximumPlayerCount, spectatorCount: core.spectators.size, isListed: core.isListed, isOpen: core.isOpen, isKept: core.isKept, versionId: null, continent: null, createdAt: new Date(room.createdAtMs).toISOString() };
   }
 
   /** A room's saved state from the file, or null if it has none (or it can't be read). */
@@ -606,6 +685,7 @@ export function startServer(options) {
         return refuse(joined.code, joined.message);
       }
       playerId = player.id;
+      room.joinedAtMs.set(player.id, Date.now());
       room.waiting = false;
       if (takesSeat) takeSeat(player.id, code, room);
       pace(code, room);
@@ -657,10 +737,22 @@ export function startServer(options) {
       wss.close(() => httpServer.close(() => done()));
       httpServer.closeAllConnections?.();
     });
-  return { close, httpServer, fastLaneReady: fastLaneReady.then(() => undefined) };
+  const running = { close, httpServer, fastLaneReady: fastLaneReady.then(() => undefined) };
+  // The local bench's sends to rooms (POST /bench/api/room-messages), as the developer API sends them: local-play-runner.js reaches it.
+  const developerReach = roomReachFrom(null, "developer");
+  Object.defineProperty(running, LOCAL_BENCH_ROOM_MESSAGE, { value: (message, roomCode) => (roomCode ? developerReach.sendToRoom(roomCode, message) : developerReach.sendToEveryRoom(message, null)) });
+  return running;
 }
 
+/** Where the local bench's runner (local-play-runner.js) finds its way to send room messages as the developer: never part of what startServer answers. */
+const LOCAL_BENCH_ROOM_MESSAGE = Symbol.for("zaisma.localBenchRoomMessage");
+
 /** A saved state's key: its JSON, who was in the match and whether the room is kept, since any of them changing is worth a save. */
+/** Whether a room's labels hold every label given (null: every room does). */
+function hasLabels(roomLabels, labels) {
+  return !labels || Object.entries(labels).every(([labelName, labelValue]) => roomLabels[labelName] === labelValue);
+}
+
 function stateKeyOf(stateJson, matchPlayers, isKept) {
   return `${isKept ? "kept " : ""}${matchPlayers.map((player) => player.id).join(" ")}\n${stateJson}`;
 }
