@@ -140,6 +140,9 @@ const HEADER_STYLES = `
 
 /* The header's gap is a row of controls' (their boxes overlap by the slant); the logo is words beside them, and so beside the sidebar's button. */
 .top > .logo { margin-right: var(--gap-block-block); }
+/* The logo is words: it keeps the bar's words margin from its edge, as far in as it is from the tabs (none after a sidebar's button). */
+.top > .logo { margin-left: var(--pad-words); }
+.top:has(> [data-sidebar-button]) > .logo { margin-left: 0; }
 .top > [data-sidebar-button] { margin-right: var(--gap-words-control); }
 /* Search beside Sign in is a row of two controls, so they slant toward each other; beside your account's picture it's words beside it. */
 .top .find:has(~ .end > .shell) { margin-inline-end: var(--gap-control-row-boxes); }
@@ -174,14 +177,13 @@ const HEADER_STYLES = `
   /* With a sidebar's button it's first in the first row, the logo beside it. */
   .top:has(> [data-sidebar-button]) { grid-template-columns: auto minmax(0, auto) minmax(0, 1fr) auto auto; }
   .top > [data-sidebar-button] { grid-area: 1 / 1; margin-left: var(--pad-words); }
-  .top:has(> [data-sidebar-button]) > .logo { grid-area: 1 / 2; margin-left: 0; }
+  .top:has(> [data-sidebar-button]) > .logo { grid-area: 1 / 2; }
   .top:has(> [data-sidebar-button]) > .find + .cut-btn { grid-area: 1 / 4; }
   .top:has(> [data-sidebar-button]) > .end { grid-area: 1 / 5; }
   .top .nav, .top .find { grid-area: 2 / 1 / 3 / -1; }
   /* Compact keeps the same inset around the tabs as at rest; only the rows themselves get shorter. */
   .top.is-compact { top: calc(6px + env(safe-area-inset-top, 0px)); }
   /* Words keep the bar's words margin from its edge (materials.ts): the logo, and the open search field's words (its icon first). */
-  .top > .logo { margin-left: var(--pad-words); }
   .top .find { --pad-inside-words: var(--pad-words); }
   .top > .logo, .top.is-compact > .logo { --logo-height: 22px; }
   .top .find, .top .find:has(~ .end > .shell), .top .find:has(~ .end > .me) { display: none; order: 5; flex-basis: 100%; max-width: none; margin: 0; }
