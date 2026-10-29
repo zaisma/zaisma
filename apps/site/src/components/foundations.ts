@@ -142,6 +142,10 @@ export function tray(options: { head: Raw; body: Raw; label?: string; paneWidth?
 export const logo = (kind: "wordmark" | "mark"): Raw =>
   html`<a class="logo ${kind}" href="/" aria-label="Zaisma home">${kind === "wordmark" ? WORDMARK : MARK}</a>`;
 
+/** The logo on light or smoked glass whatever the page's theme, for the gallery. */
+const logoOn = (glassKind: "light" | "smoked", markup: Raw): Raw =>
+  html`<div ${glassKind === "light" ? raw('data-theme-choice="light"') : raw('class="smoke"')} style="display:flex;padding:var(--pad-pane);background:${glassKind === "light" ? "#E7E4DF" : "#121110"}">${markup}</div>`;
+
 /** The loader: the Z building itself, one loop a second (brand/loader/zaisma-loader.svg), in the words' color. Shown only once something was pressed. */
 export const loader = (): Raw => raw('<span class="loader" aria-hidden="true"></span>');
 
@@ -615,13 +619,15 @@ component({
   slug: "logo",
   group: "foundations",
   subgroup: "pictures",
-  summary: "Zaisma's logo, always a link home: the wordmark at the top of a page, the mark alone in the footer. Drawn in the words' color, never restyled.",
+  summary: "Zaisma's logo, always a link home: the wordmark at the top of a page, the mark alone in the footer. Julius's Z in glass, black on light glass and white on smoked, never orange and never restyled.",
   styles: `
-/* The logo: drawn in the words' color, at --logo-height (a bar sets it as it slims). */
-.logo { display: flex; align-items: center; flex: none; padding: 6px 2px; color: var(--ink); }
+/* The logo: the glass drawing for the glass it's on, at --logo-height (a bar sets it as it slims). Its shadow falls outside its box. */
+.logo { display: flex; align-items: center; flex: none; padding: 6px 2px; }
+.logo .on-light { display: var(--on-light); }
+.logo .on-smoked { display: var(--on-smoked); }
 .logo.wordmark { --logo-height: 26px; }
-.logo.mark { --logo-height: 17px; padding: 0; opacity: 0.8; }
-.logo svg { height: var(--logo-height); width: auto; display: block; transition: height 0.45s cubic-bezier(.2,.8,.2,1), color 0.3s; }
+.logo.mark { --logo-height: 17px; padding: 0; }
+.logo svg { height: var(--logo-height); width: auto; display: block; transition: height 0.45s cubic-bezier(.2,.8,.2,1); }
 .logo:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 /* On a touch screen it's a control's height to press, whatever its size. */
 @media (pointer: coarse) { .logo { position: relative; } .logo::before { content: ""; position: absolute; inset: min(0px, calc((var(--touch-target) - 100%) / -2)) 0; } }
@@ -629,8 +635,10 @@ component({
 `,
   render: logo,
   examples: [
-    { label: "The wordmark", markup: logo("wordmark") },
-    { label: "The mark", markup: logo("mark") },
+    { label: "The wordmark on light glass: black glass", markup: logoOn("light", logo("wordmark")) },
+    { label: "The wordmark on smoked glass: white glass", markup: logoOn("smoked", logo("wordmark")) },
+    { label: "The mark on light glass", markup: logoOn("light", logo("mark")) },
+    { label: "The mark on smoked glass", markup: logoOn("smoked", logo("mark")) },
   ],
 });
 

@@ -41,6 +41,8 @@ export const LIGHT_GLASS = `color-scheme: light;
   --clear-glass-mark: initial;
   /* What shows only on light glass, and only on smoked (the light-dark icon's sun and moon). */
   --on-light: inline; --on-smoked: none;
+  /* Zaisma's mark in an empty picture's well: black glass on light glass, white on smoked. */
+  --well-mark: url("/zaisma-mark-glass-black.svg");
   /* The line between two parts of one pane (its head and its list, a list and the facts under it). Set with each kind of glass, not on :root,
      so it takes that glass's --line: a var() in a custom property is read where it's set. */
   --divider: 1px solid var(--line);
@@ -84,7 +86,7 @@ export const SMOKED_GLASS = `color-scheme: dark;
   --show: rgba(255, 255, 255, 0.1); --show-on: rgba(255, 255, 255, 0.22);
   --pick: rgba(255, 255, 255, 0.06); --pick-shade: inset 0 1px 3px rgba(0, 0, 0, 0.3), inset 0 0 0 1px rgba(255, 255, 255, 0.08);
   --done: rgba(255, 255, 255, 0.12); --done-line: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
-  --clear-glass-mark: #fff; --on-light: none; --on-smoked: inline; --divider: 1px solid var(--line);
+  --clear-glass-mark: #fff; --on-light: none; --on-smoked: inline; --well-mark: url("/zaisma-mark-glass-white.svg"); --divider: 1px solid var(--line);
   --toggle-off: rgba(0, 0, 0, 0.34); --check-press: rgba(0, 0, 0, 0.3); --row-hover: rgba(255, 255, 255, 0.1); --row-press: rgba(255, 255, 255, 0.22); --tag-new: rgba(30, 150, 80, 0.32); --tag-new-ink: #A6F0C6; --tag-warning: rgba(230, 181, 58, 0.24); --tag-warning-ink: var(--warning); --tag-plain: rgba(0, 0, 0, 0.34); --tag-carve: inset 0 1.5px 3px rgba(0, 0, 0, 0.8), inset 0 -1px 0 rgba(255, 255, 255, 0.24); --face-ring: rgba(6, 8, 12, 0.55); --presence-ring: #1A1D24; --online: #3BB273; --picture-shadow: rgba(0, 0, 0, 0.55);
   --table-head: rgba(14, 17, 24, 0.9); --table-row-head: rgba(24, 28, 36, 0.97); --chart-fill: rgba(255, 255, 255, 0.08); --chart-bar: rgba(255, 255, 255, 0.3); --chart-ring: rgba(20, 23, 30, 0.9); --chart-tip: rgba(28, 32, 40, 0.94); --meter-near-hi: #FF8A78; --meter-near: #E5483A; --meter-full: #A82718; --meter-full-ink: #FF8A78; --part-0: #6E97F0; --part-1: #A08AF0; --part-2: #3CC4AC; --part-3: #8DBA55; --part-4: #EC7FA3; --part-5: #5BC0E3; --drop-dash: rgba(255, 255, 255, 0.34);
   --rail-line: rgba(255, 255, 255, 0.2); --rail-thumb: rgba(255, 255, 255, 0.55); --rail-edge: rgba(255, 255, 255, 0.35); --rail-mark: rgba(255, 255, 255, 0.5);

@@ -122,7 +122,7 @@ export function codeEmail(env: Env, code: string, reason: EmailCodeReason): { su
 <body style="margin:0;padding:32px 16px;background:#0b0d10;color:#eceef0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:440px">
-<tr><td style="padding:0 0 28px"><img src="${esc(env.SITE_ORIGIN)}/zaisma-wordmark-white-2400.png" width="112" alt="Zaisma" style="display:block;width:112px;height:auto;border:0"></td></tr>
+<tr><td style="padding:0 0 28px"><img src="${esc(env.SITE_ORIGIN)}/zaisma-wordmark-glass-white-2400.png" width="112" alt="Zaisma" style="display:block;width:112px;height:auto;border:0"></td></tr>
 <tr><td style="font-size:16px;line-height:1.5;color:#c6c9ce">${esc(CODE_FOR[reason])}</td></tr>
 <tr><td style="padding:18px 0 22px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:36px;font-weight:600;letter-spacing:8px;color:#eceef0">${code}</td></tr>
 <tr><td style="font-size:14px;line-height:1.5;color:#969ba4">${esc(lasts)} ${esc(IF_NOT_YOU[reason])}</td></tr>
@@ -168,7 +168,7 @@ export function passkeyWaitEmail(env: Env, details: { username: string; deviceNa
 <body style="margin:0;padding:32px 16px;background:#0b0d10;color:#eceef0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:440px">
-<tr><td style="padding:0 0 28px"><img src="${esc(env.SITE_ORIGIN)}/zaisma-wordmark-white-2400.png" width="112" alt="Zaisma" style="display:block;width:112px;height:auto;border:0"></td></tr>
+<tr><td style="padding:0 0 28px"><img src="${esc(env.SITE_ORIGIN)}/zaisma-wordmark-glass-white-2400.png" width="112" alt="Zaisma" style="display:block;width:112px;height:auto;border:0"></td></tr>
 <tr><td style="font-size:16px;line-height:1.5;color:#c6c9ce;padding:0 0 16px">${esc(first)}</td></tr>
 <tr><td style="font-size:14px;line-height:1.5;color:#969ba4">${esc(second)}</td></tr>
 </table></td></tr></table>
@@ -191,7 +191,7 @@ export function copyStoppedEmail(env: Env, details: { username: string; gameTitl
 <body style="margin:0;padding:32px 16px;background:#0b0d10;color:#eceef0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:440px">
-<tr><td style="padding:0 0 28px"><img src="${esc(env.SITE_ORIGIN)}/zaisma-wordmark-white-2400.png" width="112" alt="Zaisma" style="display:block;width:112px;height:auto;border:0"></td></tr>
+<tr><td style="padding:0 0 28px"><img src="${esc(env.SITE_ORIGIN)}/zaisma-wordmark-glass-white-2400.png" width="112" alt="Zaisma" style="display:block;width:112px;height:auto;border:0"></td></tr>
 <tr><td style="font-size:16px;line-height:1.5;color:#c6c9ce;padding:0 0 16px">${esc(first)}</td></tr>
 <tr><td style="font-size:14px;line-height:1.5;color:#969ba4">${esc(second)}</td></tr>
 </table></td></tr></table>
@@ -222,7 +222,7 @@ export function securityAlertEmail(
 <body style="margin:0;padding:32px 16px;background:#0b0d10;color:#eceef0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:440px">
-<tr><td style="padding:0 0 28px"><img src="${esc(env.SITE_ORIGIN)}/zaisma-wordmark-white-2400.png" width="112" alt="Zaisma" style="display:block;width:112px;height:auto;border:0"></td></tr>
+<tr><td style="padding:0 0 28px"><img src="${esc(env.SITE_ORIGIN)}/zaisma-wordmark-glass-white-2400.png" width="112" alt="Zaisma" style="display:block;width:112px;height:auto;border:0"></td></tr>
 ${paragraphs
   .slice(0, -1)
   .map((paragraph) => `<tr><td style="font-size:16px;line-height:1.5;color:#c6c9ce;padding:0 0 16px">${esc(paragraph)}</td></tr>`)
@@ -303,7 +303,7 @@ export function hostingEmail(env: Env, kind: HostingEmailKind, details: HostingE
 <body style="margin:0;padding:32px 16px;background:#0b0d10;color:#eceef0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:440px">
-<tr><td style="padding:0 0 28px"><img src="${esc(env.SITE_ORIGIN)}/zaisma-wordmark-white-2400.png" width="112" alt="Zaisma" style="display:block;width:112px;height:auto;border:0"></td></tr>
+<tr><td style="padding:0 0 28px"><img src="${esc(env.SITE_ORIGIN)}/zaisma-wordmark-glass-white-2400.png" width="112" alt="Zaisma" style="display:block;width:112px;height:auto;border:0"></td></tr>
 <tr><td style="font-size:16px;line-height:1.5;color:#c6c9ce;padding:0 0 16px">${esc(first)}</td></tr>
 <tr><td style="font-size:14px;line-height:1.5;color:#969ba4">${esc(second)}</td></tr>
 </table></td></tr></table>
@@ -352,7 +352,7 @@ export function purchaseReceiptEmail(
 <body style="margin:0;padding:32px 16px;background:#0b0d10;color:#eceef0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:440px">
-<tr><td style="padding:0 0 28px"><img src="${esc(env.SITE_ORIGIN)}/zaisma-wordmark-white-2400.png" width="112" alt="Zaisma" style="display:block;width:112px;height:auto;border:0"></td></tr>
+<tr><td style="padding:0 0 28px"><img src="${esc(env.SITE_ORIGIN)}/zaisma-wordmark-glass-white-2400.png" width="112" alt="Zaisma" style="display:block;width:112px;height:auto;border:0"></td></tr>
 <tr><td style="font-size:16px;line-height:1.5;color:#c6c9ce;padding:0 0 16px">You bought ${esc(what)} in ${esc(details.gameTitle)}.</td></tr>
 ${lines.map(([lineLabel, lineText]) => `<tr><td style="font-size:14px;line-height:1.5;color:#969ba4;padding:0 0 4px">${esc(lineLabel)}: <span style="color:#eceef0">${esc(lineText)}</span></td></tr>`).join("\n")}
 ${[...notes, help].map((note) => `<tr><td style="font-size:14px;line-height:1.5;color:#969ba4;padding:12px 0 0">${esc(note)}</td></tr>`).join("\n")}

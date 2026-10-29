@@ -1,11 +1,14 @@
 import { createHash } from "node:crypto";
-import { readFileSync, readdirSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 /**
  * The files zaisma.com serves from brand/ (wrangler.jsonc, "assets"), and how long browsers keep them (brand/_headers). The font is
  * kept for good, so it's named for its contents: a changed font gets a new name, and every page must ask for the name that's there.
+ * The glass logo's files are made by scripts/brand.mjs, never by hand, and every brand file the site names is there.
  */
 
 const ROOT = join(import.meta.dirname, "../..");
@@ -63,6 +66,29 @@ describe("brand files", () => {
   it("are kept by browsers: the font for good, everything else for a day and refreshed in the background for a week", () => {
     const headersText = readFileSync(join(BRAND, "_headers"), "utf8");
     for (const font of fonts) expect(cacheControlOf(headersText, `/fonts/${font}`)).toBe("public, max-age=31536000, immutable");
-    for (const path of ["/favicon.svg", "/zaisma-mark-metal.svg", "/loader/zaisma-loader.svg", "/flags/de.png", "/design/covers/verdant.webp"]) expect(cacheControlOf(headersText, path), path).toBe("public, max-age=86400, stale-while-revalidate=604800");
+    for (const path of ["/favicon.svg", "/zaisma-mark-glass-black.svg", "/share-card-light.png", "/loader/zaisma-loader.svg", "/flags/de.png", "/design/covers/verdant.webp"]) expect(cacheControlOf(headersText, path), path).toBe("public, max-age=86400, stale-while-revalidate=604800");
+  });
+
+  it("are what scripts/brand.mjs makes: its SVGs, manifest and logo-glass.ts, unedited", () => {
+    const out = mkdtempSync(join(tmpdir(), "zaisma-brand-"));
+    try {
+      execFileSync(process.execPath, [join(ROOT, "scripts/brand.mjs"), "--svg-only", "--out", out]);
+      const made = readdirSync(out);
+      expect(made).toContain("logo-glass.ts");
+      for (const name of made) {
+        const checkedIn = name === "logo-glass.ts" ? join(ROOT, "apps/site/src/components", name) : join(BRAND, name);
+        expect(readFileSync(join(out, name), "utf8"), `${name} differs from what npm run brand makes: run it, never edit the file`).toBe(readFileSync(checkedIn, "utf8"));
+      }
+    } finally {
+      rmSync(out, { recursive: true, force: true });
+    }
+  });
+
+  it("are there: every brand file the site names under / is in brand/", () => {
+    // A path after a quote, a parenthesis or the site's origin; one added to a page's own path ("/g/" + slug + "/qr-code.svg") or compared
+    // with one is a page.
+    const references = sourceTexts(join(ROOT, "apps/site/src")).flatMap(({ path, text }) => [...text.matchAll(/(?<!\+ |=== |endsWith\()(?:["'(]|SITE_ORIGIN\})\/([A-Za-z0-9_/.-]+\.(?:svg|png|ico|webmanifest))\b/g)].map((match) => ({ path, file: match[1]! })));
+    expect(references.map(({ file }) => file)).toEqual(expect.arrayContaining(["favicon.svg", "manifest.webmanifest", "share-card-light.png", "zaisma-mark-glass-black.svg"]));
+    for (const { path, file } of references) expect(existsSync(join(BRAND, file)), `${path} names /${file}`).toBe(true);
   });
 });
