@@ -773,6 +773,9 @@ const FIELD_STYLES = `
 .cut-field > label { font: var(--type-label); color: var(--ink-2); }
 /* It's a carving you type in (materials.ts): its face, its height, its words' room and its states are the carving's. */
 .field { --control-height: var(--control-height-field); display: flex; align-items: center; color: var(--muted); }
+/* Its width never follows what's in it or the font it's shown in (a hidden password's dots are larger): a card's width where its pane fits
+   what's in it, the pane's width where that's wider, never past it. */
+.cut-field > .field:not(.select, .long) { width: var(--size-card); min-width: 100%; max-width: 100%; }
 /* Its face is a layer of its own under its words (the field's ::before), so the words can fade out at an end with more of them past it
    (more-left and more-right, FIELD_SCRIPT) instead of being cut off hard there, while the face stays whole. */
 .field > input { --text-start: calc(var(--pad-inside-words) + 34px); --text-end: 16px; }
