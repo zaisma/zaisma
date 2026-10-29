@@ -147,10 +147,10 @@ span.hairline { flex: 1; border-top: var(--divider); }
 .slab-holder:has(> .slab.big) { --control-height: var(--control-height-big); }
 .slab .loader { position: relative; z-index: 2; }
 .slab.big { --slab-words: 28px; font-size: 1.0625rem; }
-/* Its edge light takes its tint (--way, --way-mix: a way in's color, a delete's red) as its face does, so a tinted slab's lit edge is never a
-   white rim round it; resting raised, pressed carved. */
-.slab > .cut-line { --band-top: color-mix(in srgb, var(--way, transparent) var(--way-mix, 0%), var(--raise-top)); --band-left: color-mix(in srgb, var(--way, transparent) var(--way-mix, 0%), var(--raise-left));
-  --band-right: color-mix(in srgb, var(--way, transparent) var(--way-mix, 0%), var(--raise-right)); --band-bottom: color-mix(in srgb, var(--way, transparent) var(--way-mix, 0%), var(--raise-bottom)); }
+/* Its edge light takes some of its tint (--way, --way-mix: a way in's color, a delete's red), so a tinted slab's lit edge is never a white
+   rim round it, yet keeps the light that lands on it: resting, its top and leading edges still catch the highlight that makes it raised. */
+.slab > .cut-line { --band-top: color-mix(in srgb, var(--way, transparent) calc(var(--way-mix, 0%) * 0.4), var(--raise-top)); --band-left: color-mix(in srgb, var(--way, transparent) calc(var(--way-mix, 0%) * 0.4), var(--raise-left));
+  --band-right: color-mix(in srgb, var(--way, transparent) calc(var(--way-mix, 0%) * 0.4), var(--raise-right)); --band-bottom: color-mix(in srgb, var(--way, transparent) calc(var(--way-mix, 0%) * 0.4), var(--raise-bottom)); }
 .slab > :where(:not(.cut-line)) { position: relative; z-index: 2; }
 /* Its words end in an ellipsis on one line, never spilling out of it or growing it past its height. */
 .slab > :is(span:not([class]), .label-idle, .label-busy) { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
@@ -159,8 +159,8 @@ span.hairline { flex: 1; border-top: var(--divider); }
 :is(.shell:hover, .shell.is-pointed, .shell:focus-visible, .shell.is-focused) > .slab, .slab.is-pointed, .slab.is-focused { --face-color: var(--slab-face-pointed); }
 :is(.shell:active, .shell.is-pressed) > .slab, .slab.is-pressed { --face-color: var(--slab-face-pressed); box-shadow: var(--press-shade); transition-duration: var(--motion-press); }
 :is(.shell:active, .shell.is-pressed):has(> .slab), .slab-holder:has(> .slab.is-pressed) { filter: none; }
-:is(.shell:active, .shell.is-pressed) > .slab > .cut-line, .slab.is-pressed > .cut-line { --band-top: color-mix(in srgb, var(--way, transparent) var(--way-mix, 0%), var(--carve-top)); --band-left: color-mix(in srgb, var(--way, transparent) var(--way-mix, 0%), var(--carve-left));
-  --band-right: color-mix(in srgb, var(--way, transparent) var(--way-mix, 0%), var(--carve-right)); --band-bottom: color-mix(in srgb, var(--way, transparent) var(--way-mix, 0%), var(--carve-bottom)); }
+:is(.shell:active, .shell.is-pressed) > .slab > .cut-line, .slab.is-pressed > .cut-line { --band-top: color-mix(in srgb, var(--way, transparent) calc(var(--way-mix, 0%) * 0.4), var(--carve-top)); --band-left: color-mix(in srgb, var(--way, transparent) calc(var(--way-mix, 0%) * 0.4), var(--carve-left));
+  --band-right: color-mix(in srgb, var(--way, transparent) calc(var(--way-mix, 0%) * 0.4), var(--carve-right)); --band-bottom: color-mix(in srgb, var(--way, transparent) calc(var(--way-mix, 0%) * 0.4), var(--carve-bottom)); }
 :is(.shell:focus-visible, .shell.is-focused) > .slab > .cut-line polygon, .slab.is-focused > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 :is(.shell:disabled:not([aria-busy="true"]), .shell[aria-disabled="true"]) > .slab, .slab.is-disabled { --face-color: var(--carving-face); background: var(--face-color); box-shadow: var(--carving-shade); color: var(--muted); }
 :is(.shell:disabled:not([aria-busy="true"]), .shell[aria-disabled="true"]):has(> .slab), .slab-holder:has(> .slab.is-disabled) { filter: none; }
