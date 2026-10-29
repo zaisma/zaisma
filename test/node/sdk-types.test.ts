@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { createContext, runInContext } from "node:vm";
 import ts from "typescript";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { SAVE_COPY_REASONS } from "../../packages/core/src/saves.ts";
 import { CORE_ROOMS, CORE_TYPES, declaredType, fieldsOf, GAME_SERVER, GAME_SERVER_REQUESTS, joinedRoom, loadSdk, me, membersOf, ON_ZAISMA, say, sdkTypeChecker, sdkTypeProgram, settings, type StandInSocket, TEXT_FILTER, TYPES, valuesOf } from "../sdk-stand-in.ts";
 
@@ -173,6 +173,7 @@ describe("the SDK's types say what the SDK does", () => {
     const sdk = loadSdk();
     expect(await failureCode(() => sdk.Zaisma.joinRoom({ roomCode: "K7Q2MO" }))).toBe("bad_room_code");
     expect(await failureCode(() => sdk.Zaisma.joinRoom({ serverUrl: "play.example.com" }))).toBe("bad_server_url");
+    expect(await failureCode(() => sdk.Zaisma.joinRoom({ serverUrl: "wss://play.example.com", transport: "udp" }))).toBe("bad_transport");
     expect(await failureCode(() => sdk.Zaisma.server.request({ type: "leaderboard" }, { serverUrl: "play.example.com" }))).toBe("bad_server_url");
     expect(await failureCode(() => sdk.Zaisma.server.request({ type: "buy", coinCount: BigInt(10) }))).toBe("bad_request");
     expect(await failureCode(() => sdk.Zaisma.server.request({ type: "save", text: "x".repeat(17 * 1024) }))).toBe("too_big");
@@ -1585,5 +1586,156 @@ describe("v1 room messages in the SDK", () => {
     const room = await joining;
     expect(room.inviteUrl).toBe("https://zaisma.test/g/test-game?room=K7Q2MX&server=" + encodeURIComponent("wss://play.example.com"));
     expect(sdk.page.posted.filter((message: any) => message.type === "zaisma:room").at(-1)).toMatchObject({ code: "K7Q2MX", serverUrl: "wss://play.example.com" });
+  });
+});
+
+/**
+ * A stand-in for the browser's WebTransport, for the fast lane to a game's own server: the test plays the
+ * server, opening the session (or not), reading what the SDK wrote to its stream and its datagrams, and
+ * saying frames on the stream as [4-byte length][kind][payload].
+ */
+class StandInWebTransport {
+  static made: StandInWebTransport[] = [];
+  readonly url: string;
+  readonly ready: Promise<void>;
+  readonly closed: Promise<{ closeCode: number; reason: string }>;
+  open!: () => void;
+  refuse!: (error: Error) => void;
+  closeFromServer!: (info: { closeCode: number; reason: string }) => void;
+  streamWritten: Uint8Array[] = [];
+  datagramsWritten: Uint8Array[] = [];
+  private toClient!: ReadableStreamDefaultController<Uint8Array>;
+  datagrams = {
+    maxDatagramSize: 1200,
+    readable: new ReadableStream<Uint8Array>(),
+    createWritable: () => new WritableStream<Uint8Array>({ write: (datagram) => void this.datagramsWritten.push(datagram) }),
+  };
+  constructor(url: string) {
+    this.url = url;
+    this.ready = new Promise((resolve, reject) => ((this.open = resolve), (this.refuse = reject)));
+    this.ready.catch(() => {});
+    this.closed = new Promise((resolve) => (this.closeFromServer = resolve));
+    StandInWebTransport.made.push(this);
+  }
+  async createBidirectionalStream() {
+    return {
+      readable: new ReadableStream<Uint8Array>({ start: (controller) => void (this.toClient = controller) }),
+      writable: new WritableStream<Uint8Array>({ write: (frame) => void this.streamWritten.push(frame) }),
+    };
+  }
+  close() {}
+  /** A text frame from the server, on the stream. */
+  say(message: unknown) {
+    const payload = new TextEncoder().encode(JSON.stringify(message));
+    const frame = new Uint8Array(5 + payload.length);
+    new DataView(frame.buffer).setUint32(0, payload.length);
+    frame[4] = 0;
+    frame.set(payload, 5);
+    this.toClient.enqueue(frame);
+  }
+  /** What the SDK wrote, as { kind, text }: the stream's frames, or the datagrams. */
+  static read(written: Uint8Array[], isDatagram: boolean) {
+    return written.map((bytes) => {
+      const start = isDatagram ? 1 : 5;
+      if (!isDatagram) expect(new DataView(bytes.buffer, bytes.byteOffset).getUint32(0)).toBe(bytes.length - 5);
+      return { kind: bytes[start - 1], text: new TextDecoder().decode(bytes.subarray(start)) };
+    });
+  }
+}
+
+describe("the fast lane to your own server", () => {
+  const OWN = { roomCode: "K7Q2MX", serverUrl: "wss://play.example.com", transport: "webtransport" };
+  const welcome = { type: "welcome", me, players: [me], room: settings, hostPlayerId: null, awayChecks: { idleTimeoutSec: 600, hiddenTimeoutSec: null } };
+  const settle = () => new Promise((resolve) => setImmediate(resolve));
+
+  function standIn() {
+    StandInWebTransport.made = [];
+    vi.stubGlobal("WebTransport", StandInWebTransport);
+    onTestFinished(() => void vi.unstubAllGlobals());
+  }
+
+  it("joins over WebTransport, sends latest-only messages that fit as datagrams, and everything else on the stream", async () => {
+    standIn();
+    const sdk = loadSdk();
+    const joining = sdk.Zaisma.joinRoom(OWN);
+    await vi.waitFor(() => expect(StandInWebTransport.made).toHaveLength(1));
+    const lane = StandInWebTransport.made[0]!;
+    expect(lane.url).toBe("https://play.example.com/v1/rooms/test-game/K7Q2MX");
+    lane.open();
+    await vi.waitFor(() => expect(lane.streamWritten).toHaveLength(1));
+    expect(JSON.parse(StandInWebTransport.read(lane.streamWritten, false)[0]!.text)).toMatchObject({ type: "hello", pass: "pass" });
+    lane.say(welcome);
+    const room = await joining;
+    expect(room.transport).toBe("webtransport");
+    expect(sdk.sockets).toHaveLength(0);
+    lane.streamWritten = [];
+
+    room.send({ type: "aim", angle: 1 }, { delivery: "latest_only", latestKey: "aim" });
+    room.sendBytes(new Uint8Array([7, 8]), { delivery: "latest_only", latestKey: "pose" });
+    room.send({ type: "aim", wide: "x".repeat(2000) }, { delivery: "latest_only", latestKey: "aim" });
+    room.send({ type: "jump" });
+    await settle();
+    expect(StandInWebTransport.read(lane.datagramsWritten, true)).toEqual([
+      { kind: 0, text: JSON.stringify({ type: "message", data: { type: "aim", angle: 1 } }) },
+      { kind: 1, text: "\u0007\b" },
+    ]);
+    // Too big for a datagram, then a reliable one: on the stream, in order.
+    expect(StandInWebTransport.read(lane.streamWritten, false).map((frame) => JSON.parse(frame.text).data.type)).toEqual(["aim", "jump"]);
+    // What the room says on the stream reaches the game as over a WebSocket.
+    let heard: unknown;
+    room.on("message", (message: unknown) => (heard = message));
+    lane.say({ type: "message", data: { type: "score", value: 3 }, fromPlayerId: null });
+    await vi.waitFor(() => expect(heard).toEqual({ type: "score", value: 3 }));
+  });
+
+  it("uses the WebSocket where there's no WebTransport, or no serverUrl", async () => {
+    const sdk = loadSdk();
+    sdk.Zaisma.joinRoom(OWN);
+    await vi.waitFor(() => expect(sdk.sockets).toHaveLength(1));
+    expect(sdk.sockets[0]!.url).toBe("wss://play.example.com/v1/rooms/test-game/K7Q2MX");
+
+    standIn();
+    const onZaisma = loadSdk();
+    onZaisma.Zaisma.joinRoom({ roomCode: "K7Q2MX", transport: "webtransport" });
+    await vi.waitFor(() => expect(onZaisma.sockets).toHaveLength(1));
+    expect(onZaisma.sockets[0]!.url).toBe("wss://rooms.zaisma.test/v1/rooms/test-game/K7Q2MX");
+    expect(StandInWebTransport.made).toHaveLength(0);
+  });
+
+  it("falls back to the WebSocket when the session is refused, saying why once", async () => {
+    standIn();
+    const warned = vi.spyOn(console, "warn").mockImplementation(() => {});
+    onTestFinished(() => warned.mockRestore());
+    const sdk = loadSdk();
+    const joining = sdk.Zaisma.joinRoom(OWN);
+    await vi.waitFor(() => expect(StandInWebTransport.made).toHaveLength(1));
+    StandInWebTransport.made[0]!.refuse(new Error("Opening handshake failed."));
+    await vi.waitFor(() => expect(sdk.sockets).toHaveLength(1));
+    sdk.sockets[0]!.onopen!();
+    say(sdk.sockets[0]!, welcome);
+    const room = await joining;
+    expect(room.transport).toBe("websocket");
+    expect(warned).toHaveBeenCalledTimes(1);
+    expect(String(warned.mock.calls[0]![0])).toContain("Opening handshake failed.");
+  });
+
+  it("falls back to the WebSocket when the session isn't up in 3 seconds", async () => {
+    standIn();
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    onTestFinished(() => void vi.useRealTimers());
+    const warned = vi.spyOn(console, "warn").mockImplementation(() => {});
+    onTestFinished(() => warned.mockRestore());
+    const sdk = loadSdk();
+    const joining = sdk.Zaisma.joinRoom(OWN);
+    // Real turns of the event loop (the clock is fake): the pass, then the session.
+    for (let turn = 0; turn < 50 && !StandInWebTransport.made.length; turn++) await settle();
+    expect(StandInWebTransport.made).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(2999);
+    expect(sdk.sockets).toHaveLength(0);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(sdk.sockets).toHaveLength(1);
+    sdk.sockets[0]!.onopen!();
+    say(sdk.sockets[0]!, welcome);
+    expect((await joining).transport).toBe("websocket");
   });
 });
