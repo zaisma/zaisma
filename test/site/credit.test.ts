@@ -1,9 +1,9 @@
 import { env, SELF } from "cloudflare:test";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { addCreditEntry, addPasskey, createAccount, createApiKey, creditOf, deleteAccount, personOwner } from "@zaisma/core";
+import { addCreditEntry, addPasskey, createAccount, createApiKey, creditOf, deleteAccount, personOwner, refundableTopUps } from "@zaisma/core";
 import { TOOLS } from "../../apps/site/src/mcp.ts";
 import { callerFor } from "../../apps/site/src/developer.ts";
-import { creditRoute, refundForDeletion, retryPendingRefunds } from "../../apps/site/src/credit-api.ts";
+import { creditKeptOnDeletionCents, creditRoute, refundForDeletion, retryPendingRefunds } from "../../apps/site/src/credit-api.ts";
 import { answerSpendingRequest, askForSpending } from "../../apps/site/src/spending-requests.ts";
 import { errorProblems, schemaProblems } from "../schema-check.ts";
 import { letPublish } from "../helpers.ts";
@@ -141,7 +141,7 @@ describe("a top-up", () => {
     const { credit } = await tool("get_credit", {});
     expect(credit.balance_cents).toBe(2000);
     expect(credit.top_ups).toEqual([{ id: expect.stringMatching(/^top_up_/), amount_cents: 2000, refundable_cents: 2000, refund_ends_at: expect.any(String), created_at: expect.any(String) }]);
-    expect(Date.parse(credit.top_ups[0].refund_ends_at) - Date.parse(credit.top_ups[0].created_at)).toBe(180 * DAY_MS);
+    expect(Date.parse(credit.top_ups[0].refund_ends_at) - Date.parse(credit.top_ups[0].created_at)).toBe(30 * DAY_MS);
     expect((await creditOf(env.DB, ownerId)).stripePaymentMethodId).toBe("pm_test_card");
     expect((await api("/access")).answer.credit_balance_cents).toBe(2000);
   });
@@ -155,9 +155,9 @@ describe("a top-up", () => {
 });
 
 describe("a refund", () => {
-  it("gives back the unspent part of a top-up, newest first, and nothing past 180 days", async () => {
-    const older = (await addCreditEntry(env.DB, { ownerId, entryKind: "top_up", amountCents: 2000, stripeObjectId: "pi_old", refundableUntilMs: Date.now() - DAY_MS, createdAtMs: Date.now() - 181 * DAY_MS }))!;
-    const newer = (await addCreditEntry(env.DB, { ownerId, entryKind: "top_up", amountCents: 1000, stripeObjectId: "pi_new", refundableUntilMs: Date.now() + 170 * DAY_MS }))!;
+  it("gives back the unspent part of a top-up, newest first, and nothing past 30 days", async () => {
+    const older = (await addCreditEntry(env.DB, { ownerId, entryKind: "top_up", amountCents: 2000, stripeObjectId: "pi_old", refundableUntilMs: Date.now() - DAY_MS, createdAtMs: Date.now() - 31 * DAY_MS }))!;
+    const newer = (await addCreditEntry(env.DB, { ownerId, entryKind: "top_up", amountCents: 1000, stripeObjectId: "pi_new", refundableUntilMs: Date.now() + 20 * DAY_MS }))!;
     // $25 spent of $30: credit is spent oldest first, so $5 of the newer top-up is left.
     await addCreditEntry(env.DB, { ownerId, entryKind: "hosting_charge", amountCents: -2500 });
 
@@ -277,6 +277,23 @@ describe("credit that's low or left behind", () => {
     await addCreditEntry(env.DB, { ownerId, entryKind: "hosting_charge", amountCents: -1650 });
     expect((await api("/credit")).answer.credit.is_credit_low).toBe(true);
     expect((await tool("get_credit", {})).credit.is_credit_low).toBe(true);
+  });
+
+  it("refunds a top-up on its 29th day and not on its 31st", async () => {
+    expect((await stripeEvent(checkoutCompleted("pi_month", 2000))).status).toBe(200);
+    const refundableOn = async (dayCount: number) => (await refundableTopUps(env.DB, ownerId, Date.now() + dayCount * DAY_MS))[0]!.refundableCents;
+    expect(await refundableOn(29)).toBe(2000);
+    expect(await refundableOn(31)).toBe(0);
+  });
+
+  it("refunds a deleted account's credit only inside its 30 days, and names the older credit first", async () => {
+    await addCreditEntry(env.DB, { ownerId, entryKind: "top_up", amountCents: 1000, stripeObjectId: "pi_forty", refundableUntilMs: Date.now() - 10 * DAY_MS, createdAtMs: Date.now() - 40 * DAY_MS });
+    await addCreditEntry(env.DB, { ownerId, entryKind: "top_up", amountCents: 2500, stripeObjectId: "pi_ten", refundableUntilMs: Date.now() + 20 * DAY_MS, createdAtMs: Date.now() - 10 * DAY_MS });
+    // $5 spent of $35: oldest first, so $5 of the 40-day top-up is left, past its 30 days.
+    await addCreditEntry(env.DB, { ownerId, entryKind: "hosting_charge", amountCents: -500 });
+    expect(await creditKeptOnDeletionCents(env, "dev-1")).toBe(500);
+    await refundForDeletion(env, "dev-1");
+    expect(stripeCalls.filter((call) => call.path === "/v1/refunds").map((call) => [call.form.get("payment_intent"), call.form.get("amount")])).toEqual([["pi_ten", "2500"]]);
   });
 
   it("still gets a deleted account's unspent credit back when Stripe is down as it's deleted, once Stripe is back", async () => {

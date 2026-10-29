@@ -271,7 +271,7 @@ export const HEADER_SCRIPT = pageScript(
 /** The links at the foot of every page: what Zaisma is and its rules. */
 const FOOTER_LINKS: [string, string][] = [
   ["For game developers", "/dashboard"], ["Forum", "/forum"], ["Source code", "https://github.com/zaisma/zaisma"], ["Content rules", "/legal/content-rules"],
-  ["Privacy", "/legal/privacy"], ["Security", "/legal/security"], ["Copyright (DMCA)", "/legal/dmca"], ["Defamation", "/legal/defamation"],
+  ["Terms", "/legal/terms"], ["Privacy", "/legal/privacy"], ["Security", "/legal/security"], ["Copyright (DMCA)", "/legal/dmca"], ["Defamation", "/legal/defamation"],
 ];
 
 export function footer(): Raw {

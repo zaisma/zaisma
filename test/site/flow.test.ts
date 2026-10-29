@@ -1037,7 +1037,7 @@ describe("pages", () => {
     expect(await (await SELF.fetch(`${LOCAL}/forum`)).text()).toContain('<main class="steel" data-covers-backdrop>');
     expect(home).toContain('<header class="top glass');
     const foot = home.slice(home.indexOf('<footer class="foot glass"'));
-    for (const [words, href] of [["For game developers", "/dashboard"], ["Forum", "/forum"], ["Source code", "https://github.com/zaisma/zaisma"], ["Content rules", "/legal/content-rules"], ["Privacy", "/legal/privacy"], ["Security", "/legal/security"], ["Copyright (DMCA)", "/legal/dmca"], ["Defamation", "/legal/defamation"]] as const)
+    for (const [words, href] of [["For game developers", "/dashboard"], ["Forum", "/forum"], ["Source code", "https://github.com/zaisma/zaisma"], ["Content rules", "/legal/content-rules"], ["Terms", "/legal/terms"], ["Privacy", "/legal/privacy"], ["Security", "/legal/security"], ["Copyright (DMCA)", "/legal/dmca"], ["Defamation", "/legal/defamation"]] as const)
       expect(foot).toMatch(new RegExp(`href="${href.replace(/[.()]/g, "\\$&")}"[^>]*>[\\s\\S]*?${words.replace(/[()]/g, "\\$&")}`));
     expect(foot).toContain("Zaisma is open source, under the MIT license.");
     // Off a developer page the developer tabs are folded away, out of reach.

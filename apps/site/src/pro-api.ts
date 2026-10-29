@@ -2,30 +2,33 @@ import { ApiError, PLAN_LIMITS, PRO_PRICE_CENTS_PER_MONTH, iso, planOf } from "@
 import { dailyCheckCount } from "./performance-check.ts";
 import { largeReviewCount, smallReviewCount } from "./scan.ts";
 import { logCallerEvent } from "./security-log.ts";
-import { proCheckout, setProCancelled } from "./stripe.ts";
+import { proCheckout, proRefundEndsAtMs, refundFirstProPayment, setProCancelled } from "./stripe.ts";
 import type { Caller, NextStep } from "./developer.ts";
 import type { Env } from "./env.ts";
 
 /**
  * A developer's plan through the developer API (docs/DECISIONS.md, "Zaisma Pro raises the daily limits."): free, or
  * Zaisma Pro, $10 a month on their card apart from credit. Their AI reads the plan, starts the checkout (the person
- * pays on Stripe's page), cancels at the end of the paid month and takes that back. Stripe's events set when Pro ends
+ * pays on Stripe's page), cancels at the end of the paid month and takes that back, and refunds the first payment
+ * within 14 days ("Zaisma Pro refunds"), which ends Pro at once. Otherwise Stripe's events set when Pro ends
  * (stripe-events.ts); nothing here ends it by Zaisma's own clock.
  *
  *   GET  /api/dev/pro           the plan, its limits and what today used
  *   POST /api/dev/pro/checkout  → Stripe's page to pay on
  *   POST /api/dev/pro/cancel    Pro ends at the end of the paid month
  *   POST /api/dev/pro/resume    takes cancelling back
+ *   POST /api/dev/pro/refund    refunds the first payment within 14 days; Pro ends now
  */
 
 interface ProRow {
   pro_until_ms: number | null;
   is_pro_cancelled: number;
   stripe_subscription_id: string | null;
+  stripe_customer_id: string | null;
 }
 
 const proRow = (env: Env, ownerId: string) =>
-  env.DB.prepare("SELECT pro_until_ms, is_pro_cancelled, stripe_subscription_id FROM owners WHERE id = ?").bind(ownerId).first<ProRow>().then((row) => row ?? { pro_until_ms: null, is_pro_cancelled: 0, stripe_subscription_id: null });
+  env.DB.prepare("SELECT pro_until_ms, is_pro_cancelled, stripe_subscription_id, stripe_customer_id FROM owners WHERE id = ?").bind(ownerId).first<ProRow>().then((row) => row ?? { pro_until_ms: null, is_pro_cancelled: 0, stripe_subscription_id: null, stripe_customer_id: null });
 
 const limitsAnswer = (plan: keyof typeof PLAN_LIMITS) => ({
   maximum_large_review_count: PLAN_LIMITS[plan].maximumLargeReviewsPerDay,
@@ -39,12 +42,19 @@ const limitsAnswer = (plan: keyof typeof PLAN_LIMITS) => ({
 export async function proAnswer(env: Env, ownerId: string, nowMs = Date.now()) {
   const row = await proRow(env, ownerId);
   const plan = planOf(row, nowMs);
-  const [usedLargeReviewCount, usedSmallReviewCount, usedPerformanceCheckCount] = await Promise.all([largeReviewCount(env, ownerId, nowMs), smallReviewCount(env, ownerId, nowMs), dailyCheckCount(env, ownerId, nowMs)]);
+  const canRefund = plan === "pro" && row.stripe_subscription_id !== null && row.stripe_customer_id !== null;
+  const [usedLargeReviewCount, usedSmallReviewCount, usedPerformanceCheckCount, refundEndsAtMs] = await Promise.all([
+    largeReviewCount(env, ownerId, nowMs),
+    smallReviewCount(env, ownerId, nowMs),
+    dailyCheckCount(env, ownerId, nowMs),
+    canRefund ? proRefundEndsAtMs(env, row.stripe_customer_id!, row.stripe_subscription_id!, row.pro_until_ms!, nowMs) : null,
+  ]);
   return {
     pro: {
       plan,
       pro_ends_at: plan === "pro" ? iso(row.pro_until_ms!) : null,
       is_pro_cancelled: plan === "pro" && row.is_pro_cancelled === 1,
+      refund_ends_at: refundEndsAtMs === null ? null : iso(refundEndsAtMs),
       monthly_price_cents: PRO_PRICE_CENTS_PER_MONTH,
       limits: { free: limitsAnswer("free"), pro: limitsAnswer("pro") },
       used_today: { large_review_count: usedLargeReviewCount, small_review_count: usedSmallReviewCount, performance_check_count: usedPerformanceCheckCount },
@@ -90,6 +100,20 @@ export async function proRoute(env: Env, path: string, method: string, caller: C
     await env.DB.prepare("UPDATE owners SET is_pro_cancelled = ? WHERE id = ?").bind(isCancelling ? 1 : 0, ownerId).run();
     await logCallerEvent(env, caller, isCancelling ? "pro_cancelled" : "pro_resumed");
     return [{ ...(await proAnswer(env, ownerId)), next_steps: [] satisfies NextStep[] }];
+  }
+
+  if (path === "/pro/refund" && method === "POST") {
+    const fix = "get_pro shows the plan; cancel_pro ends it at the end of the paid month.";
+    if (!isPro || !row.stripe_subscription_id || !row.stripe_customer_id) throw new ApiError("pro_not_refundable", { message: "The developer has no Zaisma Pro to refund.", fix });
+    const refundedCents = await refundFirstProPayment(env, row.stripe_customer_id, row.stripe_subscription_id);
+    if (refundedCents === null) throw new ApiError("pro_not_refundable", { message: "Only Zaisma Pro's first payment refunds, within 14 days of it, while it's the only one.", fix });
+    // Pro ends now, as Stripe's event for the ended subscription would end it; that event then finds nothing to change,
+    // and an older one arriving late is ignored (pro_event_at_ms).
+    const nowMs = Date.now();
+    await env.DB.prepare("UPDATE owners SET pro_until_ms = ?, is_pro_cancelled = 0, stripe_subscription_id = NULL, pro_event_at_ms = ? WHERE id = ? AND stripe_subscription_id = ?").bind(nowMs, nowMs, ownerId, row.stripe_subscription_id).run();
+    await logCallerEvent(env, caller, "pro_refunded");
+    const nextSteps: NextStep[] = [{ tool: "get_pro", arguments: {}, after_sec: null, reason: "Pro has ended: get_pro shows the free plan and its limits." }];
+    return [{ refunded_cents: refundedCents, next_steps: nextSteps }];
   }
 
   throw new ApiError("bad_method", { message: `${method} isn't a call at ${path}.`, fix: "docs/DEVELOPER-API.md, Zaisma Pro, lists the calls." });

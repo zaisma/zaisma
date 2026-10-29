@@ -1,5 +1,8 @@
 import {
   ALLOWED_CONTENT,
+  CREDIT_LIMITS,
+  PRO_PRICE_CENTS_PER_MONTH,
+  PRO_REFUND_LIMITS,
   ALLOWED_CONTENT_TITLES,
   NOTICE_ONLY_CONTENT_RULES,
   REVIEWED_CONTENT_RULES,
@@ -629,6 +632,7 @@ function enterUrl(env: Env, slug: string, addressKind: "tester" | "preview", gra
 
 export function legal(env: Env, page: string): Response | null {
   if (page === "content-rules") return layout(env, { title: "Content rules · Zaisma", body: contentRulesBody(), pageShape: "reading", checkedPage: "Content rules" });
+  if (page === "terms") return layout(env, { title: "Terms of service · Zaisma", body: termsBody(), pageShape: "reading", checkedPage: "Terms of service" });
   const pages: Record<string, { title: string; body: string }> = {
     dmca: { title: "Copyright and DMCA notices", body: DMCA },
     defamation: { title: "Defamation notices", body: DEFAMATION },
@@ -638,6 +642,76 @@ export function legal(env: Env, page: string): Response | null {
   const legalPage = pages[page];
   if (!legalPage) return null;
   return layout(env, { title: `${legalPage.title} · Zaisma`, body: html`<h1>${legalPage.title}</h1>${raw(legalPage.body)}` });
+}
+
+// Settled by Julius on Oct 28, 2026 (docs/DECISIONS.md, "Terms of service"): the promises are the decisions' own, in plain words, with no lawyer review.
+const TERMS_CHANGED_ON = "October 29, 2026";
+
+/** The terms of service, zaisma.com/legal/terms: one plain-words page, in panes like the content rules. */
+function termsBody(): Raw {
+  const creditDays = CREDIT_LIMITS.refundableDurationDays;
+  const proDays = PRO_REFUND_LIMITS.refundableDurationDays;
+  const dollarsText = (cents: number) => `$${cents / 100}`;
+  const pane = (label: string, markup: Raw): LayoutItem => ({ kind: "block", markup: glassPane({ paneWidth: "full", label, body: readingText({ markup }) }) });
+  return stack({
+    items: [
+      pane(
+        "Terms of service",
+        html`<h1>Terms of service</h1>
+<p>These terms are the agreement between you and Zaisma LLC, a Wyoming company, which runs Zaisma. They're short and in plain words, and they're the whole agreement: the ${textLink("content rules", "/legal/content-rules")} and the ${textLink("privacy policy", "/legal/privacy")} are part of them.</p>
+<p>Last changed ${TERMS_CHANGED_ON}.</p>`,
+      ),
+      pane(
+        "You and Zaisma",
+        html`<h2>Who this is between</h2>
+<p>You need to be 13 or older to use Zaisma. Playing a game, as a guest or signed in, means you agree to these terms, with nothing to click; making an account does too.</p>
+<h2>Your account</h2>
+<p>Keep your password and passkeys to yourself: what's done with your account is yours to answer for. Your username keeps to the content rules. You can download your data or delete your account any time, on your account page.</p>
+<h2>Privacy</h2>
+<p>What we keep about you, why, and for how long is on the ${textLink("privacy page", "/legal/privacy")}.</p>
+<h2>Closing accounts</h2>
+<p>You can delete your account whenever you like. We may close an account that breaks these terms, the content rules or the law. Either way, hosting credit from the last ${creditDays} days goes back to the card it was paid with, and older credit doesn't come back. Hosting already paid for is never taken back.</p>`,
+      ),
+      pane(
+        "Games and developers",
+        html`<h2>Your games are yours</h2>
+<p>You own your games and everything in them, and you need the rights to everything you put in them. By putting a game on Zaisma you let us store it, serve it to players, check it against the content rules and list it, for as long as it's here.</p>
+<p>We may show and market public games anywhere, always as a game on Zaisma credited to you, never as Zaisma's own. Private, unlisted and draft games are never shown or marketed.</p>
+<p>When you sell your game or items in it, you're the seller: the sale is between you and the player, through your own Stripe account, and refunds are yours to give. You answer for your games, and for what they do with players' data.</p>
+<h2>What we promise developers</h2>
+<ul>
+<li>Zaisma never takes a share of your sales.</li>
+<li>Before we take away something developers rely on, we tell you 30 days ahead; for the API and the SDK, 90 days.</li>
+<li>You can export everything about your games, any time.</li>
+<li>If Zaisma ever stops hosting games, you get 90 days' notice, and all your unspent hosting credit back.</li>
+</ul>
+<h2>Content rules and takedowns</h2>
+<p>Games, names and posts keep to the ${textLink("content rules", "/legal/content-rules")}. A game that breaks them, or the law, can be held or taken down, and every hold says why: the rule, what was found and how to fix it.</p>
+<p>Copyright notices follow the ${textLink("copyright page", "/legal/dmca")}, and an account is closed after 3 copyright notices that stand within 12 months. Notices that a game falsely says someone committed a crime follow the ${textLink("defamation page", "/legal/defamation")}.</p>`,
+      ),
+      pane(
+        "Money",
+        html`<h2>Hosting credit</h2>
+<p>Hosting credit pays for what your games use on Zaisma's servers past their free allowance. It's prepaid, from ${dollarsText(CREDIT_LIMITS.minimumTopUpCents)} a top-up, sold through Link by Stripe, and it pays only for Zaisma's services.</p>
+<p>Credit never expires. What's unspent of a top-up refunds to its card on request for ${creditDays} days after it. After that it stays yours to spend, but doesn't refund, and spent credit never does. Deleting your account refunds only credit inside its ${creditDays} days. Credit is never paid out.</p>
+<h2>Zaisma Pro</h2>
+<p>Zaisma Pro is ${dollarsText(PRO_PRICE_CENTS_PER_MONTH)} a month on your card. Cancel any time and you keep it to the end of the paid month, with no refunds for part of a month. Your first payment refunds on request within ${proDays} days of it, and Pro ends then. You or your AI ask for it yourselves, on Developer settings or through the API.</p>
+<h2>Buying and age</h2>
+<p>To buy hosting credit or Zaisma Pro you need to be 18, or have a parent's or guardian's permission. To sell, you need to be 18, as Stripe requires.</p>`,
+      ),
+      pane(
+        "The rest",
+        html`<h2>As it is, and our limits</h2>
+<p>Zaisma is provided as it is, with no promises beyond the ones in these terms. Games are made by their developers, not by Zaisma, and each developer answers for theirs. As far as the law allows, what Zaisma owes you for anything that goes wrong is at most the larger of what you paid Zaisma in the last 12 months and $50.</p>
+<h2>Disputes</h2>
+<p>If something goes wrong, email ${textLink("support@zaisma.com", "mailto:support@zaisma.com")} first and give us 60 days to put it right. If we can't, it goes to the courts of Wyoming, small claims courts included, under Wyoming law. There's no arbitration.</p>
+<h2>Changes</h2>
+<p>When these terms change, we say so here and email every account with an email, 30 days before the change starts.</p>
+<h2>Contact</h2>
+<p>Questions about these terms go to ${textLink("support@zaisma.com", "mailto:support@zaisma.com")}.</p>`,
+      ),
+    ],
+  });
 }
 
 // Approved by Julius on Oct 16, 2026 (#191); the faked-plays rule on Oct 13, 2026.
@@ -766,6 +840,8 @@ const DMCA = `
 <p class="note">Designated agent details will be listed here once Zaisma's DMCA agent registration is complete.</p>
 <h2>What happens next</h2>
 <p>We hide the game from players and tell its developer what your notice names. We pass your notice on to them, with your name and email. Once they publish a version without your work, we check it and show the game again. Nothing is deleted.</p>
+<h2>Repeat infringers</h2>
+<p>An account is closed after 3 copyright notices that stand within 12 months: notices with no counter-notice, or whose counter-notice failed. The <a href="/legal/terms">terms of service</a> say what happens to its credit.</p>
 <h2>Counter-notices</h2>
 <p>If your game was hidden by mistake, or you may use the work, email the same address with a counter-notice:</p>
 <ol>

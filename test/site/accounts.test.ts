@@ -363,6 +363,7 @@ describe("making an account", () => {
     const agePage = await (await b.go("/join/age", BIRTH_ADULT)).text();
     expect(agePage).toContain("Username");
     expect(agePage).toContain('autocomplete="new-password"');
+    expect(agePage).toContain('href="/legal/terms"');
     expect(agePage).not.toContain('type="email"');
     // How they play is its own step, after the account is made.
     expect(agePage).not.toContain("How do you play?");
@@ -1923,6 +1924,14 @@ describe("pages", () => {
     // A page that doesn't know who's looking swaps Sign in for the account from the signed-in cookie.
     expect(await (await SELF.fetch(`${SITE}/legal/privacy`)).text()).toMatch(/<script src="\/js\/account-link\.[0-9a-f]{16}\.js"><\/script>/);
     expect(await (await SELF.fetch(`${SITE}/legal/privacy`)).text()).toContain("we delete it when you turn 18");
+    const terms = await SELF.fetch(`${SITE}/legal/terms`);
+    expect(terms.status).toBe(200);
+    const termsPage = await terms.text();
+    for (const heading of ["Terms of service", "Who this is between", "Your account", "Privacy", "Closing accounts", "Your games are yours", "What we promise developers", "Content rules and takedowns", "Hosting credit", "Zaisma Pro", "Buying and age", "As it is, and our limits", "Disputes", "Changes", "Contact"])
+      expect(termsPage).toMatch(new RegExp(`<h[12]>${heading}</h[12]>`));
+    expect(termsPage).toContain("refunds to its card on request for 30 days");
+    expect(await (await SELF.fetch(`${SITE}/legal/dmca`)).text()).toContain("<h2>Repeat infringers</h2>");
+    expect(home).toContain('href="/legal/terms"');
     expect((await SELF.fetch(`${SITE}/signin`)).headers.get("cache-control")).toBe("no-store");
     expect(await (await SELF.fetch(`${SITE}/robots.txt`)).text()).toContain("Disallow: /account");
   });
@@ -4632,7 +4641,7 @@ describe("Developer settings", () => {
     expect(account).not.toContain('id="key-new"');
     expect(await (await makeKey(b, device)).text()).toContain("Your new key");
     // Confirmed with the passkey just now, the account page shows Delete account's words.
-    expect(await (await b.go("/account")).text()).toContain("Unused hosting credit from the last 180 days goes back to the card");
+    expect(await (await b.go("/account")).text()).toContain("Unused hosting credit from the last 30 days goes back to the card");
     expect((await b.go("/account/keys", { name: "Old route", access_level: "full", game_scope: "all" })).status).not.toBe(200);
     expect(await env.DB.prepare("SELECT COUNT(*) AS key_count FROM api_keys WHERE name = 'Old route'").first()).toEqual({ key_count: 0 });
   });
