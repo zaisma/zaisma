@@ -210,6 +210,7 @@ const CHECKED_PAGE_LIST = [
   { name: "Background guide", area: "Developers", path: "/developers/backgrounds", mainActionShows: "nowhere" },
   { name: "Content rules", area: "Developers", path: "/legal/content-rules", mainActionShows: "nowhere" },
   { name: "Terms of service", area: "Developers", path: "/legal/terms", mainActionShows: "nowhere" },
+  { name: "Privacy policy", area: "Developers", path: "/legal/privacy", mainActionShows: "nowhere" },
   { name: "Example page", area: "Gallery", path: "/design/example", mainActionShows: "everywhere" },
   { name: "Connect an app", area: "Signing in", path: "/mcp-start", isOnSignInSite: true, account: "Preview_Studio", mainActionShows: "everywhere" },
   { name: "Sign in with Zaisma", area: "Signing in", path: "/start", isOnSignInSite: true, account: "Moss_Runner", mainActionShows: "everywhere" },

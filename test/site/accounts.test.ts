@@ -1923,7 +1923,7 @@ describe("pages", () => {
     expect(home).toContain('href="/legal/privacy"');
     // A page that doesn't know who's looking swaps Sign in for the account from the signed-in cookie.
     expect(await (await SELF.fetch(`${SITE}/legal/privacy`)).text()).toMatch(/<script src="\/js\/account-link\.[0-9a-f]{16}\.js"><\/script>/);
-    expect(await (await SELF.fetch(`${SITE}/legal/privacy`)).text()).toContain("we delete it when you turn 18");
+    expect(await (await SELF.fetch(`${SITE}/legal/privacy`)).text()).toContain("it is deleted when you turn 18");
     const terms = await SELF.fetch(`${SITE}/legal/terms`);
     expect(terms.status).toBe(200);
     const termsPage = await terms.text();

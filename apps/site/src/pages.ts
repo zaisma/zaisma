@@ -633,10 +633,10 @@ function enterUrl(env: Env, slug: string, addressKind: "tester" | "preview", gra
 export function legal(env: Env, page: string): Response | null {
   if (page === "content-rules") return layout(env, { title: "Content rules · Zaisma", body: contentRulesBody(), pageShape: "reading", checkedPage: "Content rules" });
   if (page === "terms") return layout(env, { title: "Terms of service · Zaisma", body: termsBody(), pageShape: "reading", checkedPage: "Terms of service" });
+  if (page === "privacy") return layout(env, { title: "Privacy policy · Zaisma", body: privacyBody(), pageShape: "reading", checkedPage: "Privacy policy" });
   const pages: Record<string, { title: string; body: string }> = {
     dmca: { title: "Copyright and DMCA notices", body: DMCA },
     defamation: { title: "Defamation notices", body: DEFAMATION },
-    privacy: { title: "Privacy", body: PRIVACY },
     security: { title: "Security", body: SECURITY_PAGE },
   };
   const legalPage = pages[page];
@@ -885,58 +885,84 @@ const DEFAMATION = `
 `;
 
 // Approved by Julius on Oct 12, 2026; the play stats and play-check lines on Oct 13, 2026; the lead, the player ID line and the line about games' content rules on Oct 16, 2026; sites you sign in to with Zaisma in the player ID line by merging Sign in with Zaisma; the devices, wrong passwords, cookies, Cloudflare and Supabase lines (Accounts open only through Zaisma) in its preview on Oct 17, 2026.
-const PRIVACY = `
-<p class="lead">Zaisma keeps as little about you as it can. Most games need no account, and guests leave nothing behind.</p>
-<h2>Playing as a guest</h2>
-<p>Guests get a temporary ID and a made-up name like "Swift Fox 42", used only to run the game session. They're kept in your browser tab and forgotten when it closes. We don't keep a profile, and we don't know who you are.</p>
-<p>Your browser also remembers which games you played recently, so the home page can show them first. That list stays on your device; we never see it.</p>
-<p>When you press Play, we count it for the game's developer and for lists like Popular: that the game was played, how long it was on screen, and whether this browser played it before (and on which day it first did). To keep the counts honest, Cloudflare checks, invisibly, when you open a game's page that it's a real browser, and we count players by internet provider (like Comcast or Vodafone) to spot bot networks. The same check lets you play online in multiplayer games, so bots can't fill their rooms. A play's details are kept for a day at most; after that we keep only totals for each game and day, never anything that says who played.</p>
-<p>Zaisma measures how games run (load time, frame rate, crashes) by browser and device type, only as totals.</p>
-<h2>If you make an account</h2>
+// Rewritten in a formal register and moved into Glass panes with the terms of service, Oct 29, 2026: the same facts and promises.
+/** The privacy policy, zaisma.com/legal/privacy: concise and formal, in panes like the terms of service. */
+function privacyBody(): Raw {
+  const pane = (label: string, markup: Raw): LayoutItem => ({ kind: "block", markup: glassPane({ paneWidth: "full", label, body: readingText({ markup }) }) });
+  return stack({
+    items: [
+      pane(
+        "Privacy policy",
+        html`<h1>Privacy policy</h1>
+<p>Zaisma keeps as little personal data as possible. Most games require no account, and guests leave no data behind.</p>
+<p>Zaisma does not sell personal data, and there is no advertising on Zaisma.</p>`,
+      ),
+      pane(
+        "Guests",
+        html`<h2>Playing as a guest</h2>
+<p>Guests receive a temporary ID and a generated name, such as "Swift Fox 42", used only to run the game session. Both are kept in the browser tab and discarded when it closes. Zaisma keeps no profile of guests and does not know who they are.</p>
+<p>The browser also stores the games played recently, so the home page can show them first. This list stays on the device and is never sent to Zaisma.</p>
+<p>When you press Play, the play is counted for the game's developer and for lists such as Popular: that the game was played, how long it was on screen, and whether this browser played it before, and on which day it first did. To keep these counts accurate, Cloudflare verifies, without any visible step, that a real browser opened the game's page, and players are counted by internet provider (such as Comcast or Vodafone) to detect bot networks. The same verification is required for online play in multiplayer games, so bots cannot fill their rooms. The details of a play are kept for at most one day; after that, only totals for each game and day are kept, never anything that identifies who played.</p>
+<p>Zaisma measures how games perform (load time, frame rate, crashes) by browser and device type, as totals only.</p>`,
+      ),
+      pane(
+        "Accounts",
+        html`<h2>If you create an account</h2>
 <ul>
-<li><strong>Your username</strong>, the one you pick. Everyone can see it.</li>
-<li><strong>Your password.</strong> Only Supabase, our sign-in provider, keeps it, as a scrambled hash nobody can read back. When you pick one, we check it isn't known from a data breach without sending it anywhere.</li>
-<li><strong>Your email</strong>, only if you add one, as a way back in if you forget your password. We email it a code only when you ask for one. It's never shown to anyone, and we don't send marketing.</li>
-<li><strong>Your player ID.</strong> When you're signed in, the games you play, and the sites you choose to sign in to with Zaisma, know you by a player ID, the same everywhere, and can look up your username with it. They never get your email, your age or anything from other games. Your account page lists the sites, and you can remove any of them.</li>
-<li><strong>Your age group</strong>: 13 to 15, 16 or 17, or 18 and over. If you're under 18 we also keep your birth date, so your account moves to the next group on your birthday by itself, and we delete it when you turn 18. If you're 18 or over when you make an account, we never keep it. It's never shown to anyone.</li>
-<li><strong>Your game saves.</strong> If you're signed in, your game saves are stored with your account, so your progress follows you to any device.</li>
-<li><strong>The games you played.</strong> The last 20, so Continue playing follows you to any device too, and which games you've ever played, so their developers can be told if you delete your account.</li>
-<li><strong>Your passkeys</strong>, if you add any: the public half of each key, the kind of device you added it on (like "iPhone") and when you last used it. The private half never leaves your device or password manager.</li>
-<li><strong>The devices you sign in on.</strong> Each browser you sign in on keeps a random ID in a cookie, and we note that your account signed in with it, so your password always opens your account there, even while someone elsewhere is guessing it. The note goes a year after your last sign-in on that device.</li>
-<li><strong>Your account's activity.</strong> For 90 days, sign-ins on a new device and changes to how you sign in or to your API keys, each with the device (like "Chrome on a Windows PC"), the network (like Vodafone) and the rough place (like near Manchester, UK) it came from, which we work out from your connection address without keeping it. Only you see it, on your account page. Turn off Keep where my account is used from there and we keep only what happened and when.</li>
-<li><strong>Wrong passwords typed for your account</strong>: when, and whether it was on a device you'd signed in on. Never what was typed. Kept for a day.</li>
-<li><strong>If you sign in with Google or Discord</strong>, they give us your email, plus the name and profile picture on that account. We only use the email, to sign you in; Supabase keeps the rest with your sign-in.</li>
+<li><strong>Your username</strong>, which you choose. It is public.</li>
+<li><strong>Your password.</strong> Only Supabase, Zaisma's sign-in provider, keeps it, as a hash that cannot be read back. When you choose a password, it is checked against known data breaches without being sent anywhere.</li>
+<li><strong>Your email</strong>, only if you add one, as a way to recover your account if you forget your password. A code is emailed to it only when you request one. It is never shown to anyone and is never used for marketing.</li>
+<li><strong>Your player ID.</strong> When you are signed in, the games you play, and the sites you choose to sign in to with Zaisma, identify you by a player ID, the same everywhere, and can look up your username with it. They never receive your email, your age or anything from other games. Your account page lists those sites, and you may remove any of them.</li>
+<li><strong>Your age group</strong>: 13 to 15, 16 or 17, or 18 and over. If you are under 18, your birth date is also kept, so your account moves to the next group on your birthday, and it is deleted when you turn 18. If you are 18 or over when you create an account, your birth date is never kept. Your age group is never shown to anyone.</li>
+<li><strong>Your game saves.</strong> When you are signed in, your game saves are stored with your account, so your progress is available on any device.</li>
+<li><strong>The games you played.</strong> The last 20, so Continue playing is available on any device, and every game you have played, so its developer can be notified if you delete your account.</li>
+<li><strong>Your passkeys</strong>, if you add any: the public half of each key, the type of device it was added on (such as "iPhone") and when it was last used. The private half never leaves your device or password manager.</li>
+<li><strong>The devices you sign in on.</strong> Each browser you sign in on keeps a random ID in a cookie, and Zaisma records that your account signed in with it, so your password always opens your account there, even while someone elsewhere is guessing it. This record is deleted one year after your last sign-in on that device.</li>
+<li><strong>Your account's activity.</strong> For 90 days: sign-ins on a new device and changes to how you sign in or to your API keys, each with the device (such as "Chrome on a Windows PC"), the network (such as Vodafone) and the approximate location (such as near Manchester, UK) it came from, derived from your connection address without keeping the address. Only you can see it, on your account page. If you turn off Keep where my account is used from, only the event and its time are kept.</li>
+<li><strong>Wrong passwords entered for your account</strong>: when, and whether on a device you had signed in on, never what was entered. Kept for one day.</li>
+<li><strong>Google or Discord sign-in.</strong> If you sign in with Google or Discord, they provide your email and the name and profile picture on that account. Zaisma uses only the email, to sign you in; Supabase keeps the rest with your sign-in.</li>
 </ul>
-<p>Accounts are for people 13 and up. If you're younger, you can't make one, and we keep nothing you typed. If we find out we have an account for someone under 13, we delete it.</p>
+<p>Accounts are for people 13 and older. Anyone younger cannot create one, and nothing they entered is kept. If Zaisma learns that an account belongs to someone under 13, the account is deleted.</p>
 <h2>Cookies</h2>
-<p>We only use cookies to keep you signed in, to remember where you are while you make an account, and to know a device you've signed in on before. No ads, no tracking, no analytics cookies.</p>
-<h2>Reports</h2>
-<p>When you report a game or a player, we keep what you wrote and nothing about you. Reports about a player include their temporary ID or name so we can act on it. If you include a picture of the game with your report, we keep it until the report is dealt with and delete it within 30 days.</p>
+<p>Zaisma uses cookies only to keep you signed in, to remember your progress while you create an account, and to recognize a device you have signed in on before. Zaisma uses no advertising, tracking or analytics cookies.</p>`,
+      ),
+      pane(
+        "Games and payments",
+        html`<h2>Reports</h2>
+<p>When you report a game or a player, Zaisma keeps what you wrote and nothing about you. A report about a player includes their temporary ID or name, so action can be taken. A picture of the game attached to a report is kept until the report is resolved and deleted within 30 days.</p>
 <h2>Games</h2>
-<p>Games run on a separate domain and can't see your account, email or cookies. Our content rules don't allow games to ask for your personal details.</p>
-<p>Some games run online play on their developer's own servers, named in the game's menu. Those servers see your connection address, as any website you visit does, and what the game sends them. They never get your email or your age.</p>
-<h2>Buying in games</h2>
-<p>When you buy something in a game, payment goes through Stripe. When you save a card, Stripe keeps it and Zaisma keeps its brand, its last four digits and the email for receipts; the developer you buy from gets the payment, never a card they can charge again. We keep what you bought and when, so it stays yours on any device.</p>
+<p>Games run on a separate domain and cannot access your account, email or cookies. The content rules do not allow games to ask for your personal details.</p>
+<p>Some games run online play on their developer's own servers, named in the game's menu. Those servers see your connection address, as any website you visit does, and what the game sends them. They never receive your email or your age.</p>
+<h2>Purchases in games</h2>
+<p>Payments for purchases in games are processed by Stripe. When you save a card, Stripe keeps it, and Zaisma keeps its brand, its last four digits and the email for receipts. The developer you buy from receives the payment, never a card they can charge again. Zaisma keeps what you bought and when, so your purchases are available on any device.</p>
 <h2>If you make games</h2>
-<p>What you and your API keys do to your games (uploads, publishes, database and save changes, secrets and the rest) is kept in each game's history for as long as the game, with who did it and from where, so you can see it. Each change also keeps its connection address for 90 days, shown only to you, so a report of illegal material can be traced to whoever uploaded it. Keep where my account is used from turns that off, except for uploads: a version's or an image's upload keeps its address for 90 days either way. To tell you when a key is used from somewhere new, we keep a fingerprint of each network and country it's used from, never shown, until it's gone unused for 90 days.</p>
-<h2>Backups</h2>
-<p>Every night Zaisma copies what it keeps to a backup at Backblaze, in the United States, so a disaster at our servers loses nothing. Nobody can change or delete a copy for 28 days, not even us, so for up to 30 days after something is deleted here, a copy of it can still be in the backup; then it's gone. We only read the backup to bring Zaisma back after a disaster, and a restore never brings back what was deleted.</p>
-<h2>Who helps us run Zaisma</h2>
+<p>What you and your API keys do to your games (uploads, publishes, database and save changes, secrets and other changes) is recorded in each game's history for as long as the game exists, with who made each change and from where, so you can review it. Each change also keeps its connection address for 90 days, visible only to you, so a report of illegal material can be traced to whoever uploaded it. Turning off Keep where my account is used from stops this, except for uploads: the upload of a version or an image keeps its address for 90 days in either case. To alert you when a key is used from a new location, Zaisma keeps a fingerprint of each network and country it is used from, never shown, until it has gone unused for 90 days.</p>`,
+      ),
+      pane(
+        "Storage and service providers",
+        html`<h2>Backups</h2>
+<p>Each night, Zaisma copies its data to a backup at Backblaze, in the United States, so that a failure at its servers loses nothing. No one can change or delete a copy for 28 days, including Zaisma, so for up to 30 days after something is deleted, a copy of it may remain in the backup; after that, it is gone. The backup is read only to restore Zaisma after a failure, and a restore never brings back deleted data.</p>
+<h2>Service providers</h2>
 <ul>
-<li><strong>Cloudflare</strong> runs our servers, stores games, sends the email codes you ask for, and checks that a real browser opened a game's page, made an account, typed a password on a new device or asked for an email code. It sees your connection address to deliver pages and stop abuse; we keep it only where this page says. The check is Cloudflare Turnstile, covered by its <a href="https://www.cloudflare.com/turnstile-privacy-policy/" target="_blank" rel="noopener">Turnstile Privacy Addendum</a>.</li>
-<li><strong>Supabase</strong> handles sign-in: it checks your password, keeping only a hash, and holds your email if you added one. When you sign in, we pass it your connection address, so its limits on tries count you and not everyone at once, and it keeps that address with each sign-in. Your browser never talks to it directly.</li>
-<li><strong>Stripe</strong> takes payments when you buy something in a game, and keeps the cards you save. The developer you buy from gets the payment through their own Stripe account, with the email for receipts.</li>
+<li><strong>Cloudflare</strong> runs Zaisma's servers, stores games, sends the email codes you request, and verifies that a real browser opened a game's page, created an account, entered a password on a new device or requested an email code. It sees your connection address to deliver pages and prevent abuse; Zaisma keeps that address only where this policy says. The verification is Cloudflare Turnstile, covered by its <a href="https://www.cloudflare.com/turnstile-privacy-policy/" target="_blank" rel="noopener" class="link">Turnstile Privacy Addendum</a>.</li>
+<li><strong>Supabase</strong> handles sign-in: it checks your password, keeping only a hash, and holds your email if you added one. When you sign in, Zaisma passes it your connection address, so its limits on attempts apply to you and not to everyone at once, and it keeps that address with each sign-in. Your browser never connects to it directly.</li>
+<li><strong>Stripe</strong> processes payments for purchases in games and keeps the cards you save. The developer you buy from receives the payment through their own Stripe account, with the email for receipts.</li>
 <li><strong>Anthropic</strong> reviews uploaded games for safety. It sees game files, never players.</li>
 <li><strong>Backblaze</strong> keeps Zaisma's nightly backup, in the United States. It only stores the copies, encrypted.</li>
-</ul>
-<p>We never sell your data, and there are no ads on Zaisma.</p>
-<h2>Downloading your data</h2>
-<p>Go to your account page and choose Download your data. You get one .zip with everything we keep about your account, your game saves as files, and a note saying what each file holds.</p>
+</ul>`,
+      ),
+      pane(
+        "Your data",
+        html`<h2>Downloading your data</h2>
+<p>On your account page, choose Download your data. You receive one .zip file with everything Zaisma keeps about your account, your game saves as files, and a note describing each file.</p>
 <h2>Deleting your account</h2>
-<p>Go to your account page and choose Delete account. Your username, password, any email, game saves, recently played games and everything else on your account are deleted straight away. Their copies in our backup are gone within 30 days. If you made games, they're deleted too, with their files, database and players' saves. Games you played and sites you signed in to with Zaisma are told, so their developers can erase what they kept about you.</p>
+<p>On your account page, choose Delete account. Your username, password, any email, game saves, recently played games and all other account data are deleted immediately. Their copies in the backup are gone within 30 days. Games you made are deleted as well, with their files, database and players' saves. The games you played and the sites you signed in to with Zaisma are notified, so their developers can erase what they kept about you.</p>
 <h2>Questions</h2>
-<p>Email <a href="mailto:privacy@zaisma.com">privacy@zaisma.com</a>.</p>
-`;
+<p>Questions about this policy may be sent to ${textLink("privacy@zaisma.com", "mailto:privacy@zaisma.com")}.</p>`,
+      ),
+    ],
+  });
+}
 
 // Julius settled it on Oct 19, 2026: safe harbor with scope and rules, no cash reward in the beta, reply in 5 days, fix serious holes in 30, 90 days before publishing.
 const SECURITY_PAGE = `
