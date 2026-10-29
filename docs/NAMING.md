@@ -178,14 +178,17 @@ A mistake that keeps showing up in MCP errors becomes a bad example.
 Every error, in the API and the MCP, has the same shape:
 
 ```json
-{ "error": { "code": "bad_time", "message": "scheduled_publish_at is in the past.", "field": "scheduled_publish_at", "fix": "Give an ISO time from 5 minutes to 90 days ahead, like \"2026-11-01T17:00:00Z\".", "retry_after_sec": null } }
+{ "error": { "code": "bad_time", "message": "scheduled_publish_at is in the past.", "field": "scheduled_publish_at", "fix": "Give an ISO time from 5 minutes to 90 days ahead, like \"2026-11-01T17:00:00Z\".", "message_for_people": "That time is outside the range this takes. Pick another.", "retry_after_sec": null } }
 ```
 
 - `code`: stable, lowercase snake_case, one problem per code, never reused for another.
 - `message`: what happened, in one sentence.
 - `field`: the input at fault, or `null`.
 - `fix`: what to do about it, naming the call or value when there is one.
+- `message_for_people`: what happened and what to do, for a page to show; never names a call or field. Every code has one (`messageForPeople` in `ERROR_CODES`), and a throw gives its own only for specifics like a count or a name.
 - `retry_after_sec`: how long to wait when waiting helps (like `slow_down`), else `null`.
+
+A page shows only `message_for_people`; `message` and `fix` are for the caller. Review reasons, findings and alerts carry `message_for_people` beside their `fix` the same way.
 
 In the MCP the same object is the tool result's `structuredContent`, with `isError: true` and its message, fix and code as its text (`<message> <fix> (<code>)`), and each tool's listed output schema is its answer or the error (`anyOf`), because MCP clients check an error's `structuredContent` against it too. Every code is in `ERROR_CODES` (`packages/core/src/errors.ts`) and listed in `docs/DEVELOPER-API.md`, which a test keeps in step.
 
@@ -358,7 +361,7 @@ One name per concept. The API and MCP column is snake_case; the SDK and game ser
 | Why a room closed a connection | | `ENDED_CLOSE_CODE` (4000: the match ended), `REMOVED_CLOSE_CODE` (4001: refused, removed or replaced), `SEAT_GONE_CLOSE_CODE` (4002: the seat is no longer held), `NO_ANSWER_CLOSE_CODE` (4003: no answer or too far behind), `VERSION_UPDATE_CLOSE_CODE` (4004: the match switches to a version published now), `BUSY_CLOSE_CODE` (1013) |
 | What a player's game brings into a room, and what a room another room made starts with | | `joinData`, `setupData` |
 | How a player came into a room, and why they left or walked away | | `joinInfo: { fromRoomCode, isReturning, isSpectator }`; `leaveInfo: { reason }`, `reason` one of `left`, `lost`, `idle`, `hidden`, `kicked`; `onAway(state, player, room, awayInfo)` with `awayInfo: { reason }` (`AwayInfo`), `reason` one of `idle`, `hidden`, `lost` |
-| Words a person reads about what happened: an error's, a kick's, a refusal's, a match's end | `message` | `message`; `refusalMessage` in what `canJoin` answers (`true`, `false` or `{ refusalMessage }`; answering nothing or anything else turns the player away and is logged as `bad_handler_answer`) |
+| Words a person reads about what happened: an error's, a kick's, a refusal's, a match's end; on errors, findings and alerts, `message_for_people` is the page's text beside the caller's `message` and `fix` | `message`, `message_for_people` | `message`; `refusalMessage` in what `canJoin` answers (`true`, `false` or `{ refusalMessage }`; answering nothing or anything else turns the player away and is logged as `bad_handler_answer`) |
 | The room's host, who can run it from the game, and whether a game server has one | | `hostPlayerId`, `hostControlsEnabled` |
 | Whether a room shows in room lists, and takes new players | | `isListed`, `isOpen` |
 | Rooms in a room list: everyone playing and their rooms, listed ones closed and with space, ones taking players that match, the ones past the list, and seats held | | in the SDK's `RoomList` `playingPlayerCount`, `playingRoomCount`, `listedClosedRoomCount`, `listedJoinableRoomCount`, `matchingOpenRoomCount`, `moreOpenRoomCount`; `heldSeatCount`; a region's `regionName`. Zaisma's own code keeps `playing`, `joinableRoomCount`, `openRoomCount` |

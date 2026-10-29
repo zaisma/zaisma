@@ -27,5 +27,5 @@ export const SIGN_INS = [
   // The stress accounts (docs/DESIGN.md, Pages under stress): the layout check opens the pages that list things as each.
   { username: "Longest_Names_Here", about: "every name as long as its field allows: a 30-letter display name, a full bio, and an unlisted game with an 80-letter title and a 500-letter description" },
   { username: "Empty_Handed", about: "an adult with nothing yet: no games played, no friends, no saves, and a developer with no games" },
-  { username: "Many_Things", about: "a great many things: 60 games played, 120 friends, and a developer with 40 unlisted games" },
+  { username: "Many_Things", about: "a great many things: 60 games played, 120 friends, and a developer with 40 unlisted games and 10 webhooks, as many as an account can have" },
 ];

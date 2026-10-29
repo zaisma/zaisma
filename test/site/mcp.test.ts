@@ -108,7 +108,7 @@ describe("the MCP protocol", () => {
     // Clients check an error's structuredContent against the output schema too, so each lists its answer or an error.
     for (const t of list.result.tools) {
       expect(t.outputSchema).toEqual({ type: "object", anyOf: [TOOLS.find((listed) => listed.name === t.name)!.outputSchema, ERROR] });
-      expect(schemaProblems(t.outputSchema, { error: { code: "no_game", message: "x", field: "slug", fix: "y", retry_after_sec: null } })).toEqual([]);
+      expect(schemaProblems(t.outputSchema, { error: { code: "no_game", message: "x", field: "slug", fix: "y", message_for_people: "z", retry_after_sec: null } })).toEqual([]);
     }
 
     const batch = (await (await rpc([{ jsonrpc: "2.0", id: 3, method: "ping" }, { jsonrpc: "2.0", id: 4, method: "nope" }])).json()) as any[];
@@ -511,7 +511,7 @@ describe("reports, stats and history", () => {
 
     const hop = await listed("hop");
     expect(kinds(hop)).toEqual(["version_rejected", "version_held", "hosting_paused", "reports_open"]);
-    expect(hop.alerts[0]).toEqual({ kind: "version_rejected", message: expect.stringContaining("rejected"), fix: expect.stringContaining("get_version"), version_id: rejectedVersion.id });
+    expect(hop.alerts[0]).toEqual({ kind: "version_rejected", message: expect.stringContaining("rejected"), fix: expect.stringContaining("get_version"), message_for_people: "Your newest version was rejected, so it can't be published.", version_id: rejectedVersion.id });
     expect(hop.alerts[1].version_id).toBe(heldVersion.id);
     expect(hop.alerts[3].message).toBe("A player report is waiting for Zaisma.");
     expect(JSON.stringify(hop.alerts)).not.toContain("secret");
@@ -540,7 +540,7 @@ describe("reports, stats and history", () => {
     await env.DB.prepare("UPDATE game_hosting_months SET used_cents = 850 WHERE game_id = ?").bind(game.id).run();
     expect(await hostingKinds()).toEqual(["hosting_nearly_paused"]);
     const listed = (await tool("list_games")).games.find((each: { slug: string }) => each.slug === "hop");
-    expect(listed.alerts).toEqual([{ kind: "hosting_nearly_paused", message: expect.stringContaining("85%"), fix: expect.stringContaining("get_stats"), version_id: null }]);
+    expect(listed.alerts).toEqual([{ kind: "hosting_nearly_paused", message: expect.stringContaining("85%"), fix: expect.stringContaining("get_stats"), message_for_people: expect.stringContaining("add credit and give the game a budget in Hosting"), version_id: null }]);
 
     await env.DB.prepare("UPDATE game_hosting_months SET used_cents = 1000, paused_at_ms = ?, paused_reason = 'free_used' WHERE game_id = ?").bind(Date.now(), game.id).run();
     expect(await hostingKinds()).toEqual(["hosting_paused"]);
@@ -556,9 +556,9 @@ describe("reports, stats and history", () => {
     await env.DB.prepare("UPDATE games SET monthly_budget_cents = 5000 WHERE id = ?").bind(game.id).run();
     await env.DB.prepare("INSERT INTO game_hosting_months (game_id, month_start_date, used_cents, charged_cents) VALUES (?, ?, 4500, 4000)").bind(game.id, monthStartDateOf()).run();
     const alerts = (await tool("get_game", { slug: "budget-hop" }, key)).alerts;
-    expect(alerts).toEqual([{ kind: "hosting_budget_nearly_used", message: expect.stringContaining("$40 of its $50 budget"), fix: expect.stringContaining("monthly_budget_cents"), version_id: null }]);
+    expect(alerts).toEqual([{ kind: "hosting_budget_nearly_used", message: expect.stringContaining("$40 of its $50 budget"), fix: expect.stringContaining("monthly_budget_cents"), message_for_people: expect.stringContaining("Raise its budget in Hosting to keep it going"), version_id: null }]);
     await env.DB.prepare("UPDATE game_hosting_months SET charged_cents = 5000, paused_at_ms = ?, paused_reason = 'budget_used' WHERE game_id = ?").bind(Date.now(), game.id).run();
-    expect((await tool("get_game", { slug: "budget-hop" }, key)).alerts).toEqual([{ kind: "hosting_paused", message: expect.stringContaining("$50 budget"), fix: expect.stringContaining("Raise its budget"), version_id: null }]);
+    expect((await tool("get_game", { slug: "budget-hop" }, key)).alerts).toEqual([{ kind: "hosting_paused", message: expect.stringContaining("$50 budget"), fix: expect.stringContaining("Raise its budget"), message_for_people: expect.stringContaining("Raise its budget in Hosting to start it again now."), version_id: null }]);
   });
 });
 

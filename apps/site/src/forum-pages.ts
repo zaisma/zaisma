@@ -161,7 +161,7 @@ export async function handleForum(request: Request, env: Env, path: string): Pro
         const uploaded = await uploadDraftMedia(env, caller, new Uint8Array(await file.arrayBuffer()));
         return done(new Response(JSON.stringify(uploaded), { headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } }));
       } catch (error) {
-        if (error instanceof ApiError) return new Response(JSON.stringify({ error: error.messageWithFix }), { status: error.httpStatus, headers: { "Content-Type": "application/json" } });
+        if (error instanceof ApiError) return new Response(JSON.stringify({ error: error.messageForPeople }), { status: error.httpStatus, headers: { "Content-Type": "application/json" } });
         throw error;
       }
     }
@@ -204,7 +204,7 @@ export async function handleForum(request: Request, env: Env, path: string): Pro
       } catch (error) {
         if (error instanceof ApiError) {
           const given = Object.fromEntries([...form].filter(([, entry]) => typeof entry === "string")) as Record<string, string>;
-          return done(await newPage(ctx, given, isMessage, error.messageWithFix, error.httpStatus, form.getAll("tags").map(String)));
+          return done(await newPage(ctx, given, isMessage, error.messageForPeople, error.httpStatus, form.getAll("tags").map(String)));
         }
         throw error;
       }
@@ -233,7 +233,7 @@ export async function handleForum(request: Request, env: Env, path: string): Pro
         const state = reopen ? "reopened" : replied.post.check_status === "pending" ? "checking" : replied.post.check_status === "held" ? "held" : "replied";
         return done(redirect(`/forum/${id}?done=${state}#p-${replied.post.id}`));
       } catch (error) {
-        if (error instanceof ApiError) return done(await topicPage(ctx, id, { error: error.messageWithFix, textMarkdown: field("text_markdown"), replyToPostId: field("reply_to_post_id") || undefined }, error.httpStatus));
+        if (error instanceof ApiError) return done(await topicPage(ctx, id, { error: error.messageForPeople, textMarkdown: field("text_markdown"), replyToPostId: field("reply_to_post_id") || undefined }, error.httpStatus));
         throw error;
       }
     }
@@ -262,7 +262,7 @@ export async function handleForum(request: Request, env: Env, path: string): Pro
         return done(redirect(`/forum/${id}?done=misplaced`));
       }
     } catch (error) {
-      if (error instanceof ApiError) return done(await topicPage(ctx, id, { error: error.messageWithFix }, error.httpStatus));
+      if (error instanceof ApiError) return done(await topicPage(ctx, id, { error: error.messageForPeople }, error.httpStatus));
       throw error;
     }
     return done(redirect(`/forum/${id}${action === "answer" && field("answer_post_id") ? `#p-${field("answer_post_id")}` : ""}`));

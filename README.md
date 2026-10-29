@@ -1,6 +1,6 @@
 # Zaisma
 
-**Play anything, from a link.**
+**Any engine. No cut.**
 
 Zaisma (ZAI-zmuh, from the Lithuanian *žaismas*, "play") is an open-source game platform for the browser.
 

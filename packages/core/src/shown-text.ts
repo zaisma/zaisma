@@ -50,8 +50,8 @@ export function checkShownText(input: unknown, options: ShownTextOptions): { tex
   const normalized = input.normalize("NFC");
   const text = options.isMultiline ? normalized.replace(/\r\n?/g, "\n").trim() : normalized.replace(/\s+/g, " ").trim();
   const hidden = hiddenCharacterOf(text);
-  if (hidden) return { problem: { field, message: `${field} holds ${hidden}, a character that's invisible or flips text direction.`, fix: `Remove ${hidden}. ${fix}` } };
-  if (options.isRequired && !VISIBLE.test(text)) return { problem: { field, message: text ? `${field} has nothing visible in it.` : `${field} is empty.`, fix } };
+  if (hidden) return { problem: { field, message: `${field} holds ${hidden}, a character that's invisible or flips text direction.`, fix: `Remove ${hidden}. ${fix}`, messageForPeople: `It holds a character that's invisible or flips text direction (${hidden}). Remove it and try again.` } };
+  if (options.isRequired && !VISIBLE.test(text)) return { problem: { field, message: text ? `${field} has nothing visible in it.` : `${field} is empty.`, fix, messageForPeople: "It has nothing visible in it. Write something and try again." } };
   if ([...text].length > maximumCharacterCount) return { problem: { field, message: `${field} is over ${maximumCharacterCount} characters.`, fix } };
   return { text };
 }

@@ -727,6 +727,7 @@ Zaisma preview is running. Nothing here touches the live site.
   Activity        ${SITE}/account#activity  (as Preview_Studio: a new device in Manchester, keys made and used from a new
                   place, an AI connected; as Moss_Runner: Keep where my account is used from is off)
   Developer settings ${SITE}/dashboard/settings  (as Preview_Studio: hosting with a top-up's Refund in its row of The last 90 days, a webhook with three failed deliveries, ${SITE}/dashboard/settings?spending_request=spending_request_preview0waiting asks to raise Arena's budget to $40, ...0expired is no longer waiting, Payments connected on the stand-in with a balance and a next payout)
+  Webhook limit   ${SITE}/dashboard/settings#webhooks  (as Many_Things: 10 webhooks, as many as an account can; adding one more says so in a page's words)
   Leaked keys     ${SITE}/account#developer  (as Preview_Studio: three key rows, one working with a last use and an end date, one
                   turned off after GitHub found it, one that ended yesterday; Make an API key shows the Ends choice) and
                   ${SITE}/account#activity  (Zaisma turned off an API key found in public)
@@ -2134,6 +2135,8 @@ function seedDeveloperSettings() {
     "DELETE FROM webhooks WHERE id LIKE 'webhook_preview%'",
     `INSERT INTO webhooks (id, owner_id, destination_kind, endpoint_url, event_kinds, game_slugs, signing_secret, created_at_ms, updated_at_ms) VALUES ('webhook_previewdiscord001', ${owner}, 'endpoint_url', 'https://discord.example.test/api/webhooks/preview', '["bug_reported","player_reported"]', NULL, 'whsec_preview', ${now - 9 * 86400_000}, ${now - 9 * 86400_000})`,
     `INSERT INTO webhooks (id, owner_id, destination_kind, endpoint_url, event_kinds, game_slugs, signing_secret, created_at_ms, updated_at_ms) VALUES ('webhook_previewserver0001', ${owner}, 'game_server', NULL, '["live_version_changed"]', '["arena"]', 'whsec_preview2', ${now - 5 * 86400_000}, ${now - 5 * 86400_000})`,
+    // Many_Things has as many webhooks as an account can, so adding one more shows the refusal in a page's words.
+    ...Array.from({ length: 10 }, (_, index) => `INSERT INTO webhooks (id, owner_id, destination_kind, endpoint_url, event_kinds, game_slugs, signing_secret, created_at_ms, updated_at_ms) SELECT 'webhook_previewmany${String(index).padStart(4, "0")}', owners.id, 'endpoint_url', 'https://hooks.example.test/many/${index + 1}', '["bug_reported"]', NULL, 'whsec_previewmany', ${now - (index + 1) * 3600_000}, ${now - (index + 1) * 3600_000} FROM owners JOIN accounts ON accounts.id = owners.account_id WHERE accounts.username = 'Many_Things'`),
     ...[1, 2, 3].map((index) => `INSERT OR REPLACE INTO webhook_deliveries (webhook_id, webhook_event_id, owner_id, event_json, delivery_status, attempt_count, next_attempt_at_ms, last_attempt_at_ms, last_http_status_code, failure_message, created_at_ms) VALUES ('webhook_previewdiscord001', 'webhook_event_preview00000${index}', ${owner}, '{"kind":"bug_reported"}', 'failed', 6, NULL, ${now - index * 3600_000}, 500, 'The address answered 500.', ${now - index * 3700_000})`),
   ].join("; "));
 }

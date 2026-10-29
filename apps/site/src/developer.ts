@@ -1260,8 +1260,8 @@ function badMethod(method: string, path: string): ApiError {
 export function shownTextOrThrow(input: unknown, options: ShownTextOptions): string {
   const checked = checkShownText(input, options);
   if ("problem" in checked) {
-    const { field, message, fix } = checked.problem;
-    throw new ApiError(`bad_${field}` as ErrorCode, { message, field, fix });
+    const { field, message, fix, messageForPeople } = checked.problem;
+    throw new ApiError(`bad_${field}` as ErrorCode, { message, field, fix, messageForPeople });
   }
   return checked.text;
 }
@@ -1299,10 +1299,10 @@ async function changeBudget(env: Env, game: Game, given: unknown, caller: Caller
 function checkDetailsOrThrow(body: Record<string, unknown>) {
   const checked = checkDetails(body);
   if ("problem" in checked) {
-    const { field, message, fix } = checked.problem;
+    const { field, message, fix, messageForPeople } = checked.problem;
     // bad_<field>, for the field's own name: play_modes[1].play_style is a bad_play_modes.
     const code = (checked.problem.code ?? `bad_${field.split(/[.[]/)[0]}`) as ErrorCode;
-    throw new ApiError(code, { message, field, fix });
+    throw new ApiError(code, { message, field, fix, messageForPeople });
   }
   return checked.change;
 }
@@ -2471,7 +2471,7 @@ function findingsFor(report: ScanReport | null) {
   return shown.map((finding) => {
     const code = finding.code as ReviewCodeName;
     const reason = reviewReasonAnswer({ code, message: finding.message, content_rule: REVIEW_CODES[code].contentRule });
-    return { code, severity: finding.severity, message: reason.message, content_rule: reason.content_rule, path: finding.path ?? null, fix: reason.fix };
+    return { code, severity: finding.severity, message: reason.message, content_rule: reason.content_rule, path: finding.path ?? null, fix: reason.fix, message_for_people: reason.message_for_people };
   });
 }
 
@@ -2647,6 +2647,8 @@ export interface GameAlert {
   kind: GameAlertKind;
   message: string;
   fix: string;
+  /** What the dashboard shows: what needs attention and what to do, naming no call or field. */
+  message_for_people: string;
   version_id: string | null;
 }
 
@@ -2703,33 +2705,30 @@ export async function gameAlerts(env: Env, games: Game[]): Promise<Map<string, G
   ]);
   for (const game of games) {
     const alerts = alertsByGameId.get(game.id)!;
-    const add = (kind: GameAlertKind, message: string, fix: string, versionId: string | null = null) => alerts.push({ kind, message, fix, version_id: versionId });
+    const add = (kind: GameAlertKind, message: string, fix: string, messageForPeople: string, versionId: string | null = null) => alerts.push({ kind, message, fix, message_for_people: messageForPeople, version_id: versionId });
     const reason = reasonAnswer(game.review_reason);
-    if (game.review_status === "removed") add("game_removed", `Zaisma took this game down${reason ? `: ${reason.message}` : "."}`, reason?.fix ?? "message_zaisma with the game_slug to ask why.");
-    if (game.review_status === "held") add("game_held", `Players can't open this game right now${reason ? `: ${reason.message}` : "."}`, reason?.fix ?? "Nothing to do: a person at Zaisma looks, usually within a day.");
+    if (game.review_status === "removed") add("game_removed", `Zaisma took this game down${reason ? `: ${reason.message}` : "."}`, reason?.fix ?? "message_zaisma with the game_slug to ask why.", "Zaisma took this game down. Its page here says why and what to do.");
+    if (game.review_status === "held") add("game_held", `Players can't open this game right now${reason ? `: ${reason.message}` : "."}`, reason?.fix ?? "Nothing to do: a person at Zaisma looks, usually within a day.", "Players can't open this game right now. Its page here says why.");
     for (const block of countryBlocksAnswer(game)) {
-      add("game_blocked_in_country", `Players in ${block.country_code} (${block.country_name}) can't open this game: ${block.review_reason.message}`, block.review_reason.fix);
+      add("game_blocked_in_country", `Players in ${block.country_code} (${block.country_name}) can't open this game: ${block.review_reason.message}`, block.review_reason.fix, `Players in ${block.country_name} can't open this game, on a notice about that country's law. Take out what it names and publish a fixed version, and a person at Zaisma lifts the block, usually within a day.`);
     }
     const gameVersions = versions.filter((version) => version.game_id === game.id);
     const rejected = gameVersions.find((version) => version.scan_status === "rejected" && version.is_newest);
-    if (rejected) add("version_rejected", "Your newest version was rejected, so it can't be published.", `get_version with this version_id says what the scan found and how to fix it; then upload a fixed version.`, rejected.id);
+    if (rejected) add("version_rejected", "Your newest version was rejected, so it can't be published.", `get_version with this version_id says what the scan found and how to fix it; then upload a fixed version.`, "Your newest version was rejected, so it can't be published.", rejected.id);
     for (const held of gameVersions.filter((version) => version.scan_status === "held")) {
-      add(
-        "version_held",
-        held.report_held_at_ms ? "A player report paused this version until a person at Zaisma looks, usually within a day." : "This version is waiting for a person at Zaisma, usually within a day.",
-        "Nothing to do but wait; get_version shows the result.",
-        held.id,
-      );
+      const message = held.report_held_at_ms ? "A player report paused this version until a person at Zaisma looks, usually within a day." : "This version is waiting for a person at Zaisma, usually within a day.";
+      add("version_held", message, "Nothing to do but wait; get_version shows the result.", message, held.id);
     }
     for (const link of linksOf(game).filter((each) => each.review_reason)) {
-      add("link_flagged", `The link ${link.link_name} opens for nobody: Cloudflare lists ${new URL(link.destination_url).hostname} for malware or phishing.`, reviewReasonAnswer(link.review_reason!).fix);
+      const hostname = new URL(link.destination_url).hostname;
+      add("link_flagged", `The link ${link.link_name} opens for nobody: Cloudflare lists ${hostname} for malware or phishing.`, reviewReasonAnswer(link.review_reason!).fix, `A link opens for nobody: Cloudflare lists ${hostname} for malware or phishing. Change it in Links, or ask Cloudflare to look again if the site is yours and safe.`);
     }
     // Off Zaisma's lists (a fake reward holds the game instead, which game_held already says).
     const listingReasons = [game.title_listing_reason, ...listingImages.filter((row) => row.game_id === game.id).map((row) => row.listing_reason)]
       .map((stored) => readReviewReason(stored))
       .filter((listingReason): listingReason is ReviewReason => Boolean(listingReason) && listingReason!.code !== "fake_reward");
     if (game.visibility === "listed" && listingReasons.length) {
-      add("game_off_lists", `Zaisma's lists leave this game out until it's fixed, though it plays by its link: ${listingReasons.map((listingReason) => listingReason.message).join(" ")}`, reviewReasonAnswer(listingReasons[0]!).fix);
+      add("game_off_lists", `Zaisma's lists leave this game out until it's fixed, though it plays by its link: ${listingReasons.map((listingReason) => listingReason.message).join(" ")}`, reviewReasonAnswer(listingReasons[0]!).fix, `Zaisma's lists leave this game out until it's fixed. ${reviewReasonAnswer(listingReasons[0]!).message_for_people}`);
     }
     const month = usage.find((row) => row.game_id === game.id);
     const databaseUse = databaseUses[games.indexOf(game)];
@@ -2753,27 +2752,35 @@ export async function gameAlerts(env: Env, games: Game[]): Promise<Map<string, G
           : month.paused_reason === "credit_used"
             ? "Add credit with top_up_credit to start it again now. get_credit shows the balance."
             : `Wait for ${resetsOn}, or add credit (top_up_credit) and give the game a budget (update_game, monthly_budget_cents) to keep it going. Rooms on your own server are never limited. get_stats shows the month's use.`;
-      add("hosting_paused", `The game's hosting is paused: ${why}. No new rooms, connections between players or game server requests start, and matches already running get an hour to finish.`, fix);
+      const whatToDo =
+        month.paused_reason === "budget_used" ? "Raise its budget in Hosting to start it again now." : month.paused_reason === "credit_used" ? "Add credit to start it again now." : "Add credit and give the game a budget in Hosting to start it again now.";
+      const message = `The game's hosting is paused: ${why}. No new rooms, connections between players or game server requests start, and matches already running get an hour to finish.`;
+      add("hosting_paused", message, fix, `${message} ${whatToDo}`);
     }
     if (isFull) {
-      add("database_full", `The game's storage (its database and kept rooms) is full at ${MAXIMUM_GAME_STORAGE_SIZE_BYTES / 1024 ** 3} GB, the most a game can keep: the database can change and delete rows, but not grow, and no more rooms can be kept.`, "Delete rows the game no longer needs with query_database (or export_database to keep them elsewhere), or kept rooms nobody plays with delete_kept_room. get_database and list_kept_rooms show their sizes.");
+      const message = `The game's storage (its database and kept rooms) is full at ${MAXIMUM_GAME_STORAGE_SIZE_BYTES / 1024 ** 3} GB, the most a game can keep: the database can change and delete rows, but not grow, and no more rooms can be kept.`;
+      add("database_full", message, "Delete rows the game no longer needs with query_database (or export_database to keep them elsewhere), or kept rooms nobody plays with delete_kept_room. get_database and list_kept_rooms show their sizes.", `${message} Delete rows or kept rooms the game no longer needs.`);
     }
     if (month && !month.paused_at_ms && budgetCents === null && month.used_cents >= (FREE_HOSTING_CENTS_PER_MONTH * NEARLY_USED_PCT) / 100) {
-      add("hosting_nearly_paused", `${freeUsedPct(month.used_cents)}% of this month's free hosting is used. When it's all used, new rooms, connections between players and game server requests pause until ${resetsOn}.`, "get_stats shows what used it. To keep the game going past it, add credit (top_up_credit) and give the game a budget (update_game, monthly_budget_cents); rooms on your own server are never limited.");
+      const message = `${freeUsedPct(month.used_cents)}% of this month's free hosting is used. When it's all used, new rooms, connections between players and game server requests pause until ${resetsOn}.`;
+      add("hosting_nearly_paused", message, "get_stats shows what used it. To keep the game going past it, add credit (top_up_credit) and give the game a budget (update_game, monthly_budget_cents); rooms on your own server are never limited.", `${message} To keep it going past that, add credit and give the game a budget in Hosting.`);
     }
     // A budget with nothing to spend stops at the free hosting all the same.
     if (month && !month.paused_at_ms && budgetCents !== null && month.charged_cents === 0 && !canGoPastFree && month.used_cents >= (FREE_HOSTING_CENTS_PER_MONTH * NEARLY_USED_PCT) / 100) {
-      add("hosting_nearly_paused", `${freeUsedPct(month.used_cents)}% of this month's free hosting is used, and there's no credit for the game's budget to spend. When it's all used, new rooms, connections between players and game server requests pause until ${resetsOn} or credit comes in.`, "Add credit with top_up_credit. get_credit shows the balance.");
+      const message = `${freeUsedPct(month.used_cents)}% of this month's free hosting is used, and there's no credit for the game's budget to spend. When it's all used, new rooms, connections between players and game server requests pause until ${resetsOn} or credit comes in.`;
+      add("hosting_nearly_paused", message, "Add credit with top_up_credit. get_credit shows the balance.", `${message} Add credit to keep it going.`);
     }
     if (month && !month.paused_at_ms && budgetCents !== null && month.charged_cents >= (budgetCents * NEARLY_USED_PCT) / 100) {
-      add("hosting_budget_nearly_used", `The game has used ${dollarsText(month.charged_cents)} of its ${dollarsText(budgetCents)} budget this month. When it's all used, the game pauses like at the end of its free hosting.`, "Raise its budget with update_game (monthly_budget_cents) to keep it going. get_credit shows every game's spending.");
+      const message = `The game has used ${dollarsText(month.charged_cents)} of its ${dollarsText(budgetCents)} budget this month. When it's all used, the game pauses like at the end of its free hosting.`;
+      add("hosting_budget_nearly_used", message, "Raise its budget with update_game (monthly_budget_cents) to keep it going. get_credit shows every game's spending.", `${message} Raise its budget in Hosting to keep it going.`);
     }
     if (budgetCents !== null && owner && isCreditLow({ balanceCents: owner.credit_balance_cents, creditLowLineCents: owner.credit_low_line_cents }) && month?.paused_reason !== "credit_used") {
       // No amount: a key that can see the game may not be one that reads the credit.
-      add("credit_low", `Credit is low: add credit. It's under ${CREDIT_LIMITS.creditLowPct}% of what there was after your last top-up; when it's used, this game pauses like at the end of its free hosting.`, "Add credit with top_up_credit. get_credit shows the balance.");
+      add("credit_low", `Credit is low: add credit. It's under ${CREDIT_LIMITS.creditLowPct}% of what there was after your last top-up; when it's used, this game pauses like at the end of its free hosting.`, "Add credit with top_up_credit. get_credit shows the balance.", `Credit is under ${CREDIT_LIMITS.creditLowPct}% of what there was after your last top-up. When it's used, this game pauses like at the end of its free hosting, so add credit.`);
     }
     if (databaseUse && !isFull && storageSizeBytes >= (MAXIMUM_GAME_STORAGE_SIZE_BYTES * NEARLY_USED_PCT) / 100) {
-      add("database_nearly_full", `The game's storage (its database and kept rooms) is ${NEARLY_USED_PCT}% full: a game keeps at most ${MAXIMUM_GAME_STORAGE_SIZE_BYTES / 1024 ** 3} GB. When it's full, the database can change and delete rows but not grow.`, "Delete rows the game no longer needs with query_database (or export_database to keep them elsewhere), or kept rooms nobody plays with delete_kept_room.");
+      const message = `The game's storage (its database and kept rooms) is ${NEARLY_USED_PCT}% full: a game keeps at most ${MAXIMUM_GAME_STORAGE_SIZE_BYTES / 1024 ** 3} GB. When it's full, the database can change and delete rows but not grow.`;
+      add("database_nearly_full", message, "Delete rows the game no longer needs with query_database (or export_database to keep them elsewhere), or kept rooms nobody plays with delete_kept_room.", `${message} Delete rows or kept rooms the game no longer needs.`);
     }
     const gameFailedErases = failedErases.filter((erase) => erase.game_id === game.id);
     if (gameFailedErases.length) {
@@ -2782,10 +2789,14 @@ export async function gameAlerts(env: Env, games: Game[]): Promise<Map<string, G
         "player_erase_failed",
         `Zaisma couldn't erase ${playerCount === 1 ? "a player" : `${playerCount} players`} who deleted their account${playerCount === 1 ? "" : "s"} from the game database: ${gameFailedErases[0]!.failure_message ?? "it didn't answer."}`,
         `Fix what stopped it, then erase_player with each player_id: ${gameFailedErases.slice(0, 5).map((erase) => erase.player_id).join(", ")}.`,
+        `Zaisma couldn't erase ${playerCount === 1 ? "a player" : `${playerCount} players`} who deleted their account${playerCount === 1 ? "" : "s"} from the game database. Fix what stopped it, then erase ${playerCount === 1 ? "that player" : "them"} again from your AI tool.`,
       );
     }
     const openReportCount = reports.find((row) => row.game_id === game.id)?.report_count ?? 0;
-    if (openReportCount) add("reports_open", `${openReportCount === 1 ? "A player report is" : `${openReportCount} player reports are`} waiting for Zaisma.`, "get_reports shows them by reason, with what players wrote about bugs. Zaisma looks at each one.");
+    if (openReportCount) {
+      const message = `${openReportCount === 1 ? "A player report is" : `${openReportCount} player reports are`} waiting for Zaisma.`;
+      add("reports_open", message, "get_reports shows them by reason, with what players wrote about bugs. Zaisma looks at each one.", `${message} Zaisma looks at each one.`);
+    }
   }
   return alertsByGameId;
 }

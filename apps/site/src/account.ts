@@ -285,7 +285,7 @@ export async function handleAccount(request: Request, env: Env, path: string, wa
     const typed = login.replace(/^@/, "");
     const email = typed.includes("@") ? typed.toLowerCase() : null;
     const userId = email ? await authUserIdByEmail(env, email) : null;
-    if (userId === undefined) return message(env, "Couldn't sign you in", "Something went wrong on our side. Try again in a minute.", 502);
+    if (userId === undefined) return message(env, "Couldn't sign you in", "Something went wrong on Zaisma's side. Try again in a minute.", 502);
     const account = email ? (userId ? await accountById(env.DB, userId) : null) : await accountByUsername(env.DB, typed);
     const signedIn = await tryPassword(request, env, account, password, { turnstileToken: field("turnstile_token", 2048), knownEmail: email });
     if (signedIn === "too-many") return message(env, "Slow down", SLOW_DOWN, 429);
@@ -293,7 +293,7 @@ export async function handleAccount(request: Request, env: Env, path: string, wa
     if (signedIn === "bot-check-failed") return await signinPage(env, next, BOT_CHECK_FAILED, 400, login);
     if (signedIn === "no-password") return await signinPage(env, next, "This account doesn't have a password yet. Use Forgot your password to get in with your email, then add one.", 400, login);
     if (signedIn === "wrong") return await signinPage(env, next, "That username and password don't match. Check them and try again.", 400, login);
-    if (signedIn === "failed") return message(env, "Couldn't sign you in", "Something went wrong on our side. Try again in a minute.", 502);
+    if (signedIn === "failed") return message(env, "Couldn't sign you in", "Something went wrong on Zaisma's side. Try again in a minute.", 502);
     await recordProof(env, signedIn, "password");
     return withCookies(redirect(next ?? "/"), [...sessionCookies(env, signedIn), await recordSignIn(request, env, signedIn.userId, "password")]);
   }
@@ -309,7 +309,7 @@ export async function handleAccount(request: Request, env: Env, path: string, wa
     const account = userId ? await accountById(env.DB, userId) : null;
     const sent = userId === undefined ? "failed" : await sendEmailCode(env, { email, accountId: account?.id ?? null, kind: "sign_in", reason: "sign_in" });
     if (sent === "too-many") return message(env, "Slow down", "We've sent a lot of codes to that address. Wait a few minutes and try again.", 429);
-    if (sent === "failed") return message(env, "Couldn't send the code", "Something went wrong on our side. Try again in a minute.", 502);
+    if (sent === "failed") return message(env, "Couldn't send the code", "Something went wrong on Zaisma's side. Try again in a minute.", 502);
     return await codePage(env, email, next);
   }
 
@@ -323,7 +323,7 @@ export async function handleAccount(request: Request, env: Env, path: string, wa
     const accountId = codeAccountId && (await authUserIdByEmail(env, email)) === codeAccountId ? codeAccountId : null;
     if (!accountId) return await codePage(env, email, next, CODE_DIDNT_WORK, kind);
     const signedIn = await sessionForUser(env, accountId, connectionAddress);
-    if (!signedIn) return message(env, "Couldn't sign you in", "Something went wrong on our side. Get a new code in a minute and try again.", 502);
+    if (!signedIn) return message(env, "Couldn't sign you in", "Something went wrong on Zaisma's side. Get a new code in a minute and try again.", 502);
     await recordProof(env, signedIn, "email_code");
     return withCookies(redirect(next ?? "/"), [...sessionCookies(env, signedIn), await recordSignIn(request, env, accountId, "email_code")]);
   }
@@ -404,7 +404,7 @@ export async function handleAccount(request: Request, env: Env, path: string, wa
       // Last, so a token isn't spent on a form that comes back for another reason.
       if (env.TURNSTILE_SECRET && !(await isRealBrowser(env, field("turnstile_token", 2048), "join"))) return await again(BOT_CHECK_FAILED);
       const made = await createPasswordUser(env, password);
-      if (!made) return message(env, "Couldn't make your account", "Something went wrong on our side. Try again in a minute.", 502);
+      if (!made) return message(env, "Couldn't make your account", "Something went wrong on Zaisma's side. Try again in a minute.", 502);
       try {
         await createAccount(env.DB, { id: made.userId, username: checked.username, ageBand: band, birthDate: joinBirthDate(request, env), socialMode: defaultSocialMode(band), hasPassword: true });
       } catch (error) {
@@ -508,7 +508,7 @@ export async function handleAccount(request: Request, env: Env, path: string, wa
     // From the window after Forgot your password: it opens again, saying what's wrong.
     const again = field("from", 20) === "new-password" ? new URLSearchParams({ "new-password": "", ...(next ? { next } : {}) }) : undefined;
     if (problem) return done(await accountPage(env, session, false, problem, undefined, again));
-    if (!(await setPassword(env, account.id, password))) return done(message(env, "Couldn't save your password", "Something went wrong on our side. Try again in a minute.", 502));
+    if (!(await setPassword(env, account.id, password))) return done(message(env, "Couldn't save your password", "Something went wrong on Zaisma's side. Try again in a minute.", 502));
     await markPasswordChanged(env.DB, account.id);
     await logAccountChange(request, env, account, account.password_changed_at_ms === null ? "password_added" : "password_changed");
     // This device gets a session made with the new password, and every other device is signed out: Zaisma refuses
@@ -539,7 +539,7 @@ export async function handleAccount(request: Request, env: Env, path: string, wa
     if (holder) return done(await accountPage(env, session, false, EMAIL_TAKEN));
     const sent = holder === undefined ? "failed" : await sendEmailCode(env, { email, accountId: account.id, kind: "add_email", reason: "add_email" });
     if (sent === "too-many") return done(message(env, "Slow down", "We've sent a lot of codes. Wait a few minutes and try again.", 429));
-    if (sent === "failed") return done(message(env, "Couldn't send the code", "Something went wrong on our side. Try again in a minute.", 502));
+    if (sent === "failed") return done(message(env, "Couldn't send the code", "Something went wrong on Zaisma's side. Try again in a minute.", 502));
     return done(await codePage(env, email, null, undefined, "email"));
   }
 
@@ -550,7 +550,7 @@ export async function handleAccount(request: Request, env: Env, path: string, wa
     if (codeAccountId !== account.id) return done(await codePage(env, email, null, "That code didn't work. Check it, or go back and try again.", "email"));
     const isSet = await setEmail(env, account.id, email);
     if (isSet === "taken") return done(await accountPage(env, session, false, EMAIL_TAKEN));
-    if (isSet === "failed") return done(message(env, "Couldn't add your email", "Something went wrong on our side. Try again in a minute.", 502));
+    if (isSet === "failed") return done(message(env, "Couldn't add your email", "Something went wrong on Zaisma's side. Try again in a minute.", 502));
     await deleteEmailCodesOf(env, account.id);
     // The old address hears about it too.
     const oldEmail = realEmail(session.email);
@@ -563,7 +563,7 @@ export async function handleAccount(request: Request, env: Env, path: string, wa
   // Taking the email off: only with a password, so they can still sign in.
   if (path === "/account/email/remove" && post) {
     if (account.password_changed_at_ms === null) return done(await accountPage(env, session, false, "Add a password first, so you can still sign in without your email."));
-    if (!(await removeEmail(env, account.id))) return done(message(env, "Couldn't remove your email", "Something went wrong on our side. Try again in a minute.", 502));
+    if (!(await removeEmail(env, account.id))) return done(message(env, "Couldn't remove your email", "Something went wrong on Zaisma's side. Try again in a minute.", 502));
     await deleteEmailCodesOf(env, account.id);
     const removedEmail = realEmail(session.email);
     await logAccountChange(request, env, account, "email_removed", { alert: { emails: removedEmail ? [removedEmail] : [] } });
@@ -637,7 +637,7 @@ export async function handleAccount(request: Request, env: Env, path: string, wa
     // Who to tell is read first: deleting the account deletes the rows that say.
     const reach = await accountDeletionReach(env.DB, account.id);
     const ownedGameCount = (await gamesOwnedBy(env.DB, account.id)).length;
-    if (!(await deleteAuthUser(env, session.userId))) return done(message(env, "Couldn't delete your account", "Something went wrong on our side. Try again later.", 502));
+    if (!(await deleteAuthUser(env, session.userId))) return done(message(env, "Couldn't delete your account", "Something went wrong on Zaisma's side. Try again later.", 502));
     await deleteSaveFiles(env, account.id);
     await deleteForumFiles(env, account.id);
     await refundForDeletion(env, account.id);
@@ -1155,7 +1155,7 @@ ${withCustom ? radio("custom", "Custom", "Choose each one yourself.") : ""}
 
 /** Each preset as a new player picks it while joining (16 and over; 13–15 start solo-focused): a line in their own words. */
 const JOIN_SOCIAL_MODE_LINES: Record<SocialMode, string> = {
-  solo_focused: "I just want to play, no chat.",
+  solo_focused: "I want to play without chat.",
   friends_focused: "I want to play and chat with my friends.",
   open_and_social: "I like meeting new players.",
 };
@@ -1273,7 +1273,7 @@ function usernameCutField(given: JoinGiven): Raw {
 <template id="username-suggestion">${suggestions([""])}</template></div>`;
 }
 
-const TERMS_LINE = html`<p class="note">By making an account you agree to the ${textLink("terms of service", "/legal/terms")}, including the ${textLink("content rules", "/legal/content-rules")} and our ${textLink("privacy policy", "/legal/privacy")}.</p>`;
+const TERMS_LINE = html`<p class="note">By making an account you agree to the ${textLink("terms of service", "/legal/terms")}, including the ${textLink("content rules", "/legal/content-rules")} and the ${textLink("privacy policy", "/legal/privacy")}.</p>`;
 
 /** Step A: a username and a password, or Google or Discord instead (then a username on its own, joinUsernamePage). The account is made here. */
 async function joinAccountPage(env: Env, next: string | null, error?: string, given: JoinGiven = {}): Promise<Response> {
