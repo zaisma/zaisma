@@ -1,4 +1,4 @@
-import { ApiError } from "@zaisma/core";
+import { ApiError, CREDIT_LIMITS, PRO_REFUND_LIMITS } from "@zaisma/core";
 import type { Env } from "./env.ts";
 
 /**
@@ -15,6 +15,7 @@ import type { Env } from "./env.ts";
 
 const STRIPE_API_ORIGIN = "https://api.stripe.com";
 const STRIPE_CONNECT_ORIGIN = "https://connect.stripe.com";
+const STRIPE_CHECKOUT_ORIGIN = "https://checkout.stripe.com";
 /** The API version every call is made with: Managed Payments needs 2025-03-31.basil or later. */
 const STRIPE_VERSION = "2026-04-22.dahlia";
 /** Platform as a service, business use: eligible for Managed Payments. */
@@ -52,6 +53,14 @@ export function isLocalPreview(env: Env): boolean {
  * (STRIPE_API_ORIGIN, scripts/preview/fake-stripe.mjs), and only while the site itself is the local preview, so a
  * deployed Zaisma can never talk to anything but Stripe.
  */
+/**
+ * Where a form on the settings page goes on to, for its form-action: Stripe's Checkout (credit and Pro) and its
+ * Connect sign-in. A browser holds every redirect a form makes to that list, so without them the page just waits.
+ */
+export function stripeFormTargets(env: Env): string[] {
+  return [STRIPE_CHECKOUT_ORIGIN, stripeOrigins(env).connectOrigin];
+}
+
 export function stripeOrigins(env: Env): { apiOrigin: string; connectOrigin: string } {
   if (!env.STRIPE_API_ORIGIN) return { apiOrigin: STRIPE_API_ORIGIN, connectOrigin: STRIPE_CONNECT_ORIGIN };
   if (!isLocalPreview(env)) throw unavailable("STRIPE_API_ORIGIN only works in the local preview.");
@@ -62,7 +71,7 @@ export function stripeOrigins(env: Env): { apiOrigin: string; connectOrigin: str
  * One call to Stripe's API. idempotencyKey makes a retry the same call, never a second charge. stripeAccountId makes
  * it on a developer's connected account (the Stripe-Account header), as every buy sheet sale is.
  */
-export async function stripeCall(env: Env, method: "GET" | "POST", path: string, form: Record<string, unknown> = {}, idempotencyKey?: string, stripeAccountId?: string): Promise<StripeObject> {
+export async function stripeCall(env: Env, method: "GET" | "POST" | "DELETE", path: string, form: Record<string, unknown> = {}, idempotencyKey?: string, stripeAccountId?: string): Promise<StripeObject> {
   if (!env.STRIPE_SECRET_KEY) throw unavailable("this Zaisma has no Stripe account set up.");
   const body = method === "POST" ? stripeForm(form).toString() : undefined;
   const query = method === "GET" && Object.keys(form).length ? `?${stripeForm(form)}` : "";
@@ -101,11 +110,6 @@ export class StripeRefusal extends ApiError {
   ) {
     super("stripe_unavailable", { message: `Stripe didn't take it: ${stripeMessage}`, fix: "Try again in a minute; if it keeps happening, tell Zaisma with message_zaisma." });
   }
-
-  /** The card itself was refused (HTTP 402, card_error), not Stripe's own trouble, a rate limit or a key in use: trying again won't help. */
-  get isCardRefused(): boolean {
-    return this.stripeHttpStatusNumber === 402 || this.stripeErrorKind === "card_error";
-  }
 }
 
 /** The owner's Stripe customer, made the first time: one per owner, for credit and later Pro. */
@@ -119,8 +123,10 @@ export async function customerFor(env: Env, ownerId: string): Promise<string> {
 }
 
 /**
- * Stripe's page for buying credit: one line, "Zaisma hosting credit", for amountCents, with Managed Payments on and
- * the card saved for automatic top-ups. Back to the credit settings either way.
+ * Stripe's page for buying credit: one line, "Zaisma hosting credit", for amountCents, with Managed Payments on. No
+ * card is saved: credit only comes in through this page, so Stripe is the seller of every top-up. Back to the credit
+ * settings either way. Managed Payments refuses custom_text,
+ * so the refund terms are on the settings page above the button instead.
  */
 export async function topUpCheckout(env: Env, ownerId: string, amountCents: number): Promise<{ checkoutUrl: string; expiresAtMs: number }> {
   const customer = await customerFor(env, ownerId);
@@ -130,7 +136,7 @@ export async function topUpCheckout(env: Env, ownerId: string, amountCents: numb
     customer,
     managed_payments: { enabled: true },
     line_items: [{ quantity: 1, price_data: { currency: "usd", unit_amount: amountCents, product_data: { name: "Zaisma hosting credit", tax_code: CREDIT_TAX_CODE } } }],
-    payment_intent_data: { setup_future_usage: "off_session", metadata: { owner_id: ownerId, top_up_kind: "checkout" } },
+    payment_intent_data: { metadata: { owner_id: ownerId, top_up_kind: "checkout" } },
     metadata: { owner_id: ownerId },
     success_url: backUrl,
     cancel_url: backUrl,
@@ -161,28 +167,72 @@ export async function proCheckout(env: Env, ownerId: string): Promise<{ checkout
 }
 
 /** Cancels Zaisma Pro at the end of the paid month (isCancelled), or takes the cancelling back. */
-export async function setProCancelled(env: Env, subscriptionId: string, isCancelled: boolean): Promise<StripeObject> {
-  return stripeCall(env, "POST", `/subscriptions/${encodeURIComponent(subscriptionId)}`, { cancel_at_period_end: isCancelled });
+const PRO_INVOICES_TIMEOUT_MS = 3000;
+
+/** A paid invoice of a Zaisma Pro subscription: what was paid, when, and the payment to refund. */
+interface ProInvoice {
+  id: string;
+  subscriptionId: string;
+  amountPaidCents: number;
+  paidAtMs: number;
+  paymentIntentId: string | null;
 }
 
-/** Charges the owner's saved card, off-session, for an automatic top-up. The key makes a retry the same charge. */
-export async function chargeSavedCard(env: Env, charge: { ownerId: string; customerId: string; paymentMethodId: string; amountCents: number; idempotencyKey: string }): Promise<StripeObject> {
-  return stripeCall(
-    env,
-    "POST",
-    "/payment_intents",
-    {
-      amount: charge.amountCents,
-      currency: "usd",
-      customer: charge.customerId,
-      payment_method: charge.paymentMethodId,
-      off_session: true,
-      confirm: true,
-      description: "Zaisma hosting credit (automatic top-up)",
-      metadata: { owner_id: charge.ownerId, top_up_kind: "automatic" },
-    },
-    charge.idempotencyKey,
-  );
+/**
+ * The customer's paid Zaisma Pro invoices, newest first, every subscription's: a refunded one stays paid, so a
+ * developer who refunded Pro and started it again has two. Credit's top-ups make no invoices.
+ */
+async function paidProInvoices(env: Env, customerId: string): Promise<ProInvoice[]> {
+  const answer = await stripeCall(env, "GET", "/invoices", { customer: customerId, status: "paid", limit: 10, expand: ["data.payments"] });
+  const invoices = Array.isArray(answer.data) ? (answer.data as Record<string, any>[]) : [];
+  return invoices.flatMap((invoice): ProInvoice[] => {
+    const subscriptionId = invoice.parent?.subscription_details?.subscription ?? invoice.subscription;
+    const paidAtSec = invoice.status_transitions?.paid_at;
+    if (typeof subscriptionId !== "string" || typeof paidAtSec !== "number" || !(Number(invoice.amount_paid) > 0)) return [];
+    const payment = (Array.isArray(invoice.payments?.data) ? invoice.payments.data : []).find((each: any) => each?.status === "paid" && typeof each?.payment?.payment_intent === "string");
+    return [{ id: String(invoice.id), subscriptionId, amountPaidCents: Number(invoice.amount_paid), paidAtMs: paidAtSec * 1000, paymentIntentId: payment?.payment.payment_intent ?? (typeof invoice.payment_intent === "string" ? invoice.payment_intent : null) }];
+  });
+}
+
+/** The account's first Zaisma Pro payment while it's still its only one and inside its 14 days, else null. */
+function refundableFirstPayment(invoices: ProInvoice[], subscriptionId: string, nowMs: number): ProInvoice | null {
+  const [first] = invoices;
+  if (invoices.length !== 1 || !first || first.subscriptionId !== subscriptionId) return null;
+  return nowMs < first.paidAtMs + PRO_REFUND_LIMITS.refundableDurationDays * 86_400_000 ? first : null;
+}
+
+/**
+ * Until when Zaisma Pro's first payment refunds, read live from Stripe: null once it can't, and when Stripe doesn't
+ * answer within 3 seconds, so a slow Stripe never holds get_pro or the settings page. Only asked while Pro's paid
+ * period still runs past 14 days from now, since a monthly period that started inside the last 14 days does.
+ */
+export async function proRefundEndsAtMs(env: Env, customerId: string, subscriptionId: string, proUntilMs: number, nowMs = Date.now()): Promise<number | null> {
+  if (proUntilMs <= nowMs + PRO_REFUND_LIMITS.refundableDurationDays * 86_400_000) return null;
+  try {
+    const timeout = new Promise<never>((_, reject) => setTimeout(() => reject(new Error("Stripe's invoices took more than 3 seconds.")), PRO_INVOICES_TIMEOUT_MS));
+    const first = refundableFirstPayment(await Promise.race([paidProInvoices(env, customerId), timeout]), subscriptionId, nowMs);
+    return first ? first.paidAtMs + PRO_REFUND_LIMITS.refundableDurationDays * 86_400_000 : null;
+  } catch (error) {
+    console.error("Couldn't read Zaisma Pro's invoices:", error);
+    return null;
+  }
+}
+
+/**
+ * Refunds Zaisma Pro's first payment in full and ends the subscription at once (docs/DECISIONS.md, "Zaisma Pro
+ * refunds"): only while it's the account's only Pro payment and inside its 14 days. Answers the cents refunded, or
+ * null when it doesn't refund. The invoice's ID keys the refund, so a retry after the cancel failed refunds once.
+ */
+export async function refundFirstProPayment(env: Env, customerId: string, subscriptionId: string, nowMs = Date.now()): Promise<number | null> {
+  const first = refundableFirstPayment(await paidProInvoices(env, customerId), subscriptionId, nowMs);
+  if (!first?.paymentIntentId) return null;
+  await stripeCall(env, "POST", "/refunds", { payment_intent: first.paymentIntentId, metadata: { reason_text: "Zaisma Pro's first payment" } }, `pro-refund:${first.id}`);
+  await stripeCall(env, "DELETE", `/subscriptions/${encodeURIComponent(subscriptionId)}`);
+  return first.amountPaidCents;
+}
+
+export async function setProCancelled(env: Env, subscriptionId: string, isCancelled: boolean): Promise<StripeObject> {
+  return stripeCall(env, "POST", `/subscriptions/${encodeURIComponent(subscriptionId)}`, { cancel_at_period_end: isCancelled });
 }
 
 /** Gives amountCents of a payment back to the card it came from. */

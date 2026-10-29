@@ -126,7 +126,7 @@ span.hairline { flex: 1; border-top: var(--divider); }
 
 /* A carving that holds art (a game's cover, a store item's picture): the art fills it to its carved rim (2px), cut by the edge rule, and
    Zaisma's mark sits in the carving under it until the art has loaded, and stays where there's none. */
-.carving.holds-art { overflow: hidden; background: url("/zaisma-mark-metal.svg") var(--mark-at, center) / auto 50% no-repeat, linear-gradient(var(--carving-wash), var(--carving-wash)), var(--face-color); }
+.carving.holds-art { overflow: hidden; background: var(--well-mark) var(--mark-at, center) / auto 50% no-repeat, linear-gradient(var(--carving-wash), var(--carving-wash)), var(--face-color); }
 .carving-art { position: absolute; inset: 2px; display: block; overflow: hidden; clip-path: var(--cut-shape); }
 .carving-art img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
 

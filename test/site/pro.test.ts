@@ -15,13 +15,17 @@ let token = "";
 let ownerId = "";
 let nextId = 1;
 const realFetch = globalThis.fetch;
-let stripeCalls: { path: string; form: URLSearchParams }[] = [];
+let stripeCalls: { method: string; path: string; form: URLSearchParams; idempotencyKey: string | null }[] = [];
+/** The customer's paid invoices, as the stand-in answers them. */
+let paidInvoices: Record<string, unknown>[] = [];
 
 beforeAll(() => {
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(input instanceof Request ? input.url : String(input));
     if (url.hostname !== "api.stripe.com") return realFetch(input, init);
-    stripeCalls.push({ path: url.pathname, form: new URLSearchParams(typeof init?.body === "string" ? init.body : "") });
+    stripeCalls.push({ method: init?.method ?? "GET", path: url.pathname, form: new URLSearchParams(typeof init?.body === "string" ? init.body : url.search), idempotencyKey: new Headers(init?.headers).get("idempotency-key") });
+    if (url.pathname === "/v1/invoices") return Response.json({ data: paidInvoices });
+    if (url.pathname === "/v1/refunds") return Response.json({ id: "re_test_1" });
     if (url.pathname === "/v1/customers") return Response.json({ id: "cus_test_1" });
     if (url.pathname === "/v1/checkout/sessions") return Response.json({ id: "cs_test_pro", url: "https://checkout.stripe.com/c/pay/cs_test_pro", expires_at: 1_900_000_000 });
     if (url.pathname.startsWith("/v1/subscriptions/")) return Response.json({ id: url.pathname.split("/").at(-1) });
@@ -80,6 +84,7 @@ const proRow = () => env.DB.prepare("SELECT pro_until_ms, is_pro_cancelled, stri
 beforeEach(async () => {
   await env.DB.exec("DELETE FROM security_events; DELETE FROM api_keys; DELETE FROM audit_log; DELETE FROM versions; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM accounts;");
   stripeCalls = [];
+  paidInvoices = [];
   await createAccount(env.DB, { id: "dev-1", username: "Pixel_Smith", ageBand: "18+" });
   await letPublish(env.DB, "dev-1");
   token = (await createApiKey(env.DB, "dev-1", "claude")).token;
@@ -99,6 +104,8 @@ describe("Zaisma Pro", () => {
     expect(started).toMatchObject({ checkout_url: "https://checkout.stripe.com/c/pay/cs_test_pro", next_steps: [expect.objectContaining({ tool: "get_pro" })] });
     const session = Object.fromEntries(stripeCalls.find((call) => call.path === "/v1/checkout/sessions")!.form);
     expect(session).toMatchObject({ mode: "subscription", customer: "cus_test_1", "line_items[0][price]": "price_test_pro", "line_items[0][quantity]": "1", "subscription_data[metadata][owner_id]": ownerId, "managed_payments[enabled]": "true" });
+    // Nothing Managed Payments refuses (Stripe answers "You cannot use custom_text with Managed Payments").
+    expect(Object.keys(session).filter((name) => /^(custom_text|automatic_tax|tax_id_collection|payment_method_|saved_payment_method_options|shipping_)/.test(name))).toEqual([]);
     expect((await env.DB.prepare("SELECT kind FROM security_events WHERE kind = 'pro_checkout_started'").first())).not.toBeNull();
   });
 
@@ -194,8 +201,73 @@ describe("Zaisma Pro", () => {
     expect((await api("/pro", { key: readKey })).status).toBe(200);
     expect((await api("/pro/checkout", { key: readKey, body: {} })).answer.error.code).toBe("key_not_allowed");
     expect((await api("/pro/cancel", { key: readKey, body: {} })).answer.error.code).toBe("key_not_allowed");
+    expect((await api("/pro/refund", { key: readKey, body: {} })).answer.error.code).toBe("key_not_allowed");
     expect((await api("/pro", { key: noKey })).answer.error.code).toBe("key_not_allowed");
     expect(stripeCalls).toEqual([]);
+  });
+});
+
+describe("Pro's refund", () => {
+  /** A paid invoice of a subscription, paid some days ago. */
+  const invoice = (id: string, paidDaysAgo: number, subscriptionId = "sub_test_1") => ({
+    id,
+    amount_paid: 1000,
+    status_transitions: { paid_at: Math.floor((Date.now() - paidDaysAgo * DAY_MS) / 1000) },
+    parent: { type: "subscription_details", subscription_details: { subscription: subscriptionId } },
+    payments: { data: [{ status: "paid", payment: { type: "payment_intent", payment_intent: `pi_${id}` } }] },
+  });
+
+  beforeEach(async () => {
+    await env.DB.prepare("UPDATE owners SET stripe_customer_id = 'cus_test_1' WHERE id = ?").bind(ownerId).run();
+    await stripeEvent(madeAt(subscription("customer.subscription.created"), Math.floor((Date.now() - 3 * DAY_MS) / 1000)));
+    stripeCalls = [];
+  });
+
+  it("refunds the only payment within 14 days in full, and ends Pro at once", async () => {
+    paidInvoices = [invoice("in_first", 3)];
+    const read = await tool("get_pro");
+    expect(Date.parse(read.pro.refund_ends_at)).toBe((paidInvoices[0] as any).status_transitions.paid_at * 1000 + 14 * DAY_MS);
+    const refunded = await tool("refund_pro");
+    expect(refunded).toEqual({ refunded_cents: 1000, next_steps: [expect.objectContaining({ tool: "get_pro" })] });
+    const refund = stripeCalls.find((call) => call.path === "/v1/refunds")!;
+    expect(refund.form.get("payment_intent")).toBe("pi_in_first");
+    expect(refund.form.get("amount")).toBeNull();
+    expect(refund.idempotencyKey).toBe("pro-refund:in_first");
+    expect(stripeCalls.find((call) => call.path === "/v1/subscriptions/sub_test_1")!.method).toBe("DELETE");
+    expect((await tool("get_pro")).pro).toMatchObject({ plan: "free", refund_ends_at: null });
+    expect((await proRow())!.stripe_subscription_id).toBeNull();
+    // Stripe's events for it change nothing: the ended subscription's, and an older one arriving late.
+    await stripeEvent(subscription("customer.subscription.deleted", { status: "canceled" }));
+    await stripeEvent(madeAt(subscription("customer.subscription.updated", { cancel_at_period_end: false }), Math.floor((Date.now() - DAY_MS) / 1000)));
+    expect((await tool("get_pro")).pro.plan).toBe("free");
+  });
+
+  it("refuses past 14 days, a second payment, and no Pro, without refunding", async () => {
+    paidInvoices = [invoice("in_old", 15)];
+    expect((await tool("get_pro")).pro.refund_ends_at).toBeNull();
+    expect((await tool("refund_pro")).code).toBe("pro_not_refundable");
+    // A refunded subscription's invoice stays paid, so starting Pro again after a refund doesn't refund again.
+    paidInvoices = [invoice("in_again", 2), invoice("in_before", 20, "sub_test_0")];
+    expect((await tool("get_pro")).pro.refund_ends_at).toBeNull();
+    expect((await tool("refund_pro")).code).toBe("pro_not_refundable");
+    expect(stripeCalls.filter((call) => call.path !== "/v1/invoices")).toEqual([]);
+    await env.DB.prepare("UPDATE owners SET pro_until_ms = NULL, stripe_subscription_id = NULL WHERE id = ?").bind(ownerId).run();
+    expect((await api("/pro/refund", { body: {} })).answer.error.code).toBe("pro_not_refundable");
+  });
+
+  it("doesn't ask Stripe once Pro's paid period ends within 14 days, nor when Stripe is down", async () => {
+    await env.DB.prepare("UPDATE owners SET pro_until_ms = ? WHERE id = ?").bind(Date.now() + 10 * DAY_MS, ownerId).run();
+    expect((await tool("get_pro")).pro.refund_ends_at).toBeNull();
+    expect(stripeCalls).toEqual([]);
+    await env.DB.prepare("UPDATE owners SET pro_until_ms = ? WHERE id = ?").bind(Date.now() + 27 * DAY_MS, ownerId).run();
+    paidInvoices = [invoice("in_first", 3)];
+    const realStripe = globalThis.fetch;
+    globalThis.fetch = (async () => Response.json({ error: { message: "Stripe is down." } }, { status: 500 })) as typeof fetch;
+    try {
+      expect((await tool("get_pro")).pro).toMatchObject({ plan: "pro", refund_ends_at: null });
+    } finally {
+      globalThis.fetch = realStripe;
+    }
   });
 });
 

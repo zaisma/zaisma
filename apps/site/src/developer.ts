@@ -708,8 +708,8 @@ export const API_ROUTES: readonly ApiRoute[] = [
   call({ method: "POST", path: "/pro/checkout", reaches: "account", access: needs("credit_access", "write"), isAccountWide: true }),
   call({ method: "POST", path: "/pro/cancel", reaches: "account", access: needs("credit_access", "write"), isAccountWide: true }),
   call({ method: "POST", path: "/pro/resume", reaches: "account", access: needs("credit_access", "write"), isAccountWide: true }),
+  call({ method: "POST", path: "/pro/refund", reaches: "account", access: needs("credit_access", "write"), isAccountWide: true }),
   call({ method: "POST", path: "/credit/refunds", reaches: "account", access: needs("credit_access", "write"), isAccountWide: true, body: { inputs: plainInputs("top_up_id") } }),
-  call({ method: "PATCH", path: "/credit/automatic-top-up", reaches: "account", access: needs("credit_access", "write"), isAccountWide: true, body: { inputs: plainInputs("is_enabled", "top_up_below_cents", "top_up_amount_cents", "monthly_top_up_limit_cents") } }),
   call({ method: "GET", path: "/stripe-account", reaches: "account", access: needs("stripe_account_access", "read"), isAccountWide: true }),
   call({ method: "POST", path: "/stripe-account/connection-links", reaches: "account", access: needs("stripe_account_access", "write"), isAccountWide: true }),
   call({ method: "PATCH", path: "/stripe-account", reaches: "account", access: needs("stripe_account_access", "write"), isAccountWide: true, body: { inputs: plainInputs("is_stripe_tax_used") } }),
@@ -2664,7 +2664,6 @@ export async function gameAlerts(env: Env, games: Game[]): Promise<Map<string, G
   if (!games.length) return alertsByGameId;
   const gameIds = JSON.stringify(games.map((game) => game.id));
   const monthStartDate = `${new Date().toISOString().slice(0, 7)}-01`;
-  const monthStartMs = Date.parse(`${monthStartDate}T00:00:00Z`);
   const ownerIds = JSON.stringify([...new Set(games.map((game) => game.owner_id).filter(Boolean))]);
   const [{ results: versions }, { results: usage }, { results: reports }, databaseUses, failedErases, { results: listingImages }, { results: keptRooms }, { results: owners }] = await Promise.all([
     // Each game's newest version, and every version waiting for a person.
@@ -2694,13 +2693,13 @@ export async function gameAlerts(env: Env, games: Game[]): Promise<Map<string, G
       .all<{ game_id: string; kind: string; listing_reason: string }>(),
     // Kept rooms' saved worlds share the free storage with the database.
     env.DB.prepare("SELECT game_id, SUM(saved_size_bytes) AS size_bytes FROM kept_rooms WHERE game_id IN (SELECT value FROM json_each(?)) GROUP BY game_id").bind(gameIds).all<{ game_id: string; size_bytes: number }>(),
-    // Each owner's credit: its low line, and whether a game with a budget can go past its free hosting (credit, or automatic top-up with room this month).
+    // Each owner's credit: its low line, and whether a game with a budget can go past its free hosting (any credit).
     env.DB
       .prepare(
-        "SELECT id, credit_balance_cents, credit_low_line_cents, automatic_top_up_enabled = 1 AND stripe_payment_method_id IS NOT NULL AND top_up_amount_cents IS NOT NULL AND monthly_top_up_limit_cents IS NOT NULL AND (SELECT COALESCE(SUM(amount_cents), 0) FROM credit_entries WHERE owner_id = owners.id AND entry_kind = 'top_up' AND is_automatic = 1 AND created_at_ms >= ?) + top_up_amount_cents <= monthly_top_up_limit_cents AS has_top_up_room FROM owners WHERE id IN (SELECT value FROM json_each(?))",
+        "SELECT id, credit_balance_cents, credit_low_line_cents FROM owners WHERE id IN (SELECT value FROM json_each(?))",
       )
-      .bind(monthStartMs, ownerIds)
-      .all<{ id: string; credit_balance_cents: number; credit_low_line_cents: number | null; has_top_up_room: number | null }>(),
+      .bind(ownerIds)
+      .all<{ id: string; credit_balance_cents: number; credit_low_line_cents: number | null }>(),
   ]);
   for (const game of games) {
     const alerts = alertsByGameId.get(game.id)!;
@@ -2739,7 +2738,7 @@ export async function gameAlerts(env: Env, games: Game[]): Promise<Map<string, G
     const resetsOn = resetsOnText(Date.now());
     const budgetCents = game.monthly_budget_cents;
     const owner = owners.find((row) => row.id === game.owner_id);
-    const canGoPastFree = Boolean(owner && (owner.credit_balance_cents > 0 || owner.has_top_up_room));
+    const canGoPastFree = Boolean(owner && owner.credit_balance_cents > 0);
     // The paused line, then the heads-ups; a heads-up is never given alongside its own paused or full kind.
     if (month?.paused_at_ms) {
       const why =
@@ -2764,14 +2763,14 @@ export async function gameAlerts(env: Env, games: Game[]): Promise<Map<string, G
     }
     // A budget with nothing to spend stops at the free hosting all the same.
     if (month && !month.paused_at_ms && budgetCents !== null && month.charged_cents === 0 && !canGoPastFree && month.used_cents >= (FREE_HOSTING_CENTS_PER_MONTH * NEARLY_USED_PCT) / 100) {
-      add("hosting_nearly_paused", `${freeUsedPct(month.used_cents)}% of this month's free hosting is used, and there's no credit for the game's budget to spend. When it's all used, new rooms, connections between players and game server requests pause until ${resetsOn} or credit comes in.`, "Add credit with top_up_credit, or turn on automatic top-up with update_automatic_top_up. get_credit shows the balance.");
+      add("hosting_nearly_paused", `${freeUsedPct(month.used_cents)}% of this month's free hosting is used, and there's no credit for the game's budget to spend. When it's all used, new rooms, connections between players and game server requests pause until ${resetsOn} or credit comes in.`, "Add credit with top_up_credit. get_credit shows the balance.");
     }
     if (month && !month.paused_at_ms && budgetCents !== null && month.charged_cents >= (budgetCents * NEARLY_USED_PCT) / 100) {
       add("hosting_budget_nearly_used", `The game has used ${dollarsText(month.charged_cents)} of its ${dollarsText(budgetCents)} budget this month. When it's all used, the game pauses like at the end of its free hosting.`, "Raise its budget with update_game (monthly_budget_cents) to keep it going. get_credit shows every game's spending.");
     }
     if (budgetCents !== null && owner && isCreditLow({ balanceCents: owner.credit_balance_cents, creditLowLineCents: owner.credit_low_line_cents }) && month?.paused_reason !== "credit_used") {
       // No amount: a key that can see the game may not be one that reads the credit.
-      add("credit_low", `Credit is low: add credit or turn on automatic top-up. It's under ${CREDIT_LIMITS.creditLowPct}% of what there was after your last top-up; when it's used, this game pauses like at the end of its free hosting.`, "Add credit with top_up_credit, or turn on automatic top-up with update_automatic_top_up. get_credit shows the balance.");
+      add("credit_low", `Credit is low: add credit. It's under ${CREDIT_LIMITS.creditLowPct}% of what there was after your last top-up; when it's used, this game pauses like at the end of its free hosting.`, "Add credit with top_up_credit. get_credit shows the balance.");
     }
     if (databaseUse && !isFull && storageSizeBytes >= (MAXIMUM_GAME_STORAGE_SIZE_BYTES * NEARLY_USED_PCT) / 100) {
       add("database_nearly_full", `The game's storage (its database and kept rooms) is ${NEARLY_USED_PCT}% full: a game keeps at most ${MAXIMUM_GAME_STORAGE_SIZE_BYTES / 1024 ** 3} GB. When it's full, the database can change and delete rows but not grow.`, "Delete rows the game no longer needs with query_database (or export_database to keep them elsewhere), or kept rooms nobody plays with delete_kept_room.");

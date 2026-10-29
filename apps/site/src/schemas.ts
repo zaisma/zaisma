@@ -178,7 +178,7 @@ export const GAME_ALERT = object({
     database_full: "the game's storage (its database and kept rooms) reached the 10 GB a game can keep, so the database can change and delete rows but not grow, and no more rooms can be kept",
     hosting_nearly_paused: "80% of the month's free hosting is used, and the game has no budget to go on past it",
     hosting_budget_nearly_used: "80% of the game's monthly budget is used",
-    credit_low: "your hosting credit is under 20% of what there was after your last top-up, and this game has a budget that spends it: add credit or turn on automatic top-up",
+    credit_low: "your hosting credit is under 20% of what there was after your last top-up, and this game has a budget that spends it: add credit",
     database_nearly_full: "the game's storage is 80% of the 10 GB a game can keep",
     player_erase_failed: "Zaisma couldn't erase players who deleted their accounts from the game database; the fix names their player IDs for erase_player",
     reports_open: "player reports are waiting for Zaisma",
@@ -614,23 +614,16 @@ const CREDIT_ENTRY_KIND = choice({ top_up: "credit bought", hosting_charge: "a g
 export const CREDIT = object({
   credit: object({
     balance_cents: countOf("What's left to spend, in cents. Never below 0."),
-    is_credit_low: yes("Whether the balance is under 20% of what there was right after the last top-up: add credit or turn on automatic top-up. Each game with a budget shows a credit_low alert meanwhile."),
-    automatic_top_up: object({
-      is_enabled: yes("Whether Zaisma tops up from the card of the last top-up when a charge would take the balance under top_up_below_cents."),
-      top_up_below_cents: nullable(countOf()),
-      top_up_amount_cents: nullable(countOf()),
-      monthly_top_up_limit_cents: nullable(countOf("The most automatic top-ups add in a month (UTC).")),
-      topped_up_this_month_cents: countOf(),
-    }),
+    is_credit_low: yes("Whether the balance is under 20% of what there was right after the last top-up: add credit. Each game with a budget shows a credit_low alert meanwhile."),
     top_ups: list(
       object({
         id: idOf("top_up"),
         amount_cents: countOf(),
         refundable_cents: countOf("What refund_top_up gives back now: the unspent part (credit is spent oldest first), until refund_ends_at."),
-        refund_ends_at: nullable(isoTime("180 days after the top-up.")),
+        refund_ends_at: nullable(isoTime("30 days after the top-up.")),
         created_at: isoTime(),
       }),
-      "The last 180 days' top-ups, newest first.",
+      "The last 30 days' top-ups, newest first.",
     ),
     games: list(object({ slug: text(), title: text(), monthly_budget_cents: nullable(countOf()), spent_from_credit_this_month_cents: countOf(), last_month_beyond_free_cents: countOf("What last month's use past the free allowance would have cost at today's prices; 0 when it stayed inside the free allowance.") }), "Games with a budget, spending this month, or use past the free allowance last month."),
     entries: list(
@@ -640,20 +633,16 @@ export const CREDIT = object({
   }),
 });
 const SPENDING_CHANGE_FIELDS = {
-  monthly_budget_cents: nullable(countOf("A game's monthly budget; null: no paid hosting. Only for a game_budget request.")),
-  is_enabled: nullable(yes("Whether automatic top-up is on. Only for an automatic_top_up request; null for a game_budget one.")),
-  top_up_below_cents: nullable(countOf()),
-  top_up_amount_cents: nullable(countOf()),
-  monthly_top_up_limit_cents: nullable(countOf()),
+  monthly_budget_cents: nullable(countOf("A game's monthly budget; null: no paid hosting.")),
 };
 /** A raise in spending the developer approves or declines on zaisma.com (get_spending_request). */
 export const SPENDING_REQUEST = object({
   spending_request: object({
     id: idOf("spending_request"),
-    request_kind: choice({ game_budget: "a game's monthly budget", automatic_top_up: "automatic top-up on or higher" }),
-    game_slug: nullable(text("The game, for a game_budget request.")),
+    request_kind: choice({ game_budget: "a game's monthly budget" }),
+    game_slug: nullable(text("The game; null once it's deleted.")),
     game_title: nullable(text()),
-    requested_change: object(SPENDING_CHANGE_FIELDS, "The fields of this request_kind are filled; the other kind's are null."),
+    requested_change: object(SPENDING_CHANGE_FIELDS, "The budget asked for."),
     current_setting: object(SPENDING_CHANGE_FIELDS, "The same fields as they are now."),
     request_status: choice({ waiting: "the developer hasn't answered", approved: "approved: the change is made", declined: "the developer declined", expired: "a day passed without an answer" }),
     created_at: isoTime(),
@@ -676,6 +665,7 @@ export const PRO = object({
     plan: PLAN_CHOICES,
     pro_ends_at: nullable(isoTime("When Zaisma Pro ends or renews: the end of the paid month. null on the free plan.")),
     is_pro_cancelled: yes("Whether Pro ends at pro_ends_at instead of renewing (cancel_pro did it; resume_pro takes it back)."),
+    refund_ends_at: nullable(isoTime("Until when refund_pro refunds the first payment: 14 days after it, while it's the only one. null after that, on the free plan, or when Stripe didn't answer within 3 seconds.")),
     monthly_price_cents: countOf("What Zaisma Pro costs a month on the developer's card, in cents (1000 is $10). Apart from hosting credit."),
     limits: object({ free: PLAN_LIMITS_SCHEMA, pro: PLAN_LIMITS_SCHEMA }),
     used_today: object({
@@ -687,6 +677,11 @@ export const PRO = object({
 });
 /** The plan after cancel_pro or resume_pro. */
 export const PRO_CHANGED = object({ ...(PRO.properties as Record<string, Schema>), next_steps: NEXT });
+/** A refund of Zaisma Pro's first payment (refund_pro). */
+export const PRO_REFUNDED = object({
+  refunded_cents: countOf("What goes back to the card it came from."),
+  next_steps: NEXT,
+});
 /** Stripe's page for starting Zaisma Pro (start_pro). */
 export const PRO_CHECKOUT = object({
   checkout_url: url("Stripe's page where the developer pays. Only a person can pay there."),
@@ -735,8 +730,6 @@ export const TOP_UP_REFUNDED = object({
   refunded_cents: countOf("What goes back to the card it came from."),
   next_steps: NEXT,
 });
-/** The credit after a change to automatic top-up (update_automatic_top_up). */
-export const CREDIT_CHANGED = object({ ...(CREDIT.properties as Record<string, Schema>), next_steps: NEXT });
 
 export const STATS = object({
   period_duration_days: countOf(),

@@ -95,9 +95,11 @@ describe("a shared game link", () => {
     expect(structured).toMatchObject({ "@type": "VideoGame", name: "Sky Hopper", url: `${SITE}/g/sky-hopper`, gamePlatform: "Web browser", author: { name: "Emma_Novak" } });
   });
 
-  it("uses the cover when there's no share picture, then a screenshot, then Zaisma's icon as a small card", async () => {
-    expect(meta(await headOf("/g/sky-hopper"), "og:image")).toBe(`${SITE}/app-icon-512.png`);
-    expect(meta(await headOf("/g/sky-hopper"), "twitter:card")).toBe("summary");
+  it("uses the cover when there's no share picture, then a screenshot, then Zaisma's own card", async () => {
+    const zaismaCard = await headOf("/g/sky-hopper");
+    expect(meta(zaismaCard, "og:image")).toBe(`${SITE}/share-card-light.png`);
+    expect([meta(zaismaCard, "og:image:width"), meta(zaismaCard, "og:image:height"), meta(zaismaCard, "og:image:alt")]).toEqual(["1200", "630", "Zaisma"]);
+    expect(meta(zaismaCard, "twitter:card")).toBe("summary_large_image");
     await approvedImage("screenshot", "image_shot1");
     expect(meta(await headOf("/g/sky-hopper"), "og:image")).toBe(`${SITE}/img/image_shot1/card.jpg`);
     await approvedImage("cover", "image_cover1");

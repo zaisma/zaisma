@@ -94,7 +94,8 @@ const STRIPE_TEST_VARS = (() => {
   try {
     const vars = Object.fromEntries(readFileSync(join(ROOT, "apps/site/.dev.vars"), "utf8").split("\n").map((line) => line.match(/^\s*([A-Z0-9_]+)\s*=\s*"?([^"\r]*)"?\s*$/)).filter(Boolean).map(([, name, value]) => [name, value]));
     if (!vars.STRIPE_SECRET_KEY?.startsWith("sk_test_") || !vars.STRIPE_PUBLISHABLE_KEY?.startsWith("pk_test_")) return null;
-    return { STRIPE_SECRET_KEY: vars.STRIPE_SECRET_KEY, STRIPE_PUBLISHABLE_KEY: vars.STRIPE_PUBLISHABLE_KEY, ...(vars.STRIPE_CONNECT_CLIENT_ID ? { STRIPE_CONNECT_CLIENT_ID: vars.STRIPE_CONNECT_CLIENT_ID } : {}) };
+    const optional = ["STRIPE_PRO_PRICE_ID", "STRIPE_CONNECT_CLIENT_ID", "STRIPE_EVENTS_SECRET", "STRIPE_CONNECT_EVENTS_SECRET"].filter((name) => vars[name]);
+    return { STRIPE_SECRET_KEY: vars.STRIPE_SECRET_KEY, STRIPE_PUBLISHABLE_KEY: vars.STRIPE_PUBLISHABLE_KEY, ...Object.fromEntries(optional.map((name) => [name, vars[name]])) };
   } catch {
     return null;
   }
@@ -636,7 +637,7 @@ try {
 console.log(`
 Zaisma preview is running. Nothing here touches the live site.
 
-  Payments        ${STRIPE_TEST_VARS ? "Stripe test mode" : "stand-in Stripe"}
+  Payments        ${STRIPE_TEST_VARS ? "Stripe test mode: try top-ups and Pro as Empty_Handed, whose payments are all Stripe's (add an email first)" : "stand-in Stripe"}
   Home            ${SITE}/  (the game in focus fills the screen with its background: point at covers to move between Shard Dodge's picture,
                   Four in a Row's picture, Cave Crew's Emberfall shader, Tiny Farm's Verdant shader and Zaisma's own for the rest;
                   Play starts the game in place and Back returns)
@@ -703,7 +704,7 @@ Zaisma preview is running. Nothing here touches the live site.
   Hosting         ${SITE}/dashboard/rocket-lab/players#hosting  (Free this month: 100% used, paused),  ${SITE}/dashboard/four-in-a-row/players#hosting
                   (85%: the heads-up),  ${SITE}/dashboard/cave-crew/players#hosting  (40%, mostly the relay),  ${SITE}/dashboard/arena/players#hosting
                   (100% free, "$3.40 of $5 budget this month", shares of every kind: rooms, game server, requests, database),  ${SITE}/dashboard/star-haul/players#hosting  (paused: its budget is used)
-  Credit is low   ${SITE}/dashboard/arena  (the credit_low alert on Arena's Overview: "Credit is low: add credit or turn on automatic top-up"),
+  Credit is low   ${SITE}/dashboard/arena  (the credit_low alert on Arena's Overview: "Credit is low: add credit"),
                   ${SITE}/dashboard/settings#hosting  (the same line under the credit's numbers)
   Own servers     ${SITE}/dashboard/tiny-farm/details#own-servers  (Your own servers: wss://play.example.com; the ⋯ menu on
                   ${SITE}/g/tiny-farm?play names it: "Online play runs on the developer's own server: play.example.com")
@@ -725,10 +726,12 @@ Zaisma preview is running. Nothing here touches the live site.
                   account deletes both, and their links never go to another game. Made again at the next start)
   Activity        ${SITE}/account#activity  (as Preview_Studio: a new device in Manchester, keys made and used from a new
                   place, an AI connected; as Moss_Runner: Keep where my account is used from is off)
-  Developer settings ${SITE}/dashboard/settings  (as Preview_Studio: hosting with automatic top-up on, a webhook with three failed deliveries, ${SITE}/dashboard/settings?spending_request=spending_request_preview0waiting asks to raise Arena's budget to $40, ...0expired is no longer waiting, Payments connected on the stand-in with a balance and a next payout)
+  Developer settings ${SITE}/dashboard/settings  (as Preview_Studio: hosting with a top-up's Refund in its row of The last 90 days, a webhook with three failed deliveries, ${SITE}/dashboard/settings?spending_request=spending_request_preview0waiting asks to raise Arena's budget to $40, ...0expired is no longer waiting, Payments connected on the stand-in with a balance and a next payout)
   Leaked keys     ${SITE}/account#developer  (as Preview_Studio: three key rows, one working with a last use and an end date, one
                   turned off after GitHub found it, one that ended yesterday; Make an API key shows the Ends choice) and
                   ${SITE}/account#activity  (Zaisma turned off an API key found in public)
+  Terms of service ${SITE}/legal/terms  (the whole page; ${SITE}/legal/dmca has Repeat infringers, and the footer's Terms links here)
+  Pro's refund    ${SITE}/dashboard/settings#pro  (as Preview_Studio: Pro started 3 days ago, so Cancel Pro has two ways out: cancel at renewal, or end now and refund; as Key_Maker, Pro past its 14 days: Cancel Pro is one button. On #hosting the $25 top-up's row has its Refund and the 40-day $10 one's doesn't; /account's delete box names the $4.60 that won't come back)
   Add credit      ${SITE}/dashboard/settings#hosting  (as Quiet_Builder, no passkey or email: Add credit, then Pay on Stripe, says to add one first; as Key_Maker, with an email, it goes on to Stripe)
   Security alerts ${SITE}/account  (as Quiet_Builder, no email: two alerts with That was me and Not you?, then
                   Where should we tell you…? with Skip) and ${SITE}/dashboard  (the same two); the mailbox has the
@@ -1530,14 +1533,15 @@ async function seedHolds(api, upload, go, form) {
         ["arena", 1340, 340, "NULL", "NULL"],
         ["star-haul", 1200, 200, "'budget_used'", "unixepoch('now', '-2 hours') * 1000"],
       ].map(([slug, usedCents, chargedCents, pausedReason, pausedAtMs]) => `INSERT INTO game_hosting_months (game_id, month_start_date, used_cents, charged_cents, paused_at_ms, paused_reason) SELECT id, date('now', 'start of month'), ${usedCents}, ${chargedCents}, ${pausedAtMs}, ${pausedReason} FROM games WHERE slug = '${slug}' ON CONFLICT (game_id, month_start_date) DO UPDATE SET used_cents = excluded.used_cents, charged_cents = excluded.charged_cents, paused_at_ms = excluded.paused_at_ms, paused_reason = excluded.paused_reason`),
-      // The developer's $20 top-up and what the two games drew from it.
+      // The developer's top-ups, $10 40 days ago (past its 30 days, so what's left of it no longer refunds) and $25 10 days ago, and what the two games drew from them.
       "DELETE FROM credit_entries WHERE owner_id = (SELECT owner_id FROM games WHERE slug = 'arena')",
-      "INSERT INTO credit_entries (id, owner_id, entry_kind, amount_cents, stripe_object_id, refundable_until_ms, created_at_ms) SELECT 'top_up_preview00000000001', owner_id, 'top_up', 2000, 'pi_preview_1', unixepoch('now', '+170 days') * 1000, unixepoch('now', '-10 days') * 1000 FROM games WHERE slug = 'arena'",
+      "INSERT INTO credit_entries (id, owner_id, entry_kind, amount_cents, stripe_object_id, refundable_until_ms, created_at_ms) SELECT 'top_up_preview00000000000', owner_id, 'top_up', 1000, 'pi_preview_0', unixepoch('now', '-10 days') * 1000, unixepoch('now', '-40 days') * 1000 FROM games WHERE slug = 'arena'",
+      "INSERT INTO credit_entries (id, owner_id, entry_kind, amount_cents, stripe_object_id, refundable_until_ms, created_at_ms) SELECT 'top_up_preview00000000001', owner_id, 'top_up', 2500, 'pi_preview_1', unixepoch('now', '+20 days') * 1000, unixepoch('now', '-10 days') * 1000 FROM games WHERE slug = 'arena'",
       "INSERT INTO credit_entries (id, owner_id, entry_kind, amount_cents, game_id, created_at_ms) SELECT 'credit_entry_preview00000001', owner_id, 'hosting_charge', -340, id, unixepoch('now', '-1 hours') * 1000 FROM games WHERE slug = 'arena'",
       "INSERT INTO credit_entries (id, owner_id, entry_kind, amount_cents, game_id, created_at_ms) SELECT 'credit_entry_preview00000002', owner_id, 'hosting_charge', -200, id, unixepoch('now', '-2 hours') * 1000 FROM games WHERE slug = 'star-haul'",
-      "UPDATE owners SET credit_balance_cents = 1460 WHERE id = (SELECT owner_id FROM games WHERE slug = 'arena')",
+      "UPDATE owners SET credit_balance_cents = 2960 WHERE id = (SELECT owner_id FROM games WHERE slug = 'arena')",
       // Under its credit-low line (migration 0166), so the budgeted games show credit_low and the Hosting pane says credit is low.
-      "UPDATE owners SET credit_low_line_cents = 1500 WHERE id = (SELECT owner_id FROM games WHERE slug = 'arena')",
+      "UPDATE owners SET credit_low_line_cents = 3000 WHERE id = (SELECT owner_id FROM games WHERE slug = 'arena')",
     ].join("; ");
     const inserted = runSql(arenaTraffic + "; INSERT INTO room_usage (game_id, date, room_count, room_play_duration_sec, message_count) SELECT id, date('now'), 412, 9000000, 90000 FROM games WHERE slug = 'rocket-lab' ON CONFLICT (game_id, date) DO UPDATE SET room_play_duration_sec = excluded.room_play_duration_sec; INSERT INTO room_usage (game_id, date, room_count, room_play_duration_sec, message_count, relay_credential_count, relayed_size_bytes) SELECT id, date('now'), 64, 900000, 20000, 310, 15000000000 FROM games WHERE slug = 'cave-crew' ON CONFLICT (game_id, date) DO UPDATE SET room_play_duration_sec = excluded.room_play_duration_sec, relay_credential_count = excluded.relay_credential_count, relayed_size_bytes = excluded.relayed_size_bytes; INSERT INTO room_usage (game_id, date, room_count, room_play_duration_sec, message_count) SELECT id, date('now', 'start of month'), 900, 7650000, 400000 FROM games WHERE slug = 'four-in-a-row' ON CONFLICT (game_id, date) DO UPDATE SET room_play_duration_sec = excluded.room_play_duration_sec; " + hostingSql);
     if (inserted) break;
@@ -2107,16 +2111,23 @@ function seedLeakedKeys() {
  * for AI apps says when it can connect them.
  */
 /**
- * Developer settings (docs: /dashboard/settings): Preview_Studio's automatic top-up on, a waiting and an expired spending request,
- * a webhook with three failed deliveries and Zaisma Pro cancelled (it ends in 12 days). Idempotent, so it holds on every run.
+ * Developer settings (docs: /dashboard/settings): Preview_Studio's waiting and expired spending requests, a webhook with three
+ * failed deliveries and Zaisma Pro started 3 days ago, so its first payment still refunds (the Stripe stand-in's invoice for
+ * sub_preview_pro); Key_Maker's Pro started 20 days ago, past its refund. Idempotent, so it holds on every run.
  */
 function seedDeveloperSettings() {
   const now = Date.now();
   const owner = "(SELECT owners.id FROM owners JOIN accounts ON accounts.id = owners.account_id WHERE accounts.username = 'Preview_Studio')";
   const account = "(SELECT id FROM accounts WHERE username = 'Preview_Studio')";
   runSql([
-    `UPDATE owners SET pro_until_ms = ${now + 12 * 86400_000}, is_pro_cancelled = 1 WHERE id = ${owner}`,
-    `UPDATE owners SET automatic_top_up_enabled = 1, top_up_below_cents = 500, top_up_amount_cents = 2000, monthly_top_up_limit_cents = 6000 WHERE id = ${owner}`,
+    // In Stripe's test mode a made-up customer and subscription would be ones Stripe doesn't know, so Pro starts from Get Pro there.
+    ...(STRIPE_TEST_VARS ? [] : [`UPDATE owners SET pro_until_ms = ${now + 27 * 86400_000}, is_pro_cancelled = 0, stripe_subscription_id = 'sub_preview_pro', stripe_customer_id = COALESCE(stripe_customer_id, 'cus_preview_pro') WHERE id = ${owner}`]),
+    ...(STRIPE_TEST_VARS
+      ? []
+      : [
+          `INSERT INTO owners (id, kind, account_id, created_at_ms) SELECT 'owner_previewkeymaker', 'person', id, ${now} FROM accounts WHERE username = 'Key_Maker' ON CONFLICT (account_id) DO NOTHING`,
+          `UPDATE owners SET pro_until_ms = ${now + 10 * 86400_000}, is_pro_cancelled = 0, stripe_subscription_id = 'sub_preview_pro_old', stripe_customer_id = 'cus_preview_pro_old' WHERE account_id = (SELECT id FROM accounts WHERE username = 'Key_Maker')`,
+        ]),
     "DELETE FROM spending_requests WHERE id LIKE 'spending_request_preview%'",
     `INSERT INTO spending_requests (id, account_id, request_kind, game_id, monthly_budget_cents, created_at_ms, expires_at_ms) SELECT 'spending_request_preview0waiting', ${account}, 'game_budget', id, 4000, ${now - 600_000}, ${now + 85_800_000} FROM games WHERE slug = 'arena'`,
     `INSERT INTO spending_requests (id, account_id, request_kind, game_id, monthly_budget_cents, created_at_ms, expires_at_ms) SELECT 'spending_request_preview0expired', ${account}, 'game_budget', id, 9000, ${now - 100_000_000}, ${now - 13_600_000} FROM games WHERE slug = 'star-haul'`,

@@ -17,3 +17,12 @@ SUPABASE_SECRET_KEY=
 EMAIL_OUTBOX_URL=
 # Sign in with Zaisma's signing key, one line from: node scripts/sign-in-key.mjs. Empty turns it off.
 SIGN_IN_SIGNING_KEY=
+# Stripe, from Zaisma's Stripe sandbox (never live keys here). With sk_test_ and pk_test_ keys, npm run preview runs on
+# Stripe's test mode instead of its stand-in. The events secrets are the ones `stripe listen` prints, since Stripe
+# can't reach localhost: forward to /stripe/events, and with --forward-connect-to to /stripe/connect-events.
+STRIPE_SECRET_KEY=
+STRIPE_PUBLISHABLE_KEY=
+STRIPE_PRO_PRICE_ID=
+STRIPE_CONNECT_CLIENT_ID=
+STRIPE_EVENTS_SECRET=
+STRIPE_CONNECT_EVENTS_SECRET=

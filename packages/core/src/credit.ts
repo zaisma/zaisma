@@ -2,18 +2,18 @@ import { newId } from "./ids.ts";
 
 /**
  * A developer's prepaid hosting credit (docs/DECISIONS.md, "Hosting is priced with a margin, with a free tier, and
- * prepaid above it"): one balance per owner, bought on Stripe's page or topped up by itself, spent only by games
- * with a monthly budget. It never expires, never goes below zero, refunds unused for 180 days and is never paid out.
+ * prepaid above it"): one balance per owner, bought on Stripe's page, spent only by games
+ * with a monthly budget. It never expires, never goes below zero, refunds unused for 30 days and is never paid out
+ * ("Credit is ours once spent, or once its 30 days pass").
  * Every change is a row in credit_entries; owners.credit_balance_cents is their sum, kept in the same batch.
  */
 export const CREDIT_LIMITS = {
   minimumTopUpCents: 1000,
   /** Caps what one stolen card can charge in one go. */
   maximumTopUpCents: 100_000,
-  refundableDurationDays: 180,
+  refundableDurationDays: 30,
   /** The owner hears their credit is low once it's under this share of the balance right after their last top-up. */
   creditLowPct: 20,
-  minimumAutomaticTopUpCents: 1000,
 } as const;
 
 export const CREDIT_ENTRY_KINDS = ["top_up", "hosting_charge", "refund", "written_off"] as const;
@@ -29,16 +29,13 @@ export interface CreditEntry {
   stripe_object_id: string | null;
   refundable_until_ms: number | null;
   refunded_cents: number;
-  is_automatic: number;
   created_at_ms: number;
 }
 
-/** An owner's balance, Stripe customer and automatic top-up. */
+/** An owner's balance and Stripe customer. */
 export interface Credit {
   balanceCents: number;
   stripeCustomerId: string | null;
-  stripePaymentMethodId: string | null;
-  automaticTopUp: { isEnabled: boolean; topUpBelowCents: number | null; topUpAmountCents: number | null; monthlyTopUpLimitCents: number | null; attemptCount: number; enabledAtMs: number | null };
   creditLowToldAtMs: number | null;
   /** Under this the credit is low: creditLowPct of the balance right after the last top-up; null before the first one. */
   creditLowLineCents: number | null;
@@ -47,34 +44,18 @@ export interface Credit {
 export async function creditOf(database: D1Database, ownerId: string): Promise<Credit> {
   const row = await database
     .prepare(
-      "SELECT credit_balance_cents, stripe_customer_id, stripe_payment_method_id, automatic_top_up_enabled, top_up_below_cents, top_up_amount_cents, monthly_top_up_limit_cents, automatic_top_up_attempt_count, automatic_top_up_enabled_at_ms, credit_low_told_at_ms, credit_low_line_cents FROM owners WHERE id = ?",
+      "SELECT credit_balance_cents, stripe_customer_id, credit_low_told_at_ms, credit_low_line_cents FROM owners WHERE id = ?",
     )
     .bind(ownerId)
     .first<{
       credit_balance_cents: number;
       stripe_customer_id: string | null;
-      stripe_payment_method_id: string | null;
-      automatic_top_up_enabled: number;
-      top_up_below_cents: number | null;
-      top_up_amount_cents: number | null;
-      monthly_top_up_limit_cents: number | null;
-      automatic_top_up_attempt_count: number;
-      automatic_top_up_enabled_at_ms: number | null;
       credit_low_told_at_ms: number | null;
       credit_low_line_cents: number | null;
     }>();
   return {
     balanceCents: row?.credit_balance_cents ?? 0,
     stripeCustomerId: row?.stripe_customer_id ?? null,
-    stripePaymentMethodId: row?.stripe_payment_method_id ?? null,
-    automaticTopUp: {
-      isEnabled: row?.automatic_top_up_enabled === 1,
-      topUpBelowCents: row?.top_up_below_cents ?? null,
-      topUpAmountCents: row?.top_up_amount_cents ?? null,
-      monthlyTopUpLimitCents: row?.monthly_top_up_limit_cents ?? null,
-      attemptCount: row?.automatic_top_up_attempt_count ?? 0,
-      enabledAtMs: row?.automatic_top_up_enabled_at_ms ?? null,
-    },
     creditLowToldAtMs: row?.credit_low_told_at_ms ?? null,
     creditLowLineCents: row?.credit_low_line_cents ?? null,
   };
@@ -94,7 +75,6 @@ export interface NewCreditEntry {
   /** The Stripe object it came from: an entry with one already counted is ignored. */
   stripeObjectId?: string | null;
   refundableUntilMs?: number | null;
-  isAutomatic?: boolean;
   createdAtMs?: number;
 }
 
@@ -110,9 +90,9 @@ export async function addCreditEntry(database: D1Database, entry: NewCreditEntry
   await database.batch([
     database
       .prepare(
-        `INSERT INTO credit_entries (id, owner_id, entry_kind, amount_cents, game_id, stripe_object_id, refundable_until_ms, is_automatic, created_at_ms) SELECT ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE ${isAffordable} ON CONFLICT DO NOTHING`,
+        `INSERT INTO credit_entries (id, owner_id, entry_kind, amount_cents, game_id, stripe_object_id, refundable_until_ms, created_at_ms) SELECT ?, ?, ?, ?, ?, ?, ?, ? WHERE ${isAffordable} ON CONFLICT DO NOTHING`,
       )
-      .bind(id, entry.ownerId, entry.entryKind, entry.amountCents, entry.gameId ?? null, entry.stripeObjectId ?? null, entry.refundableUntilMs ?? null, entry.isAutomatic ? 1 : 0, entry.createdAtMs ?? Date.now(), entry.ownerId, balanceChangeCents),
+      .bind(id, entry.ownerId, entry.entryKind, entry.amountCents, entry.gameId ?? null, entry.stripeObjectId ?? null, entry.refundableUntilMs ?? null, entry.createdAtMs ?? Date.now(), entry.ownerId, balanceChangeCents),
     database.prepare("UPDATE owners SET credit_balance_cents = credit_balance_cents + ? WHERE id = ? AND EXISTS (SELECT 1 FROM credit_entries WHERE id = ?)").bind(balanceChangeCents, entry.ownerId, id),
   ]);
   const added = await database.prepare("SELECT id FROM credit_entries WHERE id = ?").bind(id).first<{ id: string }>();
@@ -194,14 +174,4 @@ export async function refundableTopUps(database: D1Database, ownerId: string, no
     const isRefundable = topUp.refundable_until_ms !== null && nowMs < topUp.refundable_until_ms;
     return { id: topUp.id, amountCents: topUp.amount_cents, unspentCents, refundableCents: isRefundable ? unspentCents : 0, refundableUntilMs: topUp.refundable_until_ms, stripeObjectId: topUp.stripe_object_id, createdAtMs: topUp.created_at_ms };
   });
-}
-
-/** What the automatic top-up added this month (UTC). */
-export async function automaticTopUpsThisMonth(database: D1Database, ownerId: string, nowMs = Date.now()): Promise<{ toppedUpCents: number; topUpCount: number }> {
-  const now = new Date(nowMs);
-  const row = await database
-    .prepare("SELECT COALESCE(SUM(amount_cents), 0) AS topped_up_cents, COUNT(*) AS top_up_count FROM credit_entries WHERE owner_id = ? AND entry_kind = 'top_up' AND is_automatic = 1 AND created_at_ms >= ?")
-    .bind(ownerId, Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1))
-    .first<{ topped_up_cents: number; top_up_count: number }>();
-  return { toppedUpCents: row?.topped_up_cents ?? 0, topUpCount: row?.top_up_count ?? 0 };
 }

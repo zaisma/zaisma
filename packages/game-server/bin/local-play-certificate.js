@@ -20,9 +20,12 @@ const explicit = (tagNumber, content) => der(0xa0 + tagNumber, content);
 const octets = (bytes) => der(0x04, bytes);
 const bits = (bytes) => der(0x03, Buffer.concat([Buffer.from([0]), bytes]));
 const utf8 = (text) => der(0x0c, Buffer.from(text, "utf8"));
-function integer(bytes) {
-  // A positive integer: a leading zero byte when the first bit is set.
-  return der(0x02, bytes[0] & 0x80 ? Buffer.concat([Buffer.from([0]), bytes]) : bytes);
+/** A positive integer, in the fewest bytes DER allows: leading zero bytes dropped, then one back when the first bit is set. */
+export function integer(bytes) {
+  let zeroByteCount = 0;
+  while (zeroByteCount < bytes.length - 1 && bytes[zeroByteCount] === 0) zeroByteCount += 1;
+  const minimal = bytes.subarray(zeroByteCount);
+  return der(0x02, minimal[0] & 0x80 ? Buffer.concat([Buffer.from([0]), minimal]) : minimal);
 }
 function objectId(dotted) {
   const [first, second, ...rest] = dotted.split(".").map(Number);
@@ -56,8 +59,10 @@ function addressBytes(address) {
 /**
  * A self-signed certificate for these names and addresses ("localhost", "192.168.1.20"), with its key, as PEM text:
  * { certificatePem, keyPem }. ECDSA P-256 and SHA-256, for server authentication, as phones ask of a server's certificate.
+ * The serial is 16 random bytes unless serialBytes is given (a test's way to try the serials that are hard to write).
+ * It lasts durationDays from now (and a day before, for clocks a little behind).
  */
-export function makeCertificate(names, nowMs = Date.now()) {
+export function makeCertificate(names, nowMs = Date.now(), serialBytes = randomBytes(16), durationDays = CERTIFICATE_DURATION_DAYS) {
   const { privateKey, publicKey } = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
   const name = sequence(set(sequence(objectId("2.5.4.3"), utf8("Zaisma test bench"))));
   const signatureAlgorithm = sequence(objectId("1.2.840.10045.4.3.2"));
@@ -69,14 +74,14 @@ export function makeCertificate(names, nowMs = Date.now()) {
     // Basic constraints: not a certificate authority.
     sequence(objectId("2.5.29.19"), octets(sequence())),
   ));
-  const serial = randomBytes(16);
+  const serial = Buffer.from(serialBytes);
   serial[0] &= 0x7f;
   const toBeSigned = sequence(
     explicit(0, integer(Buffer.from([2]))),
     integer(serial),
     signatureAlgorithm,
     name,
-    sequence(utcTime(nowMs - DAY_MS), utcTime(nowMs + CERTIFICATE_DURATION_DAYS * DAY_MS)),
+    sequence(utcTime(nowMs - DAY_MS), utcTime(nowMs + durationDays * DAY_MS)),
     name,
     publicKey.export({ type: "spki", format: "der" }),
     extensions,

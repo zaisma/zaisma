@@ -160,7 +160,7 @@ p.lead{color:var(--muted);margin:0 0 28px;font-size:18px}
 .tile::before{width:200px;z-index:2;background:linear-gradient(90deg,rgba(255,255,255,0),rgba(255,255,255,.04) 35%,rgba(255,255,255,.07) 50%,rgba(255,255,255,.04) 65%,rgba(255,255,255,0));transform:translateX(calc(var(--gx,0px) - 100px)) rotate(15deg)}
 .tile .pic{position:relative;overflow:hidden;display:block;aspect-ratio:16/9;background:var(--grain) 0 0/200px 200px,linear-gradient(135deg,#23272e,#15171b)}
 .tile .pic img{width:100%;height:100%;object-fit:cover;display:block}
-.tile .pic:empty::after{content:"";position:absolute;inset:0;opacity:.18;background:url(/zaisma-mark-metal.svg) center/38% no-repeat;transform:none;top:0;height:auto;width:auto}
+.tile .pic:empty::after{content:"";position:absolute;inset:0;opacity:.18;background:url(/zaisma-mark-white.svg) center/38% no-repeat;transform:none;top:0;height:auto;width:auto}
 .tile .pic::after{width:160px;background:linear-gradient(90deg,rgba(255,255,255,0),rgba(255,255,255,.08) 35%,rgba(255,255,255,.12) 50%,rgba(255,255,255,.08) 65%,rgba(255,255,255,0));transform:translateX(calc(var(--gx,0px) - 80px)) rotate(15deg)}
 .tile .pic::before{width:18px;z-index:1;background:linear-gradient(90deg,rgba(255,255,255,0),rgba(255,255,255,.35) 30%,rgba(255,255,255,.55) 50%,rgba(255,255,255,.35) 70%,rgba(255,255,255,0));transform:translateX(calc(var(--gx,0px) - 9px)) rotate(15deg)}
 .tile.lit::before,.tile.lit .pic::after{opacity:calc(.5 * var(--gf,1))}
@@ -186,7 +186,7 @@ a.tile{color:inherit;text-decoration:none}
 }
 /* A game with no cover: its title engraved on the plate, over a faint Z. */
 .tile .named{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:14px 20px;text-align:center}
-.tile .named::before{content:"";position:absolute;inset:0;background:url(/zaisma-mark-metal.svg) center/38% no-repeat;opacity:.1}
+.tile .named::before{content:"";position:absolute;inset:0;background:url(/zaisma-mark-white.svg) center/38% no-repeat;opacity:.1}
 .tile .named span{position:relative;font-family:var(--display);font-weight:600;font-size:clamp(17px,1.9vw,23px);line-height:1.15;color:#c4c7cd;
   text-shadow:0 -1px 0 rgba(0,0,0,.85),0 1px 0 rgba(255,255,255,.09);display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
 /* A small note on a card's art, like Updated. */
@@ -680,6 +680,7 @@ ${options.checkedPage ? checkedPageTag(options.checkedPage) : ""}
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="icon" href="/favicon.ico" sizes="32x32">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="manifest" href="/manifest.webmanifest">
 <link rel="preload" href="${FONT_PATH}" as="font" type="font/woff2" crossorigin>
 ${themeColors}
 ${options.head ?? ""}

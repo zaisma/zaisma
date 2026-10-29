@@ -234,8 +234,8 @@ const SAMPLES: Record<string, (world: World) => Sample> = {
   "POST /pro/checkout": () => ({}),
   "POST /pro/cancel": () => ({}),
   "POST /pro/resume": () => ({}),
+  "POST /pro/refund": () => ({}),
   "POST /credit/refunds": (world) => ({ body: { top_up_id: world.values.top_up_id } }),
-  "PATCH /credit/automatic-top-up": () => ({ body: { is_enabled: false } }),
   "GET /stripe-account": () => ({}),
   "POST /stripe-account/connection-links": () => ({}),
   "PATCH /stripe-account": () => ({ body: { is_stripe_tax_used: true } }),
@@ -316,6 +316,8 @@ const STRIPE_ANSWERS: Record<string, Record<string, unknown>> = {
   "/v1/customers": { id: "cus_test" },
   "/v1/checkout/sessions": { id: "cs_test", url: "https://checkout.stripe.com/c/pay/cs_test", expires_at: 1_900_000_000 },
   "/v1/refunds": { id: "re_test" },
+  // Zaisma Pro's first payment, paid a minute ago: the one refund_pro refunds.
+  "/v1/invoices": { data: [{ id: "in_test", amount_paid: 1000, status_transitions: { paid_at: Math.floor(Date.now() / 1000) - 60 }, parent: { subscription_details: { subscription: "sub_test" } }, payments: { data: [{ status: "paid", payment: { payment_intent: "pi_pro_test" } }] } }] },
 };
 
 async function makeWorld(): Promise<World> {
@@ -751,9 +753,9 @@ describe("every call", () => {
     // And the developer, with a full key, gets through.
     const eventCount = async () => (await env.DB.prepare(`SELECT COUNT(*) AS event_count FROM security_events WHERE account_id = ? AND kind NOT IN (${KEY_USE_EVENT_KINDS.map((kind) => `'${kind}'`).join(", ")})`).bind(world.victimAccountId).first<{ event_count: number }>())!.event_count;
     const eventCountBefore = await eventCount();
-    // Cancelling and resuming need Zaisma Pro, paid on Stripe (a stand-in here), and resuming needs it cancelled.
-    if (routeName === "POST /pro/cancel" || routeName === "POST /pro/resume") {
-      await env.DB.prepare("UPDATE owners SET pro_until_ms = ?, stripe_subscription_id = 'sub_test', is_pro_cancelled = ? WHERE id = ?").bind(Date.now() + 86_400_000, routeName === "POST /pro/resume" ? 1 : 0, world.victimOwnerId).run();
+    // Cancelling, resuming and refunding need Zaisma Pro, paid on Stripe (a stand-in here), and resuming needs it cancelled.
+    if (routeName === "POST /pro/cancel" || routeName === "POST /pro/resume" || routeName === "POST /pro/refund") {
+      await env.DB.prepare("UPDATE owners SET pro_until_ms = ?, stripe_subscription_id = 'sub_test', stripe_customer_id = 'cus_test', is_pro_cancelled = ? WHERE id = ?").bind(Date.now() + 30 * 86_400_000, routeName === "POST /pro/resume" ? 1 : 0, world.victimOwnerId).run();
     }
     // Changing or disconnecting a Stripe account needs one connected.
     if (routeName === "PATCH /stripe-account" || routeName === "DELETE /stripe-account") {

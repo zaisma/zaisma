@@ -6,7 +6,6 @@ import {
   addCreditEntry,
   addHostingCharge,
   addWrittenOff,
-  automaticTopUpsThisMonth,
   creditOf,
   gameHostingMonth,
   hostingUseThisMonth,
@@ -19,7 +18,6 @@ import {
 } from "@zaisma/core";
 import { authUserEmail, realEmail } from "./auth.ts";
 import { deliverEmail, hostingEmail, type HostingEmailDetails, type HostingEmailKind } from "./email-codes.ts";
-import { StripeRefusal, chargeSavedCard } from "./stripe.ts";
 import type { Env } from "./env.ts";
 
 /**
@@ -33,9 +31,8 @@ import type { Env } from "./env.ts";
  * - No budget: at its free allowance the game pauses (free_used), and what it used past it, its finishing hour
  *   included, is written off: a budget given later pays only from when it starts (Julius, Oct 26, 2026).
  * - A budget: past its free allowance it draws whole cents from credit (the fraction carried), never past its budget
- *   (budget_used) or the balance (credit_used). Automatic top-up runs first, whenever this run's charge would take the
- *   balance under the developer's line, so a developer with it on never pauses while it can still charge. What a game
- *   uses past either, its finishing hour included, is written off.
+ *   (budget_used) or the balance (credit_used). What a game uses past either, its finishing hour included, is written
+ *   off.
  * - A pause that no longer holds (a budget raised, credit added) is cleared, and the game's database told.
  *
  * The heads-ups (80% of the free allowance, also for a game with a budget and nothing to spend, or of a budget), the
@@ -94,8 +91,6 @@ async function judgeGame(env: Env, game: { id: string; title: string; owner_id: 
   if (budgetCents === null) {
     if (isPastFree) reason = "free_used";
   } else {
-    // A closed month's charge is only what the balance already covers: no card is charged for it.
-    if (!options.isClosedMonth) credit = await topUpAutomatically(env, game.owner_id, credit, nowMs, Math.min(owedCents, Math.max(0, budgetCents - chargedCents)));
     const chargeableCents = Math.max(0, Math.min(owedCents, budgetCents - chargedCents, credit.balanceCents));
     if (chargeableCents > 0) {
       if (await addHostingCharge(env.DB, { ownerId: game.owner_id, gameId: game.id, amountCents: chargeableCents, monthStartDate: month.month_start_date, monthChargedCents: month.charged_cents, nowMs })) {
@@ -138,7 +133,7 @@ async function judgeGame(env: Env, game: { id: string; title: string; owner_id: 
   const reached: [HostingAlertKind, string][] = [];
   const isNearlyFree = use.totalCents >= (FREE_HOSTING_CENTS_PER_MONTH * NEARLY_USED_PCT) / 100;
   // The heads-up comes before the pause, and with it when one run went straight past it: never skipped.
-  if (isNearlyFree && (budgetCents === null || (chargedCents === 0 && !(await canGoPastFree(env, game.owner_id, credit, nowMs))))) reached.push(["hosting_nearly_paused", ""]);
+  if (isNearlyFree && (budgetCents === null || (chargedCents === 0 && !canGoPastFree(credit)))) reached.push(["hosting_nearly_paused", ""]);
   else if (budgetCents !== null && chargedCents >= (budgetCents * NEARLY_USED_PCT) / 100) reached.push(["hosting_budget_nearly_used", String(budgetCents)]);
   if (pausedAtMs !== null) reached.push(["hosting_paused", String(pausedAtMs)]);
   if (use.use.databaseSizeBytes >= MAXIMUM_GAME_STORAGE_SIZE_BYTES) reached.push(["database_full", ""]);
@@ -149,70 +144,17 @@ async function judgeGame(env: Env, game: { id: string; title: string; owner_id: 
   }
 }
 
-/** Whether a game with a budget can go past its free hosting: the owner has credit, or automatic top-up can still add some this month. */
-async function canGoPastFree(env: Env, ownerId: string, credit: Credit, nowMs: number): Promise<boolean> {
-  if (credit.balanceCents > 0) return true;
-  const automatic = credit.automaticTopUp;
-  if (!automatic.isEnabled || !credit.stripePaymentMethodId || automatic.topUpAmountCents === null || automatic.monthlyTopUpLimitCents === null) return false;
-  const { toppedUpCents } = await automaticTopUpsThisMonth(env.DB, ownerId, nowMs);
-  return toppedUpCents + automatic.topUpAmountCents <= automatic.monthlyTopUpLimitCents;
-}
-
-/** At most this many automatic top-ups in one run for one owner; the monthly limit stops it sooner. */
-const MAXIMUM_TOP_UP_COUNT_PER_RUN = 5;
-
-/**
- * Tops the owner's credit up from their saved card while the balance after owedCents, this run's charge, would be
- * under their line, as long as the month's limit has room. Each attempt has its own idempotency key (the attempt count
- * and when automatic top-up was last turned on), reused only to try the same attempt again when Stripe didn't answer,
- * so it's charged once. A refused card turns automatic top-up off and tells them; Stripe's own trouble leaves it on,
- * and the next run tries again. Answers the credit after.
- */
-export async function topUpAutomatically(env: Env, ownerId: string, credit: Credit, nowMs = Date.now(), owedCents = 0): Promise<Credit> {
-  for (let topUpIndex = 0; topUpIndex < MAXIMUM_TOP_UP_COUNT_PER_RUN; topUpIndex++) {
-    const automatic = credit.automaticTopUp;
-    if (!automatic.isEnabled || !credit.stripeCustomerId || !credit.stripePaymentMethodId || automatic.topUpAmountCents === null || automatic.monthlyTopUpLimitCents === null) return credit;
-    if (credit.balanceCents - owedCents >= (automatic.topUpBelowCents ?? 0)) return credit;
-    const { toppedUpCents } = await automaticTopUpsThisMonth(env.DB, ownerId, nowMs);
-    if (toppedUpCents + automatic.topUpAmountCents > automatic.monthlyTopUpLimitCents) return credit;
-    let paymentIntent: { id: string; status?: unknown };
-    try {
-      paymentIntent = await chargeSavedCard(env, {
-        ownerId,
-        customerId: credit.stripeCustomerId,
-        paymentMethodId: credit.stripePaymentMethodId,
-        amountCents: automatic.topUpAmountCents,
-        idempotencyKey: `automatic-top-up:${ownerId}:${monthStartDateOf(nowMs).slice(0, 7)}:${automatic.attemptCount}:${automatic.enabledAtMs ?? 0}`,
-      });
-    } catch (error) {
-      if (error instanceof StripeRefusal && error.isCardRefused) {
-        await settleTopUpAttempt(env, ownerId, automatic.attemptCount);
-        await turnOffAutomaticTopUp(env, ownerId, error.stripeMessage);
-        return { ...credit, automaticTopUp: { ...automatic, isEnabled: false } };
-      }
-      // Not the card: Stripe's own trouble, a rate limit, or no answer. It stays on, and this run charges what the balance covers.
-      console.error("Automatic top-up: Stripe didn't take it this time", ownerId, error);
-      return credit;
-    }
-    await settleTopUpAttempt(env, ownerId, automatic.attemptCount);
-    if (paymentIntent.status === "succeeded") await addTopUp(env, { ownerId, amountCents: automatic.topUpAmountCents, paymentIntentId: paymentIntent.id, isAutomatic: true, nowMs });
-    credit = await creditOf(env.DB, ownerId);
-    if (paymentIntent.status !== "succeeded") return credit;
-  }
-  return credit;
-}
-
-/** An attempt Stripe answered: the next one gets its own key. Only the run that read this count moves it on, so two runs at once share one attempt. */
-async function settleTopUpAttempt(env: Env, ownerId: string, attemptCount: number): Promise<void> {
-  await env.DB.prepare("UPDATE owners SET automatic_top_up_attempt_count = automatic_top_up_attempt_count + 1 WHERE id = ? AND automatic_top_up_attempt_count = ?").bind(ownerId, attemptCount).run();
+/** Whether a game with a budget can go past its free hosting: the owner has credit. */
+function canGoPastFree(credit: Credit): boolean {
+  return credit.balanceCents > 0;
 }
 
 /**
  * A top-up that went through, from whichever path counts it first (this job, or Stripe's event): the credit,
- * refundable for 180 days; the credit-low line, creditLowPct of the balance after it; the developer told of an
- * automatic one; and every paused game of the owner's starts again if it can.
+ * refundable for 30 days; the credit-low line, creditLowPct of the balance after it; and every paused game of the
+ * owner's starts again if it can.
  */
-export async function addTopUp(env: Env, topUp: { ownerId: string; amountCents: number; paymentIntentId: string; isAutomatic: boolean; nowMs?: number }): Promise<boolean> {
+export async function addTopUp(env: Env, topUp: { ownerId: string; amountCents: number; paymentIntentId: string; nowMs?: number }): Promise<boolean> {
   const nowMs = topUp.nowMs ?? Date.now();
   const id = await addCreditEntry(env.DB, {
     ownerId: topUp.ownerId,
@@ -220,16 +162,10 @@ export async function addTopUp(env: Env, topUp: { ownerId: string; amountCents: 
     amountCents: topUp.amountCents,
     stripeObjectId: topUp.paymentIntentId,
     refundableUntilMs: nowMs + CREDIT_LIMITS.refundableDurationDays * 86_400_000,
-    isAutomatic: topUp.isAutomatic,
     createdAtMs: nowMs,
   });
   if (!id) return false;
   await env.DB.prepare("UPDATE owners SET credit_low_line_cents = credit_balance_cents * ? / 100, credit_low_told_at_ms = NULL WHERE id = ?").bind(CREDIT_LIMITS.creditLowPct, topUp.ownerId).run();
-  if (topUp.isAutomatic) {
-    const [credit, { toppedUpCents }] = await Promise.all([creditOf(env.DB, topUp.ownerId), automaticTopUpsThisMonth(env.DB, topUp.ownerId, nowMs)]);
-    const monthlyLimitCents = credit.automaticTopUp.monthlyTopUpLimitCents ?? toppedUpCents;
-    await emailOwner(env, topUp.ownerId, "automatic_top_up_made", { topUpCents: topUp.amountCents, leftThisMonthCents: Math.max(0, monthlyLimitCents - toppedUpCents), monthlyLimitCents, monthName: monthName(nowMs) });
-  }
   await clearPauses(env, topUp.ownerId, nowMs);
   return true;
 }
@@ -267,11 +203,6 @@ async function tellDatabase(env: Env, gameId: string, pausedAtMs: number | null)
   } catch (error) {
     console.error("Couldn't tell the game's database about its hosting:", error);
   }
-}
-
-export async function turnOffAutomaticTopUp(env: Env, ownerId: string, failureText: string | null): Promise<void> {
-  const turnedOff = await env.DB.prepare("UPDATE owners SET automatic_top_up_enabled = 0 WHERE id = ? AND automatic_top_up_enabled = 1").bind(ownerId).run();
-  if (turnedOff.meta.changes) await emailOwner(env, ownerId, "automatic_top_up_failed", { failureText: failureText ?? undefined });
 }
 
 /**

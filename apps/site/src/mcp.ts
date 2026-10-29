@@ -2,7 +2,7 @@ import { ApiError, CONTROLS, DEVICES, GENRES, MAXIMUM_GENRE_COUNT, FORUM_CATEGOR
 import { INTERNAL_ERROR, apiCall, authenticate, type Caller } from "./developer.ts";
 import type { Env } from "./env.ts";
 import { CHECKED_TEXT_EXTENSIONS, extensionOf } from "../../../packages/cli/check.mjs";
-import { ACCESS, ACTIVITY, PRO, PRO_CHANGED, PRO_CHECKOUT, CREDIT, CREDIT_CHANGED, TOP_UP_CHECKOUT, TOP_UP_REFUNDED, STRIPE_ACCOUNT, STRIPE_ACCOUNT_CHANGED, SPENDING_REQUEST, CONNECTION_LINK, GAME_CHECK_FIELDS, API_KEYS, DATABASE, DATABASE_EXPORT, DATABASE_IMPORT, DATABASE_RESTORED, ERASED_PLAYER, GAME, GAME_ALERTS, GAME_EXPORT, HISTORY, KEPT_ROOMS, KEPT_ROOM_DELETED, BACKGROUND, SHADER, SHADER_CHECK, LISTED_GAME, QR_CODE, STATEMENT_RESULT, IMAGE, LOGS, SAVE, SAVE_CHANGED, SAVE_COPY, SAVE_COPY_LIST, SAVE_LIST, INDEXEDDB_DATABASE, NEW_REPLY, NEW_TOPIC, NEXT, PLAYER_PROFILE, POST, POST_BOOKMARK, POST_RATING, REPORTS, SIGN_IN_APP, SECRET, STATS, TESTER, TOPIC_PAGE, TOPIC_WITH_POSTS, VERSION, WEBHOOK, WEBHOOK_DELIVERY, answerOrError, choice, countOf, idOf, list, nullable, object as answer, text, yes, GAME_ITEM, ITEMS, PURCHASE, PURCHASE_SETTINGS } from "./schemas.ts";
+import { ACCESS, ACTIVITY, PRO, PRO_CHANGED, PRO_CHECKOUT, PRO_REFUNDED, CREDIT, TOP_UP_CHECKOUT, TOP_UP_REFUNDED, STRIPE_ACCOUNT, STRIPE_ACCOUNT_CHANGED, SPENDING_REQUEST, CONNECTION_LINK, GAME_CHECK_FIELDS, API_KEYS, DATABASE, DATABASE_EXPORT, DATABASE_IMPORT, DATABASE_RESTORED, ERASED_PLAYER, GAME, GAME_ALERTS, GAME_EXPORT, HISTORY, KEPT_ROOMS, KEPT_ROOM_DELETED, BACKGROUND, SHADER, SHADER_CHECK, LISTED_GAME, QR_CODE, STATEMENT_RESULT, IMAGE, LOGS, SAVE, SAVE_CHANGED, SAVE_COPY, SAVE_COPY_LIST, SAVE_LIST, INDEXEDDB_DATABASE, NEW_REPLY, NEW_TOPIC, NEXT, PLAYER_PROFILE, POST, POST_BOOKMARK, POST_RATING, REPORTS, SIGN_IN_APP, SECRET, STATS, TESTER, TOPIC_PAGE, TOPIC_WITH_POSTS, VERSION, WEBHOOK, WEBHOOK_DELIVERY, answerOrError, choice, countOf, idOf, list, nullable, object as answer, text, yes, GAME_ITEM, ITEMS, PURCHASE, PURCHASE_SETTINGS } from "./schemas.ts";
 
 /**
  * The developer MCP at /mcp: every tool is a call to the developer API, so the MCP, the upload command
@@ -743,7 +743,7 @@ export const TOOLS: Tool[] = [
     name: "get_credit",
     title: "My hosting credit",
     description:
-      "The developer's hosting credit: the balance (in cents, never in dollars), whether it's low (is_credit_low: under 20% of what there was after the last top-up), automatic top-up, the last 180 days' top-ups with what each still refunds, each game's budget and what credit paid for it this month, and the last 90 days' entries. Every game gets free hosting each month on one meter (get_stats' hosting_use_this_month, a percentage); past it, only a game with a budget (update_game, monthly_budget_cents) draws from credit, never past its budget. Credit never expires and is never paid out.",
+      "The developer's hosting credit: the balance (in cents, never in dollars), whether it's low (is_credit_low: under 20% of what there was after the last top-up), the last 30 days' top-ups with what each still refunds, each game's budget and what credit paid for it this month, and the last 90 days' entries. Every game gets free hosting each month on one meter (get_stats' hosting_use_this_month, a percentage); past it, only a game with a budget (update_game, monthly_budget_cents) draws from credit, never past its budget. Credit never expires and is never paid out.",
     inputSchema: object({}),
     outputSchema: CREDIT,
     annotations: read,
@@ -753,7 +753,7 @@ export const TOOLS: Tool[] = [
     name: "get_spending_request",
     title: "A spending request's answer",
     description:
-      "Whether the developer has answered a raise in spending you asked for. When update_game (a budget) or update_automatic_top_up (turning it on or up) answers confirmation_needed, it also answers spending_request_id: give the developer confirm_url, where a sheet names the exact change and they approve with a passkey tap or decline. This shows request_status (waiting, approved, declined or expired after a day), the change asked for and what it is now. Approved means the change is already made.",
+      "Whether the developer has answered a raise in spending you asked for. When update_game (a game's first or higher budget) answers confirmation_needed, it also answers spending_request_id: give the developer confirm_url, where a sheet names the exact change and they approve with a passkey tap or decline. This shows request_status (waiting, approved, declined or expired after a day), the change asked for and what it is now. Approved means the change is already made.",
     inputSchema: object({ spending_request_id: { type: "string", pattern: "^spending_request_[a-z0-9]+$", description: "From confirmation_needed's spending_request_id, like spending_request_k2m9x4…" } }, ["spending_request_id"]),
     outputSchema: SPENDING_REQUEST,
     annotations: read,
@@ -763,7 +763,7 @@ export const TOOLS: Tool[] = [
     name: "top_up_credit",
     title: "Add hosting credit",
     description:
-      "Start a top-up of the developer's hosting credit: answers Stripe's page (checkout_url), where only the developer can pay; give them the link. $10 buys $10 of credit, from 1000 to 100000 cents. Once they've paid, get_credit shows it, and games paused for credit start again. Their card is kept for automatic top-up.\n\n" +
+      "Start a top-up of the developer's hosting credit: answers Stripe's page (checkout_url), where only the developer can pay; give them the link. $10 buys $10 of credit, from 1000 to 100000 cents. Once they've paid, get_credit shows it, and games paused for credit start again. Credit only comes in this way, paid on Stripe's page.\n\n" +
       'Not: { "amount_cents": 20 } (that\'s 20 cents; cents, not dollars, so $20 is 2000)\n' +
       'Not: { "amount_cents": 500 } (the least is 1000, $10)',
     inputSchema: { ...object({ amount_cents: { type: "integer", minimum: 1000, maximum: 100000, description: "Cents to add: 2000 is $20." } }, ["amount_cents"]), examples: [{ amount_cents: 2000 }] },
@@ -815,7 +815,7 @@ export const TOOLS: Tool[] = [
     name: "get_pro",
     title: "My plan",
     description:
-      "The developer's plan: free, or Zaisma Pro ($10 a month on their card, apart from credit). Pro raises the daily limits: 20 large and 100 small AI reviews a day (free 5 and 30), 60 performance checks (20), 100 versions a game (20), and games up to 10 GB (2 GB). Answers both plans' limits, what today used, and when Pro ends or renews (pro_ends_at) and whether it is cancelled. Seats come with Teams and custom domains with Custom game domains, not Pro.",
+      "The developer's plan: free, or Zaisma Pro ($10 a month on their card, apart from credit). Pro raises the daily limits: 20 large and 100 small AI reviews a day (free 5 and 30), 60 performance checks (20), 100 versions a game (20), and games up to 10 GB (2 GB). Answers both plans' limits, what today used, when Pro ends or renews (pro_ends_at), whether it is cancelled, and until when its first payment refunds (refund_ends_at, refund_pro). Seats come with Teams and custom domains with Custom game domains, not Pro.",
     inputSchema: object({}),
     outputSchema: PRO,
     annotations: read,
@@ -849,33 +849,22 @@ export const TOOLS: Tool[] = [
     run: (_, call) => call("POST", "/pro/resume"),
   },
   {
+    name: "refund_pro",
+    title: "Refund Zaisma Pro",
+    description: "Refund the first Zaisma Pro payment, within 14 days of it; Pro ends now and the free limits come back. Only the account's first payment refunds, while it's the only one (get_pro's refund_ends_at says until when); after that, cancel_pro ends Pro at the end of the paid month, with no part-month refunds. Answers pro_not_refundable otherwise. Ask the developer first.",
+    inputSchema: object({}),
+    outputSchema: PRO_REFUNDED,
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+    run: (_, call) => call("POST", "/pro/refund"),
+  },
+  {
     name: "refund_top_up",
     title: "Refund a top-up",
-    description: "Give back what's unspent of one top-up to the card it came from, within 180 days of it. Credit is spent oldest first, so the newest top-ups hold the balance. get_credit lists each top-up's refundable_cents. Ask the developer first: it takes that credit away.",
+    description: "Give back what's unspent of one top-up to the card it came from, within 30 days of it. Credit is spent oldest first, so the newest top-ups hold the balance. get_credit lists each top-up's refundable_cents. Ask the developer first: it takes that credit away.",
     inputSchema: object({ top_up_id: { type: "string", pattern: "^top_up_[a-z0-9]+$", description: "A top-up's id from get_credit, like top_up_k2m9x4…" } }, ["top_up_id"]),
     outputSchema: TOP_UP_REFUNDED,
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
     run: (toolArguments, call) => call("POST", "/credit/refunds", pick(toolArguments, ["top_up_id"])),
-  },
-  {
-    name: "update_automatic_top_up",
-    title: "Change automatic top-up",
-    description:
-      "Automatic top-up: when the balance is under top_up_below_cents, Zaisma charges top_up_amount_cents to the card of the developer's last top-up, never more than monthly_top_up_limit_cents in a month, and emails them each time. Leave out what stays the same. Turning it off or lowering an amount works here; turning it on or raising one answers confirmation_needed with confirm_url, where the developer approves it with their passkey, and spending_request_id for get_spending_request.\n\n" +
-      'Not: { "top_up_amount_cents": 20 } (cents: $20 is 2000)\n' +
-      'Not: { "is_enabled": true, "top_up_amount_cents": 2000, "monthly_top_up_limit_cents": 1000 } (the monthly limit is at least one top-up)',
-    inputSchema: {
-      ...object({
-        is_enabled: { type: "boolean" },
-        top_up_below_cents: { type: ["integer", "null"], minimum: 0, description: "Top up when the balance falls under this, in cents." },
-        top_up_amount_cents: { type: ["integer", "null"], minimum: 1000, maximum: 100000, description: "What each top-up adds, in cents." },
-        monthly_top_up_limit_cents: { type: ["integer", "null"], minimum: 1000, description: "The most automatic top-ups add in a month, in cents." },
-      }),
-      examples: [{ is_enabled: false }, { top_up_amount_cents: 1000 }],
-    },
-    outputSchema: CREDIT_CHANGED,
-    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-    run: (toolArguments, call) => call("PATCH", "/credit/automatic-top-up", pick(toolArguments, ["is_enabled", "top_up_below_cents", "top_up_amount_cents", "monthly_top_up_limit_cents"])),
   },
   {
     name: "list_webhooks",

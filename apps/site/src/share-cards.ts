@@ -61,8 +61,9 @@ export async function gamePageHead(env: Env, game: Game, options: { roomCode: st
   const sharedUrl = options.roomCode ? `${pageUrl}?room=${options.roomCode}` : pageUrl;
   const words = shareWords(game.title, options.roomCode);
   const image = await shareImage(env, game.id);
-  const cardSize = image ? cardImageSize(image.width_px, image.height_px) : null;
-  const imageUrl = image ? `${env.SITE_ORIGIN}/img/${image.id}/card.jpg` : `${env.SITE_ORIGIN}/app-icon-512.png`;
+  // With no picture of its own, a game's card is Zaisma's (brand/share-card-light.png; Open Graph has no dark card).
+  const cardSize = image ? cardImageSize(image.width_px, image.height_px) : { width_px: CARD_IMAGE_WIDTH_PX, height_px: CARD_IMAGE_HEIGHT_PX };
+  const imageUrl = image ? `${env.SITE_ORIGIN}/img/${image.id}/card.jpg` : `${env.SITE_ORIGIN}/share-card-light.png`;
   const description = game.description ? searchDescription(game.description) : words.line;
   const structured = {
     "@context": "https://schema.org",
@@ -84,10 +85,10 @@ export async function gamePageHead(env: Env, game: Game, options: { roomCode: st
 <meta property="og:title" content="${words.title}">
 <meta property="og:description" content="${words.line}">
 <meta property="og:image" content="${imageUrl}">
-${cardSize ? html`<meta property="og:image:width" content="${cardSize.width_px}">
+<meta property="og:image:width" content="${cardSize.width_px}">
 <meta property="og:image:height" content="${cardSize.height_px}">
-<meta property="og:image:alt" content="${game.title}">` : ""}
-<meta name="twitter:card" content="${image ? "summary_large_image" : "summary"}">
+<meta property="og:image:alt" content="${image ? game.title : "Zaisma"}">
+<meta name="twitter:card" content="summary_large_image">
 ${structuredData(structured)}`;
 }
 

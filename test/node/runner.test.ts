@@ -3,7 +3,9 @@ import { createServer } from "node:http";
 import WebSocket from "ws";
 import { createRequire } from "node:module";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, symlinkSync } from "node:fs";
+import { mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
+import { X509Certificate } from "node:crypto";
+import { createSocket } from "node:dgram";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -12,6 +14,7 @@ import { startServer } from "../../packages/game-server/bin/node.js";
 import { localRoomStates, passKeysFrom, profilesFrom } from "../../packages/game-server/bin/node-parts.js";
 import { ERROR_TEXT, GameServerError, defineGameServer, generateSigningKey, loadSigningKey, relay, signPass, type Purchase } from "../../packages/game-server/src/internal.ts";
 import { signTestReceipt } from "../helpers.ts";
+import { makeCertificate } from "../../packages/game-server/bin/local-play-certificate.js";
 import { playTranscript, transcriptGameServerOptions, type TranscriptDriver } from "../rooms-transcript.ts";
 
 const ISS = "https://rooms.zaisma.test";
@@ -556,11 +559,20 @@ describe("Node runner", () => {
     expect(refused({ ...base, database: {} })).toMatchObject({ code: "bad_option", field: "database" });
     expect(refused({ ...base, roomStateFile: 3 })).toMatchObject({ code: "bad_option", field: "roomStateFile" });
     expect(refused({ ...base, server: relay }).message).toContain("startServer takes: gameServer, gameSlug, port");
+    // The fast lane: all three or none, a port, and certificate files it can read.
+    expect(refused({ ...base, webtransportPort: 4433 })).toMatchObject({ code: "bad_option", field: "certificatePath" });
+    expect(refused({ ...base, webtransportPort: 4433 }).message).toContain("The fast lane needs certificatePath and certificateKeyPath too.");
+    expect(refused({ ...base, certificateKeyPath: "privkey.pem" })).toMatchObject({ code: "bad_option", field: "webtransportPort" });
+    expect(refused({ ...base, webtransportPort: "443", certificatePath: "a.pem", certificateKeyPath: "b.pem" })).toMatchObject({ code: "bad_option", field: "webtransportPort" });
+    expect(refused({ ...base, webtransportPort: 443, certificatePath: 3, certificateKeyPath: "b.pem" })).toMatchObject({ code: "bad_option", field: "certificatePath" });
+    expect(refused({ ...base, webtransportPort: 443, certificatePath: "/no/such/fullchain.pem", certificateKeyPath: "b.pem" })).toMatchObject({ code: "bad_option", field: "certificatePath" });
   });
 
-  it("answers { close, httpServer }, listens on the port given, and close() resolves once it has stopped", async () => {
+  it("answers { close, httpServer, fastLaneReady }, listens on the port given, and close() resolves once it has stopped", async () => {
     const running = startServer({ gameServer: relay, gameSlug: "arena", port: 0, origins: [ORIGIN], issuerUrl: ISS, loadPassKeys: async () => [signing.publicKey], roomStateFile: null });
-    expect(Object.keys(running).sort()).toEqual(["close", "httpServer"]);
+    expect(Object.keys(running).sort()).toEqual(["close", "fastLaneReady", "httpServer"]);
+    // No fast lane asked for: ready at once.
+    await expect(running.fastLaneReady).resolves.toBeUndefined();
     await new Promise((r) => running.httpServer.once("listening", r));
     expect(running.httpServer.listening).toBe(true);
     await running.close();
@@ -703,6 +715,11 @@ describe("Node runner", () => {
     expect(badPort.status).toBe(1);
     expect(badPort.stdout + badPort.stderr).toContain("(bad_option)");
     expect(badPort.stderr).not.toContain("    at ");
+    // The fast lane's three flags come together: one alone names the other two, then the usage line.
+    const fastLaneAlone = spawnSync(process.execPath, [link, "relay", "--game", "arena", "--webtransport-port", "4433"], { encoding: "utf8" });
+    expect(fastLaneAlone.status).toBe(1);
+    expect(fastLaneAlone.stdout).toContain("The fast lane needs --certificate-path and --certificate-key-path too");
+    expect(fastLaneAlone.stdout).toContain("[--webtransport-port 443 --certificate-path fullchain.pem --certificate-key-path privkey.pem]");
   });
 
   it("reserves a room for some players, with its setup data and nobody else", async () => {
@@ -1472,5 +1489,130 @@ describe("onPurchase and onRefund on the developer's own server", () => {
     onTestFinished(() => guest.ws.close());
     await new Promise((resolve) => setTimeout(resolve, 150));
     expect(api.calls).toEqual([]);
+  });
+});
+
+// The fast lane's WebTransport server and its Node client are optional packages: without them, these cases can't run.
+const FAST_LANE_PACKAGE = "@fails-components/webtransport";
+const fastLanePackage = await import(FAST_LANE_PACKAGE).then(async (module) => (await module.quicheLoaded, module)).catch(() => null);
+
+describe.skipIf(!fastLanePackage)(`The fast lane (WebTransport) on the Node runner${fastLanePackage ? "" : `, skipped: ${FAST_LANE_PACKAGE} and its HTTP/3 package aren't installed`}`, () => {
+  /** A free UDP port, for the fast lane to listen on. */
+  async function freeUdpPort(): Promise<number> {
+    const socket = createSocket("udp4");
+    await new Promise<void>((resolve) => socket.bind(0, "127.0.0.1", resolve));
+    const { port: udpPort } = socket.address();
+    await new Promise<void>((resolve) => socket.close(() => resolve()));
+    return udpPort;
+  }
+
+  /** A runner with a fast lane on a certificate made here; the client trusts it by its hash, as a browser can for a short-lived one. */
+  async function serveFastLane(gameServer: object, origins: string[]) {
+    const folder = mkdtempSync(join(tmpdir(), "zaisma-fast-lane-"));
+    const { certificatePem, keyPem } = makeCertificate(["127.0.0.1", "localhost"], Date.now(), undefined, 12);
+    writeFileSync(join(folder, "fullchain.pem"), certificatePem);
+    writeFileSync(join(folder, "privkey.pem"), keyPem);
+    const webtransportPort = await freeUdpPort();
+    const own = startServer({ gameServer, gameSlug: "arena", port: 0, origins, issuerUrl: ISS, loadPassKeys: async () => [signing.publicKey], roomStateFile: null, webtransportPort, certificatePath: join(folder, "fullchain.pem"), certificateKeyPath: join(folder, "privkey.pem") });
+    await own.fastLaneReady;
+    onTestFinished(() => own.close());
+    const certificateHash = new Uint8Array(new X509Certificate(certificatePem).fingerprint256.split(":").map((pair) => parseInt(pair, 16)));
+    return { webtransportPort, certificateHash };
+  }
+
+  /** A fast-lane client as the SDK is one: a stream of [length][kind][payload] frames, and [kind][payload] datagrams. */
+  async function fastLaneClient(at: { webtransportPort: number; certificateHash: Uint8Array }, path: string) {
+    const session = new fastLanePackage!.WebTransport(`https://127.0.0.1:${at.webtransportPort}${path}`, { serverCertificateHashes: [{ algorithm: "sha-256", value: at.certificateHash }] });
+    await session.ready;
+    const stream = await session.createBidirectionalStream();
+    const writer = stream.writable.getWriter();
+    const datagramWriter = (session.datagrams.createWritable ? session.datagrams.createWritable() : session.datagrams.writable).getWriter();
+    const inbox: { message: any; isDatagram: boolean }[] = [];
+    const waiters: ((received: { message: any; isDatagram: boolean }) => void)[] = [];
+    const take = (kind: number, payload: Uint8Array, isDatagram: boolean) => {
+      const message = kind === 1 ? { type: "bytes", bytes: [...payload] } : (() => {
+        const text = new TextDecoder().decode(payload);
+        return text === "pong" ? { type: "pong" } : JSON.parse(text);
+      })();
+      // Probes are answered at once, as the SDK does.
+      if (message.type === "probe") return void say({ type: "probe_answer", probeNumber: message.probeNumber });
+      const waiter = waiters.shift();
+      waiter ? waiter({ message, isDatagram }) : inbox.push({ message, isDatagram });
+    };
+    void (async () => {
+      const reader = stream.readable.getReader();
+      let buffered = new Uint8Array(0);
+      for (;;) {
+        const { value, done } = await reader.read().catch(() => ({ value: undefined, done: true }));
+        if (done) return;
+        buffered = new Uint8Array([...buffered, ...value]);
+        while (buffered.length >= 5) {
+          const sizeBytes = new DataView(buffered.buffer, buffered.byteOffset).getUint32(0);
+          if (buffered.length < 5 + sizeBytes) break;
+          take(buffered[4]!, buffered.slice(5, 5 + sizeBytes), false);
+          buffered = buffered.slice(5 + sizeBytes);
+        }
+      }
+    })();
+    void (async () => {
+      const reader = session.datagrams.readable.getReader();
+      for (;;) {
+        const { value, done } = await reader.read().catch(() => ({ value: undefined, done: true }));
+        if (done) return;
+        take(value[0], value.slice(1), true);
+      }
+    })();
+    const frame = (text: string) => {
+      const payload = new TextEncoder().encode(text);
+      const framed = new Uint8Array(5 + payload.length);
+      new DataView(framed.buffer).setUint32(0, payload.length);
+      framed[4] = 0;
+      framed.set(payload, 5);
+      return framed;
+    };
+    const say = (message: object) => void writer.write(frame(JSON.stringify(message)));
+    const sayDatagram = (message: object) => void datagramWriter.write(new Uint8Array([0, ...new TextEncoder().encode(JSON.stringify(message))]));
+    const next = () => (inbox.length ? Promise.resolve(inbox.shift()!) : new Promise<{ message: any; isDatagram: boolean }>((resolve) => waiters.push(resolve)));
+    const until = async (type: string) => {
+      for (;;) {
+        const received = await next();
+        if (received.message.type === type) return received;
+      }
+    };
+    return { session, say, sayDatagram, until, closed: session.closed as Promise<{ closeCode: number; reason: string }> };
+  }
+
+  it("lets a player in with a pass, carries latest-only sends as datagrams both ways and the rest on the stream", async () => {
+    const heard: unknown[] = [];
+    const game = defineGameServer({
+      ticksPerSec: 20,
+      setup: () => ({}),
+      onMessage(_state, player, room, message) {
+        heard.push(message);
+        if (message === "ask") room.send(player.id, { type: "answer" });
+        else room.broadcast({ type: "aim", angle: message }, { delivery: "latest_only", latestKey: "aim" });
+      },
+    });
+    const at = await serveFastLane(game, []);
+    const a = await fastLaneClient(at, "/v1/rooms/arena/FASTAA");
+    a.say({ type: "hello", protocolVersionNumber: 1, pass: await pass("a") });
+    expect((await a.until("welcome")).message.me).toMatchObject({ id: "a" });
+    // A latest-only send from the player, as a datagram, reaches onMessage; the room's latest-only broadcast comes back as one.
+    a.sayDatagram({ type: "message", data: 30 });
+    const aim = await a.until("message");
+    expect(aim).toEqual({ message: { type: "message", data: { type: "aim", angle: 30 }, fromPlayerId: null }, isDatagram: true });
+    expect(heard).toEqual([30]);
+    // A reliable one goes on the stream, both ways.
+    a.say({ type: "message", data: "ask" });
+    expect(await a.until("message")).toEqual({ message: { type: "message", data: { type: "answer" }, fromPlayerId: null }, isDatagram: false });
+    a.session.close();
+  });
+
+  it("refuses a session from another page, with the WebSocket's code and close", async () => {
+    const at = await serveFastLane(relay, [ORIGIN]);
+    const stranger = await fastLaneClient(at, "/v1/rooms/arena/FASTAB");
+    stranger.say({ type: "hello", protocolVersionNumber: 1, pass: await pass("b") });
+    expect((await stranger.until("error")).message).toMatchObject({ type: "error", code: "bad_origin" });
+    expect((await stranger.closed).closeCode).toBe(4001);
   });
 });

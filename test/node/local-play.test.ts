@@ -249,7 +249,7 @@ describe("play-locally", () => {
     for (const script of page.matchAll(/src="(\/js\/[a-z-]+\.[a-z0-9]+\.js)"/g)) expect((await fetch(`${play.benchUrl}${script[1]}`)).status).toBe(200);
     const font = /href="(\/fonts\/[a-z0-9.]+\.woff2)"/.exec(page)?.[1];
     expect((await fetch(`${play.benchUrl}${font}`)).headers.get("content-type")).toBe("font/woff2");
-    expect((await fetch(`${play.benchUrl}/zaisma-mark-metal.svg`)).status).toBe(200);
+    expect((await fetch(`${play.benchUrl}/zaisma-mark-glass-black.svg`)).status).toBe(200);
     expect((await fetch(`${play.benchUrl}/README.md`)).status).toBe(404);
     // A guest's page drops the cookie; the sign-in is a bench page of its own.
     expect((await fetch(`${play.benchUrl}/p/${guest}/g/${SLUG}?play`)).headers.get("set-cookie")).toContain("Max-Age=0");

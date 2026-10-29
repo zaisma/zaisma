@@ -1003,6 +1003,17 @@ export interface RoomSettings {
  * sentAt}; the sender gets {type: "chat_sent", chatNumber, sentAt}, {type: "chat_stopped", chatNumber,
  * reason, message}, or an error with its chatNumber (chat_not_allowed, chat_empty, chat_too_long,
  * chat_too_fast). chat_sent never says who read it. welcome says canChat: whether this player can chat at all.
+ *
+ * The fast lane (WebTransport, own servers only: joinRoom({ transport: "webtransport" })): the client opens
+ * a session at https://<server>/v1/rooms/<game>/<code>, the server checks its Origin as for the WebSocket,
+ * and the client opens one bidirectional stream first. That stream carries every frame the WebSocket
+ * carries, in order, each as [4-byte big-endian payload length][1-byte kind: 0 text, 1 bytes][payload]:
+ * text is the same UTF-8 JSON (hello, probe, probe_answer, ...) or "ping"/"pong", bytes the same binary
+ * frame (bytesFrame from the room, raw bytes from the client). A datagram is [1-byte kind][payload] with
+ * the same payloads, and carries only "latest_only" sends, both ways, when it fits the session's
+ * maxDatagramSize; a bigger one goes on the stream. A server takes datagrams only from a player it let in.
+ * Close codes and reasons go in the session's close info (closeCode, reason), the same numbers as the
+ * WebSocket's. Zaisma's own rooms don't take WebTransport: the SDK uses the WebSocket for them.
  */
 export type ServerMessage =
   | {
@@ -1222,9 +1233,13 @@ const SEAT_MS = 60_000;
 
 /** How the room reaches players: a Durable Object's sockets, or a Node server's. */
 export interface Transport {
-  send(playerId: string, text: string): void;
-  /** A binary frame (bytesFrame). Without it, rooms can't send bytes. */
-  sendBytes?(playerId: string, frame: Uint8Array): void;
+  /**
+   * A text. delivery says how the game sent it: "latest_only" may go as a datagram on the fast lane to
+   * your own server (WebTransport); everything else, and every send on a WebSocket, goes in order.
+   */
+  send(playerId: string, text: string, delivery?: Delivery): void;
+  /** A binary frame (bytesFrame), with its delivery as for send. Without it, rooms can't send bytes. */
+  sendBytes?(playerId: string, frame: Uint8Array, delivery?: Delivery): void;
   close(playerId: string, closeCode: number, reason: string): void;
   /** Set up a reserved room, then send each of its players a "move" message. Without it, rooms can't reserve. */
   reserve?(roomCode: string, start: RoomStart): void;
@@ -3070,7 +3085,7 @@ export class RoomCore<S = any> {
    */
   private deliver(playerIds: string[], outgoing: Outgoing, delivery: CheckedDelivery): void {
     const ids = playerIds.filter((id) => !this.isLost(id));
-    if (!delivery.isLatestOnly) return this.sendOut(ids, outgoing, ids.filter((id) => this.isBackedUp(id)).length);
+    if (!delivery.isLatestOnly) return this.sendOut(ids, outgoing, ids.filter((id) => this.isBackedUp(id)).length, "reliable");
     const ready: string[] = [];
     for (const id of ids) {
       if (!this.isBackedUp(id)) {
@@ -3086,19 +3101,19 @@ export class RoomCore<S = any> {
       slots.set(slotKey, outgoing);
       if (slots.size > ROOM_LIMITS.maximumLatestOnlySlotCount) slots.delete(slots.keys().next().value!);
     }
-    this.sendOut(ready, outgoing, 0);
+    this.sendOut(ready, outgoing, 0, "latest_only");
   }
 
   /** A player's waiting latest-only messages, least recently replaced first. */
   private sendLatest(playerId: string): void {
     const slots = this.latestSlots.get(playerId);
     this.latestSlots.delete(playerId);
-    for (const outgoing of slots?.values() ?? []) this.sendOut([playerId], outgoing, 0);
+    for (const outgoing of slots?.values() ?? []) this.sendOut([playerId], outgoing, 0, "latest_only");
   }
 
-  private sendOut(playerIds: string[], outgoing: Outgoing, backedUpMessageCount: number): void {
-    if ("frame" in outgoing) this.sendFrame(playerIds, outgoing.frame, backedUpMessageCount);
-    else this.sendEach(playerIds, outgoing.text, outgoing.messageType, backedUpMessageCount);
+  private sendOut(playerIds: string[], outgoing: Outgoing, backedUpMessageCount: number, delivery: Delivery): void {
+    if ("frame" in outgoing) this.sendFrame(playerIds, outgoing.frame, backedUpMessageCount, delivery);
+    else this.sendEach(playerIds, outgoing.text, outgoing.messageType, backedUpMessageCount, delivery);
   }
 
   /**
@@ -3169,14 +3184,14 @@ export class RoomCore<S = any> {
   }
 
   /** Send a binary frame to some players, counting it like text: toward each one's backlog, and the room's traffic. */
-  private sendFrame(given: string[], frame: Uint8Array, backedUpMessageCount = 0): void {
+  private sendFrame(given: string[], frame: Uint8Array, backedUpMessageCount = 0, delivery: Delivery = "reliable"): void {
     if (!this.transport.sendBytes) throw new Error("Sending bytes isn't available here");
     const playerIds = given.filter((id) => !this.isLost(id));
     this.countTraffic("outbound", BYTES_MESSAGE_TYPE, playerIds.length, frame.length, backedUpMessageCount);
     this.depth++;
     try {
       for (const id of playerIds) {
-        this.transport.sendBytes(id, frame);
+        this.transport.sendBytes(id, frame, delivery);
         this.sent(id, frame.length);
       }
     } finally {
@@ -3193,13 +3208,13 @@ export class RoomCore<S = any> {
    * Send one text to several players, counting its bytes once. A player it drops for falling behind
    * leaves once everyone has it, so nobody hears of the leave before the rest of this text.
    */
-  private sendEach(playerIds: Iterable<string>, text: string, messageType = ZAISMA_MESSAGE_TYPE, backedUpMessageCount = 0): void {
+  private sendEach(playerIds: Iterable<string>, text: string, messageType = ZAISMA_MESSAGE_TYPE, backedUpMessageCount = 0, delivery: Delivery = "reliable"): void {
     const byteCount = utf8ByteCount(text);
     const ids = [...playerIds].filter((id) => !this.isLost(id));
     this.countTraffic("outbound", messageType, ids.length, byteCount, backedUpMessageCount);
     this.depth++;
     try {
-      for (const id of ids) this.sendText(id, text, byteCount, null);
+      for (const id of ids) this.sendText(id, text, byteCount, null, delivery);
     } finally {
       this.depth--;
       this.flush();
@@ -3212,9 +3227,9 @@ export class RoomCore<S = any> {
    * every ROOM_TUNING.probeSentSizeBytes, they're probed, so a backed-up connection shows as a late answer.
    * A player whose connection dropped gets nothing: nothing is sent, counted or probed until they're back.
    */
-  private sendText(playerId: string, text: string, byteCount = utf8ByteCount(text), messageType: string | null = ZAISMA_MESSAGE_TYPE): void {
+  private sendText(playerId: string, text: string, byteCount = utf8ByteCount(text), messageType: string | null = ZAISMA_MESSAGE_TYPE, delivery: Delivery = "reliable"): void {
     if (this.isLost(playerId)) return;
-    this.transport.send(playerId, text);
+    this.transport.send(playerId, text, delivery);
     // sendEach counts its text once for everyone (messageType null).
     if (messageType !== null) this.countTraffic("outbound", messageType, 1, byteCount);
     this.sent(playerId, byteCount);

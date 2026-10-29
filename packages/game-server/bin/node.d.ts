@@ -31,6 +31,16 @@ export interface StartServerOptions {
   zaismaKey?: string;
   /** Zaisma's developer API, which marks purchases handled. Default: https://zaisma.com/api/dev. */
   developerApiUrl?: string;
+  /**
+   * The fast lane: the UDP port where WebTransport sessions come, for games that join with transport: "webtransport".
+   * Give it with certificatePath and certificateKeyPath, or none of the three. It needs the optional packages
+   * @fails-components/webtransport and @fails-components/webtransport-transport-http3-quiche.
+   */
+  webtransportPort?: number;
+  /** The fast lane's certificate for the server's name, a PEM file (Let's Encrypt's fullchain.pem): WebTransport can't sit behind a TLS proxy, so the runner holds it. */
+  certificatePath?: string;
+  /** The fast lane's certificate key, a PEM file (Let's Encrypt's privkey.pem). */
+  certificateKeyPath?: string;
 }
 
 export interface RunningServer {
@@ -38,6 +48,8 @@ export interface RunningServer {
   close(): Promise<void>;
   /** The HTTP server, for its address (httpServer.address()). */
   httpServer: Server;
+  /** Settles once the fast lane listens (at once without one), or rejects with a GameServerError saying why it can't start. */
+  fastLaneReady: Promise<void>;
 }
 
 /**

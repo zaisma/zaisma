@@ -1,4 +1,4 @@
-import { ApiError, CREDIT_LIMITS, FREE_HOSTING_CENTS_PER_MONTH, automaticTopUpsThisMonth, checkIdKind, creditOf, isCreditLow, iso, monthStartDateOf, newId, passkeysFor, refundableTopUps, type CreditEntryKind } from "@zaisma/core";
+import { ApiError, CREDIT_LIMITS, FREE_HOSTING_CENTS_PER_MONTH, checkIdKind, creditOf, isCreditLow, iso, monthStartDateOf, newId, passkeysFor, refundableTopUps, type CreditEntryKind } from "@zaisma/core";
 import { confirmationOf } from "./session-proofs.ts";
 import { logCallerEvent } from "./security-log.ts";
 import { refundCharge, topUpCheckout } from "./stripe.ts";
@@ -10,14 +10,13 @@ import type { Env } from "./env.ts";
 /**
  * A developer's hosting credit through the developer API (docs/DECISIONS.md, "Hosting is priced with a margin, with
  * a free tier, and prepaid above it"): their AI reads the bill, starts a top-up (the person pays on Stripe's page),
- * refunds an unspent one, and turns automatic top-up off or down. Turning it on or up, like a game's first or higher
- * budget, needs the developer's passkey on zaisma.com (confirmation_needed with confirm_url), so a leaked key can't
- * spend. Each game's budget is on the game (PATCH /games/:slug, monthly_budget_cents).
+ * and refunds an unspent one. Credit only comes in through Stripe's page, so Stripe is the seller of every top-up.
+ * Each game's budget is on the game (PATCH /games/:slug, monthly_budget_cents); a first or higher one needs the
+ * developer's passkey on zaisma.com (confirmation_needed with confirm_url), so a leaked key can't spend.
  *
- *   GET   /api/dev/credit                      the balance, automatic top-up, top-ups, games' spending and entries
+ *   GET   /api/dev/credit                      the balance, top-ups, games' spending and entries
  *   POST  /api/dev/credit/top-ups              { amount_cents } → Stripe's page to pay on
  *   POST  /api/dev/credit/refunds              { top_up_id } → what's unspent of it, back to its card
- *   PATCH /api/dev/credit/automatic-top-up     { is_enabled, top_up_below_cents, top_up_amount_cents, monthly_top_up_limit_cents }
  */
 
 /** How far back the entries go. */
@@ -57,10 +56,9 @@ export async function checkSpendingConfirmed(env: Env, caller: Caller, what: str
 export async function creditAnswer(env: Env, ownerId: string, nowMs = Date.now()) {
   const sinceMs = nowMs - ENTRY_DURATION_DAYS * DAY_MS;
   const lastMonthStartDate = monthStartDateOf(Date.parse(`${monthStartDateOf(nowMs)}T00:00:00Z`) - DAY_MS);
-  const [credit, topUps, automatic, { results: entries }, { results: games }] = await Promise.all([
+  const [credit, topUps, { results: entries }, { results: games }] = await Promise.all([
     creditOf(env.DB, ownerId),
     refundableTopUps(env.DB, ownerId, nowMs),
-    automaticTopUpsThisMonth(env.DB, ownerId, nowMs),
     env.DB.prepare("SELECT credit_entries.id, entry_kind, amount_cents, games.slug AS game_slug, credit_entries.created_at_ms FROM credit_entries LEFT JOIN games ON games.id = credit_entries.game_id WHERE credit_entries.owner_id = ? AND credit_entries.created_at_ms >= ? ORDER BY credit_entries.created_at_ms DESC")
       .bind(ownerId, sinceMs)
       .all<{ id: string; entry_kind: CreditEntryKind; amount_cents: number; game_slug: string | null; created_at_ms: number }>(),
@@ -73,13 +71,6 @@ export async function creditAnswer(env: Env, ownerId: string, nowMs = Date.now()
   return {
     balance_cents: credit.balanceCents,
     is_credit_low: isCreditLow(credit),
-    automatic_top_up: {
-      is_enabled: credit.automaticTopUp.isEnabled,
-      top_up_below_cents: credit.automaticTopUp.topUpBelowCents,
-      top_up_amount_cents: credit.automaticTopUp.topUpAmountCents,
-      monthly_top_up_limit_cents: credit.automaticTopUp.monthlyTopUpLimitCents,
-      topped_up_this_month_cents: automatic.toppedUpCents,
-    },
     top_ups: topUps
       .filter((topUp) => topUp.createdAtMs >= nowMs - CREDIT_LIMITS.refundableDurationDays * DAY_MS)
       .map((topUp) => ({ id: topUp.id, amount_cents: topUp.amountCents, refundable_cents: topUp.refundableCents, refund_ends_at: iso(topUp.refundableUntilMs), created_at: iso(topUp.createdAtMs) })),
@@ -106,7 +97,7 @@ export async function creditRoute(env: Env, path: string, method: string, body: 
   if (spendingRequestMatch && method === "GET") {
     const id = spendingRequestMatch[1]!;
     checkIdKind("spending_request", id, "spending_request_id", "A spending request's ID comes with confirmation_needed (spending_request_id).");
-    const answer = await spendingRequestAnswer(env, caller.accountId, ownerId, id);
+    const answer = await spendingRequestAnswer(env, caller.accountId, id);
     if (!answer) throw new ApiError("no_spending_request", { message: `You have no spending request ${JSON.stringify(id.slice(0, 60))}.`, field: "spending_request_id", fix: "The ID comes with confirmation_needed (spending_request_id) when a raise needs the developer." });
     return [{ spending_request: answer }];
   }
@@ -126,10 +117,10 @@ export async function creditRoute(env: Env, path: string, method: string, body: 
         fix: "Give cents, not dollars: 2000 is $20.",
       });
     }
-    // A top-up keeps the card, so (like linking a parent) it waits until the account has a passkey or an email to get back in with.
+    // Credit is money held for the account, so (like linking a parent) a top-up waits until the account has a passkey or an email to get back in with.
     if (!(await isAccountProtected(env, caller.accountId))) {
       throw new ApiError("account_not_protected", {
-        message: "This account has no passkey and no email yet, and a top-up keeps your card for later ones.",
+        message: "This account has no passkey and no email yet, and credit you buy stays with this account.",
         fix: `Add a passkey or an email on ${env.SITE_ORIGIN}/account, then top up again.`,
       });
     }
@@ -146,7 +137,7 @@ export async function creditRoute(env: Env, path: string, method: string, body: 
     const topUp = topUps.find((each) => each.id === body.top_up_id);
     if (!topUp) throw new ApiError("no_top_up", { message: `You have no top-up ${JSON.stringify(String(body.top_up_id ?? "").slice(0, 40))}.`, field: "top_up_id", fix: topUpFix });
     if (topUp.refundableCents <= 0 || !topUp.stripeObjectId) {
-      throw new ApiError("top_up_not_refundable", { message: topUp.unspentCents <= 0 ? "That top-up is spent or refunded already." : "That top-up is over 180 days old, so it doesn't refund.", field: "top_up_id", fix: topUpFix });
+      throw new ApiError("top_up_not_refundable", { message: topUp.unspentCents <= 0 ? "That top-up is spent or refunded already." : "That top-up is over 30 days old, so it doesn't refund.", field: "top_up_id", fix: topUpFix });
     }
     const refundedCents = await refundTopUp(env, ownerId, topUp.id, topUp.stripeObjectId, topUp.refundableCents);
     await logCallerEvent(env, caller, "credit_refunded");
@@ -154,44 +145,7 @@ export async function creditRoute(env: Env, path: string, method: string, body: 
     return [{ refunded_cents: refundedCents, next_steps: nextSteps }];
   }
 
-  if (path === "/credit/automatic-top-up" && method === "PATCH") {
-    const credit = await creditOf(env.DB, ownerId);
-    const now = credit.automaticTopUp;
-    const isEnabled = body.is_enabled === undefined ? now.isEnabled : body.is_enabled;
-    if (typeof isEnabled !== "boolean") throw badAutomaticTopUp("is_enabled", "is_enabled isn't true or false.");
-    const amounts = {
-      top_up_below_cents: body.top_up_below_cents === undefined ? now.topUpBelowCents : body.top_up_below_cents,
-      top_up_amount_cents: body.top_up_amount_cents === undefined ? now.topUpAmountCents : body.top_up_amount_cents,
-      monthly_top_up_limit_cents: body.monthly_top_up_limit_cents === undefined ? now.monthlyTopUpLimitCents : body.monthly_top_up_limit_cents,
-    };
-    for (const [field, given] of Object.entries(amounts)) {
-      if (given !== null && (!wholeCents(given) || (given as number) < 0)) throw badAutomaticTopUp(field, `${field} isn't a whole number of cents.`);
-    }
-    const belowCents = amounts.top_up_below_cents as number | null;
-    const amountCents = amounts.top_up_amount_cents as number | null;
-    const limitCents = amounts.monthly_top_up_limit_cents as number | null;
-    if (isEnabled) {
-      if (belowCents === null || amountCents === null || limitCents === null) throw badAutomaticTopUp("top_up_amount_cents", "Turning automatic top-up on needs top_up_below_cents, top_up_amount_cents and monthly_top_up_limit_cents.");
-      if (amountCents < CREDIT_LIMITS.minimumAutomaticTopUpCents || amountCents > CREDIT_LIMITS.maximumTopUpCents) throw badAutomaticTopUp("top_up_amount_cents", `top_up_amount_cents is ${amountCents}: a top-up is ${CREDIT_LIMITS.minimumAutomaticTopUpCents} ($10) to ${CREDIT_LIMITS.maximumTopUpCents} ($1,000) cents.`);
-      if (limitCents < amountCents) throw badAutomaticTopUp("monthly_top_up_limit_cents", "monthly_top_up_limit_cents is less than one top-up, so it could never top up.");
-      if (!credit.stripePaymentMethodId) throw badAutomaticTopUp("is_enabled", "Automatic top-up charges the card of your last top-up, and there's none yet.", "Top up once with top_up_credit; its card is kept for automatic top-ups.");
-    }
-    const isRaising =
-      isEnabled && (!now.isEnabled || (amountCents ?? 0) > (now.topUpAmountCents ?? 0) || (belowCents ?? 0) > (now.topUpBelowCents ?? 0) || (limitCents ?? 0) > (now.monthlyTopUpLimitCents ?? 0));
-    if (isRaising) await checkSpendingConfirmed(env, caller, now.isEnabled ? "Raising automatic top-up" : "Turning automatic top-up on", { requestKind: "automatic_top_up", isEnabled, topUpBelowCents: belowCents!, topUpAmountCents: amountCents!, monthlyTopUpLimitCents: limitCents! });
-    // Turning it on starts its top-ups' idempotency keys afresh, so a card that was declined before is charged again, not answered from Stripe's memory.
-    await env.DB.prepare("UPDATE owners SET automatic_top_up_enabled = ?, top_up_below_cents = ?, top_up_amount_cents = ?, monthly_top_up_limit_cents = ?, automatic_top_up_enabled_at_ms = CASE WHEN ? AND automatic_top_up_enabled = 0 THEN ? ELSE automatic_top_up_enabled_at_ms END WHERE id = ?")
-      .bind(isEnabled ? 1 : 0, belowCents, amountCents, limitCents, isEnabled ? 1 : 0, Date.now(), ownerId)
-      .run();
-    await logCallerEvent(env, caller, "automatic_top_up_changed");
-    return [{ credit: await creditAnswer(env, ownerId), next_steps: [] satisfies NextStep[] }];
-  }
-
   throw new ApiError("bad_method", { message: `${method} isn't a call at ${path}.`, fix: "docs/DEVELOPER-API.md, Hosting and credit, lists the credit calls." });
-}
-
-function badAutomaticTopUp(field: string, message: string, fix = "Give whole cents: a top-up of at least 1000 ($10), and a monthly limit of at least one top-up."): ApiError {
-  return new ApiError("bad_automatic_top_up", { message, field, fix });
 }
 
 /**
@@ -219,6 +173,13 @@ async function refundTopUp(env: Env, ownerId: string, topUpId: string, paymentIn
     ]);
     throw error;
   }
+}
+
+/** Unspent credit past its 30 days, which deleting the account doesn't refund: the delete box names it first. */
+export async function creditKeptOnDeletionCents(env: Env, accountId: string, nowMs = Date.now()): Promise<number> {
+  const owner = await env.DB.prepare("SELECT id FROM owners WHERE account_id = ?").bind(accountId).first<{ id: string }>();
+  if (!owner) return 0;
+  return (await refundableTopUps(env.DB, owner.id, nowMs)).reduce((keptCents, topUp) => keptCents + topUp.unspentCents - topUp.refundableCents, 0);
 }
 
 /**

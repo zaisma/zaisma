@@ -140,7 +140,7 @@ declare namespace Zaisma {
    * refused (the game server's canJoin said no; the message is its refusalMessage), hosting_paused (the
    * game's hosting is paused this month: its free allowance or its developer's budget or credit is used). No player pass: unchecked, or account_needed for a
    * guest when the game needs accounts (see Zaisma.player.getPass()). The
-   * call is set up wrong: unknown_option, bad_room_code, bad_server_url, not_on_zaisma (the game isn't hosted
+   * call is set up wrong: unknown_option, bad_room_code, bad_server_url, bad_transport, not_on_zaisma (the game isn't hosted
    * on Zaisma, serverUrl or not; serverUrl points a game hosted on Zaisma at your own server). Or connection_closed (the connection closed first, say the game left or the player
    * joined from another tab) and request_failed (Zaisma didn't answer). {@link ErrorCode} has them all.
    *
@@ -824,6 +824,18 @@ declare namespace Zaisma {
      */
     serverUrl?: string;
     /**
+     * How to reach a room on your own server (serverUrl, wss:// or https://): "websocket" (the default), or
+     * "webtransport", the fast lane: WebTransport, where sends with delivery "latest_only" go as datagrams, so a
+     * late one is dropped instead of holding up what comes after it, as PC shooters play. Your server has to
+     * serve it (the Node runner's --webtransport-port). Where WebTransport isn't there or doesn't connect in
+     * 3 seconds (a network that blocks UDP), the room uses the WebSocket by itself; {@link Room.transport} says
+     * which. Zaisma rooms use the WebSocket either way. Anything else is refused with error.code "bad_transport".
+     *
+     * @example
+     * const room = await Zaisma.joinRoom({ serverUrl: "wss://play.example.com", transport: "webtransport" });
+     */
+    transport?: "websocket" | "webtransport";
+    /**
      * true: a new room that shows in room lists, for others to find. By default false: a room only its
      * code and link reach, like a private match ({@link Rooms.quickJoin} lists its new rooms unless given
      * false). Counts only when this player makes the room.
@@ -878,10 +890,10 @@ declare namespace Zaisma {
   type Region = "AF" | "AN" | "AS" | "EU" | "NA" | "OC" | "SA";
 
   /**
-   * What {@link Rooms.quickJoin} takes: joinRoom's options but roomCode, isSpectator and serverUrl (it
-   * finds Zaisma rooms), and region.
+   * What {@link Rooms.quickJoin} takes: joinRoom's options but roomCode, isSpectator, serverUrl and transport
+   * (it finds Zaisma rooms), and region.
    */
-  interface QuickJoinOptions extends Omit<JoinOptions, "roomCode" | "isSpectator" | "serverUrl"> {
+  interface QuickJoinOptions extends Omit<JoinOptions, "roomCode" | "isSpectator" | "serverUrl" | "transport"> {
     /** Look for a room in this region only, like "EU", as in {@link RoomList.regions}. */
     region?: Region;
     /** Look for a room with these labels, like { Mode: "Classic" }; a new room gets them. */
@@ -896,8 +908,8 @@ declare namespace Zaisma {
     labels?: Record<string, string>;
   }
 
-  /** What {@link Move.join} takes: joinRoom's options but roomCode and serverUrl, which are the move's own, and isSpectator (moves are for players). */
-  interface MoveJoinOptions extends Omit<JoinOptions, "roomCode" | "serverUrl" | "isSpectator"> {}
+  /** What {@link Move.join} takes: joinRoom's options but roomCode, serverUrl and transport, which are the move's own, and isSpectator (moves are for players). */
+  interface MoveJoinOptions extends Omit<JoinOptions, "roomCode" | "serverUrl" | "transport" | "isSpectator"> {}
 
   /** What {@link Room.kick} takes. */
   interface KickOptions {
@@ -986,7 +998,8 @@ declare namespace Zaisma {
     /**
      * "reliable" (the default) reaches the game server in order. "latest_only" may be dropped: while
      * this player's connection is backed up, a newer send with the same latestKey replaces it, and the
-     * newest goes once it catches up. For input sent every frame, like where the player aims. Anything
+     * newest goes once it catches up. For input sent every frame, like where the player aims. On the fast
+     * lane to your own server ({@link JoinOptions.transport}), it goes as a datagram when it fits one. Anything
      * else throws error.code "bad_send_option".
      */
     delivery?: "reliable" | "latest_only";
@@ -1031,6 +1044,11 @@ declare namespace Zaisma {
     readonly spectatorCount: number;
     /** Where the socket stands; the "connectionStatus" event says when it changes. Away is awayReason, not this. */
     readonly connectionStatus: ConnectionStatus;
+    /**
+     * What this connection uses now: "webtransport" on the fast lane to your own server
+     * ({@link JoinOptions.transport}), else "websocket", including when the fast lane didn't connect.
+     */
+    readonly transport: "websocket" | "webtransport";
     /**
      * Why this player is out of the match: "idle" (no input until the "Still there?" ran out) or "hidden"
      * (the game hidden too long), from the "away" event until "back"; null while they play.
@@ -1688,6 +1706,7 @@ declare namespace Zaisma {
    * - bad_delay: {@link Room.smoothedState}'s delayMs isn't from 0 to 1000.
    * - bad_region: a region that isn't a continent code ({@link Region}).
    * - bad_idle_timeout: an idleTimeoutSec that isn't from 30 to 86400.
+   * - bad_transport: a transport that isn't "websocket" or "webtransport".
    * - request_failed: Zaisma didn't answer (no connection, or a problem on Zaisma's side); try again.
    * - no_game: {@link Items.buy} named a game that isn't open to play here.
    * - chat_stopped, chat_not_allowed, chat_empty, chat_too_long, chat_too_fast, chat_not_here: {@link Room.chat} didn't send ({@link ChatErrorCode}).
@@ -1726,6 +1745,7 @@ declare namespace Zaisma {
     | "bad_delay"
     | "bad_region"
     | "bad_idle_timeout"
+    | "bad_transport"
     | "bad_server_url"
     | "unlisted_server"
     | "unknown_link"

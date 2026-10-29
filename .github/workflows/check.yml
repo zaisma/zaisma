@@ -192,6 +192,9 @@ jobs:
           key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
           restore-keys: npm-${{ runner.os }}-
       - run: npm ci --no-audit --no-fund
+      # The fast lane's WebTransport packages are an optional peer of the game server, which npm ci leaves out:
+      # installed here, at the versions it names, so the runner's fast-lane tests run instead of skipping.
+      - run: npm install --no-save --no-audit --no-fund $(node -p "Object.entries(require('./packages/game-server/package.json').peerDependencies).map(([name, version]) => name + '@' + version).join(' ')")
       # Miniflare keeps the tests' databases, buckets and rate limiters in SQLite files under the temp folder, and
       # syncs each write: in memory, a slow runner disk can't hold a test past its time. Four files at once, one a core.
       - run: node scripts/test-shard.mjs --shard ${{ matrix.shard }}/4 ${{ needs.changes.outputs.is_full_suite != 'true' && '--files "$REACHED_TEST_FILES"' || '' }} ${{ github.event_name == 'merge_group' && '--rerun-failed-once' || '' }}
@@ -227,6 +230,9 @@ jobs:
           key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
           restore-keys: npm-${{ runner.os }}-
       - run: npm ci --no-audit --no-fund
+      # The fast lane's WebTransport packages are an optional peer of the game server, which npm ci leaves out:
+      # installed here, at the versions it names, so the runner's fast-lane tests run instead of skipping.
+      - run: npm install --no-save --no-audit --no-fund $(node -p "Object.entries(require('./packages/game-server/package.json').peerDependencies).map(([name, version]) => name + '@' + version).join(' ')")
       - env:
           CHANGED_TEST_FILES: ${{ needs.changes.outputs.changed_test_files }}
           # As in the tests job.

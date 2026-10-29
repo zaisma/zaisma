@@ -32,6 +32,7 @@ const listOf = (value) => (value === undefined ? [] : typeof value === "object" 
 export function startFakeStripe(port) {
   const newId = (prefix) => `${prefix}_preview_${randomBytes(6).toString("hex")}`;
   const now = () => Math.floor(Date.now() / 1000);
+  const startedAtSec = now();
   const objects = new Map();
   // The first answer to a call with an Idempotency-Key, given again to the same key on the same path.
   const answered = new Map();
@@ -90,6 +91,9 @@ export function startFakeStripe(port) {
     if (kind === "customers" && !id && method === "POST") return { status: 200, body: keep({ id: newId("cus"), object: "customer", created: now(), metadata: form.metadata ?? {} }) };
 
     if (kind === "checkout/sessions" && !id && method === "POST") {
+      // Like Stripe: Managed Payments refuses these Checkout options.
+      const refused = ["custom_text", "automatic_tax", "tax_id_collection", "payment_method_collection", "payment_method_configuration", "payment_method_options", "payment_method_types", "saved_payment_method_options", "shipping_address_collection", "shipping_options"].find((name) => form[name] !== undefined);
+      if (form.managed_payments?.enabled === "true" && refused) return { status: 400, body: { error: { type: "invalid_request_error", param: refused, message: `You cannot use ${refused} with Managed Payments.` } } };
       return { status: 200, body: keep({ id: newId("cs"), object: "checkout.session", mode: form.mode ?? "payment", url: form.success_url ?? "", success_url: form.success_url ?? "", expires_at: now() + 86_400, created: now(), metadata: form.metadata ?? {} }) };
     }
 
@@ -97,6 +101,20 @@ export function startFakeStripe(port) {
       const subscription = objects.get(id) ?? keep({ id, object: "subscription", status: "active", cancel_at_period_end: false, created: now() });
       if (form.cancel_at_period_end !== undefined) subscription.cancel_at_period_end = form.cancel_at_period_end === "true";
       return { status: 200, body: subscription };
+    }
+
+    if (kind === "subscriptions" && id && !action && method === "DELETE") {
+      const subscription = objects.get(id) ?? keep({ id, object: "subscription", created: now() });
+      subscription.status = "canceled";
+      return { status: 200, body: subscription };
+    }
+    // Zaisma Pro's invoices: the preview's Pro (sub_preview_pro) was paid once, 3 days before the stand-in started, so it still
+    // refunds; Key_Maker's (sub_preview_pro_old, customer cus_preview_pro_old) 20 days before, past its 14.
+    if (kind === "invoices" && !id && method === "GET") {
+      const isOld = query.get("customer") === "cus_preview_pro_old";
+      const paidAtSec = startedAtSec - (isOld ? 20 : 3) * 86_400;
+      const subscriptionId = isOld ? "sub_preview_pro_old" : "sub_preview_pro";
+      return { status: 200, body: { object: "list", data: [{ id: `in_${subscriptionId}`, object: "invoice", status: "paid", amount_paid: 1000, currency: "usd", customer: query.get("customer"), status_transitions: { paid_at: paidAtSec }, parent: { type: "subscription_details", subscription_details: { subscription: subscriptionId } }, payments: { object: "list", data: [{ object: "invoice_payment", status: "paid", payment: { type: "payment_intent", payment_intent: `pi_${subscriptionId}` } }] } }] } };
     }
 
     if (kind === "refunds" && !id && method === "POST") {

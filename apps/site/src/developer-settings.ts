@@ -1,4 +1,4 @@
-import { ApiError, CREDIT_LIMITS, PRO_PRICE_CENTS_PER_MONTH, accountById, gameBySlug, hostingUseThisMonth, gameHostingMonth, apiKeysFor, createApiKey, checkKeyScope, revokeApiKey, passkeysFor, liveApiKeyCount, MAXIMUM_API_KEY_COUNT, ACCESS_AREAS, ACCESS_LEVELS, AREA_ACCESS_CHOICES, WEBHOOK_EVENT_KINDS, type Account, type ApiKey, type Game } from "@zaisma/core";
+import { ApiError, CREDIT_LIMITS, PRO_PRICE_CENTS_PER_MONTH, PRO_REFUND_LIMITS, accountById, gameBySlug, hostingUseThisMonth, gameHostingMonth, apiKeysFor, createApiKey, checkKeyScope, revokeApiKey, passkeysFor, liveApiKeyCount, MAXIMUM_API_KEY_COUNT, ACCESS_AREAS, ACCESS_LEVELS, AREA_ACCESS_CHOICES, WEBHOOK_EVENT_KINDS, type Account, type ApiKey, type Game } from "@zaisma/core";
 import { currentSession } from "./auth.ts";
 import { AREA_LABELS, CHOICE_LABELS, LEVEL_LABELS, keyMakingState, keyScopeFromForm, keyScopeText, keyStandingText, passkeyTapFromForm } from "./account.ts";
 import { apiCall, callerFor, hostingUseJson, type Caller } from "./developer.ts";
@@ -11,6 +11,7 @@ import { logAccountChange, seedKeyPlace } from "./security-log.ts";
 import { recordProof } from "./session-proofs.ts";
 import { answerSpendingRequest, spendingRequestAnswer } from "./spending-requests.ts";
 import { stripeAccountRow, stripeAccountWithBalance } from "./stripe-account-api.ts";
+import { stripeFormTargets } from "./stripe.ts";
 import { waitEndsText } from "./email-codes.ts";
 import { secondaryButton, primaryButton, textLink, toggleButton } from "./components/actions.ts";
 import { glassPane, icon, tag } from "./components/foundations.ts";
@@ -45,12 +46,12 @@ const TAB_PANES = [
 const DONE_WORDS: Record<string, string> = {
   budget: "Budget saved.",
   "budget-cleared": "Paid hosting is off for that game.",
-  automatic: "Automatic top-up saved.",
   refunded: "Refunded to its card.",
   approved: "Approved. The change is made.",
   declined: "Declined. Nothing changed.",
   cancelled: "Zaisma Pro will end at the end of the paid month.",
   resumed: "Zaisma Pro will renew as before.",
+  "pro-refunded": "Refunded to your card. Zaisma Pro has ended.",
   tax: "Stripe Tax saved.",
   disconnected: "Stripe is disconnected. Players can't buy until you connect again.",
   webhook: "Webhook saved.",
@@ -121,7 +122,6 @@ interface PageState {
 interface CreditJson {
   balance_cents: number;
   is_credit_low: boolean;
-  automatic_top_up: { is_enabled: boolean; top_up_below_cents: number | null; top_up_amount_cents: number | null; monthly_top_up_limit_cents: number | null; topped_up_this_month_cents: number };
   top_ups: { id: string; amount_cents: number; refundable_cents: number; refund_ends_at: string | null; created_at: string }[];
   games: { slug: string; last_month_beyond_free_cents: number }[];
   entries: { id: string; entry_kind: string; amount_cents: number; game_slug: string | null; created_at: string }[];
@@ -159,6 +159,7 @@ interface ProJson {
   plan: "free" | "pro";
   pro_ends_at: string | null;
   is_pro_cancelled: boolean;
+  refund_ends_at: string | null;
   limits: Record<"free" | "pro", Record<string, number>>;
   used_today: Record<string, number>;
 }
@@ -249,7 +250,6 @@ const monthDay = (dateText: string) => new Date(`${dateText}T00:00:00Z`).toLocal
 
 function hostingPane(settings: Settings): LayoutItem {
   const { credit, gameHostings } = settings;
-  const automatic = credit.automatic_top_up;
   const spentCents = gameHostings.reduce((totalCents, each) => totalCents + each.hosting.spent_from_credit_cents, 0);
   const items: LayoutItem[] = [
     block(
@@ -257,26 +257,11 @@ function hostingPane(settings: Settings): LayoutItem {
         items: [
           { label: "Hosting credit", figure: dollars(credit.balance_cents) },
           { label: "Spent from credit this month", figure: dollars(spentCents) },
-          ...(automatic.is_enabled ? [{ label: `Topped up this month, of ${dollars(automatic.monthly_top_up_limit_cents ?? 0)}`, figure: dollars(automatic.topped_up_this_month_cents) }] : []),
         ],
       }),
     ),
-    ...(credit.is_credit_low ? [words("Credit is low: add credit or turn on automatic top-up.")] : []),
+    ...(credit.is_credit_low ? [words("Credit is low: add credit.")] : []),
     words(credit.balance_cents === 0 ? "Hosting is free up to each game's monthly allowance. Credit pays for what goes past it, only in games you give a budget." : "Credit pays for hosting past each game's free allowance, only in games you give a budget."),
-    block(
-      listRows({ whenEmpty: emptyState({ title: "Nothing to change", text: "Credit's settings show here." }),
-        label: "Automatic top-up",
-        rows: [
-          {
-            title: "Automatic top-up",
-            detail: automatic.is_enabled
-              ? `On · below ${dollars(automatic.top_up_below_cents ?? 0)}, add ${dollars(automatic.top_up_amount_cents ?? 0)} · at most ${dollars(automatic.monthly_top_up_limit_cents ?? 0)} a month`
-              : "Off · it adds credit by itself when it runs low, to the card of your last top-up",
-            action: automatic.is_enabled ? [opens("Change", "automatic-top-up"), more("automatic top-up", "automatic-more")] : opens("Turn on", "automatic-top-up"),
-          },
-        ],
-      }),
-    ),
     layer(
       sheet({
         id: "add-credit",
@@ -287,6 +272,7 @@ function hostingPane(settings: Settings): LayoutItem {
           items: [
             { kind: "block", markup: choiceCards({ id: "top-up-amount", name: "amount_cents", label: "How much", choices: [1000, 2500, 5000, 10000].map((cents) => ({ label: dollars(cents), choiceValue: String(cents) })).concat([{ label: "Other", choiceValue: "other" }]) }) },
             { kind: "control", markup: cutField({ id: "top-up-other", name: "other_dollars", label: "If other, in dollars", type: "text", icon: "card", inputMode: "numeric", hint: `${dollars(CREDIT_LIMITS.minimumTopUpCents)} to ${dollars(CREDIT_LIMITS.maximumTopUpCents)}. You pay on Stripe's page.` }) },
+            words(html`<p>Unused credit refunds to your card for ${CREDIT_LIMITS.refundableDurationDays} days. ${textLink("Terms", "/legal/terms")}</p>`),
           ],
         }),
         buttons: [secondaryButton("Cancel", { type: "submit", formMethod: "dialog" }), primaryButton("Pay on Stripe", { type: "submit" })],
@@ -294,56 +280,14 @@ function hostingPane(settings: Settings): LayoutItem {
     ),
   ];
 
-  const automaticFields = (belowCents: number, amountCents: number, limitCents: number | null): LayoutItem[] => [
-    { kind: "control", markup: cutField({ id: "automatic-below", name: "below_dollars", label: "When credit drops below ($)", type: "text", icon: "card", inputMode: "numeric", text: String(belowCents / 100), isRequired: true }) },
-    { kind: "control", markup: cutField({ id: "automatic-amount", name: "amount_dollars", label: "Add ($)", type: "text", icon: "card", inputMode: "numeric", text: String(amountCents / 100), isRequired: true }) },
-    { kind: "control", markup: cutField({ id: "automatic-limit", name: "limit_dollars", label: "Most to add in a month ($)", type: "text", icon: "card", inputMode: "numeric", text: limitCents === null ? "" : String(limitCents / 100), isRequired: true, hint: "Type the most you're willing to spend on top-ups in a month." }) },
-  ];
-  items.push(
-    layer(
-      sheet({
-        id: "automatic-top-up",
-        title: "Automatic top-up",
-        closeLabel: "Close",
-        action: `${PAGE}/credit/automatic`,
-        body: html`<div data-tap="confirm" data-tap-over='${JSON.stringify({ below_dollars: automatic.is_enabled ? automatic.top_up_below_cents ?? 0 : 0, amount_dollars: automatic.is_enabled ? automatic.top_up_amount_cents ?? 0 : 0, limit_dollars: automatic.is_enabled ? automatic.monthly_top_up_limit_cents ?? 0 : 0 })}' data-tap-always="${automatic.is_enabled ? "" : "yes"}">${stack({ items: [...automaticFields(automatic.top_up_below_cents ?? 500, automatic.top_up_amount_cents ?? 2000, automatic.monthly_top_up_limit_cents), { kind: "words", markup: html`<p class="field-error" data-tap-error hidden role="alert"></p>` }] })}</div>`,
-        buttons: [secondaryButton("Cancel", { type: "submit", formMethod: "dialog" }), primaryButton("Save", { type: "submit", name: "is_enabled", buttonValue: "on" })],
-      }),
-    ),
-  );
-  if (automatic.is_enabled) {
-    items.push(
-      layer(dropdown({ id: "automatic-more", label: "Automatic top-up", items: [{ label: "Turn off automatic top-up", icon: "pause", confirmSheetId: "automatic-off" }] })),
-      layer(askSheet("automatic-off", "Turn off automatic top-up?", "Credit won't be added by itself any more. Your balance stays.", `${PAGE}/credit/automatic-off`, "Turn off")),
-    );
-  }
-
   // Only games with something to say: they play online, used some of their free hosting, have a budget, are paused, or ran past free last month.
   const hostingGames = gameHostings.filter((game) => game.game.multiplayer_mode !== "none" || game.hosting.free_used_pct > 0 || game.hosting.monthly_budget_cents !== null || game.hosting.is_paused || game.lastMonthBeyondFreeCents > 0);
   if (hostingGames.length) {
     items.push(heading("Your games this month"), block(listRows({ whenEmpty: emptyState({ title: "No games online yet", text: "Games that play online, or use their free hosting, show here." }), label: "Your games this month", rows: hostingGames.map(gameRow) })), ...hostingGames.flatMap(gameSheets));
   }
 
-  // Top-ups.
-  const topUps = credit.top_ups.filter((topUp) => topUp.refundable_cents > 0);
-  if (topUps.length) {
-    items.push(
-      heading("Top-ups you can still refund"),
-      block(
-        listRows({ whenEmpty: emptyState({ title: "No top-ups to refund", text: "Top-ups you can still refund show here." }),
-          label: "Top-ups",
-          rows: topUps.map((topUp): ListRow => ({
-            title: `${dollars(topUp.amount_cents)} added ${shownDate(topUp.created_at)}`,
-            detail: `${dollars(topUp.refundable_cents)} refundable until ${shownDate(topUp.refund_ends_at)}`,
-            action: opens("Refund", `refund-${topUp.id}`),
-          })),
-        }),
-      ),
-      ...topUps.map((topUp) => layer(askSheet(`refund-${topUp.id}`, `Refund ${dollars(topUp.refundable_cents)}?`, "It goes back to the card it came from, and that credit is gone.", `${PAGE}/credit/refund/${topUp.id}`, "Refund"))),
-    );
-  }
-
-  // The last 90 days.
+  // The last 90 days, each top-up that still refunds with its Refund in its row.
+  const refundableTopUps = new Map(credit.top_ups.filter((topUp) => topUp.refundable_cents > 0).map((topUp) => [topUp.id, topUp]));
   if (credit.entries.length) {
     items.push(
       block(
@@ -354,11 +298,22 @@ function hostingPane(settings: Settings): LayoutItem {
             caption: "Credit entries",
             isCompact: true,
             shownRowCount: 8,
-            columns: [{ label: "Day" }, { label: "What" }, { label: "Game" }, { label: "Amount", isNumeric: true }],
-            rows: credit.entries.map((entry) => [day(Date.parse(entry.created_at)), ENTRY_WORDS[entry.entry_kind] ?? entry.entry_kind, entry.game_slug ?? "", `${entry.amount_cents < 0 ? "−" : "+"}${dollars(Math.abs(entry.amount_cents))}`]),
+            columns: [{ label: "Day" }, { label: "What" }, { label: "Game" }, { label: "Amount", isNumeric: true }, { label: "Refund", isActions: true }],
+            rows: credit.entries.map((entry) => {
+              const what = ENTRY_WORDS[entry.entry_kind] ?? entry.entry_kind;
+              const topUp = refundableTopUps.get(entry.id);
+              return [
+                day(Date.parse(entry.created_at)),
+                topUp ? { text: what, detail: `${dollars(topUp.refundable_cents)} refundable until ${shownDate(topUp.refund_ends_at)}` } : what,
+                entry.game_slug ?? "",
+                `${entry.amount_cents < 0 ? "−" : "+"}${dollars(Math.abs(entry.amount_cents))}`,
+                topUp ? opens("Refund", `refund-${topUp.id}`) : "",
+              ];
+            }),
           }),
         }),
       ),
+      ...[...refundableTopUps.values()].map((topUp) => layer(askSheet(`refund-${topUp.id}`, `Refund ${dollars(topUp.refundable_cents)}?`, "It goes back to the card it came from, and that credit is gone.", `${PAGE}/credit/refund/${topUp.id}`, "Refund"))),
     );
   }
   return settingsPane("hosting", "Hosting", items, { end: secondaryButton("Add credit", { type: "button", icon: "plus", isSmall: true, controls: "add-credit" }) });
@@ -428,6 +383,7 @@ function proPane(settings: Settings): LayoutItem {
   const items: LayoutItem[] = [
     block(numbers({ items: [{ label: isPro ? (pro.is_pro_cancelled ? `Your plan, until ${shownDate(pro.pro_ends_at)}` : `Your plan, renews ${shownDate(pro.pro_ends_at)}`) : "Your plan", figure: isPro ? "Pro" : "Free" }] })),
     words(isPro ? (pro.is_pro_cancelled ? `You have Zaisma Pro until ${shownDate(pro.pro_ends_at)}. It won't renew.` : `You have Zaisma Pro. It renews ${shownDate(pro.pro_ends_at)}.`) : `Zaisma Pro raises your daily limits for ${dollars(PRO_PRICE_CENTS_PER_MONTH)} a month on your card. It's separate from hosting credit.`),
+    ...(isPro ? [] : [words(`Cancel any time. Your first payment refunds within ${PRO_REFUND_LIMITS.refundableDurationDays} days.`)]),
     block(
       table({ whenEmpty: emptyState({ title: "No limits", text: "Your daily limits show here." }),
         caption: "Daily limits",
@@ -446,7 +402,26 @@ function proPane(settings: Settings): LayoutItem {
     items.push(layer(askSheet("pro-resume", "Keep Zaisma Pro?", "It renews as before.", `${PAGE}/pro/resume`, "Keep it")));
   } else {
     end = secondaryButton("Cancel Pro", { type: "button", isSmall: true, controls: "pro-cancel" });
-    items.push(layer(askSheet("pro-cancel", "Cancel Zaisma Pro?", `You keep it until ${shownDate(pro.pro_ends_at)}, then the free limits apply.`, `${PAGE}/pro/cancel`, "Cancel Pro")));
+    // Inside the first payment's 14 days, three ways: keep it, cancel at renewal, or end now and get it back. Refunding never sits on the page's face.
+    const price = dollars(PRO_PRICE_CENTS_PER_MONTH);
+    items.push(
+      layer(
+        pro.refund_ends_at
+          ? sheet({
+              id: "pro-cancel",
+              title: "Cancel Zaisma Pro?",
+              closeLabel: "Close",
+              action: `${PAGE}/pro/cancel`,
+              body: stack({ items: [words(`Keep it until ${shownDate(pro.pro_ends_at)}, or end it now and get your ${price} back (until ${shownDate(pro.refund_ends_at)}).`)] }),
+              buttons: [
+                secondaryButton("Keep Pro", { type: "submit", formMethod: "dialog", isAutofocused: true }),
+                secondaryButton(`End now and refund ${price}`, { type: "submit", formAction: `${PAGE}/pro/refund` }),
+                primaryButton(`Cancel at ${shownDate(pro.pro_ends_at)}`, { type: "submit" }),
+              ],
+            })
+          : askSheet("pro-cancel", "Cancel Zaisma Pro?", `You keep it until ${shownDate(pro.pro_ends_at)}, then the free limits apply.`, `${PAGE}/pro/cancel`, "Cancel Pro"),
+      ),
+    );
   }
   return settingsPane("pro", "Zaisma Pro", items, { end });
 }
@@ -886,7 +861,7 @@ async function settingsPage(env: Env, request: Request, session: SignedIn, calle
     readSettings(env, caller),
     apiKeysFor(env.DB, account.id),
     keyMakingState(env, account.id),
-    state.spendingRequestId ? spendingRequestAnswer(env, account.id, caller.ownerId, state.spendingRequestId) : Promise.resolve(null),
+    state.spendingRequestId ? spendingRequestAnswer(env, account.id, state.spendingRequestId) : Promise.resolve(null),
   ]);
   const deliveries = state.deliveriesOf
     ? ((await apiCall(env, caller, "GET", `/webhooks/${state.deliveriesOf.webhookId}/deliveries${state.deliveriesOf.cursor ? `?cursor=${encodeURIComponent(state.deliveriesOf.cursor)}` : ""}`).catch(() => null)) as { deliveries?: DeliveryJson[]; next_cursor?: string | null } | null)
@@ -930,7 +905,7 @@ async function settingsPage(env: Env, request: Request, session: SignedIn, calle
   ];
   const panes = stack({ items: [...topNotes, ...paneItems] });
   const body = html`<h1 class="sr">Developer settings</h1>${sidebarLayout({ sidebar: sidebar({ id: "settings-places", label: "Settings", rememberKey: "developer-settings", places: TAB_PANES.map((pane, index) => ({ label: pane.label, icon: pane.icon, href: `#${pane.id}`, isCurrent: index === 0 })) }), main: panes })}${paneItems.map((paneItem) => PANE_LAYERS.get(paneItem) ?? "")}${spendingSheet}${confirmItsYouSheet({ id: "settings-confirm" })}${state.done && DONE_WORDS[state.done] ? notice({ text: DONE_WORDS[state.done]!, tone: "done" }) : ""}${state.problem ? notice({ text: state.problem, tone: "problem", link: state.problemLink }) : ""}${scriptTags(PASSKEY_SCRIPT, SETTINGS_SCRIPT)}`;
-  const response = layout(env, { title: "Developer settings · Zaisma", body, checkedPage: "Developer settings", pageShape: "reading", nav: "developer", sidebarButton: sidebarButton({ controls: "settings-places", label: "Settings", isExpanded: true }), viewer: { account }, isPrivate: true });
+  const response = layout(env, { title: "Developer settings · Zaisma", body, checkedPage: "Developer settings", pageShape: "reading", formTargets: stripeFormTargets(env), nav: "developer", sidebarButton: sidebarButton({ controls: "settings-places", label: "Settings", isExpanded: true }), viewer: { account }, isPrivate: true });
   const answered = new Response(response.body, { status: httpStatus, headers: response.headers });
   for (const cookie of session.cookies) answered.headers.append("Set-Cookie", cookie);
   return answered;
@@ -938,15 +913,9 @@ async function settingsPage(env: Env, request: Request, session: SignedIn, calle
 
 /** What a waiting request asks, said in a sentence and the change before → after. */
 function spendingChangeWords(request: NonNullable<Awaited<ReturnType<typeof spendingRequestAnswer>>>): { what: string; change: string } {
-  if (request.request_kind === "game_budget") {
-    const askedCents = request.requested_change.monthly_budget_cents ?? null;
-    const nowCents = request.current_setting.monthly_budget_cents ?? null;
-    return { what: `Your AI asks to raise ${request.game_title ?? request.game_slug}'s monthly budget.`, change: `${request.game_title ?? request.game_slug}'s monthly budget, ${nowCents === null ? "none" : dollars(nowCents)} → ${askedCents === null ? "none" : dollars(askedCents)}` };
-  }
-  const asked = request.requested_change;
-  const now = request.current_setting;
-  const describe = (setting: typeof asked) => (setting.is_enabled ? `below ${dollars(setting.top_up_below_cents ?? 0)}, add ${dollars(setting.top_up_amount_cents ?? 0)}, at most ${dollars(setting.monthly_top_up_limit_cents ?? 0)} a month` : "off");
-  return { what: "Your AI asks to turn automatic top-up on or up.", change: `Automatic top-up, ${describe(now)} → ${describe(asked)}` };
+  const askedCents = request.requested_change.monthly_budget_cents ?? null;
+  const nowCents = request.current_setting.monthly_budget_cents ?? null;
+  return { what: `Your AI asks to raise ${request.game_title ?? request.game_slug}'s monthly budget.`, change: `${request.game_title ?? request.game_slug}'s monthly budget, ${nowCents === null ? "none" : dollars(nowCents)} → ${askedCents === null ? "none" : dollars(askedCents)}` };
 }
 
 /* ---- Routes ---- */
@@ -1011,14 +980,6 @@ export async function handleDeveloperSettings(request: Request, env: Env, path: 
       await call("POST", "/credit/refunds", { top_up_id: match[1] });
       return back("refunded", "hosting");
     }
-    if (sub === "credit/automatic") {
-      await call("PATCH", "/credit/automatic-top-up", { is_enabled: true, top_up_below_cents: centsOf(field("below_dollars", 20)), top_up_amount_cents: centsOf(field("amount_dollars", 20)), monthly_top_up_limit_cents: centsOf(field("limit_dollars", 20)) });
-      return back("automatic", "hosting");
-    }
-    if (sub === "credit/automatic-off") {
-      await call("PATCH", "/credit/automatic-top-up", { is_enabled: false });
-      return back("automatic", "hosting");
-    }
     if ((match = sub.match(/^games\/([a-z0-9-]+)\/budget(-off)?$/))) {
       const game = await gameBySlug(env.DB, match[1]!);
       if (!game || game.owner_id !== caller.ownerId) return redirect(PAGE, session.cookies);
@@ -1035,6 +996,10 @@ export async function handleDeveloperSettings(request: Request, env: Env, path: 
     if (sub === "pro/checkout") {
       const made = (await call("POST", "/pro/checkout")) as { checkout_url: string };
       return redirect(made.checkout_url, session.cookies);
+    }
+    if (sub === "pro/refund") {
+      await call("POST", "/pro/refund");
+      return back("pro-refunded", "pro");
     }
     if (sub === "pro/cancel" || sub === "pro/resume") {
       await call("POST", `/pro/${sub.slice(4)}`);

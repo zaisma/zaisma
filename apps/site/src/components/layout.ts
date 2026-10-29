@@ -56,6 +56,8 @@ function stackGap(above: LayoutItem, below: LayoutItem): LayoutGap {
   // A control over a row of controls (Play over Details, Share and Report), or under one: still controls stacked.
   if ((kinds[0] === "control" && isControlRow(below)) || (kinds[1] === "control" && isControlRow(above))) return "control-stack";
   if (kinds.includes("block")) return "block-block";
+  // A heading starts a new group: a block's gap above it, so it sits nearer what it names than the words before it.
+  if (below.kind === "words" && /^<h[1-6][\s>]/.test(below.markup.html)) return "block-block";
   if (kinds[0] === "words" && kinds[1] === "words") return "words-words";
   if (kinds[0] === "control" && kinds[1] === "control") return "control-stack";
   return "words-control";

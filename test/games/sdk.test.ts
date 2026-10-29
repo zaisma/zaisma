@@ -26,6 +26,14 @@ describe("multiplayer on the game domain", () => {
     expect(connect).toBe("connect-src 'self' data: blob: https://rooms.zaisma.test wss://rooms.zaisma.test https://play.example.com wss://play.example.com");
   });
 
+  it("lets games open WebTransport to their own servers", async () => {
+    // new WebTransport("https://<server>/...") is checked against connect-src: an own server's https:// origin is there for each wss:// one.
+    await addGame("arena", ["wss://play.example.com:8443"]);
+    const csp = (await SELF.fetch(`${G}/arena/`)).headers.get("content-security-policy")!;
+    const sources = csp.split("; ").find((d) => d.startsWith("connect-src"))!.split(" ");
+    expect(sources).toContain("https://play.example.com:8443");
+  });
+
   it("serves the SDK from the game's own site, set up for that game", async () => {
     await addGame("arena");
     const res = await SELF.fetch(`${G}/arena/_zaisma/v1.js`);
