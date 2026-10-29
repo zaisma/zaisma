@@ -189,7 +189,9 @@ const HEADER_STYLES = `
   .top.searching .nav { display: none; }
   .top > .find + .cut-btn { display: inline-flex; margin-left: auto; margin-right: var(--gap-words-control); }
   /* The tabs are a row of regular height: a finger's. */
-  .top .nav, .top.is-compact .nav { order: 4; flex-basis: 100%; margin-inline-end: 0; }
+  .top .nav, .top.is-compact .nav { order: 4; flex-basis: 100%; }
+  /* On its own row, it has no neighbor to keep a gap from. */
+  .top .nav:has(~ .find) { margin-inline-end: 0; }
   /* The first row is small controls, so it shares Zaisma, search and Sign in or you on the narrowest phones; Sign in is the compact runner, or
      a small secondary button beside the page's own runner. */
   .top .end > .run-wrap > .run, .top .end > .cut-btn { --control-height: var(--control-height-small); }
