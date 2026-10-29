@@ -666,7 +666,7 @@ function termsBody(): Raw {
         html`<h2>Who this is between</h2>
 <p>You must be 13 or older to use Zaisma. By playing a game, as a guest or with an account, you accept these terms. Creating an account also constitutes acceptance.</p>
 <h2>Your account</h2>
-<p>You are responsible for your password and passkeys and for all activity on your account. Usernames must comply with the content rules. You may download your data or delete your account at any time from your account page.</p>
+<p>You are responsible for your password and passkeys and for all activity on your account. Usernames must comply with the content rules. You may ${textLink("download your data", "/account#your-data")} or ${textLink("delete your account", "/account#delete-account")} at any time.</p>
 <h2>Privacy</h2>
 <p>The ${textLink("privacy policy", "/legal/privacy")} describes what Zaisma keeps about you, why, and for how long.</p>
 <h2>Closing accounts</h2>
@@ -695,7 +695,7 @@ function termsBody(): Raw {
 <p>Hosting credit pays for what your games use on Zaisma's servers beyond their free allowance. It is prepaid, with a minimum top-up of ${dollarsText(CREDIT_LIMITS.minimumTopUpCents)}, sold through Link by Stripe, and may be used only for Zaisma's services.</p>
 <p>Credit does not expire. The unspent part of a top-up is refundable to its card on request for ${creditDays} days after the top-up. After that, it remains available to spend but is not refundable. Spent credit is not refundable. Deleting your account refunds only credit within its ${creditDays} days. Credit is never paid out.</p>
 <h2>Zaisma Pro</h2>
-<p>Zaisma Pro costs ${dollarsText(PRO_PRICE_CENTS_PER_MONTH)} a month, charged to your card. You may cancel at any time and keep Pro until the end of the paid month. Partial months are not refunded. The first payment is refundable on request within ${proDays} days of it, and Pro ends when it is refunded. Refunds are requested in Developer settings or through the API.</p>
+<p>Zaisma Pro costs ${dollarsText(PRO_PRICE_CENTS_PER_MONTH)} a month, charged to your card. You may cancel at any time and keep Pro until the end of the paid month. Partial months are not refunded. The first payment is refundable on request within ${proDays} days of it, and Pro ends when it is refunded. Refunds are requested in ${textLink("Developer settings", "/dashboard/settings#pro")} or through the API.</p>
 <h2>Purchases and age</h2>
 <p>Buying hosting credit or Zaisma Pro requires you to be 18 or older, or to have a parent's or guardian's permission. Selling requires you to be 18 or older, as Stripe requires.</p>`,
       ),
@@ -919,7 +919,7 @@ function privacyBody(): Raw {
 <li><strong>The games you played</strong>: the last 20, and every game you have played, so its developer can be notified if you delete your account.</li>
 <li><strong>Your passkeys</strong>, if you add any: the public half of each key, the type of device it was added on and when it was last used. The private half never leaves your device or password manager.</li>
 <li><strong>The devices you sign in on.</strong> Each browser you sign in on keeps a random ID in a cookie, and Zaisma records that your account signed in with it, to protect your account from password guessing. The record is deleted one year after your last sign-in on that device.</li>
-<li><strong>Your account's activity</strong>, for 90 days: sign-ins on a new device and changes to how you sign in or to your API keys, each with the device, the network and the approximate location it came from, derived from your connection address without keeping the address. Only you can see it, on your account page. If you turn off Keep where my account is used from, only the event and its time are kept.</li>
+<li><strong>Your account's activity</strong>, for 90 days: sign-ins on a new device and changes to how you sign in or to your API keys, each with the device, the network and the approximate location it came from, derived from your connection address without keeping the address. Only you can see it, on your account page. If you turn off ${textLink("Keep where my account is used from", "/account#activity")}, only the event and its time are kept.</li>
 <li><strong>Wrong passwords entered for your account</strong>: when, and whether on a device you had signed in on, never what was entered. Kept for one day.</li>
 <li><strong>Google or Discord sign-in.</strong> If you sign in with Google or Discord, they provide your email and the name and profile picture on that account. Zaisma uses only the email; Supabase keeps the rest with your sign-in.</li>
 </ul>
@@ -937,7 +937,7 @@ function privacyBody(): Raw {
 <h2>Purchases in games</h2>
 <p>Payments for purchases in games are processed by Stripe. When you save a card, Stripe keeps it, and Zaisma keeps its brand, its last four digits and the email for receipts. The developer you buy from receives the payment, never your card details. Zaisma keeps what you bought and when.</p>
 <h2>If you make games</h2>
-<p>Changes you and your API keys make to your games are recorded in each game's history for as long as the game exists, with who made each change and from where. Each change also keeps its connection address for 90 days, visible only to you, so that a report of illegal material can be traced. Turning off Keep where my account is used from stops this, except for uploads of versions and images, which keep their address for 90 days in either case. To alert you when a key is used from a new location, Zaisma keeps a fingerprint of each network and country it is used from until it has gone unused for 90 days.</p>`,
+<p>Changes you and your API keys make to your games are recorded in each game's history for as long as the game exists, with who made each change and from where. Each change also keeps its connection address for 90 days, visible only to you, so that a report of illegal material can be traced. Turning off ${textLink("Keep where my account is used from", "/account#activity")} stops this, except for uploads of versions and images, which keep their address for 90 days in either case. To alert you when a key is used from a new location, Zaisma keeps a fingerprint of each network and country it is used from until it has gone unused for 90 days.</p>`,
       ),
       pane(
         "Storage and service providers",
@@ -955,9 +955,9 @@ function privacyBody(): Raw {
       pane(
         "Your data",
         html`<h2>Downloading your data</h2>
-<p>On your account page, choose Download your data to receive a copy of everything Zaisma keeps about your account, including your game saves.</p>
+<p>On your account page, choose ${textLink("Download your data", "/account#your-data")} to receive a copy of everything Zaisma keeps about your account, including your game saves.</p>
 <h2>Deleting your account</h2>
-<p>On your account page, choose Delete account. Your username, password, any email, game saves, recently played games and all other account data are deleted immediately. Their copies in the backup are gone within 30 days. Games you made are deleted as well, with their files, database and players' saves. The games you played and the sites you signed in to with Zaisma are notified, so their developers can erase what they kept about you.</p>
+<p>On your account page, choose ${textLink("Delete account", "/account#delete-account")}. Your username, password, any email, game saves, recently played games and all other account data are deleted immediately. Their copies in the backup are gone within 30 days. Games you made are deleted as well, with their files, database and players' saves. The games you played and the sites you signed in to with Zaisma are notified, so their developers can erase what they kept about you.</p>
 <h2>Questions</h2>
 <p>Questions about this policy may be sent to ${textLink("privacy@zaisma.com", "mailto:privacy@zaisma.com")}.</p>`,
       ),
