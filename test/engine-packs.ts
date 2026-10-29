@@ -71,7 +71,7 @@ class Writer {
 }
 
 /** Unity's TextureFormat numbers used here. */
-export const UNITY_FORMAT = { alpha8: 1, rgba32: 4, dxt1: 10 } as const;
+export const UNITY_FORMAT = { alpha8: 1, rgba32: 4, r16: 9, dxt1: 10, bc4: 26, dxt1Crunched: 28, dxt5Crunched: 29, eacR: 41, r8: 63, etc1Crunched: 64, etc2Rgba8Crunched: 65 } as const;
 
 /** A Texture2D object as Unity 2020.3 writes it, its pixels inside or streamed from a resource file. */
 export function texture2d(name: string, widthPixelCount: number, heightPixelCount: number, format: number, pixels: Uint8Array, options: { streamedFrom?: { path: string; offset: number }; levelCount?: number } = {}): Uint8Array {

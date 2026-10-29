@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { MAXIMUM_SENT_PICTURE_SIDE_PIXEL_COUNT, decodeTexture, encodePng, godotPicturesInside, isGodotPack, isUnityPack, unityPicturesInside, type ByteSource, type PictureFound } from "@zaisma/core";
+import { readCrunchHeader, unpackCrunchLevel } from "../../packages/core/src/scan/crunch.ts";
 import { decompressLz4Block } from "../../packages/core/src/scan/lz4.ts";
 import { decompressLzma } from "../../packages/core/src/scan/lzma.ts";
+import { CRUNCH_FIXTURES } from "./fixtures/crunch.ts";
 import { UNITY_FORMAT, godotPack, lz4Literals, readPng, rgbaPixels, serializedFile, sprite, texture2d, unityBundle, unityWebData, videoClip } from "../engine-packs.ts";
 
 const TEXTURE_2D = 28;
@@ -20,6 +22,8 @@ const collect = async (found: AsyncGenerator<PictureFound>) => {
 const pixelAt = (picture: { widthPixelCount: number; rgba: Uint8Array }, x: number, y: number) => [...picture.rgba.subarray((y * picture.widthPixelCount + x) * 4, (y * picture.widthPixelCount + x) * 4 + 4)];
 /** Red counts across, green counts up from the first stored row, so a flip shows. */
 const gradient = (widthPixelCount: number, heightPixelCount: number) => rgbaPixels(widthPixelCount, heightPixelCount, (x, y) => [x * 4, y * 4, 200, 255]);
+const crunchedBytes = (name: string) => Uint8Array.from(atob(CRUNCH_FIXTURES.find((fixture) => fixture.name === name)!.crunchedBase64), (character) => character.charCodeAt(0));
+const sha256Of = async (bytes: Uint8Array) => [...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 const mp4 = new Uint8Array([0, 0, 0, 24, ...new TextEncoder().encode("ftypisom"), ...new Array(200).fill(1)]);
 
 describe("GPU texture decoding", () => {
@@ -41,6 +45,15 @@ describe("GPU texture decoding", () => {
     // ASTC void-extent block: one 8-bit color.
     const astc = decodeTexture("astc_6x6", new Uint8Array([0xfc, 0xfd, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0, 10, 0, 20, 0, 30, 0, 40]), 6, 6)!;
     expect(pixelAt(astc, 5, 5)).toEqual([10, 20, 30, 40]);
+  });
+
+  it("decodes single-channel textures as gray", () => {
+    // R16: the high byte of each little-endian value.
+    expect(pixelAt(decodeTexture("r16", new Uint8Array([0x34, 0x12]), 1, 1)!, 0, 0)).toEqual([0x12, 0x12, 0x12, 255]);
+    // BC4: endpoints 200 and 100, every pixel index 1 (the second).
+    expect(pixelAt(decodeTexture("bc4", new Uint8Array([200, 100, 0x49, 0x92, 0x24, 0x49, 0x92, 0x24]), 4, 4)!, 2, 2)).toEqual([100, 100, 100, 255]);
+    // EAC R11 read as 8 bits: base 128, multiplier 0, so every pixel is the base.
+    expect(pixelAt(decodeTexture("eac_r", new Uint8Array([128, 0x0e, 0, 0, 0, 0, 0, 0]), 4, 4)!, 3, 1)).toEqual([128, 128, 128, 255]);
   });
 
   it("shrinks a big texture to at most the sent size, and crops a region", () => {
@@ -79,6 +92,53 @@ describe("Unity bundle compression", () => {
     const expected = new Uint8Array([...new TextEncoder().encode("Zaisma texture test. ".repeat(40)), ...Array.from({ length: 256 }, (_, i) => i)]);
     expect(decompressLzma(packed, expected.length)).toEqual(expected);
     expect(() => decompressLzma(packed.subarray(0, 60), expected.length)).toThrow();
+  });
+});
+
+describe("Crunched textures", () => {
+  it("reads each crunched file's header and unpacks levels 0 and 1 to the blocks crunch itself unpacks, in both versions", async () => {
+    for (const fixture of CRUNCH_FIXTURES) {
+      const bytes = crunchedBytes(fixture.name);
+      const header = readCrunchHeader(bytes)!;
+      expect([header.widthPixelCount, header.heightPixelCount, header.levelCount, header.crunchFormat, header.dataSizeBytes], fixture.name).toEqual([64, 64, 7, fixture.crunchFormat, bytes.length]);
+      for (const levelIndex of [0, 1]) expect(await sha256Of(unpackCrunchLevel(bytes, header, levelIndex)!), `${fixture.name} level ${levelIndex}`).toBe(fixture.levelSha256s[levelIndex]);
+    }
+  });
+
+  it("decodes an unpacked level to the picture that was crunched", () => {
+    for (const fixture of CRUNCH_FIXTURES) {
+      const bytes = crunchedBytes(fixture.name);
+      const picture = decodeTexture(fixture.format, unpackCrunchLevel(bytes, readCrunchHeader(bytes)!, 0)!, 64, 64)!;
+      // The gradient's red counts across and its green down, 4 a pixel; crunch is lossy, so nearly.
+      const [red, green] = pixelAt(picture, 40, 20);
+      expect(Math.abs(red! - 160), fixture.name).toBeLessThan(16);
+      expect(Math.abs(green! - 80), fixture.name).toBeLessThan(16);
+    }
+  });
+
+  it("unpacks a file whose header checksum is wrong, as crunch's own unpacker does", () => {
+    const bytes = crunchedBytes("unity-dxt1");
+    bytes[4] = bytes[4]! ^ 0xff;
+    expect(unpackCrunchLevel(bytes, readCrunchHeader(bytes)!, 0)).not.toBeNull();
+  });
+
+  it("never throws or hangs on a damaged file, and refuses one cut short", () => {
+    for (const fixture of CRUNCH_FIXTURES) {
+      const whole = crunchedBytes(fixture.name);
+      const header = readCrunchHeader(whole)!;
+      for (let byteIndex = 0; byteIndex < whole.length; byteIndex += 3) {
+        const damaged = whole.slice();
+        damaged[byteIndex] = damaged[byteIndex]! ^ 0x5a;
+        const damagedHeader = readCrunchHeader(damaged);
+        const unpacked = damagedHeader && unpackCrunchLevel(damaged, damagedHeader, 0);
+        expect(unpacked === null || unpacked instanceof Uint8Array).toBe(true);
+      }
+      const cut = whole.subarray(0, whole.length - 10);
+      expect(readCrunchHeader(cut)).toBeNull();
+      expect(unpackCrunchLevel(cut, header, 0)).toBeNull();
+      expect(unpackCrunchLevel(whole, header, 7)).toBeNull();
+    }
+    expect(readCrunchHeader(new Uint8Array(200))).toBeNull();
   });
 });
 
@@ -130,6 +190,36 @@ describe("Pictures inside Unity builds", () => {
     expect(again[0]!.sha256).toBe(first[0]!.sha256);
     const changed = await collect(unityPicturesInside(sourceOf(unityBundle([{ name: "CAB-9", bytes: serializedFile([{ classId: TEXTURE_2D, pathId: 5, bytes: texture2d("Hero", 64, 64, UNITY_FORMAT.rgba32, gradient(64, 64).fill(1, 0, 4)) }]) }]))));
     expect(changed[0]!.sha256).not.toBe(first[0]!.sha256);
+  });
+
+  it("finds single-channel textures and decodes them to gray, and still skips alpha-only ones", async () => {
+    const gray = rgbaPixels(64, 64, (x) => [x * 4, 0, 0, 0]).filter((_, index) => index % 4 === 0);
+    const bc4 = new Uint8Array(16 * 16 * 8).map((_, index) => [200, 100, 0x49, 0x92, 0x24, 0x49, 0x92, 0x24][index % 8]!);
+    const assets = serializedFile([
+      { classId: TEXTURE_2D, pathId: 1, bytes: texture2d("Gray", 64, 64, UNITY_FORMAT.r8, gray) },
+      { classId: TEXTURE_2D, pathId: 2, bytes: texture2d("Height", 64, 64, UNITY_FORMAT.bc4, bc4) },
+      { classId: TEXTURE_2D, pathId: 3, bytes: texture2d("Mask", 64, 64, UNITY_FORMAT.alpha8, new Uint8Array(64 * 64)) },
+    ]);
+    const found = await collect(unityPicturesInside(sourceOf(unityBundle([{ name: "CAB-3", bytes: assets }]))));
+    expect(found.map((item) => item.label)).toEqual(['texture "Gray"', 'texture "Height"']);
+    expect(pixelAt(await readPng(await found[0]!.body()), 10, 5)).toEqual([40, 40, 40, 255]);
+    expect(pixelAt(await readPng(await found[1]!.body()), 10, 5)).toEqual([100, 100, 100, 255]);
+  });
+
+  it("finds crunched textures and decodes them to the unpacked level, and skips one whose size disagrees with its header", async () => {
+    const crunchedDxt1 = crunchedBytes("unity-dxt1");
+    const crunchedEtc1 = crunchedBytes("unity-etc1");
+    const assets = serializedFile([
+      { classId: TEXTURE_2D, pathId: 1, bytes: texture2d("Crunched", 64, 64, UNITY_FORMAT.dxt1Crunched, crunchedDxt1, { levelCount: 7 }) },
+      { classId: TEXTURE_2D, pathId: 2, bytes: texture2d("Phone", 64, 64, UNITY_FORMAT.etc1Crunched, crunchedEtc1, { levelCount: 7 }) },
+      { classId: TEXTURE_2D, pathId: 3, bytes: texture2d("Padded", 64, 64, UNITY_FORMAT.dxt1Crunched, new Uint8Array([...crunchedDxt1, 0, 0, 0, 0]), { levelCount: 7 }) },
+    ]);
+    const found = await collect(unityPicturesInside(sourceOf(unityBundle([{ name: "CAB-4", bytes: assets }]))));
+    expect(found.map((item) => item.label)).toEqual(['texture "Crunched"', 'texture "Phone"']);
+    for (const [index, [format, bytes]] of ([["bc1", crunchedDxt1], ["etc1", crunchedEtc1]] as const).entries()) {
+      const expected = decodeTexture(format, unpackCrunchLevel(bytes, readCrunchHeader(bytes)!, 0)!, 64, 64, { isBottomUp: true })!;
+      expect(await readPng(await found[index]!.body())).toEqual(expected);
+    }
   });
 
   it("skips a texture whose data doesn't fit its size, and passes what isn't a Unity pack", async () => {
