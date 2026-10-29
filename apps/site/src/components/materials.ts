@@ -22,6 +22,11 @@ export const MATERIAL_STYLES = `
 .glass.thin { --glass-tint: var(--glass-thin); }
 .glass.thick, .floating-pane, .sheet, .notice, .playing-card { --glass-tint: var(--glass-thick); }
 
+/* Glass on glass: a browser blurs only what's inside the nearest blurred glass round it, so a second blur inside a pane would see nothing of
+   the page and turn the inner glass flat white. Glass inside glass only tints: the pane round it has already blurred the page, which shows
+   through both, as through two real sheets, and it costs one blur less. A floating pane, sheet or notice open over the page (the top layer)
+   blurs the page itself; the gallery's strips of shapes blur the shapes they hold, to show what glass does. */
+.glass .glass:not(:popover-open, :modal, .glass-strip .glass) { -webkit-backdrop-filter: none; backdrop-filter: none; }
 /* A bar (the header, the gallery's bar, the footer): a strip of the same glass, as tall as what's in it and the frame gap round it, the same
    on every side, so its controls sit as far from its top and foot as from its ends; compact, the compact frame gap. */
 .glass-bar { padding: var(--pad-frame); --pad-words: var(--pad-inside-words); }
@@ -178,6 +183,11 @@ component({
     { label: "Keyboard focus", isStill: true, markup: carvingSample(slab({ body: html`Details`, state: "is-focused" })) },
     { label: "Can't be pressed", isStill: true, markup: carvingSample(slab({ body: html`Details`, state: "is-disabled" })) },
     { label: "Compact", markup: carvingSample(slab({ body: html`Details`, slabSize: "compact" })) },
+    {
+      label: "Over what's behind it: the glass under it shows through, the shapes blurred",
+      isWide: true,
+      markup: html`<div class="glass-strip"><i></i><i></i><i></i>${glassPane({ paneWidth: "fit", body: html`<div style="display:flex;gap:var(--gap-control-stack)">${slab({ body: html`Details` })}${slab({ body: html`Play`, isLit: true })}</div>` })}</div>`,
+    },
     { label: "Lit: the orange one", markup: carvingSample(slab({ body: html`Play`, isLit: true })) },
     { label: "Lit, pointed at", isStill: true, markup: carvingSample(slab({ body: html`Play`, isLit: true, state: "is-pointed" })) },
     { label: "Lit, pressed", isStill: true, markup: carvingSample(slab({ body: html`Play`, isLit: true, state: "is-pressed" })) },
