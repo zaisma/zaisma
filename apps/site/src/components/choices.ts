@@ -383,7 +383,7 @@ export function checkField(options: CheckFieldOptions): Raw {
   const id = options.id ?? `check-${options.name}`;
   const className = ["check", options.state ?? "", options.error ? "is-marked" : "", options.isDisabled ? "is-disabled" : ""].filter(Boolean).join(" ");
   const describedBy = options.error ? `${id}-error` : options.hint ? `${id}-hint` : "";
-  return html`<label class="${className}" for="${id}"><span class="check-box carving socket" data-cut-line="6" data-cut-ring="3">${CUT_LINE}<input class="check-input" type="checkbox" id="${id}" name="${options.name}" value="${options.checkValue ?? "yes"}"${options.isChecked ? raw(" checked") : ""}${options.isRequired ? raw(" required") : ""}${options.isDisabled ? raw(" disabled") : ""}${options.error ? raw(' aria-invalid="true"') : ""} aria-labelledby="${id}-label"${describedBy ? html` aria-describedby="${describedBy}"` : ""}><span class="check-well socket-face" aria-hidden="true"><span class="check-piece socket-piece">${icon("check")}</span></span></span><span class="check-words"><span class="check-label" id="${id}-label">${options.label}</span>${options.error ? html`<span class="check-error" id="${id}-error">${options.error}</span>` : options.hint ? html`<span class="check-hint" id="${id}-hint">${options.hint}</span>` : ""}</span></label>`;
+  return html`<label class="${className}" for="${id}"><span class="check-box carving socket" data-cut-line="6" data-cut-ring="3">${CUT_LINE}<input class="check-input" type="checkbox" id="${id}" name="${options.name}" value="${options.checkValue ?? "yes"}"${options.isChecked ? raw(" checked") : ""}${options.isRequired ? raw(" required") : ""}${options.isDisabled ? raw(" disabled") : ""}${options.error ? raw(' aria-invalid="true"') : ""} aria-labelledby="${id}-label"${describedBy ? html` aria-describedby="${describedBy}"` : ""}><span class="check-well socket-face" aria-hidden="true"><span class="check-piece socket-piece">${icon("check")}</span></span></span><span class="check-words words-margin at-end"><span class="check-label" id="${id}-label">${options.label}</span>${options.error ? html`<span class="check-error" id="${id}-error">${options.error}</span>` : options.hint ? html`<span class="check-hint" id="${id}-hint">${options.hint}</span>` : ""}</span></label>`;
 }
 
 /** A check field just ticked under the pointer doesn't glint: its glint is for pointing at one already ticked, so it waits until the pointer leaves. */
@@ -469,7 +469,7 @@ ${TOUCH_ROOM(".check")}
    never touches the orange piece and reads the same ticked or not. A required box left unticked is ringed the same way, in the marked colour. */
 .check.is-marked .check-box > .cut-line .cut-ring { stroke: var(--marked); }
 .check-box:has(.check-input:focus-visible) > .cut-line .cut-ring, .check.is-focused .check-box > .cut-line .cut-ring { stroke: var(--focus); }
-.check-words { display: grid; gap: var(--gap-words-words); margin-top: 2px; margin-inline-end: var(--pad-words); }
+.check-words { display: grid; gap: var(--gap-words-words); margin-top: 2px; }
 .check-label { font: var(--type-words); color: var(--ink); }
 .check-hint { font: var(--type-note); color: var(--muted); }
 .check-error { font: var(--type-words); color: var(--marked); }
@@ -565,7 +565,7 @@ component({
    card below. Pointing wakes the edge light along that same edge; a press sinks the card, easing in and back out. The real radio lies over
    the card, unseen, so the arrow keys move between them as the system's do. */
 .choices { margin: 0; padding: 0; border: 0; min-width: 0; display: flex; flex-direction: column; gap: var(--gap-words-control); }
-.choices > legend { margin-bottom: var(--gap-words-control); font: var(--type-label); color: var(--ink-2); }
+.choices > legend { font: var(--type-label); color: var(--ink-2); }
 /* Side by side, a row of controls: their boxes overlap so the edge rule slants them toward each other, while each can have a
    card's width (--size-card); stacked, --gap-control-stack apart, once they can't. One or the other, never some of each: each card's basis
    is very large while the cards don't fit side by side, so each takes a line, and nothing while they do, so they share the row. */
@@ -647,7 +647,7 @@ export interface ToggleOptions {
 export function toggle(options: ToggleOptions): Raw {
   const id = options.id ?? `toggle-${options.name}`;
   const className = ["toggle", options.state ?? "", options.isDisabled ? "is-disabled" : ""].filter(Boolean).join(" ");
-  return html`<label class="${className}" for="${id}"><span class="toggle-words"><span class="toggle-label">${options.label}</span>${options.hint ? html`<span class="toggle-hint" id="${id}-hint">${options.hint}</span>` : ""}</span><span class="toggle-slot carving slot" data-cut-line="8">${CUT_LINE}<input class="toggle-input" type="checkbox" role="switch" id="${id}" name="${options.name}" value="on"${options.isOn ? raw(" checked") : ""}${options.hint ? html` aria-describedby="${id}-hint"` : ""}${options.isBusy ? raw(' aria-busy="true"') : ""}${options.isBusy || options.isDisabled ? raw(" disabled") : ""}><span class="toggle-thumb thumb" aria-hidden="true"><span class="toggle-slab thumb-slab cut-raised" data-cut-line="6" data-cut-ends="start end">${CUT_LINE}${loader()}</span></span></span></label>`;
+  return html`<label class="${className}" for="${id}"><span class="toggle-words words-margin at-start"><span class="toggle-label">${options.label}</span>${options.hint ? html`<span class="toggle-hint" id="${id}-hint">${options.hint}</span>` : ""}</span><span class="toggle-slot carving slot" data-cut-line="8">${CUT_LINE}<input class="toggle-input" type="checkbox" role="switch" id="${id}" name="${options.name}" value="on"${options.isOn ? raw(" checked") : ""}${options.hint ? html` aria-describedby="${id}-hint"` : ""}${options.isBusy ? raw(' aria-busy="true"') : ""}${options.isBusy || options.isDisabled ? raw(" disabled") : ""}><span class="toggle-thumb thumb" aria-hidden="true"><span class="toggle-slab thumb-slab cut-raised" data-cut-line="6" data-cut-ends="start end">${CUT_LINE}${loader()}</span></span></span></label>`;
 }
 
 /** The gallery's toggles sit in a column a phone's width at most, as in a settings list. */
@@ -664,7 +664,7 @@ component({
    checkbox (role switch) lies over the slot, unseen; the words before it are its label, so a press on them flips it too. */
 .toggle { position: relative; display: flex; align-items: center; justify-content: space-between; gap: var(--gap-words-control); cursor: pointer; -webkit-tap-highlight-color: transparent; }
 ${TOUCH_ROOM(".toggle")}
-.toggle-words { display: grid; gap: var(--gap-words-words); min-width: 0; margin-inline-start: var(--pad-words); }
+.toggle-words { display: grid; gap: var(--gap-words-words); min-width: 0; }
 .toggle-label { font: var(--type-words); color: var(--ink); }
 .toggle-hint { font: var(--type-note); color: var(--muted); }
 /* The slot is a carving's (materials.ts), the slab a thumb. */

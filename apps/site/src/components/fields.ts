@@ -5,7 +5,7 @@ import { controlMarkup, type ControlMarkup } from "./control-markup.ts";
 import { CUT_LINE, EDGE, floatingPane, glassPane, icon, type IconName } from "./foundations.ts";
 import { tertiaryButton, toggleButton } from "./actions.ts";
 import { examplePane } from "./example-pane.ts";
-import { row } from "./layout.ts";
+import { row, stack } from "./layout.ts";
 
 /*
  * Fields: the cut field, search, the PIN field and the wheel field. From the sign-in draft (fields, the
@@ -216,7 +216,7 @@ ${floatingPane({
     isShownInPlace: isOpen,
     // The wheels' middle row: under the pane's room at its top, a row and a half down.
     lineFromTop: "calc(var(--pad-inner-pane) + 54px)",
-    body: html`<div class="wheels ${options.wheelKind}-wheels"${options.wheelKind === "custom" ? html` style="--wheel-count: ${columns.length}"` : ""}>${channels}</div>${isZone ? html`<p class="wheel-zone words-margin" id="${id}-zone"></p>` : ""}<span class="wheel-read sr" aria-live="polite"></span>`,
+    body: html`<span class="wheel-read sr" aria-live="polite"></span>${stack({ items: [{ kind: "block", markup: html`<div class="wheels ${options.wheelKind}-wheels"${options.wheelKind === "custom" ? html` style="--wheel-count: ${columns.length}"` : ""}>${channels}</div>` }, ...(isZone ? [{ kind: "words" as const, markup: html`<p class="wheel-zone" id="${id}-zone"></p>` }] : [])] })}`,
   })}
 <p class="field-error words-margin" id="${id}-error"${isMarked ? "" : raw(" hidden")}>${options.error ?? WHEEL_MISSING[options.wheelKind]}</p>${options.hint ? html`<p class="field-hint words-margin" id="${id}-hint"${isMarked ? raw(" hidden") : ""}>${options.hint}</p>` : ""}
 ${sent}
@@ -863,7 +863,7 @@ component({
    cut field's), at a field's height in an equal Row; each is at least a small control wide, so the row has a width in a pane that fits what's
    in it and shares the pane's in one that doesn't. What's typed sits in the middle. */
 .pin-field { border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--gap-words-control); min-width: 0; }
-.pin-field > legend { margin-bottom: var(--gap-words-control); font: var(--type-label); color: var(--ink-2); }
+.pin-field > legend { font: var(--type-label); color: var(--ink-2); }
 .pin-box { flex: 1 1 0; width: auto; min-width: var(--control-height-small); }
 /* One digit, centered in its box with no start or end room and no fade at the edges. The browser's own dot is too small to count at a
    glance, so the typed digit is clear and the box draws its own dot in the middle once it's filled. */
@@ -988,8 +988,8 @@ component({
 /* A wheel field: the same cut field, with what it picks said by its icon; open, it's whitened with the orange outline, like a field you're
    typing in. With no icon its words start where an icon would. */
 .wheel-field { border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--gap-words-control); min-width: 0; }
-/* A legend sits outside its fieldset's flex, so it takes the gap as a margin. */
-.wheel-field legend { margin-bottom: var(--gap-words-control); font: var(--type-label); color: var(--ink-2); }
+/* Its legend is laid out as its first part (layout.ts), so the fieldset's gap spaces it. */
+.wheel-field legend { font: var(--type-label); color: var(--ink-2); }
 .wheel-button { display: flex; align-items: center; justify-content: space-between; gap: var(--gap-words-words); width: 100%; --text-start: calc(var(--pad-inside-words) + 34px); --text-end: var(--pad-inside-words); cursor: pointer; text-align: left;
   font: 500 1.125rem var(--display); color: var(--muted); }
 .wheel-button[aria-expanded="true"], .wheel-button:focus-visible { outline: none; --face-color: var(--carving-face-focus); }
@@ -1015,7 +1015,7 @@ component({
    and shaded below), with a row above and below it, quieter. The wheel you're on by keyboard draws the focus line round its groove. */
 .floating-pane.wheel-pick { gap: var(--gap-words-words); }
 /* What a screen reader hears takes no room, so the wheels keep the same room to the pane's edge all round. */
-.wheel-pick > .wheel-read { position: absolute; }
+.wheel-pick .wheel-read { position: absolute; }
 /* Each wheel is at least as wide as its longest row (a month's name, a year, "Tomorrow", "25 min") with its room each side, so a pane that
    fits what's in it grows to them. */
 .wheels { --wheel-row: 36px; position: relative; display: grid; grid-template-columns: repeat(3, auto); gap: var(--gap-control-row); }
@@ -1038,7 +1038,7 @@ component({
 .wheel [role="option"][aria-selected="true"].blank { color: var(--muted); font-weight: 500; }
 .wheel [role="option"]::after { content: attr(data-label) / ""; height: 0; overflow: hidden; visibility: hidden; font-weight: 600; }
 /* A date and time says its time zone under it. Custom wheels share the width evenly, each as wide as the widest. */
-.wheel-zone { margin: var(--gap-words-control) 0 var(--pad-words); font: var(--type-facts); color: var(--muted); }
+.wheel-zone { margin: 0; font: var(--type-facts); color: var(--muted); }
 .wheel-zone:empty { display: none; }
 .date-time-wheels { grid-template-columns: repeat(4, auto); }
 .custom-wheels { grid-template-columns: repeat(var(--wheel-count), 1fr); }

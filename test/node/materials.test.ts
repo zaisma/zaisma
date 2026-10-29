@@ -5,7 +5,8 @@ import { COMPONENTS } from "../../apps/site/src/components/index.ts";
  * Everything in the gallery is built of the materials (docs/DESIGN.md, Materials; apps/site/src/components/materials.ts). Only the materials
  * themselves (the components on Panes › Materials) and the layout components give anything a look, room, a size, a scroll or a timing: a
  * component puts them together and says nothing of its own about them. So a component's styles never set a background, a shadow, a
- * backdrop, a border, padding, a height or a scroll; never write a color (a token says it, so it turns with light and dark and takes a
+ * backdrop, a border, padding, a height or a scroll; never space its parts with the spacing tokens (a layout or a material's margin does:
+ * layout.ts's stack and row, words-margin); never write a color (a token says it, so it turns with light and dark and takes a
  * game's tint); and never time a change or a loop but with the motion tokens.
  */
 
@@ -72,6 +73,7 @@ const NOT_MADE_OF_MATERIALS = new Map<string, string>([
   [".color-square-light | background", "the square of hues across and strengths down"],
   [".color-square-light::after | background", "the square dimmed by the brightness"],
   [".color-side .groove | background", "the brightness slider's groove runs from black to the full color"],
+  [".color-chip | margin-block", "the color sits a part's gap in from the field's top and foot, as in the picked color's carving"],
   // A file drop's picked files.
   [".file-drop-preview::before | background", "the picked file's own picture, on the carving's face"],
   [".file-drop-view | max-height", "the picture at its own size, made smaller only where the screen is"],
@@ -112,13 +114,14 @@ function ownLookOf(property: string, value: string, selector: string): string | 
   if (property.startsWith("--")) return undefined;
   if (/^(transition|animation)(-[a-z]+)?$/.test(property) && OWN_TIMING.test(value)) return "a timing of its own";
   if (property === "filter" && /drop-shadow\(/.test(value)) return "a shadow of its own";
+  if (/^margin/.test(property) && /var\(--(gap|pad)-/.test(value)) return "spacing of its own";
   if (!OWN_LOOK.test(property) || RESET.test(value)) return undefined;
   if (/height$/.test(property) && PICTURE_OR_ICON.test(selector.split(",").pop()!.trim())) return undefined;
   return /^(height|min-height|max-height)$/.test(property) ? "a size of its own" : /^overflow/.test(property) ? "a scroll of its own" : /^padding/.test(property) ? "room of its own" : "a look of its own";
 }
 
 describe("materials", () => {
-  it("builds every component of the materials: none gives itself a look, room, a size, a scroll, a color or a timing", () => {
+  it("builds every component of the materials: none gives itself a look, room, spacing, a size, a scroll, a color or a timing", () => {
     const problems: string[] = [];
     for (const { slug, selector, property, value, isMaterial } of declarations()) {
       if (isMaterial) continue;

@@ -111,6 +111,10 @@ span.hairline { flex: 1; border-top: var(--divider); }
 
 /* Words on the glass keep its margin (--pad-words), however they sit; beside controls, they line up with the controls' center line. */
 .words-margin { padding-inline: var(--pad-words); }
+/* Words with a control on one side keep the margin only at the pane's edge: at their start (a toggle's words, before its slot), or their end
+   (a check's words, after its box; a slider's number). */
+.words-margin.at-start { padding-inline: var(--pad-words) 0; }
+.words-margin.at-end { padding-inline: 0 var(--pad-words); }
 .words-margin.beside-controls { padding-block: calc((var(--control-height-regular) - 1lh) / 2); }
 .words-margin.beside-controls.compact { padding-block: calc((var(--control-height-small) - 1lh) / 2); }
 /* With nothing beside them, they keep the margin all round. */

@@ -125,7 +125,7 @@ export const SMOKED_GLASS = `color-scheme: dark;
  *   - WORDS_SURFACES: what holds a pane's, a sheet's and a playing card's content, and a banner (which sets its words' own padding).
  *   - WORDS_HOLDERS: where a heading or paragraph, or the first and last words (layout.ts's edgeWords), take the margin from --pad-words.
  */
-export const WORDS_HOLDERS = [".glass-pane > .pane-in", ".sheet-in", ".playing-card-in", ".tray"];
+export const WORDS_HOLDERS = [".glass-pane > .pane-in", ".floating-pane > .floating-body", ".sheet-in", ".playing-card-in", ".tray"];
 export const WORDS_SURFACES = [".glass-pane > .pane-in", ".sheet-in", ".playing-card-in", ".banner"];
 
 /**

@@ -40,7 +40,7 @@ export function slider(options: SliderOptions): Raw {
   const id = options.id ?? `slider-${options.name}`;
   const filledPct = (100 * (options.pickedNumber - options.minimumNumber)) / Math.max(1e-9, options.maximumNumber - options.minimumNumber);
   const className = ["slider", options.state ?? "", options.isDisabled ? "is-disabled" : ""].filter(Boolean).join(" ");
-  return html`<div class="${className}" style="--fill:${(Math.max(0, Math.min(100, filledPct)) / 100).toFixed(4)}"><div class="slider-head"><label for="${id}">${options.label}</label><output for="${id}" data-unit="${options.unit}">${numberWords(options.pickedNumber, options.unit)}</output></div><div class="slider-track">${groove({ kind: "slider-groove", filledPct })}<input class="slider-input" type="range" id="${id}" name="${options.name}" min="${options.minimumNumber}" max="${options.maximumNumber}" step="${options.stepNumber}" value="${options.pickedNumber}"${options.isDisabled ? raw(" disabled") : ""} data-slider><span class="slider-thumb thumb" aria-hidden="true"><span class="slider-slab thumb-slab cut-raised" data-cut-line="6">${CUT_LINE}</span></span></div></div>`;
+  return html`<div class="${className}" style="--fill:${(Math.max(0, Math.min(100, filledPct)) / 100).toFixed(4)}"><div class="slider-head"><label class="words-margin at-start" for="${id}">${options.label}</label><output class="words-margin at-end" for="${id}" data-unit="${options.unit}">${numberWords(options.pickedNumber, options.unit)}</output></div><div class="slider-track">${groove({ kind: "slider-groove", filledPct })}<input class="slider-input" type="range" id="${id}" name="${options.name}" min="${options.minimumNumber}" max="${options.maximumNumber}" step="${options.stepNumber}" value="${options.pickedNumber}"${options.isDisabled ? raw(" disabled") : ""} data-slider><span class="slider-thumb thumb" aria-hidden="true"><span class="slider-slab thumb-slab cut-raised" data-cut-line="6">${CUT_LINE}</span></span></div></div>`;
 }
 
 /** A slider's fill and number follow its thumb. */
@@ -69,8 +69,8 @@ component({
    sits at the start and its number at the end, apart, so they never read as one phrase. */
 .slider { --thumb: 22px; display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--gap-words-control); }
 .slider-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--gap-words-words); }
-.slider-head > label { margin-inline-start: var(--pad-words); font: var(--type-label); color: var(--ink-2); }
-.slider-head > output { margin-inline-end: var(--pad-words); font: var(--type-label); color: var(--ink); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.slider-head > label { font: var(--type-label); color: var(--ink-2); }
+.slider-head > output { font: var(--type-label); color: var(--ink); white-space: nowrap; font-variant-numeric: tabular-nums; }
 /* It fills a pane's width; in a pane that fits what's in it, its track is a card's width (--size-card), or what room there is. */
 .slider-track { position: relative; width: var(--size-card); min-width: 100%; max-width: 100%; }
 /* Its line is a Groove, from under the thumb's middle at one end to under it at the other, filled with orange light to the thumb's middle,
@@ -639,7 +639,7 @@ component({
 .color-side { display: flex; flex-direction: column; gap: var(--gap-control-stack); min-width: 0; --pad-words: 0px; }
 /* Stacked under the square on a phone, its words take the pane's words margin. */
 @media (max-width: 480px) { .color-side { --pad-words: var(--pad-inside-words); } }
-.color-side .slider-head > output { margin-inline-end: var(--pad-inside-words); }
+.color-side .slider-head > output { --pad-words: var(--pad-inside-words); }
 /* The picked color is carved into the pane, the color lying in it as light inside the glass, its edges lit and shaded like every carving. */
 .color-swatch { position: relative; display: block; flex: 1; min-height: 32px; background: var(--color-picked); clip-path: var(--cut-shape); }
 /* Its brightness: the slider's groove runs from black to the full color, with no orange in it. */
