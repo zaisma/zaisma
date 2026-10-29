@@ -572,12 +572,18 @@ export interface TableColumn {
   isActions?: boolean;
 }
 
+/** A cell with a quieter second line under its words: a top-up's "Credit added" and until when it refunds. */
+export interface TableCell {
+  text: Raw | string;
+  detail: string;
+}
+
 export interface TableOptions {
   /** What the table is, said above it (it stays put as the table scrolls sideways) and to screen readers. */
   caption: string;
   columns: TableColumn[];
   /** One list of cells a row, in the columns' order. */
-  rows: (Raw | string)[][];
+  rows: (Raw | string | TableCell)[][];
   /** The first column names each row (a version, a player): it's the row's head, and stays put as the table scrolls sideways. */
   hasRowHeads?: boolean;
   /** Closer rows, for long lists (logs, requests). */
@@ -606,10 +612,12 @@ export function table(options: TableOptions): Raw {
     return names ? html` class="${names}"` : "";
   };
   const isRowHead = (columnIndex: number) => options.hasRowHeads && columnIndex === 0;
-  const cell = (content: Raw | string, columnIndex: number) =>
-    isRowHead(columnIndex)
+  const cell = (given: Raw | string | TableCell, columnIndex: number) => {
+    const content = typeof given === "object" && "detail" in given ? html`${given.text}<span class="table-cell-detail">${given.detail}</span>` : given;
+    return isRowHead(columnIndex)
       ? html`<th scope="row" class="glass">${content}</th>`
       : html`<td${cellClass(columnIndex)}>${options.columns[columnIndex]?.isActions ? html`<div class="control-row">${content}</div>` : content}</td>`;
+  };
   const placeholder = options.rowsPlaceholder ?? (options.rows.length ? null : options.whenEmpty);
   const body = placeholder
     ? html`<tr><td class="table-placeholder" colspan="${String(options.columns.length)}"><div class="table-placeholder-in">${placeholder}</div></td></tr>`
@@ -682,6 +690,8 @@ component({
 .data-table code { font: var(--type-code); }
 .data-table .num { text-align: right; }
 .data-table td.long { white-space: normal; min-width: var(--size-card); }
+/* A cell's second line: under its words, in the header's quieter ones. */
+.data-table .table-cell-detail { display: block; font: var(--type-facts); color: var(--muted); }
 /* A row's buttons: at its end, as narrow as they are, and no taller than its words' room, so a row with buttons is no taller than one without. */
 .data-table .actions { width: 1%; }
 .data-table td.actions { padding-block: 0; }
@@ -708,6 +718,20 @@ component({
           ["Version 16", VERSION_STATE_TAGS.passed, "49.4 MB", "10 min ago", secondaryButton("Publish", ROW_BUTTON)],
           ["Version 15", VERSION_STATE_TAGS.held, "49.2 MB", "An hour ago", secondaryButton("Details", ROW_BUTTON)],
           ["Version 13", VERSION_STATE_TAGS.replaced, "47.6 MB", "Oct 16", secondaryButton("Roll back", ROW_BUTTON)],
+        ],
+      }),
+    },
+    {
+      label: "A second line in a cell, and a button only in the rows that have one",
+      isWide: true,
+      markup: tablePane({
+        caption: "Credit entries",
+        isCompact: true,
+        columns: [{ label: "Day" }, { label: "What" }, { label: "Game" }, { label: "Amount", isNumeric: true }, { label: "Refund", isActions: true }],
+        rows: [
+          ["Oct 26", { text: "Credit added", detail: "$25 refundable until Nov 25" }, "", "+$25", secondaryButton("Refund", ROW_BUTTON)],
+          ["Oct 25", "Hosting", "ashen-crown", "−$4.10", ""],
+          ["Sep 30", "Credit added", "", "+$25", ""],
         ],
       }),
     },

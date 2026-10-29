@@ -1,6 +1,6 @@
 import { createExecutionContext, env, SELF } from "cloudflare:test";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { MAXIMUM_OPEN_FRIEND_INVITE_COUNT, accountById, stopSocial, addTesterLink, friendsNowOf, blocksOf, playerProfile, playingNowOf, ageBand, ageOn, applyBirthdays, canonicalSave, saveFromParts, checkUsername, createAccount, createApiKey, deleteExpiredFriendInvites, friendInviteByCode, friendInvitesOf, friendsOf, gameById, gameBySlug, gameOwner, recordPlayed, createGame, unversionedSaveKey, sha256Hex, createReport, createVersion, isSlugRetired, newId, personOwner, queueGameDeletion, saveCopyKey, saveScan } from "@zaisma/core";
+import { MAXIMUM_OPEN_FRIEND_INVITE_COUNT, addCreditEntry, accountById, stopSocial, addTesterLink, friendsNowOf, blocksOf, playerProfile, playingNowOf, ageBand, ageOn, applyBirthdays, canonicalSave, saveFromParts, checkUsername, createAccount, createApiKey, deleteExpiredFriendInvites, friendInviteByCode, friendInvitesOf, friendsOf, gameById, gameBySlug, gameOwner, recordPlayed, createGame, unversionedSaveKey, sha256Hex, createReport, createVersion, isSlugRetired, newId, personOwner, queueGameDeletion, saveCopyKey, saveScan } from "@zaisma/core";
 import { deleteDueGames } from "../../apps/site/src/game-deletion.ts";
 import { PASSKEY_SCRIPT } from "../../apps/site/src/passkeys.ts";
 import { decideTopic } from "../../apps/site/src/forum-posts.ts";
@@ -246,7 +246,7 @@ beforeEach(async () => {
     }
     return url.origin === SUPABASE ? fakeSupabase(url, init) : realFetch(input, init);
   });
-  await env.DB.exec("DELETE FROM email_codes; DELETE FROM email_code_requests; DELETE FROM security_events; DELETE FROM security_places; DELETE FROM device_marks; DELETE FROM wrong_passwords; DELETE FROM forum_posts; DELETE FROM forum_topic_tags; DELETE FROM forum_votes; DELETE FROM forum_follows; DELETE FROM forum_media; DELETE FROM forum_mentions; DELETE FROM forum_topics; DELETE FROM played; DELETE FROM games_ever_played; DELETE FROM player_erases; DELETE FROM presences; DELETE FROM room_players; DELETE FROM live_rooms; DELETE FROM friendships; DELETE FROM friend_invites; DELETE FROM blocks; DELETE FROM profile_reports; DELETE FROM game_images; DELETE FROM api_keys; DELETE FROM passkeys; DELETE FROM session_proofs; DELETE FROM save_history; DELETE FROM saves; DELETE FROM audit_log; DELETE FROM tester_links; DELETE FROM reports; DELETE FROM versions; DELETE FROM game_deletions; DELETE FROM retired_game_slugs; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM accounts;");
+  await env.DB.exec("DELETE FROM email_codes; DELETE FROM email_code_requests; DELETE FROM security_events; DELETE FROM security_places; DELETE FROM device_marks; DELETE FROM wrong_passwords; DELETE FROM forum_posts; DELETE FROM forum_topic_tags; DELETE FROM forum_votes; DELETE FROM forum_follows; DELETE FROM forum_media; DELETE FROM forum_mentions; DELETE FROM forum_topics; DELETE FROM played; DELETE FROM games_ever_played; DELETE FROM player_erases; DELETE FROM presences; DELETE FROM room_players; DELETE FROM live_rooms; DELETE FROM friendships; DELETE FROM friend_invites; DELETE FROM blocks; DELETE FROM profile_reports; DELETE FROM game_images; DELETE FROM api_keys; DELETE FROM passkeys; DELETE FROM session_proofs; DELETE FROM save_history; DELETE FROM saves; DELETE FROM audit_log; DELETE FROM tester_links; DELETE FROM reports; DELETE FROM versions; DELETE FROM game_deletions; DELETE FROM retired_game_slugs; DELETE FROM credit_entries; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM accounts;");
 });
 
 afterEach(() => {
@@ -4600,16 +4600,27 @@ describe("Developer settings", () => {
     expect(await budgetOf()).toBeNull();
   });
 
-  it("shows the money defaults: no top-up amount picked, automatic top-up starting at below $5 and add $20 with no monthly most", async () => {
+  it("shows the money defaults: no top-up amount picked, and no automatic top-up", async () => {
     const { b } = await developer();
     await env.DB.prepare("INSERT INTO game_hosting_months (game_id, month_start_date, used_cents) VALUES ('game_dev_settings', ?, 1440)").bind(new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth() - 1, 1)).toISOString().slice(0, 10)).run();
     const page = await (await b.go("/dashboard/settings")).text();
     expect(page).not.toMatch(/name="amount_cents"[^>]*checked/);
     for (const cents of ["1000", "2500", "5000", "10000", "other"]) expect(page).toContain(`value="${cents}"`);
-    expect(page).toMatch(/name="below_dollars"[^>]*value="5"/);
-    expect(page).toMatch(/name="amount_dollars"[^>]*value="20"/);
-    expect(page).toMatch(/name="limit_dollars"[^>]*value=""|name="limit_dollars"(?![^>]*value=)/);
+    expect(page).not.toContain("below_dollars");
+    expect(page).not.toContain("Automatic top-up");
     expect(page).toContain("Last month&#39;s use past the free allowance would have cost $4.40");
+  });
+
+  it("puts a top-up's Refund in its row of the last 90 days while it refunds, and nowhere else", async () => {
+    const { b, owner } = await developer();
+    const DAY_MS = 86_400_000;
+    const fresh = (await addCreditEntry(env.DB, { ownerId: owner.id, entryKind: "top_up", amountCents: 2500, stripeObjectId: "pi_settings_fresh", refundableUntilMs: Date.now() + 27 * DAY_MS, createdAtMs: Date.now() - 3 * DAY_MS }))!;
+    const old = (await addCreditEntry(env.DB, { ownerId: owner.id, entryKind: "top_up", amountCents: 2500, stripeObjectId: "pi_settings_old", refundableUntilMs: Date.now() - 10 * DAY_MS, createdAtMs: Date.now() - 40 * DAY_MS }))!;
+    const page = await (await b.go("/dashboard/settings")).text();
+    expect(page).not.toContain("Top-ups you can still refund");
+    expect(page).toContain("refundable until");
+    expect(page).toContain(`aria-controls="refund-${fresh}"`);
+    expect(page).not.toContain(`refund-${old}`);
   });
 
   it("connects Stripe only with a fresh tap, and turns Stripe Tax and disconnecting without one", async () => {

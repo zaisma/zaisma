@@ -1,6 +1,6 @@
 import { addCreditEntry, creditOf } from "@zaisma/core";
-import { addTopUp, turnOffAutomaticTopUp } from "./hosting-job.ts";
-import { isSignedByStripe, stripeCall } from "./stripe.ts";
+import { addTopUp } from "./hosting-job.ts";
+import { isSignedByStripe } from "./stripe.ts";
 import type { Env } from "./env.ts";
 
 /** Stripe's events are small; anything bigger isn't one. */
@@ -9,8 +9,7 @@ const MAXIMUM_EVENT_SIZE_BYTES = 256 * 1024;
 export type StripeEvent = { id: string; type: string; data: { object: Record<string, unknown> & { id: string } } };
 
 /**
- * POST /stripe/events: Stripe tells Zaisma a top-up was paid, an automatic one failed, a payment was refunded, or a
- * Zaisma Pro subscription started, renewed, changed or ended.
+ * POST /stripe/events: Stripe tells Zaisma a top-up was paid, a payment was refunded, or a Zaisma Pro subscription started, renewed, changed or ended.
  * The signature is checked over the raw body before anything is read. Every handler is idempotent on the Stripe
  * object's ID, since Stripe sends an event again until it's answered 2xx. Events of other kinds are answered and
  * ignored.
@@ -33,32 +32,13 @@ export async function handleStripeEvents(request: Request, env: Env): Promise<Re
   const ownerId = metadata.owner_id;
 
   if (event.type === "checkout.session.completed" && ownerId && object.mode === "payment" && object.payment_status === "paid" && typeof object.payment_intent === "string") {
-    await addTopUp(env, { ownerId, amountCents: Number(object.amount_subtotal ?? object.amount_total), paymentIntentId: object.payment_intent, isAutomatic: false });
-    await savePaymentMethod(env, ownerId, object.payment_intent);
-  }
-  // A Checkout payment's own payment_intent.succeeded is the checkout's above (the same ID counts once either way).
-  if (event.type === "payment_intent.succeeded" && ownerId && metadata.top_up_kind === "automatic") {
-    await addTopUp(env, { ownerId, amountCents: Number(object.amount_received ?? object.amount), paymentIntentId: object.id, isAutomatic: true });
-  }
-  if (event.type === "payment_intent.payment_failed" && ownerId && metadata.top_up_kind === "automatic") {
-    const lastError = object.last_payment_error as { message?: string } | null;
-    await turnOffAutomaticTopUp(env, ownerId, lastError?.message ?? null);
+    await addTopUp(env, { ownerId, amountCents: Number(object.amount_subtotal ?? object.amount_total), paymentIntentId: object.payment_intent });
   }
   const eventAtMs = Number((event as unknown as Record<string, unknown>)["created"]) * 1000 || Date.now();
   if (event.type === "customer.subscription.created" || event.type === "customer.subscription.updated") await saveProSubscription(env, object, event.type, eventAtMs);
   if (event.type === "customer.subscription.deleted") await endProSubscription(env, object, eventAtMs);
   if (event.type === "charge.refunded" && typeof object.payment_intent === "string") await addRefund(env, object.payment_intent, Number(object.amount_refunded));
   return Response.json({ received: true });
-}
-
-/** The card a Checkout top-up was paid with, saved for automatic top-ups. */
-async function savePaymentMethod(env: Env, ownerId: string, paymentIntentId: string): Promise<void> {
-  try {
-    const paymentIntent = await stripeCall(env, "GET", `/payment_intents/${encodeURIComponent(paymentIntentId)}`);
-    if (typeof paymentIntent.payment_method === "string") await env.DB.prepare("UPDATE owners SET stripe_payment_method_id = ? WHERE id = ?").bind(paymentIntent.payment_method, ownerId).run();
-  } catch (error) {
-    console.error("Couldn't save the top-up's card:", error);
-  }
 }
 
 /**

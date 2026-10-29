@@ -178,7 +178,6 @@ export const ERROR_CODES = {
   no_top_up: { httpStatus: 404, meaning: "You have no top-up with that ID." },
   no_spending_request: { httpStatus: 404, meaning: "You have no spending request with that ID." },
   top_up_not_refundable: { httpStatus: 409, meaning: "The top-up has nothing left to refund: it's spent, refunded, or over 30 days old." },
-  bad_automatic_top_up: { httpStatus: 400, meaning: "The automatic top-up's amounts aren't whole cents that fit: a top-up of at least $10, and a monthly limit of at least one top-up." },
   already_pro: { httpStatus: 409, meaning: "The developer already has a Zaisma Pro subscription (running, cancelled until the month ends, or a renewal Stripe is retrying), so there's nothing to start." },
   pro_not_refundable: { httpStatus: 409, meaning: "Zaisma Pro's payment can't be refunded: only the first payment, within 14 days of it, and only while it's the only one." },
   not_pro: { httpStatus: 409, meaning: "There's nothing to cancel or resume: the developer has no Zaisma Pro, or it's already cancelled (or isn't cancelled)." },

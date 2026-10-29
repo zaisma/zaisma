@@ -107,7 +107,6 @@ describe("the docs say what the code does", () => {
     const credit = (CREDIT.properties as Record<string, Schema>).credit!;
     const documented = creditRow.match(/`\{"credit": \{(.+?)\}\}`/)![1]!;
     expect(sorted(listedNames(documented.replace(/\{[^}]*\}/g, "")))).toEqual(sorted(keysOf(credit)));
-    expect(sorted(listedNames(documented.match(/"automatic_top_up": \{([^}]+)\}/)![1]!))).toEqual(sorted(keysOf((credit.properties as Record<string, Schema>).automatic_top_up!)));
   });
 
   it("lists the alert kinds GAME_ALERT_KINDS has, in its order, and the hosting ones alert_raised sends", () => {

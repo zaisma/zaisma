@@ -1223,6 +1223,19 @@ component({
       markup: html`${secondaryButton("Buy the Founder's Pack", { type: "button", controls: "example-sheet-foot" })}${sheet({ id: "example-sheet-foot", title: "Founder's Pack", body: html`<p>The soundtrack, the Ember Keep castle and 1,200 crowns in Ashen Crown, on every device you sign in on.</p>`, closeLabel: "Close", action: "#sheet", placement: "foot", buttons: [secondaryButton("Not now", { type: "submit", formMethod: "dialog" }), primaryButton("Buy for $14.99", { type: "submit" })] })}`,
     },
     {
+      label: "Two ways out: each button sends the form to its own place (formAction), and Close keeps things as they are",
+      isStill: true,
+      markup: sheet({
+        id: "example-sheet-two-ways",
+        title: "Cancel Zaisma Pro?",
+        body: html`<p>Keep it until Nov 22, or end it now and get your $10 back (until Nov 5).</p>`,
+        closeLabel: "Keep Pro",
+        action: "#sheet-cancel",
+        buttons: [secondaryButton("End now and refund $10", { type: "submit", formAction: "#sheet-refund" }), primaryButton("Cancel at Nov 22", { type: "submit" })],
+        isShown: true,
+      }),
+    },
+    {
       label: "Try it: a confirm over a sheet, a size smaller; a press beside it, Esc or Cancel close only the confirm",
       markup: html`${secondaryButton("Your games", { type: "button", controls: "example-sheet-under" })}${sheet({
         id: "example-sheet-under",

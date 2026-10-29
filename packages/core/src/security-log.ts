@@ -36,7 +36,6 @@ export const SECURITY_EVENT_DESCRIPTIONS = {
   where_used_from_turned_on: "Turned on Keep where my account is used from",
   credit_top_up_started: "Started a credit top-up",
   credit_refunded: "Refunded hosting credit",
-  automatic_top_up_changed: "Changed automatic top-up",
   pro_checkout_started: "Started Zaisma Pro",
   pro_cancelled: "Cancelled Zaisma Pro",
   pro_resumed: "Took back cancelling Zaisma Pro",
@@ -119,7 +118,6 @@ export const ACCOUNT_EVENT_KINDS: readonly SecurityEventKind[] = [
   "account_data_downloaded",
   "credit_top_up_started",
   "credit_refunded",
-  "automatic_top_up_changed",
   "pro_checkout_started",
   "pro_cancelled",
   "pro_resumed",
@@ -186,7 +184,6 @@ export const ADDRESS_KEEPING_EVENT_KINDS: readonly SecurityEventKind[] = [
   // Money: who started or changed spending, and from where.
   "credit_top_up_started",
   "credit_refunded",
-  "automatic_top_up_changed",
   "pro_checkout_started",
   "pro_cancelled",
   "pro_resumed",
