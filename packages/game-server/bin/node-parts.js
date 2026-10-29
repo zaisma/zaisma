@@ -289,7 +289,7 @@ export function secretsFromEnvironment() {
   return Object.freeze(Object.fromEntries(Object.entries(process.env).filter(([, environmentValue]) => typeof environmentValue === "string")));
 }
 
-const OPTION_NAMES = ["gameServer", "gameSlug", "port", "origins", "issuerUrl", "loadPassKeys", "loadReceiptKeys", "loadProfile", "database", "secrets", "webhookSigningSecret", "roomStateFile", "zaismaKey", "developerApiUrl"];
+const OPTION_NAMES = ["gameServer", "gameSlug", "port", "origins", "issuerUrl", "loadPassKeys", "loadReceiptKeys", "loadProfile", "database", "secrets", "webhookSigningSecret", "roomStateFile", "zaismaKey", "developerApiUrl", "webtransportPort", "certificatePath", "certificateKeyPath"];
 
 /**
  * Check what startServer was given: unknown options and options of the wrong kind are a GameServerError,
@@ -325,5 +325,13 @@ export function checkedStartServerOptions(given, issuerUrlDefault) {
   if (options.roomStateFile !== undefined && options.roomStateFile !== null && !isText(options.roomStateFile)) throw bad("roomStateFile", "a file path", "Give a file path as text, like \"zaisma-room-states.sqlite\", or null to keep no states.");
   if (options.zaismaKey !== undefined && !isText(options.zaismaKey)) throw bad("zaismaKey", "an API key", "Give an API key with purchase_access write for this game as text, or leave it out to use ZAISMA_KEY.");
   if (options.developerApiUrl !== undefined && (!isText(options.developerApiUrl) || !URL.canParse(options.developerApiUrl))) throw bad("developerApiUrl", "a URL", 'Give the address of Zaisma\'s developer API, like "https://zaisma.com/api/dev".');
+  // The fast lane (WebTransport): its UDP port and the certificate it holds itself, all three or none.
+  const fastLaneFields = ["webtransportPort", "certificatePath", "certificateKeyPath"];
+  const missingFastLaneFields = fastLaneFields.filter((field) => options[field] === undefined);
+  if (missingFastLaneFields.length && missingFastLaneFields.length < fastLaneFields.length) throw fail("bad_option", missingFastLaneFields[0], `The fast lane needs ${missingFastLaneFields.join(" and ")} too.`, `Give ${fastLaneFields.join(", ")} together, or none of them.`);
+  if (options.webtransportPort !== undefined && !(Number.isInteger(options.webtransportPort) && options.webtransportPort >= 0 && options.webtransportPort <= 65535)) throw bad("webtransportPort", "a port number", "Give the UDP port for the fast lane, a whole number from 0 to 65535 (0 picks a free one), like 443.");
+  for (const field of ["certificatePath", "certificateKeyPath"]) {
+    if (options[field] !== undefined && !isText(options[field])) throw bad(field, "a file path", `Give the path of a PEM file as text, like "${field === "certificatePath" ? "fullchain.pem" : "privkey.pem"}".`);
+  }
   return options;
 }

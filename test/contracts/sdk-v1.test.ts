@@ -56,6 +56,8 @@ const ALLOWED_OUTPUT_ADDITIONS: { union: string; value: string }[] = [
   { union: "ErrorCode", value: "chat_too_long" },
   { union: "ErrorCode", value: "chat_too_fast" },
   { union: "ErrorCode", value: "chat_not_here" },
+  // joinRoom's transport, the fast lane to a game's own server.
+  { union: "ErrorCode", value: "bad_transport" },
 ];
 
 const MORE_VALUES_NOTE = "More values may come";

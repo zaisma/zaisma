@@ -1,6 +1,6 @@
 {
   "name": "@zaisma/game-server",
-  "version": "1.11.0",
+  "version": "1.12.0",
   "description": "Write a Zaisma game server once; run it in Zaisma rooms or on your own Node server.",
   "license": "MIT",
   "type": "module",
@@ -11,6 +11,18 @@
   },
   "dependencies": {
     "ws": "8.21.3"
+  },
+  "peerDependencies": {
+    "@fails-components/webtransport": "1.6.11",
+    "@fails-components/webtransport-transport-http3-quiche": "1.6.11"
+  },
+  "peerDependenciesMeta": {
+    "@fails-components/webtransport": {
+      "optional": true
+    },
+    "@fails-components/webtransport-transport-http3-quiche": {
+      "optional": true
+    }
   },
   "scripts": {
     "build": "node scripts/build.mjs"
