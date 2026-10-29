@@ -677,8 +677,8 @@ export function layout(env: Env, options: LayoutOptions): Response {
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>${options.title}</title>
 ${options.checkedPage ? checkedPageTag(options.checkedPage) : ""}
-<link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="icon" href="/favicon.ico" sizes="32x32">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="preload" href="${FONT_PATH}" as="font" type="font/woff2" crossorigin>
