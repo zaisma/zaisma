@@ -274,18 +274,16 @@ export const PLACE_SCRIPT = `/* place */(function () {
       var anchor = anchorNow(), holder = pane.offsetParent;
       if (!anchor || !holder) return;
       var r = options.anchorRect ? options.anchorRect(anchor) : anchor.getBoundingClientRect(), h = holder.getBoundingClientRect();
-      if (options.isGrown) pane.style.minWidth = r.width + 2 * (parseFloat(getComputedStyle(pane).paddingLeft) || 0) + "px";
+      if (options.isGrown) pane.style.minWidth = r.width + "px";
       var spot = window.zaismaPlace(r, { width: pane.offsetWidth, height: pane.offsetHeight }, { roomRect: { left: h.left, top: h.top, right: h.right, bottom: h.bottom }, gapPx: options.gapPx || FLOAT_GAP_PX, edgePx: options.edgePx || FLOAT_EDGE_PX, isAlwaysBelow: true });
       if (options.isGrown) spot = grown(spot, r);
       pane.style.left = Math.round(spot.leftPx - h.left - holder.clientLeft) + "px"; pane.style.top = Math.round(spot.topPx - h.top - holder.clientTop) + "px";
       pane.classList.toggle("from-start", !spot.isAtEnd);
     }
-    // Grown out of its anchor, it's laid over it, its padding round it: its first row lies on the anchor, at least as wide, from the anchor's
-    // end or start, under its top or (above) over its bottom.
+    // Grown out of its anchor, it's laid over it, edge on edge: its first row is the anchor, and it's at least as wide, from the anchor's end
+    // or start, its top on the anchor's top or (above) its foot on the anchor's foot.
     function grown(spot, r) {
-      var style = getComputedStyle(pane), padX = parseFloat(style.paddingLeft) || 0;
-      return { isAbove: spot.isAbove, isAtEnd: spot.isAtEnd, leftPx: spot.isAtEnd ? r.right + padX - pane.offsetWidth : r.left - padX,
-        topPx: spot.isAbove ? r.bottom + (parseFloat(style.paddingBottom) || 0) - pane.offsetHeight : r.top - (parseFloat(style.paddingTop) || 0) };
+      return { isAbove: spot.isAbove, isAtEnd: spot.isAtEnd, leftPx: spot.isAtEnd ? r.right - pane.offsetWidth : r.left, topPx: spot.isAbove ? r.bottom - pane.offsetHeight : r.top };
     }
     if (isInPlace && !isOver && !options.isAnchorWidth) {
       pane.classList.add("is-hanging"); hang();
@@ -310,12 +308,12 @@ export const PLACE_SCRIPT = `/* place */(function () {
       if (isOver) { topPx = r.top + r.height / 2 - options.lineOf(); leftPx = r.left; }
       else {
         // Grown, its first row lies on the anchor: only the rest needs room beyond it.
-        var grownPx = options.isGrown ? r.height + (parseFloat(getComputedStyle(pane).paddingTop) || 0) : 0;
+        var grownPx = options.isGrown ? r.height : 0;
         var at = function () { return window.zaismaPlace(r, { width: pane.offsetWidth, height: pane.offsetHeight - grownPx }, { roomRect: { left: page.left, top: roomTop, right: page.right, bottom: roomBottom }, gapPx: gapPx, edgePx: edgePx, isAlwaysBelow: typeof options.isAlwaysBelow === "function" ? options.isAlwaysBelow(anchor) : options.isAlwaysBelow }); };
-        if (options.isGrown) { gapPx = 0; pane.style.minWidth = r.width + 2 * (parseFloat(getComputedStyle(pane).paddingLeft) || 0) + "px"; }
+        if (options.isGrown) { gapPx = 0; pane.style.minWidth = r.width + "px"; }
         var spot = at();
         if (options.fitsRoom) {
-          // Grown, it also has its anchor's room, and its own padding over it.
+          // Grown, it also has its anchor's room.
           var roomPx = Math.max(0, grownPx + (spot.isAbove ? r.top - roomTop - gapPx - edgePx : roomBottom - r.bottom - gapPx - edgePx));
           pane.style.setProperty("--floating-room", roomPx + "px");
           var box = options.scrollBox && options.scrollBox(), extraPx = box ? box.scrollHeight - box.clientHeight : 0;
@@ -415,17 +413,18 @@ export const DROPDOWN_SCRIPT = `/* menus */(function () {
   // Each menu is a Floating pane (zaismaFloat) grown out of the button that opens it: laid over the button, its first row the button's own
   // face, so button and menu are one piece of glass. Past the room on the side it opened to, its choices scroll inside it.
   var buttons = new WeakMap();
-  // The button's face: a copy of it (the same words, so the same size) on the menu's first row. The button itself is hidden under the menu while it's open; a
+  // The button's face on the menu's first row, where the button is, as large as it: its words and icon set in the menu's glass, which is the
+  // button's glass grown (a picture, like the account's, stays a picture). The button itself is hidden under the menu while it's open; a
   // press on its face closes the menu, as a press on the button does.
   function showFace(menu, button) {
     var face = menu.querySelector(".dropdown-face");
     if (!face || !button) return;
-    var copy = button.cloneNode(true);
-    ["id", "aria-controls", "aria-expanded", "aria-label", "aria-describedby", "aria-haspopup"].forEach(function (name) { copy.removeAttribute(name); });
-    copy.querySelectorAll("[id]").forEach(function (one) { one.removeAttribute("id"); });
-    // Pressed: its menu open, the button is pressed into the glass that grows out of it.
-    copy.tabIndex = -1; copy.style.visibility = ""; copy.classList.add("is-pressed");
-    face.replaceChildren(copy);
+    var slab = button.querySelector(".slab") || button, inside = document.createElement("span"), r = button.getBoundingClientRect(), style = getComputedStyle(slab);
+    inside.className = "dropdown-face-in";
+    inside.style.width = r.width + "px"; inside.style.height = r.height + "px"; inside.style.font = style.font; inside.style.gap = style.gap;
+    var parts = slab.classList.contains("holds-art") ? [slab] : Array.prototype.filter.call(slab.children, function (part) { return !part.matches(".cut-line, .loader"); });
+    parts.forEach(function (part) { var copy = part.cloneNode(true); if (copy.removeAttribute) copy.removeAttribute("id"); copy.querySelectorAll("[id]").forEach(function (one) { one.removeAttribute("id"); }); inside.appendChild(copy); });
+    face.replaceChildren(inside);
   }
   window.zaismaWatch.each('.dropdown[role="menu"]', function (menu) {
     var face = menu.querySelector(".dropdown-face");
@@ -479,8 +478,10 @@ const DROPDOWN_STYLES = `
 .floating-pane.dropdown.dropdown:is(:not(:popover-open):not(.in-place), .is-arriving, .is-leaving) { transform: scale(0.97); }
 @starting-style { .floating-pane.dropdown.dropdown:popover-open { transform: scale(0.97); } }
 /* Its first row: the button's face, at the button's end of the row (its start, from-start). Above its button, it's the last row. */
-.dropdown-face { display: flex; justify-content: flex-end; }
-.dropdown-face > * { flex: none; cursor: pointer; }
+/* Its first row runs to its edges, its padding taken back, so its button's face lies where the button is. */
+.dropdown-face { display: flex; justify-content: flex-end; margin: calc(-1 * var(--pad-frame-compact)) calc(-1 * var(--pad-frame-compact)) 0; cursor: pointer; }
+.floating-pane.dropdown.is-above .dropdown-face { margin: 0 calc(-1 * var(--pad-frame-compact)) calc(-1 * var(--pad-frame-compact)); }
+.dropdown-face-in { flex: none; display: flex; align-items: center; justify-content: center; color: var(--ink); }
 .floating-pane.dropdown.from-start .dropdown-face { justify-content: flex-start; }
 .floating-pane.dropdown > .floating-head { display: flex; flex-direction: column; gap: 2px; }
 .floating-pane.dropdown.is-above, .floating-pane.dropdown.is-above > .floating-head { flex-direction: column-reverse; }
