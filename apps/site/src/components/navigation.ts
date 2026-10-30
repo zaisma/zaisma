@@ -149,6 +149,8 @@ const HEADER_STYLES = `
 .top .find:has(~ .end > .me) { margin-inline-end: var(--gap-words-control); }
 /* Where you are beside search is a row of two controls too: however little room the header has, they slant toward each other, never touch. */
 .top .nav:has(~ .find) { margin-inline-end: var(--gap-control-row-boxes); }
+/* Beside where you are, search takes all the room left, past a field's widest, so no room ever opens between them and both keep the slant. */
+.top .nav ~ .find { max-width: none; }
 
 /* Where you are: a Switch (switch.ts), filling the room the header gives it; the header only places it.
    With fewer than two tabs to show it isn't a choice, so it's hidden (header()). */
