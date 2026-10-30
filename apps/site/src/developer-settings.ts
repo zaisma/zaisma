@@ -899,7 +899,8 @@ const SETTINGS_SCRIPT = pageScript(
     var holder = tapKind(form);
     if (!holder || form.getAttribute("data-tapped") === "yes") return;
     var submitter = event.submitter;
-    if (submitter && submitter.hasAttribute("data-no-tap")) return;
+    // Cancel only closes the sheet (formmethod dialog): nothing to confirm.
+    if (submitter && (submitter.hasAttribute("data-no-tap") || submitter.getAttribute("formmethod") === "dialog")) return;
     if (!raises(holder, form)) return;
     event.preventDefault();
     say(form, "");
