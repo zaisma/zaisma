@@ -33,9 +33,9 @@ export async function handleStripeEvents(request: Request, env: Env): Promise<Re
   const ownerId = metadata.owner_id;
 
   if (event.type === "checkout.session.completed" && ownerId && object.mode === "payment" && object.payment_status === "paid" && typeof object.payment_intent === "string") {
-    await addTopUp(env, { ownerId, amountCents: Number(object.amount_subtotal ?? object.amount_total), paymentIntentId: object.payment_intent });
-    // The card that paid, for bans (bans.ts): never in the payment's way.
-    await recordPaidCard(env, ownerId, object.payment_intent).catch((error) => console.error(`Keeping the card of ${object.payment_intent} failed:`, error));
+    const isNew = await addTopUp(env, { ownerId, amountCents: Number(object.amount_subtotal ?? object.amount_total), paymentIntentId: object.payment_intent });
+    // The card that paid, once, for bans (bans.ts): never in the payment's way.
+    if (isNew) await recordPaidCard(env, ownerId, object.payment_intent).catch((error) => console.error(`Keeping the card of ${object.payment_intent} failed:`, error));
   }
   const eventAtMs = Number((event as unknown as Record<string, unknown>)["created"]) * 1000 || Date.now();
   if (event.type === "customer.subscription.created" || event.type === "customer.subscription.updated") await saveProSubscription(env, object, event.type, eventAtMs);
