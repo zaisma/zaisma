@@ -306,6 +306,8 @@ export const PLACE_SCRIPT = `/* place */(function () {
       pane.classList.toggle("is-on-page", isOnPage);
       pane.style.top = Math.round(topPx + (isOnPage ? window.scrollY : 0)) + "px";
       pane.style.left = Math.round(leftPx + (isOnPage ? window.scrollX : 0)) + "px";
+      // Capped by the room it opened into, what scrolls in it scrolls from now, not a frame later.
+      if (window.zaismaFit) pane.querySelectorAll(".scrolls").forEach(window.zaismaFit);
       window.zaismaCast(pane);
     }
     function open() {

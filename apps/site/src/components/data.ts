@@ -17,15 +17,10 @@ export type PictureSize = "xs" | "sm" | "md" | "lg";
  * An account's picture (accountPicture, its initials for now) in a small frame of the panes' glass, with its drawn rim. Its frame has no
  * corners of its own, so in a pane's corner it takes the corner's cut like anything with an edge, and it's square elsewhere; never slanted.
  */
-export function pictureFrame(username: string, pictureSize: PictureSize, options: { presence?: "online" | "playing"; isCut?: boolean } = {}): Raw {
+export function pictureFrame(username: string, pictureSize: PictureSize, options: { presence?: "online" | "playing" } = {}): Raw {
   // The initials are sized to the frame (--frame), so the largest frame takes the account's picture at its largest size.
   const picture = accountPicture(username, pictureSize === "lg" ? "md" : pictureSize, { title: "" });
   const presenceMarks = (presence: "online" | "playing") => html`<span class="presence-line" aria-hidden="true"></span>${presence === "playing" ? html`<span class="presence-play" aria-hidden="true">${icon("play")}</span>` : ""}`;
-  // Cut: where it stands as a control in a pane's corner (your picture at the header's end), it's cut by the edge rule like one, and its
-  // presence marks sit inside it, along its foot, so the cut trims them and nothing hangs outside it.
-  if (options.isCut) {
-    return html`<span class="frame ${pictureSize} glass is-cut" data-glass data-cut-line="10" data-glass-band="2" aria-hidden="true"><span class="frame-picture">${picture}</span>${options.presence ? presenceMarks(options.presence) : ""}</span>`;
-  }
   const frame = html`<span class="frame ${pictureSize} glass" data-glass data-glass-corners="0 0 0 0" data-glass-band="2" aria-hidden="true"><span class="frame-picture">${picture}</span></span>`;
   // The glass is clipped to its edge, so the presence marks sit outside it, in room the frame keeps under it: a green line along its foot,
   // and for playing a green tab with a play mark at the line's end.
@@ -127,7 +122,8 @@ component({
 .frame.glass > .frame-picture { position: absolute; z-index: 2; inset: 0; }
 /* A quiet rim: half the panes' strength, so it reads as glass without framing the face. */
 .frame.glass > .edge { z-index: 4; opacity: 0.5; }
-.frame .av { position: absolute; inset: 0; width: 100%; height: 100%; display: grid; place-items: center; font: 600 calc(var(--frame) * 0.38) var(--display); color: #fff; letter-spacing: 0.01em;
+/* An account's picture fills its frame, or the slab that holds it as art (your picture as the account button). */
+:is(.frame, .slab.holds-art) .av { position: absolute; inset: 0; width: 100%; height: 100%; display: grid; place-items: center; font: 600 calc(var(--frame, var(--control-height)) * 0.38) var(--display); color: #fff; letter-spacing: 0.01em;
   background: linear-gradient(140deg, hsl(var(--h) 58% 58%), hsl(calc(var(--h) + 45) 48% 52%) 55%, hsl(calc(var(--h) + 90) 48% 55%)); }
 /* Presence, under the picture: online is a green line along its foot, like the orange line under what you're on; playing adds a green tab at the
    line's right end holding a white play mark, lying over the picture's corner. The frame keeps room under it for them (the glass is clipped
@@ -145,8 +141,6 @@ component({
 /* The play mark is small in its tab, with green all round it, so it reads as a mark and not a cut in the tab. */
 .presence-play > .play { width: calc(var(--presence-tab-height) * 0.36); height: calc(var(--presence-tab-height) * 0.42); transform: translateX(0.5px); }
 /* A cut frame (your picture at the header's end) holds its presence inside, along its foot, under its rim. */
-.frame.is-cut > .presence-line { position: absolute; z-index: 5; left: 0; right: 0; bottom: 0; height: 3px; clip-path: none; }
-.frame.is-cut > .presence-play { position: absolute; z-index: 6; left: 0; right: auto; bottom: 0; }
 /* The smallest shows only the first letter. */
 .frame.xs .av { display: block; text-align: center; line-height: var(--frame); font-size: 0; }
 .frame.xs .av::first-letter { font-size: 11px; }
@@ -161,8 +155,6 @@ component({
     { label: "Small", markup: pictureFrame("Liam", "sm") },
     { label: "Smallest", markup: pictureFrame("Mia", "xs") },
     { label: "A profile's head: playing, online", markup: html`${pictureFrame("Sofia", "lg", { presence: "playing" })}${pictureFrame("Lucas", "lg", { presence: "online" })}` },
-    { label: "Cut, as the account button: online", markup: pictureFrame("emma_r", "md", { presence: "online", isCut: true }) },
-    { label: "Cut, as the account button: playing", markup: pictureFrame("Oliver", "md", { presence: "playing", isCut: true }) },
   ],
 });
 

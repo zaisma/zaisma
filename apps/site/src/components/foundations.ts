@@ -70,7 +70,7 @@ export interface FloatingPaneOptions {
   /** Its owner's own classes, for the owner's styles and script: "select-list". */
   kind?: string;
   /** It holds edged parts beside words (a color picker, wheels), not a list of rows: they sit at the regular frame gap, not a menu's compact one. */
-  holdsParts?: boolean;
+  hasParts?: boolean;
   /** Its role and what a screen reader calls it, when it isn't a list the owner names (a menu, a group of wheels). */
   role?: "menu" | "group";
   label?: string;
@@ -86,7 +86,7 @@ export interface FloatingPaneOptions {
  * no taller than a menu or the room in the window, and its body scrolls inside it past that, with the rail and scroll fades.
  */
 export function floatingPane(options: FloatingPaneOptions): Raw {
-  const className = [`placed-${options.placement}`, options.kind ?? "", options.holdsParts ? "regular" : "", "glass", options.isShownInPlace ? "in-place" : ""].filter(Boolean).join(" ");
+  const className = [`placed-${options.placement}`, options.kind ?? "", options.hasParts ? "regular" : "", "glass", options.isShownInPlace ? "in-place" : ""].filter(Boolean).join(" ");
   return html`<div class="floating-pane ${className}" id="${options.id}"${options.role ? html` role="${options.role}"` : ""}${options.label ? html` aria-label="${options.label}"` : ""} data-glass data-glass-corners="menu"${
     options.isShownInPlace ? (options.lineFromTop ? html` style="--line-from-top: ${options.lineFromTop}"` : "") : raw(' popover="manual"')
   }>${EDGE}${options.head ? html`<div class="floating-head">${options.head}</div>` : ""}<div class="floating-body scrolls">${options.body}</div></div>`;

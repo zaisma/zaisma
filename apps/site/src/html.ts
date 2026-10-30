@@ -9,7 +9,7 @@ import { COMPONENT_SCRIPT, COMPONENT_STYLES, HEADER_SCRIPT } from "./components/
 import { HEADER_TWO_ROWS_MEDIA, footer, header, rail, type HeaderTab } from "./components/navigation.ts";
 import type { ControlMarkup } from "./components/control-markup.ts";
 import { secondaryButton, primaryButton } from "./components/actions.ts";
-import { pictureFrame, problemState } from "./components/data.ts";
+import { problemState } from "./components/data.ts";
 import { backdrop, glassPane } from "./components/foundations.ts";
 import type { SwitchTab } from "./components/inputs.ts";
 import type { Viewer } from "./viewer.ts";
@@ -744,7 +744,7 @@ export function siteHeader(env: Env, options: { isAdmin?: boolean; nav?: Nav; se
     current: options.isAdmin ? null : (options.nav ?? null),
     ownTabs: options.isAdmin ? ADMIN_TABS.map(([label, href]): SwitchTab => ({ label, href, isCurrent: false })) : undefined,
     search: shownSearch ? { ...shownSearch, name: "search_text" } : undefined,
-    account: account ? { username: account.username, pictureMarkup: pictureFrame(account.username, "md", { isCut: true }) } : null,
+    account: account ? { username: account.username } : null,
     isOnDeveloperPage: !options.isAdmin && (options.nav === "developer" || options.nav === "forum"),
     // The page has a runner of its own (Play, Save): Sign in is a secondary button, so only one runner is ever in view.
     hasPageRunner: options.hasPageRunner,

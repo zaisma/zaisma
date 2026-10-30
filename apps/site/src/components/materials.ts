@@ -260,6 +260,15 @@ span.hairline { flex: 1; border-top: var(--divider); }
 /* Its words end in an ellipsis on one line, never spilling out of it or growing it past its height. */
 .slab > :is(span:not([class]), .label-idle, .label-busy) { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .slab-holder { display: inline-flex; max-width: 100%; }
+/* Holds art: a slab whose face is a picture (your picture as the account button), square at its control height. Its bevel and focus line are
+   drawn over the picture's edge; pointed, the picture catches the light; pressed, it takes the press shade and the slab sinks in place as
+   a whole, so no strip of face shows past the picture. */
+.slab.holds-art { width: var(--control-height, var(--control-height-regular)); padding: 0; }
+.slab.holds-art > .cut-line { z-index: 3; }
+.slab.holds-art > :where(:not(.cut-line)) { transition: filter var(--motion-state); }
+:is(.shell:hover, .shell.is-pointed, .shell[aria-expanded="true"]) > .slab.holds-art > :where(:not(.cut-line)) { filter: brightness(1.14); }
+:is(.shell:active, .shell.is-pressed) > .slab.holds-art > :where(:not(.cut-line)) { filter: brightness(0.9); transform: none; transition-duration: var(--motion-press); }
+:is(.shell:active, .shell.is-pressed) > .slab.holds-art { transform: translateY(1px); transition: transform var(--motion-press); }
 :where(.shell, .slab-holder):has(> .slab) { filter: var(--slab-cast); transition: filter var(--motion-state); }
 :is(.shell:hover, .shell.is-pointed, .shell:focus-visible, .shell.is-focused) > .slab, .slab.is-pointed, .slab.is-focused { --face-color: var(--slab-face-pointed); }
 :is(.shell:active, .shell.is-pressed) > .slab, .slab.is-pressed { --face-color: var(--slab-face-pressed); box-shadow: var(--slab-press-shade, var(--press-shade)); transition-duration: var(--motion-press); }
@@ -311,6 +320,8 @@ span.hairline { flex: 1; border-top: var(--divider); }
  */
 export const MATERIAL_SCRIPT = `/* materials */(function () {
   function fit(box) { box.classList.toggle("fits", box.scrollHeight <= box.clientHeight + 1 && box.scrollWidth <= box.clientWidth + 1); }
+  // A floating pane measures its own at once once it's placed and capped, so what's longer than its room never spills for a frame.
+  window.zaismaFit = fit;
   window.zaismaWatch.each(".scrolls", function (box) {
     fit(box);
     window.zaismaWatch.size(box, function () { fit(box); });

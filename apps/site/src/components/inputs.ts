@@ -505,7 +505,7 @@ export function colorField(options: ColorFieldOptions): Raw {
 ${floatingPane({
     id: `${id}-pick`,
     placement: "under",
-    kind: "color-pick", holdsParts: true,
+    kind: "color-pick", hasParts: true,
     role: "group",
     label: options.label,
     isShownInPlace: isOpen,

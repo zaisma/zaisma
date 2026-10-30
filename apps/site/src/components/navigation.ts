@@ -1,4 +1,4 @@
-import { html, raw, type Raw } from "../markup.ts";
+import { accountPicture, html, raw, type Raw } from "../markup.ts";
 import { pageScript } from "../page-scripts.ts";
 import { component } from "./component.ts";
 import { controlMarkup, type ControlMarkup } from "./control-markup.ts";
@@ -7,7 +7,7 @@ import { cutPolygon } from "./tokens.ts";
 import { secondaryButton, tertiaryButton, rowArrows, primaryButton, textLink } from "./actions.ts";
 import { SEARCH_STAND_IN, searchField, tabSwitch, type SearchFieldOptions, type SwitchTab } from "./inputs.ts";
 import { STAND_IN_COVERS, dropdown, type DropdownItem } from "./panes.ts";
-import { listRows, pictureFrame } from "./data.ts";
+import { listRows } from "./data.ts";
 import { row, stack, track, type LayoutItem } from "./layout.ts";
 
 /*
@@ -23,7 +23,7 @@ export interface HeaderOptions {
   /** The page's own search; without it the header has none. */
   search?: SearchFieldOptions;
   /** The signed-in account, or none: then the header says Sign in. */
-  account?: { username: string; pictureMarkup: Raw } | null;
+  account?: { username: string } | null;
   /** The dashboard and the forum: the Developer and Forum tabs open out of the end of the tabs. */
   isOnDeveloperPage: boolean;
   /** Sign-in's pages: the logo alone, with no tabs and nothing at the end, so nothing leads away from signing in but the logo home. */
@@ -69,30 +69,31 @@ export function header(options: HeaderOptions): Raw {
   const hasTabRow = !options.isOnSignInPage && tabs.filter((each) => !each.isFolded).length >= 2;
   const states = [hasTabRow ? "has-tab-row" : "", options.isCompact ? "is-compact" : "", options.isSearchOpen ? "searching" : ""].filter(Boolean).map((name) => ` ${name}`).join("");
   const signIn = options.hasPageRunner ? secondaryButton("Sign in", { href: "/signin" }) : primaryButton("Sign in", { href: "/signin" });
-  const menuItems: DropdownItem[] = account
-    ? [
-        { label: "Your profile", icon: "person", href: `/@${account.username}` },
-        { label: "Friends", icon: "friends", href: "/friends" },
-        { label: "Developer", icon: "code", href: "/dashboard" },
-        { label: "Settings", icon: "gear", href: "/account" },
-        { kind: "rule" },
-        { label: "Sign out", icon: "sign-out", action: "/signout" },
-      ]
-    : [];
   return html`<header class="top glass glass-bar pinned${states}" id="${id}" data-compacts data-glass data-glass-corners="header"${options.isCompact ? raw(" data-stays-compact") : ""}>${EDGE}
   ${options.sidebarButton ?? ""}${wordmark}
   ${options.isOnSignInPage ? "" : html`<nav class="nav" aria-label="Main"${hasTabRow ? "" : raw(" hidden")}>${tabSwitch({ label: "Where you are", switchSize: "big", isFull: true, tabs })}</nav>`}
   ${options.search ? html`${searchField({ ...options.search, id: options.search.id ?? `${id}-find` })}${secondaryButton(options.search.label, { type: "button", icon: "search", isLabelHidden: true, isSmall: true, isExpanded: Boolean(options.isSearchOpen) })}` : ""}
   ${options.isOnSignInPage ? "" : html`<div class="end">${
-    account ? accountButton({ username: account.username, pictureMarkup: account.pictureMarkup, menuId, isMenuOpen: options.isMenuOpen }) : signIn
+    account ? accountButton({ username: account.username, menuId, isMenuOpen: options.isMenuOpen }) : signIn
   }</div>`}
-</header>${account ? dropdown({ id: menuId, label: "Your account", head: { title: account.username, note: "Online" }, items: menuItems, isOpen: options.isMenuOpen }) : ""}`;
+</header>${account ? accountMenu(account.username, menuId, options.isMenuOpen) : ""}`;
+}
+
+/** The account menu your picture opens: it names you, then your places and Sign out. */
+function accountMenu(username: string, menuId: string, isOpen = false): Raw {
+  const items: DropdownItem[] = [
+    { label: "Your profile", icon: "person", href: `/@${username}` },
+    { label: "Friends", icon: "friends", href: "/friends" },
+    { label: "Developer", icon: "code", href: "/dashboard" },
+    { label: "Settings", icon: "gear", href: "/account" },
+    { kind: "rule" },
+    { label: "Sign out", icon: "sign-out", action: "/signout" },
+  ];
+  return dropdown({ id: menuId, label: "Your account", head: { title: username, note: "Online" }, items, isOpen });
 }
 
 export interface AccountButtonOptions {
   username: string;
-  /** Your picture: a Picture frame (data.ts), cut (isCut) so it fits the header's corner, and online. */
-  pictureMarkup: Raw;
   /** The id of the account menu it opens. */
   menuId: string;
   isMenuOpen?: boolean;
@@ -105,7 +106,7 @@ export interface AccountButtonOptions {
  * and as something to press). It opens the account menu, a pane of the same glass, which names you.
  */
 export function accountButton(options: AccountButtonOptions): Raw {
-  return html`<button type="button" class="me${options.state ? ` ${options.state}` : ""}" aria-expanded="${options.isMenuOpen ? "true" : "false"}" aria-controls="${options.menuId}" aria-label="Your account, ${options.username}">${options.pictureMarkup}</button>`;
+  return html`<button type="button" class="shell me${options.state ? ` ${options.state}` : ""}" aria-expanded="${options.isMenuOpen ? "true" : "false"}" aria-controls="${options.menuId}" aria-label="Your account, ${options.username}"><span class="slab holds-art" data-cut-line="10">${CUT_LINE}${accountPicture(options.username, "md", { title: "" })}</span></button>`;
 }
 
 /**
@@ -201,7 +202,7 @@ const HEADER_STYLES = `
   .top .end > .run-wrap > .run, .top .end > .cut-btn { --control-height: var(--control-height-small); }
   .top .end .run { --slab-words: 15px; font-size: 0.875rem; gap: 6px; }
   /* The picture is as tall as the search button beside it, at rest or compact. */
-  .top .me, .top.is-compact .me { --frame: var(--control-height-small); }
+  .top .me, .top.is-compact .me { --control-height: var(--control-height-small); }
   /* The search button and Sign in are a row of two controls, slanting toward each other; beside your picture, which never slants, it keeps a control's gap. */
   .top > .find + .cut-btn:has(~ .end > .shell) { margin-right: var(--gap-control-row-boxes); }
   .top > .find + .cut-btn:has(~ .end > .me) { margin-right: var(--gap-control-stack); }
@@ -754,8 +755,8 @@ const standInPage = html`<div class="stand-in-page">${["Continue playing", "Popu
 const headerFrame = (markup: Raw, isTall = false) => html`<div class="header-frame${isTall ? " tall" : ""}"><div class="backdrop is-framed" aria-hidden="true"></div>${markup}<div class="header-scroll" data-scroll-box>${standInPage}</div></div>`;
 /** A footer example: a small page of its own, cut like a pane, with the backdrop behind it, as the header's are. */
 const pageFrame = (markup: Raw) => html`<div class="header-frame"><div class="backdrop is-framed" aria-hidden="true"></div><div class="header-scroll" data-scroll-box>${markup}</div></div>`;
-const STAND_IN_ACCOUNT = { username: "emma_r", pictureMarkup: pictureFrame("emma_r", "md", { presence: "online", isCut: true }) };
-const LONG_NAMED_ACCOUNT = { username: "maximilian_vandenberg", pictureMarkup: pictureFrame("maximilian_vandenberg", "md", { presence: "online", isCut: true }) };
+const STAND_IN_ACCOUNT = { username: "emma_r" };
+const LONG_NAMED_ACCOUNT = { username: "maximilian_vandenberg" };
 const GAMES_SEARCH = { action: "#header", name: "search_text", searchText: "", placeholder: "Search games", label: "Search games", suggestionsUrl: "/design/examples/search-suggestions" };
 
 component({
@@ -782,27 +783,18 @@ component({
   slug: "account-button",
   group: "navigation",
   subgroup: "bars",
-  summary: "You, at the header's end once you're signed in: your picture alone is the button, online, as tall as the controls beside it. It opens the account menu, which names you.",
+  summary: "You, at the header's end once you're signed in: your picture alone is the button, a slab as tall as the controls beside it. It opens the account menu, which names you.",
   styles: `
-/* Your picture in its frame, as tall as the controls beside it and cut by the edge rule like them (Picture frame's isCut), so it fits the
-   header's corner. Pointing brightens it, pressing sinks it a little, and with the menu open or by keyboard the focus line runs round it
-   inside its cut, as on every control. Online, its green line runs inside the frame's foot, so nothing sits outside the button to crowd the
-   header's edge or what's below it. */
-.me { --frame: var(--control-height-regular); position: relative; display: flex; padding: 0; border: 0; background: none; cursor: pointer; -webkit-tap-highlight-color: transparent; }
-.me .frame { --frame: inherit; transition: var(--glass-transition), width var(--motion-glide) var(--ease-glide), height var(--motion-glide) var(--ease-glide), scale var(--motion-state); }
-.me .frame-picture { transition: filter var(--motion-state); }
-.me:hover .frame-picture, .me.is-pointed .frame-picture, .me[aria-expanded="true"] .frame-picture { filter: brightness(1.1); }
-.me:active .frame, .me.is-pressed .frame { scale: 0.95; }
+/* Your picture as a slab (materials.ts, holds-art): raised on the header's glass, as tall as the controls beside it and cut by the edge rule
+   like them, so it fits the header's corner. Its states are the slab's: pointed it catches the light, pressed it lands, and by keyboard the
+   focus line runs round its whole cut. With the menu open the focus line stays round it, as it shows where the menu came from. */
+.me { --control-height: var(--control-height-regular); }
 .me:focus-visible { outline: none; }
-/* The focus line: the frame's drawn rim, whole, its hairline in the focus color as wide as every control's focus line
-   (half of it shows inside the cut), and the pale parts of the rim that lie over it (its band, glint, facets, fringe) put away. */
-.me:focus-visible .frame > .edge, .me.is-focused .frame > .edge, .me[aria-expanded="true"] .frame > .edge { opacity: 1; }
-.me:focus-visible .frame > .edge .hair, .me.is-focused .frame > .edge .hair, .me[aria-expanded="true"] .frame > .edge .hair { stroke: var(--focus); stroke-width: var(--focus-stroke); }
-.me:focus-visible .frame > .edge :is(.rim-band, .spec-line, .facet, .fringe, .inner), .me.is-focused .frame > .edge :is(.rim-band, .spec-line, .facet, .fringe, .inner), .me[aria-expanded="true"] .frame > .edge :is(.rim-band, .spec-line, .facet, .fringe, .inner) { opacity: 0; }
+.me[aria-expanded="true"] > .slab > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 `,
   render: accountButton,
   examples: [
-    // A still copy: the header's own example (Header) opens the menu.
+    { label: "Try it: point at it, press it, Tab to it, open its menu", markup: html`${accountButton({ ...STAND_IN_ACCOUNT, menuId: "example-me-try-menu" })}${accountMenu(STAND_IN_ACCOUNT.username, "example-me-try-menu")}` },
     { label: "Rest", markup: accountButton({ ...STAND_IN_ACCOUNT, menuId: "example-me-menu" }), isStill: true },
     { label: "Pointed", markup: accountButton({ ...STAND_IN_ACCOUNT, menuId: "example-me-menu", state: "is-pointed" }), isStill: true },
     { label: "Pressed", markup: accountButton({ ...STAND_IN_ACCOUNT, menuId: "example-me-menu", state: "is-pressed" }), isStill: true },

@@ -209,7 +209,7 @@ export function wheelField(options: WheelFieldOptions): ControlMarkup {
 ${floatingPane({
     id: `${id}-pick`,
     placement: "over",
-    kind: "wheel-pick", holdsParts: true,
+    kind: "wheel-pick", hasParts: true,
     role: "group",
     label: options.label,
     isShownInPlace: isOpen,
