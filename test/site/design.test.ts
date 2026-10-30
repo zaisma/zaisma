@@ -309,7 +309,7 @@ describe("the gallery", () => {
         const children = holder.children.filter((child) => child.tag !== "svg" && child.tag !== "template");
         // A control's own parts (a switch's tabs, the row arrows' two slabs, a dropdown's choices, a wheel field's wheels, a file drop's files)
         // are its inside, not controls beside each other.
-        if (holder.classes.includes("wheels") || holder.classes.includes("file-drop-list") || holder.classes.includes("shell") || holder.attributes.includes(" data-cut-line") || holder.attributes.includes(' role="menu"') || holder.classes.includes("dropdown-in") || holder.classes.includes("menu-choices") || holder.attributes.includes(' role="listbox"')) continue;
+        if (holder.classes.includes("wheels") || holder.classes.includes("file-drop-list") || holder.classes.includes("shell") || holder.attributes.includes(" data-cut-line") || holder.attributes.includes(' role="menu"') || holder.classes.includes("dropdown-in") || holder.attributes.includes(' role="listbox"')) continue;
         // What a well holds is its own inside (a compact choice list's cards, down its carving like a vertical switch's places).
         if (holder.classes.includes("well-body")) continue;
         if (children.length < 2 || !children.every((child) => child.classes.includes("shell") || child.attributes.includes(" data-cut-line"))) continue;
@@ -733,7 +733,7 @@ const NOT_SPACING = new Set<string>([
   ".choice-cards > .choice-card:not(:last-child) | margin-inline-end",
   // A control's own parts: a well's inset round its slab, the birthday's wheels, and a list of places, one control its slab glides along.
   ".tab-switch | padding", ".tab-switch.small | padding", ".steps | padding", ".wheels | gap",
-  ".floating-pane.dropdown | gap", ".dropdown-in | gap", ".menu-choices | gap",
+  ".floating-pane.dropdown | gap", ".dropdown-in | gap",
   // Room to scroll, or for a scrollbar or a page's rail.
   ".wheel | padding", "html | scroll-padding-top", ".gallery-layout | padding-right",
   ".well.scrolls-down > .well-body.own-scroll.shows-rail | padding-right", ".sheet-in.own-scroll.shows-rail | padding-right", ".sheet-body.own-scroll.shows-rail | padding-right",

@@ -1315,7 +1315,7 @@ function shareFrom(button) {
 }
 const shareMore = document.getElementById("share-more");
 if (navigator.share) {
-  shareMore.hidden = false;
+  shareMore.closest("li").hidden = false;
   shareMore.onclick = async () => {
     try { await navigator.share({ title: document.title, url: shareLink.dataset.copy }); shareBox.close(); } catch {}
   };

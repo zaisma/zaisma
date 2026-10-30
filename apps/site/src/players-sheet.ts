@@ -6,7 +6,8 @@ import { cutField } from "./components/fields.ts";
 import type { ControlMarkup } from "./components/control-markup.ts";
 import { listRows, pictureFrame, emptyState } from "./components/data.ts";
 import { stack, type LayoutItem } from "./components/layout.ts";
-import { menuChoices, sheet, type SheetStep } from "./components/panes.ts";
+import { sheet, type SheetStep } from "./components/panes.ts";
+import { icon } from "./components/foundations.ts";
 import { joinPath } from "./friends-now.ts";
 import { profilePath } from "./profiles.ts";
 import { html, pageData, scriptTags, securityHeaders, type Raw } from "./html.ts";
@@ -127,14 +128,16 @@ export function playersSheet(options: { gameOrigin: string; slug: string; title:
     items: [
       {
         kind: "block",
-        markup: menuChoices({
+        markup: listRows({
+          whenEmpty: html``,
+          isCompact: true,
           label: "Their choices",
-          choices: [
-            { label: "Profile", href: "/", id: "players-player-profile", icon: "person", isHidden: true },
+          rows: [
+            { title: "Profile", href: "/", id: "players-player-profile", lead: icon("person"), isHidden: true },
             // Only when they take friend requests from this player (friend-requests.ts asks), with no hint why otherwise.
-            { label: "Add friend", isButton: true, id: "players-player-friend", icon: "friends", isHidden: true },
-            { label: "Block", isButton: true, id: "players-player-block", icon: "ban" },
-            { label: "Report", isButton: true, id: "players-player-report", icon: "flag" },
+            { title: "Add friend", press: {}, id: "players-player-friend", lead: icon("friends"), isHidden: true },
+            { title: "Block", press: {}, id: "players-player-block", lead: icon("ban") },
+            { title: "Report", press: {}, id: "players-player-report", lead: icon("flag") },
           ],
         }),
       },
@@ -336,13 +339,14 @@ const PLAYERS_SHEET_SCRIPT = pageScript("players-sheet", String.raw`(() => {
       chosen = { id: other.id, name };
       $("players-player-title").textContent = name;
       const profile = $("players-player-profile");
-      profile.hidden = !known;
+      // Each choice is a List row: its whole row shows or hides, hairline and all.
+      profile.closest("li").hidden = !known;
       if (known) {
         profile.href = "/@" + encodeURIComponent(known.name);
         profile.target = "_blank";
         profile.rel = "noopener";
       }
-      $("players-player-block").hidden = isBlocked;
+      $("players-player-block").closest("li").hidden = isBlocked;
       showFriendChoice(other, known, isBlocked);
       zaismaLayers.step(sheet, "player");
     });
@@ -352,7 +356,7 @@ const PLAYERS_SHEET_SCRIPT = pageScript("players-sheet", String.raw`(() => {
   // Add friend, Friend request sent, or Sign in to add friends: asked of Zaisma as the player's sheet opens.
   function showFriendChoice(other, known, isBlocked) {
     const add = $("players-player-friend"), sent = $("players-player-sent"), signIn = $("players-player-sign-in");
-    add.hidden = true;
+    add.closest("li").hidden = true;
     sent.hidden = true;
     signIn.hidden = !(other.kind === "account" && !isSignedIn() && CAN_SIGN_IN);
     if (!known || known.isFriend || isBlocked || !isSignedIn()) return;
@@ -368,7 +372,7 @@ const PLAYERS_SHEET_SCRIPT = pageScript("players-sheet", String.raw`(() => {
           known.isFriend = true;
           render();
         }
-        add.hidden = !about.can_send;
+        add.closest("li").hidden = !about.can_send;
         sent.hidden = !about.has_sent;
       })
       .catch(() => {});

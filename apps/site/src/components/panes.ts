@@ -60,12 +60,12 @@ export const DROPDOWN_CHOICE_CLASS = "dropdown-choice flush-row compact";
 
 /**
  * One choice in a dropdown: words with an icon, a faint slab under the pointer, the slab with the orange line when it's the current one.
- * In a dropdown it's a menu item the arrow keys move between; in Menu choices it's an ordinary link or button Tab reaches.
+ * It's a menu item the arrow keys move between.
  */
-function dropdownChoice(choice: DropdownChoice, isInMenu = true): Raw {
+function dropdownChoice(choice: DropdownChoice): Raw {
   const inside = html`${CUT_LINE}${choice.icon ? icon(choice.icon) : ""}<span class="one-line">${choice.label}</span>${choice.badgeCount ? tag(choice.badgeCount, "count") : ""}${choice.isNewTab ? html`<span class="dropdown-out" aria-hidden="true">${icon("out-of-page")}</span>` : ""}`;
   const dataMarkup = choice.dataAttributes ? html`${Object.entries(choice.dataAttributes).map(([name, text]) => html` data-${name}="${text}"`)}` : "";
-  const shared = html` class="${DROPDOWN_CHOICE_CLASS}${choice.state ? ` ${choice.state}` : ""}"${isInMenu ? raw(' role="menuitem" tabindex="-1"') : ""} data-cut-line="8"${choice.id ? html` id="${choice.id}"` : ""}${choice.isHidden ? raw(" hidden") : ""}${choice.isCurrent ? raw(' aria-current="page"') : ""}`;
+  const shared = html` class="${DROPDOWN_CHOICE_CLASS}${choice.state ? ` ${choice.state}` : ""}"${raw(' role="menuitem" tabindex="-1"')} data-cut-line="8"${choice.id ? html` id="${choice.id}"` : ""}${choice.isHidden ? raw(" hidden") : ""}${choice.isCurrent ? raw(' aria-current="page"') : ""}`;
   if (choice.action !== undefined) return html`<form class="dropdown-form" method="post" action="${choice.action}"><button type="submit"${shared}>${inside}</button></form>`;
   if (choice.confirmSheetId !== undefined) return html`<button type="button" aria-controls="${choice.confirmSheetId}"${shared}>${inside}</button>`;
   if (choice.controls !== undefined) return html`<button type="button" aria-controls="${choice.controls}"${dataMarkup}${shared}>${inside}</button>`;
@@ -903,44 +903,6 @@ component({
   ],
 });
 
-export interface MenuChoicesOptions {
-  /** What they're about, for a screen reader: "Liam". */
-  label: string;
-  choices: DropdownChoice[];
-}
-
-/**
- * Menu choices: a dropdown's choices on their own, in a sheet or a pane: words with an icon, no slab of their own, a faint one under the
- * pointer, so a short list of things to do reads as the ⋯ menu does rather than a stack of buttons (a player's Profile, Block, Report).
- */
-export function menuChoices(options: MenuChoicesOptions): Raw {
-  return html`<div class="menu-choices" role="group" aria-label="${options.label}">${options.choices.map((choice) => dropdownChoice(choice, false))}</div>`;
-}
-
-component({
-  name: "Menu choices",
-  slug: "menu-choices",
-  group: "panes",
-  subgroup: "menus",
-  summary: "A dropdown's choices on their own, in a sheet or a pane: an icon and words, no slab until pointed at, so a short list of things to do (a player's Profile, Block and Report) reads like the ⋯ menu, not a stack of buttons.",
-  styles: `
-/* Menu choices: the dropdown's choices one under another, at the controls' gap, the way they sit in a dropdown. */
-.menu-choices { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-`,
-  render: menuChoices,
-  examples: [
-    {
-      label: "A player's choices",
-      markup: html`<div style="width:320px">${glassPane({ paneWidth: "full", body: stackOfOne(menuChoices({ label: "Liam", choices: [{ label: "Profile", icon: "person", href: "#menu-choices" }, { label: "Block", icon: "ban", isButton: true }, { label: "Report", icon: "flag", isButton: true, state: "is-pointed" }] })) })}</div>`,
-    },
-    {
-      label: "Keyboard focus",
-      isStill: true,
-      markup: html`<div style="width:320px">${glassPane({ paneWidth: "full", body: stackOfOne(menuChoices({ label: "Sofia", choices: [{ label: "Profile", icon: "person", href: "#menu-choices", state: "is-focused" }, { label: "Block", icon: "ban", isButton: true }, { label: "Report", icon: "flag", isButton: true }] })) })}</div>`,
-    },
-  ],
-});
-
 component({
   name: "Light box",
   slug: "light-box",
@@ -964,32 +926,6 @@ component({
       label: "Try it: a game's QR code, large",
       markup: html`${secondaryButton("Show QR code", { type: "button", controls: "example-light-box" })}${lightBox({ id: "example-light-box", label: "QR code for Ashen Crown", closeLabel: "Close", body: qrCode({ id: "example-light-box-qr", label: "QR code for Ashen Crown", caption: "Scan with a phone's camera to play Ashen Crown", imageUrl: STAND_IN_QR_CODE, iconUrl: STAND_IN_GAME_ICON, isLarge: true }) })}`,
     },
-  ],
-});
-
-/** A filter in use, said as a tag that removes it: its link is the list without it. */
-export interface FilterTag {
-  label: string;
-  removeHref: string;
-}
-
-/** The filters in use, under a list's Filter button: each a small secondary button with a close mark, which takes that one away. */
-export function filterTags(options: { tags: FilterTag[] }): Raw {
-  return row({ widths: "fit", label: "Filters in use: each removes itself", items: options.tags.map((filter) => control(secondaryButton(filter.label, { href: filter.removeHref, icon: "close", isSmall: true }))) });
-}
-
-component({
-  name: "Filter tags",
-  slug: "filter-tags",
-  group: "panes",
-  subgroup: "menus",
-  summary: "The filters in use on a list, under its Filter button: one small button each, with a close mark, that takes it away. Choosing filters is the Filter menu's.",
-  // A Row of its buttons (layout.ts): they wrap onto more lines where they don't fit across.
-  styles: "",
-  render: filterTags,
-  examples: [
-    { label: "Two in use", markup: filterTags({ tags: [{ label: "Adventure", removeHref: "#filter-tags" }, { label: "$15 to $30", removeHref: "#filter-tags" }] }) },
-    { label: "Many, wrapping", markup: html`<div style="width:min(260px,100%)">${filterTags({ tags: [{ label: "Role-playing", removeHref: "#filter-tags" }, { label: "Multiplayer", removeHref: "#filter-tags" }, { label: "$30 and up", removeHref: "#filter-tags" }] })}</div>` },
   ],
 });
 
@@ -1305,7 +1241,7 @@ component({
     {
       label: "Compact, on a wide screen: narrow, its gaps closed up like a dropdown's (the share sheet)",
       isStill: true,
-      markup: sheet({ id: "example-sheet-compact", title: "Share Ashen Crown", body: stack({ items: [{ kind: "control", markup: copyField({ id: "example-sheet-compact-link", label: "Link", copiedText: "https://zaisma.com/g/ashen-crown" }) }, { kind: "block", markup: menuChoices({ label: "More ways to share", choices: [{ label: "Show QR code", icon: "qr-code", isButton: true }, { label: "More ways to share", icon: "share", isButton: true }] }) }] }), closeLabel: "Close", isShown: true, isCompact: true }),
+      markup: sheet({ id: "example-sheet-compact", title: "Share Ashen Crown", body: stack({ items: [{ kind: "control", markup: copyField({ id: "example-sheet-compact-link", label: "Link", copiedText: "https://zaisma.com/g/ashen-crown" }) }, { kind: "block", markup: listRows({ whenEmpty: html``, isCompact: true, label: "More ways to share", rows: [{ title: "Show QR code", lead: icon("qr-code"), press: {} }, { title: "More ways to share", lead: icon("share"), press: {} }] }) }] }), closeLabel: "Close", isShown: true, isCompact: true }),
     },
     {
       label: "Sending: its button busy",
@@ -1372,7 +1308,7 @@ component({
           {
             stepName: "player",
             title: "Liam",
-            body: stackOfOne(menuChoices({ label: "Liam", choices: [{ label: "Profile", icon: "person", href: "#sheet" }, { label: "Block", icon: "ban", isButton: true }, { label: "Report", icon: "flag", isButton: true, dataAttributes: { "sheet-step-to": "report" } }] })),
+            body: stackOfOne(listRows({ whenEmpty: html``, isCompact: true, label: "Liam", rows: [{ title: "Profile", lead: icon("person"), href: "#sheet" }, { title: "Block", lead: icon("ban"), press: {} }, { title: "Report", lead: icon("flag"), press: { dataAttributes: { "sheet-step-to": "report" } } }] })),
           },
           { stepName: "report", title: "Report Liam", body: reportBody("example-sheet-steps"), buttons: [primaryButton("Send report", { type: "submit" })] },
         ],

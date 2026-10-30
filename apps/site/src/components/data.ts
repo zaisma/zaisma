@@ -203,18 +203,35 @@ export const VERSION_STATE_TAGS: Record<VersionState, Raw> = {
   replaced: tag("Replaced", "plain"),
 };
 
+/** A filter in use, said as a tag that removes it: its link is the list without it. */
+export interface TagInUse {
+  label: string;
+  removeHref: string;
+}
+
+/** The filters in use, under a list's Filter button: a tag each, with a close mark, that takes that one away. They wrap onto more lines. */
+export function tagsInUse(options: { tags: TagInUse[] }): Raw {
+  return html`<div class="tags-in-use" role="group" aria-label="Filters in use: each removes itself">${options.tags.map((inUse) => tag(inUse.label, "plain", { removeHref: inUse.removeHref }))}</div>`;
+}
+
 component({
   name: "Tag",
   slug: "tag",
   group: "data",
   subgroup: "lists",
-  summary: "A few words or a number carved into what they label, slanted at both ends: Updated on a game, the count of unread topics on a place, a version's state. On glass, a mark's name on the rail.",
+  summary: "A few words or a number carved into what they label, slanted at both ends: Updated on a game, the count of unread topics on a place, a version's state. On glass, a mark's name on the rail. Removable, a filter in use under a list's Filter button, which a press takes away.",
   styles: `
 /* A tag is the carving's smallest form (materials.ts): new, a count, plain or a warning, or glass. */
 /* An icon before its words, small and in their color, says what kind of tag it is at a glance. */
 .tag:has(> .ico) { gap: 4px; }
 .tag > .ico { width: 12px; height: 12px; stroke-width: 2; }
 .tag.glass { color: var(--ink); --glass-tint: var(--glass-dropdown); }
+/* Removable: a link, its words then a close mark, a little taller so it's easy to press; pointed at, its words and mark light up. */
+.tag.is-removable { height: 26px; gap: 4px; padding-inline: 9px 8px; text-decoration: none; cursor: pointer; }
+.tag.is-removable > .ico { width: 12px; height: 12px; stroke-width: 2; }
+.tag.is-removable:hover { color: var(--ink); }
+.tag.is-removable:focus-visible { outline: none; box-shadow: var(--tag-carve), inset 0 0 0 2px var(--focus); }
+.tags-in-use { display: flex; flex-wrap: wrap; gap: var(--gap-words-words); }
 `,
   render: (words: string | number, tone: TagTone, options?: { icon?: IconName }) => tag(words, tone, options),
   examples: [
@@ -225,6 +242,8 @@ component({
     { label: "A warning", markup: tag("Held", "warning") },
     { label: "On glass", markup: tag("Continue playing", "glass") },
     { label: "A version's state, the same everywhere", isWide: true, markup: html`${Object.values(VERSION_STATE_TAGS)}` },
+    { label: "Removable: the filters in use on a list", markup: tagsInUse({ tags: [{ label: "Adventure", removeHref: "#tag" }, { label: "$15 to $30", removeHref: "#tag" }] }) },
+    { label: "Removable, many, wrapping", markup: html`<div style="width:min(220px,100%)">${tagsInUse({ tags: [{ label: "Role-playing", removeHref: "#tag" }, { label: "Multiplayer", removeHref: "#tag" }, { label: "$30 and up", removeHref: "#tag" }] })}</div>` },
   ],
 });
 
@@ -277,6 +296,16 @@ interface ListRowParts {
   isNewTab?: boolean;
   /** Not shown for now: a page script shows it (a long list's rows past the first ten, after Show all). It takes no room and no hairline. */
   isHidden?: boolean;
+  /** Unique on the page, on the row itself (its link or button), for a page's script to find it: a player's Block. */
+  id?: string;
+}
+
+/** A row that does something, pressed as a whole: a button (a player's Block, Show QR code), its words and nothing at its end. */
+export interface RowPress {
+  /** The sheet or light box it opens (its id). */
+  controls?: string;
+  /** data-* attributes a page's script reads ({ "sheet-step-to": "report" }), names in lowercase words joined by dashes. */
+  dataAttributes?: Record<string, string>;
 }
 
 /** A row's switch (Toggle, in Inputs): on or off for a setting that takes effect as it's saved. The whole row is its label, so a press anywhere on it flips it. */
@@ -301,17 +330,19 @@ export interface RowFold {
 }
 
 /**
- * A row that goes somewhere is a link as a whole, so it never holds a button; a row to read may end in any control (Remove, Invite, a
+ * A row that goes somewhere is a link as a whole, so it never holds a button; a row that does something (press) is a button as a whole, a
+ * short list of them a sheet's things to do (a player's Profile, Block and Report); a row to read may end in any control (Remove, Invite, a
  * select), or in a few small ones side by side (a player in a room: Mute, and ⋯ for the rest); a row for a setting ends in a switch, and
  * is pressed as a whole. A switch row may hold the rows that only matter while it's on, in a well under it. A row that opens (fold) is
  * pressed as a whole too and ends in a chevron that turns as it opens, what's folded under it showing in a well under it: something that
  * belongs on the page but out of the way (earlier entries, blocked people), or things to scan by a title and a line (the content rules).
  */
 export type ListRow = ListRowParts & (
-  | { href: string; action?: never; switch?: never; rowsWhileOn?: never; fold?: never }
-  | { href?: undefined; action?: ControlMarkup | ControlMarkup[]; switch?: never; rowsWhileOn?: never; fold?: never }
-  | { href?: undefined; action?: never; switch: RowSwitch; rowsWhileOn?: ListRow[]; fold?: never }
-  | { href?: undefined; action?: never; switch?: never; rowsWhileOn?: never; fold: RowFold }
+  | { href: string; action?: never; switch?: never; rowsWhileOn?: never; fold?: never; press?: never }
+  | { href?: undefined; action?: ControlMarkup | ControlMarkup[]; switch?: never; rowsWhileOn?: never; fold?: never; press?: never }
+  | { href?: undefined; action?: never; switch: RowSwitch; rowsWhileOn?: ListRow[]; fold?: never; press?: never }
+  | { href?: undefined; action?: never; switch?: never; rowsWhileOn?: never; fold: RowFold; press?: never }
+  | { href?: undefined; action?: never; switch?: never; rowsWhileOn?: never; fold?: never; press: RowPress }
 );
 
 /** A switch's carved slot and its slab: the checkbox (role switch) lies over the slot, unseen, and the row round it is its label. */
@@ -342,7 +373,9 @@ function listMarkup(options: { rows: ListRow[]; id?: string; label?: string; sho
     const details = [row.detail, row.secondDetail].filter((line): line is string => Boolean(line));
     const inside = html`${row.lead ? html`<span class="list-row-lead">${row.lead}</span>` : ""}<span class="list-row-words">${row.titleIcon ? html`<span class="list-row-title-line"><span class="list-row-title">${row.title}</span><span class="list-row-title-icon" role="img" aria-label="${row.titleIcon.label}" title="${row.titleIcon.label}"${row.titleIcon.isHidden ? raw(" hidden") : ""}>${icon(row.titleIcon.icon)}</span></span>` : html`<span class="list-row-title">${row.title}</span>`}${details.map((line) => html`<span class="list-row-detail">${factLine(line, "list-row-fact")}</span>`)}${row.meter ? html`<span class="list-row-meter">${usageTrack(row.meter)}</span>` : ""}</span>${row.end !== undefined ? html`<span class="list-row-end">${row.end}</span>` : ""}`;
     return html`<li${row.isHidden ? raw(" hidden") : ""}>${row.href
-      ? html`<a class="list-row flush-row is-link${row.state ? ` ${row.state}` : ""}" href="${row.href}"${row.isNewTab ? raw(' target="_blank" rel="noopener noreferrer"') : ""} data-cut-line="8">${CUT_LINE}${inside}<span class="list-row-go${row.isNewTab ? " is-new-tab" : ""}" aria-hidden="true">${icon(row.isNewTab ? "out-of-page" : "chevron-right")}</span></a>`
+      ? html`<a class="list-row flush-row is-link${row.state ? ` ${row.state}` : ""}"${row.id ? html` id="${row.id}"` : ""} href="${row.href}"${row.isNewTab ? raw(' target="_blank" rel="noopener noreferrer"') : ""} data-cut-line="8">${CUT_LINE}${inside}<span class="list-row-go${row.isNewTab ? " is-new-tab" : ""}" aria-hidden="true">${icon(row.isNewTab ? "out-of-page" : "chevron-right")}</span></a>`
+      : row.press
+        ? html`<button type="button" class="list-row flush-row is-press${row.state ? ` ${row.state}` : ""}"${row.id ? html` id="${row.id}"` : ""}${row.press.controls ? html` aria-controls="${row.press.controls}"` : ""}${Object.entries(row.press.dataAttributes ?? {}).map(([name, text]) => html` data-${name}="${text}"`)} data-cut-line="8">${CUT_LINE}${inside}</button>`
       : row.switch
         ? switchRowMarkup(row, row.switch, inside)
         : row.fold
@@ -392,7 +425,7 @@ component({
   slug: "list-rows",
   group: "data",
   subgroup: "lists",
-  summary: "A list of things on glass, one a row with hairlines between: versions, keys, topics, players, settings. A row that goes somewhere is a link as a whole, ending in a chevron that steps on as you point; a row to read may end in any control, a button or a select; a row for a setting ends in its switch (Toggle) and is pressed as a whole, holding the settings it turns on in a well under it. Words and the control at a row's end keep one margin, so a row reads as one thing. A row may open instead, pressed as a whole, what's folded under it showing in a well under it: something out of the way (blocked people, earlier entries) or things to scan by a title and a line (the content rules).",
+  summary: "A list of things on glass, one a row with hairlines between: versions, keys, topics, players, settings. A row that goes somewhere is a link as a whole, ending in a chevron that steps on as you point; a row that does something (Block, Show QR code) is a button as a whole; a row to read may end in any control, a button or a select; a row for a setting ends in its switch (Toggle) and is pressed as a whole, holding the settings it turns on in a well under it. Words and the control at a row's end keep one margin, so a row reads as one thing. A row may open instead, pressed as a whole, what's folded under it showing in a well under it: something out of the way (blocked people, earlier entries) or things to scan by a title and a line (the content rules).",
   styles: `
 /* List rows: one thing a row, hairlines between. A row that's a link ends in a small chevron; under the pointer the row brightens a little
    (a faint slab, cut by the edge rule), an orange mark rises at its start, and the chevron steps on, the way the guest button's arrow does.
@@ -433,6 +466,8 @@ component({
 .list-row-while-on, .list-row-fold-body { margin: 0 var(--pad-frame) var(--pad-frame); }
 /* A folding row is pressed as a whole, as a link row is, its chevron turning down as it opens. */
 .list-row.is-fold { cursor: pointer; list-style: none; }
+/* A row that does something: a button as a whole, as wide as the list, its words where a link row's are. */
+.list-row.is-press { width: 100%; cursor: pointer; text-align: start; }
 .list-row.is-fold::-webkit-details-marker { display: none; }
 .list-row.is-fold:hover > .list-row-go, .list-row.is-fold.is-pointed > .list-row-go { color: var(--ink); }
 .list-row-fold[open] > .list-row.is-fold > .list-row-go { transform: rotate(90deg); }
@@ -449,6 +484,10 @@ component({
   render: listRows,
   examples: [
     { label: "Rows that go somewhere", isWide: true, markup: listPane(VERSION_LIST_ROWS) },
+    {
+      label: "Rows that do something: a player's things to do, in a sheet (Report pointed at)",
+      markup: html`<div style="width:min(320px,100%)">${glassPane({ paneWidth: "full", body: stackOfOne(listRows({ whenEmpty: html``, isCompact: true, label: "Liam", rows: [{ title: "Profile", lead: icon("person"), href: "#list-rows" }, { title: "Block", lead: icon("ban"), press: {} }, { title: "Report", lead: icon("flag"), press: {}, state: "is-pointed" }] })) })}</div>`,
+    },
     {
       label: "Rows that open, in a pane among other things: something out of the way, and things to scan by a title and a line, one open",
       isWide: true,

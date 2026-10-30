@@ -174,11 +174,14 @@ export const railMarkup = (scrollKind: "box" | "page" | "side"): Raw => raw(`<di
 /**
  * A tag: a few words or a number, slanted at both ends, on what it labels. "new" is green (Updated, Live), "count" a number in the buttons'
  * face (unread topics), "plain" words in the same face (Replaced, Developer), "warning" amber (Held, Over the limit), "glass" a sliver of the
- * menus' glass (the rail's labels). An icon before its words says what kind it is at a glance. data.ts's Tag shows it.
+ * menus' glass (the rail's labels). An icon before its words says what kind it is at a glance. With removeHref it takes itself away: a
+ * link to the page without it, its words then a close mark (a filter in use). data.ts's Tag shows it.
  */
 export type TagTone = "new" | "count" | "plain" | "warning" | "glass";
-export const tag = (words: string | number, tone: TagTone, options: { icon?: IconName } = {}): Raw =>
-  html`<span class="tag ${tone}">${options.icon ? html`${icon(options.icon)}<span>${String(words)}</span>` : String(words)}</span>`;
+export const tag = (words: string | number, tone: TagTone, options: { icon?: IconName; removeHref?: string } = {}): Raw =>
+  options.removeHref !== undefined
+    ? html`<a class="tag ${tone} is-removable" href="${options.removeHref}" aria-label="Remove ${String(words)}"><span>${String(words)}</span>${icon("close")}</a>`
+    : html`<span class="tag ${tone}">${options.icon ? html`${icon(options.icon)}<span>${String(words)}</span>` : String(words)}</span>`;
 
 export interface ColorChoice {
   /** What it's called, said by a screen reader and shown in its field when it's picked (a Color field's named colors). */

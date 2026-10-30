@@ -2,7 +2,7 @@ import { GENRE_LABELS, GENRES, PRICE_RANGES, currencyForCountry, priceRangeOf, r
 import { tertiaryButton } from "./components/actions.ts";
 import { divider, glassPane } from "./components/foundations.ts";
 import { grid, row, stack, type LayoutItem } from "./components/layout.ts";
-import { filterTags, type FilterTag } from "./components/panes.ts";
+import { tagsInUse, type TagInUse } from "./components/data.ts";
 import { filterMenu, type FilterGroup } from "./components/navigation.ts";
 import { loadMore } from "./components/navigation.ts";
 import { emptyState } from "./components/data.ts";
@@ -201,7 +201,7 @@ function browseState(query: BrowseQuery, isSignedIn: boolean, gameCount: number)
 }
 
 /** The filters in use, in the menu's order: each said as its tag, with the link to Browse without it. */
-function filtersInUse(query: BrowseQuery, priceLabels?: Record<BrowsePriceRange, string>): FilterTag[] {
+function filtersInUse(query: BrowseQuery, priceLabels?: Record<BrowsePriceRange, string>): TagInUse[] {
   const without = (change: Partial<BrowseQuery>) => browseHref({ ...query, ...change, pageNumber: 1 });
   return [
     ...(query.genre !== "any" ? [{ label: GENRE_LABELS[query.genre], removeHref: without({ genre: "any" }) }] : []),
@@ -301,7 +301,7 @@ export async function browsePage(env: Env, request: Request): Promise<Response> 
             ],
           }),
         },
-        ...(tags.length ? [{ kind: "block" as const, markup: filterTags({ tags }) }] : []),
+        ...(tags.length ? [{ kind: "block" as const, markup: tagsInUse({ tags }) }] : []),
         ...results(query, games, ownedGameIds),
       ],
     }),
@@ -385,7 +385,7 @@ browse.addEventListener("click", (event) => {
 });
 // A filter picked or taken away: the pane is drawn again in place, its menu and tags with it.
 browse.addEventListener("click", (event) => {
-  const link = event.target.closest && event.target.closest(".filter-menu a[href], .filter-tags a[href]");
+  const link = event.target.closest && event.target.closest(".filter-menu a[href], .tags-in-use a[href]");
   if (!link || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
   event.preventDefault();
   show(link.getAttribute("href"), "push", true);
