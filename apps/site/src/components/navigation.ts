@@ -339,7 +339,8 @@ export const RAIL_SCRIPT = `/* rail */(function () {
     wiredBars.add(bar);
     var isPage = bar.getAttribute("data-rail") === "page", isSide = bar.getAttribute("data-rail") === "side", scroller = isPage ? null : bar.previousElementSibling;
     // A box laid out round what scrolls (a switch's well round its tabs) names it: the rail goes under the box, and follows what's in it.
-    if (scroller && !scroller.matches("[data-rail-scroller]")) scroller = scroller.querySelector("[data-rail-scroller]") || scroller;
+    // Only its own: a box that scrolls itself and holds such a box further in (a pane with a switch in it) keeps its own rail.
+    if (scroller && !scroller.matches("[data-rail-scroller]")) scroller = scroller.querySelector(":scope > [data-rail-scroller]") || scroller;
     if (!isPage && !scroller) return;
     var line = bar.querySelector(".rail-line"), thumb = bar.querySelector(".rail-thumb");
     if (isPage) document.documentElement.classList.add("own-scroll"); else scroller.classList.add("own-scroll");
