@@ -15,7 +15,8 @@ import { temporaryFolder } from "../temporary-folder.ts";
 
 const EXAMPLE = join(import.meta.dirname, "../../examples/four-in-a-row");
 const SLUG = "four-in-a-row";
-const port = 20_000 + Math.floor(Math.random() * 4_000) * 4;
+// Below 32768, where Linux starts handing out ports for outgoing connections, so another connection never holds one (port + 41 at most).
+const port = 20_000 + Math.floor(Math.random() * 3_000) * 4;
 let folder = "";
 let play: LocalPlay;
 // Zaisma's developer API for the game's items, stood in for: the bench brings them in at every start with --game and a key.
