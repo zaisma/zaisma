@@ -894,11 +894,10 @@ component({
    sits at the frame gap like anything with an edge. */
 .rail.sideways { position: relative; top: auto; left: auto; width: auto; height: var(--rail-reach); user-select: none; -webkit-user-select: none; }
 .rail.sideways > .rail-line { top: auto; bottom: 0; left: 0; right: 0; width: auto; height: var(--rail-width); }
-/* A mark per part of the page: a short tick on the line that turns orange when pointed at. Pointing anywhere on the rail opens every mark's name on a small glass label to its left. */
-/* Its click area is far bigger than the tick: 24px tall and reaching in over the page, so a mark is easy to hit. */
+/* A mark per part of the page: a hairline etched across the groove (materials.ts) that turns orange when pointed at. Pointing anywhere on the rail opens every mark's name on a small glass label to its left. */
+/* Its click area is far bigger than the etch: 24px tall and reaching in over the page, so a mark is easy to hit. */
 .rail-mark { position: absolute; left: -12px; width: 28px; height: 24px; margin-top: -12px; padding: 0; border: 0; cursor: pointer; background: none; }
-.rail-mark::before { content: ""; position: absolute; left: 15px; right: 3px; top: 11px; height: 2px; --face-color: var(--rail-mark); background: var(--face-color); transition: --face-color var(--motion-state), left var(--motion-state); }
-.rail-mark:hover::before { --face-color: var(--run); left: 9px; }
+.rail-mark::before { content: ""; position: absolute; left: 17px; right: 5px; top: 11.5px; height: 1px; }
 .rail-mark[hidden] { display: none; }
 /* Its name is a Tag on glass (data.ts), wiped open from the rail. */
 .rail-mark span { position: absolute; right: 28px; top: 50%; transform: translate(0, calc(-50% + var(--label-shift, 0px))); pointer-events: none;
@@ -912,8 +911,7 @@ component({
 /* Along a sideways rail, a mark is a short upright tick across the line, and its name opens above it, wiped up from the rail. */
 .rail.sideways .rail-mark { left: auto; top: -10px; width: 24px; height: 26px; margin: 0 0 0 -12px; }
 /* Its tick crosses the channel, reaching further toward the box when pointed at. */
-.rail.sideways .rail-mark::before { left: 11px; right: auto; top: 16px; bottom: 0; width: 2px; height: auto; transition: --face-color var(--motion-state), top var(--motion-state); }
-.rail.sideways .rail-mark:hover::before { left: 11px; top: 10px; }
+.rail.sideways .rail-mark::before { left: 11.5px; right: auto; top: 18px; bottom: 2px; width: 1px; height: auto; }
 .rail.sideways .rail-mark span { right: auto; top: auto; left: 50%; bottom: 26px; transform: translateX(calc(-50% + var(--label-shift, 0px)));
   clip-path: polygon(0 100%, 100% 100%, 100% 100%, 0 100%); }
 .rail.sideways:hover .rail-mark span, .rail.sideways.dragging .rail-mark span { clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%); }
@@ -933,7 +931,6 @@ component({
    names and full ticks show only while a finger drags the thumb, wiping open and shut with the drag, never on a tap's leftover hover. */
 @media (hover: none) {
   .rail .rail-mark { pointer-events: none; }
-  .rail:not(.dragging) .rail-mark::before { opacity: 0.4; }
   .rail:not(.dragging) .rail-mark span { clip-path: polygon(100% 0, 100% 0, calc(100% - 5px) 100%, calc(100% - 5px) 100%); visibility: hidden;
     transition: var(--glass-transition), clip-path var(--motion-state) ease-out, visibility 0s var(--motion-state); }
   .rail.sideways:not(.dragging) .rail-mark span { clip-path: polygon(0 100%, 100% 100%, 100% 100%, 0 100%); }

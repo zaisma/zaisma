@@ -61,7 +61,7 @@ export const LIGHT_GLASS = `color-scheme: light;
   --table-head: rgba(250, 252, 255, 0.9); --table-row-head: rgba(244, 246, 250, 0.97); --chart-fill: rgba(20, 23, 28, 0.07); --chart-bar: rgba(60, 72, 94, 0.26); --chart-ring: rgba(250, 252, 255, 0.9); --chart-tip: rgba(250, 252, 255, 0.94); --meter-near-hi: #F0705F; --meter-near: #D93A2B; --meter-full: #A82718; --meter-full-ink: #A82718; --part-0: #3E6FD8; --part-1: #7B5BD6; --part-2: #1E9C87; --part-3: #5E8C2E; --part-4: #D2577F; --part-5: #2A8FB8;
   /* A file drop's dashed outline, waiting for a file. */
   --drop-dash: rgba(20, 23, 28, 0.3);
-  --rail-line: rgba(20, 23, 28, 0.2); --rail-thumb: rgba(24, 28, 36, 0.55); --rail-edge: rgba(255, 255, 255, 0.55); --rail-mark: rgba(20, 23, 28, 0.45);
+  --rail-line: rgba(20, 23, 28, 0.2); --rail-thumb: rgba(24, 28, 36, 0.55); --rail-edge: rgba(255, 255, 255, 0.55); --rail-mark: rgba(20, 23, 28, 0.45); --rail-etch: rgba(255, 255, 255, 0.95); --rail-etch-shade: rgba(20, 30, 50, 0.22);
   --edge-inner: rgba(255, 255, 255, 0.9); --edge-bevel: 0.4; --edge-rim: 1; --edge-fringe: 0.25;
   --edge-lit: rgba(236, 240, 246, 1); --edge-shade: rgba(146, 154, 168, 0.6); --edge-corner: rgba(188, 196, 208, 0.75);
   --edge-spec: rgba(255, 255, 255, 1); --edge-dense: rgba(120, 130, 146, 0.03); --edge-caustic: rgba(255, 252, 244, 0.95);
@@ -106,7 +106,7 @@ export const SMOKED_GLASS = `color-scheme: dark;
   --clear-glass-mark: #fff; --on-light: none; --on-smoked: inline; --well-mark: url("/zaisma-mark-glass-white.svg"); --divider: 1px solid var(--line);
   --toggle-off: rgba(0, 0, 0, 0.34); --check-press: rgba(0, 0, 0, 0.3); --row-hover: rgba(255, 255, 255, 0.1); --row-press: rgba(255, 255, 255, 0.22); --tag-new: rgba(30, 150, 80, 0.32); --tag-new-ink: #A6F0C6; --tag-warning: rgba(230, 181, 58, 0.24); --tag-warning-ink: var(--warning); --tag-plain: rgba(0, 0, 0, 0.34); --tag-carve: inset 0 1.5px 3px rgba(0, 0, 0, 0.8), inset 0 -1px 0 rgba(255, 255, 255, 0.24); --face-ring: rgba(6, 8, 12, 0.55); --presence-ring: #1A1D24; --online: #3BB273; --picture-shadow: rgba(0, 0, 0, 0.55);
   --table-head: rgba(14, 17, 24, 0.9); --table-row-head: rgba(24, 28, 36, 0.97); --chart-fill: rgba(255, 255, 255, 0.08); --chart-bar: rgba(255, 255, 255, 0.3); --chart-ring: rgba(20, 23, 30, 0.9); --chart-tip: rgba(28, 32, 40, 0.94); --meter-near-hi: #FF8A78; --meter-near: #E5483A; --meter-full: #A82718; --meter-full-ink: #FF8A78; --part-0: #6E97F0; --part-1: #A08AF0; --part-2: #3CC4AC; --part-3: #8DBA55; --part-4: #EC7FA3; --part-5: #5BC0E3; --drop-dash: rgba(255, 255, 255, 0.34);
-  --rail-line: rgba(255, 255, 255, 0.2); --rail-thumb: rgba(255, 255, 255, 0.55); --rail-edge: rgba(255, 255, 255, 0.35); --rail-mark: rgba(255, 255, 255, 0.5);
+  --rail-line: rgba(255, 255, 255, 0.2); --rail-thumb: rgba(255, 255, 255, 0.55); --rail-edge: rgba(255, 255, 255, 0.35); --rail-mark: rgba(255, 255, 255, 0.5); --rail-etch: rgba(220, 228, 242, 0.62); --rail-etch-shade: rgba(0, 0, 0, 0.45);
   /* A light rim on dark glass stands out far more than on light glass, so smoked glass draws it fainter than light glass's. It has no caustics:
      on light glass they're light on light and only round the edge off, but on dark glass they read as a glow fanning in from the rim, which
      blurs the pane's edge against what sits near it. Smoked glass keeps to the edge, as narrow and clean as light glass's. */

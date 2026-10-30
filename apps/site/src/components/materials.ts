@@ -196,6 +196,10 @@ span.hairline { flex: 1; border-top: var(--divider); }
 .rail.dragging .rail-thumb { box-shadow: inset 2px 0 0 var(--run); }
 .rail.sideways.dragging .rail-thumb { box-shadow: inset 0 2px 0 var(--run); }
 .carving, .floating-pane, .glass-pane.compact { --rail-inset: var(--pad-frame-compact); }
+/* A rail's mark is etched across its groove's floor: a hairline catching the light, shaded under its lip. Pointed at, it runs orange. */
+.rail-mark::before { --face-color: var(--rail-etch); background: var(--face-color); box-shadow: 0 1px 0 var(--rail-etch-shade); transition: --face-color var(--motion-state); }
+.rail.sideways .rail-mark::before { box-shadow: 1px 0 0 var(--rail-etch-shade); }
+.rail-mark:hover::before { --face-color: var(--run); }
 /* A deep carving that holds only light is a line: a groove, a step's line. */
 .carving.deep.line { display: block; height: 8px; }
 .carving:is(.is-focused, :has(:focus-visible)) > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
