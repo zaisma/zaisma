@@ -1343,7 +1343,8 @@ ${scriptTags(USERNAME_SCRIPT)}`,
 }
 
 /**
- * A closed account (a whole-account ban, bans.ts), once it proved it's theirs: why, and how to appeal. It makes no session.
+ * A closed account (a whole-account ban, bans.ts), once it proved it's theirs: why, and how to appeal. It makes no session, so
+ * Sign out only goes back to the sign-in page, which clears a cookie the ban left behind.
  * Child safety says no rule and no why, like a takedown.
  */
 function closedAccountPage(env: Env, account: Account): Response {
@@ -1357,7 +1358,8 @@ function closedAccountPage(env: Env, account: Account): Response {
 <p>Zaisma closed ${account.username} for breaking ${broke}${why ? html`: ${why}` : ""}.</p>
 <p class="note">It can't sign in, and any games it made are down.</p>
 <p><strong>Think this is a mistake?</strong> Write to ${APPEAL_EMAIL} with the username. A person reads every appeal and answers.</p>
-${secondaryButton(`Email ${APPEAL_EMAIL}`, { href: `mailto:${APPEAL_EMAIL}?subject=${encodeURIComponent(`Appeal: ${account.username}`)}`, isFullWidth: true })}`,
+${secondaryButton(`Email ${APPEAL_EMAIL}`, { href: `mailto:${APPEAL_EMAIL}?subject=${encodeURIComponent(`Appeal: ${account.username}`)}`, isFullWidth: true })}
+${tertiaryButton("Sign out", { href: "/signin", isFullWidth: true })}`,
     { checkedPage: "Account closed", httpStatus: 403 },
   );
 }
