@@ -412,10 +412,13 @@ async function answerChatCheck(request: Request, env: Env): Promise<Response> {
   const { slug, body } = await readBody(request);
   const game = slug ? await playableGame(env.DB, slug) : null;
   if (!slug || !game) return failure("game_unavailable", ERROR_TEXT.game_unavailable, 404, undefined, "gameSlug");
+  // null in place of a pass: a player from outside Zaisma, whom the game's own server let in (a stranger of unknown age).
   const receiverPasses = body.receiverPasses;
-  if (!Array.isArray(receiverPasses) || receiverPasses.length > MAXIMUM_CHAT_RECEIVER_COUNT || !receiverPasses.every((pass) => typeof pass === "string")) {
-    return failure("bad_request", `receiverPasses takes a list of up to ${MAXIMUM_CHAT_RECEIVER_COUNT} player passes, as your server received them.`, 400, undefined, "receiverPasses");
+  if (!Array.isArray(receiverPasses) || receiverPasses.length > MAXIMUM_CHAT_RECEIVER_COUNT || !receiverPasses.every((pass) => pass === null || typeof pass === "string")) {
+    return failure("bad_request", `receiverPasses takes a list of up to ${MAXIMUM_CHAT_RECEIVER_COUNT} player passes, as your server received them, with null for each player from outside Zaisma.`, 400, undefined, "receiverPasses");
   }
+  // Chat among players from outside Zaisma alone is the server's own (checkChat never sends it): with no pass, nobody here vouches for the game's players.
+  if (body.senderPass === null && receiverPasses.every((pass) => pass === null)) return failure("bad_request", "Give at least one player pass: chat among players from outside Zaisma alone is your server's own, and checkChat allows it without asking.", 400, undefined, "senderPass");
   if (typeof body.text !== "string") return failure("bad_request", "text takes the message as text.", 400, undefined, "text");
   if (body.isAdultFilterEnabled !== undefined && typeof body.isAdultFilterEnabled !== "boolean") return failure("bad_request", "isAdultFilterEnabled takes true or false.", 400, undefined, "isAdultFilterEnabled");
   const recentTexts = body.recentTexts ?? [];
@@ -423,33 +426,39 @@ async function answerChatCheck(request: Request, env: Env): Promise<Response> {
 
   const keys = [(await signingKey(env)).publicKey];
   const check = async (pass: unknown) => verifyPass(typeof pass === "string" ? pass : "", keys, { gameSlug: slug, issuerUrl: env.ISSUER });
-  let sender: PassClaims;
+  let sender: PassClaims | null;
   try {
-    sender = await check(body.senderPass);
+    sender = body.senderPass === null ? null : await check(body.senderPass);
   } catch (error) {
     if (!(error instanceof PassError)) throw error;
     return failure("bad_pass", "The sender's pass didn't check out for this game. Send it as your server received it from the player.", 401, undefined, "senderPass");
   }
-  let receivers: PassClaims[];
+  let receivers: (PassClaims | null)[];
   try {
-    receivers = await Promise.all(receiverPasses.map(check));
+    receivers = await Promise.all(receiverPasses.map((pass) => (pass === null ? null : check(pass))));
   } catch (error) {
     if (!(error instanceof PassError)) throw error;
     return failure("bad_pass", "A receiver's pass didn't check out for this game. Send each as your server received it from the player.", 401, undefined, "receiverPasses");
   }
-  // Per game and sender: more than anyone types, not enough to use Zaisma's filter for something else.
-  if (env.CHAT_CHECK_LIMIT && !(await env.CHAT_CHECK_LIMIT.limit({ key: `${game.id}:${sender.sub}` })).success) return failure("slow_down", SLOW_DOWN, 429);
+  // Per game and sender: more than anyone types, not enough to use Zaisma's filter for something else. Senders from outside Zaisma count as one.
+  if (env.CHAT_CHECK_LIMIT && !(await env.CHAT_CHECK_LIMIT.limit({ key: `${game.id}:${sender?.sub ?? "outside_zaisma"}` })).success) return failure("slow_down", SLOW_DOWN, 429);
+  const passReceivers = receivers.filter((receiver): receiver is PassClaims => receiver !== null);
+  const hasOutsidePlayer = sender === null || passReceivers.length < receivers.length;
   // The backstop for canChat: a server that skipped it still delivers nothing to players who may not chat.
+  // With a player from outside Zaisma, every account in it chats with anyone (they're never friends), as rooms say (RoomCore's mayChat).
   // One verdict for the message, never which receiver.
-  if (receivers.some((receiver) => receiver.sub !== sender.sub && !canChat(sender, receiver))) {
+  const passParties = sender ? [sender, ...passReceivers] : passReceivers;
+  const isNotAllowed = sender ? passReceivers.some((receiver) => receiver.sub !== sender.sub && !canChat(sender, receiver)) : false;
+  if (isNotAllowed || (hasOutsidePlayer && passParties.some((party) => party.kind !== "account" || party.who_can_chat !== "anyone"))) {
     return json({ isAllowed: false, reason: "not_allowed_to_chat", message: CHAT_BLOCK_MESSAGES.not_allowed_to_chat, hasSwearing: false, hasSlur: false });
   }
 
   const answer = await filterChatMessage(env, {
     gameId: game.id,
     text: body.text,
-    senderPlayerId: sender.sub,
-    receiverPlayerIds: receivers.map((receiver) => receiver.sub),
+    senderPlayerId: sender?.sub ?? null,
+    receiverPlayerIds: passReceivers.map((receiver) => receiver.sub),
+    hasOutsideReceiver: passReceivers.length < receivers.length,
     recentTexts: recentTexts.slice(-CHAT_FILTER_LIMITS.recentTextCount).map((recentText) => tidyText(recentText, CHAT_FILTER_LIMITS.maximumMessageCharacterCount)),
     source: "own_server",
     // The game's own switch for chat between adults: its checks are on its meter.

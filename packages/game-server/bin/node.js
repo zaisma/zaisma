@@ -7,7 +7,9 @@
 //
 // Players connect to wss://your-server/v1/rooms/<game>/<code>, the same address
 // layout as Zaisma rooms, and prove who they are with Zaisma player passes,
-// checked against the keys Zaisma publishes. Put it behind HTTPS (Caddy, nginx,
+// checked against the keys Zaisma publishes. A game played off its Zaisma page sends a playerToken instead
+// (Zaisma.setUpOffZaisma), and identifyPlayer says who that is (signInWithZaismaPlayers for players signed in
+// with Zaisma, or your own accounts); outsideGuestsEnabled lets players with none in as guests. Put it behind HTTPS (Caddy, nginx,
 // a Cloudflare Tunnel) and add the address to your game's own servers (own_server_urls, or zaisma own-servers).
 // The game's requests (onRequest) come to POST /v1/requests/<game> on the same port, and its
 // schedules (onSchedule) run while it's up, at the minutes their crons give in UTC. A Zaisma webhook
@@ -24,7 +26,7 @@ import { createServer } from "node:http";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { resolve } from "node:path";
 import { readFileSync, realpathSync } from "node:fs";
-import { BUSY_CLOSE_CODE, ENDED_CLOSE_CODE, ERROR_TEXT, NO_ANSWER_CLOSE_CODE, PASS_ISSUER_URL, PassError, ReceiptError, REMOVED_CLOSE_CODE, REQUEST_ERROR_HTTP_STATUS, REQUEST_LIMITS, ROOM_LIMITS, ROOM_MESSAGE_LIMITS, ROOM_TUNING, WEBHOOK_LIMITS, GameServerError, RoomCore, chatSettingsOf, checkChat, readChatMessage, restoreInfoOf, passesAreFriends, passesHaveBlockBetween, answerRequest, startSchedules, checkRoomData, clientIdle, defineGameServer, errorMessage, newServer, isRoomCode, readRequestBody, relay, requestError, runWebhook, tidyRoomInfo, verifyPass, verifyReceipt, verifyWebhook } from "../src/internal.ts";
+import { BUSY_CLOSE_CODE, ENDED_CLOSE_CODE, ERROR_TEXT, NO_ANSWER_CLOSE_CODE, PASS_ISSUER_URL, OUTSIDE_ZAISMA_CHAT_SETTINGS, PassError, ReceiptError, REMOVED_CLOSE_CODE, REQUEST_ERROR_HTTP_STATUS, REQUEST_LIMITS, ROOM_LIMITS, ROOM_MESSAGE_LIMITS, ROOM_TUNING, WEBHOOK_LIMITS, GameServerError, RoomCore, chatSettingsOf, checkChat, readChatMessage, restoreInfoOf, passesAreFriends, passesHaveBlockBetween, answerRequest, startSchedules, checkRoomData, checkedOutsidePlayer, clientIdle, defineGameServer, errorMessage, guestPlayer, newServer, isPlayerToken, isRoomCode, readRequestBody, relay, requestError, runWebhook, tidyRoomInfo, verifyPass, verifyReceipt, verifyWebhook } from "../src/internal.ts";
 import { OutsideCallError } from "../src/outside-calls.ts";
 import { startFastLane } from "./fast-lane.js";
 import { checkedStartServerOptions, localDatabase, localRoomStates, passKeysFrom, profilesFrom, receiptKeysFrom, secretsFromEnvironment } from "./node-parts.js";
@@ -74,11 +76,15 @@ const CATCH_UP_MS = 50;
  * the ZAISMA_KEY environment variable) and developerApiUrl (Zaisma's developer API; by default https://zaisma.com/api/dev).
  * webtransportPort (a UDP port), certificatePath and certificateKeyPath (the server's certificate and its key,
  * PEM files), all three or none, also serve the fast lane (WebTransport) beside the WebSocket.
+ * identifyPlayer (async (playerToken, { origin }) => ({ id, name }) or null; none by default) says who a player from
+ * outside Zaisma is by the playerToken their game sent (signInWithZaismaPlayers makes one for Sign in with Zaisma),
+ * and outsideGuestsEnabled (false by default) lets players with no token (playerToken: null) in as guests (guestPlayer).
+ * Both join with kind "outside_zaisma".
  * Answers { close(), httpServer, fastLaneReady }: close() saves every room first and finishes once the server
  * has stopped; fastLaneReady settles once the fast lane listens (at once without one), or rejects saying why it can't.
  */
 export function startServer(options) {
-  const { gameServer, gameSlug, port: portNumber, origins, issuerUrl, loadPassKeys = passKeysFrom(`${issuerUrl}/.well-known/jwks.json`), loadReceiptKeys = receiptKeysFrom(`${issuerUrl}/.well-known/receipt-jwks.json`), loadProfile = profilesFrom(issuerUrl), database = localDatabase("zaisma-database.sqlite"), secrets = secretsFromEnvironment(), webhookSigningSecret = process.env.ZAISMA_WEBHOOK_SIGNING_SECRET, roomStateFile = "zaisma-room-states.sqlite", zaismaKey = process.env.ZAISMA_KEY, developerApiUrl = "https://zaisma.com/api/dev", webtransportPort, certificatePath, certificateKeyPath } = checkedStartServerOptions(options, PASS_ISSUER_URL);
+  const { gameServer, gameSlug, port: portNumber, origins, issuerUrl, loadPassKeys = passKeysFrom(`${issuerUrl}/.well-known/jwks.json`), loadReceiptKeys = receiptKeysFrom(`${issuerUrl}/.well-known/receipt-jwks.json`), loadProfile = profilesFrom(issuerUrl), database = localDatabase("zaisma-database.sqlite"), secrets = secretsFromEnvironment(), webhookSigningSecret = process.env.ZAISMA_WEBHOOK_SIGNING_SECRET, roomStateFile = "zaisma-room-states.sqlite", zaismaKey = process.env.ZAISMA_KEY, developerApiUrl = "https://zaisma.com/api/dev", webtransportPort, certificatePath, certificateKeyPath, identifyPlayer, outsideGuestsEnabled } = checkedStartServerOptions(options, PASS_ISSUER_URL);
   const definition = defineGameServer(gameServer);
   // Exactly once needs Zaisma's record of what's handled: without a key, purchases would come twice, so it doesn't start.
   if ((definition.onPurchase || definition.onRefund) && !zaismaKey) {
@@ -125,7 +131,7 @@ export function startServer(options) {
    * account's name from its public profile, and the pass's claims, for blocks between players. Null
    * for an account deleted since; PassError for a bad pass.
    */
-  async function playerFrom(pass) {
+  async function passPlayer(pass) {
     const claims = await verifyPass(pass, await loadPassKeys(), { gameSlug, issuerUrl }).catch(async (error) => {
       // A new key may have been published since we cached them.
       if (error instanceof PassError && error.code === "unknown_key") return verifyPass(pass, await loadPassKeys(true), { gameSlug, issuerUrl });
@@ -139,8 +145,43 @@ export function startServer(options) {
     return name ? { player: { id: claims.sub, name, kind: claims.kind === "account" ? "account" : "guest", ...owned }, claims } : null;
   }
 
-  // Requests from the game to onRequest, outside any room: POST /v1/requests/<game> with { pass, request },
-  // sent as text/plain JSON so browsers need no preflight. Answers { answer } or { error: { code, message } }.
+  /**
+   * Who a hello or request is from: by a Zaisma pass, or, from a game played off Zaisma, by the playerToken it
+   * sent, as identifyPlayer says, or as a guest when there's none and outsideGuestsEnabled. Answers { player, claims }
+   * (claims null for a player from outside Zaisma, who has no pass), or { code } when they can't come in.
+   */
+  async function playerFrom({ pass, playerToken, origin }) {
+    if (typeof pass === "string") {
+      try {
+        return (await passPlayer(pass)) ?? { code: "bad_pass" };
+      } catch (error) {
+        if (error instanceof PassError) return { code: "bad_pass" };
+        // Zaisma couldn't be reached for the account's name: the player tries again, nothing crashes.
+        console.error("Couldn't check a player's pass:", error);
+        return { code: "busy" };
+      }
+    }
+    const outside = (player) => ({ player: { ...player, kind: "outside_zaisma" }, claims: null });
+    if (playerToken === null) return outsideGuestsEnabled ? outside(guestPlayer()) : { code: "bad_player_token", message: "This server takes players signed in, not guests: the game gives a playerToken." };
+    if (!identifyPlayer) return { code: "bad_player_token", message: "This server takes players from Zaisma's pages only." };
+    let identified;
+    try {
+      identified = await identifyPlayer(playerToken, { origin: origin ?? null });
+    } catch (error) {
+      console.error("Game server error in identifyPlayer:", error);
+      return { code: "busy" };
+    }
+    if (identified === null) return { code: "bad_player_token" };
+    const checked = checkedOutsidePlayer(identified);
+    if ("mistake" in checked) {
+      console.error(`Game server error in identifyPlayer: ${checked.mistake}`);
+      return { code: "bad_player_token" };
+    }
+    return outside(checked.player);
+  }
+
+  // Requests from the game to onRequest, outside any room: POST /v1/requests/<game> with { pass, request }, or
+  // { playerToken, request } from a game played off Zaisma, sent as text/plain JSON so browsers need no preflight. Answers { answer } or { error: { code, message } }.
   function answerHttp(request, response) {
     if (request.url === "/v1/webhooks") return answerWebhook(request, response);
     const origin = request.headers.origin;
@@ -171,16 +212,10 @@ export function startServer(options) {
     request.on("end", async () => {
       try {
         if (isTooBig) return fail("too_big");
-        const body = readRequestBody(text);
+        const body = readRequestBody(text, true);
         if ("code" in body) return fail(body.code);
-        let checked;
-        try {
-          checked = await playerFrom(body.pass);
-        } catch (error) {
-          if (error instanceof PassError) return fail("bad_pass");
-          throw error;
-        }
-        if (!checked) return fail("bad_pass");
+        const checked = await playerFrom({ ...body, origin });
+        if (checked.code) return fail(checked.code, checked.message);
         const outcome = await answerRequest(definition, checked.player, body.request, server);
         if ("answer" in outcome) return reply(200, { answer: outcome.answer });
         if (outcome.code === "game_server_error") console.error("Game server error in onRequest:", outcome.failure);
@@ -512,8 +547,10 @@ export function startServer(options) {
     if (!started) return;
     let check = { isAllowed: true, reason: null, message: null, hasSwearing: false, hasSlur: false };
     if (started.receiverPlayerIds.length) {
-      const receiverPasses = started.receiverPlayerIds.map((id) => room.passTexts.get(id)).filter((pass) => typeof pass === "string");
-      check = await checkChat({ text: started.text, senderPass: room.passTexts.get(playerId) ?? "", receiverPasses, isAdultFilterEnabled: definition.adultChatFilterEnabled === true });
+      // A player from outside Zaisma goes as null: Zaisma stops their chat with under-18 accounts, and doesn't hear chat among them alone.
+      const passOf = (id) => (room.core.players.get(id)?.kind === "outside_zaisma" ? null : (room.passTexts.get(id) ?? ""));
+      const receiverPasses = started.receiverPlayerIds.map(passOf);
+      check = await checkChat({ text: started.text, senderPass: passOf(playerId), receiverPasses, isAdultFilterEnabled: definition.adultChatFilterEnabled === true });
     }
     if (check.isAllowed) room.core.deliverChat(playerId, chat.chatNumber, started.receiverPlayerIds, { text: started.text, hasSwearing: check.hasSwearing, hasSlur: check.hasSlur });
     else room.core.stopChat(playerId, chat.chatNumber, check.reason ?? "unchecked", check.message ?? "");
@@ -621,13 +658,17 @@ export function startServer(options) {
         return;
       }
       let pass;
+      let playerToken;
       let made = {};
       // Come to watch, not to play (joinRoom({ isSpectator: true })).
       let isSpectator = false;
       try {
         const hello = JSON.parse(text ?? "");
-        if (hello.type !== "hello" || typeof hello.pass !== "string") return refuse("no_hello");
-        pass = hello.pass;
+        // A Zaisma pass, or from a game played off Zaisma, its playerToken (null for a guest).
+        const isOutside = hello.pass === undefined && isPlayerToken(hello.playerToken);
+        if (hello.type !== "hello" || (typeof hello.pass !== "string" && !isOutside)) return refuse("no_hello");
+        if (isOutside) playerToken = hello.playerToken;
+        else pass = hello.pass;
         isSpectator = hello.isSpectator === true;
         if (hello.room && typeof hello.room === "object") made = { ...(hello.room.isListed === true ? { isListed: true } : {}), ...(hello.room.friendJoinsEnabled === false ? { friendJoinsEnabled: false } : {}), ...tidyRoomInfo(hello.room) };
         made.clientIdle = clientIdle(hello);
@@ -637,16 +678,8 @@ export function startServer(options) {
       } catch {
         return refuse("no_hello");
       }
-      let checked;
-      try {
-        checked = await playerFrom(pass);
-      } catch (error) {
-        if (error instanceof PassError) return refuse("bad_pass");
-        // Zaisma couldn't be reached for the account's name: the player tries again, nothing crashes.
-        console.error("Couldn't check a player's pass:", error);
-        return refuse("busy");
-      }
-      if (!checked) return refuse("bad_pass");
+      const checked = await playerFrom({ pass, playerToken, origin });
+      if (checked.code) return refuse(checked.code, checked.message);
       const { player, claims } = checked;
       clearTimeout(helloTimer);
       // A spectator watches a match: one with nobody in it isn't running, and a spectator never starts one.
@@ -663,8 +696,14 @@ export function startServer(options) {
       // Blocks between accounts come in their passes: this player's and those of everyone the room remembers.
       // Spectators send nothing, so nothing of theirs reaches a player to block.
       // Who the player may chat with, from their pass: the room keeps it, and the game never sees it. Spectators send nothing, chat included.
-      room.core.setChatSettings(player.id, isSpectator ? null : chatSettingsOf(claims));
-      if (!isSpectator) {
+      // A player from outside Zaisma has no pass: no account blocks or friends, and chat as OUTSIDE_ZAISMA_CHAT_SETTINGS says.
+      room.core.setChatSettings(player.id, isSpectator ? null : claims ? chatSettingsOf(claims) : OUTSIDE_ZAISMA_CHAT_SETTINGS);
+      if (!isSpectator && !claims) {
+        room.passes.delete(player.id);
+        room.passTexts.delete(player.id);
+        room.core.setAccountBlocks(player.id, []);
+        room.core.setFriends(player.id, []);
+      } else if (!isSpectator) {
         room.passes.set(player.id, claims);
         room.passTexts.set(player.id, pass);
         for (const id of room.passes.keys()) {

@@ -9,6 +9,11 @@
  * checkChat sends the players' passes (as your server received them) and the sender's last few messages to
  * Zaisma (POST <issuer>/v1/chat/check), so a phone number sent a few digits at a time is caught too.
  *
+ * A player your server let in from outside Zaisma (kind outside_zaisma) has no pass: give null in their place.
+ * Zaisma counts them as strangers of unknown age, so a message between one and an under-18 account is stopped
+ * (not_allowed_to_chat); between them and adults it's checked as between adults. A message among players from
+ * outside Zaisma only is allowed without asking Zaisma: none of its players is in it, so your own rules apply.
+ *
  * It's for your own server only. In Zaisma rooms the room filters the chat it delivers itself, so a game
  * server running there never sees passes, and checkChat throws a ChatCheckError (own_server_only).
  */
@@ -41,10 +46,10 @@ export interface ChatCheck {
 export interface ChatCheckOptions {
   /** The message. */
   text: string;
-  /** The sender's player pass, the signed token as your server received it. */
-  senderPass: string;
-  /** The passes of everyone it would reach, up to 50. */
-  receiverPasses: string[];
+  /** The sender's player pass, the signed token as your server received it; null for a player from outside Zaisma. */
+  senderPass: string | null;
+  /** The passes of everyone it would reach, up to 50; null for each player from outside Zaisma. */
+  receiverPasses: (string | null)[];
   /** Check chat between adults too, as for under-18s; each message Zaisma's AI looks at counts on your hosting meter. False by default. */
   isAdultFilterEnabled?: boolean;
 }
@@ -125,13 +130,21 @@ function rememberText(senderPlayerId: string, text: string, nowMs: number): void
 export async function checkChat({ text, senderPass, receiverPasses }: ChatCheckOptions): Promise<ChatCheck> {
   // Read apart from the destructuring, which is v1's signature as it's locked (test/contracts).
   const isAdultFilterEnabled = (arguments[0] as ChatCheckOptions | undefined)?.isAdultFilterEnabled === true;
-  const claims = readClaims(String(senderPass ?? ""));
-  if (typeof claims.sub !== "string" || !isZaismaIssuer(claims.iss) || !Array.isArray(receiverPasses)) return UNCHECKED;
+  if (!Array.isArray(receiverPasses) || !receiverPasses.every((pass) => pass === null || typeof pass === "string") || !(senderPass === null || typeof senderPass === "string")) return UNCHECKED;
   const message = String(text ?? "");
   if (message.length > CHAT_CHECK_LIMITS.maximumMessageCharacterCount) return TOO_LONG;
+  // Among players from outside Zaisma only: no Zaisma player is in it, so the server's own rules apply, and Zaisma never hears of it.
+  const firstPass = [senderPass, ...receiverPasses].find((pass): pass is string => typeof pass === "string");
+  if (firstPass === undefined) return { isAllowed: true, reason: null, message: null, hasSwearing: false, hasSlur: false };
+  // Where to ask comes from a pass, the sender's when they have one: they all come from the same issuer for the same game.
+  const claims = readClaims(firstPass);
+  const senderClaims = senderPass === null ? null : readClaims(senderPass);
+  if (typeof claims.sub !== "string" || !isZaismaIssuer(claims.iss) || (senderClaims && typeof senderClaims.sub !== "string")) return UNCHECKED;
   const nowMs = Date.now();
-  const recentTexts = (recentBySender.get(claims.sub) ?? []).filter((sent) => nowMs - sent.sentAtMs < CHAT_CHECK_LIMITS.recentTextDurationMs).map((sent) => sent.text);
-  rememberText(claims.sub, message, nowMs);
+  // A sender from outside Zaisma has no player ID Zaisma knows, so their last messages aren't sent along.
+  const senderPlayerId = senderClaims ? (senderClaims.sub as string) : null;
+  const recentTexts = senderPlayerId ? (recentBySender.get(senderPlayerId) ?? []).filter((sent) => nowMs - sent.sentAtMs < CHAT_CHECK_LIMITS.recentTextDurationMs).map((sent) => sent.text) : [];
+  if (senderPlayerId) rememberText(senderPlayerId, message, nowMs);
   try {
     const response = await fetch(`${claims.iss}/v1/chat/check`, {
       method: "POST",

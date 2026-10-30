@@ -136,13 +136,21 @@ function unionParts(type: string): string[] {
   return [...parts, type.slice(start)];
 }
 
-/** Whether a field's type is the same, or the same union with values added (and its optional mark kept). */
+/** Whether a field's type is the same, or the same union with values added (and its optional mark kept), lists' items included. */
 function isGrownFrom(was: string, now: string): boolean {
   if (was === now) return true;
   const markOf = (type: string) => (type.startsWith("?: ") ? "?: " : ": ");
   if (markOf(was) !== markOf(now)) return false;
   const nowParts = unionParts(now.slice(markOf(now).length));
-  return unionParts(was.slice(markOf(was).length)).every((part) => nowParts.includes(part));
+  return unionParts(was.slice(markOf(was).length)).every((part) => nowParts.includes(part) || nowParts.some((nowPart) => isListGrownFrom(part, nowPart)));
+}
+
+/** Whether a list's items only gained values: Array<string> to Array<string | null>. */
+function isListGrownFrom(was: string, now: string): boolean {
+  const itemOf = (type: string) => /^Array<(.*)>$/.exec(type)?.[1];
+  const wasItem = itemOf(was);
+  const nowItem = itemOf(now);
+  return wasItem !== undefined && nowItem !== undefined && isGrownFrom(`: ${wasItem}`, `: ${nowItem}`);
 }
 
 /**

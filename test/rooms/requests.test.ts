@@ -164,6 +164,10 @@ describe("game server requests", () => {
     expect((await send("checked-shop", { type: "leaderboard" }, (await newPass("checked-shop")).pass, "https://evil.example")).body.error.code).toBe("bad_origin");
     await addGame("other-shop", LEADERBOARD);
     expect((await send("checked-shop", { type: "leaderboard" }, (await newPass("other-shop")).pass)).body.error.code).toBe("bad_pass");
+    // A playerToken from a game played off Zaisma isn't a pass: Zaisma's game servers take only passes.
+    const offZaisma = await SELF.fetch(`${ROOMS}/v1/requests/checked-shop`, { method: "POST", headers: { Origin: ORIGIN, "Content-Type": "text/plain", "cf-connecting-ip": `203.0.113.${++address % 250}` }, body: JSON.stringify({ playerToken: "a-sign-in-token", request: { type: "leaderboard" } }) });
+    expect(offZaisma.status).toBe(400);
+    expect((await offZaisma.json<any>()).error.code).toBe("bad_request");
   });
 
   it("turn away guests of a game that needs accounts, with a pass from before the change", async () => {

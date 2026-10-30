@@ -20,8 +20,11 @@ import type { Env } from "./index.ts";
 export interface ChatMessage {
   gameId: string;
   text: string;
-  senderPlayerId: string;
+  /** Null for a sender from outside Zaisma, on a game's own server: a player with no pass, of unknown age. */
+  senderPlayerId: string | null;
+  /** The receivers with a pass; hasOutsideReceiver says whether players from outside Zaisma would read it too. */
   receiverPlayerIds: string[];
+  hasOutsideReceiver?: boolean;
   /** The sender's last messages, oldest first: up to CHAT_FILTER_LIMITS.recentTextCount from the last recentTextDurationMs. */
   recentTexts: string[];
   source: ChatSource;
@@ -53,22 +56,26 @@ export async function filterChatMessage(env: Env, chat: ChatMessage, nowMs = Dat
   if (String(chat.text ?? "").length > CHAT_FILTER_LIMITS.maximumMessageCharacterCount) return stopped("too_long");
   const text = tidyText(chat.text, CHAT_FILTER_LIMITS.maximumMessageCharacterCount);
   const recentTexts = chat.recentTexts.slice(-CHAT_FILTER_LIMITS.recentTextCount).map((recentText) => tidyText(recentText, CHAT_FILTER_LIMITS.maximumMessageCharacterCount));
-  const playerIds = [...new Set([chat.senderPlayerId, ...chat.receiverPlayerIds])];
+  const playerIds = [...new Set([chat.senderPlayerId, ...chat.receiverPlayerIds].filter((playerId): playerId is string => playerId !== null))];
   const { results } = await env.DB.prepare(
     "SELECT id, player_id, age_band, chat_stopped_reason, chat_stopped_until_ms, chat_repeat_block_count, chat_repeat_window_started_at_ms FROM accounts WHERE player_id IN (SELECT value FROM json_each(?))",
   )
     .bind(JSON.stringify(playerIds))
     .all<ChatAccount>();
   const byPlayerId = new Map(results.map((account) => [account.player_id, account]));
-  const sender = byPlayerId.get(chat.senderPlayerId);
+  const sender = chat.senderPlayerId === null ? null : byPlayerId.get(chat.senderPlayerId);
   // Guests have no chat (canChat keeps them out; this is the backstop), and neither does a deleted account.
-  if (!sender || playerIds.some((playerId) => !byPlayerId.has(playerId))) return stopped("chat_paused");
-  if (isChatStopped(sender, nowMs)) return stopped("chat_paused");
+  if (sender === undefined || playerIds.some((playerId) => !byPlayerId.has(playerId))) return stopped("chat_paused");
+  if (sender && isChatStopped(sender, nowMs)) return stopped("chat_paused");
   if (!text) return allowed(NO_FLAGS);
 
-  const receivers = chat.receiverPlayerIds.map((playerId) => byPlayerId.get(playerId)!).filter((account) => account.id !== sender.id);
-  const isSenderMinor = sender.age_band !== "18+";
+  const receivers = chat.receiverPlayerIds.map((playerId) => byPlayerId.get(playerId)!).filter((account) => account.id !== sender?.id);
+  const isSenderMinor = sender !== null && sender.age_band !== "18+";
   const hasMinorReceiver = receivers.some((account) => account.age_band !== "18+");
+  // A player from outside Zaisma is a stranger of unknown age: never in chat with an under-18 account, either way.
+  // Between them and adults it's checked as between adults.
+  const hasOutsidePlayer = sender === null || chat.hasOutsideReceiver === true;
+  if (hasOutsidePlayer && (isSenderMinor || hasMinorReceiver)) return stopped("not_allowed_to_chat");
   const rules = checkChatText(text, recentTexts);
   const flags: ChatFlags = { hasSwearing: rules.hasSwearing, hasSlur: rules.hasSlur };
   // Between adults the game decides: only flagged, unless it turned the filter on for them too.
@@ -77,7 +84,7 @@ export async function filterChatMessage(env: Env, chat: ChatMessage, nowMs = Dat
 
   let reason = rules.verdict === "blocked" ? rules.reason : null;
   // Chat stays in the sender's chat group, so this only comes from an own server that skipped canChat (answerChatCheck stops those first): the backstop.
-  const isAdultToMinor = !isSenderMinor && hasMinorReceiver;
+  const isAdultToMinor = sender !== null && !isSenderMinor && hasMinorReceiver;
   if (!reason && (rules.verdict === "unclear" || isAdultToMinor)) {
     let checked: UnclearChatCheck;
     try {
@@ -93,8 +100,8 @@ export async function filterChatMessage(env: Env, chat: ChatMessage, nowMs = Dat
   }
   if (!reason) return allowed(flags);
 
-  if (hasMinorReceiver && (reason === "contact_details" || reason === "personal_details")) await countRepeatBlock(env, sender, nowMs);
-  if (isAdultToMinor && reason === "sexual") await keepForReview(env, sender, chat, text, recentTexts, nowMs);
+  if (sender && hasMinorReceiver && (reason === "contact_details" || reason === "personal_details")) await countRepeatBlock(env, sender, nowMs);
+  if (sender && isAdultToMinor && reason === "sexual") await keepForReview(env, sender, chat, text, recentTexts, nowMs);
   return stopped(reason, flags);
 }
 

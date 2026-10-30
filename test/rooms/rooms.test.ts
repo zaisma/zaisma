@@ -1436,6 +1436,22 @@ describe("room browsing", () => {
     expect(await (await chatCheck({ senderPass: await passFor(adult), receiverPasses: [otherAdultPass], text: "nice jump" })).json()).toEqual(notAllowed);
     await e.DB.prepare("UPDATE accounts SET chat_stopped_until_ms = ? WHERE id = ?").bind(Date.now() - 1, adult.id).run();
     expect((await verifyPass(await passFor(adult), [(await signingKey(e)).publicKey], { gameSlug: "own-chat", issuerUrl: e.ISSUER })).who_can_chat).toBe("anyone");
+
+    // A player from outside Zaisma (null, no pass) is a stranger of unknown age: never in chat with a teen, either way,
+    // and one receiver like that stops the whole message without saying which.
+    expect(await (await chatCheck({ senderPass: null, receiverPasses: [teenPass], text: "nice jump" })).json()).toEqual(notAllowed);
+    expect(await (await chatCheck({ senderPass: teenPass, receiverPasses: [null], text: "nice jump" })).json()).toEqual(notAllowed);
+    expect(await (await chatCheck({ senderPass: otherAdultPass, receiverPasses: [null, teenPass], text: "nice jump" })).json()).toEqual(notAllowed);
+    // Between them and adults, as between adults: only flagged, unless the game turns the filter on.
+    const allowed = { isAllowed: true, reason: null, message: null, hasSwearing: false, hasSlur: false };
+    expect(await (await chatCheck({ senderPass: null, receiverPasses: [otherAdultPass], text: "nice jump" })).json()).toEqual(allowed);
+    expect(await (await chatCheck({ senderPass: otherAdultPass, receiverPasses: [null, null], text: "add me on snap" })).json()).toMatchObject({ isAllowed: true });
+    expect(await (await chatCheck({ senderPass: null, receiverPasses: [otherAdultPass], text: "add me on snap", isAdultFilterEnabled: true })).json()).toMatchObject({ isAllowed: false, reason: "contact_details" });
+    // Every pass still has to check out, and anything but a pass or null is refused.
+    expect((await (await chatCheck({ senderPass: null, receiverPasses: ["nope"], text: "gg" })).json<any>()).error).toMatchObject({ code: "bad_pass", field: "receiverPasses" });
+    expect((await (await chatCheck({ senderPass: null, receiverPasses: [7], text: "gg" })).json<any>()).error).toMatchObject({ code: "bad_request", field: "receiverPasses" });
+    // With no pass at all, nobody vouches for the game's players: refused, so no one runs a game's checks on its meter.
+    expect((await (await chatCheck({ senderPass: null, receiverPasses: [null], text: "gg", isAdultFilterEnabled: true })).json<any>()).error).toMatchObject({ code: "bad_request", field: "senderPass" });
   });
 
   it("answers pings without waking the room, and drops a connection that stops answering, holding its seat", async () => {
@@ -1708,6 +1724,12 @@ describe("the v1 room contract in Zaisma rooms", () => {
     numberPass.ws.send(JSON.stringify({ type: "hello", protocolVersionNumber: 1, pass: 12345 }));
     expect(await numberPass.next()).toEqual({ type: "error", code: "no_hello", message: ERROR_TEXT.no_hello });
     expect(await numberPass.closed).toBe(4001);
+
+    // A playerToken from a game played off Zaisma: Zaisma's rooms serve games played on Zaisma, so only a pass gets in.
+    const playerToken = await connect("arena", "NHEJLA");
+    playerToken.ws.send(JSON.stringify({ type: "hello", protocolVersionNumber: 1, playerToken: "a-sign-in-token" }));
+    expect(await playerToken.next()).toEqual({ type: "error", code: "no_hello", message: ERROR_TEXT.no_hello });
+    expect(await playerToken.closed).toBe(4001);
 
     // A hello as a binary frame: bytes only come after it.
     const { pass } = await getPass("arena");

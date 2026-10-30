@@ -11,7 +11,7 @@ import { DatabaseSync } from "node:sqlite";
 import { startServer } from "../../packages/game-server/bin/node.js";
 // @ts-expect-error plain JavaScript without type declarations
 import { localRoomStates, passKeysFrom, profilesFrom } from "../../packages/game-server/bin/node-parts.js";
-import { ERROR_TEXT, GameServerError, defineGameServer, generateSigningKey, loadSigningKey, relay, signPass, type Purchase } from "../../packages/game-server/src/internal.ts";
+import { ERROR_TEXT, GameServerError, defineGameServer, generateSigningKey, loadSigningKey, relay, signPass, type IdentifyPlayer, type Purchase } from "../../packages/game-server/src/internal.ts";
 import { signTestReceipt } from "../helpers.ts";
 import { makeCertificate } from "../../packages/game-server/bin/local-play-certificate.js";
 import { playTranscript, transcriptGameServerOptions, type TranscriptDriver } from "../rooms-transcript.ts";
@@ -1616,5 +1616,134 @@ describe.skipIf(!fastLanePackage)(`The fast lane (WebTransport) on the Node runn
     stranger.say({ type: "hello", protocolVersionNumber: 1, pass: await pass("b") });
     expect((await stranger.until("error")).message).toMatchObject({ type: "error", code: "bad_origin" });
     expect((await stranger.closed).closeCode).toBe(4001);
+  });
+});
+
+describe("Players from outside Zaisma in the Node runner", () => {
+  /** A runner whose players may come with a playerToken: identifyPlayer and outsideGuestsEnabled as the test says, and Zaisma's chat check stubbed at issuerUrl. */
+  async function outsideServer(options: { identifyPlayer?: IdentifyPlayer; outsideGuestsEnabled?: boolean; issuerUrl?: string } = {}) {
+    const errors: string[] = [];
+    const logged = vi.spyOn(console, "error").mockImplementation((...parts: unknown[]) => void errors.push(parts.map(String).join(" ")));
+    onTestFinished(() => logged.mockRestore());
+    const echo = defineGameServer({
+      setup: () => ({}),
+      // Who sent it, as everyone in the room hears it, and what the room says about the pair it names.
+      onMessage: (_state, player, room, data: any) => room.broadcast({ fromPlayerId: player.id, kind: player.kind, name: player.name, areFriends: room.areFriends(data.first, data.second), hasBlockBetween: room.hasBlockBetween(data.first, data.second) }),
+    });
+    const own = startServer({ gameServer: echo, gameSlug: "arena", port: 0, origins: [ORIGIN], issuerUrl: options.issuerUrl ?? ISS, loadPassKeys: async () => [signing.publicKey], roomStateFile: null, loadProfile: async (playerId: string) => ({ id: playerId, name: playerId.slice(7) }), ...(options.identifyPlayer ? { identifyPlayer: options.identifyPlayer } : {}), ...(options.outsideGuestsEnabled !== undefined ? { outsideGuestsEnabled: options.outsideGuestsEnabled } : {}) });
+    await new Promise((r) => own.httpServer.once("listening", r));
+    onTestFinished(() => void own.close());
+    const at = (own.httpServer.address() as { port: number }).port;
+    const enter = async (hello: object, roomCode = "XTRNL2") => {
+      const client = connect(ORIGIN, `/v1/rooms/arena/${roomCode}`, at);
+      await client.open;
+      client.say({ type: "hello", protocolVersionNumber: 1, ...hello });
+      return { ...client, first: await client.next() };
+    };
+    return { enter, errors };
+  }
+  const identifyPlayer = async (playerToken: string, connection: { origin: string | null }) => (playerToken.startsWith("good:") ? { id: `own_${playerToken.slice(5)}`, name: `${playerToken.slice(5)} from ${new URL(connection.origin!).hostname}` } : null);
+
+  it("lets a playerToken in as identifyPlayer says, with kind outside_zaisma", async () => {
+    const { enter } = await outsideServer({ identifyPlayer });
+    const ana = await enter({ playerToken: "good:ana" });
+    expect(ana.first).toMatchObject({ type: "welcome", me: { id: "own_ana", name: "ana from arena.zaismausercontent.com", kind: "outside_zaisma" } });
+    ana.ws.close();
+  });
+
+  it("refuses a playerToken with no identifyPlayer, one it answers null for or answers wrong (bad_player_token), and answers busy when it throws", async () => {
+    const without = await outsideServer();
+    expect((await without.enter({ playerToken: "good:ana" })).first).toMatchObject({ type: "error", code: "bad_player_token" });
+    expect((await without.enter({ playerToken: null })).first).toMatchObject({ type: "error", code: "bad_player_token" });
+    // Neither a pass nor a token, or a token that isn't text up to 8 KB: no hello.
+    expect((await without.enter({})).first).toMatchObject({ type: "error", code: "no_hello" });
+    expect((await without.enter({ playerToken: "x".repeat(8 * 1024 + 1) })).first).toMatchObject({ type: "error", code: "no_hello" });
+
+    const answers: Record<string, unknown> = { empty: { id: "own_ana", name: "   " }, long: { id: "x".repeat(200), name: "Ana" }, list: [], none: null };
+    const { enter, errors } = await outsideServer({
+      identifyPlayer: async (playerToken: string) => {
+        if (playerToken === "throw") throw new Error("accounts are down");
+        return answers[playerToken] as never;
+      },
+    });
+    expect((await enter({ playerToken: "none" })).first).toMatchObject({ type: "error", code: "bad_player_token" });
+    for (const playerToken of ["empty", "long", "list"]) expect((await enter({ playerToken })).first).toMatchObject({ type: "error", code: "bad_player_token" });
+    expect(errors.filter((error) => error.startsWith("Game server error in identifyPlayer:"))).toHaveLength(3);
+    const busy = await enter({ playerToken: "throw" });
+    expect(busy.first).toMatchObject({ type: "error", code: "busy" });
+    expect(await busy.closed).toBe(1013);
+    expect(errors.at(-1)).toContain("accounts are down");
+  });
+
+  it("lets a player with no token in as a guest only when outsideGuestsEnabled", async () => {
+    const { enter } = await outsideServer({ outsideGuestsEnabled: true });
+    const guest = await enter({ playerToken: null });
+    expect(guest.first.me).toMatchObject({ kind: "outside_zaisma" });
+    expect(guest.first.me.id).toMatch(/^player_[a-z0-9]{20}$/);
+    expect(guest.first.me.name).toMatch(/^[A-Z][a-z]+ [A-Z][a-z]+ \d{2}$/);
+    guest.ws.close();
+  });
+
+  it("puts players from the Zaisma page and from elsewhere in one room, where they're never friends and have no block", async () => {
+    const { enter } = await outsideServer({ identifyPlayer });
+    const nowSec = Math.floor(Date.now() / 1000);
+    const accountPass = await signPass(signing, { sub: "player_ben", aud: "arena", iss: ISS, pass_version_number: 1, kind: "account", who_can_chat: "anyone", chat_group_id: "chat_group_a", player_tag_id: "player_tag_ben", iat: nowSec, exp: nowSec + 60 });
+    const ben = await enter({ pass: accountPass }, "MXDRM2");
+    expect(ben.first).toMatchObject({ type: "welcome", me: { id: "player_ben", kind: "account" } });
+    const ana = await enter({ playerToken: "good:ana" }, "MXDRM2");
+    expect(ana.first).toMatchObject({ type: "welcome", me: { id: "own_ana", kind: "outside_zaisma" } });
+    ana.say({ type: "message", data: { first: "own_ana", second: "player_ben" } });
+    const heard = { fromPlayerId: "own_ana", kind: "outside_zaisma", areFriends: false, hasBlockBetween: false };
+    expect((await until(ben, "message")).data).toMatchObject(heard);
+    expect((await until(ana, "message")).data).toMatchObject(heard);
+    ben.ws.close();
+    ana.ws.close();
+  });
+
+  it("chat: an outsider's message to an under-18 pass player is stopped by Zaisma's check, and chat among outsiders never reaches Zaisma", async () => {
+    // Zaisma's chat check, stubbed: a message with a null party and the teen's pass is not_allowed_to_chat, as apps/rooms answers it.
+    const checked: { senderPass: string | null; receiverPasses: (string | null)[] }[] = [];
+    const zaisma = createServer((request, response) => {
+      let body = "";
+      request.on("data", (chunk) => (body += chunk));
+      request.on("end", () => {
+        const asked = JSON.parse(body);
+        checked.push(asked);
+        const parties = [asked.senderPass, ...asked.receiverPasses];
+        const isStopped = parties.includes(null) && parties.includes(passes.player_teen);
+        response.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({ isAllowed: !isStopped, reason: isStopped ? "not_allowed_to_chat" : null, message: isStopped ? "Chat isn't open for this message." : null, hasSwearing: false, hasSlur: false }));
+      });
+    });
+    await new Promise<void>((r) => zaisma.listen(0, r));
+    onTestFinished(() => void zaisma.close());
+    const issuerUrl = `http://localhost:${(zaisma.address() as { port: number }).port}`;
+    const { enter } = await outsideServer({ identifyPlayer, issuerUrl });
+    const nowSec = Math.floor(Date.now() / 1000);
+    const passes = { player_teen: await signPass(signing, { sub: "player_teen", aud: "arena", iss: issuerUrl, pass_version_number: 1, kind: "account", who_can_chat: "anyone", chat_group_id: "chat_group_young", iat: nowSec, exp: nowSec + 60 }) };
+    let chatNumber = 0;
+    const chat = async (client: { say: (message: object) => void; next: () => Promise<any> }, text: string) => {
+      const number = ++chatNumber;
+      client.say({ type: "chat", chatNumber: number, text });
+      for (;;) {
+        const message = await client.next();
+        if (message.chatNumber === number) return message;
+      }
+    };
+
+    const ana = await enter({ playerToken: "good:ana" }, "CHAT22");
+    const bo = await enter({ playerToken: "good:bo" }, "CHAT22");
+    expect(ana.first.canChat).toBe(true);
+    // Outsiders alone: delivered, and Zaisma never asked.
+    expect(await chat(ana, "hi bo")).toMatchObject({ type: "chat_sent" });
+    expect(await until(bo, "chat")).toMatchObject({ fromPlayerId: "own_ana", text: "hi bo" });
+    expect(checked).toEqual([]);
+
+    const teen = await enter({ pass: passes.player_teen }, "CHAT22");
+    // To everyone, the teen included: Zaisma hears the outsiders as null, and stops it for all.
+    expect(await chat(ana, "hello all")).toMatchObject({ type: "chat_stopped", reason: "not_allowed_to_chat" });
+    expect(checked.at(-1)).toMatchObject({ senderPass: null, receiverPasses: expect.arrayContaining([null, passes.player_teen]) });
+    expect(await chat(teen, "hey")).toMatchObject({ type: "chat_stopped", reason: "not_allowed_to_chat" });
+    expect(checked.at(-1)).toMatchObject({ senderPass: passes.player_teen, receiverPasses: [null, null] });
+    for (const client of [ana, bo, teen]) client.ws.close();
   });
 });

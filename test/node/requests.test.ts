@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import WebSocket from "ws";
 import { startServer } from "../../packages/game-server/bin/node.js";
 // @ts-expect-error plain JavaScript without type declarations
@@ -178,5 +178,40 @@ describe("request errors' HTTP statuses", () => {
   it("answer hosting_paused with 403, since it isn't a rate limit, and slow_down with 429", () => {
     expect(REQUEST_ERROR_HTTP_STATUS.hosting_paused).toBe(403);
     expect(REQUEST_ERROR_HTTP_STATUS.slow_down).toBe(429);
+  });
+});
+
+describe("Node runner requests from players outside Zaisma", () => {
+  it("reach onRequest with { playerToken, request }, as identifyPlayer says, with the same refusals as a hello", async () => {
+    const own = startServer({
+      gameServer: { onRequest: (player: { id: string; name: string; kind: string }) => player },
+      gameSlug: "shop",
+      port: 0,
+      origins: [ORIGIN],
+      issuerUrl: ISS,
+      loadPassKeys: async () => [signing.publicKey],
+      database: localDatabase(":memory:"),
+      identifyPlayer: async (playerToken: string) => (playerToken === "throw" ? Promise.reject(new Error("down")) : playerToken === "good" ? { id: "own_ana", name: "Ana" } : null),
+    });
+    await new Promise((resolve) => own.httpServer.once("listening", resolve));
+    const portNumber = (own.httpServer.address() as { port: number }).port;
+    const send = async (body: object) => {
+      const response = await fetch(`http://localhost:${portNumber}/v1/requests/shop`, { method: "POST", headers: { Origin: ORIGIN, "Content-Type": "text/plain" }, body: JSON.stringify(body) });
+      return { httpStatus: response.status, body: (await response.json()) as any };
+    };
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect(await send({ playerToken: "good", request: { type: "who" } })).toEqual({ httpStatus: 200, body: { answer: { id: "own_ana", name: "Ana", kind: "outside_zaisma" } } });
+      expect(await send({ playerToken: "nobody", request: {} })).toMatchObject({ httpStatus: 401, body: { error: { code: "bad_player_token" } } });
+      // No guests unless outsideGuestsEnabled.
+      expect(await send({ playerToken: null, request: {} })).toMatchObject({ httpStatus: 401, body: { error: { code: "bad_player_token" } } });
+      expect(await send({ playerToken: "throw", request: {} })).toMatchObject({ httpStatus: REQUEST_ERROR_HTTP_STATUS.busy, body: { error: { code: "busy" } } });
+      // Neither a pass nor a token, or a token over 8 KB, isn't a request.
+      expect(await send({ request: {} })).toMatchObject({ httpStatus: 400, body: { error: { code: "bad_request" } } });
+      expect(await send({ playerToken: "x".repeat(8 * 1024 + 1), request: {} })).toMatchObject({ httpStatus: 400, body: { error: { code: "bad_request" } } });
+    } finally {
+      errorLog.mockRestore();
+      await own.close();
+    }
   });
 });

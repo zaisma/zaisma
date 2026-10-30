@@ -7,6 +7,7 @@ export * from "./database.ts";
 export * from "./dump.ts";
 export * from "./requests.ts";
 export * from "./outside-calls.ts";
+export * from "./outside-players.ts";
 export * from "./schedules.ts";
 export * from "./webhooks.ts";
 export * from "./pass.ts";

@@ -58,20 +58,29 @@ const SDK_ROOM_TYPES = [
 const INPUTS = ["JoinOptions", "QuickJoinOptions", "ListOptions", "MoveJoinOptions", "KickOptions", "RoomInfo", "SendOptions", "SmoothingOptions", "RoomEvents"];
 /** What the SDK hands a game: today's must still fit code written for v1's. */
 const OUTPUTS = ["Room", "Player", "ListedPlayer", "RoomSettings", "RoomSettingsChange", "Ended", "Ending", "Moved", "Idle", "Away", "Back", "Kicked", "Move", "RoomError", "VersionUpdate", "RoomList", "ListedRoom", "ConnectionStatus"];
-/** Unions v1 lets grow: the frozen copy takes any other string too, so a new value doesn't break it. */
-const GROWING = ["RoomErrorCode", "EndReason", "FriendJoinRefusal"];
+/**
+ * Unions v1 lets grow: the frozen copy takes any other string too, so a new value doesn't break it. One added
+ * here after the baseline is opened when the frozen copy is checked (PlayerKind, for outside_zaisma).
+ */
+const GROWING = ["RoomErrorCode", "EndReason", "FriendJoinRefusal", "PlayerKind"];
+
+/** Each growing union in a namespace's text opened to any other string, once. */
+function withGrowingOpen(namespace: string, file: string): string {
+  let opened = namespace;
+  for (const name of GROWING) {
+    const declaration = new RegExp(`(\\n  type ${name} =[\\s\\S]*?);\\n`);
+    if (!declaration.test(opened)) throw new Error(`No type ${name} in ${file}`);
+    opened = opened.replace(declaration, (_, union: string) => (union.endsWith("(string & {})") ? `${union};\n` : `${union} | (string & {});\n`));
+  }
+  return opened;
+}
 
 /** The SDK's namespace as it is now, renamed ZaismaV1, with the growing unions opened and the checks after it. */
 function frozenTypes(): string {
   const text = readFileSync(join(ROOT, SDK_TYPES), "utf8");
   const start = text.indexOf("declare namespace Zaisma {");
   const end = text.indexOf("\ninterface Window");
-  let namespace = text.slice(start, end).trimEnd().replace("declare namespace Zaisma {", "declare namespace ZaismaV1 {");
-  for (const name of GROWING) {
-    const declaration = new RegExp(`(\\n  type ${name} =[\\s\\S]*?);\\n`);
-    if (!declaration.test(namespace)) throw new Error(`No type ${name} in ${SDK_TYPES}`);
-    namespace = namespace.replace(declaration, (_, union: string) => `${union} | (string & {});\n`);
-  }
+  const namespace = withGrowingOpen(text.slice(start, end).trimEnd().replace("declare namespace Zaisma {", "declare namespace ZaismaV1 {"), SDK_TYPES);
   const checks = [
     ...INPUTS.map((name) => `type ${name}Fits = Fits<ZaismaV1.${name}, Zaisma.${name}>;`),
     ...OUTPUTS.map((name) => `type ${name}StillFits = Fits<Zaisma.${name}, ZaismaV1.${name}>;`),
@@ -137,7 +146,10 @@ describe("rooms v1", () => {
   } else {
     it("still fits the SDK's room types as v1 had them", () => {
       const options: ts.CompilerOptions = { target: ts.ScriptTarget.ES2022, lib: ["lib.es2022.d.ts", "lib.dom.d.ts"], strict: true, noEmit: true, types: [] };
-      const program = ts.createProgram([join(ROOT, SDK_TYPES), FROZEN_TYPES], options);
+      const host = ts.createCompilerHost(options);
+      const readFile = host.readFile.bind(host);
+      host.readFile = (file) => (file === FROZEN_TYPES ? withGrowingOpen(readFileSync(FROZEN_TYPES, "utf8"), FROZEN_TYPES) : readFile(file));
+      const program = ts.createProgram([join(ROOT, SDK_TYPES), FROZEN_TYPES], options, host);
       const errors = ts.getPreEmitDiagnostics(program).map((diagnostic) => `${diagnostic.file?.fileName.replace(ROOT, "") ?? ""}: ${ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n")}`);
       expect(errors, "Today's SDK types no longer fit v1's (test/contracts/v1/sdk-rooms.d.ts)").toEqual([]);
     });

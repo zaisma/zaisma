@@ -64,8 +64,12 @@ export interface PassClaims {
   exp: number;
 }
 
-/** A signed-in Zaisma account, or a guest. */
-export type PlayerKind = "guest" | "account";
+/**
+ * A signed-in Zaisma account, a guest, or a player from outside Zaisma (outside_zaisma): one your own server let
+ * in without a Zaisma pass, by its identifyPlayer (signed in with Zaisma, or your game's own accounts) or as a
+ * guest from elsewhere (outsideGuestsEnabled). Zaisma's rooms and passes never give outside_zaisma.
+ */
+export type PlayerKind = "guest" | "account" | "outside_zaisma";
 
 /** No chat, friends only, or anyone in the same chat group: the player's "Who can chat with you" setting (docs/DECISIONS.md, "Social settings, with the social modes as presets"). */
 export type WhoCanChat = "nobody" | "friends" | "anyone";
@@ -177,7 +181,7 @@ function toBase64Url(bytes: Uint8Array): string {
   return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-function fromBase64Url(text: string): Uint8Array<ArrayBuffer> {
+export function fromBase64Url(text: string): Uint8Array<ArrayBuffer> {
   const binary = atob(text.replace(/-/g, "+").replace(/_/g, "/"));
   return Uint8Array.from(binary, (character) => character.charCodeAt(0));
 }

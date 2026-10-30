@@ -289,7 +289,7 @@ export function secretsFromEnvironment() {
   return Object.freeze(Object.fromEntries(Object.entries(process.env).filter(([, environmentValue]) => typeof environmentValue === "string")));
 }
 
-const OPTION_NAMES = ["gameServer", "gameSlug", "port", "origins", "issuerUrl", "loadPassKeys", "loadReceiptKeys", "loadProfile", "database", "secrets", "webhookSigningSecret", "roomStateFile", "zaismaKey", "developerApiUrl", "webtransportPort", "certificatePath", "certificateKeyPath"];
+const OPTION_NAMES = ["gameServer", "gameSlug", "port", "origins", "issuerUrl", "loadPassKeys", "loadReceiptKeys", "loadProfile", "database", "secrets", "webhookSigningSecret", "roomStateFile", "zaismaKey", "developerApiUrl", "webtransportPort", "certificatePath", "certificateKeyPath", "identifyPlayer", "outsideGuestsEnabled"];
 
 /**
  * Check what startServer was given: unknown options and options of the wrong kind are a GameServerError,
@@ -325,6 +325,10 @@ export function checkedStartServerOptions(given, issuerUrlDefault) {
   if (options.roomStateFile !== undefined && options.roomStateFile !== null && !isText(options.roomStateFile)) throw bad("roomStateFile", "a file path", "Give a file path as text, like \"zaisma-room-states.sqlite\", or null to keep no states.");
   if (options.zaismaKey !== undefined && !isText(options.zaismaKey)) throw bad("zaismaKey", "an API key", "Give an API key with purchase_access write for this game as text, or leave it out to use ZAISMA_KEY.");
   if (options.developerApiUrl !== undefined && (!isText(options.developerApiUrl) || !URL.canParse(options.developerApiUrl))) throw bad("developerApiUrl", "a URL", 'Give the address of Zaisma\'s developer API, like "https://zaisma.com/api/dev".');
+  // Players from outside Zaisma (games played off their Zaisma page): who a playerToken is, and whether players with none come in as guests.
+  if (options.identifyPlayer !== undefined && !isFunction(options.identifyPlayer)) throw bad("identifyPlayer", "a function", "Give async (playerToken, { origin }) => ({ id, name }) or null, like signInWithZaismaPlayers({ signInAppIds }) makes.");
+  options.outsideGuestsEnabled ??= false;
+  if (typeof options.outsideGuestsEnabled !== "boolean") throw bad("outsideGuestsEnabled", "true or false", "Give true to let players with no playerToken in as guests, or false (the default).");
   // The fast lane (WebTransport): its UDP port and the certificate it holds itself, all three or none.
   const fastLaneFields = ["webtransportPort", "certificatePath", "certificateKeyPath"];
   const missingFastLaneFields = fastLaneFields.filter((field) => options[field] === undefined);
