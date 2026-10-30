@@ -1575,7 +1575,7 @@ export interface FilterMenuOptions {
 export function filterMenu(options: FilterMenuOptions): ControlMarkup {
   // A choice is a Dropdown's (its classes and look), a link to the list with it picked.
   const choice = (label: string, href: string, isCurrent: boolean, choiceIcon?: IconName) =>
-    html`<a href="${href}" class="${DROPDOWN_CHOICE_CLASS}" role="menuitem" tabindex="-1" data-lights data-cut-line="8"${isCurrent ? raw(' aria-current="page"') : ""}>${CUT_LINE}${choiceIcon ? icon(choiceIcon) : ""}<span>${label}</span>${isCurrent ? DROPDOWN_TICK : ""}</a>`;
+    html`<a href="${href}" class="${DROPDOWN_CHOICE_CLASS}" role="menuitem" tabindex="-1" data-lights data-keeps-open data-cut-line="8"${isCurrent ? raw(' aria-current="page"') : ""}>${CUT_LINE}${choiceIcon ? icon(choiceIcon) : ""}<span>${label}</span>${isCurrent ? DROPDOWN_TICK : ""}</a>`;
   const button = secondaryButton("Filter", { type: "button", icon: "filter", controls: options.id, isExpanded: Boolean(options.isOpen), reactionCount: options.filterCount || undefined });
   const opener = (groupName: string, inside: Raw, className: string) =>
     html`<button type="button" class="${DROPDOWN_CHOICE_CLASS} ${className}" role="menuitem" tabindex="-1" aria-haspopup="menu" data-lights data-cut-line="8" data-filter-opens="${groupName}">${CUT_LINE}${inside}</button>`;
@@ -1586,16 +1586,19 @@ export function filterMenu(options: FilterMenuOptions): ControlMarkup {
     (group) =>
       html`<div class="dropdown-in filter-panel" data-filter-panel="${group.groupName}"${options.openGroupName === group.groupName ? "" : raw(" hidden")}>${opener("", html`${icon("arrow-back")}<span>${group.label}</span>`, "filter-back")}<hr class="hairline" role="separator">${group.choices.map((each) => choice(each.label, each.href, each.isCurrent))}</div>`,
   );
-  const menu = floatingPane({ id: options.id, placement: "under", kind: `dropdown filter-menu${options.isOpen ? " is-open-on-load" : ""}`, role: "menu", label: "Filter", edgeLight: "left", body: html`${main}${panels}` });
+  const menu = floatingPane({ id: options.id, placement: "under", kind: "dropdown filter-menu", role: "menu", label: "Filter", edgeLight: "left", isShownInPlace: options.isOpen, body: html`${main}${panels}` });
   return controlMarkup(html`${button}${menu}`, "regular");
 }
 
 /** A Filter menu turns to a group's choices and back in place, and starts again from its groups each time it opens. */
 export const FILTER_MENU_SCRIPT = `/* filter menus */(function () {
+  var isStill = matchMedia("(prefers-reduced-motion: reduce)").matches;
   function show(menu, groupName, isFocused) {
-    var shown = null;
+    var shown = null, was = menu.querySelector("[data-filter-panel]:not([hidden])");
     menu.querySelectorAll("[data-filter-panel]").forEach(function (panel) { panel.hidden = panel.getAttribute("data-filter-panel") !== groupName; if (!panel.hidden) shown = panel; });
     if (menu.zaismaPlace) menu.zaismaPlace();
+    // Into a way's choices it slides in from the end, back to the ways from the start: a short step sideways, never a pop.
+    if (shown && was && shown !== was && !isStill && shown.animate) shown.animate([{ transform: "translateX(" + (groupName ? 12 : -12) + "px)", opacity: 0 }, { transform: "none", opacity: 1 }], { duration: 180, easing: "cubic-bezier(0.2, 0.8, 0.2, 1)" });
     if (isFocused && shown) {
       // Back from a group, its row in the groups is focused again; into one, its picked choice, or else its first.
       var back = groupName === "" && menu.lastGroupName ? menu.querySelector('[data-filter-opens="' + menu.lastGroupName + '"]') : null;
@@ -1616,8 +1619,8 @@ export const FILTER_MENU_SCRIPT = `/* filter menus */(function () {
       if (event.key === "ArrowRight" && item && item.matches(".filter-group")) { event.preventDefault(); menu.lastGroupName = item.getAttribute("data-filter-opens"); show(menu, menu.lastGroupName, true); }
       if (event.key === "ArrowLeft" && item && item.closest('[data-filter-panel]:not([data-filter-panel=""])')) { event.preventDefault(); show(menu, "", true); }
     });
-    // Shut, it goes back to its groups for the next time it opens.
-    new MutationObserver(function () { if (menu.getAttribute("aria-hidden") === "true") show(menu, "", false); }).observe(menu, { attributes: true, attributeFilter: ["aria-hidden"] });
+    // Opened, it always starts on its ways, whichever it was on when it shut.
+    menu.addEventListener("beforetoggle", function (event) { if (event.newState === "open") show(menu, "", false); });
   });
 })();
 `;

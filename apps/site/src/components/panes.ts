@@ -427,8 +427,8 @@ export const DROPDOWN_SCRIPT = `/* menus */(function () {
       if (event.key === "Tab") float.close(false);
     });
     // A choice that opens more choices in the same menu (aria-haspopup) keeps it open.
-    menu.addEventListener("click", function (event) { if (event.target.closest('[role="menuitem"]:not([aria-haspopup])')) float.close(false); });
-    // Open as the page loads (the gallery's open menus, a header shown with its menu open).
+    // A choice closes it, except one that opens more choices in it (aria-haspopup) or that its page applies in place, the menu kept open (data-keeps-open: a Filter menu's).
+    menu.addEventListener("click", function (event) { if (event.target.closest('[role="menuitem"]:not([aria-haspopup], [data-keeps-open])')) float.close(false); });
   });
   document.addEventListener("click", function (event) {
     var button = event.target.closest && event.target.closest("[aria-controls][aria-expanded]");
@@ -828,6 +828,8 @@ component({
 /* There the script moves it (zaismaFloat): open, it starts from its closed look (is-arriving); closing, it keeps the top layer while it takes
    that look again (is-leaving), then goes. */
 .floating-pane:is(.is-arriving, .is-leaving)::before, .floating-pane:is(.is-arriving, .is-leaving) > * { opacity: 0; }
+/* Opened again at once where it just was (a Filter menu drawn again with the list it filters), it shows without arriving. */
+.floating-pane.opens-at-once, .floating-pane.opens-at-once::before, .floating-pane.opens-at-once > * { transition: none; }
 .floating-pane:is(.is-arriving, .is-leaving) { transform: translateY(-6px); pointer-events: none; }
 .floating-pane.is-above:is(.is-arriving, .is-leaving) { transform: translateY(6px); }
 .floating-pane.placed-over:is(.is-arriving, .is-leaving) { transform: scale(0.97); }

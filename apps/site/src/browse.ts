@@ -358,7 +358,7 @@ function swap(next) {
   });
   there.slice(here.length).forEach((row) => parent.append(document.importNode(row, true)));
 }
-function show(href, isNewEntry, isSearch) {
+function show(href, isNewEntry, isSearch, reopenedGroupName) {
   const asked = ++latest;
   fetch(href, { headers: { accept: "text/html" }, credentials: "same-origin" }).then((response) => response.ok ? response.text() : Promise.reject(response.status)).then((text) => {
     if (asked !== latest) return;
@@ -369,6 +369,7 @@ function show(href, isNewEntry, isSearch) {
     document.title = page.title;
     if (isNewEntry === "push") history.pushState(null, "", href); else if (isNewEntry) history.replaceState(null, "", href);
     browse.querySelectorAll("[data-loads-on-scroll]").forEach((holder) => window.zaismaLoadMore && window.zaismaLoadMore.watch(holder));
+    if (reopenedGroupName) reopenFilter(reopenedGroupName);
   }).catch(() => { if (isNewEntry === "push") location.href = href; });
 }
 // A sort or a genre: its tab slides at once, and the grid follows when the page's games come.
@@ -383,13 +384,27 @@ browse.addEventListener("click", (event) => {
   if (sw.pickTab) sw.pickTab(tab);
   show(tab.getAttribute("href"), "push");
 });
-// A filter picked or taken away: the pane is drawn again in place, its menu and tags with it.
-browse.addEventListener("click", (event) => {
-  const link = event.target.closest && event.target.closest(".filter-menu a[href], .tags-in-use a[href]");
+// A filter picked or taken away: the pane is drawn again in place, its menu and tags with it. The open menu floats outside the pane (in
+// the page's top layer), so its picks are heard on the whole page; picked there, the menu opens again at once on its ways, the way just
+// changed in focus, so filters are picked one after another without it closing.
+document.addEventListener("click", (event) => {
+  const link = event.target.closest && event.target.closest("#browse-filter a[href], #browse .tags-in-use a[href]");
   if (!link || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
   event.preventDefault();
-  show(link.getAttribute("href"), "push", true);
+  const panel = link.closest("[data-filter-panel]");
+  show(link.getAttribute("href"), "push", true, panel ? panel.getAttribute("data-filter-panel") : null);
 });
+function reopenFilter(groupName) {
+  requestAnimationFrame(() => {
+    const menu = document.getElementById("browse-filter"), button = document.querySelector('[aria-controls="browse-filter"]');
+    if (!menu || !button || !menu.floating) return;
+    menu.classList.add("opens-at-once");
+    button.click();
+    const row = menu.querySelector('[data-filter-opens="' + groupName + '"]');
+    if (row) row.focus({ preventScroll: true });
+    requestAnimationFrame(() => menu.classList.remove("opens-at-once"));
+  });
+}
 window.addEventListener("popstate", () => show(location.pathname + location.search));
 if (zaismaDeviceKind() !== browse.dataset.deviceKind) show(location.pathname + location.search);
 if (search) {
