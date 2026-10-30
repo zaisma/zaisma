@@ -34,7 +34,7 @@ describe("game server error codes in the docs", () => {
 
   it("find the codes in the source", () => {
     expect(roomCodes.length).toBeGreaterThan(10);
-    expect(requestCodes).toHaveLength(12);
+    expect(requestCodes).toHaveLength(13);
   });
 
   it("README lists every room error code and nothing else", () => {

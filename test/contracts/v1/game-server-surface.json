@@ -84,8 +84,8 @@
     "kind": "fields",
     "fields": {
       "text": ": string",
-      "senderPass": ": string",
-      "receiverPasses": ": Array<string>",
+      "senderPass": ": string | null",
+      "receiverPasses": ": Array<string | null>",
       "isAdultFilterEnabled": "?: boolean | undefined"
     }
   },
@@ -277,6 +277,10 @@
     "kind": "fields",
     "fields": {}
   },
+  "IdentifyPlayer": {
+    "kind": "fields",
+    "fields": {}
+  },
   "IdleCheck": {
     "kind": "values",
     "values": [
@@ -382,6 +386,13 @@
       "unreachable_host"
     ]
   },
+  "OutsidePlayer": {
+    "kind": "fields",
+    "fields": {
+      "id": ": string",
+      "name": ": string"
+    }
+  },
   "PASS_ISSUER_URL": {
     "kind": "constant",
     "value": "https://rooms.zaisma.com"
@@ -451,7 +462,8 @@
     "kind": "values",
     "values": [
       "account",
-      "guest"
+      "guest",
+      "outside_zaisma"
     ]
   },
   "PublicKey": {
@@ -516,6 +528,7 @@
     "value": {
       "maximumRequestSizeBytes": 16384,
       "maximumPassSizeBytes": 98304,
+      "maximumPlayerTokenSizeBytes": 8192,
       "maximumAnswerSizeBytes": 1048576,
       "answerTimeoutSec": 10
     }
@@ -641,6 +654,7 @@
       "account_needed",
       "bad_origin",
       "bad_pass",
+      "bad_player_token",
       "bad_request",
       "busy",
       "game_not_open_to_player",
@@ -720,6 +734,7 @@
       "bad_message",
       "bad_origin",
       "bad_pass",
+      "bad_player_token",
       "blocked_player_here",
       "busy",
       "chat_empty",
@@ -837,6 +852,15 @@
       "endRoom": ": (roomCode: string, message?: string | undefined) => Promise<{ isDone: boolean; }>"
     }
   },
+  "SignInWithZaismaPlayersOptions": {
+    "kind": "fields",
+    "fields": {
+      "signInAppIds": ": Array<string>",
+      "siteUrl": "?: string | undefined",
+      "loadKeys": "?: ((isRefreshing: boolean) => Promise<Array<PublicKey>>) | undefined",
+      "loadProfile": "?: ((playerId: string) => Promise<{ name: string; } | null>) | undefined"
+    }
+  },
   "VERSION_UPDATE_CLOSE_CODE": {
     "kind": "constant",
     "value": 4004
@@ -946,6 +970,10 @@
     "kind": "signature",
     "signature": "(): string"
   },
+  "guestPlayer": {
+    "kind": "signature",
+    "signature": "(): OutsidePlayer"
+  },
   "isRoomCode": {
     "kind": "signature",
     "signature": "(code: string): boolean"
@@ -961,6 +989,10 @@
   "relay": {
     "kind": "constant",
     "value": "GameServer<{}>"
+  },
+  "signInWithZaismaPlayers": {
+    "kind": "signature",
+    "signature": "(options: SignInWithZaismaPlayersOptions): IdentifyPlayer"
   },
   "verifyPass": {
     "kind": "signature",
@@ -1001,7 +1033,9 @@
       "developerApiUrl": "?: string | undefined",
       "webtransportPort": "?: number | undefined",
       "certificatePath": "?: string | undefined",
-      "certificateKeyPath": "?: string | undefined"
+      "certificateKeyPath": "?: string | undefined",
+      "identifyPlayer": "?: IdentifyPlayer | undefined",
+      "outsideGuestsEnabled": "?: boolean | undefined"
     }
   },
   "startServer": {
