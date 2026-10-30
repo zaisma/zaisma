@@ -324,8 +324,10 @@ component({
 .fold-row-head:hover .fold-row-chevron { transform: translateX(2px); }
 .fold-row[open] > .fold-row-head .fold-row-chevron { transform: rotate(90deg); }
 .fold-row-head:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
-/* Its words keep the pane's margin themselves, as anywhere in a pane, so they line up with the title over them, never set in twice. */
-.fold-row-body { padding: 0 0 var(--gap-block-block); }
+/* The body keeps the pane's margin for its words, lined up with the title over them; the words inside it (a stack's, Reading text's)
+   take no second margin of their own, so they're never set in twice. */
+.fold-row-body { padding: 0 var(--pad-words) var(--gap-block-block); }
+.fold-row-body > * { --pad-words: 0px; }
 /* At a pane's edge the first and last rows' words keep the pane's margin, as words do. */
 .fold-row:first-child > .fold-row-head { padding-top: var(--pad-words); }
 .fold-row:last-child:not([open]) > .fold-row-head { padding-bottom: var(--pad-words); }
