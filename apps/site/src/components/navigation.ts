@@ -42,7 +42,7 @@ export interface HeaderOptions {
   isSearchOpen?: boolean;
   /** Unique on the page, for the menu's id. Defaults to "top". */
   id?: string;
-  /** The page's Sidebar button (sidebarButton), at the header's start, over the sidebar it folds. */
+  /** The page's sidebar button (sidebarButton: a small Secondary button), at the header's start, over the sidebar it folds. */
   sidebarButton?: ControlMarkup;
 }
 
@@ -1144,6 +1144,7 @@ export function sidebar(options: SidebarOptions): Raw {
 }
 
 /** The button that folds a sidebar away and back on a wide screen, and slides it over the page on a phone: at the start of the page's header or bar. */
+/** The one button a Sidebar has: a small Secondary button with the sidebar's icon, wired for SIDEBAR_SCRIPT to fold the sidebar it controls. */
 export function sidebarButton(options: { controls: string; label: string; isExpanded: boolean }): ControlMarkup {
   // Beside the page it's on the sidebar's side, over it: the start of the page's header (siteHeader's sidebarButton) or bar.
   return secondaryButton(options.label, { type: "button", icon: "sidebar", isLabelHidden: true, isSmall: true, controls: options.controls, isExpanded: options.isExpanded, dataAttributes: { "sidebar-button": "" } });
@@ -1326,20 +1327,6 @@ component({
       isStill: true,
       markup: html`<div class="sidebar-example-phone glass" data-glass data-glass-corners="pane">${EDGE}${sheetMarkup({ id: "example-sidebar-phone", title: "Design", body: sidebarPlaces(GALLERY_GROUPS), closeButton: tertiaryButton("Close", { type: "button", icon: "close", isLabelHidden: true, isSmall: true }), placement: "start", isShown: true })}</div>`,
     },
-  ],
-});
-
-component({
-  name: "Sidebar button",
-  slug: "sidebar-button",
-  group: "navigation",
-  subgroup: "places",
-  summary: "The one button a Sidebar has, at the start of the page's header, over the sidebar: it folds the sidebar away and back, and on a phone slides it over the page.",
-  styles: "",
-  render: sidebarButton,
-  examples: [
-    { label: "The sidebar beside the page", isStill: true, markup: sidebarButton({ controls: "example-sidebar-button", label: "Settings", isExpanded: true }) },
-    { label: "The sidebar folded away", isStill: true, markup: sidebarButton({ controls: "example-sidebar-button", label: "Settings", isExpanded: false }) },
   ],
 });
 

@@ -416,12 +416,12 @@ Every component, with the call that makes it and its options, is in the catalog 
 ### Navigation
 
 - **Header** (`header(options: HeaderOptions)`, `navigation.ts`): The top of every page: Zaisma, where you are, search when the page has one, and you. It floats as glass and slims once the page scrolls.
-  - `options`: `current: HeaderTab | null`, `search?: Omit<SearchFieldOptions, "state">`, `account?: { username: string; pictureMarkup: Raw } | null`, `isOnDeveloperPage: boolean`, `isOnSignInPage?: boolean`, `ownTabs?: SwitchTab[]`, `yourGamesHref?: string`, `hasPageRunner?: boolean`, `isCompact?: boolean`, `isMenuOpen?: boolean`, `isSearchOpen?: boolean`, `id?: string`, `sidebarButton?: ControlMarkup`
-- **Account button** (`accountButton(options: AccountButtonOptions)`, `navigation.ts`): You, at the header's end once you're signed in: your picture alone is the button, online, as tall as the controls beside it. It opens the account menu, which names you.
-  - `options`: `username: string`, `pictureMarkup: Raw`, `menuId: string`, `isMenuOpen?: boolean`, `state?: "is-pointed" | "is-pressed" | "is-focused"`
+  - `options`: `current: HeaderTab | null`, `search?: SearchFieldOptions`, `account?: { username: string } | null`, `isOnDeveloperPage: boolean`, `isOnSignInPage?: boolean`, `ownTabs?: SwitchTab[]`, `yourGamesHref?: string`, `hasPageRunner?: boolean`, `isCompact?: boolean`, `isMenuOpen?: boolean`, `isSearchOpen?: boolean`, `id?: string`, `sidebarButton?: ControlMarkup`
+- **Account button** (`accountButton(options: AccountButtonOptions)`, `navigation.ts`): You, at the header's end once you're signed in: your picture alone is the button, a slab as tall as the controls beside it. It opens the account menu, which names you.
+  - `options`: `username: string`, `menuId: string`, `isMenuOpen?: boolean`, `state?: "is-pointed" | "is-pressed" | "is-focused"`
 - **Footer** (`footer()`, `navigation.ts`): The end of every page: for game developers, the forum, the source and the rules.
 - **Playing bar** (`playingBar(options: PlayingBarOptions)`, `playing.ts`): The one slim bar beside a running game: Zaisma's mark back to every game, the game's name, and its small buttons. Everything else on the page steps aside while a game plays; on a landscape phone the bar runs down the left edge.
-  - `options`: `title: string`, `controls: ControlMarkup[]`, `isShown?: boolean`
+  - `options`: `title: string`, `controls: ControlMarkup[]`, `isShown?: boolean`, `shownAs?: "phone" | "phone-sideways"`
 - **Row arrows** (`rowArrows(options: RowArrowsOptions)`, `actions.ts`): Scrolling a row of games with a mouse or trackpad: two raised slabs in a carved well. At a row's end that arrow lies flat; touch screens swipe instead.
   - `options`: `rowName: string`, `trackId: string`, `scrolledTo?: "middle" | "end"`
 - **Shelf** (`shelf(options: ShelfOptions)`, `navigation.ts`): A row of games under its heading: the home's Popular, Trending and Continue playing. Its sort and its arrows sit at the heading's end; its covers scroll sideways, a few showing with the next peeking in.
@@ -432,8 +432,6 @@ Every component, with the call that makes it and its options, is in the catalog 
   - `options`: `label: string`, `newerHref?: string`, `olderHref?: string`
 - **Sidebar** (`sidebar(options: SidebarOptions)`, `navigation.ts`): A page's own places down its side: the gallery's groups, Developer settings' Hosting, Pro and Keys. One pane of glass under the header, to the screen's foot; only the page you're on is on a slab, and a group opens like a folder. Its button, at the header's start, folds it away and the page glides into the width; on a phone the same button slides it over the page. Never a sidebar built in place.
   - `options`: `id: string`, `label: string`, `places: SidebarPlace[]`, `rememberKey: string`
-- **Sidebar button** (`sidebarButton(options: { … })`, `navigation.ts`): The one button a Sidebar has, at the start of the page's header, over the sidebar: it folds the sidebar away and back, and on a phone slides it over the page.
-  - `options`: `controls: string`, `label: string`, `isExpanded: boolean`
 - **Breadcrumbs** (`breadcrumbs(options: BreadcrumbsOptions)`, `reading.ts`): Where a page sits: the pages above it as quiet links, a chevron between, this one last. For pages a few levels deep, like a forum topic or a game's version. On a phone it scrolls sideways rather than wrapping.
   - `options`: `trail: { label: string; href: string }[]`, `current: string`
 
@@ -497,7 +495,7 @@ Every component, with the call that makes it and its options, is in the catalog 
 ### Data
 
 - **Picture frame** (`pictureFrame(username: string, pictureSize: PictureSize, options?: { … })`, `data.ts`): An account's picture, always in its frame of glass: in the account button, beside a friend's name, at the head of a profile.
-  - `options`: `presence?: "online" | "playing"`, `isCut?: boolean`
+  - `options`: `presence?: "online" | "playing"`
 - **Picture row** (`pictureRow(usernames: string[], pictureSize: PictureSize)`, `data.ts`): Friends' pictures together: front to back, each lying over the next with a small shadow, all square. Past three, the rest are a +N.
 - **QR code** (`qrCode(options: QrCodeOptions)`, `qr-code.ts`): A link as a picture a phone's camera reads: a game's address, or a room's, for someone in the same room. Black on a raised white tile whatever the glass, the game's icon at its middle, with a line saying what it opens.
   - `options`: `id: string`, `label: string`, `caption: string`, `imageUrl?: string`, `iconUrl?: string`, `isMasked?: boolean`, `isLarge?: boolean`, `download?: { svgUrl: string; fileName: string }`

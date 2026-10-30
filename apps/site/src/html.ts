@@ -626,7 +626,7 @@ interface LayoutBaseOptions {
   isAdmin?: boolean;
   isPrivate?: boolean;
   nav?: Nav;
-  /** The page's Sidebar button (navigation.ts's sidebarButton), at the header's start over its sidebar. */
+  /** The page's sidebar button (navigation.ts's sidebarButton, a small Secondary button), at the header's start over its sidebar. */
   sidebarButton?: ControlMarkup;
   hasTurnstileCheck?: boolean;
   search?: HeaderSearch;
