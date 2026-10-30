@@ -4850,7 +4850,11 @@ describe("bans at sign-in", () => {
     const fresh = new Browser();
     const page = await signIn(fresh, { username: "Night_Owl", password: PASSWORD });
     expect(page.status).toBe(403);
-    expect(await page.text()).toContain("This account is closed for breaking Zaisma&#39;s rules.");
+    const closed = await page.text();
+    // Child safety: no rule and no why, and the way to appeal.
+    expect(closed).toContain("Zaisma closed Night_Owl for breaking Zaisma&#39;s rules.");
+    expect(closed).not.toContain("Illegal content");
+    expect(closed).toContain('href="mailto:safety@zaisma.com?subject=Appeal%3A%20Night_Owl"');
     expect(fresh.jar.has("__Host-zaisma")).toBe(false);
     // A wrong password says only that, so the page doesn't tell who's banned.
     expect(await (await signIn(new Browser(), { username: "Night_Owl", password: "not the password" })).text()).not.toContain("closed");
@@ -4861,13 +4865,25 @@ describe("bans at sign-in", () => {
     expect(viaGoogle.jar.has("__Host-zaisma")).toBe(false);
   });
 
+  it("says which rule a closed account broke, and why", async () => {
+    await join(new Browser());
+    const account = (await accountById(env.DB, await idOf("Night_Owl")))!;
+    await banAccount(env, { account, banScope: "whole_account", why: "It sold stolen accounts to players.", contentRule: "illegal", actor: "julius@zaisma.test" });
+    const closed = await (await signIn(new Browser(), { username: "Night_Owl", password: PASSWORD })).text();
+    expect(closed).toContain('the content rules on <a');
+    expect(closed).toContain('href="/legal/content-rules#illegal"');
+    expect(closed).toContain("illegal content</a>: It sold stolen accounts to players.");
+  });
+
   it("keeps a developer ban signed in", async () => {
     const b = new Browser();
     await join(b);
     await ban("Night_Owl", "developer");
     expect((await b.go("/account")).status).toBe(200);
     const games = await b.go("/dashboard");
-    expect(await games.text()).toContain("Zaisma banned this account&#39;s developer side for breaking Zaisma&#39;s rules.");
+    const gamesText = await games.text();
+    expect(gamesText).toContain("Zaisma banned this account&#39;s developer side for breaking Zaisma&#39;s rules.");
+    expect(gamesText).toContain("mailto:safety@zaisma.com");
     expect((await b.go("/dashboard/settings")).headers.get("location")).toBe("/dashboard");
   });
 

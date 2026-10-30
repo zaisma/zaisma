@@ -1,5 +1,6 @@
 import { ACCOUNT_REQUIREMENTS, ApiError, accountById, CONTENT_RULES, REVIEW_CODES, type ReviewCodeName, CONTROLS, DEVICES, GENRE_LABELS, GENRES, LINK_LIMITS, MAXIMUM_GENRE_COUNT, MINIMUM_PLAYER_AGES, OWN_SERVER_LIMITS, PLAYER_REPORT_REASONS, PLAY_STYLES, ROOM_BROWSING, SCREENS, type Account, type AccountRequirement, type ContentRule, type MinimumPlayerAge, type PlayerReportReason, type PlayMode, type RoomBrowsing } from "@zaisma/core";
 import { currentSession, downloadStartedCookie, realEmail } from "./auth.ts";
+import { APPEAL_EMAIL } from "./bans.ts";
 import { accountBanned, apiCall, apiResponse, callerFor, GAME_ALERT_KINDS, type Caller, type GameAlertKind } from "./developer.ts";
 import { gameUrl, type Env } from "./env.ts";
 import { html, layout, metalButton, raw, scriptTags, type Raw } from "./html.ts";
@@ -487,7 +488,8 @@ async function bannedGamesPage(env: Env, call: Call, account: Account | null, ba
     env,
     "Your games",
     html`<div class="dash-head"><h1>Your games</h1></div>
-<div class="first note"><p><strong>${bannedText}</strong> Export your games to keep them: each export holds the game's files, details, database and players' saves.</p></div>
+<div class="first note"><p><strong>${bannedText}</strong> Export your games to keep them: each export holds the game's files, details, database and players' saves.</p>
+<p>Think this is a mistake? Write to <a href="mailto:${APPEAL_EMAIL}?subject=${encodeURIComponent(`Appeal: ${account?.username ?? ""}`)}">${APPEAL_EMAIL}</a> with your username. A person reads every appeal and answers.</p></div>
 ${games.length
       ? html`<ul class="exports">${games.map((game) => html`<li><span>${game.title}</span> <a class="btn" href="/dashboard/${game.slug}/export.zip" data-download>Export everything</a></li>`)}</ul>`
       : ""}`,

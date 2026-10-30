@@ -3,6 +3,7 @@ import {
   ACCOUNT_AREAS,
   banScopeOf,
   isBannedMark,
+  isContentRule,
   ACCESS_LEVELS,
   AREA_ACCESS_CHOICES,
   MAXIMUM_API_KEY_COUNT,
@@ -71,7 +72,7 @@ import {
   type SocialSetting,
   type SocialSettings,
 } from "@zaisma/core";
-import { emailBanned } from "./bans.ts";
+import { APPEAL_EMAIL, CONTENT_RULE_WORDS, emailBanned } from "./bans.ts";
 import {
   PROVIDERS,
   authConfigured,
@@ -205,8 +206,6 @@ const BOT_CHECK_FAILED = "We couldn't check that you're using a real browser. Wa
 const EMAIL_TAKEN = "That email can't be added. It may already be on another account.";
 const LOCKED_OUT = "Too many wrong passwords were tried on this account today. Sign in on a device you've used before, or with your passkey or email.";
 const CODE_DIDNT_WORK = "That code didn't work. Check it, or go back and get a new one.";
-/** What a whole-account ban says at sign-in (bans.ts), once the password is right. */
-const ACCOUNT_CLOSED = "This account is closed for breaking Zaisma's rules.";
 const takenText = (username: string) => `${username} is taken. Try another, or one of these.`;
 
 export async function handleAccount(request: Request, env: Env, path: string, waitUntil?: WaitUntil): Promise<Response | null> {
@@ -271,7 +270,7 @@ export async function handleAccount(request: Request, env: Env, path: string, wa
     }
     // The proof is kept only for an account that exists: someone deleted for not answering the age question leaves no row.
     const existing = await accountById(env.DB, signedIn.userId);
-    if (existing && banScopeOf(existing) === "whole_account") return withCookies(await signinPage(env, back, ACCOUNT_CLOSED, 403), cookies);
+    if (existing && banScopeOf(existing) === "whole_account") return withCookies(closedAccountPage(env, existing), cookies);
     if (existing) {
       if (isProvider(provider)) await recordProof(env, signedIn, provider);
       return withCookies(redirect(back ?? "/"), [...cookies, ...sessionCookies(env, signedIn), await recordSignIn(request, env, signedIn.userId, provider as SignInKind)]);
@@ -310,7 +309,7 @@ export async function handleAccount(request: Request, env: Env, path: string, wa
     // A closed account hears why once the password is right, and gets no session.
     if (account && banScopeOf(account) === "whole_account") {
       await signOutEverywhere(env, signedIn.access, connectionAddress);
-      return await signinPage(env, next, ACCOUNT_CLOSED, 403, login);
+      return closedAccountPage(env, account);
     }
     await recordProof(env, signedIn, "password");
     return withCookies(redirect(next ?? "/"), [...sessionCookies(env, signedIn), await recordSignIn(request, env, signedIn.userId, "password")]);
@@ -341,7 +340,7 @@ export async function handleAccount(request: Request, env: Env, path: string, wa
     const accountId = codeAccountId && (await authUserIdByEmail(env, email)) === codeAccountId ? codeAccountId : null;
     if (!accountId) return await codePage(env, email, next, CODE_DIDNT_WORK, kind);
     const codeAccount = await accountById(env.DB, accountId);
-    if (codeAccount && banScopeOf(codeAccount) === "whole_account") return await signinPage(env, next, ACCOUNT_CLOSED, 403);
+    if (codeAccount && banScopeOf(codeAccount) === "whole_account") return closedAccountPage(env, codeAccount);
     const signedIn = await sessionForUser(env, accountId, connectionAddress);
     if (!signedIn) return message(env, "Couldn't sign you in", "Something went wrong on Zaisma's side. Get a new code in a minute and try again.", 502);
     await recordProof(env, signedIn, "email_code");
@@ -1340,6 +1339,26 @@ ${primaryButton("Next", { isFullWidth: true, isBig: true, busyLabel: "One moment
 ${TERMS_LINE}
 ${scriptTags(USERNAME_SCRIPT)}`,
     { checkedPage: "Pick a username", game, httpStatus: error || given.usernameError ? 400 : 200 },
+  );
+}
+
+/**
+ * A closed account (a whole-account ban, bans.ts), once it proved it's theirs: why, and how to appeal. It makes no session.
+ * Child safety says no rule and no why, like a takedown.
+ */
+function closedAccountPage(env: Env, account: Account): Response {
+  const rule = account.ban_content_rule && account.ban_content_rule !== "child_safety" && isContentRule(account.ban_content_rule) ? account.ban_content_rule : null;
+  const why = account.ban_content_rule === "child_safety" ? null : account.ban_reason?.replace(/\.$/, "");
+  const broke = rule ? html`the content rules on ${textLink(CONTENT_RULE_WORDS[rule], `/legal/content-rules#${rule}`)}` : html`Zaisma's rules`;
+  return signInPage(
+    env,
+    "This account is closed",
+    html`<h1>This account is closed</h1>
+<p>Zaisma closed ${account.username} for breaking ${broke}${why ? html`: ${why}` : ""}.</p>
+<p class="note">It can't sign in, and any games it made are down.</p>
+<p><strong>Think this is a mistake?</strong> Write to ${APPEAL_EMAIL} with the username. A person reads every appeal and answers.</p>
+${tertiaryButton(`Email ${APPEAL_EMAIL}`, { href: `mailto:${APPEAL_EMAIL}?subject=${encodeURIComponent(`Appeal: ${account.username}`)}`, isFullWidth: true })}`,
+    { checkedPage: "Account closed", httpStatus: 403 },
   );
 }
 

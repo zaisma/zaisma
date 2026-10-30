@@ -126,5 +126,24 @@ export async function recordPaidCard(env: Env, ownerId: string, paymentId: strin
   await sendAlert(env, `A card banned with @${banned?.username ?? "a deleted account"} paid on @${payer.username}`, "A person decides whether it's the same person: list_ban_matches on the admin MCP. A family can share a card.");
 }
 
+/** Where a banned account appeals, until the appeals queue: a person at Zaisma reads each one. */
+export const APPEAL_EMAIL = "safety@zaisma.com";
+
+/** A content rule in a sentence's words: "the content rules on illegal content". */
+export const CONTENT_RULE_WORDS: Record<ContentRule, string> = {
+  child_safety: "child safety",
+  sexual: "sexual content",
+  malware: "malware",
+  illegal: "illegal content",
+  real_people: "real people",
+  copyright: "copyright",
+  defamation: "defamation",
+  personal_details: "personal details",
+  chat: "chat",
+  crypto: "cryptocurrency",
+  purchases: "paid random rewards",
+  faked_plays: "faked plays",
+};
+
 /** The email_banned refusal, for a page or the API. */
 export const emailBanned = () => new ApiError("email_banned", { message: "This email was banned from Zaisma with the account it was on.", field: "email", fix: "Use another email. Tell the person this email can't be used on Zaisma." });

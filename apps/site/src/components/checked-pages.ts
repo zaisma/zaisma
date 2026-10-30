@@ -148,6 +148,8 @@ const ADULT_BIRTHDAY = { birthday: "1990-04-12" } as const;
 const TOO_YOUNG_BIRTHDAY = { birthday: "2020-04-12" } as const;
 /** No account has this username, so its password is always wrong and nothing gets locked out. */
 const WRONG_SIGN_IN = { username: "Nobody_Here", password: "not the password", ...BOT_CHECK_PASSED } as const;
+/** The right password of Closed_Player, a closed account in the preview (scripts/preview/sign-ins.mjs's PASSWORD). */
+const CLOSED_ACCOUNT_SIGN_IN = { username: "Closed_Player", password: "preview password", ...BOT_CHECK_PASSED } as const;
 
 /**
  * Every page and state the layout check opens (scripts/layout-check.mjs), and the Screens page offers. A page built in Zaisma's look
@@ -204,6 +206,7 @@ const CHECKED_PAGE_LIST = [
   { name: "Make an account", area: "Signing in", path: "/join", ...CITY },
   { name: "New account, no birthday", area: "Signing in", path: "/join", ...CITY, stepsToTake: [{ formAction: "/join/age", fieldValues: { birthday: "" } }] },
   { name: "How will you sign in", area: "Signing in", path: "/join", ...CITY, stepsToTake: [{ formAction: "/join/age", fieldValues: ADULT_BIRTHDAY }] },
+  { name: "Account closed", area: "Signing in", path: "/signin", ...CITY, stepsToTake: [{ formAction: "/signin", fieldValues: CLOSED_ACCOUNT_SIGN_IN }] },
   { name: "Make an account, too young", area: "Signing in", path: "/join", ...CITY, stepsToTake: [{ formAction: "/join/age", fieldValues: TOO_YOUNG_BIRTHDAY }], isOffScreens: true },
   // A new player back from Google with no account yet (the preview's stand-in sign-in answers for it), after the age step.
   { name: "Pick a username", area: "Signing in", path: "/join", ...CITY, stepsToTake: [{ formAction: "/join/age", fieldValues: ADULT_BIRTHDAY }, { path: "/signin/with/google" }] },

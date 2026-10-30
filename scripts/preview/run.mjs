@@ -713,7 +713,7 @@ Zaisma preview is running. Nothing here touches the live site.
   Make an account ${SITE}/join  (try the username Preview_Studio to see it taken, with free ones to tap)
   Sign in         ${SITE}/signin  (Preview_Studio, password "${PASSWORD}"; Old_Timer has no password yet)
   Bans            ${SITE}/dashboard  (as Banned_Dev: why it's banned and each game's Export everything, no Make a game);
-                  ${SITE}/signin  (Closed_Player with the password: "This account is closed for breaking Zaisma's rules.")
+                  ${SITE}/signin  (Closed_Player with the password: the closed page, with why and how to appeal)
   Forgot password ${SITE}/signin/email  (old@example.test or legacy@example.test; the code arrives in the mailbox below)
   Mailbox         ${MAIL}  (the email codes the preview sent, as players get them; nothing goes to a real address)
   Feedback        the Feedback button at the bottom right of every page: click a thing or drag a box to comment; a session runs
@@ -1935,7 +1935,7 @@ async function seedBans() {
   }
   if (!(await isMade("Closed_Player"))) {
     await signedIn({ name: "Closed_Player", year: "1990" }, "198.51.100.241");
-    await banAccount({ username: "Closed_Player", ban_scope: "whole_account", why: "Illegal content." });
+    await banAccount({ username: "Closed_Player", ban_scope: "whole_account", why: "It sold stolen accounts to players.", content_rule: "illegal" });
   }
 }
 

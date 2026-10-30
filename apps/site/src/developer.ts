@@ -465,11 +465,11 @@ export function accountBanned(caller: Pick<Caller, "banScope" | "banReasonForDev
     return new ApiError("account_banned", {
       message: "Zaisma closed this account for breaking its rules.",
       messageForPeople: "This account is closed for breaking Zaisma's rules.",
-      fix: "Tell the developer. Nothing works for this account now.",
+      fix: "Tell the developer. Nothing works for this account now; to appeal, they write to safety@zaisma.com with the username.",
     });
   }
   const words = caller.banReasonForDeveloper ? `Zaisma banned this account's developer side for breaking the content rules: ${caller.banReasonForDeveloper.replace(/\.$/, "")}.` : "Zaisma banned this account's developer side for breaking Zaisma's rules.";
-  return new ApiError("account_banned", { message: words, messageForPeople: words, fix: "Tell the developer. Only get_access, list_games and export_game work now; appeals come later." });
+  return new ApiError("account_banned", { message: words, messageForPeople: words, fix: "Tell the developer. Only get_access, list_games and export_game work now; to appeal, they write to safety@zaisma.com with the username." });
 }
 
 /** Call the API from inside the site as this caller, and answer its response as it is: for a call that answers bytes, like an export's .zip. */
