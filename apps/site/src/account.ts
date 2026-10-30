@@ -132,6 +132,7 @@ import { creditKeptOnDeletionCents, refundForDeletion } from "./credit-api.ts";
 import { forgetCardForDeletion } from "./buy.ts";
 import { disconnect } from "./stripe.ts";
 import { BOT_CHECK_SCRIPT, isRealBrowser, type TurnstileAction } from "./turnstile.ts";
+import { recordRestoreEvent } from "./restore-events.ts";
 
 /**
  * Sign-in, account creation and the account page.
@@ -644,6 +645,7 @@ export async function handleAccount(request: Request, env: Env, path: string, wa
     await forgetCardForDeletion(env, account.id);
     await disconnectStripeForDeletion(env, account.id);
     await deleteAccount(env.DB, account.id);
+    await recordRestoreEvent(env, { event_kind: "account_deleted", at_ms: Date.now(), account_id: account.id });
     await tellAccountDeleted(env, reach, waitUntil);
     // Its games are already down; their files, database and saves go now, or at the next run if there's a lot.
     if (waitUntil) waitUntil(deleteDueGames(env));

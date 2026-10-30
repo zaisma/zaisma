@@ -76,7 +76,12 @@ export async function createFriendInvite(database: D1Database, accountId: string
     created_at_ms: nowMs,
     expires_at_ms: nowMs + FRIEND_INVITE_DURATION_DAYS * DAY_MS,
   };
-  await database.prepare("INSERT INTO friend_invites (invite_code, account_id, created_at_ms, expires_at_ms) VALUES (?, ?, ?, ?)").bind(invite.invite_code, invite.account_id, invite.created_at_ms, invite.expires_at_ms).run();
+  // The count above is the quick answer; the insert counts again as it writes, so invites made at the same moment can't pass the cap together.
+  const inserted = await database
+    .prepare("INSERT INTO friend_invites (invite_code, account_id, created_at_ms, expires_at_ms) SELECT ?1, ?2, ?3, ?4 WHERE (SELECT COUNT(*) FROM friend_invites WHERE account_id = ?2 AND expires_at_ms > ?3) < ?5")
+    .bind(invite.invite_code, invite.account_id, invite.created_at_ms, invite.expires_at_ms, MAXIMUM_OPEN_FRIEND_INVITE_COUNT)
+    .run();
+  if (!inserted.meta.changes) return { error: "too_many_invites" };
   return { invite };
 }
 
@@ -101,7 +106,9 @@ export type AcceptedFriendInvite =
  * Use an invite: the two accounts become friends and the invite is gone. An invite for someone who's
  * already a friend stays, for whoever it was really meant for. Across a block it doesn't work: the
  * blocker hears why (inviter_is_blocked), and someone the inviter blocked hears only that it doesn't
- * work, so they're never told they're blocked.
+ * work, so they're never told they're blocked. It's one batch whose friendship goes in only while both
+ * have fewer than MAXIMUM_FRIEND_COUNT and the invite is still there, so invites used at the same moment
+ * can't take either past it, and an invite goes only with the friendship it made.
  */
 export async function acceptFriendInvite(database: D1Database, accountId: string, inviteCode: string, nowMs = now()): Promise<AcceptedFriendInvite> {
   const invite = await friendInviteByCode(database, inviteCode, nowMs);
@@ -115,13 +122,27 @@ export async function acceptFriendInvite(database: D1Database, accountId: string
   if (await areFriends(database, accountId, invite.account_id)) return { error: "already_friends" };
   if ((await friendCountOf(database, accountId)) >= MAXIMUM_FRIEND_COUNT) return { error: "too_many_friends" };
   if ((await friendCountOf(database, invite.account_id)) >= MAXIMUM_FRIEND_COUNT) return { error: "inviter_has_too_many_friends" };
-  // Taking the invite decides who gets it, so two people with the same link can't both use it.
-  const taken = await database.prepare("DELETE FROM friend_invites WHERE invite_code = ? AND expires_at_ms > ? RETURNING account_id").bind(inviteCode, nowMs).first<{ account_id: string }>();
-  if (!taken) return { error: "invite_not_found" };
-  await database.batch([
-    database.prepare("INSERT INTO friendships (account_id, friend_account_id, created_at_ms) VALUES (?, ?, ?) ON CONFLICT DO NOTHING").bind(accountId, invite.account_id, nowMs),
-    database.prepare("INSERT INTO friendships (account_id, friend_account_id, created_at_ms) VALUES (?, ?, ?) ON CONFLICT DO NOTHING").bind(invite.account_id, accountId, nowMs),
+  const isNewFriendship = "EXISTS (SELECT 1 FROM friendships WHERE account_id = ?1 AND friend_account_id = ?2 AND created_at_ms = ?3)";
+  const [made] = await database.batch([
+    database
+      .prepare(
+        `INSERT INTO friendships (account_id, friend_account_id, created_at_ms) SELECT ?1, ?2, ?3
+         WHERE (SELECT COUNT(*) FROM friendships WHERE account_id = ?1) < ?5 AND (SELECT COUNT(*) FROM friendships WHERE account_id = ?2) < ?5
+           AND EXISTS (SELECT 1 FROM friend_invites WHERE invite_code = ?4 AND expires_at_ms > ?3)
+         ON CONFLICT DO NOTHING`,
+      )
+      .bind(accountId, invite.account_id, nowMs, inviteCode, MAXIMUM_FRIEND_COUNT),
+    database.prepare(`INSERT INTO friendships (account_id, friend_account_id, created_at_ms) SELECT ?2, ?1, ?3 WHERE ${isNewFriendship} ON CONFLICT DO NOTHING`).bind(accountId, invite.account_id, nowMs),
+    // Taking the invite decides who gets it, so two people with the same link can't both use it.
+    database.prepare(`DELETE FROM friend_invites WHERE invite_code = ?4 AND ${isNewFriendship}`).bind(accountId, invite.account_id, nowMs, inviteCode),
   ]);
+  if (!made!.meta.changes) {
+    // Someone else took it in the same moment, or a friendship made in that moment filled a side.
+    if (!(await friendInviteByCode(database, inviteCode, nowMs))) return { error: "invite_not_found" };
+    if ((await friendCountOf(database, accountId)) >= MAXIMUM_FRIEND_COUNT) return { error: "too_many_friends" };
+    if ((await friendCountOf(database, invite.account_id)) >= MAXIMUM_FRIEND_COUNT) return { error: "inviter_has_too_many_friends" };
+    return { error: (await areFriends(database, accountId, invite.account_id)) ? "already_friends" : "invite_not_found" };
+  }
   return { friend: { player_id: invite.player_id, name: invite.name, created_at_ms: nowMs } };
 }
 
@@ -152,11 +173,11 @@ export async function friendsAmong(database: D1Database, playerId: string, other
   return results.map((row) => row.player_id);
 }
 
-/** An account's friends' player IDs, for its passes (as tags, friend_player_tag_ids). */
+/** An account's friends' player IDs, for its passes (as tags, friend_player_tag_ids): never more than MAXIMUM_FRIEND_COUNT, so a pass stays small. */
 export async function friendPlayerIdsOf(database: D1Database, accountId: string): Promise<string[]> {
   const { results } = await database
-    .prepare("SELECT accounts.player_id FROM friendships JOIN accounts ON accounts.id = friendships.friend_account_id WHERE friendships.account_id = ? ORDER BY friendships.created_at_ms, accounts.player_id")
-    .bind(accountId)
+    .prepare("SELECT accounts.player_id FROM friendships JOIN accounts ON accounts.id = friendships.friend_account_id WHERE friendships.account_id = ? ORDER BY friendships.created_at_ms, accounts.player_id LIMIT ?")
+    .bind(accountId, MAXIMUM_FRIEND_COUNT)
     .all<{ player_id: string }>();
   return results.map((row) => row.player_id);
 }

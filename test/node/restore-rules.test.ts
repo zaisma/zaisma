@@ -90,6 +90,7 @@ describe("what a restore brings back", () => {
     expect(restoreRuleOf("kept-rooms/game_1/ABCDEF.jsonl")).toMatchObject({ kind: "owned", ownerValues: ["game_1", "ABCDEF"] });
     expect(restoreRuleOf("zaisma-games/brotli/blobs/abc")).toMatchObject({ kind: "never" });
     expect(restoreRuleOf("main-database.sql")).toMatchObject({ kind: "never" });
+    expect(restoreRuleOf("restore-events/001761716220000-a1b2c3d4.json")).toEqual({ kind: "never", reason: "a record the restore replays, not a copy" });
     expect(restoreRuleOf("zaisma-games/something-new/x")).toEqual({ kind: "never", reason: "no rule for this kind of game file" });
   });
 });

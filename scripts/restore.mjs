@@ -9,9 +9,11 @@
 //   node scripts/restore.mjs run --account-id <id> --site-domain <domain> --game-domain <domain> [--night <YYYY-MM-DD>]
 //       makes the database, buckets and queues, loads that night's main database, applies newer migrations,
 //       deploys the five Workers on those domains, puts fresh signing keys and the read key, and starts the
-//       copy of everything else, which the site Worker does itself (apps/site/src/restore.ts)
+//       copy of everything else, which the site Worker does itself (apps/site/src/restore.ts): first it does
+//       again the takedowns and deletions made since that night began (restore-events/ in the backups), so
+//       none made after the night's copy comes back, then it copies
 //   node scripts/restore.mjs status --account-id <id>
-//       how far the copy is
+//       how far the copy is, and how many takedowns and deletions since the night it replayed
 //   node scripts/restore.mjs check --account-id <id>
 //       every table's rows against the main database's backup, and the copy's counts
 //   node scripts/restore.mjs clean
@@ -373,7 +375,7 @@ function kindLines(restoreId) {
 
 function describeRow(row) {
   const state = row.failure_message ? `failed: ${row.failure_message}` : row.finished_at_ms ? `finished ${new Date(row.finished_at_ms).toISOString()}` : row.started_at_ms ? "copying" : "waiting for the site's cron (and the read key)";
-  return `${state}; ${row.finished_part_count} of ${row.queued_part_count} parts, ${row.restored_object_count} objects (${(row.restored_size_bytes / 1024 ** 3).toFixed(2)} GB) restored, ${row.skipped_object_count} left out (deleted or taken down before the copy, or kinds a restore leaves out)`;
+  return `${state}; ${row.replayed_event_count ?? 0} takedowns and deletions since the night replayed; ${row.finished_part_count} of ${row.queued_part_count} parts, ${row.restored_object_count} objects (${(row.restored_size_bytes / 1024 ** 3).toFixed(2)} GB) restored, ${row.skipped_object_count} left out (deleted or taken down before the copy, or kinds a restore leaves out)`;
 }
 
 function checkRestore() {

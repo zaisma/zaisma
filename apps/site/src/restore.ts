@@ -4,6 +4,8 @@ import { playersErasedSince } from "@zaisma/core";
 import type { Env } from "./env.ts";
 import { queueMissingCompression } from "./compress.ts";
 import { restoreRuleOf, type RestoreRule } from "./restore-rules.ts";
+import { replayRestoreEvents } from "./restore-events.ts";
+import { BACKUP_LIMITS } from "./backups.ts";
 
 /**
  * Zaisma back from its backups at Backblaze, in a Cloudflare account whose main database scripts/restore.mjs
@@ -15,11 +17,15 @@ import { restoreRuleOf, type RestoreRule } from "./restore-rules.ts";
  *
  * Each key comes back as its newest version uploaded before the restore's cutoff (the night after the
  * main database's copy), and only when the restored database still holds what owns it: a restore never
- * brings back what was deleted or taken down (restore-rules.ts). Game files and saves go into R2 with the
+ * brings back what was deleted or taken down (restore-rules.ts). Before the copy, the takedowns and deletions
+ * made since the night began are done again in the restored database (restore-events.ts), so one made after
+ * the main database's copy stays done too. Game files and saves go into R2 with the
  * content type and custom metadata they were copied with; games' databases are imported as Zaisma's own
  * writes, then the players erased since are erased again; kept rooms get their worlds back. While a
  * restore runs, the cron runs nothing else, so no cleanup deletes files whose owners haven't come back yet.
  */
+
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 export const RESTORE_LIMITS = {
   /** Copies made at once within a part. */
@@ -84,15 +90,20 @@ interface RestoreRun {
   finished_at_ms: number | null;
 }
 
-/** Starts a restore the script asked for, from the cron, once the read key is set. Answers whether one is running, so the cron runs nothing else. */
-export async function runWaitingRestore(env: Env, nowMs = Date.now()): Promise<boolean> {
-  const running = await env.DB.prepare("SELECT id, started_at_ms FROM restore_runs WHERE finished_at_ms IS NULL ORDER BY requested_at_ms LIMIT 1")
-    .first<{ id: string; started_at_ms: number | null }>()
+/**
+ * Starts a restore the script asked for, from the cron, once the read key is set: first the takedowns and deletions
+ * since the restored night began, then the copy. Answers whether one is running, so the cron runs nothing else.
+ */
+export async function runWaitingRestore(env: Env, nowMs = Date.now(), wait?: BackupWait): Promise<boolean> {
+  const running = await env.DB.prepare("SELECT id, cutoff_at_ms, started_at_ms FROM restore_runs WHERE finished_at_ms IS NULL ORDER BY requested_at_ms LIMIT 1")
+    .first<{ id: string; cutoff_at_ms: number; started_at_ms: number | null }>()
     // Before migration 0163 there's no table, and nothing to restore.
     .catch(() => null);
   if (!running) return false;
   if (running.started_at_ms !== null || !env.RESTORE_KEY_ID || !env.RESTORE_KEY_SECRET || !env.BACKUP_QUEUE) return true;
-  const started = await env.DB.prepare("UPDATE restore_runs SET started_at_ms = ?, queued_part_count = ? WHERE id = ? AND started_at_ms IS NULL").bind(nowMs, RESTORED_PREFIXES.length, running.id).run();
+  // The night began a day before the cutoff; what overlaps the night is done again harmlessly, as every replay is safe twice.
+  const replayedEventCount = await replayRestoreEvents(env, new BackupStorage(restoreStorageSettings(env), wait), running.cutoff_at_ms - DAY_MS - BACKUP_LIMITS.changeMarginMs);
+  const started = await env.DB.prepare("UPDATE restore_runs SET started_at_ms = ?, queued_part_count = ?, replayed_event_count = ? WHERE id = ? AND started_at_ms IS NULL").bind(nowMs, RESTORED_PREFIXES.length, replayedEventCount, running.id).run();
   if (started.meta.changes) await env.BACKUP_QUEUE.sendBatch(RESTORED_PREFIXES.map((prefix): { body: RestorePart } => ({ body: { restore_id: running.id, part_kind: "restore", prefix, range_start_key: prefix, before_key: null, after_key: null, split_level: 0 } })));
   return true;
 }
