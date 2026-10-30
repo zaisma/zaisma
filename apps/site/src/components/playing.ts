@@ -24,7 +24,7 @@ export interface PlayingBarOptions {
 
 /** The bar beside a running game: Zaisma's mark (back to every game), the game's name, and the game's buttons. */
 export function playingBar(options: PlayingBarOptions): Raw {
-  return html`<div class="playing-bar glass glass-bar at-screen-edge${options.isShown ? " in-place" : ""}" data-glass data-glass-corners="0 0 0 0">${EDGE}${logo("mark")}<strong class="playing-title one-line">${options.title}</strong><div class="playing-controls">${row({ widths: "fit", label: "The game's buttons", items: options.controls.map((control) => ({ kind: "control" as const, markup: control })) })}</div></div>`;
+  return html`<div class="playing-bar glass glass-bar at-screen-edge${options.isShown ? " in-place" : ""}" data-glass data-glass-corners="0 0 0 0">${EDGE}<span class="playing-mark words-margin at-start">${logo("mark")}</span><strong class="playing-title words-margin one-line">${options.title}</strong><div class="playing-controls">${row({ widths: "fit", label: "The game's buttons", items: options.controls.map((control) => ({ kind: "control" as const, markup: control })) })}</div></div>`;
 }
 
 export interface PlayingCardOptions {
@@ -196,12 +196,16 @@ html.is-playing .game-frame { display: block; animation: playing-in var(--motion
 html.is-leaving body > main > :not(.playing-bar, .playing-card, .playing-check, .dropdown, dialog), html.is-leaving body > :is(.top, .backdrop, .foot, .rail) { opacity: 0; transition: var(--glass-transition), opacity var(--motion-state) ease; }
 @media (prefers-reduced-motion: reduce) { html.is-leaving body > * { transition: none; } }
 
-/* The bar: one slim slab of glass above the game, Zaisma's mark at its start and the game's buttons at its end. */
-.playing-bar { display: none; position: relative; z-index: 2; flex: none; align-items: center; gap: var(--gap-control-row-boxes); --glass-tint: var(--glass-top); }
+/* The bar: one slim slab of glass above the game, Zaisma's mark at its start and the game's buttons at its end. The mark and the name are
+   words, so each keeps the bar's words margin (materials.ts): the mark from the bar's edge, the name from the mark and the buttons. Shown in
+   place (the gallery's), it's as wide as what holds it, as it's as wide as the screen beside a game. */
+.playing-bar { display: none; position: relative; z-index: 2; flex: none; align-items: center; --glass-tint: var(--glass-top); }
 .playing-bar.in-place, html.is-playing .playing-bar { display: flex; }
+.playing-bar.in-place { width: 100%; }
 .playing-bar > :not(.edge) { position: relative; z-index: 1; }
-.playing-bar > .logo { flex: none; display: flex; align-items: center; height: var(--control-height-small); }
-.playing-bar > .logo svg { height: 100%; width: auto; }
+.playing-mark { flex: none; display: flex; align-items: center; }
+.playing-mark > .logo { display: flex; height: var(--control-height-small); }
+.playing-mark > .logo svg { height: 100%; width: auto; }
 .playing-title { flex: 1; font: var(--type-name); color: var(--ink); }
 .playing-controls { flex: none; min-width: 0; }
 /* Phones: the buttons have the bar; the ⋯ menu names the game. They scroll sideways if there are more than fit, Zaisma's mark staying put. */
@@ -216,6 +220,7 @@ html.is-leaving body > main > :not(.playing-bar, .playing-card, .playing-check, 
   html.is-playing body { flex-direction: row; }
   .playing-bar { flex-direction: column; overflow-y: auto; scrollbar-width: none; }
   .playing-title { display: none; }
+  .playing-mark { padding-inline: 0; }
   /* One control wide, so the row wraps into a column, --gap-control-stack apart. */
   .playing-controls { margin-top: auto; width: var(--control-height-small); }
 }
