@@ -344,7 +344,8 @@ const BESIDE_CONTROLS = ":not(.layout-row[data-control-height]:not(.is-wrapped),
  * what it holds the edge rules look. A sheet's body, with no buttons under it, is where its words end.
  */
 const PANE_CONTENT: { holder: string; depthCount: number; edges: ("top" | "bottom")[]; isForRows: boolean }[] = [
-  ...WORDS_HOLDERS.map((holder) => ({ holder, depthCount: holder === ".playing-card-in" ? 2 : 5, edges: ["top", "bottom"] as ("top" | "bottom")[], isForRows: true })),
+  // A pane's body is always a layout (LayoutMarkup), so what it holds starts two levels in: its stack and the stack's cell.
+  ...WORDS_HOLDERS.map((holder) => ({ holder, depthCount: holder === ".playing-card-in" ? 4 : 7, edges: ["top", "bottom"] as ("top" | "bottom")[], isForRows: true })),
   { holder: ".pane-parts:not(:has(> .pane-foot)) > .pane-body > .sheet-scroll > .sheet-body", depthCount: 3, edges: ["bottom"], isForRows: false },
 ];
 

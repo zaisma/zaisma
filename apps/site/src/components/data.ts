@@ -884,7 +884,7 @@ export function chart(options: ChartOptions): Raw {
           ? html`<span style="left:${percent(barLeftNumber(0), widthNumber)}%">${points[0]!.label}</span><span class="is-end" style="right:${percent(widthNumber - barLeftNumber(pointCount - 1) - barWidthNumber, widthNumber)}%">${last.label}</span>`
           : html`${pointCount >= 3 ? centeredLabel(0) : ""}${centeredLabel(pointCount - 1)}`;
   const grid = [1, 0.5, 0];
-  return html`<figure class="chart words-margin" tabindex="0" data-chart-points><figcaption class="chart-label">${options.label}</figcaption><div class="chart-body" aria-hidden="true"><div class="chart-scale">${grid.map(
+  return html`<figure class="chart words-margin" tabindex="0" data-chart-points><figcaption class="chart-label">${options.label}</figcaption><div class="chart-body" aria-hidden="true"><div class="chart-scale"><span class="chart-scale-widest">${scaleWords(topNumber)}</span>${grid.map(
     (shareNumber) => html`<span style="top:${((1 - shareNumber) * 100).toFixed(0)}%">${scaleWords(topNumber * shareNumber)}</span>`,
   )}</div><div class="chart-scroll" data-fades-sideways data-side-rail data-chart-scroll><div class="chart-inner${isBars ? " is-bars" : ""}" style="--point-count:${pointCount}"><div class="chart-plot">${grid.map(
     (shareNumber) => html`<span class="chart-grid" style="top:${((1 - shareNumber) * 100).toFixed(0)}%"></span>`,
@@ -969,6 +969,8 @@ component({
 .chart-body { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--gap-words-control); }
 .chart-scale { position: relative; height: 180px; min-width: 32px; font: var(--type-facts); color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; }
 .chart-scale > span { position: absolute; right: 0; transform: translateY(-50%); white-space: nowrap; }
+/* The scale is as wide as its widest amount (the top one, unseen, in its own place), so every amount stays inside the words margin. */
+.chart-scale > .chart-scale-widest { position: static; display: block; visibility: hidden; transform: none; }
 .chart-scroll { min-width: 0; padding-top: var(--gap-block-block); margin-top: calc(-1 * var(--gap-block-block)); }
 /* Its dots at the ends keep their whole round inside its padding; anything else past its sides is clipped, never making it scroll. */
 .chart-inner { display: grid; row-gap: var(--gap-words-control); --point-room: 12px; min-width: calc(var(--point-count) * var(--point-room)); padding: 0 6px; overflow-x: clip; }

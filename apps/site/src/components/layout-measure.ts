@@ -89,6 +89,8 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
   // Pieces made to lie over each other: a row of pictures, each over the next.
   var OVERLAPPING = ".picture-row";
   var SKIPPED = "script, style, template, .sr, [aria-hidden='true'], .loader, .rail, .edge, .cut-line";
+  // Words people see are measured even where a screen reader skips them (a chart's drawn scale and axis, read as a table instead).
+  var WORDS_SKIPPED = "script, style, template, .sr, .loader, .rail, .edge, .cut-line";
   var COMPONENTS = ["run-wrap", "cut-btn", "tertiary-btn", "cut-field", "field", "find", "switch-well", "tab-switch", "steps", "cover", "banner", "glass-pane", "tray", "tray-head", "sheet", "dropdown", "notice", "table", "list-rows", "choice-card", "toggle", "check", "top", "foot", "layout-row", "layout-stack", "layout-grid", "layout-track", "pane-head", "pane-foot"];
   function isShown(el) {
     var r = el.getBoundingClientRect();
@@ -319,7 +321,7 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
     var walker = document.createTreeWalker(pane, NodeFilter.SHOW_TEXT), text, flagged = new Set(), lines = [];
     while ((text = walker.nextNode())) {
       var el = text.parentElement;
-      if (!text.textContent.trim() || !el || el.closest(SKIPPED) || el.matches(FRAMED) || framedIn(el, pane) || !isShown(el) || flagged.has(el)) continue;
+      if (!text.textContent.trim() || !el || el.closest(WORDS_SKIPPED) || el.matches(FRAMED) || framedIn(el, pane) || !isShown(el) || flagged.has(el)) continue;
       var range = document.createRange(); range.selectNodeContents(text);
       if (isScrolledAway(el, pane)) continue;
       Array.prototype.some.call(range.getClientRects(), function (glyphs) {
@@ -332,10 +334,13 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
         var d = distances(r), wordsAt = { left: Math.max(gap.left + words, marginPx), right: Math.max(gap.right + words, marginPx), top: Math.max(gap.top + words, marginPx), bottom: Math.max(gap.bottom + words, marginPx) };
         // Words beside a control sit on its center line rather than at the margin above or below them (checked below), and words beside
         // anything else with an edge (a swatch, a box) line up with it the same way.
-        var isBesideFramed = framed.some(function (f) { var o = f.getBoundingClientRect(); return (o.right <= r.left + TOLERANCE_PX || o.left >= r.right - TOLERANCE_PX) && Math.min(o.bottom, r.bottom) - Math.max(o.top, r.top) > TOLERANCE_PX; });
+        // Only while the line sits inside that thing's height with room to spare: a line that reaches its top or foot, or runs past it (a note
+        // beside a swatch that stretches to it), keeps the margin there too.
+        var besideFramed = framed.find(function (f) { var o = f.getBoundingClientRect(); return (o.right <= r.left + TOLERANCE_PX || o.left >= r.right - TOLERANCE_PX) && Math.min(o.bottom, r.bottom) - Math.max(o.top, r.top) > TOLERANCE_PX; });
+        var besideBox = besideFramed && besideFramed.getBoundingClientRect(), isBesideFramed = Boolean(besideBox) && r.top > besideBox.top + TOLERANCE_PX && r.bottom < besideBox.bottom - TOLERANCE_PX;
         // A notice is one centered line, as tall as a small control and its room: its words keep the margin at the sides only. Words in what
         // scrolls sideways run under its fading edge, so only their top and bottom are measured there.
-        var sides = el.closest(BESIDE_CONTROLS_WORDS) || isBesideFramed || pane.matches(".notice") ? ["left", "right"] : scroller && scroller.scrollWidth > scroller.clientWidth + 1 ? ["top", "bottom"] : ["left", "right", "top", "bottom"];
+        var sides = el.closest(BESIDE_CONTROLS_WORDS) || el.closest(".words-margin.beside-controls") || isBesideFramed || pane.matches(".notice") ? ["left", "right"] : scroller && scroller.scrollWidth > scroller.clientWidth + 1 ? ["top", "bottom"] : ["left", "right", "top", "bottom"];
         var side = sides.find(function (each) { return d[each] < wordsAt[each] - TOLERANCE_PX; });
         if (side) { flagged.add(el); report("words closer to the pane's edge than its margin", el, round(d[side]) + "px from the " + side + " edge of " + describe(pane) + ", the words margin is " + round(wordsAt[side]) + "px"); return true; }
         // What's scrolled out of its box (the buy sheet's body, scrolled to its confirm step) isn't under the words: it isn't shown there.
