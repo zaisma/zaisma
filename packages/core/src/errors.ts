@@ -41,6 +41,7 @@ export const ERROR_CODES = {
   bad_slug: { httpStatus: 400, meaning: "The link name isn't lowercase letters, numbers and single hyphens, or is reserved.", messageForPeople: "A link name is lowercase letters, numbers and single hyphens, and some names are kept for Zaisma. Pick another." },
   slug_taken: { httpStatus: 409, meaning: "Another game has that link name, or a deleted game had it.", messageForPeople: "Another game has that link name, or had it. Pick another." },
   too_many_games: { httpStatus: 403, meaning: "The account has as many games as it can have.", messageForPeople: "Your account has as many games as an account can. Delete one to make another." },
+  account_banned: { httpStatus: 403, meaning: "Zaisma banned the account's developer side, or the whole account: only get_access, list_games and export_game work, and for a whole-account ban nothing does.", messageForPeople: "Zaisma banned this account's developer side for breaking Zaisma's rules. Export your games to keep them." },
   publishing_not_open: { httpStatus: 403, meaning: "Until the beta, only accounts Zaisma adds can make, upload and publish games.", messageForPeople: "Until the beta, only accounts Zaisma adds can make, upload and publish games." },
   bad_title: { httpStatus: 400, meaning: "A game's, topic's or precedent's title is empty or too long.", messageForPeople: "A title can't be empty or longer than the field allows. Write a shorter one." },
   bad_description: { httpStatus: 400, meaning: "The description isn't text of up to 500 characters.", messageForPeople: "A description is up to 500 characters. Shorten it." },
@@ -231,6 +232,8 @@ export const ERROR_CODES = {
   already_refunded: { httpStatus: 409, meaning: "The purchase was refunded or charged back already.", messageForPeople: "This purchase was refunded or charged back already." },
   stripe_not_connected: { httpStatus: 409, meaning: "Selling with the buy sheet, and refunding a sale, go through the developer's own Stripe account, which isn't connected: connect_stripe_account.", messageForPeople: "Selling and refunding go through your own Stripe account, which isn't connected. Connect Stripe first." },
   stripe_cannot_take_payments: { httpStatus: 409, meaning: "The developer's Stripe account is connected, but Stripe hasn't turned on payments for it yet: finish setting it up on Stripe's dashboard.", messageForPeople: "Your Stripe account is connected, but Stripe hasn't turned on payments yet. Finish setting it up on Stripe." },
+  stripe_account_banned: { httpStatus: 403, meaning: "The Stripe account was banned from Zaisma with the account that connected it, so it can't be connected again.", messageForPeople: "This Stripe account can't be connected to Zaisma." },
+  email_banned: { httpStatus: 403, meaning: "The email was banned from Zaisma with the account it was on, so it can't be added to an account.", messageForPeople: "This email can't be used on Zaisma." },
   bad_is_stripe_tax_used: { httpStatus: 400, meaning: "is_stripe_tax_used isn't true or false.", messageForPeople: "Stripe Tax is on or off." },
   bad_amount_minor_units: { httpStatus: 400, meaning: "amount_minor_units isn't a whole number from 1 to what's left of the sale to refund.", messageForPeople: "A refund is from the smallest unit of the currency up to what's left of the sale." },
   purchase_not_paid: { httpStatus: 409, meaning: "The sale wasn't paid (pending or failed), so there's nothing to refund.", messageForPeople: "This sale wasn't paid, so there's nothing to refund." },
@@ -339,6 +342,15 @@ export const ADMIN_ERROR_CODES = {
   // Chat reviews
   no_chat_review: { httpStatus: 404, meaning: "There's no kept chat message with that ID: it was a false alarm and deleted, or its year is up.", messageForPeople: "There's no such kept chat message: it was a false alarm and deleted, or its year is up." },
   bad_chat_review_status: { httpStatus: 400, meaning: "chat_review_status isn't pending, needs_person, confirmed, waiting or all.", messageForPeople: "Pick pending, needs a person, confirmed, waiting or all." },
+
+  // Bans
+  already_banned: { httpStatus: 409, meaning: "The account is banned already at that scope or wider; only a developer ban widens to whole_account.", messageForPeople: "This account is banned already." },
+  not_banned: { httpStatus: 409, meaning: "The account isn't banned, so there's nothing to lift.", messageForPeople: "This account isn't banned." },
+  no_ban_match: { httpStatus: 404, meaning: "There's no ban match with that ID.", messageForPeople: "There's no such ban match." },
+  ban_match_decided: { httpStatus: 409, meaning: "The ban match was decided already.", messageForPeople: "This ban match was decided already." },
+  bad_ban_scope: { httpStatus: 400, meaning: "ban_scope isn't developer or whole_account.", messageForPeople: "A ban is of the developer side or the whole account." },
+  bad_username: { httpStatus: 400, meaning: "username isn't 1 to 30 characters.", messageForPeople: "A username is 1 to 30 characters." },
+  bad_content_rule: { httpStatus: 400, meaning: "content_rule isn't one of the content rules.", messageForPeople: "Pick one of the content rules." },
 
   // Publishing before the beta
   unknown_username: { httpStatus: 404, meaning: "No account has that username.", messageForPeople: "No account has that username." },

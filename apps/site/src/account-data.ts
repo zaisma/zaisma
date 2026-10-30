@@ -51,6 +51,7 @@ export const ACCOUNT_DATA_TABLES: Record<string, { file_path: string | null; rea
   webhooks: { file_path: "developer.json", reason: "Webhooks, never their signing secrets." },
   sign_in_apps: { file_path: "developer.json", reason: "Sign-in apps, never their secrets." },
   credit_entries: { file_path: "developer.json", reason: "Hosting credit: every top-up, charge and refund." },
+  owner_cards: { file_path: "developer.json", reason: "The cards that paid Zaisma, as fingerprints nobody can read back, with when each first paid." },
   spending_requests: { file_path: "developer.json", reason: "Raises in spending an AI asked for, and how you answered." },
   webhook_deliveries: { file_path: null, reason: "Copies of events about the developer's games, kept 30 days and listed through the API." },
   performance_checks: { file_path: null, reason: "How each of the developer's versions started in Chrome, in the API with each version." },
@@ -69,6 +70,8 @@ export const ACCOUNT_DATA_TABLES: Record<string, { file_path: string | null; rea
   security_places: { file_path: null, reason: "Fingerprints of where API keys were used, never readable back." },
   room_keys: { file_path: null, reason: "Counts of room passes, kept a day." },
   player_erases: { file_path: null, reason: "Only exists once an account is deleted." },
+  banned_marks: { file_path: null, reason: "A safety record: what a ban carries to new accounts, as fingerprints nobody can read back." },
+  ban_matches: { file_path: null, reason: "A safety record: another account that used a banned card, for a person to decide." },
 };
 
 /** Columns of accounts kept out of account.json: safety records and their counters. */
@@ -257,6 +260,7 @@ async function* accountDataSources(env: Env, account: Account, nowMs: number): A
     webhooks: await owned("webhooks", "id, destination_kind, endpoint_url, event_kinds, game_slugs, created_at_ms, updated_at_ms"),
     sign_in_apps: await owned("sign_in_apps", "id, name, kind, redirect_urls, created_at_ms, updated_at_ms"),
     credit_entries: await owned("credit_entries", "id, entry_kind, amount_cents, game_id, refundable_until_ms, refunded_cents, created_at_ms"),
+    owner_cards: ownerIds.length ? await rows(env, `SELECT card_fingerprint_sha256, first_paid_at_ms FROM owner_cards WHERE owner_id IN (${ownerIds.map(() => "?").join(", ")}) ORDER BY first_paid_at_ms`, ...ownerIds) : [],
     spending_requests: await rows(env, "SELECT id, request_kind, game_id, monthly_budget_cents, request_status, created_at_ms, expires_at_ms, answered_at_ms FROM spending_requests WHERE account_id = ? ORDER BY created_at_ms", id),
   });
 

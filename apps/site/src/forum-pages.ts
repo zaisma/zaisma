@@ -139,6 +139,8 @@ export async function handleForum(request: Request, env: Env, path: string): Pro
   const caller = session ? await callerFor(env, request, session.userId, session.cookies) : null;
   const done = (response: Response) => withCookies(response, session?.cookies ?? []);
   const signIn = () => done(redirect(`/signin?next=${encodeURIComponent(path + url.search)}`));
+  // A banned developer reads the forum but posts nothing, as through the API (bans.ts); Your games says why.
+  if (isPost && caller?.banScope) return done(redirect("/dashboard"));
   const account = caller ? await accountById(env.DB, caller.accountId) : null;
   const ctx: Ctx = { env, viewer: caller, me: caller ? mePerson(account) : null, account, url };
 

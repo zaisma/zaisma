@@ -259,6 +259,12 @@ export const REVIEW_CODES = {
     contentRule: "copyright",
     fix: "Nothing to change if the game is yours: a person at Zaisma looks, usually within a day. If it's your own game on another account, or the developer gave you permission, say so with message_zaisma and the version_id.",
   },
+  matches_banned_account_files: {
+    meaning: "Most of its files match a game Zaisma took down.",
+    messageForPeople: "Most of its files match a game Zaisma took down, so a person at Zaisma checks it within a day.",
+    contentRule: null,
+    fix: "A person checks it within a day.",
+  },
   api_key_in_files: {
     meaning: "A Zaisma API key was in the game's files, so Zaisma turned it off: anyone who plays the game could have read it.",
     messageForPeople: "A Zaisma API key was in the game's files, so Zaisma turned it off: anyone playing could read it. Take the key out and upload a new version, and make a new key in Settings for your AI tool.",
