@@ -287,7 +287,7 @@ const RUN_STYLES = `
 /* It floats over the glass, and what it casts on it comes from its own shape (--run-cast): an orange glow round all its edges on smoked
    glass, strongest below; a shadow under it and a little round it on light glass. Pointed, it rises and its light or shadow spreads; pressed,
    it comes down toward the glass and they pull in tight. */
-.run-wrap { filter: var(--run-cast); transition: filter var(--motion-arrive) var(--ease-glide); }
+.run-wrap { filter: var(--run-cast); }
 .run-wrap.over, .run-wrap.is-pointed { filter: var(--run-cast-up); }
 .run-wrap:active, .run-wrap.is-pressed { filter: var(--run-cast-down); transition-duration: var(--motion-press); }
 /* Clicked, its light flares, brighter and wider (--run-flare), and settles back to what it was over half a second (RUNNER_SCRIPT). */
@@ -613,7 +613,7 @@ component({
    and shadowed on light (--toggle-cast, which follows the button's own cut and reaches furthest below it). */
 @property --toggle-rise { syntax: "<length>"; inherits: true; initial-value: 0px; }
 /* How high the face stands (--toggle-rise), animated once on the button, moves the face and the front surface's upper edges together. */
-.toggle-btn { position: relative; --toggle-lift: 5px; --toggle-rise: 0px; transition: filter var(--motion-state), --toggle-rise var(--motion-arrive) var(--ease-glide); }
+.toggle-btn { position: relative; --toggle-lift: 5px; --toggle-rise: 0px; transition: --toggle-rise var(--motion-arrive) var(--ease-glide); }
 .toggle-btn.small { --toggle-lift: 4px; }
 .toggle-btn[aria-pressed="true"] { --toggle-rise: var(--toggle-lift); }
 /* Pressed: off, it carves in where it is (the carving is its sinking: it never moves); on, it goes down a little, as a key would; both quickly. */
@@ -644,7 +644,7 @@ component({
 .toggle-btn:focus-visible .cut-line polygon, .toggle-btn.is-focused .cut-line polygon { stroke: none; }
 .toggle-btn:focus-visible, .toggle-btn.is-focused { filter: var(--toggle-ring); }
 .toggle-btn[aria-pressed="true"]:focus-visible, .toggle-btn[aria-pressed="true"].is-focused { filter: var(--toggle-ring) var(--toggle-cast); }
-@media (prefers-reduced-motion: reduce) { .toggle-btn, .toggle-btn:active, .toggle-btn.is-pressed { transition: filter var(--motion-state); } }
+@media (prefers-reduced-motion: reduce) { .toggle-btn, .toggle-btn:active, .toggle-btn.is-pressed { transition: none; } }
 `,
   render: toggleButton,
   examples: [

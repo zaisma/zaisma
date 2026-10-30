@@ -30,10 +30,10 @@ export const LIGHT_GLASS = `color-scheme: light;
   --toggle-icon-on: var(--ink);
   /* Orange words (a pointed link): dark enough on light glass to read as easily as the ink. */
   --run-words: var(--run-lo);
-  --run-cast: drop-shadow(0 2px 3px rgba(20, 23, 28, 0.18)) drop-shadow(0 8px 14px rgba(20, 23, 28, 0.18)); --run-cast-up: drop-shadow(0 3px 4px rgba(20, 23, 28, 0.16)) drop-shadow(0 12px 20px rgba(20, 23, 28, 0.16)); --run-cast-down: drop-shadow(0 1px 1.5px rgba(20, 23, 28, 0.22)) drop-shadow(0 2px 4px rgba(20, 23, 28, 0.12)); /* On light glass a lit slab casts a shadow, not light: let go, it keeps its landed shadow and eases back as it rises, rather than flaring. */ --run-flare: var(--run-cast-down); --toggle-ring: drop-shadow(1.5px 0 0 var(--run)) drop-shadow(-1.5px 0 0 var(--run)) drop-shadow(0 1.5px 0 var(--run)) drop-shadow(0 -1.5px 0 var(--run)); --toggle-cast: drop-shadow(0 1px 2px rgba(247, 147, 26, 0.4)) drop-shadow(0 6px 10px rgba(20, 23, 28, 0.1));
+  --run-cast: drop-shadow(0 8px 12px rgba(20, 23, 28, 0.29)); --run-cast-up: drop-shadow(0 12px 17px rgba(20, 23, 28, 0.26)); --run-cast-down: drop-shadow(0 2px 3.8px rgba(20, 23, 28, 0.25)); /* On light glass a lit slab casts a shadow, not light: let go, it keeps its landed shadow and eases back as it rises, rather than flaring. */ --run-flare: var(--run-cast-down); --toggle-ring: drop-shadow(1.5px 0 0 var(--run)) drop-shadow(-1.5px 0 0 var(--run)) drop-shadow(0 1.5px 0 var(--run)) drop-shadow(0 -1.5px 0 var(--run)); --toggle-cast: drop-shadow(0 6px 8.5px rgba(20, 23, 28, 0.34));
   /* A pane floating over the page (a list, the wheels): the shadow it casts, outside its edge, so it reads as on top; and the same as a filter. */
-  --float-cast: drop-shadow(0 1px 3px rgba(20, 23, 28, 0.08)) drop-shadow(0 6px 16px rgba(20, 23, 28, 0.1));
-  --slab: var(--slab-sheen), var(--slab-face); --slab-shade: 0 4px 10px rgba(20, 23, 28, 0.12); --slab-cast-pressed: drop-shadow(0 0.5px 0.5px rgba(20, 30, 50, 0.16)) drop-shadow(0 1px 2px rgba(20, 30, 50, 0.1)); --slab-cast: drop-shadow(0 1px 1px rgba(20, 30, 50, 0.14)) drop-shadow(0 3px 6px rgba(20, 30, 50, 0.16)); --ghost: rgba(255, 255, 255, 0.45); --ghost-rest: rgba(255, 255, 255, 0); --wash-rest: rgba(20, 23, 28, 0); --wash: rgba(20, 23, 28, 0.08); --wash-press: rgba(20, 23, 28, 0.14);
+  --float-cast: drop-shadow(0 6px 13.5px rgba(20, 23, 28, 0.15));
+  --slab: var(--slab-sheen), var(--slab-face); --slab-shade: 0 4px 10px rgba(20, 23, 28, 0.12); --slab-cast-pressed: drop-shadow(0 1px 1.8px rgba(20, 30, 50, 0.2)); --slab-cast: drop-shadow(0 3px 5px rgba(20, 30, 50, 0.24)); --ghost: rgba(255, 255, 255, 0.45); --ghost-rest: rgba(255, 255, 255, 0); --wash-rest: rgba(20, 23, 28, 0); --wash: rgba(20, 23, 28, 0.08); --wash-press: rgba(20, 23, 28, 0.14);
   --btn: var(--slab-face); --btn-hover: var(--slab-face-pointed); --btn-press: var(--slab-face-pressed);
   --press-shade: inset 0 2px 5px rgba(20, 30, 50, 0.16); --run-flood: rgba(247, 147, 26, 0.14); --groove-shade: rgba(20, 30, 50, 0.3); --groove-lip: rgba(255, 255, 255, 0.95); --press-deep: inset 0 2px 12px rgba(20, 30, 50, 0.14), inset 0 0 0 100vmax rgba(20, 30, 50, 0.05);
   /* The edge of something you press, at rest (a check's box, a toggle's slot, a choice card): 3:1 or more against the glass. */
@@ -90,9 +90,9 @@ export const SMOKED_GLASS = `color-scheme: dark;
   --well: var(--carving-face); --well-shade: var(--carving-shade);
   --toggle-icon-on: var(--run);
   --run-words: var(--run-hi);
-  --run-cast: drop-shadow(0 3px 10px rgba(247, 147, 26, 0.3)) drop-shadow(0 0 2px rgba(247, 147, 26, 0.25)); --run-cast-up: drop-shadow(0 5px 16px rgba(247, 147, 26, 0.34)) drop-shadow(0 0 3px rgba(247, 147, 26, 0.28)); --run-cast-down: drop-shadow(0 1px 4px rgba(247, 147, 26, 0.42)) drop-shadow(0 0 1.5px rgba(247, 147, 26, 0.34)); --run-flare: drop-shadow(0 2px 18px rgba(247, 147, 26, 0.7)) drop-shadow(0 0 4px rgba(255, 190, 110, 0.65)); --toggle-ring: drop-shadow(1.5px 0 0 var(--run)) drop-shadow(-1.5px 0 0 var(--run)) drop-shadow(0 1.5px 0 var(--run)) drop-shadow(0 -1.5px 0 var(--run)); --toggle-cast: drop-shadow(0 3px 8px rgba(247, 147, 26, 0.45)) drop-shadow(0 1px 1.5px rgba(247, 147, 26, 0.35));
-  --float-cast: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.25)) drop-shadow(0 8px 20px rgba(0, 0, 0, 0.3));
-  --slab: var(--slab-sheen), var(--slab-face); --slab-shade: 0 0 0 transparent; --slab-cast-pressed: drop-shadow(0 0.5px 0.5px rgba(0, 0, 0, 0.4)) drop-shadow(0 1px 2px rgba(0, 0, 0, 0.3)); --slab-cast: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.4)) drop-shadow(0 3px 8px rgba(0, 0, 0, 0.45)); --ghost: rgba(255, 255, 255, 0.1); --ghost-rest: rgba(255, 255, 255, 0); --wash-rest: rgba(255, 255, 255, 0); --wash: rgba(255, 255, 255, 0.14); --wash-press: rgba(255, 255, 255, 0.22);
+  --run-cast: drop-shadow(0 3px 8.5px rgba(247, 147, 26, 0.45)); --run-cast-up: drop-shadow(0 5px 13.5px rgba(247, 147, 26, 0.51)); --run-cast-down: drop-shadow(0 1px 3.8px rgba(247, 147, 26, 0.62)); --run-flare: drop-shadow(0 2px 15.5px rgba(247, 147, 26, 1)); --toggle-ring: drop-shadow(1.5px 0 0 var(--run)) drop-shadow(-1.5px 0 0 var(--run)) drop-shadow(0 1.5px 0 var(--run)) drop-shadow(0 -1.5px 0 var(--run)); --toggle-cast: drop-shadow(0 3px 6.8px rgba(247, 147, 26, 0.66));
+  --float-cast: drop-shadow(0 8px 16.5px rgba(0, 0, 0, 0.45));
+  --slab: var(--slab-sheen), var(--slab-face); --slab-shade: 0 0 0 transparent; --slab-cast-pressed: drop-shadow(0 1px 1.8px rgba(0, 0, 0, 0.54)); --slab-cast: drop-shadow(0 3px 6.5px rgba(0, 0, 0, 0.69)); --ghost: rgba(255, 255, 255, 0.1); --ghost-rest: rgba(255, 255, 255, 0); --wash-rest: rgba(255, 255, 255, 0); --wash: rgba(255, 255, 255, 0.14); --wash-press: rgba(255, 255, 255, 0.22);
   --btn: var(--slab-face); --btn-hover: var(--slab-face-pointed); --btn-press: var(--slab-face-pressed);
   --press-shade: inset 0 2px 5px rgba(0, 0, 0, 0.4); --run-flood: rgba(247, 147, 26, 0.28); --groove-shade: rgba(0, 0, 0, 0.75); --groove-lip: rgba(214, 228, 255, 0.45); --press-deep: inset 0 2px 14px rgba(0, 0, 0, 0.4), inset 0 0 0 100vmax rgba(0, 0, 0, 0.12);
   --press-rim: rgba(255, 255, 255, 0.45);
@@ -214,8 +214,8 @@ html { -webkit-tap-highlight-color: transparent; }
      what it rests on (--thumb-cast; pointed, a touch higher). Pressed, it's pushed down in place, never smaller: its shadow drawn in close
      and its face shaded from above (--thumb-press-shade, --thumb-press-face). */
   --thumb-face: radial-gradient(120% 90% at 50% 0%, #fff, #F1F4F8 55%, #D9DFE7);
-  --thumb-cast: drop-shadow(0 1px 1px rgba(10, 16, 28, 0.24)) drop-shadow(0 2px 3px rgba(10, 16, 28, 0.12));
-  --thumb-cast-pointed: drop-shadow(0 1.5px 1.5px rgba(10, 16, 28, 0.28)) drop-shadow(0 3px 4px rgba(10, 16, 28, 0.14));
+  --thumb-cast: drop-shadow(0 2px 2.8px rgba(10, 16, 28, 0.26));
+  --thumb-cast-pointed: drop-shadow(0 3px 3.8px rgba(10, 16, 28, 0.31));
   --thumb-cast-pressed: drop-shadow(0 0.5px 0.5px rgba(10, 16, 28, 0.3)) drop-shadow(0 0 0 transparent);
   --thumb-press-shade: inset 0 2px 3px rgba(10, 16, 28, 0.18);
   --thumb-ink: #3D444E;

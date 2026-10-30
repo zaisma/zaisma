@@ -271,7 +271,7 @@ span.hairline { flex: 1; border-top: var(--divider); }
    either glass so nothing behind it tints it. Its holder (.thumb) casts its shadow onto what it rests on, so the shadow follows its cut;
    pointed, it lifts a touch (its owner says when: --thumb-cast-pointed). Pressed (under a pressed label, its input pressed, or .is-pressed
    on its owner), it's pushed down in place, never smaller: its shadow drawn in close and its face shaded from above. */
-.thumb { width: var(--thumb, 24px); height: var(--thumb, 24px); filter: var(--thumb-cast); transition: filter var(--motion-state); }
+.thumb { width: var(--thumb, 24px); height: var(--thumb, 24px); filter: var(--thumb-cast); }
 .thumb-slab { position: relative; display: grid; place-items: center; width: 100%; height: 100%; color: var(--ink-2); background: var(--thumb-face); clip-path: var(--cut-shape); transition: box-shadow var(--motion-state); }
 .thumb-slab::after { content: ""; position: absolute; inset: 0; background: var(--thumb-press-face); opacity: 0; transition: opacity var(--motion-state); }
 :is(label:not(.is-disabled):active, .is-pressed, .is-held) .thumb, input:active ~ .thumb { filter: var(--thumb-cast-pressed); transition-duration: var(--motion-press); }
@@ -324,7 +324,8 @@ span.hairline { flex: 1; border-top: var(--divider); }
 :is(.shell:hover, .shell.is-pointed, .shell[aria-expanded="true"]) > .slab.holds-art > :where(:not(.cut-line)) { filter: brightness(1.14); }
 :is(.shell:active, .shell.is-pressed) > .slab.holds-art > :where(:not(.cut-line)) { filter: brightness(0.9); transform: none; transition-duration: var(--motion-press); }
 :is(.shell:active, .shell.is-pressed) > .slab.holds-art { transform: translateY(1px); transition: transform var(--motion-press); }
-:where(.shell, .slab-holder):has(> .slab) { filter: var(--slab-cast); transition: filter var(--motion-press); }
+/* A cast (a drop shadow) is never animated: Safari leaves an animated one stuck where it began, so it never shows. */
+:where(.shell, .slab-holder):has(> .slab) { filter: var(--slab-cast); }
 :is(.shell:hover, .shell.is-pointed, .shell:focus-visible, .shell.is-focused) > .slab, .slab.is-pointed, .slab.is-focused { --face-color: var(--slab-face-pointed); }
 :is(.shell:active, .shell.is-pressed) > .slab, .slab.is-pressed { --face-color: var(--slab-face-pressed); box-shadow: var(--slab-press-shade, var(--press-shade)); transition-duration: var(--motion-press); }
 /* Pressed, it sinks onto the glass: its shadow drawn in close, never gone, and back at once as it's let go. */
