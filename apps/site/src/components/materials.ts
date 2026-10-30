@@ -41,9 +41,10 @@ export const MATERIAL_STYLES = `
 /* Glass on glass: a browser blurs only what's inside the nearest blurred glass round it, so a second blur inside a pane would see nothing of
    the page and turn the inner glass flat white. Glass inside glass only tints: the pane round it has already blurred the page, which shows
    through both, as through two real sheets, and it costs one blur less. A floating pane, sheet or notice open over the page (the top layer)
-   blurs the page itself; so does glass laid over a world of its own (a game's backdrop in what holds it, as the gallery's samples are),
+   blurs the page itself; so does glass laid over a world of its own (a game's backdrop in what holds it, as the gallery's samples are: a
+   backdrop or header frame, named rather than found with :has(), which Safari ignores here and leaves the glass unblurred),
    and the gallery's strips of shapes blur the shapes they hold, to show what glass does. */
-.glass .glass:not(:popover-open, :modal, .glass-strip .glass, :has(> .backdrop) .glass)::before { -webkit-backdrop-filter: none; backdrop-filter: none; }
+.glass .glass:not(:popover-open, :modal, .glass-strip .glass, :is(.backdrop-frame, .header-frame) .glass)::before { -webkit-backdrop-filter: none; backdrop-filter: none; }
 /* Caps and scrolls: past its cap, what's in a material scrolls inside it (the part marked scrolls), on Zaisma's rail (RAIL_SCRIPT finds it)
    with fades at its ends, its head and foot staying put and the material itself still. Each caps at its own: a glass pane at what holds
    it, a sheet at the screen, a floating pane at a menu's height or the room in the window, a carving at its owner's cap (--well-height, a
