@@ -87,7 +87,7 @@ function head(title: string, group: ComponentGroup, scripts: PageScript[] = []):
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="preload" href="/fonts/jost.7726a5cd.woff2" as="font" type="font/woff2" crossorigin>
 ${styleTags(DESIGN_STYLE)}
-${headScriptTags(COMPONENT_SCRIPT, HEADER_SCRIPT, GALLERY_SCRIPT, DESIGN_LOOPS_SCRIPT)}${group === "foundations" ? scriptTags(CITY_SCRIPT) : ""}${group === "foundations" || group === "actions" ? scriptTags(STAND_IN_BACKGROUNDS_SCRIPT) : ""}${group === "layout" ? scriptTags(SCREENS_SCRIPT) : ""}${scripts.length ? scriptTags(...scripts) : ""}`;
+${headScriptTags(COMPONENT_SCRIPT, HEADER_SCRIPT, GALLERY_SCRIPT, DESIGN_LOOPS_SCRIPT)}${group === "foundations" ? scriptTags(CITY_SCRIPT) : ""}${group === "foundations" || group === "actions" || group === "panes" ? scriptTags(STAND_IN_BACKGROUNDS_SCRIPT) : ""}${group === "layout" ? scriptTags(SCREENS_SCRIPT) : ""}${scripts.length ? scriptTags(...scripts) : ""}`;
 }
 
 /** GET /design and /design/<group>: one group of the gallery, its components in every state. */
@@ -217,6 +217,9 @@ body.gallery { margin: 0; min-height: 100vh; font: var(--type-reading); }
 .loop-cursor.is-down svg { transform: scale(0.84); }
 .dropdown-frame { position: relative; width: 100%; height: 410px; transform: translateZ(0); }
 .dropdown-frame > .cut-btn { position: absolute; right: 20px; top: 0; }
+/* The dropdown over a game's world: one to try at its start, one open at its end. */
+.backdrop-frame.holds-menus { height: auto; align-items: flex-start; justify-content: space-between; padding: var(--pad-pane); gap: var(--gap-block-block); }
+.backdrop-frame.holds-menus > .dropdown-frame { flex: 1; }
 /* The rail's example: a pane held short, so what's in it scrolls on its rail. */
 .rail-box { display: flex; height: 220px; }
 .rail-side-box p { margin: 0; white-space: nowrap; }
@@ -470,6 +473,18 @@ export const GALLERY_SCRIPT = pageScript(
     });
     place(now());
   });
+  // A dropdown's example is as tall as its button and open menu, no taller: the menu hangs in it, out of its flow, so its height is set
+  // once the menu is placed, and again as the window changes.
+  function fitMenuFrames() {
+    document.querySelectorAll(".dropdown-frame").forEach(function (frame) {
+      var top = frame.getBoundingClientRect().top, bottom = 0;
+      Array.prototype.forEach.call(frame.children, function (child) { bottom = Math.max(bottom, child.getBoundingClientRect().bottom - top); });
+      if (bottom > 0) frame.style.height = Math.ceil(bottom) + "px";
+    });
+  }
+  requestAnimationFrame(fitMenuFrames);
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { requestAnimationFrame(fitMenuFrames); });
+  window.zaismaWatch.resize(fitMenuFrames);
 })();
 `,
 );

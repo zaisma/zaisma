@@ -3,7 +3,7 @@ import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
 // The materials register first: the Materials page starts with them.
 import "./materials.ts";
-import { CUT_LINE, EDGE, ago, divider, floatingPane, glassPane, groove, icon, sheetMarkup, tag, tray, well, type IconName } from "./foundations.ts";
+import { CUT_LINE, EDGE, ago, backdrop, divider, floatingPane, glassPane, groove, icon, sheetMarkup, tag, tray, well, type IconName } from "./foundations.ts";
 import { doneState, emptyState, glanceFacts, problemState, listRows, pictureFrame, pictureRow, type GlanceFacts } from "./data.ts";
 import { cardRow, secondaryButton, tertiaryButton, primaryButton, textLink, toggleButton } from "./actions.ts";
 import { REPORT_REASONS, choiceCards, copyField, cutField, longField, tabSwitch, wheelField } from "./inputs.ts";
@@ -245,6 +245,7 @@ export const PLACE_SCRIPT = `/* place */(function () {
    *                 scroll by a sliver (scrollBox) show them all instead
    *   onShown       once it's shown, before it's placed (a list centering its pick)
    *   onToggle(isOpen)  after it opens or closes (aria-expanded, focus)
+   *   onPlaced      each time it's placed, once it knows its side (a menu squaring the corner nearest its button)
    * It's lifted out of what holds it to the page itself, so no pane's glass, clip or filter is round it: it paints and blurs over everything
    * in every browser (Safari draws glass inside glass unblurred). One left by an anchor gone from the page goes, even when the anchor's
    * replacement (a panel the page refreshed) has the same id, so nothing ever opens a left one. Riding the page (its anchor in nothing fixed
@@ -273,6 +274,7 @@ export const PLACE_SCRIPT = `/* place */(function () {
       var spot = window.zaismaPlace(r, { width: pane.offsetWidth, height: pane.offsetHeight }, { roomRect: { left: h.left, top: h.top, right: h.right, bottom: h.bottom }, gapPx: options.gapPx || FLOAT_GAP_PX, edgePx: options.edgePx || FLOAT_EDGE_PX, isAlwaysBelow: true });
       pane.style.left = Math.round(spot.leftPx - h.left - holder.clientLeft) + "px"; pane.style.top = Math.round(spot.topPx - h.top - holder.clientTop) + "px";
       pane.classList.toggle("from-start", !spot.isAtEnd);
+      if (options.onPlaced) options.onPlaced();
     }
     if (isInPlace && !isOver && !options.isAnchorWidth) {
       pane.classList.add("is-hanging"); hang();
@@ -316,6 +318,7 @@ export const PLACE_SCRIPT = `/* place */(function () {
       pane.style.left = Math.round(leftPx + (isOnPage ? window.scrollX : 0)) + "px";
       // Capped by the room it opened into, what scrolls in it scrolls from now, not a frame later.
       if (window.zaismaFit) pane.querySelectorAll(".scrolls").forEach(window.zaismaFit);
+      if (options.onPlaced) options.onPlaced();
       window.zaismaCast(pane);
     }
     function open() {
@@ -400,7 +403,16 @@ export const DROPDOWN_SCRIPT = `/* menus */(function () {
       // Under a header pinned to the window it never flips above; a header fixed only in a frame of its own (a gallery example) lets it.
       isAlwaysBelow: function (button) { var top = button.closest(".top"); return Boolean(top) && !(getComputedStyle(top).position === "fixed" && top.offsetParent); }, fitsRoom: true, gapPx: token("--gap-control-stack", 8), edgePx: token("--pad-frame", 10),
       scrollBox: function () { return menu.querySelector(".floating-body"); },
-      onToggle: function (isOpen) { var button = buttons.get(menu) || buttonOf(menu); if (button) button.setAttribute("aria-expanded", String(isOpen)); }
+      onToggle: function (isOpen) { var button = buttons.get(menu) || buttonOf(menu); if (button) button.setAttribute("aria-expanded", String(isOpen)); },
+      // The corner nearest its button is square, the rest cut as a menu's: the one corner unlike the others is where it hangs from. Under
+      // its button that's a top corner, over it a bottom one, at the button's end or (from-start) its start.
+      onPlaced: function () {
+        var cuts = ["menu-large", "menu-small", "menu-large", "menu-small"], isStart = menu.classList.contains("from-start");
+        cuts[menu.classList.contains("is-above") ? (isStart ? 3 : 2) : (isStart ? 0 : 1)] = "0";
+        if (menu.getAttribute("data-glass-corners") === cuts.join(" ")) return;
+        menu.setAttribute("data-glass-corners", cuts.join(" "));
+        if (menu.redrawGlass) menu.redrawGlass();
+      }
     });
     // A menu whose height changes while it's open (a Filter menu turning to a group's choices) is placed again by its own script.
     menu.zaismaPlace = float.place;
@@ -774,7 +786,7 @@ component({
 /* A floating pane: the menus' glass, out of the page's flow in the top layer (a popover), placed by zaismaFloat over everything, at its
    anchor. Closed, it takes no room and no presses: it fades toward its anchor, then goes. Under, it slides from its anchor (from above it,
    is-above); over, it opens out of it, from a touch smaller. Riding the page (is-on-page), it's placed in the page's coordinates. */
-.floating-pane { position: fixed; inset: auto; margin: 0; border: 0; color: var(--ink); display: flex; flex-direction: column; max-width: calc(100vw - 2 * var(--pad-frame));
+.floating-pane { position: fixed; inset: auto; margin: 0; border: 0; color: var(--ink); display: flex; flex-direction: column; max-width: calc(100vw - 2 * var(--pad-frame)); --glass-tint: var(--glass-dropdown);
   transition: var(--glass-transition), transform var(--motion-arrive) var(--ease-glide), overlay var(--motion-arrive) allow-discrete, display var(--motion-arrive) allow-discrete; }
 /* It fades its glass and what's on it, never itself: a pane faded as a whole blurs nothing behind it until it's whole. Each fades by its own
    opacity, which the browser draws on the GPU, never a custom property, which would restyle all of it every frame. */
@@ -846,6 +858,11 @@ component({
     {
       label: "Try it: press it, move with the arrow keys, close it with Esc or a press outside",
       markup: html`<div class="dropdown-try">${secondaryButton("Your account", { type: "button", controls: "example-menu-try", isExpanded: false })}${dropdown({ id: "example-menu-try", label: "Your account", head: { title: "emma_r", note: "Online" }, items: ACCOUNT_ITEMS })}</div>`,
+    },
+    {
+      label: "Over a game's world: one open, one to try",
+      isWide: true,
+      markup: html`<div class="backdrop-frame holds-menus">${backdrop({ isFramed: true, standInSlug: "neon-drift", isGlassAdaptive: true })}<div class="dropdown-try">${secondaryButton("Sort", { type: "button", controls: "example-menu-world-try", isExpanded: false })}${dropdown({ id: "example-menu-world-try", label: "Sort games", items: [{ label: "Most played", href: "#dropdown", isCurrent: true }, { label: "Newest", href: "#dropdown" }, { label: "Recently updated", href: "#dropdown" }] })}</div>${dropdownFrame("Your account", { id: "example-menu-world", label: "Your account", head: { title: "emma_r", note: "Online" }, items: ACCOUNT_ITEMS })}</div>`,
     },
     { label: "Your account, from its button", markup: dropdownFrame("Your account", { id: "example-menu-account", label: "Your account", head: { title: "emma_r", note: "Online" }, items: ACCOUNT_ITEMS }) },
     {
@@ -1145,6 +1162,7 @@ const SHEET_STYLES = `
    a phone it rises from the foot of the screen, a gap from its edges. Like a pane that fits, it's as wide as what's in it, its words running
    to a reading width at most, and never wider than a sheet (--size-sheet) or the screen less its margins: past its height, its body scrolls. */
 .sheet { width: fit-content; max-width: min(var(--size-sheet), calc(100% - 2 * var(--pad-pane))); margin: auto; padding: 0; border: 0; overflow: visible; color: var(--ink);
+  --glass-tint: var(--glass-dropdown);
   transition: var(--glass-transition), transform var(--motion-arrive) var(--ease-glide), overlay var(--motion-arrive) allow-discrete, display var(--motion-arrive) allow-discrete; }
 /* It fades its glass and what's on it, never itself, as a floating pane does, so it blurs what's behind it all the way in. */
 .sheet::before, .sheet > * { transition: opacity var(--motion-state); }
