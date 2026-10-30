@@ -511,12 +511,19 @@ export const RAIL_SCRIPT = `/* rail */(function () {
       var padStart = parseFloat(isSide ? css.scrollPaddingLeft : css.scrollPaddingTop) || 0, edge = isSide ? box.left + scroller.clientLeft : box.top + scroller.clientTop;
       var spots = Array.prototype.filter.call(scroller.children, function (child) { return getComputedStyle(child).scrollSnapAlign.indexOf("start") >= 0; })
         .map(function (child) { var r = child.getBoundingClientRect(); return Math.max(0, Math.min(size.max, now + (isSide ? r.left : r.top) - edge - padStart)); });
-      var nearest = spots.reduce(function (best, spot) { return Math.abs(spot - now) < Math.abs(best - now) ? spot : best; }, now);
-      // Done once the glide ends (or soon after, where a browser never says so), unless a new drag has taken it up.
-      var done = function () { scroller.removeEventListener("scrollend", done); if (!drag) scroller.classList.remove("is-dragged"); };
-      if (Math.abs(nearest - now) < 1) return done();
-      scroller.addEventListener("scrollend", done); setTimeout(done, 700);
-      scroller.scrollTo(isSide ? { left: nearest, behavior: "smooth" } : { top: nearest, behavior: "smooth" });
+      var nearest = spots.length ? spots.reduce(function (best, spot) { return Math.abs(spot - now) < Math.abs(best - now) ? spot : best; }) : now;
+      // It glides there in the time something takes to arrive (--motion-arrive), easing out, unless a new drag takes it up first; with
+      // reduced motion it's there at once. Then it snaps again as it always does.
+      var done = function () { if (!drag) scroller.classList.remove("is-dragged"); };
+      var arriveMs = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--motion-arrive")) * 1000 || 300;
+      if (Math.abs(nearest - now) < 1 || matchMedia("(prefers-reduced-motion: reduce)").matches) { to(nearest); return done(); }
+      var startedAt = performance.now();
+      (function step(time) {
+        if (drag) return;
+        var progress = Math.min(1, (time - startedAt) / arriveMs);
+        to(now + (nearest - now) * (1 - Math.pow(1 - progress, 3)));
+        if (progress < 1) requestAnimationFrame(step); else done();
+      })(startedAt);
     }
     // Sideways, the name shown is the mark's nearest the pointer, or the thumb's middle while dragging.
     function near(event) {
