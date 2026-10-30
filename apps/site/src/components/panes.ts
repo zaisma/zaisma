@@ -207,7 +207,10 @@ export const PLACE_SCRIPT = `/* place */(function () {
     var cast = pane.floatCast;
     if (!cast) { cast = pane.floatCast = document.createElement("div"); cast.className = "floating-cast"; cast.setAttribute("aria-hidden", "true"); cast.appendChild(document.createElement("div")).appendChild(document.createElement("span")); document.body.appendChild(cast); }
     if (!pane.isConnected || !pane.matches(":popover-open")) { cast.hidden = true; return; }
-    var r = pane.getBoundingClientRect(), isOnPage = pane.classList.contains("is-on-page");
+    // Where it stands once its arriving move is done: its box less the move, so the shadow doesn't jump when the move ends.
+    var box = pane.getBoundingClientRect(), move = new DOMMatrix(getComputedStyle(pane).transform === "none" ? undefined : getComputedStyle(pane).transform);
+    var r = { width: pane.offsetWidth, height: pane.offsetHeight }; r.left = box.left + box.width / 2 - r.width / 2 - move.e; r.top = box.top + box.height / 2 - r.height / 2 - move.f;
+    var isOnPage = pane.classList.contains("is-on-page");
     // The cut is its glass's (--glass-clip, GLASS_SCRIPT): the pane itself isn't clipped, so what stands on it can cast past its edge.
     var paneStyle = getComputedStyle(pane), shape = paneStyle.getPropertyValue("--glass-clip").trim() || paneStyle.clipPath, points = /^polygon\\((.*)\\)$/.exec(shape);
     var far = "calc(100% + " + CAST_REACH_PX + "px)", near = -CAST_REACH_PX + "px";
@@ -217,6 +220,8 @@ export const PLACE_SCRIPT = `/* place */(function () {
     var inner = points ? points[1].replace(/^(nonzero|evenodd),\\s*/, "") : "0px 0px, 100% 0px, 100% 100%, 0px 100%";
     cast.firstChild.firstChild.style.clipPath = points ? shape : "";
     cast.style.clipPath = "polygon(evenodd, " + near + " " + near + ", " + far + " " + near + ", " + far + " " + far + ", " + near + " " + far + ", " + near + " " + near + ", " + inner + ", " + inner.split(",")[0] + ", " + near + " " + near + ")";
+    // Shown while it arrives (Safari), it starts from nothing and comes in with the pane.
+    if (cast.hidden && cast.classList.contains("is-arriving")) requestAnimationFrame(function () { void cast.offsetWidth; cast.classList.remove("is-arriving"); });
     cast.hidden = false; cast.classList.toggle("is-on-page", isOnPage);
     cast.style.left = r.left + (isOnPage ? window.scrollX : 0) + "px"; cast.style.top = r.top + (isOnPage ? window.scrollY : 0) + "px"; cast.style.width = r.width + "px"; cast.style.height = r.height + "px";
   };
@@ -321,9 +326,9 @@ export const PLACE_SCRIPT = `/* place */(function () {
         if (themed && themed !== document.documentElement) pane.setAttribute("data-theme-choice", themed.getAttribute("data-theme-choice")); else pane.removeAttribute("data-theme-choice");
         pane.style.setProperty("--glass-hue", getComputedStyle(home).getPropertyValue("--glass-hue"));
         // A browser that can't fade it in by itself (Safari, no overlay) shows it from its closed look, then lets it arrive.
-        if (isMovedByScript) { clearTimeout(pane.leaveTimer); pane.classList.remove("is-leaving"); pane.classList.add("is-arriving"); }
+        if (isMovedByScript) { window.zaismaCast(pane); clearTimeout(pane.leaveTimer); [pane, pane.floatCast].forEach(function (one) { one.classList.remove("is-leaving"); one.classList.add("is-arriving"); }); }
         pane.showPopover();
-        if (isMovedByScript) { void pane.offsetWidth; requestAnimationFrame(function () { pane.classList.remove("is-arriving"); }); }
+        if (isMovedByScript) requestAnimationFrame(function () { pane.classList.remove("is-arriving"); });
       }
       var at = anchorNow(); openedAt = at ? at.getBoundingClientRect() : null;
       if (options.onShown) options.onShown();
@@ -337,8 +342,8 @@ export const PLACE_SCRIPT = `/* place */(function () {
       if (isInPlace || !pane.matches(":popover-open") || pane.classList.contains("is-leaving")) return;
       // There, it stays in the top layer while it fades toward its anchor (is-leaving), then goes.
       if (isMovedByScript) {
-        pane.classList.add("is-leaving");
-        pane.leaveTimer = setTimeout(function () { pane.classList.remove("is-leaving"); pane.hidePopover(); }, LEAVE_MS);
+        pane.classList.add("is-leaving"); if (pane.floatCast) pane.floatCast.classList.add("is-leaving");
+        pane.leaveTimer = setTimeout(function () { pane.classList.remove("is-leaving"); pane.hidePopover(); if (pane.floatCast) pane.floatCast.classList.remove("is-leaving"); }, LEAVE_MS);
       } else pane.hidePopover();
       if (options.onToggle) options.onToggle(false);
       var back = options.focusOnClose || anchorNow();
@@ -793,6 +798,9 @@ component({
 .floating-cast > div { position: absolute; inset: 0; filter: var(--float-cast); }
 .floating-cast > div > span { position: absolute; inset: 0; background: #000; }
 .floating-cast.is-on-page { position: absolute; }
+/* Where the script moves the pane (Safari), its shadow fades in and out with it, where it stands. */
+.floating-cast { transition: opacity var(--motion-arrive) var(--ease-glide); }
+.floating-cast:is(.is-arriving, .is-leaving) { opacity: 0; }
 /* Shown open in place (the gallery's open states), it's in the page's flow, no taller than a menu, scrolling past it as it does open. Over, as wide as what's in it, it lies on
    the field just before it, its line (--line-from-top) on the field's own line; glass inside a pane's glass isn't blurred, so what it
    covers is hidden rather than showing through, and it casts its shadow as a filter on what holds it, where only it is drawn. */
