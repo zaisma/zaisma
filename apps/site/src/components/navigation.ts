@@ -1140,7 +1140,7 @@ const sidebarPlaces = (places: SidebarPlace[], isNested = false, isShut = false)
  */
 export function sidebar(options: SidebarOptions): Raw {
   const places = sidebarPlaces(options.places);
-  return html`<nav class="sidebar glass glass-pane compact pinned" id="${options.id}" aria-label="${options.label}" data-sidebar-remember="${options.rememberKey}" data-glass data-glass-corners="pane">${EDGE}<div class="sidebar-scroll pane-in scrolls">${places}</div></nav>${sheetMarkup({ id: `${options.id}-sheet`, title: options.label, body: places, closeButton: tertiaryButton("Close", { type: "submit", formMethod: "dialog", icon: "close", isLabelHidden: true, isSmall: true }), placement: "start" })}`;
+  return html`<nav class="sidebar glass glass-pane compact pinned" id="${options.id}" aria-label="${options.label}" data-sidebar-remember="${options.rememberKey}" data-glass data-glass-corners="pane">${EDGE}<div class="sidebar-scroll pane-in holds-rows scrolls">${places}</div></nav>${sheetMarkup({ id: `${options.id}-sheet`, title: options.label, body: places, closeButton: tertiaryButton("Close", { type: "submit", formMethod: "dialog", icon: "close", isLabelHidden: true, isSmall: true }), placement: "start" })}`;
 }
 
 /** The button that folds a sidebar away and back on a wide screen, and slides it over the page on a phone: at the start of the page's header or bar. */
@@ -1271,7 +1271,7 @@ const settingsPanes = stack({
     { kind: "block", markup: glassPane({ paneWidth: "full", label: "Keys", body: stack({ items: [{ kind: "words", markup: html`<h2>Keys</h2>` }, { kind: "words", markup: html`<p>A key lets your AI tool or the upload command work on your games.</p>` }] }) }) },
   ],
 });
-const stillSidebar = (id: string, places: SidebarPlace[]) => html`<nav class="sidebar glass glass-pane compact pinned" id="${id}" aria-label="Design" data-glass data-glass-corners="pane">${EDGE}<div class="sidebar-scroll pane-in scrolls">${sidebarPlaces(places)}</div></nav>`;
+const stillSidebar = (id: string, places: SidebarPlace[]) => html`<nav class="sidebar glass glass-pane compact pinned" id="${id}" aria-label="Design" data-glass data-glass-corners="pane">${EDGE}<div class="sidebar-scroll pane-in holds-rows scrolls">${sidebarPlaces(places)}</div></nav>`;
 
 component({
   name: "Sidebar",

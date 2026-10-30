@@ -264,7 +264,7 @@ component({
 `,
   render: breadcrumbs,
   examples: [
-    { label: "A forum topic", markup: breadcrumbs({ trail: [{ label: "Forum", href: "#breadcrumbs" }, { label: "Rooms", href: "#breadcrumbs" }], current: "Rooms drop everyone at 50 players" }) },
+    { label: "A forum topic, at the top of its pane", isWide: true, markup: glassPane({ paneWidth: "full", body: stack({ items: [{ kind: "words", markup: breadcrumbs({ trail: [{ label: "Forum", href: "#breadcrumbs" }, { label: "Rooms", href: "#breadcrumbs" }], current: "Rooms drop everyone at 50 players" }) }] }) }) },
     { label: "A game's version, in a pane", isWide: true, markup: glassPane({ paneWidth: "full", body: stack({ items: [{ kind: "words", markup: breadcrumbs({ trail: [{ label: "Your games", href: "#breadcrumbs" }, { label: "Ashen Crown", href: "#breadcrumbs" }, { label: "Versions", href: "#breadcrumbs" }], current: "Version 14" }) }, { kind: "words", markup: html`<h2>Version 14</h2>` }] }) }) },
   ],
 });

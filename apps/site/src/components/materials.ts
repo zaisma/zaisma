@@ -139,6 +139,9 @@ span.hairline { flex: 1; border-top: var(--divider); }
 .glass-bar.at-screen-edge { padding-top: max(var(--pad-frame), env(safe-area-inset-top, 0px)); padding-left: max(var(--pad-frame), env(safe-area-inset-left, 0px)); }
 /* A compact pane keeps edged things at the compact frame gap and its words at the tray's margin. */
 .glass-pane.compact > .pane-in { padding: var(--pad-frame-compact); --pad-words: calc(var(--pad-tray) - var(--pad-frame-compact)); }
+/* Holding a list of rows (a sidebar's places), its first and last rows' words would crowd its cut corners at the frame gap, so the list
+   starts and ends at the tray's margin, its sides still at the frame gap: words keep the words margin from the cut too. */
+.glass-pane.compact > .pane-in.holds-rows { padding-block: var(--pad-tray); }
 
 /* A carving: the glass cut away, cut by the edge rule, its face a touch darker than the glass round it and shaded under its top edge; its
    edge lit along its foot and shaded along its top (the edge rule's bands, turned round from a slab's). What has words in it keeps them a
