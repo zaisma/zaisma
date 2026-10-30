@@ -1,8 +1,8 @@
 // Headless Chrome, for `zaisma check` on a shader's folder and Zaisma's own scripts that look at pages in a real browser
 // (scripts/chrome.mjs), driven over its DevTools protocol with Node's own WebSocket (Node 22 or newer), so it needs no dependency and
 // never downloads a browser. Chrome is the one in CHROME_PATH, the system's, or one Playwright or @puppeteer/browsers downloaded.
-import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -54,9 +54,31 @@ function playwrightChromes() {
  * sessionId), listen(sessionId, onEvent) and close().
  */
 export async function openChrome(path, profilePrefix, { isGpu = false } = {}) {
-  const profile = mkdtempSync(join(tmpdir(), profilePrefix));
+  await sweepOrphans();
+  // A folder for each Chrome: OWNER_FILE, which says whose it is, and Chrome's profile inside, removed before the folder so a profile
+  // that can't be removed yet keeps its owner for the next sweep.
+  const folder = mkdtempSync(join(tmpdir(), profilePrefix));
+  const profile = join(folder, "profile");
+  mkdirSync(profile);
   const webgl = isGpu ? ["--enable-gpu", "--ignore-gpu-blocklist", ...(process.platform === "darwin" ? ["--use-angle=metal"] : [])] : ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"];
-  const child = spawn(path, ["--headless=new", "--remote-debugging-port=0", `--user-data-dir=${profile}`, "--no-first-run", "--no-default-browser-check", ...webgl, "--autoplay-policy=no-user-gesture-required", "--hide-scrollbars", "--disable-renderer-backgrounding", "--disable-background-timer-throttling", "--disable-backgrounding-occluded-windows", "about:blank"], { stdio: ["ignore", "ignore", "pipe"] });
+  let child;
+  try {
+    child = spawn(path, ["--headless=new", "--remote-debugging-port=0", `--user-data-dir=${profile}`, "--no-first-run", "--no-default-browser-check", ...webgl, "--autoplay-policy=no-user-gesture-required", "--hide-scrollbars", "--disable-renderer-backgrounding", "--disable-background-timer-throttling", "--disable-backgrounding-occluded-windows", "about:blank"], { stdio: ["ignore", "ignore", "pipe"] });
+  } catch (error) {
+    rmSync(folder, { recursive: true, force: true });
+    throw error;
+  }
+  const running = { child, folder, profile };
+  if (child.pid) {
+    writeFileSync(join(folder, OWNER_FILE), JSON.stringify({ owner_process_id: process.pid, chrome_process_id: child.pid }));
+    keepUntilExit(running);
+  }
+  const giveUp = (error) => {
+    child.kill("SIGKILL");
+    removeFolder(running);
+    letGo(running);
+    throw error;
+  };
   const address = await new Promise((resolve, reject) => {
     let output = "";
     child.stderr.on("data", (chunk) => {
@@ -66,9 +88,9 @@ export async function openChrome(path, profilePrefix, { isGpu = false } = {}) {
     });
     child.on("error", (error) => reject(error));
     child.on("exit", (code) => reject(new Error(`Chrome stopped (${code}): ${output.slice(-500)}`)));
-  });
+  }).catch(giveUp);
   const socket = new WebSocket(address);
-  await new Promise((resolve, reject) => ((socket.onopen = resolve), (socket.onerror = reject)));
+  await new Promise((resolve, reject) => ((socket.onopen = resolve), (socket.onerror = reject))).catch(giveUp);
   let nextMessageNumber = 1;
   const waiting = new Map();
   const listeners = new Set();
@@ -96,10 +118,132 @@ export async function openChrome(path, profilePrefix, { isGpu = false } = {}) {
     // Chrome writes to its profile until it has exited, so it goes after.
     close: async () => {
       socket.close();
-      const exited = new Promise((resolve) => child.once("exit", resolve));
+      const exited = new Promise((resolve) => (child.exitCode !== null || child.signalCode !== null ? resolve() : child.once("exit", resolve)));
       child.kill();
       await exited;
-      rmSync(profile, { recursive: true, force: true, maxRetries: 5 });
+      await endAndRemove([running]);
+      letGo(running);
     },
   };
+}
+
+/** The file in each Chrome's folder that says whose it is: { owner_process_id, chrome_process_id }. */
+const OWNER_FILE = "zaisma-chrome-owner.json";
+const STOP_SIGNALS = ["SIGINT", "SIGTERM", "SIGHUP"];
+/** The Chromes this process started and hasn't closed. */
+const runningChromes = new Set();
+
+// Chrome outlives the node process that started it unless something stops it: a script that exits without close(), or is stopped by a
+// signal that skips its finally, would leave Chrome and its helpers running. So each one is killed when this process exits, and on
+// SIGINT, SIGTERM and SIGHUP, which then end the process as they would have (a script with a handler of its own keeps its say).
+function stopAll() {
+  const runnings = [...runningChromes];
+  runningChromes.clear();
+  // Nothing can be awaited on exit, so this waits in place, only as long as Chrome's processes take to end.
+  const deadlineMs = Date.now() + EXIT_TIME_LIMIT_MS;
+  const pause = new Int32Array(new SharedArrayBuffer(4));
+  while (killAll(runnings) && Date.now() < deadlineMs) Atomics.wait(pause, 0, 0, 50);
+  for (const running of runnings) removeFolder(running);
+}
+async function onSignal(signal) {
+  if (process.listenerCount(signal) > 1) return;
+  removeHandlers();
+  const runnings = [...runningChromes];
+  runningChromes.clear();
+  await endAndRemove(runnings);
+  process.kill(process.pid, signal);
+}
+function addHandlers() {
+  process.on("exit", stopAll);
+  for (const signal of STOP_SIGNALS) process.on(signal, onSignal);
+}
+function removeHandlers() {
+  process.off("exit", stopAll);
+  for (const signal of STOP_SIGNALS) process.off(signal, onSignal);
+}
+function keepUntilExit(running) {
+  if (!runningChromes.size) addHandlers();
+  runningChromes.add(running);
+}
+function letGo(running) {
+  if (runningChromes.delete(running) && !runningChromes.size) removeHandlers();
+}
+
+/** How long Chrome's processes get to end after SIGKILL before their folders are removed anyway: on exit, which holds the process up, and otherwise. */
+const EXIT_TIME_LIMIT_MS = 2_000;
+const END_TIME_LIMIT_MS = 5_000;
+
+/**
+ * Sends SIGKILL to every process of these Chromes still running (the one started here, and each whose command line names its profile:
+ * the helpers, or a dead owner's Chrome), and says whether there were any. Chrome's helpers write to the profile until they've exited,
+ * so a folder is removed only once this finds none.
+ */
+function killAll(runnings) {
+  const children = runnings.flatMap(({ child }) => (child && child.exitCode === null && child.signalCode === null ? [child] : []));
+  const processNumbers = profileProcessNumbers(runnings.map(({ profile }) => profile));
+  for (const child of children) child.kill("SIGKILL");
+  for (const processNumber of processNumbers) {
+    try {
+      process.kill(processNumber, "SIGKILL");
+    } catch {}
+  }
+  return children.length > 0 || processNumbers.length > 0;
+}
+
+/** Kills these Chromes and removes their folders once their processes have ended. */
+async function endAndRemove(runnings) {
+  const deadlineMs = Date.now() + END_TIME_LIMIT_MS;
+  while (killAll(runnings) && Date.now() < deadlineMs) await new Promise((resolve) => setTimeout(resolve, 50));
+  for (const running of runnings) removeFolder(running);
+}
+
+/** The processes whose command line names one of these profiles; Windows has no ps, so none there. */
+function profileProcessNumbers(profiles) {
+  if (process.platform === "win32" || !profiles.length) return [];
+  const listed = spawnSync("ps", ["-A", "-o", "pid=,command="], { encoding: "utf8" }).stdout ?? "";
+  return listed.split("\n").flatMap((line) => {
+    const [, processNumber, command] = line.match(/^\s*(\d+)\s+(.*)$/) ?? [];
+    return processNumber && profiles.some((profile) => command.includes(`--user-data-dir=${profile}`)) ? [Number(processNumber)] : [];
+  });
+}
+
+/** Removes a Chrome's profile, then its folder; one that can't be removed yet stays, with its owner, for the next sweep. */
+function removeFolder({ folder, profile }) {
+  try {
+    rmSync(profile, { recursive: true, force: true, maxRetries: 5 });
+    rmSync(folder, { recursive: true, force: true });
+  } catch {}
+}
+
+const isAlive = (processNumber) => {
+  try {
+    process.kill(processNumber, 0);
+    return true;
+  } catch (error) {
+    return error.code === "EPERM";
+  }
+};
+
+/**
+ * Kills the Chromes, and removes the folders, of owners that died without closing them (SIGKILL, a crash), so the next openChrome
+ * cleans up after them; another run's Chrome, whose owner is alive, is left alone. A process is only killed when its command line names
+ * the dead owner's profile, so a reused process id is never hit; on Windows only the folder is removed.
+ */
+async function sweepOrphans() {
+  let names;
+  try {
+    names = readdirSync(tmpdir());
+  } catch {
+    return;
+  }
+  const orphans = names.flatMap((name) => {
+    const folder = join(tmpdir(), name);
+    try {
+      const owner = JSON.parse(readFileSync(join(folder, OWNER_FILE), "utf8"));
+      return isAlive(owner.owner_process_id) ? [] : [{ child: null, folder, profile: join(folder, "profile") }];
+    } catch {
+      return [];
+    }
+  });
+  if (orphans.length) await endAndRemove(orphans);
 }
