@@ -487,6 +487,8 @@ export const RAIL_SCRIPT = `/* rail */(function () {
       var before = at();
       if (jump) { var y = along(event) - (isSide ? bar.getBoundingClientRect().left : bar.getBoundingClientRect().top) - size.thumb / 2; to(Math.max(0, Math.min(1, y / (size.track - size.thumb))) * size.max); }
       drag = { y: along(event), last: along(event), from: at(), scrolls: [before, at()], isMoving: event.pointerType === "mouse", isTouch: event.pointerType !== "mouse" }; bar.classList.add("dragging");
+      // A box that snaps (a track's covers) follows the thumb freely while it's dragged, never jumping cover to cover, and snaps once let go.
+      if (!isPage && getComputedStyle(scroller).scrollSnapType !== "none") scroller.classList.add("is-dragged");
       try { bar.setPointerCapture(event.pointerId); } catch (error) {}
     }
     thumb.addEventListener("pointerdown", function (event) { start(event, false); });
@@ -501,7 +503,21 @@ export const RAIL_SCRIPT = `/* rail */(function () {
       to(goal);
       drag.scrolls.push(at()); if (drag.scrolls.length > SCROLLS_KEPT) drag.scrolls.shift();
     });
-    function end() { drag = null; bar.classList.remove("dragging"); if (isLayoutDue) { isLayoutDue = false; layout(); } }
+    function end() { drag = null; bar.classList.remove("dragging"); settle(); if (isLayoutDue) { isLayoutDue = false; layout(); } }
+    // Let go, a box that snaps glides to its nearest snapping point, then snaps again as it always does.
+    function settle() {
+      if (isPage || !scroller.classList.contains("is-dragged")) return;
+      var box = scroller.getBoundingClientRect(), css = getComputedStyle(scroller), now = at();
+      var padStart = parseFloat(isSide ? css.scrollPaddingLeft : css.scrollPaddingTop) || 0, edge = isSide ? box.left + scroller.clientLeft : box.top + scroller.clientTop;
+      var spots = Array.prototype.filter.call(scroller.children, function (child) { return getComputedStyle(child).scrollSnapAlign.indexOf("start") >= 0; })
+        .map(function (child) { var r = child.getBoundingClientRect(); return Math.max(0, Math.min(size.max, now + (isSide ? r.left : r.top) - edge - padStart)); });
+      var nearest = spots.reduce(function (best, spot) { return Math.abs(spot - now) < Math.abs(best - now) ? spot : best; }, now);
+      // Done once the glide ends (or soon after, where a browser never says so), unless a new drag has taken it up.
+      var done = function () { scroller.removeEventListener("scrollend", done); if (!drag) scroller.classList.remove("is-dragged"); };
+      if (Math.abs(nearest - now) < 1) return done();
+      scroller.addEventListener("scrollend", done); setTimeout(done, 700);
+      scroller.scrollTo(isSide ? { left: nearest, behavior: "smooth" } : { top: nearest, behavior: "smooth" });
+    }
     // Sideways, the name shown is the mark's nearest the pointer, or the thumb's middle while dragging.
     function near(event) {
       if (!isSide || !marks.length) return;
@@ -835,6 +851,8 @@ component({
 .glass > .rail { position: absolute; z-index: 6; }
 .rail[data-rail="page"] { position: fixed; z-index: 12; right: 0; top: 90px; bottom: 14px; }
 .rail.awake, .rail:hover, .rail.dragging { opacity: 1; }
+/* What a rail's thumb is dragging follows it freely: it snaps once let go (settle in RAIL_SCRIPT). */
+.own-scroll.is-dragged { scroll-snap-type: none; }
 .rail-line { position: absolute; inset: 0; cursor: pointer; background: linear-gradient(90deg, transparent 6px, var(--rail-line) 6px, var(--rail-line) 7px, transparent 7px); }
 .rail-thumb { position: absolute; top: 0; left: 4px; width: 5px; cursor: grab; --glass-tint: var(--rail-thumb); box-shadow: inset 1px 0 0 var(--rail-edge), 0 2px 6px rgba(10,20,40,0.18);
   clip-path: polygon(0 4px, 4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%);
