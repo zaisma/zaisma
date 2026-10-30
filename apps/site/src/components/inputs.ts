@@ -1,4 +1,4 @@
-import { stackOfOne } from "./layout.ts";
+import { stack, stackOfOne } from "./layout.ts";
 import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
 import { CUT_LINE, floatingPane, glassPane, groove, icon, well } from "./foundations.ts";
@@ -106,7 +106,7 @@ component({
     { label: "Rest", markup: examplePane(slider({ id: "example-slider-rest", name: "room_player_count", label: "Players in a room", minimumNumber: 2, maximumNumber: 100, stepNumber: 1, pickedNumber: 16, unit: "players" })) },
     { label: "Pressed", markup: examplePane(slider({ id: "example-slider-pressed", name: "room_player_count", label: "Players in a room", minimumNumber: 2, maximumNumber: 100, stepNumber: 1, pickedNumber: 64, unit: "players", state: "is-pressed" })), isStill: true },
     { label: "Keyboard focus", markup: examplePane(slider({ id: "example-slider-focus", name: "music_volume", label: "Music", minimumNumber: 0, maximumNumber: 100, stepNumber: 5, pickedNumber: 40, unit: "%", state: "is-focused" })), isStill: true },
-    { label: "At its ends", markup: examplePane(html`${slider({ id: "example-slider-least", name: "music_volume", label: "Music", minimumNumber: 0, maximumNumber: 100, stepNumber: 5, pickedNumber: 0, unit: "%" })}${slider({ id: "example-slider-most", name: "effects_volume", label: "Effects", minimumNumber: 0, maximumNumber: 100, stepNumber: 5, pickedNumber: 100, unit: "%" })}`) },
+    { label: "At its ends", markup: examplePane(stack({ items: [{ kind: "block", markup: slider({ id: "example-slider-least", name: "music_volume", label: "Music", minimumNumber: 0, maximumNumber: 100, stepNumber: 5, pickedNumber: 0, unit: "%" }) }, { kind: "block", markup: slider({ id: "example-slider-most", name: "effects_volume", label: "Effects", minimumNumber: 0, maximumNumber: 100, stepNumber: 5, pickedNumber: 100, unit: "%" }) }] })) },
     { label: "Big numbers", markup: examplePane(slider({ id: "example-slider-big", name: "world_player_count", label: "Players in a world", minimumNumber: 100, maximumNumber: 10000, stepNumber: 100, pickedNumber: 2400, unit: "players" })) },
     { label: "Can't be changed", markup: examplePane(slider({ id: "example-slider-disabled", name: "room_player_count_locked", label: "Players in a room", minimumNumber: 2, maximumNumber: 100, stepNumber: 1, pickedNumber: 32, unit: "players", isDisabled: true })) },
   ],

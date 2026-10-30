@@ -548,7 +548,12 @@ export const STAND_IN_COVERS: Record<string, Raw> = Object.fromEntries(
 const standInCovers = (slugs: string[]) => html`${slugs.map((slug) => STAND_IN_COVERS[slug])}`;
 
 const signInBody = (idPrefix: string) =>
-  html`<h2>Welcome back</h2>${cutField({ id: `${idPrefix}-username`, name: "username", label: "Username", type: "text", icon: "person", text: "emma_r", autocomplete: "username" })}${cutField({ id: `${idPrefix}-password`, name: "password", label: "Password", type: "password", icon: "lock", text: "correct-horse", autocomplete: "current-password" })}${primaryButton("Sign in", { type: "button", isFullWidth: true, isBig: true })}`;
+  stack({ items: [
+    { kind: "words", markup: html`<h2>Welcome back</h2>` },
+    { kind: "control", markup: cutField({ id: `${idPrefix}-username`, name: "username", label: "Username", type: "text", icon: "person", text: "emma_r", autocomplete: "username" }) },
+    { kind: "control", markup: cutField({ id: `${idPrefix}-password`, name: "password", label: "Password", type: "password", icon: "lock", text: "correct-horse", autocomplete: "current-password" }) },
+    { kind: "control", markup: primaryButton("Sign in", { type: "button", isFullWidth: true, isBig: true }) },
+  ] });
 
 component({
   name: "Glass pane",
@@ -560,7 +565,7 @@ component({
   styles: PANE_STYLES,
   render: glassPane,
   examples: [
-    { label: "Fit: as wide as what's in it", markup: glassPane({ paneWidth: "fit", body: stackOfOne(signInBody("example-pane-fit")) }), isWide: true },
+    { label: "Fit: as wide as what's in it", markup: glassPane({ paneWidth: "fit", body: signInBody("example-pane-fit") }), isWide: true },
     {
       label: "Fit, long words: they run to a reading width, no wider",
       isWide: true,
@@ -1220,9 +1225,12 @@ ${touchReach(".sheet")}
 `;
 
 const reportBody = (idPrefix: string) =>
-  html`${choiceCards({ id: `${idPrefix}-reason`, name: `report_reason_${idPrefix}`, label: "What's wrong", choices: REPORT_REASONS, pickedValue: "broken", isCompact: true })}${longField({ id: `${idPrefix}-details`, name: "report_text", label: "What you saw", rowCount: 3, maximumCharacterCount: 2000 })}`;
+  stack({ items: [
+    { kind: "block", markup: choiceCards({ id: `${idPrefix}-reason`, name: `report_reason_${idPrefix}`, label: "What's wrong", choices: REPORT_REASONS, pickedValue: "broken", isCompact: true }) },
+    { kind: "block", markup: longField({ id: `${idPrefix}-details`, name: "report_text", label: "What you saw", rowCount: 3, maximumCharacterCount: 2000 }) },
+  ] });
 const reportSheet = (id: string, options: { title?: string; isShown?: boolean } = {}) =>
-  sheet({ id, title: options.title ?? "Report Ashen Crown", body: stackOfOne(reportBody(id)), closeLabel: "Close", action: "#sheet", buttons: [primaryButton("Send report", { type: "submit" })], isShown: options.isShown });
+  sheet({ id, title: options.title ?? "Report Ashen Crown", body: reportBody(id), closeLabel: "Close", action: "#sheet", buttons: [primaryButton("Send report", { type: "submit" })], isShown: options.isShown });
 
 component({
   name: "Sheet",
@@ -1307,7 +1315,7 @@ component({
             title: "Liam",
             body: stackOfOne(menuChoices({ label: "Liam", choices: [{ label: "Profile", icon: "person", href: "#sheet" }, { label: "Block", icon: "ban", isButton: true }, { label: "Report", icon: "flag", isButton: true, dataAttributes: { "sheet-step-to": "report" } }] })),
           },
-          { stepName: "report", title: "Report Liam", body: stackOfOne(reportBody("example-sheet-steps")), buttons: [primaryButton("Send report", { type: "submit" })] },
+          { stepName: "report", title: "Report Liam", body: reportBody("example-sheet-steps"), buttons: [primaryButton("Send report", { type: "submit" })] },
         ],
       })}`,
     },
@@ -1714,11 +1722,11 @@ export function stepFlow(options: StepFlowOptions): Raw {
   const paneWidth = options.paneWidth ?? "fit";
   if (!isOnPage) {
     const buttons = row({ widths: "equal", items: [...(options.backHref ? [control(secondaryButton("Back", { href: options.backHref }))] : []), control(primaryButton(nextLabel, { type: "submit" }))] });
-    return glassPane({ paneWidth, body: stackOfOne(html`${stepLine}<form class="step-form" method="post" action="${options.action}">${options.body ?? ""}${buttons}</form>`) });
+    return glassPane({ paneWidth, body: stack({ items: [{ kind: "block", markup: stepLine }, { kind: "block", markup: html`<form class="step-form" method="post" action="${options.action}">${options.body ?? ""}${buttons}</form>` }] }) });
   }
   const bodies = options.steps.map((step, stepIndex) => html`<div class="step-body"${stepIndex === options.currentIndex ? "" : raw(" hidden")}>${step.body ?? ""}</div>`);
   const buttons = row({ widths: "equal", items: [control(secondaryButton("Back", { type: "button", isHidden: options.currentIndex === 0 })), control(primaryButton(nextLabel, { type: "submit" }))] });
-  return glassPane({ paneWidth, body: stackOfOne(html`${stepLine}<form class="step-form" method="post" action="${options.action}" data-steps="${options.currentIndex}" data-finish-label="${finishLabel}">${bodies}${buttons}</form>`) });
+  return glassPane({ paneWidth, body: stack({ items: [{ kind: "block", markup: stepLine }, { kind: "block", markup: html`<form class="step-form" method="post" action="${options.action}" data-steps="${options.currentIndex}" data-finish-label="${finishLabel}">${bodies}${buttons}</form>` }] }) });
 }
 
 /**

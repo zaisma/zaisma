@@ -950,9 +950,10 @@ component({
     },
     {
       label: "Down a box, its parts marked: point at the rail for their names (by touch, drag its thumb; let go near a mark to go there)",
-      markup: html`<div class="rail-box">${glassPane({ paneWidth: "fit", body: stackOfOne(html`${["1.4", "1.3", "1.2", "1.1"].map(
-        (version) => html`<h3 class="rail-example-part" data-rail-mark="${version}">Version ${version}</h3><p>${"Rebalanced the second boss, sped up loading, and fixed saves that wouldn't sync. ".repeat(3)}</p>`,
-      )}`) })}</div>`,
+      markup: html`<div class="rail-box">${glassPane({ paneWidth: "fit", body: stack({ items: ["1.4", "1.3", "1.2", "1.1"].flatMap((version) => [
+        { kind: "words" as const, markup: html`<h3 class="rail-example-part" data-rail-mark="${version}">Version ${version}</h3>` },
+        { kind: "words" as const, markup: html`<p>${"Rebalanced the second boss, sped up loading, and fixed saves that wouldn't sync. ".repeat(3)}</p>` },
+      ]) }) })}</div>`,
     },
     {
       label: "Sideways, its parts marked",
@@ -1489,18 +1490,18 @@ component({
 `,
   render: loadMore,
   examples: [
-    { label: "Under a list: try it, to the last page", isWide: true, markup: glassPane({ paneWidth: "full", body: stackOfOne(html`${listRows({ whenEmpty: html`<p>No older versions yet.</p>`, id: "example-load-more-list", rows: LOADED_ROWS })}${loadMore({ href: "/design/examples/older-versions?page=2", label: "Show older versions", listId: "example-load-more-list" })}`) }) },
+    { label: "Under a list: try it, to the last page", isWide: true, markup: glassPane({ paneWidth: "full", body: stack({ items: [{ kind: "block", markup: listRows({ whenEmpty: html`<p>No older versions yet.</p>`, id: "example-load-more-list", rows: LOADED_ROWS }) }, { kind: "block", markup: loadMore({ href: "/design/examples/older-versions?page=2", label: "Show older versions", listId: "example-load-more-list" }) }] }) }) },
     { label: "Busy", markup: html`<div style="width:min(340px,100%)">${secondaryButton("Show older versions", { href: "#load-more", isFullWidth: true, isBusy: true })}</div>`, isStill: true },
     {
       label: "After a failed load: press it again",
       isWide: true,
       isStill: true,
-      markup: glassPane({ paneWidth: "full", body: stackOfOne(html`${listRows({ whenEmpty: html`<p>No older versions yet.</p>`, id: "example-load-failed-list", rows: LOADED_ROWS })}${loadMore({ href: "#load-more", label: "Show older versions", listId: "example-load-failed-list", isFailed: true })}`) }),
+      markup: glassPane({ paneWidth: "full", body: stack({ items: [{ kind: "block", markup: listRows({ whenEmpty: html`<p>No older versions yet.</p>`, id: "example-load-failed-list", rows: LOADED_ROWS }) }, { kind: "block", markup: loadMore({ href: "#load-more", label: "Show older versions", listId: "example-load-failed-list", isFailed: true }) }] }) }),
     },
     {
       label: "At the end of the list",
       isWide: true,
-      markup: glassPane({ paneWidth: "full", body: stackOfOne(html`${listRows({ whenEmpty: html`<p>No older versions yet.</p>`, id: "example-load-end-list", rows: LOADED_ROWS })}${loadMore({ label: "Show older versions", listId: "example-load-end-list", endText: "That's every version." })}`) }),
+      markup: glassPane({ paneWidth: "full", body: stack({ items: [{ kind: "block", markup: listRows({ whenEmpty: html`<p>No older versions yet.</p>`, id: "example-load-end-list", rows: LOADED_ROWS }) }, { kind: "block", markup: loadMore({ label: "Show older versions", listId: "example-load-end-list", endText: "That's every version." }) }] }) }),
     },
   ],
 });
