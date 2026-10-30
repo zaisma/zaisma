@@ -277,11 +277,12 @@ const RUN_STYLES = `
    a glint crosses it as you arrive; a press brings it down toward the glass, never carving it, and it springs back.
    The shell (.run-wrap, the link or button) stays still; its face (.run) moves inside it.
    .over is the pointer on it (RUNNER_SCRIPT); is-pointed, is-pressed and is-focused fix those states for the gallery. */
-.run-wrap { isolation: isolate; vertical-align: middle; max-width: 100%; perspective: 600px; }
+/* Its lean is a perspective on the face itself, never on the shell: Safari drops the shell's cast (its filter) round a 3D context. */
+.run-wrap { isolation: isolate; vertical-align: middle; max-width: 100%; }
 .run-wrap:focus-visible { outline: none; }
 /* Words longer than the room it has end in an ellipsis on one line, never spilling out of it or growing it past its height. */
 .run { min-width: 0; }
-.run-wrap.is-full { display: flex; width: 100%; perspective: 700px; }
+.run-wrap.is-full { display: flex; width: 100%; }
 /* Its warm glow on what's under it: it spreads as the slab lifts and gathers in as it's pressed. */
 /* It floats over the glass, and what it casts on it comes from its own shape (--run-cast): an orange glow round all its edges on smoked
    glass, strongest below; a shadow under it and a little round it on light glass. Pointed, it rises and its light or shadow spreads; pressed,
@@ -299,7 +300,7 @@ const RUN_STYLES = `
   --control-height: var(--control-height-regular);
   /* Its face is a lit slab (materials.ts): its look, room, edge light, reflection and glint are the slab's. It leans and lifts. */
   z-index: 1; gap: 10px; justify-content: flex-start;
-  transform: translateY(var(--lift, 0px)) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg));
+  transform: perspective(600px) translateY(var(--lift, 0px)) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg));
   transition: transform var(--motion-glide) var(--ease-spring), --refl var(--motion-settle) var(--ease-glide), filter var(--motion-state);
 }
 .is-full > .run { width: 100%; justify-content: center; }

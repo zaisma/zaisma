@@ -324,10 +324,11 @@ span.hairline { flex: 1; border-top: var(--divider); }
 :is(.shell:hover, .shell.is-pointed, .shell[aria-expanded="true"]) > .slab.holds-art > :where(:not(.cut-line)) { filter: brightness(1.14); }
 :is(.shell:active, .shell.is-pressed) > .slab.holds-art > :where(:not(.cut-line)) { filter: brightness(0.9); transform: none; transition-duration: var(--motion-press); }
 :is(.shell:active, .shell.is-pressed) > .slab.holds-art { transform: translateY(1px); transition: transform var(--motion-press); }
-:where(.shell, .slab-holder):has(> .slab) { filter: var(--slab-cast); transition: filter var(--motion-state); }
+:where(.shell, .slab-holder):has(> .slab) { filter: var(--slab-cast); transition: filter var(--motion-press); }
 :is(.shell:hover, .shell.is-pointed, .shell:focus-visible, .shell.is-focused) > .slab, .slab.is-pointed, .slab.is-focused { --face-color: var(--slab-face-pointed); }
 :is(.shell:active, .shell.is-pressed) > .slab, .slab.is-pressed { --face-color: var(--slab-face-pressed); box-shadow: var(--slab-press-shade, var(--press-shade)); transition-duration: var(--motion-press); }
-:is(.shell:active, .shell.is-pressed):has(> .slab), .slab-holder:has(> .slab.is-pressed) { filter: none; }
+/* Pressed, it sinks onto the glass: its shadow drawn in close, never gone, and back at once as it's let go. */
+:is(.shell:active, .shell.is-pressed):has(> .slab), .slab-holder:has(> .slab.is-pressed) { filter: var(--slab-cast-pressed); }
 /* Pressed, its edge light turns round as fast as its face sinks, so a bright edge never lingers on a face that's already gone dark. */
 :is(.shell:active, .shell.is-pressed) > .slab > .cut-line .cut-band, .slab.is-pressed > .cut-line .cut-band { transition-duration: var(--motion-press); }
 /* Press spring-back: what's on a slab goes down with it, a hair, quickly, and springs back up when it's let go. The slab itself never
