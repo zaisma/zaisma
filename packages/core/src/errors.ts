@@ -67,7 +67,7 @@ export const ERROR_CODES = {
   bad_game_server_allowed_hosts: { httpStatus: 400, meaning: "game_server_allowed_hosts isn't a list of up to 20 host names (like discord.com or *.example.com), or one is an IP address or on Zaisma's own domains.", messageForPeople: "The game server reaches up to 20 host names, like discord.com or *.example.com, and none can be an IP address or a Zaisma address." },
   built_in_server: { httpStatus: 403, meaning: "The game runs a game server built into Zaisma, which only Zaisma changes.", messageForPeople: "This game runs a game server built into Zaisma, which only Zaisma changes." },
   game_removed: { httpStatus: 403, meaning: "Zaisma took the game down, so this can't change.", messageForPeople: "Zaisma took this game down, so this can't change. Message Zaisma to ask why." },
-  needs_confirm: { httpStatus: 409, meaning: "Hiding a game players can play, or ending a live room, needs the developer's OK.", messageForPeople: "Players are playing in this now. Confirm to take it away from them." },
+  needs_confirm: { httpStatus: 409, meaning: "Hiding a game players can play, or ending a live room, needs the developer's OK.", messageForPeople: "Players can play this game now. Confirm to hide it from them." },
   bad_period_duration_days: { httpStatus: 400, meaning: "period_duration_days isn't a whole number from 1 to 90.", messageForPeople: "Pick a period from 1 to 90 days." },
   bad_cursor: { httpStatus: 400, meaning: "cursor isn't a next_cursor from an earlier answer.", messageForPeople: "That list is out of date. Reload the page." },
 
