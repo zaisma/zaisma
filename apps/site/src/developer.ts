@@ -41,6 +41,8 @@ import {
   qrCodeSvg,
   heldImageKey,
   iso,
+  banScopeOf,
+  type BanScope,
   KNOWN_IMAGE_CODE,
   REVIEW_CODES,
   readReviewReason,
@@ -311,6 +313,10 @@ export interface Caller {
   placeSha256: string | null;
   /** Whether the account may make, upload and publish games (accounts.can_publish): until the beta, only accounts Zaisma adds. */
   canPublish: boolean;
+  /** How far Zaisma banned the account (bans.ts), when, and the why the developer reads (null for child safety); banScope null when it isn't banned. */
+  banScope: BanScope | null;
+  bannedAtMs: number | null;
+  banReasonForDeveloper: string | null;
   /** Our own page, with the developer's passkey tapped in the last 10 minutes: may turn spending on or up (credit-api.ts) and connect a Stripe account for sales (stripe-account-api.ts). */
   isSpendingConfirmed?: boolean;
 }
@@ -375,6 +381,8 @@ export async function authenticate(request: Request, env: Env, via: "api" | "mcp
     }
     const found = await apiKeyForToken(env.DB, token);
     const key = found?.key ?? null;
+    // A whole-account ban turns its keys off with no place found (bans.ts).
+    if (found?.keyState === "turned_off" && found.key.found_in === null) throw accountBanned({ banScope: "whole_account", banReasonForDeveloper: null });
     if (found?.keyState === "turned_off") {
       throw new ApiError("key_turned_off", {
         message: `This API key was ${foundWords(found.key)} and turned off on ${dayText(found.key.turned_off_at_ms!)}, so it can't be used again.`,
@@ -442,7 +450,26 @@ export async function callerFor(env: Env, request: Request, accountId: string, c
     isWhereKept: account.where_used_from_enabled === 1,
     placeSha256: null,
     canPublish: account.can_publish === 1,
+    banScope: banScopeOf(account),
+    bannedAtMs: account.banned_at_ms,
+    banReasonForDeveloper: account.ban_content_rule === "child_safety" ? null : account.ban_reason,
   };
+}
+
+/** What a banned developer can still call: get_access, list_games and export_game, so their work stays theirs. */
+const BANNED_DEVELOPER_ROUTES = new Set(["GET /access", "GET /games", "GET /games/:slug/export", "GET /games/:slug/export/download"]);
+
+/** The account_banned refusal: why, unless it's child safety; a whole-account ban says the account is closed. */
+export function accountBanned(caller: Pick<Caller, "banScope" | "banReasonForDeveloper">): ApiError {
+  if (caller.banScope === "whole_account") {
+    return new ApiError("account_banned", {
+      message: "Zaisma closed this account for breaking its rules.",
+      messageForPeople: "This account is closed for breaking Zaisma's rules.",
+      fix: "Tell the developer. Nothing works for this account now.",
+    });
+  }
+  const words = caller.banReasonForDeveloper ? `Zaisma banned this account's developer side for breaking the content rules: ${caller.banReasonForDeveloper.replace(/\.$/, "")}.` : "Zaisma banned this account's developer side for breaking Zaisma's rules.";
+  return new ApiError("account_banned", { message: words, messageForPeople: words, fix: "Tell the developer. Only get_access, list_games and export_game work now; appeals come later." });
 }
 
 /** Call the API from inside the site as this caller, and answer its response as it is: for a call that answers bytes, like an export's .zip. */
@@ -770,6 +797,7 @@ export interface CheckedCall {
  */
 async function checkCall(request: Request, env: Env, path: string, apiRoute: ApiRoute, caller: Caller): Promise<CheckedCall> {
   checkAccess(apiRoute, caller);
+  if (caller.banScope && !(caller.banScope === "developer" && BANNED_DEVELOPER_ROUTES.has(`${apiRoute.method} ${apiRoute.path}`))) throw accountBanned(caller);
   if (apiRoute.isPublishing && !caller.canPublish) {
     throw new ApiError("publishing_not_open", {
       message: "Publishing opens with the beta. Until then, only accounts Zaisma adds can make, upload and publish games.",
@@ -884,7 +912,7 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
   if (path === "/access" && method === "GET") {
     // The balance only for a caller that may read the credit.
     const creditBalanceCents = allows(caller.access.areaAccess, "credit_access", "read") && !caller.access.gameSlugs ? (await creditOf(env.DB, caller.ownerId)).balanceCents : null;
-    return answer({ access: accessJson(caller.access), can_publish: caller.canPublish, credit_balance_cents: creditBalanceCents, plan: await planFor(env.DB, caller.ownerId) });
+    return answer({ access: accessJson(caller.access), can_publish: caller.canPublish, banned_at: iso(caller.bannedAtMs), ban_scope: caller.banScope, credit_balance_cents: creditBalanceCents, plan: await planFor(env.DB, caller.ownerId) });
   }
   if (apiRoute.path === "/pro" || apiRoute.path.startsWith("/pro/")) return answer(...(await proRoute(env, apiRoute.path, method, caller)));
   if (apiRoute.path === "/credit" || apiRoute.path.startsWith("/credit/")) return answer(...(await creditRoute(env, apiRoute.path, method, checked.body, caller)));
@@ -999,7 +1027,7 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
   }
 
   if (apiRoute.path === "/games/:slug/export") return answer(await exportSummary(env, game!));
-  if (apiRoute.path === "/games/:slug/export/download") return exportDownload(env, game!, caller, (readMethod, readPath) => apiCall(env, caller, readMethod, readPath));
+  if (apiRoute.path === "/games/:slug/export/download") return exportDownload(env, game!, caller, (readMethod, readPath) => apiCall(env, { ...caller, banScope: null }, readMethod, readPath));
   if (apiRoute.path.startsWith("/games/:slug/secrets")) return answer(...(await secretsRoute(request, env, game!, pathValues.secret_name, caller, checked)));
   if (apiRoute.path.startsWith("/games/:slug/kept-rooms")) return answer(...(await keptRoomsRoute(request, env, game!, pathValues.room_code, caller)));
   if (apiRoute.path.startsWith("/games/:slug/rooms")) return answer(...(await roomsRoute(request, env, game!, apiRoute.path, pathValues.room_code, caller, checked)));

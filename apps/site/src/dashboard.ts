@@ -1,6 +1,6 @@
 import { ACCOUNT_REQUIREMENTS, ApiError, accountById, CONTENT_RULES, REVIEW_CODES, type ReviewCodeName, CONTROLS, DEVICES, GENRE_LABELS, GENRES, LINK_LIMITS, MAXIMUM_GENRE_COUNT, MINIMUM_PLAYER_AGES, OWN_SERVER_LIMITS, PLAYER_REPORT_REASONS, PLAY_STYLES, ROOM_BROWSING, SCREENS, type Account, type AccountRequirement, type ContentRule, type MinimumPlayerAge, type PlayerReportReason, type PlayMode, type RoomBrowsing } from "@zaisma/core";
 import { currentSession, downloadStartedCookie, realEmail } from "./auth.ts";
-import { apiCall, apiResponse, callerFor, GAME_ALERT_KINDS, type Caller, type GameAlertKind } from "./developer.ts";
+import { accountBanned, apiCall, apiResponse, callerFor, GAME_ALERT_KINDS, type Caller, type GameAlertKind } from "./developer.ts";
 import { gameUrl, type Env } from "./env.ts";
 import { html, layout, metalButton, raw, scriptTags, type Raw } from "./html.ts";
 import { shownColor } from "./markup.ts";
@@ -200,6 +200,11 @@ export async function handleDashboard(request: Request, env: Env, path: string):
   // The header shows the account; the games page also shows security alerts no email told them about, and asks for an email once there's something to lose.
   const account = await accountById(env.DB, caller.accountId);
   const isAskingForEmail = async () => (account ? isEmailAskDue(env, account, realEmail(session.email)) : false);
+  // A banned developer keeps the games page, to export their games, and nothing else (bans.ts).
+  if (caller.banScope) {
+    if (path === "/dashboard" && !post) return done(await bannedGamesPage(env, call, account, accountBanned(caller).messageForPeople));
+    if (post || !/^\/dashboard\/[a-z0-9-]+\/export\.zip$/.test(path)) return done(redirect("/dashboard"));
+  }
   if (path === "/dashboard" && !post) return done(await gamesPage(env, call, account, url.searchParams.get("error") ?? undefined, "", await isAskingForEmail()));
   // Feedback moved into the developer forum.
   if (path === "/dashboard/feedback") return done(redirect("/forum?tab=yours"));
@@ -469,6 +474,22 @@ ${canPublish
 <pre>npx @zaisma/cli upload ./build --game your-game</pre></div>
 </div>
 <p class="muted">Both need an API key: <a href="/dashboard/settings#keys">make one on Developer settings</a> and set it as ZAISMA_KEY.</p>`
+      : ""}`,
+    200,
+    account,
+  );
+}
+
+/** Your games for a banned developer: why, and each game's Export everything, since their work stays theirs. */
+async function bannedGamesPage(env: Env, call: Call, account: Account | null, bannedText: string): Promise<Response> {
+  const { games } = (await call("GET", "/games")) as { games: GameJson[] };
+  return page(
+    env,
+    "Your games",
+    html`<div class="dash-head"><h1>Your games</h1></div>
+<div class="first note"><p><strong>${bannedText}</strong> Export your games to keep them: each export holds the game's files, details, database and players' saves.</p></div>
+${games.length
+      ? html`<ul class="exports">${games.map((game) => html`<li><span>${game.title}</span> <a class="btn" href="/dashboard/${game.slug}/export.zip" data-download>Export everything</a></li>`)}</ul>`
       : ""}`,
     200,
     account,
@@ -1089,7 +1110,7 @@ const FINDING_PLACES: Partial<Record<ReviewCodeName, FindingPlace>> = {
   image_rejected: "images", extra_text_on_cover: "images", overlay_on_cover: "images", famous_name: "images", cover_not_from_game: "images", fake_reward: "images", screenshot_not_from_game: "images",
   text_on_background: "background", overlay_on_background: "background", famous_name_on_background: "background", shader_does_not_compile: "background", shader_too_slow: "background", shader_flashes: "background",
   unregistered_link: "details", unlisted_address: "details", ai_lifelike_gore: "details", link_flagged: "details", details_rejected: "details", tag_in_title: "details",
-  matches_another_developers_game: "message", antivirus_flag: "message", ai_malware: "message", ai_phishing_or_scam: "message", ai_data_collection: "message", ai_sexual_content: "message",
+  matches_another_developers_game: "message", matches_banned_account_files: "message", antivirus_flag: "message", ai_malware: "message", ai_phishing_or_scam: "message", ai_data_collection: "message", ai_sexual_content: "message",
   ai_private_details_or_threats: "message", ai_protection_dodged: "message", ai_real_money_gambling: "message", ai_paid_random_rewards: "message", ai_coin_price_without_real_price: "message",
   ai_free_text_chat: "message", ai_disallowed_crypto: "message", ai_other: "message", ai_concern: "message", rejected_by_zaisma: "message", taken_down: "message",
 };

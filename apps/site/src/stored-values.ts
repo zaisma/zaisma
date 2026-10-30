@@ -181,6 +181,8 @@ export const STORED_VALUES: readonly StoredValue[] = [
   { stored: "precedents.title", format: "escaped_text", source: "zaisma", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: ["page:/admin/precedents"] },
   { stored: "precedents.applies_when", format: "escaped_text", source: "zaisma", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: ["page:/admin/precedents"] },
   { stored: "precedents.decision", format: "escaped_text", source: "zaisma", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },
+  // Shown only to the banned developer, on their dashboard and in account_banned (bans.ts), which the planted world isn't.
+  { stored: "accounts.ban_reason", format: "escaped_text", source: "zaisma", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },
   { stored: "precedents.why", format: "escaped_text", source: "zaisma", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: ["page:/admin/precedents"] },
   { stored: "review_precedents.title", format: "escaped_text", source: "zaisma", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: ["page:/admin/review-precedents"] },
   { stored: "review_precedents.applies_when", format: "escaped_text", source: "zaisma", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: ["page:/admin/review-precedents"] },
@@ -200,7 +202,7 @@ export const CLOSED_COLUMN_NAME = /^(id|kind|date|day|month|token|code|sha256)$|
 
 export const CLOSED_TEXT_COLUMNS: readonly string[] = [
   // Choices from fixed lists.
-  "accounts.color_theme", "accounts.chat_stopped_reason", "api_keys.found_in", "mcp_clients.token_endpoint_auth_method", "audit_log.action", "chat_reviews.source", "checked_files.provider", "forum_post_ratings.rating", "forum_reports.reason", "forum_topic_tags.tag",
+  "accounts.color_theme", "accounts.chat_stopped_reason", "accounts.ban_scope", "accounts.ban_content_rule", "ban_matches.decision", "api_keys.found_in", "mcp_clients.token_endpoint_auth_method", "audit_log.action", "chat_reviews.source", "checked_files.provider", "forum_post_ratings.rating", "forum_reports.reason", "forum_topic_tags.tag",
   "forum_topics.category", "forum_topics.severity", "game_backgrounds.screen", "game_backgrounds.source", "game_shaders.screen", "games.visibility", "games.purchase_delivery", "games.devices", "games.controls", "games.genres",
   "games.screen_orientation", "games.play_modes", "games.room_browsing", "games.built_in_server", "games.account_requirement", "friend_requests.answer", "profile_reports.reason", "reports.reason", "reports.player_reason",
   "review_precedents.decision", "review_precedents.content_rule", "room_message_types.direction", "save_history.copy_reason", "security_events.done_by", "webhooks.event_kinds",

@@ -1,4 +1,4 @@
-import { ApiError, accountById, iso, randomKey } from "@zaisma/core";
+import { ApiError, accountById, isBannedMark, iso, randomKey } from "@zaisma/core";
 import { currentSession } from "./auth.ts";
 import { logAccountChange, logCallerEvent } from "./security-log.ts";
 import { accountDetails, connectUrl, disconnect, finishConnect, getStripeBalance, registerPaymentDomain, type ConnectedAccountDetails, type StripeBalance } from "./stripe.ts";
@@ -161,6 +161,8 @@ export async function handleConnectReturn(request: Request, env: Env, nowMs = Da
   if (!code) return back("cancelled");
 
   const stripeAccountId = await finishConnect(env, code);
+  // A Stripe account banned with another account stays out, whether that account still has it or not; nothing is disconnected (bans.ts).
+  if (await isBannedMark(env.DB, "stripe_account", stripeAccountId)) return back("stripe_account_banned");
   const taken = await env.DB.prepare("SELECT id FROM owners WHERE stripe_account_id = ?").bind(stripeAccountId).first<{ id: string }>();
   if (taken && taken.id !== owner.id) return back("account_taken");
   const details = await accountDetails(env, stripeAccountId);

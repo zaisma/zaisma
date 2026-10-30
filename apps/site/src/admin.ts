@@ -164,6 +164,16 @@ function countryBlockSection(game: Game): Raw {
 </form>`;
 }
 
+/** Take a game down for breaking a content rule: the developer reads why (never for child safety), its open reports close, and its webhooks hear. */
+export async function takeDownGame(env: Env, gameId: string, contentRule: ContentRule | null, reason: string, actor: string): Promise<void> {
+  const removedReason = decidedReason("taken_down", contentRule, reason);
+  await setReviewStatus(env.DB, gameId, "removed", removedReason);
+  await recordRestoreEvent(env, { event_kind: "game_removed", at_ms: Date.now(), game_id: gameId, review_reason: removedReason });
+  await closeReports(env.DB, gameId, "actioned");
+  await audit(env.DB, gameId, "takedown", reason, actor, removedReason);
+  await tellWebhooks(env, "review_status_changed", gameId, {});
+}
+
 /** What the developer was told about a hold, rejection or takedown, for the admin pages. */
 function toldDeveloper(stored: string | null): Raw | string {
   const reason = readReviewReason(stored);
@@ -472,12 +482,7 @@ export async function adminForm(env: Env, path: string, form: FormData, actor: s
       const teachProblem = reviewPrecedentProblem(form, "reject");
       if (teachProblem) return gameDetail(env, game.id, teachProblem);
       await saveReviewPrecedent(env, form, "reject", actor);
-      const removedReason = decidedReason("taken_down", contentRule, reason);
-      await setReviewStatus(env.DB, game.id, "removed", removedReason);
-      await recordRestoreEvent(env, { event_kind: "game_removed", at_ms: Date.now(), game_id: game.id, review_reason: removedReason });
-      await closeReports(env.DB, game.id, "actioned");
-      await audit(env.DB, game.id, "takedown", reason, actor, removedReason);
-      await tellWebhooks(env, "review_status_changed", game.id, {});
+      await takeDownGame(env, game.id, contentRule, reason, actor);
     } else if (match[2] === "restore") {
       const current = game.live_version_id ? await versionById(env.DB, game.live_version_id) : null;
       if (current && knownImages(current)) return gameDetail(env, game.id, "Players would get the version that matched known abuse material. Once the developer publishes a clean version, the game can be shown again.");

@@ -1,6 +1,8 @@
 import {
   ACCESS_AREAS,
   ACCOUNT_AREAS,
+  banScopeOf,
+  isBannedMark,
   ACCESS_LEVELS,
   AREA_ACCESS_CHOICES,
   MAXIMUM_API_KEY_COUNT,
@@ -69,6 +71,7 @@ import {
   type SocialSetting,
   type SocialSettings,
 } from "@zaisma/core";
+import { emailBanned } from "./bans.ts";
 import {
   PROVIDERS,
   authConfigured,
@@ -202,6 +205,8 @@ const BOT_CHECK_FAILED = "We couldn't check that you're using a real browser. Wa
 const EMAIL_TAKEN = "That email can't be added. It may already be on another account.";
 const LOCKED_OUT = "Too many wrong passwords were tried on this account today. Sign in on a device you've used before, or with your passkey or email.";
 const CODE_DIDNT_WORK = "That code didn't work. Check it, or go back and get a new one.";
+/** What a whole-account ban says at sign-in (bans.ts), once the password is right. */
+const ACCOUNT_CLOSED = "This account is closed for breaking Zaisma's rules.";
 const takenText = (username: string) => `${username} is taken. Try another, or one of these.`;
 
 export async function handleAccount(request: Request, env: Env, path: string, waitUntil?: WaitUntil): Promise<Response | null> {
@@ -265,9 +270,16 @@ export async function handleAccount(request: Request, env: Env, path: string, wa
       return withCookies(await signinPage(env, back, why, 400), cookies);
     }
     // The proof is kept only for an account that exists: someone deleted for not answering the age question leaves no row.
-    if (await accountById(env.DB, signedIn.userId)) {
+    const existing = await accountById(env.DB, signedIn.userId);
+    if (existing && banScopeOf(existing) === "whole_account") return withCookies(await signinPage(env, back, ACCOUNT_CLOSED, 403), cookies);
+    if (existing) {
       if (isProvider(provider)) await recordProof(env, signedIn, provider);
       return withCookies(redirect(back ?? "/"), [...cookies, ...sessionCookies(env, signedIn), await recordSignIn(request, env, signedIn.userId, provider as SignInKind)]);
+    }
+    // A new account can't take an email a ban carries (bans.ts): nothing is kept.
+    if (realEmail(signedIn.email) && (await isBannedMark(env.DB, "email", signedIn.email))) {
+      await deleteAuthUser(env, signedIn.userId);
+      return withCookies(await signinPage(env, back, emailBanned().messageForPeople, 403), cookies);
     }
     // New here, and they answered the age question first: pick a username to finish (the proof is kept once the account is made).
     if (joinBand(request, env)) return withCookies(redirect(`/join/username${nextQuery(back)}`), [...cookies, ...sessionCookies(env, signedIn), ...(isProvider(provider) ? [setCookie(env, "zaisma_via", provider, { maximumAgeSec: JOIN_DURATION_SEC })] : [])]);
@@ -295,6 +307,11 @@ export async function handleAccount(request: Request, env: Env, path: string, wa
     if (signedIn === "no-password") return await signinPage(env, next, "This account doesn't have a password yet. Use Forgot your password to get in with your email, then add one.", 400, login);
     if (signedIn === "wrong") return await signinPage(env, next, "That username and password don't match. Check them and try again.", 400, login);
     if (signedIn === "failed") return message(env, "Couldn't sign you in", "Something went wrong on Zaisma's side. Try again in a minute.", 502);
+    // A closed account hears why once the password is right, and gets no session.
+    if (account && banScopeOf(account) === "whole_account") {
+      await signOutEverywhere(env, signedIn.access, connectionAddress);
+      return await signinPage(env, next, ACCOUNT_CLOSED, 403, login);
+    }
     await recordProof(env, signedIn, "password");
     return withCookies(redirect(next ?? "/"), [...sessionCookies(env, signedIn), await recordSignIn(request, env, signedIn.userId, "password")]);
   }
@@ -323,6 +340,8 @@ export async function handleAccount(request: Request, env: Env, path: string, wa
     // The code opens the account only while that address is still its own: one sent before the address changed or came off opens nothing.
     const accountId = codeAccountId && (await authUserIdByEmail(env, email)) === codeAccountId ? codeAccountId : null;
     if (!accountId) return await codePage(env, email, next, CODE_DIDNT_WORK, kind);
+    const codeAccount = await accountById(env.DB, accountId);
+    if (codeAccount && banScopeOf(codeAccount) === "whole_account") return await signinPage(env, next, ACCOUNT_CLOSED, 403);
     const signedIn = await sessionForUser(env, accountId, connectionAddress);
     if (!signedIn) return message(env, "Couldn't sign you in", "Something went wrong on Zaisma's side. Get a new code in a minute and try again.", 502);
     await recordProof(env, signedIn, "email_code");
@@ -536,6 +555,7 @@ export async function handleAccount(request: Request, env: Env, path: string, wa
     if (!EMAIL.test(email)) return done(await accountPage(env, session, false, "Enter an email address."));
     if (email === realEmail(session.email)?.toLowerCase()) return done(redirect("/account#signing-in"));
     if (!(await passesBotCheck("email_code"))) return done(await accountPage(env, session, false, BOT_CHECK_FAILED));
+    if (await isBannedMark(env.DB, "email", email)) return done(await accountPage(env, session, false, emailBanned().messageForPeople));
     const holder = await authUserIdByEmail(env, email);
     if (holder) return done(await accountPage(env, session, false, EMAIL_TAKEN));
     const sent = holder === undefined ? "failed" : await sendEmailCode(env, { email, accountId: account.id, kind: "add_email", reason: "add_email" });

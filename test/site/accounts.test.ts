@@ -28,6 +28,8 @@ import { html } from "../../apps/site/src/markup.ts";
 import { blockSheet } from "../../apps/site/src/blocks.ts";
 import { configuredRateLimit, countingRateLimiter } from "../rate-limits.ts";
 import siteWranglerText from "../../apps/site/wrangler.jsonc?raw";
+import { banAccount } from "../../apps/site/src/bans.ts";
+import { personOwner as personOwnerOf } from "@zaisma/core";
 
 const SITE = "https://zaisma.test";
 const SUPABASE = "https://supabase.test";
@@ -246,7 +248,7 @@ beforeEach(async () => {
     }
     return url.origin === SUPABASE ? fakeSupabase(url, init) : realFetch(input, init);
   });
-  await env.DB.exec("DELETE FROM email_codes; DELETE FROM email_code_requests; DELETE FROM security_events; DELETE FROM security_places; DELETE FROM device_marks; DELETE FROM wrong_passwords; DELETE FROM forum_posts; DELETE FROM forum_topic_tags; DELETE FROM forum_votes; DELETE FROM forum_follows; DELETE FROM forum_media; DELETE FROM forum_mentions; DELETE FROM forum_topics; DELETE FROM played; DELETE FROM games_ever_played; DELETE FROM player_erases; DELETE FROM presences; DELETE FROM room_players; DELETE FROM live_rooms; DELETE FROM friendships; DELETE FROM friend_invites; DELETE FROM blocks; DELETE FROM profile_reports; DELETE FROM game_images; DELETE FROM api_keys; DELETE FROM passkeys; DELETE FROM session_proofs; DELETE FROM save_history; DELETE FROM saves; DELETE FROM audit_log; DELETE FROM tester_links; DELETE FROM reports; DELETE FROM versions; DELETE FROM game_deletions; DELETE FROM retired_game_slugs; DELETE FROM credit_entries; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM accounts;");
+  await env.DB.exec("DELETE FROM email_codes; DELETE FROM email_code_requests; DELETE FROM security_events; DELETE FROM security_places; DELETE FROM device_marks; DELETE FROM wrong_passwords; DELETE FROM forum_posts; DELETE FROM forum_topic_tags; DELETE FROM forum_votes; DELETE FROM forum_follows; DELETE FROM forum_media; DELETE FROM forum_mentions; DELETE FROM forum_topics; DELETE FROM played; DELETE FROM games_ever_played; DELETE FROM player_erases; DELETE FROM presences; DELETE FROM room_players; DELETE FROM live_rooms; DELETE FROM friendships; DELETE FROM friend_invites; DELETE FROM blocks; DELETE FROM profile_reports; DELETE FROM game_images; DELETE FROM api_keys; DELETE FROM passkeys; DELETE FROM session_proofs; DELETE FROM save_history; DELETE FROM saves; DELETE FROM audit_log; DELETE FROM tester_links; DELETE FROM reports; DELETE FROM versions; DELETE FROM game_deletions; DELETE FROM retired_game_slugs; DELETE FROM credit_entries; DELETE FROM banned_marks; DELETE FROM ban_matches; DELETE FROM owner_cards; DELETE FROM stripe_connect_states; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM accounts;");
 });
 
 afterEach(() => {
@@ -4827,5 +4829,86 @@ describe("sign-in keeps its promises", () => {
     expect(asks.filter((ask) => ask === "sent")).toHaveLength(3);
     expect(asks.filter((ask) => ask === "too-many")).toHaveLength(3);
     expect(await env.DB.prepare("SELECT COUNT(*) AS request_count FROM email_code_requests").first()).toEqual({ request_count: 3 });
+  });
+});
+
+// --- Bans (apps/site/src/bans.ts) ---
+
+describe("bans at sign-in", () => {
+  const ban = async (username: string, banScope: "developer" | "whole_account") => {
+    const account = (await accountById(env.DB, await idOf(username)))!;
+    await banAccount(env, { account, banScope, why: "Illegal content.", contentRule: "child_safety", actor: "julius@zaisma.test" });
+  };
+
+  it("closes a whole-account ban's sessions, and its right password makes none", async () => {
+    const b = new Browser();
+    await join(b);
+    expect((await b.go("/account")).status).toBe(200);
+    await ban("Night_Owl", "whole_account");
+    expect((await b.go("/account")).headers.get("location")).toMatch(/^\/signin/);
+
+    const fresh = new Browser();
+    const page = await signIn(fresh, { username: "Night_Owl", password: PASSWORD });
+    expect(page.status).toBe(403);
+    expect(await page.text()).toContain("This account is closed for breaking Zaisma&#39;s rules.");
+    expect(fresh.jar.has("__Host-zaisma")).toBe(false);
+    // A wrong password says only that, so the page doesn't tell who's banned.
+    expect(await (await signIn(new Browser(), { username: "Night_Owl", password: "not the password" })).text()).not.toContain("closed");
+    // An email code and Google don't open it either.
+    expect((await signInByEmail(new Browser(), "fox@example.com")).status).toBe(403);
+    const viaGoogle = new Browser();
+    expect((await viaProvider(viaGoogle, "/signin/with/google", "fox@example.com")).status).toBe(403);
+    expect(viaGoogle.jar.has("__Host-zaisma")).toBe(false);
+  });
+
+  it("keeps a developer ban signed in", async () => {
+    const b = new Browser();
+    await join(b);
+    await ban("Night_Owl", "developer");
+    expect((await b.go("/account")).status).toBe(200);
+    const games = await b.go("/dashboard");
+    expect(await games.text()).toContain("Zaisma banned this account&#39;s developer side for breaking Zaisma&#39;s rules.");
+    expect((await b.go("/dashboard/settings")).headers.get("location")).toBe("/dashboard");
+  });
+
+  it("refuses a banned email on another account, and on a new one from Google", async () => {
+    await join(new Browser());
+    await ban("Night_Owl", "developer");
+
+    const other = new Browser();
+    await join(other, null, "Kind_Badger");
+    const added = await other.go("/account/email", { email: "Fox@Example.com", turnstile_token: "email_code" });
+    expect(await added.text()).toContain("This email can&#39;t be used on Zaisma.");
+    expect(emails.filter((sent) => JSON.stringify(sent).includes("Fox@Example.com"))).toEqual([]);
+
+    const fromGoogle = new Browser();
+    await fromGoogle.go("/join/age", BIRTH_ADULT);
+    users.delete("fox@example.com");
+    const refused = await viaProvider(fromGoogle, "/signin/with/google", "fox@example.com");
+    expect(refused.status).toBe(403);
+    expect(await refused.text()).toContain("This email can&#39;t be used on Zaisma.");
+    expect(fromGoogle.jar.has("__Host-zaisma")).toBe(false);
+  });
+
+  it("refuses connecting a banned Stripe account, and disconnects nothing", async () => {
+    const first = new Browser();
+    await join(first);
+    const firstOwner = await personOwnerOf(env.DB, await idOf("Night_Owl"));
+    await env.DB.prepare("UPDATE owners SET stripe_account_id = 'acct_banned_1' WHERE id = ?").bind(firstOwner.id).run();
+    await ban("Night_Owl", "developer");
+
+    const b = new Browser();
+    await join(b, null, "Kind_Badger");
+    const owner = await personOwnerOf(env.DB, await idOf("Kind_Badger"));
+    await env.DB.prepare("INSERT INTO stripe_connect_states (state, owner_id, expires_at_ms) VALUES ('state-1', ?, ?)").bind(owner.id, Date.now() + 60_000).run();
+    const before = globalThis.fetch;
+    vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) =>
+      new URL(input instanceof Request ? input.url : String(input)).pathname === "/oauth/token" ? Promise.resolve(Response.json({ stripe_user_id: "acct_banned_1" })) : before(input, init),
+    );
+    const back = await b.go("/stripe/connect-return?state=state-1&code=ac_1");
+    expect(back.headers.get("location")).toBe(`${SITE}/dashboard/settings?stripe=stripe_account_banned#payments`);
+    expect(await env.DB.prepare("SELECT stripe_account_id FROM owners WHERE id = ?").bind(owner.id).first()).toEqual({ stripe_account_id: null });
+    expect(await env.DB.prepare("SELECT stripe_account_id FROM owners WHERE id = ?").bind(firstOwner.id).first()).toEqual({ stripe_account_id: "acct_banned_1" });
+    expect(await (await b.go("/dashboard/settings?stripe=stripe_account_banned")).text()).toContain("This Stripe account can&#39;t be connected to Zaisma.");
   });
 });

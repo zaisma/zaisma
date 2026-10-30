@@ -270,7 +270,9 @@ export async function inspectVersion(env: Env, version: Version, game: Game, dep
   // 2b. A re-upload of another developer's game waits for a person; the developer isn't told which game.
   const isRecheck = reported !== undefined;
   const matchedGame = isRecheck ? null : await findMatchedGame(env, game, files);
-  if (matchedGame) {
+  if (matchedGame?.isBannedOwner) {
+    findings.push({ stage: "static", severity: "hold", code: "matches_banned_account_files", message: REVIEW_CODES.matches_banned_account_files.meaning });
+  } else if (matchedGame) {
     const original = await gameById(env.DB, matchedGame.gameId);
     findings.push({ stage: "static", severity: "hold", code: "matches_another_developers_game", message: `${matchedGame.matchedFileCount} of its ${matchedGame.comparedFileCount} files were sent first by another developer, in ${original?.slug ?? matchedGame.gameId}.` });
   }

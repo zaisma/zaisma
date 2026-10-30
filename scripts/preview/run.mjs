@@ -600,6 +600,8 @@ await seedConfirmItsYou();
 seedDeveloperSettings();
 // A developer whose account can be deleted with its games, made again once it's gone.
 await seedDeletingDeveloper();
+// A banned developer and a closed account (apps/site/src/bans.ts).
+await seedBans();
 stepDone("account states");
 // Pretend play stats for two games, so the dashboard's Plays section has something to show. Real
 // presses of Play in the preview add to them.
@@ -710,6 +712,8 @@ Zaisma preview is running. Nothing here touches the live site.
                   ${SITE}/g/tiny-farm?play names it: "Online play runs on the developer's own server: play.example.com")
   Make an account ${SITE}/join  (try the username Preview_Studio to see it taken, with free ones to tap)
   Sign in         ${SITE}/signin  (Preview_Studio, password "${PASSWORD}"; Old_Timer has no password yet)
+  Bans            ${SITE}/dashboard  (as Banned_Dev: why it's banned and each game's Export everything, no Make a game);
+                  ${SITE}/signin  (Closed_Player with the password: "This account is closed for breaking Zaisma's rules.")
   Forgot password ${SITE}/signin/email  (old@example.test or legacy@example.test; the code arrives in the mailbox below)
   Mailbox         ${MAIL}  (the email codes the preview sent, as players get them; nothing goes to a real address)
   Feedback        the Feedback button at the bottom right of every page: click a thing or drag a box to comment; a session runs
@@ -1911,6 +1915,27 @@ async function seedDeletingDeveloper() {
       const made = await gone("/dashboard/new", { title });
       if ((made.headers.get("location") ?? "").includes("done=made")) break;
     }
+  }
+}
+
+/**
+ * Bans (apps/site/src/bans.ts): Banned_Dev's developer side is banned, so its game Password Quest is taken down and
+ * its Your games shows why with Export everything; Closed_Player's whole account is banned, so its right password
+ * says the account is closed. Both are banned once, through the admin MCP's ban_account.
+ */
+async function seedBans() {
+  const isMade = async (username) => !(await (await fetch(`${SITE}/api/username-check?username=${username}`)).json()).is_available;
+  const banAccount = (toolArguments) =>
+    fetch(`${SITE}/admin/mcp`, { method: "POST", headers: { "content-type": "application/json", accept: "application/json, text/event-stream" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "ban_account", arguments: toolArguments } }) });
+  if (!(await isMade("Banned_Dev"))) {
+    const banned = await signedIn({ name: "Banned_Dev", email: "banned@example.test", year: "1990" }, "198.51.100.240");
+    await fetch(`${SITE}/admin/publishing/add`, { method: "POST", body: new URLSearchParams({ username: "Banned_Dev" }), headers: { origin: SITE }, redirect: "manual" });
+    await banned("/dashboard/new", { title: "Password Quest" });
+    await banAccount({ username: "Banned_Dev", ban_scope: "developer", why: "Its game asked players for their passwords.", content_rule: "malware" });
+  }
+  if (!(await isMade("Closed_Player"))) {
+    await signedIn({ name: "Closed_Player", year: "1990" }, "198.51.100.241");
+    await banAccount({ username: "Closed_Player", ban_scope: "whole_account", why: "Illegal content." });
   }
 }
 
