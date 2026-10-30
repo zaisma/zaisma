@@ -600,6 +600,9 @@ export const PAGE_SHAPE_STYLES = `
    the frame. A full page's world (its backdrop or stage) runs to the screen's edges behind. On a phone every shape is the screen less its margins. */
 html[data-page-shape] body > main { width: min(var(--size-page-wide), calc(100% - 2 * var(--pad-pane))); margin: 0 auto; }
 html[data-page-shape="reading"] body > main:not(:has(> .sidebar-layout)) { width: min(var(--size-page-reading), calc(100% - 2 * var(--pad-pane))); }
+/* A pane that fits what's in it, placed straight in the page's column (or a stack of the page's), sits in its middle, under the header's,
+   never at its start. */
+html[data-page-shape] body > main > .glass-pane.fit, html[data-page-shape] body > main > .layout-stack > .stack-cell > .glass-pane.fit { margin-inline: auto; }
 /* The drawings in the gallery: a screen in its proportions, its world, the header and footer in the frame, and the page's panes at its width. */
 .shape-drawing { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: space-evenly; width: 100%; aspect-ratio: 16 / 9; overflow: hidden; background: var(--well); box-shadow: var(--well-shade); clip-path: var(--cut-shape); }
 .shape-drawing.on-laptop { aspect-ratio: 16 / 10; }

@@ -245,6 +245,8 @@ Every rebuilt page says what it is (`layout()`'s `pageShape`, `data-page-shape` 
 | `wide` | Covers, cards, tables and charts: Browse, the gallery | The wide frame, `--size-page-wide` (1680px), less the margins |
 | `full` | A page whose world is the page: the home, a game's page, the city | Its world to the screen's edges; its panes in the wide frame |
 
+A pane that fits what's in it, placed straight in the page's column (or in a stack of the page's), sits in the column's middle, under the header's, never at its start: the page layout centers it, so no page can set one off to a side.
+
 A page that doesn't fit the rule gets the shape closest to it, and its pull request says why.
 
 ### Pane sizes
