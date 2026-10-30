@@ -186,11 +186,10 @@ span.hairline { flex: 1; border-top: var(--divider); }
 .carving > .cut-line polygon { stroke: var(--carve-rim); stroke-width: 2; }
 :is(label, a, button, .shell):hover > .carving.is-used, .carving.is-used:hover, .carving.is-pointed { --face-color: var(--carving-face-pointed); }
 .carving.deep { --face-color: var(--carving-deep-face); box-shadow: var(--carving-deep-shade); }
-/* A rail (navigation.ts) is a deep carving, its channel, with a groove a hair inside it, cut with it, and a thumb sliding in the groove:
-   the white slab you drag, square along the channel and cut by its ends only where it reaches them. Dragged, its leading edge runs orange.
-   Inside a carving or compact glass, it keeps the compact frame gap from the edges (--rail-inset). */
-.rail-groove { position: absolute; inset: 2px; clip-path: var(--cut-shape); filter: var(--thumb-cast); }
-.rail-groove > .cut-line { display: none; }
+/* A rail (navigation.ts) is a deep carving, its channel, with a groove a hair inside it and a thumb sliding in the groove: the white slab you
+   drag, its ends slanted as the channel's are. Dragged, its leading edge runs orange. Inside a carving or compact glass, it keeps the compact
+   frame gap from the edges (--rail-inset). */
+.rail-groove { position: absolute; inset: 2px; filter: var(--thumb-cast); }
 .rail-thumb { position: absolute; top: 0; left: 0; right: 0; background: var(--thumb-face); }
 .rail.sideways .rail-thumb { right: auto; bottom: 0; }
 .rail.dragging .rail-thumb { box-shadow: inset 2px 0 0 var(--run); }

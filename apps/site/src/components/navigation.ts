@@ -345,6 +345,9 @@ export const RAIL_SCRIPT = `/* rail */(function () {
     var groove = bar.querySelector(".rail-groove"), thumb = bar.querySelector(".rail-thumb");
     // Its reach (the width a pointer finds it in) and its channel's width, centered in it.
     var css = getComputedStyle(bar), reachPx = parseFloat(css.getPropertyValue("--rail-reach")) || 16, widthPx = parseFloat(css.getPropertyValue("--rail-width")) || 10;
+    // The groove sits 2px inside the channel, so its slanted ends lie 2px in from the channel's: the thumb stops this far along it, its own
+    // slant flush against the groove's end.
+    var SLANT_IN_PX = 2 * Math.SQRT2;
     if (isPage) document.documentElement.classList.add("own-scroll"); else scroller.classList.add("own-scroll");
     // Shown or not by its class, never by hidden: WebKit checks the page's :has() rules on [hidden] again over the whole page each time any
     // element's hidden changes, seconds on a page of a hundred boxes.
@@ -376,30 +379,14 @@ export const RAIL_SCRIPT = `/* rail */(function () {
       });
       return { part: part, mark: mark, name: name };
     });
-    // Names whose marks sit close would lie over each other: each keeps at least its own size (and a gap) from the last, along the rail,
-    // pulled back in where the last would run past the rail's end. --label-shift moves a name from its mark.
-    var LABEL_GAP_PX = 4;
+    // --label-shift moves a name from its mark.
     function spread(track) {
-      // Sideways, only one name shows at a time (the nearest, below): each sits over its own mark, kept inside the rail's ends.
-      if (isSide) {
-        marks.forEach(function (m) {
-          if (m.mark.hidden) return;
-          var at = parseFloat(m.mark.style.left) || 0, half = m.size / 2, center = Math.max(half, Math.min(track - half, at));
-          m.name.style.setProperty("--label-shift", (center - at).toFixed(1) + "px");
-        });
-        return;
-      }
-      var placed = marks.filter(function (m) { return !m.mark.hidden; }).map(function (m) {
-        return { m: m, at: parseFloat(m.mark.style[isSide ? "left" : "top"]) || 0, size: m.size };
-      }).sort(function (one, other) { return one.at - other.at; });
-      placed.forEach(function (p, i) { p.center = i ? Math.max(p.at, placed[i - 1].center + (placed[i - 1].size + p.size) / 2 + LABEL_GAP_PX) : p.at; });
-      for (var i = placed.length - 1; i >= 0; i--) {
-        var p = placed[i], most = i === placed.length - 1 ? Math.max(p.at, track - p.size / 2) : placed[i + 1].center - (placed[i + 1].size + p.size) / 2 - LABEL_GAP_PX;
-        if (p.center > most) p.center = most;
-      }
-      // …and never before the rail's start: where they can't all fit, the last ones run past its end instead.
-      placed.forEach(function (p, i) { var least = i ? placed[i - 1].center + (placed[i - 1].size + p.size) / 2 + LABEL_GAP_PX : Math.min(p.at, p.size / 2); if (p.center < least) p.center = least; });
-      placed.forEach(function (p) { p.m.name.style.setProperty("--label-shift", (p.center - p.at).toFixed(1) + "px"); });
+      // Only one name shows at a time (near, below): each sits by its own mark, kept inside the rail's ends.
+      marks.forEach(function (m) {
+        if (m.mark.hidden) return;
+        var at = parseFloat(m.mark.style[isSide ? "left" : "top"]) || 0, half = (m.size || 0) / 2, center = Math.max(half, Math.min(track - half, at));
+        m.restShift = (center - at).toFixed(1) + "px"; m.name.style.setProperty("--label-shift", m.restShift);
+      });
     }
     // Sideways, everything below runs along x instead of y: the box's left edge, its width, the pointer's x.
     function at() { return isPage ? window.scrollY : isSide ? scroller.scrollLeft : scroller.scrollTop; }
@@ -415,20 +402,32 @@ export const RAIL_SCRIPT = `/* rail */(function () {
         placed.max = placed.whole - placed.view;
         if (above) placed.top = Math.round(above.getBoundingClientRect().bottom + GUTTER_PX) + "px";
         // Down a box, it runs the box's height at the right, keeping --rail-inset (the frame gap) from the edges of the glass or carving round
-        // it, and never past the box itself: so it's as clear of a pane's edge as anything with an edge, and where the box reaches the pane's
-        // top or foot, the channel's end meets the corner at that gap and the edge rule cuts it along it.
-        if (!isPage && !isSide) {
+        // it, and never past the box itself: so it's as clear of a pane's edge as anything with an edge. Its channel's ends are always
+        // slanted, longest on the side toward what scrolls; where the box reaches a cut corner, the end stops where its slant keeps that same
+        // gap from the corner's cut. Sideways, along a pane's foot, its ends keep the gap from the foot's corners the same way.
+        if (!isPage) {
           var holder = scroller.closest("[data-glass], .carving"), parent = bar.offsetParent;
           if (holder && parent) {
-            var from = parent.getBoundingClientRect(), box = scroller.getBoundingClientRect(), edge = holder.getBoundingClientRect(), inset = parseFloat(getComputedStyle(holder).getPropertyValue("--rail-inset")) || 0;
-            var top = Math.max(box.top, edge.top + inset), bottom = Math.min(box.bottom, edge.bottom - inset), right = Math.min(box.right, edge.right - inset);
-            placed.box = { top: top - from.top - parent.clientTop, height: Math.max(0, bottom - top), left: right - from.left - parent.clientLeft - (reachPx + widthPx) / 2 };
+            var edge = holder.getBoundingClientRect(), inset = parseFloat(getComputedStyle(holder).getPropertyValue("--rail-inset")) || 0, short = Math.min(edge.width, edge.height);
+            var cuts = (holder.cutCorners || (window.zaismaCorners ? window.zaismaCorners(holder, "pane") : [0, 0, 0, 0])).map(function (cut) { return Math.min(cut, Math.round(short * 0.3)); });
+            // How far from a corner's cut a slanted end has to stop: along the edge, the cut less the channel's width, plus what the gap adds on a slant.
+            var slack = inset * (Math.SQRT2 - 1), fromCut = function (cut) { return Math.max(inset, cut - widthPx + slack); };
+            if (isSide) {
+              var own = bar.getBoundingClientRect(), shownLeft = own.left - (parseFloat(bar.style.marginLeft) || 0), shownRight = own.right + (parseFloat(bar.style.marginRight) || 0);
+              var isAtFoot = edge.bottom - own.bottom <= inset + 2;
+              placed.side = isAtFoot ? { left: Math.max(0, edge.left + fromCut(cuts[3]) - shownLeft), right: Math.max(0, shownRight - (edge.right - fromCut(cuts[2]))) } : { left: 0, right: 0 };
+            } else {
+              var from = parent.getBoundingClientRect(), box = scroller.getBoundingClientRect();
+              var top = Math.max(box.top, edge.top + fromCut(cuts[1])), bottom = Math.min(box.bottom, edge.bottom - fromCut(cuts[2])), right = Math.min(box.right, edge.right - inset);
+              placed.box = { top: top - from.top - parent.clientTop, height: Math.max(0, bottom - top), left: right - from.left - parent.clientLeft - (reachPx + widthPx) / 2 };
+            }
           }
         }
         return placed;
       },
       putPlace: function (placed) {
         if (placed.top) bar.style.top = placed.top;
+        if (placed.side) { bar.style.marginLeft = placed.side.left.toFixed(1) + "px"; bar.style.marginRight = placed.side.right.toFixed(1) + "px"; }
         if (placed.box) { bar.style.top = placed.box.top.toFixed(1) + "px"; bar.style.height = placed.box.height.toFixed(1) + "px"; bar.style.left = placed.box.left.toFixed(1) + "px"; }
         if (isShown !== placed.max > 4) { isShown = placed.max > 4; bar.classList.toggle("is-on", isShown); }
         // The box makes room for its rail by this class, never by a :has() on the rail beside it, for the same reason.
@@ -439,9 +438,9 @@ export const RAIL_SCRIPT = `/* rail */(function () {
         if (!isShown) return null;
         var scrollPadding = isPage && marks.length ? offset() : 0;
         return {
-          // The thumb runs the groove, a little in from the rail's own ends.
-          track: isSide ? groove.clientWidth : groove.clientHeight,
-          start: isSide ? groove.offsetLeft + groove.parentElement.offsetLeft : groove.offsetTop + groove.parentElement.offsetTop,
+          // The thumb runs the groove between its slanted ends.
+          track: (isSide ? groove.clientWidth : groove.clientHeight) - 2 * SLANT_IN_PX,
+          start: (isSide ? groove.offsetLeft + groove.parentElement.offsetLeft : groove.offsetTop + groove.parentElement.offsetTop) + SLANT_IN_PX,
           at: at(),
           marks: marks.map(function (m) {
             var shown = Boolean(m.part.offsetParent);
@@ -471,7 +470,7 @@ export const RAIL_SCRIPT = `/* rail */(function () {
     function layout() { if (drag) { isLayoutDue = true; return; } layOutSoon(rail); }
     // Scrolling only moves the thumb: the rail's size and its marks change only with the page's size (layout, above), so a scroll
     // never reads the page's layout.
-    function move(atPx) { if (isShown) thumb.style.transform = (isSide ? "translateX(" : "translateY(") + ((size.track - size.thumb) * Math.min(1, (atPx === undefined ? at() : atPx) / size.max)).toFixed(1) + "px)"; }
+    function move(atPx) { if (drag) near(); if (isShown) thumb.style.transform = (isSide ? "translateX(" : "translateY(") + (SLANT_IN_PX + (size.track - size.thumb) * Math.min(1, (atPx === undefined ? at() : atPx) / size.max)).toFixed(1) + "px)"; }
     var sleep = 0, queued = false;
     // Woken only once a scroll: the class is set as it wakes, not on every scroll event, so the page's watchers hear of it once.
     function wake() { if (!bar.classList.contains("awake")) bar.classList.add("awake"); clearTimeout(sleep); sleep = setTimeout(function () { bar.classList.remove("awake"); }, 1100); }
@@ -548,12 +547,20 @@ export const RAIL_SCRIPT = `/* rail */(function () {
         if (progress < 1) requestAnimationFrame(step); else done();
       })(startedAt);
     }
-    // Sideways, the name shown is the mark's nearest the pointer, or the thumb's middle while dragging.
+    // One name shows at a time: the mark's nearest the pointer, sitting by its mark; while dragging, the part the thumb is in (the last mark
+    // its middle has passed, or the first), riding beside the thumb's middle.
     function near(event) {
-      if (!isSide || !marks.length) return;
-      var spotPx = drag ? size.start + (size.track - size.thumb) * Math.min(1, at() / size.max) + size.thumb / 2 : event.clientX - bar.getBoundingClientRect().left, best = null, gap = Infinity;
-      marks.forEach(function (m) { if (m.mark.hidden) return; var away = Math.abs(parseFloat(m.mark.style.left) - spotPx); if (away < gap) { gap = away; best = m; } });
-      marks.forEach(function (m) { m.mark.classList.toggle("is-near", m === best); });
+      if (!marks.length) return;
+      var box = bar.getBoundingClientRect(), thumbMiddle = size.start + (size.track - size.thumb) * Math.min(1, at() / size.max) + size.thumb / 2;
+      var spotPx = drag ? thumbMiddle : isSide ? event.clientX - box.left : event.clientY - box.top, best = null, gap = Infinity;
+      var shown = marks.filter(function (m) { return !m.mark.hidden; }), atOf = function (m) { return parseFloat(m.mark.style[isSide ? "left" : "top"]) || 0; };
+      if (drag) shown.forEach(function (m) { if (!best || atOf(m) <= spotPx + 0.5) best = m; });
+      else shown.forEach(function (m) { var away = Math.abs(atOf(m) - spotPx); if (away < gap) { gap = away; best = m; } });
+      marks.forEach(function (m) {
+        m.mark.classList.toggle("is-near", m === best);
+        if (m === best && drag) m.name.style.setProperty("--label-shift", (spotPx - atOf(m)).toFixed(1) + "px");
+        else if (m.restShift !== undefined) m.name.style.setProperty("--label-shift", m.restShift);
+      });
     }
     function farAway() { marks.forEach(function (m) { m.mark.classList.remove("is-near"); }); }
     bar.addEventListener("pointermove", near);
@@ -870,12 +877,13 @@ component({
   group: "panes",
   subgroup: "materials",
   after: "light",
-  summary: "Zaisma's own scrollbar, on every device: a channel carved in the glass with a slab sliding in it, at the frame gap from the glass's edges, its ends cut along a corner where they reach one. It rests faintly, wakes while things move, and drags with a finger or the mouse.",
+  summary: "Zaisma's own scrollbar, on every device: a channel carved in the glass with a slab sliding in it, at the frame gap from the glass's edges, its ends always slanted so the thumb slides flush into them. It rests faintly, wakes while things move, and drags with a finger or the mouse.",
   styles: `
 /* Zaisma's own scrollbar, on every device: a channel carved in the glass with a slab sliding in it (the materials, materials.ts), resting
    faintly and waking while it moves. Down a box it runs the box's height at the right, at the frame gap from the edges of the glass round
-   it (RAIL_SCRIPT places it); for the page, down the page's right gutter; sideways, under the box. Where its channel reaches a cut corner,
-   the edge rule cuts its end along it, and the thumb, cut with the channel's groove, takes that cut only once it's there. */
+   it (RAIL_SCRIPT places it); for the page, down the page's right gutter; sideways, under the box. Its channel's ends and its thumb's are
+   always slanted, longest toward what scrolls, so the thumb slides flush into either end; where an end reaches a cut corner, it stops
+   where its slant keeps the frame gap from the corner's cut. */
 .own-scroll { scrollbar-width: none; }
 .own-scroll::-webkit-scrollbar { display: none; }
 .rail { display: none; position: absolute; z-index: 6; top: 0; left: 0; width: var(--rail-reach); opacity: 0.6; transition: opacity var(--motion-arrive); }
@@ -886,15 +894,21 @@ component({
 .rail.awake, .rail:hover, .rail.dragging { opacity: 1; }
 /* What a rail's thumb is dragging follows it freely: it snaps once let go (settle in RAIL_SCRIPT). */
 .own-scroll.is-dragged { scroll-snap-type: none; }
-/* Its channel runs its whole length down the middle of its reach. */
-.rail > .rail-line { position: absolute; top: 0; bottom: 0; left: calc((var(--rail-reach) - var(--rail-width)) / 2); width: var(--rail-width); cursor: pointer; }
+/* Its channel runs its whole length down the middle of its reach, both its ends slanted, longest on the side toward what scrolls; the thumb's
+   ends slant the same way, so at either end it slides flush into the channel's end, as a switch's slab into its well. */
+.rail > .rail-line { position: absolute; top: 0; bottom: 0; left: calc((var(--rail-reach) - var(--rail-width)) / 2); width: var(--rail-width); cursor: pointer;
+  --cut-shape: polygon(0 0, 100% var(--rail-width), 100% calc(100% - var(--rail-width)), 0 100%); }
+.rail-thumb { --thumb-slant: calc(var(--rail-width) - 4px); clip-path: polygon(0 0, 100% var(--thumb-slant), 100% calc(100% - var(--thumb-slant)), 0 100%); }
 .rail-thumb { cursor: grab; }
 .rail.dragging .rail-thumb { cursor: grabbing; }
 /* Sideways (a table, a chart): the same rail laid on its side, under the box, its channel along the foot of its reach, so at a pane's foot it
    sits at the frame gap like anything with an edge. */
 .rail.sideways { position: relative; top: auto; left: auto; width: auto; height: var(--rail-reach); user-select: none; -webkit-user-select: none; }
-.rail.sideways > .rail-line { top: auto; bottom: 0; left: 0; right: 0; width: auto; height: var(--rail-width); }
-/* A mark per part of the page: a hairline etched across the groove (materials.ts) that turns orange when pointed at. Pointing anywhere on the rail opens every mark's name on a small glass label to its left. */
+.rail.sideways > .rail-line { top: auto; bottom: 0; left: 0; right: 0; width: auto; height: var(--rail-width);
+  --cut-shape: polygon(0 0, 100% 0, calc(100% - var(--rail-width)) 100%, var(--rail-width) 100%); }
+.rail.sideways .rail-thumb { clip-path: polygon(0 0, 100% 0, calc(100% - var(--thumb-slant)) 100%, var(--thumb-slant) 100%); }
+/* A mark per part of the page: a hairline etched across the groove (materials.ts) that turns orange when pointed at. Pointing at the rail
+   opens the nearest mark's name on a small glass label to its left; dragging, the name of the part the thumb is in rides beside it. */
 /* Its click area is far bigger than the etch: 24px tall and reaching in over the page, so a mark is easy to hit. */
 .rail-mark { position: absolute; left: -12px; width: 28px; height: 24px; margin-top: -12px; padding: 0; border: 0; cursor: pointer; background: none; }
 .rail-mark::before { content: ""; position: absolute; left: 17px; right: 5px; top: 11.5px; height: 1px; }
@@ -915,9 +929,10 @@ component({
 .rail.sideways .rail-mark span { right: auto; top: auto; left: 50%; bottom: 26px; transform: translateX(calc(-50% + var(--label-shift, 0px)));
   clip-path: polygon(0 100%, 100% 100%, 100% 100%, 0 100%); }
 .rail.sideways:hover .rail-mark span, .rail.sideways.dragging .rail-mark span { clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%); }
-/* A sideways rail has room for one name at a time: the nearest mark's (is-near); the rest stay shut. */
-.rail.sideways .rail-mark:not(.is-near) span { clip-path: polygon(0 100%, 100% 100%, 100% 100%, 0 100%); visibility: hidden;
+/* One name at a time: the nearest mark's (is-near); the rest stay shut. */
+.rail .rail-mark:not(.is-near) span { clip-path: polygon(100% 0, 100% 0, calc(100% - 5px) 100%, calc(100% - 5px) 100%); visibility: hidden;
   transition: var(--glass-transition), clip-path var(--motion-state) ease-out, visibility 0s var(--motion-state); }
+.rail.sideways .rail-mark:not(.is-near) span { clip-path: polygon(0 100%, 100% 100%, 100% 100%, 0 100%); }
 /* In the narrow layout (a phone, or a small window), the page's rail starts below the header. */
 @media (max-width: 760px) {
   .rail[data-rail="page"] { top: 132px; bottom: 10px; }
