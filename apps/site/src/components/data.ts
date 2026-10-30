@@ -1154,7 +1154,7 @@ component({
 /* With parts, the light is what used it, side by side in each part's color, a hairline of the groove between them; past 80% the colors
    stay and the numbers say so, and all used, red stripes run across them. The key names each part with its share: over the track on a
    meter of its own, so the track stays its foot, and under it in a list row or another plate, where the row's lines are over it. Each
-   swatch hangs before its words, so the words keep the margin. */
+   swatch leads its words in line, the key keeping the words margin like the words over it. */
 .usage .usage-groove.has-parts .groove-light { background: none; }
 .usage .usage-groove.has-parts .groove-fill { filter: none; }
 .usage-parts { position: absolute; inset: 0; display: flex; gap: var(--gap-control-row); }
@@ -1167,8 +1167,8 @@ component({
 .usage [data-part="4"] { --part-color: var(--part-4); }
 .usage [data-part="5"] { --part-color: var(--part-5); }
 .usage-key { display: flex; flex-wrap: wrap; gap: var(--gap-words-words) var(--gap-block-block); list-style: none; margin: 0; }
-.usage-key li { position: relative; display: inline-flex; align-items: center; gap: var(--gap-words-words); font: var(--type-facts); color: var(--ink-2); }
-.usage-key .usage-swatch { position: absolute; left: calc(-10px - var(--gap-words-words)); top: calc(50% - 5px); }
+.usage-key li { display: inline-flex; align-items: center; gap: var(--gap-words-words); font: var(--type-facts); color: var(--ink-2); }
+.usage-key .usage-swatch { flex: none; }
 .usage-key b { font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
 .usage-swatch { width: 10px; height: 10px; background: var(--part-color); }
 `,
