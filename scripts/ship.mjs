@@ -30,10 +30,10 @@
 //   npm run ship -- --dry                     say what it would ship; deploy and change nothing
 //   npm run ship -- --dry --commit <ref>      the same for another commit, e.g. HEAD to try a change
 //                                             to this script before it merges (never deploys)
-import { spawnSync } from "node:child_process";
+import { execFile, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, openSync, readFileSync, realpathSync, rmSync, writeFileSync, closeSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { applyEnginesProof, applyNightlySweep, checkState, enginesBaseCommits, judgeCheckedCode, sameCodeCommits, sweepFailedPages } from "./ship-github-check.mjs";
 import { CHECK_GAME_SLUG, CHECK_GAME_URL, PUBLISH_CLI_WORKFLOW_URL, PUBLISH_GAME_SERVER_WORKFLOW_URL, ROOMS_URL, SITE_URL, checkBuckets, checkPackageOnNpm, checkSecurityAddresses, checkUrl, publishedKeyCount, securityTxtProblems } from "./ship-checks.mjs";
@@ -499,13 +499,18 @@ async function checkLiveSite() {
     // It answers 503 when RECEIPT_SIGNING_KEY isn't set or a receipt setting doesn't load: then receipts answer receipts_unavailable.
     checkUrl("receipt keys", `${ROOMS_URL}/.well-known/receipt-jwks.json`, {}, ok((response, body) => response.status === 200 && publishedKeyCount(body) >= 1)),
     checkUrl("security.txt", `${SITE_URL}/.well-known/security.txt`, {}, securityTxtProblems),
-    checkPackageOnNpm("@zaisma/cli", cliVersion, PUBLISH_CLI_WORKFLOW_URL),
-    checkPackageOnNpm("@zaisma/game-server", gameServerVersion, PUBLISH_GAME_SERVER_WORKFLOW_URL),
+    checkPackageOnNpm("@zaisma/cli", cliVersion, PUBLISH_CLI_WORKFLOW_URL, { readPublishRunStatus: () => readPublishRunStatus(PUBLISH_CLI_WORKFLOW_URL) }),
+    checkPackageOnNpm("@zaisma/game-server", gameServerVersion, PUBLISH_GAME_SERVER_WORKFLOW_URL, { readPublishRunStatus: () => readPublishRunStatus(PUBLISH_GAME_SERVER_WORKFLOW_URL) }),
     checkSecurityAddresses({ zaismaKey }),
   ]);
   const checks = [gamePage, mcp, gameFiles, rooms, receiptKeys, securityTxt];
   const securityChecks = [...bucketResults, ...securityResults];
   return { checks, cliResult, gameServerResult, securityChecks };
+}
+// The status of a publish workflow's run for this commit, or null; read without blocking, since other checks may still run.
+function readPublishRunStatus(workflowUrl) {
+  const commandArguments = ["run", "list", "--repo", GITHUB_REPOSITORY, "--workflow", basename(workflowUrl), "--commit", commitSha, "--limit", "1", "--json", "status", "--jq", ".[0].status // empty"];
+  return new Promise((resolve) => execFile("gh", commandArguments, { encoding: "utf8" }, (error, stdout) => resolve(error ? null : stdout.trim() || null)));
 }
 let liveSite;
 const liveCheck = await runThroughInterruptions(
@@ -524,6 +529,10 @@ for (const result of [...checks, cliResult, gameServerResult, ...securityChecks]
 const migrationsNote = appliedMigrations.length ? `migrations applied: ${appliedMigrations.join(", ")}` : "no migrations";
 const failedSecurityChecks = securityChecks.filter((result) => !result.isPass);
 const otherFailedChecks = [...checks, cliResult, gameServerResult].filter((result) => !result.isPass);
+if (failedSecurityChecks.length && failedSecurityChecks.every((result) => !result.isChecked)) {
+  const alsoFailed = otherFailedChecks.length ? `; the live check also failed: ${otherFailedChecks.map((result) => result.note).join("; ")}` : "";
+  finish("FAIL", `${shortSha} deployed (${WORKERS.join(", ")}) but a security check couldn't get an answer, so it isn't known to hold: ${failedSecurityChecks.map((result) => result.note).join("; ")}${alsoFailed}. Ship again once it answers; no check found a door open. ${migrationsNote}; ${mainCheckoutNote}.`, 1);
+}
 if (failedSecurityChecks.length) {
   const alsoFailed = otherFailedChecks.length ? `; the live check also failed: ${otherFailedChecks.map((result) => result.note).join("; ")}` : "";
   finish("FAIL", `${shortSha} deployed (${WORKERS.join(", ")}) but a security check failed, and fixing it goes ahead of everything else: ${failedSecurityChecks.map((result) => result.note).join("; ")}${alsoFailed}. ${migrationsNote}; ${mainCheckoutNote}.`, 1);
