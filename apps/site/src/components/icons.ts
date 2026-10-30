@@ -88,9 +88,8 @@ export const ICONS = {
   link: stroke("0 0 20 20", '<path d="M8.7 11.3a3.2 3.2 0 0 0 4.5 0l2.7-2.7a3.2 3.2 0 0 0-4.5-4.5l-1.1 1.1"/><path d="M11.3 8.7a3.2 3.2 0 0 0-4.5 0l-2.7 2.7a3.2 3.2 0 0 0 4.5 4.5l1.1-1.1"/>'),
   pause: stroke("0 0 20 20", '<path d="M7 4.5v11M13 4.5v11"/>', ' stroke-width="2.2"'),
   // Someone blocked, or something turned off.
-  // The speaker's body is its weight and its waves are light, so it's drawn a little right of its box's middle, to look centered in it.
-  speaker: stroke("0 0 20 20", '<path d="M4 7.6h2.9l4-3.3v11.4l-4-3.3H4z"/><path d="M14.1 7.4a3.7 3.7 0 0 1 0 5.2M16.4 5.2a6.8 6.8 0 0 1 0 9.6"/>'),
-  "speaker-off": stroke("0 0 20 20", '<path d="M4 7.6h2.9l4-3.3v11.4l-4-3.3H4z"/><path d="M14.2 7.6l4.8 4.8M19 7.6l-4.8 4.8"/>'),
+  speaker: stroke("0 0 20 20", '<path d="M3.2 7.6h2.9l4-3.3v11.4l-4-3.3H3.2z"/><path d="M13.3 7.4a3.7 3.7 0 0 1 0 5.2M15.6 5.2a6.8 6.8 0 0 1 0 9.6"/>'),
+  "speaker-off": stroke("0 0 20 20", '<path d="M3.2 7.6h2.9l4-3.3v11.4l-4-3.3H3.2z"/><path d="M13.4 7.6l4.8 4.8M18.2 7.6l-4.8 4.8"/>'),
   ban: stroke("0 0 20 20", '<circle cx="10" cy="10" r="6.8"/><path d="M5.2 5.2l9.6 9.6"/>'),
   bell: stroke("0 0 20 20", '<path d="M5 13.6V9a5 5 0 0 1 10 0v4.6l1.6 2H3.4z"/><path d="M8.3 17.3a1.8 1.8 0 0 0 3.4 0"/>'),
   info: stroke("0 0 20 20", '<circle cx="10" cy="10" r="7.2"/><path d="M10 9v5M10 6.3v.1"/>'),
