@@ -83,6 +83,17 @@ describe("brand files", () => {
     }
   });
 
+  it("draw the favicon's Z whole: every point has both numbers, none cut short", () => {
+    const pointLists = [...readFileSync(join(BRAND, "favicon.svg"), "utf8").matchAll(/points="([^"]*)"/g)].map((match) => match[1]!);
+    expect(pointLists.length).toBeGreaterThan(0);
+    const xs = pointLists.flatMap((list) => list.split(" ").map((point) => {
+      expect(point, `a point in ${list}`).toMatch(/^-?\d+(\.\d+)?,-?\d+(\.\d+)?$/);
+      return Number(point.split(",")[0]);
+    }));
+    // The Z is 4,287 units wide: a whole number that lost its trailing zeros (4000 as 4) leaves it far narrower.
+    expect(Math.max(...xs)).toBeGreaterThan(4000);
+  });
+
   it("are there: every brand file the site names under / is in brand/", () => {
     // A path after a quote, a parenthesis or the site's origin; one added to a page's own path ("/g/" + slug + "/qr-code.svg") or compared
     // with one is a page.
