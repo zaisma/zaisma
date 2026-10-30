@@ -117,7 +117,8 @@ component({
 .frame.sm { --frame: 32px; }
 .frame.xs { --frame: 24px; }
 .frame:not(.more) { --glass-tint: transparent; }
-.frame.glass > .frame-picture { position: absolute; z-index: 2; inset: 0; }
+/* The picture takes its frame's shape: in a pane's corner, the corner's cut, as the frame's glass does. */
+.frame.glass > .frame-picture { position: absolute; z-index: 2; inset: 0; clip-path: var(--glass-clip, none); }
 /* A quiet rim: half the panes' strength, so it reads as glass without framing the face. */
 .frame.glass > .edge { z-index: 4; opacity: 0.5; }
 /* An account's picture fills its frame, or the slab that holds it as art (your picture as the account button). */
