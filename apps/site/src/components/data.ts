@@ -3,7 +3,7 @@ import { component } from "./component.ts";
 import { secondaryButton, primaryButton, textLink } from "./actions.ts";
 import type { ControlMarkup } from "./control-markup.ts";
 import { CUT_LINE, MINUTE_MS, ago, glassPane, groove, icon, tag, type IconName, type TagTone } from "./foundations.ts";
-import { WHEN_EMPTY_STYLES, row } from "./layout.ts";
+import { WHEN_EMPTY_STYLES, row, stack } from "./layout.ts";
 
 /*
  * Data: an account's picture in its cut frame, and the glance list, one line per fact, each in its own look.
@@ -953,7 +953,7 @@ const SHARE_RING_CSS = [0, 1, 2, 3, 4, 5, 6, 7]
   .map((shareIndex) => `.ring:has(.ring-key [data-share="${shareIndex}"]:hover) .ring-part[data-share="${shareIndex}"], .ring:has(.ring-part[data-share="${shareIndex}"]:hover) .ring-part[data-share="${shareIndex}"] { stroke: var(--ink); }
 .ring:has(.ring-part[data-share="${shareIndex}"]:hover) .ring-key [data-share="${shareIndex}"] { --face-color: var(--row-hover); }`)
   .join("\n");
-const chartPane = (options: ChartOptions) => glassPane({ paneWidth: "full", body: chart(options) });
+const chartPane = (options: ChartOptions) => glassPane({ paneWidth: "full", body: stack({ items: [{ kind: "words", markup: chart(options) }] }) });
 
 component({
   name: "Chart",
