@@ -375,6 +375,8 @@ ${GAP_TOKENS.filter((gap) => gap !== "control-row-boxes").map((gap) => `.layout-
 .stack-cell.is-words { padding-inline: var(--pad-words); }
 /* Inside words that already keep the margin, nothing takes it again. */
 :is(.stack-cell, .row-cell, .grid-cell, .pane-foot-start).is-words > *, .pane-head-words > * { --pad-words: 0px; }
+/* A word longer than its cell (a link, a name with no spaces) breaks rather than spill past its holder, at 320px or 200% text. */
+:is(.stack-cell, .row-cell, .grid-cell, .columns-in > .column, .pane-foot-start, .pane-body) { overflow-wrap: break-word; }
 /* A fieldset's legend is laid out as its first part, so the fieldset's own gap spaces it from what follows, as a label is from its field. */
 fieldset > legend { float: left; width: 100%; padding-block: 0; }
 /* Room a sideways track keeps for what lifts in it (.layout-track sets it); none elsewhere. */
