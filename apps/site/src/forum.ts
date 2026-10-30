@@ -339,7 +339,7 @@ export async function listTopics(env: Env, viewer: Viewer, query: ForumQuery) {
   } else where.push("topic.is_shown = 1 AND topic.merged_into_topic_id IS NULL");
   // A key limited to some games lists only those games' topics (and topics about no game), as readableTopic reaches them.
   const gameSlugs = viewer?.access.gameSlugs;
-  const gameScope = gameSlugs ? `(topic.game_id IS NULL OR topic.game_id IN (SELECT id FROM games WHERE slug IN (${gameSlugs.map(() => "?").join(", ")})))` : null;
+  const gameScope = gameScopeSql(gameSlugs);
   if (gameScope) {
     where.push(gameScope);
     binds.push(...gameSlugs!);
@@ -989,12 +989,19 @@ export async function serveMedia(env: Env, viewer: Viewer, mediaId: string, topi
   });
 }
 
-/** How many topics the caller follows have something new since they last opened them. */
+/** The SQL that holds topics to a game-limited key's games (and topics about no game); its binds are the slugs. Null for a key not limited. */
+function gameScopeSql(gameSlugs: string[] | null | undefined): string | null {
+  return gameSlugs ? `(topic.game_id IS NULL OR topic.game_id IN (SELECT id FROM games WHERE slug IN (${gameSlugs.map(() => "?").join(", ")})))` : null;
+}
+
+/** How many topics the caller follows have something new since they last opened them; a key limited to some games counts only those games' topics. */
 export async function unreadCount(env: Env, caller: Caller, isMessages = false): Promise<number> {
+  const gameSlugs = caller.access.gameSlugs;
+  const gameScope = gameScopeSql(gameSlugs);
   const row = await env.DB.prepare(
-    `SELECT COUNT(*) AS topic_count FROM forum_follows followed JOIN forum_topics topic ON topic.id = followed.topic_id WHERE followed.account_id = ? AND topic.is_public = ${isMessages ? 0 : 1} AND COALESCE(topic.last_activity_at_ms, topic.updated_at_ms) > followed.seen_at_ms`,
+    `SELECT COUNT(*) AS topic_count FROM forum_follows followed JOIN forum_topics topic ON topic.id = followed.topic_id WHERE followed.account_id = ? AND topic.is_public = ${isMessages ? 0 : 1} AND COALESCE(topic.last_activity_at_ms, topic.updated_at_ms) > followed.seen_at_ms${gameScope ? ` AND ${gameScope}` : ""}`,
   )
-    .bind(caller.accountId)
+    .bind(caller.accountId, ...(gameScope ? gameSlugs! : []))
     .first<{ topic_count: number }>();
   return row?.topic_count ?? 0;
 }
