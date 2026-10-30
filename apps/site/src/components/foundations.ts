@@ -74,6 +74,8 @@ export interface FloatingPaneOptions {
   hasParts?: boolean;
   /** Its role and what a screen reader calls it, when it isn't a list the owner names (a menu, a group of wheels). */
   role?: "menu" | "group";
+  /** Its rim lights beside the part you point at (Edge light), along its left side: a menu's choices, which carry data-lights. */
+  edgeLight?: "left";
   label?: string;
   /** Shown open where it is, in the page's flow: the gallery's still open states. Over, it lies on its anchor by lineFromTop (a CSS length). */
   isShownInPlace?: boolean;
@@ -88,9 +90,9 @@ export interface FloatingPaneOptions {
  */
 export function floatingPane(options: FloatingPaneOptions): Raw {
   const className = [`placed-${options.placement}`, options.kind ?? "", options.hasParts ? "regular" : "", "glass", options.isShownInPlace ? "in-place" : ""].filter(Boolean).join(" ");
-  return html`<div class="floating-pane ${className}" id="${options.id}"${options.role ? html` role="${options.role}"` : ""}${options.label ? html` aria-label="${options.label}"` : ""} data-glass data-glass-corners="menu"${
+  return html`<div class="floating-pane ${className}" id="${options.id}"${options.role ? html` role="${options.role}"` : ""}${options.label ? html` aria-label="${options.label}"` : ""} data-glass data-glass-corners="menu"${options.edgeLight ? html` data-edge-light="${options.edgeLight}"` : ""}${
     options.isShownInPlace ? (options.lineFromTop ? html` style="--line-from-top: ${options.lineFromTop}"` : "") : raw(' popover="manual"')
-  }>${EDGE}${options.head ? html`<div class="floating-head">${options.head}</div>` : ""}<div class="floating-body scrolls">${options.body}</div></div>`;
+  }>${EDGE}${options.edgeLight ? EDGE_LIGHT : ""}${options.head ? html`<div class="floating-head">${options.head}</div>` : ""}<div class="floating-body scrolls">${options.body}</div></div>`;
 }
 
 export interface WellOptions {
@@ -303,6 +305,9 @@ export const EDGE_LIGHT_SCRIPT = `/* edge light */(function () {
       if (part && holder.contains(part) && canLight(part)) lightUp(part); else dimSoon();
     });
     holder.addEventListener("pointerleave", function () { dim(); holder.classList.remove("is-awake"); });
+    // The keyboard's focus lights it too, where there's no ring of its own (a menu's choices, moved between with the arrow keys).
+    holder.addEventListener("focusin", function (event) { var part = event.target.closest("[data-lights]"); if (part && holder.contains(part) && canLight(part) && part.matches(":focus-visible")) { holder.classList.add("is-awake"); lightUp(part); } });
+    holder.addEventListener("focusout", function (event) { if (!holder.contains(event.relatedTarget)) { dim(); holder.classList.remove("is-awake"); } });
     // A part picked (the one you're on now) no longer lights; one that scrolls inside the holder keeps its light beside it.
     holder.addEventListener("click", function () { setTimeout(function () { if (lit && !canLight(lit)) dim(); }, 0); });
     holder.addEventListener("scroll", function () { if (lit) place(lit, false); }, true);

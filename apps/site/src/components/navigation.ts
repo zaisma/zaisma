@@ -1575,10 +1575,10 @@ export interface FilterMenuOptions {
 export function filterMenu(options: FilterMenuOptions): ControlMarkup {
   // A choice is a Dropdown's (its classes and look), a link to the list with it picked.
   const choice = (label: string, href: string, isCurrent: boolean, choiceIcon?: IconName) =>
-    html`<a href="${href}" class="${DROPDOWN_CHOICE_CLASS}" role="menuitem" tabindex="-1" data-cut-line="8"${isCurrent ? raw(' aria-current="page"') : ""}>${CUT_LINE}${choiceIcon ? icon(choiceIcon) : ""}<span>${label}</span></a>`;
+    html`<a href="${href}" class="${DROPDOWN_CHOICE_CLASS}" role="menuitem" tabindex="-1" data-lights data-cut-line="8"${isCurrent ? raw(' aria-current="page"') : ""}>${CUT_LINE}${choiceIcon ? icon(choiceIcon) : ""}<span>${label}</span></a>`;
   const button = secondaryButton("Filter", { type: "button", icon: "filter", controls: options.id, isExpanded: Boolean(options.isOpen), reactionCount: options.filterCount || undefined });
   const opener = (groupName: string, inside: Raw, className: string) =>
-    html`<button type="button" class="${DROPDOWN_CHOICE_CLASS} ${className}" role="menuitem" tabindex="-1" aria-haspopup="menu" data-cut-line="8" data-filter-opens="${groupName}">${CUT_LINE}${inside}</button>`;
+    html`<button type="button" class="${DROPDOWN_CHOICE_CLASS} ${className}" role="menuitem" tabindex="-1" aria-haspopup="menu" data-lights data-cut-line="8" data-filter-opens="${groupName}">${CUT_LINE}${inside}</button>`;
   const main = html`<div class="dropdown-in filter-panel" data-filter-panel=""${options.openGroupName ? raw(" hidden") : ""}>${options.groups.map((group) =>
     opener(group.groupName, html`<span>${group.label}</span><span class="filter-picked">${group.pickedLabel}</span>${icon("chevron-right")}`, "filter-group"),
   )}${options.clearHref ? html`${divider()}${choice("Clear filters", options.clearHref, false, "close")}` : ""}</div>`;
@@ -1586,7 +1586,7 @@ export function filterMenu(options: FilterMenuOptions): ControlMarkup {
     (group) =>
       html`<div class="dropdown-in filter-panel" data-filter-panel="${group.groupName}"${options.openGroupName === group.groupName ? "" : raw(" hidden")}>${opener("", html`${icon("arrow-back")}<span>${group.label}</span>`, "filter-back")}<hr class="hairline" role="separator">${group.choices.map((each) => choice(each.label, each.href, each.isCurrent))}</div>`,
   );
-  const menu = floatingPane({ id: options.id, placement: "under", kind: `dropdown filter-menu${options.isOpen ? " is-open-on-load" : ""}`, role: "menu", label: "Filter", body: html`${main}${panels}` });
+  const menu = floatingPane({ id: options.id, placement: "under", kind: `dropdown filter-menu${options.isOpen ? " is-open-on-load" : ""}`, role: "menu", label: "Filter", edgeLight: "left", body: html`${main}${panels}` });
   return controlMarkup(html`${button}${menu}`, "regular");
 }
 
