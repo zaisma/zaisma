@@ -225,6 +225,10 @@ export const PLACE_SCRIPT = `/* place */(function () {
     // Shown while it arrives (Safari), it starts from nothing and comes in with the pane.
     if (cast.hidden && cast.classList.contains("is-arriving")) requestAnimationFrame(function () { void cast.offsetWidth; cast.classList.remove("is-arriving"); });
     cast.hidden = false; cast.classList.toggle("is-on-page", isOnPage);
+    // Its shadow is its pane's, light or dark as the pane is (the gallery's choice, or smoked over a game), not the page's own.
+    var themeChoice = pane.getAttribute("data-theme-choice");
+    if (themeChoice) cast.setAttribute("data-theme-choice", themeChoice); else cast.removeAttribute("data-theme-choice");
+    cast.classList.toggle("smoke", pane.classList.contains("smoke"));
     cast.style.left = r.left + (isOnPage ? window.scrollX : 0) + "px"; cast.style.top = r.top + (isOnPage ? window.scrollY : 0) + "px"; cast.style.width = r.width + "px"; cast.style.height = r.height + "px";
   };
   // Opening, closing and settling after its opening move: the toggle and transition events don't bubble, so they're caught on the way down.
@@ -849,6 +853,9 @@ component({
    the field just before it, its line (--line-from-top) on the field's own line; glass inside a pane's glass isn't blurred, so what it
    covers is hidden rather than showing through, and it casts its shadow as a filter on what holds it, where only it is drawn. */
 .floating-pane.in-place { position: relative; display: flex; width: 100%; }
+/* Shown open in place (a gallery's open menu), it casts the shadow it casts floating, so the two read the same. It lies on glass there and
+   only tints, so the filter costs it no blur; over a game's world it blurs, which a filter round it would stop, so it casts none. */
+.floating-pane.in-place:not(:is(.backdrop-frame, .header-frame) *) { filter: var(--float-cast); }
 /* One as wide as what's in it (a menu) hangs under its anchor inside what holds it (zaismaFloat's hang). */
 .floating-pane.placed-under.in-place.is-hanging { position: absolute; z-index: 6; width: max-content; }
 .floating-pane.placed-over.in-place { z-index: 6; width: max-content; max-width: 100%; margin-top: calc(-1 * (var(--gap-words-control) + var(--control-height-field) / 2 + var(--line-from-top, 0px))); }
