@@ -311,10 +311,11 @@ export const GALLERY_SCRIPT = pageScript(
     if (count) count.textContent = (Number(count.textContent.replace(/,/g, "")) + (isOn ? 1 : -1)).toLocaleString("en-US");
     if (words && /^Follow/.test(words.textContent)) words.textContent = isOn ? "Following" : "Follow";
   });
+  // An example's links stay on this page. It's caught first, so a switch's tab to another page is picked in place, as one within the page is.
   document.addEventListener("click", function (event) {
     var link = event.target.closest && event.target.closest('.example-stage a[href^="#"], .example-stage a[href^="/"]');
     if (link) event.preventDefault();
-  });
+  }, true);
   // A form in an example sends nothing; one in a sheet closes it, as if it had gone. Closing a sheet (Cancel, its close button) works as on a page.
   document.addEventListener("submit", function (event) {
     // One a page script already handled (a step flow moving on) is left to it.

@@ -481,6 +481,13 @@ export const GLASS_SCRIPT = `/* glass */(function () {
   }
   function controlOutline(el, w, h, as) {
     var beside = besides(el, as), cuts = fitCuts(el, w, h, as);
+    // A control's own part at its end (a switch's slab on its first or last tab) slants there too where the control itself slants, beside
+    // another control (a header's switch toward its search).
+    if (el.hasAttribute("data-cut-beside")) {
+      var holder = holderOf(el), holderSlanted = holder ? holder.getAttribute("data-slanted") || "" : "", ends = as ? as.ends : el.getAttribute("data-cut-ends") || "";
+      if (/start/.test(ends) && /start/.test(holderSlanted)) beside.start = true;
+      if (/end/.test(ends) && /end/.test(holderSlanted)) beside.end = true;
+    }
     var corners = [beside.start ? 0 : cuts[0], beside.end ? 0 : cuts[1], beside.end ? 0 : cuts[2], beside.start ? 0 : cuts[3]].map(function (cut) { return Math.min(cut, h); });
     [[0, 3], [1, 2]].forEach(function (pair) { var sum = corners[pair[0]] + corners[pair[1]]; if (sum > h) { corners[pair[0]] *= h / sum; corners[pair[1]] *= h / sum; } });
     el.cutCorners = corners;

@@ -141,6 +141,17 @@ export const SWITCH_SCRIPT = `/* switches */(function () {
       }
       // Beside another tab, it reaches into the slant between them, so only the row's gap is left between its place and the next one's.
       var reach = besideReach(el), start = isFirst ? 0 : reach, end = isLast ? 0 : reach;
+      // Where the switch's own end slants (beside another control, as a header's switch toward its search), the slab on that end slants
+      // with it (the edge rule), set back so its gap to the slant is the gap it keeps from the switch's top and bottom.
+      var well = sw.closest("[data-cut-line]"), wellSlanted = well ? well.getAttribute("data-slanted") || "" : "";
+      if (!el.classList.contains("focus-ring") && ((isFirst && /start/.test(wellSlanted)) || (isLast && /end/.test(wellSlanted)))) {
+        var gapPx = tab.offsetTop, heightPx = sw.offsetHeight, wellSlantPx = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--control-slant")) || 10;
+        var slabSlantPx = Math.min(Number(el.getAttribute("data-cut-line")) || 0, (tab.offsetWidth + start + end) / 3);
+        // The two slants meet the middle of the slab's height that far apart across, which is the gap along the slant.
+        var setBack = wellSlantPx / 2 - slabSlantPx / 2 + gapPx * Math.sqrt(1 + (wellSlantPx / heightPx) * (wellSlantPx / heightPx)) - gapPx;
+        if (isFirst && /start/.test(wellSlanted)) start = -setBack;
+        if (isLast && /end/.test(wellSlanted)) end = -setBack;
+      }
       var to = { pos: onPixel(tab.offsetLeft - start), size: tab.offsetWidth + start + end }, ms = isGliding && !reduce ? slideMs(el) : 0;
       // The focus line runs along the well's own edge: on the first or last tab, out to the well's end.
       // Its size is whole pixels (place), so on the last tab it's set back from the well's end by what rounding adds, never past it, where the
@@ -174,11 +185,12 @@ export const SWITCH_SCRIPT = `/* switches */(function () {
     if (came && came.url && slab.animate && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
       // The tab whose page it came from: by its whole address, or by its path where only one tab has it (Browse's sorts are all /games, so
       // coming from a Browse address no tab has, none of them is the last page's and nothing slides).
-      var cameFrom = new URL(came.url), lastPath = cameFrom.pathname;
+      // A reload comes from this page itself, so nothing slides (a tab that links within it would otherwise count as the last page's).
+      var cameFrom = new URL(came.url), lastPath = cameFrom.pathname, isReload = lastPath === location.pathname && cameFrom.search === location.search;
       var samePath = Array.prototype.filter.call(tabs, function (tab) { return tab.href && new URL(tab.href).pathname === lastPath; });
       var last = samePath.find(function (tab) { return new URL(tab.href).search === cameFrom.search; }) || (samePath.length === 1 ? samePath[0] : undefined);
       var on = current();
-      if (last && on && last !== on) {
+      if (last && on && last !== on && !isReload) {
         // Measured once the fonts are in (from the cache, on a page of the same site), when the tabs have their widths, so it lands where the slab is.
         var slideFromLastPage = function () {
           var from = isVertical ? "translateY(" + last.offsetTop + "px)" : "translateX(" + last.offsetLeft + "px) scaleX(" + (last.offsetWidth / Math.max(1, on.offsetWidth)).toFixed(4) + ")";
