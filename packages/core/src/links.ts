@@ -29,8 +29,12 @@ export const LINK_LIMITS = {
 /** The name a game opens a link by, like "store" or "patreon": lowercase letters, digits and underscores, starting with a letter. */
 export const LINK_NAME_PATTERN = /^[a-z][a-z0-9_]{0,31}$/;
 
-/** Who a link opens for: everyone (a trusted domain), signed_in_adults (any other site), nobody (flagged). */
-export const LINK_AUDIENCES = ["everyone", "signed_in_adults", "nobody"] as const;
+/**
+ * Who a link opens for: everyone (a trusted domain), signed_in_adults (any other site), waiting_for_standing (any
+ * other site, while the developer has no standing for it: it opens once they're established or have a card or
+ * Stripe account, standing.ts), nobody (flagged).
+ */
+export const LINK_AUDIENCES = ["everyone", "signed_in_adults", "waiting_for_standing", "nobody"] as const;
 export type LinkAudience = (typeof LINK_AUDIENCES)[number];
 
 /**
@@ -123,15 +127,16 @@ const isUnder = (host: string, domain: string) => host === domain || host.endsWi
 /** Whether a host is on a trusted domain, so its links open for everyone. */
 export const isTrustedLinkHost = (host: string): boolean => TRUSTED_LINK_DOMAINS.some((domain) => isUnder(host, domain));
 
-/** Who a link opens for. */
-export function linkAudience(link: GameLink): LinkAudience {
+/** Who a link opens for, given whether its developer's standing opens links to other sites (standingOf's outsideLinksEnabled). */
+export function linkAudience(link: GameLink, outsideLinksEnabled: boolean): LinkAudience {
   if (link.review_reason) return "nobody";
-  return isTrustedLinkHost(new URL(link.destination_url).hostname) ? "everyone" : "signed_in_adults";
+  if (isTrustedLinkHost(new URL(link.destination_url).hostname)) return "everyone";
+  return outsideLinksEnabled ? "signed_in_adults" : "waiting_for_standing";
 }
 
-/** Whether this player may open a link: a signed-in adult any that isn't flagged, anyone else only one on a trusted domain. */
-export function canOpenLink(link: GameLink, isSignedInAdult: boolean): boolean {
-  const audience = linkAudience(link);
+/** Whether this player may open a link: a signed-in adult any that isn't flagged once the developer's standing opens other sites, anyone else only one on a trusted domain. */
+export function canOpenLink(link: GameLink, isSignedInAdult: boolean, outsideLinksEnabled: boolean): boolean {
+  const audience = linkAudience(link, outsideLinksEnabled);
   return audience === "everyone" || (audience === "signed_in_adults" && isSignedInAdult);
 }
 

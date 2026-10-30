@@ -567,6 +567,8 @@ runSql(`INSERT OR IGNORE INTO accounts (id, player_id, username, age_band, creat
        SELECT 'version_previewreupload0001', 'game_previewsharddash001', 'manifests/version_previewreupload0001', 5, 42000, 'held', replace('${reuploadReport("ORIGINAL_ID")}', 'ORIGINAL_ID', id), ${Date.now()}, 'files', 'First version.', 0 FROM games WHERE slug = 'shard-dodge'`);
 // The preview account's friends, online and in rooms, again this run (once seedFriends made them).
 seedFriendsNow();
+// Account standing, again this run: Preview_Studio is Zaisma's own, New_Studio three days old with 12 returning players, New_Teen an hour old.
+seedStandingNow();
 // People playing now, again this run (a ticket counts for 6 minutes): 5 browsers in Shard Dodge, shown on its tile, the
 // home's stage and its page, and 2 in Tiny Farm, under the minimum of 3 so it shows nothing.
 seedPlayingNow();
@@ -686,6 +688,10 @@ Zaisma preview is running. Nothing here touches the live site.
   Paid game       ${SITE}/g/ashfall  (sells itself for $24.99: Buy where Play is, Play the demo, Add-ons; as Card_Keeper, who owns it and the
                   Supporter pack: Play and Owned; ${SITE}/g/ashfall?buy as Moss_Runner opens the sheet; ${SITE}/g/ashfall-demo links Full game;
                   ${SITE}/games?price=15_to_30 filters by price, and covers carry the price for anyone who doesn't own it)
+  Standing        ${SITE}/dashboard/harbor-lights/details#links  (as New_Studio: 12 of 20 returning players, so its own-site link waits,
+                  with Add a card; Patreon opens as before); ${SITE}/dashboard/tiny-farm/details#links as Preview_Studio, Zaisma's own: no note;
+                  ${SITE}/g/harbor-lights  (plays and shows in Browse, kept from search engines: X-Robots-Tag noindex; its website button is gone);
+                  ${SITE}/account#social as New_Teen (16, an hour old: Chat with anyone waits a day)
   Leaving Zaisma  ${SITE}/g/tiny-farm?play  (its link buttons: Seed shop and Patreon open for everyone, Discord only
                   for signed-in adults, Free prize for nobody; its links are on ${SITE}/dashboard/tiny-farm/details#links)
   Share cards     ${SITE}/g/shard-dodge  (its developer links in each site's look: Discord and the website only signed in
@@ -1037,6 +1043,7 @@ async function seed() {
     await api("PUT", `/games/tiny-farm/items/${itemName}`, fields);
   }
   await seedBuySheet(api, upload, approveNewest);
+  await seedStanding(api, upload, approveNewest, go, form);
   stepDone("buy sheet");
   await seedPaidGame(api, upload, approveNewest, go, form);
   stepDone("paid game");
@@ -1865,6 +1872,47 @@ function poster(ip) {
     }
     return res;
   };
+}
+
+/**
+ * Account standing (packages/core/src/standing.ts): New_Studio, a developer with Harbor Lights, listed with a Patreon link
+ * and one to its own site; New_Teen, a 16-year-old set to open and social. Harbor Lights is made by Preview_Studio's key
+ * and handed to New_Studio, as dashking's Seaside Stand is. seedStandingNow sets their ages and counts every run.
+ */
+async function seedStanding(api, upload, approveNewest, go, form) {
+  await signedIn({ name: "New_Studio", email: "newstudio@example.test", year: "1991" }, "198.51.100.235");
+  await go("/admin/publishing/add", form({ username: "New_Studio" }));
+  const { game } = await api("POST", "/games", { title: "Harbor Lights", description: "Guide the night boats home through the fog.", devices: ["computer"], controls: ["keyboard_mouse"], play_modes: [{ mode: "single" }], genres: ["puzzle"] });
+  await upload("examples/hello-game", game.slug, "First version.");
+  await api("POST", `/games/${game.slug}/versions/${await approveNewest(game.slug)}/publish`);
+  for (const [kind, n] of [["screenshot", 4], ["cover", 0]]) {
+    const { image } = await api("POST", `/games/${game.slug}/images?kind=${kind}`, picture([40, 90, 140], n));
+    await go(`/admin/images/${image.id}/approve`, form({ reason: "" }));
+  }
+  await api("PATCH", `/games/${game.slug}`, {
+    visibility: "listed",
+    links: [
+      { link_name: "patreon", destination_url: "https://www.patreon.com/newstudio", is_on_game_page: true },
+      { link_name: "website", destination_url: "https://newstudio.example", is_on_game_page: true },
+    ],
+  });
+  await signedIn({ name: "New_Teen", email: "newteen@example.test", year: String(new Date().getUTCFullYear() - 16), socialMode: "open_and_social" }, "198.51.100.236");
+}
+
+/**
+ * Account standing's facts, again this run: a recount never runs for them (standing_checked_at_ms far ahead), so the states hold.
+ * The versions the seed rejects to show their states aren't rulings anyone means, so Preview_Studio's is cleared.
+ */
+function seedStandingNow() {
+  const later = 4102444800000;
+  const nowMs = Date.now();
+  runSql(`INSERT OR IGNORE INTO owners (id, kind, account_id, created_at_ms) SELECT 'owner_previewnewstudio01', 'person', id, ${nowMs} FROM accounts WHERE username = 'New_Studio';
+     UPDATE games SET owner_id = (SELECT id FROM owners WHERE account_id = (SELECT id FROM accounts WHERE username = 'New_Studio')) WHERE slug = 'harbor-lights' AND EXISTS (SELECT 1 FROM accounts WHERE username = 'New_Studio');
+     UPDATE accounts SET created_at_ms = ${nowMs - 3 * 86_400_000} WHERE username = 'New_Studio';
+     UPDATE owners SET returning_player_count = 12, is_established = 0, is_zaisma_account = 0, standing_checked_at_ms = ${later} WHERE account_id = (SELECT id FROM accounts WHERE username = 'New_Studio');
+     UPDATE owners SET is_zaisma_account = 1, is_established = 1, last_ruling_at_ms = NULL, standing_checked_at_ms = ${later} WHERE account_id = (SELECT id FROM accounts WHERE username = 'Preview_Studio');
+     UPDATE accounts SET created_at_ms = ${nowMs - 3_600_000}, counted_play_day_count = 0 WHERE username = 'New_Teen';
+     UPDATE accounts SET created_at_ms = MIN(created_at_ms, ${nowMs - 2 * 86_400_000}), counted_play_day_count = MAX(counted_play_day_count, 2) WHERE age_band = '16-17' AND username != 'New_Teen'`);
 }
 
 /** A new account made through the join pages in its own browser: answers a function that posts as it. */

@@ -47,6 +47,9 @@ import {
   hasThreads,
   type Triage,
   type Version,
+  audit,
+  personOwner,
+  STANDING_LIMITS,
 } from "@zaisma/core";
 import { QUEUE_SELECT, adminForm, groupReports, isPlayerGroup, playerGroupChoices, type QueueRow, type ReportGroup } from "./admin.ts";
 import { INTERNAL_ERROR } from "./developer.ts";
@@ -70,6 +73,7 @@ import {
   CHAT_REVIEW_LIST,
   GAME_FOR_ADMIN,
   CAN_PUBLISH_CHANGED,
+  ZAISMA_ACCOUNT_CHANGED,
   ACCOUNT_BANNED,
   ACCOUNT_UNBANNED,
   BAN_MATCH_LIST,
@@ -1039,6 +1043,33 @@ export const ADMIN_TOOLS: AdminTool[] = [
       const canPublish = toolArguments.can_publish === true;
       await setAccountCanPublish(env, account.id, account.username, canPublish, actor);
       return { username: account.username, can_publish: canPublish, publishing_accounts: publishingAccountRows(await publishingAccounts(env.DB)), next_steps: [] };
+    },
+  },
+  {
+    name: "set_zaisma_account",
+    title: "Mark one of Zaisma's own accounts",
+    description:
+      "Mark an account as one of Zaisma's own (is_zaisma_account true), like the seed games' developers, by its username, or unmark it (false). Zaisma's own accounts are established from the start, so their games' links to other sites and search engines open before any players come back; a ruling or a ban still closes them. Unmarking it leaves it to the daily count. Ask the admin first.",
+    inputSchema: object(
+      {
+        username: usernameInput,
+        is_zaisma_account: { type: "boolean", description: "true marks it as Zaisma's own; false unmarks it." },
+      },
+      ["username", "is_zaisma_account"],
+    ),
+    outputSchema: ZAISMA_ACCOUNT_CHANGED,
+    annotations: change,
+    run: async (toolArguments, { env, actor }) => {
+      const account = await accountNamed(env, toolArguments.username);
+      const isZaismaAccount = toolArguments.is_zaisma_account === true;
+      const owner = await personOwner(env.DB, account.id);
+      // Established at once when marked, unless the wait after a ruling is on; unmarked, the next count decides.
+      const rulingWaitStartedAfterMs = Date.now() - STANDING_LIMITS.rulingWaitDurationDays * 86_400_000;
+      await env.DB.prepare("UPDATE owners SET is_zaisma_account = ?1, is_established = CASE WHEN ?1 = 1 AND (last_ruling_at_ms IS NULL OR last_ruling_at_ms <= ?2) THEN 1 ELSE 0 END, standing_checked_at_ms = NULL WHERE id = ?3")
+        .bind(isZaismaAccount ? 1 : 0, rulingWaitStartedAfterMs, owner.id)
+        .run();
+      await audit(env.DB, null, isZaismaAccount ? "zaisma-account-marked" : "zaisma-account-unmarked", `@${account.username}`, actor);
+      return { username: account.username, is_zaisma_account: isZaismaAccount, next_steps: [] };
     },
   },
   {

@@ -120,6 +120,7 @@ describe("admin MCP", () => {
       "decide_country_block",
       "list_publishing_accounts",
       "set_can_publish",
+      "set_zaisma_account",
       "ban_account",
       "unban_account",
       "list_ban_matches",

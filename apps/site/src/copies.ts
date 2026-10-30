@@ -1,6 +1,7 @@
 import { COPY_LIMITS, audit, decidedReason, gameById, manifestKey, saveScan, type Game, type Manifest, type ScanReport, type Version } from "@zaisma/core";
 import type { StoredFile } from "./scan.ts";
 import { authUserEmail, realEmail } from "./auth.ts";
+import { noteRulingOnGame } from "./standing.ts";
 import { copyStoppedEmail, deliverEmail } from "./email-codes.ts";
 import { tellWebhooks } from "./webhooks.ts";
 import type { Env } from "./env.ts";
@@ -117,6 +118,7 @@ export async function stopCopy(env: Env, version: Version, actor: string): Promi
   const rejectedReason = decidedReason("rejected_by_zaisma", "copyright", "A re-upload of another developer's game.");
   await saveScan(env.DB, version.id, "rejected", null);
   await env.DB.prepare("UPDATE versions SET review_reason = ? WHERE id = ?").bind(JSON.stringify(rejectedReason), version.id).run();
+  await noteRulingOnGame(env, version.game_id);
   await audit(env.DB, version.game_id, "rejected", `${version.id}: a re-upload of another developer's game`, actor, rejectedReason);
   await tellWebhooks(env, "scan_status_changed", version.game_id, { versionId: version.id });
 

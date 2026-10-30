@@ -25,6 +25,8 @@ export const SIGN_INS = [
   { username: "Pin_Keeper", about: "purchase PIN 246810 and no saved card: Tiny Farm's shop asks for the PIN on every buy once a card is saved, after adding a Test card" },
   { username: "Banned_Dev", about: "its developer side is banned: Your games says why, how to appeal and Export everything" },
   { username: "Closed_Player", about: "a closed account: its right password opens the page that says why and how to appeal" },
+  { username: "New_Studio", about: "a developer 3 days old with 12 of 20 returning players: Harbor Lights' link to its own site waits for standing" },
+  { username: "New_Teen", about: "16, open and social, made an hour ago: chats with friends only until it's a day old and has played on a second day" },
   { username: "Mia_Plays", about: "played Cave Crew and has a row in its database: delete her account to see it erased" },
   // The stress accounts (docs/DESIGN.md, Pages under stress): the layout check opens the pages that list things as each.
   { username: "Longest_Names_Here", about: "every name as long as its field allows: a 30-letter display name, a full bio, and an unlisted game with an 80-letter title and a 500-letter description" },

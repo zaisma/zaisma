@@ -259,7 +259,12 @@ describe("rooms", () => {
   it("says in the pass who an account can chat with, never its age, and canChat follows it", async () => {
     const arena = await addGame("arena");
     const other = await addGame("other");
-    const accountFor = (id: string, ageBand: "13-15" | "16-17" | "18+", socialMode: "solo_focused" | "friends_focused" | "open_and_social") => createAccount(e.DB, { id, username: id, ageBand, socialMode });
+    // Past a new 16–17 account's day of chatting with friends only (the next test).
+    const accountFor = async (id: string, ageBand: "13-15" | "16-17" | "18+", socialMode: "solo_focused" | "friends_focused" | "open_and_social") => {
+      const account = await createAccount(e.DB, { id, username: id, ageBand, socialMode });
+      await e.DB.prepare("UPDATE accounts SET created_at_ms = 0, counted_play_day_count = 2 WHERE id = ?").bind(id).run();
+      return account;
+    };
     const claimsOf = async (account: { id: string }, gameSlug = "arena", gameId = arena) => {
       const { pass } = await (await post("/v1/pass", gameSlug, ORIGIN, { roomKey: await issueRoomKey(e.DB, gameId, account.id) })).json<{ pass: string }>();
       return verifyPass(pass, [(await signingKey(e)).publicKey], { gameSlug: gameSlug, issuerUrl: e.ISSUER });
@@ -302,6 +307,21 @@ describe("rooms", () => {
     expect(forced).toMatchObject({ who_can_chat: "friends" });
     expect(forced.chat_group_id).toMatch(/^chat_group_/);
     expect([teen.chat_group_id, adult.chat_group_id]).not.toContain(forced.chat_group_id);
+  });
+
+  it("gives a new 16–17 account set to anyone a friends-only pass until it's a day old and has played on a second day", async () => {
+    const arena = await addGame("arena");
+    const HOUR = 3_600_000;
+    const whoCanChat = async (id: string, ageBand: "13-15" | "16-17" | "18+", createdHoursAgo: number, countedPlayDayCount: number) => {
+      await createAccount(e.DB, { id, username: id, ageBand, socialMode: "open_and_social" });
+      await e.DB.prepare("UPDATE accounts SET created_at_ms = ?, counted_play_day_count = ? WHERE id = ?").bind(Date.now() - createdHoursAgo * HOUR, countedPlayDayCount, id).run();
+      const { pass } = await (await post("/v1/pass", "arena", ORIGIN, { roomKey: await issueRoomKey(e.DB, arena, id) })).json<{ pass: string }>();
+      return (await verifyPass(pass, [(await signingKey(e)).publicKey], { gameSlug: "arena", issuerUrl: e.ISSUER })).who_can_chat;
+    };
+    expect(await whoCanChat("teen-new-hour", "16-17", 23, 2)).toBe("friends");
+    expect(await whoCanChat("teen-new-day", "16-17", 25, 1)).toBe("friends");
+    expect(await whoCanChat("teen-settled", "16-17", 25, 2)).toBe("anyone");
+    expect(await whoCanChat("adult-new", "18+", 0, 0)).toBe("anyone");
   });
 
   it("puts an account's friends in its passes as opaque tags, so friends chat and strangers don't", async () => {
@@ -1400,6 +1420,8 @@ describe("room browsing", () => {
     const teen = await createAccount(e.DB, { id: "chat-check-teen", username: "chat_check_teen", ageBand: "16-17", socialMode: "open_and_social" });
     const otherAdult = await createAccount(e.DB, { id: "chat-check-adult2", username: "chat_check_adult2", ageBand: "18+", socialMode: "open_and_social" });
     const otherTeen = await createAccount(e.DB, { id: "chat-check-teen2", username: "chat_check_teen2", ageBand: "16-17", socialMode: "open_and_social" });
+    // Past a new 16–17 account's day of chatting with friends only.
+    await e.DB.prepare("UPDATE accounts SET created_at_ms = 0, counted_play_day_count = 2 WHERE id IN ('chat-check-teen', 'chat-check-teen2')").run();
     const chatCheck = (body: Record<string, unknown>) => SELF.fetch(`${R}/v1/chat/check`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ gameSlug: "own-chat", recentTexts: [], ...body }) });
     const [adultPass, teenPass, otherAdultPass, otherTeenPass] = [await passFor(adult), await passFor(teen), await passFor(otherAdult), await passFor(otherTeen)];
 
@@ -2279,6 +2301,8 @@ describe("text chat in rooms", () => {
   let accountNumber = 0;
   async function accountIn(gameId: string, slug: string, ageBand: "13-15" | "16-17" | "18+", socialMode: "friends_focused" | "open_and_social" = "open_and_social") {
     const account = await createAccount(e.DB, { id: `room-chat-${++accountNumber}`, username: `room_chat_${accountNumber}`, ageBand, socialMode });
+    // Past a new 16–17 account's day of chatting with friends only.
+    await e.DB.prepare("UPDATE accounts SET created_at_ms = 0, counted_play_day_count = 2 WHERE id = ?").bind(account.id).run();
     const { pass } = await (await post("/v1/pass", slug, ORIGIN, { roomKey: await issueRoomKey(e.DB, gameId, account.id) })).json<{ pass: string }>();
     return { account, pass };
   }

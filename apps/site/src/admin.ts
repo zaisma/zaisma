@@ -78,6 +78,7 @@ import {
   gameDeletionOf,
   queueGameDeletion,
 } from "@zaisma/core";
+import { noteRulingOnGame } from "./standing.ts";
 import { adminProfileAction, adminProfilesPage, clearProfile } from "./admin-profiles.ts";
 import { sendAlert } from "./email.ts";
 import { adminChatReviewAction, adminChatReviewsPage } from "./admin-chat-reviews.ts";
@@ -168,6 +169,7 @@ function countryBlockSection(game: Game): Raw {
 export async function takeDownGame(env: Env, gameId: string, contentRule: ContentRule | null, reason: string, actor: string): Promise<void> {
   const removedReason = decidedReason("taken_down", contentRule, reason);
   await setReviewStatus(env.DB, gameId, "removed", removedReason);
+  await noteRulingOnGame(env, gameId);
   await recordRestoreEvent(env, { event_kind: "game_removed", at_ms: Date.now(), game_id: gameId, review_reason: removedReason });
   await closeReports(env.DB, gameId, "actioned");
   await audit(env.DB, gameId, "takedown", reason, actor, removedReason);
@@ -293,6 +295,7 @@ export async function adminForm(env: Env, path: string, form: FormData, actor: s
       const rejectedReason = decidedReason("rejected_by_zaisma", pickedRule(form), reason);
       await saveScan(env.DB, version.id, "rejected", null);
       await env.DB.prepare("UPDATE versions SET review_reason = ? WHERE id = ?").bind(JSON.stringify(rejectedReason), version.id).run();
+      await noteRulingOnGame(env, version.game_id);
       if (version.report_held_at_ms) await closeReports(env.DB, version.game_id, "actioned");
       await audit(env.DB, version.game_id, "rejected", reason ? `${version.id}: ${reason}` : version.id, actor, rejectedReason);
     }

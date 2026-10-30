@@ -151,6 +151,9 @@ import {
   ownServerUrlsOf,
   checkLinkSites,
   linkAudience,
+  standingOf,
+  STANDING_LIMITS,
+  type Standing,
   linksOf,
   type GameLink,
   eventKindsOf,
@@ -176,6 +179,7 @@ import {
   CREDIT_LIMITS,
   isCreditLow,
 } from "@zaisma/core";
+import { standingWords } from "./standing.ts";
 import { toneOfPicture } from "./background-tone.ts";
 import { updateLiveMatches } from "./match-updates.ts";
 import { CARD_IMAGE_HEIGHT_PX, CARD_IMAGE_WIDTH_PX, gameLinkUrl, roomCodeOf } from "./share-cards.ts";
@@ -916,7 +920,16 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
   if (path === "/access" && method === "GET") {
     // The balance only for a caller that may read the credit.
     const creditBalanceCents = allows(caller.access.areaAccess, "credit_access", "read") && !caller.access.gameSlugs ? (await creditOf(env.DB, caller.ownerId)).balanceCents : null;
-    return answer({ access: accessJson(caller.access), can_publish: caller.canPublish, banned_at: iso(caller.bannedAtMs), ban_scope: caller.banScope, credit_balance_cents: creditBalanceCents, plan: await planFor(env.DB, caller.ownerId) });
+    const standing = await standingOf(env.DB, caller.ownerId, Date.now());
+    // A card or Stripe account opens links now, except while a ban or the wait after a ruling closes everything.
+    const canOpenLinksNow = !standing.outsideLinksEnabled && !standing.isBanned && standing.rulingWaitEndsAtMs === null;
+    const standingSteps: NextStep[] = canOpenLinksNow
+      ? [
+          { tool: "top_up_credit", arguments: {}, after_sec: null, reason: "Paying Zaisma by card opens links to other sites at once (search engines still wait to be established). Ask the developer first, and add the amount_cents they pick." },
+          { tool: "connect_stripe_account", arguments: {}, after_sec: null, reason: "Or a Stripe account that can take payments opens them too. Ask the developer first." },
+        ]
+      : [];
+    return answer({ access: accessJson(caller.access), can_publish: caller.canPublish, banned_at: iso(caller.bannedAtMs), ban_scope: caller.banScope, credit_balance_cents: creditBalanceCents, plan: await planFor(env.DB, caller.ownerId), standing: standingJson(standing), next_steps: standingSteps });
   }
   if (apiRoute.path === "/pro" || apiRoute.path.startsWith("/pro/")) return answer(...(await proRoute(env, apiRoute.path, method, caller)));
   if (apiRoute.path === "/credit/plan" || apiRoute.path.startsWith("/credit/plan/")) return answer(...(await creditPlanRoute(env, apiRoute.path, method, checked.body, caller)));
@@ -2628,6 +2641,7 @@ export function closedQuery(queryParameters: URLSearchParams, fields: string[]):
 const splitLabels = (labels: string) => (labels ? labels.split(",") : []);
 
 export async function gameJson(env: Env, game: Game) {
+  const { outsideLinksEnabled } = await standingOf(env.DB, game.owner_id, Date.now());
   const waitingWords = game.details_waiting_for_review ? (JSON.parse(game.details_waiting_for_review) as { title?: string; description?: string }) : null;
   return {
     slug: game.slug,
@@ -2657,7 +2671,7 @@ export async function gameJson(env: Env, game: Game) {
     minimum_player_age_years: game.minimum_player_age_years,
     game_server_allowed_hosts: allowedHostsOf(game),
     own_server_urls: ownServerUrlsOf(game),
-    links: linksOf(game).map(linkJson),
+    links: linksOf(game).map((link) => linkJson(link, outsideLinksEnabled)),
     details_waiting_for_review: waitingWords ? { title: waitingWords.title ?? null, description: waitingWords.description ?? null } : null,
     // Why the title keeps the game off Zaisma's lists ("No slop"); null when nothing does.
     title_listing_reason: reasonAnswer(game.title_listing_reason),
@@ -2675,13 +2689,30 @@ export async function gameJson(env: Env, game: Game) {
   };
 }
 
-/** A registered link as the API answers it: who it opens for, and why it opens for nobody. */
-function linkJson(link: GameLink) {
+/** A developer's standing as GET /access answers it (schemas.ts, STANDING). */
+function standingJson(standing: Standing) {
+  return {
+    is_established_developer: standing.isEstablishedDeveloper,
+    outside_links_enabled: standing.outsideLinksEnabled,
+    search_engines_enabled: standing.searchEnginesEnabled,
+    returning_player_count: standing.returningPlayerCount,
+    minimum_returning_player_count: STANDING_LIMITS.minimumReturningPlayerCount,
+    account_age_days: standing.accountAgeDays,
+    minimum_account_age_days: STANDING_LIMITS.minimumDeveloperAccountAgeDays,
+    has_card_or_stripe_account: standing.hasCardOrStripeAccount,
+    last_ruling_at: iso(standing.lastRulingAtMs),
+    ruling_wait_ends_at: iso(standing.rulingWaitEndsAtMs),
+    message_for_people: standingWords(standing),
+  };
+}
+
+/** A registered link as the API answers it: who it opens for (with the developer's standing), and why it opens for nobody. */
+function linkJson(link: GameLink, outsideLinksEnabled: boolean) {
   return {
     link_name: link.link_name,
     destination_url: link.destination_url,
     is_on_game_page: link.is_on_game_page,
-    who_can_open: linkAudience(link),
+    who_can_open: linkAudience(link, outsideLinksEnabled),
     review_reason: link.review_reason ? reviewReasonAnswer(link.review_reason) : null,
   };
 }

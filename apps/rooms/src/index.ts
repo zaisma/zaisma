@@ -1,4 +1,4 @@
-import { finishHandling, finishRefundHandling, unhandledFor, type PurchaseDelivery, CHAT_BLOCK_MESSAGES, CHAT_FILTER_LIMITS, itemsOf, ownedItemNames, priceFor, priceText, PLAYER_REPORT_REASONS, accountById, checkChatText, isChatStopped, isBlockedInCountry, isOldEnoughFor, requestCountryCode, type AgeBand, gameAddress, accountUsernameOf, blockPlayerIdsOf, chatBandGroup, socialSettingsOf, friendPlayerIdsOf, friendsInGameOf, gameServerOf, isOwnServerUrl, ownServerUrlsOf, setOwnServerRoom, type AccountRequirement, type MultiplayerMode, createReport, REPORTED_CHAT_LIMITS, type ReportedChatMessage, isIdOf, iso, leaveOut, listRooms, newId, isHostingPaused, playerProfile, readLabelParameter, readLeftParameter, tidyChatText, tidyText, useRoomKey, type PlayerReportReason, type RoomList } from "@zaisma/core";
+import { finishHandling, finishRefundHandling, unhandledFor, type PurchaseDelivery, CHAT_BLOCK_MESSAGES, CHAT_FILTER_LIMITS, itemsOf, ownedItemNames, priceFor, priceText, PLAYER_REPORT_REASONS, accountById, checkChatText, isChatStopped, isStrangerChatWaiting, isBlockedInCountry, isOldEnoughFor, requestCountryCode, type AgeBand, gameAddress, accountUsernameOf, blockPlayerIdsOf, chatBandGroup, socialSettingsOf, friendPlayerIdsOf, friendsInGameOf, gameServerOf, isOwnServerUrl, ownServerUrlsOf, setOwnServerRoom, type AccountRequirement, type MultiplayerMode, createReport, REPORTED_CHAT_LIMITS, type ReportedChatMessage, isIdOf, iso, leaveOut, listRooms, newId, isHostingPaused, playerProfile, readLabelParameter, readLeftParameter, tidyChatText, tidyText, useRoomKey, type PlayerReportReason, type RoomList } from "@zaisma/core";
 import { BUSY_CLOSE_CODE, ERROR_TEXT, PassError, REMOVED_CLOSE_CODE, errorMessage, type RoomErrorCode, REQUEST_ERROR_HTTP_STATUS, REQUEST_LIMITS, PASS_VERSION_NUMBER, canChat, guestName, isRoomCode, jwks, readRequestBody, requestError, roomCode, signPass, verifyPass, type Player, type PassClaims, type RequestErrorCode } from "@zaisma/game-server/internal";
 import { usesRooms } from "./registry.ts";
 import { purchasesForGame } from "./purchases.ts";
@@ -568,7 +568,8 @@ export default {
         const chat = account
           ? {
               // An account whose chat the filter stopped chats with nobody, so own servers stop it too with its next pass.
-              who_can_chat: isChatStopped(account) ? "nobody" : socialSettingsOf(account).who_can_chat,
+              // A new 16–17 account set to anyone chats with friends until it's a day old and played on a second day (standing.ts), on every server.
+              who_can_chat: isChatStopped(account) ? "nobody" : socialSettingsOf(account).who_can_chat === "anyone" && isStrangerChatWaiting(account, Date.now()) ? "friends" : socialSettingsOf(account).who_can_chat,
               ...(bandGroup ? { chat_group_id: await chatGroupId(env, slug, bandGroup) } : {}),
               player_tag_id: await playerTag(env, slug, account.player_id),
               friend_player_tag_ids: await Promise.all((await friendPlayerIdsOf(env.DB, account.id)).map((playerId) => playerTag(env, slug, playerId))),

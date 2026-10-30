@@ -1,4 +1,5 @@
 import {
+  isStrangerChatWaiting,
   ACCESS_AREAS,
   ACCOUNT_AREAS,
   banScopeOf,
@@ -1860,6 +1861,7 @@ ${scriptTags(USERNAME_SCRIPT)}
 ${account.social_stopped_at_ms
       ? html`<p class="note" role="status">${socialStoppedNotice(account.social_stopped_reason)}</p>`
       : html`<p>Who can chat with you, join you and see what you play.</p>
+${isStrangerChatWaiting(account, Date.now()) ? html`<p class="note">Chat with anyone opens once your account is a day old and you've played on a second day. Friends can chat now.</p>` : ""}
 ${query.has("social-saved") ? html`<p class="note" role="status">Saved. Games pick up chat changes the next time you open them.</p>` : ""}
 ${socialSettingsForm(account.age_band, socialSettingsOf(account))}`}
 <h2 id="theme">Theme</h2>
