@@ -20,11 +20,13 @@ export interface PlayingBarOptions {
   controls: ControlMarkup[];
   /** Shown where it is rather than only while playing: the gallery's still copy. */
   isShown?: boolean;
+  /** The gallery's phone layouts, shown on any screen: upright ("phone"), or on its side, down the left edge ("phone-sideways"). */
+  shownAs?: "phone" | "phone-sideways";
 }
 
 /** The bar beside a running game: Zaisma's mark (back to every game), the game's name, and the game's buttons. */
 export function playingBar(options: PlayingBarOptions): Raw {
-  return html`<div class="playing-bar glass glass-bar at-screen-edge${options.isShown ? " in-place" : ""}" data-glass data-glass-corners="0 0 0 0">${EDGE}<span class="playing-mark words-margin at-start">${logo("mark")}</span><strong class="playing-title words-margin one-line">${options.title}</strong><div class="playing-controls">${row({ widths: "fit", label: "The game's buttons", items: options.controls.map((control) => ({ kind: "control" as const, markup: control })) })}</div></div>`;
+  return html`<div class="playing-bar glass glass-bar at-screen-edge${options.isShown ? " in-place" : ""}${options.shownAs ? ` on-${options.shownAs}` : ""}" data-glass data-glass-corners="0 0 0 0">${EDGE}<span class="playing-mark words-margin at-start">${logo("mark")}</span><strong class="playing-title words-margin one-line">${options.title}</strong><div class="playing-controls">${row({ widths: "fit", label: "The game's buttons", items: options.controls.map((control) => ({ kind: "control" as const, markup: control })) })}</div></div>`;
 }
 
 export interface PlayingCardOptions {
@@ -181,6 +183,17 @@ export const screenshotLarge = (imageUrl: string, label: string): Raw => html`<i
 /** Where Cloudflare's check sits on a game's page: unseen, unless it ever needs a tap, when it shows at the screen's foot, over the game too. */
 export const playingCheck = (id: string): Raw => html`<div class="playing-check" id="${id}"></div>`;
 
+/** The bar on a phone held upright, for the bar a selector picks: the window's width picks it while playing, and the gallery's shownAs. */
+const onPhone = (bar: string) => `${bar} .playing-title { display: none; }
+${bar} { overflow-x: auto; scrollbar-width: none; }
+${bar}::-webkit-scrollbar { display: none; }
+${bar} .playing-controls { margin-left: auto; }`;
+/** The bar on a phone on its side, down the left edge; one control wide, so its row of buttons wraps into a column, --gap-control-stack apart. */
+const onPhoneSideways = (bar: string) => `${bar} { flex-direction: column; width: auto; overflow-y: auto; scrollbar-width: none; }
+${bar} .playing-title { display: none; }
+${bar} .playing-mark { padding-inline: 0; }
+${bar} .playing-controls { margin-top: auto; width: var(--control-height-small); }`;
+
 const PLAYING_STYLES = `
 /* Playing: the game's frame fills the screen beside the bar; the header, background, panes and footer step aside. */
 html.is-playing body { height: 100vh; height: 100dvh; min-height: 0; overflow: hidden; padding: 0; flex-direction: column; background: #000; }
@@ -209,21 +222,11 @@ html.is-leaving body > main > :not(.playing-bar, .playing-card, .playing-check, 
 .playing-title { flex: 1; font: var(--type-name); color: var(--ink); }
 .playing-controls { flex: none; min-width: 0; }
 /* Phones: the buttons have the bar; the ⋯ menu names the game. They scroll sideways if there are more than fit, Zaisma's mark staying put. */
-@media (max-width: 640px) {
-  .playing-title { display: none; }
-  .playing-bar { overflow-x: auto; scrollbar-width: none; }
-  .playing-bar::-webkit-scrollbar { display: none; }
-  .playing-controls { margin-left: auto; }
-}
+@media (max-width: 640px) { ${onPhone(".playing-bar")} }
+${onPhone(".playing-bar.on-phone")}
 /* Landscape phones: the bar is a slim strip down the left edge, so the game keeps the screen's whole height. */
-@media (orientation: landscape) and (max-height: 500px) {
-  html.is-playing body { flex-direction: row; }
-  .playing-bar { flex-direction: column; overflow-y: auto; scrollbar-width: none; }
-  .playing-title { display: none; }
-  .playing-mark { padding-inline: 0; }
-  /* One control wide, so the row wraps into a column, --gap-control-stack apart. */
-  .playing-controls { margin-top: auto; width: var(--control-height-small); }
-}
+@media (orientation: landscape) and (max-height: 500px) { html.is-playing body { flex-direction: row; } ${onPhoneSideways(".playing-bar")} }
+${onPhoneSideways(".playing-bar.on-phone-sideways")}
 
 /* A card over the game's top corner, under the bar: glass the game shows through, as wide as a phone allows. What's in it is a pane's content
    (tokens.ts sets its padding and its words' margin, once), so its words keep the pane's margin from the card's edge like any pane's.
@@ -337,6 +340,8 @@ component({
   examples: [
     { label: "A multiplayer game", markup: playingBar({ title: "Neon Drift", controls: STAND_IN_CONTROLS(), isShown: true }), isWide: true },
     { label: "Played alone", markup: playingBar({ title: "Verdant", controls: [secondaryButton("Share", { type: "button", icon: "share", isLabelHidden: true, isSmall: true }), secondaryButton("More", { type: "button", icon: "more", isLabelHidden: true, isSmall: true, isExpanded: false })], isShown: true }), isWide: true },
+    { label: "On a phone: the buttons have the bar, and the More menu names the game", markup: html`<div class="game-stand-in">${playingBar({ title: "Neon Drift", controls: STAND_IN_CONTROLS(), isShown: true, shownAs: "phone" })}<img src="/design/covers/neon-drift.webp" alt=""></div>`, isStill: true },
+    { label: "On a phone on its side: a strip down the left edge, so the game keeps the whole height", markup: html`<div class="game-stand-in sideways">${playingBar({ title: "Neon Drift", controls: STAND_IN_CONTROLS(), isShown: true, shownAs: "phone-sideways" })}<img src="/design/covers/neon-drift.webp" alt=""></div>`, isWide: true, isStill: true },
   ],
 });
 
