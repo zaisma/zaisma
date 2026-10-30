@@ -211,6 +211,10 @@ describe("rulings, cards and bans", () => {
     expect(await (await SELF.fetch(`${SITE}/sitemap.xml`)).text()).toContain("standing-game");
     await adminTool("set_zaisma_account", { username: "Emma_Novak", is_zaisma_account: false });
     expect(await standing()).toMatchObject({ isEstablishedDeveloper: false });
+    // Marked during the wait after a ruling, it stays out of search engines until the wait ends.
+    await env.DB.prepare("UPDATE owners SET last_ruling_at_ms = ? WHERE id = ?").bind(Date.now(), ownerId).run();
+    await adminTool("set_zaisma_account", { username: "Emma_Novak", is_zaisma_account: true });
+    expect(await (await SELF.fetch(`${SITE}/sitemap.xml`)).text()).not.toContain("standing-game");
   });
 });
 

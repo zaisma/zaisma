@@ -1898,7 +1898,10 @@ async function seedStanding(api, upload, approveNewest, go, form) {
   await signedIn({ name: "New_Teen", email: "newteen@example.test", year: String(new Date().getUTCFullYear() - 16), socialMode: "open_and_social" }, "198.51.100.236");
 }
 
-/** Account standing's facts, again this run: a recount never runs for them (standing_checked_at_ms far ahead), so the states hold. */
+/**
+ * Account standing's facts, again this run: a recount never runs for them (standing_checked_at_ms far ahead), so the states hold.
+ * The versions the seed rejects to show their states aren't rulings anyone means, so Preview_Studio's is cleared.
+ */
 function seedStandingNow() {
   const later = 4102444800000;
   const nowMs = Date.now();
@@ -1906,7 +1909,7 @@ function seedStandingNow() {
      UPDATE games SET owner_id = (SELECT id FROM owners WHERE account_id = (SELECT id FROM accounts WHERE username = 'New_Studio')) WHERE slug = 'harbor-lights' AND EXISTS (SELECT 1 FROM accounts WHERE username = 'New_Studio');
      UPDATE accounts SET created_at_ms = ${nowMs - 3 * 86_400_000} WHERE username = 'New_Studio';
      UPDATE owners SET returning_player_count = 12, is_established = 0, is_zaisma_account = 0, standing_checked_at_ms = ${later} WHERE account_id = (SELECT id FROM accounts WHERE username = 'New_Studio');
-     UPDATE owners SET is_zaisma_account = 1, is_established = 1, standing_checked_at_ms = ${later} WHERE account_id = (SELECT id FROM accounts WHERE username = 'Preview_Studio');
+     UPDATE owners SET is_zaisma_account = 1, is_established = 1, last_ruling_at_ms = NULL, standing_checked_at_ms = ${later} WHERE account_id = (SELECT id FROM accounts WHERE username = 'Preview_Studio');
      UPDATE accounts SET created_at_ms = ${nowMs - 3_600_000}, counted_play_day_count = 0 WHERE username = 'New_Teen';
      UPDATE accounts SET created_at_ms = MIN(created_at_ms, ${nowMs - 2 * 86_400_000}), counted_play_day_count = MAX(counted_play_day_count, 2) WHERE age_band = '16-17' AND username != 'New_Teen'`);
 }

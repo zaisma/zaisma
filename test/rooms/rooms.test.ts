@@ -1420,6 +1420,8 @@ describe("room browsing", () => {
     const teen = await createAccount(e.DB, { id: "chat-check-teen", username: "chat_check_teen", ageBand: "16-17", socialMode: "open_and_social" });
     const otherAdult = await createAccount(e.DB, { id: "chat-check-adult2", username: "chat_check_adult2", ageBand: "18+", socialMode: "open_and_social" });
     const otherTeen = await createAccount(e.DB, { id: "chat-check-teen2", username: "chat_check_teen2", ageBand: "16-17", socialMode: "open_and_social" });
+    // Past a new 16–17 account's day of chatting with friends only.
+    await e.DB.prepare("UPDATE accounts SET created_at_ms = 0, counted_play_day_count = 2 WHERE id IN ('chat-check-teen', 'chat-check-teen2')").run();
     const chatCheck = (body: Record<string, unknown>) => SELF.fetch(`${R}/v1/chat/check`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ gameSlug: "own-chat", recentTexts: [], ...body }) });
     const [adultPass, teenPass, otherAdultPass, otherTeenPass] = [await passFor(adult), await passFor(teen), await passFor(otherAdult), await passFor(otherTeen)];
 
@@ -2299,6 +2301,8 @@ describe("text chat in rooms", () => {
   let accountNumber = 0;
   async function accountIn(gameId: string, slug: string, ageBand: "13-15" | "16-17" | "18+", socialMode: "friends_focused" | "open_and_social" = "open_and_social") {
     const account = await createAccount(e.DB, { id: `room-chat-${++accountNumber}`, username: `room_chat_${accountNumber}`, ageBand, socialMode });
+    // Past a new 16–17 account's day of chatting with friends only.
+    await e.DB.prepare("UPDATE accounts SET created_at_ms = 0, counted_play_day_count = 2 WHERE id = ?").bind(account.id).run();
     const { pass } = await (await post("/v1/pass", slug, ORIGIN, { roomKey: await issueRoomKey(e.DB, gameId, account.id) })).json<{ pass: string }>();
     return { account, pass };
   }

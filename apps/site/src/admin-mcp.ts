@@ -49,6 +49,7 @@ import {
   type Version,
   audit,
   personOwner,
+  STANDING_LIMITS,
 } from "@zaisma/core";
 import { QUEUE_SELECT, adminForm, groupReports, isPlayerGroup, playerGroupChoices, type QueueRow, type ReportGroup } from "./admin.ts";
 import { INTERNAL_ERROR } from "./developer.ts";
@@ -1062,8 +1063,11 @@ export const ADMIN_TOOLS: AdminTool[] = [
       const account = await accountNamed(env, toolArguments.username);
       const isZaismaAccount = toolArguments.is_zaisma_account === true;
       const owner = await personOwner(env.DB, account.id);
-      // Established at once when marked; unmarked, the daily count decides again tomorrow.
-      await env.DB.prepare("UPDATE owners SET is_zaisma_account = ?, is_established = ?, standing_checked_at_ms = NULL WHERE id = ?").bind(isZaismaAccount ? 1 : 0, isZaismaAccount ? 1 : 0, owner.id).run();
+      // Established at once when marked, unless the wait after a ruling is on; unmarked, the next count decides.
+      const rulingWaitStartedAfterMs = Date.now() - STANDING_LIMITS.rulingWaitDurationDays * 86_400_000;
+      await env.DB.prepare("UPDATE owners SET is_zaisma_account = ?1, is_established = CASE WHEN ?1 = 1 AND (last_ruling_at_ms IS NULL OR last_ruling_at_ms <= ?2) THEN 1 ELSE 0 END, standing_checked_at_ms = NULL WHERE id = ?3")
+        .bind(isZaismaAccount ? 1 : 0, rulingWaitStartedAfterMs, owner.id)
+        .run();
       await audit(env.DB, null, isZaismaAccount ? "zaisma-account-marked" : "zaisma-account-unmarked", `@${account.username}`, actor);
       return { username: account.username, is_zaisma_account: isZaismaAccount, next_steps: [] };
     },

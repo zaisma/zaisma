@@ -1492,6 +1492,7 @@ const STYLES = `
 .link-row label.grow{flex:1;min-width:220px}
 .link-row label.check{display:flex}
 .link-row .hint{margin:0}
+.standing-wait .ico{width:1.1em;height:1.1em;vertical-align:-.18em;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
 .later summary{min-height:44px;display:inline-flex;align-items:center;font-size:15px}
 .later[open]{flex-basis:100%}
 .qr-panel{display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap}

@@ -16,8 +16,8 @@ export async function checkStanding(env: Env, nowMs = Date.now()): Promise<void>
   const { results: owners } = await env.DB
     .prepare(
       `SELECT owners.id, owners.is_zaisma_account, owners.last_ruling_at_ms, COALESCE(accounts.created_at_ms, owners.created_at_ms) AS account_created_at_ms, accounts.banned_at_ms,
-        (SELECT COUNT(DISTINCT returning.account_id) FROM game_returning_players returning JOIN games ON games.id = returning.game_id JOIN accounts player ON player.id = returning.account_id
-          WHERE games.owner_id = owners.id AND returning.counted_day_count >= ?1 AND player.created_at_ms <= ?2 AND player.counted_play_day_count >= ?3
+        (SELECT COUNT(DISTINCT counted.account_id) FROM game_returning_players counted JOIN games ON games.id = counted.game_id JOIN accounts player ON player.id = counted.account_id
+          WHERE games.owner_id = owners.id AND counted.counted_day_count >= ?1 AND player.created_at_ms <= ?2 AND player.counted_play_day_count >= ?3
             AND player.social_stopped_reason IS NULL AND player.banned_at_ms IS NULL AND player.id IS NOT owners.account_id) AS returning_player_count
       FROM owners LEFT JOIN accounts ON accounts.id = owners.account_id
       WHERE EXISTS (SELECT 1 FROM games WHERE games.owner_id = owners.id) AND (owners.standing_checked_at_ms IS NULL OR owners.standing_checked_at_ms <= ?4)
