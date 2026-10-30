@@ -6,7 +6,7 @@ import { CUT_LINE, EDGE, RAIL_PARTS, divider, floatingPane, glassPane, icon, log
 import { cutPolygon } from "./tokens.ts";
 import { secondaryButton, tertiaryButton, rowArrows, primaryButton, textLink } from "./actions.ts";
 import { SEARCH_STAND_IN, searchField, tabSwitch, type SearchFieldOptions, type SwitchTab } from "./inputs.ts";
-import { DROPDOWN_CHOICE_CLASS, STAND_IN_COVERS, dropdown, type DropdownItem } from "./panes.ts";
+import { DROPDOWN_CHOICE_CLASS, DROPDOWN_TICK, STAND_IN_COVERS, dropdown, type DropdownItem } from "./panes.ts";
 import { listRows } from "./data.ts";
 import { BAR_TWO_ROWS_MEDIA, row, stack, track, type LayoutItem, stackOfOne } from "./layout.ts";
 
@@ -1575,7 +1575,7 @@ export interface FilterMenuOptions {
 export function filterMenu(options: FilterMenuOptions): ControlMarkup {
   // A choice is a Dropdown's (its classes and look), a link to the list with it picked.
   const choice = (label: string, href: string, isCurrent: boolean, choiceIcon?: IconName) =>
-    html`<a href="${href}" class="${DROPDOWN_CHOICE_CLASS}" role="menuitem" tabindex="-1" data-lights data-cut-line="8"${isCurrent ? raw(' aria-current="page"') : ""}>${CUT_LINE}${choiceIcon ? icon(choiceIcon) : ""}<span>${label}</span></a>`;
+    html`<a href="${href}" class="${DROPDOWN_CHOICE_CLASS}" role="menuitem" tabindex="-1" data-lights data-cut-line="8"${isCurrent ? raw(' aria-current="page"') : ""}>${CUT_LINE}${choiceIcon ? icon(choiceIcon) : ""}<span>${label}</span>${isCurrent ? DROPDOWN_TICK : ""}</a>`;
   const button = secondaryButton("Filter", { type: "button", icon: "filter", controls: options.id, isExpanded: Boolean(options.isOpen), reactionCount: options.filterCount || undefined });
   const opener = (groupName: string, inside: Raw, className: string) =>
     html`<button type="button" class="${DROPDOWN_CHOICE_CLASS} ${className}" role="menuitem" tabindex="-1" aria-haspopup="menu" data-lights data-cut-line="8" data-filter-opens="${groupName}">${CUT_LINE}${inside}</button>`;

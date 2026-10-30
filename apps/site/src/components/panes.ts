@@ -43,7 +43,7 @@ export interface DropdownChoice {
   isNewTab?: boolean;
   /** data-* attributes a page's script reads ({ report: "" } is data-report=""), names in lowercase words joined by dashes. */
   dataAttributes?: Record<string, string>;
-  /** The page you're on, or the choice that's made: it sits on a slab with the orange line, like a switch's. */
+  /** The page you're on, or the choice that's made: its words dark and a check at its end, a Select field's tick. */
   isCurrent?: boolean;
   icon?: IconName;
   /** A small number at its end, like unread replies: a Tag. */
@@ -57,13 +57,15 @@ export type DropdownItem = DropdownChoice | { kind: "rule" };
 
 /** A dropdown's row: a compact flush row (materials.ts), for any menu that makes its own rows (the Filter menu's groups) to share. */
 export const DROPDOWN_CHOICE_CLASS = "dropdown-choice flush-row compact quiet";
+/** The check at the end of a dropdown's chosen choice, the tick a Select field marks its pick with. */
+export const DROPDOWN_TICK = html`<span class="dropdown-tick">${icon("check")}</span>`;
 
 /**
- * One choice in a dropdown: words with an icon, a faint slab under the pointer, the slab with the orange line when it's the current one.
+ * One choice in a dropdown: words with an icon, flat on its glass, the menu's rim lit beside it when pointed at, a check at its end when chosen.
  * It's a menu item the arrow keys move between.
  */
 function dropdownChoice(choice: DropdownChoice): Raw {
-  const inside = html`${CUT_LINE}${choice.icon ? icon(choice.icon) : ""}<span class="one-line">${choice.label}</span>${choice.badgeCount ? tag(choice.badgeCount, "count") : ""}${choice.isNewTab ? html`<span class="dropdown-out" aria-hidden="true">${icon("out-of-page")}</span>` : ""}`;
+  const inside = html`${CUT_LINE}${choice.icon ? icon(choice.icon) : ""}<span class="one-line">${choice.label}</span>${choice.badgeCount ? tag(choice.badgeCount, "count") : ""}${choice.isNewTab ? html`<span class="dropdown-out" aria-hidden="true">${icon("out-of-page")}</span>` : ""}${choice.isCurrent ? DROPDOWN_TICK : ""}`;
   const dataMarkup = choice.dataAttributes ? html`${Object.entries(choice.dataAttributes).map(([name, text]) => html` data-${name}="${text}"`)}` : "";
   const shared = html` class="${DROPDOWN_CHOICE_CLASS}${choice.state ? ` ${choice.state}` : ""}"${raw(' role="menuitem" tabindex="-1" data-lights')} data-cut-line="8"${choice.id ? html` id="${choice.id}"` : ""}${choice.isHidden ? raw(" hidden") : ""}${choice.isCurrent ? raw(' aria-current="page"') : ""}`;
   if (choice.action !== undefined) return html`<form class="dropdown-form" method="post" action="${choice.action}"><button type="submit"${shared}>${inside}</button></form>`;
@@ -398,15 +400,6 @@ export const DROPDOWN_SCRIPT = `/* menus */(function () {
   // Each menu is a Floating pane (zaismaFloat), hanging from the button that opens it, or just under the header's slab when that button is in the
   // header (it never flips above it there); past the room on the side it opened to, its choices scroll inside it.
   var buttons = new WeakMap();
-  // The current choice's stretch of rim, orange: as long as the choice's middle half, beside it.
-  function markCurrent(menu) {
-    var light = menu.querySelector(":scope > .edge-light"), current = menu.querySelector('[role="menuitem"][aria-current="page"]');
-    if (!light) return;
-    light.classList.toggle("has-current", Boolean(current));
-    if (!current) return;
-    var m = menu.getBoundingClientRect(), r = current.getBoundingClientRect();
-    light.style.setProperty("--current-top", (r.top - m.top + r.height / 4) + "px"); light.style.setProperty("--current-span", r.height / 2 + "px");
-  }
   window.zaismaWatch.each('.dropdown[role="menu"]', function (menu) {
     var float = window.zaismaFloat(menu, {
       anchor: function () { return buttons.get(menu) || buttonOf(menu); },
@@ -418,7 +411,6 @@ export const DROPDOWN_SCRIPT = `/* menus */(function () {
       // The corner nearest its button is square, the rest cut as a menu's: the one corner unlike the others is where it hangs from. Under
       // its button that's a top corner, over it a bottom one, at the button's end or (from-start) its start.
       onPlaced: function () {
-        markCurrent(menu);
         var cuts = ["menu-large", "menu-small", "menu-large", "menu-small"], isStart = menu.classList.contains("from-start");
         cuts[menu.classList.contains("is-above") ? (isStart ? 3 : 2) : (isStart ? 0 : 1)] = "0";
         if (menu.getAttribute("data-glass-corners") === cuts.join(" ")) return;
@@ -469,7 +461,7 @@ const DROPDOWN_STYLES = `
 /* Holding the focus as a whole (opened by a press) it draws no ring: a choice it moves to lights its rim. */
 .floating-pane.dropdown:focus { outline: none; }
 /* Its choices are flat, words on its glass: pointed at or moved to with the keyboard, the words darken and its rim lights beside the choice
-   (Edge light, as a switch's does, cut to its glass); the current one keeps its words dark and its stretch of rim orange, never a slab. */
+   (Edge light, as a switch's does, cut to its glass); the chosen one keeps its words dark and ends in a check (a Select field's tick), never a slab. */
 /* Its rules sit close to its choices: a menu's groups are a few choices each, so a page's gap round them would part them more than they
    differ. Under its head's words a rule keeps the usual gap, so the words never crowd it. */
 .floating-pane.dropdown .divider { margin-block: 3px; }
@@ -477,7 +469,9 @@ const DROPDOWN_STYLES = `
 .floating-pane.dropdown > .edge-light { position: absolute; inset: 0; clip-path: var(--glass-clip); }
 .floating-pane.dropdown .dropdown-choice[aria-current="page"] { background: none; box-shadow: none; }
 .floating-pane.dropdown .dropdown-choice:is(:hover, :focus-visible, .is-pointed, .is-focused) { color: var(--ink); }
-.floating-pane.dropdown > .edge-light.has-current { background: linear-gradient(var(--run), var(--run)) no-repeat 0 var(--current-top, 0px) / 2px var(--current-span, 0px); }
+.floating-pane.dropdown .dropdown-choice[aria-current="page"] { color: var(--ink); }
+.dropdown-tick { flex: none; display: inline-flex; margin-left: auto; color: var(--ink); }
+.dropdown-tick > .ico { width: 18px; height: 18px; stroke-width: 2.2; }
 .dropdown-in > * { flex: none; }
 /* Its own words (its head's) keep its margin, --pad-words in from its padding: as far in as the choices' words, which sit that far into
    each choice. The head's rule is as long as the rules between the choices. */
