@@ -348,6 +348,10 @@ export const RAIL_SCRIPT = `/* rail */(function () {
     // The groove sits 2px inside the channel, so its slanted ends lie 2px in from the channel's: the thumb stops this far along it, its own
     // slant flush against the groove's end.
     var SLANT_IN_PX = 2 * Math.SQRT2;
+    // The page's thumb follows the page's scroll in the browser itself where it can (a scroll-driven animation): in step with a swipe and
+    // with the browser's bar showing and hiding, which a script a frame behind can't be. Only its length is set here (--thumb-share).
+    var followsScroll = isPage && window.CSS && CSS.supports("animation-timeline: scroll()");
+    if (followsScroll) bar.classList.add("follows-scroll");
     if (isPage) document.documentElement.classList.add("own-scroll"); else scroller.classList.add("own-scroll");
     // Shown or not by its class, never by hidden: WebKit checks the page's :has() rules on [hidden] again over the whole page each time any
     // element's hidden changes, seconds on a page of a hundred boxes.
@@ -461,7 +465,8 @@ export const RAIL_SCRIPT = `/* rail */(function () {
         if (!measured) return;
         var track = measured.track, max = placed.max, height = Math.max(36, Math.round(track * placed.view / placed.whole));
         size = { track: track, thumb: height, max: max, start: measured.start };
-        thumb.style[isSide ? "width" : "height"] = height + "px";
+        if (followsScroll) thumb.style.setProperty("--thumb-share", (placed.view / placed.whole).toFixed(4));
+        else thumb.style[isSide ? "width" : "height"] = height + "px";
         move(measured.at);
         marks.forEach(function (m, i) {
           var seen = measured.marks[i]; m.mark.hidden = !seen.shown; if (!seen.shown) return;
@@ -479,7 +484,7 @@ export const RAIL_SCRIPT = `/* rail */(function () {
     function layout() { if (drag) { isLayoutDue = true; return; } layOutSoon(rail); }
     // Scrolling only moves the thumb: the rail's size and its marks change only with the page's size (layout, above), so a scroll
     // never reads the page's layout.
-    function move(atPx) { if (drag) near(); if (isShown) thumb.style.transform = (isSide ? "translateX(" : "translateY(") + (SLANT_IN_PX + (size.track - size.thumb) * Math.min(1, (atPx === undefined ? at() : atPx) / size.max)).toFixed(1) + "px)"; }
+    function move(atPx) { if (drag) near(); if (isShown && !followsScroll) thumb.style.transform = (isSide ? "translateX(" : "translateY(") + (SLANT_IN_PX + (size.track - size.thumb) * Math.min(1, (atPx === undefined ? at() : atPx) / size.max)).toFixed(1) + "px)"; }
     var sleep = 0, queued = false;
     // Woken only once a scroll: the class is set as it wakes, not on every scroll event, so the page's watchers hear of it once.
     function wake() { if (!bar.classList.contains("awake")) bar.classList.add("awake"); clearTimeout(sleep); sleep = setTimeout(function () { bar.classList.remove("awake"); }, 1100); }
@@ -948,6 +953,14 @@ component({
 .rail.sideways .rail-mark > span { top: auto; left: 50%; bottom: 17px; transform: translateX(calc(-50% + var(--label-shift, 0px))); }
 .rail.sideways .rail-riding { top: auto; bottom: 17px; left: var(--riding-at, 0px); transform: translateX(-50%); }
 .rail.sideways:not(.dragging) .rail-mark:hover > span, .rail.sideways.dragging .rail-riding { translate: 0 0; }
+/* The page's thumb, where the browser can, is moved by the page's scroll itself (RAIL_SCRIPT's followsScroll): its length a share of the
+   groove (--thumb-share, the view over the page), its place from the groove's top slant to its foot's, all in the groove's own size, so a
+   browser bar showing or hiding moves it in the same frame. */
+@supports (animation-timeline: scroll()) {
+  .rail.follows-scroll .rail-thumb { --slant-in: 2.83px; --thumb-length: max(36px, calc(var(--thumb-share, 0.2) * (100% - 2 * var(--slant-in))));
+    height: var(--thumb-length); transform: none; animation: rail-follows-page linear both; animation-timeline: scroll(root block); }
+  @keyframes rail-follows-page { from { top: var(--slant-in); } to { top: calc(100% - var(--thumb-length) - var(--slant-in)); } }
+}
 /* In the narrow layout (a phone, or a small window), the page's rail starts below the header. */
 @media (max-width: 760px) {
   .rail[data-rail="page"] { top: 132px; bottom: 10px; }

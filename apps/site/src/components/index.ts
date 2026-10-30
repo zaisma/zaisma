@@ -35,8 +35,49 @@ export { COMPONENTS, COMPONENT_GROUPS, componentBySlug } from "./component.ts";
 export { HEADER_SCRIPT } from "./navigation.ts";
 export { columns, grid, paneParts, row, stack, track, type LayoutControl, type LayoutItem } from "./layout.ts";
 
-/** The tokens, the materials (so a component's own rules come after them), then every component's CSS in gallery order. */
-export const COMPONENT_STYLES = (): string => TOKEN_STYLES + MATERIAL_STYLES + COMPONENTS().map((each) => each.styles).join("");
+/**
+ * A pointed look is only for a pointer that can rest (a mouse, a trackpad): on a touch screen a tapped thing would keep it after the finger
+ * lifts. So every rule's :hover selectors are moved under @media (hover: hover), however deep in other @media blocks; the rest of a selector
+ * list (a gallery's fixed is-pointed state) stays where it was.
+ */
+export function hoverOnlyWherePointing(css: string): string {
+  let out = "", at = 0;
+  // The end of a block opened at "{" (index of its "}"), past comments and quoted strings.
+  const blockEnd = (open: number): number => {
+    let depth = 0;
+    for (let i = open; i < css.length; i++) {
+      const c = css[i];
+      if (c === "/" && css[i + 1] === "*") { i = css.indexOf("*/", i + 2) + 1; continue; }
+      if (c === '"' || c === "'") { i = css.indexOf(c, i + 1); continue; }
+      if (c === "{") depth++;
+      else if (c === "}" && --depth === 0) return i;
+    }
+    return css.length - 1;
+  };
+  while (at < css.length) {
+    if (css.startsWith("/*", at)) { const end = css.indexOf("*/", at + 2) + 2; out += css.slice(at, end); at = end; continue; }
+    const open = css.indexOf("{", at);
+    if (open < 0) { out += css.slice(at); break; }
+    // A comment before the selector stays as it is.
+    const comment = css.slice(at, open).lastIndexOf("*/");
+    if (comment >= 0) { out += css.slice(at, at + comment + 2); at += comment + 2; continue; }
+    const head = css.slice(at, open), close = blockEnd(open), body = css.slice(open + 1, close);
+    const selector = head.trim();
+    if (/^@(media|supports|container|layer)\b/.test(selector)) out += `${head}{${hoverOnlyWherePointing(body)}}`;
+    else if (selector.startsWith("@") || !selector.includes(":hover")) out += `${head}{${body}}`;
+    else {
+      const parts = selector.split(/,(?![^(]*\))/).map((part) => part.trim());
+      const pointing = parts.filter((part) => part.includes(":hover")), resting = parts.filter((part) => !part.includes(":hover"));
+      out += `${head.slice(0, head.length - head.trimStart().length)}${resting.length ? `${resting.join(", ")} {${body}}\n` : ""}@media (hover: hover) { ${pointing.join(", ")} {${body}} }`;
+    }
+    at = close + 1;
+  }
+  return out;
+}
+
+let shownStyles = "";
+/** The tokens, the materials (so a component's own rules come after them), then every component's CSS in gallery order, worked out once. */
+export const COMPONENT_STYLES = (): string => (shownStyles ||= hoverOnlyWherePointing(TOKEN_STYLES + MATERIAL_STYLES + COMPONENTS().map((each) => each.styles).join("")));
 
 /** The components' script, readable: what scripts/minify-components.mjs minifies. */
 export const COMPONENT_SCRIPT_SOURCE = WATCH_SCRIPT + GLASS_SCRIPT + MATERIAL_SCRIPT + PLACE_SCRIPT + EDGE_LIGHT_SCRIPT + BACKDROP_SCRIPT + FIELD_SCRIPT + PIN_FIELD_SCRIPT + SWITCH_SCRIPT + RUNNER_SCRIPT + BUSY_SCRIPT + TOGGLE_SCRIPT + CHECK_SCRIPT + CHOICE_CARDS_SCRIPT + WHEEL_SCRIPT + FILE_DROP_SCRIPT + COPY_SCRIPT + CHART_SCRIPT + QR_CODE_SCRIPT + LONG_FIELD_SCRIPT + SLIDER_SCRIPT + COLOR_FIELD_SCRIPT + SELECT_SCRIPT + SEARCH_SCRIPT + DROPDOWN_SCRIPT + FILTER_MENU_SCRIPT + LAYERS_SCRIPT + STARTED_LOW_SCRIPT + STEP_FLOW_SCRIPT + CONFIRM_ITS_YOU_SCRIPT + RAIL_SCRIPT + ROW_SCRIPT + ROW_LAYOUT_SCRIPT + SCROLL_FADE_SCRIPT + SIDEBAR_SCRIPT + COMPACT_SCRIPT + LOAD_MORE_SCRIPT + PLAYING_CARD_SCRIPT + LIST_ROW_FOLD_SCRIPT;
