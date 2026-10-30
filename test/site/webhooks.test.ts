@@ -619,7 +619,7 @@ describe("deleting an account reaches developers", () => {
     await env.DB.exec(`UPDATE player_erases SET attempt_count = ${MAXIMUM_WEBHOOK_ATTEMPT_COUNT - 1}, next_attempt_at_ms = 0`);
     await eraseDuePlayers(testEnv);
     const [alert] = (await tool("get_game", { slug: "sky-hopper" })).alerts;
-    expect(alert).toEqual({ kind: "player_erase_failed", message: expect.stringContaining("players"), fix: expect.stringContaining("erase_player with each player_id: player_stuck"), version_id: null });
+    expect(alert).toEqual({ kind: "player_erase_failed", message: expect.stringContaining("players"), fix: expect.stringContaining("erase_player with each player_id: player_stuck"), message_for_people: expect.stringContaining("Fix what stopped it, then erase"), version_id: null });
     // Once the developer fixes what stopped it, the erase the fix names works.
     await tool("query_database", { slug: "sky-hopper", sql: "DELETE FROM trophies" });
     expect((await tool("erase_player", { slug: "sky-hopper", player_id: "player_stuck" })).erased_tables).toEqual([{ table_name: "players", erased_row_count: 1 }]);

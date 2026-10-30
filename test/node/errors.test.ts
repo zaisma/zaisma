@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { ERROR_TEXT } from "../../packages/game-server/src/room.ts";
-import { ADMIN_ERROR_CODES, ERROR_CODES } from "../../packages/core/src/errors.ts";
+import { ADMIN_ERROR_CODES, ApiError, ERROR_CODES } from "../../packages/core/src/errors.ts";
 import { ALLOWED_CONTENT, CONTENT_RULES, INTERNAL_FINDING_CODES, NOTICE_CODES, REVIEW_CODES } from "../../packages/core/src/review.ts";
 import { JUDGE_FINDING_CODES } from "../../apps/site/src/review-judge.ts";
 
@@ -33,6 +33,14 @@ function source(): string {
 describe("error codes", () => {
   const everyCode = [...Object.keys(ERROR_CODES), ...Object.keys(ADMIN_ERROR_CODES)];
 
+  it("answer with the people's text beside the caller's: the code's, or the throw's own when it has specifics", () => {
+    const fromCode = new ApiError("too_many_webhooks", { message: "The account has 10 webhooks already.", fix: "Delete one with delete_webhook." }).toAnswer();
+    expect(fromCode.error).toEqual({ code: "too_many_webhooks", message: "The account has 10 webhooks already.", field: null, fix: "Delete one with delete_webhook.", message_for_people: ERROR_CODES.too_many_webhooks.messageForPeople, retry_after_sec: null });
+    const own = new ApiError("bad_title", { message: "title holds U+200B.", field: "title", fix: "Remove U+200B.", messageForPeople: "It holds a hidden character. Remove it." });
+    expect(own.messageForPeople).toBe("It holds a hidden character. Remove it.");
+    expect(own.toAnswer().error.message_for_people).toBe("It holds a hidden character. Remove it.");
+  });
+
   it("are lowercase snake_case, and each in one list", () => {
     for (const code of everyCode) expect(code).toMatch(/^[a-z][a-z0-9]*(_[a-z0-9]+)*$/);
     expect(new Set(everyCode).size).toBe(everyCode.length);
@@ -41,13 +49,19 @@ describe("error codes", () => {
   it("are all listed in docs/DEVELOPER-API.md, as the code has them", () => {
     const listed = listedCodes("docs/DEVELOPER-API.md", "Next steps");
     expect(listed.map((row) => row.code)).toEqual(Object.keys(ERROR_CODES));
-    for (const row of listed) expect(row, row.code).toEqual({ code: row.code, ...ERROR_CODES[row.code as keyof typeof ERROR_CODES] });
+    for (const row of listed) {
+      const { httpStatus, meaning } = ERROR_CODES[row.code as keyof typeof ERROR_CODES];
+      expect(row, row.code).toEqual({ code: row.code, httpStatus, meaning });
+    }
   });
 
   it("the admin MCP's own are all listed in docs/ADMIN-MCP.md, as the code has them", () => {
     const listed = listedCodes("docs/ADMIN-MCP.md", "Connect Claude Code");
     expect(listed.map((row) => row.code)).toEqual(Object.keys(ADMIN_ERROR_CODES));
-    for (const row of listed) expect(row, row.code).toEqual({ code: row.code, ...ADMIN_ERROR_CODES[row.code as keyof typeof ADMIN_ERROR_CODES] });
+    for (const row of listed) {
+      const { httpStatus, meaning } = ADMIN_ERROR_CODES[row.code as keyof typeof ADMIN_ERROR_CODES];
+      expect(row, row.code).toEqual({ code: row.code, httpStatus, meaning });
+    }
   });
 
   it("are each one the code can answer with", () => {

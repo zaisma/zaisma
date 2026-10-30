@@ -238,7 +238,7 @@ describe("a re-upload of another developer's game", () => {
     const original = await env.DB.prepare("SELECT id FROM games WHERE slug = 'shard-dodge'").first<{ id: string }>();
     expect(report.matched_game).toEqual({ game_id: original!.id, matched_file_count: 4, compared_file_count: 5 });
     const version = await findingsOf("dev-2", "shard-dash", versionId);
-    expect(version.findings).toEqual([expect.objectContaining({ code: "matches_another_developers_game", content_rule: "copyright", message: REVIEW_CODES.matches_another_developers_game.meaning, fix: REVIEW_CODES.matches_another_developers_game.fix })]);
+    expect(version.findings).toEqual([expect.objectContaining({ code: "matches_another_developers_game", content_rule: "copyright", message: REVIEW_CODES.matches_another_developers_game.meaning, fix: REVIEW_CODES.matches_another_developers_game.fix, message_for_people: REVIEW_CODES.matches_another_developers_game.messageForPeople })]);
     expect(JSON.stringify(version)).not.toContain("shard-dodge");
     expect(emails).toEqual([]);
   });
