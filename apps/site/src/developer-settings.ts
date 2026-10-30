@@ -23,7 +23,6 @@ import { confirmSheet, dropdown, notice, sheet } from "./components/panes.ts";
 import { checkField, choiceCards, copyField, cutField, longField, selectField } from "./components/inputs.ts";
 import { emptyState, listRows, numbers, table, type ListRow } from "./components/data.ts";
 import { hostingMeter } from "./hosting-meter.ts";
-import { foldedPart } from "./components/reading.ts";
 
 /**
  * Developer settings, /dashboard/settings (docs/DECISIONS.md, "The dashboard is three kinds of page"): what applies across a developer's
@@ -291,10 +290,10 @@ function hostingPane(settings: Settings): LayoutItem {
   if (credit.entries.length) {
     items.push(
       block(
-        foldedPart({
+        listRows({ whenEmpty: html``, rows: [{
           title: "The last 90 days",
-          entryCount: credit.entries.length,
-          body: table({ whenEmpty: emptyState({ title: "No credit entries", text: "Nothing was added to or spent from your credit in the last 90 days." }),
+          end: tag(String(credit.entries.length), "count"),
+          fold: { body: table({ whenEmpty: emptyState({ title: "No credit entries", text: "Nothing was added to or spent from your credit in the last 90 days." }),
             caption: "Credit entries",
             isCompact: true,
             shownRowCount: 8,
@@ -310,8 +309,8 @@ function hostingPane(settings: Settings): LayoutItem {
                 topUp ? opens("Refund", `refund-${topUp.id}`) : "",
               ];
             }),
-          }),
-        }),
+          }) },
+        }] }),
       ),
       ...[...refundableTopUps.values()].map((topUp) => layer(askSheet(`refund-${topUp.id}`, `Refund ${dollars(topUp.refundable_cents)}?`, "It goes back to the card it came from, and that credit is gone.", `${PAGE}/credit/refund/${topUp.id}`, "Refund"))),
     );

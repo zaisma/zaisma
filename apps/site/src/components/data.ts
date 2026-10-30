@@ -291,15 +291,27 @@ export interface RowSwitch {
   isDisabled?: boolean;
 }
 
+/** A row that opens: what's folded under it, shown in a well under the row once it's pressed. */
+export interface RowFold {
+  /** What opens under it: a rule's Fine and Not fine, a table of credit entries. */
+  body: Raw;
+  /** Unique on the page: the row's anchor, so a link to #<id> lands on it open (LIST_ROW_FOLD_SCRIPT). */
+  id?: string;
+  isOpen?: boolean;
+}
+
 /**
  * A row that goes somewhere is a link as a whole, so it never holds a button; a row to read may end in any control (Remove, Invite, a
  * select), or in a few small ones side by side (a player in a room: Mute, and ⋯ for the rest); a row for a setting ends in a switch, and
- * is pressed as a whole. A switch row may hold the rows that only matter while it's on, in a well under it.
+ * is pressed as a whole. A switch row may hold the rows that only matter while it's on, in a well under it. A row that opens (fold) is
+ * pressed as a whole too and ends in a chevron that turns as it opens, what's folded under it showing in a well under it: something that
+ * belongs on the page but out of the way (earlier entries, blocked people), or things to scan by a title and a line (the content rules).
  */
 export type ListRow = ListRowParts & (
-  | { href: string; action?: never; switch?: never; rowsWhileOn?: never }
-  | { href?: undefined; action?: ControlMarkup | ControlMarkup[]; switch?: never; rowsWhileOn?: never }
-  | { href?: undefined; action?: never; switch: RowSwitch; rowsWhileOn?: ListRow[] }
+  | { href: string; action?: never; switch?: never; rowsWhileOn?: never; fold?: never }
+  | { href?: undefined; action?: ControlMarkup | ControlMarkup[]; switch?: never; rowsWhileOn?: never; fold?: never }
+  | { href?: undefined; action?: never; switch: RowSwitch; rowsWhileOn?: ListRow[]; fold?: never }
+  | { href?: undefined; action?: never; switch?: never; rowsWhileOn?: never; fold: RowFold }
 );
 
 /** A switch's carved slot and its slab: the checkbox (role switch) lies over the slot, unseen, and the row round it is its label. */
@@ -333,6 +345,8 @@ function listMarkup(options: { rows: ListRow[]; id?: string; label?: string; sho
       ? html`<a class="list-row flush-row is-link${row.state ? ` ${row.state}` : ""}" href="${row.href}"${row.isNewTab ? raw(' target="_blank" rel="noopener noreferrer"') : ""} data-cut-line="8">${CUT_LINE}${inside}<span class="list-row-go${row.isNewTab ? " is-new-tab" : ""}" aria-hidden="true">${icon(row.isNewTab ? "out-of-page" : "chevron-right")}</span></a>`
       : row.switch
         ? switchRowMarkup(row, row.switch, inside)
+        : row.fold
+        ? foldRowMarkup(row, row.fold, inside)
         : html`<div class="list-row flush-row quiet">${inside}${row.action ? html`<span class="list-row-action">${Array.isArray(row.action) ? rowOf(row.action) : row.action}</span>` : ""}</div>`}</li>`;
   })}</ul>`;
 }
@@ -347,6 +361,24 @@ function switchRowMarkup(row: ListRow, rowSwitch: RowSwitch, inside: Raw): Raw {
   return html`<label class="${className}" for="${id}" data-cut-line="8">${CUT_LINE}${inside}<span class="list-row-action">${switchSlot(id, rowSwitch)}</span></label>${whileOn}`;
 }
 
+/** A row that opens: a summary pressed as a whole, its words then a chevron that turns as it opens, and what's folded under it in a well. */
+function foldRowMarkup(row: ListRow, fold: RowFold, inside: Raw): Raw {
+  return html`<details class="list-row-fold"${fold.id ? html` id="${fold.id}"` : ""}${fold.isOpen ? raw(" open") : ""}><summary class="list-row flush-row is-fold${row.state ? ` ${row.state}` : ""}" data-cut-line="8">${CUT_LINE}${inside}<span class="list-row-go" aria-hidden="true">${icon("chevron-right")}</span></summary><div class="list-row-fold-body carving holds-parts" data-cut-line="8">${CUT_LINE}<div class="carving-words">${fold.body}</div></div></details>`;
+}
+
+/** Opens the folding row a link points at (#<id>), on arrival and when the address's anchor changes. */
+export const LIST_ROW_FOLD_SCRIPT = `
+(() => {
+  const openTarget = () => {
+    const id = decodeURIComponent(location.hash.slice(1));
+    const foldRow = id ? document.getElementById(id) : null;
+    if (foldRow && foldRow.matches("details.list-row-fold")) foldRow.open = true;
+  };
+  openTarget();
+  addEventListener("hashchange", openTarget);
+})();
+`;
+
 const VERSION_LIST_ROWS: ListRow[] = [
   { title: "Version 15", detail: "An hour ago · 314 files · 49.2 MB", href: "#list-rows", end: VERSION_STATE_TAGS.held },
   { title: "Version 14", detail: "2 days ago · 312 files · 48.1 MB", href: "#list-rows", end: VERSION_STATE_TAGS.live },
@@ -360,7 +392,7 @@ component({
   slug: "list-rows",
   group: "data",
   subgroup: "lists",
-  summary: "A list of things on glass, one a row with hairlines between: versions, keys, topics, players, settings. A row that goes somewhere is a link as a whole, ending in a chevron that steps on as you point; a row to read may end in any control, a button or a select; a row for a setting ends in its switch (Toggle) and is pressed as a whole, holding the settings it turns on in a well under it. Words and the control at a row's end keep one margin, so a row reads as one thing.",
+  summary: "A list of things on glass, one a row with hairlines between: versions, keys, topics, players, settings. A row that goes somewhere is a link as a whole, ending in a chevron that steps on as you point; a row to read may end in any control, a button or a select; a row for a setting ends in its switch (Toggle) and is pressed as a whole, holding the settings it turns on in a well under it. Words and the control at a row's end keep one margin, so a row reads as one thing. A row may open instead, pressed as a whole, what's folded under it showing in a well under it: something out of the way (blocked people, earlier entries) or things to scan by a title and a line (the content rules).",
   styles: `
 /* List rows: one thing a row, hairlines between. A row that's a link ends in a small chevron; under the pointer the row brightens a little
    (a faint slab, cut by the edge rule), an orange mark rises at its start, and the chevron steps on, the way the guest button's arrow does.
@@ -396,8 +428,14 @@ component({
 /* Its words take what's left beside the switch, however narrow, and wrap there: the switch stays on their line, at the row's end. */
 .list-row.toggle > .list-row-words { flex: 1 1 0; }
 .list-row.toggle.is-disabled { cursor: default; }
-/* The rows a switch row turns on: in a well under it, a frame gap in from the list's sides and above the next row, shown while it's on. */
-.list-row-while-on { margin: 0 var(--pad-frame) var(--pad-frame); }
+/* The rows a switch row turns on, and what a folding row opens to: in a well under it, a frame gap in from the list's sides and above the
+   next row, shown while it's on or open. */
+.list-row-while-on, .list-row-fold-body { margin: 0 var(--pad-frame) var(--pad-frame); }
+/* A folding row is pressed as a whole, as a link row is, its chevron turning down as it opens. */
+.list-row.is-fold { cursor: pointer; list-style: none; }
+.list-row.is-fold::-webkit-details-marker { display: none; }
+.list-row.is-fold:hover > .list-row-go, .list-row.is-fold.is-pointed > .list-row-go { color: var(--ink); }
+.list-row-fold[open] > .list-row.is-fold > .list-row-go { transform: rotate(90deg); }
 .list-rows > li:has(> .list-row .toggle-input:not(:checked)) > .list-row-while-on { display: none; }
 .list-row-go { flex: none; display: inline-flex; color: var(--muted); transition: transform var(--motion-glide) var(--ease-glide), color var(--motion-state); }
 .list-row-go > .ico { width: 8px; height: 13px; stroke-width: 2.2; }
@@ -411,6 +449,19 @@ component({
   render: listRows,
   examples: [
     { label: "Rows that go somewhere", isWide: true, markup: listPane(VERSION_LIST_ROWS) },
+    {
+      label: "Rows that open, in a pane among other things: something out of the way, and things to scan by a title and a line, one open",
+      isWide: true,
+      markup: glassPane({ paneWidth: "full", body: stack({ items: [
+        { kind: "words", markup: html`<h3>Privacy</h3>` },
+        { kind: "words", markup: html`<p>Who can find you and send you things.</p>` },
+        { kind: "block", markup: listRows({ whenEmpty: html``, rows: [
+          { title: "Blocked", end: tag("3", "count"), fold: { body: html`<p>Mia, Lucas and Oliver can't see you or send you anything.</p>` } },
+          { title: "Typed chat", detail: "Can a player type text that another player reads as written?", fold: { isOpen: true, body: html`<p>Fine: chat through room.chat, filtered. Not fine: free text another player reads as written.</p>` } },
+          { title: "Gambling", detail: "Can a player stake money on chance?", fold: { body: html`<p>Fine: chance with nothing of value at stake. Not fine: staking money or what's bought with it.</p>` } },
+        ] }) },
+      ] }) }),
+    },
     {
       label: "Compact: a long list in a narrow place, one line a row (the players in a room)",
       markup: html`<div style="width:320px">${glassPane({ paneWidth: "full", body: stackOfOne(listRows({ isCompact: true, whenEmpty: html`<p>Nobody here yet.</p>`, rows: ["Liam", "Sofia", "Emma Charlotte Fairweather-Lindqvist"].map((name, index) => ({ lead: pictureFrame(name, "sm"), title: name, titleIcon: index ? undefined : { icon: "friends" as const, label: "Friend" }, action: [secondaryButton(`Mute ${name}`, { type: "button", icon: "speaker", isLabelHidden: true, isSmall: true }), secondaryButton(`More for ${name}`, { type: "button", icon: "more", isLabelHidden: true, isSmall: true })] })) })) })}</div>`,

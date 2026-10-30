@@ -33,8 +33,6 @@ const PICTURE_OR_ICON = /(^|[\s>+~(])(img|svg|video|canvas|iframe|picture|\.ico|
  */
 const NOT_MADE_OF_MATERIALS = new Map<string, string>([
   // A fold row's words keep the words margin at the pane's top and foot, where a flush row has no edge of its own to keep it.
-  [".fold-row:first-child > .fold-row-head | padding-top", "the words margin at the pane's top"],
-  [".fold-row:last-child:not([open]) > .fold-row-head | padding-bottom", "the words margin at the pane's foot"],
   // A sheet's tabs are cut from the sheet's own glass, their row drawn as one outline that runs on into the sheet.
   [".sheet-tab-row | --tab-shadow", "the shade under a tab that isn't chosen, drawn into the sheet's outline"],
   [".sheet-tab-scroll | overflow-y", "the tab row scrolls across only"],
@@ -201,8 +199,6 @@ const NOT_MADE_OF_MATERIALS = new Map<string, string>([
   [".sheet.placement-side:not(.in-place) | margin", "a store panel sits a control's stack gap in from the window's side and foot"],
   [".sheet-tab-row | margin", "the tab row reaches out over the sheet's frame gap to its edge, its outline running on into the sheet"],
   // A fold is a details element, whose parts take no gap in every browser: its body keeps a block's gap from its head itself.
-  [".folded-body | margin-top", "an open fold's body a block's gap under its head"],
-  [".fold-row-body | margin-bottom", "an open fold row's body a block's gap over the next row"],
   // Named caps (materials.ts, Caps and scrolls).
   [".sheet:not(.in-place) .store-picture | max-height", "a store panel's picture is shorter on a short screen, so Buy keeps its room"],
   [".stripe-frame | height", "as tall as what Stripe draws in it, which its script says"],
@@ -211,7 +207,7 @@ const NOT_MADE_OF_MATERIALS = new Map<string, string>([
   [".table-scroll[data-fades-sideways] | max-height", "a table caps at the screen"],
   [".table-scroll[data-fades-sideways].is-capped | max-height", "a table capped at its head, its shown rows and half the next"],
   [".cover-meta:not(.has-title) > *, .cover-meta-start > * | min-height", "each of a cover's facts is on a line as tall as a small picture, so covers side by side line them up"],
-  [".list-row-while-on | margin", "the rows a switch row turns on sit in a well a frame gap in from the list's sides, a frame gap above the next row"],
+  [".list-row-while-on, .list-row-fold-body | margin", "the rows a switch row turns on sit in a well a frame gap in from the list's sides, a frame gap above the next row"],
   // A control's height.
   [".cut-btn.in-well | --control-height", "a button in a well is a small control less the well's compact frame gap above and below"],
 ]);
