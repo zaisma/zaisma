@@ -371,9 +371,11 @@ export const RAIL_SCRIPT = `/* rail */(function () {
     }
     var marks = parts.map(function (part) {
       var mark = document.createElement("button"), name = document.createElement("span");
-      mark.type = "button"; mark.className = "rail-mark"; mark.tabIndex = -1; name.className = "tag glass"; name.textContent = part.getAttribute("data-rail-mark");
+      mark.type = "button"; mark.className = "rail-mark"; mark.tabIndex = -1; name.className = "tag rail-name"; name.textContent = part.getAttribute("data-rail-mark");
       mark.appendChild(name); bar.appendChild(mark);
       mark.addEventListener("click", function () {
+        // A press on the thumb where a mark lies over it took the thumb, not the mark.
+        if (pressedThumb) { pressedThumb = false; return; }
         var behavior = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
         if (isPage) window.scrollTo({ top: spot(part), behavior: behavior }); else scroller.scrollTo(isSide ? { left: spot(part), behavior: behavior } : { top: spot(part), behavior: behavior });
       });
@@ -506,7 +508,18 @@ export const RAIL_SCRIPT = `/* rail */(function () {
     }
     thumb.addEventListener("pointerdown", function (event) { start(event, false); });
     // A press anywhere else in its reach jumps there; a mark goes to its own part instead.
-    bar.addEventListener("pointerdown", function (event) { if (thumb.contains(event.target) || event.target.closest(".rail-mark")) return; start(event, true); });
+    // A mark's reach lies over the thumb where they meet: a press there takes the thumb, as a press anywhere on it does, never the mark.
+    var pressedThumb = false;
+    bar.addEventListener("pointerdown", function (event) {
+      if (thumb.contains(event.target)) return;
+      if (event.target.closest(".rail-mark")) {
+        var t = thumb.getBoundingClientRect();
+        pressedThumb = along(event) >= (isSide ? t.left : t.top) && along(event) <= (isSide ? t.right : t.bottom);
+        if (pressedThumb) start(event, false);
+        return;
+      }
+      start(event, true);
+    });
     function follow(event) {
       if (!drag) return;
       var spotPx = spotOf(event);
@@ -919,24 +932,22 @@ component({
 .rail-mark[hidden] { display: none; }
 /* While the thumb is dragged, the marks don't answer the pointer: only the part the thumb is in is named and lit. */
 .rail.dragging .rail-mark { pointer-events: none; }
-/* Its name is a Tag on glass (data.ts), wiped open from the rail. */
-.rail-mark span { position: absolute; right: 28px; top: 50%; transform: translate(0, calc(-50% + var(--label-shift, 0px))); pointer-events: none;
-  clip-path: polygon(100% 0, 100% 0, calc(100% - 5px) 100%, calc(100% - 5px) 100%); visibility: hidden;
+/* Its name sits on a small slab (materials.ts) against the channel, wiped open from the rail: by its mark, or beside the thumb while it's dragged. */
+.rail-mark span { position: absolute; right: 15px; top: 50%; transform: translate(0, calc(-50% + var(--label-shift, 0px))); pointer-events: none;
+  clip-path: polygon(100% 0, 100% 0, 100% 100%, 100% 100%); visibility: hidden;
   transition: var(--glass-transition), clip-path var(--motion-state) ease-out, visibility 0s var(--motion-state); }
 /* A label opens by wiping out from the rail, never by fading: a fading blur draws without its glass and turns solid at the end. */
 /* Closed, a label is hidden as well as wiped shut, so its glass isn't drawn under the page's scrolling while nobody can see it. */
-.rail:hover .rail-mark span, .rail.dragging .rail-mark span { clip-path: polygon(5px 0, 100% 0, calc(100% - 5px) 100%, 0 100%); visibility: visible; transition: var(--glass-transition), clip-path var(--motion-state) ease-out, visibility 0s; }
-/* In a box, the words under a label are close by and a pane's glass can't blur them again, so its glass is denser. */
-.rail:not([data-rail="page"]) .rail-mark span { --glass-tint: var(--table-row-head); }
+.rail:hover .rail-mark span, .rail.dragging .rail-mark span { clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%); visibility: visible; transition: var(--glass-transition), clip-path var(--motion-state) ease-out, visibility 0s; }
 /* Along a sideways rail, a mark is a short upright tick across the line, and its name opens above it, wiped up from the rail. */
 .rail.sideways .rail-mark { left: auto; top: -10px; width: 24px; height: 26px; margin: 0 0 0 -12px; }
 /* Its tick crosses the channel, reaching further toward the box when pointed at. */
 .rail.sideways .rail-mark::before { left: 11.5px; right: auto; top: 18px; bottom: 2px; width: 1px; height: auto; }
-.rail.sideways .rail-mark span { right: auto; top: auto; left: 50%; bottom: 26px; transform: translateX(calc(-50% + var(--label-shift, 0px)));
+.rail.sideways .rail-mark span { right: auto; top: auto; left: 50%; bottom: 17px; transform: translateX(calc(-50% + var(--label-shift, 0px)));
   clip-path: polygon(0 100%, 100% 100%, 100% 100%, 0 100%); }
 .rail.sideways:hover .rail-mark span, .rail.sideways.dragging .rail-mark span { clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%); }
 /* One name at a time: the nearest mark's (is-near); the rest stay shut. */
-.rail .rail-mark:not(.is-near) span { clip-path: polygon(100% 0, 100% 0, calc(100% - 5px) 100%, calc(100% - 5px) 100%); visibility: hidden;
+.rail .rail-mark:not(.is-near) span { clip-path: polygon(100% 0, 100% 0, 100% 100%, 100% 100%); visibility: hidden;
   transition: var(--glass-transition), clip-path var(--motion-state) ease-out, visibility 0s var(--motion-state); }
 .rail.sideways .rail-mark:not(.is-near) span { clip-path: polygon(0 100%, 100% 100%, 100% 100%, 0 100%); }
 /* In the narrow layout (a phone, or a small window), the page's rail starts below the header. */
@@ -952,7 +963,7 @@ component({
    names and full ticks show only while a finger drags the thumb, wiping open and shut with the drag, never on a tap's leftover hover. */
 @media (hover: none) {
   .rail .rail-mark { pointer-events: none; }
-  .rail:not(.dragging) .rail-mark span { clip-path: polygon(100% 0, 100% 0, calc(100% - 5px) 100%, calc(100% - 5px) 100%); visibility: hidden;
+  .rail:not(.dragging) .rail-mark span { clip-path: polygon(100% 0, 100% 0, 100% 100%, 100% 100%); visibility: hidden;
     transition: var(--glass-transition), clip-path var(--motion-state) ease-out, visibility 0s var(--motion-state); }
   .rail.sideways:not(.dragging) .rail-mark span { clip-path: polygon(0 100%, 100% 100%, 100% 100%, 0 100%); }
 }

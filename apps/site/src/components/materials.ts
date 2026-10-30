@@ -194,6 +194,8 @@ span.hairline { flex: 1; border-top: var(--divider); }
 .rail.sideways .rail-thumb { right: auto; bottom: 0; }
 .rail.dragging .rail-groove { filter: var(--thumb-cast-pressed); }
 .rail.dragging .rail-thumb { background: var(--thumb-press-face), var(--thumb-face); }
+/* A mark's name is on a small slab of the thumb's: the same white face, its foot shaded. */
+.rail-name { background: var(--thumb-face); color: var(--thumb-ink); box-shadow: inset 0 -1px 0 var(--edge-shade); }
 .carving, .floating-pane, .glass-pane.compact { --rail-inset: var(--pad-frame-compact); }
 /* A rail's mark is etched across its groove's floor: a hairline catching the light, shaded under its lip. Pointed at, it runs orange. */
 .rail-mark::before { --face-color: var(--rail-etch); background: var(--face-color); box-shadow: 0 1px 0 var(--rail-etch-shade); transition: --face-color var(--motion-state); }
