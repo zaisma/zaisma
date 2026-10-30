@@ -435,8 +435,11 @@ export const DROPDOWN_SCRIPT = `/* menus */(function () {
     if (menu.floating.isOpen() && buttons.get(menu) === button) { menu.floating.close(false); return; }
     buttons.set(menu, button);
     menu.floating.open();
+    // Opened from the keyboard, the first choice takes the focus; opened by a press, the menu itself does, so the arrow keys work at once
+    // and a key pressed later never lights the button it was opened from.
     var first = items(menu)[0];
     if (event.detail === 0 && first) first.focus({ preventScroll: true });
+    else { menu.tabIndex = -1; menu.focus({ preventScroll: true }); }
   });
 })();
 `;
@@ -453,6 +456,8 @@ const DROPDOWN_STYLES = `
 .floating-pane.dropdown.is-above.from-start { transform-origin: bottom left; }
 /* Its choices, under its head, in the Floating pane's body, which scrolls them past its height. A choice keeps its height while they scroll. */
 .dropdown-in { display: flex; flex-direction: column; gap: 2px; }
+/* Holding the focus as a whole (opened by a press) it draws no ring: a choice it moves to does. */
+.floating-pane.dropdown:focus { outline: none; }
 .dropdown-in > * { flex: none; }
 /* Its own words (its head's) keep its margin, --pad-words in from its padding: as far in as the choices' words, which sit that far into
    each choice. The head's rule is as long as the rules between the choices. */
