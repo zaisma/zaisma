@@ -20,6 +20,7 @@ import {
   siteHeaderProblems,
   // @ts-expect-error: a plain JavaScript script without types
 } from "../../scripts/ship-checks.mjs";
+// @ts-expect-error: a plain JavaScript script without types
 import { isNetworkFailure } from "../../scripts/ship-resume.mjs";
 
 /** scripts/ship-checks.mjs: what `npm run ship` tries on the live site after every deploy ("Security checks on every ship." in docs/DECISIONS.md). */
