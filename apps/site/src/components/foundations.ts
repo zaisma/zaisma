@@ -154,8 +154,10 @@ const logoOn = (glassKind: "light" | "smoked", markup: Raw): Raw =>
 /** The loader: the Z building itself, one loop a second (brand/loader/zaisma-loader.svg), in the words' color. Shown only once something was pressed. */
 export const loader = (): Raw => raw('<span class="loader" aria-hidden="true"></span>');
 
+/** A rail's parts: its channel, carved and cut by the edge rule, and inside it the groove the thumb slides in, cut with it. */
+export const RAIL_PARTS = '<div class="rail-line carving deep" data-cut-line="0" data-cut-beside=""><div class="rail-groove" data-cut-line="0" data-cut-beside=""><div class="rail-thumb"></div></div></div>';
 /** Zaisma's own scrollbar (navigation.ts's rail, RAIL_SCRIPT): "box" for a box that scrolls (it goes just after it), "page" for the page. */
-export const railMarkup = (scrollKind: "box" | "page" | "side"): Raw => raw(`<div class="rail${scrollKind === "side" ? " sideways" : ""}" data-rail="${scrollKind}" aria-hidden="true"><div class="rail-line"></div><div class="rail-thumb glass"></div></div>`);
+export const railMarkup = (scrollKind: "box" | "page" | "side"): Raw => raw(`<div class="rail${scrollKind === "side" ? " sideways" : ""}" data-rail="${scrollKind}" aria-hidden="true">${RAIL_PARTS}</div>`);
 
 /**
  * A tag: a few words or a number, slanted at both ends, on what it labels. "new" is green (Updated, Live), "count" a number in the buttons'

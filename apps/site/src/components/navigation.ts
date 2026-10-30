@@ -2,7 +2,7 @@ import { accountPicture, html, raw, type Raw } from "../markup.ts";
 import { pageScript } from "../page-scripts.ts";
 import { component } from "./component.ts";
 import { controlMarkup, type ControlMarkup } from "./control-markup.ts";
-import { CUT_LINE, EDGE, floatingPane, glassPane, icon, logo, railMarkup, sheetMarkup, tag, type IconName } from "./foundations.ts";
+import { CUT_LINE, EDGE, RAIL_PARTS, floatingPane, glassPane, icon, logo, railMarkup, sheetMarkup, tag, type IconName } from "./foundations.ts";
 import { cutPolygon } from "./tokens.ts";
 import { secondaryButton, tertiaryButton, rowArrows, primaryButton, textLink } from "./actions.ts";
 import { SEARCH_STAND_IN, searchField, tabSwitch, type SearchFieldOptions, type SwitchTab } from "./inputs.ts";
@@ -280,9 +280,10 @@ export function rail(scrollKind: "box" | "page" | "side"): Raw {
 }
 
 /**
- * A scrollbar of Zaisma's own, for a mouse or trackpad: a slim glass thumb on a hairline at the right edge. It wakes
- * while it moves and rests faintly otherwise. Drag the thumb, or press the line to jump; wheel, keys and touch
- * scroll as always, and phones keep their own. It hides itself when there's nothing to scroll.
+ * A scrollbar of Zaisma's own, on every device: a channel carved down the box (or along it, or down the page's gutter) with a slab of the
+ * glass sliding in it. It keeps the frame gap from the edges of the glass it runs in, and where it reaches a corner its end is cut along it.
+ * It wakes while it moves and rests faintly otherwise. Drag the thumb, or press the rail to jump; wheel, keys and touch scroll as always.
+ * It hides itself when there's nothing to scroll.
  * The page's rail has a mark for each part of the page marked data-rail-mark="<its name>" (the home's rows):
  * point at one for its name, click it to go there.
  */
@@ -321,14 +322,13 @@ export const RAIL_SCRIPT = `/* rail */(function () {
     railedBoxes.forEach(function (railed) {
       if (!railed) return;
       if (railed.isParentStatic) railed.box.parentElement.style.position = "relative";
-      railed.box.insertAdjacentHTML("afterend", '<div class="rail"' + (railed.isControl ? " data-rail-follows" : "") + ' data-rail="box" aria-hidden="true"><div class="rail-line"></div><div class="rail-thumb glass"></div></div>');
+      railed.box.insertAdjacentHTML("afterend", '<div class="rail" data-rail="box" aria-hidden="true">${RAIL_PARTS}</div>');
     });
     // A box that scrolls sideways and asks for it (data-side-rail: a table, a chart) gets the same rail laid on its side, under it: shown on
     // phones too, whose own sideways scrollbars hide.
     within.querySelectorAll("[data-side-rail]").forEach(function (box) {
       if (box.nextElementSibling && box.nextElementSibling.hasAttribute("data-rail")) return;
-      // Cut by the edge rule like anything near a pane's corner, so along a pane's foot its ends follow the corners.
-      box.insertAdjacentHTML("afterend", '<div class="rail sideways" data-rail="side" data-cut-line="0" aria-hidden="true"><div class="rail-line"></div><div class="rail-thumb glass"></div></div>');
+      box.insertAdjacentHTML("afterend", '<div class="rail sideways" data-rail="side" aria-hidden="true">${RAIL_PARTS}</div>');
     });
   }
   var wiredBars = new WeakSet();
@@ -342,7 +342,9 @@ export const RAIL_SCRIPT = `/* rail */(function () {
     // Only its own: a box that scrolls itself and holds such a box further in (a pane with a switch in it) keeps its own rail.
     if (scroller && !scroller.matches("[data-rail-scroller]")) scroller = scroller.querySelector(":scope > [data-rail-scroller]") || scroller;
     if (!isPage && !scroller) return;
-    var line = bar.querySelector(".rail-line"), thumb = bar.querySelector(".rail-thumb");
+    var groove = bar.querySelector(".rail-groove"), thumb = bar.querySelector(".rail-thumb");
+    // Its reach (the width a pointer finds it in) and its channel's width, centered in it.
+    var css = getComputedStyle(bar), reachPx = parseFloat(css.getPropertyValue("--rail-reach")) || 16, widthPx = parseFloat(css.getPropertyValue("--rail-width")) || 10;
     if (isPage) document.documentElement.classList.add("own-scroll"); else scroller.classList.add("own-scroll");
     // Shown or not by its class, never by hidden: WebKit checks the page's :has() rules on [hidden] again over the whole page each time any
     // element's hidden changes, seconds on a page of a hundred boxes.
@@ -403,7 +405,7 @@ export const RAIL_SCRIPT = `/* rail */(function () {
     function at() { return isPage ? window.scrollY : isSide ? scroller.scrollLeft : scroller.scrollTop; }
     function to(y) { if (isPage) window.scrollTo(0, y); else if (isSide) scroller.scrollLeft = y; else scroller.scrollTop = y; }
     function along(event) { return isSide ? event.clientX : event.clientY; }
-    var size = { track: 0, thumb: 0, max: 1 };
+    var size = { track: 0, thumb: 0, max: 1, start: 0 };
     // The page's rail starts the gutter's width below the page's floating bar (data-rail-starts-below), following it as it tightens.
     var above = isPage ? document.querySelector("[data-rail-starts-below]") : null, GUTTER_PX = 10;
     var rail = {
@@ -412,13 +414,22 @@ export const RAIL_SCRIPT = `/* rail */(function () {
         var placed = { whole: isPage ? document.documentElement.scrollHeight : isSide ? scroller.scrollWidth : scroller.scrollHeight, view: isPage ? window.innerHeight : isSide ? scroller.clientWidth : scroller.clientHeight };
         placed.max = placed.whole - placed.view;
         if (above) placed.top = Math.round(above.getBoundingClientRect().bottom + GUTTER_PX) + "px";
-        // A text box isn't a glass pane with room around it: the rail is laid along the box's own right edge.
-        if (bar.hasAttribute("data-rail-follows")) placed.follows = { top: scroller.offsetTop + 8 + "px", height: Math.max(0, scroller.offsetHeight - 16) + "px", left: scroller.offsetLeft + scroller.offsetWidth - 22 + "px" };
+        // Down a box, it runs the box's height at the right, keeping --rail-inset (the frame gap) from the edges of the glass or carving round
+        // it, and never past the box itself: so it's as clear of a pane's edge as anything with an edge, and where the box reaches the pane's
+        // top or foot, the channel's end meets the corner at that gap and the edge rule cuts it along it.
+        if (!isPage && !isSide) {
+          var holder = scroller.closest("[data-glass], .carving"), parent = bar.offsetParent;
+          if (holder && parent) {
+            var from = parent.getBoundingClientRect(), box = scroller.getBoundingClientRect(), edge = holder.getBoundingClientRect(), inset = parseFloat(getComputedStyle(holder).getPropertyValue("--rail-inset")) || 0;
+            var top = Math.max(box.top, edge.top + inset), bottom = Math.min(box.bottom, edge.bottom - inset), right = Math.min(box.right, edge.right - inset);
+            placed.box = { top: top - from.top - parent.clientTop, height: Math.max(0, bottom - top), left: right - from.left - parent.clientLeft - (reachPx + widthPx) / 2 };
+          }
+        }
         return placed;
       },
       putPlace: function (placed) {
         if (placed.top) bar.style.top = placed.top;
-        if (placed.follows) { bar.style.top = placed.follows.top; bar.style.bottom = "auto"; bar.style.height = placed.follows.height; bar.style.right = "auto"; bar.style.left = placed.follows.left; }
+        if (placed.box) { bar.style.top = placed.box.top.toFixed(1) + "px"; bar.style.height = placed.box.height.toFixed(1) + "px"; bar.style.left = placed.box.left.toFixed(1) + "px"; }
         if (isShown !== placed.max > 4) { isShown = placed.max > 4; bar.classList.toggle("is-on", isShown); }
         // The box makes room for its rail by this class, never by a :has() on the rail beside it, for the same reason.
         if (!isPage) scroller.classList.toggle("shows-rail", isShown);
@@ -428,7 +439,9 @@ export const RAIL_SCRIPT = `/* rail */(function () {
         if (!isShown) return null;
         var scrollPadding = isPage && marks.length ? offset() : 0;
         return {
-          track: isSide ? bar.clientWidth : bar.clientHeight,
+          // The thumb runs the groove, a little in from the rail's own ends.
+          track: isSide ? groove.clientWidth : groove.clientHeight,
+          start: isSide ? groove.offsetLeft + groove.parentElement.offsetLeft : groove.offsetTop + groove.parentElement.offsetTop,
           at: at(),
           marks: marks.map(function (m) {
             var shown = Boolean(m.part.offsetParent);
@@ -439,13 +452,13 @@ export const RAIL_SCRIPT = `/* rail */(function () {
       put: function (placed, measured) {
         if (!measured) return;
         var track = measured.track, max = placed.max, height = Math.max(36, Math.round(track * placed.view / placed.whole));
-        size = { track: track, thumb: height, max: max };
+        size = { track: track, thumb: height, max: max, start: measured.start };
         thumb.style[isSide ? "width" : "height"] = height + "px";
         move(measured.at);
         marks.forEach(function (m, i) {
           var seen = measured.marks[i]; m.mark.hidden = !seen.shown; if (!seen.shown) return;
           var top = Math.max(0, Math.min(max, seen.spot));
-          m.mark.style[isSide ? "left" : "top"] = ((track - height) * top / max + height / 2).toFixed(1) + "px";
+          m.mark.style[isSide ? "left" : "top"] = (measured.start + (track - height) * top / max + height / 2).toFixed(1) + "px";
           // A name that was hidden has no size yet: it's read once it shows.
           m.size = seen.size || (isSide ? m.name.offsetWidth : m.name.offsetHeight);
         });
@@ -486,14 +499,15 @@ export const RAIL_SCRIPT = `/* rail */(function () {
     function start(event, jump) {
       event.preventDefault();
       var before = at();
-      if (jump) { var y = along(event) - (isSide ? bar.getBoundingClientRect().left : bar.getBoundingClientRect().top) - size.thumb / 2; to(Math.max(0, Math.min(1, y / (size.track - size.thumb))) * size.max); }
+      if (jump) { var y = along(event) - (isSide ? groove.getBoundingClientRect().left : groove.getBoundingClientRect().top) - size.thumb / 2; to(Math.max(0, Math.min(1, y / (size.track - size.thumb))) * size.max); }
       drag = { y: along(event), last: along(event), from: at(), scrolls: [before, at()], isMoving: event.pointerType === "mouse", isTouch: event.pointerType !== "mouse" }; bar.classList.add("dragging");
       // A box that snaps (a track's covers) follows the thumb freely while it's dragged, never jumping cover to cover, and snaps once let go.
       if (!isPage && getComputedStyle(scroller).scrollSnapType !== "none") scroller.classList.add("is-dragged");
       try { bar.setPointerCapture(event.pointerId); } catch (error) {}
     }
     thumb.addEventListener("pointerdown", function (event) { start(event, false); });
-    line.addEventListener("pointerdown", function (event) { start(event, true); });
+    // A press anywhere else in its reach jumps there; a mark goes to its own part instead.
+    bar.addEventListener("pointerdown", function (event) { if (thumb.contains(event.target) || event.target.closest(".rail-mark")) return; start(event, true); });
     function follow(event) {
       if (!drag) return;
       var spotPx = spotOf(event);
@@ -537,7 +551,7 @@ export const RAIL_SCRIPT = `/* rail */(function () {
     // Sideways, the name shown is the mark's nearest the pointer, or the thumb's middle while dragging.
     function near(event) {
       if (!isSide || !marks.length) return;
-      var spotPx = drag ? (size.track - size.thumb) * Math.min(1, at() / size.max) + size.thumb / 2 : event.clientX - bar.getBoundingClientRect().left, best = null, gap = Infinity;
+      var spotPx = drag ? size.start + (size.track - size.thumb) * Math.min(1, at() / size.max) + size.thumb / 2 : event.clientX - bar.getBoundingClientRect().left, best = null, gap = Infinity;
       marks.forEach(function (m) { if (m.mark.hidden) return; var away = Math.abs(parseFloat(m.mark.style.left) - spotPx); if (away < gap) { gap = away; best = m; } });
       marks.forEach(function (m) { m.mark.classList.toggle("is-near", m === best); });
     }
@@ -552,7 +566,7 @@ export const RAIL_SCRIPT = `/* rail */(function () {
       var wasDragging = Boolean(drag && drag.isMoving); end();
       if (event.pointerType !== "mouse") farAway();
       if (!wasDragging || event.pointerType === "mouse" || !marks.length) return;
-      var middle = (size.track - size.thumb) * Math.min(1, at() / size.max) + size.thumb / 2, nearest = null, gap = SNAP_PX;
+      var middle = size.start + (size.track - size.thumb) * Math.min(1, at() / size.max) + size.thumb / 2, nearest = null, gap = SNAP_PX;
       marks.forEach(function (m) { if (m.mark.hidden) return; var away = Math.abs(parseFloat(m.mark.style[isSide ? "left" : "top"]) - middle); if (away <= gap) { gap = away; nearest = m; } });
       if (nearest) nearest.mark.click();
     }
@@ -856,35 +870,34 @@ component({
   group: "panes",
   subgroup: "materials",
   after: "light",
-  summary: "Zaisma's own scrollbar, on every device: it rests faintly and wakes while things move. On a touch screen its thumb is a little wider and drags with a finger.",
+  summary: "Zaisma's own scrollbar, on every device: a channel carved in the glass with a slab sliding in it, at the frame gap from the glass's edges, its ends cut along a corner where they reach one. It rests faintly, wakes while things move, and drags with a finger or the mouse.",
   styles: `
-/* Zaisma's own scrollbar, on every device: a hairline with a slim glass thumb that wakes while it moves.
-   In a box it runs down the inside of the box's right edge; for the page, down the page's right gutter; sideways, under the box. */
+/* Zaisma's own scrollbar, on every device: a channel carved in the glass with a slab sliding in it (the materials, materials.ts), resting
+   faintly and waking while it moves. Down a box it runs the box's height at the right, at the frame gap from the edges of the glass round
+   it (RAIL_SCRIPT places it); for the page, down the page's right gutter; sideways, under the box. Where its channel reaches a cut corner,
+   the edge rule cuts its end along it, and the thumb, cut with the channel's groove, takes that cut only once it's there. */
 .own-scroll { scrollbar-width: none; }
 .own-scroll::-webkit-scrollbar { display: none; }
-.rail { display: none; position: absolute; z-index: 6; right: 8px; top: 30px; bottom: 30px; width: 14px; opacity: 0.6; transition: opacity var(--motion-arrive); }
+.rail { display: none; position: absolute; z-index: 6; top: 0; left: 0; width: var(--rail-reach); opacity: 0.6; transition: opacity var(--motion-arrive); }
 .rail.is-on { display: block; }
 .glass > .rail { position: absolute; z-index: 6; }
-.rail[data-rail="page"] { position: fixed; z-index: 12; right: 0; top: 90px; bottom: 14px; }
+/* The page's sits in the middle of the page's right gutter, as clear of the screen's edge as of the glass. */
+.rail[data-rail="page"] { position: fixed; z-index: 12; left: auto; right: calc((var(--pad-pane) - var(--rail-reach)) / 2); top: 90px; bottom: 14px; }
 .rail.awake, .rail:hover, .rail.dragging { opacity: 1; }
 /* What a rail's thumb is dragging follows it freely: it snaps once let go (settle in RAIL_SCRIPT). */
 .own-scroll.is-dragged { scroll-snap-type: none; }
-.rail-line { position: absolute; inset: 0; cursor: pointer; background: linear-gradient(90deg, transparent 6px, var(--rail-line) 6px, var(--rail-line) 7px, transparent 7px); }
-.rail-thumb { position: absolute; top: 0; left: 4px; width: 5px; cursor: grab; --glass-tint: var(--rail-thumb); box-shadow: inset 1px 0 0 var(--rail-edge), 0 2px 6px rgba(10,20,40,0.18);
-  clip-path: polygon(0 4px, 4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%);
-  transition: var(--glass-transition), left var(--motion-state), width var(--motion-state); }
-.rail:hover .rail-thumb, .rail.dragging .rail-thumb { left: 2px; width: 9px; clip-path: polygon(0 5px, 5px 0, 100% 0, 100% calc(100% - 5px), calc(100% - 5px) 100%, 0 100%); }
-.rail.dragging .rail-thumb { cursor: grabbing; box-shadow: inset 2px 0 0 var(--run), 0 2px 8px rgba(10,20,40,0.22); }
-/* Sideways (a table, a chart): the same rail laid on its side, under the box. */
-.rail.sideways { position: relative; inset: auto; width: auto; height: 14px; user-select: none; -webkit-user-select: none; clip-path: var(--cut-shape); }
-.rail.sideways .rail-line { background: linear-gradient(180deg, transparent 6px, var(--rail-line) 6px, var(--rail-line) 7px, transparent 7px); }
-.rail.sideways .rail-thumb { top: 4px; left: 0; width: auto; height: 5px; box-shadow: inset 0 1px 0 var(--rail-edge), 0 2px 6px rgba(10,20,40,0.18); transition: var(--glass-transition), top var(--motion-state), height var(--motion-state); }
-.rail.sideways:hover .rail-thumb, .rail.sideways.dragging .rail-thumb { top: 2px; left: 0; width: auto; height: 9px; }
-.rail.sideways.dragging .rail-thumb { box-shadow: inset 0 2px 0 var(--run), 0 2px 8px rgba(10,20,40,0.22); }
+/* Its channel runs its whole length down the middle of its reach. */
+.rail > .rail-line { position: absolute; top: 0; bottom: 0; left: calc((var(--rail-reach) - var(--rail-width)) / 2); width: var(--rail-width); cursor: pointer; }
+.rail-thumb { cursor: grab; }
+.rail.dragging .rail-thumb { cursor: grabbing; }
+/* Sideways (a table, a chart): the same rail laid on its side, under the box, its channel along the foot of its reach, so at a pane's foot it
+   sits at the frame gap like anything with an edge. */
+.rail.sideways { position: relative; top: auto; left: auto; width: auto; height: var(--rail-reach); user-select: none; -webkit-user-select: none; }
+.rail.sideways > .rail-line { top: auto; bottom: 0; left: 0; right: 0; width: auto; height: var(--rail-width); }
 /* A mark per part of the page: a short tick on the line that turns orange when pointed at. Pointing anywhere on the rail opens every mark's name on a small glass label to its left. */
 /* Its click area is far bigger than the tick: 24px tall and reaching in over the page, so a mark is easy to hit. */
-.rail-mark { position: absolute; left: -12px; width: 26px; height: 24px; margin-top: -12px; padding: 0; border: 0; cursor: pointer; background: none; }
-.rail-mark::before { content: ""; position: absolute; left: 15px; right: 2px; top: 11px; height: 2px; --face-color: var(--rail-mark); background: var(--face-color); transition: --face-color var(--motion-state), left var(--motion-state); }
+.rail-mark { position: absolute; left: -12px; width: 28px; height: 24px; margin-top: -12px; padding: 0; border: 0; cursor: pointer; background: none; }
+.rail-mark::before { content: ""; position: absolute; left: 15px; right: 3px; top: 11px; height: 2px; --face-color: var(--rail-mark); background: var(--face-color); transition: --face-color var(--motion-state), left var(--motion-state); }
 .rail-mark:hover::before { --face-color: var(--run); left: 9px; }
 .rail-mark[hidden] { display: none; }
 /* Its name is a Tag on glass (data.ts), wiped open from the rail. */
@@ -898,33 +911,23 @@ component({
 .rail:not([data-rail="page"]) .rail-mark span { --glass-tint: var(--table-row-head); }
 /* Along a sideways rail, a mark is a short upright tick across the line, and its name opens above it, wiped up from the rail. */
 .rail.sideways .rail-mark { left: auto; top: -10px; width: 24px; height: 26px; margin: 0 0 0 -12px; }
-/* Its tick crosses the line as a down rail's does (3px to 12px across the rail), reaching further toward the box when pointed at. */
-.rail.sideways .rail-mark::before { left: 11px; right: auto; top: 13px; bottom: 4px; width: 2px; height: auto; transition: --face-color var(--motion-state), top var(--motion-state); }
-.rail.sideways .rail-mark:hover::before { left: 11px; top: 7px; }
+/* Its tick crosses the channel, reaching further toward the box when pointed at. */
+.rail.sideways .rail-mark::before { left: 11px; right: auto; top: 16px; bottom: 0; width: 2px; height: auto; transition: --face-color var(--motion-state), top var(--motion-state); }
+.rail.sideways .rail-mark:hover::before { left: 11px; top: 10px; }
 .rail.sideways .rail-mark span { right: auto; top: auto; left: 50%; bottom: 26px; transform: translateX(calc(-50% + var(--label-shift, 0px)));
   clip-path: polygon(0 100%, 100% 100%, 100% 100%, 0 100%); }
 .rail.sideways:hover .rail-mark span, .rail.sideways.dragging .rail-mark span { clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%); }
 /* A sideways rail has room for one name at a time: the nearest mark's (is-near); the rest stay shut. */
 .rail.sideways .rail-mark:not(.is-near) span { clip-path: polygon(0 100%, 100% 100%, 100% 100%, 0 100%); visibility: hidden;
   transition: var(--glass-transition), clip-path var(--motion-state) ease-out, visibility 0s var(--motion-state); }
-/* In the narrow layout (a phone, or a small window), the page's bar fits in the gutter beside the glass, centered in it, clear of the
-   screen's edge, and starts below the header. */
+/* In the narrow layout (a phone, or a small window), the page's rail starts below the header. */
 @media (max-width: 760px) {
-  .rail[data-rail="page"] { width: 10px; right: calc((var(--pad-pane) - 10px) / 2); top: 132px; bottom: 10px; }
-  .rail[data-rail="page"] .rail-line { background: linear-gradient(90deg, transparent 4.5px, var(--rail-line) 4.5px, var(--rail-line) 5.5px, transparent 5.5px); }
-  .rail[data-rail="page"] .rail-thumb { left: 3px; width: 4px; clip-path: polygon(0 3px, 3px 0, 100% 0, 100% calc(100% - 3px), calc(100% - 3px) 100%, 0 100%); }
-  .rail[data-rail="page"]:hover .rail-thumb, .rail[data-rail="page"].dragging .rail-thumb { left: 2px; width: 6px; clip-path: polygon(0 4px, 4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%); }
-  /* …its marks' ticks across that slimmer line. */
-  .rail[data-rail="page"] .rail-mark { left: -14px; width: 24px; }
-  .rail[data-rail="page"] .rail-mark::before { left: 16px; right: 0; }
-  .rail[data-rail="page"] .rail-mark:hover::before { left: 12px; }
+  .rail[data-rail="page"] { top: 132px; bottom: 10px; }
 }
-/* On a touch screen nothing widens it on hover, so its thumb is a little wider from the start (still centered on its line), and a finger on it drags the thumb instead of the page.
-   A finger held on it never selects the words beside it, opens the phone's callout or flashes a tap's highlight. */
+/* By touch, a finger on it drags the thumb instead of the page. A finger held on it never selects the words beside it, opens the phone's
+   callout or flashes a tap's highlight. */
 @media (hover: none), (pointer: coarse) {
   .rail { touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
-  .rail .rail-thumb { left: 3px; width: 7px; clip-path: polygon(0 4px, 4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%); }
-  .rail.sideways .rail-thumb { left: 0; top: 3px; width: auto; height: 7px; }
 }
 /* By touch, a mark is only a faint tick: a tap or a drag lands on the rail itself (letting go near a tick goes to its part), and the marks'
    names and full ticks show only while a finger drags the thumb, wiping open and shut with the drag, never on a tap's leftover hover. */
@@ -934,9 +937,6 @@ component({
   .rail:not(.dragging) .rail-mark span { clip-path: polygon(100% 0, 100% 0, calc(100% - 5px) 100%, calc(100% - 5px) 100%); visibility: hidden;
     transition: var(--glass-transition), clip-path var(--motion-state) ease-out, visibility 0s var(--motion-state); }
   .rail.sideways:not(.dragging) .rail-mark span { clip-path: polygon(0 100%, 100% 100%, 100% 100%, 0 100%); }
-}
-@media (hover: none) and (max-width: 760px), (pointer: coarse) and (max-width: 760px) {
-  .rail[data-rail="page"] .rail-thumb { left: 2px; width: 6px; }
 }
 `,
   render: rail,

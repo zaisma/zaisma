@@ -248,14 +248,14 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
     // The words margin, one rule for every surface of glass (tokens.ts): words are never closer to its edge than --pad-pane (a tray's, --pad-tray),
     // whatever the surface pads itself. Only what has an edge of its own may sit closer, at the frame gap.
     // A compact material (a tray, a floating pane, a compact pane) keeps the compact margin, --pad-tray.
-    var marginPx = parseFloat(root.getPropertyValue(pane.matches(".tray, .floating-pane, .compact") ? "--pad-tray" : "--pad-pane")) || 0;
+    var marginPx = parseFloat(root.getPropertyValue(pane.matches(".tray, .tray-group, .floating-pane, .compact") ? "--pad-tray" : "--pad-pane")) || 0;
     // A pane that scrolls inside itself: its top and bottom are its content's, wherever it's scrolled to.
     var isScrolling = holder.scrollHeight > holder.clientHeight + 1, contentTop = holder.getBoundingClientRect().top - holder.scrollTop;
     var box = { left: p.left, right: p.right, top: isScrolling ? contentTop : p.top, bottom: isScrolling ? contentTop + holder.scrollHeight : p.bottom };
     var distances = function (r) { return { left: r.left - box.left, right: box.right - r.right, top: r.top - box.top, bottom: box.bottom - r.bottom }; };
     // A floating pane the gallery shows open in place (a select's list over its field, a wheel field's wheels) is laid over the pane, not
     // set in it: it's measured as a pane of its own, never at the frame gap of the pane under it.
-    var framed = Array.prototype.filter.call(pane.querySelectorAll(FRAMED), function (el) { return el !== pane && !el.matches(".floating-pane.in-place") && !framedIn(el, pane) && isShown(el); });
+    var framed = Array.prototype.filter.call(pane.querySelectorAll(FRAMED), function (el) { return el !== pane && !el.matches(".floating-pane.in-place") && !el.closest(".rail") && !framedIn(el, pane) && isShown(el); });
     var paneCuts = window.zaismaCorners ? window.zaismaCorners(pane, "pane") : [1, 1, 1, 1];
     framed.forEach(function (el) {
       if (isScrolledAway(el, pane)) return;
