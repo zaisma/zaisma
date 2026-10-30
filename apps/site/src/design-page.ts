@@ -473,13 +473,15 @@ export const GALLERY_SCRIPT = pageScript(
     });
     place(now());
   });
-  // A dropdown's example is as tall as its button and open menu, no taller: the menu hangs in it, out of its flow, so its height is set
-  // once the menu is placed, and again as the window changes.
+  // A dropdown's example is as tall as its button and open menu, and the frame gap under it: the menu hangs in it, out of its flow, kept
+  // that gap inside it (zaismaFloat), so without the gap it would be pushed up against its button. Its height is set once the menu is
+  // placed, and again as the window changes.
+  var FRAME_GAP_PX = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--pad-frame")) || 10;
   function fitMenuFrames() {
     document.querySelectorAll(".dropdown-frame").forEach(function (frame) {
       var top = frame.getBoundingClientRect().top, bottom = 0;
       Array.prototype.forEach.call(frame.children, function (child) { bottom = Math.max(bottom, child.getBoundingClientRect().bottom - top); });
-      if (bottom > 0) frame.style.height = Math.ceil(bottom) + "px";
+      if (bottom > 0) frame.style.height = Math.ceil(bottom + FRAME_GAP_PX) + "px";
     });
   }
   requestAnimationFrame(fitMenuFrames);
