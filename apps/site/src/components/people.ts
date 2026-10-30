@@ -66,7 +66,7 @@ export function post(options: PostOptions): Raw {
 
 /** Posts one under another, a hairline between each: a topic's replies, a game's updates. */
 export function posts(options: { posts: PostOptions[]; label?: string }): Raw {
-  return html`<div class="posts"${options.label ? html` role="feed" aria-label="${options.label}"` : ""}>${options.posts.map((each) => post(each))}</div>`;
+  return html`<div class="posts hairlines roomy"${options.label ? html` role="feed" aria-label="${options.label}"` : ""}>${options.posts.map((each) => post(each))}</div>`;
 }
 
 const HOUR_MS = 60 * 60_000;
@@ -106,7 +106,6 @@ component({
   styles: `
 /* Posts: one under another, a block's gap and a hairline between each. */
 .posts { display: flex; flex-direction: column; gap: var(--gap-block-block); min-width: 0; }
-.posts > .post + .post { padding-top: var(--gap-block-block); border-top: var(--divider); }
 .post { min-width: 0; }
 `,
   render: post,

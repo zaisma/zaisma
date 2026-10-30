@@ -159,7 +159,7 @@ export function progress(options: ProgressOptions): Raw {
   const isKnown = options.doneNumber !== undefined && options.totalNumber !== undefined && options.totalNumber > 0;
   const donePct = isKnown ? Math.max(0, Math.min(100, (options.doneNumber! / options.totalNumber!) * 100)) : 0;
   const amount = isKnown ? `${options.doneNumber!.toLocaleString("en-US")} of ${options.totalNumber!.toLocaleString("en-US")}${options.unit ? ` ${options.unit}` : ""}` : "";
-  return html`<div class="progress${isKnown ? "" : " is-unknown"}" role="progressbar" aria-label="${options.label}"${isKnown ? html` aria-valuemin="0" aria-valuemax="100" aria-valuenow="${String(Math.round(donePct))}" aria-valuetext="${amount}"` : ""}><div class="progress-words"><span>${options.label}</span>${amount ? html`<span class="progress-amount">${amount}</span>` : ""}</div>${groove({ filledPct: isKnown ? donePct : undefined, isWorking: isKnown && donePct < 100 })}</div>`;
+  return html`<div class="progress${isKnown ? "" : " is-unknown"}" role="progressbar" aria-label="${options.label}"${isKnown ? html` aria-valuemin="0" aria-valuemax="100" aria-valuenow="${String(Math.round(donePct))}" aria-valuetext="${amount}"` : ""}><div class="progress-words words-margin"><span>${options.label}</span>${amount ? html`<span class="progress-amount">${amount}</span>` : ""}</div>${groove({ filledPct: isKnown ? donePct : undefined, isWorking: isKnown && donePct < 100 })}</div>`;
 }
 
 component({
@@ -382,7 +382,7 @@ component({
   styles: `
 /* Progress: its words over a Groove that fills with orange light; with no end known, a light runs along it instead. */
 .progress { display: grid; gap: var(--gap-words-control); min-width: 0; }
-.progress-words { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0 var(--gap-words-control); padding-inline: var(--pad-words); font: var(--type-words); color: var(--ink); }
+.progress-words { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0 var(--gap-words-control); font: var(--type-words); color: var(--ink); }
 .progress-amount { color: var(--ink-2); font-variant-numeric: tabular-nums; }
 `,
   render: progress,

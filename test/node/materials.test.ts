@@ -22,8 +22,9 @@ const OWN_TIMING = /(?<![\w.-])(?!0s\b)\d*\.?\d+m?s\b|cubic-bezier\(|steps\(/;
 const PICTURE_OR_ICON = /(^|[\s>+~(])(img|svg|video|canvas|iframe|picture|\.ico|\.logo)(\.[\w-]+|:[\w-]+(\([^)]*\))?)*\)?$/;
 
 /**
- * The few that aren't made of the materials, each with its reason: "selector | property". A picture's own colors, a brand's marks, the
- * gallery's demos of what glass does, and things drawn rather than built.
+ * The few that aren't made of the materials, each with its reason: "selector | property", or "selector | *" for a mark drawn whole (a
+ * chart's dot, a QR code's tile). A picture's own colors, a brand's marks, the gallery's demos of what glass does, and things drawn rather
+ * than built.
  */
 const NOT_MADE_OF_MATERIALS = new Map<string, string>([
   // A fold row's words keep the words margin at the pane's top and foot, where a flush row has no edge of its own to keep it.
@@ -93,10 +94,70 @@ const NOT_MADE_OF_MATERIALS = new Map<string, string>([
   // A card's brand mark, a picture of its own size.
   [".card-row-mark > .card-brand | height", "a card brand's mark is 32 by 20"],
   [".card-row-mark > .card-brand | background", "the mark fits its box"],
+  // An account's picture and its presence marks: drawn from the account's name, sized to the picture.
+  [".frame | height", "an account's picture is its frame's size"],
+  [":is(.frame, .slab.holds-art) .av | *", "an account's picture: its colors drawn from its name, its initials in white"],
+  [".frame-presence | *", "room under a picture for its presence marks"],
+  [".presence-line | *", "online: a green line along a picture's foot"],
+  [".presence-play | *", "playing: a green tab with a white play mark at the line's end"],
+  [".presence-play > .play | height", "the play mark is sized to its tab"],
+  [".picture-row-place:not(:last-child)::after | box-shadow", "pictures in a row lie over each other, each casting onto the next"],
+  [".picture-row-place + .picture-row-place .av, .picture-row-place + .picture-row-place > .frame.more | padding-inline-start", "a picture under the one before it centers its initials in what shows of it"],
+  // A QR code is read by a camera: dark on white with a quiet zone round it, in light and dark alike.
+  [".qr-tile | *", "the white tile and its quiet zone"],
+  [".qr-tile > .cut-line | *", "the white tile's own bevel"],
+  [".qr-picture | background", "the code's white"],
+  [".qr-icon | outline", "the white round the mark in the code's middle, so the code still reads"],
+  [".qr-code.is-large .qr-tile | padding", "a large code's wider quiet zone"],
+  // A chart and a meter are drawn: their plot, marks, scale and the tip at a point.
+  [".chart-scale | height", "the scale is the plot's height"],
+  [".chart-plot | height", "the plot's height"],
+  [".chart-empty | *", "an empty plot: its height and its baseline"],
+  [".chart-scroll | *", "room above the plot for the tip at its highest point"],
+  [".chart-inner | *", "room at the plot's ends for the dots at its first and last points, which never scroll it"],
+  [".chart-grid | border-top", "the scale's lines across the plot"],
+  [".chart-last | *", "the dot at the last point"],
+  [".chart-dot | *", "the dot at the point you're on"],
+  [".chart-tip | *", "the tip at the point you're on: its amount and when"],
+  [".chart-inner.is-bars .chart-hit:is(:hover, .is-pointed), .chart:focus-visible .chart-inner.is-bars .chart-hit.is-focused | background", "the bar you're on lights its column"],
+  [".ring-picture | height", "the ring's size"],
+  [".ring-swatch | *", "a share's color in the key"],
+  [".usage:is(.is-near, .is-full) .usage-groove .groove-fill | filter", "a meter near its limit glows amber"],
+  [".usage.is-near .usage-groove .groove-light | background", "near its limit, the meter's light is amber"],
+  [".usage.is-full .usage-groove .groove-light | background", "at its limit, the meter's light is striped"],
+  [".usage-part | background", "a part's color in the meter"],
+  [".usage.is-full .usage-part | background", "at its limit, a part's color is striped"],
+  [".usage-swatch | *", "a part's color in the key"],
+  [".loading-line | *", "the hairline a loading state runs its light along"],
+  [".loading-line::after | background", "the light running along it"],
+  // A table's cells: their rows' room and the line under its pinned head and beside its pinned first column, which a cell draws.
+  [".data-table | border-collapse", "separate cells, so the pinned head and first column keep their lines as they stick"],
+  [".data-table thead th | *", "the head's room and the line under it"],
+  [".data-table td, .data-table tbody th | padding", "a row's room, its words at the words margin"],
+  [".data-table.compact thead th | padding", "a compact head's room"],
+  [".data-table.compact td, .data-table.compact tbody th | padding", "a compact row's room"],
+  [".table-scroll.more-left .data-table tbody th | box-shadow", "the line beside the pinned first column, once what's beside it scrolls under it"],
+  [".table-scroll.more-left .data-table.has-row-heads thead th:first-child | box-shadow", "the pinned corner's lines"],
+  // A state sits a block's gap into where its content would be, its button a block's gap under its words.
+  [".state-note | padding", "a state sits a block's gap into where its content would be"],
+  [".state-action | margin-top", "its button a block's gap under its words"],
+  [".glance li | min-height", "a fact's line is as tall as the friends' pictures beside it"],
+  // Reading text is Markdown, which writes no classes: it spaces and draws its own parts.
+  [".reading > :nth-child(n + 2) | margin-top", "a block's gap between paragraphs and anything else"],
+  [".reading > :is(h2, h3) + :nth-child(n + 2) | margin-top", "a word's gap under a heading"],
+  [".reading :is(ul, ol) | padding-inline-start", "a list's markers in from its words"],
+  [".reading :not(pre) > code | *", "code in a line: a sliver of carving"],
+  [".reading pre | *", "a block of code: a carving out to the frame gap"],
+  [".reading blockquote | *", "a quote, set in from a hairline"],
+  [".reading table | border-collapse", "a Markdown table's lines run unbroken"],
+  [".reading :is(th, td) | *", "a Markdown table's cells and lines"],
   // Named caps (materials.ts, Caps and scrolls).
   [".sheet:not(.in-place) .store-picture | max-height", "a store panel's picture is shorter on a short screen, so Buy keeps its room"],
   [".stripe-frame | height", "as tall as what Stripe draws in it, which its script says"],
   [".stripe-frame.is-covering | height", "over the whole window while a bank asks the player to confirm"],
+  [".list-rows.is-capped | max-height", "a list capped at its shown rows and half the next, so it shows it scrolls"],
+  [".table-scroll[data-fades-sideways] | max-height", "a table caps at the screen"],
+  [".table-scroll[data-fades-sideways].is-capped | max-height", "a table capped at its head, its shown rows and half the next"],
 ]);
 
 /** Every declaration in every component's styles: its component, its selector (the last in a list of several), its property and value. */
@@ -138,13 +199,13 @@ describe("materials", () => {
     for (const { slug, selector, property, value, isMaterial } of declarations()) {
       if (isMaterial) continue;
       const own = ownLookOf(property, value, selector);
-      if (own && !NOT_MADE_OF_MATERIALS.has(`${selector} | ${property}`)) problems.push(`${slug}: ${selector} { ${property}: ${value} }: ${own}`);
+      if (own && !NOT_MADE_OF_MATERIALS.has(`${selector} | ${property}`) && !NOT_MADE_OF_MATERIALS.has(`${selector} | *`)) problems.push(`${slug}: ${selector} { ${property}: ${value} }: ${own}`);
     }
     expect(problems).toEqual([]);
   });
 
   it("names nothing in NOT_MADE_OF_MATERIALS that's gone", () => {
-    const present = new Set(declarations().map(({ selector, property }) => `${selector} | ${property}`));
+    const present = new Set(declarations().flatMap(({ selector, property }) => [`${selector} | ${property}`, `${selector} | *`]));
     expect([...NOT_MADE_OF_MATERIALS.keys()].filter((entry) => !present.has(entry))).toEqual([]);
   });
 });

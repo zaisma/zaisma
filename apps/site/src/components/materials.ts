@@ -109,6 +109,14 @@ export const MATERIAL_STYLES = `
 hr.hairline { border: 0; border-top: var(--divider); margin: var(--gap-control-stack) 0; }
 .hairline-below { border-bottom: var(--divider); }
 .hairlines > * + * { border-top: var(--divider); }
+/* A table's rows draw no line of their own, so the line between them is on their cells; the row you point at takes the rows' wash. */
+.hairlines > tr + tr > * { border-top: var(--divider); }
+tbody.hairlines > tr:hover > td:not(.table-placeholder) { background: var(--row-hover); }
+tbody.hairlines > tr:hover > th { --glass-layer: linear-gradient(var(--row-hover), var(--row-hover)); }
+/* Things a block apart (posts), the line in the middle of the gap between them. */
+.hairlines.roomy > * + * { padding-top: var(--gap-block-block); }
+/* What follows something else, a line and a part's gap over it (a game's facts under its name). */
+* + .hairline-above { padding-top: var(--gap-words-words); border-top: var(--divider); }
 span.hairline { flex: 1; border-top: var(--divider); }
 
 /* Words on the glass keep its margin (--pad-words), however they sit; beside controls, they line up with the controls' center line. */
@@ -142,6 +150,18 @@ span.hairline { flex: 1; border-top: var(--divider); }
 /* Holding a list of rows (a sidebar's places), its first and last rows' words would crowd its cut corners at the frame gap, so the list
    starts and ends at the tray's margin, its sides still at the frame gap: words keep the words margin from the cut too. */
 .glass-pane.compact > .pane-in.holds-rows { padding-block: var(--pad-tray); }
+
+/* A tag: the carving's smallest form, slanted at both ends, in --type-tag, carved into the glass it's on: shaded along its top, lit along its foot. Its tone says what it is:
+   new or live (green), a count or plain words (the glass's own carving), a warning (amber), or glass (a sliver of the menus' glass, floating over the page). */
+/* Its words sit a pixel up from its box's middle (padding-bottom): Jost leaves more room above its letters and figures than below, so
+   set in the box's middle they look low. */
+.tag { display: inline-flex; align-items: center; justify-content: center; height: 22px; min-width: 22px; padding: 0 10px 2px 9px; flex: none; white-space: nowrap;
+  font: var(--type-tag); clip-path: polygon(5px 0, 100% 0, calc(100% - 5px) 100%, 0 100%); }
+.tag.new, .tag.count, .tag.plain, .tag.warning { box-shadow: var(--tag-carve); }
+.tag.new { color: var(--tag-new-ink); background: var(--tag-new); }
+.tag.count { padding: 0 8px 2px; color: var(--ink-2); background: var(--tag-plain); font-variant-numeric: tabular-nums; }
+.tag.plain { color: var(--ink-2); background: var(--tag-plain); }
+.tag.warning { color: var(--tag-warning-ink); background: var(--tag-warning); }
 
 /* A carving: the glass cut away, cut by the edge rule, its face a touch darker than the glass round it and shaded under its top edge; its
    edge lit along its foot and shaded along its top (the edge rule's bands, turned round from a slab's). What has words in it keeps them a

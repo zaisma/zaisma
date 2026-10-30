@@ -74,8 +74,8 @@ export interface GlanceFacts {
 export function glanceFacts(facts: GlanceFacts): Raw {
   const nowMs = Date.now();
   const friends = facts.friends ?? [];
-  return html`<ul class="glance">${facts.deviceNote ? html`<li>${icon("info")}<span>${facts.deviceNote}</span></li>` : ""}${facts.playerCount !== undefined ? html`<li>${icon("people")}<span><b>${facts.playerCount.toLocaleString("en-US")}</b> playing now</span></li>` : ""}${
-    friends.length ? html`<li class="friends">${pictureRow(friends.map((friend) => friend.username), "sm")}<span><span class="glance-whole"><b>${nameList(friends.map((friend) => friend.username))}</b><span>\u00a0${friends.length > 1 ? "are" : "is"} playing</span></span>${(facts.friendsRefusalNotes ?? []).map((note) => html` <span class="glance-fact">${tag(note, "plain")}</span>`)}</span></li>` : ""
+  return html`<ul class="glance words-margin hairline-above">${facts.deviceNote ? html`<li>${icon("info")}<span>${facts.deviceNote}</span></li>` : ""}${facts.playerCount !== undefined ? html`<li>${icon("people")}<span><b>${facts.playerCount.toLocaleString("en-US")}</b> playing now</span></li>` : ""}${
+    friends.length ? html`<li class="friends">${pictureRow(friends.map((friend) => friend.username), "sm")}<span><span class="glance-whole"><b class="one-line">${nameList(friends.map((friend) => friend.username))}</b><span>\u00a0${friends.length > 1 ? "are" : "is"} playing</span></span>${(facts.friendsRefusalNotes ?? []).map((note) => html` <span class="glance-fact">${tag(note, "plain")}</span>`)}</span></li>` : ""
   }${facts.playedAtMs !== undefined ? html`<li>${icon("clock")}<span>You played ${keepUnits(ago(nowMs - facts.playedAtMs))}</span></li>` : ""}${
     facts.updatedAtMs !== undefined ? html`<li>${tag("Updated", "new")}<span>${keepUnits(ago(nowMs - facts.updatedAtMs))}${facts.updatesHref ? html`\u00a0· <span class="glance-fact">${textLink("What's new", facts.updatesHref)}</span>` : ""}</span></li>` : ""
   }</ul>`;
@@ -84,9 +84,8 @@ export function glanceFacts(facts: GlanceFacts): Raw {
 export const GLANCE_STYLES = `
 /* The glance list: one line per fact, each with its own look. People and a clock are line icons; friends are their pictures; an update is a green tag.
    What leads each line sits in a column of its own, so every line's words start at one place, however wide its lead. */
-.glance { list-style: none; margin: 0; padding: 0 var(--pad-words); display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--gap-words-words); font: var(--type-words); color: var(--ink-2); }
+.glance { list-style: none; margin: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--gap-words-words); font: var(--type-words); color: var(--ink-2); }
 /* Under something else in its pane (a game's title), a hairline parts them; at the top of its pane it needs none. */
-* + .glance { padding-top: var(--gap-words-words); border-top: var(--divider); }
 .glance li { grid-column: 1 / -1; display: grid; grid-template-columns: subgrid; align-items: center; min-height: 24px; }
 .glance li > :first-child { justify-self: start; }
 .glance b { font-weight: 600; color: var(--ink); }
@@ -97,7 +96,6 @@ export const GLANCE_STYLES = `
    goes under it instead, and names too long for the line end in an ellipsis, "are playing" always shown. */
 .glance-whole { display: inline-flex; max-width: 100%; white-space: nowrap; vertical-align: bottom; }
 .glance li > :last-child { min-width: 0; }
-.glance-whole > b { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 /* Before a row's buttons, the row's own gap parts them; the words margin is only for the pane's edge. */
 .row-cell:not(:last-child) > .glance { padding-inline-end: 0; }
 `;
@@ -214,17 +212,7 @@ component({
   subgroup: "lists",
   summary: "A few words or a number carved into what they label, slanted at both ends: Updated on a game, the count of unread topics on a place, a version's state. On glass, a mark's name on the rail.",
   styles: `
-/* A tag: slanted at both ends, in --type-tag, carved into the glass it's on: shaded along its top, lit along its foot. Its tone says what it is:
-   new or live (green), a count or plain words (the glass's own carving), a warning (amber), or glass (a sliver of the menus' glass, floating over the page). */
-/* Its words sit a pixel up from its box's middle (padding-bottom): Jost leaves more room above its letters and figures than below, so
-   set in the box's middle they look low. */
-.tag { display: inline-flex; align-items: center; justify-content: center; height: 22px; min-width: 22px; padding: 0 10px 2px 9px; flex: none; white-space: nowrap;
-  font: var(--type-tag); clip-path: polygon(5px 0, 100% 0, calc(100% - 5px) 100%, 0 100%); }
-.tag.new, .tag.count, .tag.plain, .tag.warning { box-shadow: var(--tag-carve); }
-.tag.new { color: var(--tag-new-ink); background: var(--tag-new); }
-.tag.count { padding: 0 8px 2px; color: var(--ink-2); background: var(--tag-plain); font-variant-numeric: tabular-nums; }
-.tag.plain { color: var(--ink-2); background: var(--tag-plain); }
-.tag.warning { color: var(--tag-warning-ink); background: var(--tag-warning); }
+/* A tag is the carving's smallest form (materials.ts): new, a count, plain or a warning, or glass. */
 /* An icon before its words, small and in their color, says what kind of tag it is at a glance. */
 .tag:has(> .ico) { gap: 4px; }
 .tag > .ico { width: 12px; height: 12px; stroke-width: 2; }
@@ -318,12 +306,12 @@ export function listRows(options: { rows: ListRow[]; whenEmpty: Raw; id?: string
 const whenEmptyMarkup = (whenEmpty: Raw, isListShown: boolean): Raw => html`<div class="when-empty"${isListShown ? raw(" hidden") : ""}>${whenEmpty}</div>`;
 
 function listMarkup(options: { rows: ListRow[]; id?: string; label?: string; shownRowCount?: number; isCompact?: boolean }, cap: Raw | ""): Raw {
-  return html`<ul class="list-rows${options.shownRowCount ? " is-capped" : ""}${options.isCompact ? " is-compact" : ""}"${cap}${options.id ? html` id="${options.id}"` : ""}${options.label ? html` aria-label="${options.label}"` : ""}>${options.rows.map((row) => {
+  return html`<ul class="list-rows hairlines${options.shownRowCount ? " is-capped scrolls own-scroll" : ""}${options.isCompact ? " is-compact" : ""}"${cap}${options.id ? html` id="${options.id}"` : ""}${options.label ? html` aria-label="${options.label}"` : ""}>${options.rows.map((row) => {
     const details = [row.detail, row.secondDetail].filter((line): line is string => Boolean(line));
     const inside = html`${row.lead ? html`<span class="list-row-lead">${row.lead}</span>` : ""}<span class="list-row-words">${row.titleIcon ? html`<span class="list-row-title-line"><span class="list-row-title">${row.title}</span><span class="list-row-title-icon" role="img" aria-label="${row.titleIcon.label}" title="${row.titleIcon.label}"${row.titleIcon.isHidden ? raw(" hidden") : ""}>${icon(row.titleIcon.icon)}</span></span>` : html`<span class="list-row-title">${row.title}</span>`}${details.map((line) => html`<span class="list-row-detail">${factLine(line, "list-row-fact")}</span>`)}${row.meter ? html`<span class="list-row-meter">${usageTrack(row.meter)}</span>` : ""}</span>${row.end !== undefined ? html`<span class="list-row-end">${row.end}</span>` : ""}`;
     return html`<li${row.isHidden ? raw(" hidden") : ""}>${row.href
-      ? html`<a class="list-row is-link${row.state ? ` ${row.state}` : ""}" href="${row.href}"${row.isNewTab ? raw(' target="_blank" rel="noopener noreferrer"') : ""} data-cut-line="8">${CUT_LINE}${inside}<span class="list-row-go${row.isNewTab ? " is-new-tab" : ""}" aria-hidden="true">${icon(row.isNewTab ? "out-of-page" : "chevron-right")}</span></a>`
-      : html`<div class="list-row">${inside}${row.action ? html`<span class="list-row-action">${Array.isArray(row.action) ? rowOf(row.action) : row.action}</span>` : ""}</div>`}</li>`;
+      ? html`<a class="list-row flush-row is-link${row.state ? ` ${row.state}` : ""}" href="${row.href}"${row.isNewTab ? raw(' target="_blank" rel="noopener noreferrer"') : ""} data-cut-line="8">${CUT_LINE}${inside}<span class="list-row-go${row.isNewTab ? " is-new-tab" : ""}" aria-hidden="true">${icon(row.isNewTab ? "out-of-page" : "chevron-right")}</span></a>`
+      : html`<div class="list-row flush-row quiet">${inside}${row.action ? html`<span class="list-row-action">${Array.isArray(row.action) ? rowOf(row.action) : row.action}</span>` : ""}</div>`}</li>`;
   })}</ul>`;
 }
 
@@ -346,17 +334,15 @@ component({
    (a faint slab, cut by the edge rule), an orange mark rises at its start, and the chevron steps on, the way the guest button's arrow does.
    A row may lead with a picture or an icon, take a second line of details, and, when it isn't a link, end in a button. */
 .list-rows { list-style: none; margin: 0; padding: 0; display: grid; }
-.list-rows > li + li { border-top: var(--divider); }
 /* Capped: about shownRowCount rows in view, half of the next showing so it's clear the list scrolls inside itself, the page staying short. It holds a swipe or a wheel only while it has something to scroll (is-scrollable, tokens.ts): a short list passes it on to the page. */
-.list-rows.is-capped { --list-row-height: 65px; max-height: calc((var(--shown-row-count) + 0.5) * var(--list-row-height)); overflow-y: auto; }
+.list-rows.is-capped { --list-row-height: 65px; max-height: calc((var(--shown-row-count) + 0.5) * var(--list-row-height)); }
 /* With its rail showing (the rail lies along its right edge), the rows keep clear of it, so a row's button never sits against the rail. */
-.list-rows.is-capped.shows-rail { padding-right: calc(var(--pad-frame) + 8px); }
-.list-row { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-words-control); min-height: 60px; padding: 10px var(--pad-inside-words); color: var(--ink); text-decoration: none; }
-.list-row.is-link { --face-color: transparent; background: var(--face-color); clip-path: var(--cut-shape); transition: --face-color var(--motion-state); -webkit-tap-highlight-color: transparent; }
+.list-row { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-words-control); --row-height: 60px; --row-block: 10px; --row-start: var(--pad-inside-words); --row-end: var(--pad-inside-words); color: var(--ink); text-decoration: none; }
+.list-row.quiet { cursor: auto; }
 .list-row > :not(.cut-line) { position: relative; z-index: 2; }
 .list-row-lead { flex: none; display: inline-flex; color: var(--ink-2); }
 /* Compact: a long list in a narrow place (the players in a room): one line a row, its words taking what's left beside its picture and buttons. */
-.list-rows.is-compact > li > .list-row { flex-wrap: nowrap; min-height: 44px; padding-block: calc(var(--gap-control-stack) * 0.75); }
+.list-rows.is-compact > li > .list-row { flex-wrap: nowrap; --row-height: 44px; --row-block: calc(var(--gap-control-stack) * 0.75); }
 .list-rows.is-compact .list-row-words { flex: 1 1 0; }
 .list-row-lead > .ico { width: 20px; height: 20px; }
 /* The words keep a card's width at least: where the buttons don't fit beside that, they go under the words, at the row's end. */
@@ -369,7 +355,7 @@ component({
 .list-row-title-icon { flex: none; display: inline-flex; color: var(--ink-2); }
 .list-row-title-icon > .ico { width: 16px; height: 16px; }
 /* A meter under its lines: only the track, its numbers in the detail above. */
-.list-row-meter { display: grid; padding-top: var(--gap-words-words); }
+.list-row-meter { display: grid; }
 .list-row-fact { display: inline-block; max-width: 100%; }
 .list-row-end { flex: none; display: inline-flex; align-items: center; gap: var(--gap-words-words); font: var(--type-facts); color: var(--ink-2); }
 .list-row-action { flex: none; display: inline-flex; margin-left: auto; }
@@ -378,15 +364,9 @@ component({
 /* A row that opens a new tab ends in the out-of-the-page arrow, which steps up and out as you point. */
 .list-row-go.is-new-tab > .ico { width: 16px; height: 16px; stroke-width: 1.8; }
 /* The mark at its start: a short orange bar, cut at its ends, growing from its middle, halfway between the row's edge and its words. */
-.list-row.is-link::before { content: ""; position: absolute; z-index: 2; left: 0; top: 30%; bottom: 30%; width: 3px; background: var(--run); transform: scaleY(0); transition: transform var(--motion-arrive) var(--ease-glide); }
-.list-row.is-link:hover, .list-row.is-link.is-pointed { --face-color: var(--row-hover); }
-.list-row.is-link:hover::before, .list-row.is-link.is-pointed::before, .list-row.is-link.is-pressed::before, .list-row.is-link:focus-visible::before { transform: scaleY(1); }
 .list-row.is-link:hover > .list-row-go, .list-row.is-link.is-pointed > .list-row-go { transform: translateX(3px); color: var(--ink); }
 .list-row.is-link:hover > .list-row-go.is-new-tab, .list-row.is-link.is-pointed > .list-row-go.is-new-tab { transform: translate(2px, -2px); }
-.list-row.is-link:active, .list-row.is-link.is-pressed { --face-color: var(--row-press); }
-.list-row.is-link:focus-visible { outline: none; }
-.list-row.is-link:focus-visible > .cut-line polygon, .list-row.is-link.is-focused > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
-@media (prefers-reduced-motion: reduce) { .list-row.is-link::before, .list-row-go { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .list-row-go { transition: none; } }
 `,
   render: listRows,
   examples: [
@@ -457,7 +437,7 @@ export interface StateNoteOptions {
 
 /** The words and the button of an empty, problem or done state, with the mark that leads a problem or a done one. */
 const stateNote = (tone: "" | " problem" | " done", options: StateNoteOptions, mark: Raw | "") =>
-  html`<div class="state-note${tone}${options.action ? " has-action" : ""}">${mark}<div class="state-words"><p class="state-title">${options.title}</p><p class="state-text">${options.text}</p></div>${options.action ? html`<div class="state-action">${options.action}</div>` : ""}</div>`;
+  html`<div class="state-note${tone}${options.action ? " has-action" : ""}">${mark}<div class="state-words words-margin"><p class="state-title">${options.title}</p><p class="state-text">${options.text}</p></div>${options.action ? html`<div class="state-action">${options.action}</div>` : ""}</div>`;
 
 /** An empty state: what will be here and how it gets here, where a list has nothing yet. */
 export function emptyState(options: StateNoteOptions): Raw {
@@ -471,7 +451,7 @@ const STATE_STYLES = `
 .state-note.has-action { padding-bottom: 0; }
 .state-note > .ico { width: 24px; height: 24px; color: var(--marked); }
 .state-note.done > .ico { color: var(--tag-new-ink); }
-.state-words { display: grid; gap: var(--gap-words-words); max-width: 46ch; padding-inline: var(--pad-words); }
+.state-words { display: grid; gap: var(--gap-words-words); max-width: 46ch; }
 .state-title { margin: 0; font: var(--type-name); color: var(--ink); }
 .state-text { margin: 0; font: var(--type-words); color: var(--ink-2); }
 .state-action { justify-self: stretch; display: grid; margin-top: calc(var(--gap-block-block) - var(--gap-words-control)); }
@@ -531,7 +511,7 @@ component({
 
 /** A loading state: a hairline with a light running along it, and what's coming, where the content will be. Never a spinner over content. */
 export function loadingState(options: { label: string }): Raw {
-  return html`<div class="loading-state" role="status"><span class="loading-line" aria-hidden="true"></span><span class="loading-label">${options.label}</span></div>`;
+  return html`<div class="loading-state words-margin round" role="status"><span class="loading-line" aria-hidden="true"></span><span class="loading-label">${options.label}</span></div>`;
 }
 
 component({
@@ -543,7 +523,7 @@ component({
   styles: `
 /* Loading: a hairline across where the content will be, a light running along it the way it runs along a cover's line, and its words
    under it. Under reduced motion the light rests in the middle. */
-.loading-state { display: grid; gap: var(--gap-words-control); justify-items: center; padding: var(--gap-block-block) var(--pad-words); }
+.loading-state { display: grid; gap: var(--gap-words-control); justify-items: center; }
 .loading-line { position: relative; display: block; width: min(240px, 100%); height: 2px; overflow: hidden; background: var(--line); }
 .loading-line::after { content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 40%; background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--ink) 70%, transparent), transparent); animation: loading-run var(--motion-loop) var(--ease-standard) infinite; }
 @keyframes loading-run { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
@@ -615,9 +595,9 @@ export function table(options: TableOptions): Raw {
     ? html`<tr><td class="table-placeholder" colspan="${String(options.columns.length)}"><div class="table-placeholder-in">${placeholder}</div></td></tr>`
     : options.rows.map((row) => html`<tr>${row.map(cell)}</tr>`);
   const cap = options.shownRowCount ? html` style="--shown-row-count:${String(options.shownRowCount)}"` : "";
-  return html`<div class="table"><p class="table-caption" id="${id}-caption">${options.caption}</p><div class="table-scroll${options.shownRowCount ? " is-capped" : ""}"${cap} data-fades-sideways data-side-rail${options.shownRowCount ? "" : raw(" data-scroll-box")} data-cut-line="8"><table class="data-table${options.isCompact ? " compact" : ""}${options.hasRowHeads ? " has-row-heads" : ""}" aria-labelledby="${id}-caption"><thead><tr>${options.columns.map(
+  return html`<div class="table"><p class="table-caption words-margin" id="${id}-caption">${options.caption}</p><div class="table-scroll${options.shownRowCount ? " is-capped" : ""}"${cap} data-fades-sideways data-side-rail${options.shownRowCount ? "" : raw(" data-scroll-box")} data-cut-line="8"><table class="data-table${options.isCompact ? " compact" : ""}${options.hasRowHeads ? " has-row-heads" : ""}" aria-labelledby="${id}-caption"><thead><tr>${options.columns.map(
     (column, columnIndex) => html`<th scope="col" class="glass${column.isNumeric ? " num" : ""}${column.isActions ? " actions" : ""}">${column.isActions ? html`<span><span class="sr">${column.label}</span></span>` : column.label}</th>`,
-  )}</tr></thead><tbody>${body}</tbody></table></div></div>`;
+  )}</tr></thead><tbody class="hairlines">${body}</tbody></table></div></div>`;
 }
 
 const VERSION_COLUMNS: TableColumn[] = [{ label: "Version" }, { label: "State" }, { label: "Files", isNumeric: true }, { label: "Size", isNumeric: true }, { label: "Made" }];
@@ -651,7 +631,7 @@ component({
 /* A row's height is its padding and a line of its words, which grow with the browser's text size: 37px and 51px at the browser's own 16px, 33px and 34px compact. */
 .table { display: grid; gap: var(--gap-words-control); min-width: 0; --table-head-height: calc(16px + 1.3125rem); --table-row-height: calc(28px + 1.4375rem); }
 .table:has(.compact) { --table-head-height: calc(16px + 1.0625rem); --table-row-height: calc(16px + 1.125rem); }
-.table-caption { margin: 0; padding-inline: var(--pad-words); font: var(--type-label); color: var(--ink); }
+.table-caption { margin: 0; font: var(--type-label); color: var(--ink); }
 .table-scroll { position: relative; max-width: 100%; clip-path: var(--cut-shape); }
 .table-scroll[data-fades-sideways] { overflow-y: auto; max-height: min(40rem, 75dvh); }
 /* Capped: its rows down to the given count show, half the next peeking in under them. */
@@ -670,8 +650,7 @@ component({
 .data-table th, .data-table td { white-space: nowrap; text-align: left; }
 .data-table thead th { position: sticky; top: 0; z-index: 2; padding: 10px var(--pad-inside-words); font: var(--type-facts); color: var(--muted);
   --glass-tint: var(--table-head); --glass-sheen: linear-gradient(transparent, transparent); box-shadow: inset 0 -1px 0 var(--line); }
-.data-table td, .data-table tbody th { padding: 14px var(--pad-inside-words); border-top: var(--divider); }
-.data-table tbody tr:first-child > * { border-top: 0; }
+.data-table td, .data-table tbody th { padding: 14px var(--pad-inside-words); }
 .data-table tbody th { position: sticky; left: 0; z-index: 1; font: var(--type-label); color: var(--ink);
   --glass-tint: transparent; --glass-sheen: linear-gradient(transparent, transparent); }
 .data-table.has-row-heads thead th:first-child { left: 0; z-index: 3; }
@@ -687,8 +666,6 @@ component({
 /* A row's buttons: at its end, as narrow as they are, and no taller than its words' room, so a row with buttons is no taller than one without. */
 .data-table .actions { width: 1%; }
 .data-table td.actions { padding-block: 0; }
-.data-table tbody tr:hover > td:not(.table-placeholder) { background: var(--row-hover); }
-.data-table tbody tr:hover > th { --glass-layer: linear-gradient(var(--row-hover), var(--row-hover)); }
 .data-table.compact thead th { padding: 8px var(--pad-inside-words); }
 .data-table.compact td, .data-table.compact tbody th { padding: 8px var(--pad-inside-words); font: var(--type-facts); }
 /* In place of rows: a loading, empty or problem state, kept in view under the header however wide the table is. */
@@ -767,7 +744,7 @@ export interface NumberItem {
 
 /** Numbers: a row of figures in Jost, each with its label under it and how it moved. */
 export function numbers(options: { items: NumberItem[] }): Raw {
-  return html`<dl class="numbers">${options.items.map(
+  return html`<dl class="numbers words-margin">${options.items.map(
     (numberItem) => html`<div class="number"><dt>${numberItem.label}</dt><dd class="number-figure"><span class="number-amount">${numberItem.figure}</span>${numberItem.unit ? html`<span class="number-unit">${numberItem.unit}</span>` : ""}</dd>${numberItem.change ? html`<dd class="number-change${numberItem.isChangeGood ? " good" : ""}">${numberItem.change}</dd>` : ""}</div>`,
   )}</dl>`;
 }
@@ -782,7 +759,7 @@ component({
 /* Numbers: big figures in Jost with figures of one width, their unit smaller beside them (under them when there's no room), the label under
    each in facts. They share the row, each at least --size-number wide, two to a line on a phone. A figure never breaks: a long one (the
    millions) takes a wider place, and the others go on to the next line. */
-.numbers { display: flex; flex-wrap: wrap; gap: var(--gap-block-block); margin: 0; padding-inline: var(--pad-words); }
+.numbers { display: flex; flex-wrap: wrap; gap: var(--gap-block-block); margin: 0; }
 .number { flex: 1 1 var(--size-number); min-width: min-content; display: grid; gap: var(--gap-words-words); align-content: start; }
 .number dt { order: 2; font: var(--type-facts); color: var(--muted); }
 .number dd { margin: 0; }
@@ -858,7 +835,7 @@ const LEAST_BAR_SLOT_COUNT = 7;
  * A ring shows shares of a whole: each share a part of the ring, the biggest darkest, with a key of names, shares and numbers beside it.
  */
 export function chart(options: ChartOptions): Raw {
-  if (options.points.length === 0) return html`<figure class="chart"><figcaption class="chart-label">${options.label}</figcaption><p class="chart-empty">No ${options.unit} yet.</p></figure>`;
+  if (options.points.length === 0) return html`<figure class="chart words-margin"><figcaption class="chart-label">${options.label}</figcaption><p class="chart-empty">No ${options.unit} yet.</p></figure>`;
   if (options.chartKind === "ring") return ringChart(options);
   const widthNumber = 1000, heightNumber = 300, points = options.points, pointCount = points.length;
   const topNumber = chartTopNumber(Math.max(...points.map((point) => point.amountNumber), 0));
@@ -909,7 +886,7 @@ export function chart(options: ChartOptions): Raw {
           ? html`<span style="left:${percent(barLeftNumber(0), widthNumber)}%">${points[0]!.label}</span><span class="is-end" style="right:${percent(widthNumber - barLeftNumber(pointCount - 1) - barWidthNumber, widthNumber)}%">${last.label}</span>`
           : html`${pointCount >= 3 ? centeredLabel(0) : ""}${centeredLabel(pointCount - 1)}`;
   const grid = [1, 0.5, 0];
-  return html`<figure class="chart" tabindex="0" data-chart-points><figcaption class="chart-label">${options.label}</figcaption><div class="chart-body" aria-hidden="true"><div class="chart-scale">${grid.map(
+  return html`<figure class="chart words-margin" tabindex="0" data-chart-points><figcaption class="chart-label">${options.label}</figcaption><div class="chart-body" aria-hidden="true"><div class="chart-scale">${grid.map(
     (shareNumber) => html`<span style="top:${((1 - shareNumber) * 100).toFixed(0)}%">${scaleWords(topNumber * shareNumber)}</span>`,
   )}</div><div class="chart-scroll" data-fades-sideways data-side-rail data-chart-scroll><div class="chart-inner${isBars ? " is-bars" : ""}" style="--point-count:${pointCount}"><div class="chart-plot">${grid.map(
     (shareNumber) => html`<span class="chart-grid" style="top:${((1 - shareNumber) * 100).toFixed(0)}%"></span>`,
@@ -931,8 +908,8 @@ function ringChart(options: ChartOptions): Raw {
     return part;
   });
   const sharePct = (point: ChartPoint) => Math.round((point.amountNumber / totalNumber) * 100);
-  return html`<figure class="chart ring"><figcaption class="chart-label">${options.label}</figcaption><div class="ring-body"><div class="ring-picture"><svg class="ring-drawing" viewBox="0 0 120 120" aria-hidden="true">${parts}</svg><span class="ring-total"><b>${chartWords(totalNumber)}</b>${options.unit}</span></div><ul class="ring-key">${shares.map(
-    (point, shareIndex) => html`<li data-share="${shareIndex}"><span class="ring-swatch" aria-hidden="true"></span><span class="ring-name">${point.label}</span><span class="ring-share">${sharePct(point)}%</span><span class="ring-amount">${chartWords(point.amountNumber)} ${options.unit}</span></li>`,
+  return html`<figure class="chart ring words-margin"><figcaption class="chart-label">${options.label}</figcaption><div class="ring-body"><div class="ring-picture"><svg class="ring-drawing" viewBox="0 0 120 120" aria-hidden="true">${parts}</svg><span class="ring-total"><b>${chartWords(totalNumber)}</b>${options.unit}</span></div><ul class="ring-key hairlines">${shares.map(
+    (point, shareIndex) => html`<li class="flush-row quiet" data-share="${shareIndex}"><span class="ring-swatch" aria-hidden="true"></span><span class="ring-name">${point.label}</span><span class="ring-share">${sharePct(point)}%</span><span class="ring-amount">${chartWords(point.amountNumber)} ${options.unit}</span></li>`,
   )}</ul></div></figure>`;
 }
 
@@ -974,7 +951,7 @@ const DAILY_PLAYS: ChartPoint[] = [812, 904, 870, 1012, 1190, 1460, 1384, 1102, 
 const MONTHLY_PLAYERS: ChartPoint[] = [3120, 3480, 4210, 3990, 4620, 5310, 6870, 7420, 6980, 8130, 9760, 11240, 12480, 11920, 13650, 15210, 16880, 18420, 17950, 21300, 23870, 26420, 25110, 28940].map((amountNumber, weekIndex) => ({ label: `Week ${weekIndex + 1}`, amountNumber }));
 const SHARE_RING_CSS = [0, 1, 2, 3, 4, 5, 6, 7]
   .map((shareIndex) => `.ring:has(.ring-key [data-share="${shareIndex}"]:hover) .ring-part[data-share="${shareIndex}"], .ring:has(.ring-part[data-share="${shareIndex}"]:hover) .ring-part[data-share="${shareIndex}"] { stroke: var(--ink); }
-.ring:has(.ring-part[data-share="${shareIndex}"]:hover) .ring-key [data-share="${shareIndex}"] { background: var(--row-hover); }`)
+.ring:has(.ring-part[data-share="${shareIndex}"]:hover) .ring-key [data-share="${shareIndex}"] { --face-color: var(--row-hover); }`)
   .join("\n");
 const chartPane = (options: ChartOptions) => glassPane({ paneWidth: "full", body: chart(options) });
 
@@ -989,14 +966,14 @@ component({
    under the plot. The drawing stretches to the plot while its line keeps its 2px. On a narrow screen each point keeps at least its room
    (--point-room) and the plot scrolls sideways under a scale that stays. The last point is an ink dot with its number over it; pointing at
    any point, or focusing it, shows its dot and its number (a bar's column brightens), its words kept inside the plot at the ends. */
-.chart { display: grid; gap: var(--gap-words-control); margin: 0; min-width: 0; padding-inline: var(--pad-words); }
+.chart { display: grid; gap: var(--gap-block-block); margin: 0; min-width: 0; }
 .chart-label { font: var(--type-label); color: var(--ink); }
-.chart-body { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--gap-words-control); margin-top: var(--gap-block-block); }
+.chart-body { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--gap-words-control); }
 .chart-scale { position: relative; height: 180px; min-width: 32px; font: var(--type-facts); color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; }
 .chart-scale > span { position: absolute; right: 0; transform: translateY(-50%); white-space: nowrap; }
 .chart-scroll { min-width: 0; padding-top: var(--gap-block-block); margin-top: calc(-1 * var(--gap-block-block)); }
 /* Its dots at the ends keep their whole round inside its padding; anything else past its sides is clipped, never making it scroll. */
-.chart-inner { --point-room: 12px; min-width: calc(var(--point-count) * var(--point-room)); padding: 0 6px; overflow-x: clip; }
+.chart-inner { display: grid; row-gap: var(--gap-words-control); --point-room: 12px; min-width: calc(var(--point-count) * var(--point-room)); padding: 0 6px; overflow-x: clip; }
 .chart-inner.is-bars { --point-room: 26px; }
 .chart-plot { position: relative; height: 180px; }
 .chart-grid { position: absolute; left: 0; right: 0; height: 0; border-top: var(--divider); }
@@ -1015,7 +992,7 @@ component({
 .chart-last.is-bar { height: 0; margin: 0; background: none; border-radius: 0; box-shadow: none; }
 .chart-last.is-bar .chart-last-words { bottom: 6px; min-width: 100%; text-align: center; }
 .chart-body > .rail { grid-column: 2; }
-.chart-axis { display: grid; padding-top: var(--gap-words-control); font: var(--type-facts); color: var(--muted); }
+.chart-axis { display: grid; font: var(--type-facts); color: var(--muted); }
 .chart-axis > span { grid-area: 1 / 1; justify-self: start; position: relative; white-space: nowrap; }
 .chart-axis > .is-end { justify-self: end; }
 .chart-axis > .is-middle { transform: translateX(-50%); }
@@ -1039,7 +1016,7 @@ component({
 /* While any point's number shows, the last point's steps aside, so the two never meet. */
 .chart-plot:has(.chart-hit:is(:hover, .is-pointed)) .chart-last-words, .chart:focus-visible .chart-plot:has(.chart-hit.is-focused) .chart-last-words { opacity: 0; }
 /* No points yet: it says so where the plot would be, over the plot's foot line. */
-.chart-empty { display: grid; place-items: center; height: 180px; margin: var(--gap-block-block) 0 0; border-bottom: var(--divider); font: var(--type-words); color: var(--muted); }
+.chart-empty { display: grid; place-items: center; height: 180px; border-bottom: var(--divider); font: var(--type-words); color: var(--muted); }
 /* A ring: the shares round a ring, biggest first and darkest, each lighter after; the whole in its middle. Its key beside it (under it on a
    phone), no wider than a card so each name reads with its share, names each with its share and number. Pointing at a part or its line in
    the key draws that part in ink and brightens its line. */
@@ -1050,9 +1027,8 @@ component({
 .ring-total { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; font: var(--type-facts); color: var(--muted); }
 .ring-total b { font: var(--type-section); color: var(--ink); font-variant-numeric: tabular-nums; }
 .ring-key { flex: 0 1 var(--size-card); list-style: none; margin: 0; padding: 0; display: grid; }
-.ring-key li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: var(--gap-words-control); padding: var(--gap-words-words) var(--gap-words-words); font: var(--type-words); color: var(--ink); }
-.ring-key li:hover { background: var(--row-hover); }
-.ring-key li + li { border-top: var(--divider); }
+.ring-key li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: var(--gap-words-control); --row-height: 0px; --row-block: var(--gap-words-words); --row-start: var(--gap-words-words); --row-end: var(--gap-words-words); cursor: default; font: var(--type-words); color: var(--ink); }
+.ring-key li:hover { --face-color: var(--row-hover); }
 .ring-swatch { width: 12px; height: 12px; background: var(--share-color); }
 .ring-share { font-weight: 600; font-variant-numeric: tabular-nums; }
 .ring-name { overflow-wrap: break-word; }
@@ -1134,7 +1110,7 @@ function meterTrack(options: UsageMeterOptions, sharePct: number): Raw {
 function usageKey(options: UsageMeterOptions): Raw | "" {
   const parts = options.parts?.filter((part) => part.sharePct > 0) ?? [];
   if (!parts.length) return "";
-  return html`<ul class="usage-key" aria-label="What used ${options.label}">${parts.map((part) => html`<li data-part="${String(part.partColorIndex)}"><span class="usage-swatch" aria-hidden="true"></span>${part.label}<b>${String(part.sharePct)}%</b></li>`)}</ul>`;
+  return html`<ul class="usage-key words-margin" aria-label="What used ${options.label}">${parts.map((part) => html`<li data-part="${String(part.partColorIndex)}"><span class="usage-swatch" aria-hidden="true"></span>${part.label}<b>${String(part.sharePct)}%</b></li>`)}</ul>`;
 }
 
 /**
@@ -1147,7 +1123,7 @@ export function usageMeter(options: UsageMeterOptions): Raw {
   const overNumber = options.usedNumber - options.limitNumber;
   const allUsedWords = overNumber > 0 ? `, ${chartWords(overNumber)} ${options.unit} over` : ", all used";
   const resetWords = options.resetDate ? `Resets ${new Date(`${options.resetDate}T00:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}.` : "";
-  return html`<div class="usage${tone}"><span class="usage-label">${isAllUsed ? icon("warning") : ""}${options.label}</span><p class="usage-numbers"><span class="usage-fact">${options.shownWords ?? html`${chartWords(options.usedNumber)} of ${chartWords(options.limitNumber)}\u00a0${options.unit}`}${isAllUsed ? html`<b>${allUsedWords}</b>` : ""}${resetWords ? "\u00a0·" : ""}</span>${resetWords ? html` <span class="usage-fact">${resetWords}</span>` : ""}</p>${usageKey(options)}${meterTrack(options, sharePct)}</div>`;
+  return html`<div class="usage${tone}"><span class="usage-label words-margin">${isAllUsed ? icon("warning") : ""}${options.label}</span><p class="usage-numbers words-margin"><span class="usage-fact">${options.shownWords ?? html`${chartWords(options.usedNumber)} of ${chartWords(options.limitNumber)}\u00a0${options.unit}`}${isAllUsed ? html`<b>${allUsedWords}</b>` : ""}${resetWords ? "\u00a0·" : ""}</span>${resetWords ? html` <span class="usage-fact">${resetWords}</span>` : ""}</p>${usageKey(options)}${meterTrack(options, sharePct)}</div>`;
 }
 
 const meterPane = (options: UsageMeterOptions) => glassPane({ paneWidth: "fit", body: usageMeter(options) });
@@ -1163,9 +1139,9 @@ component({
    light the Groove's own orange, red from 80%, the warning growing hotter as it fills; any use at all shows at least a sliver. All used,
    it's red striped with a deeper red, like tape across a door, a warning mark leads the label and its words say so in red. */
 .usage { display: grid; gap: var(--gap-words-words); }
-.usage-label { display: inline-flex; align-items: center; gap: var(--gap-words-words); padding-inline: var(--pad-words); font: var(--type-label); color: var(--ink); }
+.usage-label { display: inline-flex; align-items: center; gap: var(--gap-words-words); font: var(--type-label); color: var(--ink); }
 .usage-label > .ico { width: 16px; height: 16px; color: var(--meter-full-ink); }
-.usage-numbers { margin: 0; padding-inline: var(--pad-words); font: var(--type-facts); color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.usage-numbers { margin: 0; font: var(--type-facts); color: var(--ink-2); font-variant-numeric: tabular-nums; }
 .usage-fact { display: inline-block; max-width: 100%; }
 .usage-numbers b { font-weight: 600; color: var(--meter-full-ink); }
 .usage-track { display: block; }
@@ -1190,7 +1166,7 @@ component({
 .usage [data-part="3"] { --part-color: var(--part-3); }
 .usage [data-part="4"] { --part-color: var(--part-4); }
 .usage [data-part="5"] { --part-color: var(--part-5); }
-.usage-key { display: flex; flex-wrap: wrap; gap: var(--gap-words-words) var(--gap-block-block); list-style: none; margin: 0; padding: 0 var(--pad-words); }
+.usage-key { display: flex; flex-wrap: wrap; gap: var(--gap-words-words) var(--gap-block-block); list-style: none; margin: 0; }
 .usage-key li { position: relative; display: inline-flex; align-items: center; gap: var(--gap-words-words); font: var(--type-facts); color: var(--ink-2); }
 .usage-key .usage-swatch { position: absolute; left: calc(-10px - var(--gap-words-words)); top: calc(50% - 5px); }
 .usage-key b { font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }

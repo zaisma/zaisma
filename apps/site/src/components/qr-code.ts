@@ -30,7 +30,7 @@ export interface QrCodeOptions {
  */
 export function qrCode(options: QrCodeOptions): Raw {
   const download = options.download;
-  return html`<figure class="qr-code${options.isMasked ? " is-masked" : ""}${options.isLarge ? " is-large" : ""}"><span class="qr-cast" data-on-no-pane><span class="qr-tile cut-raised" data-cut-line="8">${CUT_LINE}<img class="qr-picture" id="${options.id}"${options.imageUrl ? html` src="${options.imageUrl}"` : ""} alt="${options.label}" width="220" height="220">${options.iconUrl ? html`<img class="qr-icon" src="${options.iconUrl}" alt="" width="48" height="48">` : ""}</span></span><figcaption class="qr-caption" id="${options.id}-caption">${options.caption}</figcaption>${download ? html`<div class="control-row qr-downloads">${secondaryButton("Download SVG", { href: download.svgUrl, downloadName: `${download.fileName}.svg` })}${secondaryButton("Download PNG", { type: "button", dataAttributes: { "qr-png": `${download.fileName}.png`, "qr-svg": download.svgUrl } })}</div>` : ""}</figure>`;
+  return html`<figure class="qr-code${options.isMasked ? " is-masked" : ""}${options.isLarge ? " is-large" : ""}"><span class="qr-cast" data-on-no-pane><span class="qr-tile cut-raised" data-cut-line="8">${CUT_LINE}<img class="qr-picture" id="${options.id}"${options.imageUrl ? html` src="${options.imageUrl}"` : ""} alt="${options.label}" width="220" height="220">${options.iconUrl ? html`<img class="qr-icon" src="${options.iconUrl}" alt="" width="48" height="48">` : ""}</span></span><figcaption class="qr-caption words-margin" id="${options.id}-caption">${options.caption}</figcaption>${download ? html`<div class="control-row qr-downloads">${secondaryButton("Download SVG", { href: download.svgUrl, downloadName: `${download.fileName}.svg` })}${secondaryButton("Download PNG", { type: "button", dataAttributes: { "qr-png": `${download.fileName}.png`, "qr-svg": download.svgUrl } })}</div>` : ""}</figure>`;
 }
 
 /** Download PNG: the code's SVG drawn at 1024px, crisp, and saved under its name. */
@@ -79,7 +79,7 @@ component({
 .qr-picture { display: block; width: 100%; height: auto; aspect-ratio: 1; background: #fff; transition: filter var(--motion-state); }
 .qr-icon { position: absolute; left: 50%; top: 50%; width: 20%; height: auto; aspect-ratio: 1; transform: translate(-50%, -50%); outline: 3px solid #fff; object-fit: cover; transition: filter var(--motion-state); }
 /* Its words keep the margin inside it, as a field's do, however wide they run (a masked code's caption, at a large text size). */
-.qr-caption { font: var(--type-label); color: var(--ink); text-align: center; padding-inline: var(--pad-inside-words); }
+.qr-caption { font: var(--type-label); color: var(--ink); text-align: center; }
 .qr-code.is-masked :is(.qr-picture, .qr-icon) { filter: blur(8px); }
 /* Large (a light box's): as big as the screen allows, its white margin wider to match, its line under it. */
 .qr-code.is-large > .qr-cast { width: min(360px, 76vw, 58dvh); }

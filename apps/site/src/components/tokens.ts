@@ -356,10 +356,13 @@ ${WORDS_SURFACES.join(", ")} { padding: var(--pad-frame); --pad-words: var(--pad
 /* The glass's body is a layer of its own under what's on it, cut to its shape (--glass-clip, GLASS_SCRIPT): the glass is cut, not what
    stands on it, so a slab's shadow or a lit one's glow falls past its edge as light would. */
 .glass { position: relative; isolation: isolate; color: var(--ink); --glass-shown-tint: var(--glass-tint); transition: var(--glass-transition); }
-.glass::before { content: ""; position: absolute; inset: 0; z-index: 0; pointer-events: none; clip-path: var(--glass-clip, none);
+.glass::before { content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none; clip-path: var(--glass-clip, none);
   background-color: var(--glass-shown-tint); background-image: var(--glass-layer, linear-gradient(transparent, transparent)), var(--glass-wash), var(--glass-sheen);
   -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate)); backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate)); }
 .glass > .edge { clip-path: var(--glass-clip, none); }
+/* Under everything in its own layer, so bare words on it (a table's head) show over it. Glass with no outline of its own (a table's pinned
+   cells) is cut to nothing: it never takes the shape of the pane it's in. */
+.glass:not([data-glass]) { --glass-clip: none; }
 .glass > :not(.edge) { position: relative; z-index: 3; }
 .edge { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 2; overflow: visible; }
 /* Light and smoked glass share one frame: a straight-cut glass edge whose every side is one flat tone between --edge-lit and --edge-shade
