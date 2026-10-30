@@ -29,11 +29,13 @@ export const MATERIAL_STYLES = `
 .glass.thin, .floating-pane, .sheet, .notice, .playing-card { --glass-tint: var(--glass-thin); }
 /* A tray: one sheet of the thinnest glass, a fainter sheen, less blur and the colors behind it less lifted, with one rim round all of it.
    Its head is a step of regular glass across its top: the sheet's own glass, cut by the sheet's top corners and lying under its rim, so
-   it has no rim of its own. Along the step's foot its lip catches the light (--step-lip) and it shades the thin glass below (--step-cast). */
+   it has no rim of its own. Along the step's foot its lip catches the light (--step-lip) and it shades the thin glass below (--step-cast),
+   both stopping inside the rim's bevel, the lip fading out before it, so the step never runs into the sheet's edge. */
 .tray-group { --glass-tint: var(--glass-tray); --glass-blur: 12px; --glass-saturate: 1.15; }
 .tray-group::before { --glass-sheen: var(--glass-tray-sheen); }
 .tray-group > .glass.tray-head { z-index: 1; --glass-tint: var(--glass-regular); --glass-clip: polygon(0 var(--pane-cut-large), var(--pane-cut-large) 0, calc(100% - var(--pane-cut-small)) 0, 100% var(--pane-cut-small), 100% 100%, 0 100%); }
-.tray-group > .glass.tray-head::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 1px; pointer-events: none; background: var(--step-lip); box-shadow: var(--step-cast); }
+.tray-group > .glass.tray-head::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 1px; pointer-events: none; clip-path: inset(-2px 5px -16px 5px);
+  background: linear-gradient(to right, transparent 5px, var(--step-lip) 22px, var(--step-lip) calc(100% - 22px), transparent calc(100% - 5px)); box-shadow: var(--step-cast); }
 
 /* Glass on glass: a browser blurs only what's inside the nearest blurred glass round it, so a second blur inside a pane would see nothing of
    the page and turn the inner glass flat white. Glass inside glass only tints: the pane round it has already blurred the page, which shows
