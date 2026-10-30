@@ -8,7 +8,7 @@ import { secondaryButton, tertiaryButton, rowArrows, primaryButton, textLink } f
 import { SEARCH_STAND_IN, searchField, tabSwitch, type SearchFieldOptions, type SwitchTab } from "./inputs.ts";
 import { DROPDOWN_CHOICE_CLASS, STAND_IN_COVERS, dropdown, type DropdownItem } from "./panes.ts";
 import { listRows } from "./data.ts";
-import { row, stack, track, type LayoutItem, stackOfOne } from "./layout.ts";
+import { BAR_TWO_ROWS_MEDIA, row, stack, track, type LayoutItem, stackOfOne } from "./layout.ts";
 
 /*
  * Navigation: the header (a floating slab of glass with the tabs, search and you), the footer, Zaisma's own
@@ -69,7 +69,7 @@ export function header(options: HeaderOptions): Raw {
   const hasTabRow = !options.isOnSignInPage && tabs.filter((each) => !each.isFolded).length >= 2;
   const states = [hasTabRow ? "has-tab-row" : "", options.isCompact ? "is-compact" : "", options.isSearchOpen ? "searching" : ""].filter(Boolean).map((name) => ` ${name}`).join("");
   const signIn = options.hasPageRunner ? secondaryButton("Sign in", { href: "/signin" }) : primaryButton("Sign in", { href: "/signin" });
-  return html`<header class="top glass glass-bar pinned${states}" id="${id}" data-compacts data-glass data-glass-corners="header"${options.isCompact ? raw(" data-stays-compact") : ""}>${EDGE}
+  return html`<header class="top bar-layout glass glass-bar pinned${states}" id="${id}" data-compacts data-glass data-glass-corners="header"${options.isCompact ? raw(" data-stays-compact") : ""}>${EDGE}
   ${options.sidebarButton ?? ""}${wordmark}
   ${options.isOnSignInPage ? "" : html`<nav class="nav" aria-label="Main"${hasTabRow ? "" : raw(" hidden")}>${tabSwitch({ label: "Where you are", switchSize: "big", isFull: true, tabs })}</nav>`}
   ${options.search ? html`${searchField({ ...options.search, id: options.search.id ?? `${id}-find` })}${secondaryButton(options.search.label, { type: "button", icon: "search", isLabelHidden: true, isSmall: true, isExpanded: Boolean(options.isSearchOpen) })}` : ""}
@@ -113,7 +113,7 @@ export function accountButton(options: AccountButtonOptions): Raw {
  * Where the header goes to its two rows (Zaisma, search and you over where you are): below 64em, so on an iPad and a phone on its side, and on
  * a laptop with the browser's text at 200%, as the one row wouldn't fit there. In em, which media queries take from the browser's text size.
  */
-export const HEADER_TWO_ROWS_MEDIA = "(max-width: 64em)";
+export const HEADER_TWO_ROWS_MEDIA = BAR_TWO_ROWS_MEDIA;
 
 const HEADER_STYLES = `
 /* The header's height at rest, from its size classes, for the page under it to clear (html.ts's --header-room): one row of regular controls
@@ -139,17 +139,6 @@ const HEADER_STYLES = `
 .top > :not(.edge) { position: relative; z-index: 3; }
 .top .find, .top .find input { transition: width var(--motion-glide) var(--ease-glide); }
 
-/* The header's gap is a row of controls' (their boxes overlap by the slant); the logo is words beside them, and so beside the sidebar's button. */
-.top > .logo { margin-right: var(--gap-block-block); }
-/* The logo is words: it keeps the bar's words margin from its edge, as far in as it is from the tabs (none after a sidebar's button). */
-.top > .logo { margin-left: var(--pad-words); }
-.top:has(> [data-sidebar-button]) > .logo { margin-left: 0; }
-.top > [data-sidebar-button] { margin-right: var(--gap-words-control); }
-/* Search beside Sign in is a row of two controls, so they slant toward each other; beside your account's picture it's words beside it. */
-.top .find:has(~ .end > .shell) { margin-inline-end: var(--gap-control-row-boxes); }
-.top .find:has(~ .end > .me) { margin-inline-end: var(--gap-words-control); }
-/* Where you are beside search is a row of two controls too: however little room the header has, they slant toward each other, never touch. */
-.top .nav:has(~ .find) { margin-inline-end: var(--gap-control-row-boxes); }
 /* Beside where you are, search takes all the room left, past a field's widest, so no room ever opens between them and both keep the slant. */
 .top .nav ~ .find { max-width: none; }
 
@@ -159,10 +148,7 @@ const HEADER_STYLES = `
 .top .nav[hidden] { display: none; }
 .nav > .switch-well { flex: 1; }
 
-/* Search sits after the tabs, pushed to the end; with neither, the end goes to the end by itself. */
-.top .find { margin-left: auto; }
-.end { display: flex; align-items: center; flex: none; margin-left: auto; }
-.top .find ~ .end { margin-left: 0; }
+.end { display: flex; align-items: center; flex: none; }
 
 
 /* Phones: one slab in two rows: the logo, a search button and you on top; where you are below. */
@@ -179,33 +165,28 @@ const HEADER_STYLES = `
   .top > .end { grid-area: 1 / 4; }
   /* With a sidebar's button it's first in the first row, the logo beside it. */
   .top:has(> [data-sidebar-button]) { grid-template-columns: auto minmax(0, auto) minmax(0, 1fr) auto auto; }
-  .top > [data-sidebar-button] { grid-area: 1 / 1; margin-left: var(--pad-words); }
+  .top > [data-sidebar-button] { grid-area: 1 / 1; }
   .top:has(> [data-sidebar-button]) > .logo { grid-area: 1 / 2; }
   .top:has(> [data-sidebar-button]) > .find + .cut-btn { grid-area: 1 / 4; }
   .top:has(> [data-sidebar-button]) > .end { grid-area: 1 / 5; }
   .top .nav, .top .find { grid-area: 2 / 1 / 3 / -1; }
   /* Compact keeps the same inset around the tabs as at rest; only the rows themselves get shorter. */
   .top.is-compact { top: calc(6px + env(safe-area-inset-top, 0px)); }
-  /* Words keep the bar's words margin from its edge (materials.ts): the logo, and the open search field's words (its icon first). */
-  .top .find { --pad-inside-words: var(--pad-words); }
+  /* Words keep the bar's words margin from its edge (materials.ts): the logo, and the open search field's words (its icon first), which its own
+     room as a carving already puts there. */
   .top > .logo, .top.is-compact > .logo { --logo-height: 22px; }
-  .top .find, .top .find:has(~ .end > .shell), .top .find:has(~ .end > .me) { display: none; order: 5; flex-basis: 100%; max-width: none; margin: 0; }
+  .top .find { display: none; order: 5; flex-basis: 100%; max-width: none; }
   .top.searching .find { display: flex; }
   .top.searching .nav { display: none; }
-  .top > .find + .cut-btn { display: inline-flex; margin-left: auto; margin-right: var(--gap-words-control); }
+  .top > .find + .cut-btn { display: inline-flex; }
   /* The tabs are a row of regular height: a finger's. */
   .top .nav, .top.is-compact .nav { order: 4; flex-basis: 100%; }
-  /* On its own row, it has no neighbor to keep a gap from. */
-  .top .nav:has(~ .find) { margin-inline-end: 0; }
   /* The first row is small controls, so it shares Zaisma, search and Sign in or you on the narrowest phones; Sign in is the compact runner, or
      a small secondary button beside the page's own runner. */
   .top .end > .run-wrap > .run, .top .end > .cut-btn { --control-height: var(--control-height-small); }
   .top .end .run { --slab-words: 15px; font-size: 0.875rem; gap: 6px; }
   /* The picture is as tall as the search button beside it, at rest or compact. */
   .top .me, .top.is-compact .me { --control-height: var(--control-height-small); }
-  /* The search button and Sign in are a row of two controls, slanting toward each other; beside your picture, which never slants, it keeps a control's gap. */
-  .top > .find + .cut-btn:has(~ .end > .shell) { margin-right: var(--gap-control-row-boxes); }
-  .top > .find + .cut-btn:has(~ .end > .me) { margin-right: var(--gap-control-stack); }
 }
 /* The account menu hangs from your picture's right end, so it's never wider than the room from there back to the page's margin: the
    header's width less its inset (a phone's header is narrower than the menu's own width). */

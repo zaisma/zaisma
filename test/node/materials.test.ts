@@ -190,6 +190,14 @@ const NOT_MADE_OF_MATERIALS = new Map<string, string>([
   [".city-page .city-pane | *", "a pane over the city, below its skyline"],
   [".city-pane .or::before, .city-pane .or::after | *", "the lines either side of \"or\""],
   [".city-frame | *", "a frame showing the city"],
+  // Where the window puts a sheet: the page's own placing, not the sheet's.
+  [".sheet:not(.in-place) | margin", "a sheet sits a control's stack gap in from the window's sides and foot"],
+  [".sheet.placement-foot:not(.in-place) | margin", "a sheet at the window's foot sits the page's margin above it"],
+  [".sheet.placement-side:not(.in-place) | margin", "a store panel sits a control's stack gap in from the window's side and foot"],
+  [".sheet-tab-row | margin", "the tab row reaches out over the sheet's frame gap to its edge, its outline running on into the sheet"],
+  // A fold is a details element, whose parts take no gap in every browser: its body keeps a block's gap from its head itself.
+  [".folded-body | margin-top", "an open fold's body a block's gap under its head"],
+  [".fold-row-body | margin-bottom", "an open fold row's body a block's gap over the next row"],
   // Named caps (materials.ts, Caps and scrolls).
   [".sheet:not(.in-place) .store-picture | max-height", "a store panel's picture is shorter on a short screen, so Buy keeps its room"],
   [".stripe-frame | height", "as tall as what Stripe draws in it, which its script says"],

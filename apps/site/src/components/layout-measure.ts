@@ -498,7 +498,8 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
     if (!isShown(holder) || !/flex|grid/.test(css.display) || !(parseFloat(css.rowGap) > 0) || (css.display.indexOf("flex") >= 0 && css.flexDirection.indexOf("column") < 0)) return;
     Array.prototype.forEach.call(holder.children, function (child) {
       var childCss = getComputedStyle(child);
-      if (childCss.display === "none" || /absolute|fixed/.test(childCss.position) || child.matches("script, style, template, .edge, .rail")) return;
+      // What has no box of its own (display: contents) is no thing in the stack: its children are.
+      if (childCss.display === "none" || childCss.display === "contents" || /absolute|fixed/.test(childCss.position) || child.matches("script, style, template, .edge, .rail")) return;
       // One that gives back the gaps round it (a bot check until it's needed) takes no room.
       var givenBackPx = -(parseFloat(childCss.marginTop) + parseFloat(childCss.marginBottom));
       if (child.getBoundingClientRect().height < 0.5 && givenBackPx < parseFloat(css.rowGap) - 0.5) report("an empty thing taking a gap", child, "0px tall in a stack whose gap is " + css.rowGap);

@@ -30,7 +30,7 @@ export const STYLE_ATTRIBUTE: { pattern: RegExp; why: string }[] = [
   { pattern: /^--fill:[0-9.]+$/, why: "a slider's fill, the share picked" },
   { pattern: /^width:[0-9.]+%$/, why: "a usage meter's fill, the share used; a chart's bar" },
   { pattern: /^z-index:\d+$/, why: "a picture row's pictures, each over the next" },
-  { pattern: /^--choice-count:\d+$/, why: "choice cards: how many share a row" },
+  { pattern: /^--card-count:\d+$/, why: "a row of cards: how many share it" },
   { pattern: /^--point-count:\d+$/, why: "a chart's points, for the room each takes" },
   { pattern: /^(left|right|top):-?[0-9.]+%$/, why: "a chart's point, bar or label, where its number puts it" },
   { pattern: /^--point-(left|top):-?[0-9.]+%$/, why: "a chart's number where you point, where its point is" },

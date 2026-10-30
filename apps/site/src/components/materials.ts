@@ -126,6 +126,8 @@ span.hairline { flex: 1; border-top: var(--divider); }
    (a check's words, after its box; a slider's number). */
 .words-margin.at-start { padding-inline: var(--pad-words) 0; }
 .words-margin.at-end { padding-inline: 0 var(--pad-words); }
+/* Words at a floating pane's top (a menu's head) keep the margin there too. */
+.words-margin.at-top { padding-block-start: var(--pad-words); }
 .words-margin.beside-controls { padding-block: calc((var(--control-height-regular) - 1lh) / 2); }
 .words-margin.beside-controls.compact { padding-block: calc((var(--control-height-small) - 1lh) / 2); }
 /* With nothing beside them, they keep the margin all round. */

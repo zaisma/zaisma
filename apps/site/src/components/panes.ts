@@ -89,7 +89,7 @@ export interface DropdownOptions {
 
 /** A dropdown: a Floating pane that hangs from any button (aria-controls its id), holding a short list of choices. */
 export function dropdown(options: DropdownOptions): Raw {
-  const head = options.head ? html`<div class="dropdown-head words-margin"><strong>${options.head.title}</strong>${options.head.note ? html`<span>${options.head.note}</span>` : ""}${options.head.lineId ? html`<span id="${options.head.lineId}" role="status" hidden></span>` : ""}</div><hr class="hairline" aria-hidden="true">` : "";
+  const head = options.head ? html`<div class="dropdown-head words-margin at-top"><strong>${options.head.title}</strong>${options.head.note ? html`<span>${options.head.note}</span>` : ""}${options.head.lineId ? html`<span id="${options.head.lineId}" role="status" hidden></span>` : ""}</div><hr class="hairline" aria-hidden="true">` : "";
   const choices = html`<div class="dropdown-in">${options.items.map((menuItem) => ("kind" in menuItem ? raw('<hr class="hairline" role="separator">') : dropdownChoice(menuItem)))}</div>`;
   return html`${floatingPane({ id: options.id, placement: "under", kind: "dropdown", role: "menu", label: options.label, isShownInPlace: options.isOpen, head: head || undefined, body: choices })}`;
 }
@@ -421,7 +421,7 @@ const DROPDOWN_STYLES = `
 .dropdown-in > * { flex: none; }
 /* Its own words (its head's) keep its margin, --pad-words in from its padding: as far in as the choices' words, which sit that far into
    each choice. The head's rule is as long as the rules between the choices. */
-.dropdown-head { display: flex; flex-direction: column; margin-top: var(--pad-words); }
+.dropdown-head { display: flex; flex-direction: column; }
 .dropdown-head strong { font: var(--type-name); color: var(--ink); overflow-wrap: anywhere; text-wrap: balance; }
 .dropdown-head span { color: var(--muted); font: var(--type-facts); }
 /* A choice: words on the glass, a small control's height (a regular one's on a touch screen); under the pointer a faint slab, cut by the
@@ -471,7 +471,8 @@ const COVER_STYLES = `
    well and the art are both cut by the edge rule like every control, so a cover near a pane's corner takes the pane's cut and one in the
    middle of it is square: never a rectangle against a cut corner. The well keeps the cover's 16:9, and the art fills it up to its carved rim (2px), so the rim frames the art without lying on it.
    Under the art, Zaisma's mark sits in the well: it shows until the art has loaded, and stays where a game has none (is-placeholder). */
-.cover { position: relative; min-width: 0; }
+/* Its art, the orange line under it and what's under that, a part's gap apart. */
+.cover { position: relative; display: grid; row-gap: var(--gap-words-words); min-width: 0; }
 .cover-art { display: block; aspect-ratio: 16 / 9; text-decoration: none; }
 .cover.is-placeholder .cover-art img { display: none; }
 /* A game with no cover has its title under the mark, so it's never a blank in a list. */
@@ -481,7 +482,7 @@ const COVER_STYLES = `
 .cover-art:focus-visible > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 /* The orange line under a cover: it draws in from the left the moment you point at a cover, with a light running ahead along it,
    and stays under the game in the pane. Leaving, it runs on out to the right, quicker than it came, as if it moved on to the next cover. */
-.cover-bar { position: relative; margin-top: 6px;
+.cover-bar { position: relative;
   transform: scaleX(0); transform-origin: right; transition: transform var(--motion-state) var(--ease-leave); }
 .cover-bar::after { width: 38%; }
 .cover:hover .cover-bar, .cover.is-pointed .cover-bar, .cover[aria-current="true"] .cover-bar, .cover-art:focus-visible + .cover-bar { transform: scaleX(1); transform-origin: left; transition: transform var(--motion-arrive) var(--ease-glide); }
@@ -489,7 +490,7 @@ const COVER_STYLES = `
 @keyframes cover-glint { 0% { transform: translateX(-100%); opacity: 1; } 75% { opacity: 1; } 100% { transform: translateX(270%); opacity: 0; } }
 /* Under a cover: what concerns you on the left (when you played, an update, friends), players now on the right. */
 /* Where they can't share a line, players now goes on to the next, never cut short. */
-.cover-meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-words-words); margin-top: var(--gap-words-words); font: var(--type-facts); color: var(--muted); }
+.cover-meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-words-words); font: var(--type-facts); color: var(--muted); }
 .cover-meta .ico { width: 15px; height: 15px; stroke-width: 1.5; }
 .cover-meta .when, .cover-meta .count, .cover-meta .friends { display: inline-flex; align-items: center; gap: var(--gap-words-words); min-width: 0; }
 .cover-meta .when, .cover-meta .count, .cover-meta .device-note { white-space: nowrap; }
@@ -499,7 +500,6 @@ const COVER_STYLES = `
    unit, flush with each other (the title at the art's left edge, the count at its right), and the whole unit keeps the pane's words margin
    (--pad-words past the frame gap) from the surface's edge, at its start, end and foot, with nothing placed apart. With a title it belongs
    to the cover above it: just under the orange line, with more room after it before the next row. */
-.cover-meta.has-title { margin-top: var(--gap-control-row); margin-bottom: var(--gap-words-words); }
 .cover-meta .cover-name { flex: 1 1 0; font: var(--type-name); color: var(--ink); }
 .cover-meta .cover-more { flex: 1 0 100%; display: flex; align-items: center; gap: var(--gap-words-words); min-width: 0; }
 @media (prefers-reduced-motion: reduce) { .cover-art, .cover-bar { transition: none !important; } .cover-bar::after { animation: none !important; } }
@@ -1161,8 +1161,8 @@ const SHEET_STYLES = `
 .sheet-tab-outline .front-shadow { fill: var(--tab-shadow); filter: blur(4px); }
 .sheet-tab-button { --tab-slant: 8px; position: relative; flex: none; display: flex; align-items: center; gap: var(--gap-words-words); padding: 0 calc(var(--pad-inside-words) + var(--tab-slant)); margin: 0; border: 0;
   font: var(--type-label); color: var(--ink-2); white-space: nowrap; background: transparent; cursor: pointer; transition: color var(--motion-state); }
-.sheet-tab-words { position: relative; z-index: 1; }
-.sheet-tab-count { margin-left: var(--gap-words-words); font: var(--type-facts); color: var(--muted); }
+.sheet-tab-words { position: relative; z-index: 1; display: flex; align-items: baseline; gap: var(--gap-words-words); }
+.sheet-tab-count { font: var(--type-facts); color: var(--muted); }
 .sheet-tab-button[aria-pressed="true"] { color: var(--ink); cursor: default; }
 .sheet-tab-button:hover:not([aria-pressed="true"]) { color: var(--ink); }
 .sheet-tab-button:focus-visible { outline: none; }
@@ -1201,7 +1201,6 @@ ${touchReach(".sheet")}
 @starting-style { .sheet.is-anchored:not(.in-place)[open] { transform: translateY(-8px) scale(0.98); } .sheet.is-anchored.is-above:not(.in-place)[open] { transform: translateY(8px) scale(0.98); } }
 /* A small sheet's gaps closed up and its title at a name's size, as a dropdown's are, on every screen (it hangs from its button on a phone too). */
 .sheet:is(.is-compact, [data-sheet-confirm].is-over-sheet) :is(.sheet-in, .sheet-body) { gap: var(--gap-control-stack); }
-.sheet:is(.is-compact, [data-sheet-confirm].is-over-sheet) .layout-stack > .stack-cell[class*="gap-top-"] { margin-top: var(--gap-control-stack); }
 .sheet.is-compact .sheet-title { font: var(--type-name); }
 .sheet.is-anchored.placement-foot::backdrop { background: transparent; }
 @media (min-width: 761px) {
@@ -1646,7 +1645,8 @@ component({
   /* The row gives its cells to the banner: Close to the top end corner, the button to a line of its own under the words. */
   .banner-in > .layout-row { display: contents; }
   .banner .banner-in.has-close > .layout-row > .row-cell:last-child { grid-area: 1 / 1; justify-self: end; margin: 0; }
-  .banner .banner-in.has-action > .layout-row > .row-cell:first-child { grid-area: 2 / 1; margin: var(--gap-words-control) 0 0; }
+  .banner .banner-in.has-action { row-gap: var(--gap-words-control); }
+  .banner .banner-in.has-action > .layout-row > .row-cell:first-child { grid-area: 2 / 1; margin: 0; }
   .banner .banner-in.has-action > .layout-row > .row-cell:first-child > .shell { display: flex; flex: 1 1 auto; }
   .banner .banner-in.has-action > .layout-row > .row-cell:first-child > .shell > .face { width: 100%; justify-content: center; }
   /* The words make room for Close beside their first line: an empty float as wide as Close (an icon-only tertiary button, as wide as it is

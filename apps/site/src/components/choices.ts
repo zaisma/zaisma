@@ -531,7 +531,7 @@ export function choiceCards(options: ChoiceCardsOptions): Raw {
   const className = ["choices", options.error ? "is-marked" : "", options.isDisabled ? "is-disabled" : ""].filter(Boolean).join(" ");
   const cards = options.isCompact
     ? well({ kind: "choice-well holds-parts", scrollDirection: "down", edgeLight: "left", body: html`${options.choices.map(card)}` })
-    : html`<div class="choice-cards" style="--choice-count: ${options.choices.length}">${options.choices.map(card)}</div>`;
+    : html`<div class="choice-cards cards-row" style="--card-count: ${options.choices.length}">${options.choices.map(card)}</div>`;
   return html`<fieldset class="${className}"${options.isDisabled ? raw(" disabled") : ""}${options.error ? html` aria-describedby="${id}-error"` : ""}><legend class="${options.isLabelHidden ? "sr" : "words-margin"}">${options.label}</legend>${cards}${options.error ? html`<p class="field-error words-margin" id="${id}-error">${options.error}</p>` : ""}</fieldset>`;
 }
 
@@ -567,12 +567,7 @@ component({
    the card, unseen, so the arrow keys move between them as the system's do. */
 .choices { margin: 0; padding: 0; border: 0; min-width: 0; display: flex; flex-direction: column; gap: var(--gap-words-control); }
 .choices > legend { font: var(--type-label); color: var(--ink-2); }
-/* Side by side, a row of controls: their boxes overlap so the edge rule slants them toward each other, while each can have a
-   card's width (--size-card); stacked, --gap-control-stack apart, once they can't. One or the other, never some of each: each card's basis
-   is very large while the cards don't fit side by side, so each takes a line, and nothing while they do, so they share the row. */
-.choice-cards { --choice-row-least: calc(var(--choice-count) * var(--size-card)); display: flex; flex-wrap: wrap; align-items: stretch; gap: var(--gap-control-stack) 0; }
-.choice-cards > .choice-card { flex: 1 1 calc((var(--choice-row-least) - 100%) * 999); }
-.choice-cards > .choice-card:not(:last-child) { margin-inline-end: max(var(--gap-control-row-boxes), min(0px, (var(--choice-row-least) - 100%) * 999)); }
+/* The cards are a row of cards (layout.ts's cards-row): side by side while all fit, all stacked once they can't. */
 .choice-card { cursor: pointer; -webkit-tap-highlight-color: transparent; color: var(--muted); }
 .choice-card > :not(.cut-line):not(.choice-input):not(.edge-light) { position: relative; z-index: 2; }
 .choice-input { position: absolute; inset: 0; z-index: 3; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }

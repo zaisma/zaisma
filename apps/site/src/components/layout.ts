@@ -18,6 +18,9 @@ export type { ControlMarkup } from "./control-markup.ts";
  * here, so everything in a pane is placed by a layout and every word in it keeps the pane's margin. design.test.ts checks no other file
  * makes one.
  */
+/** Where a bar (the header) goes to two rows: below 64em, a phone and an iPad, and a phone on its side. */
+export const BAR_TWO_ROWS_MEDIA = "(max-width: 64em)";
+
 export class LayoutMarkup extends Raw {
   /** Makes it a type of its own: plain markup isn't a layout. */
   private declare readonly isLayoutMarkup: true;
@@ -362,6 +365,8 @@ export const STACK_STYLES = `
    room, and the first shown has nothing above it. In a pane, controls fill its width, as they always have. */
 .layout-stack { display: flex; flex-direction: column; min-width: 0; }
 .stack-cell { display: flex; flex-direction: column; min-width: 0; }
+/* In a compact sheet (or a confirm over a sheet) everything is a control's stack gap apart, whatever the spacing table says. */
+.sheet:is(.is-compact, [data-sheet-confirm].is-over-sheet) .layout-stack > .stack-cell[class*="gap-top-"] { margin-top: var(--gap-control-stack); }
 ${GAP_TOKENS.filter((gap) => gap !== "control-row-boxes").map((gap) => `.layout-stack > .stack-cell.gap-top-${gap} { margin-top: var(--gap-${gap}); }`).join("\n")}
 .layout-stack > .stack-cell:nth-child(1 of :not([hidden], .holds-only-hidden)) { margin-top: 0; }
 /* A cell whose only thing is hidden (a page script shows it: a step, an error) takes no room. */
@@ -441,6 +446,38 @@ ${edgeRows("top")} { align-items: flex-start; }
 ${edgeRows("bottom")} { align-items: flex-end; }
 /* A cell whose only thing is hidden takes no room. */
 .row-cell:has(> [hidden]:only-child) { display: none; }
+
+/* A bar's row (the header): Zaisma's logo, where you are, search and you, side by side, spaced by what's beside what, as a row of controls
+   is. The logo is words: the bar's words margin from its edge, and a block's gap before the tabs (none before it after a sidebar's button,
+   only a control's gap after that). Controls beside each other overlap by the slant, so they slant toward each other; beside your picture,
+   which never slants, words' gap. Search sits after the tabs, pushed to the end; with neither, the end goes to the end by itself. */
+.bar-layout > .logo { margin-right: var(--gap-block-block); margin-left: var(--pad-words); }
+.bar-layout:has(> [data-sidebar-button]) > .logo { margin-left: 0; }
+.bar-layout > [data-sidebar-button] { margin-right: var(--gap-words-control); }
+.bar-layout .find:has(~ .end > .shell) { margin-inline-end: var(--gap-control-row-boxes); }
+.bar-layout .find:has(~ .end > .me) { margin-inline-end: var(--gap-words-control); }
+.bar-layout .nav:has(~ .find) { margin-inline-end: var(--gap-control-row-boxes); }
+.bar-layout .find { margin-left: auto; }
+.bar-layout > .end { margin-left: auto; }
+.bar-layout .find ~ .end { margin-left: 0; }
+/* Two rows (a phone, an iPad): the first row Zaisma, the search button and you; where you are, or the open search, a row of its own below,
+   with no neighbor to keep a gap from. The search button and Sign in slant toward each other; beside your picture, a control's gap. */
+@media ${BAR_TWO_ROWS_MEDIA} {
+  .bar-layout > [data-sidebar-button] { margin-left: var(--pad-words); }
+  .bar-layout .find, .bar-layout .find:has(~ .end > .shell), .bar-layout .find:has(~ .end > .me) { margin: 0; }
+  .bar-layout > .find + .cut-btn { margin-left: auto; margin-right: var(--gap-words-control); }
+  .bar-layout .nav:has(~ .find) { margin-inline-end: 0; }
+  .bar-layout > .find + .cut-btn:has(~ .end > .shell) { margin-right: var(--gap-control-row-boxes); }
+  .bar-layout > .find + .cut-btn:has(~ .end > .me) { margin-right: var(--gap-control-stack); }
+}
+
+/* A row of cards (choice cards): side by side while all fit, their boxes overlapping so the edge rule slants them toward each other, each
+   with a card's width (--size-card); stacked, --gap-control-stack apart, once they can't. One or the other, never some of each: each card's
+   basis is very large while the cards don't fit side by side, so each takes a line, and nothing while they do, so they share the row. */
+.cards-row { --cards-row-least: calc(var(--card-count) * var(--size-card)); display: flex; flex-wrap: wrap; align-items: stretch; gap: var(--gap-control-stack) 0; }
+.cards-row > * { flex: 1 1 calc((var(--cards-row-least) - 100%) * 999); }
+.cards-row > :not(:last-child) { margin-inline-end: max(var(--gap-control-row-boxes), min(0px, (var(--cards-row-least) - 100%) * 999)); }
+
 `;
 
 /**
