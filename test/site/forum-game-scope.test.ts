@@ -1,6 +1,8 @@
 import { env, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import { createAccount, createApiKey, createGame, personOwner } from "@zaisma/core";
+import { unreadCount } from "../../apps/site/src/forum.ts";
+import type { Caller } from "../../apps/site/src/developer.ts";
 import { errorProblems } from "../schema-check.ts";
 
 const SITE = "https://zaisma.test";
@@ -57,5 +59,20 @@ describe("a key limited to some games", () => {
     // An image of another topic, asked for through an allowed one.
     expect(await imageAt(aboutA.topic, aboutB.image, limited)).toBe(404);
     expect(await imageAt(aboutB.topic, aboutB.image, token)).toBe(200);
+  });
+
+  it("counts unread followed topics of only those games, and of no game", async () => {
+    const owner = await personOwner(env.DB, "dev-1");
+    for (const slug of ["unread-a", "unread-b"]) await createGame(env.DB, { slug, title: slug, description: "", ownerId: owner.id, visibility: "draft" });
+    const ids: string[] = [];
+    for (const game_slug of ["unread-a", "unread-b", undefined]) {
+      const { data } = await api("/forum", { body: { is_public: false, kind: "question", title: `Unread ${game_slug ?? "none"}`, text_markdown: "How?", ...(game_slug ? { game_slug } : {}) } });
+      ids.push(data.topic.id);
+    }
+    await env.DB.prepare(`INSERT OR REPLACE INTO forum_follows (topic_id, account_id, seen_at_ms) VALUES ${ids.map(() => "(?, 'dev-1', 0)").join(", ")}`).bind(...ids).run();
+    await env.DB.prepare(`UPDATE forum_topics SET last_activity_at_ms = 1000 WHERE id IN (${ids.map(() => "?").join(", ")})`).bind(...ids).run();
+    const caller = (gameSlugs: string[] | null) => ({ accountId: "dev-1", access: { gameSlugs } }) as unknown as Caller;
+    expect(await unreadCount(env, caller(["unread-a"]), true)).toBe(2);
+    expect(await unreadCount(env, caller(null), true)).toBe(3);
   });
 });
