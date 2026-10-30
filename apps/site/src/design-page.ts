@@ -330,10 +330,13 @@ export const GALLERY_SCRIPT = pageScript(
     }
     hang(); window.zaismaWatch.size(frame, hang);
   });
-  // An example's links stay on this page. It's caught first, so a switch's tab to another page is picked in place, as one within the page is.
+  // An example's links stay on this page, a menu's too while it floats over the page away from its example. It's caught first, so a
+  // switch's tab to another page is picked in place, as one within the page is.
   document.addEventListener("click", function (event) {
-    var link = event.target.closest && event.target.closest('.example-stage a[href^="#"], .example-stage a[href^="/"]');
-    if (link) event.preventDefault();
+    var link = event.target.closest && event.target.closest('a[href^="#"], a[href^="/"]');
+    if (!link) return;
+    var pane = link.closest(".floating-pane"), home = pane && pane.floatingHome;
+    if (link.closest(".example-stage") || (home && home.closest && home.closest(".example-stage"))) event.preventDefault();
   }, true);
   // A form in an example sends nothing; one in a sheet closes it, as if it had gone. Closing a sheet (Cancel, its close button) works as on a page.
   document.addEventListener("submit", function (event) {

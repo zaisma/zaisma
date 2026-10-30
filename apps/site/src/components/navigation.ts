@@ -1608,6 +1608,21 @@ export const FILTER_MENU_SCRIPT = `/* filter menus */(function () {
   }
   window.zaismaWatch.each(".filter-menu", function (menu) {
     menu.addEventListener("click", function (event) {
+      // A way's choice picked: it's marked picked there and named on its way's row, and the menu goes back to its ways, that row in focus.
+      // Its page applies it (Browse draws its list again, the menu open on its ways).
+      var picked = event.target.closest('[data-filter-panel]:not([data-filter-panel=""]) [role="menuitem"][data-keeps-open]');
+      if (picked) {
+        var panel = picked.closest("[data-filter-panel]"), groupName = panel.getAttribute("data-filter-panel"), tick = menu.querySelector(".dropdown-tick");
+        tick = tick && tick.cloneNode(true);
+        panel.querySelectorAll('[aria-current="page"]').forEach(function (each) { each.removeAttribute("aria-current"); var own = each.querySelector(".dropdown-tick"); if (own) own.remove(); });
+        picked.setAttribute("aria-current", "page");
+        if (tick) picked.appendChild(tick);
+        var row = menu.querySelector('[data-filter-opens="' + groupName + '"]'), label = picked.querySelector("span");
+        if (row && label && row.querySelector(".filter-picked")) row.querySelector(".filter-picked").textContent = label.textContent;
+        menu.lastGroupName = groupName;
+        show(menu, "", true);
+        return;
+      }
       var opener = event.target.closest("[data-filter-opens]");
       if (!opener) return;
       var groupName = opener.getAttribute("data-filter-opens");
