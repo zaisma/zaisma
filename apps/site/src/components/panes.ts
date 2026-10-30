@@ -320,16 +320,26 @@ export const PLACE_SCRIPT = `/* place */(function () {
         var home = options.home || anchorNow() || document.body, themed = home.closest("[data-theme-choice]");
         if (themed && themed !== document.documentElement) pane.setAttribute("data-theme-choice", themed.getAttribute("data-theme-choice")); else pane.removeAttribute("data-theme-choice");
         pane.style.setProperty("--glass-hue", getComputedStyle(home).getPropertyValue("--glass-hue"));
+        // A browser that can't fade it in by itself (Safari, no overlay) shows it from its closed look, then lets it arrive.
+        if (isMovedByScript) { clearTimeout(pane.leaveTimer); pane.classList.remove("is-leaving"); pane.classList.add("is-arriving"); }
         pane.showPopover();
+        if (isMovedByScript) { void pane.offsetWidth; requestAnimationFrame(function () { pane.classList.remove("is-arriving"); }); }
       }
       var at = anchorNow(); openedAt = at ? at.getBoundingClientRect() : null;
       if (options.onShown) options.onShown();
       place();
       if (options.onToggle) options.onToggle(true);
     }
+    // Safari keeps no closing popover in the top layer while it fades (no overlay), nor plays its entrance: the script moves it there.
+    var isMovedByScript = !(window.CSS && CSS.supports("overlay", "auto")) && !matchMedia("(prefers-reduced-motion: reduce)").matches;
+    var LEAVE_MS = (parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--motion-arrive")) || 0.3) * 1000;
     function close(returnFocus) {
-      if (isInPlace || !pane.matches(":popover-open")) return;
-      pane.hidePopover();
+      if (isInPlace || !pane.matches(":popover-open") || pane.classList.contains("is-leaving")) return;
+      // There, it stays in the top layer while it fades toward its anchor (is-leaving), then goes.
+      if (isMovedByScript) {
+        pane.classList.add("is-leaving");
+        pane.leaveTimer = setTimeout(function () { pane.classList.remove("is-leaving"); pane.hidePopover(); }, LEAVE_MS);
+      } else pane.hidePopover();
       if (options.onToggle) options.onToggle(false);
       var back = options.focusOnClose || anchorNow();
       if (returnFocus && back) back.focus();
@@ -768,6 +778,12 @@ component({
 .floating-body > * { flex: none; }
 /* A browser that can't keep it in the top layer while it fades (Safari) would let it fall under what follows it on the page: it goes at once. */
 @supports not (overlay: auto) { .floating-pane { transition: var(--glass-transition), transform var(--motion-arrive) var(--ease-glide); } }
+/* There the script moves it (zaismaFloat): open, it starts from its closed look (is-arriving); closing, it keeps the top layer while it takes
+   that look again (is-leaving), then goes. */
+.floating-pane:is(.is-arriving, .is-leaving)::before, .floating-pane:is(.is-arriving, .is-leaving) > * { opacity: 0; }
+.floating-pane:is(.is-arriving, .is-leaving) { transform: translateY(-6px); pointer-events: none; }
+.floating-pane.is-above:is(.is-arriving, .is-leaving) { transform: translateY(6px); }
+.floating-pane.placed-over:is(.is-arriving, .is-leaving) { transform: scale(0.97); }
 .floating-pane:not(:popover-open):not(.in-place) { display: none; transform: translateY(-6px); pointer-events: none; }
 .floating-pane.is-above:not(:popover-open):not(.in-place) { transform: translateY(6px); }
 .floating-pane.placed-over:not(:popover-open):not(.in-place) { transform: scale(0.97); }
