@@ -1570,8 +1570,10 @@ describe.skipIf(!fastLanePackage)(`The fast lane (WebTransport) on the Node runn
       framed.set(payload, 5);
       return framed;
     };
-    const say = (message: object) => void writer.write(frame(JSON.stringify(message)));
-    const sayDatagram = (message: object) => void datagramWriter.write(new Uint8Array([0, ...new TextEncoder().encode(JSON.stringify(message))]));
+    // A send still in flight when the server closes the session (a refusal) fails with the session's close, which the
+    // test reads from closed instead: left unhandled, it would fail the run whenever the close wins the race.
+    const say = (message: object) => void writer.write(frame(JSON.stringify(message))).catch(() => {});
+    const sayDatagram = (message: object) => void datagramWriter.write(new Uint8Array([0, ...new TextEncoder().encode(JSON.stringify(message))])).catch(() => {});
     const next = () => (inbox.length ? Promise.resolve(inbox.shift()!) : new Promise<{ message: any; isDatagram: boolean }>((resolve) => waiters.push(resolve)));
     const until = async (type: string) => {
       for (;;) {
