@@ -1,3 +1,4 @@
+import { LOADER_FRAMES } from "../generated/loader-frames.generated.ts";
 import { html, raw, shownColor, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
 import { ICONS, MARK, WORDMARK, icon, type IconName } from "./icons.ts";
@@ -161,9 +162,9 @@ export function divider(options: { words?: string; isDecorative?: boolean } = {}
   return options.isDecorative ? raw('<hr class="divider hairline" aria-hidden="true">') : raw('<hr class="divider hairline" role="separator">');
 }
 
-/** The loader: the Z building itself, one loop a second (brand/loader/zaisma-loader.svg), in the words' color. Shown only once something was pressed. It's drawn in the page (the file's Z, used in place), so it
- * animates as smoothly as the page does: as a mask image Safari draws it a few frames a second. */
-export const loader = (): Raw => raw('<svg class="loader" viewBox="-30 -30 2060 1518" aria-hidden="true"><use href="/loader/zaisma-loader.svg#z"></use></svg>');
+/** The loader: the Z building itself, one loop a second (brand/loader/zaisma-loader.svg), in the words' color. Shown only once something was pressed. Its four pieces are cut from the file's
+ * frames (LOADER_FRAMES), so it plays smoothly in every browser: Safari plays the file's own animation neither in a mask nor in a <use>. */
+export const loader = (): Raw => raw('<span class="loader" aria-hidden="true"><i></i><i></i><i></i><i></i></span>');
 
 /** A rail's parts: its channel, carved with slanted ends, and inside it the groove the thumb slides in. */
 export const RAIL_PARTS = '<div class="rail-line carving deep"><div class="rail-groove"><div class="rail-thumb"></div></div></div>';
@@ -659,9 +660,11 @@ component({
   summary: "The Z building itself: what a button shows once it's pressed and waiting, a form sent or a page opening. Only ever after you press something.",
   styles: `
 /* The loader: the brand's Z, masked so it takes the words' color, --loader-width wide (19px). Under reduced motion, the still mark breathing slowly instead. */
-.loader { display: inline-block; width: var(--loader-width, 19px); height: calc(var(--loader-width, 19px) * 0.737); flex: none; fill: currentColor; overflow: visible; }
+.loader { position: relative; display: inline-block; width: var(--loader-width, 19px); height: calc(var(--loader-width, 19px) * 0.737); flex: none; }
+.loader > i { position: absolute; inset: 0; background: currentColor; animation: 1s linear infinite; }
+${LOADER_FRAMES}
 @keyframes loader-calm { 50% { opacity: 0.4; } }
-@media (prefers-reduced-motion: reduce) { .loader { background: currentColor; -webkit-mask: url(/zaisma-mark-small-white.svg) center / contain no-repeat; mask: url(/zaisma-mark-small-white.svg) center / contain no-repeat; animation: loader-calm var(--motion-loop-slow) ease-in-out infinite; } .loader > use { display: none; } }
+@media (prefers-reduced-motion: reduce) { .loader { background: currentColor; -webkit-mask: url(/zaisma-mark-small-white.svg) center / contain no-repeat; mask: url(/zaisma-mark-small-white.svg) center / contain no-repeat; animation: loader-calm var(--motion-loop-slow) ease-in-out infinite; } .loader > i { display: none; } }
 `,
   render: loader,
   examples: [
