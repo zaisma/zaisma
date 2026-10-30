@@ -1,6 +1,9 @@
 import {
   ACCESS_AREAS,
   ACCOUNT_AREAS,
+  banScopeOf,
+  isBannedMark,
+  isContentRule,
   ACCESS_LEVELS,
   AREA_ACCESS_CHOICES,
   MAXIMUM_API_KEY_COUNT,
@@ -69,6 +72,8 @@ import {
   type SocialSetting,
   type SocialSettings,
 } from "@zaisma/core";
+import { APPEAL_EMAIL, CONTENT_RULE_WORDS, emailBanned } from "./bans.ts";
+import { accountBanned } from "./developer.ts";
 import {
   PROVIDERS,
   authConfigured,
@@ -265,9 +270,16 @@ export async function handleAccount(request: Request, env: Env, path: string, wa
       return withCookies(await signinPage(env, back, why, 400), cookies);
     }
     // The proof is kept only for an account that exists: someone deleted for not answering the age question leaves no row.
-    if (await accountById(env.DB, signedIn.userId)) {
+    const existing = await accountById(env.DB, signedIn.userId);
+    if (existing && banScopeOf(existing) === "whole_account") return withCookies(closedAccountPage(env, existing), cookies);
+    if (existing) {
       if (isProvider(provider)) await recordProof(env, signedIn, provider);
       return withCookies(redirect(back ?? "/"), [...cookies, ...sessionCookies(env, signedIn), await recordSignIn(request, env, signedIn.userId, provider as SignInKind)]);
+    }
+    // A new account can't take an email a ban carries (bans.ts): nothing is kept.
+    if (realEmail(signedIn.email) && (await isBannedMark(env.DB, "email", signedIn.email))) {
+      await deleteAuthUser(env, signedIn.userId);
+      return withCookies(await signinPage(env, back, emailBanned().messageForPeople, 403), cookies);
     }
     // New here, and they answered the age question first: pick a username to finish (the proof is kept once the account is made).
     if (joinBand(request, env)) return withCookies(redirect(`/join/username${nextQuery(back)}`), [...cookies, ...sessionCookies(env, signedIn), ...(isProvider(provider) ? [setCookie(env, "zaisma_via", provider, { maximumAgeSec: JOIN_DURATION_SEC })] : [])]);
@@ -295,6 +307,11 @@ export async function handleAccount(request: Request, env: Env, path: string, wa
     if (signedIn === "no-password") return await signinPage(env, next, "This account doesn't have a password yet. Use Forgot your password to get in with your email, then add one.", 400, login);
     if (signedIn === "wrong") return await signinPage(env, next, "That username and password don't match. Check them and try again.", 400, login);
     if (signedIn === "failed") return message(env, "Couldn't sign you in", "Something went wrong on Zaisma's side. Try again in a minute.", 502);
+    // A closed account hears why once the password is right, and gets no session.
+    if (account && banScopeOf(account) === "whole_account") {
+      await signOutEverywhere(env, signedIn.access, connectionAddress);
+      return closedAccountPage(env, account);
+    }
     await recordProof(env, signedIn, "password");
     return withCookies(redirect(next ?? "/"), [...sessionCookies(env, signedIn), await recordSignIn(request, env, signedIn.userId, "password")]);
   }
@@ -323,6 +340,8 @@ export async function handleAccount(request: Request, env: Env, path: string, wa
     // The code opens the account only while that address is still its own: one sent before the address changed or came off opens nothing.
     const accountId = codeAccountId && (await authUserIdByEmail(env, email)) === codeAccountId ? codeAccountId : null;
     if (!accountId) return await codePage(env, email, next, CODE_DIDNT_WORK, kind);
+    const codeAccount = await accountById(env.DB, accountId);
+    if (codeAccount && banScopeOf(codeAccount) === "whole_account") return closedAccountPage(env, codeAccount);
     const signedIn = await sessionForUser(env, accountId, connectionAddress);
     if (!signedIn) return message(env, "Couldn't sign you in", "Something went wrong on Zaisma's side. Get a new code in a minute and try again.", 502);
     await recordProof(env, signedIn, "email_code");
@@ -536,6 +555,7 @@ export async function handleAccount(request: Request, env: Env, path: string, wa
     if (!EMAIL.test(email)) return done(await accountPage(env, session, false, "Enter an email address."));
     if (email === realEmail(session.email)?.toLowerCase()) return done(redirect("/account#signing-in"));
     if (!(await passesBotCheck("email_code"))) return done(await accountPage(env, session, false, BOT_CHECK_FAILED));
+    if (await isBannedMark(env.DB, "email", email)) return done(await accountPage(env, session, false, emailBanned().messageForPeople));
     const holder = await authUserIdByEmail(env, email);
     if (holder) return done(await accountPage(env, session, false, EMAIL_TAKEN));
     const sent = holder === undefined ? "failed" : await sendEmailCode(env, { email, accountId: account.id, kind: "add_email", reason: "add_email" });
@@ -1323,6 +1343,28 @@ ${scriptTags(USERNAME_SCRIPT)}`,
   );
 }
 
+/**
+ * A closed account (a whole-account ban, bans.ts), once it proved it's theirs: why, and how to appeal. It makes no session, so
+ * Sign out only goes back to the sign-in page, which clears a cookie the ban left behind.
+ * Child safety says no rule and no why, like a takedown.
+ */
+function closedAccountPage(env: Env, account: Account): Response {
+  const rule = account.ban_content_rule && account.ban_content_rule !== "child_safety" && isContentRule(account.ban_content_rule) ? account.ban_content_rule : null;
+  const why = account.ban_content_rule === "child_safety" ? null : account.ban_reason?.replace(/\.$/, "");
+  const broke = rule ? html`the content rules on ${textLink(CONTENT_RULE_WORDS[rule], `/legal/content-rules#${rule}`)}` : html`Zaisma's rules`;
+  return signInPage(
+    env,
+    "This account is closed",
+    html`<h1>This account is closed</h1>
+<p>Zaisma closed ${account.username} for breaking ${broke}${why ? html`: ${why}` : ""}.</p>
+<p class="note">It can't sign in, and any games it made are down.</p>
+<p><strong>Think this is a mistake?</strong> Write to ${APPEAL_EMAIL} with the username. A person reads every appeal and answers.</p>
+<div class="ways">${secondaryButton(`Email ${APPEAL_EMAIL}`, { href: `mailto:${APPEAL_EMAIL}?subject=${encodeURIComponent(`Appeal: ${account.username}`)}`, isFullWidth: true })}
+${tertiaryButton("Sign out", { href: "/signin", isFullWidth: true })}</div>`,
+    { checkedPage: "Account closed", httpStatus: 403 },
+  );
+}
+
 function tooYoungPage(env: Env): Response {
   return signInPage(
     env,
@@ -1796,6 +1838,9 @@ async function accountPage(env: Env, session: Session, welcome: boolean, error?:
 <h1>${account.username}</h1>
 ${email ? html`<p class="lead">${email}</p>` : ""}
 <p><a class="btn ghost" href="${profilePath(account.username)}">Your profile</a></p>
+${banScopeOf(account) === "developer"
+      ? html`<p class="note" role="status">${accountBanned({ banScope: "developer", banReasonForDeveloper: account.ban_content_rule === "child_safety" ? null : account.ban_reason }).messageForPeople} Your games are down; you can still play, and <a href="/dashboard">export your games</a>. Think this is a mistake? Write to <a href="mailto:${APPEAL_EMAIL}?subject=${encodeURIComponent(`Appeal: ${account.username}`)}">${APPEAL_EMAIL}</a> with your username. A person reads every appeal and answers.</p>`
+      : ""}
 ${securityAlertsBox(activity.unseen_security_alerts, "/account")}
 ${isAskingForEmail ? emailAskBox({ isConfirmed, backTo: "/account" }) : ""}
 ${noticeAtMs !== null ? wrongPasswordNotice(noticeAtMs, !email && !passkeys.length) : ""}
