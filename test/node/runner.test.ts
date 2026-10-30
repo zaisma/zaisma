@@ -3,10 +3,9 @@ import { createServer } from "node:http";
 import WebSocket from "ws";
 import { createRequire } from "node:module";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
+import { symlinkSync, writeFileSync } from "node:fs";
 import { X509Certificate } from "node:crypto";
 import { createSocket } from "node:dgram";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { startServer } from "../../packages/game-server/bin/node.js";
@@ -16,6 +15,7 @@ import { ERROR_TEXT, GameServerError, defineGameServer, generateSigningKey, load
 import { signTestReceipt } from "../helpers.ts";
 import { makeCertificate } from "../../packages/game-server/bin/local-play-certificate.js";
 import { playTranscript, transcriptGameServerOptions, type TranscriptDriver } from "../rooms-transcript.ts";
+import { temporaryFolder } from "../temporary-folder.ts";
 
 const ISS = "https://rooms.zaisma.test";
 const ORIGIN = "https://arena.zaismausercontent.com";
@@ -399,7 +399,7 @@ describe("Node runner", () => {
   });
 
   it("brings rooms back with their state after a restart, from its room state file", async () => {
-    const file = join(mkdtempSync(join(tmpdir(), "zaisma-room-states-")), "rooms.sqlite");
+    const file = join(temporaryFolder("zaisma-room-states-"), "rooms.sqlite");
     const racer = defineGameServer({
       ticksPerSec: 50,
       stateSaveIntervalSec: 1,
@@ -580,7 +580,7 @@ describe("Node runner", () => {
   });
 
   it("restores a turn-based room with its state only, with no onRestored (a ticking room is restored with it, above)", async () => {
-    const file = join(mkdtempSync(join(tmpdir(), "zaisma-turn-based-")), "rooms.sqlite");
+    const file = join(temporaryFolder("zaisma-turn-based-"), "rooms.sqlite");
     const restored: unknown[] = [];
     const turnBased = defineGameServer({ setup: () => ({ moves: 0 }), onRestored: (_state, restoreInfo) => void restored.push(restoreInfo), onMessage: (state, player, room) => ((state.moves += 1), room.send(player.id, { moves: state.moves })) });
     const start = async (gameServer: object) => {
@@ -613,7 +613,7 @@ describe("Node runner", () => {
   });
 
   it("brings a turn-based match's players back as dropped players after a restart: onRestored, then onBack, and no second onJoin", async () => {
-    const file = join(mkdtempSync(join(tmpdir(), "zaisma-turn-based-restart-")), "rooms.sqlite");
+    const file = join(temporaryFolder("zaisma-turn-based-restart-"), "rooms.sqlite");
     const events: string[] = [];
     const turnBased = defineGameServer({
       setup: () => ({ moves: 0 }),
@@ -703,7 +703,7 @@ describe("Node runner", () => {
   });
 
   it("starts from the command line through a symlink, as npm's bin is, and prints usage for an unknown flag", async () => {
-    const folder = mkdtempSync(join(tmpdir(), "zaisma-bin-"));
+    const folder = temporaryFolder("zaisma-bin-");
     const link = join(folder, "zaisma-game-server");
     symlinkSync(join(import.meta.dirname, "../../packages/game-server/bin/node.js"), link);
     const bare = spawnSync(process.execPath, [link], { encoding: "utf8" });
@@ -993,7 +993,7 @@ describe("The Node runner, for the fullest pass Zaisma makes", () => {
 
 describe("Kept rooms on the developer's own server", () => {
   const DAY_MS = 24 * 3600 * 1000;
-  const roomStateFile = () => join(mkdtempSync(join(tmpdir(), "zaisma-kept-rooms-")), "rooms.sqlite");
+  const roomStateFile = () => join(temporaryFolder("zaisma-kept-rooms-"), "rooms.sqlite");
   const savedRoom = (isKept: boolean) => ({ isListed: true, isOpen: true, friendJoinsEnabled: true, name: null, labels: {}, ...(isKept ? { isKept: true } : {}) });
 
   it("sleeps with its state when everyone leaves, outlives the daily sweep, wakes having lost nothing, and goes when it ends", async () => {
@@ -1508,7 +1508,7 @@ describe.skipIf(!fastLanePackage)(`The fast lane (WebTransport) on the Node runn
 
   /** A runner with a fast lane on a certificate made here; the client trusts it by its hash, as a browser can for a short-lived one. */
   async function serveFastLane(gameServer: object, origins: string[]) {
-    const folder = mkdtempSync(join(tmpdir(), "zaisma-fast-lane-"));
+    const folder = temporaryFolder("zaisma-fast-lane-");
     const { certificatePem, keyPem } = makeCertificate(["127.0.0.1", "localhost"], Date.now(), undefined, 12);
     writeFileSync(join(folder, "fullchain.pem"), certificatePem);
     writeFileSync(join(folder, "privkey.pem"), keyPem);

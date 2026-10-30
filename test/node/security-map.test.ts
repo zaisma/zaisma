@@ -1,5 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 // @ts-expect-error: a plain JavaScript script without types
@@ -18,6 +17,7 @@ import { loadSiteModule } from "../../scripts/security-map/load-site.mjs";
 import { canSetRobust, caseStatusProblems, DOOR_KINDS, SECTOR_IDS, SECTORS, unexploredCase, withVerdict } from "../../scripts/security-map/schema.mjs";
 // @ts-expect-error: a plain JavaScript script without types
 import { SEED_RULES, seedRobust } from "../../scripts/security-map/seed-robust.mjs";
+import { temporaryFolder } from "../temporary-folder.ts";
 
 /**
  * The security map (docs/DECISIONS.md, "Zaisma's own AI looks for holes every night."; the
@@ -39,7 +39,7 @@ type FrontierItem = { bucket: string; sector_id: string; door_id: string; case_i
 
 let workDir = "";
 beforeEach(() => {
-  workDir = mkdtempSync(join(tmpdir(), "security-map-"));
+  workDir = temporaryFolder("security-map-");
 });
 afterEach(() => {
   rmSync(workDir, { recursive: true, force: true });
