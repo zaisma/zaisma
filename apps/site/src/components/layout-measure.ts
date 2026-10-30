@@ -346,7 +346,8 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
       });
     }
     // A line of words at the pane's start with nothing before it starts at the margin, never a little further in (words inset twice).
-    var marks = framed.concat(Array.prototype.filter.call(pane.querySelectorAll("svg.ico, img, canvas, .loader"), isShown));
+    // A key's color swatch leads its words as an icon does.
+    var marks = framed.concat(Array.prototype.filter.call(pane.querySelectorAll("svg.ico, img, canvas, .loader, .usage-swatch, .ring-swatch"), isShown));
     // Something on the line before it (a box, an icon, other words), or words lined up with words that have (a check's hint under its label).
     var hasBefore = function (line) {
       var isBefore = function (o) { return o.right <= line.r.left + TOLERANCE_PX && o.right > box.left + gap.left && Math.min(o.bottom, line.r.bottom) - Math.max(o.top, line.r.top) > TOLERANCE_PX; };
