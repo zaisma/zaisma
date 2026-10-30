@@ -204,7 +204,7 @@ export async function forumRoute(request: Request, env: Env, apiPath: string, ca
     return [await uploadDraftMedia(env, caller, bytes), 201];
   }
   if (apiPath === "/forum/people") return [{ people: await forumPeople(env, queryParameters.get("name_prefix") ?? "", queryParameters.get("topic_id") || null, caller.accountId) }];
-  if (apiPath === "/forum/:topic_id/media/:media_id") return serveMedia(env, caller, pathValues.media_id!);
+  if (apiPath === "/forum/:topic_id/media/:media_id") return serveMedia(env, caller, pathValues.media_id!, pathValues.topic_id!);
   if (apiPath === "/forum" && method === "POST") return [await createTopic(env, caller, body), 201];
   if (apiPath === "/forum/:topic_id/posts/:post_id/rating") return [await ratePost(env, caller, topicId, pathValues.post_id!, method === "PUT" ? readRating(body) : null)];
   if (apiPath === "/forum/:topic_id/posts/:post_id/bookmark") return [await bookmarkPost(env, caller, topicId, pathValues.post_id!, method === "POST")];
@@ -337,6 +337,13 @@ export async function listTopics(env: Env, viewer: Viewer, query: ForumQuery) {
     where.push("(topic.is_shown = 1 OR topic.account_id = ?) AND topic.id IN (SELECT post.topic_id FROM forum_bookmarks bookmark JOIN forum_posts post ON post.id = bookmark.post_id WHERE bookmark.account_id = ?)");
     binds.push(viewer!.accountId, viewer!.accountId);
   } else where.push("topic.is_shown = 1 AND topic.merged_into_topic_id IS NULL");
+  // A key limited to some games lists only those games' topics (and topics about no game), as readableTopic reaches them.
+  const gameSlugs = viewer?.access.gameSlugs;
+  const gameScope = gameSlugs ? `(topic.game_id IS NULL OR topic.game_id IN (SELECT id FROM games WHERE slug IN (${gameSlugs.map(() => "?").join(", ")})))` : null;
+  if (gameScope) {
+    where.push(gameScope);
+    binds.push(...gameSlugs!);
+  }
   const categories = query.section || query.category ? categoriesOf(query) : [];
   if (categories.length) {
     where.push(`topic.category IN (${categories.map(() => "?").join(", ")})`);
@@ -403,9 +410,9 @@ export async function listTopics(env: Env, viewer: Viewer, query: ForumQuery) {
   let pinnedTopics: TopicRow[] = [];
   if (hasPins && startIndex === 0) {
     const { results: known } = await env.DB.prepare(
-      `SELECT * FROM forum_topics topic WHERE topic.is_shown = 1 AND topic.merged_into_topic_id IS NULL AND topic.known_issue_title IS NOT NULL AND topic.topic_status IN (${openStatuses})${categories.length ? ` AND topic.category IN (${categories.map(() => "?").join(", ")})` : ""} ORDER BY topic.vote_count DESC, topic.last_activity_at_ms DESC LIMIT 5`,
+      `SELECT * FROM forum_topics topic WHERE topic.is_shown = 1 AND topic.merged_into_topic_id IS NULL AND topic.known_issue_title IS NOT NULL AND topic.topic_status IN (${openStatuses})${categories.length ? ` AND topic.category IN (${categories.map(() => "?").join(", ")})` : ""}${gameScope ? ` AND ${gameScope}` : ""} ORDER BY topic.vote_count DESC, topic.last_activity_at_ms DESC LIMIT 5`,
     )
-      .bind(...categories)
+      .bind(...categories, ...(gameScope ? gameSlugs! : []))
       .all<ForumTopic>();
     pinnedTopics = await rowsJson(env, viewer, known);
   }
@@ -956,18 +963,20 @@ export async function markAnswer(env: Env, caller: Caller, topicId: string, post
  * An image in a post. Anyone who can see the post can see it: on a public topic once the post
  * passed its check, in a message only the developer (and Zaisma, on the admin pages).
  */
-export async function serveMedia(env: Env, viewer: Viewer, mediaId: string): Promise<Response> {
+export async function serveMedia(env: Env, viewer: Viewer, mediaId: string, topicId: string | null = null): Promise<Response> {
   const image = await env.DB.prepare(
-    "SELECT media.id, media.content_type, media.storage_key, media.post_id, media.account_id AS uploader_id, post.check_status, post.account_id AS poster_id, topic.is_shown, topic.account_id AS owner_id FROM forum_media media LEFT JOIN forum_posts post ON post.id = media.post_id LEFT JOIN forum_topics topic ON topic.id = post.topic_id WHERE media.id = ?",
+    "SELECT media.id, media.content_type, media.storage_key, media.post_id, media.account_id AS uploader_id, post.check_status, post.account_id AS poster_id, topic.id AS topic_id, topic.is_shown, topic.account_id AS owner_id FROM forum_media media LEFT JOIN forum_posts post ON post.id = media.post_id LEFT JOIN forum_topics topic ON topic.id = post.topic_id WHERE media.id = ?",
   )
     .bind(mediaId)
-    .first<{ id: string; content_type: string; storage_key: string; post_id: string | null; uploader_id: string | null; check_status: string | null; poster_id: string | null; is_shown: number; owner_id: string | null }>();
+    .first<{ id: string; content_type: string; storage_key: string; post_id: string | null; uploader_id: string | null; check_status: string | null; poster_id: string | null; topic_id: string | null; is_shown: number; owner_id: string | null }>();
   const isOpen = Boolean(image?.post_id && image.check_status === "passed" && image.is_shown);
   // Not posted yet: its uploader's alone.
   const isOwn = Boolean(
     image && viewer && (image.post_id ? image.poster_id === viewer.accountId || (image.check_status === null && image.owner_id === viewer.accountId) : image.uploader_id === viewer.accountId),
   );
-  const object = image && (isOpen || isOwn) ? await env.GAMES.get(image.storage_key) : null;
+  // Asked for through a topic's path, it must be that topic's image, so the topic's checks (a key's games) are the image's.
+  const isInTopic = topicId === null || image?.topic_id === topicId;
+  const object = image && isInTopic && (isOpen || isOwn) ? await env.GAMES.get(image.storage_key) : null;
   if (!image || !object) throw new ApiError("no_media", { message: "There's no image there you can see.", fix: "Use the image_url a post's media gives, while you can see the post." });
   return new Response(object.body, {
     headers: {
