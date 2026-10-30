@@ -467,6 +467,9 @@ const DROPDOWN_STYLES = `
 .floating-pane.dropdown .divider { margin-block: 3px; }
 .floating-pane.dropdown .dropdown-head + .divider { margin-top: var(--gap-control-stack); }
 .floating-pane.dropdown > .edge-light { position: absolute; inset: 0; clip-path: var(--glass-clip); }
+/* On a menu's thin glass, white light on light glass hardly shows: its lit stretch of rim is a crisp bevel instead, the bright line with
+   the bevel's shade just inside it (--edge-bevel-shade, light glass only), then the flood. On smoked glass it's the switch's light. */
+.floating-pane.dropdown[data-edge-light="left"] > .edge-light::after { background: linear-gradient(to right, var(--edge-light) 0, var(--edge-light) 2px, var(--edge-bevel-shade) 2.5px, var(--edge-flood-far) 9px, transparent 44px); }
 .floating-pane.dropdown .dropdown-choice[aria-current="page"] { background: none; box-shadow: none; }
 .floating-pane.dropdown .dropdown-choice:is(:hover, :focus-visible, .is-pointed, .is-focused) { color: var(--ink); }
 .floating-pane.dropdown .dropdown-choice[aria-current="page"] { color: var(--ink); }
