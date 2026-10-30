@@ -565,34 +565,24 @@ export const RAIL_SCRIPT = `/* rail */(function () {
     }
     // One name shows at a time: the mark's nearest the pointer, sitting by its mark; while dragging, the part the thumb is in (the last mark
     // its middle has passed, or the first), riding beside the thumb's middle.
-    function near(event) {
-      if (!marks.length) return;
-      var box = bar.getBoundingClientRect(), thumbMiddle = size.start + (size.track - size.thumb) * Math.min(1, at() / size.max) + size.thumb / 2;
-      var spotPx = drag ? thumbMiddle : isSide ? event.clientX - box.left : event.clientY - box.top, best = null, gap = Infinity;
-      var shown = marks.filter(function (m) { return !m.mark.hidden; }), atOf = function (m) { return parseFloat(m.mark.style[isSide ? "left" : "top"]) || 0; };
-      // Dragging, the part you're in is the last whose start has come into the first third of the view (read only while dragging).
-      if (drag) {
-        var view = isPage ? { start: 0, size: window.innerHeight } : (function (r) { return { start: isSide ? r.left : r.top, size: isSide ? r.width : r.height }; })(scroller.getBoundingClientRect());
-        shown.forEach(function (m) { var r = m.part.getBoundingClientRect(); if (!best || (isSide ? r.left : r.top) - view.start <= view.size / 3) best = m; });
-        // Dragging, the riding name follows the thumb and takes the part's words; no mark's own name shows.
-        if (best && riding.textContent !== best.name.textContent) riding.textContent = best.name.textContent;
-        riding.style.setProperty("--riding-at", spotPx.toFixed(1) + "px");
-        marks.forEach(function (m) { m.mark.classList.remove("is-near"); });
-        return;
-      }
-      shown.forEach(function (m) { var away = Math.abs(atOf(m) - spotPx); if (away < gap) { gap = away; best = m; } });
-      marks.forEach(function (m) { m.mark.classList.toggle("is-near", m === best); });
+    // While the thumb is dragged, one name rides beside its middle: the part it's in, the last whose start has come into the first third of
+    // the view (read only while dragging). Pointing, a mark's name opens only while the pointer is on the mark itself (its :hover), where a
+    // click goes there.
+    function near() {
+      if (!marks.length || !drag) return;
+      var middle = size.start + (size.track - size.thumb) * Math.min(1, at() / size.max) + size.thumb / 2, best = null;
+      var view = isPage ? { start: 0, size: window.innerHeight } : (function (r) { return { start: isSide ? r.left : r.top, size: isSide ? r.width : r.height }; })(scroller.getBoundingClientRect());
+      marks.forEach(function (m) { if (m.mark.hidden) return; var r = m.part.getBoundingClientRect(); if (!best || (isSide ? r.left : r.top) - view.start <= view.size / 3) best = m; });
+      if (best && riding.textContent !== best.name.textContent) riding.textContent = best.name.textContent;
+      riding.style.setProperty("--riding-at", middle.toFixed(1) + "px");
     }
-    function farAway() { marks.forEach(function (m) { m.mark.classList.remove("is-near"); }); }
     bar.addEventListener("pointermove", near);
     bar.addEventListener("pointerdown", near);
-    bar.addEventListener("pointerleave", function () { if (!drag) farAway(); });
     // By touch, letting go of the thumb near a mark goes to its part, as a click on the mark does with a mouse.
     var SNAP_PX = 18;
     function release(event) {
       // A finger only resting on the thumb goes nowhere.
       var wasDragging = Boolean(drag && drag.isMoving); end();
-      if (event.pointerType !== "mouse") farAway();
       if (!wasDragging || event.pointerType === "mouse" || !marks.length) return;
       var middle = size.start + (size.track - size.thumb) * Math.min(1, at() / size.max) + size.thumb / 2, nearest = null, gap = SNAP_PX;
       marks.forEach(function (m) { if (m.mark.hidden) return; var away = Math.abs(parseFloat(m.mark.style[isSide ? "left" : "top"]) - middle); if (away <= gap) { gap = away; nearest = m; } });
@@ -936,21 +926,21 @@ component({
 .rail-mark[hidden] { display: none; }
 /* While the thumb is dragged, the marks don't answer the pointer: only the part the thumb is in is named and lit. */
 .rail.dragging .rail-mark { pointer-events: none; }
-/* A name sits on a small slab (materials.ts) against the channel. Pointing at the rail, the nearest mark's name (is-near) slides out from
-   under the channel by its mark; dragging, one name rides beside the thumb (.rail-riding), only its words changing as it passes a part, so
+/* A name sits on a small slab (materials.ts) against the channel. Pointing at a mark (where a click goes to its part), its name slides out
+   from under the channel by it; dragging, one name rides beside the thumb (.rail-riding), only its words changing as it passes a part, so
    nothing slides in and out mid-drag. */
 .rail-mark span, .rail-riding { position: absolute; right: 15px; pointer-events: none; opacity: 0; visibility: hidden; translate: 6px 0;
   transition: opacity var(--motion-state) ease-out, translate var(--motion-state) ease-out, visibility 0s var(--motion-state); }
 .rail-mark span { top: 50%; transform: translate(0, calc(-50% + var(--label-shift, 0px))); }
 .rail-riding { top: var(--riding-at, 0px); transform: translateY(-50%); white-space: nowrap; }
-.rail:hover:not(.dragging) .rail-mark.is-near span, .rail.dragging .rail-riding { opacity: 1; visibility: visible; translate: 0 0; transition: opacity var(--motion-state) ease-out, translate var(--motion-state) ease-out, visibility 0s; }
+.rail:not(.dragging) .rail-mark:hover span, .rail.dragging .rail-riding { opacity: 1; visibility: visible; translate: 0 0; transition: opacity var(--motion-state) ease-out, translate var(--motion-state) ease-out, visibility 0s; }
 /* Along a sideways rail, a mark is a short upright tick across the channel, and its name slides up out of it, above it. */
 .rail.sideways .rail-mark { left: auto; top: -10px; width: 24px; height: 26px; margin: 0 0 0 -12px; }
 .rail.sideways .rail-mark::before { left: 11.5px; right: auto; top: 18px; bottom: 2px; width: 1px; height: auto; }
 .rail.sideways .rail-mark span, .rail.sideways .rail-riding { right: auto; translate: 0 6px; }
 .rail.sideways .rail-mark span { top: auto; left: 50%; bottom: 17px; transform: translateX(calc(-50% + var(--label-shift, 0px))); }
 .rail.sideways .rail-riding { top: auto; bottom: 17px; left: var(--riding-at, 0px); transform: translateX(-50%); }
-.rail.sideways:hover:not(.dragging) .rail-mark.is-near span, .rail.sideways.dragging .rail-riding { translate: 0 0; }
+.rail.sideways:not(.dragging) .rail-mark:hover span, .rail.sideways.dragging .rail-riding { translate: 0 0; }
 /* In the narrow layout (a phone, or a small window), the page's rail starts below the header. */
 @media (max-width: 760px) {
   .rail[data-rail="page"] { top: 132px; bottom: 10px; }
