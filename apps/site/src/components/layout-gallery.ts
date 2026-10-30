@@ -166,7 +166,7 @@ component({
   name: "Track",
   slug: "track",
   group: "layout",
-  summary: "A row of covers that scrolls sideways, fading at an edge with more past it, a few showing with the next peeking in. Under a heading row with its Row arrows, it's a shelf.",
+  summary: "A row of covers that scrolls sideways, fading at an edge with more past it, a few showing with the next peeking in, its sideways Rail under it while it runs past its room. Under a heading row with its Row arrows (shown only with a mouse), it's a shelf.",
   styles: TRACK_STYLES,
   render: track,
   examples: [

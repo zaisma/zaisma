@@ -244,7 +244,7 @@ export interface TrackOptions {
 
 /** A row of cells of one size that scrolls sideways, fading at an edge with more past it: a row of covers, with Row arrows for a mouse. */
 export function track(options: TrackOptions): LayoutMarkup {
-  return asLayout(html`<div class="layout-track item-${options.itemSize}" id="${options.id}" data-fades-sideways${groupLabel(options.label)}>${options.items.map((layoutItem) => layoutItem.markup)}</div><div class="when-empty"${options.items.length ? raw(" hidden") : ""}>${options.whenEmpty}</div>`);
+  return asLayout(html`<div class="layout-track item-${options.itemSize}" id="${options.id}" data-fades-sideways data-side-rail${groupLabel(options.label)}>${options.items.map((layoutItem) => layoutItem.markup)}</div><div class="when-empty"${options.items.length ? raw(" hidden") : ""}>${options.whenEmpty}</div>`);
 }
 
 export interface ColumnsOptions {
@@ -513,6 +513,8 @@ export const TRACK_STYLES = `
    back. Its sides are its box's, so what scrolls by stops at the frame gap, where the first cover sits. */
 .layout-track { --fade-sideways-px: 48px; --edge-room: var(--gap-words-control); container-type: inline-size; display: flex; gap: var(--gap-block-block); scroll-snap-type: x proximity;
   padding: var(--edge-room) 0; margin: calc(-1 * var(--edge-room)) 0; }
+/* Its rail (data-side-rail, Rail in Navigation) runs under it, past the room kept for what lifts in it, never into it. */
+.layout-track.shows-rail { margin-bottom: 0; }
 /* Screenshots lie closer than game cards do: pictures with an edge of their own, side by side. */
 .layout-track:has(> .screenshot) { gap: var(--gap-control-stack); }
 .layout-track.item-cover > * { flex: 0 0 clamp(200px, 20cqi, 260px); scroll-snap-align: start; }
