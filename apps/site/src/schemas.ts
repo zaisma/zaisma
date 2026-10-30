@@ -1905,6 +1905,32 @@ export const CHAT_REVIEW_DECIDED = object({
   next_steps: NEXT,
 });
 
+// Account bans (admin MCP: ban_account, unban_account, list_ban_matches, decide_ban_match).
+const BAN_SCOPE = choice({ developer: "its games are down and it can't make, upload or publish; it can still export its games", whole_account: "it can't sign in either" }, "How far the ban goes.");
+export const ACCOUNT_BANNED = object({
+  username: text(),
+  ban_scope: BAN_SCOPE,
+  banned_at: isoTime("When the account was first banned; widening a developer ban keeps it."),
+  taken_down_game_slugs: list(text("A game's link name."), "The games this ban took down, oldest first; games already down aren't in it."),
+  banned_mark_count: countOf("The cards, Stripe account and email the ban carries to new accounts."),
+  next_steps: NEXT,
+});
+export const ACCOUNT_UNBANNED = object({ username: text(), next_steps: NEXT });
+const BAN_MATCH = object({
+  ban_match_id: idOf("ban_match"),
+  username: text("The account that used the banned card."),
+  mark_kind: choice({ card: "a card that paid Zaisma", stripe_account: "a connected Stripe account", email: "an email" }, "What it shares with the banned account."),
+  banned_username: nullable(text("The banned account's username; null once it was deleted.")),
+  found_at: isoTime(),
+  decision: nullable(choice({ banned: "the same person: its developer side was banned", not_the_same_person: "someone else with the card, like family" }, "What a person decided; null while it waits.")),
+});
+export const BAN_MATCH_LIST = object({ ban_matches: list(BAN_MATCH, "The ones waiting for a person first, oldest first, then the decided ones, newest first; up to 100 in all.") });
+export const BAN_MATCH_DECIDED = object({
+  ban_match_id: idOf("ban_match"),
+  decision: choice({ banned: "the same person: the account's developer side is banned", not_the_same_person: "someone else with the card, like family: nothing changes" }),
+  next_steps: NEXT,
+});
+
 // Who can make games before the beta (admin MCP: list_publishing_accounts, set_can_publish).
 const PUBLISHING_ACCOUNT = object({
   username: text("The account's username, as on its profile."),

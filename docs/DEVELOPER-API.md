@@ -70,6 +70,7 @@ The HTTP status goes with the code, as listed. The list lives in `ERROR_CODES` (
 | `bad_slug` | 400 | The link name isn't lowercase letters, numbers and single hyphens, or is reserved. |
 | `slug_taken` | 409 | Another game has that link name, or a deleted game had it. |
 | `too_many_games` | 403 | The account has as many games as it can have. |
+| `account_banned` | 403 | Zaisma banned the account's developer side, or the whole account: only get_access, list_games and export_game work, and for a whole-account ban nothing does. |
 | `publishing_not_open` | 403 | Until the beta, only accounts Zaisma adds can make, upload and publish games. |
 | `bad_title` | 400 | A game's, topic's or precedent's title is empty or too long. |
 | `bad_description` | 400 | The description isn't text of up to 500 characters. |
@@ -289,6 +290,8 @@ The HTTP status goes with the code, as listed. The list lives in `ERROR_CODES` (
 | `already_refunded` | 409 | The purchase was refunded or charged back already. |
 | `stripe_not_connected` | 409 | Selling with the buy sheet, and refunding a sale, go through the developer's own Stripe account, which isn't connected: connect_stripe_account. |
 | `stripe_cannot_take_payments` | 409 | The developer's Stripe account is connected, but Stripe hasn't turned on payments for it yet: finish setting it up on Stripe's dashboard. |
+| `stripe_account_banned` | 403 | The Stripe account was banned from Zaisma with the account that connected it, so it can't be connected again. |
+| `email_banned` | 403 | The email was banned from Zaisma with the account it was on, so it can't be added to an account. |
 | `bad_is_stripe_tax_used` | 400 | is_stripe_tax_used isn't true or false. |
 | `bad_amount_minor_units` | 400 | amount_minor_units isn't a whole number from 1 to what's left of the sale to refund. |
 | `purchase_not_paid` | 409 | The sale wasn't paid (pending or failed), so there's nothing to refund. |
@@ -418,6 +421,7 @@ The list lives in `REVIEW_CODES` and the rules in `CONTENT_RULES` (`packages/cor
 | `unregistered_link` | none | The game opens a site with window.open or a link that opens a new tab. The sandbox blocks that, so players tapping it get nothing. |
 | `unlisted_address` | none | The game connects to an address that isn't Zaisma rooms or one of its own servers. The game's security policy blocks it, so the call fails for players. |
 | `matches_another_developers_game` | `copyright` | Most of this version's files are already in another developer's game, so a person at Zaisma looks first. |
+| `matches_banned_account_files` | none | Most of its files match a game Zaisma took down. |
 | `api_key_in_files` | none | A Zaisma API key was in the game's files, so Zaisma turned it off: anyone who plays the game could have read it. |
 
 **Checks that couldn't finish (no rule broken)**
@@ -536,6 +540,10 @@ An AI app that connects by signing in (claude.ai, ChatGPT, any MCP client that c
 
 Until the beta, only accounts Zaisma adds can make, upload and publish games. For everyone else, making a game (`POST /games`), sending files (`POST /games/:slug/uploads`, `PUT /files/:sha256` and the parts calls), making a version and publishing one answer `publishing_not_open` (403), from the dashboard, the MCP and the upload command alike; everything else works. `GET /access` says whether your account can, as `can_publish`. Publishing opens to every account when the beta opens.
 
+### Bans
+
+Zaisma can ban an account for breaking the content rules. A developer ban (`ban_scope` `developer`) takes down the account's games and answers `account_banned` (403) to every call but `GET /access`, `GET /games` and a game's export (`GET /games/:slug/export` and its download), so the developer keeps their work; playing still works. A whole-account ban (`whole_account`) closes the account: no sign-in, no session, no API key. A ban carries over the cards that paid Zaisma, the connected Stripe account and the email, never a device or network: another account can't connect that Stripe account (`stripe_account_banned`) or add that email (`email_banned`), and a version most of whose files match a banned account's game is held with `matches_banned_account_files` until a person looks. To appeal a ban, write to safety@zaisma.com with the username; a person reads every appeal and answers.
+
 ### Connected apps (OAuth)
 
 For people writing an MCP client: Zaisma follows the MCP authorization spec. `POST /mcp` without a token answers 401 with `WWW-Authenticate: Bearer resource_metadata="https://zaisma.com/.well-known/oauth-protected-resource/mcp", scope="mcp"`. That document (RFC 9728) names `https://zaisma.com` as the authorization server, whose metadata is at `/.well-known/oauth-authorization-server` (RFC 8414). An app names itself by a client ID metadata document (an https URL whose JSON has the same `client_id`, a `client_name` and up to 10 `redirect_uris`; read again after a day), or registers at `POST /oauth/register` (RFC 7591; up to 10 a minute from one address, with `token_endpoint_auth_method` `none`, `client_secret_basic` or `client_secret_post`). Redirect URLs are https, or http on `localhost` and `127.0.0.1`. Then the authorization code flow at `/oauth/authorize` and `/oauth/token`, with PKCE S256 always and `resource` `https://zaisma.com/mcp` when sent (RFC 8707); the one scope is `mcp`, and `openid`, `profile` and `offline_access` are accepted and dropped. The access token (`zat_…`) lasts an hour and works only at `/mcp`, where an ended one answers `access_token_ended` and the REST API answers `token_not_for_api`. The refresh token (`zrt_…`) lasts as long as the connection and works once: each refresh answers new tokens. One used again within a minute is refused with `invalid_grant`; one used again later removes the connection, since only a stolen copy does that.
@@ -572,7 +580,7 @@ Every call is checked before any of it runs, in this order: the key's access, wh
 
 | Call | What it does |
 | --- | --- |
-| `GET /access` | What the key you called with can do: `{ "access": { api_key_name, api_key_ends_at, access_level, area_access, game_slugs }, "can_publish", "credit_balance_cents", "plan" }`. `can_publish` is whether your account can make, upload and publish games, which until the beta only accounts Zaisma adds can. `credit_balance_cents` is your hosting credit, or `null` when the key can't read it (`credit_access` `none`, or a key limited to some games). `plan` is `free` or `pro` (see Zaisma Pro). `area_access` has every area's choice, whatever the level; `game_slugs` is `null` for every game you have and will make. From the dashboard's session, `api_key_name` is `null` and access is full. |
+| `GET /access` | What the key you called with can do: `{ "access": { api_key_name, api_key_ends_at, access_level, area_access, game_slugs }, "can_publish", "banned_at", "ban_scope", "credit_balance_cents", "plan" }`. `can_publish` is whether your account can make, upload and publish games, which until the beta only accounts Zaisma adds can. `banned_at` and `ban_scope` (`developer` or `whole_account`) say when and how far Zaisma banned the account, or are `null` (see Bans). `credit_balance_cents` is your hosting credit, or `null` when the key can't read it (`credit_access` `none`, or a key limited to some games). `plan` is `free` or `pro` (see Zaisma Pro). `area_access` has every area's choice, whatever the level; `game_slugs` is `null` for every game you have and will make. From the dashboard's session, `api_key_name` is `null` and access is full. |
 
 ### Your account's activity
 

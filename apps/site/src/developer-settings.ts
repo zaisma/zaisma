@@ -1,4 +1,4 @@
-import { ApiError, CREDIT_LIMITS, PRO_PRICE_CENTS_PER_MONTH, PRO_REFUND_LIMITS, accountById, gameBySlug, hostingUseThisMonth, gameHostingMonth, apiKeysFor, createApiKey, checkKeyScope, revokeApiKey, passkeysFor, liveApiKeyCount, MAXIMUM_API_KEY_COUNT, ACCESS_AREAS, ACCESS_LEVELS, AREA_ACCESS_CHOICES, WEBHOOK_EVENT_KINDS, type Account, type ApiKey, type Game } from "@zaisma/core";
+import { ApiError, ERROR_CODES, CREDIT_LIMITS, PRO_PRICE_CENTS_PER_MONTH, PRO_REFUND_LIMITS, accountById, gameBySlug, hostingUseThisMonth, gameHostingMonth, apiKeysFor, createApiKey, checkKeyScope, revokeApiKey, passkeysFor, liveApiKeyCount, MAXIMUM_API_KEY_COUNT, ACCESS_AREAS, ACCESS_LEVELS, AREA_ACCESS_CHOICES, WEBHOOK_EVENT_KINDS, type Account, type ApiKey, type Game } from "@zaisma/core";
 import { currentSession } from "./auth.ts";
 import { AREA_LABELS, CHOICE_LABELS, LEVEL_LABELS, keyMakingState, keyScopeFromForm, keyScopeText, keyStandingText, passkeyTapFromForm } from "./account.ts";
 import { apiCall, callerFor, hostingUseJson, type Caller } from "./developer.ts";
@@ -1008,6 +1008,8 @@ export async function handleDeveloperSettings(request: Request, env: Env, path: 
   const callerOrNull = await callerFor(env, request, session.userId, session.cookies);
   const account = await accountById(env.DB, session.userId);
   if (!callerOrNull || !account) return redirect("/join?next=/dashboard/settings", session.cookies);
+  // A banned developer has Your games, to export their games, and nothing else (bans.ts).
+  if (callerOrNull.banScope) return redirect("/dashboard", session.cookies);
   let caller: Caller = callerOrNull;
   const url = new URL(request.url);
 
@@ -1017,7 +1019,12 @@ export async function handleDeveloperSettings(request: Request, env: Env, path: 
     const deliveriesOfId = url.searchParams.get("deliveries");
     return settingsPage(env, request, session, caller, account, {
       done: url.searchParams.get("done") ?? (url.searchParams.get("stripe") === "connected" ? "connected" : undefined),
-      problem: url.searchParams.get("stripe") && url.searchParams.get("stripe") !== "connected" ? "Stripe didn't connect. The link may have expired: try Connect Stripe again." : undefined,
+      problem:
+        url.searchParams.get("stripe") === "stripe_account_banned"
+          ? ERROR_CODES.stripe_account_banned.messageForPeople
+          : url.searchParams.get("stripe") && url.searchParams.get("stripe") !== "connected"
+            ? "Stripe didn't connect. The link may have expired: try Connect Stripe again."
+            : undefined,
       spendingRequestId,
       deliveriesOf: deliveriesOfId ? { webhookId: deliveriesOfId, cursor: url.searchParams.get("cursor") } : undefined,
     });

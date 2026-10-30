@@ -63,6 +63,11 @@ export interface Account extends SocialSettings {
   friend_requests_paused_until_ms: number | null;
   /** When an account without an email pressed Skip on "Where should we tell you if someone else uses your account?" (security-alerts.ts); null while it hasn't. */
   email_ask_skipped_at_ms: number | null;
+  /** When Zaisma banned the account (bans.ts), how far (developer: its games come down and it can't publish; whole_account: it can't sign in either), why in a sentence, and the content rule it broke; null when it isn't banned. */
+  banned_at_ms: number | null;
+  ban_scope: "developer" | "whole_account" | null;
+  ban_reason: string | null;
+  ban_content_rule: string | null;
   created_at_ms: number;
   updated_at_ms: number;
 }
@@ -353,6 +358,10 @@ export async function createAccount(database: D1Database, newAccount: { id: stri
     social_stopped_reason: null,
     friend_requests_paused_until_ms: null,
     email_ask_skipped_at_ms: null,
+    banned_at_ms: null,
+    ban_scope: null,
+    ban_reason: null,
+    ban_content_rule: null,
     created_at_ms: createdAtMs,
     updated_at_ms: createdAtMs,
   };
@@ -451,6 +460,8 @@ export async function deleteAccount(database: D1Database, id: string): Promise<v
           // Their credit goes with them: the site refunds what still refunds first (credit-api.ts, refundForDeletion).
           database.prepare("DELETE FROM credit_entries WHERE owner_id = ?").bind(owner.id),
           database.prepare("DELETE FROM stripe_connect_states WHERE owner_id = ?").bind(owner.id),
+          // The cards that paid go; a ban's marks (banned_marks) stay, so deleting the account doesn't lift them.
+          database.prepare("DELETE FROM owner_cards WHERE owner_id = ?").bind(owner.id),
           database.prepare("DELETE FROM owners WHERE id = ?").bind(owner.id),
         ]
       : []),

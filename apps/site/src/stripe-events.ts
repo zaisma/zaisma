@@ -1,5 +1,6 @@
 import { CREDIT_LIMITS, addCreditEntry, creditOf } from "@zaisma/core";
 import { addTopUp, emailOwner } from "./hosting-job.ts";
+import { recordPaidCard } from "./bans.ts";
 import { addRefillToInvoice, invoicePaymentIntentId, isSignedByStripe, stopCreditPlan } from "./stripe.ts";
 import type { Env } from "./env.ts";
 
@@ -33,7 +34,9 @@ export async function handleStripeEvents(request: Request, env: Env): Promise<Re
   const ownerId = metadata.owner_id;
 
   if (event.type === "checkout.session.completed" && ownerId && object.mode === "payment" && object.payment_status === "paid" && typeof object.payment_intent === "string") {
-    await addTopUp(env, { ownerId, amountCents: Number(object.amount_subtotal ?? object.amount_total), paymentIntentId: object.payment_intent });
+    const isNew = await addTopUp(env, { ownerId, amountCents: Number(object.amount_subtotal ?? object.amount_total), paymentIntentId: object.payment_intent });
+    // The card that paid, once, for bans (bans.ts): never in the payment's way.
+    if (isNew) await recordPaidCard(env, ownerId, object.payment_intent).catch((error) => console.error(`Keeping the card of ${object.payment_intent} failed:`, error));
   }
   const eventAtMs = Number((event as unknown as Record<string, unknown>)["created"]) * 1000 || Date.now();
   // The subscription's own metadata says which it is: a credit plan's says credit_plan, Pro's pro, or nothing for Pro made before plans.
@@ -108,6 +111,10 @@ async function saveProSubscription(env: Env, subscription: Record<string, unknow
     .bind(subscription.id, periodEndMs, isCancelled ? 1 : 0, eventAtMs, ownerId, eventAtMs, subscription.id, Date.now())
     .run();
   if (!saved.meta.changes) console.error(`${eventType} for ${subscription.id} was not applied: an older event, or the owner has another subscription running.`);
+  // The card that pays for Pro, for bans (bans.ts): Checkout sets it as the subscription's default.
+  if (status === "active" && typeof subscription.default_payment_method === "string") {
+    await recordPaidCard(env, ownerId, subscription.default_payment_method).catch((error) => console.error(`Keeping the card of ${subscription.id} failed:`, error));
+  }
 }
 
 /** A subscription that ended: Pro ends now (a period that already ended stays ended), and the subscription is let go. */
@@ -209,5 +216,7 @@ async function addPlanPayment(env: Env, invoice: Record<string, unknown> & { id:
   const paymentIntentId = await invoicePaymentIntentId(env, invoice.id);
   // Stripe sends the event again until it's answered, so a payment it can't name yet is tried again then.
   if (!paymentIntentId) throw new Error(`Credit plan invoice ${invoice.id} is paid, but Stripe names no payment for it.`);
-  await addTopUp(env, { ownerId: plan.ownerId, amountCents, paymentIntentId });
+  const isNew = await addTopUp(env, { ownerId: plan.ownerId, amountCents, paymentIntentId });
+  // The card that paid, once, for bans (bans.ts), as a top-up's: never in the payment's way.
+  if (isNew) await recordPaidCard(env, plan.ownerId, paymentIntentId).catch((error) => console.error(`Keeping the card of ${paymentIntentId} failed:`, error));
 }

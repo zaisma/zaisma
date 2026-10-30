@@ -153,7 +153,7 @@ describe("a top-up", () => {
     expect((await api("/credit/top-ups", { body: { amount_cents: 2000 } })).status).toBe(201);
   });
 
-  it("adds credit once when Stripe says it's paid, even when the event comes twice, and asks Stripe for no card", async () => {
+  it("adds credit once when Stripe says it's paid, even when the event comes twice, and reads its card once, for bans", async () => {
     expect((await stripeEvent(checkoutCompleted("pi_test_1", 2000))).status).toBe(200);
     expect((await stripeEvent(checkoutCompleted("pi_test_1", 2000))).status).toBe(200);
     const { credit } = await tool("get_credit", {});
@@ -161,7 +161,8 @@ describe("a top-up", () => {
     expect(credit.top_ups).toEqual([{ id: expect.stringMatching(/^top_up_/), amount_cents: 2000, refundable_cents: 2000, refund_ends_at: expect.any(String), created_at: expect.any(String) }]);
     expect(Date.parse(credit.top_ups[0].refund_ends_at) - Date.parse(credit.top_ups[0].created_at)).toBe(30 * DAY_MS);
     expect(credit).not.toHaveProperty("automatic_top_up");
-    expect(stripeCalls.filter((call) => call.path.startsWith("/v1/payment_intents"))).toEqual([]);
+    // Only its card's fingerprint (bans.ts), once: nothing is saved at Stripe.
+    expect(stripeCalls.filter((call) => call.path.startsWith("/v1/payment_intents")).map((call) => call.path)).toEqual(["/v1/payment_intents/pi_test_1"]);
     expect((await api("/access")).answer.credit_balance_cents).toBe(2000);
   });
 

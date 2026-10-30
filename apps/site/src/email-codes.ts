@@ -199,6 +199,28 @@ export function copyStoppedEmail(env: Env, details: { username: string; gameTitl
   };
 }
 
+/** A developer ban's email (bans.ts): why, what still works, and how to appeal. */
+export function developerBannedEmail(env: Env, details: { username: string; bannedText: string; appealEmail: string }): { subject: string; text: string; html: string } {
+  const subject = "Zaisma banned your account's developer side";
+  const first = details.bannedText;
+  const second = `Your games are down, and the account can't make, upload or publish games. You can still play, and export your games from Your games: ${env.SITE_ORIGIN}/dashboard.`;
+  const third = `Think this is a mistake, ${details.username}? Write to ${details.appealEmail} with your username. A person reads every appeal and answers.`;
+  return {
+    subject,
+    text: `${first}\n\n${second}\n\n${third}\n\nZaisma, ${env.SITE_ORIGIN.replace(/^https?:\/\//, "")}\n`,
+    html: `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><meta name="color-scheme" content="dark"><title>${esc(subject)}</title></head>
+<body style="margin:0;padding:32px 16px;background:#0b0d10;color:#eceef0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:440px">
+<tr><td style="padding:0 0 28px"><img src="${esc(env.SITE_ORIGIN)}/zaisma-wordmark-glass-white-2400.png" width="112" alt="Zaisma" style="display:block;width:112px;height:auto;border:0"></td></tr>
+<tr><td style="font-size:16px;line-height:1.5;color:#c6c9ce;padding:0 0 16px">${esc(first)}</td></tr>
+<tr><td style="font-size:14px;line-height:1.5;color:#969ba4;padding:0 0 16px">${esc(second)}</td></tr>
+<tr><td style="font-size:14px;line-height:1.5;color:#969ba4">${esc(third)}</td></tr>
+</table></td></tr></table>
+</body></html>`,
+  };
+}
+
 /**
  * A security alert's email (docs/DECISIONS.md, "The security log says who did what from where, and the owner hears
  * about the risky moments"): what happened, when and from where (left out when the account doesn't keep where it's
