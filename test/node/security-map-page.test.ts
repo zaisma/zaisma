@@ -1,6 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 // @ts-expect-error: a plain JavaScript script without types
@@ -25,6 +24,7 @@ import {
   visibleNodeIds,
   // @ts-expect-error: a plain JavaScript script without types
 } from "../../scripts/security-map/page/graph.mjs";
+import { temporaryFolder } from "../temporary-folder.ts";
 
 /**
  * The Security map page (the security-map skill's Page section): the export cleaner, the tree, the layout,
@@ -316,7 +316,7 @@ describe("searchDoors and fitView", () => {
 describe("the built page", () => {
   let workDir = "";
   beforeEach(() => {
-    workDir = mkdtempSync(join(tmpdir(), "security-map-page-"));
+    workDir = temporaryFolder("security-map-page-");
   });
   afterEach(() => {
     rmSync(workDir, { recursive: true, force: true });

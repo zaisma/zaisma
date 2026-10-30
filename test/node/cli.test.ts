@@ -1,8 +1,7 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gzipSync } from "node:zlib";
 import { DatabaseSync } from "node:sqlite";
@@ -17,6 +16,7 @@ import { FORUM_CATEGORIES, TOPIC_KINDS } from "../../packages/core/src/forum.ts"
 import { dumpPart, importStatements, scanStatements } from "../../packages/game-server/src/internal.ts";
 import { dumpParts, nodeRead, trickyDatabase } from "./dump-fixtures.ts";
 import { zipStream, type ZipSource } from "../../apps/site/src/zip-writer.ts";
+import { temporaryFolder } from "../temporary-folder.ts";
 
 /**
  * The upload command's outward side ("Nothing for an AI to guess" in docs/DECISIONS.md): closed
@@ -281,7 +281,7 @@ describe("database", () => {
   });
 
   it("sends a JSON file of statements as one batch", async () => {
-    const folder = mkdtempSync(join(tmpdir(), "zaisma-batch-"));
+    const folder = temporaryFolder("zaisma-batch-");
     const statements = [{ sql: "DELETE FROM scores WHERE player_id = ?", values: ["player_a"] }, { sql: "SELECT count(*) AS score_count FROM scores" }];
     writeFileSync(join(folder, "fix.json"), JSON.stringify(statements));
     answers["POST /games/sky-hopper/database/batch"] = { status: 200, body: { statement_results: [scores, scores], next_steps: [] } };
@@ -340,7 +340,7 @@ describe("export", () => {
       "empty.json": "",
     });
     answers["GET /games/sky-hopper/export/download"] = { status: 200, body: zip };
-    const folder = join(mkdtempSync(join(tmpdir(), "zaisma-export-")), "sky-hopper");
+    const folder = join(temporaryFolder("zaisma-export-"), "sky-hopper");
     const result = await zaisma(["export", "sky-hopper", "--folder", folder, "--json"]);
     expect(result.exitCode, result.stdout + result.stderr).toBe(0);
     expect(json(result.stdout)).toEqual({ folder, file_count: 6, size_bytes: zip.length, database_file: join(folder, "database.sqlite") });
@@ -362,7 +362,7 @@ describe("export", () => {
     const files: Record<string, string> = {};
     for (let i = 0; i < 65_540; i++) files[`saves/${String(i).padStart(5, "0")}.json`] = i % 1000 ? "" : `{"i":${i}}`;
     answers["GET /games/sky-hopper/export/download"] = { status: 200, body: await zipOf(files) };
-    const folder = join(mkdtempSync(join(tmpdir(), "zaisma-export-")), "out");
+    const folder = join(temporaryFolder("zaisma-export-"), "out");
     const result = await zaisma(["export", "sky-hopper", "--folder", folder, "--json"]);
     expect(result.exitCode, result.stdout + result.stderr).toBe(0);
     expect(json(result.stdout)).toMatchObject({ file_count: 65_540, database_file: null });
@@ -372,7 +372,7 @@ describe("export", () => {
 
   it("passes on the API's refusal, and leaves no folder behind", async () => {
     answers["GET /games/sky-hopper/export/download"] = { status: 403, body: { error: { code: "key_not_allowed", message: "This API key can't make GET /games/:slug/export/download.", field: null, fix: "Make a read key.", retry_after_sec: null } } };
-    const folder = join(mkdtempSync(join(tmpdir(), "zaisma-export-")), "out");
+    const folder = join(temporaryFolder("zaisma-export-"), "out");
     const result = await zaisma(["export", "sky-hopper", "--folder", folder, "--json"]);
     expect(result.exitCode).toBe(1);
     expect(json(result.stdout).error.code).toBe("key_not_allowed");
@@ -410,7 +410,7 @@ describe("database export and import", () => {
     expect(calls.length).toBeGreaterThan(3);
     expect(calls[1]!.path).toMatch(/^\/games\/sky-hopper\/database\/export\?cursor=/);
 
-    const folder = mkdtempSync(join(tmpdir(), "zaisma-export-"));
+    const folder = temporaryFolder("zaisma-export-");
     const saved = await zaisma(["database", "export", "sky-hopper", join(folder, "game.sql"), "--json"]);
     expect(json(saved.stdout)).toEqual({ dump_sql: null, file: join(folder, "game.sql"), part_count: calls.length / 2, read_row_count: (calls.length / 2) * 3 });
     expect(readFileSync(join(folder, "game.sql"), "utf8")).toBe(whole);
@@ -429,7 +429,7 @@ describe("database export and import", () => {
   });
 
   it("sends a .sqlite file's dump, the same SQL Zaisma's export writes, in parts of whole statements", async () => {
-    const folder = mkdtempSync(join(tmpdir(), "zaisma-import-"));
+    const folder = temporaryFolder("zaisma-import-");
     const source = new DatabaseSync(join(folder, "game.sqlite"));
     source.exec(dumpParts(trickyDatabase()).join(""));
     source.close();
@@ -443,7 +443,7 @@ describe("database export and import", () => {
 
   it("cuts a .sql dump or a piped one at whole statements, triggers and quotes included, and says what went in when a part fails", async () => {
     const whole = dumpParts(trickyDatabase()).join("");
-    const folder = mkdtempSync(join(tmpdir(), "zaisma-import-"));
+    const folder = temporaryFolder("zaisma-import-");
     writeFileSync(join(folder, "game.sql"), whole);
     const parts = answerImport();
     expect((await zaisma(["database", "import", "sky-hopper", join(folder, "game.sql")], { environment: { ZAISMA_DUMP_PART_SIZE_BYTES: "150" } })).exitCode).toBe(0);
@@ -612,7 +612,7 @@ describe("items", () => {
     answers["PUT /games/sky-hopper/items/*"] = (call) => ({ status: 200, body: { item: answered({ item_name: call.path.split("/").pop(), ...(call.body as object) }), next_steps: [] } });
     answers["DELETE /games/sky-hopper/items/gold_crown"] = { status: 200, body: { removed_item_name: "gold_crown", next_steps: [] } };
     const boost = { item_name: "speed_boost", title: "Speed Boost", item_kind: "consumable", item_category: "gameplay", price_minor_units: 99, currency_code: "usd" };
-    const file = join(mkdtempSync(join(tmpdir(), "zaisma-items-")), "items.json");
+    const file = join(temporaryFolder("zaisma-items-"), "items.json");
     writeFileSync(file, JSON.stringify([{ ...revive, price_minor_units: 149 }, cape, boost]));
     const result = await zaisma(["items", "set", "sky-hopper", file, "--json"]);
     expect(result.exitCode).toBe(0);
@@ -719,7 +719,7 @@ describe("--scheduled-publish-at", () => {
 });
 
 describe("exit codes", () => {
-  const folder = mkdtempSync(join(tmpdir(), "zaisma-cli-"));
+  const folder = temporaryFolder("zaisma-cli-");
   writeFileSync(join(folder, "index.html"), "<!doctype html><title>Sky Hopper</title>");
   const fileSha256 = createHash("sha256").update(readFileSync(join(folder, "index.html"))).digest("hex");
   const uploadAnswers = (finalScanStatus: string) => {
@@ -808,7 +808,7 @@ describe("exit codes", () => {
 describe("check and automatic fixes", () => {
   /** A game folder made of these files (text, or bytes). */
   const gameFolder = (files: Record<string, string | Buffer>) => {
-    const folder = mkdtempSync(join(tmpdir(), "zaisma-check-"));
+    const folder = temporaryFolder("zaisma-check-");
     for (const [path, content] of Object.entries(files)) {
       mkdirSync(join(folder, path, ".."), { recursive: true });
       writeFileSync(join(folder, path), content);
@@ -925,7 +925,9 @@ describe("shader folders", () => {
   };
   /** A shader's folder: the image pass, buffer a and a texture, wired by channels.json, with any files changed or added (null leaves one out). */
   const shaderFolder = (changes: Record<string, string | Buffer | null> = {}) => {
-    const folder = mkdtempSync(join(tmpdir(), "zaisma-shader-"));
+    // Inside a folder of its own, since the check's sheet goes beside it (<folder>-<screen>-check.png).
+    const folder = join(temporaryFolder("zaisma-shader-"), "shader");
+    mkdirSync(folder);
     const files = { "image.glsl": IMAGE_PASS, "buffer-a.glsl": BUFFER_PASS, "channels.json": JSON.stringify(channels), "noise.png": noise, ...changes };
     for (const [name, content] of Object.entries(files)) if (content !== null) writeFileSync(join(folder, name), content);
     return folder;
@@ -962,7 +964,7 @@ describe("shader folders", () => {
     // The command line is closed too: the screen is a choice, and a game's folder takes neither --screen nor --draw-on-zaisma.
     expect(await refusal(shaderFolder(), ["shader", shaderFolder(), "--game", "sky-hopper"])).toMatchObject({ code: "missing_field", field: "--screen" });
     expect(await refusal(shaderFolder(), ["shader", shaderFolder(), "--game", "sky-hopper", "--screen", "tall"])).toMatchObject({ code: "bad_screen", field: "--screen" });
-    expect(await refusal(shaderFolder(), ["check", mkdtempSync(join(tmpdir(), "zaisma-game-")), "--screen", "phone"])).toMatchObject({ code: "unknown_field", field: "--screen" });
+    expect(await refusal(shaderFolder(), ["check", temporaryFolder("zaisma-game-"), "--screen", "phone"])).toMatchObject({ code: "unknown_field", field: "--screen" });
     expect(await refusal(shaderFolder(), ["check", shaderFolder(), "--draw-on-zaisma"])).toMatchObject({ code: "missing_field", field: "--game" });
     expect(calls).toEqual([]);
   });

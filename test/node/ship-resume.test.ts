@@ -1,6 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -16,6 +15,7 @@ import {
   waitForNetwork,
   // @ts-expect-error: a plain JavaScript script without types
 } from "../../scripts/ship-resume.mjs";
+import { temporaryFolder } from "../temporary-folder.ts";
 
 /** scripts/ship-resume.mjs: how npm run ship gets through a Mac that slept, Wi-Fi that dropped, or a ship that was killed. */
 
@@ -157,7 +157,7 @@ describe("deployWorkers", () => {
   let folder: string;
   let progressPath: string;
   beforeEach(() => {
-    folder = mkdtempSync(join(tmpdir(), "ship-resume-"));
+    folder = temporaryFolder("ship-resume-");
     progressPath = join(folder, "zaisma-ship-progress.json");
   });
   afterEach(() => rmSync(folder, { recursive: true, force: true }));

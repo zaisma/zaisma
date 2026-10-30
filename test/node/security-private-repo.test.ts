@@ -1,12 +1,12 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 // @ts-expect-error: a plain JavaScript script without types
 import { commitAndPush, markFindingFixed, pageLinesOf, pullClone, queueItemsOf, readState, withFindingStatus, withoutQueueLines, withPageShows } from "../../scripts/security-map/private-repo.mjs";
 // @ts-expect-error: a plain JavaScript script without types
 import { SECTORS, unexploredCase, withVerdict } from "../../scripts/security-map/schema.mjs";
+import { temporaryFolder } from "../temporary-folder.ts";
 
 /**
  * The private security repo's git helper (scripts/security-map/private-repo.mjs): the coordinator and the
@@ -29,7 +29,7 @@ const GIT_IDENTITY = { GIT_AUTHOR_NAME: "Test", GIT_AUTHOR_EMAIL: "test@example.
 let workDir = "";
 const savedEnvironment = { ...process.env };
 beforeEach(() => {
-  workDir = mkdtempSync(join(tmpdir(), "security-private-repo-"));
+  workDir = temporaryFolder("security-private-repo-");
   Object.assign(process.env, GIT_IDENTITY);
 });
 afterEach(() => {

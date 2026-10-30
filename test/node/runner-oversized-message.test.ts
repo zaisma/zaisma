@@ -1,14 +1,14 @@
 import { afterAll, describe, expect, it } from "vitest";
 import WebSocket from "ws";
 import { spawn, type ChildProcess } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { rmSync } from "node:fs";
 import { createServer } from "node:net";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { REQUEST_LIMITS, ROOM_LIMITS } from "../../packages/game-server/src/internal.ts";
+import { temporaryFolder } from "../temporary-folder.ts";
 
 const runner = join(import.meta.dirname, "../../packages/game-server/bin/node.js");
-const folder = mkdtempSync(join(tmpdir(), "zaisma-runner-"));
+const folder = temporaryFolder("zaisma-runner-");
 const started: ChildProcess[] = [];
 afterAll(() => {
   for (const child of started) child.kill();

@@ -1,16 +1,16 @@
 import { afterAll, describe, expect, it } from "vitest";
-import { mkdtempSync, rmSync, existsSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { rmSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import WebSocket from "ws";
 import { startServer } from "../../packages/game-server/bin/node.js";
 // @ts-expect-error plain JavaScript without type declarations
 import { localDatabase } from "../../packages/game-server/bin/node-parts.js";
 import { checkStatement, defineGameServer, generateSigningKey, loadSigningKey, signPass, type GameDatabase } from "../../packages/game-server/src/internal.ts";
+import { temporaryFolder } from "../temporary-folder.ts";
 
 // The game database on the developer's own server: a local SQLite file, with the same calls and checks as in Zaisma rooms (test/rooms/database.test.ts).
 
-const folder = mkdtempSync(join(tmpdir(), "zaisma-database-"));
+const folder = temporaryFolder("zaisma-database-");
 afterAll(() => rmSync(folder, { recursive: true, force: true }));
 
 /** What a call answers, or the error it threw, as the game would see it. */
