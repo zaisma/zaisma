@@ -554,7 +554,11 @@ export const RAIL_SCRIPT = `/* rail */(function () {
       var box = bar.getBoundingClientRect(), thumbMiddle = size.start + (size.track - size.thumb) * Math.min(1, at() / size.max) + size.thumb / 2;
       var spotPx = drag ? thumbMiddle : isSide ? event.clientX - box.left : event.clientY - box.top, best = null, gap = Infinity;
       var shown = marks.filter(function (m) { return !m.mark.hidden; }), atOf = function (m) { return parseFloat(m.mark.style[isSide ? "left" : "top"]) || 0; };
-      if (drag) shown.forEach(function (m) { if (!best || atOf(m) <= spotPx + 0.5) best = m; });
+      // Dragging, the part you're in is the last whose start has come into the first third of the view (read only while dragging).
+      if (drag) {
+        var view = isPage ? { start: 0, size: window.innerHeight } : (function (r) { return { start: isSide ? r.left : r.top, size: isSide ? r.width : r.height }; })(scroller.getBoundingClientRect());
+        shown.forEach(function (m) { var r = m.part.getBoundingClientRect(); if (!best || (isSide ? r.left : r.top) - view.start <= view.size / 3) best = m; });
+      }
       else shown.forEach(function (m) { var away = Math.abs(atOf(m) - spotPx); if (away < gap) { gap = away; best = m; } });
       marks.forEach(function (m) {
         m.mark.classList.toggle("is-near", m === best);
@@ -913,6 +917,8 @@ component({
 .rail-mark { position: absolute; left: -12px; width: 28px; height: 24px; margin-top: -12px; padding: 0; border: 0; cursor: pointer; background: none; }
 .rail-mark::before { content: ""; position: absolute; left: 17px; right: 5px; top: 11.5px; height: 1px; }
 .rail-mark[hidden] { display: none; }
+/* While the thumb is dragged, the marks don't answer the pointer: only the part the thumb is in is named and lit. */
+.rail.dragging .rail-mark { pointer-events: none; }
 /* Its name is a Tag on glass (data.ts), wiped open from the rail. */
 .rail-mark span { position: absolute; right: 28px; top: 50%; transform: translate(0, calc(-50% + var(--label-shift, 0px))); pointer-events: none;
   clip-path: polygon(100% 0, 100% 0, calc(100% - 5px) 100%, calc(100% - 5px) 100%); visibility: hidden;

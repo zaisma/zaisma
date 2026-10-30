@@ -187,13 +187,13 @@ span.hairline { flex: 1; border-top: var(--divider); }
 :is(label, a, button, .shell):hover > .carving.is-used, .carving.is-used:hover, .carving.is-pointed { --face-color: var(--carving-face-pointed); }
 .carving.deep { --face-color: var(--carving-deep-face); box-shadow: var(--carving-deep-shade); }
 /* A rail (navigation.ts) is a deep carving, its channel, with a groove a hair inside it and a thumb sliding in the groove: the white slab you
-   drag, its ends slanted as the channel's are. Dragged, its leading edge runs orange. Inside a carving or compact glass, it keeps the compact
-   frame gap from the edges (--rail-inset). */
+   drag, its ends slanted as the channel's are. Dragged, it's pressed as a slider's thumb is: pushed down in place, its shadow drawn in close
+   and its face shaded from above. Inside a carving or compact glass, it keeps the compact frame gap from the edges (--rail-inset). */
 .rail-groove { position: absolute; inset: 2px; filter: var(--thumb-cast); }
 .rail-thumb { position: absolute; top: 0; left: 0; right: 0; background: var(--thumb-face); }
 .rail.sideways .rail-thumb { right: auto; bottom: 0; }
-.rail.dragging .rail-thumb { box-shadow: inset 2px 0 0 var(--run); }
-.rail.sideways.dragging .rail-thumb { box-shadow: inset 0 2px 0 var(--run); }
+.rail.dragging .rail-groove { filter: var(--thumb-cast-pressed); }
+.rail.dragging .rail-thumb { background: var(--thumb-press-face), var(--thumb-face); }
 .carving, .floating-pane, .glass-pane.compact { --rail-inset: var(--pad-frame-compact); }
 /* A rail's mark is etched across its groove's floor: a hairline catching the light, shaded under its lip. Pointed at, it runs orange. */
 .rail-mark::before { --face-color: var(--rail-etch); background: var(--face-color); box-shadow: 0 1px 0 var(--rail-etch-shade); transition: --face-color var(--motion-state); }
