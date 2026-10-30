@@ -102,7 +102,6 @@ const NOT_MADE_OF_MATERIALS = new Map<string, string>([
   [".presence-play | *", "playing: a green tab with a white play mark at the line's end"],
   [".presence-play > .play | height", "the play mark is sized to its tab"],
   [".picture-row-place:not(:last-child)::after | box-shadow", "pictures in a row lie over each other, each casting onto the next"],
-  [".picture-row-place + .picture-row-place .av, .picture-row-place + .picture-row-place > .frame.more | padding-inline-start", "a picture under the one before it centers its initials in what shows of it"],
   // A QR code is read by a camera: dark on white with a quiet zone round it, in light and dark alike.
   [".qr-tile | *", "the white tile and its quiet zone"],
   [".qr-tile > .cut-line | *", "the white tile's own bevel"],

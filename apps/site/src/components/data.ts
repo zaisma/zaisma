@@ -170,15 +170,12 @@ component({
 /* The shadow is its own layer under the picture (the glass is clipped to its edge, so it can't cast one), falling to the right onto the next. */
 .picture-row-place:not(:last-child)::after { content: ""; position: absolute; inset: 0; z-index: -1; box-shadow: 3px 0 6px -1px var(--picture-shadow); }
 .picture-row-place + .picture-row-place { margin-left: calc(var(--frame-overlap) * -1); }
-/* Behind the first, a picture's initials (or the +N) center in the part that shows, never under the one in front. */
-.picture-row-place + .picture-row-place .av, .picture-row-place + .picture-row-place > .frame.more { padding-inline-start: var(--frame-overlap); }
-/* A picture behind another shows only its first letter, so its part that shows holds it with room round it, as a whole picture does. */
-.picture-row-place + .picture-row-place .av { display: block; text-align: center; line-height: var(--frame); font-size: 0; }
-.picture-row-place + .picture-row-place .av::first-letter { font-size: calc(var(--frame) * 0.38); }
-.picture-row.lg { --frame-overlap: 24px; }
-.picture-row.md { --frame-overlap: 12px; }
-.picture-row.sm { --frame-overlap: 9px; }
-.picture-row.xs { --frame-overlap: 7px; }
+/* A picture is the same wherever it sits: behind another, its initials (or the +N) stay whole in its middle, and the one in front covers
+   only its edge, an eighth of it, clear of the initials. */
+.picture-row.lg { --frame-overlap: 12px; }
+.picture-row.md { --frame-overlap: 5px; }
+.picture-row.sm { --frame-overlap: 4px; }
+.picture-row.xs { --frame-overlap: 3px; }
 /* The +N is sized to its frame, like the initials in a picture. */
 .frame.more { font: 600 calc(var(--frame) * 0.36)/1 var(--display); font-variant-numeric: tabular-nums; }
 `,
