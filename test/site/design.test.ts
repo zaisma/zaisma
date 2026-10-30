@@ -15,7 +15,7 @@ import { COLUMNS_STYLES, COLUMN_LEAST_PX, GRID_STYLES, PANE_PARTS_STYLES, ROW_ST
 import { pageStyles } from "../../apps/site/src/page-styles.ts";
 import { CHECKED_PAGES, LOCAL_SCREEN_NAMES, SCREEN_SIZES, STRESS_ACCOUNTS, TEXT_SCREEN_NAMES, UNIQUE_WORD, stressBaseName, type StepToTake } from "../../apps/site/src/components/checked-pages.ts";
 import { layout, type LayoutOptions } from "../../apps/site/src/html.ts";
-import { PAGE_SHEETS, STEEL_PAGE_SHEETS, UNSTYLED_HOOKS, pageProblems, pageStructureProblems } from "./page-rules.ts";
+import { PAGE_SHEETS, STEEL_PAGE_SHEETS, UNSTYLED_HOOKS, pageProblems, pageStructureProblems, pageWordProblems, pageWords } from "./page-rules.ts";
 import { BACKDROP_SCRIPT, glassPane, pageSettingsAttributes } from "../../apps/site/src/components/foundations.ts";
 import { GLASS_LIGHT_PASS, MOST_GLASS_PANE_COUNT } from "../../apps/site/src/components/shaders.ts";
 import { SHADER_HEAD, SHADER_LIMITS, SHADER_UPSCALE_SOURCE } from "@zaisma/core";
@@ -889,8 +889,8 @@ describe("pages", () => {
     }
   });
 
-  it("list what depends on who's looking as each stress account too: a signed-in page with a list has its long, empty and full states", async () => {
-    // Signed in as the design test's developer, with a session as Supabase signs one (auth.ts reads its keys from Supabase's address).
+  /** Runs with a session for the design test's developer, as Supabase signs one (auth.ts reads its keys from Supabase's address). */
+  async function signedInAsDesignDev(run: (cookie: string) => Promise<void>) {
     const keys = (await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"])) as CryptoKeyPair;
     const publicKey = await crypto.subtle.exportKey("jwk", keys.publicKey);
     const realFetch = globalThis.fetch;
@@ -904,7 +904,17 @@ describe("pages", () => {
     const head = `${encode(JSON.stringify({ alg: "ES256", kid: "design-test-key", typ: "JWT" }))}.${encode(JSON.stringify({ sub: "design-dev", email: "", aud: "authenticated", iss: "https://supabase.test/auth/v1", exp: nowSec + 3600, iat: nowSec, amr: [{ method: "password", timestamp: nowSec }] }))}`;
     const cookie = `__Host-zaisma=${head}.${encode(await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, keys.privateKey, new TextEncoder().encode(head)))}~r-design-dev`;
     try {
-      const signedIn = CHECKED_PAGES.filter((each) => each.account && !each.isGallery && !each.isOnSignInSite && !each.setUp && !each.stepsToTake && !each.shownStateName && !needsPreviewGames(each));
+      await run(cookie);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  }
+  // The signed-in states a plain visit shows, besides the game pages the preview's test games show.
+  const SIGNED_IN_STATES = CHECKED_PAGES.filter((each) => each.account && !each.isGallery && !each.isOnSignInSite && !each.setUp && !each.stepsToTake && !each.shownStateName && !needsPreviewGames(each));
+
+  it("list what depends on who's looking as each stress account too: a signed-in page with a list has its long, empty and full states", async () => {
+    await signedInAsDesignDev(async (cookie) => {
+      const signedIn = SIGNED_IN_STATES;
       expect(signedIn.length).toBeGreaterThan(2);
       for (const state of signedIn) {
         const text = await (await SELF.fetch(`${SITE}${state.path}`, { headers: { cookie } })).text();
@@ -916,9 +926,39 @@ describe("pages", () => {
         const missing = STRESS_ACCOUNTS.map((stress) => `${stressBaseName(state.name)}, ${stress.nameEnding}`).filter((name) => !CHECKED_PAGES.some((each) => each.name === name));
         expect(missing, `${state.name} lists what depends on who's looking: CHECKED_PAGES needs these (checked-pages.ts, STRESS_ACCOUNTS)`).toEqual([]);
       }
-    } finally {
-      vi.unstubAllGlobals();
+    });
+  });
+
+  // Every public word is for one reader (docs/DESIGN.md, Voice): what a person reads on a page keeps the word rules, and the legal pages are
+  // in the formal register too. A developer's or player's own words are marked data-words="theirs" and left out.
+  const registerOf = (path: string) => (path.startsWith("/legal/") ? "legal" : "page");
+
+  it("keep Zaisma's words in every state a plain visit shows: no \"we\", \"!\", filler, marketing words or names from the code, and no contractions on legal pages", async () => {
+    const problems: string[] = [];
+    for (const state of PUBLIC_STATES) {
+      const text = state.stepsToTake ? await pageAfterSteps(state.path, state.stepsToTake) : (await page(state.path)).text;
+      if (text !== null) problems.push(...pageWordProblems(text, registerOf(state.path)).map((problem) => `${state.name}: ${problem}`));
     }
+    expect(problems).toEqual([]);
+  });
+
+  it("keep Zaisma's words in every signed-in state a plain visit shows", async () => {
+    const problems: string[] = [];
+    await signedInAsDesignDev(async (cookie) => {
+      for (const state of SIGNED_IN_STATES) {
+        const text = await (await SELF.fetch(`${SITE}${state.path}`, { headers: { cookie } })).text();
+        problems.push(...pageWordProblems(text, registerOf(state.path)).map((problem) => `${state.name}: ${problem}`));
+      }
+    });
+    expect(problems).toEqual([]);
+  });
+
+  it("read a page's words without code, attributes or their own words", () => {
+    const markup = '<p title="our title">Play <code>update_game</code> now &amp; later</p><script>let we = 1</script><h2 data-words="theirs">We <b>love</b> it!</h2><p>Done</p>';
+    expect(pageWords(markup)).toBe("Play now & later Done");
+    expect(pageWordProblems("<p>We're sorry! Just call update_game.</p>", "page")).toEqual(['Zaisma, never "we": We', 'No "!"', "No filler: Just", "No names from the code: update_game"]);
+    expect(pageWordProblems("<p>Zaisma doesn't keep it.</p>", "legal")).toEqual(["No contractions on legal pages: n't"]);
+    expect(pageWordProblems("<p>Zaisma does not keep it.</p>", "legal")).toEqual([]);
   });
 });
 

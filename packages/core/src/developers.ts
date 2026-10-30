@@ -609,6 +609,8 @@ export interface InputProblem {
   field: string;
   message: string;
   fix: string;
+  /** What a page tells a person, when the case needs its own words; else the error code's. */
+  messageForPeople?: string;
   /** The error code, when it isn't bad_<field>. */
   code?: string;
 }

@@ -954,8 +954,8 @@ export async function handleDeveloperSettings(request: Request, env: Env, path: 
   const field = (name: string, maximumCharacterCount?: number) => bodyField(form, name, maximumCharacterCount);
   const back = (done: string, hash: string) => redirect(`${PAGE}?done=${done}#${hash}`, session.cookies);
   const failed = (error: unknown) => {
-    if (error instanceof ApiError && error.code === "account_not_protected") return settingsPage(env, request, session, caller, account, { problem: `${error.message} Add a passkey or an email first.`, problemLink: { words: "Open your account", href: "/account" } }, error.httpStatus);
-    if (error instanceof ApiError) return settingsPage(env, request, session, caller, account, { problem: error.messageWithFix }, error.httpStatus);
+    if (error instanceof ApiError && error.code === "account_not_protected") return settingsPage(env, request, session, caller, account, { problem: error.messageForPeople, problemLink: { words: "Open your account", href: "/account" } }, error.httpStatus);
+    if (error instanceof ApiError) return settingsPage(env, request, session, caller, account, { problem: error.messageForPeople }, error.httpStatus);
     throw error;
   };
   caller = await withSpendingConfirmation(env, caller, session);

@@ -42,6 +42,7 @@ export * from "./chat-filter.ts";
 export * from "./forum.ts";
 export * from "./errors.ts";
 export * from "./review.ts";
+export * from "./words.ts";
 export * from "./review-evidence.ts";
 export * from "./review-precedents.ts";
 export * from "./sign-in-apps.ts";

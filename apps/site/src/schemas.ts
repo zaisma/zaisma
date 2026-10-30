@@ -82,6 +82,7 @@ export const reviewReason = (description: string) =>
       message: text("What happened and why, in plain words."),
       content_rule: nullable(CONTENT_RULE),
       fix: text("What to do about it, naming the call when there is one."),
+      message_for_people: text("What happened and what to do, in a page's words, naming no call or field: what Zaisma's pages show, for an AI to show its human too."),
     },
     description,
   );
@@ -185,6 +186,7 @@ export const GAME_ALERT = object({
   }),
   message: text("What needs attention, in plain words."),
   fix: text("What to do about it, naming the call when there is one."),
+  message_for_people: text("What happened and what to do, in a page's words, naming no call or field: what Zaisma's pages show, for an AI to show its human too."),
   version_id: nullable(idOf("version", "The version it's about; null when it's about the whole game.")),
 });
 /** One distinct error of a game's own game server, as get_stats lists it and a game_server_error_found event carries it. */
@@ -209,6 +211,7 @@ export const FINDING = object({
   content_rule: nullable(CONTENT_RULE),
   path: nullable(text("The file it's in, if any.")),
   fix: text("What to do about it."),
+  message_for_people: text("What happened and what to do, in a page's words, naming no call or field: what Zaisma's pages show, for an AI to show its human too."),
 });
 
 /** A note on how a version started in Chrome, or on files that could be much smaller. Notes never hold a version. */
@@ -455,6 +458,7 @@ const ERROR_FIELDS = object({
   message: text("What happened."),
   field: nullable(text("The input at fault, like play_modes[1].play_style; null when no one input is.")),
   fix: text("What to do about it."),
+  message_for_people: text("What happened and what to do, in a page's words, naming no call or field: what Zaisma's pages show, for an AI to show its human too."),
   retry_after_sec: nullable(countOf("How long to wait before trying again, when waiting helps; else null.")),
 });
 /** Every error, in the API and the MCP (docs/NAMING.md, Errors). confirm_url comes with confirmation_needed alone. */

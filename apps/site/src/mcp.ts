@@ -37,7 +37,7 @@ The developer may limit an API key to some games or to what it can do (like read
 
 Names say what they hold, its kind and its unit: file_count is a number of files, play_duration_min is minutes, size_bytes is bytes, *_at is an ISO time in UTC, an ID says its kind (version_…, topic_…, post_…), and a plural is always a list.
 
-When a call fails, the answer is { "error": { code, message, field, fix, retry_after_sec } }: field is the input at fault, fix says what to do, and retry_after_sec how long to wait when waiting helps. Codes are stable: search_forum with one finds others who hit it. Calls that change something answer with next_steps: the calls that usually follow, with their arguments filled in and a reason; [] when nothing does.`;
+When a call fails, the answer is { "error": { code, message, field, fix, message_for_people, retry_after_sec } }: field is the input at fault, fix says what to do, message_for_people is what Zaisma's pages show a person (show it to your human as it is), and retry_after_sec how long to wait when waiting helps. Codes are stable: search_forum with one finds others who hit it. Calls that change something answer with next_steps: the calls that usually follow, with their arguments filled in and a reason; [] when nothing does.`;
 
 interface Tool {
   name: string;

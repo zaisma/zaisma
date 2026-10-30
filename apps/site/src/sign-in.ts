@@ -242,7 +242,7 @@ async function checkAuthorize(env: Env, given: (name: string) => string | null):
   }
   const clientId = parameters.client_id ?? "";
   const app = isIdOf("sign_in_app", clientId) ? await signInAppById(env.DB, clientId) : null;
-  if (!app) return { brokenLinkReason: "the site it came from isn't set up for Sign in with Zaisma (its client_id is unknown)" };
+  if (!app) return { brokenLinkReason: "the site it came from isn't set up for Sign in with Zaisma" };
   const checkedUrl = checkRedirectUrl(parameters.redirect_uri ?? "");
   const redirectUrl = "redirectUrl" in checkedUrl ? checkedUrl.redirectUrl : null;
   if (!redirectUrl || !redirectUrlsOf(app).includes(redirectUrl)) return { brokenLinkReason: `it would send you back to an address ${app.name} didn't register (redirect_uri)` };

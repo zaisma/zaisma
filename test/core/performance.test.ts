@@ -85,7 +85,7 @@ describe("a run's report", () => {
     );
     expect(report.notes).toEqual([
       { code: "missing_file_at_start", message: "The game asked for Build/levels/forest.bundle while starting, and it isn't in this version.", path: "Build/levels/forest.bundle", saved_size_bytes: null, fix: expect.stringContaining("case-sensitive") },
-      { code: "blocked_at_start", message: "https://cdn.example.com/lib.js was blocked while starting.", path: null, saved_size_bytes: null, fix: expect.stringContaining("update_game") },
+      { code: "blocked_at_start", message: "https://cdn.example.com/lib.js was blocked while starting.", path: null, saved_size_bytes: null, fix: expect.stringContaining("the game's own servers") },
     ]);
     // A file that wasn't there is never preloaded.
     expect(report.start_files).toEqual([]);

@@ -1,3 +1,4 @@
+import { wordProblems, type WordsRegister } from "@zaisma/core";
 import { COMPONENT_STYLES } from "../../apps/site/src/components/index.ts";
 
 /**
@@ -67,6 +68,46 @@ export function pageProblems(markup: string): string[] {
     }
   }
   return [...new Set(problems)];
+}
+
+/** Elements whose insides are code or not words a person reads: left out of the word check whole. */
+const NOT_WORDS_TAGS = ["script", "style", "template", "code", "pre", "kbd", "svg", "noscript"];
+
+/** The markup with every element marked data-words="theirs" (a developer's or player's own words, like a game's title) taken out, nested ones included. */
+function withoutTheirWords(markup: string): string {
+  let rest = markup;
+  for (let opening = rest.search(/<[a-z][a-z0-9-]*\b[^>]*\sdata-words="theirs"/); opening >= 0; opening = rest.search(/<[a-z][a-z0-9-]*\b[^>]*\sdata-words="theirs"/)) {
+    const tag = /^<([a-z][a-z0-9-]*)/.exec(rest.slice(opening))![1]!;
+    const sameTag = new RegExp(`<(/?)${tag}\\b[^>]*?(/?)>`, "g");
+    sameTag.lastIndex = opening;
+    let depth = 0;
+    let end = rest.length;
+    for (let match = sameTag.exec(rest); match; match = sameTag.exec(rest)) {
+      if (match[2] === "/" || VOID_TAGS.has(tag)) { if (depth === 0) { end = match.index + match[0].length; break; } continue; }
+      depth += match[1] === "/" ? -1 : 1;
+      if (depth === 0) { end = match.index + match[0].length; break; }
+    }
+    rest = rest.slice(0, opening) + " " + rest.slice(end);
+  }
+  return rest;
+}
+
+/** The words a person reads on a page: tags, attributes, code and their own words (data-words="theirs") left out, entities read. */
+export function pageWords(markup: string): string {
+  let text = withoutTheirWords(markup.replace(/<!--[\s\S]*?-->/g, " "));
+  for (const tag of NOT_WORDS_TAGS) text = text.replace(new RegExp(`<${tag}\\b[\\s\\S]*?</${tag}>`, "gi"), " ");
+  return text
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&#(\d+);/g, (_, code: string) => String.fromCodePoint(Number(code)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, code: string) => String.fromCodePoint(parseInt(code, 16)))
+    .replace(/&nbsp;/g, " ").replace(/&quot;/g, '"').replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** What breaks the word rules (packages/core/src/words.ts) in the words a person reads on a page, in its register. */
+export function pageWordProblems(markup: string, register: WordsRegister): string[] {
+  return wordProblems(pageWords(markup), register);
 }
 
 /** An element of a rendered page as HTMLRewriter reads it, with what's in it: other elements and its own words. */
