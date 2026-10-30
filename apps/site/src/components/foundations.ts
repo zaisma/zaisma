@@ -151,7 +151,6 @@ export const logo = (kind: "wordmark" | "mark"): Raw =>
 const logoOn = (glassKind: "light" | "smoked", markup: Raw): Raw =>
   html`<div ${glassKind === "light" ? raw('data-theme-choice="light"') : raw('class="smoke"')} style="display:flex;padding:var(--pad-pane);background:${glassKind === "light" ? "#E7E4DF" : "#121110"}">${markup}</div>`;
 
-/** The loader: the Z building itself, one loop a second (brand/loader/zaisma-loader.svg), in the words' color. Shown only once something was pressed. */
 /**
  * A divider (reading.ts's Divider): a hairline across a pane between two parts of it (a menu's head and its choices, a group of choices
  * and Clear filters), or, with words in its middle, between two ways to do one thing (or). isDecorative: it only sets parts apart, and a
@@ -162,7 +161,9 @@ export function divider(options: { words?: string; isDecorative?: boolean } = {}
   return options.isDecorative ? raw('<hr class="divider hairline" aria-hidden="true">') : raw('<hr class="divider hairline" role="separator">');
 }
 
-export const loader = (): Raw => raw('<span class="loader" aria-hidden="true"></span>');
+/** The loader: the Z building itself, one loop a second (brand/loader/zaisma-loader.svg), in the words' color. Shown only once something was pressed. It's drawn in the page (the file's Z, used in place), so it
+ * animates as smoothly as the page does: as a mask image Safari draws it a few frames a second. */
+export const loader = (): Raw => raw('<svg class="loader" viewBox="-30 -30 2060 1518" aria-hidden="true"><use href="/loader/zaisma-loader.svg#z"></use></svg>');
 
 /** A rail's parts: its channel, carved with slanted ends, and inside it the groove the thumb slides in. */
 export const RAIL_PARTS = '<div class="rail-line carving deep"><div class="rail-groove"><div class="rail-thumb"></div></div></div>';
@@ -658,10 +659,9 @@ component({
   summary: "The Z building itself: what a button shows once it's pressed and waiting, a form sent or a page opening. Only ever after you press something.",
   styles: `
 /* The loader: the brand's Z, masked so it takes the words' color, --loader-width wide (19px). Under reduced motion, the still mark breathing slowly instead. */
-.loader { display: inline-block; width: var(--loader-width, 19px); height: calc(var(--loader-width, 19px) * 0.737); flex: none; background: currentColor;
-  -webkit-mask: url(/loader/zaisma-loader.svg) center / contain no-repeat; mask: url(/loader/zaisma-loader.svg) center / contain no-repeat; }
+.loader { display: inline-block; width: var(--loader-width, 19px); height: calc(var(--loader-width, 19px) * 0.737); flex: none; fill: currentColor; overflow: visible; }
 @keyframes loader-calm { 50% { opacity: 0.4; } }
-@media (prefers-reduced-motion: reduce) { .loader { -webkit-mask-image: url(/zaisma-mark-small-white.svg); mask-image: url(/zaisma-mark-small-white.svg); animation: loader-calm var(--motion-loop-slow) ease-in-out infinite; } }
+@media (prefers-reduced-motion: reduce) { .loader { background: currentColor; -webkit-mask: url(/zaisma-mark-small-white.svg) center / contain no-repeat; mask: url(/zaisma-mark-small-white.svg) center / contain no-repeat; animation: loader-calm var(--motion-loop-slow) ease-in-out infinite; } .loader > use { display: none; } }
 `,
   render: loader,
   examples: [
