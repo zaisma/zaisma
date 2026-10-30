@@ -4,6 +4,7 @@ import { component } from "./component.ts";
 import { controlMarkup, type ControlMarkup } from "./control-markup.ts";
 import { CUT_LINE, EDGE, EDGE_LIGHT, floatingPane, glassPane, icon, loader, well, type IconName } from "./foundations.ts";
 import { examplePane } from "./example-pane.ts";
+import { listRows, type ListRow, type RowSwitch } from "./data.ts";
 import { LEAST_SCROLL_PX } from "./tokens.ts";
 
 /*
@@ -625,45 +626,21 @@ component({
   ],
 });
 
-export interface ToggleOptions {
-  name: string;
-  label: string;
-  isOn: boolean;
-  /** A line under its label, saying what it changes. */
-  hint?: string;
-  /** Its change is being saved: its slab shows the loader, and it can't be flipped again until it's saved. A page script sets it. */
-  isBusy?: boolean;
-  /** It can't be changed now: it shows on or off, and its form sends nothing for it. */
-  isDisabled?: boolean;
-  /** Unique on the page. Defaults to toggle-<name>. */
-  id?: string;
-  state?: PressState;
-}
-
-/** A toggle: on or off for a setting that takes effect as it's saved (Cloud saves, Show me online). A checkbox underneath, sent with its form, so it needs no script to post. */
-export function toggle(options: ToggleOptions): Raw {
-  const id = options.id ?? `toggle-${options.name}`;
-  const className = ["toggle", options.state ?? "", options.isDisabled ? "is-disabled" : ""].filter(Boolean).join(" ");
-  return html`<label class="${className}" for="${id}"><span class="toggle-words words-margin at-start"><span class="toggle-label">${options.label}</span>${options.hint ? html`<span class="toggle-hint" id="${id}-hint">${options.hint}</span>` : ""}</span><span class="toggle-slot carving slot" data-cut-line="8">${CUT_LINE}<input class="toggle-input" type="checkbox" role="switch" id="${id}" name="${options.name}" value="on"${options.isOn ? raw(" checked") : ""}${options.hint ? html` aria-describedby="${id}-hint"` : ""}${options.isBusy ? raw(' aria-busy="true"') : ""}${options.isBusy || options.isDisabled ? raw(" disabled") : ""}><span class="toggle-thumb thumb" aria-hidden="true"><span class="toggle-slab thumb-slab cut-raised" data-cut-line="6" data-cut-ends="start end">${CUT_LINE}${loader()}</span></span></span></label>`;
-}
-
-/** The gallery's toggles sit in a column a phone's width at most, as in a settings list. */
+/** The gallery's settings sit in a column a phone's width at most, as in a settings list. */
 const TOGGLE_COLUMN = "width:min(340px,100%)";
+/** One setting in List rows, ending in its switch. */
+const settingRow = (title: string, rowSwitch: RowSwitch, more: { detail?: string; state?: PressState; rowsWhileOn?: ListRow[] } = {}): Raw =>
+  listRows({ whenEmpty: html``, rows: [{ title, detail: more.detail, state: more.state, switch: rowSwitch, rowsWhileOn: more.rowsWhileOn }] });
 
 component({
   name: "Toggle",
   slug: "toggle",
   group: "inputs",
   subgroup: "choices",
-  summary: "On or off for a setting: Cloud saves, Show me online. A white slab that springs across a carved slot, which fills orange when it's on. It's a checkbox in its form, so it posts without a script.",
+  summary: "On or off for a setting: Cloud saves, Show me online. A white slab that springs across a carved slot, which fills orange when it's on. It ends a row of List rows (a row's switch), and the whole row is its label: a press anywhere on it flips it. A row may hold the settings that only matter while it's on, in a well under it. It's a checkbox in its form, so it posts without a script.",
   styles: `
-/* A toggle: a carved slot holding a white slab that springs to its far end when on, the slot filling orange behind it. The real
-   checkbox (role switch) lies over the slot, unseen; the words before it are its label, so a press on them flips it too. */
-.toggle { position: relative; display: flex; align-items: center; justify-content: space-between; gap: var(--gap-words-beside-control); cursor: pointer; -webkit-tap-highlight-color: transparent; }
-${TOUCH_ROOM(".toggle")}
-.toggle-words { display: grid; gap: var(--gap-words-words); min-width: 0; }
-.toggle-label { font: var(--type-words); color: var(--ink); }
-.toggle-hint { font: var(--type-note); color: var(--muted); }
+/* A toggle: a carved slot holding a white slab that springs to its far end when on, the slot filling orange behind it. The real checkbox
+   (role switch) lies over the slot, unseen; the row round it (List rows) is its label, so a press anywhere on the row flips it. */
 /* The slot is a carving's (materials.ts), the slab a thumb. */
 /* Off, it's carved into the glass, its edges lit and shaded like every carving; on, its orange is its edge. */
 .toggle-slot:has(.toggle-input:checked) > .cut-line polygon { stroke: transparent; }
@@ -680,8 +657,8 @@ ${TOUCH_ROOM(".toggle")}
 .toggle:not(.is-disabled):active .toggle-thumb, .toggle.is-pressed .toggle-thumb { transition-duration: var(--motion-arrive), var(--motion-press); }
 /* Can't be changed now: the slot flat, the words quieter, and no orange, since there's nothing to do: on, the slot is filled in the grey of
    an edge (--press-rim), which the white slab stands out from in either glass. */
-.toggle.is-disabled, .toggle.is-disabled .toggle-input { cursor: default; }
-.toggle.is-disabled .toggle-label { color: var(--muted); }
+.toggle.is-disabled .toggle-input { cursor: default; }
+.toggle.is-disabled .list-row-title { color: var(--muted); }
 .toggle.is-disabled .toggle-slot { --face-color: var(--off-face); box-shadow: none; }
 .toggle.is-disabled .toggle-slot > .cut-line polygon { stroke: var(--line); }
 .toggle.is-disabled .toggle-slot:has(.toggle-input:checked) { --face-color: var(--press-rim); }
@@ -690,15 +667,29 @@ ${TOUCH_ROOM(".toggle")}
 .toggle-slot:has(.toggle-input:checked:focus-visible) > .cut-line polygon, .toggle.is-focused .toggle-slot:has(.toggle-input:checked) > .cut-line polygon { stroke: var(--focus-on-run); stroke-width: calc(var(--focus-stroke) * 1.5); }
 @media (prefers-reduced-motion: reduce) { .toggle-thumb { transition: none; } .toggle-slot { transition: none; } }
 `,
-  render: toggle,
   examples: [
-    ...pressExamples((state, exampleKey) => html`<div style="${TOGGLE_COLUMN}">${toggle({ id: `example-toggle-${exampleKey}`, name: "cloud_saves", label: "Cloud saves", isOn: true, state })}</div>`, "toggle"),
-    { label: "Off", markup: html`<div style="${TOGGLE_COLUMN}">${toggle({ id: "example-toggle-off", name: "shown_online", label: "Show me online", isOn: false })}</div>` },
-    { label: "Off, keyboard focus", markup: html`<div style="${TOGGLE_COLUMN}">${toggle({ id: "example-toggle-off-focused", name: "shown_online", label: "Show me online", isOn: false, state: "is-focused" })}</div>`, isStill: true },
-    { label: "Saving", markup: html`<div style="${TOGGLE_COLUMN}">${toggle({ id: "example-toggle-busy", name: "cloud_saves", label: "Cloud saves", isOn: true, isBusy: true })}</div>`, isStill: true },
-    { label: "With a hint, in a pane", markup: examplePane(toggle({ id: "example-toggle-hint", name: "cloud_saves_pane", label: "Cloud saves", hint: "Players keep their progress on any device.", isOn: true })) },
-    { label: "Long words, in a pane", markup: examplePane(toggle({ id: "example-toggle-long", name: "party_invites", label: "Let friends join my matches without an invite, even in a ranked queue", hint: "They join your party's next match; a full match keeps them waiting.", isOn: false })) },
-    { label: "Can't be changed: off", markup: html`<div style="${TOGGLE_COLUMN}">${toggle({ id: "example-toggle-disabled", name: "shown_online_locked", label: "Show me online", isOn: false, isDisabled: true })}</div>` },
-    { label: "Can't be changed: on", markup: html`<div style="${TOGGLE_COLUMN}">${toggle({ id: "example-toggle-disabled-on", name: "cloud_saves_locked", label: "Cloud saves", isOn: true, isDisabled: true })}</div>` },
+    ...pressExamples((state, exampleKey) => html`<div style="${TOGGLE_COLUMN}">${settingRow("Cloud saves", { id: `example-toggle-${exampleKey}`, name: "cloud_saves", isOn: true }, { state })}</div>`, "toggle"),
+    { label: "Off", markup: html`<div style="${TOGGLE_COLUMN}">${settingRow("Show me online", { id: "example-toggle-off", name: "shown_online", isOn: false })}</div>` },
+    { label: "Off, keyboard focus", markup: html`<div style="${TOGGLE_COLUMN}">${settingRow("Show me online", { id: "example-toggle-off-focused", name: "shown_online", isOn: false }, { state: "is-focused" })}</div>`, isStill: true },
+    { label: "Saving", markup: html`<div style="${TOGGLE_COLUMN}">${settingRow("Cloud saves", { id: "example-toggle-busy", name: "cloud_saves", isOn: true, isBusy: true })}</div>`, isStill: true },
+    { label: "With a line under it, in a pane", markup: examplePane(settingRow("Cloud saves", { id: "example-toggle-hint", name: "cloud_saves_pane", isOn: true }, { detail: "Players keep their progress on any device." })) },
+    { label: "Long words, in a pane", markup: examplePane(settingRow("Let friends join my matches without an invite, even in a ranked queue", { id: "example-toggle-long", name: "party_invites", isOn: false }, { detail: "They join your party's next match; a full match keeps them waiting." })) },
+    {
+      label: "Several settings, one list, in a pane",
+      markup: examplePane(listRows({ whenEmpty: html``, rows: [
+        { title: "Show it to players", detail: "Only people with the link can play it while this is off.", switch: { id: "example-toggle-list-shown", name: "is_listed", isOn: true } },
+        { title: "Let players rate it", switch: { id: "example-toggle-list-rated", name: "is_rated", isOn: true } },
+        { title: "Show players now", switch: { id: "example-toggle-list-now", name: "is_player_count_shown", isOn: false } },
+      ] })),
+    },
+    {
+      label: "With the settings it turns on, in a pane: turn Online play off to fold them away",
+      markup: examplePane(settingRow("Online play", { id: "example-toggle-parent", name: "is_online", isOn: true }, { detail: "Players can join each other's games.", rowsWhileOn: [
+        { title: "Friends only", switch: { id: "example-toggle-child-friends", name: "is_friends_only", isOn: true } },
+        { title: "Voice chat", switch: { id: "example-toggle-child-voice", name: "is_voice_chat", isOn: false } },
+      ] })),
+    },
+    { label: "Can't be changed: off", markup: html`<div style="${TOGGLE_COLUMN}">${settingRow("Show me online", { id: "example-toggle-disabled", name: "shown_online_locked", isOn: false, isDisabled: true })}</div>` },
+    { label: "Can't be changed: on", markup: html`<div style="${TOGGLE_COLUMN}">${settingRow("Cloud saves", { id: "example-toggle-disabled-on", name: "cloud_saves_locked", isOn: true, isDisabled: true })}</div>` },
   ],
 });

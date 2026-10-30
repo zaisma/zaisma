@@ -2,7 +2,7 @@ import { accountPicture, html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
 import { secondaryButton, primaryButton, textLink } from "./actions.ts";
 import type { ControlMarkup } from "./control-markup.ts";
-import { CUT_LINE, MINUTE_MS, ago, glassPane, groove, icon, tag, type IconName, type TagTone } from "./foundations.ts";
+import { CUT_LINE, MINUTE_MS, ago, glassPane, groove, icon, loader, tag, type IconName, type TagTone } from "./foundations.ts";
 import { WHEN_EMPTY_STYLES, row, stack, stackOfOne } from "./layout.ts";
 
 /*
@@ -279,11 +279,33 @@ interface ListRowParts {
   isHidden?: boolean;
 }
 
+/** A row's switch (Toggle, in Inputs): on or off for a setting that takes effect as it's saved. The whole row is its label, so a press anywhere on it flips it. */
+export interface RowSwitch {
+  name: string;
+  isOn: boolean;
+  /** Unique on the page. Defaults to switch-<name>. */
+  id?: string;
+  /** Its change is being saved: its slab shows the loader, and it can't be flipped again until it's saved. A page script sets it. */
+  isBusy?: boolean;
+  /** It can't be changed now: it shows on or off, and its form sends nothing for it. */
+  isDisabled?: boolean;
+}
+
 /**
- * A row that goes somewhere is a link as a whole, so it never holds a button; a row to read may end in one (Remove, Invite), or in a few
- * small ones side by side (a player in a room: Mute, and ⋯ for the rest).
+ * A row that goes somewhere is a link as a whole, so it never holds a button; a row to read may end in any control (Remove, Invite, a
+ * select), or in a few small ones side by side (a player in a room: Mute, and ⋯ for the rest); a row for a setting ends in a switch, and
+ * is pressed as a whole. A switch row may hold the rows that only matter while it's on, in a well under it.
  */
-export type ListRow = ListRowParts & ({ href: string; action?: never } | { href?: undefined; action?: ControlMarkup | ControlMarkup[] });
+export type ListRow = ListRowParts & (
+  | { href: string; action?: never; switch?: never; rowsWhileOn?: never }
+  | { href?: undefined; action?: ControlMarkup | ControlMarkup[]; switch?: never; rowsWhileOn?: never }
+  | { href?: undefined; action?: never; switch: RowSwitch; rowsWhileOn?: ListRow[] }
+);
+
+/** A switch's carved slot and its slab: the checkbox (role switch) lies over the slot, unseen, and the row round it is its label. */
+function switchSlot(id: string, rowSwitch: RowSwitch): Raw {
+  return html`<span class="toggle-slot carving slot" data-cut-line="8">${CUT_LINE}<input class="toggle-input" type="checkbox" role="switch" id="${id}" name="${rowSwitch.name}" value="on"${rowSwitch.isOn ? raw(" checked") : ""}${rowSwitch.isBusy ? raw(' aria-busy="true"') : ""}${rowSwitch.isBusy || rowSwitch.isDisabled ? raw(" disabled") : ""}><span class="toggle-thumb thumb" aria-hidden="true"><span class="toggle-slab thumb-slab cut-raised" data-cut-line="6" data-cut-ends="start end">${CUT_LINE}${loader()}</span></span></span>`;
+}
 
 /** A row's buttons side by side, slanting toward each other. */
 const rowOf = (actions: ControlMarkup[]) => row({ widths: "fit", items: actions.map((markup) => ({ kind: "control" as const, markup })) });
@@ -309,8 +331,20 @@ function listMarkup(options: { rows: ListRow[]; id?: string; label?: string; sho
     const inside = html`${row.lead ? html`<span class="list-row-lead">${row.lead}</span>` : ""}<span class="list-row-words">${row.titleIcon ? html`<span class="list-row-title-line"><span class="list-row-title">${row.title}</span><span class="list-row-title-icon" role="img" aria-label="${row.titleIcon.label}" title="${row.titleIcon.label}"${row.titleIcon.isHidden ? raw(" hidden") : ""}>${icon(row.titleIcon.icon)}</span></span>` : html`<span class="list-row-title">${row.title}</span>`}${details.map((line) => html`<span class="list-row-detail">${factLine(line, "list-row-fact")}</span>`)}${row.meter ? html`<span class="list-row-meter">${usageTrack(row.meter)}</span>` : ""}</span>${row.end !== undefined ? html`<span class="list-row-end">${row.end}</span>` : ""}`;
     return html`<li${row.isHidden ? raw(" hidden") : ""}>${row.href
       ? html`<a class="list-row flush-row is-link${row.state ? ` ${row.state}` : ""}" href="${row.href}"${row.isNewTab ? raw(' target="_blank" rel="noopener noreferrer"') : ""} data-cut-line="8">${CUT_LINE}${inside}<span class="list-row-go${row.isNewTab ? " is-new-tab" : ""}" aria-hidden="true">${icon(row.isNewTab ? "out-of-page" : "chevron-right")}</span></a>`
-      : html`<div class="list-row flush-row quiet">${inside}${row.action ? html`<span class="list-row-action">${Array.isArray(row.action) ? rowOf(row.action) : row.action}</span>` : ""}</div>`}</li>`;
+      : row.switch
+        ? switchRowMarkup(row, row.switch, inside)
+        : html`<div class="list-row flush-row quiet">${inside}${row.action ? html`<span class="list-row-action">${Array.isArray(row.action) ? rowOf(row.action) : row.action}</span>` : ""}</div>`}</li>`;
   })}</ul>`;
+}
+
+/** A switch row: a label as a whole, its words then its switch, and under it, while it's on, the rows that only matter then, in a well. */
+function switchRowMarkup(row: ListRow, rowSwitch: RowSwitch, inside: Raw): Raw {
+  const id = rowSwitch.id ?? `switch-${rowSwitch.name}`;
+  const className = ["list-row", "flush-row", "toggle", row.state ?? "", rowSwitch.isDisabled ? "is-disabled quiet" : ""].filter(Boolean).join(" ");
+  const whileOn = row.rowsWhileOn?.length
+    ? html`<div class="list-row-while-on carving holds-parts" data-cut-line="8">${CUT_LINE}<div class="carving-words">${listMarkup({ rows: row.rowsWhileOn, isCompact: true }, "")}</div></div>`
+    : "";
+  return html`<label class="${className}" for="${id}" data-cut-line="8">${CUT_LINE}${inside}<span class="list-row-action">${switchSlot(id, rowSwitch)}</span></label>${whileOn}`;
 }
 
 const VERSION_LIST_ROWS: ListRow[] = [
@@ -326,7 +360,7 @@ component({
   slug: "list-rows",
   group: "data",
   subgroup: "lists",
-  summary: "A list of things on glass, one a row with hairlines between: versions, keys, topics, players. A row that goes somewhere is a link as a whole, ending in a chevron that steps on as you point; a row to read may end in a button.",
+  summary: "A list of things on glass, one a row with hairlines between: versions, keys, topics, players, settings. A row that goes somewhere is a link as a whole, ending in a chevron that steps on as you point; a row to read may end in any control, a button or a select; a row for a setting ends in its switch (Toggle) and is pressed as a whole, holding the settings it turns on in a well under it. Words and the control at a row's end keep one margin, so a row reads as one thing.",
   styles: `
 /* List rows: one thing a row, hairlines between. A row that's a link ends in a small chevron; under the pointer the row brightens a little
    (a faint slab, cut by the edge rule), an orange mark rises at its start, and the chevron steps on, the way the guest button's arrow does.
@@ -357,6 +391,14 @@ component({
 .list-row-fact { display: inline-block; max-width: 100%; }
 .list-row-end { flex: none; display: inline-flex; align-items: center; gap: var(--gap-words-words); font: var(--type-facts); color: var(--ink-2); }
 .list-row-action { flex: none; display: inline-flex; margin-left: auto; }
+/* A switch row is pressed as a whole (its words are its switch's label): it shows its face as you point at it, as a link row does. */
+.list-row.toggle { flex-wrap: nowrap; cursor: pointer; }
+/* Its words take what's left beside the switch, however narrow, and wrap there: the switch stays on their line, at the row's end. */
+.list-row.toggle > .list-row-words { flex: 1 1 0; }
+.list-row.toggle.is-disabled { cursor: default; }
+/* The rows a switch row turns on: in a well under it, a frame gap in from the list's sides and above the next row, shown while it's on. */
+.list-row-while-on { margin: 0 var(--pad-frame) var(--pad-frame); }
+.list-rows > li:has(> .list-row .toggle-input:not(:checked)) > .list-row-while-on { display: none; }
 .list-row-go { flex: none; display: inline-flex; color: var(--muted); transition: transform var(--motion-glide) var(--ease-glide), color var(--motion-state); }
 .list-row-go > .ico { width: 8px; height: 13px; stroke-width: 2.2; }
 /* A row that opens a new tab ends in the out-of-the-page arrow, which steps up and out as you point. */

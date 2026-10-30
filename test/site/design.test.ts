@@ -471,10 +471,11 @@ describe("components", () => {
     expect(panes.confirmSheet({ id: "sign-out", title: "Sign out everywhere?", action: "/account/sign-out-everywhere", confirmLabel: "Sign out everywhere", text: "Every device is signed out." }).html).not.toContain('data-tint="red"');
   });
 
-  it("make a toggle a checkbox that posts with its form, with no script", () => {
-    const markup = inputs.toggle({ name: "cloud_saves", label: "Cloud saves", isOn: true }).html;
-    expect(markup).toContain('<input class="toggle-input" type="checkbox" role="switch" id="toggle-cloud_saves" name="cloud_saves" value="on" checked>');
-    expect(inputs.toggle({ name: "cloud_saves", label: "Cloud saves", isOn: false }).html).not.toContain(" checked");
+  it("make a row's switch a checkbox that posts with its form, with no script, the whole row its label", () => {
+    const switchRow = (isOn: boolean) => data.listRows({ whenEmpty: html``, rows: [{ title: "Cloud saves", switch: { name: "cloud_saves", isOn } }] }).html;
+    expect(switchRow(true)).toContain('<input class="toggle-input" type="checkbox" role="switch" id="switch-cloud_saves" name="cloud_saves" value="on" checked>');
+    expect(switchRow(true)).toContain('<label class="list-row flush-row toggle" for="switch-cloud_saves"');
+    expect(switchRow(false)).not.toContain(" checked");
   });
 
   it("announce a problem notice as an alert and a done one as a status", () => {

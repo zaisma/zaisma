@@ -20,7 +20,7 @@ import type { ControlMarkup } from "./components/control-markup.ts";
 import { sidebar, sidebarButton, sidebarLayout } from "./components/navigation.ts";
 import { confirmItsYouSheet } from "./components/confirm-its-you.ts";
 import { confirmSheet, dropdown, notice, sheet } from "./components/panes.ts";
-import { checkField, choiceCards, copyField, cutField, longField, selectField, toggle } from "./components/inputs.ts";
+import { checkField, choiceCards, copyField, cutField, longField, selectField } from "./components/inputs.ts";
 import { emptyState, listRows, numbers, table, type ListRow } from "./components/data.ts";
 import { hostingMeter } from "./hosting-meter.ts";
 import { foldedPart } from "./components/reading.ts";
@@ -485,7 +485,7 @@ function paymentsPane(settings: Settings): LayoutItem {
         title: "Stripe Tax",
         closeLabel: "Close",
         action: `${PAGE}/payments/tax`,
-        body: stackOfOne(toggle({ id: "stripe-tax", name: "is_stripe_tax_used", label: "Stripe Tax", isOn: stripe.is_stripe_tax_used, hint: "Stripe calculates and records the tax inside each price. Prices never change." })),
+        body: stackOfOne(listRows({ whenEmpty: html``, rows: [{ title: "Stripe Tax", detail: "Stripe calculates and records the tax inside each price. Prices never change.", switch: { id: "stripe-tax", name: "is_stripe_tax_used", isOn: stripe.is_stripe_tax_used } }] })),
         buttons: [secondaryButton("Cancel", { type: "submit", formMethod: "dialog" }), primaryButton("Save", { type: "submit" })],
       }),
     ),
