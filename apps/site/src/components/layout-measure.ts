@@ -6,7 +6,9 @@ export const LAYOUT_TIERS: readonly LayoutRuleTier[] = ["gallery", "page", "swee
 
 /**
  * Every rule the measuring check still measures, by the name it fails with (a report() below, or a check: in scripts/layout-check.mjs), and
- * its tier. A rule made impossible in code (a type, or a scan of the rendered page in test/site/design.test.ts) isn't measured at all.
+ * its tier. A rule made impossible in code (a type, or a scan of the rendered page in test/site/design.test.ts) isn't measured at all:
+ * a control is its size class's height (test/node/materials.test.ts refuses any other height, in styles or markup), and the controls in
+ * a row are one height (row() sets each to its tallest's size class).
  *   - gallery: how one component is built (its sizes, margins, cuts), proven once on the gallery's pages, on every screen and at 200% text;
  *   - page: how a page arranges its pieces, on every page and state on each pull request, on a phone and a laptop;
  *   - sweep: what's too slow to measure on every pull request, and every rule on every page on the other screens, in dark, at 200% text
@@ -15,11 +17,9 @@ export const LAYOUT_TIERS: readonly LayoutRuleTier[] = ["gallery", "page", "swee
  */
 export const LAYOUT_RULE_TIERS: Readonly<Record<string, LayoutRuleTier>> = {
   "a touch target under 44px": "gallery",
-  "a control off its size class's height": "gallery",
   "bevel under 4px": "gallery",
   "square in a cut corner": "gallery",
   "a corner control without its corner's bevel": "gallery",
-  "controls in one row of different heights": "gallery",
   "a corner control not in its corner": "gallery",
   "an equal row's cells of different widths": "gallery",
   "words beside a control off its center line": "gallery",
@@ -92,7 +92,13 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
   // Words people see are measured even where a screen reader skips them (a chart's drawn scale and axis, read as a table instead).
   var WORDS_SKIPPED = "script, style, template, .sr, .loader, .rail, .edge, .cut-line";
   var COMPONENTS = ["run-wrap", "cut-btn", "tertiary-btn", "cut-field", "field", "find", "switch-well", "tab-switch", "steps", "cover", "banner", "glass-pane", "tray", "tray-head", "sheet", "dropdown", "notice", "table", "list-rows", "choice-card", "toggle", "check", "top", "foot", "layout-row", "layout-stack", "layout-grid", "layout-track", "pane-head", "pane-foot"];
+  // Asked of the same element again and again, and nothing measuring changes what shows: worked out once each.
+  var shownByElement = new Map();
   function isShown(el) {
+    if (!shownByElement.has(el)) shownByElement.set(el, isShownNow(el));
+    return shownByElement.get(el);
+  }
+  function isShownNow(el) {
     var r = el.getBoundingClientRect();
     if (r.width < 1 || r.height < 1) return false;
     var css = getComputedStyle(el);
@@ -389,7 +395,7 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
       }
     });
   });
-  // Rows: every control one height, on one line.
+  // Rows: every control on one line (row() gives them one height).
   document.querySelectorAll(".layout-row").forEach(function (row) {
     if (!isShown(row)) return;
     var boxes = Array.prototype.flatMap.call(row.querySelectorAll(":scope > .row-cell.is-control"), function (cell) {
@@ -401,8 +407,7 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
       boxes.slice(i + 1).forEach(function (other) {
         var b = other.getBoundingClientRect(), isSameLine = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 0;
         if (!isSameLine) return;
-        if (Math.abs(a.height - b.height) > 1) report("controls in one row of different heights", control, round(a.height) + "px beside " + describe(other) + " at " + round(b.height) + "px");
-        else if (Math.abs(a.top - b.top) > 1) report("controls in one row not on one line", control, round(a.top - b.top) + "px off " + describe(other));
+        if (Math.abs(a.top - b.top) > 1) report("controls in one row not on one line", control, round(a.top - b.top) + "px off " + describe(other));
       });
     });
   });
@@ -449,12 +454,6 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
       if (cells.length > 1 && line.length === 1 && cell.classList.contains("is-control") && a.width + reachPx < rowBox.width - TOLERANCE_PX) report("a control alone on a row's line, short of its end", cell, round(a.width) + "px on a line " + round(rowBox.width) + "px wide");
     });
   });
-  // Every control is its size class's height (--control-height: small, regular, field or big), never a number of its own.
-  document.querySelectorAll(".run-wrap > .run, .cut-btn:not(.in-well) > .face, .cut-field > .field:not(.long, .code), .pin-box, .find, .wheel-button").forEach(function (el) {
-    if (!isShown(el)) return;
-    var expectedPx = getComputedStyle(el).getPropertyValue("--control-height").trim() ? lengthPx("var(--control-height)", el) : 0, foundPx = el.getBoundingClientRect().height;
-    if (expectedPx && Math.abs(foundPx - expectedPx) > 1) report("a control off its size class's height", el, round(foundPx) + "px tall, its size class " + round(expectedPx) + "px");
-  });
   // Words are never cut off. (Capitals, orange words and a token's name are scanned on the rendered page: test/site/design.test.ts.)
   var wordsWalker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT), wordsNode, seen = new Set();
   while ((wordsNode = wordsWalker.nextNode())) {
@@ -488,9 +487,18 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
   });
   // A box that scrolls up and down scrolls by more than a few pixels: one that scrolls by a sliver (a row of covers made a little taller by
   // what lifts in it) only bounces under a finger.
-  if (isMeasured("a box that scrolls up and down by a sliver")) document.querySelectorAll("body *").forEach(function (box) {
-    var css = getComputedStyle(box), extraPx = box.scrollHeight - box.clientHeight;
-    if (/^(auto|scroll)$/.test(css.overflowY) && extraPx > 1 && extraPx < ${LEAST_SCROLL_PX} && isShown(box)) report("a box that scrolls up and down by a sliver", box, round(extraPx) + "px to scroll");
+  // Only what the page's styles let scroll can (the materials' .scrolls, and the few a component names in test/node/materials.test.ts):
+  // the rules that say so, found in its stylesheets, what sets it in its own style, and a text box.
+  if (isMeasured("a box that scrolls up and down by a sliver")) (function () {
+    var boxes = new Set(), selectors = ["textarea", "select", "[style*='overflow']"];
+    (function walk(rules) {
+      Array.prototype.forEach.call(rules, function (rule) { if (rule.cssRules) walk(rule.cssRules); if (rule.selectorText && rule.style && /auto|scroll/.test(rule.style.overflowY)) selectors.push(rule.selectorText); });
+    })(Array.prototype.flatMap.call(document.styleSheets, function (sheet) { try { return Array.prototype.slice.call(sheet.cssRules); } catch (error) { return []; } }));
+    selectors.forEach(function (selector) { try { document.body.querySelectorAll(selector).forEach(function (box) { boxes.add(box); }); } catch (error) { /* a selector only a stylesheet takes (a scrollbar's) */ } });
+    return Array.from(boxes);
+  })().forEach(function (box) {
+    var extraPx = box.scrollHeight - box.clientHeight;
+    if (extraPx > 1 && extraPx < ${LEAST_SCROLL_PX} && /^(auto|scroll)$/.test(getComputedStyle(box).overflowY) && isShown(box)) report("a box that scrolls up and down by a sliver", box, round(extraPx) + "px to scroll");
   });
   // Nothing empty takes a place in a stack: a thing with no height still gets a gap on each side.
   document.querySelectorAll(".pane-in, .sheet-in, .tray, form, .layout-stack, .pane-stack, .stack-cell").forEach(function (holder) {

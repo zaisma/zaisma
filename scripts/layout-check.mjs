@@ -8,7 +8,7 @@
 //     touches the components;
 //   - --sweep: every page and state, the stress accounts too, on every screen, light and dark, at 200% text, every tier, each night.
 // The rules:
-//   - controls in one row of different heights, or not on one line;
+//   - controls in one row not on one line;
 //   - anything overlapping another thing with an edge, or spilling out of its pane;
 //   - words closer to a pane's edge than its margin (--pad-pane, its tray's --pad-tray), and things with an edge of their own at other
 //     than the frame gap (--pad-frame) from an edge they sit against;

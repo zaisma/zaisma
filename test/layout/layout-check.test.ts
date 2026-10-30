@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { secondaryButton } from "../../apps/site/src/components/actions.ts";
 import { glassPane } from "../../apps/site/src/components/foundations.ts";
 import { html, raw } from "../../apps/site/src/markup.ts";
-import { grid, paneParts, row, stack, type LayoutMarkup } from "../../apps/site/src/components/layout.ts";
+import { grid, paneParts, stack, type LayoutMarkup } from "../../apps/site/src/components/layout.ts";
 
 /** A pane's body built by hand past the types, as a page could still forge one: these fixtures are pages the check must catch. */
 const forged = (markup: { html: string }) => raw(markup.html) as unknown as LayoutMarkup;
@@ -65,31 +65,27 @@ describe.skipIf(!sites)("the layout check", () => {
     expect(failures.map((failure) => `${failure.page} ${failure.size} ${failure.theme}: ${failure.check}: ${failure.element}: ${failure.said}`)).toEqual([]);
   }, 900_000);
 
-  it.skipIf(!isFirstShare)("catches a short control beside a taller one, and a corner control off its corner, naming both", async () => {
-    // The real components, then broken the way a hand-made page would be: the row without its one height, the corner control pushed down.
-    const unevenRow = row({ widths: "fit", alignment: "end", items: [{ kind: "control", markup: secondaryButton("Dismiss", { type: "button", isSmall: true }) }, { kind: "control", markup: secondaryButton("Read more", { type: "button" }) }] }).html.replace(/ data-control-height="[a-z]+"/, "");
+  it.skipIf(!isFirstShare)("catches a corner control off its corner, naming it", async () => {
+    // The real components, then broken the way a hand-made page would be: the corner control pushed down.
     const offCorner = paneParts({ head: { words: html`<h2>Rooms</h2>`, end: secondaryButton("Refresh", { type: "button" }) }, body: html`<p>Rooms here</p>` }).html.replace('<div class="pane-head-end">', '<div class="pane-head-end" style="margin-top:30px">');
-    const markup = glassPane({ paneWidth: "full", body: stack({ items: [{ kind: "block", markup: raw(offCorner) }] }) }).html.replace("</div></section>", `${unevenRow}</div></section>`);
+    const markup = glassPane({ paneWidth: "full", body: stack({ items: [{ kind: "block", markup: raw(offCorner) }] }) }).html;
     const page = { name: "Broken on purpose", path: "/design/example", mainActionShows: "nowhere", markup };
     const { failures } = (await checkPages({ ...sites!, pages: [page], sizes: LAPTOP, themes: ["light"], chromePath: await chromeToRun() })) as { failures: Failure[] };
     const said = failures.map((failure) => `${failure.check}: ${failure.element}`);
-    expect(said.some((line) => /different heights/.test(line) && /Dismiss/.test(line)), said.join("\n")).toBe(true);
     expect(said.some((line) => /corner/.test(line) && /Refresh/.test(line)), said.join("\n")).toBe(true);
   }, 300_000);
 
-  it.skipIf(!isFirstShare)("catches words inset twice, words off a control's center line, a control off its size class, and two controls side by side outside a row", async () => {
+  it.skipIf(!isFirstShare)("catches words inset twice, words off a control's center line, and two controls side by side outside a row", async () => {
     // The real components, then broken the way a hand-made page would be.
     const insetTwice = stack({ items: [{ kind: "words", markup: html`<p>Inset twice</p>` }] }).html.replace("<p>Inset twice</p>", '<p style="padding-left:12px">Inset twice</p>');
     const offCenter = paneParts({ head: { words: html`<h2>Versions</h2>`, end: secondaryButton("New version", { type: "button" }) }, body: html`<p>Every version</p>` }).html.replace("<h2>Versions</h2>", '<h2 style="padding-top:30px">Versions</h2>');
-    const offSize = secondaryButton("Too short", { type: "button" }).html.replace('<span class="face cut-raised"', '<span style="height:40px" class="face cut-raised"');
     const sideBySide = `<div style="display:flex;gap:8px">${secondaryButton("Keep", { type: "button" }).html}${secondaryButton("Drop", { type: "button" }).html}</div>`;
-    const markup = glassPane({ paneWidth: "full", body: stack({ items: [{ kind: "block", markup: raw(offCenter) }, { kind: "block", markup: raw(insetTwice) }, { kind: "block", markup: raw(offSize) }, { kind: "block", markup: raw(sideBySide) }] }) }).html;
+    const markup = glassPane({ paneWidth: "full", body: stack({ items: [{ kind: "block", markup: raw(offCenter) }, { kind: "block", markup: raw(insetTwice) }, { kind: "block", markup: raw(sideBySide) }] }) }).html;
     const page = { name: "Broken on purpose", path: "/design/example", mainActionShows: "nowhere", markup };
     const { failures } = (await checkPages({ ...sites!, pages: [page], sizes: LAPTOP, themes: ["light"], chromePath: await chromeToRun() })) as { failures: Failure[] };
     const said = failures.map((failure) => `${failure.check}: ${failure.element}`);
     expect(said.some((line) => /off the pane's margin/.test(line) && /Inset twice/.test(line)), said.join("\n")).toBe(true);
     expect(said.some((line) => /off its center line/.test(line) && /Versions/.test(line)), said.join("\n")).toBe(true);
-    expect(said.some((line) => /size class/.test(line) && /Too short/.test(line)), said.join("\n")).toBe(true);
     expect(said.some((line) => /side by side outside a row/.test(line) && /Drop|Keep/.test(line)), said.join("\n")).toBe(true);
   }, 300_000);
 
@@ -157,11 +153,11 @@ describe.skipIf(!sites)("the layout check", () => {
   }, 300_000);
 
   it.skipIf(!isFirstShare)("measures a gallery rule on the gallery's pages and skips it on a page in a pull request's run", async () => {
-    // A control off its size class's height (a gallery rule), in place of a gallery page's own and of the example page's.
-    const offSize = fullPane(secondaryButton("Too short", { type: "button" }).html.replace('<span class="face cut-raised"', '<span style="height:40px" class="face cut-raised"'));
+    // Words inset twice (a gallery rule), in place of a gallery page's own and of the example page's.
+    const insetTwice = fullPane(stack({ items: [{ kind: "words", markup: html`<p>Inset twice</p>` }] }).html.replace("<p>Inset twice</p>", '<p style="padding-left:12px">Inset twice</p>'));
     const measuredOn = async (page: Record<string, unknown>) => {
-      const { failures } = (await checkPages({ ...sites!, pages: [{ ...page, markup: offSize }], sizes: LAPTOP, themes: ["light"], tiersOf: RUNS.pull_request.tiersOf, chromePath: await chromeToRun() })) as { failures: Failure[] };
-      return failures.filter((failure) => /size class/.test(failure.check) && /Too short/.test(failure.element)).length;
+      const { failures } = (await checkPages({ ...sites!, pages: [{ ...page, markup: insetTwice }], sizes: LAPTOP, themes: ["light"], tiersOf: RUNS.pull_request.tiersOf, chromePath: await chromeToRun() })) as { failures: Failure[] };
+      return failures.filter((failure) => /off the pane's margin/.test(failure.check) && /Inset twice/.test(failure.element)).length;
     };
     expect(await measuredOn({ name: "Gallery: layout", path: "/design/layout", mainActionShows: "nowhere", isGallery: true })).toBeGreaterThan(0);
     expect(await measuredOn({ name: "Broken on purpose", path: "/design/example", mainActionShows: "nowhere" })).toBe(0);

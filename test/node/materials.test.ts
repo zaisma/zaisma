@@ -1,3 +1,5 @@
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { COMPONENTS } from "../../apps/site/src/components/index.ts";
 
@@ -7,7 +9,9 @@ import { COMPONENTS } from "../../apps/site/src/components/index.ts";
  * component puts them together and says nothing of its own about them. So a component's styles never set a background, a shadow, a
  * backdrop, a border, padding, a height or a scroll; never space its parts with the spacing tokens (a layout or a material's margin does:
  * layout.ts's stack and row, words-margin); never write a color (a token says it, so it turns with light and dark and takes a
- * game's tint); and never time a change or a loop but with the motion tokens.
+ * game's tint); and never time a change or a loop but with the motion tokens. Nor does a style written into a component's markup, and a
+ * control's height is only ever its size class's (--control-height set to a size class, never a length): so a control can't be off its
+ * size class's height, and the layout check no longer measures it.
  */
 
 /** What may give itself a look: the materials, and the layout components that place them. */
@@ -205,6 +209,23 @@ const NOT_MADE_OF_MATERIALS = new Map<string, string>([
   [".list-rows.is-capped | max-height", "a list capped at its shown rows and half the next, so it shows it scrolls"],
   [".table-scroll[data-fades-sideways] | max-height", "a table caps at the screen"],
   [".table-scroll[data-fades-sideways].is-capped | max-height", "a table capped at its head, its shown rows and half the next"],
+  // A control's height.
+  [".cut-btn.in-well | --control-height", "a button in a well is a small control less the well's compact frame gap above and below"],
+]);
+
+/** Styles written into a component's markup that aren't made of the materials, each with its reason: "file | property: value". */
+const MARKUP_NOT_MADE_OF_MATERIALS = new Map<string, string>([
+  // The gallery's stand-in worlds: a stretch of a game's backdrop for glass to sit on.
+  ["actions.ts | overflow: hidden", "a stand-in world clips its backdrop to its box"],
+  ["actions.ts | padding: var(--pad-pane)", "a stand-in world's backdrop shows a pane's margin round the pane on it"],
+  ["panes.ts | background: center / cover no-repeat url('/design/covers/neon-drift.webp')", "a game's own background behind a banner"],
+  ["panes.ts | padding: var(--gap-block-block)", "the game's background shows a block's gap round the banner on it"],
+  ["foundations.ts | padding: var(--pad-pane)", "the logo on light or smoked glass, a pane's margin round it"],
+  ["foundations.ts | background: ${glassKind === \"light\" ? \"#E7E4DF\" : \"#121110\"}", "the glass the logo sits on, light or smoked whatever the page's theme"],
+  ["foundations.ts | background: var(${token})", "a color swatch is its token's color"],
+  ["foundations.ts | --glass-tint: rgba(var(--glass-base),${glassOpacityPct / 100})", "glass at each opacity, side by side"],
+  // An example's room.
+  ["fields.ts | min-height: 22rem", "an open search field's example keeps room for its finishes under it"],
 ]);
 
 /** Every declaration in every component's styles: its component, its selector (the last in a list of several), its property and value. */
@@ -231,6 +252,7 @@ function ownLookOf(property: string, value: string, selector: string): string | 
   // A picture drawn into a box (a card brand's mark) is the picture's own, colors and all.
   if (property === "background-image" && /^url\(/.test(value)) return undefined;
   if (RAW_COLOR.test(value)) return "a color of its own";
+  if (property === "--control-height" && !/^var\(--control-height-(small|regular|field|big)\)$/.test(value)) return "a control height of its own";
   if (property.startsWith("--")) return undefined;
   if (/^(transition|animation)(-[a-z]+)?$/.test(property) && OWN_TIMING.test(value)) return "a timing of its own";
   if (property === "filter" && /drop-shadow\(/.test(value)) return "a shadow of its own";
@@ -238,6 +260,22 @@ function ownLookOf(property: string, value: string, selector: string): string | 
   if (!OWN_LOOK.test(property) || RESET.test(value)) return undefined;
   if (/height$/.test(property) && PICTURE_OR_ICON.test(selector.split(",").pop()!.trim())) return undefined;
   return /^(height|min-height|max-height)$/.test(property) ? "a size of its own" : /^overflow/.test(property) ? "a scroll of its own" : /^padding/.test(property) ? "room of its own" : "a look of its own";
+}
+
+/** Every declaration in a style written into a component's markup (style="..."), with its file. */
+function markupDeclarations() {
+  const folder = join(import.meta.dirname, "../../apps/site/src/components");
+  const found: { file: string; property: string; value: string }[] = [];
+  // The materials and the layout components say all of it.
+  for (const file of readdirSync(folder).filter((name) => name.endsWith(".ts") && name !== "materials.ts" && name !== "layout.ts")) {
+    for (const [, style = ""] of readFileSync(join(folder, file), "utf8").matchAll(/\sstyle="((?:[^"$]|\$\{[^}]*\})*)"/g)) {
+      for (const declaration of style.split(";")) {
+        const colonIndex = declaration.indexOf(":");
+        if (colonIndex > 0) found.push({ file, property: declaration.slice(0, colonIndex).trim(), value: declaration.slice(colonIndex + 1).trim() });
+      }
+    }
+  }
+  return found;
 }
 
 describe("materials", () => {
@@ -251,8 +289,18 @@ describe("materials", () => {
     expect(problems).toEqual([]);
   });
 
+  it("writes nothing into a component's markup that only a material may say", () => {
+    const problems = markupDeclarations().flatMap(({ file, property, value }) => {
+      const own = ownLookOf(property, value, "");
+      return own && !MARKUP_NOT_MADE_OF_MATERIALS.has(`${file} | ${property}: ${value}`) ? [`${file} | ${property}: ${value}: ${own}`] : [];
+    });
+    expect(problems).toEqual([]);
+  });
+
   it("names nothing in NOT_MADE_OF_MATERIALS that's gone", () => {
     const present = new Set(declarations().flatMap(({ selector, property }) => [`${selector} | ${property}`, `${selector} | *`]));
     expect([...NOT_MADE_OF_MATERIALS.keys()].filter((entry) => !present.has(entry))).toEqual([]);
+    const inMarkup = new Set(markupDeclarations().map(({ file, property, value }) => `${file} | ${property}: ${value}`));
+    expect([...MARKUP_NOT_MADE_OF_MATERIALS.keys()].filter((entry) => !inMarkup.has(entry))).toEqual([]);
   });
 });
