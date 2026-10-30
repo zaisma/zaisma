@@ -1358,8 +1358,8 @@ function closedAccountPage(env: Env, account: Account): Response {
 <p>Zaisma closed ${account.username} for breaking ${broke}${why ? html`: ${why}` : ""}.</p>
 <p class="note">It can't sign in, and any games it made are down.</p>
 <p><strong>Think this is a mistake?</strong> Write to ${APPEAL_EMAIL} with the username. A person reads every appeal and answers.</p>
-${secondaryButton(`Email ${APPEAL_EMAIL}`, { href: `mailto:${APPEAL_EMAIL}?subject=${encodeURIComponent(`Appeal: ${account.username}`)}`, isFullWidth: true })}
-${tertiaryButton("Sign out", { href: "/signin", isFullWidth: true })}`,
+<div class="ways">${secondaryButton(`Email ${APPEAL_EMAIL}`, { href: `mailto:${APPEAL_EMAIL}?subject=${encodeURIComponent(`Appeal: ${account.username}`)}`, isFullWidth: true })}
+${tertiaryButton("Sign out", { href: "/signin", isFullWidth: true })}</div>`,
     { checkedPage: "Account closed", httpStatus: 403 },
   );
 }
