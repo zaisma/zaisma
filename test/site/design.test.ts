@@ -638,7 +638,7 @@ const OWN_SVG = new Map<string, string>([
 // The only places glass is made by hand, each with why: every other sheet is a Glass pane or a Tray.
 const OWN_GLASS = new Map<string, string>([
   ['class="glass glass-pane', "Glass pane itself"],
-  ['class="tray-group ', "Tray itself"],
+  ['class="glass tray-group ', "Tray itself"],
   ['class="glass cut-sample', "Cut shapes' own samples: a pane's, the header's and a menu's cut, on glass"],
   ['class="frame ${pictureSize} glass', "a picture's frame"],
   ['class="sheet glass', "a sheet"],

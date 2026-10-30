@@ -131,16 +131,16 @@ export function well(options: WellOptions): Raw {
 }
 
 /**
- * A tray: a thinner, clearer sheet of glass that a pane extends into, holding a whole area under it, so what's in the area reads as one
- * with its head (the gallery's sections: a head of words, then every example on the tray). The head's bottom corners and the tray's top
- * ones are square where they meet, and the tray has no rim along its top: it runs straight on from the pane (data-glass-open). It's the
- * same glass, light or smoked, only thinner: a clearer tint and a fainter rim, its bevel as wide. What sits on a tray fits it like
- * anything on a pane: square under its square top, cut at an even gap into its cut foot.
+ * A tray: one sheet of glass holding a whole area under its head, so what's in the area reads as one with it (the gallery's sections: a
+ * head of words, then every example on the tray). The sheet is the thinnest glass, light or smoked, with one rim round all of it at a
+ * pane's cuts; its head is a step of thicker glass across its top, under the same rim, with none of its own: the step's lip catches the
+ * light and shades the thin glass below it (materials.ts). What sits on a tray fits it like anything on a pane: square under the head,
+ * cut at an even gap into its cut foot.
  * What has an edge sits on it at the frame gap, like a pane's; its words are closer than a pane's (--pad-tray), and its foot's cuts
  * smaller (16 and 12), still a bevel at what sits in its corners.
  */
 export function tray(options: { head: Raw; body: LayoutMarkup; label?: string; paneWidth?: "full" | "fit" }): Raw {
-  return html`<section class="tray-group ${options.paneWidth ?? "full"}"${options.label ? html` aria-label="${options.label}"` : ""}><div class="glass tray-head" data-glass data-glass-corners="pane-large pane-small 0 0">${EDGE}${options.head}</div><div class="glass tray" data-glass data-glass-open="top" data-glass-corners="0 0 16 12">${EDGE}${options.body}</div></section>`;
+  return html`<section class="glass tray-group ${options.paneWidth ?? "full"}" data-glass data-glass-corners="pane-large pane-small 16 12"${options.label ? html` aria-label="${options.label}"` : ""}>${EDGE}<div class="glass tray-head">${options.head}</div><div class="tray">${options.body}</div></section>`;
 }
 
 /** Zaisma's logo, a link home: the wordmark (the header, the gallery's bar) or the mark alone (the footer). --logo-height sets its size. */

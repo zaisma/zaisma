@@ -300,14 +300,12 @@ export const GLASS_SCRIPT = `/* glass */(function () {
           // An open floating pane's shadow is cast in this cut (zaismaCast), so it's cast again once the cut is known.
           if (window.zaismaCast && el.classList.contains("floating-pane") && el.matches(":popover-open")) window.zaismaCast(el);
         }
-        // An open side (data-glass-open="top", a tray under its pane) draws its rim past the slab, where the clip hides it, so the glass runs straight on into what's above.
-        var reach = el.getAttribute("data-glass-open") === "top" ? Math.ceil(band * 1.6) + 2 : 0;
         // A pane whose glass in front isn't its whole box (a sheet whose chosen tab rises from it, el.zaismaEdgeShape) draws its rim along that
         // outline instead, with the same layers and light; what lies outside it in the box is behind (the clip stays the box's).
         var outlined = el.zaismaEdgeShape ? el.zaismaEdgeShape(w, h, c) : null;
         if (outlined) outlined = distinct(outlined);
         // A rim drawn at this size, with these cuts, is already there: nothing is written again.
-        var paneKey = w + "x" + h + ":" + band + ":" + reach + ":" + cornerKey + (outlined ? ":" + pointList(outlined) : "");
+        var paneKey = w + "x" + h + ":" + band + ":" + cornerKey + (outlined ? ":" + pointList(outlined) : "");
         if (paneKey === lastPane) return;
         if (lastPane) paneResized(el);
         lastPane = paneKey;
@@ -315,7 +313,7 @@ export const GLASS_SCRIPT = `/* glass */(function () {
           at = function (inset) { return insetShape(outlined, inset); };
           lights = outlined.map(function (p, i) { return FACING_LIGHT[facing(p, outlined[(i + 1) % outlined.length])]; });
         } else {
-          at = function (inset) { return cutPoints(w, h + reach, c, inset).map(function (p) { return [p[0], p[1] - reach]; }); };
+          at = function (inset) { return cutPoints(w, h, c, inset); };
           lights = SIDE_LIGHT;
         }
       }

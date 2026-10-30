@@ -595,19 +595,17 @@ component({
   group: "panes",
   subgroup: "materials",
   after: "glass-pane",
-  summary: "A thinner, clearer sheet a pane extends into, holding everything that belongs to it: the pane's words on top, what they're about on the tray beneath, read as one. Every gallery section is one. Never on its own: a tray runs on from the pane whose words it belongs to; a second task is a Glass pane of its own.",
+  summary: "One sheet of the thinnest glass holding everything that belongs to its head: the words on a step of thicker glass across its top, what they're about on the clear glass beneath, read as one. Every gallery section is one. Never on its own: a tray runs on from the pane whose words it belongs to; a second task is a Glass pane of its own.",
   styles: `
-/* A tray: the pane above holds the words, square along its foot; the tray runs on from it with no rim of its own along the top. It's
-   the same glass, light or smoked, only thinner and muted, so the pane stands out and the tray stays in the background: a clearer
-   tint (--glass-tray), a fainter sheen (--glass-tray-sheen), less blur, the colors behind it less lifted, and a fainter rim, its bevel as wide.
-   Like a pane, it's as wide as what holds it (full) or as wide as what's in it (fit). */
+/* A tray: one sheet, its head on a step of thicker glass across its top and what the head is about on the thin glass under it (the
+   glass, its step and the step's lip are the Tray material's, materials.ts). Like a pane, it's as wide as what holds it (full) or as wide
+   as what's in it (fit). */
 .tray-group { display: flex; flex-direction: column; }
 .tray-group.full { width: 100%; }
 .tray-group.fit { width: fit-content; max-width: 100%; }
 .tray-head { padding: var(--pad-pane); }
 /* Thinner glass, closer words: what has an edge sits at the frame gap, like a pane's, and its words keep the tray's margin, --pad-tray, closer than a pane's. */
-.tray { --glass-tint: var(--glass-tray); --glass-sheen: var(--glass-tray-sheen); --glass-blur: 12px; --glass-saturate: 1.15; padding: var(--pad-frame); --pad-words: calc(var(--pad-tray) - var(--pad-frame)); }
-.tray > .edge { opacity: 0.45; }
+.tray { padding: var(--pad-frame); --pad-words: calc(var(--pad-tray) - var(--pad-frame)); }
 .tray-sample-title { margin: 0; font: var(--type-section); }
 `,
   render: tray,

@@ -65,6 +65,8 @@ export const LIGHT_GLASS = `color-scheme: light;
   --edge-inner: rgba(255, 255, 255, 0.9); --edge-bevel: 0.4; --edge-rim: 1; --edge-fringe: 0.25;
   --edge-lit: rgba(236, 240, 246, 1); --edge-shade: rgba(146, 154, 168, 0.6); --edge-corner: rgba(188, 196, 208, 0.75);
   --edge-spec: rgba(255, 255, 255, 1); --edge-dense: rgba(120, 130, 146, 0.03); --edge-caustic: rgba(255, 252, 244, 0.95);
+  /* A step of thicker glass on a thinner sheet (a tray's head): its lip lit along the top, its shade on the thin glass below. */
+  --step-lip: rgba(255, 255, 255, 0.95); --step-cast: 0 2px 0 rgba(255, 255, 255, 0.28), 0 9px 10px -7px rgba(20, 30, 50, 0.3);
   /* A warning and a field marked wrong: amber, a yellower hue than the runner's orange, so it never reads as something to press or as focus. */
   --warning: #7D5C00; --link-hover: var(--run-lo); --marked: var(--warning);
   --glass-base: 255, 255, 255; --glass-kind: "Light glass, dark words."; --glass-hue-strength: 14%; --track: rgba(186, 198, 216, 0.28);
@@ -111,6 +113,7 @@ export const SMOKED_GLASS = `color-scheme: dark;
   --edge-inner: rgba(255, 255, 255, 0.22); --edge-bevel: 0.18; --edge-rim: 0.5; --edge-fringe: 0.15;
   --edge-lit: rgba(220, 228, 242, 0.68); --edge-shade: rgba(140, 152, 176, 0.12); --edge-corner: rgba(196, 206, 224, 0.34);
   --edge-spec: rgba(255, 255, 255, 0.52); --edge-dense: rgba(255, 255, 255, 0.015); --edge-caustic: transparent;
+  --step-lip: rgba(220, 228, 242, 0.42); --step-cast: 0 2px 0 rgba(220, 228, 242, 0.08), 0 9px 10px -7px rgba(0, 0, 0, 0.55);
   --warning: #F2C94C; --link-hover: var(--run-hi); --marked: var(--warning);
   --glass-base: 14, 17, 24; --glass-kind: "Smoked glass, light words."; --glass-hue-strength: 22%; --track: rgba(255, 255, 255, 0.08);
   --edge-light: rgba(214, 228, 255, 0.9); --edge-flood: rgba(206, 222, 255, 0.4); --edge-flood-far: rgba(206, 222, 255, 0.14); --edge-wake: rgba(206, 222, 255, 0.35);
