@@ -4,7 +4,7 @@ import { currentSession } from "./auth.ts";
 import type { Env } from "./env.ts";
 import { backgroundsOfGames, type ShownBackground } from "./backgrounds.ts";
 import { tertiaryButton } from "./components/actions.ts";
-import { glassPane, icon, tag } from "./components/foundations.ts";
+import { CUT_LINE, glassPane, icon, tag } from "./components/foundations.ts";
 import { row, stack, type LayoutItem, stackOfOne } from "./components/layout.ts";
 import { shelf } from "./components/navigation.ts";
 import { banner, gameCover, type GameCoverOptions } from "./components/panes.ts";
@@ -343,7 +343,7 @@ ${pageData("home-data", {
       games: browserGames,
       minimum_playing_now_player_count: MINIMUM_PLAYING_NOW_PLAYER_COUNT,
       icons: { people: icon("people").html, clock: icon("clock").html },
-      parts: { updated_tag: tag("Updated", "new").html },
+      parts: { updated_tag: tag("Updated", "new").html, cut_line: CUT_LINE.html },
     })}${scriptTags(HOME_SCRIPT)}`,
   });
   for (const cookie of viewer.cookies) response.headers.append("Set-Cookie", cookie);

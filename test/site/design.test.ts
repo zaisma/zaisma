@@ -737,8 +737,8 @@ const NOT_SPACING = new Set<string>([
   ".wheel | padding", "html | scroll-padding-top", ".gallery-layout | padding-right",
   ".well.scrolls-down > .well-body.own-scroll.shows-rail | padding-right", ".sheet-in.own-scroll.shows-rail | padding-right", ".sheet-body.own-scroll.shows-rail | padding-right",
   ".floating-body.own-scroll.shows-rail | padding-right", ".sidebar-scroll.own-scroll.shows-rail | padding-right", ".field.long textarea.is-scrolling | padding-right",
-  // Where a small thing sits on what it marks: a rail's tick, a cover's line.
-  ".rail-mark | margin-top", ".rail.sideways .rail-mark | margin", ".cover-bar | margin-top",
+  // Where a small thing sits on what it marks: a rail's tick.
+  ".rail-mark | margin-top", ".rail.sideways .rail-mark | margin",
   // Lines a box's or a card's icon up with the first line of its words.
   ".check-words | padding-top", ".choice-card > .ico | margin-top",
   // Lines words beside controls up with the controls' center line: half the tallest control's height less a line's, above the first line and below the last.

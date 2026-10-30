@@ -168,9 +168,10 @@ function setFocus(slug) {
 function coverFacts(game, list, at) {
   const meta = make("div", "cover-meta");
   if (list === "continue") {
-    const when = make("span", "when"), words = make("span"), played = make("span", "sr", "Played ");
-    words.append(played, ago(at)); when.append(iconNode(DATA.icons.clock), words); meta.append(when);
-    if (game.published_at_ms && game.published_at_ms > at) meta.append(iconNode(DATA.parts.updated_tag));
+    const start = make("span", "cover-meta-start"), when = make("span", "when"), words = make("span"), played = make("span", "sr", "Played ");
+    words.append(played, ago(at)); when.append(iconNode(DATA.icons.clock), words); start.append(when);
+    if (game.published_at_ms && game.published_at_ms > at) start.append(iconNode(DATA.parts.updated_tag));
+    meta.append(start);
   }
   if (game.playing_now_player_count >= DATA.minimum_playing_now_player_count) {
     const count = make("span", "count"), words = make("span", "", game.playing_now_player_count.toLocaleString("en-US")); words.append(make("span", "sr", " playing now"));
@@ -180,24 +181,24 @@ function coverFacts(game, list, at) {
 }
 // The same markup as components/panes.ts's gameCover.
 function coverFor(game, list, at) {
-  const cover = make("div", "cover"), art = make("a", "cover-art cut-carved");
+  const cover = make("div", "cover"), art = make("a", "cover-art carving holds-art");
   const isUpdated = list === "continue" && game.published_at_ms && game.published_at_ms > at;
   cover.dataset.slug = game.slug;
-  art.href = "/g/" + game.slug; art.setAttribute("data-cut-line", "0"); art.setAttribute("aria-label", game.title + (isUpdated ? ", updated" : ""));
+  art.href = "/g/" + game.slug; art.setAttribute("data-cut-line", "0"); art.setAttribute("aria-label", game.title + (isUpdated ? ", updated" : "")); art.append(iconNode(DATA.parts.cut_line));
   // As Game cover makes it: the picture, or for a game with none, Zaisma's mark in the well with the game's title under it.
   if (game.cover) {
     const image = make("img");
     const set = sizedSet(game.cover, 960); if (set) { image.srcset = set; image.sizes = "(max-width: 760px) 200px, 260px"; }
     image.src = game.cover; image.alt = ""; image.loading = "lazy"; image.decoding = "async";
-    const picture = make("span", "cover-picture"); picture.setAttribute("data-cut-line", "0");
+    const picture = make("span", "cover-picture carving-art"); picture.setAttribute("data-cut-line", "0");
     picture.append(image); art.append(picture);
   } else {
     cover.classList.add("is-placeholder");
-    const title = make("span", "cover-title"); title.setAttribute("aria-hidden", "true"); title.textContent = game.title;
+    const title = make("span", "cover-title carving-words compact one-line"); title.setAttribute("aria-hidden", "true"); title.textContent = game.title;
     art.append(title);
   }
-  const bar = make("span", "cover-bar"); bar.setAttribute("aria-hidden", "true");
-  cover.append(art, bar, coverFacts(game, list, at));
+  const bar = make("span", "cover-bar light-fill across light-line light-glint"); bar.setAttribute("aria-hidden", "true"); art.append(bar);
+  cover.append(art, coverFacts(game, list, at));
   if (game.slug === focusSlug) cover.setAttribute("aria-current", "true");
   return cover;
 }

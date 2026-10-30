@@ -147,7 +147,7 @@ const COVER_LARGEST_PX = 960;
 export function gameCover(options: GameCoverOptions): Raw {
   const isUpdated = options.facts.updatedAtMs !== undefined && options.facts.playedAtMs !== undefined;
   const isPlaceholder = options.imageUrl === null;
-  return html`<div class="cover${isPlaceholder ? " is-placeholder" : ""}"${options.isCurrent ? raw(' aria-current="true"') : ""}><a class="cover-art carving holds-art" data-cut-line="0" href="${options.href}" aria-label="${options.title}${isUpdated ? ", updated" : ""}">${CUT_LINE}${options.imageUrl === null ? (options.isTitleShown ? "" : html`<span class="cover-title carving-words compact one-line" aria-hidden="true">${options.title}</span>`) : html`<span class="cover-picture carving-art" data-cut-line="0"><img src="${options.imageUrl}"${coverSizes(options.imageUrl)} alt="" loading="${options.isEager ? "eager" : "lazy"}"${options.hasHighPriority ? raw(' fetchpriority="high"') : ""} decoding="async"></span>`}</a><span class="cover-bar light-fill across light-line light-glint" aria-hidden="true"></span>${coverFacts(options.facts, options.isTitleShown ? options.title : undefined)}</div>`;
+  return html`<div class="cover${isPlaceholder ? " is-placeholder" : ""}"${options.isCurrent ? raw(' aria-current="true"') : ""}><a class="cover-art carving holds-art" data-cut-line="0" href="${options.href}" aria-label="${options.title}${isUpdated ? ", updated" : ""}">${CUT_LINE}${options.imageUrl === null ? (options.isTitleShown ? "" : html`<span class="cover-title carving-words compact one-line" aria-hidden="true">${options.title}</span>`) : html`<span class="cover-picture carving-art" data-cut-line="0"><img src="${options.imageUrl}"${coverSizes(options.imageUrl)} alt="" loading="${options.isEager ? "eager" : "lazy"}"${options.hasHighPriority ? raw(' fetchpriority="high"') : ""} decoding="async"></span>`}<span class="cover-bar light-fill across light-line light-glint" aria-hidden="true"></span></a>${coverFacts(options.facts, options.isTitleShown ? options.title : undefined)}</div>`;
 }
 
 /**
@@ -471,7 +471,7 @@ const COVER_STYLES = `
    well and the art are both cut by the edge rule like every control, so a cover near a pane's corner takes the pane's cut and one in the
    middle of it is square: never a rectangle against a cut corner. The well keeps the cover's 16:9, and the art fills it up to its carved rim (2px), so the rim frames the art without lying on it.
    Under the art, Zaisma's mark sits in the well: it shows until the art has loaded, and stays where a game has none (is-placeholder). */
-/* Its art, the orange line under it and what's under that, a part's gap apart. */
+/* Its art and what's under it, a part's gap apart. */
 .cover { position: relative; display: grid; row-gap: var(--gap-words-words); min-width: 0; }
 .cover-art { display: block; aspect-ratio: 16 / 9; text-decoration: none; }
 .cover.is-placeholder .cover-art img { display: none; }
@@ -480,13 +480,14 @@ const COVER_STYLES = `
 .cover-title { max-width: 100%; font: var(--type-name); color: var(--ink-2); }
 .cover-art:focus-visible { outline: none; }
 .cover-art:focus-visible > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
-/* The orange line under a cover: it draws in from the left the moment you point at a cover, with a light running ahead along it,
-   and stays under the game in the pane. Leaving, it runs on out to the right, quicker than it came, as if it moved on to the next cover. */
-.cover-bar { position: relative;
+/* The orange line along a cover's foot, inside its frame and cut with it, taking no room: it draws in from the left the moment you point at
+   a cover, with a light running ahead along it, and stays under the game in the pane. Leaving, it runs on out to the right, quicker than it
+   came, as if it moved on to the next cover. */
+.cover-bar { position: absolute; inset-inline: 2px; bottom: 2px; z-index: 1;
   transform: scaleX(0); transform-origin: right; transition: transform var(--motion-state) var(--ease-leave); }
 .cover-bar::after { width: 38%; }
-.cover:hover .cover-bar, .cover.is-pointed .cover-bar, .cover[aria-current="true"] .cover-bar, .cover-art:focus-visible + .cover-bar { transform: scaleX(1); transform-origin: left; transition: transform var(--motion-arrive) var(--ease-glide); }
-.cover:hover .cover-bar::after, .cover.is-pointed .cover-bar::after, .cover[aria-current="true"] .cover-bar::after, .cover-art:focus-visible + .cover-bar::after { animation: cover-glint var(--motion-settle) var(--ease-glide) both; }
+.cover:hover .cover-bar, .cover.is-pointed .cover-bar, .cover[aria-current="true"] .cover-bar, .cover-art:focus-visible > .cover-bar { transform: scaleX(1); transform-origin: left; transition: transform var(--motion-arrive) var(--ease-glide); }
+.cover:hover .cover-bar::after, .cover.is-pointed .cover-bar::after, .cover[aria-current="true"] .cover-bar::after, .cover-art:focus-visible > .cover-bar::after { animation: cover-glint var(--motion-settle) var(--ease-glide) both; }
 @keyframes cover-glint { 0% { transform: translateX(-100%); opacity: 1; } 75% { opacity: 1; } 100% { transform: translateX(270%); opacity: 0; } }
 /* Under a cover: what concerns you on the left (when you played, an update, friends), players now on the right. */
 /* Where they can't share a line, players now goes on to the next, never cut short. */
