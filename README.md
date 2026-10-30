@@ -2,6 +2,8 @@
 
 **Any engine. No cut.**
 
+Any web game, from any engine, as it is: free to launch, playable on every device and listed for players, with multiplayer, accounts and chat built in, safety rules handled. Zaisma takes 0% of your sales.
+
 Zaisma (ZAI-zmuh, from the Lithuanian *žaismas*, "play") is an open-source game platform for the browser.
 
 **For players.** Tap a link and the game starts, in any browser, on any device. There's no account to make and nothing to download: you play as a guest, and your progress stays on that device. Make an account when you want to keep your progress everywhere and play with friends.
