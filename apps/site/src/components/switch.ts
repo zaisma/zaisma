@@ -326,6 +326,8 @@ component({
 /* Across, the well is its room's, so the tabs' box in its track has none of its own (after .small, which would cut it to the well's shape). */
 .switch-well > .well-body > .tab-switch { background: none; box-shadow: none; clip-path: none; }
 .well.switch-well.small { --control-height: var(--control-height-small); }
+/* The tabs take their well's height, which a row sets to its tallest control's (layout.ts): a small sort beside a regular Filter is the Filter's height. */
+.switch-well > .well-body > .tab-switch { --control-height: inherit; }
 /* A tab's words sit in the middle of its slab as it's seen. A slab between two tabs slants on both sides, so its words are in the middle
    of the tab; on the first or last tab it slants only on its inner side, which pulls its seen middle a quarter of a slant toward the
    switch's end, so the words move that far with it (a fifth of a slant more room on the inner side). The room round the words clears the switch's corners. */
