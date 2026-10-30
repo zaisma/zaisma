@@ -4,7 +4,7 @@ import { component } from "./component.ts";
 import { glassPane } from "./foundations.ts";
 import { primaryButton } from "./actions.ts";
 import { rail } from "./navigation.ts";
-import { stack, stackOfOne } from "./layout.ts";
+import { stack, type LayoutMarkup } from "./layout.ts";
 import { cutPolygon } from "./tokens.ts";
 
 /*
@@ -46,7 +46,8 @@ export interface CityPaneOptions {
   header: Raw;
   /** What the pane is, for a screen reader: the step's title. */
   label: string;
-  body: Raw;
+  /** The step's pieces, laid out (a stack). */
+  body: LayoutMarkup;
   /** What goes after the pane on the page, like its scripts. */
   after?: Raw;
 }
@@ -56,7 +57,7 @@ export interface CityPaneOptions {
  * places it (on the right under the header on a wide screen, low and full width on a phone), and the page's rail.
  */
 export function cityPane(options: CityPaneOptions): Raw {
-  return html`<div class="city-page">${options.header}<div class="city-pane" data-city-pane>${glassPane({ paneWidth: "full", label: options.label, body: stackOfOne(options.body) })}</div>${rail("page")}
+  return html`<div class="city-page">${options.header}<div class="city-pane" data-city-pane>${glassPane({ paneWidth: "full", label: options.label, body: options.body })}</div>${rail("page")}
 ${options.after ?? ""}</div>`;
 }
 
