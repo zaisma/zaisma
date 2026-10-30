@@ -2,7 +2,7 @@ import { ApiError, CONTROLS, DEVICES, GENRES, MAXIMUM_GENRE_COUNT, FORUM_CATEGOR
 import { INTERNAL_ERROR, apiCall, authenticate, type Caller } from "./developer.ts";
 import type { Env } from "./env.ts";
 import { CHECKED_TEXT_EXTENSIONS, extensionOf } from "../../../packages/cli/check.mjs";
-import { ACCESS, ACTIVITY, PRO, PRO_CHANGED, PRO_CHECKOUT, PRO_REFUNDED, CREDIT, TOP_UP_CHECKOUT, TOP_UP_REFUNDED, STRIPE_ACCOUNT, STRIPE_ACCOUNT_CHANGED, SPENDING_REQUEST, CONNECTION_LINK, GAME_CHECK_FIELDS, API_KEYS, DATABASE, DATABASE_EXPORT, DATABASE_IMPORT, DATABASE_RESTORED, ERASED_PLAYER, GAME, GAME_ALERTS, GAME_EXPORT, HISTORY, KEPT_ROOMS, KEPT_ROOM_DELETED, LIVE_ROOMS, LIVE_ROOM_WITH_PLAYERS, ROOM_MESSAGE_DELIVERED, EVERY_ROOM_SENT, SCHEDULED_ROOM_MESSAGES, ROOM_MESSAGE_CANCELLED, ROOM_PLAYER_KICKED, ROOM_ENDED, BACKGROUND, SHADER, SHADER_CHECK, LISTED_GAME, QR_CODE, STATEMENT_RESULT, IMAGE, LOGS, SAVE, SAVE_CHANGED, SAVE_COPY, SAVE_COPY_LIST, SAVE_LIST, INDEXEDDB_DATABASE, NEW_REPLY, NEW_TOPIC, NEXT, PLAYER_PROFILE, POST, POST_BOOKMARK, POST_RATING, REPORTS, SIGN_IN_APP, SECRET, STATS, TESTER, TOPIC_PAGE, TOPIC_WITH_POSTS, VERSION, WEBHOOK, WEBHOOK_DELIVERY, answerOrError, choice, countOf, idOf, list, nullable, object as answer, text, yes, GAME_ITEM, ITEMS, PURCHASE, PURCHASE_SETTINGS } from "./schemas.ts";
+import { ACCESS, ACTIVITY, PRO, PRO_CHANGED, PRO_CHECKOUT, PRO_REFUNDED, CREDIT, CREDIT_CHANGED, CREDIT_PLAN_CHECKOUT, TOP_UP_CHECKOUT, TOP_UP_REFUNDED, STRIPE_ACCOUNT, STRIPE_ACCOUNT_CHANGED, SPENDING_REQUEST, CONNECTION_LINK, GAME_CHECK_FIELDS, API_KEYS, DATABASE, DATABASE_EXPORT, DATABASE_IMPORT, DATABASE_RESTORED, ERASED_PLAYER, GAME, GAME_ALERTS, GAME_EXPORT, HISTORY, KEPT_ROOMS, KEPT_ROOM_DELETED, LIVE_ROOMS, LIVE_ROOM_WITH_PLAYERS, ROOM_MESSAGE_DELIVERED, EVERY_ROOM_SENT, SCHEDULED_ROOM_MESSAGES, ROOM_MESSAGE_CANCELLED, ROOM_PLAYER_KICKED, ROOM_ENDED, BACKGROUND, SHADER, SHADER_CHECK, LISTED_GAME, QR_CODE, STATEMENT_RESULT, IMAGE, LOGS, SAVE, SAVE_CHANGED, SAVE_COPY, SAVE_COPY_LIST, SAVE_LIST, INDEXEDDB_DATABASE, NEW_REPLY, NEW_TOPIC, NEXT, PLAYER_PROFILE, POST, POST_BOOKMARK, POST_RATING, REPORTS, SIGN_IN_APP, SECRET, STATS, TESTER, TOPIC_PAGE, TOPIC_WITH_POSTS, VERSION, WEBHOOK, WEBHOOK_DELIVERY, answerOrError, choice, countOf, idOf, list, nullable, object as answer, text, yes, GAME_ITEM, ITEMS, PURCHASE, PURCHASE_SETTINGS } from "./schemas.ts";
 
 /**
  * The developer MCP at /mcp: every tool is a call to the developer API, so the MCP, the upload command
@@ -749,7 +749,7 @@ export const TOOLS: Tool[] = [
     name: "get_credit",
     title: "My hosting credit",
     description:
-      "The developer's hosting credit: the balance (in cents, never in dollars), whether it's low (is_credit_low: under 20% of what there was after the last top-up), the last 30 days' top-ups with what each still refunds, each game's budget and what credit paid for it this month, and the last 90 days' entries. Every game gets free hosting each month on one meter (get_stats' hosting_use_this_month, a percentage); past it, only a game with a budget (update_game, monthly_budget_cents) draws from credit, never past its budget. Credit never expires and is never paid out.",
+      "The developer's hosting credit: the balance (in cents, never in dollars), whether it's low (is_credit_low: under 20% of what there was after the last top-up), the monthly credit plan (credit_plan: its level, whether the card pays, and what the next 1st pays at today's balance; null with none), the last 30 days' top-ups with what each still refunds, each game's budget and what credit paid for it this month, and the last 90 days' entries. Every game gets free hosting each month on one meter (get_stats' hosting_use_this_month, a percentage); past it, only a game with a budget (update_game, monthly_budget_cents) draws from credit, never past its budget. Credit never expires and is never paid out.",
     inputSchema: object({}),
     outputSchema: CREDIT,
     annotations: read,
@@ -759,7 +759,7 @@ export const TOOLS: Tool[] = [
     name: "get_spending_request",
     title: "A spending request's answer",
     description:
-      "Whether the developer has answered a raise in spending you asked for. When update_game (a game's first or higher budget) answers confirmation_needed, it also answers spending_request_id: give the developer confirm_url, where a sheet names the exact change and they approve with a passkey tap or decline. This shows request_status (waiting, approved, declined or expired after a day), the change asked for and what it is now. Approved means the change is already made.",
+      "Whether the developer has answered a raise in spending you asked for. When update_game (a game's first or higher budget) or change_credit_plan (a higher level) answers confirmation_needed, it also answers spending_request_id: give the developer confirm_url, where a sheet names the exact change and they approve with a passkey tap or decline. This shows request_status (waiting, approved, declined or expired after a day), the change asked for and what it is now. Approved means the change is already made.",
     inputSchema: object({ spending_request_id: { type: "string", pattern: "^spending_request_[a-z0-9]+$", description: "From confirmation_needed's spending_request_id, like spending_request_k2m9x4…" } }, ["spending_request_id"]),
     outputSchema: SPENDING_REQUEST,
     annotations: read,
@@ -776,6 +776,38 @@ export const TOOLS: Tool[] = [
     outputSchema: TOP_UP_CHECKOUT,
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     run: (toolArguments, call) => call("POST", "/credit/top-ups", pick(toolArguments, ["amount_cents"])),
+  },
+  {
+    name: "start_credit_plan",
+    title: "Start a monthly credit plan",
+    description:
+      "Start the developer's monthly credit plan: credit filled back to refill_level_cents on the 1st of every month (UTC), so games with a budget never run dry. Answers Stripe's page (checkout_url), where only the developer can pay; give them the link. The first payment fills credit to the level (at most $1,000; a higher level fills to it from the next 1st); each 1st pays only what brings the balance back to the level, nothing under $1 or when the balance is at or over it. Stripe sells every payment, with sales tax or VAT on top. Each payment is a top-up, refundable for 30 days with refund_top_up. One plan at a time: already_credit_plan when there is one.\n\n" +
+      'Not: { "refill_level_cents": 40 } (that\'s 40 cents; cents, not dollars, so $40 is 4000)\n' +
+      'Not: { "refill_level_cents": 500 } (the least is 1000, $10)',
+    inputSchema: { ...object({ refill_level_cents: { type: "integer", minimum: 1000, maximum: 1000000, description: "The level in cents: 4000 is $40. From 1000 ($10) to 1000000 ($10,000)." } }, ["refill_level_cents"]), examples: [{ refill_level_cents: 4000 }] },
+    outputSchema: CREDIT_PLAN_CHECKOUT,
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    run: (toolArguments, call) => call("POST", "/credit/plan/checkout", pick(toolArguments, ["refill_level_cents"])),
+  },
+  {
+    name: "change_credit_plan",
+    title: "Change the monthly credit plan",
+    description:
+      "Set the monthly credit plan's level: what credit is filled back to on the 1st. A lower or equal level applies at once with any key that has credit_access write; a higher one spends more, so it answers confirmation_needed with confirm_url, where the developer approves it with their passkey, and spending_request_id for get_spending_request. Answers no_credit_plan with none (start_credit_plan starts one).\n\n" +
+      'Not: { "refill_level_cents": 60 } (cents, not dollars, so $60 is 6000)',
+    inputSchema: { ...object({ refill_level_cents: { type: "integer", minimum: 1000, maximum: 1000000, description: "The new level in cents: 6000 is $60." } }, ["refill_level_cents"]), examples: [{ refill_level_cents: 6000 }] },
+    outputSchema: CREDIT_CHANGED,
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    run: (toolArguments, call) => call("PATCH", "/credit/plan", pick(toolArguments, ["refill_level_cents"])),
+  },
+  {
+    name: "stop_credit_plan",
+    title: "Stop the monthly credit plan",
+    description: "Stop the monthly credit plan at once: nothing is charged again, and credit already bought stays (each payment still refunds for 30 days with refund_top_up). It holds no prepaid month, so nothing is lost by stopping. Answers no_credit_plan with none. Ask the developer first.",
+    inputSchema: object({}),
+    outputSchema: CREDIT_CHANGED,
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+    run: (_, call) => call("POST", "/credit/plan/stop"),
   },
   {
     name: "get_stripe_account",

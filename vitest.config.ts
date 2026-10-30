@@ -224,6 +224,7 @@ export default defineConfig({
         STRIPE_SECRET_KEY: "sk_test_zaisma",
         STRIPE_EVENTS_SECRET: "whsec_test_zaisma",
         STRIPE_PRO_PRICE_ID: "price_test_pro",
+        STRIPE_CREDIT_PLAN_PRICE_ID: "price_test_credit_plan",
         // The buy sheet's Connect stand-ins (test/site/buy.test.ts).
         STRIPE_CONNECT_CLIENT_ID: "ca_test_zaisma",
         STRIPE_CONNECT_EVENTS_SECRET: "whsec_test_connect",

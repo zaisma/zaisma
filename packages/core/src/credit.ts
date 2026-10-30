@@ -12,6 +12,11 @@ export const CREDIT_LIMITS = {
   /** Caps what one stolen card can charge in one go. */
   maximumTopUpCents: 100_000,
   refundableDurationDays: 30,
+  /** The monthly credit plan's level: what credit is filled back to on the 1st. Its first payment fills at most maximumTopUpCents. */
+  minimumRefillLevelCents: 1000,
+  maximumRefillLevelCents: 1_000_000,
+  /** A month's refill under this adds nothing: Stripe can't charge less than $0.50 and would carry it over. */
+  minimumRefillCents: 100,
   /** The owner hears their credit is low once it's under this share of the balance right after their last top-up. */
   creditLowPct: 20,
 } as const;

@@ -189,6 +189,7 @@ import { secretsRoute } from "./secrets-api.ts";
 import { keptRoomsRoute } from "./kept-rooms-api.ts";
 import { roomMessagesRoute, roomsRoute } from "./room-messages-api.ts";
 import { checkSpendingConfirmed, creditRoute } from "./credit-api.ts";
+import { creditPlanRoute } from "./credit-plan-api.ts";
 import { proRoute } from "./pro-api.ts";
 import { stripeAccountRoute } from "./stripe-account-api.ts";
 import { clearPauses, pauseNow, resetsOnText } from "./hosting-job.ts";
@@ -722,6 +723,9 @@ export const API_ROUTES: readonly ApiRoute[] = [
   call({ method: "POST", path: "/pro/resume", reaches: "account", access: needs("credit_access", "write"), isAccountWide: true }),
   call({ method: "POST", path: "/pro/refund", reaches: "account", access: needs("credit_access", "write"), isAccountWide: true }),
   call({ method: "POST", path: "/credit/refunds", reaches: "account", access: needs("credit_access", "write"), isAccountWide: true, body: { inputs: plainInputs("top_up_id") } }),
+  call({ method: "POST", path: "/credit/plan/checkout", reaches: "account", access: needs("credit_access", "write"), isAccountWide: true, body: { inputs: plainInputs("refill_level_cents") } }),
+  call({ method: "PATCH", path: "/credit/plan", reaches: "account", access: needs("credit_access", "write"), isAccountWide: true, body: { inputs: plainInputs("refill_level_cents") } }),
+  call({ method: "POST", path: "/credit/plan/stop", reaches: "account", access: needs("credit_access", "write"), isAccountWide: true }),
   call({ method: "GET", path: "/stripe-account", reaches: "account", access: needs("stripe_account_access", "read"), isAccountWide: true }),
   call({ method: "POST", path: "/stripe-account/connection-links", reaches: "account", access: needs("stripe_account_access", "write"), isAccountWide: true }),
   call({ method: "PATCH", path: "/stripe-account", reaches: "account", access: needs("stripe_account_access", "write"), isAccountWide: true, body: { inputs: plainInputs("is_stripe_tax_used") } }),
@@ -887,6 +891,7 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
     return answer({ access: accessJson(caller.access), can_publish: caller.canPublish, credit_balance_cents: creditBalanceCents, plan: await planFor(env.DB, caller.ownerId) });
   }
   if (apiRoute.path === "/pro" || apiRoute.path.startsWith("/pro/")) return answer(...(await proRoute(env, apiRoute.path, method, caller)));
+  if (apiRoute.path === "/credit/plan" || apiRoute.path.startsWith("/credit/plan/")) return answer(...(await creditPlanRoute(env, apiRoute.path, method, checked.body, caller)));
   if (apiRoute.path === "/credit" || apiRoute.path.startsWith("/credit/")) return answer(...(await creditRoute(env, apiRoute.path, method, checked.body, caller)));
   // With its ID in the path, so the route reads the real path rather than the call's pattern.
   if (apiRoute.path.startsWith("/spending-requests/")) return answer(...(await creditRoute(env, path, method, checked.body, caller)));

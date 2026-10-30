@@ -435,7 +435,7 @@ export const ACCESS = object({
       sign_in_app_access: choice(AREA_ACCESS_CHOICES.sign_in_app_access, "Sign-in apps; none for keys limited to some games."),
       webhook_access: choice(AREA_ACCESS_CHOICES.webhook_access, "Webhooks; none for keys limited to some games."),
       stripe_account_access: choice(AREA_ACCESS_CHOICES.stripe_account_access, "The developer's connected Stripe account for the buy sheet; none for keys limited to some games. read: the connection. write: also ask for a link to connect (the developer connects with their passkey on zaisma.com), turn Stripe Tax on or off, and disconnect."),
-      credit_access: choice(AREA_ACCESS_CHOICES.credit_access, "Hosting credit; none for keys limited to some games. read: balance, top-ups and spending. write: also start a top-up, refund one, and turn spending off or down (on or up needs the developer's passkey on zaisma.com). Also Zaisma Pro: read the plan; write: start, cancel or resume it."),
+      credit_access: choice(AREA_ACCESS_CHOICES.credit_access, "Hosting credit; none for keys limited to some games. read: balance, top-ups and spending. write: also start a top-up, refund one, and turn spending off or down (on or up needs the developer's passkey on zaisma.com). Also the monthly credit plan: write starts it, changes its level (higher needs the passkey) and stops it. And Zaisma Pro: read the plan; write: start, cancel or resume it."),
     },
     "What the key may do in each area.",
   ),
@@ -613,12 +613,24 @@ export const HOSTING_USE = object(
   "This month (UTC) on the game's one hosting meter: the free allowance as a percentage, what used it, and what credit paid past it.",
 );
 
+/** The monthly credit plan, on credit (get_credit). */
+const CREDIT_PLAN = object(
+  {
+    refill_level_cents: countOf("What credit is filled back to on the 1st of every month (UTC), in cents (4000 is $40)."),
+    plan_status: choice({ running: "Stripe is paid; the next 1st refills", payment_failing: "the card was declined, and Stripe is trying again over the next days" }),
+    next_payment_at: isoTime("The next 1st, 00:00 UTC, when the refill is paid."),
+    next_payment_cents: countOf("What the next 1st pays at today's balance: the level minus the balance, 0 when that's under $1 or the balance is at or over the level. Sales tax or VAT comes on top on Stripe's side."),
+    started_at: isoTime(),
+  },
+  "The monthly credit plan (start_credit_plan); null with none.",
+);
 const CREDIT_ENTRY_KIND = choice({ top_up: "credit bought", hosting_charge: "a game's hosting past its free allowance, one entry per game per day", refund: "credit refunded to its card", written_off: "what a game used past its budget, your credit, or its free hosting while it had no budget, which Zaisma took on: never charged" });
 /** A developer's hosting credit (get_credit). */
 export const CREDIT = object({
   credit: object({
     balance_cents: countOf("What's left to spend, in cents. Never below 0."),
     is_credit_low: yes("Whether the balance is under 20% of what there was right after the last top-up: add credit. Each game with a budget shows a credit_low alert meanwhile."),
+    credit_plan: nullable(CREDIT_PLAN),
     top_ups: list(
       object({
         id: idOf("top_up"),
@@ -636,18 +648,17 @@ export const CREDIT = object({
     ),
   }),
 });
-const SPENDING_CHANGE_FIELDS = {
-  monthly_budget_cents: nullable(countOf("A game's monthly budget; null: no paid hosting.")),
-};
+const BUDGET_CHANGE = object({ monthly_budget_cents: nullable(countOf("A game's monthly budget; null: no paid hosting.")) }, "game_budget's");
+const PLAN_LEVEL_CHANGE = object({ refill_level_cents: nullable(countOf("The monthly credit plan's level; null: no plan.")) }, "credit_plan_refill_level's");
 /** A raise in spending the developer approves or declines on zaisma.com (get_spending_request). */
 export const SPENDING_REQUEST = object({
   spending_request: object({
     id: idOf("spending_request"),
-    request_kind: choice({ game_budget: "a game's monthly budget" }),
-    game_slug: nullable(text("The game; null once it's deleted.")),
+    request_kind: choice({ game_budget: "a game's monthly budget", credit_plan_refill_level: "the monthly credit plan's level" }),
+    game_slug: nullable(text("The game; null once it's deleted, and for the credit plan's level.")),
     game_title: nullable(text()),
-    requested_change: object(SPENDING_CHANGE_FIELDS, "The budget asked for."),
-    current_setting: object(SPENDING_CHANGE_FIELDS, "The same fields as they are now."),
+    requested_change: { anyOf: [BUDGET_CHANGE, PLAN_LEVEL_CHANGE], description: "The change asked for: monthly_budget_cents for a game's budget, refill_level_cents for the credit plan's level." },
+    current_setting: { anyOf: [BUDGET_CHANGE, PLAN_LEVEL_CHANGE], description: "The same field as it is now." },
     request_status: choice({ waiting: "the developer hasn't answered", approved: "approved: the change is made", declined: "the developer declined", expired: "a day passed without an answer" }),
     created_at: isoTime(),
     expires_at: isoTime("A day after it was asked."),
@@ -692,6 +703,14 @@ export const PRO_CHECKOUT = object({
   expires_at: isoTime("When the page stops taking payment."),
   next_steps: NEXT,
 });
+/** Stripe's page for starting the monthly credit plan (start_credit_plan). */
+export const CREDIT_PLAN_CHECKOUT = object({
+  checkout_url: url("Stripe's page where the developer pays. Only a person can pay there."),
+  expires_at: isoTime("When the page stops taking payment."),
+  next_steps: NEXT,
+});
+/** The credit after change_credit_plan or stop_credit_plan. */
+export const CREDIT_CHANGED = object({ ...(CREDIT.properties as Record<string, Schema>), next_steps: NEXT });
 /** Stripe's page for a top-up (top_up_credit). */
 export const TOP_UP_CHECKOUT = object({
   checkout_url: url("Stripe's page where the developer pays. Only a person can pay there."),

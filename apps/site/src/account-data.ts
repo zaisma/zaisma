@@ -257,7 +257,7 @@ async function* accountDataSources(env: Env, account: Account, nowMs: number): A
     webhooks: await owned("webhooks", "id, destination_kind, endpoint_url, event_kinds, game_slugs, created_at_ms, updated_at_ms"),
     sign_in_apps: await owned("sign_in_apps", "id, name, kind, redirect_urls, created_at_ms, updated_at_ms"),
     credit_entries: await owned("credit_entries", "id, entry_kind, amount_cents, game_id, refundable_until_ms, refunded_cents, created_at_ms"),
-    spending_requests: await rows(env, "SELECT id, request_kind, game_id, monthly_budget_cents, request_status, created_at_ms, expires_at_ms, answered_at_ms FROM spending_requests WHERE account_id = ? ORDER BY created_at_ms", id),
+    spending_requests: await rows(env, "SELECT id, request_kind, game_id, monthly_budget_cents, refill_level_cents, request_status, created_at_ms, expires_at_ms, answered_at_ms FROM spending_requests WHERE account_id = ? ORDER BY created_at_ms", id),
   });
 
   if (missing.length) {

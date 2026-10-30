@@ -5,6 +5,7 @@ import { TOOLS } from "../../apps/site/src/mcp.ts";
 import { callerFor } from "../../apps/site/src/developer.ts";
 import { creditKeptOnDeletionCents, creditRoute, refundForDeletion, retryPendingRefunds } from "../../apps/site/src/credit-api.ts";
 import { answerSpendingRequest, askForSpending } from "../../apps/site/src/spending-requests.ts";
+import { nextMonthStartSec } from "../../apps/site/src/stripe.ts";
 import { errorProblems, schemaProblems } from "../schema-check.ts";
 import { letPublish } from "../helpers.ts";
 
@@ -19,7 +20,9 @@ let ownerId = "";
 let nextId = 1;
 const realFetch = globalThis.fetch;
 /** What reached the stand-in for Stripe: each call's path and form. */
-let stripeCalls: { path: string; form: URLSearchParams; idempotencyKey: string | null }[] = [];
+let stripeCalls: { method: string; path: string; form: URLSearchParams; idempotencyKey: string | null }[] = [];
+/** The emails sent, by subject. */
+let emailSubjects: string[] = [];
 /** The email Supabase knows the account by: a real one, or the stand-in an account without one is known by. */
 let accountEmail = "emma@example.com";
 /** Stripe can't be reached. */
@@ -29,14 +32,25 @@ beforeAll(() => {
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(input instanceof Request ? input.url : String(input));
     if (url.origin === "https://supabase.test" && url.pathname === "/auth/v1/admin/users/dev-1") return Response.json({ id: "dev-1", email: accountEmail });
+    if (url.origin === "https://outbox.test") {
+      emailSubjects.push(JSON.parse(String(init?.body)).subject);
+      return Response.json({ sent: true });
+    }
     if (url.hostname !== "api.stripe.com") return realFetch(input, init);
     const form = new URLSearchParams(typeof init?.body === "string" ? init.body : "");
     const headers = new Headers(init?.headers);
-    stripeCalls.push({ path: url.pathname, form, idempotencyKey: headers.get("idempotency-key") });
+    stripeCalls.push({ method: init?.method ?? "GET", path: url.pathname, form, idempotencyKey: headers.get("idempotency-key") });
     if (isStripeDown) throw new TypeError("fetch failed");
     if (url.pathname === "/v1/customers") return Response.json({ id: "cus_test_1" });
     if (url.pathname === "/v1/checkout/sessions") return Response.json({ id: "cs_test_1", url: "https://checkout.stripe.com/c/pay/cs_test_1", expires_at: 1_900_000_000 });
     if (url.pathname === "/v1/refunds") return Response.json({ id: `re_test_${stripeCalls.length}` });
+    if (url.pathname === "/v1/invoiceitems") return Response.json({ id: `ii_test_${stripeCalls.length}` });
+    if (url.pathname.startsWith("/v1/subscriptions/")) return Response.json({ id: url.pathname.split("/").at(-1), status: "canceled" });
+    // A paid invoice names its payment only when its payments are expanded, as Stripe's does.
+    if (url.pathname.startsWith("/v1/invoices/")) {
+      const invoiceId = url.pathname.split("/").at(-1);
+      return Response.json({ id: invoiceId, payments: { object: "list", data: [{ status: "paid", payment: { type: "payment_intent", payment_intent: `pi_${invoiceId}` } }] } });
+    }
     return Response.json({ error: { message: "No such call in the stand-in." } }, { status: 400 });
   }) as typeof fetch;
 });
@@ -88,6 +102,7 @@ const checkoutCompleted = (paymentIntentId: string, amountCents: number) => ({
 beforeEach(async () => {
   await env.DB.exec("DELETE FROM passkeys; DELETE FROM credit_entries; DELETE FROM spending_requests; DELETE FROM game_hosting_months; DELETE FROM security_events; DELETE FROM api_keys; DELETE FROM audit_log; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM accounts;");
   stripeCalls = [];
+  emailSubjects = [];
   accountEmail = "emma@example.com";
   isStripeDown = false;
   await env.DB.exec("DELETE FROM pending_refunds;");
@@ -307,5 +322,171 @@ describe("credit that's low or left behind", () => {
     // The same key as the first try, so a refund Stripe made without answering is never made twice.
     expect(stripeCalls[0]!.idempotencyKey).toBe(firstKey);
     expect(await pending()).toEqual([]);
+  });
+});
+
+describe("the monthly credit plan", () => {
+  const SUBSCRIPTION_ID = "sub_plan_1";
+  let eventSec = Math.floor(Date.now() / 1000);
+  const planMetadata = (levelCents = 4000) => ({ owner_id: ownerId, subscription_kind: "credit_plan", refill_level_cents: String(levelCents) });
+  /** A subscription event, each a second after the last unless it's given its own time. */
+  const subscriptionEvent = (type: string, subscription: Record<string, unknown>, createdSec = ++eventSec) => stripeEvent({ id: `evt_${type}_${createdSec}`, type, created: createdSec, data: { object: { id: SUBSCRIPTION_ID, object: "subscription", created: createdSec, metadata: planMetadata(), ...subscription } } });
+  const startPlan = (levelCents = 4000) => subscriptionEvent("customer.subscription.created", { status: "active", metadata: planMetadata(levelCents) });
+  const invoiceEvent = (type: string, invoice: Record<string, unknown>, subscriptionId = SUBSCRIPTION_ID) =>
+    stripeEvent({ id: `evt_${type}_${String(invoice.id)}`, type, created: ++eventSec, data: { object: { object: "invoice", customer: "cus_test_1", currency: "usd", metadata: {}, parent: { type: "subscription_details", subscription_details: { subscription: subscriptionId, metadata: planMetadata() } }, ...invoice } } });
+  const setBalance = async (cents: number) => env.DB.prepare("UPDATE owners SET credit_balance_cents = ? WHERE id = ?").bind(cents, ownerId).run();
+  const plan = async () => (await tool("get_credit", {})).credit.credit_plan;
+  /** The credit emails sent: a key's first use sends its own. */
+  const creditEmails = () => emailSubjects.filter((subject) => subject.includes("credit"));
+  const refillCalls = () => stripeCalls.filter((call) => call.path === "/v1/invoiceitems").map((call) => [call.form.get("invoice"), call.form.get("amount"), call.idempotencyKey]);
+
+  beforeEach(async () => {
+    eventSec = Math.floor(Date.now() / 1000);
+    await env.DB.exec("UPDATE owners SET credit_plan_subscription_id = NULL, credit_plan_refill_level_cents = NULL, credit_plan_status = NULL, credit_plan_started_at_ms = NULL, credit_plan_event_at_ms = NULL;");
+  });
+
+  it("starts on Stripe's page for whole cents from $10 to $10,000, filling at most $1,000 first", async () => {
+    for (const refillLevelCents of [999, 1_000_001, 40.5, "4000"]) {
+      const refused = await api("/credit/plan/checkout", { body: { refill_level_cents: refillLevelCents } });
+      expect(refused.status).toBe(400);
+      expect(refused.answer.error).toMatchObject({ code: "bad_refill_level_cents", field: "refill_level_cents" });
+    }
+    expect(stripeCalls).toEqual([]);
+    const started = await api("/credit/plan/checkout", { body: { refill_level_cents: 1_000_000 } });
+    expect(started.status).toBe(201);
+    expect(started.answer).toMatchObject({ checkout_url: "https://checkout.stripe.com/c/pay/cs_test_1", next_steps: [{ tool: "get_credit" }] });
+    const form = stripeCalls.find((call) => call.path === "/v1/checkout/sessions")!.form;
+    expect(Object.fromEntries(["mode", "managed_payments[enabled]", "line_items[0][price_data][unit_amount]", "line_items[1][price]", "subscription_data[metadata][subscription_kind]", "subscription_data[metadata][refill_level_cents]", "subscription_data[billing_cycle_anchor]"].map((name) => [name, form.get(name)]))).toEqual({
+      mode: "subscription",
+      "managed_payments[enabled]": "true",
+      "line_items[0][price_data][unit_amount]": "100000",
+      "line_items[1][price]": "price_test_credit_plan",
+      "subscription_data[metadata][subscription_kind]": "credit_plan",
+      "subscription_data[metadata][refill_level_cents]": "1000000",
+      "subscription_data[billing_cycle_anchor]": String(nextMonthStartSec()),
+    });
+    expect(form.get("proration_behavior")).toBeNull();
+    expect(await tool("start_credit_plan", { refill_level_cents: 4000 })).toMatchObject({ checkout_url: expect.any(String) });
+    expect(stripeCalls.filter((call) => call.path === "/v1/checkout/sessions").at(-1)!.form.get("line_items[0][price_data][unit_amount]")).toBe("4000");
+  });
+
+  it("refuses an account with no way back in, and a second plan", async () => {
+    accountEmail = "dev-1@no-mail.zaisma.com";
+    expect((await api("/credit/plan/checkout", { body: { refill_level_cents: 4000 } })).answer.error.code).toBe("account_not_protected");
+    accountEmail = "emma@example.com";
+    await startPlan();
+    expect(await tool("start_credit_plan", { refill_level_cents: 4000 })).toMatchObject({ code: "already_credit_plan" });
+    expect(stripeCalls.filter((call) => call.path === "/v1/checkout/sessions")).toEqual([]);
+  });
+
+  it("follows Stripe's events, newest first, and never touches Pro", async () => {
+    expect(await plan()).toBeNull();
+    const createdSec = eventSec + 1;
+    expect((await startPlan()).status).toBe(200);
+    expect(await plan()).toMatchObject({ refill_level_cents: 4000, plan_status: "running", started_at: new Date(createdSec * 1000).toISOString() });
+    // A Pro subscription's event leaves the plan, and the plan's left Pro alone.
+    const owner = async () => (await env.DB.prepare("SELECT stripe_subscription_id, pro_until_ms, credit_plan_subscription_id FROM owners WHERE id = ?").bind(ownerId).first<Record<string, unknown>>())!;
+    expect(await owner()).toMatchObject({ stripe_subscription_id: null, pro_until_ms: null, credit_plan_subscription_id: SUBSCRIPTION_ID });
+    await stripeEvent({ id: "evt_pro", type: "customer.subscription.created", created: ++eventSec, data: { object: { id: "sub_pro_1", status: "active", current_period_end: eventSec + 30 * 86_400, metadata: { owner_id: ownerId, subscription_kind: "pro" } } } });
+    expect(await owner()).toMatchObject({ stripe_subscription_id: "sub_pro_1", credit_plan_subscription_id: SUBSCRIPTION_ID });
+    // Declined: payment_failing while Stripe retries; an older event arriving late changes nothing.
+    await subscriptionEvent("customer.subscription.updated", { status: "past_due" });
+    await subscriptionEvent("customer.subscription.updated", { status: "active" }, createdSec);
+    expect((await plan()).plan_status).toBe("payment_failing");
+    // A second plan paid beside it is stopped at once.
+    await stripeEvent({ id: "evt_second", type: "customer.subscription.created", created: ++eventSec, data: { object: { id: "sub_plan_2", status: "active", metadata: planMetadata(9000) } } });
+    expect(stripeCalls.filter((call) => call.method === "DELETE").map((call) => call.path)).toEqual(["/v1/subscriptions/sub_plan_2"]);
+    expect((await plan()).refill_level_cents).toBe(4000);
+    // Stripe gives up: the plan ends, the developer hears it, and a late event can't start it again.
+    await subscriptionEvent("customer.subscription.deleted", { status: "canceled" });
+    expect(await plan()).toBeNull();
+    expect(creditEmails()).toEqual(["Your monthly credit plan stopped"]);
+    await subscriptionEvent("customer.subscription.updated", { status: "active" }, createdSec + 1);
+    expect(await plan()).toBeNull();
+    expect(await owner()).toMatchObject({ stripe_subscription_id: "sub_pro_1" });
+  });
+
+  it("puts what brings the balance back to the level on the 1st's draft, nothing under $1 or over it, once on a repeat", async () => {
+    await startPlan();
+    await setBalance(2760);
+    expect((await plan()).next_payment_cents).toBe(1240);
+    const draft = { billing_reason: "subscription_cycle", status: "draft" };
+    await invoiceEvent("invoice.created", { id: "in_dec", ...draft });
+    await invoiceEvent("invoice.created", { id: "in_dec", ...draft });
+    expect(refillCalls()).toEqual([["in_dec", "1240", "credit_plan_refill:in_dec"], ["in_dec", "1240", "credit_plan_refill:in_dec"]]);
+    for (const balanceCents of [3950, 4000, 5000]) {
+      stripeCalls = [];
+      await setBalance(balanceCents);
+      expect((await plan()).next_payment_cents).toBe(0);
+      await invoiceEvent("invoice.created", { id: `in_${balanceCents}`, ...draft });
+      expect(refillCalls()).toEqual([]);
+    }
+    // The first invoice, another subscription's renewal, and a credit plan the owner no longer runs add nothing.
+    stripeCalls = [];
+    await setBalance(0);
+    await invoiceEvent("invoice.created", { id: "in_first", billing_reason: "subscription_create", status: "draft" });
+    await invoiceEvent("invoice.created", { id: "in_other", ...draft }, "sub_someone_else");
+    expect(refillCalls()).toEqual([]);
+    expect((await plan()).next_payment_at).toBe(new Date(nextMonthStartSec() * 1000).toISOString());
+  });
+
+  it("adds each paid invoice before tax as a refundable top-up, once however often Stripe sends it", async () => {
+    await startPlan();
+    const paid = { id: "in_paid", billing_reason: "subscription_cycle", status: "paid", total_excluding_tax: 1240, subtotal: 1240, amount_paid: 1488 };
+    expect((await invoiceEvent("invoice.paid", paid)).status).toBe(200);
+    expect((await invoiceEvent("invoice.paid", paid)).status).toBe(200);
+    const { credit } = await tool("get_credit", {});
+    expect(credit.balance_cents).toBe(1240);
+    expect(credit.top_ups).toEqual([expect.objectContaining({ amount_cents: 1240, refundable_cents: 1240 })]);
+    expect((await refundableTopUps(env.DB, ownerId))[0]!.stripeObjectId).toBe("pi_in_paid");
+    // An invoice in another currency adds nothing, and a declined one is told once.
+    await invoiceEvent("invoice.paid", { ...paid, id: "in_euro", currency: "eur" });
+    expect((await creditOf(env.DB, ownerId)).balanceCents).toBe(1240);
+    await invoiceEvent("invoice.payment_failed", { id: "in_declined", status: "open", attempt_count: 1 });
+    await invoiceEvent("invoice.payment_failed", { id: "in_declined", status: "open", attempt_count: 2 });
+    expect(creditEmails()).toEqual(["Your card was declined for this month's credit"]);
+  });
+
+  it("lowers its level at once and raises it only with the passkey", async () => {
+    expect(await tool("change_credit_plan", { refill_level_cents: 3000 })).toMatchObject({ code: "no_credit_plan" });
+    await startPlan();
+    expect((await tool("change_credit_plan", { refill_level_cents: 3000 })).credit.credit_plan.refill_level_cents).toBe(3000);
+    const asked = await tool("change_credit_plan", { refill_level_cents: 6000 });
+    expect(asked).toMatchObject({ code: "confirmation_needed", spending_request_id: expect.stringMatching(/^spending_request_/) });
+    expect((await tool("get_spending_request", { spending_request_id: asked.spending_request_id })).spending_request).toMatchObject({ request_kind: "credit_plan_refill_level", game_slug: null, requested_change: { refill_level_cents: 6000 }, current_setting: { refill_level_cents: 3000 }, request_status: "waiting" });
+    expect((await plan()).refill_level_cents).toBe(3000);
+    const caller = (await callerFor(env, new Request(SITE), "dev-1"))!;
+    expect(await answerSpendingRequest(env, { ...caller, isSpendingConfirmed: true }, asked.spending_request_id, "approved")).toBe("answered");
+    expect((await plan()).refill_level_cents).toBe(6000);
+    // A later event from Stripe keeps Zaisma's level, not the one the plan started with.
+    await subscriptionEvent("customer.subscription.updated", { status: "active" });
+    expect((await plan()).refill_level_cents).toBe(6000);
+  });
+
+  it("stops at once, keeps the credit, and stops when the account is deleted", async () => {
+    expect(await tool("stop_credit_plan", {})).toMatchObject({ code: "no_credit_plan" });
+    await startPlan();
+    await setBalance(2500);
+    const stopped = await tool("stop_credit_plan", {});
+    expect(stopped.credit).toMatchObject({ credit_plan: null, balance_cents: 2500 });
+    expect(stripeCalls.filter((call) => call.method === "DELETE").map((call) => call.path)).toEqual([`/v1/subscriptions/${SUBSCRIPTION_ID}`]);
+    // Stripe's event for the stopped subscription finds nothing to end, so no email.
+    await subscriptionEvent("customer.subscription.deleted", { status: "canceled" });
+    expect(creditEmails()).toEqual([]);
+    stripeCalls = [];
+    await subscriptionEvent("customer.subscription.created", { id: "sub_plan_3", status: "active" });
+    await refundForDeletion(env, "dev-1");
+    expect(stripeCalls.filter((call) => call.method === "DELETE").map((call) => call.path)).toEqual(["/v1/subscriptions/sub_plan_3"]);
+    expect(await plan()).toBeNull();
+  });
+
+  it("is out of reach of a key that only reads credit", async () => {
+    const readKey = (await createApiKey(env.DB, "dev-1", "ci", { accessLevel: "custom", areaAccess: { game_access: "write", version_access: "publish", stats_access: "read", database_access: "read", save_access: "none", purchase_access: "none", forum_access: "none", sign_in_app_access: "none", webhook_access: "none", credit_access: "read", stripe_account_access: "none" }, gameSlugs: null })).token;
+    await startPlan();
+    expect((await api("/credit/plan/checkout", { key: readKey, body: { refill_level_cents: 4000 } })).answer.error.code).toBe("key_not_allowed");
+    expect((await api("/credit/plan", { key: readKey, method: "PATCH", body: { refill_level_cents: 3000 } })).answer.error.code).toBe("key_not_allowed");
+    expect((await api("/credit/plan/stop", { key: readKey, method: "POST" })).answer.error.code).toBe("key_not_allowed");
+    expect((await api("/credit", { key: readKey })).answer.credit.credit_plan).toMatchObject({ refill_level_cents: 4000 });
+    expect(stripeCalls).toEqual([]);
   });
 });
