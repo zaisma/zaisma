@@ -23,10 +23,12 @@ export const MATERIAL_STYLES = `
    as much as glass takes it, a carving half as much, so everything over a game reads as one tinted glass. */
 .carving, .slab { --carving-wash: color-mix(in srgb, var(--glass-hue) calc(var(--glass-hue-strength) / 2), transparent); --slab-wash: color-mix(in srgb, var(--glass-hue) var(--glass-hue-strength), transparent); }
 /* Thickness: one per material, wherever it's used (the tokens --glass-tray, -thin, -regular and -thick). Every glass is regular unless its
-   material is another: what floats over the page (a floating pane, a sheet, a notice, a playing card) is thin, since the page under it is
-   blurred; thick is there to try. */
+   material is another: what floats over the page (a floating pane, a sheet, a notice, a playing card) is the tray's thinnest glass, with
+   its fainter sheen, lighter blur and colors less lifted, since it's small and the page under it is blurred; thin and thick are there to try. */
 .glass.thick { --glass-tint: var(--glass-thick); }
-.glass.thin, .floating-pane, .sheet, .notice, .playing-card { --glass-tint: var(--glass-thin); }
+.glass.thin { --glass-tint: var(--glass-thin); }
+.floating-pane, .sheet, .notice, .playing-card { --glass-tint: var(--glass-tray); --glass-blur: 12px; --glass-saturate: 1.15; }
+:is(.floating-pane, .sheet, .notice, .playing-card)::before { --glass-sheen: var(--glass-tray-sheen); }
 /* A tray: one sheet of the thinnest glass, a fainter sheen, less blur and the colors behind it less lifted, with one rim round all of it.
    Its head is a step of regular glass across its top: the sheet's own glass, cut by the sheet's top corners and lying under its rim, so
    it has no rim of its own. Along the step's foot its lip catches the light (--step-lip) and it shades the thin glass below (--step-cast),

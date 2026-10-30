@@ -822,7 +822,7 @@ component({
 /* A floating pane: the menus' glass, out of the page's flow in the top layer (a popover), placed by zaismaFloat over everything, at its
    anchor. Closed, it takes no room and no presses: it fades toward its anchor, then goes. Under, it slides from its anchor (from above it,
    is-above); over, it opens out of it, from a touch smaller. Riding the page (is-on-page), it's placed in the page's coordinates. */
-.floating-pane { position: fixed; inset: auto; margin: 0; border: 0; color: var(--ink); display: flex; flex-direction: column; max-width: calc(100vw - 2 * var(--pad-frame)); --glass-tint: var(--glass-dropdown);
+.floating-pane { position: fixed; inset: auto; margin: 0; border: 0; color: var(--ink); display: flex; flex-direction: column; max-width: calc(100vw - 2 * var(--pad-frame));
   transition: var(--glass-transition), transform var(--motion-arrive) var(--ease-glide), overlay var(--motion-arrive) allow-discrete, display var(--motion-arrive) allow-discrete; }
 /* It fades its glass and what's on it, never itself: a pane faded as a whole blurs nothing behind it until it's whole. Each fades by its own
    opacity, which the browser draws on the GPU, never a custom property, which would restyle all of it every frame. */
@@ -891,6 +891,10 @@ component({
   styles: DROPDOWN_STYLES,
   render: dropdown,
   examples: [
+    {
+      label: "Try it: press it, move with the arrow keys, close it with Esc or a press outside",
+      markup: html`<div class="dropdown-try">${secondaryButton("Your account", { type: "button", controls: "example-menu-try", isExpanded: false })}${dropdown({ id: "example-menu-try", label: "Your account", head: { title: "emma_r", note: "Online" }, items: ACCOUNT_ITEMS })}</div>`,
+    },
     { label: "Your account, from its button", markup: dropdownFrame("Your account", { id: "example-menu-account", label: "Your account", head: { title: "emma_r", note: "Online" }, items: ACCOUNT_ITEMS }) },
     {
       label: "Choosing one, the current marked",
@@ -1189,7 +1193,6 @@ const SHEET_STYLES = `
    a phone it rises from the foot of the screen, a gap from its edges. Like a pane that fits, it's as wide as what's in it, its words running
    to a reading width at most, and never wider than a sheet (--size-sheet) or the screen less its margins: past its height, its body scrolls. */
 .sheet { width: fit-content; max-width: min(var(--size-sheet), calc(100% - 2 * var(--pad-pane))); margin: auto; padding: 0; border: 0; overflow: visible; color: var(--ink);
-  --glass-tint: var(--glass-dropdown);
   transition: var(--glass-transition), transform var(--motion-arrive) var(--ease-glide), overlay var(--motion-arrive) allow-discrete, display var(--motion-arrive) allow-discrete; }
 /* It fades its glass and what's on it, never itself, as a floating pane does, so it blurs what's behind it all the way in. */
 .sheet::before, .sheet > * { transition: opacity var(--motion-state); }

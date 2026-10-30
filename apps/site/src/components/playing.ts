@@ -232,7 +232,7 @@ ${onPhoneSideways(".playing-bar.on-phone-sideways")}
    (tokens.ts sets its padding and its words' margin, once), so its words keep the pane's margin from the card's edge like any pane's.
    It comes in with a short fade and a rise and leaves with the same, shown or hidden by the page (hidden): display changes at the ends of
    the fade, so it's still there while it leaves. Under reduced motion it only fades. */
-.playing-card { position: fixed; z-index: 20; top: calc(var(--control-height-small) + 3 * var(--pad-frame)); right: var(--pad-frame); width: min(360px, calc(100vw - 2 * var(--pad-frame))); margin: 0; color: var(--ink); --glass-tint: var(--glass-dropdown);
+.playing-card { position: fixed; z-index: 20; top: calc(var(--control-height-small) + 3 * var(--pad-frame)); right: var(--pad-frame); width: min(360px, calc(100vw - 2 * var(--pad-frame))); margin: 0; color: var(--ink);
   transition: var(--glass-transition), opacity var(--motion-state) ease, transform var(--motion-arrive) var(--ease-glide), display var(--motion-arrive) allow-discrete; }
 .playing-card { transform: translate(var(--swipe-x, 0px), var(--swipe-y, 0px)); opacity: var(--swipe-opacity, 1); }
 .playing-card[hidden] { display: none; opacity: 0; transform: translate(var(--swipe-x, 0px), calc(var(--swipe-y, 0px) - 8px)); pointer-events: none; }
