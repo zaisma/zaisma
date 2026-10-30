@@ -470,8 +470,10 @@ const DROPDOWN_STYLES = `
 .floating-pane.dropdown:focus { outline: none; }
 /* Its choices are flat, words on its glass: pointed at or moved to with the keyboard, the words darken and its rim lights beside the choice
    (Edge light, as a switch's does, cut to its glass); the current one keeps its words dark and its stretch of rim orange, never a slab. */
-/* Its rules sit close: a menu's groups are a few choices each, so a page's gap round them would part them more than they differ. */
+/* Its rules sit close to its choices: a menu's groups are a few choices each, so a page's gap round them would part them more than they
+   differ. Under its head's words a rule keeps the usual gap, so the words never crowd it. */
 .floating-pane.dropdown .divider { margin-block: 3px; }
+.floating-pane.dropdown .dropdown-head + .divider { margin-top: var(--gap-control-stack); }
 .floating-pane.dropdown > .edge-light { position: absolute; inset: 0; clip-path: var(--glass-clip); }
 .floating-pane.dropdown .dropdown-choice[aria-current="page"] { background: none; box-shadow: none; }
 .floating-pane.dropdown .dropdown-choice:is(:hover, :focus-visible, .is-pointed, .is-focused) { color: var(--ink); }
