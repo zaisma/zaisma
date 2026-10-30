@@ -187,15 +187,16 @@ span.hairline { flex: 1; border-top: var(--divider); }
 :is(label, a, button, .shell):hover > .carving.is-used, .carving.is-used:hover, .carving.is-pointed { --face-color: var(--carving-face-pointed); }
 .carving.deep { --face-color: var(--carving-deep-face); box-shadow: var(--carving-deep-shade); }
 /* A rail (navigation.ts) is a deep carving, its channel, with a groove a hair inside it and a thumb sliding in the groove: the white slab you
-   drag, its ends slanted as the channel's are. Dragged, it's pressed as a slider's thumb is: pushed down in place, its shadow drawn in close
-   and its face shaded from above. Inside a carving or compact glass, it keeps the compact frame gap from the edges (--rail-inset). */
+   drag, a slab of the same glass as every other (light on light glass, smoked on smoked), lit as a pointed slab so it reads in its dark channel, its ends slanted as the channel's are. Dragged,
+   it's pressed as a slab is: sunk in place, its shadow drawn in close. Inside a carving or compact glass, it keeps the compact frame gap from the edges (--rail-inset). */
 .rail-groove { position: absolute; inset: 2px; filter: var(--thumb-cast); }
-.rail-thumb { position: absolute; top: 0; left: 0; right: 0; background: var(--thumb-face); }
+.rail-thumb { position: absolute; top: 0; left: 0; right: 0; background: var(--slab-sheen), linear-gradient(var(--slab-wash), var(--slab-wash)), var(--slab-face-pointed); --slab-wash: color-mix(in srgb, var(--glass-hue) var(--glass-hue-strength), transparent);
+  box-shadow: inset 0 1px 0 var(--raise-top), inset 1px 0 0 var(--raise-left), inset 0 -1px 0 var(--raise-bottom); }
 .rail.sideways .rail-thumb { right: auto; bottom: 0; }
 .rail.dragging .rail-groove { filter: var(--thumb-cast-pressed); }
-.rail.dragging .rail-thumb { background: var(--thumb-press-face), var(--thumb-face); }
-/* A mark's name is on a small slab of the thumb's: the same white face, its foot shaded. */
-.rail-name { background: var(--thumb-face); color: var(--thumb-ink); box-shadow: inset 0 -1px 0 var(--edge-shade); }
+.rail.dragging .rail-thumb { background: var(--slab-sheen), linear-gradient(var(--slab-wash), var(--slab-wash)), var(--slab-face-pressed); box-shadow: var(--press-shade); }
+/* A mark's name is on a small slab of the same glass, over a dense backing so the words under it don't show through. */
+.rail-name { background: var(--slab-sheen), linear-gradient(var(--slab-face), var(--slab-face)), var(--table-row-head); color: var(--ink); box-shadow: inset 0 -1px 0 var(--edge-shade); }
 .carving, .floating-pane, .glass-pane.compact { --rail-inset: var(--pad-frame-compact); }
 /* A rail's mark is etched across its groove's floor: a hairline catching the light, shaded under its lip. Pointed at, it runs orange. */
 .rail-mark::before { --face-color: var(--rail-etch); background: var(--face-color); box-shadow: 0 1px 0 var(--rail-etch-shade); transition: --face-color var(--motion-state); }

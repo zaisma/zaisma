@@ -379,9 +379,13 @@ export const RAIL_SCRIPT = `/* rail */(function () {
       mark.addEventListener("click", function () {
         // A press on the thumb where a mark lies over it took the thumb, not the mark.
         if (pressedThumb) { pressedThumb = false; return; }
+        go();
+      });
+      function go() {
         var behavior = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
         if (isPage) window.scrollTo({ top: spot(part), behavior: behavior }); else scroller.scrollTo(isSide ? { left: spot(part), behavior: behavior } : { top: spot(part), behavior: behavior });
-      });
+      }
+      mark.goToPart = go;
       return { part: part, mark: mark, name: name };
     });
     // --label-shift moves a name from its mark.
@@ -512,13 +516,14 @@ export const RAIL_SCRIPT = `/* rail */(function () {
     thumb.addEventListener("pointerdown", function (event) { start(event, false); });
     // A press anywhere else in its reach jumps there; a mark goes to its own part instead.
     // A mark's reach lies over the thumb where they meet: a press there takes the thumb, as a press anywhere on it does, never the mark.
-    var pressedThumb = false;
+    var pressedThumb = false, pressedMark = null, pressedAt = 0;
     bar.addEventListener("pointerdown", function (event) {
       if (thumb.contains(event.target)) return;
       if (event.target.closest(".rail-mark")) {
         var t = thumb.getBoundingClientRect();
         pressedThumb = along(event) >= (isSide ? t.left : t.top) && along(event) <= (isSide ? t.right : t.bottom);
-        if (pressedThumb) start(event, false);
+        // A press that lets go where it started is a click on the mark after all: it goes to the mark's part (release, below).
+        if (pressedThumb) { pressedMark = event.target.closest(".rail-mark"); pressedAt = along(event); start(event, false); }
         return;
       }
       start(event, true);
@@ -582,7 +587,8 @@ export const RAIL_SCRIPT = `/* rail */(function () {
     var SNAP_PX = 18;
     function release(event) {
       // A finger only resting on the thumb goes nowhere.
-      var wasDragging = Boolean(drag && drag.isMoving); end();
+      var wasDragging = Boolean(drag && drag.isMoving), tapped = pressedMark && Math.abs(along(event) - pressedAt) < 4 ? pressedMark : null; pressedMark = null; end();
+      if (tapped) { tapped.goToPart(); return; }
       if (!wasDragging || event.pointerType === "mouse" || !marks.length) return;
       var middle = size.start + (size.track - size.thumb) * Math.min(1, at() / size.max) + size.thumb / 2, nearest = null, gap = SNAP_PX;
       marks.forEach(function (m) { if (m.mark.hidden) return; var away = Math.abs(parseFloat(m.mark.style[isSide ? "left" : "top"]) - middle); if (away <= gap) { gap = away; nearest = m; } });
