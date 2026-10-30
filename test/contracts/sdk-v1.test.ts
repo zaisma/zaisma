@@ -58,6 +58,11 @@ const ALLOWED_OUTPUT_ADDITIONS: { union: string; value: string }[] = [
   { union: "ErrorCode", value: "chat_not_here" },
   // joinRoom's transport, the fast lane to a game's own server.
   { union: "ErrorCode", value: "bad_transport" },
+  // Zaisma.setUpOffZaisma: games played off Zaisma, on their own servers.
+  { union: "ErrorCode", value: "bad_game_slug" },
+  { union: "RoomErrorCode", value: "bad_player_token" },
+  { union: "RequestErrorCode", value: "bad_player_token" },
+  { union: "PlayerKind", value: "outside_zaisma" },
 ];
 
 const MORE_VALUES_NOTE = "More values may come";
@@ -291,7 +296,9 @@ function typeProblems(frozenText: string): string[] {
     const comments = ts.getJSDocCommentsAndTags(declaration).map((comment) => comment.getText(currentSource)).join("\n");
     if (!comments.includes(MORE_VALUES_NOTE)) problems.push(`${union} gained "${value}" but its comment doesn't say "${MORE_VALUES_NOTE}; treat an unknown one as …"`);
   }
-  return problems.filter((problem) => !(problem.startsWith("ErrorCode gained") && ALLOWED_OUTPUT_ADDITIONS.some((allowed) => allowed.union === "ErrorCode" && problem.includes(`"${allowed.value}"`))));
+  // ErrorCode takes in a room's and a request's codes, so a value either gains is ErrorCode's too.
+  const errorCodeUnions = ["ErrorCode", "RoomErrorCode", "RequestErrorCode"];
+  return problems.filter((problem) => !(problem.startsWith("ErrorCode gained") && ALLOWED_OUTPUT_ADDITIONS.some((allowed) => errorCodeUnions.includes(allowed.union) && problem.includes(`"${allowed.value}"`))));
 }
 
 // --- The SDK as it runs ---

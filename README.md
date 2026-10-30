@@ -298,7 +298,7 @@ Zaisma.joinRoom({ idleCheckEnabled: false }); // no "Still there?" in this game 
 
 Every number behind this (pings, timeouts, reconnecting, held seats, message limits, close codes) is in [Room connections](docs/DEVELOPER-API.md#room-connections).
 
-Your own clients follow the same protocol: send the text `ping` every 30 seconds or so (the room answers `pong`), `{"type":"idle"}`, `{"type":"hidden"}` and `{"type":"shown"}` as they happen, and `{"type":"back"}` when the player returns. Their hello carries `"protocolVersionNumber":1`. Errors from the room are `{"type":"error","code":"room_full","message":"This room is full."}`, with codes in lowercase snake_case, one of: `room_full`, `room_closed`, `ended`, `too_big`, `too_fast`, `bad_message`, `bad_pass`, `no_hello`, `not_allowed`, `game_unavailable`, `busy`, `kept_out`, `refused`, `room_not_running`, `hosting_paused`, `account_needed`, `game_not_open_to_player`, `blocked_player_here`, `other_version`, `spectators_full`, `spectator_cannot_send`, `already_playing`, `bad_origin`, `send_queue_full`, `chat_not_here`, `chat_not_allowed`, `chat_empty`, `chat_too_long` or `chat_too_fast`. The SDK's types explain each one (`RoomErrorCode`); codes only grow within v1.
+Your own clients follow the same protocol: send the text `ping` every 30 seconds or so (the room answers `pong`), `{"type":"idle"}`, `{"type":"hidden"}` and `{"type":"shown"}` as they happen, and `{"type":"back"}` when the player returns. Their hello carries `"protocolVersionNumber":1`. Errors from the room are `{"type":"error","code":"room_full","message":"This room is full."}`, with codes in lowercase snake_case, one of: `room_full`, `room_closed`, `ended`, `too_big`, `too_fast`, `bad_message`, `bad_pass`, `bad_player_token`, `no_hello`, `not_allowed`, `game_unavailable`, `busy`, `kept_out`, `refused`, `room_not_running`, `hosting_paused`, `account_needed`, `game_not_open_to_player`, `blocked_player_here`, `other_version`, `spectators_full`, `spectator_cannot_send`, `already_playing`, `bad_origin`, `send_queue_full`, `chat_not_here`, `chat_not_allowed`, `chat_empty`, `chat_too_long` or `chat_too_fast`. The SDK's types explain each one (`RoomErrorCode`); codes only grow within v1.
 
 #### Requests to your game server
 
@@ -324,7 +324,7 @@ const { isClaimed } = await Zaisma.server.request({ type: "claimDailyReward" });
 
 - **`onRequest(player, request, server)`** answers what the game gets back: plain JSON, up to 1 MB, within 10 seconds. `player` is who sent it, from their player pass, so a player can't claim someone else's reward. `request` is the game's plain JSON, up to 16 KB, from the player's browser, so check it like any message and say what it's for in its `type`. There's no room and no state: what lasts goes in `server.database`, the same game database the game's rooms use.
 - **Rooms or not:** a game server with only `onRequest` needs no `setup()` and runs no rooms; one with both does both. Requests work whatever the game's multiplayer setting, as long as its live version has the game server in its `zaisma-server/` folder or `zaisma-server.js`, run in the same sealed sandbox as its rooms.
-- **Errors:** the game gets an `error.code`, one of: `bad_request`, `too_big`, `bad_pass`, `account_needed`, `game_not_open_to_player`, `game_unavailable`, `no_request_handler`, `game_server_error`, `hosting_paused`, `slow_down`, `bad_origin` or `busy`. `no_request_handler` means no `onRequest`; `game_server_error` means it threw, answered something that isn't plain JSON or over 1 MB, or took over 10 seconds (you see why with your game server's errors in the dashboard and `get_stats`, with the file and line); `slow_down` means over about 120 a minute from one address; `hosting_paused` answers HTTP 403. The pass's own are `account_needed` and `bad_pass`. A game server that keeps running on too long (a loop that never ends) is paused for a few minutes.
+- **Errors:** the game gets an `error.code`, one of: `bad_request`, `too_big`, `bad_pass`, `bad_player_token`, `account_needed`, `game_not_open_to_player`, `game_unavailable`, `no_request_handler`, `game_server_error`, `hosting_paused`, `slow_down`, `bad_origin` or `busy`. `no_request_handler` means no `onRequest`; `game_server_error` means it threw, answered something that isn't plain JSON or over 1 MB, or took over 10 seconds (you see why with your game server's errors in the dashboard and `get_stats`, with the file and line); `slow_down` means over about 120 a minute from one address; `hosting_paused` answers HTTP 403. The pass's own are `account_needed` and `bad_pass`; `bad_player_token` is your own server's, for a game played off Zaisma (below). A game server that keeps running on too long (a loop that never ends) is paused for a few minutes.
 - **Part of the game's hosting on Zaisma.** Each request, webhook event and schedule run counts on the game's hosting meter, and so does its CPU past the first 10 ms (see "Hosting" above). While the game's hosting is paused, requests answer `hosting_paused`. Your dashboard and `get_stats` show the month's count.
 - **On your own server** the Node runner answers the same requests at `POST /v1/requests/<game>` on its port, with `server.database` its local SQLite file: `Zaisma.server.request(request, { serverUrl: "https://play.example.com" })`. Any server can answer them the same way: the body is `{ pass, request }` as JSON (sent as `text/plain`, so browsers need no preflight), and the answer `{ answer }` or `{ error: { code, message } }`.
 
@@ -467,6 +467,40 @@ An account's pass also says who it can chat with: `who_can_chat` (`nobody`, `fri
 Blocks come the same way: `block_player_tag_ids`, the tags of up to 100 accounts it has a block with, either way. Ask `passesHaveBlockBetween(first, second)` with two checked passes (one side's pass is enough, and neither says who made the block); `canChat` already says no across a block. A block is a wall both ways: deliver nothing from one to the other and keep them apart in your matchmaking when you can, but never keep either out of a room. In rooms, Zaisma's and the Node runner alike, `room.hasBlockBetween(firstPlayerId, secondPlayerId)` covers blocks from passes and blocks a player just made in the game, and each player's game hears which players in the room it has a block with, so `room.isMuted` hides their emotes both ways. `room.areFriends(firstPlayerId, secondPlayerId)` says the same of friends.
 
 **The fast lane:** for games where every millisecond counts, like shooters, your server can also take WebTransport (HTTP/3 over UDP), where `latest_only` sends go as real datagrams both ways: a late one is dropped instead of holding up what comes after it. Start the runner with all three of `--webtransport-port 443 --certificate-path fullchain.pem --certificate-key-path privkey.pem`: a real certificate for your server's name (Let's Encrypt's works; WebTransport can't sit behind a TLS proxy like nginx or Caddy, so the runner holds the certificate itself), and that UDP port open in your firewall. UDP 443 sits beside your proxy's TCP 443, so `wss://play.example.com` and the fast lane share one address; a `serverUrl` with a port, like `wss://play.example.com:8443`, needs the fast lane on UDP 8443. The runner needs two packages for it, which you install beside it (`npm install @fails-components/webtransport@1.6.11 @fails-components/webtransport-transport-http3-quiche@1.6.11`); it says so when they're missing. Then join with `Zaisma.joinRoom({ serverUrl: "wss://play.example.com", transport: "webtransport" })`. Where WebTransport isn't there or doesn't connect in 3 seconds (a network that blocks UDP, an older browser), the room uses the WebSocket by itself, and `room.transport` says which it got. Zaisma's rooms use the WebSocket either way. Any server can speak the fast lane: the wire is in the [developer API](docs/DEVELOPER-API.md#the-fast-lane-to-your-own-server).
+
+#### Playing off Zaisma
+
+A game running outside zaisma.com (an exported build on your own site, another site or a store) plays online against your own game server, with the same code. Zaisma's rooms serve games played on Zaisma; off Zaisma there's no Zaisma pass, so the game tells the SDK who the player is first:
+
+```js
+const { isOffZaisma } = await Zaisma.setUpOffZaisma({ gameSlug: "star-raiders", playerToken });
+const room = await Zaisma.joinRoom({ serverUrl: "wss://play.example.com" });
+```
+
+On a Zaisma page `setUpOffZaisma` changes nothing (`isOffZaisma` is `false`), so one build runs in both places. Elsewhere, `joinRoom` and `Zaisma.server.request` with a `serverUrl` send the `playerToken` in place of a pass (text up to 8 KB, or `null` for a guest), and your server says who that is. Call it again with a new token after the player signs in again or out. Without it, or without a `serverUrl`, they fail with `not_on_zaisma`. The SDK comes with the game: the `_zaisma/v1.js` it already ships, or `@zaisma/sdk` from npm.
+
+A player from outside Zaisma is one of three, and joins with `kind: "outside_zaisma"`:
+
+- **Signed in with Zaisma:** the game signs them in with Sign in with Zaisma and sends the ID token. `signInWithZaismaPlayers` from `@zaisma/game-server` checks it (RS256, your sign-in app's ID as its `aud`, Zaisma's published keys) and gives the same player ID and name as on Zaisma:
+
+  ```js
+  import { signInWithZaismaPlayers } from "@zaisma/game-server";
+  startServer({ gameServer, gameSlug: "star-raiders", origins: ["https://star-raiders.example.com", "https://star-raiders.zaismausercontent.com"], identifyPlayer: signInWithZaismaPlayers({ signInAppIds: ["sign_in_app_8f3k2m"] }) });
+  ```
+
+- **Your game's own accounts:** `identifyPlayer` is any async function from the token to `{ id, name }` (an ID of up to 100 characters, a name of up to 40), or `null` to turn the player away with `bad_player_token`. One that throws answers `busy`, and your server's log says why:
+
+  ```js
+  identifyPlayer: async (playerToken) => {
+    const account = await myAccounts.checkToken(playerToken);
+    return account ? { id: account.id, name: account.displayName } : null;
+  },
+  ```
+
+  One function can try both: `signInWithZaismaPlayers(...)` first, then your own.
+- **Guests:** `outsideGuestsEnabled: true` lets a player with no token in, with a temporary ID and a generated name like Zaisma's guests (`guestPlayer()`). It's off by default.
+
+Set `origins` to the pages your game is played on, your own site's included. Players from your Zaisma page and from elsewhere can share a room. A player from outside Zaisma has no friends or blocks from Zaisma, and counts as a stranger of unknown age: the runner's `room.chat` stops any message between them and an under-18 Zaisma account, checks the rest as chat between adults, and never sends Zaisma chat among players from outside Zaisma alone. On your own server without the runner, `checkChat` takes `null` in place of each such player's pass and does the same. Your game server's kick and mute work as ever; the Zaisma bar (Players, block, report), cloud saves, the buy sheet, friend requests and room lists stay on Zaisma pages. Your own servers stay free.
 
 #### Friends in your game
 

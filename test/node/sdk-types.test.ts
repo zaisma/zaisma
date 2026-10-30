@@ -1739,3 +1739,85 @@ describe("the fast lane to your own server", () => {
     expect((await joining).transport).toBe("websocket");
   });
 });
+
+describe("Zaisma.setUpOffZaisma, for a game played off Zaisma against its own server", () => {
+  it("changes nothing on a Zaisma page, so the same code runs in both places", async () => {
+    const sdk = loadSdk();
+    expect(await sdk.Zaisma.setUpOffZaisma({ gameSlug: "star-raiders", playerToken: "token" })).toEqual({ isOffZaisma: false });
+    const { socket } = await joinedRoom(sdk);
+    expect(socket.url).toBe("wss://rooms.zaisma.test/v1/rooms/test-game/K7Q2MX");
+    expect(JSON.parse(socket.sent[0]!)).toMatchObject({ type: "hello", pass: "pass" });
+    expect(JSON.parse(socket.sent[0]!)).not.toHaveProperty("playerToken");
+  });
+
+  it("refuses options it doesn't take, a slug that isn't one and a token that isn't text up to 8 KB", async () => {
+    const elsewhere = loadSdk(null);
+    expect(listed(await refusal(() => elsewhere.Zaisma.setUpOffZaisma({ gameSlug: "star-raiders", serverUrl: "wss://play.example.com" })))).toEqual(["gameSlug", "playerToken"]);
+    expect(await failureCode(() => elsewhere.Zaisma.setUpOffZaisma({ gameSlug: "Star Raiders" }))).toBe("bad_game_slug");
+    expect(await failureCode(() => elsewhere.Zaisma.setUpOffZaisma({}))).toBe("bad_game_slug");
+    expect(await failureCode(() => elsewhere.Zaisma.setUpOffZaisma({ gameSlug: "star-raiders", playerToken: 42 }))).toBe("bad_player_token");
+    expect(await failureCode(() => elsewhere.Zaisma.setUpOffZaisma({ gameSlug: "star-raiders", playerToken: "" }))).toBe("bad_player_token");
+    expect(await failureCode(() => elsewhere.Zaisma.setUpOffZaisma({ gameSlug: "star-raiders", playerToken: "x".repeat(8 * 1024 + 1) }))).toBe("bad_player_token");
+    expect(await elsewhere.Zaisma.setUpOffZaisma({ gameSlug: "star-raiders", playerToken: "x".repeat(8 * 1024) })).toEqual({ isOffZaisma: true });
+  });
+
+  it("off Zaisma, without it or without a serverUrl, says what to do: not_on_zaisma", async () => {
+    const elsewhere = loadSdk(null);
+    await expect(elsewhere.Zaisma.joinRoom({ serverUrl: "wss://play.example.com" })).rejects.toMatchObject({ code: "not_on_zaisma", message: expect.stringContaining("Zaisma.setUpOffZaisma({ gameSlug, playerToken })") });
+    await expect(elsewhere.Zaisma.server.request({ type: "top" }, { serverUrl: "https://play.example.com" })).rejects.toMatchObject({ code: "not_on_zaisma", message: expect.stringContaining("setUpOffZaisma") });
+    await elsewhere.Zaisma.setUpOffZaisma({ gameSlug: "star-raiders", playerToken: "token" });
+    await expect(elsewhere.Zaisma.joinRoom()).rejects.toMatchObject({ code: "not_on_zaisma", message: expect.stringContaining("give serverUrl") });
+    await expect(elsewhere.Zaisma.server.request({ type: "top" })).rejects.toMatchObject({ code: "not_on_zaisma", message: expect.stringContaining("give serverUrl") });
+  });
+
+  it("joins the game's own server with the playerToken in the hello, the newest on each reconnect, and never asks Zaisma for a pass", async () => {
+    const asked: string[] = [];
+    const elsewhere = loadSdk(null, (url: unknown) => {
+      asked.push(String(url));
+      return Promise.reject(new TypeError("Failed to fetch"));
+    });
+    expect(await elsewhere.Zaisma.setUpOffZaisma({ gameSlug: "star-raiders", playerToken: "first-token" })).toEqual({ isOffZaisma: true });
+    const joining = elsewhere.Zaisma.joinRoom({ serverUrl: "wss://play.example.com", roomCode: "K7Q2MX" });
+    await vi.waitFor(() => expect(elsewhere.sockets).toHaveLength(1));
+    const socket = elsewhere.sockets.at(-1)!;
+    expect(socket.url).toBe("wss://play.example.com/v1/rooms/star-raiders/K7Q2MX");
+    socket.onopen!();
+    const hello = JSON.parse(socket.sent[0]!);
+    expect(hello).toMatchObject({ type: "hello", playerToken: "first-token" });
+    expect(hello).not.toHaveProperty("pass");
+    const outsider = { id: "player_ana", name: "Ana", kind: "outside_zaisma" };
+    say(socket, { type: "welcome", me: outsider, players: [outsider], room: settings, hostPlayerId: null, awayChecks: { idleTimeoutSec: 600, hiddenTimeoutSec: null } });
+    const room = await joining;
+    expect(room.me).toMatchObject({ kind: "outside_zaisma" });
+    // Signing in again replaces the token: the next hello carries it.
+    await elsewhere.Zaisma.setUpOffZaisma({ gameSlug: "star-raiders", playerToken: "second-token" });
+    socket.onopen!();
+    expect(JSON.parse(socket.sent.at(-1)!)).toMatchObject({ type: "hello", playerToken: "second-token" });
+    expect(asked).toEqual([]);
+    room.leave();
+  });
+
+  it("a guest from elsewhere sends playerToken null, and bad_player_token fails the join with no retry", async () => {
+    const elsewhere = loadSdk(null);
+    await elsewhere.Zaisma.setUpOffZaisma({ gameSlug: "star-raiders" });
+    const joining = elsewhere.Zaisma.joinRoom({ serverUrl: "wss://play.example.com", roomCode: "K7Q2MX" });
+    await vi.waitFor(() => expect(elsewhere.sockets).toHaveLength(1));
+    const socket = elsewhere.sockets.at(-1)!;
+    socket.onopen!();
+    expect(JSON.parse(socket.sent[0]!)).toMatchObject({ type: "hello", playerToken: null });
+    say(socket, { type: "error", code: "bad_player_token", message: "This server doesn't know this player. Sign in again." });
+    await expect(joining).rejects.toMatchObject({ code: "bad_player_token" });
+    expect(elsewhere.sockets).toHaveLength(1);
+  });
+
+  it("sends server.request to the game's own server as { playerToken, request }", async () => {
+    const asked: { url: string; body: unknown }[] = [];
+    const elsewhere = loadSdk(null, (url: unknown, init: unknown) => {
+      asked.push({ url: String(url), body: JSON.parse((init as { body: string }).body) });
+      return Promise.resolve({ ok: true, json: async () => ({ answer: { coinCount: 3 } }) });
+    });
+    await elsewhere.Zaisma.setUpOffZaisma({ gameSlug: "star-raiders", playerToken: "token" });
+    expect(await elsewhere.Zaisma.server.request({ type: "wallet" }, { serverUrl: "wss://play.example.com" })).toEqual({ coinCount: 3 });
+    expect(asked).toEqual([{ url: "https://play.example.com/v1/requests/star-raiders", body: { playerToken: "token", request: { type: "wallet" } } }]);
+  });
+});

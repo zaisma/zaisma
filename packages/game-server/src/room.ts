@@ -22,7 +22,7 @@ export interface Player {
   id: string;
   /** The account's name, or a guest's generated one like "Swift Fox 42". */
   name: string;
-  /** A signed-in Zaisma account, or a guest. */
+  /** A signed-in Zaisma account, a guest, or a player your own server let in from outside Zaisma (outside_zaisma). */
   kind: PlayerKind;
   /**
    * The permanent items the account owns in this game, by item_name, from the pass it joined with (its
@@ -1209,6 +1209,7 @@ export type RoomErrorCode =
   | "too_fast"
   | "bad_message"
   | "bad_pass"
+  | "bad_player_token"
   | "no_hello"
   | "not_allowed"
   | "game_unavailable"
@@ -1240,6 +1241,7 @@ export const ERROR_TEXT: Record<RoomErrorCode, string> = {
   too_fast: "Too many messages. Slow down.",
   bad_message: "The room couldn't read or use that message.",
   bad_pass: "Your player pass isn't valid for this game.",
+  bad_player_token: "This server doesn't know this player. Sign in again.",
   no_hello: "Send your player pass first.",
   not_allowed: "Only the game server or the room's host can do that.",
   game_unavailable: "This game isn't available right now.",
@@ -1455,6 +1457,13 @@ export interface PlayerChatSettings {
   whoCanChat: "nobody" | "friends" | "anyone";
   chatGroupId: string | null;
 }
+
+/**
+ * The chat settings of a player your own server let in from outside Zaisma (outside_zaisma): they chat with
+ * anyone who chats with anyone, in no chat group, and Zaisma's chat check stops any message between them and
+ * an under-18 account. Zaisma's chat groups are chat_group_… IDs, so none is ever this one.
+ */
+export const OUTSIDE_ZAISMA_CHAT_SETTINGS: PlayerChatSettings = { whoCanChat: "anyone", chatGroupId: "outside_zaisma" };
 
 /** A checked pass's chat settings, for RoomCore.setChatSettings: null for a guest. A setting this version doesn't know chats with nobody. */
 export function chatSettingsOf(claims: PassClaims): PlayerChatSettings | null {
@@ -2068,13 +2077,16 @@ export class RoomCore<S = any> {
 
   /**
    * Whether one player's chat may reach another, canChat's rule on passes (pass.ts): two accounts in the
-   * same chat group with no block either way, friends unless both chat with anyone.
+   * same chat group with no block either way, friends unless both chat with anyone. A player from outside
+   * Zaisma is in no chat group: they chat with anyone who chats with anyone, and Zaisma's chat check stops
+   * what would reach an under-18 account or come from one.
    */
   private mayChat(senderPlayerId: string, receiverPlayerId: string): boolean {
     if (senderPlayerId === receiverPlayerId || !this.canChat(senderPlayerId) || !this.canChat(receiverPlayerId) || this.hasBlockBetween(senderPlayerId, receiverPlayerId)) return false;
     const sender = this.chatSettings.get(senderPlayerId)!;
     const receiver = this.chatSettings.get(receiverPlayerId)!;
-    if (sender.chatGroupId !== receiver.chatGroupId) return false;
+    const isOutside = (settings: PlayerChatSettings) => settings.chatGroupId === OUTSIDE_ZAISMA_CHAT_SETTINGS.chatGroupId;
+    if (sender.chatGroupId !== receiver.chatGroupId && !isOutside(sender) && !isOutside(receiver)) return false;
     return (sender.whoCanChat === "anyone" && receiver.whoCanChat === "anyone") || this.areFriends(senderPlayerId, receiverPlayerId);
   }
 

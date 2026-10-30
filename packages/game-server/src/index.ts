@@ -56,4 +56,5 @@ export { OUTSIDE_CALL_LIMITS, OutsideCallError, type OutsideCallErrorCode } from
 export { PASS_ISSUER_URL, PASS_TOKEN_TYPE, PASS_VERSION_NUMBER, PassError, RECEIPT_ISSUER_URL, RECEIPT_TOKEN_TYPE, RECEIPT_VERSION_NUMBER, ReceiptError, canChat, passesAreFriends, passesHaveBlockBetween, verifyPass, verifyReceipt, type PassClaims, type PassErrorCode, type PassExpectations, type PlayerKind, type PublicKey, type ReceiptClaims, type ReceiptErrorCode, type ReceiptExpectations, type WhoCanChat } from "./pass.ts";
 export { CHAT_CHECK_LIMITS, CHAT_ROOM_LIMITS, ChatCheckError, checkChat, type ChatCheck, type ChatCheckOptions, type ChatCheckReason } from "./chat.ts";
 export { guestName, isRoomCode } from "./names.ts";
+export { guestPlayer, signInWithZaismaPlayers, type IdentifyPlayer, type OutsidePlayer, type SignInWithZaismaPlayersOptions } from "./outside-players.ts";
 export { relay } from "./relay.ts";
