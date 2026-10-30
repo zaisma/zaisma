@@ -768,7 +768,7 @@ component({
    covers is hidden rather than showing through, and it casts its shadow as a filter on what holds it, where only it is drawn. */
 .floating-pane.in-place { position: relative; display: flex; width: 100%; }
 /* One as wide as what's in it (a menu) hangs under its anchor inside what holds it (zaismaFloat's hang). */
-.floating-pane.placed-under.in-place.is-hanging { position: absolute; width: max-content; }
+.floating-pane.placed-under.in-place.is-hanging { position: absolute; z-index: 6; width: max-content; }
 .floating-pane.placed-over.in-place { z-index: 6; width: max-content; max-width: 100%; margin-top: calc(-1 * (var(--gap-words-control) + var(--control-height-field) / 2 + var(--line-from-top, 0px))); }
 :has(> .floating-pane.placed-over.in-place) { filter: var(--float-cast); }
 :has(> .floating-pane.placed-over.in-place) > :not(.floating-pane, input) { visibility: hidden; }
