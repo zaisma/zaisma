@@ -76,6 +76,7 @@ export {
   type ShaderRender,
   type ShaderRenderInput,
 } from "../../../packages/cli/shader-check.mjs";
+import { recordRestoreEvent } from "./restore-events.ts";
 
 export type ShaderRenderer = (input: ShaderRenderInput) => Promise<ShaderRender>;
 
@@ -146,6 +147,7 @@ export async function runShaderCheck(env: Env, shaderId: string, deps: ShaderChe
   if (!manifest) return;
   const reject = async (reason: ReviewReason, qualityChecks: ShaderQualityCheck[] | null = null, flashCount: number | null = null) => {
     await settleShader(env.DB, shader, reason, qualityChecks, flashCount);
+    await recordRestoreEvent(env, { event_kind: "shader_rejected", at_ms: Date.now(), shader_id: shader.id, review_reason: reason });
     await audit(env.DB, game.id, "shader-rejected", `${shader.screen} ${shader.id}: ${reason.message}`, "shader check", reason);
   };
 
@@ -184,6 +186,7 @@ async function holdKnownImage(env: Env, slug: string, shader: GameShader, drawn:
   await Promise.all([drawn.stillPng!, ...drawn.framePngs].map((pngBytes, index) => env.GAMES.put(keptKey(index === 0 ? "still" : `frame-${index - 1}`), pngBytes, { httpMetadata: { contentType: "image/png" } })));
   const reason = reviewReason("image_rejected", "This shader can't be used.");
   await settleShader(env.DB, shader, reason, null, null);
+  await recordRestoreEvent(env, { event_kind: "shader_rejected", at_ms: Date.now(), shader_id: shader.id, review_reason: reason });
   await audit(env.DB, shader.game_id, "image-held", `A ${shader.screen} shader's frames matched known abuse material. Kept at ${keptKey("still")} and beside it; never shown.`, "shader check");
   await sendAlert(env, `URGENT: known abuse image in a shader on ${slug}`, `${KNOWN_IMAGE_ALERT}\n\nShader ${shader.id}'s frames, kept at ${keptKey("still")} and beside it in the games bucket.\n\nGame: ${env.SITE_ORIGIN}/admin/games/${shader.game_id}`);
 }

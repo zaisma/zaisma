@@ -26,7 +26,10 @@ const now = () => Date.now();
 
 /**
  * Block an account by its player ID: from now on there's a wall between them, and if they were
- * friends they aren't any more, on both sides. Blocking someone already blocked keeps the first block.
+ * friends they aren't any more, on both sides. Requests waiting between them end with it, so an unblock
+ * brings none back: the blocked player's is turned down (to them it looks waiting, as any turn-down does,
+ * and the turn-down wait keeps them from asking again straight after an unblock), and the blocker's own is
+ * deleted, so it never counts toward their requests pause. Blocking someone already blocked keeps the first block.
  */
 export async function blockPlayer(database: D1Database, accountId: string, blockedPlayerId: string, nowMs = now()): Promise<BlockOutcome> {
   const blocked = await database.prepare("SELECT id, player_id, username FROM accounts WHERE player_id = ?").bind(blockedPlayerId).first<{ id: string; player_id: string; username: string }>();
@@ -35,6 +38,8 @@ export async function blockPlayer(database: D1Database, accountId: string, block
   await database.batch([
     database.prepare("INSERT INTO blocks (account_id, blocked_account_id, created_at_ms) VALUES (?, ?, ?) ON CONFLICT DO NOTHING").bind(accountId, blocked.id, nowMs),
     database.prepare("DELETE FROM friendships WHERE (account_id = ? AND friend_account_id = ?) OR (account_id = ? AND friend_account_id = ?)").bind(accountId, blocked.id, blocked.id, accountId),
+    database.prepare("UPDATE friend_requests SET answer = 'turned_down', answered_at_ms = ?3 WHERE sender_account_id = ?2 AND recipient_account_id = ?1 AND answer IS NULL AND expires_at_ms > ?3").bind(accountId, blocked.id, nowMs),
+    database.prepare("DELETE FROM friend_requests WHERE sender_account_id = ?1 AND recipient_account_id = ?2 AND answer IS NULL AND expires_at_ms > ?3").bind(accountId, blocked.id, nowMs),
   ]);
   return { blocked: { player_id: blocked.player_id, name: blocked.username, created_at_ms: nowMs } };
 }

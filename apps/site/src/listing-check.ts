@@ -19,6 +19,7 @@ import type { Env } from "./env.ts";
 import { sendAlert } from "./email.ts";
 import { judgeListing, listingOutcomes, type ListingBrief, type ListingJudge, type ListingPicture, type PictureOutcome } from "./listing-judge.ts";
 import { tellWebhooks } from "./webhooks.ts";
+import { recordRestoreEvent } from "./restore-events.ts";
 
 const now = () => Date.now();
 
@@ -95,6 +96,7 @@ export async function runListingCheck(env: Env, gameId: string, judge: ListingJu
     if (!outcome || outcome.outcome === "person") continue;
     if (outcome.outcome === "rejected") {
       await settleImage(env.DB, image, outcome.reason, "check");
+      await recordRestoreEvent(env, { event_kind: "image_rejected", at_ms: Date.now(), image_id: image.id, review_reason: outcome.reason });
     } else if (outcome.outcome === "held") {
       await setListingReason(env, image.id, outcome.reason);
     } else {
@@ -185,6 +187,7 @@ export async function judgeShaderPictures(env: Env, game: Game, pictures: { id: 
 
 async function holdForFakeReward(env: Env, game: Game, heldReason: ReviewReason): Promise<void> {
   await setReviewStatus(env.DB, game.id, "held", heldReason);
+  await recordRestoreEvent(env, { event_kind: "game_held", at_ms: Date.now(), game_id: game.id, review_reason: heldReason });
   await audit(env.DB, game.id, "held", heldReason.message, "listing check", heldReason);
   await tellWebhooks(env, "review_status_changed", game.id, {});
   await sendAlert(env, `Held for a fake reward: ${game.slug}`, `The listing check found a fake reward and held the game until a person looks.\n\n${heldReason.message}\n\nGame: ${env.SITE_ORIGIN}/admin/games/${game.id}`);

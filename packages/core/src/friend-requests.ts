@@ -27,7 +27,7 @@ export const FRIEND_REQUEST_LIMITS = {
   turnedDownWaitDays: 30,
   /** How long requests go nowhere once most of an account's recent ones were turned down or left. */
   pauseDays: 7,
-  /** The window the pause looks back over. */
+  /** The window the pause looks back over; it starts again when a pause ends, so a new pause needs new refusals. */
   pauseLookBackDays: 30,
   /** A request left this long unanswered counts against its sender for the pause. */
   pauseLeftAfterDays: 3,
@@ -121,7 +121,8 @@ export async function friendRequestRefusalFor(database: D1Database, sender: Acco
   if (await areFriends(database, sender.id, recipient.id)) return "already_friends";
   const inTheWay = isInTheWay(await requestBetween(database, sender.id, recipient.id), nowMs);
   if (inTheWay) return inTheWay;
-  // A request waiting the other way can always be answered by sending one back.
+  // A request waiting the other way skips the recipient's setting and band, never the wall: a block or a social side turned off.
+  if (sender.social_stopped_at_ms !== null || recipient.social_stopped_at_ms !== null || (await hasBlockBetweenAccounts(database, sender.id, recipient.id))) return "not_taking_requests";
   if (await isWaiting(database, recipient.id, sender.id, nowMs)) return null;
   return (await takesRequestsFrom(database, sender, recipient, nowMs)) ? null : "not_taking_requests";
 }
@@ -138,7 +139,15 @@ async function accountByPlayerId(database: D1Database, playerId: string): Promis
 export type SentFriendRequest =
   | { status: "sent"; is_paused_now: boolean }
   | { status: "friends" }
-  | { error: FriendRequestRefusal | "too_many_friend_requests" | "too_many_friends" | "recipient_has_too_many_friends" };
+  | { error: FriendRequestRefusal | "too_many_friend_requests" | "too_many_friends" | "recipient_has_too_many_friends" | "social_stopped" };
+
+/** answerFriendRequest's errors as the one sending a request back hears them: from their side, and a request no longer there as Add friend would say it. */
+const SENT_BACK_ERRORS = {
+  request_not_found: "not_taking_requests",
+  too_many_friends: "too_many_friends",
+  sender_has_too_many_friends: "recipient_has_too_many_friends",
+  social_stopped: "social_stopped",
+} as const satisfies Record<Extract<AnsweredFriendRequest, { error: string }>["error"], Extract<SentFriendRequest, { error: string }>["error"]>;
 
 /**
  * Send a friend request, from a game (gameId) or not. A request back to someone whose request is waiting makes
@@ -151,38 +160,47 @@ export async function sendFriendRequest(database: D1Database, sender: Account, r
   const recipient = (await accountByPlayerId(database, recipientPlayerId))!;
   if (await isWaiting(database, recipient.id, sender.id, nowMs)) {
     const answered = await answerFriendRequest(database, sender, recipient.player_id, "accepted", nowMs);
-    return "error" in answered ? { error: answered.error === "too_many_friends" ? "too_many_friends" : "recipient_has_too_many_friends" } : { status: "friends" };
+    return "error" in answered ? { error: SENT_BACK_ERRORS[answered.error] } : { status: "friends" };
   }
   const dailyCount = bandOf(sender) === "13-15" ? FRIEND_REQUEST_LIMITS.teenDailyCount : FRIEND_REQUEST_LIMITS.dailyCount;
-  const sentToday = (await database.prepare("SELECT COUNT(*) AS request_count FROM friend_requests WHERE sender_account_id = ? AND created_at_ms > ?").bind(sender.id, nowMs - DAY_MS).first<{ request_count: number }>())!.request_count;
+  // A request sent again to the same player replaces the old one, so it doesn't count itself.
+  const sentToday = (await database.prepare("SELECT COUNT(*) AS request_count FROM friend_requests WHERE sender_account_id = ? AND created_at_ms > ? AND recipient_account_id != ?").bind(sender.id, nowMs - DAY_MS, recipient.id).first<{ request_count: number }>())!.request_count;
   if (sentToday >= dailyCount) return { error: "too_many_friend_requests" };
   if ((await friendCountOf(database, sender.id)) >= MAXIMUM_FRIEND_COUNT) return { error: "too_many_friends" };
 
   // While paused, a request is kept as turned down at once: the recipient never sees it, and to the sender it
   // looks waiting until it would have run out, like any turn-down.
   const pausedUntilMs = sender.friend_requests_paused_until_ms;
-  const isPausedNow = !(pausedUntilMs !== null && pausedUntilMs > nowMs) && (await shouldPause(database, sender.id, nowMs));
-  if (isPausedNow) await database.prepare("UPDATE accounts SET friend_requests_paused_until_ms = ? WHERE id = ?").bind(nowMs + FRIEND_REQUEST_LIMITS.pauseDays * DAY_MS, sender.id).run();
+  const isPausedNow = !(pausedUntilMs !== null && pausedUntilMs > nowMs) && (await shouldPause(database, sender.id, pausedUntilMs, nowMs));
   const isPaused = isPausedNow || (pausedUntilMs !== null && pausedUntilMs > nowMs);
-  await database
+  // The count above is the quick answer; this insert counts again as it writes, so requests sent at the same moment can't pass the cap together.
+  const inserted = await database
     .prepare(
-      `INSERT INTO friend_requests (sender_account_id, recipient_account_id, game_id, created_at_ms, expires_at_ms, answer, answered_at_ms) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+      `INSERT INTO friend_requests (sender_account_id, recipient_account_id, game_id, created_at_ms, expires_at_ms, answer, answered_at_ms)
+       SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7
+       WHERE (SELECT COUNT(*) FROM friend_requests WHERE sender_account_id = ?1 AND created_at_ms > ?8 AND recipient_account_id != ?2) < ?9
        ON CONFLICT (sender_account_id, recipient_account_id) DO UPDATE SET game_id = excluded.game_id, created_at_ms = excluded.created_at_ms, expires_at_ms = excluded.expires_at_ms, answer = excluded.answer, answered_at_ms = excluded.answered_at_ms`,
     )
-    .bind(sender.id, recipient.id, gameId, nowMs, nowMs + FRIEND_REQUEST_LIMITS.durationDays * DAY_MS, isPaused ? "turned_down" : null, isPaused ? nowMs : null)
+    .bind(sender.id, recipient.id, gameId, nowMs, nowMs + FRIEND_REQUEST_LIMITS.durationDays * DAY_MS, isPaused ? "turned_down" : null, isPaused ? nowMs : null, nowMs - DAY_MS, dailyCount)
     .run();
+  if (!inserted.meta.changes) return { error: "too_many_friend_requests" };
+  if (isPausedNow) await database.prepare("UPDATE accounts SET friend_requests_paused_until_ms = ? WHERE id = ?").bind(nowMs + FRIEND_REQUEST_LIMITS.pauseDays * DAY_MS, sender.id).run();
   return { status: "sent", is_paused_now: isPausedNow };
 }
 
-/** Whether most of the sender's recent requests were turned down or left: a pattern no honest player meets. */
-async function shouldPause(database: D1Database, senderAccountId: string, nowMs: number): Promise<boolean> {
+/**
+ * Whether most of the sender's recent requests were turned down or left: a pattern no honest player meets. The
+ * window starts again when a pause ends, so the refusals that started it and the requests held during it never
+ * count toward the next one.
+ */
+async function shouldPause(database: D1Database, senderAccountId: string, pausedUntilMs: number | null, nowMs: number): Promise<boolean> {
   const counts = await database
     .prepare(
       `SELECT COUNT(CASE WHEN answer = 'accepted' THEN 1 END) AS accepted_count,
               COUNT(CASE WHEN answer = 'turned_down' OR (answer IS NULL AND created_at_ms < ?3) THEN 1 END) AS refused_count
        FROM friend_requests WHERE sender_account_id = ?1 AND created_at_ms > ?2`,
     )
-    .bind(senderAccountId, nowMs - FRIEND_REQUEST_LIMITS.pauseLookBackDays * DAY_MS, nowMs - FRIEND_REQUEST_LIMITS.pauseLeftAfterDays * DAY_MS)
+    .bind(senderAccountId, Math.max(nowMs - FRIEND_REQUEST_LIMITS.pauseLookBackDays * DAY_MS, pausedUntilMs ?? 0), nowMs - FRIEND_REQUEST_LIMITS.pauseLeftAfterDays * DAY_MS)
     .first<{ accepted_count: number; refused_count: number }>();
   const { accepted_count: acceptedCount, refused_count: refusedCount } = counts!;
   if (refusedCount < FRIEND_REQUEST_LIMITS.pauseMinimumCount) return false;
@@ -247,7 +265,11 @@ export async function waitingFriendRequestCountOf(database: D1Database, accountI
 
 export type AnsweredFriendRequest = { answer: "accepted" | "turned_down" } | { error: "request_not_found" | "too_many_friends" | "sender_has_too_many_friends" | "social_stopped" };
 
-/** Accept or turn down a waiting request. Accepting makes them friends on both sides; turning down tells the sender nothing. */
+/**
+ * Accept or turn down a waiting request. Accepting makes them friends on both sides; turning down tells the sender nothing.
+ * An accept is one batch whose friendship goes in only while both have fewer than MAXIMUM_FRIEND_COUNT, so accepts at the
+ * same moment can't take either past it, and the request is answered only when the friendship is there.
+ */
 export async function answerFriendRequest(database: D1Database, recipient: Account, senderPlayerId: string, answer: "accepted" | "turned_down", nowMs = Date.now()): Promise<AnsweredFriendRequest> {
   const sender = await accountByPlayerId(database, senderPlayerId);
   if (!sender || !(await isWaiting(database, sender.id, recipient.id, nowMs))) return { error: "request_not_found" };
@@ -256,6 +278,25 @@ export async function answerFriendRequest(database: D1Database, recipient: Accou
     if (sender.social_stopped_at_ms !== null || (await hasBlockBetweenAccounts(database, sender.id, recipient.id))) return { error: "request_not_found" };
     if ((await friendCountOf(database, recipient.id)) >= MAXIMUM_FRIEND_COUNT) return { error: "too_many_friends" };
     if ((await friendCountOf(database, sender.id)) >= MAXIMUM_FRIEND_COUNT) return { error: "sender_has_too_many_friends" };
+    const isFriendship = "EXISTS (SELECT 1 FROM friendships WHERE account_id = ?1 AND friend_account_id = ?2)";
+    const [, , accepted] = await database.batch([
+      database
+        .prepare(
+          `INSERT INTO friendships (account_id, friend_account_id, created_at_ms) SELECT ?1, ?2, ?3
+           WHERE (SELECT COUNT(*) FROM friendships WHERE account_id = ?1) < ?4 AND (SELECT COUNT(*) FROM friendships WHERE account_id = ?2) < ?4
+             AND EXISTS (SELECT 1 FROM friend_requests WHERE sender_account_id = ?2 AND recipient_account_id = ?1 AND answer IS NULL AND expires_at_ms > ?3)
+           ON CONFLICT DO NOTHING`,
+        )
+        .bind(recipient.id, sender.id, nowMs, MAXIMUM_FRIEND_COUNT),
+      database.prepare(`INSERT INTO friendships (account_id, friend_account_id, created_at_ms) SELECT ?2, ?1, ?3 WHERE ${isFriendship} ON CONFLICT DO NOTHING`).bind(recipient.id, sender.id, nowMs),
+      // Answering decides it, so two tabs can't both answer.
+      database.prepare(`UPDATE friend_requests SET answer = 'accepted', answered_at_ms = ?3 WHERE sender_account_id = ?2 AND recipient_account_id = ?1 AND answer IS NULL AND expires_at_ms > ?3 AND ${isFriendship}`).bind(recipient.id, sender.id, nowMs),
+      // A request the other way is answered too.
+      database.prepare(`UPDATE friend_requests SET answer = 'accepted', answered_at_ms = ?3 WHERE sender_account_id = ?1 AND recipient_account_id = ?2 AND answer IS NULL AND ${isFriendship}`).bind(recipient.id, sender.id, nowMs),
+    ]);
+    if (accepted!.meta.changes) return { answer };
+    if (!(await isWaiting(database, sender.id, recipient.id, nowMs))) return { error: "request_not_found" };
+    return { error: (await friendCountOf(database, recipient.id)) >= MAXIMUM_FRIEND_COUNT ? "too_many_friends" : "sender_has_too_many_friends" };
   }
   // Answering decides it, so two tabs can't both answer.
   const taken = await database
@@ -263,14 +304,6 @@ export async function answerFriendRequest(database: D1Database, recipient: Accou
     .bind(answer, nowMs, sender.id, recipient.id, nowMs)
     .first();
   if (!taken) return { error: "request_not_found" };
-  if (answer === "accepted") {
-    await database.batch([
-      database.prepare("INSERT INTO friendships (account_id, friend_account_id, created_at_ms) VALUES (?, ?, ?) ON CONFLICT DO NOTHING").bind(recipient.id, sender.id, nowMs),
-      database.prepare("INSERT INTO friendships (account_id, friend_account_id, created_at_ms) VALUES (?, ?, ?) ON CONFLICT DO NOTHING").bind(sender.id, recipient.id, nowMs),
-      // A request the other way is answered too.
-      database.prepare("UPDATE friend_requests SET answer = 'accepted', answered_at_ms = ? WHERE sender_account_id = ? AND recipient_account_id = ? AND answer IS NULL").bind(nowMs, recipient.id, sender.id),
-    ]);
-  }
   return { answer };
 }
 
