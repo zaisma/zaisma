@@ -152,6 +152,16 @@ const logoOn = (glassKind: "light" | "smoked", markup: Raw): Raw =>
   html`<div ${glassKind === "light" ? raw('data-theme-choice="light"') : raw('class="smoke"')} style="display:flex;padding:var(--pad-pane);background:${glassKind === "light" ? "#E7E4DF" : "#121110"}">${markup}</div>`;
 
 /** The loader: the Z building itself, one loop a second (brand/loader/zaisma-loader.svg), in the words' color. Shown only once something was pressed. */
+/**
+ * A divider (reading.ts's Divider): a hairline across a pane between two parts of it (a menu's head and its choices, a group of choices
+ * and Clear filters), or, with words in its middle, between two ways to do one thing (or). isDecorative: it only sets parts apart, and a
+ * screen reader passes over it.
+ */
+export function divider(options: { words?: string; isDecorative?: boolean } = {}): Raw {
+  if (options.words) return html`<p class="divider has-words words-margin"><span class="hairline"></span><span>${options.words}</span><span class="hairline"></span></p>`;
+  return options.isDecorative ? raw('<hr class="divider hairline" aria-hidden="true">') : raw('<hr class="divider hairline" role="separator">');
+}
+
 export const loader = (): Raw => raw('<span class="loader" aria-hidden="true"></span>');
 
 /** A rail's parts: its channel, carved with slanted ends, and inside it the groove the thumb slides in. */
@@ -334,20 +344,10 @@ component({
 .swatches .chip-swatch { position: relative; grid-row: span 2; align-self: stretch; width: 2.25rem; min-height: 2.25rem; clip-path: var(--cut-shape); }
 .swatches .chip-swatch > .cut-line polygon { stroke: var(--line); }
 .swatches code { font: var(--type-code); }
-.divider-sample { display: grid; gap: var(--gap-words-control); }
-.divider-sample > * { --pad-words: 0px; }
-.divider-sample strong { font: var(--type-name); }
-.divider-sample span { font: var(--type-facts); color: var(--muted); }
-.divider-sample > div { display: grid; }
-.divider-sample p { margin: 0; font: var(--type-words); color: var(--ink-2); }
 .swatches span:last-child { color: var(--muted); }
 `,
   examples: [
     { label: "Every token", markup: swatches(), isWide: true },
-    {
-      label: "The divider: a line between two parts of one pane",
-      markup: glassPane({ paneWidth: "fit", body: stackOfOne(html`<div class="divider-sample words-margin round"><div><strong>emma_r</strong><span>Online</span></div><p class="hairline-above">Your profile · Friends · Settings</p></div>`) }),
-    },
   ],
 });
 

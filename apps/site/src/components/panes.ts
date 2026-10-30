@@ -3,7 +3,7 @@ import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
 // The materials register first: the Materials page starts with them.
 import "./materials.ts";
-import { CUT_LINE, EDGE, ago, floatingPane, glassPane, groove, icon, sheetMarkup, tag, tray, well, type IconName } from "./foundations.ts";
+import { CUT_LINE, EDGE, ago, divider, floatingPane, glassPane, groove, icon, sheetMarkup, tag, tray, well, type IconName } from "./foundations.ts";
 import { doneState, emptyState, glanceFacts, problemState, listRows, pictureFrame, pictureRow, type GlanceFacts } from "./data.ts";
 import { cardRow, secondaryButton, tertiaryButton, primaryButton, textLink, toggleButton } from "./actions.ts";
 import { REPORT_REASONS, choiceCards, copyField, cutField, longField, tabSwitch, wheelField } from "./inputs.ts";
@@ -89,8 +89,8 @@ export interface DropdownOptions {
 
 /** A dropdown: a Floating pane that hangs from any button (aria-controls its id), holding a short list of choices. */
 export function dropdown(options: DropdownOptions): Raw {
-  const head = options.head ? html`<div class="dropdown-head words-margin at-top"><strong>${options.head.title}</strong>${options.head.note ? html`<span>${options.head.note}</span>` : ""}${options.head.lineId ? html`<span id="${options.head.lineId}" role="status" hidden></span>` : ""}</div><hr class="hairline" aria-hidden="true">` : "";
-  const choices = html`<div class="dropdown-in">${options.items.map((menuItem) => ("kind" in menuItem ? raw('<hr class="hairline" role="separator">') : dropdownChoice(menuItem)))}</div>`;
+  const head = options.head ? html`<div class="dropdown-head words-margin at-top"><strong>${options.head.title}</strong>${options.head.note ? html`<span>${options.head.note}</span>` : ""}${options.head.lineId ? html`<span id="${options.head.lineId}" role="status" hidden></span>` : ""}</div>${divider({ isDecorative: true })}` : "";
+  const choices = html`<div class="dropdown-in">${options.items.map((menuItem) => ("kind" in menuItem ? divider() : dropdownChoice(menuItem)))}</div>`;
   return html`${floatingPane({ id: options.id, placement: "under", kind: "dropdown", role: "menu", label: options.label, isShownInPlace: options.isOpen, head: head || undefined, body: choices })}`;
 }
 

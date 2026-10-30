@@ -1,14 +1,14 @@
 import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
 import { secondaryButton, textLink } from "./actions.ts";
-import { CUT_LINE, glassPane, groove, icon, tag } from "./foundations.ts";
+import { CUT_LINE, divider, glassPane, groove, icon, tag } from "./foundations.ts";
 import type { IconName } from "./icons.ts";
 import { row, stack, stackOfOne } from "./layout.ts";
 
 /*
  * Words and the ways through them that pages still to build need: Reading text (a forum post, the rules, a game's description), Facts (what
  * something is, label by label), Breadcrumbs (where a page sits), a Folded part (what's there but out of the way), a Pager (newer and older
- * pages of a list), a Divider with words (or), and Progress (a task on its way, like an upload).
+ * pages of a list), a Divider (a line between parts, or with words: or), and Progress (a task on its way, like an upload).
  */
 
 export interface ReadingTextOptions {
@@ -82,10 +82,6 @@ export function pager(options: PagerOptions): Raw {
   })}</nav>`;
 }
 
-/** A divider with words: a hairline across a pane with a word or two in its middle, between two ways to do one thing (or). */
-export function dividerWords(words: string): Raw {
-  return html`<p class="divider-words words-margin"><span class="hairline"></span><span>${words}</span><span class="hairline"></span></p>`;
-}
 
 export interface ProgressOptions {
   /** What's on its way: Uploading Ashen Crown. */
@@ -231,17 +227,20 @@ component({
 });
 
 component({
-  name: "Divider with words",
-  slug: "divider-with-words",
+  name: "Divider",
+  slug: "divider",
   group: "panes",
   subgroup: "glass",
-  summary: "A hairline across a pane with a word or two in its middle, between two ways to do one thing: or, between signing in with a password and with a passkey. Not between parts that aren't alternatives: the gap between them does that.",
+  summary: "A hairline across a pane between two parts of it: a menu's head and its choices, a group of choices and Clear filters. With a word or two in its middle, between two ways to do one thing: or, between signing in with a password and with a passkey. Not between parts that aren't alternatives or one whole: the gap between them does that.",
   styles: `
-/* A divider with words: a hairline each side of its words, in facts. */
-.divider-words { display: flex; align-items: center; gap: var(--gap-words-words); margin: 0; font: var(--type-facts); color: var(--muted); }
+/* A divider with words: a hairline each side of its words, in facts. A plain one is the hairline itself (materials.ts). */
+.divider.has-words { display: flex; align-items: center; gap: var(--gap-words-words); margin: 0; font: var(--type-facts); color: var(--muted); }
 `,
-  render: dividerWords,
-  examples: [{ label: "Between two ways in", isWide: true, markup: glassPane({ paneWidth: "full", body: stackOfOne(dividerWords("or")) }) }],
+  render: divider,
+  examples: [
+    { label: "Between two parts of one pane: who you are, then where to go", markup: glassPane({ paneWidth: "fit", body: stack({ items: [{ kind: "words", markup: html`<p><strong>emma_r</strong> · Online</p>` }, { kind: "block", markup: divider() }, { kind: "words", markup: html`<p>Your profile · Friends · Settings</p>` }] }) }) },
+    { label: "With words: between two ways in", isWide: true, markup: glassPane({ paneWidth: "full", body: stackOfOne(divider({ words: "or" })) }) },
+  ],
 });
 
 component({

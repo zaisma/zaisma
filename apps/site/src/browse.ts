@@ -1,12 +1,11 @@
 import { GENRE_LABELS, GENRES, PRICE_RANGES, currencyForCountry, priceRangeOf, requestCountryCode, type DeviceKind, type Genre, type PriceRange } from "@zaisma/core";
 import { tertiaryButton } from "./components/actions.ts";
-import { glassPane } from "./components/foundations.ts";
+import { divider, glassPane } from "./components/foundations.ts";
 import { grid, row, stack, type LayoutItem } from "./components/layout.ts";
 import { filterTags, type FilterTag } from "./components/panes.ts";
 import { filterMenu, type FilterGroup } from "./components/navigation.ts";
 import { loadMore } from "./components/navigation.ts";
 import { emptyState } from "./components/data.ts";
-import { dividerWords } from "./components/reading.ts";
 import { gameCard } from "./components/playing.ts";
 import { tabSwitch, type SwitchTab } from "./components/switch.ts";
 import { DEVICE_KIND_SOURCE, viewerDeviceKind } from "./device-kind.ts";
@@ -265,7 +264,7 @@ function results(query: BrowseQuery, games: BrowseGame[], ownedGameIds: Readonly
     {
       kind: "block",
       isHidden: !others.length,
-      markup: stack({ items: [{ kind: "words", markup: dividerWords(otherDevicesWords(allOthers)) }, { kind: "block", markup: grid({ whenEmpty: emptyState({ title: "Nothing for other devices", text: "Every game here plays on this one." }), id: "browse-other-games", itemSize: "cover", label: "Games made for other devices", items: others.map((game, coverIndex) => coverOf(game, fitting.length + coverIndex, ownedGameIds)) }) }] }),
+      markup: stack({ items: [{ kind: "words", markup: divider({ words: otherDevicesWords(allOthers) }) }, { kind: "block", markup: grid({ whenEmpty: emptyState({ title: "Nothing for other devices", text: "Every game here plays on this one." }), id: "browse-other-games", itemSize: "cover", label: "Games made for other devices", items: others.map((game, coverIndex) => coverOf(game, fitting.length + coverIndex, ownedGameIds)) }) }] }),
     },
     ...(hasMore
       ? [{ kind: "block" as const, markup: loadMore({ href: browseHref({ ...query, pageNumber: query.pageNumber + 1 }), label: "More games", listId: "browse-games", moreListIds: ["browse-other-games"], isLoadedOnScroll: true }) }]
