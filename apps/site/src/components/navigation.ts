@@ -1610,6 +1610,28 @@ export const FILTER_MENU_SCRIPT = `/* filter menus */(function () {
     menu.addEventListener("click", function (event) {
       // A way's choice picked: it's marked picked there and named on its way's row, and the menu goes back to its ways, that row in focus.
       // Its page applies it (Browse draws its list again, the menu open on its ways).
+      // Clear filters: every way back to its first choice (Any), the count gone from the Filter button, and Clear filters with it.
+      var clear = event.target.closest('[data-filter-panel=""] a[role="menuitem"][data-keeps-open]');
+      if (clear) {
+        menu.querySelectorAll('[data-filter-panel]:not([data-filter-panel=""])').forEach(function (panel) {
+          var first = panel.querySelector('a[role="menuitem"]'), tick = menu.querySelector(".dropdown-tick");
+          if (!first || first.getAttribute("aria-current") === "page") return;
+          tick = tick && tick.cloneNode(true);
+          panel.querySelectorAll('[aria-current="page"]').forEach(function (each) { each.removeAttribute("aria-current"); var own = each.querySelector(".dropdown-tick"); if (own) own.remove(); });
+          first.setAttribute("aria-current", "page"); if (tick) first.appendChild(tick);
+          var row = menu.querySelector('[data-filter-opens="' + panel.getAttribute("data-filter-panel") + '"] .filter-picked'), label = first.querySelector("span");
+          if (row && label) row.textContent = label.textContent;
+        });
+        var button = document.querySelector('[aria-controls="' + menu.id + '"]'), count = button && button.querySelector(".cut-count");
+        if (count) count.remove();
+        var rule = clear.previousElementSibling;
+        if (rule && rule.matches("hr")) rule.hidden = true;
+        clear.hidden = true;
+        var firstWay = menu.querySelector(".filter-group");
+        if (firstWay) firstWay.focus({ preventScroll: true });
+        if (menu.zaismaPlace) menu.zaismaPlace();
+        return;
+      }
       var picked = event.target.closest('[data-filter-panel]:not([data-filter-panel=""]) [role="menuitem"][data-keeps-open]');
       if (picked) {
         var panel = picked.closest("[data-filter-panel]"), groupName = panel.getAttribute("data-filter-panel"), tick = menu.querySelector(".dropdown-tick");

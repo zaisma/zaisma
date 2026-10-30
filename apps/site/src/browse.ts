@@ -369,7 +369,7 @@ function show(href, isNewEntry, isSearch, reopenedGroupName) {
     document.title = page.title;
     if (isNewEntry === "push") history.pushState(null, "", href); else if (isNewEntry) history.replaceState(null, "", href);
     browse.querySelectorAll("[data-loads-on-scroll]").forEach((holder) => window.zaismaLoadMore && window.zaismaLoadMore.watch(holder));
-    if (reopenedGroupName) reopenFilter(reopenedGroupName);
+    if (typeof reopenedGroupName === "string") reopenFilter(reopenedGroupName);
   }).catch(() => { if (isNewEntry === "push") location.href = href; });
 }
 // A sort or a genre: its tab slides at once, and the grid follows when the page's games come.
@@ -400,7 +400,7 @@ function reopenFilter(groupName) {
     if (!menu || !button || !menu.floating) return;
     menu.classList.add("opens-at-once");
     button.click();
-    const row = menu.querySelector('[data-filter-opens="' + groupName + '"]');
+    const row = groupName ? menu.querySelector('[data-filter-opens="' + groupName + '"]') : menu.querySelector(".filter-group");
     if (row) row.focus({ preventScroll: true });
     requestAnimationFrame(() => menu.classList.remove("opens-at-once"));
   });
