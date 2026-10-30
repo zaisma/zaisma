@@ -1231,7 +1231,7 @@ const SOCIAL_CHOICE_LABELS: Record<string, string> = { nobody: "Nobody", friends
  * choices the band has are there at all; a setting with just one isn't shown. Picking a preset fills
  * in its settings (the script), so Custom starts from the last one; the server works it out again.
  */
-function socialSettingsForm(band: AgeBand, settings: SocialSettings, isStrangerChatWaitingNow: boolean): Raw {
+function socialSettingsForm(band: AgeBand, settings: SocialSettings): Raw {
   const presets = Object.fromEntries(socialModesFor(band).map((socialMode) => [socialMode, socialModeSettings(socialMode, band)]));
   return html`<form class="stack social" method="post" action="/account/social" id="social-form" data-presets="${JSON.stringify(presets)}">
 ${socialModeChoices(band, socialModeOf(settings, band), null, true)}
@@ -1239,9 +1239,7 @@ ${socialModeChoices(band, socialModeOf(settings, band), null, true)}
 ${SOCIAL_SETTINGS.map((setting) => {
     const choices = socialSettingChoicesFor(band, setting) as readonly string[];
     if (choices.length < 2) return "";
-    // A new 16–17 account chats with friends only until it's a day old and played on a second day (packages/core/src/standing.ts).
-    const strangerChatWait = setting === "who_can_chat" && isStrangerChatWaitingNow ? html`<p class="note">Chat with anyone opens once your account is a day old and you've played on a second day. Friends can chat now.</p>` : "";
-    return html`<fieldset class="area"><legend>${SOCIAL_SETTING_LABELS[setting][0]}</legend><p class="hint">${SOCIAL_SETTING_LABELS[setting][1]}</p>${strangerChatWait}
+    return html`<fieldset class="area"><legend>${SOCIAL_SETTING_LABELS[setting][0]}</legend><p class="hint">${SOCIAL_SETTING_LABELS[setting][1]}</p>
 <div class="seg picks">${choices.map(
       (choice) =>
         html`<label><input type="radio" name="${setting}" value="${choice}"${choice === settings[setting] ? raw(" checked") : ""}><span>${setting === "who_can_send_friend_requests" && choice === "nobody" ? "Invites only" : SOCIAL_CHOICE_LABELS[choice]}</span></label>`,
@@ -1863,8 +1861,9 @@ ${scriptTags(USERNAME_SCRIPT)}
 ${account.social_stopped_at_ms
       ? html`<p class="note" role="status">${socialStoppedNotice(account.social_stopped_reason)}</p>`
       : html`<p>Who can chat with you, join you and see what you play.</p>
+${isStrangerChatWaiting(account, Date.now()) ? html`<p class="note">Chat with anyone opens once your account is a day old and you've played on a second day. Friends can chat now.</p>` : ""}
 ${query.has("social-saved") ? html`<p class="note" role="status">Saved. Games pick up chat changes the next time you open them.</p>` : ""}
-${socialSettingsForm(account.age_band, socialSettingsOf(account), isStrangerChatWaiting(account, Date.now()))}`}
+${socialSettingsForm(account.age_band, socialSettingsOf(account))}`}
 <h2 id="theme">Theme</h2>
 <p>Light or dark. System follows your device.</p>
 ${query.has("theme-saved") ? html`<p class="note" role="status">Saved.</p>` : ""}

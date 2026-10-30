@@ -866,6 +866,9 @@ const SETTINGS_SCRIPT = pageScript(
   // A spending request's link opens its sheet over the Hosting pane.
   var asking = document.getElementById("spending-request");
   if (asking && asking.showModal && !asking.open) asking.showModal();
+  // A link to #add-credit or #payments-connect (the game dashboard's note on links to other sites) opens that sheet.
+  var linked = ["#add-credit", "#payments-connect"].indexOf(location.hash) >= 0 && document.getElementById(location.hash.slice(1));
+  if (linked && linked.showModal && !linked.open && !(asking && asking.open)) linked.showModal();
 
   // A form that spends or makes a key taps the passkey first (the server checks it again). A raise: a number above what it is now.
   function tapKind(form) {

@@ -998,7 +998,7 @@ ${link ? html`<p class="hint">${LINK_AUDIENCE_WORDS[link.who_can_open]}</p>${lin
   };
   return html`<form class="stack" method="post" action="/dashboard/${slug}/links">
 <p class="hint">The sites your game opens, like your store, Patreon, Steam page or Discord: <code>Zaisma.links.open("store")</code>, from a tap or key press in the game. Players see "You're leaving Zaisma" with the address, and choose Open or Stay. Guests and players under 18 open only links on well-known store, payment and video sites, never chat apps. Up to ${LINK_LIMITS.maximumLinkCount}; clear a row to remove its link.</p>
-${waitWords ? html`<p class="hint standing-wait">${icon("lock")} ${waitWords}${isCardHelpful ? html` <a href="/dashboard/settings#hosting">Add a card to open them now</a>` : ""}</p>` : ""}
+${waitWords ? html`<p class="hint standing-wait">${icon("lock")} ${waitWords}${isCardHelpful ? html` <a href="/dashboard/settings#add-credit">Add credit</a> or <a href="/dashboard/settings#payments-connect">connect Stripe</a> to open them now.` : ""}</p>` : ""}
 ${Array.from({ length: rowCount }, (_, i) => row(i))}
 <button class="btn" type="submit">Save links</button>
 </form>`;
