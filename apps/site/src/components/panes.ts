@@ -1869,7 +1869,7 @@ component({
   examples: [
     {
       label: "Between the slants of two controls side by side (their boxes overlap by --control-slant less this), and the edge rule's neighbor distance: 4px",
-      markup: spacingExample("--gap-control-row", html`<div class="control-row" data-spacing-show="gap">${primaryButton("Play", { type: "button", icon: "play" })}${secondaryButton("Details", { type: "button" })}</div>`),
+      markup: spacingExample("--gap-control-row", html`<div data-spacing-show="gap" data-spacing-of=".layout-row">${row({ widths: "fit", items: [{ kind: "control", markup: primaryButton("Play", { type: "button", icon: "play" }) }, { kind: "control", markup: secondaryButton("Details", { type: "button" }) }] })}</div>`),
     },
     {
       label: "Two controls stacked: 8px",

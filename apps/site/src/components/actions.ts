@@ -3,7 +3,7 @@ import { component } from "./component.ts";
 import { CUT_LINE, EDGE, ICONS, backdrop, glassPane, icon, loader, type ColorChoice, type IconName } from "./foundations.ts";
 import { TOKEN_STYLES } from "./tokens.ts";
 import { controlMarkup, type ControlMarkup } from "./control-markup.ts";
-import { paneParts, stackOfOne } from "./layout.ts";
+import { paneParts, row, stack, stackOfOne } from "./layout.ts";
 
 /*
  * Actions, loudest to quietest: the primary button (the one colored thing you press), the secondary button beside it
@@ -383,8 +383,8 @@ component({
  * background with no words in it (never a cover, whose art has its title), and the glass fixed to what it is, light over a bright world and
  * smoked over a dark one, as the world's measured glass would be.
  */
-const world = (standInSlug: string, glassKind: "light" | "smoked", body: Raw) =>
-  html`<div ${glassKind === "light" ? raw('data-theme-choice="light"') : raw('class="smoke"')} style="position:relative;overflow:hidden;display:grid;width:min(380px,100%);padding:var(--pad-pane)">${backdrop({ isFramed: true, standInSlug })}${glassPane({ paneWidth: "full", body: stackOfOne(body) })}</div>`;
+const world = (standInSlug: string, glassKind: "light" | "smoked", controls: ControlMarkup[]) =>
+  html`<div ${glassKind === "light" ? raw('data-theme-choice="light"') : raw('class="smoke"')} style="position:relative;overflow:hidden;display:grid;width:min(380px,100%);padding:var(--pad-pane)">${backdrop({ isFramed: true, standInSlug })}${glassPane({ paneWidth: "full", body: stack({ items: controls.map((markup) => ({ kind: "control" as const, markup })) }) })}</div>`;
 /** A secondary button's tints, each with its name and swatch (the gallery shows every one). */
 export const TINT_CHOICES: (ColorChoice & { colorValue: ButtonTint })[] = [
   { name: "Clear", colorValue: "clear", swatch: "clear" },
@@ -394,9 +394,13 @@ export const TINT_CHOICES: (ColorChoice & { colorValue: ButtonTint })[] = [
   { name: "Indigo", colorValue: "indigo", swatch: "#5865F2" },
   { name: "Black", colorValue: "black", swatch: "#14171C" },
 ];
-const tintPalette = () => html`<div style="display:grid;gap:var(--gap-control-stack);${COLUMN}">${TINT_CHOICES.map((choice) => wayButton(choice.name, "discord", { tint: choice.colorValue }))}</div>`;
+const tintPalette = () => controlsStacked(TINT_CHOICES.map((choice) => wayButton(choice.name, "discord", { tint: choice.colorValue })));
 const wayButton = (label: string, wayIn: WayIn, more: Omit<SecondaryButtonOptions, "wayIn"> = {}) => secondaryButton(label, { type: "button", wayIn, isFullWidth: true, ...more });
-const waysIn = () => html`${wayButton("Sign in with a passkey", "passkey")}${wayButton("Continue with Google", "google")}${wayButton("Continue with Discord", "discord")}`;
+const waysIn = (): ControlMarkup[] => [wayButton("Sign in with a passkey", "passkey"), wayButton("Continue with Google", "google"), wayButton("Continue with Discord", "discord")];
+/** Controls one over the other, in a column a phone's width at most. */
+const controlsStacked = (controls: ControlMarkup[]) => html`<div style="${COLUMN}">${stack({ items: controls.map((markup) => ({ kind: "control" as const, markup })) })}</div>`;
+/** Controls side by side, in a row. */
+const controlsBeside = (...controls: ControlMarkup[]) => row({ widths: "fit", items: controls.map((markup) => ({ kind: "control" as const, markup })) });
 
 component({
   name: "Secondary button",
@@ -423,9 +427,6 @@ component({
 /* Only its icon: as wide as a little more than it's tall, and never narrower, even sharing a row's width. */
 .cut-btn.icon-only > .face { width: 52px; --slab-words: 0px; }
 .cut-btn.small.icon-only > .face { width: 42px; }
-/* In a row of controls, which share the row (flex: 1 1 0), an icon keeps its square instead of being squeezed. */
-[data-glass] .control-row > .cut-btn.icon-only > .face { min-width: 52px; }
-[data-glass] .control-row > .cut-btn.small.icon-only > .face { min-width: 42px; }
 /* An icon alone centers in what shows of the button: a slanted end gives up half its slant. */
 .cut-btn.icon-only > .face[data-slanted~="start"] { --slab-shift: calc(var(--control-slant) / 4); }
 .cut-btn.icon-only > .face[data-slanted~="end"] { --slab-shift: calc(var(--control-slant) / -4); }
@@ -481,19 +482,19 @@ component({
     { label: "A delete's confirm, pointed", markup: secondaryButton("Delete Ashen Crown", { type: "submit", tint: "red", state: "is-pointed" }), isStill: true },
     { label: "A delete's confirm, pressed: it carves in", markup: secondaryButton("Delete Ashen Crown", { type: "submit", tint: "red", state: "is-pressed" }), isStill: true },
     { label: "A delete's confirm, deleting", markup: secondaryButton("Delete Ashen Crown", { type: "submit", tint: "red", isBusy: true }), isStill: true },
-    { label: "Small, only its icon: a sheet's Close, a Copy", markup: html`<div class="control-row">${secondaryButton("Close", { type: "button", icon: "close", isLabelHidden: true, isSmall: true })}${secondaryButton("Copy", { type: "button", icon: "copy", isLabelHidden: true, isSmall: true })}</div>` },
-    { label: "Can't press", markup: html`<div class="control-row">${secondaryButton("Details", { type: "button", isDisabled: true })}${secondaryButton("Settings", { type: "button", icon: "gear", isDisabled: true })}</div>`, isStill: true },
-    { label: "Folds a Sidebar: small, only the sidebar's icon, at the start of the page's header (sidebarButton)", markup: html`<div class="control-row">${secondaryButton("Settings", { type: "button", icon: "sidebar", isLabelHidden: true, isSmall: true, isExpanded: true })}${secondaryButton("Settings", { type: "button", icon: "sidebar", isLabelHidden: true, isSmall: true, isExpanded: false })}</div>`, isStill: true },
+    { label: "Small, only its icon: a sheet's Close, a Copy", markup: controlsBeside(secondaryButton("Close", { type: "button", icon: "close", isLabelHidden: true, isSmall: true }), secondaryButton("Copy", { type: "button", icon: "copy", isLabelHidden: true, isSmall: true })) },
+    { label: "Can't press", markup: controlsBeside(secondaryButton("Details", { type: "button", isDisabled: true }), secondaryButton("Settings", { type: "button", icon: "gear", isDisabled: true })), isStill: true },
+    { label: "Folds a Sidebar: small, only the sidebar's icon, at the start of the page's header (sidebarButton)", markup: controlsBeside(secondaryButton("Settings", { type: "button", icon: "sidebar", isLabelHidden: true, isSmall: true, isExpanded: true }), secondaryButton("Settings", { type: "button", icon: "sidebar", isLabelHidden: true, isSmall: true, isExpanded: false })), isStill: true },
     { label: "With a count: the players in a room", markup: secondaryButton("Players", { type: "button", icon: "people", isLabelHidden: true, reactionCount: 3 }) },
-    { label: "Big, beside Play", markup: html`<div class="control-row">${primaryButton("Play", { type: "button", isBig: true, icon: "play" })}${secondaryButton("Details", { type: "button", isBig: true })}</div>` },
+    { label: "Big, beside Play", markup: controlsBeside(primaryButton("Play", { type: "button", isBig: true, icon: "play" }), secondaryButton("Details", { type: "button", isBig: true })) },
     { label: "Full width", markup: html`<div style="width:min(380px,100%)">${secondaryButton("Make an account", { type: "button", isFullWidth: true })}</div>` },
     { label: "A delete", markup: secondaryButton("Delete this game", { type: "button" }) },
     { label: "Long words: one line, ending in an ellipsis", markup: html`<div style="${COLUMN}">${secondaryButton("Make an account and keep your progress in Ashen Crown", { type: "button", isFullWidth: true })}</div>` },
-    { label: "The ways in, each in its own tint", markup: html`<div style="display:grid;gap:var(--gap-control-stack);${COLUMN}">${waysIn()}</div>` },
+    { label: "The ways in, each in its own tint", markup: controlsStacked(waysIn()) },
     { label: "A way in, pointed", markup: html`<div style="${COLUMN}">${wayButton("Continue with Discord", "discord", { state: "is-pointed" })}</div>`, isStill: true },
     { label: "A way in, pressed: it carves in", markup: html`<div style="${COLUMN}">${wayButton("Continue with Discord", "discord", { state: "is-pressed" })}</div>`, isStill: true },
     { label: "A way in, busy", markup: html`<div style="${COLUMN}">${wayButton("Sign in with a passkey", "passkey", { isBusy: true })}</div>`, isStill: true },
-    { label: "A way in, can't press", markup: html`<div style="display:grid;gap:var(--gap-control-stack);${COLUMN}">${wayButton("Sign in with a passkey", "passkey", { isDisabled: true })}${wayButton("Continue with Discord", "discord", { isDisabled: true })}</div>`, isStill: true },
+    { label: "A way in, can't press", markup: controlsStacked([wayButton("Sign in with a passkey", "passkey", { isDisabled: true }), wayButton("Continue with Discord", "discord", { isDisabled: true })]), isStill: true },
     { label: "Every tint, on a way in", markup: tintPalette(), isStill: true },
     // Over a game's world the glass follows the world, not the theme: light glass on a bright one, smoked on a dark one.
     { label: "Over a bright game world", markup: world("kestrel", "light", waysIn()) },
@@ -586,10 +587,10 @@ component({
     ...stateExamples((state) => tertiaryButton("Skip for now", { type: "button", state }), "tertiary"),
     { label: "Busy", markup: tertiaryButton("Undo", { type: "button", isBusy: true }), isStill: true },
     { label: "Can't press", markup: tertiaryButton("Undo", { type: "button", isDisabled: true }), isStill: true },
-    { label: "With an arrow: a way on, under the ways in", markup: html`<div style="display:grid;gap:var(--gap-control-stack);${COLUMN}">${waysIn()}${tertiaryButton("Continue as guest", { href: "#", hasArrow: true, isFullWidth: true })}</div>` },
+    { label: "With an arrow: a way on, under the ways in", markup: controlsStacked([...waysIn(), tertiaryButton("Continue as guest", { href: "#", hasArrow: true, isFullWidth: true })]) },
     { label: "With an arrow, busy: the loader before its words", markup: html`<div style="${COLUMN}">${tertiaryButton("Continue as guest", { type: "button", hasArrow: true, isFullWidth: true, isBusy: true })}</div>`, isStill: true },
     { label: "With an icon", markup: tertiaryButton("Show all 1,284 replies", { type: "button", icon: "chevron-down" }) },
-    { label: "Beside a secondary button: the way out", markup: html`<div class="control-row">${secondaryButton("Save", { type: "button" })}${tertiaryButton("Cancel", { type: "button" })}</div>` },
+    { label: "Beside a secondary button: the way out", markup: controlsBeside(secondaryButton("Save", { type: "button" }), tertiaryButton("Cancel", { type: "button" })) },
     { label: "Long words: one line, ending in an ellipsis", markup: html`<div style="${COLUMN}">${tertiaryButton("Skip the tutorial and go straight to the first match", { type: "button" })}</div>` },
     {
       label: "Only its icon, small: a sheet's Back and Close in its top corners, nothing behind them until pointed at",
@@ -653,10 +654,10 @@ component({
     { label: "Off, pressed: it carves in", markup: toggleButton("Follow", { type: "button", icon: "bell", isPressed: false, state: "is-pressed" }), isStill: true },
     { label: "On, pressed: it goes down a little", markup: toggleButton("Following", { type: "button", icon: "bell", isPressed: true, state: "is-pressed" }), isStill: true },
     { label: "Keyboard focus", markup: toggleButton("Following", { type: "button", icon: "bell", isPressed: true, state: "is-focused" }), isStill: true },
-    { label: "Try it: press each", isWide: true, markup: html`<div class="control-row" data-toggle-example>${toggleButton("Favorite", { type: "button", icon: "heart", isLabelHidden: true, isPressed: false })}${toggleButton("Follow", { type: "button", icon: "bell", isPressed: true })}${toggleButton("Like", { type: "button", icon: "heart", isLabelHidden: true, reactionCount: 1284, isPressed: false })}${toggleButton("Mute", { type: "button", icon: "speaker", isLabelHidden: true, isPressed: false })}</div>` },
-    { label: "Only its icon, off and on", markup: html`<div class="control-row">${toggleButton("Favorite", { type: "button", icon: "heart", isLabelHidden: true, isPressed: false })}${toggleButton("Favorite", { type: "button", icon: "heart", isLabelHidden: true, isPressed: true })}</div>`, isStill: true },
-    { label: "With a count, off and on", markup: html`<div class="control-row">${toggleButton("Like", { type: "button", icon: "heart", isLabelHidden: true, reactionCount: 1284, isPressed: false })}${toggleButton("Like", { type: "button", icon: "heart", isLabelHidden: true, reactionCount: 1285, isPressed: true })}</div>`, isStill: true },
-    { label: "Small, off and on: a password's Show", markup: html`<div class="control-row">${toggleButton("Show", { type: "button", isSmall: true, isPressed: false })}${toggleButton("Hide", { type: "button", isSmall: true, isPressed: true })}</div>`, isStill: true },
+    { label: "Try it: press each", isWide: true, markup: html`<div data-toggle-example>${controlsBeside(toggleButton("Favorite", { type: "button", icon: "heart", isLabelHidden: true, isPressed: false }), toggleButton("Follow", { type: "button", icon: "bell", isPressed: true }), toggleButton("Like", { type: "button", icon: "heart", isLabelHidden: true, reactionCount: 1284, isPressed: false }), toggleButton("Mute", { type: "button", icon: "speaker", isLabelHidden: true, isPressed: false }))}</div>` },
+    { label: "Only its icon, off and on", markup: controlsBeside(toggleButton("Favorite", { type: "button", icon: "heart", isLabelHidden: true, isPressed: false }), toggleButton("Favorite", { type: "button", icon: "heart", isLabelHidden: true, isPressed: true })), isStill: true },
+    { label: "With a count, off and on", markup: controlsBeside(toggleButton("Like", { type: "button", icon: "heart", isLabelHidden: true, reactionCount: 1284, isPressed: false }), toggleButton("Like", { type: "button", icon: "heart", isLabelHidden: true, reactionCount: 1285, isPressed: true })), isStill: true },
+    { label: "Small, off and on: a password's Show", markup: controlsBeside(toggleButton("Show", { type: "button", isSmall: true, isPressed: false }), toggleButton("Hide", { type: "button", isSmall: true, isPressed: true })), isStill: true },
     { label: "Can't press", markup: toggleButton("Follow", { type: "button", icon: "bell", isPressed: false, isDisabled: true }), isStill: true },
     { label: "Long words: one line, ending in an ellipsis", markup: html`<div style="${COLUMN}">${toggleButton("Following Ashen Crown and every update from its studio", { type: "button", icon: "bell", isPressed: true })}</div>` },
   ],
@@ -826,12 +827,12 @@ component({
     { label: `The header: ${cutWords("header")}`, markup: cutSample("header") },
     { label: `A menu: ${cutWords("menu")}`, markup: cutSample("menu") },
     { label: "Alone in a pane: fits its top and its bottom", markup: edgePane(secondaryButton("Make an account", { type: "button", isFullWidth: true })) },
-    { label: "Side by side: slants between, fits the outside", markup: edgePane(html`<div class="control-row">${primaryButton("Play", { type: "button", icon: "play" })}${secondaryButton("Details", { type: "button" })}</div>`) },
+    { label: "Side by side: slants between, fits the outside", markup: edgePane(controlsBeside(primaryButton("Play", { type: "button", icon: "play" }), secondaryButton("Details", { type: "button" }))) },
     {
       label: "Stacked: fits the top and the bottom, square between",
       markup: edgePane(html`<div class="edge-stack">${secondaryButton("Settings", { type: "button", isFullWidth: true })}${secondaryButton("Account", { type: "button", isFullWidth: true })}${secondaryButton("Sign out", { type: "button", isFullWidth: true })}</div>`),
     },
-    { label: "On no pane: cut as if it were in one", markup: html`<div class="control-row">${primaryButton("Play", { type: "button", icon: "play" })}${secondaryButton("Details", { type: "button" })}</div>` },
+    { label: "On no pane: cut as if it were in one", markup: controlsBeside(primaryButton("Play", { type: "button", icon: "play" }), secondaryButton("Details", { type: "button" })) },
   ],
 });
 

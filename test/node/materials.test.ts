@@ -9,7 +9,8 @@ import { COMPONENTS } from "../../apps/site/src/components/index.ts";
  * component puts them together and says nothing of its own about them. So a component's styles never set a background, a shadow, a
  * backdrop, a border, padding, a height or a scroll; never space its parts with the spacing tokens (a layout or a material's margin does:
  * layout.ts's stack and row, words-margin); never write a color (a token says it, so it turns with light and dark and takes a
- * game's tint); and never time a change or a loop but with the motion tokens. Nor does a style written into a component's markup, and a
+ * game's tint); and never time a change or a loop but with the motion tokens. Nor does a style written into a component's markup, which
+ * never lays things out either (a stack or a row does), and a
  * control's height is only ever its size class's (--control-height set to a size class, never a length): so a control can't be off its
  * size class's height, and the layout check no longer measures it.
  */
@@ -162,7 +163,7 @@ const NOT_MADE_OF_MATERIALS = new Map<string, string>([
   [".glass-strip > i:nth-child(1) | background", "an orange shape"],
   [".glass-strip > i:nth-child(2) | *", "a blue shape"],
   [".glass-strip > i:nth-child(3) | background", "a teal shape"],
-  [".glass-strip .glass | *", "a pane of glass over the shapes"],
+  [".glass-strip > .glass:not(.glass-pane) | *", "a slab of glass over the shapes, in each thickness"],
   [".glass-play | *", "a stage of moving shapes for glass to sit over"],
   [".glass-play .sun | *", "a moving orange disc"],
   [".glass-play .bar | *", "a moving blue bar"],
@@ -215,10 +216,15 @@ const NOT_MADE_OF_MATERIALS = new Map<string, string>([
   [".cut-btn.in-well | --control-height", "a button in a well is a small control less the well's compact frame gap above and below"],
 ]);
 
+/** How things sit together, which only a layout component says in markup. */
+const MARKUP_LAYOUT = /^(display|gap|row-gap|column-gap|justify-content|justify-items|align-items|align-content|flex(-[a-z]+)?|grid(-[a-z]+)*)$/;
+
 /** Styles written into a component's markup that aren't made of the materials, each with its reason: "file | property: value". */
 const MARKUP_NOT_MADE_OF_MATERIALS = new Map<string, string>([
   // The gallery's stand-in worlds: a stretch of a game's backdrop for glass to sit on.
   ["actions.ts | overflow: hidden", "a stand-in world clips its backdrop to its box"],
+  ["actions.ts | display: grid", "a stand-in world lays its pane over its backdrop"],
+  ["foundations.ts | display: flex", "the logo's stage of glass holds the logo alone"],
   ["actions.ts | padding: var(--pad-pane)", "a stand-in world's backdrop shows a pane's margin round the pane on it"],
   ["panes.ts | background: center / cover no-repeat url('/design/covers/neon-drift.webp')", "a game's own background behind a banner"],
   ["panes.ts | padding: var(--gap-block-block)", "the game's background shows a block's gap round the banner on it"],
@@ -226,6 +232,13 @@ const MARKUP_NOT_MADE_OF_MATERIALS = new Map<string, string>([
   ["foundations.ts | background: ${glassKind === \"light\" ? \"#E7E4DF\" : \"#121110\"}", "the glass the logo sits on, light or smoked whatever the page's theme"],
   ["foundations.ts | background: var(${token})", "a color swatch is its token's color"],
   ["foundations.ts | --glass-tint: rgba(var(--glass-base),${glassOpacityPct / 100})", "glass at each opacity, side by side"],
+  // Links in a line, spaced as the footer spaces its own (Footer, in Navigation), so each reads as its own.
+  ["actions.ts | display: flex", "quiet links in a line, as the footer's"],
+  ["actions.ts | flex-wrap: wrap", "quiet links in a line wrap, as the footer's"],
+  ["actions.ts | column-gap: var(--gap-block-block)", "quiet links a block's gap apart, as the footer's"],
+  ["actions.ts | row-gap: var(--gap-words-words)", "quiet links' lines a words gap apart, as the footer's"],
+  // A value drawn as a share.
+  ["data.ts | flex-grow: ${String(part.sharePct)}", "a usage meter's part takes its share of the bar"],
   // An example's room.
   ["fields.ts | min-height: 22rem", "an open search field's example keeps room for its finishes under it"],
 ]);
@@ -293,7 +306,8 @@ describe("materials", () => {
 
   it("writes nothing into a component's markup that only a material may say", () => {
     const problems = markupDeclarations().flatMap(({ file, property, value }) => {
-      const own = ownLookOf(property, value, "");
+      // Nor how things sit together: a layout component (layout.ts's stack, row, grid) places them, so spacing and order come from it.
+      const own = MARKUP_LAYOUT.test(property) && !RESET.test(value) ? "a layout of its own" : ownLookOf(property, value, "");
       return own && !MARKUP_NOT_MADE_OF_MATERIALS.has(`${file} | ${property}: ${value}`) ? [`${file} | ${property}: ${value}: ${own}`] : [];
     });
     expect(problems).toEqual([]);

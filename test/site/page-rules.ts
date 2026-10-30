@@ -17,10 +17,6 @@ export const UNSTYLED_HOOKS = new Set<string>([
   "color-none", "birthday-wheels", "find-icon", "find-finish-row", "file-drop-zoom-template", "file-drop-row-template", "is-open-on-load", "is-unknown",
 ]);
 
-/** A component's own insides, styled for it but never for a page to place things with: a page lays out with layout.ts instead. */
-export const NOT_FOR_PAGES = new Set<string>([
-  "control-row", // Row's own: a page's things side by side are row().
-]);
 
 /** The only style attributes a page carries, each a value a component offers and sets itself, with why. */
 export const STYLE_ATTRIBUTE: { pattern: RegExp; why: string }[] = [
@@ -62,8 +58,7 @@ export function pageProblems(markup: string): string[] {
   }
   for (const [, list = ""] of body.matchAll(/\sclass="([^"]*)"/g)) {
     for (const name of list.split(/\s+/).filter(Boolean)) {
-      if (NOT_FOR_PAGES.has(name)) problems.push(`.${name} is a component's inside, not for a page`);
-      else if (!styledBy(componentCss, name) && !UNSTYLED_HOOKS.has(name)) problems.push(`.${name} comes from no component`);
+      if (!styledBy(componentCss, name) && !UNSTYLED_HOOKS.has(name)) problems.push(`.${name} comes from no component`);
     }
   }
   return [...new Set(problems)];

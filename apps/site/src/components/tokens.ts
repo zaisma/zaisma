@@ -200,14 +200,6 @@ html { -webkit-tap-highlight-color: transparent; }
 /* How far in it fades: 34px, or a row's own --fade-sideways-px (a row of covers fades further). */
 [data-fades-sideways].more-left { --fade-left: var(--fade-sideways-px, 34px); }
 [data-fades-sideways].more-right { --fade-right: var(--fade-sideways-px, 34px); }
-/* A row of controls, slanting where they meet, their slants --gap-control-row apart. In a pane it fills the pane's width, its
-   controls sharing it, so its ends fit the pane's edges (the edge rule) instead of stopping short with square corners. */
-/* A gap can't be negative, so each control but the last reaches back over the next by a margin; a row that wraps starts each line flush. */
-.control-row { display: flex; flex-wrap: wrap; align-items: flex-start; gap: var(--gap-control-stack) 0; }
-.control-row > :not(:last-child) { margin-inline-end: var(--gap-control-row-boxes); }
-/* They share the row, but never shrink below their words: when two don't fit side by side (a narrow phone), the second wraps under the first. */
-[data-glass] .control-row > .shell { display: flex; flex: 1 1 0; }
-[data-glass] .control-row > .shell > .face { width: 100%; justify-content: center; }
 .eases-settings { transition: --glass-hue var(--motion-glide) ease; }
 @media (prefers-reduced-motion: reduce) { .eases-settings { transition: none; } }
 /* Moving between Zaisma's pages crossfades, so a page change never flashes. It's quick: a switch's slab slides over from the last page's

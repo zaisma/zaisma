@@ -427,8 +427,8 @@ component({
 .glass-strip > i:nth-child(1) { left: 6%; top: 8%; background: #F7931A; }
 .glass-strip > i:nth-child(2) { left: 38%; top: 40%; width: 220px; height: 90px; border-radius: 0; transform: rotate(-12deg); background: #3B6FD0; }
 .glass-strip > i:nth-child(3) { right: 8%; top: 62%; background: #1E9C8E; }
-.glass-strip .glass { flex: 1 1 180px; min-height: 110px; padding: var(--pad-pane); font: var(--type-words); }
-.glass-strip .glass strong { display: block; font: var(--type-name); }
+.glass-strip > .glass:not(.glass-pane) { flex: 1 1 180px; min-height: 110px; padding: var(--pad-pane); font: var(--type-words); }
+.glass-strip > .glass:not(.glass-pane) strong { display: block; font: var(--type-name); }
 .glass-strip .glass-kind::after { content: var(--glass-kind); }
 /* Any size: one glass window over drifting shapes, to drag about and pull to any size (the gallery's script moves it).
    What's in it gives way as it shrinks, through a container query, so the glass itself never changes. */

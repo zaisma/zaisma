@@ -316,9 +316,9 @@ describe("the gallery", () => {
         const matching = rules.filter(({ subject }) => matchesSubject(holder, subject));
         const isStack = matching.some((rule) => rule.isStack) || /(^|;)\s*(display:\s*grid|flex-direction:\s*column)/.test(holder.style);
         const gaps = [...matching.map(({ gap }) => gap), ...(/(?:^|;)\s*gap:\s*([^;]+)/.exec(holder.style)?.slice(1) ?? [])];
-        // A row is a .control-row (foundations.ts), or choice cards while they fit side by side: a gap can't be negative, so its controls
-        // overlap by a margin of --gap-control-row-boxes (and choice cards stack --gap-control-stack apart once they can't).
-        if (!isStack && (holder.classes.includes("control-row") || holder.classes.includes("choice-cards"))) continue;
+        // Choice cards while they fit side by side: a gap can't be negative, so they overlap by a margin of --gap-control-row-boxes (and
+        // stack --gap-control-stack apart once they can't). A row of controls is row()'s, its cells holding them.
+        if (!isStack && holder.classes.includes("choice-cards")) continue;
         if (!isStack || gaps.length === 0 || gaps.some((gap) => gap !== "var(--gap-control-stack)")) problems.push(`${group}: <${holder.tag} class="${holder.classes.join(" ")}">: gap ${gaps.join(", ") || "not set"}`);
       }
     }
@@ -870,7 +870,7 @@ describe("pages", () => {
       "writes a <style> of its own",
       'style="width:390px" sets width:390px, which no component offers',
       ".game-note comes from no component",
-      ".control-row is a component's inside, not for a page",
+      ".control-row comes from no component",
     ]);
   });
 

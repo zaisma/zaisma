@@ -1,4 +1,5 @@
-import { stackOfOne } from "./layout.ts";
+import { row, stack, stackOfOne } from "./layout.ts";
+import { primaryButton, secondaryButton } from "./actions.ts";
 import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
 import { CUT_LINE, glassPane } from "./foundations.ts";
@@ -404,11 +405,18 @@ const thicknessStrip = (theme: "light" | "dark") =>
     ([name, thickness, use]) => html`<div class="glass" data-glass data-glass-corners="pane" style="--glass-tint:var(--glass-${thickness})"><strong>${name}</strong>${use}</div>`,
   )}</div>`;
 
+/** Play and Details side by side, as a game's pane has them: a lit slab and a slab, sharing the row. */
+const PLAY_AND_DETAILS = () => row({ widths: "equal", items: [{ kind: "control", markup: primaryButton("Play", { type: "button" }) }, { kind: "control", markup: secondaryButton("Details", { type: "button" }) }] });
+
 /** Every material over a game's art, tinted with the game's hue, so the tint shows on each: a pane, a carving, a slab and a lit one. */
 const tintedSample = (theme: "light" | "dark") =>
   html`<div class="glass-strip" data-theme-choice="${theme}" style="background: center / cover no-repeat url('/design/covers/neon-drift.webp'); --glass-hue: #9B4DFF; padding: var(--gap-block-block)">${glassPane({
     paneWidth: "fit",
-    body: stackOfOne(html`<h2>Neon Drift</h2>${carving({ body: html`<span class="carving-words">zaisma.com/g/neon-drift</span>` })}<div style="display:flex;gap:var(--gap-control-stack)">${slab({ body: html`Details` })}${slab({ body: html`Play`, isLit: true })}</div>`),
+    body: stack({ items: [
+      { kind: "words", markup: html`<h2>Neon Drift</h2>` },
+      { kind: "block", markup: carving({ body: html`<span class="carving-words">zaisma.com/g/neon-drift</span>` }) },
+      { kind: "block", markup: PLAY_AND_DETAILS() },
+    ] }),
   })}</div>`;
 
 component({
@@ -469,7 +477,7 @@ component({
     {
       label: "Over what's behind it: the glass under it shows through, the shapes blurred",
       isWide: true,
-      markup: html`<div class="glass-strip"><i></i><i></i><i></i>${glassPane({ paneWidth: "fit", body: stackOfOne(html`<div style="display:flex;gap:var(--gap-control-stack)">${slab({ body: html`Details` })}${slab({ body: html`Play`, isLit: true })}</div>`) })}</div>`,
+      markup: html`<div class="glass-strip"><i></i><i></i><i></i>${glassPane({ paneWidth: "fit", body: stackOfOne(PLAY_AND_DETAILS()) })}</div>`,
     },
     { label: "Lit: the orange one", markup: carvingSample(slab({ body: html`Play`, isLit: true })) },
     { label: "Lit, pointed at", isStill: true, markup: carvingSample(slab({ body: html`Play`, isLit: true, state: "is-pointed" })) },

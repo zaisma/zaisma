@@ -395,19 +395,17 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
       }
     });
   });
-  // Rows: every control on one line (row() gives them one height).
+  // Rows: every control on one line (row() gives them one height). Where the row puts it is its cell's place: a control's own state may
+  // move its face (an on toggle button lifts), which isn't where it sits.
   document.querySelectorAll(".layout-row").forEach(function (row) {
     if (!isShown(row)) return;
-    var boxes = Array.prototype.flatMap.call(row.querySelectorAll(":scope > .row-cell.is-control"), function (cell) {
-      var control = [cell].concat(Array.prototype.slice.call(cell.querySelectorAll("[data-cut-line]"))).find(function (each) { return each.hasAttribute("data-cut-line") && isShown(each); });
-      return control ? [control] : [];
-    });
-    boxes.forEach(function (control, i) {
-      var a = control.getBoundingClientRect();
-      boxes.slice(i + 1).forEach(function (other) {
+    var cells = Array.prototype.filter.call(row.querySelectorAll(":scope > .row-cell.is-control"), function (cell) { return isShown(cell) && cell.querySelector("[data-cut-line]"); });
+    cells.forEach(function (cell, i) {
+      var a = cell.getBoundingClientRect(), control = cell.querySelector("[data-cut-line]");
+      cells.slice(i + 1).forEach(function (other) {
         var b = other.getBoundingClientRect(), isSameLine = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 0;
         if (!isSameLine) return;
-        if (Math.abs(a.top - b.top) > 1) report("controls in one row not on one line", control, round(a.top - b.top) + "px off " + describe(other));
+        if (Math.abs(a.top - b.top) > 1) report("controls in one row not on one line", control, round(a.top - b.top) + "px off " + describe(other.querySelector("[data-cut-line]")));
       });
     });
   });

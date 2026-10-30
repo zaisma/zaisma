@@ -1,7 +1,7 @@
 import { accountPicture, html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
 import { secondaryButton, primaryButton, textLink } from "./actions.ts";
-import type { ControlMarkup } from "./control-markup.ts";
+import { ControlMarkup } from "./control-markup.ts";
 import { CUT_LINE, MINUTE_MS, ago, glassPane, groove, icon, loader, tag, type IconName, type TagTone } from "./foundations.ts";
 import { WHEN_EMPTY_STYLES, row, stack, stackOfOne } from "./layout.ts";
 
@@ -628,7 +628,7 @@ export function table(options: TableOptions): Raw {
     const content = typeof given === "object" && "detail" in given ? html`${given.text}<span class="table-cell-detail">${given.detail}</span>` : given;
     return isRowHead(columnIndex)
       ? html`<th scope="row" class="glass">${content}</th>`
-      : html`<td${cellClass(columnIndex)}>${options.columns[columnIndex]?.isActions ? html`<div class="control-row">${content}</div>` : content}</td>`;
+      : html`<td${cellClass(columnIndex)}>${options.columns[columnIndex]?.isActions && content instanceof ControlMarkup ? row({ widths: "fit", items: [{ kind: "control", markup: content }] }) : content}</td>`;
   };
   const placeholder = options.rowsPlaceholder ?? (options.rows.length ? null : options.whenEmpty);
   const body = placeholder
