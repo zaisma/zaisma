@@ -328,7 +328,13 @@ export const PLACE_SCRIPT = `/* place */(function () {
         // A browser that can't fade it in by itself (Safari, no overlay) shows it from its closed look, then lets it arrive.
         if (isMovedByScript) { window.zaismaCast(pane); clearTimeout(pane.leaveTimer); [pane, pane.floatCast].forEach(function (one) { one.classList.remove("is-leaving"); one.classList.add("is-arriving"); }); }
         pane.showPopover();
-        if (isMovedByScript) requestAnimationFrame(function () { pane.classList.remove("is-arriving"); });
+        // Its glass is cut a frame or more after it opens, and Safari takes a long frame or two to first draw it: it arrives once it's cut and
+        // frames come quickly again, so the fade isn't spent before anything shows.
+        if (isMovedByScript) (function arrive(tries, last) { requestAnimationFrame(function (now) {
+          var isReady = getComputedStyle(pane).getPropertyValue("--glass-clip").trim() && last && now - last < 25;
+          if (!isReady && tries < 30) return arrive(tries + 1, now);
+          pane.classList.remove("is-arriving");
+        }); })(0, 0);
       }
       var at = anchorNow(); openedAt = at ? at.getBoundingClientRect() : null;
       if (options.onShown) options.onShown();
