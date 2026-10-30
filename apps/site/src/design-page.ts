@@ -311,6 +311,18 @@ export const GALLERY_SCRIPT = pageScript(
     if (count) count.textContent = (Number(count.textContent.replace(/,/g, "")) + (isOn ? 1 : -1)).toLocaleString("en-US");
     if (words && /^Follow/.test(words.textContent)) words.textContent = isOn ? "Following" : "Follow";
   });
+  // A header's search shown open: its list hangs under the field in the example's frame, outside the header, as the open account menu does,
+  // since the header's cut would clip it there.
+  document.querySelectorAll(".header-frame .top .find > .find-list.in-place").forEach(function (list) {
+    var field = list.parentElement, frame = field.closest(".header-frame");
+    frame.appendChild(list);
+    function hang() {
+      var f = field.getBoundingClientRect(), r = frame.getBoundingClientRect();
+      list.style.position = "absolute"; list.style.zIndex = "11";
+      list.style.left = Math.round(f.left - r.left) + "px"; list.style.top = Math.round(f.bottom - r.top + 6) + "px"; list.style.width = Math.round(f.width) + "px";
+    }
+    hang(); window.zaismaWatch.size(frame, hang);
+  });
   // An example's links stay on this page. It's caught first, so a switch's tab to another page is picked in place, as one within the page is.
   document.addEventListener("click", function (event) {
     var link = event.target.closest && event.target.closest('.example-stage a[href^="#"], .example-stage a[href^="/"]');
