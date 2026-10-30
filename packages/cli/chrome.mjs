@@ -136,15 +136,14 @@ const runningChromes = new Set();
 // Chrome outlives the node process that started it unless something stops it: a script that exits without close(), or is stopped by a
 // signal that skips its finally, would leave Chrome and its helpers running. So each one is killed when this process exits, and on
 // SIGINT, SIGTERM and SIGHUP, which then end the process as they would have (a script with a handler of its own keeps its say).
-// On exit nothing can be waited for, so a profile Chrome's helpers still write to stays, with its owner, for the next sweep.
 function stopAll() {
-  for (const running of runningChromes) {
-    try {
-      running.child.kill("SIGKILL");
-    } catch {}
-    removeFolder(running);
-  }
+  const runnings = [...runningChromes];
   runningChromes.clear();
+  // Nothing can be awaited on exit, so this waits in place, only as long as Chrome's processes take to end.
+  const deadlineMs = Date.now() + EXIT_TIME_LIMIT_MS;
+  const pause = new Int32Array(new SharedArrayBuffer(4));
+  while (killAll(runnings) && Date.now() < deadlineMs) Atomics.wait(pause, 0, 0, 50);
+  for (const running of runnings) removeFolder(running);
 }
 async function onSignal(signal) {
   if (process.listenerCount(signal) > 1) return;
@@ -170,37 +169,41 @@ function letGo(running) {
   if (runningChromes.delete(running) && !runningChromes.size) removeHandlers();
 }
 
-/** How long Chrome's processes get to end after SIGKILL before their folders are removed anyway. */
+/** How long Chrome's processes get to end after SIGKILL before their folders are removed anyway: on exit, which holds the process up, and otherwise. */
+const EXIT_TIME_LIMIT_MS = 2_000;
 const END_TIME_LIMIT_MS = 5_000;
 
 /**
- * Kills every process of these Chromes (the one started here, and each whose command line names its profile: the helpers, or a dead
- * owner's Chrome) and removes their folders once they're gone, since Chrome's helpers write to the profile until they've exited.
+ * Sends SIGKILL to every process of these Chromes still running (the one started here, and each whose command line names its profile:
+ * the helpers, or a dead owner's Chrome), and says whether there were any. Chrome's helpers write to the profile until they've exited,
+ * so a folder is removed only once this finds none.
  */
-async function endAndRemove(runnings) {
-  const deadline = Date.now() + END_TIME_LIMIT_MS;
-  for (;;) {
-    const children = runnings.flatMap(({ child }) => (child && child.exitCode === null && child.signalCode === null ? [child] : []));
-    const processIds = profileProcessIds(runnings.map(({ profile }) => profile));
-    for (const child of children) child.kill("SIGKILL");
-    for (const processId of processIds) {
-      try {
-        process.kill(processId, "SIGKILL");
-      } catch {}
-    }
-    if ((!children.length && !processIds.length) || Date.now() > deadline) break;
-    await new Promise((resolve) => setTimeout(resolve, 50));
+function killAll(runnings) {
+  const children = runnings.flatMap(({ child }) => (child && child.exitCode === null && child.signalCode === null ? [child] : []));
+  const processNumbers = profileProcessNumbers(runnings.map(({ profile }) => profile));
+  for (const child of children) child.kill("SIGKILL");
+  for (const processNumber of processNumbers) {
+    try {
+      process.kill(processNumber, "SIGKILL");
+    } catch {}
   }
+  return children.length > 0 || processNumbers.length > 0;
+}
+
+/** Kills these Chromes and removes their folders once their processes have ended. */
+async function endAndRemove(runnings) {
+  const deadlineMs = Date.now() + END_TIME_LIMIT_MS;
+  while (killAll(runnings) && Date.now() < deadlineMs) await new Promise((resolve) => setTimeout(resolve, 50));
   for (const running of runnings) removeFolder(running);
 }
 
 /** The processes whose command line names one of these profiles; Windows has no ps, so none there. */
-function profileProcessIds(profiles) {
+function profileProcessNumbers(profiles) {
   if (process.platform === "win32" || !profiles.length) return [];
   const listed = spawnSync("ps", ["-A", "-o", "pid=,command="], { encoding: "utf8" }).stdout ?? "";
   return listed.split("\n").flatMap((line) => {
-    const [, processId, command] = line.match(/^\s*(\d+)\s+(.*)$/) ?? [];
-    return processId && profiles.some((profile) => command.includes(`--user-data-dir=${profile}`)) ? [Number(processId)] : [];
+    const [, processNumber, command] = line.match(/^\s*(\d+)\s+(.*)$/) ?? [];
+    return processNumber && profiles.some((profile) => command.includes(`--user-data-dir=${profile}`)) ? [Number(processNumber)] : [];
   });
 }
 
@@ -212,9 +215,9 @@ function removeFolder({ folder, profile }) {
   } catch {}
 }
 
-const isAlive = (processId) => {
+const isAlive = (processNumber) => {
   try {
-    process.kill(processId, 0);
+    process.kill(processNumber, 0);
     return true;
   } catch (error) {
     return error.code === "EPERM";
