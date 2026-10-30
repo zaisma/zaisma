@@ -314,7 +314,7 @@ const SWATCHES: { token: string; note: string }[] = [
 ];
 
 const swatches = () =>
-  glassPane({ paneWidth: "full", body: html`<ul class="swatches">${SWATCHES.map(({ token, note }) => html`<li><span class="chip-swatch" data-cut-line="10" style="background:var(${token})">${CUT_LINE}</span><code>${token}</code><span>${note}</span></li>`)}</ul>` });
+  glassPane({ paneWidth: "full", body: html`<ul class="swatches">${SWATCHES.map(({ token, note }) => html`<li><span class="chip-swatch" data-cut-line="10" style="background:var(${token})">${CUT_LINE}</span><code class="words-margin at-end">${token}</code><span class="words-margin at-end">${note}</span></li>`)}</ul>` });
 
 component({
   name: "Color",
@@ -328,23 +328,23 @@ component({
    name on the swatch's top line. */
 .swatches { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--size-figure), 1fr)); gap: var(--gap-block-block); }
 .swatches li { display: grid; grid-template-columns: 2.25rem 1fr; grid-template-rows: auto auto; column-gap: var(--gap-words-words); align-items: start; font: var(--type-facts); }
-.swatches li > :not(.chip-swatch) { padding-inline-end: var(--pad-words); }
 /* A swatch is cut by the edge rule like everything else: square in the pane's middle, following its corner where it sits in one. */
 .swatches .chip-swatch { position: relative; grid-row: span 2; align-self: stretch; width: 2.25rem; min-height: 2.25rem; clip-path: var(--cut-shape); }
 .swatches .chip-swatch > .cut-line polygon { stroke: var(--line); }
 .swatches code { font: var(--type-code); }
-.divider-sample { display: grid; padding: var(--pad-words); }
+.divider-sample { display: grid; gap: var(--gap-words-control); }
 .divider-sample > * { --pad-words: 0px; }
 .divider-sample strong { font: var(--type-name); }
 .divider-sample span { font: var(--type-facts); color: var(--muted); }
-.divider-sample p { margin: var(--gap-words-control) 0 0; padding-top: var(--gap-words-control); border-top: var(--divider); font: var(--type-words); color: var(--ink-2); }
+.divider-sample > div { display: grid; }
+.divider-sample p { margin: 0; font: var(--type-words); color: var(--ink-2); }
 .swatches span:last-child { color: var(--muted); }
 `,
   examples: [
     { label: "Every token", markup: swatches(), isWide: true },
     {
       label: "The divider: a line between two parts of one pane",
-      markup: glassPane({ paneWidth: "fit", body: html`<div class="divider-sample"><strong>emma_r</strong><span>Online</span><p>Your profile · Friends · Settings</p></div>` }),
+      markup: glassPane({ paneWidth: "fit", body: html`<div class="divider-sample words-margin round"><div><strong>emma_r</strong><span>Online</span></div><p class="hairline-above">Your profile · Friends · Settings</p></div>` }),
     },
   ],
 });
@@ -374,7 +374,7 @@ component({
 /* Type: each token, set in itself. */
 .type-sample { width: 100%; list-style: none; margin: 0; padding: 0; display: grid; gap: var(--gap-block-block); color: var(--ink); }
 .type-sample li { display: grid; gap: var(--gap-words-words); }
-.type-sample code { font: var(--type-code); color: var(--muted); padding-inline: var(--pad-words); }
+.type-sample code { font: var(--type-code); color: var(--muted); }
 .type-sample .is-muted { color: var(--muted); }
 .type-sample p { margin: 0; max-width: 60ch; }
 `,
@@ -382,7 +382,7 @@ component({
     {
       label: "Every token",
       isWide: true,
-      markup: html`<ul class="type-sample">${TYPE_TOKENS.map(({ token, use, sample, isMuted }) => html`<li><code>${token}: ${use}</code><p${isMuted ? raw(' class="is-muted"') : ""} style="font:var(${token})">${sample}</p></li>`)}</ul>`,
+      markup: html`<ul class="type-sample">${TYPE_TOKENS.map(({ token, use, sample, isMuted }) => html`<li><code class="words-margin">${token}: ${use}</code><p${isMuted ? raw(' class="is-muted"') : ""} style="font:var(${token})">${sample}</p></li>`)}</ul>`,
     },
   ],
 });
