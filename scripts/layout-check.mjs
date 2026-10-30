@@ -399,7 +399,7 @@ async function contactSheet(chrome, path, name, pictures, sizes, themes) {
 }
 
 /** Signs a test account in, in its own browser context, through the sign-in page as a player would. */
-async function signIn(chrome, contextId, site, username) {
+export async function signIn(chrome, contextId, site, username) {
   const { targetId } = await chrome.send("Target.createTarget", { url: "about:blank", browserContextId: contextId });
   const { sessionId } = await chrome.send("Target.attachToTarget", { targetId, flatten: true });
   const send = (method, params = {}) => chrome.send(method, params, sessionId);
