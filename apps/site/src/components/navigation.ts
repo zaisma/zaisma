@@ -511,6 +511,8 @@ export const RAIL_SCRIPT = `/* rail */(function () {
       var padStart = parseFloat(isSide ? css.scrollPaddingLeft : css.scrollPaddingTop) || 0, edge = isSide ? box.left + scroller.clientLeft : box.top + scroller.clientTop;
       var spots = Array.prototype.filter.call(scroller.children, function (child) { return getComputedStyle(child).scrollSnapAlign.indexOf("start") >= 0; })
         .map(function (child) { var r = child.getBoundingClientRect(); return Math.max(0, Math.min(size.max, now + (isSide ? r.left : r.top) - edge - padStart)); });
+      // Its two ends are places to stop too: dragged all the way, it stays flush at its start or its end.
+      spots.push(0, size.max);
       var nearest = spots.length ? spots.reduce(function (best, spot) { return Math.abs(spot - now) < Math.abs(best - now) ? spot : best; }) : now;
       // It glides there in the time something takes to arrive (--motion-arrive), easing out, unless a new drag takes it up first; with
       // reduced motion it's there at once. Then it snaps again as it always does.

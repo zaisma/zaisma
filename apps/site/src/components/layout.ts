@@ -515,6 +515,8 @@ export const TRACK_STYLES = `
   padding: var(--edge-room) 0; margin: calc(-1 * var(--edge-room)) 0; }
 /* Its rail (data-side-rail, Rail in Navigation) runs under it, past the room kept for what lifts in it, never into it. */
 .layout-track.shows-rail { margin-bottom: 0; }
+/* A cover snaps where the track's start inset ends, so the first one is a snapping point at the track's very start, not past it. */
+.layout-track { scroll-padding-inline: var(--pad-words); }
 /* Screenshots lie closer than game cards do: pictures with an edge of their own, side by side. */
 .layout-track:has(> .screenshot) { gap: var(--gap-control-stack); }
 .layout-track.item-cover > * { flex: 0 0 clamp(200px, 20cqi, 260px); scroll-snap-align: start; }
