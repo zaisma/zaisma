@@ -322,8 +322,9 @@ function edgeWords(edge: "top" | "bottom"): string {
   const end = edge === "top" ? `:nth-child(1 of ${SHOWN})` : `:nth-last-child(1 of ${SHOWN})`;
   const own = edge === "top" ? WORDS_AT_TOP : WORDS_AT_FOOT;
   const selectorsOf = (depthCount: number) => {
-    // Never into words beside a control: they sit on its center line instead.
-    const into = ` > *${end}${BESIDE_CONTROLS}`.repeat(depthCount) + " > ";
+    // Never into words beside a control: they sit on its center line instead. Never into a grid's or a track's first cell alone: the
+    // others on its first line are at the edge too, so the grid or track takes the margin as a whole (BARE_UNITS).
+    const into = ` > *${end}${BESIDE_CONTROLS}:not(.layout-grid, .layout-track)`.repeat(depthCount) + " > ";
     return [
       // A row's words are its own case, below.
       `${into}.is-words${end}:not(.row-cell)`,
@@ -404,7 +405,8 @@ ${CONTROL_HEIGHTS.map((height) => `[data-control-height="${height}"] { --row-con
 .layout-row[data-control-height]:not(.is-wrapped) > .row-cell.is-words > :last-child { padding-bottom: max(0px, calc((var(--row-control-height) - 1lh) / 2)); }
 /* A block beside a field's box (a check beside Sort by) sits on the box's center line too, not at its foot. */
 .layout-row.is-on-field-boxes:not(.is-wrapped) > .row-cell.is-block { min-height: var(--row-control-height); }
-${GAP_TOKENS.map((gap) => `.layout-row > .row-cell.gap-end-${gap} { margin-inline-end: var(--gap-${gap}); }\n.layout-row > .row-cell.gap-start-${gap} { margin-inline-start: var(--gap-${gap}); }`).join("\n")}
+/* Side by side, words keep the words margin from a control beside them (--gap-words-beside-control), as from the pane's edge. */
+${GAP_TOKENS.map((gap) => [gap, gap === "words-control" ? "words-beside-control" : gap]).map(([gap, token]) => `.layout-row > .row-cell.gap-end-${gap} { margin-inline-end: var(--gap-${token}); }\n.layout-row > .row-cell.gap-start-${gap} { margin-inline-start: var(--gap-${token}); }`).join("\n")}
 /* A control only a mouse shows isn't there without one, nor while it has nothing to do (hidden): the cell before it is then the row's last,
    and reaches past the row's end like any last cell. */
 @media not ((hover: hover) and (pointer: fine)) {
@@ -535,7 +537,7 @@ export const PANE_PARTS_STYLES = `
 .pane-parts { display: flex; flex-direction: column; gap: var(--gap-block-block); min-width: 0; }
 /* The head: its heading beside its corner control, and its other words under them both, at the pane's whole width. Its words keep the pane's
    margin (--head-inset, the pane's --pad-words, read before its words reset it). */
-.pane-head { --head-inset: var(--pad-words); display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: var(--gap-words-control); align-items: start; min-width: 0; }
+.pane-head { --head-inset: var(--pad-words); display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: var(--gap-words-beside-control); align-items: start; min-width: 0; }
 .pane-head-words { display: contents; }
 .pane-head-words > * { grid-column: 1 / -1; min-width: 0; padding-inline-start: var(--head-inset); }
 .pane-head-words > * + * { margin-top: var(--gap-words-words); }
@@ -551,7 +553,7 @@ export const PANE_PARTS_STYLES = `
 .pane-head:has(> .pane-head-start > :not([hidden])) { grid-template-columns: auto minmax(0, 1fr) auto; }
 .pane-head:has(> .pane-head-start > :not([hidden])) > .pane-head-words > :first-child { grid-column: 2; padding-inline-start: 0; }
 .pane-head:has(> .pane-head-start > :not([hidden])) > .pane-head-end { grid-column: 3; }
-.pane-foot { display: flex; gap: var(--gap-words-control); min-width: 0; align-items: flex-end; }
+.pane-foot { display: flex; gap: var(--gap-words-beside-control); min-width: 0; align-items: flex-end; }
 /* Beside a corner control the head's first line sits on its center line, like words beside controls in a row; the foot's last line likewise. */
 .pane-head[data-control-height] > .pane-head-words > :first-child { padding-top: max(0px, calc((var(--row-control-height) - 1lh) / 2)); }
 .pane-foot[data-control-height] > .pane-foot-start.is-words { padding-bottom: 0; }

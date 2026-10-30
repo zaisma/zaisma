@@ -258,6 +258,8 @@ html { -webkit-tap-highlight-color: transparent; }
   --gap-control-row-boxes: calc(var(--gap-control-row) - var(--control-slant));
   --gap-control-stack: 8px;
   --gap-words-control: 8px;
+  /* Words beside a control keep the words margin from its edge, as they do from the pane's: --pad-pane less --pad-frame. */
+  --gap-words-beside-control: calc(var(--pad-pane) - var(--pad-frame));
   --gap-words-words: 8px;
   --gap-block-block: 24px;
   /* Two margins in a pane (docs/DESIGN.md, Layout): words keep the pane's margin, --pad-pane, and anything with an edge of its own (a control,

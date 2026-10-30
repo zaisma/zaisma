@@ -109,7 +109,7 @@ function coverFacts(facts: GlanceFacts, title?: string): Raw {
   const priced = facts.priceText ? html`${tag(facts.priceText, "plain")}${left}` : left;
   // With its title shown, the title leads the row and anything else it has to say goes on a line of its own under it.
   if (title !== undefined) return html`<div class="cover-meta has-title"><span class="cover-name one-line">${title}</span>${facts.playerCount !== undefined ? html`<span class="count">${icon("people")}<span>${facts.playerCount.toLocaleString("en-US")}<span class="sr"> playing now</span></span></span>` : ""}${priced ? html`<span class="cover-more">${priced}</span>` : ""}</div>`;
-  return html`<div class="cover-meta">${priced}${facts.playerCount !== undefined ? html`<span class="count">${icon("people")}<span>${facts.playerCount.toLocaleString("en-US")}<span class="sr"> playing now</span></span></span>` : ""}</div>`;
+  return html`<div class="cover-meta">${priced ? html`<span class="cover-meta-start">${priced}</span>` : ""}${facts.playerCount !== undefined ? html`<span class="count">${icon("people")}<span>${facts.playerCount.toLocaleString("en-US")}<span class="sr"> playing now</span></span></span>` : ""}</div>`;
 }
 
 export interface GameCoverOptions {
@@ -490,7 +490,12 @@ const COVER_STYLES = `
 @keyframes cover-glint { 0% { transform: translateX(-100%); opacity: 1; } 75% { opacity: 1; } 100% { transform: translateX(270%); opacity: 0; } }
 /* Under a cover: what concerns you on the left (when you played, an update, friends), players now on the right. */
 /* Where they can't share a line, players now goes on to the next, never cut short. */
-.cover-meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-words-words); font: var(--type-facts); color: var(--muted); }
+/* Each fact sits on a line as tall as a small picture, so covers side by side line their facts up whether they show friends or not. What's
+   on the left wraps inside its own room, and players now stay on the first line at the right. */
+.cover-meta { display: flex; flex-wrap: wrap; align-items: flex-start; gap: var(--gap-words-words); font: var(--type-facts); color: var(--muted); }
+.cover-meta.has-title { align-items: center; }
+.cover-meta:not(.has-title) > *, .cover-meta-start > * { display: inline-flex; align-items: center; min-height: 24px; }
+.cover-meta > .cover-meta-start { flex: 1 1 0; min-width: 0; display: flex; flex-wrap: wrap; align-items: flex-start; gap: var(--gap-words-words); }
 .cover-meta .ico { width: 15px; height: 15px; stroke-width: 1.5; }
 .cover-meta .when, .cover-meta .count, .cover-meta .friends { display: inline-flex; align-items: center; gap: var(--gap-words-words); min-width: 0; }
 .cover-meta .when, .cover-meta .count, .cover-meta .device-note { white-space: nowrap; }
@@ -1631,7 +1636,7 @@ component({
    ${BANNER_SIDE_BY_SIDE_LEAST_PX}px (by its own width), its words take the whole width, Close sits in the top end corner beside their first
    line, and the button goes under them, as wide as the strip. */
 .banner { width: 100%; container-type: inline-size; color: var(--ink); }
-.banner-in { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; column-gap: var(--gap-words-control); margin: 0; }
+.banner-in { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; column-gap: var(--gap-words-beside-control); margin: 0; }
 .banner-words { display: flex; align-items: flex-start; gap: var(--gap-words-words); min-width: 0; font: var(--type-words); }
 /* The icon sits on the words' first line. */
 .banner-icon { flex: none; display: flex; align-items: center; height: 1lh; color: var(--ink-2); }
@@ -1651,7 +1656,7 @@ component({
   .banner .banner-in.has-action > .layout-row > .row-cell:first-child > .shell > .face { width: 100%; justify-content: center; }
   /* The words make room for Close beside their first line: an empty float as wide as Close (an icon-only tertiary button, as wide as it is
      tall) and the gap less their margin, down to its foot. */
-  .banner-in.has-close .banner-text::before { content: ""; float: inline-end; width: calc(var(--control-height-regular) + var(--gap-words-control) - var(--pad-words)); height: calc((var(--control-height-regular) + 1lh) / 2); }
+  .banner-in.has-close .banner-text::before { content: ""; float: inline-end; width: calc(var(--control-height-regular) + var(--gap-words-beside-control) - var(--pad-words)); height: calc((var(--control-height-regular) + 1lh) / 2); }
 }
 `,
   render: banner,

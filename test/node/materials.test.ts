@@ -209,6 +209,7 @@ const NOT_MADE_OF_MATERIALS = new Map<string, string>([
   [".list-rows.is-capped | max-height", "a list capped at its shown rows and half the next, so it shows it scrolls"],
   [".table-scroll[data-fades-sideways] | max-height", "a table caps at the screen"],
   [".table-scroll[data-fades-sideways].is-capped | max-height", "a table capped at its head, its shown rows and half the next"],
+  [".cover-meta:not(.has-title) > *, .cover-meta-start > * | min-height", "each of a cover's facts is on a line as tall as a small picture, so covers side by side line them up"],
   // A control's height.
   [".cut-btn.in-well | --control-height", "a button in a well is a small control less the well's compact frame gap above and below"],
 ]);

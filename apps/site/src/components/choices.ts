@@ -659,7 +659,7 @@ component({
   styles: `
 /* A toggle: a carved slot holding a white slab that springs to its far end when on, the slot filling orange behind it. The real
    checkbox (role switch) lies over the slot, unseen; the words before it are its label, so a press on them flips it too. */
-.toggle { position: relative; display: flex; align-items: center; justify-content: space-between; gap: var(--gap-words-control); cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.toggle { position: relative; display: flex; align-items: center; justify-content: space-between; gap: var(--gap-words-beside-control); cursor: pointer; -webkit-tap-highlight-color: transparent; }
 ${TOUCH_ROOM(".toggle")}
 .toggle-words { display: grid; gap: var(--gap-words-words); min-width: 0; }
 .toggle-label { font: var(--type-words); color: var(--ink); }

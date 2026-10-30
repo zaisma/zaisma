@@ -180,6 +180,7 @@ Applies to the components (`apps/site/src/components/`) and the gallery (`apps/s
 | `--gap-control-row` | Two controls side by side (Play and Details, Light and Dark), measured between their slants: their boxes sit `--gap-control-row-boxes` apart, overlapping by `--control-slant` (10px) less this | 4px |
 | `--gap-control-stack` | Two controls stacked (the passkey, Google and Discord buttons) | 8px |
 | `--gap-words-control` | A control and the words that belong to it (a field's label above it, its error under it) | 8px |
+| `--gap-words-beside-control` | Words beside a control (a heading and its button in a row or a pane's head, a toggle's words): they keep the words margin from its edge, as from the pane's | 16px, 12px on a phone |
 | `--gap-words-words` | Words beside or under other words in one block (a title and the line under it, links in a row, an icon and its word) | 8px |
 | `--gap-block-block` | Two blocks: inside a pane, two panes side by side or stacked, the gallery's examples, a row or grid of game cards | 24px |
 | `--pad-pane` | A pane's edge and its words (its margin); also the page's edge | 24px, 20px on a phone |
