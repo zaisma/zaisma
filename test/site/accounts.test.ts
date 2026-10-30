@@ -4852,7 +4852,7 @@ describe("bans at sign-in", () => {
     expect(page.status).toBe(403);
     const closed = await page.text();
     // Child safety: no rule and no why, and the way to appeal.
-    expect(closed).toContain("Zaisma closed Night_Owl for breaking Zaisma&#39;s rules.");
+    expect(closed).toContain("Zaisma closed Night_Owl for breaking Zaisma's rules.");
     expect(closed).not.toContain("Illegal content");
     expect(closed).toContain('href="mailto:safety@zaisma.com?subject=Appeal%3A%20Night_Owl"');
     expect(fresh.jar.has("__Host-zaisma")).toBe(false);
@@ -4879,7 +4879,11 @@ describe("bans at sign-in", () => {
     const b = new Browser();
     await join(b);
     await ban("Night_Owl", "developer");
-    expect((await b.go("/account")).status).toBe(200);
+    const accountPage = await b.go("/account");
+    expect(accountPage.status).toBe(200);
+    const accountText = await accountPage.text();
+    expect(accountText).toContain("Zaisma banned this account&#39;s developer side for breaking Zaisma&#39;s rules.");
+    expect(accountText).toContain('href="mailto:safety@zaisma.com?subject=Appeal%3A%20Night_Owl"');
     const games = await b.go("/dashboard");
     const gamesText = await games.text();
     expect(gamesText).toContain("Zaisma banned this account&#39;s developer side for breaking Zaisma&#39;s rules.");

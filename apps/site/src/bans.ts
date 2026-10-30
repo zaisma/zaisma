@@ -2,6 +2,8 @@ import { ApiError, audit, bannedAccountOfMark, markSha256, personOwner, recordBa
 import { takeDownGame } from "./admin.ts";
 import { authUserEmail, endSessionsBefore, realEmail } from "./auth.ts";
 import { sendAlert } from "./email.ts";
+import { deliverEmail, developerBannedEmail } from "./email-codes.ts";
+import { accountBanned } from "./developer.ts";
 import { stripeCall } from "./stripe.ts";
 import type { Env } from "./env.ts";
 
@@ -60,6 +62,11 @@ export async function banAccount(env: Env, ban: { account: Account; banScope: Ba
     await env.DB.prepare("UPDATE api_keys SET turned_off_at_ms = ?, found_in = NULL, found_at_url = NULL WHERE account_id = ? AND turned_off_at_ms IS NULL").bind(nowMs, account.id).run();
   }
   await audit(env.DB, null, "account_banned", `@${account.username} (${banScope}): ${why}`, actor);
+  // A banned developer hears by email, when the account has one; a closed account hears at its next sign-in (account.ts).
+  if (banScope === "developer" && email) {
+    const bannedText = accountBanned({ banScope, banReasonForDeveloper: contentRule === "child_safety" ? null : why }).messageForPeople;
+    await deliverEmail(env, email, developerBannedEmail(env, { username: account.username, bannedText, appealEmail: APPEAL_EMAIL }));
+  }
   return { bannedAtMs, takenDownGameSlugs: games.map((game) => game.slug), bannedMarkCount: await bannedMarkCount(env, account.id) };
 }
 

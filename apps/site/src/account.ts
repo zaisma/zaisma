@@ -73,6 +73,7 @@ import {
   type SocialSettings,
 } from "@zaisma/core";
 import { APPEAL_EMAIL, CONTENT_RULE_WORDS, emailBanned } from "./bans.ts";
+import { accountBanned } from "./developer.ts";
 import {
   PROVIDERS,
   authConfigured,
@@ -1837,6 +1838,9 @@ async function accountPage(env: Env, session: Session, welcome: boolean, error?:
 <h1>${account.username}</h1>
 ${email ? html`<p class="lead">${email}</p>` : ""}
 <p><a class="btn ghost" href="${profilePath(account.username)}">Your profile</a></p>
+${banScopeOf(account) === "developer"
+      ? html`<p class="note" role="status">${accountBanned({ banScope: "developer", banReasonForDeveloper: account.ban_content_rule === "child_safety" ? null : account.ban_reason }).messageForPeople} Your games are down; you can still play, and <a href="/dashboard">export your games</a>. Think this is a mistake? Write to <a href="mailto:${APPEAL_EMAIL}?subject=${encodeURIComponent(`Appeal: ${account.username}`)}">${APPEAL_EMAIL}</a> with your username. A person reads every appeal and answers.</p>`
+      : ""}
 ${securityAlertsBox(activity.unseen_security_alerts, "/account")}
 ${isAskingForEmail ? emailAskBox({ isConfirmed, backTo: "/account" }) : ""}
 ${noticeAtMs !== null ? wrongPasswordNotice(noticeAtMs, !email && !passkeys.length) : ""}

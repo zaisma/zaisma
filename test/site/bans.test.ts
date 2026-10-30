@@ -152,6 +152,8 @@ describe("a developer ban", () => {
     const banned = await adminTool("ban_account", { username: "Emma_Builds", ban_scope: "developer", why: "Its game asked players for their passwords.", content_rule: "malware" });
     expect(banned).toMatchObject({ username: "Emma_Builds", ban_scope: "developer", taken_down_game_slugs: ["sky-hopper", "cave-run"], banned_mark_count: 1, next_steps: [] });
     for (const slug of ["sky-hopper", "cave-run"]) expect((await gameBySlug(env.DB, slug))!.review_status).toBe("removed");
+    // The developer hears by email, with why and how to appeal.
+    expect(emails).toEqual([{ to: "emma@example.com", subject: "Zaisma banned your account's developer side" }]);
     expect(await accountRow("dev-1")).toMatchObject({ ban_scope: "developer", ban_reason: "Its game asked players for their passwords.", ban_content_rule: "malware" });
 
     const refused = await api("dev-1", "/games", { body: { title: "Another One" } });
@@ -194,6 +196,8 @@ describe("a developer ban", () => {
 describe("a whole-account ban", () => {
   it("turns its API keys off, so every call answers account_banned", async () => {
     await adminTool("ban_account", { username: "Emma_Builds", ban_scope: "whole_account", why: "Illegal content.", content_rule: "child_safety" });
+    // A closed account hears at its next sign-in, not by email.
+    expect(emails).toEqual([]);
     const refused = await api("dev-1", "/access");
     expect(refused.status).toBe(403);
     expect(refused.answer.error).toMatchObject({ code: "account_banned", message_for_people: "This account is closed for breaking Zaisma's rules." });
@@ -279,7 +283,8 @@ describe("a banned account's files", () => {
     const version = (await versionById(env.DB, versionId))!;
     expect((JSON.parse(version.scan_report!) as ScanReport).matched_game).toBeTruthy();
     expect(await stopCopy(testEnv, version, "julius@zaisma.test")).toBe(true);
-    expect(emails).toEqual([]);
+    // Only the ban's own email reached the banned account, never one about the copy.
+    expect(emails).toEqual([{ to: "emma@example.com", subject: "Zaisma banned your account's developer side" }]);
     expect(await env.DB.prepare("SELECT 1 FROM audit_log WHERE action = 'copy-stopped'").first()).toBeNull();
   });
 });
