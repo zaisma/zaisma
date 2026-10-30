@@ -63,16 +63,16 @@ describe("a key limited to some games", () => {
 
   it("counts unread followed topics of only those games, and of no game", async () => {
     const owner = await personOwner(env.DB, "dev-1");
-    for (const slug of ["game-a", "game-b"]) await createGame(env.DB, { slug, title: slug, description: "", ownerId: owner.id, visibility: "draft" });
+    for (const slug of ["unread-a", "unread-b"]) await createGame(env.DB, { slug, title: slug, description: "", ownerId: owner.id, visibility: "draft" });
     const ids: string[] = [];
-    for (const game_slug of ["game-a", "game-b", undefined]) {
+    for (const game_slug of ["unread-a", "unread-b", undefined]) {
       const { data } = await api("/forum", { body: { is_public: true, kind: "question", title: `Unread ${game_slug ?? "none"}`, text_markdown: "How?", ...(game_slug ? { game_slug } : {}) } });
       ids.push(data.topic.id);
     }
     await env.DB.prepare(`INSERT OR REPLACE INTO forum_follows (topic_id, account_id, seen_at_ms) VALUES ${ids.map(() => "(?, 'dev-1', 0)").join(", ")}`).bind(...ids).run();
     await env.DB.prepare(`UPDATE forum_topics SET last_activity_at_ms = 1000 WHERE id IN (${ids.map(() => "?").join(", ")})`).bind(...ids).run();
     const caller = (gameSlugs: string[] | null) => ({ accountId: "dev-1", access: { gameSlugs } }) as unknown as Caller;
-    expect(await unreadCount(env, caller(["game-a"]))).toBe(2);
+    expect(await unreadCount(env, caller(["unread-a"]))).toBe(2);
     expect(await unreadCount(env, caller(null))).toBe(3);
   });
 });
