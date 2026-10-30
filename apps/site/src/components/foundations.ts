@@ -314,7 +314,7 @@ const SWATCHES: { token: string; note: string }[] = [
 ];
 
 const swatches = () =>
-  glassPane({ paneWidth: "full", body: html`<ul class="swatches">${SWATCHES.map(({ token, note }) => html`<li><span class="chip-swatch" data-cut-line="10" style="background:var(${token})">${CUT_LINE}</span><code class="words-margin at-end">${token}</code><span class="words-margin at-end">${note}</span></li>`)}</ul>` });
+  glassPane({ paneWidth: "full", body: html`<ul class="swatches words-margin round">${SWATCHES.map(({ token, note }) => html`<li><span class="chip-swatch" data-cut-line="10" style="background:var(${token})">${CUT_LINE}</span><code class="words-margin at-end">${token}</code><span class="words-margin at-end">${note}</span></li>`)}</ul>` });
 
 component({
   name: "Color",
@@ -324,11 +324,11 @@ component({
   summary: "Every color comes from these tokens, so light, dark and smoked glass follow by themselves. Orange is only for what you act on, and it is always shown in full: never faded or at half opacity.",
   styles: `
 /* Color: the gallery's swatches. */
-/* The swatches have edges, so they sit at the frame gap (the first takes the pane's corner); each one's name and use are words beside it, its
-   name on the swatch's top line. */
-.swatches { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--size-figure), 1fr)); gap: var(--gap-block-block); }
+/* Each swatch leads its name and use as a mark leads words, so the list keeps the words margin all round, as words do; its name on the
+   swatch's top line. */
+.swatches { list-style: none; margin: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--size-figure), 1fr)); gap: var(--gap-block-block); }
 .swatches li { display: grid; grid-template-columns: 2.25rem 1fr; grid-template-rows: auto auto; column-gap: var(--gap-words-words); align-items: start; font: var(--type-facts); }
-/* A swatch is cut by the edge rule like everything else: square in the pane's middle, following its corner where it sits in one. */
+/* A swatch is cut by the edge rule like everything else: square, in from the pane's corners. */
 .swatches .chip-swatch { position: relative; grid-row: span 2; align-self: stretch; width: 2.25rem; min-height: 2.25rem; clip-path: var(--cut-shape); }
 .swatches .chip-swatch > .cut-line polygon { stroke: var(--line); }
 .swatches code { font: var(--type-code); }
