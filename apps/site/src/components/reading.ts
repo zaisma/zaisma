@@ -179,7 +179,8 @@ component({
 .reading > :is(h2, h3) + :nth-child(n + 2) { margin-top: var(--gap-words-words); }
 .reading h2 { font: var(--type-section); color: var(--ink); }
 .reading h3 { font: var(--type-name); color: var(--ink); }
-.reading :is(ul, ol) { padding-inline-start: var(--gap-block-block); display: grid; gap: var(--gap-words-words); }
+/* A list's lines are set in from their bullets at the start, and keep the words margin at the end, as a paragraph does (tokens.ts). */
+.reading :is(ul, ol) { padding-inline: var(--gap-block-block) var(--pad-words); display: grid; gap: var(--gap-words-words); }
 .reading li::marker { color: var(--muted); }
 .reading strong { font-weight: 600; color: var(--ink); }
 .reading :not(pre) > code { font: var(--type-code); color: var(--ink); background: var(--well); padding: 0 4px; }
@@ -323,7 +324,8 @@ component({
 .fold-row-head:hover .fold-row-chevron { transform: translateX(2px); }
 .fold-row[open] > .fold-row-head .fold-row-chevron { transform: rotate(90deg); }
 .fold-row-head:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
-.fold-row-body { padding: 0 var(--pad-words) var(--gap-block-block); }
+/* Its words keep the pane's margin themselves, as anywhere in a pane, so they line up with the title over them, never set in twice. */
+.fold-row-body { padding: 0 0 var(--gap-block-block); }
 /* At a pane's edge the first and last rows' words keep the pane's margin, as words do. */
 .fold-row:first-child > .fold-row-head { padding-top: var(--pad-words); }
 .fold-row:last-child:not([open]) > .fold-row-head { padding-bottom: var(--pad-words); }

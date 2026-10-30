@@ -110,17 +110,22 @@ export const stressBaseName = (name: string): string => name.replace(/, signed i
 const OPEN_PLAYERS_SHEET = `(async () => { document.querySelector('[aria-controls="players"]').click(); await new Promise((done) => setTimeout(done, 600)); return true; })()`;
 /** The cards over a running game that start hidden (the game asking to sign in, signed out), shown one under another. */
 const SHOW_PLAYING_CARDS = `(async () => {
-  let top = 70;
-  for (const id of ["sign-in-ask", "signed-out"]) {
-    const card = document.getElementById(id);
-    if (!card) continue;
-    if (card.popover && card.showPopover) card.showPopover();
-    card.hidden = false;
-    card.style.top = top + "px";
-    // One that wouldn't fit under the one before (a phone on its side) stays hidden: over a game they come one at a time.
-    if (top + card.getBoundingClientRect().height > innerHeight - 8 && top > 70) { card.hidden = true; continue; }
-    top += 20 + card.getBoundingClientRect().height;
-  }
+  // Placed again on each screen, since the check switches screens in place without loading the page again.
+  const place = () => {
+    let top = 70;
+    for (const id of ["sign-in-ask", "signed-out"]) {
+      const card = document.getElementById(id);
+      if (!card) continue;
+      if (card.popover && card.showPopover && !card.matches(":popover-open")) card.showPopover();
+      card.hidden = false;
+      card.style.top = top + "px";
+      // One that wouldn't fit under the one before (a phone on its side) stays hidden: over a game they come one at a time.
+      if (top + card.getBoundingClientRect().height > innerHeight - 8 && top > 70) { card.hidden = true; continue; }
+      top += 20 + card.getBoundingClientRect().height;
+    }
+  };
+  place();
+  addEventListener("resize", place);
   await new Promise((done) => setTimeout(done, 600));
   return true;
 })()`;
