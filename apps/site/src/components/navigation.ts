@@ -493,7 +493,7 @@ export const RAIL_SCRIPT = `/* rail */(function () {
     }
     thumb.addEventListener("pointerdown", function (event) { start(event, false); });
     line.addEventListener("pointerdown", function (event) { start(event, true); });
-    bar.addEventListener("pointermove", function (event) {
+    function follow(event) {
       if (!drag) return;
       var spotPx = spotOf(event);
       drag.last = spotPx;
@@ -502,7 +502,13 @@ export const RAIL_SCRIPT = `/* rail */(function () {
       if (Math.abs(goal - at()) < 1) return;
       to(goal);
       drag.scrolls.push(at()); if (drag.scrolls.length > SCROLLS_KEPT) drag.scrolls.shift();
-    });
+    }
+    bar.addEventListener("pointermove", follow);
+    // The rail holds the pointer while it's dragged (setPointerCapture), but a browser can lose it or never give it (a press on the line
+    // beside the thumb): so the page follows the pointer and hears it let go too, wherever it is, until the drag ends.
+    window.addEventListener("pointermove", function (event) { if (drag && !bar.hasPointerCapture(event.pointerId)) follow(event); });
+    window.addEventListener("pointerup", function (event) { if (drag && !bar.hasPointerCapture(event.pointerId)) release(event); });
+    window.addEventListener("pointercancel", function () { if (drag) end(); });
     function end() { drag = null; bar.classList.remove("dragging"); settle(); if (isLayoutDue) { isLayoutDue = false; layout(); } }
     // Let go, a box that snaps glides to its nearest snapping point, then snaps again as it always does.
     function settle() {
