@@ -12,7 +12,8 @@ import { pageStyle } from "./page-styles.ts";
 import { SHADER_HELPERS, ZAISMA_SHADER } from "./components/shaders.ts";
 import { usageTrack } from "./components/data.ts";
 import { hostingMeter } from "./hosting-meter.ts";
-import { EDGE } from "./components/foundations.ts";
+import { EDGE, icon } from "./components/foundations.ts";
+import { outsideLinksWaitWords } from "./standing.ts";
 
 /**
  * The developer dashboard: your games, and a manager for each one. Every read and every change is a
@@ -56,12 +57,17 @@ interface GameJson {
   glass_tint_color: string | null;
   updated_at: string;
 }
+/** GET /access, as far as the dashboard reads it (apps/site/src/schemas.ts, STANDING). */
+interface AccessJson {
+  banned_at: string | null;
+  standing: { outside_links_enabled: boolean; returning_player_count: number; account_age_days: number; ruling_wait_ends_at: string | null };
+}
 /** A registered link, as the API answers it (apps/site/src/schemas.ts, LINK). */
 interface LinkJson {
   link_name: string;
   destination_url: string;
   is_on_game_page: boolean;
-  who_can_open: "everyone" | "signed_in_adults" | "nobody";
+  who_can_open: "everyone" | "signed_in_adults" | "waiting_for_standing" | "nobody";
   review_reason: ReviewReasonJson | null;
 }
 /** What needs attention in a game, as list_games and get_game answer it (apps/site/src/developer.ts, gameAlerts). */
@@ -574,7 +580,8 @@ async function managerPage(
   } else if (section === "versions") {
     body = versionsSection(slug, loaded);
   } else if (section === "details") {
-    body = detailsSection(slug, loaded, (await call("GET", `/games/${slug}/qr-code`)) as unknown as QrCodeJson, gameUrl(env, slug));
+    const [qrCode, access] = await Promise.all([call("GET", `/games/${slug}/qr-code`), call("GET", "/access")]);
+    body = detailsSection(slug, loaded, qrCode as unknown as QrCodeJson, gameUrl(env, slug), access as unknown as AccessJson);
   } else if (section === "players") {
     const [reports, stats] = await Promise.all([call("GET", `/games/${slug}/reports`), call("GET", `/games/${slug}/stats?period_duration_days=30`)]);
     body = playersSection(game, reports as unknown as Reports, stats as unknown as Stats);
@@ -702,10 +709,10 @@ ${testersPanel(slug, game, testers, versions)}`;
 }
 
 /** What players see about the game, and how it plays on Zaisma; its cover and screenshots beside. */
-function detailsSection(slug: string, { game, images, backgrounds, shaders }: Loaded, qrCode: QrCodeJson, gameAddress: string): Raw {
+function detailsSection(slug: string, { game, images, backgrounds, shaders }: Loaded, qrCode: QrCodeJson, gameAddress: string, access: AccessJson): Raw {
   return html`<div class="details-layout">
 <section><h2 class="rule-h" id="details">Details</h2>${detailsForm(slug, game)}
-<h2 class="rule-h" id="links">Links</h2>${linksForm(slug, game)}
+<h2 class="rule-h" id="links">Links</h2>${linksForm(slug, game, access)}
 <h2 class="rule-h" id="own-servers">Your own servers</h2>${ownServersForm(slug, game)}
 <h2 class="rule-h" id="export">Export</h2>${exportPanel(slug)}</section>
 <aside><h2 class="rule-h" id="images">Cover and screenshots</h2>${imagesPanel(slug, images.filter((image) => !BACKGROUND_KINDS.includes(image.kind)))}
@@ -965,6 +972,7 @@ ${minimumPlayerAgeFields(game)}
 const LINK_AUDIENCE_WORDS: Record<LinkJson["who_can_open"], string> = {
   everyone: "Opens for everyone.",
   signed_in_adults: "Opens for signed-in adults. Guests and players under 18 see \"This link can't be opened here.\"",
+  waiting_for_standing: "Opens once your account is established.",
   nobody: "Opens for nobody.",
 };
 
@@ -972,7 +980,12 @@ const LINK_AUDIENCE_WORDS: Record<LinkJson["who_can_open"], string> = {
  * The sites the game opens with Zaisma.links.open, one row each and two empty ones to add more; a row
  * cleared is a link removed. Each says who it opens for, and why it opens for nobody.
  */
-function linksForm(slug: string, game: GameJson): Raw {
+function linksForm(slug: string, game: GameJson, access: AccessJson): Raw {
+  // What opens links to other sites, and how far along the account is, at the field (packages/core/src/standing.ts).
+  const { standing } = access;
+  const rulingWaitEndsAtMs = standing.ruling_wait_ends_at ? Date.parse(standing.ruling_wait_ends_at) : null;
+  const waitWords = outsideLinksWaitWords({ outsideLinksEnabled: standing.outside_links_enabled, isBanned: access.banned_at !== null, rulingWaitEndsAtMs, returningPlayerCount: standing.returning_player_count, accountAgeDays: standing.account_age_days });
+  const isCardHelpful = access.banned_at === null && rulingWaitEndsAtMs === null;
   const rowCount = Math.min(LINK_LIMITS.maximumLinkCount, game.links.length + 2);
   const row = (i: number) => {
     const link = game.links[i];
@@ -985,6 +998,7 @@ ${link ? html`<p class="hint">${LINK_AUDIENCE_WORDS[link.who_can_open]}</p>${lin
   };
   return html`<form class="stack" method="post" action="/dashboard/${slug}/links">
 <p class="hint">The sites your game opens, like your store, Patreon, Steam page or Discord: <code>Zaisma.links.open("store")</code>, from a tap or key press in the game. Players see "You're leaving Zaisma" with the address, and choose Open or Stay. Guests and players under 18 open only links on well-known store, payment and video sites, never chat apps. Up to ${LINK_LIMITS.maximumLinkCount}; clear a row to remove its link.</p>
+${waitWords ? html`<p class="hint standing-wait">${icon("lock")} ${waitWords}${isCardHelpful ? html` <a href="/dashboard/settings#hosting">Add a card to open them now</a>` : ""}</p>` : ""}
 ${Array.from({ length: rowCount }, (_, i) => row(i))}
 <button class="btn" type="submit">Save links</button>
 </form>`;

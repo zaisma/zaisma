@@ -68,6 +68,9 @@ export interface Account extends SocialSettings {
   ban_scope: "developer" | "whole_account" | null;
   ban_reason: string | null;
   ban_content_rule: string | null;
+  /** The different days this account's plays counted on any game, and the last of them (standing.ts): a player earns standing by playing. */
+  counted_play_day_count: number;
+  last_counted_play_date: string | null;
   created_at_ms: number;
   updated_at_ms: number;
 }
@@ -362,6 +365,8 @@ export async function createAccount(database: D1Database, newAccount: { id: stri
     ban_scope: null,
     ban_reason: null,
     ban_content_rule: null,
+    counted_play_day_count: 0,
+    last_counted_play_date: null,
     created_at_ms: createdAtMs,
     updated_at_ms: createdAtMs,
   };
@@ -485,6 +490,7 @@ export async function deleteAccount(database: D1Database, id: string): Promise<v
     database.prepare("DELETE FROM saves WHERE account_id = ?").bind(id),
     database.prepare("DELETE FROM played WHERE account_id = ?").bind(id),
     database.prepare("DELETE FROM games_ever_played WHERE account_id = ?").bind(id),
+    database.prepare("DELETE FROM game_returning_players WHERE account_id = ?").bind(id),
     // Its connected apps' tokens and unswapped codes, before the keys that say whose they are.
     database.prepare("DELETE FROM connected_app_tokens WHERE api_key_id IN (SELECT id FROM api_keys WHERE account_id = ?)").bind(id),
     database.prepare("DELETE FROM connected_app_codes WHERE account_id = ?").bind(id),

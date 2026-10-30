@@ -16,6 +16,7 @@ import {
   refundPolicyWords,
   type PurchaseLabel,
   canOpenLink,
+  standingOf,
   CONTENT_RULES,
   CONTENT_RULE_DETAILS,
   countryName,
@@ -142,6 +143,10 @@ export interface GamePageView {
   isFramedBySelf: boolean;
   /** Listed, and kept on lists by the listing check, so search engines may index it. */
   isShownInLists: boolean;
+  /** Whether the developer's standing opens search engines; a listed game stays out of them until it does (standing.ts). */
+  searchEnginesEnabled: boolean;
+  /** Whether the developer's standing opens its links to other sites for signed-in adults. */
+  outsideLinksEnabled: boolean;
   /** The viewer plays it: it's free to play, or they own it (fullGameOwner), made it, or came by a tester link. */
   isFullGameOwner: boolean;
   /** The game's items, for a paid game's Buy and the page's Add-ons; [] for a page that sells nothing. */
@@ -192,7 +197,7 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
   const isForSale = isForSaleTo(game, isFullGameOwner, isClosed);
   const code = roomCodeOf(url, isClosed || isForSale);
   const playedVersionId = testerVersion?.id ?? game.live_version_id;
-  const [developer, pictures, updates, otherGames, liveRooms, playingNow, playedVersion, purchaseLabel, background, shownInLists, items, ownedNames, demo, fullGame] = await Promise.all([
+  const [developer, pictures, updates, otherGames, liveRooms, playingNow, playedVersion, purchaseLabel, background, shownInLists, items, ownedNames, demo, fullGame, standing] = await Promise.all([
     game.owner_id
       ? env.DB.prepare("SELECT accounts.username AS name, (SELECT COUNT(*) FROM games WHERE owner_id = ? AND review_status = 'live' AND visibility = 'listed') AS game_count FROM owners JOIN accounts ON accounts.id = owners.account_id WHERE owners.id = ?").bind(game.owner_id, game.owner_id).first<{ name: string; game_count: number }>()
       : null,
@@ -221,6 +226,8 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
     game.full_game_item_name === null && game.owner_id
       ? env.DB.prepare("SELECT slug FROM games WHERE demo_game_id = ? AND owner_id = ? AND full_game_item_name IS NOT NULL AND review_status = 'live' AND live_version_id IS NOT NULL AND visibility IN ('listed', 'unlisted') ORDER BY slug LIMIT 1").bind(game.id, game.owner_id).first<{ slug: string }>()
       : null,
+    // What the developer's standing opens: links to other sites, and search engines (standing.ts).
+    standingOf(env.DB, game.owner_id, Date.now()),
   ]);
   const ownedPaidGameIds = await paidGamesOwnedBy(env, viewer.account, otherGames.filter((otherGame) => otherGame.owner_id && otherGame.owner_id === game.owner_id));
   const response = gamePageResponse(env, {
@@ -242,6 +249,8 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
     // The home opens the game page in a frame to play in place; only such a request (a same-site frame) may do it, every other still refuses framing.
     isFramedBySelf: request.headers.get("sec-fetch-dest") === "iframe" && request.headers.get("sec-fetch-site") === "same-origin",
     isShownInLists: Boolean(shownInLists),
+    searchEnginesEnabled: standing.searchEnginesEnabled,
+    outsideLinksEnabled: standing.outsideLinksEnabled,
     isFullGameOwner,
     items,
     ownedItemNames: ownedNames,
@@ -318,7 +327,7 @@ export function gamePageResponse(env: Env, view: GamePageView): Response {
     ...(purchaseLabel.categories.length && refundWords ? [{ label: "Refunds", text: refundWords }] : []),
   ];
   const isSignedInAdult = viewer.account?.age_band === "18+";
-  const pageLinks = linksOf(game).filter((link) => link.is_on_game_page && canOpenLink(link, isSignedInAdult));
+  const pageLinks = linksOf(game).filter((link) => link.is_on_game_page && canOpenLink(link, isSignedInAdult, view.outsideLinksEnabled));
   const gameOrigin = new URL(frameUrl).origin;
   const testerWords = tester
     ? `You're testing this game with a link from its developer.${isTestBuild ? ` It opens a version players don't have yet${game.multiplayer_mode !== "none" || ownServers.length ? ", so online play is off: it works only on the version players have" : ""}.` : ""}${hidden ? " It isn't public yet: anyone with this link can play, so only share it with other testers." : ""} Your progress stays in this browser.${tester.ends_at_ms ? ` The link works until ${day(tester.ends_at_ms)}.` : ""}`
@@ -573,7 +582,7 @@ ${isClosed
         )}`,
   });
   response.headers.append("Vary", "Sec-Fetch-Dest, Sec-Fetch-Site");
-  if (!view.isShownInLists || tester) response.headers.set("X-Robots-Tag", "noindex");
+  if (!view.isShownInLists || !view.searchEnginesEnabled || tester) response.headers.set("X-Robots-Tag", "noindex");
   return response;
 }
 

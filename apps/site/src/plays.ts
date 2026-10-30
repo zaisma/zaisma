@@ -13,7 +13,7 @@ import {
   type PerformanceDay,
   type PlayerPerformanceRow,
 } from "@zaisma/core";
-import { accountById, createEntryGrant, fullGameOwner, gameBySlug, isIdOf, isOldEnoughFor, isTesterLinkOn, issueRoomKey, playsOnline, testerLinkVersion, newId, testerLinkByToken, tradeRoomKey, type Account, type Game } from "@zaisma/core";
+import { accountById, createEntryGrant, fullGameOwner, gameBySlug, isIdOf, isOldEnoughFor, isTesterLinkOn, issueRoomKey, playsOnline, recordReturningPlay, testerLinkVersion, newId, testerLinkByToken, tradeRoomKey, type Account, type Game } from "@zaisma/core";
 import { currentSession } from "./auth.ts";
 import { gameUrl, type Env } from "./env.ts";
 import { playable } from "./home.ts";
@@ -99,8 +99,14 @@ export async function handlePlays(request: Request, env: Env, path: string): Pro
 
   if (typeof body.ticket === "string") {
     if (!isIdOf("play_ticket", body.ticket)) return new Response(null, { status: 400 });
-    if (body.counted === true) await countTicket(env.DB, game.id, body.ticket, network(request));
-    else {
+    if (body.counted === true) {
+      // A signed-in player's counted play counts toward the developer's standing (standing.ts); a guest is a browser that costs a bot nothing.
+      if (await countTicket(env.DB, game.id, body.ticket, network(request))) {
+        const { accountId, cookies } = await signedIn(request, env);
+        if (accountId && !(await ownGame(env, game, accountId))) await recordReturningPlay(env.DB, game.id, accountId, today());
+        return withCookies(ok(), cookies);
+      }
+    } else {
       await addTime(env.DB, game.id, body.ticket, body.seconds);
       await reportPlaying(env.DB, game.id, body.ticket, body.is_away === true);
       if (body.performance !== undefined && game.performance_measuring_enabled) await addPerformance(env.DB, game, body.ticket, body.performance, request.headers.get("user-agent") ?? "");

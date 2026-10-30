@@ -93,7 +93,7 @@ export const LINK = object({
   destination_url: url("The https address it opens; the game can add a path and query under it."),
   is_on_game_page: yes("The game page shows it too."),
   who_can_open: choice(
-    { everyone: "it's on a trusted store, payment or video site, so it opens for guests and under-18 accounts too", signed_in_adults: "it opens for signed-in adults; anyone else sees \"This link can't be opened here.\"", nobody: "its site is listed for malware or phishing (review_reason says so)" },
+    { everyone: "it's on a trusted store, payment or video site, so it opens for guests and under-18 accounts too", signed_in_adults: "it opens for signed-in adults; anyone else sees \"This link can't be opened here.\"", waiting_for_standing: "a site off the trusted list that opens for signed-in adults once your account is established, or has a card that paid Zaisma or a Stripe account (get_access's standing); until then it opens for nobody", nobody: "its site is listed for malware or phishing (review_reason says so)" },
     "Who it opens for.",
   ),
   review_reason: nullable(reviewReason("Why it opens for nobody; null when it opens.")),
@@ -451,6 +451,24 @@ export const NEXT = list(
     reason: text(),
   }),
   "The calls that usually follow; empty when nothing does.",
+);
+
+/** What the developer's account has earned, and what each power needs (packages/core/src/standing.ts): GET /access's standing. */
+export const STANDING = object(
+  {
+    is_established_developer: yes("Whether the account is established: 14 days old, 20 different returning players on its games, and nothing ruled against it in 30 days. Zaisma's own accounts are established from the start."),
+    outside_links_enabled: yes("Whether the games' links to sites outside the trusted list open (for signed-in adults): once established, or at once with a card that paid Zaisma or a Stripe account that can take payments. Until then those links answer who_can_open waiting_for_standing."),
+    search_engines_enabled: yes("Whether search engines find the games (the sitemap, and no noindex on their pages): only once established. Zaisma's own lists show listed games from the first day either way."),
+    returning_player_count: countOf("Different players who came back to your games on 2 days or more, each with an account at least 7 days old that played on 3 days, as the daily count last counted them. Your own account never counts."),
+    minimum_returning_player_count: countOf("Returning players needed to be established: 20."),
+    account_age_days: countOf("Whole days since the account was made."),
+    minimum_account_age_days: countOf("Days old the account must be to be established: 14."),
+    has_card_or_stripe_account: yes("Whether a card paid Zaisma (a top-up or Zaisma Pro) on this account, or its Stripe account can take payments: either opens links to other sites at once."),
+    last_ruling_at: nullable(isoTime("When Zaisma last rejected one of your versions or took a game down; null when never.")),
+    ruling_wait_ends_at: nullable(isoTime("While the 30 days after the last ruling run, when they end: until then links to other sites and search engines are closed. null when there's no wait.")),
+    message_for_people: text("What's open and what opens next, in a sentence or two, to show the developer."),
+  },
+  "What the account has earned, and what each power needs. Nobody else sees it.",
 );
 
 const ERROR_FIELDS = object({
@@ -1970,6 +1988,11 @@ export const BLOCKED_SCRIPT_LIST = object({
     }),
     "The last 7 days, most reported first, up to 100. Browser extensions' reports aren't kept.",
   ),
+});
+export const ZAISMA_ACCOUNT_CHANGED = object({
+  username: text(),
+  is_zaisma_account: yes("Whether it's one of Zaisma's own accounts now, established from the start (links to other sites and search engines open)."),
+  next_steps: NEXT,
 });
 export const CAN_PUBLISH_CHANGED = object({
   username: text(),

@@ -109,6 +109,8 @@ beforeEach(async () => {
   // Live and listed, as if a version had passed and been published.
   await env.DB.prepare("UPDATE games SET review_status = 'live', visibility = 'listed', live_version_id = 'version_live' WHERE slug = 'sky-hopper'").run();
   await env.DB.prepare("INSERT INTO versions (id, game_id, r2_prefix, file_count, size_bytes, scan_status, created_at_ms) SELECT 'version_live', id, 'games/sky/live', 1, 0, 'approved', 1792000000000 FROM games WHERE slug = 'sky-hopper'").run();
+  // An established developer, so links to other sites open (standing.ts); "links waiting for standing" starts from one that isn't.
+  await env.DB.prepare("UPDATE owners SET is_established = 1 WHERE account_id = 'dev-1'").run();
 });
 
 afterEach(() => vi.unstubAllGlobals());
@@ -314,5 +316,30 @@ describe("a game's links on the dashboard", () => {
     const refused = await SELF.fetch(`${SITE}/dashboard/sky-hopper/links`, { method: "POST", body: new URLSearchParams({ link_name_0: "store", destination_url_0: "https://bit.ly/abc" }), headers: { cookie, origin: SITE }, redirect: "manual" });
     expect(refused.status).toBe(400);
     expect(await refused.text()).toContain("link shortener");
+  });
+});
+
+describe("links waiting for standing", () => {
+  beforeEach(async () => {
+    await env.DB.exec("DELETE FROM owner_cards; DELETE FROM banned_marks;");
+    await env.DB.prepare("UPDATE owners SET is_established = 0 WHERE account_id = 'dev-1'").run();
+    await tool("update_game", { slug: "sky-hopper", links: LINKS });
+  });
+
+  it("keeps a link to another site until the developer is established, while trusted sites open for everyone from the start", async () => {
+    const adult = await sessionCookie("adult-1");
+    expect((await tool("get_game", { slug: "sky-hopper" })).game.links.map((link: { who_can_open: string }) => link.who_can_open)).toEqual(["everyone", "waiting_for_standing"]);
+    expect((await ask({ link_name: "discord" }, { cookie: adult })).answer).toEqual({ destination_url: null });
+    expect((await ask({ link_name: "store" })).answer).toEqual({ destination_url: "https://kit.itch.io/sky-hopper" });
+    await env.DB.prepare("UPDATE owners SET is_established = 1 WHERE account_id = 'dev-1'").run();
+    expect((await ask({ link_name: "discord" }, { cookie: adult })).answer).toEqual({ destination_url: "https://discord.gg/skyhopper" });
+  });
+
+  it("opens other sites at once with a card that paid Zaisma, but not with a banned one", async () => {
+    const adult = await sessionCookie("adult-1");
+    await env.DB.prepare("INSERT INTO owner_cards (owner_id, card_fingerprint_sha256, first_paid_at_ms) SELECT id, 'card-sha', 1792000000000 FROM owners WHERE account_id = 'dev-1'").run();
+    expect((await ask({ link_name: "discord" }, { cookie: adult })).answer).toEqual({ destination_url: "https://discord.gg/skyhopper" });
+    await env.DB.prepare("INSERT INTO banned_marks (mark_kind, mark_sha256, banned_account_id, banned_at_ms) VALUES ('card', 'card-sha', 'someone-else', 1792000000000)").run();
+    expect((await ask({ link_name: "discord" }, { cookie: adult })).answer).toEqual({ destination_url: null });
   });
 });

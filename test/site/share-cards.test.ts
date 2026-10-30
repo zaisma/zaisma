@@ -150,6 +150,7 @@ describe("a shared game link", () => {
 
 describe("search engines", () => {
   it("find every listed live game in the sitemap, which robots.txt names, and never an unlisted one", async () => {
+    await env.DB.prepare("UPDATE owners SET is_established = 1 WHERE account_id = 'dev-1'").run();
     const robots = await (await SELF.fetch(`${SITE}/robots.txt`)).text();
     expect(robots).toContain(`Sitemap: ${SITE}/sitemap.xml`);
     const sitemap = await SELF.fetch(`${SITE}/sitemap.xml`);
@@ -160,6 +161,18 @@ describe("search engines", () => {
     await env.DB.prepare("UPDATE games SET visibility = 'unlisted' WHERE slug = 'sky-hopper'").run();
     expect(await (await SELF.fetch(`${SITE}/sitemap.xml`)).text()).not.toContain("sky-hopper");
     expect((await SELF.fetch(`${SITE}/g/sky-hopper`)).headers.get("x-robots-tag")).toBe("noindex");
+  });
+
+  it("wait for the developer to be established: Zaisma's own lists show the game from the first day, search engines only after", async () => {
+    // Not established yet: kept out of the sitemap and search engines (Zaisma's lists don't ask: SHOWN_IN_LISTS_SQL).
+    expect(await (await SELF.fetch(`${SITE}/sitemap.xml`)).text()).not.toContain("sky-hopper");
+    expect((await SELF.fetch(`${SITE}/g/sky-hopper`)).headers.get("x-robots-tag")).toBe("noindex");
+    await env.DB.prepare("UPDATE owners SET is_established = 1 WHERE account_id = 'dev-1'").run();
+    expect(await (await SELF.fetch(`${SITE}/sitemap.xml`)).text()).toContain(`<loc>${SITE}/g/sky-hopper</loc>`);
+    expect((await SELF.fetch(`${SITE}/g/sky-hopper`)).headers.get("x-robots-tag")).toBeNull();
+    // A banned developer's games leave search engines at once.
+    await env.DB.prepare("UPDATE accounts SET banned_at_ms = 1792000000000, ban_scope = 'developer' WHERE id = 'dev-1'").run();
+    expect(await (await SELF.fetch(`${SITE}/sitemap.xml`)).text()).not.toContain("sky-hopper");
   });
 });
 
