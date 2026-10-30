@@ -207,7 +207,9 @@ html { -webkit-tap-highlight-color: transparent; }
 @media (prefers-reduced-motion: reduce) { .eases-settings { transition: none; } }
 /* Moving between Zaisma's pages crossfades, so a page change never flashes. It's quick: a switch's slab slides over from the last page's
    tab only once the crossfade is over (SWITCH_SCRIPT), so a long one would hold the slab still. */
-@media (prefers-reduced-motion: no-preference) { @view-transition { navigation: auto; } ::view-transition-group(root) { animation-duration: var(--motion-state); } }
+/* Pages cross-fade as one opens another, except in Safari, which snapshots a page of glass this rich in a few uneven frames: there, the new
+   page simply shows. */
+@media (prefers-reduced-motion: no-preference) { @supports not (font: -apple-system-body) { @view-transition { navigation: auto; } ::view-transition-group(root) { animation-duration: var(--motion-state); } } }
 :root {
   color-scheme: light dark;
   /* A thumb: the white slab you flip or drag (a toggle's, a slider's), solid and lit from above on either glass, casting its shadow onto
