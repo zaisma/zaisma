@@ -20,6 +20,7 @@ import {
   siteHeaderProblems,
   // @ts-expect-error: a plain JavaScript script without types
 } from "../../scripts/ship-checks.mjs";
+import { isNetworkFailure } from "../../scripts/ship-resume.mjs";
 
 /** scripts/ship-checks.mjs: what `npm run ship` tries on the live site after every deploy ("Security checks on every ship." in docs/DECISIONS.md). */
 
@@ -109,12 +110,28 @@ describe("buckets", () => {
   it("bucketNames reads wrangler's list", () => {
     expect(bucketNames("Listing buckets...\nname:           zaisma-games\ncreation_date:  2026-01-01\n\nname:           zaisma-saves\ncreation_date:  2026-01-02\n")).toEqual(["zaisma-games", "zaisma-saves"]);
   });
+  const said = (output: string, exitCode = 0) => ({ exitCode, output });
   it("bucketAccessProblems", () => {
-    expect(bucketAccessProblems(DISABLED, NO_DOMAINS)).toEqual([]);
-    const publicDevUrl = bucketAccessProblems("Public access is enabled at 'https://pub-abc.r2.dev'.", NO_DOMAINS);
+    expect(bucketAccessProblems(said(DISABLED), said(NO_DOMAINS))).toEqual([]);
+    const publicDevUrl = bucketAccessProblems(said("Public access is enabled at 'https://pub-abc.r2.dev'."), said(NO_DOMAINS));
     expect(publicDevUrl).toEqual(["public r2.dev address is on: https://pub-abc.r2.dev"]);
-    expect(bucketAccessProblems(DISABLED, "domain: files.example.com")[0]).toContain("custom domain connected: domain: files.example.com");
-    expect(bucketAccessProblems("Error: not signed in", "Error: not signed in")).toHaveLength(2);
+    const connected = "Listing custom domains connected to bucket 'zaisma-games'...\ndomain:            files.example.com\nenabled:           Yes\n\ndomain:            cdn.example.com\nenabled:           No\n";
+    expect(bucketAccessProblems(said(DISABLED), said(connected))).toEqual(["custom domain connected: files.example.com, cdn.example.com"]);
+    expect(bucketAccessProblems(said("Error: not signed in", 1), said("Error: not signed in", 1))).toHaveLength(2);
+  });
+  it("bucketAccessProblems says it couldn't check when wrangler gave no answer, never that a domain is connected", () => {
+    // What the Oct 30, 2026 ship got: the request failed and wrangler's output ended with where it wrote its log.
+    const failedRequest = said("Listing custom domains connected to bucket 'zaisma-games'...\n\n✘ [ERROR] fetch failed\n\nIf you think this is a bug then please create an issue\n🪵  Logs were written to \"/Users/x/.wrangler/logs/wrangler.log\"\n", 1);
+    expect(bucketAccessProblems(said(DISABLED), failedRequest)).toEqual(["couldn't check its custom domains (wrangler exited 1: fetch failed)"]);
+    expect(bucketAccessProblems(said(DISABLED), said("🪵  Logs were written to \"/Users/x/wrangler.log\"\n"))).toEqual(["couldn't check its custom domains (wrangler answered with nothing)"]);
+    // The line has to be wrangler's own, not a word in an error.
+    expect(bucketAccessProblems(said(`✘ [ERROR] not ${DISABLED}`), said(NO_DOMAINS))[0]).toMatch(/^couldn't check its r2\.dev address/);
+    // A non-zero exit never passes, whatever it printed.
+    expect(bucketAccessProblems(said(DISABLED), said(NO_DOMAINS, 1))).toHaveLength(1);
+  });
+  it("the failed request's note reads as the network going away, so ship tries again", () => {
+    const note = bucketAccessProblems(said(DISABLED), said("✘ [ERROR] fetch failed", 1))[0];
+    expect(isNetworkFailure(note)).toBe(true);
   });
   const wrangler = (publicBucket?: string) => (argumentList: string[]) => {
     if (argumentList[1] === "bucket" && argumentList[2] === "list") return { exitCode: 0, output: "name: zaisma-games\n\nname: zaisma-saves\n" };
@@ -124,7 +141,17 @@ describe("buckets", () => {
   it("checkBuckets fails when it can't list", () => {
     const results = checkBuckets(() => ({ exitCode: 1, output: "not signed in" }));
     expect(results).toHaveLength(1);
-    expect(results[0]).toMatchObject({ name: "R2 buckets", isPass: false, isSecurity: true });
+    expect(results[0]).toMatchObject({ name: "R2 buckets", isPass: false, isSecurity: true, isChecked: false });
+  });
+  it("checkBuckets marks a bucket it couldn't read as unchecked, and one it read as checked", () => {
+    const run = (argumentList: string[]) => {
+      if (argumentList[2] === "list") return { exitCode: 0, output: "name: zaisma-games\n\nname: zaisma-saves\n" };
+      if (argumentList[2] === "dev-url") return { exitCode: 0, output: argumentList[4] === "zaisma-saves" ? "Public access is enabled at 'https://pub-x.r2.dev'." : DISABLED };
+      return argumentList[4] === "zaisma-games" ? { exitCode: 1, output: "✘ [ERROR] fetch failed" } : { exitCode: 0, output: NO_DOMAINS };
+    };
+    const [games, saves] = checkBuckets(run);
+    expect(games).toMatchObject({ isPass: false, isChecked: false, note: "bucket zaisma-games: couldn't check its custom domains (wrangler exited 1: fetch failed)" });
+    expect(saves).toMatchObject({ isPass: false, isChecked: true, note: "bucket zaisma-saves: public r2.dev address is on: https://pub-x.r2.dev" });
   });
   it("checkBuckets passes private buckets and fails a public one", () => {
     expect(checkBuckets(wrangler()).map((result: { isPass: boolean; isSecurity: boolean }) => [result.isPass, result.isSecurity])).toEqual([[true, true], [true, true]]);
@@ -274,5 +301,27 @@ describe("checkPackageOnNpm", () => {
   it("waits for it", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(answer(404)).mockResolvedValueOnce(answer(200)));
     expect((await checkPackageOnNpm("@zaisma/cli", "0.9.1", cliWorkflow, { waitSec: 1, pollSec: 0 })).isPass).toBe(true);
+  });
+  it("keeps waiting past waitSec while the publish workflow's run is still queued or running, and says so", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(answer(404)));
+    const readPublishRunStatus = vi.fn().mockResolvedValue("queued");
+    const result = await checkPackageOnNpm("@zaisma/game-server", "1.13.0", serverWorkflow, { waitSec: 0.001, runningWaitSec: 0.02, pollSec: 0, readPublishRunStatus });
+    expect(readPublishRunStatus).toHaveBeenCalled();
+    expect(result).toMatchObject({ isPass: false, isChecked: true });
+    expect(result.note).toBe(`@zaisma/game-server 1.13.0 still publishing after 0 min (its run is queued): see ${serverWorkflow}`);
+  });
+  it("stops at waitSec once the publish run is done or can't be read", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(answer(404)));
+    for (const status of ["completed", null]) {
+      const readPublishRunStatus = vi.fn().mockResolvedValue(status);
+      const result = await checkPackageOnNpm("@zaisma/cli", "0.9.1", cliWorkflow, { waitSec: 0.001, runningWaitSec: 60, pollSec: 0, readPublishRunStatus });
+      expect(readPublishRunStatus).toHaveBeenCalledTimes(1);
+      expect(result.note).toBe(`@zaisma/cli 0.9.1 not on npm after 0 min: see ${cliWorkflow}`);
+    }
+  });
+  it("finds the version that came while the run was still going", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(answer(404)).mockResolvedValueOnce(answer(404)).mockResolvedValue(answer(200)));
+    const waited = await checkPackageOnNpm("@zaisma/cli", "0.9.1", cliWorkflow, { waitSec: 0.000001, runningWaitSec: 60, pollSec: 0, readPublishRunStatus: async () => "in_progress" });
+    expect(waited.isPass).toBe(true);
   });
 });

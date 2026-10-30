@@ -7,7 +7,8 @@
 // without signing, /admin answering without Cloudflare Access. It also checks that npm has the CLI's
 // version, which .github/workflows/publish-cli.yml publishes from main.
 //
-// A result is { name, isPass, isSecurity, note }.
+// A result is { name, isPass, isSecurity, isChecked, note }: isChecked is false when the check couldn't get an
+// answer at all (wrangler or the network failed under it), which fails like any check but says so.
 
 export const SITE_URL = "https://zaisma.com";
 export const GAME_DOMAIN = "zaismausercontent.com";
@@ -31,6 +32,10 @@ export const NPM_REGISTRY_URL = "https://registry.npmjs.org";
 export const PUBLISH_CLI_WORKFLOW_URL = "https://github.com/zaisma/zaisma/actions/workflows/publish-cli.yml";
 export const PUBLISH_GAME_SERVER_WORKFLOW_URL = "https://github.com/zaisma/zaisma/actions/workflows/publish-game-server.yml";
 export const PUBLISH_WAIT_SEC = 600;
+// Past PUBLISH_WAIT_SEC the wait goes on only while the publish workflow's run for the commit is still queued or running
+// (GitHub's runners have kept one queued for 14 minutes), up to this.
+export const PUBLISH_RUNNING_WAIT_SEC = 1800;
+export const PUBLISH_RUNNING_STATUSES = ["queued", "in_progress", "waiting", "pending", "requested"];
 export const PUBLISH_POLL_SEC = 15;
 export const REQUEST_TIMEOUT_MS = 15_000;
 export const ATTEMPT_COUNT = 4;
@@ -141,19 +146,40 @@ export function bucketNames(listOutput) {
 
 const lastLines = (output, count) => String(output).trim().split("\n").slice(-count).join(" ").trim();
 
-export function bucketAccessProblems(devUrlOutput, domainListOutput) {
+export const R2_DEV_DISABLED_LINE = "Public access via the r2.dev URL is disabled.";
+export const NO_CUSTOM_DOMAINS_LINE = "There are no custom domains connected to this bucket.";
+
+/** Why wrangler gave no answer: its ✘ [ERROR] line, else its last line that isn't where it wrote its log. */
+export function wranglerFailure(answer) {
+  const lines = String(answer.output).split("\n").map((line) => line.trim()).filter((line) => line && !line.startsWith("🪵"));
+  const errorLine = lines.find((line) => /\[ERROR\]/.test(line));
+  const why = errorLine ? errorLine.replace(/^.*\[ERROR\]\s*/, "") : lines.at(-1);
+  return `wrangler ${answer.exitCode === 0 ? "answered" : `exited ${answer.exitCode}`}${why ? `: ${why}` : " with nothing"}`;
+}
+
+/**
+ * devUrl and domainList are wrangler's answers ({ exitCode, output }) to `r2 bucket dev-url get` and `r2 bucket domain list`.
+ * Each is read for its exact lines: an answer that's neither "off" nor a public address is "couldn't check", never a pass.
+ */
+export function bucketAccessProblems(devUrl, domainList) {
   const problems = [];
-  if (!String(devUrlOutput).includes("Public access via the r2.dev URL is disabled.")) {
-    problems.push(`public r2.dev address is on: ${String(devUrlOutput).match(/https:\/\/\S+\.r2\.dev/)?.[0] ?? lastLines(devUrlOutput, 1)}`);
-  }
-  if (!String(domainListOutput).includes("There are no custom domains connected to this bucket.")) problems.push(`custom domain connected: ${lastLines(domainListOutput, 3)}`);
+  const devUrlOutput = String(devUrl.output);
+  const publicDevUrl = devUrlOutput.match(/^Public access is enabled at '(https:\/\/[^']+)'\.$/m)?.[1];
+  if (devUrl.exitCode === 0 && publicDevUrl) problems.push(`public r2.dev address is on: ${publicDevUrl}`);
+  else if (devUrl.exitCode !== 0 || !devUrlOutput.split("\n").some((line) => line.trim() === R2_DEV_DISABLED_LINE)) problems.push(`couldn't check its r2.dev address (${wranglerFailure(devUrl)})`);
+  const domainListOutput = String(domainList.output);
+  // wrangler lists each connected domain as a block of labelled values starting with `domain:`.
+  const connectedDomains = [...domainListOutput.matchAll(/^domain:\s+(\S+)/gm)].map((match) => match[1]);
+  if (domainList.exitCode === 0 && connectedDomains.length) problems.push(`custom domain connected: ${connectedDomains.join(", ")}`);
+  else if (domainList.exitCode !== 0 || !domainListOutput.split("\n").some((line) => line.trim() === NO_CUSTOM_DOMAINS_LINE)) problems.push(`couldn't check its custom domains (${wranglerFailure(domainList)})`);
   return problems;
 }
 
 // ---- The runners ----
 
-const passed = (name, isSecurity, note) => ({ name, isPass: true, isSecurity, note });
-const failed = (name, isSecurity, problems) => ({ name, isPass: false, isSecurity, note: `${name}: ${problems.join(", ")}` });
+const passed = (name, isSecurity, note) => ({ name, isPass: true, isSecurity, isChecked: true, note });
+const failed = (name, isSecurity, problems) => ({ name, isPass: false, isSecurity, isChecked: true, note: `${name}: ${problems.join(", ")}` });
+const unchecked = (name, isSecurity, problems) => ({ ...failed(name, isSecurity, problems), isChecked: false });
 
 /** fetch without following redirects, except to the same origin when isSameOriginRedirectFollowed (up to MAXIMUM_REDIRECT_COUNT). */
 async function fetchOnce(url, requestInit, isSameOriginRedirectFollowed) {
@@ -206,19 +232,20 @@ export async function checkUrl(name, url, requestInit, findProblems, { isSecurit
   if (isSecurity) return failed(name, true, result.problems);
   // The existing non-security checks keep their detail: the status and the start of the body.
   const detail = result.response ? `${result.response.status} ${result.body.slice(0, 120).replace(/\s+/g, " ")}` : result.error.message;
-  return { name, isPass: false, isSecurity: false, note: `${name} ${detail}` };
+  return { name, isPass: false, isSecurity: false, isChecked: true, note: `${name} ${detail}` };
 }
 
 /** runWrangler(argumentList) answers { exitCode, output }. Every bucket in the account is checked. */
 export function checkBuckets(runWrangler) {
   const list = runWrangler(["r2", "bucket", "list"]);
   const names = list.exitCode === 0 ? bucketNames(list.output) : [];
-  if (!names.length) return [failed("R2 buckets", true, [`couldn't list them (${lastLines(list.output, 1) || "no buckets"})`])];
+  if (!names.length) return [unchecked("R2 buckets", true, [`couldn't list them (${list.exitCode === 0 ? "no buckets" : wranglerFailure(list)})`])];
   return names.map((bucket) => {
     const devUrl = runWrangler(["r2", "bucket", "dev-url", "get", bucket]);
     const domains = runWrangler(["r2", "bucket", "domain", "list", bucket]);
-    const problems = bucketAccessProblems(devUrl.output, domains.output);
-    return problems.length ? failed(`bucket ${bucket}`, true, problems) : passed(`bucket ${bucket}`, true, `bucket ${bucket} private`);
+    const problems = bucketAccessProblems(devUrl, domains);
+    if (!problems.length) return passed(`bucket ${bucket}`, true, `bucket ${bucket} private`);
+    return problems.every((problem) => problem.startsWith("couldn't check")) ? unchecked(`bucket ${bucket}`, true, problems) : failed(`bucket ${bucket}`, true, problems);
   });
 }
 
@@ -279,18 +306,31 @@ export async function checkSecurityAddresses({ zaismaKey, attemptCount = ATTEMPT
   ]);
 }
 
-/** Waits for npm to have a package's version, which its publish workflow (workflowUrl) puts there from main. */
-export async function checkPackageOnNpm(packageName, version, workflowUrl, { waitSec = PUBLISH_WAIT_SEC, pollSec = PUBLISH_POLL_SEC } = {}) {
+/**
+ * Waits for npm to have a package's version, which its publish workflow (workflowUrl) puts there from main.
+ * readPublishRunStatus answers the status of that workflow's run for the shipped commit ("queued", "in_progress",
+ * "completed", …) or null when there's none to read.
+ */
+export async function checkPackageOnNpm(packageName, version, workflowUrl, { waitSec = PUBLISH_WAIT_SEC, runningWaitSec = PUBLISH_RUNNING_WAIT_SEC, pollSec = PUBLISH_POLL_SEC, readPublishRunStatus = async () => null } = {}) {
   const name = `${packageName} on npm`;
   const started = Date.now();
+  let runStatus = null;
   for (;;) {
     try {
       const response = await fetch(`${NPM_REGISTRY_URL}/${packageName.replace("/", "%2f")}/${version}`, { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
       if (response.status === 200) return passed(name, false, `${packageName} ${version} on npm`);
     } catch {}
-    if (Date.now() - started >= waitSec * 1000) break;
+    const waitedMs = Date.now() - started;
+    if (waitedMs >= waitSec * 1000) {
+      if (waitSec === 0 || waitedMs >= runningWaitSec * 1000) break;
+      runStatus = await readPublishRunStatus().catch(() => null);
+      if (!PUBLISH_RUNNING_STATUSES.includes(runStatus)) break;
+    }
     await wait(pollSec * 1000);
   }
-  const note = waitSec === 0 ? `${packageName} ${version} not on npm yet (its publish workflow puts it there from main)` : `${packageName} ${version} not on npm after ${Math.round(waitSec / 60)} min: see ${workflowUrl}`;
-  return { name, isPass: false, isSecurity: false, note };
+  const waitedMin = Math.round((Date.now() - started) / 60_000);
+  let note = `${packageName} ${version} not on npm after ${waitedMin} min: see ${workflowUrl}`;
+  if (waitSec === 0) note = `${packageName} ${version} not on npm yet (its publish workflow puts it there from main)`;
+  else if (PUBLISH_RUNNING_STATUSES.includes(runStatus)) note = `${packageName} ${version} still publishing after ${waitedMin} min (its run is ${runStatus.replace("_", " ")}): see ${workflowUrl}`;
+  return { name, isPass: false, isSecurity: false, isChecked: true, note };
 }
