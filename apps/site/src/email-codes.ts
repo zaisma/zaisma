@@ -261,7 +261,7 @@ export function waitEndsText(ms: number): string {
 }
 
 /** The hosting emails a developer gets (hosting-job.ts, stripe-events.ts): a game's meter, and their credit. */
-export const HOSTING_EMAIL_KINDS = ["hosting_nearly_paused", "hosting_budget_nearly_used", "hosting_paused", "credit_low", "credit_used_up"] as const;
+export const HOSTING_EMAIL_KINDS = ["hosting_nearly_paused", "hosting_budget_nearly_used", "hosting_paused", "credit_low", "credit_used_up", "credit_plan_payment_failed", "credit_plan_stopped"] as const;
 export type HostingEmailKind = (typeof HOSTING_EMAIL_KINDS)[number];
 
 /** What a hosting email says: the game and month for a game's, amounts in cents for credit's. */
@@ -275,6 +275,8 @@ export interface HostingEmailDetails {
   spentCents?: number;
   budgetCents?: number;
   balanceCents?: number;
+  /** For credit_plan_stopped: Stripe gave up on a declined renewal, rather than the plan being cancelled on Link. */
+  hasPaymentFailed?: boolean;
 }
 
 /** Cents as dollars, like $3.40 or $20. */
@@ -306,6 +308,14 @@ export function hostingEmail(env: Env, kind: HostingEmailKind, details: HostingE
         return ["Your Zaisma credit is low", `You have ${dollars(details.balanceCents ?? 0)} of hosting credit left. When it's used, your games with a budget pause until you add more.`, `Add credit at ${settings}.`];
       case "credit_used_up":
         return ["Your Zaisma credit is used up", "Your hosting credit is used up, so your games with a budget have paused. Running matches get an hour to finish.", `Add credit at ${settings} to start them again.`];
+      case "credit_plan_payment_failed":
+        return ["Your card was declined for this month's credit", "Your card was declined for this month's hosting credit. Stripe tries again over the next days.", `Update the card at link.com, where Stripe keeps it, or add credit by hand at ${settings}.`];
+      case "credit_plan_stopped":
+        return [
+          "Your monthly credit plan stopped",
+          details.hasPaymentFailed ? "Stripe couldn't take this month's payment after trying for days, so your monthly credit plan has stopped. Your credit stays." : "Your monthly credit plan was cancelled on Stripe's side, so no more monthly payments are taken. Your credit stays.",
+          `Start it again or add credit at ${settings}.`,
+        ];
     }
   })();
   return {

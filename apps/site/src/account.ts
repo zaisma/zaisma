@@ -1431,7 +1431,7 @@ export const AREA_LABELS: Record<AccessArea, [string, string]> = {
   forum_access: ["Developer forum", "Write posts, replies, votes and messages to Zaisma in your name."],
   sign_in_app_access: ["Sign-in apps", "Belong to your whole account, so only a key for all your games reaches them."],
   webhook_access: ["Webhooks", "Belong to your whole account, so only a key for all your games reaches them."],
-  credit_access: ["Hosting credit", "Read-only sees the balance and spending. Write also starts top-ups and refunds, and turns spending off or down; turning it on or up always needs your passkey here."],
+  credit_access: ["Hosting credit", "Read-only sees the balance and spending. Write also starts top-ups, refunds and the monthly credit plan, and turns spending off or down; turning it on or up always needs your passkey here."],
   stripe_account_access: ["Stripe account", "Belongs to your whole account. Read-only sees the connected account. Write also turns Stripe Tax on or off and disconnects; connecting always needs your passkey here."],
 };
 

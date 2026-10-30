@@ -244,6 +244,9 @@ const SAMPLES: Record<string, (world: World) => Sample> = {
   "POST /pro/resume": () => ({}),
   "POST /pro/refund": () => ({}),
   "POST /credit/refunds": (world) => ({ body: { top_up_id: world.values.top_up_id } }),
+  "POST /credit/plan/checkout": () => ({ body: { refill_level_cents: 4000 } }),
+  "PATCH /credit/plan": () => ({ body: { refill_level_cents: 3000 } }),
+  "POST /credit/plan/stop": () => ({}),
   "GET /stripe-account": () => ({}),
   "POST /stripe-account/connection-links": () => ({}),
   "PATCH /stripe-account": () => ({ body: { is_stripe_tax_used: true } }),
@@ -329,7 +332,7 @@ const STRIPE_ANSWERS: Record<string, Record<string, unknown>> = {
   "/v1/invoices": { data: [{ id: "in_test", amount_paid: 1000, status_transitions: { paid_at: Math.floor(Date.now() / 1000) - 60 }, parent: { subscription_details: { subscription: "sub_test" } }, payments: { data: [{ status: "paid", payment: { payment_intent: "pi_pro_test" } }] } }] },
 };
 
-async function makeWorld(): Promise<World> {
+async function makeWorld(routeName = ""): Promise<World> {
   const n = ++worldCount;
   const accountIdOf = (name: string) => `${name}-${n}`;
   for (const [name, username] of [["victim", "Victim"], ["stranger", "Stranger"], ["helper", "Helper"], ["player", "Player"]] as const) {
@@ -440,6 +443,8 @@ async function makeWorld(): Promise<World> {
     post(publicPostId, publicTopicId, accountIdOf("helper"), "passed"),
   ]);
   await env.GAMES.put(forumMediaKey(mediaId), png(400, 300));
+  // A running monthly credit plan, so changing and stopping it have one to reach; starting one needs none yet.
+  if (routeName !== "POST /credit/plan/checkout") await env.DB.prepare("UPDATE owners SET credit_plan_subscription_id = ?, credit_plan_refill_level_cents = 4000, credit_plan_status = 'running', credit_plan_started_at_ms = ?, credit_plan_event_at_ms = ? WHERE id = ?").bind(`sub_plan_${n}`, nowMs, nowMs, victimOwner.id).run();
   const spendingRequestId = newId("spending_request");
   await env.DB.prepare("INSERT INTO spending_requests (id, account_id, request_kind, game_id, monthly_budget_cents, created_at_ms, expires_at_ms) VALUES (?, ?, 'game_budget', ?, 4000, ?, ?)").bind(spendingRequestId, accountIdOf("victim"), game.id, nowMs, nowMs + 86_400_000).run();
 
@@ -651,7 +656,7 @@ describe("the declarations", () => {
 
 describe("every call", () => {
   it.each(API_ROUTES.map((apiRoute) => [nameOf(apiRoute), apiRoute] as const))("%s refuses whoever it should, with nothing changed", async (routeName, apiRoute) => {
-    const world = await makeWorld();
+    const world = await makeWorld(routeName);
     const sample = SAMPLES[routeName]!(world);
     const asDeveloper = { ...sample, pathValues: { ...world.values, ...sample.pathValues } };
     const strangerKey = await keyFor(world.strangerAccountId);
