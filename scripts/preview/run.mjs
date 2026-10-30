@@ -94,7 +94,7 @@ const STRIPE_TEST_VARS = (() => {
   try {
     const vars = Object.fromEntries(readFileSync(join(ROOT, "apps/site/.dev.vars"), "utf8").split("\n").map((line) => line.match(/^\s*([A-Z0-9_]+)\s*=\s*"?([^"\r]*)"?\s*$/)).filter(Boolean).map(([, name, value]) => [name, value]));
     if (!vars.STRIPE_SECRET_KEY?.startsWith("sk_test_") || !vars.STRIPE_PUBLISHABLE_KEY?.startsWith("pk_test_")) return null;
-    const optional = ["STRIPE_PRO_PRICE_ID", "STRIPE_CONNECT_CLIENT_ID", "STRIPE_EVENTS_SECRET", "STRIPE_CONNECT_EVENTS_SECRET"].filter((name) => vars[name]);
+    const optional = ["STRIPE_PRO_PRICE_ID", "STRIPE_CREDIT_PLAN_PRICE_ID", "STRIPE_CONNECT_CLIENT_ID", "STRIPE_EVENTS_SECRET", "STRIPE_CONNECT_EVENTS_SECRET"].filter((name) => vars[name]);
     return { STRIPE_SECRET_KEY: vars.STRIPE_SECRET_KEY, STRIPE_PUBLISHABLE_KEY: vars.STRIPE_PUBLISHABLE_KEY, ...Object.fromEntries(optional.map((name) => [name, vars[name]])) };
   } catch {
     return null;
@@ -144,7 +144,7 @@ const siteSettings = {
   ...(STRIPE_TEST_VARS ?? {
     STRIPE_API_ORIGIN: `http://localhost:${PORTS.stripe}`,
     STRIPE_SECRET_KEY: "sk_test_preview", STRIPE_PUBLISHABLE_KEY: "pk_test_preview", STRIPE_EVENTS_SECRET: "whsec_test_preview",
-    STRIPE_CONNECT_CLIENT_ID: "ca_test_preview", STRIPE_CONNECT_EVENTS_SECRET: "whsec_test_connect_preview", STRIPE_PRO_PRICE_ID: "price_test_preview",
+    STRIPE_CONNECT_CLIENT_ID: "ca_test_preview", STRIPE_CONNECT_EVENTS_SECRET: "whsec_test_connect_preview", STRIPE_PRO_PRICE_ID: "price_test_preview", STRIPE_CREDIT_PLAN_PRICE_ID: "price_test_preview_credit_plan",
   }),
 };
 const gamesSettings = { SITE_ORIGIN: SITE, GAME_HOST_MODE: "path", GAME_DOMAIN: "", ROOMS_ORIGIN: ROOMS, ...localSettings({ SITE_ORIGIN: LOCAL_SITE, ROOMS_ORIGIN: LOCAL_ROOMS }) };
@@ -744,6 +744,7 @@ Zaisma preview is running. Nothing here touches the live site.
   Terms of service ${SITE}/legal/terms  (the whole page; ${SITE}/legal/dmca has Repeat infringers, and the footer's Terms links here)
   Pro's refund    ${SITE}/dashboard/settings#pro  (as Preview_Studio: Pro started 3 days ago, so Cancel Pro has two ways out: cancel at renewal, or end now and refund; as Key_Maker, Pro past its 14 days: Cancel Pro is one button. On #hosting the $25 top-up's row has its Refund and the 40-day $10 one's doesn't; /account's delete box names the $4.60 that won't come back)
   Add credit      ${SITE}/dashboard/settings#hosting  (as Quiet_Builder, no passkey or email: Add credit, then Pay on Stripe, says to add one first; as Key_Maker, with an email, it goes on to Stripe)
+  Credit plan     ${SITE}/dashboard/settings#hosting  (as Key_Maker: the monthly plan's row, back to $40 on the 1st, which pays $12.40 so far, with Change level and Stop plan; as Moss_Runner: its card declined; as Preview_Studio: Start a monthly plan and its sheet)
   Security alerts ${SITE}/account  (as Quiet_Builder, no email: two alerts with That was me and Not you?, then
                   Where should we tell you…? with Skip) and ${SITE}/dashboard  (the same two); the mailbox has the
                   alerts accounts with an email got (an email added, a new sign-in, a new key);
@@ -2201,6 +2202,15 @@ function seedDeveloperSettings() {
       : [
           `INSERT INTO owners (id, kind, account_id, created_at_ms) SELECT 'owner_previewkeymaker', 'person', id, ${now} FROM accounts WHERE username = 'Key_Maker' ON CONFLICT (account_id) DO NOTHING`,
           `UPDATE owners SET pro_until_ms = ${now + 10 * 86400_000}, is_pro_cancelled = 0, stripe_subscription_id = 'sub_preview_pro_old', stripe_customer_id = 'cus_preview_pro_old' WHERE account_id = (SELECT id FROM accounts WHERE username = 'Key_Maker')`,
+          // The monthly credit plan: Key_Maker's runs at $40 with $27.60 left, so the 1st pays $12.40; Moss_Runner's card was
+          // declined; Preview_Studio has none, so Start a monthly plan shows. Made-up subscriptions, so only on the stand-in.
+          `DELETE FROM credit_entries WHERE id IN ('top_up_previewkeymakerplan0', 'credit_entry_previewkeymakerplan')`,
+          `INSERT INTO credit_entries (id, owner_id, entry_kind, amount_cents, stripe_object_id, refundable_until_ms, created_at_ms) SELECT 'top_up_previewkeymakerplan0', id, 'top_up', 4000, 'pi_preview_plan_fill', ${now + 20 * 86400_000}, ${now - 10 * 86400_000} FROM owners WHERE account_id = (SELECT id FROM accounts WHERE username = 'Key_Maker')`,
+          `INSERT INTO credit_entries (id, owner_id, entry_kind, amount_cents, created_at_ms) SELECT 'credit_entry_previewkeymakerplan', id, 'hosting_charge', -1240, ${now - 3600_000} FROM owners WHERE account_id = (SELECT id FROM accounts WHERE username = 'Key_Maker')`,
+          `UPDATE owners SET credit_balance_cents = 2760, credit_low_line_cents = 800, credit_plan_subscription_id = 'sub_preview_credit_plan', credit_plan_refill_level_cents = 4000, credit_plan_status = 'running', credit_plan_started_at_ms = ${now - 10 * 86400_000}, credit_plan_event_at_ms = ${now - 10 * 86400_000}, stripe_customer_id = COALESCE(stripe_customer_id, 'cus_preview_pro_old') WHERE account_id = (SELECT id FROM accounts WHERE username = 'Key_Maker')`,
+          `INSERT INTO owners (id, kind, account_id, created_at_ms) SELECT 'owner_previewmossrunner', 'person', id, ${now} FROM accounts WHERE username = 'Moss_Runner' ON CONFLICT (account_id) DO NOTHING`,
+          `UPDATE owners SET credit_plan_subscription_id = 'sub_preview_credit_plan_declined', credit_plan_refill_level_cents = 2500, credit_plan_status = 'payment_failing', credit_plan_started_at_ms = ${now - 40 * 86400_000}, credit_plan_event_at_ms = ${now - 86400_000} WHERE account_id = (SELECT id FROM accounts WHERE username = 'Moss_Runner')`,
+          `UPDATE owners SET credit_plan_subscription_id = NULL, credit_plan_refill_level_cents = NULL, credit_plan_status = NULL, credit_plan_started_at_ms = NULL WHERE id = ${owner}`,
         ]),
     "DELETE FROM spending_requests WHERE id LIKE 'spending_request_preview%'",
     `INSERT INTO spending_requests (id, account_id, request_kind, game_id, monthly_budget_cents, created_at_ms, expires_at_ms) SELECT 'spending_request_preview0waiting', ${account}, 'game_budget', id, 4000, ${now - 600_000}, ${now + 85_800_000} FROM games WHERE slug = 'arena'`,

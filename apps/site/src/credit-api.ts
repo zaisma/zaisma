@@ -3,6 +3,7 @@ import { confirmationOf } from "./session-proofs.ts";
 import { logCallerEvent } from "./security-log.ts";
 import { refundCharge, topUpCheckout } from "./stripe.ts";
 import { askForSpending, spendingRequestAnswer, spendingRequestUrl, type SpendingChange } from "./spending-requests.ts";
+import { creditPlanAnswer, stopCreditPlanForDeletion } from "./credit-plan-api.ts";
 import { authUserEmail, realEmail, type Session } from "./auth.ts";
 import type { Caller, NextStep } from "./developer.ts";
 import type { Env } from "./env.ts";
@@ -17,6 +18,8 @@ import type { Env } from "./env.ts";
  *   GET   /api/dev/credit                      the balance, top-ups, games' spending and entries
  *   POST  /api/dev/credit/top-ups              { amount_cents } → Stripe's page to pay on
  *   POST  /api/dev/credit/refunds              { top_up_id } → what's unspent of it, back to its card
+ *
+ * The monthly credit plan's calls are in credit-plan-api.ts.
  */
 
 /** How far back the entries go. */
@@ -56,8 +59,9 @@ export async function checkSpendingConfirmed(env: Env, caller: Caller, what: str
 export async function creditAnswer(env: Env, ownerId: string, nowMs = Date.now()) {
   const sinceMs = nowMs - ENTRY_DURATION_DAYS * DAY_MS;
   const lastMonthStartDate = monthStartDateOf(Date.parse(`${monthStartDateOf(nowMs)}T00:00:00Z`) - DAY_MS);
-  const [credit, topUps, { results: entries }, { results: games }] = await Promise.all([
+  const [credit, creditPlan, topUps, { results: entries }, { results: games }] = await Promise.all([
     creditOf(env.DB, ownerId),
+    creditPlanAnswer(env, ownerId, nowMs),
     refundableTopUps(env.DB, ownerId, nowMs),
     env.DB.prepare("SELECT credit_entries.id, entry_kind, amount_cents, games.slug AS game_slug, credit_entries.created_at_ms FROM credit_entries LEFT JOIN games ON games.id = credit_entries.game_id WHERE credit_entries.owner_id = ? AND credit_entries.created_at_ms >= ? ORDER BY credit_entries.created_at_ms DESC")
       .bind(ownerId, sinceMs)
@@ -71,6 +75,7 @@ export async function creditAnswer(env: Env, ownerId: string, nowMs = Date.now()
   return {
     balance_cents: credit.balanceCents,
     is_credit_low: isCreditLow(credit),
+    credit_plan: creditPlan,
     top_ups: topUps
       .filter((topUp) => topUp.createdAtMs >= nowMs - CREDIT_LIMITS.refundableDurationDays * DAY_MS)
       .map((topUp) => ({ id: topUp.id, amount_cents: topUp.amountCents, refundable_cents: topUp.refundableCents, refund_ends_at: iso(topUp.refundableUntilMs), created_at: iso(topUp.createdAtMs) })),
@@ -80,7 +85,7 @@ export async function creditAnswer(env: Env, ownerId: string, nowMs = Date.now()
 }
 
 /** Whether the account has a passkey or a real email: a way back in that isn't just a password. */
-async function isAccountProtected(env: Env, accountId: string): Promise<boolean> {
+export async function isAccountProtected(env: Env, accountId: string): Promise<boolean> {
   if ((await passkeysFor(env.DB, accountId)).length > 0) return true;
   const email = await authUserEmail(env, accountId);
   return Boolean(email && realEmail(email));
@@ -183,13 +188,15 @@ export async function creditKeptOnDeletionCents(env: Env, accountId: string, now
 }
 
 /**
- * Before an account is deleted: every top-up's refundable part back to its card, since the credit goes with the
+ * Before an account is deleted: the monthly credit plan stopped, and every top-up's refundable part back to its card, since the credit goes with the
  * account. One Stripe doesn't take now waits in pending_refunds, with only the payment and the amount, and the
  * deletion goes on: the account's owner asked for it, and retryPendingRefunds pays it once Stripe takes it.
  */
 export async function refundForDeletion(env: Env, accountId: string, nowMs = Date.now()): Promise<void> {
   const owner = await env.DB.prepare("SELECT id FROM owners WHERE account_id = ?").bind(accountId).first<{ id: string }>();
   if (!owner) return;
+  // The monthly credit plan stops first, so no refill lands on credit that's going.
+  await stopCreditPlanForDeletion(env, owner.id);
   for (const topUp of await refundableTopUps(env.DB, owner.id, nowMs)) {
     if (topUp.refundableCents <= 0 || !topUp.stripeObjectId) continue;
     // The same key for every try, so a refund Stripe made without answering is never made twice.

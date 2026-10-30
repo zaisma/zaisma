@@ -86,6 +86,8 @@ export interface Env {
   STRIPE_EVENTS_SECRET?: string;
   /** The ID of Zaisma Pro's recurring price ($10 a month) in Zaisma's Stripe account (stripe.ts, proCheckout). Without it, starting Pro answers stripe_unavailable. */
   STRIPE_PRO_PRICE_ID?: string;
+  /** The ID of the monthly credit plan's recurring price ($0 a month, on a "Zaisma hosting credit" product) in Zaisma's Stripe account (stripe.ts, creditPlanCheckout). Without it, starting a plan answers stripe_unavailable. */
+  STRIPE_CREDIT_PLAN_PRICE_ID?: string;
   /** The publishable key of the same account, for Stripe.js in the buy sheet (buy.ts). */
   STRIPE_PUBLISHABLE_KEY?: string;
   /** The Connect client ID (ca_…) developers connect their own Stripe to for the buy sheet (stripe-account-api.ts). */
