@@ -1109,6 +1109,108 @@ export const KEPT_ROOM_DELETED = object({
   next_steps: NEXT,
 });
 
+/** Labels a room holds, or a call's room selection: up to 4, each a name and its text. */
+const ROOM_LABELS = describe(list(object({ label_name: text("The label's name, as the game server set it, like Map."), label_value: text("Its text, like Docks.") })), 'Up to 4 labels, like [{"label_name": "Map", "label_value": "Docks"}].');
+
+/** One of the game's live rooms on Zaisma. */
+const LIVE_ROOM = object({
+  room_code: text("The room's code, as players see it, like K7Q2MX."),
+  name: nullable(text("The room's name, as its game server set it.")),
+  labels: ROOM_LABELS,
+  player_count: countOf("Players in its match now, away ones included."),
+  maximum_player_count: countOf("The most players it takes."),
+  spectator_count: countOf("Spectators watching it now."),
+  is_listed: yes("Shown in room lists; a hidden room still works by its code."),
+  is_open: yes("Taking new players."),
+  is_kept: yes("A kept room: it sleeps with its world saved when everyone leaves (list_kept_rooms)."),
+  version_id: nullable(idOf("version", "The game version its game server runs; null for a built-in game server.")),
+  continent: nullable(text("Where it runs, like EU, from its first player.")),
+  created_at: isoTime("When it started."),
+});
+
+/** The game's live rooms. */
+export const LIVE_ROOMS = object({
+  rooms: list(LIVE_ROOM, "Newest first: rooms that are running, and kept rooms asleep with nobody in them. Up to 500; next_cursor gives the rest."),
+  room_count: countOf("How many rooms the list holds in all, labels taken into account: on the first page; later pages say how many they hold."),
+  next_cursor: nullable(text("Pass it as cursor for the rooms after these; null when there are no more.")),
+});
+
+/** One live room, and who's in it. */
+export const LIVE_ROOM_WITH_PLAYERS = object({
+  room: LIVE_ROOM,
+  players: list(
+    object({
+      player_id: idOf("player"),
+      name: text("Their account's name, or a guest's generated one."),
+      kind: choice({ account: "a signed-in Zaisma account", guest: "a guest" }),
+      is_away: yes("Out of play for now: away_reason says why."),
+      away_reason: nullable(choice({ idle: "idle, kept by the game server's onAway", hidden: "their game is hidden", lost: "their connection dropped, and they have time to come back" })),
+      joined_at: isoTime("When they joined the room."),
+      is_spectator: yes("Watching, not playing."),
+    }),
+    "Players in join order, then spectators. A kept room asleep has nobody.",
+  ),
+});
+
+/** A room message one room took. */
+export const ROOM_MESSAGE_DELIVERED = object({
+  is_delivered: yes("Always true: the room took it; its game server's onRoomMessage, or its players' games, have it."),
+  next_steps: NEXT,
+});
+
+const SCHEDULED_ROOM_MESSAGE_ID = idOf("scheduled_room_message", "Its ID, for cancel_room_message.");
+
+/** A room message to every room, sent now or scheduled. */
+export const EVERY_ROOM_SENT = object({
+  room_count: nullable(countOf("Sent now: how many rooms took it. null when it's scheduled.")),
+  scheduled_room_message: nullable(
+    object(
+      {
+        id: SCHEDULED_ROOM_MESSAGE_ID,
+        send_at: isoTime("When it goes out, within a minute after."),
+        labels: nullable(ROOM_LABELS),
+        created_at: isoTime(),
+      },
+      "Scheduled with send_at: it waits until then. null when it was sent now.",
+    ),
+  ),
+  next_steps: NEXT,
+});
+
+/** The game's scheduled room messages. */
+export const SCHEDULED_ROOM_MESSAGES = object({
+  scheduled_room_messages: list(
+    object({
+      id: SCHEDULED_ROOM_MESSAGE_ID,
+      message: describe({}, "The message, as sent."),
+      labels: nullable(ROOM_LABELS),
+      send_at: isoTime(),
+      created_at: isoTime(),
+      sent_at: nullable(isoTime("When it went out; null while it waits.")),
+      delivered_room_count: nullable(countOf("How many rooms took it; null while it waits.")),
+    }),
+    "The ones waiting, soonest first, then the last 20 that went out, newest first.",
+  ),
+});
+
+/** A scheduled room message called off. */
+export const ROOM_MESSAGE_CANCELLED = object({
+  is_cancelled: yes("Always true: it won't go out."),
+  next_steps: NEXT,
+});
+
+/** A player removed from a live room. */
+export const ROOM_PLAYER_KICKED = object({
+  is_kicked: yes("Always true: they were told why and sent out, and the room's onLeave hears reason kicked."),
+  next_steps: NEXT,
+});
+
+/** A live room ended. */
+export const ROOM_ENDED = object({
+  is_ended: yes("Always true: everyone in it heard message and was sent out; a kept room's world is over for good."),
+  next_steps: NEXT,
+});
+
 /** Who did something to the account or a game. */
 const DONE_BY = choice({ you: "you, on zaisma.com", api_key: "an API key, named in api_key_name", ai: "your AI, through the MCP; api_key_name is the key it used", zaisma: "Zaisma" });
 

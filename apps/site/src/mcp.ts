@@ -2,7 +2,7 @@ import { ApiError, CONTROLS, DEVICES, GENRES, MAXIMUM_GENRE_COUNT, FORUM_CATEGOR
 import { INTERNAL_ERROR, apiCall, authenticate, type Caller } from "./developer.ts";
 import type { Env } from "./env.ts";
 import { CHECKED_TEXT_EXTENSIONS, extensionOf } from "../../../packages/cli/check.mjs";
-import { ACCESS, ACTIVITY, PRO, PRO_CHANGED, PRO_CHECKOUT, PRO_REFUNDED, CREDIT, TOP_UP_CHECKOUT, TOP_UP_REFUNDED, STRIPE_ACCOUNT, STRIPE_ACCOUNT_CHANGED, SPENDING_REQUEST, CONNECTION_LINK, GAME_CHECK_FIELDS, API_KEYS, DATABASE, DATABASE_EXPORT, DATABASE_IMPORT, DATABASE_RESTORED, ERASED_PLAYER, GAME, GAME_ALERTS, GAME_EXPORT, HISTORY, KEPT_ROOMS, KEPT_ROOM_DELETED, BACKGROUND, SHADER, SHADER_CHECK, LISTED_GAME, QR_CODE, STATEMENT_RESULT, IMAGE, LOGS, SAVE, SAVE_CHANGED, SAVE_COPY, SAVE_COPY_LIST, SAVE_LIST, INDEXEDDB_DATABASE, NEW_REPLY, NEW_TOPIC, NEXT, PLAYER_PROFILE, POST, POST_BOOKMARK, POST_RATING, REPORTS, SIGN_IN_APP, SECRET, STATS, TESTER, TOPIC_PAGE, TOPIC_WITH_POSTS, VERSION, WEBHOOK, WEBHOOK_DELIVERY, answerOrError, choice, countOf, idOf, list, nullable, object as answer, text, yes, GAME_ITEM, ITEMS, PURCHASE, PURCHASE_SETTINGS } from "./schemas.ts";
+import { ACCESS, ACTIVITY, PRO, PRO_CHANGED, PRO_CHECKOUT, PRO_REFUNDED, CREDIT, TOP_UP_CHECKOUT, TOP_UP_REFUNDED, STRIPE_ACCOUNT, STRIPE_ACCOUNT_CHANGED, SPENDING_REQUEST, CONNECTION_LINK, GAME_CHECK_FIELDS, API_KEYS, DATABASE, DATABASE_EXPORT, DATABASE_IMPORT, DATABASE_RESTORED, ERASED_PLAYER, GAME, GAME_ALERTS, GAME_EXPORT, HISTORY, KEPT_ROOMS, KEPT_ROOM_DELETED, LIVE_ROOMS, LIVE_ROOM_WITH_PLAYERS, ROOM_MESSAGE_DELIVERED, EVERY_ROOM_SENT, SCHEDULED_ROOM_MESSAGES, ROOM_MESSAGE_CANCELLED, ROOM_PLAYER_KICKED, ROOM_ENDED, BACKGROUND, SHADER, SHADER_CHECK, LISTED_GAME, QR_CODE, STATEMENT_RESULT, IMAGE, LOGS, SAVE, SAVE_CHANGED, SAVE_COPY, SAVE_COPY_LIST, SAVE_LIST, INDEXEDDB_DATABASE, NEW_REPLY, NEW_TOPIC, NEXT, PLAYER_PROFILE, POST, POST_BOOKMARK, POST_RATING, REPORTS, SIGN_IN_APP, SECRET, STATS, TESTER, TOPIC_PAGE, TOPIC_WITH_POSTS, VERSION, WEBHOOK, WEBHOOK_DELIVERY, answerOrError, choice, countOf, idOf, list, nullable, object as answer, text, yes, GAME_ITEM, ITEMS, PURCHASE, PURCHASE_SETTINGS } from "./schemas.ts";
 
 /**
  * The developer MCP at /mcp: every tool is a call to the developer API, so the MCP, the upload command
@@ -257,6 +257,12 @@ const object = (properties: Record<string, unknown>, required: string[] = []) =>
 const pick = (toolArguments: Record<string, unknown>, keys: string[]) => Object.fromEntries(keys.filter((key) => toolArguments[key] !== undefined).map((key) => [key, toolArguments[key]]));
 /** A value as one part of an API path. */
 const pathPart = (given: unknown) => encodeURIComponent(String(given ?? ""));
+/** A live room's code, as the room tools take it. */
+const ROOM_CODE_INPUT = { type: "string", pattern: "^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$", description: "A live room's code from list_rooms, like K7Q2MX." };
+/** Which rooms a room tool means: those holding every label given. */
+const ROOM_LABELS_INPUT = { type: "array", maxItems: 4, items: { type: "object", properties: { label_name: { type: "string", description: "A label's name, as the game server set it." }, label_value: { type: "string", description: "Its text." } }, required: ["label_name", "label_value"], additionalProperties: false } };
+/** A room message, as onRoomMessage reads it. */
+const ROOM_MESSAGE_INPUT = { description: 'What the room\'s game server reads in onRoomMessage(state, roomMessage, room) as roomMessage.message: plain JSON, up to 16 KB, like {"kind": "blood_moon"}.' };
 
 /** The developer MCP's tools; exported for the naming checks. */
 export const TOOLS: Tool[] = [
@@ -1550,6 +1556,95 @@ export const TOOLS: Tool[] = [
     outputSchema: KEPT_ROOM_DELETED,
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
     run: (toolArguments, call) => call("DELETE", `/games/${pathPart(toolArguments.slug)}/kept-rooms/${pathPart(toolArguments.room_code)}`),
+  },
+  {
+    name: "list_rooms",
+    title: "List a game's live rooms",
+    description:
+      "The game's live rooms on Zaisma, newest first: rooms that are running, and kept rooms asleep with nobody in them. Each with its code, name, labels, players, spectators, whether it's listed, open and kept, the version it runs, where it runs and when it started; labels gives only rooms holding every label given. Up to 500 a page (next_cursor). For the game's own moderation tools and live events: get_room says who's in one, send_room_message and send_to_every_room reach them, kick_player and end_room act on one. Rooms on the developer's own servers aren't here: their game server reaches them with the Node runner's same calls.",
+    inputSchema: {
+      ...object({ slug, labels: { ...ROOM_LABELS_INPUT, description: 'Only rooms holding every one of these labels, like [{"label_name": "Map", "label_value": "Docks"}].' }, cursor: { type: "string", description: "next_cursor from the last answer, for the rooms after it." } }, ["slug"]),
+      examples: [{ slug: "frostbound" }, { slug: "frostbound", labels: [{ label_name: "Mode", label_value: "Hardcore" }] }],
+    },
+    outputSchema: LIVE_ROOMS,
+    annotations: read,
+    run: (toolArguments, call) => {
+      const query = new URLSearchParams({ ...(toolArguments.labels !== undefined ? { labels: JSON.stringify(toolArguments.labels) } : {}), ...(toolArguments.cursor !== undefined ? { cursor: String(toolArguments.cursor) } : {}) }).toString();
+      return call("GET", `/games/${pathPart(toolArguments.slug)}/rooms${query ? `?${query}` : ""}`);
+    },
+  },
+  {
+    name: "get_room",
+    title: "Look into a live room",
+    description: "One of the game's live rooms on Zaisma and who's in it now: its players in join order, each with their player_id, name, guest or account, whether they're away and why, and when they joined, then its spectators. A kept room asleep has nobody. An unknown code is no_room.",
+    inputSchema: { ...object({ slug, room_code: ROOM_CODE_INPUT }, ["slug", "room_code"]), examples: [{ slug: "frostbound", room_code: "K7Q2MX" }] },
+    outputSchema: LIVE_ROOM_WITH_PLAYERS,
+    annotations: read,
+    run: (toolArguments, call) => call("GET", `/games/${pathPart(toolArguments.slug)}/rooms/${pathPart(toolArguments.room_code)}`),
+  },
+  {
+    name: "send_room_message",
+    title: "Send a message to a live room",
+    description:
+      "Sends a message to one of the game's live rooms, like telling world 213 to freeze a griefer. The room's game server takes it in onRoomMessage(state, roomMessage, room), with roomMessage.senderKind \"developer\"; a game server without onRoomMessage hands it to every player's game as the room's roomMessage event. Your game decides what players see; Zaisma shows nothing. message is plain JSON, up to 16 KB. A kept room with nobody in it wakes for it. no_room when it isn't running; room_busy when it took 100 room messages in the last second.",
+    inputSchema: { ...object({ slug, room_code: ROOM_CODE_INPUT, message: ROOM_MESSAGE_INPUT }, ["slug", "room_code", "message"]), examples: [{ slug: "frostbound", room_code: "K7Q2MX", message: { kind: "freeze", player_id: "player_3k9x2m7q1z8b4n5w6r0t" } }] },
+    outputSchema: ROOM_MESSAGE_DELIVERED,
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    run: (toolArguments, call) => call("POST", `/games/${pathPart(toolArguments.slug)}/rooms/${pathPart(toolArguments.room_code)}/messages`, pick(toolArguments, ["message"])),
+  },
+  {
+    name: "send_to_every_room",
+    title: "Send a message to every live room",
+    description:
+      "Sends a message to every live room of the game with someone in it, or only those holding every label given, now or at send_at: an announcement, or a live event starting everywhere at once, like a blood moon at 8pm. Each room takes it as with send_room_message (onRoomMessage, or its players' roomMessage event); kept rooms asleep with nobody in them don't wake for it. Now answers room_count, how many rooms took it; with send_at (from 10 seconds to 90 days ahead) it waits and answers scheduled_room_message, going out within a minute after its time (list_room_messages, cancel_room_message). Up to 10 sends a minute for the whole game, its game server's included (every_room_send_limit), and 100 scheduled waiting (too_many_scheduled_room_messages).",
+    inputSchema: {
+      ...object({ slug, message: ROOM_MESSAGE_INPUT, labels: { ...ROOM_LABELS_INPUT, description: 'Only rooms holding every one of these labels, like [{"label_name": "Region", "label_value": "North"}].' }, send_at: { type: "string", format: "date-time", description: "When to send it, an ISO time from 10 seconds to 90 days ahead; leave it out to send now." } }, ["slug", "message"]),
+      examples: [{ slug: "frostbound", message: { kind: "blood_moon", duration_sec: 600 }, send_at: "2026-11-06T20:00:00Z" }, { slug: "frostbound", message: { kind: "announcement", text: "Servers restart in 10 minutes." } }],
+    },
+    outputSchema: EVERY_ROOM_SENT,
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    run: (toolArguments, call) => call("POST", `/games/${pathPart(toolArguments.slug)}/room-messages`, pick(toolArguments, ["message", "labels", "send_at"])),
+  },
+  {
+    name: "list_room_messages",
+    title: "List scheduled room messages",
+    description: "The game's sends to every room scheduled with send_at: the ones waiting, soonest first, then the last 20 that went out, each with when it went and how many rooms took it (delivered_room_count; 0 when the game couldn't be played then).",
+    inputSchema: object({ slug }, ["slug"]),
+    outputSchema: SCHEDULED_ROOM_MESSAGES,
+    annotations: read,
+    run: (toolArguments, call) => call("GET", `/games/${pathPart(toolArguments.slug)}/room-messages`),
+  },
+  {
+    name: "cancel_room_message",
+    title: "Cancel a scheduled room message",
+    description: "Calls off a send to every room that's waiting for its send_at. One that went out can't be called back: no_scheduled_room_message.",
+    inputSchema: { ...object({ slug, scheduled_room_message_id: { type: "string", pattern: "^scheduled_room_message_[a-z0-9]+$", description: "Its id from list_room_messages or send_to_every_room." } }, ["slug", "scheduled_room_message_id"]), examples: [{ slug: "frostbound", scheduled_room_message_id: "scheduled_room_message_8f2k4m9x1q7z3b6n0w5r" }] },
+    outputSchema: ROOM_MESSAGE_CANCELLED,
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+    run: (toolArguments, call) => call("DELETE", `/games/${pathPart(toolArguments.slug)}/room-messages/${pathPart(toolArguments.scheduled_room_message_id)}`),
+  },
+  {
+    name: "kick_player",
+    title: "Remove a player from a live room",
+    description:
+      "Removes a player or spectator from one of the game's live rooms, as the room's own room.kick would: they're told why (message, up to 200 characters, your game's words within the content rules) and sent out, and the room's onLeave hears reason \"kicked\". is_kept_out keeps them out of that room for the rest of its match. no_player_in_room when they aren't in it (get_room says who is).",
+    inputSchema: {
+      ...object({ slug, room_code: ROOM_CODE_INPUT, player_id: { type: "string", pattern: "^player_[a-z0-9]+$", description: "Their player_id from get_room." }, message: { type: "string", maxLength: 200, description: "What they're told." }, is_kept_out: { type: "boolean", description: "Keep them out of the room for the rest of its match." } }, ["slug", "room_code", "player_id"]),
+      examples: [{ slug: "frostbound", room_code: "K7Q2MX", player_id: "player_3k9x2m7q1z8b4n5w6r0t", message: "Removed for griefing.", is_kept_out: true }],
+    },
+    outputSchema: ROOM_PLAYER_KICKED,
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+    run: (toolArguments, call) => call("POST", `/games/${pathPart(toolArguments.slug)}/rooms/${pathPart(toolArguments.room_code)}/kick`, pick(toolArguments, ["player_id", "message", "is_kept_out"])),
+  },
+  {
+    name: "end_room",
+    title: "End a live room",
+    description:
+      "Ends one of the game's live rooms, as the room's own room.end would: everyone in it hears message (up to 200 characters) and is sent out, and a kept room's world ends for good. Ask the developer first: players lose their match. Needs \"confirm\": true, after they agree (needs_confirm without it).",
+    inputSchema: { ...object({ slug, room_code: ROOM_CODE_INPUT, message: { type: "string", maxLength: 200, description: "What everyone in it is told." }, confirm: { type: "boolean", description: "true once the developer agreed." } }, ["slug", "room_code"]), examples: [{ slug: "frostbound", room_code: "K7Q2MX", message: "This world is closing for maintenance.", confirm: true }] },
+    outputSchema: ROOM_ENDED,
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+    run: (toolArguments, call) => call("POST", `/games/${pathPart(toolArguments.slug)}/rooms/${pathPart(toolArguments.room_code)}/end`, pick(toolArguments, ["message", "confirm"])),
   },
   {
     name: "get_database",

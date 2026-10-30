@@ -1348,6 +1348,15 @@ declare namespace Zaisma {
      */
     versionUpdate: (versionUpdate: VersionUpdate) => void;
     /**
+     * A room message reached this room and its game server has no onRoomMessage, so every player's game hears
+     * it: from another room of the game (senderKind "room", fromRoomCode), its game server outside rooms
+     * ("server") or the developer (the API and MCP, "developer"), like an announcement or a live event starting.
+     * Zaisma shows nothing: your game decides. A game server with onRoomMessage takes it instead.
+     * @example
+     * room.on("roomMessage", ({ message }) => { if (message.kind === "blood_moon") startBloodMoon(); });
+     */
+    roomMessage?: (roomMessage: RoomMessage) => void;
+    /**
      * Another player's chat message reached this player ({@link Room.chat}). Messages from players this
      * player muted or blocked never come. hasSwearing and hasSlur flag what Zaisma allows: hide or blur
      * them if your game doesn't. (Optional here only so games written for v1's events still fit.)
@@ -1436,6 +1445,18 @@ declare namespace Zaisma {
     idleStatus: "asking" | "answered" | "timed_out";
     /** How long the player has to answer, in seconds: 30. */
     answerTimeoutSec: number;
+  }
+
+  /** A room message, as the room's "roomMessage" event hands it over. */
+  interface RoomMessage {
+    /** The message as sent: plain JSON, up to 16 KB. */
+    message: unknown;
+    /** Who sent it: another room's game server, the game server outside rooms, or the developer. */
+    senderKind: "room" | "server" | "developer";
+    /** The code of the room that sent it, or null unless senderKind is "room". */
+    fromRoomCode: string | null;
+    /** When it was sent, an ISO time. */
+    sentAt: string;
   }
 
   /** A match moving to a version published "now" (the room's "versionUpdate" event). */

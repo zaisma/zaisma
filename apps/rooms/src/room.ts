@@ -7,6 +7,7 @@ import {
   PassError,
   REMOVED_CLOSE_CODE,
   ROOM_LIMITS,
+  ROOM_MESSAGE_SENDER_KINDS,
   ROOM_TUNING,
   VERSION_UPDATE_CLOSE_CODE,
   RoomCore,
@@ -30,6 +31,7 @@ import {
   type PlayerKind,
   type RoomErrorCode,
   type RoomInfo,
+  type RoomMessage,
   type RoomStart,
   type RoomTraffic,
   type SavedRoom,
@@ -44,6 +46,7 @@ import { AwakeTime, countingDatabase, countingStorage } from "./usage-counts.ts"
 import { roomPurchaseHandling } from "./purchases.ts";
 import { filterChatMessage } from "./chat-filter.ts";
 import { secretsForGameServer } from "./secrets.ts";
+import { roomReachOf } from "./room-reach.ts";
 import { signingKey, type Env } from "./index.ts";
 
 /** A socket's saved details, kept through hibernation. */
@@ -351,6 +354,11 @@ export class Room extends DurableObject<Env> {
     if (request.method === "POST" && new URL(request.url).pathname === "/delete") return this.deleting(request);
     if (request.method === "POST" && new URL(request.url).pathname === "/backup") return this.backingUp(request);
     if (request.method === "POST" && new URL(request.url).pathname === "/restore") return this.restoring(request);
+    // The game reaching this room from outside it (room-reach.ts): a room message, who's here, a kick, an end.
+    if (request.method === "POST" && new URL(request.url).pathname === "/room-message") return this.roomMessaging(request);
+    if (request.method === "POST" && new URL(request.url).pathname === "/players") return this.answeringPlayers(request);
+    if (request.method === "POST" && new URL(request.url).pathname === "/kick") return this.kickingFromOutside(request);
+    if (request.method === "POST" && new URL(request.url).pathname === "/end") return this.endingFromOutside(request);
     if (!this.meta || !this.meta.roomCode) {
       this.meta = {
         gameId: request.headers.get("x-game-id")!,
@@ -651,6 +659,70 @@ export class Room extends DurableObject<Env> {
     // The seat held for them counts towards how full the room looks, now.
     await this.list();
     return Response.json(answer);
+  }
+
+  /**
+   * A room message for this room from another room, the game server or the developer (room-reach.ts): the game
+   * server's onRoomMessage takes it, or its players hear it. A room with nobody in it takes one only when it's kept,
+   * waking for it, and sleeps again with its state saved. Answered once it's taken, without waiting on the game
+   * server, so a room whose handler sends one back never waits on itself. 429 past
+   * ROOM_MESSAGE_LIMITS.maximumReceivedRoomMessagesPerSec.
+   */
+  private async roomMessaging(request: Request): Promise<Response> {
+    const noRoom = () => new Response("No such room", { status: 404 });
+    if (!this.meta?.roomCode || this.hasEnded || this.meta.gameId !== request.headers.get("x-game-id")) return noRoom();
+    const given = (await request.json().catch(() => null)) as Partial<RoomMessage> | null;
+    if (!given || typeof given.sentAt !== "string" || !(ROOM_MESSAGE_SENDER_KINDS as readonly unknown[]).includes(given.senderKind)) return new Response("Bad request", { status: 400 });
+    const roomMessage: RoomMessage = { message: given.message ?? null, senderKind: given.senderKind!, fromRoomCode: typeof given.fromRoomCode === "string" ? given.fromRoomCode : null, sentAt: given.sentAt };
+    if (!this.sockets().length && !this.isKept) return noRoom();
+    if (this.isKept) await this.wakeKeptOnLiveVersion();
+    if (!(await this.load()) || !(await this.gameStillLive())) return noRoom();
+    const core = this.room();
+    if (!core || core.ended) return noRoom();
+    if (!core.receiveRoomMessage(roomMessage)) return new Response("Busy", { status: 429 });
+    void (async () => {
+      await this.settle(core);
+      if (!this.sockets().length) await this.save(true, true);
+    })().catch((error) => console.error("Couldn't finish a room message:", error));
+    return new Response(null, { status: 204 });
+  }
+
+  /** Who's in the room, players then spectators, for server.getRoom and the API's get_room. A room with nobody connected has nobody. */
+  private async answeringPlayers(request: Request): Promise<Response> {
+    if (!this.meta?.roomCode || this.hasEnded || this.meta.gameId !== request.headers.get("x-game-id")) return new Response("No such room", { status: 404 });
+    if (!this.sockets().length) return Response.json({ players: [] });
+    const core = (await this.load()) ? this.room() : null;
+    if (!core) return new Response("No such room", { status: 404 });
+    const joinedAtMs = new Map(this.sockets().map((socket) => {
+      const attachment = socket.deserializeAttachment() as Attachment & { stage: "in" };
+      return [attachment.id, attachment.joinedAtMs] as const;
+    }));
+    return Response.json({ players: core.roomPlayers((id) => joinedAtMs.get(id) ?? Date.now()) });
+  }
+
+  /** The game removes a player or spectator from outside the room (server.kickFromRoom, the API): the room's own kick, so onLeave hears "kicked". 409: nobody by that ID here. */
+  private async kickingFromOutside(request: Request): Promise<Response> {
+    if (!this.meta?.roomCode || this.hasEnded || this.meta.gameId !== request.headers.get("x-game-id")) return new Response("No such room", { status: 404 });
+    const kick = (await request.json().catch(() => null)) as { playerId?: unknown; message?: unknown; isKeptOut?: unknown } | null;
+    if (typeof kick?.playerId !== "string" || !kick.playerId) return new Response("Bad request", { status: 400 });
+    const core = this.sockets().length && (await this.load()) ? this.room() : null;
+    if (!core || core.ended || !(core.players.has(kick.playerId) || core.spectators.has(kick.playerId))) return new Response("No such player", { status: 409 });
+    core.kick(kick.playerId, { message: typeof kick.message === "string" ? kick.message.slice(0, ROOM_LIMITS.maximumKickMessageCharacterCount) : "", keepOut: kick.isKeptOut === true });
+    await this.settle(core);
+    return new Response(null, { status: 204 });
+  }
+
+  /** The game ends the room's match from outside it (server.endRoom, the API): the room's own end, players hearing message. A kept room ends for good. */
+  private async endingFromOutside(request: Request): Promise<Response> {
+    const noRoom = () => new Response("No such room", { status: 404 });
+    if (!this.meta?.roomCode || this.hasEnded || this.meta.gameId !== request.headers.get("x-game-id")) return noRoom();
+    const ending = (await request.json().catch(() => null)) as { message?: unknown } | null;
+    if (!this.sockets().length && !this.isKept) return noRoom();
+    const core = (await this.load()) ? this.room() : null;
+    if (!core || core.ended) return noRoom();
+    core.end(typeof ending?.message === "string" && ending.message ? ending.message.slice(0, ROOM_LIMITS.maximumKickMessageCharacterCount) : "The match is over.", "game");
+    await this.settle(core);
+    return new Response(null, { status: 204 });
   }
 
   /**
@@ -1547,6 +1619,8 @@ export class Room extends DurableObject<Env> {
       // A game server built into this Worker reaches its game's database directly; a sandboxed one through its own binding (sandbox.ts).
       database: gameDatabase(this.env, this.meta!.gameId),
       applyVersionUpdate: () => void this.applyVersionUpdate(),
+      // A built-in game server reaches its game's other rooms through the rooms Worker; a sandboxed one through its own binding (sandbox.ts).
+      roomReach: roomReachOf(this.env, { gameId: this.meta!.gameId, slug: this.meta!.slug }, this.meta!.roomCode),
       // Purchases for onPurchase and onRefund, from D1: the game's own, for players joined here (RoomCore asks only for them).
       purchaseHandling: roomPurchaseHandling(this.env, { id: this.meta!.gameId, slug: this.meta!.slug }),
     };

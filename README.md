@@ -354,6 +354,30 @@ export default {
 - **Up to 10 schedules on Zaisma.** Each run counts as a request on the game's hosting meter, and a paused game's schedules don't run. They run with the live version's game server, whatever the multiplayer setting, within a minute of it going live; a version without them stops them, and so does a game taken down. A game server with only schedules needs no `setup()` and runs no rooms. Your dashboard and `get_stats` show each schedule with its next and last run, the runs per day, and any errors with the schedule's name, file and line.
 - **On your own server** the Node runner runs the same schedules at the same minutes while it's up, with `server.database` its local SQLite file, and prints a run's errors. A run due while it's down is missed.
 
+#### Messages between rooms
+
+A game server reaches the game's other live rooms with a room message: `room.sendToRoom(roomCode, message)` tells one room (answering `{ isDelivered }`), `room.sendToEveryRoom(message, { labels })` tells every other room with someone in it, or only those holding every label given (answering `{ roomCount }`), and `room.listRooms({ labels })` lists them, newest first. Outside rooms, `onRequest`, `onSchedule` and `onWebhook` get the same on `server`, plus `server.getRoom(roomCode)` (the room and who's in it), `server.kickFromRoom(roomCode, playerId, { message, keepOut })` and `server.endRoom(roomCode, message)`. The receiving room's `onRoomMessage(state, roomMessage, room)` decides what its players see; without it, every player's game hears the room's `roomMessage` event. `roomMessage.senderKind` says who sent it (`room`, `server` or `developer`), with `fromRoomCode` for a room. A message is plain JSON up to 16 KB; a room sends up to 20 a second and takes up to 100, and the whole game sends to every room up to 10 times a minute.
+
+A party leaving one world for another, the same code in Zaisma's rooms and on your own server with the Node runner:
+
+```js
+export default {
+  setup: () => ({ partiesComing: [] }),
+  async onMessage(state, player, room, message) {
+    if (message.kind !== "travel") return;
+    const { isDelivered } = await room.sendToRoom(message.toRoomCode, { kind: "party_coming", leaderName: player.name });
+    if (isDelivered) room.moveTo(message.toRoomCode, { playerIds: [player.id] });
+  },
+  onRoomMessage(state, roomMessage, room) {
+    if (roomMessage.message.kind !== "party_coming") return;
+    room.broadcast({ kind: "notice", text: `${roomMessage.message.leaderName}'s party is on its way from ${roomMessage.fromRoomCode}.` });
+    return { ...state, partiesComing: [...state.partiesComing, roomMessage.fromRoomCode] };
+  },
+};
+```
+
+On Zaisma, the developer API and MCP reach the same rooms (`send_room_message`, `send_to_every_room` now or at a set time, `list_rooms`, `get_room`, `kick_player`, `end_room`), for the game's own moderation page or a live event: see "Reaching live rooms" in [`docs/DEVELOPER-API.md`](docs/DEVELOPER-API.md). On your own server the Node runner gives these calls among its own rooms, and Zaisma's API doesn't reach them.
+
 #### Calling other servers, with secrets
 
 A game's server can call your own server, a payment provider, Discord, GitHub or any other https API with plain `fetch()`, on the hosts you list for the game, and keep the tokens it needs as secrets:
@@ -410,6 +434,7 @@ Everything the dev bar and the Players panel do is a call of the bench's own API
 | --- | --- |
 | `GET /bench/api` | The game, the bench's addresses, its players, the players open now with their rooms, the rooms and the game's items |
 | `GET /bench/api/log` | What the bench and your game server said: `{ log_lines }` |
+| `POST /bench/api/room-messages` | A room message as the developer API sends one (`senderKind` `developer`): `{ message, room_code }` to one room, answering `{ is_delivered }`, or `{ message }` to every room with someone in it, answering `{ room_count }` |
 | `GET, POST /bench/api/players` | List the players, or make one: `{ name, age_band, social_mode }`, each optional (the next example name, `18+` and Zaisma's starting social mode). `age_band` is `13-15`, `16-17` or `18+`; `social_mode` is `solo_focused`, `friends_focused` or `open_and_social`, which `13-15` can't be, as on Zaisma |
 | `GET, PATCH, DELETE /bench/api/players/<player_id>` | One player (with their purchases), a change to their `name`, `age_band` or `social_mode`, or deleting them with their saves, items, purchases, friends and blocks |
 | `PUT, DELETE /bench/api/players/<player_id>/friends/<player_id>` | Make two players friends, or not |

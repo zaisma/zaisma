@@ -187,6 +187,7 @@ import { databaseRoute } from "./game-database.ts";
 import { savesRoute } from "./saves-api.ts";
 import { secretsRoute } from "./secrets-api.ts";
 import { keptRoomsRoute } from "./kept-rooms-api.ts";
+import { roomMessagesRoute, roomsRoute } from "./room-messages-api.ts";
 import { checkSpendingConfirmed, creditRoute } from "./credit-api.ts";
 import { proRoute } from "./pro-api.ts";
 import { stripeAccountRoute } from "./stripe-account-api.ts";
@@ -261,6 +262,9 @@ import { alertIfNoticeFixPublished } from "./notices.ts";
  *   …/api/dev/games/:slug/purchases            purchases and grants with their receipts: list, get, grant, refund, mark handled (see items-api.ts)
  *   GET    /api/dev/games/:slug/players/:player_id/items   the permanent items a player owns, and their purchases still to hand over
  *   DELETE /api/dev/games/:slug/kept-rooms/:room_code   delete one's world for good
+ *   GET    /api/dev/games/:slug/rooms          the game's live rooms, and one with who's in it (see room-messages-api.ts)
+ *   POST   /api/dev/games/:slug/rooms/:room_code/messages|kick|end   a room message to one, remove a player, end it
+ *   POST   /api/dev/games/:slug/room-messages  a room message to every room, now or at send_at; GET lists the scheduled, DELETE cancels one
  *   GET    /api/dev/sign-in-apps               your sign-in apps (Sign in with Zaisma, see sign-in.ts)
  *   POST   /api/dev/sign-in-apps               make one: { "name", "kind", "redirect_urls" }; a confidential app's client_secret is answered once
  *   PATCH  /api/dev/sign-in-apps/:id           name, redirect_urls, or replace_client_secret: true
@@ -647,6 +651,14 @@ export const API_ROUTES: readonly ApiRoute[] = [
   call({ method: "DELETE", path: "/games/:slug/secrets/:secret_name", reaches: "game", access: needs("game_access", "write"), pathParts: { slug: "game", secret_name: "in_game" } }),
   call({ method: "GET", path: "/games/:slug/kept-rooms", reaches: "game", access: needs("game_access", "read"), pathParts: atGame }),
   call({ method: "DELETE", path: "/games/:slug/kept-rooms/:room_code", reaches: "game", access: needs("game_access", "write"), pathParts: { slug: "game", room_code: "in_game" } }),
+  call({ method: "GET", path: "/games/:slug/rooms", reaches: "game", access: needs("game_access", "read"), pathParts: atGame, query: plainInputs("labels", "cursor") }),
+  call({ method: "GET", path: "/games/:slug/rooms/:room_code", reaches: "game", access: needs("game_access", "read"), pathParts: { slug: "game", room_code: "in_game" } }),
+  call({ method: "POST", path: "/games/:slug/rooms/:room_code/messages", reaches: "game", access: needs("game_access", "write"), pathParts: { slug: "game", room_code: "in_game" }, body: { inputs: plainInputs("message") } }),
+  call({ method: "POST", path: "/games/:slug/rooms/:room_code/kick", reaches: "game", access: needs("game_access", "write"), pathParts: { slug: "game", room_code: "in_game" }, body: { inputs: plainInputs("player_id", "message", "is_kept_out") } }),
+  call({ method: "POST", path: "/games/:slug/rooms/:room_code/end", reaches: "game", access: needs("game_access", "write"), pathParts: { slug: "game", room_code: "in_game" }, body: { inputs: plainInputs("message", "confirm"), isOptional: true } }),
+  call({ method: "POST", path: "/games/:slug/room-messages", reaches: "game", access: needs("game_access", "write"), pathParts: atGame, body: { inputs: plainInputs("message", "labels", "send_at") } }),
+  call({ method: "GET", path: "/games/:slug/room-messages", reaches: "game", access: needs("game_access", "read"), pathParts: atGame }),
+  call({ method: "DELETE", path: "/games/:slug/room-messages/:scheduled_room_message_id", reaches: "game", access: needs("game_access", "write"), pathParts: { slug: "game", scheduled_room_message_id: "in_game" } }),
   call({ method: "GET", path: "/games/:slug/items", reaches: "game", access: needs("purchase_access", "read"), pathParts: atGame }),
   call({ method: "PUT", path: "/games/:slug/items/:item_name", reaches: "game", access: needs("purchase_access", "write"), pathParts: { slug: "game", item_name: "in_game" }, body: { inputs: plainInputs(...ITEM_FIELDS) } }),
   call({ method: "DELETE", path: "/games/:slug/items/:item_name", reaches: "game", access: needs("purchase_access", "write"), pathParts: { slug: "game", item_name: "in_game" } }),
@@ -990,6 +1002,8 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
   if (apiRoute.path === "/games/:slug/export/download") return exportDownload(env, game!, caller, (readMethod, readPath) => apiCall(env, caller, readMethod, readPath));
   if (apiRoute.path.startsWith("/games/:slug/secrets")) return answer(...(await secretsRoute(request, env, game!, pathValues.secret_name, caller, checked)));
   if (apiRoute.path.startsWith("/games/:slug/kept-rooms")) return answer(...(await keptRoomsRoute(request, env, game!, pathValues.room_code, caller)));
+  if (apiRoute.path.startsWith("/games/:slug/rooms")) return answer(...(await roomsRoute(request, env, game!, apiRoute.path, pathValues.room_code, caller, checked)));
+  if (apiRoute.path.startsWith("/games/:slug/room-messages")) return answer(...(await roomMessagesRoute(request, env, game!, pathValues.scheduled_room_message_id, caller, checked)));
   if (apiRoute.path.startsWith("/games/:slug/items")) return answer(...(await itemsRoute(request, env, game!, pathValues.item_name, caller, checked)));
   if (apiRoute.path === "/games/:slug/purchase-settings") return answer(...(await purchaseSettingsRoute(env, game!, caller, checked)));
   if (apiRoute.path.startsWith("/games/:slug/purchases")) return answer(...(await purchasesRoute(request, env, game!, pathValues.purchase_id, apiRoute.path.endsWith("/refund") ? "refund" : apiRoute.path.endsWith("/handled") ? "handled" : null, caller, checked)));
@@ -2002,6 +2016,8 @@ const HISTORY: Record<string, string | null> = {
   "secret-set": "Set a secret",
   "secret-deleted": "Deleted a secret",
   "kept-room-deleted": "Deleted a kept room",
+  "room-player-kicked": "Removed a player from a live room",
+  "room-ended": "Ended a live room",
   // subject_name is the uploader's public name (copies.ts, stopCopy).
   "copy-stopped": "Zaisma stopped a re-upload of this game by another developer; it never reached players",
   "plays-cleared": "Zaisma removed a day's counted plays that looked faked",

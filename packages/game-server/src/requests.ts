@@ -12,11 +12,12 @@
 
 import type { GameDatabase } from "./database.ts";
 import type { ReceiptClaims } from "./pass.ts";
-import type { Player } from "./room.ts";
+import type { KickOptions, LiveRoom, Player, RoomPlayer, RoomSelection } from "./room.ts";
 
 /**
  * What onRequest, onSchedule and onWebhook reach besides what they're given: the game's own database, the
- * same one its rooms use, its secrets, and receipt checks.
+ * same one its rooms use, its secrets, receipt checks, and the game's live rooms. Room messages sent from here
+ * reach rooms with senderKind "server"; on your own server they reach the Node runner's own rooms.
  */
 export interface Server {
   database: GameDatabase;
@@ -27,6 +28,18 @@ export interface Server {
   secrets: Readonly<Record<string, string>>;
   /** Check a purchase's receipt, as room.verifyReceipt does: the runtime fills in Zaisma's keys and this game. */
   verifyReceipt(receipt: string): Promise<ReceiptClaims>;
+  /** Send a message to one of the game's live rooms by its code, as room.sendToRoom does. isDelivered is false when no such room is running or it's busy. */
+  sendToRoom(roomCode: string, message: unknown): Promise<{ isDelivered: boolean }>;
+  /** Send a message to every live room of the game with someone in it, or those holding every label given, as room.sendToEveryRoom does. */
+  sendToEveryRoom(message: unknown, roomSelection?: RoomSelection): Promise<{ roomCount: number }>;
+  /** The game's live rooms, or those holding every label given, newest first, up to 500. */
+  listRooms(roomSelection?: RoomSelection): Promise<{ rooms: LiveRoom[] }>;
+  /** One live room and who's in it, players then spectators, or null when no such room is running. */
+  getRoom(roomCode: string): Promise<{ room: LiveRoom; players: RoomPlayer[] } | null>;
+  /** Remove a player from a live room, as room.kick does there: its onLeave hears reason "kicked". isDone is false when the room or the player isn't there. */
+  kickFromRoom(roomCode: string, playerId: string, kickOptions?: KickOptions): Promise<{ isDone: boolean }>;
+  /** End a live room's match, as room.end does there: its players hear message. isDone is false when no such room is running. */
+  endRoom(roomCode: string, message?: string): Promise<{ isDone: boolean }>;
 }
 
 export const REQUEST_LIMITS = {

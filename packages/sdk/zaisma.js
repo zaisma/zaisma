@@ -33,7 +33,7 @@
   /** A fast lane that isn't up in this long gives way to the WebSocket, for the rest of the room's life. */
   var FAST_LANE_CONNECT_TIMEOUT_MS = 3000;
   var ROOM_INFO_FIELDS = ["name", "labels"];
-  var ROOM_EVENTS = ["message", "bytes", "state", "players", "connectionStatus", "ended", "ending", "endingCancelled", "kicked", "settings", "move", "moved", "idle", "away", "back", "muted", "error", "versionUpdate", "chat"];
+  var ROOM_EVENTS = ["message", "bytes", "state", "players", "connectionStatus", "ended", "ending", "endingCancelled", "kicked", "settings", "move", "moved", "idle", "away", "back", "muted", "error", "versionUpdate", "chat", "roomMessage"];
   /** Chat (room.chat): the longest message, the lines a room keeps in memory for reports, and how many of them a report carries. */
   var MAXIMUM_CHAT_CHARACTER_COUNT = 2000;
   var KEPT_CHAT_LINE_COUNT = 50;
@@ -795,6 +795,10 @@
       } else if (message.type === "ending_cancelled") {
         room.endsAt = null;
         room._emit("endingCancelled");
+      } else if (message.type === "room_message") {
+        // A room message for a room whose game server has no onRoomMessage: another room, the game server or the developer sent it.
+        var roomMessage = message.roomMessage || {};
+        room._emit("roomMessage", { message: roomMessage.message, senderKind: roomMessage.senderKind, fromRoomCode: roomMessage.fromRoomCode || null, sentAt: roomMessage.sentAt });
       } else if (message.type === "version_update") {
         var versionUpdate = { versionId: message.versionId, appliesAt: message.appliesAt, isReloading: message.isReloading === true };
         if (message.step === "now") room._isReloadingForVersion = versionUpdate.isReloading;
