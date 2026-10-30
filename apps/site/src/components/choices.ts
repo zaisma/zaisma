@@ -1,3 +1,4 @@
+import { stackOfOne } from "./layout.ts";
 import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
 import { controlMarkup, type ControlMarkup } from "./control-markup.ts";
@@ -622,10 +623,10 @@ component({
   render: choiceCards,
   examples: [
     ...pressExamples((state, exampleKey) => choiceCards({ id: `example-choice-${exampleKey}`, name: `visibility_${exampleKey}`, label: "Who can see it", choices: VISIBILITIES.slice(0, 2), pickedValue: "unlisted", state }), "choice"),
-    { label: "Three, in a pane: side by side where they fit", markup: glassPane({ paneWidth: "full", body: choiceCards({ id: "example-choice-pane", name: "visibility_pane", label: "Who can see it", choices: VISIBILITIES, pickedValue: "listed" }) }), isWide: true },
-    { label: "Error: none picked", markup: glassPane({ paneWidth: "full", body: choiceCards({ id: "example-choice-error", name: "visibility_error", label: "Who can see it", choices: VISIBILITIES, error: "Pick who can see Ashen Crown to publish it." }) }), isWide: true },
-    { label: "Can't be changed", markup: glassPane({ paneWidth: "full", body: choiceCards({ id: "example-choice-disabled", name: "visibility_disabled", label: "Who can see it", choices: VISIBILITIES, pickedValue: "unlisted", isDisabled: true }) }), isWide: true },
-    { label: "Compact: many choices, scrolling", markup: glassPane({ paneWidth: "full", body: choiceCards({ id: "example-choice-compact", name: "report_reason_compact", label: "What's wrong", choices: REPORT_REASONS, pickedValue: "malware", isCompact: true }) }), isWide: true },
+    { label: "Three, in a pane: side by side where they fit", markup: glassPane({ paneWidth: "full", body: stackOfOne(choiceCards({ id: "example-choice-pane", name: "visibility_pane", label: "Who can see it", choices: VISIBILITIES, pickedValue: "listed" })) }), isWide: true },
+    { label: "Error: none picked", markup: glassPane({ paneWidth: "full", body: stackOfOne(choiceCards({ id: "example-choice-error", name: "visibility_error", label: "Who can see it", choices: VISIBILITIES, error: "Pick who can see Ashen Crown to publish it." })) }), isWide: true },
+    { label: "Can't be changed", markup: glassPane({ paneWidth: "full", body: stackOfOne(choiceCards({ id: "example-choice-disabled", name: "visibility_disabled", label: "Who can see it", choices: VISIBILITIES, pickedValue: "unlisted", isDisabled: true })) }), isWide: true },
+    { label: "Compact: many choices, scrolling", markup: glassPane({ paneWidth: "full", body: stackOfOne(choiceCards({ id: "example-choice-compact", name: "report_reason_compact", label: "What's wrong", choices: REPORT_REASONS, pickedValue: "malware", isCompact: true })) }), isWide: true },
   ],
 });
 

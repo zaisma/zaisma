@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 import { secondaryButton } from "../../apps/site/src/components/actions.ts";
 import { glassPane } from "../../apps/site/src/components/foundations.ts";
 import { html, raw } from "../../apps/site/src/markup.ts";
-import { grid, paneParts, row, stack } from "../../apps/site/src/components/layout.ts";
+import { grid, paneParts, row, stack, type LayoutMarkup } from "../../apps/site/src/components/layout.ts";
+
+/** A pane's body built by hand past the types, as a page could still forge one: these fixtures are pages the check must catch. */
+const forged = (markup: { html: string }) => raw(markup.html) as unknown as LayoutMarkup;
 import { table } from "../../apps/site/src/components/data.ts";
 import { gameCard, playingCard } from "../../apps/site/src/components/playing.ts";
 import { dropdown, sheet } from "../../apps/site/src/components/panes.ts";
@@ -116,7 +119,7 @@ describe.skipIf(!sites)("the layout check", () => {
 
   it.skipIf(!isFirstShare)("catches words closer to a card's edge than the words margin, and passes the same card as it is", async () => {
     // A playing card in place, once as the components make it and once with its inner padding forced down to 12px, as a page might style it.
-    const card = (id: string) => playingCard({ id, title: "Keep your progress", body: raw("<p>Sign in to keep what you've done.</p>"), isShown: true, isInPlace: true }).html;
+    const card = (id: string) => playingCard({ id, title: "Keep your progress", body: forged(raw("<p>Sign in to keep what you've done.</p>")), isShown: true, isInPlace: true }).html;
     const markup = card("fine-card") + card("close-card").replace('class="playing-card-in"', 'class="playing-card-in" style="padding:12px;--pad-words:0px"');
     const page = { name: "Broken on purpose", path: "/design/example", mainActionShows: "nowhere", markup };
     const { failures } = (await checkPages({ ...sites!, pages: [page], sizes: LAPTOP, themes: ["light"], chromePath: await chromeToRun() })) as { failures: Failure[] };
@@ -132,7 +135,7 @@ describe.skipIf(!sites)("the layout check", () => {
     const { failures } = (await checkPages({ ...sites!, pages: [page], sizes: LAPTOP, themes: ["light"], chromePath: await chromeToRun() })) as { failures: Failure[] };
     return failures.map((failure) => `${failure.check}: ${failure.element}: ${failure.said}`);
   };
-  const fullPane = (body: string) => glassPane({ paneWidth: "full", body: raw(body) }).html;
+  const fullPane = (body: string) => glassPane({ paneWidth: "full", body: forged(raw(body)) }).html;
   const choices = (count: number) => Array.from({ length: count }, (_, index) => ({ label: `Choice ${index + 1}`, href: "#menu" }));
 
   it.skipIf(!isFirstShare)("catches a pane wider than its page's shape, two panes touching, and panes over the page past their kind's size, past the screen or overflowing unscrolled", async () => {
@@ -140,7 +143,7 @@ describe.skipIf(!sites)("the layout check", () => {
     const tooWide = `<div style="width:1100px">${fullPane("<p>Wider than its shape</p>")}</div>`;
     const menu = dropdown({ id: "fixture-menu", label: "Fine menu", items: choices(30), isOpen: true }).html.replace('class="floating-pane placed-under dropdown glass in-place"', 'style="position:fixed;top:8px;left:8px" class="floating-pane placed-under dropdown glass in-place"');
     const spilling = dropdown({ id: "fixture-spill", label: "Spilling menu", items: choices(30), isOpen: true }).html.replace('class="floating-pane placed-under dropdown glass in-place"', 'style="position:fixed;top:8px;left:400px;max-height:none" class="floating-pane placed-under dropdown glass in-place"').replace('class="floating-body"', 'style="overflow:visible" class="floating-body"');
-    const wideSheet = sheet({ id: "fixture-sheet", title: "Too wide", body: html`<p>A sheet</p>`, closeLabel: "Close", isShown: true }).html.replace('class="sheet', 'style="width:900px;max-width:none" class="sheet');
+    const wideSheet = sheet({ id: "fixture-sheet", title: "Too wide", body: forged(html`<p>A sheet</p>`), closeLabel: "Close", isShown: true }).html.replace('class="sheet', 'style="width:900px;max-width:none" class="sheet');
     // Two panes set down one after the other by hand, with no layout component to put a block's gap between them.
     const touching = fullPane("<p>Touching above</p>") + fullPane("<p>Touching below</p>");
     const said = await brokenOnLaptop(tooWide + menu + spilling + wideSheet + touching);
@@ -167,7 +170,7 @@ describe.skipIf(!sites)("the layout check", () => {
   it.skipIf(!isFirstShare)("catches the Laws of UX it can measure: proximity, common region, similarity and an answer within 400 ms", async () => {
     const hugging = fullPane(stack({ items: [{ kind: "block", markup: raw(table({ caption: "Rooms", columns: [{ label: "Room" }], rows: [["North"]], whenEmpty: html`<p>No rooms.</p>` }).html) }, { kind: "words", markup: html`<h2>Hugging the table</h2>` }, { kind: "words", markup: html`<p>What it names</p>` }] }).html.replace("<h2>Hugging the table</h2>", '<h2 style="margin-top:-20px;margin-bottom:30px">Hugging the table</h2>'));
     const splitGroup = fullPane(html`<p>Before</p><h2>Left alone</h2>`.html) + fullPane("<p>Its group, on another pane</p>");
-    const mixedGrid = fullPane(grid({ itemSize: "card", whenEmpty: html`<p>None.</p>`, items: ["One", "Two"].map((title) => ({ kind: "block" as const, markup: glassPane({ paneWidth: "full", body: html`<p>${title}</p>` }) })) }).html.replace('<div class="grid-cell is-block">', '<div class="grid-cell is-block" style="max-width:120px">'));
+    const mixedGrid = fullPane(grid({ itemSize: "card", whenEmpty: html`<p>None.</p>`, items: ["One", "Two"].map((title) => ({ kind: "block" as const, markup: glassPane({ paneWidth: "full", body: forged(html`<p>${title}</p>`) }) })) }).html.replace('<div class="grid-cell is-block">', '<div class="grid-cell is-block" style="max-width:120px">'));
     const deaf = fullPane('<button type="button" aria-controls="nothing-at-all">Answers nothing</button>');
     const said = await brokenOnLaptop(hugging + splitGroup + mixedGrid + deaf);
     for (const [check, named] of [

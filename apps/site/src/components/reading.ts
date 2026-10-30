@@ -3,7 +3,7 @@ import { component } from "./component.ts";
 import { secondaryButton, textLink } from "./actions.ts";
 import { CUT_LINE, glassPane, groove, icon, tag } from "./foundations.ts";
 import type { IconName } from "./icons.ts";
-import { row, stack } from "./layout.ts";
+import { row, stack, stackOfOne } from "./layout.ts";
 
 /*
  * Words and the ways through them that pages still to build need: Reading text (a forum post, the rules, a game's description), Facts (what
@@ -294,8 +294,8 @@ component({
 `,
   render: foldedPart,
   examples: [
-    { label: "Folded, with its count", isWide: true, markup: glassPane({ paneWidth: "full", body: foldedPart({ title: "Blocked", entryCount: 3, body: html`<p>Mia, Lucas and Oliver can't see you or send you anything.</p>` }) }) },
-    { label: "Open", isWide: true, markup: glassPane({ paneWidth: "full", body: foldedPart({ title: "Earlier versions", entryCount: 12, isOpen: true, body: stack({ items: [{ kind: "words", markup: html`<p>Versions 1 to 12, each kept for a year after it's replaced.</p>` }] }) }) }) },
+    { label: "Folded, with its count", isWide: true, markup: glassPane({ paneWidth: "full", body: stackOfOne(foldedPart({ title: "Blocked", entryCount: 3, body: html`<p>Mia, Lucas and Oliver can't see you or send you anything.</p>` })) }) },
+    { label: "Open", isWide: true, markup: glassPane({ paneWidth: "full", body: stackOfOne(foldedPart({ title: "Earlier versions", entryCount: 12, isOpen: true, body: stack({ items: [{ kind: "words", markup: html`<p>Versions 1 to 12, each kept for a year after it's replaced.</p>` }] }) })) }) },
   ],
 });
 
@@ -355,8 +355,8 @@ component({
 `,
   render: pager,
   examples: [
-    { label: "In the middle", isWide: true, markup: glassPane({ paneWidth: "full", body: pager({ label: "Replies", newerHref: "#pager", olderHref: "#pager" }) }) },
-    { label: "On the newest page", isWide: true, markup: glassPane({ paneWidth: "full", body: pager({ label: "Replies", olderHref: "#pager" }) }) },
+    { label: "In the middle", isWide: true, markup: glassPane({ paneWidth: "full", body: stackOfOne(pager({ label: "Replies", newerHref: "#pager", olderHref: "#pager" })) }) },
+    { label: "On the newest page", isWide: true, markup: glassPane({ paneWidth: "full", body: stackOfOne(pager({ label: "Replies", olderHref: "#pager" })) }) },
   ],
 });
 
@@ -371,7 +371,7 @@ component({
 .divider-words { display: flex; align-items: center; gap: var(--gap-words-words); margin: 0; font: var(--type-facts); color: var(--muted); }
 `,
   render: dividerWords,
-  examples: [{ label: "Between two ways in", isWide: true, markup: glassPane({ paneWidth: "full", body: dividerWords("or") }) }],
+  examples: [{ label: "Between two ways in", isWide: true, markup: glassPane({ paneWidth: "full", body: stackOfOne(dividerWords("or")) }) }],
 });
 
 component({
@@ -388,7 +388,7 @@ component({
 `,
   render: progress,
   examples: [
-    { label: "An upload on its way", isWide: true, markup: glassPane({ paneWidth: "full", body: progress({ label: "Uploading Ashen Crown", doneNumber: 12.4, totalNumber: 48, unit: "MB" }) }) },
-    { label: "No end known yet", isWide: true, markup: glassPane({ paneWidth: "full", body: progress({ label: "Scanning version 14" }) }) },
+    { label: "An upload on its way", isWide: true, markup: glassPane({ paneWidth: "full", body: stackOfOne(progress({ label: "Uploading Ashen Crown", doneNumber: 12.4, totalNumber: 48, unit: "MB" })) }) },
+    { label: "No end known yet", isWide: true, markup: glassPane({ paneWidth: "full", body: stackOfOne(progress({ label: "Scanning version 14" })) }) },
   ],
 });

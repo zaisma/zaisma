@@ -17,7 +17,7 @@ import { authConfigured, currentSession, type Session } from "./auth.ts";
 import type { Env } from "./env.ts";
 import { glassMessage, html, layout, scriptTags } from "./html.ts";
 import { glassPane } from "./components/foundations.ts";
-import { row, stack } from "./components/layout.ts";
+import { row, stack, stackOfOne } from "./components/layout.ts";
 import { secondaryButton, primaryButton, textLink } from "./components/actions.ts";
 import { authorizeMcp, handleMcpSignIn, isMcpClientId, tokenMcp } from "./mcp-sign-in.ts";
 import { pageScript } from "./page-scripts.ts";
@@ -392,13 +392,13 @@ function continuePage(env: Env, app: SignInApp, back: string): Response {
     pageShape: "reading",
     body: glassPane({
       paneWidth: "fit",
-      body: html`${stack({
+      body: stackOfOne(html`${stack({
         items: [
           { kind: "words", markup: html`<h1>Back to ${app.name}</h1>` },
           { kind: "words", markup: html`<p>You're signed in. Taking you back now.</p>` },
           { kind: "control", id: "back", markup: primaryButton(`Back to ${app.name}`, { href: back, isFullWidth: true }) },
         ],
-      })}${scriptTags(BACK_TO_APP_SCRIPT)}`,
+      })}${scriptTags(BACK_TO_APP_SCRIPT)}`),
     }),
   });
   return response;

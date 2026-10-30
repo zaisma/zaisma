@@ -15,7 +15,7 @@ import { stripeFormTargets } from "./stripe.ts";
 import { waitEndsText } from "./email-codes.ts";
 import { secondaryButton, primaryButton, textLink, toggleButton } from "./components/actions.ts";
 import { glassPane, icon, tag } from "./components/foundations.ts";
-import { paneParts, stack, type LayoutItem } from "./components/layout.ts";
+import { paneParts, stack, type LayoutItem, stackOfOne } from "./components/layout.ts";
 import type { ControlMarkup } from "./components/control-markup.ts";
 import { sidebar, sidebarButton, sidebarLayout } from "./components/navigation.ts";
 import { confirmItsYouSheet } from "./components/confirm-its-you.ts";
@@ -239,7 +239,7 @@ const tapSheet = (id: string, title: string, text: string, action: string, confi
     title,
     closeLabel: "Close",
     action,
-    body: html`<div data-tap="confirm" data-tap-always="yes" data-tap-reason="Connecting Stripe takes your passkey.">${stack({ items: [words(text), { kind: "words", markup: html`<p class="field-error" data-tap-error hidden role="alert"></p>` }] })}</div>`,
+    body: stackOfOne(html`<div data-tap="confirm" data-tap-always="yes" data-tap-reason="Connecting Stripe takes your passkey.">${stack({ items: [words(text), { kind: "words", markup: html`<p class="field-error" data-tap-error hidden role="alert"></p>` }] })}</div>`),
     buttons: [secondaryButton("Cancel", { type: "submit", formMethod: "dialog" }), primaryButton(confirmLabel, { type: "submit" })],
   });
 
@@ -354,13 +354,13 @@ function gameSheets(each: GameHosting): LayoutItem[] {
         title: `${game.title}'s monthly budget`,
         closeLabel: "Close",
         action: `${PAGE}/games/${game.slug}/budget`,
-        body: html`<div data-tap="confirm" data-tap-over='${JSON.stringify({ monthly_budget_dollars: budgetCents ?? 0 })}'>${stack({
+        body: stackOfOne(html`<div data-tap="confirm" data-tap-over='${JSON.stringify({ monthly_budget_dollars: budgetCents ?? 0 })}'>${stack({
           items: [
             { kind: "words", markup: html`<p>The most credit this game may use each month, past its free hosting. At least $1.</p>` },
             { kind: "control", markup: cutField({ id: `${idBase}-field`, name: "monthly_budget_dollars", label: "Monthly budget ($)", type: "text", icon: "card", inputMode: "numeric", text: budgetCents === null ? "" : String(budgetCents / 100), isRequired: true, hint: budgetCents === null && each.lastMonthBeyondFreeCents > 0 ? `Last month's use past free: ${dollars(each.lastMonthBeyondFreeCents)}.` : undefined }) },
             { kind: "words", markup: html`<p class="field-error" data-tap-error hidden role="alert"></p>` },
           ],
-        })}</div>`,
+        })}</div>`),
         buttons: [secondaryButton("Cancel", { type: "submit", formMethod: "dialog" }), primaryButton("Save budget", { type: "submit" })],
       }),
     ),
@@ -485,7 +485,7 @@ function paymentsPane(settings: Settings): LayoutItem {
         title: "Stripe Tax",
         closeLabel: "Close",
         action: `${PAGE}/payments/tax`,
-        body: toggle({ id: "stripe-tax", name: "is_stripe_tax_used", label: "Stripe Tax", isOn: stripe.is_stripe_tax_used, hint: "Stripe calculates and records the tax inside each price. Prices never change." }),
+        body: stackOfOne(toggle({ id: "stripe-tax", name: "is_stripe_tax_used", label: "Stripe Tax", isOn: stripe.is_stripe_tax_used, hint: "Stripe calculates and records the tax inside each price. Prices never change." })),
         buttons: [secondaryButton("Cancel", { type: "submit", formMethod: "dialog" }), primaryButton("Save", { type: "submit" })],
       }),
     ),
@@ -712,7 +712,7 @@ function keysPane(keys: ApiKey[], games: { slug: string; title: string }[], maki
         title: "Make an API key",
         closeLabel: "Close",
         action: canMake ? `${PAGE}/keys` : undefined,
-        body: canMake
+        body: stackOfOne(canMake
           ? html`<div data-tap="key">${raw('<input type="hidden" name="passkey_id"><input type="hidden" name="client_data_json"><input type="hidden" name="authenticator_data"><input type="hidden" name="signature"><input type="hidden" name="user_handle">')}${stack({
               items: [
                 { kind: "control", markup: cutField({ id: "key-name", name: "name", label: "Name", type: "text", icon: "key", placeholder: "Like My laptop or GitHub Actions" }) },
@@ -729,7 +729,7 @@ function keysPane(keys: ApiKey[], games: { slug: string; title: string }[], maki
                 { kind: "words", markup: html`<p class="field-error" data-tap-error hidden role="alert"></p>` },
               ],
             })}</div>`
-          : html`<p>${making.passkeyState === "waiting" && making.approvesFromAtMs !== null ? `Your new passkey can make keys from ${waitEndsText(making.approvesFromAtMs)}.` : "Making a key needs your passkey, so someone who learns your password can't make one."} ${making.passkeyState === "none" ? html`${textLink("Add a passkey", "/account#passkeys")} first.` : ""}</p>`,
+          : html`<p>${making.passkeyState === "waiting" && making.approvesFromAtMs !== null ? `Your new passkey can make keys from ${waitEndsText(making.approvesFromAtMs)}.` : "Making a key needs your passkey, so someone who learns your password can't make one."} ${making.passkeyState === "none" ? html`${textLink("Add a passkey", "/account#passkeys")} first.` : ""}</p>`),
         buttons: canMake ? [secondaryButton("Cancel", { type: "submit", formMethod: "dialog" }), primaryButton("Make the key", { type: "submit" })] : [secondaryButton("Close", { type: "submit", formMethod: "dialog" })],
       }),
     ),
@@ -888,7 +888,7 @@ async function settingsPage(env: Env, request: Request, session: SignedIn, calle
           closeLabel: "Close",
           action: `${PAGE}/spending/${spending.id}`,
           isShown: false,
-          body: html`<div data-tap="confirm" data-tap-always="yes">${stack({ items: [words(requestWords.what), words(requestWords.change), { kind: "words", markup: html`<p class="field-error" data-tap-error hidden role="alert"></p>` }] })}</div>`,
+          body: stackOfOne(html`<div data-tap="confirm" data-tap-always="yes">${stack({ items: [words(requestWords.what), words(requestWords.change), { kind: "words", markup: html`<p class="field-error" data-tap-error hidden role="alert"></p>` }] })}</div>`),
           buttons: [secondaryButton("Decline", { type: "submit", name: "answer", buttonValue: "declined", dataAttributes: { "no-tap": "" } }), primaryButton("Approve", { type: "submit", name: "answer", buttonValue: "approved" })],
         })
       : state.spendingRequestId

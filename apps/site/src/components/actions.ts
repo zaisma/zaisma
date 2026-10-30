@@ -3,7 +3,7 @@ import { component } from "./component.ts";
 import { CUT_LINE, EDGE, ICONS, backdrop, glassPane, icon, loader, type ColorChoice, type IconName } from "./foundations.ts";
 import { TOKEN_STYLES } from "./tokens.ts";
 import { controlMarkup, type ControlMarkup } from "./control-markup.ts";
-import { paneParts } from "./layout.ts";
+import { paneParts, stackOfOne } from "./layout.ts";
 
 /*
  * Actions, loudest to quietest: the primary button (the one colored thing you press), the secondary button beside it
@@ -384,7 +384,7 @@ component({
  * smoked over a dark one, as the world's measured glass would be.
  */
 const world = (standInSlug: string, glassKind: "light" | "smoked", body: Raw) =>
-  html`<div ${glassKind === "light" ? raw('data-theme-choice="light"') : raw('class="smoke"')} style="position:relative;overflow:hidden;display:grid;width:min(380px,100%);padding:var(--pad-pane)">${backdrop({ isFramed: true, standInSlug })}${glassPane({ paneWidth: "full", body })}</div>`;
+  html`<div ${glassKind === "light" ? raw('data-theme-choice="light"') : raw('class="smoke"')} style="position:relative;overflow:hidden;display:grid;width:min(380px,100%);padding:var(--pad-pane)">${backdrop({ isFramed: true, standInSlug })}${glassPane({ paneWidth: "full", body: stackOfOne(body) })}</div>`;
 /** A secondary button's tints, each with its name and swatch (the gallery shows every one). */
 export const TINT_CHOICES: (ColorChoice & { colorValue: ButtonTint })[] = [
   { name: "Clear", colorValue: "clear", swatch: "clear" },
@@ -738,7 +738,7 @@ ${CARD_BRANDS.map((brand) => `.cut-btn.card-row[data-card-brand="${brand}"] .car
 
 
 // Cut shapes sits with the buttons, so it can show the edge rule on real ones (foundations.ts can't import this file).
-const edgePane = (body: Raw) => glassPane({ paneWidth: "fit", body });
+const edgePane = (body: Raw) => glassPane({ paneWidth: "fit", body: stackOfOne(body) });
 export interface TextLinkOptions {
   /** In a list of links where nothing else is (a footer, a heading that links to itself): underlined only under the pointer. */
   isQuiet?: boolean;

@@ -3,7 +3,7 @@ import { component } from "./component.ts";
 import type { ControlMarkup } from "./control-markup.ts";
 import { secondaryButton, primaryButton, tertiaryButton, textLink } from "./actions.ts";
 import { CUT_LINE, EDGE, logo } from "./foundations.ts";
-import { grid, row, stack } from "./layout.ts";
+import { grid, row, stack, type LayoutMarkup, stackOfOne } from "./layout.ts";
 import { gameCover, sheet, type GameCoverOptions } from "./panes.ts";
 
 /*
@@ -35,7 +35,7 @@ export interface PlayingCardOptions {
   /** What it's about: its heading, and its name for a screen reader. Left out, it's one line of news (role status), like Saved. */
   title?: string;
   /** Its words and buttons, laid out with the layout components. */
-  body: Raw;
+  body: LayoutMarkup;
   /**
    * How it waits its turn over the game (zaismaLayers): "information" leaves by itself and waits behind asks, "ask" stays until it's
    * answered. Left out, a card with nothing to press is information and any other an ask.
@@ -298,7 +298,7 @@ component({
   styles: "",
   render: screenshot,
   examples: [
-    { label: "In a row: press it to open it large", markup: html`<div style="width:280px">${screenshot({ imageUrl: "/design/covers/neon-drift.webp", label: "Screenshot 1 of 3", sheetId: "example-screenshot" })}</div>${sheet({ id: "example-screenshot", title: "Neon Drift, screenshot 1 of 3", body: screenshotLarge("/design/covers/neon-drift.webp", "Neon Drift, screenshot 1"), closeLabel: "Close", isPicture: true })}` },
+    { label: "In a row: press it to open it large", markup: html`<div style="width:280px">${screenshot({ imageUrl: "/design/covers/neon-drift.webp", label: "Screenshot 1 of 3", sheetId: "example-screenshot" })}</div>${sheet({ id: "example-screenshot", title: "Neon Drift, screenshot 1 of 3", body: stackOfOne(screenshotLarge("/design/covers/neon-drift.webp", "Neon Drift, screenshot 1")), closeLabel: "Close", isPicture: true })}` },
   ],
 });
 
@@ -370,7 +370,7 @@ component({
         }),
       }),
     },
-    { label: "Saved", markup: playingCard({ id: "example-saved", isShown: true, isInPlace: true, body: html`<p>Saved to your account.</p>` }) },
+    { label: "Saved", markup: playingCard({ id: "example-saved", isShown: true, isInPlace: true, body: stackOfOne(html`<p>Saved to your account.</p>`, "words") }) },
     { label: "Signed out while buying: urgent, over anything, the sheets it makes useless closed under it", markup: urgentCard({ id: "example-urgent", title: "You've been signed out", text: "Nothing was charged. Sign in again to buy.", buttons: [primaryButton("Sign in", { href: "#signin" })], isInPlace: true }) },
     {
       label: "Try it: urgent over a sheet, which closes under it",

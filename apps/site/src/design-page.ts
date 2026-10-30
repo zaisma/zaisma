@@ -12,7 +12,7 @@ import { EDGE, STAND_IN_BACKGROUNDS_SCRIPT, backdrop, logo, pageSettingsAttribut
 import { secondaryButton, primaryButton, textLink } from "./components/actions.ts";
 import { SEARCH_STAND_IN, cutField } from "./components/inputs.ts";
 import { loadMore, sidebar, sidebarButton, sidebarLayout, type SidebarPlace } from "./components/navigation.ts";
-import { row, stack } from "./components/layout.ts";
+import { row, stack, stackOfOne } from "./components/layout.ts";
 import { listRows, emptyState } from "./components/data.ts";
 import { cutPolygon, glassPane, tray } from "./components/foundations.ts";
 
@@ -61,7 +61,7 @@ function section(each: Component, theme: GalleryTheme): Raw {
   // Each section is a Tray: its name and summary on the pane, every example on the tray beneath it.
   return html`<div class="component-section" id="${each.slug}" data-rail-mark="${each.name}">${tray({
     head: html`<h2 class="component-name" id="${each.slug}-name">${textLink(each.name, `#${each.slug}`, { isQuiet: true })}</h2><p class="component-summary">${withTokens(each.summary)}</p>`,
-    body: examples(each),
+    body: stackOfOne(examples(each)),
     label: each.name,
   })}</div>`;
 }

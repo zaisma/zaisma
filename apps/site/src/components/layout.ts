@@ -1,5 +1,5 @@
-import { html, raw, type Raw } from "../markup.ts";
-import { CONTROL_HEIGHTS, type ControlHeight, type ControlMarkup } from "./control-markup.ts";
+import { Raw, html, raw } from "../markup.ts";
+import { CONTROL_HEIGHTS, ControlMarkup, type ControlHeight } from "./control-markup.ts";
 import { BARE_GROUPS, WORDS_HOLDERS } from "./tokens.ts";
 
 /*
@@ -12,6 +12,17 @@ import { BARE_GROUPS, WORDS_HOLDERS } from "./tokens.ts";
  */
 
 export type { ControlMarkup } from "./control-markup.ts";
+
+/**
+ * A layout's markup: what a pane's body takes (a glass pane, a tray, a sheet, a store panel, a playing card), made only by the layouts
+ * here, so everything in a pane is placed by a layout and every word in it keeps the pane's margin. design.test.ts checks no other file
+ * makes one.
+ */
+export class LayoutMarkup extends Raw {
+  /** Makes it a type of its own: plain markup isn't a layout. */
+  private declare readonly isLayoutMarkup: true;
+}
+const asLayout = (markup: Raw): LayoutMarkup => new LayoutMarkup(markup.html);
 
 /** One control, for a pane's corner: exactly one, by its type. */
 export type LayoutControl = ControlMarkup;
@@ -84,13 +95,21 @@ export interface StackOptions {
   dataAttributes?: Record<string, string>;
 }
 
+/**
+ * A stack of one thing, for a pane's body that holds only it: a block (a list, a table, a form) at the frame gap, words (reading text, a
+ * person, a paragraph) at the pane's words margin, or a control as a control.
+ */
+export function stackOfOne(markup: Raw, itemKind: "words" | "block" = "block"): LayoutMarkup {
+  return stack({ items: [markup instanceof ControlMarkup ? { kind: "control", markup } : { kind: itemKind, markup: markup as NotControlMarkup }] });
+}
+
 /** Things one under another, each gap picked from what's on each side of it. In a pane, controls fill its width. */
-export function stack(options: StackOptions): Raw {
+export function stack(options: StackOptions): LayoutMarkup {
   const dataMarkup = options.dataAttributes ? html`${Object.entries(options.dataAttributes).map(([name, text]) => html` data-${name}="${text}"`)}` : "";
-  return html`<div class="layout-stack"${groupLabel(options.label)}${dataMarkup}>${options.items.map((layoutItem, itemIndex) => {
+  return asLayout(html`<div class="layout-stack"${groupLabel(options.label)}${dataMarkup}>${options.items.map((layoutItem, itemIndex) => {
     const above = options.items[itemIndex - 1];
     return html`<div class="stack-cell is-${placedKind(layoutItem)}${above ? ` gap-top-${stackGap(above, layoutItem)}` : ""}"${placeAttributes(layoutItem)}>${layoutItem.markup}</div>`;
-  })}</div>`;
+  })}</div>`);
 }
 
 export interface RowOptions {
@@ -110,7 +129,7 @@ export interface RowOptions {
  * Things side by side. Controls in a row are always one height: every one takes the tallest one's size class. Two controls side by
  * side slant toward each other; words beside controls sit on their center line, and on a field's box when a field shows its label.
  */
-export function row(options: RowOptions): Raw {
+export function row(options: RowOptions): LayoutMarkup {
   const controls = options.items.flatMap((layoutItem) => (layoutItem.kind === "control" ? [layoutItem.markup] : []));
   // A block that's a row of controls itself (a shelf's sort and arrows) counts its controls' height too, so words beside it sit on their
   // center line.
@@ -135,7 +154,7 @@ export function row(options: RowOptions): Raw {
     return html`<div class="row-cell is-${placedKind(layoutItem)}${isFilling ? " fills" : ""}${isPointerOnly ? " is-pointer-only" : ""}${gaps ? ` ${gaps}` : ""}"${placeAttributes(layoutItem)}>${layoutItem.markup}</div>`;
   });
   // An equal row is marked for ROW_LAYOUT_SCRIPT, which gives its cells the widest one's width.
-  return html`<div class="layout-row${options.widths === "equal" ? " widths-equal" : ""} alignment-${alignment}${isOnFieldBoxes ? " is-on-field-boxes" : ""}"${tallest ? html` data-control-height="${tallest}"` : ""}${groupLabel(options.label)}>${cells}</div>`;
+  return asLayout(html`<div class="layout-row${options.widths === "equal" ? " widths-equal" : ""} alignment-${alignment}${isOnFieldBoxes ? " is-on-field-boxes" : ""}"${tallest ? html` data-control-height="${tallest}"` : ""}${groupLabel(options.label)}>${cells}</div>`);
 }
 
 /**
@@ -204,8 +223,8 @@ export type GridOptions = {
  * Cells of one size, as many to a line as fit their least width, folding to one column where two can't fit. A grid of covers or cards says what
  * shows in its place while it has none (whenEmpty, an Empty state), a page script's cells included.
  */
-export function grid(options: GridOptions): Raw {
-  return html`<div class="layout-grid item-${options.itemSize}"${options.id ? html` id="${options.id}"` : ""}${groupLabel(options.label)}>${options.items.map((layoutItem) => html`<div class="grid-cell is-${layoutItem.kind}"${placeAttributes(layoutItem)}>${layoutItem.markup}</div>`)}</div>${options.whenEmpty ? html`<div class="when-empty"${options.items.some((layoutItem) => !layoutItem.isHidden) ? raw(" hidden") : ""}>${options.whenEmpty}</div>` : ""}`;
+export function grid(options: GridOptions): LayoutMarkup {
+  return asLayout(html`<div class="layout-grid item-${options.itemSize}"${options.id ? html` id="${options.id}"` : ""}${groupLabel(options.label)}>${options.items.map((layoutItem) => html`<div class="grid-cell is-${layoutItem.kind}"${placeAttributes(layoutItem)}>${layoutItem.markup}</div>`)}</div>${options.whenEmpty ? html`<div class="when-empty"${options.items.some((layoutItem) => !layoutItem.isHidden) ? raw(" hidden") : ""}>${options.whenEmpty}</div>` : ""}`);
 }
 
 export interface TrackOptions {
@@ -221,8 +240,8 @@ export interface TrackOptions {
 }
 
 /** A row of cells of one size that scrolls sideways, fading at an edge with more past it: a row of covers, with Row arrows for a mouse. */
-export function track(options: TrackOptions): Raw {
-  return html`<div class="layout-track item-${options.itemSize}" id="${options.id}" data-fades-sideways${groupLabel(options.label)}>${options.items.map((layoutItem) => layoutItem.markup)}</div><div class="when-empty"${options.items.length ? raw(" hidden") : ""}>${options.whenEmpty}</div>`;
+export function track(options: TrackOptions): LayoutMarkup {
+  return asLayout(html`<div class="layout-track item-${options.itemSize}" id="${options.id}" data-fades-sideways${groupLabel(options.label)}>${options.items.map((layoutItem) => layoutItem.markup)}</div><div class="when-empty"${options.items.length ? raw(" hidden") : ""}>${options.whenEmpty}</div>`);
 }
 
 export interface ColumnsOptions {
@@ -241,8 +260,8 @@ const BLOCK_GAP_PX = 24;
  * Two halves of the width side by side, one over the other where both can't have a column's least width. A pane takes the whole width or
  * fits what's in it; one that should take half the screen goes in a column here.
  */
-export function columns(options: ColumnsOptions): Raw {
-  return html`<div class="layout-columns${options.stickyColumn ? ` sticky-${options.stickyColumn}` : ""}"><div class="columns-in">${options.columns.map((column) => html`<div class="column">${column}</div>`)}</div></div>`;
+export function columns(options: ColumnsOptions): LayoutMarkup {
+  return asLayout(html`<div class="layout-columns${options.stickyColumn ? ` sticky-${options.stickyColumn}` : ""}"><div class="columns-in">${options.columns.map((column) => html`<div class="column">${column}</div>`)}</div></div>`);
 }
 
 export interface PanePartsOptions {
@@ -260,14 +279,14 @@ export interface PanePartsOptions {
  * A pane's places: its head, its body and its foot. The head's words keep the pane's margin; a control in a corner sits in it, at the
  * frame gap, and takes the corner's cut by the edge rule.
  */
-export function paneParts(options: PanePartsOptions): Raw {
+export function paneParts(options: PanePartsOptions): LayoutMarkup {
   const head = options.head
     ? html`<div class="pane-head"${options.head.end && !options.head.end.isWordsAlone ? html` data-control-height="${options.head.end.controlHeight}"` : ""}>${options.head.start ? html`<div class="pane-head-start">${options.head.start}</div>` : ""}<div class="pane-head-words">${options.head.words}</div>${options.head.end ? html`<div class="pane-head-end${options.head.end.isWordsAlone ? " is-words" : ""}">${options.head.end}</div>` : ""}</div>`
     : "";
   const foot = options.foot
     ? html`<div class="pane-foot"${options.foot.end && !options.foot.end.isWordsAlone ? html` data-control-height="${options.foot.end.controlHeight}"` : ""}>${options.foot.start ? html`<div class="pane-foot-start is-${options.foot.start.kind}">${options.foot.start.markup}</div>` : ""}${options.foot.end ? html`<div class="pane-foot-end${options.foot.end.isWordsAlone ? " is-words" : ""}">${options.foot.end}</div>` : ""}</div>`
     : "";
-  return html`<div class="pane-parts">${head}<div class="pane-body">${options.body}</div>${foot}</div>`;
+  return asLayout(html`<div class="pane-parts">${head}<div class="pane-body">${options.body}</div>${foot}</div>`);
 }
 
 /* ---- Styles: each layout component's own, in gallery order. ---- */

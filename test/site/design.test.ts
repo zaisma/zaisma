@@ -926,7 +926,8 @@ describe("page structure", () => {
   // Each rule a page's markup can't break unseen (page-rules.ts, pageStructureProblems): a page made to break it, named by the rule and
   // what breaks it, and the same page made right, which passes.
   const onPage = (body: string) => `<!doctype html><html><body><header class="top">${actions.primaryButton("Sign in").html}</header><main>${body}</main></body></html>`;
-  const paneOf = (body: string) => glassPane({ paneWidth: "full", body: html`${raw(body)}` }).html;
+  // A pane's body built by hand past the types, as a page could still forge one: these pages are the problems the structure check must catch.
+  const paneOf = (body: string) => glassPane({ paneWidth: "full", body: raw(body) as unknown as layoutComponents.LayoutMarkup }).html;
   const problemsOn = async (body: string) => pageStructureProblems(onPage(body));
 
   it("finds a second title and a heading that skips a level", async () => {
@@ -965,7 +966,7 @@ describe("page structure", () => {
   it("finds two runners in one state, leaving the header's Sign in and what a sheet holds out", async () => {
     const found = await problemsOn(paneOf(actions.primaryButton("Play").html + actions.primaryButton("Play again").html));
     expect(found, found.join("\n")).toEqual([expect.stringMatching(/^two runners in view: .*"Play again" beside .*"Play"$/)]);
-    expect(await problemsOn(paneOf(actions.primaryButton("Play").html) + panes.sheet({ id: "more", title: "More", body: actions.primaryButton("Buy"), closeLabel: "Close" }).html)).toEqual([]);
+    expect(await problemsOn(paneOf(actions.primaryButton("Play").html) + panes.sheet({ id: "more", title: "More", body: layoutComponents.stackOfOne(actions.primaryButton("Buy")), closeLabel: "Close" }).html)).toEqual([]);
   });
 
   // What these rules ask of the components' styles, which every page's look comes from (a page has no styles of its own).
@@ -1137,7 +1138,7 @@ describe("layout", () => {
   });
 
   it("gives a pane the whole width or what's in it, never a width of its own: one that should take half the screen is a column", () => {
-    expect(glassPane({ paneWidth: "fit", body: html`<p>Hi</p>` }).html).toContain('class="glass glass-pane fit"');
+    expect(glassPane({ paneWidth: "fit", body: layoutComponents.stackOfOne(html`<p>Hi</p>`, "words") }).html).toContain('class="glass glass-pane fit"');
     const paneWidths = [...COMPONENT_STYLES().matchAll(/\.glass-pane(?:\.[a-z-]+)*\s*\{[^}]*?\bwidth:\s*([^;]+);/g)].map((match) => match[1]!.trim());
     expect([...new Set(paneWidths)].sort()).toEqual(["100%", "fit-content"]);
     const halves = columns({ columns: [html`<p>A</p>`, html`<p>B</p>`] }).html;
@@ -1150,5 +1151,10 @@ describe("layout", () => {
     const MAKERS = ["components/actions.ts", "components/fields.ts", "components/choices.ts", "components/inputs.ts", "components/switch.ts", "components/navigation.ts", "components/control-markup.ts"];
     const makers = Object.entries(SOURCES).filter(([, source]) => /\bcontrolMarkup\(|new ControlMarkup\(/.test(source)).map(([file]) => file);
     expect(makers.filter((file) => !MAKERS.includes(file))).toEqual([]);
+  });
+
+  it("gives a pane's body only a layout's markup, made by the layouts alone, so every word in a pane keeps its margin", () => {
+    const makers = Object.entries(SOURCES).filter(([, source]) => /new LayoutMarkup\(|as (unknown as )?LayoutMarkup\b/.test(source)).map(([file]) => file);
+    expect(makers).toEqual(["components/layout.ts"]);
   });
 });

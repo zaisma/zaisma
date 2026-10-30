@@ -6,7 +6,7 @@ import { sheet } from "./panes.ts";
 import { secondaryButton, primaryButton, textLink } from "./actions.ts";
 import { cutField } from "./inputs.ts";
 import { checkField } from "./choices.ts";
-import { grid, paneParts, row, stack } from "./layout.ts";
+import { grid, paneParts, row, stack, stackOfOne } from "./layout.ts";
 import { MEASURE_LAYOUT_SOURCE } from "./layout-measure.ts";
 import { CHECKED_PAGES, LOCAL_SCREEN_NAMES, SCREEN_SIZES, SCREEN_THEMES, type CheckedPage, type ScreenName, type StepToTake, UNIQUE_WORD } from "./checked-pages.ts";
 
@@ -67,7 +67,7 @@ export function screens(options: ScreensOptions): Raw {
 <ul class="screen-problems" data-screen-problems hidden></ul>
 <p class="screen-pointed" data-screen-pointed hidden></p>
 </figure>`;
-  })}</div>${sheet({ id: largeId, title: options.title, body: html`<div class="screen-large" data-screen-large></div>`, closeLabel: "Close", isPicture: true })}</div>`;
+  })}</div>${sheet({ id: largeId, title: options.title, body: stackOfOne(html`<div class="screen-large" data-screen-large></div>`), closeLabel: "Close", isPicture: true })}</div>`;
 }
 
 /** The Screens page's first pane: what it is, the pages the check measures in Zaisma's branches, and any page to show, on the screens picked. */

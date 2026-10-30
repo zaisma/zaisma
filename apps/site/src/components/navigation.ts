@@ -8,7 +8,7 @@ import { secondaryButton, tertiaryButton, rowArrows, primaryButton, textLink } f
 import { SEARCH_STAND_IN, searchField, tabSwitch, type SearchFieldOptions, type SwitchTab } from "./inputs.ts";
 import { DROPDOWN_CHOICE_CLASS, STAND_IN_COVERS, dropdown, type DropdownItem } from "./panes.ts";
 import { listRows } from "./data.ts";
-import { row, stack, track, type LayoutItem } from "./layout.ts";
+import { row, stack, track, type LayoutItem, stackOfOne } from "./layout.ts";
 
 /*
  * Navigation: the header (a floating slab of glass with the tabs, search and you), the footer, Zaisma's own
@@ -928,23 +928,23 @@ component({
   examples: [
     {
       label: "Down a box",
-      markup: html`<div class="rail-box">${glassPane({ paneWidth: "fit", body: html`<p>${"Wander a forest that grows around you. No combat and no timers: climbing, finding and listening. ".repeat(14)}</p>` })}</div>`,
+      markup: html`<div class="rail-box">${glassPane({ paneWidth: "fit", body: stackOfOne(html`<p>${"Wander a forest that grows around you. No combat and no timers: climbing, finding and listening. ".repeat(14)}</p>`, "words") })}</div>`,
     },
     {
       label: "Sideways, under a box (a table, a chart)",
-      markup: glassPane({ paneWidth: "fit", body: html`<div class="rail-side-box" data-fades-sideways data-side-rail><p>${"Patch notes, 1.4: the second boss telegraphs earlier, the arena's pillars break sooner, and saves sync across devices."}</p></div>` }),
+      markup: glassPane({ paneWidth: "fit", body: stackOfOne(html`<div class="rail-side-box" data-fades-sideways data-side-rail><p>${"Patch notes, 1.4: the second boss telegraphs earlier, the arena's pillars break sooner, and saves sync across devices."}</p></div>`) }),
     },
     {
       label: "Down a box, its parts marked: point at the rail for their names (by touch, drag its thumb; let go near a mark to go there)",
-      markup: html`<div class="rail-box">${glassPane({ paneWidth: "fit", body: html`${["1.4", "1.3", "1.2", "1.1"].map(
+      markup: html`<div class="rail-box">${glassPane({ paneWidth: "fit", body: stackOfOne(html`${["1.4", "1.3", "1.2", "1.1"].map(
         (version) => html`<h3 class="rail-example-part" data-rail-mark="${version}">Version ${version}</h3><p>${"Rebalanced the second boss, sped up loading, and fixed saves that wouldn't sync. ".repeat(3)}</p>`,
-      )}` })}</div>`,
+      )}`) })}</div>`,
     },
     {
       label: "Sideways, its parts marked",
-      markup: glassPane({ paneWidth: "fit", body: html`<div class="rail-side-box" data-fades-sideways data-side-rail><p>${["Monday", "Tuesday", "Wednesday", "Thursday"].map(
+      markup: glassPane({ paneWidth: "fit", body: stackOfOne(html`<div class="rail-side-box" data-fades-sideways data-side-rail><p>${["Monday", "Tuesday", "Wednesday", "Thursday"].map(
         (day) => html`<span data-rail-mark="${day}">${day}: 1,204 players, 3,906 hours. </span>`,
-      )}</p></div>` }),
+      )}</p></div>`) }),
     },
   ],
 });
@@ -953,7 +953,7 @@ component({
 const STAND_IN_COVER_ITEMS: LayoutItem[] = Object.values(STAND_IN_COVERS).map((cover) => ({ kind: "block", markup: cover }));
 /** A shelf of every stand-in game, for its arrows' states. */
 const arrowsShelf = (id: string, title: string, scrolledTo?: "middle" | "end") =>
-  glassPane({ paneWidth: "full", body: shelf({ id, trackId: `${id}-track`, title, items: STAND_IN_COVER_ITEMS, scrolledTo }) });
+  glassPane({ paneWidth: "full", body: stackOfOne(shelf({ id, trackId: `${id}-track`, title, items: STAND_IN_COVER_ITEMS, scrolledTo })) });
 
 component({
   name: "Row arrows",
@@ -1054,19 +1054,19 @@ component({
 `,
   render: shelf,
   examples: [
-    { label: "Popular, its title a link to the whole list", isWide: true, markup: glassPane({ paneWidth: "full", body: shelf({ id: "example-shelf-popular", trackId: "example-shelf-popular-track", title: "Popular", titleHref: "#shelf", items: STAND_IN_COVER_ITEMS }) }) },
+    { label: "Popular, its title a link to the whole list", isWide: true, markup: glassPane({ paneWidth: "full", body: stackOfOne(shelf({ id: "example-shelf-popular", trackId: "example-shelf-popular-track", title: "Popular", titleHref: "#shelf", items: STAND_IN_COVER_ITEMS })) }) },
     {
       label: "Continue playing, with its sort",
       isWide: true,
       markup: glassPane({
         paneWidth: "full",
-        body: shelf({
+        body: stackOfOne(shelf({
           id: "example-shelf-continue",
           trackId: "example-shelf-continue-track",
           title: "Continue playing",
           sortTabs: [{ label: "Recently played", tabValue: "played", isCurrent: true }, { label: "Recently updated", tabValue: "updated", isCurrent: false }],
           items: STAND_IN_COVER_ITEMS.slice(0, 5),
-        }),
+        })),
       }),
     },
     {
@@ -1074,14 +1074,14 @@ component({
       isWide: true,
       markup: glassPane({
         paneWidth: "full",
-        body: shelf({
+        body: stackOfOne(shelf({
           id: "example-shelf-long",
           trackId: "example-shelf-long-track",
           title: "Because you played Ashen Crown",
           titleHref: "#shelf",
           sortTabs: [{ label: "Most players", tabValue: "players", isCurrent: true }, { label: "Newest", tabValue: "newest", isCurrent: false }],
           items: STAND_IN_COVER_ITEMS.slice(2),
-        }),
+        })),
       }),
     },
     {
@@ -1089,7 +1089,7 @@ component({
       isWide: true,
       markup: glassPane({
         paneWidth: "full",
-        body: shelf({ id: "example-shelf-empty", trackId: "example-shelf-empty-track", title: "Continue playing", items: [], emptyText: "Games you play show up here." }),
+        body: stackOfOne(shelf({ id: "example-shelf-empty", trackId: "example-shelf-empty-track", title: "Continue playing", items: [], emptyText: "Games you play show up here." })),
       }),
     },
   ],
@@ -1475,18 +1475,18 @@ component({
 `,
   render: loadMore,
   examples: [
-    { label: "Under a list: try it, to the last page", isWide: true, markup: glassPane({ paneWidth: "full", body: html`${listRows({ whenEmpty: html`<p>No older versions yet.</p>`, id: "example-load-more-list", rows: LOADED_ROWS })}${loadMore({ href: "/design/examples/older-versions?page=2", label: "Show older versions", listId: "example-load-more-list" })}` }) },
+    { label: "Under a list: try it, to the last page", isWide: true, markup: glassPane({ paneWidth: "full", body: stackOfOne(html`${listRows({ whenEmpty: html`<p>No older versions yet.</p>`, id: "example-load-more-list", rows: LOADED_ROWS })}${loadMore({ href: "/design/examples/older-versions?page=2", label: "Show older versions", listId: "example-load-more-list" })}`) }) },
     { label: "Busy", markup: html`<div style="width:min(340px,100%)">${secondaryButton("Show older versions", { href: "#load-more", isFullWidth: true, isBusy: true })}</div>`, isStill: true },
     {
       label: "After a failed load: press it again",
       isWide: true,
       isStill: true,
-      markup: glassPane({ paneWidth: "full", body: html`${listRows({ whenEmpty: html`<p>No older versions yet.</p>`, id: "example-load-failed-list", rows: LOADED_ROWS })}${loadMore({ href: "#load-more", label: "Show older versions", listId: "example-load-failed-list", isFailed: true })}` }),
+      markup: glassPane({ paneWidth: "full", body: stackOfOne(html`${listRows({ whenEmpty: html`<p>No older versions yet.</p>`, id: "example-load-failed-list", rows: LOADED_ROWS })}${loadMore({ href: "#load-more", label: "Show older versions", listId: "example-load-failed-list", isFailed: true })}`) }),
     },
     {
       label: "At the end of the list",
       isWide: true,
-      markup: glassPane({ paneWidth: "full", body: html`${listRows({ whenEmpty: html`<p>No older versions yet.</p>`, id: "example-load-end-list", rows: LOADED_ROWS })}${loadMore({ label: "Show older versions", listId: "example-load-end-list", endText: "That's every version." })}` }),
+      markup: glassPane({ paneWidth: "full", body: stackOfOne(html`${listRows({ whenEmpty: html`<p>No older versions yet.</p>`, id: "example-load-end-list", rows: LOADED_ROWS })}${loadMore({ label: "Show older versions", listId: "example-load-end-list", endText: "That's every version." })}`) }),
     },
   ],
 });

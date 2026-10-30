@@ -1,3 +1,4 @@
+import { stackOfOne } from "./layout.ts";
 import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
 import { CUT_LINE, glassPane } from "./foundations.ts";
@@ -345,6 +346,10 @@ export const MATERIAL_SCRIPT = `/* materials */(function () {
   function fit(box) { box.classList.toggle("fits", box.scrollHeight <= box.clientHeight + 1 && box.scrollWidth <= box.clientWidth + 1); }
   // A floating pane measures its own at once once it's placed and capped, so what's longer than its room never spills for a frame.
   window.zaismaFit = fit;
+  // A sheet (any dialog) measures what scrolls in it as it opens, whoever opens it, so a long one scrolls from its first frame too.
+  if (window.MutationObserver) new MutationObserver(function (changes) {
+    changes.forEach(function (change) { if (change.target.open) change.target.querySelectorAll(".scrolls").forEach(fit); });
+  }).observe(document.documentElement, { subtree: true, attributes: true, attributeFilter: ["open"] });
   window.zaismaWatch.each(".scrolls", function (box) {
     fit(box);
     window.zaismaWatch.size(box, function () { fit(box); });
@@ -401,7 +406,7 @@ const thicknessStrip = (theme: "light" | "dark") =>
 const tintedSample = (theme: "light" | "dark") =>
   html`<div class="glass-strip" data-theme-choice="${theme}" style="background: center / cover no-repeat url('/design/covers/neon-drift.webp'); --glass-hue: #9B4DFF; padding: var(--gap-block-block)">${glassPane({
     paneWidth: "fit",
-    body: html`<h2>Neon Drift</h2>${carving({ body: html`<span class="carving-words">zaisma.com/g/neon-drift</span>` })}<div style="display:flex;gap:var(--gap-control-stack)">${slab({ body: html`Details` })}${slab({ body: html`Play`, isLit: true })}</div>`,
+    body: stackOfOne(html`<h2>Neon Drift</h2>${carving({ body: html`<span class="carving-words">zaisma.com/g/neon-drift</span>` })}<div style="display:flex;gap:var(--gap-control-stack)">${slab({ body: html`Details` })}${slab({ body: html`Play`, isLit: true })}</div>`),
   })}</div>`;
 
 component({
@@ -421,7 +426,7 @@ component({
   ],
 });
 
-const carvingSample = (markup: Raw) => glassPane({ paneWidth: "fit", body: html`<div style="width:300px;max-width:100%">${markup}</div>` });
+const carvingSample = (markup: Raw) => glassPane({ paneWidth: "fit", body: stackOfOne(html`<div style="width:300px;max-width:100%">${markup}</div>`) });
 const carvingWords = (words: string) => html`<span class="carving-words">${words}</span>`;
 
 component({
@@ -462,7 +467,7 @@ component({
     {
       label: "Over what's behind it: the glass under it shows through, the shapes blurred",
       isWide: true,
-      markup: html`<div class="glass-strip"><i></i><i></i><i></i>${glassPane({ paneWidth: "fit", body: html`<div style="display:flex;gap:var(--gap-control-stack)">${slab({ body: html`Details` })}${slab({ body: html`Play`, isLit: true })}</div>` })}</div>`,
+      markup: html`<div class="glass-strip"><i></i><i></i><i></i>${glassPane({ paneWidth: "fit", body: stackOfOne(html`<div style="display:flex;gap:var(--gap-control-stack)">${slab({ body: html`Details` })}${slab({ body: html`Play`, isLit: true })}</div>`) })}</div>`,
     },
     { label: "Lit: the orange one", markup: carvingSample(slab({ body: html`Play`, isLit: true })) },
     { label: "Lit, pointed at", isStill: true, markup: carvingSample(slab({ body: html`Play`, isLit: true, state: "is-pointed" })) },

@@ -5,7 +5,7 @@ import type { Env } from "./env.ts";
 import { backgroundsOfGames, type ShownBackground } from "./backgrounds.ts";
 import { tertiaryButton } from "./components/actions.ts";
 import { glassPane, icon, tag } from "./components/foundations.ts";
-import { row, stack, type LayoutItem } from "./components/layout.ts";
+import { row, stack, type LayoutItem, stackOfOne } from "./components/layout.ts";
 import { shelf } from "./components/navigation.ts";
 import { banner, gameCover, type GameCoverOptions } from "./components/panes.ts";
 import { currentAnnouncement } from "./announcements.ts";
@@ -316,7 +316,7 @@ export async function home(env: Env, request: Request): Promise<Response> {
     ? html`<div id="home-games">${glassPane({
         paneWidth: "full",
         label: "Games",
-        body: html`<h1 class="sr">Games on Zaisma</h1>${stack({
+        body: stackOfOne(html`<h1 class="sr">Games on Zaisma</h1>${stack({
           items: [
             ...newsBanner,
             ...guestBanner,
@@ -326,7 +326,7 @@ export async function home(env: Env, request: Request): Promise<Response> {
             ...(fresh.length ? [homeShelf("new", "New", "new", fresh, !popular.length && !trending.length, ownedGameIds)] : []),
             { kind: "block", markup: row({ widths: "fit", alignment: "center", items: [{ kind: "control", markup: tertiaryButton("All games", { href: "/games" }) }] }) },
           ],
-        })}`,
+        })}`),
       })}</div>`
     : glassPane({ paneWidth: "fit", body: stack({ items: [{ kind: "words", markup: html`<h1>Every kind of game. One link away.</h1>` }, { kind: "words", markup: html`<p>The first games are on their way.</p>` }] }) });
   const response = layout(env, {

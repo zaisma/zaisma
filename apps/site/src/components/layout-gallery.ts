@@ -6,7 +6,7 @@ import { cutField, selectField } from "./inputs.ts";
 import { shelf } from "./navigation.ts";
 import { STAND_IN_COVERS, banner } from "./panes.ts";
 import { table } from "./data.ts";
-import { GRID_STYLES, PAGE_SHAPE_STYLES, PAGE_SHAPES, PANE_PARTS_STYLES, ROW_STYLES, STACK_STYLES, TRACK_STYLES, COLUMNS_STYLES, columns, grid, pageShapeDrawing, paneParts, row, stack, track, type LayoutItem } from "./layout.ts";
+import { GRID_STYLES, PAGE_SHAPE_STYLES, PAGE_SHAPES, PANE_PARTS_STYLES, ROW_STYLES, STACK_STYLES, TRACK_STYLES, COLUMNS_STYLES, columns, grid, pageShapeDrawing, paneParts, row, stack, track, type LayoutItem, stackOfOne } from "./layout.ts";
 
 /*
  * The layout components in the gallery: layout.ts makes them, and this registers them with their examples, since the examples use
@@ -171,7 +171,7 @@ component({
   render: track,
   examples: [
     { label: "Covers in a pane", isWide: true, markup: glassPane({ paneWidth: "full", body: track({ whenEmpty: html`<p>No games here yet.</p>`, id: "example-track", itemSize: "cover", items: covers(["ashen-crown", "neon-drift", "hollow-tide", "verdant", "iron-vigil", "glasswing", "frostline", "kestrel"]) }) }) },
-    { label: "Under a heading with its arrows: a Shelf (Navigation)", isWide: true, markup: glassPane({ paneWidth: "full", body: shelf({ id: "example-track-shelf", trackId: "example-track-shelf-track", title: "New", items: covers(["kestrel", "frostline", "glasswing", "iron-vigil", "verdant"]) }) }) },
+    { label: "Under a heading with its arrows: a Shelf (Navigation)", isWide: true, markup: glassPane({ paneWidth: "full", body: stackOfOne(shelf({ id: "example-track-shelf", trackId: "example-track-shelf-track", title: "New", items: covers(["kestrel", "frostline", "glasswing", "iron-vigil", "verdant"]) })) }) },
   ],
 });
 

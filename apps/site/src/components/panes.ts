@@ -11,7 +11,7 @@ import { STAND_IN_GAME_ICON, STAND_IN_QR_CODE, qrCode } from "./qr-code.ts";
 import { examplePane } from "./example-pane.ts";
 import { lightBox } from "./light-box.ts";
 export { lightBox, type LightBoxOptions } from "./light-box.ts";
-import { grid, paneParts, row, stack, type ControlMarkup, type LayoutItem } from "./layout.ts";
+import { grid, paneParts, row, stack, type ControlMarkup, type LayoutItem, type LayoutMarkup, stackOfOne } from "./layout.ts";
 
 /*
  * Panes: Zaisma's glass as a sheet that holds things (the sign-in's pane), a menu that hangs
@@ -554,7 +554,7 @@ component({
   styles: PANE_STYLES,
   render: glassPane,
   examples: [
-    { label: "Fit: as wide as what's in it", markup: glassPane({ paneWidth: "fit", body: signInBody("example-pane-fit") }), isWide: true },
+    { label: "Fit: as wide as what's in it", markup: glassPane({ paneWidth: "fit", body: stackOfOne(signInBody("example-pane-fit")) }), isWide: true },
     {
       label: "Fit, long words: they run to a reading width, no wider",
       isWide: true,
@@ -861,12 +861,12 @@ component({
   examples: [
     {
       label: "A player's choices",
-      markup: html`<div style="width:320px">${glassPane({ paneWidth: "full", body: menuChoices({ label: "Liam", choices: [{ label: "Profile", icon: "person", href: "#menu-choices" }, { label: "Block", icon: "ban", isButton: true }, { label: "Report", icon: "flag", isButton: true, state: "is-pointed" }] }) })}</div>`,
+      markup: html`<div style="width:320px">${glassPane({ paneWidth: "full", body: stackOfOne(menuChoices({ label: "Liam", choices: [{ label: "Profile", icon: "person", href: "#menu-choices" }, { label: "Block", icon: "ban", isButton: true }, { label: "Report", icon: "flag", isButton: true, state: "is-pointed" }] })) })}</div>`,
     },
     {
       label: "Keyboard focus",
       isStill: true,
-      markup: html`<div style="width:320px">${glassPane({ paneWidth: "full", body: menuChoices({ label: "Sofia", choices: [{ label: "Profile", icon: "person", href: "#menu-choices", state: "is-focused" }, { label: "Block", icon: "ban", isButton: true }, { label: "Report", icon: "flag", isButton: true }] }) })}</div>`,
+      markup: html`<div style="width:320px">${glassPane({ paneWidth: "full", body: stackOfOne(menuChoices({ label: "Sofia", choices: [{ label: "Profile", icon: "person", href: "#menu-choices", state: "is-focused" }, { label: "Block", icon: "ban", isButton: true }, { label: "Report", icon: "flag", isButton: true }] })) })}</div>`,
     },
   ],
 });
@@ -978,7 +978,7 @@ interface SheetBaseOptions {
 interface SheetOfOneOptions extends SheetBaseOptions {
   title: string;
   /** Its words and fields, which scroll between its head and its buttons when they're long. The sheet is one form: it holds none of its own. */
-  body: Raw;
+  body: LayoutMarkup;
   /** Its buttons, at its foot and in view while the body scrolls: the way out first, the one thing to do last (Cancel, Send report). */
   buttons?: ControlMarkup[];
 }
@@ -988,7 +988,7 @@ export interface SheetStep {
   /** What zaismaLayers.step(sheet, stepName) moves to: "players", "player", "report". Its title's id is "{sheet id}-{stepName}-title". */
   stepName: string;
   title: string;
-  body: Raw;
+  body: LayoutMarkup;
   buttons?: ControlMarkup[];
 }
 
@@ -1003,7 +1003,7 @@ export interface SheetTab {
   /** How many things it holds, beside its words in quieter ones ("This room 3"): a list's tab. */
   itemCount?: number;
   tabValue: string;
-  body: Raw;
+  body: LayoutMarkup;
 }
 
 /** A sheet with tabs in its head that swap what's in it (a game's link and its QR code): the first is chosen as it opens. */
@@ -1217,7 +1217,7 @@ ${touchReach(".sheet")}
 const reportBody = (idPrefix: string) =>
   html`${choiceCards({ id: `${idPrefix}-reason`, name: `report_reason_${idPrefix}`, label: "What's wrong", choices: REPORT_REASONS, pickedValue: "broken", isCompact: true })}${longField({ id: `${idPrefix}-details`, name: "report_text", label: "What you saw", rowCount: 3, maximumCharacterCount: 2000 })}`;
 const reportSheet = (id: string, options: { title?: string; isShown?: boolean } = {}) =>
-  sheet({ id, title: options.title ?? "Report Ashen Crown", body: reportBody(id), closeLabel: "Close", action: "#sheet", buttons: [primaryButton("Send report", { type: "submit" })], isShown: options.isShown });
+  sheet({ id, title: options.title ?? "Report Ashen Crown", body: stackOfOne(reportBody(id)), closeLabel: "Close", action: "#sheet", buttons: [primaryButton("Send report", { type: "submit" })], isShown: options.isShown });
 
 component({
   name: "Sheet",
@@ -1238,21 +1238,21 @@ component({
     {
       label: "Sending: its button busy",
       isStill: true,
-      markup: sheet({ id: "example-sheet-busy", title: "Report Ashen Crown", body: longField({ id: "example-sheet-busy-details", name: "report_text", label: "What you saw", rowCount: 3, maximumCharacterCount: 2000, text: "The game asks for my password on its own page, styled like Zaisma's." }), closeLabel: "Close", action: "#sheet", buttons: [primaryButton("Send report", { type: "submit", isBusy: true })], isShown: true }),
+      markup: sheet({ id: "example-sheet-busy", title: "Report Ashen Crown", body: stackOfOne(longField({ id: "example-sheet-busy-details", name: "report_text", label: "What you saw", rowCount: 3, maximumCharacterCount: 2000, text: "The game asks for my password on its own page, styled like Zaisma's." })), closeLabel: "Close", action: "#sheet", buttons: [primaryButton("Send report", { type: "submit", isBusy: true })], isShown: true }),
     },
     {
       label: "A problem: what's wrong, on its field",
       isStill: true,
-      markup: sheet({ id: "example-sheet-problem", title: "Report Ashen Crown", body: longField({ id: "example-sheet-problem-details", name: "report_text", label: "What you saw", rowCount: 3, maximumCharacterCount: 2000, error: "Say what you saw, so a person can find it." }), closeLabel: "Close", action: "#sheet", buttons: [primaryButton("Send report", { type: "submit" })], isShown: true }),
+      markup: sheet({ id: "example-sheet-problem", title: "Report Ashen Crown", body: stackOfOne(longField({ id: "example-sheet-problem-details", name: "report_text", label: "What you saw", rowCount: 3, maximumCharacterCount: 2000, error: "Say what you saw, so a person can find it." })), closeLabel: "Close", action: "#sheet", buttons: [primaryButton("Send report", { type: "submit" })], isShown: true }),
     },
     {
       label: "A long title",
       isStill: true,
-      markup: sheet({ id: "example-sheet-long", title: "Report The Last Lighthouse Keeper: Tides of the Northern Reach", body: longField({ id: "example-sheet-long-details", name: "report_text", label: "What you saw", rowCount: 3, maximumCharacterCount: 2000 }), closeLabel: "Close", action: "#sheet", buttons: [primaryButton("Send report", { type: "submit" })], isShown: true }),
+      markup: sheet({ id: "example-sheet-long", title: "Report The Last Lighthouse Keeper: Tides of the Northern Reach", body: stackOfOne(longField({ id: "example-sheet-long-details", name: "report_text", label: "What you saw", rowCount: 3, maximumCharacterCount: 2000 })), closeLabel: "Close", action: "#sheet", buttons: [primaryButton("Send report", { type: "submit" })], isShown: true }),
     },
     {
       label: "Try it: at the foot, over a running game, which stays in view (a buy sheet)",
-      markup: html`${secondaryButton("Buy the Founder's Pack", { type: "button", controls: "example-sheet-foot" })}${sheet({ id: "example-sheet-foot", title: "Founder's Pack", body: html`<p>The soundtrack, the Ember Keep castle and 1,200 crowns in Ashen Crown, on every device you sign in on.</p>`, closeLabel: "Close", action: "#sheet", placement: "foot", buttons: [secondaryButton("Not now", { type: "submit", formMethod: "dialog" }), primaryButton("Buy for $14.99", { type: "submit" })] })}`,
+      markup: html`${secondaryButton("Buy the Founder's Pack", { type: "button", controls: "example-sheet-foot" })}${sheet({ id: "example-sheet-foot", title: "Founder's Pack", body: stackOfOne(html`<p>The soundtrack, the Ember Keep castle and 1,200 crowns in Ashen Crown, on every device you sign in on.</p>`, "words"), closeLabel: "Close", action: "#sheet", placement: "foot", buttons: [secondaryButton("Not now", { type: "submit", formMethod: "dialog" }), primaryButton("Buy for $14.99", { type: "submit" })] })}`,
     },
     {
       label: "Three ways: Keep closes it, and the other two each send the form to their own place (formAction)",
@@ -1260,7 +1260,7 @@ component({
       markup: sheet({
         id: "example-sheet-two-ways",
         title: "Cancel Zaisma Pro?",
-        body: html`<p>Keep it until Nov 22, or end it now and get your $10 back (until Nov 5).</p>`,
+        body: stackOfOne(html`<p>Keep it until Nov 22, or end it now and get your $10 back (until Nov 5).</p>`, "words"),
         closeLabel: "Close",
         action: "#sheet-cancel",
         buttons: [secondaryButton("Keep Pro", { type: "submit", formMethod: "dialog" }), secondaryButton("End now and refund $10", { type: "submit", formAction: "#sheet-refund" }), primaryButton("Cancel at Nov 22", { type: "submit" })],
@@ -1287,7 +1287,7 @@ component({
           {
             stepName: "players",
             title: "Players · 3",
-            body: listRows({
+            body: stackOfOne(listRows({
               whenEmpty: emptyState({ title: "Nobody here yet", text: "Players show here as they join your room." }),
               label: "In this room",
               isCompact: true,
@@ -1295,14 +1295,14 @@ component({
                 { lead: pictureFrame("Liam", "sm"), title: "Liam", titleIcon: { icon: "friends", label: "Friend" }, action: [toggleButton("Mute Liam", { type: "button", icon: "speaker", isLabelHidden: true, isSmall: true, isPressed: false }), secondaryButton("More for Liam", { type: "button", icon: "more", isLabelHidden: true, isSmall: true, dataAttributes: { "sheet-step-to": "player" } })] },
                 { lead: pictureFrame("Sofia", "sm"), title: "Sofia", action: [toggleButton("Mute Sofia", { type: "button", icon: "speaker-off", isLabelHidden: true, isSmall: true, isPressed: true }), secondaryButton("More for Sofia", { type: "button", icon: "more", isLabelHidden: true, isSmall: true, dataAttributes: { "sheet-step-to": "player" } })] },
               ],
-            }),
+            })),
           },
           {
             stepName: "player",
             title: "Liam",
-            body: menuChoices({ label: "Liam", choices: [{ label: "Profile", icon: "person", href: "#sheet" }, { label: "Block", icon: "ban", isButton: true }, { label: "Report", icon: "flag", isButton: true, dataAttributes: { "sheet-step-to": "report" } }] }),
+            body: stackOfOne(menuChoices({ label: "Liam", choices: [{ label: "Profile", icon: "person", href: "#sheet" }, { label: "Block", icon: "ban", isButton: true }, { label: "Report", icon: "flag", isButton: true, dataAttributes: { "sheet-step-to": "report" } }] })),
           },
-          { stepName: "report", title: "Report Liam", body: reportBody("example-sheet-steps"), buttons: [primaryButton("Send report", { type: "submit" })] },
+          { stepName: "report", title: "Report Liam", body: stackOfOne(reportBody("example-sheet-steps")), buttons: [primaryButton("Send report", { type: "submit" })] },
         ],
       })}`,
     },
@@ -1314,8 +1314,8 @@ component({
         closeLabel: "Close",
         isCompact: true,
         tabs: [
-          { label: "This room", itemCount: 3, tabValue: "room", body: listRows({ isCompact: true, whenEmpty: html`<p>Nobody here yet.</p>`, rows: ["Liam", "Sofia", "Noah"].map((name) => ({ lead: pictureFrame(name, "sm"), title: name })) }) },
-          { label: "Friends", itemCount: 1, tabValue: "friends", body: listRows({ isCompact: true, whenEmpty: html`<p>None of your friends are playing.</p>`, rows: ["Emma"].map((name) => ({ lead: pictureFrame(name, "sm"), title: name, detail: "In Ashen Crown" })) }) },
+          { label: "This room", itemCount: 3, tabValue: "room", body: stackOfOne(listRows({ isCompact: true, whenEmpty: html`<p>Nobody here yet.</p>`, rows: ["Liam", "Sofia", "Noah"].map((name) => ({ lead: pictureFrame(name, "sm"), title: name })) })) },
+          { label: "Friends", itemCount: 1, tabValue: "friends", body: stackOfOne(listRows({ isCompact: true, whenEmpty: html`<p>None of your friends are playing.</p>`, rows: ["Emma"].map((name) => ({ lead: pictureFrame(name, "sm"), title: name, detail: "In Ashen Crown" })) })) },
         ],
       })}`,
     },
@@ -1384,7 +1384,7 @@ export interface StorePanelOptions {
   /** What Close says to a screen reader: "Close". */
   closeLabel: string;
   /** Its item (a Store item) and what the moment adds: the confirm step, the card form, a note. Scrolls between the head and the foot when it's long. */
-  body: Raw;
+  body: LayoutMarkup;
   /** Pinned at its foot while the body scrolls: a stack of controls (the card row, then the buy button). */
   foot: Raw;
   /** Where its form posts when a button sends it. Without one, a button that sends it only closes it. */
@@ -1708,11 +1708,11 @@ export function stepFlow(options: StepFlowOptions): Raw {
   const paneWidth = options.paneWidth ?? "fit";
   if (!isOnPage) {
     const buttons = row({ widths: "equal", items: [...(options.backHref ? [control(secondaryButton("Back", { href: options.backHref }))] : []), control(primaryButton(nextLabel, { type: "submit" }))] });
-    return glassPane({ paneWidth, body: html`${stepLine}<form class="step-form" method="post" action="${options.action}">${options.body ?? ""}${buttons}</form>` });
+    return glassPane({ paneWidth, body: stackOfOne(html`${stepLine}<form class="step-form" method="post" action="${options.action}">${options.body ?? ""}${buttons}</form>`) });
   }
   const bodies = options.steps.map((step, stepIndex) => html`<div class="step-body"${stepIndex === options.currentIndex ? "" : raw(" hidden")}>${step.body ?? ""}</div>`);
   const buttons = row({ widths: "equal", items: [control(secondaryButton("Back", { type: "button", isHidden: options.currentIndex === 0 })), control(primaryButton(nextLabel, { type: "submit" }))] });
-  return glassPane({ paneWidth, body: html`${stepLine}<form class="step-form" method="post" action="${options.action}" data-steps="${options.currentIndex}" data-finish-label="${finishLabel}">${bodies}${buttons}</form>` });
+  return glassPane({ paneWidth, body: stackOfOne(html`${stepLine}<form class="step-form" method="post" action="${options.action}" data-steps="${options.currentIndex}" data-finish-label="${finishLabel}">${bodies}${buttons}</form>`) });
 }
 
 /**
@@ -1845,7 +1845,7 @@ component({
 // data-spacing-show marks the space it's about (GALLERY_SCRIPT draws it): "gap" between the children of what data-spacing-of
 // picks (or of itself), "pad" inside it.
 const spacingExample = (token: string, body: Raw) => html`<div class="spacing-example"><code>${token}</code>${body}</div>`;
-const spacingPane = (body: Raw) => glassPane({ paneWidth: "fit", body });
+const spacingPane = (body: Raw) => glassPane({ paneWidth: "fit", body: stackOfOne(body) });
 component({
   name: "Spacing",
   slug: "spacing",

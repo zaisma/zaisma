@@ -13,7 +13,7 @@ import { pageScript, type PageScript } from "../page-scripts.ts";
 export { ICONS, MARK, WORDMARK, icon, type IconName } from "./icons.ts";
 export { TOKEN_STYLES, cutPolygon } from "./tokens.ts";
 import { cutPolygon } from "./tokens.ts";
-import { paneParts, row, type ControlMarkup } from "./layout.ts";
+import { paneParts, row, type ControlMarkup, type LayoutMarkup, stackOfOne } from "./layout.ts";
 export { GLASS_SCRIPT, WATCH_SCRIPT } from "./glass-script.ts";
 
 /** The backdrop's still: soft light in the theme's colors, shown until a shader draws, wherever WebGL is missing, and while it's lost. */
@@ -38,7 +38,7 @@ export interface GlassPaneOptions {
    * most. A pane never takes a width of its own: one that should take half the screen is a column of a full-width columns layout.
    */
   paneWidth: "full" | "fit";
-  body: Raw;
+  body: LayoutMarkup;
   label?: string;
   /**
    * On a phone the pane starts lower on the screen, so the art behind it shows above it, as a console game hub lets it fill the screen
@@ -139,7 +139,7 @@ export function well(options: WellOptions): Raw {
  * What has an edge sits on it at the frame gap, like a pane's; its words are closer than a pane's (--pad-tray), and its foot's cuts
  * smaller (16 and 12), still a bevel at what sits in its corners.
  */
-export function tray(options: { head: Raw; body: Raw; label?: string; paneWidth?: "full" | "fit" }): Raw {
+export function tray(options: { head: Raw; body: LayoutMarkup; label?: string; paneWidth?: "full" | "fit" }): Raw {
   return html`<section class="tray-group ${options.paneWidth ?? "full"}"${options.label ? html` aria-label="${options.label}"` : ""}><div class="glass tray-head" data-glass data-glass-corners="pane-large pane-small 0 0">${EDGE}${options.head}</div><div class="glass tray" data-glass data-glass-open="top" data-glass-corners="0 0 16 12">${EDGE}${options.body}</div></section>`;
 }
 
@@ -314,7 +314,7 @@ const SWATCHES: { token: string; note: string }[] = [
 ];
 
 const swatches = () =>
-  glassPane({ paneWidth: "full", body: html`<ul class="swatches words-margin round">${SWATCHES.map(({ token, note }) => html`<li><span class="chip-swatch" data-cut-line="10" style="background:var(${token})">${CUT_LINE}</span><code class="words-margin at-end">${token}</code><span class="words-margin at-end">${note}</span></li>`)}</ul>` });
+  glassPane({ paneWidth: "full", body: stackOfOne(html`<ul class="swatches words-margin round">${SWATCHES.map(({ token, note }) => html`<li><span class="chip-swatch" data-cut-line="10" style="background:var(${token})">${CUT_LINE}</span><code class="words-margin at-end">${token}</code><span class="words-margin at-end">${note}</span></li>`)}</ul>`) });
 
 component({
   name: "Color",
@@ -344,7 +344,7 @@ component({
     { label: "Every token", markup: swatches(), isWide: true },
     {
       label: "The divider: a line between two parts of one pane",
-      markup: glassPane({ paneWidth: "fit", body: html`<div class="divider-sample words-margin round"><div><strong>emma_r</strong><span>Online</span></div><p class="hairline-above">Your profile · Friends · Settings</p></div>` }),
+      markup: glassPane({ paneWidth: "fit", body: stackOfOne(html`<div class="divider-sample words-margin round"><div><strong>emma_r</strong><span>Online</span></div><p class="hairline-above">Your profile · Friends · Settings</p></div>`) }),
     },
   ],
 });

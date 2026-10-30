@@ -50,7 +50,7 @@ import { copyField } from "./components/inputs.ts";
 import { cutField } from "./components/fields.ts";
 import { emptyState, glanceFacts, listRows } from "./components/data.ts";
 import { glassPane, tag, type IconName } from "./components/foundations.ts";
-import { grid, row, stack, track, type LayoutItem } from "./components/layout.ts";
+import { grid, row, stack, track, type LayoutItem, stackOfOne } from "./components/layout.ts";
 import { banner, dropdown, sheet } from "./components/panes.ts";
 import { person } from "./components/people.ts";
 import { gameCard, playingBar, playingCard, playingCheck, screenshot, screenshotLarge, urgentCard } from "./components/playing.ts";
@@ -423,7 +423,7 @@ export function gamePageResponse(env: Env, view: GamePageView): Response {
       ? [section("more", `More from ${developer.name}`, [{ kind: "block", markup: grid({ whenEmpty: emptyState({ title: "No other games yet", text: "This is the developer's only game so far." }), itemSize: "cover", items: developerGames.map((otherGame) => ({ kind: "block" as const, markup: gameCard({ title: otherGame.title, imageUrl: otherGame.cover ?? null, href: `/g/${otherGame.slug}`, facts: { playerCount: otherGame.playing_now_player_count >= MINIMUM_PLAYING_NOW_PLAYER_COUNT ? otherGame.playing_now_player_count : undefined, priceText: coverPriceText(otherGame, view.ownedPaidGameIds) } }) })) }) }])]
       : []),
   ];
-  const screenshotSheets = shots.map((shot, shotIndex) => sheet({ id: `screenshot-${shotIndex + 1}`, title: `${game.title}, screenshot ${shotIndex + 1} of ${shots.length}`, body: screenshotLarge(shot, `${game.title}, screenshot ${shotIndex + 1}`), closeLabel: "Close", isPicture: true }));
+  const screenshotSheets = shots.map((shot, shotIndex) => sheet({ id: `screenshot-${shotIndex + 1}`, title: `${game.title}, screenshot ${shotIndex + 1} of ${shots.length}`, body: stackOfOne(screenshotLarge(shot, `${game.title}, screenshot ${shotIndex + 1}`)), closeLabel: "Close", isPicture: true }));
   // Playing: the bar beside the game, and what it opens.
   const barControls = [
     ...(multiplayer ? [secondaryButton("Players", { id: "players-open", type: "button", icon: "people", isLabelHidden: true, isSmall: true, controls: "players", reactionCount: 0 })] : []),
@@ -652,7 +652,7 @@ function termsBody(): Raw {
   const creditDays = CREDIT_LIMITS.refundableDurationDays;
   const proDays = PRO_REFUND_LIMITS.refundableDurationDays;
   const dollarsText = (cents: number) => `$${cents / 100}`;
-  const pane = (label: string, markup: Raw): LayoutItem => ({ kind: "block", markup: glassPane({ paneWidth: "full", label, body: readingText({ markup }) }) });
+  const pane = (label: string, markup: Raw): LayoutItem => ({ kind: "block", markup: glassPane({ paneWidth: "full", label, body: stackOfOne(readingText({ markup }), "words") }) });
   return stack({
     items: [
       pane(
@@ -888,7 +888,7 @@ const DEFAMATION = `
 // Rewritten in a formal register and moved into Glass panes with the terms of service, Oct 29, 2026: the same facts and promises.
 /** The privacy policy, zaisma.com/legal/privacy: concise and formal, in panes like the terms of service. */
 function privacyBody(): Raw {
-  const pane = (label: string, markup: Raw): LayoutItem => ({ kind: "block", markup: glassPane({ paneWidth: "full", label, body: readingText({ markup }) }) });
+  const pane = (label: string, markup: Raw): LayoutItem => ({ kind: "block", markup: glassPane({ paneWidth: "full", label, body: stackOfOne(readingText({ markup }), "words") }) });
   return stack({
     items: [
       pane(

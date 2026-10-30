@@ -1,3 +1,4 @@
+import { stackOfOne } from "./layout.ts";
 import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
 import { CUT_LINE, floatingPane, glassPane, groove, icon, well } from "./foundations.ts";
@@ -330,16 +331,16 @@ component({
 `,
   render: fileDrop,
   examples: [
-    { label: "Waiting for a file", isWide: true, markup: glassPane({ paneWidth: "full", body: fileDrop({ id: "example-drop-rest", name: "build", label: "Drop your game's folder as a .zip", accept: ".zip", hint: BUILD_HINT, maximumByteCount: 500_000_000 }) }) },
-    { label: "A file held over it", isWide: true, markup: glassPane({ paneWidth: "full", body: fileDrop({ id: "example-drop-over", name: "build", label: "Drop your game's folder as a .zip", accept: ".zip", hint: BUILD_HINT, state: "over" }) }) },
+    { label: "Waiting for a file", isWide: true, markup: glassPane({ paneWidth: "full", body: stackOfOne(fileDrop({ id: "example-drop-rest", name: "build", label: "Drop your game's folder as a .zip", accept: ".zip", hint: BUILD_HINT, maximumByteCount: 500_000_000 })) }) },
+    { label: "A file held over it", isWide: true, markup: glassPane({ paneWidth: "full", body: stackOfOne(fileDrop({ id: "example-drop-over", name: "build", label: "Drop your game's folder as a .zip", accept: ".zip", hint: BUILD_HINT, state: "over" })) }) },
     { label: "Several images", markup: examplePane(fileDrop({ id: "example-drop-images", name: "screenshots", label: "Add screenshots", accept: "image/png,image/jpeg,image/webp", isMultiple: true, hint: "PNG, JPEG or WebP, 16:9." })) },
     {
       label: "Picked: each with its picture, its size and Remove; one sent",
       markup: examplePane(fileDrop({ id: "example-drop-picked", name: "screenshots_picked", label: "Add screenshots", accept: "image/png,image/jpeg,image/webp", isMultiple: true, hint: "PNG, JPEG or WebP, 16:9.", pickedFiles: [{ fileName: "ashen-crown-iron-vigil-siege-at-dawn.webp", byteCount: 4_812_000, previewUrl: "/design/covers/kestrel.webp" }, { fileName: "boss-arena.webp", byteCount: 912_000, previewUrl: "/design/covers/verdant.webp" }, { fileName: "night-siege.webp", byteCount: 1_204_000, uploadedByteCount: 1_204_000, previewUrl: "/design/covers/hollow-tide.webp" }] })),
     },
-    { label: "Uploading", isWide: true, markup: glassPane({ paneWidth: "full", body: fileDrop({ id: "example-drop-uploading", name: "build_uploading", label: "Drop your game's folder as a .zip", accept: ".zip", hint: BUILD_HINT, pickedFiles: [{ fileName: "ashen-crown-1.4.2-the-long-night.zip", byteCount: 482_300_000, uploadedByteCount: 211_000_000 }] }) }) },
-    { label: "Too big: refused, in words", isWide: true, markup: glassPane({ paneWidth: "full", body: fileDrop({ id: "example-drop-error", name: "build_error", label: "Drop your game's folder as a .zip", accept: ".zip", hint: BUILD_HINT, maximumByteCount: 500_000_000, error: "ashen-crown-1.4.2-with-cinematics.zip is 1.12\u00a0GB; the most is 500\u00a0MB. The upload command takes bigger builds." }) }) },
-    { label: "Can't take files now", isWide: true, markup: glassPane({ paneWidth: "full", body: fileDrop({ id: "example-drop-disabled", name: "build_disabled", label: "Drop your game's folder as a .zip", accept: ".zip", hint: "You can send another once version 1.4.2 is checked, usually within a minute.", isDisabled: true }) }) },
+    { label: "Uploading", isWide: true, markup: glassPane({ paneWidth: "full", body: stackOfOne(fileDrop({ id: "example-drop-uploading", name: "build_uploading", label: "Drop your game's folder as a .zip", accept: ".zip", hint: BUILD_HINT, pickedFiles: [{ fileName: "ashen-crown-1.4.2-the-long-night.zip", byteCount: 482_300_000, uploadedByteCount: 211_000_000 }] })) }) },
+    { label: "Too big: refused, in words", isWide: true, markup: glassPane({ paneWidth: "full", body: stackOfOne(fileDrop({ id: "example-drop-error", name: "build_error", label: "Drop your game's folder as a .zip", accept: ".zip", hint: BUILD_HINT, maximumByteCount: 500_000_000, error: "ashen-crown-1.4.2-with-cinematics.zip is 1.12\u00a0GB; the most is 500\u00a0MB. The upload command takes bigger builds." })) }) },
+    { label: "Can't take files now", isWide: true, markup: glassPane({ paneWidth: "full", body: stackOfOne(fileDrop({ id: "example-drop-disabled", name: "build_disabled", label: "Drop your game's folder as a .zip", accept: ".zip", hint: "You can send another once version 1.4.2 is checked, usually within a minute.", isDisabled: true })) }) },
   ],
 });
 

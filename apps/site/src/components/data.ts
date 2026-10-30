@@ -3,7 +3,7 @@ import { component } from "./component.ts";
 import { secondaryButton, primaryButton, textLink } from "./actions.ts";
 import type { ControlMarkup } from "./control-markup.ts";
 import { CUT_LINE, MINUTE_MS, ago, glassPane, groove, icon, tag, type IconName, type TagTone } from "./foundations.ts";
-import { WHEN_EMPTY_STYLES, row, stack } from "./layout.ts";
+import { WHEN_EMPTY_STYLES, row, stack, stackOfOne } from "./layout.ts";
 
 /*
  * Data: an account's picture in its cut frame, and the glance list, one line per fact, each in its own look.
@@ -229,7 +229,7 @@ component({
 });
 
 const HOUR_MS = 60 * MINUTE_MS;
-const glancePane = (body: Raw) => glassPane({ paneWidth: "fit", body });
+const glancePane = (body: Raw) => glassPane({ paneWidth: "fit", body: stackOfOne(body, "words") });
 
 component({
   name: "Glance facts",
@@ -318,7 +318,7 @@ const VERSION_LIST_ROWS: ListRow[] = [
   { title: "Version 14", detail: "2 days ago · 312 files · 48.1 MB", href: "#list-rows", end: VERSION_STATE_TAGS.live },
   { title: "Version 13", detail: "5 days ago · 309 files · 47.6 MB", href: "#list-rows", end: VERSION_STATE_TAGS.replaced },
 ];
-const listPane = (rows: ListRow[]) => glassPane({ paneWidth: "fit", body: listRows({ rows, whenEmpty: html`<p>No versions yet.</p>` }) });
+const listPane = (rows: ListRow[]) => glassPane({ paneWidth: "fit", body: stackOfOne(listRows({ rows, whenEmpty: html`<p>No versions yet.</p>` })) });
 const ROW_BUTTON = { type: "button", isSmall: true } as const;
 
 component({
@@ -371,7 +371,7 @@ component({
     { label: "Rows that go somewhere", isWide: true, markup: listPane(VERSION_LIST_ROWS) },
     {
       label: "Compact: a long list in a narrow place, one line a row (the players in a room)",
-      markup: html`<div style="width:320px">${glassPane({ paneWidth: "full", body: listRows({ isCompact: true, whenEmpty: html`<p>Nobody here yet.</p>`, rows: ["Liam", "Sofia", "Emma Charlotte Fairweather-Lindqvist"].map((name, index) => ({ lead: pictureFrame(name, "sm"), title: name, titleIcon: index ? undefined : { icon: "friends" as const, label: "Friend" }, action: [secondaryButton(`Mute ${name}`, { type: "button", icon: "speaker", isLabelHidden: true, isSmall: true }), secondaryButton(`More for ${name}`, { type: "button", icon: "more", isLabelHidden: true, isSmall: true })] })) }) })}</div>`,
+      markup: html`<div style="width:320px">${glassPane({ paneWidth: "full", body: stackOfOne(listRows({ isCompact: true, whenEmpty: html`<p>Nobody here yet.</p>`, rows: ["Liam", "Sofia", "Emma Charlotte Fairweather-Lindqvist"].map((name, index) => ({ lead: pictureFrame(name, "sm"), title: name, titleIcon: index ? undefined : { icon: "friends" as const, label: "Friend" }, action: [secondaryButton(`Mute ${name}`, { type: "button", icon: "speaker", isLabelHidden: true, isSmall: true }), secondaryButton(`More for ${name}`, { type: "button", icon: "more", isLabelHidden: true, isSmall: true })] })) })) })}</div>`,
     },
     { label: "Pointed", markup: listPane([{ title: "Ashen Crown", detail: "Unlisted · 2,318 players this week", href: "#list-rows", state: "is-pointed" }]), isStill: true },
     { label: "Pressed", markup: listPane([{ title: "Ashen Crown", detail: "Unlisted · 2,318 players this week", href: "#list-rows", state: "is-pressed" }]), isStill: true },
@@ -464,8 +464,8 @@ component({
   styles: STATE_STYLES + WHEN_EMPTY_STYLES,
   render: emptyState,
   examples: [
-    { label: "With what starts it", markup: glassPane({ paneWidth: "fit", body: emptyState({ title: "No games yet", text: "Make one from your AI, or upload a folder with an index.html from your terminal.", action: primaryButton("Make a game", { type: "button", isFullWidth: true }) }) }) },
-    { label: "Words alone", markup: glassPane({ paneWidth: "fit", body: emptyState({ title: "No friends playing", text: "When a friend plays something, it shows here." }) }) },
+    { label: "With what starts it", markup: glassPane({ paneWidth: "fit", body: stackOfOne(emptyState({ title: "No games yet", text: "Make one from your AI, or upload a folder with an index.html from your terminal.", action: primaryButton("Make a game", { type: "button", isFullWidth: true }) })) }) },
+    { label: "Words alone", markup: glassPane({ paneWidth: "fit", body: stackOfOne(emptyState({ title: "No friends playing", text: "When a friend plays something, it shows here." })) }) },
   ],
 });
 
@@ -483,8 +483,8 @@ component({
   styles: "",
   render: problemState,
   examples: [
-    { label: "With what to do", markup: glassPane({ paneWidth: "fit", body: problemState({ title: "Couldn't load your versions", text: "Zaisma didn't answer in time. Nothing is lost.", action: secondaryButton("Try again", { type: "button", isFullWidth: true }) }) }) },
-    { label: "Words alone", markup: glassPane({ paneWidth: "fit", body: problemState({ title: "This game isn't shown where you are", text: "Its developer keeps it from players in your country." }) }) },
+    { label: "With what to do", markup: glassPane({ paneWidth: "fit", body: stackOfOne(problemState({ title: "Couldn't load your versions", text: "Zaisma didn't answer in time. Nothing is lost.", action: secondaryButton("Try again", { type: "button", isFullWidth: true }) })) }) },
+    { label: "Words alone", markup: glassPane({ paneWidth: "fit", body: stackOfOne(problemState({ title: "This game isn't shown where you are", text: "Its developer keeps it from players in your country." })) }) },
   ],
 });
 
@@ -502,8 +502,8 @@ component({
   styles: "",
   render: doneState,
   examples: [
-    { label: "With the way on", markup: glassPane({ paneWidth: "fit", body: doneState({ title: "Report sent", text: "Zaisma looks at it within a day and tells you what it did.", action: secondaryButton("Close", { type: "button", isFullWidth: true }) }) }) },
-    { label: "Words alone", markup: glassPane({ paneWidth: "fit", body: doneState({ title: "Version 15 is live", text: "Players get it the next time they open the game." }) }) },
+    { label: "With the way on", markup: glassPane({ paneWidth: "fit", body: stackOfOne(doneState({ title: "Report sent", text: "Zaisma looks at it within a day and tells you what it did.", action: secondaryButton("Close", { type: "button", isFullWidth: true }) })) }) },
+    { label: "Words alone", markup: glassPane({ paneWidth: "fit", body: stackOfOne(doneState({ title: "Version 15 is live", text: "Players get it the next time they open the game." })) }) },
   ],
 });
 
@@ -529,7 +529,7 @@ component({
 @media (prefers-reduced-motion: reduce) { .loading-line::after { animation: none; transform: translateX(75%); } }
 `,
   render: loadingState,
-  examples: [{ label: "Loading", markup: glassPane({ paneWidth: "fit", body: loadingState({ label: "Getting your versions" }) }) }],
+  examples: [{ label: "Loading", markup: glassPane({ paneWidth: "fit", body: stackOfOne(loadingState({ label: "Getting your versions" })) }) }],
 });
 
 export interface TableColumn {
@@ -612,7 +612,7 @@ const REQUEST_ROWS: (Raw | string)[][] = Array.from({ length: 30 }, (_, rowIndex
   const clock = [Math.floor(secondCount / 3600), Math.floor(secondCount / 60) % 60, secondCount % 60].map((clockPartNumber) => String(clockPartNumber).padStart(2, "0")).join(":");
   return [clock, html`<code>${REQUEST_ROUTES[rowIndex % REQUEST_ROUTES.length]}</code>`, rowIndex % 9 === 2 ? "409" : rowIndex % 11 === 4 ? "429" : "200", `${(rowIndex * 7) % 40 + 2} ms`];
 });
-const tablePane = (options: Omit<TableOptions, "whenEmpty">) => glassPane({ paneWidth: "full", body: table({ whenEmpty: emptyState({ title: "No rows yet", text: "Rows show here as they come." }), ...options }) });
+const tablePane = (options: Omit<TableOptions, "whenEmpty">) => glassPane({ paneWidth: "full", body: stackOfOne(table({ whenEmpty: emptyState({ title: "No rows yet", text: "Rows show here as they come." }), ...options })) });
 
 component({
   name: "Table",
@@ -772,22 +772,22 @@ component({
     {
       label: "This week",
       isWide: true,
-      markup: glassPane({ paneWidth: "full", body: numbers({ items: [
+      markup: glassPane({ paneWidth: "full", body: stackOfOne(numbers({ items: [
         { label: "Players", figure: "1,284", change: "+18% on last week", isChangeGood: true },
         { label: "Hours played", figure: "3,906", unit: "hours", change: "+6% on last week", isChangeGood: true },
         { label: "Plays", figure: "9,412", change: "−3% on last week" },
         { label: "Stored", figure: "48.1", unit: "MB" },
-      ] }) }),
+      ] }), "words") }),
     },
     {
       label: "In the millions",
       isWide: true,
-      markup: glassPane({ paneWidth: "full", body: numbers({ items: [
+      markup: glassPane({ paneWidth: "full", body: stackOfOne(numbers({ items: [
         { label: "Players all time", figure: "12,480,915", change: "+4% on last month", isChangeGood: true },
         { label: "Hours played", figure: "1,906,442", unit: "hours", change: "+9% on last month", isChangeGood: true },
         { label: "Plays", figure: "38,204,117" },
         { label: "Stored", figure: "4.8", unit: "GB" },
-      ] }) }),
+      ] }), "words") }),
     },
   ],
 });
@@ -1124,7 +1124,7 @@ export function usageMeter(options: UsageMeterOptions): Raw {
   return html`<div class="usage${tone}"><span class="usage-label words-margin">${isAllUsed ? icon("warning") : ""}${options.label}</span><p class="usage-numbers words-margin"><span class="usage-fact">${options.shownWords ?? html`${chartWords(options.usedNumber)} of ${chartWords(options.limitNumber)}\u00a0${options.unit}`}${isAllUsed ? html`<b>${allUsedWords}</b>` : ""}${resetWords ? "\u00a0·" : ""}</span>${resetWords ? html` <span class="usage-fact">${resetWords}</span>` : ""}</p>${usageKey(options)}${meterTrack(options, sharePct)}</div>`;
 }
 
-const meterPane = (options: UsageMeterOptions) => glassPane({ paneWidth: "fit", body: usageMeter(options) });
+const meterPane = (options: UsageMeterOptions) => glassPane({ paneWidth: "fit", body: stackOfOne(usageMeter(options)) });
 
 component({
   name: "Usage meter",
@@ -1199,10 +1199,10 @@ component({
       label: "Split by what used it, its key under the track, in a list row whose lines say the numbers",
       markup: glassPane({
         paneWidth: "fit",
-        body: listRows({
+        body: stackOfOne(listRows({
           whenEmpty: html``,
           rows: [{ title: "Starfall", detail: "62% of this month's free hosting · Resets Nov 1", meter: { label: "Starfall", usedNumber: 62, limitNumber: 100, unit: "%", parts: [{ label: "Rooms", sharePct: 48, partColorIndex: 0 }, { label: "Game server", sharePct: 27, partColorIndex: 1 }, { label: "Database", sharePct: 15, partColorIndex: 3 }, { label: "Requests", sharePct: 10, partColorIndex: 4 }] } }],
-        }),
+        })),
       }),
     },
   ],

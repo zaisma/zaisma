@@ -1,3 +1,4 @@
+import { stackOfOne } from "../../apps/site/src/components/layout.ts";
 import { createExecutionContext, env, SELF } from "cloudflare:test";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { MAXIMUM_OPEN_FRIEND_INVITE_COUNT, addCreditEntry, accountById, stopSocial, addTesterLink, friendsNowOf, blocksOf, playerProfile, playingNowOf, ageBand, ageOn, applyBirthdays, canonicalSave, saveFromParts, checkUsername, createAccount, createApiKey, deleteExpiredFriendInvites, friendInviteByCode, friendInvitesOf, friendsOf, gameById, gameBySlug, gameOwner, recordPlayed, createGame, unversionedSaveKey, sha256Hex, createReport, createVersion, isSlugRetired, newId, personOwner, queueGameDeletion, saveCopyKey, saveScan } from "@zaisma/core";
@@ -1573,7 +1574,7 @@ describe("friends", () => {
   });
 
   it("builds the Players and Block sheets from gallery components only, their row templates too: Players, a player and Report are steps of one sheet", () => {
-    const reportStep = { stepName: "report", title: "Report Arena", body: html`<p>What's wrong</p>` };
+    const reportStep = { stepName: "report", title: "Report Arena", body: stackOfOne(html`<p>What's wrong</p>`, "words") };
     const players = playersSheet({ gameOrigin: "https://games.zaisma.test", slug: "arena-game", title: "Arena", hasZaismaRooms: true, canSignIn: true, signInPath: "/signin", reportStep }).html;
     expect(players.match(/<dialog /g)).toHaveLength(1);
     for (const stepName of ["players", "player", "report"]) expect(players).toContain(`data-sheet-step="${stepName}"`);

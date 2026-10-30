@@ -1,3 +1,4 @@
+import { stackOfOne } from "./layout.ts";
 import { html } from "../markup.ts";
 import { notice } from "./panes.ts";
 import { playingCard, urgentCard } from "./playing.ts";
@@ -26,7 +27,7 @@ const TEMPLATES = {
   done: notice({ text: "", tone: "done" }).html,
   undo: notice({ text: "", tone: "done", undoAction: "#" }).html,
   problem: notice({ text: "", tone: "problem" }).html,
-  card: playingCard({ id: "layer-card", body: html`<p></p>` }).html,
+  card: playingCard({ id: "layer-card", body: stackOfOne(html`<p></p>`, "words") }).html,
   urgent: urgentCard({ id: "layer-urgent", title: "", text: "" }).html,
 };
 

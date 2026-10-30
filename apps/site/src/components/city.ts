@@ -4,7 +4,7 @@ import { component } from "./component.ts";
 import { glassPane } from "./foundations.ts";
 import { primaryButton } from "./actions.ts";
 import { rail } from "./navigation.ts";
-import { stack } from "./layout.ts";
+import { stack, stackOfOne } from "./layout.ts";
 import { cutPolygon } from "./tokens.ts";
 
 /*
@@ -56,7 +56,7 @@ export interface CityPaneOptions {
  * places it (on the right under the header on a wide screen, low and full width on a phone), and the page's rail.
  */
 export function cityPane(options: CityPaneOptions): Raw {
-  return html`<div class="city-page">${options.header}<div class="city-pane" data-city-pane>${glassPane({ paneWidth: "full", label: options.label, body: options.body })}</div>${rail("page")}
+  return html`<div class="city-page">${options.header}<div class="city-pane" data-city-pane>${glassPane({ paneWidth: "full", label: options.label, body: stackOfOne(options.body) })}</div>${rail("page")}
 ${options.after ?? ""}</div>`;
 }
 

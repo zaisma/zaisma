@@ -1,5 +1,6 @@
 // The markup primitives come first, so the components this module imports find them ready (markup.ts).
 export { Raw, accountPicture, esc, html, raw, shownAddress, shownColor } from "./markup.ts";
+import { stackOfOne } from "./components/layout.ts";
 import { Raw, esc, html, raw } from "./markup.ts";
 import { PRESENCE_CHECK_IN_MS, describePlayModes, type PlayMode } from "@zaisma/core";
 import { gameFrameSource, type Env } from "./env.ts";
@@ -766,7 +767,7 @@ export function message(env: Env, title: string, text: string, httpStatus = 200)
 /** The same, in Zaisma's look: a pane of glass on the page, for a page already rebuilt in it (the connect and Sign in with Zaisma pages). */
 export function glassMessage(env: Env, title: string, text: string, httpStatus = 200): Response {
   // The gallery's problem state says it; the page's heading is for screen readers, since the state's title is its words.
-  const body = glassPane({ paneWidth: "fit", body: html`<h1 class="sr">${title}</h1>${problemState({ title, text, action: primaryButton("Back to games", { href: "/", isFullWidth: true }) })}` });
+  const body = glassPane({ paneWidth: "fit", body: stackOfOne(html`<h1 class="sr">${title}</h1>${problemState({ title, text, action: primaryButton("Back to games", { href: "/", isFullWidth: true }) })}`) });
   const response = layout(env, { title, body, checkedPage: "A message", pageShape: "reading" });
   return new Response(response.body, { status: httpStatus, headers: response.headers });
 }

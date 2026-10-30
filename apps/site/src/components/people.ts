@@ -4,7 +4,7 @@ import type { ControlMarkup } from "./control-markup.ts";
 import { secondaryButton, tertiaryButton, textLink } from "./actions.ts";
 import { ago, glassPane, tag } from "./foundations.ts";
 import { pictureFrame } from "./data.ts";
-import { row, stack } from "./layout.ts";
+import { row, stack, stackOfOne } from "./layout.ts";
 import { readingText } from "./reading.ts";
 
 /*
@@ -91,9 +91,9 @@ component({
 `,
   render: person,
   examples: [
-    { label: "A game's developer", markup: glassPane({ paneWidth: "fit", body: person({ username: "lumen_works", href: "#person", note: "12 games on Zaisma" }) }) },
-    { label: "A friend in a room, with Join", markup: glassPane({ paneWidth: "fit", body: person({ username: "Liam", href: "#person", pictureSize: "sm", presence: "playing", note: "Playing Ashen Crown", end: secondaryButton("Join", { type: "button", isSmall: true }) }) }) },
-    { label: "A long username, with a mark", markup: glassPane({ paneWidth: "fit", body: person({ username: "the_longest_username_allowed", href: "#person", note: "Played 2,140 hours", marks: tag("Developer", "plain") }) }) },
+    { label: "A game's developer", markup: glassPane({ paneWidth: "fit", body: stackOfOne(person({ username: "lumen_works", href: "#person", note: "12 games on Zaisma" }), "words") }) },
+    { label: "A friend in a room, with Join", markup: glassPane({ paneWidth: "fit", body: stackOfOne(person({ username: "Liam", href: "#person", pictureSize: "sm", presence: "playing", note: "Playing Ashen Crown", end: secondaryButton("Join", { type: "button", isSmall: true }) }), "words") }) },
+    { label: "A long username, with a mark", markup: glassPane({ paneWidth: "fit", body: stackOfOne(person({ username: "the_longest_username_allowed", href: "#person", note: "Played 2,140 hours", marks: tag("Developer", "plain") }), "words") }) },
   ],
 });
 
@@ -115,7 +115,7 @@ component({
       isWide: true,
       markup: glassPane({
         paneWidth: "full",
-        body: posts({
+        body: stackOfOne(posts({
           label: "Replies",
           posts: [
             {
@@ -132,7 +132,7 @@ component({
               actions: [tertiaryButton("Reply", { type: "button", icon: "reply" })],
             },
           ],
-        }),
+        }), "words"),
       }),
     },
   ],
