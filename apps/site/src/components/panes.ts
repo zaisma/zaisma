@@ -862,9 +862,12 @@ component({
       markup: html`<div class="dropdown-try">${secondaryButton("Your account", { type: "button", controls: "example-menu-try", isExpanded: false })}${dropdown({ id: "example-menu-try", label: "Your account", head: { title: "emma_r", note: "Online" }, items: ACCOUNT_ITEMS })}</div>`,
     },
     {
-      label: "Over a game's world: one open, one to try",
+      label: "Over a game's world, on a pane: Your account open, Sort to try",
       isWide: true,
-      markup: html`<div class="backdrop-frame holds-menus">${backdrop({ isFramed: true, standInSlug: "neon-drift", isGlassAdaptive: true })}<div class="dropdown-try">${secondaryButton("Sort", { type: "button", controls: "example-menu-world-try", isExpanded: false })}${dropdown({ id: "example-menu-world-try", label: "Sort games", items: [{ label: "Most played", href: "#dropdown", isCurrent: true }, { label: "Newest", href: "#dropdown" }, { label: "Recently updated", href: "#dropdown" }] })}</div>${dropdownFrame("Your account", { id: "example-menu-world", label: "Your account", head: { title: "emma_r", note: "Online" }, items: ACCOUNT_ITEMS })}</div>`,
+      markup: html`<div class="backdrop-frame holds-menus">${backdrop({ isFramed: true, standInSlug: "neon-drift", isGlassAdaptive: true })}<div class="dropdown-frame">${glassPane({
+        paneWidth: "full",
+        body: row({ widths: "fit", items: [control(secondaryButton("Sort", { type: "button", controls: "example-menu-world-try", isExpanded: false })), control(secondaryButton("Your account", { type: "button", controls: "example-menu-world", isExpanded: true }))] }),
+      })}${dropdown({ id: "example-menu-world-try", label: "Sort games", items: [{ label: "Most played", href: "#dropdown", isCurrent: true }, { label: "Newest", href: "#dropdown" }, { label: "Recently updated", href: "#dropdown" }] })}${dropdown({ id: "example-menu-world", label: "Your account", head: { title: "emma_r", note: "Online" }, items: ACCOUNT_ITEMS, isOpen: true })}</div></div>`,
     },
     { label: "Your account, from its button", markup: dropdownFrame("Your account", { id: "example-menu-account", label: "Your account", head: { title: "emma_r", note: "Online" }, items: ACCOUNT_ITEMS }) },
     {
