@@ -327,6 +327,8 @@ export const PLACE_SCRIPT = `/* place */(function () {
         // The page's own light or dark, and the hue of the glass where it hangs, which it no longer inherits.
         var home = options.home || anchorNow() || document.body, themed = home.closest("[data-theme-choice]");
         if (themed && themed !== document.documentElement) pane.setAttribute("data-theme-choice", themed.getAttribute("data-theme-choice")); else pane.removeAttribute("data-theme-choice");
+        // Smoked where it hangs (over a game's world that took smoked glass), as it is now, not as it was when the page loaded.
+        pane.classList.toggle("smoke", Boolean(home.closest(".smoke")));
         pane.style.setProperty("--glass-hue", getComputedStyle(home).getPropertyValue("--glass-hue"));
         // A browser that can't fade it in by itself (Safari, no overlay) shows it from its closed look, then lets it arrive.
         if (isMovedByScript) { window.zaismaCast(pane); clearTimeout(pane.leaveTimer); [pane, pane.floatCast].forEach(function (one) { one.classList.remove("is-leaving"); one.classList.add("is-arriving"); }); }
