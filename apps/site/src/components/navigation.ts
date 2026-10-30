@@ -365,7 +365,7 @@ export const RAIL_SCRIPT = `/* rail */(function () {
     if (!isPage && parts.length) scroller.setAttribute("data-rail-marks-own", "");
     // The one name that rides beside the thumb while it's dragged.
     var riding = null;
-    if (parts.length) { riding = document.createElement("span"); riding.className = "tag rail-name rail-riding"; bar.appendChild(riding); }
+    if (parts.length) { riding = document.createElement("span"); riding.className = "tag rail-name rail-riding"; riding.setAttribute("data-cut-line", "0"); riding.appendChild(document.createElement("span")); bar.appendChild(riding); }
     // Where a part sits along the box (or the page), from its start, as the box would scroll to show it.
     function spot(part, scrollPadding) {
       if (isPage) return part.getBoundingClientRect().top + window.scrollY - (scrollPadding === undefined ? offset() : scrollPadding);
@@ -374,7 +374,7 @@ export const RAIL_SCRIPT = `/* rail */(function () {
     }
     var marks = parts.map(function (part) {
       var mark = document.createElement("button"), name = document.createElement("span");
-      mark.type = "button"; mark.className = "rail-mark"; mark.tabIndex = -1; name.className = "tag rail-name"; name.textContent = part.getAttribute("data-rail-mark");
+      mark.type = "button"; mark.className = "rail-mark"; mark.tabIndex = -1; name.className = "tag rail-name"; name.setAttribute("data-cut-line", "0"); name.appendChild(document.createElement("span")).textContent = part.getAttribute("data-rail-mark");
       mark.appendChild(name); bar.appendChild(mark);
       mark.addEventListener("click", function () {
         // A press on the thumb where a mark lies over it took the thumb, not the mark.
@@ -578,7 +578,8 @@ export const RAIL_SCRIPT = `/* rail */(function () {
       var middle = size.start + (size.track - size.thumb) * Math.min(1, at() / size.max) + size.thumb / 2, best = null;
       var view = isPage ? { start: 0, size: window.innerHeight } : (function (r) { return { start: isSide ? r.left : r.top, size: isSide ? r.width : r.height }; })(scroller.getBoundingClientRect());
       marks.forEach(function (m) { if (m.mark.hidden) return; var r = m.part.getBoundingClientRect(); if (!best || (isSide ? r.left : r.top) - view.start <= view.size / 3) best = m; });
-      if (best && riding.textContent !== best.name.textContent) riding.textContent = best.name.textContent;
+      // Only its words change, never its rim (the edge rule's line beside them).
+      if (best && riding.lastChild.textContent !== best.name.textContent) riding.lastChild.textContent = best.name.textContent;
       riding.style.setProperty("--riding-at", middle.toFixed(1) + "px");
     }
     bar.addEventListener("pointermove", near);
@@ -935,18 +936,18 @@ component({
 /* A name sits on a small slab (materials.ts) against the channel. Pointing at a mark (where a click goes to its part), its name slides out
    from under the channel by it; dragging, one name rides beside the thumb (.rail-riding), only its words changing as it passes a part, so
    nothing slides in and out mid-drag. */
-.rail-mark span, .rail-riding { position: absolute; right: 15px; pointer-events: none; opacity: 0; visibility: hidden; translate: 6px 0;
+.rail-mark > span, .rail-riding { position: absolute; right: 15px; pointer-events: none; opacity: 0; visibility: hidden; translate: 6px 0;
   transition: opacity var(--motion-state) ease-out, translate var(--motion-state) ease-out, visibility 0s var(--motion-state); }
-.rail-mark span { top: 50%; transform: translate(0, calc(-50% + var(--label-shift, 0px))); }
+.rail-mark > span { top: 50%; transform: translate(0, calc(-50% + var(--label-shift, 0px))); }
 .rail-riding { top: var(--riding-at, 0px); transform: translateY(-50%); white-space: nowrap; }
-.rail:not(.dragging) .rail-mark:hover span, .rail.dragging .rail-riding { opacity: 1; visibility: visible; translate: 0 0; transition: opacity var(--motion-state) ease-out, translate var(--motion-state) ease-out, visibility 0s; }
+.rail:not(.dragging) .rail-mark:hover > span, .rail.dragging .rail-riding { opacity: 1; visibility: visible; translate: 0 0; transition: opacity var(--motion-state) ease-out, translate var(--motion-state) ease-out, visibility 0s; }
 /* Along a sideways rail, a mark is a short upright tick across the channel, and its name slides up out of it, above it. */
 .rail.sideways .rail-mark { left: auto; top: -10px; width: 24px; height: 26px; margin: 0 0 0 -12px; }
 .rail.sideways .rail-mark::before { left: 11.5px; right: auto; top: 18px; bottom: 2px; width: 1px; height: auto; }
-.rail.sideways .rail-mark span, .rail.sideways .rail-riding { right: auto; translate: 0 6px; }
-.rail.sideways .rail-mark span { top: auto; left: 50%; bottom: 17px; transform: translateX(calc(-50% + var(--label-shift, 0px))); }
+.rail.sideways .rail-mark > span, .rail.sideways .rail-riding { right: auto; translate: 0 6px; }
+.rail.sideways .rail-mark > span { top: auto; left: 50%; bottom: 17px; transform: translateX(calc(-50% + var(--label-shift, 0px))); }
 .rail.sideways .rail-riding { top: auto; bottom: 17px; left: var(--riding-at, 0px); transform: translateX(-50%); }
-.rail.sideways:not(.dragging) .rail-mark:hover span, .rail.sideways.dragging .rail-riding { translate: 0 0; }
+.rail.sideways:not(.dragging) .rail-mark:hover > span, .rail.sideways.dragging .rail-riding { translate: 0 0; }
 /* In the narrow layout (a phone, or a small window), the page's rail starts below the header. */
 @media (max-width: 760px) {
   .rail[data-rail="page"] { top: 132px; bottom: 10px; }
@@ -960,7 +961,7 @@ component({
    names and full ticks show only while a finger drags the thumb, wiping open and shut with the drag, never on a tap's leftover hover. */
 @media (hover: none) {
   .rail .rail-mark { pointer-events: none; }
-  .rail .rail-mark span { display: none; }
+  .rail .rail-mark > span { display: none; }
 }
 `,
   render: rail,

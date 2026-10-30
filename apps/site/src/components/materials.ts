@@ -195,8 +195,11 @@ span.hairline { flex: 1; border-top: var(--divider); }
 .rail.sideways .rail-thumb { right: auto; bottom: 0; }
 .rail.dragging .rail-groove { filter: var(--thumb-cast-pressed); }
 .rail.dragging .rail-thumb { box-shadow: var(--press-shade), inset 0 -1px 0 var(--raise-bottom); }
-/* A mark's name is on a small slab of the same glass, over a dense backing so the words under it don't show through. */
-.rail-name { background: var(--slab-sheen), linear-gradient(var(--slab-face), var(--slab-face)), var(--table-row-head); color: var(--ink); box-shadow: inset 0 -1px 0 var(--edge-shade); }
+/* A mark's name is on a small slab of the same glass, over a dense backing so the words under it don't show through: cut by the edge rule
+   (data-cut-line) and rimmed as every slab is, lit along its top. */
+.tag.rail-name { background: var(--slab-sheen), linear-gradient(var(--slab-face), var(--slab-face)), var(--table-row-head); color: var(--ink); clip-path: var(--cut-shape); }
+.rail-name > .cut-line { --band-top: var(--raise-top); --band-left: var(--raise-left); --band-right: var(--raise-right); --band-bottom: var(--raise-bottom); }
+.rail-name > :not(.cut-line) { position: relative; z-index: 2; }
 .carving, .floating-pane, .glass-pane.compact { --rail-inset: var(--pad-frame-compact); }
 /* A rail's mark is etched across its groove's floor: a hairline catching the light, shaded under its lip. Pointed at, it runs orange. */
 .rail-mark::before { --face-color: var(--rail-etch); background: var(--face-color); box-shadow: 0 1px 0 var(--rail-etch-shade); transition: --face-color var(--motion-state); }
