@@ -237,7 +237,8 @@ component({
 .confirm-body { text-align: center; }
 .confirm-face { display: flex; flex-direction: column; align-items: center; gap: var(--gap-words-control); }
 .confirm-face-mark { display: none; }
-.confirm-face[data-method="purchase_pin"] [data-face-method="purchase_pin"], .confirm-face[data-method="password"] [data-face-method="password"], .confirm-face[data-method="passkey"] [data-face-method="passkey"] { display: flex; }
+/* On a short screen (a phone on its side), the title, words and PIN take the room the mark would. */
+@media not (max-height: 30em) { .confirm-face[data-method="purchase_pin"] [data-face-method="purchase_pin"], .confirm-face[data-method="password"] [data-face-method="password"], .confirm-face[data-method="passkey"] [data-face-method="passkey"] { display: flex; } }
 .confirm-body .pin-field { align-items: center; }
 .confirm-body .cut-field { text-align: start; }
 `,

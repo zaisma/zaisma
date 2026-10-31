@@ -1478,7 +1478,7 @@ component({
 .sheet.store-panel { width: min(var(--size-store-panel), calc(100% - 2 * var(--gap-control-stack))); max-width: none; }
 .sheet.store-panel.in-place { width: min(var(--size-store-panel), 100%); }
 /* Its head: over a game, the cover small beside the item's name and what it is; on a page, the name and its price, the cover large under them. */
-.store-head { display: flex; align-items: center; gap: var(--gap-words-beside-control); min-width: 0; }
+.store-head { display: flex; align-items: flex-start; gap: var(--gap-words-beside-control); min-width: 0; }
 .store-head-words { display: flex; flex-direction: column; gap: var(--gap-words-words); min-width: 0; }
 .store-head .sheet-title { overflow-wrap: anywhere; text-wrap: balance; }
 .store-subline { margin: 0; font: var(--type-note); color: var(--ink-2); }

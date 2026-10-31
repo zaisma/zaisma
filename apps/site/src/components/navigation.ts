@@ -71,7 +71,7 @@ export function header(options: HeaderOptions): Raw {
   const signIn = options.hasPageRunner ? secondaryButton("Sign in", { href: "/signin" }) : primaryButton("Sign in", { href: "/signin" });
   return html`<header class="top bar-layout glass glass-bar pinned${states}" id="${id}" data-compacts data-glass data-glass-corners="header"${options.isCompact ? raw(" data-stays-compact") : ""}>${EDGE}
   ${options.sidebarButton ?? ""}${wordmark}
-  ${options.isOnSignInPage ? "" : html`<nav class="nav" aria-label="Main"${hasTabRow ? "" : raw(" hidden")}>${tabSwitch({ label: "Where you are", switchSize: "big", isFull: true, tabs })}</nav>`}
+  ${options.isOnSignInPage ? "" : html`<nav class="nav" aria-label="Main"${hasTabRow ? "" : raw(" hidden")}>${tabSwitch({ label: "Where you are", switchSize: "regular", isFull: true, tabs })}</nav>`}
   ${options.search ? html`${searchField({ ...options.search, id: options.search.id ?? `${id}-find` })}${secondaryButton(options.search.label, { type: "button", icon: "search", isLabelHidden: true, isSmall: true, isExpanded: Boolean(options.isSearchOpen) })}` : ""}
   ${options.isOnSignInPage ? "" : html`<div class="end">${
     account ? accountButton({ username: account.username, menuId, isMenuOpen: options.isMenuOpen }) : signIn
@@ -147,8 +147,9 @@ const HEADER_STYLES = `
 .nav { display: flex; flex: none; min-width: 0; }
 .top .nav[hidden] { display: none; }
 .nav > .switch-well { flex: 1; }
-/* The header's tabs are a regular control's height, as the search and the account button beside them: no row sets their well's, so it's set here. */
-.top .nav .switch-well { --control-height: var(--control-height-regular); }
+/* The sidebar button at the header's start is a regular control's height, as the tabs, the search and the account button beside it, so it
+   sits at the frame gap with them; on phones it's small with the first row. */
+.top > .cut-btn[data-sidebar-button] { --control-height: var(--control-height-regular); }
 
 .end { display: flex; align-items: center; flex: none; }
 
@@ -185,7 +186,7 @@ const HEADER_STYLES = `
   .top .nav, .top.is-compact .nav { order: 4; flex-basis: 100%; }
   /* The first row is small controls, so it shares Zaisma, search and Sign in or you on the narrowest phones; Sign in is the compact runner, or
      a small secondary button beside the page's own runner. */
-  .top .end > .run-wrap > .run, .top .end > .cut-btn { --control-height: var(--control-height-small); }
+  .top .end > .run-wrap > .run, .top .end > .cut-btn, .top > .cut-btn[data-sidebar-button] { --control-height: var(--control-height-small); }
   .top .end .run { --slab-words: 15px; font-size: 0.875rem; gap: 6px; }
   /* The picture is as tall as the search button beside it, at rest or compact. */
   .top .me, .top.is-compact .me { --control-height: var(--control-height-small); }
@@ -350,6 +351,8 @@ export const RAIL_SCRIPT = `/* rail */(function () {
     // The groove sits 2px inside the channel, so its slanted ends lie 2px in from the channel's: the thumb stops this far along it, its own
     // slant flush against the groove's end.
     var SLANT_IN_PX = 2 * Math.SQRT2;
+    // Which of its ends meet a square corner of the glass, and so are square themselves (is-square-start, is-square-end), the thumb's with them.
+    var NO_SQUARE_ENDS = { start: false, end: false }, squareEnds = NO_SQUARE_ENDS;
     // The page's thumb follows the page's scroll in the browser itself where it can (a scroll-driven animation): in step with a swipe and
     // with the browser's bar showing and hiding, which a script a frame behind can't be. Only its length is set here (--thumb-share).
     var followsScroll = isPage && window.CSS && CSS.supports("animation-timeline: scroll()");
@@ -407,7 +410,7 @@ export const RAIL_SCRIPT = `/* rail */(function () {
     function at() { return isPage ? window.scrollY : isSide ? scroller.scrollLeft : scroller.scrollTop; }
     function to(y) { if (isPage) window.scrollTo(0, y); else if (isSide) scroller.scrollLeft = y; else scroller.scrollTop = y; }
     function along(event) { return isSide ? event.clientX : event.clientY; }
-    var size = { track: 0, thumb: 0, max: 1, start: 0 };
+    var size = { track: 0, thumb: 0, max: 1, start: 0, startIn: SLANT_IN_PX };
     // The page's rail starts the gutter's width below the page's floating bar (data-rail-starts-below), following it as it tightens.
     var above = isPage ? document.querySelector("[data-rail-starts-below]") : null, GUTTER_PX = 10;
     var rail = {
@@ -431,12 +434,16 @@ export const RAIL_SCRIPT = `/* rail */(function () {
               var own = bar.getBoundingClientRect(), shownLeft = own.left - (parseFloat(bar.style.marginLeft) || 0), shownRight = own.right + (parseFloat(bar.style.marginRight) || 0);
               var isAtFoot = edge.bottom - own.bottom <= inset + 2;
               placed.side = isAtFoot ? { left: Math.max(0, edge.left + fromCut(cuts[3]) - shownLeft), right: Math.max(0, shownRight - (edge.right - fromCut(cuts[2]))) } : { left: 0, right: 0 };
+              placed.squareEnds = isAtFoot ? { start: cuts[3] < 0.5, end: cuts[2] < 0.5 } : NO_SQUARE_ENDS;
             } else {
               // Measured on screen, where a sheet still growing in as it opens is drawn smaller than it lays out: the gaps are drawn at
               // that size too, and what's measured is put back at the size it lays out at, so the rail lands where it will be once it's in.
               var from = parent.getBoundingClientRect(), box = scroller.getBoundingClientRect(), drawn = holder.offsetWidth ? edge.width / holder.offsetWidth : 1;
-              var top = Math.max(box.top, edge.top + fromCut(cuts[1]) * drawn), bottom = Math.min(box.bottom, edge.bottom - fromCut(cuts[2]) * drawn), right = Math.min(box.right, edge.right - inset * drawn);
+              var topIn = fromCut(cuts[1]), bottomIn = fromCut(cuts[2]);
+              var top = Math.max(box.top, edge.top + topIn * drawn), bottom = Math.min(box.bottom, edge.bottom - bottomIn * drawn), right = Math.min(box.right, edge.right - inset * drawn);
               placed.box = { top: (top - from.top) / drawn - parent.clientTop, height: Math.max(0, bottom - top) / drawn, left: (right - from.left) / drawn - parent.clientLeft - (reachPx + widthPx) / 2 };
+              // An end that runs to a square corner (a menu hanging from its button) is square, as the corner is; one stopped short by its box, slanted.
+              placed.squareEnds = { start: cuts[1] < 0.5 && edge.top + topIn * drawn >= box.top - 0.5, end: cuts[2] < 0.5 && edge.bottom - bottomIn * drawn <= box.bottom + 0.5 };
             }
           }
         }
@@ -447,6 +454,8 @@ export const RAIL_SCRIPT = `/* rail */(function () {
         if (placed.side) { bar.style.marginLeft = placed.side.left.toFixed(1) + "px"; bar.style.marginRight = placed.side.right.toFixed(1) + "px"; }
         if (placed.box) { bar.style.top = placed.box.top.toFixed(1) + "px"; bar.style.height = placed.box.height.toFixed(1) + "px"; bar.style.left = placed.box.left.toFixed(1) + "px"; }
         if (isShown !== placed.max > 4) { isShown = placed.max > 4; bar.classList.toggle("is-on", isShown); }
+        var ends = placed.squareEnds || NO_SQUARE_ENDS;
+        if (ends.start !== squareEnds.start || ends.end !== squareEnds.end) { squareEnds = ends; bar.classList.toggle("is-square-start", ends.start); bar.classList.toggle("is-square-end", ends.end); }
         // The box makes room for its rail by this class, never by a :has() on the rail beside it, for the same reason.
         if (!isPage) scroller.classList.toggle("shows-rail", isShown);
       },
@@ -455,9 +464,10 @@ export const RAIL_SCRIPT = `/* rail */(function () {
         if (!isShown) return null;
         var scrollPadding = isPage && marks.length ? offset() : 0;
         return {
-          // The thumb runs the groove between its slanted ends.
-          track: (isSide ? groove.clientWidth : groove.clientHeight) - 2 * SLANT_IN_PX,
-          start: (isSide ? groove.offsetLeft + groove.parentElement.offsetLeft : groove.offsetTop + groove.parentElement.offsetTop) + SLANT_IN_PX,
+          // The thumb runs the groove between its ends: short of a slanted one by the slant, to a square one's very end.
+          track: (isSide ? groove.clientWidth : groove.clientHeight) - (squareEnds.start ? 0 : SLANT_IN_PX) - (squareEnds.end ? 0 : SLANT_IN_PX),
+          start: (isSide ? groove.offsetLeft + groove.parentElement.offsetLeft : groove.offsetTop + groove.parentElement.offsetTop) + (squareEnds.start ? 0 : SLANT_IN_PX),
+          startIn: squareEnds.start ? 0 : SLANT_IN_PX,
           at: at(),
           marks: marks.map(function (m) {
             var shown = Boolean(m.part.offsetParent);
@@ -468,7 +478,7 @@ export const RAIL_SCRIPT = `/* rail */(function () {
       put: function (placed, measured) {
         if (!measured) return;
         var track = measured.track, max = placed.max, height = Math.max(36, Math.round(track * placed.view / placed.whole));
-        size = { track: track, thumb: height, max: max, start: measured.start };
+        size = { track: track, thumb: height, max: max, start: measured.start, startIn: measured.startIn };
         if (followsScroll) thumb.style.setProperty("--thumb-share", (placed.view / placed.whole).toFixed(4));
         else thumb.style[isSide ? "width" : "height"] = height + "px";
         move(measured.at);
@@ -488,7 +498,7 @@ export const RAIL_SCRIPT = `/* rail */(function () {
     function layout() { if (drag) { isLayoutDue = true; return; } layOutSoon(rail); }
     // Scrolling only moves the thumb: the rail's size and its marks change only with the page's size (layout, above), so a scroll
     // never reads the page's layout.
-    function move(atPx) { if (drag) near(); if (isShown && !followsScroll) thumb.style.transform = (isSide ? "translateX(" : "translateY(") + (SLANT_IN_PX + (size.track - size.thumb) * Math.min(1, (atPx === undefined ? at() : atPx) / size.max)).toFixed(1) + "px)"; }
+    function move(atPx) { if (drag) near(); if (isShown && !followsScroll) thumb.style.transform = (isSide ? "translateX(" : "translateY(") + (size.startIn + (size.track - size.thumb) * Math.min(1, (atPx === undefined ? at() : atPx) / size.max)).toFixed(1) + "px)"; }
     var sleep = 0, queued = false;
     // Woken only once a scroll: the class is set as it wakes, not on every scroll event, so the page's watchers hear of it once.
     function wake() { if (!bar.classList.contains("awake")) bar.classList.add("awake"); clearTimeout(sleep); sleep = setTimeout(function () { bar.classList.remove("awake"); }, 1100); }
@@ -904,13 +914,13 @@ component({
   group: "panes",
   subgroup: "materials",
   after: "light",
-  summary: "Zaisma's own scrollbar, on every device: a channel carved in the glass with a slab sliding in it, at the frame gap from the glass's edges, its ends always slanted so the thumb slides flush into them. It rests faintly, wakes while things move, and drags with a finger or the mouse.",
+  summary: "Zaisma's own scrollbar, on every device: a channel carved in the glass with a slab sliding in it, at the frame gap from the glass's edges, its ends slanted so the thumb slides flush into them, or square where they meet a square corner. It rests faintly, wakes while things move, and drags with a finger or the mouse.",
   styles: `
 /* Zaisma's own scrollbar, on every device: a channel carved in the glass with a slab sliding in it (the materials, materials.ts), resting
    faintly and waking while it moves. Down a box it runs the box's height at the right, at the frame gap from the edges of the glass round
    it (RAIL_SCRIPT places it); for the page, down the page's right gutter; sideways, under the box. Its channel's ends and its thumb's are
-   always slanted, longest toward what scrolls, so the thumb slides flush into either end; where an end reaches a cut corner, it stops
-   where its slant keeps the frame gap from the corner's cut. */
+   slanted, longest toward what scrolls, so the thumb slides flush into either end; where an end reaches a cut corner, it stops where its
+   slant keeps the frame gap from the corner's cut, and where it reaches a square corner, it's square too, at the frame gap. */
 .own-scroll { scrollbar-width: none; }
 .own-scroll::-webkit-scrollbar { display: none; }
 .rail { display: none; position: absolute; z-index: 6; top: 0; left: 0; width: var(--rail-reach); opacity: 0.6; transition: opacity var(--motion-arrive); }
@@ -924,16 +934,22 @@ component({
 /* Its channel runs its whole length down the middle of its reach, both its ends slanted, longest on the side toward what scrolls; the thumb's
    ends slant the same way, so at either end it slides flush into the channel's end, as a switch's slab into its well. */
 .rail > .rail-line { position: absolute; top: 0; bottom: 0; left: calc((var(--rail-reach) - var(--rail-width)) / 2); width: var(--rail-width); cursor: pointer;
-  --cut-shape: polygon(0 0, 100% var(--rail-width), 100% calc(100% - var(--rail-width)), 0 100%); }
-.rail-thumb { --thumb-slant: calc(var(--rail-width) - 4px); clip-path: polygon(0 0, 100% var(--thumb-slant), 100% calc(100% - var(--thumb-slant)), 0 100%); }
+  --start-slant: var(--rail-width); --end-slant: var(--rail-width); --cut-shape: polygon(0 0, 100% var(--start-slant), 100% calc(100% - var(--end-slant)), 0 100%); }
+.rail-thumb { --thumb-slant: calc(var(--rail-width) - 4px); --thumb-start-slant: var(--thumb-slant); --thumb-end-slant: var(--thumb-slant);
+  clip-path: polygon(0 0, 100% var(--thumb-start-slant), 100% calc(100% - var(--thumb-end-slant)), 0 100%); }
+/* An end that meets a square corner of the glass (RAIL_SCRIPT says which) is square, and the thumb's end with it, so it still slides flush. */
+.rail.is-square-start > .rail-line { --start-slant: 0px; }
+.rail.is-square-end > .rail-line { --end-slant: 0px; }
+.rail.is-square-start .rail-thumb { --thumb-start-slant: 0px; }
+.rail.is-square-end .rail-thumb { --thumb-end-slant: 0px; }
 .rail-thumb { cursor: grab; }
 .rail.dragging .rail-thumb { cursor: grabbing; }
 /* Sideways (a table, a chart): the same rail laid on its side, under the box, its channel along the foot of its reach, so at a pane's foot it
    sits at the frame gap like anything with an edge. */
 .rail.sideways { position: relative; top: auto; left: auto; width: auto; height: var(--rail-reach); user-select: none; -webkit-user-select: none; }
 .rail.sideways > .rail-line { top: auto; bottom: 0; left: 0; right: 0; width: auto; height: var(--rail-width);
-  --cut-shape: polygon(0 0, 100% 0, calc(100% - var(--rail-width)) 100%, var(--rail-width) 100%); }
-.rail.sideways .rail-thumb { clip-path: polygon(0 0, 100% 0, calc(100% - var(--thumb-slant)) 100%, var(--thumb-slant) 100%); }
+  --cut-shape: polygon(0 0, 100% 0, calc(100% - var(--end-slant)) 100%, var(--start-slant) 100%); }
+.rail.sideways .rail-thumb { clip-path: polygon(0 0, 100% 0, calc(100% - var(--thumb-end-slant)) 100%, var(--thumb-start-slant) 100%); }
 /* A mark per part of the page: a hairline etched across the groove (materials.ts) that turns orange when pointed at. Pointing at the rail
    opens the nearest mark's name on a small glass label to its left; dragging, the name of the part the thumb is in rides beside it. */
 /* Its click area is far bigger than the etch: 24px tall and reaching in over the page, so a mark is easy to hit. */

@@ -305,7 +305,8 @@ export async function browsePage(env: Env, request: Request): Promise<Response> 
             ],
           }),
         },
-        ...(tags.length ? [{ kind: "block" as const, markup: tagsInUse({ tags }) }] : []),
+        // The tags read as words: they keep the words margin, in line with the heading.
+        ...(tags.length ? [{ kind: "words" as const, markup: tagsInUse({ tags }) }] : []),
         ...results(query, games, ownedGameIds),
       ],
     }),

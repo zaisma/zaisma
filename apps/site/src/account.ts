@@ -955,7 +955,7 @@ const paneHeading = (title: string, game: Game | null | undefined) => html`<h1>$
 const signInSwitch = (current: "signin" | "join", next: string | null) =>
   tabSwitch({
     label: "Sign in or make an account",
-    switchSize: "big",
+    switchSize: "regular",
     isFull: true,
     tabs: [
       { label: "Sign in", href: `/signin${nextQuery(next)}`, isCurrent: current === "signin" },

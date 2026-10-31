@@ -418,14 +418,17 @@ export const GLASS_SCRIPT = `/* glass */(function () {
     var top = r.top - p.top, bottom = p.bottom - r.bottom, stackAt = as ? as.stack : el.getAttribute("data-cut-stack");
     if (stackAt !== null && stackAt !== undefined) { var side = r.left - p.left; top = /first/.test(stackAt) ? side : 1e6; bottom = /last/.test(stackAt) ? side : 1e6; }
     var left = /start/.test(ends) ? (top + bottom) / 2 : r.left - p.left, right = /end/.test(ends) ? (top + bottom) / 2 : p.right - r.right;
-    // Its cut keeps the same gap to the pane's cut as its sides keep to the pane's sides, however small the box (a swatch, a check's box),
-    // up to half its short side, where two cuts on one side would meet. A thin bar (a scrollbar along a pane's foot) follows the corner
-    // across its whole height instead.
+    // Everything in a corner is cut along one line: the holder's cut moved in by the frame gap its pieces keep from its edges (--rail-inset,
+    // which its rail keeps too), so a piece further in (a switch's well beside the rail) is cut by that same line, or not at all once its
+    // corner is past it. A piece nearer the edge than the frame gap keeps the same gap to the cut as its sides keep to the sides. However
+    // small the box (a swatch, a check's box), up to half its short side, where two cuts on one side would meet. A thin bar (a scrollbar
+    // along a pane's foot) follows the corner across its whole height instead.
+    var frameGap = parseFloat(getComputedStyle(holder).getPropertyValue("--rail-inset")) || 0;
     var most = Math.max(w, h) < 3 * Math.min(w, h) ? Math.min(w, h) * 0.5 : Infinity;
     return [[left, top], [right, top], [right, bottom], [left, bottom]].map(function (gaps, i) {
       var sum = Math.max(0, gaps[0]) + Math.max(0, gaps[1]);
       // A corner it does take is never under the least bevel that reads as cut (4px), however small its holder's own cut (a notice's strip).
-      var cut = Math.max(0, (c[i] || 0) - sum + Math.SQRT2 * sum / 2);
+      var cut = Math.max(0, (c[i] || 0) - sum + Math.SQRT2 * Math.min(sum / 2, frameGap));
       return Math.min(most, cut > 0 ? Math.max(LEAST_BEVEL_PX, cut) : 0);
     });
   }

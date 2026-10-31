@@ -42,7 +42,8 @@ export interface SwitchTab {
 export function tabSwitch(options: {
   label: string;
   tabs: SwitchTab[];
-  switchSize: "big" | "small";
+  /** Big: the well holds regular tabs inside its own room. Regular: the well is a regular control's height, as a header's or a pane head's beside other regular controls. Small: a sort. */
+  switchSize: "big" | "regular" | "small";
   isVertical?: boolean;
   /** Across only: it fills the width it's in, its tabs sharing it (a pane's head: Sign in or Make an account), rather than its words' width. */
   isFull?: boolean;
@@ -318,6 +319,7 @@ component({
 .tab-switch.small .switch-slab { --slide-ms: 380; }
 .tab-switch.small > a, .tab-switch.small > button { font-size: 0.875rem; }
 .well.switch-well.small { --control-height: var(--control-height-small); }
+.well.switch-well.regular { --control-height: var(--control-height-regular); }
 /* The tabs take their well's height, which a row sets to its tallest control's (layout.ts): a small sort beside a regular Filter is the Filter's height. */
 .switch-well > .well-body > .tab-switch { --control-height: inherit; }
 /* A tab's words sit in the middle of its slab as it's seen. A slab between two tabs slants on both sides, so its words are in the middle
@@ -353,7 +355,7 @@ component({
     },
     {
       label: "Full: it fills its place, its tabs sharing the width (a pane's head)",
-      markup: html`<div style="width:min(420px,100%)">${tabSwitch({ label: "Sign in or make an account", switchSize: "big", isFull: true, tabs: [{ label: "Sign in", isCurrent: true }, { label: "Make an account", isCurrent: false }] })}</div>`,
+      markup: html`<div style="width:min(420px,100%)">${tabSwitch({ label: "Sign in or make an account", switchSize: "regular", isFull: true, tabs: [{ label: "Sign in", isCurrent: true }, { label: "Make an account", isCurrent: false }] })}</div>`,
     },
     {
       label: "Small",

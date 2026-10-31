@@ -81,6 +81,9 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
   // Whether this run measures a rule (a rule missing from LAYOUT_RULE_TIERS is always measured).
   function isMeasured(check) { return !TIERS[check] || tiers.indexOf(TIERS[check]) >= 0; }
   var TOLERANCE_PX = 1.5, LEAST_BEVEL_PX = 4;
+  // How far a pane's corner cut reaches into what sits in that corner, by its gaps to the corner's two sides added up: the one line the edge
+  // rule cuts everything in a corner along (glass-script.ts's fitCuts), the pane's cut moved in by the frame gap. Past it, a corner is square.
+  var cutReaching = function (paneCutPx, gapsPx, frameGapPx) { return paneCutPx - gapsPx + Math.SQRT2 * Math.min(gapsPx / 2, frameGapPx); };
   var failures = [];
   var root = getComputedStyle(document.documentElement);
   var slantOverlapPx = Math.abs(parseFloat(root.getPropertyValue("--control-slant")) - parseFloat(root.getPropertyValue("--gap-control-row"))) || 6;
@@ -260,14 +263,15 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
     var paneCuts = window.zaismaCorners ? window.zaismaCorners(pane, "pane") : [1, 1, 1, 1];
     framed.forEach(function (el) {
       if (isScrolledAway(el, pane)) return;
-      var r = el.getBoundingClientRect(), d = distances(r);
+      var r = el.getBoundingClientRect(), d = distances(r), whereItIs = d;
       // Inside what scrolls with its rail showing, the rail's room at the right is part of the gap there.
       // What scrolls pads nothing of its own but the rail's room, unless it's what holds the pane's content, which pads the frame gap too.
       var railed = el.closest(".shows-rail"), railPx = railed && pane.contains(railed) ? Math.max(0, parseFloat(getComputedStyle(railed).paddingRight) - (railed === holder ? gap.right : 0)) : 0;
       if (railPx) d = { left: d.left, right: Math.max(gap.right, d.right - railPx), top: d.top, bottom: d.bottom };
       // In a task sheet's dropped head (--head-drop), its Close sits that much further in from the top and the end, at the words margin's line.
+      // What its words hold (a store's cover beside its title) sits on that line itself, at the words margin, and is measured where it is.
       var droppedHead = el.closest(".pane-head"), headEnd = el.closest(".pane-head-end");
-      if (droppedHead && pane.contains(droppedHead)) d = { left: d.left, right: d.right - (headEnd ? parseFloat(getComputedStyle(headEnd).marginInlineEnd) || 0 : 0), top: d.top - (parseFloat(getComputedStyle(droppedHead).marginTop) || 0), bottom: d.bottom };
+      if (droppedHead && pane.contains(droppedHead) && !el.closest(".pane-head-words")) d = { left: d.left, right: d.right - (headEnd ? parseFloat(getComputedStyle(headEnd).marginInlineEnd) || 0 : 0), top: d.top - (parseFloat(getComputedStyle(droppedHead).marginTop) || 0), bottom: d.bottom };
       // In a list that scrolls up and down inside the pane (a long menu's choices), what shows sits wherever it's scrolled to: only its sides are measured.
       var holdingScroller = scrollerIn(el, pane), isInScrolledList = holdingScroller && !holdingScroller.matches(".pane-in, .sheet-in") && holdingScroller.scrollHeight > holdingScroller.clientHeight + 1;
       (isInScrolledList ? ["left", "right"] : ["left", "right", "top", "bottom"]).forEach(function (side) {
@@ -278,11 +282,10 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
           report("off the frame gap", el, round(d[side]) + "px from the " + side + " edge, expected the frame gap " + round(gap[side]) + "px");
         }
       });
-      // In a corner of the pane (at the frame gap from both its sides), it keeps a bevel there.
-      var atGap = function (side) { return Math.abs(d[side] - gap[side]) <= TOLERANCE_PX; };
+      // Where the pane's corner cut reaches it (measured where it is, a rail's room or a dropped head's further in included), it keeps a bevel there.
       [["top", "left"], ["top", "right"], ["bottom", "right"], ["bottom", "left"]].forEach(function (corner, i) {
         var cut = (el.cutCorners || [])[i];
-        if (cut !== undefined && !isInScrolledList && paneCuts[i] > 0 && atGap(corner[0]) && atGap(corner[1]) && cut < LEAST_BEVEL_PX - 0.01) report("bevel under 4px", el, "in the pane's " + corner.join(" ") + " corner its bevel is " + round(cut) + "px");
+        if (cut !== undefined && !isInScrolledList && cutReaching(paneCuts[i], whereItIs[corner[0]] + whereItIs[corner[1]], Math.min(gap[corner[0]], gap[corner[1]])) > 0.5 && cut < LEAST_BEVEL_PX - 0.01) report("bevel under 4px", el, "in the pane's " + corner.join(" ") + " corner its bevel is " + round(cut) + "px");
       });
     });
     // Anything with an edge of its own (a picture, a filled, bordered or shadowed box) at the frame gap in a cut corner of the pane is cut
@@ -427,8 +430,9 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
       // A task sheet's head drops its title and Close to the pane's words margin (--head-drop): its corner is that far further in.
       if (place[1] === "top") { expected.top += parseFloat(getComputedStyle(end.parentElement).marginTop) || 0; expected.right += parseFloat(getComputedStyle(end).marginInlineEnd) || 0; }
       if (Math.abs(away - expected[place[1]]) > TOLERANCE_PX || Math.abs(side - expected.right) > TOLERANCE_PX) report("a corner control not in its corner", control, round(away) + "px from the " + place[1] + " and " + round(side) + "px from the end, expected " + round(expected[place[1]]) + "px and " + round(expected.right) + "px");
-      var cut = (control.cutCorners || [])[place[2]] || 0;
-      if (cut < LEAST_BEVEL_PX - 0.01) report("a corner control without its corner's bevel", control, "its bevel is " + round(cut) + "px, at least " + LEAST_BEVEL_PX + "px");
+      // Where the pane's corner cut reaches it: a dropped head's Close, at the words margin, is past it and square.
+      var cut = (control.cutCorners || [])[place[2]] || 0, paneCut = (window.zaismaCorners ? window.zaismaCorners(pane, "pane") : [1, 1, 1, 1])[place[2]];
+      if (cutReaching(paneCut, away + side, parseFloat(css.paddingRight)) > 0.5 && cut < LEAST_BEVEL_PX - 0.01) report("a corner control without its corner's bevel", control, "its bevel is " + round(cut) + "px, at least " + LEAST_BEVEL_PX + "px");
     });
   });
   document.querySelectorAll(BESIDE_CONTROLS).forEach(function (row) {
