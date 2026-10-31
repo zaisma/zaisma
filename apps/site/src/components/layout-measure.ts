@@ -85,7 +85,8 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
   var root = getComputedStyle(document.documentElement);
   var slantOverlapPx = Math.abs(parseFloat(root.getPropertyValue("--control-slant")) - parseFloat(root.getPropertyValue("--gap-control-row"))) || 6;
   // A person is framed by their picture, and code in reading text by its well.
-  var FRAMED = "[data-cut-line], [data-glass], .cover, .list-rows, .person, .reading pre, .slider-track";
+  // A PIN's row of marks is one control, measured as a whole: its marks are its inside.
+  var FRAMED = "[data-cut-line], [data-glass], .cover, .list-rows, .person, .reading pre, .slider-track, .pin-marks";
   // Pieces made to lie over each other: a row of pictures, each over the next.
   var OVERLAPPING = ".picture-row";
   var SKIPPED = "script, style, template, .sr, [aria-hidden='true'], .loader, .rail, .edge, .cut-line";
@@ -264,6 +265,9 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
       // What scrolls pads nothing of its own but the rail's room, unless it's what holds the pane's content, which pads the frame gap too.
       var railed = el.closest(".shows-rail"), railPx = railed && pane.contains(railed) ? Math.max(0, parseFloat(getComputedStyle(railed).paddingRight) - (railed === holder ? gap.right : 0)) : 0;
       if (railPx) d = { left: d.left, right: Math.max(gap.right, d.right - railPx), top: d.top, bottom: d.bottom };
+      // In a task sheet's dropped head (--head-drop), its Close sits that much further in from the top and the end, at the words margin's line.
+      var droppedHead = el.closest(".pane-head"), headEnd = el.closest(".pane-head-end");
+      if (droppedHead && pane.contains(droppedHead)) d = { left: d.left, right: d.right - (headEnd ? parseFloat(getComputedStyle(headEnd).marginInlineEnd) || 0 : 0), top: d.top - (parseFloat(getComputedStyle(droppedHead).marginTop) || 0), bottom: d.bottom };
       // In a list that scrolls up and down inside the pane (a long menu's choices), what shows sits wherever it's scrolled to: only its sides are measured.
       var holdingScroller = scrollerIn(el, pane), isInScrolledList = holdingScroller && !holdingScroller.matches(".pane-in, .sheet-in") && holdingScroller.scrollHeight > holdingScroller.clientHeight + 1;
       (isInScrolledList ? ["left", "right"] : ["left", "right", "top", "bottom"]).forEach(function (side) {
@@ -418,6 +422,8 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
       var holder = pane.querySelector(":scope > .pane-in, :scope > .sheet-in") || pane, css = getComputedStyle(holder), r = control.getBoundingClientRect(), p = pane.getBoundingClientRect();
       var away = place[1] === "top" ? r.top - p.top : p.bottom - r.bottom, side = p.right - r.right;
       var expected = { top: parseFloat(css.paddingTop), bottom: parseFloat(css.paddingBottom), right: parseFloat(css.paddingRight) };
+      // A task sheet's head drops its title and Close to the pane's words margin (--head-drop): its corner is that far further in.
+      if (place[1] === "top") { expected.top += parseFloat(getComputedStyle(end.parentElement).marginTop) || 0; expected.right += parseFloat(getComputedStyle(end).marginInlineEnd) || 0; }
       if (Math.abs(away - expected[place[1]]) > TOLERANCE_PX || Math.abs(side - expected.right) > TOLERANCE_PX) report("a corner control not in its corner", control, round(away) + "px from the " + place[1] + " and " + round(side) + "px from the end, expected " + round(expected[place[1]]) + "px and " + round(expected.right) + "px");
       var cut = (control.cutCorners || [])[place[2]] || 0;
       if (cut < LEAST_BEVEL_PX - 0.01) report("a corner control without its corner's bevel", control, "its bevel is " + round(cut) + "px, at least " + LEAST_BEVEL_PX + "px");
