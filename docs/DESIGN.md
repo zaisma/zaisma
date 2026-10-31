@@ -480,8 +480,8 @@ Every component, with the call that makes it and its options, is in the catalog 
   - `options`: `id: string`, `imageUrl: string | null`, `name: string`, `priceText: string`, `description?: string`, `noteText?: string`
 - **Store panel** (`storePanel(options: StorePanelOptions)`, `panes.ts`): Where a player buys: a tall panel at the screen's right edge over the running game, which keeps its middle (on a phone, a sheet risen from the foot, nearly the screen's height). A slim head with Close, the item with the game's cover across its top, and pinned at its foot the card row and the buy button carrying the price; Apple Pay and Google Pay sit with them when offered. Pressing Buy is the confirmation: only when Zaisma needs to know it's them does the panel ask first, in the same place.
   - `options`: `id: string`, `title: string`, `closeLabel: string`, `body: LayoutMarkup`, `foot: Raw`, `action?: string`, `isShown?: boolean`
-- **Stripe frame** (`stripeFrame(options: StripeFrameOptions)`, `stripe-frame.ts`): A zaisma.com frame for Stripe's own parts, its card form, Apple Pay and Google Pay, and a bank's 3-D Secure check, so Stripe.js loads only inside it and never on the page around it. As tall as what Stripe draws in it, and over the whole window while a bank asks the player to confirm.
-  - `options`: `id: string`, `title: string`, `isShown?: boolean`
+- **Stripe frame** (`stripeFrame(options: StripeFrameOptions)`, `stripe-frame.ts`): An empty window Stripe draws in: its card form, Apple Pay and Google Pay, and a bank's check that the player is who they say. Stripe.js loads only inside it, never on the page around it. It has nothing of its own to show, so there's no example here: it sits in the Store panel, where the card form and the wallet buttons go, as tall as what Stripe draws, and covers the whole window while a bank asks the player to confirm.
+  - `options`: `id: string`, `title: string`
 
 ### Data
 
