@@ -59,7 +59,9 @@ export const WATCH_SCRIPT = `/* watch */(function () {
     try { matched = root.querySelectorAll(selector); } catch (error) { try { matched = root.querySelectorAll(selector.replace(/::[a-z-]+(\\([^)]*\\))?/g, "")); } catch (again) { return []; } }
     return Array.from(matched);
   }
-  function isScrolling(box) { return box !== document.body && document.body.contains(box) && /^(auto|scroll)$/.test(getComputedStyle(box).overflowY); }
+  // A material's part that scrolls is one even while what's in it fits for now (MATERIAL_SCRIPT's fits, overflow visible): in a closed
+  // sheet it measures nothing, and it scrolls once the sheet opens.
+  function isScrolling(box) { return box !== document.body && document.body.contains(box) && ((box.classList.contains("scrolls") && !box.classList.contains("across")) || /^(auto|scroll)$/.test(getComputedStyle(box).overflowY)); }
   window.zaismaWatch = {
     page: function (callback) { pageCallbacks.push(callback); },
     size: function (element, callback, batch) {
