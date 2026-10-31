@@ -193,7 +193,7 @@ export const GLASS_SCRIPT = `/* glass */(function () {
       defs += '<linearGradient id="' + id + "s" + i + '" gradientUnits="userSpaceOnUse" x1="' + shape[i][0] + '" y1="' + shape[i][1] + '" x2="' + shape[j][0] + '" y2="' + shape[j][1] + '">';
       for (var p = 0; p < WAITING_POINTS; p++) defs += '<stop offset="' + (p / (WAITING_POINTS - 1)).toFixed(3) + '" stop-opacity="0"/>';
       defs += "</linearGradient>";
-      rings.forEach(function (ring, r) { bands += '<polygon fill="url(#' + id + "s" + i + ')" style="--layer: ' + WAITING_LAYERS[r][2] + '" points="' + pointList([ring[0][i], ring[0][j], ring[1][j], ring[1][i]]) + '"/>'; });
+      rings.forEach(function (ring, r) { bands += '<polygon style="fill: url(#' + id + "s" + i + '); --layer: ' + WAITING_LAYERS[r][2] + '" points="' + pointList([ring[0][i], ring[0][j], ring[1][j], ring[1][i]]) + '"/>'; });
     }
     group.innerHTML = "<defs>" + defs + "</defs>" + bands;
     // Each point's place and the way it faces, turning half-way to the neighbour at a corner so the light carries across the cut.
