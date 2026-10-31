@@ -36,7 +36,7 @@ export interface HeaderOptions {
   hasPageRunner?: boolean;
   /** Fixed slim, as after scrolling: the gallery's state. */
   isCompact?: boolean;
-  /** Waiting on the next page, its lower edge running the waiting light: the gallery's state (HEADER_SCRIPT sets it on a page). */
+  /** Waiting on the next page, its rim running the waiting light: the gallery's state (HEADER_SCRIPT sets it on a page). */
   isWaiting?: boolean;
   /** The account menu starts open: the gallery's state. */
   isMenuOpen?: boolean;
@@ -251,7 +251,7 @@ export const HEADER_SCRIPT = pageScript(
     }
     window.addEventListener("pagehide", function () { try { sessionStorage.setItem("zaisma-nav", JSON.stringify({ isDeveloperOpen: isOpenHere })); } catch (error) {} });
   }
-  /* A tap or click that opens another page of this site lights the header's lower edge (is-waiting, after --waiting-delay) until the page
+  /* A tap or click that opens another page of this site runs the waiting light round the header's rim (is-waiting, after --waiting-delay) until the page
      goes: a link in this tab, not a new tab, a download or a place on this same page. Back from the browser's history, it's dark again. */
   function setWaiting(isWaiting) { headers.forEach(function (top) { if (!top.hasAttribute("data-stays-waiting")) top.classList.toggle("is-waiting", isWaiting); }); }
   document.addEventListener("click", function (event) {
@@ -860,7 +860,7 @@ component({
     { label: "Search open, its finishes and games under it (on a phone it takes the tabs' place)", isWide: true, isStill: true, markup: headerFrame(header({ id: "example-top-search", current: "home", search: { ...GAMES_SEARCH, searchText: "ash", state: "is-open", shownSuggestions: SEARCH_STAND_IN.suggestionsFor("ash") }, account: STAND_IN_ACCOUNT, isOnDeveloperPage: false, yourGamesHref: "#header", isSearchOpen: true }), true) },
     { label: "On the dashboard: no search", isWide: true, isStill: true, markup: headerFrame(header({ id: "example-top-dev", current: "developer", account: STAND_IN_ACCOUNT, isOnDeveloperPage: true, yourGamesHref: "#header" })) },
     { label: "Compact after scrolling, on a page with its own runner (a game's Play): Sign in is a secondary button", isWide: true, isStill: true, markup: headerFrame(header({ id: "example-top-runner", current: "home", search: GAMES_SEARCH, account: null, isOnDeveloperPage: false, hasPageRunner: true, isCompact: true })) },
-    { label: "Waiting on the next page: after half a second its lower edge runs the waiting light", isWide: true, markup: headerFrame(header({ id: "example-top-waiting", current: "home", search: GAMES_SEARCH, account: STAND_IN_ACCOUNT, isOnDeveloperPage: false, isWaiting: true })) },
+    { label: "Waiting on the next page: after half a second the waiting light runs round its edge", isWide: true, markup: headerFrame(header({ id: "example-top-waiting", current: "home", search: GAMES_SEARCH, account: STAND_IN_ACCOUNT, isOnDeveloperPage: false, isWaiting: true })) },
     { label: "On sign-in: Zaisma alone", isWide: true, isStill: true, markup: headerFrame(header({ id: "example-top-sign-in", current: null, isOnDeveloperPage: false, isOnSignInPage: true })) },
   ],
 });

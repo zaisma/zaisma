@@ -273,6 +273,8 @@ export const GLASS_SCRIPT = `/* glass */(function () {
         spec: node("polygon", { "class": "spec-line", fill: "none", stroke: "url(#" + id + "sp)", "stroke-width": "1.4" }),
         fringe: node("polygon", { "class": "fringe", fill: "none", stroke: "url(#" + id + "fr)", "stroke-width": "0.8" }),
         inner: node("polygon", { "class": "inner", fill: "none", stroke: "url(#" + id + "in)", "stroke-width": "1" }),
+        // The rim again, closed and measured as 100 long, for the waiting light to run round while the glass waits (is-waiting: the header on its way to a new page).
+        waiting: node("polyline", { "class": "waiting-line", fill: "none", pathLength: "100" }),
         // Caustics, on a pane (not a control): the light the thick glass gathers just inside its edge, brightest on the lit facets,
         // fading inward in a few soft steps. It's part of the pane's own rim, so it moves with the pane, never a frame behind it.
         caustics: isControl ? [] : [1, 2, 3, 4].map(function (step) { return { group: node("g", { "class": "caustic step-" + step }), quads: [] }; }),
@@ -326,7 +328,9 @@ export const GLASS_SCRIPT = `/* glass */(function () {
       placeBands(parts.bevel, parts.bevelQuads, at(0), at(band), lights);
       placeBands(parts.rimBand, parts.rimQuads, at(0), at(1.6), lights);
       parts.hair.setAttribute("points", pointList(at(0.6)));
-      parts.rim.setAttribute("points", pointList(at(1.6)));
+      var rimLine = at(1.6);
+      parts.rim.setAttribute("points", pointList(rimLine));
+      parts.waiting.setAttribute("points", pointList(rimLine.concat([rimLine[0]])));
       parts.spec.setAttribute("points", pointList(at(1.6)));
       // Dispersion: a faint split of color along the facet's inner edge, where the light bends.
       parts.fringe.setAttribute("points", pointList(at(Math.max(2.4, band - 0.8))));

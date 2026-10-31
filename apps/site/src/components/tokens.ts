@@ -246,9 +246,10 @@ html { -webkit-tap-highlight-color: transparent; }
   --motion-press: 0.08s; --motion-state: 0.2s; --motion-arrive: 0.3s; --motion-glide: 0.45s; --motion-settle: 0.6s; --motion-loop: 1.6s; --motion-loop-slow: 2.4s;
   --ease-glide: cubic-bezier(.2, .8, .2, 1); --ease-standard: cubic-bezier(.4, 0, .2, 1); --ease-leave: cubic-bezier(.4, 0, 1, 1); --ease-spring: cubic-bezier(.25, .9, .3, 1.25);
   --spring: var(--ease-spring);
-  /* Waiting (materials.ts): the one light that says something's on its way, in the words' color wherever it runs (a Loading state's line, the
-     header's lower edge, a pressed piece's own edge), and how long a press waits before it lights, so a quick answer shows only the press. */
-  --waiting-light: color-mix(in srgb, currentColor 70%, transparent); --waiting-light-width: 2px; --waiting-delay: 500ms;
+  /* Waiting (materials.ts): the one light that says something's on its way, the glass's own light (--edge-light, never dark: dark is only
+     ever a shadow), running at one steady pace wherever it runs (a Loading state's line, the header's rim, a pressed piece's own edge), and
+     how long a press waits before it lights, so a quick answer shows only the press. */
+  --waiting-light: var(--edge-light); --waiting-light-width: 2px; --waiting-delay: 500ms;
   /* Keyboard focus, the same on everything: orange. A control's cut line is stroked --focus-stroke wide (half of it shows inside
      its cut, 2px), anything else gets a 2px outline. On an orange face (the runner) it's the deeper --focus-on-run. */
   --focus: var(--run); --focus-on-run: #7A4100; --focus-stroke: 4;

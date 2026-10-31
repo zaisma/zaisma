@@ -378,22 +378,19 @@ span.hairline { flex: 1; border-top: var(--divider); }
    Under reduced motion the edge glows, still. A screen reader hears what it's doing
    (.when-waiting, a busy label), and its words on screen stay as they were. */
 .cut-line > .waiting-line { fill: none; stroke: none; }
-:is([aria-busy="true"], :has(> input[aria-busy="true"])) > .cut-line > .waiting-line, [aria-busy="true"] > [data-cut-line] > .cut-line > .waiting-line, [aria-busy="true"] [data-waits-here] > .cut-line > .waiting-line {
-  stroke: var(--waiting-light); stroke-width: var(--waiting-light-width); stroke-linecap: round; stroke-dasharray: 22 78; opacity: 0;
-  animation: waiting-arrives 1ms var(--waiting-delay) forwards, waiting-runs var(--motion-loop) var(--ease-standard) var(--waiting-delay) infinite; }
+:is([aria-busy="true"], :has(> input[aria-busy="true"])) > .cut-line > .waiting-line, [aria-busy="true"] > [data-cut-line] > .cut-line > .waiting-line, [aria-busy="true"] [data-waits-here] > .cut-line > .waiting-line, .is-waiting > .edge > .waiting-line {
+  stroke: var(--waiting-light); stroke-width: var(--waiting-light-width); stroke-linecap: round; stroke-dasharray: 22 78; opacity: 0; filter: drop-shadow(0 0 3px var(--waiting-light));
+  animation: waiting-arrives 1ms var(--waiting-delay) forwards, waiting-runs var(--motion-loop) linear var(--waiting-delay) infinite; }
 @keyframes waiting-arrives { to { opacity: 1; } }
 @keyframes waiting-runs { from { stroke-dashoffset: 0; } to { stroke-dashoffset: -100; } }
 [aria-busy="true"] { cursor: progress; }
 .when-waiting:not([aria-busy="true"] .when-waiting) { display: none; }
 @media (prefers-reduced-motion: reduce) {
-  :is([aria-busy="true"], :has(> input[aria-busy="true"])) > .cut-line > .waiting-line, [aria-busy="true"] > [data-cut-line] > .cut-line > .waiting-line, [aria-busy="true"] [data-waits-here] > .cut-line > .waiting-line { stroke-dasharray: none; animation: waiting-arrives 1ms var(--waiting-delay) forwards; }
+  :is([aria-busy="true"], :has(> input[aria-busy="true"])) > .cut-line > .waiting-line, [aria-busy="true"] > [data-cut-line] > .cut-line > .waiting-line, [aria-busy="true"] [data-waits-here] > .cut-line > .waiting-line, .is-waiting > .edge > .waiting-line { stroke-dasharray: none; animation: waiting-arrives 1ms var(--waiting-delay) forwards; }
 }
-/* A bar of glass waiting on a new page (the header, its is-waiting from HEADER_SCRIPT): the waiting light runs along its lower edge, as
-   a Loading state's runs along its line, after --waiting-delay, so a page that comes at once shows nothing. Under reduced motion it rests. */
-.glass-bar::after { content: ""; position: absolute; z-index: 4; inset: auto 0 0 0; height: var(--waiting-light-width); color: var(--ink); background: linear-gradient(90deg, transparent, var(--waiting-light), transparent) -70% 0 / 40% 100% no-repeat; opacity: 0; pointer-events: none; }
-.glass-bar.is-waiting::after { animation: waiting-arrives 1ms var(--waiting-delay) forwards, bar-waiting-runs var(--motion-loop) var(--ease-standard) var(--waiting-delay) infinite; }
-@keyframes bar-waiting-runs { from { background-position: -70% 0; } to { background-position: 170% 0; } }
-@media (prefers-reduced-motion: reduce) { .glass-bar.is-waiting::after { background-size: 100% 100%; animation: waiting-arrives 1ms var(--waiting-delay) forwards; } }
+/* Glass waiting on a new page (the header, its is-waiting from HEADER_SCRIPT) runs the same light round its rim, the edge glass-script.ts
+   draws, after --waiting-delay, so a page that comes at once shows nothing. */
+.edge > .waiting-line { stroke: none; }
 /* Pictures (foundations.ts, picture): a picture's box holds its placeholder, the tiny copy in the page itself (--placeholder), blurred and
    run past the box's edges so no edge fades, and the picture over it, hidden until it has wholly arrived and decoded, then fading in
    (img.reveals, PICTURE_SCRIPT). A game's world on its page starts the same way, blurred more (backdropPlaceholder), under its picture or
