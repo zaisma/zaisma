@@ -20,15 +20,16 @@ component({
   after: "light",
   summary: "What anything pressed shows while it waits on its answer: it stays pressed and a glint runs across its face, one after another, until the answer comes; a press that opens another page fills the header's bottom edge with light instead. It lights at once and never changes the size of what waits, so nothing moves. Every control that can wait takes it from here; none draws its own.",
   styles: `
-/* The glint: a stream of the Light's glint (--glint; --glint-warm on an orange piece) crossing the pressed face, cut to the control's own
-   shape. Its glints are spaced closer than the face is wide, so a new one comes in before the last has left, at one steady pace, one pass
-   in --waiting-glint-time. Under reduced motion one glint rests across the middle. */
-.waiting-glint { --waiting-glint: var(--glint); position: absolute; inset: 0; z-index: 1; overflow: hidden; pointer-events: none; clip-path: var(--cut-shape, none); container-type: size; }
-.lit > .waiting-glint, .lit .waiting-glint { --waiting-glint: var(--glint-warm); }
+/* The glint: a stream of the Light's glint, softened (--glint, warm on an orange piece) crossing the pressed face over everything on it, its
+   words and marks too, as light on the glass would, cut to the control's own shape. Its glints are spaced closer than the face is wide, so
+   a new one comes in as the last leaves, narrow and at one steady pace, one pass in --waiting-glint-time. Under reduced motion one glint
+   rests across the middle. */
+.waiting-glint { --waiting-glint: color-mix(in srgb, var(--glint) 70%, transparent); position: absolute; inset: 0; z-index: 6; overflow: hidden; pointer-events: none; clip-path: var(--cut-shape, none); container-type: size; }
+.lit > .waiting-glint, .lit .waiting-glint { --waiting-glint: color-mix(in srgb, var(--glint-warm) 55%, transparent); }
 .waiting-glint::before { content: ""; position: absolute; top: -20%; bottom: -20%; left: -40cqw; width: 240cqw;
-  background: repeating-linear-gradient(90deg, transparent 0, transparent 12cqw, var(--waiting-glint) 30cqw, transparent 48cqw, transparent 60cqw);
+  background: repeating-linear-gradient(90deg, transparent 0, transparent 30cqw, var(--waiting-glint) 42cqw, transparent 54cqw, transparent 84cqw);
   transform: skewX(-18deg); animation: waiting-glints var(--waiting-glint-time) linear infinite; }
-@keyframes waiting-glints { from { translate: 0 0; } to { translate: 60cqw 0; } }
+@keyframes waiting-glints { from { translate: 0 0; } to { translate: 84cqw 0; } }
 /* Glass waiting on a new page (the header, is-waiting from HEADER_SCRIPT): its bottom edge is a groove that fills with orange light, a line
    of light as the Light draws one (4px), starting an eighth full so it shows at once, quickly at first and slower as it goes, never quite
    full, until the page comes. */
@@ -40,12 +41,13 @@ component({
 @keyframes waiting-arrives { to { opacity: 1; } }
 @keyframes waiting-fills { from { --waiting-filled: 12%; } to { --waiting-filled: 90%; } }
 @media (prefers-reduced-motion: reduce) {
-  .waiting-glint::before { animation: none; translate: 30cqw 0; }
+  .waiting-glint::before { animation: none; translate: 20cqw 0; }
   .glass-bar.is-waiting::after { --waiting-filled: 100%; animation: waiting-arrives 1ms forwards; }
 }
 `,
   render: () => primaryButton("Save", { type: "button", isBusy: true }),
   examples: [
+    { label: "Try it: press one, and it waits a second and a half on its answer", markup: html`<div data-waiting-example style="display:flex;flex-wrap:wrap;gap:12px">${secondaryButton("Save", { type: "button" })}${primaryButton("Sign in", { type: "button" })}${tertiaryButton("Undo", { type: "button" })}</div>` },
     { label: "The primary button, saying what's happening", markup: primaryButton("Sign in", { type: "button", isBusy: true, busyLabel: "Signing in" }), isStill: true },
     { label: "A secondary button", markup: secondaryButton("Save", { type: "button", isBusy: true }), isStill: true },
     { label: "A small button", markup: tertiaryButton("Undo", { type: "button", isBusy: true }), isStill: true },

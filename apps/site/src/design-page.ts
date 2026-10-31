@@ -327,6 +327,12 @@ export const GALLERY_SCRIPT = pageScript(
     if (count) count.textContent = (Number(count.textContent.replace(/,/g, "")) + (isOn ? 1 : -1)).toLocaleString("en-US");
     if (words && /^Follow/.test(words.textContent)) words.textContent = isOn ? "Following" : "Follow";
   });
+  // Waiting's live examples: a press waits a second and a half on a pretend answer, as a page's script would wait on its own (zaismaWait).
+  document.addEventListener("click", function (event) {
+    var pressed = event.target.closest && event.target.closest("[data-waiting-example] button");
+    if (!pressed || pressed.getAttribute("aria-busy") === "true" || !window.zaismaWait) return;
+    window.zaismaWait(pressed, new Promise(function (answer) { setTimeout(answer, 1500); }));
+  });
   // Confirm it's you's live example, opened as a page opens it: a purchase PIN of 246810 or the password "password" is right, anything else
   // wrong, with the tries left.
   document.addEventListener("click", function (event) {
