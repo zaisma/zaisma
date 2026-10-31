@@ -44,15 +44,19 @@ component({
 @keyframes waiting-glints-rush-in { from { transform: skewX(-18deg) translateX(-100cqw); } to { transform: skewX(-18deg); } }
 @keyframes waiting-glints-rush-out { to { transform: skewX(-18deg) translateX(100cqw); } }
 /* Glass waiting on a new page (the header, is-waiting from HEADER_SCRIPT): its bottom edge is a groove that fills with orange light, a line
-   of light as the Light draws one (4px), starting an eighth full so it shows at once, quickly at first and slower as it goes, never quite
-   full, until the page comes. */
+   of light as the Light draws one (4px). It comes in quickly: the groove brightens as the light shoots in from the left to an eighth full in
+   a quarter of a second; then it fills slower as it goes, never quite full, until the page comes. */
 @property --waiting-filled { syntax: "<percentage>"; inherits: false; initial-value: 0%; }
 .glass-bar::after { content: ""; position: absolute; z-index: 4; inset: auto 0 0 0; height: 4px; opacity: 0; pointer-events: none;
   background: linear-gradient(90deg, var(--run-deep), var(--run) 40%, var(--run-hi) 85%, var(--run-tip) 96%, var(--run-spark)) 0 0 / var(--waiting-filled) 100% no-repeat, var(--track);
   filter: drop-shadow(0 0 2px var(--waiting-glow)) drop-shadow(0 0 6px var(--waiting-glow)); }
-.glass-bar.is-waiting::after { animation: waiting-arrives 1ms forwards, waiting-fills var(--waiting-fill-time) cubic-bezier(0.1, 0.7, 0.2, 1) forwards; }
+.glass-bar.is-waiting::after { animation: waiting-arrives var(--motion-arrive) ease-out forwards, waiting-fills var(--waiting-fill-time) forwards; }
 @keyframes waiting-arrives { to { opacity: 1; } }
-@keyframes waiting-fills { from { --waiting-filled: 12%; } to { --waiting-filled: 90%; } }
+@keyframes waiting-fills {
+  0% { --waiting-filled: 0%; animation-timing-function: cubic-bezier(0.2, 0.8, 0.3, 1); }
+  3% { --waiting-filled: 12%; animation-timing-function: cubic-bezier(0.1, 0.7, 0.2, 1); }
+  100% { --waiting-filled: 90%; }
+}
 @media (prefers-reduced-motion: reduce) {
   .waiting-glint::before { animation: none; translate: 20cqw 0; }
   .waiting-glint { -webkit-mask: none; mask: none; animation: none; }
