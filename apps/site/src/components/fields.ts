@@ -832,8 +832,8 @@ component({
    light as the digits go in. One field, unseen, lies over the row and takes the typing; the row is a small control tall, so a finger finds it. */
 .pin-field { display: flex; flex-direction: column; gap: var(--gap-words-control); min-width: 0; }
 .pin-field > label { font: var(--type-label); color: var(--ink-2); }
-.pin-marks { position: relative; display: flex; align-items: center; gap: var(--gap-words-words); min-height: var(--control-height-small); }
-.pin-mark { position: relative; flex: none; width: 22px; height: 22px; }
+.pin-marks { position: relative; display: flex; align-items: center; gap: var(--pad-inside-words); min-height: var(--control-height-small); }
+.pin-mark { position: relative; flex: none; width: 20px; height: 20px; }
 .pin-fill { position: absolute; z-index: 2; inset: 4px; clip-path: var(--cut-shape); opacity: 0; transform: scale(0.4); transition: opacity var(--motion-state), transform var(--motion-state) var(--ease-glide); }
 .pin-mark.is-filled > .pin-fill { opacity: 1; transform: none; }
 /* The next mark outlined in the focus color while the field has the keyboard; a wrong PIN outlines them all amber. */

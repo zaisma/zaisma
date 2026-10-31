@@ -226,6 +226,11 @@ component({
   styles: `
 /* Confirm it's you: a small sheet that stays in the middle of a wide screen whatever opened it (LAYERS_SCRIPT), its title a section's size. */
 .sheet.is-compact .confirm-face > .sheet-title { font: var(--type-section); }
+/* Its face starts at a pane's margin from the top, beside Close rather than under its row: the head (Close alone) gives back its height and
+   the gap under it. */
+.pane-parts:has(> .pane-body .confirm-body) > .pane-head { margin-bottom: calc(var(--pad-pane) - var(--pad-frame) - var(--control-height-small) - var(--gap-block-block)); }
+/* What it asks and why, apart from the way to answer it: a block's gap between them. */
+.confirm-body [id$="-reason"] { margin-bottom: calc(var(--gap-block-block) - var(--gap-control-stack)); }
 /* What went wrong is a warning, never the runner's orange. */
 .confirm-problem { margin: 0; font: var(--type-words); color: var(--warning); }
 /* Its face, title, words and PIN centered under one another, like a lock asking to be opened; a password field and the button keep the width. */
