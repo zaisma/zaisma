@@ -34,12 +34,6 @@ const PICTURE_OR_ICON = /(^|[\s>+~(])(img|svg|video|canvas|iframe|picture|\.ico|
 const NOT_MADE_OF_MATERIALS = new Map<string, string>([
   // A fold row's words keep the words margin at the pane's top and foot, where a flush row has no edge of its own to keep it.
   // A sheet's tabs are cut from the sheet's own glass, their row drawn as one outline that runs on into the sheet.
-  [".sheet-tab-row | --tab-shadow", "the shade under a tab that isn't chosen, drawn into the sheet's outline"],
-  [".sheet-tab-scroll | overflow-y", "the tab row scrolls across only"],
-  [".sheet-tab-track | height", "the tab row is a regular control's height, its outline drawn to it"],
-  [".sheet-tab-outline | height", "the drawn outline fills the tab row"],
-  [".sheet-tab-button | padding", "a tab's words clear its slanted sides"],
-  [".sheet-tab-end | padding", "the sheet's Close sits in the tab row's end, centered on a regular control's height"],
   // A banner narrower than its button and Close side by side: its words take the whole width, Close beside their first line.
   [".banner-icon | height", "the icon sits on the words' first line"],
   [".banner-in:not(.has-close) > .banner-words | padding-block-start", "narrow, with no Close, its words keep the margin at its top"],
@@ -197,7 +191,6 @@ const NOT_MADE_OF_MATERIALS = new Map<string, string>([
   [".sheet:not(.in-place) | margin", "a sheet sits a control's stack gap in from the window's sides and foot"],
   [".sheet.placement-foot:not(.in-place) | margin", "a sheet at the window's foot sits the page's margin above it"],
   [".sheet.placement-side:not(.in-place) | margin", "a store panel sits a control's stack gap in from the window's side and foot"],
-  [".sheet-tab-row | margin", "the tab row reaches out over the sheet's frame gap to its edge, its outline running on into the sheet"],
   // A fold is a details element, whose parts take no gap in every browser: its body keeps a block's gap from its head itself.
   // Named caps (materials.ts, Caps and scrolls).
   [".sheet:not(.in-place) .store-picture | max-height", "a store panel's picture is shorter on a short screen, so Buy keeps its room"],

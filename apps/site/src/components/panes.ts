@@ -1122,14 +1122,12 @@ export function sheet(options: SheetOptions): Raw {
     return sheetMarkup({ ...options, isCompact: options.steps[0]!.isCompact, title: options.steps[0]!.title, titleId: `${options.id}-${options.steps[0]!.stepName}-title`, body: html``, parts, closeButton });
   }
   if ("tabs" in options) {
-    // The sheet's top row: its tabs, scrolling sideways when there are more than fit, and Close fixed at its end. The chosen tab and the sheet
-    // under it are one piece of glass in front, its outline (drawn by LAYERS_SCRIPT inside the scrolling row, so it moves with the tabs) up
-    // the tab's outward slants, across its top, and along the sheet's top beside it; the other tabs and Close sit behind, in its shadow.
-    // No title shows: the tabs say where you are. The tab row carries the sheet's title as its name, which names the sheet for screen readers.
-    const tabButtons = options.tabs.map((tab, index) => html`<button class="sheet-tab-button" type="button" data-sheet-tab-to="${tab.tabValue}" aria-pressed="${index ? "false" : "true"}"><span class="sheet-tab-words"><span class="sheet-tab-label">${tab.label}</span>${tab.itemCount === undefined ? "" : html`<span class="sheet-tab-count">${tab.itemCount.toLocaleString("en-US")}</span>`}</span></button>`);
-    const strip = html`<div class="sheet-tab-row" data-cut-line="0"><svg class="sheet-tab-outline" aria-hidden="true"><path class="behind-glass"/><path class="behind-well"/><clipPath id="${options.id}-behind"><path/></clipPath><polygon class="front-shadow" clip-path="url(#${options.id}-behind)"/></svg><div class="sheet-tab-scroll"><div class="sheet-tab-track" id="${options.id}-title" role="group" aria-label="${options.title}">${tabButtons}<span class="sheet-tab-fill"></span></div></div><span class="sheet-tab-end">${closeButton}</span></div>`;
+    // Its head: the title, and under it a Switch of its tabs (each with its count), Close beside the title. Choosing a tab swaps what's in
+    // the body under them (LAYERS_SCRIPT), and the head stays put while the body scrolls.
+    const tabRow = tabSwitch({ label: options.title, switchSize: "small", isFull: true, tabs: options.tabs.map((tab, index) => ({ label: tab.label, tabValue: tab.tabValue, isCurrent: index === 0, badgeCount: tab.itemCount, extra: raw(` data-sheet-tab-to="${tab.tabValue}"`) })) });
+    const words = html`<h2 class="sheet-title" id="${options.id}-title">${options.title}</h2>${tabRow}`;
     const body = html`${options.tabs.map((tab, index) => html`<section class="sheet-tab" data-sheet-tab="${tab.tabValue}"${index ? raw(" hidden") : ""}>${tab.body}</section>`)}`;
-    return sheetMarkup({ ...options, body: html``, parts: html`${strip}${paneParts({ body: sheetScroll(body), foot: sheetFoot(options.buttons) })}`, closeButton });
+    return sheetMarkup({ ...options, body: html``, parts: paneParts({ head: { words, end: closeButton }, body: sheetScroll(body), foot: sheetFoot(options.buttons) }), closeButton });
   }
   return sheetMarkup({ ...options, closeButton });
 }
@@ -1223,30 +1221,6 @@ const SHEET_STYLES = `
    along the sheet's top beside it. Behind: the other tabs, the rest of the row and Close's end, in deeper glass, their words quieter, the
    front piece's shadow falling on them; an svg under the row that LAYERS_SCRIPT draws where the tabs are scrolled to. Pointed at, a tab's
    words darken. */
-.sheet-tab-row { --tab-shadow: rgba(6, 9, 14, 0.12); position: relative; z-index: 0; display: flex; align-items: stretch; min-width: 0; margin: calc(-1 * var(--pad-frame)) calc(-1 * var(--pad-frame)) 0; clip-path: var(--cut-shape); }
-.sheet-tab-scroll { position: relative; flex: 1; min-width: 0; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; overscroll-behavior-x: contain; }
-.sheet-tab-scroll::-webkit-scrollbar { display: none; }
-.sheet-tab-scroll.is-more-end { mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent); }
-.sheet-tab-scroll.is-more-start { mask-image: linear-gradient(90deg, transparent, #000 28px); }
-.sheet-tab-scroll.is-more-start.is-more-end { mask-image: linear-gradient(90deg, transparent, #000 28px, #000 calc(100% - 28px), transparent); }
-.sheet-tab-track { position: relative; display: flex; align-items: stretch; width: max-content; min-width: 100%; height: var(--control-height-regular); }
-.sheet-tab-outline { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
-.sheet-tab-outline .behind-glass { fill: var(--glass-tint); }
-.sheet-tab-outline .behind-well { fill: var(--well); }
-/* The front piece's shadow: its shape blurred, falling on what's behind only (LAYERS_SCRIPT clips it to the behind shape), so it runs on
-   round the chosen tab's slants and along the foot with no seam; under Close's end the same fall-off is a gradient, to the sheet's edge. */
-.sheet-tab-outline .front-shadow { fill: var(--tab-shadow); filter: blur(4px); }
-.sheet-tab-button { --tab-slant: 8px; position: relative; flex: none; display: flex; align-items: center; gap: var(--gap-words-words); padding: 0 calc(var(--pad-inside-words) + var(--tab-slant)); margin: 0; border: 0;
-  font: var(--type-label); color: var(--ink-2); white-space: nowrap; background: transparent; cursor: pointer; transition: color var(--motion-state); }
-.sheet-tab-words { position: relative; z-index: 1; display: flex; align-items: baseline; gap: var(--gap-words-words); }
-.sheet-tab-count { font: var(--type-facts); color: var(--muted); }
-.sheet-tab-button[aria-pressed="true"] { color: var(--ink); cursor: default; }
-.sheet-tab-button:hover:not([aria-pressed="true"]) { color: var(--ink); }
-.sheet-tab-button:focus-visible { outline: none; }
-.sheet-tab-button:focus-visible .sheet-tab-label { text-decoration: underline 2px var(--focus); text-underline-offset: 4px; }
-.sheet-tab-fill { flex: 1; }
-.sheet-tab-end { position: relative; flex: none; display: flex; align-items: center; padding: 0 calc((var(--control-height-regular) - var(--control-height-small)) / 2); }
-@media (prefers-reduced-motion: reduce) { .sheet-tab-button { transition: none; } }
 .sheet-tab:not([hidden]) { display: flex; flex-direction: column; gap: var(--gap-block-block); }
 /* A heading inside a sheet is a size under its title, so the title leads. */
 .sheet-body :where(h3) { font: var(--type-name); }
@@ -1396,7 +1370,7 @@ component({
       })}`,
     },
     {
-      label: "Try it: tabs in its head that swap what's in it (the room's players and your friends playing), at its tallest height",
+      label: "Try it: a Switch under its title that swaps what's in it (the room's players and your friends playing), at its tallest height",
       markup: html`${secondaryButton("Who's playing", { type: "button", icon: "people", controls: "example-sheet-tabs" })}${sheet({
         id: "example-sheet-tabs",
         title: "Who's playing",

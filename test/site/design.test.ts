@@ -623,7 +623,6 @@ const OWN_SVG = new Map<string, string>([
   ["4527 3300", "Zaisma's flat mark (MARK_FLAT)"],
   ['class="cut-line"', "the edge rule's outline (CUT_LINE)"],
   ['class="edge"', "glass's drawn rim (EDGE)"],
-  ['<svg class="sheet-tab-outline"', "a sheet's tab row: what's behind its chosen tab, and that tab's shadow, drawn to the row"],
   ['<svg class="chart-drawing"', "a chart's own line or bars, drawn from its numbers"],
   ['<svg class="chart-drawing chart-area-drawing"', "the shade under a chart's line"],
   ['<svg class="ring-drawing"', "a ring chart's parts, drawn from its shares"],
