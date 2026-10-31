@@ -144,7 +144,16 @@ export const WATCH_SCRIPT = `/* watch */(function () {
  * kind's large and small cuts round it (the tokens --pane-cut-large and the rest), or four of a kind's "pane-large", "pane-small"
  * and so on, or numbers ("pane-large pane-small 0 0": a tray's head). window.zaismaCorners(el) reads them as numbers.
  */
+/**
+ * Where a control's waiting light shows (the materials' waiting state, materials.ts): something waiting (aria-busy, or the input of a switch
+ * or a check) and the part of a piece made of several that waits (data-waits-here).
+ */
+export const WAITING_GLOW_SELECTOR = [
+  '[aria-busy="true"] > .waiting-glow', ':has(> input[aria-busy="true"]) > .waiting-glow', '[aria-busy="true"] > [data-cut-line] > .waiting-glow', '[aria-busy="true"] [data-waits-here] > .waiting-glow',
+].join(", ");
+
 export const GLASS_SCRIPT = `/* glass */(function () {
+  var WAITING_GLOW_SELECTOR = ${JSON.stringify(WAITING_GLOW_SELECTOR)};
   var SVG = "http://www.w3.org/2000/svg";
   // The cut tokens, read from the page's root once, as the script starts and before anything is drawn: they're the same on every screen,
   // so reading them later, between a pass's writes, would only make the browser work its styles out again.
@@ -168,28 +177,52 @@ export const GLASS_SCRIPT = `/* glass */(function () {
   }
   function pointList(points) { return points.map(function (p) { return p[0].toFixed(1) + "," + p[1].toFixed(1); }).join(" "); }
   /*
-   * The waiting light round a control (the materials' waiting state): an orange stretch of light with its glow and a wider flood spilling
-   * into the face, running round the control's outline, drawn into its cut line's svg as three closed outlines measured as 100 long, so one
-   * dash runs round all three together. The glow and the flood are blurred by filters the page shares. Hidden until the materials light it.
+   * The waiting light round a control (the materials' waiting state): the Light component's edge light (panes.ts), a flood with no line of
+   * its own, brightest at the edge and spilling into the face and along it, cut to the control's shape, here travelling round its outline,
+   * one lap in --waiting-lap whatever its size. Each control holds one (.waiting-glow, first in it, under what it holds) and the outline it
+   * runs round; while any is lit (WAITING_GLOW_SELECTOR, the materials' rule), one loop moves them all.
    */
-  function drawWaitingLight(svg, outline) {
-    var lines = svg.waitingLines;
-    if (!lines || lines[0].parentNode !== svg) {
-      if (!document.getElementById("zaisma-waiting-blur")) {
-        var holder = document.createElementNS(SVG, "svg");
-        holder.setAttribute("aria-hidden", "true"); holder.setAttribute("width", "0"); holder.setAttribute("height", "0"); holder.style.position = "absolute";
-        holder.innerHTML = '<filter id="zaisma-waiting-blur" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="2.5"/></filter><filter id="zaisma-waiting-flood" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="6"/></filter>';
-        document.body.appendChild(holder);
-      }
-      lines = svg.waitingLines = ["flood", "glow", "core"].map(function (part) {
-        var line = document.createElementNS(SVG, "polyline");
-        line.setAttribute("class", "waiting-line " + part); line.setAttribute("pathLength", "100"); svg.appendChild(line);
-        return line;
-      });
-    }
-    var closed = pointList(outline.concat([outline[0]]));
-    lines.forEach(function (line) { line.setAttribute("points", closed); });
+  var WAITING_DEEP_PX = 14, WAITING_SPAN_PX = 56, isWaitingRunning = false, waitingLapMs = 0, stillMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+  function drawWaitingLight(el, cutShape, sizePx) {
+    var glow = el.waitingGlow;
+    if (!glow || glow.parentNode !== el) { glow = el.waitingGlow = document.createElement("span"); glow.className = "waiting-glow"; glow.setAttribute("aria-hidden", "true"); el.insertBefore(glow, el.firstChild); }
+    glow.style.clipPath = cssPolygon(cutShape);
+    // It runs round the edge itself, so half of it is cut away and what shows hugs the edge.
+    el.waitingOutline = cutShape.concat([cutShape[0]]);
+    el.waitingDeepPx = Math.min(WAITING_DEEP_PX, Math.max(8, sizePx * 0.35));
+    if (glow.matches(WAITING_GLOW_SELECTOR)) wakeWaiting();
   }
+  function placeWaiting(el, nowMs) {
+    var outline = el.waitingOutline, sides = [], total = 0;
+    for (var i = 1; i < outline.length; i++) { var dx = outline[i][0] - outline[i - 1][0], dy = outline[i][1] - outline[i - 1][1], length = Math.hypot(dx, dy); sides.push([length, dx, dy]); total += length; }
+    if (!total) return;
+    if (!waitingLapMs) waitingLapMs = (parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--waiting-lap")) || 0.8) * 1000;
+    var along = stillMotion.matches ? 0 : ((nowMs % waitingLapMs) / waitingLapMs) * total, deep = el.waitingDeepPx;
+    function facing(index) { var side = sides[(index + sides.length) % sides.length]; return side[0] ? [Math.abs(side[1]) / side[0], Math.abs(side[2]) / side[0]] : [1, 0]; }
+    for (var k = 0; k < sides.length; k++) {
+      if (along > sides[k][0] && k < sides.length - 1) { along -= sides[k][0]; continue; }
+      var share = sides[k][0] ? along / sides[k][0] : 0, here = facing(k), turn = null, turnShare = 0;
+      // Long along the side it's on and as deep as the Light's flood into the face. Near a corner it turns with the edge, half of the way
+      // to the next side's at the corner itself, so it flows round instead of snapping.
+      if (sides[k][0] - along < WAITING_SPAN_PX / 2) { turn = facing(k + 1); turnShare = 0.5 * (1 - (sides[k][0] - along) / (WAITING_SPAN_PX / 2)); }
+      else if (along < WAITING_SPAN_PX / 2) { turn = facing(k - 1); turnShare = 0.5 * (1 - along / (WAITING_SPAN_PX / 2)); }
+      var ux = turn ? here[0] + (turn[0] - here[0]) * turnShare : here[0], uy = turn ? here[1] + (turn[1] - here[1]) * turnShare : here[1];
+      el.waitingGlow.style.setProperty("--waiting-x", (outline[k][0] + sides[k][1] * share).toFixed(1) + "px");
+      el.waitingGlow.style.setProperty("--waiting-y", (outline[k][1] + sides[k][2] * share).toFixed(1) + "px");
+      el.waitingGlow.style.setProperty("--waiting-across", (deep + (WAITING_SPAN_PX - deep) * ux).toFixed(1) + "px");
+      el.waitingGlow.style.setProperty("--waiting-down", (deep + (WAITING_SPAN_PX - deep) * uy).toFixed(1) + "px");
+      return;
+    }
+  }
+  function waitingFrame(nowMs) {
+    var lit = document.querySelectorAll(WAITING_GLOW_SELECTOR);
+    lit.forEach(function (glow) { if (glow.parentNode.waitingOutline) placeWaiting(glow.parentNode, nowMs); });
+    isWaitingRunning = lit.length > 0 && !stillMotion.matches;
+    if (isWaitingRunning) requestAnimationFrame(waitingFrame);
+  }
+  function wakeWaiting() { if (isWaitingRunning) return; isWaitingRunning = true; requestAnimationFrame(waitingFrame); }
+  // What starts something waiting (window.zaismaWait) wakes the loop; it stops once nothing waits.
+  window.zaismaWaitingLight = { wake: wakeWaiting };
   // How lit each side of the cut is, from the top left corner's cut round to the left side. Neighbors always differ, so every turn of the edge shows as a step in brightness, like a cut facet.
   var SIDE_LIGHT = [80, 100, 70, 28, 12, 0, 40, 62];
   // A control made of glass takes its sides' light from the way each faces (the same steps, round the same way).
@@ -591,7 +624,7 @@ export const GLASS_SCRIPT = `/* glass */(function () {
       var outline = insetShape(shape, 1);
       poly.setAttribute("points", list(outline));
       // The waiting light runs round the same outline (the materials' waiting state).
-      drawWaitingLight(svg, outline);
+      drawWaitingLight(el, shape, Math.min(w, h));
       // data-cut-ring: a second outline set out around the shape by that many pixels, for a ring that mustn't touch what's inside (a check field's
       // keyboard focus, clear of its orange piece). It's drawn in the control's own shape, whatever its corners.
       var ringPx = Number(el.getAttribute("data-cut-ring")) || 0;

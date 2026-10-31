@@ -2,6 +2,7 @@ import { row, stack, stackOfOne } from "./layout.ts";
 import { primaryButton, secondaryButton } from "./actions.ts";
 import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
+import { WAITING_GLOW_SELECTOR } from "./glass-script.ts";
 import { PICTURE_PLACEHOLDER } from "@zaisma/core";
 import { CUT_LINE, glassPane } from "./foundations.ts";
 
@@ -377,21 +378,16 @@ span.hairline { flex: 1; border-top: var(--divider); }
    cut; a piece made of several (a PIN's marks) marks the parts whose edges light (data-waits-here). It lights at once: a short pause unlit looked like nothing happened.
    Under reduced motion the light rests, all round. A screen reader hears what it's doing
    (.when-waiting, a busy label), and its words on screen stay as they were. */
-/* Round a control, the light is an orange stretch with its glow and its flood into the face running round its outline, one lap in --waiting-lap whatever its size
-   (drawWaitingLight, glass-script.ts). */
-.waiting-line { fill: none; opacity: 0; }
-:is([aria-busy="true"], :has(> input[aria-busy="true"])) > .cut-line > .waiting-line, [aria-busy="true"] > [data-cut-line] > .cut-line > .waiting-line, [aria-busy="true"] [data-waits-here] > .cut-line > .waiting-line {
-  stroke-dasharray: 26 74; stroke-linecap: round; animation: waiting-arrives 1ms forwards, waiting-runs var(--waiting-lap) linear infinite; }
-.waiting-line.core { stroke: var(--waiting-light); stroke-width: var(--waiting-light-width); }
-.waiting-line.glow { stroke: var(--waiting-glow); stroke-width: 6px; filter: url(#zaisma-waiting-blur); }
-.waiting-line.flood { stroke: var(--waiting-glow); stroke-width: 18px; filter: url(#zaisma-waiting-flood); }
-:is([aria-busy="true"], :has(> input[aria-busy="true"])) > .cut-line > .waiting-line.flood, [aria-busy="true"] > [data-cut-line] > .cut-line > .waiting-line.flood, [aria-busy="true"] [data-waits-here] > .cut-line > .waiting-line.flood { animation: waiting-floods 1ms forwards, waiting-runs var(--waiting-lap) linear infinite; }
-@keyframes waiting-floods { to { opacity: 0.55; } }
+/* Round a control, the light is the Light component's edge light: a flood with no line of its own, brightest at the edge (--waiting-light)
+   and spilling into the face and along it (--waiting-glow), cut to the control's shape, travelling round it a lap in --waiting-lap
+   (drawWaitingLight, glass-script.ts, which places it: --waiting-x and --waiting-y, and its reach, --waiting-across and --waiting-down). */
+.waiting-glow { position: absolute; inset: 0; z-index: 0; pointer-events: none; opacity: 0;
+  background: radial-gradient(var(--waiting-across, 64px) var(--waiting-down, 28px) at var(--waiting-x, 50%) var(--waiting-y, 0px), var(--waiting-light) 0, color-mix(in srgb, var(--waiting-glow) 80%, transparent) 10%, color-mix(in srgb, var(--waiting-glow) 35%, transparent) 45%, transparent 100%); }
+${WAITING_GLOW_SELECTOR} { animation: waiting-arrives 1ms forwards; }
 /* On a lit piece, already orange, the light is the lit piece's own brightest: a warm white spark with its glint (the Light's glint), so it
    still shows. */
 .lit { --waiting-light: var(--run-spark); --waiting-glow: var(--glint-warm); }
 @keyframes waiting-arrives { to { opacity: 1; } }
-@keyframes waiting-runs { from { stroke-dashoffset: 0; } to { stroke-dashoffset: -100; } }
 /* Glass waiting on a new page (the header, is-waiting from HEADER_SCRIPT): its bottom edge is a groove that fills with the same orange light,
    a line of light as the Light component draws one (4px), starting an eighth full so it shows at once, filling quickly at first and slower
    as it goes, never quite full, until the page comes. */
@@ -404,7 +400,6 @@ span.hairline { flex: 1; border-top: var(--divider); }
 [aria-busy="true"] { cursor: progress; }
 .when-waiting:not([aria-busy="true"] .when-waiting) { display: none; }
 @media (prefers-reduced-motion: reduce) {
-  :is([aria-busy="true"], :has(> input[aria-busy="true"])) > .cut-line > .waiting-line, [aria-busy="true"] > [data-cut-line] > .cut-line > .waiting-line, [aria-busy="true"] [data-waits-here] > .cut-line > .waiting-line { stroke-dasharray: none; animation: waiting-arrives 1ms forwards; }
   .glass-bar.is-waiting::after { --waiting-filled: 100%; animation: waiting-arrives 1ms forwards; }
 }
 /* Pictures (foundations.ts, picture): a picture's box holds its placeholder, the tiny copy in the page itself (--placeholder), blurred and
@@ -413,7 +408,9 @@ span.hairline { flex: 1; border-top: var(--divider); }
    its shader's frame, which shows the same placeholder until its shader draws. A picture with no placeholder shows what's under it. */
 .picture { --placeholder-blur: 10px; position: relative; display: block; overflow: hidden; }
 .backdrop.backdrop-placeholder { --placeholder-blur: ${PICTURE_PLACEHOLDER.backgroundBlurPx}px; overflow: hidden; background: none; }
-:is(.picture, .backdrop-placeholder)::before { content: ""; position: absolute; inset: calc(-2 * var(--placeholder-blur)); background: var(--placeholder, none) center / cover no-repeat; filter: blur(var(--placeholder-blur)); }
+/* Its box reaches past the picture's on every side, so the blur has room, but the copy itself covers exactly the picture's own box
+   (background-origin: content-box), so it sits where the picture will and the picture fades in over it in place, never larger. */
+:is(.picture, .backdrop-placeholder)::before { content: ""; position: absolute; inset: calc(-2 * var(--placeholder-blur)); box-sizing: border-box; padding: calc(2 * var(--placeholder-blur)); background: var(--placeholder, none) center / cover no-repeat content-box; filter: blur(var(--placeholder-blur)); }
 .picture > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
 img.reveals:not(.is-shown) { opacity: 0; }
 img.reveals.is-shown:not(.at-once) { animation: picture-arrives var(--motion-settle) var(--ease-standard); }
@@ -444,6 +441,7 @@ export const MATERIAL_SCRIPT = `/* materials */(function () {
   window.zaismaWait = function (element, promise) {
     if (!element) return Promise.resolve(promise);
     element.setAttribute("aria-busy", "true");
+    window.zaismaWaitingLight.wake();
     function done() { element.removeAttribute("aria-busy"); }
     return Promise.resolve(promise).then(function (answer) { done(); return answer; }, function (error) { done(); throw error; });
   };
