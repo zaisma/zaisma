@@ -169,7 +169,7 @@ export const GLASS_SCRIPT = `/* glass */(function () {
   function pointList(points) { return points.map(function (p) { return p[0].toFixed(1) + "," + p[1].toFixed(1); }).join(" "); }
   /*
    * The waiting light (the materials' waiting state), drawn into an edge's own svg: the light the glass's edge takes when it's pointed at,
-   * travelling round the rim. A bright core on the rim, the near flood spilling a few pixels into the glass and the far flood fading
+   * travelling round the rim. A bright core on the rim, softened so it glows rather than draws a line, the near flood spilling a few pixels into the glass and the far flood fading
    * further in, each a closed outline measured as 100 long so one dash runs round all three together. The floods are drawn inside the
    * rim (outlineAt(inset), inset by half their width), so the light spills into the glass, not out of it. Hidden until the materials light it.
    */
@@ -181,13 +181,15 @@ export const GLASS_SCRIPT = `/* glass */(function () {
         var holder = document.createElementNS(SVG, "svg");
         holder.setAttribute("id", "zaisma-waiting-blurs"); holder.setAttribute("aria-hidden", "true"); holder.setAttribute("width", "0"); holder.setAttribute("height", "0");
         holder.style.position = "absolute";
-        holder.innerHTML = '<filter id="zaisma-waiting-near" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="2"/></filter><filter id="zaisma-waiting-far" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="7"/></filter>';
+        holder.innerHTML = '<filter id="zaisma-waiting-core" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="1"/></filter><filter id="zaisma-waiting-near" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="2"/></filter><filter id="zaisma-waiting-far" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="7"/></filter>';
         document.body.appendChild(holder);
       }
       lines = svg.waitingLines = ["far", "near", "core"].map(function (part) {
         var line = document.createElementNS(SVG, "polyline");
         line.setAttribute("class", "waiting-line " + part); line.setAttribute("pathLength", "100"); svg.appendChild(line);
-        if (part !== "core") { line.style.stroke = "var(--waiting-" + (part === "far" ? "flood-far" : "flood") + ")"; line.style.filter = "url(#zaisma-waiting-" + part + ")"; }
+        // Each blurred, the core too, so none of it reads as a line drawn round the edge.
+        line.style.filter = "url(#zaisma-waiting-" + part + ")";
+        if (part !== "core") line.style.stroke = "var(--waiting-" + (part === "far" ? "flood-far" : "flood") + ")";
         return line;
       });
     }
