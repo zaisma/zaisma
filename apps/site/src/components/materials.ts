@@ -382,10 +382,12 @@ span.hairline { flex: 1; border-top: var(--divider); }
    full facing it, dimming as it turns away, dark once the lamp is well behind it. */
 @property --waiting-angle { syntax: "<angle>"; inherits: true; initial-value: -90deg; }
 .waiting-light { animation: waiting-turns var(--waiting-lap) linear infinite; }
-.waiting-light > polygon { fill: var(--waiting-light); opacity: calc(var(--layer) * pow(max(0, (cos(var(--waiting-angle) - var(--side-angle)) + 0.45) / 1.45), 2)); }
+.waiting-light > polygon { fill: var(--waiting-on-glass); opacity: calc(min(1, var(--layer) * var(--waiting-spill)) * pow(max(0, (cos(var(--waiting-angle) - var(--side-angle)) + 0.45) / 1.45), 2)); }
 @keyframes waiting-turns { from { --waiting-angle: -90deg; } to { --waiting-angle: 270deg; } }
-/* On a lit piece, already orange, the light is the theme's own on orange (--waiting-on-lit): gold on light glass, warm white on dark. */
-.lit { --waiting-light: var(--waiting-on-lit); }
+/* Its color is the theme's (--waiting-on-glass): a deep orange on light glass, which pales the light, and a pale one on dark; it spills
+   further on light glass (--waiting-spill). On a lit piece, already orange, it's the theme's light on orange (--waiting-on-lit): yellow on
+   light glass, warm white on dark. */
+.lit .waiting-light > polygon { fill: var(--waiting-on-lit); }
 /* Glass waiting on a new page (the header, is-waiting from HEADER_SCRIPT): its bottom edge is a groove that fills with the same orange light,
    a line of light as the Light component draws one (4px), starting an eighth full so it shows at once, filling quickly at first and slower
    as it goes, never quite full, until the page comes. */
