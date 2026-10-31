@@ -25,6 +25,10 @@ component({
    a new one comes in as the last leaves, narrow and at one steady pace, one pass in --waiting-glint-time. Under reduced motion one glint
    rests across the middle. */
 .waiting-glint { --waiting-glint: color-mix(in srgb, var(--glint) 70%, transparent); position: absolute; inset: 0; z-index: 6; overflow: hidden; pointer-events: none; clip-path: var(--cut-shape, none); container-type: size; }
+/* It fades in as the wait starts and out as it ends, never popping. */
+.waiting-glint { animation: waiting-glint-arrives var(--motion-arrive) ease-out; }
+.waiting-glint.is-leaving { opacity: 0; transition: opacity var(--motion-arrive) ease-in; }
+@keyframes waiting-glint-arrives { from { opacity: 0; } }
 .lit > .waiting-glint, .lit .waiting-glint { --waiting-glint: color-mix(in srgb, var(--glint-warm) 55%, transparent); }
 .waiting-glint::before { content: ""; position: absolute; top: -20%; bottom: -20%; left: -40cqw; width: 240cqw;
   background: repeating-linear-gradient(90deg, transparent 0, transparent 30cqw, var(--waiting-glint) 42cqw, transparent 54cqw, transparent 84cqw);
