@@ -195,8 +195,12 @@ const GOOGLE = raw(
 const DISCORD = raw(
   '<svg class="one-color" viewBox="0 0 24 24" aria-hidden="true"><path fill="#5865F2" d="M20.32 4.37a19.8 19.8 0 0 0-4.89-1.52c-.21.38-.44.87-.6 1.25a18.27 18.27 0 0 0-5.49 0 12.64 12.64 0 0 0-.62-1.25 19.74 19.74 0 0 0-4.88 1.52C.53 9.050-.32 13.58.1 18.06a19.9 19.9 0 0 0 5.99 3.03c.46-.63.87-1.3 1.23-1.99a13.1 13.1 0 0 1-1.870-.9l.37-.29c3.93 1.79 8.18 1.79 12.06 0l.37.29c-.6.35-1.22.65-1.87.9.36.7.77 1.36 1.22 1.99a19.84 19.84 0 0 0 6-3.03c.5-5.18-.84-9.68-3.55-13.66zM8.02 15.33c-1.18 0-2.16-1.09-2.16-2.42 0-1.33.96-2.420 2.16-2.42 1.21 0 2.18 1.1 2.16 2.42 0 1.33-.96 2.42-2.16 2.42zm7.97 0c-1.18 0-2.15-1.09-2.15-2.42 0-1.33.95-2.42 2.15-2.420 1.21 0 2.18 1.1 2.16 2.42 0 1.33-.95 2.42-2.16 2.42z"/></svg>',
 );
-/** The other ways in, with the marks their owners ask for. A mark that may also be one color (Discord's) is class one-color. */
-const WAY_MARKS = { google: GOOGLE, discord: DISCORD, passkey: raw(ICONS.passkey) } as const;
+// Apple Pay's mark as Apple draws it for a button beside its words: Apple's logo and "Pay", black in a white card with a black edge.
+const APPLE_PAY = raw(
+  '<svg class="pay-mark" viewBox="0 0 32 20" aria-hidden="true"><rect x=".5" y=".5" width="31" height="19" rx="3.5" fill="#fff" stroke="#000"/><path transform="translate(4.4 4.4) scale(0.46)" fill="#000" d="M12.15 6.9c-.95 0-2.42-1.08-3.96-1.04-2.04.03-3.91 1.18-4.96 3.01-2.12 3.68-.55 9.1 1.52 12.09 1.01 1.45 2.2 3.09 3.79 3.04 1.52-.07 2.09-.99 3.93-.99 1.83 0 2.35.99 3.96.95 1.64-.03 2.68-1.48 3.68-2.95 1.16-1.69 1.64-3.33 1.66-3.42-.04-.01-3.18-1.22-3.22-4.86-.03-3.04 2.48-4.49 2.6-4.56-1.43-2.09-3.62-2.32-4.39-2.38-2-.16-3.68 1.09-4.61 1.09zm3.38-3.07c.84-1.01 1.4-2.43 1.25-3.83-1.21.05-2.66.81-3.53 1.82-.78.9-1.45 2.34-1.27 3.71 1.34.1 2.71-.69 3.55-1.7"/><text x="14.6" y="13.9" font-family="-apple-system, BlinkMacSystemFont, \'SF Pro Text\', \'Helvetica Neue\', Arial, sans-serif" font-size="9.4" font-weight="500" fill="#000">Pay</text></svg>',
+);
+/** The other ways in, and Apple Pay, with the marks their owners ask for. A mark that may also be one color (Discord's) is class one-color. */
+const WAY_MARKS = { google: GOOGLE, discord: DISCORD, passkey: raw(ICONS.passkey), apple_pay: APPLE_PAY } as const;
 export type WayIn = keyof typeof WAY_MARKS;
 
 /**
@@ -204,7 +208,7 @@ export type WayIn = keyof typeof WAY_MARKS;
  * the glass's own tone, as Google's buttons are: whiter on light glass, nearer Google's black on smoked.
  */
 export type ButtonTint = "clear" | "plain" | "blue" | "indigo" | "black" | "red";
-const WAY_TINTS: Record<WayIn, ButtonTint> = { google: "plain", discord: "indigo", passkey: "clear" };
+const WAY_TINTS: Record<WayIn, ButtonTint> = { google: "plain", discord: "indigo", passkey: "clear", apple_pay: "plain" };
 
 /**
  * The primary button: it lifts and leans toward the pointer, a reflection slides the other way, and one glint sweeps as
@@ -465,6 +469,7 @@ component({
   --slab-press-shade: inset 0 2px 6px color-mix(in srgb, black 55%, transparent); }
 .way-mark { display: inline-flex; flex: none; }
 .way-mark > svg { width: 20px; height: 20px; }
+.way-mark > svg.pay-mark { width: 32px; height: 20px; }
 /* Google's G on smoked glass sits on a white disc, as Google asks for a dark surface, so its blue and red never sink into the dark glass. */
 .way-mark.way-google { border-radius: 50%; padding: 2px; margin: -2px; background: var(--brand-mark-backing); }
 /* A mark that may be one color (Discord's) is white over smoked glass and its own blue over light (the fallback, since light glass leaves
