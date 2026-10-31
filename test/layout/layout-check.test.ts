@@ -7,8 +7,7 @@ import { grid, paneParts, stack, type LayoutMarkup } from "../../apps/site/src/c
 /** A pane's body built by hand past the types, as a page could still forge one: these fixtures are pages the check must catch. */
 const forged = (markup: { html: string }) => raw(markup.html) as unknown as LayoutMarkup;
 import { table } from "../../apps/site/src/components/data.ts";
-import { playingCard } from "../../apps/site/src/components/playing.ts";
-import { dropdown, gameCard, sheet } from "../../apps/site/src/components/panes.ts";
+import { dropdown, gameCard, notice, sheet } from "../../apps/site/src/components/panes.ts";
 import { LAYOUT_RULE_TIERS } from "../../apps/site/src/components/layout-measure.ts";
 import layoutMeasureSource from "../../apps/site/src/components/layout-measure.ts?raw";
 import layoutCheckSource from "../../scripts/layout-check.mjs?raw";
@@ -115,7 +114,7 @@ describe.skipIf(!sites)("the layout check", () => {
 
   it.skipIf(!isFirstShare)("catches words closer to a card's edge than the words margin, and passes the same card as it is", async () => {
     // A playing card in place, once as the components make it and once with its inner padding forced down to 12px, as a page might style it.
-    const card = (id: string) => playingCard({ id, title: "Keep your progress", body: forged(raw("<p>Sign in to keep what you've done.</p>")), isShown: true, isInPlace: true }).html;
+    const card = (id: string) => notice({ placement: "over-game", id, title: "Keep your progress", body: forged(raw("<p>Sign in to keep what you've done.</p>")), isShown: true, isInPlace: true }).html;
     const markup = card("fine-card") + card("close-card").replace('class="playing-card-in"', 'class="playing-card-in" style="padding:12px;--pad-words:0px"');
     const page = { name: "Broken on purpose", path: "/design/example", mainActionShows: "nowhere", markup };
     const { failures } = (await checkPages({ ...sites!, pages: [page], sizes: LAPTOP, themes: ["light"], chromePath: await chromeToRun() })) as { failures: Failure[] };

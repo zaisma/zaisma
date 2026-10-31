@@ -1,7 +1,6 @@
 import { stackOfOne } from "./layout.ts";
 import { html } from "../markup.ts";
 import { notice } from "./panes.ts";
-import { playingCard, urgentCard } from "./playing.ts";
 
 /*
  * Everything that appears over a page or a running game, run one way (docs/DECISIONS.md, "One system for what appears over a page or a
@@ -27,8 +26,8 @@ const TEMPLATES = {
   done: notice({ text: "", tone: "done" }).html,
   undo: notice({ text: "", tone: "done", undoAction: "#" }).html,
   problem: notice({ text: "", tone: "problem" }).html,
-  card: playingCard({ id: "layer-card", body: stackOfOne(html`<p></p>`, "words") }).html,
-  urgent: urgentCard({ id: "layer-urgent", title: "", text: "" }).html,
+  card: notice({ placement: "over-game", id: "layer-card", body: stackOfOne(html`<p></p>`, "words") }).html,
+  urgent: notice({ placement: "over-everything", id: "layer-urgent", title: "", text: "" }).html,
 };
 
 /**
@@ -527,7 +526,7 @@ export const LAYERS_SCRIPT = `/* layers */(function () {
       var known = el ? entryOf(el) : entries.filter(function (entry) { return entry.isMade && entry.text === options.text; })[0];
       if (known) return handleOf(known);
       var noticeUrgency = options.noticeUrgency || (el ? urgencyOf(el) : "information");
-      // An urgent card may say itself which sheets can't go on under it (urgentCard's sheetsToClose).
+      // An urgent card may say itself which sheets can't go on under it (an over-everything notice's sheetsToClose).
       var sheetsToClose = options.sheetsToClose || (el && el.getAttribute("data-sheets-to-close") ? el.getAttribute("data-sheets-to-close").split(" ") : []);
       var entry = { el: el, text: options.text || "", noticeUrgency: noticeUrgency, tone: options.tone === "problem" ? "problem" : "done", undoAction: options.undoAction || null, sheetsToClose: sheetsToClose, isMade: !el };
       if (el) { el.zaismaLayer = entry; if (hiddenWatch) hiddenWatch.observe(el, { attributes: true, attributeFilter: ["hidden"] }); }

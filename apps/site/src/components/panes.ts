@@ -1574,7 +1574,9 @@ component({
   ],
 });
 
-export interface NoticeOptions {
+interface UnderHeaderNoticeOptions {
+  /** Just under the header, on a page (the default). */
+  placement?: "under-header";
   text: string;
   /**
    * How it waits its turn (zaismaLayers): "information" (the default) leaves by itself when it's done and waits behind asks; "urgent" goes
@@ -1591,8 +1593,78 @@ export interface NoticeOptions {
   isInPlace?: boolean;
 }
 
-/** A notice: a moment that just happened ("Saved", "Couldn't save: you're offline"), in the header's glass just under the header. */
+interface OverGameNoticeOptions {
+  /** Over a running game, in its top corner under the bar. */
+  placement: "over-game";
+  /** Unique on the page: the script shows and hides it by its id. */
+  id: string;
+  /** What it's about: its heading, and its name for a screen reader. Left out, it's one line of news (role status), like Saved. */
+  title?: string;
+  /** Its words and buttons, laid out with the layout components. */
+  body: LayoutMarkup;
+  /**
+   * How it waits its turn over the game (zaismaLayers): "information" leaves by itself and waits behind asks, "ask" stays until it's
+   * answered. Left out, a card with nothing to press is information and any other an ask.
+   */
+  noticeUrgency?: "information" | "ask";
+  /** Open in place, as the gallery's still copies are; over a game the page's script shows it through zaismaLayers.show, never by itself. */
+  isShown?: boolean;
+  /** Where it is in the gallery, rather than over the game's corner. */
+  isInPlace?: boolean;
+}
+
+/** A card of glass over a running game's top corner, for what needs the player now (keep your progress, a game asking them to sign in) or what just happened (Saved). */
+function overGameNotice(options: OverGameNoticeOptions): Raw {
+  const named = options.title ? html` aria-labelledby="${options.id}-title"` : raw(' role="status"');
+  const urgency = options.noticeUrgency ? html` data-notice-urgency="${options.noticeUrgency}"` : "";
+  return html`<aside class="playing-card glass${options.isInPlace ? " in-place" : ""}" id="${options.id}"${named}${urgency} data-glass data-glass-corners="pane"${options.isShown ? "" : raw(" hidden")}>${EDGE}<div class="playing-card-in">${options.title ? html`<h2 class="playing-card-title" id="${options.id}-title">${options.title}</h2>` : ""}${options.body}</div></aside>`;
+}
+
+interface OverEverythingNoticeOptions {
+  /** Over anything, sheets and full screen included: in the corner on a wide screen, across the top on a phone. */
+  placement: "over-everything";
+  /** Unique on the page: a page's script says it by its id (zaismaLayers.say({ cardId })). */
+  id: string;
+  /** What happened: "You've been signed out". */
+  title: string;
+  /** What it means now, in one or two sentences: "Nothing was charged. Sign in again to buy." */
+  text: string;
+  /** What the player can do about it (Sign in); Close is always there. */
+  buttons?: ControlMarkup[];
+  /** The sheets that can't go on under it (the buy sheet and its Confirm it's you after a sign-out): they close as it shows. */
+  sheetsToClose?: string[];
+  /** Where it is in the gallery: shown in place rather than over everything. */
+  isInPlace?: boolean;
+}
+
+/**
+ * An urgent card: news that goes over anything, sheets and full screen included (signed out, the connection lost while paying), as a playing
+ * card with an edge in the marked color. It's a popover the queue shows after everything else, so the top layer puts it on top. In the
+ * corner on a wide screen, across the top on a phone; it stays until the player closes it or presses what's in it.
+ */
+function overEverythingNotice(options: OverEverythingNoticeOptions): Raw {
+  const close = tertiaryButton("Close", { type: "button", icon: "close", isLabelHidden: true, isSmall: true, dataAttributes: { "layer-close": "" } });
+  const buttons = options.buttons?.length ? row({ widths: "equal", items: options.buttons.map((button) => ({ kind: "control" as const, markup: button })) }) : "";
+  const sheetsToClose = options.sheetsToClose?.length ? html` data-sheets-to-close="${options.sheetsToClose.join(" ")}"` : "";
+  return html`<aside class="playing-card glass urgent-card${options.isInPlace ? " in-place" : ""}" id="${options.id}" role="alert" data-notice-urgency="urgent"${sheetsToClose}${options.isInPlace ? "" : raw(' popover="manual"')} data-glass data-glass-corners="pane">${EDGE}<div class="playing-card-in"><div class="urgent-card-head"><h2 class="playing-card-title">${options.title}</h2>${close}</div><p class="urgent-card-text">${options.text}</p>${buttons}</div></aside>`;
+}
+
+/** A notice's options: where it shows (under the header, over a running game, or over everything) and what it says. */
+export type NoticeOptions = UnderHeaderNoticeOptions | OverGameNoticeOptions | OverEverythingNoticeOptions;
+
+/**
+ * A notice: a moment that needs the player or just happened, in a small pane of glass that waits its turn (zaismaLayers). On a page, just
+ * under the header ("Saved", "Couldn't save: you're offline"); over a running game, in its top corner, the game running on (keep your
+ * progress, a game asking them to sign in); and urgent news over everything, sheets included (signed out while buying).
+ */
 export function notice(options: NoticeOptions): Raw {
+  if (options.placement === "over-game") return overGameNotice(options);
+  if (options.placement === "over-everything") return overEverythingNotice(options);
+  return underHeaderNotice(options);
+}
+
+/** A notice under the header: a moment that just happened, in the header's glass just under the header. */
+function underHeaderNotice(options: UnderHeaderNoticeOptions): Raw {
   const isProblem = options.tone === "problem";
   const noticeUrgency = options.noticeUrgency ?? "information";
   const undo = options.undoAction === undefined ? "" : html`<form class="notice-undo" method="post" action="${options.undoAction}">${tertiaryButton("Undo", { type: "submit" })}</form>`;
@@ -1623,8 +1695,44 @@ component({
   slug: "notice",
   group: "panes",
   subgroup: "layers",
-  summary: "A moment that just happened, just under the header: Saved, Copied, or what went wrong. A done one leaves by itself after 4 seconds (8 with Undo), waiting while it's pointed at or touched; a problem stays until it's closed. Up to three stack, and the rest wait their turn (zaismaLayers.say makes one from a page's script). Not for what holds while you're on the page: that's a Banner.",
+  summary: "A moment that needs the player or just happened, in a small pane of glass that waits its turn: under the header on a page (Saved, Copied, or what went wrong), over a running game's top corner with the game running on (keep your progress, a game asking them to sign in), or urgent news over everything, sheets included (signed out while buying). One that's done leaves by itself; a problem or a question stays until it's answered; urgent ones go over anything",
   styles: `
+/* A card over the game's top corner, under the bar: glass the game shows through, as wide as a phone allows. What's in it is a pane's content
+   (tokens.ts sets its padding and its words' margin, once), so its words keep the pane's margin from the card's edge like any pane's.
+   It comes in with a short fade and a rise and leaves with the same, shown or hidden by the page (hidden): display changes at the ends of
+   the fade, so it's still there while it leaves. Under reduced motion it only fades. */
+.playing-card { position: fixed; z-index: 20; top: calc(var(--control-height-small) + 3 * var(--pad-frame)); right: var(--pad-frame); width: min(360px, calc(100vw - 2 * var(--pad-frame))); margin: 0; color: var(--ink); --glass-tint: var(--glass-dropdown);
+  transition: var(--glass-transition), opacity var(--motion-state) ease, transform var(--motion-arrive) var(--ease-glide), display var(--motion-arrive) allow-discrete; }
+.playing-card { transform: translate(var(--swipe-x, 0px), var(--swipe-y, 0px)); opacity: var(--swipe-opacity, 1); }
+.playing-card[hidden] { display: none; opacity: 0; transform: translate(var(--swipe-x, 0px), calc(var(--swipe-y, 0px) - 8px)); pointer-events: none; }
+@starting-style { .playing-card { opacity: 0; transform: translateY(-8px); } }
+/* A card with nothing to press in it (a notification: Saved, a save that didn't go through) goes on a tap or a click, or a swipe sideways
+   or up (PLAYING_CARD_SCRIPT): it follows the finger (is-swiping, no transition then) and leaves with the exit above. A card with a button or
+   a link in it stays until its own button answers, and the gallery's copy stays where it is. */
+.playing-card:not(.in-place):not(:has(a, button, input, select, textarea)) { cursor: pointer; touch-action: none; user-select: none; -webkit-user-select: none; }
+.playing-card.is-swiping { transition: var(--glass-transition); }
+.playing-card > :not(.edge) { position: relative; z-index: 1; }
+.playing-card.in-place { position: relative; top: auto; right: auto; }
+.playing-card-in { display: flex; flex-direction: column; gap: var(--gap-words-control); font: var(--type-words); }
+.playing-card-in p { margin: 0; }
+.playing-card-title { margin: 0; font: var(--type-heading); }
+@media (orientation: landscape) and (max-height: 500px) { .playing-card { top: var(--pad-frame); } }
+/* An urgent card: a playing card with its edge in the marked color, a popover over everything (zaismaLayers shows it last). The browser's own
+   popover look is put back to the card's; it comes and goes as a card does, kept in the top layer while it leaves. Across the top on a phone. */
+.playing-card.urgent-card { inset: auto; top: calc(var(--control-height-small) + 3 * var(--pad-frame)); right: var(--pad-frame); height: auto; padding: 0; border: 0; overflow: visible;
+  transition: var(--glass-transition), opacity var(--motion-state) ease, transform var(--motion-arrive) var(--ease-glide), display var(--motion-arrive) allow-discrete, overlay var(--motion-arrive) allow-discrete; }
+.playing-card.urgent-card:not(.in-place):not(:popover-open) { opacity: 0; transform: translateY(-8px); }
+.urgent-card > .edge :is(.rim, .hair) { stroke: var(--marked); }
+.playing-card.urgent-card.in-place { position: relative; inset: auto; }
+.urgent-card-head { display: flex; align-items: flex-start; gap: var(--gap-control-row-boxes); }
+.urgent-card-head > .playing-card-title { flex: 1; min-width: 0; }
+.urgent-card-text { color: var(--ink); }
+@media (max-width: 640px) { .playing-card.urgent-card:not(.in-place) { left: var(--pad-frame); right: var(--pad-frame); width: auto; margin: 0 auto; max-width: 360px; } }
+@media (prefers-reduced-motion: reduce) {
+  .playing-card { transition: var(--glass-transition), opacity var(--motion-state) ease, display var(--motion-state) allow-discrete; }
+  .playing-card, .playing-card[hidden] { transform: none; }
+  @starting-style { .playing-card { transform: none; } }
+}
 /* A notice: a small slab of the header's glass floating just under the header, in the middle, under any notices before it. It comes down a
    little as it arrives and fades up as it leaves. A done one carries a green tick, a problem the warning in the marked color and a close
    button. Its height is a small control's and the room round it, so a notice with Close or Undo is as tall as one without. */
@@ -1650,6 +1758,34 @@ ${touchReach(".notice")}
 `,
   render: notice,
   examples: [
+    {
+      label: "Keep your progress",
+      markup: notice({ placement: "over-game",
+        id: "example-keep",
+        title: "Keep your progress",
+        isShown: true,
+        isInPlace: true,
+        body: stack({
+          items: [
+            { kind: "words", markup: html`<p>Your Verdant progress is only saved in this browser. Make a free account to keep it safe and play on any device.</p>` },
+            { kind: "block", markup: row({ widths: "equal", items: [{ kind: "control", markup: primaryButton("Make an account", { href: "#join" }) }, { kind: "control", markup: secondaryButton("Not now", { type: "button" }) }] }) },
+            { kind: "words", markup: html`<p>Have an account? ${textLink("Sign in", "#signin")}</p>` },
+          ],
+        }),
+      }),
+    },
+    { label: "Saved", markup: notice({ placement: "over-game", id: "example-saved", isShown: true, isInPlace: true, body: stackOfOne(html`<p>Saved to your account.</p>`, "words") }) },
+    { label: "Signed out while buying: urgent, over anything, the sheets it makes useless closed under it", markup: notice({ placement: "over-everything", id: "example-urgent", title: "You've been signed out", text: "Nothing was charged. Sign in again to buy.", buttons: [primaryButton("Sign in", { href: "#signin" })], isInPlace: true }) },
+    {
+      label: "Try it: urgent over a sheet, which closes under it",
+      markup: html`${secondaryButton("Buy Revive", { type: "button", controls: "example-urgent-sheet" })}${sheet({
+        id: "example-urgent-sheet",
+        title: "Revive",
+        body: stack({ items: [{ kind: "words", markup: html`<p>Bring your character back with half its health.</p>` }, { kind: "control", markup: secondaryButton("Sign out in another tab", { type: "button", isFullWidth: true, dataAttributes: { "layer-show": "example-urgent-over" } }) }] }),
+        closeLabel: "Close",
+        placement: "foot",
+      })}${notice({ placement: "over-everything", id: "example-urgent-over", title: "You've been signed out", text: "Nothing was charged. Sign in again to buy.", buttons: [primaryButton("Sign in", { href: "#signin" })], sheetsToClose: ["example-urgent-sheet"] })}`,
+    },
     { label: "Done", markup: notice({ text: "Saved", tone: "done", isInPlace: true }) },
     { label: "Done, longer", markup: notice({ text: "Version 14 is live", tone: "done", isInPlace: true }) },
     { label: "A problem", markup: notice({ text: "Couldn't save: you're offline. Your changes are kept here.", tone: "problem", link: { words: "Try again", href: "#notice" }, isInPlace: true }) },

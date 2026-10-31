@@ -7,8 +7,7 @@ import { stripeFrame } from "./components/stripe-frame.ts";
 import { doneState, loadingState, problemState } from "./components/data.ts";
 import { confirmItsYouSheet } from "./components/confirm-its-you.ts";
 import { row, stack } from "./components/layout.ts";
-import { storeItem, storePanel } from "./components/panes.ts";
-import { urgentCard } from "./components/playing.ts";
+import { notice, storeItem, storePanel } from "./components/panes.ts";
 import { isLocalPreview } from "./stripe.ts";
 
 /**
@@ -71,8 +70,8 @@ export function buySheet(options: { joinHref: string; signInHref: string; coverU
   });
   // Urgent news while buying, over the sheet and full screen (zaismaLayers): a sign-out ends the purchase, so the sheet and its Confirm it's
   // you close under it; a connection lost while paying keeps the sheet, which says what it knows.
-  const signedOut = urgentCard({ id: "buy-signed-out", title: "You've been signed out", text: "Nothing was charged. Sign in again to buy.", buttons: [primaryButton("Sign in", { href: options.signInHref })], sheetsToClose: ["buy-sheet", "buy-confirm-you"] });
-  const unreachable = urgentCard({ id: "buy-unreachable", title: "Couldn't reach Zaisma", text: "If you were charged, the item arrives when you're back." });
+  const signedOut = notice({ placement: "over-everything", id: "buy-signed-out", title: "You've been signed out", text: "Nothing was charged. Sign in again to buy.", buttons: [primaryButton("Sign in", { href: options.signInHref })], sheetsToClose: ["buy-sheet", "buy-confirm-you"] });
+  const unreachable = notice({ placement: "over-everything", id: "buy-unreachable", title: "Couldn't reach Zaisma", text: "If you were charged, the item arrives when you're back." });
   return html`${storePanel({ id: "buy-sheet", title: "Buy", closeLabel: "Close", body, foot })}${confirmItsYouSheet({ id: "buy-confirm-you" })}${stripeFrame({ id: "buy-check-frame", title: "Your bank's check" })}${signedOut}${unreachable}`;
 }
 

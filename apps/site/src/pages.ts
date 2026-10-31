@@ -51,9 +51,9 @@ import { cutField } from "./components/fields.ts";
 import { emptyState, glanceFacts, listRows, type ListRow } from "./components/data.ts";
 import { glassPane, tag, type IconName } from "./components/foundations.ts";
 import { grid, row, stack, track, type LayoutItem, stackOfOne } from "./components/layout.ts";
-import { banner, dropdown, gameCard, sheet } from "./components/panes.ts";
+import { banner, dropdown, gameCard, notice, sheet } from "./components/panes.ts";
 import { person } from "./components/people.ts";
-import { playingBar, playingCard, playingCheck, screenshot, screenshotLarge, urgentCard } from "./components/playing.ts";
+import { playingBar, playingCheck, screenshot, screenshotLarge } from "./components/playing.ts";
 import { facts, readingText } from "./components/reading.ts";
 import { backgroundMarkup, backgroundOf, type ShownBackground } from "./backgrounds.ts";
 import { glassMessage, html, layout, pageData, raw, scriptTags, type Raw } from "./html.ts";
@@ -469,7 +469,7 @@ export function gamePageResponse(env: Env, view: GamePageView): Response {
     ],
   });
   const keepCard = saves
-    ? playingCard({
+    ? notice({ placement: "over-game",
         id: "keep",
         title: "Keep your progress",
         body: stack({ items: [
@@ -481,7 +481,7 @@ export function gamePageResponse(env: Env, view: GamePageView): Response {
       })
     : "";
   const signInCard = canSignIn
-    ? playingCard({
+    ? notice({ placement: "over-game",
         id: "sign-in-ask",
         title: `${game.title} asks you to sign in`,
         body: stack({ items: [
@@ -518,7 +518,7 @@ ${multiplayer
   ? html`${playersSheet({ gameOrigin, slug: game.slug, title: game.title, hasZaismaRooms: game.multiplayer_mode !== "none", canSignIn, signInPath: `/signin?next=${encodeURIComponent(`/g/${game.slug}`)}`, reportStep: reportStep(game, { isMultiplayer: true }) })}${reportScript(game, { gameOrigin })}${blockSheet({ gameOrigin })}`
   : reportSheet(game, { isMultiplayer: false, gameOrigin })}
 ${keepCard}
-${saves ? urgentCard({ id: "signed-out", title: "You've been signed out", text: "Sign in again to keep saving to your account.", buttons: [primaryButton("Sign in", { href: signinHere })] }) : ""}
+${saves ? notice({ placement: "over-everything", id: "signed-out", title: "You've been signed out", text: "Sign in again to keep saving to your account.", buttons: [primaryButton("Sign in", { href: signinHere })] }) : ""}
 ${signInCard}
 ${isClosed || !authConfigured(env) ? "" : friendRequestParts({ gameOrigin, slug: game.slug })}
 ${multiplayer ? stillThereCard() : ""}
