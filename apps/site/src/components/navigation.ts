@@ -430,34 +430,20 @@ export const RAIL_SCRIPT = `/* rail */(function () {
             var cuts = (holder.cutCorners || (window.zaismaCorners ? window.zaismaCorners(holder, "pane") : [0, 0, 0, 0])).map(function (cut) { return Math.min(cut, Math.round(short * 0.3)); });
             // How far from a corner's cut a slanted end has to stop: along the edge, the cut less the channel's width, plus what the gap adds on a slant.
             var slack = inset * (Math.SQRT2 - 1), fromCut = function (cut) { return Math.max(inset, cut - widthPx + slack); };
-            // What else is cut in a corner (a switch's well beside the rail) cuts it along one line, the furthest in: its distance from the
-            // corner along both edges (u + v, 0 when nothing's cut there). The rail's end continues that line, so the corner reads as one cut.
-            var cutLineAt = function (corner, scale) {
-              var furthest = 0;
-              holder.querySelectorAll("[data-cut-line]").forEach(function (cut) {
-                var cutPx = cut.cutCorners && cut.cutCorners[corner];
-                if (!cutPx || cut.parentElement.closest("[data-glass], [data-cut-line]") !== holder) return;
-                var r = cut.getBoundingClientRect(), across = corner === 1 || corner === 2 ? edge.right - r.right : r.left - edge.left, down = corner < 2 ? r.top - edge.top : edge.bottom - r.bottom;
-                furthest = Math.max(furthest, (across + down) / scale + cutPx);
-              });
-              return furthest;
-            };
-            // How far from a corner an end stops: clear of the corner's cut, and on the line of what's cut beside it.
-            var fromCorner = function (corner, scale) { return Math.max(fromCut(cuts[corner]), cutLineAt(corner, scale) - inset - widthPx); };
             if (isSide) {
               var own = bar.getBoundingClientRect(), shownLeft = own.left - (parseFloat(bar.style.marginLeft) || 0), shownRight = own.right + (parseFloat(bar.style.marginRight) || 0);
               var isAtFoot = edge.bottom - own.bottom <= inset + 2;
-              placed.side = isAtFoot ? { left: Math.max(0, edge.left + fromCorner(3, 1) - shownLeft), right: Math.max(0, shownRight - (edge.right - fromCorner(2, 1))) } : { left: 0, right: 0 };
-              placed.squareEnds = isAtFoot ? { start: cuts[3] < 0.5 && !cutLineAt(3, 1), end: cuts[2] < 0.5 && !cutLineAt(2, 1) } : NO_SQUARE_ENDS;
+              placed.side = isAtFoot ? { left: Math.max(0, edge.left + fromCut(cuts[3]) - shownLeft), right: Math.max(0, shownRight - (edge.right - fromCut(cuts[2]))) } : { left: 0, right: 0 };
+              placed.squareEnds = isAtFoot ? { start: cuts[3] < 0.5, end: cuts[2] < 0.5 } : NO_SQUARE_ENDS;
             } else {
               // Measured on screen, where a sheet still growing in as it opens is drawn smaller than it lays out: the gaps are drawn at
               // that size too, and what's measured is put back at the size it lays out at, so the rail lands where it will be once it's in.
               var from = parent.getBoundingClientRect(), box = scroller.getBoundingClientRect(), drawn = holder.offsetWidth ? edge.width / holder.offsetWidth : 1;
-              var topIn = fromCorner(1, drawn), bottomIn = fromCorner(2, drawn);
+              var topIn = fromCut(cuts[1]), bottomIn = fromCut(cuts[2]);
               var top = Math.max(box.top, edge.top + topIn * drawn), bottom = Math.min(box.bottom, edge.bottom - bottomIn * drawn), right = Math.min(box.right, edge.right - inset * drawn);
               placed.box = { top: (top - from.top) / drawn - parent.clientTop, height: Math.max(0, bottom - top) / drawn, left: (right - from.left) / drawn - parent.clientLeft - (reachPx + widthPx) / 2 };
               // An end that runs to a square corner (a menu hanging from its button) is square, as the corner is; one stopped short by its box, slanted.
-              placed.squareEnds = { start: cuts[1] < 0.5 && topIn === inset && edge.top + topIn * drawn >= box.top - 0.5, end: cuts[2] < 0.5 && bottomIn === inset && edge.bottom - bottomIn * drawn <= box.bottom + 0.5 };
+              placed.squareEnds = { start: cuts[1] < 0.5 && edge.top + topIn * drawn >= box.top - 0.5, end: cuts[2] < 0.5 && edge.bottom - bottomIn * drawn <= box.bottom + 0.5 };
             }
           }
         }
