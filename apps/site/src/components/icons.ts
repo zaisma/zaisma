@@ -46,6 +46,8 @@ export const ICONS = {
   copy: stroke("0 0 20 20", '<path d="M7 7h9.5v9.5H7z"/><path d="M13 7V3.5H3.5V13H7"/>'),
   upload: stroke("0 0 20 20", '<path d="M10 13.2V3.6M6.2 7.2 10 3.4l3.8 3.8"/><path d="M3.5 12.4v4.1h13v-4.1"/>'),
   warning: stroke("0 0 20 20", '<path d="M10 2.8 18.2 17H1.8z"/><path d="M10 8v4.2M10 14.6v.1"/>'),
+  // Apple's mark, filled, only for an Apple Pay button: with "Pay" beside it, it reads as Apple Pay, and a screen reader hears "Apple Pay".
+  apple: '<svg class="ico solid" viewBox="0 0 24 24" role="img" aria-label="Apple"><path d="M12.15 6.9c-.95 0-2.42-1.08-3.96-1.04-2.04.03-3.91 1.18-4.96 3.01-2.12 3.68-.55 9.1 1.52 12.09 1.01 1.45 2.2 3.09 3.79 3.04 1.52-.07 2.09-.99 3.93-.99 1.83 0 2.35.99 3.96.95 1.64-.03 2.68-1.48 3.68-2.95 1.16-1.69 1.64-3.33 1.66-3.42-.04-.01-3.18-1.22-3.22-4.86-.03-3.04 2.48-4.49 2.6-4.56-1.43-2.09-3.62-2.32-4.39-2.38-2-.16-3.68 1.09-4.61 1.09zm3.38-3.07c.84-1.01 1.4-2.43 1.25-3.83-1.21.05-2.66.81-3.53 1.82-.78.9-1.45 2.34-1.27 3.71 1.34.1 2.71-.69 3.55-1.7"/></svg>',
   passkey: stroke("0 0 24 24", '<circle cx="8" cy="9" r="4"/><path d="M2 20c0-3.3 2.7-6 6-6 1.5 0 2.9.6 4 1.5"/><circle cx="17.5" cy="13.5" r="2.5"/><path d="M17.5 16v5M17.5 19h2"/>', ' stroke-width="1.7"'),
   // A globe turned to a continent, marking a region (a game's rooms by where they run).
   "globe-africa": stroke("0 0 20 20", '<circle cx="10" cy="10" r="7.2"/><path d="M7.4 6.6l3.8-.2 1.9 1.7-.4 2.1-1.5 2.2-.8 2.5-1.3-.4-.6-2.4-1.5-1.9.4-2z"/>'),

@@ -1514,7 +1514,7 @@ component({
     {
       label: "Over a game, with Apple Pay offered and the line the EU's law asks for above Buy",
       isStill: true,
-      markup: storePanel({ id: "example-store-panel-wallet", closeLabel: "Close", isOverGame: true, isShown: true, item: STORE_ITEM, footItems: [{ kind: "control", markup: secondaryButton("Apple Pay", { type: "button", isFullWidth: true }) }, storeExampleCard, { kind: "words", markup: html`<p>You get it now, so you can't cancel it in the next 14 days.</p>` }, storeExampleBuy("example-store-panel-wallet-buy", "$1.99")] }),
+      markup: storePanel({ id: "example-store-panel-wallet", closeLabel: "Close", isOverGame: true, isShown: true, item: STORE_ITEM, footItems: [{ kind: "control", markup: secondaryButton("Pay", { type: "button", icon: "apple", isFullWidth: true }) }, storeExampleCard, { kind: "words", markup: html`<p>You get it now, so you can't cancel it in the next 14 days.</p>` }, storeExampleBuy("example-store-panel-wallet-buy", "$1.99")] }),
     },
     {
       label: "Over a game, buying: Buy pressed, waiting",

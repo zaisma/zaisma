@@ -56,7 +56,7 @@ export function buySheet(options: { joinHref: string; signInHref: string; coverU
   // The foot stays in view while the body scrolls: Apple Pay or Google Pay when offered, the saved card, the line the EU's law asks for, and Buy.
   const footItems: LayoutItem[] = [
       { kind: "block", id: "buy-wallet", isHidden: true, markup: stripeFrame({ id: "buy-wallet-frame", title: "Apple Pay or Google Pay" }) },
-      { kind: "control", id: "buy-wallet-stand-in", isHidden: true, markup: secondaryButton("Apple Pay", { type: "button", isFullWidth: true }) },
+      { kind: "control", id: "buy-wallet-stand-in", isHidden: true, markup: secondaryButton("Pay", { type: "button", icon: "apple", isFullWidth: true }) },
       { kind: "control", id: "buy-other-card", isHidden: true, markup: cardRow("", { type: "button", hiddenText: "Use another card", changeText: "Change" }) },
       // Digital content delivered at once loses the 14-day withdrawal right only with the buyer's acknowledgement, said before they buy.
       { kind: "words", id: "buy-eu", isHidden: true, markup: html`<p>You get it now, so you can't cancel it in the next 14 days.</p>` },
