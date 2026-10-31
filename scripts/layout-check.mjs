@@ -311,8 +311,11 @@ const KEYBOARD_START = `(() => {
     for (const each of new Set([el, around])) for (const pseudo of ["::before", "::after"]) { const css = getComputedStyle(each, pseudo); parts.push(css.content === "none" ? "" : lookOfPart(css)); }
     return parts.join("\\n");
   };
-  // A focus look that eases in reads as it ends, never as it starts.
-  const settle = () => document.getAnimations().forEach((animation) => { if (animation instanceof CSSTransition) animation.finish(); });
+  // A focus look that eases in reads as it ends, never as it starts: the page's styles worked out first, so its transitions have begun.
+  const settle = () => {
+    document.documentElement.getBoundingClientRect();
+    document.getAnimations().forEach((animation) => { if (animation instanceof CSSTransition) animation.finish(); });
+  };
   // The browser Tabs to one radio of a group: reaching it reaches the group.
   const groupOf = (el) => (el.matches("input[type=radio][name]") ? [...document.forms].indexOf(el.form) + ":" + el.name : null);
   const frames = [...document.querySelectorAll("iframe:not([inert])")];
@@ -321,7 +324,9 @@ const KEYBOARD_START = `(() => {
   const scrollers = [document.scrollingElement, ...document.querySelectorAll("body *")].filter((el) => el === document.scrollingElement || ((el.scrollHeight > el.clientHeight + 1 || el.scrollWidth > el.clientWidth + 1) && /auto|scroll/.test(getComputedStyle(el).overflow)));
   const controls = [...document.querySelectorAll(${JSON.stringify(FOCUSABLE_SELECTOR)})].filter((el) => !el.matches(":disabled") && el.checkVisibility({ visibilityProperty: true }) && !el.closest("[inert], [hidden], template, dialog:not([open]), details:not([open]) > :not(summary), .dropdown.shut"));
   settle();
-  window.zaismaKeyboard = { controls, rest: controls.map(lookOf), reached: new Set(), reachedGroups: new Set(), unseen: new Set(), first: null, frames, scrollerPlaces: scrollers.map((el) => [el, el.scrollTop, el.scrollLeft]), opened: new Set(document.querySelectorAll("dialog[open], :popover-open")), lookOf, settle, groupOf };
+  // One shown open (a picker in place) already wears its focus look as it rests: being open marks it.
+  const opened = new Set(controls.filter((el) => el.getAttribute("aria-expanded") === "true"));
+  window.zaismaKeyboard = { controls, rest: controls.map(lookOf), reached: new Set(), reachedGroups: new Set(), unseen: new Set(), shownOpen: opened, first: null, frames, scrollerPlaces: scrollers.map((el) => [el, el.scrollTop, el.scrollLeft]), opened: new Set(document.querySelectorAll("dialog[open], :popover-open")), lookOf, settle, groupOf };
   return { controlCount: controls.length, scrollerCount: scrollers.length };
 })()`;
 
@@ -337,7 +342,7 @@ const KEYBOARD_STEP = `(() => {
   state.reached.add(el);
   if (state.groupOf(el)) state.reachedGroups.add(state.groupOf(el));
   state.settle();
-  if (state.lookOf(el) === state.rest[index]) state.unseen.add(el);
+  if (!state.shownOpen.has(el) && state.lookOf(el) === state.rest[index]) state.unseen.add(el);
   return false;
 })()`;
 
