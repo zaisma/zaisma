@@ -249,7 +249,7 @@ html { -webkit-tap-highlight-color: transparent; }
   /* Waiting (components/waiting.ts): Zaisma's orange light, its bright core and its glow, as a Loading state's line and a header's groove
      show it (the groove fills over --waiting-fill-time), and the glint a pressed control runs while it waits, one pass in
      --waiting-glint-time. */
-  --waiting-light: var(--run-tip); --waiting-glow: var(--run); --waiting-light-width: 2px; --waiting-fill-time: 8s; --waiting-glint-time: 1.3s;
+  --waiting-light: var(--run-tip); --waiting-glow: var(--run); --waiting-light-width: 2px; --waiting-fill-time: 8s; --waiting-glint-time: 0.75s;
   /* Keyboard focus, the same on everything: orange. A control's cut line is stroked --focus-stroke wide (half of it shows inside
      its cut, 2px), anything else gets a 2px outline. On an orange face (the runner) it's the deeper --focus-on-run. */
   --focus: var(--run); --focus-on-run: #7A4100; --focus-stroke: 4;
