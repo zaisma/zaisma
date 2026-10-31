@@ -1035,23 +1035,23 @@ describe("pages", () => {
     // The home is rebuilt in the new look; a page not yet rebuilt (the forum) is still in Steel.
     expect(home).not.toContain('<main class="steel">');
     expect(await (await SELF.fetch(`${LOCAL}/forum`)).text()).toContain('<main class="steel" data-covers-backdrop>');
-    expect(home).toContain('<header class="top glass');
-    const foot = home.slice(home.indexOf('<footer class="foot glass"'));
+    expect(home).toContain('<header class="top bar-layout glass');
+    const foot = home.slice(home.indexOf('<footer class="foot glass'));
     for (const [words, href] of [["For game developers", "/dashboard"], ["Forum", "/forum"], ["Source code", "https://github.com/zaisma/zaisma"], ["Content rules", "/legal/content-rules"], ["Terms", "/legal/terms"], ["Privacy", "/legal/privacy"], ["Security", "/legal/security"], ["Copyright (DMCA)", "/legal/dmca"], ["Defamation", "/legal/defamation"]] as const)
       expect(foot).toMatch(new RegExp(`href="${href.replace(/[.()]/g, "\\$&")}"[^>]*>[\\s\\S]*?${words.replace(/[()]/g, "\\$&")}`));
     expect(foot).toContain("Zaisma is open source, under the MIT license.");
     // Off a developer page the developer tabs are folded away, out of reach.
-    expect(home).toContain('<a data-lights href="/developers" class="foldable folded" tabindex="-1" aria-hidden="true">Developer</a>');
+    expect(home).toContain('<a class="flush-row quiet foldable folded" data-lights href="/developers" tabindex="-1" aria-hidden="true">Developer</a>');
     // A legal page doesn't know who's looking: its header says Sign in.
     expect(await (await SELF.fetch(`${LOCAL}/legal/privacy`)).text()).toMatch(/<a class="[^"]*run-wrap[^"]*" href="\/signin"/);
   });
 
   it("opens the developer tabs on the forum and the cover guide, and sends /developers to the dashboard", async () => {
     const forum = await (await SELF.fetch(`${LOCAL}/forum`)).text();
-    expect(forum).toContain('<a data-lights href="/developers" class="foldable">Developer</a>');
-    expect(forum).toContain('<a data-lights href="/forum" class="foldable" aria-current="page">Forum</a>');
+    expect(forum).toContain('<a class="flush-row quiet foldable" data-lights href="/developers">Developer</a>');
+    expect(forum).toContain('<a class="flush-row quiet foldable" data-lights href="/forum" aria-current="page">Forum</a>');
     const guide = await (await SELF.fetch(`${LOCAL}/developers/covers`)).text();
-    expect(guide).toContain('<a data-lights href="/developers" class="foldable" aria-current="page">Developer</a>');
+    expect(guide).toContain('<a class="flush-row quiet foldable" data-lights href="/developers" aria-current="page">Developer</a>');
     const front = await SELF.fetch(`${LOCAL}/developers`, { redirect: "manual" });
     expect(front.status).toBe(302);
     expect(new URL(front.headers.get("location")!).pathname).toBe("/dashboard");

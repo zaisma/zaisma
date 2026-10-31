@@ -19,7 +19,7 @@ describe("the background guide", () => {
     expect(response.status).toBe(200);
     const page = await response.text();
     expect(page).toContain(`<title>${BACKGROUND_GUIDE.title} · Zaisma</title>`);
-    expect(page).toContain('<a data-lights href="/developers" class="foldable" aria-current="page">Developer</a>');
+    expect(page).toContain('<a class="flush-row quiet foldable" data-lights href="/developers" aria-current="page">Developer</a>');
     expect(page).not.toContain('<main class="steel">');
     expect(page).toContain(`<script src="${pageScriptPath(STAND_IN_BACKGROUNDS_SCRIPT)}" defer></script>`);
     for (const { slug } of STAND_IN_BACKGROUNDS) expect(page).toContain(`href="/developers/backgrounds/${slug}.glsl"`);

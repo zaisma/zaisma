@@ -38,6 +38,7 @@ export const STYLE_ATTRIBUTE: { pattern: RegExp; why: string }[] = [
   { pattern: /^--sent:[0-9.]+$/, why: "a file drop's upload, the share sent" },
   { pattern: /^--done-pct:[0-9.]+%$/, why: "Progress, the share done" },
   { pattern: /^--groove-filled:[0-9.]+$/, why: "a Groove's light, the share filled (a Progress, an upload, a usage meter)" },
+  { pattern: /^--mark-index: ?\d$/, why: "a PIN's mark, its place in the row, for the wave of light across them while it's on its way" },
 ];
 
 /** The page sheets pages may link: the site's and the gallery's, each every component's styles with the shell's or the gallery's. */
