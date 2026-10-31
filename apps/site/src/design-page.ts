@@ -185,7 +185,7 @@ body.gallery { margin: 0; min-height: 100vh; font: var(--type-reading); }
 .stage { padding-top: var(--pad-pane); }
 /* The bar floats like the header, inset from the top and both sides; it's a bar of glass (materials.ts), as tall as its buttons and the frame gap round them. */
 .gallery-bar { position: sticky; top: var(--pad-pane); z-index: 20; margin: 0 auto; width: calc(100% - 2 * var(--pad-pane)); max-width: calc(1480px - 2 * var(--pad-pane)); display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-control-stack) var(--gap-words-words);
-  --glass-tint: var(--glass-top); view-transition-name: gallery-bar; }
+  --glass-tint: var(--glass-top); }
 .gallery-bar > .logo { --logo-height: 24px; }
 .gallery-title { font: var(--type-name); color: var(--ink-2); padding-left: var(--gap-words-words); border-left: var(--divider); }
 .gallery-buttons { margin-left: auto; }

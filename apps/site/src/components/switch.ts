@@ -197,20 +197,16 @@ export const SWITCH_SCRIPT = `/* switches */(function () {
           var to = isVertical ? "translateY(" + on.offsetTop + "px)" : "translateX(" + on.offsetLeft + "px) scaleX(1)";
           return slab.animate([{ transform: from, transformOrigin: "0 0" }, { transform: to, transformOrigin: "0 0" }], { duration: slideMs(slab), easing: "cubic-bezier(.3, 1.2, .4, 1)" });
         };
-        // Until then it waits on the last page's tab; it starts with the page, as the view transition fades it in.
+        // Until then it waits on the last page's tab.
         slab.style.transition = "none"; put(slab, last); slab.offsetWidth; slab.style.transition = "";
         isWaitingToSlide = true;
         // It starts once the page shows, not before (a slow phone draws the new page late, and a slide started earlier would show up already
-        // halfway there), and once the page's crossfade from the last one (its view transition) is over, so the slab moves on the page
-        // itself and not inside the crossfade's picture of it. Once it lands, the slab settles where its tab is by then.
+        // halfway there). Once it lands, the slab settles where its tab is by then.
         var start = function () {
           requestAnimationFrame(function () {
-            var fades = document.getAnimations ? document.getAnimations().filter(function (each) { return each.effect && /^::view-transition/.test(each.effect.pseudoElement || ""); }) : [];
-            Promise.all(fades.map(function (each) { return each.finished.catch(function () {}); })).then(function () {
-              isWaitingToSlide = false; settle(); isWaitingToSlide = true;
-              var land = function () { isWaitingToSlide = false; settle(); };
-              slideFromLastPage().finished.then(land, land);
-            });
+            isWaitingToSlide = false; settle(); isWaitingToSlide = true;
+            var land = function () { isWaitingToSlide = false; settle(); };
+            slideFromLastPage().finished.then(land, land);
           });
         };
         if (document.fonts && document.fonts.ready) document.fonts.ready.then(start); else start();
@@ -254,19 +250,6 @@ export const SWITCH_SCRIPT = `/* switches */(function () {
     });
     sw.addEventListener("focusout", function () { sw.classList.remove("is-focus-shown"); });
   });
-  // A page left with a view transition fades out as the next fades in. A switch with a tab for the next page leaves its slab out of this
-  // page's last picture, so only the next page's slab shows, sliding over from this tab, and not a second one fading where it was.
-  window.addEventListener("pageswap", function (event) {
-    if (!event.viewTransition || !event.activation || !event.activation.entry || !event.activation.entry.url) return;
-    var to = new URL(event.activation.entry.url);
-    document.querySelectorAll(".tab-switch").forEach(function (sw) {
-      var slab = sw.querySelector(":scope > .switch-slab");
-      var isGoing = Array.prototype.some.call(sw.querySelectorAll(":scope > a[href]"), function (tab) { return new URL(tab.href).pathname === to.pathname && tab.getAttribute("aria-current") !== "page"; });
-      if (slab && isGoing) slab.style.visibility = "hidden";
-    });
-  });
-  // A page kept to go back to gets its slabs back.
-  window.addEventListener("pageshow", function () { document.querySelectorAll(".tab-switch > .switch-slab").forEach(function (slab) { slab.style.visibility = ""; }); });
 })();
 `;
 

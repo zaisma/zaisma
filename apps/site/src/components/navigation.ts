@@ -1401,9 +1401,6 @@ component({
 .sidebar-layout.is-folding > .sidebar-layout-in > .sidebar { display: block; position: fixed; left: var(--sidebar-left); top: var(--sidebar-top); width: var(--sidebar-width); height: var(--sidebar-height); z-index: 1; }
 .sidebar-layout.is-folding > .sidebar-layout-in > .sidebar.is-leaving { opacity: 0; transform: translateX(-24px); }
 .sidebar-main { min-width: 0; }
-/* Moving to another of its pages, the sidebar stays where it is and only the page changes (the site's view transition). A page has one
-   sidebar (the gallery's copies are still ones, with nothing to remember), so the name is unique. */
-.sidebar-layout-in > .sidebar[data-sidebar-remember] { view-transition-name: sidebar; }
 .sidebar-layout.is-collapsed > .sidebar-layout-in { grid-template-columns: minmax(0, 1fr); }
 .sidebar-layout.is-collapsed > .sidebar-layout-in > .sidebar { display: none; }
 /* A reading page: the page a reading column beside it, the pair in the middle of the wide frame; folded, the column alone in the middle. */
