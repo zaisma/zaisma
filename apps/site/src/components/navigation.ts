@@ -1561,8 +1561,8 @@ export interface FilterMenuOptions {
   /** The menu's id, which its button controls. */
   id: string;
   groups: FilterGroup[];
-  /** The list with nothing filtered, for Clear filters; null when nothing is. */
-  clearHref: string | null;
+  /** The list with nothing filtered, for Clear filters, which shows only while something is (filterCount above 0). */
+  clearHref: string;
   /** How many filters are in use, on the button; 0 for none. */
   filterCount: number;
   /** The gallery's fixed states: open, and on one group's choices. */
@@ -1576,14 +1576,14 @@ export interface FilterMenuOptions {
  */
 export function filterMenu(options: FilterMenuOptions): ControlMarkup {
   // A choice is a Dropdown's (its classes and look), a link to the list with it picked.
-  const choice = (label: string, href: string, isCurrent: boolean, choiceIcon?: IconName) =>
-    html`<a href="${href}" class="${DROPDOWN_CHOICE_CLASS}" role="menuitem" tabindex="-1" data-lights data-keeps-open data-cut-line="8"${isCurrent ? raw(' aria-current="page"') : ""}>${CUT_LINE}${choiceIcon ? icon(choiceIcon) : ""}<span>${label}</span>${isCurrent ? DROPDOWN_TICK : ""}</a>`;
+  const choice = (label: string, href: string, isCurrent: boolean, choiceIcon?: IconName, isHidden = false) =>
+    html`<a href="${href}" class="${DROPDOWN_CHOICE_CLASS}" role="menuitem" tabindex="-1" data-lights data-keeps-open data-cut-line="8"${isCurrent ? raw(' aria-current="page"') : ""}${isHidden ? raw(" hidden") : ""}>${CUT_LINE}${choiceIcon ? icon(choiceIcon) : ""}<span>${label}</span>${isCurrent ? DROPDOWN_TICK : ""}</a>`;
   const button = secondaryButton("Filter", { type: "button", icon: "filter", controls: options.id, isExpanded: Boolean(options.isOpen), reactionCount: options.filterCount || undefined });
   const opener = (groupName: string, inside: Raw, className: string) =>
     html`<button type="button" class="${DROPDOWN_CHOICE_CLASS} ${className}" role="menuitem" tabindex="-1" aria-haspopup="menu" data-lights data-cut-line="8" data-filter-opens="${groupName}">${CUT_LINE}${inside}</button>`;
   const main = html`<div class="dropdown-in filter-panel" data-filter-panel=""${options.openGroupName ? raw(" hidden") : ""}>${options.groups.map((group) =>
     opener(group.groupName, html`${icon(group.icon)}<span>${group.label}</span><span class="filter-picked">${group.pickedLabel}</span>${icon("chevron-right")}`, "filter-group"),
-  )}${options.clearHref ? html`${divider()}${choice("Clear filters", options.clearHref, false, "close")}` : ""}</div>`;
+  )}${options.filterCount ? divider() : raw('<hr class="divider hairline" role="separator" hidden>')}${choice("Clear filters", options.clearHref, false, "close", !options.filterCount)}</div>`;
   const panels = options.groups.map(
     (group) =>
       html`<div class="dropdown-in filter-panel" data-filter-panel="${group.groupName}"${options.openGroupName === group.groupName ? "" : raw(" hidden")}>${opener("", html`${icon("arrow-back")}<span>${group.label}</span>`, "filter-back")}<hr class="hairline" role="separator">${group.choices.map((each) => choice(each.label, each.href, each.isCurrent))}</div>`,
@@ -1595,6 +1595,18 @@ export function filterMenu(options: FilterMenuOptions): ControlMarkup {
 /** A Filter menu turns to a group's choices and back in place, and starts again from its groups each time it opens. */
 export const FILTER_MENU_SCRIPT = `/* filter menus */(function () {
   var isStill = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  // The ways in use (picked other than their first choice, Any): counted on the Filter button, and Clear filters shown while there are any.
+  function recount(menu) {
+    var inUse = 0;
+    menu.querySelectorAll('[data-filter-panel]:not([data-filter-panel=""])').forEach(function (panel) { var first = panel.querySelector('a[role="menuitem"]'); if (first && first.getAttribute("aria-current") !== "page") inUse++; });
+    var button = document.querySelector('[aria-controls="' + menu.id + '"]'), slab = button && button.querySelector(".slab"), count = button && button.querySelector(".cut-count");
+    if (inUse && !count && slab) { count = document.createElement("span"); count.className = "cut-count"; slab.appendChild(count); }
+    if (count) { if (inUse) count.textContent = String(inUse); else count.remove(); }
+    var clear = menu.querySelector('[data-filter-panel=""] a[role="menuitem"][data-keeps-open]'), rule = clear && clear.previousElementSibling;
+    if (clear) clear.hidden = !inUse;
+    if (rule && rule.matches("hr")) rule.hidden = !inUse;
+    if (menu.zaismaPlace) menu.zaismaPlace();
+  }
   function show(menu, groupName, isFocused) {
     var shown = null, was = menu.querySelector("[data-filter-panel]:not([hidden])");
     menu.querySelectorAll("[data-filter-panel]").forEach(function (panel) { panel.hidden = panel.getAttribute("data-filter-panel") !== groupName; if (!panel.hidden) shown = panel; });
@@ -1624,11 +1636,7 @@ export const FILTER_MENU_SCRIPT = `/* filter menus */(function () {
           var row = menu.querySelector('[data-filter-opens="' + panel.getAttribute("data-filter-panel") + '"] .filter-picked'), label = first.querySelector("span");
           if (row && label) row.textContent = label.textContent;
         });
-        var button = document.querySelector('[aria-controls="' + menu.id + '"]'), count = button && button.querySelector(".cut-count");
-        if (count) count.remove();
-        var rule = clear.previousElementSibling;
-        if (rule && rule.matches("hr")) rule.hidden = true;
-        clear.hidden = true;
+        recount(menu);
         var firstWay = menu.querySelector(".filter-group");
         if (firstWay) firstWay.focus({ preventScroll: true });
         if (menu.zaismaPlace) menu.zaismaPlace();
@@ -1644,6 +1652,7 @@ export const FILTER_MENU_SCRIPT = `/* filter menus */(function () {
         var row = menu.querySelector('[data-filter-opens="' + groupName + '"]'), label = picked.querySelector("span");
         if (row && label && row.querySelector(".filter-picked")) row.querySelector(".filter-picked").textContent = label.textContent;
         menu.lastGroupName = groupName;
+        recount(menu);
         show(menu, "", true);
         return;
       }
@@ -1691,6 +1700,6 @@ component({
     { label: "Closed, two filters in use", markup: row({ widths: "fit", alignment: "end", items: [{ kind: "control", markup: filterMenu({ id: "example-filter-closed", groups: EXAMPLE_FILTER_GROUPS, clearHref: "#filter-menu", filterCount: 2 }) }] }) },
     { label: "Open: the ways to filter, each with what's picked", markup: filterMenuFrame({ id: "example-filter-open", groups: EXAMPLE_FILTER_GROUPS, clearHref: "#filter-menu", filterCount: 2, isOpen: true }) },
     { label: "On one way's choices, the picked one marked", markup: filterMenuFrame({ id: "example-filter-price", groups: EXAMPLE_FILTER_GROUPS, clearHref: "#filter-menu", filterCount: 2, isOpen: true, openGroupName: "price" }), isStill: true },
-    { label: "Nothing filtered yet: no count, no Clear filters", markup: filterMenuFrame({ id: "example-filter-none", groups: EXAMPLE_FILTER_GROUPS.map((group) => ({ ...group, pickedLabel: group.groupName === "price" ? "Any price" : "Any" })), clearHref: null, filterCount: 0, isOpen: true }) },
+    { label: "Nothing filtered yet: no count, no Clear filters", markup: filterMenuFrame({ id: "example-filter-none", groups: EXAMPLE_FILTER_GROUPS.map((group) => ({ ...group, pickedLabel: group.groupName === "price" ? "Any price" : "Any" })), clearHref: "#filter-menu", filterCount: 0, isOpen: true }) },
   ],
 });

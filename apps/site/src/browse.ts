@@ -300,7 +300,7 @@ export async function browsePage(env: Env, request: Request): Promise<Response> 
             label: "Sort and filter",
             items: [
               { kind: "control", markup: tabSwitch({ label: "Sort", switchSize: "small", tabs: sortTabs }) },
-              { kind: "control", markup: filterMenu({ id: "browse-filter", groups: filterGroups(query, priceLabels), clearHref: tags.length ? browseHref({ sort: query.sort, searchText: query.searchText }) : null, filterCount: tags.length }) },
+              { kind: "control", markup: filterMenu({ id: "browse-filter", groups: filterGroups(query, priceLabels), clearHref: browseHref({ sort: query.sort, searchText: query.searchText }), filterCount: tags.length }) },
             ],
           }),
         },
