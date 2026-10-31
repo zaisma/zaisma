@@ -7,8 +7,8 @@ import { grid, paneParts, stack, type LayoutMarkup } from "../../apps/site/src/c
 /** A pane's body built by hand past the types, as a page could still forge one: these fixtures are pages the check must catch. */
 const forged = (markup: { html: string }) => raw(markup.html) as unknown as LayoutMarkup;
 import { table } from "../../apps/site/src/components/data.ts";
-import { gameCard, playingCard } from "../../apps/site/src/components/playing.ts";
-import { dropdown, sheet } from "../../apps/site/src/components/panes.ts";
+import { playingCard } from "../../apps/site/src/components/playing.ts";
+import { dropdown, gameCard, sheet } from "../../apps/site/src/components/panes.ts";
 import { LAYOUT_RULE_TIERS } from "../../apps/site/src/components/layout-measure.ts";
 import layoutMeasureSource from "../../apps/site/src/components/layout-measure.ts?raw";
 import layoutCheckSource from "../../scripts/layout-check.mjs?raw";

@@ -7,7 +7,7 @@ import { tertiaryButton } from "./components/actions.ts";
 import { CUT_LINE, glassPane, icon, tag } from "./components/foundations.ts";
 import { row, stack, type LayoutItem, stackOfOne } from "./components/layout.ts";
 import { shelf } from "./components/navigation.ts";
-import { banner, gameCover, type GameCoverOptions } from "./components/panes.ts";
+import { banner, gameCard, type GameCardOptions } from "./components/panes.ts";
 import { currentAnnouncement } from "./announcements.ts";
 import { shownAddress } from "./markup.ts";
 import { esc, html, layout, pageData, playerLine, raw, scriptTags, type Raw } from "./html.ts";
@@ -255,8 +255,8 @@ function card(game: Pick<ShowGame, "slug" | "title" | "cover" | "square"> & { pl
 const shownPlayerCount = (game: ShowGame): number | undefined => (game.playing_now_player_count >= MINIMUM_PLAYING_NOW_PLAYER_COUNT ? game.playing_now_player_count : undefined);
 
 /** A game in one of the home's rows (the home's script builds the same in the browser for Continue playing). */
-const coverOf = (game: ShowGame, ownedGameIds: ReadonlySet<string>, loading: Pick<GameCoverOptions, "isEager" | "hasHighPriority"> = {}): Raw =>
-  gameCover({ title: game.title, imageUrl: game.cover ?? null, href: `/g/${game.slug}`, facts: { playerCount: shownPlayerCount(game), priceText: coverPriceText(game, ownedGameIds) }, ...loading });
+const coverOf = (game: ShowGame, ownedGameIds: ReadonlySet<string>, loading: Pick<GameCardOptions, "isEager" | "hasHighPriority"> = {}): Raw =>
+  gameCard({ title: game.title, imageUrl: game.cover ?? null, href: `/g/${game.slug}`, tintColor: game.glass_tint_color, facts: { playerCount: shownPlayerCount(game), priceText: coverPriceText(game, ownedGameIds) }, ...loading });
 
 /** The first shelf's covers the page opens with in view, about a phone's or a wide screen's first row: they load with the page. */
 const FIRST_VIEW_COVER_COUNT = 4;
@@ -342,8 +342,8 @@ ${isProtectionOffered ? protectAccountWindow() : ""}
 ${pageData("home-data", {
       games: browserGames,
       minimum_playing_now_player_count: MINIMUM_PLAYING_NOW_PLAYER_COUNT,
-      icons: { people: icon("people").html, clock: icon("clock").html },
-      parts: { updated_tag: tag("Updated", "new").html, cut_line: CUT_LINE.html },
+      icons: { people: icon("people").html },
+      parts: { updated_tag: tag("Updated", "glass").html, cut_line: CUT_LINE.html },
     })}${scriptTags(HOME_SCRIPT)}`,
   });
   for (const cookie of viewer.cookies) response.headers.append("Set-Cookie", cookie);

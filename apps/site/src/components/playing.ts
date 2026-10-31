@@ -4,7 +4,7 @@ import type { ControlMarkup } from "./control-markup.ts";
 import { secondaryButton, primaryButton, tertiaryButton, textLink } from "./actions.ts";
 import { CUT_LINE, EDGE, logo } from "./foundations.ts";
 import { grid, row, stack, type LayoutMarkup, stackOfOne } from "./layout.ts";
-import { gameCover, sheet, type GameCoverOptions } from "./panes.ts";
+import { sheet } from "./panes.ts";
 
 /*
  * A game's page: its screenshots, the game cards of every list of games (Browse, More from a developer), and playing it. Playing is the page once Play is pressed. The game fills the screen; Zaisma keeps one slim bar of glass beside it (above it, or down
@@ -97,14 +97,6 @@ export interface ScreenshotOptions {
 export const screenshot = (options: ScreenshotOptions): Raw =>
   html`<button class="screenshot carving holds-art" type="button" data-cut-line="0" aria-controls="${options.sheetId}" aria-label="${options.label}">${CUT_LINE}<span class="screenshot-picture carving-art" data-cut-line="0"><img src="${options.imageUrl}" alt="" loading="lazy" decoding="async"></span></button>`;
 
-/** A game card's options: a game cover's, less what only a cover alone takes (its title is always shown; no list keeps one in focus). */
-export type GameCardOptions = Omit<GameCoverOptions, "isTitleShown" | "isCurrent">;
-
-/**
- * A game in a list of games (Browse, More from a developer): its cover, the orange line under it, its title beneath at the start of the row
- * with players now, and what else concerns you under that, kept at the words margin. Every list of games uses it, so they all look the same.
- */
-export const gameCard = (options: GameCardOptions): Raw => gameCover({ ...options, isTitleShown: true });
 
 /**
  * A card with nothing to press in it (a notification) dismisses on a tap or a click, or a swipe sideways or up past a threshold. While it's
@@ -302,32 +294,6 @@ component({
   ],
 });
 
-component({
-  name: "Game card",
-  slug: "game-card",
-  group: "panes",
-  subgroup: "cards",
-  summary: "A game in a list of games, like Browse or More from a developer: its cover, its title beneath with players now, and what else concerns you under that. On a shelf of games the player knows (Continue playing), a Game cover, bare.",
-  styles: "",
-  render: gameCard,
-  examples: [
-    {
-      label: "In a list",
-      markup: grid({ whenEmpty: html`<p>No games here yet.</p>`,
-        itemSize: "cover",
-        items: [
-          { kind: "block", markup: gameCard({ title: "Kestrel", imageUrl: "/design/covers/kestrel.webp", href: "#kestrel", facts: { playerCount: 12480 } }) },
-          { kind: "block", markup: gameCard({ title: "Verdant", imageUrl: "/design/covers/verdant.webp", href: "#verdant", facts: { playerCount: 96 } }) },
-          { kind: "block", markup: gameCard({ title: "Neon Drift", imageUrl: "/design/covers/neon-drift.webp", href: "#neon-drift", facts: {} }) },
-        ],
-      }),
-      isWide: true,
-    },
-    { label: "Made for another device", markup: html`<div style="width:280px">${gameCard({ title: "Hollow Tide", imageUrl: "/design/covers/hollow-tide.webp", href: "#hollow-tide", facts: { playerCount: 38, deviceNote: "Needs a keyboard" } })}</div>` },
-    { label: "No cover yet", markup: html`<div style="width:280px">${gameCard({ title: "The Last Lighthouse Keeper", imageUrl: null, href: "#game-card", facts: { playerCount: 38 } })}</div>` },
-    { label: "A long title: it ends in an ellipsis on one line", markup: html`<div style="width:280px">${gameCard({ title: "Ashen Crown: The Long Night of the Iron Vigil", imageUrl: "/design/covers/ashen-crown.webp", href: "#game-card", facts: { playerCount: 1204 } })}</div>` },
-  ],
-});
 
 component({
   name: "Playing bar",

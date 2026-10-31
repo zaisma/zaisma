@@ -3,8 +3,8 @@ import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
 // The materials register first: the Materials page starts with them.
 import "./materials.ts";
-import { CUT_LINE, EDGE, ago, backdrop, divider, floatingPane, glassPane, groove, icon, sheetMarkup, tag, tray, well, type IconName } from "./foundations.ts";
-import { doneState, emptyState, glanceFacts, problemState, listRows, pictureFrame, pictureRow, type GlanceFacts } from "./data.ts";
+import { CUT_LINE, EDGE, backdrop, divider, floatingPane, glassPane, groove, icon, sheetMarkup, tag, tray, well, type IconName } from "./foundations.ts";
+import { doneState, emptyState, glanceFacts, problemState, listRows, pictureFrame, pictureRow } from "./data.ts";
 import { cardRow, secondaryButton, tertiaryButton, primaryButton, textLink, toggleButton } from "./actions.ts";
 import { REPORT_REASONS, choiceCards, copyField, cutField, longField, tabSwitch, wheelField } from "./inputs.ts";
 import { STAND_IN_GAME_ICON, STAND_IN_QR_CODE, qrCode } from "./qr-code.ts";
@@ -96,44 +96,53 @@ export function dropdown(options: DropdownOptions): Raw {
   return html`${floatingPane({ id: options.id, placement: "under", kind: "dropdown", role: "menu", label: options.label, isShownInPlace: options.isOpen, edgeLight: "left", head: head || undefined, body: choices })}`;
 }
 
-/** The same facts as the glance list, short, under a cover: when you played, an update or friends on the left, players now on the right. */
-function coverFacts(facts: GlanceFacts, title?: string): Raw {
-  const nowMs = Date.now();
-  const friends = facts.friends ?? [];
-  const left = facts.deviceNote
-    ? html`<span class="device-note">${facts.deviceNote}</span>`
-    : facts.playedAtMs !== undefined
-      ? html`<span class="when">${icon("clock")}<span><span class="sr">Played </span>${ago(nowMs - facts.playedAtMs)}</span></span>${facts.updatedAtMs !== undefined ? html`${tag("Updated", "new")}` : ""}`
-      : friends.length
-        ? html`<span class="friends">${pictureRow(friends.map((friend) => friend.username), "xs")}<span>${friends.map((friend) => friend.username).join(", ")}<span class="sr"> playing</span></span></span>`
-        : "";
-  // A paid game's price to play leads what's said under its cover.
-  const priced = facts.priceText ? html`${tag(facts.priceText, "plain")}${left}` : left;
-  // With its title shown, the title leads the row and anything else it has to say goes on a line of its own under it.
-  if (title !== undefined) return html`<div class="cover-meta has-title"><span class="cover-name one-line">${title}</span>${facts.playerCount !== undefined ? html`<span class="count">${icon("people")}<span>${facts.playerCount.toLocaleString("en-US")}<span class="sr"> playing now</span></span></span>` : ""}${priced ? html`<span class="cover-more">${priced}</span>` : ""}</div>`;
-  return html`<div class="cover-meta">${priced ? html`<span class="cover-meta-start">${priced}</span>` : ""}${facts.playerCount !== undefined ? html`<span class="count">${icon("people")}<span>${facts.playerCount.toLocaleString("en-US")}<span class="sr"> playing now</span></span></span>` : ""}</div>`;
+/** What a game card says about a game. Each kind of fact has its one place, the same on every card, so a list of them reads at a glance. */
+export interface GameCardFacts {
+  /** Players now: at the end of its line, after its title. Left out, the title has the line to itself. */
+  playerCount?: number;
+  /** A paid game's price to play, for a viewer who doesn't own it: the art's top right corner. A free game shows nothing. */
+  priceText?: string;
+  /** It changed since the viewer last played it: Updated, the art's top left corner. */
+  isUpdated?: boolean;
+  /** Friends playing it now: their faces, the art's bottom left corner (three, and how many more). */
+  friends?: { username: string }[];
+  /** Why it isn't for this device ("Needs a keyboard", "Made for computers"): the art's bottom right corner, the art dimmed. */
+  deviceNote?: string;
 }
 
-export interface GameCoverOptions {
+export interface GameCardOptions {
   title: string;
-  /** The studio's cover, or null for a game with none yet: Zaisma's mark in the well stands in, as it does while a cover loads, with the game's title under it. */
+  /** The studio's cover, or null for a game with none yet: Zaisma's mark in the well stands in, as it does while a cover loads. */
   imageUrl: string | null;
   href: string;
-  facts: GlanceFacts;
-  /** The game in the pane beside the list: its orange line stays drawn. */
+  facts: GameCardFacts;
+  /** The game's own glass tint (#rrggbb), which its lit edge takes; left out, the edge lights white. */
+  tintColor?: string | null;
+  /** The game in the pane beside the list: its edge stays lit. */
   isCurrent?: boolean;
-  /** Its art loads with the page, not once it nears the screen: for the covers a page opens with in view, like the home's first. */
+  /** Its art loads with the page, not once it nears the screen: for the cards a page opens with in view, like the home's first. */
   isEager?: boolean;
-  /** Its art is fetched before the page's other pictures: for the one cover likely the largest thing in the first view. */
+  /** Its art is fetched before the page's other pictures: for the one card likely the largest thing in the first view. */
   hasHighPriority?: boolean;
-  /** Its title in words under it, at the start of the row with players now: for a grid people search through, like Browse. */
-  isTitleShown?: boolean;
+  /** Pointed at: the gallery's still copy. */
+  state?: "is-pointed";
 }
 
+/** The device note's icon: a gamepad for one that needs it, a phone for one best held a way or made for phones and tablets, else a computer. */
+const deviceIcon = (deviceNote: string): IconName => (/gamepad/i.test(deviceNote) ? "gamepad" : /phone|tablet|portrait|landscape/i.test(deviceNote) ? "phone" : "computer");
+
 /**
- * A game's cover: the studio's art alone, bare. Until it has loaded, and where there's none, Zaisma's mark sits in the well in its place.
- * The orange line draws in under it on point and runs out to the right on leave.
+ * What a screen reader hears for a card: its title, then each fact on it, in the order of its corners.
  */
+const cardLabel = (options: GameCardOptions): string =>
+  [
+    options.title,
+    options.facts.isUpdated ? "updated" : "",
+    options.facts.priceText ?? "",
+    options.facts.friends?.length ? `${options.facts.friends.map((friend) => friend.username).join(", ")} playing` : "",
+    options.facts.deviceNote ?? "",
+  ].filter(Boolean).join(", ");
+
 /**
  * A picture Zaisma serves (/img/<id>) at the sizes it keeps of it, for the browser to pick the one it shows (srcset): up to a cover's
  * width at three times its pixels. Any other address (a stand-in cover, a picture elsewhere) is shown as it is.
@@ -146,10 +155,20 @@ function coverSizes(imageUrl: string, shownSizes = "(max-width: 760px) 200px, 26
 /** The largest width a cover's picture is offered at: a 260px cover at three times its pixels, rounded up to a kept size. */
 const COVER_LARGEST_PX = 960;
 
-export function gameCover(options: GameCoverOptions): Raw {
-  const isUpdated = options.facts.updatedAtMs !== undefined && options.facts.playedAtMs !== undefined;
-  const isPlaceholder = options.imageUrl === null;
-  return html`<div class="cover${isPlaceholder ? " is-placeholder" : ""}"${options.isCurrent ? raw(' aria-current="true"') : ""}><a class="cover-art carving holds-art" data-cut-line="0" href="${options.href}" aria-label="${options.title}${isUpdated ? ", updated" : ""}">${CUT_LINE}${options.imageUrl === null ? (options.isTitleShown ? "" : html`<span class="cover-title carving-words compact one-line" aria-hidden="true">${options.title}</span>`) : html`<span class="cover-picture carving-art" data-cut-line="0"><img src="${options.imageUrl}"${coverSizes(options.imageUrl)} alt="" loading="${options.isEager ? "eager" : "lazy"}"${options.hasHighPriority ? raw(' fetchpriority="high"') : ""} decoding="async"></span>`}<span class="cover-bar light-fill across light-line light-glint" aria-hidden="true"></span></a>${coverFacts(options.facts, options.isTitleShown ? options.title : undefined)}</div>`;
+/**
+ * A game card: a game in a list, the studio's art in a carved well with its title and players now on one line under it. What else
+ * concerns you about it lies in a corner of the art, each kind in its own corner on every card: news (Updated) top left, the price top
+ * right, friends playing bottom left, this device (needs a keyboard, made for another) bottom right, the art dimmed. Pointed at, the
+ * well's foot lights in the game's tint and the art brightens; in focus beside the list, it stays lit.
+ */
+export function gameCard(options: GameCardOptions): Raw {
+  const facts = options.facts, isPlaceholder = options.imageUrl === null;
+  const tint = options.tintColor && /^#[0-9a-fA-F]{6}$/.test(options.tintColor) ? html` style="--card-tint: ${options.tintColor}"` : "";
+  const className = ["cover", isPlaceholder ? "is-placeholder" : "", facts.deviceNote ? "is-other-device" : "", options.state ?? ""].filter(Boolean).join(" ");
+  const marks = html`${facts.isUpdated ? html`<span class="cover-mark at-news">${tag("Updated", "glass")}</span>` : ""}${facts.priceText ? html`<span class="cover-mark at-price">${tag(facts.priceText, "glass")}</span>` : ""}${facts.friends?.length ? html`<span class="cover-mark at-friends">${pictureRow(facts.friends.map((friend) => friend.username), "xs")}</span>` : ""}${facts.deviceNote ? html`<span class="cover-mark at-device">${tag(facts.deviceNote, "glass", { icon: deviceIcon(facts.deviceNote) })}</span>` : ""}`;
+  const picture = isPlaceholder ? "" : html`<span class="cover-picture carving-art" data-cut-line="0"><img src="${options.imageUrl}"${coverSizes(options.imageUrl!)} alt="" loading="${options.isEager ? "eager" : "lazy"}"${options.hasHighPriority ? raw(' fetchpriority="high"') : ""} decoding="async"></span>`;
+  const count = facts.playerCount !== undefined ? html`<span class="count">${icon("people")}<span>${facts.playerCount.toLocaleString("en-US")}<span class="sr"> playing now</span></span></span>` : "";
+  return html`<div class="${className}"${tint}${options.isCurrent ? raw(' aria-current="true"') : ""}><a class="cover-art carving holds-art" data-cut-line="0" href="${options.href}" aria-label="${cardLabel(options)}">${CUT_LINE}${picture}${marks}<span class="cover-light" aria-hidden="true"></span></a><div class="cover-meta"><span class="cover-name one-line">${options.title}</span>${count}</div></div>`;
 }
 
 /**
@@ -528,48 +547,44 @@ const PANE_STYLES = `
 `;
 
 const COVER_STYLES = `
-/* A cover is a carved well cut into the glass, with the studio's art set inside it: no glass and nothing drawn on the art itself. The
-   well and the art are both cut by the edge rule like every control, so a cover near a pane's corner takes the pane's cut and one in the
-   middle of it is square: never a rectangle against a cut corner. The well keeps the cover's 16:9, and the art fills it up to its carved rim (2px), so the rim frames the art without lying on it.
-   Under the art, Zaisma's mark sits in the well: it shows until the art has loaded, and stays where a game has none (is-placeholder). */
-/* Its art and what's under it, a part's gap apart. */
-.cover { position: relative; display: grid; row-gap: var(--gap-words-words); min-width: 0; }
-.cover-art { display: block; aspect-ratio: 16 / 9; text-decoration: none; }
+/* A game card is a carved well cut into the glass, with the studio's art set inside it: no glass over the art, only the small marks in its
+   corners. The well and the art are both cut by the edge rule like every control, so a card near a pane's corner takes the pane's cut and
+   one in the middle of it is square. The well keeps the card's 16:9, and the art fills it up to its carved rim (2px). Under the art,
+   Zaisma's mark sits in the well: it shows until the art has loaded, and stays where a game has none (is-placeholder). */
+.cover { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); row-gap: var(--gap-words-words); min-width: 0; --card-light: var(--card-tint, var(--edge-light)); }
+.cover-art { position: relative; display: block; aspect-ratio: 16 / 9; text-decoration: none; container-type: inline-size; }
 .cover.is-placeholder .cover-art img { display: none; }
-/* A game with no cover has its title under the mark, so it's never a blank in a list. */
-.cover.is-placeholder .cover-art { display: flex; align-items: flex-end; justify-content: center; --mark-at: center 38%; }
-.cover-title { max-width: 100%; font: var(--type-name); color: var(--ink-2); }
 .cover-art:focus-visible { outline: none; }
 .cover-art:focus-visible > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
-/* The orange line along a cover's foot, inside its frame and cut with it, taking no room: it draws in from the left the moment you point at
-   a cover, with a light running ahead along it, and stays under the game in the pane. Leaving, it runs on out to the right, quicker than it
-   came, as if it moved on to the next cover. */
-.cover-bar { position: absolute; inset-inline: 2px; bottom: 2px; z-index: 1;
-  transform: scaleX(0); transform-origin: right; transition: transform var(--motion-state) var(--ease-leave); }
-.cover-bar::after { width: 38%; }
-.cover:hover .cover-bar, .cover.is-pointed .cover-bar, .cover[aria-current="true"] .cover-bar, .cover-art:focus-visible > .cover-bar { transform: scaleX(1); transform-origin: left; transition: transform var(--motion-arrive) var(--ease-glide); }
-.cover:hover .cover-bar::after, .cover.is-pointed .cover-bar::after, .cover[aria-current="true"] .cover-bar::after, .cover-art:focus-visible > .cover-bar::after { animation: cover-glint var(--motion-settle) var(--ease-glide) both; }
-@keyframes cover-glint { 0% { transform: translateX(-100%); opacity: 1; } 75% { opacity: 1; } 100% { transform: translateX(270%); opacity: 0; } }
-/* Under a cover: what concerns you on the left (when you played, an update, friends), players now on the right. */
-/* Where they can't share a line, players now goes on to the next, never cut short. */
-/* Each fact sits on a line as tall as a small picture, so covers side by side line their facts up whether they show friends or not. What's
-   on the left wraps inside its own room, and players now stay on the first line at the right. */
-.cover-meta { display: flex; flex-wrap: wrap; align-items: flex-start; gap: var(--gap-words-words); font: var(--type-facts); color: var(--muted); }
-.cover-meta.has-title { align-items: center; }
-.cover-meta:not(.has-title) > *, .cover-meta-start > * { display: inline-flex; align-items: center; min-height: 24px; }
-.cover-meta > .cover-meta-start { flex: 1 1 0; min-width: 0; display: flex; flex-wrap: wrap; align-items: flex-start; gap: var(--gap-words-words); }
+/* Its corners: each kind of fact has one, the same on every card, a part's frame gap in from the rim. News top left, the price top right,
+   friends bottom left, this device bottom right. */
+.cover-mark { position: absolute; z-index: 2; display: inline-flex; pointer-events: none; }
+.cover-mark.at-news { top: var(--pad-frame-compact); left: var(--pad-frame-compact); }
+.cover-mark.at-price { top: var(--pad-frame-compact); right: var(--pad-frame-compact); }
+.cover-mark.at-friends { bottom: var(--pad-frame-compact); left: var(--pad-frame-compact); }
+.cover-mark.at-device { bottom: var(--pad-frame-compact); right: var(--pad-frame-compact); }
+/* Each is a sliver of glass over the art, so it reads on any picture; news says so in the green new things have. */
+.cover-mark.at-news .tag { color: var(--tag-new-ink); }
+/* On a small card a device's words would crowd it: its icon alone says it (the screen reader still hears the words, in the card's label). */
+@container (max-width: 220px) { .cover-mark.at-device .tag > span { display: none; } .cover-mark.at-device .tag { padding-inline: 7px 6px; } }
+/* Made for another device: the art dimmed, its words quieter, still there to open and read about. */
+.cover.is-other-device .cover-picture { filter: grayscale(0.8) brightness(0.85); }
+.cover.is-other-device .cover-name { color: var(--ink-2); }
+/* Pointed at, the light comes up at the well's foot, in the game's own tint (--card-tint, its glass tint) or white, glowing up into the
+   art, which brightens a little; it stays lit for the game in focus beside the list. Pressed, the art sinks in place. */
+.cover-light { position: absolute; z-index: 1; inset-inline: 2px; bottom: 2px; height: 28%; pointer-events: none; opacity: 0;
+  background: linear-gradient(to top, var(--card-light) 0, var(--card-light) 2px, color-mix(in srgb, var(--card-light) 55%, transparent) 4px, color-mix(in srgb, var(--card-light) 22%, transparent) 35%, transparent);
+  transition: opacity var(--motion-state) var(--ease-standard); }
+.cover-picture img { transition: filter var(--motion-state) var(--ease-standard); }
+.cover:is(:hover, .is-pointed, [aria-current="true"]) .cover-light, .cover-art:focus-visible > .cover-light { opacity: 1; }
+.cover:is(:hover, .is-pointed) .cover-picture img { filter: brightness(1.06); }
+.cover-art:active > :where(:not(.cut-line)) { transform: translateY(1px); }
+/* Its line under the art: the title, cut to one line, and players now at its end. Nothing else is ever said there. */
+.cover-meta { display: flex; align-items: center; gap: var(--gap-words-words); font: var(--type-facts); color: var(--muted); }
+.cover-meta .cover-name { flex: 1 1 0; min-width: 0; font: var(--type-name); color: var(--ink); }
 .cover-meta .ico { width: 15px; height: 15px; stroke-width: 1.5; }
-.cover-meta .when, .cover-meta .count, .cover-meta .friends { display: inline-flex; align-items: center; gap: var(--gap-words-words); min-width: 0; }
-.cover-meta .when, .cover-meta .count, .cover-meta .device-note { white-space: nowrap; }
-.cover-meta .friends { color: var(--ink); font-weight: 600; }
-.cover-meta .count { margin-left: auto; font-variant-numeric: tabular-nums; color: var(--ink-2); flex: none; }
-/* What's under a cover is words, so a cover with them is a bare group (tokens.ts's BARE_GROUPS): the cover, its title and players now are one
-   unit, flush with each other (the title at the art's left edge, the count at its right), and the whole unit keeps the pane's words margin
-   (--pad-words past the frame gap) from the surface's edge, at its start, end and foot, with nothing placed apart. With a title it belongs
-   to the cover above it: just under the orange line, with more room after it before the next row. */
-.cover-meta .cover-name { flex: 1 1 0; font: var(--type-name); color: var(--ink); }
-.cover-meta .cover-more { flex: 1 0 100%; display: flex; align-items: center; gap: var(--gap-words-words); min-width: 0; }
-@media (prefers-reduced-motion: reduce) { .cover-art, .cover-bar { transition: none !important; } .cover-bar::after { animation: none !important; } }
+.cover-meta .count { display: inline-flex; align-items: center; gap: var(--gap-words-words); flex: none; white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--ink-2); }
+@media (prefers-reduced-motion: reduce) { .cover-light, .cover-picture img { transition: none; } }
 `;
 
 const HOUR_MS = 3_600_000;
@@ -596,14 +611,10 @@ export const STAND_IN_GAMES: StandInGame[] = [
 /** The stand-in covers, made once as the module loads. */
 export const STAND_IN_COVERS: Record<string, Raw> = Object.fromEntries(
   STAND_IN_GAMES.map((game) => {
-    const nowMs = Date.now();
-    const facts: GlanceFacts = {
-      playerCount: game.playerCount,
-      friends: game.friends,
-      playedAtMs: game.playedAgoDurationMs === undefined ? undefined : nowMs - game.playedAgoDurationMs,
-      updatedAtMs: game.updatedAgoDurationMs === undefined ? undefined : nowMs - game.updatedAgoDurationMs,
-    };
-    return [game.slug, gameCover({ title: game.title, imageUrl: `/design/covers/${game.slug}.webp`, href: `#${game.slug}`, facts })];
+    // Updated since it was played: it changed more recently than the viewer last played it.
+    const isUpdated = game.updatedAgoDurationMs !== undefined && game.playedAgoDurationMs !== undefined && game.updatedAgoDurationMs < game.playedAgoDurationMs;
+    const facts: GameCardFacts = { playerCount: game.playerCount, friends: game.friends, isUpdated };
+    return [game.slug, gameCard({ title: game.title, imageUrl: `/design/covers/${game.slug}.webp`, href: `#${game.slug}`, facts })];
   }),
 );
 const standInCovers = (slugs: string[]) => html`${slugs.map((slug) => STAND_IN_COVERS[slug])}`;
@@ -955,28 +966,42 @@ component({
   ],
 });
 
+const cardSample = (options: GameCardOptions) => html`<div class="cover-sample">${gameCard(options)}</div>`;
+
 component({
-  name: "Game cover",
-  slug: "game-cover",
+  name: "Game card",
+  slug: "game-card",
   group: "panes",
   subgroup: "cards",
-  summary: "A game in a list: the studio's art, bare, set in a carved well, with only what concerns you under it. Zaisma's mark stands in while the art loads, and for a game with none yet. Bare, for a shelf of games the player knows (Continue playing); where they're finding games, a Game card, with its title.",
+  summary: "A game in a list of games (the home's shelves, Browse, More from a developer): the studio's art in a carved well, its title and players now on one line under it. Everything else lies in a corner of the art, each kind always in its own: Updated top left, a price top right, friends playing bottom left, this device bottom right. Pointed at, its foot lights in the game's tint.",
   styles: COVER_STYLES,
-  render: gameCover,
+  render: gameCard,
   examples: [
-    { label: "Played, updated since", markup: html`<div class="cover-sample">${standInCovers(["ashen-crown"])}</div>` },
-    { label: "Friends playing", markup: html`<div class="cover-sample">${standInCovers(["neon-drift"])}</div>` },
-    { label: "Players now", markup: html`<div class="cover-sample">${standInCovers(["hollow-tide"])}</div>` },
-    { label: "In focus", markup: html`<div class="cover-sample">${gameCover({ title: "Verdant", imageUrl: "/design/covers/verdant.webp", href: "#verdant", facts: { playerCount: 96 }, isCurrent: true })}</div>`, isStill: true },
-    { label: "On a loop", markup: html`<div class="cover-sample" data-state-loop="cover">${standInCovers(["iron-vigil"])}</div>`, isStill: true },
-    { label: "Made for another device", markup: html`<div class="cover-sample">${gameCover({ title: "Verdant", imageUrl: "/design/covers/verdant.webp", href: "#verdant", facts: { deviceNote: "Needs a keyboard" } })}</div>` },
-    { label: "A paid game", markup: html`<div class="cover-sample">${gameCover({ title: "Hollow Tide", imageUrl: "/design/covers/hollow-tide.webp", href: "#hollow-tide", facts: { priceText: "$24.99", playerCount: 412 } })}</div>` },
-    { label: "No cover yet", markup: html`<div class="cover-sample">${gameCover({ title: "The Last Lighthouse Keeper", imageUrl: null, href: "#game-cover", facts: { playerCount: 38 } })}</div>` },
-    { label: "With its title, for another device", markup: html`<div class="cover-sample">${gameCover({ title: "The Last Lighthouse Keeper", imageUrl: null, href: "#game-cover", facts: { playerCount: 38, deviceNote: "Needs a keyboard" }, isTitleShown: true })}</div>` },
     {
-      label: "Five friends playing",
-      markup: html`<div class="cover-sample">${gameCover({ title: "Kestrel", imageUrl: "/design/covers/kestrel.webp", href: "#kestrel", facts: { playerCount: 12480, friends: [{ username: "Sofia" }, { username: "Liam" }, { username: "Emma" }, { username: "Noah" }, { username: "Charlotte" }] } })}</div>`,
+      label: "In a list: every card the same shape, its facts in their corners",
+      isWide: true,
+      markup: grid({ whenEmpty: html`<p>No games here yet.</p>`, itemSize: "cover", items: [
+        { kind: "block", markup: gameCard({ title: "Kestrel", imageUrl: "/design/covers/kestrel.webp", href: "#kestrel", facts: { playerCount: 12480, isUpdated: true } }) },
+        { kind: "block", markup: gameCard({ title: "Hollow Tide", imageUrl: "/design/covers/hollow-tide.webp", href: "#hollow-tide", facts: { playerCount: 412, priceText: "$24.99" } }) },
+        { kind: "block", markup: gameCard({ title: "Neon Drift", imageUrl: "/design/covers/neon-drift.webp", href: "#neon-drift", facts: { playerCount: 3870, friends: [{ username: "Liam" }, { username: "Sofia" }] } }) },
+        { kind: "block", markup: gameCard({ title: "Verdant", imageUrl: "/design/covers/verdant.webp", href: "#verdant", facts: {} }) },
+      ] }),
     },
+    { label: "Plain: its title and players now", markup: cardSample({ title: "Hollow Tide", imageUrl: "/design/covers/hollow-tide.webp", href: "#hollow-tide", facts: { playerCount: 412 } }) },
+    { label: "Free: nothing more, since most games are", markup: cardSample({ title: "Verdant", imageUrl: "/design/covers/verdant.webp", href: "#verdant", facts: { playerCount: 96 } }) },
+    { label: "Paid, not owned: its price, top right", markup: cardSample({ title: "Hollow Tide", imageUrl: "/design/covers/hollow-tide.webp", href: "#hollow-tide", facts: { playerCount: 412, priceText: "$24.99" } }) },
+    { label: "Updated since you played: top left", markup: html`<div class="cover-sample">${standInCovers(["ashen-crown"])}</div>` },
+    { label: "Friends playing: bottom left", markup: html`<div class="cover-sample">${standInCovers(["neon-drift"])}</div>` },
+    { label: "Five friends playing: three, and how many more", markup: cardSample({ title: "Kestrel", imageUrl: "/design/covers/kestrel.webp", href: "#kestrel", facts: { playerCount: 12480, friends: [{ username: "Sofia" }, { username: "Liam" }, { username: "Emma" }, { username: "Noah" }, { username: "Charlotte" }] } }) },
+    { label: "Needs a keyboard, on a phone: bottom right, the art dimmed", markup: cardSample({ title: "Verdant", imageUrl: "/design/covers/verdant.webp", href: "#verdant", facts: { playerCount: 96, deviceNote: "Needs a keyboard" } }) },
+    { label: "Made for another device", markup: cardSample({ title: "Iron Vigil", imageUrl: "/design/covers/iron-vigil.webp", href: "#iron-vigil", facts: { playerCount: 8214, deviceNote: "Made for computers" } }) },
+    { label: "No cover yet: Zaisma's mark", markup: cardSample({ title: "The Last Lighthouse Keeper", imageUrl: null, href: "#game-card", facts: { playerCount: 38 } }) },
+    { label: "Nobody playing now: its title alone", markup: cardSample({ title: "Kestrel", imageUrl: "/design/covers/kestrel.webp", href: "#kestrel", facts: {} }) },
+    { label: "A long title: cut to one line", markup: cardSample({ title: "Ashen Crown: The Long Night of the Iron Vigil", imageUrl: "/design/covers/ashen-crown.webp", href: "#ashen-crown", facts: { playerCount: 7 } }) },
+    { label: "Everything at once: one in each corner", markup: cardSample({ title: "Hollow Tide", imageUrl: "/design/covers/hollow-tide.webp", href: "#hollow-tide", facts: { playerCount: 412, isUpdated: true, priceText: "$24.99", friends: [{ username: "Liam" }, { username: "Sofia" }], deviceNote: "Needs a keyboard" } }) },
+    { label: "Pointed at: its foot lit in the game's tint", markup: cardSample({ title: "Neon Drift", imageUrl: "/design/covers/neon-drift.webp", href: "#neon-drift", facts: { playerCount: 3870 }, tintColor: "#C454E8", state: "is-pointed" }), isStill: true },
+    { label: "In focus beside the list: its foot stays lit", markup: cardSample({ title: "Verdant", imageUrl: "/design/covers/verdant.webp", href: "#verdant", facts: { playerCount: 96 }, isCurrent: true }), isStill: true },
+    { label: "On a loop", markup: html`<div class="cover-sample" data-state-loop="cover">${standInCovers(["iron-vigil"])}</div>`, isStill: true },
   ],
 });
 

@@ -6,7 +6,7 @@ import { tagsInUse, type TagInUse } from "./components/data.ts";
 import { filterMenu, type FilterGroup } from "./components/navigation.ts";
 import { loadMore } from "./components/navigation.ts";
 import { emptyState } from "./components/data.ts";
-import { gameCard } from "./components/playing.ts";
+import { gameCard } from "./components/panes.ts";
 import { tabSwitch, type SwitchTab } from "./components/switch.ts";
 import { DEVICE_KIND_SOURCE, viewerDeviceKind } from "./device-kind.ts";
 import type { Env } from "./env.ts";
@@ -173,6 +173,7 @@ const coverOf = (game: BrowseGame, coverIndex: number, ownedGameIds: ReadonlySet
     title: game.title,
     imageUrl: game.cover,
     href: `/g/${game.slug}`,
+    tintColor: game.glass_tint_color,
     facts: { deviceNote: game.device_note ?? undefined, playerCount: game.playing_now_player_count >= MINIMUM_PLAYING_NOW_PLAYER_COUNT ? game.playing_now_player_count : undefined, priceText: coverPriceText(game, ownedGameIds) },
     // The first row loads with the page, the very first cover before anything else.
     isEager: coverIndex < 6,
