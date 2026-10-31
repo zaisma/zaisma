@@ -52,7 +52,6 @@ const NOT_MADE_OF_MATERIALS = new Map<string, string>([
   [".pin-marks | min-height", "a PIN's row of marks takes a small control's height, so it lines up beside one"],
   [".pin-mark | height", "a PIN's mark is a carved diamond 20px across"],
   [".find-finish | overflow", "the finish a search offers ends where the field's end controls begin"],
-  [".find-game > img | background", "a game's picture shows the carving's face while it loads"],
   [".select-sizes | overflow", "the hidden list of choices that holds a select as wide as its longest, at no height"],
   [".slider-input::-webkit-slider-thumb | height", "the system's own thumb, unseen, is the drawn thumb's size, so a press lands where it shows"],
   [".slider-input::-moz-range-thumb | height", "the system's own thumb, unseen, is the drawn thumb's size, so a press lands where it shows"],

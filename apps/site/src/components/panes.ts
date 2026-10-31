@@ -1021,7 +1021,7 @@ component({
     { label: "Pressed: the art sinks into its well", markup: cardSample({ title: "Neon Drift", imageUrl: "/design/covers/neon-drift.webp", href: "#neon-drift", facts: { playerCount: 3870 }, tintColor: "#C454E8", state: "is-pressed" }), isStill: true },
     { label: "In focus beside the list: its foot stays lit", markup: cardSample({ title: "Verdant", imageUrl: "/design/covers/verdant.webp", href: "#verdant", facts: { playerCount: 96 }, isCurrent: true }), isStill: true },
     { label: "On a loop", markup: html`<div class="cover-sample" data-state-loop="cover">${standInCovers(["iron-vigil"])}</div>`, isStill: true },
-    { label: "Small: the art alone, in a row that says the rest (a search's games)", markup: html`<div style="display:flex;gap:var(--gap-control-row)">${smallGameCard({ imageUrl: "/design/covers/kestrel.webp" })}${smallGameCard({ imageUrl: null })}</div>` },
+    { label: "Small: the art alone, in a row that says the rest (a search's games)", markup: row({ widths: "fit", items: [{ kind: "block", markup: smallGameCard({ imageUrl: "/design/covers/kestrel.webp" }) }, { kind: "block", markup: smallGameCard({ imageUrl: null }) }] }) },
   ],
 });
 
