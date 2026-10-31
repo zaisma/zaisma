@@ -54,7 +54,7 @@ const onlyPassed = (measured: Record<string, string>) => Object.fromEntries(Obje
 
 describe("the measured rules", () => {
   it("each have a tier, so a new rule can't land without one, and every tier names a rule that's measured", () => {
-    const names = [...layoutMeasureSource.matchAll(/report\("([^"]+)"/g), ...layoutCheckSource.matchAll(/check: "([^"$]+)"/g)].map((match) => match[1]!);
+    const names = [...layoutMeasureSource.matchAll(/report\("([^"]+)"|check: "([^"$]+)"/g), ...layoutCheckSource.matchAll(/check: "([^"$]+)"/g)].map((match) => (match[1] ?? match[2])!);
     expect(names.filter((name) => !(name in LAYOUT_RULE_TIERS))).toEqual([]);
     expect(Object.keys(LAYOUT_RULE_TIERS).filter((name) => !names.includes(name))).toEqual([]);
   });
