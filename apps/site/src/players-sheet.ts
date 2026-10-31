@@ -166,9 +166,8 @@ export function playersSheet(options: { gameOrigin: string; slug: string; title:
     id: "players",
     closeLabel: "Close",
     placement: "foot",
-    // Menu-sized on a wide screen, its words a size smaller, so a long room reads as a list.
-    isCompact: true,
-    steps: [{ stepName: "players", title: "Players", body }, { stepName: "player", title: "Player", body: playerBody }, options.reportStep],
+    // Its lists menu-sized, their words a size smaller, so a long room reads as a list; Report a task sheet of its own size.
+    steps: [{ stepName: "players", title: "Players", body, isCompact: true }, { stepName: "player", title: "Player", body: playerBody, isCompact: true }, options.reportStep],
   })}
 <template id="players-row">${rowTemplate}</template>
 <template id="players-request-row">${listRows({ whenEmpty: html`<p hidden></p>`, rows: [{ lead: pictureFrame("?", "md"), title: "?", action: [primaryButton("Accept", { ...rowButton, dataAttributes: { "request-action": "accept" } }), secondaryButton("Turn down", { ...rowButton, dataAttributes: { "request-action": "turn-down" } })] }] })}</template>

@@ -1062,10 +1062,15 @@ export interface SheetStep {
   title: string;
   body: LayoutMarkup;
   buttons?: ControlMarkup[];
+  /**
+   * A small step (a list of players, one player's choices): the sheet is a compact one while it shows, hung from its button. Left out, it's a
+   * task (Report): the sheet takes a task sheet's size and lets go of its button, centered on a wide screen, and hangs from it again back on a small step.
+   */
+  isCompact?: boolean;
 }
 
-/** A sheet whose task moves forward inside it: the first step shows as it opens; every step after it has Back before its title. */
-interface SheetOfStepsOptions extends SheetBaseOptions {
+/** A sheet whose task moves forward inside it: the first step shows as it opens; every step after it has Back before its title. Each step has its own size. */
+interface SheetOfStepsOptions extends Omit<SheetBaseOptions, "isCompact"> {
   steps: SheetStep[];
 }
 
@@ -1112,9 +1117,9 @@ export function sheet(options: SheetOptions): Raw {
     const parts = html`${options.steps.map((step, index) => {
       const titleId = `${options.id}-${step.stepName}-title`;
       const words = html`<h2 class="sheet-title" id="${titleId}">${step.title}</h2>`;
-      return html`<section class="sheet-step" data-sheet-step="${step.stepName}"${index ? raw(" hidden") : ""}>${paneParts({ head: { start: index ? back : undefined, words, end: closeButton }, body: sheetScroll(step.body), foot: sheetFoot(step.buttons) })}</section>`;
+      return html`<section class="sheet-step" data-sheet-step="${step.stepName}"${step.isCompact ? raw(" data-sheet-step-compact") : ""}${index ? raw(" hidden") : ""}>${paneParts({ head: { start: index ? back : undefined, words, end: closeButton }, body: sheetScroll(step.body), foot: sheetFoot(step.buttons) })}</section>`;
     })}`;
-    return sheetMarkup({ ...options, title: options.steps[0]!.title, titleId: `${options.id}-${options.steps[0]!.stepName}-title`, body: html``, parts, closeButton });
+    return sheetMarkup({ ...options, isCompact: options.steps[0]!.isCompact, title: options.steps[0]!.title, titleId: `${options.id}-${options.steps[0]!.stepName}-title`, body: html``, parts, closeButton });
   }
   if ("tabs" in options) {
     // The sheet's top row: its tabs, scrolling sideways when there are more than fit, and Close fixed at its end. The chosen tab and the sheet
@@ -1279,6 +1284,8 @@ ${touchReach(".sheet")}
   /* A compact sheet is a dropdown's size: narrow, its head, body and the blocks in it closed up to the controls' gap. A confirm opened over
      another sheet is drawn the same size, in the middle of the screen. */
   .sheet:is(.is-compact, [data-sheet-confirm].is-over-sheet) { width: var(--size-sheet-compact); }
+  /* A task step of a sheet at the foot (Report, from Players) is centered, as a task sheet is. */
+  .sheet.placement-foot.is-task-step:not(.in-place) { margin: auto; }
 
 }
 @media (prefers-reduced-motion: reduce) { .sheet-step { animation: none; } }
@@ -1356,24 +1363,25 @@ component({
         id: "example-sheet-steps",
         closeLabel: "Close",
         placement: "foot",
-        isCompact: true,
         steps: [
           {
             stepName: "players",
             title: "Players · 3",
+            isCompact: true,
             body: stackOfOne(listRows({
               whenEmpty: emptyState({ title: "Nobody here yet", text: "Players show here as they join your room." }),
               label: "In this room",
               isCompact: true,
               rows: [
-                { lead: pictureFrame("Liam", "sm"), title: "Liam", titleIcon: { icon: "friends", label: "Friend" }, action: [toggleButton("Mute Liam", { type: "button", icon: "speaker", isLabelHidden: true, isSmall: true, isPressed: false }), secondaryButton("More for Liam", { type: "button", icon: "more", isLabelHidden: true, isSmall: true, dataAttributes: { "sheet-step-to": "player" } })] },
-                { lead: pictureFrame("Sofia", "sm"), title: "Sofia", action: [toggleButton("Mute Sofia", { type: "button", icon: "speaker-off", isLabelHidden: true, isSmall: true, isPressed: true }), secondaryButton("More for Sofia", { type: "button", icon: "more", isLabelHidden: true, isSmall: true, dataAttributes: { "sheet-step-to": "player" } })] },
+                { lead: pictureFrame("Liam", "sm"), title: "Liam", titleIcon: { icon: "friends", label: "Friend" }, action: [toggleButton("Mute Liam", { type: "button", icon: "speaker", isLabelHidden: true, isSmall: true, isPressed: false, dataAttributes: { "mute-example": "" } }), toggleButton("Mute Liam", { type: "button", icon: "speaker-off", isLabelHidden: true, isSmall: true, isPressed: true, isHidden: true, dataAttributes: { "mute-example": "" } }), secondaryButton("More for Liam", { type: "button", icon: "more", isLabelHidden: true, isSmall: true, dataAttributes: { "sheet-step-to": "player" } })] },
+                { lead: pictureFrame("Sofia", "sm"), title: "Sofia", action: [toggleButton("Mute Sofia", { type: "button", icon: "speaker", isLabelHidden: true, isSmall: true, isPressed: false, isHidden: true, dataAttributes: { "mute-example": "" } }), toggleButton("Mute Sofia", { type: "button", icon: "speaker-off", isLabelHidden: true, isSmall: true, isPressed: true, dataAttributes: { "mute-example": "" } }), secondaryButton("More for Sofia", { type: "button", icon: "more", isLabelHidden: true, isSmall: true, dataAttributes: { "sheet-step-to": "player" } })] },
               ],
             })),
           },
           {
             stepName: "player",
             title: "Liam",
+            isCompact: true,
             body: stackOfOne(listRows({ whenEmpty: html``, isCompact: true, label: "Liam", rows: [{ title: "Profile", lead: icon("person"), href: "#sheet" }, { title: "Block", lead: icon("ban"), press: {} }, { title: "Report", lead: icon("flag"), press: { dataAttributes: { "sheet-step-to": "report" } } }] })),
           },
           { stepName: "report", title: "Report Liam", body: reportBody("example-sheet-steps"), buttons: [primaryButton("Send report", { type: "submit" })] },

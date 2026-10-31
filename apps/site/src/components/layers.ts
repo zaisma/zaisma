@@ -306,15 +306,22 @@ export const LAYERS_SCRIPT = `/* layers */(function () {
   function anchor(sheet) {
     var opener = pressed && performance.now() - pressed.at < 2000 && pressed.button.isConnected ? pressed.button : null;
     if (!opener || !sheet.classList.contains("is-compact") || sheet.matches(".in-place, .placement-side, .placement-middle, .is-picture") || opener.closest("[popover]") || sheet.contains(opener) || opener.closest("dialog[open]")) return;
-    anchors.set(sheet, { opener: opener, rect: opener.getBoundingClientRect() });
+    anchors.set(sheet, { opener: opener, rect: opener.getBoundingClientRect(), isOnPage: Boolean(window.zaismaIsOnPage && window.zaismaIsOnPage(opener, sheet)) });
     sheet.classList.add("is-anchored");
-    sheet.classList.toggle("is-on-page", Boolean(window.zaismaIsOnPage && window.zaismaIsOnPage(opener, sheet)));
+    sheet.classList.toggle("is-on-page", anchors.get(sheet).isOnPage);
     // What loads in it after it opens (a screenshot) changes its size: it's placed again, so it stays inside the window.
     if (resized) resized.observe(sheet);
   }
   function place(sheet) {
     var held = anchors.get(sheet);
     if (!held || !sheet.open) return;
+    // On a task step (Report, from Players) it lets go of its button and takes a task sheet's place; back on a small step it hangs again.
+    if (!sheet.classList.contains("is-compact")) {
+      sheet.classList.remove("is-anchored", "is-above", "is-at-end", "is-on-page");
+      sheet.style.removeProperty("--sheet-left"); sheet.style.removeProperty("--sheet-top");
+      return;
+    }
+    sheet.classList.toggle("is-on-page", held.isOnPage);
     var rect = held.opener.isConnected ? held.opener.getBoundingClientRect() : held.rect;
     if (rect.width || rect.height) held.rect = rect; else rect = held.rect;
     var windowWidth = document.documentElement.clientWidth, windowHeight = window.innerHeight;
@@ -397,7 +404,8 @@ export const LAYERS_SCRIPT = `/* layers */(function () {
 
   /* ---- Steps and tabs: what's in one sheet changes, the sheet stays ---- */
 
-  // The sheet keeps the tallest it's been while it's open on a wide screen, so moving between its steps or tabs never makes it jump.
+  // The sheet keeps the tallest it's been while it's open on a wide screen, so moving between its tabs never makes it jump. Its steps each
+  // have their own size: a step is a different task, as long as it needs to be.
   function keepHeight(sheet) {
     if (!wide.matches || !sheet.open || sheet.classList.contains("in-place")) return;
     var heightPx = sheet.offsetHeight;
@@ -405,7 +413,7 @@ export const LAYERS_SCRIPT = `/* layers */(function () {
   }
   // direction: 1 forward, -1 back, 0 no slide.
   function showPart(sheet, attribute, name, direction) {
-    keepHeight(sheet);
+    if (attribute === "data-sheet-tab") keepHeight(sheet);
     var shown = null;
     sheet.querySelectorAll("[" + attribute + "]").forEach(function (part) { var isIt = part.getAttribute(attribute) === name; part.hidden = !isIt; if (isIt) shown = part; });
     if (shown) {
@@ -425,8 +433,24 @@ export const LAYERS_SCRIPT = `/* layers */(function () {
     var at = steps.indexOf(stepName);
     if (at === -1) steps.push(stepName); else steps.length = at + 1;
     sheet.zaismaSteps = steps;
+    var before = sheet.open ? sheet.getBoundingClientRect() : null;
     var shown = showPart(sheet, "data-sheet-step", stepName, sheet.open ? (at === -1 ? 1 : -1) : 0);
     if (!shown) return;
+    // A sheet whose steps aren't all one size: a small step makes it a compact sheet, hung from its button; a task step a task sheet, in
+    // a task sheet's place. Moving between them it glides from where it was to where it goes, as it takes the new step's size.
+    if (sheet.querySelector("[data-sheet-step-compact]")) {
+      var isCompact = shown.hasAttribute("data-sheet-step-compact");
+      if (isCompact !== sheet.classList.contains("is-compact")) {
+        sheet.classList.toggle("is-compact", isCompact);
+        sheet.classList.toggle("is-task-step", !isCompact);
+        place(sheet);
+        if (before && !isReduced() && sheet.animate) {
+          var after = sheet.getBoundingClientRect();
+          var shift = Math.round(before.left + before.width / 2 - after.left - after.width / 2) + "px " + Math.round(before.top + before.height / 2 - after.top - after.height / 2) + "px";
+          sheet.animate([{ translate: shift }, { translate: "0 0" }], { duration: 300, easing: "cubic-bezier(.2, .8, .2, 1)" });
+        }
+      }
+    }
     var back = shown.querySelector("[data-sheet-back]");
     if (back) back.hidden = steps.length < 2;
     var title = shown.querySelector(".sheet-title");

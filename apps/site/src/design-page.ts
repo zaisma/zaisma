@@ -318,6 +318,14 @@ export const GALLERY_SCRIPT = pageScript(
     if (count) count.textContent = (Number(count.textContent.replace(/,/g, "")) + (isOn ? 1 : -1)).toLocaleString("en-US");
     if (words && /^Follow/.test(words.textContent)) words.textContent = isOn ? "Following" : "Follow";
   });
+  // A player's Mute in the Players example works as the players sheet's does: muted, the crossed-out speaker shows pressed in its place.
+  document.addEventListener("click", function (event) {
+    var mute = event.target.closest && event.target.closest("[data-mute-example]");
+    var other = mute && Array.prototype.find.call(mute.closest(".list-row").querySelectorAll("[data-mute-example]"), function (each) { return each !== mute; });
+    if (!other) return;
+    mute.hidden = true; other.hidden = false;
+    other.focus({ preventScroll: true });
+  });
   // A header's search shown open: its list hangs under the field in the example's frame, outside the header, as the open account menu does,
   // since the header's cut would clip it there.
   document.querySelectorAll(".header-frame .top .find > .find-list.in-place").forEach(function (list) {
