@@ -576,19 +576,31 @@ export const GLASS_SCRIPT = `/* glass */(function () {
       }
       // The raised or carved light: a 1.5px band along each side. data-cut-inset moves it inward, inside an outline drawn round the edge.
       var from = Number(el.getAttribute("data-cut-inset")) || 0, outer = insetShape(shape, from), inner = insetShape(shape, from + 1.5);
+      var hadBandCount = bands.length;
       while (bands.length < shape.length) { var band = document.createElementNS(SVG, "path"); svg.insertBefore(band, poly); bands.push(band); }
       while (bands.length > shape.length) svg.removeChild(bands.pop());
+      // A band that now lights another side (a corner coming or going as its holder changes size shifts the sides along) takes that side's
+      // light at once, as a glide's do: fading from the side it lit before, a bright foot's band would flash along a dim side.
+      var isReshaped = hadBandCount > 0 && hadBandCount !== bands.length;
       bands.forEach(function (band, i) {
-        var j = (i + 1) % shape.length;
-        band.setAttribute("class", "cut-band on-" + facing(shape[i], shape[j]));
+        var j = (i + 1) % shape.length, bandClass = "cut-band on-" + facing(shape[i], shape[j]), wasClass = band.getAttribute("class");
+        if (wasClass && wasClass !== bandClass) isReshaped = true;
+        band.setAttribute("class", bandClass);
         band.setAttribute("d", "M" + list([outer[i], outer[j], inner[j], inner[i]]) + "Z");
       });
+      if (isReshaped && !svg.classList.contains("is-reshaped")) {
+        svg.classList.add("is-reshaped");
+        requestAnimationFrame(function () { requestAnimationFrame(function () { svg.classList.remove("is-reshaped"); }); });
+      }
     }
     draw();
-    // redrawCut() draws it again; redrawCut({ from: { beside, ends }, ms, ease }) glides there from the shape those attributes gave, on its
-    // mover's ease (a cubic ease-out by default), so its shape lands as it does.
+    // redrawCut() draws it again where it is now, ending any glide: a mover that stops a move part way (a switch's slab put straight on its tab
+    // when its room changes size) leaves no shape half blended. redrawCut({ from: { beside, ends }, ms, ease }) glides there from the shape
+    // those attributes gave, on its mover's ease (a cubic ease-out by default), so its shape lands as it does; a mover that draws each frame
+    // itself (isDriven) calls redrawCut({ isFrame: true }) for the glide's next step.
     el.redrawCut = function (move) {
-      if (move && move.ms > 0 && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) glide = { from: move.from, ms: move.ms, ease: move.ease, isDriven: Boolean(move.isDriven), startMs: performance.now() };
+      if (move && move.isFrame) { draw(); return; }
+      glide = move && move.ms > 0 && !window.matchMedia("(prefers-reduced-motion: reduce)").matches ? { from: move.from, ms: move.ms, ease: move.ease, isDriven: Boolean(move.isDriven), startMs: performance.now() } : null;
       draw();
     };
     window.zaismaWatch.size(el, draw, runBatch);

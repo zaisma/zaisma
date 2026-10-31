@@ -16,7 +16,7 @@ export const UNSTYLED_HOOKS = new Set<string>([
   // Hooks a component's script finds its parts by: a Color field's None, a wheel field's kind of wheels, a search's icon and its typed
   // finish's row, a file drop's templates for a new row and its zoom mark, a filter menu open as its page loads, and a Progress whose end
   // isn't known yet (its Groove runs; the class says so to a script).
-  "color-none", "birthday-wheels", "find-icon", "find-finish-row", "file-drop-zoom-template", "file-drop-row-template", "is-unknown",
+  "color-none", "birthday-wheels", "find-icon", "find-cover", "find-finish-row", "file-drop-zoom-template", "file-drop-row-template", "is-unknown",
   // A tertiary button's words, which a page's script changes (the buy sheet's Keep your saved card); a sheet that stays in the middle,
   // which the layers' script reads; a way in's mark, named for its way (only Google's has a look of its own); and the way a well scrolls.
   "tertiary-label", "placement-middle", "way-passkey", "way-discord", "way-apple_pay", "scrolls-across", "scrolls-down",

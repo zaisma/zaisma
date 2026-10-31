@@ -9,6 +9,7 @@ import { cardRow, secondaryButton, tertiaryButton, primaryButton, textLink, togg
 import { REPORT_REASONS, choiceCards, copyField, cutField, longField, tabSwitch, wheelField } from "./inputs.ts";
 import { STAND_IN_GAME_ICON, STAND_IN_QR_CODE, qrCode } from "./qr-code.ts";
 import { examplePane } from "./example-pane.ts";
+import { smallGameCard } from "./game-cover.ts";
 import { lightBox } from "./light-box.ts";
 export { lightBox, type LightBoxOptions } from "./light-box.ts";
 import { grid, paneParts, row, stack, type ControlMarkup, type LayoutItem, type LayoutMarkup, stackOfOne } from "./layout.ts";
@@ -593,6 +594,9 @@ const COVER_STYLES = `
 .cover-art:is(:active, .is-pressed) > :where(.cover-picture, .cover-mark), .cover.is-pressed .cover-art > :where(.cover-picture, .cover-mark) { transform: translateY(1.5px); transition-duration: var(--motion-press); transition-timing-function: var(--ease-standard); }
 .cover-art:is(:active, .is-pressed) .cover-picture::after, .cover.is-pressed .cover-picture::after { opacity: 1; transition-duration: var(--motion-press); }
 .cover-art:is(:active, .is-pressed) .cover-picture img, .cover.is-pressed .cover-picture img { filter: brightness(0.93); transition-duration: var(--motion-press); }
+/* Small (smallGameCard): the art alone, 64px across, in a row that says the rest and is the link (a search's games). */
+/* Its art is its whole width: no words margin, since it has no words under it. */
+.cover.is-small { flex: none; width: 64px; padding-inline: 0; }
 /* Its line under the art: the title, cut to one line, and players now at its end. Nothing else is ever said there. */
 .cover-meta { display: flex; align-items: center; gap: var(--gap-words-words); font: var(--type-facts); color: var(--muted); }
 .cover-meta .cover-name { flex: 1 1 0; min-width: 0; font: var(--type-name); color: var(--ink); }
@@ -1017,6 +1021,7 @@ component({
     { label: "Pressed: the art sinks into its well", markup: cardSample({ title: "Neon Drift", imageUrl: "/design/covers/neon-drift.webp", href: "#neon-drift", facts: { playerCount: 3870 }, tintColor: "#C454E8", state: "is-pressed" }), isStill: true },
     { label: "In focus beside the list: its foot stays lit", markup: cardSample({ title: "Verdant", imageUrl: "/design/covers/verdant.webp", href: "#verdant", facts: { playerCount: 96 }, isCurrent: true }), isStill: true },
     { label: "On a loop", markup: html`<div class="cover-sample" data-state-loop="cover">${standInCovers(["iron-vigil"])}</div>`, isStill: true },
+    { label: "Small: the art alone, in a row that says the rest (a search's games)", markup: row({ widths: "fit", items: [{ kind: "block", markup: smallGameCard({ imageUrl: "/design/covers/kestrel.webp" }) }, { kind: "block", markup: smallGameCard({ imageUrl: null }) }] }) },
   ],
 });
 

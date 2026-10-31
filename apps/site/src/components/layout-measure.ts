@@ -70,6 +70,7 @@ export const LAYOUT_RULE_TIERS: Readonly<Record<string, LayoutRuleTier>> = {
   "the page isn't the state it's listed as": "page",
   "the page didn't settle in time": "page",
   "no answer within 400 ms": "sweep",
+  "switch slab not recut where it rests": "sweep",
   "the check couldn't press the page's buttons": "sweep",
 };
 

@@ -5,6 +5,7 @@ import { controlMarkup, type ControlMarkup } from "./control-markup.ts";
 import { CUT_LINE, EDGE, floatingPane, glassPane, icon, type IconName } from "./foundations.ts";
 import { tertiaryButton, toggleButton } from "./actions.ts";
 import { examplePane } from "./example-pane.ts";
+import { smallGameCard } from "./game-cover.ts";
 import { row } from "./layout.ts";
 
 /*
@@ -73,7 +74,7 @@ export interface SearchFieldOptions {
   /** Unique on the page; its list of finishes and games is <id>-list. Defaults to find-<name>. */
   id?: string;
   /**
-   * Finishes and games as you type: GET <suggestionsUrl>?search=<what's typed> answers SearchSuggestions, shown in a list under the field.
+   * Finishes and games as you type: GET <suggestionsUrl>?search_text=<what's typed> answers SearchSuggestions, shown in a list under the field.
    * Left out, it's a plain search.
    */
   suggestionsUrl?: string;
@@ -100,7 +101,7 @@ const suggestionRows = (id: string, typed: string, suggestions: SearchSuggestion
   const active = (rowIndex: number) => (rowIndex === activeIndex ? " is-active" : "");
   return html`${finishes.map((finish, rowIndex) => html`<div class="select-option flush-row compact find-finish-row${active(rowIndex)}" role="option" id="${id}-row-${rowIndex}" data-finish="${finish}" data-cut-line="8">${CUT_LINE}<span class="find-row-icon">${icon("search")}</span>${matchWords(finish, typed)}</div>`)}${
     games.length ? html`<div class="find-head words-margin" role="presentation">Games</div>` : ""
-  }${games.map((game, gameIndex) => html`<a class="select-option flush-row compact find-game${active(finishes.length + gameIndex)}" role="option" id="${id}-row-${finishes.length + gameIndex}" href="${game.page_url}" tabindex="-1" data-cut-line="8">${CUT_LINE}<img src="${game.cover_url}" alt="" width="64" height="36"><span class="find-game-words">${matchWords(game.title, typed)}<span class="find-game-fact">${game.fact}</span></span></a>`)}`;
+  }${games.map((game, gameIndex) => html`<a class="select-option flush-row compact find-game${active(finishes.length + gameIndex)}" role="option" id="${id}-row-${finishes.length + gameIndex}" href="${game.page_url}" tabindex="-1" data-cut-line="8">${CUT_LINE}${smallGameCard({ imageUrl: game.cover_url || null })}<span class="find-game-words">${matchWords(game.title, typed)}<span class="find-game-fact">${game.fact}</span></span></a>`)}`;
 };
 
 /**
@@ -115,7 +116,7 @@ export function searchField(options: SearchFieldOptions): ControlMarkup {
   const suggests = options.suggestionsUrl !== undefined || isOpen;
   const combobox = suggests ? html` role="combobox" aria-autocomplete="both" aria-expanded="${isOpen ? "true" : "false"}" aria-controls="${id}-choices"${isOpen ? html` aria-activedescendant="${id}-row-0"` : ""}` : "";
   const list = suggests
-    ? html`<span class="find-finish" aria-hidden="true"><span class="find-typed">${typedFinish ? options.searchText : ""}</span><span>${typedFinish}</span></span>${floatingPane({ id: `${id}-list`, placement: "under", kind: "select-list find-list", isShownInPlace: isOpen, body: html`<div class="select-options" id="${id}-choices" role="listbox" aria-label="${options.label}" data-own-fade>${isOpen && options.shownSuggestions ? suggestionRows(id, options.searchText, options.shownSuggestions, 0) : ""}</div>` })}<template class="find-icon"><span class="find-row-icon">${icon("search")}</span></template>`
+    ? html`<span class="find-finish" aria-hidden="true"><span class="find-typed">${typedFinish ? options.searchText : ""}</span><span>${typedFinish}</span></span>${floatingPane({ id: `${id}-list`, placement: "under", kind: "select-list find-list", isShownInPlace: isOpen, body: html`<div class="select-options" id="${id}-choices" role="listbox" aria-label="${options.label}" data-own-fade>${isOpen && options.shownSuggestions ? suggestionRows(id, options.searchText, options.shownSuggestions, 0) : ""}</div>` })}<template class="find-icon"><span class="find-row-icon">${icon("search")}</span></template><template class="find-cover">${smallGameCard({ imageUrl: "" })}</template>`
     : "";
   const className = ["find", "carving", "layered", "is-used", "sized", options.state === "is-open" ? "is-focused is-open" : options.state ?? ""].filter(Boolean).join(" ");
   return controlMarkup(html`<form class="${className}" method="get" action="${options.action}" role="search" data-cut-line="10"${options.suggestionsUrl !== undefined ? html` data-suggest="${options.suggestionsUrl}"` : ""}>${CUT_LINE}${Object.entries(options.keep ?? {}).map(([name, keptValue]) => html`<input type="hidden" name="${name}" value="${keptValue}">`)}${icon("search")}<input type="search" name="${options.name}" value="${options.searchText}" maxlength="200" placeholder="${options.placeholder}" aria-label="${options.label}" autocomplete="off"${combobox}>${tertiaryButton("Clear the search", { type: "button", icon: "close", isLabelHidden: true, isSmall: true })}${list}</form>`, "regular");
@@ -407,10 +408,11 @@ export const FIELD_SCRIPT = `/* fields */(function () {
  * a game opens it; Esc closes the list. Each finish taken is typed in as far as the page is concerned (an input event).
  */
 export const SEARCH_SCRIPT = `/* search finishes */(function () {
-  var WAIT_MS = 120;
+  // It asks once typing pauses this long, so a word typed quickly asks once, not for every letter.
+  var WAIT_MS = 200;
   window.zaismaWatch.each("form.find[data-suggest]", function (form) {
     var input = form.querySelector('input[type="search"]'), list = form.querySelector(".find-list"), box = list.querySelector('[role="listbox"]'), scroller = list.querySelector(".floating-body");
-    var ghost = form.querySelector(".find-finish"), typedPart = ghost.firstElementChild, restPart = ghost.lastElementChild, iconTemplate = form.querySelector("template.find-icon");
+    var ghost = form.querySelector(".find-finish"), typedPart = ghost.firstElementChild, restPart = ghost.lastElementChild, iconTemplate = form.querySelector("template.find-icon"), coverTemplate = form.querySelector("template.find-cover");
     var id = list.id.replace(/-list$/, ""), url = form.getAttribute("data-suggest"), rows = [], active = -1, timer = 0, asking = null, answers = new Map();
     // A Floating pane under the field, as wide as it; the cursor stays in the field, so Esc there closes it (below).
     var float = window.zaismaFloat(list, {
@@ -445,21 +447,43 @@ export const SEARCH_SCRIPT = `/* search finishes */(function () {
       var row = document.createElement(tag); row.className = "select-option flush-row compact find-" + kind; row.setAttribute("role", "option"); row.id = id + "-row-" + rows.length; row.setAttribute("data-cut-line", "8");
       return row;
     }
+    // Each row is kept by what it is (a finish's words, a game's page): an answer that brings the same rows back only changes which part of
+    // their words is bold, and a game that stays keeps its row and cover, so nothing is built, cut or loaded again as you type.
+    function finishRow(finish, typed, kept) {
+      var row = kept.get("finish " + finish);
+      if (row) { row.replaceChild(words(finish, typed), row.lastChild); return row; }
+      row = newRow("div", "finish-row"); row.setAttribute("data-finish", finish); row.findKey = "finish " + finish;
+      row.append(iconTemplate.content.cloneNode(true), words(finish, typed));
+      return row;
+    }
+    function gameRow(game, typed, kept) {
+      var row = kept.get("game " + game.page_url);
+      if (row) { var keptWords = row.querySelector(".find-game-words"); keptWords.replaceChild(words(game.title, typed), keptWords.firstChild); keptWords.lastChild.textContent = game.fact; return row; }
+      row = newRow("a", "game"); row.href = game.page_url; row.tabIndex = -1; row.findKey = "game " + game.page_url;
+      // Its cover is the Game card's small one (smallGameCard, in the template), with Zaisma's mark where the game has none.
+      var cover = coverTemplate.content.firstElementChild.cloneNode(true), picture = cover.querySelector(".cover-picture");
+      // A picture Zaisma serves is offered at its kept sizes up to three times the card's widest (smallGameCard's srcset), so it's sharp.
+      if (game.cover_url) { var img = picture.querySelector("img"); if (/^\\/img\\/[A-Za-z0-9_-]+$/.test(game.cover_url)) { img.srcset = [320, 480].map(function (widthPx) { return game.cover_url + "/w" + widthPx + ".webp " + widthPx + "w"; }).join(", "); img.sizes = "160px"; } img.src = game.cover_url; }
+      else { picture.remove(); cover.classList.add("is-placeholder"); }
+      var gameWords = document.createElement("span"), fact = document.createElement("span");
+      gameWords.className = "find-game-words"; fact.className = "find-game-fact"; fact.textContent = game.fact;
+      gameWords.append(words(game.title, typed), fact); row.append(cover, gameWords);
+      return row;
+    }
     function fill(answer, typed) {
-      box.textContent = ""; rows = [];
-      (answer.finishes || []).slice(0, 3).forEach(function (finish) {
-        var row = newRow("div", "finish-row"); row.setAttribute("data-finish", finish);
-        row.append(iconTemplate.content.cloneNode(true), words(finish, typed)); box.appendChild(row); rows.push(row);
-      });
+      var kept = new Map(); rows.forEach(function (row) { if (row.findKey) kept.set(row.findKey, row); });
       var games = (answer.games || []).slice(0, 3);
-      if (games.length) { var head = document.createElement("div"); head.className = "find-head words-margin"; head.setAttribute("role", "presentation"); head.textContent = "Games"; box.appendChild(head); }
-      games.forEach(function (game) {
-        var row = newRow("a", "game"); row.href = game.page_url; row.tabIndex = -1;
-        var cover = document.createElement("img"); cover.src = game.cover_url; cover.alt = ""; cover.width = 64; cover.height = 36;
-        var gameWords = document.createElement("span"), fact = document.createElement("span");
-        gameWords.className = "find-game-words"; fact.className = "find-game-fact"; fact.textContent = game.fact;
-        gameWords.append(words(game.title, typed), fact); row.append(cover, gameWords); box.appendChild(row); rows.push(row);
-      });
+      var next = (answer.finishes || []).slice(0, 3).map(function (finish) { return finishRow(finish, typed, kept); });
+      var nextGames = games.map(function (game) { return gameRow(game, typed, kept); });
+      var isSame = next.length + nextGames.length === rows.length && next.concat(nextGames).every(function (row, rowIndex) { return rows[rowIndex] === row; });
+      // Only rows that changed are put in: the same rows in the same order stay where they are.
+      if (!isSame) {
+        var head = box.querySelector(".find-head");
+        if (!head) { head = document.createElement("div"); head.className = "find-head words-margin"; head.setAttribute("role", "presentation"); head.textContent = "Games"; }
+        box.replaceChildren.apply(box, next.concat(nextGames.length ? [head] : [], nextGames));
+        next.concat(nextGames).forEach(function (row, rowIndex) { row.id = id + "-row-" + rowIndex; });
+      }
+      rows = next.concat(nextGames);
       if (rows.length && document.activeElement === input) { show(); setActive(0); } else { setActive(-1); hide(); }
     }
     function ask() {
@@ -468,12 +492,12 @@ export const SEARCH_SCRIPT = `/* search finishes */(function () {
       if (!typed) { rows = []; box.textContent = ""; setActive(-1); hide(); return; }
       if (answers.has(typed)) { fill(answers.get(typed), typed); return; }
       asking = new AbortController();
-      fetch(url + (url.indexOf("?") < 0 ? "?" : "&") + "search=" + encodeURIComponent(typed), { signal: asking.signal, headers: { Accept: "application/json" } })
+      fetch(url + (url.indexOf("?") < 0 ? "?" : "&") + "search_text=" + encodeURIComponent(typed), { signal: asking.signal, headers: { Accept: "application/json" } })
         .then(function (answer) { return answer.ok ? answer.json() : { finishes: [], games: [] }; })
         .then(function (answer) { answers.set(typed, answer); if (input.value.trim() === typed) fill(answer, typed); })
         .catch(function () {});
     }
-    // A finish taken goes in as if typed, so the page's own search as you type follows it too.
+    // A finish taken goes in as if typed, so whatever follows what's typed (its finishes, the Clear button) follows it too.
     function take() { var row = rows[active]; if (!row || !row.hasAttribute("data-finish")) return; input.value = row.getAttribute("data-finish"); input.dispatchEvent(new Event("input", { bubbles: true })); }
     function go() {
       var row = rows[active];
@@ -930,8 +954,12 @@ component({
 .find-row-icon > .ico { width: 18px; height: 18px; }
 .find-list .select-option.is-active .find-row-icon { color: var(--ink); }
 .find-head { margin: 8px 0 2px; font: var(--type-note); color: var(--muted); }
-.find-game > img { flex: none; width: 64px; height: 36px; object-fit: cover; background: var(--well); }
-.find-game-words { display: grid; gap: 2px; min-width: 0; }
+/* A game's row is a bigger one: its cover is the Game card's small one at a fifth of the list's width, 96 to 160px (a phone's list to a wide
+   header's), and its title is a card's name. */
+.find-list .select-options { container-type: inline-size; }
+.find-game { gap: var(--gap-words-beside-control); }
+.find-game > .cover.is-small { width: clamp(96px, 20cqw, 160px); }
+.find-game-words { display: grid; gap: 2px; min-width: 0; font: var(--type-name); }
 .find-game-fact { font: var(--type-note); color: var(--muted); }
 /* Shown open in place (the gallery's open state): hanging under the field, over what follows it. */
 .find > .find-list.in-place { position: absolute; z-index: 6; top: calc(100% + 6px); left: 0; right: 0; }
