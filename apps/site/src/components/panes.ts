@@ -1835,7 +1835,7 @@ component({
    line, and the button goes under them, as wide as the strip. */
 .banner { width: 100%; container-type: inline-size; color: var(--ink); }
 .banner-in { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; column-gap: var(--gap-words-beside-control); margin: 0; }
-.banner-words { display: flex; align-items: flex-start; gap: var(--gap-words-words); min-width: 0; font: var(--type-words); }
+.banner-words { display: flex; align-items: flex-start; gap: var(--pad-inside-words); min-width: 0; font: var(--type-words); }
 /* The icon sits on the words' first line. */
 .banner-icon { flex: none; display: flex; align-items: center; height: 1lh; color: var(--ink-2); }
 .banner-in.tone-warning .banner-icon { color: var(--warning); }
@@ -1868,7 +1868,7 @@ component({
     {
       label: "Over a game's own background, its glass smoked",
       isWide: true,
-      markup: html`<div class="smoke" style="width: 100%; background: center / cover no-repeat url('/design/covers/neon-drift.webp'); padding: var(--gap-block-block)">${banner({ text: "Season 3 of Neon Drift starts Friday: new districts, and the leaderboards start over.", icon: "megaphone", action: { label: "See what's new", href: "#banner" }, closeLabel: "Close" })}</div>`,
+      markup: html`<div class="backdrop-frame holds-menus">${backdrop({ isFramed: true, standInSlug: "neon-drift", isGlassAdaptive: true })}<div class="banner-frame">${banner({ text: "Season 3 of Neon Drift starts Friday: new districts, and the leaderboards start over.", icon: "megaphone", action: { label: "See what's new", href: "#banner" }, closeLabel: "Close" })}</div></div>`,
     },
   ],
 });

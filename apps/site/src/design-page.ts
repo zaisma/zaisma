@@ -219,7 +219,7 @@ body.gallery { margin: 0; min-height: 100vh; font: var(--type-reading); }
 .dropdown-frame > .cut-btn { position: absolute; right: 20px; top: 0; }
 /* The dropdown over a game's world: one to try at its start, one open at its end. */
 .backdrop-frame.holds-menus { height: auto; align-items: flex-start; justify-content: space-between; padding: var(--pad-pane); gap: var(--gap-block-block); }
-.backdrop-frame.holds-menus > .dropdown-frame { flex: 1; }
+.backdrop-frame.holds-menus > :is(.dropdown-frame, .banner-frame) { flex: 1; min-width: 0; }
 /* The rail's example: a pane held short, so what's in it scrolls on its rail. */
 .rail-box { display: flex; height: 220px; }
 .rail-side-box p { margin: 0; white-space: nowrap; }
