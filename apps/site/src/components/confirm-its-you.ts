@@ -3,8 +3,9 @@ import { html, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
 import { secondaryButton, primaryButton, tertiaryButton } from "./actions.ts";
 import { cutField, pinField } from "./fields.ts";
-import { stack } from "./layout.ts";
-import { sheet } from "./panes.ts";
+import { icon, sheetMarkup, well, type IconName } from "./foundations.ts";
+import { paneParts, row, stack } from "./layout.ts";
+import "./panes.ts";
 
 /** The ways to prove it's you: a passkey, the purchase PIN (only for a purchase), the account's password. */
 export type ConfirmMethod = "passkey" | "purchase_pin" | "password";
@@ -14,8 +15,8 @@ export interface ConfirmItsYouOptions {
   id: string;
   /** The way it shows first. On a page the script sets it from the methods it's opened with; here, for the still copies. */
   method?: ConfirmMethod;
-  /** Another way it offers to switch to ("Use your password instead"). On a page the script sets it. */
-  switchTo?: ConfirmMethod;
+  /** The other ways it offers, each a button at its foot (Password, Passkey). On a page the script sets them. */
+  otherMethods?: ConfirmMethod[];
   /** Why it asks, in one sentence: "Your account asks for your purchase PIN for every buy." On a page the script sets it. */
   reasonText?: string;
   /** What went wrong, under the field (under the PIN's boxes, which it marks): "That PIN isn't right. 3 tries left." */
@@ -27,7 +28,10 @@ export interface ConfirmItsYouOptions {
 }
 
 const PIN_DIGIT_COUNT = PURCHASE_PIN_LIMITS.pinDigitCount;
-const SWITCH_WORDS: Record<ConfirmMethod, string> = { passkey: "Use your passkey instead", purchase_pin: "Use your purchase PIN instead", password: "Use your password instead" };
+const METHODS: ConfirmMethod[] = ["purchase_pin", "password", "passkey"];
+/** Each way's button at the foot, and the mark its face shows while it's the way asked for. */
+const METHOD_WORDS: Record<ConfirmMethod, string> = { purchase_pin: "Purchase PIN", password: "Password", passkey: "Passkey" };
+const METHOD_ICONS: Record<ConfirmMethod, IconName> = { purchase_pin: "key", password: "lock", passkey: "passkey" };
 
 /**
  * Confirm it's you: a small glass dialog that opens over anything (the store panel's Buy, the account page's changes, a key's Make) and asks the player to prove it's
@@ -40,28 +44,34 @@ const SWITCH_WORDS: Record<ConfirmMethod, string> = { passkey: "Use your passkey
 export function confirmItsYouSheet(options: ConfirmItsYouOptions): Raw {
   const method = options.method ?? "password";
   const id = options.id;
+  const others = options.otherMethods ?? [];
+  // Its face: the way's mark in a carving, the one for the way asked for showing (the CSS, by the face's data-method).
+  const face = well({ kind: "confirm-face-well", body: html`${METHODS.map((each) => html`<span class="confirm-face-mark" data-face-method="${each}">${icon(METHOD_ICONS[each])}</span>`)}` });
   const body = stack({
     items: [
-      { kind: "words", id: `${id}-reason`, markup: html`<p>${options.reasonText ?? ""}</p>` },
-      { kind: "control", id: `${id}-pin`, isHidden: method !== "purchase_pin", markup: pinField({ name: "purchase_pin", id: `${id}-pin-field`, label: "Purchase PIN", digits: options.isBusy ? "246810" : undefined, isDisabled: options.isBusy, error: method === "purchase_pin" ? options.errorText : undefined }) },
+      { kind: "block", markup: html`<div class="confirm-face" id="${id}-face" data-method="${method}">${face}<h2 class="sheet-title" id="${id}-title">Confirm it's you</h2></div>` },
+      { kind: "words", id: `${id}-reason`, markup: html`<p class="confirm-reason">${options.reasonText ?? ""}</p>` },
+      { kind: "control", id: `${id}-pin`, isHidden: method !== "purchase_pin", markup: pinField({ name: "purchase_pin", id: `${id}-pin-field`, label: "Your purchase PIN", digits: options.isBusy ? "246810" : undefined, isDisabled: options.isBusy, error: method === "purchase_pin" ? options.errorText : undefined }) },
       // A password form names its account for password managers and screen readers; the field stays hidden.
       { kind: "words", id: `${id}-username`, isHidden: true, markup: html`<input type="text" name="username" autocomplete="username" tabindex="-1" aria-hidden="true">` },
       { kind: "control", id: `${id}-password`, isHidden: method !== "password", markup: cutField({ name: "password", id: `${id}-password-field`, label: "Password", type: "password", icon: "lock", autocomplete: "current-password" }) },
       { kind: "words", id: `${id}-problem`, isHidden: !options.errorText || method === "purchase_pin", markup: html`<p class="confirm-problem" role="alert">${options.errorText ?? ""}</p>` },
-      { kind: "words", id: `${id}-switch`, isHidden: !options.switchTo, markup: tertiaryButton(SWITCH_WORDS[options.switchTo ?? "password"], { type: "button" }) },
+      // A purchase PIN needs no press: its sixth digit sends it.
+      { kind: "control", id: `${id}-go-cell`, isHidden: method === "purchase_pin", markup: primaryButton(method === "passkey" ? "Use your passkey" : "Confirm", { id: `${id}-go`, type: "button", busyLabel: "Confirming", isBusy: options.isBusy && method !== "purchase_pin", isFullWidth: true }) },
     ],
   });
-  return sheet({
+  // The other ways, side by side at its foot; only those it offers show.
+  const ways = row({ widths: "equal", items: METHODS.map((each) => ({ kind: "control" as const, markup: secondaryButton(METHOD_WORDS[each], { id: `${id}-way-${each}`, type: "button", icon: METHOD_ICONS[each], isSmall: true, isHidden: !others.includes(each) || each === method }) })) });
+  const close = tertiaryButton("Close", { type: "submit", formMethod: "dialog", icon: "close", isLabelHidden: true, isSmall: true });
+  return sheetMarkup({
     id,
     title: "Confirm it's you",
-    body,
-    closeLabel: "Close",
+    titleId: `${id}-title`,
+    body: html``,
+    parts: paneParts({ head: { words: html``, end: close }, body: html`<div class="sheet-scroll"><div class="sheet-body scrolls to-edge confirm-body">${body}</div></div>`, foot: { start: { kind: "block", markup: ways } } }),
+    closeButton: close,
     placement: "middle",
     isConfirm: true,
-    buttons: [
-      secondaryButton("Cancel", { id: `${id}-cancel`, type: "submit", formMethod: "dialog" }),
-      primaryButton(method === "passkey" ? "Use your passkey" : "Confirm", { id: `${id}-go`, type: "button", busyLabel: "Confirming", isBusy: options.isBusy && method !== "purchase_pin", isHidden: method === "purchase_pin" }),
-    ],
     isShown: options.isShown,
   });
 }
@@ -81,7 +91,7 @@ export function confirmItsYouSheet(options: ConfirmItsYouOptions): Raw {
  * Opened by a press with a passkey first, it asks the browser at once. The passkeys script (passkeys.ts) comes first on the page.
  */
 export const CONFIRM_ITS_YOU_SCRIPT = String.raw`/* confirm it's you */(function () {
-  var SWITCH_WORDS = { passkey: "Use your passkey instead", purchase_pin: "Use your purchase PIN instead", password: "Use your password instead" };
+  var METHODS = ["purchase_pin", "password", "passkey"];
   var PIN_DIGIT_COUNT = ${PIN_DIGIT_COUNT};
   var EMPTY_WORDS = { purchase_pin: "Enter all " + PIN_DIGIT_COUNT + " digits of your purchase PIN.", password: "Enter your password." };
   var running = new WeakMap();
@@ -99,18 +109,17 @@ export const CONFIRM_ITS_YOU_SCRIPT = String.raw`/* confirm it's you */(function
     part(id, "reason").querySelector("p").textContent = state.options.reason || "";
     part(id, "pin").hidden = method !== "purchase_pin";
     part(id, "password").hidden = method !== "password";
-    var other = state.methods.filter(function (each) { return each !== method; })[0] || null;
-    part(id, "switch").hidden = !other;
-    if (other) part(id, "switch").querySelector(".tertiary-label").textContent = SWITCH_WORDS[other];
+    // The other ways it offers, each a button at its foot.
+    METHODS.forEach(function (each) { var way = part(id, "way-" + each); way.hidden = each === method || state.methods.indexOf(each) === -1; way.disabled = state.isBusy; });
+    part(id, "go-cell").hidden = method === "purchase_pin";
     var go = part(id, "go");
     go.querySelector(".label-idle").textContent = method === "passkey" ? "Use your passkey" : "Confirm";
     if (state.isBusy) go.setAttribute("aria-busy", "true"); else go.removeAttribute("aria-busy");
     // A purchase PIN has no Confirm: its sixth digit sends it, and its boxes are carved in while it's on its way.
-    go.hidden = method === "purchase_pin";
     go.disabled = state.isBusy;
     window.zaismaPinField.setDisabled(part(id, "pin-field"), state.isBusy && method === "purchase_pin");
-    part(id, "cancel").disabled = state.isBusy;
     dialog.dataset.method = method;
+    part(id, "face").dataset.method = method;
   }
   function clearFields(id) { window.zaismaPinField.clear(part(id, "pin-field")); part(id, "password-field").value = ""; }
   function focusField(id, state) {
@@ -154,18 +163,20 @@ export const CONFIRM_ITS_YOU_SCRIPT = String.raw`/* confirm it's you */(function
   function wire(dialog, id) {
     var stateOf = function () { return running.get(dialog); };
     part(id, "go").addEventListener("click", function () { var state = stateOf(); if (state) submit(dialog, id, state); });
-    part(id, "switch").querySelector("button").addEventListener("click", function () {
-      var state = stateOf();
-      if (!state || state.isBusy) return;
-      state.method = state.methods.filter(function (each) { return each !== state.method; })[0] || state.method;
-      clearFields(id); setProblem(id, ""); draw(dialog, id, state); focusField(id, state);
+    METHODS.forEach(function (each) {
+      part(id, "way-" + each).addEventListener("click", function () {
+        var state = stateOf();
+        if (!state || state.isBusy || state.methods.indexOf(each) === -1) return;
+        state.method = each;
+        clearFields(id); setProblem(id, ""); draw(dialog, id, state); focusField(id, state);
+      });
     });
     // A PIN's sixth digit sends it, with no press.
     dialog.addEventListener("zaisma:pin-complete", function () {
       var state = stateOf();
       if (state && state.method === "purchase_pin") submit(dialog, id, state);
     });
-    // Enter sends the proof, never the sheet's first button (Cancel).
+    // Enter sends the proof, never a way's button at the foot.
     dialog.addEventListener("keydown", function (event) {
       if (event.key !== "Enter" || !(event.target instanceof HTMLInputElement)) return;
       event.preventDefault();
@@ -218,14 +229,23 @@ component({
 .sheet.placement-middle.in-place { width: min(480px, 100%); }
 /* What went wrong is a warning, never the runner's orange. */
 .confirm-problem { margin: 0; font: var(--type-words); color: var(--warning); }
+/* Its face, title, words and PIN centered under one another, like a lock asking to be opened; a password field and the button keep the width. */
+.confirm-body { text-align: center; }
+.confirm-face { display: flex; flex-direction: column; align-items: center; gap: var(--gap-words-control); }
+.confirm-face-well { width: 56px; height: 56px; justify-content: center; align-items: center; }
+.confirm-face-mark { display: none; color: var(--ink-2); }
+.confirm-face-mark > .ico { width: 26px; height: 26px; }
+.confirm-face[data-method="purchase_pin"] [data-face-method="purchase_pin"], .confirm-face[data-method="password"] [data-face-method="password"], .confirm-face[data-method="passkey"] [data-face-method="passkey"] { display: flex; }
+.confirm-body .pin-field { align-items: center; }
+.confirm-body .cut-field { text-align: start; }
 `,
   render: confirmItsYouSheet,
   examples: [
-    { label: "Purchase PIN: six boxes, sent by the sixth digit, and a way to the password", isStill: true, markup: confirmItsYouSheet({ id: "example-confirm-its-you-pin", method: "purchase_pin", switchTo: "password", reasonText: PIN_REASON, isShown: true }) },
-    { label: "Password", isStill: true, markup: confirmItsYouSheet({ id: "example-confirm-its-you-password", method: "password", switchTo: "passkey", reasonText: "It's been a while since you signed in here.", isShown: true }) },
-    { label: "Passkey: one button, and the browser asks at once", isStill: true, markup: confirmItsYouSheet({ id: "example-confirm-its-you-passkey", method: "passkey", switchTo: "password", reasonText: "That's a lot for one day.", isShown: true }) },
-    { label: "A wrong PIN: the tries left", isStill: true, markup: confirmItsYouSheet({ id: "example-confirm-its-you-wrong", method: "purchase_pin", switchTo: "password", reasonText: PIN_REASON, errorText: "That PIN isn't right. 3 tries left.", isShown: true }) },
-    { label: "Purchase PIN sent, waiting", isStill: true, markup: confirmItsYouSheet({ id: "example-confirm-its-you-busy", method: "purchase_pin", switchTo: "password", reasonText: PIN_REASON, isBusy: true, isShown: true }) },
-    { label: "Password sent, waiting", isStill: true, markup: confirmItsYouSheet({ id: "example-confirm-its-you-password-busy", method: "password", switchTo: "passkey", reasonText: "It's been a while since you signed in here.", isBusy: true, isShown: true }) },
+    { label: "Purchase PIN: six marks, sent by the sixth digit, and the other ways at its foot", isStill: true, markup: confirmItsYouSheet({ id: "example-confirm-its-you-pin", method: "purchase_pin", otherMethods: ["password", "passkey"], reasonText: PIN_REASON, isShown: true }) },
+    { label: "Password", isStill: true, markup: confirmItsYouSheet({ id: "example-confirm-its-you-password", method: "password", otherMethods: ["passkey"], reasonText: "It's been a while since you signed in here.", isShown: true }) },
+    { label: "Passkey: one button, and the browser asks at once", isStill: true, markup: confirmItsYouSheet({ id: "example-confirm-its-you-passkey", method: "passkey", otherMethods: ["password"], reasonText: "That's a lot for one day.", isShown: true }) },
+    { label: "A wrong PIN: the tries left", isStill: true, markup: confirmItsYouSheet({ id: "example-confirm-its-you-wrong", method: "purchase_pin", otherMethods: ["password"], reasonText: PIN_REASON, errorText: "That PIN isn't right. 3 tries left.", isShown: true }) },
+    { label: "Purchase PIN sent, waiting", isStill: true, markup: confirmItsYouSheet({ id: "example-confirm-its-you-busy", method: "purchase_pin", otherMethods: ["password"], reasonText: PIN_REASON, isBusy: true, isShown: true }) },
+    { label: "Password sent, waiting", isStill: true, markup: confirmItsYouSheet({ id: "example-confirm-its-you-password-busy", method: "password", otherMethods: ["passkey"], reasonText: "It's been a while since you signed in here.", isBusy: true, isShown: true }) },
   ],
 });

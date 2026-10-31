@@ -243,27 +243,27 @@ export interface PinFieldOptions {
 }
 
 /**
- * A PIN field: one box for each digit of a PIN in one equal row that fills its pane, a label above and what's wrong under. Digits only,
- * masked like a password; typing moves on to the next box, Backspace on an empty box goes back, the arrows move, and pasting a PIN fills
- * every box. The sixth digit fires `zaisma:pin-complete` on the field (it bubbles; `detail.digits` is the PIN as text), so a page needs no
- * button to send it (PIN_FIELD_SCRIPT). The boxes are cut fields, in a Row, so the edge rule shapes the row's ends.
+ * A PIN field: one field for the whole PIN under a row of marks, one for each digit, a label above and what's wrong under. Digits only;
+ * the marks fill with light as they're typed, the next one outlined while it has the keyboard, and pasting or autofilling a PIN fills them
+ * all. The sixth digit fires `zaisma:pin-complete` on the field (it bubbles; `detail.digits` is the PIN as text), so a page needs no button
+ * to send it (PIN_FIELD_SCRIPT). One real field, unseen over the marks, takes the typing: a phone shows its number pad, and a screen reader
+ * hears one field with its label.
  */
 export function pinField(options: PinFieldOptions): ControlMarkup {
   const id = options.id ?? `pin-${options.name}`;
   const digits = options.digits ?? "";
   const errorId = `${id}-error`;
-  const focusedIndex = options.state === "is-focused" ? Math.min(digits.length, PIN_DIGIT_COUNT - 1) : -1;
-  const boxes = Array.from({ length: PIN_DIGIT_COUNT }, (_, boxIndex) => {
-    const className = ["field", "carving", "layered", "is-used", "sized", "no-icon", "pin-box", options.error ? "is-marked" : "", boxIndex === focusedIndex ? "is-focused" : ""].filter(Boolean).join(" ");
-    const input = html`<input type="password" inputmode="numeric" pattern="[0-9]*" size="1" placeholder=" " autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Digit ${boxIndex + 1} of ${PIN_DIGIT_COUNT}" aria-describedby="${errorId}"${digits[boxIndex] ? html` value="${digits[boxIndex]}"` : ""}${options.error ? raw(' aria-invalid="true"') : ""}${options.isDisabled ? raw(" disabled") : ""}>`;
-    return { kind: "control" as const, markup: controlMarkup(html`<span class="${className}" data-cut-line="10">${CUT_LINE}${input}</span>`, "field") };
+  const nextIndex = Math.min(digits.length, PIN_DIGIT_COUNT - 1);
+  const marks = Array.from({ length: PIN_DIGIT_COUNT }, (_, markIndex) => {
+    const className = ["pin-mark", "carving", "deep", markIndex < digits.length ? "is-filled" : "", markIndex === nextIndex ? "is-next" : "", options.error ? "is-marked" : ""].filter(Boolean).join(" ");
+    return html`<span class="${className}" data-cut-line="4" aria-hidden="true">${CUT_LINE}<span class="pin-fill light-fill" data-cut-line="3"></span></span>`;
   });
-  return controlMarkup(html`<fieldset class="pin-field" id="${id}" data-pin>
-<legend class="words-margin">${options.label}</legend>
-${row({ widths: "equal", items: boxes })}
-<input type="hidden" name="${options.name}" value="${digits}">
+  const input = html`<input class="pin-input" id="${id}-input" name="${options.name}" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="${PIN_DIGIT_COUNT}" autocomplete="off" autocapitalize="off" spellcheck="false" aria-describedby="${errorId}"${digits ? html` value="${digits}"` : ""}${options.error ? raw(' aria-invalid="true"') : ""}${options.isDisabled ? raw(" disabled") : ""}>`;
+  return controlMarkup(html`<div class="pin-field${options.state === "is-focused" ? " is-focused" : ""}" id="${id}" data-pin${options.isDisabled ? raw(' aria-busy="true"') : ""}>
+<label class="words-margin" for="${id}-input">${options.label}</label>
+<span class="pin-marks">${marks}${input}</span>
 <p class="field-error words-margin" id="${errorId}"${options.error ? "" : raw(" hidden")}>${options.error ?? ""}</p>
-</fieldset>`, "field", { hasOwnWords: true });
+</div>`, "field", { hasOwnWords: true });
 }
 
 /**
@@ -271,81 +271,52 @@ ${row({ widths: "equal", items: boxes })}
  * ({ bubbles: true, detail: { digits } }). A page that sends the PIN itself drives the field with window.zaismaPinField, given the field
  * or its id:
  *   digits(field)              the digits in it, as text
- *   clear(field)               empties every box
- *   focus(field)               puts the cursor in the first box
- *   setError(field, words)     marks the boxes and says words under them; "" takes both away (typing the next digit does too)
- *   setDisabled(field, isOff)  carves the boxes in while a PIN is on its way, and back out
+ *   clear(field)               empties it
+ *   focus(field)               puts the cursor in it
+ *   setError(field, words)     marks the marks and says words under them; "" takes both away (typing the next digit does too)
+ *   setDisabled(field, isOff)  holds it while a PIN is on its way, its marks quieter, and lets it go
  */
 export const PIN_FIELD_SCRIPT = String.raw`/* pin fields */(function () {
   var COUNT = ${PIN_DIGIT_COUNT};
   function find(target) { return typeof target === "string" ? document.getElementById(target) : target; }
-  function boxesOf(root) { return Array.prototype.slice.call(root.querySelectorAll(".pin-box > input")); }
-  function digitsOf(root) { return boxesOf(root).map(function (box) { return box.value; }).join(""); }
+  function inputOf(root) { return root.querySelector(".pin-input"); }
+  // The marks show what's in the field: filled up to its length, the next one outlined while it has the keyboard.
+  function draw(root) {
+    var count = inputOf(root).value.length;
+    Array.prototype.forEach.call(root.querySelectorAll(".pin-mark"), function (mark, index) {
+      mark.classList.toggle("is-filled", index < count);
+      mark.classList.toggle("is-next", index === Math.min(count, COUNT - 1));
+    });
+  }
   function setError(root, words) {
     var line = root.querySelector(".field-error");
     line.textContent = words || ""; line.hidden = !words;
-    Array.prototype.forEach.call(root.querySelectorAll(".pin-box"), function (box) { box.classList.toggle("is-marked", !!words); });
-    boxesOf(root).forEach(function (box) { if (words) box.setAttribute("aria-invalid", "true"); else box.removeAttribute("aria-invalid"); });
+    Array.prototype.forEach.call(root.querySelectorAll(".pin-mark"), function (mark) { mark.classList.toggle("is-marked", !!words); });
+    if (words) inputOf(root).setAttribute("aria-invalid", "true"); else inputOf(root).removeAttribute("aria-invalid");
   }
-  function keep(root) { root.querySelector('input[type="hidden"]').value = digitsOf(root); }
   window.zaismaPinField = {
-    digits: function (target) { return digitsOf(find(target)); },
-    clear: function (target) { var root = find(target); boxesOf(root).forEach(function (box) { box.value = ""; }); keep(root); },
-    focus: function (target) { var first = boxesOf(find(target))[0]; first.focus({ preventScroll: true }); first.select(); },
+    digits: function (target) { return inputOf(find(target)).value; },
+    clear: function (target) { var root = find(target); inputOf(root).value = ""; draw(root); },
+    focus: function (target) { inputOf(find(target)).focus({ preventScroll: true }); },
     setError: function (target, words) { setError(find(target), words); },
-    setDisabled: function (target, isOff) { var root = find(target); boxesOf(root).forEach(function (box) { box.disabled = !!isOff; }); if (isOff) root.setAttribute("aria-busy", "true"); else root.removeAttribute("aria-busy"); }
+    setDisabled: function (target, isOff) { var root = find(target); inputOf(root).disabled = !!isOff; if (isOff) root.setAttribute("aria-busy", "true"); else root.removeAttribute("aria-busy"); }
   };
   window.zaismaWatch.each("[data-pin]", function (root) {
-    var boxes = boxesOf(root);
-    function focusBox(index) { var box = boxes[Math.max(0, Math.min(COUNT - 1, index))]; box.focus({ preventScroll: true }); box.select(); }
-    // Something was entered or taken out: what's wrong no longer describes what's in it, and a full PIN goes out.
-    function changed() {
-      if (root.querySelector(".pin-box.is-marked")) setError(root, "");
-      keep(root);
-      var digits = digitsOf(root);
+    var input = inputOf(root);
+    // Digits only, at most the PIN's length, whatever was typed, pasted or filled in; something entered or taken out means what's wrong
+    // no longer describes it, and a full PIN goes out.
+    input.addEventListener("input", function () {
+      var digits = input.value.replace(/\D/g, "").slice(0, COUNT);
+      if (digits !== input.value) input.value = digits;
+      if (root.querySelector(".pin-mark.is-marked")) setError(root, "");
+      draw(root);
       if (digits.length === COUNT) root.dispatchEvent(new CustomEvent("zaisma:pin-complete", { bubbles: true, detail: { digits: digits } }));
-    }
-    // Digits go into the boxes from one on, and the cursor moves to the box after the last one filled.
-    function fill(from, text) {
-      var digits = text.replace(/\D/g, "").slice(0, COUNT - from);
-      if (!digits) return;
-      digits.split("").forEach(function (digit, offset) { boxes[from + offset].value = digit; });
-      focusBox(from + digits.length);
-      changed();
-    }
-    boxes.forEach(function (box, index) {
-      box.addEventListener("focus", function () { box.select(); });
-      box.addEventListener("keydown", function (event) {
-        if (event.ctrlKey || event.metaKey || event.altKey) return;
-        var key = event.key;
-        if (/^[0-9]$/.test(key)) { event.preventDefault(); fill(index, key); return; }
-        if (key === "Backspace" || key === "Delete") {
-          event.preventDefault();
-          if (box.value) { box.value = ""; changed(); return; }
-          if (key === "Backspace" && index > 0) { boxes[index - 1].value = ""; focusBox(index - 1); changed(); }
-          return;
-        }
-        if (key === "ArrowLeft" || key === "ArrowRight") { event.preventDefault(); focusBox(index + (key === "ArrowLeft" ? -1 : 1)); return; }
-        if (key === "Home" || key === "End") { event.preventDefault(); focusBox(key === "Home" ? 0 : COUNT - 1); return; }
-        // Digits only: any other letter or mark is dropped before it shows.
-        if (key.length === 1) event.preventDefault();
-      });
-      // What keyboards that don't say their keys (a phone's) and autofill put in: the last digit typed, or a whole PIN.
-      box.addEventListener("input", function () {
-        var digits = box.value.replace(/\D/g, "");
-        box.value = "";
-        if (!digits) return changed();
-        if (digits.length === COUNT) { boxes.forEach(function (each) { each.value = ""; }); return fill(0, digits); }
-        fill(index, digits.slice(-1));
-      });
-      box.addEventListener("paste", function (event) {
-        event.preventDefault();
-        var digits = ((event.clipboardData || window.clipboardData).getData("text") || "").replace(/\D/g, "");
-        if (!digits) return;
-        boxes.forEach(function (each) { each.value = ""; });
-        fill(0, digits);
-      });
     });
+    // The cursor always sits at the end: the marks show no place in the middle to type into.
+    function toEnd() { var length = input.value.length; try { input.setSelectionRange(length, length); } catch (error) { /* a field that can't say */ } }
+    input.addEventListener("focus", toEnd);
+    input.addEventListener("keydown", function (event) { if (/^(ArrowLeft|ArrowRight|Home|End|ArrowUp|ArrowDown)$/.test(event.key)) { event.preventDefault(); toEnd(); } });
+    draw(root);
   });
 })();
 `;
@@ -855,25 +826,30 @@ component({
   slug: "pin-field",
   group: "inputs",
   subgroup: "fields",
-  summary: "A PIN, one box for each digit, in one row that fills its pane. Digits only, hidden as they're typed; the cursor moves on by itself, and when the last digit goes in the PIN is sent, so there's no button to press. A wrong PIN is said under the boxes.",
+  summary: "A PIN, one mark for each digit, filling with light as it's typed. Digits only, never shown; when the last digit goes in the PIN is sent, so there's no button to press. A wrong PIN is said under the marks.",
   styles: `
-/* A PIN field: a label over a row of cut fields, one digit each. The boxes are fields (their face, outline, focus and marked amber are the
-   cut field's), at a field's height in an equal Row; each is at least a small control wide, so the row has a width in a pane that fits what's
-   in it and shares the pane's in one that doesn't. What's typed sits in the middle. */
-.pin-field { border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--gap-words-control); min-width: 0; }
-.pin-field > legend { font: var(--type-label); color: var(--ink-2); }
-.pin-box { flex: 1 1 0; width: auto; min-width: var(--control-height-small); }
-/* One digit, centered in its box with no start or end room and no fade at the edges. The browser's own dot is too small to count at a
-   glance, so the typed digit is clear and the box draws its own dot in the middle once it's filled. */
-.pin-field .pin-box.field > input { --text-start: 0px; --text-end: 0px; padding: 0; text-align: center; color: transparent; caret-color: var(--ink); -webkit-mask-image: none; mask-image: none; }
-.pin-box:has(> input:not(:placeholder-shown))::after { content: ""; position: absolute; z-index: 3; left: 50%; top: 50%; width: 14px; height: 14px; transform: translate(-50%, -50%); border-radius: 50%; background: var(--ink); pointer-events: none; }
-.pin-box:has(> input:not(:placeholder-shown)) > input { caret-color: transparent; }
+/* A PIN field: a label over a row of marks, one for each digit, small carvings with a cut corner that fill with light as the digits go
+   in. One field, unseen, lies over the row and takes the typing; the row is a small control tall, so a finger finds it. */
+.pin-field { display: flex; flex-direction: column; gap: var(--gap-words-control); min-width: 0; }
+.pin-field > label { font: var(--type-label); color: var(--ink-2); }
+.pin-marks { position: relative; display: flex; align-items: center; gap: var(--gap-block-block); min-height: var(--control-height-small); }
+.pin-mark { position: relative; flex: none; width: 20px; height: 20px; }
+.pin-fill { position: absolute; z-index: 2; inset: 3px; clip-path: var(--cut-shape); opacity: 0; transform: scale(0.4); transition: opacity var(--motion-state), transform var(--motion-state) var(--ease-glide); }
+.pin-mark.is-filled > .pin-fill { opacity: 1; transform: none; }
+/* The next mark outlined in the focus color while the field has the keyboard; a wrong PIN outlines them all amber. */
+.pin-marks:has(> .pin-input:focus-visible) > .pin-mark.is-next > .cut-line polygon, .pin-field.is-focused .pin-mark.is-next > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
+.pin-mark.is-marked > .cut-line polygon { stroke: var(--marked); stroke-width: 2; }
+/* Sent, waiting: the marks stay filled, quieter. */
+.pin-field[aria-busy="true"] .pin-fill { opacity: 0.45; }
+/* The field itself: over the whole row, unseen, its own text and cursor too, at a size a phone doesn't zoom in to. */
+.pin-input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; padding: 0; border: 0; opacity: 0; font-size: 16px; cursor: text; }
+@media (prefers-reduced-motion: reduce) { .pin-fill { transition: none; } }
 `,
   render: pinField,
   examples: [
     { label: "Empty", markup: examplePane(pinField({ id: "example-pin-empty", name: "purchase_pin", label: "Purchase PIN" })) },
     { label: "Part way in", markup: examplePane(pinField({ id: "example-pin-partly", name: "purchase_pin", label: "Purchase PIN", digits: "482" })) },
-    { label: "Keyboard focus", markup: examplePane(pinField({ id: "example-pin-focused", name: "purchase_pin", label: "Purchase PIN", digits: "482", state: "is-focused" })), isStill: true },
+    { label: "Keyboard focus: the next mark outlined", markup: examplePane(pinField({ id: "example-pin-focused", name: "purchase_pin", label: "Purchase PIN", digits: "482", state: "is-focused" })), isStill: true },
     { label: "Marked wrong, with its error under it", markup: examplePane(pinField({ id: "example-pin-wrong", name: "purchase_pin", label: "Purchase PIN", error: "That PIN isn't right. 4 tries left." })), isStill: true },
     { label: "Sent, waiting", markup: examplePane(pinField({ id: "example-pin-busy", name: "purchase_pin", label: "Purchase PIN", digits: "482913", isDisabled: true })), isStill: true },
   ],
