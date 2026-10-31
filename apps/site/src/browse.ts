@@ -389,7 +389,8 @@ export async function browseSuggestions(env: Env, request: Request): Promise<Res
 }
 
 /**
- * Browse's script: the search narrows the grid as you type (a quarter second after the last key), keeping the link in step, a sort or
+ * Browse's script: the search narrows the grid in place on Enter or a finish picked (the search's own list shows its games as you type, so
+ * the grid never redraws under it), and comes back whole once the search is emptied, keeping the link in step; a sort or
  * genre swaps the grid in place without loading the page (its switch slides once, and the background stays put), and a page drawn for
  * another device than this one is drawn again once in the right order.
  */
@@ -473,7 +474,6 @@ function reopenFilter(groupName) {
 window.addEventListener("popstate", () => show(location.pathname + location.search));
 if (zaismaDeviceKind() !== browse.dataset.deviceKind) show(location.pathname + location.search);
 if (search) {
-  let timer = 0;
   // The search as the page's address has it now, with the sort and genre picked here since it loaded.
   const searched = () => {
     const url = new URL(location.href);
@@ -482,11 +482,9 @@ if (search) {
     url.searchParams.delete("page");
     return url.pathname + url.search;
   };
-  search.addEventListener("input", () => {
-    clearTimeout(timer);
-    timer = setTimeout(() => show(searched(), true, true), 250);
-  });
+  // Emptied (Clear, or every letter deleted) while the grid shows a search: every game again.
+  search.addEventListener("input", () => { if (!search.value.trim() && new URL(location.href).searchParams.has("search_text")) show(searched(), true, true); });
   const form = search.closest("form");
-  if (form) form.addEventListener("submit", (event) => { event.preventDefault(); clearTimeout(timer); show(searched(), true, true); });
+  if (form) form.addEventListener("submit", (event) => { event.preventDefault(); show(searched(), true, true); });
 }
 })();`);

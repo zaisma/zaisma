@@ -408,7 +408,8 @@ export const FIELD_SCRIPT = `/* fields */(function () {
  * a game opens it; Esc closes the list. Each finish taken is typed in as far as the page is concerned (an input event).
  */
 export const SEARCH_SCRIPT = `/* search finishes */(function () {
-  var WAIT_MS = 120;
+  // It asks once typing pauses this long, so a word typed quickly asks once, not for every letter.
+  var WAIT_MS = 200;
   window.zaismaWatch.each("form.find[data-suggest]", function (form) {
     var input = form.querySelector('input[type="search"]'), list = form.querySelector(".find-list"), box = list.querySelector('[role="listbox"]'), scroller = list.querySelector(".floating-body");
     var ghost = form.querySelector(".find-finish"), typedPart = ghost.firstElementChild, restPart = ghost.lastElementChild, iconTemplate = form.querySelector("template.find-icon"), coverTemplate = form.querySelector("template.find-cover");
@@ -446,25 +447,43 @@ export const SEARCH_SCRIPT = `/* search finishes */(function () {
       var row = document.createElement(tag); row.className = "select-option flush-row compact find-" + kind; row.setAttribute("role", "option"); row.id = id + "-row-" + rows.length; row.setAttribute("data-cut-line", "8");
       return row;
     }
+    // Each row is kept by what it is (a finish's words, a game's page): an answer that brings the same rows back only changes which part of
+    // their words is bold, and a game that stays keeps its row and cover, so nothing is built, cut or loaded again as you type.
+    function finishRow(finish, typed, kept) {
+      var row = kept.get("finish " + finish);
+      if (row) { row.replaceChild(words(finish, typed), row.lastChild); return row; }
+      row = newRow("div", "finish-row"); row.setAttribute("data-finish", finish); row.findKey = "finish " + finish;
+      row.append(iconTemplate.content.cloneNode(true), words(finish, typed));
+      return row;
+    }
+    function gameRow(game, typed, kept) {
+      var row = kept.get("game " + game.page_url);
+      if (row) { var keptWords = row.querySelector(".find-game-words"); keptWords.replaceChild(words(game.title, typed), keptWords.firstChild); keptWords.lastChild.textContent = game.fact; return row; }
+      row = newRow("a", "game"); row.href = game.page_url; row.tabIndex = -1; row.findKey = "game " + game.page_url;
+      // Its cover is the Game card's small one (smallGameCard, in the template), with Zaisma's mark where the game has none.
+      var cover = coverTemplate.content.firstElementChild.cloneNode(true), picture = cover.querySelector(".cover-picture");
+      // A picture Zaisma serves is offered at its kept sizes up to three times the card's widest (smallGameCard's srcset), so it's sharp.
+      if (game.cover_url) { var img = picture.querySelector("img"); if (/^\\/img\\/[A-Za-z0-9_-]+$/.test(game.cover_url)) { img.srcset = [320, 480].map(function (widthPx) { return game.cover_url + "/w" + widthPx + ".webp " + widthPx + "w"; }).join(", "); img.sizes = "160px"; } img.src = game.cover_url; }
+      else { picture.remove(); cover.classList.add("is-placeholder"); }
+      var gameWords = document.createElement("span"), fact = document.createElement("span");
+      gameWords.className = "find-game-words"; fact.className = "find-game-fact"; fact.textContent = game.fact;
+      gameWords.append(words(game.title, typed), fact); row.append(cover, gameWords);
+      return row;
+    }
     function fill(answer, typed) {
-      box.textContent = ""; rows = [];
-      (answer.finishes || []).slice(0, 3).forEach(function (finish) {
-        var row = newRow("div", "finish-row"); row.setAttribute("data-finish", finish);
-        row.append(iconTemplate.content.cloneNode(true), words(finish, typed)); box.appendChild(row); rows.push(row);
-      });
+      var kept = new Map(); rows.forEach(function (row) { if (row.findKey) kept.set(row.findKey, row); });
       var games = (answer.games || []).slice(0, 3);
-      if (games.length) { var head = document.createElement("div"); head.className = "find-head words-margin"; head.setAttribute("role", "presentation"); head.textContent = "Games"; box.appendChild(head); }
-      games.forEach(function (game) {
-        var row = newRow("a", "game"); row.href = game.page_url; row.tabIndex = -1;
-        // Its cover is the Game card's small one (smallGameCard, in the template), with Zaisma's mark where the game has none.
-        var cover = coverTemplate.content.firstElementChild.cloneNode(true), picture = cover.querySelector(".cover-picture");
-        // A picture Zaisma serves is offered at its kept sizes up to three times the card's widest (smallGameCard's srcset), so it's sharp.
-        if (game.cover_url) { var img = picture.querySelector("img"); if (/^\\/img\\/[A-Za-z0-9_-]+$/.test(game.cover_url)) { img.srcset = [320, 480].map(function (widthPx) { return game.cover_url + "/w" + widthPx + ".webp " + widthPx + "w"; }).join(", "); img.sizes = "160px"; } img.src = game.cover_url; }
-        else { picture.remove(); cover.classList.add("is-placeholder"); }
-        var gameWords = document.createElement("span"), fact = document.createElement("span");
-        gameWords.className = "find-game-words"; fact.className = "find-game-fact"; fact.textContent = game.fact;
-        gameWords.append(words(game.title, typed), fact); row.append(cover, gameWords); box.appendChild(row); rows.push(row);
-      });
+      var next = (answer.finishes || []).slice(0, 3).map(function (finish) { return finishRow(finish, typed, kept); });
+      var nextGames = games.map(function (game) { return gameRow(game, typed, kept); });
+      var isSame = next.length + nextGames.length === rows.length && next.concat(nextGames).every(function (row, rowIndex) { return rows[rowIndex] === row; });
+      // Only rows that changed are put in: the same rows in the same order stay where they are.
+      if (!isSame) {
+        var head = box.querySelector(".find-head");
+        if (!head) { head = document.createElement("div"); head.className = "find-head words-margin"; head.setAttribute("role", "presentation"); head.textContent = "Games"; }
+        box.replaceChildren.apply(box, next.concat(nextGames.length ? [head] : [], nextGames));
+        next.concat(nextGames).forEach(function (row, rowIndex) { row.id = id + "-row-" + rowIndex; });
+      }
+      rows = next.concat(nextGames);
       if (rows.length && document.activeElement === input) { show(); setActive(0); } else { setActive(-1); hide(); }
     }
     function ask() {
@@ -478,7 +497,7 @@ export const SEARCH_SCRIPT = `/* search finishes */(function () {
         .then(function (answer) { answers.set(typed, answer); if (input.value.trim() === typed) fill(answer, typed); })
         .catch(function () {});
     }
-    // A finish taken goes in as if typed, so the page's own search as you type follows it too.
+    // A finish taken goes in as if typed, so whatever follows what's typed (its finishes, the Clear button) follows it too.
     function take() { var row = rows[active]; if (!row || !row.hasAttribute("data-finish")) return; input.value = row.getAttribute("data-finish"); input.dispatchEvent(new Event("input", { bubbles: true })); }
     function go() {
       var row = rows[active];
