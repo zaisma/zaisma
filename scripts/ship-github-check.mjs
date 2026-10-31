@@ -15,8 +15,10 @@
 // A pull request's run skips "Engine exports" when its branch changed nothing that job runs (scripts/affected-tests.mjs,
 // from the repository's graph); a run like that counts only with an Engine exports pass on the main commit it was cut
 // from (applyEnginesProof), since the branch's code is that commit's code where the engines look.
-// A pull request's Layout check measures pages only for how they arrange their pieces; every page on every screen is measured each night
-// on main (.github/workflows/nightly.yml), and a failed sweep stops the ship until it passes again (applyNightlySweep).
+// A pull request's Layout check measures pages only for how they arrange their pieces; the merge queue measures every page its change
+// reaches on every screen (check.yml, "Every screen"), and every page is measured each night on main (.github/workflows/nightly.yml).
+// After a failed sweep, the ship measures the pages it named again on the commit it ships, and goes ahead only when they pass
+// (applyNightlySweep).
 
 // The check the ruleset requires, which passes only when the jobs before it did.
 export const GITHUB_CHECK_NAME = "Tests and typecheck";
@@ -131,26 +133,65 @@ export function enginesBaseCommits(runGit, mainShas, branchSha, { searchCommitCo
  */
 // The nightly sweep's last job, which passes only when every share did.
 export const NIGHTLY_SWEEP_CHECK_NAME = "Nightly layout sweep result";
-// The command that runs it again, once the pages are fixed and merged.
-export const NIGHTLY_SWEEP_RERUN_COMMAND = "gh workflow run nightly.yml";
+// The night's sweep's title, and the workflow's name.
+export const NIGHTLY_SWEEP_NAME = "Nightly layout sweep";
+// The workflow the ship runs to measure a failed sweep's pages again, on the commit it ships.
+export const NIGHTLY_SWEEP_WORKFLOW = "nightly.yml";
+// What a re-check's title ends in (nightly.yml's run-name): a sweep of only some pages, which never counts as main's latest sweep.
+export const RECHECK_TITLE_END = " (re-check)";
 
 /**
- * The pages a failed sweep names, from its failed jobs' log (layout-check.mjs prints "FAIL <page> (<path>) <screen> <theme>: <count>"),
- * each once, in the order they failed.
+ * A run's title, as nightly.yml's run-name gives it: "Nightly layout sweep" for the night's, "Layout sweep on <sha>" for a whole sweep of
+ * one commit, and "Layout sweep on <sha> (re-check)" for only some pages of it.
+ */
+export function sweepRunTitle(commitSha = null, isRecheck = false) {
+  return commitSha ? `Layout sweep on ${commitSha}${isRecheck ? RECHECK_TITLE_END : ""}` : NIGHTLY_SWEEP_NAME;
+}
+
+/**
+ * The pages a failed sweep names, from its failed jobs' log, each once, in the order they failed: layout-check.mjs's
+ * "LAYOUT FAILED PAGES [<names>]" lines, one per share, or, in a log from before them, its "FAIL <page> (<path>) <screen> <theme>" lines.
  */
 export function sweepFailedPages(logText) {
+  const lists = [...(logText ?? "").matchAll(/LAYOUT FAILED PAGES (\[.*\])\s*$/gm)].flatMap((match) => {
+    try {
+      return JSON.parse(match[1]);
+    } catch {
+      return [];
+    }
+  });
+  if (lists.length) return [...new Set(lists)];
   return [...new Set([...(logText ?? "").matchAll(/\sFAIL (.+?) \(\/[^)]*\) /g)].map((match) => match[1]))];
 }
 
 /**
- * A passed verdict stands only while main's latest nightly sweep (`sweep`: { conclusion, url, failedPages }, or null before the first)
- * hasn't failed: a failed one stops the ship with its link, the pages it named and how to clear it. Only a pass or a failure decides
- * (a cancelled run says nothing), and no run yet passes.
+ * Main's latest whole sweep among nightly.yml's runs (gh run list's databaseId, status, conclusion, url, displayTitle, createdAt; newest
+ * first): the newest finished one that passed or failed and isn't a re-check (a cancelled run says nothing), or null before the first.
  */
-export function applyNightlySweep(checked, sweep) {
+export function latestSweep(runs) {
+  return runs.find((run) => run.status === "completed" && ["success", "failure"].includes(run.conclusion) && !run.displayTitle?.endsWith(RECHECK_TITLE_END)) ?? null;
+}
+
+/**
+ * The run that measured a failed sweep's pages again on this code: the newest of nightly.yml's runs started after the sweep whose title
+ * names one of the commits with this code (`sameCodeShas`), a re-check or a whole sweep, finished or still going; null when there's none.
+ */
+export function recheckOf(runs, sweep, sameCodeShas) {
+  const titles = sameCodeShas.flatMap((sha) => [sweepRunTitle(sha, true), sweepRunTitle(sha)]);
+  return runs.find((run) => titles.includes(run.displayTitle) && Date.parse(run.createdAt) > Date.parse(sweep.createdAt) && !(run.status === "completed" && !["success", "failure"].includes(run.conclusion))) ?? null;
+}
+
+/**
+ * A passed verdict stands while main's latest sweep (`sweep`: { conclusion, url, failedPages }, or null before the first) passed, or, when
+ * it failed, once its pages passed again on this code (`recheck`, the run recheckOf found and waited for): a failed or missing re-check
+ * stops the ship with both links and the pages. Only a pass or a failure decides, and no run yet passes.
+ */
+export function applyNightlySweep(checked, sweep, recheck = null) {
   if (checked.verdict !== "passed" || !sweep || sweep.conclusion !== "failure") return checked;
-  const pages = sweep.failedPages?.length ? `, on ${sweep.failedPages.join(", ")}` : "";
-  return { ...checked, verdict: "sweep_failed", sweepUrl: sweep.url, sweepNote: `main's last nightly layout sweep failed (${sweep.url})${pages}: fix the pages, merge, and run it again with ${NIGHTLY_SWEEP_RERUN_COMMAND}` };
+  const pages = sweep.failedPages?.length ? ` on ${sweep.failedPages.join(", ")}` : "";
+  if (recheck?.status === "completed" && recheck.conclusion === "success") return { ...checked, sweepNote: `main's last nightly layout sweep failed (${sweep.url})${pages}, and ${pages ? "those pages" : "a whole sweep"} passed again on this code (${recheck.url})` };
+  const again = recheck ? `, and failed again on this code (${recheck.url})` : ", and nothing measured them again on this code";
+  return { ...checked, verdict: "sweep_failed", sweepUrl: sweep.url, sweepNote: `main's last nightly layout sweep failed (${sweep.url})${pages}${again}: fix the pages and merge, and the next ship measures them again` };
 }
 
 export function applyEnginesProof(checked, baseStates) {

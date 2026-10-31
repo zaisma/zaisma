@@ -6,7 +6,8 @@
 //   Deploys with a Cloudflare API token from the macOS keychain (scripts/ship-token.mjs), never wrangler's sign-in;
 //   0. stops unless GitHub's check (tests and typecheck) passed on that code: on the commit, or on the
 //      pull request branch or earlier commit with exactly its code (scripts/ship-github-check.mjs);
-//      waits for it while it's running;
+//      waits for it while it's running; when main's last nightly layout sweep failed, measures the pages it named again on
+//      that commit (nightly.yml as a re-check) and goes on only once they pass;
 //   1. lists the live database's pending migrations and applies them. Ones that only add or change
 //      (tables, columns, indexes, backfills) apply by themselves. When one deletes data (DROP TABLE,
 //      DROP COLUMN, DELETE FROM, TRUNCATE) it needs a terminal, where wrangler asks Julius first;
@@ -35,7 +36,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, openSync, readFileSync, realpathSync, rmSync, writeFileSync, closeSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { applyEnginesProof, applyNightlySweep, checkState, enginesBaseCommits, judgeCheckedCode, sameCodeCommits, sweepFailedPages } from "./ship-github-check.mjs";
+import { NIGHTLY_SWEEP_WORKFLOW, applyEnginesProof, applyNightlySweep, checkState, enginesBaseCommits, judgeCheckedCode, latestSweep, recheckOf, sameCodeCommits, sweepFailedPages, sweepRunTitle } from "./ship-github-check.mjs";
 import { CHECK_GAME_SLUG, CHECK_GAME_URL, PUBLISH_CLI_WORKFLOW_URL, PUBLISH_GAME_SERVER_WORKFLOW_URL, ROOMS_URL, SITE_URL, checkBuckets, checkPackageOnNpm, checkSecurityAddresses, checkUrl, publishedKeyCount, securityTxtProblems } from "./ship-checks.mjs";
 import { linkSkills, opsPlacesOf } from "./ops-setup.mjs";
 import { INTERRUPTED_EXIT_CODE, INTERRUPTED_LINE_START, deployWorkers, liveVersionIdOf, readShipProgress, runThroughInterruptions, writeShipProgress } from "./ship-resume.mjs";
@@ -250,32 +251,71 @@ if (!isDryRun && checkedCode.verdict === "failed") finish("FAIL", `${shortSha}: 
 if (!isDryRun && checkedCode.verdict !== "passed") finish("FAIL", `${shortSha}: ${githubCheckNote}; nothing deployed, since only code a full check passed on ships.`, 1);
 say(githubCheckNote);
 
-// Main's latest nightly layout sweep (.github/workflows/nightly.yml), which measures every page on every screen: a failed one stops the
-// ship until the pages are fixed and it passes again. Only a pass or a failure decides; before the first run, nothing stops it.
-async function readNightlySweep() {
+// Main's latest nightly layout sweep (.github/workflows/nightly.yml), which measures every page on every screen. After a failed one, the
+// pages it named are measured again on this commit (a re-check, nightly.yml with commit_sha and pages; a whole sweep of this commit when
+// it named none), and the ship goes ahead once they pass. A re-check already run on this code counts; one still going is waited for.
+const SWEEP_RECHECK_WAIT_SEC = 1800;
+async function readSweepRuns() {
   let listed;
   try {
-    listed = await runOnline("reading main's nightly layout sweep", "gh", ["run", "list", "--repo", GITHUB_REPOSITORY, "--workflow", "nightly.yml", "--branch", "main", "--status", "completed", "--limit", "10", "--json", "databaseId,conclusion,url"]);
+    listed = await runOnline("reading main's nightly layout sweep", "gh", ["run", "list", "--repo", GITHUB_REPOSITORY, "--workflow", NIGHTLY_SWEEP_WORKFLOW, "--branch", "main", "--limit", "40", "--json", "databaseId,status,conclusion,url,displayTitle,createdAt"]);
   } catch (error) {
     return { problem: error.message };
   }
   if (listed.exitCode !== 0) return { problem: listed.output.trim().split("\n").at(-1) };
-  let runs;
   try {
-    runs = JSON.parse(listed.output.slice(listed.output.indexOf("[")) || "[]");
+    return { runs: JSON.parse(listed.output.slice(listed.output.indexOf("[")) || "[]") };
   } catch {
     return { problem: `gh run list answered ${listed.output.trim().slice(0, 120)}` };
   }
-  const latest = runs.find((each) => each.conclusion === "success" || each.conclusion === "failure");
+}
+async function readNightlySweep() {
+  const { runs, problem } = await readSweepRuns();
+  if (problem) return { problem };
+  const latest = latestSweep(runs);
   if (!latest) return null;
   const failedPages = latest.conclusion === "failure" ? sweepFailedPages((await runOnline("reading the nightly sweep's failed pages", "gh", ["run", "view", String(latest.databaseId), "--repo", GITHUB_REPOSITORY, "--log-failed"])).output) : [];
-  return { conclusion: latest.conclusion, url: latest.url, failedPages };
+  return { ...latest, failedPages, recheck: latest.conclusion === "failure" ? recheckOf(runs, latest, sameCodeShas) : null };
+}
+/** The failed sweep's pages measured again on this commit: the re-check run, once it finished or the wait ran out. */
+async function recheckSweep(sweep) {
+  let recheck = sweep.recheck;
+  if (!recheck) {
+    const startedMs = Date.now();
+    const fields = ["-f", `commit_sha=${commitSha}`, ...(sweep.failedPages.length ? ["-f", `pages=${JSON.stringify(sweep.failedPages)}`] : [])];
+    say(sweep.failedPages.length ? `Measuring ${sweep.failedPages.join(", ")} again on ${shortSha} (main's last nightly layout sweep failed on them)…` : `Sweeping ${shortSha} again (main's last nightly layout sweep failed)…`);
+    const started = await runOnline("starting the layout re-check", "gh", ["workflow", "run", NIGHTLY_SWEEP_WORKFLOW, "--repo", GITHUB_REPOSITORY, "--ref", "main", ...fields]);
+    if (started.exitCode !== 0) return { problem: started.output.trim().split("\n").at(-1) };
+    const title = sweepRunTitle(commitSha, sweep.failedPages.length > 0);
+    for (let waitedSec = 0; !recheck && waitedSec < 120; waitedSec += 5) {
+      await new Promise((resolve) => setTimeout(resolve, 5000));
+      const { runs, problem } = await readSweepRuns();
+      if (problem) return { problem };
+      recheck = runs.find((run) => run.displayTitle === title && Date.parse(run.createdAt) >= startedMs - 60_000) ?? null;
+    }
+    if (!recheck) return { problem: `no run called "${title}" started within 2 minutes of gh workflow run` };
+  }
+  if (recheck.status !== "completed") say(`Waiting for the layout re-check (${recheck.url})…`);
+  for (let waitedSec = 0; recheck.status !== "completed" && waitedSec < SWEEP_RECHECK_WAIT_SEC; waitedSec += 20) {
+    await new Promise((resolve) => setTimeout(resolve, 20000));
+    const { runs, problem } = await readSweepRuns();
+    if (problem) return { problem };
+    recheck = runs.find((run) => run.databaseId === recheck.databaseId) ?? recheck;
+  }
+  return recheck;
 }
 const nightlySweep = await readNightlySweep();
 if (!isDryRun && nightlySweep?.problem) finish("FAIL", `${shortSha}: couldn't read main's nightly layout sweep (${nightlySweep.problem}); nothing deployed.`, 1);
-const sweptCode = applyNightlySweep(checkedCode, nightlySweep?.problem ? null : nightlySweep);
+let sweepRecheck = nightlySweep && !nightlySweep.problem ? nightlySweep.recheck : null;
+if (!isDryRun && checkedCode.verdict === "passed" && nightlySweep?.conclusion === "failure") {
+  sweepRecheck = await recheckSweep(nightlySweep);
+  if (sweepRecheck.problem) finish("FAIL", `${shortSha}: main's last nightly layout sweep failed (${nightlySweep.url}), and its pages couldn't be measured again (${sweepRecheck.problem}); nothing deployed.`, 1);
+  if (sweepRecheck.status !== "completed") finish("FAIL", `${shortSha}: the layout re-check didn't finish in ${SWEEP_RECHECK_WAIT_SEC / 60} minutes (${sweepRecheck.url}); nothing deployed. Run npm run ship again once it has.`, 1);
+}
+const sweptCode = applyNightlySweep(checkedCode, nightlySweep?.problem ? null : nightlySweep, sweepRecheck);
 if (!isDryRun && sweptCode.verdict === "sweep_failed") finish("FAIL", `${shortSha}: ${sweptCode.sweepNote}; nothing deployed.`, 1);
-say(sweptCode.sweepNote ?? (nightlySweep?.problem ? `couldn't read main's nightly layout sweep (${nightlySweep.problem})` : nightlySweep ? `main's last nightly layout sweep passed (${nightlySweep.url})` : "no nightly layout sweep on main yet"));
+if (isDryRun && nightlySweep?.conclusion === "failure" && !sweepRecheck) say(`main's last nightly layout sweep failed (${nightlySweep.url})${nightlySweep.failedPages.length ? ` on ${nightlySweep.failedPages.join(", ")}` : ""}: a ship would measure ${nightlySweep.failedPages.length ? "them" : "every page"} again on ${shortSha} first (not with --dry)`);
+else say(sweptCode.sweepNote ?? (nightlySweep?.problem ? `couldn't read main's nightly layout sweep (${nightlySweep.problem})` : nightlySweep ? `main's last nightly layout sweep passed (${nightlySweep.url})` : "no nightly layout sweep on main yet"));
 
 // The main checkout's main, brought up to date when that can't lose anything.
 function updateMainCheckout() {

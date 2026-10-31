@@ -8,10 +8,14 @@ import {
   ENGINES_CHECK_NAME,
   GITHUB_CHECK_NAME,
   NIGHTLY_SWEEP_CHECK_NAME,
-  NIGHTLY_SWEEP_RERUN_COMMAND,
+  NIGHTLY_SWEEP_NAME,
+  NIGHTLY_SWEEP_WORKFLOW,
   applyEnginesProof,
   applyNightlySweep,
+  latestSweep,
+  recheckOf,
   sweepFailedPages,
+  sweepRunTitle,
   checkState,
   enginesBaseCommits,
   isDocsOnly,
@@ -47,7 +51,7 @@ describe("the workflow and ship agree", () => {
     expect(workflow).toContain(`check-runs?check_name=${encodeURIComponent(GITHUB_CHECK_NAME)}&filter=all`);
     expect(workflow).toContain(`if [ "$IS_CHECKED_IN_QUEUE" = true ]; then echo "Checked in the merge queue: this commit passed there."; exit 0; fi`);
     // Every checking job steps aside for it; only the required check and main's caches run.
-    for (const job of ["${{ needs.changes.outputs.is_full_suite == 'true' && 'Tests' || 'Reached tests' }} (", "Typecheck", "Engine exports (", "Preview test data", "Layout check\n", "Gallery on every screen", "Docs tests"]) {
+    for (const job of ["${{ needs.changes.outputs.is_full_suite == 'true' && 'Tests' || 'Reached tests' }} (", "Typecheck", "Engine exports (", "Preview test data", "Layout check\n", "Gallery on every screen", "Every screen (", "Docs tests"]) {
       const section = workflow.slice(workflow.indexOf(`name: ${job}`), workflow.indexOf("runs-on:", workflow.indexOf(`name: ${job}`)));
       expect(section, job).toContain("needs.changes.outputs.is_checked_in_queue != 'true'");
     }
@@ -66,6 +70,23 @@ describe("the workflow and ship agree", () => {
     expect(workflow).toContain(`if [ "$GALLERY_RESULT" = skipped ] && [ "$IS_GALLERY_CHANGED" = false ]; then gallery_ok=true; fi`);
     expect(workflow).toContain("grep -qE '^apps/site/src/(components/|page-styles\\.ts$|design-page\\.ts$)'");
     expect(workflow).toContain("run: npm run layout:check -- --gallery");
+  });
+  it("on the merge queue measuring every page its change reaches on every screen, in the gallery's place, and failing the required check when it fails", () => {
+    const sweepJob = workflow.slice(workflow.indexOf("name: Every screen ("), workflow.indexOf("\n  docs-tests:"));
+    expect(sweepJob).toContain("github.event_name == 'merge_group'");
+    expect(sweepJob).toContain("run: npm run layout:check -- --sweep --shard ${{ matrix.shard }}/4 --measured .wrangler/layout-sweep-measured.json --changed-only");
+    expect(sweepJob).toContain("restore-keys: layout-sweep-measured-");
+    expect(sweepJob).toContain("name: layout-sweep-measured-${{ matrix.shard }}");
+    const galleryJob = workflow.slice(workflow.indexOf("name: Gallery on every screen"), workflow.indexOf("runs-on:", workflow.indexOf("name: Gallery on every screen")));
+    expect(galleryJob).toContain("github.event_name != 'merge_group'");
+    expect(workflow).toContain("needs: [changes, tests, repeat-new-tests, typecheck, engines, seed, layout, gallery, sweep, docs-tests]");
+    expect(workflow).toContain(`if [ "$EVENT_NAME" = merge_group ]; then gallery_ok=false; if [ "$SWEEP_RESULT" = success ]; then gallery_ok=true; fi; fi`);
+    // Its measured pages reach main's cache once its commit is main, where the next merge group reads them.
+    const mainJob = workflow.slice(workflow.indexOf("name: Measured pages for main"), workflow.indexOf("\n  check:"));
+    expect(mainJob).toContain("event=merge_group");
+    expect(mainJob).toContain("--pattern 'layout-sweep-measured-*'");
+    expect(mainJob).toContain("node scripts/merge-measured.mjs .wrangler/layout-sweep-measured.json measured");
+    expect(mainJob).toContain("key: layout-sweep-measured-${{ github.sha }}");
   });
   it("on which paths are docs only", () => {
     expect(workflow).toContain(`grep -qvE '${DOCS_ONLY_PATH.source.replaceAll("\\/", "/")}'`);
@@ -173,28 +194,79 @@ describe("judgeCheckedCode", () => {
 describe("applyNightlySweep", () => {
   const passed = { verdict: "passed", state: "passed", commitSha: "main", url: "https://github.test/main" };
   const nightly = readFileSync(join(ROOT, ".github/workflows/nightly.yml"), "utf8");
-  it("is the nightly workflow's last job, run again by the command it names", () => {
+  const failed = { conclusion: "failure", url: "https://github.test/sweep", failedPages: ["Home", "Sign in"] };
+  it("is the nightly workflow's last job, which ship runs again itself with the commit and the pages", () => {
     expect(nightly).toContain(`name: ${NIGHTLY_SWEEP_CHECK_NAME}\n`);
-    expect(nightly).toContain("workflow_dispatch:");
-    expect(NIGHTLY_SWEEP_RERUN_COMMAND).toBe("gh workflow run nightly.yml");
-    expect(readFileSync(join(ROOT, "scripts/ship.mjs"), "utf8")).toContain('"--workflow", "nightly.yml", "--branch", "main"');
+    expect(nightly).toContain(`name: ${NIGHTLY_SWEEP_NAME}\n`);
+    expect(NIGHTLY_SWEEP_WORKFLOW).toBe("nightly.yml");
+    expect(nightly).toMatch(/workflow_dispatch:\n {4}inputs:\n {6}commit_sha:/);
+    expect(nightly).toContain("      pages:\n");
+    expect(nightly).toContain(`npm run layout:check -- --sweep --shard \${{ matrix.shard }}/4 --pages "$PAGES"`);
+    const ship = readFileSync(join(ROOT, "scripts/ship.mjs"), "utf8");
+    expect(ship).toContain('"--workflow", NIGHTLY_SWEEP_WORKFLOW, "--branch", "main"');
+    expect(ship).toContain('"workflow", "run", NIGHTLY_SWEEP_WORKFLOW');
+    expect(ship).toContain("`commit_sha=${commitSha}`");
+    expect(ship).toContain("`pages=${JSON.stringify(sweep.failedPages)}`");
+  });
+  it("names its runs as nightly.yml's run-name does", () => {
+    expect(nightly).toContain("run-name: ${{ inputs.commit_sha && format('Layout sweep on {0}{1}', inputs.commit_sha, inputs.pages && ' (re-check)' || '') || 'Nightly layout sweep' }}");
+    expect(sweepRunTitle()).toBe("Nightly layout sweep");
+    expect(sweepRunTitle("abc123")).toBe("Layout sweep on abc123");
+    expect(sweepRunTitle("abc123", true)).toBe("Layout sweep on abc123 (re-check)");
   });
   it("passes before the first sweep and after a passed one", () => {
     expect(applyNightlySweep(passed, null)).toBe(passed);
     expect(applyNightlySweep(passed, { conclusion: "success", url: "https://github.test/sweep", failedPages: [] })).toBe(passed);
   });
-  it("stops the ship on a failed sweep, naming its link, its pages and how to clear it", () => {
-    const stopped = applyNightlySweep(passed, { conclusion: "failure", url: "https://github.test/sweep", failedPages: ["Home", "Sign in"] });
-    expect(stopped.verdict).toBe("sweep_failed");
-    expect(stopped.sweepNote).toBe("main's last nightly layout sweep failed (https://github.test/sweep), on Home, Sign in: fix the pages, merge, and run it again with gh workflow run nightly.yml");
+  it("goes ahead after a failed sweep once its pages passed again on this code", () => {
+    const recheck = { status: "completed", conclusion: "success", url: "https://github.test/recheck" };
+    const shipped = applyNightlySweep(passed, failed, recheck);
+    expect(shipped.verdict).toBe("passed");
+    expect(shipped.sweepNote).toBe("main's last nightly layout sweep failed (https://github.test/sweep) on Home, Sign in, and those pages passed again on this code (https://github.test/recheck)");
+    expect(applyNightlySweep(passed, { ...failed, failedPages: [] }, recheck).sweepNote).toContain("and a whole sweep passed again on this code");
+  });
+  it("stops the ship when the pages failed again, or nothing measured them, naming both links and the pages", () => {
+    const again = applyNightlySweep(passed, failed, { status: "completed", conclusion: "failure", url: "https://github.test/recheck" });
+    expect(again.verdict).toBe("sweep_failed");
+    expect(again.sweepNote).toBe("main's last nightly layout sweep failed (https://github.test/sweep) on Home, Sign in, and failed again on this code (https://github.test/recheck): fix the pages and merge, and the next ship measures them again");
+    expect(applyNightlySweep(passed, failed).sweepNote).toContain(", and nothing measured them again on this code:");
+    expect(applyNightlySweep(passed, failed, { status: "in_progress", conclusion: "", url: "https://github.test/recheck" }).verdict).toBe("sweep_failed");
   });
   it("leaves a verdict that didn't pass as it is", () => {
-    const failed = { ...passed, verdict: "failed" };
-    expect(applyNightlySweep(failed, { conclusion: "failure", url: "https://github.test/sweep", failedPages: [] })).toBe(failed);
+    const failedCheck = { ...passed, verdict: "failed" };
+    expect(applyNightlySweep(failedCheck, failed)).toBe(failedCheck);
   });
-  it("reads the pages from the failed jobs' log", () => {
+  it("reads the pages from the failed jobs' log: the check's list line from every share, or its FAIL lines before it had one", () => {
+    const listed = 'Sweep (2 of 4)\tRun\t2026-10-31T02:14:00Z LAYOUT FAILED PAGES ["Account closed","Sign in"]\nSweep (3 of 4)\tRun\t2026-10-31T02:15:00Z LAYOUT FAILED PAGES ["Developer settings, a spending request","Sign in"]\nSweep (3 of 4)\tRun\tz FAIL Home (/) Phone dark: 1';
+    expect(sweepFailedPages(listed)).toEqual(["Account closed", "Sign in", "Developer settings, a spending request"]);
     const log = "Sweep (2 of 4)\tRun npm run layout:check\t2026-10-27T02:14:00Z FAIL Home (/) Steam Deck dark: 2\nSweep (2 of 4)\tRun\t2026-10-27T02:14:01Z FAIL Sign in (/signin) Phone light: 1\nSweep (2 of 4)\tRun\tz FAIL Home (/) Phone dark: 1\n  ok Games (/games) Phone light";
     expect(sweepFailedPages(log)).toEqual(["Home", "Sign in"]);
+  });
+});
+
+describe("latestSweep and recheckOf", () => {
+  const run = (databaseId: number, displayTitle: string, createdAt: string, conclusion = "success", status = "completed") => ({ databaseId, displayTitle, createdAt, conclusion, status, url: `https://github.test/${databaseId}` });
+  const runs = [
+    run(6, "Layout sweep on other (re-check)", "2026-10-31T16:00:00Z"),
+    run(5, "Layout sweep on abc (re-check)", "2026-10-31T15:00:00Z", "", "in_progress"),
+    run(4, "Layout sweep on abc (re-check)", "2026-10-31T14:00:00Z", "cancelled"),
+    run(3, "Layout sweep on old (re-check)", "2026-10-31T02:00:00Z"),
+    run(2, "Nightly layout sweep", "2026-10-31T08:00:00Z", "failure"),
+    run(1, "Nightly layout sweep", "2026-10-30T02:00:00Z"),
+  ];
+  it("takes main's newest whole sweep that passed or failed, never a re-check", () => {
+    expect(latestSweep(runs)?.databaseId).toBe(2);
+    expect(latestSweep([run(9, "Layout sweep on abc", "2026-10-31T17:00:00Z", "failure"), ...runs])?.databaseId).toBe(9);
+    expect(latestSweep([run(9, "Nightly layout sweep", "2026-10-31T17:00:00Z", "cancelled")])).toBe(null);
+    expect(latestSweep([])).toBe(null);
+  });
+  it("finds the re-check on this code started after the sweep, one still going included, and skips a cancelled one", () => {
+    const sweep = latestSweep(runs)!;
+    expect(recheckOf(runs, sweep, ["abc"])?.databaseId).toBe(5);
+    expect(recheckOf(runs, sweep, ["new", "abc"])?.databaseId).toBe(5);
+    expect(recheckOf(runs, sweep, ["old"])).toBe(null);
+    expect(recheckOf(runs, sweep, ["nothing"])).toBe(null);
+    expect(recheckOf([run(7, "Layout sweep on abc", "2026-10-31T17:00:00Z", "", "queued"), ...runs], sweep, ["abc"])?.databaseId).toBe(7);
   });
 });
 
