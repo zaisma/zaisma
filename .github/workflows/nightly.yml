@@ -1,21 +1,36 @@
 # The nightly layout sweep: every page and state, the stress accounts too, in headless Chrome on every screen, light and dark, at 200% text,
 # measuring every rule (npm run layout:check -- --sweep, scripts/layout-check.mjs), on main's preview with its stand-ins and test data. A pull
 # request's Layout check measures pages only for how they arrange their pieces on a phone and a laptop (check.yml); this catches what
-# that leaves out within a day. "Nightly layout sweep result" passes only when every share did, and npm run ship stops while main's latest
-# result failed (applyNightlySweep, scripts/ship-github-check.mjs): fix the pages, merge, and run it again with gh workflow run nightly.yml.
+# that leaves out within a day; the merge queue measures the pages its change reaches the same way (check.yml, "Every screen"), so this is the
+# backstop. Each page measured is written with its fingerprint (layout-check.mjs, --measured) to main's cache, so the merge queue skips the
+# pages no change reached. "Nightly layout sweep result" passes only when every share did. After a failed one, npm run ship runs this
+# workflow itself with commit_sha (the commit it ships) and pages (the pages that failed): a re-check, which measures only those pages, and
+# ships once they pass (applyNightlySweep, scripts/ship-github-check.mjs).
 name: Nightly layout sweep
+# The titles npm run ship tells runs apart by (sweepRunTitle, scripts/ship-github-check.mjs).
+run-name: ${{ inputs.commit_sha && format('Layout sweep on {0}{1}', inputs.commit_sha, inputs.pages && ' (re-check)' || '') || 'Nightly layout sweep' }}
 
 on:
   schedule:
     # 02:00 UTC, after an evening's work in Europe.
     - cron: "0 2 * * *"
   workflow_dispatch:
+    inputs:
+      commit_sha:
+        description: "The commit on main to sweep (main's newest when empty)"
+        required: false
+        default: ""
+      pages:
+        description: 'Only these pages, a JSON list of names like ["Home", "Sign in"] (every page when empty)'
+        required: false
+        default: ""
 
 permissions:
   contents: read
 
 concurrency:
-  group: nightly-layout-sweep
+  # A re-check of one commit doesn't wait behind the night's sweep.
+  group: ${{ inputs.pages && format('layout-recheck-{0}', inputs.commit_sha) || 'nightly-layout-sweep' }}
   cancel-in-progress: false
 
 env:
@@ -35,7 +50,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: main
+          ref: ${{ inputs.commit_sha || 'main' }}
       - uses: actions/setup-node@v4
         with:
           node-version: lts/*
@@ -72,7 +87,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: main
+          ref: ${{ inputs.commit_sha || 'main' }}
       - uses: actions/setup-node@v4
         with:
           node-version: lts/*
@@ -88,9 +103,50 @@ jobs:
           key: nightly-preview-test-data-${{ github.run_id }}
           fail-on-cache-miss: true
       - run: npm run preview:start
-      - run: npm run layout:check -- --sweep --shard ${{ matrix.shard }}/4
+      # Main's fingerprints so far, which this sweep adds to (a re-check measures only some pages, and adds nothing).
+      - if: ${{ !inputs.pages }}
+        uses: actions/cache/restore@v4
+        with:
+          path: .wrangler/layout-sweep-measured.json
+          key: layout-sweep-measured-${{ github.run_id }}
+          restore-keys: layout-sweep-measured-
+      - env:
+          PAGES: ${{ inputs.pages }}
+        run: |
+          if [ -n "$PAGES" ]; then
+            npm run layout:check -- --sweep --shard ${{ matrix.shard }}/4 --pages "$PAGES"
+          else
+            npm run layout:check -- --sweep --shard ${{ matrix.shard }}/4 --measured .wrangler/layout-sweep-measured.json
+          fi
+      - if: ${{ always() && !inputs.pages && hashFiles('.wrangler/layout-sweep-measured.json') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: layout-sweep-measured-${{ matrix.shard }}
+          path: .wrangler/layout-sweep-measured.json
       - if: failure()
         run: tail -n 80 .wrangler/preview-run/preview.log .wrangler/preview/servers.log || true
+
+  # The four shares' fingerprints as one, in main's cache, where the merge queue reads them.
+  measured:
+    name: Measured pages for main
+    needs: sweep
+    if: ${{ always() && !inputs.pages && needs.sweep.result != 'cancelled' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.commit_sha || 'main' }}
+          sparse-checkout: scripts
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: layout-sweep-measured-*
+          path: measured
+      - run: node scripts/merge-measured.mjs .wrangler/layout-sweep-measured.json measured
+      - uses: actions/cache/save@v4
+        with:
+          path: .wrangler/layout-sweep-measured.json
+          key: layout-sweep-measured-${{ github.run_id }}
 
   result:
     name: Nightly layout sweep result

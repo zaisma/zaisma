@@ -6,7 +6,8 @@
 //     and the gallery's pages for their components too (gallery). Dark changes only colours (design.test.ts scans it), so it's measured nightly;
 //   - --gallery: the gallery's pages on every screen, light and dark, at 200% text, for their components (gallery and page), when a change
 //     touches the components;
-//   - --sweep: every page and state, the stress accounts too, on every screen, light and dark, at 200% text, every tier, each night.
+//   - --sweep: every page and state, the stress accounts too, on every screen, light and dark, at 200% text, every tier, each night, and
+//     in the merge queue on the pages its change reaches (--measured with --changed-only).
 // The rules:
 //   - controls in one row not on one line;
 //   - anything overlapping another thing with an edge, or spilling out of its pane;
@@ -28,17 +29,25 @@
 //   npm run layout:check -- --screens all    every screen, and 200% text (or --screens Phone,Tablet: screens by name), in place of the run's
 //   npm run layout:check -- --text 200       the browser's text at 200% too, on a laptop and an iPad (TEXT_SCREEN_NAMES)
 //   npm run layout:check -- --shard 2/4      the second of four shares of the pages, as the nightly sweep splits them
+//   npm run layout:check -- --pages '["Home", "Sign in"]'  only the pages with these names (a JSON list), as npm run ship re-checks a
+//                                            failed sweep's pages
+//   npm run layout:check -- --measured <file>  writes each measured page's fingerprint (pageFingerprint) and whether it passed to <file>,
+//                                            keeping what's there; with --changed-only, it skips each page whose fingerprint is in
+//                                            <file> already: its markup, the check and the run are as they were when it was measured.
+//                                            The merge queue runs the sweep this way on the pages its change reaches (check.yml)
 //   npm run layout:check -- --pictures <dir> one contact sheet per page and state, <dir>/<state>.png: its screens side by side, light over dark
 //   CHROME_PATH=/path/to/chrome npm run layout:check
 //
 // Chrome is the system's or one downloaded before (scripts/chrome.mjs); without either it fetches Chrome for Testing into
 // .wrangler/chrome. test/layout/layout-check.test.ts runs it on GitHub's check.
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { availableParallelism } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { fetchChrome, findChrome, openChrome } from "./chrome.mjs";
+import { mergeMeasured, readMeasured } from "./merge-measured.mjs";
 import { PASSWORD } from "./preview/sign-ins.mjs";
 import { LAYOUT_TIERS, MEASURE_LAYOUT_SOURCE } from "../apps/site/src/components/layout-measure.ts";
 import { CHECKED_PAGES, LOCAL_SCREEN_NAMES, SCREEN_SIZES, SCREEN_THEMES, STRESS_ACCOUNTS, TEXT_SCREEN_NAMES, UNIQUE_WORD } from "../apps/site/src/components/checked-pages.ts";
@@ -118,6 +127,34 @@ const PAGE_COSTS_SEC = {
   "Gallery: data pictures": 11.4,
 };
 const UNLISTED_PAGE_COST_SEC = 6;
+
+// The check itself: a change to how it opens, settles or measures a page measures every page again.
+const CHECK_SOURCE = readFileSync(fileURLToPath(import.meta.url), "utf8");
+
+/**
+ * A page's fingerprint for a run, as a hex string: its HTML as the server sends it, with what changes on every load taken out (nonce
+ * values, hidden inputs' values, attributes ending in -ms), and everything else that decides what's measured: the page's entry, the run's
+ * screens, themes and tiers, the measuring code and the check. Its CSS and scripts are content-addressed, so their addresses in the HTML
+ * carry their change. The same fingerprint measures the same.
+ */
+export function pageFingerprint(html, page, looks, tiers) {
+  const steady = html
+    .replace(/\snonce="[^"]*"/g, ' nonce=""')
+    .replace(/<input\b[^>]*\btype="hidden"[^>]*>/g, (input) => input.replace(/\svalue="[^"]*"/, ' value=""'))
+    .replace(/\s([\w-]+-ms)="[^"]*"/g, ' $1=""');
+  const hash = createHash("sha256");
+  for (const part of [steady, JSON.stringify(page), JSON.stringify(looks.map((look) => [look.size.name, look.theme])), JSON.stringify(tiers), MEASURE_LAYOUT_SOURCE, CHECK_SOURCE]) hash.update(part).update("\0");
+  return hash.digest("hex");
+}
+
+/**
+ * Only the pages of a run with these names, and the names no page has: a re-check of a failed sweep's pages runs on a later commit,
+ * where a page may be renamed or gone, so those are said and skipped, not refused.
+ */
+export function pagesNamed(pages, names) {
+  if (!Array.isArray(names) || !names.length || names.some((name) => typeof name !== "string")) throw new Error(`--pages takes a JSON list of page names, like '["Home", "Sign in"]'.`);
+  return { pages: pages.filter((page) => names.includes(page.name)), unknownNames: names.filter((name) => !pages.some((page) => page.name === name)) };
+}
 
 /**
  * The pages in one share ("index/count", from 1) of GitHub's Layout check runners: dealt by cost, the dearest first, each to the share
@@ -428,15 +465,22 @@ export async function signIn(chrome, contextId, site, username) {
  * check, element, said }, in the order of pages, sizes and themes, and secondsByPage each page's time in a tab, all its sizes and themes. markup puts that markup in place of a page's own (test/layout/layout-check.test.ts's
  * fixture), on the example page. tiersOf gives the tiers measured on each page (every tier unless told otherwise).
  */
-export async function checkPages({ site, signInSite, pages = LAYOUT_CHECK_PAGES, sizes = LAYOUT_CHECK_SIZES, themes = LAYOUT_CHECK_THEMES, tiersOf = () => [...LAYOUT_TIERS], chromePath, tabCount = DEFAULT_TAB_COUNT, onPage = () => {}, picturesFolder = null }) {
+/**
+ * Measures each page at each size and theme. With `measured` (a --measured file's fingerprints), it answers each measured page's
+ * fingerprint and whether it passed, as measuredFingerprints; with isChangedOnly too, it skips the pages whose fingerprint is in
+ * `measured`, as skippedPageNames. A page that sends forms or opens a hidden state reaches it only in a browser, so it's always measured.
+ */
+export async function checkPages({ site, signInSite, pages = LAYOUT_CHECK_PAGES, sizes = LAYOUT_CHECK_SIZES, themes = LAYOUT_CHECK_THEMES, tiersOf = () => [...LAYOUT_TIERS], chromePath, tabCount = DEFAULT_TAB_COUNT, onPage = () => {}, picturesFolder = null, measured = null, isChangedOnly = false }) {
   // Each page's pictures, by its name: one per screen and theme, for its contact sheet.
   const picturesByPage = new Map();
   const chrome = await openChrome(chromePath, "zaisma-layout-");
   const looks = sizes.flatMap((size) => themes.map((theme) => ({ size, theme })));
   // A page is opened once for each theme (the gallery takes it from its address) and measured at each size in place, the screen switched
   // without a reload; one that sends forms is opened once, its answer measured at each size and theme.
-  const runs = pages.flatMap((page) => (page.stepsToTake ? [{ page, looks }] : themes.map((theme) => ({ page, looks: looks.filter((one) => one.theme === theme) }))));
+  let runs = pages.flatMap((page) => (page.stepsToTake ? [{ page, looks }] : themes.map((theme) => ({ page, looks: looks.filter((one) => one.theme === theme) }))));
   const foundByRun = [];
+  const fingerprintByPage = new Map();
+  const skippedPageNames = [];
   const secondsByPage = {};
   try {
     const contexts = new Map();
@@ -453,6 +497,20 @@ export async function checkPages({ site, signInSite, pages = LAYOUT_CHECK_PAGES,
     };
     // Every account signs in first, one at a time, so the runs that share it don't each sign it in.
     for (const page of pages) await contextFor(page.account);
+    // Each page's fingerprint, from its HTML fetched with its account's cookies: no tab opens for one that's skipped.
+    if (measured) {
+      for (const page of pages) {
+        if (page.stepsToTake || page.setUp) continue;
+        const base = page.isOnSignInSite ? signInSite : site;
+        const { cookies } = await chrome.send("Storage.getCookies", { browserContextId: await contextFor(page.account) });
+        const response = await fetch(`${base}${page.path}`, { headers: { cookie: cookies.map((cookie) => `${cookie.name}=${cookie.value}`).join("; ") } }).catch(() => null);
+        if (!response?.ok) continue;
+        const fingerprint = pageFingerprint(await response.text(), page, looks, tiersOf(page));
+        fingerprintByPage.set(page.name, fingerprint);
+        if (isChangedOnly && fingerprint in measured) skippedPageNames.push(page.name);
+      }
+      runs = runs.filter((run) => !skippedPageNames.includes(run.page.name));
+    }
     let nextRun = 0;
     const checkRuns = async () => {
       while (nextRun < runs.length) {
@@ -481,7 +539,9 @@ export async function checkPages({ site, signInSite, pages = LAYOUT_CHECK_PAGES,
   } finally {
     await chrome.close();
   }
-  return { checkedCount: runs.reduce((count, run, runIndex) => count + (foundByRun[runIndex] ? run.looks.length : 0), 0), failures: foundByRun.flat(), secondsByPage };
+  const failures = foundByRun.flat();
+  const measuredFingerprints = Object.fromEntries([...fingerprintByPage].filter(([name]) => !skippedPageNames.includes(name) && runs.some((run, runIndex) => run.page.name === name && foundByRun[runIndex])).map(([name, fingerprint]) => [fingerprint, failures.some((failure) => failure.page === name) ? "failed" : "passed"]));
+  return { checkedCount: runs.reduce((count, run, runIndex) => count + (foundByRun[runIndex] ? run.looks.length : 0), 0), failures, secondsByPage, measuredFingerprints, skippedPageNames };
 }
 
 /** This checkout's preview's addresses, starting it first when it isn't running. */
@@ -513,19 +573,21 @@ export async function chromeToRun() {
 
 async function main() {
   const args = process.argv.slice(2);
-  const VALUED = ["--only", "--tabs", "--screens", "--text", "--shard", "--pictures"];
+  const VALUED = ["--only", "--tabs", "--screens", "--text", "--shard", "--pictures", "--pages", "--measured"];
   const valueOf = (flag) => (args.includes(flag) ? args[args.indexOf(flag) + 1] : null);
   const isJson = args.includes("--json");
   const runName = args.includes("--sweep") ? "sweep" : args.includes("--gallery") ? "gallery" : "pull_request";
   const layoutRun = LAYOUT_CHECK_RUNS[runName];
   const only = valueOf("--only");
   const tabCount = args.includes("--tabs") ? Number(valueOf("--tabs")) : DEFAULT_TAB_COUNT;
-  const unknown = args.filter((arg, i) => !["--json", "--sweep", "--gallery", ...VALUED].includes(arg) && !VALUED.includes(args[i - 1]));
-  const OPTIONS_WORDS = "The options are --sweep or --gallery, --json, --only <part of a page's path>, --tabs <pages at once>, --screens all or <name>,<name>, --text 200, --shard <n>/<count> and --pictures <folder>.";
+  const unknown = args.filter((arg, i) => !["--json", "--sweep", "--gallery", "--changed-only", ...VALUED].includes(arg) && !VALUED.includes(args[i - 1]));
+  const OPTIONS_WORDS = "The options are --sweep or --gallery, --json, --only <part of a page's path>, --pages <JSON list of page names>, --tabs <pages at once>, --screens all or <name>,<name>, --text 200, --shard <n>/<count>, --pictures <folder>, and --measured <file> with --changed-only.";
   if (unknown.length) stop(`Unknown option ${unknown.join(" ")}. ${OPTIONS_WORDS}`, isJson);
   if (args.includes("--sweep") && args.includes("--gallery")) stop("--sweep already measures the gallery's pages on every screen: give one of --sweep and --gallery.", isJson);
   if (!Number.isInteger(tabCount) || tabCount < 1 || tabCount > 16) stop("--tabs takes a whole number from 1 to 16, like --tabs 2.", isJson);
-  const screensAsked = valueOf("--screens"), textAsked = valueOf("--text"), shard = valueOf("--shard"), picturesFolder = valueOf("--pictures");
+  const screensAsked = valueOf("--screens"), textAsked = valueOf("--text"), shard = valueOf("--shard"), picturesFolder = valueOf("--pictures"), pagesAsked = valueOf("--pages"), measuredPath = valueOf("--measured");
+  const isChangedOnly = args.includes("--changed-only");
+  if (isChangedOnly && !measuredPath) stop("--changed-only skips the pages a --measured file has: give --measured <file> too.", isJson);
   if (textAsked !== null && !TEXT_PERCENTS.includes(Number(textAsked))) stop(`--text takes ${TEXT_PERCENTS.join(" or ")}, like --text 200.`, isJson);
   let sizes = layoutRun.sizes;
   try {
@@ -539,6 +601,19 @@ async function main() {
   if (!sites) stop("The preview didn't start: see .wrangler/preview-run/preview.log.", isJson, "no_preview");
   const allPages = layoutRun.pages;
   let pages = only ? allPages.filter((page) => page.path.includes(only)) : allPages;
+  if (pagesAsked !== null) {
+    try {
+      const named = pagesNamed(pages, (() => { try { return JSON.parse(pagesAsked); } catch { return null; } })());
+      if (named.unknownNames.length && !isJson) console.log(`No page in this run is called ${named.unknownNames.join(", ")} (renamed or gone): skipped. The pages are ${allPages.map((page) => page.name).join(", ")}.`);
+      if (!named.pages.length) {
+        console.log(isJson ? JSON.stringify({ checked_page_count: 0, failures: [], failed_page_names: [], skipped_page_names: named.unknownNames, seconds_by_page: {} }) : "LAYOUT PASS: none of the pages asked for is in this run.");
+        process.exit(0);
+      }
+      pages = named.pages;
+    } catch (error) {
+      stop(error.message, isJson);
+    }
+  }
   if (shard) {
     try {
       pages = layoutCheckShard(pages, shard);
@@ -546,10 +621,23 @@ async function main() {
       stop(error.message.replace("LAYOUT_CHECK_SHARD is", "--shard is"), isJson);
     }
   }
+  // A share can be empty when only a few pages are asked for (--pages, as npm run ship re-checks a sweep's): nothing in it fails.
+  if (!pages.length && shard && !only) {
+    console.log(isJson ? JSON.stringify({ checked_page_count: 0, failures: [], failed_page_names: [], skipped_page_names: [], seconds_by_page: {} }) : `LAYOUT PASS: no page in share ${shard}.`);
+    process.exit(0);
+  }
   if (!pages.length) stop(`No page's path has ${only} in it.`, isJson);
   if (picturesFolder) mkdirSync(picturesFolder, { recursive: true });
   const startedMs = Date.now();
-  const { checkedCount, failures, secondsByPage } = await checkPages({
+  let measured = null;
+  if (measuredPath) {
+    try {
+      measured = readMeasured(measuredPath);
+    } catch (error) {
+      stop(`--measured ${measuredPath} can't be read: ${error.message}`, isJson);
+    }
+  }
+  const { checkedCount, failures, secondsByPage, measuredFingerprints, skippedPageNames } = await checkPages({
     ...sites,
     pages,
     sizes,
@@ -558,12 +646,19 @@ async function main() {
     chromePath,
     tabCount,
     picturesFolder,
+    measured,
+    isChangedOnly,
     onPage: (page, size, theme, found) => !isJson && console.log(`${found.length ? "FAIL" : "  ok"} ${page.name}${page.path.length < 40 ? ` (${page.path})` : ""} ${size.name} ${theme}${found.length ? `: ${found.length}` : ""}`),
   });
-  if (isJson) console.log(JSON.stringify({ checked_page_count: checkedCount, failures, seconds_by_page: secondsByPage }, null, 2));
+  if (measuredPath) writeFileSync(measuredPath, `${JSON.stringify(mergeMeasured(measured, measuredFingerprints))}\n`);
+  const failedPageNames = [...new Set(failures.map((failure) => failure.page))];
+  if (isJson) console.log(JSON.stringify({ checked_page_count: checkedCount, failures, failed_page_names: failedPageNames, skipped_page_names: skippedPageNames, seconds_by_page: secondsByPage }, null, 2));
   else {
     for (const failure of failures) console.log(`  ${failure.page} ${failure.size} ${failure.theme}: ${failure.check}: ${failure.element}: ${failure.said}`);
     if (picturesFolder) console.log(`Contact sheets: ${picturesFolder}`);
+    if (skippedPageNames.length) console.log(`Skipped ${skippedPageNames.length} page(s) measured before as they are: ${skippedPageNames.join(", ")}.`);
+    // One line npm run ship reads from a failed sweep's log, to measure those pages again (sweepFailedPages, scripts/ship-github-check.mjs).
+    if (failedPageNames.length) console.log(`LAYOUT FAILED PAGES ${JSON.stringify(failedPageNames)}`);
     console.log(failures.length ? `LAYOUT FAIL: ${failures.length} problem(s) on ${new Set(failures.map((failure) => `${failure.page} ${failure.size} ${failure.theme}`)).size} of ${checkedCount} pages.` : `LAYOUT PASS: ${checkedCount} pages, ${sizes.map((size) => size.name).join(", ")}, ${layoutRun.themes.join(" and ")}, measuring ${[...new Set(allPages.flatMap(layoutRun.tiersOf))].join(", ")}, in ${Math.round((Date.now() - startedMs) / 1000)}s with ${tabCount} at once.`);
   }
   process.exit(failures.length ? 1 : 0);

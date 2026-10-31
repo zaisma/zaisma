@@ -12,7 +12,7 @@ import { LAYOUT_RULE_TIERS } from "../../apps/site/src/components/layout-measure
 import layoutMeasureSource from "../../apps/site/src/components/layout-measure.ts?raw";
 import layoutCheckSource from "../../scripts/layout-check.mjs?raw";
 // @ts-expect-error: a Node script with no types of its own.
-import { checkPages, chromeToRun, LAYOUT_CHECK_RUNS, layoutCheckShard, previewSites } from "../../scripts/layout-check.mjs";
+import { checkPages, chromeToRun, LAYOUT_CHECK_RUNS, layoutCheckShard, pageFingerprint, pagesNamed, previewSites } from "../../scripts/layout-check.mjs";
 
 /*
  * The measuring check (scripts/layout-check.mjs, npm run layout:check) on this checkout's preview, in headless Chrome: a run's pages
@@ -52,6 +52,32 @@ describe("the measured rules", () => {
     expect(RUNS.gallery.pages.every((page) => page.isGallery)).toBe(true);
     expect(RUNS.sweep.tiersOf({ name: "Home" })).toEqual(["gallery", "page", "sweep"]);
     expect(RUNS.sweep.sizes.length).toBeGreaterThan(RUNS.pull_request.sizes.length);
+  });
+});
+
+describe("the merge queue's skip", () => {
+  const page = { name: "Home", path: "/", mainActionShows: "everywhere" };
+  const looks = [{ size: { name: "Phone" }, theme: "light" }, { size: { name: "Laptop" }, theme: "dark" }];
+  const markup = (stylesheet: string, nonce: string, token: string, settledMs: string) => `<html><head><link rel="stylesheet" href="/css/site.${stylesheet}.css"><script nonce="${nonce}"></script></head><body><form><input type="hidden" name="token" value="${token}"><input name="search_text" value="farm"></form><div data-settled-ms="${settledMs}">Home</div></body></html>`;
+  it("fingerprints a page the same across loads, with what changes on every load taken out", () => {
+    const fingerprint = pageFingerprint(markup("a1", "n1", "t1", "120"), page, looks, ["page"]);
+    expect(fingerprint).toMatch(/^[0-9a-f]{64}$/);
+    expect(pageFingerprint(markup("a1", "n2", "t2", "480"), page, looks, ["page"])).toBe(fingerprint);
+  });
+  it("fingerprints it again when its stylesheet, its words, its entry or the run changes", () => {
+    const fingerprint = pageFingerprint(markup("a1", "n1", "t1", "120"), page, looks, ["page"]);
+    expect(pageFingerprint(markup("b2", "n1", "t1", "120"), page, looks, ["page"])).not.toBe(fingerprint);
+    expect(pageFingerprint(markup("a1", "n1", "t1", "120").replace(">Home<", ">Home, longer<"), page, looks, ["page"])).not.toBe(fingerprint);
+    expect(pageFingerprint(markup("a1", "n1", "t1", "120").replace('value="farm"', 'value="cave"'), page, looks, ["page"])).not.toBe(fingerprint);
+    expect(pageFingerprint(markup("a1", "n1", "t1", "120"), { ...page, mainActionShows: "nowhere" }, looks, ["page"])).not.toBe(fingerprint);
+    expect(pageFingerprint(markup("a1", "n1", "t1", "120"), page, looks.slice(1), ["page"])).not.toBe(fingerprint);
+    expect(pageFingerprint(markup("a1", "n1", "t1", "120"), page, looks, ["gallery", "page", "sweep"])).not.toBe(fingerprint);
+  });
+  it("takes the pages asked for by name, and says which names no page has", () => {
+    const pages = [{ name: "Home" }, { name: "Buying, declined" }, { name: "Sign in" }];
+    expect(pagesNamed(pages, ["Sign in", "Buying, declined", "Account gone"])).toEqual({ pages: [pages[1], pages[2]], unknownNames: ["Account gone"] });
+    expect(() => pagesNamed(pages, "Home")).toThrow("--pages takes a JSON list of page names");
+    expect(() => pagesNamed(pages, [])).toThrow("--pages takes a JSON list of page names");
   });
 });
 
