@@ -10,7 +10,9 @@ export const LAYOUT_TIERS: readonly LayoutRuleTier[] = ["gallery", "page", "swee
  * a control is its size class's height (test/node/materials.test.ts refuses any other height, in styles or markup), and the controls in
  * a row are one height (row() sets each to its tallest's size class).
  *   - gallery: how one component is built (its sizes, margins, cuts), proven once on the gallery's pages, on every screen and at 200% text;
- *   - page: how a page arranges its pieces, on every page and state on each pull request, on a phone and a laptop;
+ *   - page: how a page arranges what its content decides (overlaps, spills, words cut off, scrolling sideways, the fold), on every page and
+ *     state on each pull request, on a phone and a laptop; an arrangement a layout component makes (pane gaps, the page's column, a row's
+ *     line, a stack's gaps) is gallery, since a page can't make it any other way;
  *   - sweep: what's too slow to measure on every pull request, and every rule on every page on the other screens, in dark, at 200% text
  *     and on the stress accounts, each night (.github/workflows/nightly.yml).
  * test/layout/layout-check.test.ts fails a rule that isn't here, and a name here no rule uses.
@@ -40,23 +42,28 @@ export const LAYOUT_RULE_TIERS: Readonly<Record<string, LayoutRuleTier>> = {
   "wider than its page's shape": "gallery",
   "one kind at different sizes": "gallery",
   "the check couldn't open the gallery's panes": "gallery",
+  // Arrangements a layout component makes, proven on the gallery's Layout pages: a page can't arrange them any other way.
+  // Panes on a page sit only in a stack, columns or a grid, whose gaps are the block gap (a page is only gallery components, test/site/design.test.ts).
+  "two panes closer than a block's gap": "gallery",
+  "two panes overlapping": "gallery",
+  // A page's column is its page shape's (html[data-page-shape], layout.ts's PAGE_SHAPES), a fixed set.
+  "out of line with the header": "gallery",
+  // row() sets every cell to its tallest control's size class.
+  "controls in one row not on one line": "gallery",
+  // stack() picks each gap from what's on each side, never one passed.
+  "words nearer the block before than their own": "gallery",
+  "one group on two surfaces": "gallery",
   "overlaps another thing": "page",
   "spills out of its pane": "page",
   "words cut off": "page",
   "the page scrolls sideways": "page",
   "the runner below the fold": "page",
   "the first cover below the fold": "page",
-  "out of line with the header": "page",
-  "one group on two surfaces": "page",
-  "words nearer the block before than their own": "page",
   "an empty thing taking a gap": "page",
   "a control alone on a row's line, short of its end": "page",
-  "controls in one row not on one line": "page",
   "words over something with an edge": "page",
   // Two controls a page sets side by side outside a row: only a page's arrangement (columns, a grid's cells) can, so it's measured there.
   "two controls side by side outside a row": "page",
-  "two panes overlapping": "page",
-  "two panes closer than a block's gap": "page",
   "the check couldn't send the page's form": "page",
   "the check couldn't open the page's hidden state": "page",
   "the check couldn't measure the page": "page",

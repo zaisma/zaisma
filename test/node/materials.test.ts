@@ -2,6 +2,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { COMPONENTS } from "../../apps/site/src/components/index.ts";
+import { MATERIAL_STYLES } from "../../apps/site/src/components/materials.ts";
 
 /*
  * Everything in the gallery is built of the materials (docs/DESIGN.md, Materials; apps/site/src/components/materials.ts). Only the materials
@@ -309,6 +310,18 @@ describe("materials", () => {
       return own && !MARKUP_NOT_MADE_OF_MATERIALS.has(`${file} | ${property}: ${value}`) ? [`${file} | ${property}: ${value}: ${own}`] : [];
     });
     expect(problems).toEqual([]);
+  });
+
+  it("sizes every picture's holder (holds-art): its styles set an aspect ratio, a height or an inset, so its box stands before the picture loads", () => {
+    const folder = join(import.meta.dirname, "../../apps/site/src");
+    const sources = [...readdirSync(join(folder, "components")).map((name) => join("components", name)), ...readdirSync(folder)].filter((name) => name.endsWith(".ts")).map((name) => readFileSync(join(folder, name), "utf8"));
+    const holders = new Set(sources.flatMap((source) => [...source.matchAll(/(?:class="|make\("[a-z]+", ")([\w\s-]*)\bholds-art\b/g)].map((match) => match[1]!.trim())));
+    expect(holders.size).toBeGreaterThan(0);
+    // The materials' own rules (a slab's height) and every component's.
+    const materialSelectors = [...MATERIAL_STYLES.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/([^{}]+)\{([^{}]*)\}/g)].flatMap(([, selectors = "", block = ""]) => block.split(";").map((declaration) => ({ selector: selectors.trim().split("\n").pop()!.trim(), property: declaration.slice(0, Math.max(0, declaration.indexOf(":"))).trim() })));
+    const sizing = [...materialSelectors, ...declarations()].filter(({ property }) => /^(aspect-ratio|height|block-size|inset)$/.test(property));
+    const isSized = (className: string) => sizing.some(({ selector }) => new RegExp(`\\.${className}(?![\\w-])[^\\s>+~]*$`).test(selector.replace(/::?[\w-]+(\([^)]*\))?/g, "")));
+    expect([...holders].filter((classes) => !classes.split(/\s+/).some(isSized))).toEqual([]);
   });
 
   it("names nothing in NOT_MADE_OF_MATERIALS that's gone", () => {

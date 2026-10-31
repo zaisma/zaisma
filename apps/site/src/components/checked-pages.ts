@@ -22,9 +22,21 @@ export const SCREEN_SIZES = [
 export type ScreenName = (typeof SCREEN_SIZES)[number]["name"];
 /** What a run checks unless told otherwise (npm run layout:check -- --screens): Julius's phone and a laptop, so a build's runs stay quick. GitHub's check runs all seven. */
 export const LOCAL_SCREEN_NAMES: readonly ScreenName[] = ["Phone", "Laptop"];
+/**
+ * The screens the gallery's and the nightly runs measure (--screens all): each band's narrowest, where words wrap most, plus the one short
+ * screen and the widest, the only one where a page's frame caps its width. Big phone is a wider Phone, and every pull request measures
+ * Laptop; --screens every measures all seven.
+ */
+export const MEASURED_SCREEN_NAMES: readonly ScreenName[] = ["Phone", "Landscape phone", "Tablet", "Steam Deck", "Desktop"];
 /** The screens a run at 200% text checks (--text 200): a laptop and an iPad. A phone at 320 is already checked to reflow. */
 export const TEXT_SCREEN_NAMES: readonly ScreenName[] = ["Tablet", "Laptop"];
 export const SCREEN_THEMES = ["light", "dark"] as const;
+/**
+ * The pictures the layout check doesn't load while it measures (Chrome's Network.setBlockedURLs patterns, * for anything): loading them is
+ * most of a page's time, and a picture's box is sized before it loads (test/site/design.test.ts), so they change no layout. Fonts load:
+ * they change how words wrap. A run that takes pictures (--pictures) loads them all.
+ */
+export const BLOCKED_PICTURE_PATTERNS: readonly string[] = ["*.webp", "*.png", "*.jpg", "*.jpeg", "*.gif", "*.avif", "*/img/*"];
 
 /**
  * A form the check fills in and sends before it measures, to reach a state only a form shows (a wrong password, a code that didn't work).
