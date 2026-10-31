@@ -1635,7 +1635,7 @@ function overEverythingNotice(options: OverEverythingNoticeOptions): Raw {
   const close = tertiaryButton("Close", { type: "button", icon: "close", isLabelHidden: true, isSmall: true, dataAttributes: { "layer-close": "" } });
   const buttons = options.buttons?.length ? row({ widths: "equal", items: options.buttons.map((button) => ({ kind: "control" as const, markup: button })) }) : "";
   const sheetsToClose = options.sheetsToClose?.length ? html` data-sheets-to-close="${options.sheetsToClose.join(" ")}"` : "";
-  return html`<aside class="playing-card glass urgent-card${options.isInPlace ? " in-place" : ""}" id="${options.id}" role="alert" data-notice-urgency="urgent"${sheetsToClose}${options.isInPlace ? "" : raw(' popover="manual"')} data-glass data-glass-corners="pane">${EDGE}<div class="playing-card-in"><div class="urgent-card-head"><h2 class="playing-card-title">${options.title}</h2>${close}</div><p class="urgent-card-text">${options.text}</p>${buttons}</div></aside>`;
+  return html`<aside class="playing-card glass urgent-card${options.isInPlace ? " in-place" : ""}" id="${options.id}" role="alert" data-notice-urgency="urgent"${sheetsToClose}${options.isInPlace ? "" : raw(' popover="manual"')} data-glass data-glass-corners="pane">${EDGE}<div class="playing-card-in">${paneParts({ head: { words: html`<h2 class="playing-card-title">${options.title}</h2>`, end: close }, body: html`<p class="urgent-card-text words-margin">${options.text}</p>`, foot: buttons ? { start: { kind: "block", markup: buttons } } : undefined })}</div></aside>`;
 }
 
 /** A notice's options: where it shows (under the header, over a running game, or over everything) and what it says. */
@@ -1713,8 +1713,6 @@ component({
 .playing-card.urgent-card:not(.in-place):not(:popover-open) { opacity: 0; transform: translateY(-8px); }
 .urgent-card > .edge :is(.rim, .hair) { stroke: var(--marked); }
 .playing-card.urgent-card.in-place { position: relative; inset: auto; }
-.urgent-card-head { display: flex; align-items: flex-start; gap: var(--gap-control-row-boxes); }
-.urgent-card-head > .playing-card-title { flex: 1; min-width: 0; }
 .urgent-card-text { color: var(--ink); }
 @media (max-width: 640px) { .playing-card.urgent-card:not(.in-place) { left: var(--pad-frame); right: var(--pad-frame); width: auto; margin: 0 auto; max-width: 360px; } }
 @media (prefers-reduced-motion: reduce) {
@@ -1766,11 +1764,12 @@ ${touchReach(".notice")}
     { label: "Saved", markup: notice({ placement: "over-game", id: "example-saved", isShown: true, isInPlace: true, body: stackOfOne(html`<p>Saved to your account.</p>`, "words") }) },
     { label: "Signed out while buying: urgent, over anything, the sheets it makes useless closed under it", markup: notice({ placement: "over-everything", id: "example-urgent", title: "You've been signed out", text: "Nothing was charged. Sign in again to buy.", buttons: [primaryButton("Sign in", { href: "#signin" })], isInPlace: true }) },
     {
-      label: "Try it: urgent over a sheet, which closes under it",
+      label: "Try it: Buy finds you signed out (in another tab), so the urgent notice comes over the sheet and closes it",
       markup: html`${secondaryButton("Buy Revive", { type: "button", controls: "example-urgent-sheet" })}${sheet({
         id: "example-urgent-sheet",
         title: "Revive",
-        body: stack({ items: [{ kind: "words", markup: html`<p>Bring your character back with half its health.</p>` }, { kind: "control", markup: secondaryButton("Sign out in another tab", { type: "button", isFullWidth: true, dataAttributes: { "layer-show": "example-urgent-over" } }) }] }),
+        body: stackOfOne(html`<p>Bring your character back with half its health.</p>`, "words"),
+        buttons: [primaryButton("Buy", { type: "button", trailingText: "$1.99", dataAttributes: { "layer-show": "example-urgent-over" } })],
         closeLabel: "Close",
         placement: "foot",
       })}${notice({ placement: "over-everything", id: "example-urgent-over", title: "You've been signed out", text: "Nothing was charged. Sign in again to buy.", buttons: [primaryButton("Sign in", { href: "#signin" })], sheetsToClose: ["example-urgent-sheet"] })}`,
