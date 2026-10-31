@@ -377,17 +377,13 @@ span.hairline { flex: 1; border-top: var(--divider); }
    cut; a piece made of several (a PIN's marks) marks the parts whose edges light (data-waits-here). It lights at once: a short pause unlit looked like nothing happened.
    Under reduced motion the light rests, all round. A screen reader hears what it's doing
    (.when-waiting, a busy label), and its words on screen stay as they were. */
-/* Round a control, the light is the bevel's own light from a lamp circling it at one steady pace, a lap in --waiting-lap (drawWaitingLight,
-   glass-script.ts, draws each side's parts with the angle each faces, --side-angle). Each part is lit by how squarely it faces the lamp:
-   full facing it, dimming as it turns away, dark once the lamp is well behind it. */
-@property --waiting-angle { syntax: "<angle>"; inherits: true; initial-value: -90deg; }
-.waiting-light { animation: waiting-turns var(--waiting-lap) linear infinite; }
-.waiting-light > polygon { fill: var(--waiting-on-glass); opacity: calc(min(1, var(--layer) * var(--waiting-spill)) * pow(max(0, (cos(var(--waiting-angle) - var(--side-angle)) + 0.45) / 1.45), 2)); }
-@keyframes waiting-turns { from { --waiting-angle: -90deg; } to { --waiting-angle: 270deg; } }
-/* Its color is the theme's (--waiting-on-glass): a deep orange on light glass, which pales the light, and a pale one on dark; it spills
-   further on light glass (--waiting-spill). On a lit piece, already orange, it's the theme's light on orange (--waiting-on-lit): yellow on
-   light glass, warm white on dark. */
-.lit .waiting-light > polygon { fill: var(--waiting-on-lit); }
+/* Round a control, the light is the bevel's own light from a lamp circling it at one steady pace (drawWaitingLight, glass-script.ts, which
+   shades each side's gradient by the lamp). Its color is the theme's (--waiting-on-glass): a deep orange on light glass, which pales the
+   light, and a pale one on dark; it spills further on light glass (--waiting-spill). On a lit piece, already orange, it's the theme's light
+   on orange (--waiting-on-lit): yellow on light glass, warm white on dark. */
+.waiting-light stop { stop-color: var(--waiting-on-glass); }
+.lit .waiting-light stop { stop-color: var(--waiting-on-lit); }
+.waiting-light > polygon { opacity: min(1, calc(var(--layer) * var(--waiting-spill))); }
 /* Glass waiting on a new page (the header, is-waiting from HEADER_SCRIPT): its bottom edge is a groove that fills with the same orange light,
    a line of light as the Light component draws one (4px), starting an eighth full so it shows at once, filling quickly at first and slower
    as it goes, never quite full, until the page comes. */
@@ -402,7 +398,6 @@ span.hairline { flex: 1; border-top: var(--divider); }
 .when-waiting:not([aria-busy="true"] .when-waiting) { display: none; }
 @media (prefers-reduced-motion: reduce) {
   .glass-bar.is-waiting::after { --waiting-filled: 100%; animation: waiting-arrives 1ms forwards; }
-  .waiting-light { animation: none; }
 }
 /* Pictures (foundations.ts, picture): a picture's box holds its placeholder, the tiny copy in the page itself (--placeholder), blurred and
    run past the box's edges so no edge fades, and the picture over it, hidden until it has wholly arrived and decoded, then fading in
