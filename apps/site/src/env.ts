@@ -134,6 +134,17 @@ export interface Env {
   /** Cloudflare's GraphQL Analytics API for the error-spike alert (health-alerts.ts): the account and a token with Account Analytics read. Without them that one alert is off. */
   CLOUDFLARE_ACCOUNT_ID?: string;
   ANALYTICS_API_TOKEN?: string;
+  /**
+   * The account watch's read-only tokens (account-watch.ts): without one, that account isn't watched and nothing is
+   * logged as failing. GitHub: a fine-grained token on the zaisma organization, all repositories, with the
+   * organization's Members and Administration read and the repositories' Administration read. Supabase: a scoped token
+   * with Organization Members read only, and the organization's slug. Cloudflare: a user token with Account Settings,
+   * Account API Tokens and User API Tokens read, on CLOUDFLARE_ACCOUNT_ID.
+   */
+  GITHUB_WATCH_TOKEN?: string;
+  SUPABASE_WATCH_TOKEN?: string;
+  SUPABASE_ORGANIZATION_SLUG?: string;
+  CLOUDFLARE_WATCH_TOKEN?: string;
   /** Only to point the error-spike query and the outside checker's run list at stand-ins (tests). */
   CLOUDFLARE_GRAPHQL_URL?: string;
   WATCH_RUNS_URL?: string;
