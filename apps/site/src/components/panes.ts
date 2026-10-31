@@ -1493,6 +1493,9 @@ component({
 .sheet.store-panel .pane-body:not(:has(> .sheet-scroll > .sheet-body > .layout-stack > .stack-cell:not([hidden]))) { display: none; }
 .sheet:not(.placement-corner) :is(.store-cover.is-small, .store-subline.is-blurb),
 .sheet.placement-corner :is(.store-subline.is-price, .store-refunds) { display: none; }
+/* Over a game, what went wrong is two short lines under the item, read at a glance: no mark, no room around it. */
+.sheet.placement-corner .state-note.problem { justify-items: stretch; padding: 0; text-align: start; }
+.sheet.placement-corner .state-note.problem > .ico { display: none; }
 /* On a short screen the large cover is shorter, its art still covering it, so the item's words and Buy have room. */
 @media (max-height: 52em) { .sheet:not(.in-place) .store-cover.is-large { max-height: min(9rem, 30dvh); } }
 `,
@@ -1522,9 +1525,9 @@ component({
       markup: storePanel({ id: "example-store-panel-busy", closeLabel: "Close", isOverGame: true, isShown: true, item: STORE_ITEM, footItems: [storeExampleCard, storeExampleBuy("example-store-panel-busy-buy", "$1.99", "Buy", true)] }),
     },
     {
-      label: "Over a game, it didn't go through: what went wrong, nothing charged, and Try again",
+      label: "Over a game, it didn't go through: two short lines on what went wrong, and Try again",
       isStill: true,
-      markup: storePanel({ id: "example-store-panel-declined", closeLabel: "Close", isOverGame: true, isShown: true, item: STORE_ITEM, momentItems: [{ kind: "block", markup: problemState({ title: "Your card was declined", text: "Nothing was charged." }) }], footItems: [storeExampleCard, storeExampleBuy("example-store-panel-declined-buy", "$1.99", "Try again")] }),
+      markup: storePanel({ id: "example-store-panel-declined", closeLabel: "Close", isOverGame: true, isShown: true, item: STORE_ITEM, momentItems: [{ kind: "block", markup: problemState({ title: "The payment didn't go through", text: "Your card was declined. Nothing was charged." }) }], footItems: [storeExampleCard, storeExampleBuy("example-store-panel-declined-buy", "$1.99", "Try again")] }),
     },
     {
       label: "Over a game, bought: it's theirs, and it closes by itself a moment later",
