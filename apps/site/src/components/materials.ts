@@ -384,6 +384,9 @@ span.hairline { flex: 1; border-top: var(--divider); }
   stroke-dasharray: 26 74; stroke-linecap: round; animation: waiting-arrives 1ms forwards, waiting-runs var(--waiting-lap) linear infinite; }
 .waiting-line.core { stroke: var(--waiting-light); stroke-width: var(--waiting-light-width); }
 .waiting-line.glow { stroke: var(--waiting-glow); stroke-width: 6px; filter: url(#zaisma-waiting-blur); }
+/* On a lit piece, already orange, the light is the lit piece's own brightest: a warm white spark with its glint (the Light's glint), so it
+   still shows. */
+.lit { --waiting-light: var(--run-spark); --waiting-glow: var(--glint-warm); }
 @keyframes waiting-arrives { to { opacity: 1; } }
 @keyframes waiting-runs { from { stroke-dashoffset: 0; } to { stroke-dashoffset: -100; } }
 /* Glass waiting on a new page (the header, is-waiting from HEADER_SCRIPT): its bottom edge is a groove that fills with the same orange light,
