@@ -25,11 +25,11 @@ component({
    a new one comes in as the last leaves, narrow and at one steady pace, one pass in --waiting-glint-time. Under reduced motion one glint
    rests across the middle. */
 .waiting-glint { --waiting-glint: color-mix(in srgb, var(--glint) 70%, transparent); position: absolute; inset: 0; z-index: 6; overflow: hidden; pointer-events: none; clip-path: var(--cut-shape, none); container-type: size; }
-/* It slides in and out with the glints themselves: as the wait starts, an edge crosses the face from the left at the glints' own pace and
-   lets them in behind it, so the first glint leads the others in; as it ends, an edge follows the last glints across, so none come in
-   behind and those on the face slide out to the right (is-leaving; the glass script takes it out once they have). */
-.waiting-glint { --waiting-glint-crossing: calc(var(--waiting-glint-time) * 100 / 84); -webkit-mask: linear-gradient(90deg, #000 0 47%, transparent 50% 100%) 0 0 / 200% 100% no-repeat; mask: linear-gradient(90deg, #000 0 47%, transparent 50% 100%) 0 0 / 200% 100% no-repeat; animation: waiting-glint-arrives var(--waiting-glint-crossing) linear; }
-.waiting-glint.is-leaving { -webkit-mask-image: linear-gradient(90deg, transparent 0 50%, #000 53% 100%); mask-image: linear-gradient(90deg, transparent 0 50%, #000 53% 100%); animation: waiting-glint-leaves var(--waiting-glint-crossing) linear forwards; }
+/* It sweeps in and out, quicker than the glints run: as the wait starts, the glints rush in from the left behind an edge crossing the face
+   and slow into their steady pace; as it ends, they speed up and rush out to the right, with none coming in behind (is-leaving; the glass
+   script takes it out once they have), each in --waiting-glint-sweep. */
+.waiting-glint { -webkit-mask: linear-gradient(90deg, #000 0 47%, transparent 50% 100%) 0 0 / 200% 100% no-repeat; mask: linear-gradient(90deg, #000 0 47%, transparent 50% 100%) 0 0 / 200% 100% no-repeat; animation: waiting-glint-arrives var(--waiting-glint-sweep) cubic-bezier(0.2, 0.7, 0.3, 1); }
+.waiting-glint.is-leaving { -webkit-mask-image: linear-gradient(90deg, transparent 0 50%, #000 53% 100%); mask-image: linear-gradient(90deg, transparent 0 50%, #000 53% 100%); animation: waiting-glint-leaves var(--waiting-glint-sweep) cubic-bezier(0.7, 0, 0.8, 0.3) forwards; }
 @keyframes waiting-glint-arrives { from { -webkit-mask-position: 100% 0; mask-position: 100% 0; } to { -webkit-mask-position: 0 0; mask-position: 0 0; } }
 @keyframes waiting-glint-leaves { from { -webkit-mask-position: 100% 0; mask-position: 100% 0; } to { -webkit-mask-position: 0 0; mask-position: 0 0; } }
 .lit > .waiting-glint, .lit .waiting-glint { --waiting-glint: color-mix(in srgb, var(--glint-warm) 55%, transparent); }
@@ -37,8 +37,11 @@ component({
    it starts with a glint just behind the edge that lets it in. */
 .waiting-glint::before { content: ""; position: absolute; top: -20%; bottom: -20%; left: calc(-138cqw - 40cqh); width: calc(340cqw + 80cqh);
   background: repeating-linear-gradient(90deg, transparent 0, transparent 30cqw, var(--waiting-glint) 42cqw, transparent 54cqw, transparent 84cqw);
-  transform: skewX(-18deg); animation: waiting-glints var(--waiting-glint-time) linear infinite; }
+  transform: skewX(-18deg); animation: waiting-glints var(--waiting-glint-time) linear infinite, waiting-glints-rush-in var(--waiting-glint-sweep) cubic-bezier(0.2, 0.7, 0.3, 1); }
+.waiting-glint.is-leaving::before { animation: waiting-glints var(--waiting-glint-time) linear infinite, waiting-glints-rush-out var(--waiting-glint-sweep) cubic-bezier(0.7, 0, 0.8, 0.3) forwards; }
 @keyframes waiting-glints { from { translate: 0 0; } to { translate: 84cqw 0; } }
+@keyframes waiting-glints-rush-in { from { transform: skewX(-18deg) translateX(-100cqw); } to { transform: skewX(-18deg); } }
+@keyframes waiting-glints-rush-out { to { transform: skewX(-18deg) translateX(100cqw); } }
 /* Glass waiting on a new page (the header, is-waiting from HEADER_SCRIPT): its bottom edge is a groove that fills with orange light, a line
    of light as the Light draws one (4px), starting an eighth full so it shows at once, quickly at first and slower as it goes, never quite
    full, until the page comes. */
