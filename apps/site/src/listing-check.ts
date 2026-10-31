@@ -1,3 +1,4 @@
+import { keepImagePlaceholder } from "./placeholders.ts";
 import {
   addReviewUsage,
   aiUsage,
@@ -101,8 +102,10 @@ export async function runListingCheck(env: Env, gameId: string, judge: ListingJu
       await setListingReason(env, image.id, outcome.reason);
     } else {
       const listingReason = outcome.outcome === "off_lists" ? outcome.reason : null;
-      if (image.review_status === "pending") replaced.push(...(await settleImage(env.DB, image, null, "check", listingReason)));
-      else await setListingReason(env, image.id, listingReason);
+      if (image.review_status === "pending") {
+        replaced.push(...(await settleImage(env.DB, image, null, "check", listingReason)));
+        await keepImagePlaceholder(env, image);
+      } else await setListingReason(env, image.id, listingReason);
     }
   }
   if (replaced.length) await env.GAMES.delete(replaced.flatMap((old) => [imageKey(old), ...imageCopyKeys(old)]));
@@ -201,6 +204,7 @@ export async function clearFakeRewardItems(env: Env, game: Game): Promise<void> 
   const images = await imagesForGame(env.DB, game.id);
   for (const image of images.filter((candidate) => candidate.review_status !== "rejected" && isFakeReward(candidate.listing_reason))) {
     const replaced = await settleImage(env.DB, image, null, "person");
+    await keepImagePlaceholder(env, image);
     if (replaced.length) await env.GAMES.delete(replaced.flatMap((old) => [imageKey(old), ...imageCopyKeys(old)]));
   }
   if (isFakeReward(game.title_listing_reason)) await env.DB.prepare("UPDATE games SET title_listing_reason = NULL, cleared_title = title WHERE id = ?").bind(game.id).run();

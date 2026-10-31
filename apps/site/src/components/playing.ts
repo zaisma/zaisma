@@ -2,7 +2,8 @@ import { html, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
 import type { ControlMarkup } from "./control-markup.ts";
 import { secondaryButton } from "./actions.ts";
-import { CUT_LINE, EDGE, logo } from "./foundations.ts";
+import { CUT_LINE, EDGE, logo, picture, type ShownPicture } from "./foundations.ts";
+import { STAND_IN_COVER_PICTURES } from "../generated/stand-in-placeholders.generated.ts";
 import { row, stackOfOne } from "./layout.ts";
 import { sheet } from "./panes.ts";
 
@@ -30,7 +31,7 @@ export function playingBar(options: PlayingBarOptions): Raw {
 }
 
 export interface ScreenshotOptions {
-  imageUrl: string;
+  picture: ShownPicture;
   /** What a screen reader says for it: "Screenshot 2 of 5". */
   label: string;
   /** The sheet that shows it large (a Sheet holding screenshotLarge), which it opens. */
@@ -43,7 +44,7 @@ export interface ScreenshotOptions {
  * other corner, and every one between is square, wherever the row is scrolled to.
  */
 export const screenshot = (options: ScreenshotOptions): Raw =>
-  html`<button class="screenshot carving holds-art" type="button" data-cut-line="0" aria-controls="${options.sheetId}" aria-label="${options.label}">${CUT_LINE}<span class="carving-art" data-cut-line="0"><img src="${options.imageUrl}" alt="" loading="lazy" decoding="async"></span></button>`;
+  html`<button class="screenshot carving holds-art" type="button" data-cut-line="0" aria-controls="${options.sheetId}" aria-label="${options.label}">${CUT_LINE}<span class="carving-art" data-cut-line="0">${picture(options.picture, { shownSizes: "(max-width: 760px) 100vw, 480px", largestPx: 1440 })}</span></button>`;
 
 
 /**
@@ -118,7 +119,7 @@ export const PLAYING_CARD_SCRIPT = `/* playing cards */(function () {
 `;
 
 /** A screenshot large, as a sheet's body: as big as the screen allows, whole. */
-export const screenshotLarge = (imageUrl: string, label: string): Raw => html`<img class="screenshot-large" src="${imageUrl}" alt="${label}" loading="lazy" decoding="async">`;
+export const screenshotLarge = (shown: ShownPicture, label: string): Raw => picture(shown, { label, holdsShape: true, className: "screenshot-large", shownSizes: "(max-width: 760px) 100vw, 960px", largestPx: 1920 });
 
 /** Where Cloudflare's check sits on a game's page: unseen, unless it ever needs a tap, when it shows at the screen's foot, over the game too. */
 export const playingCheck = (id: string): Raw => html`<div class="playing-check" id="${id}"></div>`;
@@ -179,7 +180,8 @@ ${onPhoneSideways(".playing-bar.on-phone-sideways")}
 .screenshot:focus-visible { outline: none; }
 .screenshot:focus-visible > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 /* As wide as a picture's sheet goes, less its frame: up to --size-sheet-picture, and the screen less its margins. */
-.screenshot-large { display: block; width: min(calc(var(--size-sheet-picture) - 2 * var(--pad-frame)), calc(100vw - 2 * var(--pad-pane) - 2 * var(--pad-frame))); max-height: 70dvh; object-fit: contain; }
+/* Large, at its own shape, as wide as the sheet lets it be without growing taller than 70% of the window. */
+.screenshot-large { width: min(calc(var(--size-sheet-picture) - 2 * var(--pad-frame)), calc(100vw - 2 * var(--pad-pane) - 2 * var(--pad-frame)), calc(70dvh * var(--picture-shape))); }
 @media (prefers-reduced-motion: reduce) { .screenshot img { transition: none; } }
 
 /* Cloudflare's check: unseen; if it ever needs a tap, at the foot of the screen, over the page or the game. */
@@ -202,7 +204,7 @@ component({
   styles: "",
   render: screenshot,
   examples: [
-    { label: "In a row: press it to open it large", markup: html`<div style="width:280px">${screenshot({ imageUrl: "/design/covers/neon-drift.webp", label: "Screenshot 1 of 3", sheetId: "example-screenshot" })}</div>${sheet({ id: "example-screenshot", title: "Neon Drift, screenshot 1 of 3", body: stackOfOne(screenshotLarge("/design/covers/neon-drift.webp", "Neon Drift, screenshot 1")), closeLabel: "Close", isPicture: true })}` },
+    { label: "In a row: press it to open it large", markup: html`<div style="width:280px">${screenshot({ picture: STAND_IN_COVER_PICTURES["neon-drift"]!, label: "Screenshot 1 of 3", sheetId: "example-screenshot" })}</div>${sheet({ id: "example-screenshot", title: "Neon Drift, screenshot 1 of 3", body: stackOfOne(screenshotLarge(STAND_IN_COVER_PICTURES["neon-drift"]!, "Neon Drift, screenshot 1")), closeLabel: "Close", isPicture: true })}` },
   ],
 });
 

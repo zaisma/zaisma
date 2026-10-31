@@ -1,3 +1,4 @@
+import { STAND_IN_COVER_PICTURES } from "../../apps/site/src/generated/stand-in-placeholders.generated.ts";
 import { describe, expect, it } from "vitest";
 import { secondaryButton } from "../../apps/site/src/components/actions.ts";
 import { glassPane } from "../../apps/site/src/components/foundations.ts";
@@ -126,7 +127,7 @@ describe.skipIf(!sites)("the layout check", () => {
 
   it.skipIf(!isFirstShare)("catches a bare group closer to the pane's edge than the words margin, naming the card, and passes a grid of game cards as it is", async () => {
     // A grid of game cards as the components make it (inset as one unit), and once with its inset taken away, as a page's own style might.
-    const cards = () => grid({ whenEmpty: html`<p>No games here yet.</p>`, itemSize: "cover", items: ["kestrel", "verdant"].map((slug) => ({ kind: "block" as const, markup: gameCard({ title: slug === "kestrel" ? "Kestrel" : "Verdant", imageUrl: `/design/covers/${slug}.webp`, href: `#${slug}`, facts: { playerCount: 12 } }) })) }).html;
+    const cards = () => grid({ whenEmpty: html`<p>No games here yet.</p>`, itemSize: "cover", items: ["kestrel", "verdant"].map((slug) => ({ kind: "block" as const, markup: gameCard({ title: slug === "kestrel" ? "Kestrel" : "Verdant", picture: STAND_IN_COVER_PICTURES[slug]!, href: `#${slug}`, facts: { playerCount: 12 } }) })) }).html;
     const pane = (grids: string) => glassPane({ paneWidth: "full", body: stack({ items: [{ kind: "words", markup: html`<h2>More</h2>` }, { kind: "block", markup: raw(grids) }] }) }).html;
     const markup = pane(cards()) + pane(cards()).replace('class="layout-grid', 'style="padding-inline:0" class="layout-grid');
     const page = { name: "Broken on purpose", path: "/design/example", mainActionShows: "nowhere", markup };

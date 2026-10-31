@@ -1,3 +1,4 @@
+import { PICTURE_COLUMNS_SQL, shownPictureOf, type PictureRow } from "./placeholders.ts";
 import {
   ApiError,
   ITEM_LIMITS,
@@ -621,7 +622,7 @@ export async function buyWindowPage(env: Env, request: Request, slug: string, it
   if (openerOrigin) query.set("opener_origin", openerOrigin);
   const here = `/buy/${game.slug}/${encodeURIComponent(itemName)}?${query}`;
   // The game's own cover across the sheet's top, as on its page.
-  const cover = await env.DB.prepare("SELECT id FROM game_images WHERE game_id = ? AND kind = 'cover' AND review_status = 'approved' ORDER BY created_at_ms DESC LIMIT 1").bind(game.id).first<{ id: string }>();
+  const cover = await env.DB.prepare(`SELECT ${PICTURE_COLUMNS_SQL} FROM game_images WHERE game_id = ? AND kind = 'cover' AND review_status = 'approved' ORDER BY created_at_ms DESC LIMIT 1`).bind(game.id).first<PictureRow>();
   return layout(env, {
     title: `Buy from ${game.title} · Zaisma`,
     checkedPage: "Buy window",
@@ -629,7 +630,7 @@ export async function buyWindowPage(env: Env, request: Request, slug: string, it
     isBare: true,
     isPrivate: true,
     hasStripeFrame: true,
-    body: html`${buySheet({ joinHref: `/join?next=${encodeURIComponent(here)}`, signInHref: `/signin?next=${encodeURIComponent(here)}`, coverUrl: cover ? `/img/${cover.id}` : null })}
+    body: html`${buySheet({ joinHref: `/join?next=${encodeURIComponent(here)}`, signInHref: `/signin?next=${encodeURIComponent(here)}`, cover: cover ? shownPictureOf(cover) : null })}
 ${buySheetData({
       slug: game.slug,
       tester_token: null,

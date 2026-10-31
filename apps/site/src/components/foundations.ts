@@ -1,9 +1,11 @@
+import { PICTURE_PLACEHOLDER, SIZED_IMAGE_WIDTHS_PX } from "@zaisma/core";
 import { LOADER_FRAMES } from "../generated/loader-frames.generated.ts";
 import { html, raw, shownColor, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
 import { ICONS, MARK, WORDMARK, icon, largeIcon, type IconName } from "./icons.ts";
 import { CLOUDS_SHADER, DUSK_SHADER, STAND_IN_BACKGROUNDS } from "./shaders.ts";
 import { pageScript, type PageScript } from "../page-scripts.ts";
+import { STAND_IN_COVER_PICTURES } from "../generated/stand-in-placeholders.generated.ts";
 
 /*
  * The foundations of Zaisma's look: the tokens every component takes its colors from (tokens.ts), the glass and its
@@ -519,6 +521,10 @@ export function backdrop(options: BackdropOptions = {}): Raw {
   return html`<canvas class="backdrop${options.isFramed ? " is-framed" : ""}" data-backdrop="${options.isScene ? "scene" : "shader"}"${options.fragmentShader ? html` data-backdrop-shader="${options.fragmentShader}"` : ""}${options.standInSlug ? html` data-backdrop-stand-in="${options.standInSlug}"` : ""}${options.isGlassAdaptive ? raw(" data-adapts-glass") : ""} aria-hidden="true"></canvas>`;
 }
 
+/** A game's world as its placeholder, under its picture or shader frame until they arrive; nothing without one. */
+export const backdropPlaceholder = (placeholderDataUrl: string | null): Raw =>
+  placeholderDataUrl ? html`<div class="backdrop backdrop-placeholder" aria-hidden="true"${placeholderStyle(placeholderDataUrl)}></div>` : raw("");
+
 /**
  * The stand-in games' backgrounds for a page that shows them (backdrop's standInSlug): each one's shader written onto its canvas, which
  * the backdrop then draws. It may run before or after the backdrop script, which leaves a stand-in canvas alone until it has its shader.
@@ -570,6 +576,10 @@ component({
 .backdrop.world { opacity: 0; object-fit: cover; border: 0; transition-property: opacity; transition-timing-function: ease; }
 .backdrop.world.is-shown { opacity: 1; }
 @media (prefers-reduced-motion: reduce) { .backdrop.world { transition: none !important; } }
+/* A game's world on its page starts as its placeholder (Picture), blurred more, as wide as it's shown: the layer under the picture or the
+   shader's frame, which show over it once they've arrived (the frame shows the same placeholder until its shader draws). */
+.backdrop.backdrop-placeholder { --placeholder-blur: ${PICTURE_PLACEHOLDER.backgroundBlurPx}px; overflow: hidden; background: none; }
+.backdrop-placeholder::before { content: ""; position: absolute; inset: calc(-2 * var(--placeholder-blur)); background: var(--placeholder) center / cover no-repeat; filter: blur(var(--placeholder-blur)); }
 :has(> .backdrop) { isolation: isolate; }
 .backdrop-frame { position: relative; width: 100%; height: 220px; display: flex; align-items: center; justify-content: center; overflow: hidden;
   clip-path: ${cutPolygon("pane")}; }
@@ -620,6 +630,114 @@ component({
     label: `${background.genre}: ${background.summary}`,
     markup: gameBackgroundFrame({ standInSlug: background.slug, title: background.title, note: background.genre }),
   })),
+});
+
+/**
+ * A picture a page shows: a game's cover, screenshot or background, never a bare address. Every picture comes with its size and its
+ * placeholder, the tiny copy Zaisma made of it (placeholders.ts), so the page holds its place and shows it blurred from the first paint,
+ * before a byte of the picture arrives ("A page shows whole while it loads", docs/DESIGN.md).
+ */
+export interface ShownPicture {
+  /** Where it's served: /img/<id> (then its kept sizes are offered too, SIZED_IMAGE_WIDTHS_PX), or any other address as it is. */
+  imageUrl: string;
+  widthPx: number;
+  heightPx: number;
+  /** The tiny copy as a data: URL (placeholder_data_url), or null where none was made: the picture's place then shows what's under it. */
+  placeholderDataUrl: string | null;
+}
+
+export interface PictureOptions {
+  /** What a screen reader says for it; left out, it's decoration (alt=""), as a card's cover is beside its title. */
+  label?: string;
+  /** The widths it's shown at, for the browser to pick a kept size (an img's sizes): "(max-width: 760px) 200px, 260px". */
+  shownSizes?: string;
+  /** The largest kept size to offer: a cover's 260px at three times its pixels by default. */
+  largestPx?: number;
+  /** Loads with the page, not once it nears the screen: for the pictures a page opens with in view. */
+  isEager?: boolean;
+  /** Fetched before the page's other pictures: for the one likely the largest thing in the first view. */
+  hasHighPriority?: boolean;
+  /** Holds its own box at the picture's shape (a screenshot shown large), instead of filling the well it's set in. */
+  holdsShape?: boolean;
+  /** More classes for its box: the piece it's part of ("screenshot-large"). */
+  className?: string;
+}
+
+/** The largest width a picture is offered at by default: a 260px cover at three times its pixels, rounded up to a kept size. */
+const PICTURE_LARGEST_PX = 960;
+
+/** A picture Zaisma serves (/img/<id>) at the sizes it keeps of it, for the browser to pick the one it shows; any other address as it is. */
+function keptSizes(imageUrl: string, shownSizes: string, largestPx: number): Raw {
+  if (!/^(https?:\/\/[^/]+)?\/img\/[A-Za-z0-9_-]+$/.test(imageUrl)) return raw("");
+  const widths = SIZED_IMAGE_WIDTHS_PX.filter((widthPx) => widthPx <= largestPx);
+  return html` srcset="${widths.map((widthPx) => `${imageUrl}/w${widthPx}.webp ${widthPx}w`).join(", ")}" sizes="${shownSizes}"`;
+}
+
+/** The style that carries a picture's placeholder (and its shape) to its box. Only a data: URL of an image is ever written into it. */
+export function placeholderStyle(placeholderDataUrl: string | null, shape?: { widthPx: number; heightPx: number }): Raw {
+  const parts = [
+    placeholderDataUrl && /^data:image\/(webp|png|jpeg);base64,[A-Za-z0-9+/=]+$/.test(placeholderDataUrl) ? `--placeholder: url(${placeholderDataUrl})` : "",
+    shape ? `--picture-shape: ${Math.round(shape.widthPx)} / ${Math.round(shape.heightPx)}` : "",
+  ].filter(Boolean);
+  return parts.length ? html` style="${parts.join("; ")}"` : raw("");
+}
+
+/**
+ * A picture: its placeholder, blurred, in its place from the first paint, and the picture itself fading in over it once it has wholly
+ * arrived and decoded (PICTURE_SCRIPT), never half-drawn. In a carving's well it fills the well; holdsShape keeps a box of its own at the
+ * picture's shape. Every component that shows a picture shows it with this.
+ */
+export function picture(shown: ShownPicture, options: PictureOptions = {}): Raw {
+  const className = ["picture", options.holdsShape ? "holds-shape" : "", options.className ?? ""].filter(Boolean).join(" ");
+  const sizes = keptSizes(shown.imageUrl, options.shownSizes ?? "(max-width: 760px) 200px, 260px", options.largestPx ?? PICTURE_LARGEST_PX);
+  return html`<span class="${className}"${placeholderStyle(shown.placeholderDataUrl, options.holdsShape ? shown : undefined)}><img class="reveals" src="${shown.imageUrl}"${sizes} width="${Math.round(shown.widthPx)}" height="${Math.round(shown.heightPx)}" alt="${options.label ?? ""}" loading="${options.isEager ? "eager" : "lazy"}"${options.hasHighPriority ? raw(' fetchpriority="high"') : ""} decoding="async"></span>`;
+}
+
+/**
+ * Pictures arriving: each img.reveals shows once it has wholly arrived and decoded, fading in over its placeholder; one already there when
+ * this runs (from the browser's cache) shows at once. One that fails stays its placeholder. Part of the first paint's script (html.ts), so
+ * a picture never waits on the rest of the page's scripts.
+ */
+export const PICTURE_SCRIPT = `/* pictures */(function () {
+  function show(img, isAtOnce) { if (isAtOnce) img.classList.add("at-once"); img.classList.add("is-shown"); }
+  window.zaismaWatch.each("img.reveals", function (img) {
+    if (img.complete && img.naturalWidth) { show(img, true); return; }
+    img.addEventListener("load", function () { (img.decode ? img.decode() : Promise.resolve()).then(function () { show(img, false); }, function () { show(img, false); }); });
+  });
+})();
+`;
+
+const pictureSample = (cover: ShownPicture, isArrived: boolean) =>
+  html`<div class="carving holds-art picture-sample" data-cut-line="0">${CUT_LINE}<span class="carving-art" data-cut-line="0">${isArrived ? picture(cover) : html`<span class="picture"${placeholderStyle(cover.placeholderDataUrl)}></span>`}</span></div>`;
+
+component({
+  name: "Picture",
+  slug: "picture",
+  group: "foundations",
+  subgroup: "pictures",
+  summary: "Every picture a page shows, a cover, a screenshot or a game's background: in its place from the first moment as a tiny blurred copy of itself, sharpening in as it arrives. Nothing on a page is ever an empty box waiting for a picture.",
+  styles: `
+/* A picture: its box holds the placeholder, blurred (--placeholder, a data: URL in the page itself), run past the box's edges so no edge
+   fades, and the picture over it, hidden until it has wholly arrived and decoded, then fading in (img.reveals, PICTURE_SCRIPT). In a
+   carving's well it fills the well; .holds-shape keeps the picture's own shape (--picture-shape). A picture with no placeholder shows
+   what's under it until it arrives: a card's well shows Zaisma's mark. */
+.picture { --placeholder-blur: 10px; position: relative; display: block; overflow: hidden; }
+.carving-art > .picture { position: absolute; inset: 0; }
+.picture.holds-shape { aspect-ratio: var(--picture-shape); }
+.picture::before { content: ""; position: absolute; inset: calc(-2 * var(--placeholder-blur)); background: var(--placeholder, none) center / cover no-repeat; filter: blur(var(--placeholder-blur)); }
+.picture > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+img.reveals:not(.is-shown) { opacity: 0; }
+img.reveals.is-shown:not(.at-once) { animation: picture-arrives var(--motion-settle) var(--ease-standard); }
+@keyframes picture-arrives { from { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { img.reveals.is-shown { animation: none; } }
+.picture-sample { display: block; position: relative; width: 260px; aspect-ratio: 16 / 9; }
+`,
+  render: picture,
+  examples: [
+    { label: "Before it arrives: its placeholder, blurred, in its place", isStill: true, markup: pictureSample(STAND_IN_COVER_PICTURES["neon-drift"]!, false) },
+    { label: "Arrived: the picture over it", markup: pictureSample(STAND_IN_COVER_PICTURES["neon-drift"]!, true) },
+    { label: "Another before it arrives", isStill: true, markup: pictureSample(STAND_IN_COVER_PICTURES["hollow-tide"]!, false) },
+  ],
 });
 
 component({

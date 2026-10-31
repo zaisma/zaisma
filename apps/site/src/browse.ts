@@ -171,7 +171,7 @@ const coverOf = (game: BrowseGame, coverIndex: number, ownedGameIds: ReadonlySet
   kind: "block",
   markup: gameCard({
     title: game.title,
-    imageUrl: game.cover,
+    picture: game.cover_picture,
     href: `/g/${game.slug}`,
     tintColor: game.glass_tint_color,
     facts: { deviceNote: game.device_note ?? undefined, playerCount: game.playing_now_player_count >= MINIMUM_PLAYING_NOW_PLAYER_COUNT ? game.playing_now_player_count : undefined, priceText: coverPriceText(game, ownedGameIds) },

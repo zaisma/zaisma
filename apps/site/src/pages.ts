@@ -1,3 +1,4 @@
+import { PICTURE_COLUMNS_SQL, shownPictureOf, type PictureRow } from "./placeholders.ts";
 import {
   ALLOWED_CONTENT,
   CREDIT_LIMITS,
@@ -125,7 +126,7 @@ export interface GamePageView {
   testerVersionId: string | null;
   viewer: Viewer;
   developer: { name: string; game_count: number } | null;
-  pictures: { id: string; kind: string }[];
+  pictures: (PictureRow & { kind: string })[];
   updates: { id: string; patch_notes: string; published_at_ms: number }[];
   /** The showcase's games, for More from the developer. */
   otherGames: ShowGame[];
@@ -202,7 +203,7 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
       ? env.DB.prepare("SELECT accounts.username AS name, (SELECT COUNT(*) FROM games WHERE owner_id = ? AND review_status = 'live' AND visibility = 'listed') AS game_count FROM owners JOIN accounts ON accounts.id = owners.account_id WHERE owners.id = ?").bind(game.owner_id, game.owner_id).first<{ name: string; game_count: number }>()
       : null,
     // The square cover is only for phones' game cards, not one of the game's pictures.
-    env.DB.prepare("SELECT id, kind FROM game_images WHERE game_id = ? AND review_status = 'approved' AND kind IN ('cover', 'screenshot') ORDER BY kind = 'cover' DESC, created_at_ms").bind(game.id).all<{ id: string; kind: string }>(),
+    env.DB.prepare(`SELECT ${PICTURE_COLUMNS_SQL}, kind FROM game_images WHERE game_id = ? AND review_status = 'approved' AND kind IN ('cover', 'screenshot') ORDER BY kind = 'cover' DESC, created_at_ms`).bind(game.id).all<PictureRow & { kind: string }>(),
     env.DB.prepare("SELECT id, patch_notes, published_at_ms FROM versions WHERE game_id = ? AND published_at_ms IS NOT NULL AND patch_notes != '' ORDER BY published_at_ms DESC LIMIT 10").bind(game.id).all<{ id: string; patch_notes: string; published_at_ms: number }>(),
     // The viewer's age picks More games.
     showcase(env, viewer.ageFloorYears, 60, countryCode),
@@ -306,10 +307,10 @@ export function gamePageResponse(env: Env, view: GamePageView): Response {
   const rooms = live && roomsOnPage(game) ? live : null;
   // Checked browsers with the game on screen, and everyone in its rooms (who may have come in another way): the larger.
   const playingNowPlayerCount = Math.max(view.checkedPlayerCount, live ? live.playing.playerCount : 0);
-  const shots = view.pictures.map((picture) => `/img/${picture.id}`);
+  const shots = view.pictures.map((picture) => shownPictureOf(picture));
   // The game's own cover, across the top of the buy sheet (items have no pictures of their own); null where the developer has none yet.
   const coverPicture = view.pictures.find((picture) => picture.kind === "cover");
-  const coverUrl = coverPicture ? `/img/${coverPicture.id}` : null;
+  const cover = coverPicture ? shownPictureOf(coverPicture) : null;
   const more = [...view.otherGames.filter((otherGame) => otherGame.slug !== game.slug && otherGame.owner_id && otherGame.owner_id === game.owner_id), ...view.otherGames.filter((otherGame) => otherGame.slug !== game.slug && (!otherGame.owner_id || otherGame.owner_id !== game.owner_id))].slice(0, 4);
   const { developer, purchaseLabel, background } = view;
   const refundWords = refundPolicyWords(purchaseSettingsOf(game));
@@ -401,7 +402,7 @@ export function gamePageResponse(env: Env, view: GamePageView): Response {
   const sections: LayoutItem[] = [
     ...(rooms ? [section("rooms", "Rooms", [{ kind: "block", markup: codeBox(game.slug) }, { kind: "block", id: "rooms-list", markup: roomsPanel(game, rooms) }])] : []),
     ...(shots.length
-      ? [section("screenshots", "Screenshots", [{ kind: "block", markup: track({ whenEmpty: emptyState({ title: "No screenshots yet", text: "The developer hasn't added any screenshots." }), id: "screenshots-track", itemSize: "cover", label: "Screenshots", items: shots.map((shot, shotIndex) => ({ kind: "block" as const, markup: screenshot({ imageUrl: shot, label: `Screenshot ${shotIndex + 1} of ${shots.length}`, sheetId: `screenshot-${shotIndex + 1}` }) })) }) }])]
+      ? [section("screenshots", "Screenshots", [{ kind: "block", markup: track({ whenEmpty: emptyState({ title: "No screenshots yet", text: "The developer hasn't added any screenshots." }), id: "screenshots-track", itemSize: "cover", label: "Screenshots", items: shots.map((shot, shotIndex) => ({ kind: "block" as const, markup: screenshot({ picture: shot, label: `Screenshot ${shotIndex + 1} of ${shots.length}`, sheetId: `screenshot-${shotIndex + 1}` }) })) }) }])]
       : []),
     ...(addOns.length
       ? [section("add-ons", "Add-ons", [{
@@ -430,7 +431,7 @@ export function gamePageResponse(env: Env, view: GamePageView): Response {
       ? [section("updates", "Updates", [{ kind: "block", markup: readingText({ markup: html`${view.updates.map((update) => html`<h3>${day(update.published_at_ms)}</h3>${paragraphs(update.patch_notes)}`)}` }) }])]
       : []),
     ...(developerGames.length && developer
-      ? [section("more", `More from ${developer.name}`, [{ kind: "block", markup: grid({ whenEmpty: emptyState({ title: "No other games yet", text: "This is the developer's only game so far." }), itemSize: "cover", items: developerGames.map((otherGame) => ({ kind: "block" as const, markup: gameCard({ title: otherGame.title, imageUrl: otherGame.cover ?? null, href: `/g/${otherGame.slug}`, tintColor: otherGame.glass_tint_color, facts: { playerCount: otherGame.playing_now_player_count >= MINIMUM_PLAYING_NOW_PLAYER_COUNT ? otherGame.playing_now_player_count : undefined, priceText: coverPriceText(otherGame, view.ownedPaidGameIds) } }) })) }) }])]
+      ? [section("more", `More from ${developer.name}`, [{ kind: "block", markup: grid({ whenEmpty: emptyState({ title: "No other games yet", text: "This is the developer's only game so far." }), itemSize: "cover", items: developerGames.map((otherGame) => ({ kind: "block" as const, markup: gameCard({ title: otherGame.title, picture: otherGame.cover_picture, href: `/g/${otherGame.slug}`, tintColor: otherGame.glass_tint_color, facts: { playerCount: otherGame.playing_now_player_count >= MINIMUM_PLAYING_NOW_PLAYER_COUNT ? otherGame.playing_now_player_count : undefined, priceText: coverPriceText(otherGame, view.ownedPaidGameIds) } }) })) }) }])]
       : []),
   ];
   const screenshotSheets = shots.map((shot, shotIndex) => sheet({ id: `screenshot-${shotIndex + 1}`, title: `${game.title}, screenshot ${shotIndex + 1} of ${shots.length}`, body: stackOfOne(screenshotLarge(shot, `${game.title}, screenshot ${shotIndex + 1}`)), closeLabel: "Close", isPicture: true }));
@@ -533,7 +534,7 @@ ${signInCard}
 ${isClosed || !authConfigured(env) ? "" : friendRequestParts({ gameOrigin, slug: game.slug })}
 ${multiplayer ? stillThereCard() : ""}
 ${leavingCard(game.title)}
-${isClosed ? "" : buySheet({ joinHref: joinHere, signInHref: signinHere, coverUrl })}
+${isClosed ? "" : buySheet({ joinHref: joinHere, signInHref: signinHere, cover })}
 ${shareDialog(game.title, !tester)}
 ${tester && !multiplayer ? "" : playingCheck("play-check")}
 ${pageData("game-page-data", {

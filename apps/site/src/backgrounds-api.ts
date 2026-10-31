@@ -81,6 +81,7 @@ export function shaderJson(env: Env, shader: GameShader, manifest: ShaderManifes
     has_quality_levels: manifest ? shaderReadsQuality(manifest) : false,
     flash_count: shader.flash_count,
     still_url: hasPictures ? `${shaderUrl}/still.png` : null,
+    placeholder_data_url: shader.placeholder_data_url,
     frame_urls: hasPictures ? Array.from({ length: SHADER_LIMITS.sampledFrameCount }, (_, frameIndex) => `${shaderUrl}/frame-${frameIndex}.png`) : [],
     image: { source_url: `${shaderUrl}/source.glsl`, channels: manifest?.image.channels ?? [] },
     buffers: buffers.map((pass) => ({ buffer_name: pass.bufferName!, source_url: `${shaderUrl}/buffer-${pass.bufferName}.glsl`, channels: pass.channels })),

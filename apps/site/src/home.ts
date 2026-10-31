@@ -4,7 +4,8 @@ import { currentSession } from "./auth.ts";
 import type { Env } from "./env.ts";
 import { backgroundsOfGames, type ShownBackground } from "./backgrounds.ts";
 import { tertiaryButton } from "./components/actions.ts";
-import { CUT_LINE, glassPane, icon, tag } from "./components/foundations.ts";
+import { CUT_LINE, glassPane, icon, tag, type ShownPicture } from "./components/foundations.ts";
+import { newestPictureJsonSql, pictureFromJson } from "./placeholders.ts";
 import { row, stack, type LayoutItem, stackOfOne } from "./components/layout.ts";
 import { shelf } from "./components/navigation.ts";
 import { banner, gameCard, type GameCardOptions } from "./components/panes.ts";
@@ -29,6 +30,8 @@ export interface ShowGame {
   developer: string | null;
   owner_id: string | null;
   cover: string | null;
+  /** The cover as a page shows it, with its size and placeholder (gameCard). */
+  cover_picture: ShownPicture | null;
   /** The square cover phones show instead, if the developer added one. */
   square: string | null;
   /** When the version players get now went live. */
@@ -74,7 +77,7 @@ export async function showcase(env: Env, viewerAgeFloorYears: number, maximumGam
          ${FULL_GAME_ITEM_SQL},
          accounts.username AS developer, versions.published_at_ms,
          (SELECT MIN(published_at_ms) FROM versions WHERE game_id = games.id) AS first_published_at_ms,
-         (SELECT id FROM game_images WHERE game_id = games.id AND kind = 'cover' AND review_status = 'approved' ORDER BY created_at_ms DESC LIMIT 1) AS cover,
+         ${newestPictureJsonSql("cover", "games.id")} AS cover,
          (SELECT id FROM game_images WHERE game_id = games.id AND kind = 'square' AND review_status = 'approved' ORDER BY created_at_ms DESC LIMIT 1) AS square
        FROM games
        LEFT JOIN owners ON owners.id = games.owner_id
@@ -96,7 +99,8 @@ export async function showcase(env: Env, viewerAgeFloorYears: number, maximumGam
     description: row.description,
     developer: row.developer,
     owner_id: row.owner_id,
-    cover: row.cover ? `/img/${row.cover}` : null,
+    cover: row.cover ? `/img/${(JSON.parse(row.cover) as { id: string }).id}` : null,
+    cover_picture: pictureFromJson(row.cover),
     square: row.square ? `/img/${row.square}` : null,
     published_at_ms: row.published_at_ms,
     first_published_at_ms: row.first_published_at_ms,
@@ -256,7 +260,7 @@ const shownPlayerCount = (game: ShowGame): number | undefined => (game.playing_n
 
 /** A game in one of the home's rows (the home's script builds the same in the browser for Continue playing). */
 const coverOf = (game: ShowGame, ownedGameIds: ReadonlySet<string>, loading: Pick<GameCardOptions, "isEager" | "hasHighPriority"> = {}): Raw =>
-  gameCard({ title: game.title, imageUrl: game.cover ?? null, href: `/g/${game.slug}`, tintColor: game.glass_tint_color, facts: { playerCount: shownPlayerCount(game), priceText: coverPriceText(game, ownedGameIds) }, ...loading });
+  gameCard({ title: game.title, picture: game.cover_picture, href: `/g/${game.slug}`, tintColor: game.glass_tint_color, facts: { playerCount: shownPlayerCount(game), priceText: coverPriceText(game, ownedGameIds) }, ...loading });
 
 /** The first shelf's covers the page opens with in view, about a phone's or a wide screen's first row: they load with the page. */
 const FIRST_VIEW_COVER_COUNT = 4;
@@ -295,7 +299,11 @@ export async function home(env: Env, request: Request): Promise<Response> {
   ]);
   for (const game of games) game.background = backgrounds.get(game.id) ?? null;
   const ownedGameIds = await paidGamesOwnedBy(env, account, games);
-  const browserGames = games.map((game) => Object.fromEntries(BROWSER_GAME_FIELDS.map((name) => [name, game[name]])));
+  // A world fades in on the home only once it has arrived, so its placeholder stays on the server: it would only add to every game's data.
+  const withoutPlaceholder = (shown: ShownBackground) => (shown.source === "zaisma" ? shown : { ...shown, placeholderDataUrl: null });
+  const browserGames = games.map((game) =>
+    Object.fromEntries(BROWSER_GAME_FIELDS.map((name) => [name, name === "background" && game.background ? { wide: withoutPlaceholder(game.background.wide), phone: withoutPlaceholder(game.background.phone) } : game[name]])),
+  );
   // Zaisma's news, until it ends or this device closes it (the script shows it unless it's been closed).
   const newsLink = news ? shownAddress(news.link_url) : null;
   const newsBanner: LayoutItem[] = news

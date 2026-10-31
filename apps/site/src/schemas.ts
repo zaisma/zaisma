@@ -306,6 +306,7 @@ export const IMAGE = object({
   height_px: countOf(),
   size_bytes: countOf(),
   image_url: url(),
+  placeholder_data_url: nullable(text("The picture shrunk to 24px wide, as a WebP data: URL: what Zaisma's pages show in its place, blurred, until it loads. Made when it's approved; null until then, for a shader's texture, and where it couldn't be made.")),
   created_at: isoTime(),
 });
 
@@ -336,6 +337,7 @@ export const SHADER = object({
   flash_count: nullable(countOf("The most times it flashed in any one second of the check, at any level; over 3 is refused. null until the check ran.")),
   still_url: nullable(url("Its still frame at 2 seconds (1920 by 1080, or 960 by 540 with buffers; turned round for phone), drawn at quality 2 for wide and 0 for phone: shown under reduced motion and wherever it can't run. null until the check saved it.")),
   frame_urls: list(url(), "Frames the check drew over its first 30 seconds, for the developer to look at; [] until the check saved them."),
+  placeholder_data_url: nullable(text("Its still shrunk to 24px wide, as a WebP data: URL: what Zaisma's pages show, blurred, until its first frame draws. Made when the check passes it; null until then.")),
   image: object({ source_url: url("The image pass's source as sent, for a live preview: only the developer, signed in, opens it until it's approved."), channels: list(SHADER_CHANNEL, "What the image pass's channels read; [] for none.") }, "The image pass, which draws the background each frame after the buffers."),
   buffers: list(object({ buffer_name: choice(["a", "b", "c", "d"]), source_url: url("The buffer's source as sent, opened like image's."), channels: list(SHADER_CHANNEL) }), "Its buffers, a to d, each drawn to a picture kept between frames; [] for none."),
   buffer_count: countOf("How many buffers it has, up to 4."),

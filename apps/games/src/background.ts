@@ -3,6 +3,7 @@ import {
   BUFFER_PASS,
   GLASS_LIGHT_PASS,
   MOST_GLASS_PANE_COUNT,
+  PICTURE_PLACEHOLDER,
   SHADER_BUFFER_FORMATS,
   SHADER_CHANNEL_FILTERS,
   SHADER_CHANNEL_INPUT_KINDS,
@@ -354,10 +355,14 @@ const RUNNER_SCRIPT = `(function () {
   }, showStill);
 })();`;
 
-function runnerPage(config: Record<string, unknown>, stillUrl: string | null): string {
+/**
+ * The runner's page. Under its canvas lies the shader's placeholder, blurred as Zaisma's page blurs it under the frame (PICTURE_PLACEHOLDER), so
+ * the frame shows the same picture as the page until the shader's first frame paints over it.
+ */
+function runnerPage(config: Record<string, unknown>, stillUrl: string | null, placeholderDataUrl: string | null = null): string {
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Background</title>
-<style>html, body { margin: 0; height: 100%; overflow: hidden; background: #000; } canvas, img { position: fixed; inset: 0; width: 100%; height: 100%; display: block; object-fit: cover; } [hidden] { display: none; }</style></head>
-<body><canvas hidden></canvas><img alt="" hidden${stillUrl ? ` data-src="${stillUrl}"` : ""}>
+<style>html, body { margin: 0; height: 100%; overflow: hidden; background: #000; } canvas, img { position: fixed; inset: 0; width: 100%; height: 100%; display: block; object-fit: cover; } [hidden] { display: none; } .placeholder { position: fixed; inset: -${PICTURE_PLACEHOLDER.backgroundBlurPx * 2}px; background: center / cover no-repeat; filter: blur(${PICTURE_PLACEHOLDER.backgroundBlurPx}px); }</style></head>
+<body>${placeholderDataUrl ? `<div class="placeholder" style="background-image: url(${placeholderDataUrl})"></div>` : ""}<canvas hidden></canvas><img alt="" hidden${stillUrl ? ` data-src="${stillUrl}"` : ""}>
 <script>var __ZAISMA_BACKGROUND__ = ${JSON.stringify(config).replace(/</g, "\\u003c")};\n${RUNNER_SCRIPT}</script></body></html>`;
 }
 
@@ -445,6 +450,7 @@ export async function serveBackground(request: Request, env: BackgroundEnv, game
     const page = runnerPage(
       { ...runnerConfig(env), isPreview: false, manifestUrl: `${base}_zaisma/background.json?screen=${screen}&shader=${shader.id}`, textureUrl: `${base}_zaisma/background-texture?image=` },
       `${base}_zaisma/background-still.png?screen=${screen}&shader=${shader.id}`,
+      shader.placeholder_data_url,
     );
     return new Response(request.method === "HEAD" ? null : page, { headers });
   }
