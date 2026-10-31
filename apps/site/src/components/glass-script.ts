@@ -168,9 +168,9 @@ export const GLASS_SCRIPT = `/* glass */(function () {
   }
   function pointList(points) { return points.map(function (p) { return p[0].toFixed(1) + "," + p[1].toFixed(1); }).join(" "); }
   /*
-   * The waiting light round a control (the materials' waiting state): an orange stretch of light with its glow, running round the control's
-   * outline, drawn into its cut line's svg as two closed outlines measured as 100 long, so one dash runs round both together. The glow is
-   * blurred by one filter the page shares. Hidden until the materials light it.
+   * The waiting light round a control (the materials' waiting state): an orange stretch of light with its glow and a wider flood spilling
+   * into the face, running round the control's outline, drawn into its cut line's svg as three closed outlines measured as 100 long, so one
+   * dash runs round all three together. The glow and the flood are blurred by filters the page shares. Hidden until the materials light it.
    */
   function drawWaitingLight(svg, outline) {
     var lines = svg.waitingLines;
@@ -178,10 +178,10 @@ export const GLASS_SCRIPT = `/* glass */(function () {
       if (!document.getElementById("zaisma-waiting-blur")) {
         var holder = document.createElementNS(SVG, "svg");
         holder.setAttribute("aria-hidden", "true"); holder.setAttribute("width", "0"); holder.setAttribute("height", "0"); holder.style.position = "absolute";
-        holder.innerHTML = '<filter id="zaisma-waiting-blur" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="2.5"/></filter>';
+        holder.innerHTML = '<filter id="zaisma-waiting-blur" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="2.5"/></filter><filter id="zaisma-waiting-flood" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="6"/></filter>';
         document.body.appendChild(holder);
       }
-      lines = svg.waitingLines = ["glow", "core"].map(function (part) {
+      lines = svg.waitingLines = ["flood", "glow", "core"].map(function (part) {
         var line = document.createElementNS(SVG, "polyline");
         line.setAttribute("class", "waiting-line " + part); line.setAttribute("pathLength", "100"); svg.appendChild(line);
         return line;

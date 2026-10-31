@@ -377,13 +377,16 @@ span.hairline { flex: 1; border-top: var(--divider); }
    cut; a piece made of several (a PIN's marks) marks the parts whose edges light (data-waits-here). It lights at once: a short pause unlit looked like nothing happened.
    Under reduced motion the light rests, all round. A screen reader hears what it's doing
    (.when-waiting, a busy label), and its words on screen stay as they were. */
-/* Round a control, the light is an orange stretch with its glow running round its outline, one lap in --waiting-lap whatever its size
+/* Round a control, the light is an orange stretch with its glow and its flood into the face running round its outline, one lap in --waiting-lap whatever its size
    (drawWaitingLight, glass-script.ts). */
 .waiting-line { fill: none; opacity: 0; }
 :is([aria-busy="true"], :has(> input[aria-busy="true"])) > .cut-line > .waiting-line, [aria-busy="true"] > [data-cut-line] > .cut-line > .waiting-line, [aria-busy="true"] [data-waits-here] > .cut-line > .waiting-line {
   stroke-dasharray: 26 74; stroke-linecap: round; animation: waiting-arrives 1ms forwards, waiting-runs var(--waiting-lap) linear infinite; }
 .waiting-line.core { stroke: var(--waiting-light); stroke-width: var(--waiting-light-width); }
 .waiting-line.glow { stroke: var(--waiting-glow); stroke-width: 6px; filter: url(#zaisma-waiting-blur); }
+.waiting-line.flood { stroke: var(--waiting-glow); stroke-width: 18px; filter: url(#zaisma-waiting-flood); }
+:is([aria-busy="true"], :has(> input[aria-busy="true"])) > .cut-line > .waiting-line.flood, [aria-busy="true"] > [data-cut-line] > .cut-line > .waiting-line.flood, [aria-busy="true"] [data-waits-here] > .cut-line > .waiting-line.flood { animation: waiting-floods 1ms forwards, waiting-runs var(--waiting-lap) linear infinite; }
+@keyframes waiting-floods { to { opacity: 0.55; } }
 /* On a lit piece, already orange, the light is the lit piece's own brightest: a warm white spark with its glint (the Light's glint), so it
    still shows. */
 .lit { --waiting-light: var(--run-spark); --waiting-glow: var(--glint-warm); }
