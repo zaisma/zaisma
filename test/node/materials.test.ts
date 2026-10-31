@@ -171,8 +171,6 @@ const NOT_MADE_OF_MATERIALS = new Map<string, string>([
   [".spacing-mark | *", "the hatched mark that shows a gap"],
   [".icon-set .play | height", "the play mark is drawn shorter than it's wide"],
   [".logo | padding", "the logo's room round its glass, as its file draws it"],
-  [".loader | *", "the loader is drawn: a mark in the words' color"],
-  [".loader > i | *", "the loader's dots, drawn in the words' color, turning once a second"],
   [".backdrop | *", "the backdrop: the window's height and its colored light"],
   [".backdrop-frame | *", "a frame showing the backdrop"],
   [".backdrop-frame > .glass | padding", "a pane in the backdrop's frame"],

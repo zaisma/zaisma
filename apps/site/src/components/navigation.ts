@@ -136,6 +136,12 @@ const HEADER_STYLES = `
 /* A bar of glass (materials.ts): its controls the frame gap from its edge on every side, its height theirs and that gap. Compact, once the
    page scrolls, it rises to the frame gap from the window's top; nothing in it is laid out again, and it stays smooth. */
 .top.is-compact { top: var(--pad-frame); }
+/* A new page on its way (HEADER_SCRIPT's is-waiting): the waiting light (materials.ts) runs along the header's lower edge, as a Loading
+   state's runs along its line, after --waiting-delay, so a page that comes at once shows nothing. Under reduced motion it rests, lit. */
+.top::after { content: ""; position: absolute; z-index: 4; inset: auto 0 0 0; height: var(--waiting-light-width); color: var(--ink); background: linear-gradient(90deg, transparent, var(--waiting-light), transparent) -70% 0 / 40% 100% no-repeat; opacity: 0; pointer-events: none; }
+.top.is-waiting::after { animation: waiting-arrives 1ms var(--waiting-delay) forwards, header-waiting-runs var(--motion-loop) var(--ease-standard) var(--waiting-delay) infinite; }
+@keyframes header-waiting-runs { from { background-position: -70% 0; } to { background-position: 170% 0; } }
+@media (prefers-reduced-motion: reduce) { .top.is-waiting::after { background-size: 100% 100%; animation: waiting-arrives 1ms var(--waiting-delay) forwards; } }
 .top > :not(.edge) { position: relative; z-index: 3; }
 .top .find, .top .find input { transition: width var(--motion-glide) var(--ease-glide); }
 
@@ -249,6 +255,19 @@ export const HEADER_SCRIPT = pageScript(
     }
     window.addEventListener("pagehide", function () { try { sessionStorage.setItem("zaisma-nav", JSON.stringify({ isDeveloperOpen: isOpenHere })); } catch (error) {} });
   }
+  /* A tap or click that opens another page of this site lights the header's lower edge (is-waiting, after --waiting-delay) until the page
+     goes: a link in this tab, not a new tab, a download or a place on this same page. Back from the browser's history, it's dark again. */
+  function setWaiting(isWaiting) { headers.forEach(function (top) { top.classList.toggle("is-waiting", isWaiting); }); }
+  document.addEventListener("click", function (event) {
+    var link = event.target.closest && event.target.closest("a[href]");
+    if (!link || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || (link.target && link.target !== "_self") || link.hasAttribute("download")) return;
+    var to = new URL(link.href, location.href);
+    if (to.origin !== location.origin || (to.pathname === location.pathname && to.search === location.search)) return;
+    // Checked once every handler has run: a link a page script handles itself (Load more) waits on its own edge instead.
+    setTimeout(function () { if (!event.defaultPrevented) setWaiting(true); }, 0);
+  });
+  window.addEventListener("pageshow", function () { setWaiting(false); });
+  window.addEventListener("pagehide", function () { setWaiting(false); });
   /* "/" anywhere jumps to the header's search; Escape puts the phone's tabs back. */
   document.addEventListener("keydown", function (event) {
     var top = headers.filter(function (each) { return each.querySelector(".find") && each.offsetParent !== null; })[0];
@@ -1491,8 +1510,7 @@ export const LOAD_MORE_SCRIPT = `/* load more */(function () {
     if (!list) return;
     event.preventDefault();
     if (link.getAttribute("aria-busy") === "true") return;
-    link.setAttribute("aria-busy", "true");
-    fetch(link.href, { headers: { accept: "text/html" }, credentials: "same-origin" }).then(function (response) {
+    window.zaismaWait(link, fetch(link.href, { headers: { accept: "text/html" }, credentials: "same-origin" }).then(function (response) {
       if (!response.ok) throw new Error(String(response.status));
       return response.text();
     }).then(function (text) {
@@ -1510,9 +1528,9 @@ export const LOAD_MORE_SCRIPT = `/* load more */(function () {
       var after = next.querySelector("[data-load-more]");
       if (after) { var placed = document.importNode(after, true); holder.replaceWith(placed); watch(placed); } else holder.remove();
     }).catch(function () {
-      link.removeAttribute("aria-busy"); holder.classList.add("is-failed");
+      holder.classList.add("is-failed");
       if (words) { words.textContent = ${JSON.stringify(LOAD_FAILED_TEXT)}; words.hidden = false; }
-    });
+    }));
   });
   // One that loads on scroll is pressed once it's within a screen of view; a failed one waits to be pressed again.
   var nearScreen = "IntersectionObserver" in window ? new IntersectionObserver(function (entries) {

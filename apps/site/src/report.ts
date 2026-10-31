@@ -213,17 +213,15 @@ const REPORT_SHEET_SCRIPT = pageScript("report-sheet", `(() => {
       if (first) first.focus();
       return;
     }
-    send.setAttribute("aria-busy", "true");
     const body = { reason, details: form.details.value, room: aboutRoom ? aboutRoom.code : about ? about.code : roomCode() };
     if (aboutRoom) body.about = "room";
     if (about) body.player = { id: about.id, name: about.name };
     if (picture && form.picture.checked && !$("report-pic").hidden) body.picture = picture;
     let res = null, data = {};
     try {
-      res = await fetch("/g/" + C.slug + "/report", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+      res = await window.zaismaWait(send, fetch("/g/" + C.slug + "/report", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }));
       data = await res.json();
     } catch {}
-    send.removeAttribute("aria-busy");
     if (!res || !res.ok) {
       $("report-error").textContent = data.error || "Couldn't send that. Check your connection and try again.";
       $("report-error").hidden = false;

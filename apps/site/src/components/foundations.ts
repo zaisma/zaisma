@@ -1,5 +1,4 @@
 import { PICTURE_PLACEHOLDER, SIZED_IMAGE_WIDTHS_PX } from "@zaisma/core";
-import { LOADER_FRAMES } from "../generated/loader-frames.generated.ts";
 import { html, raw, shownColor, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
 import { ICONS, MARK, WORDMARK, icon, largeIcon, type IconName } from "./icons.ts";
@@ -171,9 +170,6 @@ export function divider(options: { words?: string; isDecorative?: boolean } = {}
   return options.isDecorative ? raw('<hr class="divider hairline" aria-hidden="true">') : raw('<hr class="divider hairline" role="separator">');
 }
 
-/** The loader: the Z building itself, one loop a second (brand/loader/zaisma-loader.svg), in the words' color. Shown only once something was pressed. Its four pieces are cut from the file's
- * frames (LOADER_FRAMES), so it plays smoothly in every browser: Safari plays the file's own animation neither in a mask nor in a <use>. */
-export const loader = (): Raw => raw('<span class="loader" aria-hidden="true"><i></i><i></i><i></i><i></i></span>');
 
 /** A rail's parts: its channel, carved with slanted ends, and inside it the groove the thumb slides in. */
 export const RAIL_PARTS = '<div class="rail-line carving deep"><div class="rail-groove"><div class="rail-thumb"></div></div></div>';
@@ -794,24 +790,3 @@ component({
   ],
 });
 
-component({
-  name: "Loader",
-  slug: "loader",
-  group: "foundations",
-  subgroup: "pictures",
-  summary: "The Z building itself: what a button shows once it's pressed and waiting, a form sent or a page opening. Only ever after you press something.",
-  styles: `
-/* The loader: the brand's Z, masked so it takes the words' color, --loader-width wide (19px). Under reduced motion, the still mark breathing slowly instead. */
-.loader { position: relative; display: inline-block; width: var(--loader-width, 19px); height: calc(var(--loader-width, 19px) * 0.737); flex: none; }
-.loader > i { position: absolute; inset: 0; background: currentColor; animation: 1s linear infinite; }
-${LOADER_FRAMES}
-@keyframes loader-calm { 50% { opacity: 0.4; } }
-@media (prefers-reduced-motion: reduce) { .loader { background: currentColor; -webkit-mask: url(/zaisma-mark-small-white.svg) center / contain no-repeat; mask: url(/zaisma-mark-small-white.svg) center / contain no-repeat; animation: loader-calm var(--motion-loop-slow) ease-in-out infinite; } .loader > i { display: none; } }
-`,
-  render: loader,
-  examples: [
-    { label: "On its own", markup: loader() },
-    // A page that's loading shows the Loading state (Data), never a bigger loader over it: the loader is only what a pressed thing shows,
-    // as every button's Busy example does.
-  ],
-});

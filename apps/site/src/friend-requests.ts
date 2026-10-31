@@ -233,10 +233,8 @@ const FRIEND_REQUEST_SCRIPT = pageScript("friend-requests", String.raw`(() => {
   }
   yes.addEventListener("click", async () => {
     if (!asking || yes.getAttribute("aria-busy") === "true") return;
-    yes.setAttribute("aria-busy", "true");
     $("friend-request-error").hidden = true;
-    const res = await post("/friends/requests", { player_id: asking.id, game_slug: SLUG });
-    yes.removeAttribute("aria-busy");
+    const res = await window.zaismaWait(yes, post("/friends/requests", { player_id: asking.id, game_slug: SLUG }));
     const answer = res ? await res.json().catch(() => null) : null;
     // One back to someone whose request waited: friends at once, and they hear of it like an accept.
     if (res && res.ok && answer && answer.status === "friends") {

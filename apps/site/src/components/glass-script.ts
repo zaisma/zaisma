@@ -565,7 +565,12 @@ export const GLASS_SCRIPT = `/* glass */(function () {
       // Its line and light are drawn round the outline with no side under a pixel: a side shrinking away as it glides (a slant becoming a
       // corner) would turn its neighbors' light every which way in its last frames, then snap as it went.
       shape = distinct(shape, 1);
-      poly.setAttribute("points", list(insetShape(shape, 1)));
+      var outline = insetShape(shape, 1);
+      poly.setAttribute("points", list(outline));
+      // The same outline, closed and measured as 100 long, for the waiting light to run round (the materials' waiting state).
+      var waiting = svg.querySelector(".waiting-line");
+      if (!waiting) { waiting = document.createElementNS(SVG, "polyline"); waiting.setAttribute("class", "waiting-line"); waiting.setAttribute("pathLength", "100"); svg.appendChild(waiting); }
+      waiting.setAttribute("points", list(outline.concat([outline[0]])));
       // data-cut-ring: a second outline set out around the shape by that many pixels, for a ring that mustn't touch what's inside (a check field's
       // keyboard focus, clear of its orange piece). It's drawn in the control's own shape, whatever its corners.
       var ringPx = Number(el.getAttribute("data-cut-ring")) || 0;
