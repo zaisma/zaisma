@@ -373,7 +373,7 @@ ${WORDS_SURFACES.join(", ")} { padding: var(--pad-frame); --pad-words: var(--pad
 /* Under everything in its own layer, so bare words on it (a table's head) show over it. Glass with no outline of its own (a table's pinned
    cells) is cut to nothing: it never takes the shape of the pane it's in. */
 .glass:not([data-glass]) { --glass-clip: none; }
-.glass > :not(.edge) { position: relative; z-index: 3; }
+.glass > :not(.edge, .waiting-glow) { position: relative; z-index: 3; }
 .edge { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 2; overflow: visible; }
 /* Light and smoked glass share one frame: a straight-cut glass edge whose every side is one flat tone between --edge-lit and --edge-shade
    (lit along the top, shaded along the bottom), so each turn of the cut steps in brightness; brightest at the outer rim, with no separate outline. Like real glass it's denser at

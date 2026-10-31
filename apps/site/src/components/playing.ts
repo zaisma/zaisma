@@ -156,7 +156,7 @@ html.is-leaving body > main > :not(.playing-bar, .playing-card, .playing-check, 
 .playing-bar { display: none; position: relative; z-index: 2; flex: none; align-items: center; --glass-tint: var(--glass-top); }
 .playing-bar.in-place, html.is-playing .playing-bar { display: flex; }
 .playing-bar.in-place { width: 100%; }
-.playing-bar > :not(.edge) { position: relative; z-index: 1; }
+.playing-bar > :not(.edge, .waiting-glow) { position: relative; z-index: 1; }
 .playing-mark { flex: none; display: flex; align-items: center; }
 .playing-mark > .logo { display: flex; height: var(--control-height-small); }
 .playing-title { flex: 1; font: var(--type-name); color: var(--ink); }

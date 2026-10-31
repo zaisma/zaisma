@@ -138,7 +138,7 @@ const HEADER_STYLES = `
 /* A bar of glass (materials.ts): its controls the frame gap from its edge on every side, its height theirs and that gap. Compact, once the
    page scrolls, it rises to the frame gap from the window's top; nothing in it is laid out again, and it stays smooth. */
 .top.is-compact { top: var(--pad-frame); }
-.top > :not(.edge) { position: relative; z-index: 3; }
+.top > :not(.edge, .waiting-glow) { position: relative; z-index: 3; }
 .top .find, .top .find input { transition: width var(--motion-glide) var(--ease-glide); }
 
 /* Beside where you are, search takes all the room left, past a field's widest, so no room ever opens between them and both keep the slant. */
@@ -253,7 +253,7 @@ export const HEADER_SCRIPT = pageScript(
   }
   /* A tap or click that opens another page of this site runs the waiting light round the header's rim (is-waiting, after --waiting-delay) until the page
      goes: a link in this tab, not a new tab, a download or a place on this same page. Back from the browser's history, it's dark again. */
-  function setWaiting(isWaiting) { headers.forEach(function (top) { if (!top.hasAttribute("data-stays-waiting")) top.classList.toggle("is-waiting", isWaiting); }); }
+  function setWaiting(isWaiting) { headers.forEach(function (top) { if (!top.hasAttribute("data-stays-waiting")) top.classList.toggle("is-waiting", isWaiting); }); if (isWaiting && window.zaismaWaitingLight) window.zaismaWaitingLight.wake(); }
   document.addEventListener("click", function (event) {
     var link = event.target.closest && event.target.closest("a[href]");
     if (!link || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || (link.target && link.target !== "_self") || link.hasAttribute("download")) return;
@@ -906,7 +906,7 @@ component({
   clip-path: ${cutPolygon("header")};
   transition: var(--glass-transition);
 }
-.foot > :not(.edge) { position: relative; z-index: 3; }
+.foot > :not(.edge, .waiting-glow) { position: relative; z-index: 3; }
 /* A bar of glass (materials.ts), its words all of it, so they keep the words margin all round. */
 .foot-in { display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-block-block); }
 /* Quiet links in a row read as one sentence at a word's gap, so each sits a block's gap apart: a list of places, not a line of words. Each

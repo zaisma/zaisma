@@ -144,7 +144,17 @@ export const WATCH_SCRIPT = `/* watch */(function () {
  * kind's large and small cuts round it (the tokens --pane-cut-large and the rest), or four of a kind's "pane-large", "pane-small"
  * and so on, or numbers ("pane-large pane-small 0 0": a tray's head). window.zaismaCorners(el) reads them as numbers.
  */
+/**
+ * Where the waiting light shows (the materials' waiting state, materials.ts): something waiting (aria-busy, or the input of a switch or a
+ * check), the part of a piece made of several that waits (data-waits-here), and glass waiting on a new page (is-waiting: the header).
+ */
+export const WAITING_GLOW_SELECTOR = [
+  '[aria-busy="true"] > .waiting-glow', ':has(> input[aria-busy="true"]) > .waiting-glow', '[aria-busy="true"] > [data-cut-line] > .waiting-glow',
+  '[aria-busy="true"] [data-waits-here] > .waiting-glow', '.is-waiting > .waiting-glow',
+].join(", ");
+
 export const GLASS_SCRIPT = `/* glass */(function () {
+  var WAITING_GLOW_SELECTOR = ${JSON.stringify(WAITING_GLOW_SELECTOR)};
   var SVG = "http://www.w3.org/2000/svg";
   // The cut tokens, read from the page's root once, as the script starts and before anything is drawn: they're the same on every screen,
   // so reading them later, between a pass's writes, would only make the browser work its styles out again.
@@ -168,39 +178,45 @@ export const GLASS_SCRIPT = `/* glass */(function () {
   }
   function pointList(points) { return points.map(function (p) { return p[0].toFixed(1) + "," + p[1].toFixed(1); }).join(" "); }
   /*
-   * The waiting light (the materials' waiting state), drawn into an edge's own svg: the light the glass's edge takes when it's pointed at,
-   * travelling round the rim. A bright core on the rim, softened so it glows rather than draws a line, the near flood spilling a few pixels into the glass and the far flood fading
-   * further in, each a closed outline measured as 100 long so one dash runs round all three together. The floods are drawn inside the
-   * rim (outlineAt(inset), inset by half their width), so the light spills into the glass, not out of it. Hidden until the materials light it.
+   * The waiting light (the materials' waiting state): the Light component's edge light (panes.ts), a flood brightest on the rim and fading
+   * into the glass and along the edge, cut to the glass's own shape, here travelling round the rim at one steady pace. Each piece of glass
+   * that can wait holds one (.waiting-glow, first in it, under what it holds) and the outline it runs round; the materials show it after
+   * --waiting-delay, and while any is shown, one loop moves them all (WAITING_GLOW_SELECTOR, kept with the materials' rule).
    */
-  function drawWaitingLight(svg, outlineAt, sizePx) {
-    var lines = svg.waitingLines;
-    // An edge built again (its innerHTML written anew) has lost them: they're made again.
-    if (!lines || lines[0].parentNode !== svg) {
-      if (!document.getElementById("zaisma-waiting-blurs")) {
-        var holder = document.createElementNS(SVG, "svg");
-        holder.setAttribute("id", "zaisma-waiting-blurs"); holder.setAttribute("aria-hidden", "true"); holder.setAttribute("width", "0"); holder.setAttribute("height", "0");
-        holder.style.position = "absolute";
-        holder.innerHTML = '<filter id="zaisma-waiting-core" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="1"/></filter><filter id="zaisma-waiting-near" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="2"/></filter><filter id="zaisma-waiting-far" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="7"/></filter>';
-        document.body.appendChild(holder);
-      }
-      lines = svg.waitingLines = ["far", "near", "core"].map(function (part) {
-        var line = document.createElementNS(SVG, "polyline");
-        line.setAttribute("class", "waiting-line " + part); line.setAttribute("pathLength", "100"); svg.appendChild(line);
-        // Each blurred, the core too, so none of it reads as a line drawn round the edge.
-        line.style.filter = "url(#zaisma-waiting-" + part + ")";
-        if (part !== "core") line.style.stroke = "var(--waiting-" + (part === "far" ? "flood-far" : "flood") + ")";
-        return line;
-      });
-    }
-    // Small glass (a button) gets a shallower flood, so the light never fills it.
-    var farPx = Math.max(3, Math.min(14, sizePx / 4)), nearPx = Math.min(3, farPx);
-    [farPx, nearPx, 0].forEach(function (widthPx, i) {
-      var outline = outlineAt(widthPx ? 1 + widthPx / 2 : 1);
-      lines[i].setAttribute("points", pointList(outline.concat([outline[0]])));
-      if (widthPx) lines[i].style.strokeWidth = widthPx * 2 + "px";
-    });
+  var WAITING_PACE_PX_PER_SEC = 360, WAITING_FLOOD_PX = 32, WAITING_SPAN_PX = 56, isWaitingRunning = false, stillMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+  function drawWaitingLight(el, outline, cutShape) {
+    var glow = el.waitingGlow;
+    if (!glow || glow.parentNode !== el) { glow = el.waitingGlow = document.createElement("span"); glow.className = "waiting-glow"; glow.setAttribute("aria-hidden", "true"); el.insertBefore(glow, el.firstChild); }
+    glow.style.clipPath = cssPolygon(cutShape);
+    el.waitingOutline = outline.concat([outline[0]]);
+    wakeWaiting();
   }
+  function placeWaiting(glow, outline, nowMs) {
+    var sides = [], total = 0;
+    for (var i = 1; i < outline.length; i++) { var dx = outline[i][0] - outline[i - 1][0], dy = outline[i][1] - outline[i - 1][1], length = Math.hypot(dx, dy); sides.push([length, dx, dy]); total += length; }
+    if (!total) return;
+    var along = stillMotion.matches ? 0 : (nowMs / 1000 * WAITING_PACE_PX_PER_SEC) % total;
+    for (var k = 0; k < sides.length; k++) {
+      if (along > sides[k][0] && k < sides.length - 1) { along -= sides[k][0]; continue; }
+      var share = sides[k][0] ? along / sides[k][0] : 0, ux = sides[k][0] ? Math.abs(sides[k][1]) / sides[k][0] : 1, uy = sides[k][0] ? Math.abs(sides[k][2]) / sides[k][0] : 0;
+      // Long along the side it's on, as deep as the Light's flood into the glass; round where it turns a cut corner.
+      var box = glow.getBoundingClientRect(), deep = Math.min(WAITING_FLOOD_PX, Math.max(8, Math.min(box.width, box.height) * 0.6));
+      glow.style.setProperty("--waiting-x", (outline[k][0] + sides[k][1] * share).toFixed(1) + "px");
+      glow.style.setProperty("--waiting-y", (outline[k][1] + sides[k][2] * share).toFixed(1) + "px");
+      glow.style.setProperty("--waiting-across", (deep + (WAITING_SPAN_PX - deep) * ux).toFixed(1) + "px");
+      glow.style.setProperty("--waiting-down", (deep + (WAITING_SPAN_PX - deep) * uy).toFixed(1) + "px");
+      return;
+    }
+  }
+  function waitingFrame(nowMs) {
+    var shown = document.querySelectorAll(WAITING_GLOW_SELECTOR);
+    shown.forEach(function (glow) { if (glow.parentNode.waitingOutline) placeWaiting(glow, glow.parentNode.waitingOutline, nowMs); });
+    isWaitingRunning = shown.length > 0 && !stillMotion.matches;
+    if (isWaitingRunning) requestAnimationFrame(waitingFrame);
+  }
+  function wakeWaiting() { if (isWaitingRunning) return; isWaitingRunning = true; requestAnimationFrame(waitingFrame); }
+  // What starts something waiting (window.zaismaWait, the header's script) wakes the loop; it stops once nothing waits.
+  window.zaismaWaitingLight = { wake: wakeWaiting };
   // How lit each side of the cut is, from the top left corner's cut round to the left side. Neighbors always differ, so every turn of the edge shows as a step in brightness, like a cut facet.
   var SIDE_LIGHT = [80, 100, 70, 28, 12, 0, 40, 62];
   // A control made of glass takes its sides' light from the way each faces (the same steps, round the same way).
@@ -362,7 +378,7 @@ export const GLASS_SCRIPT = `/* glass */(function () {
       parts.hair.setAttribute("points", pointList(at(0.6)));
       parts.rim.setAttribute("points", pointList(at(1.6)));
       // The waiting light runs round the rim while the glass waits (is-waiting: the header on its way to a new page).
-      drawWaitingLight(edge, at, Math.min(w, h));
+      drawWaitingLight(el, at(1), at(0));
       parts.spec.setAttribute("points", pointList(at(1.6)));
       // Dispersion: a faint split of color along the facet's inner edge, where the light bends.
       parts.fringe.setAttribute("points", pointList(at(Math.max(2.4, band - 0.8))));
@@ -604,7 +620,7 @@ export const GLASS_SCRIPT = `/* glass */(function () {
       var outline = insetShape(shape, 1);
       poly.setAttribute("points", list(outline));
       // The waiting light runs round the same outline (the materials' waiting state).
-      drawWaitingLight(svg, function (inset) { return insetShape(shape, inset); }, Math.min(w, h));
+      drawWaitingLight(el, insetShape(shape, 1), shape);
       // data-cut-ring: a second outline set out around the shape by that many pixels, for a ring that mustn't touch what's inside (a check field's
       // keyboard focus, clear of its orange piece). It's drawn in the control's own shape, whatever its corners.
       var ringPx = Number(el.getAttribute("data-cut-ring")) || 0;
