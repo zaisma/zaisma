@@ -18,6 +18,7 @@ export const ICONS = {
   // Buying: a paid game's Buy.
   cart: stroke("0 0 20 20", '<path d="M2.5 3.5h2.2l2 9.4h8.7l1.8-6.6H5.5"/><circle cx="8" cy="16.2" r="1.2"/><circle cx="14" cy="16.2" r="1.2"/>'),
   card: stroke("0 0 20 20", '<path d="M2.5 5h15v10h-15z"/><path d="M2.5 8.6h15M5.4 12.2h3"/>'),
+  "price-tag": stroke("0 0 20 20", '<path d="M10.6 2.8H17.2v6.6l-7.7 7.7a1.4 1.4 0 0 1-2 0l-4.6-4.6a1.4 1.4 0 0 1 0-2z"/><circle cx="13.7" cy="6.3" r="1.1"/>'),
   lock: stroke("0 0 20 20", '<path d="M4.5 9h11v8.5h-11z"/><path d="M7 9V6.6a3 3 0 0 1 6 0V9"/><path d="M10 12.4v2"/>'),
   mail: stroke("0 0 20 20", '<path d="M3 5h14v10.5H3z"/><path d="M3.4 5.6 10 11l6.6-5.4"/>'),
   gear: stroke(

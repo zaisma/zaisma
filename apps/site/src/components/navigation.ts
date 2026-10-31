@@ -1550,6 +1550,8 @@ export interface FilterGroup {
   /** Its key in the menu, lowercase: "genre". */
   groupName: string;
   label: string;
+  /** What it narrows by, at a glance, before its label: every way has one, so their words line up with Clear filters'. */
+  icon: IconName;
   /** What's picked now, said beside its label: "Adventure", or "Any". */
   pickedLabel: string;
   choices: { label: string; href: string; isCurrent: boolean }[];
@@ -1580,7 +1582,7 @@ export function filterMenu(options: FilterMenuOptions): ControlMarkup {
   const opener = (groupName: string, inside: Raw, className: string) =>
     html`<button type="button" class="${DROPDOWN_CHOICE_CLASS} ${className}" role="menuitem" tabindex="-1" aria-haspopup="menu" data-lights data-cut-line="8" data-filter-opens="${groupName}">${CUT_LINE}${inside}</button>`;
   const main = html`<div class="dropdown-in filter-panel" data-filter-panel=""${options.openGroupName ? raw(" hidden") : ""}>${options.groups.map((group) =>
-    opener(group.groupName, html`<span>${group.label}</span><span class="filter-picked">${group.pickedLabel}</span>${icon("chevron-right")}`, "filter-group"),
+    opener(group.groupName, html`${icon(group.icon)}<span>${group.label}</span><span class="filter-picked">${group.pickedLabel}</span>${icon("chevron-right")}`, "filter-group"),
   )}${options.clearHref ? html`${divider()}${choice("Clear filters", options.clearHref, false, "close")}` : ""}</div>`;
   const panels = options.groups.map(
     (group) =>
@@ -1664,9 +1666,9 @@ export const FILTER_MENU_SCRIPT = `/* filter menus */(function () {
 
 const filterMenuFrame = (options: FilterMenuOptions) => html`<div class="dropdown-frame">${filterMenu(options)}</div>`;
 const EXAMPLE_FILTER_GROUPS: FilterGroup[] = [
-  { groupName: "genre", label: "Genre", pickedLabel: "Adventure", choices: ["Any", "Action", "Adventure", "Role-playing", "Strategy"].map((label) => ({ label, href: "#filter-menu", isCurrent: label === "Adventure" })) },
-  { groupName: "players", label: "Players", pickedLabel: "Any", choices: ["Any", "Single-player", "Multiplayer"].map((label) => ({ label, href: "#filter-menu", isCurrent: label === "Any" })) },
-  { groupName: "price", label: "Price", pickedLabel: "$15 to $30", choices: ["Any price", "Free", "Under $5", "$5 to $15", "$15 to $30", "$30 and up"].map((label) => ({ label, href: "#filter-menu", isCurrent: label === "$15 to $30" })) },
+  { groupName: "genre", label: "Genre", icon: "games", pickedLabel: "Adventure", choices: ["Any", "Action", "Adventure", "Role-playing", "Strategy"].map((label) => ({ label, href: "#filter-menu", isCurrent: label === "Adventure" })) },
+  { groupName: "players", label: "Players", icon: "people", pickedLabel: "Any", choices: ["Any", "Single-player", "Multiplayer"].map((label) => ({ label, href: "#filter-menu", isCurrent: label === "Any" })) },
+  { groupName: "price", label: "Price", icon: "price-tag", pickedLabel: "$15 to $30", choices: ["Any price", "Free", "Under $5", "$5 to $15", "$15 to $30", "$30 and up"].map((label) => ({ label, href: "#filter-menu", isCurrent: label === "$15 to $30" })) },
 ];
 
 component({
@@ -1681,7 +1683,7 @@ component({
 .floating-pane.filter-menu { min-width: min(15rem, calc(100vw - 2 * var(--pad-frame))); }
 .filter-panel[hidden] { display: none; }
 .filter-group > .filter-picked { margin-left: auto; color: var(--muted); font: var(--type-facts); }
-.filter-group > .ico, .filter-back > .ico { flex: none; width: 12px; height: 12px; }
+.filter-group > .ico:last-child, .filter-back > .ico { flex: none; width: 12px; height: 12px; }
 .filter-back { font: var(--type-name); color: var(--ink); }
 `,
   render: filterMenu,
