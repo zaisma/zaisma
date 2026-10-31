@@ -146,7 +146,7 @@ export function playersSheet(options: { gameOrigin: string; slug: string; title:
     ],
   });
   const rowButton = { type: "button", isSmall: true } as const;
-  // A row's toggle, the script showing one: Mute (a speaker), pressed once muted (the speaker crossed out), or pressed with the block mark for a block made here (Unblock).
+  // A row's toggle, the script showing one: Mute (a speaker), pressed once muted (the speaker crossed out, rising in place), or pressed with the block mark for a block made here (Unblock).
   const rowTemplate = listRows({
     whenEmpty: emptyState({ title: "Nobody here yet", text: "Players show here as they join your room." }),
     isCompact: true,
@@ -155,8 +155,7 @@ export function playersSheet(options: { gameOrigin: string; slug: string; title:
       title: "?",
       titleIcon: { icon: "friends", label: "Friend", isHidden: true },
       action: [
-        toggleButton("Mute", { ...rowButton, icon: "speaker", isLabelHidden: true, isPressed: false, dataAttributes: { "player-action": "mute" } }),
-        toggleButton("Mute", { ...rowButton, icon: "speaker-off", isLabelHidden: true, isPressed: true, isHidden: true, dataAttributes: { "player-action": "unmute" } }),
+        toggleButton("Mute", { ...rowButton, icon: "speaker", pressedIcon: "speaker-off", isLabelHidden: true, isPressed: false, dataAttributes: { "player-action": "mute" } }),
         toggleButton("Unblock", { ...rowButton, icon: "ban", isLabelHidden: true, isPressed: true, isHidden: true, dataAttributes: { "player-action": "unblock" } }),
         secondaryButton("More", { ...rowButton, icon: "more", isLabelHidden: true, dataAttributes: { "player-action": "more" } }),
       ],
@@ -291,7 +290,6 @@ const PLAYERS_SHEET_SCRIPT = pageScript("players-sheet", String.raw`(() => {
     renderRequests();
     $("players-players-title").textContent = room ? "Players · " + room.players.length : "Players";
     const list = $("players-list");
-    list.textContent = "";
     // Friends first, then everyone else in the order they joined.
     const everyone = room ? room.players.filter((each) => each.id !== room.myPlayerId) : [];
     const ordered = everyone.filter(isFriend).concat(everyone.filter((each) => !isFriend(each)));
@@ -310,57 +308,79 @@ const PLAYERS_SHEET_SCRIPT = pageScript("players-sheet", String.raw`(() => {
     const watching = $("players-watching");
     watching.textContent = room && room.spectatorCount ? (room.isSpectator ? "You're watching" + (room.spectatorCount > 1 ? ", with " + (room.spectatorCount - 1) + " more" : "") : room.spectatorCount + " watching") : room && room.isSpectator ? "You're watching" : "";
     watching.hidden = !watching.textContent;
-    if (me) list.appendChild(selfRow(me));
-    others.forEach((other) => list.appendChild(row(other)));
+    // Each player keeps their row while they're in the room, filled in again here, and a row moves only when its place changes: so a Mute
+    // pressed a moment ago rises on to its end when the game says it's done, and isn't drawn again from the start.
+    const rows = (me ? [selfRow(me)] : []).concat(others.map(row));
+    rows.forEach((item, index) => { if (list.children[index] !== item) list.insertBefore(item, list.children[index] || null); });
+    while (list.children.length > rows.length) list.lastElementChild.remove();
+    const inRoom = new Set(room ? room.players.map((each) => each.id) : []);
+    rowsById.forEach((item, id) => { if (!inRoom.has(id)) rowsById.delete(id); });
   }
 
   // Your own row (template#players-self-row): your picture and the name the game knows you by, marked You.
+  let selfItem = null;
   function selfRow(me) {
-    const item = $("players-self-row").content.querySelector("li").cloneNode(true);
-    paint(item.querySelector(".av"), me.name);
-    item.querySelector(".list-row-title").textContent = me.name;
-    return item;
+    selfItem = selfItem || $("players-self-row").content.querySelector("li").cloneNode(true);
+    paint(selfItem.querySelector(".av"), me.name);
+    selfItem.querySelector(".list-row-title").textContent = me.name;
+    return selfItem;
   }
 
   // A player's row, from the page's own (template#players-row): their picture and name, Friend, muted or blocked under it, Mute and ⋯.
+  // Made once per player and filled in again on every change; its buttons ask what's true when they're pressed.
+  const rowsById = new Map();
   function row(other) {
+    let item = rowsById.get(other.id);
+    if (!item) {
+      item = $("players-row").content.querySelector("li").cloneNode(true);
+      rowsById.set(other.id, item);
+      const button = (action) => item.querySelector('[data-player-action="' + action + '"]');
+      // Mute turns on or off at once, as it's pressed, then the game does it.
+      button("mute").addEventListener("click", (e) => {
+        const isMuting = e.currentTarget.getAttribute("aria-pressed") !== "true";
+        e.currentTarget.setAttribute("aria-pressed", String(isMuting));
+        tell({ type: "zaisma:player-action", action: isMuting ? "mute" : "unmute", playerId: other.id });
+      });
+      button("unblock").addEventListener("click", () => tell({ type: "zaisma:player-action", action: "unmute", playerId: other.id }));
+      // ⋯ moves the sheet to the player's step, filled in here first.
+      button("more").addEventListener("click", () => {
+        const known = other.kind === "account" ? accounts.get(other.id) : null;
+        const name = known ? known.name : other.name;
+        const isBlocked = Boolean(room) && (room.blocked.has(other.id) || room.lasting.has(other.id));
+        chosen = { id: other.id, name };
+        $("players-player-title").textContent = name;
+        const profile = $("players-player-profile");
+        // Each choice is a List row: its whole row shows or hides, hairline and all.
+        profile.closest("li").hidden = !known;
+        if (known) {
+          profile.href = "/@" + encodeURIComponent(known.name);
+          profile.target = "_blank";
+          profile.rel = "noopener";
+        }
+        $("players-player-block").closest("li").hidden = isBlocked;
+        showFriendChoice(other, known, isBlocked);
+        zaismaLayers.step(sheet, "player");
+      });
+    }
     const known = other.kind === "account" ? accounts.get(other.id) : null;
     const name = known ? known.name : other.name;
     const isBlocked = room.blocked.has(other.id) || room.lasting.has(other.id);
-    const isMuted = room.muted.has(other.id);
-    const item = $("players-row").content.querySelector("li").cloneNode(true);
     paint(item.querySelector(".av"), name);
     item.querySelector(".list-row-title").textContent = name;
     // A friend is marked by the friends icon after their name; muted and blocked show on the row's toggle, never as words beside the name.
     item.querySelector(".list-row-title-icon").hidden = !(known && known.isFriend);
     const button = (action) => item.querySelector('[data-player-action="' + action + '"]');
-    const more = button("more");
-    // One of Mute, Unmute and Unblock shows; a lasting block is undone on zaisma.com/friends, so none does then.
-    const shown = room.lasting.has(other.id) ? null : isBlocked ? "unblock" : isMuted ? "unmute" : "mute";
-    ["mute", "unmute", "unblock"].forEach((action) => {
-      const each = button(action);
-      if (action !== shown) return each.closest(".row-cell").remove();
-      each.hidden = false;
-      each.setAttribute("aria-label", (action === "unblock" ? "Unblock " : "Mute ") + name);
-      each.addEventListener("click", () => tell({ type: "zaisma:player-action", action: action === "mute" ? "mute" : "unmute", playerId: other.id }));
-    });
-    more.setAttribute("aria-label", "More for " + name);
-    // ⋯ moves the sheet to the player's step, filled in here first.
-    more.addEventListener("click", () => {
-      chosen = { id: other.id, name };
-      $("players-player-title").textContent = name;
-      const profile = $("players-player-profile");
-      // Each choice is a List row: its whole row shows or hides, hairline and all.
-      profile.closest("li").hidden = !known;
-      if (known) {
-        profile.href = "/@" + encodeURIComponent(known.name);
-        profile.target = "_blank";
-        profile.rel = "noopener";
-      }
-      $("players-player-block").closest("li").hidden = isBlocked;
-      showFriendChoice(other, known, isBlocked);
-      zaismaLayers.step(sheet, "player");
-    });
+    // Mute or Unblock shows; a lasting block is undone on zaisma.com/friends, so neither does then.
+    const mute = button("mute"), unblock = button("unblock");
+    mute.closest(".row-cell").hidden = isBlocked;
+    mute.hidden = false;
+    mute.setAttribute("aria-label", "Mute " + name);
+    const isMuted = String(room.muted.has(other.id));
+    if (mute.getAttribute("aria-pressed") !== isMuted) mute.setAttribute("aria-pressed", isMuted);
+    unblock.closest(".row-cell").hidden = !isBlocked || room.lasting.has(other.id);
+    unblock.hidden = false;
+    unblock.setAttribute("aria-label", "Unblock " + name);
+    button("more").setAttribute("aria-label", "More for " + name);
     return item;
   }
 
