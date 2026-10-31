@@ -441,7 +441,10 @@ async function checkPage(chrome, contextId, url, looks, options) {
       const found = exceptionDetails ? [{ check: "the check couldn't measure the page", element: "", said: exceptionDetails.exception?.description ?? exceptionDetails.text }] : result.value;
       // What moved or changed its words since the first paint, measured once, on the screen the page first painted on.
       if (isFirstPaintChecked && lookIndex === 0) {
-        const compared = await send("Runtime.evaluate", { expression: `(${FIRST_PAINT_COMPARE_SOURCE})(${JSON.stringify({ tiers: options.tiers })})`, returnByValue: true });
+        // The gallery is a tool, not a page players see: its first paint waits for all its scripts (design-page.ts), so on it only its
+        // pictures are measured (each with its placeholder); what its examples' harness does after (a loop, a frame fitted to its menu) isn't a load.
+        const firstPaintTiers = options.isGallery ? options.tiers.filter((tier) => tier !== "page") : options.tiers;
+        const compared = await send("Runtime.evaluate", { expression: `(${FIRST_PAINT_COMPARE_SOURCE})(${JSON.stringify({ tiers: firstPaintTiers })})`, returnByValue: true });
         found.push(...(compared.exceptionDetails ? [{ check: "moved after the first paint", element: "", said: compared.exceptionDetails.exception?.description ?? compared.exceptionDetails.text }] : compared.result.value));
       }
       // The entry's address must show the state it's named for (checked-pages.ts), so a list that drifts from the pages fails here.
