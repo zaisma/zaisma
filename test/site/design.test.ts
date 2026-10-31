@@ -14,9 +14,9 @@ import * as data from "../../apps/site/src/components/data.ts";
 import * as layoutComponents from "../../apps/site/src/components/layout.ts";
 import { COLUMNS_STYLES, COLUMN_LEAST_PX, GRID_STYLES, PANE_PARTS_STYLES, ROW_STYLES, STACK_STYLES, TRACK_STYLES, columns, grid, paneParts, row, stack, type LayoutItem } from "../../apps/site/src/components/layout.ts";
 import { pageStyles } from "../../apps/site/src/page-styles.ts";
-import { CHECKED_PAGES, LOCAL_SCREEN_NAMES, SCREEN_SIZES, STRESS_ACCOUNTS, TEXT_SCREEN_NAMES, UNIQUE_WORD, stressBaseName, type StepToTake } from "../../apps/site/src/components/checked-pages.ts";
+import { CHECKED_PAGES, LOCAL_SCREEN_NAMES, MEASURED_SCREEN_NAMES, SCREEN_SIZES, STRESS_ACCOUNTS, TEXT_SCREEN_NAMES, UNIQUE_WORD, stressBaseName, type StepToTake } from "../../apps/site/src/components/checked-pages.ts";
 import { layout, type LayoutOptions } from "../../apps/site/src/html.ts";
-import { PAGE_SHEETS, STEEL_PAGE_SHEETS, UNSTYLED_HOOKS, pageProblems, pageStructureProblems, pageWordProblems, pageWords } from "./page-rules.ts";
+import { PAGE_SHEETS, STEEL_PAGE_SHEETS, UNSTYLED_HOOKS, pageProblems, pageStructureProblems, pictureBoxProblems, pageWordProblems, pageWords } from "./page-rules.ts";
 import { BACKDROP_SCRIPT, glassPane, pageSettingsAttributes } from "../../apps/site/src/components/foundations.ts";
 import { GLASS_LIGHT_PASS, MOST_GLASS_PANE_COUNT } from "../../apps/site/src/components/shaders.ts";
 import { SHADER_HEAD, SHADER_LIMITS, SHADER_UPSCALE_SOURCE } from "@zaisma/core";
@@ -858,6 +858,13 @@ describe("pages", () => {
     }
   });
 
+  it("size every picture's box before it loads, on the pages and the gallery's, so measuring with pictures blocked measures what loads", async () => {
+    const galleryPaths = [...new Set(COMPONENTS().map((each) => galleryPagePath(each.group, each.subgroup)))];
+    const problems: string[] = [];
+    for (const path of [...PUBLIC_PAGES, ...galleryPaths]) for (const problem of await pictureBoxProblems((await page(path)).text)) problems.push(`${path}: ${problem}`);
+    expect(problems).toEqual([]);
+  });
+
   it("make no stylesheet of their own: the only sheets are the site's and the gallery's", async () => {
     for (const path of PUBLIC_PAGES) expect((await page(path)).response.status, path).toBeLessThan(500);
     expect(pageStyles().map((style) => style.name).sort()).toEqual([...PAGE_SHEETS, ...STEEL_PAGE_SHEETS].sort());
@@ -1144,7 +1151,7 @@ describe("layout", () => {
   it("measures on seven screens, each named once, and runs the screens a run starts with and its 200% text on screens from that list", () => {
     const names = SCREEN_SIZES.map((size) => size.name);
     expect(new Set(names).size).toBe(7);
-    for (const name of [...LOCAL_SCREEN_NAMES, ...TEXT_SCREEN_NAMES]) expect(names).toContain(name);
+    for (const name of [...LOCAL_SCREEN_NAMES, ...TEXT_SCREEN_NAMES, ...MEASURED_SCREEN_NAMES]) expect(names).toContain(name);
   });
 
   it("lists each stress state with the page it's of: the same page, as a stress account", () => {

@@ -230,7 +230,7 @@ body.gallery { margin: 0; min-height: 100vh; font: var(--type-reading); }
 /* A playing bar's phone example: a phone's screen, upright or on its side, with a stand-in game filling what the bar leaves. */
 .game-stand-in { display: flex; flex-direction: column; width: min(320px, 100%); height: 568px; overflow: hidden; clip-path: ${cutPolygon("pane")}; background: #000; }
 .game-stand-in.sideways { flex-direction: row; width: min(667px, 100%); height: 320px; }
-.game-stand-in > img { flex: 1; min-width: 0; min-height: 0; object-fit: cover; }
+.game-stand-in > img { flex: 1; width: 100%; height: 100%; min-width: 0; min-height: 0; object-fit: cover; }
 /* A header example: a frame that holds the fixed header (its transform makes it the header's containing block) over a stand-in page scrolling under it. */
 .header-frame { position: relative; isolation: isolate; width: 100%; height: 260px; overflow: hidden; transform: translateZ(0); box-shadow: var(--well-shade);
   clip-path: ${cutPolygon("pane")}; }
