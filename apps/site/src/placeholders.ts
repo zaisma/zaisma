@@ -49,15 +49,18 @@ export async function keepShaderPlaceholder(env: Env, shader: Pick<GameShader, "
   if (dataUrl) await env.DB.prepare("UPDATE game_shaders SET placeholder_data_url = ? WHERE id = ?").bind(dataUrl, shader.id).run();
 }
 
-/** The daily job: placeholders for the approved pictures and shaders without one, DAILY_PLACEHOLDER_COUNT a run. */
+/**
+ * The daily job: placeholders for the approved pictures and shaders without one, DAILY_PLACEHOLDER_COUNT a run, picked at random so a
+ * picture whose placeholder can't be made never keeps the others waiting.
+ */
 export async function fillMissingPlaceholders(env: Env): Promise<void> {
   if (!env.IMAGES) return;
   const kinds = SHOWN_IMAGE_KINDS.map(() => "?").join(", ");
   const [{ results: images }, { results: shaders }] = await Promise.all([
-    env.DB.prepare(`SELECT id, game_id, kind, placeholder_data_url FROM game_images WHERE review_status = 'approved' AND placeholder_data_url IS NULL AND kind IN (${kinds}) LIMIT ?`)
+    env.DB.prepare(`SELECT id, game_id, kind, placeholder_data_url FROM game_images WHERE review_status = 'approved' AND placeholder_data_url IS NULL AND kind IN (${kinds}) ORDER BY RANDOM() LIMIT ?`)
       .bind(...SHOWN_IMAGE_KINDS, DAILY_PLACEHOLDER_COUNT)
       .all<Pick<GameImage, "id" | "game_id" | "kind" | "placeholder_data_url">>(),
-    env.DB.prepare("SELECT id, game_id FROM game_shaders WHERE review_status = 'approved' AND placeholder_data_url IS NULL LIMIT ?").bind(DAILY_PLACEHOLDER_COUNT).all<Pick<GameShader, "id" | "game_id">>(),
+    env.DB.prepare("SELECT id, game_id FROM game_shaders WHERE review_status = 'approved' AND placeholder_data_url IS NULL ORDER BY RANDOM() LIMIT ?").bind(DAILY_PLACEHOLDER_COUNT).all<Pick<GameShader, "id" | "game_id">>(),
   ]);
   for (const image of images) await keepImagePlaceholder(env, image);
   for (const shader of shaders.slice(0, Math.max(0, DAILY_PLACEHOLDER_COUNT - images.length))) {
