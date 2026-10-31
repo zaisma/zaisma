@@ -365,6 +365,7 @@ export function gamePageResponse(env: Env, view: GamePageView): Response {
   const gamePane = glassPane({
     paneWidth: "fit",
     isStartedLow: true,
+    isAtStart: true,
     label: game.title,
     body: stack({
       items: [

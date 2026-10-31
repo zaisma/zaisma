@@ -46,6 +46,11 @@ export interface GlassPaneOptions {
    * with the title and Play below (the game's page). It never starts so low that the pane's first part, Play included, runs off the screen.
    */
   isStartedLow?: boolean;
+  /**
+   * A fit pane placed straight in a page's column sits at the column's start, not its middle: the game's page, whose pane stands at the
+   * left with the game's world beside it. Left out, a fit pane sits in the column's middle, under the header's.
+   */
+  isAtStart?: boolean;
 }
 
 /**
@@ -53,7 +58,7 @@ export interface GlassPaneOptions {
  * scrolls inside it, so nothing in it shrinks. It pads at the frame gap, and its words keep its margin (--pad-words).
  */
 export function glassPane(options: GlassPaneOptions): Raw {
-  return html`<section class="glass glass-pane ${options.paneWidth}${options.isStartedLow ? " is-started-low" : ""}" data-glass data-glass-corners="pane"${options.label ? html` aria-label="${options.label}"` : ""}>${EDGE}<div class="pane-in scrolls">${options.body}</div></section>`;
+  return html`<section class="glass glass-pane ${options.paneWidth}${options.isStartedLow ? " is-started-low" : ""}${options.isAtStart ? " is-at-start" : ""}" data-glass data-glass-corners="pane"${options.label ? html` aria-label="${options.label}"` : ""}>${EDGE}<div class="pane-in scrolls">${options.body}</div></section>`;
 }
 
 export interface FloatingPaneOptions {
