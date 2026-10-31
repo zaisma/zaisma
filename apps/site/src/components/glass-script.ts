@@ -167,6 +167,38 @@ export const GLASS_SCRIPT = `/* glass */(function () {
     return [[i, d[0]], [d[0], i], [w - d[1], i], [w - i, d[1]], [w - i, h - d[2]], [w - d[2], h - i], [d[3], h - i], [i, h - d[3]]];
   }
   function pointList(points) { return points.map(function (p) { return p[0].toFixed(1) + "," + p[1].toFixed(1); }).join(" "); }
+  /*
+   * The waiting light (the materials' waiting state), drawn into an edge's own svg: the light the glass's edge takes when it's pointed at,
+   * travelling round the rim. A bright core on the rim, the near flood spilling a few pixels into the glass and the far flood fading
+   * further in, each a closed outline measured as 100 long so one dash runs round all three together. The floods are drawn inside the
+   * rim (outlineAt(inset), inset by half their width), so the light spills into the glass, not out of it. Hidden until the materials light it.
+   */
+  function drawWaitingLight(svg, outlineAt, sizePx) {
+    var lines = svg.waitingLines;
+    // An edge built again (its innerHTML written anew) has lost them: they're made again.
+    if (!lines || lines[0].parentNode !== svg) {
+      if (!document.getElementById("zaisma-waiting-blurs")) {
+        var holder = document.createElementNS(SVG, "svg");
+        holder.setAttribute("id", "zaisma-waiting-blurs"); holder.setAttribute("aria-hidden", "true"); holder.setAttribute("width", "0"); holder.setAttribute("height", "0");
+        holder.style.position = "absolute";
+        holder.innerHTML = '<filter id="zaisma-waiting-near" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="2"/></filter><filter id="zaisma-waiting-far" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="7"/></filter>';
+        document.body.appendChild(holder);
+      }
+      lines = svg.waitingLines = ["far", "near", "core"].map(function (part) {
+        var line = document.createElementNS(SVG, "polyline");
+        line.setAttribute("class", "waiting-line " + part); line.setAttribute("pathLength", "100"); svg.appendChild(line);
+        if (part !== "core") { line.style.stroke = "var(--waiting-" + (part === "far" ? "flood-far" : "flood") + ")"; line.style.filter = "url(#zaisma-waiting-" + part + ")"; }
+        return line;
+      });
+    }
+    // Small glass (a button) gets a shallower flood, so the light never fills it.
+    var farPx = Math.max(3, Math.min(14, sizePx / 4)), nearPx = Math.min(3, farPx);
+    [farPx, nearPx, 0].forEach(function (widthPx, i) {
+      var outline = outlineAt(widthPx ? 1 + widthPx / 2 : 1);
+      lines[i].setAttribute("points", pointList(outline.concat([outline[0]])));
+      if (widthPx) lines[i].style.strokeWidth = widthPx * 2 + "px";
+    });
+  }
   // How lit each side of the cut is, from the top left corner's cut round to the left side. Neighbors always differ, so every turn of the edge shows as a step in brightness, like a cut facet.
   var SIDE_LIGHT = [80, 100, 70, 28, 12, 0, 40, 62];
   // A control made of glass takes its sides' light from the way each faces (the same steps, round the same way).
@@ -273,8 +305,6 @@ export const GLASS_SCRIPT = `/* glass */(function () {
         spec: node("polygon", { "class": "spec-line", fill: "none", stroke: "url(#" + id + "sp)", "stroke-width": "1.4" }),
         fringe: node("polygon", { "class": "fringe", fill: "none", stroke: "url(#" + id + "fr)", "stroke-width": "0.8" }),
         inner: node("polygon", { "class": "inner", fill: "none", stroke: "url(#" + id + "in)", "stroke-width": "1" }),
-        // The rim again, closed and measured as 100 long, for the waiting light to run round while the glass waits (is-waiting: the header on its way to a new page).
-        waiting: node("polyline", { "class": "waiting-line", fill: "none", pathLength: "100" }),
         // Caustics, on a pane (not a control): the light the thick glass gathers just inside its edge, brightest on the lit facets,
         // fading inward in a few soft steps. It's part of the pane's own rim, so it moves with the pane, never a frame behind it.
         caustics: isControl ? [] : [1, 2, 3, 4].map(function (step) { return { group: node("g", { "class": "caustic step-" + step }), quads: [] }; }),
@@ -328,9 +358,9 @@ export const GLASS_SCRIPT = `/* glass */(function () {
       placeBands(parts.bevel, parts.bevelQuads, at(0), at(band), lights);
       placeBands(parts.rimBand, parts.rimQuads, at(0), at(1.6), lights);
       parts.hair.setAttribute("points", pointList(at(0.6)));
-      var rimLine = at(1.6);
-      parts.rim.setAttribute("points", pointList(rimLine));
-      parts.waiting.setAttribute("points", pointList(rimLine.concat([rimLine[0]])));
+      parts.rim.setAttribute("points", pointList(at(1.6)));
+      // The waiting light runs round the rim while the glass waits (is-waiting: the header on its way to a new page).
+      drawWaitingLight(edge, at, Math.min(w, h));
       parts.spec.setAttribute("points", pointList(at(1.6)));
       // Dispersion: a faint split of color along the facet's inner edge, where the light bends.
       parts.fringe.setAttribute("points", pointList(at(Math.max(2.4, band - 0.8))));
@@ -571,10 +601,8 @@ export const GLASS_SCRIPT = `/* glass */(function () {
       shape = distinct(shape, 1);
       var outline = insetShape(shape, 1);
       poly.setAttribute("points", list(outline));
-      // The same outline, closed and measured as 100 long, for the waiting light to run round (the materials' waiting state).
-      var waiting = svg.querySelector(".waiting-line");
-      if (!waiting) { waiting = document.createElementNS(SVG, "polyline"); waiting.setAttribute("class", "waiting-line"); waiting.setAttribute("pathLength", "100"); svg.appendChild(waiting); }
-      waiting.setAttribute("points", list(outline.concat([outline[0]])));
+      // The waiting light runs round the same outline (the materials' waiting state).
+      drawWaitingLight(svg, function (inset) { return insetShape(shape, inset); }, Math.min(w, h));
       // data-cut-ring: a second outline set out around the shape by that many pixels, for a ring that mustn't touch what's inside (a check field's
       // keyboard focus, clear of its orange piece). It's drawn in the control's own shape, whatever its corners.
       var ringPx = Number(el.getAttribute("data-cut-ring")) || 0;

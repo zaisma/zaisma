@@ -377,9 +377,9 @@ span.hairline { flex: 1; border-top: var(--divider); }
    cut; a piece made of several (a PIN's marks) marks the parts whose edges light (data-waits-here). A quick answer shows only the press.
    Under reduced motion the edge glows, still. A screen reader hears what it's doing
    (.when-waiting, a busy label), and its words on screen stay as they were. */
-.cut-line > .waiting-line { fill: none; stroke: none; }
+.waiting-line { fill: none; opacity: 0; }
 :is([aria-busy="true"], :has(> input[aria-busy="true"])) > .cut-line > .waiting-line, [aria-busy="true"] > [data-cut-line] > .cut-line > .waiting-line, [aria-busy="true"] [data-waits-here] > .cut-line > .waiting-line, .is-waiting > .edge > .waiting-line {
-  stroke: var(--waiting-light); stroke-width: var(--waiting-light-width); stroke-linecap: round; stroke-dasharray: 22 78; opacity: 0; filter: drop-shadow(0 0 3px var(--waiting-light));
+  stroke: var(--waiting-light); stroke-width: var(--waiting-light-width); stroke-linecap: round; stroke-dasharray: 22 78; opacity: 0;
   animation: waiting-arrives 1ms var(--waiting-delay) forwards, waiting-runs var(--motion-loop) linear var(--waiting-delay) infinite; }
 @keyframes waiting-arrives { to { opacity: 1; } }
 @keyframes waiting-runs { from { stroke-dashoffset: 0; } to { stroke-dashoffset: -100; } }
@@ -389,8 +389,8 @@ span.hairline { flex: 1; border-top: var(--divider); }
   :is([aria-busy="true"], :has(> input[aria-busy="true"])) > .cut-line > .waiting-line, [aria-busy="true"] > [data-cut-line] > .cut-line > .waiting-line, [aria-busy="true"] [data-waits-here] > .cut-line > .waiting-line, .is-waiting > .edge > .waiting-line { stroke-dasharray: none; animation: waiting-arrives 1ms var(--waiting-delay) forwards; }
 }
 /* Glass waiting on a new page (the header, its is-waiting from HEADER_SCRIPT) runs the same light round its rim, the edge glass-script.ts
-   draws, after --waiting-delay, so a page that comes at once shows nothing. */
-.edge > .waiting-line { stroke: none; }
+   draws, after --waiting-delay, so a page that comes at once shows nothing. The light is three lines that run together (drawWaitingLight):
+   the core here, and its near and far floods, each blurred and colored in glass-script.ts. */
 /* Pictures (foundations.ts, picture): a picture's box holds its placeholder, the tiny copy in the page itself (--placeholder), blurred and
    run past the box's edges so no edge fades, and the picture over it, hidden until it has wholly arrived and decoded, then fading in
    (img.reveals, PICTURE_SCRIPT). A game's world on its page starts the same way, blurred more (backdropPlaceholder), under its picture or
