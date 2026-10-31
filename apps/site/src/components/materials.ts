@@ -387,13 +387,14 @@ span.hairline { flex: 1; border-top: var(--divider); }
 @keyframes waiting-arrives { to { opacity: 1; } }
 @keyframes waiting-runs { from { stroke-dashoffset: 0; } to { stroke-dashoffset: -100; } }
 /* Glass waiting on a new page (the header, is-waiting from HEADER_SCRIPT): its bottom edge is a groove that fills with the same orange light,
-   quickly at first and slower as it goes, never quite full, until the page comes. */
+   a line of light as the Light component draws one (4px), starting an eighth full so it shows at once, filling quickly at first and slower
+   as it goes, never quite full, until the page comes. */
 @property --waiting-filled { syntax: "<percentage>"; inherits: false; initial-value: 0%; }
-.glass-bar::after { content: ""; position: absolute; z-index: 4; inset: auto 0 0 0; height: 3px; opacity: 0; pointer-events: none;
+.glass-bar::after { content: ""; position: absolute; z-index: 4; inset: auto 0 0 0; height: 4px; opacity: 0; pointer-events: none;
   background: linear-gradient(90deg, var(--run-deep), var(--run) 40%, var(--run-hi) 85%, var(--run-tip) 96%, var(--run-spark)) 0 0 / var(--waiting-filled) 100% no-repeat, var(--track);
-  filter: drop-shadow(0 0 3px var(--waiting-glow)); }
+  filter: drop-shadow(0 0 2px var(--waiting-glow)) drop-shadow(0 0 6px var(--waiting-glow)); }
 .glass-bar.is-waiting::after { animation: waiting-arrives 1ms forwards, waiting-fills var(--waiting-fill-time) cubic-bezier(0.1, 0.7, 0.2, 1) forwards; }
-@keyframes waiting-fills { from { --waiting-filled: 0%; } to { --waiting-filled: 90%; } }
+@keyframes waiting-fills { from { --waiting-filled: 12%; } to { --waiting-filled: 90%; } }
 [aria-busy="true"] { cursor: progress; }
 .when-waiting:not([aria-busy="true"] .when-waiting) { display: none; }
 @media (prefers-reduced-motion: reduce) {
