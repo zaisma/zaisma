@@ -5,6 +5,7 @@ import { controlMarkup, type ControlMarkup } from "./control-markup.ts";
 import { CUT_LINE, EDGE, floatingPane, glassPane, icon, type IconName } from "./foundations.ts";
 import { tertiaryButton, toggleButton } from "./actions.ts";
 import { examplePane } from "./example-pane.ts";
+import { smallGameCard } from "./game-cover.ts";
 import { row } from "./layout.ts";
 
 /*
@@ -100,7 +101,7 @@ const suggestionRows = (id: string, typed: string, suggestions: SearchSuggestion
   const active = (rowIndex: number) => (rowIndex === activeIndex ? " is-active" : "");
   return html`${finishes.map((finish, rowIndex) => html`<div class="select-option flush-row compact find-finish-row${active(rowIndex)}" role="option" id="${id}-row-${rowIndex}" data-finish="${finish}" data-cut-line="8">${CUT_LINE}<span class="find-row-icon">${icon("search")}</span>${matchWords(finish, typed)}</div>`)}${
     games.length ? html`<div class="find-head words-margin" role="presentation">Games</div>` : ""
-  }${games.map((game, gameIndex) => html`<a class="select-option flush-row compact find-game${active(finishes.length + gameIndex)}" role="option" id="${id}-row-${finishes.length + gameIndex}" href="${game.page_url}" tabindex="-1" data-cut-line="8">${CUT_LINE}<img src="${game.cover_url}" alt="" width="64" height="36"><span class="find-game-words">${matchWords(game.title, typed)}<span class="find-game-fact">${game.fact}</span></span></a>`)}`;
+  }${games.map((game, gameIndex) => html`<a class="select-option flush-row compact find-game${active(finishes.length + gameIndex)}" role="option" id="${id}-row-${finishes.length + gameIndex}" href="${game.page_url}" tabindex="-1" data-cut-line="8">${CUT_LINE}${smallGameCard({ imageUrl: game.cover_url || null })}<span class="find-game-words">${matchWords(game.title, typed)}<span class="find-game-fact">${game.fact}</span></span></a>`)}`;
 };
 
 /**
@@ -115,7 +116,7 @@ export function searchField(options: SearchFieldOptions): ControlMarkup {
   const suggests = options.suggestionsUrl !== undefined || isOpen;
   const combobox = suggests ? html` role="combobox" aria-autocomplete="both" aria-expanded="${isOpen ? "true" : "false"}" aria-controls="${id}-choices"${isOpen ? html` aria-activedescendant="${id}-row-0"` : ""}` : "";
   const list = suggests
-    ? html`<span class="find-finish" aria-hidden="true"><span class="find-typed">${typedFinish ? options.searchText : ""}</span><span>${typedFinish}</span></span>${floatingPane({ id: `${id}-list`, placement: "under", kind: "select-list find-list", isShownInPlace: isOpen, body: html`<div class="select-options" id="${id}-choices" role="listbox" aria-label="${options.label}" data-own-fade>${isOpen && options.shownSuggestions ? suggestionRows(id, options.searchText, options.shownSuggestions, 0) : ""}</div>` })}<template class="find-icon"><span class="find-row-icon">${icon("search")}</span></template>`
+    ? html`<span class="find-finish" aria-hidden="true"><span class="find-typed">${typedFinish ? options.searchText : ""}</span><span>${typedFinish}</span></span>${floatingPane({ id: `${id}-list`, placement: "under", kind: "select-list find-list", isShownInPlace: isOpen, body: html`<div class="select-options" id="${id}-choices" role="listbox" aria-label="${options.label}" data-own-fade>${isOpen && options.shownSuggestions ? suggestionRows(id, options.searchText, options.shownSuggestions, 0) : ""}</div>` })}<template class="find-icon"><span class="find-row-icon">${icon("search")}</span></template><template class="find-cover">${smallGameCard({ imageUrl: "" })}</template>`
     : "";
   const className = ["find", "carving", "layered", "is-used", "sized", options.state === "is-open" ? "is-focused is-open" : options.state ?? ""].filter(Boolean).join(" ");
   return controlMarkup(html`<form class="${className}" method="get" action="${options.action}" role="search" data-cut-line="10"${options.suggestionsUrl !== undefined ? html` data-suggest="${options.suggestionsUrl}"` : ""}>${CUT_LINE}${Object.entries(options.keep ?? {}).map(([name, keptValue]) => html`<input type="hidden" name="${name}" value="${keptValue}">`)}${icon("search")}<input type="search" name="${options.name}" value="${options.searchText}" maxlength="200" placeholder="${options.placeholder}" aria-label="${options.label}" autocomplete="off"${combobox}>${tertiaryButton("Clear the search", { type: "button", icon: "close", isLabelHidden: true, isSmall: true })}${list}</form>`, "regular");
@@ -410,7 +411,7 @@ export const SEARCH_SCRIPT = `/* search finishes */(function () {
   var WAIT_MS = 120;
   window.zaismaWatch.each("form.find[data-suggest]", function (form) {
     var input = form.querySelector('input[type="search"]'), list = form.querySelector(".find-list"), box = list.querySelector('[role="listbox"]'), scroller = list.querySelector(".floating-body");
-    var ghost = form.querySelector(".find-finish"), typedPart = ghost.firstElementChild, restPart = ghost.lastElementChild, iconTemplate = form.querySelector("template.find-icon");
+    var ghost = form.querySelector(".find-finish"), typedPart = ghost.firstElementChild, restPart = ghost.lastElementChild, iconTemplate = form.querySelector("template.find-icon"), coverTemplate = form.querySelector("template.find-cover");
     var id = list.id.replace(/-list$/, ""), url = form.getAttribute("data-suggest"), rows = [], active = -1, timer = 0, asking = null, answers = new Map();
     // A Floating pane under the field, as wide as it; the cursor stays in the field, so Esc there closes it (below).
     var float = window.zaismaFloat(list, {
@@ -455,7 +456,11 @@ export const SEARCH_SCRIPT = `/* search finishes */(function () {
       if (games.length) { var head = document.createElement("div"); head.className = "find-head words-margin"; head.setAttribute("role", "presentation"); head.textContent = "Games"; box.appendChild(head); }
       games.forEach(function (game) {
         var row = newRow("a", "game"); row.href = game.page_url; row.tabIndex = -1;
-        var cover = document.createElement("img"); cover.src = game.cover_url; cover.alt = ""; cover.width = 64; cover.height = 36;
+        // Its cover is the Game card's small one (smallGameCard, in the template), with Zaisma's mark where the game has none.
+        var cover = coverTemplate.content.firstElementChild.cloneNode(true), picture = cover.querySelector(".cover-picture");
+        // A picture Zaisma serves is offered at its kept sizes up to three times the card's widest (smallGameCard's srcset), so it's sharp.
+        if (game.cover_url) { var img = picture.querySelector("img"); if (/^\\/img\\/[A-Za-z0-9_-]+$/.test(game.cover_url)) { img.srcset = [320, 480].map(function (widthPx) { return game.cover_url + "/w" + widthPx + ".webp " + widthPx + "w"; }).join(", "); img.sizes = "160px"; } img.src = game.cover_url; }
+        else { picture.remove(); cover.classList.add("is-placeholder"); }
         var gameWords = document.createElement("span"), fact = document.createElement("span");
         gameWords.className = "find-game-words"; fact.className = "find-game-fact"; fact.textContent = game.fact;
         gameWords.append(words(game.title, typed), fact); row.append(cover, gameWords); box.appendChild(row); rows.push(row);
@@ -930,8 +935,12 @@ component({
 .find-row-icon > .ico { width: 18px; height: 18px; }
 .find-list .select-option.is-active .find-row-icon { color: var(--ink); }
 .find-head { margin: 8px 0 2px; font: var(--type-note); color: var(--muted); }
-.find-game > img { flex: none; width: 64px; height: 36px; object-fit: cover; background: var(--well); }
-.find-game-words { display: grid; gap: 2px; min-width: 0; }
+/* A game's row is a bigger one: its cover is the Game card's small one at a fifth of the list's width, 96 to 160px (a phone's list to a wide
+   header's), and its title is a card's name. */
+.find-list .select-options { container-type: inline-size; }
+.find-game { gap: var(--gap-words-beside-control); }
+.find-game > .cover.is-small { width: clamp(96px, 20cqw, 160px); }
+.find-game-words { display: grid; gap: 2px; min-width: 0; font: var(--type-name); }
 .find-game-fact { font: var(--type-note); color: var(--muted); }
 /* Shown open in place (the gallery's open state): hanging under the field, over what follows it. */
 .find > .find-list.in-place { position: absolute; z-index: 6; top: calc(100% + 6px); left: 0; right: 0; }
