@@ -601,10 +601,12 @@ export interface HeaderSearch {
   placeholder: string;
   label: string;
   keep?: Record<string, string>;
+  /** Where it asks for finishes and games as you type (SearchSuggestions); left out, it suggests nothing. */
+  suggestionsUrl?: string;
 }
 
-/** The header's search on player pages: games, by title, developer or genre, on Browse. */
-export const GAME_SEARCH: HeaderSearch = { action: "/games", searchText: "", placeholder: "Search games", label: "Search games" };
+/** The header's search on player pages: games, by title, developer or genre, on Browse, with finishes and games as you type. */
+export const GAME_SEARCH: HeaderSearch = { action: "/games", searchText: "", placeholder: "Search games", label: "Search games", suggestionsUrl: "/games/suggestions" };
 
 const ADMIN_TABS: [string, string][] = [
   ["Admin", "/admin"], ["Reports", "/admin/reports"], ["Feedback", "/admin/feedback"], ["Profiles", "/admin/profiles"], ["Publishing", "/admin/publishing"],

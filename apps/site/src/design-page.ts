@@ -104,7 +104,7 @@ function olderVersionsPage(env: Env, url: URL): Response {
 
 export function designPage(env: Env, url: URL): Response | null {
   if (url.pathname === "/design/examples/older-versions") return olderVersionsPage(env, url);
-  if (url.pathname === "/design/examples/search-suggestions") return new Response(JSON.stringify(SEARCH_STAND_IN.suggestionsFor(url.searchParams.get("search") ?? "")), { headers: securityHeaders(env, { "Content-Type": "application/json" }) });
+  if (url.pathname === "/design/examples/search-suggestions") return new Response(JSON.stringify(SEARCH_STAND_IN.suggestionsFor(url.searchParams.get("search_text") ?? "")), { headers: securityHeaders(env, { "Content-Type": "application/json" }) });
   if (url.pathname === "/design/example") return examplePage(env);
   if (url.pathname === SCREENS_PATH) return isLocalSite(env) ? screensPage(env, url) : null;
   const found = placeOfPath(url.pathname.replace(/\/+$/, "") || "/");

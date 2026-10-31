@@ -585,10 +585,13 @@ export const GLASS_SCRIPT = `/* glass */(function () {
       });
     }
     draw();
-    // redrawCut() draws it again; redrawCut({ from: { beside, ends }, ms, ease }) glides there from the shape those attributes gave, on its
-    // mover's ease (a cubic ease-out by default), so its shape lands as it does.
+    // redrawCut() draws it again where it is now, ending any glide: a mover that stops a move part way (a switch's slab put straight on its tab
+    // when its room changes size) leaves no shape half blended. redrawCut({ from: { beside, ends }, ms, ease }) glides there from the shape
+    // those attributes gave, on its mover's ease (a cubic ease-out by default), so its shape lands as it does; a mover that draws each frame
+    // itself (isDriven) calls redrawCut({ isFrame: true }) for the glide's next step.
     el.redrawCut = function (move) {
-      if (move && move.ms > 0 && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) glide = { from: move.from, ms: move.ms, ease: move.ease, isDriven: Boolean(move.isDriven), startMs: performance.now() };
+      if (move && move.isFrame) { draw(); return; }
+      glide = move && move.ms > 0 && !window.matchMedia("(prefers-reduced-motion: reduce)").matches ? { from: move.from, ms: move.ms, ease: move.ease, isDriven: Boolean(move.isDriven), startMs: performance.now() } : null;
       draw();
     };
     window.zaismaWatch.size(el, draw, runBatch);

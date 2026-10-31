@@ -15,7 +15,7 @@ import { handleGithubSecretScanning } from "./leaked-keys.ts";
 import { recordBlockedScripts } from "./security-alerts.ts";
 import { pageScriptResponse } from "./page-scripts.ts";
 import { pageStyleResponse } from "./page-styles.ts";
-import { browsePage } from "./browse.ts";
+import { browsePage, browseSuggestions } from "./browse.ts";
 import { handlePlayed, home } from "./home.ts";
 import { handlePlays } from "./plays.ts";
 import { gamePage, legal, previewPage, testerEnter, testerPage } from "./pages.ts";
@@ -105,6 +105,7 @@ async function route(request: Request, env: Env, ctx: ExecutionContext): Promise
 
   if (path === "/" && method !== "POST") return home(env, request);
   if (path === "/games" && (method === "GET" || method === "HEAD")) return browsePage(env, request);
+  if (path === "/games/suggestions" && (method === "GET" || method === "HEAD")) return browseSuggestions(env, request);
 
   const played = await handlePlayed(request, env, path);
   if (played) return played;

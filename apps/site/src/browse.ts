@@ -11,7 +11,8 @@ import { tabSwitch, type SwitchTab } from "./components/switch.ts";
 import { DEVICE_KIND_SOURCE, viewerDeviceKind } from "./device-kind.ts";
 import type { Env } from "./env.ts";
 import { MINIMUM_POPULAR_PLAYER_COUNT, coverPriceText, isTrending, paidGamesOwnedBy, shelfCounts, showcase, trendingScore, type ShelfCount, type ShowGame } from "./home.ts";
-import { GAME_SEARCH, html, layout, scriptTags } from "./html.ts";
+import { GAME_SEARCH, html, layout, scriptTags, securityHeaders } from "./html.ts";
+import type { SearchSuggestions } from "./components/fields.ts";
 import { pageScript } from "./page-scripts.ts";
 import { MINIMUM_PLAYING_NOW_PLAYER_COUNT } from "./plays.ts";
 import { viewerOf } from "./viewer.ts";
@@ -324,6 +325,65 @@ export async function browsePage(env: Env, request: Request): Promise<Response> 
   });
   // The order depends on the device, so a cache keeps one copy per device cookie.
   response.headers.append("Vary", "Cookie");
+  for (const cookie of viewer.cookies) response.headers.append("Set-Cookie", cookie);
+  return response;
+}
+
+/** Finishes and games a suggestions answer holds at most: the search field shows three of each. */
+const MAXIMUM_SUGGESTION_COUNT = 3;
+/** How long the edge keeps an answer: a new game or a new count shows within a minute. */
+const SUGGESTIONS_KEPT_MS = 60_000;
+
+/**
+ * What the header's search suggests as you type (GET /games/suggestions?search_text=, SearchSuggestions): the games Browse would find,
+ * in its Popular order with the viewer's device first, so nothing shows that a stranger couldn't find on Browse; and the ways to finish
+ * what's typed, from those games' titles, developers and genres, the one that finds the most games first.
+ */
+export function suggestionsFor(games: BrowseGame[], searchText: string): SearchSuggestions {
+  const needle = searchText.toLowerCase();
+  if (!needle) return { finishes: [], games: [] };
+  const found = games.filter((game) => matchesSearch(game, searchText));
+  // Each finish once, however it's written, with how many games searching it finds and where it first shows in the order.
+  const finishes = new Map<string, { finish: string; gameCount: number; firstIndex: number }>();
+  found.forEach((game, gameIndex) => {
+    const words = [game.title, game.developer ?? "", ...game.genres.map((genre) => GENRE_LABELS[genre as Genre] ?? genre)];
+    for (const word of words) {
+      const key = word.toLowerCase();
+      if (!key.startsWith(needle) || key === needle || finishes.has(key)) continue;
+      finishes.set(key, { finish: word, gameCount: found.filter((each) => matchesSearch(each, word)).length, firstIndex: gameIndex });
+    }
+  });
+  return {
+    finishes: [...finishes.values()].sort((first, second) => second.gameCount - first.gameCount || first.firstIndex - second.firstIndex).slice(0, MAXIMUM_SUGGESTION_COUNT).map((each) => each.finish),
+    games: found.slice(0, MAXIMUM_SUGGESTION_COUNT).map((game) => ({
+      title: game.title,
+      page_url: `/g/${game.slug}`,
+      cover_url: game.cover ?? game.square ?? "",
+      // Why it may not suit this device first, as on its cover; else players now, from the floor Browse shows them at; else its developer.
+      fact: game.device_note ?? (game.playing_now_player_count >= MINIMUM_PLAYING_NOW_PLAYER_COUNT ? `${game.playing_now_player_count.toLocaleString("en-US")} playing` : game.developer ? `By ${game.developer}` : ""),
+    })),
+  };
+}
+
+/** GET /games/suggestions: the search field's finishes and games, kept at the edge for a minute per search, age floor, country and device. */
+export async function browseSuggestions(env: Env, request: Request): Promise<Response> {
+  const url = new URL(request.url);
+  const searchText = (url.searchParams.get("search_text") ?? "").trim().slice(0, MAXIMUM_SEARCH_CHARACTER_COUNT);
+  const viewer = await viewerOf(request, env);
+  const deviceKind = viewerDeviceKind(request);
+  const countryCode = requestCountryCode(request);
+  // The answer depends only on these, so every viewer they match shares it: the key holds them, never who's asking.
+  const cacheKey = new Request(`${url.origin}/games/suggestions?${new URLSearchParams({ search_text: searchText.toLowerCase(), age_floor_years: String(viewer.ageFloorYears), country_code: countryCode ?? "", device_kind: deviceKind })}`);
+  const cache = typeof caches === "undefined" ? null : (caches as unknown as { default: Cache }).default;
+  const kept = searchText && cache ? await cache.match(cacheKey) : undefined;
+  let body: string;
+  if (kept) body = await kept.text();
+  else {
+    const games = searchText ? await browseGames(env, { sort: "popular", genre: "any", players: "any", priceRange: "any", searchText, deviceKind, viewerAgeFloorYears: viewer.ageFloorYears, countryCode }) : [];
+    body = JSON.stringify(suggestionsFor(games, searchText));
+    if (searchText && cache) await cache.put(cacheKey, new Response(body, { headers: { "Content-Type": "application/json", "Cache-Control": `public, max-age=${SUGGESTIONS_KEPT_MS / 1000}` } }));
+  }
+  const response = new Response(request.method === "HEAD" ? null : body, { headers: securityHeaders(env, { "Content-Type": "application/json", "Cache-Control": "private, max-age=60" }) });
   for (const cookie of viewer.cookies) response.headers.append("Set-Cookie", cookie);
   return response;
 }

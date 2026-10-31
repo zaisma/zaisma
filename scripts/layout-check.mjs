@@ -280,6 +280,10 @@ const PRESS_EVERY_ANSWER = `(async () => {
       const group = el.closest(".tab-switch");
       if (group) observer.observe(group, { attributes: true, subtree: true });
       timer = setInterval(() => { if (layered() !== layeredBefore) answer(); }, 20);
+      // A switch's room changes size while its slab slides (a page swapping what's under it, a resize): the slab must still land cut for
+      // where it rests (below).
+      const room = group?.parentElement;
+      if (room) { setTimeout(() => { room.style.maxWidth = room.offsetWidth - 2 + "px"; }, 100); setTimeout(() => { room.style.maxWidth = ""; }, 250); }
       el.click();
       setTimeout(() => { observer.disconnect(); clearInterval(timer); done(null); }, ${MAXIMUM_ANSWER_MS});
     });
@@ -288,6 +292,14 @@ const PRESS_EVERY_ANSWER = `(async () => {
     document.querySelectorAll(":popover-open").forEach((popover) => popover.hidePopover());
     document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
     await new Promise((done) => setTimeout(done, 450));
+    // A switch's slab, once it comes to rest on the tab pressed, is cut for where it rests: drawing it again there changes nothing.
+    const slab = el.closest(".tab-switch")?.querySelector(".switch-slab");
+    if (slab?.redrawCut) {
+      for (let waitedMs = 0; slab.slideTarget && waitedMs < 1000; waitedMs += 50) await new Promise((done) => setTimeout(done, 50));
+      const restingShape = slab.style.getPropertyValue("--cut-shape");
+      slab.redrawCut();
+      if (restingShape !== slab.style.getPropertyValue("--cut-shape")) failures.push({ check: "switch slab not recut where it rests", element: describe(el), said: "its shape " + restingShape + ", the edge rule's there " + slab.style.getPropertyValue("--cut-shape") });
+    }
   }
   return failures;
 })()`;

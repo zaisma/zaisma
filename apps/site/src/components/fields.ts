@@ -73,7 +73,7 @@ export interface SearchFieldOptions {
   /** Unique on the page; its list of finishes and games is <id>-list. Defaults to find-<name>. */
   id?: string;
   /**
-   * Finishes and games as you type: GET <suggestionsUrl>?search=<what's typed> answers SearchSuggestions, shown in a list under the field.
+   * Finishes and games as you type: GET <suggestionsUrl>?search_text=<what's typed> answers SearchSuggestions, shown in a list under the field.
    * Left out, it's a plain search.
    */
   suggestionsUrl?: string;
@@ -455,7 +455,7 @@ export const SEARCH_SCRIPT = `/* search finishes */(function () {
       if (games.length) { var head = document.createElement("div"); head.className = "find-head words-margin"; head.setAttribute("role", "presentation"); head.textContent = "Games"; box.appendChild(head); }
       games.forEach(function (game) {
         var row = newRow("a", "game"); row.href = game.page_url; row.tabIndex = -1;
-        var cover = document.createElement("img"); cover.src = game.cover_url; cover.alt = ""; cover.width = 64; cover.height = 36;
+        var cover = document.createElement("img"); if (game.cover_url) cover.src = game.cover_url; cover.alt = ""; cover.width = 64; cover.height = 36;
         var gameWords = document.createElement("span"), fact = document.createElement("span");
         gameWords.className = "find-game-words"; fact.className = "find-game-fact"; fact.textContent = game.fact;
         gameWords.append(words(game.title, typed), fact); row.append(cover, gameWords); box.appendChild(row); rows.push(row);
@@ -468,7 +468,7 @@ export const SEARCH_SCRIPT = `/* search finishes */(function () {
       if (!typed) { rows = []; box.textContent = ""; setActive(-1); hide(); return; }
       if (answers.has(typed)) { fill(answers.get(typed), typed); return; }
       asking = new AbortController();
-      fetch(url + (url.indexOf("?") < 0 ? "?" : "&") + "search=" + encodeURIComponent(typed), { signal: asking.signal, headers: { Accept: "application/json" } })
+      fetch(url + (url.indexOf("?") < 0 ? "?" : "&") + "search_text=" + encodeURIComponent(typed), { signal: asking.signal, headers: { Accept: "application/json" } })
         .then(function (answer) { return answer.ok ? answer.json() : { finishes: [], games: [] }; })
         .then(function (answer) { answers.set(typed, answer); if (input.value.trim() === typed) fill(answer, typed); })
         .catch(function () {});
