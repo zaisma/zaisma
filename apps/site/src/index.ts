@@ -58,6 +58,7 @@ import { retryPendingRefunds } from "./credit-api.ts";
 import { handleStripeEvents } from "./stripe-events.ts";
 import { handleStripeConnectEvents } from "./stripe-connect-events.ts";
 import { handleGameLinks, recheckLinks } from "./game-links.ts";
+import { watchAccounts } from "./account-watch.ts";
 import { watchHealth } from "./health-alerts.ts";
 import { SECURITY_TEXT_FILE_PATH, securityTextFile } from "./security-policy.ts";
 import { viewerOf } from "./viewer.ts";
@@ -249,7 +250,7 @@ export default {
     // While a restore from the backups runs, nothing else does: a cleanup would delete files whose owners haven't come back yet (restore.ts).
     if (await runWaitingRestore(env)) return;
     // One failing job mustn't stop the others.
-    const jobs = await Promise.allSettled([moveFiles(env), publishDue(env), triageReports(env), sortTopics(env), sortMisplaced(env), checkForumPosts(env), checkProfiles(env), reviewChatMessages(env), deliverDueWebhooks(env), eraseDuePlayers(env), deleteDueGames(env), ...(event.cron === DAILY ? [] : [runHostingJob(env).then(() => tellAlertNotices(env)), retryPendingRefunds(env)]), tellGameServerErrors(env), recheckLinks(env), checkStanding(env), rescanWaiting(env), watchHealth(env), testWaitingReviewPrecedents(env), queueListingChecks(env), queueShaderChecks(env), deleteAbandonedSignIns(env, event.cron === DAILY ? DAILY_SIGN_IN_SWEEP_MS : RECENT_SIGN_IN_SWEEP_MS), ...(event.cron === DAILY ? [dailyCleanup(env), failStaleSales(env), queueImageChecks(env), queueMissingCompression(env), startBackupRun(env)] : [])]);
+    const jobs = await Promise.allSettled([moveFiles(env), publishDue(env), triageReports(env), sortTopics(env), sortMisplaced(env), checkForumPosts(env), checkProfiles(env), reviewChatMessages(env), deliverDueWebhooks(env), eraseDuePlayers(env), deleteDueGames(env), ...(event.cron === DAILY ? [] : [runHostingJob(env).then(() => tellAlertNotices(env)), retryPendingRefunds(env)]), tellGameServerErrors(env), recheckLinks(env), checkStanding(env), rescanWaiting(env), watchHealth(env), watchAccounts(env), testWaitingReviewPrecedents(env), queueListingChecks(env), queueShaderChecks(env), deleteAbandonedSignIns(env, event.cron === DAILY ? DAILY_SIGN_IN_SWEEP_MS : RECENT_SIGN_IN_SWEEP_MS), ...(event.cron === DAILY ? [dailyCleanup(env), failStaleSales(env), queueImageChecks(env), queueMissingCompression(env), startBackupRun(env)] : [])]);
     for (const job of jobs) if (job.status === "rejected") console.error("scheduled job failed", job.reason);
   },
 } satisfies ExportedHandler<Env, ScanJob | ListingCheckJob | ShaderCheckJob>;
