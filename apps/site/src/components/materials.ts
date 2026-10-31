@@ -411,6 +411,8 @@ span.hairline { flex: 1; border-top: var(--divider); }
 .picture > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
 img.reveals:not(.is-shown) { opacity: 0; }
 img.reveals.is-shown:not(.at-once) { animation: picture-arrives var(--motion-settle) var(--ease-standard); }
+/* A game's world behind the glass fills the screen, so it eases in slower over its blur (--motion-world), as the runner's shader does. */
+img.backdrop.reveals.is-shown:not(.at-once) { animation: picture-arrives var(--motion-world) ease-out; }
 @keyframes picture-arrives { from { opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { img.reveals.is-shown { animation: none; } }
 `;

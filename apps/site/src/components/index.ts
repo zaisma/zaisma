@@ -84,11 +84,12 @@ export const COMPONENT_STYLES = (): string => (shownStyles ||= hoverOnlyWherePoi
  * The components' scripts, readable, in two (what scripts/minify-components.mjs minifies). The first-paint script draws and places what the
  * page's first paint shows: the page watcher, pictures arriving, the glass and its edge rule, the materials, where panes hang, and every
  * script that sizes or places the layout (a switch's slab, rails, rows, fades, the sidebar, compacting, a pane started low, the sign-in's pane, a long field's height, a
- * chart's scroll, a slider's and a colour's thumb, a date's words in the viewer's time, a menu shown in place), and the backdrop, so Zaisma's shader starts with the page, never after its stand-in. The page holds its first paint for
+ * chart's scroll, a slider's and a colour's thumb, a date's words in the viewer's time, a menu shown in place), and the backdrop, first, so Zaisma's shader starts with the page, never after its stand-in, and a game's world picks its glass before anything
+ * reads the page (read light first, the glass would fade to smoked as the page showed). The page holds its first paint for
  * it alone, in its head ("A page shows whole while it loads", docs/DESIGN.md), so it's kept to that; the loading check (layout-check.mjs)
  * fails a page that changes when the rest is held back, which is how a script is found to belong here. The rest runs after, holding nothing.
  */
-export const FIRST_PAINT_SCRIPT_SOURCE = WATCH_SCRIPT + PICTURE_SCRIPT + GLASS_SCRIPT + MATERIAL_SCRIPT + PLACE_SCRIPT + EDGE_LIGHT_SCRIPT + SWITCH_SCRIPT + RAIL_SCRIPT + ROW_SCRIPT + ROW_LAYOUT_SCRIPT + SCROLL_FADE_SCRIPT + SIDEBAR_SCRIPT + COMPACT_SCRIPT + STARTED_LOW_SCRIPT + WHEEL_SCRIPT + CHART_SCRIPT + LONG_FIELD_SCRIPT + SLIDER_SCRIPT + COLOR_FIELD_SCRIPT + DROPDOWN_SCRIPT + SELECT_SCRIPT + CITY_PANE_PLACE_SCRIPT + BACKDROP_SCRIPT;
+export const FIRST_PAINT_SCRIPT_SOURCE = WATCH_SCRIPT + BACKDROP_SCRIPT + PICTURE_SCRIPT + GLASS_SCRIPT + MATERIAL_SCRIPT + PLACE_SCRIPT + EDGE_LIGHT_SCRIPT + SWITCH_SCRIPT + RAIL_SCRIPT + ROW_SCRIPT + ROW_LAYOUT_SCRIPT + SCROLL_FADE_SCRIPT + SIDEBAR_SCRIPT + COMPACT_SCRIPT + STARTED_LOW_SCRIPT + WHEEL_SCRIPT + CHART_SCRIPT + LONG_FIELD_SCRIPT + SLIDER_SCRIPT + COLOR_FIELD_SCRIPT + DROPDOWN_SCRIPT + SELECT_SCRIPT + CITY_PANE_PLACE_SCRIPT;
 export const COMPONENT_SCRIPT_SOURCE = FIELD_SCRIPT + PIN_FIELD_SCRIPT + RUNNER_SCRIPT + BUSY_SCRIPT + TOGGLE_SCRIPT + CHECK_SCRIPT + CHOICE_CARDS_SCRIPT + FILE_DROP_SCRIPT + COPY_SCRIPT + QR_CODE_SCRIPT + SEARCH_SCRIPT + FILTER_MENU_SCRIPT + LAYERS_SCRIPT + STEP_FLOW_SCRIPT + CONFIRM_ITS_YOU_SCRIPT + LOAD_MORE_SCRIPT + PLAYING_CARD_SCRIPT + LIST_ROW_FOLD_SCRIPT;
 
 /**

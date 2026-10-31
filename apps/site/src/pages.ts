@@ -523,6 +523,7 @@ export function gamePageResponse(env: Env, view: GamePageView): Response {
     pageShape: "full",
     // The game's own world behind the glass, the same the home shows while its cover is pointed at.
     stage: backgroundMarkup(background),
+    stageColor: background.source === "zaisma" ? null : background.tone?.averageColor,
     isFramedBySelf: view.isFramedBySelf,
     viewer,
     // Cloudflare's invisible check from when the page opens, for play counts and multiplayer (tester links: only for multiplayer).

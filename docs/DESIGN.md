@@ -474,7 +474,7 @@ Every component, with the call that makes it and its options, is in the catalog 
 ### Navigation
 
 - **Header** (`header(options: HeaderOptions)`, `navigation.ts`): The top of every page: Zaisma, where you are, search when the page has one, and you. It floats as glass and slims once the page scrolls.
-  - `options`: `current: HeaderTab | null`, `search?: SearchFieldOptions`, `account?: { username: string } | null`, `isOnDeveloperPage: boolean`, `isOnSignInPage?: boolean`, `ownTabs?: SwitchTab[]`, `yourGamesHref?: string`, `hasPageRunner?: boolean`, `isCompact?: boolean`, `isMenuOpen?: boolean`, `isSearchOpen?: boolean`, `id?: string`, `sidebarButton?: ControlMarkup`
+  - `options`: `current: HeaderTab | null`, `search?: SearchFieldOptions`, `account?: { username: string } | null`, `isOnDeveloperPage: boolean`, `isOnSignInPage?: boolean`, `ownTabs?: SwitchTab[]`, `yourGamesHref?: string`, `hasPageRunner?: boolean`, `isCompact?: boolean`, `isWaiting?: boolean`, `isMenuOpen?: boolean`, `isSearchOpen?: boolean`, `id?: string`, `sidebarButton?: ControlMarkup`
 - **Account button** (`accountButton(options: AccountButtonOptions)`, `navigation.ts`): You, at the header's end once you're signed in: your picture alone is the button, a slab as tall as the controls beside it. It opens the account menu, which names you.
   - `options`: `username: string`, `menuId: string`, `isMenuOpen?: boolean`, `state?: "is-pointed" | "is-pressed" | "is-focused"`
 - **Footer** (`footer()`, `navigation.ts`): The end of every page: for game developers, the forum, the source and the rules.

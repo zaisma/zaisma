@@ -243,7 +243,7 @@ html { -webkit-tap-highlight-color: transparent; }
   --body: -apple-system, "Segoe UI", system-ui, sans-serif;
   /* Motion (materials.ts), one set for everything: how long a press takes to sink, a state to fade, a layer to arrive or leave, a slab to
      glide, a flare to settle and a light to loop; and the curves they take. Nothing else times itself. */
-  --motion-press: 0.08s; --motion-state: 0.2s; --motion-arrive: 0.3s; --motion-glide: 0.45s; --motion-settle: 0.6s; --motion-loop: 1.6s; --motion-loop-slow: 2.4s;
+  --motion-press: 0.08s; --motion-state: 0.2s; --motion-arrive: 0.3s; --motion-glide: 0.45s; --motion-settle: 0.6s; --motion-world: 1.2s; --motion-loop: 1.6s; --motion-loop-slow: 2.4s;
   --ease-glide: cubic-bezier(.2, .8, .2, 1); --ease-standard: cubic-bezier(.4, 0, .2, 1); --ease-leave: cubic-bezier(.4, 0, 1, 1); --ease-spring: cubic-bezier(.25, .9, .3, 1.25);
   --spring: var(--ease-spring);
   /* Waiting (materials.ts): the one light that says something's on its way, Zaisma's orange light (never dark: dark is only ever a shadow),

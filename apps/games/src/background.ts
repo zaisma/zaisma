@@ -214,6 +214,8 @@ const RUNNER_SCRIPT = `(function () {
         });
         shown = { passes: built, textures: textures, imageTarget: null, hasBuffers: built.length > 1, readsQuality: list.some(function (pass) { return /\\biQuality\\b/.test(withoutComments(pass.source)); }) };
         drawn = { widthPx: 0, heightPx: 0 }; frameIndex = 0; lastTimeSec = null; isHeld = false; slowSec = 0;
+        // Its first frame eases in over the placeholder, never cutting from the blur to the sharp world.
+        if (canvas.hidden) { canvas.classList.add("is-arriving"); requestAnimationFrame(function () { requestAnimationFrame(function () { canvas.classList.remove("is-arriving"); }); }); }
         canvas.hidden = false; still.hidden = true;
         size(); tell({ isRunning: true });
         // The developer's own preview has no saved still yet, so it's handed one to measure its glass from: a single pass's frame at the
@@ -357,11 +359,13 @@ const RUNNER_SCRIPT = `(function () {
 
 /**
  * The runner's page. Under its canvas lies the shader's placeholder, blurred as Zaisma's page blurs it under the frame (PICTURE_PLACEHOLDER), so
- * the frame shows the same picture as the page until the shader's first frame paints over it.
+ * the frame shows the same picture as the page until the shader's first frame eases in over it; under both, the shader's measured color,
+ * so the frame is never black or white while its placeholder decodes.
  */
-function runnerPage(config: Record<string, unknown>, stillUrl: string | null, placeholderDataUrl: string | null = null): string {
+function runnerPage(config: Record<string, unknown>, stillUrl: string | null, placeholderDataUrl: string | null = null, averageColor: string | null = null): string {
+  const color = averageColor && /^#[0-9a-fA-F]{6}$/.test(averageColor) ? averageColor : "#000";
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Background</title>
-<style>html, body { margin: 0; height: 100%; overflow: hidden; background: #000; } canvas, img { position: fixed; inset: 0; width: 100%; height: 100%; display: block; object-fit: cover; } [hidden] { display: none; } .placeholder { position: fixed; inset: -${PICTURE_PLACEHOLDER.backgroundBlurPx * 2}px; background: center / cover no-repeat; filter: blur(${PICTURE_PLACEHOLDER.backgroundBlurPx}px); }</style></head>
+<style>html, body { margin: 0; height: 100%; overflow: hidden; background: ${color}; } canvas { transition: opacity 1.2s ease-out; } canvas.is-arriving { opacity: 0; } canvas, img { position: fixed; inset: 0; width: 100%; height: 100%; display: block; object-fit: cover; } [hidden] { display: none; } .placeholder { position: fixed; inset: -${PICTURE_PLACEHOLDER.backgroundBlurPx * 2}px; background: center / cover no-repeat; filter: blur(${PICTURE_PLACEHOLDER.backgroundBlurPx}px); }</style></head>
 <body>${placeholderDataUrl ? `<div class="placeholder" style="background-image: url(${placeholderDataUrl})"></div>` : ""}<canvas hidden></canvas><img alt="" hidden${stillUrl ? ` data-src="${stillUrl}"` : ""}>
 <script>var __ZAISMA_BACKGROUND__ = ${JSON.stringify(config).replace(/</g, "\\u003c")};\n${RUNNER_SCRIPT}</script></body></html>`;
 }
@@ -451,6 +455,7 @@ export async function serveBackground(request: Request, env: BackgroundEnv, game
       { ...runnerConfig(env), isPreview: false, manifestUrl: `${base}_zaisma/background.json?screen=${screen}&shader=${shader.id}`, textureUrl: `${base}_zaisma/background-texture?image=` },
       `${base}_zaisma/background-still.png?screen=${screen}&shader=${shader.id}`,
       shader.placeholder_data_url,
+      shader.average_color,
     );
     return new Response(request.method === "HEAD" ? null : page, { headers });
   }

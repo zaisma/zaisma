@@ -649,6 +649,8 @@ interface LayoutBaseOptions {
   viewer?: Pick<Viewer, "account"> | null;
   /** A scene of the page's own in place of Zaisma's backdrop, like the sign-in's city (components/city.ts). */
   stage?: Raw;
+  /** The stage's own color ("#rrggbb", a game's measured background), behind it from the first paint (--backdrop-edge, which BACKDROP_SCRIPT keeps). */
+  stageColor?: string | null;
   /** A Steel page's own stylesheets (page-styles.ts), until its page is rebuilt: linked right after the site's, so they win over it as before. */
   steelStyles?: PageStyle[];
 }
@@ -673,7 +675,7 @@ export function layout(env: Env, options: LayoutOptions): Response {
   const themeColors = colorTheme === "system" ? html`<meta name="theme-color" content="#E7E4DF" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#121110" media="(prefers-color-scheme: dark)">` : html`<meta name="theme-color" content="${colorTheme === "dark" ? "#121110" : "#E7E4DF"}">`;
   const page = html`<!doctype html>
-<html lang="en" data-theme-choice="${colorTheme}"${options.pageShape ? html` data-page-shape="${options.pageShape}"` : ""}>
+<html lang="en" data-theme-choice="${colorTheme}"${options.pageShape ? html` data-page-shape="${options.pageShape}"` : ""}${options.stageColor && /^#[0-9a-fA-F]{6}$/.test(options.stageColor) ? html` style="--backdrop-edge: ${options.stageColor}"` : ""}>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
