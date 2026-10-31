@@ -347,7 +347,7 @@ describe("waiting", () => {
 
   it("is on every pressable material: a slab under its shell, a flush row, a pick and a check's or switch's socket and thumb keep their press while waiting, and their edge lights", () => {
     for (const pressed of ['.shell.is-pressed, .shell[aria-busy="true"])', ':is(:active, .is-pressed, [aria-busy="true"])', ':is(label:not(.is-disabled):active, .is-pressed, :has(input[aria-busy="true"])']) expect(MATERIAL_STYLES, pressed).toContain(pressed);
-    expect(MATERIAL_STYLES).toContain('[aria-busy="true"] > [data-cut-line] > .waiting-glow');
+    expect(MATERIAL_STYLES).toContain(".waiting-light > polygon");
     expect(MATERIAL_STYLES).not.toContain("--waiting-delay");
   });
 });

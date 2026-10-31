@@ -70,7 +70,7 @@ export const LIGHT_GLASS = `color-scheme: light;
   /* A warning and a field marked wrong: amber, a yellower hue than the runner's orange, so it never reads as something to press or as focus. */
   --warning: #7D5C00; --link-hover: var(--run-lo); --marked: var(--warning);
   --glass-base: 255, 255, 255; --glass-kind: "Light glass, dark words."; --glass-hue-strength: 14%; --track: rgba(186, 198, 216, 0.28);
-  --edge-light: #FFFFFF; --edge-flood: rgba(255, 255, 255, 0.62); --edge-flood-far: rgba(255, 255, 255, 0.24); --edge-wake: rgba(255, 255, 255, 0.8); --menu-edge-flood: rgba(196, 214, 246, 0.6); --menu-edge-flood-far: rgba(196, 214, 246, 0.22);
+  --edge-light: #FFFFFF; --waiting-on-lit: #FFD27A; --edge-flood: rgba(255, 255, 255, 0.62); --edge-flood-far: rgba(255, 255, 255, 0.24); --edge-wake: rgba(255, 255, 255, 0.8); --menu-edge-flood: rgba(196, 214, 246, 0.6); --menu-edge-flood-far: rgba(196, 214, 246, 0.22);
   --raise-top: rgba(255, 255, 255, 0.95); --raise-left: rgba(255, 255, 255, 0.6); --raise-right: rgba(96, 108, 128, 0.22); --raise-bottom: rgba(70, 82, 104, 0.34);
   --carve-rim: transparent; --carve-top: rgba(60, 72, 94, 0.3); --carve-left: rgba(60, 72, 94, 0.2); --carve-right: rgba(255, 255, 255, 0.55); --carve-bottom: rgba(255, 255, 255, 0.9);
   --backdrop-base: #E3E0DB; --backdrop-a: #F6F4F0; --backdrop-b: #CCC8C1; --backdrop-c: #ECE9E4;`;
@@ -116,7 +116,7 @@ export const SMOKED_GLASS = `color-scheme: dark;
   --step-lip: rgba(220, 228, 242, 0.42); --step-cast: 0 2px 0 rgba(220, 228, 242, 0.08), 0 9px 10px -7px rgba(0, 0, 0, 0.55);
   --warning: #F2C94C; --link-hover: var(--run-hi); --marked: var(--warning);
   --glass-base: 14, 17, 24; --glass-kind: "Smoked glass, light words."; --glass-hue-strength: 22%; --track: rgba(255, 255, 255, 0.08);
-  --edge-light: rgba(214, 228, 255, 0.9); --edge-flood: rgba(206, 222, 255, 0.4); --edge-flood-far: rgba(206, 222, 255, 0.14); --edge-wake: rgba(206, 222, 255, 0.35); --menu-edge-flood: var(--edge-flood); --menu-edge-flood-far: var(--edge-flood-far);
+  --edge-light: rgba(214, 228, 255, 0.9); --waiting-on-lit: #FFF7EA; --edge-flood: rgba(206, 222, 255, 0.4); --edge-flood-far: rgba(206, 222, 255, 0.14); --edge-wake: rgba(206, 222, 255, 0.35); --menu-edge-flood: var(--edge-flood); --menu-edge-flood-far: var(--edge-flood-far);
   --raise-top: rgba(255, 255, 255, 0.42); --raise-left: rgba(255, 255, 255, 0.22); --raise-right: rgba(0, 0, 0, 0.3); --raise-bottom: rgba(0, 0, 0, 0.5);
   --carve-rim: rgba(255, 255, 255, 0.16); --carve-top: rgba(0, 0, 0, 0.5); --carve-left: rgba(0, 0, 0, 0.32); --carve-right: rgba(255, 255, 255, 0.1); --carve-bottom: rgba(255, 255, 255, 0.2);
   --backdrop-base: #121110; --backdrop-a: #2A2724; --backdrop-b: #0A0909; --backdrop-c: #1D1B19;`;
@@ -249,7 +249,7 @@ html { -webkit-tap-highlight-color: transparent; }
   /* Waiting (materials.ts): the one light that says something's on its way, Zaisma's orange light (never dark: dark is only ever a shadow),
      its bright core and its glow; a light running round a control takes --waiting-lap a lap, whatever its size, and a header's groove fills
      over --waiting-fill-time. It lights the moment something is pressed: a short pause unlit looked like nothing happened. */
-  --waiting-light: var(--run-tip); --waiting-glow: var(--run); --waiting-light-width: 2px; --waiting-lap: 0.8s; --waiting-fill-time: 8s;
+  --waiting-light: var(--run-tip); --waiting-glow: var(--run); --waiting-light-width: 2px; --waiting-lap: 1.1s; --waiting-fill-time: 8s;
   /* Keyboard focus, the same on everything: orange. A control's cut line is stroked --focus-stroke wide (half of it shows inside
      its cut, 2px), anything else gets a 2px outline. On an orange face (the runner) it's the deeper --focus-on-run. */
   --focus: var(--run); --focus-on-run: #7A4100; --focus-stroke: 4;

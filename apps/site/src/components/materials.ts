@@ -2,7 +2,6 @@ import { row, stack, stackOfOne } from "./layout.ts";
 import { primaryButton, secondaryButton } from "./actions.ts";
 import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
-import { WAITING_GLOW_SELECTOR } from "./glass-script.ts";
 import { PICTURE_PLACEHOLDER } from "@zaisma/core";
 import { CUT_LINE, glassPane } from "./foundations.ts";
 
@@ -378,16 +377,15 @@ span.hairline { flex: 1; border-top: var(--divider); }
    cut; a piece made of several (a PIN's marks) marks the parts whose edges light (data-waits-here). It lights at once: a short pause unlit looked like nothing happened.
    Under reduced motion the light rests, all round. A screen reader hears what it's doing
    (.when-waiting, a busy label), and its words on screen stay as they were. */
-/* Round a control, the light is the Light component's edge light: a flood with no line of its own, brightest at the edge (--waiting-light)
-   and spilling into the face and along it (--waiting-glow), cut to the control's shape, travelling round it a lap in --waiting-lap
-   (drawWaitingLight, glass-script.ts, which places it: --waiting-x and --waiting-y, and its reach, --waiting-across and --waiting-down). */
-.waiting-glow { position: absolute; inset: 0; z-index: 0; pointer-events: none; opacity: 0;
-  background: radial-gradient(var(--waiting-across, 64px) var(--waiting-down, 28px) at var(--waiting-x, 50%) var(--waiting-y, 0px), var(--waiting-light) 0, color-mix(in srgb, var(--waiting-glow) 80%, transparent) 10%, color-mix(in srgb, var(--waiting-glow) 35%, transparent) 45%, transparent 100%); }
-${WAITING_GLOW_SELECTOR} { animation: waiting-arrives 1ms forwards; }
-/* On a lit piece, already orange, the light is the lit piece's own brightest: a warm white spark with its glint (the Light's glint), so it
-   still shows. */
-.lit { --waiting-light: var(--run-spark); --waiting-glow: var(--glint-warm); }
-@keyframes waiting-arrives { to { opacity: 1; } }
+/* Round a control, the light is the bevel's own light from a lamp circling it at one steady pace, a lap in --waiting-lap (drawWaitingLight,
+   glass-script.ts, draws each side's parts with the angle each faces, --side-angle). Each part is lit by how squarely it faces the lamp:
+   full facing it, dimming as it turns away, dark once the lamp is well behind it. */
+@property --waiting-angle { syntax: "<angle>"; inherits: true; initial-value: -90deg; }
+.waiting-light { animation: waiting-turns var(--waiting-lap) linear infinite; }
+.waiting-light > polygon { fill: var(--waiting-light); opacity: calc(var(--layer) * pow(max(0, (cos(var(--waiting-angle) - var(--side-angle)) + 0.45) / 1.45), 2)); }
+@keyframes waiting-turns { from { --waiting-angle: -90deg; } to { --waiting-angle: 270deg; } }
+/* On a lit piece, already orange, the light is the theme's own on orange (--waiting-on-lit): gold on light glass, warm white on dark. */
+.lit { --waiting-light: var(--waiting-on-lit); }
 /* Glass waiting on a new page (the header, is-waiting from HEADER_SCRIPT): its bottom edge is a groove that fills with the same orange light,
    a line of light as the Light component draws one (4px), starting an eighth full so it shows at once, filling quickly at first and slower
    as it goes, never quite full, until the page comes. */
@@ -396,11 +394,13 @@ ${WAITING_GLOW_SELECTOR} { animation: waiting-arrives 1ms forwards; }
   background: linear-gradient(90deg, var(--run-deep), var(--run) 40%, var(--run-hi) 85%, var(--run-tip) 96%, var(--run-spark)) 0 0 / var(--waiting-filled) 100% no-repeat, var(--track);
   filter: drop-shadow(0 0 2px var(--waiting-glow)) drop-shadow(0 0 6px var(--waiting-glow)); }
 .glass-bar.is-waiting::after { animation: waiting-arrives 1ms forwards, waiting-fills var(--waiting-fill-time) cubic-bezier(0.1, 0.7, 0.2, 1) forwards; }
+@keyframes waiting-arrives { to { opacity: 1; } }
 @keyframes waiting-fills { from { --waiting-filled: 12%; } to { --waiting-filled: 90%; } }
 [aria-busy="true"] { cursor: progress; }
 .when-waiting:not([aria-busy="true"] .when-waiting) { display: none; }
 @media (prefers-reduced-motion: reduce) {
   .glass-bar.is-waiting::after { --waiting-filled: 100%; animation: waiting-arrives 1ms forwards; }
+  .waiting-light { animation: none; }
 }
 /* Pictures (foundations.ts, picture): a picture's box holds its placeholder, the tiny copy in the page itself (--placeholder), blurred and
    run past the box's edges so no edge fades, and the picture over it, hidden until it has wholly arrived and decoded, then fading in
@@ -441,8 +441,8 @@ export const MATERIAL_SCRIPT = `/* materials */(function () {
   window.zaismaWait = function (element, promise) {
     if (!element) return Promise.resolve(promise);
     element.setAttribute("aria-busy", "true");
-    window.zaismaWaitingLight.wake();
-    function done() { element.removeAttribute("aria-busy"); }
+    window.zaismaWaitingLight.redraw(element);
+    function done() { element.removeAttribute("aria-busy"); window.zaismaWaitingLight.redraw(element); }
     return Promise.resolve(promise).then(function (answer) { done(); return answer; }, function (error) { done(); throw error; });
   };
   document.addEventListener("click", function (event) {

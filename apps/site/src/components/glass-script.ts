@@ -144,16 +144,7 @@ export const WATCH_SCRIPT = `/* watch */(function () {
  * kind's large and small cuts round it (the tokens --pane-cut-large and the rest), or four of a kind's "pane-large", "pane-small"
  * and so on, or numbers ("pane-large pane-small 0 0": a tray's head). window.zaismaCorners(el) reads them as numbers.
  */
-/**
- * Where a control's waiting light shows (the materials' waiting state, materials.ts): something waiting (aria-busy, or the input of a switch
- * or a check) and the part of a piece made of several that waits (data-waits-here).
- */
-export const WAITING_GLOW_SELECTOR = [
-  '[aria-busy="true"] > .waiting-glow', ':has(> input[aria-busy="true"]) > .waiting-glow', '[aria-busy="true"] > [data-cut-line] > .waiting-glow', '[aria-busy="true"] [data-waits-here] > .waiting-glow',
-].join(", ");
-
 export const GLASS_SCRIPT = `/* glass */(function () {
-  var WAITING_GLOW_SELECTOR = ${JSON.stringify(WAITING_GLOW_SELECTOR)};
   var SVG = "http://www.w3.org/2000/svg";
   // The cut tokens, read from the page's root once, as the script starts and before anything is drawn: they're the same on every screen,
   // so reading them later, between a pass's writes, would only make the browser work its styles out again.
@@ -177,52 +168,48 @@ export const GLASS_SCRIPT = `/* glass */(function () {
   }
   function pointList(points) { return points.map(function (p) { return p[0].toFixed(1) + "," + p[1].toFixed(1); }).join(" "); }
   /*
-   * The waiting light round a control (the materials' waiting state): the Light component's edge light (panes.ts), a flood with no line of
-   * its own, brightest at the edge and spilling into the face and along it, cut to the control's shape, here travelling round its outline,
-   * one lap in --waiting-lap whatever its size. Each control holds one (.waiting-glow, first in it, under what it holds) and the outline it
-   * runs round; while any is lit (WAITING_GLOW_SELECTOR, the materials' rule), one loop moves them all.
+   * The waiting light round a control (the materials' waiting state): the bevel's own light, stronger and orange, from a lamp that circles
+   * the control at one steady pace. Each side is lit as the bevel is, by which way it faces; split into a few parts, each part takes the
+   * angle the lamp's light strikes it at, so the end of a side nearer the lamp is brighter and a side dims from its far end as the lamp
+   * turns away. Each part is drawn as the bevel band and a few fainter bands just inside it (the light spilling a little way onto the face),
+   * all with its angle (--side-angle); the materials turn the lamp (--waiting-angle) and light each part by it. Drawn only while the
+   * control waits, so a page of controls carries nothing extra.
    */
-  var WAITING_DEEP_PX = 14, WAITING_SPAN_PX = 56, isWaitingRunning = false, waitingLapMs = 0, stillMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
-  function drawWaitingLight(el, cutShape, sizePx) {
-    var glow = el.waitingGlow;
-    if (!glow || glow.parentNode !== el) { glow = el.waitingGlow = document.createElement("span"); glow.className = "waiting-glow"; glow.setAttribute("aria-hidden", "true"); el.insertBefore(glow, el.firstChild); }
-    glow.style.clipPath = cssPolygon(cutShape);
-    // It runs round the edge itself, so half of it is cut away and what shows hugs the edge.
-    el.waitingOutline = cutShape.concat([cutShape[0]]);
-    el.waitingDeepPx = Math.min(WAITING_DEEP_PX, Math.max(8, sizePx * 0.35));
-    if (glow.matches(WAITING_GLOW_SELECTOR)) wakeWaiting();
+  var WAITING_PARTS = 4, WAITING_LAYERS = [[0, 1.5, 1], [1.5, 4, 0.5], [4, 7, 0.25], [7, 10, 0.1]];
+  function isWaitingNow(el) {
+    var parent = el.parentElement;
+    return el.getAttribute("aria-busy") === "true" || Boolean(el.querySelector(':scope > input[aria-busy="true"]')) || Boolean(parent && parent.getAttribute("aria-busy") === "true") || (el.hasAttribute("data-waits-here") && Boolean(el.closest('[aria-busy="true"]')));
   }
-  function placeWaiting(el, nowMs) {
-    var outline = el.waitingOutline, sides = [], total = 0;
-    for (var i = 1; i < outline.length; i++) { var dx = outline[i][0] - outline[i - 1][0], dy = outline[i][1] - outline[i - 1][1], length = Math.hypot(dx, dy); sides.push([length, dx, dy]); total += length; }
-    if (!total) return;
-    if (!waitingLapMs) waitingLapMs = (parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--waiting-lap")) || 0.8) * 1000;
-    var along = stillMotion.matches ? 0 : ((nowMs % waitingLapMs) / waitingLapMs) * total, deep = el.waitingDeepPx;
-    function facing(index) { var side = sides[(index + sides.length) % sides.length]; return side[0] ? [Math.abs(side[1]) / side[0], Math.abs(side[2]) / side[0]] : [1, 0]; }
-    for (var k = 0; k < sides.length; k++) {
-      if (along > sides[k][0] && k < sides.length - 1) { along -= sides[k][0]; continue; }
-      var share = sides[k][0] ? along / sides[k][0] : 0, here = facing(k), turn = null, turnShare = 0;
-      // Long along the side it's on and as deep as the Light's flood into the face. Near a corner it turns with the edge, half of the way
-      // to the next side's at the corner itself, so it flows round instead of snapping.
-      if (sides[k][0] - along < WAITING_SPAN_PX / 2) { turn = facing(k + 1); turnShare = 0.5 * (1 - (sides[k][0] - along) / (WAITING_SPAN_PX / 2)); }
-      else if (along < WAITING_SPAN_PX / 2) { turn = facing(k - 1); turnShare = 0.5 * (1 - along / (WAITING_SPAN_PX / 2)); }
-      var ux = turn ? here[0] + (turn[0] - here[0]) * turnShare : here[0], uy = turn ? here[1] + (turn[1] - here[1]) * turnShare : here[1];
-      el.waitingGlow.style.setProperty("--waiting-x", (outline[k][0] + sides[k][1] * share).toFixed(1) + "px");
-      el.waitingGlow.style.setProperty("--waiting-y", (outline[k][1] + sides[k][2] * share).toFixed(1) + "px");
-      el.waitingGlow.style.setProperty("--waiting-across", (deep + (WAITING_SPAN_PX - deep) * ux).toFixed(1) + "px");
-      el.waitingGlow.style.setProperty("--waiting-down", (deep + (WAITING_SPAN_PX - deep) * uy).toFixed(1) + "px");
-      return;
+  function drawWaitingLight(el, svg, shape, w, h) {
+    el.waitingShape = { svg: svg, shape: shape, w: w, h: h };
+    var group = svg.querySelector(":scope > .waiting-light");
+    if (!isWaitingNow(el)) { if (group) group.remove(); return; }
+    if (!group) { group = document.createElementNS(SVG, "g"); group.setAttribute("class", "waiting-light"); svg.appendChild(group); }
+    var rings = WAITING_LAYERS.map(function (layer) { return [insetShape(shape, layer[0]), insetShape(shape, layer[1])]; }), n = shape.length, reach = Math.max(w, h) / 2, html = "";
+    for (var i = 0; i < n; i++) {
+      var j = (i + 1) % n, ex = shape[j][0] - shape[i][0], ey = shape[j][1] - shape[i][1], length = Math.hypot(ex, ey); if (!length) continue;
+      var nx = ey / length, ny = -ex / length;
+      for (var k = 0; k < WAITING_PARTS; k++) {
+        var from = k / WAITING_PARTS, to = (k + 1) / WAITING_PARTS, mid = (from + to) / 2;
+        // The part's angle: the way its side faces, leaning toward where along the control it lies, as a lamp a little way off sees it.
+        var px = shape[i][0] + ex * mid - w / 2, py = shape[i][1] + ey * mid - h / 2, angle = Math.atan2(ny * reach + py, nx * reach + px) * 180 / Math.PI;
+        rings.forEach(function (ring, r) {
+          var o = ring[0], q = ring[1], lerp = function (a, b, t) { return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]; };
+          html += '<polygon style="--side-angle: ' + angle.toFixed(1) + 'deg; --layer: ' + WAITING_LAYERS[r][2] + '" points="' + pointList([lerp(o[i], o[j], from), lerp(o[i], o[j], to), lerp(q[i], q[j], to), lerp(q[i], q[j], from)]) + '"/>';
+        });
+      }
     }
+    group.innerHTML = html;
   }
-  function waitingFrame(nowMs) {
-    var lit = document.querySelectorAll(WAITING_GLOW_SELECTOR);
-    lit.forEach(function (glow) { if (glow.parentNode.waitingOutline) placeWaiting(glow.parentNode, nowMs); });
-    isWaitingRunning = lit.length > 0 && !stillMotion.matches;
-    if (isWaitingRunning) requestAnimationFrame(waitingFrame);
-  }
-  function wakeWaiting() { if (isWaitingRunning) return; isWaitingRunning = true; requestAnimationFrame(waitingFrame); }
-  // What starts something waiting (window.zaismaWait) wakes the loop; it stops once nothing waits.
-  window.zaismaWaitingLight = { wake: wakeWaiting };
+  // What starts or ends something waiting (window.zaismaWait) draws the light in or takes it out: the control pressed, the control its
+  // input sits in, and the parts inside it.
+  window.zaismaWaitingLight = {
+    redraw: function (element) {
+      [element, element.parentElement].concat(Array.prototype.slice.call(element.querySelectorAll("[data-cut-line]"))).forEach(function (el) {
+        if (el && el.waitingShape) drawWaitingLight(el, el.waitingShape.svg, el.waitingShape.shape, el.waitingShape.w, el.waitingShape.h);
+      });
+    }
+  };
   // How lit each side of the cut is, from the top left corner's cut round to the left side. Neighbors always differ, so every turn of the edge shows as a step in brightness, like a cut facet.
   var SIDE_LIGHT = [80, 100, 70, 28, 12, 0, 40, 62];
   // A control made of glass takes its sides' light from the way each faces (the same steps, round the same way).
@@ -624,7 +611,7 @@ export const GLASS_SCRIPT = `/* glass */(function () {
       var outline = insetShape(shape, 1);
       poly.setAttribute("points", list(outline));
       // The waiting light runs round the same outline (the materials' waiting state).
-      drawWaitingLight(el, shape, Math.min(w, h));
+      drawWaitingLight(el, svg, shape, w, h);
       // data-cut-ring: a second outline set out around the shape by that many pixels, for a ring that mustn't touch what's inside (a check field's
       // keyboard focus, clear of its orange piece). It's drawn in the control's own shape, whatever its corners.
       var ringPx = Number(el.getAttribute("data-cut-ring")) || 0;
