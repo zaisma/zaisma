@@ -2,7 +2,6 @@ import { row, stack, stackOfOne } from "./layout.ts";
 import { primaryButton, secondaryButton } from "./actions.ts";
 import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
-import { WAITING_GLOW_SELECTOR } from "./glass-script.ts";
 import { PICTURE_PLACEHOLDER } from "@zaisma/core";
 import { CUT_LINE, glassPane } from "./foundations.ts";
 
@@ -373,21 +372,34 @@ span.hairline { flex: 1; border-top: var(--divider); }
 .slab-front { background: linear-gradient(180deg, var(--run-hi), var(--run) 40%, var(--run-lo)); }
 @media (prefers-reduced-motion: reduce) { .carving, .slab, .slab > *, .flush-row > * { transition: none; } .slab.lit.glint::after { animation: none; } }
 /* Waiting: a state of the glass, never of a component. Whatever was pressed and waits on this page (aria-busy="true" on it, set by
-   window.zaismaWait, or on the input of a switch or a check) keeps its pressed look, sunk, and after --waiting-delay its own edge runs the
+   window.zaismaWait, or on the input of a switch or a check) keeps its pressed look, sunk, and at once its own edge runs the
    waiting light: the light of Loading state and Progress (--waiting-light), round the outline the edge rule draws for it, whatever its
-   cut; a piece made of several (a PIN's marks) marks the parts whose edges light (data-waits-here). A quick answer shows only the press.
-   Under reduced motion the light rests where it starts. A screen reader hears what it's doing
+   cut; a piece made of several (a PIN's marks) marks the parts whose edges light (data-waits-here). It lights at once: a short pause unlit looked like nothing happened.
+   Under reduced motion the light rests, all round. A screen reader hears what it's doing
    (.when-waiting, a busy label), and its words on screen stay as they were. */
-/* The light is the Light component's edge light (panes.ts): a flood brightest on the rim (--waiting-light) that fades into the glass
-   (--waiting-flood, --waiting-flood-far) and along the edge, cut to the glass's shape. glass-script.ts lays it in each piece that can wait
-   (.waiting-glow) and moves it round the rim at one steady pace (--waiting-x, --waiting-y; --waiting-across and --waiting-down its reach,
-   long along the side it's on). Glass waiting on a new page (the header, is-waiting from HEADER_SCRIPT) runs the same light. */
-.waiting-glow { position: absolute; inset: 0; z-index: 0; pointer-events: none; opacity: 0;
-  background: radial-gradient(var(--waiting-across, 56px) var(--waiting-down, 32px) at var(--waiting-x, 50%) var(--waiting-y, 0px), var(--waiting-light) 0, var(--waiting-flood) 5%, var(--waiting-flood-far) 31%, transparent 100%); }
-${WAITING_GLOW_SELECTOR} { animation: waiting-arrives 1ms var(--waiting-delay) forwards; }
+/* Round a control, the light is an orange stretch with its glow running round its outline, one lap in --waiting-lap whatever its size
+   (drawWaitingLight, glass-script.ts). */
+.waiting-line { fill: none; opacity: 0; }
+:is([aria-busy="true"], :has(> input[aria-busy="true"])) > .cut-line > .waiting-line, [aria-busy="true"] > [data-cut-line] > .cut-line > .waiting-line, [aria-busy="true"] [data-waits-here] > .cut-line > .waiting-line {
+  stroke-dasharray: 26 74; stroke-linecap: round; animation: waiting-arrives 1ms forwards, waiting-runs var(--waiting-lap) linear infinite; }
+.waiting-line.core { stroke: var(--waiting-light); stroke-width: var(--waiting-light-width); }
+.waiting-line.glow { stroke: var(--waiting-glow); stroke-width: 6px; filter: url(#zaisma-waiting-blur); }
 @keyframes waiting-arrives { to { opacity: 1; } }
+@keyframes waiting-runs { from { stroke-dashoffset: 0; } to { stroke-dashoffset: -100; } }
+/* Glass waiting on a new page (the header, is-waiting from HEADER_SCRIPT): its bottom edge is a groove that fills with the same orange light,
+   quickly at first and slower as it goes, never quite full, until the page comes. */
+@property --waiting-filled { syntax: "<percentage>"; inherits: false; initial-value: 0%; }
+.glass-bar::after { content: ""; position: absolute; z-index: 4; inset: auto 0 0 0; height: 3px; opacity: 0; pointer-events: none;
+  background: linear-gradient(90deg, var(--run-deep), var(--run) 40%, var(--run-hi) 85%, var(--run-tip) 96%, var(--run-spark)) 0 0 / var(--waiting-filled) 100% no-repeat, var(--track);
+  filter: drop-shadow(0 0 3px var(--waiting-glow)); }
+.glass-bar.is-waiting::after { animation: waiting-arrives 1ms forwards, waiting-fills var(--waiting-fill-time) cubic-bezier(0.1, 0.7, 0.2, 1) forwards; }
+@keyframes waiting-fills { from { --waiting-filled: 0%; } to { --waiting-filled: 90%; } }
 [aria-busy="true"] { cursor: progress; }
 .when-waiting:not([aria-busy="true"] .when-waiting) { display: none; }
+@media (prefers-reduced-motion: reduce) {
+  :is([aria-busy="true"], :has(> input[aria-busy="true"])) > .cut-line > .waiting-line, [aria-busy="true"] > [data-cut-line] > .cut-line > .waiting-line, [aria-busy="true"] [data-waits-here] > .cut-line > .waiting-line { stroke-dasharray: none; animation: waiting-arrives 1ms forwards; }
+  .glass-bar.is-waiting::after { --waiting-filled: 100%; animation: waiting-arrives 1ms forwards; }
+}
 /* Pictures (foundations.ts, picture): a picture's box holds its placeholder, the tiny copy in the page itself (--placeholder), blurred and
    run past the box's edges so no edge fades, and the picture over it, hidden until it has wholly arrived and decoded, then fading in
    (img.reveals, PICTURE_SCRIPT). A game's world on its page starts the same way, blurred more (backdropPlaceholder), under its picture or
@@ -423,7 +435,6 @@ export const MATERIAL_SCRIPT = `/* materials */(function () {
   window.zaismaWait = function (element, promise) {
     if (!element) return Promise.resolve(promise);
     element.setAttribute("aria-busy", "true");
-    window.zaismaWaitingLight.wake();
     function done() { element.removeAttribute("aria-busy"); }
     return Promise.resolve(promise).then(function (answer) { done(); return answer; }, function (error) { done(); throw error; });
   };
@@ -552,7 +563,7 @@ component({
     { label: "Pointed at", isStill: true, markup: carvingSample(slab({ body: html`Details`, state: "is-pointed" })) },
     { label: "Pressed", isStill: true, markup: carvingSample(slab({ body: html`Details`, state: "is-pressed" })) },
     { label: "Keyboard focus", isStill: true, markup: carvingSample(slab({ body: html`Details`, state: "is-focused" })) },
-    { label: "Waiting on its press: sunk, and after half a second its edge runs the waiting light", isStill: true, markup: carvingSample(slab({ body: html`Details`, isWaiting: true })) },
+    { label: "Waiting on its press: sunk, and its edge runs the waiting light", isStill: true, markup: carvingSample(slab({ body: html`Details`, isWaiting: true })) },
     { label: "Can't be pressed", isStill: true, markup: carvingSample(slab({ body: html`Details`, state: "is-disabled" })) },
     { label: "Compact", markup: carvingSample(slab({ body: html`Details`, slabSize: "compact" })) },
     {

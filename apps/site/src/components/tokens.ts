@@ -246,11 +246,10 @@ html { -webkit-tap-highlight-color: transparent; }
   --motion-press: 0.08s; --motion-state: 0.2s; --motion-arrive: 0.3s; --motion-glide: 0.45s; --motion-settle: 0.6s; --motion-loop: 1.6s; --motion-loop-slow: 2.4s;
   --ease-glide: cubic-bezier(.2, .8, .2, 1); --ease-standard: cubic-bezier(.4, 0, .2, 1); --ease-leave: cubic-bezier(.4, 0, 1, 1); --ease-spring: cubic-bezier(.25, .9, .3, 1.25);
   --spring: var(--ease-spring);
-  /* Waiting (materials.ts): the one light that says something's on its way, the light a pointed-at edge takes (never dark: dark is only ever a
-     shadow), its core on the rim and its flood spilling into the glass, in the menus' cool flood so it shows on light glass too; running at
-     one steady pace wherever it runs (a Loading state's line, the header's rim, a pressed piece's own edge); and how long a press waits
-     before it lights, so a quick answer shows only the press. */
-  --waiting-light: var(--edge-light); --waiting-flood: var(--menu-edge-flood); --waiting-flood-far: var(--menu-edge-flood-far); --waiting-light-width: 2px; --waiting-delay: 500ms;
+  /* Waiting (materials.ts): the one light that says something's on its way, Zaisma's orange light (never dark: dark is only ever a shadow),
+     its bright core and its glow; a light running round a control takes --waiting-lap a lap, whatever its size, and a header's groove fills
+     over --waiting-fill-time. It lights the moment something is pressed: a short pause unlit looked like nothing happened. */
+  --waiting-light: var(--run-tip); --waiting-glow: var(--run); --waiting-light-width: 2px; --waiting-lap: 0.8s; --waiting-fill-time: 8s;
   /* Keyboard focus, the same on everything: orange. A control's cut line is stroked --focus-stroke wide (half of it shows inside
      its cut, 2px), anything else gets a 2px outline. On an orange face (the runner) it's the deeper --focus-on-run. */
   --focus: var(--run); --focus-on-run: #7A4100; --focus-stroke: 4;
@@ -373,7 +372,7 @@ ${WORDS_SURFACES.join(", ")} { padding: var(--pad-frame); --pad-words: var(--pad
 /* Under everything in its own layer, so bare words on it (a table's head) show over it. Glass with no outline of its own (a table's pinned
    cells) is cut to nothing: it never takes the shape of the pane it's in. */
 .glass:not([data-glass]) { --glass-clip: none; }
-.glass > :not(.edge, .waiting-glow) { position: relative; z-index: 3; }
+.glass > :not(.edge) { position: relative; z-index: 3; }
 .edge { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 2; overflow: visible; }
 /* Light and smoked glass share one frame: a straight-cut glass edge whose every side is one flat tone between --edge-lit and --edge-shade
    (lit along the top, shaded along the bottom), so each turn of the cut steps in brightness; brightest at the outer rim, with no separate outline. Like real glass it's denser at

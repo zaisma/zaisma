@@ -331,7 +331,7 @@ describe("materials", () => {
 
 /*
  * Waiting is a state of the glass ("Waiting is one light", docs/DESIGN.md): every pressable material keeps its pressed look while
- * aria-busy="true", its edge runs the one waiting light after --waiting-delay, and no component draws a light or a waiting look of its own.
+ * aria-busy="true", its edge runs the one waiting light at once, and no component draws a light or a waiting look of its own.
  */
 describe("waiting", () => {
   it("is the materials' alone: no component's styles run the waiting light or give aria-busy a look of their own", () => {
@@ -347,8 +347,8 @@ describe("waiting", () => {
 
   it("is on every pressable material: a slab under its shell, a flush row, a pick and a check's or switch's socket and thumb keep their press while waiting, and their edge lights", () => {
     for (const pressed of ['.shell.is-pressed, .shell[aria-busy="true"])', ':is(:active, .is-pressed, [aria-busy="true"])', ':is(label:not(.is-disabled):active, .is-pressed, :has(input[aria-busy="true"])']) expect(MATERIAL_STYLES, pressed).toContain(pressed);
-    expect(MATERIAL_STYLES).toContain('[aria-busy="true"] > [data-cut-line] > .waiting-glow');
-    expect(MATERIAL_STYLES).toContain("var(--waiting-delay)");
+    expect(MATERIAL_STYLES).toContain('[aria-busy="true"] > [data-cut-line] > .cut-line > .waiting-line');
+    expect(MATERIAL_STYLES).not.toContain("--waiting-delay");
   });
 });
 

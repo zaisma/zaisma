@@ -664,7 +664,7 @@ component({
    under it. Under reduced motion the light rests in the middle. */
 .loading-state { display: grid; gap: var(--gap-words-control); justify-items: center; }
 .loading-line { position: relative; display: block; width: min(240px, 100%); height: var(--waiting-light-width); overflow: hidden; background: var(--line); }
-.loading-line::after { content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 40%; background: linear-gradient(90deg, transparent, var(--waiting-flood), var(--waiting-light), var(--waiting-flood), transparent); animation: loading-run var(--motion-loop) linear infinite; }
+.loading-line::after { content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 40%; background: linear-gradient(90deg, transparent, var(--waiting-glow), var(--waiting-light), var(--waiting-glow), transparent); animation: loading-run var(--motion-loop) linear infinite; }
 @keyframes loading-run { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
 .loading-label { font: var(--type-facts); color: var(--muted); }
 @media (prefers-reduced-motion: reduce) { .loading-line::after { animation: none; transform: translateX(75%); } }

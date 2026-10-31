@@ -1707,7 +1707,7 @@ component({
    a link in it stays until its own button answers, and the gallery's copy stays where it is. */
 .playing-card:not(.in-place):not(:has(a, button, input, select, textarea)) { cursor: pointer; touch-action: none; user-select: none; -webkit-user-select: none; }
 .playing-card.is-swiping { transition: var(--glass-transition); }
-.playing-card > :not(.edge, .waiting-glow) { position: relative; z-index: 1; }
+.playing-card > :not(.edge) { position: relative; z-index: 1; }
 .playing-card.in-place { position: relative; top: auto; right: auto; }
 .playing-card-in { display: flex; flex-direction: column; gap: var(--gap-words-control); font: var(--type-words); }
 .playing-card-in p { margin: 0; }
