@@ -535,7 +535,7 @@ export const DESIGN_LOOPS_SCRIPT = pageScript(
     function inside(target, at) { var r = target.getBoundingClientRect(); return at[0] >= r.left && at[0] <= r.right && at[1] >= r.top && at[1] <= r.bottom; }
     function show() {
       if (kind === "switch") return;
-      var state = over ? (isPressed && kind !== "cover" ? "is-pressed" : "is-pointed") : "";
+      var state = over ? (isPressed ? "is-pressed" : "is-pointed") : "";
       ["is-pointed", "is-pressed"].forEach(function (each) { el.classList.toggle(each, each === state); });
     }
     function watch() {

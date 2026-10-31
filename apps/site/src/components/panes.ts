@@ -124,8 +124,8 @@ export interface GameCardOptions {
   isEager?: boolean;
   /** Its art is fetched before the page's other pictures: for the one card likely the largest thing in the first view. */
   hasHighPriority?: boolean;
-  /** Pointed at: the gallery's still copy. */
-  state?: "is-pointed";
+  /** Pointed at or pressed: the gallery's still copies. */
+  state?: "is-pointed" | "is-pressed";
 }
 
 /** The device note's icon: a gamepad for one that needs it, a phone for one best held a way or made for phones and tablets, else a computer. */
@@ -565,7 +565,9 @@ const COVER_STYLES = `
 .cover-mark.at-price { top: var(--pad-frame-compact); right: var(--pad-frame-compact); }
 .cover-mark.at-friends { bottom: var(--pad-frame-compact); left: var(--pad-frame-compact); }
 .cover-mark.at-device { bottom: var(--pad-frame-compact); right: var(--pad-frame-compact); }
-/* Each is a sliver of glass over the art (Tag's glass tones), so it reads on any picture; news in the green new things have. */
+/* Each is a sliver of glass over the art (Tag's glass tones), blurring the art under it and as thick as a pane's glass, so its words read
+   on any picture; news in the green new things have. */
+.cover-mark .tag.glass { --glass-tint: var(--glass-regular); }
 /* On a small card a device's words would crowd it: its icon alone says it (the screen reader still hears the words, in the card's label). */
 @container (max-width: 220px) { .cover-mark.at-device .tag > span { display: none; } .cover-mark.at-device .tag { padding-inline: 7px 6px; } }
 /* Made for another device: the art dimmed, its words quieter, still there to open and read about. */
@@ -577,17 +579,24 @@ const COVER_STYLES = `
 .cover-art > .edge-light { z-index: 1; }
 .cover.has-tint .cover-art { --edge-light: var(--card-tint); --edge-flood: color-mix(in srgb, var(--card-tint) 62%, transparent);
   --edge-flood-far: color-mix(in srgb, var(--card-tint) 24%, transparent); --edge-wake: color-mix(in srgb, var(--card-tint) 80%, transparent); }
-.cover[aria-current="true"] .cover-art > .edge-light { --light-at: 50cqw; --light-span: 100cqw; }
-.cover[aria-current="true"] .cover-art > .edge-light::before, .cover[aria-current="true"] .cover-art > .edge-light::after { opacity: 1; }
+/* Lit without a pointer's own events (in focus beside the list, the gallery's pointed and pressed copies and loops): the whole foot. */
+.cover:is([aria-current="true"], .is-pointed, .is-pressed) .cover-art > .edge-light, .cover-art:is(.is-pointed, .is-pressed) > .edge-light { --light-at: 50cqw; --light-span: 100cqw; }
+.cover:is([aria-current="true"], .is-pointed, .is-pressed) .cover-art > .edge-light::before, .cover:is([aria-current="true"], .is-pointed, .is-pressed) .cover-art > .edge-light::after,
+.cover-art:is(.is-pointed, .is-pressed) > .edge-light::before, .cover-art:is(.is-pointed, .is-pressed) > .edge-light::after { opacity: 1; }
 .cover-picture img { transition: filter var(--motion-state) var(--ease-standard); }
 .cover:is(:hover, .is-pointed) .cover-picture img, .cover-art.is-pointed .cover-picture img { filter: brightness(1.06); }
-.cover-art:active > :where(:not(.cut-line)) { transform: translateY(1px); }
+/* Pressed, the art sinks into its well: a little smaller in place, a touch darker under the well's shade, quickly; let go, it springs back.
+   Its corners' marks sink with it, and its foot stays lit. */
+.cover-art > :where(.cover-picture, .cover-mark) { transition: transform var(--motion-glide) var(--ease-spring); }
+.cover-art:is(:active, .is-pressed) > :where(.cover-picture, .cover-mark), .cover.is-pressed .cover-art > :where(.cover-picture, .cover-mark) { transform: scale(0.97); transition-duration: var(--motion-press); transition-timing-function: var(--ease-standard); }
+.cover-art:is(:active, .is-pressed) .cover-picture img, .cover.is-pressed .cover-picture img { filter: brightness(0.92); transition-duration: var(--motion-press); }
+.cover-art:is(:active, .is-pressed), .cover.is-pressed .cover-art { box-shadow: var(--press-shade); }
 /* Its line under the art: the title, cut to one line, and players now at its end. Nothing else is ever said there. */
 .cover-meta { display: flex; align-items: center; gap: var(--gap-words-words); font: var(--type-facts); color: var(--muted); }
 .cover-meta .cover-name { flex: 1 1 0; min-width: 0; font: var(--type-name); color: var(--ink); }
 .cover-meta .ico { width: 15px; height: 15px; stroke-width: 1.5; }
 .cover-meta .count { display: inline-flex; align-items: center; gap: var(--gap-words-words); flex: none; white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--ink-2); }
-@media (prefers-reduced-motion: reduce) { .cover-picture img { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .cover-picture img, .cover-art > :where(.cover-picture, .cover-mark) { transition: none; } }
 `;
 
 const HOUR_MS = 3_600_000;
@@ -1003,6 +1012,7 @@ component({
     { label: "A long title: cut to one line", markup: cardSample({ title: "Ashen Crown: The Long Night of the Iron Vigil", imageUrl: "/design/covers/ashen-crown.webp", href: "#ashen-crown", facts: { playerCount: 7 } }) },
     { label: "Everything at once: one in each corner", markup: cardSample({ title: "Hollow Tide", imageUrl: "/design/covers/hollow-tide.webp", href: "#hollow-tide", facts: { playerCount: 412, isUpdated: true, priceText: "$24.99", friends: [{ username: "Liam" }, { username: "Sofia" }], deviceNote: "Needs a keyboard" } }) },
     { label: "Pointed at: its foot lit in the game's tint", markup: cardSample({ title: "Neon Drift", imageUrl: "/design/covers/neon-drift.webp", href: "#neon-drift", facts: { playerCount: 3870 }, tintColor: "#C454E8", state: "is-pointed" }), isStill: true },
+    { label: "Pressed: the art sinks into its well", markup: cardSample({ title: "Neon Drift", imageUrl: "/design/covers/neon-drift.webp", href: "#neon-drift", facts: { playerCount: 3870 }, tintColor: "#C454E8", state: "is-pressed" }), isStill: true },
     { label: "In focus beside the list: its foot stays lit", markup: cardSample({ title: "Verdant", imageUrl: "/design/covers/verdant.webp", href: "#verdant", facts: { playerCount: 96 }, isCurrent: true }), isStill: true },
     { label: "On a loop", markup: html`<div class="cover-sample" data-state-loop="cover">${standInCovers(["iron-vigil"])}</div>`, isStill: true },
   ],
