@@ -3,7 +3,7 @@ import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
 // The materials register first: the Materials page starts with them.
 import "./materials.ts";
-import { CUT_LINE, EDGE, backdrop, divider, floatingPane, glassPane, groove, icon, sheetMarkup, tag, tray, well, type IconName } from "./foundations.ts";
+import { CUT_LINE, EDGE, EDGE_LIGHT, backdrop, divider, floatingPane, glassPane, groove, icon, sheetMarkup, tag, tray, well, type IconName } from "./foundations.ts";
 import { doneState, emptyState, glanceFacts, problemState, listRows, pictureFrame, pictureRow } from "./data.ts";
 import { cardRow, secondaryButton, tertiaryButton, primaryButton, textLink, toggleButton } from "./actions.ts";
 import { REPORT_REASONS, choiceCards, copyField, cutField, longField, tabSwitch, wheelField } from "./inputs.ts";
@@ -159,16 +159,18 @@ const COVER_LARGEST_PX = 960;
  * A game card: a game in a list, the studio's art in a carved well with its title and players now on one line under it. What else
  * concerns you about it lies in a corner of the art, each kind in its own corner on every card: news (Updated) top left, the price top
  * right, friends playing bottom left, this device (needs a keyboard, made for another) bottom right, the art dimmed. Pointed at, the
- * well's foot lights in the game's tint and the art brightens; in focus beside the list, it stays lit.
+ * well's foot catches the light (Edge light, the card the part it lights), in the game's tint, and the art brightens; in focus beside the
+ * list, it stays lit.
  */
 export function gameCard(options: GameCardOptions): Raw {
   const facts = options.facts, isPlaceholder = options.imageUrl === null;
-  const tint = options.tintColor && /^#[0-9a-fA-F]{6}$/.test(options.tintColor) ? html` style="--card-tint: ${options.tintColor}"` : "";
-  const className = ["cover", isPlaceholder ? "is-placeholder" : "", facts.deviceNote ? "is-other-device" : "", options.state ?? ""].filter(Boolean).join(" ");
+  const hasTint = Boolean(options.tintColor && /^#[0-9a-fA-F]{6}$/.test(options.tintColor));
+  const tint = hasTint ? html` style="--card-tint: ${options.tintColor}"` : "";
+  const className = ["cover", isPlaceholder ? "is-placeholder" : "", facts.deviceNote ? "is-other-device" : "", hasTint ? "has-tint" : "", options.state ?? ""].filter(Boolean).join(" ");
   const marks = html`${facts.isUpdated ? html`<span class="cover-mark at-news">${tag("Updated", "glass")}</span>` : ""}${facts.priceText ? html`<span class="cover-mark at-price">${tag(facts.priceText, "glass")}</span>` : ""}${facts.friends?.length ? html`<span class="cover-mark at-friends">${pictureRow(facts.friends.map((friend) => friend.username), "xs")}</span>` : ""}${facts.deviceNote ? html`<span class="cover-mark at-device">${tag(facts.deviceNote, "glass", { icon: deviceIcon(facts.deviceNote) })}</span>` : ""}`;
   const picture = isPlaceholder ? "" : html`<span class="cover-picture carving-art" data-cut-line="0"><img src="${options.imageUrl}"${coverSizes(options.imageUrl!)} alt="" loading="${options.isEager ? "eager" : "lazy"}"${options.hasHighPriority ? raw(' fetchpriority="high"') : ""} decoding="async"></span>`;
   const count = facts.playerCount !== undefined ? html`<span class="count">${icon("people")}<span>${facts.playerCount.toLocaleString("en-US")}<span class="sr"> playing now</span></span></span>` : "";
-  return html`<div class="${className}"${tint}${options.isCurrent ? raw(' aria-current="true"') : ""}><a class="cover-art carving holds-art" data-cut-line="0" href="${options.href}" aria-label="${cardLabel(options)}">${CUT_LINE}${picture}${marks}<span class="cover-light" aria-hidden="true"></span></a><div class="cover-meta"><span class="cover-name one-line">${options.title}</span>${count}</div></div>`;
+  return html`<div class="${className}"${tint}${options.isCurrent ? raw(' aria-current="true"') : ""}><a class="cover-art carving holds-art${options.state ? ` ${options.state}` : ""}" data-cut-line="0" data-edge-light="bottom" data-lights href="${options.href}" aria-label="${cardLabel(options)}">${CUT_LINE}${picture}${EDGE_LIGHT}${marks}</a><div class="cover-meta"><span class="cover-name one-line">${options.title}</span>${count}</div></div>`;
 }
 
 /**
@@ -551,7 +553,7 @@ const COVER_STYLES = `
    corners. The well and the art are both cut by the edge rule like every control, so a card near a pane's corner takes the pane's cut and
    one in the middle of it is square. The well keeps the card's 16:9, and the art fills it up to its carved rim (2px). Under the art,
    Zaisma's mark sits in the well: it shows until the art has loaded, and stays where a game has none (is-placeholder). */
-.cover { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); row-gap: var(--gap-words-words); min-width: 0; --card-light: var(--card-tint, var(--edge-light)); }
+.cover { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); row-gap: var(--gap-words-words); min-width: 0; }
 .cover-art { position: relative; display: block; aspect-ratio: 16 / 9; text-decoration: none; container-type: inline-size; }
 .cover.is-placeholder .cover-art img { display: none; }
 .cover-art:focus-visible { outline: none; }
@@ -570,21 +572,23 @@ const COVER_STYLES = `
 /* Made for another device: the art dimmed, its words quieter, still there to open and read about. */
 .cover.is-other-device .cover-picture { filter: grayscale(0.8) brightness(0.85); }
 .cover.is-other-device .cover-name { color: var(--ink-2); }
-/* Pointed at, the light comes up at the well's foot, in the game's own tint (--card-tint, its glass tint) or white, glowing up into the
-   art, which brightens a little; it stays lit for the game in focus beside the list. Pressed, the art sinks in place. */
-.cover-light { position: absolute; z-index: 1; inset-inline: 2px; bottom: 2px; height: 28%; pointer-events: none; opacity: 0;
-  background: linear-gradient(to top, var(--card-light) 0, var(--card-light) 2px, color-mix(in srgb, var(--card-light) 55%, transparent) 4px, color-mix(in srgb, var(--card-light) 22%, transparent) 35%, transparent);
-  transition: opacity var(--motion-state) var(--ease-standard); }
+/* Pointed at, its well's foot catches the light (Edge light, along its bottom: the card is the part it lights, so the whole foot lights),
+   in the game's own tint (--card-tint, its glass tint) or white, and the art brightens a little. The game in focus beside the list keeps
+   it lit. Pressed, the art sinks in place. */
+.cover-art > .edge-light { z-index: 1; }
+.cover.has-tint .cover-art { --edge-light: var(--card-tint); --edge-flood: color-mix(in srgb, var(--card-tint) 62%, transparent);
+  --edge-flood-far: color-mix(in srgb, var(--card-tint) 24%, transparent); --edge-wake: color-mix(in srgb, var(--card-tint) 80%, transparent); }
+.cover[aria-current="true"] .cover-art > .edge-light { --light-at: 50cqw; --light-span: 100cqw; }
+.cover[aria-current="true"] .cover-art > .edge-light::before, .cover[aria-current="true"] .cover-art > .edge-light::after { opacity: 1; }
 .cover-picture img { transition: filter var(--motion-state) var(--ease-standard); }
-.cover:is(:hover, .is-pointed, [aria-current="true"]) .cover-light, .cover-art:focus-visible > .cover-light { opacity: 1; }
-.cover:is(:hover, .is-pointed) .cover-picture img { filter: brightness(1.06); }
+.cover:is(:hover, .is-pointed) .cover-picture img, .cover-art.is-pointed .cover-picture img { filter: brightness(1.06); }
 .cover-art:active > :where(:not(.cut-line)) { transform: translateY(1px); }
 /* Its line under the art: the title, cut to one line, and players now at its end. Nothing else is ever said there. */
 .cover-meta { display: flex; align-items: center; gap: var(--gap-words-words); font: var(--type-facts); color: var(--muted); }
 .cover-meta .cover-name { flex: 1 1 0; min-width: 0; font: var(--type-name); color: var(--ink); }
 .cover-meta .ico { width: 15px; height: 15px; stroke-width: 1.5; }
 .cover-meta .count { display: inline-flex; align-items: center; gap: var(--gap-words-words); flex: none; white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--ink-2); }
-@media (prefers-reduced-motion: reduce) { .cover-light, .cover-picture img { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .cover-picture img { transition: none; } }
 `;
 
 const HOUR_MS = 3_600_000;

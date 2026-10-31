@@ -158,14 +158,14 @@ function setFocus(slug) {
 }
 
 /* ---- Covers ---- */
-// The same markup as components/panes.ts's gameCard: the art in its well, Updated in its top left corner (a game played before its last
-// update, in Continue playing), the light at its foot in the game's tint, and its line: its title and players now.
+// The same markup as components/panes.ts's gameCard: the art in its well, its foot's edge light in the game's tint, Updated in its top left
+// corner (a game played before its last update, in Continue playing), and its line: its title and players now.
 function coverFor(game, list, at) {
   const cover = make("div", "cover"), art = make("a", "cover-art carving holds-art");
   const isUpdated = list === "continue" && game.published_at_ms && game.published_at_ms > at;
   cover.dataset.slug = game.slug;
-  if (/^#[0-9a-fA-F]{6}$/.test(game.glass_tint_color || "")) cover.style.setProperty("--card-tint", game.glass_tint_color);
-  art.href = "/g/" + game.slug; art.setAttribute("data-cut-line", "0"); art.setAttribute("aria-label", game.title + (isUpdated ? ", updated" : "")); art.append(iconNode(DATA.parts.cut_line));
+  if (/^#[0-9a-fA-F]{6}$/.test(game.glass_tint_color || "")) { cover.classList.add("has-tint"); cover.style.setProperty("--card-tint", game.glass_tint_color); }
+  art.href = "/g/" + game.slug; art.setAttribute("data-cut-line", "0"); art.setAttribute("data-edge-light", "bottom"); art.setAttribute("data-lights", ""); art.setAttribute("aria-label", game.title + (isUpdated ? ", updated" : "")); art.append(iconNode(DATA.parts.cut_line));
   // The picture, or for a game with none, Zaisma's mark in the well.
   if (game.cover) {
     const image = make("img");
@@ -174,8 +174,8 @@ function coverFor(game, list, at) {
     const picture = make("span", "cover-picture carving-art"); picture.setAttribute("data-cut-line", "0");
     picture.append(image); art.append(picture);
   } else cover.classList.add("is-placeholder");
+  const light = make("span", "edge-light"); light.setAttribute("aria-hidden", "true"); art.append(light);
   if (isUpdated) { const mark = make("span", "cover-mark at-news"); mark.append(iconNode(DATA.parts.updated_tag)); art.append(mark); }
-  const light = make("span", "cover-light"); light.setAttribute("aria-hidden", "true"); art.append(light);
   const meta = make("div", "cover-meta");
   meta.append(make("span", "cover-name one-line", game.title));
   if (game.playing_now_player_count >= DATA.minimum_playing_now_player_count) {
