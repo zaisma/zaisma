@@ -362,6 +362,8 @@ component({
 .swatches .chip-swatch { position: relative; grid-row: span 2; align-self: stretch; width: 2.25rem; min-height: 2.25rem; clip-path: var(--cut-shape); }
 .swatches .chip-swatch > .cut-line polygon { stroke: var(--line); }
 .swatches code { font: var(--type-code); }
+/* A swatch's name and value wrap inside their own column, never over the swatch beside, however large the text. */
+.swatches li > :not(.chip-swatch) { min-width: 0; overflow-wrap: anywhere; }
 .swatches span:last-child { color: var(--muted); }
 `,
   examples: [

@@ -439,6 +439,11 @@ component({
 .list-rows.is-capped { --list-row-height: 65px; max-height: calc((var(--shown-row-count) + 0.5) * var(--list-row-height)); }
 /* With its rail showing (the rail lies along its right edge), the rows keep clear of it, so a row's button never sits against the rail. */
 .list-row { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-words-control); --row-height: 60px; --row-block: 10px; --row-start: var(--pad-inside-words); --row-end: var(--pad-inside-words); color: var(--ink); text-decoration: none; }
+/* With nothing leading it, a row's words line up with the pane's words: its start is the pane's words inset. */
+.list-row:not(:has(> .list-row-lead)) { --row-start: var(--pad-words); }
+/* A fold's row keeps its chevron at its end on one line, its words wrapping beside it however narrow the pane. */
+.list-row.is-fold { flex-wrap: nowrap; }
+.list-row.is-fold > .list-row-words { flex: 1 1 0; min-width: 0; }
 .list-row.quiet { cursor: auto; }
 .list-row > :not(.cut-line) { position: relative; z-index: 2; }
 .list-row-lead { flex: none; display: inline-flex; color: var(--ink-2); }
