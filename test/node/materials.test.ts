@@ -140,7 +140,8 @@ const NOT_MADE_OF_MATERIALS = new Map<string, string>([
   // Reading text is Markdown, which writes no classes: it spaces and draws its own parts.
   [".reading > :nth-child(n + 2) | margin-top", "a block's gap between paragraphs and anything else"],
   [".reading > :is(h2, h3) + :nth-child(n + 2) | margin-top", "a word's gap under a heading"],
-  [".reading :is(ul, ol) | padding-inline-start", "a list's markers in from its words"],
+  [".reading :is(ul, ol) | padding-inline", "a list's markers in from its words, and its words kept off the far edge by the words margin"],
+  [".switch-well > .well-body > .tab-switch | --control-height", "a switch carved into a well takes the well's control height, so its tabs fill it"],
   [".reading :not(pre) > code | *", "code in a line: a sliver of carving"],
   [".reading pre | *", "a block of code: a carving out to the frame gap"],
   [".reading blockquote | *", "a quote, set in from a hairline"],
