@@ -519,8 +519,10 @@ export const TRACK_STYLES = `
    back. Its sides are its box's, so what scrolls by stops at the frame gap, where the first cover sits. */
 .layout-track { --fade-sideways-px: 48px; --edge-room: var(--gap-words-control); container-type: inline-size; display: flex; gap: var(--gap-block-block); scroll-snap-type: x proximity;
   padding: var(--edge-room) 0; margin: calc(-1 * var(--edge-room)) 0; }
-/* Its rail (data-side-rail, Rail in Navigation) runs under it, past the room kept for what lifts in it, never into it. */
+/* Its rail (data-side-rail, Rail in Navigation) runs under it, past the room kept for what lifts in it, never into it. A track that fits
+   keeps the rail's reach there all the same, so its covers keep the words margin at a pane's end and nothing moves as the rail comes and goes. */
 .layout-track.shows-rail { margin-bottom: 0; }
+.layout-track:not(.shows-rail) { margin-bottom: var(--rail-reach); }
 /* A cover snaps where the track's start inset ends, so the first one is a snapping point at the track's very start, not past it. */
 .layout-track { scroll-padding-inline: var(--pad-words); }
 /* Screenshots lie closer than game cards do: pictures with an edge of their own, side by side. */
