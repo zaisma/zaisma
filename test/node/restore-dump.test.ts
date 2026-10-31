@@ -1,14 +1,14 @@
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error plain JavaScript without type declarations
 import { ORDERED_DUMP_HEADER, writeImportParts } from "../../scripts/restore-dump.mjs";
+import { temporaryFolder } from "../temporary-folder.ts";
 
 // The main database's dump made ready for D1's import (scripts/restore-dump.mjs): parents first, in parts that
 // each import on their own, at any size.
 
-const folder = mkdtempSync(join(tmpdir(), "restore-dump-"));
+const folder = temporaryFolder("restore-dump-");
 const statementsOf = (paths: string[]) =>
   paths
     .map((path) => readFileSync(path, "utf8"))

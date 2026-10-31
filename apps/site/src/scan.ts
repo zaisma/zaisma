@@ -85,6 +85,8 @@ import type { Env } from "./env.ts";
 import { recheckFailed, recheckVersion } from "./triage.ts";
 import { turnOffLeakedKeys } from "./leaked-keys.ts";
 import { buildHasThreads } from "../../../packages/cli/check.mjs";
+import { recordRestoreEvent } from "./restore-events.ts";
+import { noteRulingOnGame } from "./standing.ts";
 
 /** Most text we read for the static checks. Bigger games are held for a person. */
 const MAXIMUM_STATIC_TEXT_SIZE_BYTES = 40 * 1024 * 1024;
@@ -180,6 +182,8 @@ export async function scanVersion(env: Env, versionId: string, deps: ScanDeps = 
   const report = await inspectVersion(env, version, game, deps);
   const { decision, findings, is_child_safety: isChildSafety } = report;
   await saveScan(env.DB, version.id, decision, report);
+  // A clear break, rejected with no person: a ruling against the developer (standing.ts).
+  if (decision === "rejected") await noteRulingOnGame(env, game.id);
   // Counts toward the owner's large and small reviews a day (steps 4e and 4a3); re-checks never get here.
   if (isJudged(report)) await env.DB.prepare("UPDATE versions SET judged_at_ms = ? WHERE id = ?").bind(report.finished_at_ms, version.id).run();
   if (report.ai && "judge_model" in report.ai && report.ai.is_small_review) await env.DB.prepare("UPDATE versions SET read_at_ms = ? WHERE id = ?").bind(report.finished_at_ms, version.id).run();
@@ -269,7 +273,9 @@ export async function inspectVersion(env: Env, version: Version, game: Game, dep
   // 2b. A re-upload of another developer's game waits for a person; the developer isn't told which game.
   const isRecheck = reported !== undefined;
   const matchedGame = isRecheck ? null : await findMatchedGame(env, game, files);
-  if (matchedGame) {
+  if (matchedGame?.isBannedOwner) {
+    findings.push({ stage: "static", severity: "hold", code: "matches_banned_account_files", message: REVIEW_CODES.matches_banned_account_files.meaning });
+  } else if (matchedGame) {
     const original = await gameById(env.DB, matchedGame.gameId);
     findings.push({ stage: "static", severity: "hold", code: "matches_another_developers_game", message: `${matchedGame.matchedFileCount} of its ${matchedGame.comparedFileCount} files were sent first by another developer, in ${original?.slug ?? matchedGame.gameId}.` });
   }
@@ -917,7 +923,10 @@ export async function holdKnownImages(env: Env, game: Game, version: Version, im
   await env.DB.prepare("UPDATE versions SET scan_status = 'held', preview_link_key = NULL, scheduled_publish_at_ms = NULL, scan_report = ? WHERE id = ?").bind(JSON.stringify(report), version.id).run();
   const isGameHidden = game.live_version_id === version.id && game.review_status === "live";
   // Never described to the developer: they're told a person needs to look.
-  if (isGameHidden) await setReviewStatus(env.DB, game.id, "held", reviewReason("needs_review"));
+  if (isGameHidden) {
+    await setReviewStatus(env.DB, game.id, "held", reviewReason("needs_review"));
+    await recordRestoreEvent(env, { event_kind: "game_held", at_ms: Date.now(), game_id: game.id, review_reason: reviewReason("needs_review") });
+  }
   await audit(env.DB, game.id, "image-match-hold", `${why}: ${version.id} is held${isGameHidden ? " and the game is hidden" : ""}\n${summarize(knownImageFindings)}`);
   await tellWebhooks(env, "scan_status_changed", game.id, { versionId: version.id });
   if (isGameHidden) await tellWebhooks(env, "review_status_changed", game.id, {});

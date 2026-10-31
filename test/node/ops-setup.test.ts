@@ -1,9 +1,9 @@
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, lstatSync, mkdirSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 // @ts-expect-error: a plain JavaScript script without types
 import { linkSkills, withAdditionalDirectories } from "../../scripts/ops-setup.mjs";
+import { temporaryFolder } from "../temporary-folder.ts";
 
 /**
  * scripts/ops-setup.mjs, which connects a checkout to the private ops repo: one link per skill in the main
@@ -12,7 +12,7 @@ import { linkSkills, withAdditionalDirectories } from "../../scripts/ops-setup.m
  */
 
 let workDir = "";
-beforeEach(() => { workDir = mkdtempSync(join(tmpdir(), "ops-setup-")); });
+beforeEach(() => { workDir = temporaryFolder("ops-setup-"); });
 afterEach(() => { rmSync(workDir, { recursive: true, force: true }); });
 
 /** An ops clone with skills a and b, and a checkout with the given entries in .claude/skills/. */

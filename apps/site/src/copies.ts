@@ -1,6 +1,7 @@
 import { COPY_LIMITS, audit, decidedReason, gameById, manifestKey, saveScan, type Game, type Manifest, type ScanReport, type Version } from "@zaisma/core";
 import type { StoredFile } from "./scan.ts";
 import { authUserEmail, realEmail } from "./auth.ts";
+import { noteRulingOnGame } from "./standing.ts";
 import { copyStoppedEmail, deliverEmail } from "./email-codes.ts";
 import { tellWebhooks } from "./webhooks.ts";
 import type { Env } from "./env.ts";
@@ -16,6 +17,8 @@ export interface MatchedGame {
   gameId: string;
   matchedFileCount: number;
   comparedFileCount: number;
+  /** The matched game's owner's account is banned (bans.ts): the upload waits for a person as matches_banned_account_files. */
+  isBannedOwner: boolean;
 }
 
 /** The other developer's game most of these files come from, or null. Only file-by-file uploads have fingerprints. */
@@ -82,11 +85,18 @@ export async function findMatchedGame(env: Env, game: Game, files: StoredFile[])
       if (!stored) continue;
       const theirHashes = new Set(Object.values(((await stored.json()) as Manifest).files).map((file) => file.sha256));
       const matchedFileCount = [...firstHashes].filter((hash) => theirHashes.has(hash)).length;
-      if (!best || matchedFileCount > best.matchedFileCount) best = { gameId: version.game_id, matchedFileCount, comparedFileCount: compared.length };
+      if (!best || matchedFileCount > best.matchedFileCount) best = { gameId: version.game_id, matchedFileCount, comparedFileCount: compared.length, isBannedOwner: false };
     }
-    if (best && isMostOf(best.matchedFileCount)) return best;
+    if (best && isMostOf(best.matchedFileCount)) return { ...best, isBannedOwner: await isBannedOwner(env, otherOwnerId) };
   }
   return null;
+}
+
+/** Whether an owner's account is banned (bans.ts). */
+async function isBannedOwner(env: Env, ownerId: string | null): Promise<boolean> {
+  if (!ownerId) return false;
+  const row = await env.DB.prepare("SELECT accounts.banned_at_ms FROM owners JOIN accounts ON accounts.id = owners.account_id WHERE owners.id = ?").bind(ownerId).first<{ banned_at_ms: number | null }>();
+  return row?.banned_at_ms != null;
 }
 
 /** An owner's public name: their account's username, or null for an owner with no account. */
@@ -108,11 +118,13 @@ export async function stopCopy(env: Env, version: Version, actor: string): Promi
   const rejectedReason = decidedReason("rejected_by_zaisma", "copyright", "A re-upload of another developer's game.");
   await saveScan(env.DB, version.id, "rejected", null);
   await env.DB.prepare("UPDATE versions SET review_reason = ? WHERE id = ?").bind(JSON.stringify(rejectedReason), version.id).run();
+  await noteRulingOnGame(env, version.game_id);
   await audit(env.DB, version.game_id, "rejected", `${version.id}: a re-upload of another developer's game`, actor, rejectedReason);
   await tellWebhooks(env, "scan_status_changed", version.game_id, { versionId: version.id });
 
   const original = await gameById(env.DB, report.matched_game.game_id);
-  if (!original) return true;
+  // A banned original is never told: that would tell a banned person what Zaisma watches.
+  if (!original || (await isBannedOwner(env, original.owner_id))) return true;
   const copy = await gameById(env.DB, version.game_id);
   const uploaderName = (await ownerUsername(env, copy?.owner_id ?? null)) ?? "another developer";
   // The reason is the name alone: history reads a version ID out of it, and the copy's isn't theirs to see.

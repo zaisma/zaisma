@@ -207,6 +207,7 @@ const COMMANDS = {
   "items remove": { about: "Remove an item nobody bought or was granted", arguments: [{ name: "slug" }, { name: "item_name" }], flags: {} },
   "kept-rooms": { about: "A game's kept rooms (room.setKept), worlds that sleep with nobody in them: each one's code, name, size and when it was last played, and the game's storage", arguments: [{ name: "slug" }], flags: {} },
   "kept-rooms delete": { about: "Delete a kept room's world for good; players in it are sent out", arguments: [{ name: "slug" }, { name: "room_code" }], flags: {} },
+  rooms: { about: "A game's live rooms on Zaisma, newest first: each one's code, name, labels, players and spectators, and whether it's kept", arguments: [{ name: "slug" }], flags: {} },
   logs: {
     about: "What a game's server printed on Zaisma in the last 30 days, oldest first: the newest lines, older ones with --cursor, or new ones as they come with --follow",
     arguments: [{ name: "slug" }],
@@ -1932,6 +1933,18 @@ async function items(command, values) {
   console.log(`Refund policy: ${answer.refund_policy === "own_words" ? answer.refund_policy_text : (answer.refund_policy ?? "none yet (set_purchase_settings), needed before anything goes on sale")}`);
 }
 
+/** A game's live rooms (GET …/games/<slug>/rooms), as the MCP's list_rooms. */
+async function liveRooms(values) {
+  const answer = await api("GET", `/games/${values.slug}/rooms`);
+  if (isJson) return printJson(answer);
+  if (!answer.rooms.length) console.log(`No live rooms on Zaisma right now.`);
+  for (const room of answer.rooms) {
+    const labels = Object.entries(room.labels).map(([labelName, labelValue]) => `${labelName}: ${labelValue}`).join(", ");
+    console.log(`${room.room_code}  ${(room.name ?? "").padEnd(24)} ${`${room.player_count}/${room.maximum_player_count}`.padStart(7)} players${room.spectator_count ? `, ${room.spectator_count} watching` : ""}${room.is_kept ? ", kept" : ""}${labels ? `  ${labels}` : ""}`);
+  }
+  if (answer.next_cursor) console.log(`${answer.room_count} rooms in all; --json, or list_rooms with cursor, gives the rest.`);
+}
+
 /** A game's kept rooms (…/games/<slug>/kept-rooms…), as the MCP's list_kept_rooms and delete_kept_room. */
 async function keptRooms(command, values) {
   if (command === "kept-rooms") {
@@ -2168,6 +2181,7 @@ async function run({ command, values, flags, globalFlags, rest }) {
   else if (command === "links" || command.startsWith("links ")) await links(command, values, flags);
   else if (command === "secrets" || command.startsWith("secrets ")) await secrets(command, values);
   else if (command === "items" || command.startsWith("items ")) await items(command, values);
+  else if (command === "rooms") await liveRooms(values);
   else if (command === "kept-rooms" || command.startsWith("kept-rooms ")) await keptRooms(command, values);
   else if (command === "logs") await logs(values, flags);
   else if (command === "database" || command.startsWith("database ")) await database(command, values, flags);

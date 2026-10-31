@@ -216,7 +216,7 @@ const WAY_TINTS: Record<WayIn, ButtonTint> = { google: "plain", discord: "indigo
  * the lift is set there for its face, which moves inside it.
  */
 /**
- * Busy: a button that sends a form, or a link-button that opens another page, shows the loader once it's pressed (aria-busy) and
+ * Busy: a button that sends a form, or a link-button that opens another page (never a mailto: or tel: one), shows the loader once it's pressed (aria-busy) and
  * can't be pressed twice. Coming back to the page from the browser's history puts it back as it was.
  */
 export const BUSY_SCRIPT = `/* busy */(function () {
@@ -237,6 +237,8 @@ export const BUSY_SCRIPT = `/* busy */(function () {
     var link = event.target.closest && event.target.closest("a.shell[href]");
     if (!link || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || link.target === "_blank") return;
     var to = new URL(link.href, location.href);
+    // A mailto: or tel: link opens another app and leaves the page where it is, so nothing waits.
+    if (to.protocol !== "http:" && to.protocol !== "https:") return;
     if (to.origin === location.origin && to.pathname === location.pathname && to.search === location.search) return;
     afterHandlers(event, function () { busy(link); });
   });

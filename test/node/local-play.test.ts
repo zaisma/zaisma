@@ -1,13 +1,13 @@
 import { createServer, type Server } from "node:http";
 import { request as secureRequest } from "node:https";
-import { appendFileSync, cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, cpSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { stripTypeScriptTypes } from "node:module";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
 import { canChat, passesAreFriends, passesHaveBlockBetween, verifyPass, verifyReceipt, type PassClaims, type PublicKey } from "../../packages/game-server/src/index.ts";
 import { startLocalPlay, type LocalPlay } from "../../packages/game-server/bin/local-play.js";
+import { temporaryFolder } from "../temporary-folder.ts";
 
 // Playing a multiplayer game on your own computer (packages/game-server/bin/local-play.js): four in a row, its
 // game server and the bench, with real passes and receipts from the stand-in rooms, played by two clients. Each
@@ -15,7 +15,8 @@ import { startLocalPlay, type LocalPlay } from "../../packages/game-server/bin/l
 
 const EXAMPLE = join(import.meta.dirname, "../../examples/four-in-a-row");
 const SLUG = "four-in-a-row";
-const port = 20_000 + Math.floor(Math.random() * 4_000) * 4;
+// Below 32768, where Linux starts handing out ports for outgoing connections, so another connection never holds one (port + 41 at most).
+const port = 20_000 + Math.floor(Math.random() * 3_000) * 4;
 let folder = "";
 let play: LocalPlay;
 // Zaisma's developer API for the game's items, stood in for: the bench brings them in at every start with --game and a key.
@@ -86,7 +87,7 @@ const until = async (isDone: () => boolean, timeoutMs = 10_000) => {
 describe("play-locally", () => {
   beforeAll(async () => {
     // The example as a developer uploads it: the game at the top, its game server as zaisma-server.js.
-    folder = mkdtempSync(join(tmpdir(), "zaisma-local-play-"));
+    folder = temporaryFolder("zaisma-local-play-");
     cpSync(join(EXAMPLE, "game"), folder, { recursive: true });
     writeFileSync(join(folder, "zaisma-server.js"), stripTypeScriptTypes(readFileSync(join(EXAMPLE, "server.ts"), "utf8")));
     developerApi = createServer((request, response) => {
@@ -272,7 +273,7 @@ describe("play-locally", () => {
 
   it("speaks HTTPS too on the network, with a certificate of its own, and http still on this computer", async () => {
     // A folder of its own: two benches on one folder would share its game server's saved rooms.
-    const networkFolder = mkdtempSync(join(tmpdir(), "zaisma-local-play-network-"));
+    const networkFolder = temporaryFolder("zaisma-local-play-network-");
     cpSync(folder, networkFolder, { recursive: true, filter: (source) => !source.includes(".zaisma-local") });
     const onNetwork = await startLocalPlay({ gameFolder: networkFolder, port: port + 40, gameSlug: SLUG, isOnNetwork: true, log: () => {} });
     try {

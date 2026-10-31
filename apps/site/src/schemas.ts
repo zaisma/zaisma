@@ -82,6 +82,7 @@ export const reviewReason = (description: string) =>
       message: text("What happened and why, in plain words."),
       content_rule: nullable(CONTENT_RULE),
       fix: text("What to do about it, naming the call when there is one."),
+      message_for_people: text("What happened and what to do, in a page's words, naming no call or field: what Zaisma's pages show, for an AI to show its human too."),
     },
     description,
   );
@@ -92,7 +93,7 @@ export const LINK = object({
   destination_url: url("The https address it opens; the game can add a path and query under it."),
   is_on_game_page: yes("The game page shows it too."),
   who_can_open: choice(
-    { everyone: "it's on a trusted store, payment or video site, so it opens for guests and under-18 accounts too", signed_in_adults: "it opens for signed-in adults; anyone else sees \"This link can't be opened here.\"", nobody: "its site is listed for malware or phishing (review_reason says so)" },
+    { everyone: "it's on a trusted store, payment or video site, so it opens for guests and under-18 accounts too", signed_in_adults: "it opens for signed-in adults; anyone else sees \"This link can't be opened here.\"", waiting_for_standing: "a site off the trusted list that opens for signed-in adults once your account is established, or has a card that paid Zaisma or a Stripe account (get_access's standing); until then it opens for nobody", nobody: "its site is listed for malware or phishing (review_reason says so)" },
     "Who it opens for.",
   ),
   review_reason: nullable(reviewReason("Why it opens for nobody; null when it opens.")),
@@ -185,6 +186,7 @@ export const GAME_ALERT = object({
   }),
   message: text("What needs attention, in plain words."),
   fix: text("What to do about it, naming the call when there is one."),
+  message_for_people: text("What happened and what to do, in a page's words, naming no call or field: what Zaisma's pages show, for an AI to show its human too."),
   version_id: nullable(idOf("version", "The version it's about; null when it's about the whole game.")),
 });
 /** One distinct error of a game's own game server, as get_stats lists it and a game_server_error_found event carries it. */
@@ -209,6 +211,7 @@ export const FINDING = object({
   content_rule: nullable(CONTENT_RULE),
   path: nullable(text("The file it's in, if any.")),
   fix: text("What to do about it."),
+  message_for_people: text("What happened and what to do, in a page's words, naming no call or field: what Zaisma's pages show, for an AI to show its human too."),
 });
 
 /** A note on how a version started in Chrome, or on files that could be much smaller. Notes never hold a version. */
@@ -432,7 +435,7 @@ export const ACCESS = object({
       sign_in_app_access: choice(AREA_ACCESS_CHOICES.sign_in_app_access, "Sign-in apps; none for keys limited to some games."),
       webhook_access: choice(AREA_ACCESS_CHOICES.webhook_access, "Webhooks; none for keys limited to some games."),
       stripe_account_access: choice(AREA_ACCESS_CHOICES.stripe_account_access, "The developer's connected Stripe account for the buy sheet; none for keys limited to some games. read: the connection. write: also ask for a link to connect (the developer connects with their passkey on zaisma.com), turn Stripe Tax on or off, and disconnect."),
-      credit_access: choice(AREA_ACCESS_CHOICES.credit_access, "Hosting credit; none for keys limited to some games. read: balance, top-ups and spending. write: also start a top-up, refund one, and turn spending off or down (on or up needs the developer's passkey on zaisma.com). Also Zaisma Pro: read the plan; write: start, cancel or resume it."),
+      credit_access: choice(AREA_ACCESS_CHOICES.credit_access, "Hosting credit; none for keys limited to some games. read: balance, top-ups and spending. write: also start a top-up, refund one, and turn spending off or down (on or up needs the developer's passkey on zaisma.com). Also the monthly credit plan: write starts it, changes its level (higher needs the passkey) and stops it. And Zaisma Pro: read the plan; write: start, cancel or resume it."),
     },
     "What the key may do in each area.",
   ),
@@ -450,11 +453,30 @@ export const NEXT = list(
   "The calls that usually follow; empty when nothing does.",
 );
 
+/** What the developer's account has earned, and what each power needs (packages/core/src/standing.ts): GET /access's standing. */
+export const STANDING = object(
+  {
+    is_established_developer: yes("Whether the account is established: 14 days old, 20 different returning players on its games, and nothing ruled against it in 30 days. Zaisma's own accounts are established from the start."),
+    outside_links_enabled: yes("Whether the games' links to sites outside the trusted list open (for signed-in adults): once established, or at once with a card that paid Zaisma or a Stripe account that can take payments. Until then those links answer who_can_open waiting_for_standing."),
+    search_engines_enabled: yes("Whether search engines find the games (the sitemap, and no noindex on their pages): only once established. Zaisma's own lists show listed games from the first day either way."),
+    returning_player_count: countOf("Different players who came back to your games on 2 days or more, each with an account at least 7 days old that played on 3 days, as the daily count last counted them. Your own account never counts."),
+    minimum_returning_player_count: countOf("Returning players needed to be established: 20."),
+    account_age_days: countOf("Whole days since the account was made."),
+    minimum_account_age_days: countOf("Days old the account must be to be established: 14."),
+    has_card_or_stripe_account: yes("Whether a card paid Zaisma (a top-up or Zaisma Pro) on this account, or its Stripe account can take payments: either opens links to other sites at once."),
+    last_ruling_at: nullable(isoTime("When Zaisma last rejected one of your versions or took a game down; null when never.")),
+    ruling_wait_ends_at: nullable(isoTime("While the 30 days after the last ruling run, when they end: until then links to other sites and search engines are closed. null when there's no wait.")),
+    message_for_people: text("What's open and what opens next, in a sentence or two, to show the developer."),
+  },
+  "What the account has earned, and what each power needs. Nobody else sees it.",
+);
+
 const ERROR_FIELDS = object({
   code: text("Stable, one problem per code; docs/DEVELOPER-API.md lists every code."),
   message: text("What happened."),
   field: nullable(text("The input at fault, like play_modes[1].play_style; null when no one input is.")),
   fix: text("What to do about it."),
+  message_for_people: text("What happened and what to do, in a page's words, naming no call or field: what Zaisma's pages show, for an AI to show its human too."),
   retry_after_sec: nullable(countOf("How long to wait before trying again, when waiting helps; else null.")),
 });
 /** Every error, in the API and the MCP (docs/NAMING.md, Errors). confirm_url comes with confirmation_needed alone. */
@@ -609,12 +631,24 @@ export const HOSTING_USE = object(
   "This month (UTC) on the game's one hosting meter: the free allowance as a percentage, what used it, and what credit paid past it.",
 );
 
+/** The monthly credit plan, on credit (get_credit). */
+const CREDIT_PLAN = object(
+  {
+    refill_level_cents: countOf("What credit is filled back to on the 1st of every month (UTC), in cents (4000 is $40)."),
+    plan_status: choice({ running: "Stripe is paid; the next 1st refills", payment_failing: "the card was declined, and Stripe is trying again over the next days" }),
+    next_payment_at: isoTime("The next 1st, 00:00 UTC, when the refill is paid."),
+    next_payment_cents: countOf("What the next 1st pays at today's balance: the level minus the balance, 0 when that's under $1 or the balance is at or over the level. Sales tax or VAT comes on top on Stripe's side."),
+    started_at: isoTime(),
+  },
+  "The monthly credit plan (start_credit_plan); null with none.",
+);
 const CREDIT_ENTRY_KIND = choice({ top_up: "credit bought", hosting_charge: "a game's hosting past its free allowance, one entry per game per day", refund: "credit refunded to its card", written_off: "what a game used past its budget, your credit, or its free hosting while it had no budget, which Zaisma took on: never charged" });
 /** A developer's hosting credit (get_credit). */
 export const CREDIT = object({
   credit: object({
     balance_cents: countOf("What's left to spend, in cents. Never below 0."),
     is_credit_low: yes("Whether the balance is under 20% of what there was right after the last top-up: add credit. Each game with a budget shows a credit_low alert meanwhile."),
+    credit_plan: nullable(CREDIT_PLAN),
     top_ups: list(
       object({
         id: idOf("top_up"),
@@ -632,18 +666,17 @@ export const CREDIT = object({
     ),
   }),
 });
-const SPENDING_CHANGE_FIELDS = {
-  monthly_budget_cents: nullable(countOf("A game's monthly budget; null: no paid hosting.")),
-};
+const BUDGET_CHANGE = object({ monthly_budget_cents: nullable(countOf("A game's monthly budget; null: no paid hosting.")) }, "game_budget's");
+const PLAN_LEVEL_CHANGE = object({ refill_level_cents: nullable(countOf("The monthly credit plan's level; null: no plan.")) }, "credit_plan_refill_level's");
 /** A raise in spending the developer approves or declines on zaisma.com (get_spending_request). */
 export const SPENDING_REQUEST = object({
   spending_request: object({
     id: idOf("spending_request"),
-    request_kind: choice({ game_budget: "a game's monthly budget" }),
-    game_slug: nullable(text("The game; null once it's deleted.")),
+    request_kind: choice({ game_budget: "a game's monthly budget", credit_plan_refill_level: "the monthly credit plan's level" }),
+    game_slug: nullable(text("The game; null once it's deleted, and for the credit plan's level.")),
     game_title: nullable(text()),
-    requested_change: object(SPENDING_CHANGE_FIELDS, "The budget asked for."),
-    current_setting: object(SPENDING_CHANGE_FIELDS, "The same fields as they are now."),
+    requested_change: { anyOf: [BUDGET_CHANGE, PLAN_LEVEL_CHANGE], description: "The change asked for: monthly_budget_cents for a game's budget, refill_level_cents for the credit plan's level." },
+    current_setting: { anyOf: [BUDGET_CHANGE, PLAN_LEVEL_CHANGE], description: "The same field as it is now." },
     request_status: choice({ waiting: "the developer hasn't answered", approved: "approved: the change is made", declined: "the developer declined", expired: "a day passed without an answer" }),
     created_at: isoTime(),
     expires_at: isoTime("A day after it was asked."),
@@ -688,6 +721,14 @@ export const PRO_CHECKOUT = object({
   expires_at: isoTime("When the page stops taking payment."),
   next_steps: NEXT,
 });
+/** Stripe's page for starting the monthly credit plan (start_credit_plan). */
+export const CREDIT_PLAN_CHECKOUT = object({
+  checkout_url: url("Stripe's page where the developer pays. Only a person can pay there."),
+  expires_at: isoTime("When the page stops taking payment."),
+  next_steps: NEXT,
+});
+/** The credit after change_credit_plan or stop_credit_plan. */
+export const CREDIT_CHANGED = object({ ...(CREDIT.properties as Record<string, Schema>), next_steps: NEXT });
 /** Stripe's page for a top-up (top_up_credit). */
 export const TOP_UP_CHECKOUT = object({
   checkout_url: url("Stripe's page where the developer pays. Only a person can pay there."),
@@ -1102,6 +1143,108 @@ export const KEPT_ROOMS = object({
 /** A kept room deleted. */
 export const KEPT_ROOM_DELETED = object({
   is_deleted: yes("Always true: the room's world is gone, and players who were in it were sent out."),
+  next_steps: NEXT,
+});
+
+/** Labels a room holds, or a call's room selection: up to 4, each a name and its text. */
+const ROOM_LABELS = describe(list(object({ label_name: text("The label's name, as the game server set it, like Map."), label_value: text("Its text, like Docks.") })), 'Up to 4 labels, like [{"label_name": "Map", "label_value": "Docks"}].');
+
+/** One of the game's live rooms on Zaisma. */
+const LIVE_ROOM = object({
+  room_code: text("The room's code, as players see it, like K7Q2MX."),
+  name: nullable(text("The room's name, as its game server set it.")),
+  labels: ROOM_LABELS,
+  player_count: countOf("Players in its match now, away ones included."),
+  maximum_player_count: countOf("The most players it takes."),
+  spectator_count: countOf("Spectators watching it now."),
+  is_listed: yes("Shown in room lists; a hidden room still works by its code."),
+  is_open: yes("Taking new players."),
+  is_kept: yes("A kept room: it sleeps with its world saved when everyone leaves (list_kept_rooms)."),
+  version_id: nullable(idOf("version", "The game version its game server runs; null for a built-in game server.")),
+  continent: nullable(text("Where it runs, like EU, from its first player.")),
+  created_at: isoTime("When it started."),
+});
+
+/** The game's live rooms. */
+export const LIVE_ROOMS = object({
+  rooms: list(LIVE_ROOM, "Newest first: rooms that are running, and kept rooms asleep with nobody in them. Up to 500; next_cursor gives the rest."),
+  room_count: countOf("How many rooms the list holds in all, labels taken into account: on the first page; later pages say how many they hold."),
+  next_cursor: nullable(text("Pass it as cursor for the rooms after these; null when there are no more.")),
+});
+
+/** One live room, and who's in it. */
+export const LIVE_ROOM_WITH_PLAYERS = object({
+  room: LIVE_ROOM,
+  players: list(
+    object({
+      player_id: idOf("player"),
+      name: text("Their account's name, or a guest's generated one."),
+      kind: choice({ account: "a signed-in Zaisma account", guest: "a guest" }),
+      is_away: yes("Out of play for now: away_reason says why."),
+      away_reason: nullable(choice({ idle: "idle, kept by the game server's onAway", hidden: "their game is hidden", lost: "their connection dropped, and they have time to come back" })),
+      joined_at: isoTime("When they joined the room."),
+      is_spectator: yes("Watching, not playing."),
+    }),
+    "Players in join order, then spectators. A kept room asleep has nobody.",
+  ),
+});
+
+/** A room message one room took. */
+export const ROOM_MESSAGE_DELIVERED = object({
+  is_delivered: yes("Always true: the room took it; its game server's onRoomMessage, or its players' games, have it."),
+  next_steps: NEXT,
+});
+
+const SCHEDULED_ROOM_MESSAGE_ID = idOf("scheduled_room_message", "Its ID, for cancel_room_message.");
+
+/** A room message to every room, sent now or scheduled. */
+export const EVERY_ROOM_SENT = object({
+  room_count: nullable(countOf("Sent now: how many rooms took it. null when it's scheduled.")),
+  scheduled_room_message: nullable(
+    object(
+      {
+        id: SCHEDULED_ROOM_MESSAGE_ID,
+        send_at: isoTime("When it goes out, within a minute after."),
+        labels: nullable(ROOM_LABELS),
+        created_at: isoTime(),
+      },
+      "Scheduled with send_at: it waits until then. null when it was sent now.",
+    ),
+  ),
+  next_steps: NEXT,
+});
+
+/** The game's scheduled room messages. */
+export const SCHEDULED_ROOM_MESSAGES = object({
+  scheduled_room_messages: list(
+    object({
+      id: SCHEDULED_ROOM_MESSAGE_ID,
+      message: describe({}, "The message, as sent."),
+      labels: nullable(ROOM_LABELS),
+      send_at: isoTime(),
+      created_at: isoTime(),
+      sent_at: nullable(isoTime("When it went out; null while it waits.")),
+      delivered_room_count: nullable(countOf("How many rooms took it; null while it waits.")),
+    }),
+    "The ones waiting, soonest first, then the last 20 that went out, newest first.",
+  ),
+});
+
+/** A scheduled room message called off. */
+export const ROOM_MESSAGE_CANCELLED = object({
+  is_cancelled: yes("Always true: it won't go out."),
+  next_steps: NEXT,
+});
+
+/** A player removed from a live room. */
+export const ROOM_PLAYER_KICKED = object({
+  is_kicked: yes("Always true: they were told why and sent out, and the room's onLeave hears reason kicked."),
+  next_steps: NEXT,
+});
+
+/** A live room ended. */
+export const ROOM_ENDED = object({
+  is_ended: yes("Always true: everyone in it heard message and was sent out; a kept room's world is over for good."),
   next_steps: NEXT,
 });
 
@@ -1780,6 +1923,32 @@ export const CHAT_REVIEW_DECIDED = object({
   next_steps: NEXT,
 });
 
+// Account bans (admin MCP: ban_account, unban_account, list_ban_matches, decide_ban_match).
+const BAN_SCOPE = choice({ developer: "its games are down and it can't make, upload or publish; it can still export its games", whole_account: "it can't sign in either" }, "How far the ban goes.");
+export const ACCOUNT_BANNED = object({
+  username: text(),
+  ban_scope: BAN_SCOPE,
+  banned_at: isoTime("When the account was first banned; widening a developer ban keeps it."),
+  taken_down_game_slugs: list(text("A game's link name."), "The games this ban took down, oldest first; games already down aren't in it."),
+  banned_mark_count: countOf("The cards, Stripe account and email the ban carries to new accounts."),
+  next_steps: NEXT,
+});
+export const ACCOUNT_UNBANNED = object({ username: text(), next_steps: NEXT });
+const BAN_MATCH = object({
+  ban_match_id: idOf("ban_match"),
+  username: text("The account that used the banned card."),
+  mark_kind: choice({ card: "a card that paid Zaisma", stripe_account: "a connected Stripe account", email: "an email" }, "What it shares with the banned account."),
+  banned_username: nullable(text("The banned account's username; null once it was deleted.")),
+  found_at: isoTime(),
+  decision: nullable(choice({ banned: "the same person: its developer side was banned", not_the_same_person: "someone else with the card, like family" }, "What a person decided; null while it waits.")),
+});
+export const BAN_MATCH_LIST = object({ ban_matches: list(BAN_MATCH, "The ones waiting for a person first, oldest first, then the decided ones, newest first; up to 100 in all.") });
+export const BAN_MATCH_DECIDED = object({
+  ban_match_id: idOf("ban_match"),
+  decision: choice({ banned: "the same person: the account's developer side is banned", not_the_same_person: "someone else with the card, like family: nothing changes" }),
+  next_steps: NEXT,
+});
+
 // Who can make games before the beta (admin MCP: list_publishing_accounts, set_can_publish).
 const PUBLISHING_ACCOUNT = object({
   username: text("The account's username, as on its profile."),
@@ -1838,6 +2007,11 @@ export const BLOCKED_SCRIPT_LIST = object({
     }),
     "The last 7 days, most reported first, up to 100. Browser extensions' reports aren't kept.",
   ),
+});
+export const ZAISMA_ACCOUNT_CHANGED = object({
+  username: text(),
+  is_zaisma_account: yes("Whether it's one of Zaisma's own accounts now, established from the start (links to other sites and search engines open)."),
+  next_steps: NEXT,
 });
 export const CAN_PUBLISH_CHANGED = object({
   username: text(),

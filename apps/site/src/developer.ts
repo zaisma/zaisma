@@ -41,6 +41,8 @@ import {
   qrCodeSvg,
   heldImageKey,
   iso,
+  banScopeOf,
+  type BanScope,
   KNOWN_IMAGE_CODE,
   REVIEW_CODES,
   readReviewReason,
@@ -149,6 +151,9 @@ import {
   ownServerUrlsOf,
   checkLinkSites,
   linkAudience,
+  standingOf,
+  STANDING_LIMITS,
+  type Standing,
   linksOf,
   type GameLink,
   eventKindsOf,
@@ -174,6 +179,7 @@ import {
   CREDIT_LIMITS,
   isCreditLow,
 } from "@zaisma/core";
+import { standingWords } from "./standing.ts";
 import { toneOfPicture } from "./background-tone.ts";
 import { updateLiveMatches } from "./match-updates.ts";
 import { CARD_IMAGE_HEIGHT_PX, CARD_IMAGE_WIDTH_PX, gameLinkUrl, roomCodeOf } from "./share-cards.ts";
@@ -187,7 +193,9 @@ import { databaseRoute } from "./game-database.ts";
 import { savesRoute } from "./saves-api.ts";
 import { secretsRoute } from "./secrets-api.ts";
 import { keptRoomsRoute } from "./kept-rooms-api.ts";
+import { roomMessagesRoute, roomsRoute } from "./room-messages-api.ts";
 import { checkSpendingConfirmed, creditRoute } from "./credit-api.ts";
+import { creditPlanRoute } from "./credit-plan-api.ts";
 import { proRoute } from "./pro-api.ts";
 import { stripeAccountRoute } from "./stripe-account-api.ts";
 import { clearPauses, pauseNow, resetsOnText } from "./hosting-job.ts";
@@ -261,6 +269,9 @@ import { alertIfNoticeFixPublished } from "./notices.ts";
  *   …/api/dev/games/:slug/purchases            purchases and grants with their receipts: list, get, grant, refund, mark handled (see items-api.ts)
  *   GET    /api/dev/games/:slug/players/:player_id/items   the permanent items a player owns, and their purchases still to hand over
  *   DELETE /api/dev/games/:slug/kept-rooms/:room_code   delete one's world for good
+ *   GET    /api/dev/games/:slug/rooms          the game's live rooms, and one with who's in it (see room-messages-api.ts)
+ *   POST   /api/dev/games/:slug/rooms/:room_code/messages|kick|end   a room message to one, remove a player, end it
+ *   POST   /api/dev/games/:slug/room-messages  a room message to every room, now or at send_at; GET lists the scheduled, DELETE cancels one
  *   GET    /api/dev/sign-in-apps               your sign-in apps (Sign in with Zaisma, see sign-in.ts)
  *   POST   /api/dev/sign-in-apps               make one: { "name", "kind", "redirect_urls" }; a confidential app's client_secret is answered once
  *   PATCH  /api/dev/sign-in-apps/:id           name, redirect_urls, or replace_client_secret: true
@@ -307,6 +318,10 @@ export interface Caller {
   placeSha256: string | null;
   /** Whether the account may make, upload and publish games (accounts.can_publish): until the beta, only accounts Zaisma adds. */
   canPublish: boolean;
+  /** How far Zaisma banned the account (bans.ts), when, and the why the developer reads (null for child safety); banScope null when it isn't banned. */
+  banScope: BanScope | null;
+  bannedAtMs: number | null;
+  banReasonForDeveloper: string | null;
   /** Our own page, with the developer's passkey tapped in the last 10 minutes: may turn spending on or up (credit-api.ts) and connect a Stripe account for sales (stripe-account-api.ts). */
   isSpendingConfirmed?: boolean;
 }
@@ -371,6 +386,8 @@ export async function authenticate(request: Request, env: Env, via: "api" | "mcp
     }
     const found = await apiKeyForToken(env.DB, token);
     const key = found?.key ?? null;
+    // A whole-account ban turns its keys off with no place found (bans.ts).
+    if (found?.keyState === "turned_off" && found.key.found_in === null) throw accountBanned({ banScope: "whole_account", banReasonForDeveloper: null });
     if (found?.keyState === "turned_off") {
       throw new ApiError("key_turned_off", {
         message: `This API key was ${foundWords(found.key)} and turned off on ${dayText(found.key.turned_off_at_ms!)}, so it can't be used again.`,
@@ -438,7 +455,26 @@ export async function callerFor(env: Env, request: Request, accountId: string, c
     isWhereKept: account.where_used_from_enabled === 1,
     placeSha256: null,
     canPublish: account.can_publish === 1,
+    banScope: banScopeOf(account),
+    bannedAtMs: account.banned_at_ms,
+    banReasonForDeveloper: account.ban_content_rule === "child_safety" ? null : account.ban_reason,
   };
+}
+
+/** What a banned developer can still call: get_access, list_games and export_game, so their work stays theirs. */
+const BANNED_DEVELOPER_ROUTES = new Set(["GET /access", "GET /games", "GET /games/:slug/export", "GET /games/:slug/export/download"]);
+
+/** The account_banned refusal: why, unless it's child safety; a whole-account ban says the account is closed. */
+export function accountBanned(caller: Pick<Caller, "banScope" | "banReasonForDeveloper">): ApiError {
+  if (caller.banScope === "whole_account") {
+    return new ApiError("account_banned", {
+      message: "Zaisma closed this account for breaking its rules.",
+      messageForPeople: "This account is closed for breaking Zaisma's rules.",
+      fix: "Tell the developer. Nothing works for this account now; to appeal, they write to safety@zaisma.com with the username.",
+    });
+  }
+  const words = caller.banReasonForDeveloper ? `Zaisma banned this account's developer side for breaking the content rules: ${caller.banReasonForDeveloper.replace(/\.$/, "")}.` : "Zaisma banned this account's developer side for breaking Zaisma's rules.";
+  return new ApiError("account_banned", { message: words, messageForPeople: words, fix: "Tell the developer. Only get_access, list_games and export_game work now; to appeal, they write to safety@zaisma.com with the username." });
 }
 
 /** Call the API from inside the site as this caller, and answer its response as it is: for a call that answers bytes, like an export's .zip. */
@@ -647,6 +683,14 @@ export const API_ROUTES: readonly ApiRoute[] = [
   call({ method: "DELETE", path: "/games/:slug/secrets/:secret_name", reaches: "game", access: needs("game_access", "write"), pathParts: { slug: "game", secret_name: "in_game" } }),
   call({ method: "GET", path: "/games/:slug/kept-rooms", reaches: "game", access: needs("game_access", "read"), pathParts: atGame }),
   call({ method: "DELETE", path: "/games/:slug/kept-rooms/:room_code", reaches: "game", access: needs("game_access", "write"), pathParts: { slug: "game", room_code: "in_game" } }),
+  call({ method: "GET", path: "/games/:slug/rooms", reaches: "game", access: needs("game_access", "read"), pathParts: atGame, query: plainInputs("labels", "cursor") }),
+  call({ method: "GET", path: "/games/:slug/rooms/:room_code", reaches: "game", access: needs("game_access", "read"), pathParts: { slug: "game", room_code: "in_game" } }),
+  call({ method: "POST", path: "/games/:slug/rooms/:room_code/messages", reaches: "game", access: needs("game_access", "write"), pathParts: { slug: "game", room_code: "in_game" }, body: { inputs: plainInputs("message") } }),
+  call({ method: "POST", path: "/games/:slug/rooms/:room_code/kick", reaches: "game", access: needs("game_access", "write"), pathParts: { slug: "game", room_code: "in_game" }, body: { inputs: plainInputs("player_id", "message", "is_kept_out") } }),
+  call({ method: "POST", path: "/games/:slug/rooms/:room_code/end", reaches: "game", access: needs("game_access", "write"), pathParts: { slug: "game", room_code: "in_game" }, body: { inputs: plainInputs("message", "confirm"), isOptional: true } }),
+  call({ method: "POST", path: "/games/:slug/room-messages", reaches: "game", access: needs("game_access", "write"), pathParts: atGame, body: { inputs: plainInputs("message", "labels", "send_at") } }),
+  call({ method: "GET", path: "/games/:slug/room-messages", reaches: "game", access: needs("game_access", "read"), pathParts: atGame }),
+  call({ method: "DELETE", path: "/games/:slug/room-messages/:scheduled_room_message_id", reaches: "game", access: needs("game_access", "write"), pathParts: { slug: "game", scheduled_room_message_id: "in_game" } }),
   call({ method: "GET", path: "/games/:slug/items", reaches: "game", access: needs("purchase_access", "read"), pathParts: atGame }),
   call({ method: "PUT", path: "/games/:slug/items/:item_name", reaches: "game", access: needs("purchase_access", "write"), pathParts: { slug: "game", item_name: "in_game" }, body: { inputs: plainInputs(...ITEM_FIELDS) } }),
   call({ method: "DELETE", path: "/games/:slug/items/:item_name", reaches: "game", access: needs("purchase_access", "write"), pathParts: { slug: "game", item_name: "in_game" } }),
@@ -710,6 +754,9 @@ export const API_ROUTES: readonly ApiRoute[] = [
   call({ method: "POST", path: "/pro/resume", reaches: "account", access: needs("credit_access", "write"), isAccountWide: true }),
   call({ method: "POST", path: "/pro/refund", reaches: "account", access: needs("credit_access", "write"), isAccountWide: true }),
   call({ method: "POST", path: "/credit/refunds", reaches: "account", access: needs("credit_access", "write"), isAccountWide: true, body: { inputs: plainInputs("top_up_id") } }),
+  call({ method: "POST", path: "/credit/plan/checkout", reaches: "account", access: needs("credit_access", "write"), isAccountWide: true, body: { inputs: plainInputs("refill_level_cents") } }),
+  call({ method: "PATCH", path: "/credit/plan", reaches: "account", access: needs("credit_access", "write"), isAccountWide: true, body: { inputs: plainInputs("refill_level_cents") } }),
+  call({ method: "POST", path: "/credit/plan/stop", reaches: "account", access: needs("credit_access", "write"), isAccountWide: true }),
   call({ method: "GET", path: "/stripe-account", reaches: "account", access: needs("stripe_account_access", "read"), isAccountWide: true }),
   call({ method: "POST", path: "/stripe-account/connection-links", reaches: "account", access: needs("stripe_account_access", "write"), isAccountWide: true }),
   call({ method: "PATCH", path: "/stripe-account", reaches: "account", access: needs("stripe_account_access", "write"), isAccountWide: true, body: { inputs: plainInputs("is_stripe_tax_used") } }),
@@ -758,6 +805,7 @@ export interface CheckedCall {
  */
 async function checkCall(request: Request, env: Env, path: string, apiRoute: ApiRoute, caller: Caller): Promise<CheckedCall> {
   checkAccess(apiRoute, caller);
+  if (caller.banScope && !(caller.banScope === "developer" && BANNED_DEVELOPER_ROUTES.has(`${apiRoute.method} ${apiRoute.path}`))) throw accountBanned(caller);
   if (apiRoute.isPublishing && !caller.canPublish) {
     throw new ApiError("publishing_not_open", {
       message: "Publishing opens with the beta. Until then, only accounts Zaisma adds can make, upload and publish games.",
@@ -872,9 +920,19 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
   if (path === "/access" && method === "GET") {
     // The balance only for a caller that may read the credit.
     const creditBalanceCents = allows(caller.access.areaAccess, "credit_access", "read") && !caller.access.gameSlugs ? (await creditOf(env.DB, caller.ownerId)).balanceCents : null;
-    return answer({ access: accessJson(caller.access), can_publish: caller.canPublish, credit_balance_cents: creditBalanceCents, plan: await planFor(env.DB, caller.ownerId) });
+    const standing = await standingOf(env.DB, caller.ownerId, Date.now());
+    // A card or Stripe account opens links now, except while a ban or the wait after a ruling closes everything.
+    const canOpenLinksNow = !standing.outsideLinksEnabled && !standing.isBanned && standing.rulingWaitEndsAtMs === null;
+    const standingSteps: NextStep[] = canOpenLinksNow
+      ? [
+          { tool: "top_up_credit", arguments: {}, after_sec: null, reason: "Paying Zaisma by card opens links to other sites at once (search engines still wait to be established). Ask the developer first, and add the amount_cents they pick." },
+          { tool: "connect_stripe_account", arguments: {}, after_sec: null, reason: "Or a Stripe account that can take payments opens them too. Ask the developer first." },
+        ]
+      : [];
+    return answer({ access: accessJson(caller.access), can_publish: caller.canPublish, banned_at: iso(caller.bannedAtMs), ban_scope: caller.banScope, credit_balance_cents: creditBalanceCents, plan: await planFor(env.DB, caller.ownerId), standing: standingJson(standing), next_steps: standingSteps });
   }
   if (apiRoute.path === "/pro" || apiRoute.path.startsWith("/pro/")) return answer(...(await proRoute(env, apiRoute.path, method, caller)));
+  if (apiRoute.path === "/credit/plan" || apiRoute.path.startsWith("/credit/plan/")) return answer(...(await creditPlanRoute(env, apiRoute.path, method, checked.body, caller)));
   if (apiRoute.path === "/credit" || apiRoute.path.startsWith("/credit/")) return answer(...(await creditRoute(env, apiRoute.path, method, checked.body, caller)));
   // With its ID in the path, so the route reads the real path rather than the call's pattern.
   if (apiRoute.path.startsWith("/spending-requests/")) return answer(...(await creditRoute(env, path, method, checked.body, caller)));
@@ -987,9 +1045,11 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
   }
 
   if (apiRoute.path === "/games/:slug/export") return answer(await exportSummary(env, game!));
-  if (apiRoute.path === "/games/:slug/export/download") return exportDownload(env, game!, caller, (readMethod, readPath) => apiCall(env, caller, readMethod, readPath));
+  if (apiRoute.path === "/games/:slug/export/download") return exportDownload(env, game!, caller, (readMethod, readPath) => apiCall(env, { ...caller, banScope: null }, readMethod, readPath));
   if (apiRoute.path.startsWith("/games/:slug/secrets")) return answer(...(await secretsRoute(request, env, game!, pathValues.secret_name, caller, checked)));
   if (apiRoute.path.startsWith("/games/:slug/kept-rooms")) return answer(...(await keptRoomsRoute(request, env, game!, pathValues.room_code, caller)));
+  if (apiRoute.path.startsWith("/games/:slug/rooms")) return answer(...(await roomsRoute(request, env, game!, apiRoute.path, pathValues.room_code, caller, checked)));
+  if (apiRoute.path.startsWith("/games/:slug/room-messages")) return answer(...(await roomMessagesRoute(request, env, game!, pathValues.scheduled_room_message_id, caller, checked)));
   if (apiRoute.path.startsWith("/games/:slug/items")) return answer(...(await itemsRoute(request, env, game!, pathValues.item_name, caller, checked)));
   if (apiRoute.path === "/games/:slug/purchase-settings") return answer(...(await purchaseSettingsRoute(env, game!, caller, checked)));
   if (apiRoute.path.startsWith("/games/:slug/purchases")) return answer(...(await purchasesRoute(request, env, game!, pathValues.purchase_id, apiRoute.path.endsWith("/refund") ? "refund" : apiRoute.path.endsWith("/handled") ? "handled" : null, caller, checked)));
@@ -1260,8 +1320,8 @@ function badMethod(method: string, path: string): ApiError {
 export function shownTextOrThrow(input: unknown, options: ShownTextOptions): string {
   const checked = checkShownText(input, options);
   if ("problem" in checked) {
-    const { field, message, fix } = checked.problem;
-    throw new ApiError(`bad_${field}` as ErrorCode, { message, field, fix });
+    const { field, message, fix, messageForPeople } = checked.problem;
+    throw new ApiError(`bad_${field}` as ErrorCode, { message, field, fix, messageForPeople });
   }
   return checked.text;
 }
@@ -1299,10 +1359,10 @@ async function changeBudget(env: Env, game: Game, given: unknown, caller: Caller
 function checkDetailsOrThrow(body: Record<string, unknown>) {
   const checked = checkDetails(body);
   if ("problem" in checked) {
-    const { field, message, fix } = checked.problem;
+    const { field, message, fix, messageForPeople } = checked.problem;
     // bad_<field>, for the field's own name: play_modes[1].play_style is a bad_play_modes.
     const code = (checked.problem.code ?? `bad_${field.split(/[.[]/)[0]}`) as ErrorCode;
-    throw new ApiError(code, { message, field, fix });
+    throw new ApiError(code, { message, field, fix, messageForPeople });
   }
   return checked.change;
 }
@@ -2002,6 +2062,8 @@ const HISTORY: Record<string, string | null> = {
   "secret-set": "Set a secret",
   "secret-deleted": "Deleted a secret",
   "kept-room-deleted": "Deleted a kept room",
+  "room-player-kicked": "Removed a player from a live room",
+  "room-ended": "Ended a live room",
   // subject_name is the uploader's public name (copies.ts, stopCopy).
   "copy-stopped": "Zaisma stopped a re-upload of this game by another developer; it never reached players",
   "plays-cleared": "Zaisma removed a day's counted plays that looked faked",
@@ -2471,7 +2533,7 @@ function findingsFor(report: ScanReport | null) {
   return shown.map((finding) => {
     const code = finding.code as ReviewCodeName;
     const reason = reviewReasonAnswer({ code, message: finding.message, content_rule: REVIEW_CODES[code].contentRule });
-    return { code, severity: finding.severity, message: reason.message, content_rule: reason.content_rule, path: finding.path ?? null, fix: reason.fix };
+    return { code, severity: finding.severity, message: reason.message, content_rule: reason.content_rule, path: finding.path ?? null, fix: reason.fix, message_for_people: reason.message_for_people };
   });
 }
 
@@ -2579,6 +2641,7 @@ export function closedQuery(queryParameters: URLSearchParams, fields: string[]):
 const splitLabels = (labels: string) => (labels ? labels.split(",") : []);
 
 export async function gameJson(env: Env, game: Game) {
+  const { outsideLinksEnabled } = await standingOf(env.DB, game.owner_id, Date.now());
   const waitingWords = game.details_waiting_for_review ? (JSON.parse(game.details_waiting_for_review) as { title?: string; description?: string }) : null;
   return {
     slug: game.slug,
@@ -2608,7 +2671,7 @@ export async function gameJson(env: Env, game: Game) {
     minimum_player_age_years: game.minimum_player_age_years,
     game_server_allowed_hosts: allowedHostsOf(game),
     own_server_urls: ownServerUrlsOf(game),
-    links: linksOf(game).map(linkJson),
+    links: linksOf(game).map((link) => linkJson(link, outsideLinksEnabled)),
     details_waiting_for_review: waitingWords ? { title: waitingWords.title ?? null, description: waitingWords.description ?? null } : null,
     // Why the title keeps the game off Zaisma's lists ("No slop"); null when nothing does.
     title_listing_reason: reasonAnswer(game.title_listing_reason),
@@ -2626,13 +2689,30 @@ export async function gameJson(env: Env, game: Game) {
   };
 }
 
-/** A registered link as the API answers it: who it opens for, and why it opens for nobody. */
-function linkJson(link: GameLink) {
+/** A developer's standing as GET /access answers it (schemas.ts, STANDING). */
+function standingJson(standing: Standing) {
+  return {
+    is_established_developer: standing.isEstablishedDeveloper,
+    outside_links_enabled: standing.outsideLinksEnabled,
+    search_engines_enabled: standing.searchEnginesEnabled,
+    returning_player_count: standing.returningPlayerCount,
+    minimum_returning_player_count: STANDING_LIMITS.minimumReturningPlayerCount,
+    account_age_days: standing.accountAgeDays,
+    minimum_account_age_days: STANDING_LIMITS.minimumDeveloperAccountAgeDays,
+    has_card_or_stripe_account: standing.hasCardOrStripeAccount,
+    last_ruling_at: iso(standing.lastRulingAtMs),
+    ruling_wait_ends_at: iso(standing.rulingWaitEndsAtMs),
+    message_for_people: standingWords(standing),
+  };
+}
+
+/** A registered link as the API answers it: who it opens for (with the developer's standing), and why it opens for nobody. */
+function linkJson(link: GameLink, outsideLinksEnabled: boolean) {
   return {
     link_name: link.link_name,
     destination_url: link.destination_url,
     is_on_game_page: link.is_on_game_page,
-    who_can_open: linkAudience(link),
+    who_can_open: linkAudience(link, outsideLinksEnabled),
     review_reason: link.review_reason ? reviewReasonAnswer(link.review_reason) : null,
   };
 }
@@ -2647,6 +2727,8 @@ export interface GameAlert {
   kind: GameAlertKind;
   message: string;
   fix: string;
+  /** What the dashboard shows: what needs attention and what to do, naming no call or field. */
+  message_for_people: string;
   version_id: string | null;
 }
 
@@ -2703,33 +2785,30 @@ export async function gameAlerts(env: Env, games: Game[]): Promise<Map<string, G
   ]);
   for (const game of games) {
     const alerts = alertsByGameId.get(game.id)!;
-    const add = (kind: GameAlertKind, message: string, fix: string, versionId: string | null = null) => alerts.push({ kind, message, fix, version_id: versionId });
+    const add = (kind: GameAlertKind, message: string, fix: string, messageForPeople: string, versionId: string | null = null) => alerts.push({ kind, message, fix, message_for_people: messageForPeople, version_id: versionId });
     const reason = reasonAnswer(game.review_reason);
-    if (game.review_status === "removed") add("game_removed", `Zaisma took this game down${reason ? `: ${reason.message}` : "."}`, reason?.fix ?? "message_zaisma with the game_slug to ask why.");
-    if (game.review_status === "held") add("game_held", `Players can't open this game right now${reason ? `: ${reason.message}` : "."}`, reason?.fix ?? "Nothing to do: a person at Zaisma looks, usually within a day.");
+    if (game.review_status === "removed") add("game_removed", `Zaisma took this game down${reason ? `: ${reason.message}` : "."}`, reason?.fix ?? "message_zaisma with the game_slug to ask why.", "Zaisma took this game down. Its page here says why and what to do.");
+    if (game.review_status === "held") add("game_held", `Players can't open this game right now${reason ? `: ${reason.message}` : "."}`, reason?.fix ?? "Nothing to do: a person at Zaisma looks, usually within a day.", "Players can't open this game right now. Its page here says why.");
     for (const block of countryBlocksAnswer(game)) {
-      add("game_blocked_in_country", `Players in ${block.country_code} (${block.country_name}) can't open this game: ${block.review_reason.message}`, block.review_reason.fix);
+      add("game_blocked_in_country", `Players in ${block.country_code} (${block.country_name}) can't open this game: ${block.review_reason.message}`, block.review_reason.fix, `Players in ${block.country_name} can't open this game, on a notice about that country's law. Take out what it names and publish a fixed version, and a person at Zaisma lifts the block, usually within a day.`);
     }
     const gameVersions = versions.filter((version) => version.game_id === game.id);
     const rejected = gameVersions.find((version) => version.scan_status === "rejected" && version.is_newest);
-    if (rejected) add("version_rejected", "Your newest version was rejected, so it can't be published.", `get_version with this version_id says what the scan found and how to fix it; then upload a fixed version.`, rejected.id);
+    if (rejected) add("version_rejected", "Your newest version was rejected, so it can't be published.", `get_version with this version_id says what the scan found and how to fix it; then upload a fixed version.`, "Your newest version was rejected, so it can't be published.", rejected.id);
     for (const held of gameVersions.filter((version) => version.scan_status === "held")) {
-      add(
-        "version_held",
-        held.report_held_at_ms ? "A player report paused this version until a person at Zaisma looks, usually within a day." : "This version is waiting for a person at Zaisma, usually within a day.",
-        "Nothing to do but wait; get_version shows the result.",
-        held.id,
-      );
+      const message = held.report_held_at_ms ? "A player report paused this version until a person at Zaisma looks, usually within a day." : "This version is waiting for a person at Zaisma, usually within a day.";
+      add("version_held", message, "Nothing to do but wait; get_version shows the result.", message, held.id);
     }
     for (const link of linksOf(game).filter((each) => each.review_reason)) {
-      add("link_flagged", `The link ${link.link_name} opens for nobody: Cloudflare lists ${new URL(link.destination_url).hostname} for malware or phishing.`, reviewReasonAnswer(link.review_reason!).fix);
+      const hostname = new URL(link.destination_url).hostname;
+      add("link_flagged", `The link ${link.link_name} opens for nobody: Cloudflare lists ${hostname} for malware or phishing.`, reviewReasonAnswer(link.review_reason!).fix, `A link opens for nobody: Cloudflare lists ${hostname} for malware or phishing. Change it in Links, or ask Cloudflare to look again if the site is yours and safe.`);
     }
     // Off Zaisma's lists (a fake reward holds the game instead, which game_held already says).
     const listingReasons = [game.title_listing_reason, ...listingImages.filter((row) => row.game_id === game.id).map((row) => row.listing_reason)]
       .map((stored) => readReviewReason(stored))
       .filter((listingReason): listingReason is ReviewReason => Boolean(listingReason) && listingReason!.code !== "fake_reward");
     if (game.visibility === "listed" && listingReasons.length) {
-      add("game_off_lists", `Zaisma's lists leave this game out until it's fixed, though it plays by its link: ${listingReasons.map((listingReason) => listingReason.message).join(" ")}`, reviewReasonAnswer(listingReasons[0]!).fix);
+      add("game_off_lists", `Zaisma's lists leave this game out until it's fixed, though it plays by its link: ${listingReasons.map((listingReason) => listingReason.message).join(" ")}`, reviewReasonAnswer(listingReasons[0]!).fix, `Zaisma's lists leave this game out until it's fixed. ${reviewReasonAnswer(listingReasons[0]!).message_for_people}`);
     }
     const month = usage.find((row) => row.game_id === game.id);
     const databaseUse = databaseUses[games.indexOf(game)];
@@ -2753,27 +2832,35 @@ export async function gameAlerts(env: Env, games: Game[]): Promise<Map<string, G
           : month.paused_reason === "credit_used"
             ? "Add credit with top_up_credit to start it again now. get_credit shows the balance."
             : `Wait for ${resetsOn}, or add credit (top_up_credit) and give the game a budget (update_game, monthly_budget_cents) to keep it going. Rooms on your own server are never limited. get_stats shows the month's use.`;
-      add("hosting_paused", `The game's hosting is paused: ${why}. No new rooms, connections between players or game server requests start, and matches already running get an hour to finish.`, fix);
+      const whatToDo =
+        month.paused_reason === "budget_used" ? "Raise its budget in Hosting to start it again now." : month.paused_reason === "credit_used" ? "Add credit to start it again now." : "Add credit and give the game a budget in Hosting to start it again now.";
+      const message = `The game's hosting is paused: ${why}. No new rooms, connections between players or game server requests start, and matches already running get an hour to finish.`;
+      add("hosting_paused", message, fix, `${message} ${whatToDo}`);
     }
     if (isFull) {
-      add("database_full", `The game's storage (its database and kept rooms) is full at ${MAXIMUM_GAME_STORAGE_SIZE_BYTES / 1024 ** 3} GB, the most a game can keep: the database can change and delete rows, but not grow, and no more rooms can be kept.`, "Delete rows the game no longer needs with query_database (or export_database to keep them elsewhere), or kept rooms nobody plays with delete_kept_room. get_database and list_kept_rooms show their sizes.");
+      const message = `The game's storage (its database and kept rooms) is full at ${MAXIMUM_GAME_STORAGE_SIZE_BYTES / 1024 ** 3} GB, the most a game can keep: the database can change and delete rows, but not grow, and no more rooms can be kept.`;
+      add("database_full", message, "Delete rows the game no longer needs with query_database (or export_database to keep them elsewhere), or kept rooms nobody plays with delete_kept_room. get_database and list_kept_rooms show their sizes.", `${message} Delete rows or kept rooms the game no longer needs.`);
     }
     if (month && !month.paused_at_ms && budgetCents === null && month.used_cents >= (FREE_HOSTING_CENTS_PER_MONTH * NEARLY_USED_PCT) / 100) {
-      add("hosting_nearly_paused", `${freeUsedPct(month.used_cents)}% of this month's free hosting is used. When it's all used, new rooms, connections between players and game server requests pause until ${resetsOn}.`, "get_stats shows what used it. To keep the game going past it, add credit (top_up_credit) and give the game a budget (update_game, monthly_budget_cents); rooms on your own server are never limited.");
+      const message = `${freeUsedPct(month.used_cents)}% of this month's free hosting is used. When it's all used, new rooms, connections between players and game server requests pause until ${resetsOn}.`;
+      add("hosting_nearly_paused", message, "get_stats shows what used it. To keep the game going past it, add credit (top_up_credit) and give the game a budget (update_game, monthly_budget_cents); rooms on your own server are never limited.", `${message} To keep it going past that, add credit and give the game a budget in Hosting.`);
     }
     // A budget with nothing to spend stops at the free hosting all the same.
     if (month && !month.paused_at_ms && budgetCents !== null && month.charged_cents === 0 && !canGoPastFree && month.used_cents >= (FREE_HOSTING_CENTS_PER_MONTH * NEARLY_USED_PCT) / 100) {
-      add("hosting_nearly_paused", `${freeUsedPct(month.used_cents)}% of this month's free hosting is used, and there's no credit for the game's budget to spend. When it's all used, new rooms, connections between players and game server requests pause until ${resetsOn} or credit comes in.`, "Add credit with top_up_credit. get_credit shows the balance.");
+      const message = `${freeUsedPct(month.used_cents)}% of this month's free hosting is used, and there's no credit for the game's budget to spend. When it's all used, new rooms, connections between players and game server requests pause until ${resetsOn} or credit comes in.`;
+      add("hosting_nearly_paused", message, "Add credit with top_up_credit. get_credit shows the balance.", `${message} Add credit to keep it going.`);
     }
     if (month && !month.paused_at_ms && budgetCents !== null && month.charged_cents >= (budgetCents * NEARLY_USED_PCT) / 100) {
-      add("hosting_budget_nearly_used", `The game has used ${dollarsText(month.charged_cents)} of its ${dollarsText(budgetCents)} budget this month. When it's all used, the game pauses like at the end of its free hosting.`, "Raise its budget with update_game (monthly_budget_cents) to keep it going. get_credit shows every game's spending.");
+      const message = `The game has used ${dollarsText(month.charged_cents)} of its ${dollarsText(budgetCents)} budget this month. When it's all used, the game pauses like at the end of its free hosting.`;
+      add("hosting_budget_nearly_used", message, "Raise its budget with update_game (monthly_budget_cents) to keep it going. get_credit shows every game's spending.", `${message} Raise its budget in Hosting to keep it going.`);
     }
     if (budgetCents !== null && owner && isCreditLow({ balanceCents: owner.credit_balance_cents, creditLowLineCents: owner.credit_low_line_cents }) && month?.paused_reason !== "credit_used") {
       // No amount: a key that can see the game may not be one that reads the credit.
-      add("credit_low", `Credit is low: add credit. It's under ${CREDIT_LIMITS.creditLowPct}% of what there was after your last top-up; when it's used, this game pauses like at the end of its free hosting.`, "Add credit with top_up_credit. get_credit shows the balance.");
+      add("credit_low", `Credit is low: add credit. It's under ${CREDIT_LIMITS.creditLowPct}% of what there was after your last top-up; when it's used, this game pauses like at the end of its free hosting.`, "Add credit with top_up_credit. get_credit shows the balance.", `Credit is under ${CREDIT_LIMITS.creditLowPct}% of what there was after your last top-up. When it's used, this game pauses like at the end of its free hosting, so add credit.`);
     }
     if (databaseUse && !isFull && storageSizeBytes >= (MAXIMUM_GAME_STORAGE_SIZE_BYTES * NEARLY_USED_PCT) / 100) {
-      add("database_nearly_full", `The game's storage (its database and kept rooms) is ${NEARLY_USED_PCT}% full: a game keeps at most ${MAXIMUM_GAME_STORAGE_SIZE_BYTES / 1024 ** 3} GB. When it's full, the database can change and delete rows but not grow.`, "Delete rows the game no longer needs with query_database (or export_database to keep them elsewhere), or kept rooms nobody plays with delete_kept_room.");
+      const message = `The game's storage (its database and kept rooms) is ${NEARLY_USED_PCT}% full: a game keeps at most ${MAXIMUM_GAME_STORAGE_SIZE_BYTES / 1024 ** 3} GB. When it's full, the database can change and delete rows but not grow.`;
+      add("database_nearly_full", message, "Delete rows the game no longer needs with query_database (or export_database to keep them elsewhere), or kept rooms nobody plays with delete_kept_room.", `${message} Delete rows or kept rooms the game no longer needs.`);
     }
     const gameFailedErases = failedErases.filter((erase) => erase.game_id === game.id);
     if (gameFailedErases.length) {
@@ -2782,10 +2869,14 @@ export async function gameAlerts(env: Env, games: Game[]): Promise<Map<string, G
         "player_erase_failed",
         `Zaisma couldn't erase ${playerCount === 1 ? "a player" : `${playerCount} players`} who deleted their account${playerCount === 1 ? "" : "s"} from the game database: ${gameFailedErases[0]!.failure_message ?? "it didn't answer."}`,
         `Fix what stopped it, then erase_player with each player_id: ${gameFailedErases.slice(0, 5).map((erase) => erase.player_id).join(", ")}.`,
+        `Zaisma couldn't erase ${playerCount === 1 ? "a player" : `${playerCount} players`} who deleted their account${playerCount === 1 ? "" : "s"} from the game database. Fix what stopped it, then erase ${playerCount === 1 ? "that player" : "them"} again from your AI tool.`,
       );
     }
     const openReportCount = reports.find((row) => row.game_id === game.id)?.report_count ?? 0;
-    if (openReportCount) add("reports_open", `${openReportCount === 1 ? "A player report is" : `${openReportCount} player reports are`} waiting for Zaisma.`, "get_reports shows them by reason, with what players wrote about bugs. Zaisma looks at each one.");
+    if (openReportCount) {
+      const message = `${openReportCount === 1 ? "A player report is" : `${openReportCount} player reports are`} waiting for Zaisma.`;
+      add("reports_open", message, "get_reports shows them by reason, with what players wrote about bugs. Zaisma looks at each one.", `${message} Zaisma looks at each one.`);
+    }
   }
   return alertsByGameId;
 }

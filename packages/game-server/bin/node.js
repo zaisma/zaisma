@@ -7,7 +7,9 @@
 //
 // Players connect to wss://your-server/v1/rooms/<game>/<code>, the same address
 // layout as Zaisma rooms, and prove who they are with Zaisma player passes,
-// checked against the keys Zaisma publishes. Put it behind HTTPS (Caddy, nginx,
+// checked against the keys Zaisma publishes. A game played off its Zaisma page sends a playerToken instead
+// (Zaisma.setUpOffZaisma), and identifyPlayer says who that is (signInWithZaismaPlayers for players signed in
+// with Zaisma, or your own accounts); outsideGuestsEnabled lets players with none in as guests. Put it behind HTTPS (Caddy, nginx,
 // a Cloudflare Tunnel) and add the address to your game's own servers (own_server_urls, or zaisma own-servers).
 // The game's requests (onRequest) come to POST /v1/requests/<game> on the same port, and its
 // schedules (onSchedule) run while it's up, at the minutes their crons give in UTC. A Zaisma webhook
@@ -24,7 +26,7 @@ import { createServer } from "node:http";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { resolve } from "node:path";
 import { readFileSync, realpathSync } from "node:fs";
-import { BUSY_CLOSE_CODE, ENDED_CLOSE_CODE, ERROR_TEXT, NO_ANSWER_CLOSE_CODE, PASS_ISSUER_URL, PassError, ReceiptError, REMOVED_CLOSE_CODE, REQUEST_ERROR_HTTP_STATUS, REQUEST_LIMITS, ROOM_LIMITS, ROOM_TUNING, WEBHOOK_LIMITS, GameServerError, RoomCore, chatSettingsOf, checkChat, readChatMessage, restoreInfoOf, passesAreFriends, passesHaveBlockBetween, answerRequest, startSchedules, checkRoomData, clientIdle, defineGameServer, errorMessage, isRoomCode, readRequestBody, relay, requestError, runWebhook, tidyRoomInfo, verifyPass, verifyReceipt, verifyWebhook } from "../src/internal.ts";
+import { BUSY_CLOSE_CODE, ENDED_CLOSE_CODE, ERROR_TEXT, NO_ANSWER_CLOSE_CODE, PASS_ISSUER_URL, OUTSIDE_ZAISMA_CHAT_SETTINGS, PassError, ReceiptError, REMOVED_CLOSE_CODE, REQUEST_ERROR_HTTP_STATUS, REQUEST_LIMITS, ROOM_LIMITS, ROOM_MESSAGE_LIMITS, ROOM_TUNING, WEBHOOK_LIMITS, GameServerError, RoomCore, chatSettingsOf, checkChat, readChatMessage, restoreInfoOf, passesAreFriends, passesHaveBlockBetween, answerRequest, startSchedules, checkRoomData, checkedOutsidePlayer, clientIdle, defineGameServer, errorMessage, guestPlayer, newServer, isPlayerToken, isRoomCode, readRequestBody, relay, requestError, runWebhook, tidyRoomInfo, verifyPass, verifyReceipt, verifyWebhook } from "../src/internal.ts";
 import { OutsideCallError } from "../src/outside-calls.ts";
 import { startFastLane } from "./fast-lane.js";
 import { checkedStartServerOptions, localDatabase, localRoomStates, passKeysFrom, profilesFrom, receiptKeysFrom, secretsFromEnvironment } from "./node-parts.js";
@@ -74,11 +76,15 @@ const CATCH_UP_MS = 50;
  * the ZAISMA_KEY environment variable) and developerApiUrl (Zaisma's developer API; by default https://zaisma.com/api/dev).
  * webtransportPort (a UDP port), certificatePath and certificateKeyPath (the server's certificate and its key,
  * PEM files), all three or none, also serve the fast lane (WebTransport) beside the WebSocket.
+ * identifyPlayer (async (playerToken, { origin }) => ({ id, name }) or null; none by default) says who a player from
+ * outside Zaisma is by the playerToken their game sent (signInWithZaismaPlayers makes one for Sign in with Zaisma),
+ * and outsideGuestsEnabled (false by default) lets players with no token (playerToken: null) in as guests (guestPlayer).
+ * Both join with kind "outside_zaisma".
  * Answers { close(), httpServer, fastLaneReady }: close() saves every room first and finishes once the server
  * has stopped; fastLaneReady settles once the fast lane listens (at once without one), or rejects saying why it can't.
  */
 export function startServer(options) {
-  const { gameServer, gameSlug, port: portNumber, origins, issuerUrl, loadPassKeys = passKeysFrom(`${issuerUrl}/.well-known/jwks.json`), loadReceiptKeys = receiptKeysFrom(`${issuerUrl}/.well-known/receipt-jwks.json`), loadProfile = profilesFrom(issuerUrl), database = localDatabase("zaisma-database.sqlite"), secrets = secretsFromEnvironment(), webhookSigningSecret = process.env.ZAISMA_WEBHOOK_SIGNING_SECRET, roomStateFile = "zaisma-room-states.sqlite", zaismaKey = process.env.ZAISMA_KEY, developerApiUrl = "https://zaisma.com/api/dev", webtransportPort, certificatePath, certificateKeyPath } = checkedStartServerOptions(options, PASS_ISSUER_URL);
+  const { gameServer, gameSlug, port: portNumber, origins, issuerUrl, loadPassKeys = passKeysFrom(`${issuerUrl}/.well-known/jwks.json`), loadReceiptKeys = receiptKeysFrom(`${issuerUrl}/.well-known/receipt-jwks.json`), loadProfile = profilesFrom(issuerUrl), database = localDatabase("zaisma-database.sqlite"), secrets = secretsFromEnvironment(), webhookSigningSecret = process.env.ZAISMA_WEBHOOK_SIGNING_SECRET, roomStateFile = "zaisma-room-states.sqlite", zaismaKey = process.env.ZAISMA_KEY, developerApiUrl = "https://zaisma.com/api/dev", webtransportPort, certificatePath, certificateKeyPath, identifyPlayer, outsideGuestsEnabled } = checkedStartServerOptions(options, PASS_ISSUER_URL);
   const definition = defineGameServer(gameServer);
   // Exactly once needs Zaisma's record of what's handled: without a key, purchases would come twice, so it doesn't start.
   if ((definition.onPurchase || definition.onRefund) && !zaismaKey) {
@@ -98,8 +104,12 @@ export function startServer(options) {
   const roomStates = roomStateFile === null ? null : localRoomStates(roomStateFile);
   const stateSaveIntervalMs = (definition.stateSaveIntervalSec ?? ROOM_LIMITS.defaultStateSaveIntervalSec) * 1000;
   // Schedules run while this server is up; one that's down when a run is due misses that run.
-  const schedules = startSchedules(definition, { database, secrets, verifyReceipt: receiptClaims }, (run, failure) => console.error(`Game server error in onSchedule ("${run.name}", due ${run.scheduledAt}):`, failure));
+  // What onRequest, onSchedule and onWebhook get: the game's database, secrets, receipt checks and this server's rooms.
+  const server = newServer({ database, secrets, verifyReceipt: receiptClaims }, roomReachFrom(null));
+  const schedules = startSchedules(definition, server, (run, failure) => console.error(`Game server error in onSchedule ("${run.name}", due ${run.scheduledAt}):`, failure));
   const rooms = new Map(); // code -> { core, sockets: Map<playerId, ws>, timer }
+  // When the game last sent to every room, within the last minute (ROOM_MESSAGE_LIMITS.maximumEveryRoomSendsPerMin).
+  let everyRoomSentAtMs = [];
   const httpServer = createServer((request, response) => answerHttp(request, response));
   const wss = new WebSocketServer({ server: httpServer, maxPayload: MAXIMUM_SOCKET_MESSAGE_SIZE_BYTES });
   httpServer.listen(portNumber);
@@ -121,7 +131,7 @@ export function startServer(options) {
    * account's name from its public profile, and the pass's claims, for blocks between players. Null
    * for an account deleted since; PassError for a bad pass.
    */
-  async function playerFrom(pass) {
+  async function passPlayer(pass) {
     const claims = await verifyPass(pass, await loadPassKeys(), { gameSlug, issuerUrl }).catch(async (error) => {
       // A new key may have been published since we cached them.
       if (error instanceof PassError && error.code === "unknown_key") return verifyPass(pass, await loadPassKeys(true), { gameSlug, issuerUrl });
@@ -135,8 +145,43 @@ export function startServer(options) {
     return name ? { player: { id: claims.sub, name, kind: claims.kind === "account" ? "account" : "guest", ...owned }, claims } : null;
   }
 
-  // Requests from the game to onRequest, outside any room: POST /v1/requests/<game> with { pass, request },
-  // sent as text/plain JSON so browsers need no preflight. Answers { answer } or { error: { code, message } }.
+  /**
+   * Who a hello or request is from: by a Zaisma pass, or, from a game played off Zaisma, by the playerToken it
+   * sent, as identifyPlayer says, or as a guest when there's none and outsideGuestsEnabled. Answers { player, claims }
+   * (claims null for a player from outside Zaisma, who has no pass), or { code } when they can't come in.
+   */
+  async function playerFrom({ pass, playerToken, origin }) {
+    if (typeof pass === "string") {
+      try {
+        return (await passPlayer(pass)) ?? { code: "bad_pass" };
+      } catch (error) {
+        if (error instanceof PassError) return { code: "bad_pass" };
+        // Zaisma couldn't be reached for the account's name: the player tries again, nothing crashes.
+        console.error("Couldn't check a player's pass:", error);
+        return { code: "busy" };
+      }
+    }
+    const outside = (player) => ({ player: { ...player, kind: "outside_zaisma" }, claims: null });
+    if (playerToken === null) return outsideGuestsEnabled ? outside(guestPlayer()) : { code: "bad_player_token", message: "This server takes players signed in, not guests: the game gives a playerToken." };
+    if (!identifyPlayer) return { code: "bad_player_token", message: "This server takes players from Zaisma's pages only." };
+    let identified;
+    try {
+      identified = await identifyPlayer(playerToken, { origin: origin ?? null });
+    } catch (error) {
+      console.error("Game server error in identifyPlayer:", error);
+      return { code: "busy" };
+    }
+    if (identified === null) return { code: "bad_player_token" };
+    const checked = checkedOutsidePlayer(identified);
+    if ("mistake" in checked) {
+      console.error(`Game server error in identifyPlayer: ${checked.mistake}`);
+      return { code: "bad_player_token" };
+    }
+    return outside(checked.player);
+  }
+
+  // Requests from the game to onRequest, outside any room: POST /v1/requests/<game> with { pass, request }, or
+  // { playerToken, request } from a game played off Zaisma, sent as text/plain JSON so browsers need no preflight. Answers { answer } or { error: { code, message } }.
   function answerHttp(request, response) {
     if (request.url === "/v1/webhooks") return answerWebhook(request, response);
     const origin = request.headers.origin;
@@ -167,17 +212,11 @@ export function startServer(options) {
     request.on("end", async () => {
       try {
         if (isTooBig) return fail("too_big");
-        const body = readRequestBody(text);
+        const body = readRequestBody(text, true);
         if ("code" in body) return fail(body.code);
-        let checked;
-        try {
-          checked = await playerFrom(body.pass);
-        } catch (error) {
-          if (error instanceof PassError) return fail("bad_pass");
-          throw error;
-        }
-        if (!checked) return fail("bad_pass");
-        const outcome = await answerRequest(definition, checked.player, body.request, { database, secrets, verifyReceipt: receiptClaims });
+        const checked = await playerFrom({ ...body, origin });
+        if (checked.code) return fail(checked.code, checked.message);
+        const outcome = await answerRequest(definition, checked.player, body.request, server);
         if ("answer" in outcome) return reply(200, { answer: outcome.answer });
         if (outcome.code === "game_server_error") console.error("Game server error in onRequest:", outcome.failure);
         fail(outcome.code);
@@ -246,7 +285,7 @@ export function startServer(options) {
           }
         }
         if (typeof definition.onWebhook !== "function") return isAccountDeleted ? reply(204, "") : reply(404, "This game server has no onWebhook.");
-        const outcome = await runWebhook(definition, event, { database, secrets, verifyReceipt: receiptClaims });
+        const outcome = await runWebhook(definition, event, server);
         if ("error" in outcome) {
           console.error(`Game server error in onWebhook (${checked.event.kind}, ${checked.event.id}):`, outcome.error.message);
           return reply(500, "onWebhook failed; Zaisma tries the event again later.");
@@ -274,6 +313,7 @@ export function startServer(options) {
         secrets,
         verifyReceipt: receiptClaims,
         purchaseHandling,
+        roomReach: roomReachFrom(code),
         // delivery reaches a fast-lane socket, which sends latest-only ones as datagrams; ws doesn't read it.
         send: (id, text, delivery) => sockets.get(id)?.send(text, { delivery }),
         sendBytes: (id, frame, delivery) => sockets.get(id)?.send(frame, { binary: true, delivery }),
@@ -313,9 +353,83 @@ export function startServer(options) {
     // passTexts: the same passes as the players sent them, for Zaisma's chat filter (checkChat).
     // savedStateKey: what the room last saved (its state and its match's players), so an unchanged one isn't written again.
     // seatedAtMs: when each player came into this room on their own, for the game's one-room rule (the oldest seat closes first).
-    room = { core, sockets, passes: new Map(), passTexts: new Map(), seatedAtMs: new Map(), timer: null, probeTimer: null, waiting: false, savedStateKey: saved ? stateKeyOf(saved.stateJson, saved.matchPlayers, saved.savedRoom.isKept === true) : null, hasReportedStateSize: false };
+    // joinedAtMs: when each player and spectator joined, for server.getRoom; createdAtMs: when the room started here, for listRooms.
+    room = { core, sockets, joinedAtMs: new Map(), createdAtMs: Date.now(), passes: new Map(), passTexts: new Map(), seatedAtMs: new Map(), timer: null, probeTimer: null, waiting: false, savedStateKey: saved ? stateKeyOf(saved.stateJson, saved.matchPlayers, saved.savedRoom.isKept === true) : null, hasReportedStateSize: false };
     rooms.set(code, room);
     return room;
+  }
+
+  /**
+   * Room messages and the game server's room calls among this server's own rooms (room.sendToRoom, sendToEveryRoom and
+   * listRooms from the room fromRoomCode; server's, with getRoom, kickFromRoom and endRoom, from null), as Zaisma's rooms
+   * do among theirs. A message sent to a kept room asleep in the saved states by its code wakes it.
+   */
+  function roomReachFrom(fromRoomCode, senderKind = fromRoomCode === null ? "server" : "room") {
+    const caller = fromRoomCode === null ? "server" : "room";
+    return {
+      sendToRoom: async (code, message) => {
+        const room = runningRoom(code, true);
+        return { isDelivered: room ? deliverRoomMessage(code, room, { message, senderKind, fromRoomCode, sentAt: new Date().toISOString() }) : false };
+      },
+      sendToEveryRoom: async (message, labels) => {
+        const nowMs = Date.now();
+        everyRoomSentAtMs = everyRoomSentAtMs.filter((sentAtMs) => nowMs - sentAtMs < 60_000);
+        if (everyRoomSentAtMs.length >= ROOM_MESSAGE_LIMITS.maximumEveryRoomSendsPerMin) throw new GameServerError("room_call_limit", `${caller}.sendToEveryRoom`, `A game can send to every room up to ${ROOM_MESSAGE_LIMITS.maximumEveryRoomSendsPerMin} times a minute.`, "Put what you send in one message, or wait a minute.");
+        everyRoomSentAtMs.push(nowMs);
+        const roomMessage = { message, senderKind, fromRoomCode, sentAt: new Date(nowMs).toISOString() };
+        let roomCount = 0;
+        for (const [code, room] of [...rooms]) {
+          if (code !== fromRoomCode && !room.core.ended && room.sockets.size > 0 && hasLabels(room.core.labels, labels) && deliverRoomMessage(code, room, roomMessage)) roomCount++;
+        }
+        return { roomCount };
+      },
+      listRooms: async (labels) => ({
+        rooms: [...rooms]
+          .filter(([, room]) => !room.core.ended && hasLabels(room.core.labels, labels))
+          .map(([code, room]) => liveRoomOf(code, room))
+          .sort((first, second) => second.createdAt.localeCompare(first.createdAt))
+          .slice(0, ROOM_MESSAGE_LIMITS.maximumListedRoomCount),
+      }),
+      getRoom: async (code) => {
+        const room = runningRoom(code, false);
+        return room ? { room: liveRoomOf(code, room), players: room.core.roomPlayers((id) => room.joinedAtMs.get(id) ?? room.createdAtMs) } : null;
+      },
+      kickFromRoom: async (code, playerId, message, isKeptOut) => {
+        const room = runningRoom(code, false);
+        if (!room || !(room.core.players.has(playerId) || room.core.spectators.has(playerId))) return { isDone: false };
+        room.core.kick(playerId, { message, keepOut: isKeptOut });
+        pace(code, room);
+        return { isDone: true };
+      },
+      endRoom: async (code, message) => {
+        const room = runningRoom(code, false);
+        if (!room) return { isDone: false };
+        room.core.end(message ?? "The match is over.", "game");
+        closeIfEmpty(code, room);
+        return { isDone: true };
+      },
+    };
+  }
+
+  /** A room here by its code that hasn't ended, or, when isWaking, a kept one asleep in the saved states, woken. */
+  function runningRoom(code, isWaking) {
+    const running = rooms.get(code);
+    if (running) return running.core.ended ? null : running;
+    if (!isWaking || readSaved(code)?.savedRoom?.isKept !== true) return null;
+    return roomFor(code);
+  }
+
+  /** Hand a room a room message; a room woken for it with nobody in it goes back to sleep once its game server is done. */
+  function deliverRoomMessage(code, room, roomMessage) {
+    const isTaken = room.core.receiveRoomMessage(roomMessage);
+    pace(code, room);
+    void room.core.settled().then(() => closeIfEmpty(code, room));
+    return isTaken;
+  }
+
+  function liveRoomOf(code, room) {
+    const core = room.core;
+    return { roomCode: code, name: core.name, labels: { ...core.labels }, playerCount: core.players.size, maximumPlayerCount: definition.maximumPlayerCount ?? ROOM_LIMITS.defaultMaximumPlayerCount, spectatorCount: core.spectators.size, isListed: core.isListed, isOpen: core.isOpen, isKept: core.isKept, versionId: null, continent: null, createdAt: new Date(room.createdAtMs).toISOString() };
   }
 
   /** A room's saved state from the file, or null if it has none (or it can't be read). */
@@ -433,8 +547,10 @@ export function startServer(options) {
     if (!started) return;
     let check = { isAllowed: true, reason: null, message: null, hasSwearing: false, hasSlur: false };
     if (started.receiverPlayerIds.length) {
-      const receiverPasses = started.receiverPlayerIds.map((id) => room.passTexts.get(id)).filter((pass) => typeof pass === "string");
-      check = await checkChat({ text: started.text, senderPass: room.passTexts.get(playerId) ?? "", receiverPasses, isAdultFilterEnabled: definition.adultChatFilterEnabled === true });
+      // A player from outside Zaisma goes as null: Zaisma stops their chat with under-18 accounts, and doesn't hear chat among them alone.
+      const passOf = (id) => (room.core.players.get(id)?.kind === "outside_zaisma" ? null : (room.passTexts.get(id) ?? ""));
+      const receiverPasses = started.receiverPlayerIds.map(passOf);
+      check = await checkChat({ text: started.text, senderPass: passOf(playerId), receiverPasses, isAdultFilterEnabled: definition.adultChatFilterEnabled === true });
     }
     if (check.isAllowed) room.core.deliverChat(playerId, chat.chatNumber, started.receiverPlayerIds, { text: started.text, hasSwearing: check.hasSwearing, hasSlur: check.hasSlur });
     else room.core.stopChat(playerId, chat.chatNumber, check.reason ?? "unchecked", check.message ?? "");
@@ -542,13 +658,17 @@ export function startServer(options) {
         return;
       }
       let pass;
+      let playerToken;
       let made = {};
       // Come to watch, not to play (joinRoom({ isSpectator: true })).
       let isSpectator = false;
       try {
         const hello = JSON.parse(text ?? "");
-        if (hello.type !== "hello" || typeof hello.pass !== "string") return refuse("no_hello");
-        pass = hello.pass;
+        // A Zaisma pass, or from a game played off Zaisma, its playerToken (null for a guest).
+        const isOutside = hello.pass === undefined && isPlayerToken(hello.playerToken);
+        if (hello.type !== "hello" || (typeof hello.pass !== "string" && !isOutside)) return refuse("no_hello");
+        if (isOutside) playerToken = hello.playerToken;
+        else pass = hello.pass;
         isSpectator = hello.isSpectator === true;
         if (hello.room && typeof hello.room === "object") made = { ...(hello.room.isListed === true ? { isListed: true } : {}), ...(hello.room.friendJoinsEnabled === false ? { friendJoinsEnabled: false } : {}), ...tidyRoomInfo(hello.room) };
         made.clientIdle = clientIdle(hello);
@@ -558,16 +678,8 @@ export function startServer(options) {
       } catch {
         return refuse("no_hello");
       }
-      let checked;
-      try {
-        checked = await playerFrom(pass);
-      } catch (error) {
-        if (error instanceof PassError) return refuse("bad_pass");
-        // Zaisma couldn't be reached for the account's name: the player tries again, nothing crashes.
-        console.error("Couldn't check a player's pass:", error);
-        return refuse("busy");
-      }
-      if (!checked) return refuse("bad_pass");
+      const checked = await playerFrom({ pass, playerToken, origin });
+      if (checked.code) return refuse(checked.code, checked.message);
       const { player, claims } = checked;
       clearTimeout(helloTimer);
       // A spectator watches a match: one with nobody in it isn't running, and a spectator never starts one.
@@ -584,8 +696,14 @@ export function startServer(options) {
       // Blocks between accounts come in their passes: this player's and those of everyone the room remembers.
       // Spectators send nothing, so nothing of theirs reaches a player to block.
       // Who the player may chat with, from their pass: the room keeps it, and the game never sees it. Spectators send nothing, chat included.
-      room.core.setChatSettings(player.id, isSpectator ? null : chatSettingsOf(claims));
-      if (!isSpectator) {
+      // A player from outside Zaisma has no pass: no account blocks or friends, and chat as OUTSIDE_ZAISMA_CHAT_SETTINGS says.
+      room.core.setChatSettings(player.id, isSpectator ? null : claims ? chatSettingsOf(claims) : OUTSIDE_ZAISMA_CHAT_SETTINGS);
+      if (!isSpectator && !claims) {
+        room.passes.delete(player.id);
+        room.passTexts.delete(player.id);
+        room.core.setAccountBlocks(player.id, []);
+        room.core.setFriends(player.id, []);
+      } else if (!isSpectator) {
         room.passes.set(player.id, claims);
         room.passTexts.set(player.id, pass);
         for (const id of room.passes.keys()) {
@@ -606,6 +724,7 @@ export function startServer(options) {
         return refuse(joined.code, joined.message);
       }
       playerId = player.id;
+      room.joinedAtMs.set(player.id, Date.now());
       room.waiting = false;
       if (takesSeat) takeSeat(player.id, code, room);
       pace(code, room);
@@ -657,10 +776,22 @@ export function startServer(options) {
       wss.close(() => httpServer.close(() => done()));
       httpServer.closeAllConnections?.();
     });
-  return { close, httpServer, fastLaneReady: fastLaneReady.then(() => undefined) };
+  const running = { close, httpServer, fastLaneReady: fastLaneReady.then(() => undefined) };
+  // The local bench's sends to rooms (POST /bench/api/room-messages), as the developer API sends them: local-play-runner.js reaches it.
+  const developerReach = roomReachFrom(null, "developer");
+  Object.defineProperty(running, LOCAL_BENCH_ROOM_MESSAGE, { value: (message, roomCode) => (roomCode ? developerReach.sendToRoom(roomCode, message) : developerReach.sendToEveryRoom(message, null)) });
+  return running;
 }
 
+/** Where the local bench's runner (local-play-runner.js) finds its way to send room messages as the developer: never part of what startServer answers. */
+const LOCAL_BENCH_ROOM_MESSAGE = Symbol.for("zaisma.localBenchRoomMessage");
+
 /** A saved state's key: its JSON, who was in the match and whether the room is kept, since any of them changing is worth a save. */
+/** Whether a room's labels hold every label given (null: every room does). */
+function hasLabels(roomLabels, labels) {
+  return !labels || Object.entries(labels).every(([labelName, labelValue]) => roomLabels[labelName] === labelValue);
+}
+
 function stateKeyOf(stateJson, matchPlayers, isKept) {
   return `${isKept ? "kept " : ""}${matchPlayers.map((player) => player.id).join(" ")}\n${stateJson}`;
 }

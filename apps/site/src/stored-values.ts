@@ -103,6 +103,9 @@ export const STORED_VALUES: readonly StoredValue[] = [
   { stored: "live_rooms.name", format: "escaped_text", source: "outside", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },
   { stored: "kept_rooms.name", format: "escaped_text", source: "outside", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },
   { stored: "live_rooms.labels", format: "escaped_text", source: "outside", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },
+  // A send to every room scheduled for later: plain JSON the game server reads, never shown on a page; the API answers it as JSON.
+  { stored: "scheduled_room_messages.room_message_json", format: "escaped_text", source: "developer", checked_by: checkedIn("packages/core/src/room-messages.ts", "checkRoomMessage"), saved_by_door_ids: [], shown_on_door_ids: [] },
+  { stored: "scheduled_room_messages.labels_json", format: "escaped_text", source: "developer", checked_by: checkedIn("packages/core/src/room-messages.ts", "isRoomLabels"), saved_by_door_ids: [], shown_on_door_ids: [] },
   { stored: "room_players.server_url", format: "escaped_text", source: "outside", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },
   { stored: "room_visits.server_url", format: "escaped_text", source: "outside", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },
   { stored: "game_deletions.failure_message", format: "escaped_text", source: "outside", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [ADMIN_GAME] },
@@ -178,6 +181,8 @@ export const STORED_VALUES: readonly StoredValue[] = [
   { stored: "precedents.title", format: "escaped_text", source: "zaisma", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: ["page:/admin/precedents"] },
   { stored: "precedents.applies_when", format: "escaped_text", source: "zaisma", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: ["page:/admin/precedents"] },
   { stored: "precedents.decision", format: "escaped_text", source: "zaisma", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },
+  // Shown only to the banned developer, on their dashboard and in account_banned (bans.ts), which the planted world isn't.
+  { stored: "accounts.ban_reason", format: "escaped_text", source: "zaisma", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },
   { stored: "precedents.why", format: "escaped_text", source: "zaisma", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: ["page:/admin/precedents"] },
   { stored: "review_precedents.title", format: "escaped_text", source: "zaisma", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: ["page:/admin/review-precedents"] },
   { stored: "review_precedents.applies_when", format: "escaped_text", source: "zaisma", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: ["page:/admin/review-precedents"] },
@@ -197,7 +202,7 @@ export const CLOSED_COLUMN_NAME = /^(id|kind|date|day|month|token|code|sha256)$|
 
 export const CLOSED_TEXT_COLUMNS: readonly string[] = [
   // Choices from fixed lists.
-  "accounts.color_theme", "accounts.chat_stopped_reason", "api_keys.found_in", "mcp_clients.token_endpoint_auth_method", "audit_log.action", "chat_reviews.source", "checked_files.provider", "forum_post_ratings.rating", "forum_reports.reason", "forum_topic_tags.tag",
+  "accounts.color_theme", "accounts.chat_stopped_reason", "accounts.ban_scope", "accounts.ban_content_rule", "ban_matches.decision", "api_keys.found_in", "mcp_clients.token_endpoint_auth_method", "audit_log.action", "chat_reviews.source", "checked_files.provider", "forum_post_ratings.rating", "forum_reports.reason", "forum_topic_tags.tag",
   "forum_topics.category", "forum_topics.severity", "game_backgrounds.screen", "game_backgrounds.source", "game_shaders.screen", "games.visibility", "games.purchase_delivery", "games.devices", "games.controls", "games.genres",
   "games.screen_orientation", "games.play_modes", "games.room_browsing", "games.built_in_server", "games.account_requirement", "friend_requests.answer", "profile_reports.reason", "reports.reason", "reports.player_reason",
   "review_precedents.decision", "review_precedents.content_rule", "room_message_types.direction", "save_history.copy_reason", "security_events.done_by", "webhooks.event_kinds",
@@ -206,7 +211,7 @@ export const CLOSED_TEXT_COLUMNS: readonly string[] = [
   // What Zaisma's code makes or copies from a checked value: slugs and usernames, content types it sniffed, colors it measured, places Cloudflare names, its own keys and records.
   "api_keys.game_slugs", "connected_app_codes.game_slugs", "webhooks.game_slugs", "retired_game_slugs.slug", "forum_mentions.name", "forum_media.content_type", "game_images.content_type",
   "game_images.average_color", "game_shaders.average_color", "game_shaders.quality_checks", "live_rooms.country", "live_rooms.continent", "precedents.created_by", "review_precedents.created_by", "database_restores.undo_bookmark",
-  "domains.hostname", "alert_notices.alert_subject", "file_moves.bucket_name", "versions.r2_prefix", "webhook_deliveries.event_json", "webhooks.signing_secret", "backup_runs.failure_message", "restore_runs.failure_message", "restore_kind_counts.key_kind", "stripe_connect_states.state",
+  "domains.hostname", "alert_notices.alert_subject", "file_moves.bucket_name", "versions.r2_prefix", "webhook_deliveries.event_json", "webhooks.signing_secret", "backup_runs.failure_message", "backup_failed_keys.bucket_name", "backup_failed_keys.failure_message", "restore_runs.failure_message", "restore_kind_counts.key_kind", "stripe_connect_states.state",
   // An item's prices in other currencies, from a closed list of currencies and whole numbers (checkItem); a purchase's item name, copied from the game's checked item;
   // a deleted game's slug and title, copied from its checked row as it's deleted (gameRowDeletions), shown only in its players' Download your data.
   "game_items.local_prices", "purchases.item_name", "purchases.deleted_game_slug", "purchases.deleted_game_title",

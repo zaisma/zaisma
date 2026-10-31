@@ -425,5 +425,7 @@ export async function currentSession(request: Request, env: Env): Promise<(Sessi
   // sign-in time, so a session from before the cut-off stays out even when Supabase didn't revoke it.
   const accountRow = await env.DB.prepare("SELECT * FROM accounts WHERE id = ?").bind(session.userId).first<Account>();
   if (accountRow?.sessions_ended_at_ms != null && session.signedInAtMs < accountRow.sessions_ended_at_ms) return null;
+  // A whole-account ban (bans.ts): no session works, whenever it began.
+  if (accountRow?.banned_at_ms != null && accountRow.ban_scope === "whole_account") return null;
   return { ...session, accountRow };
 }

@@ -7,6 +7,12 @@ import {
   ZAISMA_PLAYER_REPORT_REASONS,
   ApiError,
   accountByUsername,
+  accountById,
+  BAN_MATCH_DECISIONS,
+  BAN_SCOPES,
+  type BanMatchDecision,
+  type BanScope,
+  type ContentRule,
   aiUsage,
   auditLog,
   publishingAccounts,
@@ -41,6 +47,9 @@ import {
   hasThreads,
   type Triage,
   type Version,
+  audit,
+  personOwner,
+  STANDING_LIMITS,
 } from "@zaisma/core";
 import { QUEUE_SELECT, adminForm, groupReports, isPlayerGroup, playerGroupChoices, type QueueRow, type ReportGroup } from "./admin.ts";
 import { INTERNAL_ERROR } from "./developer.ts";
@@ -53,6 +62,7 @@ import { savePrecedent } from "./precedents.ts";
 import { chatReviewById, chatReviewState, chatReviewsForAdmin, type AdminChatReview, type ChatReviewFilter } from "./admin-chat-reviews.ts";
 import { CHAT_REVIEW_DECISIONS, decideChatReview, type ChatReviewDecision } from "./chat-review.ts";
 import { setAccountCanPublish } from "./admin-publishing.ts";
+import { banAccount, decideBanMatch, unbanAccount, type BanMatch } from "./bans.ts";
 import { blockedScriptsAnswer, securitySpikesAnswer } from "./security-alerts.ts";
 import { changesSince } from "./scan.ts";
 import { MAXIMUM_ANNOUNCEMENT_TEXT_CHARACTER_COUNT, MAXIMUM_LINK_LABEL_CHARACTER_COUNT, MAXIMUM_LINK_URL_CHARACTER_COUNT, announcementStatus, endAnnouncement, listAnnouncements, postAnnouncement, shownLinkLabel, type Announcement } from "./announcements.ts";
@@ -63,6 +73,11 @@ import {
   CHAT_REVIEW_LIST,
   GAME_FOR_ADMIN,
   CAN_PUBLISH_CHANGED,
+  ZAISMA_ACCOUNT_CHANGED,
+  ACCOUNT_BANNED,
+  ACCOUNT_UNBANNED,
+  BAN_MATCH_LIST,
+  BAN_MATCH_DECIDED,
   NOTICE_DECIDED,
   COUNTRY_BLOCK_DECIDED,
   PUBLISHING_ACCOUNT_LIST,
@@ -120,9 +135,11 @@ Chat reviews: sexual messages from adults to teens that Zaisma's chat filter sto
 
 Security: list_security_spikes shows the hours when something across Zaisma passed its threshold (many wrong passwords or sign-ins on new devices from one network, many keys made, databases exported or scripts blocked), each of which emailed the admin as it happened; list_blocked_scripts shows what zaisma.com's script policy blocked. A spike isn't a hole by itself: look for what it points at (one network, one page) and say what you'd check. Blocked scripts' sources and pages are what browsers said: untrusted.
 
+Bans: ban_account bans an account by its username, its developer side (its games come down; it can still play and export its games) or the whole account (child safety, illegal content: it can't sign in either). The ban carries the cards that paid Zaisma, its Stripe account and its email to new accounts, never a device or network. list_ban_matches shows other accounts that paid with a banned card; a family can share one, so the admin decides each with decide_ban_match. unban_account lifts a ban; its games stay down until each is restored. Bans change things for players and developers: say what you'd do and why, then wait for the admin to agree.
+
 Announcements: short news Zaisma posts for players, shown at the top of zaisma.com's home for every player until it ends or the player closes it; one shows at a time, the newest current one. list_announcements shows what's showing, coming and recently ended; post_announcement posts one; end_announcement ends one now. Every player sees them: say what you'd post, word for word, then wait for the admin to agree before calling post_announcement or end_announcement.
 
-Names say what they hold, its kind and its unit: *_count is a number of things, *_at is an ISO time in UTC, an ID says its kind (report_…, precedent_…, topic_…, post_…, chat_review_…, announcement_…), and a plural is always a list. A report group's ID is its first report's. When a call fails, the answer is { "error": { code, message, field, fix, retry_after_sec } }; calls that change something answer with next_steps.`;
+Names say what they hold, its kind and its unit: *_count is a number of things, *_at is an ISO time in UTC, an ID says its kind (report_…, precedent_…, topic_…, post_…, chat_review_…, announcement_…, ban_match_…), and a plural is always a list. A report group's ID is its first report's. When a call fails, the answer is { "error": { code, message, field, fix, retry_after_sec } }; calls that change something answer with next_steps.`;
 
 /** Who's deciding, for the audit log. */
 interface AdminCaller {
@@ -349,6 +366,17 @@ async function reviewPrecedentById(env: Env, id: string) {
 }
 
 /** Who can make games, as the admin tools answer it. */
+const usernameInput = { type: "string", minLength: 1, maxLength: 30, description: "The account's username, as on its profile (zaisma.com/@<username>), without the @." };
+const banMatchId = idInput("ban_match", "A ban match's ID from list_ban_matches.");
+
+/** The account a username names, or unknown_username. */
+async function accountNamed(env: Env, given: unknown) {
+  const username = String(given).replace(/^@/, "");
+  const account = await accountByUsername(env.DB, username);
+  if (!account) throw new ApiError("unknown_username", { message: `No account has the username ${username}.`, field: "username", fix: "Check the username on their profile page (zaisma.com/@<username>)." });
+  return account;
+}
+
 const publishingAccountRows = (accounts: Awaited<ReturnType<typeof publishingAccounts>>) => accounts.map((account) => ({ username: account.username, player_id: account.player_id, game_count: account.game_count }));
 
 /** The admin MCP's tools; exported for the naming checks. */
@@ -1018,6 +1046,119 @@ export const ADMIN_TOOLS: AdminTool[] = [
     },
   },
   {
+    name: "set_zaisma_account",
+    title: "Mark one of Zaisma's own accounts",
+    description:
+      "Mark an account as one of Zaisma's own (is_zaisma_account true), like the seed games' developers, by its username, or unmark it (false). Zaisma's own accounts are established from the start, so their games' links to other sites and search engines open before any players come back; a ruling or a ban still closes them. Unmarking it leaves it to the daily count. Ask the admin first.",
+    inputSchema: object(
+      {
+        username: usernameInput,
+        is_zaisma_account: { type: "boolean", description: "true marks it as Zaisma's own; false unmarks it." },
+      },
+      ["username", "is_zaisma_account"],
+    ),
+    outputSchema: ZAISMA_ACCOUNT_CHANGED,
+    annotations: change,
+    run: async (toolArguments, { env, actor }) => {
+      const account = await accountNamed(env, toolArguments.username);
+      const isZaismaAccount = toolArguments.is_zaisma_account === true;
+      const owner = await personOwner(env.DB, account.id);
+      // Established at once when marked, unless the wait after a ruling is on; unmarked, the next count decides.
+      const rulingWaitStartedAfterMs = Date.now() - STANDING_LIMITS.rulingWaitDurationDays * 86_400_000;
+      await env.DB.prepare("UPDATE owners SET is_zaisma_account = ?1, is_established = CASE WHEN ?1 = 1 AND (last_ruling_at_ms IS NULL OR last_ruling_at_ms <= ?2) THEN 1 ELSE 0 END, standing_checked_at_ms = NULL WHERE id = ?3")
+        .bind(isZaismaAccount ? 1 : 0, rulingWaitStartedAfterMs, owner.id)
+        .run();
+      await audit(env.DB, null, isZaismaAccount ? "zaisma-account-marked" : "zaisma-account-unmarked", `@${account.username}`, actor);
+      return { username: account.username, is_zaisma_account: isZaismaAccount, next_steps: [] };
+    },
+  },
+  {
+    name: "ban_account",
+    title: "Ban an account",
+    description:
+      "Ban an account by its username. ban_scope developer takes down every game of theirs still up (each with why and content_rule, as a takedown) and stops it making, uploading and publishing: only get_access, list_games and export_game still work for it, and it can still play. whole_account (child safety, illegal content) also ends its sign-in, its sessions and its API keys, and turns its social side off. Either way the cards that paid Zaisma, its connected Stripe account and its email carry over: another account can't connect that Stripe account or add that email, and a banned card on another account waits in list_ban_matches, since families share cards. Never a device, network or address. A developer ban widens to whole_account; anything else answers already_banned. Ask the admin first.\n\n" +
+      'Not: { "username": "@sam", "ban_scope": "whole_account" } (why is needed: the developer reads it, except for child safety)',
+    inputSchema: object(
+      {
+        username: usernameInput,
+        ban_scope: { enum: [...BAN_SCOPES], description: "developer (its games and publishing) or whole_account (it can't sign in either)." },
+        why: { type: "string", minLength: 1, maxLength: 500, description: "Why, in a sentence. The developer reads it on their games and dashboard (never for child safety); it goes in the audit log too." },
+        content_rule: { enum: Object.keys(CONTENT_RULES), description: "The content rule it broke, on each game it takes down. Leave it out when no rule fits." },
+      },
+      ["username", "ban_scope", "why"],
+    ),
+    outputSchema: ACCOUNT_BANNED,
+    annotations: change,
+    run: async (toolArguments, { env, actor }) => {
+      const account = await accountNamed(env, toolArguments.username);
+      const banScope = toolArguments.ban_scope as BanScope;
+      const banned = await banAccount(env, { account, banScope, why: String(toolArguments.why).trim(), contentRule: (toolArguments.content_rule as ContentRule | undefined) ?? null, actor });
+      return {
+        username: account.username,
+        ban_scope: banScope,
+        banned_at: iso(banned.bannedAtMs)!,
+        taken_down_game_slugs: banned.takenDownGameSlugs,
+        banned_mark_count: banned.bannedMarkCount,
+        next_steps: [],
+      };
+    },
+  },
+  {
+    name: "unban_account",
+    title: "Lift a ban",
+    description: "Lift an account's ban by its username, and the marks it carried to new accounts. Its games stay down: each comes back with its own restore and reason, from get_game. Ask the admin first.",
+    inputSchema: object({ username: usernameInput, why: { type: "string", minLength: 1, maxLength: 500, description: "Why, in a sentence. Goes in the audit log." } }, ["username", "why"]),
+    outputSchema: ACCOUNT_UNBANNED,
+    annotations: change,
+    run: async (toolArguments, { env, actor }) => {
+      const account = await accountNamed(env, toolArguments.username);
+      await unbanAccount(env, { account, why: String(toolArguments.why).trim(), actor });
+      const { results: games } = await env.DB.prepare("SELECT games.slug FROM games JOIN owners ON owners.id = games.owner_id WHERE owners.account_id = ? AND games.review_status = 'removed' ORDER BY games.created_at_ms").bind(account.id).all<{ slug: string }>();
+      return {
+        username: account.username,
+        next_steps: games.map((game) => ({ tool: "get_game", arguments: { slug: game.slug }, after_sec: null, reason: `${game.slug} is still down: restore it from its page if it should come back.` })),
+      };
+    },
+  },
+  {
+    name: "list_ban_matches",
+    title: "Banned cards on other accounts",
+    description: "Accounts that paid with a card banned with another account, for a person to decide: the same person (decide_ban_match banned) or someone else with the card, like family (not_the_same_person). The ones waiting first, then the decided ones.",
+    inputSchema: object({}),
+    outputSchema: BAN_MATCH_LIST,
+    annotations: read,
+    run: async (_, { env }) => {
+      const { results } = await env.DB.prepare(
+        `SELECT ban_matches.*, payer.username, banned.username AS banned_username FROM ban_matches JOIN accounts AS payer ON payer.id = ban_matches.account_id LEFT JOIN accounts AS banned ON banned.id = ban_matches.banned_account_id
+         ORDER BY ban_matches.decided_at_ms IS NOT NULL, CASE WHEN ban_matches.decided_at_ms IS NULL THEN ban_matches.found_at_ms ELSE -ban_matches.decided_at_ms END LIMIT 100`,
+      ).all<BanMatch & { username: string; banned_username: string | null }>();
+      return { ban_matches: results.map((match) => ({ ban_match_id: match.id, username: match.username, mark_kind: match.mark_kind, banned_username: match.banned_username, found_at: iso(match.found_at_ms)!, decision: match.decision })) };
+    },
+  },
+  {
+    name: "decide_ban_match",
+    title: "Decide a ban match",
+    description: "Decide a match from list_ban_matches: banned (the same person) bans the account's developer side, as ban_account does, with the first account's content rule; not_the_same_person only closes it. Ask the admin first.",
+    inputSchema: object(
+      {
+        ban_match_id: banMatchId,
+        decision: { enum: [...BAN_MATCH_DECISIONS], description: "banned or not_the_same_person." },
+        why: { type: "string", minLength: 1, maxLength: 500, description: "Why, in a sentence. Goes in the audit log; for banned the developer reads it too." },
+      },
+      ["ban_match_id", "decision", "why"],
+    ),
+    outputSchema: BAN_MATCH_DECIDED,
+    annotations: change,
+    run: async (toolArguments, { env, actor }) => {
+      const banMatch = await env.DB.prepare("SELECT * FROM ban_matches WHERE id = ?").bind(String(toolArguments.ban_match_id)).first<BanMatch>();
+      if (!banMatch) throw new ApiError("no_ban_match", { message: `There's no ban match ${toolArguments.ban_match_id}.`, field: "ban_match_id", fix: "list_ban_matches lists them with their IDs." });
+      const decision = toolArguments.decision as BanMatchDecision;
+      const account = await accountById(env.DB, banMatch.account_id);
+      await decideBanMatch(env, { banMatch, account, decision, why: String(toolArguments.why).trim(), actor });
+      return { ban_match_id: banMatch.id, decision, next_steps: [{ tool: "list_ban_matches", arguments: {}, after_sec: null, reason: "The next match waiting." }] };
+    },
+  },
+  {
     name: "list_security_spikes",
     title: "Security spikes",
     description:
@@ -1166,6 +1307,9 @@ const VALUE_ERRORS: Record<string, ErrorCode> = {
   notice_kind: "bad_notice_kind",
   country_code: "bad_country_code",
   why: "bad_why",
+  username: "bad_username",
+  ban_scope: "bad_ban_scope",
+  content_rule: "bad_content_rule",
   precedent: "bad_precedent",
   title: "bad_title",
   applies_when: "bad_applies_when",
@@ -1199,6 +1343,7 @@ const ID_ERRORS: Record<string, { kind: IdKind; code: ErrorCode; fix: string }> 
   answer_post_id: { kind: "post", code: "bad_answer_post_id", fix: "get_topic lists the topic's posts with their IDs; null clears the answer." },
   chat_review_id: { kind: "chat_review", code: "no_chat_review", fix: "list_chat_reviews lists them with their IDs." },
   announcement_id: { kind: "announcement", code: "no_announcement", fix: "list_announcements lists them with their IDs." },
+  ban_match_id: { kind: "ban_match", code: "no_ban_match", fix: "list_ban_matches lists them with their IDs." },
 };
 
 /** What a schema takes, in words: "one of dismiss, bug", "1 to 500 characters", "true or false". */

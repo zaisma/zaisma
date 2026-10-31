@@ -1,6 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import {
@@ -20,6 +19,7 @@ import {
   sameCodeCommits,
   // @ts-expect-error: a plain JavaScript script without types
 } from "../../scripts/ship-github-check.mjs";
+import { temporaryFolder } from "../temporary-folder.ts";
 
 /** scripts/ship-github-check.mjs: which GitHub check `npm run ship` counts for the code it ships. */
 
@@ -221,7 +221,7 @@ describe("applyEnginesProof", () => {
 });
 
 describe("sameCodeCommits", () => {
-  const folder = mkdtempSync(join(tmpdir(), "zaisma-ship-check-"));
+  const folder = temporaryFolder("zaisma-ship-check-");
   afterAll(() => rmSync(folder, { recursive: true, force: true }));
   const runGit = (gitArguments: string[]) => {
     const result = spawnSync("git", ["-C", folder, "-c", "user.name=Test", "-c", "user.email=test@zaisma.test", "-c", "commit.gpgsign=false", ...gitArguments], { encoding: "utf8" });

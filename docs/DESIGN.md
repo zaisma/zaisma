@@ -71,17 +71,52 @@ Judged in the preview: it works like the products players know (Jakob's law); no
 
 ## Voice
 
-Plain, open and clear. Say what happens, in whole sentences, as one person would to another. Verbose enough to leave no question, and no more. Never claim more than is true.
+Every word is written for one reader, says only what that reader needs there, and says it bold and exact.
 
-- Write what the player gets and what it costs them: what's saved, who sees it, what happens next.
-- Don't write marketing words (unlock, seamless, exclusive, powerful, next-level), corporate or startup talk (leverage, ecosystem, empower), or exclamation marks.
-- Don't promise what isn't built, and don't hedge what is.
+### The readers
+
+| Reader | Where | How it reads |
+| --- | --- | --- |
+| A person on a page | the site, dashboard, settings, notices, emails | plain words, "you", contractions fine, the button's own words |
+| A person reading the legal pages | everything under `/legal/` | formal and exact: "Zaisma" and "you", no contractions, one word for one thing every time, numbers rather than adjectives, plain words rather than legalese |
+| A developer reading the docs | the README, `docs/DEVELOPER-API.md`, guides | a reference: exact names, an example a call, nothing that sells |
+| An AI | an error's `fix`, MCP tool descriptions, the MCP's instructions | names the calls, fields and values, and the next call |
+
+Two readers means two texts. An error, a finding and an alert carry the AI's `fix` and the person's `message_for_people`; a page shows only `message_for_people` (`docs/NAMING.md`, Errors).
+
+Zaisma never says "we", "us" or "our" in its own words. The legal pages say "Zaisma"; a page needs no subject ("That list stays on this device.").
+
+### Bold and exact
+
+- **Sure of itself.** It says what is, with no cushioning, hedging or apology.
+- **Complete.** A sentence carries the whole fact: what happens, to what, and what's next. It's as long as the fact needs and no longer. A fragment only in a headline, and only when nothing is lost.
+- **Hard nouns.** Games, players, developers, servers, rooms, dollars, days.
+- **Claims as facts, said once.** "Zaisma takes no cut", never a belief about what developers deserve.
+- **No "!".** A bold line doesn't need one.
+
+The attitude is loudest in headlines (the home, the developer pages, the README), plain in buttons, notices and errors, and absent on the legal pages, where bold would mean vague.
+
+### Six rules for every word
+
+1. **Only what this reader needs here.** How something works only where the reader asked.
+2. **Facts, not feelings.** No reassurance and no warm adjectives: what's kept, who sees it, for how long.
+3. **Zaisma, never "we".**
+4. **Say it once.**
+5. **The names this reader sees.** On a page, the button's own words and a link to it; for an AI, the call.
+6. **No filler, no marketing words, no "!".**
+
+The word lists (marketing words, filler) and the checker are [`packages/core/src/words.ts`](../packages/core/src/words.ts). The design test fails a page whose words say "we", "!", a word from either list or a name from the code (a word with an underscore), and a legal page with a contraction. A developer's or player's own words on a page (a game's title, a forum post) are marked `data-words="theirs"` and left out.
 
 | Not this | This |
 | --- | --- |
 | Unlock cloud saves and sync seamlessly across all your devices! | Your progress stays on this device. Make an account to keep it everywhere. |
-| Join the community to unlock exclusive features. | Keep your progress, play with friends and get your own username. |
 | We take your privacy seriously. | Your birthday is never shown to anyone. |
+| Your browser also remembers which games you played recently. That list stays on your device; we never see it. | The browser stores the games played recently. This list stays on the device and is never sent to Zaisma. |
+| They're kept in your browser tab and forgotten when it closes. We don't keep a profile, and we don't know who you are. | They're discarded when the browser tab closes. Zaisma keeps no profile of guests. |
+| Delete one you don't use with delete_webhook, or add these event_kinds to one you have with update_webhook. | You have as many webhooks as an account can. Remove one, or add these events to one you have. |
+| Hang tight! Our team is taking a quick look to keep everyone safe. | A person at Zaisma looks at this first, usually within a day. |
+| No friends yet. Send your link. | You have no friends here yet. Send someone your link, and they show up here once they open it. |
+| We don't judge whether it's true. | Zaisma does not judge whether it is true. |
 
 ## Tokens
 

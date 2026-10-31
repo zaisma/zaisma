@@ -1,4 +1,4 @@
-import { finishHandling, finishRefundHandling, unhandledFor, type PurchaseDelivery, CHAT_BLOCK_MESSAGES, CHAT_FILTER_LIMITS, itemsOf, ownedItemNames, priceFor, priceText, PLAYER_REPORT_REASONS, accountById, checkChatText, isChatStopped, isBlockedInCountry, isOldEnoughFor, requestCountryCode, type AgeBand, gameAddress, accountUsernameOf, blockPlayerIdsOf, chatBandGroup, socialSettingsOf, friendPlayerIdsOf, friendsInGameOf, gameServerOf, isOwnServerUrl, ownServerUrlsOf, setOwnServerRoom, type AccountRequirement, type MultiplayerMode, createReport, REPORTED_CHAT_LIMITS, type ReportedChatMessage, isIdOf, iso, leaveOut, listRooms, newId, isHostingPaused, playerProfile, readLabelParameter, readLeftParameter, tidyChatText, tidyText, useRoomKey, type PlayerReportReason, type RoomList } from "@zaisma/core";
+import { finishHandling, finishRefundHandling, unhandledFor, type PurchaseDelivery, CHAT_BLOCK_MESSAGES, CHAT_FILTER_LIMITS, itemsOf, ownedItemNames, priceFor, priceText, PLAYER_REPORT_REASONS, accountById, checkChatText, isChatStopped, isStrangerChatWaiting, isBlockedInCountry, isOldEnoughFor, requestCountryCode, type AgeBand, gameAddress, accountUsernameOf, blockPlayerIdsOf, chatBandGroup, socialSettingsOf, friendPlayerIdsOf, friendsInGameOf, gameServerOf, isOwnServerUrl, ownServerUrlsOf, setOwnServerRoom, type AccountRequirement, type MultiplayerMode, createReport, REPORTED_CHAT_LIMITS, type ReportedChatMessage, isIdOf, iso, leaveOut, listRooms, newId, isHostingPaused, playerProfile, readLabelParameter, readLeftParameter, tidyChatText, tidyText, useRoomKey, type PlayerReportReason, type RoomList } from "@zaisma/core";
 import { BUSY_CLOSE_CODE, ERROR_TEXT, PassError, REMOVED_CLOSE_CODE, errorMessage, type RoomErrorCode, REQUEST_ERROR_HTTP_STATUS, REQUEST_LIMITS, PASS_VERSION_NUMBER, canChat, guestName, isRoomCode, jwks, readRequestBody, requestError, roomCode, signPass, verifyPass, type Player, type PassClaims, type RequestErrorCode } from "@zaisma/game-server/internal";
 import { usesRooms } from "./registry.ts";
 import { purchasesForGame } from "./purchases.ts";
@@ -8,6 +8,7 @@ import type { GameSecretsObject } from "./secrets.ts";
 import { syncSchedules, type GameServerObject, type RequestOutcome } from "./game-server.ts";
 import { relayCredentials, syncRelayUse, type RelayEnv } from "./relay.ts";
 import { filterChatMessage } from "./chat-filter.ts";
+import { sendDueRoomMessages } from "./room-reach.ts";
 import type { ChatCheckService } from "../../site/src/chat-check.ts";
 
 export { Room } from "./room.ts";
@@ -18,6 +19,7 @@ export { GameServerOutbound } from "./outbound.ts";
 export { GameStorageService } from "./game-storage.ts";
 export { GameRoomsService } from "./room-updates.ts";
 export { ReceiptCheckBinding, ReceiptSigningService } from "./receipts.ts";
+export { RoomReachBinding } from "./room-reach.ts";
 
 export interface Env extends RelayEnv {
   DB: D1Database;
@@ -33,6 +35,8 @@ export interface Env extends RelayEnv {
   REPORT_LIMIT?: RateLimit;
   FILTER_LIMIT?: RateLimit;
   CONNECT_LIMIT?: RateLimit;
+  /** A game's sends to every room a minute, from its game server, the API and the MCP together (room-reach.ts). */
+  EVERY_ROOM_SEND_LIMIT?: RateLimit;
   PROFILE_LIMIT?: RateLimit;
   REQUEST_LIMIT?: RateLimit;
   /** Relay credentials for connections between players (relay.ts), like passes. */
@@ -408,10 +412,13 @@ async function answerChatCheck(request: Request, env: Env): Promise<Response> {
   const { slug, body } = await readBody(request);
   const game = slug ? await playableGame(env.DB, slug) : null;
   if (!slug || !game) return failure("game_unavailable", ERROR_TEXT.game_unavailable, 404, undefined, "gameSlug");
+  // null in place of a pass: a player from outside Zaisma, whom the game's own server let in (a stranger of unknown age).
   const receiverPasses = body.receiverPasses;
-  if (!Array.isArray(receiverPasses) || receiverPasses.length > MAXIMUM_CHAT_RECEIVER_COUNT || !receiverPasses.every((pass) => typeof pass === "string")) {
-    return failure("bad_request", `receiverPasses takes a list of up to ${MAXIMUM_CHAT_RECEIVER_COUNT} player passes, as your server received them.`, 400, undefined, "receiverPasses");
+  if (!Array.isArray(receiverPasses) || receiverPasses.length > MAXIMUM_CHAT_RECEIVER_COUNT || !receiverPasses.every((pass) => pass === null || typeof pass === "string")) {
+    return failure("bad_request", `receiverPasses takes a list of up to ${MAXIMUM_CHAT_RECEIVER_COUNT} player passes, as your server received them, with null for each player from outside Zaisma.`, 400, undefined, "receiverPasses");
   }
+  // Chat among players from outside Zaisma alone is the server's own (checkChat never sends it): with no pass, nobody here vouches for the game's players.
+  if (body.senderPass === null && receiverPasses.every((pass) => pass === null)) return failure("bad_request", "Give at least one player pass: chat among players from outside Zaisma alone is your server's own, and checkChat allows it without asking.", 400, undefined, "senderPass");
   if (typeof body.text !== "string") return failure("bad_request", "text takes the message as text.", 400, undefined, "text");
   if (body.isAdultFilterEnabled !== undefined && typeof body.isAdultFilterEnabled !== "boolean") return failure("bad_request", "isAdultFilterEnabled takes true or false.", 400, undefined, "isAdultFilterEnabled");
   const recentTexts = body.recentTexts ?? [];
@@ -419,33 +426,39 @@ async function answerChatCheck(request: Request, env: Env): Promise<Response> {
 
   const keys = [(await signingKey(env)).publicKey];
   const check = async (pass: unknown) => verifyPass(typeof pass === "string" ? pass : "", keys, { gameSlug: slug, issuerUrl: env.ISSUER });
-  let sender: PassClaims;
+  let sender: PassClaims | null;
   try {
-    sender = await check(body.senderPass);
+    sender = body.senderPass === null ? null : await check(body.senderPass);
   } catch (error) {
     if (!(error instanceof PassError)) throw error;
     return failure("bad_pass", "The sender's pass didn't check out for this game. Send it as your server received it from the player.", 401, undefined, "senderPass");
   }
-  let receivers: PassClaims[];
+  let receivers: (PassClaims | null)[];
   try {
-    receivers = await Promise.all(receiverPasses.map(check));
+    receivers = await Promise.all(receiverPasses.map((pass) => (pass === null ? null : check(pass))));
   } catch (error) {
     if (!(error instanceof PassError)) throw error;
     return failure("bad_pass", "A receiver's pass didn't check out for this game. Send each as your server received it from the player.", 401, undefined, "receiverPasses");
   }
-  // Per game and sender: more than anyone types, not enough to use Zaisma's filter for something else.
-  if (env.CHAT_CHECK_LIMIT && !(await env.CHAT_CHECK_LIMIT.limit({ key: `${game.id}:${sender.sub}` })).success) return failure("slow_down", SLOW_DOWN, 429);
+  // Per game and sender: more than anyone types, not enough to use Zaisma's filter for something else. Senders from outside Zaisma count as one.
+  if (env.CHAT_CHECK_LIMIT && !(await env.CHAT_CHECK_LIMIT.limit({ key: `${game.id}:${sender?.sub ?? "outside_zaisma"}` })).success) return failure("slow_down", SLOW_DOWN, 429);
+  const passReceivers = receivers.filter((receiver): receiver is PassClaims => receiver !== null);
+  const hasOutsidePlayer = sender === null || passReceivers.length < receivers.length;
   // The backstop for canChat: a server that skipped it still delivers nothing to players who may not chat.
+  // With a player from outside Zaisma, every account in it chats with anyone (they're never friends), as rooms say (RoomCore's mayChat).
   // One verdict for the message, never which receiver.
-  if (receivers.some((receiver) => receiver.sub !== sender.sub && !canChat(sender, receiver))) {
+  const passParties = sender ? [sender, ...passReceivers] : passReceivers;
+  const isNotAllowed = sender ? passReceivers.some((receiver) => receiver.sub !== sender.sub && !canChat(sender, receiver)) : false;
+  if (isNotAllowed || (hasOutsidePlayer && passParties.some((party) => party.kind !== "account" || party.who_can_chat !== "anyone"))) {
     return json({ isAllowed: false, reason: "not_allowed_to_chat", message: CHAT_BLOCK_MESSAGES.not_allowed_to_chat, hasSwearing: false, hasSlur: false });
   }
 
   const answer = await filterChatMessage(env, {
     gameId: game.id,
     text: body.text,
-    senderPlayerId: sender.sub,
-    receiverPlayerIds: receivers.map((receiver) => receiver.sub),
+    senderPlayerId: sender?.sub ?? null,
+    receiverPlayerIds: passReceivers.map((receiver) => receiver.sub),
+    hasOutsideReceiver: passReceivers.length < receivers.length,
     recentTexts: recentTexts.slice(-CHAT_FILTER_LIMITS.recentTextCount).map((recentText) => tidyText(recentText, CHAT_FILTER_LIMITS.maximumMessageCharacterCount)),
     source: "own_server",
     // The game's own switch for chat between adults: its checks are on its meter.
@@ -555,7 +568,8 @@ export default {
         const chat = account
           ? {
               // An account whose chat the filter stopped chats with nobody, so own servers stop it too with its next pass.
-              who_can_chat: isChatStopped(account) ? "nobody" : socialSettingsOf(account).who_can_chat,
+              // A new 16–17 account set to anyone chats with friends until it's a day old and played on a second day (standing.ts), on every server.
+              who_can_chat: isChatStopped(account) ? "nobody" : socialSettingsOf(account).who_can_chat === "anyone" && isStrangerChatWaiting(account, Date.now()) ? "friends" : socialSettingsOf(account).who_can_chat,
               ...(bandGroup ? { chat_group_id: await chatGroupId(env, slug, bandGroup) } : {}),
               player_tag_id: await playerTag(env, slug, account.player_id),
               friend_player_tag_ids: await Promise.all((await friendPlayerIdsOf(env.DB, account.id)).map((playerId) => playerTag(env, slug, playerId))),
@@ -699,9 +713,10 @@ export default {
     return new Response("Not found", { status: 404 });
   },
 
-  // Every minute: games' schedules after a publish (game-server.ts), and the relay's use of the games due to be read (relay.ts).
+  // Every minute: games' schedules after a publish (game-server.ts), scheduled sends to every room (room-reach.ts), and the relay's use of the games due to be read (relay.ts).
   async scheduled(event, env, ctx): Promise<void> {
     ctx.waitUntil(syncSchedules(env));
+    ctx.waitUntil(sendDueRoomMessages(env, event.scheduledTime));
     ctx.waitUntil(syncRelayUse(env, env.DB, event.scheduledTime));
   },
 } satisfies ExportedHandler<Env>;

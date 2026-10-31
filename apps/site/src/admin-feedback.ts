@@ -266,7 +266,7 @@ export async function adminFeedbackAction(env: Env, path: string, form: FormData
     await decideTopic(env, id, decision);
   } catch (error) {
     if (!(error instanceof ApiError)) throw error;
-    return new Response(null, { status: 303, headers: { Location: `/admin/feedback/${id}?error=${encodeURIComponent(error.messageWithFix)}` } });
+    return new Response(null, { status: 303, headers: { Location: `/admin/feedback/${id}?error=${encodeURIComponent(error.messageForPeople)}` } });
   }
   return new Response(null, { status: 303, headers: { Location: back } });
 }

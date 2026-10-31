@@ -110,17 +110,22 @@ export const stressBaseName = (name: string): string => name.replace(/, signed i
 const OPEN_PLAYERS_SHEET = `(async () => { document.querySelector('[aria-controls="players"]').click(); await new Promise((done) => setTimeout(done, 600)); return true; })()`;
 /** The cards over a running game that start hidden (the game asking to sign in, signed out), shown one under another. */
 const SHOW_PLAYING_CARDS = `(async () => {
-  let top = 70;
-  for (const id of ["sign-in-ask", "signed-out"]) {
-    const card = document.getElementById(id);
-    if (!card) continue;
-    if (card.popover && card.showPopover) card.showPopover();
-    card.hidden = false;
-    card.style.top = top + "px";
-    // One that wouldn't fit under the one before (a phone on its side) stays hidden: over a game they come one at a time.
-    if (top + card.getBoundingClientRect().height > innerHeight - 8 && top > 70) { card.hidden = true; continue; }
-    top += 20 + card.getBoundingClientRect().height;
-  }
+  // Placed again on each screen, since the check switches screens in place without loading the page again.
+  const place = () => {
+    let top = 70;
+    for (const id of ["sign-in-ask", "signed-out"]) {
+      const card = document.getElementById(id);
+      if (!card) continue;
+      if (card.popover && card.showPopover && !card.matches(":popover-open")) card.showPopover();
+      card.hidden = false;
+      card.style.top = top + "px";
+      // One that wouldn't fit under the one before (a phone on its side) stays hidden: over a game they come one at a time.
+      if (top + card.getBoundingClientRect().height > innerHeight - 8 && top > 70) { card.hidden = true; continue; }
+      top += 20 + card.getBoundingClientRect().height;
+    }
+  };
+  place();
+  addEventListener("resize", place);
   await new Promise((done) => setTimeout(done, 600));
   return true;
 })()`;
@@ -143,6 +148,8 @@ const ADULT_BIRTHDAY = { birthday: "1990-04-12" } as const;
 const TOO_YOUNG_BIRTHDAY = { birthday: "2020-04-12" } as const;
 /** No account has this username, so its password is always wrong and nothing gets locked out. */
 const WRONG_SIGN_IN = { username: "Nobody_Here", password: "not the password", ...BOT_CHECK_PASSED } as const;
+/** The right password of Closed_Player, a closed account in the preview (scripts/preview/sign-ins.mjs's PASSWORD). */
+const CLOSED_ACCOUNT_SIGN_IN = { username: "Closed_Player", password: "preview password", ...BOT_CHECK_PASSED } as const;
 
 /**
  * Every page and state the layout check opens (scripts/layout-check.mjs), and the Screens page offers. A page built in Zaisma's look
@@ -199,6 +206,7 @@ const CHECKED_PAGE_LIST = [
   { name: "Make an account", area: "Signing in", path: "/join", ...CITY },
   { name: "New account, no birthday", area: "Signing in", path: "/join", ...CITY, stepsToTake: [{ formAction: "/join/age", fieldValues: { birthday: "" } }] },
   { name: "How will you sign in", area: "Signing in", path: "/join", ...CITY, stepsToTake: [{ formAction: "/join/age", fieldValues: ADULT_BIRTHDAY }] },
+  { name: "Account closed", area: "Signing in", path: "/signin", ...CITY, stepsToTake: [{ formAction: "/signin", fieldValues: CLOSED_ACCOUNT_SIGN_IN }] },
   { name: "Make an account, too young", area: "Signing in", path: "/join", ...CITY, stepsToTake: [{ formAction: "/join/age", fieldValues: TOO_YOUNG_BIRTHDAY }], isOffScreens: true },
   // A new player back from Google with no account yet (the preview's stand-in sign-in answers for it), after the age step.
   { name: "Pick a username", area: "Signing in", path: "/join", ...CITY, stepsToTake: [{ formAction: "/join/age", fieldValues: ADULT_BIRTHDAY }, { path: "/signin/with/google" }] },

@@ -28,6 +28,7 @@ import {
 } from "@zaisma/core";
 import { bugReportJson, gameAlerts, playerReportJson, gameJson, gameServerErrorJson, signInAppJson, versionAnswer, type GameAlert, type GameServerErrorRow } from "./developer.ts";
 import type { Env } from "./env.ts";
+import { recordRestoreEvent } from "./restore-events.ts";
 
 /**
  * What goes in a webhook event, and when one is sent (docs/DECISIONS.md, "Webhooks follow Standard
@@ -225,6 +226,7 @@ export async function eraseDuePlayers(env: Env): Promise<void> {
           failureMessage = `Couldn't reach the game database: ${error instanceof Error ? error.message : String(error)}`;
         }
         await recordPlayerEraseAttempt(env.DB, erase, failureMessage);
+        if (failureMessage === null) await recordRestoreEvent(env, { event_kind: "player_erased", at_ms: Date.now(), game_id: erase.game_id, player_id: erase.player_id });
       }),
     );
   }

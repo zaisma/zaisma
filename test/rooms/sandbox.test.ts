@@ -771,7 +771,7 @@ describe("sandboxed game servers", () => {
     expect(err).toMatchObject({ kind: "crash", occurrence_count: 1, version_id: "voldnames" });
     // Errors are kept to 600 characters, which keeps the whole list of options.
     expect(err!.message).toMatch(
-      /^Didn't start: tickRate isn't a game server option\. A game server takes: maximumPlayerCount, maximumSpectatorCount, ticksPerSec, hostControlsEnabled, idleCheck, idleTimeoutSec, awayMode, seatHoldDurationSec, stateSyncEnabled, adultChatFilterEnabled, reconnectTimeoutSec, maximumRoomCountPerPlayer, stateSaveIntervalSec, setup, onJoin, canJoin, onChat, onMoved, onLeave, onSpectatorJoin, onSpectatorLeave, onAway, onBack, onMessage, onBytes, onPurchase, onRefund, onTick, onEnding, onEndingCancelled, onRestored, stateView, onVersionUpdate, onRequest, schedules, onSchedule, onWebhook\./,
+      /^Didn't start: tickRate isn't a game server option\. A game server takes: maximumPlayerCount, maximumSpectatorCount, ticksPerSec, hostControlsEnabled, idleCheck, idleTimeoutSec, awayMode, seatHoldDurationSec, stateSyncEnabled, adultChatFilterEnabled, reconnectTimeoutSec, maximumRoomCountPerPlayer, stateSaveIntervalSec, setup, onJoin, canJoin, onChat, onMoved, onLeave, onSpectatorJoin, onSpectatorLeave, onAway, onBack, onMessage, onBytes, onPurchase, onRefund, onTick, onEnding, onEndingCancelled, onRestored, stateView, onVersionUpdate, onRoomMessage, onRequest, schedules, onSchedule, onWebhook\./,
     );
   });
 

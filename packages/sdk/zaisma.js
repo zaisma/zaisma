@@ -6,8 +6,11 @@
  * together; test/node/sdk-types.test.ts checks that they match.
  *
  * On Zaisma, the games Worker defines __ZAISMA__ before this file with the rooms address, the game and
- * the site. A game that isn't hosted on Zaisma gets "not_on_zaisma" for online play, serverUrl or not; serverUrl points a
- * game hosted on Zaisma at your own server.
+ * the site; serverUrl points a game played there at your own server. Played anywhere else (exported, on
+ * another site, wrapped for a store), a game plays online against your own server only: after
+ * Zaisma.setUpOffZaisma({ gameSlug, playerToken }), joinRoom and server.request with a serverUrl send the
+ * playerToken in place of a Zaisma pass, and your server says who that is (its identifyPlayer). Saves, the buy
+ * sheet, friends and room lists stay on Zaisma, and so does the Zaisma bar.
  */
 (function () {
   "use strict";
@@ -18,6 +21,7 @@
   var OWN_SERVER_URL = /^(wss|https):\/\/[^/]/;
 
   // What each call takes. Anything else is refused, so a misspelled or old option never goes quietly unused.
+  var SET_UP_OFF_ZAISMA_OPTIONS = ["gameSlug", "playerToken"];
   var JOIN_OPTIONS = ["roomCode", "serverUrl", "transport", "isListed", "friendJoinsEnabled", "name", "labels", "joinData", "idleTimeoutSec", "idleCheckEnabled", "isSpectator"];
   // quickJoin finds Zaisma rooms, so it takes no serverUrl.
   var QUICK_JOIN_OPTIONS = ["isListed", "friendJoinsEnabled", "name", "labels", "joinData", "idleTimeoutSec", "idleCheckEnabled", "region"];
@@ -33,7 +37,7 @@
   /** A fast lane that isn't up in this long gives way to the WebSocket, for the rest of the room's life. */
   var FAST_LANE_CONNECT_TIMEOUT_MS = 3000;
   var ROOM_INFO_FIELDS = ["name", "labels"];
-  var ROOM_EVENTS = ["message", "bytes", "state", "players", "connectionStatus", "ended", "ending", "endingCancelled", "kicked", "settings", "move", "moved", "idle", "away", "back", "muted", "error", "versionUpdate", "chat"];
+  var ROOM_EVENTS = ["message", "bytes", "state", "players", "connectionStatus", "ended", "ending", "endingCancelled", "kicked", "settings", "move", "moved", "idle", "away", "back", "muted", "error", "versionUpdate", "chat", "roomMessage"];
   /** Chat (room.chat): the longest message, the lines a room keeps in memory for reports, and how many of them a report carries. */
   var MAXIMUM_CHAT_CHARACTER_COUNT = 2000;
   var KEPT_CHAT_LINE_COUNT = 50;
@@ -76,6 +80,13 @@
   var DEFAULT_SMOOTHING_DELAY_MS = 100;
   var KEPT_VIEWS_DURATION_MS = 1000;
 
+  /** A game's slug, as its Zaisma link names it. */
+  var GAME_SLUG = /^[a-z0-9-]{1,40}$/;
+  /** The longest playerToken a game off Zaisma sends its own server, as UTF-8. */
+  var MAXIMUM_PLAYER_TOKEN_SIZE_BYTES = 8 * 1024;
+  /** Off Zaisma, after Zaisma.setUpOffZaisma: { gameSlug, playerToken } for joins and requests to the game's own server. */
+  var offZaisma = null;
+
   /** An Error with a code, as the SDK's errors all have. */
   function codedError(code, message) {
     var error = new Error(message);
@@ -86,6 +97,36 @@
   /** The error for a call that needs Zaisma, in a game running somewhere else (no __ZAISMA__). */
   function notOnZaisma(message) {
     return codedError("not_on_zaisma", message);
+  }
+
+  /**
+   * Off Zaisma, the game's own server can't take a Zaisma pass: what to do instead, or null when it can go ahead
+   * (on Zaisma, or set up off it). serverUrl: the call's own server, which off Zaisma it needs.
+   */
+  function offZaismaRefusal(serverUrl, call) {
+    if (config.rooms) return null;
+    if (!serverUrl) return notOnZaisma("Zaisma's rooms serve games played on Zaisma; off Zaisma, give serverUrl, the address of your own game server, to " + call + ".");
+    if (!offZaisma) return notOnZaisma("Off Zaisma, call Zaisma.setUpOffZaisma({ gameSlug, playerToken }) first: your own server knows the player by the playerToken, and serverUrl points " + call + " at it.");
+    return null;
+  }
+
+  /**
+   * Set up a game played off Zaisma (zaisma.d.ts: Zaisma.setUpOffZaisma). On a Zaisma page it changes nothing,
+   * so the same code runs in both places; elsewhere it keeps the game's slug and its player's token for joins
+   * and requests to the game's own server. Called again, it replaces the token (a new sign-in, or signing out).
+   */
+  function setUpOffZaisma(setUpOptions) {
+    var refused = unknownOption(setUpOptions, SET_UP_OFF_ZAISMA_OPTIONS, "Zaisma.setUpOffZaisma");
+    if (refused) return Promise.reject(refused);
+    if (config.rooms) return Promise.resolve({ isOffZaisma: false });
+    setUpOptions = setUpOptions || {};
+    var gameSlug = setUpOptions.gameSlug;
+    if (typeof gameSlug !== "string" || !GAME_SLUG.test(gameSlug)) return Promise.reject(codedError("bad_game_slug", "gameSlug is your game's slug, as its Zaisma link names it: 1 to 40 lowercase letters, digits or hyphens, like \"my-game\"."));
+    var playerToken = setUpOptions.playerToken === undefined ? null : setUpOptions.playerToken;
+    var isToken = typeof playerToken === "string" && playerToken.length > 0 && new TextEncoder().encode(playerToken).length <= MAXIMUM_PLAYER_TOKEN_SIZE_BYTES;
+    if (playerToken !== null && !isToken) return Promise.reject(codedError("bad_player_token", "playerToken is the player's token for your own server, as text up to 8 KB (a Sign in with Zaisma ID token, or your game's own), or null for a guest."));
+    offZaisma = { gameSlug: gameSlug, playerToken: playerToken };
+    return Promise.resolve({ isOffZaisma: true });
   }
 
   /** The error for options a call doesn't take, naming the ones it does, or null when they're all fine. */
@@ -435,6 +476,8 @@
     // What this connection uses now: "webtransport" once the fast lane opens, else "websocket".
     this.transport = "websocket";
     this._pass = setup.pass;
+    // Off Zaisma: the hello carries the playerToken Zaisma.setUpOffZaisma holds now, so a reconnect uses a refreshed one.
+    this._isOffZaisma = setup.isOffZaisma === true;
     this._made = { isListed: this.isListed, friendJoinsEnabled: setup.friendJoinsEnabled === false ? false : undefined, name: setup.name, labels: setup.labels };
     this._joinData = setup.joinData === undefined ? null : setup.joinData;
     this._serverUrl = setup.serverUrl;
@@ -653,7 +696,7 @@
   };
 
   // Codes that mean this room won't take the player, so joining fails instead of trying again.
-  var REFUSED = ["room_full", "room_closed", "ended", "bad_pass", "too_big", "game_unavailable", "kept_out", "refused", "hosting_paused", "account_needed", "game_not_open_to_player", "blocked_player_here", "other_version", "spectators_full", "room_not_running", "already_playing", "bad_origin"];
+  var REFUSED = ["room_full", "room_closed", "ended", "bad_pass", "bad_player_token", "too_big", "game_unavailable", "kept_out", "refused", "hosting_paused", "account_needed", "game_not_open_to_player", "blocked_player_here", "other_version", "spectators_full", "room_not_running", "already_playing", "bad_origin"];
 
   /**
    * Whether a Zaisma room on another version (other_version) has the page reload the game at it: on the
@@ -685,7 +728,9 @@
       room.transport = isFastLane ? "webtransport" : "websocket";
       room._pingAtMs = room._pongAtMs = room._heardAtMs = Date.now();
       room._probeIntervalSec = null;
-      var hello = { type: "hello", protocolVersionNumber: PROTOCOL_VERSION_NUMBER, pass: room._pass, room: room._made, joinData: room._joinData, idleTimeoutSec: room._clientIdle.idleTimeoutSec, idleCheckEnabled: room._clientIdle.idleCheckEnabled };
+      var hello = { type: "hello", protocolVersionNumber: PROTOCOL_VERSION_NUMBER, room: room._made, joinData: room._joinData, idleTimeoutSec: room._clientIdle.idleTimeoutSec, idleCheckEnabled: room._clientIdle.idleCheckEnabled };
+      if (room._isOffZaisma) hello.playerToken = offZaisma.playerToken;
+      else hello.pass = room._pass;
       // quickJoin's first try at a room: rather another room than one with someone this player blocked.
       if (room._avoidsBlockedPlayers) hello.avoidBlockedPlayers = true;
       // Any quickJoin: Zaisma learns the game joins players by itself, for its Rooms tab.
@@ -795,6 +840,10 @@
       } else if (message.type === "ending_cancelled") {
         room.endsAt = null;
         room._emit("endingCancelled");
+      } else if (message.type === "room_message") {
+        // A room message for a room whose game server has no onRoomMessage: another room, the game server or the developer sent it.
+        var roomMessage = message.roomMessage || {};
+        room._emit("roomMessage", { message: roomMessage.message, senderKind: roomMessage.senderKind, fromRoomCode: roomMessage.fromRoomCode || null, sentAt: roomMessage.sentAt });
       } else if (message.type === "version_update") {
         var versionUpdate = { versionId: message.versionId, appliesAt: message.appliesAt, isReloading: message.isReloading === true };
         if (message.step === "now") room._isReloadingForVersion = versionUpdate.isReloading;
@@ -1523,7 +1572,9 @@
 
   function connect(roomCode, joinOptions, isRetry) {
     var serverUrl = joinOptions.serverUrl ? String(joinOptions.serverUrl).replace(/\/+$/, "") : null;
-    if (!serverUrl && !config.rooms) return Promise.reject(notOnZaisma("Player passes come from Zaisma, so rooms work only in games hosted on Zaisma, in Zaisma rooms or on your own server (serverUrl)."));
+    var offRefusal = offZaismaRefusal(serverUrl, "Zaisma.joinRoom");
+    if (offRefusal) return Promise.reject(offRefusal);
+    var isOffZaisma = !config.rooms;
     var idleTimeoutSec = joinOptions.idleTimeoutSec;
     if (idleTimeoutSec !== undefined && !(typeof idleTimeoutSec === "number" && idleTimeoutSec >= MINIMUM_IDLE_TIMEOUT_SEC && idleTimeoutSec <= MAXIMUM_IDLE_TIMEOUT_SEC)) return Promise.reject(codedError("bad_idle_timeout", "idleTimeoutSec runs from " + MINIMUM_IDLE_TIMEOUT_SEC + " to " + MAXIMUM_IDLE_TIMEOUT_SEC + "."));
     if (serverUrl && !SERVER_URL.test(serverUrl)) return Promise.reject(codedError("bad_server_url", "serverUrl takes a full address starting with wss://, ws://, https:// or http://, like \"wss://play.example.com\"."));
@@ -1535,12 +1586,14 @@
       : serverUrl
         ? Promise.resolve(randomRoomCode())
         : post("/v1/rooms", { gameSlug: config.game }).then(function (answer) { return answer.roomCode; });
-    return Promise.all([roomCodeReady, getPass()]).then(function (ready) {
+    // Off Zaisma there's no pass: the hello carries the playerToken instead.
+    return Promise.all([roomCodeReady, isOffZaisma ? null : getPass()]).then(function (ready) {
       var base = (serverUrl || config.rooms).replace(/^http/, "ws");
-      var path = "/v1/rooms/" + config.game + "/" + ready[0];
+      var path = "/v1/rooms/" + (isOffZaisma ? offZaisma.gameSlug : config.game) + "/" + ready[0];
       var room = new Room({
         roomCode: ready[0],
-        pass: ready[1].pass,
+        pass: isOffZaisma ? null : ready[1].pass,
+        isOffZaisma: isOffZaisma,
         url: base + path,
         // The fast lane reaches only the game's own secure servers: Zaisma's rooms take the WebSocket, whatever transport says.
         fastLaneUrl: joinOptions.transport === "webtransport" && serverUrl && OWN_SERVER_URL.test(serverUrl) ? serverUrl.replace(/^wss:/, "https:") + path : null,
@@ -1562,8 +1615,8 @@
         room._ready = { resolve: resolve, reject: reject };
         room._connect();
       }).catch(function (error) {
-        // A pass this tab kept from before Zaisma changed its keys: get a new one and try once more.
-        if (error.code !== "bad_pass" || isRetry) throw error;
+        // A pass this tab kept from before Zaisma changed its keys: get a new one and try once more. Off Zaisma, only the game can get a new token.
+        if (error.code !== "bad_pass" || isRetry || isOffZaisma) throw error;
         try { sessionStorage.removeItem(passKey); } catch (storageError) { /* fine */ }
         return connect(room.roomCode, joinOptions, true);
       });
@@ -1766,13 +1819,15 @@
 
   /**
    * A request to the game's own game server, its onRequest, outside any room: what it answered
-   * (zaisma.d.ts: Zaisma.server.request). The player's pass goes with it, so the server knows who's asking.
+   * (zaisma.d.ts: Zaisma.server.request). The player's pass goes with it, so the server knows who's asking;
+   * off Zaisma, the playerToken Zaisma.setUpOffZaisma holds.
    */
   function serverRequest(request, requestOptions, isRetry) {
     var refused = unknownOption(requestOptions, REQUEST_OPTIONS, "Zaisma.server.request");
     if (refused) return Promise.reject(refused);
     var serverUrl = requestOptions && requestOptions.serverUrl ? String(requestOptions.serverUrl).replace(/\/+$/, "") : null;
-    if (!serverUrl && !config.rooms) return Promise.reject(notOnZaisma("Player passes come from Zaisma, so Zaisma.server.request works only in games hosted on Zaisma, to Zaisma's servers or to your own (serverUrl)."));
+    var offRefusal = offZaismaRefusal(serverUrl, "Zaisma.server.request");
+    if (offRefusal) return Promise.reject(offRefusal);
     if (serverUrl && !SERVER_URL.test(serverUrl)) return Promise.reject(codedError("bad_server_url", "serverUrl takes a full address starting with https://, http://, wss:// or ws://, like \"https://play.example.com\"."));
     var requestText;
     try {
@@ -1783,13 +1838,17 @@
     if (requestText === undefined) return Promise.reject(codedError("bad_request", "A request is plain JSON: numbers, text, true or false, null, lists and plain objects, like { type: \"buy\", itemId: \"sword\" }."));
     if (new TextEncoder().encode(requestText).length > MAXIMUM_REQUEST_SIZE_BYTES) return Promise.reject(codedError("too_big", "Requests are up to 16 KB as JSON."));
     var base = (serverUrl || config.rooms).replace(/^ws/, "http");
-    return getPass().then(function (mine) {
-      return fetch(base + "/v1/requests/" + config.game, { method: "POST", headers: { "Content-Type": "text/plain" }, body: JSON.stringify({ pass: mine.pass, request: JSON.parse(requestText) }) }).then(answered, requestFailed);
+    var isOffZaisma = !config.rooms;
+    // Off Zaisma there's no pass: the playerToken goes in its place.
+    var sender = isOffZaisma ? Promise.resolve({ playerToken: offZaisma.playerToken }) : getPass().then(function (mine) { return { pass: mine.pass }; });
+    return sender.then(function (who) {
+      who.request = JSON.parse(requestText);
+      return fetch(base + "/v1/requests/" + (isOffZaisma ? offZaisma.gameSlug : config.game), { method: "POST", headers: { "Content-Type": "text/plain" }, body: JSON.stringify(who) }).then(answered, requestFailed);
     }).then(function (answer) {
       return answer.answer;
     }, function (error) {
-      // A pass this tab kept from before Zaisma changed its keys: get a new one and try once more.
-      if (error.code !== "bad_pass" || isRetry) throw error;
+      // A pass this tab kept from before Zaisma changed its keys: get a new one and try once more. Off Zaisma, only the game can get a new token.
+      if (error.code !== "bad_pass" || isRetry || isOffZaisma) throw error;
       try { sessionStorage.removeItem(passKey); } catch (storageError) { /* fine */ }
       return serverRequest(request, requestOptions, true);
     });
@@ -2694,5 +2753,5 @@
   });
 
   var friends = { list: listFriends, setRoom: setOwnRoom, sendRequest: sendFriendRequest };
-  window.Zaisma = { sdkVersionNumber: 1, gameSlug: config.game || null, player: player, joinRoom: joinRoom, rooms: rooms, server: server, invite: invite, checkChat: checkChat, openPlayersPanel: openPlayersPanel, links: links, items: items, friends: friends, saves: saves, versions: versions, page: zaismaPage };
+  window.Zaisma = { sdkVersionNumber: 1, gameSlug: config.game || null, player: player, setUpOffZaisma: setUpOffZaisma, joinRoom: joinRoom, rooms: rooms, server: server, invite: invite, checkChat: checkChat, openPlayersPanel: openPlayersPanel, links: links, items: items, friends: friends, saves: saves, versions: versions, page: zaismaPage };
 })();

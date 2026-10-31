@@ -29,7 +29,7 @@ const drawnShare = SHADER_LIMITS.runtimeResolutionScale === 0.5 ? "half" : `${Ma
 /** The guide's words, the same on the page and in docs/BACKGROUNDS.md. */
 export const BACKGROUND_GUIDE = {
   title: "Backgrounds behind the glass",
-  lead: "Your background is your game's world behind Zaisma's glass, on the home and on your game page: a picture, or a shader that paints it live. Style is yours. These lines keep the glass over it thin and the words on the glass clear, and anyone can check a background against them. The worlds further down are drawn live, and their sources are open to start from.",
+  lead: "Your background is your game's world behind Zaisma's glass, on the home and on your game page: a picture, or a shader that paints it live. Style is yours. These lines keep the glass over it thin and the words on the glass clear, and anyone can check a background against them. The backgrounds further down are drawn live, and their sources are open to start from.",
   linesHeading: "The lines",
   linesIntro: "What keeps a background clear under the glass, each with why. The first three are for pictures and shaders alike; the rest are for shaders.",
   lines: [
@@ -42,7 +42,7 @@ export const BACKGROUND_GUIDE = {
     { rule: "Make every moment a finished picture.", reason: `The check keeps a still at ${SHADER_LIMITS.stillTimeSec} seconds and frames through the first ${SHADER_LIMITS.sampledFramesOverSec}, Zaisma picks the glass from that still, and the still is what shows under reduced motion. Nothing should fade in from black or build up first.` },
     { rule: "Stay within the check's time.", reason: `The check draws ${SHADER_LIMITS.checkFrameCount} frames at ${SHADER_LIMITS.checkWidthPx} by ${SHADER_LIMITS.checkHeightPx} on a software renderer and takes their median, scaled so Zaisma's own background takes ${SHADER_LIMITS.referenceFrameMs} ms. Yours can take up to ${SHADER_LIMITS.qualityLevels[0]!.maximumCheckFrameMs} ms on phones (\`shader_too_slow\` past it); one that reads \`iQuality\` is timed at each level, up to ${SHADER_LIMITS.qualityLevels[2]!.maximumCheckFrameMs} ms at level 2 for desktops, and \`quality_checks\` says what each took. \`check_shader\` runs the same check before you send it. Layers of noise and long loops cost the most.` },
   ] satisfies BackgroundGuideLine[],
-  worldsHeading: "Worlds to start from",
+  worldsHeading: "Backgrounds to start from",
   worldsIntro: "The stand-in games' backgrounds, drawn live as a game's own would be. Each source is the whole shader, with the helpers it calls written in, as a game sends it. They're under the MIT license: copy one, hand it to your AI and make it yours.",
   worldsSource: "The same shaders are in Zaisma's source: `STAND_IN_BACKGROUNDS` in `apps/site/src/components/shaders.ts`, with the helpers they call in `SHADER_HELPERS`.",
   whatHappensHeading: "What happens",
@@ -111,7 +111,7 @@ export function backgroundGuideBody(): Raw {
       items: [
         {
           kind: "block",
-          markup: grid({ whenEmpty: emptyState({ title: "No stand-in worlds", text: "The stand-in worlds are on their way back." }),
+          markup: grid({ whenEmpty: emptyState({ title: "No stand-in backgrounds", text: "The stand-in backgrounds are on their way back." }),
             itemSize: "card",
             items: STAND_IN_BACKGROUNDS.map((background) => ({
               kind: "block" as const,

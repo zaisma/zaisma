@@ -1,5 +1,5 @@
 import type { Server } from "node:http";
-import type { GameDatabase, GameServer, PublicKey } from "../src/index.ts";
+import type { GameDatabase, GameServer, IdentifyPlayer, PublicKey } from "../src/index.ts";
 
 /** What startServer takes. Only gameServer and gameSlug are required; the rest have the defaults named here. */
 export interface StartServerOptions {
@@ -41,6 +41,15 @@ export interface StartServerOptions {
   certificatePath?: string;
   /** The fast lane's certificate key, a PEM file (Let's Encrypt's privkey.pem). */
   certificateKeyPath?: string;
+  /**
+   * Who a player from outside Zaisma is: a game played off its Zaisma page sends a playerToken in place of a pass
+   * (Zaisma.setUpOffZaisma), and this answers { id, name } for it, or null to refuse (bad_player_token). They join
+   * with kind "outside_zaisma". signInWithZaismaPlayers({ signInAppIds }) makes one for Sign in with Zaisma; your
+   * own checks your game's own accounts. One that throws answers busy. None by default: only Zaisma passes.
+   */
+  identifyPlayer?: IdentifyPlayer;
+  /** Let players from outside Zaisma with no token (playerToken: null) in as guests (guestPlayer): false by default. */
+  outsideGuestsEnabled?: boolean;
 }
 
 export interface RunningServer {

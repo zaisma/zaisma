@@ -1,6 +1,7 @@
-import { ACCOUNT_REQUIREMENTS, ApiError, accountById, CONTENT_RULES, CONTROLS, DEVICES, GENRE_LABELS, GENRES, LINK_LIMITS, MAXIMUM_GENRE_COUNT, MINIMUM_PLAYER_AGES, OWN_SERVER_LIMITS, PLAYER_REPORT_REASONS, PLAY_STYLES, ROOM_BROWSING, SCREENS, type Account, type AccountRequirement, type ContentRule, type MinimumPlayerAge, type PlayerReportReason, type PlayMode, type RoomBrowsing } from "@zaisma/core";
+import { ACCOUNT_REQUIREMENTS, ApiError, accountById, CONTENT_RULES, REVIEW_CODES, type ReviewCodeName, CONTROLS, DEVICES, GENRE_LABELS, GENRES, LINK_LIMITS, MAXIMUM_GENRE_COUNT, MINIMUM_PLAYER_AGES, OWN_SERVER_LIMITS, PLAYER_REPORT_REASONS, PLAY_STYLES, ROOM_BROWSING, SCREENS, type Account, type AccountRequirement, type ContentRule, type MinimumPlayerAge, type PlayerReportReason, type PlayMode, type RoomBrowsing } from "@zaisma/core";
 import { currentSession, downloadStartedCookie, realEmail } from "./auth.ts";
-import { apiCall, apiResponse, callerFor, GAME_ALERT_KINDS, type Caller, type GameAlertKind } from "./developer.ts";
+import { APPEAL_EMAIL } from "./bans.ts";
+import { accountBanned, apiCall, apiResponse, callerFor, GAME_ALERT_KINDS, type Caller, type GameAlertKind } from "./developer.ts";
 import { gameUrl, type Env } from "./env.ts";
 import { html, layout, metalButton, raw, scriptTags, type Raw } from "./html.ts";
 import { shownColor } from "./markup.ts";
@@ -11,7 +12,8 @@ import { pageStyle } from "./page-styles.ts";
 import { SHADER_HELPERS, ZAISMA_SHADER } from "./components/shaders.ts";
 import { usageTrack } from "./components/data.ts";
 import { hostingMeter } from "./hosting-meter.ts";
-import { EDGE } from "./components/foundations.ts";
+import { EDGE, icon } from "./components/foundations.ts";
+import { outsideLinksWaitWords } from "./standing.ts";
 
 /**
  * The developer dashboard: your games, and a manager for each one. Every read and every change is a
@@ -25,6 +27,7 @@ interface ReviewReasonJson {
   message: string;
   content_rule: ContentRule | null;
   fix: string;
+  message_for_people: string;
 }
 interface GameJson {
   slug: string;
@@ -54,12 +57,17 @@ interface GameJson {
   glass_tint_color: string | null;
   updated_at: string;
 }
+/** GET /access, as far as the dashboard reads it (apps/site/src/schemas.ts, STANDING). */
+interface AccessJson {
+  banned_at: string | null;
+  standing: { outside_links_enabled: boolean; returning_player_count: number; account_age_days: number; ruling_wait_ends_at: string | null };
+}
 /** A registered link, as the API answers it (apps/site/src/schemas.ts, LINK). */
 interface LinkJson {
   link_name: string;
   destination_url: string;
   is_on_game_page: boolean;
-  who_can_open: "everyone" | "signed_in_adults" | "nobody";
+  who_can_open: "everyone" | "signed_in_adults" | "waiting_for_standing" | "nobody";
   review_reason: ReviewReasonJson | null;
 }
 /** What needs attention in a game, as list_games and get_game answer it (apps/site/src/developer.ts, gameAlerts). */
@@ -67,6 +75,7 @@ interface GameAlertJson {
   kind: string;
   message: string;
   fix: string;
+  message_for_people: string;
   version_id: string | null;
 }
 interface ImageJson {
@@ -198,6 +207,11 @@ export async function handleDashboard(request: Request, env: Env, path: string):
   // The header shows the account; the games page also shows security alerts no email told them about, and asks for an email once there's something to lose.
   const account = await accountById(env.DB, caller.accountId);
   const isAskingForEmail = async () => (account ? isEmailAskDue(env, account, realEmail(session.email)) : false);
+  // A banned developer keeps the games page, to export their games, and nothing else (bans.ts).
+  if (caller.banScope) {
+    if (path === "/dashboard" && !post) return done(await bannedGamesPage(env, call, account, accountBanned(caller).messageForPeople));
+    if (post || !/^\/dashboard\/[a-z0-9-]+\/export\.zip$/.test(path)) return done(redirect("/dashboard"));
+  }
   if (path === "/dashboard" && !post) return done(await gamesPage(env, call, account, url.searchParams.get("error") ?? undefined, "", await isAskingForEmail()));
   // Feedback moved into the developer forum.
   if (path === "/dashboard/feedback") return done(redirect("/forum?tab=yours"));
@@ -209,7 +223,7 @@ export async function handleDashboard(request: Request, env: Env, path: string):
       const { game } = (await call("POST", "/games", { title: String(form.get("title") ?? "") })) as { game: GameJson };
       return done(redirect(`/dashboard/${game.slug}?done=made`));
     } catch (error) {
-      if (error instanceof ApiError) return done(await gamesPage(env, call, account, error.messageWithFix, String(form.get("title") ?? ""), await isAskingForEmail()));
+      if (error instanceof ApiError) return done(await gamesPage(env, call, account, error.messageForPeople, String(form.get("title") ?? ""), await isAskingForEmail()));
       throw error;
     }
   }
@@ -228,7 +242,7 @@ export async function handleDashboard(request: Request, env: Env, path: string):
       exported.headers.append("Set-Cookie", downloadStartedCookie(env));
       return done(exported);
     } catch (error) {
-      if (error instanceof ApiError) return done(await managerPage(env, call, account, slug, "details", { error: error.messageWithFix }, error.httpStatus));
+      if (error instanceof ApiError) return done(await managerPage(env, call, account, slug, "details", { error: error.messageForPeople }, error.httpStatus));
       throw error;
     }
   }
@@ -358,7 +372,7 @@ export async function handleDashboard(request: Request, env: Env, path: string):
       return back(sectionOfAction, what === "publish" ? "published" : `${what}d`);
     }
   } catch (error) {
-    if (error instanceof ApiError) return done(await managerPage(env, call, account, slug, sectionOfAction, { error: error.messageWithFix }, error.httpStatus));
+    if (error instanceof ApiError) return done(await managerPage(env, call, account, slug, sectionOfAction, { error: error.messageForPeople }, error.httpStatus));
     throw error;
   }
   return done(redirect(`/dashboard/${slug}`));
@@ -452,7 +466,7 @@ ${games.length
 <a class="pic" href="/dashboard/${game.slug}" tabindex="-1" aria-hidden="true">${cover ? html`<img src="${cover.image_url}" alt="" loading="lazy">` : ""}</a>
 <div class="body"><a class="name" href="/dashboard/${game.slug}"><span>${game.title}</span><small>${VISIBILITY[game.visibility].label} · ${REVIEW[game.review_status]}${live ? "" : " · no live version"}</small></a>
 ${waitingDraftCount ? html`<span class="badge">${waitingDraftCount === 1 ? "Draft ready" : `${waitingDraftCount} drafts ready`}</span>` : ""}</div>
-${game.alerts.length ? html`<ul class="alerts" aria-label="Needs attention">${game.alerts.map((alert) => html`<li class="${alert.kind === "game_removed" || alert.kind === "game_held" || alert.kind === "version_rejected" ? "urgent" : ""}">${alert.message}</li>`)}</ul>` : ""}
+${game.alerts.length ? html`<ul class="alerts" aria-label="Needs attention">${game.alerts.map((alert) => html`<li class="${alert.kind === "game_removed" || alert.kind === "game_held" || alert.kind === "version_rejected" ? "urgent" : ""}">${alert.message_for_people}</li>`)}</ul>` : ""}
 </div></div>`;
         })}</div>`
       : canPublish
@@ -467,6 +481,23 @@ ${canPublish
 <pre>npx @zaisma/cli upload ./build --game your-game</pre></div>
 </div>
 <p class="muted">Both need an API key: <a href="/dashboard/settings#keys">make one on Developer settings</a> and set it as ZAISMA_KEY.</p>`
+      : ""}`,
+    200,
+    account,
+  );
+}
+
+/** Your games for a banned developer: why, and each game's Export everything, since their work stays theirs. */
+async function bannedGamesPage(env: Env, call: Call, account: Account | null, bannedText: string): Promise<Response> {
+  const { games } = (await call("GET", "/games")) as { games: GameJson[] };
+  return page(
+    env,
+    "Your games",
+    html`<div class="dash-head"><h1>Your games</h1></div>
+<div class="first note"><p><strong>${bannedText}</strong> Export your games to keep them: each export holds the game's files, details, database and players' saves.</p>
+<p>Think this is a mistake? Write to <a href="mailto:${APPEAL_EMAIL}?subject=${encodeURIComponent(`Appeal: ${account?.username ?? ""}`)}">${APPEAL_EMAIL}</a> with your username. A person reads every appeal and answers.</p></div>
+${games.length
+      ? html`<ul class="exports">${games.map((game) => html`<li><span>${game.title}</span> <a class="btn" href="/dashboard/${game.slug}/export.zip" data-download>Export everything</a></li>`)}</ul>`
       : ""}`,
     200,
     account,
@@ -549,7 +580,8 @@ async function managerPage(
   } else if (section === "versions") {
     body = versionsSection(slug, loaded);
   } else if (section === "details") {
-    body = detailsSection(slug, loaded, (await call("GET", `/games/${slug}/qr-code`)) as unknown as QrCodeJson, gameUrl(env, slug));
+    const [qrCode, access] = await Promise.all([call("GET", `/games/${slug}/qr-code`), call("GET", "/access")]);
+    body = detailsSection(slug, loaded, qrCode as unknown as QrCodeJson, gameUrl(env, slug), access as unknown as AccessJson);
   } else if (section === "players") {
     const [reports, stats] = await Promise.all([call("GET", `/games/${slug}/reports`), call("GET", `/games/${slug}/stats?period_duration_days=30`)]);
     body = playersSection(game, reports as unknown as Reports, stats as unknown as Stats);
@@ -559,7 +591,7 @@ async function managerPage(
       database = (await call("GET", `/games/${slug}/database`)) as unknown as DatabaseJson;
     } catch (error) {
       if (!(error instanceof ApiError)) throw error;
-      database = error.messageWithFix;
+      database = error.messageForPeople;
     }
     body = databaseSection(slug, database);
   }
@@ -623,7 +655,7 @@ function alertsPanel(slug: string, alerts: GameAlertJson[], shownVersionId: stri
   if (!shown.length) return "";
   return html`<ul class="game-alerts" aria-label="Needs attention">${shown.map((alert) => {
     const place = ALERT_PLACES[alert.kind as GameAlertKind];
-    return html`<li class="note">${alert.version_id ? html`<strong>${alert.version_id.slice(0, 16)}</strong> ` : ""}${alert.message}${place ? html` <a href="${sectionPath(slug, place.section)}${place.hash}">${place.label}</a>` : ""}</li>`;
+    return html`<li class="note">${alert.version_id ? html`<strong>${alert.version_id.slice(0, 16)}</strong> ` : ""}${alert.message_for_people}${place ? html` <a href="${sectionPath(slug, place.section)}${place.hash}">${place.label}</a>` : ""}</li>`;
   })}</ul>`;
 }
 
@@ -677,10 +709,10 @@ ${testersPanel(slug, game, testers, versions)}`;
 }
 
 /** What players see about the game, and how it plays on Zaisma; its cover and screenshots beside. */
-function detailsSection(slug: string, { game, images, backgrounds, shaders }: Loaded, qrCode: QrCodeJson, gameAddress: string): Raw {
+function detailsSection(slug: string, { game, images, backgrounds, shaders }: Loaded, qrCode: QrCodeJson, gameAddress: string, access: AccessJson): Raw {
   return html`<div class="details-layout">
 <section><h2 class="rule-h" id="details">Details</h2>${detailsForm(slug, game)}
-<h2 class="rule-h" id="links">Links</h2>${linksForm(slug, game)}
+<h2 class="rule-h" id="links">Links</h2>${linksForm(slug, game, access)}
 <h2 class="rule-h" id="own-servers">Your own servers</h2>${ownServersForm(slug, game)}
 <h2 class="rule-h" id="export">Export</h2>${exportPanel(slug)}</section>
 <aside><h2 class="rule-h" id="images">Cover and screenshots</h2>${imagesPanel(slug, images.filter((image) => !BACKGROUND_KINDS.includes(image.kind)))}
@@ -873,7 +905,6 @@ ${version.scheduled_publish_at ? "" : html`<details class="later"><summary>Publi
   const isReplaced = version.scan_status === "held" && version.replaced_by_version_id !== null;
   const isHeldBack = (version.scan_status === "held" || version.scan_status === "rejected") && !isReplaced;
   const findings = isHeldBack ? version.findings : [];
-  const fixes = [...new Set(findings.map((finding) => finding.fix))];
   return html`<li class="${version.is_live ? "live edge" : ""}">
 <div class="version-head"><strong>${version.is_live ? html`<span class="badge">Live</span> ` : ""}${version.id.slice(0, 16)}</strong><span class="muted">${when(version.created_at)} · ${version.file_count} files, ${sizeText(version.size_bytes)}</span>${version.is_live ? "" : html`<span class="pill ${version.scan_status}">${version.scan_status === "approved" ? (version.published_at ? "Was live" : "Ready") : version.scan_status[0]!.toUpperCase() + version.scan_status.slice(1)}</span>`}</div>
 ${version.patch_notes ? html`<p class="version-notes">${version.patch_notes}</p>` : ""}
@@ -881,8 +912,8 @@ ${isReplaced ? html`<p class="muted">Replaced by a newer version</p>` : ""}
 ${isHeldBack && version.review_reason ? reasonPanel(slug, version.review_reason) : ""}
 ${findings.length
       ? html`<div class="reason"><ul class="findings">${findings.map(
-          (finding) => html`<li>${finding.message}${finding.path ? html` <span class="muted">(${finding.path})</span>` : ""}<br><span class="muted">${finding.content_rule ? html`${ruleLink(finding.content_rule)} · ` : ""}<code>${finding.code}</code></span></li>`,
-        )}</ul>${fixes.map((fix) => html`<p class="fix">${fixForPeople(slug, fix)}</p>`)}</div>`
+          (finding) => html`<li>${hasOwnMessage(finding.code) ? html`<span data-words="theirs">${finding.message}</span> ` : ""}${finding.message_for_people}${finding.path ? html` <span class="muted" data-words="theirs">(${finding.path})</span>` : ""}${findingPlaceLink(slug, finding.code)}<br><span class="muted">${finding.content_rule ? html`${ruleLink(finding.content_rule)} · ` : ""}<code>${finding.code}</code></span></li>`,
+        )}</ul></div>`
       : ""}
 ${version.scan_status === "approved" ? performanceLine(version.performance_check) : ""}
 ${scheduled}${acts}
@@ -902,7 +933,7 @@ function performanceLine(check: PerformanceCheckJson | null): Raw | string {
   ].filter(Boolean);
   return html`<div class="started"><p>Started in Chrome: ${numbers.join(" · ")}</p>${check.notes.length
     ? html`<details class="later"><summary>${check.notes.length} ${check.notes.length === 1 ? "note" : "notes"}</summary><ul class="started-notes">${check.notes.map(
-        (note) => html`<li>${note.message}${note.path ? html` <span class="muted">(${note.path})</span>` : ""}<br><span class="fix">${note.fix}</span> <span class="muted"><code>${note.code}</code></span></li>`,
+        (note) => html`<li>${note.message}${note.path ? html` <span class="muted" data-words="theirs">(${note.path})</span>` : ""}<br><span class="fix">${note.fix}</span> <span class="muted"><code>${note.code}</code></span></li>`,
       )}</ul></details>`
     : ""}</div>`;
 }
@@ -941,6 +972,7 @@ ${minimumPlayerAgeFields(game)}
 const LINK_AUDIENCE_WORDS: Record<LinkJson["who_can_open"], string> = {
   everyone: "Opens for everyone.",
   signed_in_adults: "Opens for signed-in adults. Guests and players under 18 see \"This link can't be opened here.\"",
+  waiting_for_standing: "Opens once your account is established.",
   nobody: "Opens for nobody.",
 };
 
@@ -948,7 +980,12 @@ const LINK_AUDIENCE_WORDS: Record<LinkJson["who_can_open"], string> = {
  * The sites the game opens with Zaisma.links.open, one row each and two empty ones to add more; a row
  * cleared is a link removed. Each says who it opens for, and why it opens for nobody.
  */
-function linksForm(slug: string, game: GameJson): Raw {
+function linksForm(slug: string, game: GameJson, access: AccessJson): Raw {
+  // What opens links to other sites, and how far along the account is, at the field (packages/core/src/standing.ts).
+  const { standing } = access;
+  const rulingWaitEndsAtMs = standing.ruling_wait_ends_at ? Date.parse(standing.ruling_wait_ends_at) : null;
+  const waitWords = outsideLinksWaitWords({ outsideLinksEnabled: standing.outside_links_enabled, isBanned: access.banned_at !== null, rulingWaitEndsAtMs, returningPlayerCount: standing.returning_player_count, accountAgeDays: standing.account_age_days });
+  const isCardHelpful = access.banned_at === null && rulingWaitEndsAtMs === null;
   const rowCount = Math.min(LINK_LIMITS.maximumLinkCount, game.links.length + 2);
   const row = (i: number) => {
     const link = game.links[i];
@@ -961,6 +998,7 @@ ${link ? html`<p class="hint">${LINK_AUDIENCE_WORDS[link.who_can_open]}</p>${lin
   };
   return html`<form class="stack" method="post" action="/dashboard/${slug}/links">
 <p class="hint">The sites your game opens, like your store, Patreon, Steam page or Discord: <code>Zaisma.links.open("store")</code>, from a tap or key press in the game. Players see "You're leaving Zaisma" with the address, and choose Open or Stay. Guests and players under 18 open only links on well-known store, payment and video sites, never chat apps. Up to ${LINK_LIMITS.maximumLinkCount}; clear a row to remove its link.</p>
+${waitWords ? html`<p class="hint standing-wait">${icon("lock")} ${waitWords}${isCardHelpful ? html` <a href="/dashboard/settings#add-credit">Add credit</a> or <a href="/dashboard/settings#payments-connect">connect Stripe</a> to open them now.` : ""}</p>` : ""}
 ${Array.from({ length: rowCount }, (_, i) => row(i))}
 <button class="btn" type="submit">Save links</button>
 </form>`;
@@ -1073,33 +1111,38 @@ const BACKGROUND_KINDS: ImageJson["kind"][] = ["background", "phone_background",
  * about, what to do, and the code to look it up by (the forum finds others who had it).
  */
 function reasonPanel(slug: string, reason: ReviewReasonJson, lead?: string): Raw {
+  const isTheirs = hasOwnMessage(reason.code);
   return html`<div class="reason">
-<p>${lead ? html`<strong>${lead}</strong> ` : ""}${reason.message}</p>
+${lead || isTheirs ? html`<p>${lead ? html`<strong>${lead}</strong> ` : ""}${isTheirs ? html`<span data-words="theirs">${reason.message}</span>` : ""}</p>` : ""}
 ${reason.content_rule ? html`<p class="muted">${ruleLink(reason.content_rule)}</p>` : ""}
-<p class="fix">${fixForPeople(slug, reason.fix)}</p>
+<p class="fix">${reason.message_for_people}${findingPlaceLink(slug, reason.code)}</p>
 <p class="muted"><a href="/forum?search_text=${encodeURIComponent(reason.code)}"><code>${reason.code}</code></a></p>
 </div>`;
 }
 
-/**
- * A fix as people read it here: the calls it names for an AI (message_zaisma, add_image, update_game)
- * become this page's own links, with the same meaning.
- */
-function fixForPeople(slug: string, fix: string): Raw {
-  const message = `/forum/messages/new?${new URLSearchParams({ kind: "question", game_slug: slug })}`;
-  const parts = fix.split(/(message_zaisma(?: with the (?:game_slug|version_id))?|add_image|add_shader|update_game)/);
-  return html`${parts.map((part, i) =>
-    i % 2 === 0
-      ? part
-      : part.startsWith("message_zaisma")
-        ? html`<a href="${message}">message Zaisma</a>`
-        : part === "add_image"
-          ? html`<a href="/dashboard/${slug}/details#images">Add image</a>`
-          : part === "add_shader"
-            ? html`<a href="/dashboard/${slug}/details#background">Background</a>`
-            : html`<a href="/dashboard/${slug}/details">the details here</a>`,
-  )}`;
+type FindingPlace = "images" | "background" | "details" | "message";
+/** Where on the dashboard a review code's people's text sends the developer, by the words it names: one link beside it. */
+const FINDING_PLACES: Partial<Record<ReviewCodeName, FindingPlace>> = {
+  image_rejected: "images", extra_text_on_cover: "images", overlay_on_cover: "images", famous_name: "images", cover_not_from_game: "images", fake_reward: "images", screenshot_not_from_game: "images",
+  text_on_background: "background", overlay_on_background: "background", famous_name_on_background: "background", shader_does_not_compile: "background", shader_too_slow: "background", shader_flashes: "background",
+  unregistered_link: "details", unlisted_address: "details", ai_lifelike_gore: "details", link_flagged: "details", details_rejected: "details", tag_in_title: "details",
+  matches_another_developers_game: "message", matches_banned_account_files: "message", antivirus_flag: "message", ai_malware: "message", ai_phishing_or_scam: "message", ai_data_collection: "message", ai_sexual_content: "message",
+  ai_private_details_or_threats: "message", ai_protection_dodged: "message", ai_real_money_gambling: "message", ai_paid_random_rewards: "message", ai_coin_price_without_real_price: "message",
+  ai_free_text_chat: "message", ai_disallowed_crypto: "message", ai_other: "message", ai_concern: "message", rejected_by_zaisma: "message", taken_down: "message",
+};
+const FINDING_PLACE_LINKS: Record<FindingPlace, { words: string; path: (slug: string) => string }> = {
+  images: { words: "Add image", path: (slug) => `/dashboard/${slug}/details#images` },
+  background: { words: "Background", path: (slug) => `/dashboard/${slug}/details#background` },
+  details: { words: "Details", path: (slug) => `/dashboard/${slug}/details` },
+  message: { words: "Message Zaisma", path: (slug) => `/forum/messages/new?${new URLSearchParams({ kind: "question", game_slug: slug })}` },
+};
+/** The link to where a finding is dealt with, or nothing for one with no place here. */
+function findingPlaceLink(slug: string, code: string): Raw | "" {
+  const place = FINDING_PLACES[code as ReviewCodeName];
+  return place ? html` <a href="${FINDING_PLACE_LINKS[place].path(slug)}">${FINDING_PLACE_LINKS[place].words}</a>` : "";
 }
+/** The case's own words (a person's or the AI review's), shown beside the people's text for the codes that have them. */
+const hasOwnMessage = (code: string) => Boolean((REVIEW_CODES as Record<string, { hasOwnMessage?: true }>)[code]?.hasOwnMessage);
 
 /** A content rule, linked to where the rules page says it. */
 const ruleLink = (rule: ContentRule) => html`The rule: <a href="/legal/content-rules#${rule}" target="_blank" rel="noopener">${CONTENT_RULES[rule]}</a>`;
@@ -1449,6 +1492,7 @@ const STYLES = `
 .link-row label.grow{flex:1;min-width:220px}
 .link-row label.check{display:flex}
 .link-row .hint{margin:0}
+.standing-wait .ico{width:1.1em;height:1.1em;vertical-align:-.18em;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
 .later summary{min-height:44px;display:inline-flex;align-items:center;font-size:15px}
 .later[open]{flex-basis:100%}
 .qr-panel{display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap}
@@ -1656,7 +1700,7 @@ const manifest={image:{source:await image.file.text(),channels:channelsOf("image
 for(const name of bufferNames)manifest.buffers.push({buffer_name:name.slice(-1),source:await byPath[name+".glsl"].file.text(),channels:channelsOf(name)});
 return {manifest,textures:textures.filter(item=>used.has(item)),imageIds:null}}
 const api=async(method,path,body,isRaw)=>{const response=await fetch("/api/dev"+path,{method,headers:isRaw?{}:{"content-type":"application/json"},body:isRaw?body:body&&JSON.stringify(body)});
-const answer=await response.json().catch(()=>({}));if(!response.ok)throw new Error(answer.error?answer.error.message+" "+answer.error.fix:"Zaisma didn't answer ("+response.status+").");return answer};
+const answer=await response.json().catch(()=>({}));if(!response.ok)throw new Error(answer.error?answer.error.message_for_people:"Zaisma didn't answer ("+response.status+").");return answer};
 const hashOf=async bytes=>[...new Uint8Array(await crypto.subtle.digest("SHA-256",bytes))].map(byte=>byte.toString(16).padStart(2,"0")).join("");
 // The folder's textures as the game's pictures: one it has already is used again, so sending a folder twice doesn't fill its 16.
 async function textureIds(box,folder,tell){if(folder.imageIds)return folder.imageIds;const slug=box.dataset.slug,ids={};
@@ -1738,7 +1782,7 @@ const JUNK=new Set([".DS_Store","Thumbs.db","desktop.ini","__MACOSX",".git","nod
 const say=t=>{status.textContent=t};
 const api=async(method,path,body,raw)=>{for(let i=0;;i++){const r=await fetch("/api/dev"+path,{method,headers:raw?{}:{"content-type":"application/json"},body:raw?body:body&&JSON.stringify(body)});
 if(r.status===429&&i<6){say("Waiting a moment before sending more…");await new Promise(s=>setTimeout(s,10000));continue}
-const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.error?d.error.message+" "+d.error.fix:"The upload failed ("+r.status+").");return d}};
+const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.error?d.error.message_for_people:"The upload failed ("+r.status+").");return d}};
 const hex=b=>[...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,"0")).join("");
 const fromEntry=(entry,path,out)=>new Promise((ok,no)=>{if(JUNK.has(entry.name))return ok();if(entry.isFile)return entry.file(f=>{out.push({file:f,path:path+entry.name});ok()},no);
 const reader=entry.createReader(),all=[];const more=()=>reader.readEntries(async es=>{if(!es.length){for(const e of all)await fromEntry(e,path+entry.name+"/",out);return ok()}all.push(...es);more()},no);more()});

@@ -27,13 +27,13 @@ export const PERFORMANCE_CHECK_LIMITS = {
 
 /** Notes only a run in Chrome gives. */
 const RUN_NOTE_CODES = {
-  error_at_start: { meaning: "The game threw an error while starting.", fix: "Open the preview_url in Chrome with the console open; fix the error, then upload again." },
+  error_at_start: { meaning: "The game threw an error while starting.", fix: "Open the version's preview in Chrome with the console open; fix the error, then upload again." },
   missing_file_at_start: { meaning: "The game asked for a file that isn't in the version while starting.", fix: "Upload it, or stop the game asking for it; paths are case-sensitive." },
   blocked_at_start: {
     meaning: "An address the game loaded or connected to was blocked while starting.",
-    fix: "Games can only load their own files and connect to Zaisma rooms and their own servers: bundle the file into the upload, or add your server with update_game.",
+    fix: "Games can only load their own files and connect to Zaisma rooms and their own servers: bundle the file into the upload, or add your server to the game's own servers.",
   },
-  no_frame_drawn: { meaning: "Nothing was drawn while the run waited, even after a click.", fix: "Open the preview_url and check it starts; if it waits for something only a player does, that's fine." },
+  no_frame_drawn: { meaning: "Nothing was drawn while the run waited, even after a click.", fix: "Open the version's preview and check it starts; if it waits for something only a player does, that's fine." },
   big_download_at_start: {
     meaning: "Players download a lot before the first frame.",
     fix: "Load what the first minutes need, then the rest while they play (levels, music, high-resolution textures); the SDK's guide on loading in pieces shows how.",

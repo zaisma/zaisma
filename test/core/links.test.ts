@@ -43,19 +43,21 @@ describe("a game's list of links", () => {
 });
 
 describe("who a link opens for", () => {
-  it("everyone on a trusted store, payment or video site, signed-in adults anywhere else, nobody when flagged", () => {
+  it("everyone on a trusted store, payment or video site, signed-in adults anywhere else once the developer's standing opens it, nobody when flagged", () => {
     for (const destinationUrl of ["https://kit.itch.io/sky-hopper", "https://www.patreon.com/kit", "https://ko-fi.com/kit", "https://store.steampowered.com/app/1", "https://buy.stripe.com/abc", "https://www.youtube.com/watch?v=1"]) {
-      expect(linkAudience(link(destinationUrl)), destinationUrl).toBe("everyone");
+      expect(linkAudience(link(destinationUrl), false), destinationUrl).toBe("everyone");
     }
     for (const destinationUrl of ["https://discord.gg/skyhopper", "https://t.me/skyhopper", "https://www.instagram.com/kit", "https://steamcommunity.com/id/kit", "https://skyhopper.example/", "https://notitch.io/"]) {
-      expect(linkAudience(link(destinationUrl)), destinationUrl).toBe("signed_in_adults");
+      expect(linkAudience(link(destinationUrl), true), destinationUrl).toBe("signed_in_adults");
+      expect(linkAudience(link(destinationUrl), false), destinationUrl).toBe("waiting_for_standing");
     }
     const flagged = link("https://kit.itch.io/", { review_reason: { code: "link_flagged", message: "Listed.", content_rule: "malware" } });
-    expect(linkAudience(flagged)).toBe("nobody");
-    expect(canOpenLink(flagged, true)).toBe(false);
-    expect(canOpenLink(link("https://discord.gg/skyhopper"), true)).toBe(true);
-    expect(canOpenLink(link("https://discord.gg/skyhopper"), false)).toBe(false);
-    expect(canOpenLink(link("https://kit.itch.io/"), false)).toBe(true);
+    expect(linkAudience(flagged, true)).toBe("nobody");
+    expect(canOpenLink(flagged, true, true)).toBe(false);
+    expect(canOpenLink(link("https://discord.gg/skyhopper"), true, true)).toBe(true);
+    expect(canOpenLink(link("https://discord.gg/skyhopper"), true, false)).toBe(false);
+    expect(canOpenLink(link("https://discord.gg/skyhopper"), false, true)).toBe(false);
+    expect(canOpenLink(link("https://kit.itch.io/"), false, false)).toBe(true);
   });
 
   it("never trusts a chat app or a social network with private messages", () => {

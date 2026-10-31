@@ -13,6 +13,8 @@ export interface RoomCallLimits {
   maximumLabelNameCharacterCount: number;
   maximumLabelValueCharacterCount: number;
   maximumLabelCount: number;
+  /** A room message (room.sendToRoom, room.sendToEveryRoom) as JSON: ROOM_MESSAGE_LIMITS has it. */
+  maximumRoomMessageSizeBytes: number;
 }
 
 /** The error a mistake in a room call throws: GameServerError, or the sandbox's copy of it. */
@@ -56,6 +58,12 @@ export interface RoomCallChecks {
   checkMoveTo(toRoomCode: unknown, moveOptions: unknown, playerIdsInRoom: readonly string[]): CheckedMove & { toRoomCode: string };
   checkSetInfo(nameAndLabels: unknown): { name?: string | null; labels?: Record<string, string> };
   checkEnd(message: unknown): string | undefined;
+  /** room.sendToRoom: another room's code (never this room's) and the message as plain JSON within the size, copied. */
+  checkSendToRoom(toRoomCode: unknown, message: unknown, ownRoomCode: string | null, call: string): { toRoomCode: string; message: unknown };
+  /** room.sendToEveryRoom: the message as plain JSON within the size, copied, and which rooms (checkRoomSelection). */
+  checkSendToEveryRoom(message: unknown, roomSelection: unknown, call: string): { message: unknown; labels: Record<string, string> | null };
+  /** Which rooms a call means: those holding every label given (tidied as room.setInfo tidies them), or null for every room. */
+  checkRoomSelection(roomSelection: unknown, call: string): { labels: Record<string, string> | null };
   /** Text with hidden characters dropped, spaces collapsed, cut to the length. */
   tidy(given: unknown, maximumCharacterCount: number): string;
   /** A name and labels within the limits, with hidden characters dropped. Fields left out stay out. */
@@ -238,7 +246,35 @@ function roomCallChecksParts(): RoomCallChecksParts {
       return message.slice(0, limits.maximumKickMessageCharacterCount);
     };
 
-    return { checkBroadcast, checkSend, checkBroadcastBytes, checkSendBytes, checkKick, checkReserve, checkMoveTo, checkSetInfo, checkEnd, tidy, tidyRoomInfo, checkRoomData };
+    const readRoomMessage = (message: unknown, call: string): unknown => {
+      if (message === undefined || message === null) throw mistake(call, `${call} needs a message.`, "Give the message as plain JSON, like { kind: \"blood_moon\" }.");
+      const checked = checkRoomData(message, limits.maximumRoomMessageSizeBytes);
+      if (!checked.isValid) throw mistake(call, `${call}'s message isn't plain JSON up to ${limits.maximumRoomMessageSizeBytes / 1024} KB.`, "Give numbers, text, true or false, lists and plain objects, and keep it small.");
+      return checked.checkedData;
+    };
+
+    const checkRoomSelection = (roomSelection: unknown, call: string): { labels: Record<string, string> | null } => {
+      const given = closed(roomSelection, ["labels"], call);
+      if (given.labels === undefined || given.labels === null) return { labels: null };
+      if (typeof given.labels !== "object" || Array.isArray(given.labels) || Object.keys(given.labels).length > limits.maximumLabelCount) {
+        throw mistake(call, `${call}'s labels must be an object of up to ${limits.maximumLabelCount} labels.`, 'Give the labels the rooms hold, like { Map: "Docks" }, or leave labels out for every room.');
+      }
+      for (const labelValue of Object.values(given.labels)) {
+        if (typeof labelValue !== "string") throw mistake(call, `${call}'s labels must each be text.`, 'Give each label as text, like { Map: "Docks" }.');
+      }
+      const labels = tidyRoomInfo({ labels: given.labels }).labels ?? {};
+      return { labels: Object.keys(labels).length ? labels : null };
+    };
+
+    const checkSendToRoom = (toRoomCode: unknown, message: unknown, ownRoomCode: string | null, call: string): { toRoomCode: string; message: unknown } => {
+      if (typeof toRoomCode !== "string" || !ROOM_CODE.test(toRoomCode)) throw mistake(call, `${call} needs a room code.`, "Give the code of a live room of this game, like one listRooms answered.");
+      if (toRoomCode === ownRoomCode) throw mistake(call, `${call} was given this room's own code.`, "Handle the message here, in this room's own handler; send to other rooms by their codes.");
+      return { toRoomCode, message: readRoomMessage(message, call) };
+    };
+
+    const checkSendToEveryRoom = (message: unknown, roomSelection: unknown, call: string): { message: unknown; labels: Record<string, string> | null } => ({ message: readRoomMessage(message, call), ...checkRoomSelection(roomSelection, call) });
+
+    return { checkBroadcast, checkSend, checkBroadcastBytes, checkSendBytes, checkKick, checkReserve, checkMoveTo, checkSetInfo, checkEnd, checkSendToRoom, checkSendToEveryRoom, checkRoomSelection, tidy, tidyRoomInfo, checkRoomData };
   }
 
   return { checksFor };

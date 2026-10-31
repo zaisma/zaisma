@@ -1,9 +1,10 @@
 import { env, SELF } from "cloudflare:test";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createAccount, createApiKey } from "@zaisma/core";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createAccount, createApiKey, reviewReason } from "@zaisma/core";
 import { BACKUP_LIMITS, backupPart, handleBackupMessage, isRefreshDue, mainDatabaseDump, orderedByReferences, startBackupRun, type BackupPart } from "../../apps/site/src/backups.ts";
 import { BACKUP_STORAGE_LIMITS } from "../../apps/site/src/backup-storage.ts";
 import { handleRestoreMessage, restorePart, runWaitingRestore, splitRange, type RestorePart } from "../../apps/site/src/restore.ts";
+import { recordRestoreEvent, replayRestoreEvent, type RestoreEvent } from "../../apps/site/src/restore-events.ts";
 import type { Env } from "../../apps/site/src/env.ts";
 import { letPublish } from "../helpers.ts";
 
@@ -138,13 +139,14 @@ beforeEach(async () => {
     const request = new Request(input, init);
     return new URL(request.url).hostname === "backups.zaisma.test" ? backblaze(request) : realFetch(request);
   }) as typeof fetch;
-  await env.DB.exec("DELETE FROM backup_runs; DELETE FROM restore_runs; DELETE FROM restore_kind_counts; DELETE FROM room_usage; DELETE FROM kept_rooms;");
+  await env.DB.exec("DELETE FROM backup_runs; DELETE FROM backup_failed_keys; DELETE FROM restore_runs; DELETE FROM restore_kind_counts; DELETE FROM room_usage; DELETE FROM kept_rooms;");
   await clearBucket(env.GAMES);
   await clearBucket(env.SAVES);
 });
 
 afterEach(() => {
   globalThis.fetch = realFetch;
+  vi.useRealTimers();
 });
 
 describe("starting a night's backup", () => {
@@ -154,10 +156,10 @@ describe("starting a night's backup", () => {
     const nowMs = Date.UTC(2026, 9, 22, 3, 17);
     await startBackupRun(testEnv, nowMs);
     await startBackupRun(testEnv, nowMs + 60_000);
-    expect(sent.map((part) => part.part_kind)).toEqual(["main_database", "game_databases", "kept_rooms", "bucket", "bucket"]);
+    expect(sent.map((part) => part.part_kind)).toEqual(["failed_keys", "main_database", "game_databases", "kept_rooms", "bucket", "bucket"]);
     expect(sent.filter((part) => part.part_kind === "bucket").map((part) => (part as { bucket_name: string }).bucket_name)).toEqual(["zaisma-games", "zaisma-saves"]);
     const run = await env.DB.prepare("SELECT * FROM backup_runs").first<any>();
-    expect(run).toMatchObject({ run_date: "2026-10-22", started_at_ms: nowMs, changed_after_ms: 0, queued_part_count: 5, finished_part_count: 0, finished_at_ms: null, failure_message: null });
+    expect(run).toMatchObject({ run_date: "2026-10-22", started_at_ms: nowMs, changed_after_ms: 0, queued_part_count: 6, finished_part_count: 0, finished_at_ms: null, failure_message: null });
   });
 
   it("copies what changed after the last good night, less an hour", async () => {
@@ -209,7 +211,7 @@ describe("a night's parts", () => {
     expect(versions.has("zaisma-games/brotli/blobs/abc123")).toBe(false);
 
     const run = await env.DB.prepare("SELECT * FROM backup_runs").first<any>();
-    expect(run).toMatchObject({ queued_part_count: 5, finished_part_count: 5, copied_object_count: 3, failure_message: null });
+    expect(run).toMatchObject({ queued_part_count: 6, finished_part_count: 6, copied_object_count: 3, failure_message: null });
     expect(run.finished_at_ms).toEqual(expect.any(Number));
     // Nothing reads the bucket but the one check of old versions.
     expect(requests.filter((request) => request.method === "GET")).toHaveLength(1);
@@ -336,6 +338,125 @@ describe("the privacy page", () => {
     expect(page).toContain("For up to 30 days after something is deleted, a copy of it may remain in the backup");
     expect(page).toContain("Their copies in the backup are gone within 30 days.");
   });
+});
+
+describe("a key whose copy keeps failing", () => {
+  const FIRST_NIGHT_MS = Date.UTC(2026, 9, 22, 3, 17);
+  /** Runs a night at its own time, as the cron would. */
+  async function night(testEnv: Env, sent: BackupPart[], nightMs: number): Promise<void> {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(nightMs);
+    await startBackupRun(testEnv, nightMs);
+    await runNight(testEnv, sent);
+  }
+
+  it("still copies every other save, alerts naming it, and tries it again each night until it's copied", async () => {
+    // One save Backblaze refuses (a name it won't take, say), then ten saves after it in key order.
+    await env.SAVES.put("acct-a/game-1/save_1_aa.json", '{"a":1}');
+    failingKeys.add("zaisma-saves/acct-a/game-1/save_1_aa.json");
+    const laterKeys = Array.from({ length: 10 }, (_, index) => `acct-b${index}/game-1/save_1_bb.json`);
+    for (const key of laterKeys) await env.SAVES.put(key, '{"b":1}');
+    const { sent, queue } = recordingQueue();
+    const testEnv = { ...env, BACKUP_QUEUE: queue } as Env;
+    await night(testEnv, sent, FIRST_NIGHT_MS);
+    expect(laterKeys.filter((key) => !versions.has(`zaisma-saves/${key}`))).toEqual([]);
+    const firstRun = await env.DB.prepare("SELECT * FROM backup_runs WHERE run_date = '2026-10-22'").first<any>();
+    expect(firstRun).toMatchObject({ is_key_failures_only: 1, is_failure_told: 1, failure_message: expect.stringContaining("1 key failed to copy: zaisma-saves/acct-a/game-1/save_1_aa.json") });
+    expect(firstRun.finished_at_ms).toEqual(expect.any(Number));
+    expect(await env.DB.prepare("SELECT backup_key, part_kind, bucket_name, failure_count FROM backup_failed_keys").all().then((answer) => answer.results)).toEqual([
+      { backup_key: "zaisma-saves/acct-a/game-1/save_1_aa.json", part_kind: "bucket", bucket_name: "zaisma-saves", failure_count: 1 },
+    ]);
+
+    // The next night moves on from the first (it counts as good), tries the key again and alerts again.
+    await night(testEnv, sent, FIRST_NIGHT_MS + DAY_MS);
+    const secondRun = await env.DB.prepare("SELECT * FROM backup_runs WHERE run_date = '2026-10-23'").first<any>();
+    expect(secondRun).toMatchObject({ changed_after_ms: FIRST_NIGHT_MS - BACKUP_LIMITS.changeMarginMs, is_key_failures_only: 1, is_failure_told: 1 });
+    expect(await env.DB.prepare("SELECT failure_count FROM backup_failed_keys").first("failure_count")).toBeGreaterThanOrEqual(2);
+
+    // Once Backblaze takes it, the failed_keys part copies it and its row goes.
+    failingKeys.clear();
+    await night(testEnv, sent, FIRST_NIGHT_MS + 2 * DAY_MS);
+    expect(versions.has("zaisma-saves/acct-a/game-1/save_1_aa.json")).toBe(true);
+    expect(await env.DB.prepare("SELECT COUNT(*) AS key_count FROM backup_failed_keys").first("key_count")).toBe(0);
+    expect(await env.DB.prepare("SELECT failure_message, is_key_failures_only FROM backup_runs WHERE run_date = '2026-10-24'").first()).toEqual({ failure_message: null, is_key_failures_only: 0 });
+  }, 30_000);
+
+  it("still copies every other game's database when one's dump keeps throwing, and copies it once it works", async () => {
+    await env.DB.prepare("INSERT OR IGNORE INTO games (id, slug, title, review_status, created_at_ms, updated_at_ms) VALUES ('gbroken', 'broken-world', 'Broken World', 'live', 0, 0), ('ggood', 'good-world', 'Good World', 'live', 0, 0)").run();
+    const batch = await env.GAME_DATABASES!.batch("ggood", [{ sql: "CREATE TABLE scores (player_id TEXT, points INTEGER)" }, { sql: "INSERT INTO scores VALUES ('player_1', 42)" }]);
+    expect("queryResult" in batch).toBe(true);
+    await env.DB.prepare("INSERT INTO room_usage (game_id, date, database_written_row_count) VALUES ('gbroken', '2026-10-21', 1), ('ggood', '2026-10-21', 1)").run();
+    let isBroken = true;
+    const gameDatabases = {
+      backupDump: async (gameId: string, cursor: string | null) => (gameId === "gbroken" && isBroken ? { error: { message: "the dump broke" } } : env.GAME_DATABASES!.backupDump(gameId === "gbroken" ? "ggood" : gameId, cursor)),
+    };
+    const { sent, queue } = recordingQueue();
+    const testEnv = { ...env, BACKUP_QUEUE: queue, GAME_DATABASES: gameDatabases } as unknown as Env;
+    await night(testEnv, sent, FIRST_NIGHT_MS);
+    expect(versions.has("game-databases/ggood.sql")).toBe(true);
+    expect(await env.DB.prepare("SELECT backup_key, part_kind, failure_message FROM backup_failed_keys").all().then((answer) => answer.results)).toEqual([
+      { backup_key: "game-databases/gbroken.sql", part_kind: "game_databases", failure_message: "gbroken's database: the dump broke" },
+    ]);
+    isBroken = false;
+    await night(testEnv, sent, FIRST_NIGHT_MS + DAY_MS);
+    expect(text(newest("game-databases/gbroken.sql")!.bytes)).toContain("CREATE TABLE scores");
+    expect(await env.DB.prepare("SELECT COUNT(*) AS key_count FROM backup_failed_keys").first("key_count")).toBe(0);
+  }, 30_000);
+});
+
+describe("takedowns and deletions kept for a restore", () => {
+  const restoreKeys = { RESTORE_KEY_ID: "test-backup-key-id", RESTORE_KEY_SECRET: "test-backup-key-secret" };
+  const NIGHT_MS = Date.UTC(2026, 9, 22, 3, 17);
+
+  it("does again in a restore what was taken down or deleted since its night, so it doesn't come back, and skips what came before", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NIGHT_MS);
+    await env.DB.exec("DELETE FROM saves; DELETE FROM game_deletions;");
+    await addSaveOwners();
+    await env.DB.prepare("INSERT OR IGNORE INTO games (id, slug, title, review_status, created_at_ms, updated_at_ms) VALUES ('game_3', 'still-standing', 'Still Standing', 'live', 0, 0)").run();
+    await env.DB.prepare("UPDATE games SET review_status = 'live' WHERE id IN ('game_1', 'game_2', 'game_3')").run();
+    await env.DB.prepare("INSERT INTO saves (account_id, game_id, version_number, sha256, size_bytes, saved_at_ms, changed_by_kind) VALUES ('account_2', 'game_2', 1, 'sha', 11, 0, 'player')").run();
+    await env.SAVES.put("account_2/game_2.json", '{"level":9}', { customMetadata: { version_number: "1" } });
+    const { sent, queue } = recordingQueue();
+    const testEnv = { ...env, BACKUP_QUEUE: queue } as Env;
+    await startBackupRun(testEnv, NIGHT_MS);
+    await runNight(testEnv, sent);
+
+    // After the night's copy: a takedown, an account deleted and a game queued for deletion, each kept as it's made.
+    // One from two nights before is in the bucket too, and a restore of this night leaves it alone.
+    const reason = reviewReason("taken_down");
+    const events: RestoreEvent[] = [
+      { event_kind: "game_removed", at_ms: NIGHT_MS - 2 * DAY_MS, game_id: "game_3", review_reason: reason },
+      { event_kind: "game_removed", at_ms: NIGHT_MS + 3_600_000, game_id: "game_1", review_reason: reason },
+      { event_kind: "account_deleted", at_ms: NIGHT_MS + 3_700_000, account_id: "account_2" },
+      { event_kind: "game_deletion_queued", at_ms: NIGHT_MS + 3_800_000, game_id: "game_2", requested_by_kind: "zaisma" },
+    ];
+    for (const event of events) await recordRestoreEvent(testEnv, event);
+    expect(sent.map((part) => part.part_kind)).toEqual(["restore_event", "restore_event", "restore_event", "restore_event"]);
+    await runNight(testEnv, sent);
+    expect([...versions.keys()].filter((key) => key.startsWith("restore-events/"))).toHaveLength(4);
+
+    // Zaisma's account is gone: the buckets are empty, and the database is the night's.
+    await clearBucket(env.SAVES);
+    vi.setSystemTime(NIGHT_MS + 2 * DAY_MS);
+    await env.DB.prepare("INSERT INTO restore_runs (id, cutoff_at_ms, requested_at_ms) VALUES ('restore_1', ?, ?)").bind(NIGHT_MS + DAY_MS, Date.now()).run();
+    const restore = restoreQueue();
+    await runRestore({ ...env, BACKUP_QUEUE: restore.queue, ...restoreKeys } as Env, restore.sent);
+
+    expect(await env.DB.prepare("SELECT id, review_status FROM games WHERE id IN ('game_1', 'game_3') ORDER BY id").all().then((answer) => answer.results)).toEqual([
+      { id: "game_1", review_status: "removed" },
+      { id: "game_3", review_status: "live" },
+    ]);
+    expect(await env.DB.prepare("SELECT 1 FROM accounts WHERE id = 'account_2'").first()).toBeNull();
+    expect(await env.SAVES.head("account_2/game_2.json")).toBeNull();
+    expect(await env.DB.prepare("SELECT requested_by_kind FROM game_deletions WHERE game_id = 'game_2'").first("requested_by_kind")).toBe("zaisma");
+    expect(await env.DB.prepare("SELECT replayed_event_count, failure_message FROM restore_runs").first()).toEqual({ replayed_event_count: 3, failure_message: null });
+
+    // Doing them again changes nothing.
+    const before = await env.DB.prepare("SELECT (SELECT COUNT(*) FROM game_deletions) AS deletion_count, (SELECT COUNT(*) FROM accounts) AS account_count, (SELECT review_status FROM games WHERE id = 'game_1') AS review_status").first();
+    for (const event of events.slice(1)) await replayRestoreEvent(env as Env, event);
+    expect(await env.DB.prepare("SELECT (SELECT COUNT(*) FROM game_deletions) AS deletion_count, (SELECT COUNT(*) FROM accounts) AS account_count, (SELECT review_status FROM games WHERE id = 'game_1') AS review_status").first()).toEqual(before);
+  }, 30_000);
 });
 
 /** The accounts and games the restore tests' saves belong to. */

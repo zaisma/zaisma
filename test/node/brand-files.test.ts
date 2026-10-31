@@ -1,9 +1,9 @@
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { temporaryFolder } from "../temporary-folder.ts";
 
 /**
  * The files zaisma.com serves from brand/ (wrangler.jsonc, "assets"), and how long browsers keep them (brand/_headers). The font is
@@ -70,7 +70,7 @@ describe("brand files", () => {
   });
 
   it("are what scripts/brand.mjs makes: its SVGs and manifest, unedited", () => {
-    const out = mkdtempSync(join(tmpdir(), "zaisma-brand-"));
+    const out = temporaryFolder("zaisma-brand-");
     try {
       execFileSync(process.execPath, [join(ROOT, "scripts/brand.mjs"), "--svg-only", "--out", out]);
       const made = readdirSync(out);

@@ -78,6 +78,7 @@ import {
   gameDeletionOf,
   queueGameDeletion,
 } from "@zaisma/core";
+import { noteRulingOnGame } from "./standing.ts";
 import { adminProfileAction, adminProfilesPage, clearProfile } from "./admin-profiles.ts";
 import { sendAlert } from "./email.ts";
 import { adminChatReviewAction, adminChatReviewsPage } from "./admin-chat-reviews.ts";
@@ -95,6 +96,7 @@ import { KNOWN_IMAGE_ALERT, changesSince, passVersion, type ChangesSince } from 
 import { ownerUsername, stopCopy } from "./copies.ts";
 import { uploadGame } from "./upload.ts";
 import { tellWebhooks } from "./webhooks.ts";
+import { recordRestoreEvent } from "./restore-events.ts";
 
 const when = (ms: number) => new Date(ms).toISOString().slice(0, 16).replace("T", " ");
 const pill = (label: string) => html`<span class="pill ${label}">${label}</span>`;
@@ -161,6 +163,17 @@ function countryBlockSection(game: Game): Raw {
   <input name="reason" placeholder="Which law and what it names (required; the developer reads it)" maxlength="500" size="40" required>
   <button class="btn danger" type="submit">Block in that country</button>
 </form>`;
+}
+
+/** Take a game down for breaking a content rule: the developer reads why (never for child safety), its open reports close, and its webhooks hear. */
+export async function takeDownGame(env: Env, gameId: string, contentRule: ContentRule | null, reason: string, actor: string): Promise<void> {
+  const removedReason = decidedReason("taken_down", contentRule, reason);
+  await setReviewStatus(env.DB, gameId, "removed", removedReason);
+  await noteRulingOnGame(env, gameId);
+  await recordRestoreEvent(env, { event_kind: "game_removed", at_ms: Date.now(), game_id: gameId, review_reason: removedReason });
+  await closeReports(env.DB, gameId, "actioned");
+  await audit(env.DB, gameId, "takedown", reason, actor, removedReason);
+  await tellWebhooks(env, "review_status_changed", gameId, {});
 }
 
 /** What the developer was told about a hold, rejection or takedown, for the admin pages. */
@@ -282,6 +295,7 @@ export async function adminForm(env: Env, path: string, form: FormData, actor: s
       const rejectedReason = decidedReason("rejected_by_zaisma", pickedRule(form), reason);
       await saveScan(env.DB, version.id, "rejected", null);
       await env.DB.prepare("UPDATE versions SET review_reason = ? WHERE id = ?").bind(JSON.stringify(rejectedReason), version.id).run();
+      await noteRulingOnGame(env, version.game_id);
       if (version.report_held_at_ms) await closeReports(env.DB, version.game_id, "actioned");
       await audit(env.DB, version.game_id, "rejected", reason ? `${version.id}: ${reason}` : version.id, actor, rejectedReason);
     }
@@ -303,6 +317,7 @@ export async function adminForm(env: Env, path: string, form: FormData, actor: s
     if (!image) return new Response("Not found", { status: 404 });
     const rejectedReason = match[2] === "reject" ? decidedReason("image_rejected", pickedRule(form), reason) : null;
     const replaced = await settleImage(env.DB, image, rejectedReason);
+    if (rejectedReason) await recordRestoreEvent(env, { event_kind: "image_rejected", at_ms: Date.now(), image_id: image.id, review_reason: rejectedReason });
     await Promise.all(replaced.map((replacedImage) => env.GAMES.delete([imageKey(replacedImage), ...imageCopyKeys(replacedImage)])));
     await audit(env.DB, image.game_id, rejectedReason ? "image-rejected" : "image-approved", reason || `${image.kind} ${image.id}`, actor, rejectedReason);
     return redirect(String(form.get("back") ?? "") === "game" ? `/admin/games/${image.game_id}` : "/admin");
@@ -314,6 +329,7 @@ export async function adminForm(env: Env, path: string, form: FormData, actor: s
     if (!shader) return new Response("Not found", { status: 404 });
     const rejectedReason = match[2] === "reject" ? decidedReason("image_rejected", pickedRule(form), reason) : null;
     await settleShader(env.DB, shader, rejectedReason, shader.quality_checks === null ? null : readQualityChecks(shader.quality_checks), shader.flash_count);
+    if (rejectedReason) await recordRestoreEvent(env, { event_kind: "shader_rejected", at_ms: Date.now(), shader_id: shader.id, review_reason: rejectedReason });
     await audit(env.DB, shader.game_id, rejectedReason ? "shader-rejected" : "shader-approved", reason || `${shader.screen} ${shader.id}`, actor, rejectedReason);
     return redirect("/admin");
   }
@@ -415,6 +431,7 @@ export async function adminForm(env: Env, path: string, form: FormData, actor: s
     // Zaisma doesn't judge the notice: the game is held until a fixed version is checked or a counter-notice brings it back.
     const noticeReason = decidedReason(NOTICE_CODES[noticeKind].code, null, `A ${noticeKind === "copyright" ? "copyright (DMCA)" : "defamation"} notice names this: ${reason}`);
     await setReviewStatus(env.DB, game.id, "held", noticeReason);
+    await recordRestoreEvent(env, { event_kind: "game_held", at_ms: Date.now(), game_id: game.id, review_reason: noticeReason });
     await audit(env.DB, game.id, "notice-held", reason, actor, noticeReason);
     await tellWebhooks(env, "review_status_changed", game.id, {});
     return back(`/admin/games/${game.id}`);
@@ -453,6 +470,7 @@ export async function adminForm(env: Env, path: string, form: FormData, actor: s
     if (game.owner_id) return gameDetail(env, game.id, "Only a game with no owner can be deleted here.");
     if (!reason) return gameDetail(env, game.id, "Say why: it goes in the audit log.");
     await queueGameDeletion(env.DB, game.id, "zaisma");
+    await recordRestoreEvent(env, { event_kind: "game_deletion_queued", at_ms: Date.now(), game_id: game.id, requested_by_kind: "zaisma" });
     await audit(env.DB, game.id, "deleted", reason, actor);
     return redirect(`/admin/games/${game.id}`);
   }
@@ -467,11 +485,7 @@ export async function adminForm(env: Env, path: string, form: FormData, actor: s
       const teachProblem = reviewPrecedentProblem(form, "reject");
       if (teachProblem) return gameDetail(env, game.id, teachProblem);
       await saveReviewPrecedent(env, form, "reject", actor);
-      const removedReason = decidedReason("taken_down", contentRule, reason);
-      await setReviewStatus(env.DB, game.id, "removed", removedReason);
-      await closeReports(env.DB, game.id, "actioned");
-      await audit(env.DB, game.id, "takedown", reason, actor, removedReason);
-      await tellWebhooks(env, "review_status_changed", game.id, {});
+      await takeDownGame(env, game.id, contentRule, reason, actor);
     } else if (match[2] === "restore") {
       const current = game.live_version_id ? await versionById(env.DB, game.live_version_id) : null;
       if (current && knownImages(current)) return gameDetail(env, game.id, "Players would get the version that matched known abuse material. Once the developer publishes a clean version, the game can be shown again.");
@@ -524,6 +538,7 @@ export async function adminForm(env: Env, path: string, form: FormData, actor: s
       const stoppedReason = String(form.get("social_stopped_reason") ?? "");
       if (!isForZaisma(stoppedReason) || lead!.reported_social_stopped_at_ms) return back("/admin/reports");
       await stopSocial(env.DB, account.id, stoppedReason);
+      await recordRestoreEvent(env, { event_kind: "social_stopped", at_ms: Date.now(), account_id: account.id, social_stopped_reason: stoppedReason });
       await closeReportGroup(env.DB, match[1]!, "actioned");
       await audit(env.DB, gameId, "social-stopped", `@${account.username}: ${PLAYER_REPORT_REASONS[stoppedReason]}. ${reason}`.trim(), actor);
       // Something sexual toward a teen, confirmed: the law asks for a report, which names someone to the police, so Julius sends it.

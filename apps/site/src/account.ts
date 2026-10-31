@@ -1,6 +1,10 @@
 import {
+  isStrangerChatWaiting,
   ACCESS_AREAS,
   ACCOUNT_AREAS,
+  banScopeOf,
+  isBannedMark,
+  isContentRule,
   ACCESS_LEVELS,
   AREA_ACCESS_CHOICES,
   MAXIMUM_API_KEY_COUNT,
@@ -69,6 +73,8 @@ import {
   type SocialSetting,
   type SocialSettings,
 } from "@zaisma/core";
+import { APPEAL_EMAIL, CONTENT_RULE_WORDS, emailBanned } from "./bans.ts";
+import { accountBanned } from "./developer.ts";
 import {
   PROVIDERS,
   authConfigured,
@@ -132,6 +138,7 @@ import { creditKeptOnDeletionCents, refundForDeletion } from "./credit-api.ts";
 import { forgetCardForDeletion } from "./buy.ts";
 import { disconnect } from "./stripe.ts";
 import { BOT_CHECK_SCRIPT, isRealBrowser, type TurnstileAction } from "./turnstile.ts";
+import { recordRestoreEvent } from "./restore-events.ts";
 
 /**
  * Sign-in, account creation and the account page.
@@ -264,9 +271,16 @@ export async function handleAccount(request: Request, env: Env, path: string, wa
       return withCookies(await signinPage(env, back, why, 400), cookies);
     }
     // The proof is kept only for an account that exists: someone deleted for not answering the age question leaves no row.
-    if (await accountById(env.DB, signedIn.userId)) {
+    const existing = await accountById(env.DB, signedIn.userId);
+    if (existing && banScopeOf(existing) === "whole_account") return withCookies(closedAccountPage(env, existing), cookies);
+    if (existing) {
       if (isProvider(provider)) await recordProof(env, signedIn, provider);
       return withCookies(redirect(back ?? "/"), [...cookies, ...sessionCookies(env, signedIn), await recordSignIn(request, env, signedIn.userId, provider as SignInKind)]);
+    }
+    // A new account can't take an email a ban carries (bans.ts): nothing is kept.
+    if (realEmail(signedIn.email) && (await isBannedMark(env.DB, "email", signedIn.email))) {
+      await deleteAuthUser(env, signedIn.userId);
+      return withCookies(await signinPage(env, back, emailBanned().messageForPeople, 403), cookies);
     }
     // New here, and they answered the age question first: pick a username to finish (the proof is kept once the account is made).
     if (joinBand(request, env)) return withCookies(redirect(`/join/username${nextQuery(back)}`), [...cookies, ...sessionCookies(env, signedIn), ...(isProvider(provider) ? [setCookie(env, "zaisma_via", provider, { maximumAgeSec: JOIN_DURATION_SEC })] : [])]);
@@ -285,7 +299,7 @@ export async function handleAccount(request: Request, env: Env, path: string, wa
     const typed = login.replace(/^@/, "");
     const email = typed.includes("@") ? typed.toLowerCase() : null;
     const userId = email ? await authUserIdByEmail(env, email) : null;
-    if (userId === undefined) return message(env, "Couldn't sign you in", "Something went wrong on our side. Try again in a minute.", 502);
+    if (userId === undefined) return message(env, "Couldn't sign you in", "Something went wrong on Zaisma's side. Try again in a minute.", 502);
     const account = email ? (userId ? await accountById(env.DB, userId) : null) : await accountByUsername(env.DB, typed);
     const signedIn = await tryPassword(request, env, account, password, { turnstileToken: field("turnstile_token", 2048), knownEmail: email });
     if (signedIn === "too-many") return message(env, "Slow down", SLOW_DOWN, 429);
@@ -293,7 +307,12 @@ export async function handleAccount(request: Request, env: Env, path: string, wa
     if (signedIn === "bot-check-failed") return await signinPage(env, next, BOT_CHECK_FAILED, 400, login);
     if (signedIn === "no-password") return await signinPage(env, next, "This account doesn't have a password yet. Use Forgot your password to get in with your email, then add one.", 400, login);
     if (signedIn === "wrong") return await signinPage(env, next, "That username and password don't match. Check them and try again.", 400, login);
-    if (signedIn === "failed") return message(env, "Couldn't sign you in", "Something went wrong on our side. Try again in a minute.", 502);
+    if (signedIn === "failed") return message(env, "Couldn't sign you in", "Something went wrong on Zaisma's side. Try again in a minute.", 502);
+    // A closed account hears why once the password is right, and gets no session.
+    if (account && banScopeOf(account) === "whole_account") {
+      await signOutEverywhere(env, signedIn.access, connectionAddress);
+      return closedAccountPage(env, account);
+    }
     await recordProof(env, signedIn, "password");
     return withCookies(redirect(next ?? "/"), [...sessionCookies(env, signedIn), await recordSignIn(request, env, signedIn.userId, "password")]);
   }
@@ -309,7 +328,7 @@ export async function handleAccount(request: Request, env: Env, path: string, wa
     const account = userId ? await accountById(env.DB, userId) : null;
     const sent = userId === undefined ? "failed" : await sendEmailCode(env, { email, accountId: account?.id ?? null, kind: "sign_in", reason: "sign_in" });
     if (sent === "too-many") return message(env, "Slow down", "We've sent a lot of codes to that address. Wait a few minutes and try again.", 429);
-    if (sent === "failed") return message(env, "Couldn't send the code", "Something went wrong on our side. Try again in a minute.", 502);
+    if (sent === "failed") return message(env, "Couldn't send the code", "Something went wrong on Zaisma's side. Try again in a minute.", 502);
     return await codePage(env, email, next);
   }
 
@@ -322,8 +341,10 @@ export async function handleAccount(request: Request, env: Env, path: string, wa
     // The code opens the account only while that address is still its own: one sent before the address changed or came off opens nothing.
     const accountId = codeAccountId && (await authUserIdByEmail(env, email)) === codeAccountId ? codeAccountId : null;
     if (!accountId) return await codePage(env, email, next, CODE_DIDNT_WORK, kind);
+    const codeAccount = await accountById(env.DB, accountId);
+    if (codeAccount && banScopeOf(codeAccount) === "whole_account") return closedAccountPage(env, codeAccount);
     const signedIn = await sessionForUser(env, accountId, connectionAddress);
-    if (!signedIn) return message(env, "Couldn't sign you in", "Something went wrong on our side. Get a new code in a minute and try again.", 502);
+    if (!signedIn) return message(env, "Couldn't sign you in", "Something went wrong on Zaisma's side. Get a new code in a minute and try again.", 502);
     await recordProof(env, signedIn, "email_code");
     return withCookies(redirect(next ?? "/"), [...sessionCookies(env, signedIn), await recordSignIn(request, env, accountId, "email_code")]);
   }
@@ -404,7 +425,7 @@ export async function handleAccount(request: Request, env: Env, path: string, wa
       // Last, so a token isn't spent on a form that comes back for another reason.
       if (env.TURNSTILE_SECRET && !(await isRealBrowser(env, field("turnstile_token", 2048), "join"))) return await again(BOT_CHECK_FAILED);
       const made = await createPasswordUser(env, password);
-      if (!made) return message(env, "Couldn't make your account", "Something went wrong on our side. Try again in a minute.", 502);
+      if (!made) return message(env, "Couldn't make your account", "Something went wrong on Zaisma's side. Try again in a minute.", 502);
       try {
         await createAccount(env.DB, { id: made.userId, username: checked.username, ageBand: band, birthDate: joinBirthDate(request, env), socialMode: defaultSocialMode(band), hasPassword: true });
       } catch (error) {
@@ -508,7 +529,7 @@ export async function handleAccount(request: Request, env: Env, path: string, wa
     // From the window after Forgot your password: it opens again, saying what's wrong.
     const again = field("from", 20) === "new-password" ? new URLSearchParams({ "new-password": "", ...(next ? { next } : {}) }) : undefined;
     if (problem) return done(await accountPage(env, session, false, problem, undefined, again));
-    if (!(await setPassword(env, account.id, password))) return done(message(env, "Couldn't save your password", "Something went wrong on our side. Try again in a minute.", 502));
+    if (!(await setPassword(env, account.id, password))) return done(message(env, "Couldn't save your password", "Something went wrong on Zaisma's side. Try again in a minute.", 502));
     await markPasswordChanged(env.DB, account.id);
     await logAccountChange(request, env, account, account.password_changed_at_ms === null ? "password_added" : "password_changed");
     // This device gets a session made with the new password, and every other device is signed out: Zaisma refuses
@@ -535,11 +556,12 @@ export async function handleAccount(request: Request, env: Env, path: string, wa
     if (!EMAIL.test(email)) return done(await accountPage(env, session, false, "Enter an email address."));
     if (email === realEmail(session.email)?.toLowerCase()) return done(redirect("/account#signing-in"));
     if (!(await passesBotCheck("email_code"))) return done(await accountPage(env, session, false, BOT_CHECK_FAILED));
+    if (await isBannedMark(env.DB, "email", email)) return done(await accountPage(env, session, false, emailBanned().messageForPeople));
     const holder = await authUserIdByEmail(env, email);
     if (holder) return done(await accountPage(env, session, false, EMAIL_TAKEN));
     const sent = holder === undefined ? "failed" : await sendEmailCode(env, { email, accountId: account.id, kind: "add_email", reason: "add_email" });
     if (sent === "too-many") return done(message(env, "Slow down", "We've sent a lot of codes. Wait a few minutes and try again.", 429));
-    if (sent === "failed") return done(message(env, "Couldn't send the code", "Something went wrong on our side. Try again in a minute.", 502));
+    if (sent === "failed") return done(message(env, "Couldn't send the code", "Something went wrong on Zaisma's side. Try again in a minute.", 502));
     return done(await codePage(env, email, null, undefined, "email"));
   }
 
@@ -550,7 +572,7 @@ export async function handleAccount(request: Request, env: Env, path: string, wa
     if (codeAccountId !== account.id) return done(await codePage(env, email, null, "That code didn't work. Check it, or go back and try again.", "email"));
     const isSet = await setEmail(env, account.id, email);
     if (isSet === "taken") return done(await accountPage(env, session, false, EMAIL_TAKEN));
-    if (isSet === "failed") return done(message(env, "Couldn't add your email", "Something went wrong on our side. Try again in a minute.", 502));
+    if (isSet === "failed") return done(message(env, "Couldn't add your email", "Something went wrong on Zaisma's side. Try again in a minute.", 502));
     await deleteEmailCodesOf(env, account.id);
     // The old address hears about it too.
     const oldEmail = realEmail(session.email);
@@ -563,7 +585,7 @@ export async function handleAccount(request: Request, env: Env, path: string, wa
   // Taking the email off: only with a password, so they can still sign in.
   if (path === "/account/email/remove" && post) {
     if (account.password_changed_at_ms === null) return done(await accountPage(env, session, false, "Add a password first, so you can still sign in without your email."));
-    if (!(await removeEmail(env, account.id))) return done(message(env, "Couldn't remove your email", "Something went wrong on our side. Try again in a minute.", 502));
+    if (!(await removeEmail(env, account.id))) return done(message(env, "Couldn't remove your email", "Something went wrong on Zaisma's side. Try again in a minute.", 502));
     await deleteEmailCodesOf(env, account.id);
     const removedEmail = realEmail(session.email);
     await logAccountChange(request, env, account, "email_removed", { alert: { emails: removedEmail ? [removedEmail] : [] } });
@@ -637,13 +659,14 @@ export async function handleAccount(request: Request, env: Env, path: string, wa
     // Who to tell is read first: deleting the account deletes the rows that say.
     const reach = await accountDeletionReach(env.DB, account.id);
     const ownedGameCount = (await gamesOwnedBy(env.DB, account.id)).length;
-    if (!(await deleteAuthUser(env, session.userId))) return done(message(env, "Couldn't delete your account", "Something went wrong on our side. Try again later.", 502));
+    if (!(await deleteAuthUser(env, session.userId))) return done(message(env, "Couldn't delete your account", "Something went wrong on Zaisma's side. Try again later.", 502));
     await deleteSaveFiles(env, account.id);
     await deleteForumFiles(env, account.id);
     await refundForDeletion(env, account.id);
     await forgetCardForDeletion(env, account.id);
     await disconnectStripeForDeletion(env, account.id);
     await deleteAccount(env.DB, account.id);
+    await recordRestoreEvent(env, { event_kind: "account_deleted", at_ms: Date.now(), account_id: account.id });
     await tellAccountDeleted(env, reach, waitUntil);
     // Its games are already down; their files, database and saves go now, or at the next run if there's a lot.
     if (waitUntil) waitUntil(deleteDueGames(env));
@@ -1169,7 +1192,7 @@ ${withCustom ? radio("custom", "Custom", "Choose each one yourself.") : ""}
 
 /** Each preset as a new player picks it while joining (16 and over; 13–15 start solo-focused): a line in their own words. */
 const JOIN_SOCIAL_MODE_LINES: Record<SocialMode, string> = {
-  solo_focused: "I just want to play, no chat.",
+  solo_focused: "I want to play without chat.",
   friends_focused: "I want to play and chat with my friends.",
   open_and_social: "I like meeting new players.",
 };
@@ -1289,7 +1312,7 @@ function usernameCutField(given: JoinGiven): Raw {
 <template id="username-suggestion">${suggestions([""])}</template></div>`;
 }
 
-const TERMS_LINE = html`<p class="note">By making an account you agree to the ${textLink("terms of service", "/legal/terms")}, including the ${textLink("content rules", "/legal/content-rules")} and our ${textLink("privacy policy", "/legal/privacy")}.</p>`;
+const TERMS_LINE = html`<p class="note">By making an account you agree to the ${textLink("terms of service", "/legal/terms")}, including the ${textLink("content rules", "/legal/content-rules")} and the ${textLink("privacy policy", "/legal/privacy")}.</p>`;
 
 /** Step A: a username and a password, or Google or Discord instead (then a username on its own, joinUsernamePage). The account is made here. */
 async function joinAccountPage(env: Env, next: string | null, error?: string, given: JoinGiven = {}): Promise<Response> {
@@ -1336,6 +1359,30 @@ ${primaryButton("Next", { isFullWidth: true, isBig: true, busyLabel: "One moment
       { kind: "words", markup: TERMS_LINE },
     ],
     { scripts: scriptTags(USERNAME_SCRIPT), checkedPage: "Pick a username", game, httpStatus: error || given.usernameError ? 400 : 200 },
+  );
+}
+
+/**
+ * A closed account (a whole-account ban, bans.ts), once it proved it's theirs: why, and how to appeal. It makes no session, so
+ * Sign out only goes back to the sign-in page, which clears a cookie the ban left behind.
+ * Child safety says no rule and no why, like a takedown.
+ */
+function closedAccountPage(env: Env, account: Account): Response {
+  const rule = account.ban_content_rule && account.ban_content_rule !== "child_safety" && isContentRule(account.ban_content_rule) ? account.ban_content_rule : null;
+  const why = account.ban_content_rule === "child_safety" ? null : account.ban_reason?.replace(/\.$/, "");
+  const broke = rule ? html`the content rules on ${textLink(CONTENT_RULE_WORDS[rule], `/legal/content-rules#${rule}`)}` : html`Zaisma's rules`;
+  return signInPage(
+    env,
+    "This account is closed",
+    [
+      { kind: "words", markup: html`<h1>This account is closed</h1>` },
+      { kind: "words", markup: html`<p>Zaisma closed ${account.username} for breaking ${broke}${why ? html`: ${why}` : ""}.</p>` },
+      { kind: "words", markup: html`<p class="note">It can't sign in, and any games it made are down.</p>` },
+      { kind: "words", markup: html`<p><strong>Think this is a mistake?</strong> Write to ${APPEAL_EMAIL} with the username. A person reads every appeal and answers.</p>` },
+      { kind: "control", markup: secondaryButton(`Email ${APPEAL_EMAIL}`, { href: `mailto:${APPEAL_EMAIL}?subject=${encodeURIComponent(`Appeal: ${account.username}`)}`, isFullWidth: true }) },
+      { kind: "control", markup: tertiaryButton("Sign out", { href: "/signin", isFullWidth: true }) },
+    ],
+    { checkedPage: "Account closed", httpStatus: 403 },
   );
 }
 
@@ -1408,7 +1455,7 @@ export const AREA_LABELS: Record<AccessArea, [string, string]> = {
   forum_access: ["Developer forum", "Write posts, replies, votes and messages to Zaisma in your name."],
   sign_in_app_access: ["Sign-in apps", "Belong to your whole account, so only a key for all your games reaches them."],
   webhook_access: ["Webhooks", "Belong to your whole account, so only a key for all your games reaches them."],
-  credit_access: ["Hosting credit", "Read-only sees the balance and spending. Write also starts top-ups and refunds, and turns spending off or down; turning it on or up always needs your passkey here."],
+  credit_access: ["Hosting credit", "Read-only sees the balance and spending. Write also starts top-ups, refunds and the monthly credit plan, and turns spending off or down; turning it on or up always needs your passkey here."],
   stripe_account_access: ["Stripe account", "Belongs to your whole account. Read-only sees the connected account. Write also turns Stripe Tax on or off and disconnects; connecting always needs your passkey here."],
 };
 
@@ -1815,6 +1862,9 @@ async function accountPage(env: Env, session: Session, welcome: boolean, error?:
 <h1>${account.username}</h1>
 ${email ? html`<p class="lead">${email}</p>` : ""}
 <p><a class="btn ghost" href="${profilePath(account.username)}">Your profile</a></p>
+${banScopeOf(account) === "developer"
+      ? html`<p class="note" role="status">${accountBanned({ banScope: "developer", banReasonForDeveloper: account.ban_content_rule === "child_safety" ? null : account.ban_reason }).messageForPeople} Your games are down; you can still play, and <a href="/dashboard">export your games</a>. Think this is a mistake? Write to <a href="mailto:${APPEAL_EMAIL}?subject=${encodeURIComponent(`Appeal: ${account.username}`)}">${APPEAL_EMAIL}</a> with your username. A person reads every appeal and answers.</p>`
+      : ""}
 ${securityAlertsBox(activity.unseen_security_alerts, "/account")}
 ${isAskingForEmail ? emailAskBox({ isConfirmed, backTo: "/account" }) : ""}
 ${noticeAtMs !== null ? wrongPasswordNotice(noticeAtMs, !email && !passkeys.length) : ""}
@@ -1834,6 +1884,7 @@ ${scriptTags(USERNAME_SCRIPT)}
 ${account.social_stopped_at_ms
       ? html`<p class="note" role="status">${socialStoppedNotice(account.social_stopped_reason)}</p>`
       : html`<p>Who can chat with you, join you and see what you play.</p>
+${isStrangerChatWaiting(account, Date.now()) ? html`<p class="note">Chat with anyone opens once your account is a day old and you've played on a second day. Friends can chat now.</p>` : ""}
 ${query.has("social-saved") ? html`<p class="note" role="status">Saved. Games pick up chat changes the next time you open them.</p>` : ""}
 ${socialSettingsForm(account.age_band, socialSettingsOf(account))}`}
 <h2 id="theme">Theme</h2>

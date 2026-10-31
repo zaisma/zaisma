@@ -8,6 +8,8 @@ export {
   NO_ANSWER_CLOSE_CODE,
   REMOVED_CLOSE_CODE,
   ROOM_LIMITS,
+  ROOM_MESSAGE_LIMITS,
+  ROOM_MESSAGE_SENDER_KINDS,
   SEAT_GONE_CLOSE_CODE,
   VERSION_UPDATE_CLOSE_CODE,
   defineGameServer,
@@ -26,6 +28,7 @@ export {
   type ChatInfo,
   type JoinInfo,
   type KickOptions,
+  type LiveRoom,
   type LeaveInfo,
   type LeaveReason,
   type MoveOptions,
@@ -38,6 +41,10 @@ export {
   type Room,
   type RoomErrorCode,
   type RoomInfo,
+  type RoomMessage,
+  type RoomMessageSenderKind,
+  type RoomPlayer,
+  type RoomSelection,
   type SendOptions,
   type VersionUpdate,
 } from "./room.ts";
@@ -49,4 +56,5 @@ export { OUTSIDE_CALL_LIMITS, OutsideCallError, type OutsideCallErrorCode } from
 export { PASS_ISSUER_URL, PASS_TOKEN_TYPE, PASS_VERSION_NUMBER, PassError, RECEIPT_ISSUER_URL, RECEIPT_TOKEN_TYPE, RECEIPT_VERSION_NUMBER, ReceiptError, canChat, passesAreFriends, passesHaveBlockBetween, verifyPass, verifyReceipt, type PassClaims, type PassErrorCode, type PassExpectations, type PlayerKind, type PublicKey, type ReceiptClaims, type ReceiptErrorCode, type ReceiptExpectations, type WhoCanChat } from "./pass.ts";
 export { CHAT_CHECK_LIMITS, CHAT_ROOM_LIMITS, ChatCheckError, checkChat, type ChatCheck, type ChatCheckOptions, type ChatCheckReason } from "./chat.ts";
 export { guestName, isRoomCode } from "./names.ts";
+export { guestPlayer, signInWithZaismaPlayers, type IdentifyPlayer, type OutsidePlayer, type SignInWithZaismaPlayersOptions } from "./outside-players.ts";
 export { relay } from "./relay.ts";

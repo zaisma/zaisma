@@ -1,10 +1,10 @@
 import { spawn } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 // @ts-expect-error: a plain JavaScript script without types
 import { memoryCap, nextTurn, placeText, sizeText, testRunSizeBytes, waitForTurn, waitingInOrder } from "../../scripts/preview/memory.mjs";
+import { temporaryFolder } from "../temporary-folder.ts";
 
 /**
  * The memory cap on every preview and test run on a machine and its line (scripts/preview/memory.mjs): where the cap comes from,
@@ -14,7 +14,7 @@ import { memoryCap, nextTurn, placeText, sizeText, testRunSizeBytes, waitForTurn
 const GB = 1024 ** 3;
 const MB = 1024 ** 2;
 let directory = "";
-beforeEach(() => { directory = mkdtempSync(join(tmpdir(), "preview-memory-")); });
+beforeEach(() => { directory = temporaryFolder("preview-memory-"); });
 afterEach(() => { rmSync(directory, { recursive: true, force: true }); });
 
 const entry = (pid: number, offset: number, kind = "start", askedAtMs = pid, turnGivenAtMs: number | null = null) => ({ pid, folder: `/checkouts/${pid}`, offset, kind, asked_at_ms: askedAtMs, turn_given_at_ms: turnGivenAtMs });

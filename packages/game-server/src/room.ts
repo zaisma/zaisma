@@ -22,7 +22,7 @@ export interface Player {
   id: string;
   /** The account's name, or a guest's generated one like "Swift Fox 42". */
   name: string;
-  /** A signed-in Zaisma account, or a guest. */
+  /** A signed-in Zaisma account, a guest, or a player your own server let in from outside Zaisma (outside_zaisma). */
   kind: PlayerKind;
   /**
    * The permanent items the account owns in this game, by item_name, from the pass it joined with (its
@@ -163,6 +163,21 @@ export interface Room {
    * turned away; they stay here.
    */
   moveTo(roomCode: string, moveOptions: MoveOptions): void;
+  /**
+   * Send a message to another live room of this game by its code, like telling a world that a party is on its way.
+   * Its game server's onRoomMessage takes it, or, without one, each of its players' games hears it as the room's
+   * "roomMessage" event. message is plain JSON, up to 16 KB. isDelivered is false when no such room is running.
+   * A room sends up to 20 room messages a second (ROOM_MESSAGE_LIMITS). On your own server it reaches the Node runner's own rooms.
+   */
+  sendToRoom(roomCode: string, message: unknown): Promise<{ isDelivered: boolean }>;
+  /**
+   * Send a message to every other live room of this game with someone in it, or only those holding every label in
+   * roomSelection.labels, like starting a live event everywhere. Each takes it as with sendToRoom; never this room.
+   * roomCount is how many took it. Up to 10 a minute for the whole game.
+   */
+  sendToEveryRoom(message: unknown, roomSelection?: RoomSelection): Promise<{ roomCount: number }>;
+  /** The game's live rooms, or only those holding every label in roomSelection.labels, newest first, up to 500 (ROOM_MESSAGE_LIMITS.maximumListedRoomCount). */
+  listRooms(roomSelection?: RoomSelection): Promise<{ rooms: LiveRoom[] }>;
   /**
    * The game's own SQLite database, shared by all its rooms and kept between matches: for what the
    * game server owns or must trust, like inventories, leaderboards and bans. Plain SQL, awaited in
@@ -604,6 +619,14 @@ export interface GameServer<S = any> {
    * countdown or save. Never runs on your own server.
    */
   onVersionUpdate?(state: S, versionUpdate: VersionUpdate, room: Room): HandlerResult<S>;
+  /**
+   * A message for this room from another room of the game (room.sendToRoom, room.sendToEveryRoom), the game server
+   * outside rooms (server.sendToRoom in onRequest, onSchedule, onWebhook) or the developer (the API and MCP), like a
+   * live event starting or a moderator freezing a player. Your game decides what players see. Without this handler,
+   * each player's game hears it as the room's "roomMessage" event. Runs in a kept room with nobody in it too, when a
+   * message was sent to it by its code.
+   */
+  onRoomMessage?(state: S, roomMessage: RoomMessage, room: Room): HandlerResult<S>;
 }
 
 /**
@@ -614,6 +637,90 @@ export interface VersionUpdate {
   versionId: string;
   appliesAt: string;
   isReloading: boolean;
+}
+
+/** Who sent a room message: another room's game server, the game server outside rooms (requests, schedules, webhooks), or the developer (the API and MCP, scheduled sends included). */
+export type RoomMessageSenderKind = "room" | "server" | "developer";
+
+/** Every RoomMessageSenderKind, in the order the docs give them. */
+export const ROOM_MESSAGE_SENDER_KINDS = ["room", "server", "developer"] as const satisfies readonly RoomMessageSenderKind[];
+
+/**
+ * What onRoomMessage hears, and each player's game as the room's "roomMessage" event without it: the message as
+ * sent, who sent it, the code of the room that sent it (null unless senderKind is "room") and when (an ISO time).
+ */
+export interface RoomMessage {
+  message: unknown;
+  senderKind: RoomMessageSenderKind;
+  fromRoomCode: string | null;
+  sentAt: string;
+}
+
+/** Which rooms a call means: those holding every label given, like { Map: "Docks" }; leave labels out for every room. */
+export interface RoomSelection {
+  labels?: Record<string, string>;
+}
+
+/** One of the game's live rooms, as listRooms answers it. createdAt is an ISO time; continent is where it runs, like EU, or null. */
+export interface LiveRoom {
+  roomCode: string;
+  name: string | null;
+  labels: Record<string, string>;
+  playerCount: number;
+  maximumPlayerCount: number;
+  spectatorCount: number;
+  isListed: boolean;
+  isOpen: boolean;
+  isKept: boolean;
+  versionId: string | null;
+  continent: string | null;
+  createdAt: string;
+}
+
+/** Someone in a live room, as server.getRoom answers: a player, or a spectator (isSpectator), with why they're away (awayReason) and when they joined (an ISO time). */
+export interface RoomPlayer {
+  playerId: string;
+  name: string;
+  kind: PlayerKind;
+  isAway: boolean;
+  awayReason: AwayReason | null;
+  joinedAt: string;
+  isSpectator: boolean;
+}
+
+/** How rooms reach each other: what a room message may hold, and how many go where. */
+export const ROOM_MESSAGE_LIMITS = {
+  /** A room message, as JSON, the same as a player's game message. */
+  maximumRoomMessageSizeBytes: 16 * 1024,
+  /** Room messages one room's game server sends a second (room.sendToRoom, room.sendToEveryRoom). */
+  maximumRoomSendsPerSec: 20,
+  /** Room messages one room takes a second; past it the sender hears it's busy (room_busy). */
+  maximumReceivedRoomMessagesPerSec: 100,
+  /** Sends to every room a minute, for the whole game, from its game server, the API and the MCP together. */
+  maximumEveryRoomSendsPerMin: 10,
+  /** Scheduled sends to every room waiting at once, a game. */
+  maximumScheduledRoomMessageCount: 100,
+  /** How far ahead a send to every room can be scheduled. */
+  maximumScheduleAheadDurationDays: 90,
+  /** Rooms one listRooms answers, newest first. */
+  maximumListedRoomCount: 500,
+} as const;
+
+/**
+ * How a room or the game server reaches the game's other live rooms, its calls already checked: Zaisma's rooms
+ * through the rooms Worker, the Node runner among its own rooms. Without it, the calls throw room_call_unavailable.
+ */
+export interface RoomReach {
+  sendToRoom(toRoomCode: string, message: unknown): Promise<{ isDelivered: boolean }>;
+  sendToEveryRoom(message: unknown, labels: Record<string, string> | null): Promise<{ roomCount: number }>;
+  listRooms(labels: Record<string, string> | null): Promise<{ rooms: LiveRoom[] }>;
+}
+
+/** What the game server reaches outside rooms besides RoomReach (server.getRoom, kickFromRoom, endRoom), its calls already checked. */
+export interface ServerRoomReach extends RoomReach {
+  getRoom(roomCode: string): Promise<{ room: LiveRoom; players: RoomPlayer[] } | null>;
+  kickFromRoom(roomCode: string, playerId: string, message: string, isKeptOut: boolean): Promise<{ isDone: boolean }>;
+  endRoom(roomCode: string, message: string | undefined): Promise<{ isDone: boolean }>;
 }
 
 /**
@@ -726,6 +833,7 @@ export const GAME_SERVER_OPTIONS = [
   "onRestored",
   "stateView",
   "onVersionUpdate",
+  "onRoomMessage",
   "onRequest",
   "schedules",
   "onSchedule",
@@ -855,7 +963,7 @@ export class GameServerError extends Error {
 }
 
 /** The checks every room call goes through, here and in a game's sandbox (room-calls.ts). */
-const checks = roomCallChecks(GameServerError, ROOM_LIMITS);
+const checks = roomCallChecks(GameServerError, { ...ROOM_LIMITS, ...ROOM_MESSAGE_LIMITS });
 
 /** The error for an option a game server doesn't take, naming the ones it does. */
 export function unknownOptionError(field: string): GameServerError {
@@ -1041,6 +1149,8 @@ export type ServerMessage =
   | { type: "room"; room: RoomSettings; spectatorCount: number }
   | { type: "move"; roomCode: string }
   | { type: "message"; data: unknown; fromPlayerId: string | null }
+  // A room message for a room whose game server has no onRoomMessage: the players' games hear it as the "roomMessage" event.
+  | { type: "room_message"; roomMessage: RoomMessage }
   | { type: "state"; serverTimeMs: number; full: unknown }
   | { type: "state"; serverTimeMs: number; changes: StateChange[] }
   | { type: "blocks"; playerIds: string[] }
@@ -1099,6 +1209,7 @@ export type RoomErrorCode =
   | "too_fast"
   | "bad_message"
   | "bad_pass"
+  | "bad_player_token"
   | "no_hello"
   | "not_allowed"
   | "game_unavailable"
@@ -1130,6 +1241,7 @@ export const ERROR_TEXT: Record<RoomErrorCode, string> = {
   too_fast: "Too many messages. Slow down.",
   bad_message: "The room couldn't read or use that message.",
   bad_pass: "Your player pass isn't valid for this game.",
+  bad_player_token: "This server doesn't know this player. Sign in again.",
   no_hello: "Send your player pass first.",
   not_allowed: "Only the game server or the room's host can do that.",
   game_unavailable: "This game isn't available right now.",
@@ -1262,6 +1374,50 @@ export interface Transport {
   isBackedUp?(playerId: string): boolean;
   /** Where the room hands purchases over (onPurchase, onRefund). Without it, purchases never reach the room. */
   purchaseHandling?: PurchaseHandling;
+  /** room.sendToRoom, sendToEveryRoom and listRooms, from this room. Without it, they throw room_call_unavailable. */
+  roomReach?: RoomReach;
+}
+
+/**
+ * The game server's server (onRequest, onSchedule, onWebhook) from what the runtime gives it: its calls to the game's
+ * rooms checked as a room's are, then made through roomReach, or throwing room_call_unavailable without one.
+ */
+export function newServer(serverParts: Pick<Server, "database" | "secrets" | "verifyReceipt">, roomReach?: ServerRoomReach): Server {
+  const reachFor = (call: string): ServerRoomReach => {
+    if (!roomReach) throw new GameServerError("room_call_unavailable", call, `${call} isn't available here.`, "Reaching rooms needs Zaisma's rooms or the Node runner.");
+    return roomReach;
+  };
+  const roomCodeOf = (roomCode: unknown, call: string): string => {
+    if (typeof roomCode !== "string" || !isRoomCode(roomCode)) throw new GameServerError("bad_room_call", call, `${call} needs a room code.`, "Give the code of a live room of this game, like one server.listRooms answered.");
+    return roomCode;
+  };
+  return {
+    database: serverParts.database,
+    secrets: serverParts.secrets,
+    verifyReceipt: serverParts.verifyReceipt,
+    sendToRoom: (roomCode, message) => {
+      const reach = reachFor("server.sendToRoom");
+      const checked = checks.checkSendToRoom(roomCode, message, null, "server.sendToRoom");
+      return reach.sendToRoom(checked.toRoomCode, checked.message);
+    },
+    sendToEveryRoom: (message, roomSelection) => {
+      const reach = reachFor("server.sendToEveryRoom");
+      const checked = checks.checkSendToEveryRoom(message, roomSelection, "server.sendToEveryRoom");
+      return reach.sendToEveryRoom(checked.message, checked.labels);
+    },
+    listRooms: (roomSelection) => reachFor("server.listRooms").listRooms(checks.checkRoomSelection(roomSelection, "server.listRooms").labels),
+    getRoom: (roomCode) => reachFor("server.getRoom").getRoom(roomCodeOf(roomCode, "server.getRoom")),
+    kickFromRoom: (roomCode, playerId, kickOptions) => {
+      const reach = reachFor("server.kickFromRoom");
+      const code = roomCodeOf(roomCode, "server.kickFromRoom");
+      const checked = checks.checkKick(playerId, kickOptions);
+      return reach.kickFromRoom(code, checked.playerId, checked.message, checked.isKeptOut);
+    },
+    endRoom: (roomCode, message) => {
+      const reach = reachFor("server.endRoom");
+      return reach.endRoom(roomCodeOf(roomCode, "server.endRoom"), checks.checkEnd(message));
+    },
+  };
 }
 
 /** room.secrets and server.secrets where a game has none. */
@@ -1301,6 +1457,13 @@ export interface PlayerChatSettings {
   whoCanChat: "nobody" | "friends" | "anyone";
   chatGroupId: string | null;
 }
+
+/**
+ * The chat settings of a player your own server let in from outside Zaisma (outside_zaisma): they chat with
+ * anyone who chats with anyone, in no chat group, and Zaisma's chat check stops any message between them and
+ * an under-18 account. Zaisma's chat groups are chat_group_… IDs, so none is ever this one.
+ */
+export const OUTSIDE_ZAISMA_CHAT_SETTINGS: PlayerChatSettings = { whoCanChat: "anyone", chatGroupId: "outside_zaisma" };
 
 /** A checked pass's chat settings, for RoomCore.setChatSettings: null for a guest. A setting this version doesn't know chats with nobody. */
 export function chatSettingsOf(claims: PassClaims): PlayerChatSettings | null {
@@ -1561,6 +1724,10 @@ export class RoomCore<S = any> {
   private setupData: unknown = null;
   /** When this room last reserved rooms, for the limit. */
   private reservedAtMs: number[] = [];
+  /** When this room sent room messages, within the last second (ROOM_MESSAGE_LIMITS.maximumRoomSendsPerSec). */
+  private roomSentAtMs: number[] = [];
+  /** When this room took room messages, within the last second (ROOM_MESSAGE_LIMITS.maximumReceivedRoomMessagesPerSec). */
+  private roomReceivedAtMs: number[] = [];
   private buckets = new Map<string, { tokenCount: number; filledAtMs: number }>();
   /** Probes this room has sent, to every player: each probe's number. */
   private probeCount = 0;
@@ -1780,6 +1947,19 @@ export class RoomCore<S = any> {
         this.kick(checked.playerId, { message: checked.message, keepOut: checked.isKeptOut });
       },
       moveTo: (toRoomCode, moveOptions) => this.moveTo(toRoomCode, moveOptions),
+      sendToRoom: (toRoomCode, message) => {
+        const reach = this.roomReachFor("room.sendToRoom");
+        const checked = checks.checkSendToRoom(toRoomCode, message, transport.roomCode, "room.sendToRoom");
+        this.limitRoomSends("room.sendToRoom");
+        return reach.sendToRoom(checked.toRoomCode, checked.message);
+      },
+      sendToEveryRoom: (message, roomSelection) => {
+        const reach = this.roomReachFor("room.sendToEveryRoom");
+        const checked = checks.checkSendToEveryRoom(message, roomSelection, "room.sendToEveryRoom");
+        this.limitRoomSends("room.sendToEveryRoom");
+        return reach.sendToEveryRoom(checked.message, checked.labels);
+      },
+      listRooms: (roomSelection) => this.roomReachFor("room.listRooms").listRooms(checks.checkRoomSelection(roomSelection, "room.listRooms").labels),
       database: transport.database ?? NO_DATABASE,
       secrets: transport.secrets ?? NO_SECRETS,
       verifyReceipt: transport.verifyReceipt ?? NO_RECEIPT_CHECK,
@@ -1897,13 +2077,16 @@ export class RoomCore<S = any> {
 
   /**
    * Whether one player's chat may reach another, canChat's rule on passes (pass.ts): two accounts in the
-   * same chat group with no block either way, friends unless both chat with anyone.
+   * same chat group with no block either way, friends unless both chat with anyone. A player from outside
+   * Zaisma is in no chat group: they chat with anyone who chats with anyone, and Zaisma's chat check stops
+   * what would reach an under-18 account or come from one.
    */
   private mayChat(senderPlayerId: string, receiverPlayerId: string): boolean {
     if (senderPlayerId === receiverPlayerId || !this.canChat(senderPlayerId) || !this.canChat(receiverPlayerId) || this.hasBlockBetween(senderPlayerId, receiverPlayerId)) return false;
     const sender = this.chatSettings.get(senderPlayerId)!;
     const receiver = this.chatSettings.get(receiverPlayerId)!;
-    if (sender.chatGroupId !== receiver.chatGroupId) return false;
+    const isOutside = (settings: PlayerChatSettings) => settings.chatGroupId === OUTSIDE_ZAISMA_CHAT_SETTINGS.chatGroupId;
+    if (sender.chatGroupId !== receiver.chatGroupId && !isOutside(sender) && !isOutside(receiver)) return false;
     return (sender.whoCanChat === "anyone" && receiver.whoCanChat === "anyone") || this.areFriends(senderPlayerId, receiverPlayerId);
   }
 
@@ -2900,6 +3083,46 @@ export class RoomCore<S = any> {
     this.reservedAtMs.push(nowMs);
   }
 
+  /** The transport's way to the game's other rooms, for a call that needs it: throws room_call_unavailable without it, or once the room ended. */
+  private roomReachFor(call: string): RoomReach {
+    if (!this.transport.roomReach) throw new GameServerError("room_call_unavailable", call, `${call} isn't available here.`, "Reaching other rooms needs Zaisma's rooms or the Node runner.");
+    if (this.ended) throw new GameServerError("room_call_unavailable", call, `${call} was called after this room ended.`, "Check room.endsAt, and stop making room calls once you've called room.end().");
+    return this.transport.roomReach;
+  }
+
+  /** Room messages this room sends share one limit a second. */
+  private limitRoomSends(call: string): void {
+    const nowMs = this.now();
+    this.roomSentAtMs = this.roomSentAtMs.filter((sentAtMs) => nowMs - sentAtMs < 1000);
+    if (this.roomSentAtMs.length >= ROOM_MESSAGE_LIMITS.maximumRoomSendsPerSec) throw new GameServerError("room_call_limit", call, `A room can send up to ${ROOM_MESSAGE_LIMITS.maximumRoomSendsPerSec} room messages a second.`, "Gather what you send into fewer messages, or send to every room at once with room.sendToEveryRoom.");
+    this.roomSentAtMs.push(nowMs);
+  }
+
+  /**
+   * A room message for this room (room.sendToRoom, sendToEveryRoom, server.sendToRoom, the API): the game server's
+   * onRoomMessage takes it, or, without one, every player and spectator hears it. False when the room ended, or took
+   * ROOM_MESSAGE_LIMITS.maximumReceivedRoomMessagesPerSec in the last second already (the sender hears room_busy).
+   */
+  receiveRoomMessage(roomMessage: RoomMessage): boolean {
+    if (this.ended) return false;
+    const nowMs = this.now();
+    this.roomReceivedAtMs = this.roomReceivedAtMs.filter((receivedAtMs) => nowMs - receivedAtMs < 1000);
+    if (this.roomReceivedAtMs.length >= ROOM_MESSAGE_LIMITS.maximumReceivedRoomMessagesPerSec) return false;
+    this.roomReceivedAtMs.push(nowMs);
+    if (this.server.onRoomMessage) this.run(() => this.server.onRoomMessage!(this.state, { ...roomMessage }, this.api), "onRoomMessage");
+    else this.sendEach(this.everyone(), JSON.stringify({ type: "room_message", roomMessage } satisfies ServerMessage));
+    return true;
+  }
+
+  /** Who's in the room, players then spectators, as server.getRoom answers: joinedAtMsOf says when each joined (the transport keeps it). */
+  roomPlayers(joinedAtMsOf: (playerId: string) => number): RoomPlayer[] {
+    const roomPlayer = (player: Player, isSpectator: boolean): RoomPlayer => {
+      const awayReason = isSpectator ? null : (this.kept.get(player.id) ?? null);
+      return { playerId: player.id, name: player.name, kind: player.kind, isAway: awayReason !== null, awayReason, joinedAt: new Date(joinedAtMsOf(player.id)).toISOString(), isSpectator };
+    };
+    return [...[...this.players.values()].map((player) => roomPlayer(player, false)), ...[...this.spectators.values()].map((spectator) => roomPlayer(spectator, true))];
+  }
+
   /** Remove a player (room.kick). Their onLeave runs once the handler that kicked them is done. */
   kick(playerId: string, kickOptions?: KickOptions): void {
     const player = this.players.get(playerId);
@@ -3499,7 +3722,7 @@ export class RoomCore<S = any> {
 }
 
 /** The calls that change the room or send from it: not for canJoin or stateView, which only decide and answer. */
-const CHANGING_CALLS = ["broadcast", "send", "broadcastBytes", "sendBytes", "end", "setListed", "setOpen", "setFriendJoinsEnabled", "setKept", "setInfo", "reserve", "kick", "moveTo", "applyVersionUpdate"] as const;
+const CHANGING_CALLS = ["broadcast", "send", "broadcastBytes", "sendBytes", "end", "setListed", "setOpen", "setFriendJoinsEnabled", "setKept", "setInfo", "reserve", "kick", "moveTo", "sendToRoom", "sendToEveryRoom", "applyVersionUpdate"] as const;
 
 /** A room that reads like the room but throws room_call_unavailable for every call that changes it, for the handler named. */
 function readOnlyRoom(room: Room, handlerName: string): Room {

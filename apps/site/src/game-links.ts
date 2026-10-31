@@ -1,4 +1,4 @@
-import { accountById, audit, canOpenLink, checkLinkSites, gameBySlug, isTesterLinkOn, linkBrand, linksOf, openedLinkUrl, testerLinkByToken, type Game, type GameLink, type LinkBrand } from "@zaisma/core";
+import { accountById, audit, canOpenLink, checkLinkSites, gameBySlug, isTesterLinkOn, linkBrand, linksOf, openedLinkUrl, standingOf, testerLinkByToken, type Game, type GameLink, type LinkBrand } from "@zaisma/core";
 import { currentSession } from "./auth.ts";
 import type { Env } from "./env.ts";
 import { playable } from "./home.ts";
@@ -17,7 +17,8 @@ import { sheet } from "./components/panes.ts";
  * Zaisma"). The game asks to open one of its links (Zaisma.links.open, as a zaisma:link message), right
  * after the player tapped or pressed a key in it, and the page asks the server for the address. The
  * server hands it over only when this player may open it, so the rule never rests on the page: signed-in
- * adults open any link that isn't flagged, guests and under-18 accounts only links on trusted domains.
+ * adults open any link that isn't flagged once the developer's standing opens links to other sites
+ * (standing.ts), guests and under-18 accounts only links on trusted domains.
  * The card over the game's top corner says "You're leaving Zaisma" with the full address, Open <site>
  * and Stay; a link that can't open says only "This link can't be opened here.", and the game hears the
  * same "stayed" as for Stay, so it never learns anyone's age.
@@ -61,7 +62,8 @@ export async function handleGameLinks(request: Request, env: Env, path: string):
   if ("code" in opened) return refusal(400, opened.code, opened.message);
   const session = await currentSession(request, env).catch(() => null);
   const account = session ? await accountById(env.DB, session.userId) : null;
-  const response = Response.json({ destination_url: canOpenLink(link, account?.age_band === "18+") ? opened.url : null }, { headers: { "Cache-Control": "no-store" } });
+  const { outsideLinksEnabled } = await standingOf(env.DB, game.owner_id, Date.now());
+  const response = Response.json({ destination_url: canOpenLink(link, account?.age_band === "18+", outsideLinksEnabled) ? opened.url : null }, { headers: { "Cache-Control": "no-store" } });
   for (const cookie of session?.cookies ?? []) response.headers.append("Set-Cookie", cookie);
   return response;
 }

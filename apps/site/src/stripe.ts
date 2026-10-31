@@ -158,7 +158,7 @@ export async function proCheckout(env: Env, ownerId: string): Promise<{ checkout
     customer,
     managed_payments: { enabled: true },
     line_items: [{ price: env.STRIPE_PRO_PRICE_ID, quantity: 1 }],
-    subscription_data: { metadata: { owner_id: ownerId } },
+    subscription_data: { metadata: { owner_id: ownerId, subscription_kind: "pro" } },
     metadata: { owner_id: ownerId },
     success_url: backUrl,
     cancel_url: backUrl,
@@ -176,6 +176,57 @@ interface ProInvoice {
   amountPaidCents: number;
   paidAtMs: number;
   paymentIntentId: string | null;
+}
+
+/** The next 1st of a month, 00:00 UTC, in seconds: when the monthly credit plan renews, as the free hosting resets. */
+export function nextMonthStartSec(nowMs = Date.now()): number {
+  const now = new Date(nowMs);
+  return Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1) / 1000;
+}
+
+/**
+ * Stripe's page for starting the monthly credit plan (docs/plans, "Monthly credit plan"): a subscription with Managed
+ * Payments, so Stripe sells every payment. Its first payment fills credit to the level, at most maximumTopUpCents,
+ * since a lost dispute is Zaisma's; then a $0 monthly price renews on the 1st (UTC), where the refill is added to the
+ * draft invoice (addRefillToInvoice). Checkout refuses proration_behavior beside a one-time price, and a $0 price
+ * prorates to nothing anyway.
+ */
+export async function creditPlanCheckout(env: Env, ownerId: string, refillLevelCents: number, nowMs = Date.now()): Promise<{ checkoutUrl: string; expiresAtMs: number }> {
+  if (!env.STRIPE_CREDIT_PLAN_PRICE_ID) throw unavailable("this Zaisma has no monthly credit plan price set up.");
+  const customer = await customerFor(env, ownerId);
+  const backUrl = `${env.SITE_ORIGIN}/dashboard/settings#hosting`;
+  const fillCents = Math.min(refillLevelCents, CREDIT_LIMITS.maximumTopUpCents);
+  const session = await stripeCall(env, "POST", "/checkout/sessions", {
+    mode: "subscription",
+    customer,
+    managed_payments: { enabled: true },
+    line_items: [
+      { quantity: 1, price_data: { currency: "usd", unit_amount: fillCents, product_data: { name: "Zaisma hosting credit", tax_code: CREDIT_TAX_CODE } } },
+      { price: env.STRIPE_CREDIT_PLAN_PRICE_ID, quantity: 1 },
+    ],
+    subscription_data: { metadata: { owner_id: ownerId, subscription_kind: "credit_plan", refill_level_cents: String(refillLevelCents) }, billing_cycle_anchor: nextMonthStartSec(nowMs) },
+    metadata: { owner_id: ownerId },
+    success_url: backUrl,
+    cancel_url: backUrl,
+  });
+  return { checkoutUrl: String(session.url), expiresAtMs: Number(session.expires_at) * 1000 };
+}
+
+/** A month's refill, put on the plan's draft renewal invoice before Stripe finalizes it. The invoice's ID keys it, so a repeated event adds it once. */
+export async function addRefillToInvoice(env: Env, invoiceId: string, customerId: string, refillCents: number): Promise<StripeObject> {
+  return stripeCall(env, "POST", "/invoiceitems", { customer: customerId, invoice: invoiceId, amount: refillCents, currency: "usd", description: "Zaisma hosting credit", tax_code: CREDIT_TAX_CODE }, `credit_plan_refill:${invoiceId}`);
+}
+
+/** Ends the monthly credit plan at once: it holds no prepaid month, and credit already bought stays. */
+export async function stopCreditPlan(env: Env, subscriptionId: string): Promise<StripeObject> {
+  return stripeCall(env, "DELETE", `/subscriptions/${encodeURIComponent(subscriptionId)}`);
+}
+
+/** The payment intent that paid an invoice: invoice events don't carry it, so it's read from Stripe. */
+export async function invoicePaymentIntentId(env: Env, invoiceId: string): Promise<string | null> {
+  const invoice = (await stripeCall(env, "GET", `/invoices/${encodeURIComponent(invoiceId)}`, { expand: ["payments"] })) as Record<string, any>;
+  const payment = (Array.isArray(invoice.payments?.data) ? invoice.payments.data : []).find((each: any) => each?.status === "paid" && typeof each?.payment?.payment_intent === "string");
+  return payment?.payment.payment_intent ?? (typeof invoice.payment_intent === "string" ? invoice.payment_intent : null);
 }
 
 /**

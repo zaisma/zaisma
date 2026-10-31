@@ -13,6 +13,7 @@ import { banner, sheet, type SheetStep } from "./components/panes.ts";
 import { readingText } from "./components/reading.ts";
 import { pageScript } from "./page-scripts.ts";
 import type { Viewer } from "./viewer.ts";
+import { recordRestoreEvent } from "./restore-events.ts";
 
 /**
  * Reporting a game or a player. On the game page it's a sheet over the game, which keeps running. Games hand a player
@@ -461,6 +462,7 @@ export async function pauseForReport(env: Env, game: Game, label: string, waitUn
     return "update";
   }
   await setReviewStatus(env.DB, game.id, "held", reviewReason("report_paused_game"));
+  await recordRestoreEvent(env, { event_kind: "game_held", at_ms: nowMs, game_id: game.id, review_reason: reviewReason("report_paused_game") });
   await env.DB.prepare("UPDATE versions SET report_held_at_ms = ? WHERE id = ?").bind(nowMs, live.id).run();
   await audit(env.DB, game.id, "auto-hold", `Report: ${label}`, "system", reviewReason("report_paused_game"));
   await tellWebhooks(env, "review_status_changed", game.id, {}, waitUntil);

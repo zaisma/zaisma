@@ -16,6 +16,7 @@ import {
   refundPolicyWords,
   type PurchaseLabel,
   canOpenLink,
+  standingOf,
   CONTENT_RULES,
   CONTENT_RULE_DETAILS,
   countryName,
@@ -142,6 +143,10 @@ export interface GamePageView {
   isFramedBySelf: boolean;
   /** Listed, and kept on lists by the listing check, so search engines may index it. */
   isShownInLists: boolean;
+  /** Whether the developer's standing opens search engines; a listed game stays out of them until it does (standing.ts). */
+  searchEnginesEnabled: boolean;
+  /** Whether the developer's standing opens its links to other sites for signed-in adults. */
+  outsideLinksEnabled: boolean;
   /** The viewer plays it: it's free to play, or they own it (fullGameOwner), made it, or came by a tester link. */
   isFullGameOwner: boolean;
   /** The game's items, for a paid game's Buy and the page's Add-ons; [] for a page that sells nothing. */
@@ -192,7 +197,7 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
   const isForSale = isForSaleTo(game, isFullGameOwner, isClosed);
   const code = roomCodeOf(url, isClosed || isForSale);
   const playedVersionId = testerVersion?.id ?? game.live_version_id;
-  const [developer, pictures, updates, otherGames, liveRooms, playingNow, playedVersion, purchaseLabel, background, shownInLists, items, ownedNames, demo, fullGame] = await Promise.all([
+  const [developer, pictures, updates, otherGames, liveRooms, playingNow, playedVersion, purchaseLabel, background, shownInLists, items, ownedNames, demo, fullGame, standing] = await Promise.all([
     game.owner_id
       ? env.DB.prepare("SELECT accounts.username AS name, (SELECT COUNT(*) FROM games WHERE owner_id = ? AND review_status = 'live' AND visibility = 'listed') AS game_count FROM owners JOIN accounts ON accounts.id = owners.account_id WHERE owners.id = ?").bind(game.owner_id, game.owner_id).first<{ name: string; game_count: number }>()
       : null,
@@ -221,6 +226,8 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
     game.full_game_item_name === null && game.owner_id
       ? env.DB.prepare("SELECT slug FROM games WHERE demo_game_id = ? AND owner_id = ? AND full_game_item_name IS NOT NULL AND review_status = 'live' AND live_version_id IS NOT NULL AND visibility IN ('listed', 'unlisted') ORDER BY slug LIMIT 1").bind(game.id, game.owner_id).first<{ slug: string }>()
       : null,
+    // What the developer's standing opens: links to other sites, and search engines (standing.ts).
+    standingOf(env.DB, game.owner_id, Date.now()),
   ]);
   const ownedPaidGameIds = await paidGamesOwnedBy(env, viewer.account, otherGames.filter((otherGame) => otherGame.owner_id && otherGame.owner_id === game.owner_id));
   const response = gamePageResponse(env, {
@@ -242,6 +249,8 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
     // The home opens the game page in a frame to play in place; only such a request (a same-site frame) may do it, every other still refuses framing.
     isFramedBySelf: request.headers.get("sec-fetch-dest") === "iframe" && request.headers.get("sec-fetch-site") === "same-origin",
     isShownInLists: Boolean(shownInLists),
+    searchEnginesEnabled: standing.searchEnginesEnabled,
+    outsideLinksEnabled: standing.outsideLinksEnabled,
     isFullGameOwner,
     items,
     ownedItemNames: ownedNames,
@@ -318,7 +327,7 @@ export function gamePageResponse(env: Env, view: GamePageView): Response {
     ...(purchaseLabel.categories.length && refundWords ? [{ label: "Refunds", text: refundWords }] : []),
   ];
   const isSignedInAdult = viewer.account?.age_band === "18+";
-  const pageLinks = linksOf(game).filter((link) => link.is_on_game_page && canOpenLink(link, isSignedInAdult));
+  const pageLinks = linksOf(game).filter((link) => link.is_on_game_page && canOpenLink(link, isSignedInAdult, view.outsideLinksEnabled));
   const gameOrigin = new URL(frameUrl).origin;
   const testerWords = tester
     ? `You're testing this game with a link from its developer.${isTestBuild ? ` It opens a version players don't have yet${game.multiplayer_mode !== "none" || ownServers.length ? ", so online play is off: it works only on the version players have" : ""}.` : ""}${hidden ? " It isn't public yet: anyone with this link can play, so only share it with other testers." : ""} Your progress stays in this browser.${tester.ends_at_ms ? ` The link works until ${day(tester.ends_at_ms)}.` : ""}`
@@ -574,7 +583,7 @@ ${isClosed
         )}`,
   });
   response.headers.append("Vary", "Sec-Fetch-Dest, Sec-Fetch-Site");
-  if (!view.isShownInLists || tester) response.headers.set("X-Robots-Tag", "noindex");
+  if (!view.isShownInLists || !view.searchEnginesEnabled || tester) response.headers.set("X-Robots-Tag", "noindex");
   return response;
 }
 
@@ -741,7 +750,7 @@ function contentRulesBody(): Raw {
     items: [
       pane("Content rules", [
         { kind: "words", markup: html`<h1>Content rules</h1>` },
-        { kind: "words", markup: html`<p>Zaisma is for players 13 and up. Games may contain anything these rules don't prohibit, including:</p>` },
+        { kind: "words", markup: html`<p>Zaisma is for players 13 and up. Games may contain anything these rules do not prohibit, including:</p>` },
         { kind: "words", markup: html`<p>${ALLOWED_CONTENT_TITLES.map((title, index) => html`<span title="${ALLOWED_CONTENT[index]}">${tag(title, "plain")}</span> `)}</p>` },
       ]),
       pane("The lines", [
@@ -751,7 +760,7 @@ function contentRulesBody(): Raw {
       ]),
       pane("Only on a notice", [
         { kind: "words", markup: html`<h2>Only on a notice</h2>` },
-        { kind: "words", markup: html`<p>We don't judge these ourselves. When the owner of a work, or a private person a game falsely accuses of a crime, sends a notice, the game is hidden until you publish a version without what it names. If the notice is wrong, you can send a counter-notice: see ${textLink("Copyright and DMCA notices", "/legal/dmca")} and ${textLink("Defamation notices", "/legal/defamation")}.</p>` },
+        { kind: "words", markup: html`<p>Zaisma does not judge these itself. When the owner of a work, or a private person a game falsely accuses of a crime, sends a notice, the game is hidden until you publish a version without what it names. If the notice is wrong, you can send a counter-notice: see ${textLink("Copyright and DMCA notices", "/legal/dmca")} and ${textLink("Defamation notices", "/legal/defamation")}.</p>` },
         { kind: "block", markup: listRows({ label: "Only on a notice", whenEmpty: html``, rows: NOTICE_ONLY_CONTENT_RULES.map(ruleRow) }) },
       ]),
       pane("What happens", [
@@ -763,7 +772,7 @@ function contentRulesBody(): Raw {
             facts: [
               { label: "Review", text: "Each version is checked for malware, matched against known illegal images and reviewed against each rule's test, usually within minutes." },
               { label: "Rejection", text: "A version that breaks a rule is rejected with the rule, the finding and the fix. Nothing is deleted; a corrected version can be published." },
-              { label: "Appeal", text: "To contest a decision, message Zaisma with the version (message_zaisma in the MCP). A person replies, usually within a day." },
+              { label: "Appeal", text: "To contest a decision, message Zaisma about the version. A person replies, usually within a day." },
             ],
           }),
         },
@@ -779,12 +788,12 @@ function contentRulesBody(): Raw {
               {
                 title: "Reports",
                 detail: "Every game page has a Report button; child safety and illegal content go straight to a person.",
-                fold: { id: "reports", body: readingText({ markup: html`<p>We remove games that break these rules. Until a report is checked, a brand-new game is hidden and a recent update goes back to the version before it. A person looks only at what the review can't settle, and at anything about child safety.</p>` }) },
+                fold: { id: "reports", body: readingText({ markup: html`<p>Zaisma removes games that break these rules. Until a report is checked, a brand-new game is hidden and a recent update goes back to the version before it. A person looks only at what the review cannot settle, and at anything about child safety.</p>` }) },
               },
               {
                 title: "Player conduct",
                 detail: "How players treat each other is the game's call, with a few exceptions.",
-                fold: { id: "player-conduct", body: readingText({ markup: html`<p>Each game and its moderators decide how players talk to each other, and mute and block are always there. Zaisma steps in for threats that reach into real life, sharing someone's personal details, following someone after they've blocked them, and anything sexual toward a teen. Reports about bullying, cheating and other behavior go to the game's developer.</p>` }) },
+                fold: { id: "player-conduct", body: readingText({ markup: html`<p>Each game and its moderators decide how players talk to each other, and mute and block are always there. Zaisma steps in for threats that reach into real life, sharing someone's personal details, following someone after they have blocked them, and anything sexual toward a teen. Reports about bullying, cheating and other behavior go to the game's developer.</p>` }) },
               },
               {
                 title: "Account closure",
@@ -794,21 +803,21 @@ function contentRulesBody(): Raw {
               {
                 title: "Other countries",
                 detail: "A notice from a court, regulator or police blocks a game in that country only.",
-                fold: { id: "other-countries", body: readingText({ markup: html`<p>These rules follow US law. When a country's own law forbids a game that's allowed here (the UK's hatred offences, for example), the game is blocked for players in that country, and everyone else can still play it. Publishing a version without what the notice names lifts the block. Authorities can send notices to ${textLink("safety@zaisma.com", "mailto:safety@zaisma.com")}.</p>` }) },
+                fold: { id: "other-countries", body: readingText({ markup: html`<p>These rules follow US law. When a country's own law forbids a game that is allowed here (the UK's hatred offences, for example), the game is blocked for players in that country, and everyone else can still play it. Publishing a version without what the notice names lifts the block. Authorities can send notices to ${textLink("safety@zaisma.com", "mailto:safety@zaisma.com")}.</p>` }) },
               },
               {
                 title: "Faked plays",
                 detail: "A game with faked plays is removed from Popular, Trending and New; doing it again can get it taken down.",
-                fold: { id: "faked-plays-in-lists", body: readingText({ markup: html`<p>Plays and players are counted only when they're people (see the faked plays rule above).</p>` }) },
+                fold: { id: "faked-plays-in-lists", body: readingText({ markup: html`<p>Plays and players are counted only when they are people (see the faked plays rule above).</p>` }) },
               },
               {
                 title: "Covers and titles",
                 detail: "Zaisma's lists show games whose covers and titles keep the listing lines.",
-                fold: { id: "covers-and-titles", body: readingText({ markup: html`<p>No text but the title, nothing laid over the picture, no fake rewards, no famous characters you don't own, and built around something from the game. A game that breaks one still plays by its link until it's fixed; a fake reward holds it. See ${textLink("Covers that show your game", "/developers/covers")}.</p>` }) },
+                fold: { id: "covers-and-titles", body: readingText({ markup: html`<p>No text but the title, nothing laid over the picture, no fake rewards, no famous characters you do not own, and built around something from the game. A game that breaks one still plays by its link until it is fixed; a fake reward holds it. See ${textLink("Covers that show your game", "/developers/covers")}.</p>` }) },
               },
               {
                 title: "Names players give",
-                detail: "Names players give to sessions, worlds and maps are allowed; the game keeps them within these rules.",
+                detail: "Names players give to sessions, levels and maps are allowed; the game keeps them within these rules.",
                 fold: { id: "names-players-give", body: readingText({ markup: html`<p>The game is responsible for what its players name things, as for anything else it shows.</p>` }) },
               },
             ],
@@ -820,20 +829,20 @@ function contentRulesBody(): Raw {
 }
 
 const DMCA = `
-<p class="lead">If a game on Zaisma uses your work without permission, send us a notice and players won't be able to open it until it's fixed.</p>
+<p class="lead">If a game on Zaisma uses your work without permission, send Zaisma a notice, and players cannot open the game until it is fixed.</p>
 <h2>What to include</h2>
 <ol>
 <li>Your name, address, phone number and email.</li>
-<li>The work you own, and the Zaisma link where it's being used.</li>
-<li>A statement that you believe in good faith the use isn't authorized by you, your agent or the law.</li>
-<li>A statement, under penalty of perjury, that your notice is accurate and that you're the owner or authorized to act for the owner.</li>
+<li>The work you own, and the Zaisma link where it is used.</li>
+<li>A statement that you believe in good faith the use is not authorized by you, your agent or the law.</li>
+<li>A statement, under penalty of perjury, that your notice is accurate and that you are the owner or authorized to act for the owner.</li>
 <li>Your physical or electronic signature.</li>
 </ol>
 <h2>Where to send it</h2>
 <p>Email <a href="mailto:dmca@zaisma.com">dmca@zaisma.com</a>.</p>
 <p class="note">Designated agent details will be listed here once Zaisma's DMCA agent registration is complete.</p>
 <h2>What happens next</h2>
-<p>We hide the game from players and tell its developer what your notice names. We pass your notice on to them, with your name and email. Once they publish a version without your work, we check it and show the game again. Nothing is deleted.</p>
+<p>Zaisma hides the game from players and tells its developer what your notice names, passing the notice on with your name and email. Once the developer publishes a version without your work, Zaisma checks it and shows the game again. Nothing is deleted.</p>
 <h2>Repeat infringers</h2>
 <p>An account is closed after 3 copyright notices that stand within 12 months: notices with no counter-notice, or whose counter-notice failed. The <a href="/legal/terms">terms of service</a> say what happens to its credit.</p>
 <h2>Counter-notices</h2>
@@ -842,40 +851,40 @@ const DMCA = `
 <li>Your name, address, phone number and email.</li>
 <li>The game's Zaisma link and what the notice named.</li>
 <li>A statement, under penalty of perjury, that you believe in good faith it was hidden by mistake or because the work was misidentified.</li>
-<li>Your consent to the jurisdiction of the federal court for your address (or, outside the US, any court where Zaisma may be found), and that you'll accept service from the person who sent the notice.</li>
+<li>Your consent to the jurisdiction of the federal court for your address (or, outside the US, any court where Zaisma may be found), and that you will accept service from the person who sent the notice.</li>
 <li>Your physical or electronic signature.</li>
 </ol>
-<p>We pass it on to the person who sent the notice, with your name and address. After 10 working days the game is back, unless they tell us they've gone to court.</p>
+<p>Zaisma passes it on to the person who sent the notice, with your name and address. After 10 working days the game is back, unless that person tells Zaisma they have gone to court.</p>
 `;
 
 // The flow Julius settled on Oct 19, 2026: the game is hidden on a notice, without Zaisma judging it, until a fixed version or a counter-notice.
 const DEFAMATION = `
-<p class="lead">If a game on Zaisma falsely says you, a private person, committed a crime, send us a notice and players won't be able to open it until it's fixed. We don't judge whether it's true: the developer can answer with a counter-notice.</p>
+<p class="lead">If a game on Zaisma falsely says you, a private person, committed a crime, send Zaisma a notice, and players cannot open the game until it is fixed. Zaisma does not judge whether it is true: the developer can answer with a counter-notice.</p>
 <p>Satire, jokes and stories about politicians, celebrities and other public figures are allowed, and so are crimes someone was publicly charged with or convicted of. If a game shows where you live, your phone number or where you go to school, or threatens you, use the Report button on its page instead: that breaks the <a href="/legal/content-rules#real_people">content rules</a> whatever it says.</p>
 <h2>What to include</h2>
 <ol>
 <li>Your name and email.</li>
 <li>The game's Zaisma link, and the exact words or scene: where it is in the game, and what it says.</li>
-<li>That it's about you, that you're a private person and not a public figure, and that it says you committed a crime you didn't commit.</li>
-<li>Your consent for us to pass your notice on to the game's developer, with your name.</li>
+<li>That it is about you, that you are a private person and not a public figure, and that it says you committed a crime you did not commit.</li>
+<li>Your consent for Zaisma to pass your notice on to the game's developer, with your name.</li>
 <li>A statement that you believe in good faith your notice is accurate.</li>
 <li>Your physical or electronic signature.</li>
 </ol>
 <h2>Where to send it</h2>
 <p>Email <a href="mailto:safety@zaisma.com">safety@zaisma.com</a>, with "Defamation notice" in the subject.</p>
 <h2>What happens next</h2>
-<p>We hide the game from players and tell its developer what your notice names. Once they publish a version without it, we check it and show the game again. Nothing is deleted.</p>
+<p>Zaisma hides the game from players and tells its developer what your notice names. Once the developer publishes a version without it, Zaisma checks it and shows the game again. Nothing is deleted.</p>
 <h2>Counter-notices</h2>
-<p>If your game was hidden and what it says is true, or isn't about a private person, email the same address with a counter-notice:</p>
+<p>If your game was hidden and what it says is true, or is not about a private person, email the same address with a counter-notice:</p>
 <ol>
 <li>Your name, a contact address and your email.</li>
 <li>The game's Zaisma link and what the notice named.</li>
-<li>Why the notice is wrong: what it says is true, or it isn't about the person who sent it, or that person is a public figure.</li>
-<li>Your consent for us to pass your counter-notice on to the person who sent the notice, with your name and address, so they can take it to court.</li>
+<li>Why the notice is wrong: what it says is true, or it is not about the person who sent it, or that person is a public figure.</li>
+<li>Your consent for Zaisma to pass your counter-notice on to the person who sent the notice, with your name and address, so they can take it to court.</li>
 <li>A statement that you believe in good faith your counter-notice is accurate.</li>
 <li>Your physical or electronic signature.</li>
 </ol>
-<p>We pass it on to the person who sent the notice. After 10 working days the game is back, unless they tell us they've gone to court.</p>
+<p>Zaisma passes it on to the person who sent the notice. After 10 working days the game is back, unless that person tells Zaisma they have gone to court.</p>
 `;
 
 // Approved by Julius on Oct 12, 2026; the play stats and play-check lines on Oct 13, 2026; the lead, the player ID line and the line about games' content rules on Oct 16, 2026; sites you sign in to with Zaisma in the player ID line by merging Sign in with Zaisma; the devices, wrong passwords, cookies, Cloudflare and Supabase lines (Accounts open only through Zaisma) in its preview on Oct 17, 2026.
@@ -896,7 +905,7 @@ function privacyBody(): Raw {
         html`<h2>Playing as a guest</h2>
 <p>Guests receive a temporary ID and a generated name, used only to run the game session and discarded when the browser tab closes. Zaisma keeps no profile of guests.</p>
 <p>The browser stores the games played recently. This list stays on the device and is never sent to Zaisma.</p>
-<p>Each play is counted for the game's developer and for lists such as Popular: that the game was played, how long it was on screen, and whether the browser played it before and on which day it first did. To detect automated traffic, Cloudflare checks that a real browser opened the game's page or joined online play, and plays are counted by internet provider. The details of a play are kept for at most one day; after that, only totals for each game and day are kept, never anything that identifies who played.</p>
+<p>Each play is counted for the game's developer and for lists such as Popular: that the game was played, how long it was on screen, and whether the browser played it before and on which day it first did. Plays are counted by internet provider, never by person. The details of a play are kept for at most one day; after that, only totals for each game and day are kept, never anything that identifies who played.</p>
 <p>Zaisma measures how games perform by browser and device type, as totals only.</p>`,
       ),
       pane(

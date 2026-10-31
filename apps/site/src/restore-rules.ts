@@ -33,6 +33,7 @@ export function restoreRuleOf(backupKey: string): RestoreRule {
     if (parts.length === 3 && parts[2]!.endsWith(".json")) return owned("SELECT 1 AS has_owner FROM save_history WHERE id = ? AND account_id = ? AND game_id = ?", [parts[2]!.slice(0, -".json".length), parts[0]!, parts[1]!], JSON_TYPE);
     return { kind: "never", reason: "not a save or a save's copy" };
   }
+  if (kind === "restore-events") return { kind: "never", reason: "a record the restore replays, not a copy" };
   if (kind !== "zaisma-games") return { kind: "never", reason: "not a kind of backup a restore brings back" };
   const [area = "", ...areaParts] = parts;
   const name = areaParts.at(-1) ?? "";

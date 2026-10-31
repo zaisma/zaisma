@@ -22,6 +22,7 @@ import { DUMP_LIMITS, type DatabaseRow, type DatabaseValue } from "@zaisma/game-
 import type { DeveloperDatabaseAnswer, StatementResult } from "../../rooms/src/database.ts";
 import { hostingUseJson, type CheckedCall, type NextStep } from "./developer.ts";
 import type { Env } from "./env.ts";
+import { recordRestoreEvent } from "./restore-events.ts";
 
 /**
  * A game's own database through the developer API (docs/DECISIONS.md, "Every game gets a real database"):
@@ -103,6 +104,7 @@ export async function databaseRoute(env: Env, game: Game, what: string | undefin
     }
     const erased = readAnswer(await service.erasePlayer(game.id, playerId), null);
     await recordPlayerErased(env.DB, game.id, playerId);
+    await recordRestoreEvent(env, { event_kind: "player_erased", at_ms: Date.now(), game_id: game.id, player_id: playerId });
     return [
       {
         erased_tables: erased.erasedTables.map((erasedTable) => ({ table_name: erasedTable.tableName, erased_row_count: erasedTable.erasedRowCount })),

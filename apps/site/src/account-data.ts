@@ -29,6 +29,7 @@ export const ACCOUNT_DATA_TABLES: Record<string, { file_path: string | null; rea
   room_visits: { file_path: "games-played.json", reason: "Rooms the account left in the last hour, for People I play with." },
   played: { file_path: "games-played.json", reason: "Continue playing." },
   games_ever_played: { file_path: "games-played.json", reason: "Every game played, kept so it can be told when the account is deleted." },
+  game_returning_players: { file_path: "games-played.json", reason: "The games whose plays counted, and on how many different days, toward their developers' standing." },
   presences: { file_path: "games-played.json", reason: "When the account was last seen online, and in which game." },
   room_players: { file_path: "games-played.json", reason: "The rooms the account is in right now." },
   purchases: { file_path: "games-played.json", reason: "Items bought or granted in games, with what was paid." },
@@ -51,6 +52,7 @@ export const ACCOUNT_DATA_TABLES: Record<string, { file_path: string | null; rea
   webhooks: { file_path: "developer.json", reason: "Webhooks, never their signing secrets." },
   sign_in_apps: { file_path: "developer.json", reason: "Sign-in apps, never their secrets." },
   credit_entries: { file_path: "developer.json", reason: "Hosting credit: every top-up, charge and refund." },
+  owner_cards: { file_path: "developer.json", reason: "The cards that paid Zaisma, as fingerprints nobody can read back, with when each first paid." },
   spending_requests: { file_path: "developer.json", reason: "Raises in spending an AI asked for, and how you answered." },
   webhook_deliveries: { file_path: null, reason: "Copies of events about the developer's games, kept 30 days and listed through the API." },
   performance_checks: { file_path: null, reason: "How each of the developer's versions started in Chrome, in the API with each version." },
@@ -69,6 +71,8 @@ export const ACCOUNT_DATA_TABLES: Record<string, { file_path: string | null; rea
   security_places: { file_path: null, reason: "Fingerprints of where API keys were used, never readable back." },
   room_keys: { file_path: null, reason: "Counts of room passes, kept a day." },
   player_erases: { file_path: null, reason: "Only exists once an account is deleted." },
+  banned_marks: { file_path: null, reason: "A safety record: what a ban carries to new accounts, as fingerprints nobody can read back." },
+  ban_matches: { file_path: null, reason: "A safety record: another account that used a banned card, for a person to decide." },
 };
 
 /** Columns of accounts kept out of account.json: safety records and their counters. */
@@ -182,6 +186,7 @@ async function* accountDataSources(env: Env, account: Account, nowMs: number): A
   yield jsonFile("games-played.json", {
     continue_playing: await rows(env, "SELECT game.slug AS game_slug, game.title, played.played_at_ms FROM played JOIN games game ON game.id = played.game_id WHERE played.account_id = ? ORDER BY played.played_at_ms DESC", id),
     games_ever_played: await rows(env, "SELECT game.slug AS game_slug, game.title, ever.first_played_at_ms FROM games_ever_played ever JOIN games game ON game.id = ever.game_id WHERE ever.account_id = ? ORDER BY ever.first_played_at_ms", id),
+    counted_plays: await rows(env, "SELECT game.slug AS game_slug, game.title, counted.first_counted_date, counted.last_counted_date, counted.counted_day_count FROM game_returning_players counted JOIN games game ON game.id = counted.game_id WHERE counted.account_id = ? ORDER BY counted.first_counted_date", id),
     last_seen: (await rows(env, "SELECT presence.seen_at_ms, game.slug AS game_slug, presence.game_seen_at_ms FROM presences presence LEFT JOIN games game ON game.id = presence.game_id WHERE presence.account_id = ?", id))[0] ?? null,
     rooms_now: await rows(env, "SELECT game.slug AS game_slug, room.room_code, room.server_url, room.joined_at_ms, room.updated_at_ms FROM room_players room JOIN games game ON game.id = room.game_id WHERE room.player_id = ?", account.player_id),
     rooms_left_lately: await rows(env, "SELECT game.slug AS game_slug, visit.room_code, visit.server_url, visit.last_seen_at_ms FROM room_visits visit JOIN games game ON game.id = visit.game_id WHERE visit.player_id = ?", account.player_id),
@@ -257,7 +262,8 @@ async function* accountDataSources(env: Env, account: Account, nowMs: number): A
     webhooks: await owned("webhooks", "id, destination_kind, endpoint_url, event_kinds, game_slugs, created_at_ms, updated_at_ms"),
     sign_in_apps: await owned("sign_in_apps", "id, name, kind, redirect_urls, created_at_ms, updated_at_ms"),
     credit_entries: await owned("credit_entries", "id, entry_kind, amount_cents, game_id, refundable_until_ms, refunded_cents, created_at_ms"),
-    spending_requests: await rows(env, "SELECT id, request_kind, game_id, monthly_budget_cents, request_status, created_at_ms, expires_at_ms, answered_at_ms FROM spending_requests WHERE account_id = ? ORDER BY created_at_ms", id),
+    owner_cards: ownerIds.length ? await rows(env, `SELECT card_fingerprint_sha256, first_paid_at_ms FROM owner_cards WHERE owner_id IN (${ownerIds.map(() => "?").join(", ")}) ORDER BY first_paid_at_ms`, ...ownerIds) : [],
+    spending_requests: await rows(env, "SELECT id, request_kind, game_id, monthly_budget_cents, refill_level_cents, request_status, created_at_ms, expires_at_ms, answered_at_ms FROM spending_requests WHERE account_id = ? ORDER BY created_at_ms", id),
   });
 
   if (missing.length) {

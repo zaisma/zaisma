@@ -144,6 +144,8 @@ export async function handlePasskeys(request: Request, env: Env, path: string): 
     if (!key || !checked || (typeof body.userHandle === "string" && body.userHandle && body.userHandle !== b64url(new TextEncoder().encode(key.account_id)))) {
       return json({ error: "That passkey didn't work. It may have been removed from your account. Sign in with your password instead." }, 400, [used]);
     }
+    const keyAccount = await accountById(env.DB, key.account_id);
+    if (keyAccount?.banned_at_ms != null && keyAccount.ban_scope === "whole_account") return json({ error: "This account is closed for breaking Zaisma's rules." }, 403, [used]);
     const session = await sessionForUser(env, key.account_id, connectionAddressOf(request));
     if (!session) return json({ error: "Couldn't sign you in. Try again, or use your password." }, 502, [used]);
     await usedPasskey(env.DB, key.id, checked.signCount);

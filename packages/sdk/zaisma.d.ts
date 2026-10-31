@@ -26,7 +26,9 @@
  *
  * Player passes, for rooms and your own servers, need the game played on its zaisma.com page, which
  * checks the browser on Play: joining fails with `error.code` "unchecked" when it couldn't, or when the
- * game was opened anywhere else, and "not_on_zaisma" when the game isn't hosted on Zaisma at all.
+ * game was opened anywhere else. A game played off Zaisma (exported, on another site, wrapped for a store)
+ * plays online against your own game server only: call {@link Zaisma.setUpOffZaisma} first, and give
+ * joinRoom and server.request a serverUrl; without them they fail with "not_on_zaisma".
  *
  * @example
  * const room = await Zaisma.joinRoom();         // joins ?room=CODE if the link has one, else makes a room
@@ -140,8 +142,9 @@ declare namespace Zaisma {
    * refused (the game server's canJoin said no; the message is its refusalMessage), hosting_paused (the
    * game's hosting is paused this month: its free allowance or its developer's budget or credit is used). No player pass: unchecked, or account_needed for a
    * guest when the game needs accounts (see Zaisma.player.getPass()). The
-   * call is set up wrong: unknown_option, bad_room_code, bad_server_url, bad_transport, not_on_zaisma (the game isn't hosted
-   * on Zaisma, serverUrl or not; serverUrl points a game hosted on Zaisma at your own server). Or connection_closed (the connection closed first, say the game left or the player
+   * call is set up wrong: unknown_option, bad_room_code, bad_server_url, bad_transport, not_on_zaisma (the game is played
+   * off Zaisma without a serverUrl, or before {@link setUpOffZaisma}). Off Zaisma, bad_player_token: your server
+   * didn't take the playerToken (get the player a new one and call setUpOffZaisma again). Or connection_closed (the connection closed first, say the game left or the player
    * joined from another tab) and request_failed (Zaisma didn't answer). {@link ErrorCode} has them all.
    *
    * @example
@@ -153,6 +156,40 @@ declare namespace Zaisma {
    * Zaisma.joinRoom({ serverUrl: "wss://play.example.com" });  // your own game server
    */
   function joinRoom(joinOptions?: JoinOptions): Promise<Room>;
+
+  /**
+   * Set up a game played off Zaisma (exported, on another site, wrapped for a store) to play online against
+   * your own game server. Off Zaisma there's no Zaisma pass, so joinRoom and server.request with a serverUrl
+   * send the playerToken in its place, and your server says who the player is (startServer's identifyPlayer):
+   * a Sign in with Zaisma ID token (same player ID and name as on Zaisma), your game's own token, or null for
+   * a guest when your server lets guests in (outsideGuestsEnabled). They join with kind "outside_zaisma",
+   * in the same rooms as players from your Zaisma page.
+   *
+   * On a Zaisma page it changes nothing and resolves { isOffZaisma: false }, so the same code runs in both
+   * places. Call it again to replace the token (a new sign-in, or signing out); rooms use the newest one when
+   * they reconnect. Off Zaisma there's no Zaisma bar, saves, buy sheet, friends or room lists.
+   *
+   * Fails with error.code unknown_option, bad_game_slug (not a game slug) and bad_player_token (not text up to 8 KB, or null).
+   *
+   * @example
+   * await Zaisma.setUpOffZaisma({ gameSlug: "star-raiders", playerToken: idToken });
+   * const room = await Zaisma.joinRoom({ serverUrl: "wss://play.example.com" });
+   */
+  function setUpOffZaisma(setUpOptions: SetUpOffZaismaOptions): Promise<OffZaismaSetup>;
+
+  /** Options for {@link setUpOffZaisma}. */
+  interface SetUpOffZaismaOptions {
+    /** Your game's slug, as its Zaisma link names it, like "star-raiders": the address your server's rooms and requests take. */
+    gameSlug: string;
+    /** The player's token for your own server, text up to 8 KB: a Sign in with Zaisma ID token or your game's own. Null or left out for a guest. */
+    playerToken?: string | null;
+  }
+
+  /** What {@link setUpOffZaisma} answers. */
+  interface OffZaismaSetup {
+    /** False on a Zaisma page (nothing changed); true elsewhere, where joins and requests now carry the playerToken. */
+    isOffZaisma: boolean;
+  }
 
   /** Room browsing: the game's listed rooms, which show on its Zaisma page and to the game itself. */
   const rooms: Rooms;
@@ -982,8 +1019,9 @@ declare namespace Zaisma {
      * seconds; you see why with the game server's errors), hosting_paused (the game's hosting
      * on Zaisma is paused this month: its free allowance or its developer's budget or credit is used), too_big, bad_request (not plain JSON), slow_down
      * (over about 120 a minute from one address), bad_pass, account_needed, unchecked,
-     * game_unavailable, bad_origin, busy, bad_server_url, not_on_zaisma (the game isn't hosted
-     * on Zaisma, serverUrl or not), unknown_option and request_failed.
+     * game_unavailable, bad_origin, busy, bad_server_url, not_on_zaisma (the game is played off
+     * Zaisma without a serverUrl, or before {@link Zaisma.setUpOffZaisma}), bad_player_token (off Zaisma,
+     * your server didn't take the playerToken), unknown_option and request_failed.
      *
      * @example
      * const top = await Zaisma.server.request({ type: "leaderboard" });
@@ -1348,6 +1386,15 @@ declare namespace Zaisma {
      */
     versionUpdate: (versionUpdate: VersionUpdate) => void;
     /**
+     * A room message reached this room and its game server has no onRoomMessage, so every player's game hears
+     * it: from another room of the game (senderKind "room", fromRoomCode), its game server outside rooms
+     * ("server") or the developer (the API and MCP, "developer"), like an announcement or a live event starting.
+     * Zaisma shows nothing: your game decides. A game server with onRoomMessage takes it instead.
+     * @example
+     * room.on("roomMessage", ({ message }) => { if (message.kind === "blood_moon") startBloodMoon(); });
+     */
+    roomMessage?: (roomMessage: RoomMessage) => void;
+    /**
      * Another player's chat message reached this player ({@link Room.chat}). Messages from players this
      * player muted or blocked never come. hasSwearing and hasSlur flag what Zaisma allows: hide or blur
      * them if your game doesn't. (Optional here only so games written for v1's events still fit.)
@@ -1438,6 +1485,18 @@ declare namespace Zaisma {
     answerTimeoutSec: number;
   }
 
+  /** A room message, as the room's "roomMessage" event hands it over. */
+  interface RoomMessage {
+    /** The message as sent: plain JSON, up to 16 KB. */
+    message: unknown;
+    /** Who sent it: another room's game server, the game server outside rooms, or the developer. */
+    senderKind: "room" | "server" | "developer";
+    /** The code of the room that sent it, or null unless senderKind is "room". */
+    fromRoomCode: string | null;
+    /** When it was sent, an ISO time. */
+    sentAt: string;
+  }
+
   /** A match moving to a version published "now" (the room's "versionUpdate" event). */
   interface VersionUpdate {
     /** The version it moves to, like "version_k2v9q4x7m1p3w8r5t6y0". */
@@ -1467,8 +1526,11 @@ declare namespace Zaisma {
     awayReason: "idle" | "hidden" | "lost" | null;
   }
 
-  /** A signed-in Zaisma account, or a guest. More values may come; treat an unknown one as "guest". */
-  type PlayerKind = "guest" | "account";
+  /**
+   * A signed-in Zaisma account, a guest, or a player your own server let in from outside Zaisma
+   * (outside_zaisma: a game played off Zaisma, {@link setUpOffZaisma}). More values may come; treat an unknown one as "guest".
+   */
+  type PlayerKind = "guest" | "account" | "outside_zaisma";
 
   /** What anyone sees of an account on its profile, zaisma.com/@username ({@link player.getProfile}). */
   interface PlayerProfile {
@@ -1606,6 +1668,7 @@ declare namespace Zaisma {
    * - game_not_open_to_player: the account is younger than the game's minimum age (set on the dashboard); the game never learns its age.
    * - game_unavailable: the game can't be played right now.
    * - bad_pass: the player pass wasn't accepted (the SDK gets a new one and tries once more).
+   * - bad_player_token: off Zaisma, your own server didn't take the playerToken ({@link setUpOffZaisma}); the game gets the player a new one.
    * - bad_origin: the connection didn't come from the game's own page.
    * - too_big: a message over 16 KB, or joinData over 4 KB.
    * - too_fast: more messages than the room takes (about 30 a second).
@@ -1621,6 +1684,8 @@ declare namespace Zaisma {
    * - chat_not_allowed, chat_empty, chat_too_long, chat_too_fast: {@link Room.chat} refused (they reject its promise, not the "error" event); chat_not_here: the room's server doesn't take chat.
    *
    * More codes may come within v1: handle one you don't know like an error you can show (its message).
+   *
+   * More values may come; treat an unknown one as "request_failed".
    */
   type RoomErrorCode =
     | "room_full"
@@ -1633,6 +1698,7 @@ declare namespace Zaisma {
     | "game_not_open_to_player"
     | "game_unavailable"
     | "bad_pass"
+    | "bad_player_token"
     | "bad_origin"
     | "too_big"
     | "too_fast"
@@ -1658,6 +1724,7 @@ declare namespace Zaisma {
    * - bad_request: not plain JSON with the player's pass.
    * - too_big: a request over 16 KB.
    * - bad_pass: the player pass wasn't accepted (the SDK gets a new one and tries once more).
+   * - bad_player_token: off Zaisma, your own server didn't take the playerToken ({@link setUpOffZaisma}); the game gets the player a new one.
    * - account_needed: the player is a guest, and the game needs a Zaisma account for multiplayer or the whole game.
    * - game_not_open_to_player: the account is younger than the game's minimum age (set on the dashboard); the game never learns its age.
    * - game_unavailable: the game can't be played right now.
@@ -1667,11 +1734,14 @@ declare namespace Zaisma {
    * - slow_down: too many requests from this address; try again in a minute.
    * - bad_origin: the request didn't come from the game's own page.
    * - busy: Zaisma couldn't answer right now; try again soon.
+   *
+   * More values may come; treat an unknown one as "request_failed".
    */
   type RequestErrorCode =
     | "bad_request"
     | "too_big"
     | "bad_pass"
+    | "bad_player_token"
     | "account_needed"
     | "game_not_open_to_player"
     | "game_unavailable"
@@ -1690,7 +1760,8 @@ declare namespace Zaisma {
    * - zaisma_rooms_not_used: the game doesn't use Zaisma rooms.
    * - bad_report: a report whose reason isn't a {@link ReportReason}, or whose player ID isn't one.
    * - bad_origin: the call didn't come from the game's own page.
-   * - not_on_zaisma: the game isn't hosted on Zaisma, so it has no player passes, sign-in or room lists, and joinRoom needs a serverUrl.
+   * - not_on_zaisma: the game is played off Zaisma, so it has no player passes, sign-in or room lists; joinRoom and server.request need {@link setUpOffZaisma} and a serverUrl.
+   * - bad_game_slug: {@link setUpOffZaisma}'s gameSlug isn't a game slug: 1 to 40 lowercase letters, digits or hyphens.
    * - sign_in_declined: the player chose Not now when the game asked them to sign in ({@link player.signIn}) or showed the "Keep your progress" card ({@link player.offerAccount}).
    * - account_offer_too_soon: the "Keep your progress" card already showed this visit, or the player chose Not now in the last 3 days ({@link player.offerAccount}).
    * - cloud_saves_off: the game has cloud saves off, so it has no saves on players' accounts ({@link saves}).
@@ -1731,6 +1802,7 @@ declare namespace Zaisma {
     | "bad_report"
     | "bad_origin"
     | "not_on_zaisma"
+    | "bad_game_slug"
     | "sign_in_declined"
     | "account_offer_too_soon"
     | "cloud_saves_off"

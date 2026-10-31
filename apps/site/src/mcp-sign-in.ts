@@ -263,7 +263,7 @@ async function checkAuthorize(env: Env, given: (name: string) => string | null):
     if (fieldValue) parameters[name] = fieldValue;
   }
   const client = await mcpClientFor(env, parameters.client_id ?? "");
-  if (!client) return { brokenLinkReason: "the AI app it came from isn't known to Zaisma, or its details couldn't be read (its client_id)" };
+  if (!client) return { brokenLinkReason: "the AI app it came from isn't known to Zaisma, or its details couldn't be read" };
   const checkedUrl = checkRedirectUrl(parameters.redirect_uri ?? "");
   const redirectUrl = "redirectUrl" in checkedUrl ? checkedUrl.redirectUrl : null;
   if (!redirectUrl || !redirectUrlsOf(client).includes(redirectUrl)) return { brokenLinkReason: `it would send you back to an address ${client.client_name} didn't register (redirect_uri)` };

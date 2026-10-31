@@ -84,8 +84,8 @@
     "kind": "fields",
     "fields": {
       "text": ": string",
-      "senderPass": ": string",
-      "receiverPasses": ": Array<string>",
+      "senderPass": ": string | null",
+      "receiverPasses": ": Array<string | null>",
       "isAdultFilterEnabled": "?: boolean | undefined"
     }
   },
@@ -196,9 +196,11 @@
       "onRefund",
       "onTick",
       "onEnding",
+      "onEndingCancelled",
       "onRestored",
       "stateView",
       "onVersionUpdate",
+      "onRoomMessage",
       "onRequest",
       "schedules",
       "onSchedule",
@@ -249,9 +251,11 @@
       "onBytes": "?: ((state: S, player: Player, room: Room, bytes: Uint8Array<ArrayBufferLike>) => HandlerResult<S>) | undefined",
       "onTick": "?: ((state: S, tickDurationSec: number, room: Room) => HandlerResult<S>) | undefined",
       "onEnding": "?: ((state: S, room: Room) => HandlerResult<S>) | undefined",
+      "onEndingCancelled": "?: ((state: S, room: Room) => HandlerResult<S>) | undefined",
       "onRestored": "?: ((state: S, restoreInfo: RestoreInfo, room: Room) => HandlerResult<S>) | undefined",
       "stateView": "?: ((state: S, viewer: Player, room: Room) => unknown) | undefined",
-      "onVersionUpdate": "?: ((state: S, versionUpdate: VersionUpdate, room: Room) => HandlerResult<S>) | undefined"
+      "onVersionUpdate": "?: ((state: S, versionUpdate: VersionUpdate, room: Room) => HandlerResult<S>) | undefined",
+      "onRoomMessage": "?: ((state: S, roomMessage: RoomMessage, room: Room) => HandlerResult<S>) | undefined"
     }
   },
   "GameServerError": {
@@ -270,6 +274,10 @@
     ]
   },
   "HandlerResult": {
+    "kind": "fields",
+    "fields": {}
+  },
+  "IdentifyPlayer": {
     "kind": "fields",
     "fields": {}
   },
@@ -318,6 +326,23 @@
       "lost"
     ]
   },
+  "LiveRoom": {
+    "kind": "fields",
+    "fields": {
+      "roomCode": ": string",
+      "name": ": string | null",
+      "labels": ": Record<string, string>",
+      "playerCount": ": number",
+      "maximumPlayerCount": ": number",
+      "spectatorCount": ": number",
+      "isListed": ": boolean",
+      "isOpen": ": boolean",
+      "isKept": ": boolean",
+      "versionId": ": string | null",
+      "continent": ": string | null",
+      "createdAt": ": string"
+    }
+  },
   "MoveOptions": {
     "kind": "fields",
     "fields": {
@@ -360,6 +385,13 @@
       "too_big",
       "unreachable_host"
     ]
+  },
+  "OutsidePlayer": {
+    "kind": "fields",
+    "fields": {
+      "id": ": string",
+      "name": ": string"
+    }
   },
   "PASS_ISSUER_URL": {
     "kind": "constant",
@@ -430,7 +462,8 @@
     "kind": "values",
     "values": [
       "account",
-      "guest"
+      "guest",
+      "outside_zaisma"
     ]
   },
   "PublicKey": {
@@ -495,6 +528,7 @@
     "value": {
       "maximumRequestSizeBytes": 16384,
       "maximumPassSizeBytes": 98304,
+      "maximumPlayerTokenSizeBytes": 8192,
       "maximumAnswerSizeBytes": 1048576,
       "answerTimeoutSec": 10
     }
@@ -538,6 +572,26 @@
       "maximumLatestKeyCharacterCount": 40,
       "maximumLatestOnlySlotCount": 64
     }
+  },
+  "ROOM_MESSAGE_LIMITS": {
+    "kind": "constant",
+    "value": {
+      "maximumRoomMessageSizeBytes": 16384,
+      "maximumRoomSendsPerSec": 20,
+      "maximumReceivedRoomMessagesPerSec": 100,
+      "maximumEveryRoomSendsPerMin": 10,
+      "maximumScheduledRoomMessageCount": 100,
+      "maximumScheduleAheadDurationDays": 90,
+      "maximumListedRoomCount": 500
+    }
+  },
+  "ROOM_MESSAGE_SENDER_KINDS": {
+    "kind": "constant",
+    "value": [
+      "room",
+      "server",
+      "developer"
+    ]
   },
   "ReceiptClaims": {
     "kind": "fields",
@@ -600,6 +654,7 @@
       "account_needed",
       "bad_origin",
       "bad_pass",
+      "bad_player_token",
       "bad_request",
       "busy",
       "game_not_open_to_player",
@@ -657,6 +712,9 @@
       "reserve": ": (reserveOptions: ReserveOptions) => string",
       "kick": ": (playerId: string, kickOptions?: KickOptions | undefined) => void",
       "moveTo": ": (roomCode: string, moveOptions: MoveOptions) => void",
+      "sendToRoom": ": (roomCode: string, message: unknown) => Promise<{ isDelivered: boolean; }>",
+      "sendToEveryRoom": ": (message: unknown, roomSelection?: RoomSelection | undefined) => Promise<{ roomCount: number; }>",
+      "listRooms": ": (roomSelection?: RoomSelection | undefined) => Promise<{ rooms: Array<LiveRoom>; }>",
       "database": ": GameDatabase",
       "secrets": ": Readonly<Record<string, string>>",
       "verifyReceipt": ": (receipt: string) => Promise<ReceiptClaims>",
@@ -676,6 +734,7 @@
       "bad_message",
       "bad_origin",
       "bad_pass",
+      "bad_player_token",
       "blocked_player_here",
       "busy",
       "chat_empty",
@@ -707,6 +766,41 @@
     "fields": {
       "name": "?: string | null | undefined",
       "labels": "?: Record<string, string | number> | null | undefined"
+    }
+  },
+  "RoomMessage": {
+    "kind": "fields",
+    "fields": {
+      "message": ": unknown",
+      "senderKind": ": RoomMessageSenderKind",
+      "fromRoomCode": ": string | null",
+      "sentAt": ": string"
+    }
+  },
+  "RoomMessageSenderKind": {
+    "kind": "values",
+    "values": [
+      "developer",
+      "room",
+      "server"
+    ]
+  },
+  "RoomPlayer": {
+    "kind": "fields",
+    "fields": {
+      "playerId": ": string",
+      "name": ": string",
+      "kind": ": PlayerKind",
+      "isAway": ": boolean",
+      "awayReason": ": AwayReason | null",
+      "joinedAt": ": string",
+      "isSpectator": ": boolean"
+    }
+  },
+  "RoomSelection": {
+    "kind": "fields",
+    "fields": {
+      "labels": "?: Record<string, string> | undefined"
     }
   },
   "SCHEDULE_LIMITS": {
@@ -749,7 +843,22 @@
     "fields": {
       "database": ": GameDatabase",
       "secrets": ": Readonly<Record<string, string>>",
-      "verifyReceipt": ": (receipt: string) => Promise<ReceiptClaims>"
+      "verifyReceipt": ": (receipt: string) => Promise<ReceiptClaims>",
+      "sendToRoom": ": (roomCode: string, message: unknown) => Promise<{ isDelivered: boolean; }>",
+      "sendToEveryRoom": ": (message: unknown, roomSelection?: RoomSelection | undefined) => Promise<{ roomCount: number; }>",
+      "listRooms": ": (roomSelection?: RoomSelection | undefined) => Promise<{ rooms: Array<LiveRoom>; }>",
+      "getRoom": ": (roomCode: string) => Promise<{ room: LiveRoom; players: Array<RoomPlayer>; } | null>",
+      "kickFromRoom": ": (roomCode: string, playerId: string, kickOptions?: KickOptions | undefined) => Promise<{ isDone: boolean; }>",
+      "endRoom": ": (roomCode: string, message?: string | undefined) => Promise<{ isDone: boolean; }>"
+    }
+  },
+  "SignInWithZaismaPlayersOptions": {
+    "kind": "fields",
+    "fields": {
+      "signInAppIds": ": Array<string>",
+      "siteUrl": "?: string | undefined",
+      "loadKeys": "?: ((isRefreshing: boolean) => Promise<Array<PublicKey>>) | undefined",
+      "loadProfile": "?: ((playerId: string) => Promise<{ name: string; } | null>) | undefined"
     }
   },
   "VERSION_UPDATE_CLOSE_CODE": {
@@ -861,6 +970,10 @@
     "kind": "signature",
     "signature": "(): string"
   },
+  "guestPlayer": {
+    "kind": "signature",
+    "signature": "(): OutsidePlayer"
+  },
   "isRoomCode": {
     "kind": "signature",
     "signature": "(code: string): boolean"
@@ -876,6 +989,10 @@
   "relay": {
     "kind": "constant",
     "value": "GameServer<{}>"
+  },
+  "signInWithZaismaPlayers": {
+    "kind": "signature",
+    "signature": "(options: SignInWithZaismaPlayersOptions): IdentifyPlayer"
   },
   "verifyPass": {
     "kind": "signature",
@@ -893,7 +1010,8 @@
     "kind": "fields",
     "fields": {
       "close": ": () => Promise<void>",
-      "httpServer": ": Server"
+      "httpServer": ": Server",
+      "fastLaneReady": ": Promise<void>"
     }
   },
   "StartServerOptions": {
@@ -912,7 +1030,12 @@
       "webhookSigningSecret": "?: string | undefined",
       "roomStateFile": "?: string | null | undefined",
       "zaismaKey": "?: string | undefined",
-      "developerApiUrl": "?: string | undefined"
+      "developerApiUrl": "?: string | undefined",
+      "webtransportPort": "?: number | undefined",
+      "certificatePath": "?: string | undefined",
+      "certificateKeyPath": "?: string | undefined",
+      "identifyPlayer": "?: IdentifyPlayer | undefined",
+      "outsideGuestsEnabled": "?: boolean | undefined"
     }
   },
   "startServer": {

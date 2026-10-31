@@ -94,7 +94,7 @@ const STRIPE_TEST_VARS = (() => {
   try {
     const vars = Object.fromEntries(readFileSync(join(ROOT, "apps/site/.dev.vars"), "utf8").split("\n").map((line) => line.match(/^\s*([A-Z0-9_]+)\s*=\s*"?([^"\r]*)"?\s*$/)).filter(Boolean).map(([, name, value]) => [name, value]));
     if (!vars.STRIPE_SECRET_KEY?.startsWith("sk_test_") || !vars.STRIPE_PUBLISHABLE_KEY?.startsWith("pk_test_")) return null;
-    const optional = ["STRIPE_PRO_PRICE_ID", "STRIPE_CONNECT_CLIENT_ID", "STRIPE_EVENTS_SECRET", "STRIPE_CONNECT_EVENTS_SECRET"].filter((name) => vars[name]);
+    const optional = ["STRIPE_PRO_PRICE_ID", "STRIPE_CREDIT_PLAN_PRICE_ID", "STRIPE_CONNECT_CLIENT_ID", "STRIPE_EVENTS_SECRET", "STRIPE_CONNECT_EVENTS_SECRET"].filter((name) => vars[name]);
     return { STRIPE_SECRET_KEY: vars.STRIPE_SECRET_KEY, STRIPE_PUBLISHABLE_KEY: vars.STRIPE_PUBLISHABLE_KEY, ...Object.fromEntries(optional.map((name) => [name, vars[name]])) };
   } catch {
     return null;
@@ -144,7 +144,7 @@ const siteSettings = {
   ...(STRIPE_TEST_VARS ?? {
     STRIPE_API_ORIGIN: `http://localhost:${PORTS.stripe}`,
     STRIPE_SECRET_KEY: "sk_test_preview", STRIPE_PUBLISHABLE_KEY: "pk_test_preview", STRIPE_EVENTS_SECRET: "whsec_test_preview",
-    STRIPE_CONNECT_CLIENT_ID: "ca_test_preview", STRIPE_CONNECT_EVENTS_SECRET: "whsec_test_connect_preview", STRIPE_PRO_PRICE_ID: "price_test_preview",
+    STRIPE_CONNECT_CLIENT_ID: "ca_test_preview", STRIPE_CONNECT_EVENTS_SECRET: "whsec_test_connect_preview", STRIPE_PRO_PRICE_ID: "price_test_preview", STRIPE_CREDIT_PLAN_PRICE_ID: "price_test_preview_credit_plan",
   }),
 };
 const gamesSettings = { SITE_ORIGIN: SITE, GAME_HOST_MODE: "path", GAME_DOMAIN: "", ROOMS_ORIGIN: ROOMS, ...localSettings({ SITE_ORIGIN: LOCAL_SITE, ROOMS_ORIGIN: LOCAL_ROOMS }) };
@@ -567,6 +567,8 @@ runSql(`INSERT OR IGNORE INTO accounts (id, player_id, username, age_band, creat
        SELECT 'version_previewreupload0001', 'game_previewsharddash001', 'manifests/version_previewreupload0001', 5, 42000, 'held', replace('${reuploadReport("ORIGINAL_ID")}', 'ORIGINAL_ID', id), ${Date.now()}, 'files', 'First version.', 0 FROM games WHERE slug = 'shard-dodge'`);
 // The preview account's friends, online and in rooms, again this run (once seedFriends made them).
 seedFriendsNow();
+// Account standing, again this run: Preview_Studio is Zaisma's own, New_Studio three days old with 12 returning players, New_Teen an hour old.
+seedStandingNow();
 // People playing now, again this run (a ticket counts for 6 minutes): 5 browsers in Shard Dodge, shown on its tile, the
 // home's stage and its page, and 2 in Tiny Farm, under the minimum of 3 so it shows nothing.
 seedPlayingNow();
@@ -600,6 +602,8 @@ await seedConfirmItsYou();
 seedDeveloperSettings();
 // A developer whose account can be deleted with its games, made again once it's gone.
 await seedDeletingDeveloper();
+// A banned developer and a closed account (apps/site/src/bans.ts).
+await seedBans();
 stepDone("account states");
 // Pretend play stats for two games, so the dashboard's Plays section has something to show. Real
 // presses of Play in the preview add to them.
@@ -684,6 +688,10 @@ Zaisma preview is running. Nothing here touches the live site.
   Paid game       ${SITE}/g/ashfall  (sells itself for $24.99: Buy where Play is, Play the demo, Add-ons; as Card_Keeper, who owns it and the
                   Supporter pack: Play and Owned; ${SITE}/g/ashfall?buy as Moss_Runner opens the sheet; ${SITE}/g/ashfall-demo links Full game;
                   ${SITE}/games?price=15_to_30 filters by price, and covers carry the price for anyone who doesn't own it)
+  Standing        ${SITE}/dashboard/harbor-lights/details#links  (as New_Studio: 12 of 20 returning players, so its own-site link waits,
+                  with Add a card; Patreon opens as before); ${SITE}/dashboard/tiny-farm/details#links as Preview_Studio, Zaisma's own: no note;
+                  ${SITE}/g/harbor-lights  (plays and shows in Browse, kept from search engines: X-Robots-Tag noindex; its website button is gone);
+                  ${SITE}/account#social as New_Teen (16, an hour old: Chat with anyone waits a day)
   Leaving Zaisma  ${SITE}/g/tiny-farm?play  (its link buttons: Seed shop and Patreon open for everyone, Discord only
                   for signed-in adults, Free prize for nobody; its links are on ${SITE}/dashboard/tiny-farm/details#links)
   Share cards     ${SITE}/g/shard-dodge  (its developer links in each site's look: Discord and the website only signed in
@@ -710,6 +718,8 @@ Zaisma preview is running. Nothing here touches the live site.
                   ${SITE}/g/tiny-farm?play names it: "Online play runs on the developer's own server: play.example.com")
   Make an account ${SITE}/join  (try the username Preview_Studio to see it taken, with free ones to tap)
   Sign in         ${SITE}/signin  (Preview_Studio, password "${PASSWORD}"; Old_Timer has no password yet)
+  Bans            ${SITE}/dashboard  (as Banned_Dev: why it's banned and each game's Export everything, no Make a game);
+                  ${SITE}/signin  (Closed_Player with the password: the closed page, with why and how to appeal)
   Forgot password ${SITE}/signin/email  (old@example.test or legacy@example.test; the code arrives in the mailbox below)
   Mailbox         ${MAIL}  (the email codes the preview sent, as players get them; nothing goes to a real address)
   Feedback        the Feedback button at the bottom right of every page: click a thing or drag a box to comment; a session runs
@@ -727,12 +737,14 @@ Zaisma preview is running. Nothing here touches the live site.
   Activity        ${SITE}/account#activity  (as Preview_Studio: a new device in Manchester, keys made and used from a new
                   place, an AI connected; as Moss_Runner: Keep where my account is used from is off)
   Developer settings ${SITE}/dashboard/settings  (as Preview_Studio: hosting with a top-up's Refund in its row of The last 90 days, a webhook with three failed deliveries, ${SITE}/dashboard/settings?spending_request=spending_request_preview0waiting asks to raise Arena's budget to $40, ...0expired is no longer waiting, Payments connected on the stand-in with a balance and a next payout)
+  Webhook limit   ${SITE}/dashboard/settings#webhooks  (as Many_Things: 10 webhooks, as many as an account can; adding one more says so in a page's words)
   Leaked keys     ${SITE}/account#developer  (as Preview_Studio: three key rows, one working with a last use and an end date, one
                   turned off after GitHub found it, one that ended yesterday; Make an API key shows the Ends choice) and
                   ${SITE}/account#activity  (Zaisma turned off an API key found in public)
   Terms of service ${SITE}/legal/terms  (the whole page; ${SITE}/legal/dmca has Repeat infringers, and the footer's Terms links here)
   Pro's refund    ${SITE}/dashboard/settings#pro  (as Preview_Studio: Pro started 3 days ago, so Cancel Pro has two ways out: cancel at renewal, or end now and refund; as Key_Maker, Pro past its 14 days: Cancel Pro is one button. On #hosting the $25 top-up's row has its Refund and the 40-day $10 one's doesn't; /account's delete box names the $4.60 that won't come back)
   Add credit      ${SITE}/dashboard/settings#hosting  (as Quiet_Builder, no passkey or email: Add credit, then Pay on Stripe, says to add one first; as Key_Maker, with an email, it goes on to Stripe)
+  Credit plan     ${SITE}/dashboard/settings#hosting  (as Key_Maker: the monthly plan's row, back to $40 on the 1st, which pays $12.40 so far, with Change level and Stop plan; as Moss_Runner: its card declined; as Preview_Studio: Start a monthly plan and its sheet)
   Security alerts ${SITE}/account  (as Quiet_Builder, no email: two alerts with That was me and Not you?, then
                   Where should we tell you…? with Skip) and ${SITE}/dashboard  (the same two); the mailbox has the
                   alerts accounts with an email got (an email added, a new sign-in, a new key);
@@ -1031,6 +1043,7 @@ async function seed() {
     await api("PUT", `/games/tiny-farm/items/${itemName}`, fields);
   }
   await seedBuySheet(api, upload, approveNewest);
+  await seedStanding(api, upload, approveNewest, go, form);
   stepDone("buy sheet");
   await seedPaidGame(api, upload, approveNewest, go, form);
   stepDone("paid game");
@@ -1861,6 +1874,47 @@ function poster(ip) {
   };
 }
 
+/**
+ * Account standing (packages/core/src/standing.ts): New_Studio, a developer with Harbor Lights, listed with a Patreon link
+ * and one to its own site; New_Teen, a 16-year-old set to open and social. Harbor Lights is made by Preview_Studio's key
+ * and handed to New_Studio, as dashking's Seaside Stand is. seedStandingNow sets their ages and counts every run.
+ */
+async function seedStanding(api, upload, approveNewest, go, form) {
+  await signedIn({ name: "New_Studio", email: "newstudio@example.test", year: "1991" }, "198.51.100.235");
+  await go("/admin/publishing/add", form({ username: "New_Studio" }));
+  const { game } = await api("POST", "/games", { title: "Harbor Lights", description: "Guide the night boats home through the fog.", devices: ["computer"], controls: ["keyboard_mouse"], play_modes: [{ mode: "single" }], genres: ["puzzle"] });
+  await upload("examples/hello-game", game.slug, "First version.");
+  await api("POST", `/games/${game.slug}/versions/${await approveNewest(game.slug)}/publish`);
+  for (const [kind, n] of [["screenshot", 4], ["cover", 0]]) {
+    const { image } = await api("POST", `/games/${game.slug}/images?kind=${kind}`, picture([40, 90, 140], n));
+    await go(`/admin/images/${image.id}/approve`, form({ reason: "" }));
+  }
+  await api("PATCH", `/games/${game.slug}`, {
+    visibility: "listed",
+    links: [
+      { link_name: "patreon", destination_url: "https://www.patreon.com/newstudio", is_on_game_page: true },
+      { link_name: "website", destination_url: "https://newstudio.example", is_on_game_page: true },
+    ],
+  });
+  await signedIn({ name: "New_Teen", email: "newteen@example.test", year: String(new Date().getUTCFullYear() - 16), socialMode: "open_and_social" }, "198.51.100.236");
+}
+
+/**
+ * Account standing's facts, again this run: a recount never runs for them (standing_checked_at_ms far ahead), so the states hold.
+ * The versions the seed rejects to show their states aren't rulings anyone means, so Preview_Studio's is cleared.
+ */
+function seedStandingNow() {
+  const later = 4102444800000;
+  const nowMs = Date.now();
+  runSql(`INSERT OR IGNORE INTO owners (id, kind, account_id, created_at_ms) SELECT 'owner_previewnewstudio01', 'person', id, ${nowMs} FROM accounts WHERE username = 'New_Studio';
+     UPDATE games SET owner_id = (SELECT id FROM owners WHERE account_id = (SELECT id FROM accounts WHERE username = 'New_Studio')) WHERE slug = 'harbor-lights' AND EXISTS (SELECT 1 FROM accounts WHERE username = 'New_Studio');
+     UPDATE accounts SET created_at_ms = ${nowMs - 3 * 86_400_000} WHERE username = 'New_Studio';
+     UPDATE owners SET returning_player_count = 12, is_established = 0, is_zaisma_account = 0, standing_checked_at_ms = ${later} WHERE account_id = (SELECT id FROM accounts WHERE username = 'New_Studio');
+     UPDATE owners SET is_zaisma_account = 1, is_established = 1, last_ruling_at_ms = NULL, standing_checked_at_ms = ${later} WHERE account_id = (SELECT id FROM accounts WHERE username = 'Preview_Studio');
+     UPDATE accounts SET created_at_ms = ${nowMs - 3_600_000}, counted_play_day_count = 0 WHERE username = 'New_Teen';
+     UPDATE accounts SET created_at_ms = MIN(created_at_ms, ${nowMs - 2 * 86_400_000}), counted_play_day_count = MAX(counted_play_day_count, 2) WHERE age_band = '16-17' AND username != 'New_Teen'`);
+}
+
 /** A new account made through the join pages in its own browser: answers a function that posts as it. */
 async function signedIn(person, ip) {
   const asPerson = poster(ip);
@@ -1910,6 +1964,27 @@ async function seedDeletingDeveloper() {
       const made = await gone("/dashboard/new", { title });
       if ((made.headers.get("location") ?? "").includes("done=made")) break;
     }
+  }
+}
+
+/**
+ * Bans (apps/site/src/bans.ts): Banned_Dev's developer side is banned, so its game Password Quest is taken down and
+ * its Your games shows why with Export everything; Closed_Player's whole account is banned, so its right password
+ * says the account is closed. Both are banned once, through the admin MCP's ban_account.
+ */
+async function seedBans() {
+  const isMade = async (username) => !(await (await fetch(`${SITE}/api/username-check?username=${username}`)).json()).is_available;
+  const banAccount = (toolArguments) =>
+    fetch(`${SITE}/admin/mcp`, { method: "POST", headers: { "content-type": "application/json", accept: "application/json, text/event-stream" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "ban_account", arguments: toolArguments } }) });
+  if (!(await isMade("Banned_Dev"))) {
+    const banned = await signedIn({ name: "Banned_Dev", email: "banned@example.test", year: "1990" }, "198.51.100.240");
+    await fetch(`${SITE}/admin/publishing/add`, { method: "POST", body: new URLSearchParams({ username: "Banned_Dev" }), headers: { origin: SITE }, redirect: "manual" });
+    await banned("/dashboard/new", { title: "Password Quest" });
+    await banAccount({ username: "Banned_Dev", ban_scope: "developer", why: "Its game asked players for their passwords.", content_rule: "malware" });
+  }
+  if (!(await isMade("Closed_Player"))) {
+    await signedIn({ name: "Closed_Player", year: "1990" }, "198.51.100.241");
+    await banAccount({ username: "Closed_Player", ban_scope: "whole_account", why: "It sold stolen accounts to players.", content_rule: "illegal" });
   }
 }
 
@@ -2127,6 +2202,15 @@ function seedDeveloperSettings() {
       : [
           `INSERT INTO owners (id, kind, account_id, created_at_ms) SELECT 'owner_previewkeymaker', 'person', id, ${now} FROM accounts WHERE username = 'Key_Maker' ON CONFLICT (account_id) DO NOTHING`,
           `UPDATE owners SET pro_until_ms = ${now + 10 * 86400_000}, is_pro_cancelled = 0, stripe_subscription_id = 'sub_preview_pro_old', stripe_customer_id = 'cus_preview_pro_old' WHERE account_id = (SELECT id FROM accounts WHERE username = 'Key_Maker')`,
+          // The monthly credit plan: Key_Maker's runs at $40 with $27.60 left, so the 1st pays $12.40; Moss_Runner's card was
+          // declined; Preview_Studio has none, so Start a monthly plan shows. Made-up subscriptions, so only on the stand-in.
+          `DELETE FROM credit_entries WHERE id IN ('top_up_previewkeymakerplan0', 'credit_entry_previewkeymakerplan')`,
+          `INSERT INTO credit_entries (id, owner_id, entry_kind, amount_cents, stripe_object_id, refundable_until_ms, created_at_ms) SELECT 'top_up_previewkeymakerplan0', id, 'top_up', 4000, 'pi_preview_plan_fill', ${now + 20 * 86400_000}, ${now - 10 * 86400_000} FROM owners WHERE account_id = (SELECT id FROM accounts WHERE username = 'Key_Maker')`,
+          `INSERT INTO credit_entries (id, owner_id, entry_kind, amount_cents, created_at_ms) SELECT 'credit_entry_previewkeymakerplan', id, 'hosting_charge', -1240, ${now - 3600_000} FROM owners WHERE account_id = (SELECT id FROM accounts WHERE username = 'Key_Maker')`,
+          `UPDATE owners SET credit_balance_cents = 2760, credit_low_line_cents = 800, credit_plan_subscription_id = 'sub_preview_credit_plan', credit_plan_refill_level_cents = 4000, credit_plan_status = 'running', credit_plan_started_at_ms = ${now - 10 * 86400_000}, credit_plan_event_at_ms = ${now - 10 * 86400_000}, stripe_customer_id = COALESCE(stripe_customer_id, 'cus_preview_pro_old') WHERE account_id = (SELECT id FROM accounts WHERE username = 'Key_Maker')`,
+          `INSERT INTO owners (id, kind, account_id, created_at_ms) SELECT 'owner_previewmossrunner', 'person', id, ${now} FROM accounts WHERE username = 'Moss_Runner' ON CONFLICT (account_id) DO NOTHING`,
+          `UPDATE owners SET credit_plan_subscription_id = 'sub_preview_credit_plan_declined', credit_plan_refill_level_cents = 2500, credit_plan_status = 'payment_failing', credit_plan_started_at_ms = ${now - 40 * 86400_000}, credit_plan_event_at_ms = ${now - 86400_000} WHERE account_id = (SELECT id FROM accounts WHERE username = 'Moss_Runner')`,
+          `UPDATE owners SET credit_plan_subscription_id = NULL, credit_plan_refill_level_cents = NULL, credit_plan_status = NULL, credit_plan_started_at_ms = NULL WHERE id = ${owner}`,
         ]),
     "DELETE FROM spending_requests WHERE id LIKE 'spending_request_preview%'",
     `INSERT INTO spending_requests (id, account_id, request_kind, game_id, monthly_budget_cents, created_at_ms, expires_at_ms) SELECT 'spending_request_preview0waiting', ${account}, 'game_budget', id, 4000, ${now - 600_000}, ${now + 85_800_000} FROM games WHERE slug = 'arena'`,
@@ -2134,6 +2218,8 @@ function seedDeveloperSettings() {
     "DELETE FROM webhooks WHERE id LIKE 'webhook_preview%'",
     `INSERT INTO webhooks (id, owner_id, destination_kind, endpoint_url, event_kinds, game_slugs, signing_secret, created_at_ms, updated_at_ms) VALUES ('webhook_previewdiscord001', ${owner}, 'endpoint_url', 'https://discord.example.test/api/webhooks/preview', '["bug_reported","player_reported"]', NULL, 'whsec_preview', ${now - 9 * 86400_000}, ${now - 9 * 86400_000})`,
     `INSERT INTO webhooks (id, owner_id, destination_kind, endpoint_url, event_kinds, game_slugs, signing_secret, created_at_ms, updated_at_ms) VALUES ('webhook_previewserver0001', ${owner}, 'game_server', NULL, '["live_version_changed"]', '["arena"]', 'whsec_preview2', ${now - 5 * 86400_000}, ${now - 5 * 86400_000})`,
+    // Many_Things has as many webhooks as an account can, so adding one more shows the refusal in a page's words.
+    ...Array.from({ length: 10 }, (_, index) => `INSERT INTO webhooks (id, owner_id, destination_kind, endpoint_url, event_kinds, game_slugs, signing_secret, created_at_ms, updated_at_ms) SELECT 'webhook_previewmany${String(index).padStart(4, "0")}', owners.id, 'endpoint_url', 'https://hooks.example.test/many/${index + 1}', '["bug_reported"]', NULL, 'whsec_previewmany', ${now - (index + 1) * 3600_000}, ${now - (index + 1) * 3600_000} FROM owners JOIN accounts ON accounts.id = owners.account_id WHERE accounts.username = 'Many_Things'`),
     ...[1, 2, 3].map((index) => `INSERT OR REPLACE INTO webhook_deliveries (webhook_id, webhook_event_id, owner_id, event_json, delivery_status, attempt_count, next_attempt_at_ms, last_attempt_at_ms, last_http_status_code, failure_message, created_at_ms) VALUES ('webhook_previewdiscord001', 'webhook_event_preview00000${index}', ${owner}, '{"kind":"bug_reported"}', 'failed', 6, NULL, ${now - index * 3600_000}, 500, 'The address answered 500.', ${now - index * 3700_000})`),
   ].join("; "));
 }

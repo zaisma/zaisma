@@ -212,7 +212,11 @@ const MAXIMUM_ANSWER_MS = 400;
  */
 const PRESS_EVERY_ANSWER = `(async () => {
   const pressed = [...document.querySelectorAll("[aria-controls]:not(a[href]:not([href^='#'])), [popovertarget], .tab-switch > button, details > summary")]
-    .filter((el) => el.getClientRects().length && !el.closest(".steps, [inert], [hidden], dialog:not([open]), .dropdown.shut, template") && !el.disabled);
+    .filter((el) => el.getClientRects().length && !el.closest(".steps, [inert], [hidden], dialog:not([open]), .dropdown.shut, template") && !el.disabled)
+    // A gallery still shows what a button opens laid in place (a menu, a wheel field's wheels, a search's list), open for good: pressing it
+    // changes nothing, by design. A field typed into (a search with its list) answers its typing, not a press: a press only puts the caret in it.
+    .filter((el) => !el.matches("input:not([type=button], [type=submit], [type=checkbox], [type=radio]), textarea"))
+    .filter((el) => !document.getElementById(el.getAttribute("aria-controls") || el.getAttribute("popovertarget") || "")?.closest(".in-place"));
   const failures = [];
   const describe = (el) => (el.getAttribute("aria-label") || el.textContent || el.className || el.tagName).trim().replace(/\\s+/g, " ").slice(0, 48);
   for (const el of pressed) {
@@ -228,9 +232,11 @@ const PRESS_EVERY_ANSWER = `(async () => {
       const answer = () => { observer.disconnect(); clearInterval(timer); done(performance.now() - startedMs); };
       // The glass's drawn edges and cut lines redraw on a press (the light follows the pointer): not an answer.
       const observer = new MutationObserver((records) => { if (records.some((record) => !(record.target.closest ? record.target : record.target.parentElement)?.closest("svg.edge, .cut-line, svg.cut-line"))) answer(); });
-      // The press's own component, up to two levels round it (a field's Copy says Copied beside it), never the pane or layout cell it sits in.
+      // The press's own component, up to three levels round it (a copy field's Copy, in its Well's end slot, says Copied on the field's
+      // label line), never the pane or layout cell it sits in.
       const OUTSIDE = "[data-glass], .pane-in, .sheet-in, .stack-cell, .row-cell, .grid-cell, .example-stage, main, body";
-      const around = [el.parentElement?.parentElement, el.parentElement].find((each) => each && !each.matches(OUTSIDE)) ?? el;
+      let around = el;
+      for (let level = 0; level < 3 && around.parentElement && !around.parentElement.matches(OUTSIDE); level++) around = around.parentElement;
       observer.observe(around, { attributes: true, childList: true, subtree: true, characterData: true });
       if (named) observer.observe(named, { attributes: true, childList: true, subtree: true, characterData: true });
       if (el.closest("details")) observer.observe(el.closest("details"), { attributes: true });
@@ -399,7 +405,7 @@ async function contactSheet(chrome, path, name, pictures, sizes, themes) {
 }
 
 /** Signs a test account in, in its own browser context, through the sign-in page as a player would. */
-async function signIn(chrome, contextId, site, username) {
+export async function signIn(chrome, contextId, site, username) {
   const { targetId } = await chrome.send("Target.createTarget", { url: "about:blank", browserContextId: contextId });
   const { sessionId } = await chrome.send("Target.attachToTarget", { targetId, flatten: true });
   const send = (method, params = {}) => chrome.send(method, params, sessionId);

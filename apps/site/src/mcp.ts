@@ -2,7 +2,7 @@ import { ApiError, CONTROLS, DEVICES, GENRES, MAXIMUM_GENRE_COUNT, FORUM_CATEGOR
 import { INTERNAL_ERROR, apiCall, authenticate, type Caller } from "./developer.ts";
 import type { Env } from "./env.ts";
 import { CHECKED_TEXT_EXTENSIONS, extensionOf } from "../../../packages/cli/check.mjs";
-import { ACCESS, ACTIVITY, PRO, PRO_CHANGED, PRO_CHECKOUT, PRO_REFUNDED, CREDIT, TOP_UP_CHECKOUT, TOP_UP_REFUNDED, STRIPE_ACCOUNT, STRIPE_ACCOUNT_CHANGED, SPENDING_REQUEST, CONNECTION_LINK, GAME_CHECK_FIELDS, API_KEYS, DATABASE, DATABASE_EXPORT, DATABASE_IMPORT, DATABASE_RESTORED, ERASED_PLAYER, GAME, GAME_ALERTS, GAME_EXPORT, HISTORY, KEPT_ROOMS, KEPT_ROOM_DELETED, BACKGROUND, SHADER, SHADER_CHECK, LISTED_GAME, QR_CODE, STATEMENT_RESULT, IMAGE, LOGS, SAVE, SAVE_CHANGED, SAVE_COPY, SAVE_COPY_LIST, SAVE_LIST, INDEXEDDB_DATABASE, NEW_REPLY, NEW_TOPIC, NEXT, PLAYER_PROFILE, POST, POST_BOOKMARK, POST_RATING, REPORTS, SIGN_IN_APP, SECRET, STATS, TESTER, TOPIC_PAGE, TOPIC_WITH_POSTS, VERSION, WEBHOOK, WEBHOOK_DELIVERY, answerOrError, choice, countOf, idOf, list, nullable, object as answer, text, yes, GAME_ITEM, ITEMS, PURCHASE, PURCHASE_SETTINGS } from "./schemas.ts";
+import { ACCESS, STANDING, ACTIVITY, PRO, PRO_CHANGED, PRO_CHECKOUT, PRO_REFUNDED, CREDIT, CREDIT_CHANGED, CREDIT_PLAN_CHECKOUT, TOP_UP_CHECKOUT, TOP_UP_REFUNDED, STRIPE_ACCOUNT, STRIPE_ACCOUNT_CHANGED, SPENDING_REQUEST, CONNECTION_LINK, GAME_CHECK_FIELDS, API_KEYS, DATABASE, DATABASE_EXPORT, DATABASE_IMPORT, DATABASE_RESTORED, ERASED_PLAYER, GAME, GAME_ALERTS, GAME_EXPORT, HISTORY, KEPT_ROOMS, KEPT_ROOM_DELETED, LIVE_ROOMS, LIVE_ROOM_WITH_PLAYERS, ROOM_MESSAGE_DELIVERED, EVERY_ROOM_SENT, SCHEDULED_ROOM_MESSAGES, ROOM_MESSAGE_CANCELLED, ROOM_PLAYER_KICKED, ROOM_ENDED, BACKGROUND, SHADER, SHADER_CHECK, LISTED_GAME, QR_CODE, STATEMENT_RESULT, IMAGE, LOGS, SAVE, SAVE_CHANGED, SAVE_COPY, SAVE_COPY_LIST, SAVE_LIST, INDEXEDDB_DATABASE, NEW_REPLY, NEW_TOPIC, NEXT, PLAYER_PROFILE, POST, POST_BOOKMARK, POST_RATING, REPORTS, SIGN_IN_APP, SECRET, STATS, TESTER, TOPIC_PAGE, TOPIC_WITH_POSTS, VERSION, WEBHOOK, WEBHOOK_DELIVERY, answerOrError, choice, countOf, idOf, list, nullable, object as answer, text, isoTime, yes, GAME_ITEM, ITEMS, PURCHASE, PURCHASE_SETTINGS } from "./schemas.ts";
 
 /**
  * The developer MCP at /mcp: every tool is a call to the developer API, so the MCP, the upload command
@@ -21,7 +21,7 @@ How publishing works:
 1. create_game makes a game. It starts as a draft only its developer can see. Until the beta, only accounts Zaisma adds can make, upload and publish games: others get publishing_not_open, and get_access says can_publish.
 2. Check, then upload a version. Small games (under 5 MB, like single-file HTML games): check_game, then upload_files, with the file contents. Bigger builds: run \`npx @zaisma/cli upload <folder> --game <slug>\` in a terminal with ZAISMA_KEY set to the same API key; it runs the same check first (\`npx @zaisma/cli check <folder>\` runs it alone, with no key), downloads files the game loads from other sites and unpacks pre-compressed builds in what it sends, and only sends changed files.
 3. Every version is scanned, usually in under a minute; get_version shows the result. A held version waits for a person, usually within a day, or, when its findings say daily_large_reviews_used or daily_small_reviews_used, for the next of the developer's daily reviews (5 large, 30 small; 20 and 100 with Zaisma Pro). Passed versions get a private preview link.
-4. publish_version makes a passed version live (or rolls back to an older one), now or at a set time; with match_update_mode "now", running matches switch to it within seconds too, instead of at their next match. Then update_game with visibility "listed" shows the game to players (or "unlisted": only people with the link). To let testers play first, keep it private and make tester links with add_tester_link.
+4. publish_version makes a passed version live (or rolls back to an older one), now or at a set time; with match_update_mode "now", running matches switch to it within seconds too, instead of at their next match. Then update_game with visibility "listed" shows the game to players (or "unlisted": only people with the link). To let testers play first, keep it private and make tester links with add_tester_link. Listed games show in Zaisma's own lists from the first day; links to sites outside the trusted list and search engines wait for the account's standing, and get_access's standing says what's left.
 
 To earn, a game can sell itself once (set_item a permanent content item, then update_game full_game_item_name) or sell items inside it with the buy sheet; both pay the developer's own Stripe with no cut.
 
@@ -37,7 +37,7 @@ The developer may limit an API key to some games or to what it can do (like read
 
 Names say what they hold, its kind and its unit: file_count is a number of files, play_duration_min is minutes, size_bytes is bytes, *_at is an ISO time in UTC, an ID says its kind (version_…, topic_…, post_…), and a plural is always a list.
 
-When a call fails, the answer is { "error": { code, message, field, fix, retry_after_sec } }: field is the input at fault, fix says what to do, and retry_after_sec how long to wait when waiting helps. Codes are stable: search_forum with one finds others who hit it. Calls that change something answer with next_steps: the calls that usually follow, with their arguments filled in and a reason; [] when nothing does.`;
+When a call fails, the answer is { "error": { code, message, field, fix, message_for_people, retry_after_sec } }: field is the input at fault, fix says what to do, message_for_people is what Zaisma's pages show a person (show it to your human as it is), and retry_after_sec how long to wait when waiting helps. Codes are stable: search_forum with one finds others who hit it. Calls that change something answer with next_steps: the calls that usually follow, with their arguments filled in and a reason; [] when nothing does.`;
 
 interface Tool {
   name: string;
@@ -241,7 +241,7 @@ const details = {
       additionalProperties: false,
     },
     description:
-      'The game\'s registered links: the sites it opens with Zaisma.links.open(link_name), like its store, Patreon, Steam page or Discord, behind Zaisma\'s "You\'re leaving Zaisma" card over the game; the game can open no other sites. The whole list each time, up to 20; [] for none. The game can add a path and query under a link\'s address: Zaisma.links.open("store", { path: "/buy", queryParameters: { item: "sword" } }). Signed-in adults open any link; guests and under-18 accounts only links on trusted store, payment and video sites (itch.io, Steam, Patreon, Ko-fi, Gumroad, PayPal, Stripe payment links, hosted Bitcoin pages, YouTube and others), never chat apps or social networks like Discord or Instagram: get_game\'s who_can_open says which, and anyone a link doesn\'t open for sees "This link can\'t be opened here." (the game hears "stayed"). No link shorteners, IP addresses or user names in addresses. Every site is checked against Cloudflare\'s malware and phishing list when added and every day; a listed one opens for nobody, with a review_reason. Live at once, with no approval.',
+      'The game\'s registered links: the sites it opens with Zaisma.links.open(link_name), like its store, Patreon, Steam page or Discord, behind Zaisma\'s "You\'re leaving Zaisma" card over the game; the game can open no other sites. The whole list each time, up to 20; [] for none. The game can add a path and query under a link\'s address: Zaisma.links.open("store", { path: "/buy", queryParameters: { item: "sword" } }). Signed-in adults open any link once the account\'s standing opens links to other sites (established, or a card that paid Zaisma or a Stripe account: get_access\'s standing; until then who_can_open says waiting_for_standing and the link is kept); guests and under-18 accounts only links on trusted store, payment and video sites (itch.io, Steam, Patreon, Ko-fi, Gumroad, PayPal, Stripe payment links, hosted Bitcoin pages, YouTube and others), never chat apps or social networks like Discord or Instagram: get_game\'s who_can_open says which, and anyone a link doesn\'t open for sees "This link can\'t be opened here." (the game hears "stayed"). No link shorteners, IP addresses or user names in addresses. Every site is checked against Cloudflare\'s malware and phishing list when added and every day; a listed one opens for nobody, with a review_reason. Live at once, with no approval.',
     examples: [[{ link_name: "store", destination_url: "https://kit.itch.io/sky-hopper", is_on_game_page: true }], [{ link_name: "patreon", destination_url: "https://www.patreon.com/kit", is_on_game_page: true }, { link_name: "discord", destination_url: "https://discord.gg/skyhopper", is_on_game_page: false }]],
   },
   glass_tint_color: {
@@ -257,6 +257,12 @@ const object = (properties: Record<string, unknown>, required: string[] = []) =>
 const pick = (toolArguments: Record<string, unknown>, keys: string[]) => Object.fromEntries(keys.filter((key) => toolArguments[key] !== undefined).map((key) => [key, toolArguments[key]]));
 /** A value as one part of an API path. */
 const pathPart = (given: unknown) => encodeURIComponent(String(given ?? ""));
+/** A live room's code, as the room tools take it. */
+const ROOM_CODE_INPUT = { type: "string", pattern: "^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$", description: "A live room's code from list_rooms, like K7Q2MX." };
+/** Which rooms a room tool means: those holding every label given. */
+const ROOM_LABELS_INPUT = { type: "array", maxItems: 4, items: { type: "object", properties: { label_name: { type: "string", description: "A label's name, as the game server set it." }, label_value: { type: "string", description: "Its text." } }, required: ["label_name", "label_value"], additionalProperties: false } };
+/** A room message, as onRoomMessage reads it. */
+const ROOM_MESSAGE_INPUT = { description: 'What the room\'s game server reads in onRoomMessage(state, roomMessage, room) as roomMessage.message: plain JSON, up to 16 KB, like {"kind": "blood_moon"}.' };
 
 /** The developer MCP's tools; exported for the naming checks. */
 export const TOOLS: Tool[] = [
@@ -743,7 +749,7 @@ export const TOOLS: Tool[] = [
     name: "get_credit",
     title: "My hosting credit",
     description:
-      "The developer's hosting credit: the balance (in cents, never in dollars), whether it's low (is_credit_low: under 20% of what there was after the last top-up), the last 30 days' top-ups with what each still refunds, each game's budget and what credit paid for it this month, and the last 90 days' entries. Every game gets free hosting each month on one meter (get_stats' hosting_use_this_month, a percentage); past it, only a game with a budget (update_game, monthly_budget_cents) draws from credit, never past its budget. Credit never expires and is never paid out.",
+      "The developer's hosting credit: the balance (in cents, never in dollars), whether it's low (is_credit_low: under 20% of what there was after the last top-up), the monthly credit plan (credit_plan: its level, whether the card pays, and what the next 1st pays at today's balance; null with none), the last 30 days' top-ups with what each still refunds, each game's budget and what credit paid for it this month, and the last 90 days' entries. Every game gets free hosting each month on one meter (get_stats' hosting_use_this_month, a percentage); past it, only a game with a budget (update_game, monthly_budget_cents) draws from credit, never past its budget. Credit never expires and is never paid out.",
     inputSchema: object({}),
     outputSchema: CREDIT,
     annotations: read,
@@ -753,7 +759,7 @@ export const TOOLS: Tool[] = [
     name: "get_spending_request",
     title: "A spending request's answer",
     description:
-      "Whether the developer has answered a raise in spending you asked for. When update_game (a game's first or higher budget) answers confirmation_needed, it also answers spending_request_id: give the developer confirm_url, where a sheet names the exact change and they approve with a passkey tap or decline. This shows request_status (waiting, approved, declined or expired after a day), the change asked for and what it is now. Approved means the change is already made.",
+      "Whether the developer has answered a raise in spending you asked for. When update_game (a game's first or higher budget) or change_credit_plan (a higher level) answers confirmation_needed, it also answers spending_request_id: give the developer confirm_url, where a sheet names the exact change and they approve with a passkey tap or decline. This shows request_status (waiting, approved, declined or expired after a day), the change asked for and what it is now. Approved means the change is already made.",
     inputSchema: object({ spending_request_id: { type: "string", pattern: "^spending_request_[a-z0-9]+$", description: "From confirmation_needed's spending_request_id, like spending_request_k2m9x4…" } }, ["spending_request_id"]),
     outputSchema: SPENDING_REQUEST,
     annotations: read,
@@ -770,6 +776,38 @@ export const TOOLS: Tool[] = [
     outputSchema: TOP_UP_CHECKOUT,
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     run: (toolArguments, call) => call("POST", "/credit/top-ups", pick(toolArguments, ["amount_cents"])),
+  },
+  {
+    name: "start_credit_plan",
+    title: "Start a monthly credit plan",
+    description:
+      "Start the developer's monthly credit plan: credit filled back to refill_level_cents on the 1st of every month (UTC), so games with a budget never run dry. Answers Stripe's page (checkout_url), where only the developer can pay; give them the link. The first payment fills credit to the level (at most $1,000; a higher level fills to it from the next 1st); each 1st pays only what brings the balance back to the level, nothing under $1 or when the balance is at or over it. Stripe sells every payment, with sales tax or VAT on top. Each payment is a top-up, refundable for 30 days with refund_top_up. One plan at a time: already_credit_plan when there is one.\n\n" +
+      'Not: { "refill_level_cents": 40 } (that\'s 40 cents; cents, not dollars, so $40 is 4000)\n' +
+      'Not: { "refill_level_cents": 500 } (the least is 1000, $10)',
+    inputSchema: { ...object({ refill_level_cents: { type: "integer", minimum: 1000, maximum: 1000000, description: "The level in cents: 4000 is $40. From 1000 ($10) to 1000000 ($10,000)." } }, ["refill_level_cents"]), examples: [{ refill_level_cents: 4000 }] },
+    outputSchema: CREDIT_PLAN_CHECKOUT,
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    run: (toolArguments, call) => call("POST", "/credit/plan/checkout", pick(toolArguments, ["refill_level_cents"])),
+  },
+  {
+    name: "change_credit_plan",
+    title: "Change the monthly credit plan",
+    description:
+      "Set the monthly credit plan's level: what credit is filled back to on the 1st. A lower or equal level applies at once with any key that has credit_access write; a higher one spends more, so it answers confirmation_needed with confirm_url, where the developer approves it with their passkey, and spending_request_id for get_spending_request. Answers no_credit_plan with none (start_credit_plan starts one).\n\n" +
+      'Not: { "refill_level_cents": 60 } (cents, not dollars, so $60 is 6000)',
+    inputSchema: { ...object({ refill_level_cents: { type: "integer", minimum: 1000, maximum: 1000000, description: "The new level in cents: 6000 is $60." } }, ["refill_level_cents"]), examples: [{ refill_level_cents: 6000 }] },
+    outputSchema: CREDIT_CHANGED,
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    run: (toolArguments, call) => call("PATCH", "/credit/plan", pick(toolArguments, ["refill_level_cents"])),
+  },
+  {
+    name: "stop_credit_plan",
+    title: "Stop the monthly credit plan",
+    description: "Stop the monthly credit plan at once: nothing is charged again, and credit already bought stays (each payment still refunds for 30 days with refund_top_up). It holds no prepaid month, so nothing is lost by stopping. Answers no_credit_plan with none. Ask the developer first.",
+    inputSchema: object({}),
+    outputSchema: CREDIT_CHANGED,
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+    run: (_, call) => call("POST", "/credit/plan/stop"),
   },
   {
     name: "get_stripe_account",
@@ -1193,13 +1231,17 @@ export const TOOLS: Tool[] = [
     name: "get_access",
     title: "What this key can do",
     description:
-      "What the API key you're signed in with may do: its access_level (read, upload, publish, full or custom), what that gives in each area, the games it works on (game_slugs, null for all) and when it ends (api_key_ends_at, null for never). A call the key doesn't reach answers key_not_allowed. Keys are made only by the developer on zaisma.com/dashboard/settings, never through the MCP. can_publish says whether the account can make, upload and publish games, which until the beta only accounts Zaisma adds can. plan says whether the developer has Zaisma Pro (free or pro).",
+      "What the API key you're signed in with may do: its access_level (read, upload, publish, full or custom), what that gives in each area, the games it works on (game_slugs, null for all) and when it ends (api_key_ends_at, null for never). A call the key doesn't reach answers key_not_allowed. Keys are made only by the developer on zaisma.com/dashboard/settings, never through the MCP. can_publish says whether the account can make, upload and publish games, which until the beta only accounts Zaisma adds can. banned_at and ban_scope say whether Zaisma banned the account: a banned developer can call only get_access, list_games and export_game. plan says whether the developer has Zaisma Pro (free or pro). standing says what the account has earned and what each power needs: links to sites outside the trusted list open once it's established (14 days old, 20 different returning players, nothing ruled against it in 30 days) or at once with a card that paid Zaisma or a Stripe account, and search engines only once it's established; tell the developer standing.message_for_people when they ask why a link doesn't open or their game isn't on search engines.",
     inputSchema: object({}),
     outputSchema: answer({
       access: ACCESS,
       can_publish: yes("Whether this account can make, upload and publish games. Until the beta only accounts Zaisma adds can; false means create_game, upload_files and publish_version answer publishing_not_open."),
+      banned_at: nullable(isoTime("When Zaisma banned this account; null when it isn't banned.")),
+      ban_scope: nullable(choice({ developer: "its games are down, and only get_access, list_games and export_game work; playing still works", whole_account: "the account is closed" }, "How far the ban goes; null when it isn't banned.")),
       credit_balance_cents: nullable(countOf("The developer's hosting credit, in cents; null when the key can't read it (credit_access none, or a key limited to some games).")),
       plan: choice({ free: "the free daily limits", pro: "Zaisma Pro: the higher daily limits" }, "The developer's plan; get_pro has its limits."),
+      standing: STANDING,
+      next_steps: NEXT,
     }),
     annotations: read,
     run: (_, call) => call("GET", "/access"),
@@ -1550,6 +1592,95 @@ export const TOOLS: Tool[] = [
     outputSchema: KEPT_ROOM_DELETED,
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
     run: (toolArguments, call) => call("DELETE", `/games/${pathPart(toolArguments.slug)}/kept-rooms/${pathPart(toolArguments.room_code)}`),
+  },
+  {
+    name: "list_rooms",
+    title: "List a game's live rooms",
+    description:
+      "The game's live rooms on Zaisma, newest first: rooms that are running, and kept rooms asleep with nobody in them. Each with its code, name, labels, players, spectators, whether it's listed, open and kept, the version it runs, where it runs and when it started; labels gives only rooms holding every label given. Up to 500 a page (next_cursor). For the game's own moderation tools and live events: get_room says who's in one, send_room_message and send_to_every_room reach them, kick_player and end_room act on one. Rooms on the developer's own servers aren't here: their game server reaches them with the Node runner's same calls.",
+    inputSchema: {
+      ...object({ slug, labels: { ...ROOM_LABELS_INPUT, description: 'Only rooms holding every one of these labels, like [{"label_name": "Map", "label_value": "Docks"}].' }, cursor: { type: "string", description: "next_cursor from the last answer, for the rooms after it." } }, ["slug"]),
+      examples: [{ slug: "frostbound" }, { slug: "frostbound", labels: [{ label_name: "Mode", label_value: "Hardcore" }] }],
+    },
+    outputSchema: LIVE_ROOMS,
+    annotations: read,
+    run: (toolArguments, call) => {
+      const query = new URLSearchParams({ ...(toolArguments.labels !== undefined ? { labels: JSON.stringify(toolArguments.labels) } : {}), ...(toolArguments.cursor !== undefined ? { cursor: String(toolArguments.cursor) } : {}) }).toString();
+      return call("GET", `/games/${pathPart(toolArguments.slug)}/rooms${query ? `?${query}` : ""}`);
+    },
+  },
+  {
+    name: "get_room",
+    title: "Look into a live room",
+    description: "One of the game's live rooms on Zaisma and who's in it now: its players in join order, each with their player_id, name, guest or account, whether they're away and why, and when they joined, then its spectators. A kept room asleep has nobody. An unknown code is no_room.",
+    inputSchema: { ...object({ slug, room_code: ROOM_CODE_INPUT }, ["slug", "room_code"]), examples: [{ slug: "frostbound", room_code: "K7Q2MX" }] },
+    outputSchema: LIVE_ROOM_WITH_PLAYERS,
+    annotations: read,
+    run: (toolArguments, call) => call("GET", `/games/${pathPart(toolArguments.slug)}/rooms/${pathPart(toolArguments.room_code)}`),
+  },
+  {
+    name: "send_room_message",
+    title: "Send a message to a live room",
+    description:
+      "Sends a message to one of the game's live rooms, like telling world 213 to freeze a griefer. The room's game server takes it in onRoomMessage(state, roomMessage, room), with roomMessage.senderKind \"developer\"; a game server without onRoomMessage hands it to every player's game as the room's roomMessage event. Your game decides what players see; Zaisma shows nothing. message is plain JSON, up to 16 KB. A kept room with nobody in it wakes for it. no_room when it isn't running; room_busy when it took 100 room messages in the last second.",
+    inputSchema: { ...object({ slug, room_code: ROOM_CODE_INPUT, message: ROOM_MESSAGE_INPUT }, ["slug", "room_code", "message"]), examples: [{ slug: "frostbound", room_code: "K7Q2MX", message: { kind: "freeze", player_id: "player_3k9x2m7q1z8b4n5w6r0t" } }] },
+    outputSchema: ROOM_MESSAGE_DELIVERED,
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    run: (toolArguments, call) => call("POST", `/games/${pathPart(toolArguments.slug)}/rooms/${pathPart(toolArguments.room_code)}/messages`, pick(toolArguments, ["message"])),
+  },
+  {
+    name: "send_to_every_room",
+    title: "Send a message to every live room",
+    description:
+      "Sends a message to every live room of the game with someone in it, or only those holding every label given, now or at send_at: an announcement, or a live event starting everywhere at once, like a blood moon at 8pm. Each room takes it as with send_room_message (onRoomMessage, or its players' roomMessage event); kept rooms asleep with nobody in them don't wake for it. Now answers room_count, how many rooms took it; with send_at (from 10 seconds to 90 days ahead) it waits and answers scheduled_room_message, going out within a minute after its time (list_room_messages, cancel_room_message). Up to 10 sends a minute for the whole game, its game server's included (every_room_send_limit), and 100 scheduled waiting (too_many_scheduled_room_messages).",
+    inputSchema: {
+      ...object({ slug, message: ROOM_MESSAGE_INPUT, labels: { ...ROOM_LABELS_INPUT, description: 'Only rooms holding every one of these labels, like [{"label_name": "Region", "label_value": "North"}].' }, send_at: { type: "string", format: "date-time", description: "When to send it, an ISO time from 10 seconds to 90 days ahead; leave it out to send now." } }, ["slug", "message"]),
+      examples: [{ slug: "frostbound", message: { kind: "blood_moon", duration_sec: 600 }, send_at: "2026-11-06T20:00:00Z" }, { slug: "frostbound", message: { kind: "announcement", text: "Servers restart in 10 minutes." } }],
+    },
+    outputSchema: EVERY_ROOM_SENT,
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    run: (toolArguments, call) => call("POST", `/games/${pathPart(toolArguments.slug)}/room-messages`, pick(toolArguments, ["message", "labels", "send_at"])),
+  },
+  {
+    name: "list_room_messages",
+    title: "List scheduled room messages",
+    description: "The game's sends to every room scheduled with send_at: the ones waiting, soonest first, then the last 20 that went out, each with when it went and how many rooms took it (delivered_room_count; 0 when the game couldn't be played then).",
+    inputSchema: object({ slug }, ["slug"]),
+    outputSchema: SCHEDULED_ROOM_MESSAGES,
+    annotations: read,
+    run: (toolArguments, call) => call("GET", `/games/${pathPart(toolArguments.slug)}/room-messages`),
+  },
+  {
+    name: "cancel_room_message",
+    title: "Cancel a scheduled room message",
+    description: "Calls off a send to every room that's waiting for its send_at. One that went out can't be called back: no_scheduled_room_message.",
+    inputSchema: { ...object({ slug, scheduled_room_message_id: { type: "string", pattern: "^scheduled_room_message_[a-z0-9]+$", description: "Its id from list_room_messages or send_to_every_room." } }, ["slug", "scheduled_room_message_id"]), examples: [{ slug: "frostbound", scheduled_room_message_id: "scheduled_room_message_8f2k4m9x1q7z3b6n0w5r" }] },
+    outputSchema: ROOM_MESSAGE_CANCELLED,
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+    run: (toolArguments, call) => call("DELETE", `/games/${pathPart(toolArguments.slug)}/room-messages/${pathPart(toolArguments.scheduled_room_message_id)}`),
+  },
+  {
+    name: "kick_player",
+    title: "Remove a player from a live room",
+    description:
+      "Removes a player or spectator from one of the game's live rooms, as the room's own room.kick would: they're told why (message, up to 200 characters, your game's words within the content rules) and sent out, and the room's onLeave hears reason \"kicked\". is_kept_out keeps them out of that room for the rest of its match. no_player_in_room when they aren't in it (get_room says who is).",
+    inputSchema: {
+      ...object({ slug, room_code: ROOM_CODE_INPUT, player_id: { type: "string", pattern: "^player_[a-z0-9]+$", description: "Their player_id from get_room." }, message: { type: "string", maxLength: 200, description: "What they're told." }, is_kept_out: { type: "boolean", description: "Keep them out of the room for the rest of its match." } }, ["slug", "room_code", "player_id"]),
+      examples: [{ slug: "frostbound", room_code: "K7Q2MX", player_id: "player_3k9x2m7q1z8b4n5w6r0t", message: "Removed for griefing.", is_kept_out: true }],
+    },
+    outputSchema: ROOM_PLAYER_KICKED,
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+    run: (toolArguments, call) => call("POST", `/games/${pathPart(toolArguments.slug)}/rooms/${pathPart(toolArguments.room_code)}/kick`, pick(toolArguments, ["player_id", "message", "is_kept_out"])),
+  },
+  {
+    name: "end_room",
+    title: "End a live room",
+    description:
+      "Ends one of the game's live rooms, as the room's own room.end would: everyone in it hears message (up to 200 characters) and is sent out, and a kept room's world ends for good. Ask the developer first: players lose their match. Needs \"confirm\": true, after they agree (needs_confirm without it).",
+    inputSchema: { ...object({ slug, room_code: ROOM_CODE_INPUT, message: { type: "string", maxLength: 200, description: "What everyone in it is told." }, confirm: { type: "boolean", description: "true once the developer agreed." } }, ["slug", "room_code"]), examples: [{ slug: "frostbound", room_code: "K7Q2MX", message: "This world is closing for maintenance.", confirm: true }] },
+    outputSchema: ROOM_ENDED,
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+    run: (toolArguments, call) => call("POST", `/games/${pathPart(toolArguments.slug)}/rooms/${pathPart(toolArguments.room_code)}/end`, pick(toolArguments, ["message", "confirm"])),
   },
   {
     name: "get_database",

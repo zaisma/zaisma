@@ -95,6 +95,7 @@ const SEND_ERRORS: Record<string, string> = {
   too_many_friend_requests: "You've sent today's friend requests. Try again tomorrow.",
   too_many_friends: "You have as many friends as Zaisma keeps. Remove one on your friends page first.",
   recipient_has_too_many_friends: "They have as many friends as Zaisma keeps.",
+  social_stopped: "Friends are off for your account.",
 };
 
 const ANSWER_ERRORS: Record<string, string> = {

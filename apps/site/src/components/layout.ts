@@ -311,8 +311,8 @@ const SHOWN = ':not([hidden], .holds-only-hidden, .edge, script, template, input
  * track holding units (which tokens.ts insets at its sides). The unit is padded, never its words.
  */
 const BARE_UNITS: [string, string][] = [...BARE_GROUPS.map((group): [string, string] => [group, ""]), [`:is(.layout-grid, .layout-track):has(> :is(${BARE_GROUPS.join(", ")}), > .grid-cell > :is(${BARE_GROUPS.join(", ")}))`, ""]];
-const WORDS_AT_TOP: [string, string][] = [[":is(.cut-field, .link-field, .pin-field, .wheel-field, .choices, .slider, .table, .usage, .chart, .glance)", ":first-child"], [".toggle", ".toggle-words"], [".check", ""], [".progress", ".progress-words"], [".folded", ".folded-head"], [".numbers", ""], ...BARE_UNITS];
-const WORDS_AT_FOOT: [string, string][] = [[":is(.cut-field, .pin-field)", "p:last-child"], [".qr-code", ".qr-caption"], [".file-drop-wrap", ".field-error"], [":is(.chart, .glance)", ":last-child"], [".toggle", ".toggle-words"], [".check", ""], [".folded:not([open])", ".folded-head"], [".numbers", ""], ...BARE_UNITS];
+const WORDS_AT_TOP: [string, string][] = [[":is(.cut-field, .link-field, .pin-field, .wheel-field, .choices, .slider, .table, .usage, .chart, .glance)", ":first-child"], [".toggle", ".toggle-words"], [".check", ""], [".progress", ".progress-words"], [".folded", ".folded-head"], [".numbers", ""], [".reading", ":is(ul, ol):first-child"], ...BARE_UNITS];
+const WORDS_AT_FOOT: [string, string][] = [[":is(.cut-field, .pin-field)", "p:last-child"], [".qr-code", ".qr-caption"], [".file-drop-wrap", ".field-error"], [":is(.chart, .glance)", ":last-child"], [".toggle", ".toggle-words"], [".check", ""], [".folded:not([open])", ".folded-head"], [".numbers", ""], [".reading", ":is(ul, ol):last-child"], ...BARE_UNITS];
 
 /**
  * The words at a pane's or a tray's top and bottom edge keep its margin there too: the first and last words it holds, however deep in

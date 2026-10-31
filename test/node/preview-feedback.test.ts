@@ -1,11 +1,11 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 // @ts-expect-error: a plain JavaScript script without types
 import { addComment, changeComment, listComments, pngFromBase64, publicComment, readComment, replyToComment, writeReplay } from "../../scripts/preview/feedback-store.mjs";
 // @ts-expect-error: a plain JavaScript script without types
 import { cookiesFromHeader } from "../../scripts/preview/feedback-pictures.mjs";
+import { temporaryFolder } from "../temporary-folder.ts";
 
 /**
  * The preview's feedback comments (scripts/preview/feedback-store.mjs): what the overlay sends is closed to the comment's fields,
@@ -13,7 +13,7 @@ import { cookiesFromHeader } from "../../scripts/preview/feedback-pictures.mjs";
  */
 
 let directory = "";
-beforeEach(() => { directory = mkdtempSync(join(tmpdir(), "preview-feedback-")); });
+beforeEach(() => { directory = temporaryFolder("preview-feedback-"); });
 afterEach(() => { rmSync(directory, { recursive: true, force: true }); });
 
 const sent = {

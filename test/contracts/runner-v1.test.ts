@@ -1,6 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { copyFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import WebSocket from "ws";
@@ -10,6 +9,7 @@ import { startServer } from "../../packages/game-server/bin/node.js";
 import { checkedStartServerOptions, localRoomStates } from "../../packages/game-server/bin/node-parts.js";
 import { defineGameServer, generateSigningKey, loadSigningKey, signPass } from "../../packages/game-server/src/internal.ts";
 import { ROOT } from "./surface.ts";
+import { temporaryFolder } from "../temporary-folder.ts";
 
 /**
  * The runner's v1 contract: what a developer's own server is started with and how it answers. runner.json is
@@ -45,7 +45,7 @@ function runnerNow(): RunnerSnapshot {
     return [];
   })();
   const defaults = checkedStartServerOptions({ gameServer, gameSlug: "my-game" }, "https://rooms.zaisma.com");
-  const file = join(mkdtempSync(join(tmpdir(), "zaisma-runner-v1-")), "states.sqlite");
+  const file = join(temporaryFolder("zaisma-runner-v1-"), "states.sqlite");
   localRoomStates(file).write("COLUMN", { stateJson: "{}", matchPlayers: [], savedRoom: {}, savedAtMs: 0 });
   const database = new DatabaseSync(file);
   const columns = database.prepare("SELECT name, type FROM pragma_table_info('room_states')").all() as { name: string; type: string }[];
@@ -84,7 +84,7 @@ describe("runner v1", () => {
   });
 
   it("brings back a room from a room state file as v1 wrote it", async () => {
-    const file = join(mkdtempSync(join(tmpdir(), "zaisma-runner-v1-")), "room-states.sqlite");
+    const file = join(temporaryFolder("zaisma-runner-v1-"), "room-states.sqlite");
     copyFileSync(ABCDEFE, file);
     const signing = await loadSigningKey(await generateSigningKey());
     const issuer = "https://rooms.zaisma.test";

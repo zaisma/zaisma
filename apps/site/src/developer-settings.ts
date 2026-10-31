@@ -1,4 +1,4 @@
-import { ApiError, CREDIT_LIMITS, PRO_PRICE_CENTS_PER_MONTH, PRO_REFUND_LIMITS, accountById, gameBySlug, hostingUseThisMonth, gameHostingMonth, apiKeysFor, createApiKey, checkKeyScope, revokeApiKey, passkeysFor, liveApiKeyCount, MAXIMUM_API_KEY_COUNT, ACCESS_AREAS, ACCESS_LEVELS, AREA_ACCESS_CHOICES, WEBHOOK_EVENT_KINDS, type Account, type ApiKey, type Game } from "@zaisma/core";
+import { ApiError, ERROR_CODES, CREDIT_LIMITS, PRO_PRICE_CENTS_PER_MONTH, PRO_REFUND_LIMITS, accountById, gameBySlug, hostingUseThisMonth, gameHostingMonth, apiKeysFor, createApiKey, checkKeyScope, revokeApiKey, passkeysFor, liveApiKeyCount, MAXIMUM_API_KEY_COUNT, ACCESS_AREAS, ACCESS_LEVELS, AREA_ACCESS_CHOICES, WEBHOOK_EVENT_KINDS, type Account, type ApiKey, type Game } from "@zaisma/core";
 import { currentSession } from "./auth.ts";
 import { AREA_LABELS, CHOICE_LABELS, LEVEL_LABELS, keyMakingState, keyScopeFromForm, keyScopeText, keyStandingText, passkeyTapFromForm } from "./account.ts";
 import { apiCall, callerFor, hostingUseJson, type Caller } from "./developer.ts";
@@ -46,6 +46,8 @@ const DONE_WORDS: Record<string, string> = {
   budget: "Budget saved.",
   "budget-cleared": "Paid hosting is off for that game.",
   refunded: "Refunded to its card.",
+  "plan-level": "Level saved.",
+  "plan-stopped": "The monthly plan is stopped. Your credit stays.",
   approved: "Approved. The change is made.",
   declined: "Declined. Nothing changed.",
   cancelled: "Zaisma Pro will end at the end of the paid month.",
@@ -121,6 +123,7 @@ interface PageState {
 interface CreditJson {
   balance_cents: number;
   is_credit_low: boolean;
+  credit_plan: { refill_level_cents: number; plan_status: "running" | "payment_failing"; next_payment_at: string; next_payment_cents: number; started_at: string } | null;
   top_ups: { id: string; amount_cents: number; refundable_cents: number; refund_ends_at: string | null; created_at: string }[];
   games: { slug: string; last_month_beyond_free_cents: number }[];
   entries: { id: string; entry_kind: string; amount_cents: number; game_slug: string | null; created_at: string }[];
@@ -261,6 +264,7 @@ function hostingPane(settings: Settings): LayoutItem {
     ),
     ...(credit.is_credit_low ? [words("Credit is low: add credit.")] : []),
     words(credit.balance_cents === 0 ? "Hosting is free up to each game's monthly allowance. Credit pays for what goes past it, only in games you give a budget." : "Credit pays for hosting past each game's free allowance, only in games you give a budget."),
+    ...creditPlanItems(credit),
     layer(
       sheet({
         id: "add-credit",
@@ -316,6 +320,70 @@ function hostingPane(settings: Settings): LayoutItem {
     );
   }
   return settingsPane("hosting", "Hosting", items, { end: secondaryButton("Add credit", { type: "button", icon: "plus", isSmall: true, controls: "add-credit" }) });
+}
+
+/** The monthly credit plan: one row saying what it does and what the next 1st pays, with its sheets; with none, the row that starts one. */
+function creditPlanItems(credit: CreditJson): LayoutItem[] {
+  const plan = credit.credit_plan;
+  const refundWords = words(html`<p>Each payment is credit like a top-up: unused, it refunds to your card for ${CREDIT_LIMITS.refundableDurationDays} days. ${textLink("Terms", "/legal/terms")}</p>`);
+  if (!plan) {
+    return [
+      block(listRows({ whenEmpty: emptyState({ title: "No plan", text: "A monthly plan shows here." }), label: "Monthly credit plan", rows: [{ title: "Monthly credit plan", detail: "Credit goes back to a level you pick on the 1st of every month. You pay only what your games spent.", action: opens("Start a monthly plan", "plan-start") }] })),
+      layer(
+        sheet({
+          id: "plan-start",
+          title: "Start a monthly plan",
+          closeLabel: "Close",
+          action: `${PAGE}/credit/plan/start`,
+          body: stack({
+            items: [
+              words("On the 1st of every month, your credit goes back to this level. A month your games spend nothing costs nothing."),
+              { kind: "control", markup: cutField({ id: "plan-start-level", name: "refill_level_dollars", label: "Level ($)", type: "text", icon: "card", inputMode: "numeric", isRequired: true, hint: `${dollars(CREDIT_LIMITS.minimumRefillLevelCents)} to ${dollars(CREDIT_LIMITS.maximumRefillLevelCents)}. The first payment fills to it, up to ${dollars(CREDIT_LIMITS.maximumTopUpCents)}. You pay on Stripe's page.` }) },
+              refundWords,
+            ],
+          }),
+          buttons: [secondaryButton("Cancel", { type: "submit", formMethod: "dialog" }), primaryButton("Continue to Stripe", { type: "submit" })],
+        }),
+      ),
+    ];
+  }
+  const levelCents = plan.refill_level_cents;
+  const nextDay = new Date(plan.next_payment_at).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+  const isFailing = plan.plan_status === "payment_failing";
+  return [
+    block(
+      listRows({
+        whenEmpty: emptyState({ title: "No plan", text: "A monthly plan shows here." }),
+        label: "Monthly credit plan",
+        rows: [
+          {
+            title: "Monthly credit plan",
+            detail: `Back to ${dollars(levelCents)} on the 1st of every month`,
+            secondDetail: isFailing ? "Your card was declined. Stripe is trying again over the next days." : plan.next_payment_cents > 0 ? `${nextDay} pays ${dollars(plan.next_payment_cents)} so far` : `${nextDay} pays nothing so far`,
+            end: isFailing ? tag("Card declined", "warning") : undefined,
+            action: [opens("Change level", "plan-change"), opens("Stop plan", "plan-stop")],
+          },
+        ],
+      }),
+    ),
+    layer(
+      sheet({
+        id: "plan-change",
+        title: "Monthly plan's level",
+        closeLabel: "Close",
+        action: `${PAGE}/credit/plan/level`,
+        body: stackOfOne(html`<div data-tap="confirm" data-tap-over='${JSON.stringify({ refill_level_dollars: levelCents })}'>${stack({
+          items: [
+            words("What your credit goes back to on the 1st. A higher level takes your passkey."),
+            { kind: "control", markup: cutField({ id: "plan-change-level", name: "refill_level_dollars", label: "Level ($)", type: "text", icon: "card", inputMode: "numeric", text: String(levelCents / 100), isRequired: true, hint: `${dollars(CREDIT_LIMITS.minimumRefillLevelCents)} to ${dollars(CREDIT_LIMITS.maximumRefillLevelCents)}.` }) },
+            { kind: "words", markup: html`<p class="field-error" data-tap-error hidden role="alert"></p>` },
+          ],
+        })}</div>`),
+        buttons: [secondaryButton("Cancel", { type: "submit", formMethod: "dialog" }), primaryButton("Save level", { type: "submit" })],
+      }),
+    ),
+    layer(askSheet("plan-stop", "Stop the monthly plan?", "Your credit stays. Nothing is charged again.", `${PAGE}/credit/plan/stop`, "Stop plan")),
+  ];
 }
 
 const ENTRY_WORDS: Record<string, string> = { top_up: "Credit added", hosting_charge: "Hosting", refund: "Refunded", written_off: "Written off by Zaisma" };
@@ -797,6 +865,9 @@ const SETTINGS_SCRIPT = pageScript(
   // A spending request's link opens its sheet over the Hosting pane.
   var asking = document.getElementById("spending-request");
   if (asking && asking.showModal && !asking.open) asking.showModal();
+  // A link to #add-credit or #payments-connect (the game dashboard's note on links to other sites) opens that sheet.
+  var linked = ["#add-credit", "#payments-connect"].indexOf(location.hash) >= 0 && document.getElementById(location.hash.slice(1));
+  if (linked && linked.showModal && !linked.open && !(asking && asking.open)) linked.showModal();
 
   // A form that spends or makes a key taps the passkey first (the server checks it again). A raise: a number above what it is now.
   function tapKind(form) {
@@ -827,7 +898,8 @@ const SETTINGS_SCRIPT = pageScript(
     var holder = tapKind(form);
     if (!holder || form.getAttribute("data-tapped") === "yes") return;
     var submitter = event.submitter;
-    if (submitter && submitter.hasAttribute("data-no-tap")) return;
+    // Cancel only closes the sheet (formmethod dialog): nothing to confirm.
+    if (submitter && (submitter.hasAttribute("data-no-tap") || submitter.getAttribute("formmethod") === "dialog")) return;
     if (!raises(holder, form)) return;
     event.preventDefault();
     say(form, "");
@@ -912,8 +984,13 @@ async function settingsPage(env: Env, request: Request, session: SignedIn, calle
 
 /** What a waiting request asks, said in a sentence and the change before → after. */
 function spendingChangeWords(request: NonNullable<Awaited<ReturnType<typeof spendingRequestAnswer>>>): { what: string; change: string } {
-  const askedCents = request.requested_change.monthly_budget_cents ?? null;
-  const nowCents = request.current_setting.monthly_budget_cents ?? null;
+  if (request.request_kind === "credit_plan_refill_level") {
+    const askedLevelCents = "refill_level_cents" in request.requested_change ? (request.requested_change.refill_level_cents ?? null) : null;
+    const nowLevelCents = "refill_level_cents" in request.current_setting ? (request.current_setting.refill_level_cents ?? null) : null;
+    return { what: "Your AI asks to raise your monthly credit plan's level.", change: `Monthly credit plan's level, ${nowLevelCents === null ? "none" : dollars(nowLevelCents)} → ${askedLevelCents === null ? "none" : dollars(askedLevelCents)}` };
+  }
+  const askedCents = "monthly_budget_cents" in request.requested_change ? (request.requested_change.monthly_budget_cents ?? null) : null;
+  const nowCents = "monthly_budget_cents" in request.current_setting ? (request.current_setting.monthly_budget_cents ?? null) : null;
   return { what: `Your AI asks to raise ${request.game_title ?? request.game_slug}'s monthly budget.`, change: `${request.game_title ?? request.game_slug}'s monthly budget, ${nowCents === null ? "none" : dollars(nowCents)} → ${askedCents === null ? "none" : dollars(askedCents)}` };
 }
 
@@ -934,6 +1011,8 @@ export async function handleDeveloperSettings(request: Request, env: Env, path: 
   const callerOrNull = await callerFor(env, request, session.userId, session.cookies);
   const account = await accountById(env.DB, session.userId);
   if (!callerOrNull || !account) return redirect("/join?next=/dashboard/settings", session.cookies);
+  // A banned developer has Your games, to export their games, and nothing else (bans.ts).
+  if (callerOrNull.banScope) return redirect("/dashboard", session.cookies);
   let caller: Caller = callerOrNull;
   const url = new URL(request.url);
 
@@ -943,7 +1022,12 @@ export async function handleDeveloperSettings(request: Request, env: Env, path: 
     const deliveriesOfId = url.searchParams.get("deliveries");
     return settingsPage(env, request, session, caller, account, {
       done: url.searchParams.get("done") ?? (url.searchParams.get("stripe") === "connected" ? "connected" : undefined),
-      problem: url.searchParams.get("stripe") && url.searchParams.get("stripe") !== "connected" ? "Stripe didn't connect. The link may have expired: try Connect Stripe again." : undefined,
+      problem:
+        url.searchParams.get("stripe") === "stripe_account_banned"
+          ? ERROR_CODES.stripe_account_banned.messageForPeople
+          : url.searchParams.get("stripe") && url.searchParams.get("stripe") !== "connected"
+            ? "Stripe didn't connect. The link may have expired: try Connect Stripe again."
+            : undefined,
       spendingRequestId,
       deliveriesOf: deliveriesOfId ? { webhookId: deliveriesOfId, cursor: url.searchParams.get("cursor") } : undefined,
     });
@@ -953,8 +1037,8 @@ export async function handleDeveloperSettings(request: Request, env: Env, path: 
   const field = (name: string, maximumCharacterCount?: number) => bodyField(form, name, maximumCharacterCount);
   const back = (done: string, hash: string) => redirect(`${PAGE}?done=${done}#${hash}`, session.cookies);
   const failed = (error: unknown) => {
-    if (error instanceof ApiError && error.code === "account_not_protected") return settingsPage(env, request, session, caller, account, { problem: `${error.message} Add a passkey or an email first.`, problemLink: { words: "Open your account", href: "/account" } }, error.httpStatus);
-    if (error instanceof ApiError) return settingsPage(env, request, session, caller, account, { problem: error.messageWithFix }, error.httpStatus);
+    if (error instanceof ApiError && error.code === "account_not_protected") return settingsPage(env, request, session, caller, account, { problem: error.messageForPeople, problemLink: { words: "Open your account", href: "/account" } }, error.httpStatus);
+    if (error instanceof ApiError) return settingsPage(env, request, session, caller, account, { problem: error.messageForPeople }, error.httpStatus);
     throw error;
   };
   caller = await withSpendingConfirmation(env, caller, session);
@@ -974,6 +1058,23 @@ export async function handleDeveloperSettings(request: Request, env: Env, path: 
       }
       const made = (await call("POST", "/credit/top-ups", { amount_cents: cents })) as { checkout_url: string };
       return redirect(made.checkout_url, session.cookies);
+    }
+    if (sub === "credit/plan/start" || sub === "credit/plan/level") {
+      const cents = centsOf(field("refill_level_dollars", 20));
+      // The page's own words for a level the API wouldn't take, in the dollars typed here.
+      if (!Number.isInteger(cents) || cents < CREDIT_LIMITS.minimumRefillLevelCents || cents > CREDIT_LIMITS.maximumRefillLevelCents) {
+        return settingsPage(env, request, session, caller, account, { problem: `Type a level in dollars, from ${dollars(CREDIT_LIMITS.minimumRefillLevelCents)} to ${dollars(CREDIT_LIMITS.maximumRefillLevelCents)}.` }, 400);
+      }
+      if (sub === "credit/plan/level") {
+        await call("PATCH", "/credit/plan", { refill_level_cents: cents });
+        return back("plan-level", "hosting");
+      }
+      const made = (await call("POST", "/credit/plan/checkout", { refill_level_cents: cents })) as { checkout_url: string };
+      return redirect(made.checkout_url, session.cookies);
+    }
+    if (sub === "credit/plan/stop") {
+      await call("POST", "/credit/plan/stop");
+      return back("plan-stopped", "hosting");
     }
     if ((match = sub.match(/^credit\/refund\/(top_up_[a-z0-9]+)$/))) {
       await call("POST", "/credit/refunds", { top_up_id: match[1] });

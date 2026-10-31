@@ -92,6 +92,9 @@ export async function playerPage(input: PlayerPageInput): Promise<BenchPage> {
     updates: [],
     otherGames: [],
     liveRooms: null,
+    // The developer's own computer: their links open as an established developer's would, and no search engine is near it.
+    searchEnginesEnabled: false,
+    outsideLinksEnabled: true,
     checkedPlayerCount: 0,
     hasThreads: false,
     purchaseLabel: { categories: input.soldCategories, has_own_payments: false },
