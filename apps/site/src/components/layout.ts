@@ -543,7 +543,9 @@ export const PANE_PARTS_STYLES = `
    margin (--head-inset, the pane's --pad-words, read before its words reset it). */
 .pane-head { --head-inset: var(--pad-words); display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: var(--gap-words-beside-control); align-items: start; min-width: 0; }
 .pane-head-words { display: contents; }
-.pane-head-words > * { grid-column: 1 / -1; min-width: 0; padding-inline-start: var(--head-inset); }
+.pane-head-words > * { grid-column: 1 / -1; min-width: 0; }
+/* Its words start at the head's inset; a carving under them (a sheet's Switch of tabs) keeps its own room and runs the head's width. */
+.pane-head-words > :not(.carving) { padding-inline-start: var(--head-inset); }
 .pane-head-words > * + * { margin-top: var(--gap-words-words); }
 .pane-head:has(> .pane-head-end) > .pane-head-words > :first-child { grid-column: 1; grid-row: 1; }
 /* A heading beside its corner control never runs under it: a word longer than the room left (at a large text size) breaks, hyphenated where it can. */
