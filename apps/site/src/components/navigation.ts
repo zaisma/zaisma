@@ -430,9 +430,11 @@ export const RAIL_SCRIPT = `/* rail */(function () {
               var isAtFoot = edge.bottom - own.bottom <= inset + 2;
               placed.side = isAtFoot ? { left: Math.max(0, edge.left + fromCut(cuts[3]) - shownLeft), right: Math.max(0, shownRight - (edge.right - fromCut(cuts[2]))) } : { left: 0, right: 0 };
             } else {
-              var from = parent.getBoundingClientRect(), box = scroller.getBoundingClientRect();
-              var top = Math.max(box.top, edge.top + fromCut(cuts[1])), bottom = Math.min(box.bottom, edge.bottom - fromCut(cuts[2])), right = Math.min(box.right, edge.right - inset);
-              placed.box = { top: top - from.top - parent.clientTop, height: Math.max(0, bottom - top), left: right - from.left - parent.clientLeft - (reachPx + widthPx) / 2 };
+              // Measured on screen, where a sheet still growing in as it opens is drawn smaller than it lays out: the gaps are drawn at
+              // that size too, and what's measured is put back at the size it lays out at, so the rail lands where it will be once it's in.
+              var from = parent.getBoundingClientRect(), box = scroller.getBoundingClientRect(), drawn = holder.offsetWidth ? edge.width / holder.offsetWidth : 1;
+              var top = Math.max(box.top, edge.top + fromCut(cuts[1]) * drawn), bottom = Math.min(box.bottom, edge.bottom - fromCut(cuts[2]) * drawn), right = Math.min(box.right, edge.right - inset * drawn);
+              placed.box = { top: (top - from.top) / drawn - parent.clientTop, height: Math.max(0, bottom - top) / drawn, left: (right - from.left) / drawn - parent.clientLeft - (reachPx + widthPx) / 2 };
             }
           }
         }
