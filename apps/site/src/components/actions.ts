@@ -246,24 +246,35 @@ export const BUSY_SCRIPT = `/* busy */(function () {
 
 export const RUNNER_SCRIPT = `/* runner */(function () {
   if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-  // Clicked, its light flares and settles (is-flaring), with a finger too; the click itself goes on at once.
+  var canHover = window.matchMedia("(hover: hover)").matches;
+  function flare(shell) { shell.classList.remove("is-flaring"); void shell.offsetWidth; shell.classList.add("is-flaring"); }
+  function isWaiting(shell) { return shell.getAttribute("aria-busy") === "true"; }
+  // Clicked, its light flares and settles (is-flaring), with a finger too; the click itself goes on at once. A press that waits on its
+  // answer (the Waiting component) flares only once the answer has come.
   document.addEventListener("click", function (event) {
     var shell = event.target.closest && event.target.closest(".run-wrap");
-    if (!shell || shell.disabled || shell.getAttribute("aria-busy") === "true") return;
-    shell.classList.remove("is-flaring"); void shell.offsetWidth; shell.classList.add("is-flaring");
+    if (!shell || shell.disabled || isWaiting(shell)) return;
+    setTimeout(function () { if (isWaiting(shell)) shell.flaresWhenDone = true; else flare(shell); }, 0);
   });
   document.addEventListener("animationend", function (event) { if (event.animationName === "run-flare" && event.target.classList) event.target.classList.remove("is-flaring"); });
-  if (!window.matchMedia("(hover: hover)").matches) return;
   function rise(shell) {
     if (shell.dataset.rise) return; shell.dataset.rise = "1";
     var face = shell.querySelector(".run"); if (!face) return;
-    shell.addEventListener("pointerenter", function () {
-      shell.classList.add("over"); shell.style.setProperty("--lift", "-1.5px");
-      if (!face.classList.contains("glint")) face.classList.add("glint");
-    });
+    function lift() { shell.classList.add("over"); shell.style.setProperty("--lift", "-1.5px"); if (!face.classList.contains("glint")) face.classList.add("glint"); }
+    function settle() { shell.classList.remove("over"); shell.style.removeProperty("--lift"); face.style.removeProperty("--refl"); face.classList.remove("glint"); }
+    // Waiting, it stays pressed and pointing at it does nothing; done, it flares if its press is what it waited on, and lifts again if the
+    // pointer is still on it.
+    new MutationObserver(function () {
+      if (isWaiting(shell)) { settle(); return; }
+      if (shell.flaresWhenDone) { shell.flaresWhenDone = false; flare(shell); }
+      if (canHover && shell.matches(":hover")) lift();
+    }).observe(shell, { attributes: true, attributeFilter: ["aria-busy"] });
+    if (!canHover) return;
+    shell.addEventListener("pointerenter", function () { if (!isWaiting(shell)) lift(); });
     face.addEventListener("animationend", function (event) { if (event.animationName === "slab-glint") face.classList.remove("glint"); });
-    shell.addEventListener("pointerleave", function () { shell.classList.remove("over"); shell.style.removeProperty("--lift"); face.style.removeProperty("--refl"); });
+    shell.addEventListener("pointerleave", settle);
     shell.addEventListener("pointermove", function (event) {
+      if (isWaiting(shell)) return;
       var r = shell.getBoundingClientRect(), px = (event.clientX - r.left) / r.width - 0.5;
       face.style.setProperty("--refl", (50 - px * 70).toFixed(1) + "%");
     });
