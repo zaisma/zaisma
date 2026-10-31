@@ -272,11 +272,12 @@ html { -webkit-tap-highlight-color: transparent; }
   /* A rail (navigation.ts): its carved channel's width, the reach a pointer finds it in, centered on it, and the room what scrolls keeps
      beside it (the channel and a frame gap). It keeps --rail-inset from the edges of the glass or carving it runs in: the frame gap. */
   --rail-width: 10px; --rail-reach: 16px; --rail-room: calc(var(--rail-width) + var(--pad-frame)); --rail-inset: var(--pad-frame);
-  /* Cut corners (docs/DESIGN.md, Shapes): a pane's, the header's and a bar's, a menu's, large and small, read by the edge rule (GLASS_SCRIPT)
+  /* Cut corners (docs/DESIGN.md, Shapes): a pane's, the header's and a bar's, a menu's, a strip's (a notice or banner, a control's height of glass), large and small, read by the edge rule (GLASS_SCRIPT)
      from data-glass-corners, so everything inside fits them. A framed thing in a corner keeps a bevel of at least 4px at the frame gap. */
   --pane-cut-large: 18px; --pane-cut-small: 14px;
   --header-cut-large: 16px; --header-cut-small: 12px;
   --menu-cut-large: 14px; --menu-cut-small: 12px;
+  --strip-cut-large: 10px; --strip-cut-small: 8px;
   /* A control's height by its size class: each control sets --control-height from one of these, and a row sets every control in it to its
      tallest's (layout.ts). In rem, as type is, so a control grows with its words when the browser's text is set larger (36, 44, 52 and 56px at
      the browser's own 16px). */

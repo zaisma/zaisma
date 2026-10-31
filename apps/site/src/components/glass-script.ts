@@ -140,7 +140,7 @@ export const WATCH_SCRIPT = `/* watch */(function () {
  * glass(el, corners) and cutLine(el), from the header draft, as window.zaismaGlass and window.zaismaCutLine.
  * On load, and for elements added later, they're applied to every [data-glass] (corners from data-glass-corners) and every
  * [data-cut-line] (a control: its slant, where it has one, in its value).
- * data-glass-corners names a slab's four cuts, top left, top right, bottom right, bottom left: "pane", "header" or "menu" for that
+ * data-glass-corners names a slab's four cuts, top left, top right, bottom right, bottom left: "pane", "header", "menu" or "strip" for that
  * kind's large and small cuts round it (the tokens --pane-cut-large and the rest), or four of a kind's "pane-large", "pane-small"
  * and so on, or numbers ("pane-large pane-small 0 0": a tray's head). window.zaismaCorners(el) reads them as numbers.
  */
@@ -153,7 +153,7 @@ export const GLASS_SCRIPT = `/* glass */(function () {
     if (!(name in cutTokens)) cutTokens[name] = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--" + name.replace(/-(large|small)$/, "-cut-$1"))) || 0;
     return cutTokens[name];
   }
-  ["pane", "header", "menu"].forEach(function (kind) { cutToken(kind + "-large"); cutToken(kind + "-small"); });
+  ["pane", "header", "menu", "strip"].forEach(function (kind) { cutToken(kind + "-large"); cutToken(kind + "-small"); });
   function corners(el, fallback) {
     var words = (el.getAttribute("data-glass-corners") || fallback).trim().split(/\\s+/);
     if (words.length === 1 && /^[a-z]+$/.test(words[0])) words = [words[0] + "-large", words[0] + "-small", words[0] + "-large", words[0] + "-small"];

@@ -1660,7 +1660,7 @@ function underHeaderNotice(options: UnderHeaderNoticeOptions): Raw {
   const isProblem = options.tone === "problem";
   const noticeUrgency = options.noticeUrgency ?? "information";
   const undo = options.undoAction === undefined ? "" : html`<form class="notice-undo" method="post" action="${options.undoAction}">${tertiaryButton("Undo", { type: "submit" })}</form>`;
-  return html`<div class="notice glass glass-bar ${options.tone}${options.isInPlace ? " in-place" : ""}" role="${isProblem || noticeUrgency === "urgent" ? "alert" : "status"}" data-notice="${options.tone}" data-notice-urgency="${noticeUrgency}"${undo ? raw(" data-notice-undo") : ""} data-glass data-glass-corners="menu">${EDGE}${icon(isProblem ? "warning" : "check")}<span class="notice-text words-margin beside-controls${undo ? "" : " compact"}">${options.text}${options.link ? html` ${textLink(options.link.words, options.link.href)}` : ""}</span>${undo}${isProblem ? tertiaryButton("Close", { type: "button", icon: "close", isLabelHidden: true, isSmall: true, dataAttributes: { "layer-close": "" } }) : ""}</div>`;
+  return html`<div class="notice glass glass-bar ${options.tone}${options.isInPlace ? " in-place" : ""}" role="${isProblem || noticeUrgency === "urgent" ? "alert" : "status"}" data-notice="${options.tone}" data-notice-urgency="${noticeUrgency}"${undo ? raw(" data-notice-undo") : ""} data-glass data-glass-corners="strip">${EDGE}${icon(isProblem ? "warning" : "check")}<span class="notice-text words-margin beside-controls${undo ? "" : " compact"}">${options.text}${options.link ? html` ${textLink(options.link.words, options.link.href)}` : ""}</span>${undo}${isProblem ? tertiaryButton("Close", { type: "button", icon: "close", isLabelHidden: true, isSmall: true, dataAttributes: { "layer-close": "" } }) : ""}</div>`;
 }
 
 /**
@@ -1735,7 +1735,8 @@ component({
 .notice.in-place { position: relative; top: auto; left: auto; right: auto; z-index: auto; margin: 0; }
 .notice:has(> .notice-undo) { --notice-line: var(--control-height-regular); }
 /* Its icon sits on its words' first line, which sits on its controls' center line. */
-.notice > .ico { width: 20px; height: 20px; margin-block: calc((var(--notice-line) - 20px) / 2); }
+/* As far from its start as from its top, so it never crowds the edge. */
+.notice > .ico { width: 20px; height: 20px; margin-block: calc((var(--notice-line) - 20px) / 2); margin-inline-start: calc((var(--notice-line) - 20px) / 2); }
 .notice.done > .ico { color: var(--online); stroke-width: 2.4; }
 .notice.problem > .ico { color: var(--marked); }
 /* A control at its end (Close, Undo) sits at the inner pane's gap from its end, as at its top and foot, and takes its corners' cut. */
@@ -1817,7 +1818,7 @@ export function banner(options: BannerOptions): Raw {
   const controls = [action, close].filter((each): each is ControlMarkup => each !== undefined);
   const inside = html`<div class="banner-words words-margin${action || close ? " beside-controls" : " round"}">${options.icon ? html`<span class="banner-icon">${icon(options.icon)}</span>` : ""}<p class="banner-text">${options.text}</p></div>${controls.length ? row({ widths: "fit", alignment: "end", items: controls.map(control) }) : ""}`;
   const holder = `banner-in${options.tone === "warning" ? " tone-warning" : ""}${action ? " has-action" : ""}${close ? " has-close" : ""}`;
-  return html`<div class="banner glass" data-glass data-glass-corners="header">${EDGE}${formAction === undefined ? html`<div class="${holder}">${inside}</div>` : html`<form class="${holder}" method="post" action="${formAction}">${inside}</form>`}</div>`;
+  return html`<div class="banner glass" data-glass data-glass-corners="strip">${EDGE}${formAction === undefined ? html`<div class="${holder}">${inside}</div>` : html`<form class="${holder}" method="post" action="${formAction}">${inside}</form>`}</div>`;
 }
 
 component({

@@ -26,7 +26,7 @@ export const MATERIAL_STYLES = `
    material is another: what floats over the page (a floating pane, a sheet, a notice, a playing card) is thin, since the page under it is
    blurred; thick is there to try. */
 .glass.thick { --glass-tint: var(--glass-thick); }
-.glass.thin, .floating-pane, .sheet, .notice, .playing-card { --glass-tint: var(--glass-thin); }
+.glass.thin, .floating-pane, .sheet, .notice, .banner, .playing-card { --glass-tint: var(--glass-thin); }
 /* A tray: one sheet of the thinnest glass, a fainter sheen, less blur and the colors behind it less lifted, with one rim round all of it.
    Its head is a step of regular glass across its top: the sheet's own glass, cut by the sheet's top corners and lying under its rim, so
    it has no rim of its own. Along the step's foot its lip catches the light (--step-lip) and it shades the thin glass below (--step-cast),
