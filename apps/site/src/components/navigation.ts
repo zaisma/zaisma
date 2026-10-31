@@ -36,6 +36,8 @@ export interface HeaderOptions {
   hasPageRunner?: boolean;
   /** Fixed slim, as after scrolling: the gallery's state. */
   isCompact?: boolean;
+  /** Waiting on the next page, its lower edge running the waiting light: the gallery's state (HEADER_SCRIPT sets it on a page). */
+  isWaiting?: boolean;
   /** The account menu starts open: the gallery's state. */
   isMenuOpen?: boolean;
   /** On a phone, the search starts open in place of the tabs: the gallery's state. */
@@ -67,9 +69,9 @@ export function header(options: HeaderOptions): Raw {
     tab("Forum", "/forum", options.current === "forum", true, isOpen),
   ];
   const hasTabRow = !options.isOnSignInPage && tabs.filter((each) => !each.isFolded).length >= 2;
-  const states = [hasTabRow ? "has-tab-row" : "", options.isCompact ? "is-compact" : "", options.isSearchOpen ? "searching" : ""].filter(Boolean).map((name) => ` ${name}`).join("");
+  const states = [hasTabRow ? "has-tab-row" : "", options.isCompact ? "is-compact" : "", options.isSearchOpen ? "searching" : "", options.isWaiting ? "is-waiting" : ""].filter(Boolean).map((name) => ` ${name}`).join("");
   const signIn = options.hasPageRunner ? secondaryButton("Sign in", { href: "/signin" }) : primaryButton("Sign in", { href: "/signin" });
-  return html`<header class="top bar-layout glass glass-bar pinned${states}" id="${id}" data-compacts data-glass data-glass-corners="header"${options.isCompact ? raw(" data-stays-compact") : ""}>${EDGE}
+  return html`<header class="top bar-layout glass glass-bar pinned${states}" id="${id}" data-compacts data-glass data-glass-corners="header"${options.isCompact ? raw(" data-stays-compact") : ""}${options.isWaiting ? raw(" data-stays-waiting") : ""}>${EDGE}
   ${options.sidebarButton ?? ""}${wordmark}
   ${options.isOnSignInPage ? "" : html`<nav class="nav" aria-label="Main"${hasTabRow ? "" : raw(" hidden")}>${tabSwitch({ label: "Where you are", switchSize: "regular", isFull: true, tabs })}</nav>`}
   ${options.search ? html`${searchField({ ...options.search, id: options.search.id ?? `${id}-find` })}${secondaryButton(options.search.label, { type: "button", icon: "search", isLabelHidden: true, isSmall: true, isExpanded: Boolean(options.isSearchOpen) })}` : ""}
@@ -251,7 +253,7 @@ export const HEADER_SCRIPT = pageScript(
   }
   /* A tap or click that opens another page of this site lights the header's lower edge (is-waiting, after --waiting-delay) until the page
      goes: a link in this tab, not a new tab, a download or a place on this same page. Back from the browser's history, it's dark again. */
-  function setWaiting(isWaiting) { headers.forEach(function (top) { top.classList.toggle("is-waiting", isWaiting); }); }
+  function setWaiting(isWaiting) { headers.forEach(function (top) { if (!top.hasAttribute("data-stays-waiting")) top.classList.toggle("is-waiting", isWaiting); }); }
   document.addEventListener("click", function (event) {
     var link = event.target.closest && event.target.closest("a[href]");
     if (!link || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || (link.target && link.target !== "_self") || link.hasAttribute("download")) return;
@@ -858,6 +860,7 @@ component({
     { label: "Search open, its finishes and games under it (on a phone it takes the tabs' place)", isWide: true, isStill: true, markup: headerFrame(header({ id: "example-top-search", current: "home", search: { ...GAMES_SEARCH, searchText: "ash", state: "is-open", shownSuggestions: SEARCH_STAND_IN.suggestionsFor("ash") }, account: STAND_IN_ACCOUNT, isOnDeveloperPage: false, yourGamesHref: "#header", isSearchOpen: true }), true) },
     { label: "On the dashboard: no search", isWide: true, isStill: true, markup: headerFrame(header({ id: "example-top-dev", current: "developer", account: STAND_IN_ACCOUNT, isOnDeveloperPage: true, yourGamesHref: "#header" })) },
     { label: "Compact after scrolling, on a page with its own runner (a game's Play): Sign in is a secondary button", isWide: true, isStill: true, markup: headerFrame(header({ id: "example-top-runner", current: "home", search: GAMES_SEARCH, account: null, isOnDeveloperPage: false, hasPageRunner: true, isCompact: true })) },
+    { label: "Waiting on the next page: after half a second its lower edge runs the waiting light", isWide: true, markup: headerFrame(header({ id: "example-top-waiting", current: "home", search: GAMES_SEARCH, account: STAND_IN_ACCOUNT, isOnDeveloperPage: false, isWaiting: true })) },
     { label: "On sign-in: Zaisma alone", isWide: true, isStill: true, markup: headerFrame(header({ id: "example-top-sign-in", current: null, isOnDeveloperPage: false, isOnSignInPage: true })) },
   ],
 });
