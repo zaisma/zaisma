@@ -177,13 +177,13 @@ export const GLASS_SCRIPT = `/* glass */(function () {
   }
   function drawWaiting(el) {
     var glint = el.querySelector(":scope > .waiting-glint");
-    // Done waiting, its last glints slide out (is-leaving) and it goes; waiting again before they have, it carries on. Under reduced motion,
+    // Done waiting, its last glint sweeps out (is-leaving) and it goes; waiting again before they have, it carries on. Under reduced motion,
     // nothing slides, so it goes at once.
     if (!isWaitingNow(el)) {
       if (glint && !glint.classList.contains("is-leaving")) {
         if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) { glint.remove(); return; }
         glint.classList.add("is-leaving");
-        glint.addEventListener("animationend", function gone(event) { if (event.animationName === "waiting-glint-leaves" && glint.classList.contains("is-leaving")) glint.remove(); });
+        glint.addEventListener("animationend", function gone(event) { if (event.animationName === "waiting-glint-sweeps-out" && glint.classList.contains("is-leaving")) glint.remove(); });
       }
       return;
     }
