@@ -119,7 +119,7 @@ export const PLAYING_CARD_SCRIPT = `/* playing cards */(function () {
 `;
 
 /** A screenshot large, as a sheet's body: as big as the screen allows, whole. */
-export const screenshotLarge = (shown: ShownPicture, label: string): Raw => picture(shown, { label, holdsShape: true, className: "screenshot-large", shownSizes: "(max-width: 760px) 100vw, 960px", largestPx: 1920 });
+export const screenshotLarge = (shown: ShownPicture, label: string): Raw => picture(shown, { label, hasOwnShape: true, className: "screenshot-large", shownSizes: "(max-width: 760px) 100vw, 960px", largestPx: 1920 });
 
 /** Where Cloudflare's check sits on a game's page: unseen, unless it ever needs a tap, when it shows at the screen's foot, over the game too. */
 export const playingCheck = (id: string): Raw => html`<div class="playing-check" id="${id}"></div>`;

@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { Script } from "node:vm";
 import { describe, expect, it } from "vitest";
-import { COMPONENT_SCRIPT, COMPONENT_SCRIPT_SOURCE, COMPONENT_STYLES, FIRST_PAINT_SCRIPT, FIRST_PAINT_SCRIPT_SOURCE } from "../../apps/site/src/components/index.ts";
+import { COMPONENT_SCRIPT, COMPONENT_SCRIPT_SOURCE, COMPONENT_STYLES, FIRST_PAINT_SCRIPT, FIRST_PAINT_SCRIPT_SOURCE, HEADER_SCRIPT } from "../../apps/site/src/components/index.ts";
 // @ts-expect-error plain JavaScript without type declarations
 import { GENERATED_PATH, minifiedModuleSource } from "../../scripts/minify-components.mjs";
 
@@ -11,16 +11,18 @@ import { GENERATED_PATH, minifiedModuleSource } from "../../scripts/minify-compo
  */
 describe("the components' script", () => {
   it("is current: run npm run components:minify after changing a component's script", async () => {
-    expect(readFileSync(GENERATED_PATH, "utf8")).toBe(await minifiedModuleSource(COMPONENT_SCRIPT_SOURCE));
+    expect(readFileSync(GENERATED_PATH, "utf8")).toBe(await minifiedModuleSource(FIRST_PAINT_SCRIPT_SOURCE, COMPONENT_SCRIPT_SOURCE));
   });
 
   it("is the minified one: a good deal smaller than the source, and it still parses", () => {
-    expect(COMPONENT_SCRIPT.sourceText.length).toBeLessThan(COMPONENT_SCRIPT_SOURCE.length * 0.7);
-    expect(() => new Script(COMPONENT_SCRIPT.sourceText, { filename: "components.js" })).not.toThrow();
+    for (const [script, source] of [[FIRST_PAINT_SCRIPT, FIRST_PAINT_SCRIPT_SOURCE], [COMPONENT_SCRIPT, COMPONENT_SCRIPT_SOURCE]] as const) {
+      expect(script.sourceText.length).toBeLessThan(source.length * 0.7);
+      expect(() => new Script(script.sourceText, { filename: `${script.name}.js` })).not.toThrow();
+    }
   });
 
   it("keeps what the pages and tests look for in it: the page watcher and the attributes it reads", () => {
-    for (const word of ["zaismaWatch", "data-cut-line", "data-glass", "data-compacts"]) expect(COMPONENT_SCRIPT.sourceText, word).toContain(word);
+    for (const word of ["zaismaWatch", "data-cut-line", "data-glass", "data-compacts"]) expect(FIRST_PAINT_SCRIPT.sourceText, word).toContain(word);
   });
 
   it("isolates the parent of a stage under the page (the backdrop, the city), so the body's own color never paints over it", () => {
@@ -33,4 +35,16 @@ describe("the components' script", () => {
     expect(FIRST_PAINT_SCRIPT.sourceText).toContain("zaismaInput");
     expect(COMPONENT_SCRIPT_SOURCE).toContain("function focusSheet");
   });
+
+  it("waits through zaismaWait, part of the first paint: every press that sends something on the same page goes through it, and only search as you type and the city fetch outside it", () => {
+    expect(FIRST_PAINT_SCRIPT_SOURCE).toContain("window.zaismaWait = function (element, promise)");
+    const fetches = [...(FIRST_PAINT_SCRIPT_SOURCE + COMPONENT_SCRIPT_SOURCE).matchAll(/(.{0,40})\bfetch\(([^\n]{0,80})/g)];
+    expect(fetches.filter(([, before = "", after = ""]) => !/zaismaWait\([^,]+, $/.test(before) && !after.includes('"search="')).map(([found]) => found)).toEqual([]);
+  });
+
+  it("lights the header for a new page, after the waiting delay, and puts it out when the page comes back from the browser's history", () => {
+    expect(HEADER_SCRIPT.sourceText).toContain('top.classList.toggle("is-waiting", isWaiting)');
+    expect(HEADER_SCRIPT.sourceText).toContain('addEventListener("pageshow", function () { setWaiting(false); })');
+  });
 });
+

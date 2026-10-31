@@ -1,4 +1,4 @@
-import { PICTURE_PLACEHOLDER, SIZED_IMAGE_WIDTHS_PX } from "@zaisma/core";
+import { SIZED_IMAGE_WIDTHS_PX } from "@zaisma/core";
 import { html, raw, shownColor, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
 import { ICONS, MARK, WORDMARK, icon, largeIcon, type IconName } from "./icons.ts";
@@ -572,10 +572,6 @@ component({
 .backdrop.world { opacity: 0; object-fit: cover; border: 0; transition-property: opacity; transition-timing-function: ease; }
 .backdrop.world.is-shown { opacity: 1; }
 @media (prefers-reduced-motion: reduce) { .backdrop.world { transition: none !important; } }
-/* A game's world on its page starts as its placeholder (Picture), blurred more, as wide as it's shown: the layer under the picture or the
-   shader's frame, which show over it once they've arrived (the frame shows the same placeholder until its shader draws). */
-.backdrop.backdrop-placeholder { --placeholder-blur: ${PICTURE_PLACEHOLDER.backgroundBlurPx}px; overflow: hidden; background: none; }
-.backdrop-placeholder::before { content: ""; position: absolute; inset: calc(-2 * var(--placeholder-blur)); background: var(--placeholder) center / cover no-repeat; filter: blur(var(--placeholder-blur)); }
 :has(> .backdrop) { isolation: isolate; }
 .backdrop-frame { position: relative; width: 100%; height: 220px; display: flex; align-items: center; justify-content: center; overflow: hidden;
   clip-path: ${cutPolygon("pane")}; }
@@ -654,7 +650,7 @@ export interface PictureOptions {
   /** Fetched before the page's other pictures: for the one likely the largest thing in the first view. */
   hasHighPriority?: boolean;
   /** Holds its own box at the picture's shape (a screenshot shown large), instead of filling the well it's set in. */
-  holdsShape?: boolean;
+  hasOwnShape?: boolean;
   /** More classes for its box: the piece it's part of ("screenshot-large"). */
   className?: string;
 }
@@ -680,13 +676,13 @@ export function placeholderStyle(placeholderDataUrl: string | null, shape?: { wi
 
 /**
  * A picture: its placeholder, blurred, in its place from the first paint, and the picture itself fading in over it once it has wholly
- * arrived and decoded (PICTURE_SCRIPT), never half-drawn. In a carving's well it fills the well; holdsShape keeps a box of its own at the
+ * arrived and decoded (PICTURE_SCRIPT), never half-drawn. In a carving's well it fills the well; hasOwnShape keeps a box of its own at the
  * picture's shape. Every component that shows a picture shows it with this.
  */
 export function picture(shown: ShownPicture, options: PictureOptions = {}): Raw {
-  const className = ["picture", options.holdsShape ? "holds-shape" : "", options.className ?? ""].filter(Boolean).join(" ");
+  const className = ["picture", options.hasOwnShape ? "has-own-shape" : "", options.className ?? ""].filter(Boolean).join(" ");
   const sizes = keptSizes(shown.imageUrl, options.shownSizes ?? "(max-width: 760px) 200px, 260px", options.largestPx ?? PICTURE_LARGEST_PX);
-  return html`<span class="${className}"${placeholderStyle(shown.placeholderDataUrl, options.holdsShape ? shown : undefined)}><img class="reveals" src="${shown.imageUrl}"${sizes} width="${Math.round(shown.widthPx)}" height="${Math.round(shown.heightPx)}" alt="${options.label ?? ""}" loading="${options.isEager ? "eager" : "lazy"}"${options.hasHighPriority ? raw(' fetchpriority="high"') : ""} decoding="async"></span>`;
+  return html`<span class="${className}"${placeholderStyle(shown.placeholderDataUrl, options.hasOwnShape ? shown : undefined)}><img class="reveals" src="${shown.imageUrl}"${sizes} width="${Math.round(shown.widthPx)}" height="${Math.round(shown.heightPx)}" alt="${options.label ?? ""}" loading="${options.isEager ? "eager" : "lazy"}"${options.hasHighPriority ? raw(' fetchpriority="high"') : ""} decoding="async"></span>`;
 }
 
 /**
@@ -713,19 +709,10 @@ component({
   subgroup: "pictures",
   summary: "Every picture a page shows, a cover, a screenshot or a game's background: in its place from the first moment as a tiny blurred copy of itself, sharpening in as it arrives. Nothing on a page is ever an empty box waiting for a picture.",
   styles: `
-/* A picture: its box holds the placeholder, blurred (--placeholder, a data: URL in the page itself), run past the box's edges so no edge
-   fades, and the picture over it, hidden until it has wholly arrived and decoded, then fading in (img.reveals, PICTURE_SCRIPT). In a
-   carving's well it fills the well; .holds-shape keeps the picture's own shape (--picture-shape). A picture with no placeholder shows
-   what's under it until it arrives: a card's well shows Zaisma's mark. */
-.picture { --placeholder-blur: 10px; position: relative; display: block; overflow: hidden; }
+/* A picture (its box and the placeholder under it are a material: materials.ts, Pictures): in a carving's well it fills the well;
+   .has-own-shape keeps the picture's own shape (--picture-shape). */
 .carving-art > .picture { position: absolute; inset: 0; }
-.picture.holds-shape { aspect-ratio: var(--picture-shape); }
-.picture::before { content: ""; position: absolute; inset: calc(-2 * var(--placeholder-blur)); background: var(--placeholder, none) center / cover no-repeat; filter: blur(var(--placeholder-blur)); }
-.picture > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
-img.reveals:not(.is-shown) { opacity: 0; }
-img.reveals.is-shown:not(.at-once) { animation: picture-arrives var(--motion-settle) var(--ease-standard); }
-@keyframes picture-arrives { from { opacity: 0; } }
-@media (prefers-reduced-motion: reduce) { img.reveals.is-shown { animation: none; } }
+.picture.has-own-shape { aspect-ratio: var(--picture-shape); }
 .picture-sample { display: block; position: relative; width: 260px; aspect-ratio: 16 / 9; }
 `,
   render: picture,

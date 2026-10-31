@@ -73,7 +73,7 @@ export interface PrimaryButtonOptions extends ButtonTarget {
 /** The primary button: a raised orange slab, the same height as the other buttons, lit along its edges. It lifts and catches the light; pressing sinks it into the glass. */
 export function primaryButton(label: string, options: PrimaryButtonOptions = {}): ControlMarkup {
   // The label's span has no class of its own: html.ts's account link finds it as the header's runner's span without one.
-  const words = options.busyLabel ? html`<span>${label}</span><span class="sr when-waiting">, ${options.busyLabel}</span>` : html`<span>${label}</span>`;
+  const words = options.busyLabel ? html`<span class="label-idle">${label}</span><span class="sr when-waiting">, ${options.busyLabel}</span>` : html`<span>${label}</span>`;
   const shell = classes("run-wrap", options.isFullWidth && "is-full", options.state);
   const hasTrailing = options.trailingText !== undefined;
   const ending = hasTrailing ? html`<span class="run-trailing">${options.trailingText}</span>` : options.icon ? "" : ARROW;
@@ -308,7 +308,7 @@ const RUN_STYLES = `
 .is-full > .run { width: 100%; justify-content: center; }
 /* With words at its far end (a price): the label leads from the start and the words close it at the end, nothing between but the room. */
 .is-full > .run.has-trailing { justify-content: flex-start; }
-.run.has-trailing > span:not([class]) { flex: 1 1 auto; text-align: start; }
+.run.has-trailing > :is(span:not([class]), .label-idle) { flex: 1 1 auto; text-align: start; }
 .run-trailing { flex: none; font-variant-numeric: tabular-nums; }
 .run-trailing:empty { display: none; }
 .run.big { --control-height: var(--control-height-big); justify-content: center; font-size: 1.1875rem; gap: 12px; }

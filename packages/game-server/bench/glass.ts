@@ -97,6 +97,9 @@ export async function playerPage(input: PlayerPageInput): Promise<BenchPage> {
     outsideLinksEnabled: true,
     checkedPlayerCount: 0,
     hasThreads: false,
+    // The developer's own computer, in a browser that plays every game.
+    deviceKind: "computer",
+    canIsolateFrame: true,
     purchaseLabel: { categories: input.soldCategories, has_own_payments: false },
     background: { source: "zaisma", glassTintColor: null },
     head: undefined,

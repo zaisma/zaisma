@@ -1,4 +1,5 @@
 import { PICTURE_COLUMNS_SQL, shownPictureOf, type PictureRow } from "./placeholders.ts";
+import { viewerDeviceKind } from "./device-kind.ts";
 import {
   ALLOWED_CONTENT,
   CREDIT_LIMITS,
@@ -40,6 +41,7 @@ import {
   testerLinkVersion,
   versionById,
   type ContentRule,
+  type DeviceKind,
   type Game,
   type GameItem,
   type RoomPage,
@@ -136,6 +138,10 @@ export interface GamePageView {
   checkedPlayerCount: number;
   /** Whether the version this page plays needs threads (ScanReport.has_threads). */
   hasThreads: boolean;
+  /** The viewer's kind of device as the server guesses it (device-kind.ts), and whether the browser's name says it's Chromium 137 or later
+   * off an iPhone or iPad (a game with threads plays only there): the device note's first guess, which the page's script corrects. */
+  deviceKind: DeviceKind;
+  canIsolateFrame: boolean;
   purchaseLabel: PurchaseLabel;
   background: ShownBackground;
   /** What chat apps, social sites and search engines read; none for tester links, which are secret. */
@@ -244,6 +250,8 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
     liveRooms,
     checkedPlayerCount: playingNow.get(game.id) ?? 0,
     hasThreads: playedVersion?.has_threads === 1,
+    deviceKind: viewerDeviceKind(request),
+    canIsolateFrame: Number(/Chrome\/(\d+)/.exec(request.headers.get("user-agent") ?? "")?.[1] ?? 0) >= 137 && !/iPhone|iPad/.test(request.headers.get("user-agent") ?? ""),
     purchaseLabel,
     background,
     head: tester ? undefined : await gamePageHead(env, game, { roomCode: code || null, developerName: developer?.name ?? null }),
@@ -316,6 +324,7 @@ export function gamePageResponse(env: Env, view: GamePageView): Response {
   const refundWords = refundPolicyWords(purchaseSettingsOf(game));
   const devices = game.devices ? game.devices.split(",") : [];
   const controls = game.controls ? game.controls.split(",") : [];
+  const deviceNote = deviceNoteFor({ deviceKind: view.deviceKind, canIsolateFrame: view.canIsolateFrame, hasThreads: view.hasThreads, devices, controls, screenOrientation: game.screen_orientation || null });
   const playModes = readPlayModes(game.play_modes);
   const describedModes = playModes ? describePlayModes(playModes) : game.multiplayer_mode !== "none" ? [{ mode: "online" as const, label: "Online multiplayer", playerCount: null }] : [];
   const gameFacts = [
@@ -348,7 +357,7 @@ export function gamePageResponse(env: Env, view: GamePageView): Response {
   const mainAction = isClosed
     ? []
     : !isForSale
-      ? [{ kind: "control" as const, markup: primaryButton(playsAfterSignIn ? "Sign in to play" : "Play", { id: "play", type: "button", isBig: true, isFullWidth: true, icon: "play" }) }]
+      ? [{ kind: "control" as const, markup: primaryButton(playsAfterSignIn ? "Sign in to play" : deviceNote.playsAnyway ? "Play anyway" : "Play", { id: "play", type: "button", isBig: true, isFullWidth: true, icon: "play" }) }]
       : fullGamePrice
         ? [{ kind: "control" as const, markup: primaryButton("Buy", { id: "buy-game", type: "button", isBig: true, isFullWidth: true, icon: "cart", trailingText: priceText(fullGamePrice.currencyCode, fullGamePrice.priceMinorUnits), dataAttributes: { "buy-item": game.full_game_item_name! } }) }]
         : [{ kind: "control" as const, markup: primaryButton("Not on sale right now", { id: "buy-game", type: "button", isBig: true, isFullWidth: true, isDisabled: true }) }];
@@ -391,7 +400,7 @@ export function gamePageResponse(env: Env, view: GamePageView): Response {
         ...(isClosed ? [{ kind: "words" as const, id: "closed", markup: html`<p>This game isn't open to your account. ${textLink("Find other games", "/")}</p>` }] : []),
         { kind: "block", markup: paneActions },
         ...(accountNote ? [{ kind: "words" as const, markup: accountNote }] : []),
-        { kind: "block", id: "device-note", isHidden: true, markup: banner({ text: "", icon: "warning" }) },
+        { kind: "block", id: "device-note", isHidden: !deviceNote.notes.length, markup: banner({ text: deviceNote.notes.join(" "), icon: "warning", ...(deviceNote.needsOtherBrowser ? { tone: "warning" as const } : {}) }) },
         ...(gameFacts.length ? [{ kind: "words" as const, markup: facts({ facts: gameFacts, arrangement: "across", label: "About playing it" }) }] : []),
       ],
     }),
@@ -1240,14 +1249,16 @@ if (CONTROLS.length) {
 }
 const SCREEN = gamePage.screen_orientation;
 if (coarse && (SCREEN === "landscape" || SCREEN === "portrait")) deviceNotes.push(SCREEN === "landscape" ? "Best in landscape." : "Best in portrait.");
-if (deviceNotes.length) {
-  const note = document.getElementById("device-note");
-  note.querySelector(".banner-text").textContent = deviceNotes.join(" ");
+// The page says it from the first paint for the device the server guessed (deviceNoteFor); measured here, it changes only where the guess
+// was wrong (a tablet whose browser calls itself a computer's).
+{
+  const note = document.getElementById("device-note"), words = deviceNotes.join(" ");
+  if (note.querySelector(".banner-text").textContent !== words) note.querySelector(".banner-text").textContent = words;
   // Amber only when this browser can't start the game at all.
   note.querySelector(".banner-in").classList.toggle("tone-warning", needsOtherBrowser);
-  note.hidden = false;
-  const playLabel = document.querySelector("#play .face > span:not([class])");
-  if (playLabel && (needsOtherBrowser || (DEVICES.length && !DEVICES.includes(mine)))) playLabel.textContent = "Play anyway";
+  note.hidden = !deviceNotes.length;
+  const playLabel = document.querySelector("#play .face > span:not([class])"), playWords = needsOtherBrowser || (DEVICES.length && !DEVICES.includes(mine)) ? "Play anyway" : "Play";
+  if (playLabel && playLabel.textContent !== playWords && /^Play( anyway)?$/.test(playLabel.textContent)) playLabel.textContent = playWords;
 }
 // The ⋯ menu is a dropdown, which opens and closes itself; closed, the game gets the keys back.
 const menuButton = document.getElementById("menu");
@@ -1421,6 +1432,25 @@ addEventListener("message", (e) => {
 addEventListener("pagehide", () => {
   if (frame) leftRoom();
 });`);
+
+/**
+ * What the game page says about this device under Play, from the first paint: the same notes its script works out in the browser (the
+ * game page's script, deviceNotes), here from the server's guess at the device (device-kind.ts) and the browser's name. playsAnyway: Play
+ * says "Play anyway", for a game made for other devices or one this browser can't start.
+ */
+export function deviceNoteFor(options: { deviceKind: DeviceKind; canIsolateFrame: boolean; hasThreads: boolean; devices: string[]; controls: string[]; screenOrientation: string | null }): { notes: string[]; needsOtherBrowser: boolean; playsAnyway: boolean } {
+  const isCoarse = options.deviceKind !== "computer";
+  const needsOtherBrowser = options.hasThreads && !options.canIsolateFrame;
+  const isOtherDevice = options.devices.length > 0 && !options.devices.includes(options.deviceKind);
+  const notes = [
+    ...(needsOtherBrowser ? ["This game needs Chrome or Edge on a computer or Android."] : []),
+    ...(isOtherDevice ? [`Made for ${options.devices.map((device) => `${device}s`).join(" and ")}. It may not work well on this ${options.deviceKind}.`] : []),
+    ...(options.controls.length && isCoarse && !options.controls.includes("touch") ? [options.controls.includes("keyboard_mouse") ? "Needs a keyboard." : "Needs a gamepad."] : []),
+    ...(options.controls.length && !isCoarse && !options.controls.includes("keyboard_mouse") && !options.controls.includes("touch") ? ["Needs a gamepad."] : []),
+    ...(isCoarse && (options.screenOrientation === "landscape" || options.screenOrientation === "portrait") ? [options.screenOrientation === "landscape" ? "Best in landscape." : "Best in portrait."] : []),
+  ];
+  return { notes, needsOtherBrowser, playsAnyway: needsOtherBrowser || isOtherDevice };
+}
 
 /**
  * The game page's script for a game that needs an account: a guest (no zaisma_in cookie) sees how to

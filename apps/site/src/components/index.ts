@@ -22,8 +22,9 @@ import "./people.ts";
 import "./screens.ts";
 // A game's page while it plays: the bar beside the game and the cards over it.
 import "./playing.ts";
-// The city defines its gallery entry as it loads; its script is its own (CITY_SCRIPT), loaded only by the pages on it.
-import "./city.ts";
+// The city defines its gallery entry as it loads; its script is its own (CITY_SCRIPT), loaded only by the pages on it, but for where its
+// pane sits on a phone, which is part of the first paint (CITY_PANE_PLACE_SCRIPT).
+import { CITY_PANE_PLACE_SCRIPT } from "./city.ts";
 
 /*
  * The components, bundled for the pages: importing this module defines every one of them (each group file
@@ -82,12 +83,12 @@ export const COMPONENT_STYLES = (): string => (shownStyles ||= hoverOnlyWherePoi
 /**
  * The components' scripts, readable, in two (what scripts/minify-components.mjs minifies). The first-paint script draws and places what the
  * page's first paint shows: the page watcher, pictures arriving, the glass and its edge rule, the materials, where panes hang, and every
- * script that sizes or places the layout (a switch's slab, rails, rows, fades, the sidebar, compacting). The page holds its first paint for
+ * script that sizes or places the layout (a switch's slab, rails, rows, fades, the sidebar, compacting, a pane started low, the sign-in's pane). The page holds its first paint for
  * it alone, in its head ("A page shows whole while it loads", docs/DESIGN.md), so it's kept to that; the loading check (layout-check.mjs)
  * fails a page that changes when the rest is held back, which is how a script is found to belong here. The rest runs after, holding nothing.
  */
-export const FIRST_PAINT_SCRIPT_SOURCE = WATCH_SCRIPT + PICTURE_SCRIPT + GLASS_SCRIPT + MATERIAL_SCRIPT + PLACE_SCRIPT + EDGE_LIGHT_SCRIPT + SWITCH_SCRIPT + RAIL_SCRIPT + ROW_LAYOUT_SCRIPT + SCROLL_FADE_SCRIPT + SIDEBAR_SCRIPT + COMPACT_SCRIPT;
-export const COMPONENT_SCRIPT_SOURCE = BACKDROP_SCRIPT + FIELD_SCRIPT + PIN_FIELD_SCRIPT + RUNNER_SCRIPT + BUSY_SCRIPT + TOGGLE_SCRIPT + CHECK_SCRIPT + CHOICE_CARDS_SCRIPT + WHEEL_SCRIPT + FILE_DROP_SCRIPT + COPY_SCRIPT + CHART_SCRIPT + QR_CODE_SCRIPT + LONG_FIELD_SCRIPT + SLIDER_SCRIPT + COLOR_FIELD_SCRIPT + SELECT_SCRIPT + SEARCH_SCRIPT + DROPDOWN_SCRIPT + FILTER_MENU_SCRIPT + LAYERS_SCRIPT + STARTED_LOW_SCRIPT + STEP_FLOW_SCRIPT + CONFIRM_ITS_YOU_SCRIPT + ROW_SCRIPT + LOAD_MORE_SCRIPT + PLAYING_CARD_SCRIPT + LIST_ROW_FOLD_SCRIPT;
+export const FIRST_PAINT_SCRIPT_SOURCE = WATCH_SCRIPT + PICTURE_SCRIPT + GLASS_SCRIPT + MATERIAL_SCRIPT + PLACE_SCRIPT + EDGE_LIGHT_SCRIPT + SWITCH_SCRIPT + RAIL_SCRIPT + ROW_SCRIPT + ROW_LAYOUT_SCRIPT + SCROLL_FADE_SCRIPT + SIDEBAR_SCRIPT + COMPACT_SCRIPT + STARTED_LOW_SCRIPT + CITY_PANE_PLACE_SCRIPT;
+export const COMPONENT_SCRIPT_SOURCE = BACKDROP_SCRIPT + FIELD_SCRIPT + PIN_FIELD_SCRIPT + RUNNER_SCRIPT + BUSY_SCRIPT + TOGGLE_SCRIPT + CHECK_SCRIPT + CHOICE_CARDS_SCRIPT + WHEEL_SCRIPT + FILE_DROP_SCRIPT + COPY_SCRIPT + CHART_SCRIPT + QR_CODE_SCRIPT + LONG_FIELD_SCRIPT + SLIDER_SCRIPT + COLOR_FIELD_SCRIPT + SELECT_SCRIPT + SEARCH_SCRIPT + DROPDOWN_SCRIPT + FILTER_MENU_SCRIPT + LAYERS_SCRIPT + STEP_FLOW_SCRIPT + CONFIRM_ITS_YOU_SCRIPT + ROW_SCRIPT + LOAD_MORE_SCRIPT + PLAYING_CARD_SCRIPT + LIST_ROW_FOLD_SCRIPT;
 
 /**
  * The scripts pages load: the minified ones, unless one was made from an older source (a script changed and npm run components:minify wasn't

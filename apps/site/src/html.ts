@@ -20,12 +20,14 @@ import type { CheckedPageName } from "./components/checked-pages.ts";
 export const scriptTags = (...scripts: PageScript[]): Raw => raw(scripts.map((script) => `<script src="${pageScriptPath(script)}" defer></script>`).join(""));
 
 /**
- * The same, for the page's <head>, holding its first paint until they've run: only FIRST_PAINT_SCRIPT (components/index.ts), which draws
- * the components' cuts and places the layout, so the page never shows half-drawn for a frame as it loads, and waits on nothing else. The
- * browser fetches it first, ahead of the page's other scripts, which would otherwise share the line with it as the first paint waits.
+ * The same, for the page's <head>: FIRST_PAINT_SCRIPT (components/index.ts), which draws the components' cuts and places the layout. It
+ * runs before the first paint without holding it: the page can't paint before its stylesheet, the styles-applied script at the body's end
+ * holds the parse until then, and this one, smaller and asked for first (Early Hints, high priority), is the first deferred script to run
+ * as the parse ends, in the same turn, so the page never shows half-drawn. Marked render-blocking instead, Chrome held the first paint
+ * until the page's other scripts had come too: 3 to 5 seconds later on Slow 3G (page:probe --slow, Oct 31, 2026).
  */
 export const headScriptTags = (...scripts: PageScript[]): Raw =>
-  raw(scripts.map((script) => `<script src="${pageScriptPath(script)}" defer blocking="render" fetchpriority="high"></script>`).join(""));
+  raw(scripts.map((script) => `<script src="${pageScriptPath(script)}" defer fetchpriority="high"></script>`).join(""));
 
 /**
  * The head scripts read the page's tokens as they start (the cuts' sizes, the slant), so they must run after its stylesheets apply. Every

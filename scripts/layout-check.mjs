@@ -230,6 +230,10 @@ const SETTLE = `(async () => {
   return true;
 })()`;
 
+/** What a phone's and a tablet's browser call themselves (their user agent), for a page that guesses the device from it. */
+const PHONE_BROWSER_NAME = "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36";
+const TABLET_BROWSER_NAME = "Mozilla/5.0 (Linux; Android 14; Pixel Tablet) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36";
+
 /**
  * Waits for the page's first paint as a slow connection shows it: the page read, its stylesheet in and its first-paint script run (the
  * rest of its scripts held back), and what that script draws drawn.
@@ -237,7 +241,11 @@ const SETTLE = `(async () => {
 const FIRST_PAINT_READY = `(async () => {
   const turn = () => new Promise((done) => setTimeout(done, 0));
   for (let waitedMs = 0; waitedMs < 15000 && (document.readyState === "loading" || (document.querySelector('script[src*="/js/first-paint."]') && !window.zaismaWatch)); waitedMs += 50) await new Promise((done) => setTimeout(done, 50));
+  // Its fonts in, as they are when it's compared: Jost's fallback takes its room, so their arrival is no part of what's measured.
+  if (document.fonts) await Promise.race([document.fonts.ready, new Promise((done) => setTimeout(done, 5000))]);
   if (window.zaismaWatch?.drawAll) for (let pass = 0; pass < 3; pass++) { await turn(); window.zaismaWatch.drawAll(); }
+  // The frames a browser takes to its first paint, its ResizeObservers' answers in them.
+  for (let frame = 0; frame < 2; frame++) await new Promise((done) => requestAnimationFrame(done));
   return true;
 })()`;
 
@@ -348,8 +356,11 @@ async function checkPage(chrome, contextId, url, looks, options) {
   const { targetId } = await chrome.send("Target.createTarget", { url: "about:blank", browserContextId: contextId, newWindow: true });
   const { sessionId } = await chrome.send("Target.attachToTarget", { targetId, flatten: true });
   const send = (method, params = {}) => chrome.send(method, params, sessionId);
+  // A phone and a tablet send their kind of browser's name, which a first visit's page is laid out for (device-kind.ts), as a real one would.
+  const browserName = (await chrome.send("Browser.getVersion")).userAgent;
   const look = async ({ size, theme }) => {
     await send("Emulation.setDeviceMetricsOverride", { width: size.widthPx, height: size.heightPx, deviceScaleFactor: size.isPhone ? 2 : 1, mobile: size.isPhone });
+    await send("Emulation.setUserAgentOverride", { userAgent: size.isPhone ? PHONE_BROWSER_NAME : size.hasTouch ? TABLET_BROWSER_NAME : browserName });
     await send("Emulation.setTouchEmulationEnabled", size.hasTouch ? { enabled: true, maxTouchPoints: 5 } : { enabled: false });
     // The browser's text size (its default font size, which rem follows): 16px is 100%.
     const textPx = Math.round((16 * (size.textPercent ?? 100)) / 100);
@@ -373,13 +384,16 @@ async function checkPage(chrome, contextId, url, looks, options) {
     });
     let next = loaded();
     // The loading check (layout-measure.ts, FIRST_PAINT_SNAPSHOT_SOURCE): the page as it first paints, with its first-paint script (and the
-    // theme's) run and every other script held back, as a slow connection shows it, kept to be compared once it has loaded. Fonts aren't
-    // held: Jost's fallback is Arial set to take its room, and a runner without Arial would measure a fallback no player sees.
+    // ones the parse waits on) run and every other script held back, as a slow connection shows it, kept to be compared once it has loaded. Fonts aren't
+    // held, and it waits for them: Jost's fallback is Arial set to take its room, and a runner without Arial would measure a fallback no
+    // player sees.
     const isFirstPaintChecked = !options.pictureOf && !options.stepsToTake?.length && !options.markup && !options.setUp;
     const held = [];
     const offPaused = isFirstPaintChecked ? chrome.listen(sessionId, (method, params) => {
       if (method !== "Fetch.requestPaused") return;
-      if (/\/js\/(first-paint|theme)\./.test(params.request.url)) send("Fetch.continueRequest", { requestId: params.requestId }).catch(() => {});
+      // What the first paint itself runs: the first-paint script, and the two the parse waits on (the theme, and styles-applied at the
+      // body's end); and the preview's own tools, which no player gets.
+      if (/\/js\/(first-paint|theme|styles-applied|layout-inspect)\.|\/__preview\//.test(params.request.url)) send("Fetch.continueRequest", { requestId: params.requestId }).catch(() => {});
       else held.push(params.requestId);
     }) : null;
     if (isFirstPaintChecked) await send("Fetch.enable", { patterns: [{ urlPattern: "*", resourceType: "Script", requestStage: "Request" }] });

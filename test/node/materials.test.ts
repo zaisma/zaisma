@@ -81,7 +81,6 @@ const NOT_MADE_OF_MATERIALS = new Map<string, string>([
   ["html.is-playing body | overflow", "the playing screen scrolls nothing; the game has it all"],
   ["html.is-playing body | background", "black behind the game, as a game's own screen"],
   [".game-frame | background", "black behind the game while it loads, as a game's own screen"],
-  [".screenshot-large | max-height", "a screenshot at its own size, made smaller only where the screen is"],
   // Where a page puts its foot and a sidebar's sheet: the page's own placing, not the pieces'.
   [".foot | margin", "the footer sits a block's gap under the page, the page's margin above the window's foot"],
   [".sheet.placement-start:not(.in-place) | height", "a sidebar's sheet is the screen's height less a gap at its top and foot"],
@@ -327,5 +326,42 @@ describe("materials", () => {
     expect([...NOT_MADE_OF_MATERIALS.keys()].filter((entry) => !present.has(entry))).toEqual([]);
     const inMarkup = new Set(markupDeclarations().map(({ file, property, value }) => `${file} | ${property}: ${value}`));
     expect([...MARKUP_NOT_MADE_OF_MATERIALS.keys()].filter((entry) => !inMarkup.has(entry))).toEqual([]);
+  });
+});
+
+/*
+ * Waiting is a state of the glass ("Waiting is one light", docs/DESIGN.md): every pressable material keeps its pressed look while
+ * aria-busy="true", its edge runs the one waiting light after --waiting-delay, and no component draws a light or a waiting look of its own.
+ */
+describe("waiting", () => {
+  it("is the materials' alone: no component's styles run the waiting light or give aria-busy a look of their own", () => {
+    const own = COMPONENTS().filter((component) => !isMaterialOrLayout(component)).flatMap((component) => {
+      const styles = component.styles.replace(/\/\*[\s\S]*?\*\//g, "");
+      return [
+        ...(/--waiting-light\b|waiting-runs|waiting-arrives/.test(styles) ? [`${component.slug}: runs the waiting light itself`] : []),
+        ...[...styles.matchAll(/\[aria-busy="true"\]/g)].filter((match) => !styles.slice(Math.max(0, match.index! - 5), match.index).endsWith(":not(")).map(() => `${component.slug}: styles [aria-busy="true"]`),
+      ];
+    });
+    expect(own).toEqual([]);
+  });
+
+  it("is on every pressable material: a slab under its shell, a flush row, a pick and a check's or switch's socket and thumb keep their press while waiting, and their edge lights", () => {
+    for (const pressed of ['.shell.is-pressed, .shell[aria-busy="true"])', ':is(:active, .is-pressed, [aria-busy="true"])', ':is(label:not(.is-disabled):active, .is-pressed, :has(input[aria-busy="true"])']) expect(MATERIAL_STYLES, pressed).toContain(pressed);
+    expect(MATERIAL_STYLES).toMatch(/\[aria-busy="true"\] > \[data-cut-line\] > \.cut-line > \.waiting-line/);
+    expect(MATERIAL_STYLES).toContain("var(--waiting-delay)");
+  });
+});
+
+/** Every picture a component shows is a Picture (foundations.ts, picture): its box holds its placeholder, so its place is never empty. */
+describe("pictures", () => {
+  it("are all Pictures: no component's markup has an img outside a Picture's box, but a QR code's drawn code", () => {
+    const bare = COMPONENTS().flatMap((component) =>
+      component.examples.flatMap((example) =>
+        [...example.markup.html.matchAll(/<img\b[^>]*>/g)]
+          .filter((img) => !/class="[^"]*\b(reveals|qr-picture)\b/.test(img[0]))
+          .map((img) => `${component.slug}, ${example.label}: ${img[0].slice(0, 80)}`),
+      ),
+    );
+    expect(bare).toEqual([]);
   });
 });

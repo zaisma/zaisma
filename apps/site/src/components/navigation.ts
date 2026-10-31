@@ -136,12 +136,6 @@ const HEADER_STYLES = `
 /* A bar of glass (materials.ts): its controls the frame gap from its edge on every side, its height theirs and that gap. Compact, once the
    page scrolls, it rises to the frame gap from the window's top; nothing in it is laid out again, and it stays smooth. */
 .top.is-compact { top: var(--pad-frame); }
-/* A new page on its way (HEADER_SCRIPT's is-waiting): the waiting light (materials.ts) runs along the header's lower edge, as a Loading
-   state's runs along its line, after --waiting-delay, so a page that comes at once shows nothing. Under reduced motion it rests, lit. */
-.top::after { content: ""; position: absolute; z-index: 4; inset: auto 0 0 0; height: var(--waiting-light-width); color: var(--ink); background: linear-gradient(90deg, transparent, var(--waiting-light), transparent) -70% 0 / 40% 100% no-repeat; opacity: 0; pointer-events: none; }
-.top.is-waiting::after { animation: waiting-arrives 1ms var(--waiting-delay) forwards, header-waiting-runs var(--motion-loop) var(--ease-standard) var(--waiting-delay) infinite; }
-@keyframes header-waiting-runs { from { background-position: -70% 0; } to { background-position: 170% 0; } }
-@media (prefers-reduced-motion: reduce) { .top.is-waiting::after { background-size: 100% 100%; animation: waiting-arrives 1ms var(--waiting-delay) forwards; } }
 .top > :not(.edge) { position: relative; z-index: 3; }
 .top .find, .top .find input { transition: width var(--motion-glide) var(--ease-glide); }
 

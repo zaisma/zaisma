@@ -53,6 +53,34 @@ export interface CityPaneOptions {
 }
 
 /**
+ * The sign-in's pane on a phone: it starts low, so the city has most of the screen and only the pane's top shows, down to its first
+ * heading, 24px above the window's foot (or under the header, if that's lower). It's the pane's place whether or not the city runs, set
+ * before the first paint as part of the first-paint script (components/index.ts), so it never moves as the page loads; measured again
+ * when the width changes (not when the browser's bars come and go) and once Jost has arrived. window.zaismaPlaceCityPane places it again.
+ */
+export const CITY_PANE_PLACE_SCRIPT = `/* city pane */(function () {
+  var placedWidth = 0;
+  function place(isForced) {
+    var pane = document.querySelector("[data-city-pane]"), stage = document.querySelector(".city-stage");
+    if (!pane || !stage || stage.classList.contains("is-framed") || (window.innerWidth === placedWidth && !isForced)) return;
+    placedWidth = window.innerWidth;
+    if (window.innerWidth > 760) { pane.style.marginTop = ""; return; }
+    // The first heading showing (a pane can hold views that take turns, like Sign in and Make an account).
+    var heading = Array.prototype.find.call(pane.querySelectorAll("h1, h2"), function (el) { return el.getClientRects().length > 0; });
+    var header = pane.parentElement.querySelector("header.top");
+    pane.style.marginTop = "0px";
+    var peek = (heading ? heading.getBoundingClientRect().bottom : pane.getBoundingClientRect().top + 120) - pane.getBoundingClientRect().top + 24;
+    var below = header ? header.offsetTop + header.offsetHeight + 12 : 12;
+    pane.style.marginTop = Math.round(Math.max(below, window.innerHeight - peek)) + "px";
+  }
+  window.zaismaPlaceCityPane = place;
+  place();
+  window.addEventListener("resize", function () { place(); });
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { place(true); });
+})();
+`;
+
+/**
  * The page over the city's stage (cityStage goes in the page's stage): the header, the one pane in front of the city, placed as the city
  * places it (on the right under the header on a wide screen, low and full width on a phone), and the page's rail.
  */
@@ -95,21 +123,8 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
   var pane = host.querySelector("[data-city-pane]"), header = host.querySelector("header.top");
   function isNarrow() { return window.innerWidth <= 760; }
 
-  /* On a phone the pane starts low, so the city has most of the screen and only the pane's top shows, down to its heading; it's measured
-     again only when the width changes (not when the browser's bars come and go while scrolling). It's the pane's place whether or not
-     the city runs. */
-  var placedWidth = 0;
-  function place() {
-    if (!pane || isFramed || window.innerWidth === placedWidth) return;
-    placedWidth = window.innerWidth;
-    if (!isNarrow()) { pane.style.marginTop = ""; return; }
-    // The first heading showing (a pane can hold views that take turns, like Sign in and Make an account).
-    var heading = Array.prototype.find.call(pane.querySelectorAll("h1, h2"), function (el) { return el.getClientRects().length > 0; });
-    pane.style.marginTop = "0px";
-    var peek = (heading ? heading.getBoundingClientRect().bottom : pane.getBoundingClientRect().top + 120) - pane.getBoundingClientRect().top + 24;
-    var below = header ? header.offsetTop + header.offsetHeight + 12 : 12;
-    pane.style.marginTop = Math.round(Math.max(below, window.innerHeight - peek)) + "px";
-  }
+  /* The pane's place on a phone is set before the first paint (CITY_PANE_PLACE_SCRIPT); the city follows it. */
+  function place() {}
 
   // Keep the city centred in the part of the screen the glass doesn't cover: a shift of the camera's picture, in screen halves (as the
   // projection takes it), left by half the pane on a wide screen, up by the pane's part of the screen on a phone.
@@ -129,7 +144,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
   }
   function settle() { place(); frameStill(); }
   settle();
-  if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { placedWidth = 0; settle(); });
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { settle(); });
   window.addEventListener("resize", settle);
 
   // Under reduced motion nothing moves: the still stays, with everything already in place.

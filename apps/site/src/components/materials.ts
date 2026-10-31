@@ -2,6 +2,7 @@ import { row, stack, stackOfOne } from "./layout.ts";
 import { primaryButton, secondaryButton } from "./actions.ts";
 import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
+import { PICTURE_PLACEHOLDER } from "@zaisma/core";
 import { CUT_LINE, glassPane } from "./foundations.ts";
 
 /*
@@ -314,7 +315,7 @@ span.hairline { flex: 1; border-top: var(--divider); }
   --band-bottom: var(--slab-edge-shade, color-mix(in srgb, var(--way, transparent) calc(var(--way-mix, 0%) * 0.4), var(--raise-bottom))); }
 .slab > :where(:not(.cut-line)) { position: relative; z-index: 2; }
 /* Its words end in an ellipsis on one line, never spilling out of it or growing it past its height. */
-.slab > :is(span:not([class]), .label-idle, .label-busy) { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.slab > :is(span:not([class]), .label-idle) { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .slab-holder { display: inline-flex; max-width: 100%; }
 /* Holds art: a slab whose face is a picture (your picture as the account button), square at its control height. Its bevel and focus line are
    drawn over the picture's edge; pointed, the picture catches the light; pressed, it takes the press shade and the slab sinks in place as
@@ -386,6 +387,24 @@ span.hairline { flex: 1; border-top: var(--divider); }
 @media (prefers-reduced-motion: reduce) {
   :is([aria-busy="true"], :has(> input[aria-busy="true"])) > .cut-line > .waiting-line, [aria-busy="true"] > [data-cut-line] > .cut-line > .waiting-line { stroke-dasharray: none; animation: waiting-arrives 1ms var(--waiting-delay) forwards; }
 }
+/* A bar of glass waiting on a new page (the header, its is-waiting from HEADER_SCRIPT): the waiting light runs along its lower edge, as
+   a Loading state's runs along its line, after --waiting-delay, so a page that comes at once shows nothing. Under reduced motion it rests. */
+.glass-bar::after { content: ""; position: absolute; z-index: 4; inset: auto 0 0 0; height: var(--waiting-light-width); color: var(--ink); background: linear-gradient(90deg, transparent, var(--waiting-light), transparent) -70% 0 / 40% 100% no-repeat; opacity: 0; pointer-events: none; }
+.glass-bar.is-waiting::after { animation: waiting-arrives 1ms var(--waiting-delay) forwards, bar-waiting-runs var(--motion-loop) var(--ease-standard) var(--waiting-delay) infinite; }
+@keyframes bar-waiting-runs { from { background-position: -70% 0; } to { background-position: 170% 0; } }
+@media (prefers-reduced-motion: reduce) { .glass-bar.is-waiting::after { background-size: 100% 100%; animation: waiting-arrives 1ms var(--waiting-delay) forwards; } }
+/* Pictures (foundations.ts, picture): a picture's box holds its placeholder, the tiny copy in the page itself (--placeholder), blurred and
+   run past the box's edges so no edge fades, and the picture over it, hidden until it has wholly arrived and decoded, then fading in
+   (img.reveals, PICTURE_SCRIPT). A game's world on its page starts the same way, blurred more (backdropPlaceholder), under its picture or
+   its shader's frame, which shows the same placeholder until its shader draws. A picture with no placeholder shows what's under it. */
+.picture { --placeholder-blur: 10px; position: relative; display: block; overflow: hidden; }
+.backdrop.backdrop-placeholder { --placeholder-blur: ${PICTURE_PLACEHOLDER.backgroundBlurPx}px; overflow: hidden; background: none; }
+:is(.picture, .backdrop-placeholder)::before { content: ""; position: absolute; inset: calc(-2 * var(--placeholder-blur)); background: var(--placeholder, none) center / cover no-repeat; filter: blur(var(--placeholder-blur)); }
+.picture > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+img.reveals:not(.is-shown) { opacity: 0; }
+img.reveals.is-shown:not(.at-once) { animation: picture-arrives var(--motion-settle) var(--ease-standard); }
+@keyframes picture-arrives { from { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { img.reveals.is-shown { animation: none; } }
 `;
 
 /**
