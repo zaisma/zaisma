@@ -318,7 +318,7 @@ const WORDS_AT_FOOT: [string, string][] = [[":is(.cut-field, .pin-field)", "p:la
  * The words at a pane's or a tray's top and bottom edge keep its margin there too: the first and last words it holds, however deep in
  * the first and last of what it holds (a form, a stack, a shelf), a row's words there, and a component's own words there.
  */
-function edgeWords(edge: "top" | "bottom"): string {
+function edgeWords(edge: "top" | "bottom"): string[] {
   const end = edge === "top" ? `:nth-child(1 of ${SHOWN})` : `:nth-last-child(1 of ${SHOWN})`;
   const own = edge === "top" ? WORDS_AT_TOP : WORDS_AT_FOOT;
   const selectorsOf = (depthCount: number) => {
@@ -337,8 +337,14 @@ function edgeWords(edge: "top" | "bottom"): string {
     ];
   };
   return PANE_CONTENT.filter((pane) => pane.edges.includes(edge))
-    .flatMap((pane) => Array.from({ length: pane.depthCount }, (_, depthCount) => selectorsOf(depthCount).map((selector) => `${pane.holder}${selector}`)).flat()).join(",\n");
+    .flatMap((pane) => Array.from({ length: pane.depthCount }, (_, depthCount) => selectorsOf(depthCount).map((selector) => `${pane.holder}${selector}`).join(",\n")));
 }
+
+/**
+ * One rule per list of selectors: Chrome reads at most 8,192 simple selectors in one rule and silently drops the rest (Blink's RuleData
+ * keeps a selector's place in 13 bits), so a long generated list is split into rules of its own (test/site/design.test.ts holds the limit).
+ */
+const rulesOf = (selectorLists: string[], declarations: string) => selectorLists.map((selectors) => `${selectors} { ${declarations} }`).join("\n");
 
 /** What places its own words: a row with controls on one line and a pane's foot with a corner control (on the control's center line), and a pane's head. */
 const BESIDE_CONTROLS = ":not(.layout-row[data-control-height]:not(.is-wrapped), .pane-head, .pane-foot[data-control-height])";
@@ -354,11 +360,11 @@ const PANE_CONTENT: { holder: string; depthCount: number; edges: ("top" | "botto
 ];
 
 /** The rows at a pane's top or bottom edge, however deep in the first or last of what it holds. */
-function edgeRows(edge: "top" | "bottom"): string {
+function edgeRows(edge: "top" | "bottom"): string[] {
   const end = edge === "top" ? `:nth-child(1 of ${SHOWN})` : `:nth-last-child(1 of ${SHOWN})`;
   // A row on a field's boxes keeps to them.
   return PANE_CONTENT.filter((pane) => pane.isForRows && pane.edges.includes(edge))
-    .flatMap((pane) => Array.from({ length: pane.depthCount }, (_, depthCount) => `${pane.holder}${` > *${end}`.repeat(depthCount)} > .layout-row:not(.is-on-field-boxes)${end}`)).join(",\n");
+    .map((pane) => Array.from({ length: pane.depthCount }, (_, depthCount) => `${pane.holder}${` > *${end}`.repeat(depthCount)} > .layout-row:not(.is-on-field-boxes)${end}`).join(",\n"));
 }
 
 export const STACK_STYLES = `
@@ -382,8 +388,8 @@ ${GAP_TOKENS.filter((gap) => gap !== "control-row-boxes").map((gap) => `.layout-
 fieldset > legend { float: left; width: 100%; padding-block: 0; }
 /* Room a sideways track keeps for what lifts in it (.layout-track sets it); none elsewhere. */
 :root { --edge-room: 0px; }
-${edgeWords("top")} { padding-top: calc(var(--pad-words) + var(--edge-room)); }
-${edgeWords("bottom")} { padding-bottom: calc(var(--pad-words) + var(--edge-room)); }
+${rulesOf(edgeWords("top"), "padding-top: calc(var(--pad-words) + var(--edge-room));")}
+${rulesOf(edgeWords("bottom"), "padding-bottom: calc(var(--pad-words) + var(--edge-room));")}
 `;
 
 export const ROW_STYLES = `
@@ -446,8 +452,8 @@ ${GAP_TOKENS.map((gap) => [gap, gap === "words-control" ? "words-beside-control"
 /* One height: every control in the row takes the tallest one's (data-control-height, from their size classes). */
 ${CONTROL_HEIGHTS.map((height) => `${HEIGHT_HOLDERS.map((holder) => `.layout-row[data-control-height="${height}"] > .row-cell > ${holder}`).join(", ")} { --control-height: var(--control-height-${height}); }`).join("\n")}
 /* A row at a pane's top edge holds its controls up at the frame gap, to take the corner's cut; at the bottom edge, down. */
-${edgeRows("top")} { align-items: flex-start; }
-${edgeRows("bottom")} { align-items: flex-end; }
+${rulesOf(edgeRows("top"), "align-items: flex-start;")}
+${rulesOf(edgeRows("bottom"), "align-items: flex-end;")}
 /* A cell whose only thing is hidden takes no room. */
 .row-cell:has(> [hidden]:only-child) { display: none; }
 

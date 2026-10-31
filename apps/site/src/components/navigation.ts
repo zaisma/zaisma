@@ -71,7 +71,7 @@ export function header(options: HeaderOptions): Raw {
   const signIn = options.hasPageRunner ? secondaryButton("Sign in", { href: "/signin" }) : primaryButton("Sign in", { href: "/signin" });
   return html`<header class="top bar-layout glass glass-bar pinned${states}" id="${id}" data-compacts data-glass data-glass-corners="header"${options.isCompact ? raw(" data-stays-compact") : ""}>${EDGE}
   ${options.sidebarButton ?? ""}${wordmark}
-  ${options.isOnSignInPage ? "" : html`<nav class="nav" aria-label="Main"${hasTabRow ? "" : raw(" hidden")}>${tabSwitch({ label: "Where you are", switchSize: "big", isFull: true, tabs })}</nav>`}
+  ${options.isOnSignInPage ? "" : html`<nav class="nav" aria-label="Main"${hasTabRow ? "" : raw(" hidden")}>${tabSwitch({ label: "Where you are", switchSize: "regular", isFull: true, tabs })}</nav>`}
   ${options.search ? html`${searchField({ ...options.search, id: options.search.id ?? `${id}-find` })}${secondaryButton(options.search.label, { type: "button", icon: "search", isLabelHidden: true, isSmall: true, isExpanded: Boolean(options.isSearchOpen) })}` : ""}
   ${options.isOnSignInPage ? "" : html`<div class="end">${
     account ? accountButton({ username: account.username, menuId, isMenuOpen: options.isMenuOpen }) : signIn
@@ -147,8 +147,9 @@ const HEADER_STYLES = `
 .nav { display: flex; flex: none; min-width: 0; }
 .top .nav[hidden] { display: none; }
 .nav > .switch-well { flex: 1; }
-/* The header's tabs are a regular control's height, as the search and the account button beside them: no row sets their well's, so it's set here. */
-.top .nav .switch-well { --control-height: var(--control-height-regular); }
+/* The sidebar button at the header's start is a regular control's height, as the tabs, the search and the account button beside it, so it
+   sits at the frame gap with them; on phones it's small with the first row. */
+.top > .cut-btn[data-sidebar-button] { --control-height: var(--control-height-regular); }
 
 .end { display: flex; align-items: center; flex: none; }
 
@@ -185,7 +186,7 @@ const HEADER_STYLES = `
   .top .nav, .top.is-compact .nav { order: 4; flex-basis: 100%; }
   /* The first row is small controls, so it shares Zaisma, search and Sign in or you on the narrowest phones; Sign in is the compact runner, or
      a small secondary button beside the page's own runner. */
-  .top .end > .run-wrap > .run, .top .end > .cut-btn { --control-height: var(--control-height-small); }
+  .top .end > .run-wrap > .run, .top .end > .cut-btn, .top > .cut-btn[data-sidebar-button] { --control-height: var(--control-height-small); }
   .top .end .run { --slab-words: 15px; font-size: 0.875rem; gap: 6px; }
   /* The picture is as tall as the search button beside it, at rest or compact. */
   .top .me, .top.is-compact .me { --control-height: var(--control-height-small); }

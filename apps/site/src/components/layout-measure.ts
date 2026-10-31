@@ -266,8 +266,9 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
       var railed = el.closest(".shows-rail"), railPx = railed && pane.contains(railed) ? Math.max(0, parseFloat(getComputedStyle(railed).paddingRight) - (railed === holder ? gap.right : 0)) : 0;
       if (railPx) d = { left: d.left, right: Math.max(gap.right, d.right - railPx), top: d.top, bottom: d.bottom };
       // In a task sheet's dropped head (--head-drop), its Close sits that much further in from the top and the end, at the words margin's line.
+      // What its words hold (a store's cover beside its title) sits on that line itself, at the words margin, and is measured where it is.
       var droppedHead = el.closest(".pane-head"), headEnd = el.closest(".pane-head-end");
-      if (droppedHead && pane.contains(droppedHead)) d = { left: d.left, right: d.right - (headEnd ? parseFloat(getComputedStyle(headEnd).marginInlineEnd) || 0 : 0), top: d.top - (parseFloat(getComputedStyle(droppedHead).marginTop) || 0), bottom: d.bottom };
+      if (droppedHead && pane.contains(droppedHead) && !el.closest(".pane-head-words")) d = { left: d.left, right: d.right - (headEnd ? parseFloat(getComputedStyle(headEnd).marginInlineEnd) || 0 : 0), top: d.top - (parseFloat(getComputedStyle(droppedHead).marginTop) || 0), bottom: d.bottom };
       // In a list that scrolls up and down inside the pane (a long menu's choices), what shows sits wherever it's scrolled to: only its sides are measured.
       var holdingScroller = scrollerIn(el, pane), isInScrolledList = holdingScroller && !holdingScroller.matches(".pane-in, .sheet-in") && holdingScroller.scrollHeight > holdingScroller.clientHeight + 1;
       (isInScrolledList ? ["left", "right"] : ["left", "right", "top", "bottom"]).forEach(function (side) {
