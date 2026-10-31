@@ -319,7 +319,7 @@ html { -webkit-tap-highlight-color: transparent; }
 .smoke { ${SMOKED_GLASS} }
 *, *::before, *::after { box-sizing: border-box; }
 /* Still under the pointer: what you point at or press never moves; only what's inside it does. A button is a still
-   shell (the link or button itself, which takes the pointer) around its face (.face), which lifts, sinks, leans or
+   shell (the link or button itself, which takes the pointer) around its face (.face), which lifts, sinks or
    shrinks. If the shell moved, a pointer near its edge would slip off as it moved, the button would move back under
    it, and it would flicker. The face takes no pointer of its own, so the shell's box alone decides what you're over.
    design.test.ts checks every component's CSS for this. */

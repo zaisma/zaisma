@@ -70,7 +70,7 @@ export interface PrimaryButtonOptions extends ButtonTarget {
   trailingText?: string;
 }
 
-/** The primary button: a raised orange slab, the same height as the other buttons, lit along its edges. It lifts, leans toward the pointer and catches the light; pressing sinks it into the glass. */
+/** The primary button: a raised orange slab, the same height as the other buttons, lit along its edges. It lifts and catches the light; pressing sinks it into the glass. */
 export function primaryButton(label: string, options: PrimaryButtonOptions = {}): ControlMarkup {
   // The label's span has no class of its own: html.ts's account link finds it as the header's runner's span without one.
   const words = options.busyLabel ? html`<span class="label-idle">${label}</span><span class="label-busy">${options.busyLabel}</span>` : html`<span>${label}</span>`;
@@ -211,9 +211,9 @@ export type ButtonTint = "clear" | "plain" | "blue" | "indigo" | "black" | "red"
 const WAY_TINTS: Record<WayIn, ButtonTint> = { google: "plain", discord: "indigo", passkey: "clear", apple_pay: "plain" };
 
 /**
- * The primary button: it lifts and leans toward the pointer, a reflection slides the other way, and one glint sweeps as
- * the pointer arrives and always finishes. The pointer is followed on the still shell; the lift and lean are set there
- * for its face and its side, which move inside it.
+ * The primary button: it lifts as the pointer arrives, a reflection slides opposite the pointer, and one glint sweeps and
+ * always finishes. It never tilts: on a wide button any tilt swings its far end. The pointer is followed on the still shell;
+ * the lift is set there for its face, which moves inside it.
  */
 /**
  * Busy: a button that sends a form, or a link-button that opens another page, shows the loader once it's pressed (aria-busy) and
@@ -257,33 +257,32 @@ export const RUNNER_SCRIPT = `/* runner */(function () {
   });
   document.addEventListener("animationend", function (event) { if (event.animationName === "run-flare" && event.target.classList) event.target.classList.remove("is-flaring"); });
   if (!window.matchMedia("(hover: hover)").matches) return;
-  function lean(shell) {
-    if (shell.dataset.lean) return; shell.dataset.lean = "1";
+  function rise(shell) {
+    if (shell.dataset.rise) return; shell.dataset.rise = "1";
     var face = shell.querySelector(".run"); if (!face) return;
     shell.addEventListener("pointerenter", function () {
       shell.classList.add("over"); shell.style.setProperty("--lift", "-1.5px");
       if (!face.classList.contains("glint")) face.classList.add("glint");
     });
     face.addEventListener("animationend", function (event) { if (event.animationName === "slab-glint") face.classList.remove("glint"); });
-    shell.addEventListener("pointerleave", function () { shell.classList.remove("over"); ["--lift", "--rx", "--ry"].forEach(function (p) { shell.style.removeProperty(p); }); face.style.removeProperty("--refl"); });
+    shell.addEventListener("pointerleave", function () { shell.classList.remove("over"); shell.style.removeProperty("--lift"); face.style.removeProperty("--refl"); });
     shell.addEventListener("pointermove", function (event) {
-      var r = shell.getBoundingClientRect(), px = (event.clientX - r.left) / r.width - 0.5, py = (event.clientY - r.top) / r.height - 0.5;
-      shell.style.setProperty("--ry", (px * 6).toFixed(2) + "deg"); shell.style.setProperty("--rx", (-py * 9).toFixed(2) + "deg"); face.style.setProperty("--refl", (50 - px * 70).toFixed(1) + "%");
+      var r = shell.getBoundingClientRect(), px = (event.clientX - r.left) / r.width - 0.5;
+      face.style.setProperty("--refl", (50 - px * 70).toFixed(1) + "%");
     });
   }
-  document.querySelectorAll(".run-wrap").forEach(lean);
-  window.zaismaWatch.page(function (changes) { changes.forEach(function (change) { change.addedNodes.forEach(function (node) { if (node.querySelectorAll) node.querySelectorAll(".run-wrap").forEach(lean); }); }); });
+  document.querySelectorAll(".run-wrap").forEach(rise);
+  window.zaismaWatch.page(function (changes) { changes.forEach(function (change) { change.addedNodes.forEach(function (node) { if (node.querySelectorAll) node.querySelectorAll(".run-wrap").forEach(rise); }); }); });
 })();
 `;
 
 
 const RUN_STYLES = `
 /* The primary button: the one colored thing you can press. A raised orange slab, the same height as every other button,
-   lit along its edges like the other raised controls (the edge rule's bands, in orange). It lifts, leans toward you and
+   lit along its edges like the other raised controls (the edge rule's bands, in orange). It lifts toward you and
    a glint crosses it as you arrive; a press brings it down toward the glass, never carving it, and it springs back.
    The shell (.run-wrap, the link or button) stays still; its face (.run) moves inside it.
    .over is the pointer on it (RUNNER_SCRIPT); is-pointed, is-pressed and is-focused fix those states for the gallery. */
-/* Its lean is a perspective on the face itself, never on the shell: Safari drops the shell's cast (its filter) round a 3D context. */
 .run-wrap { isolation: isolate; vertical-align: middle; max-width: 100%; }
 .run-wrap:focus-visible { outline: none; }
 /* Words longer than the room it has end in an ellipsis on one line, never spilling out of it or growing it past its height. */
@@ -304,9 +303,9 @@ const RUN_STYLES = `
 .run {
   --refl: 50%;
   --control-height: var(--control-height-regular);
-  /* Its face is a lit slab (materials.ts): its look, room, edge light, reflection and glint are the slab's. It leans and lifts. */
+  /* Its face is a lit slab (materials.ts): its look, room, edge light, reflection and glint are the slab's. It lifts. */
   z-index: 1; gap: 10px; justify-content: flex-start;
-  transform: perspective(600px) translateY(var(--lift, 0px)) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg));
+  transform: translateY(var(--lift, 0px));
   transition: transform var(--motion-glide) var(--ease-spring), --refl var(--motion-settle) var(--ease-glide), filter var(--motion-state);
 }
 .is-full > .run { width: 100%; justify-content: center; }
