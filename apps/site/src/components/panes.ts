@@ -167,7 +167,7 @@ export function gameCard(options: GameCardOptions): Raw {
   const hasTint = Boolean(options.tintColor && /^#[0-9a-fA-F]{6}$/.test(options.tintColor));
   const tint = hasTint ? html` style="--card-tint: ${options.tintColor}"` : "";
   const className = ["cover", isPlaceholder ? "is-placeholder" : "", facts.deviceNote ? "is-other-device" : "", hasTint ? "has-tint" : "", options.state ?? ""].filter(Boolean).join(" ");
-  const marks = html`${facts.isUpdated ? html`<span class="cover-mark at-news">${tag("Updated", "glass")}</span>` : ""}${facts.priceText ? html`<span class="cover-mark at-price">${tag(facts.priceText, "glass")}</span>` : ""}${facts.friends?.length ? html`<span class="cover-mark at-friends">${pictureRow(facts.friends.map((friend) => friend.username), "xs")}</span>` : ""}${facts.deviceNote ? html`<span class="cover-mark at-device">${tag(facts.deviceNote, "glass", { icon: deviceIcon(facts.deviceNote) })}</span>` : ""}`;
+  const marks = html`${facts.isUpdated ? html`<span class="cover-mark at-news">${tag("Updated", "new-on-glass")}</span>` : ""}${facts.priceText ? html`<span class="cover-mark at-price">${tag(facts.priceText, "glass")}</span>` : ""}${facts.friends?.length ? html`<span class="cover-mark at-friends">${pictureRow(facts.friends.map((friend) => friend.username), "xs")}</span>` : ""}${facts.deviceNote ? html`<span class="cover-mark at-device">${tag(facts.deviceNote, "glass", { icon: deviceIcon(facts.deviceNote) })}</span>` : ""}`;
   const picture = isPlaceholder ? "" : html`<span class="cover-picture carving-art" data-cut-line="0"><img src="${options.imageUrl}"${coverSizes(options.imageUrl!)} alt="" loading="${options.isEager ? "eager" : "lazy"}"${options.hasHighPriority ? raw(' fetchpriority="high"') : ""} decoding="async"></span>`;
   const count = facts.playerCount !== undefined ? html`<span class="count">${icon("people")}<span>${facts.playerCount.toLocaleString("en-US")}<span class="sr"> playing now</span></span></span>` : "";
   return html`<div class="${className}"${tint}${options.isCurrent ? raw(' aria-current="true"') : ""}><a class="cover-art carving holds-art${options.state ? ` ${options.state}` : ""}" data-cut-line="0" data-edge-light="bottom" data-lights href="${options.href}" aria-label="${cardLabel(options)}">${CUT_LINE}${picture}${EDGE_LIGHT}${marks}</a><div class="cover-meta"><span class="cover-name one-line">${options.title}</span>${count}</div></div>`;
@@ -565,8 +565,7 @@ const COVER_STYLES = `
 .cover-mark.at-price { top: var(--pad-frame-compact); right: var(--pad-frame-compact); }
 .cover-mark.at-friends { bottom: var(--pad-frame-compact); left: var(--pad-frame-compact); }
 .cover-mark.at-device { bottom: var(--pad-frame-compact); right: var(--pad-frame-compact); }
-/* Each is a sliver of glass over the art, so it reads on any picture; news says so in the green new things have. */
-.cover-mark.at-news .tag { color: var(--tag-new-ink); }
+/* Each is a sliver of glass over the art (Tag's glass tones), so it reads on any picture; news in the green new things have. */
 /* On a small card a device's words would crowd it: its icon alone says it (the screen reader still hears the words, in the card's label). */
 @container (max-width: 220px) { .cover-mark.at-device .tag > span { display: none; } .cover-mark.at-device .tag { padding-inline: 7px 6px; } }
 /* Made for another device: the art dimmed, its words quieter, still there to open and read about. */

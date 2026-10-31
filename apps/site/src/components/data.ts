@@ -226,6 +226,7 @@ component({
 .tag:has(> .ico) { gap: 4px; }
 .tag > .ico { width: 12px; height: 12px; stroke-width: 2; }
 .tag.glass { color: var(--ink); --glass-tint: var(--glass-dropdown); }
+.tag.glass.is-new { color: var(--tag-new-ink); }
 /* Removable: a link, its words then a close mark, a little taller so it's easy to press; pointed at, its words and mark light up. */
 .tag.is-removable { height: 26px; gap: 4px; padding-inline: 9px 8px; text-decoration: none; cursor: pointer; }
 .tag.is-removable > .ico { width: 12px; height: 12px; stroke-width: 2; }
@@ -241,6 +242,7 @@ component({
     { label: "With an icon", markup: html`${tag("Held", "warning", { icon: "warning" })} ${tag("Developer", "plain", { icon: "code" })}` },
     { label: "A warning", markup: tag("Held", "warning") },
     { label: "On glass", markup: tag("Continue playing", "glass") },
+    { label: "New, on glass: over a game card's art", markup: tag("Updated", "new-on-glass") },
     { label: "A version's state, the same everywhere", isWide: true, markup: html`${Object.values(VERSION_STATE_TAGS)}` },
     { label: "Removable: the filters in use on a list", markup: tagsInUse({ tags: [{ label: "Adventure", removeHref: "#tag" }, { label: "$15 to $30", removeHref: "#tag" }] }) },
     { label: "Removable, many, wrapping", markup: html`<div style="width:min(220px,100%)">${tagsInUse({ tags: [{ label: "Role-playing", removeHref: "#tag" }, { label: "Multiplayer", removeHref: "#tag" }, { label: "$30 and up", removeHref: "#tag" }] })}</div>` },

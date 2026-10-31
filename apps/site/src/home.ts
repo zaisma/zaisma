@@ -343,7 +343,7 @@ ${pageData("home-data", {
       games: browserGames,
       minimum_playing_now_player_count: MINIMUM_PLAYING_NOW_PLAYER_COUNT,
       icons: { people: icon("people").html },
-      parts: { updated_tag: tag("Updated", "glass").html, cut_line: CUT_LINE.html },
+      parts: { updated_tag: tag("Updated", "new-on-glass").html, cut_line: CUT_LINE.html },
     })}${scriptTags(HOME_SCRIPT)}`,
   });
   for (const cookie of viewer.cookies) response.headers.append("Set-Cookie", cookie);
