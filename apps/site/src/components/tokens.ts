@@ -295,7 +295,7 @@ html { -webkit-tap-highlight-color: transparent; }
      (as wide as its field) at most --size-menu-height tall; a compact sheet a dropdown's width; any other sheet --size-sheet; a picture's
      sheet (a screenshot, or a screen, large) --size-sheet-picture; the store panel its own column at the screen's edge. */
   --size-menu: 20rem; --size-menu-height: 30rem;
-  --size-sheet-compact: 20rem; --size-sheet: 36rem; --size-sheet-picture: 80rem; --size-sheet-side: 23.75rem; --size-sidebar: 15rem;
+  --size-sheet-compact: 20rem; --size-sheet: 36rem; --size-sheet-picture: 80rem; --size-store-panel: 23.75rem; --size-sidebar: 15rem;
   /* A figure's least width in Numbers: two side by side on a phone. */
   --size-number: 96px;
   /* Type (docs/DESIGN.md, Type): every word outside a control's own inside takes one of these whole fonts, picked by what the words are. */

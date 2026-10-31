@@ -210,8 +210,10 @@ export interface SheetMarkupOptions {
   action?: string;
   /** Controls pinned at its foot in place of buttons (a stack of them), in view while the body scrolls: a store panel's card row and Buy. */
   foot?: Raw;
-  /** "center" over the dimmed page; "foot" risen from the screen's foot over a running game, not dimming it; "side" a tall panel at the screen's right edge over the game (a store panel); "middle" in the middle of the screen on a wide screen whatever opened it, never hung from a button (Confirm it's you); "start" a tall panel sliding in from the screen's start edge over the page (a sidebar on a phone). */
-  placement?: "center" | "foot" | "side" | "middle" | "start";
+  /** "center" over the dimmed page; "foot" risen from the screen's foot over a running game, not dimming it; "corner" at the screen's bottom right over a running game, as tall as what's in it, not dimming it (a store panel over a game); "middle" in the middle of the screen on a wide screen whatever opened it, never hung from a button (Confirm it's you); "start" a tall panel sliding in from the screen's start edge over the page (a sidebar on a phone). */
+  placement?: "center" | "foot" | "corner" | "middle" | "start";
+  /** A store panel (panes.ts): a store panel's own width, in either placement. */
+  isStorePanel?: boolean;
   /** Shown in place, not over the page: the gallery's still copies. */
   isShown?: boolean;
   /** On a wide screen, a narrow sheet with its gaps closed up, so it reads as a dropdown (the share sheet's QR code and link); on a phone it's like any sheet. */
@@ -240,7 +242,7 @@ export function sheetMarkup(options: SheetMarkupOptions): Raw {
   });
   const inside = options.parts ?? parts;
   const form = options.action === undefined ? html`<form class="sheet-in scrolls" method="dialog">${inside}</form>` : html`<form class="sheet-in scrolls" method="post" action="${options.action}">${inside}</form>`;
-  return html`<dialog class="sheet glass${options.placement === "foot" ? " placement-foot" : options.placement === "side" ? " placement-side" : options.placement === "middle" ? " placement-middle" : options.placement === "start" ? " placement-start" : ""}${options.isCompact ? " is-compact" : ""}${options.isPicture ? " is-picture" : ""}${options.isShown ? " in-place" : ""}" id="${options.id}" aria-labelledby="${options.titleId ?? `${options.id}-title`}"${options.isConfirm ? raw(" data-sheet-confirm") : ""} data-glass data-glass-corners="pane"${options.isShown ? raw(" open") : ""}>${EDGE}${form}</dialog>`;
+  return html`<dialog class="sheet glass${options.placement === "foot" ? " placement-foot" : options.placement === "corner" ? " placement-corner" : options.placement === "middle" ? " placement-middle" : options.placement === "start" ? " placement-start" : ""}${options.isStorePanel ? " store-panel" : ""}${options.isCompact ? " is-compact" : ""}${options.isPicture ? " is-picture" : ""}${options.isShown ? " in-place" : ""}" id="${options.id}" aria-labelledby="${options.titleId ?? `${options.id}-title`}"${options.isConfirm ? raw(" data-sheet-confirm") : ""} data-glass data-glass-corners="pane"${options.isShown ? raw(" open") : ""}>${EDGE}${form}</dialog>`;
 }
 
 /** An outline for a cut field or button (GLASS_SCRIPT draws it), and a slab's drawn rim. */

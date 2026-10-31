@@ -190,10 +190,10 @@ const NOT_MADE_OF_MATERIALS = new Map<string, string>([
   // Where the window puts a sheet: the page's own placing, not the sheet's.
   [".sheet:not(.in-place) | margin", "a sheet sits a control's stack gap in from the window's sides and foot"],
   [".sheet.placement-foot:not(.in-place) | margin", "a sheet at the window's foot sits the page's margin above it"],
-  [".sheet.placement-side:not(.in-place) | margin", "a store panel sits a control's stack gap in from the window's side and foot"],
+  [".sheet.placement-corner:not(.in-place) | margin", "a store panel over a game sits the page's margin in from the window's side and foot"],
   // A fold is a details element, whose parts take no gap in every browser: its body keeps a block's gap from its head itself.
   // Named caps (materials.ts, Caps and scrolls).
-  [".sheet:not(.in-place) .store-picture | max-height", "a store panel's picture is shorter on a short screen, so Buy keeps its room"],
+  [".sheet:not(.in-place) .store-cover.is-large | max-height", "a store panel's large cover is shorter on a short screen, so Buy keeps its room"],
   [".stripe-frame | height", "as tall as what Stripe draws in it, which its script says"],
   [".stripe-frame.is-covering | height", "over the whole window while a bank asks the player to confirm"],
   [".list-rows.is-capped | max-height", "a list capped at its shown rows and half the next, so it shows it scrolls"],

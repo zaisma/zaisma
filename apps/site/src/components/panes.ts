@@ -1388,153 +1388,163 @@ component({
   ],
 });
 
-export interface StoreItemOptions {
-  /** Unique on the page: a page's script finds the parts by it ("{id}-words", "{id}-name", "{id}-price", "{id}-description", "{id}-note"). */
-  id: string;
-  /** The game's own cover, the developer's image with nothing drawn on it; null shows Zaisma's mark in its place. */
+/** What a store panel sells. A page's script fills the parts by their ids ("{panel id}-title", "-item-blurb", "-item-price", "-item-description", "-item-seller", "-item-refunds"). */
+export interface StorePanelItem {
+  /** The game's own cover, the developer's image with nothing drawn on it (items have no pictures of their own); null shows Zaisma's mark in its place. */
   imageUrl: string | null;
-  /** The item's name: "Revive". */
+  /** The item's name: "Revive". It's the panel's title. */
   name: string;
-  /** Its price as the player pays it: "$19.99". */
+  /** Its price as the player pays it: "$1.99". */
   priceText: string;
   description?: string;
-  /** One quiet line under them: who sells it and what refunds there are. */
-  noteText?: string;
+  /** Who sells it: "Preview Studio". */
+  sellerName?: string;
+  /** The developer's refund terms, shown on a page; over a game they go in the receipt's email. */
+  refundsText?: string;
 }
-
-/**
- * An item in a store panel: the game's cover across the top (items have no pictures of their own), then the item's name, its price large under
- * it, what it is, and one quiet line on who sells it. The picture is the developer's image alone: no title or button lies on it.
- */
-export function storeItem(options: StoreItemOptions): Raw {
-  const picture = options.imageUrl === null
-    ? html`<div class="store-picture carving holds-art is-placeholder" data-cut-line="0">${CUT_LINE}</div>`
-    : html`<div class="store-picture carving holds-art" data-cut-line="0">${CUT_LINE}<span class="store-picture-art carving-art" data-cut-line="0"><img src="${options.imageUrl}"${coverSizes(options.imageUrl, "(max-width: 760px) 100vw, 400px", 1440)} alt="" loading="lazy" decoding="async"></span></div>`;
-  return html`<div class="store-item" id="${options.id}">${picture}<div class="store-item-words" id="${options.id}-words"><h3 class="store-item-name" id="${options.id}-name">${options.name}</h3><p class="store-item-price" id="${options.id}-price">${options.priceText}</p><p class="store-item-description" id="${options.id}-description">${options.description ?? ""}</p><p class="store-item-note" id="${options.id}-note">${options.noteText ?? ""}</p></div></div>`;
-}
-
-component({
-  name: "Store item",
-  slug: "store-item",
-  group: "panes",
-  subgroup: "buying",
-  summary: "What a store panel sells: the game's own cover across the top, then the item's name, its price large under it, what it is, and one quiet line on who sells it and what refunds there are. Items have no pictures of their own, so the cover is the developer's image, bare; with none, Zaisma's mark stands in. Only ever in a Store panel.",
-  styles: `
-/* A store item: the picture is a carved well cut like a game cover's, the art filling it up to its rim (2px); both are cut by the edge rule, so
-   it takes a pane's corner's cut where it sits in one and is square in the middle. Under it the words, a words' gap apart, keep the pane's margin. */
-.store-item { display: flex; flex-direction: column; gap: var(--gap-block-block); min-width: 0; }
-.store-picture { display: block; aspect-ratio: 16 / 9; }
-/* On a short screen (a Steam Deck, a phone on its side, a laptop at a large text size) the picture over the game is shorter, its art still covering
-   it, so the item's words and Buy have room rather than the panel scrolling by a sliver. */
-@media (max-height: 52em) { .sheet:not(.in-place) .store-picture { max-height: min(9rem, 30dvh); } }
-.store-item-words { display: flex; flex-direction: column; gap: var(--gap-words-words); min-width: 0; }
-.store-item-words > :empty { display: none; }
-.store-item-name { margin: 0; font: var(--type-heading); color: var(--ink); text-wrap: balance; overflow-wrap: anywhere; }
-.store-item-price { margin: 0; font: var(--type-section); color: var(--ink); font-variant-numeric: tabular-nums; }
-.store-item-description { margin: 0; font: var(--type-reading); color: var(--ink-2); }
-.store-item-note { margin: 0; font: var(--type-note); color: var(--muted); }
-`,
-  render: storeItem,
-  examples: [
-    { label: "With its description and who sells it", markup: html`<div class="cover-sample">${storeItem({ id: "example-store-item", imageUrl: "/design/covers/hollow-tide.webp", name: "Revive", priceText: "$1.99", description: "Bring your character back with half its health.", noteText: "Sold by Preview Studio. Refunds for items you haven't used yet, within 14 days." })}</div>` },
-    { label: "Name and price only", markup: html`<div class="cover-sample">${storeItem({ id: "example-store-item-bare", imageUrl: "/design/covers/kestrel.webp", name: "Spring Valley", priceText: "$19.99" })}</div>` },
-    { label: "No cover yet, and a long name", markup: html`<div class="cover-sample">${storeItem({ id: "example-store-item-none", imageUrl: null, name: "The Complete Collector's Edition of the Northern Reach", priceText: "$149.99", description: "Every expansion and the soundtrack." })}</div>` },
-  ],
-});
 
 export interface StorePanelOptions {
   /** Unique on the page: the button that opens it names it (secondaryButton's controls). */
   id: string;
-  /** The slim row above the picture, with Close at its right: "Buy". */
-  title: string;
   /** What Close says to a screen reader: "Close". */
   closeLabel: string;
-  /** Its item (a Store item) and what the moment adds: the confirm step, the card form, a note. Scrolls between the head and the foot when it's long. */
-  body: LayoutMarkup;
-  /** Pinned at its foot while the body scrolls: a stack of controls (the card row, then the buy button). */
-  foot: Raw;
+  item: StorePanelItem;
+  /**
+   * Over a running game: short, at the screen's bottom right, the game undimmed and still going, the item at a glance. Left out, it's
+   * on a page (a game's own page, or Zaisma's window for a game on its own site): centered over the dimmed page, with the cover large,
+   * what it is and the full terms. A page's script swaps it with the placement-corner class.
+   */
+  isOverGame?: boolean;
+  /** What the moment adds under the item: a card form, what went wrong, Bought. */
+  momentItems?: LayoutItem[];
+  /** Pinned at its foot while what's above it scrolls: Apple Pay or Google Pay, the card row, the line the EU's law asks for, Buy. Who sells it follows them. */
+  footItems: LayoutItem[];
   /** Where its form posts when a button sends it. Without one, a button that sends it only closes it. */
   action?: string;
   /** Open in place rather than over the page: the gallery's still copy. */
   isShown?: boolean;
 }
 
+const storeCover = (imageUrl: string | null, size: "small" | "large") =>
+  imageUrl === null
+    ? html`<div class="store-cover is-${size} carving holds-art" data-cut-line="0">${CUT_LINE}</div>`
+    : html`<div class="store-cover is-${size} carving holds-art" data-cut-line="0">${CUT_LINE}<span class="store-cover-art carving-art" data-cut-line="0"><img src="${imageUrl}"${coverSizes(imageUrl, size === "small" ? "4rem" : "(max-width: 760px) 100vw, 400px", 1440)} alt="" loading="lazy" decoding="async"></span></div>`;
+
 /**
- * A store panel: a sheet for buying, standing at the screen's right edge over the running game, as tall as the screen less the page's edge, so
- * the game keeps its middle. On a phone it rises from the foot, nearly the screen's height. Its slim head holds Close; the item and the moment
- * scroll under it; the card row and the buy button stay at its foot.
+ * A store panel: where a player buys. Over a running game (isOverGame) it's short, at the screen's bottom right: the game's cover small
+ * beside the item's name and what it is, then the card row and Buy carrying the price, one press; the game keeps going and keeps its
+ * middle. On a page it's centered over the dimmed page, the cover large, what it is and the full terms over Buy. Its head, the item and
+ * Close, stays put; the moment scrolls under it; the foot stays in view.
  */
 export function storePanel(options: StorePanelOptions): Raw {
-  return sheetMarkup({ id: options.id, title: options.title, body: options.body, closeButton: sheetClose(options.closeLabel), foot: options.foot, action: options.action, placement: "side", isShown: options.isShown });
+  const { id, item } = options;
+  const words = html`<div class="store-head">${storeCover(item.imageUrl, "small")}<div class="store-head-words"><h2 class="sheet-title" id="${id}-title">${item.name}</h2><p class="store-subline is-blurb" id="${id}-item-blurb">${item.description ?? ""}</p><p class="store-subline is-price" id="${id}-item-price">${item.priceText}</p></div></div>`;
+  const itemWords: LayoutItem = { kind: "block", id: `${id}-item-words`, isHidden: options.isOverGame, markup: html`<div class="store-item-words">${storeCover(item.imageUrl, "large")}<p class="store-description" id="${id}-item-description">${item.description ?? ""}</p></div>` };
+  const terms = html`<p class="store-terms"><span id="${id}-item-seller">${item.sellerName ? `Sold by ${item.sellerName}.` : ""}</span><span class="store-refunds" id="${id}-item-refunds">${item.refundsText ? ` ${item.refundsText}` : ""}</span></p>`;
+  const closeButton = sheetClose(options.closeLabel);
+  const parts = paneParts({
+    head: { words, end: closeButton },
+    body: sheetScroll(stack({ items: [itemWords, ...(options.momentItems ?? [])] })),
+    foot: { start: { kind: "block", markup: stack({ items: [...options.footItems, { kind: "words", markup: terms }] }) } },
+  });
+  return sheetMarkup({ id, title: item.name, body: html``, parts, closeButton, action: options.action, placement: options.isOverGame ? "corner" : "center", isStorePanel: true, isShown: options.isShown });
 }
 
-const STORE_NOTE = "Sold by Preview Studio. Refunds for items you haven't used yet, within 14 days.";
-/** The panel's item, as the examples show it. */
-const storeExampleItem = (id: string, noteText = STORE_NOTE) => ({ kind: "block" as const, markup: storeItem({ id, imageUrl: "/design/covers/hollow-tide.webp", name: "Revive", priceText: "$1.99", description: "Bring your character back with half its health.", noteText }) });
-const storeExampleBuy = (id: string, label = "Buy", isBusy = false) => ({ kind: "control" as const, markup: primaryButton(label, { id, type: "button", busyLabel: "Buying", isFullWidth: true, trailingText: "$1.99", isBusy }) });
-const storeExampleCard = { kind: "control" as const, markup: cardRow("Visa ending 4242", { type: "button", hiddenText: "Use another card" }) };
+const STORE_ITEM: StorePanelItem = { imageUrl: "/design/covers/hollow-tide.webp", name: "Revive", priceText: "$1.99", description: "Back with half your health.", sellerName: "Preview Studio", refundsText: "Refunds for items you haven't used yet, within 14 days." };
+const STORE_GAME: StorePanelItem = { imageUrl: "/design/covers/hollow-tide.webp", name: "Hollow Tide", priceText: "$24.99", description: "A drowned city, a lighthouse that won't stay lit, and twelve hours of tide to read.", sellerName: "Preview Studio", refundsText: "Refunds within 14 days if you've played under 2 hours." };
+const storeExampleBuy = (id: string, priceText: string, label = "Buy", isBusy = false): LayoutItem => ({ kind: "control", markup: primaryButton(label, { id, type: "button", busyLabel: "Buying", isFullWidth: true, trailingText: priceText, isBusy }) });
+const storeExampleCard: LayoutItem = { kind: "control", markup: cardRow("Visa ending 4242", { type: "button", hiddenText: "Use another card", changeText: "Change" }) };
 
 component({
   name: "Store panel",
   slug: "store-panel",
   group: "panes",
   subgroup: "buying",
-  summary: "Where a player buys: a tall panel at the screen's right edge over the running game, which keeps its middle (on a phone, a sheet risen from the foot, nearly the screen's height). A slim head with Close, the item with the game's cover across its top, and pinned at its foot the card row and the buy button carrying the price; Apple Pay and Google Pay sit with them when offered. Pressing Buy is the confirmation: only when Zaisma needs to know it's them does the panel ask first, in the same place.",
+  summary: "Where a player buys. Over a running game it's short, at the screen's bottom right, and the game keeps going: the game's cover small beside the item's name and what it is, the saved card, and Buy carrying the price, one press, then who sells it; the refund terms go in the receipt's email. On a page (buying a whole game on its page, or in Zaisma's window for a game on its own site) it's centered over the dimmed page, with the cover large, what it is and the full terms. Apple Pay and Google Pay sit over the card when offered. Pressing Buy is the confirmation: only when Zaisma needs to know it's them does Confirm it's you ask first. Bought closes by itself a moment later.",
   styles: `
-/* A store panel is a sheet standing at the right edge of the screen, as tall as the screen less the page's edge, so the game keeps its middle.
-   Nothing dims it. It slides in from its side; on a phone it rises from the foot like the other sheets, nearly the screen's height. */
-.sheet.placement-side:not(.in-place) { inset: var(--pad-pane) var(--pad-pane) var(--pad-pane) auto; width: min(var(--size-sheet-side), calc(100% - 2 * var(--pad-pane))); max-width: none; max-height: none; margin: 0; }
-.sheet.placement-side:is(:not([open]), .is-leaving, .is-arriving) { transform: translateX(40px); }
-@starting-style { .sheet.placement-side[open] { transform: translateX(40px); } }
-.sheet.placement-side::backdrop { background: transparent; }
-.sheet.placement-side.in-place { width: min(var(--size-sheet-side), 100%); max-width: none; }
+/* Over a game: at the screen's bottom right, as tall as what's in it, the game undimmed and still going. It slides in from its side; on a
+   phone it rises from the foot like the other sheets. */
+.sheet.placement-corner:not(.in-place) { inset: auto var(--pad-pane) var(--pad-pane) auto; margin: 0; }
+.sheet.placement-corner:is(:not([open]), .is-leaving, .is-arriving) { transform: translateX(40px); }
+@starting-style { .sheet.placement-corner[open] { transform: translateX(40px); } }
+.sheet.placement-corner::backdrop { background: transparent; }
 @media (max-width: 760px) {
-  .sheet.placement-side:not(.in-place) { inset: 0; width: calc(100% - 2 * var(--gap-control-stack)); margin: auto var(--gap-control-stack) var(--gap-control-stack); }
-  .sheet.placement-side:is(:not([open]), .is-leaving, .is-arriving) { transform: translateY(40px); }
-  @starting-style { .sheet.placement-side[open] { transform: translateY(40px); } }
+  .sheet.placement-corner:not(.in-place) { inset: auto 0 0; margin: 0 var(--gap-control-stack) var(--gap-control-stack); }
+  .sheet.placement-corner:is(:not([open]), .is-leaving, .is-arriving) { transform: translateY(40px); }
+  @starting-style { .sheet.placement-corner[open] { transform: translateY(40px); } }
 }
-@media (prefers-reduced-motion: reduce) { .sheet.placement-side:is(:not([open]), .is-leaving, .is-arriving) { transform: none; } @starting-style { .sheet.placement-side[open] { transform: none; } } }
+@media (prefers-reduced-motion: reduce) { .sheet.placement-corner:is(:not([open]), .is-leaving, .is-arriving) { transform: none; } @starting-style { .sheet.placement-corner[open] { transform: none; } } }
+/* Either way, a store panel's own width, whatever its words. */
+.sheet.store-panel { width: min(var(--size-store-panel), calc(100% - 2 * var(--gap-control-stack))); max-width: none; }
+.sheet.store-panel.in-place { width: min(var(--size-store-panel), 100%); }
+/* Its head: over a game, the cover small beside the item's name and what it is; on a page, the name and its price, the cover large under them. */
+.store-head { display: flex; align-items: center; gap: var(--gap-words-beside-control); min-width: 0; }
+.store-head-words { display: flex; flex-direction: column; gap: var(--gap-words-words); min-width: 0; }
+.store-head .sheet-title { overflow-wrap: anywhere; text-wrap: balance; }
+.store-subline { margin: 0; font: var(--type-note); color: var(--ink-2); }
+.store-subline:empty { display: none; }
+.store-cover.is-small { flex: none; width: var(--control-height-big); aspect-ratio: 1; }
+.store-cover.is-large { display: block; aspect-ratio: 16 / 9; }
+.store-item-words { display: flex; flex-direction: column; gap: var(--gap-block-block); min-width: 0; }
+.store-description { margin: 0; font: var(--type-reading); color: var(--ink-2); }
+.store-description:empty { display: none; }
+.store-terms { margin: 0; font: var(--type-note); color: var(--muted); }
+/* With nothing of the moment's under its head (over a game, ready), the head sits right on the foot. */
+.sheet.store-panel .pane-body:not(:has(> .sheet-scroll > .sheet-body > .layout-stack > .stack-cell:not([hidden]))) { display: none; }
+.sheet:not(.placement-corner) :is(.store-cover.is-small, .store-subline.is-blurb),
+.sheet.placement-corner :is(.store-subline.is-price, .store-refunds) { display: none; }
+/* On a short screen the large cover is shorter, its art still covering it, so the item's words and Buy have room. */
+@media (max-height: 52em) { .sheet:not(.in-place) .store-cover.is-large { max-height: min(9rem, 30dvh); } }
 `,
   render: storePanel,
   examples: [
     {
-      label: "Try it: from its button, at the screen's right edge",
-      markup: html`${secondaryButton("Buy Revive", { type: "button", controls: "example-store-panel-try" })}${storePanel({ id: "example-store-panel-try", title: "Buy", closeLabel: "Close", body: stack({ items: [storeExampleItem("example-store-panel-try-item")] }), foot: stack({ items: [{ kind: "control", markup: cardRow("Visa ending 4242", { type: "button", hiddenText: "Use another card" }) }, storeExampleBuy("example-store-panel-try-buy")] }) })}`,
+      label: "Try it, over a game: from its button, at the screen's bottom right",
+      markup: html`${secondaryButton("Buy Revive", { type: "button", controls: "example-store-panel-try" })}${storePanel({ id: "example-store-panel-try", closeLabel: "Close", isOverGame: true, item: STORE_ITEM, footItems: [storeExampleCard, storeExampleBuy("example-store-panel-try-buy", "$1.99")] })}`,
     },
     {
-      label: "Ready: the saved card and Buy, one press",
-      isStill: true,
-      markup: storePanel({ id: "example-store-panel-ready", title: "Buy", closeLabel: "Close", isShown: true, body: stack({ items: [storeExampleItem("example-store-panel-ready-item")] }), foot: stack({ items: [{ kind: "control", markup: cardRow("Visa ending 4242", { type: "button", hiddenText: "Use another card" }) }, storeExampleBuy("example-store-panel-ready-buy")] }) }),
+      label: "Try it, on a page: centered over the dimmed page",
+      markup: html`${secondaryButton("Buy Hollow Tide", { type: "button", controls: "example-store-panel-try-page" })}${storePanel({ id: "example-store-panel-try-page", closeLabel: "Close", item: STORE_GAME, footItems: [storeExampleCard, storeExampleBuy("example-store-panel-try-page-buy", "$24.99")] })}`,
     },
     {
-      label: "With Apple Pay offered and the line the EU's law asks for above Buy",
+      label: "Over a game, ready: the saved card and Buy, one press",
       isStill: true,
-      markup: storePanel({ id: "example-store-panel-wallet", title: "Buy", closeLabel: "Close", isShown: true, body: stack({ items: [storeExampleItem("example-store-panel-wallet-item")] }), foot: stack({ items: [{ kind: "control", markup: secondaryButton("Apple Pay", { type: "button", isFullWidth: true }) }, { kind: "control", markup: cardRow("Visa ending 4242", { type: "button", hiddenText: "Use another card" }) }, { kind: "words", markup: html`<p>You get it now, so you can't cancel it in the next 14 days.</p>` }, storeExampleBuy("example-store-panel-wallet-buy")] }) }),
+      markup: storePanel({ id: "example-store-panel-ready", closeLabel: "Close", isOverGame: true, isShown: true, item: STORE_ITEM, footItems: [storeExampleCard, storeExampleBuy("example-store-panel-ready-buy", "$1.99")] }),
     },
     {
-      label: "A first card: the email for receipts and the card form",
+      label: "Over a game, with Apple Pay offered and the line the EU's law asks for above Buy",
       isStill: true,
-      markup: storePanel({ id: "example-store-panel-card", title: "Buy", closeLabel: "Close", isShown: true, body: stack({ items: [storeExampleItem("example-store-panel-card-item")] }), foot: stack({ items: [storeExampleBuy("example-store-panel-card-buy")] }) }),
+      markup: storePanel({ id: "example-store-panel-wallet", closeLabel: "Close", isOverGame: true, isShown: true, item: STORE_ITEM, footItems: [{ kind: "control", markup: secondaryButton("Apple Pay", { type: "button", isFullWidth: true }) }, storeExampleCard, { kind: "words", markup: html`<p>You get it now, so you can't cancel it in the next 14 days.</p>` }, storeExampleBuy("example-store-panel-wallet-buy", "$1.99")] }),
     },
     {
-      label: "Buying: Buy pressed, waiting",
+      label: "Over a game, buying: Buy pressed, waiting",
       isStill: true,
-      markup: storePanel({ id: "example-store-panel-busy", title: "Buy", closeLabel: "Close", isShown: true, body: stack({ items: [storeExampleItem("example-store-panel-busy-item")] }), foot: stack({ items: [storeExampleCard, storeExampleBuy("example-store-panel-busy-buy", "Buy", true)] }) }),
+      markup: storePanel({ id: "example-store-panel-busy", closeLabel: "Close", isOverGame: true, isShown: true, item: STORE_ITEM, footItems: [storeExampleCard, storeExampleBuy("example-store-panel-busy-buy", "$1.99", "Buy", true)] }),
     },
     {
-      label: "It didn't go through: what went wrong, nothing charged, and Try again",
+      label: "Over a game, it didn't go through: what went wrong, nothing charged, and Try again",
       isStill: true,
-      markup: storePanel({ id: "example-store-panel-declined", title: "Buy", closeLabel: "Close", isShown: true, body: stack({ items: [storeExampleItem("example-store-panel-declined-item"), { kind: "block", markup: problemState({ title: "The payment didn't go through", text: "Your card was declined. Nothing was charged." }) }] }), foot: stack({ items: [storeExampleCard, storeExampleBuy("example-store-panel-declined-buy", "Try again")] }) }),
+      markup: storePanel({ id: "example-store-panel-declined", closeLabel: "Close", isOverGame: true, isShown: true, item: STORE_ITEM, momentItems: [{ kind: "block", markup: problemState({ title: "Your card was declined", text: "Nothing was charged." }) }], footItems: [storeExampleCard, storeExampleBuy("example-store-panel-declined-buy", "$1.99", "Try again")] }),
     },
     {
-      label: "Bought: it's theirs, and back to the game",
+      label: "Over a game, bought: it's theirs, and it closes by itself a moment later",
       isStill: true,
-      markup: storePanel({ id: "example-store-panel-bought", title: "Buy", closeLabel: "Close", isShown: true, body: stack({ items: [storeExampleItem("example-store-panel-bought-item"), { kind: "block", markup: doneState({ title: "Bought", text: "Revive is yours. The receipt is on its way to your account's email." }) }] }), foot: stack({ items: [{ kind: "control", markup: secondaryButton("Back to the game", { type: "submit", formMethod: "dialog", isFullWidth: true }) }] }) }),
+      markup: storePanel({ id: "example-store-panel-bought", closeLabel: "Close", isOverGame: true, isShown: true, item: { ...STORE_ITEM, sellerName: undefined }, momentItems: [{ kind: "block", markup: doneState({ title: "Bought", text: "Revive is yours. The receipt is on its way to your account's email." }) }], footItems: [{ kind: "control", markup: secondaryButton("Back to the game", { type: "submit", formMethod: "dialog", isFullWidth: true }) }] }),
     },
     {
-      label: "A guest: a way to an account, the game running on",
+      label: "On a page, ready: the cover large, what it is and the full terms",
       isStill: true,
-      markup: storePanel({ id: "example-store-panel-guest", title: "Make a free account to buy", closeLabel: "Close", isShown: true, body: stack({ items: [storeExampleItem("example-store-panel-guest-item"), { kind: "words", markup: html`<p>Your game keeps running while you make one or sign in, and you come back to this.</p>` }] }), foot: row({ widths: "equal", items: [{ kind: "control", markup: secondaryButton("Sign in", { type: "button" }) }, { kind: "control", markup: primaryButton("Make an account", { type: "button" }) }] }) }),
+      markup: storePanel({ id: "example-store-panel-page", closeLabel: "Close", isShown: true, item: STORE_GAME, footItems: [storeExampleCard, storeExampleBuy("example-store-panel-page-buy", "$24.99")] }),
+    },
+    {
+      label: "On a page, a guest: a way to an account, the price still showing",
+      isStill: true,
+      markup: storePanel({ id: "example-store-panel-guest", closeLabel: "Close", isShown: true, item: { ...STORE_GAME, sellerName: undefined, refundsText: undefined }, momentItems: [{ kind: "words", markup: html`<p>Make a free account to buy. You come back to this after.</p>` }], footItems: [{ kind: "block", markup: row({ widths: "equal", items: [{ kind: "control", markup: secondaryButton("Sign in", { type: "button" }) }, { kind: "control", markup: primaryButton("Make an account", { type: "button" }) }] }) }] }),
+    },
+    {
+      label: "On a page, no cover yet and a long name",
+      isStill: true,
+      markup: storePanel({ id: "example-store-panel-none", closeLabel: "Close", isShown: true, item: { ...STORE_GAME, imageUrl: null, name: "The Complete Collector's Edition of the Northern Reach", priceText: "$149.99", description: "Every expansion and the soundtrack." }, footItems: [storeExampleCard, storeExampleBuy("example-store-panel-none-buy", "$149.99")] }),
     },
   ],
 });

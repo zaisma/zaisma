@@ -313,7 +313,7 @@ export const LAYERS_SCRIPT = `/* layers */(function () {
   // middle). A small one opened with no button to hang from (a game asked for it) takes a task sheet's place.
   function anchor(sheet) {
     var opener = pressed && performance.now() - pressed.at < 2000 && pressed.button.isConnected ? pressed.button : null;
-    if (!opener || !sheet.classList.contains("is-compact") || sheet.matches(".in-place, .placement-side, .placement-middle, .is-picture") || opener.closest("[popover]") || sheet.contains(opener) || opener.closest("dialog[open]")) return;
+    if (!opener || !sheet.classList.contains("is-compact") || sheet.matches(".in-place, .store-panel, .placement-middle, .is-picture") || opener.closest("[popover]") || sheet.contains(opener) || opener.closest("dialog[open]")) return;
     anchors.set(sheet, { opener: opener, rect: opener.getBoundingClientRect(), isOnPage: Boolean(window.zaismaIsOnPage && window.zaismaIsOnPage(opener, sheet)) });
     sheet.classList.add("is-anchored");
     sheet.classList.toggle("is-on-page", anchors.get(sheet).isOnPage);

@@ -83,8 +83,7 @@ export const MATERIAL_STYLES = `
 .sheet.light-box::before { display: none; }
 .sheet.light-box:not(.in-place) { height: 100%; padding: var(--pad-pane); --ink: var(--ink-on-dim); --ink-2: var(--ink-2-on-dim); }
 .sheet.light-box::backdrop { background: var(--dim-deep); }
-.sheet.placement-side:not(.in-place) { height: calc(100dvh - 2 * var(--pad-pane)); }
-.sheet.placement-side:not(.in-place) > .sheet-in, .light-box-in { height: 100%; }
+.light-box-in { height: 100%; }
 @media (max-width: 760px) { .sheet:not(.in-place) { max-height: 78dvh; } }
 /* A scroller that runs to its material's edge keeps what's in it at the frame gap, its rail outside it. */
 .scrolls.to-edge { margin-inline: calc(-1 * var(--pad-frame)); padding-inline: var(--pad-frame); --scroll-inset: var(--pad-frame); }

@@ -260,7 +260,7 @@ A pane over the page has a ceiling by its kind, in `rem` so it grows with its wo
 | A compact sheet | `--size-sheet-compact` (20rem) | The screen less its margins |
 | A sheet | `--size-sheet` (36rem) | The screen less its margins (78% of a phone's) |
 | A picture's sheet (a screenshot, or a screen on Screens, large) | `--size-sheet-picture` (80rem) | The screen less its margins (78% of a phone's) |
-| A store panel | `--size-sheet-side` (23.75rem) | The screen less its margins |
+| A store panel | `--size-store-panel` (23.75rem) | The screen less its margins |
 
 ### Screens
 
@@ -476,10 +476,8 @@ Every component, with the call that makes it and its options, is in the catalog 
   - `options`: `steps: StepFlowStep[]`, `currentIndex: number`, `body?: Raw`, `action: string`, `finishLabel?: string`, `backHref?: string`, `paneWidth?: "full" | "fit"`
 - **Confirm it's you** (`confirmItsYouSheet(options: ConfirmItsYouOptions)`, `confirm-its-you.ts`): A small dialog that opens over anything and asks the player to prove it's them, the way that suits what they're doing: a passkey, their purchase PIN (for a purchase only) or their password. The page says why in one sentence and gives it the function that sends the proof; a right proof closes it and the page goes on by itself, so the button that asked is pressed once. In the middle of a wide screen, risen from the foot on a phone.
   - `options`: `id: string`, `method?: ConfirmMethod`, `otherMethods?: ConfirmMethod[]`, `reasonText?: string`, `errorText?: string`, `isBusy?: boolean`, `isShown?: boolean`
-- **Store item** (`storeItem(options: StoreItemOptions)`, `panes.ts`): What a store panel sells: the game's own cover across the top, then the item's name, its price large under it, what it is, and one quiet line on who sells it and what refunds there are. Items have no pictures of their own, so the cover is the developer's image, bare; with none, Zaisma's mark stands in. Only ever in a Store panel.
-  - `options`: `id: string`, `imageUrl: string | null`, `name: string`, `priceText: string`, `description?: string`, `noteText?: string`
-- **Store panel** (`storePanel(options: StorePanelOptions)`, `panes.ts`): Where a player buys: a tall panel at the screen's right edge over the running game, which keeps its middle (on a phone, a sheet risen from the foot, nearly the screen's height). A slim head with Close, the item with the game's cover across its top, and pinned at its foot the card row and the buy button carrying the price; Apple Pay and Google Pay sit with them when offered. Pressing Buy is the confirmation: only when Zaisma needs to know it's them does the panel ask first, in the same place.
-  - `options`: `id: string`, `title: string`, `closeLabel: string`, `body: LayoutMarkup`, `foot: Raw`, `action?: string`, `isShown?: boolean`
+- **Store panel** (`storePanel(options: StorePanelOptions)`, `panes.ts`): Where a player buys. Over a running game it's short, at the screen's bottom right, and the game keeps going: the game's cover small beside the item's name and what it is, the saved card, and Buy carrying the price, one press, then who sells it; the refund terms go in the receipt's email. On a page (buying a whole game on its page, or in Zaisma's window for a game on its own site) it's centered over the dimmed page, with the cover large, what it is and the full terms. Apple Pay and Google Pay sit over the card when offered. Pressing Buy is the confirmation: only when Zaisma needs to know it's them does Confirm it's you ask first. Bought closes by itself a moment later.
+  - `options`: `id: string`, `closeLabel: string`, `item: StorePanelItem`, `isOverGame?: boolean`, `momentItems?: LayoutItem[]`, `footItems: LayoutItem[]`, `action?: string`, `isShown?: boolean`
 - **Stripe frame** (`stripeFrame(options: StripeFrameOptions)`, `stripe-frame.ts`): An empty window Stripe draws in: its card form, Apple Pay and Google Pay, and a bank's check that the player is who they say. Stripe.js loads only inside it, never on the page around it. It has nothing of its own to show, so there's no example here: it sits in the Store panel, where the card form and the wallet buttons go, as tall as what Stripe draws, and covers the whole window while a bank asks the player to confirm.
   - `options`: `id: string`, `title: string`
 
