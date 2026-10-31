@@ -322,7 +322,9 @@ const KEYBOARD_START = `(() => {
   frames.forEach((frame) => frame.setAttribute("inert", ""));
   document.activeElement?.blur?.();
   const scrollers = [document.scrollingElement, ...document.querySelectorAll("body *")].filter((el) => el === document.scrollingElement || ((el.scrollHeight > el.clientHeight + 1 || el.scrollWidth > el.clientWidth + 1) && /auto|scroll/.test(getComputedStyle(el).overflow)));
-  const controls = [...document.querySelectorAll(${JSON.stringify(FOCUSABLE_SELECTOR)})].filter((el) => !el.matches(":disabled") && el.checkVisibility({ visibilityProperty: true }) && !el.closest("[inert], [hidden], template, dialog:not([open]), details:not([open]) > :not(summary), .dropdown.shut"));
+  // While a sheet is open over the page (a modal dialog), the page under it is out of Tab's reach by design: only the top one's controls count.
+  const modal = [...document.querySelectorAll(":modal")].pop();
+  const controls = [...(modal ?? document).querySelectorAll(${JSON.stringify(FOCUSABLE_SELECTOR)})].filter((el) => !el.matches(":disabled") && el.checkVisibility({ visibilityProperty: true }) && !el.closest("[inert], [hidden], template, dialog:not([open]), details:not([open]) > :not(summary), .dropdown.shut"));
   settle();
   // One shown open (a picker in place) already wears its focus look as it rests: being open marks it.
   const opened = new Set(controls.filter((el) => el.getAttribute("aria-expanded") === "true"));
