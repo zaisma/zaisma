@@ -122,7 +122,7 @@ describe("game details", () => {
     expect(page).toContain('id="play"');
     expect(page).toContain('<template id="game-frame"><iframe');
     // The buy sheet's Stripe frames have no source until a buy needs one; no other frame is on the page before Play.
-    expect(page.replace(/<iframe class="stripe-frame"[^>]*><\/iframe>/g, "")).not.toMatch(/<\/template>[\s\S]*<iframe/);
+    expect(page.replace(/<template id="game-frame">[\s\S]*?<\/template>/, "").replace(/<iframe class="stripe-frame"[^>]*><\/iframe>/g, "")).not.toMatch(/<iframe/);
     expect(pageDataOf(page, "game-page-data").autoplay).toBe("never");
   });
 
