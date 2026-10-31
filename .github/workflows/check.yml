@@ -2,17 +2,16 @@
 # Needs no secrets: vitest.config.ts gives the tests every binding they use.
 #
 # Everything runs side by side, split across runners: the tests in four shards (four files at once on each), typecheck, the
-# Layout check on one, the gallery on every screen in four when the components changed, and the Engine exports in three.
+# Layout check on one, and the Engine exports in three.
 # "Tests and typecheck", the check the ruleset requires and npm run ship reads, passes only when all of them did.
-# The Layout check measures each page for how it arranges its pieces, on a phone and a laptop in light; each component is proven
-# on every screen in "Gallery on every screen" when a change touches the components, and every page on every screen each night
-# (nightly.yml, "Nightly layout sweep"); a pull request's later pushes skip the pages its earlier ones passed as they are. Every screen
+# The Layout check measures each page for what a player would notice, on a phone and a laptop in light, and every page on every
+# screen each night (nightly.yml, "Nightly layout sweep"); a pull request's later pushes skip the pages its earlier ones passed as
+# they are. A component's style is held by its tests (design.test.ts, materials.test.ts), never measured. Every screen
 # here is the measured screens (MEASURED_SCREEN_NAMES: each band's narrowest, the short one and the widest), in light: dark changes only
 # colours. The merge queue measures every page its change reaches on every screen, at 200%
 # text, as the night does ("Every screen"), so a layout break can't land on main: a page is reached when its fingerprint (its HTML as
 # the server sends it, whose CSS and script addresses carry their change, and the check's own code; layout-check.mjs, pageFingerprint)
-# isn't among those main measured already (main's cache, from the night's sweep and each merge's). It takes the gallery on every screen's
-# place there, since it measures the gallery's pages too. After a failed night, npm run ship measures its pages again before it deploys
+# isn't among those main measured already (main's cache, from the night's sweep and each merge's). After a failed night, npm run ship measures its pages again before it deploys
 # (applyNightlySweep, scripts/ship-github-check.mjs).
 # A pull request runs only the test files its change reaches (scripts/affected-tests.mjs, "Reached tests"), and the test files it
 # adds or changes ten times ("New tests ten times"), so a flaky test is caught before the queue. The merge queue and main run every
@@ -68,7 +67,6 @@ jobs:
     outputs:
       is_code_changed: ${{ steps.diff.outputs.is_code_changed }}
       is_engines_changed: ${{ steps.diff.outputs.is_engines_changed }}
-      is_gallery_changed: ${{ steps.diff.outputs.is_gallery_changed }}
       is_full_suite: ${{ steps.diff.outputs.is_full_suite }}
       reached_test_files: ${{ steps.diff.outputs.reached_test_files }}
       changed_test_files: ${{ steps.diff.outputs.changed_test_files }}
@@ -114,7 +112,6 @@ jobs:
             echo "No earlier commit to compare with: running everything."
             echo "is_code_changed=true" >> "$GITHUB_OUTPUT"
             echo "is_engines_changed=true" >> "$GITHUB_OUTPUT"
-            echo "is_gallery_changed=true" >> "$GITHUB_OUTPUT"
             echo "is_full_suite=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -123,12 +120,6 @@ jobs:
           # Whether the Engine exports run (always on main, and on a pull request when the change reaches what they run) and which
           # tests a pull request runs, by the repository's graph (scripts/affected-tests.mjs: plain Node, before npm ci).
           node scripts/affected-tests.mjs --github
-          # Whether the gallery runs on every screen: a change to the components, the pages' styles or the gallery's page.
-          if echo "$changed_paths" | grep -qE '^apps/site/src/(components/|page-styles\.ts$|design-page\.ts$)'; then
-            echo "is_gallery_changed=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "is_gallery_changed=false" >> "$GITHUB_OUTPUT"
-          fi
           if [ -n "$changed_paths" ] && ! echo "$changed_paths" | grep -qvE '^(docs/|\.claude/|CLAUDE\.md$|README\.md$)'; then
             echo "Only docs/, .claude/, CLAUDE.md and README.md changed: running the docs tests."
             echo "is_code_changed=false" >> "$GITHUB_OUTPUT"
@@ -401,44 +392,6 @@ jobs:
       - if: failure()
         run: tail -n 80 .wrangler/preview-run/preview.log .wrangler/preview/servers.log || true
 
-  # The gallery's pages on the measured screens (MEASURED_SCREEN_NAMES), in light, at 200% text (npm run layout:check -- --gallery), when the change touches the
-  # components: a broken component breaks every page that uses it, and a pull request's Layout check measures pages only for arrangement.
-  gallery:
-    name: Gallery on every screen (${{ matrix.shard }} of 4)
-    needs: [changes, seed]
-    # In the merge queue Every screen measures the gallery's pages, with the rest the change reaches.
-    if: ${{ !cancelled() && github.event_name != 'merge_group' && needs.changes.outputs.is_code_changed == 'true' && needs.changes.outputs.is_gallery_changed == 'true' && needs.changes.outputs.is_checked_in_queue != 'true' && (needs.seed.result == 'success' || needs.seed.result == 'skipped') }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    # A page per subgroup is more pages than one runner measures on every screen in time: they're dealt to four, by their time (layoutCheckShard).
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [1, 2, 3, 4]
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
-      - uses: actions/setup-node@v4
-        with:
-          node-version: lts/*
-      # npm's download cache, as in the tests job.
-      - uses: actions/cache@v4
-        with:
-          path: ~/.npm
-          key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
-          restore-keys: npm-${{ runner.os }}-
-      - run: npm ci --no-audit --no-fund
-      - uses: actions/cache/restore@v4
-        with:
-          path: ${{ env.PREVIEW_SNAPSHOT_PATHS }}
-          key: ${{ needs.changes.outputs.preview_snapshot_key }}
-          fail-on-cache-miss: true
-      - run: npm run preview:start
-      - run: npm run layout:check -- --gallery --shard ${{ matrix.shard }}/4
-      - if: failure()
-        run: tail -n 80 .wrangler/preview-run/preview.log .wrangler/preview/servers.log || true
-
   # The merge queue's sweep: every page and state the change reaches, the stress accounts too, on the measured screens, in light, at 200% text,
   # every rule (npm run layout:check -- --sweep), skipping the pages whose fingerprint main measured already (--changed-only, from main's
   # cache). A page that sends forms or opens a hidden state is always measured. Each share's measured pages go up for Measured pages for
@@ -582,7 +535,7 @@ jobs:
 
   check:
     name: Tests and typecheck
-    needs: [changes, tests, repeat-new-tests, typecheck, engines, seed, layout, gallery, sweep, docs-tests]
+    needs: [changes, tests, repeat-new-tests, typecheck, engines, seed, layout, sweep, docs-tests]
     # Also when a job failed, so the required check fails instead of being skipped.
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
@@ -593,19 +546,17 @@ jobs:
           IS_CHECKED_IN_QUEUE: ${{ needs.changes.outputs.is_checked_in_queue }}
           IS_CODE_CHANGED: ${{ needs.changes.outputs.is_code_changed }}
           IS_ENGINES_CHANGED: ${{ needs.changes.outputs.is_engines_changed }}
-          IS_GALLERY_CHANGED: ${{ needs.changes.outputs.is_gallery_changed }}
           TESTS_RESULT: ${{ needs.tests.result }}
           REPEAT_RESULT: ${{ needs.repeat-new-tests.result }}
           TYPECHECK_RESULT: ${{ needs.typecheck.result }}
           ENGINES_RESULT: ${{ needs.engines.result }}
           SEED_RESULT: ${{ needs.seed.result }}
           LAYOUT_RESULT: ${{ needs.layout.result }}
-          GALLERY_RESULT: ${{ needs.gallery.result }}
           SWEEP_RESULT: ${{ needs.sweep.result }}
           EVENT_NAME: ${{ github.event_name }}
           DOCS_TESTS_RESULT: ${{ needs.docs-tests.result }}
         run: |
-          echo "What changed: $CHANGES_RESULT (code changed: $IS_CODE_CHANGED, engine code changed: $IS_ENGINES_CHANGED). Tests: $TESTS_RESULT. New tests ten times: $REPEAT_RESULT. Typecheck: $TYPECHECK_RESULT. Engine exports: $ENGINES_RESULT. Preview test data: $SEED_RESULT. Layout check: $LAYOUT_RESULT. Gallery on every screen: $GALLERY_RESULT (components changed: $IS_GALLERY_CHANGED). Every screen: $SWEEP_RESULT. Docs tests: $DOCS_TESTS_RESULT."
+          echo "What changed: $CHANGES_RESULT (code changed: $IS_CODE_CHANGED, engine code changed: $IS_ENGINES_CHANGED). Tests: $TESTS_RESULT. New tests ten times: $REPEAT_RESULT. Typecheck: $TYPECHECK_RESULT. Engine exports: $ENGINES_RESULT. Preview test data: $SEED_RESULT. Layout check: $LAYOUT_RESULT. Every screen: $SWEEP_RESULT. Docs tests: $DOCS_TESTS_RESULT."
           if [ "$CHANGES_RESULT" != success ]; then exit 1; fi
           # A push to main the merge queue already checked: its merge group's run passed on exactly this commit.
           if [ "$IS_CHECKED_IN_QUEUE" = true ]; then echo "Checked in the merge queue: this commit passed there."; exit 0; fi
@@ -615,12 +566,9 @@ jobs:
           if [ "$ENGINES_RESULT" = skipped ] && [ "$IS_ENGINES_CHANGED" = false ]; then engines_ok=true; fi
           # New tests ten times passed, or didn't run (no test file changed, or not a pull request).
           if [ "$REPEAT_RESULT" != success ] && [ "$REPEAT_RESULT" != skipped ]; then exit 1; fi
-          # The gallery on every screen passed, or was skipped because the change touched no component.
-          gallery_ok=false
-          if [ "$GALLERY_RESULT" = success ]; then gallery_ok=true; fi
-          if [ "$GALLERY_RESULT" = skipped ] && [ "$IS_GALLERY_CHANGED" = false ]; then gallery_ok=true; fi
-          # In the merge queue Every screen stands in for the gallery, and must pass; elsewhere it doesn't run.
-          if [ "$EVENT_NAME" = merge_group ]; then gallery_ok=false; if [ "$SWEEP_RESULT" = success ]; then gallery_ok=true; fi; fi
-          if [ "$IS_CODE_CHANGED" = true ] && [ "$TESTS_RESULT" = success ] && [ "$TYPECHECK_RESULT" = success ] && [ "$engines_ok" = true ] && [ "$LAYOUT_RESULT" = success ] && [ "$gallery_ok" = true ]; then exit 0; fi
+          # In the merge queue Every screen must pass; elsewhere it doesn't run.
+          sweep_ok=true
+          if [ "$EVENT_NAME" = merge_group ]; then sweep_ok=false; if [ "$SWEEP_RESULT" = success ]; then sweep_ok=true; fi; fi
+          if [ "$IS_CODE_CHANGED" = true ] && [ "$TESTS_RESULT" = success ] && [ "$TYPECHECK_RESULT" = success ] && [ "$engines_ok" = true ] && [ "$LAYOUT_RESULT" = success ] && [ "$sweep_ok" = true ]; then exit 0; fi
           if [ "$IS_CODE_CHANGED" = false ] && [ "$DOCS_TESTS_RESULT" = success ]; then exit 0; fi
           exit 1

@@ -6,16 +6,16 @@ import { cutField, selectField } from "./inputs.ts";
 import { shelf } from "./navigation.ts";
 import { STAND_IN_COVERS, banner } from "./panes.ts";
 import { table } from "./data.ts";
-import { GRID_STYLES, PAGE_SHAPE_STYLES, PAGE_SHAPES, PANE_PARTS_STYLES, ROW_STYLES, STACK_STYLES, TRACK_STYLES, COLUMNS_STYLES, columns, grid, pageShapeDrawing, paneParts, row, stack, track, type LayoutItem, stackOfOne } from "./layout.ts";
+import { GRID_STYLES, PAGE_SHAPE_STYLES, PAGE_SHAPES, PANE_PARTS_STYLES, ROW_STYLES, STACK_STYLES, TRACK_STYLES, COLUMNS_STYLES, columns, grid, pageShapeDrawing, paneParts, row, stack, track, type GridItem, type LayoutItem, stackOfOne } from "./layout.ts";
 
 /*
  * The layout components in the gallery: layout.ts makes them, and this registers them with their examples, since the examples use
  * components from every group (which import layout.ts themselves). Each example is a real case from Zaisma's pages.
  */
 
-const words = (markup: Raw): LayoutItem => ({ kind: "words", markup });
-const block = (markup: Raw): LayoutItem => ({ kind: "block", markup });
-const covers = (slugs: string[]): LayoutItem[] => slugs.map((slug) => block(STAND_IN_COVERS[slug]!));
+const words = (markup: Raw): GridItem => ({ kind: "words", markup });
+const block = (markup: Raw): GridItem => ({ kind: "block", markup });
+const covers = (slugs: string[]): GridItem[] => slugs.map((slug) => block(STAND_IN_COVERS[slug]!));
 
 /** A game's pane: its title, who made it, Play and Details (the lead fills), then Share and Report as words. */
 export const gamePane = (): Raw =>
