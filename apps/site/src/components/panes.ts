@@ -1278,6 +1278,12 @@ ${touchReach(".sheet")}
 @starting-style { .sheet.is-anchored:not(.in-place)[open] { transform: translateY(-8px) scale(0.98); } .sheet.is-anchored.is-above:not(.in-place)[open] { transform: translateY(8px) scale(0.98); } }
 /* A small sheet's gaps closed up and its title at a name's size, as a dropdown's are, on every screen (it hangs from its button on a phone too). */
 .sheet:is(.is-compact, [data-sheet-confirm].is-over-sheet) :is(.sheet-in, .sheet-body) { gap: var(--gap-control-stack); }
+/* A task sheet's head sits further in than a small sheet's: its title's line at a glass pane's margin from the top, as its words are from the
+   side, and Close (and Back), lined up with the title, as far from the sheet's side as from its top. The head takes the title's type, so 1lh
+   is the title's line. A small sheet keeps its head tight in the corner, as a dropdown does. */
+.sheet:not(.is-compact, .is-over-sheet) .pane-head { --head-drop: calc(var(--pad-pane) - var(--pad-frame) - (var(--control-height-small) - 1lh) / 2); font: var(--type-section); margin-top: var(--head-drop); }
+.sheet:not(.is-compact, .is-over-sheet) .pane-head > .pane-head-end { margin-inline-end: var(--head-drop); }
+.sheet:not(.is-compact, .is-over-sheet) .pane-head > .pane-head-start { margin-inline-start: var(--head-drop); }
 .sheet.is-compact .sheet-title { font: var(--type-name); }
 .sheet.is-anchored.placement-foot::backdrop { background: transparent; }
 @media (min-width: 761px) {
