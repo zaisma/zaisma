@@ -1,5 +1,6 @@
 import { wordProblems, type WordsRegister } from "@zaisma/core";
 import { COMPONENT_STYLES } from "../../apps/site/src/components/index.ts";
+import { BLOCKED_PICTURE_PATTERNS } from "../../apps/site/src/components/checked-pages.ts";
 
 /**
  * "A page is only gallery components, layout included. It has no styles of its own" (docs/DECISIONS.md): what a page served by the site
@@ -150,6 +151,20 @@ const isNode = (node: PageNode, ...selectors: string[]) => selectors.some((selec
 const isInside = (node: PageNode, ...selectors: string[]) => { for (let walk = node.parent; walk; walk = walk.parent) if (isNode(walk, ...selectors)) return true; return false; };
 const isOrInside = (node: PageNode, ...selectors: string[]) => isNode(node, ...selectors) || isInside(node, ...selectors);
 const nameOf = (node: PageNode) => `${node.tag}${node.classes.length ? `.${node.classes.join(".")}` : ""} "${everyNode(node).map((each) => each.words).join(" ").concat(node.words).replace(/\s+/g, " ").trim().slice(0, 40)}"`;
+
+/**
+ * The pictures whose box isn't sized before they load: the layout check measures with pictures blocked (BLOCKED_PICTURE_PATTERNS), so each
+ * one it blocks has its width and height attributes or sits in a holder whose styles size it (holds-art; test/node/materials.test.ts
+ * holds each holder to a size). A picture sheet is left out: it shows one picture at the picture's own shape (a screenshot's is its game's),
+ * and no measured state opens one (checked-pages.ts).
+ */
+export async function pictureBoxProblems(markup: string): Promise<string[]> {
+  const blocked = BLOCKED_PICTURE_PATTERNS.map((pattern) => new RegExp(`^${pattern.split("*").map((part) => part.replace(/[.?+^${}()|[\]\\/]/g, "\\$&")).join(".*")}$`));
+  const isBlocked = (address: string) => blocked.some((pattern) => pattern.test(new URL(address, "https://zaisma.test").href));
+  return everyNode(await pageTree(markup))
+    .filter((node) => node.tag === "img" && isBlocked(node.attributes.get("src") ?? "") && !(node.attributes.has("width") && node.attributes.has("height")) && !isInside(node, ".holds-art", ".sheet.is-picture"))
+    .map((node) => `a picture with no size before it loads: <img src="${node.attributes.get("src")}" class="${node.classes.join(" ")}">, give it width and height or a holds-art holder`);
+}
 
 /** A gallery example is a piece shown alone, not a page; what sits over the page (a sheet, a menu, a card over the game) is a layer of its own. */
 const EXAMPLE = ".example-stage";

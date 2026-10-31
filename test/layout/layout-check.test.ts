@@ -1,3 +1,5 @@
+import { mkdirSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { STAND_IN_COVER_PICTURES } from "../../apps/site/src/generated/stand-in-placeholders.generated.ts";
 import { describe, expect, it } from "vitest";
 import { secondaryButton } from "../../apps/site/src/components/actions.ts";
@@ -10,10 +12,13 @@ const forged = (markup: { html: string }) => raw(markup.html) as unknown as Layo
 import { table } from "../../apps/site/src/components/data.ts";
 import { dropdown, gameCard, notice, sheet } from "../../apps/site/src/components/panes.ts";
 import { LAYOUT_RULE_TIERS } from "../../apps/site/src/components/layout-measure.ts";
+import { MEASURED_SCREEN_NAMES, TEXT_SCREEN_NAMES } from "../../apps/site/src/components/checked-pages.ts";
 import layoutMeasureSource from "../../apps/site/src/components/layout-measure.ts?raw";
 import layoutCheckSource from "../../scripts/layout-check.mjs?raw";
 // @ts-expect-error: a Node script with no types of its own.
 import { checkPages, chromeToRun, LAYOUT_CHECK_RUNS, layoutCheckShard, pageFingerprint, pagesNamed, previewSites } from "../../scripts/layout-check.mjs";
+// @ts-expect-error: a Node script with no types of its own.
+import { mergeMeasured, readMeasured } from "../../scripts/merge-measured.mjs";
 
 /*
  * The measuring check (scripts/layout-check.mjs, npm run layout:check) on this checkout's preview, in headless Chrome: a run's pages
@@ -21,7 +26,8 @@ import { checkPages, chromeToRun, LAYOUT_CHECK_RUNS, layoutCheckShard, pageFinge
  * each rule, which it must catch by name. GitHub's check runs it in its own job (Layout check, .github/workflows/check.yml) with
  * LAYOUT_CHECK=1, on the preview started from a snapshot of its test data. Elsewhere it runs only on a preview that's already up, and says
  * so when there's none. LAYOUT_CHECK_SHARD="2/4" measures the second of four shares (layoutCheckShard), and the first share also measures
- * the pages broken on purpose.
+ * the pages broken on purpose. A pull request's run skips each page that passed before as it is (PASSED_PATH); LAYOUT_CHECK_FRESH=1
+ * measures every page, as the merge queue's and main's runs do.
  */
 
 const isRequired = process.env.LAYOUT_CHECK === "1";
@@ -37,6 +43,14 @@ const layoutRun = RUNS[(process.env.LAYOUT_CHECK_RUN ?? "pull_request") as keyof
 const LAPTOP = [{ name: "Laptop", widthPx: 1440, heightPx: 900, isPhone: false, hasTouch: false, isRunnerChecked: true, textPercent: 100 }];
 const pages = (shard ? layoutCheckShard(layoutRun.pages, shard) : layoutRun.pages) as unknown[];
 const isFirstShare = !shard || shard.startsWith("1/");
+/**
+ * The pages a pull request's run passed before, by fingerprint (layout-check.mjs, pageFingerprint: the page's HTML, whose CSS and script
+ * addresses carry their change, the run and the check's own code), which GitHub's Layout check keeps between a pull request's pushes
+ * (check.yml). Only passes are kept, so a failure is always measured again.
+ */
+const PASSED_PATH = join(import.meta.dirname, "../../.wrangler/layout-check-passed.json");
+const isSkippingPassed = layoutRun === RUNS.pull_request && process.env.LAYOUT_CHECK_FRESH !== "1";
+const onlyPassed = (measured: Record<string, string>) => Object.fromEntries(Object.entries(measured).filter(([, result]) => result === "passed"));
 
 describe("the measured rules", () => {
   it("each have a tier, so a new rule can't land without one, and every tier names a rule that's measured", () => {
@@ -53,6 +67,16 @@ describe("the measured rules", () => {
     expect(RUNS.gallery.pages.every((page) => page.isGallery)).toBe(true);
     expect(RUNS.sweep.tiersOf({ name: "Home" })).toEqual(["gallery", "page", "sweep"]);
     expect(RUNS.sweep.sizes.length).toBeGreaterThan(RUNS.pull_request.sizes.length);
+  });
+
+  it("are measured in light on the measured screens by the gallery and the sweep, with the arrangements a layout component makes proven on the gallery", () => {
+    const measuredSizeNames = [...MEASURED_SCREEN_NAMES, ...TEXT_SCREEN_NAMES.map((name) => `${name} at 200% text`)];
+    for (const run of [RUNS.gallery, RUNS.sweep]) {
+      expect(run.themes).toEqual(["light"]);
+      expect((run.sizes as { name: string }[]).map((size) => size.name)).toEqual(measuredSizeNames);
+    }
+    for (const name of ["two panes closer than a block's gap", "two panes overlapping", "out of line with the header", "controls in one row not on one line", "words nearer the block before than their own", "one group on two surfaces"]) expect(LAYOUT_RULE_TIERS[name], name).toBe("gallery");
+    for (const name of ["overlaps another thing", "spills out of its pane", "words cut off", "the page scrolls sideways", "the runner below the fold", "an empty thing taking a gap", "two controls side by side outside a row"]) expect(LAYOUT_RULE_TIERS[name], name).toBe("page");
   });
 });
 
@@ -84,10 +108,17 @@ describe("the merge queue's skip", () => {
 
 describe.skipIf(!sites)("the layout check", () => {
   it("finds nothing out of line on any page, at any size or theme", async () => {
-    const { failures, checkedCount, secondsByPage } = (await checkPages({ ...sites!, pages, sizes: layoutRun.sizes, themes: layoutRun.themes, tiersOf: layoutRun.tiersOf, chromePath: await chromeToRun() })) as { failures: Failure[]; checkedCount: number; secondsByPage: Record<string, number> };
+    const passed = isSkippingPassed ? onlyPassed(readMeasured(PASSED_PATH)) : null;
+    const { failures, checkedCount, secondsByPage, measuredFingerprints, skippedPageNames } = (await checkPages({ ...sites!, pages, sizes: layoutRun.sizes, themes: layoutRun.themes, tiersOf: layoutRun.tiersOf, chromePath: await chromeToRun(), measured: passed, isChangedOnly: isSkippingPassed })) as { failures: Failure[]; checkedCount: number; secondsByPage: Record<string, number>; measuredFingerprints: Record<string, string>; skippedPageNames: string[] };
+    if (passed) {
+      mkdirSync(dirname(PASSED_PATH), { recursive: true });
+      writeFileSync(PASSED_PATH, `${JSON.stringify(mergeMeasured(passed, onlyPassed(measuredFingerprints)))}\n`);
+      console.log(`Skipped ${skippedPageNames.length} page(s) that passed before as they are.`);
+    }
     // For PAGE_COSTS_SEC in scripts/layout-check.mjs, when the shares stop finishing together.
     console.log(`Seconds in a tab per page: ${JSON.stringify(secondsByPage)}`);
-    expect(checkedCount).toBe(pages.length * layoutRun.sizes.length * layoutRun.themes.length);
+    // A skipped page sends no form, so it's one look per screen and theme.
+    expect(checkedCount + skippedPageNames.length * layoutRun.sizes.length * layoutRun.themes.length).toBe(pages.length * layoutRun.sizes.length * layoutRun.themes.length);
     expect(failures.map((failure) => `${failure.page} ${failure.size} ${failure.theme}: ${failure.check}: ${failure.element}: ${failure.said}`)).toEqual([]);
   }, 900_000);
 

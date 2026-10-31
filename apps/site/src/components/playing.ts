@@ -220,8 +220,8 @@ component({
   examples: [
     { label: "A multiplayer game", markup: playingBar({ title: "Neon Drift", controls: STAND_IN_CONTROLS(), isShown: true }), isWide: true },
     { label: "Played alone", markup: playingBar({ title: "Verdant", controls: [secondaryButton("Share", { type: "button", icon: "share", isLabelHidden: true, isSmall: true }), secondaryButton("More", { type: "button", icon: "more", isLabelHidden: true, isSmall: true, isExpanded: false })], isShown: true }), isWide: true },
-    { label: "On a phone: the buttons have the bar, and the More menu names the game", markup: html`<div class="game-stand-in">${playingBar({ title: "Neon Drift", controls: STAND_IN_CONTROLS(), isShown: true, shownAs: "phone" })}<img src="/design/covers/neon-drift.webp" alt=""></div>`, isStill: true },
-    { label: "On a phone on its side: a strip down the left edge, so the game keeps the whole height", markup: html`<div class="game-stand-in sideways">${playingBar({ title: "Neon Drift", controls: STAND_IN_CONTROLS(), isShown: true, shownAs: "phone-sideways" })}<img src="/design/covers/neon-drift.webp" alt=""></div>`, isWide: true, isStill: true },
+    { label: "On a phone: the buttons have the bar, and the More menu names the game", markup: html`<div class="game-stand-in">${playingBar({ title: "Neon Drift", controls: STAND_IN_CONTROLS(), isShown: true, shownAs: "phone" })}<img src="/design/covers/neon-drift.webp" alt="" width="1280" height="720"></div>`, isStill: true },
+    { label: "On a phone on its side: a strip down the left edge, so the game keeps the whole height", markup: html`<div class="game-stand-in sideways">${playingBar({ title: "Neon Drift", controls: STAND_IN_CONTROLS(), isShown: true, shownAs: "phone-sideways" })}<img src="/design/covers/neon-drift.webp" alt="" width="1280" height="720"></div>`, isWide: true, isStill: true },
   ],
 });
 

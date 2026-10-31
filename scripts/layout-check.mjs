@@ -3,11 +3,13 @@
 // bring (checked-pages.ts's SCREEN_SIZES), and measures it the way a person would look at it, failing on what's out of line. Each rule has
 // a tier (layout-measure.ts, LAYOUT_RULE_TIERS), and a run measures the tiers it's for (LAYOUT_CHECK_RUNS):
 //   - a pull request's run (the default): every page and state on a phone and a laptop, in light, for how it arranges its pieces (page),
-//     and the gallery's pages for their components too (gallery). Dark changes only colours (design.test.ts scans it), so it's measured nightly;
-//   - --gallery: the gallery's pages on every screen, light and dark, at 200% text, for their components (gallery and page), when a change
-//     touches the components;
-//   - --sweep: every page and state, the stress accounts too, on every screen, light and dark, at 200% text, every tier, each night, and
+//     and the gallery's pages for their components too (gallery), skipping each page that passed before as it is (the test's own file);
+//   - --gallery: the gallery's pages on the measured screens (MEASURED_SCREEN_NAMES), in light, at 200% text, for their components (gallery
+//     and page), when a change touches the components;
+//   - --sweep: every page and state, the stress accounts too, on the measured screens, in light, at 200% text, every tier, each night, and
 //     in the merge queue on the pages its change reaches (--measured with --changed-only).
+// No run measures dark: it changes only colours, which design.test.ts holds ("changes only colours in dark"). Pictures aren't loaded and
+// Chrome draws on the CPU, since the check measures boxes, not pixels, and every picture's box is sized before it loads (design.test.ts).
 // The rules:
 //   - controls in one row not on one line;
 //   - anything overlapping another thing with an edge, or spilling out of its pane;
@@ -21,12 +23,13 @@
 // Each failure says the page, the size, the theme, the thing (its component and label) and what was measured against what's expected.
 //
 //   npm run layout:check                     against this checkout's preview (started first when it isn't running: a few minutes)
-//   npm run layout:check -- --gallery        the gallery's pages on every screen, light and dark, at 200% text
-//   npm run layout:check -- --sweep          every page and state on every screen, light and dark, at 200% text, every rule (as each night)
+//   npm run layout:check -- --gallery        the gallery's pages on the measured screens, in light, at 200% text
+//   npm run layout:check -- --sweep          every page and state on the measured screens, in light, at 200% text, every rule (as each night)
 //   npm run layout:check -- --json           the same, as JSON
 //   npm run layout:check -- --only /signin   only the pages whose path has that in it
 //   npm run layout:check -- --tabs 2         how many pages it opens at once (DEFAULT_TAB_COUNT: one fewer than the cores, at most 4)
-//   npm run layout:check -- --screens all    every screen, and 200% text (or --screens Phone,Tablet: screens by name), in place of the run's
+//   npm run layout:check -- --screens all    the measured screens, and 200% text (--screens every: all seven; or --screens Phone,Tablet: screens
+//                                            by name), in place of the run's
 //   npm run layout:check -- --text 200       the browser's text at 200% too, on a laptop and an iPad (TEXT_SCREEN_NAMES)
 //   npm run layout:check -- --shard 2/4      the second of four shares of the pages, as the nightly sweep splits them
 //   npm run layout:check -- --pages '["Home", "Sign in"]'  only the pages with these names (a JSON list), as npm run ship re-checks a
@@ -35,7 +38,8 @@
 //                                            keeping what's there; with --changed-only, it skips each page whose fingerprint is in
 //                                            <file> already: its markup, the check and the run are as they were when it was measured.
 //                                            The merge queue runs the sweep this way on the pages its change reaches (check.yml)
-//   npm run layout:check -- --pictures <dir> one contact sheet per page and state, <dir>/<state>.png: its screens side by side, light over dark
+//   npm run layout:check -- --pictures <dir> one contact sheet per page and state, <dir>/<state>.png: its screens side by side, light over dark,
+//                                            with its pictures and drawing
 //   CHROME_PATH=/path/to/chrome npm run layout:check
 //
 // Chrome is the system's or one downloaded before (scripts/chrome.mjs); without either it fetches Chrome for Testing into
@@ -50,7 +54,7 @@ import { fetchChrome, findChrome, openChrome } from "./chrome.mjs";
 import { mergeMeasured, readMeasured } from "./merge-measured.mjs";
 import { PASSWORD } from "./preview/sign-ins.mjs";
 import { LAYOUT_TIERS, MEASURE_LAYOUT_SOURCE } from "../apps/site/src/components/layout-measure.ts";
-import { CHECKED_PAGES, LOCAL_SCREEN_NAMES, SCREEN_SIZES, SCREEN_THEMES, STRESS_ACCOUNTS, TEXT_SCREEN_NAMES, UNIQUE_WORD } from "../apps/site/src/components/checked-pages.ts";
+import { BLOCKED_PICTURE_PATTERNS, CHECKED_PAGES, LOCAL_SCREEN_NAMES, MEASURED_SCREEN_NAMES, SCREEN_SIZES, SCREEN_THEMES, STRESS_ACCOUNTS, TEXT_SCREEN_NAMES, UNIQUE_WORD } from "../apps/site/src/components/checked-pages.ts";
 import { mkdirSync, writeFileSync } from "node:fs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -60,11 +64,12 @@ const TEXT_PERCENTS = [200];
 
 /**
  * The screens a run measures, by name (checked-pages.ts's SCREEN_SIZES), each { name, widthPx, heightPx, isPhone, hasTouch, isRunnerChecked,
- * textPercent }; "all" is every screen and 200% text on TEXT_SCREEN_NAMES. textPercent adds those screens at that text size.
+ * textPercent }; "all" is the measured screens (MEASURED_SCREEN_NAMES) and "every" all seven, each with 200% text on TEXT_SCREEN_NAMES.
+ * textPercent adds those screens at that text size.
  */
 export function layoutCheckScreens(names = LOCAL_SCREEN_NAMES, textPercent = null) {
-  const isAll = names === "all";
-  const picked = isAll ? SCREEN_SIZES : names.map((name) => SCREEN_SIZES.find((size) => size.name === name) ?? (() => { throw new Error(`No screen is called ${name}. The screens are ${SCREEN_SIZES.map((size) => size.name).join(", ")}.`); })());
+  const isAll = names === "all" || names === "every";
+  const picked = names === "every" ? SCREEN_SIZES : (names === "all" ? MEASURED_SCREEN_NAMES : names).map((name) => SCREEN_SIZES.find((size) => size.name === name) ?? (() => { throw new Error(`No screen is called ${name}. The screens are ${SCREEN_SIZES.map((size) => size.name).join(", ")}.`); })());
   const atText = isAll || textPercent ? TEXT_SCREEN_NAMES.map((name) => SCREEN_SIZES.find((size) => size.name === name)) : [];
   const percent = textPercent ?? TEXT_PERCENTS[0];
   // At larger text the runner may fall below the fold: what's held there is that nothing is lost or cut, not the first view.
@@ -79,12 +84,12 @@ const isStressPage = (page) => STRESS_ACCOUNTS.some((stress) => stress.account =
 /**
  * What each run measures: its pages, screens and themes, and the tiers it measures on each page (layout-measure.ts, LAYOUT_RULE_TIERS).
  * pull_request is npm run layout:check with neither flag, as each pull request's Layout check runs it; gallery is --gallery, when a change
- * touches the components; sweep is --sweep, each night.
+ * touches the components; sweep is --sweep, each night. Only light: dark changes only colours (design.test.ts holds it).
  */
 export const LAYOUT_CHECK_RUNS = {
   pull_request: { pages: CHECKED_PAGES.filter((page) => !isStressPage(page)), sizes: LAYOUT_CHECK_SIZES, themes: ["light"], tiersOf: (page) => (page.isGallery ? ["gallery", "page"] : ["page"]) },
-  gallery: { pages: CHECKED_PAGES.filter((page) => page.isGallery), sizes: layoutCheckScreens("all"), themes: LAYOUT_CHECK_THEMES, tiersOf: () => ["gallery", "page"] },
-  sweep: { pages: CHECKED_PAGES, sizes: layoutCheckScreens("all"), themes: LAYOUT_CHECK_THEMES, tiersOf: () => [...LAYOUT_TIERS] },
+  gallery: { pages: CHECKED_PAGES.filter((page) => page.isGallery), sizes: layoutCheckScreens("all"), themes: ["light"], tiersOf: () => ["gallery", "page"] },
+  sweep: { pages: CHECKED_PAGES, sizes: layoutCheckScreens("all"), themes: ["light"], tiersOf: () => [...LAYOUT_TIERS] },
 };
 /** Pages open at once, each in its own window (tabs that share one aren't drawn): one fewer than the cores, so the preview keeps one. */
 /** How long one page at one size and theme may take, loading and settling included, before it fails. */
@@ -344,6 +349,11 @@ async function checkPage(chrome, contextId, url, looks, options) {
     // Measuring needs no WebGL drawing: a page asks for a context and is told there's none (as on a machine without it), which skips the
     // seconds a first context and its shaders take with no graphics card. A run that takes pictures draws everything.
     if (!options.pictureOf) await send("Page.addScriptToEvaluateOnNewDocument", { source: MEASURE_ONLY });
+    // Nor its pictures: loading them is most of a page's time, and each one's box is sized before it loads (BLOCKED_PICTURE_PATTERNS).
+    if (!options.pictureOf) {
+      await send("Network.enable");
+      await send("Network.setBlockedURLs", { urls: [...BLOCKED_PICTURE_PATTERNS] });
+    }
     await look(looks[0]);
     const loaded = () => new Promise((done) => {
       const off = chrome.listen(sessionId, (method) => method === "Page.loadEventFired" && (off(), done()));
@@ -473,7 +483,8 @@ export async function signIn(chrome, contextId, site, username) {
 export async function checkPages({ site, signInSite, pages = LAYOUT_CHECK_PAGES, sizes = LAYOUT_CHECK_SIZES, themes = LAYOUT_CHECK_THEMES, tiersOf = () => [...LAYOUT_TIERS], chromePath, tabCount = DEFAULT_TAB_COUNT, onPage = () => {}, picturesFolder = null, measured = null, isChangedOnly = false }) {
   // Each page's pictures, by its name: one per screen and theme, for its contact sheet.
   const picturesByPage = new Map();
-  const chrome = await openChrome(chromePath, "zaisma-layout-");
+  // Measuring draws nothing a GPU would (no WebGL, no pictures), so Chrome keeps off the machine's GPU; a run that takes pictures draws.
+  const chrome = await openChrome(chromePath, "zaisma-layout-", { isDrawingOnCpu: !picturesFolder });
   const looks = sizes.flatMap((size) => themes.map((theme) => ({ size, theme })));
   // A page is opened once for each theme (the gallery takes it from its address) and measured at each size in place, the screen switched
   // without a reload; one that sends forms is opened once, its answer measured at each size and theme.
@@ -581,7 +592,7 @@ async function main() {
   const only = valueOf("--only");
   const tabCount = args.includes("--tabs") ? Number(valueOf("--tabs")) : DEFAULT_TAB_COUNT;
   const unknown = args.filter((arg, i) => !["--json", "--sweep", "--gallery", "--changed-only", ...VALUED].includes(arg) && !VALUED.includes(args[i - 1]));
-  const OPTIONS_WORDS = "The options are --sweep or --gallery, --json, --only <part of a page's path>, --pages <JSON list of page names>, --tabs <pages at once>, --screens all or <name>,<name>, --text 200, --shard <n>/<count>, --pictures <folder>, and --measured <file> with --changed-only.";
+  const OPTIONS_WORDS = "The options are --sweep or --gallery, --json, --only <part of a page's path>, --pages <JSON list of page names>, --tabs <pages at once>, --screens all, every or <name>,<name>, --text 200, --shard <n>/<count>, --pictures <folder>, and --measured <file> with --changed-only.";
   if (unknown.length) stop(`Unknown option ${unknown.join(" ")}. ${OPTIONS_WORDS}`, isJson);
   if (args.includes("--sweep") && args.includes("--gallery")) stop("--sweep already measures the gallery's pages on every screen: give one of --sweep and --gallery.", isJson);
   if (!Number.isInteger(tabCount) || tabCount < 1 || tabCount > 16) stop("--tabs takes a whole number from 1 to 16, like --tabs 2.", isJson);
@@ -591,7 +602,7 @@ async function main() {
   if (textAsked !== null && !TEXT_PERCENTS.includes(Number(textAsked))) stop(`--text takes ${TEXT_PERCENTS.join(" or ")}, like --text 200.`, isJson);
   let sizes = layoutRun.sizes;
   try {
-    if (screensAsked !== null || textAsked !== null) sizes = layoutCheckScreens(screensAsked === "all" ? "all" : screensAsked ? screensAsked.split(",").map((name) => name.trim()) : LOCAL_SCREEN_NAMES, textAsked === null ? null : Number(textAsked));
+    if (screensAsked !== null || textAsked !== null) sizes = layoutCheckScreens(screensAsked === "all" || screensAsked === "every" ? screensAsked : screensAsked ? screensAsked.split(",").map((name) => name.trim()) : LOCAL_SCREEN_NAMES, textAsked === null ? null : Number(textAsked));
   } catch (error) {
     stop(error.message, isJson);
   }
@@ -629,6 +640,8 @@ async function main() {
   if (!pages.length) stop(`No page's path has ${only} in it.`, isJson);
   if (picturesFolder) mkdirSync(picturesFolder, { recursive: true });
   const startedMs = Date.now();
+  // A contact sheet shows light over dark.
+  const themes = picturesFolder ? LAYOUT_CHECK_THEMES : layoutRun.themes;
   let measured = null;
   if (measuredPath) {
     try {
@@ -641,7 +654,7 @@ async function main() {
     ...sites,
     pages,
     sizes,
-    themes: layoutRun.themes,
+    themes,
     tiersOf: layoutRun.tiersOf,
     chromePath,
     tabCount,
@@ -659,7 +672,7 @@ async function main() {
     if (skippedPageNames.length) console.log(`Skipped ${skippedPageNames.length} page(s) measured before as they are: ${skippedPageNames.join(", ")}.`);
     // One line npm run ship reads from a failed sweep's log, to measure those pages again (sweepFailedPages, scripts/ship-github-check.mjs).
     if (failedPageNames.length) console.log(`LAYOUT FAILED PAGES ${JSON.stringify(failedPageNames)}`);
-    console.log(failures.length ? `LAYOUT FAIL: ${failures.length} problem(s) on ${new Set(failures.map((failure) => `${failure.page} ${failure.size} ${failure.theme}`)).size} of ${checkedCount} pages.` : `LAYOUT PASS: ${checkedCount} pages, ${sizes.map((size) => size.name).join(", ")}, ${layoutRun.themes.join(" and ")}, measuring ${[...new Set(allPages.flatMap(layoutRun.tiersOf))].join(", ")}, in ${Math.round((Date.now() - startedMs) / 1000)}s with ${tabCount} at once.`);
+    console.log(failures.length ? `LAYOUT FAIL: ${failures.length} problem(s) on ${new Set(failures.map((failure) => `${failure.page} ${failure.size} ${failure.theme}`)).size} of ${checkedCount} pages.` : `LAYOUT PASS: ${checkedCount} pages, ${sizes.map((size) => size.name).join(", ")}, ${themes.join(" and ")}, measuring ${[...new Set(allPages.flatMap(layoutRun.tiersOf))].join(", ")}, in ${Math.round((Date.now() - startedMs) / 1000)}s with ${tabCount} at once.`);
   }
   process.exit(failures.length ? 1 : 0);
 }
