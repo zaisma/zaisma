@@ -319,6 +319,29 @@ export const GALLERY_SCRIPT = pageScript(
     if (count) count.textContent = (Number(count.textContent.replace(/,/g, "")) + (isOn ? 1 : -1)).toLocaleString("en-US");
     if (words && /^Follow/.test(words.textContent)) words.textContent = isOn ? "Following" : "Follow";
   });
+  // Confirm it's you's live example, opened as a page opens it: a purchase PIN of 246810 or the password "password" is right, anything else
+  // wrong, with the tries left.
+  document.addEventListener("click", function (event) {
+    var opener = event.target.closest && event.target.closest("[data-confirm-example]");
+    if (!opener || !window.zaismaConfirmItsYou) return;
+    var triesLeftCount = 3;
+    window.zaismaConfirmItsYou(opener.getAttribute("data-confirm-example"), {
+      methods: ["purchase_pin", "password"],
+      reason: "Your account asks for your purchase PIN for every buy.",
+      passkeyPurpose: "purchase",
+      send: function (proof) {
+        return new Promise(function (resolve) {
+          setTimeout(function () {
+            if (proof.purchase_pin === "246810" || proof.password === "password") return resolve({ ok: true });
+            triesLeftCount -= 1;
+            resolve({ ok: false, message: proof.method === "purchase_pin" ? "That PIN isn't right. " + triesLeftCount + (triesLeftCount === 1 ? " try" : " tries") + " left." : "That password isn't right." });
+          }, 700);
+        });
+      },
+      onConfirmed: function () {},
+      onCancelled: function () {},
+    });
+  });
   // A header's search shown open: its list hangs under the field in the example's frame, outside the header, as the open account menu does,
   // since the header's cut would clip it there.
   document.querySelectorAll(".header-frame .top .find > .find-list.in-place").forEach(function (list) {

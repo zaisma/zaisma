@@ -480,6 +480,9 @@ export const GLASS_SCRIPT = `/* glass */(function () {
     return points;
   }
   function controlOutline(el, w, h, as) {
+    // A mark cut on all four corners to its middles (data-cut-diamond: a PIN's marks, and the light in them): a diamond, on its own, with
+    // no pane's corner to follow.
+    if (el.hasAttribute("data-cut-diamond")) { el.cutCorners = [w / 2, w / 2, w / 2, w / 2]; return [[w / 2, 0], [w, h / 2], [w / 2, h], [0, h / 2]]; }
     var beside = besides(el, as), cuts = fitCuts(el, w, h, as);
     // A control's own part at its end (a switch's slab on its first or last tab) slants there too where the control itself slants, beside
     // another control (a header's switch toward its search).

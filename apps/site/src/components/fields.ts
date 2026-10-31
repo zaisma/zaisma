@@ -256,7 +256,7 @@ export function pinField(options: PinFieldOptions): ControlMarkup {
   const nextIndex = Math.min(digits.length, PIN_DIGIT_COUNT - 1);
   const marks = Array.from({ length: PIN_DIGIT_COUNT }, (_, markIndex) => {
     const className = ["pin-mark", "carving", "deep", markIndex < digits.length ? "is-filled" : "", markIndex === nextIndex ? "is-next" : "", options.error ? "is-marked" : ""].filter(Boolean).join(" ");
-    return html`<span class="${className}" data-cut-line="4" aria-hidden="true">${CUT_LINE}<span class="pin-fill light-fill" data-cut-line="3"></span></span>`;
+    return html`<span class="${className}" data-cut-line="4" data-cut-diamond aria-hidden="true">${CUT_LINE}<span class="pin-fill light-fill" data-cut-line="3" data-cut-diamond></span></span>`;
   });
   const input = html`<input class="pin-input" id="${id}-input" name="${options.name}" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="${PIN_DIGIT_COUNT}" autocomplete="off" autocapitalize="off" spellcheck="false" aria-describedby="${errorId}"${digits ? html` value="${digits}"` : ""}${options.error ? raw(' aria-invalid="true"') : ""}${options.isDisabled ? raw(" disabled") : ""}>`;
   return controlMarkup(html`<div class="pin-field${options.state === "is-focused" ? " is-focused" : ""}" id="${id}" data-pin${options.isDisabled ? raw(' aria-busy="true"') : ""}>
@@ -828,13 +828,13 @@ component({
   subgroup: "fields",
   summary: "A PIN, one mark for each digit, filling with light as it's typed. Digits only, never shown; when the last digit goes in the PIN is sent, so there's no button to press. A wrong PIN is said under the marks.",
   styles: `
-/* A PIN field: a label over a row of marks, one for each digit, small carvings with a cut corner that fill with light as the digits go
-   in. One field, unseen, lies over the row and takes the typing; the row is a small control tall, so a finger finds it. */
+/* A PIN field: a label over a row of marks, one for each digit, small carved diamonds (the edge rule's data-cut-diamond) that fill with
+   light as the digits go in. One field, unseen, lies over the row and takes the typing; the row is a small control tall, so a finger finds it. */
 .pin-field { display: flex; flex-direction: column; gap: var(--gap-words-control); min-width: 0; }
 .pin-field > label { font: var(--type-label); color: var(--ink-2); }
-.pin-marks { position: relative; display: flex; align-items: center; gap: var(--gap-block-block); min-height: var(--control-height-small); }
-.pin-mark { position: relative; flex: none; width: 20px; height: 20px; }
-.pin-fill { position: absolute; z-index: 2; inset: 3px; clip-path: var(--cut-shape); opacity: 0; transform: scale(0.4); transition: opacity var(--motion-state), transform var(--motion-state) var(--ease-glide); }
+.pin-marks { position: relative; display: flex; align-items: center; gap: var(--gap-words-words); min-height: var(--control-height-small); }
+.pin-mark { position: relative; flex: none; width: 22px; height: 22px; }
+.pin-fill { position: absolute; z-index: 2; inset: 4px; clip-path: var(--cut-shape); opacity: 0; transform: scale(0.4); transition: opacity var(--motion-state), transform var(--motion-state) var(--ease-glide); }
 .pin-mark.is-filled > .pin-fill { opacity: 1; transform: none; }
 /* The next mark outlined in the focus color while the field has the keyboard; a wrong PIN outlines them all amber. */
 .pin-marks:has(> .pin-input:focus-visible) > .pin-mark.is-next > .cut-line polygon, .pin-field.is-focused .pin-mark.is-next > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }

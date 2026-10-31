@@ -3,7 +3,7 @@ import { html, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
 import { secondaryButton, primaryButton, tertiaryButton } from "./actions.ts";
 import { cutField, pinField } from "./fields.ts";
-import { icon, sheetMarkup, well, type IconName } from "./foundations.ts";
+import { icon, sheetMarkup, type IconName } from "./foundations.ts";
 import { paneParts, row, stack } from "./layout.ts";
 import "./panes.ts";
 
@@ -45,8 +45,8 @@ export function confirmItsYouSheet(options: ConfirmItsYouOptions): Raw {
   const method = options.method ?? "password";
   const id = options.id;
   const others = options.otherMethods ?? [];
-  // Its face: the way's mark in a carving, the one for the way asked for showing (the CSS, by the face's data-method).
-  const face = well({ kind: "confirm-face-well", body: html`${METHODS.map((each) => html`<span class="confirm-face-mark" data-face-method="${each}">${icon(METHOD_ICONS[each])}</span>`)}` });
+  // Its face: the way's mark, large, on the glass; the one for the way asked for shows (the CSS, by the face's data-method).
+  const face = html`${METHODS.map((each) => html`<span class="confirm-face-mark" data-face-method="${each}">${icon(METHOD_ICONS[each])}</span>`)}`;
   const body = stack({
     items: [
       { kind: "block", markup: html`<div class="confirm-face" id="${id}-face" data-method="${method}">${face}<h2 class="sheet-title" id="${id}-title">Confirm it's you</h2></div>` },
@@ -72,6 +72,8 @@ export function confirmItsYouSheet(options: ConfirmItsYouOptions): Raw {
     closeButton: close,
     placement: "middle",
     isConfirm: true,
+    // A small sheet's width and closed-up gaps, in the middle of the screen still (a middle sheet never hangs from a button).
+    isCompact: true,
     isShown: options.isShown,
   });
 }
@@ -222,25 +224,25 @@ component({
   subgroup: "layers",
   summary: "A small dialog that opens over anything and asks the player to prove it's them, the way that suits what they're doing: a passkey, their purchase PIN (for a purchase only) or their password. The page says why in one sentence and gives it the function that sends the proof; a right proof closes it and the page goes on by itself, so the button that asked is pressed once. In the middle of a wide screen, risen from the foot on a phone.",
   styles: `
-/* Confirm it's you: a sheet that stays in the middle of a wide screen whatever opened it (LAYERS_SCRIPT), wide enough for "Use your passkey" in half its foot. */
-@media (min-width: 761px) {
-  .sheet.placement-middle:not(.in-place) { width: min(480px, calc(100% - 2 * var(--pad-pane))); }
-}
-.sheet.placement-middle.in-place { width: min(480px, 100%); }
+/* Confirm it's you: a small sheet that stays in the middle of a wide screen whatever opened it (LAYERS_SCRIPT), its title a section's size. */
+.sheet.is-compact .confirm-face > .sheet-title { font: var(--type-section); }
 /* What went wrong is a warning, never the runner's orange. */
 .confirm-problem { margin: 0; font: var(--type-words); color: var(--warning); }
 /* Its face, title, words and PIN centered under one another, like a lock asking to be opened; a password field and the button keep the width. */
 .confirm-body { text-align: center; }
 .confirm-face { display: flex; flex-direction: column; align-items: center; gap: var(--gap-words-control); }
-.confirm-face-well { width: 56px; height: 56px; justify-content: center; align-items: center; }
 .confirm-face-mark { display: none; color: var(--ink-2); }
-.confirm-face-mark > .ico { width: 26px; height: 26px; }
+.confirm-face-mark > .ico { width: 36px; height: 36px; }
 .confirm-face[data-method="purchase_pin"] [data-face-method="purchase_pin"], .confirm-face[data-method="password"] [data-face-method="password"], .confirm-face[data-method="passkey"] [data-face-method="passkey"] { display: flex; }
 .confirm-body .pin-field { align-items: center; }
 .confirm-body .cut-field { text-align: start; }
 `,
   render: confirmItsYouSheet,
   examples: [
+    {
+      label: "Try it: the purchase PIN is 246810 and the password is password; anything else is wrong, and says the tries left",
+      markup: html`${secondaryButton("Buy Revive", { type: "button", dataAttributes: { "confirm-example": "example-confirm-its-you-try" } })}${confirmItsYouSheet({ id: "example-confirm-its-you-try" })}`,
+    },
     { label: "Purchase PIN: six marks, sent by the sixth digit, and the other ways at its foot", isStill: true, markup: confirmItsYouSheet({ id: "example-confirm-its-you-pin", method: "purchase_pin", otherMethods: ["password", "passkey"], reasonText: PIN_REASON, isShown: true }) },
     { label: "Password", isStill: true, markup: confirmItsYouSheet({ id: "example-confirm-its-you-password", method: "password", otherMethods: ["passkey"], reasonText: "It's been a while since you signed in here.", isShown: true }) },
     { label: "Passkey: one button, and the browser asks at once", isStill: true, markup: confirmItsYouSheet({ id: "example-confirm-its-you-passkey", method: "passkey", otherMethods: ["password"], reasonText: "That's a lot for one day.", isShown: true }) },
