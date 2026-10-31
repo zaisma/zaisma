@@ -227,7 +227,7 @@ describe("room codes in the game bar", () => {
     expect(rooms).toMatch(/<dialog class="sheet glass placement-foot" id="room-dialog"/);
     expect(rooms).toContain('id="room-here" hidden');
     expect(rooms).toMatch(/id="room-code-shown"[\s\S]*?id="room-code-text"/);
-    expect(rooms).toContain('<label for="bar-join-code">Join a room by its code</label>');
+    expect(rooms).toContain('<label class="words-margin" for="bar-join-code">Join a room by its code</label>');
     expect(rooms).toMatch(/<input id="bar-join-code" name="room" type="text"/);
     expect(rooms).toMatch(/<button class="shell [^"]*" id="room-join" type="submit"/);
   });
