@@ -154,6 +154,20 @@ The glass is a real material, not a picture of one: things are carved into it, r
 
 **The test** for any look, sketch or state: what is the glass physically doing here, and where is the light? An answer of "it's colored" fails.
 
+## Materials
+
+Everything in the gallery is built of five materials, each defined once in `materials.ts` (and `foundations.ts` for the panes) with its look, its edge, its thickness, the room it keeps inside it and its sizes. A component only puts materials together and lays them out with the layout components (Layout); changing a material changes it everywhere it's used. Panes › Materials shows each one.
+
+- **Glass pane** (`glassPane`, the header, bars, banners): flush glass of the regular thickness.
+- **Tray** (`tray`): one sheet of the thinnest glass, its head on a step of regular glass across its top.
+- **Floating** (a floating pane, a sheet, a notice, a playing card): thin glass over what's under it, which it blurs.
+- **Carving** (`carving`): the glass cut away, for what's held in it (a well, a field, a slot); a deep carving is a groove or a PIN's marks.
+- **Slab** (`slab`): a raised piece of the same glass, for what's pressed or moved (a button, a switch's tab, a thumb); lit, it's the orange one.
+
+Each comes regular or compact (a menu, a small button, a compact sheet): compact keeps less room inside it and looks the same. A game's hue (`--glass-hue`) reaches every material at its own strength, a carving half as much as a pane or a slab.
+
+**Nothing builds itself.** A component never gives itself a background, a shadow, a border, padding, a margin from the spacing tokens, a height, a scroll, a color or a timing: its look is its materials', its room theirs, its spacing its layout's, its height its size class's. `test/node/materials.test.ts` refuses any of it in a component's styles or markup. The few things only one component draws (a loader's dots, a PIN's diamonds, a cover's inner shadow, a brand's own color) are named one by one, each with its reason, in that test's exceptions; a name there that's gone fails it too.
+
 ## Shapes
 
 - **Cut corners, never rounded.** Panes are cut 18 and 14 (`--pane-cut-large`, `--pane-cut-small`), the header 16 and 12, menus 14 and 12, the same on a phone. Fields and buttons slant 10px where they meet another (`--control-slant`).
