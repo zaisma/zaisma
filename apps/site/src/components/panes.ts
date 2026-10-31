@@ -484,7 +484,7 @@ const DROPDOWN_STYLES = `
 /* Its choices, under its head, in the Floating pane's body, which scrolls them past its height. A choice keeps its height while they scroll. */
 .dropdown-in { display: flex; flex-direction: column; gap: 2px; }
 /* Holding the focus as a whole (opened by a press) it draws no ring: a choice it moves to lights its rim. */
-.floating-pane.dropdown:focus { outline: none; }
+.floating-pane.dropdown:focus-visible { outline: none; }
 /* Its choices are flat, words on its glass: pointed at or moved to with the keyboard, the words darken and its rim lights beside the choice
    (Edge light, as a switch's does, cut to its glass); the chosen one keeps its words dark and ends in a check (a Select field's tick), never a slab. */
 /* Its rules sit close to its choices: a menu's groups are a few choices each, so a page's gap round them would part them more than they
