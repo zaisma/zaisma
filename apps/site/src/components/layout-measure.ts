@@ -69,6 +69,11 @@ export const LAYOUT_RULE_TIERS: Readonly<Record<string, LayoutRuleTier>> = {
   "the check couldn't measure the page": "page",
   "the page isn't the state it's listed as": "page",
   "the page didn't settle in time": "page",
+  // The loading check (FIRST_PAINT_SNAPSHOT_SOURCE): a page shows whole while it loads ("A page shows whole while it loads", docs/DESIGN.md).
+  // Every picture comes as a ShownPicture with its placeholder (impossible otherwise in code), proven on the gallery's pictures.
+  "a picture without its placeholder": "gallery",
+  "moved after the first paint": "page",
+  "words changed after the first paint": "page",
   "no answer within 400 ms": "sweep",
   "the check couldn't press the page's buttons": "sweep",
 };
@@ -649,5 +654,65 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
   }
   var pageWidthPx = document.scrollingElement.scrollWidth;
   if (pageWidthPx > innerWidth + 1) report("the page scrolls sideways", document.body, pageWidthPx + "px wide in a " + innerWidth + "px window");
+  return failures;
+}`;
+
+/**
+ * The loading check, run in a page in two steps (scripts/layout-check.mjs): FIRST_PAINT_SNAPSHOT_SOURCE as the page first paints with only
+ * its first-paint script run (the rest held back, and its pictures never loaded), then, once the page has loaded and settled,
+ * (FIRST_PAINT_COMPARE_SOURCE)({ tiers }): what moved more than a pixel or changed its words since, and, at the first paint, any picture
+ * shown without its placeholder. Each failure names the outermost thing that moved, not everything inside it.
+ */
+const FIRST_PAINT_SKIPPED = "script, style, template, svg, svg *, .sr, .rail, .rail *, .edge, .cut-line, dialog:not([open]), dialog:not([open]) *, [hidden], [hidden] *";
+export const FIRST_PAINT_SNAPSHOT_SOURCE = String.raw`(function () {
+  var shown = [], scrollX = window.scrollX, scrollY = window.scrollY;
+  document.body.querySelectorAll("*").forEach(function (el) {
+    if (el.matches(${JSON.stringify(FIRST_PAINT_SKIPPED)})) return;
+    var r = el.getBoundingClientRect();
+    if (r.width < 1 && r.height < 1) return;
+    var words = Array.prototype.filter.call(el.childNodes, function (node) { return node.nodeType === 3; }).map(function (node) { return node.textContent; }).join("").replace(/\s+/g, " ").trim();
+    shown.push({ el: el, left: r.left + scrollX, top: r.top + scrollY, width: r.width, height: r.height, words: words });
+  });
+  // Pictures: each img in a Picture's box with its placeholder, or a backdrop with its placeholder layer under it. A QR code is a drawn
+  // code, not a picture.
+  var bare = Array.prototype.filter.call(document.body.querySelectorAll("img"), function (img) {
+    if (img.matches(".qr-picture") || img.closest("[hidden], dialog:not([open])")) return false;
+    var box = img.parentElement;
+    if (box && box.classList.contains("picture") && /--placeholder\s*:/.test(box.getAttribute("style") || "")) return false;
+    if (img.matches(".backdrop") && img.previousElementSibling && img.previousElementSibling.matches(".backdrop-placeholder")) return false;
+    return img.getBoundingClientRect().width >= 1;
+  });
+  window.__zaismaFirstPaint = { shown: shown, bare: bare };
+  return shown.length;
+})()`;
+export const FIRST_PAINT_COMPARE_SOURCE = String.raw`function compareFirstPaint(options) {
+  var TIERS = ${JSON.stringify(LAYOUT_RULE_TIERS)};
+  var tiers = options.tiers || ${JSON.stringify(LAYOUT_TIERS)};
+  function isMeasured(check) { return !TIERS[check] || tiers.indexOf(TIERS[check]) >= 0; }
+  var first = window.__zaismaFirstPaint, failures = [], moved = [], MOST_FAILURES = 8;
+  if (!first) return [{ check: "moved after the first paint", element: "", said: "the check didn't see the page's first paint" }];
+  function describe(el) {
+    var classes = (el.getAttribute("class") || "").split(/\s+/).filter(Boolean).slice(0, 2).join(".");
+    var words = (el.textContent || "").replace(/\s+/g, " ").trim().slice(0, 30);
+    return el.tagName.toLowerCase() + (el.id ? "#" + el.id : "") + (classes ? "." + classes : "") + (words ? " " + JSON.stringify(words) : "");
+  }
+  var px = function (n) { return Math.round(n) + "px"; };
+  first.shown.forEach(function (was) {
+    var el = was.el;
+    if (!el.isConnected || moved.some(function (outer) { return outer.contains(el); })) return;
+    var r = el.getBoundingClientRect(), now = { left: r.left + window.scrollX, top: r.top + window.scrollY, width: r.width, height: r.height };
+    var off = ["left", "top", "width", "height"].filter(function (side) { return Math.abs(now[side] - was[side]) > 1; });
+    if (off.length && isMeasured("moved after the first paint") && failures.length < MOST_FAILURES) {
+      moved.push(el);
+      failures.push({ check: "moved after the first paint", element: describe(el), said: off.map(function (side) { return side + " " + px(was[side]) + " then " + px(now[side]); }).join(", ") });
+    }
+    var words = Array.prototype.filter.call(el.childNodes, function (node) { return node.nodeType === 3; }).map(function (node) { return node.textContent; }).join("").replace(/\s+/g, " ").trim();
+    if (words !== was.words && isMeasured("words changed after the first paint") && failures.length < MOST_FAILURES) {
+      failures.push({ check: "words changed after the first paint", element: describe(el), said: JSON.stringify(was.words.slice(0, 60)) + " then " + JSON.stringify(words.slice(0, 60)) });
+    }
+  });
+  if (isMeasured("a picture without its placeholder")) first.bare.slice(0, MOST_FAILURES).forEach(function (img) {
+    failures.push({ check: "a picture without its placeholder", element: describe(img) + " " + (img.getAttribute("src") || "").slice(0, 60), said: "an img outside a Picture's box (foundations.ts, picture), so its place is empty until it loads" });
+  });
   return failures;
 }`;

@@ -17,6 +17,8 @@
 //     than the frame gap (--pad-frame) from an edge they sit against;
 //   - a control in a pane's corner (Pane parts) not in its corner, or anything cut to a bevel under 4px;
 //   - the page's runner (its main action) below the fold, and the page scrolling sideways;
+//   - the page moving or changing its words after its first paint (its first-paint script alone run, the rest held back), and a picture
+//     shown without its placeholder (docs/DESIGN.md, "A page shows whole while it loads");
 //   - anything wider than its page's shape; a pane over the page past its kind's size or the screen, or overflowing unscrolled;
 //   - the Laws of UX a check can measure (proximity, common region, similarity), and a press that answers nothing within 400 ms (the
 //     Doherty threshold), on a laptop, in the sweep.
@@ -53,7 +55,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { fetchChrome, findChrome, openChrome } from "./chrome.mjs";
 import { mergeMeasured, readMeasured } from "./merge-measured.mjs";
 import { PASSWORD } from "./preview/sign-ins.mjs";
-import { LAYOUT_TIERS, MEASURE_LAYOUT_SOURCE } from "../apps/site/src/components/layout-measure.ts";
+import { FIRST_PAINT_COMPARE_SOURCE, FIRST_PAINT_SNAPSHOT_SOURCE, LAYOUT_TIERS, MEASURE_LAYOUT_SOURCE } from "../apps/site/src/components/layout-measure.ts";
 import { BLOCKED_PICTURE_PATTERNS, CHECKED_PAGES, LOCAL_SCREEN_NAMES, MEASURED_SCREEN_NAMES, SCREEN_SIZES, SCREEN_THEMES, STRESS_ACCOUNTS, TEXT_SCREEN_NAMES, UNIQUE_WORD } from "../apps/site/src/components/checked-pages.ts";
 import { mkdirSync, writeFileSync } from "node:fs";
 
@@ -148,7 +150,7 @@ export function pageFingerprint(html, page, looks, tiers) {
     .replace(/<input\b[^>]*\btype="hidden"[^>]*>/g, (input) => input.replace(/\svalue="[^"]*"/, ' value=""'))
     .replace(/\s([\w-]+-ms)="[^"]*"/g, ' $1=""');
   const hash = createHash("sha256");
-  for (const part of [steady, JSON.stringify(page), JSON.stringify(looks.map((look) => [look.size.name, look.theme])), JSON.stringify(tiers), MEASURE_LAYOUT_SOURCE, CHECK_SOURCE]) hash.update(part).update("\0");
+  for (const part of [steady, JSON.stringify(page), JSON.stringify(looks.map((look) => [look.size.name, look.theme])), JSON.stringify(tiers), MEASURE_LAYOUT_SOURCE, FIRST_PAINT_SNAPSHOT_SOURCE, FIRST_PAINT_COMPARE_SOURCE, CHECK_SOURCE]) hash.update(part).update("\0");
   return hash.digest("hex");
 }
 
@@ -225,6 +227,17 @@ const SETTLE = `(async () => {
   // Freshly loaded, a page's own timers (a sheet shown as it loads) get 400 ms; a screen switched in place, 50.
   await new Promise((done) => setTimeout(done, window.__zaismaLayoutSettled ? 50 : 400));
   window.__zaismaLayoutSettled = true;
+  return true;
+})()`;
+
+/**
+ * Waits for the page's first paint as a slow connection shows it: the page read, its stylesheet in and its first-paint script run (the
+ * rest of its scripts held back), and what that script draws drawn.
+ */
+const FIRST_PAINT_READY = `(async () => {
+  const turn = () => new Promise((done) => setTimeout(done, 0));
+  for (let waitedMs = 0; waitedMs < 15000 && (document.readyState === "loading" || (document.querySelector('script[src*="/js/first-paint."]') && !window.zaismaWatch)); waitedMs += 50) await new Promise((done) => setTimeout(done, 50));
+  if (window.zaismaWatch?.drawAll) for (let pass = 0; pass < 3; pass++) { await turn(); window.zaismaWatch.drawAll(); }
   return true;
 })()`;
 
@@ -359,7 +372,25 @@ async function checkPage(chrome, contextId, url, looks, options) {
       const off = chrome.listen(sessionId, (method) => method === "Page.loadEventFired" && (off(), done()));
     });
     let next = loaded();
+    // The loading check (layout-measure.ts, FIRST_PAINT_SNAPSHOT_SOURCE): the page as it first paints, with its first-paint script (and the
+    // theme's) run and every other script held back, as a slow connection shows it, kept to be compared once it has loaded. Fonts aren't
+    // held: Jost's fallback is Arial set to take its room, and a runner without Arial would measure a fallback no player sees.
+    const isFirstPaintChecked = !options.pictureOf && !options.stepsToTake?.length && !options.markup && !options.setUp;
+    const held = [];
+    const offPaused = isFirstPaintChecked ? chrome.listen(sessionId, (method, params) => {
+      if (method !== "Fetch.requestPaused") return;
+      if (/\/js\/(first-paint|theme)\./.test(params.request.url)) send("Fetch.continueRequest", { requestId: params.requestId }).catch(() => {});
+      else held.push(params.requestId);
+    }) : null;
+    if (isFirstPaintChecked) await send("Fetch.enable", { patterns: [{ urlPattern: "*", resourceType: "Script", requestStage: "Request" }] });
     await send("Page.navigate", { url });
+    if (isFirstPaintChecked) {
+      await send("Runtime.evaluate", { expression: FIRST_PAINT_READY, awaitPromise: true, returnByValue: true });
+      await send("Runtime.evaluate", { expression: FIRST_PAINT_SNAPSHOT_SOURCE, returnByValue: true });
+      offPaused();
+      for (const requestId of held) await send("Fetch.continueRequest", { requestId }).catch(() => {});
+      await send("Fetch.disable");
+    }
     await Promise.race([next, wait(30_000)]);
     // A state only forms and links reach: each step is taken once, and its answer is the page that takes the next. It's taken once for
     // every size and theme, so the sign-in's limits on tries aren't reached.
@@ -389,6 +420,11 @@ async function checkPage(chrome, contextId, url, looks, options) {
       const measured = { isMainActionChecked, isCoverAboveFold: Boolean(options.isCoverAboveFold) && size.isRunnerChecked !== false, isTouch: Boolean(size.hasTouch), tiers: options.tiers };
       const { result, exceptionDetails } = await send("Runtime.evaluate", { expression: `(${MEASURE_LAYOUT_SOURCE})(${JSON.stringify(measured)})`, returnByValue: true });
       const found = exceptionDetails ? [{ check: "the check couldn't measure the page", element: "", said: exceptionDetails.exception?.description ?? exceptionDetails.text }] : result.value;
+      // What moved or changed its words since the first paint, measured once, on the screen the page first painted on.
+      if (isFirstPaintChecked && lookIndex === 0) {
+        const compared = await send("Runtime.evaluate", { expression: `(${FIRST_PAINT_COMPARE_SOURCE})(${JSON.stringify({ tiers: options.tiers })})`, returnByValue: true });
+        found.push(...(compared.exceptionDetails ? [{ check: "moved after the first paint", element: "", said: compared.exceptionDetails.exception?.description ?? compared.exceptionDetails.text }] : compared.result.value));
+      }
       // The entry's address must show the state it's named for (checked-pages.ts), so a list that drifts from the pages fails here.
       const state = await said();
       if (!options.markup && state !== (options.stateBeforeSetUp ?? options.shownStateName ?? options.name)) {
