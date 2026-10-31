@@ -585,18 +585,20 @@ const COVER_STYLES = `
 .cover-art:is(.is-pointed, .is-pressed) > .edge-light::before, .cover-art:is(.is-pointed, .is-pressed) > .edge-light::after { opacity: 1; }
 .cover-picture img { transition: filter var(--motion-state) var(--ease-standard); }
 .cover:is(:hover, .is-pointed) .cover-picture img, .cover-art.is-pointed .cover-picture img { filter: brightness(1.06); }
-/* Pressed, the art sinks into its well: a little smaller in place, a touch darker under the well's shade, quickly; let go, it springs back.
-   Its corners' marks sink with it, and its foot stays lit. */
+/* Pressed, the art sinks into its well, its size kept: it drops a little toward the light and the well's rim casts its shade over it, deep
+   along the top and lighter down the sides, so the walls show as it goes down; it darkens a touch, quickly. Let go, it springs back up.
+   Its corners' marks go down with it, and its foot stays lit. */
 .cover-art > :where(.cover-picture, .cover-mark) { transition: transform var(--motion-glide) var(--ease-spring); }
-.cover-art:is(:active, .is-pressed) > :where(.cover-picture, .cover-mark), .cover.is-pressed .cover-art > :where(.cover-picture, .cover-mark) { transform: scale(0.97); transition-duration: var(--motion-press); transition-timing-function: var(--ease-standard); }
-.cover-art:is(:active, .is-pressed) .cover-picture img, .cover.is-pressed .cover-picture img { filter: brightness(0.92); transition-duration: var(--motion-press); }
-.cover-art:is(:active, .is-pressed), .cover.is-pressed .cover-art { box-shadow: var(--press-shade); }
+.cover-picture::after { content: ""; position: absolute; inset: 0; pointer-events: none; opacity: 0; box-shadow: inset 0 7px 9px -5px rgba(0, 0, 0, 0.55), inset 4px 0 6px -4px rgba(0, 0, 0, 0.3), inset -4px 0 6px -4px rgba(0, 0, 0, 0.3); transition: opacity var(--motion-glide) var(--ease-standard); }
+.cover-art:is(:active, .is-pressed) > :where(.cover-picture, .cover-mark), .cover.is-pressed .cover-art > :where(.cover-picture, .cover-mark) { transform: translateY(1.5px); transition-duration: var(--motion-press); transition-timing-function: var(--ease-standard); }
+.cover-art:is(:active, .is-pressed) .cover-picture::after, .cover.is-pressed .cover-picture::after { opacity: 1; transition-duration: var(--motion-press); }
+.cover-art:is(:active, .is-pressed) .cover-picture img, .cover.is-pressed .cover-picture img { filter: brightness(0.93); transition-duration: var(--motion-press); }
 /* Its line under the art: the title, cut to one line, and players now at its end. Nothing else is ever said there. */
 .cover-meta { display: flex; align-items: center; gap: var(--gap-words-words); font: var(--type-facts); color: var(--muted); }
 .cover-meta .cover-name { flex: 1 1 0; min-width: 0; font: var(--type-name); color: var(--ink); }
 .cover-meta .ico { width: 15px; height: 15px; stroke-width: 1.5; }
 .cover-meta .count { display: inline-flex; align-items: center; gap: var(--gap-words-words); flex: none; white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--ink-2); }
-@media (prefers-reduced-motion: reduce) { .cover-picture img, .cover-art > :where(.cover-picture, .cover-mark) { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .cover-picture img, .cover-picture::after, .cover-art > :where(.cover-picture, .cover-mark) { transition: none; } }
 `;
 
 const HOUR_MS = 3_600_000;
