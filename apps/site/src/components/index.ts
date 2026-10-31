@@ -20,6 +20,7 @@ import "./layout-gallery.ts";
 // Components pages still to build need: words to read and the ways through them, and people and what they write.
 import "./people.ts";
 import "./screens.ts";
+import "./waiting.ts";
 // A game's page while it plays: the bar beside the game and the cards over it.
 import "./playing.ts";
 // The city defines its gallery entry as it loads; its script is its own (CITY_SCRIPT), loaded only by the pages on it, but for where its

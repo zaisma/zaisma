@@ -629,7 +629,7 @@ component({
 /** The gallery's settings sit in a column a phone's width at most, as in a settings list. */
 const TOGGLE_COLUMN = "width:min(340px,100%)";
 /** One setting in List rows, ending in its switch. */
-const settingRow = (title: string, rowSwitch: RowSwitch, more: { detail?: string; state?: PressState; rowsWhileOn?: ListRow[] } = {}): Raw =>
+export const settingRow = (title: string, rowSwitch: RowSwitch, more: { detail?: string; state?: PressState; rowsWhileOn?: ListRow[] } = {}): Raw =>
   listRows({ whenEmpty: html``, rows: [{ title, detail: more.detail, state: more.state, switch: rowSwitch, rowsWhileOn: more.rowsWhileOn }] });
 
 component({

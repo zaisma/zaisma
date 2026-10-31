@@ -168,75 +168,24 @@ export const GLASS_SCRIPT = `/* glass */(function () {
   }
   function pointList(points) { return points.map(function (p) { return p[0].toFixed(1) + "," + p[1].toFixed(1); }).join(" "); }
   /*
-   * The waiting light round a control (the materials' waiting state): the bevel's own light, stronger and orange, from a lamp that circles
-   * the control at one steady pace, a lap in --waiting-lap. Each side is a band along its edge with a few fainter bands just inside it (the
-   * light spilling a little way onto the face), all filled with one gradient along the side. Each point of that gradient is lit by the angle
-   * the lamp's light strikes it at, so a side lit square on is lit end to end, and as the lamp turns away it dims from its far end; where
-   * two sides meet, the light turns half-way to the next, so it carries across the cut. Light coming on eases in; going out, it follows the
-   * lamp. Drawn only while the control waits, and one loop moves every waiting control.
+   * Waiting (components/waiting.ts): a control waiting on its press holds a glint layer (.waiting-glint, first in it, under what it holds,
+   * cut to its own shape), and only while it waits, so a page of controls carries nothing extra; the Waiting component's styles run it.
    */
-  var WAITING_POINTS = 15, WAITING_LAYERS = [[0, 1.5, 1], [1.5, 4, 0.55], [4, 6.5, 0.28], [6.5, 9, 0.1]], WAITING_WRAP = 0.45, WAITING_RISE_MS = 140,
-    waitingMade = 0, waitingControls = [], isWaitingRunning = false, waitingLastMs = 0, waitingLapMs = 0, stillMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
   function isWaitingNow(el) {
     var parent = el.parentElement;
     return el.getAttribute("aria-busy") === "true" || Boolean(el.querySelector(':scope > input[aria-busy="true"]')) || Boolean(parent && parent.getAttribute("aria-busy") === "true") || (el.hasAttribute("data-waits-here") && Boolean(el.closest('[aria-busy="true"]')));
   }
-  function drawWaitingLight(el, svg, shape, w, h) {
-    el.waitingShape = { svg: svg, shape: shape, w: w, h: h };
-    var group = svg.querySelector(":scope > .waiting-light");
-    if (!isWaitingNow(el)) { if (group) group.remove(); waitingControls = waitingControls.filter(function (each) { return each.el !== el; }); return; }
-    if (!group) { group = document.createElementNS(SVG, "g"); group.setAttribute("class", "waiting-light"); svg.appendChild(group); }
-    var id = "zw" + (waitingMade++), n = shape.length, rings = WAITING_LAYERS.map(function (layer) { return [insetShape(shape, layer[0]), insetShape(shape, layer[1])]; }), defs = "", bands = "", sides = [];
-    for (var i = 0; i < n; i++) {
-      var j = (i + 1) % n, ex = shape[j][0] - shape[i][0], ey = shape[j][1] - shape[i][1], length = Math.hypot(ex, ey) || 1;
-      sides.push({ a: shape[i], ex: ex / length, ey: ey / length, length: length, nx: ey / length, ny: -ex / length });
-      defs += '<linearGradient id="' + id + "s" + i + '" gradientUnits="userSpaceOnUse" x1="' + shape[i][0] + '" y1="' + shape[i][1] + '" x2="' + shape[j][0] + '" y2="' + shape[j][1] + '">';
-      for (var p = 0; p < WAITING_POINTS; p++) defs += '<stop offset="' + (p / (WAITING_POINTS - 1)).toFixed(3) + '" stop-opacity="0"/>';
-      defs += "</linearGradient>";
-      rings.forEach(function (ring, r) { bands += '<polygon style="fill: url(#' + id + "s" + i + '); --layer: ' + WAITING_LAYERS[r][2] + '" points="' + pointList([ring[0][i], ring[0][j], ring[1][j], ring[1][i]]) + '"/>'; });
-    }
-    group.innerHTML = "<defs>" + defs + "</defs>" + bands;
-    // Each point's place and the way it faces, turning half-way to the neighbour at a corner so the light carries across the cut.
-    var points = sides.map(function (side, i) {
-      var before = sides[(i + n - 1) % n], after = sides[(i + 1) % n], round = Math.min(8, side.length / 2);
-      return Array.prototype.map.call(group.querySelectorAll("#" + id + "s" + i + " stop"), function (stop, p) {
-        var x = p / (WAITING_POINTS - 1) * side.length, nx = side.nx, ny = side.ny, t;
-        if (x < round) { t = 0.5 * (1 - x / round); nx += (before.nx - nx) * t; ny += (before.ny - ny) * t; }
-        else if (side.length - x < round) { t = 0.5 * (1 - (side.length - x) / round); nx += (after.nx - nx) * t; ny += (after.ny - ny) * t; }
-        var m = Math.hypot(nx, ny);
-        return { stop: stop, x: side.a[0] + side.ex * x, y: side.a[1] + side.ey * x, nx: nx / m, ny: ny / m, shown: 0 };
-      });
-    });
-    waitingControls = waitingControls.filter(function (each) { return each.el !== el; });
-    waitingControls.push({ el: el, w: w, h: h, points: [].concat.apply([], points) });
-    wakeWaiting();
+  function drawWaiting(el) {
+    var glint = el.querySelector(":scope > .waiting-glint");
+    if (!isWaitingNow(el)) { if (glint) glint.remove(); return; }
+    if (!glint) { glint = document.createElement("span"); glint.className = "waiting-glint"; glint.setAttribute("aria-hidden", "true"); el.insertBefore(glint, el.firstChild); }
   }
-  function waitingFrame(nowMs) {
-    waitingControls = waitingControls.filter(function (each) { return each.el.isConnected && each.el.querySelector(".waiting-light"); });
-    if (!waitingControls.length) { isWaitingRunning = false; return; }
-    if (!waitingLapMs) waitingLapMs = (parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--waiting-lap")) || 1.1) * 1000;
-    var stepMs = Math.min(64, waitingLastMs ? nowMs - waitingLastMs : 16), rise = 1 - Math.exp(-stepMs / WAITING_RISE_MS); waitingLastMs = nowMs;
-    var angle = stillMotion.matches ? -Math.PI / 2 : (nowMs % waitingLapMs) / waitingLapMs * Math.PI * 2 - Math.PI / 2, dx = Math.cos(angle), dy = Math.sin(angle);
-    waitingControls.forEach(function (control) {
-      // The lamp: a little way off the control, the same distance every way round, so no direction gets more time than another.
-      var orbit = Math.max(control.w, control.h) / 2 + 56, lampX = control.w / 2 + dx * orbit, lampY = control.h / 2 + dy * orbit;
-      control.points.forEach(function (point) {
-        var vx = lampX - point.x, vy = lampY - point.y, distance = Math.hypot(vx, vy), strike = (point.nx * vx + point.ny * vy) / distance;
-        var lit = Math.max(0, (strike + WAITING_WRAP) / (1 + WAITING_WRAP)), target = lit * lit * Math.min(1, Math.pow(orbit * 0.85 / distance, 1.2));
-        point.shown = target > point.shown ? point.shown + (target - point.shown) * rise : target;
-        point.stop.setAttribute("stop-opacity", point.shown.toFixed(3));
-      });
-    });
-    if (stillMotion.matches) { isWaitingRunning = false; return; }
-    requestAnimationFrame(waitingFrame);
-  }
-  function wakeWaiting() { if (isWaitingRunning) return; isWaitingRunning = true; waitingLastMs = 0; requestAnimationFrame(waitingFrame); }
-  // What starts or ends something waiting (window.zaismaWait) draws the light in or takes it out: the control pressed, the control its
+  // What starts or ends something waiting (window.zaismaWait) puts the glint in or takes it out: the control pressed, the control its
   // input sits in, and the parts inside it.
-  window.zaismaWaitingLight = {
+  window.zaismaWaiting = {
     redraw: function (element) {
       [element, element.parentElement].concat(Array.prototype.slice.call(element.querySelectorAll("[data-cut-line]"))).forEach(function (el) {
-        if (el && el.waitingShape) drawWaitingLight(el, el.waitingShape.svg, el.waitingShape.shape, el.waitingShape.w, el.waitingShape.h);
+        if (el && el.hasAttribute("data-cut-line")) drawWaiting(el);
       });
     }
   };
@@ -640,8 +589,8 @@ export const GLASS_SCRIPT = `/* glass */(function () {
       shape = distinct(shape, 1);
       var outline = insetShape(shape, 1);
       poly.setAttribute("points", list(outline));
-      // The waiting light runs round the same outline (the materials' waiting state).
-      drawWaitingLight(el, svg, shape, w, h);
+      // While it waits, it holds the waiting glint (components/waiting.ts).
+      drawWaiting(el);
       // data-cut-ring: a second outline set out around the shape by that many pixels, for a ring that mustn't touch what's inside (a check field's
       // keyboard focus, clear of its orange piece). It's drawn in the control's own shape, whatever its corners.
       var ringPx = Number(el.getAttribute("data-cut-ring")) || 0;

@@ -393,7 +393,7 @@ export const TINT_CHOICES: (ColorChoice & { colorValue: ButtonTint })[] = [
   { name: "Black", colorValue: "black", swatch: "#14171C" },
 ];
 const tintPalette = () => controlsStacked(TINT_CHOICES.map((choice) => wayButton(choice.name, "discord", { tint: choice.colorValue })));
-const wayButton = (label: string, wayIn: WayIn, more: Omit<SecondaryButtonOptions, "wayIn"> = {}) => secondaryButton(label, { type: "button", wayIn, isFullWidth: true, ...more });
+export const wayButton = (label: string, wayIn: WayIn, more: Omit<SecondaryButtonOptions, "wayIn"> = {}) => secondaryButton(label, { type: "button", wayIn, isFullWidth: true, ...more });
 const waysIn = (): ControlMarkup[] => [wayButton("Sign in with a passkey", "passkey"), wayButton("Continue with Google", "google"), wayButton("Continue with Discord", "discord")];
 /** Controls one over the other, in a column a phone's width at most. */
 const controlsStacked = (controls: ControlMarkup[]) => html`<div style="${COLUMN}">${stack({ items: controls.map((markup) => ({ kind: "control" as const, markup })) })}</div>`;

@@ -371,34 +371,12 @@ span.hairline { flex: 1; border-top: var(--divider); }
 /* A lit slab's front: the orange face it shows below its top as it rises (a toggle on). */
 .slab-front { background: linear-gradient(180deg, var(--run-hi), var(--run) 40%, var(--run-lo)); }
 @media (prefers-reduced-motion: reduce) { .carving, .slab, .slab > *, .flush-row > * { transition: none; } .slab.lit.glint::after { animation: none; } }
-/* Waiting: a state of the glass, never of a component. Whatever was pressed and waits on this page (aria-busy="true" on it, set by
-   window.zaismaWait, or on the input of a switch or a check) keeps its pressed look, sunk, and at once its own edge runs the
-   waiting light: the light of Loading state and Progress (--waiting-light), round the outline the edge rule draws for it, whatever its
-   cut; a piece made of several (a PIN's marks) marks the parts whose edges light (data-waits-here). It lights at once: a short pause unlit looked like nothing happened.
-   Under reduced motion the light rests, all round. A screen reader hears what it's doing
-   (.when-waiting, a busy label), and its words on screen stay as they were. */
-/* Round a control, the light is the bevel's own light from a lamp circling it at one steady pace (drawWaitingLight, glass-script.ts, which
-   shades each side's gradient by the lamp). Its color is the theme's (--waiting-on-glass): a deep orange on light glass, which pales the
-   light, and a pale one on dark; it spills further on light glass (--waiting-spill). On a lit piece, already orange, it's the theme's light
-   on orange (--waiting-on-lit): yellow on light glass, warm white on dark. */
-.waiting-light stop { stop-color: var(--waiting-on-glass); }
-.lit .waiting-light stop { stop-color: var(--waiting-on-lit); }
-.waiting-light > polygon { opacity: min(1, calc(var(--layer) * var(--waiting-spill))); }
-/* Glass waiting on a new page (the header, is-waiting from HEADER_SCRIPT): its bottom edge is a groove that fills with the same orange light,
-   a line of light as the Light component draws one (4px), starting an eighth full so it shows at once, filling quickly at first and slower
-   as it goes, never quite full, until the page comes. */
-@property --waiting-filled { syntax: "<percentage>"; inherits: false; initial-value: 0%; }
-.glass-bar::after { content: ""; position: absolute; z-index: 4; inset: auto 0 0 0; height: 4px; opacity: 0; pointer-events: none;
-  background: linear-gradient(90deg, var(--run-deep), var(--run) 40%, var(--run-hi) 85%, var(--run-tip) 96%, var(--run-spark)) 0 0 / var(--waiting-filled) 100% no-repeat, var(--track);
-  filter: drop-shadow(0 0 2px var(--waiting-glow)) drop-shadow(0 0 6px var(--waiting-glow)); }
-.glass-bar.is-waiting::after { animation: waiting-arrives 1ms forwards, waiting-fills var(--waiting-fill-time) cubic-bezier(0.1, 0.7, 0.2, 1) forwards; }
-@keyframes waiting-arrives { to { opacity: 1; } }
-@keyframes waiting-fills { from { --waiting-filled: 12%; } to { --waiting-filled: 90%; } }
+/* Waiting: a state of the glass, never of a component (the Waiting component, components/waiting.ts, owns its look and shows every use).
+   Whatever was pressed and waits on this page (aria-busy="true" on it, set by window.zaismaWait, or on the input of a switch or a check)
+   keeps its pressed look, sunk; a screen reader hears what it's doing (.when-waiting, a busy label), and its words on screen stay as they
+   were. */
 [aria-busy="true"] { cursor: progress; }
 .when-waiting:not([aria-busy="true"] .when-waiting) { display: none; }
-@media (prefers-reduced-motion: reduce) {
-  .glass-bar.is-waiting::after { --waiting-filled: 100%; animation: waiting-arrives 1ms forwards; }
-}
 /* Pictures (foundations.ts, picture): a picture's box holds its placeholder, the tiny copy in the page itself (--placeholder), blurred and
    run past the box's edges so no edge fades, and the picture over it, hidden until it has wholly arrived and decoded, then fading in
    (img.reveals, PICTURE_SCRIPT). A game's world on its page starts the same way, blurred more (backdropPlaceholder), under its picture or
@@ -438,8 +416,8 @@ export const MATERIAL_SCRIPT = `/* materials */(function () {
   window.zaismaWait = function (element, promise) {
     if (!element) return Promise.resolve(promise);
     element.setAttribute("aria-busy", "true");
-    window.zaismaWaitingLight.redraw(element);
-    function done() { element.removeAttribute("aria-busy"); window.zaismaWaitingLight.redraw(element); }
+    window.zaismaWaiting.redraw(element);
+    function done() { element.removeAttribute("aria-busy"); window.zaismaWaiting.redraw(element); }
     return Promise.resolve(promise).then(function (answer) { done(); return answer; }, function (error) { done(); throw error; });
   };
   document.addEventListener("click", function (event) {
