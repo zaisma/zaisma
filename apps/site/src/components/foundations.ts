@@ -1,7 +1,7 @@
 import { LOADER_FRAMES } from "../generated/loader-frames.generated.ts";
 import { html, raw, shownColor, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
-import { ICONS, MARK, WORDMARK, icon, type IconName } from "./icons.ts";
+import { ICONS, MARK, WORDMARK, icon, largeIcon, type IconName } from "./icons.ts";
 import { CLOUDS_SHADER, DUSK_SHADER, STAND_IN_BACKGROUNDS } from "./shaders.ts";
 import { pageScript, type PageScript } from "../page-scripts.ts";
 
@@ -11,7 +11,7 @@ import { pageScript, type PageScript } from "../page-scripts.ts";
  * From the drafts Julius approved (ops docs/drafts/look-and-voice/). "Zaisma is the glass, and the game is not"; orange
  * only on what you act on. Everything the other component files import from here is re-exported below.
  */
-export { ICONS, MARK, WORDMARK, icon, type IconName } from "./icons.ts";
+export { ICONS, MARK, WORDMARK, icon, largeIcon, type IconName } from "./icons.ts";
 export { TOKEN_STYLES, cutPolygon } from "./tokens.ts";
 import { cutPolygon } from "./tokens.ts";
 import { paneParts, row, type ControlMarkup, type LayoutMarkup, stackOfOne } from "./layout.ts";
@@ -627,9 +627,15 @@ component({
 .icon-set li span { min-width: 0; overflow-wrap: anywhere; }
 .icon-set .ico { width: 20px; height: 20px; color: var(--ink); }
 .icon-set .play { width: 20px; height: 20px; color: var(--ink); }
+/* Large, a pane's key icon: twice and more a line icon's size, with room above and below it, so it reads as the pane's mark. */
+.large-icon { display: flex; justify-content: center; padding-block: var(--gap-block-block); color: var(--ink-2); }
+.large-icon > .ico { width: 48px; height: 48px; stroke-width: 1.3; }
 `,
   render: icon,
-  examples: [{ label: "Every icon", isWide: true, markup: html`<ul class="icon-set">${Object.keys(ICONS).map((name) => html`<li>${icon(name as IconName)}<span>${name}</span></li>`)}</ul>` }],
+  examples: [
+    { label: "Every icon", isWide: true, markup: html`<ul class="icon-set">${Object.keys(ICONS).map((name) => html`<li>${icon(name as IconName)}<span>${name}</span></li>`)}</ul>` },
+    { label: "Large: a pane's key icon, standing for what it is, above its title (Confirm it's you)", markup: html`${largeIcon("key")}` },
+  ],
 });
 
 component({

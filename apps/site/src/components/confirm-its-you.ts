@@ -3,7 +3,7 @@ import { html, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
 import { secondaryButton, primaryButton, tertiaryButton } from "./actions.ts";
 import { cutField, pinField } from "./fields.ts";
-import { icon, sheetMarkup, type IconName } from "./foundations.ts";
+import { largeIcon, sheetMarkup, type IconName } from "./foundations.ts";
 import { paneParts, row, stack } from "./layout.ts";
 import "./panes.ts";
 
@@ -45,8 +45,8 @@ export function confirmItsYouSheet(options: ConfirmItsYouOptions): Raw {
   const method = options.method ?? "password";
   const id = options.id;
   const others = options.otherMethods ?? [];
-  // Its face: the way's mark, large, on the glass; the one for the way asked for shows (the CSS, by the face's data-method).
-  const face = html`${METHODS.map((each) => html`<span class="confirm-face-mark" data-face-method="${each}">${icon(METHOD_ICONS[each])}</span>`)}`;
+  // Its face: the way's key icon, large, on the glass; the one for the way asked for shows (the CSS, by the face's data-method).
+  const face = html`${METHODS.map((each) => html`<span class="confirm-face-mark" data-face-method="${each}">${largeIcon(METHOD_ICONS[each])}</span>`)}`;
   const body = stack({
     items: [
       { kind: "block", markup: html`<div class="confirm-face" id="${id}-face" data-method="${method}">${face}<h2 class="sheet-title" id="${id}-title">Confirm it's you</h2></div>` },
@@ -236,8 +236,7 @@ component({
 /* Its face, title, words and PIN centered under one another, like a lock asking to be opened; a password field and the button keep the width. */
 .confirm-body { text-align: center; }
 .confirm-face { display: flex; flex-direction: column; align-items: center; gap: var(--gap-words-control); }
-.confirm-face-mark { display: none; color: var(--ink-2); }
-.confirm-face-mark > .ico { width: 36px; height: 36px; }
+.confirm-face-mark { display: none; }
 .confirm-face[data-method="purchase_pin"] [data-face-method="purchase_pin"], .confirm-face[data-method="password"] [data-face-method="password"], .confirm-face[data-method="passkey"] [data-face-method="passkey"] { display: flex; }
 .confirm-body .pin-field { align-items: center; }
 .confirm-body .cut-field { text-align: start; }

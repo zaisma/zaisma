@@ -113,6 +113,9 @@ export const ICONS = {
 } as const;
 export type IconName = keyof typeof ICONS;
 export const icon = (name: IconName): Raw => raw(ICONS[name]);
+/** A large icon, a pane's key icon: it stands for what the pane is (Confirm it's you's lock), with room round it, so it reads as the pane's
+ * mark above its title. */
+export const largeIcon = (name: IconName): Raw => raw(`<span class="large-icon">${ICONS[name]}</span>`);
 
 /** Zaisma's mark, flat in the words' color (brand/zaisma-mark-black.svg): for anything that must take the words' color. */
 const MARK_PATHS = '<path d="M1884.08,3033.91c767.645,0 1535.29,0 2302.930,0c33.233,248.238 66.466,496.475 99.699,744.712l-4286.71,-0c627.367,-243.599 1255.990,-491.890 1884.080,-744.712Z"/><path d="M415.598,3484.54c777.297,-719.363 1475.76,-1400.24 2108.05,-2044.32c404.715,-158.588 821.55,-323.759 1248.51,-495.17c-547.607,610.584 -1151.51,1254.04 -1823.08,1932.14c-520.17,209.105 -1032.22,411.7 -1533.48,607.345Z"/><path d="M2575.7,1305.06l-1740.58,0c21.608,-194.559 43.215,-389.119 64.823,-583.678l3147.9,0c-485.752,195.366 -976.426,389.899 -1472.14,583.678Z"/>';
