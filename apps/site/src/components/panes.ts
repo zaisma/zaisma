@@ -964,12 +964,12 @@ component({
 /* A light box: no glass of its own, the screen dimmed deep behind what it shows, which sits in the middle in light words (a QR code keeps
    its white). It fades in and grows a little; it's a sheet to the stack (LAYERS_SCRIPT), so it's the top layer and closes like one. */
 .sheet.light-box:not(.in-place) { inset: 0; width: 100%; max-width: none; max-height: none; margin: 0; background: transparent; box-shadow: none; cursor: zoom-out; }
-.sheet.light-box:is(:not([open]), .is-leaving) { transform: scale(0.96); }
+.sheet.light-box:is(:not([open]), .is-leaving, .is-arriving) { transform: scale(0.96); }
 @starting-style { .sheet.light-box[open] { transform: scale(0.96); } }
 .light-box-in { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--gap-words-control); margin: 0; }
 .light-box-close { position: absolute; top: var(--pad-frame); right: var(--pad-frame); }
 .light-box-close .tertiary-btn { color: var(--ink); }
-@media (prefers-reduced-motion: reduce) { .sheet.light-box:is(:not([open]), .is-leaving) { transform: none; } @starting-style { .sheet.light-box[open] { transform: none; } } }
+@media (prefers-reduced-motion: reduce) { .sheet.light-box:is(:not([open]), .is-leaving, .is-arriving) { transform: none; } @starting-style { .sheet.light-box[open] { transform: none; } } }
 `,
   render: lightBox,
   examples: [
@@ -1181,7 +1181,7 @@ const SHEET_STYLES = `
   transition: var(--glass-transition), transform var(--motion-arrive) var(--ease-glide), overlay var(--motion-arrive) allow-discrete, display var(--motion-arrive) allow-discrete; }
 /* It fades its glass and what's on it, never itself, as a floating pane does, so it blurs what's behind it all the way in. */
 .sheet::before, .sheet > * { transition: opacity var(--motion-state); }
-.sheet:is(:not([open]), .is-leaving)::before, .sheet:is(:not([open]), .is-leaving) > * { opacity: 0; }
+.sheet:is(:not([open]), .is-leaving, .is-arriving)::before, .sheet:is(:not([open]), .is-leaving, .is-arriving) > * { opacity: 0; }
 @starting-style { .sheet[open]::before, .sheet[open] > * { opacity: 0; } }
 /* A picture's sheet: as wide as the screen allows, up to its own size, so a screenshot or a screen shows large. */
 .sheet.is-picture { max-width: min(var(--size-sheet-picture), calc(100% - 2 * var(--pad-pane))); }
@@ -1189,14 +1189,14 @@ const SHEET_STYLES = `
 .sheet:not(.in-place) { position: fixed; inset: 0; z-index: 40; }
 /* The sheet itself takes the focus when a press opened it (LAYERS_SCRIPT): no ring, a ring is for the keyboard. */
 .sheet:focus-visible { outline: none; }
-.sheet:is(:not([open]), .is-leaving) { transform: translateY(16px) scale(0.98); pointer-events: none; transition-timing-function: ease, ease, var(--ease-leave); }
+.sheet:is(:not([open]), .is-leaving, .is-arriving) { transform: translateY(16px) scale(0.98); pointer-events: none; transition-timing-function: ease, ease, var(--ease-leave); }
 @starting-style { .sheet[open] { transform: translateY(12px) scale(0.985); } }
 .sheet::backdrop { opacity: 1; transition: opacity var(--motion-arrive), overlay var(--motion-arrive) allow-discrete, display var(--motion-arrive) allow-discrete; }
-.sheet:is(:not([open]), .is-leaving)::backdrop { opacity: 0; }
+.sheet:is(:not([open]), .is-leaving, .is-arriving)::backdrop { opacity: 0; }
 @starting-style { .sheet[open]::backdrop { opacity: 0; } }
 /* At the foot: risen from the bottom of the screen over a running game, which stays in view, never dimmed (a buy sheet). */
 .sheet.placement-foot:not(.in-place) { margin: auto auto var(--pad-pane); }
-.sheet.placement-foot:is(:not([open]), .is-leaving) { transform: translateY(40px); }
+.sheet.placement-foot:is(:not([open]), .is-leaving, .is-arriving) { transform: translateY(40px); }
 @starting-style { .sheet.placement-foot[open] { transform: translateY(40px); } }
 .sheet.placement-foot::backdrop { background: transparent; }
 /* In place (the gallery's still copy): a pane where it sits, in the page's flow, so it shows whole: there's no window to fit. */
@@ -1235,7 +1235,7 @@ ${touchReach(".sheet")}
 @media (max-width: 760px) {
   /* On a phone it rises from the foot of the screen and stops well short of the top, so the page stays in view above it. */
   .sheet:not(.in-place) { width: calc(100% - 2 * var(--gap-control-stack)); max-width: none; margin: auto var(--gap-control-stack) var(--gap-control-stack); }
-  .sheet:not(.in-place):is(:not([open]), .is-leaving) { transform: translateY(40px); }
+  .sheet:not(.in-place):is(:not([open]), .is-leaving, .is-arriving) { transform: translateY(40px); }
   @starting-style { .sheet:not(.in-place)[open] { transform: translateY(40px); } }
 }
 /* A small sheet (compact) hangs from the button that opened it, like a dropdown, on every screen (LAYERS_SCRIPT sets where and decides it
@@ -1247,17 +1247,20 @@ ${touchReach(".sheet")}
 .sheet.is-anchored.is-at-end:not(.in-place) { transform-origin: 100% 0; }
 .sheet.is-anchored.is-above:not(.in-place) { transform-origin: 0 100%; }
 .sheet.is-anchored.is-above.is-at-end:not(.in-place) { transform-origin: 100% 100%; }
-.sheet.is-anchored:not(.in-place):is(:not([open]), .is-leaving) { transform: translateY(-8px) scale(0.98); }
-.sheet.is-anchored.is-above:not(.in-place):is(:not([open]), .is-leaving) { transform: translateY(8px) scale(0.98); }
+.sheet.is-anchored:not(.in-place):is(:not([open]), .is-leaving, .is-arriving) { transform: translateY(-8px) scale(0.98); }
+.sheet.is-anchored.is-above:not(.in-place):is(:not([open]), .is-leaving, .is-arriving) { transform: translateY(8px) scale(0.98); }
 @starting-style { .sheet.is-anchored:not(.in-place)[open] { transform: translateY(-8px) scale(0.98); } .sheet.is-anchored.is-above:not(.in-place)[open] { transform: translateY(8px) scale(0.98); } }
 /* A small sheet's gaps closed up and its title at a name's size, as a dropdown's are, on every screen (it hangs from its button on a phone too). */
 .sheet:is(.is-compact, [data-sheet-confirm].is-over-sheet) :is(.sheet-in, .sheet-body) { gap: var(--gap-control-stack); }
 /* A task sheet's head sits further in than a small sheet's: its title's line at a glass pane's margin from the top, as its words are from the
    side, and Close (and Back), lined up with the title, as far from the sheet's side as from its top. The head takes the title's type, so 1lh
    is the title's line. A small sheet keeps its head tight in the corner, as a dropdown does. */
-.sheet:not(.is-compact, .is-over-sheet) .pane-head { --head-drop: calc(var(--pad-pane) - var(--pad-frame) - (var(--control-height-small) - 1lh) / 2); font: var(--type-section); margin-top: var(--head-drop); }
-.sheet:not(.is-compact, .is-over-sheet) .pane-head > .pane-head-end { margin-inline-end: var(--head-drop); }
-.sheet:not(.is-compact, .is-over-sheet) .pane-head > .pane-head-start { margin-inline-start: var(--head-drop); }
+:is(.sheet:not(.is-compact, .is-over-sheet), .urgent-card) .pane-head { --head-drop: calc(var(--pad-pane) - var(--pad-frame) - (var(--control-height-small) - 1lh) / 2); margin-top: var(--head-drop); }
+.sheet:not(.is-compact, .is-over-sheet) .pane-head { font: var(--type-section); }
+/* An urgent notice's head the same way, its title a heading's size. */
+.urgent-card .pane-head { font: var(--type-heading); }
+:is(.sheet:not(.is-compact, .is-over-sheet), .urgent-card) .pane-head > .pane-head-end { margin-inline-end: var(--head-drop); }
+:is(.sheet:not(.is-compact, .is-over-sheet), .urgent-card) .pane-head > .pane-head-start { margin-inline-start: var(--head-drop); }
 .sheet.is-compact .sheet-title { font: var(--type-name); }
 .sheet.is-anchored.placement-foot::backdrop { background: transparent; }
 @media (min-width: 761px) {
@@ -1269,7 +1272,7 @@ ${touchReach(".sheet")}
 
 }
 @media (prefers-reduced-motion: reduce) { .sheet-step { animation: none; } }
-@media (prefers-reduced-motion: reduce) { .sheet { transition: var(--glass-transition), opacity var(--motion-state), overlay var(--motion-state) allow-discrete, display var(--motion-state) allow-discrete; } .sheet:not(.in-place):is(:not([open]), .is-leaving), .sheet.is-anchored:not(.in-place):is(:not([open]), .is-leaving), .sheet.is-anchored.is-above:not(.in-place):is(:not([open]), .is-leaving) { transform: none; } @starting-style { .sheet.is-anchored:not(.in-place)[open], .sheet.is-anchored.is-above:not(.in-place)[open] { transform: none; } } }
+@media (prefers-reduced-motion: reduce) { .sheet { transition: var(--glass-transition), opacity var(--motion-state), overlay var(--motion-state) allow-discrete, display var(--motion-state) allow-discrete; } .sheet:not(.in-place):is(:not([open]), .is-leaving, .is-arriving), .sheet.is-anchored:not(.in-place):is(:not([open]), .is-leaving, .is-arriving), .sheet.is-anchored.is-above:not(.in-place):is(:not([open]), .is-leaving, .is-arriving) { transform: none; } @starting-style { .sheet.is-anchored:not(.in-place)[open], .sheet.is-anchored.is-above:not(.in-place)[open] { transform: none; } } }
 `;
 
 const reportBody = (idPrefix: string) =>
@@ -1481,16 +1484,16 @@ component({
 /* A store panel is a sheet standing at the right edge of the screen, as tall as the screen less the page's edge, so the game keeps its middle.
    Nothing dims it. It slides in from its side; on a phone it rises from the foot like the other sheets, nearly the screen's height. */
 .sheet.placement-side:not(.in-place) { inset: var(--pad-pane) var(--pad-pane) var(--pad-pane) auto; width: min(var(--size-sheet-side), calc(100% - 2 * var(--pad-pane))); max-width: none; max-height: none; margin: 0; }
-.sheet.placement-side:is(:not([open]), .is-leaving) { transform: translateX(40px); }
+.sheet.placement-side:is(:not([open]), .is-leaving, .is-arriving) { transform: translateX(40px); }
 @starting-style { .sheet.placement-side[open] { transform: translateX(40px); } }
 .sheet.placement-side::backdrop { background: transparent; }
 .sheet.placement-side.in-place { width: min(var(--size-sheet-side), 100%); max-width: none; }
 @media (max-width: 760px) {
   .sheet.placement-side:not(.in-place) { inset: 0; width: calc(100% - 2 * var(--gap-control-stack)); margin: auto var(--gap-control-stack) var(--gap-control-stack); }
-  .sheet.placement-side:is(:not([open]), .is-leaving) { transform: translateY(40px); }
+  .sheet.placement-side:is(:not([open]), .is-leaving, .is-arriving) { transform: translateY(40px); }
   @starting-style { .sheet.placement-side[open] { transform: translateY(40px); } }
 }
-@media (prefers-reduced-motion: reduce) { .sheet.placement-side:is(:not([open]), .is-leaving) { transform: none; } @starting-style { .sheet.placement-side[open] { transform: none; } } }
+@media (prefers-reduced-motion: reduce) { .sheet.placement-side:is(:not([open]), .is-leaving, .is-arriving) { transform: none; } @starting-style { .sheet.placement-side[open] { transform: none; } } }
 `,
   render: storePanel,
   examples: [

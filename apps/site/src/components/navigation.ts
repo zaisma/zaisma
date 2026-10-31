@@ -1363,11 +1363,11 @@ component({
 /* Nearly the screen's height, as a drawer: a frame gap off its top and foot, so a phone's places fit it before they scroll. */
 .sheet.placement-start:not(.in-place) { inset: var(--gap-control-stack) auto var(--gap-control-stack) var(--pad-pane); width: min(var(--size-sidebar), calc(100% - 3 * var(--pad-pane))); max-width: none; height: calc(100dvh - 2 * var(--gap-control-stack)); max-height: none; margin: 0; }
 .sheet.placement-start:not(.in-place) > .sheet-in { height: 100%; }
-.sheet.placement-start:is(:not([open]), .is-leaving) { transform: translateX(-40px); }
+.sheet.placement-start:is(:not([open]), .is-leaving, .is-arriving) { transform: translateX(-40px); }
 @starting-style { .sheet.placement-start[open] { transform: translateX(-40px); } }
 .sheet.placement-start.in-place { width: min(var(--size-sidebar), 100%); max-width: none; }
 @media (prefers-reduced-motion: reduce) {
-  .sheet.placement-start:is(:not([open]), .is-leaving) { transform: none; } @starting-style { .sheet.placement-start[open] { transform: none; } }
+  .sheet.placement-start:is(:not([open]), .is-leaving, .is-arriving) { transform: none; } @starting-style { .sheet.placement-start[open] { transform: none; } }
 }
 /* The gallery's still copies: a sidebar as it sits, and a phone's screen with the sheet over its page. */
 /* A phone's width, as tall as the sheet in it at any size of text. */

@@ -265,6 +265,8 @@ export const LAYERS_SCRIPT = `/* layers */(function () {
   // The button it opens from is the one pressed a moment before (a page may open its sheet itself, after fetching what's in it); a sheet opened
   // with no press behind it, or from a button inside a dropdown, which closes, stays centered.
   var pressed = null;
+  // Safari, which has no overlay (the same test zaismaFloat makes).
+  var isSlowToFirstDraw = !(window.CSS && CSS.supports("overlay", "auto"));
   document.addEventListener("click", function (event) { var button = event.target.closest && event.target.closest("button, a, [role='button']"); pressed = button ? { button: button, at: performance.now() } : null; }, true);
   HTMLDialogElement.prototype.showModal = function () {
     var wasOpen = this.open, isSheet = this.matches(".sheet") && !this.classList.contains("in-place");
@@ -281,7 +283,15 @@ export const LAYERS_SCRIPT = `/* layers */(function () {
     }
     // A confirm opened over another sheet is drawn a size smaller, in the middle of it (the CSS).
     if (!wasOpen && isSheet) this.classList.toggle("is-over-sheet", openSheets.length > 0);
+    // Safari takes a long frame or two to first draw a sheet's glass, the first one on a page most of all, and its entrance and the page's
+    // dimming would be over before anything shows: there it opens in its closed look and arrives once frames come quickly again.
+    var isArriving = !wasOpen && isSheet && isSlowToFirstDraw && !isReduced();
+    if (isArriving) this.classList.add("is-arriving");
     showModal.apply(this, arguments);
+    if (isArriving) { var arriving = this; (function arrive(tries, last) { requestAnimationFrame(function (now) {
+      if (!(last && now - last < 25) && tries < 30) return arrive(tries + 1, now);
+      arriving.classList.remove("is-arriving");
+    }); })(0, 0); }
     if (wasOpen || !isSheet) return;
     openSheets.push(this);
     anchor(this);
