@@ -41,27 +41,27 @@ export { columns, grid, paneParts, row, stack, track, type LayoutControl, type L
  * list (a gallery's fixed is-pointed state) stays where it was.
  */
 export function hoverOnlyWherePointing(css: string): string {
-  let out = "", at = 0;
+  let out = "", readIndex = 0;
   // The end of a block opened at "{" (index of its "}"), past comments and quoted strings.
-  const blockEnd = (open: number): number => {
-    let depth = 0;
-    for (let i = open; i < css.length; i++) {
-      const c = css[i];
-      if (c === "/" && css[i + 1] === "*") { i = css.indexOf("*/", i + 2) + 1; continue; }
-      if (c === '"' || c === "'") { i = css.indexOf(c, i + 1); continue; }
-      if (c === "{") depth++;
-      else if (c === "}" && --depth === 0) return i;
+  const blockEnd = (openIndex: number): number => {
+    let nestingLevel = 0;
+    for (let i = openIndex; i < css.length; i++) {
+      const character = css[i];
+      if (character === "/" && css[i + 1] === "*") { i = css.indexOf("*/", i + 2) + 1; continue; }
+      if (character === '"' || character === "'") { i = css.indexOf(character, i + 1); continue; }
+      if (character === "{") nestingLevel++;
+      else if (character === "}" && --nestingLevel === 0) return i;
     }
     return css.length - 1;
   };
-  while (at < css.length) {
-    if (css.startsWith("/*", at)) { const end = css.indexOf("*/", at + 2) + 2; out += css.slice(at, end); at = end; continue; }
-    const open = css.indexOf("{", at);
-    if (open < 0) { out += css.slice(at); break; }
+  while (readIndex < css.length) {
+    if (css.startsWith("/*", readIndex)) { const endIndex = css.indexOf("*/", readIndex + 2) + 2; out += css.slice(readIndex, endIndex); readIndex = endIndex; continue; }
+    const openIndex = css.indexOf("{", readIndex);
+    if (openIndex < 0) { out += css.slice(readIndex); break; }
     // A comment before the selector stays as it is.
-    const comment = css.slice(at, open).lastIndexOf("*/");
-    if (comment >= 0) { out += css.slice(at, at + comment + 2); at += comment + 2; continue; }
-    const head = css.slice(at, open), close = blockEnd(open), body = css.slice(open + 1, close);
+    const commentIndex = css.slice(readIndex, openIndex).lastIndexOf("*/");
+    if (commentIndex >= 0) { out += css.slice(readIndex, readIndex + commentIndex + 2); readIndex += commentIndex + 2; continue; }
+    const head = css.slice(readIndex, openIndex), closeIndex = blockEnd(openIndex), body = css.slice(openIndex + 1, closeIndex);
     const selector = head.trim();
     if (/^@(media|supports|container|layer)\b/.test(selector)) out += `${head}{${hoverOnlyWherePointing(body)}}`;
     else if (selector.startsWith("@") || !selector.includes(":hover")) out += `${head}{${body}}`;
@@ -70,7 +70,7 @@ export function hoverOnlyWherePointing(css: string): string {
       const pointing = parts.filter((part) => part.includes(":hover")), resting = parts.filter((part) => !part.includes(":hover"));
       out += `${head.slice(0, head.length - head.trimStart().length)}${resting.length ? `${resting.join(", ")} {${body}}\n` : ""}@media (hover: hover) { ${pointing.join(", ")} {${body}} }`;
     }
-    at = close + 1;
+    readIndex = closeIndex + 1;
   }
   return out;
 }

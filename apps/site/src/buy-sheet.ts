@@ -68,7 +68,7 @@ export function buySheet(options: { joinHref: string; signInHref: string; coverU
   // you close under it; a connection lost while paying keeps the sheet, which says what it knows.
   const signedOut = notice({ placement: "over-everything", id: "buy-signed-out", title: "You've been signed out", text: "Nothing was charged. Sign in again to buy.", buttons: [primaryButton("Sign in", { href: options.signInHref })], sheetsToClose: ["buy-sheet", "buy-confirm-you"] });
   const unreachable = notice({ placement: "over-everything", id: "buy-unreachable", title: "Couldn't reach Zaisma", text: "If you were charged, the item arrives when you're back." });
-  return html`${storePanel({ id: "buy-sheet", closeLabel: "Close", isOverGame: true, item: { imageUrl: options.coverUrl ?? null, name: "Buy", priceText: "" }, momentItems, footItems })}${confirmItsYouSheet({ id: "buy-confirm-you" })}${stripeFrame({ id: "buy-check-frame", title: "Your bank's check" })}${signedOut}${unreachable}`;
+  return html`${storePanel({ id: "buy-sheet", closeLabel: "Close", isOverGame: true, soldItem: { imageUrl: options.coverUrl ?? null, name: "Buy", priceText: "" }, momentItems, footItems })}${confirmItsYouSheet({ id: "buy-confirm-you" })}${stripeFrame({ id: "buy-check-frame", title: "Your bank's check" })}${signedOut}${unreachable}`;
 }
 
 /** What the sheet's script needs from the page that holds it (pageData "buy-sheet-data"). */

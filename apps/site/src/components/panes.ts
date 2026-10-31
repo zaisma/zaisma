@@ -169,8 +169,8 @@ export function gameCard(options: GameCardOptions): Raw {
   const className = ["cover", isPlaceholder ? "is-placeholder" : "", facts.deviceNote ? "is-other-device" : "", hasTint ? "has-tint" : "", options.state ?? ""].filter(Boolean).join(" ");
   const marks = html`${facts.isUpdated ? html`<span class="cover-mark at-news">${tag("Updated", "new-on-glass")}</span>` : ""}${facts.priceText ? html`<span class="cover-mark at-price">${tag(facts.priceText, "glass")}</span>` : ""}${facts.friends?.length ? html`<span class="cover-mark at-friends">${pictureRow(facts.friends.map((friend) => friend.username), "xs")}</span>` : ""}${facts.deviceNote ? html`<span class="cover-mark at-device">${tag(facts.deviceNote, "glass", { icon: deviceIcon(facts.deviceNote) })}</span>` : ""}`;
   const picture = isPlaceholder ? "" : html`<span class="cover-picture carving-art" data-cut-line="0"><img src="${options.imageUrl}"${coverSizes(options.imageUrl!)} alt="" loading="${options.isEager ? "eager" : "lazy"}"${options.hasHighPriority ? raw(' fetchpriority="high"') : ""} decoding="async"></span>`;
-  const count = facts.playerCount !== undefined ? html`<span class="count">${icon("people")}<span>${facts.playerCount.toLocaleString("en-US")}<span class="sr"> playing now</span></span></span>` : "";
-  return html`<div class="${className}"${tint}${options.isCurrent ? raw(' aria-current="true"') : ""}><a class="cover-art carving holds-art${options.state ? ` ${options.state}` : ""}" data-cut-line="0" data-edge-light="bottom" data-lights href="${options.href}" aria-label="${cardLabel(options)}">${CUT_LINE}${picture}${EDGE_LIGHT}${marks}</a><div class="cover-meta"><span class="cover-name one-line">${options.title}</span>${count}</div></div>`;
+  const playerCountMarkup = facts.playerCount !== undefined ? html`<span class="count">${icon("people")}<span>${facts.playerCount.toLocaleString("en-US")}<span class="sr"> playing now</span></span></span>` : "";
+  return html`<div class="${className}"${tint}${options.isCurrent ? raw(' aria-current="true"') : ""}><a class="cover-art carving holds-art${options.state ? ` ${options.state}` : ""}" data-cut-line="0" data-edge-light="bottom" data-lights href="${options.href}" aria-label="${cardLabel(options)}">${CUT_LINE}${picture}${EDGE_LIGHT}${marks}</a><div class="cover-meta"><span class="cover-name one-line">${options.title}</span>${playerCountMarkup}</div></div>`;
 }
 
 /**
@@ -1408,7 +1408,7 @@ export interface StorePanelOptions {
   id: string;
   /** What Close says to a screen reader: "Close". */
   closeLabel: string;
-  item: StorePanelItem;
+  soldItem: StorePanelItem;
   /**
    * Over a running game: short, at the screen's bottom right, the game undimmed and still going, the item at a glance. Left out, it's
    * on a page (a game's own page, or Zaisma's window for a game on its own site): centered over the dimmed page, with the cover large,
@@ -1425,10 +1425,10 @@ export interface StorePanelOptions {
   isShown?: boolean;
 }
 
-const storeCover = (imageUrl: string | null, size: "small" | "large") =>
+const storeCover = (imageUrl: string | null, coverSize: "small" | "large") =>
   imageUrl === null
-    ? html`<div class="store-cover is-${size} carving holds-art" data-cut-line="0">${CUT_LINE}</div>`
-    : html`<div class="store-cover is-${size} carving holds-art" data-cut-line="0">${CUT_LINE}<span class="store-cover-art carving-art" data-cut-line="0"><img src="${imageUrl}"${coverSizes(imageUrl, size === "small" ? "4rem" : "(max-width: 760px) 100vw, 400px", 1440)} alt="" loading="lazy" decoding="async"></span></div>`;
+    ? html`<div class="store-cover is-${coverSize} carving holds-art" data-cut-line="0">${CUT_LINE}</div>`
+    : html`<div class="store-cover is-${coverSize} carving holds-art" data-cut-line="0">${CUT_LINE}<span class="store-cover-art carving-art" data-cut-line="0"><img src="${imageUrl}"${coverSizes(imageUrl, coverSize === "small" ? "4rem" : "(max-width: 760px) 100vw, 400px", 1440)} alt="" loading="lazy" decoding="async"></span></div>`;
 
 /**
  * A store panel: where a player buys. Over a running game (isOverGame) it's short, at the screen's bottom right: the game's cover small
@@ -1437,17 +1437,17 @@ const storeCover = (imageUrl: string | null, size: "small" | "large") =>
  * Close, stays put; the moment scrolls under it; the foot stays in view.
  */
 export function storePanel(options: StorePanelOptions): Raw {
-  const { id, item } = options;
-  const words = html`<div class="store-head">${storeCover(item.imageUrl, "small")}<div class="store-head-words"><h2 class="sheet-title" id="${id}-title">${item.name}</h2><p class="store-subline is-blurb" id="${id}-item-blurb">${item.description ?? ""}</p><p class="store-subline is-price" id="${id}-item-price">${item.priceText}</p></div></div>`;
-  const itemWords: LayoutItem = { kind: "block", id: `${id}-item-words`, isHidden: options.isOverGame, markup: html`<div class="store-item-words">${storeCover(item.imageUrl, "large")}<p class="store-description" id="${id}-item-description">${item.description ?? ""}</p></div>` };
-  const terms = html`<p class="store-terms"><span id="${id}-item-seller">${item.sellerName ? `Sold by ${item.sellerName}.` : ""}</span><span class="store-refunds" id="${id}-item-refunds">${item.refundsText ? ` ${item.refundsText}` : ""}</span></p>`;
+  const { id, soldItem } = options;
+  const words = html`<div class="store-head">${storeCover(soldItem.imageUrl, "small")}<div class="store-head-words"><h2 class="sheet-title" id="${id}-title">${soldItem.name}</h2><p class="store-subline is-blurb" id="${id}-item-blurb">${soldItem.description ?? ""}</p><p class="store-subline is-price" id="${id}-item-price">${soldItem.priceText}</p></div></div>`;
+  const itemWords: LayoutItem = { kind: "block", id: `${id}-item-words`, isHidden: options.isOverGame, markup: html`<div class="store-item-words">${storeCover(soldItem.imageUrl, "large")}<p class="store-description" id="${id}-item-description">${soldItem.description ?? ""}</p></div>` };
+  const terms = html`<p class="store-terms"><span id="${id}-item-seller">${soldItem.sellerName ? `Sold by ${soldItem.sellerName}.` : ""}</span><span class="store-refunds" id="${id}-item-refunds">${soldItem.refundsText ? ` ${soldItem.refundsText}` : ""}</span></p>`;
   const closeButton = sheetClose(options.closeLabel);
   const parts = paneParts({
     head: { words, end: closeButton },
     body: sheetScroll(stack({ items: [itemWords, ...(options.momentItems ?? [])] })),
     foot: { start: { kind: "block", markup: stack({ items: [...options.footItems, { kind: "words", markup: terms }] }) } },
   });
-  return sheetMarkup({ id, title: item.name, body: html``, parts, closeButton, action: options.action, placement: options.isOverGame ? "corner" : "center", isStorePanel: true, isShown: options.isShown });
+  return sheetMarkup({ id, title: soldItem.name, body: html``, parts, closeButton, action: options.action, placement: options.isOverGame ? "corner" : "center", isStorePanel: true, isShown: options.isShown });
 }
 
 const STORE_ITEM: StorePanelItem = { imageUrl: "/design/covers/hollow-tide.webp", name: "Revive", priceText: "$1.99", description: "Back with half your health.", sellerName: "Preview Studio", refundsText: "Refunds for items you haven't used yet, within 14 days." };
@@ -1503,51 +1503,51 @@ component({
   examples: [
     {
       label: "Try it, over a game: from its button, at the screen's bottom right",
-      markup: html`${secondaryButton("Buy Revive", { type: "button", controls: "example-store-panel-try" })}${storePanel({ id: "example-store-panel-try", closeLabel: "Close", isOverGame: true, item: STORE_ITEM, footItems: [storeExampleCard, storeExampleBuy("example-store-panel-try-buy", "$1.99")] })}`,
+      markup: html`${secondaryButton("Buy Revive", { type: "button", controls: "example-store-panel-try" })}${storePanel({ id: "example-store-panel-try", closeLabel: "Close", isOverGame: true, soldItem: STORE_ITEM, footItems: [storeExampleCard, storeExampleBuy("example-store-panel-try-buy", "$1.99")] })}`,
     },
     {
       label: "Try it, on a page: centered over the dimmed page",
-      markup: html`${secondaryButton("Buy Hollow Tide", { type: "button", controls: "example-store-panel-try-page" })}${storePanel({ id: "example-store-panel-try-page", closeLabel: "Close", item: STORE_GAME, footItems: [storeExampleCard, storeExampleBuy("example-store-panel-try-page-buy", "$24.99")] })}`,
+      markup: html`${secondaryButton("Buy Hollow Tide", { type: "button", controls: "example-store-panel-try-page" })}${storePanel({ id: "example-store-panel-try-page", closeLabel: "Close", soldItem: STORE_GAME, footItems: [storeExampleCard, storeExampleBuy("example-store-panel-try-page-buy", "$24.99")] })}`,
     },
     {
       label: "Over a game, ready: the saved card and Buy, one press",
       isStill: true,
-      markup: storePanel({ id: "example-store-panel-ready", closeLabel: "Close", isOverGame: true, isShown: true, item: STORE_ITEM, footItems: [storeExampleCard, storeExampleBuy("example-store-panel-ready-buy", "$1.99")] }),
+      markup: storePanel({ id: "example-store-panel-ready", closeLabel: "Close", isOverGame: true, isShown: true, soldItem: STORE_ITEM, footItems: [storeExampleCard, storeExampleBuy("example-store-panel-ready-buy", "$1.99")] }),
     },
     {
       label: "Over a game, with Apple Pay offered and the line the EU's law asks for above Buy",
       isStill: true,
-      markup: storePanel({ id: "example-store-panel-wallet", closeLabel: "Close", isOverGame: true, isShown: true, item: STORE_ITEM, footItems: [{ kind: "control", markup: secondaryButton("Apple Pay", { type: "button", wayIn: "apple_pay", isFullWidth: true }) }, storeExampleCard, { kind: "words", markup: html`<p>You get it now, so you can't cancel it in the next 14 days.</p>` }, storeExampleBuy("example-store-panel-wallet-buy", "$1.99")] }),
+      markup: storePanel({ id: "example-store-panel-wallet", closeLabel: "Close", isOverGame: true, isShown: true, soldItem: STORE_ITEM, footItems: [{ kind: "control", markup: secondaryButton("Apple Pay", { type: "button", wayIn: "apple_pay", isFullWidth: true }) }, storeExampleCard, { kind: "words", markup: html`<p>You get it now, so you can't cancel it in the next 14 days.</p>` }, storeExampleBuy("example-store-panel-wallet-buy", "$1.99")] }),
     },
     {
       label: "Over a game, buying: Buy pressed, waiting",
       isStill: true,
-      markup: storePanel({ id: "example-store-panel-busy", closeLabel: "Close", isOverGame: true, isShown: true, item: STORE_ITEM, footItems: [storeExampleCard, storeExampleBuy("example-store-panel-busy-buy", "$1.99", "Buy", true)] }),
+      markup: storePanel({ id: "example-store-panel-busy", closeLabel: "Close", isOverGame: true, isShown: true, soldItem: STORE_ITEM, footItems: [storeExampleCard, storeExampleBuy("example-store-panel-busy-buy", "$1.99", "Buy", true)] }),
     },
     {
       label: "Over a game, it didn't go through: two short lines on what went wrong, and Try again",
       isStill: true,
-      markup: storePanel({ id: "example-store-panel-declined", closeLabel: "Close", isOverGame: true, isShown: true, item: STORE_ITEM, momentItems: [{ kind: "block", markup: problemState({ title: "The payment didn't go through", text: "Your card was declined. Nothing was charged." }) }], footItems: [storeExampleCard, storeExampleBuy("example-store-panel-declined-buy", "$1.99", "Try again")] }),
+      markup: storePanel({ id: "example-store-panel-declined", closeLabel: "Close", isOverGame: true, isShown: true, soldItem: STORE_ITEM, momentItems: [{ kind: "block", markup: problemState({ title: "The payment didn't go through", text: "Your card was declined. Nothing was charged." }) }], footItems: [storeExampleCard, storeExampleBuy("example-store-panel-declined-buy", "$1.99", "Try again")] }),
     },
     {
       label: "Over a game, bought: it's theirs, and it closes by itself a moment later",
       isStill: true,
-      markup: storePanel({ id: "example-store-panel-bought", closeLabel: "Close", isOverGame: true, isShown: true, item: { ...STORE_ITEM, sellerName: undefined }, momentItems: [{ kind: "block", markup: doneState({ title: "Bought", text: "Revive is yours. The receipt is on its way to your account's email." }) }], footItems: [{ kind: "control", markup: secondaryButton("Back to the game", { type: "submit", formMethod: "dialog", isFullWidth: true }) }] }),
+      markup: storePanel({ id: "example-store-panel-bought", closeLabel: "Close", isOverGame: true, isShown: true, soldItem: { ...STORE_ITEM, sellerName: undefined }, momentItems: [{ kind: "block", markup: doneState({ title: "Bought", text: "Revive is yours. The receipt is on its way to your account's email." }) }], footItems: [{ kind: "control", markup: secondaryButton("Back to the game", { type: "submit", formMethod: "dialog", isFullWidth: true }) }] }),
     },
     {
       label: "On a page, ready: the cover large, what it is and the full terms",
       isStill: true,
-      markup: storePanel({ id: "example-store-panel-page", closeLabel: "Close", isShown: true, item: STORE_GAME, footItems: [storeExampleCard, storeExampleBuy("example-store-panel-page-buy", "$24.99")] }),
+      markup: storePanel({ id: "example-store-panel-page", closeLabel: "Close", isShown: true, soldItem: STORE_GAME, footItems: [storeExampleCard, storeExampleBuy("example-store-panel-page-buy", "$24.99")] }),
     },
     {
       label: "On a page, a guest: a way to an account, the price still showing",
       isStill: true,
-      markup: storePanel({ id: "example-store-panel-guest", closeLabel: "Close", isShown: true, item: { ...STORE_GAME, sellerName: undefined, refundsText: undefined }, momentItems: [{ kind: "words", markup: html`<p>Make a free account to buy. You come back to this after.</p>` }], footItems: [{ kind: "block", markup: row({ widths: "equal", items: [{ kind: "control", markup: secondaryButton("Sign in", { type: "button" }) }, { kind: "control", markup: primaryButton("Make an account", { type: "button" }) }] }) }] }),
+      markup: storePanel({ id: "example-store-panel-guest", closeLabel: "Close", isShown: true, soldItem: { ...STORE_GAME, sellerName: undefined, refundsText: undefined }, momentItems: [{ kind: "words", markup: html`<p>Make a free account to buy. You come back to this after.</p>` }], footItems: [{ kind: "block", markup: row({ widths: "equal", items: [{ kind: "control", markup: secondaryButton("Sign in", { type: "button" }) }, { kind: "control", markup: primaryButton("Make an account", { type: "button" }) }] }) }] }),
     },
     {
       label: "On a page, no cover yet and a long name",
       isStill: true,
-      markup: storePanel({ id: "example-store-panel-none", closeLabel: "Close", isShown: true, item: { ...STORE_GAME, imageUrl: null, name: "The Complete Collector's Edition of the Northern Reach", priceText: "$149.99", description: "Every expansion and the soundtrack." }, footItems: [storeExampleCard, storeExampleBuy("example-store-panel-none-buy", "$149.99")] }),
+      markup: storePanel({ id: "example-store-panel-none", closeLabel: "Close", isShown: true, soldItem: { ...STORE_GAME, imageUrl: null, name: "The Complete Collector's Edition of the Northern Reach", priceText: "$149.99", description: "Every expansion and the soundtrack." }, footItems: [storeExampleCard, storeExampleBuy("example-store-panel-none-buy", "$149.99")] }),
     },
   ],
 });
