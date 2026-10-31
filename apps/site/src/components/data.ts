@@ -75,7 +75,7 @@ export function glanceFacts(facts: GlanceFacts): Raw {
   const nowMs = Date.now();
   const friends = facts.friends ?? [];
   return html`<ul class="glance words-margin hairline-above">${facts.deviceNote ? html`<li>${icon("info")}<span>${facts.deviceNote}</span></li>` : ""}${facts.playerCount !== undefined ? html`<li>${icon("people")}<span><b>${facts.playerCount.toLocaleString("en-US")}</b> playing now</span></li>` : ""}${
-    friends.length ? html`<li class="friends">${pictureRow(friends.map((friend) => friend.username), "sm")}<span><span class="glance-whole"><b class="one-line">${nameList(friends.map((friend) => friend.username))}</b><span>\u00a0${friends.length > 1 ? "are" : "is"} playing</span></span>${(facts.friendsRefusalNotes ?? []).map((note) => html` <span class="glance-fact">${tag(note, "plain")}</span>`)}</span></li>` : ""
+    friends.length ? html`<li>${pictureRow(friends.map((friend) => friend.username), "sm")}<span><span class="glance-whole"><b class="one-line">${nameList(friends.map((friend) => friend.username))}</b><span>\u00a0${friends.length > 1 ? "are" : "is"} playing</span></span>${(facts.friendsRefusalNotes ?? []).map((note) => html` <span class="glance-fact">${tag(note, "plain")}</span>`)}</span></li>` : ""
   }${facts.playedAtMs !== undefined ? html`<li>${icon("clock")}<span>You played ${keepUnits(ago(nowMs - facts.playedAtMs))}</span></li>` : ""}${
     facts.updatedAtMs !== undefined ? html`<li>${tag("Updated", "new")}<span>${keepUnits(ago(nowMs - facts.updatedAtMs))}${facts.updatesHref ? html`\u00a0· <span class="glance-fact">${textLink("What's new", facts.updatesHref)}</span>` : ""}</span></li>` : ""
   }</ul>`;

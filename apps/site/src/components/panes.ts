@@ -1428,7 +1428,7 @@ export interface StorePanelOptions {
 const storeCover = (imageUrl: string | null, coverSize: "small" | "large") =>
   imageUrl === null
     ? html`<div class="store-cover is-${coverSize} carving holds-art" data-cut-line="0">${CUT_LINE}</div>`
-    : html`<div class="store-cover is-${coverSize} carving holds-art" data-cut-line="0">${CUT_LINE}<span class="store-cover-art carving-art" data-cut-line="0"><img src="${imageUrl}"${coverSizes(imageUrl, coverSize === "small" ? "4rem" : "(max-width: 760px) 100vw, 400px", 1440)} alt="" loading="lazy" decoding="async"></span></div>`;
+    : html`<div class="store-cover is-${coverSize} carving holds-art" data-cut-line="0">${CUT_LINE}<span class="carving-art" data-cut-line="0"><img src="${imageUrl}"${coverSizes(imageUrl, coverSize === "small" ? "4rem" : "(max-width: 760px) 100vw, 400px", 1440)} alt="" loading="lazy" decoding="async"></span></div>`;
 
 /**
  * A store panel: where a player buys. Over a running game (isOverGame) it's short, at the screen's bottom right: the game's cover small

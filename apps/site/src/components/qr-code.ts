@@ -2,6 +2,7 @@ import { html, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
 import { CUT_LINE } from "./foundations.ts";
 import { secondaryButton } from "./actions.ts";
+import { row } from "./layout.ts";
 import { examplePane } from "./example-pane.ts";
 import { qrCodeSvg } from "@zaisma/core";
 
@@ -30,7 +31,7 @@ export interface QrCodeOptions {
  */
 export function qrCode(options: QrCodeOptions): Raw {
   const download = options.download;
-  return html`<figure class="qr-code${options.isMasked ? " is-masked" : ""}${options.isLarge ? " is-large" : ""}"><span class="qr-cast" data-on-no-pane><span class="qr-tile cut-raised" data-cut-line="8">${CUT_LINE}<img class="qr-picture" id="${options.id}"${options.imageUrl ? html` src="${options.imageUrl}"` : ""} alt="${options.label}" width="220" height="220">${options.iconUrl ? html`<img class="qr-icon" src="${options.iconUrl}" alt="" width="48" height="48">` : ""}</span></span><figcaption class="qr-caption words-margin" id="${options.id}-caption">${options.caption}</figcaption>${download ? html`<div class="control-row qr-downloads">${secondaryButton("Download SVG", { href: download.svgUrl, downloadName: `${download.fileName}.svg` })}${secondaryButton("Download PNG", { type: "button", dataAttributes: { "qr-png": `${download.fileName}.png`, "qr-svg": download.svgUrl } })}</div>` : ""}</figure>`;
+  return html`<figure class="qr-code${options.isMasked ? " is-masked" : ""}${options.isLarge ? " is-large" : ""}"><span class="qr-cast" data-on-no-pane><span class="qr-tile cut-raised" data-cut-line="8">${CUT_LINE}<img class="qr-picture" id="${options.id}"${options.imageUrl ? html` src="${options.imageUrl}"` : ""} alt="${options.label}" width="220" height="220">${options.iconUrl ? html`<img class="qr-icon" src="${options.iconUrl}" alt="" width="48" height="48">` : ""}</span></span><figcaption class="qr-caption words-margin" id="${options.id}-caption">${options.caption}</figcaption>${download ? html`<div class="qr-downloads">${row({ widths: "equal", items: [{ kind: "control", markup: secondaryButton("Download SVG", { href: download.svgUrl, downloadName: `${download.fileName}.svg` }) }, { kind: "control", markup: secondaryButton("Download PNG", { type: "button", dataAttributes: { "qr-png": `${download.fileName}.png`, "qr-svg": download.svgUrl } }) }] })}</div>` : ""}</figure>`;
 }
 
 /** Download PNG: the code's SVG drawn at 1024px, crisp, and saved under its name. */
@@ -86,7 +87,6 @@ component({
 .qr-code.is-large .qr-tile { padding: var(--pad-tray); }
 /* With its downloads: a Row under its line, across the pane, its two buttons sharing it. */
 .qr-code > .qr-downloads { justify-self: stretch; }
-.qr-downloads > * { flex: 1 1 0; }
 `,
   render: qrCode,
   examples: [

@@ -278,7 +278,7 @@ export interface GrooveOptions {
 export function groove(options: GrooveOptions = {}): Raw {
   const isRunning = options.filledPct === undefined;
   const shownPct = isRunning ? 0 : Math.max(0, Math.min(100, options.filledPct ?? 0));
-  return html`<span class="groove carving deep line${options.kind ? ` ${options.kind}` : ""}${isRunning ? " is-running" : ""}${options.isWorking ? " is-working" : ""}" data-cut-line="3" aria-hidden="true" style="--groove-filled:${(shownPct / 100).toFixed(4)}">${CUT_LINE}<span class="groove-fill light-glow"><span class="groove-light light-fill${options.isWorking ? " light-glint loops" : ""}" data-cut-line="3" data-cut-bar>${CUT_LINE}${options.lightMarkup ?? ""}</span></span></span>`;
+  return html`<span class="groove carving deep line${options.kind ? ` ${options.kind}` : ""}${isRunning ? " is-running" : ""}" data-cut-line="3" aria-hidden="true" style="--groove-filled:${(shownPct / 100).toFixed(4)}">${CUT_LINE}<span class="groove-fill light-glow"><span class="groove-light light-fill${options.isWorking ? " light-glint loops" : ""}" data-cut-line="3" data-cut-bar>${CUT_LINE}${options.lightMarkup ?? ""}</span></span></span>`;
 }
 
 /**

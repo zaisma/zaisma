@@ -43,7 +43,7 @@ export interface ScreenshotOptions {
  * other corner, and every one between is square, wherever the row is scrolled to.
  */
 export const screenshot = (options: ScreenshotOptions): Raw =>
-  html`<button class="screenshot carving holds-art" type="button" data-cut-line="0" aria-controls="${options.sheetId}" aria-label="${options.label}">${CUT_LINE}<span class="screenshot-picture carving-art" data-cut-line="0"><img src="${options.imageUrl}" alt="" loading="lazy" decoding="async"></span></button>`;
+  html`<button class="screenshot carving holds-art" type="button" data-cut-line="0" aria-controls="${options.sheetId}" aria-label="${options.label}">${CUT_LINE}<span class="carving-art" data-cut-line="0"><img src="${options.imageUrl}" alt="" loading="lazy" decoding="async"></span></button>`;
 
 
 /**

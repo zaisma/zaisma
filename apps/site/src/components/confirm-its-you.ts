@@ -50,7 +50,7 @@ export function confirmItsYouSheet(options: ConfirmItsYouOptions): Raw {
   const body = stack({
     items: [
       { kind: "block", markup: html`<div class="confirm-face" id="${id}-face" data-method="${method}">${face}<h2 class="sheet-title" id="${id}-title">Confirm it's you</h2></div>` },
-      { kind: "words", id: `${id}-reason`, markup: html`<p class="confirm-reason">${options.reasonText ?? ""}</p>` },
+      { kind: "words", id: `${id}-reason`, markup: html`<p>${options.reasonText ?? ""}</p>` },
       { kind: "control", id: `${id}-pin`, isHidden: method !== "purchase_pin", markup: pinField({ name: "purchase_pin", id: `${id}-pin-field`, label: "Your purchase PIN", digits: options.isBusy ? "246810" : undefined, isDisabled: options.isBusy, error: method === "purchase_pin" ? options.errorText : undefined }) },
       // A password form names its account for password managers and screen readers; the field stays hidden.
       { kind: "words", id: `${id}-username`, isHidden: true, markup: html`<input type="text" name="username" autocomplete="username" tabindex="-1" aria-hidden="true">` },
