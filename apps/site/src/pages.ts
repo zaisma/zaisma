@@ -63,6 +63,7 @@ import { backgroundMarkup, backgroundOf, type ShownBackground } from "./backgrou
 import { glassMessage, html, layout, pageData, raw, scriptTags, type Raw } from "./html.ts";
 import { pageScript } from "./page-scripts.ts";
 import { coverPriceText, paidGamesOwnedBy, showcase, type ShowGame } from "./home.ts";
+import { KEEP_PLAYED_COOKIE_SOURCE } from "./home-script.ts";
 import { viewerOf, type Viewer } from "./viewer.ts";
 import { SAVES_SCRIPT } from "./saves-client.ts";
 import { reportScript, reportSheet, reportStep } from "./report.ts";
@@ -1096,12 +1097,14 @@ function warmUp() {
 if (document.readyState === "complete") setTimeout(warmUp, 1000);
 else addEventListener("load", () => setTimeout(warmUp, 1000));
 document.getElementById("share-page").onclick = (e) => shareFrom(e.currentTarget);
-// Remember the game for Continue playing: on this device, and with the account when signed in.
+// Remember the game for Continue playing: on this device (and in PLAYED_COOKIE, so the home shows it from its first paint), and with the account when signed in.
+${KEEP_PLAYED_COOKIE_SOURCE}
 function remember() {
   try {
     const list = JSON.parse(localStorage.getItem("zaisma:played") || "[]").filter((p) => p.slug !== gamePage.slug);
     list.unshift({ slug: gamePage.slug, played_at_ms: Date.now() });
     localStorage.setItem("zaisma:played", JSON.stringify(list.slice(0, 20)));
+    keepPlayedCookie(list);
   } catch {}
   if (/(^|; )(__Host-)?zaisma_in=1/.test(document.cookie)) fetch("/api/me/played/" + gamePage.slug, { method: "POST", keepalive: true }).catch(() => {});
 }

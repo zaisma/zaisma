@@ -5,6 +5,14 @@ import { pageScript } from "./page-scripts.ts";
 /** The news a device closed, by their ids, newest first (the home's script keeps it): the home shows them closed from its first paint. */
 export const CLOSED_NEWS_COOKIE = "zaisma_closed_news";
 
+/** The games this device played, by their slugs, newest first (the game page and the home's script keep it): a guest's Continue playing shows from the home's first paint. */
+export const PLAYED_COOKIE = "zaisma_played";
+
+/** The script that keeps PLAYED_COOKIE from a list of { slug } newest first, for the game page's and the home's scripts. */
+export const KEEP_PLAYED_COOKIE_SOURCE = `function keepPlayedCookie(list) {
+  document.cookie = (location.protocol === "https:" ? "__Host-" : "") + ${JSON.stringify(PLAYED_COOKIE)} + "=" + list.slice(0, 20).map((entry) => entry.slug).join(",") + "; Max-Age=31536000; Path=/; SameSite=Lax" + (location.protocol === "https:" ? "; Secure" : "");
+}`;
+
 /**
  * The home's script. The page is the same for everyone (so it caches); this puts the player's own part on it (the guest note, Continue
  * playing, whether Zaisma's news was closed here) and puts the background of the cover pointed at behind the glass.
@@ -254,6 +262,9 @@ document.addEventListener("keydown", (event) => {
 const guest = $("home-guest");
 const showGuest = () => { if (guest && !isSignedIn) guest.hidden = false; };
 fillContinue();
+// Played on this device before the cookie kept it: kept there from now on, so the next visit's first paint shows it.
+${KEEP_PLAYED_COOKIE_SOURCE}
+keepPlayedCookie([...played].sort((a, b) => b.played_at_ms - a.played_at_ms));
 const news = $("home-news");
 if (news) {
   const id = news.querySelector("[data-announcement-id]").dataset.announcementId;

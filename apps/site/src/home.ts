@@ -12,15 +12,15 @@ import { banner, gameCard, type GameCardOptions } from "./components/panes.ts";
 import { currentAnnouncement } from "./announcements.ts";
 import { shownAddress } from "./markup.ts";
 import { esc, html, layout, pageData, playerLine, raw, scriptTags, type Raw } from "./html.ts";
-import { CLOSED_NEWS_COOKIE, HOME_SCRIPT } from "./home-script.ts";
+import { CLOSED_NEWS_COOKIE, HOME_SCRIPT, PLAYED_COOKIE } from "./home-script.ts";
 import { MINIMUM_PLAYING_NOW_PLAYER_COUNT, playingNowCounts, shelfPlayers } from "./plays.ts";
 import { viewerOf } from "./viewer.ts";
 import { viewerDeviceKind } from "./device-kind.ts";
 
 /**
  * The home page and what it needs: one sheet of rows, there as the page opens, and Zaisma's news above them while there is any. The
- * page is the same for everyone (so it caches); the player's own part, Continue playing, is filled in by the browser from what this
- * device remembers, plus the account's list when signed in.
+ * page is the same for everyone but the player's own part, Continue playing: an account's list, or what this device played (PLAYED_COOKIE),
+ * from the first paint, and the browser adds this device's to an account's.
  */
 
 export interface ShowGame {
@@ -304,7 +304,7 @@ export async function home(env: Env, request: Request): Promise<Response> {
     shelves(env, gamesRead, viewer.ageFloorYears),
     backgroundsOfGames(env, gamesRead),
     currentAnnouncement(env),
-    // An account's Continue playing, in its place from the first paint; a guest's is on the device alone, so the home's script shows it.
+    // An account's Continue playing, in its place from the first paint; a guest's comes with the request (PLAYED_COOKIE), below.
     account ? recentlyPlayed(env.DB, account.id, AGE_BAND_FLOOR_YEARS[account.age_band]) : Promise.resolve([]),
   ]);
   for (const game of games) game.background = backgrounds.get(game.id) ?? null;
@@ -325,8 +325,10 @@ export async function home(env: Env, request: Request): Promise<Response> {
   const guestBanner: LayoutItem[] = env.SUPABASE_URL
     ? [{ kind: "block", id: "home-guest", isHidden: Boolean(account) || isNewsShown, markup: banner({ text: "You're playing as a guest. Your progress stays on this device. Make an account to keep it everywhere.", icon: "person", action: { label: "Make an account", href: "/join" } }) }]
     : [];
-  // An account's from the server; a guest's shown by the home's script once this device has played something, which adds this device's to an account's too.
-  const playedGames = accountPlayed.flatMap((entry) => games.filter((game) => game.slug === entry.slug));
+  // An account's from the server; a guest's from the slugs this device sends, kept nowhere. The home's script adds this device's to an account's.
+  const guestPlayedSlugs = account ? [] : (readCookie(request, env, PLAYED_COOKIE) ?? "").split(",").filter((slug) => /^[a-z0-9-]{1,64}$/.test(slug)).slice(0, KEPT_PLAYED_GAME_COUNT);
+  const playedSlugs = account ? accountPlayed.map((entry) => entry.slug) : guestPlayedSlugs;
+  const playedGames = playedSlugs.flatMap((slug) => games.filter((game) => game.slug === slug));
   const continuePlaying = shelf({
     id: "continue",
     trackId: "track-continue",
@@ -353,8 +355,8 @@ export async function home(env: Env, request: Request): Promise<Response> {
     : glassPane({ paneWidth: "fit", body: stack({ items: [{ kind: "words", markup: html`<h1>Every kind of game. One link away.</h1>` }, { kind: "words", markup: html`<p>The first games are on their way.</p>` }] }) });
   const response = layout(env, {
     title: "Zaisma: every kind of game, one link away",
-    // Filtered for a signed-in viewer's age, so no shared cache keeps it.
-    isPrivate: Boolean(viewer.account),
+    // Filtered for a signed-in viewer's age, or showing what this device played or closed, so no shared cache keeps it.
+    isPrivate: Boolean(viewer.account) || guestPlayedSlugs.length > 0 || closedNewsIds.some(Boolean),
     nav: "home",
     viewer,
     checkedPage: viewer.account ? "Home, signed in" : "Home",

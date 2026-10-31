@@ -2,7 +2,8 @@ import { env, SELF } from "cloudflare:test";
 import { beforeAll, describe, expect, it } from "vitest";
 import { createAccount, createGame, personOwner, setBackground } from "@zaisma/core";
 import "../../apps/site/src/index.ts";
-import { HOME_SCRIPT } from "../../apps/site/src/home-script.ts";
+import { CLOSED_NEWS_COOKIE, HOME_SCRIPT, PLAYED_COOKIE } from "../../apps/site/src/home-script.ts";
+import { cookieName } from "../../apps/site/src/auth.ts";
 
 /**
  * The home page (apps/site/src/home.ts): one shelf of Continue playing, Popular, Trending and New, there from the first frame, with no game picked for the player.
@@ -15,8 +16,9 @@ const day = (agoDays: number) => new Date(Date.now() - agoDays * DAY_MS).toISOSt
 
 const LIVE_SLUGS = ["home-one", "home-two", "home-three", "home-four", "home-five", "home-six", "home-seven", "home-eight", "home-nine", "home-ten"];
 
-async function homePage(): Promise<{ response: Response; text: string; data: { games: { slug: string; background: unknown; owner_id?: string; id?: string; description?: string }[] } }> {
-  const response = await SELF.fetch(`${SITE}/`);
+async function homePage(cookies: Record<string, string> = {}): Promise<{ response: Response; text: string; data: { games: { slug: string; background: unknown; owner_id?: string; id?: string; description?: string }[] } }> {
+  const cookie = Object.entries(cookies).map(([name, cookieValue]) => `${cookieName(env, name)}=${cookieValue}`).join("; ");
+  const response = await SELF.fetch(`${SITE}/`, { headers: cookie ? { cookie } : {} });
   const text = await response.text();
   const data = JSON.parse(text.match(/<script type="application\/json" id="home-data">([\s\S]*?)<\/script>/)![1]!);
   return { response, text, data };
@@ -114,17 +116,28 @@ describe("the home page", () => {
     const second = await homePage();
     expect(second.text).toBe(first.text);
     expect(first.response.headers.get("cache-control")).not.toBe("no-store");
-    // What is the player's own comes from the browser (the guest note, Continue playing, closed news) and starts hidden.
+    // A stranger's device has played nothing here yet, so Continue playing starts hidden.
     expect(first.text).toMatch(/<div class="stack-cell[^"]*" id="home-continue" hidden>/);
   });
 
-  it("shows Zaisma's current news as a banner the browser opens unless this device closed it, and none once it ends", async () => {
+  it("shows a guest's Continue playing from the first paint, from the games their device sends, newest first, and keeps none of it", async () => {
+    const { response, text } = await homePage({ [PLAYED_COOKIE]: "home-three,no-such-game,home-one,<b>" });
+    expect(text).toMatch(/<div class="stack-cell[^"]*" id="home-continue">/);
+    const shelf = text.slice(text.indexOf('id="track-continue"'), text.indexOf('id="track-popular"'));
+    expect([...shelf.matchAll(/href="\/g\/([a-z-]+)"/g)].map((found) => found[1]).filter((slug, index, all) => all.indexOf(slug) === index)).toEqual(["home-three", "home-one"]);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+  });
+
+  it("shows Zaisma's current news from the first paint unless this device closed it, and none once it ends", async () => {
     await env.DB.prepare("INSERT INTO announcements (id, text, link_url, link_label, starts_at_ms, ends_at_ms, created_at_ms, created_by) VALUES ('announcement_homenews', 'Kept rooms are here.', '/forum', NULL, ?, ?, ?, 'test')").bind(Date.now() - 1000, Date.now() + DAY_MS, Date.now()).run();
     const { text } = await homePage();
-    expect(text).toMatch(/<div class="stack-cell[^"]*" id="home-news" hidden><div data-announcement-id="announcement_homenews">/);
+    expect(text).toMatch(/<div class="stack-cell[^"]*" id="home-news"><div data-announcement-id="announcement_homenews">/);
     expect(text).toContain("Kept rooms are here.");
     expect(text).toMatch(/href="\/forum"[\s\S]*?Read more/);
     expect(text).toContain('name="banner_close"');
+    const closed = await homePage({ [CLOSED_NEWS_COOKIE]: "announcement_older,announcement_homenews" });
+    expect(closed.text).toMatch(/<div class="stack-cell[^"]*" id="home-news" hidden>/);
+    expect(closed.response.headers.get("cache-control")).toBe("no-store");
     await env.DB.prepare("UPDATE announcements SET ends_at_ms = ? WHERE id = 'announcement_homenews'").bind(Date.now() - 1).run();
     expect((await homePage()).text).not.toContain("home-news");
   });
