@@ -1373,8 +1373,9 @@ component({
               label: "In this room",
               isCompact: true,
               rows: [
-                { lead: pictureFrame("Liam", "sm"), title: "Liam", titleIcon: { icon: "friends", label: "Friend" }, action: [toggleButton("Mute Liam", { type: "button", icon: "speaker", isLabelHidden: true, isSmall: true, isPressed: false, dataAttributes: { "mute-example": "" } }), toggleButton("Mute Liam", { type: "button", icon: "speaker-off", isLabelHidden: true, isSmall: true, isPressed: true, isHidden: true, dataAttributes: { "mute-example": "" } }), secondaryButton("More for Liam", { type: "button", icon: "more", isLabelHidden: true, isSmall: true, dataAttributes: { "sheet-step-to": "player" } })] },
-                { lead: pictureFrame("Sofia", "sm"), title: "Sofia", action: [toggleButton("Mute Sofia", { type: "button", icon: "speaker", isLabelHidden: true, isSmall: true, isPressed: false, isHidden: true, dataAttributes: { "mute-example": "" } }), toggleButton("Mute Sofia", { type: "button", icon: "speaker-off", isLabelHidden: true, isSmall: true, isPressed: true, dataAttributes: { "mute-example": "" } }), secondaryButton("More for Sofia", { type: "button", icon: "more", isLabelHidden: true, isSmall: true, dataAttributes: { "sheet-step-to": "player" } })] },
+                { lead: pictureFrame("Emma", "sm"), title: "Emma", detail: "You" },
+                { lead: pictureFrame("Liam", "sm"), title: "Liam", titleIcon: { icon: "friends", label: "Friend" }, action: [toggleButton("Mute Liam", { type: "button", icon: "speaker", pressedIcon: "speaker-off", isLabelHidden: true, isSmall: true, isPressed: false, dataAttributes: { "toggle-example": "" } }), secondaryButton("More for Liam", { type: "button", icon: "more", isLabelHidden: true, isSmall: true, dataAttributes: { "sheet-step-to": "player" } })] },
+                { lead: pictureFrame("Sofia", "sm"), title: "Sofia", action: [toggleButton("Mute Sofia", { type: "button", icon: "speaker", pressedIcon: "speaker-off", isLabelHidden: true, isSmall: true, isPressed: true, dataAttributes: { "toggle-example": "" } }), secondaryButton("More for Sofia", { type: "button", icon: "more", isLabelHidden: true, isSmall: true, dataAttributes: { "sheet-step-to": "player" } })] },
               ],
             })),
           },

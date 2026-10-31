@@ -309,22 +309,15 @@ export const GALLERY_SCRIPT = pageScript(
     event.preventDefault();
     apply(stage.dataset.themeChoice === "dark" ? "light" : "dark");
   });
-  // The Toggle button's live example turns on and off as a page's script would turn it: its count and its words follow.
+  // The Toggle button's live example turns on and off as a page's script would turn it: its count and its words follow. So does a toggle
+  // marked as an example itself (a player's Mute in the Players sheet).
   document.addEventListener("click", function (event) {
-    var toggle = event.target.closest && event.target.closest("[data-toggle-example] .toggle-btn");
+    var toggle = event.target.closest && event.target.closest("[data-toggle-example] .toggle-btn, .toggle-btn[data-toggle-example]");
     if (!toggle) return;
     var isOn = toggle.getAttribute("aria-pressed") !== "true", count = toggle.querySelector(".cut-count"), words = toggle.querySelector(".face > span:not([class])");
     toggle.setAttribute("aria-pressed", String(isOn));
     if (count) count.textContent = (Number(count.textContent.replace(/,/g, "")) + (isOn ? 1 : -1)).toLocaleString("en-US");
     if (words && /^Follow/.test(words.textContent)) words.textContent = isOn ? "Following" : "Follow";
-  });
-  // A player's Mute in the Players example works as the players sheet's does: muted, the crossed-out speaker shows pressed in its place.
-  document.addEventListener("click", function (event) {
-    var mute = event.target.closest && event.target.closest("[data-mute-example]");
-    var other = mute && Array.prototype.find.call(mute.closest(".list-row").querySelectorAll("[data-mute-example]"), function (each) { return each !== mute; });
-    if (!other) return;
-    mute.hidden = true; other.hidden = false;
-    other.focus({ preventScroll: true });
   });
   // A header's search shown open: its list hangs under the field in the example's frame, outside the header, as the open account menu does,
   // since the header's cut would clip it there.

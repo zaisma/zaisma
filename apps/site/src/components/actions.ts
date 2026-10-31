@@ -120,6 +120,8 @@ export function secondaryButton(label: string, options: SecondaryButtonOptions =
 export interface ToggleButtonOptions extends Omit<SecondaryButtonOptions, "isBig" | "isInWell" | "isFullWidth" | "isExpanded" | "wayIn" | "tint"> {
   /** On or off (aria-pressed): the page's script flips it, and what it changes. */
   isPressed: boolean;
+  /** The icon it shows while on, in place of icon (Mute's crossed-out speaker): one button either way, so flipping it rises or sinks in place. */
+  pressedIcon?: IconName;
 }
 
 /**
@@ -127,7 +129,7 @@ export interface ToggleButtonOptions extends Omit<SecondaryButtonOptions, "isBig
  * glass, a slab like any secondary button, and carves in as it's pressed; on, its top surface rises from the same footprint and its orange front surface shows, so it never moves and a row of them stays in line.
  */
 export function toggleButton(label: string, options: ToggleButtonOptions): ControlMarkup {
-  return secondaryButtonMarkup(label, options, options.isPressed);
+  return secondaryButtonMarkup(label, options, options.isPressed, options.pressedIcon);
 }
 
 /**
@@ -170,7 +172,7 @@ export const TOGGLE_SCRIPT = `/* toggle buttons */(function () {
 `;
 
 // A toggle is a secondary button with a front surface below its top surface (its face), showing when the face rises.
-function secondaryButtonMarkup(label: string, options: SecondaryButtonOptions, isPressed?: boolean): ControlMarkup {
+function secondaryButtonMarkup(label: string, options: SecondaryButtonOptions, isPressed?: boolean, pressedIcon?: IconName): ControlMarkup {
   const isToggle = isPressed !== undefined;
   const hasCount = options.reactionCount !== undefined;
   const countWords = hasCount ? Number(options.reactionCount).toLocaleString("en-US") : "";
@@ -184,7 +186,7 @@ function secondaryButtonMarkup(label: string, options: SecondaryButtonOptions, i
   const reactionMarkup = hasCount ? html`<span class="cut-count">${countWords}</span>` : "";
   const cutLineNumber = options.isBig ? 13 : 10;
   const front = isToggle ? html`<span class="toggle-front slab-front" aria-hidden="true"></span>` : "";
-  return controlMarkup(html`${opening(className, options, options.isBusy, extra)}${front}<span class="face slab${options.isBig ? " big" : options.isSmall ? " compact" : ""}" data-cut-line="${cutLineNumber}">${CUT_LINE}${loader()}${options.wayIn ? html`<span class="way-mark way-${options.wayIn}">${WAY_MARKS[options.wayIn]}</span>` : options.icon ? icon(options.icon) : ""}${words}${reactionMarkup}</span>${closing(options)}`, options.isBig ? "big" : options.isSmall || options.isInWell ? "small" : "regular");
+  return controlMarkup(html`${opening(className, options, options.isBusy, extra)}${front}<span class="face slab${options.isBig ? " big" : options.isSmall ? " compact" : ""}" data-cut-line="${cutLineNumber}">${CUT_LINE}${loader()}${options.wayIn ? html`<span class="way-mark way-${options.wayIn}">${WAY_MARKS[options.wayIn]}</span>` : options.icon && pressedIcon ? html`${raw(String(icon(options.icon)).replace("<svg ", '<svg data-shown-when="off" '))}${raw(String(icon(pressedIcon)).replace("<svg ", '<svg data-shown-when="on" '))}` : options.icon ? icon(options.icon) : ""}${words}${reactionMarkup}</span>${closing(options)}`, options.isBig ? "big" : options.isSmall || options.isInWell ? "small" : "regular");
 }
 
 const GOOGLE = raw(
@@ -637,6 +639,8 @@ component({
    jump: a translucent face that changed at once would flash. */
 .toggle-btn[aria-pressed="true"], .toggle-btn[aria-pressed="true"]:not(.in-well):hover, .toggle-btn[aria-pressed="true"].is-pointed, .toggle-btn[aria-pressed="true"]:active, .toggle-btn[aria-pressed="true"].is-pressed { filter: var(--toggle-cast); }
 .toggle-btn[aria-pressed="true"] > .face > .ico { color: var(--toggle-icon-on); }
+/* A toggle with an icon for each state shows the one for the state it's in. */
+.toggle-btn[aria-pressed="true"] > .face > .ico[data-shown-when="off"], .toggle-btn[aria-pressed="false"] > .face > .ico[data-shown-when="on"] { display: none; }
 .toggle-btn[aria-pressed="true"]:active > .face, .toggle-btn[aria-pressed="true"].is-pressed > .face { box-shadow: none; --face-color: var(--btn); }
 .toggle-btn[aria-pressed="true"]:active > .face > .cut-line, .toggle-btn[aria-pressed="true"].is-pressed > .face > .cut-line { --band-top: var(--raise-top); --band-left: var(--raise-left); --band-right: var(--raise-right); --band-bottom: var(--raise-bottom); }
 /* Keyboard focus: one ring round the whole button as you see it, top and front surfaces together, not one round each. */

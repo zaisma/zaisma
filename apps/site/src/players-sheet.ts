@@ -170,6 +170,7 @@ export function playersSheet(options: { gameOrigin: string; slug: string; title:
     steps: [{ stepName: "players", title: "Players", body, isCompact: true }, { stepName: "player", title: "Player", body: playerBody, isCompact: true }, options.reportStep],
   })}
 <template id="players-row">${rowTemplate}</template>
+<template id="players-self-row">${listRows({ whenEmpty: html`<p hidden></p>`, isCompact: true, rows: [{ lead: pictureFrame("?", "sm"), title: "?", detail: "You" }] })}</template>
 <template id="players-request-row">${listRows({ whenEmpty: html`<p hidden></p>`, rows: [{ lead: pictureFrame("?", "md"), title: "?", action: [primaryButton("Accept", { ...rowButton, dataAttributes: { "request-action": "accept" } }), secondaryButton("Turn down", { ...rowButton, dataAttributes: { "request-action": "turn-down" } })] }] })}</template>
 ${pageData("players-data", { gameOrigin: options.gameOrigin, slug: options.slug, hasZaismaRooms: options.hasZaismaRooms, canSignIn: options.canSignIn, maximumPlayerCount: MAXIMUM_PLAYER_COUNT, findShownAfterCount: FIND_SHOWN_AFTER_COUNT })}
 ${scriptTags(PLAYERS_SHEET_SCRIPT)}`;
@@ -298,7 +299,9 @@ const PLAYERS_SHEET_SCRIPT = pageScript("players-sheet", String.raw`(() => {
     if ($("players-find").hidden) find.value = "";
     const wanted = find.value.trim().toLowerCase();
     const others = wanted ? ordered.filter((each) => nameOf(each).toLowerCase().includes(wanted)) : ordered;
-    list.hidden = !others.length;
+    // You're in the count, so you're in the list too, first, with nothing to press: never while finding someone, or while only watching.
+    const me = room && !room.isSpectator && !wanted ? room.players.find((each) => each.id === room.myPlayerId) : null;
+    list.hidden = !others.length && !me;
     const note = $("players-note");
     note.textContent = !room
       ? HAS_ZAISMA_ROOMS || hasSeenRoom ? "Players show here once you're in a room." : "Players show here once the game says who's playing with you. Until then, mute, block and report are in its own menu."
@@ -307,7 +310,16 @@ const PLAYERS_SHEET_SCRIPT = pageScript("players-sheet", String.raw`(() => {
     const watching = $("players-watching");
     watching.textContent = room && room.spectatorCount ? (room.isSpectator ? "You're watching" + (room.spectatorCount > 1 ? ", with " + (room.spectatorCount - 1) + " more" : "") : room.spectatorCount + " watching") : room && room.isSpectator ? "You're watching" : "";
     watching.hidden = !watching.textContent;
+    if (me) list.appendChild(selfRow(me));
     others.forEach((other) => list.appendChild(row(other)));
+  }
+
+  // Your own row (template#players-self-row): your picture and the name the game knows you by, marked You.
+  function selfRow(me) {
+    const item = $("players-self-row").content.querySelector("li").cloneNode(true);
+    paint(item.querySelector(".av"), me.name);
+    item.querySelector(".list-row-title").textContent = me.name;
+    return item;
   }
 
   // A player's row, from the page's own (template#players-row): their picture and name, Friend, muted or blocked under it, Mute and ⋯.
