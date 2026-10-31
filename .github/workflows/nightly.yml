@@ -1,4 +1,5 @@
-# The nightly layout sweep: every page and state, the stress accounts too, in headless Chrome on every screen, light and dark, at 200% text,
+# The nightly layout sweep: every page and state, the stress accounts too, in headless Chrome on the measured screens (MEASURED_SCREEN_NAMES),
+# in light (dark changes only colours), at 200% text,
 # measuring every rule (npm run layout:check -- --sweep, scripts/layout-check.mjs), on main's preview with its stand-ins and test data. A pull
 # request's Layout check measures pages only for how they arrange their pieces on a phone and a laptop (check.yml); this catches what
 # that leaves out within a day; the merge queue measures the pages its change reaches the same way (check.yml, "Every screen"), so this is the

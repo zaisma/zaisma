@@ -50,17 +50,18 @@ function playwrightChromes() {
 
 /**
  * Headless Chrome at path with WebGL in software (SwiftShader, as on Zaisma's check and on machines without a GPU), or on the machine's
- * own GPU with isGpu (scripts/city.mjs times and renders the city on it), and a DevTools connection to it: send(method, parameters,
+ * own GPU with isGpu (scripts/city.mjs times and renders the city on it), or with no GPU and no WebGL at all with isDrawingOnCpu (the
+ * layout check measures boxes, not pixels), and a DevTools connection to it: send(method, parameters,
  * sessionId), listen(sessionId, onEvent) and close().
  */
-export async function openChrome(path, profilePrefix, { isGpu = false } = {}) {
+export async function openChrome(path, profilePrefix, { isGpu = false, isDrawingOnCpu = false } = {}) {
   await sweepOrphans();
   // A folder for each Chrome: OWNER_FILE, which says whose it is, and Chrome's profile inside, removed before the folder so a profile
   // that can't be removed yet keeps its owner for the next sweep.
   const folder = mkdtempSync(join(tmpdir(), profilePrefix));
   const profile = join(folder, "profile");
   mkdirSync(profile);
-  const webgl = isGpu ? ["--enable-gpu", "--ignore-gpu-blocklist", ...(process.platform === "darwin" ? ["--use-angle=metal"] : [])] : ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"];
+  const webgl = isDrawingOnCpu ? ["--disable-gpu"] : isGpu ? ["--enable-gpu", "--ignore-gpu-blocklist", ...(process.platform === "darwin" ? ["--use-angle=metal"] : [])] : ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"];
   let child;
   try {
     child = spawn(path, ["--headless=new", "--remote-debugging-port=0", `--user-data-dir=${profile}`, "--no-first-run", "--no-default-browser-check", ...webgl, "--autoplay-policy=no-user-gesture-required", "--hide-scrollbars", "--disable-renderer-backgrounding", "--disable-background-timer-throttling", "--disable-backgrounding-occluded-windows", "about:blank"], { stdio: ["ignore", "ignore", "pipe"] });

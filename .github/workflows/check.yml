@@ -6,7 +6,9 @@
 # "Tests and typecheck", the check the ruleset requires and npm run ship reads, passes only when all of them did.
 # The Layout check measures each page for how it arranges its pieces, on a phone and a laptop in light; each component is proven
 # on every screen in "Gallery on every screen" when a change touches the components, and every page on every screen each night
-# (nightly.yml, "Nightly layout sweep"). The merge queue measures every page its change reaches on every screen, light and dark, at 200%
+# (nightly.yml, "Nightly layout sweep"); a pull request's later pushes skip the pages its earlier ones passed as they are. Every screen
+# here is the measured screens (MEASURED_SCREEN_NAMES: each band's narrowest, the short one and the widest), in light: dark changes only
+# colours. The merge queue measures every page its change reaches on every screen, at 200%
 # text, as the night does ("Every screen"), so a layout break can't land on main: a page is reached when its fingerprint (its HTML as
 # the server sends it, whose CSS and script addresses carry their change, and the check's own code; layout-check.mjs, pageFingerprint)
 # isn't among those main measured already (main's cache, from the night's sweep and each merge's). It takes the gallery on every screen's
@@ -379,13 +381,27 @@ jobs:
           key: ${{ needs.changes.outputs.preview_snapshot_key }}
           fail-on-cache-miss: true
       - run: npm run preview:start
+      # The pages this pull request's earlier runs passed, by fingerprint, which this run skips as they are (layout-check.test.ts,
+      # PASSED_PATH). The merge queue's and main's runs measure every page (LAYOUT_CHECK_FRESH), so a cached pass never stands in for main.
+      - uses: actions/cache/restore@v4
+        with:
+          path: .wrangler/layout-check-passed.json
+          key: layout-passed-${{ github.sha }}
+          restore-keys: layout-passed-
       - run: npx vitest run --project layout
         env:
           LAYOUT_CHECK: "1"
+          LAYOUT_CHECK_FRESH: ${{ github.event_name == 'pull_request' && '0' || '1' }}
+      # Saved when a page failed too: only passes are in it, so the next push measures the failed page and skips the rest.
+      - if: ${{ always() && github.event_name == 'pull_request' && hashFiles('.wrangler/layout-check-passed.json') != '' }}
+        uses: actions/cache/save@v4
+        with:
+          path: .wrangler/layout-check-passed.json
+          key: layout-passed-${{ github.sha }}-${{ github.run_attempt }}
       - if: failure()
         run: tail -n 80 .wrangler/preview-run/preview.log .wrangler/preview/servers.log || true
 
-  # The gallery's pages on every screen, light and dark, at 200% text (npm run layout:check -- --gallery), when the change touches the
+  # The gallery's pages on the measured screens (MEASURED_SCREEN_NAMES), in light, at 200% text (npm run layout:check -- --gallery), when the change touches the
   # components: a broken component breaks every page that uses it, and a pull request's Layout check measures pages only for arrangement.
   gallery:
     name: Gallery on every screen (${{ matrix.shard }} of 4)
@@ -423,7 +439,7 @@ jobs:
       - if: failure()
         run: tail -n 80 .wrangler/preview-run/preview.log .wrangler/preview/servers.log || true
 
-  # The merge queue's sweep: every page and state the change reaches, the stress accounts too, on every screen, light and dark, at 200% text,
+  # The merge queue's sweep: every page and state the change reaches, the stress accounts too, on the measured screens, in light, at 200% text,
   # every rule (npm run layout:check -- --sweep), skipping the pages whose fingerprint main measured already (--changed-only, from main's
   # cache). A page that sends forms or opens a hidden state is always measured. Each share's measured pages go up for Measured pages for
   # main, once this commit is main.
