@@ -177,12 +177,17 @@ export const GLASS_SCRIPT = `/* glass */(function () {
   }
   function drawWaiting(el) {
     var glint = el.querySelector(":scope > .waiting-glint");
-    // Done waiting, it fades out (is-leaving) and goes; waiting again before it has gone, it stays.
+    // Done waiting, its last glints slide out (is-leaving) and it goes; waiting again before they have, it carries on. Under reduced motion,
+    // nothing slides, so it goes at once.
     if (!isWaitingNow(el)) {
-      if (glint && !glint.classList.contains("is-leaving")) { glint.classList.add("is-leaving"); glint.leaveTimer = setTimeout(function () { glint.remove(); }, 400); }
+      if (glint && !glint.classList.contains("is-leaving")) {
+        if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) { glint.remove(); return; }
+        glint.classList.add("is-leaving");
+        glint.addEventListener("animationend", function gone(event) { if (event.animationName === "waiting-glint-leaves" && glint.classList.contains("is-leaving")) glint.remove(); });
+      }
       return;
     }
-    if (glint && glint.classList.contains("is-leaving")) { clearTimeout(glint.leaveTimer); glint.classList.remove("is-leaving"); }
+    if (glint && glint.classList.contains("is-leaving")) glint.classList.remove("is-leaving");
     if (!glint) { glint = document.createElement("span"); glint.className = "waiting-glint"; glint.setAttribute("aria-hidden", "true"); el.insertBefore(glint, el.firstChild); }
   }
   // What starts or ends something waiting (window.zaismaWait) puts the glint in or takes it out: the control pressed, the control its

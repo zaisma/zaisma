@@ -25,12 +25,17 @@ component({
    a new one comes in as the last leaves, narrow and at one steady pace, one pass in --waiting-glint-time. Under reduced motion one glint
    rests across the middle. */
 .waiting-glint { --waiting-glint: color-mix(in srgb, var(--glint) 70%, transparent); position: absolute; inset: 0; z-index: 6; overflow: hidden; pointer-events: none; clip-path: var(--cut-shape, none); container-type: size; }
-/* It fades in as the wait starts and out as it ends, never popping. */
-.waiting-glint { animation: waiting-glint-arrives var(--motion-arrive) ease-out; }
-.waiting-glint.is-leaving { opacity: 0; transition: opacity var(--motion-arrive) ease-in; }
-@keyframes waiting-glint-arrives { from { opacity: 0; } }
+/* It slides in and out with the glints themselves: as the wait starts, an edge crosses the face from the left at the glints' own pace and
+   lets them in behind it, so the first glint leads the others in; as it ends, an edge follows the last glints across, so none come in
+   behind and those on the face slide out to the right (is-leaving; the glass script takes it out once they have). */
+.waiting-glint { --waiting-glint-crossing: calc(var(--waiting-glint-time) * 100 / 84); -webkit-mask: linear-gradient(90deg, #000 0 47%, transparent 50% 100%) 0 0 / 200% 100% no-repeat; mask: linear-gradient(90deg, #000 0 47%, transparent 50% 100%) 0 0 / 200% 100% no-repeat; animation: waiting-glint-arrives var(--waiting-glint-crossing) linear; }
+.waiting-glint.is-leaving { -webkit-mask-image: linear-gradient(90deg, transparent 0 50%, #000 53% 100%); mask-image: linear-gradient(90deg, transparent 0 50%, #000 53% 100%); animation: waiting-glint-leaves var(--waiting-glint-crossing) linear forwards; }
+@keyframes waiting-glint-arrives { from { -webkit-mask-position: 100% 0; mask-position: 100% 0; } to { -webkit-mask-position: 0 0; mask-position: 0 0; } }
+@keyframes waiting-glint-leaves { from { -webkit-mask-position: 100% 0; mask-position: 100% 0; } to { -webkit-mask-position: 0 0; mask-position: 0 0; } }
 .lit > .waiting-glint, .lit .waiting-glint { --waiting-glint: color-mix(in srgb, var(--glint-warm) 55%, transparent); }
-.waiting-glint::before { content: ""; position: absolute; top: -20%; bottom: -20%; left: -40cqw; width: 240cqw;
+/* The stream reaches well past both ends of the face at every point of its loop, so no stretch of the face is ever without its glints, and
+   it starts with a glint just behind the edge that lets it in. */
+.waiting-glint::before { content: ""; position: absolute; top: -20%; bottom: -20%; left: calc(-138cqw - 40cqh); width: calc(340cqw + 80cqh);
   background: repeating-linear-gradient(90deg, transparent 0, transparent 30cqw, var(--waiting-glint) 42cqw, transparent 54cqw, transparent 84cqw);
   transform: skewX(-18deg); animation: waiting-glints var(--waiting-glint-time) linear infinite; }
 @keyframes waiting-glints { from { translate: 0 0; } to { translate: 84cqw 0; } }
@@ -46,6 +51,7 @@ component({
 @keyframes waiting-fills { from { --waiting-filled: 12%; } to { --waiting-filled: 90%; } }
 @media (prefers-reduced-motion: reduce) {
   .waiting-glint::before { animation: none; translate: 20cqw 0; }
+  .waiting-glint, .waiting-glint.is-leaving { -webkit-mask: none; mask: none; animation: none; }
   .glass-bar.is-waiting::after { --waiting-filled: 100%; animation: waiting-arrives 1ms forwards; }
 }
 `,
