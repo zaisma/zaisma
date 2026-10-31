@@ -6,7 +6,7 @@ import { PRESENCE_CHECK_IN_MS, describePlayModes, type PlayMode } from "@zaisma/
 import { gameFrameSource, type Env } from "./env.ts";
 import { pageScript, pageScriptPath, type PageScript } from "./page-scripts.ts";
 import { pageStyle, pageStylePath, type PageStyle } from "./page-styles.ts";
-import { COMPONENT_SCRIPT, COMPONENT_STYLES, HEADER_SCRIPT } from "./components/index.ts";
+import { COMPONENT_SCRIPT, COMPONENT_STYLES, FIRST_PAINT_SCRIPT, HEADER_SCRIPT } from "./components/index.ts";
 import { HEADER_TWO_ROWS_MEDIA, footer, header, rail, type HeaderTab } from "./components/navigation.ts";
 import type { ControlMarkup } from "./components/control-markup.ts";
 import { secondaryButton, primaryButton } from "./components/actions.ts";
@@ -20,9 +20,9 @@ import type { CheckedPageName } from "./components/checked-pages.ts";
 export const scriptTags = (...scripts: PageScript[]): Raw => raw(scripts.map((script) => `<script src="${pageScriptPath(script)}" defer></script>`).join(""));
 
 /**
- * The same, for the page's <head>, holding its first paint until they've run: a page whose look the scripts finish (the
- * components' cuts, their light and the backdrop) then never shows half-drawn for a frame as it loads. The browser fetches them
- * first, ahead of the page's other scripts, which would otherwise share the line with them as the first paint waits.
+ * The same, for the page's <head>, holding its first paint until they've run: only FIRST_PAINT_SCRIPT (components/index.ts), which draws
+ * the components' cuts and places the layout, so the page never shows half-drawn for a frame as it loads, and waits on nothing else. The
+ * browser fetches it first, ahead of the page's other scripts, which would otherwise share the line with it as the first paint waits.
  */
 export const headScriptTags = (...scripts: PageScript[]): Raw =>
   raw(scripts.map((script) => `<script src="${pageScriptPath(script)}" defer blocking="render" fetchpriority="high"></script>`).join(""));
@@ -687,7 +687,7 @@ ${themeColors}
 ${options.head ?? ""}
 <script src="${pageScriptPath(THEME_SCRIPT)}"></script>
 ${styleTags(sheet, ...(options.steelStyles ?? []))}
-${headScriptTags(COMPONENT_SCRIPT, HEADER_SCRIPT)}
+${headScriptTags(FIRST_PAINT_SCRIPT)}
 </head>
 <body>
 ${options.stage ?? backdrop()}
@@ -696,6 +696,7 @@ ${options.isBare
     : html`${siteHeader(env, { ...options, hasPageRunner: /class="[^"]*\brun-wrap\b/.test(options.body.html) })}
 <main${isRebuilt ? "" : raw(' class="steel" data-covers-backdrop')}>${options.action && !isRebuilt ? html`<div class="page-action">${options.action}</div>` : ""}${options.body}</main>
 ${siteFooter()}`}
+${scriptTags(COMPONENT_SCRIPT, HEADER_SCRIPT)}
 ${env.SUPABASE_URL && !options.isAdmin ? scriptTags(SITE_SCRIPT, PRESENCE_SCRIPT) : scriptTags(SITE_SCRIPT)}
 ${stylesAppliedTag()}
 </body>
@@ -703,7 +704,7 @@ ${stylesAppliedTag()}
   const isPrivate = options.isAdmin || options.isPrivate || Boolean(options.viewer?.account);
   // What the first paint waits for, named in a header too: Cloudflare's Early Hints sends it ahead while the page is still being made. The
   // styles-applied script holds the head scripts until it's here, so it comes with the stylesheet, not a trip after it.
-  const firstPaintFiles = `<${pageStylePath(sheet)}>; rel=preload; as=style, <${pageScriptPath(STYLES_APPLIED_SCRIPT)}>; rel=preload; as=script, <${pageScriptPath(COMPONENT_SCRIPT)}>; rel=preload; as=script, <${pageScriptPath(HEADER_SCRIPT)}>; rel=preload; as=script, <${FONT_PATH}>; rel=preload; as=font; type="font/woff2"; crossorigin`;
+  const firstPaintFiles = `<${pageStylePath(sheet)}>; rel=preload; as=style, <${pageScriptPath(STYLES_APPLIED_SCRIPT)}>; rel=preload; as=script, <${pageScriptPath(FIRST_PAINT_SCRIPT)}>; rel=preload; as=script, <${FONT_PATH}>; rel=preload; as=font; type="font/woff2"; crossorigin`;
   // A link to a game's page is fetched ahead as the pointer rests on it or presses it (SPECULATION_RULES), from the header, so no script is on the page.
   const extra: Record<string, string> = { Link: firstPaintFiles, "Speculation-Rules": `"${SPECULATION_RULES_PATH}"`, ...(isPrivate ? { "Cache-Control": "no-store" } : {}) };
   return new Response(page.html, { headers: securityHeaders(env, extra, options.hasTurnstileCheck, options.frames, options.formTargets, options.isFramedBySelf ? "'self'" : "'none'", options.hasStripePayments, options.hasStripeFrame) });

@@ -15,6 +15,7 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const BRAND = join(ROOT, "brand");
+const GENERATED = join(ROOT, "apps/site/src/generated");
 
 /* The drawing. */
 
@@ -389,9 +390,18 @@ const MANIFEST = `${JSON.stringify({
   ],
 }, null, 2)}\n`;
 
+/**
+ * The glass logo's SVGs as a module the site puts in its pages (components/icons.ts), so the first paint shows the logo without waiting
+ * on a file: the same text as the brand files.
+ */
+const logoModule = (svgs) =>
+  `// Made by scripts/brand.mjs with the glass logo's brand files: never edit it by hand.\nexport const GLASS_LOGO_SVGS = ${JSON.stringify(svgs, null, 2)} as const;\n`;
+
 /** Every text file: its name, the folder it goes in, and its text. */
 function textFiles() {
+  const logo = { wordmark: { black: drawingFile(WORDMARK_FILE_VIEW_BOX, wordmarkDrawing("black")), white: drawingFile(WORDMARK_FILE_VIEW_BOX, wordmarkDrawing("white")) }, mark: { black: drawingFile(MARK_FILE_VIEW_BOX, markDrawing("black")), white: drawingFile(MARK_FILE_VIEW_BOX, markDrawing("white")) } };
   return [
+    ["logo-svgs.generated.ts", GENERATED, logoModule(logo)],
     ["zaisma-mark-glass-black.svg", BRAND, drawingFile(MARK_FILE_VIEW_BOX, markDrawing("black"))],
     ["zaisma-mark-glass-white.svg", BRAND, drawingFile(MARK_FILE_VIEW_BOX, markDrawing("white"))],
     ["zaisma-wordmark-glass-black.svg", BRAND, drawingFile(WORDMARK_FILE_VIEW_BOX, wordmarkDrawing("black"))],
@@ -492,6 +502,6 @@ for (const [name, folder, text] of textFiles()) {
   const target = out ?? folder;
   mkdirSync(target, { recursive: true });
   writeFileSync(join(target, name), text);
-  if (!out) console.log(`brand/${name} (${Math.round(text.length / 1024)} KB)`);
+  if (!out) console.log(`${folder === BRAND ? "brand" : "apps/site/src/generated"}/${name} (${Math.round(text.length / 1024)} KB)`);
 }
 if (!args.includes("--svg-only")) await renderPictures();

@@ -169,7 +169,7 @@ const HEADER_STYLES = `
   .top { top: calc(var(--pad-pane) + env(safe-area-inset-top, 0px)); width: calc(100% - 2 * var(--pad-pane)); height: auto; display: grid; grid-template-columns: minmax(0, auto) minmax(0, 1fr) auto auto; align-items: center; gap: var(--gap-control-stack) 0; }
   /* Where the first row is tight (Sign in on a 320px phone), the logo gives way: it draws smaller in the room left, never pushing the row wider. */
   .top > .logo { grid-area: 1 / 1; min-width: 0; }
-  .top > .logo img { max-width: 100%; }
+  .top > .logo > svg { max-width: 100%; }
   .top > .find + .cut-btn { grid-area: 1 / 3; }
   .top > .end { grid-area: 1 / 4; }
   /* With a sidebar's button it's first in the first row, the logo beside it. */

@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { pageScript, type PageScript } from "../page-scripts.ts";
-import { MINIFIED_COMPONENT_SCRIPT } from "../generated/components-script.generated.ts";
+import { MINIFIED_COMPONENT_SCRIPT, MINIFIED_FIRST_PAINT_SCRIPT } from "../generated/components-script.generated.ts";
 import { COMPONENTS } from "./component.ts";
 import { BACKDROP_SCRIPT, EDGE_LIGHT_SCRIPT, GLASS_SCRIPT, PICTURE_SCRIPT, TOKEN_STYLES, WATCH_SCRIPT } from "./foundations.ts";
 import { BUSY_SCRIPT, RUNNER_SCRIPT, TOGGLE_SCRIPT } from "./actions.ts";
@@ -28,7 +28,7 @@ import "./city.ts";
 /*
  * The components, bundled for the pages: importing this module defines every one of them (each group file
  * registers its own as it loads), so COMPONENTS() is complete before the first request. Pages put
- * COMPONENT_STYLES() in their <style> and COMPONENT_SCRIPT (and HEADER_SCRIPT where the header is) in their scripts.
+ * COMPONENT_STYLES() in their <style>, FIRST_PAINT_SCRIPT in their head and COMPONENT_SCRIPT (and HEADER_SCRIPT where the header is) after.
  */
 
 export { COMPONENTS, COMPONENT_GROUPS, componentBySlug } from "./component.ts";
@@ -79,14 +79,21 @@ let shownStyles = "";
 /** The tokens, the materials (so a component's own rules come after them), then every component's CSS in gallery order, worked out once. */
 export const COMPONENT_STYLES = (): string => (shownStyles ||= hoverOnlyWherePointing(TOKEN_STYLES + MATERIAL_STYLES + COMPONENTS().map((each) => each.styles).join("")));
 
-/** The components' script, readable: what scripts/minify-components.mjs minifies. */
-export const COMPONENT_SCRIPT_SOURCE = WATCH_SCRIPT + PICTURE_SCRIPT + GLASS_SCRIPT + MATERIAL_SCRIPT + PLACE_SCRIPT + EDGE_LIGHT_SCRIPT + BACKDROP_SCRIPT + FIELD_SCRIPT + PIN_FIELD_SCRIPT + SWITCH_SCRIPT + RUNNER_SCRIPT + BUSY_SCRIPT + TOGGLE_SCRIPT + CHECK_SCRIPT + CHOICE_CARDS_SCRIPT + WHEEL_SCRIPT + FILE_DROP_SCRIPT + COPY_SCRIPT + CHART_SCRIPT + QR_CODE_SCRIPT + LONG_FIELD_SCRIPT + SLIDER_SCRIPT + COLOR_FIELD_SCRIPT + SELECT_SCRIPT + SEARCH_SCRIPT + DROPDOWN_SCRIPT + FILTER_MENU_SCRIPT + LAYERS_SCRIPT + STARTED_LOW_SCRIPT + STEP_FLOW_SCRIPT + CONFIRM_ITS_YOU_SCRIPT + RAIL_SCRIPT + ROW_SCRIPT + ROW_LAYOUT_SCRIPT + SCROLL_FADE_SCRIPT + SIDEBAR_SCRIPT + COMPACT_SCRIPT + LOAD_MORE_SCRIPT + PLAYING_CARD_SCRIPT + LIST_ROW_FOLD_SCRIPT;
+/**
+ * The components' scripts, readable, in two (what scripts/minify-components.mjs minifies). The first-paint script draws and places what the
+ * page's first paint shows: the page watcher, pictures arriving, the glass and its edge rule, the materials, where panes hang, and every
+ * script that sizes or places the layout (a switch's slab, rails, rows, fades, the sidebar, compacting). The page holds its first paint for
+ * it alone, in its head ("A page shows whole while it loads", docs/DESIGN.md), so it's kept to that; the loading check (layout-check.mjs)
+ * fails a page that changes when the rest is held back, which is how a script is found to belong here. The rest runs after, holding nothing.
+ */
+export const FIRST_PAINT_SCRIPT_SOURCE = WATCH_SCRIPT + PICTURE_SCRIPT + GLASS_SCRIPT + MATERIAL_SCRIPT + PLACE_SCRIPT + EDGE_LIGHT_SCRIPT + SWITCH_SCRIPT + RAIL_SCRIPT + ROW_LAYOUT_SCRIPT + SCROLL_FADE_SCRIPT + SIDEBAR_SCRIPT + COMPACT_SCRIPT;
+export const COMPONENT_SCRIPT_SOURCE = BACKDROP_SCRIPT + FIELD_SCRIPT + PIN_FIELD_SCRIPT + RUNNER_SCRIPT + BUSY_SCRIPT + TOGGLE_SCRIPT + CHECK_SCRIPT + CHOICE_CARDS_SCRIPT + WHEEL_SCRIPT + FILE_DROP_SCRIPT + COPY_SCRIPT + CHART_SCRIPT + QR_CODE_SCRIPT + LONG_FIELD_SCRIPT + SLIDER_SCRIPT + COLOR_FIELD_SCRIPT + SELECT_SCRIPT + SEARCH_SCRIPT + DROPDOWN_SCRIPT + FILTER_MENU_SCRIPT + LAYERS_SCRIPT + STARTED_LOW_SCRIPT + STEP_FLOW_SCRIPT + CONFIRM_ITS_YOU_SCRIPT + ROW_SCRIPT + LOAD_MORE_SCRIPT + PLAYING_CARD_SCRIPT + LIST_ROW_FOLD_SCRIPT;
 
 /**
- * The script pages load: the minified one, unless it was made from an older source (a script changed and npm run components:minify wasn't
+ * The scripts pages load: the minified ones, unless one was made from an older source (a script changed and npm run components:minify wasn't
  * run), when the readable one is served instead, so a page never gets a stale script.
  */
-export const COMPONENT_SCRIPT: PageScript = pageScript(
-  "components",
-  MINIFIED_COMPONENT_SCRIPT.sourceSha256 === createHash("sha256").update(COMPONENT_SCRIPT_SOURCE).digest("hex") ? MINIFIED_COMPONENT_SCRIPT.minifiedText : COMPONENT_SCRIPT_SOURCE,
-);
+const minifiedOr = (minified: { sourceSha256: string; minifiedText: string }, source: string) =>
+  minified.sourceSha256 === createHash("sha256").update(source).digest("hex") ? minified.minifiedText : source;
+export const FIRST_PAINT_SCRIPT: PageScript = pageScript("first-paint", minifiedOr(MINIFIED_FIRST_PAINT_SCRIPT, FIRST_PAINT_SCRIPT_SOURCE));
+export const COMPONENT_SCRIPT: PageScript = pageScript("components", minifiedOr(MINIFIED_COMPONENT_SCRIPT, COMPONENT_SCRIPT_SOURCE));

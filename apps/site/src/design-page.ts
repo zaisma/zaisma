@@ -7,7 +7,7 @@ import { pageScript, type PageScript } from "./page-scripts.ts";
 import { SCREENS_PATH, SCREENS_SCRIPT, isSitePath, screenNamesOf, screensPane, screensPicker } from "./components/screens.ts";
 import { CHECKED_PAGES, galleryPageName, type CheckedPageName } from "./components/checked-pages.ts";
 import { COMPONENT_GROUPS, COMPONENT_SUBGROUPS, GALLERY_PLACES, galleryPagePath, subgroupsOf, type Component, type ComponentGroup, type GalleryPlace } from "./components/component.ts";
-import { COMPONENTS, COMPONENT_SCRIPT, COMPONENT_STYLES, HEADER_SCRIPT } from "./components/index.ts";
+import { COMPONENTS, COMPONENT_SCRIPT, COMPONENT_STYLES, FIRST_PAINT_SCRIPT, HEADER_SCRIPT } from "./components/index.ts";
 import { EDGE, STAND_IN_BACKGROUNDS_SCRIPT, backdrop, logo, pageSettingsAttributes, railMarkup } from "./components/foundations.ts";
 import { secondaryButton, primaryButton, textLink } from "./components/actions.ts";
 import { SEARCH_STAND_IN, cutField } from "./components/inputs.ts";
@@ -87,7 +87,7 @@ function head(title: string, group: ComponentGroup, scripts: PageScript[] = []):
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="preload" href="/fonts/jost.7726a5cd.woff2" as="font" type="font/woff2" crossorigin>
 ${styleTags(DESIGN_STYLE)}
-${headScriptTags(COMPONENT_SCRIPT, HEADER_SCRIPT, GALLERY_SCRIPT, DESIGN_LOOPS_SCRIPT)}${group === "foundations" ? scriptTags(CITY_SCRIPT) : ""}${group === "foundations" || group === "actions" || group === "panes" ? scriptTags(STAND_IN_BACKGROUNDS_SCRIPT) : ""}${group === "layout" ? scriptTags(SCREENS_SCRIPT) : ""}${scripts.length ? scriptTags(...scripts) : ""}`;
+${headScriptTags(FIRST_PAINT_SCRIPT)}${scriptTags(COMPONENT_SCRIPT, HEADER_SCRIPT, GALLERY_SCRIPT, DESIGN_LOOPS_SCRIPT)}${group === "foundations" ? scriptTags(CITY_SCRIPT) : ""}${group === "foundations" || group === "actions" || group === "panes" ? scriptTags(STAND_IN_BACKGROUNDS_SCRIPT) : ""}${group === "layout" ? scriptTags(SCREENS_SCRIPT) : ""}${scripts.length ? scriptTags(...scripts) : ""}`;
 }
 
 /** GET /design and /design/<group>: one group of the gallery, its components in every state. */

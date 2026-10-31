@@ -162,6 +162,11 @@ export const BARE_GROUPS_STYLES = `
  */
 export const TOKEN_STYLES = `
 @font-face { font-family: Jost; src: url(/fonts/jost.7726a5cd.woff2) format("woff2"); font-weight: 100 900; font-display: swap; }
+/* Until Jost arrives, words show in Arial sized and set to take Jost's room: the same width at each weight the pages use (size-adjust,
+   measured on a long line of mixed words) and Jost's ascent and descent (1.07 and 0.38 of its size), so the swap moves nothing. */
+@font-face { font-family: "Jost fallback"; src: local("Arial"), local("ArialMT"); font-weight: 100 450; size-adjust: 95.3%; ascent-override: 112.3%; descent-override: 39.9%; line-gap-override: 0%; }
+@font-face { font-family: "Jost fallback"; src: local("Arial"), local("ArialMT"); font-weight: 451 550; size-adjust: 99.6%; ascent-override: 107.4%; descent-override: 38.2%; line-gap-override: 0%; }
+@font-face { font-family: "Jost fallback"; src: local("Arial Bold"), local("Arial-BoldMT"); font-weight: 551 900; size-adjust: 96.9%; ascent-override: 110.4%; descent-override: 39.2%; line-gap-override: 0%; }
 @property --refl { syntax: "<percentage>"; inherits: false; initial-value: 50%; }
 @property --tint-color { syntax: "<color>"; inherits: false; initial-value: transparent; }
 @property --tint-pct { syntax: "<percentage>"; inherits: false; initial-value: 0%; }
@@ -234,7 +239,7 @@ html { -webkit-tap-highlight-color: transparent; }
   --glass-transition: --glass-shown-tint var(--motion-glide) ease, color var(--motion-arrive) ease;
   /* The glass's hue (PageSettings' glass.hueColor): tints every piece of glass under where it's set. Glass tinted for a brand keeps its own color. */
   --glass-hue: transparent;
-  --display: "Jost", Futura, "Century Gothic", "Avenir Next", sans-serif;
+  --display: "Jost", "Jost fallback", Futura, "Century Gothic", "Avenir Next", sans-serif;
   --body: -apple-system, "Segoe UI", system-ui, sans-serif;
   /* Motion (materials.ts), one set for everything: how long a press takes to sink, a state to fade, a layer to arrive or leave, a slab to
      glide, a flare to settle and a light to loop; and the curves they take. Nothing else times itself. */

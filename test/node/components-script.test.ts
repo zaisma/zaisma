@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { Script } from "node:vm";
 import { describe, expect, it } from "vitest";
-import { COMPONENT_SCRIPT, COMPONENT_SCRIPT_SOURCE, COMPONENT_STYLES } from "../../apps/site/src/components/index.ts";
+import { COMPONENT_SCRIPT, COMPONENT_SCRIPT_SOURCE, COMPONENT_STYLES, FIRST_PAINT_SCRIPT, FIRST_PAINT_SCRIPT_SOURCE } from "../../apps/site/src/components/index.ts";
 // @ts-expect-error plain JavaScript without type declarations
 import { GENERATED_PATH, minifiedModuleSource } from "../../scripts/minify-components.mjs";
 
@@ -30,7 +30,7 @@ describe("the components' script", () => {
 
   it("shows a focus ring only for the keyboard: no component's style rings on plain :focus or :focus-within, and a sheet opened by a press takes the focus itself", () => {
     expect(COMPONENT_STYLES().match(/:focus(?![-\w])|:focus-within/g) ?? []).toEqual([]);
-    expect(COMPONENT_SCRIPT.sourceText).toContain("zaismaInput");
+    expect(FIRST_PAINT_SCRIPT.sourceText).toContain("zaismaInput");
     expect(COMPONENT_SCRIPT_SOURCE).toContain("function focusSheet");
   });
 });

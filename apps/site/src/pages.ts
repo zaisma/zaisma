@@ -341,10 +341,14 @@ export function gamePageResponse(env: Env, view: GamePageView): Response {
   const addOns = view.items.filter((gameItem) => gameItem.is_on_game_page && gameItem.item_name !== game.full_game_item_name && (gameItem.price_minor_units !== null || isOwned(gameItem)));
   // The pane's actions: Play (the page's one orange), or Buy for a paid game the viewer doesn't own; Details down to About, a paid
   // game's demo or a demo's full game, Share and Report.
+  // A guest is asked to sign in from the first paint, never by a script after it: the note says how, and where the game (or the room a link
+  // opens) needs an account, Play says so (ACCOUNT_GATE_SCRIPT only sends the press to sign in).
+  const asksGuestToSignIn = !view.viewer.account && accountRequirement !== "none" && !isForSale;
+  const playsAfterSignIn = asksGuestToSignIn && (accountRequirement === "whole_game" || inRoom);
   const mainAction = isClosed
     ? []
     : !isForSale
-      ? [{ kind: "control" as const, markup: primaryButton("Play", { id: "play", type: "button", isBig: true, isFullWidth: true, icon: "play" }) }]
+      ? [{ kind: "control" as const, markup: primaryButton(playsAfterSignIn ? "Sign in to play" : "Play", { id: "play", type: "button", isBig: true, isFullWidth: true, icon: "play" }) }]
       : fullGamePrice
         ? [{ kind: "control" as const, markup: primaryButton("Buy", { id: "buy-game", type: "button", isBig: true, isFullWidth: true, icon: "cart", trailingText: priceText(fullGamePrice.currencyCode, fullGamePrice.priceMinorUnits), dataAttributes: { "buy-item": game.full_game_item_name! } }) }]
         : [{ kind: "control" as const, markup: primaryButton("Not on sale right now", { id: "buy-game", type: "button", isBig: true, isFullWidth: true, isDisabled: true }) }];
@@ -370,7 +374,7 @@ export function gamePageResponse(env: Env, view: GamePageView): Response {
   });
   // A paid game's Buy says what's needed, and the buy sheet makes the account.
   const accountNote = accountRequirement !== "none" && !isClosed && game.full_game_item_name === null
-    ? html`<p id="account-note">${accountRequirement === "whole_game" ? "Needs a Zaisma account" : "Playing online needs a Zaisma account"}<span id="account-ask" hidden>. ${textLink("Make one free", `/join?next=${accountNext}`)} or ${textLink("sign in", `/signin?next=${accountNext}`)}${accountRequirement === "whole_game" ? " to play" : " to play with others"}</span>.</p>`
+    ? html`<p id="account-note">${accountRequirement === "whole_game" ? "Needs a Zaisma account" : "Playing online needs a Zaisma account"}<span id="account-ask"${asksGuestToSignIn ? "" : raw(" hidden")}>. ${textLink("Make one free", `/join?next=${accountNext}`)} or ${textLink("sign in", `/signin?next=${accountNext}`)}${accountRequirement === "whole_game" ? " to play" : " to play with others"}</span>.</p>`
     : null;
   const gamePane = glassPane({
     paneWidth: "fit",
@@ -1420,21 +1424,16 @@ addEventListener("pagehide", () => {
 
 /**
  * The game page's script for a game that needs an account: a guest (no zaisma_in cookie) sees how to
- * sign in, and for a whole game, or a room link, Play becomes "Sign in to play". Sets needsSignIn for
+ * sign in (the page says so from its first paint), and for a whole game, or a room link, Play goes to sign in. Sets needsSignIn for
  * autoplay. Rooms refuse guests' passes either way; this is only so honest players never start a game
  * that turns them away.
  */
 const ACCOUNT_GATE_SCRIPT = pageScript("account-gate", `// Guests are asked to sign in first, and come back to the same page or match.
 const needsSignIn = !/(^|; )(__Host-)?zaisma_in=1/.test(document.cookie);
-if (needsSignIn) {
-  // A paid game says no "Needs a Zaisma account" (its Buy makes one), so a tester link to it has no ask to show.
-  const accountAsk = document.getElementById("account-ask");
-  if (accountAsk) accountAsk.hidden = false;
-  if (gamePage.account_requirement === "whole_game" || gamePage.room_code) {
-    const playButton = document.getElementById("play");
-    playButton.querySelector(".face > span:not([class])").textContent = "Sign in to play";
-    playButton.onclick = () => { location.href = gamePage.sign_in_url; };
-  }
+// The page already says so (gamePage in pages.ts): Play reads "Sign in to play" and the note says how. A press goes to sign in.
+if (needsSignIn && (gamePage.account_requirement === "whole_game" || gamePage.room_code)) {
+  const playButton = document.getElementById("play");
+  if (playButton) playButton.onclick = () => { location.href = gamePage.sign_in_url; };
 }`);
 
 /**

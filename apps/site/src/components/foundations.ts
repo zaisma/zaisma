@@ -768,18 +768,18 @@ component({
   subgroup: "pictures",
   summary: "Zaisma's logo, always a link home: the wordmark at the top of a page, the mark alone in the footer. Julius's Z in glass, black on light glass and white on smoked, never orange and never restyled.",
   styles: `
-/* The logo: the glass file for the glass it's on, its glass --logo-height tall (a bar sets it as it slims). Each file has room round the
+/* The logo: the glass drawing for the glass it's on, its glass --logo-height tall (a bar sets it as it slims). Each file has room round the
    glass for its shadow (--logo-file-share: the file's height over the glass's, from scripts/brand.mjs), which falls outside the logo's box. */
 .logo { display: flex; align-items: center; flex: none; padding: 6px 2px; }
 .logo .on-light { display: var(--on-light); }
 .logo .on-smoked { display: var(--on-smoked); }
 .logo.wordmark { --logo-height: 26px; --logo-file-share: 1.1608; }
 .logo.mark { --logo-height: 17px; --logo-file-share: 1.2047; padding: 0; }
-.logo img { height: calc(var(--logo-height) * var(--logo-file-share)); width: auto; margin-block: calc(var(--logo-height) * (1 - var(--logo-file-share)) / 2); transition: height var(--motion-glide) var(--ease-glide), margin var(--motion-glide) var(--ease-glide); }
+.logo > svg { height: calc(var(--logo-height) * var(--logo-file-share)); width: auto; margin-block: calc(var(--logo-height) * (1 - var(--logo-file-share)) / 2); transition: height var(--motion-glide) var(--ease-glide), margin var(--motion-glide) var(--ease-glide); }
 .logo:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 /* On a touch screen it's a control's height to press, whatever its size. */
 @media (pointer: coarse) { .logo { position: relative; } .logo::before { content: ""; position: absolute; inset: min(0px, calc((var(--touch-target) - 100%) / -2)) 0; } }
-@media (prefers-reduced-motion: reduce) { .logo img { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .logo > svg { transition: none; } }
 `,
   render: logo,
   examples: [
