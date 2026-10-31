@@ -404,10 +404,12 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
   document.querySelectorAll(".layout-row").forEach(function (row) {
     if (!isShown(row)) return;
     var cells = Array.prototype.filter.call(row.querySelectorAll(":scope > .row-cell.is-control"), function (cell) { return isShown(cell) && cell.querySelector("[data-cut-line]"); });
+    // A field's place is its box: its label stands above it, and a row on field boxes lines the boxes up (layout.ts).
+    var placeOf = function (cell) { return (cell.querySelector(":scope > .cut-field > .field") || cell).getBoundingClientRect(); };
     cells.forEach(function (cell, i) {
-      var a = cell.getBoundingClientRect(), control = cell.querySelector("[data-cut-line]");
+      var a = placeOf(cell), control = cell.querySelector("[data-cut-line]");
       cells.slice(i + 1).forEach(function (other) {
-        var b = other.getBoundingClientRect(), isSameLine = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 0;
+        var b = placeOf(other), isSameLine = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 0;
         if (!isSameLine) return;
         if (Math.abs(a.top - b.top) > 1) report("controls in one row not on one line", control, round(a.top - b.top) + "px off " + describe(other.querySelector("[data-cut-line]")));
       });
@@ -419,7 +421,7 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
       var control = end.querySelector("[data-cut-line]"), pane = end.closest("[data-glass]:not([data-cut-line])");
       // A tertiary button in a corner is words: it keeps the pane's margin, which the words' check measures.
       if (!control || !pane || !isShown(control) || end.classList.contains("is-words")) return;
-      var holder = pane.querySelector(":scope > .pane-in, :scope > .sheet-in") || pane, css = getComputedStyle(holder), r = control.getBoundingClientRect(), p = pane.getBoundingClientRect();
+      var holder = pane.querySelector(":scope > .pane-in, :scope > .sheet-in, :scope > .playing-card-in, :scope > .sidebar-scroll") || pane, css = getComputedStyle(holder), r = control.getBoundingClientRect(), p = pane.getBoundingClientRect();
       var away = place[1] === "top" ? r.top - p.top : p.bottom - r.bottom, side = p.right - r.right;
       var expected = { top: parseFloat(css.paddingTop), bottom: parseFloat(css.paddingBottom), right: parseFloat(css.paddingRight) };
       // A task sheet's head drops its title and Close to the pane's words margin (--head-drop): its corner is that far further in.

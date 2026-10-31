@@ -444,7 +444,7 @@ component({
 .copy-field:not(.is-code) .well:active .well-end > .tertiary-btn > .face { --face-color: var(--wash-press); }
 /* Code: all of it in code's letters, wrapping onto more lines rather than hiding any; one long token (a key) breaks at a line's end. Only
    its first line keeps clear of Copy; the lines under it run the well's whole width, each as tall as Copy's half and the gap round it. */
-.copy-field.is-code .well { align-items: stretch; }
+.copy-field.is-code .well { align-items: stretch; min-height: var(--control-height-field); }
 .copy-field.is-code .copy-field-text { display: block; font: 500 0.9375rem/1.5rem ui-monospace, Menlo, monospace; overflow-wrap: anywhere; cursor: text; }
 .copy-field.is-code .copy-field-text::before { content: "\\200b"; float: right; width: max(0px, var(--control-height-small) + var(--well-inset) - var(--pad-inside-words) + var(--gap-words-words)); }
 /* A command's parts each stay whole, so it breaks only at its spaces; a part longer than a line breaks within itself. */

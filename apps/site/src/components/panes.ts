@@ -882,7 +882,7 @@ component({
    only tints, so the filter costs it no blur; over a game's world it blurs, which a filter round it would stop, so it casts none. */
 .floating-pane.in-place:not(:is(.backdrop-frame, .header-frame) *) { filter: var(--float-cast); }
 /* One as wide as what's in it (a menu) hangs under its anchor inside what holds it (zaismaFloat's hang). */
-.floating-pane.placed-under.in-place.is-hanging { position: absolute; z-index: 6; width: max-content; }
+.floating-pane.placed-under.in-place.is-hanging { position: absolute; z-index: 6; width: max-content; max-width: 100%; }
 .floating-pane.placed-over.in-place { z-index: 6; width: max-content; max-width: 100%; margin-top: calc(-1 * (var(--gap-words-control) + var(--control-height-field) / 2 + var(--line-from-top, 0px))); }
 :has(> .floating-pane.placed-over.in-place) { filter: var(--float-cast); }
 :has(> .floating-pane.placed-over.in-place) > :not(.floating-pane, input) { visibility: hidden; }
@@ -922,7 +922,7 @@ component({
       isWide: true,
       markup: html`<div class="backdrop-frame holds-menus">${backdrop({ isFramed: true, standInSlug: "neon-drift", isGlassAdaptive: true })}<div class="dropdown-frame">${glassPane({
         paneWidth: "full",
-        body: row({ widths: "fit", items: [control(secondaryButton("Sort", { type: "button", controls: "example-menu-world-try", isExpanded: false })), control(secondaryButton("Your account", { type: "button", controls: "example-menu-world", isExpanded: true }))] }),
+        body: row({ widths: "fit", alignment: "between", items: [control(secondaryButton("Sort", { type: "button", controls: "example-menu-world-try", isExpanded: false })), control(secondaryButton("Your account", { type: "button", controls: "example-menu-world", isExpanded: true }))] }),
       })}${dropdown({ id: "example-menu-world-try", label: "Sort games", items: [{ label: "Most played", href: "#dropdown", isCurrent: true }, { label: "Newest", href: "#dropdown" }, { label: "Recently updated", href: "#dropdown" }] })}${dropdown({ id: "example-menu-world", label: "Your account", head: { title: "emma_r", note: "Online" }, items: ACCOUNT_ITEMS, isOpen: true })}</div></div>`,
     },
     { label: "Your account, from its button", markup: dropdownFrame("Your account", { id: "example-menu-account", label: "Your account", head: { title: "emma_r", note: "Online" }, items: ACCOUNT_ITEMS }) },
@@ -1496,6 +1496,8 @@ component({
 /* Over a game, what went wrong is two short lines under the item, read at a glance: no mark, no room around it. */
 .sheet.placement-corner .state-note.problem { justify-items: stretch; padding: 0; text-align: start; }
 .sheet.placement-corner .state-note.problem > .ico { display: none; }
+/* Its words keep the words margin once, from the note's own words box: its lines take none of their own. */
+.sheet.placement-corner .state-note.problem > .state-words > p { padding-inline: 0; }
 /* On a short screen the large cover is shorter, its art still covering it, so the item's words and Buy have room. */
 @media (max-height: 52em) { .sheet:not(.in-place) .store-cover.is-large { max-height: min(9rem, 30dvh); } }
 `,

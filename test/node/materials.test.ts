@@ -196,6 +196,7 @@ const NOT_MADE_OF_MATERIALS = new Map<string, string>([
   // Named caps (materials.ts, Caps and scrolls).
   [".sheet:not(.in-place) .store-cover.is-large | max-height", "a store panel's large cover is shorter on a short screen, so Buy keeps its room"],
   [".stripe-frame | height", "as tall as what Stripe draws in it, which its script says"],
+  [".copy-field.is-code .well | min-height", "a code's well is at least a field's height, so Copy fits in it at any text size"],
   [".large-icon | padding-block", "a pane's key icon has a block's room above and below it"],
   [".floating-pane.dropdown .dropdown-head + .divider | margin-top", "a dropdown's head stands a control's gap from the rule under it"],
   [".floating-pane.dropdown[data-edge-light=\"left\"] > .edge-light::after | background", "a dropdown's edge light floods in from its left edge and fades"],

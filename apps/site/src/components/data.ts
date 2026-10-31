@@ -232,6 +232,8 @@ component({
 .tag.is-removable > .ico { width: 12px; height: 12px; stroke-width: 2; }
 .tag.is-removable:hover { color: var(--ink); }
 .tag.is-removable:focus-visible { outline: none; box-shadow: var(--tag-carve), inset 0 0 0 2px var(--focus); }
+/* On a touch screen its remove press reaches past its own box to a touch target's height, unseen, as a small button's does. */
+@media (pointer: coarse) { .tag.is-removable { position: relative; } .tag.is-removable::after { content: ""; position: absolute; left: 0; right: 0; top: min(0px, calc((100% - var(--touch-target)) / 2)); bottom: min(0px, calc((100% - var(--touch-target)) / 2)); } }
 .tags-in-use { display: flex; flex-wrap: wrap; gap: var(--gap-words-words); }
 `,
   render: (words: string | number, tone: TagTone, options?: { icon?: IconName }) => tag(words, tone, options),

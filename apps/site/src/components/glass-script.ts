@@ -371,6 +371,7 @@ export const GLASS_SCRIPT = `/* glass */(function () {
   var rootCss = getComputedStyle(document.documentElement), token = function (name, fallback) { return parseFloat(rootCss.getPropertyValue(name)) || fallback; };
   var SLANT_PX = token("--control-slant", 10), ROW_GAP_PX = token("--gap-control-row", 4), STACK_GAP_PX = token("--gap-control-stack", 8);
   // Neighbors side by side overlap their boxes by the slant less the row's gap (half a pixel either way, for gaps a layout rounds).
+  var LEAST_BEVEL_PX = 4;
   var BESIDE_MIN_PX = ROW_GAP_PX - SLANT_PX - 0.5, BESIDE_MAX_PX = ROW_GAP_PX - SLANT_PX + 0.5, LONE_CORNERS = [16, 8, 16, 8];
   // A corner's cut shorter than this is square: what's left of a pane's cut just past its reach can't be seen, and an outline or band drawn
   // inside a cut that small turns it inside out, which a wide line (keyboard focus) draws as a spike.
@@ -423,7 +424,9 @@ export const GLASS_SCRIPT = `/* glass */(function () {
     var most = Math.max(w, h) < 3 * Math.min(w, h) ? Math.min(w, h) * 0.5 : Infinity;
     return [[left, top], [right, top], [right, bottom], [left, bottom]].map(function (gaps, i) {
       var sum = Math.max(0, gaps[0]) + Math.max(0, gaps[1]);
-      return Math.min(most, Math.max(0, (c[i] || 0) - sum + Math.SQRT2 * sum / 2));
+      // A corner it does take is never under the least bevel that reads as cut (4px), however small its holder's own cut (a notice's strip).
+      var cut = Math.max(0, (c[i] || 0) - sum + Math.SQRT2 * sum / 2);
+      return Math.min(most, cut > 0 ? Math.max(LEAST_BEVEL_PX, cut) : 0);
     });
   }
   // Which ends have another control right beside them. data-cut-beside="start", "end", "start end" or "" says so instead (a switch's

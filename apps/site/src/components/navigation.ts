@@ -147,6 +147,8 @@ const HEADER_STYLES = `
 .nav { display: flex; flex: none; min-width: 0; }
 .top .nav[hidden] { display: none; }
 .nav > .switch-well { flex: 1; }
+/* The header's tabs are a regular control's height, as the search and the account button beside them: no row sets their well's, so it's set here. */
+.top .nav .switch-well { --control-height: var(--control-height-regular); }
 
 .end { display: flex; align-items: center; flex: none; }
 
@@ -1688,7 +1690,7 @@ component({
   styles: `
 /* A Filter menu: a Dropdown whose rows each open a group's choices in its place (a group's row ends in what's picked and a chevron),
    and whose group's choices start with the way back. It's at least wide enough for its longest group and what's picked in it. */
-.floating-pane.filter-menu { min-width: min(15rem, calc(100vw - 2 * var(--pad-frame))); }
+.floating-pane.filter-menu { min-width: min(15rem, 100%, calc(100vw - 2 * var(--pad-frame))); }
 .filter-panel[hidden] { display: none; }
 .filter-group > .filter-picked { margin-left: auto; color: var(--muted); font: var(--type-facts); }
 .filter-group > .ico:last-child, .filter-back > .ico { flex: none; width: 12px; height: 12px; }
