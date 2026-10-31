@@ -674,10 +674,10 @@ export const FIRST_PAINT_SNAPSHOT_SOURCE = String.raw`(function () {
     var words = Array.prototype.filter.call(el.childNodes, function (node) { return node.nodeType === 3; }).map(function (node) { return node.textContent; }).join("").replace(/\s+/g, " ").trim();
     shown.push({ el: el, left: r.left + scrollX, top: r.top + scrollY, width: r.width, height: r.height, words: words });
   });
-  // Pictures: each img in a Picture's box with its placeholder, or a backdrop with its placeholder layer under it. A QR code is a drawn
-  // code, not a picture.
+  // Pictures: each img in a Picture's box with its placeholder, or a backdrop with its placeholder layer under it. A QR code and the icon
+  // drawn in it are a drawn code, not a picture, and a file being chosen is the player's own.
   var bare = Array.prototype.filter.call(document.body.querySelectorAll("img"), function (img) {
-    if (img.matches(".qr-picture") || img.closest("[hidden], dialog:not([open])")) return false;
+    if (img.matches(".qr-picture, .qr-icon, .file-drop-view") || img.closest("[hidden], dialog:not([open])")) return false;
     var box = img.parentElement;
     if (box && box.classList.contains("picture") && /--placeholder\s*:/.test(box.getAttribute("style") || "")) return false;
     if (img.matches(".backdrop") && img.previousElementSibling && img.previousElementSibling.matches(".backdrop-placeholder")) return false;

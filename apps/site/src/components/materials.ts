@@ -374,10 +374,11 @@ span.hairline { flex: 1; border-top: var(--divider); }
 /* Waiting: a state of the glass, never of a component. Whatever was pressed and waits on this page (aria-busy="true" on it, set by
    window.zaismaWait, or on the input of a switch or a check) keeps its pressed look, sunk, and after --waiting-delay its own edge runs the
    waiting light: the light of Loading state and Progress (--waiting-light), along the cut line the edge rule draws round it, whatever its
-   cut. A quick answer shows only the press. Under reduced motion the edge glows, still. A screen reader hears what it's doing
+   cut; a piece made of several (a PIN's marks) marks the parts whose edges light (data-waits-here). A quick answer shows only the press.
+   Under reduced motion the edge glows, still. A screen reader hears what it's doing
    (.when-waiting, a busy label), and its words on screen stay as they were. */
 .cut-line > .waiting-line { fill: none; stroke: none; }
-:is([aria-busy="true"], :has(> input[aria-busy="true"])) > .cut-line > .waiting-line, [aria-busy="true"] > [data-cut-line] > .cut-line > .waiting-line {
+:is([aria-busy="true"], :has(> input[aria-busy="true"])) > .cut-line > .waiting-line, [aria-busy="true"] > [data-cut-line] > .cut-line > .waiting-line, [aria-busy="true"] [data-waits-here] > .cut-line > .waiting-line {
   stroke: var(--waiting-light); stroke-width: var(--waiting-light-width); stroke-linecap: round; stroke-dasharray: 22 78; opacity: 0;
   animation: waiting-arrives 1ms var(--waiting-delay) forwards, waiting-runs var(--motion-loop) var(--ease-standard) var(--waiting-delay) infinite; }
 @keyframes waiting-arrives { to { opacity: 1; } }
@@ -385,7 +386,7 @@ span.hairline { flex: 1; border-top: var(--divider); }
 [aria-busy="true"] { cursor: progress; }
 .when-waiting:not([aria-busy="true"] .when-waiting) { display: none; }
 @media (prefers-reduced-motion: reduce) {
-  :is([aria-busy="true"], :has(> input[aria-busy="true"])) > .cut-line > .waiting-line, [aria-busy="true"] > [data-cut-line] > .cut-line > .waiting-line { stroke-dasharray: none; animation: waiting-arrives 1ms var(--waiting-delay) forwards; }
+  :is([aria-busy="true"], :has(> input[aria-busy="true"])) > .cut-line > .waiting-line, [aria-busy="true"] > [data-cut-line] > .cut-line > .waiting-line, [aria-busy="true"] [data-waits-here] > .cut-line > .waiting-line { stroke-dasharray: none; animation: waiting-arrives 1ms var(--waiting-delay) forwards; }
 }
 /* A bar of glass waiting on a new page (the header, its is-waiting from HEADER_SCRIPT): the waiting light runs along its lower edge, as
    a Loading state's runs along its line, after --waiting-delay, so a page that comes at once shows nothing. Under reduced motion it rests. */

@@ -1,6 +1,6 @@
-import { AGE_BAND_FLOOR_YEARS, KEPT_PLAYED_GAME_COUNT, NOT_BLOCKED_IN_COUNTRY_SQL, SHOWN_IN_LISTS_SQL, requestCountryCode, gameBySlug, mergePlayed, priceFor, priceText, readPlayModes, recentlyPlayed, recordPlayed, type Account, type Game, type LocalPrice, type MultiplayerMode } from "@zaisma/core";
+import { type DeviceKind, AGE_BAND_FLOOR_YEARS, KEPT_PLAYED_GAME_COUNT, NOT_BLOCKED_IN_COUNTRY_SQL, SHOWN_IN_LISTS_SQL, requestCountryCode, gameBySlug, mergePlayed, priceFor, priceText, readPlayModes, recentlyPlayed, recordPlayed, type Account, type Game, type LocalPrice, type MultiplayerMode } from "@zaisma/core";
 import { isProtectionOfferDue, markProtectionOffered, protectAccountWindow } from "./account-protection.ts";
-import { currentSession } from "./auth.ts";
+import { currentSession, readCookie } from "./auth.ts";
 import type { Env } from "./env.ts";
 import { backgroundsOfGames, type ShownBackground } from "./backgrounds.ts";
 import { tertiaryButton } from "./components/actions.ts";
@@ -12,9 +12,10 @@ import { banner, gameCard, type GameCardOptions } from "./components/panes.ts";
 import { currentAnnouncement } from "./announcements.ts";
 import { shownAddress } from "./markup.ts";
 import { esc, html, layout, pageData, playerLine, raw, scriptTags, type Raw } from "./html.ts";
-import { HOME_SCRIPT } from "./home-script.ts";
+import { CLOSED_NEWS_COOKIE, HOME_SCRIPT } from "./home-script.ts";
 import { MINIMUM_PLAYING_NOW_PLAYER_COUNT, playingNowCounts, shelfPlayers } from "./plays.ts";
 import { viewerOf } from "./viewer.ts";
+import { viewerDeviceKind } from "./device-kind.ts";
 
 /**
  * The home page and what it needs: one sheet of rows, there as the page opens, and Zaisma's news above them while there is any. The
@@ -269,6 +270,12 @@ const FIRST_VIEW_COVER_COUNT = 4;
  * One of the home's shelves: its heading (a link to Browse with this sort), its arrows and its covers. The first shelf's first covers load
  * with the page, the very first before anything else, since one of them is the largest thing in the first view; the rest wait until they near the screen.
  */
+/** A shelf's games with those made for this kind of device first, as the home's script keeps them, so they're in their place from the first paint. */
+const forDeviceFirst = (list: ShowGame[], deviceKind: DeviceKind) => {
+  const fits = (game: ShowGame) => !game.devices.length || game.devices.includes(deviceKind);
+  return [...list.filter(fits), ...list.filter((game) => !fits(game))];
+};
+
 function homeShelf(id: string, title: string, sortName: string, list: ShowGame[], isFirstShelf: boolean, ownedGameIds: ReadonlySet<string>): LayoutItem {
   const loadingOf = (coverIndex: number) => (isFirstShelf && coverIndex < FIRST_VIEW_COVER_COUNT ? { isEager: true, hasHighPriority: coverIndex === 0 } : {});
   return { kind: "block", markup: shelf({ id, trackId: `track-${id}`, title, titleHref: `/games?sort=${sortName}`, items: list.map((game, coverIndex) => ({ kind: "block" as const, markup: coverOf(game, ownedGameIds, loadingOf(coverIndex)) })) }) };
@@ -281,6 +288,7 @@ export async function home(env: Env, request: Request): Promise<Response> {
   // A younger account never finds a game for older players; everyone else sees the same page.
   const viewer = await viewerOf(request, env);
   const account = viewer.account;
+  const deviceKind = viewerDeviceKind(request);
   // Back to progress they saved with neither a passkey nor an email: asked once to protect the account.
   const protectionOffer = async (signedInAccount: Account): Promise<boolean> => {
     const isDue = await isProtectionOfferDue(env, signedInAccount, viewer.email);
@@ -290,12 +298,14 @@ export async function home(env: Env, request: Request): Promise<Response> {
   // Every read the page needs starts at once, one wave to the database: the shelves and the backgrounds take the games only to pick
   // from and to match their rows, once their own reads are back.
   const gamesRead = showcase(env, viewer.ageFloorYears, undefined, requestCountryCode(request));
-  const [isProtectionOffered, games, { popular, trending, fresh }, backgrounds, news] = await Promise.all([
+  const [isProtectionOffered, games, { popular, trending, fresh }, backgrounds, news, accountPlayed] = await Promise.all([
     account ? protectionOffer(account) : false,
     gamesRead,
     shelves(env, gamesRead, viewer.ageFloorYears),
     backgroundsOfGames(env, gamesRead),
     currentAnnouncement(env),
+    // An account's Continue playing, in its place from the first paint; a guest's is on the device alone, so the home's script shows it.
+    account ? recentlyPlayed(env.DB, account.id, AGE_BAND_FLOOR_YEARS[account.age_band]) : Promise.resolve([]),
   ]);
   for (const game of games) game.background = backgrounds.get(game.id) ?? null;
   const ownedGameIds = await paidGamesOwnedBy(env, account, games);
@@ -304,21 +314,25 @@ export async function home(env: Env, request: Request): Promise<Response> {
   const browserGames = games.map((game) =>
     Object.fromEntries(BROWSER_GAME_FIELDS.map((name) => [name, name === "background" && game.background ? { wide: withoutPlaceholder(game.background.wide), phone: withoutPlaceholder(game.background.phone) } : game[name]])),
   );
-  // Zaisma's news, until it ends or this device closes it (the script shows it unless it's been closed).
+  // Zaisma's news, until it ends or this device closes it (CLOSED_NEWS_COOKIE, which the home's script keeps), shown from the first paint;
+  // and a guest's banner where there's no news to show, one banner at a time so the games show first even on a phone.
+  const closedNewsIds = (readCookie(request, env, CLOSED_NEWS_COOKIE) ?? "").split(",");
+  const isNewsShown = Boolean(news && !closedNewsIds.includes(news.id));
   const newsLink = news ? shownAddress(news.link_url) : null;
   const newsBanner: LayoutItem[] = news
-    ? [{ kind: "block", id: "home-news", isHidden: true, markup: html`<div data-announcement-id="${news.id}">${banner({ text: news.text, icon: "megaphone", action: newsLink ? { label: news.link_label ?? "Read more", href: newsLink } : undefined, closeLabel: "Close" })}</div>` }]
+    ? [{ kind: "block", id: "home-news", isHidden: !isNewsShown, markup: html`<div data-announcement-id="${news.id}">${banner({ text: news.text, icon: "megaphone", action: newsLink ? { label: news.link_label ?? "Read more", href: newsLink } : undefined, closeLabel: "Close" })}</div>` }]
     : [];
   const guestBanner: LayoutItem[] = env.SUPABASE_URL
-    ? [{ kind: "block", id: "home-guest", isHidden: true, markup: banner({ text: "You're playing as a guest. Your progress stays on this device. Make an account to keep it everywhere.", icon: "person", action: { label: "Make an account", href: "/join" } }) }]
+    ? [{ kind: "block", id: "home-guest", isHidden: Boolean(account) || isNewsShown, markup: banner({ text: "You're playing as a guest. Your progress stays on this device. Make an account to keep it everywhere.", icon: "person", action: { label: "Make an account", href: "/join" } }) }]
     : [];
-  // Shown by the home's script once this device (or the account) has played something.
+  // An account's from the server; a guest's shown by the home's script once this device has played something, which adds this device's to an account's too.
+  const playedGames = accountPlayed.flatMap((entry) => games.filter((game) => game.slug === entry.slug));
   const continuePlaying = shelf({
     id: "continue",
     trackId: "track-continue",
     title: "Continue playing",
     sortTabs: [{ label: "Recently played", tabValue: "played", isCurrent: true }, { label: "Recently updated", tabValue: "updated", isCurrent: false }],
-    items: [],
+    items: playedGames.map((game) => ({ kind: "block" as const, markup: coverOf(game, ownedGameIds) })),
   });
   const body = games.length
     ? html`<div id="home-games">${glassPane({
@@ -328,10 +342,10 @@ export async function home(env: Env, request: Request): Promise<Response> {
           items: [
             ...newsBanner,
             ...guestBanner,
-            { kind: "block", id: "home-continue", isHidden: true, markup: continuePlaying },
-            ...(popular.length ? [homeShelf("popular", "Popular", "popular", popular, true, ownedGameIds)] : []),
-            ...(trending.length ? [homeShelf("trending", "Trending", "trending", trending, !popular.length, ownedGameIds)] : []),
-            ...(fresh.length ? [homeShelf("new", "New", "new", fresh, !popular.length && !trending.length, ownedGameIds)] : []),
+            { kind: "block", id: "home-continue", isHidden: !playedGames.length, markup: continuePlaying },
+            ...(popular.length ? [homeShelf("popular", "Popular", "popular", forDeviceFirst(popular, deviceKind), true, ownedGameIds)] : []),
+            ...(trending.length ? [homeShelf("trending", "Trending", "trending", forDeviceFirst(trending, deviceKind), !popular.length, ownedGameIds)] : []),
+            ...(fresh.length ? [homeShelf("new", "New", "new", forDeviceFirst(fresh, deviceKind), !popular.length && !trending.length, ownedGameIds)] : []),
             { kind: "block", markup: row({ widths: "fit", alignment: "center", items: [{ kind: "control", markup: tertiaryButton("All games", { href: "/games" }) }] }) },
           ],
         })}`),

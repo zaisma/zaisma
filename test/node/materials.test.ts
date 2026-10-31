@@ -25,7 +25,7 @@ const RESET = /^(none|0|0px|auto|visible|transparent|inherit|unset|initial|100%)
 const RAW_COLOR = /#[0-9a-fA-F]{3,8}\b|\brgba?\(|\bhsla?\(/;
 const OWN_TIMING = /(?<![\w.-])(?!0s\b)\d*\.?\d+m?s\b|cubic-bezier\(|steps\(/;
 /** Pictures, icons and Zaisma's logo are sized, not built: their own height is their size. */
-const PICTURE_OR_ICON = /(^|[\s>+~(])(img|svg|video|canvas|iframe|picture|\.ico|\.logo)(\.[\w-]+|:[\w-]+(\([^)]*\))?)*\)?$/;
+const PICTURE_OR_ICON = /(^|[\s>+~(])(img|svg|video|canvas|iframe|picture|\.picture|\.ico|\.logo)(\.[\w-]+|:[\w-]+(\([^)]*\))?)*\)?$/;
 
 /**
  * The few that aren't made of the materials, each with its reason: "selector | property", or "selector | *" for a mark drawn whole (a
@@ -52,7 +52,7 @@ const NOT_MADE_OF_MATERIALS = new Map<string, string>([
   [".pin-marks | min-height", "a PIN's row of marks takes a small control's height, so it lines up beside one"],
   [".pin-mark | height", "a PIN's mark is a carved diamond 20px across"],
   [".find-finish | overflow", "the finish a search offers ends where the field's end controls begin"],
-  [".find-game > img | background", "a game's picture shows the carving's face while it loads"],
+  [".find-game > .picture | background", "a game's picture shows the carving's face under it where it has no placeholder"],
   [".select-sizes | overflow", "the hidden list of choices that holds a select as wide as its longest, at no height"],
   [".slider-input::-webkit-slider-thumb | height", "the system's own thumb, unseen, is the drawn thumb's size, so a press lands where it shows"],
   [".slider-input::-moz-range-thumb | height", "the system's own thumb, unseen, is the drawn thumb's size, so a press lands where it shows"],
@@ -338,7 +338,7 @@ describe("waiting", () => {
     const own = COMPONENTS().filter((component) => !isMaterialOrLayout(component)).flatMap((component) => {
       const styles = component.styles.replace(/\/\*[\s\S]*?\*\//g, "");
       return [
-        ...(/--waiting-light\b|waiting-runs|waiting-arrives/.test(styles) ? [`${component.slug}: runs the waiting light itself`] : []),
+        ...(/waiting-runs|waiting-arrives/.test(styles) ? [`${component.slug}: runs the waiting light itself`] : []),
         ...[...styles.matchAll(/\[aria-busy="true"\]/g)].filter((match) => !styles.slice(Math.max(0, match.index! - 5), match.index).endsWith(":not(")).map(() => `${component.slug}: styles [aria-busy="true"]`),
       ];
     });
@@ -354,11 +354,11 @@ describe("waiting", () => {
 
 /** Every picture a component shows is a Picture (foundations.ts, picture): its box holds its placeholder, so its place is never empty. */
 describe("pictures", () => {
-  it("are all Pictures: no component's markup has an img outside a Picture's box, but a QR code's drawn code", () => {
+  it("are all Pictures: no component's markup has an img outside a Picture's box, but a QR code's drawn code and the icon drawn in it, and a file the player is choosing", () => {
     const bare = COMPONENTS().flatMap((component) =>
       component.examples.flatMap((example) =>
         [...example.markup.html.matchAll(/<img\b[^>]*>/g)]
-          .filter((img) => !/class="[^"]*\b(reveals|qr-picture)\b/.test(img[0]))
+          .filter((img) => !/class="[^"]*\b(reveals|qr-picture|qr-icon|file-drop-view)\b/.test(img[0]))
           .map((img) => `${component.slug}, ${example.label}: ${img[0].slice(0, 80)}`),
       ),
     );

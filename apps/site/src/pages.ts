@@ -357,7 +357,7 @@ export function gamePageResponse(env: Env, view: GamePageView): Response {
   const mainAction = isClosed
     ? []
     : !isForSale
-      ? [{ kind: "control" as const, markup: primaryButton(playsAfterSignIn ? "Sign in to play" : deviceNote.playsAnyway ? "Play anyway" : "Play", { id: "play", type: "button", isBig: true, isFullWidth: true, icon: "play" }) }]
+      ? [{ kind: "control" as const, markup: primaryButton(playsAfterSignIn ? "Sign in to play" : deviceNote.isPlayedAnyway ? "Play anyway" : "Play", { id: "play", type: "button", isBig: true, isFullWidth: true, icon: "play" }) }]
       : fullGamePrice
         ? [{ kind: "control" as const, markup: primaryButton("Buy", { id: "buy-game", type: "button", isBig: true, isFullWidth: true, icon: "cart", trailingText: priceText(fullGamePrice.currencyCode, fullGamePrice.priceMinorUnits), dataAttributes: { "buy-item": game.full_game_item_name! } }) }]
         : [{ kind: "control" as const, markup: primaryButton("Not on sale right now", { id: "buy-game", type: "button", isBig: true, isFullWidth: true, isDisabled: true }) }];
@@ -400,7 +400,7 @@ export function gamePageResponse(env: Env, view: GamePageView): Response {
         ...(isClosed ? [{ kind: "words" as const, id: "closed", markup: html`<p>This game isn't open to your account. ${textLink("Find other games", "/")}</p>` }] : []),
         { kind: "block", markup: paneActions },
         ...(accountNote ? [{ kind: "words" as const, markup: accountNote }] : []),
-        { kind: "block", id: "device-note", isHidden: !deviceNote.notes.length, markup: banner({ text: deviceNote.notes.join(" "), icon: "warning", ...(deviceNote.needsOtherBrowser ? { tone: "warning" as const } : {}) }) },
+        { kind: "block", id: "device-note", isHidden: !deviceNote.notes.length, markup: banner({ text: deviceNote.notes.join(" "), icon: "warning", ...(deviceNote.isOtherBrowserNeeded ? { tone: "warning" as const } : {}) }) },
         ...(gameFacts.length ? [{ kind: "words" as const, markup: facts({ facts: gameFacts, arrangement: "across", label: "About playing it" }) }] : []),
       ],
     }),
@@ -1435,21 +1435,21 @@ addEventListener("pagehide", () => {
 
 /**
  * What the game page says about this device under Play, from the first paint: the same notes its script works out in the browser (the
- * game page's script, deviceNotes), here from the server's guess at the device (device-kind.ts) and the browser's name. playsAnyway: Play
+ * game page's script, deviceNotes), here from the server's guess at the device (device-kind.ts) and the browser's name. isPlayedAnyway: Play
  * says "Play anyway", for a game made for other devices or one this browser can't start.
  */
-export function deviceNoteFor(options: { deviceKind: DeviceKind; canIsolateFrame: boolean; hasThreads: boolean; devices: string[]; controls: string[]; screenOrientation: string | null }): { notes: string[]; needsOtherBrowser: boolean; playsAnyway: boolean } {
+export function deviceNoteFor(options: { deviceKind: DeviceKind; canIsolateFrame: boolean; hasThreads: boolean; devices: string[]; controls: string[]; screenOrientation: string | null }): { notes: string[]; isOtherBrowserNeeded: boolean; isPlayedAnyway: boolean } {
   const isCoarse = options.deviceKind !== "computer";
-  const needsOtherBrowser = options.hasThreads && !options.canIsolateFrame;
+  const isOtherBrowserNeeded = options.hasThreads && !options.canIsolateFrame;
   const isOtherDevice = options.devices.length > 0 && !options.devices.includes(options.deviceKind);
   const notes = [
-    ...(needsOtherBrowser ? ["This game needs Chrome or Edge on a computer or Android."] : []),
+    ...(isOtherBrowserNeeded ? ["This game needs Chrome or Edge on a computer or Android."] : []),
     ...(isOtherDevice ? [`Made for ${options.devices.map((device) => `${device}s`).join(" and ")}. It may not work well on this ${options.deviceKind}.`] : []),
     ...(options.controls.length && isCoarse && !options.controls.includes("touch") ? [options.controls.includes("keyboard_mouse") ? "Needs a keyboard." : "Needs a gamepad."] : []),
     ...(options.controls.length && !isCoarse && !options.controls.includes("keyboard_mouse") && !options.controls.includes("touch") ? ["Needs a gamepad."] : []),
     ...(isCoarse && (options.screenOrientation === "landscape" || options.screenOrientation === "portrait") ? [options.screenOrientation === "landscape" ? "Best in landscape." : "Best in portrait."] : []),
   ];
-  return { notes, needsOtherBrowser, playsAnyway: needsOtherBrowser || isOtherDevice };
+  return { notes, isOtherBrowserNeeded, isPlayedAnyway: isOtherBrowserNeeded || isOtherDevice };
 }
 
 /**

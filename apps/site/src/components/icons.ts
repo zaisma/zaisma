@@ -126,7 +126,11 @@ export const MARK_FLAT = raw(`<svg viewBox="-120 600 4527 3300" aria-hidden="tru
  * the first paint shows them without waiting on a file: black glass on light glass, white on smoked, by --on-light and --on-smoked. The link
  * round it names it, so the drawings are hidden from screen readers.
  */
-const inlineLogo = (svg: string, className: string) => svg.replace(/^<svg /, `<svg class="${className}" `).replace(' role="img" aria-label="Zaisma"', ' aria-hidden="true"');
+// Its viewBox's width and height as its own, so it keeps its shape at the height the logo sets (an svg's width is otherwise its box's).
+const inlineLogo = (svg: string, className: string) => {
+  const [, , widthText = "0", heightText = "0"] = /viewBox="([^"]+)"/.exec(svg)?.[1]?.split(" ") ?? [];
+  return svg.replace(/^<svg /, `<svg class="${className}" width="${widthText}" height="${heightText}" `).replace(' role="img" aria-label="Zaisma"', ' aria-hidden="true"');
+};
 const glassLogo = (fileName: "wordmark" | "mark"): Raw =>
   raw(`${inlineLogo(GLASS_LOGO_SVGS[fileName].black, "on-light")}${inlineLogo(GLASS_LOGO_SVGS[fileName].white, "on-smoked")}`);
 export const WORDMARK = glassLogo("wordmark");

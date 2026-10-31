@@ -357,10 +357,10 @@ async function checkPage(chrome, contextId, url, looks, options) {
   const { sessionId } = await chrome.send("Target.attachToTarget", { targetId, flatten: true });
   const send = (method, params = {}) => chrome.send(method, params, sessionId);
   // A phone and a tablet send their kind of browser's name, which a first visit's page is laid out for (device-kind.ts), as a real one would.
-  const browserName = (await chrome.send("Browser.getVersion")).userAgent;
   const look = async ({ size, theme }) => {
     await send("Emulation.setDeviceMetricsOverride", { width: size.widthPx, height: size.heightPx, deviceScaleFactor: size.isPhone ? 2 : 1, mobile: size.isPhone });
-    await send("Emulation.setUserAgentOverride", { userAgent: size.isPhone ? PHONE_BROWSER_NAME : size.hasTouch ? TABLET_BROWSER_NAME : browserName });
+    // Sent with its requests only (the page's scripts see Chrome as it is, as the check has always measured them).
+    await send("Network.setExtraHTTPHeaders", { headers: size.isPhone || size.hasTouch ? { "User-Agent": size.isPhone ? PHONE_BROWSER_NAME : TABLET_BROWSER_NAME } : {} });
     await send("Emulation.setTouchEmulationEnabled", size.hasTouch ? { enabled: true, maxTouchPoints: 5 } : { enabled: false });
     // The browser's text size (its default font size, which rem follows): 16px is 100%.
     const textPx = Math.round((16 * (size.textPercent ?? 100)) / 100);
@@ -391,12 +391,17 @@ async function checkPage(chrome, contextId, url, looks, options) {
     const held = [];
     const offPaused = isFirstPaintChecked ? chrome.listen(sessionId, (method, params) => {
       if (method !== "Fetch.requestPaused") return;
-      // What the first paint itself runs: the first-paint script, and the two the parse waits on (the theme, and styles-applied at the
-      // body's end); and the preview's own tools, which no player gets.
-      if (/\/js\/(first-paint|theme|styles-applied|layout-inspect)\.|\/__preview\//.test(params.request.url)) send("Fetch.continueRequest", { requestId: params.requestId }).catch(() => {});
+      // What the first paint itself runs: the first-paint script, every script the parse waits on (a script that isn't deferred, which Chrome
+      // asks for at a high priority: the theme, styles-applied at the body's end, an old page's own), and the preview's own tools, which no
+      // player gets. Deferred and async scripts, asked for at a low priority, are held.
+      const isParseWaiting = !/^(Low|VeryLow)$/.test(params.request.initialPriority ?? "");
+      if (isParseWaiting || /\/js\/(first-paint|layout-inspect)\.|\/__preview\//.test(params.request.url)) send("Fetch.continueRequest", { requestId: params.requestId }).catch(() => {});
       else held.push(params.requestId);
     }) : null;
     if (isFirstPaintChecked) await send("Fetch.enable", { patterns: [{ urlPattern: "*", resourceType: "Script", requestStage: "Request" }] });
+    // A device's kind kept from another screen's page in this run (device-kind.ts's cookie) would lay this one out for that screen: the page
+    // guesses it from the browser's name, as on a first visit.
+    await send("Network.deleteCookies", { name: "zaisma_device_kind", url }).catch(() => {});
     await send("Page.navigate", { url });
     if (isFirstPaintChecked) {
       await send("Runtime.evaluate", { expression: FIRST_PAINT_READY, awaitPromise: true, returnByValue: true });

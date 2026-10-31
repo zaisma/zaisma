@@ -76,6 +76,10 @@ const themeButton = (path: string, theme: GalleryTheme) => {
   return secondaryButton(theme === "dark" ? "Dark. Switch to light" : "Light. Switch to dark", { href: `${other.pathname}${other.search}`, icon: "light-dark", isLabelHidden: true, isSmall: true });
 };
 
+/**
+ * A gallery page's head. The gallery is a tool, not a page players see: its first paint waits for every script its examples run (the
+ * components', and the gallery's own, which sizes its frames), so it shows each example in its state at once.
+ */
 function head(title: string, group: ComponentGroup, scripts: PageScript[] = []): Raw {
   return html`<meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -87,7 +91,7 @@ function head(title: string, group: ComponentGroup, scripts: PageScript[] = []):
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="preload" href="/fonts/jost.7726a5cd.woff2" as="font" type="font/woff2" crossorigin>
 ${styleTags(DESIGN_STYLE)}
-${headScriptTags(FIRST_PAINT_SCRIPT)}${scriptTags(COMPONENT_SCRIPT, HEADER_SCRIPT, GALLERY_SCRIPT, DESIGN_LOOPS_SCRIPT)}${group === "foundations" ? scriptTags(CITY_SCRIPT) : ""}${group === "foundations" || group === "actions" || group === "panes" ? scriptTags(STAND_IN_BACKGROUNDS_SCRIPT) : ""}${group === "layout" ? scriptTags(SCREENS_SCRIPT) : ""}${scripts.length ? scriptTags(...scripts) : ""}`;
+${headScriptTags(FIRST_PAINT_SCRIPT, COMPONENT_SCRIPT, HEADER_SCRIPT, GALLERY_SCRIPT, DESIGN_LOOPS_SCRIPT, ...(group === "layout" ? [SCREENS_SCRIPT] : []))}${group === "foundations" ? scriptTags(CITY_SCRIPT) : ""}${group === "foundations" || group === "actions" || group === "panes" ? scriptTags(STAND_IN_BACKGROUNDS_SCRIPT) : ""}${scripts.length ? scriptTags(...scripts) : ""}`;
 }
 
 /** GET /design and /design/<group>: one group of the gallery, its components in every state. */
@@ -230,7 +234,9 @@ body.gallery { margin: 0; min-height: 100vh; font: var(--type-reading); }
 /* A playing bar's phone example: a phone's screen, upright or on its side, with a stand-in game filling what the bar leaves. */
 .game-stand-in { display: flex; flex-direction: column; width: min(320px, 100%); height: 568px; overflow: hidden; clip-path: ${cutPolygon("pane")}; background: #000; }
 .game-stand-in.sideways { flex-direction: row; width: min(667px, 100%); height: 320px; }
-.game-stand-in > img { flex: 1; width: 100%; height: 100%; min-width: 0; min-height: 0; object-fit: cover; }
+/* The game's picture takes the room the bar leaves, as a 1280 by 720 picture would. */
+.game-stand-in > .picture { flex: 1 1 720px; width: 100%; height: 100%; min-width: 0; min-height: 0; }
+.game-stand-in.sideways > .picture { flex-basis: 1280px; }
 /* A header example: a frame that holds the fixed header (its transform makes it the header's containing block) over a stand-in page scrolling under it. */
 .header-frame { position: relative; isolation: isolate; width: 100%; height: 260px; overflow: hidden; transform: translateZ(0); box-shadow: var(--well-shade);
   clip-path: ${cutPolygon("pane")}; }
