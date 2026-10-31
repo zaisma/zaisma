@@ -1913,9 +1913,9 @@ export function stepFlow(options: StepFlowOptions): Raw {
     const buttons = row({ widths: "equal", items: [...(options.backHref ? [control(secondaryButton("Back", { href: options.backHref }))] : []), control(primaryButton(nextLabel, { type: "submit" }))] });
     return glassPane({ paneWidth, body: stack({ items: [{ kind: "block", markup: stepLine }, { kind: "block", markup: html`<form class="step-form" method="post" action="${options.action}">${options.body ?? ""}${buttons}</form>` }] }) });
   }
-  const bodies = options.steps.map((step, stepIndex) => html`<div class="step-body"${stepIndex === options.currentIndex ? "" : raw(" hidden")}>${step.body ?? ""}</div>`);
+  const bodies = options.steps.map((step, stepIndex) => html`<div class="step-body${stepIndex === options.currentIndex ? "" : " is-away"}">${step.body ?? ""}</div>`);
   const buttons = row({ widths: "equal", items: [control(secondaryButton("Back", { type: "button", isHidden: options.currentIndex === 0 })), control(primaryButton(nextLabel, { type: "submit" }))] });
-  return glassPane({ paneWidth, body: stack({ items: [{ kind: "block", markup: stepLine }, { kind: "block", markup: html`<form class="step-form" method="post" action="${options.action}" data-steps="${options.currentIndex}" data-finish-label="${finishLabel}">${bodies}${buttons}</form>` }] }) });
+  return glassPane({ paneWidth, body: stack({ items: [{ kind: "block", markup: stepLine }, { kind: "block", markup: html`<form class="step-form" method="post" action="${options.action}" data-steps="${options.currentIndex}" data-finish-label="${finishLabel}"><div class="step-bodies">${bodies}</div>${buttons}</form>` }] }) });
 }
 
 /**
@@ -1925,7 +1925,7 @@ export function stepFlow(options: StepFlowOptions): Raw {
 export const STEP_FLOW_SCRIPT = `/* step flows */(function () {
   var LEAVE_MS = 450;
   window.zaismaWatch.each("form[data-steps]", function (form) {
-    var bodies = Array.prototype.slice.call(form.querySelectorAll(":scope > .step-body")), marks = Array.prototype.slice.call(form.closest(".pane-in").querySelectorAll(".step-line > li"));
+    var bodies = Array.prototype.slice.call(form.querySelectorAll(":scope > .step-bodies > .step-body")), marks = Array.prototype.slice.call(form.closest(".pane-in").querySelectorAll(".step-line > li"));
     var buttons = form.querySelector(":scope > .layout-row"), back = buttons.querySelector(".cut-btn"), next = buttons.querySelector(".run-wrap"), words = next.querySelector(".run-words:not(.label-busy)");
     var at = Number(form.getAttribute("data-steps")) || 0, last = bodies.length - 1, nextWords = "Next", finishWords = form.getAttribute("data-finish-label");
     var settling = 0;
@@ -1938,7 +1938,7 @@ export const STEP_FLOW_SCRIPT = `/* step flows */(function () {
     function goToStep(index) {
       var from = at;
       at = Math.max(0, Math.min(last, index));
-      bodies.forEach(function (body, i) { body.hidden = i !== at; });
+      bodies.forEach(function (body, i) { body.classList.toggle("is-away", i !== at); });
       clearTimeout(settling);
       // Going back, the lines past the new step shrink away with the light at their tip; once they're gone the step goes back to being
       // the current one, its light at its end. Going on, the next line fills at once.
@@ -2003,7 +2003,12 @@ component({
 /* Going back, a line shrinks away with its light still at its tip, and halfway through the step it goes back to takes the light, fading in. */
 .step-line > li.is-leaving .step-fill { transform: scaleX(0); transition-duration: var(--motion-glide); transition-timing-function: var(--ease-standard); }
 .step-form { margin: 0; display: flex; flex-direction: column; gap: var(--gap-block-block); }
-.step-body { display: flex; flex-direction: column; gap: var(--gap-block-block); }
+/* Every step is laid out in the same place, only the one you're on shown, so the tallest and widest sets the pane's size from the start and
+   Back and Next stay put from step to step; a shorter step keeps to the top. */
+.step-bodies { display: grid; }
+.step-body { grid-area: 1 / 1; display: flex; flex-direction: column; gap: var(--gap-block-block); }
+/* A step you're not on keeps its place, unseen, and nothing in it can be reached. */
+.step-body.is-away { visibility: hidden; }
 /* Narrow (by the line's own width, as on a phone), only the step you're on is named, under the whole line. */
 @container (max-width: 400px) {
   .step-line > li { display: contents; }
