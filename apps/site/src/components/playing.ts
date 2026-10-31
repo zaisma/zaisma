@@ -1,10 +1,10 @@
-import { html, raw, type Raw } from "../markup.ts";
+import { html, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
 import type { ControlMarkup } from "./control-markup.ts";
-import { secondaryButton, primaryButton, tertiaryButton, textLink } from "./actions.ts";
+import { secondaryButton } from "./actions.ts";
 import { CUT_LINE, EDGE, logo } from "./foundations.ts";
-import { grid, row, stack } from "./layout.ts";
-import { gameCover, sheet, type GameCoverOptions } from "./panes.ts";
+import { row, stackOfOne } from "./layout.ts";
+import { sheet } from "./panes.ts";
 
 /*
  * A game's page: its screenshots, the game cards of every list of games (Browse, More from a developer), and playing it. Playing is the page once Play is pressed. The game fills the screen; Zaisma keeps one slim bar of glass beside it (above it, or down
@@ -20,63 +20,13 @@ export interface PlayingBarOptions {
   controls: ControlMarkup[];
   /** Shown where it is rather than only while playing: the gallery's still copy. */
   isShown?: boolean;
+  /** The gallery's phone layouts, shown on any screen: upright ("phone"), or on its side, down the left edge ("phone-sideways"). */
+  shownAs?: "phone" | "phone-sideways";
 }
 
 /** The bar beside a running game: Zaisma's mark (back to every game), the game's name, and the game's buttons. */
 export function playingBar(options: PlayingBarOptions): Raw {
-  return html`<div class="playing-bar glass${options.isShown ? " in-place" : ""}" data-glass data-glass-corners="0 0 0 0">${EDGE}${logo("mark")}<strong class="playing-title">${options.title}</strong><div class="playing-controls">${row({ widths: "fit", label: "The game's buttons", items: options.controls.map((control) => ({ kind: "control" as const, markup: control })) })}</div></div>`;
-}
-
-export interface PlayingCardOptions {
-  /** Unique on the page: the script shows and hides it by its id. */
-  id: string;
-  /** What it's about: its heading, and its name for a screen reader. Left out, it's one line of news (role status), like Saved. */
-  title?: string;
-  /** Its words and buttons, laid out with the layout components. */
-  body: Raw;
-  /**
-   * How it waits its turn over the game (zaismaLayers): "information" leaves by itself and waits behind asks, "ask" stays until it's
-   * answered. Left out, a card with nothing to press is information and any other an ask.
-   */
-  noticeUrgency?: "information" | "ask";
-  /** Open in place, as the gallery's still copies are; over a game the page's script shows it through zaismaLayers.show, never by itself. */
-  isShown?: boolean;
-  /** Where it is in the gallery, rather than over the game's corner. */
-  isInPlace?: boolean;
-}
-
-/** A card of glass over a running game's top corner, for what needs the player now (keep your progress, a game asking them to sign in) or what just happened (Saved). */
-export function playingCard(options: PlayingCardOptions): Raw {
-  const named = options.title ? html` aria-labelledby="${options.id}-title"` : raw(' role="status"');
-  const urgency = options.noticeUrgency ? html` data-notice-urgency="${options.noticeUrgency}"` : "";
-  return html`<aside class="playing-card glass${options.isInPlace ? " in-place" : ""}" id="${options.id}"${named}${urgency} data-glass data-glass-corners="pane"${options.isShown ? "" : raw(" hidden")}>${EDGE}<div class="playing-card-in">${options.title ? html`<h2 class="playing-card-title" id="${options.id}-title">${options.title}</h2>` : ""}${options.body}</div></aside>`;
-}
-
-export interface UrgentCardOptions {
-  /** Unique on the page: a page's script says it by its id (zaismaLayers.say({ cardId })). */
-  id: string;
-  /** What happened: "You've been signed out". */
-  title: string;
-  /** What it means now, in one or two sentences: "Nothing was charged. Sign in again to buy." */
-  text: string;
-  /** What the player can do about it (Sign in); Close is always there. */
-  buttons?: ControlMarkup[];
-  /** The sheets that can't go on under it (the buy sheet and its Confirm it's you after a sign-out): they close as it shows. */
-  sheetsToClose?: string[];
-  /** Where it is in the gallery: shown in place rather than over everything. */
-  isInPlace?: boolean;
-}
-
-/**
- * An urgent card: news that goes over anything, sheets and full screen included (signed out, the connection lost while paying), as a playing
- * card with an edge in the marked color. It's a popover the queue shows after everything else, so the top layer puts it on top. In the
- * corner on a wide screen, across the top on a phone; it stays until the player closes it or presses what's in it.
- */
-export function urgentCard(options: UrgentCardOptions): Raw {
-  const close = tertiaryButton("Close", { type: "button", icon: "close", isLabelHidden: true, isSmall: true, dataAttributes: { "layer-close": "" } });
-  const buttons = options.buttons?.length ? row({ widths: "equal", items: options.buttons.map((button) => ({ kind: "control" as const, markup: button })) }) : "";
-  const sheetsToClose = options.sheetsToClose?.length ? html` data-sheets-to-close="${options.sheetsToClose.join(" ")}"` : "";
-  return html`<aside class="playing-card glass urgent-card${options.isInPlace ? " in-place" : ""}" id="${options.id}" role="alert" data-notice-urgency="urgent"${sheetsToClose}${options.isInPlace ? "" : raw(' popover="manual"')} data-glass data-glass-corners="pane">${EDGE}<div class="playing-card-in"><div class="urgent-card-head"><h2 class="playing-card-title">${options.title}</h2>${close}</div><p class="urgent-card-text">${options.text}</p>${buttons}</div></aside>`;
+  return html`<div class="playing-bar glass glass-bar at-screen-edge${options.isShown ? " in-place" : ""}${options.shownAs ? ` on-${options.shownAs}` : ""}" data-glass data-glass-corners="0 0 0 0">${EDGE}<span class="playing-mark words-margin at-start">${logo("mark")}</span><strong class="playing-title words-margin one-line">${options.title}</strong><div class="playing-controls">${row({ widths: "fit", label: "The game's buttons", items: options.controls.map((control) => ({ kind: "control" as const, markup: control })) })}</div></div>`;
 }
 
 export interface ScreenshotOptions {
@@ -93,16 +43,8 @@ export interface ScreenshotOptions {
  * other corner, and every one between is square, wherever the row is scrolled to.
  */
 export const screenshot = (options: ScreenshotOptions): Raw =>
-  html`<button class="screenshot cut-carved" type="button" data-cut-line="0" aria-controls="${options.sheetId}" aria-label="${options.label}">${CUT_LINE}<span class="screenshot-picture" data-cut-line="0"><img src="${options.imageUrl}" alt="" loading="lazy" decoding="async"></span></button>`;
+  html`<button class="screenshot carving holds-art" type="button" data-cut-line="0" aria-controls="${options.sheetId}" aria-label="${options.label}">${CUT_LINE}<span class="carving-art" data-cut-line="0"><img src="${options.imageUrl}" alt="" loading="lazy" decoding="async"></span></button>`;
 
-/** A game card's options: a game cover's, less what only a cover alone takes (its title is always shown; no list keeps one in focus). */
-export type GameCardOptions = Omit<GameCoverOptions, "isTitleShown" | "isCurrent">;
-
-/**
- * A game in a list of games (Browse, More from a developer): its cover, the orange line under it, its title beneath at the start of the row
- * with players now, and what else concerns you under that, kept at the words margin. Every list of games uses it, so they all look the same.
- */
-export const gameCard = (options: GameCardOptions): Raw => gameCover({ ...options, isTitleShown: true });
 
 /**
  * A card with nothing to press in it (a notification) dismisses on a tap or a click, or a swipe sideways or up past a threshold. While it's
@@ -181,6 +123,17 @@ export const screenshotLarge = (imageUrl: string, label: string): Raw => html`<i
 /** Where Cloudflare's check sits on a game's page: unseen, unless it ever needs a tap, when it shows at the screen's foot, over the game too. */
 export const playingCheck = (id: string): Raw => html`<div class="playing-check" id="${id}"></div>`;
 
+/** The bar on a phone held upright, for the bar a selector picks: the window's width picks it while playing, and the gallery's shownAs. */
+const onPhone = (bar: string) => `${bar} .playing-title { display: none; }
+${bar} { overflow-x: auto; scrollbar-width: none; }
+${bar}::-webkit-scrollbar { display: none; }
+${bar} .playing-controls { margin-left: auto; }`;
+/** The bar on a phone on its side, down the left edge; one control wide, so its row of buttons wraps into a column, --gap-control-stack apart. */
+const onPhoneSideways = (bar: string) => `${bar} { flex-direction: column; width: auto; overflow-y: auto; scrollbar-width: none; }
+${bar} .playing-title { display: none; }
+${bar} .playing-mark { padding-inline: 0; }
+${bar} .playing-controls { margin-top: auto; width: var(--control-height-small); }`;
+
 const PLAYING_STYLES = `
 /* Playing: the game's frame fills the screen beside the bar; the header, background, panes and footer step aside. */
 html.is-playing body { height: 100vh; height: 100dvh; min-height: 0; overflow: hidden; padding: 0; flex-direction: column; background: #000; }
@@ -188,81 +141,40 @@ html.is-playing body > :is(.top, .dropdown, .backdrop, .foot, .rail) { display: 
 html.is-playing body > main { display: contents; }
 html.is-playing body > main > :not(.playing-bar, .playing-card, .playing-check, .dropdown, dialog) { display: none; }
 .game-frame { display: none; flex: 1; width: 100%; min-width: 0; min-height: 0; border: 0; background: #000; }
-html.is-playing .game-frame { display: block; animation: playing-in 0.4s cubic-bezier(.2,.8,.2,1); }
+html.is-playing .game-frame { display: block; animation: playing-in var(--motion-arrive) var(--ease-glide); }
 /* The game takes the keys while it's played: no focus ring around it. */
 .game-frame:focus-visible { outline: none; }
 @keyframes playing-in { from { opacity: 0; } }
 /* Going in: the panes and the background fade first (is-leaving), then the page turns into the game. */
-html.is-leaving body > main > :not(.playing-bar, .playing-card, .playing-check, .dropdown, dialog), html.is-leaving body > :is(.top, .backdrop, .foot, .rail) { opacity: 0; transition: var(--glass-transition), opacity 0.25s ease; }
+html.is-leaving body > main > :not(.playing-bar, .playing-card, .playing-check, .dropdown, dialog), html.is-leaving body > :is(.top, .backdrop, .foot, .rail) { opacity: 0; transition: var(--glass-transition), opacity var(--motion-state) ease; }
 @media (prefers-reduced-motion: reduce) { html.is-leaving body > * { transition: none; } }
 
-/* The bar: one slim slab of glass above the game, Zaisma's mark at its start and the game's buttons at its end. */
-.playing-bar { display: none; position: relative; z-index: 2; flex: none; align-items: center; gap: var(--gap-control-row-boxes); padding: var(--pad-frame) var(--pad-inner-pane); padding-top: max(var(--pad-frame), env(safe-area-inset-top, 0)); --glass-tint: var(--glass-top); }
+/* The bar: one slim slab of glass above the game, Zaisma's mark at its start and the game's buttons at its end. The mark and the name are
+   words, so each keeps the bar's words margin (materials.ts): the mark from the bar's edge, the name from the mark and the buttons. Shown in
+   place (the gallery's), it's as wide as what holds it, as it's as wide as the screen beside a game. */
+.playing-bar { display: none; position: relative; z-index: 2; flex: none; align-items: center; --glass-tint: var(--glass-top); }
 .playing-bar.in-place, html.is-playing .playing-bar { display: flex; }
+.playing-bar.in-place { width: 100%; }
 .playing-bar > :not(.edge) { position: relative; z-index: 1; }
-.playing-bar > .logo { flex: none; display: flex; align-items: center; height: var(--control-height-small); }
-.playing-bar > .logo svg { height: 100%; width: auto; }
-.playing-title { flex: 1; min-width: 0; font: var(--type-name); color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.playing-mark { flex: none; display: flex; align-items: center; }
+.playing-mark > .logo { display: flex; height: var(--control-height-small); }
+.playing-mark > .logo svg { height: 100%; width: auto; }
+.playing-title { flex: 1; font: var(--type-name); color: var(--ink); }
 .playing-controls { flex: none; min-width: 0; }
 /* Phones: the buttons have the bar; the ⋯ menu names the game. They scroll sideways if there are more than fit, Zaisma's mark staying put. */
-@media (max-width: 640px) {
-  .playing-title { display: none; }
-  .playing-bar { overflow-x: auto; scrollbar-width: none; }
-  .playing-bar::-webkit-scrollbar { display: none; }
-  .playing-controls { margin-left: auto; }
-}
+@media (max-width: 640px) { ${onPhone(".playing-bar")} }
+${onPhone(".playing-bar.on-phone")}
 /* Landscape phones: the bar is a slim strip down the left edge, so the game keeps the screen's whole height. */
-@media (orientation: landscape) and (max-height: 500px) {
-  html.is-playing body { flex-direction: row; }
-  .playing-bar { flex-direction: column; padding: var(--pad-frame); padding-left: max(var(--pad-frame), env(safe-area-inset-left, 0)); overflow-y: auto; scrollbar-width: none; }
-  .playing-title { display: none; }
-  /* One control wide, so the row wraps into a column, --gap-control-stack apart. */
-  .playing-controls { margin-top: auto; width: var(--control-height-small); }
-}
+@media (orientation: landscape) and (max-height: 500px) { html.is-playing body { flex-direction: row; } ${onPhoneSideways(".playing-bar")} }
+${onPhoneSideways(".playing-bar.on-phone-sideways")}
 
-/* A card over the game's top corner, under the bar: glass the game shows through, as wide as a phone allows. What's in it is a pane's content
-   (tokens.ts sets its padding and its words' margin, once), so its words keep the pane's margin from the card's edge like any pane's.
-   It comes in with a short fade and a rise and leaves with the same, shown or hidden by the page (hidden): display changes at the ends of
-   the fade, so it's still there while it leaves. Under reduced motion it only fades. */
-.playing-card { position: fixed; z-index: 20; top: calc(var(--control-height-small) + 3 * var(--pad-frame)); right: var(--pad-frame); width: min(360px, calc(100vw - 2 * var(--pad-frame))); margin: 0; color: var(--ink); --glass-tint: var(--glass-dropdown);
-  transition: var(--glass-transition), opacity 0.25s ease, transform 0.3s cubic-bezier(.2,.8,.2,1), display 0.3s allow-discrete; }
-.playing-card { transform: translate(var(--swipe-x, 0px), var(--swipe-y, 0px)); opacity: var(--swipe-opacity, 1); }
-.playing-card[hidden] { display: none; opacity: 0; transform: translate(var(--swipe-x, 0px), calc(var(--swipe-y, 0px) - 8px)); pointer-events: none; }
-@starting-style { .playing-card { opacity: 0; transform: translateY(-8px); } }
-/* A card with nothing to press in it (a notification: Saved, a save that didn't go through) goes on a tap or a click, or a swipe sideways
-   or up (PLAYING_CARD_SCRIPT): it follows the finger (is-swiping, no transition then) and leaves with the exit above. A card with a button or
-   a link in it stays until its own button answers, and the gallery's copy stays where it is. */
-.playing-card:not(.in-place):not(:has(a, button, input, select, textarea)) { cursor: pointer; touch-action: none; user-select: none; -webkit-user-select: none; }
-.playing-card.is-swiping { transition: var(--glass-transition); }
-.playing-card > :not(.edge) { position: relative; z-index: 1; }
-.playing-card.in-place { position: relative; top: auto; right: auto; }
-.playing-card-in { display: flex; flex-direction: column; gap: var(--gap-words-control); font: var(--type-words); }
-.playing-card-in p { margin: 0; }
-.playing-card-title { margin: 0; font: var(--type-heading); }
-@media (orientation: landscape) and (max-height: 500px) { .playing-card { top: var(--pad-frame); } }
-/* An urgent card: a playing card with its edge in the marked color, a popover over everything (zaismaLayers shows it last). The browser's own
-   popover look is put back to the card's; it comes and goes as a card does, kept in the top layer while it leaves. Across the top on a phone. */
-.playing-card.urgent-card { inset: auto; top: calc(var(--control-height-small) + 3 * var(--pad-frame)); right: var(--pad-frame); height: auto; padding: 0; border: 0; overflow: visible;
-  transition: var(--glass-transition), opacity 0.25s ease, transform 0.3s cubic-bezier(.2,.8,.2,1), display 0.3s allow-discrete, overlay 0.3s allow-discrete; }
-.playing-card.urgent-card:not(.in-place):not(:popover-open) { opacity: 0; transform: translateY(-8px); }
-.urgent-card > .edge :is(.rim, .hair) { stroke: var(--marked); }
-.playing-card.urgent-card.in-place { position: relative; inset: auto; }
-.urgent-card-head { display: flex; align-items: flex-start; gap: var(--gap-control-row-boxes); }
-.urgent-card-head > .playing-card-title { flex: 1; min-width: 0; }
-.urgent-card-text { color: var(--ink); }
-@media (max-width: 640px) { .playing-card.urgent-card:not(.in-place) { left: var(--pad-frame); right: var(--pad-frame); width: auto; margin: 0 auto; max-width: 360px; } }
-@media (prefers-reduced-motion: reduce) {
-  .playing-card { transition: var(--glass-transition), opacity 0.2s ease, display 0.2s allow-discrete; }
-  .playing-card, .playing-card[hidden] { transform: none; }
-  @starting-style { .playing-card { transform: none; } }
-  html.is-playing .game-frame { animation: none; }
-}
+@media (prefers-reduced-motion: reduce) { html.is-playing .game-frame { animation: none; } }
 
 /* Screenshots: a carved well like a game card's, the picture filling it up to its rim (2px); pointed at, the picture comes a little closer.
    Large, it's whole, as big as the screen allows. */
-.screenshot { position: relative; display: block; width: 100%; aspect-ratio: 16 / 9; padding: 0; border: 0; overflow: hidden; background: var(--well); box-shadow: var(--well-shade); cursor: zoom-in; clip-path: var(--cut-shape); }
-.screenshot-picture { position: absolute; inset: 2px; display: block; overflow: hidden; clip-path: var(--cut-shape); }
-.screenshot img { position: absolute; inset: 0; display: block; width: 100%; height: 100%; object-fit: cover; transition: transform 0.3s cubic-bezier(.2,.8,.2,1); }
+/* A carving that holds art (materials.ts), the screenshot its art. */
+.screenshot { display: block; width: 100%; aspect-ratio: 16 / 9; padding: 0; border: 0; cursor: zoom-in; }
+.screenshot img { transition: transform var(--motion-arrive) var(--ease-glide); }
 .screenshot:hover img { transform: scale(1.03); }
 .screenshot:focus-visible { outline: none; }
 .screenshot:focus-visible > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
@@ -290,35 +202,10 @@ component({
   styles: "",
   render: screenshot,
   examples: [
-    { label: "In a row: press it to open it large", markup: html`<div style="width:280px">${screenshot({ imageUrl: "/design/covers/neon-drift.webp", label: "Screenshot 1 of 3", sheetId: "example-screenshot" })}</div>${sheet({ id: "example-screenshot", title: "Neon Drift, screenshot 1 of 3", body: screenshotLarge("/design/covers/neon-drift.webp", "Neon Drift, screenshot 1"), closeLabel: "Close", isPicture: true })}` },
+    { label: "In a row: press it to open it large", markup: html`<div style="width:280px">${screenshot({ imageUrl: "/design/covers/neon-drift.webp", label: "Screenshot 1 of 3", sheetId: "example-screenshot" })}</div>${sheet({ id: "example-screenshot", title: "Neon Drift, screenshot 1 of 3", body: stackOfOne(screenshotLarge("/design/covers/neon-drift.webp", "Neon Drift, screenshot 1")), closeLabel: "Close", isPicture: true })}` },
   ],
 });
 
-component({
-  name: "Game card",
-  slug: "game-card",
-  group: "panes",
-  subgroup: "cards",
-  summary: "A game in a list of games, like Browse or More from a developer: its cover, its title beneath with players now, and what else concerns you under that.",
-  styles: "",
-  render: gameCard,
-  examples: [
-    {
-      label: "In a list",
-      markup: grid({ whenEmpty: html`<p>No games here yet.</p>`,
-        itemSize: "cover",
-        items: [
-          { kind: "block", markup: gameCard({ title: "Kestrel", imageUrl: "/design/covers/kestrel.webp", href: "#kestrel", facts: { playerCount: 12480 } }) },
-          { kind: "block", markup: gameCard({ title: "Verdant", imageUrl: "/design/covers/verdant.webp", href: "#verdant", facts: { playerCount: 96 } }) },
-          { kind: "block", markup: gameCard({ title: "Neon Drift", imageUrl: "/design/covers/neon-drift.webp", href: "#neon-drift", facts: {} }) },
-        ],
-      }),
-      isWide: true,
-    },
-    { label: "Made for another device", markup: html`<div style="width:280px">${gameCard({ title: "Hollow Tide", imageUrl: "/design/covers/hollow-tide.webp", href: "#hollow-tide", facts: { playerCount: 38, deviceNote: "Needs a keyboard" } })}</div>` },
-    { label: "No cover yet", markup: html`<div style="width:280px">${gameCard({ title: "The Last Lighthouse Keeper", imageUrl: null, href: "#game-card", facts: { playerCount: 38 } })}</div>` },
-  ],
-});
 
 component({
   name: "Playing bar",
@@ -331,45 +218,8 @@ component({
   examples: [
     { label: "A multiplayer game", markup: playingBar({ title: "Neon Drift", controls: STAND_IN_CONTROLS(), isShown: true }), isWide: true },
     { label: "Played alone", markup: playingBar({ title: "Verdant", controls: [secondaryButton("Share", { type: "button", icon: "share", isLabelHidden: true, isSmall: true }), secondaryButton("More", { type: "button", icon: "more", isLabelHidden: true, isSmall: true, isExpanded: false })], isShown: true }), isWide: true },
+    { label: "On a phone: the buttons have the bar, and the More menu names the game", markup: html`<div class="game-stand-in">${playingBar({ title: "Neon Drift", controls: STAND_IN_CONTROLS(), isShown: true, shownAs: "phone" })}<img src="/design/covers/neon-drift.webp" alt=""></div>`, isStill: true },
+    { label: "On a phone on its side: a strip down the left edge, so the game keeps the whole height", markup: html`<div class="game-stand-in sideways">${playingBar({ title: "Neon Drift", controls: STAND_IN_CONTROLS(), isShown: true, shownAs: "phone-sideways" })}<img src="/design/covers/neon-drift.webp" alt=""></div>`, isWide: true, isStill: true },
   ],
 });
 
-component({
-  name: "Playing card",
-  slug: "playing-card",
-  group: "panes",
-  subgroup: "cards",
-  summary: "A card over a running game's top corner, for what needs the player now (keep your progress, a game asking them to sign in) or what just happened (Saved). The game keeps running and stays in view. One at a time over a game, asks before information, nothing but urgent while a sheet is open; one with nothing to press in it goes on a tap or a swipe. Urgent news (signed out) is an urgent card, over anything.",
-  styles: "",
-  render: playingCard,
-  examples: [
-    {
-      label: "Keep your progress",
-      markup: playingCard({
-        id: "example-keep",
-        title: "Keep your progress",
-        isShown: true,
-        isInPlace: true,
-        body: stack({
-          items: [
-            { kind: "words", markup: html`<p>Your Verdant progress is only saved in this browser. Make a free account to keep it safe and play on any device.</p>` },
-            { kind: "block", markup: row({ widths: "equal", items: [{ kind: "control", markup: primaryButton("Make an account", { href: "#join" }) }, { kind: "control", markup: secondaryButton("Not now", { type: "button" }) }] }) },
-            { kind: "words", markup: html`<p>Have an account? ${textLink("Sign in", "#signin")}</p>` },
-          ],
-        }),
-      }),
-    },
-    { label: "Saved", markup: playingCard({ id: "example-saved", isShown: true, isInPlace: true, body: html`<p>Saved to your account.</p>` }) },
-    { label: "Signed out while buying: urgent, over anything, the sheets it makes useless closed under it", markup: urgentCard({ id: "example-urgent", title: "You've been signed out", text: "Nothing was charged. Sign in again to buy.", buttons: [primaryButton("Sign in", { href: "#signin" })], isInPlace: true }) },
-    {
-      label: "Try it: urgent over a sheet, which closes under it",
-      markup: html`${secondaryButton("Buy Revive", { type: "button", controls: "example-urgent-sheet" })}${sheet({
-        id: "example-urgent-sheet",
-        title: "Revive",
-        body: stack({ items: [{ kind: "words", markup: html`<p>Bring your character back with half its health.</p>` }, { kind: "control", markup: secondaryButton("Sign out in another tab", { type: "button", isFullWidth: true, dataAttributes: { "layer-show": "example-urgent-over" } }) }] }),
-        closeLabel: "Close",
-        placement: "foot",
-      })}${urgentCard({ id: "example-urgent-over", title: "You've been signed out", text: "Nothing was charged. Sign in again to buy.", buttons: [primaryButton("Sign in", { href: "#signin" })], sheetsToClose: ["example-urgent-sheet"] })}`,
-    },
-  ],
-});

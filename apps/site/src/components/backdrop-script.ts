@@ -132,6 +132,12 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
   function showPick(layer, pick) {
     var host = layer.canvas.parentElement; if (!host) return;
     host.shownGlass = pick; isListStale = true;
+    // One reading, one mode for everything over the backdrop: what holds it takes it too, so a control laid straight on the world (a
+    // gallery example's button) is smoked or light with the glass round it, never the page's other mode. A mode the holder fixes itself
+    // (data-theme-choice in its markup) is kept for light.
+    if (host.ownThemeChoice === undefined) host.ownThemeChoice = host.getAttribute("data-theme-choice");
+    host.classList.toggle("smoke", pick.isSmoked);
+    if (pick.isSmoked) host.removeAttribute("data-theme-choice"); else host.setAttribute("data-theme-choice", host.ownThemeChoice || "light");
     host.querySelectorAll("[data-glass]:not([data-cut-line])").forEach(function (el) { if (hostOf(el) === host) setGlass(el, host.shownGlass); });
   }
   function sample(pixels) {

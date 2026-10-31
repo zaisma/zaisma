@@ -65,7 +65,7 @@ const storedText = async () => (await gameBySlug(env.DB, "sky-hopper"))!.own_ser
 const stored = async () => ownServerUrlsOf((await gameBySlug(env.DB, "sky-hopper"))!);
 const gamePage = async () => (await SELF.fetch(`${SITE}/g/sky-hopper`)).text();
 /** Where the game page says it: the ⋯ menu's lines, and nowhere else. */
-const ownServerLines = async () => [...(await gamePage()).matchAll(/<div class="dropdown-head"><strong>[^<]*<\/strong><span>([^<]*own server[^<]*)<\/span>(?:<span id="save-line"[^>]*><\/span>)?<\/div>/g)].map((line) => ({ place: "menu", text: line[1] }));
+const ownServerLines = async () => [...(await gamePage()).matchAll(/<div class="dropdown-head[^"]*"><strong>[^<]*<\/strong><span>([^<]*own server[^<]*)<\/span>(?:<span id="save-line"[^>]*><\/span>)?<\/div>/g)].map((line) => ({ place: "menu", text: line[1] }));
 
 beforeAll(async () => {
   signingKeys = (await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"])) as CryptoKeyPair;

@@ -215,11 +215,11 @@ describe("room browsing on the game page", () => {
     for (const [i, c] of codes.slice(0, 12).entries()) await room(id, c.repeat(6), 1 + (i % 3));
     await room(id, "ABC234", 31, 1, Date.now(), ["US", "NA"], 40);
     const list = await roomsList();
-    expect(list).toContain('<button type="button" data-lights data-region="EU" aria-pressed="false"><span>Europe</span><span class="tag count">12</span></button>');
+    expect(list).toContain('<button type="button" class="flush-row quiet" data-lights data-region="EU" aria-pressed="false"><span>Europe</span><span class="tag count">12</span></button>');
     expect(list).toContain('<span class="list-row-title">31 of 40 players</span>');
     // Only the first six rooms, the list scrolling inside itself past them, and Load more for the rest.
-    expect(list).toContain('class="list-rows is-capped" style="--shown-row-count:6"');
-    expect(list.match(/<div class="list-row">/g)).toHaveLength(6);
+    expect(list).toContain('class="list-rows hairlines is-capped scrolls own-scroll" style="--shown-row-count:6"');
+    expect(list.match(/<div class="list-row flush-row quiet">/g)).toHaveLength(6);
     expect(list).not.toContain("<li hidden>");
     expect(list).toContain('data-load-more="rooms-rows"');
     expect(list).toContain('href="/g/arena/rooms?cursor=6"');
@@ -227,10 +227,10 @@ describe("room browsing on the game page", () => {
     expect(pageProblems(list)).toEqual([]);
 
     const na = await roomsList("?region=NA");
-    expect(na).toContain('<button type="button" data-lights data-region="NA" aria-pressed="true"><span>North America</span>');
+    expect(na).toContain('<button type="button" class="flush-row quiet" data-lights data-region="NA" aria-pressed="true"><span>North America</span>');
     // The number by Rooms follows the region picked, like the rows.
     expect(na).toContain('data-count="1"');
-    expect(na.match(/<div class="list-row">/g)).toHaveLength(1);
+    expect(na.match(/<div class="list-row flush-row quiet">/g)).toHaveLength(1);
     // Nothing more to load: no Load more.
     expect(na).not.toContain("data-load-more");
     const none = await roomsList("?region=AF");
@@ -246,7 +246,7 @@ describe("room browsing on the game page", () => {
     for (let i = 34; i < 37; i++) await room(id, code(i), 8);
     for (let i = 37; i < 42; i++) await room(id, code(i), 4, 0);
     const first = await roomsList();
-    expect(first.match(/<div class="list-row">/g)).toHaveLength(6);
+    expect(first.match(/<div class="list-row flush-row quiet">/g)).toHaveLength(6);
     // Everyone in the game's rooms is still counted, and so are the rooms taking players.
     expect(first).toContain('data-count="37"');
     expect(first).toContain('href="/g/arena/rooms?cursor=6"');
@@ -256,8 +256,8 @@ describe("room browsing on the game page", () => {
 
     // The second page is just rows in a list of the panel's id, 20 of them, and the Load more for the page after.
     const second = await roomsList("?cursor=6");
-    expect(second.startsWith('<ul class="list-rows" id="rooms-rows"')).toBe(true);
-    expect(second.match(/<div class="list-row">/g)).toHaveLength(20);
+    expect(second).toMatch(/^<ul class="list-rows[^"]*" id="rooms-rows"/);
+    expect(second.match(/<div class="list-row flush-row quiet">/g)).toHaveLength(20);
     expect(second).toContain('href="/g/arena/rooms?cursor=26"');
     expect(second).not.toContain("data-region");
     expect(rowCodes(second).some((roomCode) => firstCodes.includes(roomCode))).toBe(false);
@@ -265,23 +265,23 @@ describe("room browsing on the game page", () => {
 
     // The last page: what's left (42 - 26 = 16 rooms), the full ones and the matches in progress at the end, and no Load more.
     const last = await roomsList("?cursor=26");
-    expect(last.match(/<div class="list-row">/g)).toHaveLength(16);
+    expect(last.match(/<div class="list-row flush-row quiet">/g)).toHaveLength(16);
     expect(last).not.toContain("data-load-more");
     expect(last.match(/<span class="list-row-end">In a match<\/span>/g)).toHaveLength(5);
     expect(last.match(/<span class="list-row-end">Full<\/span>/g)).toHaveLength(3);
     expect(last.lastIndexOf(">Full<")).toBeLessThan(last.indexOf("In a match"));
     expect(pageProblems(last)).toEqual([]);
     // Past the end, an empty list; a cursor that isn't one starts at the first page.
-    expect((await roomsList("?cursor=999")).match(/<div class="list-row">/g)).toBeNull();
-    expect((await roomsList("?cursor=nonsense")).match(/<div class="list-row">/g)).toHaveLength(20);
+    expect((await roomsList("?cursor=999")).match(/<div class="list-row flush-row quiet">/g)).toBeNull();
+    expect((await roomsList("?cursor=nonsense")).match(/<div class="list-row flush-row quiet">/g)).toHaveLength(20);
 
     // A refresh keeps how many rows are loaded (shown_row_count), asking for fewer than six or more than allowed is held to the limits.
     const refreshed = await roomsList("?shown_row_count=26");
-    expect(refreshed.match(/<div class="list-row">/g)).toHaveLength(26);
+    expect(refreshed.match(/<div class="list-row flush-row quiet">/g)).toHaveLength(26);
     expect(refreshed).toContain('href="/g/arena/rooms?cursor=26"');
-    expect((await roomsList("?shown_row_count=2")).match(/<div class="list-row">/g)).toHaveLength(6);
-    expect((await roomsList("?shown_row_count=nonsense")).match(/<div class="list-row">/g)).toHaveLength(6);
-    expect((await roomsList("?shown_row_count=100000")).match(/<div class="list-row">/g)).toHaveLength(42);
+    expect((await roomsList("?shown_row_count=2")).match(/<div class="list-row flush-row quiet">/g)).toHaveLength(6);
+    expect((await roomsList("?shown_row_count=nonsense")).match(/<div class="list-row flush-row quiet">/g)).toHaveLength(6);
+    expect((await roomsList("?shown_row_count=100000")).match(/<div class="list-row flush-row quiet">/g)).toHaveLength(42);
     expect(await roomsList("?shown_row_count=100000")).not.toContain("data-load-more");
 
     // What the developer API and the SDK get from listRooms is as it was: one list in its own order (open rooms and matches in progress mixed by
@@ -373,9 +373,9 @@ describe("room browsing on the game page", () => {
     expect(fewestPanel).toContain("cursor=6&amp;room_order=fewest_players&amp;is_hiding_full_rooms=true");
     expect(fewestPanel).toContain('data-count="12"');
     expect(fewestPanel).not.toContain(">Full<");
-    expect(fewestPanel.match(/<div class="list-row">/g)).toHaveLength(6);
+    expect(fewestPanel.match(/<div class="list-row flush-row quiet">/g)).toHaveLength(6);
     const fewestNext = await roomsList("?cursor=6&room_order=fewest_players&is_hiding_full_rooms=true");
-    expect(fewestNext.match(/<div class="list-row">/g)).toHaveLength(7);
+    expect(fewestNext.match(/<div class="list-row flush-row quiet">/g)).toHaveLength(7);
     expect(fewestNext.match(/<span class="list-row-end">In a match<\/span>/g)).toHaveLength(3);
     expect(fewestNext).not.toContain(">Full<");
     expect(fewestNext).not.toContain("data-load-more");
@@ -408,11 +408,11 @@ describe("room browsing on the game page", () => {
     for (const c of codes.slice(12, 15)) await named(c.repeat(6), { Mode: "Classic" }, ["US", "NA"]);
     const picked = encodeURIComponent(JSON.stringify({ Mode: "Classic" }));
     const first = await roomsList(`?region=EU&labels=${picked}`);
-    expect(first.match(/<div class="list-row">/g)).toHaveLength(6);
+    expect(first.match(/<div class="list-row flush-row quiet">/g)).toHaveLength(6);
     expect(first).toContain("cursor=6&amp;region=EU&amp;labels=");
     // The next page holds the rest of the 9 Classic rooms in Europe: 3, and nothing after them.
     const next = await roomsList(`?cursor=6&region=EU&labels=${picked}`);
-    expect(next.match(/<div class="list-row">/g)).toHaveLength(3);
+    expect(next.match(/<div class="list-row flush-row quiet">/g)).toHaveLength(3);
     expect(next).not.toContain("data-load-more");
     for (const text of [first, next, await roomsList()]) {
       expect(text).not.toContain("more rooms with fewer players");
@@ -480,7 +480,7 @@ describe("room browsing on the game page", () => {
     expect(list).toMatch(/data-choice-value="Classic" aria-selected="false"[\s\S]*data-choice-value="Hardcore"/);
     expect(pageProblems(list)).toEqual([]);
     const classic = await roomsList(`?labels=${encodeURIComponent(JSON.stringify({ Mode: "Classic" }))}`);
-    expect(classic.match(/<div class="list-row">/g)).toHaveLength(2);
+    expect(classic.match(/<div class="list-row flush-row quiet">/g)).toHaveLength(2);
     expect(classic).toContain('value="Classic" data-label="Mode">');
   });
 

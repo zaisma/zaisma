@@ -4,7 +4,7 @@ import type { ControlMarkup } from "./control-markup.ts";
 import { secondaryButton, tertiaryButton, textLink } from "./actions.ts";
 import { ago, glassPane, tag } from "./foundations.ts";
 import { pictureFrame } from "./data.ts";
-import { row, stack } from "./layout.ts";
+import { row, stack, stackOfOne } from "./layout.ts";
 import { readingText } from "./reading.ts";
 
 /*
@@ -66,7 +66,7 @@ export function post(options: PostOptions): Raw {
 
 /** Posts one under another, a hairline between each: a topic's replies, a game's updates. */
 export function posts(options: { posts: PostOptions[]; label?: string }): Raw {
-  return html`<div class="posts"${options.label ? html` role="feed" aria-label="${options.label}"` : ""}>${options.posts.map((each) => post(each))}</div>`;
+  return html`<div class="posts hairlines roomy"${options.label ? html` role="feed" aria-label="${options.label}"` : ""}>${options.posts.map((each) => post(each))}</div>`;
 }
 
 const HOUR_MS = 60 * 60_000;
@@ -91,9 +91,9 @@ component({
 `,
   render: person,
   examples: [
-    { label: "A game's developer", markup: glassPane({ paneWidth: "fit", body: person({ username: "lumen_works", href: "#person", note: "12 games on Zaisma" }) }) },
-    { label: "A friend in a room, with Join", markup: glassPane({ paneWidth: "fit", body: person({ username: "Liam", href: "#person", pictureSize: "sm", presence: "playing", note: "Playing Ashen Crown", end: secondaryButton("Join", { type: "button", isSmall: true }) }) }) },
-    { label: "A long username, with a mark", markup: glassPane({ paneWidth: "fit", body: person({ username: "the_longest_username_allowed", href: "#person", note: "Played 2,140 hours", marks: tag("Developer", "plain") }) }) },
+    { label: "A game's developer", markup: glassPane({ paneWidth: "fit", body: stackOfOne(person({ username: "lumen_works", href: "#person", note: "12 games on Zaisma" }), "words") }) },
+    { label: "A friend in a room, with Join", markup: glassPane({ paneWidth: "fit", body: stackOfOne(person({ username: "Liam", href: "#person", pictureSize: "sm", presence: "playing", note: "Playing Ashen Crown", end: secondaryButton("Join", { type: "button", isSmall: true }) }), "words") }) },
+    { label: "A long username, with a mark", markup: glassPane({ paneWidth: "fit", body: stackOfOne(person({ username: "the_longest_username_allowed", href: "#person", note: "Played 2,140 hours", marks: tag("Developer", "plain") }), "words") }) },
   ],
 });
 
@@ -106,7 +106,6 @@ component({
   styles: `
 /* Posts: one under another, a block's gap and a hairline between each. */
 .posts { display: flex; flex-direction: column; gap: var(--gap-block-block); min-width: 0; }
-.posts > .post + .post { padding-top: var(--gap-block-block); border-top: var(--divider); }
 .post { min-width: 0; }
 `,
   render: post,
@@ -116,7 +115,7 @@ component({
       isWide: true,
       markup: glassPane({
         paneWidth: "full",
-        body: posts({
+        body: stackOfOne(posts({
           label: "Replies",
           posts: [
             {
@@ -133,7 +132,7 @@ component({
               actions: [tertiaryButton("Reply", { type: "button", icon: "reply" })],
             },
           ],
-        }),
+        }), "words"),
       }),
     },
   ],

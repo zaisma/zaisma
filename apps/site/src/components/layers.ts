@@ -1,6 +1,6 @@
+import { stackOfOne } from "./layout.ts";
 import { html } from "../markup.ts";
 import { notice } from "./panes.ts";
-import { playingCard, urgentCard } from "./playing.ts";
 
 /*
  * Everything that appears over a page or a running game, run one way (docs/DECISIONS.md, "One system for what appears over a page or a
@@ -26,8 +26,8 @@ const TEMPLATES = {
   done: notice({ text: "", tone: "done" }).html,
   undo: notice({ text: "", tone: "done", undoAction: "#" }).html,
   problem: notice({ text: "", tone: "problem" }).html,
-  card: playingCard({ id: "layer-card", body: html`<p></p>` }).html,
-  urgent: urgentCard({ id: "layer-urgent", title: "", text: "" }).html,
+  card: notice({ placement: "over-game", id: "layer-card", body: stackOfOne(html`<p></p>`, "words") }).html,
+  urgent: notice({ placement: "over-everything", id: "layer-urgent", title: "", text: "" }).html,
 };
 
 /**
@@ -265,6 +265,8 @@ export const LAYERS_SCRIPT = `/* layers */(function () {
   // The button it opens from is the one pressed a moment before (a page may open its sheet itself, after fetching what's in it); a sheet opened
   // with no press behind it, or from a button inside a dropdown, which closes, stays centered.
   var pressed = null;
+  // Safari, which has no overlay (the same test zaismaFloat makes).
+  var isSlowToFirstDraw = !(window.CSS && CSS.supports("overlay", "auto"));
   document.addEventListener("click", function (event) { var button = event.target.closest && event.target.closest("button, a, [role='button']"); pressed = button ? { button: button, at: performance.now() } : null; }, true);
   HTMLDialogElement.prototype.showModal = function () {
     var wasOpen = this.open, isSheet = this.matches(".sheet") && !this.classList.contains("in-place");
@@ -281,13 +283,19 @@ export const LAYERS_SCRIPT = `/* layers */(function () {
     }
     // A confirm opened over another sheet is drawn a size smaller, in the middle of it (the CSS).
     if (!wasOpen && isSheet) this.classList.toggle("is-over-sheet", openSheets.length > 0);
+    // Safari takes a long frame or two to first draw a sheet's glass, the first one on a page most of all, and its entrance and the page's
+    // dimming would be over before anything shows: there it opens in its closed look and arrives once frames come quickly again.
+    var isArriving = !wasOpen && isSheet && isSlowToFirstDraw && !isReduced();
+    if (isArriving) this.classList.add("is-arriving");
     showModal.apply(this, arguments);
+    if (isArriving) { var arriving = this; (function arrive(tries, last) { requestAnimationFrame(function (now) {
+      if (!(last && now - last < 25) && tries < 30) return arrive(tries + 1, now);
+      arriving.classList.remove("is-arriving");
+    }); })(0, 0); }
     if (wasOpen || !isSheet) return;
     openSheets.push(this);
     anchor(this);
     place(this);
-    // Its tab row is drawn once it has its place and its width.
-    drawTabRows(this, true);
     focusSheet(this);
     raiseUrgent();
     pump();
@@ -305,16 +313,23 @@ export const LAYERS_SCRIPT = `/* layers */(function () {
   // middle). A small one opened with no button to hang from (a game asked for it) takes a task sheet's place.
   function anchor(sheet) {
     var opener = pressed && performance.now() - pressed.at < 2000 && pressed.button.isConnected ? pressed.button : null;
-    if (!opener || !sheet.classList.contains("is-compact") || sheet.matches(".in-place, .placement-side, .placement-middle, .is-picture") || opener.closest("[popover]") || sheet.contains(opener) || opener.closest("dialog[open]")) return;
-    anchors.set(sheet, { opener: opener, rect: opener.getBoundingClientRect() });
+    if (!opener || !sheet.classList.contains("is-compact") || sheet.matches(".in-place, .store-panel, .placement-middle, .is-picture") || opener.closest("[popover]") || sheet.contains(opener) || opener.closest("dialog[open]")) return;
+    anchors.set(sheet, { opener: opener, rect: opener.getBoundingClientRect(), isOnPage: Boolean(window.zaismaIsOnPage && window.zaismaIsOnPage(opener, sheet)) });
     sheet.classList.add("is-anchored");
-    sheet.classList.toggle("is-on-page", Boolean(window.zaismaIsOnPage && window.zaismaIsOnPage(opener, sheet)));
+    sheet.classList.toggle("is-on-page", anchors.get(sheet).isOnPage);
     // What loads in it after it opens (a screenshot) changes its size: it's placed again, so it stays inside the window.
     if (resized) resized.observe(sheet);
   }
   function place(sheet) {
     var held = anchors.get(sheet);
     if (!held || !sheet.open) return;
+    // On a task step (Report, from Players) it lets go of its button and takes a task sheet's place; back on a small step it hangs again.
+    if (!sheet.classList.contains("is-compact")) {
+      sheet.classList.remove("is-anchored", "is-above", "is-at-end", "is-on-page");
+      sheet.style.removeProperty("--sheet-left"); sheet.style.removeProperty("--sheet-top");
+      return;
+    }
+    sheet.classList.toggle("is-on-page", held.isOnPage);
     var rect = held.opener.isConnected ? held.opener.getBoundingClientRect() : held.rect;
     if (rect.width || rect.height) held.rect = rect; else rect = held.rect;
     var windowWidth = document.documentElement.clientWidth, windowHeight = window.innerHeight;
@@ -397,7 +412,8 @@ export const LAYERS_SCRIPT = `/* layers */(function () {
 
   /* ---- Steps and tabs: what's in one sheet changes, the sheet stays ---- */
 
-  // The sheet keeps the tallest it's been while it's open on a wide screen, so moving between its steps or tabs never makes it jump.
+  // The sheet keeps the tallest it's been while it's open on a wide screen, so moving between its tabs never makes it jump. Its steps each
+  // have their own size: a step is a different task, as long as it needs to be.
   function keepHeight(sheet) {
     if (!wide.matches || !sheet.open || sheet.classList.contains("in-place")) return;
     var heightPx = sheet.offsetHeight;
@@ -405,7 +421,7 @@ export const LAYERS_SCRIPT = `/* layers */(function () {
   }
   // direction: 1 forward, -1 back, 0 no slide.
   function showPart(sheet, attribute, name, direction) {
-    keepHeight(sheet);
+    if (attribute === "data-sheet-tab") keepHeight(sheet);
     var shown = null;
     sheet.querySelectorAll("[" + attribute + "]").forEach(function (part) { var isIt = part.getAttribute(attribute) === name; part.hidden = !isIt; if (isIt) shown = part; });
     if (shown) {
@@ -425,8 +441,24 @@ export const LAYERS_SCRIPT = `/* layers */(function () {
     var at = steps.indexOf(stepName);
     if (at === -1) steps.push(stepName); else steps.length = at + 1;
     sheet.zaismaSteps = steps;
+    var before = sheet.open ? sheet.getBoundingClientRect() : null;
     var shown = showPart(sheet, "data-sheet-step", stepName, sheet.open ? (at === -1 ? 1 : -1) : 0);
     if (!shown) return;
+    // A sheet whose steps aren't all one size: a small step makes it a compact sheet, hung from its button; a task step a task sheet, in
+    // a task sheet's place. Moving between them it glides from where it was to where it goes, as it takes the new step's size.
+    if (sheet.querySelector("[data-sheet-step-compact]")) {
+      var isCompact = shown.hasAttribute("data-sheet-step-compact");
+      if (isCompact !== sheet.classList.contains("is-compact")) {
+        sheet.classList.toggle("is-compact", isCompact);
+        sheet.classList.toggle("is-task-step", !isCompact);
+        place(sheet);
+        if (before && !isReduced() && sheet.animate) {
+          var after = sheet.getBoundingClientRect();
+          var shift = Math.round(before.left + before.width / 2 - after.left - after.width / 2) + "px " + Math.round(before.top + before.height / 2 - after.top - after.height / 2) + "px";
+          sheet.animate([{ translate: shift }, { translate: "0 0" }], { duration: 300, easing: "cubic-bezier(.2, .8, .2, 1)" });
+        }
+      }
+    }
     var back = shown.querySelector("[data-sheet-back]");
     if (back) back.hidden = steps.length < 2;
     var title = shown.querySelector(".sheet-title");
@@ -438,83 +470,13 @@ export const LAYERS_SCRIPT = `/* layers */(function () {
     var firstTab = sheet.querySelector("[data-sheet-tab-to]");
     if (firstTab) chooseTab(sheet, firstTab.getAttribute("data-sheet-tab-to"));
   }
-  // A tab chosen: its part shows, it's the pressed one in the row, the front piece's outline moves to it, and it scrolls into view.
+  // A tab chosen: its part shows, and it's the chosen one in the sheet's Switch.
   function chooseTab(sheet, tabValue) {
     showPart(sheet, "data-sheet-tab", tabValue, 0);
-    sheet.querySelectorAll("[data-sheet-tab-to]").forEach(function (button) { button.setAttribute("aria-pressed", String(button.getAttribute("data-sheet-tab-to") === tabValue)); });
-    drawTabRows(sheet, true);
+    // Its Switch shows it chosen, the slab sliding to it (SWITCH_SCRIPT's pickTab).
+    var button = sheet.querySelector('[data-sheet-tab-to="' + tabValue + '"]'), sw = button && button.closest(".tab-switch");
+    if (sw && sw.pickTab) sw.pickTab(button);
   }
-  // The tab row: behind (the deeper glass) everywhere in it but the chosen tab, Close's end too, drawn to the row where the tabs are scrolled
-  // to now (again on every scroll), with the front piece's shadow falling on it; and the sheet's own glass edge (GLASS_SCRIPT, zaismaEdgeShape) drawn along that outline: up the
-  // chosen tab's outward slants, across its top, along the row's foot beside it, and round the rest of the sheet. isRevealing scrolls the
-  // chosen tab into view.
-  var TAB_SLANT_PX = 8;
-  function drawTabRows(holder, isRevealing) {
-    (holder.classList && holder.classList.contains("sheet-tab-scroll") ? [holder.querySelector(".sheet-tab-track")] : holder.querySelectorAll(".sheet-tab-track")).forEach(function (track) {
-      var scroller = track.parentNode, row = scroller && scroller.parentNode;
-      var chosen = track.querySelector('[data-sheet-tab-to][aria-pressed="true"]'), svg = row && row.querySelector(".sheet-tab-outline");
-      if (!chosen || !svg) return;
-      // Drawn again whenever the row changes size (the sheet settling into its place, the fonts arriving).
-      if (!track.zaismaWatched && window.zaismaWatch) { track.zaismaWatched = true; window.zaismaWatch.size(track, function () { drawTabRows(track.parentNode, false); }); }
-      var w = row.offsetWidth, h = row.offsetHeight, s = TAB_SLANT_PX;
-      // Where the chosen tab is in the row now, kept to what shows of the scrolling part (as its glass edge is, outlineSheet).
-      var tabLeft = chosen.offsetLeft, tabRight = tabLeft + chosen.offsetWidth;
-      var left = Math.max(tabLeft - scroller.scrollLeft, 0), right = Math.min(tabRight - scroller.scrollLeft, scroller.clientWidth);
-      // At the sheet's start (the first tab, or one scrolled past the start), the chosen tab has the sheet's own corner there, no slant;
-      // between tabs it slants outward. Scrolled out of sight, all the row is behind.
-      var isAtStart = left <= 1, isShown = right - left > 2 * s;
-      var behind = !isShown ? "M0,0H" + w + "V" + h + "H0Z" : "M0,0H" + w + "V" + h + "H" + right + "L" + (right - s) + ",0" + (isAtStart ? "H0Z" : "H" + (left + s) + "L" + left + "," + h + "H0Z");
-      svg.querySelector(".behind-glass").setAttribute("d", behind);
-      svg.querySelector(".behind-well").setAttribute("d", behind);
-      // The front piece's shadow falls only on what's behind it: its shape in the row, blurred, kept to the behind shape.
-      var shadow = svg.querySelector(".front-shadow");
-      shadow.setAttribute("points", (!isShown ? [[-24, h]] : (isAtStart ? [[-24, 0]] : [[-24, h], [left, h], [left + s, 0]]).concat([[right - s, 0], [right, h]])).concat([[w + 24, h], [w + 24, h + 24], [-24, h + 24]]).map(function (p) { return p.join(","); }).join(" "));
-      svg.querySelector("clipPath > path").setAttribute("d", behind);
-      if (isRevealing && scroller && scroller.scrollTo) {
-        var shownLeft = scroller.scrollLeft, shownRight = shownLeft + scroller.clientWidth;
-        if (tabLeft < shownLeft || tabRight > shownRight) scroller.scrollTo({ left: tabLeft < shownLeft ? tabLeft - 24 : tabRight - scroller.clientWidth + 24, behavior: isReduced() ? "auto" : "smooth" });
-      }
-      markMore(scroller);
-      outlineSheet(track);
-    });
-  }
-  // The sheet's glass edge along its front piece: where the chosen tab is in the sheet now (the row scrolls), kept to what shows of the row.
-  function outlineSheet(track) {
-    var sheet = track.closest && track.closest(".sheet"), row = track.closest && track.closest(".sheet-tab-row");
-    if (!sheet || !row || !sheet.getBoundingClientRect) return;
-    sheet.zaismaEdgeShape = function (w, h, cuts) {
-      var chosen = track.querySelector('[data-sheet-tab-to][aria-pressed="true"]'), scroller = track.parentNode;
-      if (!chosen || !scroller) return null;
-      // In the sheet's own size, never as it shows on screen: it opens from a touch smaller (its transform), and the row is drawn unscaled.
-      var box = sheet.getBoundingClientRect(), rowBox = row.getBoundingClientRect(), scale = sheet.offsetWidth ? box.width / sheet.offsetWidth : 1, s = TAB_SLANT_PX;
-      var rowLeft = (rowBox.left - box.left) / scale, foot = (rowBox.bottom - box.top) / scale;
-      var tabLeft = chosen.offsetLeft - scroller.scrollLeft, tabRight = tabLeft + chosen.offsetWidth;
-      var left = rowLeft + Math.max(tabLeft, 0), right = rowLeft + Math.min(tabRight, scroller.clientWidth);
-      var points = [];
-      // Its top: the sheet's corner cut where the chosen tab is at the sheet's start or end, a slant up and down where it isn't.
-      if (left <= 1) points.push([0, cuts[0]], [cuts[0], 0]); else points.push([0, foot], [left, foot], [left + s, 0]);
-      if (right >= w - 1) points.push([w - cuts[1], 0], [w, cuts[1]]); else points.push([right - s, 0], [right, foot], [w, foot]);
-      points.push([w, h - cuts[2]], [w - cuts[2], h], [cuts[3], h], [0, h - cuts[3]]);
-      return right - left > 2 * s ? points : null;
-    };
-    if (sheet.redrawGlass) sheet.redrawGlass();
-  }
-  // Where there's more to scroll, the row fades out at that end.
-  function markMore(scroller) {
-    if (!scroller || !scroller.classList) return;
-    scroller.classList.toggle("is-more-start", scroller.scrollLeft > 1);
-    scroller.classList.toggle("is-more-end", scroller.scrollLeft + scroller.clientWidth < scroller.scrollWidth - 1);
-  }
-  document.addEventListener("scroll", function (event) {
-    if (!event.target.classList || !event.target.classList.contains("sheet-tab-scroll")) return;
-    // The chosen tab moved in the sheet: what's behind and its glass edge follow.
-    drawTabRows(event.target, false);
-  }, true);
-  // Rows on the page as it opens (a gallery's still copy), and again when the window or the fonts change their size.
-  var drawAllTabRows = function () { if (document.body) drawTabRows(document.body, false); };
-  drawAllTabRows();
-  window.addEventListener("resize", drawAllTabRows);
-  if (document.fonts && document.fonts.ready) document.fonts.ready.then(drawAllTabRows);
 
   var layers = window.zaismaLayers = {
     coveredBy: null,
@@ -526,7 +488,7 @@ export const LAYERS_SCRIPT = `/* layers */(function () {
       var known = el ? entryOf(el) : entries.filter(function (entry) { return entry.isMade && entry.text === options.text; })[0];
       if (known) return handleOf(known);
       var noticeUrgency = options.noticeUrgency || (el ? urgencyOf(el) : "information");
-      // An urgent card may say itself which sheets can't go on under it (urgentCard's sheetsToClose).
+      // An urgent card may say itself which sheets can't go on under it (an over-everything notice's sheetsToClose).
       var sheetsToClose = options.sheetsToClose || (el && el.getAttribute("data-sheets-to-close") ? el.getAttribute("data-sheets-to-close").split(" ") : []);
       var entry = { el: el, text: options.text || "", noticeUrgency: noticeUrgency, tone: options.tone === "problem" ? "problem" : "done", undoAction: options.undoAction || null, sheetsToClose: sheetsToClose, isMade: !el };
       if (el) { el.zaismaLayer = entry; if (hiddenWatch) hiddenWatch.observe(el, { attributes: true, attributeFilter: ["hidden"] }); }

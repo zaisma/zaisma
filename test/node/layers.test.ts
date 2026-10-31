@@ -144,6 +144,7 @@ function loadPage({ isPlaying = false } = {}) {
     innerHeight: 800,
     scrollX: 0,
     scrollY: 0,
+    CSS: { supports: () => true },
     // Where a hanging pane goes (panes.ts's PLACE_SCRIPT), standing in: under the button.
     zaismaPlace: (rect: { left: number; bottom: number }) => ({ leftPx: rect.left, topPx: rect.bottom + 8, isAbove: false, isAtEnd: false }),
     addEventListener: (type: string, listener: Listener) => void (windowListeners[type] ??= []).push(listener),
@@ -156,6 +157,8 @@ function loadPage({ isPlaying = false } = {}) {
     HTMLDialogElement: Dialog,
     getComputedStyle: () => ({ getPropertyValue: () => "8px" }),
     matchMedia: () => ({ matches: false }),
+    // A browser that draws a sheet's first frame on time (one with overlay): it opens at once, with no frames to wait for.
+    CSS: { supports: () => true },
     console: { warn: (text: string) => warnings.push(text) },
   };
   new Function(...Object.keys(browser), LAYERS_SCRIPT)(...Object.values(browser));

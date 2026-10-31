@@ -1,5 +1,6 @@
 // The markup primitives come first, so the components this module imports find them ready (markup.ts).
 export { Raw, accountPicture, esc, html, raw, shownAddress, shownColor } from "./markup.ts";
+import { stackOfOne } from "./components/layout.ts";
 import { Raw, esc, html, raw } from "./markup.ts";
 import { PRESENCE_CHECK_IN_MS, describePlayModes, type PlayMode } from "@zaisma/core";
 import { gameFrameSource, type Env } from "./env.ts";
@@ -9,7 +10,7 @@ import { COMPONENT_SCRIPT, COMPONENT_STYLES, HEADER_SCRIPT } from "./components/
 import { HEADER_TWO_ROWS_MEDIA, footer, header, rail, type HeaderTab } from "./components/navigation.ts";
 import type { ControlMarkup } from "./components/control-markup.ts";
 import { secondaryButton, primaryButton } from "./components/actions.ts";
-import { pictureFrame, problemState } from "./components/data.ts";
+import { problemState } from "./components/data.ts";
 import { backdrop, glassPane } from "./components/foundations.ts";
 import type { SwitchTab } from "./components/inputs.ts";
 import type { Viewer } from "./viewer.ts";
@@ -626,7 +627,7 @@ interface LayoutBaseOptions {
   isAdmin?: boolean;
   isPrivate?: boolean;
   nav?: Nav;
-  /** The page's Sidebar button (navigation.ts's sidebarButton), at the header's start over its sidebar. */
+  /** The page's sidebar button (navigation.ts's sidebarButton, a small Secondary button), at the header's start over its sidebar. */
   sidebarButton?: ControlMarkup;
   hasTurnstileCheck?: boolean;
   search?: HeaderSearch;
@@ -677,8 +678,8 @@ export function layout(env: Env, options: LayoutOptions): Response {
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>${options.title}</title>
 ${options.checkedPage ? checkedPageTag(options.checkedPage) : ""}
-<link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="icon" href="/favicon.ico" sizes="32x32">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="preload" href="${FONT_PATH}" as="font" type="font/woff2" crossorigin>
@@ -744,7 +745,7 @@ export function siteHeader(env: Env, options: { isAdmin?: boolean; nav?: Nav; se
     current: options.isAdmin ? null : (options.nav ?? null),
     ownTabs: options.isAdmin ? ADMIN_TABS.map(([label, href]): SwitchTab => ({ label, href, isCurrent: false })) : undefined,
     search: shownSearch ? { ...shownSearch, name: "search_text" } : undefined,
-    account: account ? { username: account.username, pictureMarkup: pictureFrame(account.username, "md", { isCut: true }) } : null,
+    account: account ? { username: account.username } : null,
     isOnDeveloperPage: !options.isAdmin && (options.nav === "developer" || options.nav === "forum"),
     // The page has a runner of its own (Play, Save): Sign in is a secondary button, so only one runner is ever in view.
     hasPageRunner: options.hasPageRunner,
@@ -766,7 +767,7 @@ export function message(env: Env, title: string, text: string, httpStatus = 200)
 /** The same, in Zaisma's look: a pane of glass on the page, for a page already rebuilt in it (the connect and Sign in with Zaisma pages). */
 export function glassMessage(env: Env, title: string, text: string, httpStatus = 200): Response {
   // The gallery's problem state says it; the page's heading is for screen readers, since the state's title is its words.
-  const body = glassPane({ paneWidth: "fit", body: html`<h1 class="sr">${title}</h1>${problemState({ title, text, action: primaryButton("Back to games", { href: "/", isFullWidth: true }) })}` });
+  const body = glassPane({ paneWidth: "fit", body: stackOfOne(html`<h1 class="sr">${title}</h1>${problemState({ title, text, action: primaryButton("Back to games", { href: "/", isFullWidth: true }) })}`) });
   const response = layout(env, { title, body, checkedPage: "A message", pageShape: "reading" });
   return new Response(response.body, { status: httpStatus, headers: response.headers });
 }

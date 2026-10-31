@@ -31,13 +31,6 @@ const isSignedIn = /(^|; )(__Host-)?zaisma_in=1/.test(document.cookie);
 const $ = (id) => document.getElementById(id);
 function make(tag, className, text) { const node = document.createElement(tag); if (className) node.className = className; if (text !== undefined) node.textContent = text; return node; }
 function iconNode(markup) { const holder = make("span"); holder.innerHTML = markup; return holder.firstElementChild; }
-function ago(ms) {
-  const minutes = Math.max(1, Math.round((Date.now() - ms) / 60000));
-  if (minutes < 60) return minutes + " min ago";
-  if (minutes < 1440) return Math.round(minutes / 60) + " h ago";
-  const days = Math.round(minutes / 1440);
-  return days === 1 ? "yesterday" : days + " days ago";
-}
 
 /* ---- What this device and account have played ---- */
 let played = [];
@@ -165,39 +158,31 @@ function setFocus(slug) {
 }
 
 /* ---- Covers ---- */
-function coverFacts(game, list, at) {
-  const meta = make("div", "cover-meta");
-  if (list === "continue") {
-    const when = make("span", "when"), words = make("span"), played = make("span", "sr", "Played ");
-    words.append(played, ago(at)); when.append(iconNode(DATA.icons.clock), words); meta.append(when);
-    if (game.published_at_ms && game.published_at_ms > at) meta.append(iconNode(DATA.parts.updated_tag));
-  }
-  if (game.playing_now_player_count >= DATA.minimum_playing_now_player_count) {
-    const count = make("span", "count"), words = make("span", "", game.playing_now_player_count.toLocaleString("en-US")); words.append(make("span", "sr", " playing now"));
-    count.append(iconNode(DATA.icons.people), words); meta.append(count);
-  }
-  return meta;
-}
-// The same markup as components/panes.ts's gameCover.
+// The same markup as components/panes.ts's gameCard: the art in its well, its foot's edge light in the game's tint, Updated in its top left
+// corner (a game played before its last update, in Continue playing), and its line: its title and players now.
 function coverFor(game, list, at) {
-  const cover = make("div", "cover"), art = make("a", "cover-art cut-carved");
+  const cover = make("div", "cover"), art = make("a", "cover-art carving holds-art");
   const isUpdated = list === "continue" && game.published_at_ms && game.published_at_ms > at;
   cover.dataset.slug = game.slug;
-  art.href = "/g/" + game.slug; art.setAttribute("data-cut-line", "0"); art.setAttribute("aria-label", game.title + (isUpdated ? ", updated" : ""));
-  // As Game cover makes it: the picture, or for a game with none, Zaisma's mark in the well with the game's title under it.
+  if (/^#[0-9a-fA-F]{6}$/.test(game.glass_tint_color || "")) { cover.classList.add("has-tint"); cover.style.setProperty("--card-tint", game.glass_tint_color); }
+  art.href = "/g/" + game.slug; art.setAttribute("data-cut-line", "0"); art.setAttribute("data-edge-light", "bottom"); art.setAttribute("data-lights", ""); art.setAttribute("aria-label", game.title + (isUpdated ? ", updated" : "")); art.append(iconNode(DATA.parts.cut_line));
+  // The picture, or for a game with none, Zaisma's mark in the well.
   if (game.cover) {
     const image = make("img");
     const set = sizedSet(game.cover, 960); if (set) { image.srcset = set; image.sizes = "(max-width: 760px) 200px, 260px"; }
     image.src = game.cover; image.alt = ""; image.loading = "lazy"; image.decoding = "async";
-    const picture = make("span", "cover-picture"); picture.setAttribute("data-cut-line", "0");
+    const picture = make("span", "cover-picture carving-art"); picture.setAttribute("data-cut-line", "0");
     picture.append(image); art.append(picture);
-  } else {
-    cover.classList.add("is-placeholder");
-    const title = make("span", "cover-title"); title.setAttribute("aria-hidden", "true"); title.textContent = game.title;
-    art.append(title);
+  } else cover.classList.add("is-placeholder");
+  const light = make("span", "edge-light"); light.setAttribute("aria-hidden", "true"); art.append(light);
+  if (isUpdated) { const mark = make("span", "cover-mark at-news"); mark.append(iconNode(DATA.parts.updated_tag)); art.append(mark); }
+  const meta = make("div", "cover-meta");
+  meta.append(make("span", "cover-name one-line", game.title));
+  if (game.playing_now_player_count >= DATA.minimum_playing_now_player_count) {
+    const count = make("span", "count"), words = make("span", "", game.playing_now_player_count.toLocaleString("en-US")); words.append(make("span", "sr", " playing now"));
+    count.append(iconNode(DATA.icons.people), words); meta.append(count);
   }
-  const bar = make("span", "cover-bar"); bar.setAttribute("aria-hidden", "true");
-  cover.append(art, bar, coverFacts(game, list, at));
+  cover.append(art, meta);
   if (game.slug === focusSlug) cover.setAttribute("aria-current", "true");
   return cover;
 }

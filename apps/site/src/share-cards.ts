@@ -14,7 +14,9 @@ import { secondaryButton } from "./components/actions.ts";
 import { copyField } from "./components/inputs.ts";
 import { qrCode } from "./components/qr-code.ts";
 import { stack, type LayoutItem } from "./components/layout.ts";
-import { lightBox, menuChoices, sheet, type DropdownChoice } from "./components/panes.ts";
+import { lightBox, sheet } from "./components/panes.ts";
+import { listRows, type ListRow } from "./components/data.ts";
+import { icon } from "./components/foundations.ts";
 
 const ROOM_CODE = /^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$/;
 /** Search engines show about this much of a description. */
@@ -134,15 +136,15 @@ export async function qrCodeImage(env: Env, game: Game | null, request: Request)
  * page's script fills it in (shareFrom); with the room code hidden (streamer mode) the QR code, room code and link are masked until Show.
  */
 export function shareDialog(gameTitle: string, hasQrCode: boolean): Raw {
-  const choices: DropdownChoice[] = [
-    ...(hasQrCode ? [{ label: "Show QR code", icon: "qr-code" as const, controls: "share-qr-box", id: "share-qr-open" }] : []),
-    { label: "More ways to share", icon: "share", isButton: true, id: "share-more", isHidden: true },
+  const choices: ListRow[] = [
+    ...(hasQrCode ? [{ title: "Show QR code", lead: icon("qr-code"), press: { controls: "share-qr-box" }, id: "share-qr-open" }] : []),
+    { title: "More ways to share", lead: icon("share"), press: {}, id: "share-more", isHidden: true },
   ];
   const items: LayoutItem[] = [
     { kind: "control", markup: secondaryButton("Show", { id: "share-reveal", type: "button", icon: "eye", isHidden: true }) },
     { kind: "block", id: "share-room", isHidden: true, markup: copyField({ id: "share-room-code", label: "Room code", copiedText: "", isCode: true }) },
     { kind: "control", markup: copyField({ id: "share-link", label: "Link", copiedText: "" }) },
-    { kind: "block", markup: menuChoices({ label: "More ways to share", choices }) },
+    { kind: "block", markup: listRows({ whenEmpty: html``, isCompact: true, label: "More ways to share", rows: choices }) },
   ];
   const qrBox = hasQrCode
     ? lightBox({ id: "share-qr-box", label: `QR code for ${gameTitle}`, closeLabel: "Close", body: qrCode({ id: "share-qr", label: `QR code for ${gameTitle}`, caption: "Scan with a phone's camera to play", isLarge: true }) })

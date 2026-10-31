@@ -1,13 +1,12 @@
 import { GENRE_LABELS, GENRES, PRICE_RANGES, currencyForCountry, priceRangeOf, requestCountryCode, type DeviceKind, type Genre, type PriceRange } from "@zaisma/core";
 import { tertiaryButton } from "./components/actions.ts";
-import { glassPane } from "./components/foundations.ts";
+import { divider, glassPane } from "./components/foundations.ts";
 import { grid, row, stack, type LayoutItem } from "./components/layout.ts";
-import { filterTags, type FilterTag } from "./components/panes.ts";
+import { tagsInUse, type TagInUse } from "./components/data.ts";
 import { filterMenu, type FilterGroup } from "./components/navigation.ts";
 import { loadMore } from "./components/navigation.ts";
 import { emptyState } from "./components/data.ts";
-import { dividerWords } from "./components/reading.ts";
-import { gameCard } from "./components/playing.ts";
+import { gameCard } from "./components/panes.ts";
 import { tabSwitch, type SwitchTab } from "./components/switch.ts";
 import { DEVICE_KIND_SOURCE, viewerDeviceKind } from "./device-kind.ts";
 import type { Env } from "./env.ts";
@@ -174,6 +173,7 @@ const coverOf = (game: BrowseGame, coverIndex: number, ownedGameIds: ReadonlySet
     title: game.title,
     imageUrl: game.cover,
     href: `/g/${game.slug}`,
+    tintColor: game.glass_tint_color,
     facts: { deviceNote: game.device_note ?? undefined, playerCount: game.playing_now_player_count >= MINIMUM_PLAYING_NOW_PLAYER_COUNT ? game.playing_now_player_count : undefined, priceText: coverPriceText(game, ownedGameIds) },
     // The first row loads with the page, the very first cover before anything else.
     isEager: coverIndex < 6,
@@ -202,7 +202,7 @@ function browseState(query: BrowseQuery, isSignedIn: boolean, gameCount: number)
 }
 
 /** The filters in use, in the menu's order: each said as its tag, with the link to Browse without it. */
-function filtersInUse(query: BrowseQuery, priceLabels?: Record<BrowsePriceRange, string>): FilterTag[] {
+function filtersInUse(query: BrowseQuery, priceLabels?: Record<BrowsePriceRange, string>): TagInUse[] {
   const without = (change: Partial<BrowseQuery>) => browseHref({ ...query, ...change, pageNumber: 1 });
   return [
     ...(query.genre !== "any" ? [{ label: GENRE_LABELS[query.genre], removeHref: without({ genre: "any" }) }] : []),
@@ -218,18 +218,21 @@ function filterGroups(query: BrowseQuery, priceLabels: Record<BrowsePriceRange, 
     {
       groupName: "genre",
       label: "Genre",
+      icon: "games",
       pickedLabel: query.genre === "any" ? "Any" : GENRE_LABELS[query.genre],
       choices: (["any", ...GENRES] as (Genre | "any")[]).map((genre) => ({ label: genre === "any" ? "Any" : GENRE_LABELS[genre], href: picked({ genre }), isCurrent: query.genre === genre })),
     },
     {
       groupName: "players",
       label: "Players",
+      icon: "people",
       pickedLabel: PLAYERS_LABELS[query.players],
       choices: BROWSE_PLAYERS.map((players) => ({ label: PLAYERS_LABELS[players], href: picked({ players }), isCurrent: query.players === players })),
     },
     {
       groupName: "price",
       label: "Price",
+      icon: "price-tag",
       pickedLabel: priceLabels[query.priceRange],
       choices: (["any", ...PRICE_RANGES] as BrowsePriceRange[]).map((priceRange) => ({ label: priceLabels[priceRange], href: picked({ priceRange }), isCurrent: query.priceRange === priceRange })),
     },
@@ -265,7 +268,7 @@ function results(query: BrowseQuery, games: BrowseGame[], ownedGameIds: Readonly
     {
       kind: "block",
       isHidden: !others.length,
-      markup: stack({ items: [{ kind: "words", markup: dividerWords(otherDevicesWords(allOthers)) }, { kind: "block", markup: grid({ whenEmpty: emptyState({ title: "Nothing for other devices", text: "Every game here plays on this one." }), id: "browse-other-games", itemSize: "cover", label: "Games made for other devices", items: others.map((game, coverIndex) => coverOf(game, fitting.length + coverIndex, ownedGameIds)) }) }] }),
+      markup: stack({ items: [{ kind: "words", markup: divider({ words: otherDevicesWords(allOthers) }) }, { kind: "block", markup: grid({ whenEmpty: emptyState({ title: "Nothing for other devices", text: "Every game here plays on this one." }), id: "browse-other-games", itemSize: "cover", label: "Games made for other devices", items: others.map((game, coverIndex) => coverOf(game, fitting.length + coverIndex, ownedGameIds)) }) }] }),
     },
     ...(hasMore
       ? [{ kind: "block" as const, markup: loadMore({ href: browseHref({ ...query, pageNumber: query.pageNumber + 1 }), label: "More games", listId: "browse-games", moreListIds: ["browse-other-games"], isLoadedOnScroll: true }) }]
@@ -298,11 +301,11 @@ export async function browsePage(env: Env, request: Request): Promise<Response> 
             label: "Sort and filter",
             items: [
               { kind: "control", markup: tabSwitch({ label: "Sort", switchSize: "small", tabs: sortTabs }) },
-              { kind: "control", markup: filterMenu({ id: "browse-filter", groups: filterGroups(query, priceLabels), clearHref: tags.length ? browseHref({ sort: query.sort, searchText: query.searchText }) : null, filterCount: tags.length }) },
+              { kind: "control", markup: filterMenu({ id: "browse-filter", groups: filterGroups(query, priceLabels), clearHref: browseHref({ sort: query.sort, searchText: query.searchText }), filterCount: tags.length }) },
             ],
           }),
         },
-        ...(tags.length ? [{ kind: "block" as const, markup: filterTags({ tags }) }] : []),
+        ...(tags.length ? [{ kind: "block" as const, markup: tagsInUse({ tags }) }] : []),
         ...results(query, games, ownedGameIds),
       ],
     }),
@@ -359,7 +362,7 @@ function swap(next) {
   });
   there.slice(here.length).forEach((row) => parent.append(document.importNode(row, true)));
 }
-function show(href, isNewEntry, isSearch) {
+function show(href, isNewEntry, isSearch, reopenedGroupName) {
   const asked = ++latest;
   fetch(href, { headers: { accept: "text/html" }, credentials: "same-origin" }).then((response) => response.ok ? response.text() : Promise.reject(response.status)).then((text) => {
     if (asked !== latest) return;
@@ -370,6 +373,7 @@ function show(href, isNewEntry, isSearch) {
     document.title = page.title;
     if (isNewEntry === "push") history.pushState(null, "", href); else if (isNewEntry) history.replaceState(null, "", href);
     browse.querySelectorAll("[data-loads-on-scroll]").forEach((holder) => window.zaismaLoadMore && window.zaismaLoadMore.watch(holder));
+    if (typeof reopenedGroupName === "string") reopenFilter(reopenedGroupName);
   }).catch(() => { if (isNewEntry === "push") location.href = href; });
 }
 // A sort or a genre: its tab slides at once, and the grid follows when the page's games come.
@@ -384,13 +388,27 @@ browse.addEventListener("click", (event) => {
   if (sw.pickTab) sw.pickTab(tab);
   show(tab.getAttribute("href"), "push");
 });
-// A filter picked or taken away: the pane is drawn again in place, its menu and tags with it.
-browse.addEventListener("click", (event) => {
-  const link = event.target.closest && event.target.closest(".filter-menu a[href], .filter-tags a[href]");
+// A filter picked or taken away: the pane is drawn again in place, its menu and tags with it. The open menu floats outside the pane (in
+// the page's top layer), so its picks are heard on the whole page; picked there, the menu opens again at once on its ways, the way just
+// changed in focus, so filters are picked one after another without it closing.
+document.addEventListener("click", (event) => {
+  const link = event.target.closest && event.target.closest("#browse-filter a[href], #browse .tags-in-use a[href]");
   if (!link || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
   event.preventDefault();
-  show(link.getAttribute("href"), "push", true);
+  const panel = link.closest("[data-filter-panel]");
+  show(link.getAttribute("href"), "push", true, panel ? panel.getAttribute("data-filter-panel") : null);
 });
+function reopenFilter(groupName) {
+  requestAnimationFrame(() => {
+    const menu = document.getElementById("browse-filter"), button = document.querySelector('[aria-controls="browse-filter"]');
+    if (!menu || !button || !menu.floating) return;
+    menu.classList.add("opens-at-once");
+    button.click();
+    const row = groupName ? menu.querySelector('[data-filter-opens="' + groupName + '"]') : menu.querySelector(".filter-group");
+    if (row) row.focus({ preventScroll: true });
+    requestAnimationFrame(() => menu.classList.remove("opens-at-once"));
+  });
+}
 window.addEventListener("popstate", () => show(location.pathname + location.search));
 if (zaismaDeviceKind() !== browse.dataset.deviceKind) show(location.pathname + location.search);
 if (search) {

@@ -12,7 +12,7 @@ import { EDGE, STAND_IN_BACKGROUNDS_SCRIPT, backdrop, logo, pageSettingsAttribut
 import { secondaryButton, primaryButton, textLink } from "./components/actions.ts";
 import { SEARCH_STAND_IN, cutField } from "./components/inputs.ts";
 import { loadMore, sidebar, sidebarButton, sidebarLayout, type SidebarPlace } from "./components/navigation.ts";
-import { row, stack } from "./components/layout.ts";
+import { row, stack, stackOfOne } from "./components/layout.ts";
 import { listRows, emptyState } from "./components/data.ts";
 import { cutPolygon, glassPane, tray } from "./components/foundations.ts";
 
@@ -61,7 +61,7 @@ function section(each: Component, theme: GalleryTheme): Raw {
   // Each section is a Tray: its name and summary on the pane, every example on the tray beneath it.
   return html`<div class="component-section" id="${each.slug}" data-rail-mark="${each.name}">${tray({
     head: html`<h2 class="component-name" id="${each.slug}-name">${textLink(each.name, `#${each.slug}`, { isQuiet: true })}</h2><p class="component-summary">${withTokens(each.summary)}</p>`,
-    body: examples(each),
+    body: stackOfOne(examples(each)),
     label: each.name,
   })}</div>`;
 }
@@ -87,7 +87,7 @@ function head(title: string, group: ComponentGroup, scripts: PageScript[] = []):
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="preload" href="/fonts/jost.7726a5cd.woff2" as="font" type="font/woff2" crossorigin>
 ${styleTags(DESIGN_STYLE)}
-${headScriptTags(COMPONENT_SCRIPT, HEADER_SCRIPT, GALLERY_SCRIPT, DESIGN_LOOPS_SCRIPT)}${group === "foundations" ? scriptTags(CITY_SCRIPT) : ""}${group === "foundations" || group === "actions" ? scriptTags(STAND_IN_BACKGROUNDS_SCRIPT) : ""}${group === "layout" ? scriptTags(SCREENS_SCRIPT) : ""}${scripts.length ? scriptTags(...scripts) : ""}`;
+${headScriptTags(COMPONENT_SCRIPT, HEADER_SCRIPT, GALLERY_SCRIPT, DESIGN_LOOPS_SCRIPT)}${group === "foundations" ? scriptTags(CITY_SCRIPT) : ""}${group === "foundations" || group === "actions" || group === "panes" ? scriptTags(STAND_IN_BACKGROUNDS_SCRIPT) : ""}${group === "layout" ? scriptTags(SCREENS_SCRIPT) : ""}${scripts.length ? scriptTags(...scripts) : ""}`;
 }
 
 /** GET /design and /design/<group>: one group of the gallery, its components in every state. */
@@ -140,7 +140,7 @@ ${checkedPageTag(options.checkedPage)}
 </head>
 <body class="gallery">
 <div id="stage" class="stage"${pageSettingsAttributes({ theme })}>${backdrop()}
-<header class="gallery-bar glass" data-compacts data-rail-starts-below data-glass data-glass-corners="header">${EDGE}<span class="gallery-start">${sidebarButton({ controls: "gallery-places", label: "Groups", isExpanded: !options.isScreens })}</span>${logo("wordmark")}<span class="gallery-title">Design</span>
+<header class="gallery-bar glass glass-bar pinned" data-compacts data-rail-starts-below data-glass data-glass-corners="header">${EDGE}<span class="gallery-start">${sidebarButton({ controls: "gallery-places", label: "Groups", isExpanded: !options.isScreens })}</span>${logo("wordmark")}<span class="gallery-title">Design</span>
 <span class="gallery-buttons">${row({ widths: "fit", alignment: "end", items: [{ kind: "control", markup: sidebarButton({ controls: "gallery-places", label: "Groups", isExpanded: !options.isScreens }) }, { kind: "control", markup: themeButton(options.path, theme) }] })}</span></header>
 <div class="gallery-layout">${sidebarLayout({
     sidebar: sidebar({ id: "gallery-places", label: "Design", places, rememberKey: options.isScreens ? "gallery-screens" : "gallery" }),
@@ -178,14 +178,14 @@ function screensPage(env: Env, url: URL): Response {
 export const GALLERY_STYLES = `
 /* The gallery: Zaisma's own page, a glass bar with the light or dark button, the groups, and each component's examples in labeled cells. */
 /* Where things rest under the bar: its inset, its height and the gap between blocks, so the stuck index sits where it sat at the top. */
-html { --gallery-bar-height: 68px; --under-gallery-bar: calc(var(--pad-pane) + var(--gallery-bar-height) + var(--gap-block-block)); --header-room: var(--under-gallery-bar); scroll-padding-top: var(--under-gallery-bar); }
+html { --gallery-bar-height: calc(var(--control-height-small) + 2 * var(--pad-frame)); --under-gallery-bar: calc(var(--pad-pane) + var(--gallery-bar-height) + var(--gap-block-block)); --header-room: var(--under-gallery-bar); scroll-padding-top: var(--under-gallery-bar); }
 body.gallery { margin: 0; min-height: 100vh; font: var(--type-reading); }
 .stage { min-height: 100vh; color: var(--ink); background: var(--page); }
 /* Padding, not the bar's margin, keeps it off the top: a margin would collapse through the stage and show a strip of nothing above it. */
 .stage { padding-top: var(--pad-pane); }
-/* The bar floats like the header: inset from the top and both sides, with the header's own padding around what's in it. */
-.gallery-bar { position: sticky; top: var(--pad-pane); z-index: 20; margin: 0 auto; width: calc(100% - 2 * var(--pad-pane)); max-width: calc(1480px - 2 * var(--pad-pane)); min-height: var(--gallery-bar-height); display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-control-stack) var(--gap-words-words); padding: var(--pad-inner-pane);
-  --glass-tint: var(--glass-top); view-transition-name: gallery-bar; }
+/* The bar floats like the header, inset from the top and both sides; it's a bar of glass (materials.ts), as tall as its buttons and the frame gap round them. */
+.gallery-bar { position: sticky; top: var(--pad-pane); z-index: 20; margin: 0 auto; width: calc(100% - 2 * var(--pad-pane)); max-width: calc(1480px - 2 * var(--pad-pane)); display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-control-stack) var(--gap-words-words);
+  --glass-tint: var(--glass-top); }
 .gallery-bar > .logo { --logo-height: 24px; }
 .gallery-title { font: var(--type-name); color: var(--ink-2); padding-left: var(--gap-words-words); border-left: var(--divider); }
 .gallery-buttons { margin-left: auto; }
@@ -212,16 +212,25 @@ body.gallery { margin: 0; min-height: 100vh; font: var(--type-reading); }
 .cover-sample { width: 260px; }
 /* The loops' own pointer, moving onto the copy it plays. It sinks a little while it presses. */
 [data-state-loop] { position: relative; display: inline-block; }
-.loop-cursor { position: absolute; left: 0; top: 0; z-index: 8; pointer-events: none; transition: transform 0.65s cubic-bezier(.45,0,.25,1); filter: drop-shadow(0 2px 3px rgba(10,20,40,0.35)); }
-.loop-cursor svg { display: block; transform-origin: 4px 3px; transition: transform 0.12s ease-out; }
+.loop-cursor { position: absolute; left: 0; top: 0; z-index: 8; pointer-events: none; transition: transform var(--motion-settle) var(--ease-standard); filter: drop-shadow(0 2px 3px rgba(10,20,40,0.35)); }
+.loop-cursor svg { display: block; transform-origin: 4px 3px; transition: transform var(--motion-state) ease-out; }
 .loop-cursor.is-down svg { transform: scale(0.84); }
 .dropdown-frame { position: relative; width: 100%; height: 410px; transform: translateZ(0); }
 .dropdown-frame > .cut-btn { position: absolute; right: 20px; top: 0; }
+/* The dropdown over a game's world: one to try at its start, one open at its end. */
+.backdrop-frame.holds-menus { height: auto; align-items: flex-start; justify-content: space-between; padding: var(--pad-pane); gap: var(--gap-block-block); }
+.backdrop-frame.holds-menus { flex-wrap: wrap; }
+/* Side by side while each has a menu's width, one under another once they don't, so large text never pushes the page sideways. */
+.backdrop-frame.holds-menus > :is(.dropdown-frame, .banner-frame) { flex: 1 1 var(--size-menu); min-width: 0; }
 /* The rail's example: a pane held short, so what's in it scrolls on its rail. */
 .rail-box { display: flex; height: 220px; }
 .rail-side-box p { margin: 0; white-space: nowrap; }
 .rail-example-part { margin: 0; font: var(--type-label); color: var(--ink); }
 .rail-side-box { padding-top: var(--gap-block-block); }
+/* A playing bar's phone example: a phone's screen, upright or on its side, with a stand-in game filling what the bar leaves. */
+.game-stand-in { display: flex; flex-direction: column; width: min(320px, 100%); height: 568px; overflow: hidden; clip-path: ${cutPolygon("pane")}; background: #000; }
+.game-stand-in.sideways { flex-direction: row; width: min(667px, 100%); height: 320px; }
+.game-stand-in > img { flex: 1; min-width: 0; min-height: 0; object-fit: cover; }
 /* A header example: a frame that holds the fixed header (its transform makes it the header's containing block) over a stand-in page scrolling under it. */
 .header-frame { position: relative; isolation: isolate; width: 100%; height: 260px; overflow: hidden; transform: translateZ(0); box-shadow: var(--well-shade);
   clip-path: ${cutPolygon("pane")}; }
@@ -239,8 +248,7 @@ body.gallery { margin: 0; min-height: 100vh; font: var(--type-reading); }
 @media (max-width: 760px) {
   .gallery-start { display: none; }
   /* One even inset all round, so the buttons sit the same distance from every edge of the pane; compact keeps it even, only smaller. */
-  .gallery-bar { min-height: 56px; transition: var(--glass-transition), padding 0.25s, gap 0.25s; }
-  .gallery-bar.is-compact { padding: calc(var(--pad-inner-pane) * 2 / 3); }
+  .gallery-bar { transition: var(--glass-transition), padding var(--motion-state), gap var(--motion-state); }
   .gallery-bar > .logo { --logo-height: 22px; }
   .gallery-bar.is-compact > .logo { --logo-height: 18px; }
   .examples { grid-template-columns: minmax(0, 1fr); }
@@ -303,19 +311,59 @@ export const GALLERY_SCRIPT = pageScript(
     event.preventDefault();
     apply(stage.dataset.themeChoice === "dark" ? "light" : "dark");
   });
-  // The Toggle button's live example turns on and off as a page's script would turn it: its count and its words follow.
+  // The Toggle button's live example turns on and off as a page's script would turn it: its count and its words follow. So does a toggle
+  // marked as an example itself (a player's Mute in the Players sheet).
   document.addEventListener("click", function (event) {
-    var toggle = event.target.closest && event.target.closest("[data-toggle-example] .toggle-btn");
+    var toggle = event.target.closest && event.target.closest("[data-toggle-example] .toggle-btn, .toggle-btn[data-toggle-example]");
     if (!toggle) return;
     var isOn = toggle.getAttribute("aria-pressed") !== "true", count = toggle.querySelector(".cut-count"), words = toggle.querySelector(".face > span:not([class])");
     toggle.setAttribute("aria-pressed", String(isOn));
     if (count) count.textContent = (Number(count.textContent.replace(/,/g, "")) + (isOn ? 1 : -1)).toLocaleString("en-US");
     if (words && /^Follow/.test(words.textContent)) words.textContent = isOn ? "Following" : "Follow";
   });
+  // Confirm it's you's live example, opened as a page opens it: a purchase PIN of 246810 or the password "password" is right, anything else
+  // wrong, with the tries left.
   document.addEventListener("click", function (event) {
-    var link = event.target.closest && event.target.closest('.example-stage a[href^="#"], .example-stage a[href^="/"]');
-    if (link) event.preventDefault();
+    var opener = event.target.closest && event.target.closest("[data-confirm-example]");
+    if (!opener || !window.zaismaConfirmItsYou) return;
+    var triesLeftCount = 3;
+    window.zaismaConfirmItsYou(opener.getAttribute("data-confirm-example"), {
+      methods: ["purchase_pin", "password"],
+      reason: "Your account asks for your purchase PIN for every buy.",
+      passkeyPurpose: "purchase",
+      send: function (proof) {
+        return new Promise(function (resolve) {
+          setTimeout(function () {
+            if (proof.purchase_pin === "246810" || proof.password === "password") return resolve({ ok: true });
+            triesLeftCount -= 1;
+            resolve({ ok: false, message: proof.method === "purchase_pin" ? "That PIN isn't right. " + triesLeftCount + (triesLeftCount === 1 ? " try" : " tries") + " left." : "That password isn't right." });
+          }, 700);
+        });
+      },
+      onConfirmed: function () {},
+      onCancelled: function () {},
+    });
   });
+  // A header's search shown open: its list hangs under the field in the example's frame, outside the header, as the open account menu does,
+  // since the header's cut would clip it there.
+  document.querySelectorAll(".header-frame .top .find > .find-list.in-place").forEach(function (list) {
+    var field = list.parentElement, frame = field.closest(".header-frame");
+    frame.appendChild(list);
+    function hang() {
+      var f = field.getBoundingClientRect(), r = frame.getBoundingClientRect();
+      list.style.position = "absolute"; list.style.zIndex = "11";
+      list.style.left = Math.round(f.left - r.left) + "px"; list.style.top = Math.round(f.bottom - r.top + 6) + "px"; list.style.width = Math.round(f.width) + "px";
+    }
+    hang(); window.zaismaWatch.size(frame, hang);
+  });
+  // An example's links stay on this page, a menu's too while it floats over the page away from its example. It's caught first, so a
+  // switch's tab to another page is picked in place, as one within the page is.
+  document.addEventListener("click", function (event) {
+    var link = event.target.closest && event.target.closest('a[href^="#"], a[href^="/"]');
+    if (!link) return;
+    var pane = link.closest(".floating-pane"), home = pane && pane.floatingHome;
+    if (link.closest(".example-stage") || (home && home.closest && home.closest(".example-stage"))) event.preventDefault();
+  }, true);
   // A form in an example sends nothing; one in a sheet closes it, as if it had gone. Closing a sheet (Cancel, its close button) works as on a page.
   document.addEventListener("submit", function (event) {
     // One a page script already handled (a step flow moving on) is left to it.
@@ -454,6 +502,20 @@ export const GALLERY_SCRIPT = pageScript(
     });
     place(now());
   });
+  // A dropdown's example is as tall as its button and open menu, and the frame gap under it: the menu hangs in it, out of its flow, kept
+  // that gap inside it (zaismaFloat), so without the gap it would be pushed up against its button. Its height is set once the menu is
+  // placed, and again as the window changes.
+  var FRAME_GAP_PX = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--pad-frame")) || 10;
+  function fitMenuFrames() {
+    document.querySelectorAll(".dropdown-frame").forEach(function (frame) {
+      var top = frame.getBoundingClientRect().top, bottom = 0;
+      Array.prototype.forEach.call(frame.children, function (child) { bottom = Math.max(bottom, child.getBoundingClientRect().bottom - top); });
+      if (bottom > 0) frame.style.height = Math.ceil(bottom + FRAME_GAP_PX) + "px";
+    });
+  }
+  requestAnimationFrame(fitMenuFrames);
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { requestAnimationFrame(fitMenuFrames); });
+  window.zaismaWatch.resize(fitMenuFrames);
 })();
 `,
 );
@@ -499,7 +561,7 @@ export const DESIGN_LOOPS_SCRIPT = pageScript(
     function inside(target, at) { var r = target.getBoundingClientRect(); return at[0] >= r.left && at[0] <= r.right && at[1] >= r.top && at[1] <= r.bottom; }
     function show() {
       if (kind === "switch") return;
-      var state = over ? (isPressed && kind !== "cover" ? "is-pressed" : "is-pointed") : "";
+      var state = over ? (isPressed ? "is-pressed" : "is-pointed") : "";
       ["is-pointed", "is-pressed"].forEach(function (each) { el.classList.toggle(each, each === state); });
     }
     function watch() {

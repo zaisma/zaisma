@@ -18,6 +18,7 @@ export const ICONS = {
   // Buying: a paid game's Buy.
   cart: stroke("0 0 20 20", '<path d="M2.5 3.5h2.2l2 9.4h8.7l1.8-6.6H5.5"/><circle cx="8" cy="16.2" r="1.2"/><circle cx="14" cy="16.2" r="1.2"/>'),
   card: stroke("0 0 20 20", '<path d="M2.5 5h15v10h-15z"/><path d="M2.5 8.6h15M5.4 12.2h3"/>'),
+  "price-tag": stroke("0 0 20 20", '<path d="M10.6 2.8H17.2v6.6l-7.7 7.7a1.4 1.4 0 0 1-2 0l-4.6-4.6a1.4 1.4 0 0 1 0-2z"/><circle cx="13.7" cy="6.3" r="1.1"/>'),
   lock: stroke("0 0 20 20", '<path d="M4.5 9h11v8.5h-11z"/><path d="M7 9V6.6a3 3 0 0 1 6 0V9"/><path d="M10 12.4v2"/>'),
   mail: stroke("0 0 20 20", '<path d="M3 5h14v10.5H3z"/><path d="M3.4 5.6 10 11l6.6-5.4"/>'),
   gear: stroke(
@@ -112,6 +113,9 @@ export const ICONS = {
 } as const;
 export type IconName = keyof typeof ICONS;
 export const icon = (name: IconName): Raw => raw(ICONS[name]);
+/** A large icon, a pane's key icon: it stands for what the pane is (Confirm it's you's lock), with room round it, so it reads as the pane's
+ * mark above its title. */
+export const largeIcon = (name: IconName): Raw => raw(`<span class="large-icon">${ICONS[name]}</span>`);
 
 /** Zaisma's mark, flat in the words' color (brand/zaisma-mark-black.svg): for anything that must take the words' color. */
 const MARK_PATHS = '<path d="M1884.08,3033.91c767.645,0 1535.29,0 2302.930,0c33.233,248.238 66.466,496.475 99.699,744.712l-4286.71,-0c627.367,-243.599 1255.990,-491.890 1884.080,-744.712Z"/><path d="M415.598,3484.54c777.297,-719.363 1475.76,-1400.24 2108.05,-2044.32c404.715,-158.588 821.55,-323.759 1248.51,-495.17c-547.607,610.584 -1151.51,1254.04 -1823.08,1932.14c-520.17,209.105 -1032.22,411.7 -1533.48,607.345Z"/><path d="M2575.7,1305.06l-1740.58,0c21.608,-194.559 43.215,-389.119 64.823,-583.678l3147.9,0c-485.752,195.366 -976.426,389.899 -1472.14,583.678Z"/>';

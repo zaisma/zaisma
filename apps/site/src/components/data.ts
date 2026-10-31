@@ -1,9 +1,9 @@
 import { accountPicture, html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
 import { secondaryButton, primaryButton, textLink } from "./actions.ts";
-import type { ControlMarkup } from "./control-markup.ts";
-import { CUT_LINE, MINUTE_MS, ago, glassPane, groove, icon, tag, type IconName, type TagTone } from "./foundations.ts";
-import { WHEN_EMPTY_STYLES, row } from "./layout.ts";
+import { ControlMarkup } from "./control-markup.ts";
+import { CUT_LINE, MINUTE_MS, ago, glassPane, groove, icon, loader, tag, type IconName, type TagTone } from "./foundations.ts";
+import { WHEN_EMPTY_STYLES, row, stack, stackOfOne } from "./layout.ts";
 
 /*
  * Data: an account's picture in its cut frame, and the glance list, one line per fact, each in its own look.
@@ -17,15 +17,10 @@ export type PictureSize = "xs" | "sm" | "md" | "lg";
  * An account's picture (accountPicture, its initials for now) in a small frame of the panes' glass, with its drawn rim. Its frame has no
  * corners of its own, so in a pane's corner it takes the corner's cut like anything with an edge, and it's square elsewhere; never slanted.
  */
-export function pictureFrame(username: string, pictureSize: PictureSize, options: { presence?: "online" | "playing"; isCut?: boolean } = {}): Raw {
+export function pictureFrame(username: string, pictureSize: PictureSize, options: { presence?: "online" | "playing" } = {}): Raw {
   // The initials are sized to the frame (--frame), so the largest frame takes the account's picture at its largest size.
   const picture = accountPicture(username, pictureSize === "lg" ? "md" : pictureSize, { title: "" });
   const presenceMarks = (presence: "online" | "playing") => html`<span class="presence-line" aria-hidden="true"></span>${presence === "playing" ? html`<span class="presence-play" aria-hidden="true">${icon("play")}</span>` : ""}`;
-  // Cut: where it stands as a control in a pane's corner (your picture at the header's end), it's cut by the edge rule like one, and its
-  // presence marks sit inside it, along its foot, so the cut trims them and nothing hangs outside it.
-  if (options.isCut) {
-    return html`<span class="frame ${pictureSize} glass is-cut" data-glass data-cut-line="10" data-glass-band="2" aria-hidden="true"><span class="frame-picture">${picture}</span>${options.presence ? presenceMarks(options.presence) : ""}</span>`;
-  }
   const frame = html`<span class="frame ${pictureSize} glass" data-glass data-glass-corners="0 0 0 0" data-glass-band="2" aria-hidden="true"><span class="frame-picture">${picture}</span></span>`;
   // The glass is clipped to its edge, so the presence marks sit outside it, in room the frame keeps under it: a green line along its foot,
   // and for playing a green tab with a play mark at the line's end.
@@ -79,8 +74,8 @@ export interface GlanceFacts {
 export function glanceFacts(facts: GlanceFacts): Raw {
   const nowMs = Date.now();
   const friends = facts.friends ?? [];
-  return html`<ul class="glance">${facts.deviceNote ? html`<li>${icon("info")}<span>${facts.deviceNote}</span></li>` : ""}${facts.playerCount !== undefined ? html`<li>${icon("people")}<span><b>${facts.playerCount.toLocaleString("en-US")}</b> playing now</span></li>` : ""}${
-    friends.length ? html`<li class="friends">${pictureRow(friends.map((friend) => friend.username), "sm")}<span><span class="glance-whole"><b>${nameList(friends.map((friend) => friend.username))}</b><span>\u00a0${friends.length > 1 ? "are" : "is"} playing</span></span>${(facts.friendsRefusalNotes ?? []).map((note) => html` <span class="glance-fact">${tag(note, "plain")}</span>`)}</span></li>` : ""
+  return html`<ul class="glance words-margin hairline-above">${facts.deviceNote ? html`<li>${icon("info")}<span>${facts.deviceNote}</span></li>` : ""}${facts.playerCount !== undefined ? html`<li>${icon("people")}<span><b>${facts.playerCount.toLocaleString("en-US")}</b> playing now</span></li>` : ""}${
+    friends.length ? html`<li>${pictureRow(friends.map((friend) => friend.username), "sm")}<span><span class="glance-whole"><b class="one-line">${nameList(friends.map((friend) => friend.username))}</b><span>\u00a0${friends.length > 1 ? "are" : "is"} playing</span></span>${(facts.friendsRefusalNotes ?? []).map((note) => html` <span class="glance-fact">${tag(note, "plain")}</span>`)}</span></li>` : ""
   }${facts.playedAtMs !== undefined ? html`<li>${icon("clock")}<span>You played ${keepUnits(ago(nowMs - facts.playedAtMs))}</span></li>` : ""}${
     facts.updatedAtMs !== undefined ? html`<li>${tag("Updated", "new")}<span>${keepUnits(ago(nowMs - facts.updatedAtMs))}${facts.updatesHref ? html`\u00a0· <span class="glance-fact">${textLink("What's new", facts.updatesHref)}</span>` : ""}</span></li>` : ""
   }</ul>`;
@@ -89,9 +84,8 @@ export function glanceFacts(facts: GlanceFacts): Raw {
 export const GLANCE_STYLES = `
 /* The glance list: one line per fact, each with its own look. People and a clock are line icons; friends are their pictures; an update is a green tag.
    What leads each line sits in a column of its own, so every line's words start at one place, however wide its lead. */
-.glance { list-style: none; margin: 0; padding: 0 var(--pad-words); display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--gap-words-words); font: var(--type-words); color: var(--ink-2); }
+.glance { list-style: none; margin: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--gap-words-words); font: var(--type-words); color: var(--ink-2); }
 /* Under something else in its pane (a game's title), a hairline parts them; at the top of its pane it needs none. */
-* + .glance { padding-top: var(--gap-words-words); border-top: var(--divider); }
 .glance li { grid-column: 1 / -1; display: grid; grid-template-columns: subgrid; align-items: center; min-height: 24px; }
 .glance li > :first-child { justify-self: start; }
 .glance b { font-weight: 600; color: var(--ink); }
@@ -102,7 +96,6 @@ export const GLANCE_STYLES = `
    goes under it instead, and names too long for the line end in an ellipsis, "are playing" always shown. */
 .glance-whole { display: inline-flex; max-width: 100%; white-space: nowrap; vertical-align: bottom; }
 .glance li > :last-child { min-width: 0; }
-.glance-whole > b { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 /* Before a row's buttons, the row's own gap parts them; the words margin is only for the pane's edge. */
 .row-cell:not(:last-child) > .glance { padding-inline-end: 0; }
 `;
@@ -124,10 +117,12 @@ component({
 .frame.sm { --frame: 32px; }
 .frame.xs { --frame: 24px; }
 .frame:not(.more) { --glass-tint: transparent; }
-.frame.glass > .frame-picture { position: absolute; z-index: 2; inset: 0; }
+/* The picture takes its frame's shape: in a pane's corner, the corner's cut, as the frame's glass does. */
+.frame.glass > .frame-picture { position: absolute; z-index: 2; inset: 0; clip-path: var(--glass-clip, none); }
 /* A quiet rim: half the panes' strength, so it reads as glass without framing the face. */
 .frame.glass > .edge { z-index: 4; opacity: 0.5; }
-.frame .av { position: absolute; inset: 0; width: 100%; height: 100%; display: grid; place-items: center; font: 600 calc(var(--frame) * 0.38) var(--display); color: #fff; letter-spacing: 0.01em;
+/* An account's picture fills its frame, or the slab that holds it as art (your picture as the account button). */
+:is(.frame, .slab.holds-art) .av { position: absolute; inset: 0; width: 100%; height: 100%; display: grid; place-items: center; font: 600 calc(var(--frame, var(--control-height)) * 0.38) var(--display); color: #fff; letter-spacing: 0.01em;
   background: linear-gradient(140deg, hsl(var(--h) 58% 58%), hsl(calc(var(--h) + 45) 48% 52%) 55%, hsl(calc(var(--h) + 90) 48% 55%)); }
 /* Presence, under the picture: online is a green line along its foot, like the orange line under what you're on; playing adds a green tab at the
    line's right end holding a white play mark, lying over the picture's corner. The frame keeps room under it for them (the glass is clipped
@@ -145,8 +140,6 @@ component({
 /* The play mark is small in its tab, with green all round it, so it reads as a mark and not a cut in the tab. */
 .presence-play > .play { width: calc(var(--presence-tab-height) * 0.36); height: calc(var(--presence-tab-height) * 0.42); transform: translateX(0.5px); }
 /* A cut frame (your picture at the header's end) holds its presence inside, along its foot, under its rim. */
-.frame.is-cut > .presence-line { position: absolute; z-index: 5; left: 0; right: 0; bottom: 0; height: 3px; clip-path: none; }
-.frame.is-cut > .presence-play { position: absolute; z-index: 6; left: 0; right: auto; bottom: 0; }
 /* The smallest shows only the first letter. */
 .frame.xs .av { display: block; text-align: center; line-height: var(--frame); font-size: 0; }
 .frame.xs .av::first-letter { font-size: 11px; }
@@ -161,8 +154,6 @@ component({
     { label: "Small", markup: pictureFrame("Liam", "sm") },
     { label: "Smallest", markup: pictureFrame("Mia", "xs") },
     { label: "A profile's head: playing, online", markup: html`${pictureFrame("Sofia", "lg", { presence: "playing" })}${pictureFrame("Lucas", "lg", { presence: "online" })}` },
-    { label: "Cut, as the account button: online", markup: pictureFrame("emma_r", "md", { presence: "online", isCut: true }) },
-    { label: "Cut, as the account button: playing", markup: pictureFrame("Oliver", "md", { presence: "playing", isCut: true }) },
   ],
 });
 
@@ -180,15 +171,12 @@ component({
 /* The shadow is its own layer under the picture (the glass is clipped to its edge, so it can't cast one), falling to the right onto the next. */
 .picture-row-place:not(:last-child)::after { content: ""; position: absolute; inset: 0; z-index: -1; box-shadow: 3px 0 6px -1px var(--picture-shadow); }
 .picture-row-place + .picture-row-place { margin-left: calc(var(--frame-overlap) * -1); }
-/* Behind the first, a picture's initials (or the +N) center in the part that shows, never under the one in front. */
-.picture-row-place + .picture-row-place .av, .picture-row-place + .picture-row-place > .frame.more { padding-inline-start: var(--frame-overlap); }
-/* A picture behind another shows only its first letter, so its part that shows holds it with room round it, as a whole picture does. */
-.picture-row-place + .picture-row-place .av { display: block; text-align: center; line-height: var(--frame); font-size: 0; }
-.picture-row-place + .picture-row-place .av::first-letter { font-size: calc(var(--frame) * 0.38); }
-.picture-row.lg { --frame-overlap: 24px; }
-.picture-row.md { --frame-overlap: 12px; }
-.picture-row.sm { --frame-overlap: 9px; }
-.picture-row.xs { --frame-overlap: 7px; }
+/* A picture is the same wherever it sits: behind another, its initials (or the +N) stay whole in its middle, and the one in front covers
+   only its edge, an eighth of it, clear of the initials. */
+.picture-row.lg { --frame-overlap: 12px; }
+.picture-row.md { --frame-overlap: 5px; }
+.picture-row.sm { --frame-overlap: 4px; }
+.picture-row.xs { --frame-overlap: 3px; }
 /* The +N is sized to its frame, like the initials in a picture. */
 .frame.more { font: 600 calc(var(--frame) * 0.36)/1 var(--display); font-variant-numeric: tabular-nums; }
 `,
@@ -215,28 +203,38 @@ export const VERSION_STATE_TAGS: Record<VersionState, Raw> = {
   replaced: tag("Replaced", "plain"),
 };
 
+/** A filter in use, said as a tag that removes it: its link is the list without it. */
+export interface TagInUse {
+  label: string;
+  removeHref: string;
+}
+
+/** The filters in use, under a list's Filter button: a tag each, with a close mark, that takes that one away. They wrap onto more lines. */
+export function tagsInUse(options: { tags: TagInUse[] }): Raw {
+  return html`<div class="tags-in-use" role="group" aria-label="Filters in use: each removes itself">${options.tags.map((inUse) => tag(inUse.label, "plain", { removeHref: inUse.removeHref }))}</div>`;
+}
+
 component({
   name: "Tag",
   slug: "tag",
   group: "data",
   subgroup: "lists",
-  summary: "A few words or a number carved into what they label, slanted at both ends: Updated on a game, the count of unread topics on a place, a version's state. On glass, a mark's name on the rail.",
+  summary: "A few words or a number carved into what they label, slanted at both ends: Updated on a game, the count of unread topics on a place, a version's state. On glass, a mark's name on the rail. Removable, a filter in use under a list's Filter button, which a press takes away.",
   styles: `
-/* A tag: slanted at both ends, in --type-tag, carved into the glass it's on: shaded along its top, lit along its foot. Its tone says what it is:
-   new or live (green), a count or plain words (the glass's own carving), a warning (amber), or glass (a sliver of the menus' glass, floating over the page). */
-/* Its words sit a pixel up from its box's middle (padding-bottom): Jost leaves more room above its letters and figures than below, so
-   set in the box's middle they look low. */
-.tag { display: inline-flex; align-items: center; justify-content: center; height: 22px; min-width: 22px; padding: 0 10px 2px 9px; flex: none; white-space: nowrap;
-  font: var(--type-tag); clip-path: polygon(5px 0, 100% 0, calc(100% - 5px) 100%, 0 100%); }
-.tag.new, .tag.count, .tag.plain, .tag.warning { box-shadow: var(--tag-carve); }
-.tag.new { color: var(--tag-new-ink); background: var(--tag-new); }
-.tag.count { padding: 0 8px 2px; color: var(--ink-2); background: var(--tag-plain); font-variant-numeric: tabular-nums; }
-.tag.plain { color: var(--ink-2); background: var(--tag-plain); }
-.tag.warning { color: var(--tag-warning-ink); background: var(--tag-warning); }
+/* A tag is the carving's smallest form (materials.ts): new, a count, plain or a warning, or glass. */
 /* An icon before its words, small and in their color, says what kind of tag it is at a glance. */
 .tag:has(> .ico) { gap: 4px; }
 .tag > .ico { width: 12px; height: 12px; stroke-width: 2; }
 .tag.glass { color: var(--ink); --glass-tint: var(--glass-dropdown); }
+.tag.glass.is-new { color: var(--tag-new-ink); }
+/* Removable: a link, its words then a close mark, a little taller so it's easy to press; pointed at, its words and mark light up. */
+.tag.is-removable { height: 26px; gap: 4px; padding-inline: 9px 8px; text-decoration: none; cursor: pointer; }
+.tag.is-removable > .ico { width: 12px; height: 12px; stroke-width: 2; }
+.tag.is-removable:hover { color: var(--ink); }
+.tag.is-removable:focus-visible { outline: none; box-shadow: var(--tag-carve), inset 0 0 0 2px var(--focus); }
+/* On a touch screen its remove press reaches past its own box to a touch target's height, unseen, as a small button's does. */
+@media (pointer: coarse) { .tag.is-removable { position: relative; } .tag.is-removable::after { content: ""; position: absolute; left: 0; right: 0; top: min(0px, calc((100% - var(--touch-target)) / 2)); bottom: min(0px, calc((100% - var(--touch-target)) / 2)); } }
+.tags-in-use { display: flex; flex-wrap: wrap; gap: var(--gap-words-words); }
 `,
   render: (words: string | number, tone: TagTone, options?: { icon?: IconName }) => tag(words, tone, options),
   examples: [
@@ -246,12 +244,15 @@ component({
     { label: "With an icon", markup: html`${tag("Held", "warning", { icon: "warning" })} ${tag("Developer", "plain", { icon: "code" })}` },
     { label: "A warning", markup: tag("Held", "warning") },
     { label: "On glass", markup: tag("Continue playing", "glass") },
+    { label: "New, on glass: over a game card's art", markup: tag("Updated", "new-on-glass") },
     { label: "A version's state, the same everywhere", isWide: true, markup: html`${Object.values(VERSION_STATE_TAGS)}` },
+    { label: "Removable: the filters in use on a list", markup: tagsInUse({ tags: [{ label: "Adventure", removeHref: "#tag" }, { label: "$15 to $30", removeHref: "#tag" }] }) },
+    { label: "Removable, many, wrapping", markup: html`<div style="width:min(220px,100%)">${tagsInUse({ tags: [{ label: "Role-playing", removeHref: "#tag" }, { label: "Multiplayer", removeHref: "#tag" }, { label: "$30 and up", removeHref: "#tag" }] })}</div>` },
   ],
 });
 
 const HOUR_MS = 60 * MINUTE_MS;
-const glancePane = (body: Raw) => glassPane({ paneWidth: "fit", body });
+const glancePane = (body: Raw) => glassPane({ paneWidth: "fit", body: stackOfOne(body, "words") });
 
 component({
   name: "Glance facts",
@@ -299,13 +300,59 @@ interface ListRowParts {
   isNewTab?: boolean;
   /** Not shown for now: a page script shows it (a long list's rows past the first ten, after Show all). It takes no room and no hairline. */
   isHidden?: boolean;
+  /** Unique on the page, on the row itself (its link or button), for a page's script to find it: a player's Block. */
+  id?: string;
+}
+
+/** A row that does something, pressed as a whole: a button (a player's Block, Show QR code), its words and nothing at its end. */
+export interface RowPress {
+  /** The sheet or light box it opens (its id). */
+  controls?: string;
+  /** data-* attributes a page's script reads ({ "sheet-step-to": "report" }), names in lowercase words joined by dashes. */
+  dataAttributes?: Record<string, string>;
+}
+
+/** A row's switch (Toggle, in Inputs): on or off for a setting that takes effect as it's saved. The whole row is its label, so a press anywhere on it flips it. */
+export interface RowSwitch {
+  name: string;
+  isOn: boolean;
+  /** Unique on the page. Defaults to switch-<name>. */
+  id?: string;
+  /** Its change is being saved: its slab shows the loader, and it can't be flipped again until it's saved. A page script sets it. */
+  isBusy?: boolean;
+  /** It can't be changed now: it shows on or off, and its form sends nothing for it. */
+  isDisabled?: boolean;
+}
+
+/** A row that opens: what's folded under it, shown in a well under the row once it's pressed. */
+export interface RowFold {
+  /** What opens under it: a rule's Fine and Not fine, a table of credit entries. */
+  body: Raw;
+  /** Unique on the page: the row's anchor, so a link to #<id> lands on it open (LIST_ROW_FOLD_SCRIPT). */
+  id?: string;
+  isOpen?: boolean;
 }
 
 /**
- * A row that goes somewhere is a link as a whole, so it never holds a button; a row to read may end in one (Remove, Invite), or in a few
- * small ones side by side (a player in a room: Mute, and ⋯ for the rest).
+ * A row that goes somewhere is a link as a whole, so it never holds a button; a row that does something (press) is a button as a whole, a
+ * short list of them a sheet's things to do (a player's Profile, Block and Report); a row to read may end in any control (Remove, Invite, a
+ * select), or in a few small ones side by side (a player in a room: Mute, and ⋯ for the rest); a row for a setting ends in a switch, and
+ * is pressed as a whole. A switch row may hold the rows that only matter while it's on, in a well under it. A row that opens (fold) is
+ * pressed as a whole too and ends in a chevron that turns as it opens, what's folded under it showing in a well under it: something that
+ * belongs on the page but out of the way (earlier entries, blocked people), or things to scan by a title and a line (the content rules).
  */
-export type ListRow = ListRowParts & ({ href: string; action?: never } | { href?: undefined; action?: ControlMarkup | ControlMarkup[] });
+export type ListRow = ListRowParts & (
+  | { href: string; action?: never; switch?: never; rowsWhileOn?: never; fold?: never; press?: never }
+  | { href?: undefined; action?: ControlMarkup | ControlMarkup[]; switch?: never; rowsWhileOn?: never; fold?: never; press?: never }
+  | { href?: undefined; action?: never; switch: RowSwitch; rowsWhileOn?: ListRow[]; fold?: never; press?: never }
+  | { href?: undefined; action?: never; switch?: never; rowsWhileOn?: never; fold: RowFold; press?: never }
+  | { href?: undefined; action?: never; switch?: never; rowsWhileOn?: never; fold?: never; press: RowPress }
+);
+
+/** A switch's carved slot and its slab: the checkbox (role switch) lies over the slot, unseen, and the row round it is its label. */
+function switchSlot(id: string, rowSwitch: RowSwitch): Raw {
+  return html`<span class="toggle-slot carving slot" data-cut-line="8">${CUT_LINE}<input class="toggle-input" type="checkbox" role="switch" id="${id}" name="${rowSwitch.name}" value="on"${rowSwitch.isOn ? raw(" checked") : ""}${rowSwitch.isBusy ? raw(' aria-busy="true"') : ""}${rowSwitch.isBusy || rowSwitch.isDisabled ? raw(" disabled") : ""}><span class="toggle-thumb thumb" aria-hidden="true"><span class="toggle-slab thumb-slab cut-raised" data-cut-line="6" data-cut-ends="start end">${CUT_LINE}${loader()}</span></span></span>`;
+}
 
 /** A row's buttons side by side, slanting toward each other. */
 const rowOf = (actions: ControlMarkup[]) => row({ widths: "fit", items: actions.map((markup) => ({ kind: "control" as const, markup })) });
@@ -326,21 +373,55 @@ export function listRows(options: { rows: ListRow[]; whenEmpty: Raw; id?: string
 const whenEmptyMarkup = (whenEmpty: Raw, isListShown: boolean): Raw => html`<div class="when-empty"${isListShown ? raw(" hidden") : ""}>${whenEmpty}</div>`;
 
 function listMarkup(options: { rows: ListRow[]; id?: string; label?: string; shownRowCount?: number; isCompact?: boolean }, cap: Raw | ""): Raw {
-  return html`<ul class="list-rows${options.shownRowCount ? " is-capped" : ""}${options.isCompact ? " is-compact" : ""}"${cap}${options.id ? html` id="${options.id}"` : ""}${options.label ? html` aria-label="${options.label}"` : ""}>${options.rows.map((row) => {
+  return html`<ul class="list-rows hairlines${options.shownRowCount ? " is-capped scrolls own-scroll" : ""}${options.isCompact ? " is-compact" : ""}"${cap}${options.id ? html` id="${options.id}"` : ""}${options.label ? html` aria-label="${options.label}"` : ""}>${options.rows.map((row) => {
     const details = [row.detail, row.secondDetail].filter((line): line is string => Boolean(line));
     const inside = html`${row.lead ? html`<span class="list-row-lead">${row.lead}</span>` : ""}<span class="list-row-words">${row.titleIcon ? html`<span class="list-row-title-line"><span class="list-row-title">${row.title}</span><span class="list-row-title-icon" role="img" aria-label="${row.titleIcon.label}" title="${row.titleIcon.label}"${row.titleIcon.isHidden ? raw(" hidden") : ""}>${icon(row.titleIcon.icon)}</span></span>` : html`<span class="list-row-title">${row.title}</span>`}${details.map((line) => html`<span class="list-row-detail">${factLine(line, "list-row-fact")}</span>`)}${row.meter ? html`<span class="list-row-meter">${usageTrack(row.meter)}</span>` : ""}</span>${row.end !== undefined ? html`<span class="list-row-end">${row.end}</span>` : ""}`;
     return html`<li${row.isHidden ? raw(" hidden") : ""}>${row.href
-      ? html`<a class="list-row is-link${row.state ? ` ${row.state}` : ""}" href="${row.href}"${row.isNewTab ? raw(' target="_blank" rel="noopener noreferrer"') : ""} data-cut-line="8">${CUT_LINE}${inside}<span class="list-row-go${row.isNewTab ? " is-new-tab" : ""}" aria-hidden="true">${icon(row.isNewTab ? "out-of-page" : "chevron-right")}</span></a>`
-      : html`<div class="list-row">${inside}${row.action ? html`<span class="list-row-action">${Array.isArray(row.action) ? rowOf(row.action) : row.action}</span>` : ""}</div>`}</li>`;
+      ? html`<a class="list-row flush-row is-link${row.state ? ` ${row.state}` : ""}"${row.id ? html` id="${row.id}"` : ""} href="${row.href}"${row.isNewTab ? raw(' target="_blank" rel="noopener noreferrer"') : ""} data-cut-line="8">${CUT_LINE}${inside}<span class="list-row-go${row.isNewTab ? " is-new-tab" : ""}" aria-hidden="true">${icon(row.isNewTab ? "out-of-page" : "chevron-right")}</span></a>`
+      : row.press
+        ? html`<button type="button" class="list-row flush-row is-press${row.state ? ` ${row.state}` : ""}"${row.id ? html` id="${row.id}"` : ""}${row.press.controls ? html` aria-controls="${row.press.controls}"` : ""}${Object.entries(row.press.dataAttributes ?? {}).map(([name, text]) => html` data-${name}="${text}"`)} data-cut-line="8">${CUT_LINE}${inside}</button>`
+      : row.switch
+        ? switchRowMarkup(row, row.switch, inside)
+        : row.fold
+        ? foldRowMarkup(row, row.fold, inside)
+        : html`<div class="list-row flush-row quiet">${inside}${row.action ? html`<span class="list-row-action">${Array.isArray(row.action) ? rowOf(row.action) : row.action}</span>` : ""}</div>`}</li>`;
   })}</ul>`;
 }
+
+/** A switch row: a label as a whole, its words then its switch, and under it, while it's on, the rows that only matter then, in a well. */
+function switchRowMarkup(row: ListRow, rowSwitch: RowSwitch, inside: Raw): Raw {
+  const id = rowSwitch.id ?? `switch-${rowSwitch.name}`;
+  const className = ["list-row", "flush-row", "toggle", row.state ?? "", rowSwitch.isDisabled ? "is-disabled quiet" : ""].filter(Boolean).join(" ");
+  const whileOn = row.rowsWhileOn?.length
+    ? html`<div class="list-row-while-on carving holds-parts" data-cut-line="8">${CUT_LINE}<div class="carving-words">${listMarkup({ rows: row.rowsWhileOn, isCompact: true }, "")}</div></div>`
+    : "";
+  return html`<label class="${className}" for="${id}" data-cut-line="8">${CUT_LINE}${inside}<span class="list-row-action">${switchSlot(id, rowSwitch)}</span></label>${whileOn}`;
+}
+
+/** A row that opens: a summary pressed as a whole, its words then a chevron that turns as it opens, and what's folded under it in a well. */
+function foldRowMarkup(row: ListRow, fold: RowFold, inside: Raw): Raw {
+  return html`<details class="list-row-fold"${fold.id ? html` id="${fold.id}"` : ""}${fold.isOpen ? raw(" open") : ""}><summary class="list-row flush-row is-fold${row.state ? ` ${row.state}` : ""}" data-cut-line="8">${CUT_LINE}${inside}<span class="list-row-go" aria-hidden="true">${icon("chevron-right")}</span></summary><div class="list-row-fold-body carving holds-parts" data-cut-line="8">${CUT_LINE}<div class="carving-words">${fold.body}</div></div></details>`;
+}
+
+/** Opens the folding row a link points at (#<id>), on arrival and when the address's anchor changes. */
+export const LIST_ROW_FOLD_SCRIPT = `
+(() => {
+  const openTarget = () => {
+    const id = decodeURIComponent(location.hash.slice(1));
+    const foldRow = id ? document.getElementById(id) : null;
+    if (foldRow && foldRow.matches("details.list-row-fold")) foldRow.open = true;
+  };
+  openTarget();
+  addEventListener("hashchange", openTarget);
+})();
+`;
 
 const VERSION_LIST_ROWS: ListRow[] = [
   { title: "Version 15", detail: "An hour ago · 314 files · 49.2 MB", href: "#list-rows", end: VERSION_STATE_TAGS.held },
   { title: "Version 14", detail: "2 days ago · 312 files · 48.1 MB", href: "#list-rows", end: VERSION_STATE_TAGS.live },
   { title: "Version 13", detail: "5 days ago · 309 files · 47.6 MB", href: "#list-rows", end: VERSION_STATE_TAGS.replaced },
 ];
-const listPane = (rows: ListRow[]) => glassPane({ paneWidth: "fit", body: listRows({ rows, whenEmpty: html`<p>No versions yet.</p>` }) });
+const listPane = (rows: ListRow[]) => glassPane({ paneWidth: "fit", body: stackOfOne(listRows({ rows, whenEmpty: html`<p>No versions yet.</p>` })) });
 const ROW_BUTTON = { type: "button", isSmall: true } as const;
 
 component({
@@ -348,23 +429,26 @@ component({
   slug: "list-rows",
   group: "data",
   subgroup: "lists",
-  summary: "A list of things on glass, one a row with hairlines between: versions, keys, topics, players. A row that goes somewhere is a link as a whole, ending in a chevron that steps on as you point; a row to read may end in a button.",
+  summary: "A list of things on glass, one a row with hairlines between: versions, keys, topics, players, settings. A row that goes somewhere is a link as a whole, ending in a chevron that steps on as you point; a row that does something (Block, Show QR code) is a button as a whole; a row to read may end in any control, a button or a select; a row for a setting ends in its switch (Toggle) and is pressed as a whole, holding the settings it turns on in a well under it. Words and the control at a row's end keep one margin, so a row reads as one thing. A row may open instead, pressed as a whole, what's folded under it showing in a well under it: something out of the way (blocked people, earlier entries) or things to scan by a title and a line (the content rules).",
   styles: `
 /* List rows: one thing a row, hairlines between. A row that's a link ends in a small chevron; under the pointer the row brightens a little
    (a faint slab, cut by the edge rule), an orange mark rises at its start, and the chevron steps on, the way the guest button's arrow does.
    A row may lead with a picture or an icon, take a second line of details, and, when it isn't a link, end in a button. */
 .list-rows { list-style: none; margin: 0; padding: 0; display: grid; }
-.list-rows > li + li { border-top: var(--divider); }
 /* Capped: about shownRowCount rows in view, half of the next showing so it's clear the list scrolls inside itself, the page staying short. It holds a swipe or a wheel only while it has something to scroll (is-scrollable, tokens.ts): a short list passes it on to the page. */
-.list-rows.is-capped { --list-row-height: 65px; max-height: calc((var(--shown-row-count) + 0.5) * var(--list-row-height)); overflow-y: auto; }
+.list-rows.is-capped { --list-row-height: 65px; max-height: calc((var(--shown-row-count) + 0.5) * var(--list-row-height)); }
 /* With its rail showing (the rail lies along its right edge), the rows keep clear of it, so a row's button never sits against the rail. */
-.list-rows.is-capped.shows-rail { padding-right: calc(var(--pad-frame) + 8px); }
-.list-row { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-words-control); min-height: 60px; padding: 10px var(--pad-inside-words); color: var(--ink); text-decoration: none; }
-.list-row.is-link { --face-color: transparent; background: var(--face-color); clip-path: var(--cut-shape); transition: --face-color 0.15s; -webkit-tap-highlight-color: transparent; }
+.list-row { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-words-control); --row-height: 60px; --row-block: 10px; --row-start: var(--pad-inside-words); --row-end: var(--pad-inside-words); color: var(--ink); text-decoration: none; }
+/* With nothing leading it, a row's words line up with the pane's words: its start is the pane's words inset. */
+.list-row:not(:has(> .list-row-lead)) { --row-start: var(--pad-words); }
+/* A fold's row keeps its chevron at its end on one line, its words wrapping beside it however narrow the pane. */
+.list-row.is-fold { flex-wrap: nowrap; }
+.list-row.is-fold > .list-row-words { flex: 1 1 0; min-width: 0; }
+.list-row.quiet { cursor: auto; }
 .list-row > :not(.cut-line) { position: relative; z-index: 2; }
 .list-row-lead { flex: none; display: inline-flex; color: var(--ink-2); }
 /* Compact: a long list in a narrow place (the players in a room): one line a row, its words taking what's left beside its picture and buttons. */
-.list-rows.is-compact > li > .list-row { flex-wrap: nowrap; min-height: 44px; padding-block: calc(var(--gap-control-stack) * 0.75); }
+.list-rows.is-compact > li > .list-row { flex-wrap: nowrap; --row-height: 44px; --row-block: calc(var(--gap-control-stack) * 0.75); }
 .list-rows.is-compact .list-row-words { flex: 1 1 0; }
 .list-row-lead > .ico { width: 20px; height: 20px; }
 /* The words keep a card's width at least: where the buttons don't fit beside that, they go under the words, at the row's end. */
@@ -377,31 +461,58 @@ component({
 .list-row-title-icon { flex: none; display: inline-flex; color: var(--ink-2); }
 .list-row-title-icon > .ico { width: 16px; height: 16px; }
 /* A meter under its lines: only the track, its numbers in the detail above. */
-.list-row-meter { display: grid; padding-top: var(--gap-words-words); }
+.list-row-meter { display: grid; }
 .list-row-fact { display: inline-block; max-width: 100%; }
 .list-row-end { flex: none; display: inline-flex; align-items: center; gap: var(--gap-words-words); font: var(--type-facts); color: var(--ink-2); }
 .list-row-action { flex: none; display: inline-flex; margin-left: auto; }
-.list-row-go { flex: none; display: inline-flex; color: var(--muted); transition: transform 0.45s cubic-bezier(.2,.7,.2,1), color 0.2s; }
+/* A switch row is pressed as a whole (its words are its switch's label): it shows its face as you point at it, as a link row does. */
+.list-row.toggle { flex-wrap: nowrap; cursor: pointer; }
+/* Its words take what's left beside the switch, however narrow, and wrap there: the switch stays on their line, at the row's end. */
+.list-row.toggle > .list-row-words { flex: 1 1 0; }
+.list-row.toggle.is-disabled { cursor: default; }
+/* The rows a switch row turns on, and what a folding row opens to: in a well under it, a frame gap in from the list's sides and above the
+   next row, shown while it's on or open. */
+.list-row-while-on, .list-row-fold-body { margin: 0 var(--pad-frame) var(--pad-frame); }
+/* A folding row is pressed as a whole, as a link row is, its chevron turning down as it opens. */
+.list-row.is-fold { cursor: pointer; list-style: none; }
+/* A row that does something: a button as a whole, as wide as the list, its words where a link row's are. */
+.list-row.is-press { width: 100%; cursor: pointer; text-align: start; }
+.list-row.is-fold::-webkit-details-marker { display: none; }
+.list-row.is-fold:hover > .list-row-go, .list-row.is-fold.is-pointed > .list-row-go { color: var(--ink); }
+.list-row-fold[open] > .list-row.is-fold > .list-row-go { transform: rotate(90deg); }
+.list-rows > li:has(> .list-row .toggle-input:not(:checked)) > .list-row-while-on { display: none; }
+.list-row-go { flex: none; display: inline-flex; color: var(--muted); transition: transform var(--motion-glide) var(--ease-glide), color var(--motion-state); }
 .list-row-go > .ico { width: 8px; height: 13px; stroke-width: 2.2; }
 /* A row that opens a new tab ends in the out-of-the-page arrow, which steps up and out as you point. */
 .list-row-go.is-new-tab > .ico { width: 16px; height: 16px; stroke-width: 1.8; }
 /* The mark at its start: a short orange bar, cut at its ends, growing from its middle, halfway between the row's edge and its words. */
-.list-row.is-link::before { content: ""; position: absolute; z-index: 2; left: 0; top: 30%; bottom: 30%; width: 3px; background: var(--run); transform: scaleY(0); transition: transform 0.3s cubic-bezier(.2,.8,.2,1); }
-.list-row.is-link:hover, .list-row.is-link.is-pointed { --face-color: var(--row-hover); }
-.list-row.is-link:hover::before, .list-row.is-link.is-pointed::before, .list-row.is-link.is-pressed::before, .list-row.is-link:focus-visible::before { transform: scaleY(1); }
 .list-row.is-link:hover > .list-row-go, .list-row.is-link.is-pointed > .list-row-go { transform: translateX(3px); color: var(--ink); }
 .list-row.is-link:hover > .list-row-go.is-new-tab, .list-row.is-link.is-pointed > .list-row-go.is-new-tab { transform: translate(2px, -2px); }
-.list-row.is-link:active, .list-row.is-link.is-pressed { --face-color: var(--row-press); }
-.list-row.is-link:focus-visible { outline: none; }
-.list-row.is-link:focus-visible > .cut-line polygon, .list-row.is-link.is-focused > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
-@media (prefers-reduced-motion: reduce) { .list-row.is-link::before, .list-row-go { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .list-row-go { transition: none; } }
 `,
   render: listRows,
   examples: [
     { label: "Rows that go somewhere", isWide: true, markup: listPane(VERSION_LIST_ROWS) },
     {
+      label: "Rows that do something: a player's things to do, in a sheet (Report pointed at)",
+      markup: html`<div style="width:min(320px,100%)">${glassPane({ paneWidth: "full", body: stackOfOne(listRows({ whenEmpty: html``, isCompact: true, label: "Liam", rows: [{ title: "Profile", lead: icon("person"), href: "#list-rows" }, { title: "Block", lead: icon("ban"), press: {} }, { title: "Report", lead: icon("flag"), press: {}, state: "is-pointed" }] })) })}</div>`,
+    },
+    {
+      label: "Rows that open, in a pane among other things: something out of the way, and things to scan by a title and a line, one open",
+      isWide: true,
+      markup: glassPane({ paneWidth: "full", body: stack({ items: [
+        { kind: "words", markup: html`<h3>Privacy</h3>` },
+        { kind: "words", markup: html`<p>Who can find you and send you things.</p>` },
+        { kind: "block", markup: listRows({ whenEmpty: html``, rows: [
+          { title: "Blocked", end: tag("3", "count"), fold: { body: html`<p>Mia, Lucas and Oliver can't see you or send you anything.</p>` } },
+          { title: "Typed chat", detail: "Can a player type text that another player reads as written?", fold: { isOpen: true, body: html`<p>Fine: chat through room.chat, filtered. Not fine: free text another player reads as written.</p>` } },
+          { title: "Gambling", detail: "Can a player stake money on chance?", fold: { body: html`<p>Fine: chance with nothing of value at stake. Not fine: staking money or what's bought with it.</p>` } },
+        ] }) },
+      ] }) }),
+    },
+    {
       label: "Compact: a long list in a narrow place, one line a row (the players in a room)",
-      markup: html`<div style="width:320px">${glassPane({ paneWidth: "full", body: listRows({ isCompact: true, whenEmpty: html`<p>Nobody here yet.</p>`, rows: ["Liam", "Sofia", "Emma Charlotte Fairweather-Lindqvist"].map((name, index) => ({ lead: pictureFrame(name, "sm"), title: name, titleIcon: index ? undefined : { icon: "friends" as const, label: "Friend" }, action: [secondaryButton(`Mute ${name}`, { type: "button", icon: "speaker", isLabelHidden: true, isSmall: true }), secondaryButton(`More for ${name}`, { type: "button", icon: "more", isLabelHidden: true, isSmall: true })] })) }) })}</div>`,
+      markup: html`<div style="width:320px">${glassPane({ paneWidth: "full", body: stackOfOne(listRows({ isCompact: true, whenEmpty: html`<p>Nobody here yet.</p>`, rows: ["Liam", "Sofia", "Emma Charlotte Fairweather-Lindqvist"].map((name, index) => ({ lead: pictureFrame(name, "sm"), title: name, titleIcon: index ? undefined : { icon: "friends" as const, label: "Friend" }, action: [secondaryButton(`Mute ${name}`, { type: "button", icon: "speaker", isLabelHidden: true, isSmall: true }), secondaryButton(`More for ${name}`, { type: "button", icon: "more", isLabelHidden: true, isSmall: true })] })) })) })}</div>`,
     },
     { label: "Pointed", markup: listPane([{ title: "Ashen Crown", detail: "Unlisted · 2,318 players this week", href: "#list-rows", state: "is-pointed" }]), isStill: true },
     { label: "Pressed", markup: listPane([{ title: "Ashen Crown", detail: "Unlisted · 2,318 players this week", href: "#list-rows", state: "is-pressed" }]), isStill: true },
@@ -465,7 +576,7 @@ export interface StateNoteOptions {
 
 /** The words and the button of an empty, problem or done state, with the mark that leads a problem or a done one. */
 const stateNote = (tone: "" | " problem" | " done", options: StateNoteOptions, mark: Raw | "") =>
-  html`<div class="state-note${tone}${options.action ? " has-action" : ""}">${mark}<div class="state-words"><p class="state-title">${options.title}</p><p class="state-text">${options.text}</p></div>${options.action ? html`<div class="state-action">${options.action}</div>` : ""}</div>`;
+  html`<div class="state-note${tone}${options.action ? " has-action" : ""}">${mark}<div class="state-words words-margin"><p class="state-title">${options.title}</p><p class="state-text">${options.text}</p></div>${options.action ? html`<div class="state-action">${options.action}</div>` : ""}</div>`;
 
 /** An empty state: what will be here and how it gets here, where a list has nothing yet. */
 export function emptyState(options: StateNoteOptions): Raw {
@@ -479,7 +590,7 @@ const STATE_STYLES = `
 .state-note.has-action { padding-bottom: 0; }
 .state-note > .ico { width: 24px; height: 24px; color: var(--marked); }
 .state-note.done > .ico { color: var(--tag-new-ink); }
-.state-words { display: grid; gap: var(--gap-words-words); max-width: 46ch; padding-inline: var(--pad-words); }
+.state-words { display: grid; gap: var(--gap-words-words); max-width: 46ch; }
 .state-title { margin: 0; font: var(--type-name); color: var(--ink); }
 .state-text { margin: 0; font: var(--type-words); color: var(--ink-2); }
 .state-action { justify-self: stretch; display: grid; margin-top: calc(var(--gap-block-block) - var(--gap-words-control)); }
@@ -494,8 +605,8 @@ component({
   styles: STATE_STYLES + WHEN_EMPTY_STYLES,
   render: emptyState,
   examples: [
-    { label: "With what starts it", markup: glassPane({ paneWidth: "fit", body: emptyState({ title: "No games yet", text: "Make one from your AI, or upload a folder with an index.html from your terminal.", action: primaryButton("Make a game", { type: "button", isFullWidth: true }) }) }) },
-    { label: "Words alone", markup: glassPane({ paneWidth: "fit", body: emptyState({ title: "No friends playing", text: "When a friend plays something, it shows here." }) }) },
+    { label: "With what starts it", markup: glassPane({ paneWidth: "fit", body: stackOfOne(emptyState({ title: "No games yet", text: "Make one from your AI, or upload a folder with an index.html from your terminal.", action: primaryButton("Make a game", { type: "button", isFullWidth: true }) })) }) },
+    { label: "Words alone", markup: glassPane({ paneWidth: "fit", body: stackOfOne(emptyState({ title: "No friends playing", text: "When a friend plays something, it shows here." })) }) },
   ],
 });
 
@@ -513,8 +624,8 @@ component({
   styles: "",
   render: problemState,
   examples: [
-    { label: "With what to do", markup: glassPane({ paneWidth: "fit", body: problemState({ title: "Couldn't load your versions", text: "Zaisma didn't answer in time. Nothing is lost.", action: secondaryButton("Try again", { type: "button", isFullWidth: true }) }) }) },
-    { label: "Words alone", markup: glassPane({ paneWidth: "fit", body: problemState({ title: "This game isn't shown where you are", text: "Its developer keeps it from players in your country." }) }) },
+    { label: "With what to do", markup: glassPane({ paneWidth: "fit", body: stackOfOne(problemState({ title: "Couldn't load your versions", text: "Zaisma didn't answer in time. Nothing is lost.", action: secondaryButton("Try again", { type: "button", isFullWidth: true }) })) }) },
+    { label: "Words alone", markup: glassPane({ paneWidth: "fit", body: stackOfOne(problemState({ title: "This game isn't shown where you are", text: "Its developer keeps it from players in your country." })) }) },
   ],
 });
 
@@ -532,14 +643,14 @@ component({
   styles: "",
   render: doneState,
   examples: [
-    { label: "With the way on", markup: glassPane({ paneWidth: "fit", body: doneState({ title: "Report sent", text: "Zaisma looks at it within a day and tells you what it did.", action: secondaryButton("Close", { type: "button", isFullWidth: true }) }) }) },
-    { label: "Words alone", markup: glassPane({ paneWidth: "fit", body: doneState({ title: "Version 15 is live", text: "Players get it the next time they open the game." }) }) },
+    { label: "With the way on", markup: glassPane({ paneWidth: "fit", body: stackOfOne(doneState({ title: "Report sent", text: "Zaisma looks at it within a day and tells you what it did.", action: secondaryButton("Close", { type: "button", isFullWidth: true }) })) }) },
+    { label: "Words alone", markup: glassPane({ paneWidth: "fit", body: stackOfOne(doneState({ title: "Version 15 is live", text: "Players get it the next time they open the game." })) }) },
   ],
 });
 
 /** A loading state: a hairline with a light running along it, and what's coming, where the content will be. Never a spinner over content. */
 export function loadingState(options: { label: string }): Raw {
-  return html`<div class="loading-state" role="status"><span class="loading-line" aria-hidden="true"></span><span class="loading-label">${options.label}</span></div>`;
+  return html`<div class="loading-state words-margin round" role="status"><span class="loading-line" aria-hidden="true"></span><span class="loading-label">${options.label}</span></div>`;
 }
 
 component({
@@ -551,15 +662,15 @@ component({
   styles: `
 /* Loading: a hairline across where the content will be, a light running along it the way it runs along a cover's line, and its words
    under it. Under reduced motion the light rests in the middle. */
-.loading-state { display: grid; gap: var(--gap-words-control); justify-items: center; padding: var(--gap-block-block) var(--pad-words); }
+.loading-state { display: grid; gap: var(--gap-words-control); justify-items: center; }
 .loading-line { position: relative; display: block; width: min(240px, 100%); height: 2px; overflow: hidden; background: var(--line); }
-.loading-line::after { content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 40%; background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--ink) 70%, transparent), transparent); animation: loading-run 1.3s cubic-bezier(.45,0,.25,1) infinite; }
+.loading-line::after { content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 40%; background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--ink) 70%, transparent), transparent); animation: loading-run var(--motion-loop) var(--ease-standard) infinite; }
 @keyframes loading-run { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
 .loading-label { font: var(--type-facts); color: var(--muted); }
 @media (prefers-reduced-motion: reduce) { .loading-line::after { animation: none; transform: translateX(75%); } }
 `,
   render: loadingState,
-  examples: [{ label: "Loading", markup: glassPane({ paneWidth: "fit", body: loadingState({ label: "Getting your versions" }) }) }],
+  examples: [{ label: "Loading", markup: glassPane({ paneWidth: "fit", body: stackOfOne(loadingState({ label: "Getting your versions" })) }) }],
 });
 
 export interface TableColumn {
@@ -616,16 +727,16 @@ export function table(options: TableOptions): Raw {
     const content = typeof given === "object" && "detail" in given ? html`${given.text}<span class="table-cell-detail">${given.detail}</span>` : given;
     return isRowHead(columnIndex)
       ? html`<th scope="row" class="glass">${content}</th>`
-      : html`<td${cellClass(columnIndex)}>${options.columns[columnIndex]?.isActions ? html`<div class="control-row">${content}</div>` : content}</td>`;
+      : html`<td${cellClass(columnIndex)}>${options.columns[columnIndex]?.isActions && content instanceof ControlMarkup ? row({ widths: "fit", items: [{ kind: "control", markup: content }] }) : content}</td>`;
   };
   const placeholder = options.rowsPlaceholder ?? (options.rows.length ? null : options.whenEmpty);
   const body = placeholder
     ? html`<tr><td class="table-placeholder" colspan="${String(options.columns.length)}"><div class="table-placeholder-in">${placeholder}</div></td></tr>`
     : options.rows.map((row) => html`<tr>${row.map(cell)}</tr>`);
   const cap = options.shownRowCount ? html` style="--shown-row-count:${String(options.shownRowCount)}"` : "";
-  return html`<div class="table"><p class="table-caption" id="${id}-caption">${options.caption}</p><div class="table-scroll${options.shownRowCount ? " is-capped" : ""}"${cap} data-fades-sideways data-side-rail${options.shownRowCount ? "" : raw(" data-scroll-box")} data-cut-line="8"><table class="data-table${options.isCompact ? " compact" : ""}${options.hasRowHeads ? " has-row-heads" : ""}" aria-labelledby="${id}-caption"><thead><tr>${options.columns.map(
+  return html`<div class="table"><p class="table-caption words-margin" id="${id}-caption">${options.caption}</p><div class="table-scroll${options.shownRowCount ? " is-capped" : ""}"${cap} data-fades-sideways data-side-rail${options.shownRowCount ? "" : raw(" data-scroll-box")} data-cut-line="8"><table class="data-table${options.isCompact ? " compact" : ""}${options.hasRowHeads ? " has-row-heads" : ""}" aria-labelledby="${id}-caption"><thead><tr>${options.columns.map(
     (column, columnIndex) => html`<th scope="col" class="glass${column.isNumeric ? " num" : ""}${column.isActions ? " actions" : ""}">${column.isActions ? html`<span><span class="sr">${column.label}</span></span>` : column.label}</th>`,
-  )}</tr></thead><tbody>${body}</tbody></table></div></div>`;
+  )}</tr></thead><tbody class="hairlines">${body}</tbody></table></div></div>`;
 }
 
 const VERSION_COLUMNS: TableColumn[] = [{ label: "Version" }, { label: "State" }, { label: "Files", isNumeric: true }, { label: "Size", isNumeric: true }, { label: "Made" }];
@@ -642,7 +753,7 @@ const REQUEST_ROWS: (Raw | string)[][] = Array.from({ length: 30 }, (_, rowIndex
   const clock = [Math.floor(secondCount / 3600), Math.floor(secondCount / 60) % 60, secondCount % 60].map((clockPartNumber) => String(clockPartNumber).padStart(2, "0")).join(":");
   return [clock, html`<code>${REQUEST_ROUTES[rowIndex % REQUEST_ROUTES.length]}</code>`, rowIndex % 9 === 2 ? "409" : rowIndex % 11 === 4 ? "429" : "200", `${(rowIndex * 7) % 40 + 2} ms`];
 });
-const tablePane = (options: Omit<TableOptions, "whenEmpty">) => glassPane({ paneWidth: "full", body: table({ whenEmpty: emptyState({ title: "No rows yet", text: "Rows show here as they come." }), ...options }) });
+const tablePane = (options: Omit<TableOptions, "whenEmpty">) => glassPane({ paneWidth: "full", body: stackOfOne(table({ whenEmpty: emptyState({ title: "No rows yet", text: "Rows show here as they come." }), ...options })) });
 
 component({
   name: "Table",
@@ -659,7 +770,7 @@ component({
 /* A row's height is its padding and a line of its words, which grow with the browser's text size: 37px and 51px at the browser's own 16px, 33px and 34px compact. */
 .table { display: grid; gap: var(--gap-words-control); min-width: 0; --table-head-height: calc(16px + 1.3125rem); --table-row-height: calc(28px + 1.4375rem); }
 .table:has(.compact) { --table-head-height: calc(16px + 1.0625rem); --table-row-height: calc(16px + 1.125rem); }
-.table-caption { margin: 0; padding-inline: var(--pad-words); font: var(--type-label); color: var(--ink); }
+.table-caption { margin: 0; font: var(--type-label); color: var(--ink); }
 .table-scroll { position: relative; max-width: 100%; clip-path: var(--cut-shape); }
 .table-scroll[data-fades-sideways] { overflow-y: auto; max-height: min(40rem, 75dvh); }
 /* Capped: its rows down to the given count show, half the next peeking in under them. */
@@ -678,8 +789,7 @@ component({
 .data-table th, .data-table td { white-space: nowrap; text-align: left; }
 .data-table thead th { position: sticky; top: 0; z-index: 2; padding: 10px var(--pad-inside-words); font: var(--type-facts); color: var(--muted);
   --glass-tint: var(--table-head); --glass-sheen: linear-gradient(transparent, transparent); box-shadow: inset 0 -1px 0 var(--line); }
-.data-table td, .data-table tbody th { padding: 14px var(--pad-inside-words); border-top: var(--divider); }
-.data-table tbody tr:first-child > * { border-top: 0; }
+.data-table td, .data-table tbody th { padding: 14px var(--pad-inside-words); }
 .data-table tbody th { position: sticky; left: 0; z-index: 1; font: var(--type-label); color: var(--ink);
   --glass-tint: transparent; --glass-sheen: linear-gradient(transparent, transparent); }
 .data-table.has-row-heads thead th:first-child { left: 0; z-index: 3; }
@@ -695,8 +805,6 @@ component({
 /* A row's buttons: at its end, as narrow as they are, and no taller than its words' room, so a row with buttons is no taller than one without. */
 .data-table .actions { width: 1%; }
 .data-table td.actions { padding-block: 0; }
-.data-table tbody tr:hover > td:not(.table-placeholder) { background: var(--row-hover); }
-.data-table tbody tr:hover > th { --glass-layer: linear-gradient(var(--row-hover), var(--row-hover)); }
 .data-table.compact thead th { padding: 8px var(--pad-inside-words); }
 .data-table.compact td, .data-table.compact tbody th { padding: 8px var(--pad-inside-words); font: var(--type-facts); }
 /* In place of rows: a loading, empty or problem state, kept in view under the header however wide the table is. */
@@ -775,7 +883,7 @@ export interface NumberItem {
 
 /** Numbers: a row of figures in Jost, each with its label under it and how it moved. */
 export function numbers(options: { items: NumberItem[] }): Raw {
-  return html`<dl class="numbers">${options.items.map(
+  return html`<dl class="numbers words-margin">${options.items.map(
     (numberItem) => html`<div class="number"><dt>${numberItem.label}</dt><dd class="number-figure"><span class="number-amount">${numberItem.figure}</span>${numberItem.unit ? html`<span class="number-unit">${numberItem.unit}</span>` : ""}</dd>${numberItem.change ? html`<dd class="number-change${numberItem.isChangeGood ? " good" : ""}">${numberItem.change}</dd>` : ""}</div>`,
   )}</dl>`;
 }
@@ -790,7 +898,7 @@ component({
 /* Numbers: big figures in Jost with figures of one width, their unit smaller beside them (under them when there's no room), the label under
    each in facts. They share the row, each at least --size-number wide, two to a line on a phone. A figure never breaks: a long one (the
    millions) takes a wider place, and the others go on to the next line. */
-.numbers { display: flex; flex-wrap: wrap; gap: var(--gap-block-block); margin: 0; padding-inline: var(--pad-words); }
+.numbers { display: flex; flex-wrap: wrap; gap: var(--gap-block-block); margin: 0; }
 .number { flex: 1 1 var(--size-number); min-width: min-content; display: grid; gap: var(--gap-words-words); align-content: start; }
 .number dt { order: 2; font: var(--type-facts); color: var(--muted); }
 .number dd { margin: 0; }
@@ -805,22 +913,22 @@ component({
     {
       label: "This week",
       isWide: true,
-      markup: glassPane({ paneWidth: "full", body: numbers({ items: [
+      markup: glassPane({ paneWidth: "full", body: stackOfOne(numbers({ items: [
         { label: "Players", figure: "1,284", change: "+18% on last week", isChangeGood: true },
         { label: "Hours played", figure: "3,906", unit: "hours", change: "+6% on last week", isChangeGood: true },
         { label: "Plays", figure: "9,412", change: "−3% on last week" },
         { label: "Stored", figure: "48.1", unit: "MB" },
-      ] }) }),
+      ] }), "words") }),
     },
     {
       label: "In the millions",
       isWide: true,
-      markup: glassPane({ paneWidth: "full", body: numbers({ items: [
+      markup: glassPane({ paneWidth: "full", body: stackOfOne(numbers({ items: [
         { label: "Players all time", figure: "12,480,915", change: "+4% on last month", isChangeGood: true },
         { label: "Hours played", figure: "1,906,442", unit: "hours", change: "+9% on last month", isChangeGood: true },
         { label: "Plays", figure: "38,204,117" },
         { label: "Stored", figure: "4.8", unit: "GB" },
-      ] }) }),
+      ] }), "words") }),
     },
   ],
 });
@@ -866,7 +974,7 @@ const LEAST_BAR_SLOT_COUNT = 7;
  * A ring shows shares of a whole: each share a part of the ring, the biggest darkest, with a key of names, shares and numbers beside it.
  */
 export function chart(options: ChartOptions): Raw {
-  if (options.points.length === 0) return html`<figure class="chart"><figcaption class="chart-label">${options.label}</figcaption><p class="chart-empty">No ${options.unit} yet.</p></figure>`;
+  if (options.points.length === 0) return html`<figure class="chart words-margin"><figcaption class="chart-label">${options.label}</figcaption><p class="chart-empty">No ${options.unit} yet.</p></figure>`;
   if (options.chartKind === "ring") return ringChart(options);
   const widthNumber = 1000, heightNumber = 300, points = options.points, pointCount = points.length;
   const topNumber = chartTopNumber(Math.max(...points.map((point) => point.amountNumber), 0));
@@ -917,7 +1025,7 @@ export function chart(options: ChartOptions): Raw {
           ? html`<span style="left:${percent(barLeftNumber(0), widthNumber)}%">${points[0]!.label}</span><span class="is-end" style="right:${percent(widthNumber - barLeftNumber(pointCount - 1) - barWidthNumber, widthNumber)}%">${last.label}</span>`
           : html`${pointCount >= 3 ? centeredLabel(0) : ""}${centeredLabel(pointCount - 1)}`;
   const grid = [1, 0.5, 0];
-  return html`<figure class="chart" tabindex="0" data-chart-points><figcaption class="chart-label">${options.label}</figcaption><div class="chart-body" aria-hidden="true"><div class="chart-scale">${grid.map(
+  return html`<figure class="chart words-margin" tabindex="0" data-chart-points><figcaption class="chart-label">${options.label}</figcaption><div class="chart-body" aria-hidden="true"><div class="chart-scale"><span class="chart-scale-widest">${scaleWords(topNumber)}</span>${grid.map(
     (shareNumber) => html`<span style="top:${((1 - shareNumber) * 100).toFixed(0)}%">${scaleWords(topNumber * shareNumber)}</span>`,
   )}</div><div class="chart-scroll" data-fades-sideways data-side-rail data-chart-scroll><div class="chart-inner${isBars ? " is-bars" : ""}" style="--point-count:${pointCount}"><div class="chart-plot">${grid.map(
     (shareNumber) => html`<span class="chart-grid" style="top:${((1 - shareNumber) * 100).toFixed(0)}%"></span>`,
@@ -939,8 +1047,8 @@ function ringChart(options: ChartOptions): Raw {
     return part;
   });
   const sharePct = (point: ChartPoint) => Math.round((point.amountNumber / totalNumber) * 100);
-  return html`<figure class="chart ring"><figcaption class="chart-label">${options.label}</figcaption><div class="ring-body"><div class="ring-picture"><svg class="ring-drawing" viewBox="0 0 120 120" aria-hidden="true">${parts}</svg><span class="ring-total"><b>${chartWords(totalNumber)}</b>${options.unit}</span></div><ul class="ring-key">${shares.map(
-    (point, shareIndex) => html`<li data-share="${shareIndex}"><span class="ring-swatch" aria-hidden="true"></span><span class="ring-name">${point.label}</span><span class="ring-share">${sharePct(point)}%</span><span class="ring-amount">${chartWords(point.amountNumber)} ${options.unit}</span></li>`,
+  return html`<figure class="chart ring words-margin"><figcaption class="chart-label">${options.label}</figcaption><div class="ring-body"><div class="ring-picture"><svg class="ring-drawing" viewBox="0 0 120 120" aria-hidden="true">${parts}</svg><span class="ring-total"><b>${chartWords(totalNumber)}</b>${options.unit}</span></div><ul class="ring-key hairlines">${shares.map(
+    (point, shareIndex) => html`<li class="flush-row quiet" data-share="${shareIndex}"><span class="ring-swatch" aria-hidden="true"></span><span class="ring-name">${point.label}</span><span class="ring-share">${sharePct(point)}%</span><span class="ring-amount">${chartWords(point.amountNumber)} ${options.unit}</span></li>`,
   )}</ul></div></figure>`;
 }
 
@@ -982,9 +1090,9 @@ const DAILY_PLAYS: ChartPoint[] = [812, 904, 870, 1012, 1190, 1460, 1384, 1102, 
 const MONTHLY_PLAYERS: ChartPoint[] = [3120, 3480, 4210, 3990, 4620, 5310, 6870, 7420, 6980, 8130, 9760, 11240, 12480, 11920, 13650, 15210, 16880, 18420, 17950, 21300, 23870, 26420, 25110, 28940].map((amountNumber, weekIndex) => ({ label: `Week ${weekIndex + 1}`, amountNumber }));
 const SHARE_RING_CSS = [0, 1, 2, 3, 4, 5, 6, 7]
   .map((shareIndex) => `.ring:has(.ring-key [data-share="${shareIndex}"]:hover) .ring-part[data-share="${shareIndex}"], .ring:has(.ring-part[data-share="${shareIndex}"]:hover) .ring-part[data-share="${shareIndex}"] { stroke: var(--ink); }
-.ring:has(.ring-part[data-share="${shareIndex}"]:hover) .ring-key [data-share="${shareIndex}"] { background: var(--row-hover); }`)
+.ring:has(.ring-part[data-share="${shareIndex}"]:hover) .ring-key [data-share="${shareIndex}"] { --face-color: var(--row-hover); }`)
   .join("\n");
-const chartPane = (options: ChartOptions) => glassPane({ paneWidth: "full", body: chart(options) });
+const chartPane = (options: ChartOptions) => glassPane({ paneWidth: "full", body: stack({ items: [{ kind: "words", markup: chart(options) }] }) });
 
 component({
   name: "Chart",
@@ -997,14 +1105,16 @@ component({
    under the plot. The drawing stretches to the plot while its line keeps its 2px. On a narrow screen each point keeps at least its room
    (--point-room) and the plot scrolls sideways under a scale that stays. The last point is an ink dot with its number over it; pointing at
    any point, or focusing it, shows its dot and its number (a bar's column brightens), its words kept inside the plot at the ends. */
-.chart { display: grid; gap: var(--gap-words-control); margin: 0; min-width: 0; padding-inline: var(--pad-words); }
+.chart { display: grid; gap: var(--gap-block-block); margin: 0; min-width: 0; }
 .chart-label { font: var(--type-label); color: var(--ink); }
-.chart-body { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--gap-words-control); margin-top: var(--gap-block-block); }
+.chart-body { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--gap-words-control); }
 .chart-scale { position: relative; height: 180px; min-width: 32px; font: var(--type-facts); color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; }
 .chart-scale > span { position: absolute; right: 0; transform: translateY(-50%); white-space: nowrap; }
+/* The scale is as wide as its widest amount (the top one, unseen, in its own place), so every amount stays inside the words margin. */
+.chart-scale > .chart-scale-widest { position: static; display: block; visibility: hidden; transform: none; }
 .chart-scroll { min-width: 0; padding-top: var(--gap-block-block); margin-top: calc(-1 * var(--gap-block-block)); }
 /* Its dots at the ends keep their whole round inside its padding; anything else past its sides is clipped, never making it scroll. */
-.chart-inner { --point-room: 12px; min-width: calc(var(--point-count) * var(--point-room)); padding: 0 6px; overflow-x: clip; }
+.chart-inner { display: grid; row-gap: var(--gap-words-control); --point-room: 12px; min-width: calc(var(--point-count) * var(--point-room)); padding: 0 6px; overflow-x: clip; }
 .chart-inner.is-bars { --point-room: 26px; }
 .chart-plot { position: relative; height: 180px; }
 .chart-grid { position: absolute; left: 0; right: 0; height: 0; border-top: var(--divider); }
@@ -1017,13 +1127,13 @@ component({
 .chart-bar { fill: var(--chart-bar); }
 .chart-bar.last { fill: var(--ink-2); }
 .chart-last { position: absolute; width: 10px; height: 10px; margin: -5px 0 0 -5px; background: var(--ink); border-radius: 50%; box-shadow: 0 0 0 3px var(--chart-ring); pointer-events: none; }
-.chart-last-words { position: absolute; right: 0; bottom: 14px; font: var(--type-label); color: var(--ink); font-variant-numeric: tabular-nums; white-space: nowrap; transition: opacity 0.15s; }
+.chart-last-words { position: absolute; right: 0; bottom: 14px; font: var(--type-label); color: var(--ink); font-variant-numeric: tabular-nums; white-space: nowrap; transition: opacity var(--motion-state); }
 .chart-last.is-alone .chart-last-words { right: auto; left: 50%; transform: translateX(-50%); }
 /* Over the last bar it spans the bar: its number centered on it, or ending at its right edge when wider. */
 .chart-last.is-bar { height: 0; margin: 0; background: none; border-radius: 0; box-shadow: none; }
 .chart-last.is-bar .chart-last-words { bottom: 6px; min-width: 100%; text-align: center; }
 .chart-body > .rail { grid-column: 2; }
-.chart-axis { display: grid; padding-top: var(--gap-words-control); font: var(--type-facts); color: var(--muted); }
+.chart-axis { display: grid; font: var(--type-facts); color: var(--muted); }
 .chart-axis > span { grid-area: 1 / 1; justify-self: start; position: relative; white-space: nowrap; }
 .chart-axis > .is-end { justify-self: end; }
 .chart-axis > .is-middle { transform: translateX(-50%); }
@@ -1032,11 +1142,11 @@ component({
 .chart:focus-visible { outline: none; }
 .chart-inner.is-bars .chart-hit:is(:hover, .is-pointed), .chart:focus-visible .chart-inner.is-bars .chart-hit.is-focused { background: var(--row-hover); }
 .chart:focus-visible .chart-inner.is-bars .chart-hit.is-focused { outline: 2px solid var(--focus); outline-offset: -2px; }
-.chart-dot { position: absolute; left: var(--point-left); top: var(--point-top); width: 10px; height: 10px; margin: -5px 0 0 -5px; border-radius: 50%; background: var(--ink); box-shadow: 0 0 0 3px var(--chart-ring); opacity: 0; transition: opacity 0.15s; }
+.chart-dot { position: absolute; left: var(--point-left); top: var(--point-top); width: 10px; height: 10px; margin: -5px 0 0 -5px; border-radius: 50%; background: var(--ink); box-shadow: 0 0 0 3px var(--chart-ring); opacity: 0; transition: opacity var(--motion-state); }
 .chart:focus-visible .chart-hit.is-focused .chart-dot { outline: 2px solid var(--focus); outline-offset: 3px; }
 .chart-inner.is-bars .chart-dot { display: none; }
 .chart-tip { position: absolute; left: var(--point-left); bottom: calc(100% - var(--point-top) + 12px); transform: translateX(-12px); display: grid; padding: 4px 8px; white-space: nowrap;
-  font: var(--type-facts); color: var(--ink-2); background: var(--chart-tip); box-shadow: var(--slab-shade); opacity: 0; transition: opacity 0.15s; pointer-events: none; }
+  font: var(--type-facts); color: var(--ink-2); background: var(--chart-tip); box-shadow: var(--slab-shade); opacity: 0; transition: opacity var(--motion-state); pointer-events: none; }
 .chart-tip b { font-weight: 600; color: var(--ink); }
 .chart-hit.is-end .chart-tip { transform: translateX(calc(-100% + 12px)); }
 .chart-hit.is-high .chart-tip { bottom: auto; top: calc(var(--point-top) + 12px); }
@@ -1047,20 +1157,19 @@ component({
 /* While any point's number shows, the last point's steps aside, so the two never meet. */
 .chart-plot:has(.chart-hit:is(:hover, .is-pointed)) .chart-last-words, .chart:focus-visible .chart-plot:has(.chart-hit.is-focused) .chart-last-words { opacity: 0; }
 /* No points yet: it says so where the plot would be, over the plot's foot line. */
-.chart-empty { display: grid; place-items: center; height: 180px; margin: var(--gap-block-block) 0 0; border-bottom: var(--divider); font: var(--type-words); color: var(--muted); }
+.chart-empty { display: grid; place-items: center; height: 180px; border-bottom: var(--divider); font: var(--type-words); color: var(--muted); }
 /* A ring: the shares round a ring, biggest first and darkest, each lighter after; the whole in its middle. Its key beside it (under it on a
    phone), no wider than a card so each name reads with its share, names each with its share and number. Pointing at a part or its line in
    the key draws that part in ink and brightens its line. */
 .ring-body { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: var(--gap-block-block); }
 .ring-picture { position: relative; flex: none; width: 168px; height: 168px; }
 .ring-drawing { width: 100%; height: 100%; }
-.ring-part { fill: none; stroke-width: 16; stroke: var(--share-color); transition: stroke 0.15s; cursor: default; }
+.ring-part { fill: none; stroke-width: 16; stroke: var(--share-color); transition: stroke var(--motion-state); cursor: default; }
 .ring-total { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; font: var(--type-facts); color: var(--muted); }
 .ring-total b { font: var(--type-section); color: var(--ink); font-variant-numeric: tabular-nums; }
 .ring-key { flex: 0 1 var(--size-card); list-style: none; margin: 0; padding: 0; display: grid; }
-.ring-key li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: var(--gap-words-control); padding: var(--gap-words-words) var(--gap-words-words); font: var(--type-words); color: var(--ink); }
-.ring-key li:hover { background: var(--row-hover); }
-.ring-key li + li { border-top: var(--divider); }
+.ring-key li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: var(--gap-words-control); --row-height: 0px; --row-block: var(--gap-words-words); --row-start: var(--gap-words-words); --row-end: var(--gap-words-words); cursor: default; font: var(--type-words); color: var(--ink); }
+.ring-key li:hover { --face-color: var(--row-hover); }
 .ring-swatch { width: 12px; height: 12px; background: var(--share-color); }
 .ring-share { font-weight: 600; font-variant-numeric: tabular-nums; }
 .ring-name { overflow-wrap: break-word; }
@@ -1142,7 +1251,7 @@ function meterTrack(options: UsageMeterOptions, sharePct: number): Raw {
 function usageKey(options: UsageMeterOptions): Raw | "" {
   const parts = options.parts?.filter((part) => part.sharePct > 0) ?? [];
   if (!parts.length) return "";
-  return html`<ul class="usage-key" aria-label="What used ${options.label}">${parts.map((part) => html`<li data-part="${String(part.partColorIndex)}"><span class="usage-swatch" aria-hidden="true"></span>${part.label}<b>${String(part.sharePct)}%</b></li>`)}</ul>`;
+  return html`<ul class="usage-key words-margin" aria-label="What used ${options.label}">${parts.map((part) => html`<li data-part="${String(part.partColorIndex)}"><span class="usage-swatch" aria-hidden="true"></span>${part.label}<b>${String(part.sharePct)}%</b></li>`)}</ul>`;
 }
 
 /**
@@ -1155,10 +1264,10 @@ export function usageMeter(options: UsageMeterOptions): Raw {
   const overNumber = options.usedNumber - options.limitNumber;
   const allUsedWords = overNumber > 0 ? `, ${chartWords(overNumber)} ${options.unit} over` : ", all used";
   const resetWords = options.resetDate ? `Resets ${new Date(`${options.resetDate}T00:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}.` : "";
-  return html`<div class="usage${tone}"><span class="usage-label">${isAllUsed ? icon("warning") : ""}${options.label}</span><p class="usage-numbers"><span class="usage-fact">${options.shownWords ?? html`${chartWords(options.usedNumber)} of ${chartWords(options.limitNumber)}\u00a0${options.unit}`}${isAllUsed ? html`<b>${allUsedWords}</b>` : ""}${resetWords ? "\u00a0·" : ""}</span>${resetWords ? html` <span class="usage-fact">${resetWords}</span>` : ""}</p>${usageKey(options)}${meterTrack(options, sharePct)}</div>`;
+  return html`<div class="usage${tone}"><span class="usage-label words-margin">${isAllUsed ? icon("warning") : ""}${options.label}</span><p class="usage-numbers words-margin"><span class="usage-fact">${options.shownWords ?? html`${chartWords(options.usedNumber)} of ${chartWords(options.limitNumber)}\u00a0${options.unit}`}${isAllUsed ? html`<b>${allUsedWords}</b>` : ""}${resetWords ? "\u00a0·" : ""}</span>${resetWords ? html` <span class="usage-fact">${resetWords}</span>` : ""}</p>${usageKey(options)}${meterTrack(options, sharePct)}</div>`;
 }
 
-const meterPane = (options: UsageMeterOptions) => glassPane({ paneWidth: "fit", body: usageMeter(options) });
+const meterPane = (options: UsageMeterOptions) => glassPane({ paneWidth: "fit", body: stackOfOne(usageMeter(options)) });
 
 component({
   name: "Usage meter",
@@ -1171,13 +1280,13 @@ component({
    light the Groove's own orange, red from 80%, the warning growing hotter as it fills; any use at all shows at least a sliver. All used,
    it's red striped with a deeper red, like tape across a door, a warning mark leads the label and its words say so in red. */
 .usage { display: grid; gap: var(--gap-words-words); }
-.usage-label { display: inline-flex; align-items: center; gap: var(--gap-words-words); padding-inline: var(--pad-words); font: var(--type-label); color: var(--ink); }
+.usage-label { display: inline-flex; align-items: center; gap: var(--gap-words-words); font: var(--type-label); color: var(--ink); }
 .usage-label > .ico { width: 16px; height: 16px; color: var(--meter-full-ink); }
-.usage-numbers { margin: 0; padding-inline: var(--pad-words); font: var(--type-facts); color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.usage-numbers { margin: 0; font: var(--type-facts); color: var(--ink-2); font-variant-numeric: tabular-nums; }
 .usage-fact { display: inline-block; max-width: 100%; }
 .usage-numbers b { font-weight: 600; color: var(--meter-full-ink); }
 .usage-track { display: block; }
-.usage-groove .groove-fill { transition: width 0.6s var(--spring); }
+.usage-groove .groove-fill { transition: width var(--motion-settle) var(--spring); }
 /* Any use at all shows: a sliver long enough to show past a cut corner's line at its start. */
 .usage:is(.is-used, .is-near) .usage-groove .groove-fill { min-width: 14px; }
 .usage:is(.is-near, .is-full) .usage-groove .groove-fill { filter: drop-shadow(0 0 1.5px var(--meter-near)); }
@@ -1186,7 +1295,7 @@ component({
 /* With parts, the light is what used it, side by side in each part's color, a hairline of the groove between them; past 80% the colors
    stay and the numbers say so, and all used, red stripes run across them. The key names each part with its share: over the track on a
    meter of its own, so the track stays its foot, and under it in a list row or another plate, where the row's lines are over it. Each
-   swatch hangs before its words, so the words keep the margin. */
+   swatch leads its words in line, the key keeping the words margin like the words over it. */
 .usage .usage-groove.has-parts .groove-light { background: none; }
 .usage .usage-groove.has-parts .groove-fill { filter: none; }
 .usage-parts { position: absolute; inset: 0; display: flex; gap: var(--gap-control-row); }
@@ -1198,9 +1307,9 @@ component({
 .usage [data-part="3"] { --part-color: var(--part-3); }
 .usage [data-part="4"] { --part-color: var(--part-4); }
 .usage [data-part="5"] { --part-color: var(--part-5); }
-.usage-key { display: flex; flex-wrap: wrap; gap: var(--gap-words-words) var(--gap-block-block); list-style: none; margin: 0; padding: 0 var(--pad-words); }
-.usage-key li { position: relative; display: inline-flex; align-items: center; gap: var(--gap-words-words); font: var(--type-facts); color: var(--ink-2); }
-.usage-key .usage-swatch { position: absolute; left: calc(-10px - var(--gap-words-words)); top: calc(50% - 5px); }
+.usage-key { display: flex; flex-wrap: wrap; gap: var(--gap-words-words) var(--gap-block-block); list-style: none; margin: 0; }
+.usage-key li { display: inline-flex; align-items: center; gap: var(--gap-words-words); font: var(--type-facts); color: var(--ink-2); }
+.usage-key .usage-swatch { flex: none; }
 .usage-key b { font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
 .usage-swatch { width: 10px; height: 10px; background: var(--part-color); }
 `,
@@ -1233,10 +1342,10 @@ component({
       label: "Split by what used it, its key under the track, in a list row whose lines say the numbers",
       markup: glassPane({
         paneWidth: "fit",
-        body: listRows({
+        body: stackOfOne(listRows({
           whenEmpty: html``,
           rows: [{ title: "Starfall", detail: "62% of this month's free hosting · Resets Nov 1", meter: { label: "Starfall", usedNumber: 62, limitNumber: 100, unit: "%", parts: [{ label: "Rooms", sharePct: 48, partColorIndex: 0 }, { label: "Game server", sharePct: 27, partColorIndex: 1 }, { label: "Database", sharePct: 15, partColorIndex: 3 }, { label: "Requests", sharePct: 10, partColorIndex: 4 }] } }],
-        }),
+        })),
       }),
     },
   ],

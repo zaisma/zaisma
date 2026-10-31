@@ -6,25 +6,23 @@ import { cutField } from "./components/fields.ts";
 import { stripeFrame } from "./components/stripe-frame.ts";
 import { doneState, loadingState, problemState } from "./components/data.ts";
 import { confirmItsYouSheet } from "./components/confirm-its-you.ts";
-import { row, stack } from "./components/layout.ts";
-import { storeItem, storePanel } from "./components/panes.ts";
-import { urgentCard } from "./components/playing.ts";
+import { row, stack, type LayoutItem } from "./components/layout.ts";
+import { notice, storePanel } from "./components/panes.ts";
 import { isLocalPreview } from "./stripe.ts";
 
 /**
  * The buy sheet (docs/DECISIONS.md, "One Zaisma buy sheet; we own the buying experience, not the money."): a store panel that rises over the
  * running game when the game asks to buy an item (Zaisma.items.buy, a zaisma:buy message), and stands alone in a zaisma.com window for games
- * on their own sites (/buy/<slug>/<item_name>). The game's own cover is across its top; below it the item, its price and one quiet line on who
- * sells it; pinned at its foot the saved card and Buy, carrying the price. Pressing Buy is the confirmation, and it's pressed once: only when
+ * on their own sites (/buy/<slug>/<item_name>). Over the game it's short at the screen's bottom right, the cover small beside the item; on the
+ * game's page and in the window it's centered, the cover large (components/panes.ts, Store panel). Pinned at its foot the saved card and Buy,
+ * carrying the price, then who sells it. Pressing Buy is the confirmation, and it's pressed once: only when
  * the start answer says why (confirmation_reason) does a "Confirm it's you" dialog (components/confirm-its-you.ts) open over the panel, and a
  * right proof goes on to buy by itself; Cancel leaves Buy to press again. The script shows the parts by the moment: the item, the saved card,
  * entering a card, Apple Pay or Google Pay, a guest's way to an account, and how it ended. Nothing in it is about one player, so the page around it stays cacheable: everything personal comes from /api/buy (buy.ts) once the
  * sheet opens.
  */
 export function buySheet(options: { joinHref: string; signInHref: string; coverUrl?: string | null }): Raw {
-  const body = stack({
-    items: [
-      { kind: "block", markup: storeItem({ id: "buy-item", imageUrl: options.coverUrl ?? null, name: "", priceText: "" }) },
+  const momentItems: LayoutItem[] = [
       { kind: "block", id: "buy-loading", markup: loadingState({ label: "Getting the price" }) },
       {
         kind: "block",
@@ -54,26 +52,23 @@ export function buySheet(options: { joinHref: string; signInHref: string; coverU
       { kind: "words", id: "buy-message", isHidden: true, markup: html`<p></p>` },
       { kind: "block", id: "buy-problem", isHidden: true, markup: problemState({ title: "", text: "" }) },
       { kind: "block", id: "buy-done", isHidden: true, markup: doneState({ title: "Bought", text: "" }) },
-    ],
-  });
+  ];
   // The foot stays in view while the body scrolls: Apple Pay or Google Pay when offered, the saved card, the line the EU's law asks for, and Buy.
-  const foot = stack({
-    items: [
+  const footItems: LayoutItem[] = [
       { kind: "block", id: "buy-wallet", isHidden: true, markup: stripeFrame({ id: "buy-wallet-frame", title: "Apple Pay or Google Pay" }) },
-      { kind: "control", id: "buy-wallet-stand-in", isHidden: true, markup: secondaryButton("Apple Pay", { type: "button", isFullWidth: true }) },
+      { kind: "control", id: "buy-wallet-stand-in", isHidden: true, markup: secondaryButton("Apple Pay", { type: "button", wayIn: "apple_pay", isFullWidth: true }) },
       { kind: "control", id: "buy-other-card", isHidden: true, markup: cardRow("", { type: "button", hiddenText: "Use another card", changeText: "Change" }) },
       // Digital content delivered at once loses the 14-day withdrawal right only with the buyer's acknowledgement, said before they buy.
       { kind: "words", id: "buy-eu", isHidden: true, markup: html`<p>You get it now, so you can't cancel it in the next 14 days.</p>` },
       { kind: "control", markup: primaryButton("Buy", { id: "buy-go", type: "button", busyLabel: "Buying", isFullWidth: true, trailingText: "", isHidden: true }) },
       { kind: "block", id: "buy-guest-buttons", isHidden: true, markup: row({ widths: "equal", items: [{ kind: "control", markup: secondaryButton("Sign in", { id: "buy-sign-in", href: options.signInHref, dataAttributes: { "buy-sign-in": "/signin" } }) }, { kind: "control", markup: primaryButton("Make an account", { id: "buy-join", href: options.joinHref, dataAttributes: { "buy-sign-in": "/join" } }) }] }) },
       { kind: "control", markup: secondaryButton("Back to the game", { id: "buy-back", type: "submit", formMethod: "dialog", isFullWidth: true, isHidden: true }) },
-    ],
-  });
+  ];
   // Urgent news while buying, over the sheet and full screen (zaismaLayers): a sign-out ends the purchase, so the sheet and its Confirm it's
   // you close under it; a connection lost while paying keeps the sheet, which says what it knows.
-  const signedOut = urgentCard({ id: "buy-signed-out", title: "You've been signed out", text: "Nothing was charged. Sign in again to buy.", buttons: [primaryButton("Sign in", { href: options.signInHref })], sheetsToClose: ["buy-sheet", "buy-confirm-you"] });
-  const unreachable = urgentCard({ id: "buy-unreachable", title: "Couldn't reach Zaisma", text: "If you were charged, the item arrives when you're back." });
-  return html`${storePanel({ id: "buy-sheet", title: "Buy", closeLabel: "Close", body, foot })}${confirmItsYouSheet({ id: "buy-confirm-you" })}${stripeFrame({ id: "buy-check-frame", title: "Your bank's check" })}${signedOut}${unreachable}`;
+  const signedOut = notice({ placement: "over-everything", id: "buy-signed-out", title: "You've been signed out", text: "Nothing was charged. Sign in again to buy.", buttons: [primaryButton("Sign in", { href: options.signInHref })], sheetsToClose: ["buy-sheet", "buy-confirm-you"] });
+  const unreachable = notice({ placement: "over-everything", id: "buy-unreachable", title: "Couldn't reach Zaisma", text: "If you were charged, the item arrives when you're back." });
+  return html`${storePanel({ id: "buy-sheet", closeLabel: "Close", isOverGame: true, soldItem: { imageUrl: options.coverUrl ?? null, name: "Buy", priceText: "" }, momentItems, footItems })}${confirmItsYouSheet({ id: "buy-confirm-you" })}${stripeFrame({ id: "buy-check-frame", title: "Your bank's check" })}${signedOut}${unreachable}`;
 }
 
 /** What the sheet's script needs from the page that holds it (pageData "buy-sheet-data"). */
@@ -108,7 +103,7 @@ const go = byId("buy-go");
 const goLabel = go.querySelector(".label-idle");
 const goPrice = go.querySelector(".run-trailing");
 const back = byId("buy-back");
-const itemWords = byId("buy-item-words");
+const itemWords = byId("buy-sheet-item-words");
 // The body's moments and the foot's parts, each shown or hidden by showCells.
 const CELLS = ["buy-loading", "buy-card", "buy-guest", "buy-message", "buy-problem", "buy-done", "buy-wallet", "buy-wallet-stand-in", "buy-other-card", "buy-eu", "buy-guest-buttons"];
 // The developer's mistakes, which the game hears as an error once the player closes the sheet; the player only sees it can't be bought.
@@ -140,8 +135,8 @@ function tell(asked, status, extra) {
 function setText(id, text) { byId(id).querySelector("p").textContent = text; }
 function showCells(shown, isItemShown) {
   for (const id of CELLS) byId(id).hidden = !shown.includes(id);
-  // The cover stays across the top in every moment; the item's words show once the price is known and there is something to buy.
-  itemWords.hidden = !isItemShown;
+  // The cover stays in the head in every moment; on a page, the large cover and what it is show once the price is known and there is something to buy.
+  itemWords.hidden = !isItemShown || asking.isOverGame;
 }
 function showButtons(buttons) {
   const wasGoHidden = go.hidden;
@@ -215,6 +210,8 @@ function open(asked) {
   if (keep) zaismaLayers.leave(keep);
   // Full screen is the game's alone: it ends first, so the sheet shows over the page.
   if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+  // Over the game it's short at the screen's bottom right; for the page's own buttons and in the window, centered.
+  if (!buySheet.open) buySheet.classList.toggle("placement-corner", asked.isOverGame);
   if (!buySheet.open) buySheet.showModal();
   start();
 }
@@ -236,10 +233,12 @@ async function start() {
   if (asking !== asked) return;
   if (answer.error) return refused(answer.error);
   sale = answer;
-  byId("buy-item-name").textContent = sale.item.title + (sale.item_count > 1 ? " × " + sale.item_count : "");
-  byId("buy-item-price").textContent = sale.price.price_text;
-  byId("buy-item-description").textContent = sale.item.description || "";
-  byId("buy-item-note").textContent = ["Sold by " + sale.seller.business_name + ".", sale.refund_policy_words].filter(Boolean).join(" ");
+  title.textContent = sale.item.title + (sale.item_count > 1 ? " × " + sale.item_count : "");
+  byId("buy-sheet-item-price").textContent = sale.price.price_text;
+  byId("buy-sheet-item-blurb").textContent = sale.item.description || "";
+  byId("buy-sheet-item-description").textContent = sale.item.description || "";
+  byId("buy-sheet-item-seller").textContent = "Sold by " + sale.seller.business_name + ".";
+  byId("buy-sheet-item-refunds").textContent = sale.refund_policy_words ? " " + sale.refund_policy_words : "";
   goPrice.textContent = sale.price.price_text;
   sale.saved_card ? ready() : enterCard();
 }
@@ -285,7 +284,7 @@ function problem(problemTitle, problemText) {
 function guest() {
   moment = "guest";
   title.textContent = "Make a free account to buy";
-  byId("buy-guest-text").textContent = "Your game keeps running while you make one or sign in, and you come back to this.";
+  byId("buy-guest-text").textContent = asking.isOverGame ? "Your game keeps running while you make one or sign in, and you come back to this." : "Make one or sign in, and you come back to this.";
   showCells(["buy-guest", "buy-guest-buttons"], false);
   showButtons([]);
 }
@@ -576,14 +575,14 @@ if (buyData.place === "game_page") {
   const hasPlayerTap = () => !navigator.userActivation || navigator.userActivation.isActive;
   window.askBuy = (asked) => {
     const reply = (message) => frame && frame.contentWindow.postMessage(message, gameOrigin);
-    const request = { requestNumber: asked.requestNumber, itemName: asked.itemName, itemCount: typeof asked.itemCount === "number" ? asked.itemCount : 1, gameAccountId: typeof asked.gameAccountId === "string" ? asked.gameAccountId : null, tell: reply };
+    const request = { requestNumber: asked.requestNumber, itemName: asked.itemName, itemCount: typeof asked.itemCount === "number" ? asked.itemCount : 1, gameAccountId: typeof asked.gameAccountId === "string" ? asked.gameAccountId : null, isOverGame: true, tell: reply };
     if (!hasPlayerTap()) return tell(request, "error", { code: "needs_player_tap", message: "The buy sheet opens only right after the player taps or presses a key in the game: call Zaisma.items.buy from that tap's handler." });
     open(request);
   };
   // The page's own buttons (a paid game's Buy, each add-on's price) open the sheet for their item. Once it's bought the page is drawn
   // again, since the server draws what the viewer owns: Buy turns into Play, an add-on into Owned.
   const pageTell = (message) => { if (message.status === "bought") location.reload(); };
-  const openForPage = (itemName) => open({ requestNumber: 0, itemName: itemName, itemCount: 1, gameAccountId: null, tell: pageTell });
+  const openForPage = (itemName) => open({ requestNumber: 0, itemName: itemName, itemCount: 1, gameAccountId: null, isOverGame: false, tell: pageTell });
   document.addEventListener("click", (event) => {
     const button = event.target.closest && event.target.closest("[data-buy-item]");
     if (button && !button.disabled) openForPage(button.dataset.buyItem);
@@ -595,14 +594,14 @@ if (buyData.place === "game_page") {
   const asked = buyData.asked;
   const opener = window.opener;
   const reply = (message) => { if (opener && buyData.opener_origin) opener.postMessage(message, buyData.opener_origin); };
-  open({ requestNumber: asked.request_number, itemName: asked.item_name, itemCount: asked.item_count, gameAccountId: asked.game_account_id, tell: reply });
+  open({ requestNumber: asked.request_number, itemName: asked.item_name, itemCount: asked.item_count, gameAccountId: asked.game_account_id, isOverGame: false, tell: reply });
 }
 
 // The local preview opens the sheet with no tap in a game, and draws the moments it can't reach (a decline, 3-D Secure), for the layout
 // check and Screens.
 if (buyData.is_preview) {
   window.showBuyMoment = (name, itemName) => {
-    if (name === "open") return open({ requestNumber: 0, itemName: itemName, itemCount: 1, gameAccountId: null, tell: () => {} });
+    if (name === "open") return open({ requestNumber: 0, itemName: itemName, itemCount: 1, gameAccountId: null, isOverGame: true, tell: () => {} });
     if (name === "declined") return declined("Your card was declined.");
     if (name === "three_d_secure") return waiting("Your bank asks you to confirm");
     // Buy pressed once, as a player would: it opens the Confirm it's you dialog where the account asks for one (and charges at once where it

@@ -5,8 +5,7 @@ import type { Env } from "./env.ts";
 import { secondaryButton, primaryButton } from "./components/actions.ts";
 import { listRows, pictureFrame, emptyState } from "./components/data.ts";
 import { row, stack } from "./components/layout.ts";
-import { banner, sheet } from "./components/panes.ts";
-import { playingCard } from "./components/playing.ts";
+import { banner, notice, sheet } from "./components/panes.ts";
 import { accountPicture, html, pageData, scriptTags, type Raw } from "./html.ts";
 import { pageScript } from "./page-scripts.ts";
 import { profilePath } from "./profiles.ts";
@@ -140,7 +139,7 @@ export function friendRequestParts(options: { gameOrigin: string; slug: string }
       { kind: "block", markup: html`<div id="friend-request-error" role="alert" hidden>${banner({ text: "Couldn't send it. Check your connection and try again.", icon: "warning", tone: "warning" })}</div>` },
     ],
   });
-  const card = playingCard({
+  const card = notice({ placement: "over-game",
     id: "friend-request-card",
     title: "Friend request",
     body: stack({
@@ -154,7 +153,7 @@ export function friendRequestParts(options: { gameOrigin: string; slug: string }
     }),
   });
   // The sender's news once one is accepted: one line, gone by itself.
-  const acceptedCard = playingCard({ id: "friend-accepted-card", body: stack({ items: [{ kind: "words", markup: html`<p>You and <strong id="friend-accepted-name"></strong> are friends now.</p>` }] }) });
+  const acceptedCard = notice({ placement: "over-game", id: "friend-accepted-card", body: stack({ items: [{ kind: "words", markup: html`<p>You and <strong id="friend-accepted-name"></strong> are friends now.</p>` }] }) });
   return html`${sheet({
     id: "friend-request",
     title: "Send a friend request?",

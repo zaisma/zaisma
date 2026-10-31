@@ -49,13 +49,13 @@ import { gameUrl, type Env } from "./env.ts";
 import { secondaryButton, primaryButton, textLink } from "./components/actions.ts";
 import { copyField } from "./components/inputs.ts";
 import { cutField } from "./components/fields.ts";
-import { emptyState, glanceFacts, listRows } from "./components/data.ts";
+import { emptyState, glanceFacts, listRows, type ListRow } from "./components/data.ts";
 import { glassPane, tag, type IconName } from "./components/foundations.ts";
-import { grid, row, stack, track, type LayoutItem } from "./components/layout.ts";
-import { banner, dropdown, sheet } from "./components/panes.ts";
+import { grid, row, stack, track, type LayoutItem, stackOfOne } from "./components/layout.ts";
+import { banner, dropdown, gameCard, notice, sheet } from "./components/panes.ts";
 import { person } from "./components/people.ts";
-import { gameCard, playingBar, playingCard, playingCheck, screenshot, screenshotLarge, urgentCard } from "./components/playing.ts";
-import { facts, foldRows, readingText, type FoldRow } from "./components/reading.ts";
+import { playingBar, playingCheck, screenshot, screenshotLarge } from "./components/playing.ts";
+import { facts, readingText } from "./components/reading.ts";
 import { backgroundMarkup, backgroundOf, type ShownBackground } from "./backgrounds.ts";
 import { glassMessage, html, layout, pageData, raw, scriptTags, type Raw } from "./html.ts";
 import { pageScript } from "./page-scripts.ts";
@@ -374,6 +374,7 @@ export function gamePageResponse(env: Env, view: GamePageView): Response {
   const gamePane = glassPane({
     paneWidth: "fit",
     isStartedLow: true,
+    isAtStart: true,
     label: game.title,
     body: stack({
       items: [
@@ -429,10 +430,10 @@ export function gamePageResponse(env: Env, view: GamePageView): Response {
       ? [section("updates", "Updates", [{ kind: "block", markup: readingText({ markup: html`${view.updates.map((update) => html`<h3>${day(update.published_at_ms)}</h3>${paragraphs(update.patch_notes)}`)}` }) }])]
       : []),
     ...(developerGames.length && developer
-      ? [section("more", `More from ${developer.name}`, [{ kind: "block", markup: grid({ whenEmpty: emptyState({ title: "No other games yet", text: "This is the developer's only game so far." }), itemSize: "cover", items: developerGames.map((otherGame) => ({ kind: "block" as const, markup: gameCard({ title: otherGame.title, imageUrl: otherGame.cover ?? null, href: `/g/${otherGame.slug}`, facts: { playerCount: otherGame.playing_now_player_count >= MINIMUM_PLAYING_NOW_PLAYER_COUNT ? otherGame.playing_now_player_count : undefined, priceText: coverPriceText(otherGame, view.ownedPaidGameIds) } }) })) }) }])]
+      ? [section("more", `More from ${developer.name}`, [{ kind: "block", markup: grid({ whenEmpty: emptyState({ title: "No other games yet", text: "This is the developer's only game so far." }), itemSize: "cover", items: developerGames.map((otherGame) => ({ kind: "block" as const, markup: gameCard({ title: otherGame.title, imageUrl: otherGame.cover ?? null, href: `/g/${otherGame.slug}`, tintColor: otherGame.glass_tint_color, facts: { playerCount: otherGame.playing_now_player_count >= MINIMUM_PLAYING_NOW_PLAYER_COUNT ? otherGame.playing_now_player_count : undefined, priceText: coverPriceText(otherGame, view.ownedPaidGameIds) } }) })) }) }])]
       : []),
   ];
-  const screenshotSheets = shots.map((shot, shotIndex) => sheet({ id: `screenshot-${shotIndex + 1}`, title: `${game.title}, screenshot ${shotIndex + 1} of ${shots.length}`, body: screenshotLarge(shot, `${game.title}, screenshot ${shotIndex + 1}`), closeLabel: "Close", isPicture: true }));
+  const screenshotSheets = shots.map((shot, shotIndex) => sheet({ id: `screenshot-${shotIndex + 1}`, title: `${game.title}, screenshot ${shotIndex + 1} of ${shots.length}`, body: stackOfOne(screenshotLarge(shot, `${game.title}, screenshot ${shotIndex + 1}`)), closeLabel: "Close", isPicture: true }));
   // Playing: the bar beside the game, and what it opens.
   const barControls = [
     ...(multiplayer ? [secondaryButton("Players", { id: "players-open", type: "button", icon: "people", isLabelHidden: true, isSmall: true, controls: "players", reactionCount: 0 })] : []),
@@ -478,7 +479,7 @@ export function gamePageResponse(env: Env, view: GamePageView): Response {
     ],
   });
   const keepCard = saves
-    ? playingCard({
+    ? notice({ placement: "over-game",
         id: "keep",
         title: "Keep your progress",
         body: stack({ items: [
@@ -490,7 +491,7 @@ export function gamePageResponse(env: Env, view: GamePageView): Response {
       })
     : "";
   const signInCard = canSignIn
-    ? playingCard({
+    ? notice({ placement: "over-game",
         id: "sign-in-ask",
         title: `${game.title} asks you to sign in`,
         body: stack({ items: [
@@ -527,7 +528,7 @@ ${multiplayer
   ? html`${playersSheet({ gameOrigin, slug: game.slug, title: game.title, hasZaismaRooms: game.multiplayer_mode !== "none", canSignIn, signInPath: `/signin?next=${encodeURIComponent(`/g/${game.slug}`)}`, reportStep: reportStep(game, { isMultiplayer: true }) })}${reportScript(game, { gameOrigin })}${blockSheet({ gameOrigin })}`
   : reportSheet(game, { isMultiplayer: false, gameOrigin })}
 ${keepCard}
-${saves ? urgentCard({ id: "signed-out", title: "You've been signed out", text: "Sign in again to keep saving to your account.", buttons: [primaryButton("Sign in", { href: signinHere })] }) : ""}
+${saves ? notice({ placement: "over-everything", id: "signed-out", title: "You've been signed out", text: "Sign in again to keep saving to your account.", buttons: [primaryButton("Sign in", { href: signinHere })] }) : ""}
 ${signInCard}
 ${isClosed || !authConfigured(env) ? "" : friendRequestParts({ gameOrigin, slug: game.slug })}
 ${multiplayer ? stillThereCard() : ""}
@@ -661,7 +662,7 @@ function termsBody(): Raw {
   const creditDays = CREDIT_LIMITS.refundableDurationDays;
   const proDays = PRO_REFUND_LIMITS.refundableDurationDays;
   const dollarsText = (cents: number) => `$${cents / 100}`;
-  const pane = (label: string, markup: Raw): LayoutItem => ({ kind: "block", markup: glassPane({ paneWidth: "full", label, body: readingText({ markup }) }) });
+  const pane = (label: string, markup: Raw): LayoutItem => ({ kind: "block", markup: glassPane({ paneWidth: "full", label, body: stackOfOne(readingText({ markup }), "words") }) });
   return stack({
     items: [
       pane(
@@ -726,20 +727,19 @@ function termsBody(): Raw {
 // Approved by Julius on Oct 16, 2026 (#191); the faked-plays rule on Oct 13, 2026.
 // The rules themselves are CONTENT_RULES (@zaisma/core), each anchored by the name holds and takedowns give it.
 
-/** One rule as a fold row: its short title (the anchor a hold's rule links to) and its test, folding open to what it is, Fine and Not fine. */
-const ruleRow = (rule: ContentRule): FoldRow => {
+/** One rule as a row that opens: its short title (the anchor a hold's rule links to) and its test, opening to what it is, Fine and Not fine. */
+const ruleRow = (rule: ContentRule): ListRow => {
   const details = CONTENT_RULE_DETAILS[rule];
   const sentence = (words: string) => `${words.charAt(0).toUpperCase()}${words.slice(1)}`;
   return {
-    id: rule,
     title: details.title,
     detail: details.test,
-    body: stack({
+    fold: { id: rule, body: stack({
       items: [
         { kind: "words", markup: html`<p>${CONTENT_RULES[rule]}${NOTICE_ONLY_CONTENT_RULES.includes(rule) && details.explanation ? ` ${details.explanation}` : ""}</p>` },
         { kind: "words", markup: facts({ arrangement: "across", facts: [{ label: "Fine", text: sentence(details.fine) }, { label: "Not fine", text: sentence(details.notFine) }] }) },
       ],
-    }),
+    }) },
   };
 };
 
@@ -756,12 +756,12 @@ function contentRulesBody(): Raw {
       pane("The lines", [
         { kind: "words", markup: html`<h2>The lines</h2>` },
         { kind: "words", markup: html`<p>Every version is checked against each rule's test. A version that meets one is rejected, with the rule, what was found and how to fix it.</p>` },
-        { kind: "block", markup: foldRows({ label: "The lines", rows: REVIEWED_CONTENT_RULES.map(ruleRow) }) },
+        { kind: "block", markup: listRows({ label: "The lines", whenEmpty: html``, rows: REVIEWED_CONTENT_RULES.map(ruleRow) }) },
       ]),
       pane("Only on a notice", [
         { kind: "words", markup: html`<h2>Only on a notice</h2>` },
         { kind: "words", markup: html`<p>Zaisma does not judge these itself. When the owner of a work, or a private person a game falsely accuses of a crime, sends a notice, the game is hidden until you publish a version without what it names. If the notice is wrong, you can send a counter-notice: see ${textLink("Copyright and DMCA notices", "/legal/dmca")} and ${textLink("Defamation notices", "/legal/defamation")}.</p>` },
-        { kind: "block", markup: foldRows({ label: "Only on a notice", rows: NOTICE_ONLY_CONTENT_RULES.map(ruleRow) }) },
+        { kind: "block", markup: listRows({ label: "Only on a notice", whenEmpty: html``, rows: NOTICE_ONLY_CONTENT_RULES.map(ruleRow) }) },
       ]),
       pane("What happens", [
         { kind: "words", markup: html`<h2>What happens</h2>` },
@@ -781,50 +781,44 @@ function contentRulesBody(): Raw {
         { kind: "words", markup: html`<h2>Reports and enforcement</h2>` },
         {
           kind: "block",
-          markup: foldRows({
+          markup: listRows({
             label: "Reports and enforcement",
+            whenEmpty: html``,
             rows: [
               {
-                id: "reports",
                 title: "Reports",
                 detail: "Every game page has a Report button; child safety and illegal content go straight to a person.",
-                body: readingText({ markup: html`<p>Zaisma removes games that break these rules. Until a report is checked, a brand-new game is hidden and a recent update goes back to the version before it. A person looks only at what the review cannot settle, and at anything about child safety.</p>` }),
+                fold: { id: "reports", body: readingText({ markup: html`<p>Zaisma removes games that break these rules. Until a report is checked, a brand-new game is hidden and a recent update goes back to the version before it. A person looks only at what the review cannot settle, and at anything about child safety.</p>` }) },
               },
               {
-                id: "player-conduct",
                 title: "Player conduct",
                 detail: "How players treat each other is the game's call, with a few exceptions.",
-                body: readingText({ markup: html`<p>Each game and its moderators decide how players talk to each other, and mute and block are always there. Zaisma steps in for threats that reach into real life, sharing someone's personal details, following someone after they have blocked them, and anything sexual toward a teen. Reports about bullying, cheating and other behavior go to the game's developer.</p>` }),
+                fold: { id: "player-conduct", body: readingText({ markup: html`<p>Each game and its moderators decide how players talk to each other, and mute and block are always there. Zaisma steps in for threats that reach into real life, sharing someone's personal details, following someone after they have blocked them, and anything sexual toward a teen. Reports about bullying, cheating and other behavior go to the game's developer.</p>` }) },
               },
               {
-                id: "account-closure",
                 title: "Account closure",
                 detail: "Only for sexual content involving minors, malware, or restoring content that was taken down.",
-                body: readingText({ markup: html`<p>Breaking any other rule costs a version, never the account: the version is rejected or the game hidden, and a corrected version brings it back.</p>` }),
+                fold: { id: "account-closure", body: readingText({ markup: html`<p>Breaking any other rule costs a version, never the account: the version is rejected or the game hidden, and a corrected version brings it back.</p>` }) },
               },
               {
-                id: "other-countries",
                 title: "Other countries",
                 detail: "A notice from a court, regulator or police blocks a game in that country only.",
-                body: readingText({ markup: html`<p>These rules follow US law. When a country's own law forbids a game that is allowed here (the UK's hatred offences, for example), the game is blocked for players in that country, and everyone else can still play it. Publishing a version without what the notice names lifts the block. Authorities can send notices to ${textLink("safety@zaisma.com", "mailto:safety@zaisma.com")}.</p>` }),
+                fold: { id: "other-countries", body: readingText({ markup: html`<p>These rules follow US law. When a country's own law forbids a game that is allowed here (the UK's hatred offences, for example), the game is blocked for players in that country, and everyone else can still play it. Publishing a version without what the notice names lifts the block. Authorities can send notices to ${textLink("safety@zaisma.com", "mailto:safety@zaisma.com")}.</p>` }) },
               },
               {
-                id: "faked-plays-in-lists",
                 title: "Faked plays",
                 detail: "A game with faked plays is removed from Popular, Trending and New; doing it again can get it taken down.",
-                body: readingText({ markup: html`<p>Plays and players are counted only when they are people (see the faked plays rule above).</p>` }),
+                fold: { id: "faked-plays-in-lists", body: readingText({ markup: html`<p>Plays and players are counted only when they are people (see the faked plays rule above).</p>` }) },
               },
               {
-                id: "covers-and-titles",
                 title: "Covers and titles",
                 detail: "Zaisma's lists show games whose covers and titles keep the listing lines.",
-                body: readingText({ markup: html`<p>No text but the title, nothing laid over the picture, no fake rewards, no famous characters you do not own, and built around something from the game. A game that breaks one still plays by its link until it is fixed; a fake reward holds it. See ${textLink("Covers that show your game", "/developers/covers")}.</p>` }),
+                fold: { id: "covers-and-titles", body: readingText({ markup: html`<p>No text but the title, nothing laid over the picture, no fake rewards, no famous characters you do not own, and built around something from the game. A game that breaks one still plays by its link until it is fixed; a fake reward holds it. See ${textLink("Covers that show your game", "/developers/covers")}.</p>` }) },
               },
               {
-                id: "names-players-give",
                 title: "Names players give",
                 detail: "Names players give to sessions, levels and maps are allowed; the game keeps them within these rules.",
-                body: readingText({ markup: html`<p>The game is responsible for what its players name things, as for anything else it shows.</p>` }),
+                fold: { id: "names-players-give", body: readingText({ markup: html`<p>The game is responsible for what its players name things, as for anything else it shows.</p>` }) },
               },
             ],
           }),
@@ -897,7 +891,7 @@ const DEFAMATION = `
 // Rewritten in a formal register and moved into Glass panes with the terms of service, Oct 29, 2026: the same facts and promises.
 /** The privacy policy, zaisma.com/legal/privacy: concise and formal, in panes like the terms of service. */
 function privacyBody(): Raw {
-  const pane = (label: string, markup: Raw): LayoutItem => ({ kind: "block", markup: glassPane({ paneWidth: "full", label, body: readingText({ markup }) }) });
+  const pane = (label: string, markup: Raw): LayoutItem => ({ kind: "block", markup: glassPane({ paneWidth: "full", label, body: stackOfOne(readingText({ markup }), "words") }) });
   return stack({
     items: [
       pane(
@@ -1331,7 +1325,7 @@ function shareFrom(button) {
 }
 const shareMore = document.getElementById("share-more");
 if (navigator.share) {
-  shareMore.hidden = false;
+  shareMore.closest("li").hidden = false;
   shareMore.onclick = async () => {
     try { await navigator.share({ title: document.title, url: shareLink.dataset.copy }); shareBox.close(); } catch {}
   };

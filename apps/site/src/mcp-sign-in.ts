@@ -24,7 +24,7 @@ import {
 } from "@zaisma/core";
 import { AREA_LABELS, CHOICE_LABELS, LEVEL_LABELS, PASSKEY_TAP_FIELDS, ACCESS_CHOICES_SCRIPT, keyMakingState, keyScopeFromForm, passkeyTapFromForm, type PasskeyState } from "./account.ts";
 import { glassPane } from "./components/foundations.ts";
-import { row, stack, type LayoutItem } from "./components/layout.ts";
+import { row, stack, type LayoutItem, stackOfOne } from "./components/layout.ts";
 import { secondaryButton, primaryButton, textLink } from "./components/actions.ts";
 import { checkField, choiceCards, selectField } from "./components/inputs.ts";
 import { connectionAddressOf, currentSession } from "./auth.ts";
@@ -379,7 +379,7 @@ async function connectPage(env: Env, checked: Allowed, account: Account, error?:
     body: html`${glassPane({
       paneWidth: "fit",
       label: `Connect ${name}`,
-      body: html`${stack({
+      body: stackOfOne(html`${stack({
         items: [
           { kind: "words", markup: html`<h1>Connect ${name} to your games</h1>` },
           { kind: "words", markup: html`<p>as ${account.username}</p>` },
@@ -401,7 +401,7 @@ ${stack({
           },
           { kind: "words", markup: html`<p>You can remove it any time from ${textLink("your account", "/account#developer")}, with your API keys.</p>` },
         ],
-      })}${scriptTags(PASSKEY_SCRIPT, ACCESS_CHOICES_SCRIPT, CONNECT_APP_SCRIPT)}`,
+      })}${scriptTags(PASSKEY_SCRIPT, ACCESS_CHOICES_SCRIPT, CONNECT_APP_SCRIPT)}`),
     })}${confirmItsYouSheet({ id: "connect-confirm" })}`,
   });
 }

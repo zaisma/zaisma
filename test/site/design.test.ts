@@ -2,7 +2,8 @@ import { env, SELF } from "cloudflare:test";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { createAccount, createGame, personOwner } from "@zaisma/core";
 import "../../apps/site/src/index.ts";
-import { COMPONENTS, COMPONENT_STYLES } from "../../apps/site/src/components/index.ts";
+import { COMPONENTS, COMPONENT_STYLES, hoverOnlyWherePointing } from "../../apps/site/src/components/index.ts";
+import { MATERIAL_STYLES } from "../../apps/site/src/components/materials.ts";
 import { COMPONENT_GROUPS, GALLERY_PLACES, component, galleryPagePath } from "../../apps/site/src/components/component.ts";
 import { GALLERY_STYLES } from "../../apps/site/src/design-page.ts";
 import * as actions from "../../apps/site/src/components/actions.ts";
@@ -22,6 +23,7 @@ import { SHADER_HEAD, SHADER_LIMITS, SHADER_UPSCALE_SOURCE } from "@zaisma/core"
 import { html } from "../../apps/site/src/html.ts";
 import { raw } from "../../apps/site/src/markup.ts";
 import foundationsSource from "../../apps/site/src/components/foundations.ts?raw";
+import materialsSource from "../../apps/site/src/components/materials.ts?raw";
 import tokensSource from "../../apps/site/src/components/tokens.ts?raw";
 import iconsSource from "../../apps/site/src/components/icons.ts?raw";
 import glassScriptSource from "../../apps/site/src/components/glass-script.ts?raw";
@@ -52,12 +54,20 @@ import galleryPageSource from "../../apps/site/src/design-page.ts?raw";
 
 /** The gallery's own source, to check it draws nothing by hand. */
 const SOURCES: Record<string, string> = {
-  "components/foundations.ts": foundationsSource, "components/tokens.ts": tokensSource, "components/icons.ts": iconsSource, "components/glass-script.ts": glassScriptSource, 
+  "components/foundations.ts": foundationsSource, "components/materials.ts": materialsSource, "components/tokens.ts": tokensSource, "components/icons.ts": iconsSource, "components/glass-script.ts": glassScriptSource, 
   "components/backdrop-script.ts": backdropScriptSource, "components/actions.ts": actionsSource, "components/fields.ts": fieldsSource, "components/switch.ts": switchSource, "components/light-box.ts": lightBoxSource, "components/qr-code.ts": qrCodeSource, "components/choices.ts": choicesSource, "components/example-pane.ts": examplePaneSource, "components/inputs.ts": inputsSource, "components/navigation.ts": navigationSource, "components/panes.ts": panesSource, "components/confirm-its-you.ts": confirmItsYouSource, "components/stripe-frame.ts": stripeFrameSource, "components/data.ts": dataSource,
   "components/layout.ts": layoutSource, "components/layout-gallery.ts": layoutGallerySource, "components/control-markup.ts": controlMarkupSource, "components/city.ts": citySource, "components/screens.ts": screensSource, "components/playing.ts": playingSource, "components/layers.ts": layersSource,
   "components/reading.ts": readingSource, "components/people.ts": peopleSource,
   "design-page.ts": galleryPageSource,
 };
+
+/** A rule's selectors, split at its own commas, never at those inside :is(), :not() or :has(). */
+const splitSelectors = (selectors: string) => selectors.split(/,(?![^(]*\))/).map((each) => each.trim());
+/** A selector's subject: its last compound, never cut inside :is(), :not() or :has(). */
+const subjectOf = (selector: string) => selector.split(/[\s>+~]+(?![^(]*\))/).pop() ?? "";
+
+/** Every rule the materials define (materials.ts): their looks, room and type are theirs by definition, so the checks on a component's own skip them. */
+const MATERIAL_SELECTORS = new Set([...MATERIAL_STYLES.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map(([, selectors = ""]) => selectors.replace(/\/\*[\s\S]*?\*\//g, "").trim().split("\n").pop()!.trim()));
 
 /** Every file in components/, so a new one can't be left out of SOURCES (Vite lists them as it builds the test). */
 declare global {
@@ -125,6 +135,8 @@ describe("the gallery", () => {
   });
 
   it("shows every component, by name, with its examples, on its subgroup's page", async () => {
+    // A component with nothing of its own to draw, shown by its words alone: a Stripe frame is an empty window Stripe draws in.
+    const NOTHING_TO_SHOW = new Set(["stripe-frame"]);
     for (const each of COMPONENTS()) {
       const { response, text } = await page(galleryPagePath(each.group, each.subgroup));
       expect(response.status, each.group).toBe(200);
@@ -133,15 +145,18 @@ describe("the gallery", () => {
       const next = text.indexOf('<div class="component-section"', at + 1);
       const section = text.slice(at, next === -1 ? undefined : next);
       expect(section, each.slug).toContain(each.name.replace(/'/g, "&#39;"));
-      expect(section.split('<figure class="example').length - 1, each.slug).toBeGreaterThanOrEqual(1);
+      if (!NOTHING_TO_SHOW.has(each.slug)) expect(section.split('<figure class="example').length - 1, each.slug).toBeGreaterThanOrEqual(1);
     }
   });
 
   it("has a component for every markup function the pages can call, so nothing ships outside it", () => {
     const renders = COMPONENTS().map((each) => each.render);
+    // A component's second way in, for one of its variants, with the component it belongs to: its examples show it.
+    const VARIANTS: Record<string, string> = { tagsInUse: "tag", sidebarButton: "sidebar", stackOfOne: "stack" };
+    for (const slug of Object.values(VARIANTS)) expect(COMPONENTS().some((each) => each.slug === slug), slug).toBe(true);
     const problems = Object.entries({ actions, inputs, navigation, panes, data, layout: layoutComponents }).flatMap(([file, exports]) =>
       Object.entries(exports)
-        .filter(([, value]) => typeof value === "function")
+        .filter(([name, value]) => typeof value === "function" && !/^class\b/.test(String(value)) && !VARIANTS[name])
         .filter(([, value]) => renders.filter((render) => render === value).length !== 1)
         .map(([name]) => `${file}.ts: ${name} isn't the render of exactly one component`),
     );
@@ -150,7 +165,7 @@ describe("the gallery", () => {
 
   it("puts every component's styles in the pages' styles", () => {
     const styles = COMPONENT_STYLES();
-    for (const each of COMPONENTS()) expect(styles, each.slug).toContain(each.styles);
+    for (const each of COMPONENTS()) expect(styles, each.slug).toContain(hoverOnlyWherePointing(each.styles));
   });
 
   it("gives every component a slug of its own", () => {
@@ -169,8 +184,8 @@ describe("the gallery", () => {
     const problems: string[] = [];
     for (const [, selectors = "", declarations = ""] of (COMPONENT_STYLES() + GALLERY_STYLES).matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
       if (!MOVES.test(declarations)) continue;
-      for (const selector of selectors.split(",").map((each) => each.trim())) {
-        const subject = selector.split(/[\s>+~]+/).pop() ?? "";
+      for (const selector of splitSelectors(selectors)) {
+        const subject = subjectOf(selector);
         if (POINTER_STATE.test(subject) && !/::(before|after)/.test(subject)) problems.push(selector);
       }
     }
@@ -182,7 +197,8 @@ describe("the gallery", () => {
     // --glass-layer, never its own blur, tint or light, so every piece of glass looks and changes alike.
     const problems: string[] = [];
     for (const [, selectors = "", declarations = ""] of (COMPONENT_STYLES() + GALLERY_STYLES).matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
-      const isTheGlass = selectors.trim().replace(/^\/\*[\s\S]*?\*\/\s*/g, "") === ".glass";
+      // The glass itself: its slab, the layer it paints its tint and blur on, and pinned glass, which blurs its own box.
+      const isTheGlass = /^\.glass(::before|\.pinned)?$/.test(selectors.replace(/\/\*[\s\S]*?\*\//g, "").trim());
       const blur = /(?:^|[;\s])backdrop-filter:\s*([^;}]+)/.exec(declarations)?.[1]?.trim();
       if (blur && blur !== "none" && !isTheGlass) problems.push(`${selectors.trim()}: its own blur`);
       if (/(?:^|[;\s])background(?:-color|-image)?:[^;]*var\(--glass-/.test(declarations) && !isTheGlass) problems.push(`${selectors.trim()}: paints with the glass's tokens`);
@@ -198,7 +214,11 @@ describe("the gallery", () => {
     for (const [, selectors = "", declarations = ""] of (COMPONENT_STYLES() + GALLERY_STYLES).matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
       const clip = /(?:^|[;\s])clip-path:\s*([^;}]+)/.exec(declarations)?.[1]?.trim();
       if (!clip || clip === "var(--cut-shape)" || clip === "none" || clip === "inset(50%)") continue;
+      // Glass cut by its own corners (--glass-clip, the pane cut tokens the edge rule fits everything in it to).
+      if (/^var\(--glass-clip\b/.test(clip)) continue;
       const selector = selectors.replace(/\/\*[\s\S]*?\*\//g, "").trim().split("\n").pop()!.trim();
+      // A frame of an animation: the loader drawing Zaisma's mark stroke by stroke.
+      if (/^(from|to|\d+(\.\d+)?%)$/.test(selector)) continue;
       if (!HAND_CUT.has(selector)) problems.push(`${selector}: clip-path: ${clip}`);
     }
     for (const each of COMPONENTS()) for (const example of each.examples) if (/data-cut-corners/.test(example.markup.html)) problems.push(`${each.slug}, ${example.label}: corners of its own`);
@@ -231,9 +251,9 @@ describe("the gallery", () => {
     const problems: string[] = [];
     for (const [, selectors = "", declarations = ""] of (COMPONENT_STYLES() + GALLERY_STYLES).matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
       const transition = /(?:^|[;\s])transition:\s*([^;}]+)/.exec(declarations)?.[1]?.trim();
-      if (!transition || transition.startsWith("var(--glass-transition)")) continue;
-      for (const selector of selectors.replace(/\/\*[\s\S]*?\*\//g, "").split(",").map((each) => each.trim())) {
-        const subject = selector.split(/[\s>+~]+/).pop() ?? "";
+      if (!transition || transition === "none" || transition.startsWith("var(--glass-transition)")) continue;
+      for (const selector of splitSelectors(selectors.replace(/\/\*[\s\S]*?\*\//g, ""))) {
+        const subject = subjectOf(selector);
         if (/::/.test(subject)) continue;
         const classes = [...subject.matchAll(/\.([a-z][a-z0-9-]*)/g)].map((match) => match[1] ?? "");
         if (classes.includes("glass") || classes.some((each) => glassClasses.has(each))) problems.push(`${selector}: transition: ${transition}`);
@@ -253,7 +273,9 @@ describe("the gallery", () => {
       }
     };
     for (const [, selectors = "", declarations = ""] of (COMPONENT_STYLES() + GALLERY_STYLES).matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
-      checkDeclarations(selectors.replace(/\/\*[\s\S]*?\*\//g, "").trim(), declarations);
+      const where = selectors.replace(/\/\*[\s\S]*?\*\//g, "").trim();
+      // A material's room is its own (materials.ts, materials.test.ts holds the rest).
+      if (!MATERIAL_SELECTORS.has(where.split("\n").pop()!.trim())) checkDeclarations(where, declarations);
     }
     for (const { group, subgroup } of GALLERY_PLACES()) {
       for (const [, style = ""] of (await page(galleryPagePath(group, subgroup))).text.matchAll(/style="([^"]*)"/g)) checkDeclarations(`${group}, style="${style}"`, style);
@@ -272,7 +294,9 @@ describe("the gallery", () => {
       }
     };
     for (const [, selectors = "", declarations = ""] of (COMPONENT_STYLES() + GALLERY_STYLES).matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
-      checkDeclarations(selectors.replace(/\/\*[\s\S]*?\*\//g, "").trim().split("\n").pop()!.trim(), declarations);
+      const where = selectors.replace(/\/\*[\s\S]*?\*\//g, "").trim().split("\n").pop()!.trim();
+      // A material's words are a control's inside, set by its size (materials.ts).
+      if (!MATERIAL_SELECTORS.has(where)) checkDeclarations(where, declarations);
     }
     for (const { group, subgroup } of GALLERY_PLACES()) {
       for (const [, style = ""] of (await page(galleryPagePath(group, subgroup))).text.matchAll(/style="([^"]*)"/g)) checkDeclarations(`${group}, style="${style}"`, style);
@@ -288,8 +312,8 @@ describe("the gallery", () => {
       const selector = selectors.replace(/\/\*[\s\S]*?\*\//g, "").trim().split("\n").pop()!.trim();
       const decoration = /(?:^|[;\s])text-decoration(?:-line)?:\s*([^;}]+)/.exec(declarations)?.[1]?.trim();
       if (decoration && decoration !== "none" && !/:focus|is-focused/.test(selector) && !selector.split(",").every((each) => /^\.link\b/.test(each.trim()))) problems.push(`${selector}: text-decoration: ${decoration}`);
-      for (const each of selector.split(",").map((one) => one.trim())) {
-        const subject = each.split(/[\s>+~]+/).pop() ?? "";
+      for (const each of splitSelectors(selector)) {
+        const subject = subjectOf(each);
         if (/^a(?=$|[:.[])/.test(subject) && !LINK_IN_CONTROL.has(each.replace(/:[a-z-]+(\([^)]*\))?/g, ""))) problems.push(`${each}: styles a link of its own`);
       }
     }
@@ -302,23 +326,24 @@ describe("the gallery", () => {
     const rules = [...(COMPONENT_STYLES() + GALLERY_STYLES).matchAll(/([^{}]+)\{([^{}]*)\}/g)].flatMap(([, selectors = "", declarations = ""]) => {
       const gap = /(?:^|[;\s])gap:\s*([^;}]+)/.exec(declarations)?.[1]?.trim();
       const isStack = /(?:^|[;\s])(display:\s*grid|flex-direction:\s*column)/.test(declarations);
-      return gap ? selectors.replace(/\/\*[\s\S]*?\*\//g, "").split(",").map((selector) => ({ subject: selector.trim().split(/[\s>+~]+/).pop() ?? "", gap, isStack })) : [];
+      return gap ? selectors.replace(/\/\*[\s\S]*?\*\//g, "").split(/,(?![^(]*\))/).map((selector) => ({ subject: subjectOf(selector.trim()), gap, isStack })) : [];
     });
     for (const { group, subgroup } of GALLERY_PLACES()) {
       for (const holder of elementTree((await page(galleryPagePath(group, subgroup))).text)) {
         const children = holder.children.filter((child) => child.tag !== "svg" && child.tag !== "template");
         // A control's own parts (a switch's tabs, the row arrows' two slabs, a dropdown's choices, a wheel field's wheels, a file drop's files)
         // are its inside, not controls beside each other.
-        if (holder.classes.includes("wheels") || holder.classes.includes("file-drop-list") || holder.classes.includes("shell") || holder.attributes.includes(" data-cut-line") || holder.attributes.includes(' role="menu"') || holder.classes.includes("dropdown-in") || holder.classes.includes("menu-choices") || holder.attributes.includes(' role="listbox"')) continue;
-        // What a well holds is its own inside (a compact choice list's cards, down its carving like a vertical switch's places).
-        if (holder.classes.includes("well-body")) continue;
+        if (holder.classes.includes("wheels") || holder.classes.includes("file-drop-list") || holder.classes.includes("shell") || holder.attributes.includes(" data-cut-line") || holder.attributes.includes(' role="menu"') || holder.classes.includes("dropdown-in") || holder.attributes.includes(' role="listbox"')) continue;
+        // What a well holds is its own inside (a compact choice list's cards, down its carving like a vertical switch's places), and a
+        // fold's row and what it opens to are one thing.
+        if (holder.classes.includes("well-body") || holder.tag === "details" || holder.children[0]?.classes.includes("list-row")) continue;
         if (children.length < 2 || !children.every((child) => child.classes.includes("shell") || child.attributes.includes(" data-cut-line"))) continue;
         const matching = rules.filter(({ subject }) => matchesSubject(holder, subject));
         const isStack = matching.some((rule) => rule.isStack) || /(^|;)\s*(display:\s*grid|flex-direction:\s*column)/.test(holder.style);
         const gaps = [...matching.map(({ gap }) => gap), ...(/(?:^|;)\s*gap:\s*([^;]+)/.exec(holder.style)?.slice(1) ?? [])];
-        // A row is a .control-row (foundations.ts), or choice cards while they fit side by side: a gap can't be negative, so its controls
-        // overlap by a margin of --gap-control-row-boxes (and choice cards stack --gap-control-stack apart once they can't).
-        if (!isStack && (holder.classes.includes("control-row") || holder.classes.includes("choice-cards"))) continue;
+        // Choice cards while they fit side by side: a gap can't be negative, so they overlap by a margin of --gap-control-row-boxes (and
+        // stack --gap-control-stack apart once they can't). A row of controls is row()'s, its cells holding them.
+        if (!isStack && holder.classes.includes("choice-cards")) continue;
         if (!isStack || gaps.length === 0 || gaps.some((gap) => gap !== "var(--gap-control-stack)")) problems.push(`${group}: <${holder.tag} class="${holder.classes.join(" ")}">: gap ${gaps.join(", ") || "not set"}`);
       }
     }
@@ -359,8 +384,8 @@ describe("the gallery", () => {
     const PLACING = /^(--[\w-]+|margin(-[a-z]+)?|position|top|right|bottom|left|inset|z-index|flex(-[a-z]+)?|order|align-self|justify-self|grid-(column|row)|width|max-width|min-width|height|max-height|min-height|display)$/;
     for (const { selector, declarations } of rules(GALLERY_STYLES)) {
       if (selector.startsWith("@")) continue;
-      for (const each of selector.split(",")) {
-        const subject = each.trim().split(/[\s>+~]+/).pop() ?? "";
+      for (const each of splitSelectors(selector)) {
+        const subject = subjectOf(each);
         const classes = [...subject.matchAll(/\.([\w-]+)/g)].map((match) => match[1]!);
         // The gallery's own element (a class only it styles) is the gallery's to style.
         if (!classes.length || classes.some((name) => GALLERY_ONLY.has(name)) || !classes.some((name) => styledBy(componentCss, name))) continue;
@@ -370,7 +395,8 @@ describe("the gallery", () => {
     for (const [file, source] of Object.entries(SOURCES)) {
       for (const line of source.split("\n")) {
         if (/<svg[\s>]/.test(line) && ![...OWN_SVG.keys()].some((name) => line.includes(name))) problems.push(`${file}: draws an svg of its own: ${line.trim().slice(0, 70)}`);
-        if (/class=\\?"shell/.test(line) && file !== "components/actions.ts") problems.push(`${file}: builds a button by hand: ${line.trim().slice(0, 70)}`);
+        // The account button is a component of its own (Navigation): the player's picture as a slab that opens their menu.
+        if (/class=\\?"shell/.test(line) && file !== "components/actions.ts" && !line.includes('class="shell me')) problems.push(`${file}: builds a button by hand: ${line.trim().slice(0, 70)}`);
         if (/<[a-z][^>]*\sdata-glass(?=[\s>])/.test(line) && ![...OWN_GLASS.keys()].some((name) => line.includes(name))) problems.push(`${file}: makes glass by hand: ${line.trim().slice(0, 70)}`);
       }
     }
@@ -410,23 +436,23 @@ describe("the gallery", () => {
   it("has a page for each subgroup, nested in the sidebar, and none for anything else", async () => {
     const open = (await page("/design")).text;
     // Only the page you're on is selected; its group is open, never selected itself.
-    expect(open).toContain('<button class="sidebar-place sidebar-group" type="button" aria-expanded="true"><span class="sidebar-words">Foundations</span>');
-    expect(open).toMatch(/<a class="sidebar-place cut-raised" href="\/design" aria-current="page" data-cut-line="8">/);
+    expect(open).toContain('<button class="sidebar-place sidebar-group flush-row compact quiet" type="button" data-cut-line="8" aria-expanded="true"><svg class="cut-line" aria-hidden="true"><polygon/></svg><span class="sidebar-words">Foundations</span>');
+    expect(open).toMatch(/<a class="sidebar-place flush-row compact quiet lights-start" href="\/design" data-cut-line="8" aria-current="page">/);
     expect(open.match(/aria-current="page"/g)?.length).toBe(2);
     expect(open).toContain("<title>Look · Foundations · Design · Zaisma</title>");
     const fields = await page("/design/inputs/fields");
     expect(fields.response.status).toBe(200);
-    expect(fields.text).toContain('<button class="sidebar-place sidebar-group" type="button" aria-expanded="true"><span class="sidebar-words">Inputs</span>');
-    expect(fields.text).toMatch(/<a class="sidebar-place cut-raised" href="\/design\/inputs\/fields" aria-current="page" data-cut-line="8">.*?<span class="sidebar-words">Fields<\/span>/);
+    expect(fields.text).toContain('<button class="sidebar-place sidebar-group flush-row compact quiet" type="button" data-cut-line="8" aria-expanded="true"><svg class="cut-line" aria-hidden="true"><polygon/></svg><span class="sidebar-words">Inputs</span>');
+    expect(fields.text).toMatch(/<a class="sidebar-place flush-row compact quiet lights-start" href="\/design\/inputs\/fields" data-cut-line="8" aria-current="page">.*?<span class="sidebar-words">Fields<\/span>/);
     expect(fields.text).toContain('<h1 class="group-name">Fields · Inputs</h1>');
     expect(fields.text).toContain('id="cut-field"');
     expect(fields.text).not.toContain('id="slider"');
     // Every group is a folder of its pages; only the one holding this page starts open.
-    expect(fields.text).toContain('<button class="sidebar-place sidebar-group" type="button" aria-expanded="false"><span class="sidebar-words">Actions</span>');
+    expect(fields.text).toContain('<button class="sidebar-place sidebar-group flush-row compact quiet" type="button" data-cut-line="8" aria-expanded="false"><svg class="cut-line" aria-hidden="true"><polygon/></svg><span class="sidebar-words">Actions</span>');
     expect(fields.text).toContain('href="/design/actions/words"');
     expect(fields.text).toMatch(/<button [^>]*data-sidebar-button[^>]*aria-controls="gallery-places" aria-expanded="true"/);
     expect((await page("/design/layout")).response.status).toBe(200);
-    for (const [path, location] of [["/design/inputs", "/design/inputs/fields"], ["/design/foundations", "/design"], ["/design/foundations/look", "/design"], ["/design/panes?theme=dark", "/design/panes/glass?theme=dark"]] as const) {
+    for (const [path, location] of [["/design/inputs", "/design/inputs/fields"], ["/design/foundations", "/design"], ["/design/foundations/look", "/design"], ["/design/panes?theme=dark", "/design/panes/materials?theme=dark"]] as const) {
       const response = await SELF.fetch(`${SITE}${path}`, { redirect: "manual" });
       expect(response.status, path).toBe(308);
       expect(response.headers.get("location"), path).toBe(location);
@@ -455,26 +481,27 @@ describe("components", () => {
     expect(inputs.cutField({ name: "password", label: "Password", type: "password", icon: "lock" }).html).toContain(actions.toggleButton("Show", { type: "button", isSmall: true, isPressed: false, controls: "field-password" }).html);
     const marked = inputs.cutField({ name: "username", label: "Username", type: "text", icon: "person", error: "Use letters only." }).html;
     expect(marked).toContain('aria-invalid="true" aria-describedby="field-username-error"');
-    expect(marked).toContain('<p class="field-error" id="field-username-error">Use letters only.</p>');
+    expect(marked).toContain('<p class="field-error words-margin" id="field-username-error">Use letters only.</p>');
   });
 
-  it("give a delete's confirm step the one red button and no runner", () => {
+  it("give a delete's confirm step a secondary button tinted red and no runner", () => {
     const markup = panes.confirmSheet({ id: "delete-ashen-crown", title: "Delete Ashen Crown?", action: "/dashboard/games/ashen-crown/delete", confirmLabel: "Delete Ashen Crown", text: "It's gone for good.", isDelete: true }).html;
     // The sheet is one form, posting the delete; its buttons sit at its foot.
-    expect(markup).toContain('<form class="sheet-in" method="post" action="/dashboard/games/ashen-crown/delete">');
+    expect(markup).toContain('<form class="sheet-in scrolls" method="post" action="/dashboard/games/ashen-crown/delete">');
     const confirmForm = markup.slice(markup.indexOf('<div class="pane-foot"'), markup.indexOf("</form>"));
-    expect(confirmForm).toMatch(/<span class="face danger cut-raised"/);
+    expect(confirmForm).toMatch(/class="[^"]*\bcut-btn\b[^"]*"[^>]*data-tint="red"/);
     expect(confirmForm).not.toMatch(/class="[^"]*\brun\b/);
     // Cancel closes the sheet without sending the delete.
     expect(confirmForm).toContain('formmethod="dialog" formnovalidate');
     // Any other confirm's action is the runner, never red.
-    expect(panes.confirmSheet({ id: "sign-out", title: "Sign out everywhere?", action: "/account/sign-out-everywhere", confirmLabel: "Sign out everywhere", text: "Every device is signed out." }).html).not.toContain("danger");
+    expect(panes.confirmSheet({ id: "sign-out", title: "Sign out everywhere?", action: "/account/sign-out-everywhere", confirmLabel: "Sign out everywhere", text: "Every device is signed out." }).html).not.toContain('data-tint="red"');
   });
 
-  it("make a toggle a checkbox that posts with its form, with no script", () => {
-    const markup = inputs.toggle({ name: "cloud_saves", label: "Cloud saves", isOn: true }).html;
-    expect(markup).toContain('<input class="toggle-input" type="checkbox" role="switch" id="toggle-cloud_saves" name="cloud_saves" value="on" checked>');
-    expect(inputs.toggle({ name: "cloud_saves", label: "Cloud saves", isOn: false }).html).not.toContain(" checked");
+  it("make a row's switch a checkbox that posts with its form, with no script, the whole row its label", () => {
+    const switchRow = (isOn: boolean) => data.listRows({ whenEmpty: html``, rows: [{ title: "Cloud saves", switch: { name: "cloud_saves", isOn } }] }).html;
+    expect(switchRow(true)).toContain('<input class="toggle-input" type="checkbox" role="switch" id="switch-cloud_saves" name="cloud_saves" value="on" checked>');
+    expect(switchRow(true)).toContain('<label class="list-row flush-row toggle" for="switch-cloud_saves"');
+    expect(switchRow(false)).not.toContain(" checked");
   });
 
   it("announce a problem notice as an alert and a done one as a status", () => {
@@ -483,13 +510,13 @@ describe("components", () => {
   });
 
   it("count a long field's characters only from 80% of its limit", () => {
-    expect(inputs.longField({ name: "patch_notes", label: "What's new", rowCount: 3, maximumCharacterCount: 100, text: "x".repeat(79) }).html).toContain('<p class="long-count" id="field-patch_notes-count" hidden>79 of 100</p>');
-    expect(inputs.longField({ name: "patch_notes", label: "What's new", rowCount: 3, maximumCharacterCount: 100, text: "x".repeat(80) }).html).toContain('<p class="long-count" id="field-patch_notes-count">80 of 100</p>');
+    expect(inputs.longField({ name: "patch_notes", label: "What's new", rowCount: 3, maximumCharacterCount: 100, text: "x".repeat(79) }).html).toContain('<p class="long-count words-margin" id="field-patch_notes-count" hidden>79 of 100</p>');
+    expect(inputs.longField({ name: "patch_notes", label: "What's new", rowCount: 3, maximumCharacterCount: 100, text: "x".repeat(80) }).html).toContain('<p class="long-count words-margin" id="field-patch_notes-count">80 of 100</p>');
   });
 
   it("head a table's columns for screen readers and line its numbers up on the right", () => {
     const markup = data.table({ whenEmpty: html`<p>No rows yet.</p>`, caption: "Versions", columns: [{ label: "Version" }, { label: "Files", isNumeric: true }], rows: [["Version 14", "312"]] }).html;
-    expect(markup).toContain('<p class="table-caption" id="table-versions-caption">Versions</p>');
+    expect(markup).toContain('<p class="table-caption words-margin" id="table-versions-caption">Versions</p>');
     expect(markup).toContain('aria-labelledby="table-versions-caption"');
     expect(markup).toContain('<th scope="col" class="glass">Version</th><th scope="col" class="glass num">Files</th>');
     expect(markup).toContain('<td>Version 14</td><td class="num">312</td>');
@@ -566,11 +593,11 @@ describe("components", () => {
   it("open the Developer and Forum tabs only on a developer page", () => {
     const account = { username: "emma_r", pictureMarkup: html`` };
     const onDashboard = navigation.header({ current: "developer", isOnDeveloperPage: true, account }).html;
-    expect(onDashboard).toContain('<a data-lights href="/dashboard" class="foldable" aria-current="page">Developer</a>');
-    expect(onDashboard).toContain('<a data-lights href="/forum" class="foldable">Forum</a>');
+    expect(onDashboard).toMatch(/<a class="flush-row quiet foldable" data-lights href="\/dashboard" aria-current="page">.*?Developer/);
+    expect(onDashboard).toMatch(/<a class="flush-row quiet foldable" data-lights href="\/forum">.*?Forum/);
     const atHome = navigation.header({ current: "home", isOnDeveloperPage: false, account }).html;
-    expect(atHome).toContain('<a data-lights href="/dashboard" class="foldable folded" tabindex="-1" aria-hidden="true">Developer</a>');
-    expect(atHome).toContain('<a data-lights href="/forum" class="foldable folded" tabindex="-1" aria-hidden="true">Forum</a>');
+    expect(atHome).toMatch(/<a class="flush-row quiet foldable folded" data-lights href="\/dashboard" tabindex="-1" aria-hidden="true">.*?Developer/);
+    expect(atHome).toMatch(/<a class="flush-row quiet foldable folded" data-lights href="\/forum" tabindex="-1" aria-hidden="true">.*?Forum/);
   });
 });
 
@@ -584,18 +611,15 @@ const HAND_CUT = new Set<string>([
   // A toggle's front surface: swept down from its slab's own cut (TOGGLE_SCRIPT reads the edge rule's shape), so it keeps the rule's corners.
   ".toggle-front",
   // The scroll rail's thumb and the labels its marks open.
-  ".rail-thumb", ".rail:hover .rail-thumb, .rail.dragging .rail-thumb", ".rail[data-rail=\"page\"] .rail-thumb",
-  ".rail[data-rail=\"page\"]:hover .rail-thumb, .rail[data-rail=\"page\"].dragging .rail-thumb", ".rail .rail-thumb",
-  ".rail-mark span", ".rail:hover .rail-mark span, .rail.dragging .rail-mark span",
-  ".rail.sideways .rail-mark span", ".rail.sideways:hover .rail-mark span, .rail.sideways.dragging .rail-mark span",
-  ".rail:not(.dragging) .rail-mark span", ".rail.sideways:not(.dragging) .rail-mark span", ".rail.sideways .rail-mark:not(.is-near) span",
-  // Tags and a cover's line: slanted at both ends, a mark on what it labels rather than a thing of its own.
-  ".tag", ".cover-bar",
+  ".rail-thumb", ".rail.sideways .rail-thumb",
+  // Tags: slanted at both ends, a mark on what it labels rather than a thing of its own.
+  ".tag",
   // The same line along a tertiary button's foot, along a list row's foot and across a step flow's top.
   ".tertiary-line", ".step-mark",
-  // The step line's two outer ends, cut by the pane's corners at the frame gap, worked out from the cut tokens (the edge rule's cut, by hand
-  // for a bar four pixels tall).
-  ".step-line > li:first-child .step-mark", ".step-line > li:last-child .step-mark", ".step-line > li:only-child .step-mark",
+  // A tray's step: its lip's light stops inside the sheet's rim, before its bevel.
+  ".tray-group > .glass.tray-head::after",
+  // The gallery's stand-in game screen, cut as a pane is.
+  ".game-stand-in",
   // A picture's presence marks: the green line along its foot and the playing tab, slanted like a tag.
   ".presence-line", ".presence-play",
 ]);
@@ -609,6 +633,8 @@ const GALLERY_ONLY = new Set<string>([
   // Frames an example is shown in: a header over a stand-in page that scrolls under it, a dropdown hanging from its button, a short box
   // for the rail, a cover at a card's width, and the two Spacing examples that mark a pane's own padding and gap.
   "header-frame", "tall", "is-fitted", "header-scroll", "stand-in-page", "stand-in-row", "dropdown-frame", "rail-box", "rail-side-box", "rail-example-part", "cover-sample",
+  // A menu's Try it, a backdrop that holds menus and banners side by side, a banner's frame on it, and a stand-in game screen behind a card.
+  "dropdown-try", "holds-menus", "banner-frame", "game-stand-in",
 ]);
 
 // The only svgs drawn in source, each with why: everything else is an icon from the set.
@@ -622,13 +648,14 @@ const OWN_SVG = new Map<string, string>([
   ["4527 3300", "Zaisma's flat mark (MARK_FLAT)"],
   ['class="cut-line"', "the edge rule's outline (CUT_LINE)"],
   ['class="edge"', "glass's drawn rim (EDGE)"],
-  ['<svg class="sheet-tab-outline"', "a sheet's tab row: what's behind its chosen tab, and that tab's shadow, drawn to the row"],
   ['<svg class="chart-drawing"', "a chart's own line or bars, drawn from its numbers"],
   ['<svg class="chart-drawing chart-area-drawing"', "the shade under a chart's line"],
   ['<svg class="ring-drawing"', "a ring chart's parts, drawn from its shares"],
   ['fill="#FFC107"', "Google's mark, as Google asks it to be shown"],
   ["const cardBrandImage = ", "the card brands' marks on a card row (Visa, Mastercard and the rest), as their owners draw them"],
   ['class="one-color"', "Discord's mark, as Discord asks it to be shown"],
+  ['class="pay-mark"', "Apple Pay's mark beside its words, as Apple draws it"],
+  ['data-shown-when="off"', "a toggle's two icons, each shown in its own state (the icon set's, marked)"],
   ["cursor.innerHTML", "the gallery's loops' own pointer"],
   ["data-glass-play", "the Glass foundation's demo window's resize grip"],
   ["const STAND_IN_GAME_ICON", "the gallery's stand-in game icon, a picture as a game's own icon would be"],
@@ -637,22 +664,24 @@ const OWN_SVG = new Map<string, string>([
 // The only places glass is made by hand, each with why: every other sheet is a Glass pane or a Tray.
 const OWN_GLASS = new Map<string, string>([
   ['class="glass glass-pane', "Glass pane itself"],
-  ['class="tray-group ', "Tray itself"],
+  ['class="glass tray-group ', "Tray itself"],
   ['class="glass cut-sample', "Cut shapes' own samples: a pane's, the header's and a menu's cut, on glass"],
   ['class="frame ${pictureSize} glass', "a picture's frame"],
   ['class="sheet glass', "a sheet"],
   ['class="floating-pane ', "a floating pane: a dropdown, a select field's list, a search's suggestions"],
   ['class="notice glass', "a notice"],
-  ['class="foot glass"', "the footer"],
+  ['class="foot glass glass-bar"', "the footer"],
   ['class="banner glass"', "a banner"],
-  ['class="top glass', "the header"],
+  ['class="top bar-layout glass', "the header"],
   ['class="playing-bar glass', "the bar beside a running game"],
   ['class="playing-card glass', "a card over a running game's corner"],
   ['class="gallery-bar glass', "the gallery's bar"],
-  ['class="sidebar glass"', "Sidebar itself"],
+  ['class="sidebar glass glass-pane compact pinned"', "Sidebar itself"],
+  ['const stillSidebar = ', "Sidebar's still copy on its gallery page"],
   ['class="sidebar-example-phone glass"', "Sidebar's still phone screen, the sheet over its page"],
   ['data-glass-play', "the Glass foundation's own demo: a window to drag over drifting shapes"],
   ["glassOpacityPct", "the Glass foundation's own demo: three strengths side by side"],
+  ["([name, thickness, use]) =>", "the Materials page's own demo: each thickness of glass side by side"],
   ['class="backdrop-frame"', "the Backdrop foundation's own demo"],
   ['class="backdrop-frame is-tall', "the Glass foundation's own demos of the light glass bends and the pointer's light"],
 ]);
@@ -672,14 +701,15 @@ const NOT_TYPE = new Set<string>([
   ".find-finish | font",
   "@font-face | font-family",
   // A control's inside: its words, set by each control's size.
-  ".run | font", ".run.big | font-size", ".run | font-size", ".cut-btn > .face | font", ".cut-btn.big > .face | font-size",
+  ".run.big | font-size", ".run | font-size",
   ".field input | font", '.find input[type="search"] | font', ".wheel-button | font",
   '.wheel [role="option"] | font', ".tab-switch > a, .tab-switch > button | font",
   ".tab-switch.small > a, .tab-switch.small > button | font-size", ".top .end .run | font-size",
   // A picture's initials, sized to the picture.
-  ".frame .av | font", ".frame.xs .av | font-size", ".frame.xs .av::first-letter | font-size",
-  ".picture-row-place + .picture-row-place .av | font-size", ".picture-row-place + .picture-row-place .av::first-letter | font-size",
-  ".danger | font", ".danger | font-size", ".field.long textarea | font", ".select-button | font",
+  ":is(.frame, .slab.holds-art) .av | font", ".frame.xs .av | font-size", ".frame.xs .av::first-letter | font-size",
+  // A PIN's one field, unseen over its marks: 16px, so a phone doesn't zoom in as it's typed in.
+  ".pin-input | font-size",
+  ".field.long textarea | font", ".select-button | font",
   // On a phone what's typed is 16px, the least that keeps a phone from zooming in.
   '.field input, .find input[type="search"], .find-finish, .wheel-button | font-size',
   // The +N at the back of a row of pictures, sized to the pictures.
@@ -691,8 +721,6 @@ const NOT_SPACING = new Set<string>([
   ".glass-pane.is-started-low | margin-top",
   // A pane on the city, on a phone: the city's room above it until CITY_SCRIPT measures how low it can start.
   ".city-page .city-pane | margin",
-  // A pane that scrolls: room for its rail beside what's in it.
-  ".glass-pane > .pane-in.own-scroll.shows-rail | padding-right", ".list-rows.is-capped.shows-rail | padding-right",
   // A table's cells: room round a cell's words, set by the table's size.
   ".data-table thead th | padding", ".data-table td, .data-table tbody th | padding", ".data-table.compact thead th | padding", ".data-table.compact td, .data-table.compact tbody th | padding",
   // A chart's last point: centered on its spot. A meter's track: its fill's inset, like a well's.
@@ -704,43 +732,33 @@ const NOT_SPACING = new Set<string>([
   // A masked link's words: room round them for their blur, taken back by a margin so they sit where they would.
   ".copy-field.is-masked:not(.is-code) .copy-field-text | padding", ".copy-field.is-masked:not(.is-code) .copy-field-text | margin",
   // A search's list: its head's words lined up with the field's, and a game's two lines, closer than any gap.
-  ".find-head | padding", ".find-game-words | gap",
+".find-game-words | gap",
   // A file on its way: room at its row's foot for the Groove along it.
   ".file-drop-row.is-sending | padding-bottom",
   // A color square's knob: centered on its point.
   ".color-knob | margin",
-  // A well's inside: its words and controls to its carving's edge, a control's inside.
-  ".well > .well-body | padding",
   // A QR code's tile: white round the code, so a camera finds its edge on any glass.
   ".qr-tile | padding",
   // A control's inside: its words and icon to its own edge, set by each control size.
-  ".tab-switch.vertical > a, .tab-switch.vertical > button | gap", ".tab-switch.vertical > a, .tab-switch.vertical > button | padding", ".run | padding", ".run | gap", ".run.big | padding", ".run.big | gap",
-  ".cut-btn > .face | gap", ".cut-btn > .face | padding", ".field input | padding",
-  '.find input[type="search"] | padding', ".wheel-button | gap",
-  ".wheel-button | padding", ".wheel-chev | margin-right",
+  ".tab-switch.vertical > a, .tab-switch.vertical > button | gap",".run | gap",".run.big | gap",
+  ".cut-btn > .face | gap",
+".wheel-button | gap",
+".wheel-chev | margin-right",
   ".logo | padding",
-  ".me | padding", ".top .end .run | padding", ".top .end .run | gap", ".tag | padding", ".tag.count | padding",
-  ".danger | padding", ".danger | gap", ".field.long textarea | padding", ".select-button | padding",
-  ".field.select.no-icon .select-button | padding-left", ".choice-card | padding", ".list-row | padding", ".select-option | gap", ".select-option | padding",
-  ".choice-well .choice-card | padding", ".well.choice-well > .well-body | padding", ".choice-well .choice-words | gap",
-  // A floating pane: its inset round its choices, and the choices' own gap, a control's parts; a select's list over its field lines its
+".top .end .run | gap", ".tag | padding", ".tag.count | padding",
+".select-option | gap",
+".choice-well .choice-words | gap",
   // picked choice up with the field's words, and its choices are a little shorter there.
-  ".floating-pane | padding", ".select-options | gap", ".floating-pane.placed-over.in-place | margin-top", ".select-list.placed-over .select-option | padding-block",
-  // A select's choice lines its words up with the field's, past the field's icon.
-  ".select-list.after-icon .select-option | padding-inline-start",
-  // Choice cards side by side slant toward each other as a row does, and go one under another (no overlap) once each can't have a card's width.
-  ".choice-cards > .choice-card:not(:last-child) | margin-inline-end",
+  ".floating-pane | padding", ".select-options | gap", ".floating-pane.placed-over.in-place | margin-top",
   // A control's own parts: a well's inset round its slab, the birthday's wheels, and a list of places, one control its slab glides along.
-  ".tab-switch | padding", ".tab-switch.small | padding", ".steps | padding", ".wheels | gap",
-  ".floating-pane.dropdown | gap", ".dropdown-in | gap", ".menu-choices | gap",
+".wheels | gap",
+  ".floating-pane.dropdown | gap", ".dropdown-in | gap",
   // Room to scroll, or for a scrollbar or a page's rail.
   ".wheel | padding", "html | scroll-padding-top", ".gallery-layout | padding-right",
-  ".well.scrolls-down > .well-body.own-scroll.shows-rail | padding-right", ".sheet-in.own-scroll.shows-rail | padding-right", ".sheet-body.own-scroll.shows-rail | padding-right",
-  ".floating-body.own-scroll.shows-rail | padding-right", ".sidebar-scroll.own-scroll.shows-rail | padding-right", ".field.long textarea.is-scrolling | padding-right",
-  // Where a small thing sits on what it marks: a rail's tick, a cover's line.
-  ".rail-mark | margin-top", ".rail.sideways .rail-mark | margin", ".cover-bar | margin-top",
+  // Where a small thing sits on what it marks: a rail's tick.
+  ".rail-mark | margin-top", ".rail.sideways .rail-mark | margin",
   // Lines a box's or a card's icon up with the first line of its words.
-  ".check-words | padding-top", ".choice-card > .ico | margin-top",
+".choice-card > .ico | margin-top",
   // Lines words beside controls up with the controls' center line: half the tallest control's height less a line's, above the first line and below the last.
   ".layout-row[data-control-height]:not(.is-wrapped) > .row-cell.is-words > :first-child | padding-top", ".layout-row[data-control-height]:not(.is-wrapped) > .row-cell.is-words > :last-child | padding-bottom",
   ".pane-head[data-control-height] > .pane-head-words > :first-child | padding-top",
@@ -753,6 +771,24 @@ const NOT_SPACING = new Set<string>([
   ".reading :not(pre) > code | padding",
   // A header example's stand-in page: room for the header over it, and to scroll the header compact.
   ".stand-in-page | padding", ".stand-in-page | padding-top",
+  // Choice cards side by side, overlapping by the row's slant, wrap one under another once each can't have a card's least width.
+  ".cards-row > :not(:last-child) | margin-inline-end",
+  // Google's G on smoked glass sits on its white disc, a little larger than it, as Google asks.
+  ".way-mark.way-google | padding", ".way-mark.way-google | margin",
+  // A search's list: its head's words lined up with the field's.
+  ".find-head | margin",
+  // A select's choice lines its words up with the field's, past the field's icon.
+  ".select-list.after-icon .select-option > span:first-of-type | margin-inline-start",
+  // Lines a box's words up with the first line of its words.
+  ".check-words | margin-top",
+  // A slider's thumb: centered on its groove, its reach a touch target's.
+  ".slider-thumb | margin-block",
+  // A menu's rule between groups: a hair's room either side, inside a control's own inset.
+  ".floating-pane.dropdown .divider | margin-block",
+  // Tags: a small carving's own room round its words, and its icon close beside them.
+  ".cover-mark.at-device .tag | padding-inline", ".tag.is-removable | gap", ".tag.is-removable | padding-inline",
+  // A notice's icon: centered on its first line of words, as far from its start as from its top.
+  ".notice > .ico | margin-block", ".notice > .ico | margin-inline-start",
 ]);
 
 interface Element { tag: string; classes: string[]; attributes: string; style: string; children: Element[] }
@@ -869,7 +905,7 @@ describe("pages", () => {
       "writes a <style> of its own",
       'style="width:390px" sets width:390px, which no component offers',
       ".game-note comes from no component",
-      ".control-row is a component's inside, not for a page",
+      ".control-row comes from no component",
     ]);
   });
 
@@ -966,7 +1002,8 @@ describe("page structure", () => {
   // Each rule a page's markup can't break unseen (page-rules.ts, pageStructureProblems): a page made to break it, named by the rule and
   // what breaks it, and the same page made right, which passes.
   const onPage = (body: string) => `<!doctype html><html><body><header class="top">${actions.primaryButton("Sign in").html}</header><main>${body}</main></body></html>`;
-  const paneOf = (body: string) => glassPane({ paneWidth: "full", body: html`${raw(body)}` }).html;
+  // A pane's body built by hand past the types, as a page could still forge one: these pages are the problems the structure check must catch.
+  const paneOf = (body: string) => glassPane({ paneWidth: "full", body: raw(body) as unknown as layoutComponents.LayoutMarkup }).html;
   const problemsOn = async (body: string) => pageStructureProblems(onPage(body));
 
   it("finds a second title and a heading that skips a level", async () => {
@@ -1005,7 +1042,7 @@ describe("page structure", () => {
   it("finds two runners in one state, leaving the header's Sign in and what a sheet holds out", async () => {
     const found = await problemsOn(paneOf(actions.primaryButton("Play").html + actions.primaryButton("Play again").html));
     expect(found, found.join("\n")).toEqual([expect.stringMatching(/^two runners in view: .*"Play again" beside .*"Play"$/)]);
-    expect(await problemsOn(paneOf(actions.primaryButton("Play").html) + panes.sheet({ id: "more", title: "More", body: actions.primaryButton("Buy"), closeLabel: "Close" }).html)).toEqual([]);
+    expect(await problemsOn(paneOf(actions.primaryButton("Play").html) + panes.sheet({ id: "more", title: "More", body: layoutComponents.stackOfOne(actions.primaryButton("Buy")), closeLabel: "Close" }).html)).toEqual([]);
   });
 
   // What these rules ask of the components' styles, which every page's look comes from (a page has no styles of its own).
@@ -1066,7 +1103,8 @@ describe("layout", () => {
 
   it("sets no words in px: type and controls grow with the browser's text size", () => {
     // A picture's initials are sized to the picture, which doesn't grow: the one font in px.
-    const IN_PX = new Set([".frame.xs .av::first-letter"]);
+    // A PIN's one field, unseen over its marks: 16px, the least that keeps a phone from zooming in as it's typed in.
+    const IN_PX = new Set([".frame.xs .av::first-letter", ".pin-input"]);
     const problems = [...COMPONENT_STYLES().matchAll(/([^{}]+)\{([^{}]*)\}/g)].flatMap(([, selectors = "", declarations = ""]) => {
       const selector = selectors.replace(/\/\*[\s\S]*?\*\//g, "").trim().split("\n").pop()!.trim();
       return [...declarations.matchAll(/(?:^|[;\s])(font(?:-size)?|--type-[a-z]+|--control-height-[a-z]+):\s*([^;}]+)/g)].filter(([, , value = ""]) => /\d(px)/.test(value) && !IN_PX.has(selector)).map(([, property, value]) => `${selector} | ${property}: ${value!.trim()}`);
@@ -1177,7 +1215,7 @@ describe("layout", () => {
   });
 
   it("gives a pane the whole width or what's in it, never a width of its own: one that should take half the screen is a column", () => {
-    expect(glassPane({ paneWidth: "fit", body: html`<p>Hi</p>` }).html).toContain('class="glass glass-pane fit"');
+    expect(glassPane({ paneWidth: "fit", body: layoutComponents.stackOfOne(html`<p>Hi</p>`, "words") }).html).toContain('class="glass glass-pane fit"');
     const paneWidths = [...COMPONENT_STYLES().matchAll(/\.glass-pane(?:\.[a-z-]+)*\s*\{[^}]*?\bwidth:\s*([^;]+);/g)].map((match) => match[1]!.trim());
     expect([...new Set(paneWidths)].sort()).toEqual(["100%", "fit-content"]);
     const halves = columns({ columns: [html`<p>A</p>`, html`<p>B</p>`] }).html;
@@ -1190,5 +1228,10 @@ describe("layout", () => {
     const MAKERS = ["components/actions.ts", "components/fields.ts", "components/choices.ts", "components/inputs.ts", "components/switch.ts", "components/navigation.ts", "components/control-markup.ts"];
     const makers = Object.entries(SOURCES).filter(([, source]) => /\bcontrolMarkup\(|new ControlMarkup\(/.test(source)).map(([file]) => file);
     expect(makers.filter((file) => !MAKERS.includes(file))).toEqual([]);
+  });
+
+  it("gives a pane's body only a layout's markup, made by the layouts alone, so every word in a pane keeps its margin", () => {
+    const makers = Object.entries(SOURCES).filter(([, source]) => /new LayoutMarkup\(|as (unknown as )?LayoutMarkup\b/.test(source)).map(([file]) => file);
+    expect(makers).toEqual(["components/layout.ts"]);
   });
 });

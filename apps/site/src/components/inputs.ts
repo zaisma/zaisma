@@ -1,3 +1,4 @@
+import { stack, stackOfOne } from "./layout.ts";
 import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
 import { CUT_LINE, floatingPane, glassPane, groove, icon, well } from "./foundations.ts";
@@ -40,7 +41,7 @@ export function slider(options: SliderOptions): Raw {
   const id = options.id ?? `slider-${options.name}`;
   const filledPct = (100 * (options.pickedNumber - options.minimumNumber)) / Math.max(1e-9, options.maximumNumber - options.minimumNumber);
   const className = ["slider", options.state ?? "", options.isDisabled ? "is-disabled" : ""].filter(Boolean).join(" ");
-  return html`<div class="${className}" style="--fill:${(Math.max(0, Math.min(100, filledPct)) / 100).toFixed(4)}"><div class="slider-head"><label for="${id}">${options.label}</label><output for="${id}" data-unit="${options.unit}">${numberWords(options.pickedNumber, options.unit)}</output></div><div class="slider-track">${groove({ kind: "slider-groove", filledPct })}<input class="slider-input" type="range" id="${id}" name="${options.name}" min="${options.minimumNumber}" max="${options.maximumNumber}" step="${options.stepNumber}" value="${options.pickedNumber}"${options.isDisabled ? raw(" disabled") : ""} data-slider><span class="slider-thumb" aria-hidden="true"><span class="slider-slab cut-raised" data-cut-line="6">${CUT_LINE}</span></span></div></div>`;
+  return html`<div class="${className}" style="--fill:${(Math.max(0, Math.min(100, filledPct)) / 100).toFixed(4)}"><div class="slider-head"><label class="words-margin at-start" for="${id}">${options.label}</label><output class="words-margin at-end" for="${id}" data-unit="${options.unit}">${numberWords(options.pickedNumber, options.unit)}</output></div><div class="slider-track">${groove({ kind: "slider-groove", filledPct })}<input class="slider-input" type="range" id="${id}" name="${options.name}" min="${options.minimumNumber}" max="${options.maximumNumber}" step="${options.stepNumber}" value="${options.pickedNumber}"${options.isDisabled ? raw(" disabled") : ""} data-slider><span class="slider-thumb thumb" aria-hidden="true"><span class="slider-slab thumb-slab cut-raised" data-cut-line="6">${CUT_LINE}</span></span></div></div>`;
 }
 
 /** A slider's fill and number follow its thumb. */
@@ -69,10 +70,10 @@ component({
    sits at the start and its number at the end, apart, so they never read as one phrase. */
 .slider { --thumb: 22px; display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--gap-words-control); }
 .slider-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--gap-words-words); }
-.slider-head > label { padding-inline-start: var(--pad-words); font: var(--type-label); color: var(--ink-2); }
-.slider-head > output { padding-inline-end: var(--pad-words); font: var(--type-label); color: var(--ink); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.slider-head > label { font: var(--type-label); color: var(--ink-2); }
+.slider-head > output { font: var(--type-label); color: var(--ink); white-space: nowrap; font-variant-numeric: tabular-nums; }
 /* It fills a pane's width; in a pane that fits what's in it, its track is a card's width (--size-card), or what room there is. */
-.slider-track { position: relative; height: var(--thumb); width: var(--size-card); min-width: 100%; max-width: 100%; }
+.slider-track { position: relative; width: var(--size-card); min-width: 100%; max-width: 100%; }
 /* Its line is a Groove, from under the thumb's middle at one end to under it at the other, filled with orange light to the thumb's middle,
    following it as it's dragged (with no lag). */
 .slider-track > .slider-groove { position: absolute; top: calc(50% - 4px); left: calc(var(--thumb) / 2 - 4px); right: calc(var(--thumb) / 2 - 4px); pointer-events: none;
@@ -81,26 +82,21 @@ component({
 .slider-input { position: absolute; inset: 0; z-index: 3; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; -webkit-appearance: none; appearance: none; }
 /* On a phone the track takes a whole control's height (--control-height-regular) to touch, centered on it. */
 /* On a touch screen the track is a finger's height, the thumb and groove in its middle, so the whole of what takes a finger is in the pane. */
-@media (pointer: coarse) { .slider-track { height: max(var(--thumb), var(--touch-target)); } }
+@media (pointer: coarse) { .slider-thumb { margin-block: max(0px, (var(--touch-target) - var(--thumb)) / 2); } }
 .slider-input::-webkit-slider-thumb { -webkit-appearance: none; width: var(--thumb); height: var(--thumb); }
 .slider-input::-moz-range-thumb { width: var(--thumb); height: var(--thumb); border: 0; }
 /* Its thumb is the toggle's slab (the --thumb tokens): white and lit from above on either glass, its shadow cast onto the glass under it by
    its holder, so the shadow follows the slab's cut. Pointed, it lifts a touch; pressed, it's pushed down in place, never smaller, its shadow
    drawn in close and its face shaded from above. */
-.slider-thumb { position: absolute; z-index: 2; top: calc(50% - var(--thumb) / 2); left: calc((100% - var(--thumb)) * var(--fill)); width: var(--thumb); height: var(--thumb); pointer-events: none;
-  filter: var(--thumb-cast); transition: filter 0.2s; }
-.slider-slab { position: relative; display: block; width: 100%; height: 100%; background: var(--thumb-face); clip-path: var(--cut-shape); transition: box-shadow 0.12s; }
-.slider-slab::after { content: ""; position: absolute; inset: 0; background: var(--thumb-press-face); opacity: 0; transition: opacity 0.12s; }
+/* The thumb (materials.ts) sits in the track's flow, so the track is as tall as it; it's moved along by its offset. */
+.slider-thumb { position: relative; z-index: 2; display: block; left: calc((100% - var(--thumb)) * var(--fill)); pointer-events: none; }
 .slider:not(.is-disabled):hover .slider-thumb, .slider.is-pointed .slider-thumb { filter: var(--thumb-cast-pointed); }
-.slider-input:active + .slider-thumb, .slider.is-pressed .slider-thumb { filter: var(--thumb-cast-pressed); transition-duration: 0.08s; }
-.slider-input:active + .slider-thumb > .slider-slab, .slider.is-pressed .slider-slab { box-shadow: var(--thumb-press-shade); }
-.slider-input:active + .slider-thumb > .slider-slab::after, .slider.is-pressed .slider-slab::after { opacity: 1; transition-duration: 0.08s; }
 /* Can't be changed now: the thumb rests flat, the number goes quieter, and no orange, since there's nothing to do: the fill is grey. */
 .slider.is-disabled .slider-input { cursor: default; }
 .slider.is-disabled .slider-head > output { color: var(--muted); }
 .slider.is-disabled .groove-fill { filter: none; }
-.slider.is-disabled .groove-light { background: var(--muted); }
-.slider.is-disabled .groove::before { background: var(--off-face); box-shadow: none; }
+.slider.is-disabled .groove-light { --light: var(--muted); --light-hi: var(--muted); }
+.slider.is-disabled .groove { --face-color: var(--off-face); box-shadow: none; }
 /* Its thumb stays the slab it always is, as a toggle's does: the grey line and quiet number say it can't be moved. */
 .slider.is-disabled .slider-slab > .cut-line polygon { stroke: var(--line); }
 .slider-input:focus-visible + .slider-thumb > .slider-slab > .cut-line polygon, .slider.is-focused .slider-slab > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
@@ -110,7 +106,7 @@ component({
     { label: "Rest", markup: examplePane(slider({ id: "example-slider-rest", name: "room_player_count", label: "Players in a room", minimumNumber: 2, maximumNumber: 100, stepNumber: 1, pickedNumber: 16, unit: "players" })) },
     { label: "Pressed", markup: examplePane(slider({ id: "example-slider-pressed", name: "room_player_count", label: "Players in a room", minimumNumber: 2, maximumNumber: 100, stepNumber: 1, pickedNumber: 64, unit: "players", state: "is-pressed" })), isStill: true },
     { label: "Keyboard focus", markup: examplePane(slider({ id: "example-slider-focus", name: "music_volume", label: "Music", minimumNumber: 0, maximumNumber: 100, stepNumber: 5, pickedNumber: 40, unit: "%", state: "is-focused" })), isStill: true },
-    { label: "At its ends", markup: examplePane(html`${slider({ id: "example-slider-least", name: "music_volume", label: "Music", minimumNumber: 0, maximumNumber: 100, stepNumber: 5, pickedNumber: 0, unit: "%" })}${slider({ id: "example-slider-most", name: "effects_volume", label: "Effects", minimumNumber: 0, maximumNumber: 100, stepNumber: 5, pickedNumber: 100, unit: "%" })}`) },
+    { label: "At its ends", markup: examplePane(stack({ items: [{ kind: "block", markup: slider({ id: "example-slider-least", name: "music_volume", label: "Music", minimumNumber: 0, maximumNumber: 100, stepNumber: 5, pickedNumber: 0, unit: "%" }) }, { kind: "block", markup: slider({ id: "example-slider-most", name: "effects_volume", label: "Effects", minimumNumber: 0, maximumNumber: 100, stepNumber: 5, pickedNumber: 100, unit: "%" }) }] })) },
     { label: "Big numbers", markup: examplePane(slider({ id: "example-slider-big", name: "world_player_count", label: "Players in a world", minimumNumber: 100, maximumNumber: 10000, stepNumber: 100, pickedNumber: 2400, unit: "players" })) },
     { label: "Can't be changed", markup: examplePane(slider({ id: "example-slider-disabled", name: "room_player_count_locked", label: "Players in a room", minimumNumber: 2, maximumNumber: 100, stepNumber: 1, pickedNumber: 32, unit: "players", isDisabled: true })) },
   ],
@@ -172,7 +168,7 @@ const fileRow = (file: FileDropFile, dropId: string): Raw => {
   const sending = isUploading
     ? html`<span class="file-drop-sending" role="progressbar" aria-label="Sending ${file.fileName}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${String(sentPct)}" aria-valuetext="${sent}">${groove({ filledPct: sentPct, isWorking: true })}</span>`
     : "";
-  return html`<li class="file-drop-row cut-carved${isUploading ? " is-sending" : ""}" data-cut-line="8">${CUT_LINE}<button type="button" class="file-drop-preview cut-carved" data-cut-line="4" aria-controls="${dropId}-view" aria-label="View ${file.fileName}"${file.previewUrl ? html` style="--picture:url('${file.previewUrl}')" data-picture="${file.previewUrl}"` : raw(" disabled")}>${CUT_LINE}${file.previewUrl ? html`<span class="file-drop-zoom">${icon("search")}</span>` : icon("save")}</button><span class="file-drop-about">${about}</span><span class="file-drop-remove">${tertiaryButton(`Remove ${file.fileName}`, { type: "button", icon: "close", isLabelHidden: true, isSmall: true })}</span>${sending}</li>`;
+  return html`<li class="file-drop-row carving carving-parts${isUploading ? " is-sending" : ""}" data-cut-line="8">${CUT_LINE}<button type="button" class="file-drop-preview cut-carved" data-cut-line="4" aria-controls="${dropId}-view" aria-label="View ${file.fileName}"${file.previewUrl ? html` style="--picture:url('${file.previewUrl}')" data-picture="${file.previewUrl}"` : raw(" disabled")}>${CUT_LINE}${file.previewUrl ? html`<span class="file-drop-zoom">${icon("search")}</span>` : icon("save")}</button><span class="file-drop-about">${about}</span><span class="file-drop-remove">${tertiaryButton(`Remove ${file.fileName}`, { type: "button", icon: "close", isLabelHidden: true, isSmall: true })}</span>${sending}</li>`;
 };
 
 /**
@@ -184,7 +180,7 @@ const fileRow = (file: FileDropFile, dropId: string): Raw => {
 export function fileDrop(options: FileDropOptions): Raw {
   const id = options.id ?? `drop-${options.name}`;
   const files = options.pickedFiles ?? [];
-  const className = ["file-drop", "cut-carved", options.state === "over" ? "is-over" : "", options.error ? "is-marked" : "", options.isDisabled ? "is-disabled" : ""].filter(Boolean).join(" ");
+  const className = ["file-drop", "carving", "is-used", "drop-zone", options.state === "over" ? "is-over" : "", options.error ? "is-marked" : "", options.isDisabled ? "is-disabled" : ""].filter(Boolean).join(" ");
   return html`<div class="file-drop-wrap" data-file-drop${options.maximumByteCount ? html` data-most-bytes="${options.maximumByteCount}"` : ""}><div class="${className}" data-cut-line="10">${CUT_LINE}<input class="file-drop-input" type="file" id="${id}" name="${options.name}" accept="${options.accept}"${options.isMultiple ? raw(" multiple") : ""} aria-describedby="${id}-hint${options.error ? ` ${id}-error` : ""}"${options.error ? raw(' aria-invalid="true"') : ""}${options.isDisabled ? raw(" disabled") : ""}>${icon("upload")}<span class="file-drop-words"><label for="${id}">${options.label}</label><span id="${id}-hint">${options.hint}</span></span></div><p class="field-error" id="${id}-error"${options.error ? "" : raw(" hidden")}>${options.error ?? ""}</p><ul class="file-drop-list" aria-live="polite"${files.length ? "" : raw(" hidden")}>${files.map((file) => fileRow(file, id))}</ul><template class="file-drop-zoom-template"><span class="file-drop-zoom">${icon("search")}</span></template><template class="file-drop-row-template">${fileRow({ fileName: "", byteCount: 0 }, id)}</template>${lightBox({ id: `${id}-view`, label: "A picked picture, large", closeLabel: "Close", body: html`<img class="file-drop-view" alt="">` })}</div>`;
 }
 
@@ -282,12 +278,9 @@ component({
    turns the dashes orange, and keyboard focus draws the outline whole, in orange. The file input lies across all of it, unseen. */
 /* One column that never grows past what holds it, so a long file name wraps instead of widening the drop. */
 .file-drop-wrap { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--gap-words-control); }
-.file-drop { position: relative; overflow: hidden; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--gap-words-control); min-height: 168px;
-  padding: var(--pad-pane); text-align: center; color: var(--muted); --face-color: var(--field-face); background: var(--face-color); box-shadow: var(--field-shade);
-  clip-path: var(--cut-shape); transition: --face-color 0.25s; }
-.file-drop:not(.is-disabled):hover { --face-color: var(--field-hover); }
-.file-drop.is-over { --face-color: var(--field-focus); color: var(--ink); }
-.file-drop > .ico { width: 28px; height: 28px; transition: transform 0.3s var(--spring); }
+.file-drop { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--gap-words-control); text-align: center; color: var(--muted); }
+.file-drop.is-over { --face-color: var(--carving-face-focus); color: var(--ink); }
+.file-drop > .ico { width: 28px; height: 28px; transition: transform var(--motion-arrive) var(--spring); }
 .file-drop.is-over > .ico { transform: translateY(-3px); }
 .file-drop-input { position: absolute; inset: 0; z-index: 5; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
 .file-drop-words { display: grid; gap: var(--gap-words-words); text-wrap: pretty; }
@@ -308,7 +301,7 @@ component({
    one), its name whole (on more lines where it's long) and its size, and Remove at its end. While it uploads, it says how much has gone,
    and a Groove lies along its whole foot, a part's gap in from its edges, from one bottom corner to the other, cut with the row. */
 .file-drop-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--gap-control-row); }
-.file-drop-row { position: relative; display: flex; align-items: center; gap: var(--gap-words-control); padding: var(--gap-control-row); --face-color: var(--well); background: var(--face-color); clip-path: var(--cut-shape); --pad-words: 0px; }
+.file-drop-row { display: flex; align-items: center; gap: var(--gap-words-control); --pad-words: 0px; }
 /* The preview is carved into its row, its edges lit and shaded by the edge rule, its picture lying in it on a layer cut by the edge rule; the button itself is never clipped, so the pointer over it always shows its
    zoom-in magnifier (a browser can drop a clipped element's pointer). */
 .file-drop-preview { position: relative; flex: none; display: grid; place-items: center; width: 64px; aspect-ratio: 16 / 9; padding: 0; border: 0; color: var(--muted); background: none; cursor: zoom-in; }
@@ -319,7 +312,7 @@ component({
 @media (pointer: coarse) { .file-drop-preview { width: calc(var(--control-height-regular) * 16 / 9); } }
 /* A picture opens large: the pointer is the zoom-in magnifier over all of it, and a magnifier lights on it while it's pointed at or focused. */
 .file-drop-preview:not(:disabled) * { cursor: zoom-in; }
-.file-drop-zoom { display: grid; place-items: center; color: #fff; opacity: 0; filter: drop-shadow(0 1px 2px rgba(0,0,0,0.6)); transition: opacity 0.2s; pointer-events: none; }
+.file-drop-zoom { display: grid; place-items: center; color: var(--on-picture); opacity: 0; filter: var(--on-picture-shade); transition: opacity var(--motion-state); pointer-events: none; }
 .file-drop-zoom > .ico { width: 18px; height: 18px; stroke-width: 2.4; }
 .file-drop-preview:hover .file-drop-zoom, .file-drop-preview:focus-visible .file-drop-zoom { opacity: 1; }
 .file-drop-preview:focus-visible { outline: none; }
@@ -338,16 +331,16 @@ component({
 `,
   render: fileDrop,
   examples: [
-    { label: "Waiting for a file", isWide: true, markup: glassPane({ paneWidth: "full", body: fileDrop({ id: "example-drop-rest", name: "build", label: "Drop your game's folder as a .zip", accept: ".zip", hint: BUILD_HINT, maximumByteCount: 500_000_000 }) }) },
-    { label: "A file held over it", isWide: true, markup: glassPane({ paneWidth: "full", body: fileDrop({ id: "example-drop-over", name: "build", label: "Drop your game's folder as a .zip", accept: ".zip", hint: BUILD_HINT, state: "over" }) }) },
+    { label: "Waiting for a file", isWide: true, markup: glassPane({ paneWidth: "full", body: stackOfOne(fileDrop({ id: "example-drop-rest", name: "build", label: "Drop your game's folder as a .zip", accept: ".zip", hint: BUILD_HINT, maximumByteCount: 500_000_000 })) }) },
+    { label: "A file held over it", isWide: true, markup: glassPane({ paneWidth: "full", body: stackOfOne(fileDrop({ id: "example-drop-over", name: "build", label: "Drop your game's folder as a .zip", accept: ".zip", hint: BUILD_HINT, state: "over" })) }) },
     { label: "Several images", markup: examplePane(fileDrop({ id: "example-drop-images", name: "screenshots", label: "Add screenshots", accept: "image/png,image/jpeg,image/webp", isMultiple: true, hint: "PNG, JPEG or WebP, 16:9." })) },
     {
       label: "Picked: each with its picture, its size and Remove; one sent",
       markup: examplePane(fileDrop({ id: "example-drop-picked", name: "screenshots_picked", label: "Add screenshots", accept: "image/png,image/jpeg,image/webp", isMultiple: true, hint: "PNG, JPEG or WebP, 16:9.", pickedFiles: [{ fileName: "ashen-crown-iron-vigil-siege-at-dawn.webp", byteCount: 4_812_000, previewUrl: "/design/covers/kestrel.webp" }, { fileName: "boss-arena.webp", byteCount: 912_000, previewUrl: "/design/covers/verdant.webp" }, { fileName: "night-siege.webp", byteCount: 1_204_000, uploadedByteCount: 1_204_000, previewUrl: "/design/covers/hollow-tide.webp" }] })),
     },
-    { label: "Uploading", isWide: true, markup: glassPane({ paneWidth: "full", body: fileDrop({ id: "example-drop-uploading", name: "build_uploading", label: "Drop your game's folder as a .zip", accept: ".zip", hint: BUILD_HINT, pickedFiles: [{ fileName: "ashen-crown-1.4.2-the-long-night.zip", byteCount: 482_300_000, uploadedByteCount: 211_000_000 }] }) }) },
-    { label: "Too big: refused, in words", isWide: true, markup: glassPane({ paneWidth: "full", body: fileDrop({ id: "example-drop-error", name: "build_error", label: "Drop your game's folder as a .zip", accept: ".zip", hint: BUILD_HINT, maximumByteCount: 500_000_000, error: "ashen-crown-1.4.2-with-cinematics.zip is 1.12\u00a0GB; the most is 500\u00a0MB. The upload command takes bigger builds." }) }) },
-    { label: "Can't take files now", isWide: true, markup: glassPane({ paneWidth: "full", body: fileDrop({ id: "example-drop-disabled", name: "build_disabled", label: "Drop your game's folder as a .zip", accept: ".zip", hint: "You can send another once version 1.4.2 is checked, usually within a minute.", isDisabled: true }) }) },
+    { label: "Uploading", isWide: true, markup: glassPane({ paneWidth: "full", body: stackOfOne(fileDrop({ id: "example-drop-uploading", name: "build_uploading", label: "Drop your game's folder as a .zip", accept: ".zip", hint: BUILD_HINT, pickedFiles: [{ fileName: "ashen-crown-1.4.2-the-long-night.zip", byteCount: 482_300_000, uploadedByteCount: 211_000_000 }] })) }) },
+    { label: "Too big: refused, in words", isWide: true, markup: glassPane({ paneWidth: "full", body: stackOfOne(fileDrop({ id: "example-drop-error", name: "build_error", label: "Drop your game's folder as a .zip", accept: ".zip", hint: BUILD_HINT, maximumByteCount: 500_000_000, error: "ashen-crown-1.4.2-with-cinematics.zip is 1.12\u00a0GB; the most is 500\u00a0MB. The upload command takes bigger builds." })) }) },
+    { label: "Can't take files now", isWide: true, markup: glassPane({ paneWidth: "full", body: stackOfOne(fileDrop({ id: "example-drop-disabled", name: "build_disabled", label: "Drop your game's folder as a .zip", accept: ".zip", hint: "You can send another once version 1.4.2 is checked, usually within a minute.", isDisabled: true })) }) },
   ],
 });
 
@@ -386,15 +379,16 @@ export function copyField(options: CopyFieldOptions): Raw {
     : options.copiedText.replace(/^https?:\/\//, "");
   const body = options.isCode
     ? html`<code class="copy-field-text" id="${id}" tabindex="0" aria-labelledby="${id}-label" data-copy="${options.copiedText}">${shown}</code>`
-    : html`<span class="copy-field-text" id="${id}" data-copy="${options.copiedText}">${shown}</span>`;
+    : html`<span class="copy-field-text one-line" id="${id}" data-copy="${options.copiedText}">${shown}</span>`;
   const buttonState = options.state === "is-pointed" || (options.state === "is-focused" && !options.isCode) ? options.state : undefined;
   const className = ["cut-field", "copy-field", options.isCode ? "is-code" : "", isCopied ? "is-copied" : "", options.isMasked ? "is-masked" : ""].filter(Boolean).join(" ");
   // Words are a field's height, a control in a row or stack; code runs as many lines as it takes, a block.
-  const markup = html`<div class="${className}"><span class="copy-head"><span class="copy-label" id="${id}-label">${options.label}</span><span class="copy-said" role="status">${isCopied ? "Copied" : ""}</span></span>${well({
+  const markup = html`<div class="${className}"><span class="copy-head words-margin"><span class="copy-label" id="${id}-label">${options.label}</span><span class="copy-said" role="status">${isCopied ? "Copied" : ""}</span></span>${well({
     body,
     end: tertiaryButton("Copy", { type: "button", icon: "copy", isLabelHidden: true, isSmall: true, controls: id, state: buttonState }),
     endNote: icon("check"),
     state: options.isCode && options.state === "is-focused" ? "is-focused" : undefined,
+    isUsed: !options.isCode,
   })}</div>`;
   return options.isCode ? markup : controlMarkup(markup, "field", { hasOwnWords: true });
 }
@@ -435,9 +429,9 @@ component({
 /* A copy field: its label, then a Well holding what's copied, with Copy (a small tertiary icon button) at its end. Copied, Copy's icon is a
    tick (the well's end note) and "Copied" shows at the end of the label's line, both in the ink, for a moment (COPY_SCRIPT); what's in it
    stays where it is. */
-.copy-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--gap-words-words); padding-inline: var(--pad-words); }
+.copy-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--gap-words-words); }
 .copy-label { font: var(--type-label); color: var(--ink-2); }
-.copy-said { font: var(--type-facts); color: var(--ink); opacity: 0; transition: opacity 0.2s; }
+.copy-said { font: var(--type-facts); color: var(--ink); opacity: 0; transition: opacity var(--motion-state); }
 .copy-field.is-copied .copy-said { opacity: 1; }
 .copy-field.is-copied .well-end-note { display: grid; }
 .copy-field.is-copied .well-end > .tertiary-btn .ico { visibility: hidden; }
@@ -445,16 +439,14 @@ component({
 /* Words: one line tall, the address cut short at its end; a press anywhere on the well copies, so pointing at it brings up Copy's slab. */
 .copy-field:not(.is-code) .well { cursor: pointer; }
 .copy-field:not(.is-code) .well-body { display: flex; align-items: center; padding-block: 0; }
-.copy-field:not(.is-code) .copy-field-text { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.copy-field:not(.is-code) .copy-field-text { flex: 1; }
 .copy-field:not(.is-code) .well:hover .well-end > .tertiary-btn > .face { color: var(--ink); --face-color: var(--wash); }
-.copy-field:not(.is-code) .well:active { box-shadow: var(--press-shade); }
 .copy-field:not(.is-code) .well:active .well-end > .tertiary-btn > .face { --face-color: var(--wash-press); }
 /* Code: all of it in code's letters, wrapping onto more lines rather than hiding any; one long token (a key) breaks at a line's end. Only
    its first line keeps clear of Copy; the lines under it run the well's whole width, each as tall as Copy's half and the gap round it. */
-.copy-field.is-code .well { align-items: stretch; }
-.copy-field.is-code .well-body { padding-inline-end: var(--pad-inside-words); }
+.copy-field.is-code .well { align-items: stretch; min-height: var(--control-height-field); }
 .copy-field.is-code .copy-field-text { display: block; font: 500 0.9375rem/1.5rem ui-monospace, Menlo, monospace; overflow-wrap: anywhere; cursor: text; }
-.copy-field.is-code .copy-field-text::before { content: ""; float: right; width: max(0px, var(--control-height-small) + var(--well-inset) - var(--pad-inside-words) + var(--gap-words-words)); height: 24px; }
+.copy-field.is-code .copy-field-text::before { content: "\\200b"; float: right; width: max(0px, var(--control-height-small) + var(--well-inset) - var(--pad-inside-words) + var(--gap-words-words)); }
 /* A command's parts each stay whole, so it breaks only at its spaces; a part longer than a line breaks within itself. */
 .code-word { display: inline-block; max-width: 100%; }
 /* Masked: its letters blur into their own glow, unreadable, until the page shows them, the glow with room round the words so it isn't
@@ -509,16 +501,16 @@ export function colorField(options: ColorFieldOptions): Raw {
   // With no color picked, the square waits on a color of its own to start from.
   const hex = (HEX_CODE.test(options.pickedValue) ? options.pickedValue : "#5865F2").toUpperCase();
   return html`<fieldset class="wheel-field color-field" id="${id}" data-color-field data-color-hex="${hex}">
-<legend id="${id}-legend">${options.label}</legend>
-<button type="button" class="wheel-button color-button cut-carved no-icon" data-cut-line="10" aria-expanded="${isOpen ? "true" : "false"}" aria-controls="${id}-pick" aria-describedby="${id}-legend">${CUT_LINE}<span class="color-chip cut-carved" aria-hidden="true" data-cut-line="6" style="--swatch:${isNone ? "var(--clear-swatch)" : hex}">${CUT_LINE}</span><span class="wheel-value color-value">${isNone ? "None" : hex}</span><span class="wheel-chev">${icon("chevron-down")}</span></button>
+<legend class="words-margin" id="${id}-legend">${options.label}</legend>
+<button type="button" class="wheel-button color-button carving is-used sized is-button no-icon" data-cut-line="10" aria-expanded="${isOpen ? "true" : "false"}" aria-controls="${id}-pick" aria-describedby="${id}-legend">${CUT_LINE}<span class="color-chip cut-carved" aria-hidden="true" data-cut-line="6" style="--swatch:${isNone ? "var(--clear-swatch)" : hex}">${CUT_LINE}</span><span class="wheel-value color-value">${isNone ? "None" : hex}</span><span class="wheel-chev">${icon("chevron-down")}</span></button>
 ${floatingPane({
     id: `${id}-pick`,
     placement: "under",
-    kind: "color-pick",
+    kind: "color-pick", hasParts: true,
     role: "group",
     label: options.label,
     isShownInPlace: isOpen,
-    body: html`<div class="color-pane"><div class="color-square cut-carved${options.state === "is-focused" ? " is-focused" : ""}" data-cut-line="10" tabindex="0" role="slider" aria-label="Hue and strength" aria-valuetext="${hex}">${CUT_LINE}<span class="color-square-light" aria-hidden="true"></span><span class="color-knob" aria-hidden="true" data-on-no-pane><span class="color-knob-slab cut-raised" data-cut-line="6">${CUT_LINE}</span></span></div><div class="color-side"><span class="color-swatch cut-carved" aria-hidden="true" data-cut-line="10">${CUT_LINE}</span>${cutField({ name: `${options.name}_hex`, id: `${id}-hex`, label: "Hex code", type: "text", text: hex, autocomplete: "off", characterPattern: "[#0-9A-Fa-f]", maximumCharacterCount: 7, isUppercase: true })}${slider({ name: `${options.name}_brightness`, id: `${id}-brightness`, label: "Brightness", minimumNumber: 0, maximumNumber: 100, stepNumber: 1, pickedNumber: 100, unit: "%" })}${options.isNoneAllowed ? html`<span class="color-none">${tertiaryButton("None", { type: "button", isFullWidth: true })}</span>` : ""}</div></div>`,
+    body: html`<div class="color-pane"><div class="color-square cut-carved${options.state === "is-focused" ? " is-focused" : ""}" data-cut-line="10" tabindex="0" role="slider" aria-label="Hue and strength" aria-valuetext="${hex}">${CUT_LINE}<span class="color-square-light" aria-hidden="true"></span><span class="color-knob thumb" aria-hidden="true" data-on-no-pane><span class="color-knob-slab thumb-slab cut-raised" data-cut-line="6">${CUT_LINE}</span></span></div><div class="color-side"><span class="color-swatch cut-carved" aria-hidden="true" data-cut-line="10">${CUT_LINE}</span>${cutField({ name: `${options.name}_hex`, id: `${id}-hex`, label: "Hex code", type: "text", text: hex, autocomplete: "off", characterPattern: "[#0-9A-Fa-f]", maximumCharacterCount: 7, isUppercase: true })}${slider({ name: `${options.name}_brightness`, id: `${id}-brightness`, label: "Brightness", minimumNumber: 0, maximumNumber: 100, stepNumber: 1, pickedNumber: 100, unit: "%" })}${options.isNoneAllowed ? html`<span class="color-none">${tertiaryButton("None", { type: "button", isFullWidth: true })}</span>` : ""}</div></div>`,
   })}
 <input type="hidden" name="${options.name}" value="${isNone ? "" : hex}">
 </fieldset>`;
@@ -619,14 +611,13 @@ component({
    whose groove runs from black to the full color; one that can be none ends with a None button. The square has the pane's whole left side. */
 /* Its pane follows the panes' one rule, two margins: what has an edge (the square, the picked color, the field, the None button) sits at the frame gap,
    --pad-frame, and words (the field's and the slider's) keep the pane's margin, --pad-words further in. */
-.floating-pane.color-pick { padding: var(--pad-frame); --pad-words: var(--pad-inside-words); }
 /* Shown open in place, it's as wide as what's in it, as it is floating. */
 .floating-pane.color-pick.in-place { width: max-content; max-width: 100%; }
 .color-field, .color-pick { --clear-swatch: repeating-conic-gradient(var(--line) 0 25%, transparent 0 50%) 0 0 / 8px 8px; }
 /* The field shows its color first: a strip carved into its start, a part's gap in from its edges, the color lying in it as light, its
    edges carved like the picked color's in the pane. It and the picked color are cut by the edge rule like every piece: a corner is cut where
    it meets its holder's cut corner (the strip, the field's start), square elsewhere. */
-.wheel-button.color-button { padding-left: var(--gap-control-row); }
+.wheel-button.color-button.no-icon { --text-start: var(--gap-control-row); }
 .color-chip { position: relative; flex: none; align-self: stretch; width: 40px; margin-block: var(--gap-control-row); background: var(--swatch); clip-path: var(--cut-shape); }
 .color-value { font-variant-numeric: tabular-nums; }
 /* The square has the pane's whole left side: it's as tall as what's beside it (at least 184px) and as wide as it's tall, and the picked
@@ -642,22 +633,18 @@ component({
 /* Brightness dims the whole square, as less light comes through it; its carved edges, lit and shaded by the edge rule, lie over it. */
 .color-square-light::after { content: ""; position: absolute; inset: 0; background: #000; opacity: calc(1 - var(--color-brightness, 1)); }
 .color-square > .cut-line { z-index: 2; }
-.color-knob { position: absolute; z-index: 3; width: 20px; height: 20px; margin: -10px 0 0 -10px; pointer-events: none; filter: var(--thumb-cast); transition: filter 0.2s; }
-.color-knob-slab { position: relative; display: block; width: 100%; height: 100%; background: var(--thumb-face); clip-path: var(--cut-shape); }
-.color-knob-slab::after { content: ""; position: absolute; inset: 0; background: var(--thumb-press-face); opacity: 0; transition: opacity 0.12s; }
-.color-square.is-held .color-knob { filter: var(--thumb-cast-pressed); transition-duration: 0.08s; }
-.color-square.is-held .color-knob-slab::after { opacity: 1; transition-duration: 0.08s; }
+.color-knob { --thumb: 20px; position: absolute; z-index: 3; margin: -10px 0 0 -10px; pointer-events: none; }
 .color-square:focus-visible > .cut-line polygon, .color-square.is-focused > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 /* Beside the square, not at the pane's edge, the column's labels have no pane margin to keep and start at its edge; the brightness's number,
    at the pane's right edge, keeps it. */
 .color-side { display: flex; flex-direction: column; gap: var(--gap-control-stack); min-width: 0; --pad-words: 0px; }
 /* Stacked under the square on a phone, its words take the pane's words margin. */
 @media (max-width: 480px) { .color-side { --pad-words: var(--pad-inside-words); } }
-.color-side .slider-head > output { padding-inline-end: var(--pad-inside-words); }
+.color-side .slider-head > output { --pad-words: var(--pad-inside-words); }
 /* The picked color is carved into the pane, the color lying in it as light inside the glass, its edges lit and shaded like every carving. */
 .color-swatch { position: relative; display: block; flex: 1; min-height: 32px; background: var(--color-picked); clip-path: var(--cut-shape); }
 /* Its brightness: the slider's groove runs from black to the full color, with no orange in it. */
-.color-side .groove::before { background: linear-gradient(90deg, #000, var(--color-full, #fff)); }
+.color-side .groove { background: linear-gradient(90deg, #000, var(--color-full, #fff)); }
 .color-side .groove-fill { display: none; }
 @media (prefers-reduced-motion: reduce) { .color-knob, .color-knob-slab::after { transition: none; } }
 `,

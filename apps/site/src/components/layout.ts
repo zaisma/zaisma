@@ -1,5 +1,5 @@
-import { html, raw, type Raw } from "../markup.ts";
-import { CONTROL_HEIGHTS, type ControlHeight, type ControlMarkup } from "./control-markup.ts";
+import { Raw, html, raw } from "../markup.ts";
+import { CONTROL_HEIGHTS, ControlMarkup, type ControlHeight } from "./control-markup.ts";
 import { BARE_GROUPS, WORDS_HOLDERS } from "./tokens.ts";
 
 /*
@@ -12,6 +12,20 @@ import { BARE_GROUPS, WORDS_HOLDERS } from "./tokens.ts";
  */
 
 export type { ControlMarkup } from "./control-markup.ts";
+
+/**
+ * A layout's markup: what a pane's body takes (a glass pane, a tray, a sheet, a store panel, a playing card), made only by the layouts
+ * here, so everything in a pane is placed by a layout and every word in it keeps the pane's margin. design.test.ts checks no other file
+ * makes one.
+ */
+/** Where a bar (the header) goes to two rows: below 64em, a phone and an iPad, and a phone on its side. */
+export const BAR_TWO_ROWS_MEDIA = "(max-width: 64em)";
+
+export class LayoutMarkup extends Raw {
+  /** Makes it a type of its own: plain markup isn't a layout. */
+  private declare readonly isLayoutMarkup: true;
+}
+const asLayout = (markup: Raw): LayoutMarkup => new LayoutMarkup(markup.html);
 
 /** One control, for a pane's corner: exactly one, by its type. */
 export type LayoutControl = ControlMarkup;
@@ -84,13 +98,21 @@ export interface StackOptions {
   dataAttributes?: Record<string, string>;
 }
 
+/**
+ * A stack of one thing, for a pane's body that holds only it: a block (a list, a table, a form) at the frame gap, words (reading text, a
+ * person, a paragraph) at the pane's words margin, or a control as a control.
+ */
+export function stackOfOne(markup: Raw, itemKind: "words" | "block" = "block"): LayoutMarkup {
+  return stack({ items: [markup instanceof ControlMarkup ? { kind: "control", markup } : { kind: itemKind, markup: markup as NotControlMarkup }] });
+}
+
 /** Things one under another, each gap picked from what's on each side of it. In a pane, controls fill its width. */
-export function stack(options: StackOptions): Raw {
+export function stack(options: StackOptions): LayoutMarkup {
   const dataMarkup = options.dataAttributes ? html`${Object.entries(options.dataAttributes).map(([name, text]) => html` data-${name}="${text}"`)}` : "";
-  return html`<div class="layout-stack"${groupLabel(options.label)}${dataMarkup}>${options.items.map((layoutItem, itemIndex) => {
+  return asLayout(html`<div class="layout-stack"${groupLabel(options.label)}${dataMarkup}>${options.items.map((layoutItem, itemIndex) => {
     const above = options.items[itemIndex - 1];
     return html`<div class="stack-cell is-${placedKind(layoutItem)}${above ? ` gap-top-${stackGap(above, layoutItem)}` : ""}"${placeAttributes(layoutItem)}>${layoutItem.markup}</div>`;
-  })}</div>`;
+  })}</div>`);
 }
 
 export interface RowOptions {
@@ -110,7 +132,7 @@ export interface RowOptions {
  * Things side by side. Controls in a row are always one height: every one takes the tallest one's size class. Two controls side by
  * side slant toward each other; words beside controls sit on their center line, and on a field's box when a field shows its label.
  */
-export function row(options: RowOptions): Raw {
+export function row(options: RowOptions): LayoutMarkup {
   const controls = options.items.flatMap((layoutItem) => (layoutItem.kind === "control" ? [layoutItem.markup] : []));
   // A block that's a row of controls itself (a shelf's sort and arrows) counts its controls' height too, so words beside it sit on their
   // center line.
@@ -135,7 +157,7 @@ export function row(options: RowOptions): Raw {
     return html`<div class="row-cell is-${placedKind(layoutItem)}${isFilling ? " fills" : ""}${isPointerOnly ? " is-pointer-only" : ""}${gaps ? ` ${gaps}` : ""}"${placeAttributes(layoutItem)}>${layoutItem.markup}</div>`;
   });
   // An equal row is marked for ROW_LAYOUT_SCRIPT, which gives its cells the widest one's width.
-  return html`<div class="layout-row${options.widths === "equal" ? " widths-equal" : ""} alignment-${alignment}${isOnFieldBoxes ? " is-on-field-boxes" : ""}"${tallest ? html` data-control-height="${tallest}"` : ""}${groupLabel(options.label)}>${cells}</div>`;
+  return asLayout(html`<div class="layout-row${options.widths === "equal" ? " widths-equal" : ""} alignment-${alignment}${isOnFieldBoxes ? " is-on-field-boxes" : ""}"${tallest ? html` data-control-height="${tallest}"` : ""}${groupLabel(options.label)}>${cells}</div>`);
 }
 
 /**
@@ -204,8 +226,8 @@ export type GridOptions = {
  * Cells of one size, as many to a line as fit their least width, folding to one column where two can't fit. A grid of covers or cards says what
  * shows in its place while it has none (whenEmpty, an Empty state), a page script's cells included.
  */
-export function grid(options: GridOptions): Raw {
-  return html`<div class="layout-grid item-${options.itemSize}"${options.id ? html` id="${options.id}"` : ""}${groupLabel(options.label)}>${options.items.map((layoutItem) => html`<div class="grid-cell is-${layoutItem.kind}"${placeAttributes(layoutItem)}>${layoutItem.markup}</div>`)}</div>${options.whenEmpty ? html`<div class="when-empty"${options.items.some((layoutItem) => !layoutItem.isHidden) ? raw(" hidden") : ""}>${options.whenEmpty}</div>` : ""}`;
+export function grid(options: GridOptions): LayoutMarkup {
+  return asLayout(html`<div class="layout-grid item-${options.itemSize}"${options.id ? html` id="${options.id}"` : ""}${groupLabel(options.label)}>${options.items.map((layoutItem) => html`<div class="grid-cell is-${layoutItem.kind}"${placeAttributes(layoutItem)}>${layoutItem.markup}</div>`)}</div>${options.whenEmpty ? html`<div class="when-empty"${options.items.some((layoutItem) => !layoutItem.isHidden) ? raw(" hidden") : ""}>${options.whenEmpty}</div>` : ""}`);
 }
 
 export interface TrackOptions {
@@ -221,8 +243,8 @@ export interface TrackOptions {
 }
 
 /** A row of cells of one size that scrolls sideways, fading at an edge with more past it: a row of covers, with Row arrows for a mouse. */
-export function track(options: TrackOptions): Raw {
-  return html`<div class="layout-track item-${options.itemSize}" id="${options.id}" data-fades-sideways${groupLabel(options.label)}>${options.items.map((layoutItem) => layoutItem.markup)}</div><div class="when-empty"${options.items.length ? raw(" hidden") : ""}>${options.whenEmpty}</div>`;
+export function track(options: TrackOptions): LayoutMarkup {
+  return asLayout(html`<div class="layout-track item-${options.itemSize}" id="${options.id}" data-fades-sideways data-side-rail${groupLabel(options.label)}>${options.items.map((layoutItem) => layoutItem.markup)}</div><div class="when-empty"${options.items.length ? raw(" hidden") : ""}>${options.whenEmpty}</div>`);
 }
 
 export interface ColumnsOptions {
@@ -241,8 +263,8 @@ const BLOCK_GAP_PX = 24;
  * Two halves of the width side by side, one over the other where both can't have a column's least width. A pane takes the whole width or
  * fits what's in it; one that should take half the screen goes in a column here.
  */
-export function columns(options: ColumnsOptions): Raw {
-  return html`<div class="layout-columns${options.stickyColumn ? ` sticky-${options.stickyColumn}` : ""}"><div class="columns-in">${options.columns.map((column) => html`<div class="column">${column}</div>`)}</div></div>`;
+export function columns(options: ColumnsOptions): LayoutMarkup {
+  return asLayout(html`<div class="layout-columns${options.stickyColumn ? ` sticky-${options.stickyColumn}` : ""}"><div class="columns-in">${options.columns.map((column) => html`<div class="column">${column}</div>`)}</div></div>`);
 }
 
 export interface PanePartsOptions {
@@ -260,14 +282,14 @@ export interface PanePartsOptions {
  * A pane's places: its head, its body and its foot. The head's words keep the pane's margin; a control in a corner sits in it, at the
  * frame gap, and takes the corner's cut by the edge rule.
  */
-export function paneParts(options: PanePartsOptions): Raw {
+export function paneParts(options: PanePartsOptions): LayoutMarkup {
   const head = options.head
     ? html`<div class="pane-head"${options.head.end && !options.head.end.isWordsAlone ? html` data-control-height="${options.head.end.controlHeight}"` : ""}>${options.head.start ? html`<div class="pane-head-start">${options.head.start}</div>` : ""}<div class="pane-head-words">${options.head.words}</div>${options.head.end ? html`<div class="pane-head-end${options.head.end.isWordsAlone ? " is-words" : ""}">${options.head.end}</div>` : ""}</div>`
     : "";
   const foot = options.foot
     ? html`<div class="pane-foot"${options.foot.end && !options.foot.end.isWordsAlone ? html` data-control-height="${options.foot.end.controlHeight}"` : ""}>${options.foot.start ? html`<div class="pane-foot-start is-${options.foot.start.kind}">${options.foot.start.markup}</div>` : ""}${options.foot.end ? html`<div class="pane-foot-end${options.foot.end.isWordsAlone ? " is-words" : ""}">${options.foot.end}</div>` : ""}</div>`
     : "";
-  return html`<div class="pane-parts">${head}<div class="pane-body">${options.body}</div>${foot}</div>`;
+  return asLayout(html`<div class="pane-parts">${head}<div class="pane-body">${options.body}</div>${foot}</div>`);
 }
 
 /* ---- Styles: each layout component's own, in gallery order. ---- */
@@ -275,7 +297,7 @@ export function paneParts(options: PanePartsOptions): Raw {
 const GAP_TOKENS: LayoutGap[] = ["control-row-boxes", "control-stack", "words-control", "words-words", "block-block"];
 
 /** What takes a control's height in each control (its --control-height), as it sits directly in a row's cell. */
-const HEIGHT_HOLDERS = [".cut-btn", ".tertiary-btn", ".run-wrap > .run", ".cut-field > .field", ".pin-box", ".find", ".switch-well", ".tab-switch", ".steps"];
+const HEIGHT_HOLDERS = [".cut-btn", ".tertiary-btn", ".run-wrap > .run", ".cut-field > .field", ".pin-marks", ".find", ".switch-well", ".tab-switch", ".steps"];
 
 /** What shows of a holder's children: not hidden, not a cell whose only thing is hidden (holds-only-hidden, ROW_LAYOUT_SCRIPT), not a slab's drawn edge (a tray's first child), and not a script, a template or a form's hidden field. */
 const SHOWN = ':not([hidden], .holds-only-hidden, .edge, script, template, input[type="hidden"])';
@@ -300,8 +322,9 @@ function edgeWords(edge: "top" | "bottom"): string {
   const end = edge === "top" ? `:nth-child(1 of ${SHOWN})` : `:nth-last-child(1 of ${SHOWN})`;
   const own = edge === "top" ? WORDS_AT_TOP : WORDS_AT_FOOT;
   const selectorsOf = (depthCount: number) => {
-    // Never into words beside a control: they sit on its center line instead.
-    const into = ` > *${end}${BESIDE_CONTROLS}`.repeat(depthCount) + " > ";
+    // Never into words beside a control: they sit on its center line instead. Never into a grid's or a track's first cell alone: the
+    // others on its first line are at the edge too, so the grid or track takes the margin as a whole (BARE_UNITS).
+    const into = ` > *${end}${BESIDE_CONTROLS}:not(.layout-grid, .layout-track)`.repeat(depthCount) + " > ";
     return [
       // A row's words are its own case, below.
       `${into}.is-words${end}:not(.row-cell)`,
@@ -325,7 +348,8 @@ const BESIDE_CONTROLS = ":not(.layout-row[data-control-height]:not(.is-wrapped),
  * what it holds the edge rules look. A sheet's body, with no buttons under it, is where its words end.
  */
 const PANE_CONTENT: { holder: string; depthCount: number; edges: ("top" | "bottom")[]; isForRows: boolean }[] = [
-  ...WORDS_HOLDERS.map((holder) => ({ holder, depthCount: holder === ".playing-card-in" ? 2 : 5, edges: ["top", "bottom"] as ("top" | "bottom")[], isForRows: true })),
+  // A pane's body is always a layout (LayoutMarkup), so what it holds starts two levels in: its stack and the stack's cell.
+  ...WORDS_HOLDERS.map((holder) => ({ holder, depthCount: holder === ".playing-card-in" ? 4 : 7, edges: ["top", "bottom"] as ("top" | "bottom")[], isForRows: true })),
   { holder: ".pane-parts:not(:has(> .pane-foot)) > .pane-body > .sheet-scroll > .sheet-body", depthCount: 3, edges: ["bottom"], isForRows: false },
 ];
 
@@ -342,6 +366,8 @@ export const STACK_STYLES = `
    room, and the first shown has nothing above it. In a pane, controls fill its width, as they always have. */
 .layout-stack { display: flex; flex-direction: column; min-width: 0; }
 .stack-cell { display: flex; flex-direction: column; min-width: 0; }
+/* In a compact sheet (or a confirm over a sheet) everything is a control's stack gap apart, whatever the spacing table says. */
+.sheet:is(.is-compact, [data-sheet-confirm].is-over-sheet) .layout-stack > .stack-cell[class*="gap-top-"] { margin-top: var(--gap-control-stack); }
 ${GAP_TOKENS.filter((gap) => gap !== "control-row-boxes").map((gap) => `.layout-stack > .stack-cell.gap-top-${gap} { margin-top: var(--gap-${gap}); }`).join("\n")}
 .layout-stack > .stack-cell:nth-child(1 of :not([hidden], .holds-only-hidden)) { margin-top: 0; }
 /* A cell whose only thing is hidden (a page script shows it: a step, an error) takes no room. */
@@ -350,6 +376,10 @@ ${GAP_TOKENS.filter((gap) => gap !== "control-row-boxes").map((gap) => `.layout-
 .stack-cell.is-words { padding-inline: var(--pad-words); }
 /* Inside words that already keep the margin, nothing takes it again. */
 :is(.stack-cell, .row-cell, .grid-cell, .pane-foot-start).is-words > *, .pane-head-words > * { --pad-words: 0px; }
+/* A word longer than its cell (a link, a name with no spaces) breaks rather than spill past its holder, at 320px or 200% text. */
+:is(.stack-cell, .row-cell, .grid-cell, .columns-in > .column, .pane-foot-start, .pane-body) { overflow-wrap: break-word; }
+/* A fieldset's legend is laid out as its first part, so the fieldset's own gap spaces it from what follows, as a label is from its field. */
+fieldset > legend { float: left; width: 100%; padding-block: 0; }
 /* Room a sideways track keeps for what lifts in it (.layout-track sets it); none elsewhere. */
 :root { --edge-room: 0px; }
 ${edgeWords("top")} { padding-top: calc(var(--pad-words) + var(--edge-room)); }
@@ -375,7 +405,8 @@ ${CONTROL_HEIGHTS.map((height) => `[data-control-height="${height}"] { --row-con
 .layout-row[data-control-height]:not(.is-wrapped) > .row-cell.is-words > :last-child { padding-bottom: max(0px, calc((var(--row-control-height) - 1lh) / 2)); }
 /* A block beside a field's box (a check beside Sort by) sits on the box's center line too, not at its foot. */
 .layout-row.is-on-field-boxes:not(.is-wrapped) > .row-cell.is-block { min-height: var(--row-control-height); }
-${GAP_TOKENS.map((gap) => `.layout-row > .row-cell.gap-end-${gap} { margin-inline-end: var(--gap-${gap}); }\n.layout-row > .row-cell.gap-start-${gap} { margin-inline-start: var(--gap-${gap}); }`).join("\n")}
+/* Side by side, words keep the words margin from a control beside them (--gap-words-beside-control), as from the pane's edge. */
+${GAP_TOKENS.map((gap) => [gap, gap === "words-control" ? "words-beside-control" : gap]).map(([gap, token]) => `.layout-row > .row-cell.gap-end-${gap} { margin-inline-end: var(--gap-${token}); }\n.layout-row > .row-cell.gap-start-${gap} { margin-inline-start: var(--gap-${token}); }`).join("\n")}
 /* A control only a mouse shows isn't there without one, nor while it has nothing to do (hidden): the cell before it is then the row's last,
    and reaches past the row's end like any last cell. */
 @media not ((hover: hover) and (pointer: fine)) {
@@ -419,6 +450,38 @@ ${edgeRows("top")} { align-items: flex-start; }
 ${edgeRows("bottom")} { align-items: flex-end; }
 /* A cell whose only thing is hidden takes no room. */
 .row-cell:has(> [hidden]:only-child) { display: none; }
+
+/* A bar's row (the header): Zaisma's logo, where you are, search and you, side by side, spaced by what's beside what, as a row of controls
+   is. The logo is words: the bar's words margin from its edge, and a block's gap before the tabs (none before it after a sidebar's button,
+   only a control's gap after that). Controls beside each other overlap by the slant, so they slant toward each other; beside your picture,
+   which never slants, words' gap. Search sits after the tabs, pushed to the end; with neither, the end goes to the end by itself. */
+.bar-layout > .logo { margin-right: var(--gap-block-block); margin-left: var(--pad-words); }
+.bar-layout:has(> [data-sidebar-button]) > .logo { margin-left: 0; }
+.bar-layout > [data-sidebar-button] { margin-right: var(--gap-words-control); }
+.bar-layout .find:has(~ .end > .shell) { margin-inline-end: var(--gap-control-row-boxes); }
+.bar-layout .find:has(~ .end > .me) { margin-inline-end: var(--gap-words-control); }
+.bar-layout .nav:has(~ .find) { margin-inline-end: var(--gap-control-row-boxes); }
+.bar-layout .find { margin-left: auto; }
+.bar-layout > .end { margin-left: auto; }
+.bar-layout .find ~ .end { margin-left: 0; }
+/* Two rows (a phone, an iPad): the first row Zaisma, the search button and you; where you are, or the open search, a row of its own below,
+   with no neighbor to keep a gap from. The search button and Sign in slant toward each other; beside your picture, a control's gap. */
+@media ${BAR_TWO_ROWS_MEDIA} {
+  .bar-layout > [data-sidebar-button] { margin-left: var(--pad-words); }
+  .bar-layout .find, .bar-layout .find:has(~ .end > .shell), .bar-layout .find:has(~ .end > .me) { margin: 0; }
+  .bar-layout > .find + .cut-btn { margin-left: auto; margin-right: var(--gap-words-control); }
+  .bar-layout .nav:has(~ .find) { margin-inline-end: 0; }
+  .bar-layout > .find + .cut-btn:has(~ .end > .shell) { margin-right: var(--gap-control-row-boxes); }
+  .bar-layout > .find + .cut-btn:has(~ .end > .me) { margin-right: var(--gap-control-stack); }
+}
+
+/* A row of cards (choice cards): side by side while all fit, their boxes overlapping so the edge rule slants them toward each other, each
+   with a card's width (--size-card); stacked, --gap-control-stack apart, once they can't. One or the other, never some of each: each card's
+   basis is very large while the cards don't fit side by side, so each takes a line, and nothing while they do, so they share the row. */
+.cards-row { --cards-row-least: calc(var(--card-count) * var(--size-card)); display: flex; flex-wrap: wrap; align-items: stretch; gap: var(--gap-control-stack) 0; }
+.cards-row > * { flex: 1 1 calc((var(--cards-row-least) - 100%) * 999); }
+.cards-row > :not(:last-child) { margin-inline-end: max(var(--gap-control-row-boxes), min(0px, (var(--cards-row-least) - 100%) * 999)); }
+
 `;
 
 /**
@@ -450,6 +513,10 @@ export const TRACK_STYLES = `
    back. Its sides are its box's, so what scrolls by stops at the frame gap, where the first cover sits. */
 .layout-track { --fade-sideways-px: 48px; --edge-room: var(--gap-words-control); container-type: inline-size; display: flex; gap: var(--gap-block-block); scroll-snap-type: x proximity;
   padding: var(--edge-room) 0; margin: calc(-1 * var(--edge-room)) 0; }
+/* Its rail (data-side-rail, Rail in Navigation) runs under it, past the room kept for what lifts in it, never into it. */
+.layout-track.shows-rail { margin-bottom: 0; }
+/* A cover snaps where the track's start inset ends, so the first one is a snapping point at the track's very start, not past it. */
+.layout-track { scroll-padding-inline: var(--pad-words); }
 /* Screenshots lie closer than game cards do: pictures with an edge of their own, side by side. */
 .layout-track:has(> .screenshot) { gap: var(--gap-control-stack); }
 .layout-track.item-cover > * { flex: 0 0 clamp(200px, 20cqi, 260px); scroll-snap-align: start; }
@@ -474,9 +541,11 @@ export const PANE_PARTS_STYLES = `
 .pane-parts { display: flex; flex-direction: column; gap: var(--gap-block-block); min-width: 0; }
 /* The head: its heading beside its corner control, and its other words under them both, at the pane's whole width. Its words keep the pane's
    margin (--head-inset, the pane's --pad-words, read before its words reset it). */
-.pane-head { --head-inset: var(--pad-words); display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: var(--gap-words-control); align-items: start; min-width: 0; }
+.pane-head { --head-inset: var(--pad-words); display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: var(--gap-words-beside-control); align-items: start; min-width: 0; }
 .pane-head-words { display: contents; }
-.pane-head-words > * { grid-column: 1 / -1; min-width: 0; padding-inline-start: var(--head-inset); }
+.pane-head-words > * { grid-column: 1 / -1; min-width: 0; }
+/* Its words start at the head's inset; a carving under them (a sheet's Switch of tabs) keeps its own room and runs the head's width. */
+.pane-head-words > :not(.carving) { padding-inline-start: var(--head-inset); }
 .pane-head-words > * + * { margin-top: var(--gap-words-words); }
 .pane-head:has(> .pane-head-end) > .pane-head-words > :first-child { grid-column: 1; grid-row: 1; }
 /* A heading beside its corner control never runs under it: a word longer than the room left (at a large text size) breaks, hyphenated where it can. */
@@ -490,7 +559,7 @@ export const PANE_PARTS_STYLES = `
 .pane-head:has(> .pane-head-start > :not([hidden])) { grid-template-columns: auto minmax(0, 1fr) auto; }
 .pane-head:has(> .pane-head-start > :not([hidden])) > .pane-head-words > :first-child { grid-column: 2; padding-inline-start: 0; }
 .pane-head:has(> .pane-head-start > :not([hidden])) > .pane-head-end { grid-column: 3; }
-.pane-foot { display: flex; gap: var(--gap-words-control); min-width: 0; align-items: flex-end; }
+.pane-foot { display: flex; gap: var(--gap-words-beside-control); min-width: 0; align-items: flex-end; }
 /* Beside a corner control the head's first line sits on its center line, like words beside controls in a row; the foot's last line likewise. */
 .pane-head[data-control-height] > .pane-head-words > :first-child { padding-top: max(0px, calc((var(--row-control-height) - 1lh) / 2)); }
 .pane-foot[data-control-height] > .pane-foot-start.is-words { padding-bottom: 0; }
@@ -533,6 +602,9 @@ export const PAGE_SHAPE_STYLES = `
    the frame. A full page's world (its backdrop or stage) runs to the screen's edges behind. On a phone every shape is the screen less its margins. */
 html[data-page-shape] body > main { width: min(var(--size-page-wide), calc(100% - 2 * var(--pad-pane))); margin: 0 auto; }
 html[data-page-shape="reading"] body > main:not(:has(> .sidebar-layout)) { width: min(var(--size-page-reading), calc(100% - 2 * var(--pad-pane))); }
+/* A pane that fits what's in it, placed straight in the page's column (or a stack of the page's), sits in its middle, under the header's,
+   unless it's placed at the column's start (is-at-start: the game's page). */
+html[data-page-shape] body > main > .glass-pane.fit:not(.is-at-start), html[data-page-shape] body > main > .layout-stack > .stack-cell > .glass-pane.fit:not(.is-at-start) { margin-inline: auto; }
 /* The drawings in the gallery: a screen in its proportions, its world, the header and footer in the frame, and the page's panes at its width. */
 .shape-drawing { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: space-evenly; width: 100%; aspect-ratio: 16 / 9; overflow: hidden; background: var(--well); box-shadow: var(--well-shade); clip-path: var(--cut-shape); }
 .shape-drawing.on-laptop { aspect-ratio: 16 / 10; }

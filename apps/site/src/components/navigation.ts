@@ -1,14 +1,14 @@
-import { html, raw, type Raw } from "../markup.ts";
+import { accountPicture, html, raw, type Raw } from "../markup.ts";
 import { pageScript } from "../page-scripts.ts";
 import { component } from "./component.ts";
 import { controlMarkup, type ControlMarkup } from "./control-markup.ts";
-import { CUT_LINE, EDGE, floatingPane, glassPane, icon, logo, railMarkup, sheetMarkup, tag, type IconName } from "./foundations.ts";
+import { CUT_LINE, EDGE, RAIL_PARTS, divider, floatingPane, glassPane, icon, logo, railMarkup, sheetMarkup, tag, type IconName } from "./foundations.ts";
 import { cutPolygon } from "./tokens.ts";
 import { secondaryButton, tertiaryButton, rowArrows, primaryButton, textLink } from "./actions.ts";
-import { searchField, tabSwitch, type SearchFieldOptions, type SwitchTab } from "./inputs.ts";
-import { STAND_IN_COVERS, dropdown, type DropdownItem } from "./panes.ts";
-import { listRows, pictureFrame } from "./data.ts";
-import { row, stack, track, type LayoutItem } from "./layout.ts";
+import { SEARCH_STAND_IN, searchField, tabSwitch, type SearchFieldOptions, type SwitchTab } from "./inputs.ts";
+import { DROPDOWN_CHOICE_CLASS, DROPDOWN_TICK, STAND_IN_COVERS, dropdown, type DropdownItem } from "./panes.ts";
+import { listRows } from "./data.ts";
+import { BAR_TWO_ROWS_MEDIA, row, stack, track, type LayoutItem, stackOfOne } from "./layout.ts";
 
 /*
  * Navigation: the header (a floating slab of glass with the tabs, search and you), the footer, Zaisma's own
@@ -21,9 +21,9 @@ export interface HeaderOptions {
   /** The tab of the page you're on, or none (like sign-in). */
   current: HeaderTab | null;
   /** The page's own search; without it the header has none. */
-  search?: Omit<SearchFieldOptions, "state">;
+  search?: SearchFieldOptions;
   /** The signed-in account, or none: then the header says Sign in. */
-  account?: { username: string; pictureMarkup: Raw } | null;
+  account?: { username: string } | null;
   /** The dashboard and the forum: the Developer and Forum tabs open out of the end of the tabs. */
   isOnDeveloperPage: boolean;
   /** Sign-in's pages: the logo alone, with no tabs and nothing at the end, so nothing leads away from signing in but the logo home. */
@@ -42,7 +42,7 @@ export interface HeaderOptions {
   isSearchOpen?: boolean;
   /** Unique on the page, for the menu's id. Defaults to "top". */
   id?: string;
-  /** The page's Sidebar button (sidebarButton), at the header's start, over the sidebar it folds. */
+  /** The page's sidebar button (sidebarButton: a small Secondary button), at the header's start, over the sidebar it folds. */
   sidebarButton?: ControlMarkup;
 }
 
@@ -69,30 +69,31 @@ export function header(options: HeaderOptions): Raw {
   const hasTabRow = !options.isOnSignInPage && tabs.filter((each) => !each.isFolded).length >= 2;
   const states = [hasTabRow ? "has-tab-row" : "", options.isCompact ? "is-compact" : "", options.isSearchOpen ? "searching" : ""].filter(Boolean).map((name) => ` ${name}`).join("");
   const signIn = options.hasPageRunner ? secondaryButton("Sign in", { href: "/signin" }) : primaryButton("Sign in", { href: "/signin" });
-  const menuItems: DropdownItem[] = account
-    ? [
-        { label: "Your profile", icon: "person", href: `/@${account.username}` },
-        { label: "Friends", icon: "friends", href: "/friends" },
-        { label: "Developer", icon: "code", href: "/dashboard" },
-        { label: "Settings", icon: "gear", href: "/account" },
-        { kind: "rule" },
-        { label: "Sign out", icon: "sign-out", action: "/signout" },
-      ]
-    : [];
-  return html`<header class="top glass${states}" id="${id}" data-compacts data-glass data-glass-corners="header"${options.isCompact ? raw(" data-stays-compact") : ""}>${EDGE}
+  return html`<header class="top bar-layout glass glass-bar pinned${states}" id="${id}" data-compacts data-glass data-glass-corners="header"${options.isCompact ? raw(" data-stays-compact") : ""}>${EDGE}
   ${options.sidebarButton ?? ""}${wordmark}
   ${options.isOnSignInPage ? "" : html`<nav class="nav" aria-label="Main"${hasTabRow ? "" : raw(" hidden")}>${tabSwitch({ label: "Where you are", switchSize: "big", isFull: true, tabs })}</nav>`}
-  ${options.search ? html`${searchField(options.search)}${secondaryButton(options.search.label, { type: "button", icon: "search", isLabelHidden: true, isSmall: true, isExpanded: Boolean(options.isSearchOpen) })}` : ""}
+  ${options.search ? html`${searchField({ ...options.search, id: options.search.id ?? `${id}-find` })}${secondaryButton(options.search.label, { type: "button", icon: "search", isLabelHidden: true, isSmall: true, isExpanded: Boolean(options.isSearchOpen) })}` : ""}
   ${options.isOnSignInPage ? "" : html`<div class="end">${
-    account ? accountButton({ username: account.username, pictureMarkup: account.pictureMarkup, menuId, isMenuOpen: options.isMenuOpen }) : signIn
+    account ? accountButton({ username: account.username, menuId, isMenuOpen: options.isMenuOpen }) : signIn
   }</div>`}
-</header>${account ? dropdown({ id: menuId, label: "Your account", head: { title: account.username, note: "Online" }, items: menuItems, isOpen: options.isMenuOpen }) : ""}`;
+</header>${account ? accountMenu(account.username, menuId, options.isMenuOpen) : ""}`;
+}
+
+/** The account menu your picture opens: it names you, then your places and Sign out. */
+function accountMenu(username: string, menuId: string, isOpen = false): Raw {
+  const items: DropdownItem[] = [
+    { label: "Your profile", icon: "person", href: `/@${username}` },
+    { label: "Friends", icon: "friends", href: "/friends" },
+    { label: "Developer", icon: "code", href: "/dashboard" },
+    { label: "Settings", icon: "gear", href: "/account" },
+    { kind: "rule" },
+    { label: "Sign out", icon: "sign-out", action: "/signout" },
+  ];
+  return dropdown({ id: menuId, label: "Your account", head: { title: username, note: "Online" }, items, isOpen });
 }
 
 export interface AccountButtonOptions {
   username: string;
-  /** Your picture: a Picture frame (data.ts), cut (isCut) so it fits the header's corner, and online. */
-  pictureMarkup: Raw;
   /** The id of the account menu it opens. */
   menuId: string;
   isMenuOpen?: boolean;
@@ -105,56 +106,51 @@ export interface AccountButtonOptions {
  * and as something to press). It opens the account menu, a pane of the same glass, which names you.
  */
 export function accountButton(options: AccountButtonOptions): Raw {
-  return html`<button type="button" class="me${options.state ? ` ${options.state}` : ""}" aria-expanded="${options.isMenuOpen ? "true" : "false"}" aria-controls="${options.menuId}" aria-label="Your account, ${options.username}">${options.pictureMarkup}</button>`;
+  return html`<button type="button" class="shell me${options.state ? ` ${options.state}` : ""}" aria-expanded="${options.isMenuOpen ? "true" : "false"}" aria-controls="${options.menuId}" aria-label="Your account, ${options.username}"><span class="slab holds-art" data-cut-line="10">${CUT_LINE}${accountPicture(options.username, "md", { title: "" })}</span></button>`;
 }
 
 /**
  * Where the header goes to its two rows (Zaisma, search and you over where you are): below 64em, so on an iPad and a phone on its side, and on
  * a laptop with the browser's text at 200%, as the one row wouldn't fit there. In em, which media queries take from the browser's text size.
  */
-export const HEADER_TWO_ROWS_MEDIA = "(max-width: 64em)";
+export const HEADER_TWO_ROWS_MEDIA = BAR_TWO_ROWS_MEDIA;
 
 const HEADER_STYLES = `
 /* The header's height at rest, from its size classes, for the page under it to clear (html.ts's --header-room): one row of regular controls
    inside its inset. On a phone its first row is small controls, and the tabs, where there are any, a row of regular height under it. */
-:root { --header-height: calc(var(--control-height-regular) + 2 * var(--pad-inner-pane)); }
+:root { --header-height: calc(var(--control-height-regular) + 2 * var(--pad-frame)); }
 @media ${HEADER_TWO_ROWS_MEDIA} {
-  :root { --header-height: calc(var(--control-height-small) + 2 * var(--pad-inner-pane)); }
-  :root:has(#top.has-tab-row) { --header-height: calc(var(--control-height-small) + var(--gap-control-stack) + var(--control-height-regular) + 2 * var(--pad-inner-pane)); }
+  :root { --header-height: calc(var(--control-height-small) + 2 * var(--pad-frame)); }
+  :root:has(#top.has-tab-row) { --header-height: calc(var(--control-height-small) + var(--gap-control-stack) + var(--control-height-regular) + 2 * var(--pad-frame)); }
 }
 /* The header: a floating slab of the sign-in's glass, cut corners and a drawn rim, over the page. Orange only on what you act on.
    It's adaptive glass: --glass-top sets its tint and thickness, and smoked glass (dark, or .smoke) gives it light words. */
 .top {
   position: fixed; z-index: 10; top: var(--pad-pane); left: 50%; transform: translateX(-50%);
-  width: min(var(--size-page-wide), calc(100% - 2 * var(--pad-pane))); height: var(--header-height);
-  display: flex; align-items: center; gap: 0; padding: 0 var(--pad-inner-pane);
+  width: min(var(--size-page-wide), calc(100% - 2 * var(--pad-pane)));
+  display: flex; align-items: center; gap: 0;
   --glass-tint: var(--glass-top);
   clip-path: ${cutPolygon("header")};
-  transition: var(--glass-transition), height 0.45s cubic-bezier(.2,.8,.2,1), top 0.45s cubic-bezier(.2,.8,.2,1), transform 0.45s cubic-bezier(.4,0,.2,1);
+  transition: var(--glass-transition), height var(--motion-glide) var(--ease-glide), top var(--motion-glide) var(--ease-glide), transform var(--motion-glide) var(--ease-standard);
 }
-/* Compact, once the page scrolls: it rises and its inset above and below its controls closes to the frame gap. Its controls keep their size,
-   so only the slab moves and changes height: nothing in it is laid out again or redrawn as it slims, and it stays smooth. */
-.top.is-compact { height: calc(var(--control-height-regular) + 2 * var(--pad-frame)); top: var(--pad-frame); }
+/* A bar of glass (materials.ts): its controls the frame gap from its edge on every side, its height theirs and that gap. Compact, once the
+   page scrolls, it rises to the frame gap from the window's top; nothing in it is laid out again, and it stays smooth. */
+.top.is-compact { top: var(--pad-frame); }
 .top > :not(.edge) { position: relative; z-index: 3; }
-.top .find, .top .find input { transition: width 0.45s cubic-bezier(.2,.8,.2,1); }
+.top .find, .top .find input { transition: width var(--motion-glide) var(--ease-glide); }
 
-/* The header's gap is a row of controls' (their boxes overlap by the slant); the logo is words beside them, and so beside the sidebar's button. */
-.top > .logo { margin-right: var(--gap-block-block); }
-.top > [data-sidebar-button] { margin-right: var(--gap-words-control); }
-/* Search beside Sign in is a row of two controls, so they slant toward each other; beside your account's picture it's words beside it. */
-.top .find:has(~ .end > .shell) { margin-inline-end: var(--gap-control-row-boxes); }
-.top .find:has(~ .end > .me) { margin-inline-end: var(--gap-words-control); }
+/* Beside where you are, search takes all the room left, past a field's widest, so no room ever opens between them and both keep the slant. */
+.top .nav ~ .find { max-width: none; }
 
 /* Where you are: a Switch (switch.ts), filling the room the header gives it; the header only places it.
    With fewer than two tabs to show it isn't a choice, so it's hidden (header()). */
 .nav { display: flex; flex: none; min-width: 0; }
 .top .nav[hidden] { display: none; }
 .nav > .switch-well { flex: 1; }
+/* The header's tabs are a regular control's height, as the search and the account button beside them: no row sets their well's, so it's set here. */
+.top .nav .switch-well { --control-height: var(--control-height-regular); }
 
-/* Search sits after the tabs, pushed to the end; with neither, the end goes to the end by itself. */
-.top .find { margin-left: auto; }
-.end { display: flex; align-items: center; flex: none; margin-left: auto; }
-.top .find ~ .end { margin-left: 0; }
+.end { display: flex; align-items: center; flex: none; }
 
 
 /* Phones: one slab in two rows: the logo, a search button and you on top; where you are below. */
@@ -163,7 +159,7 @@ const HEADER_STYLES = `
 @media ${HEADER_TWO_ROWS_MEDIA} {
   /* The header floats on phones too: a slab of glass inset from every edge (below the notch), never touching the screen's sides. */
   /* Two rows at most, at rest or compact: Zaisma, search and you (or Sign in) always share the first, the tabs or the field the second. */
-  .top { top: calc(var(--pad-pane) + env(safe-area-inset-top, 0px)); width: calc(100% - 2 * var(--pad-pane)); height: auto; display: grid; grid-template-columns: minmax(0, auto) minmax(0, 1fr) auto auto; align-items: center; gap: var(--gap-control-stack) 0; padding: var(--pad-inner-pane); }
+  .top { top: calc(var(--pad-pane) + env(safe-area-inset-top, 0px)); width: calc(100% - 2 * var(--pad-pane)); height: auto; display: grid; grid-template-columns: minmax(0, auto) minmax(0, 1fr) auto auto; align-items: center; gap: var(--gap-control-stack) 0; }
   /* Where the first row is tight (Sign in on a 320px phone), the logo gives way: it draws smaller in the room left, never pushing the row wider. */
   .top > .logo { grid-area: 1 / 1; min-width: 0; }
   .top > .logo img { max-width: 100%; }
@@ -171,33 +167,28 @@ const HEADER_STYLES = `
   .top > .end { grid-area: 1 / 4; }
   /* With a sidebar's button it's first in the first row, the logo beside it. */
   .top:has(> [data-sidebar-button]) { grid-template-columns: auto minmax(0, auto) minmax(0, 1fr) auto auto; }
-  .top > [data-sidebar-button] { grid-area: 1 / 1; margin-left: var(--pad-words); }
-  .top:has(> [data-sidebar-button]) > .logo { grid-area: 1 / 2; margin-left: 0; }
+  .top > [data-sidebar-button] { grid-area: 1 / 1; }
+  .top:has(> [data-sidebar-button]) > .logo { grid-area: 1 / 2; }
   .top:has(> [data-sidebar-button]) > .find + .cut-btn { grid-area: 1 / 4; }
   .top:has(> [data-sidebar-button]) > .end { grid-area: 1 / 5; }
   .top .nav, .top .find { grid-area: 2 / 1 / 3 / -1; }
   /* Compact keeps the same inset around the tabs as at rest; only the rows themselves get shorter. */
-  .top.is-compact { top: calc(6px + env(safe-area-inset-top, 0px)); height: auto; padding: calc(var(--pad-inner-pane) * 2 / 3); }
-  /* Words keep the page's margin from the header's edge, as in a pane: the logo, and the open search field's words (its icon first). */
-  .top { --pad-words: calc(var(--pad-pane) - var(--pad-inner-pane)); }
-  .top > .logo { margin-left: var(--pad-words); }
-  .top .find { --pad-inside-words: var(--pad-words); }
+  .top.is-compact { top: calc(6px + env(safe-area-inset-top, 0px)); }
+  /* Words keep the bar's words margin from its edge (materials.ts): the logo, and the open search field's words (its icon first), which its own
+     room as a carving already puts there. */
   .top > .logo, .top.is-compact > .logo { --logo-height: 22px; }
-  .top .find, .top .find:has(~ .end > .shell), .top .find:has(~ .end > .me) { display: none; order: 5; flex-basis: 100%; max-width: none; margin: 0; }
+  .top .find { display: none; order: 5; flex-basis: 100%; max-width: none; }
   .top.searching .find { display: flex; }
   .top.searching .nav { display: none; }
-  .top > .find + .cut-btn { display: inline-flex; margin-left: auto; margin-right: var(--gap-words-control); }
+  .top > .find + .cut-btn { display: inline-flex; }
   /* The tabs are a row of regular height: a finger's. */
   .top .nav, .top.is-compact .nav { order: 4; flex-basis: 100%; }
   /* The first row is small controls, so it shares Zaisma, search and Sign in or you on the narrowest phones; Sign in is the compact runner, or
      a small secondary button beside the page's own runner. */
   .top .end > .run-wrap > .run, .top .end > .cut-btn { --control-height: var(--control-height-small); }
-  .top .end .run { padding: 0 16px 0 14px; font-size: 0.875rem; gap: 6px; }
+  .top .end .run { --slab-words: 15px; font-size: 0.875rem; gap: 6px; }
   /* The picture is as tall as the search button beside it, at rest or compact. */
-  .top .me, .top.is-compact .me { --frame: var(--control-height-small); }
-  /* The search button and Sign in are a row of two controls, slanting toward each other; beside your picture, which never slants, it keeps a control's gap. */
-  .top > .find + .cut-btn:has(~ .end > .shell) { margin-right: var(--gap-control-row-boxes); }
-  .top > .find + .cut-btn:has(~ .end > .me) { margin-right: var(--gap-control-stack); }
+  .top .me, .top.is-compact .me { --control-height: var(--control-height-small); }
 }
 /* The account menu hangs from your picture's right end, so it's never wider than the room from there back to the page's margin: the
    header's width less its inset (a phone's header is narrower than the menu's own width). */
@@ -275,11 +266,11 @@ const FOOTER_LINKS: [string, string][] = [
 ];
 
 export function footer(): Raw {
-  return html`<footer class="foot glass" data-glass data-glass-corners="header">${EDGE}
+  return html`<footer class="foot glass glass-bar" data-glass data-glass-corners="header">${EDGE}<div class="foot-in words-margin round">
   ${logo("mark")}
   <nav aria-label="More from Zaisma">${FOOTER_LINKS.map(([words, href]) => textLink(words, href, { isQuiet: true }))}</nav>
   <p>Zaisma is open source, under the MIT license.</p>
-</footer>`;
+</div></footer>`;
 }
 
 /**
@@ -291,9 +282,10 @@ export function rail(scrollKind: "box" | "page" | "side"): Raw {
 }
 
 /**
- * A scrollbar of Zaisma's own, for a mouse or trackpad: a slim glass thumb on a hairline at the right edge. It wakes
- * while it moves and rests faintly otherwise. Drag the thumb, or press the line to jump; wheel, keys and touch
- * scroll as always, and phones keep their own. It hides itself when there's nothing to scroll.
+ * A scrollbar of Zaisma's own, on every device: a channel carved down the box (or along it, or down the page's gutter) with a slab of the
+ * glass sliding in it. It keeps the frame gap from the edges of the glass it runs in, and where it reaches a corner its end is cut along it.
+ * It wakes while it moves and rests faintly otherwise. Drag the thumb, or press the rail to jump; wheel, keys and touch scroll as always.
+ * It hides itself when there's nothing to scroll.
  * The page's rail has a mark for each part of the page marked data-rail-mark="<its name>" (the home's rows):
  * point at one for its name, click it to go there.
  */
@@ -332,14 +324,13 @@ export const RAIL_SCRIPT = `/* rail */(function () {
     railedBoxes.forEach(function (railed) {
       if (!railed) return;
       if (railed.isParentStatic) railed.box.parentElement.style.position = "relative";
-      railed.box.insertAdjacentHTML("afterend", '<div class="rail"' + (railed.isControl ? " data-rail-follows" : "") + ' data-rail="box" aria-hidden="true"><div class="rail-line"></div><div class="rail-thumb glass"></div></div>');
+      railed.box.insertAdjacentHTML("afterend", '<div class="rail" data-rail="box" aria-hidden="true">${RAIL_PARTS}</div>');
     });
     // A box that scrolls sideways and asks for it (data-side-rail: a table, a chart) gets the same rail laid on its side, under it: shown on
     // phones too, whose own sideways scrollbars hide.
     within.querySelectorAll("[data-side-rail]").forEach(function (box) {
       if (box.nextElementSibling && box.nextElementSibling.hasAttribute("data-rail")) return;
-      // Cut by the edge rule like anything near a pane's corner, so along a pane's foot its ends follow the corners.
-      box.insertAdjacentHTML("afterend", '<div class="rail sideways" data-rail="side" data-cut-line="0" aria-hidden="true"><div class="rail-line"></div><div class="rail-thumb glass"></div></div>');
+      box.insertAdjacentHTML("afterend", '<div class="rail sideways" data-rail="side" aria-hidden="true">${RAIL_PARTS}</div>');
     });
   }
   var wiredBars = new WeakSet();
@@ -350,9 +341,19 @@ export const RAIL_SCRIPT = `/* rail */(function () {
     wiredBars.add(bar);
     var isPage = bar.getAttribute("data-rail") === "page", isSide = bar.getAttribute("data-rail") === "side", scroller = isPage ? null : bar.previousElementSibling;
     // A box laid out round what scrolls (a switch's well round its tabs) names it: the rail goes under the box, and follows what's in it.
-    if (scroller && !scroller.matches("[data-rail-scroller]")) scroller = scroller.querySelector("[data-rail-scroller]") || scroller;
+    // Only its own: a box that scrolls itself and holds such a box further in (a pane with a switch in it) keeps its own rail.
+    if (scroller && !scroller.matches("[data-rail-scroller]")) scroller = scroller.querySelector(":scope > [data-rail-scroller]") || scroller;
     if (!isPage && !scroller) return;
-    var line = bar.querySelector(".rail-line"), thumb = bar.querySelector(".rail-thumb");
+    var groove = bar.querySelector(".rail-groove"), thumb = bar.querySelector(".rail-thumb");
+    // Its reach (the width a pointer finds it in) and its channel's width, centered in it.
+    var css = getComputedStyle(bar), reachPx = parseFloat(css.getPropertyValue("--rail-reach")) || 16, widthPx = parseFloat(css.getPropertyValue("--rail-width")) || 10;
+    // The groove sits 2px inside the channel, so its slanted ends lie 2px in from the channel's: the thumb stops this far along it, its own
+    // slant flush against the groove's end.
+    var SLANT_IN_PX = 2 * Math.SQRT2;
+    // The page's thumb follows the page's scroll in the browser itself where it can (a scroll-driven animation): in step with a swipe and
+    // with the browser's bar showing and hiding, which a script a frame behind can't be. Only its length is set here (--thumb-share).
+    var followsScroll = isPage && window.CSS && CSS.supports("animation-timeline: scroll()");
+    if (followsScroll) bar.classList.add("follows-scroll");
     if (isPage) document.documentElement.classList.add("own-scroll"); else scroller.classList.add("own-scroll");
     // Shown or not by its class, never by hidden: WebKit checks the page's :has() rules on [hidden] again over the whole page each time any
     // element's hidden changes, seconds on a page of a hundred boxes.
@@ -368,6 +369,9 @@ export const RAIL_SCRIPT = `/* rail */(function () {
           return !own || own === scroller || !scroller.contains(own);
         });
     if (!isPage && parts.length) scroller.setAttribute("data-rail-marks-own", "");
+    // The one name that rides beside the thumb while it's dragged.
+    var riding = null;
+    if (parts.length) { riding = document.createElement("span"); riding.className = "tag rail-name rail-riding"; riding.setAttribute("data-cut-line", "0"); riding.appendChild(document.createElement("span")); bar.appendChild(riding); }
     // Where a part sits along the box (or the page), from its start, as the box would scroll to show it.
     function spot(part, scrollPadding) {
       if (isPage) return part.getBoundingClientRect().top + window.scrollY - (scrollPadding === undefined ? offset() : scrollPadding);
@@ -376,44 +380,34 @@ export const RAIL_SCRIPT = `/* rail */(function () {
     }
     var marks = parts.map(function (part) {
       var mark = document.createElement("button"), name = document.createElement("span");
-      mark.type = "button"; mark.className = "rail-mark"; mark.tabIndex = -1; name.className = "tag glass"; name.textContent = part.getAttribute("data-rail-mark");
+      mark.type = "button"; mark.className = "rail-mark"; mark.tabIndex = -1; name.className = "tag rail-name"; name.setAttribute("data-cut-line", "0"); name.appendChild(document.createElement("span")).textContent = part.getAttribute("data-rail-mark");
       mark.appendChild(name); bar.appendChild(mark);
       mark.addEventListener("click", function () {
+        // A press on the thumb where a mark lies over it took the thumb, not the mark.
+        if (pressedThumb) { pressedThumb = false; return; }
+        go();
+      });
+      function go() {
         var behavior = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
         if (isPage) window.scrollTo({ top: spot(part), behavior: behavior }); else scroller.scrollTo(isSide ? { left: spot(part), behavior: behavior } : { top: spot(part), behavior: behavior });
-      });
+      }
+      mark.goToPart = go;
       return { part: part, mark: mark, name: name };
     });
-    // Names whose marks sit close would lie over each other: each keeps at least its own size (and a gap) from the last, along the rail,
-    // pulled back in where the last would run past the rail's end. --label-shift moves a name from its mark.
-    var LABEL_GAP_PX = 4;
+    // --label-shift moves a name from its mark.
     function spread(track) {
-      // Sideways, only one name shows at a time (the nearest, below): each sits over its own mark, kept inside the rail's ends.
-      if (isSide) {
-        marks.forEach(function (m) {
-          if (m.mark.hidden) return;
-          var at = parseFloat(m.mark.style.left) || 0, half = m.size / 2, center = Math.max(half, Math.min(track - half, at));
-          m.name.style.setProperty("--label-shift", (center - at).toFixed(1) + "px");
-        });
-        return;
-      }
-      var placed = marks.filter(function (m) { return !m.mark.hidden; }).map(function (m) {
-        return { m: m, at: parseFloat(m.mark.style[isSide ? "left" : "top"]) || 0, size: m.size };
-      }).sort(function (one, other) { return one.at - other.at; });
-      placed.forEach(function (p, i) { p.center = i ? Math.max(p.at, placed[i - 1].center + (placed[i - 1].size + p.size) / 2 + LABEL_GAP_PX) : p.at; });
-      for (var i = placed.length - 1; i >= 0; i--) {
-        var p = placed[i], most = i === placed.length - 1 ? Math.max(p.at, track - p.size / 2) : placed[i + 1].center - (placed[i + 1].size + p.size) / 2 - LABEL_GAP_PX;
-        if (p.center > most) p.center = most;
-      }
-      // …and never before the rail's start: where they can't all fit, the last ones run past its end instead.
-      placed.forEach(function (p, i) { var least = i ? placed[i - 1].center + (placed[i - 1].size + p.size) / 2 + LABEL_GAP_PX : Math.min(p.at, p.size / 2); if (p.center < least) p.center = least; });
-      placed.forEach(function (p) { p.m.name.style.setProperty("--label-shift", (p.center - p.at).toFixed(1) + "px"); });
+      // Only one name shows at a time (near, below): each sits by its own mark, kept inside the rail's ends.
+      marks.forEach(function (m) {
+        if (m.mark.hidden) return;
+        var at = parseFloat(m.mark.style[isSide ? "left" : "top"]) || 0, half = (m.size || 0) / 2, center = Math.max(half, Math.min(track - half, at));
+        m.restShift = (center - at).toFixed(1) + "px"; m.name.style.setProperty("--label-shift", m.restShift);
+      });
     }
     // Sideways, everything below runs along x instead of y: the box's left edge, its width, the pointer's x.
     function at() { return isPage ? window.scrollY : isSide ? scroller.scrollLeft : scroller.scrollTop; }
     function to(y) { if (isPage) window.scrollTo(0, y); else if (isSide) scroller.scrollLeft = y; else scroller.scrollTop = y; }
     function along(event) { return isSide ? event.clientX : event.clientY; }
-    var size = { track: 0, thumb: 0, max: 1 };
+    var size = { track: 0, thumb: 0, max: 1, start: 0 };
     // The page's rail starts the gutter's width below the page's floating bar (data-rail-starts-below), following it as it tightens.
     var above = isPage ? document.querySelector("[data-rail-starts-below]") : null, GUTTER_PX = 10;
     var rail = {
@@ -422,13 +416,36 @@ export const RAIL_SCRIPT = `/* rail */(function () {
         var placed = { whole: isPage ? document.documentElement.scrollHeight : isSide ? scroller.scrollWidth : scroller.scrollHeight, view: isPage ? window.innerHeight : isSide ? scroller.clientWidth : scroller.clientHeight };
         placed.max = placed.whole - placed.view;
         if (above) placed.top = Math.round(above.getBoundingClientRect().bottom + GUTTER_PX) + "px";
-        // A text box isn't a glass pane with room around it: the rail is laid along the box's own right edge.
-        if (bar.hasAttribute("data-rail-follows")) placed.follows = { top: scroller.offsetTop + 8 + "px", height: Math.max(0, scroller.offsetHeight - 16) + "px", left: scroller.offsetLeft + scroller.offsetWidth - 22 + "px" };
+        // Down a box, it runs the box's height at the right, keeping --rail-inset (the frame gap) from the edges of the glass or carving round
+        // it, and never past the box itself: so it's as clear of a pane's edge as anything with an edge. Its channel's ends are always
+        // slanted, longest on the side toward what scrolls; where the box reaches a cut corner, the end stops where its slant keeps that same
+        // gap from the corner's cut. Sideways, along a pane's foot, its ends keep the gap from the foot's corners the same way.
+        if (!isPage) {
+          var holder = scroller.closest("[data-glass], .carving"), parent = bar.offsetParent;
+          if (holder && parent) {
+            var edge = holder.getBoundingClientRect(), inset = parseFloat(getComputedStyle(holder).getPropertyValue("--rail-inset")) || 0, short = Math.min(edge.width, edge.height);
+            var cuts = (holder.cutCorners || (window.zaismaCorners ? window.zaismaCorners(holder, "pane") : [0, 0, 0, 0])).map(function (cut) { return Math.min(cut, Math.round(short * 0.3)); });
+            // How far from a corner's cut a slanted end has to stop: along the edge, the cut less the channel's width, plus what the gap adds on a slant.
+            var slack = inset * (Math.SQRT2 - 1), fromCut = function (cut) { return Math.max(inset, cut - widthPx + slack); };
+            if (isSide) {
+              var own = bar.getBoundingClientRect(), shownLeft = own.left - (parseFloat(bar.style.marginLeft) || 0), shownRight = own.right + (parseFloat(bar.style.marginRight) || 0);
+              var isAtFoot = edge.bottom - own.bottom <= inset + 2;
+              placed.side = isAtFoot ? { left: Math.max(0, edge.left + fromCut(cuts[3]) - shownLeft), right: Math.max(0, shownRight - (edge.right - fromCut(cuts[2]))) } : { left: 0, right: 0 };
+            } else {
+              // Measured on screen, where a sheet still growing in as it opens is drawn smaller than it lays out: the gaps are drawn at
+              // that size too, and what's measured is put back at the size it lays out at, so the rail lands where it will be once it's in.
+              var from = parent.getBoundingClientRect(), box = scroller.getBoundingClientRect(), drawn = holder.offsetWidth ? edge.width / holder.offsetWidth : 1;
+              var top = Math.max(box.top, edge.top + fromCut(cuts[1]) * drawn), bottom = Math.min(box.bottom, edge.bottom - fromCut(cuts[2]) * drawn), right = Math.min(box.right, edge.right - inset * drawn);
+              placed.box = { top: (top - from.top) / drawn - parent.clientTop, height: Math.max(0, bottom - top) / drawn, left: (right - from.left) / drawn - parent.clientLeft - (reachPx + widthPx) / 2 };
+            }
+          }
+        }
         return placed;
       },
       putPlace: function (placed) {
         if (placed.top) bar.style.top = placed.top;
-        if (placed.follows) { bar.style.top = placed.follows.top; bar.style.bottom = "auto"; bar.style.height = placed.follows.height; bar.style.right = "auto"; bar.style.left = placed.follows.left; }
+        if (placed.side) { bar.style.marginLeft = placed.side.left.toFixed(1) + "px"; bar.style.marginRight = placed.side.right.toFixed(1) + "px"; }
+        if (placed.box) { bar.style.top = placed.box.top.toFixed(1) + "px"; bar.style.height = placed.box.height.toFixed(1) + "px"; bar.style.left = placed.box.left.toFixed(1) + "px"; }
         if (isShown !== placed.max > 4) { isShown = placed.max > 4; bar.classList.toggle("is-on", isShown); }
         // The box makes room for its rail by this class, never by a :has() on the rail beside it, for the same reason.
         if (!isPage) scroller.classList.toggle("shows-rail", isShown);
@@ -438,7 +455,9 @@ export const RAIL_SCRIPT = `/* rail */(function () {
         if (!isShown) return null;
         var scrollPadding = isPage && marks.length ? offset() : 0;
         return {
-          track: isSide ? bar.clientWidth : bar.clientHeight,
+          // The thumb runs the groove between its slanted ends.
+          track: (isSide ? groove.clientWidth : groove.clientHeight) - 2 * SLANT_IN_PX,
+          start: (isSide ? groove.offsetLeft + groove.parentElement.offsetLeft : groove.offsetTop + groove.parentElement.offsetTop) + SLANT_IN_PX,
           at: at(),
           marks: marks.map(function (m) {
             var shown = Boolean(m.part.offsetParent);
@@ -449,13 +468,14 @@ export const RAIL_SCRIPT = `/* rail */(function () {
       put: function (placed, measured) {
         if (!measured) return;
         var track = measured.track, max = placed.max, height = Math.max(36, Math.round(track * placed.view / placed.whole));
-        size = { track: track, thumb: height, max: max };
-        thumb.style[isSide ? "width" : "height"] = height + "px";
+        size = { track: track, thumb: height, max: max, start: measured.start };
+        if (followsScroll) thumb.style.setProperty("--thumb-share", (placed.view / placed.whole).toFixed(4));
+        else thumb.style[isSide ? "width" : "height"] = height + "px";
         move(measured.at);
         marks.forEach(function (m, i) {
           var seen = measured.marks[i]; m.mark.hidden = !seen.shown; if (!seen.shown) return;
           var top = Math.max(0, Math.min(max, seen.spot));
-          m.mark.style[isSide ? "left" : "top"] = ((track - height) * top / max + height / 2).toFixed(1) + "px";
+          m.mark.style[isSide ? "left" : "top"] = (measured.start + (track - height) * top / max + height / 2).toFixed(1) + "px";
           // A name that was hidden has no size yet: it's read once it shows.
           m.size = seen.size || (isSide ? m.name.offsetWidth : m.name.offsetHeight);
         });
@@ -468,7 +488,7 @@ export const RAIL_SCRIPT = `/* rail */(function () {
     function layout() { if (drag) { isLayoutDue = true; return; } layOutSoon(rail); }
     // Scrolling only moves the thumb: the rail's size and its marks change only with the page's size (layout, above), so a scroll
     // never reads the page's layout.
-    function move(atPx) { if (isShown) thumb.style.transform = (isSide ? "translateX(" : "translateY(") + ((size.track - size.thumb) * Math.min(1, (atPx === undefined ? at() : atPx) / size.max)).toFixed(1) + "px)"; }
+    function move(atPx) { if (drag) near(); if (isShown && !followsScroll) thumb.style.transform = (isSide ? "translateX(" : "translateY(") + (SLANT_IN_PX + (size.track - size.thumb) * Math.min(1, (atPx === undefined ? at() : atPx) / size.max)).toFixed(1) + "px)"; }
     var sleep = 0, queued = false;
     // Woken only once a scroll: the class is set as it wakes, not on every scroll event, so the page's watchers hear of it once.
     function wake() { if (!bar.classList.contains("awake")) bar.classList.add("awake"); clearTimeout(sleep); sleep = setTimeout(function () { bar.classList.remove("awake"); }, 1100); }
@@ -496,13 +516,28 @@ export const RAIL_SCRIPT = `/* rail */(function () {
     function start(event, jump) {
       event.preventDefault();
       var before = at();
-      if (jump) { var y = along(event) - (isSide ? bar.getBoundingClientRect().left : bar.getBoundingClientRect().top) - size.thumb / 2; to(Math.max(0, Math.min(1, y / (size.track - size.thumb))) * size.max); }
+      if (jump) { var y = along(event) - (isSide ? groove.getBoundingClientRect().left : groove.getBoundingClientRect().top) - size.thumb / 2; to(Math.max(0, Math.min(1, y / (size.track - size.thumb))) * size.max); }
       drag = { y: along(event), last: along(event), from: at(), scrolls: [before, at()], isMoving: event.pointerType === "mouse", isTouch: event.pointerType !== "mouse" }; bar.classList.add("dragging");
+      // A box that snaps (a track's covers) follows the thumb freely while it's dragged, never jumping cover to cover, and snaps once let go.
+      if (!isPage && getComputedStyle(scroller).scrollSnapType !== "none") scroller.classList.add("is-dragged");
       try { bar.setPointerCapture(event.pointerId); } catch (error) {}
     }
     thumb.addEventListener("pointerdown", function (event) { start(event, false); });
-    line.addEventListener("pointerdown", function (event) { start(event, true); });
-    bar.addEventListener("pointermove", function (event) {
+    // A press anywhere else in its reach jumps there; a mark goes to its own part instead.
+    // A mark's reach lies over the thumb where they meet: a press there takes the thumb, as a press anywhere on it does, never the mark.
+    var pressedThumb = false, pressedMark = null, pressedAt = 0;
+    bar.addEventListener("pointerdown", function (event) {
+      if (thumb.contains(event.target)) return;
+      if (event.target.closest(".rail-mark")) {
+        var t = thumb.getBoundingClientRect();
+        pressedThumb = along(event) >= (isSide ? t.left : t.top) && along(event) <= (isSide ? t.right : t.bottom);
+        // A press that lets go where it started is a click on the mark after all: it goes to the mark's part (release, below).
+        if (pressedThumb) { pressedMark = event.target.closest(".rail-mark"); pressedAt = along(event); start(event, false); }
+        return;
+      }
+      start(event, true);
+    });
+    function follow(event) {
       if (!drag) return;
       var spotPx = spotOf(event);
       drag.last = spotPx;
@@ -511,27 +546,61 @@ export const RAIL_SCRIPT = `/* rail */(function () {
       if (Math.abs(goal - at()) < 1) return;
       to(goal);
       drag.scrolls.push(at()); if (drag.scrolls.length > SCROLLS_KEPT) drag.scrolls.shift();
-    });
-    function end() { drag = null; bar.classList.remove("dragging"); if (isLayoutDue) { isLayoutDue = false; layout(); } }
-    // Sideways, the name shown is the mark's nearest the pointer, or the thumb's middle while dragging.
-    function near(event) {
-      if (!isSide || !marks.length) return;
-      var spotPx = drag ? (size.track - size.thumb) * Math.min(1, at() / size.max) + size.thumb / 2 : event.clientX - bar.getBoundingClientRect().left, best = null, gap = Infinity;
-      marks.forEach(function (m) { if (m.mark.hidden) return; var away = Math.abs(parseFloat(m.mark.style.left) - spotPx); if (away < gap) { gap = away; best = m; } });
-      marks.forEach(function (m) { m.mark.classList.toggle("is-near", m === best); });
     }
-    function farAway() { marks.forEach(function (m) { m.mark.classList.remove("is-near"); }); }
+    bar.addEventListener("pointermove", follow);
+    // The rail holds the pointer while it's dragged (setPointerCapture), but a browser can lose it or never give it (a press on the line
+    // beside the thumb): so the page follows the pointer and hears it let go too, wherever it is, until the drag ends.
+    window.addEventListener("pointermove", function (event) { if (drag && !bar.hasPointerCapture(event.pointerId)) follow(event); });
+    window.addEventListener("pointerup", function (event) { if (drag && !bar.hasPointerCapture(event.pointerId)) release(event); });
+    window.addEventListener("pointercancel", function () { if (drag) end(); });
+    function end() { drag = null; bar.classList.remove("dragging"); settle(); if (isLayoutDue) { isLayoutDue = false; layout(); } }
+    // Let go, a box that snaps glides to its nearest snapping point, then snaps again as it always does.
+    function settle() {
+      if (isPage || !scroller.classList.contains("is-dragged")) return;
+      var box = scroller.getBoundingClientRect(), css = getComputedStyle(scroller), now = at();
+      var padStart = parseFloat(isSide ? css.scrollPaddingLeft : css.scrollPaddingTop) || 0, edge = isSide ? box.left + scroller.clientLeft : box.top + scroller.clientTop;
+      var spots = Array.prototype.filter.call(scroller.children, function (child) { return getComputedStyle(child).scrollSnapAlign.indexOf("start") >= 0; })
+        .map(function (child) { var r = child.getBoundingClientRect(); return Math.max(0, Math.min(size.max, now + (isSide ? r.left : r.top) - edge - padStart)); });
+      // Its two ends are places to stop too: dragged all the way, it stays flush at its start or its end.
+      spots.push(0, size.max);
+      var nearest = spots.length ? spots.reduce(function (best, spot) { return Math.abs(spot - now) < Math.abs(best - now) ? spot : best; }) : now;
+      // It glides there in the time something takes to arrive (--motion-arrive), easing out, unless a new drag takes it up first; with
+      // reduced motion it's there at once. Then it snaps again as it always does.
+      var done = function () { if (!drag) scroller.classList.remove("is-dragged"); };
+      var arriveMs = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--motion-arrive")) * 1000 || 300;
+      if (Math.abs(nearest - now) < 1 || matchMedia("(prefers-reduced-motion: reduce)").matches) { to(nearest); return done(); }
+      var startedAt = performance.now();
+      (function step(time) {
+        if (drag) return;
+        var progress = Math.min(1, (time - startedAt) / arriveMs);
+        to(now + (nearest - now) * (1 - Math.pow(1 - progress, 3)));
+        if (progress < 1) requestAnimationFrame(step); else done();
+      })(startedAt);
+    }
+    // One name shows at a time: the mark's nearest the pointer, sitting by its mark; while dragging, the part the thumb is in (the last mark
+    // its middle has passed, or the first), riding beside the thumb's middle.
+    // While the thumb is dragged, one name rides beside its middle: the part it's in, the last whose start has come into the first third of
+    // the view (read only while dragging). Pointing, a mark's name opens only while the pointer is on the mark itself (its :hover), where a
+    // click goes there.
+    function near() {
+      if (!marks.length || !drag) return;
+      var middle = size.start + (size.track - size.thumb) * Math.min(1, at() / size.max) + size.thumb / 2, best = null;
+      var view = isPage ? { start: 0, size: window.innerHeight } : (function (r) { return { start: isSide ? r.left : r.top, size: isSide ? r.width : r.height }; })(scroller.getBoundingClientRect());
+      marks.forEach(function (m) { if (m.mark.hidden) return; var r = m.part.getBoundingClientRect(); if (!best || (isSide ? r.left : r.top) - view.start <= view.size / 3) best = m; });
+      // Only its words change, never its rim (the edge rule's line beside them).
+      if (best && riding.lastChild.textContent !== best.name.textContent) riding.lastChild.textContent = best.name.textContent;
+      riding.style.setProperty("--riding-at", middle.toFixed(1) + "px");
+    }
     bar.addEventListener("pointermove", near);
     bar.addEventListener("pointerdown", near);
-    bar.addEventListener("pointerleave", function () { if (!drag) farAway(); });
     // By touch, letting go of the thumb near a mark goes to its part, as a click on the mark does with a mouse.
     var SNAP_PX = 18;
     function release(event) {
       // A finger only resting on the thumb goes nowhere.
-      var wasDragging = Boolean(drag && drag.isMoving); end();
-      if (event.pointerType !== "mouse") farAway();
+      var wasDragging = Boolean(drag && drag.isMoving), tapped = pressedMark && Math.abs(along(event) - pressedAt) < 4 ? pressedMark : null; pressedMark = null; end();
+      if (tapped) { tapped.goToPart(); return; }
       if (!wasDragging || event.pointerType === "mouse" || !marks.length) return;
-      var middle = (size.track - size.thumb) * Math.min(1, at() / size.max) + size.thumb / 2, nearest = null, gap = SNAP_PX;
+      var middle = size.start + (size.track - size.thumb) * Math.min(1, at() / size.max) + size.thumb / 2, nearest = null, gap = SNAP_PX;
       marks.forEach(function (m) { if (m.mark.hidden) return; var away = Math.abs(parseFloat(m.mark.style[isSide ? "left" : "top"]) - middle); if (away <= gap) { gap = away; nearest = m; } });
       if (nearest) nearest.mark.click();
     }
@@ -747,9 +816,9 @@ const standInPage = html`<div class="stand-in-page">${["Continue playing", "Popu
 const headerFrame = (markup: Raw, isTall = false) => html`<div class="header-frame${isTall ? " tall" : ""}"><div class="backdrop is-framed" aria-hidden="true"></div>${markup}<div class="header-scroll" data-scroll-box>${standInPage}</div></div>`;
 /** A footer example: a small page of its own, cut like a pane, with the backdrop behind it, as the header's are. */
 const pageFrame = (markup: Raw) => html`<div class="header-frame"><div class="backdrop is-framed" aria-hidden="true"></div><div class="header-scroll" data-scroll-box>${markup}</div></div>`;
-const STAND_IN_ACCOUNT = { username: "emma_r", pictureMarkup: pictureFrame("emma_r", "md", { presence: "online", isCut: true }) };
-const LONG_NAMED_ACCOUNT = { username: "maximilian_vandenberg", pictureMarkup: pictureFrame("maximilian_vandenberg", "md", { presence: "online", isCut: true }) };
-const GAMES_SEARCH = { action: "#header", name: "search_text", searchText: "", placeholder: "Search games", label: "Search games" };
+const STAND_IN_ACCOUNT = { username: "emma_r" };
+const LONG_NAMED_ACCOUNT = { username: "maximilian_vandenberg" };
+const GAMES_SEARCH = { action: "#header", name: "search_text", searchText: "", placeholder: "Search games", label: "Search games", suggestionsUrl: "/design/examples/search-suggestions" };
 
 component({
   name: "Header",
@@ -761,15 +830,12 @@ component({
   render: header,
   examples: [
     { label: "Try it: scroll the page under it, point at its tabs, open the menu", isWide: true, markup: headerFrame(header({ id: "example-top-try", current: "home", search: GAMES_SEARCH, account: STAND_IN_ACCOUNT, isOnDeveloperPage: false, yourGamesHref: "#header" }), true) },
-    { label: "Signed out, on Home: no tabs, since Home alone isn't a choice", isWide: true, isStill: true, markup: headerFrame(header({ id: "example-top-out", current: "home", search: GAMES_SEARCH, account: null, isOnDeveloperPage: false })) },
-    { label: "Signed out, on a page with its own runner (a game's Play): Sign in is a secondary button", isWide: true, isStill: true, markup: headerFrame(header({ id: "example-top-runner", current: "home", search: GAMES_SEARCH, account: null, isOnDeveloperPage: false, hasPageRunner: true })) },
-    { label: "Signed in, menu open", isWide: true, isStill: true, markup: headerFrame(header({ id: "example-top-in", current: "home", search: GAMES_SEARCH, account: STAND_IN_ACCOUNT, isOnDeveloperPage: false, isMenuOpen: true, yourGamesHref: "#header" }), true) },
-    { label: "A long username, menu open", isWide: true, isStill: true, markup: headerFrame(header({ id: "example-top-long", current: "home", search: GAMES_SEARCH, account: LONG_NAMED_ACCOUNT, isOnDeveloperPage: false, isMenuOpen: true, yourGamesHref: "#header" }), true) },
-    { label: "On the dashboard", isWide: true, isStill: true, markup: headerFrame(header({ id: "example-top-dev", current: "developer", account: STAND_IN_ACCOUNT, isOnDeveloperPage: true, yourGamesHref: "#header" })) },
-    { label: "Search open (on a phone it takes the tabs' place)", isWide: true, isStill: true, markup: headerFrame(header({ id: "example-top-search", current: "home", search: { ...GAMES_SEARCH, searchText: "Ashen Crown" }, account: STAND_IN_ACCOUNT, isOnDeveloperPage: false, yourGamesHref: "#header", isSearchOpen: true })) },
-    { label: "Compact, after scrolling", isWide: true, isStill: true, markup: headerFrame(header({ id: "example-top-compact", current: "home", search: GAMES_SEARCH, account: STAND_IN_ACCOUNT, isOnDeveloperPage: false, isCompact: true, yourGamesHref: "#header" })) },
-    { label: "Compact and signed out", isWide: true, isStill: true, markup: headerFrame(header({ id: "example-top-compact-out", current: "home", search: GAMES_SEARCH, account: null, isOnDeveloperPage: false, isCompact: true })) },
-    { label: "On sign-in", isWide: true, isStill: true, markup: headerFrame(header({ id: "example-top-sign-in", current: null, isOnDeveloperPage: false, isOnSignInPage: true })) },
+    { label: "Signed out", isWide: true, isStill: true, markup: headerFrame(header({ id: "example-top-out", current: "home", search: GAMES_SEARCH, account: null, isOnDeveloperPage: false })) },
+    { label: "Menu open, with a long username", isWide: true, isStill: true, markup: headerFrame(header({ id: "example-top-long", current: "home", search: GAMES_SEARCH, account: LONG_NAMED_ACCOUNT, isOnDeveloperPage: false, isMenuOpen: true, yourGamesHref: "#header" }), true) },
+    { label: "Search open, its finishes and games under it (on a phone it takes the tabs' place)", isWide: true, isStill: true, markup: headerFrame(header({ id: "example-top-search", current: "home", search: { ...GAMES_SEARCH, searchText: "ash", state: "is-open", shownSuggestions: SEARCH_STAND_IN.suggestionsFor("ash") }, account: STAND_IN_ACCOUNT, isOnDeveloperPage: false, yourGamesHref: "#header", isSearchOpen: true }), true) },
+    { label: "On the dashboard: no search", isWide: true, isStill: true, markup: headerFrame(header({ id: "example-top-dev", current: "developer", account: STAND_IN_ACCOUNT, isOnDeveloperPage: true, yourGamesHref: "#header" })) },
+    { label: "Compact after scrolling, on a page with its own runner (a game's Play): Sign in is a secondary button", isWide: true, isStill: true, markup: headerFrame(header({ id: "example-top-runner", current: "home", search: GAMES_SEARCH, account: null, isOnDeveloperPage: false, hasPageRunner: true, isCompact: true })) },
+    { label: "On sign-in: Zaisma alone", isWide: true, isStill: true, markup: headerFrame(header({ id: "example-top-sign-in", current: null, isOnDeveloperPage: false, isOnSignInPage: true })) },
   ],
 });
 
@@ -778,27 +844,18 @@ component({
   slug: "account-button",
   group: "navigation",
   subgroup: "bars",
-  summary: "You, at the header's end once you're signed in: your picture alone is the button, online, as tall as the controls beside it. It opens the account menu, which names you.",
+  summary: "You, at the header's end once you're signed in: your picture alone is the button, a slab as tall as the controls beside it. It opens the account menu, which names you.",
   styles: `
-/* Your picture in its frame, as tall as the controls beside it and cut by the edge rule like them (Picture frame's isCut), so it fits the
-   header's corner. Pointing brightens it, pressing sinks it a little, and with the menu open or by keyboard the focus line runs round it
-   inside its cut, as on every control. Online, its green line runs inside the frame's foot, so nothing sits outside the button to crowd the
-   header's edge or what's below it. */
-.me { --frame: var(--control-height-regular); position: relative; display: flex; padding: 0; border: 0; background: none; cursor: pointer; -webkit-tap-highlight-color: transparent; }
-.me .frame { --frame: inherit; transition: var(--glass-transition), width 0.45s cubic-bezier(.2,.8,.2,1), height 0.45s cubic-bezier(.2,.8,.2,1), scale 0.15s; }
-.me .frame-picture { transition: filter 0.2s; }
-.me:hover .frame-picture, .me.is-pointed .frame-picture, .me[aria-expanded="true"] .frame-picture { filter: brightness(1.1); }
-.me:active .frame, .me.is-pressed .frame { scale: 0.95; }
+/* Your picture as a slab (materials.ts, holds-art): raised on the header's glass, as tall as the controls beside it and cut by the edge rule
+   like them, so it fits the header's corner. Its states are the slab's: pointed it catches the light, pressed it lands, and by keyboard the
+   focus line runs round its whole cut. With the menu open the focus line stays round it, as it shows where the menu came from. */
+.me { --control-height: var(--control-height-regular); }
 .me:focus-visible { outline: none; }
-/* The focus line: the frame's drawn rim, whole, its hairline in the focus color as wide as every control's focus line
-   (half of it shows inside the cut), and the pale parts of the rim that lie over it (its band, glint, facets, fringe) put away. */
-.me:focus-visible .frame > .edge, .me.is-focused .frame > .edge, .me[aria-expanded="true"] .frame > .edge { opacity: 1; }
-.me:focus-visible .frame > .edge .hair, .me.is-focused .frame > .edge .hair, .me[aria-expanded="true"] .frame > .edge .hair { stroke: var(--focus); stroke-width: var(--focus-stroke); }
-.me:focus-visible .frame > .edge :is(.rim-band, .spec-line, .facet, .fringe, .inner), .me.is-focused .frame > .edge :is(.rim-band, .spec-line, .facet, .fringe, .inner), .me[aria-expanded="true"] .frame > .edge :is(.rim-band, .spec-line, .facet, .fringe, .inner) { opacity: 0; }
+.me[aria-expanded="true"] > .slab > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 `,
   render: accountButton,
   examples: [
-    // A still copy: the header's own example (Header) opens the menu.
+    { label: "Try it: point at it, press it, Tab to it, open its menu", markup: html`${accountButton({ ...STAND_IN_ACCOUNT, menuId: "example-me-try-menu" })}${accountMenu(STAND_IN_ACCOUNT.username, "example-me-try-menu")}` },
     { label: "Rest", markup: accountButton({ ...STAND_IN_ACCOUNT, menuId: "example-me-menu" }), isStill: true },
     { label: "Pointed", markup: accountButton({ ...STAND_IN_ACCOUNT, menuId: "example-me-menu", state: "is-pointed" }), isStill: true },
     { label: "Pressed", markup: accountButton({ ...STAND_IN_ACCOUNT, menuId: "example-me-menu", state: "is-pressed" }), isStill: true },
@@ -818,20 +875,21 @@ component({
 /* The footer: a slab of the header's glass across the bottom of the page, where the page ends, never floating over it. Its words are all of
    it, so they keep a pane's margin from its edge. */
 .foot {
-  position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-block-block);
-  width: min(var(--size-page-wide), calc(100% - 2 * var(--pad-pane))); margin: var(--gap-block-block) auto var(--pad-pane); padding: var(--pad-pane);
+  position: relative; width: min(var(--size-page-wide), calc(100% - 2 * var(--pad-pane))); margin: var(--gap-block-block) auto var(--pad-pane);
   color: var(--muted); font: var(--type-note); --glass-tint: var(--glass-top);
   clip-path: ${cutPolygon("header")};
   transition: var(--glass-transition);
 }
 .foot > :not(.edge) { position: relative; z-index: 3; }
+/* A bar of glass (materials.ts), its words all of it, so they keep the words margin all round. */
+.foot-in { display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-block-block); }
 /* Quiet links in a row read as one sentence at a word's gap, so each sits a block's gap apart: a list of places, not a line of words. Each
    link is whole on its line (its words never wrap), and the row wraps between links. */
 .foot nav { display: flex; flex-wrap: wrap; gap: var(--gap-words-words) var(--gap-block-block); white-space: nowrap; }
 .foot p { margin: 0 0 0 auto; }
 /* On a phone it stacks, centered: the mark, the links on centered lines as many as fit, then the license. */
 @media (max-width: 760px) {
-  .foot { flex-direction: column; align-items: center; text-align: center; }
+  .foot-in { flex-direction: column; align-items: center; text-align: center; }
   .foot nav { justify-content: center; width: 100%; }
   .foot p { margin: 0; }
 }
@@ -843,110 +901,108 @@ component({
 component({
   name: "Rail",
   slug: "rail",
-  group: "navigation",
-  subgroup: "scrolling",
-  summary: "Zaisma's own scrollbar, on every device: it rests faintly and wakes while things move. On a touch screen its thumb is a little wider and drags with a finger.",
+  group: "panes",
+  subgroup: "materials",
+  after: "light",
+  summary: "Zaisma's own scrollbar, on every device: a channel carved in the glass with a slab sliding in it, at the frame gap from the glass's edges, its ends always slanted so the thumb slides flush into them. It rests faintly, wakes while things move, and drags with a finger or the mouse.",
   styles: `
-/* Zaisma's own scrollbar, on every device: a hairline with a slim glass thumb that wakes while it moves.
-   In a box it runs down the inside of the box's right edge; for the page, down the page's right gutter; sideways, under the box. */
+/* Zaisma's own scrollbar, on every device: a channel carved in the glass with a slab sliding in it (the materials, materials.ts), resting
+   faintly and waking while it moves. Down a box it runs the box's height at the right, at the frame gap from the edges of the glass round
+   it (RAIL_SCRIPT places it); for the page, down the page's right gutter; sideways, under the box. Its channel's ends and its thumb's are
+   always slanted, longest toward what scrolls, so the thumb slides flush into either end; where an end reaches a cut corner, it stops
+   where its slant keeps the frame gap from the corner's cut. */
 .own-scroll { scrollbar-width: none; }
 .own-scroll::-webkit-scrollbar { display: none; }
-.rail { display: none; position: absolute; z-index: 6; right: 8px; top: 30px; bottom: 30px; width: 14px; opacity: 0.6; transition: opacity 0.35s; }
+.rail { display: none; position: absolute; z-index: 6; top: 0; left: 0; width: var(--rail-reach); opacity: 0.6; transition: opacity var(--motion-arrive); }
 .rail.is-on { display: block; }
 .glass > .rail { position: absolute; z-index: 6; }
-.rail[data-rail="page"] { position: fixed; z-index: 12; right: 0; top: 90px; bottom: 14px; }
+/* The page's sits in the middle of the page's right gutter, as clear of the screen's edge as of the glass. */
+.rail[data-rail="page"] { position: fixed; z-index: 12; left: auto; right: calc((var(--pad-pane) - var(--rail-reach)) / 2); top: 90px; bottom: 14px; }
 .rail.awake, .rail:hover, .rail.dragging { opacity: 1; }
-.rail-line { position: absolute; inset: 0; cursor: pointer; background: linear-gradient(90deg, transparent 6px, var(--rail-line) 6px, var(--rail-line) 7px, transparent 7px); }
-.rail-thumb { position: absolute; top: 0; left: 4px; width: 5px; cursor: grab; --glass-tint: var(--rail-thumb); box-shadow: inset 1px 0 0 var(--rail-edge), 0 2px 6px rgba(10,20,40,0.18);
-  clip-path: polygon(0 4px, 4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%);
-  transition: var(--glass-transition), left 0.2s, width 0.2s; }
-.rail:hover .rail-thumb, .rail.dragging .rail-thumb { left: 2px; width: 9px; clip-path: polygon(0 5px, 5px 0, 100% 0, 100% calc(100% - 5px), calc(100% - 5px) 100%, 0 100%); }
-.rail.dragging .rail-thumb { cursor: grabbing; box-shadow: inset 2px 0 0 var(--run), 0 2px 8px rgba(10,20,40,0.22); }
-/* Sideways (a table, a chart): the same rail laid on its side, under the box. */
-.rail.sideways { position: relative; inset: auto; width: auto; height: 14px; user-select: none; -webkit-user-select: none; clip-path: var(--cut-shape); }
-.rail.sideways .rail-line { background: linear-gradient(180deg, transparent 6px, var(--rail-line) 6px, var(--rail-line) 7px, transparent 7px); }
-.rail.sideways .rail-thumb { top: 4px; left: 0; width: auto; height: 5px; box-shadow: inset 0 1px 0 var(--rail-edge), 0 2px 6px rgba(10,20,40,0.18); transition: var(--glass-transition), top 0.2s, height 0.2s; }
-.rail.sideways:hover .rail-thumb, .rail.sideways.dragging .rail-thumb { top: 2px; left: 0; width: auto; height: 9px; }
-.rail.sideways.dragging .rail-thumb { box-shadow: inset 0 2px 0 var(--run), 0 2px 8px rgba(10,20,40,0.22); }
-/* A mark per part of the page: a short tick on the line that turns orange when pointed at. Pointing anywhere on the rail opens every mark's name on a small glass label to its left. */
-/* Its click area is far bigger than the tick: 24px tall and reaching in over the page, so a mark is easy to hit. */
-.rail-mark { position: absolute; left: -12px; width: 26px; height: 24px; margin-top: -12px; padding: 0; border: 0; cursor: pointer; background: none; }
-.rail-mark::before { content: ""; position: absolute; left: 15px; right: 2px; top: 11px; height: 2px; --face-color: var(--rail-mark); background: var(--face-color); transition: --face-color 0.2s, left 0.2s; }
-.rail-mark:hover::before { --face-color: var(--run); left: 9px; }
+/* What a rail's thumb is dragging follows it freely: it snaps once let go (settle in RAIL_SCRIPT). */
+.own-scroll.is-dragged { scroll-snap-type: none; }
+/* Its channel runs its whole length down the middle of its reach, both its ends slanted, longest on the side toward what scrolls; the thumb's
+   ends slant the same way, so at either end it slides flush into the channel's end, as a switch's slab into its well. */
+.rail > .rail-line { position: absolute; top: 0; bottom: 0; left: calc((var(--rail-reach) - var(--rail-width)) / 2); width: var(--rail-width); cursor: pointer;
+  --cut-shape: polygon(0 0, 100% var(--rail-width), 100% calc(100% - var(--rail-width)), 0 100%); }
+.rail-thumb { --thumb-slant: calc(var(--rail-width) - 4px); clip-path: polygon(0 0, 100% var(--thumb-slant), 100% calc(100% - var(--thumb-slant)), 0 100%); }
+.rail-thumb { cursor: grab; }
+.rail.dragging .rail-thumb { cursor: grabbing; }
+/* Sideways (a table, a chart): the same rail laid on its side, under the box, its channel along the foot of its reach, so at a pane's foot it
+   sits at the frame gap like anything with an edge. */
+.rail.sideways { position: relative; top: auto; left: auto; width: auto; height: var(--rail-reach); user-select: none; -webkit-user-select: none; }
+.rail.sideways > .rail-line { top: auto; bottom: 0; left: 0; right: 0; width: auto; height: var(--rail-width);
+  --cut-shape: polygon(0 0, 100% 0, calc(100% - var(--rail-width)) 100%, var(--rail-width) 100%); }
+.rail.sideways .rail-thumb { clip-path: polygon(0 0, 100% 0, calc(100% - var(--thumb-slant)) 100%, var(--thumb-slant) 100%); }
+/* A mark per part of the page: a hairline etched across the groove (materials.ts) that turns orange when pointed at. Pointing at the rail
+   opens the nearest mark's name on a small glass label to its left; dragging, the name of the part the thumb is in rides beside it. */
+/* Its click area is far bigger than the etch: 24px tall and reaching in over the page, so a mark is easy to hit. */
+.rail-mark { position: absolute; left: -12px; width: 28px; height: 24px; margin-top: -12px; padding: 0; border: 0; cursor: pointer; background: none; }
+.rail-mark::before { content: ""; position: absolute; left: 17px; right: 5px; top: 11.5px; height: 1px; }
 .rail-mark[hidden] { display: none; }
-/* Its name is a Tag on glass (data.ts), wiped open from the rail. */
-.rail-mark span { position: absolute; right: 28px; top: 50%; transform: translate(0, calc(-50% + var(--label-shift, 0px))); pointer-events: none;
-  clip-path: polygon(100% 0, 100% 0, calc(100% - 5px) 100%, calc(100% - 5px) 100%); visibility: hidden;
-  transition: var(--glass-transition), clip-path 0.18s ease-out, visibility 0s 0.18s; }
-/* A label opens by wiping out from the rail, never by fading: a fading blur draws without its glass and turns solid at the end. */
-/* Closed, a label is hidden as well as wiped shut, so its glass isn't drawn under the page's scrolling while nobody can see it. */
-.rail:hover .rail-mark span, .rail.dragging .rail-mark span { clip-path: polygon(5px 0, 100% 0, calc(100% - 5px) 100%, 0 100%); visibility: visible; transition: var(--glass-transition), clip-path 0.18s ease-out, visibility 0s; }
-/* In a box, the words under a label are close by and a pane's glass can't blur them again, so its glass is denser. */
-.rail:not([data-rail="page"]) .rail-mark span { --glass-tint: var(--table-row-head); }
-/* Along a sideways rail, a mark is a short upright tick across the line, and its name opens above it, wiped up from the rail. */
+/* While the thumb is dragged, the marks don't answer the pointer: only the part the thumb is in is named and lit. */
+.rail.dragging .rail-mark { pointer-events: none; }
+/* A name sits on a small slab (materials.ts) against the channel. Pointing at a mark (where a click goes to its part), its name slides out
+   from under the channel by it; dragging, one name rides beside the thumb (.rail-riding), only its words changing as it passes a part, so
+   nothing slides in and out mid-drag. */
+.rail-mark > span, .rail-riding { position: absolute; right: 15px; pointer-events: none; opacity: 0; visibility: hidden; translate: 6px 0;
+  transition: opacity var(--motion-state) ease-out, translate var(--motion-state) ease-out, visibility 0s var(--motion-state); }
+.rail-mark > span { top: 50%; transform: translate(0, calc(-50% + var(--label-shift, 0px))); }
+.rail-riding { top: var(--riding-at, 0px); transform: translateY(-50%); white-space: nowrap; }
+.rail:not(.dragging) .rail-mark:hover > span, .rail.dragging .rail-riding { opacity: 1; visibility: visible; translate: 0 0; transition: opacity var(--motion-state) ease-out, translate var(--motion-state) ease-out, visibility 0s; }
+/* Along a sideways rail, a mark is a short upright tick across the channel, and its name slides up out of it, above it. */
 .rail.sideways .rail-mark { left: auto; top: -10px; width: 24px; height: 26px; margin: 0 0 0 -12px; }
-/* Its tick crosses the line as a down rail's does (3px to 12px across the rail), reaching further toward the box when pointed at. */
-.rail.sideways .rail-mark::before { left: 11px; right: auto; top: 13px; bottom: 4px; width: 2px; height: auto; transition: --face-color 0.2s, top 0.2s; }
-.rail.sideways .rail-mark:hover::before { left: 11px; top: 7px; }
-.rail.sideways .rail-mark span { right: auto; top: auto; left: 50%; bottom: 26px; transform: translateX(calc(-50% + var(--label-shift, 0px)));
-  clip-path: polygon(0 100%, 100% 100%, 100% 100%, 0 100%); }
-.rail.sideways:hover .rail-mark span, .rail.sideways.dragging .rail-mark span { clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%); }
-/* A sideways rail has room for one name at a time: the nearest mark's (is-near); the rest stay shut. */
-.rail.sideways .rail-mark:not(.is-near) span { clip-path: polygon(0 100%, 100% 100%, 100% 100%, 0 100%); visibility: hidden;
-  transition: var(--glass-transition), clip-path 0.18s ease-out, visibility 0s 0.18s; }
-/* In the narrow layout (a phone, or a small window), the page's bar fits in the gutter beside the glass, centered in it, clear of the
-   screen's edge, and starts below the header. */
-@media (max-width: 760px) {
-  .rail[data-rail="page"] { width: 10px; right: calc((var(--pad-pane) - 10px) / 2); top: 132px; bottom: 10px; }
-  .rail[data-rail="page"] .rail-line { background: linear-gradient(90deg, transparent 4.5px, var(--rail-line) 4.5px, var(--rail-line) 5.5px, transparent 5.5px); }
-  .rail[data-rail="page"] .rail-thumb { left: 3px; width: 4px; clip-path: polygon(0 3px, 3px 0, 100% 0, 100% calc(100% - 3px), calc(100% - 3px) 100%, 0 100%); }
-  .rail[data-rail="page"]:hover .rail-thumb, .rail[data-rail="page"].dragging .rail-thumb { left: 2px; width: 6px; clip-path: polygon(0 4px, 4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%); }
-  /* …its marks' ticks across that slimmer line. */
-  .rail[data-rail="page"] .rail-mark { left: -14px; width: 24px; }
-  .rail[data-rail="page"] .rail-mark::before { left: 16px; right: 0; }
-  .rail[data-rail="page"] .rail-mark:hover::before { left: 12px; }
+.rail.sideways .rail-mark::before { left: 11.5px; right: auto; top: 18px; bottom: 2px; width: 1px; height: auto; }
+.rail.sideways .rail-mark > span, .rail.sideways .rail-riding { right: auto; translate: 0 6px; }
+.rail.sideways .rail-mark > span { top: auto; left: 50%; bottom: 17px; transform: translateX(calc(-50% + var(--label-shift, 0px))); }
+.rail.sideways .rail-riding { top: auto; bottom: 17px; left: var(--riding-at, 0px); transform: translateX(-50%); }
+.rail.sideways:not(.dragging) .rail-mark:hover > span, .rail.sideways.dragging .rail-riding { translate: 0 0; }
+/* The page's thumb, where the browser can, is moved by the page's scroll itself (RAIL_SCRIPT's followsScroll): its length a share of the
+   groove (--thumb-share, the view over the page), its place from the groove's top slant to its foot's, all in the groove's own size, so a
+   browser bar showing or hiding moves it in the same frame. */
+@supports (animation-timeline: scroll()) {
+  .rail.follows-scroll .rail-thumb { --slant-in: 2.83px; --thumb-length: max(36px, calc(var(--thumb-share, 0.2) * (100% - 2 * var(--slant-in))));
+    height: var(--thumb-length); transform: none; animation: rail-follows-page linear both; animation-timeline: scroll(root block); }
+  @keyframes rail-follows-page { from { top: var(--slant-in); } to { top: calc(100% - var(--thumb-length) - var(--slant-in)); } }
 }
-/* On a touch screen nothing widens it on hover, so its thumb is a little wider from the start (still centered on its line), and a finger on it drags the thumb instead of the page.
-   A finger held on it never selects the words beside it, opens the phone's callout or flashes a tap's highlight. */
+/* In the narrow layout (a phone, or a small window), the page's rail starts below the header. */
+@media (max-width: 760px) {
+  .rail[data-rail="page"] { top: 132px; bottom: 10px; }
+}
+/* By touch, a finger on it drags the thumb instead of the page. A finger held on it never selects the words beside it, opens the phone's
+   callout or flashes a tap's highlight. */
 @media (hover: none), (pointer: coarse) {
   .rail { touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
-  .rail .rail-thumb { left: 3px; width: 7px; clip-path: polygon(0 4px, 4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%); }
-  .rail.sideways .rail-thumb { left: 0; top: 3px; width: auto; height: 7px; }
 }
 /* By touch, a mark is only a faint tick: a tap or a drag lands on the rail itself (letting go near a tick goes to its part), and the marks'
    names and full ticks show only while a finger drags the thumb, wiping open and shut with the drag, never on a tap's leftover hover. */
 @media (hover: none) {
   .rail .rail-mark { pointer-events: none; }
-  .rail:not(.dragging) .rail-mark::before { opacity: 0.4; }
-  .rail:not(.dragging) .rail-mark span { clip-path: polygon(100% 0, 100% 0, calc(100% - 5px) 100%, calc(100% - 5px) 100%); visibility: hidden;
-    transition: var(--glass-transition), clip-path 0.18s ease-out, visibility 0s 0.18s; }
-  .rail.sideways:not(.dragging) .rail-mark span { clip-path: polygon(0 100%, 100% 100%, 100% 100%, 0 100%); }
-}
-@media (hover: none) and (max-width: 760px), (pointer: coarse) and (max-width: 760px) {
-  .rail[data-rail="page"] .rail-thumb { left: 2px; width: 6px; }
+  .rail .rail-mark > span { display: none; }
 }
 `,
   render: rail,
   examples: [
     {
       label: "Down a box",
-      markup: html`<div class="rail-box">${glassPane({ paneWidth: "fit", body: html`<p>${"Wander a forest that grows around you. No combat and no timers: climbing, finding and listening. ".repeat(14)}</p>` })}</div>`,
+      markup: html`<div class="rail-box">${glassPane({ paneWidth: "fit", body: stackOfOne(html`<p>${"Wander a forest that grows around you. No combat and no timers: climbing, finding and listening. ".repeat(14)}</p>`, "words") })}</div>`,
     },
     {
       label: "Sideways, under a box (a table, a chart)",
-      markup: glassPane({ paneWidth: "fit", body: html`<div class="rail-side-box" data-fades-sideways data-side-rail><p>${"Patch notes, 1.4: the second boss telegraphs earlier, the arena's pillars break sooner, and saves sync across devices."}</p></div>` }),
+      markup: glassPane({ paneWidth: "fit", body: stackOfOne(html`<div class="rail-side-box" data-fades-sideways data-side-rail><p>${"Patch notes, 1.4: the second boss telegraphs earlier, the arena's pillars break sooner, and saves sync across devices."}</p></div>`) }),
     },
     {
       label: "Down a box, its parts marked: point at the rail for their names (by touch, drag its thumb; let go near a mark to go there)",
-      markup: html`<div class="rail-box">${glassPane({ paneWidth: "fit", body: html`${["1.4", "1.3", "1.2", "1.1"].map(
-        (version) => html`<h3 class="rail-example-part" data-rail-mark="${version}">Version ${version}</h3><p>${"Rebalanced the second boss, sped up loading, and fixed saves that wouldn't sync. ".repeat(3)}</p>`,
-      )}` })}</div>`,
+      markup: html`<div class="rail-box">${glassPane({ paneWidth: "fit", body: stack({ items: ["1.4", "1.3", "1.2", "1.1"].flatMap((version) => [
+        { kind: "words" as const, markup: html`<h3 class="rail-example-part" data-rail-mark="${version}">Version ${version}</h3>` },
+        { kind: "words" as const, markup: html`<p>${"Rebalanced the second boss, sped up loading, and fixed saves that wouldn't sync. ".repeat(3)}</p>` },
+      ]) }) })}</div>`,
     },
     {
       label: "Sideways, its parts marked",
-      markup: glassPane({ paneWidth: "fit", body: html`<div class="rail-side-box" data-fades-sideways data-side-rail><p>${["Monday", "Tuesday", "Wednesday", "Thursday"].map(
+      markup: glassPane({ paneWidth: "fit", body: stackOfOne(html`<div class="rail-side-box" data-fades-sideways data-side-rail><p>${["Monday", "Tuesday", "Wednesday", "Thursday"].map(
         (day) => html`<span data-rail-mark="${day}">${day}: 1,204 players, 3,906 hours. </span>`,
-      )}</p></div>` }),
+      )}</p></div>`) }),
     },
   ],
 });
@@ -955,7 +1011,7 @@ component({
 const STAND_IN_COVER_ITEMS: LayoutItem[] = Object.values(STAND_IN_COVERS).map((cover) => ({ kind: "block", markup: cover }));
 /** A shelf of every stand-in game, for its arrows' states. */
 const arrowsShelf = (id: string, title: string, scrolledTo?: "middle" | "end") =>
-  glassPane({ paneWidth: "full", body: shelf({ id, trackId: `${id}-track`, title, items: STAND_IN_COVER_ITEMS, scrolledTo }) });
+  glassPane({ paneWidth: "full", body: stackOfOne(shelf({ id, trackId: `${id}-track`, title, items: STAND_IN_COVER_ITEMS, scrolledTo })) });
 
 component({
   name: "Row arrows",
@@ -967,12 +1023,12 @@ component({
 /* Arrows to scroll a row, for a mouse or trackpad, at the right of the row's heading: a carved well like a switch's, holding two raised
    slabs that slant where they meet. Pointing lifts one and sends its arrow on; a press sinks it, its light turning round. At a row's end
    that arrow lies flat in the well, faded. Touch screens swipe instead. */
-.steps { --control-height: var(--control-height-small); position: relative; display: none; gap: 0; height: var(--control-height); padding: 3px; background: var(--well); box-shadow: var(--well-shade); clip-path: var(--cut-shape); }
+/* The well is a carving holding parts (materials.ts): the arrows sit the compact frame gap in, slanting toward each other. */
+.steps { --control-height: var(--control-height-small); display: none; gap: 0; }
 /* Each arrow is a Secondary button sized for a well (actions.ts), icon only; at the row's end it can't be pressed. */
-.steps > .cut-btn:first-of-type { margin-inline-end: var(--gap-control-row-boxes); }
 @media (hover: hover) and (pointer: fine) { .steps { display: flex; } .steps[hidden] { display: none; } }
 /* Without a mouse there are none, and a row holding them closes up before them (layout.ts, ROW_STYLES). */
-.steps .ico { width: 10px; height: 13px; transition: transform 0.2s cubic-bezier(.2,.8,.2,1); }
+.steps .ico { width: 10px; height: 13px; transition: transform var(--motion-state) var(--ease-glide); }
 .steps > .cut-btn:first-of-type:hover:not(:disabled) .ico { transform: translateX(-2px); }
 .steps > .cut-btn:last-of-type:hover:not(:disabled) .ico { transform: translateX(2px); }
 `,
@@ -1056,19 +1112,19 @@ component({
 `,
   render: shelf,
   examples: [
-    { label: "Popular, its title a link to the whole list", isWide: true, markup: glassPane({ paneWidth: "full", body: shelf({ id: "example-shelf-popular", trackId: "example-shelf-popular-track", title: "Popular", titleHref: "#shelf", items: STAND_IN_COVER_ITEMS }) }) },
+    { label: "Popular, its title a link to the whole list", isWide: true, markup: glassPane({ paneWidth: "full", body: stackOfOne(shelf({ id: "example-shelf-popular", trackId: "example-shelf-popular-track", title: "Popular", titleHref: "#shelf", items: STAND_IN_COVER_ITEMS })) }) },
     {
       label: "Continue playing, with its sort",
       isWide: true,
       markup: glassPane({
         paneWidth: "full",
-        body: shelf({
+        body: stackOfOne(shelf({
           id: "example-shelf-continue",
           trackId: "example-shelf-continue-track",
           title: "Continue playing",
           sortTabs: [{ label: "Recently played", tabValue: "played", isCurrent: true }, { label: "Recently updated", tabValue: "updated", isCurrent: false }],
           items: STAND_IN_COVER_ITEMS.slice(0, 5),
-        }),
+        })),
       }),
     },
     {
@@ -1076,14 +1132,14 @@ component({
       isWide: true,
       markup: glassPane({
         paneWidth: "full",
-        body: shelf({
+        body: stackOfOne(shelf({
           id: "example-shelf-long",
           trackId: "example-shelf-long-track",
           title: "Because you played Ashen Crown",
           titleHref: "#shelf",
           sortTabs: [{ label: "Most players", tabValue: "players", isCurrent: true }, { label: "Newest", tabValue: "newest", isCurrent: false }],
           items: STAND_IN_COVER_ITEMS.slice(2),
-        }),
+        })),
       }),
     },
     {
@@ -1091,7 +1147,7 @@ component({
       isWide: true,
       markup: glassPane({
         paneWidth: "full",
-        body: shelf({ id: "example-shelf-empty", trackId: "example-shelf-empty-track", title: "Continue playing", items: [], emptyText: "Games you play show up here." }),
+        body: stackOfOne(shelf({ id: "example-shelf-empty", trackId: "example-shelf-empty-track", title: "Continue playing", items: [], emptyText: "Games you play show up here." })),
       }),
     },
   ],
@@ -1128,10 +1184,10 @@ const sidebarPlaces = (places: SidebarPlace[], isNested = false, isShut = false)
     const words = html`${place.icon ? icon(place.icon) : ""}<span class="sidebar-words">${place.label}</span>${place.badgeCount ? tag(place.badgeCount, "count") : ""}`;
     if (place.places?.length) {
       const isOpen = Boolean(place.isCurrent);
-      return html`<li><button class="sidebar-place sidebar-group" type="button" aria-expanded="${isOpen ? "true" : "false"}">${words}<span class="sidebar-arrow">${icon("chevron-right")}</span></button>${sidebarPlaces(place.places, true, !isOpen)}</li>`;
+      return html`<li><button class="sidebar-place sidebar-group flush-row compact quiet" type="button" data-cut-line="8" aria-expanded="${isOpen ? "true" : "false"}">${CUT_LINE}${words}<span class="sidebar-arrow">${icon("chevron-right")}</span></button>${sidebarPlaces(place.places, true, !isOpen)}</li>`;
     }
-    // The page you're on is the slab itself: raised and cut, its words inside it.
-    return html`<li><a class="sidebar-place${place.isCurrent ? " cut-raised" : ""}" href="${place.href}"${place.isCurrent ? raw(' aria-current="page" data-cut-line="8"') : ""}>${place.isCurrent ? CUT_LINE : ""}${words}</a></li>`;
+    // Every place is a row cut by the edge rule, as a menu's choices are; the page you're on is the row's slab, its words inside it.
+    return html`<li><a class="sidebar-place flush-row compact quiet${place.isCurrent ? " lights-start" : ""}" href="${place.href}" data-cut-line="8"${place.isCurrent ? raw(' aria-current="page"') : ""}>${CUT_LINE}${words}</a></li>`;
   })}</ul>`;
 
 /**
@@ -1142,10 +1198,11 @@ const sidebarPlaces = (places: SidebarPlace[], isNested = false, isShut = false)
  */
 export function sidebar(options: SidebarOptions): Raw {
   const places = sidebarPlaces(options.places);
-  return html`<nav class="sidebar glass" id="${options.id}" aria-label="${options.label}" data-sidebar-remember="${options.rememberKey}" data-glass data-glass-corners="pane">${EDGE}<div class="sidebar-scroll">${places}</div></nav>${sheetMarkup({ id: `${options.id}-sheet`, title: options.label, body: places, closeButton: tertiaryButton("Close", { type: "submit", formMethod: "dialog", icon: "close", isLabelHidden: true, isSmall: true }), placement: "start" })}`;
+  return html`<nav class="sidebar glass glass-pane compact pinned" id="${options.id}" aria-label="${options.label}" data-sidebar-remember="${options.rememberKey}" data-glass data-glass-corners="pane">${EDGE}<div class="sidebar-scroll pane-in holds-rows scrolls">${places}</div></nav>${sheetMarkup({ id: `${options.id}-sheet`, title: options.label, body: places, closeButton: tertiaryButton("Close", { type: "submit", formMethod: "dialog", icon: "close", isLabelHidden: true, isSmall: true }), placement: "start" })}`;
 }
 
 /** The button that folds a sidebar away and back on a wide screen, and slides it over the page on a phone: at the start of the page's header or bar. */
+/** The one button a Sidebar has: a small Secondary button with the sidebar's icon, wired for SIDEBAR_SCRIPT to fold the sidebar it controls. */
 export function sidebarButton(options: { controls: string; label: string; isExpanded: boolean }): ControlMarkup {
   // Beside the page it's on the sidebar's side, over it: the start of the page's header (siteHeader's sidebarButton) or bar.
   return secondaryButton(options.label, { type: "button", icon: "sidebar", isLabelHidden: true, isSmall: true, controls: options.controls, isExpanded: options.isExpanded, dataAttributes: { "sidebar-button": "" } });
@@ -1272,7 +1329,7 @@ const settingsPanes = stack({
     { kind: "block", markup: glassPane({ paneWidth: "full", label: "Keys", body: stack({ items: [{ kind: "words", markup: html`<h2>Keys</h2>` }, { kind: "words", markup: html`<p>A key lets your AI tool or the upload command work on your games.</p>` }] }) }) },
   ],
 });
-const stillSidebar = (id: string, places: SidebarPlace[]) => html`<nav class="sidebar glass" id="${id}" aria-label="Design" data-glass data-glass-corners="pane">${EDGE}<div class="sidebar-scroll">${sidebarPlaces(places)}</div></nav>`;
+const stillSidebar = (id: string, places: SidebarPlace[]) => html`<nav class="sidebar glass glass-pane compact pinned" id="${id}" aria-label="Design" data-glass data-glass-corners="pane">${EDGE}<div class="sidebar-scroll pane-in holds-rows scrolls">${sidebarPlaces(places)}</div></nav>`;
 
 component({
   name: "Sidebar",
@@ -1286,27 +1343,20 @@ component({
 /* Its places scroll inside it (sidebar-scroll) only when they're taller than it, on Zaisma's rail, so its glass and edge stay whole and
    still; the places keep clear of the rail. */
 .sidebar { display: flex; flex-direction: column; --sidebar-is-sheet: 0; }
-.sidebar-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: var(--pad-inner-pane); }
-.sidebar-scroll.own-scroll.shows-rail { padding-right: calc(var(--pad-inner-pane) + 14px); }
+.sidebar-scroll { flex: 1 1 auto; }
+/* Its places are compact flush rows, close together as a menu's (materials.ts): a small control's height with a mouse, a regular one's for a
+   finger. A group's places are set in under it by a block's gap. */
 .sidebar-places { display: flex; flex-direction: column; gap: var(--gap-control-row); margin: 0; padding: 0; list-style: none; }
-/* The first and last places' words keep the words margin from the pane's or sheet's edge, as compact rows leave less room round them. */
-.sidebar-places:not(.is-nested) { padding-block: var(--gap-control-stack); }
-/* In a sheet, its body starts under the sheet's head: the list adds only a control row's gap above its first place. */
-.sheet-body > .sidebar-places:not(.is-nested) { padding-top: var(--gap-control-row); }
-.sidebar-places.is-nested { padding: var(--gap-control-row) 0 var(--gap-control-row) var(--gap-block-block); }
-/* A row is a small control's height with a mouse, compact as a list of places should be; a finger gets a regular control's. */
-.sidebar-place { position: relative; display: flex; align-items: center; gap: var(--gap-words-words); min-height: var(--control-height-small); padding: 0 var(--pad-inside-words);
-  font: var(--type-words); color: var(--ink-2); text-decoration: none; transition: color 0.2s; }
+.sidebar-places > li { display: flex; flex-direction: column; gap: var(--gap-control-row); }
+.sidebar-places.is-nested { --row-start: calc(var(--pad-words) + var(--gap-block-block)); }
 .sidebar-words { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .sidebar-place > .ico { width: 18px; height: 18px; flex: none; }
-@media (pointer: coarse) { .sidebar-place { min-height: var(--control-height-regular); } }
 .sidebar-place:hover, .sidebar-place[aria-current="page"], .sidebar-group[aria-expanded="true"] { color: var(--ink); }
 .sidebar-group { width: 100%; margin: 0; border: 0; background: none; cursor: pointer; text-align: start; }
 .sidebar-group[aria-expanded="true"] { font-weight: 600; }
-/* Its orange is its start edge, its whole height: a line under it read as one over the place below. */
-.sidebar-place[aria-current="page"] { clip-path: var(--cut-shape); background: var(--slab); box-shadow: var(--slab-shade), inset 3px 0 0 var(--run); }
+/* The place you're on is the row's slab, lit along its start edge (materials.ts): a line under it would read as one over the place below. */
 /* A group's arrow is small and quiet: it says the group opens, nothing more. */
-.sidebar-arrow { display: flex; flex: none; color: var(--muted); transition: transform 0.2s cubic-bezier(.2,.8,.2,1); }
+.sidebar-arrow { display: flex; flex: none; color: var(--muted); transition: transform var(--motion-state) var(--ease-glide); }
 .sidebar-group[aria-expanded="true"] > .sidebar-arrow { transform: rotate(90deg); }
 @media (prefers-reduced-motion: reduce) { .sidebar-arrow { transition: none; } }
 .sidebar-arrow > .ico { width: 12px; height: 12px; }
@@ -1315,11 +1365,11 @@ component({
 /* Nearly the screen's height, as a drawer: a frame gap off its top and foot, so a phone's places fit it before they scroll. */
 .sheet.placement-start:not(.in-place) { inset: var(--gap-control-stack) auto var(--gap-control-stack) var(--pad-pane); width: min(var(--size-sidebar), calc(100% - 3 * var(--pad-pane))); max-width: none; height: calc(100dvh - 2 * var(--gap-control-stack)); max-height: none; margin: 0; }
 .sheet.placement-start:not(.in-place) > .sheet-in { height: 100%; }
-.sheet.placement-start:is(:not([open]), .is-leaving) { transform: translateX(-40px); }
+.sheet.placement-start:is(:not([open]), .is-leaving, .is-arriving) { transform: translateX(-40px); }
 @starting-style { .sheet.placement-start[open] { transform: translateX(-40px); } }
 .sheet.placement-start.in-place { width: min(var(--size-sidebar), 100%); max-width: none; }
 @media (prefers-reduced-motion: reduce) {
-  .sheet.placement-start:is(:not([open]), .is-leaving) { transform: none; } @starting-style { .sheet.placement-start[open] { transform: none; } }
+  .sheet.placement-start:is(:not([open]), .is-leaving, .is-arriving) { transform: none; } @starting-style { .sheet.placement-start[open] { transform: none; } }
 }
 /* The gallery's still copies: a sidebar as it sits, and a phone's screen with the sheet over its page. */
 /* A phone's width, as tall as the sheet in it at any size of text. */
@@ -1339,20 +1389,6 @@ component({
 });
 
 component({
-  name: "Sidebar button",
-  slug: "sidebar-button",
-  group: "navigation",
-  subgroup: "places",
-  summary: "The one button a Sidebar has, at the start of the page's header, over the sidebar: it folds the sidebar away and back, and on a phone slides it over the page.",
-  styles: "",
-  render: sidebarButton,
-  examples: [
-    { label: "The sidebar beside the page", isStill: true, markup: sidebarButton({ controls: "example-sidebar-button", label: "Settings", isExpanded: true }) },
-    { label: "The sidebar folded away", isStill: true, markup: sidebarButton({ controls: "example-sidebar-button", label: "Settings", isExpanded: false }) },
-  ],
-});
-
-component({
   name: "Sidebar layout",
   slug: "sidebar-layout",
   group: "layout",
@@ -1363,15 +1399,12 @@ component({
 .sidebar-layout { container: sidebar-layout / inline-size; width: 100%; min-width: 0; }
 .sidebar-layout-in { display: grid; grid-template-columns: var(--size-sidebar) minmax(0, 1fr); gap: var(--gap-block-block); align-items: start; }
 .sidebar-layout-in > .sidebar { position: sticky; z-index: 1; top: var(--header-room, var(--pad-pane)); height: calc(100dvh - var(--header-room, var(--pad-pane)) - var(--pad-pane)); overflow: hidden;
-  transition: var(--glass-transition), opacity 0.2s, transform 0.2s cubic-bezier(.2,.8,.2,1); }
+  transition: var(--glass-transition), opacity var(--motion-state), transform var(--motion-state) var(--ease-glide); }
 @starting-style { .sidebar-layout-in > .sidebar { opacity: 0; transform: translateX(-24px); } }
 /* Folding: the sidebar, held where it was out of the page's way, slides off toward the edge as the page glides into its room. */
 .sidebar-layout.is-folding > .sidebar-layout-in > .sidebar { display: block; position: fixed; left: var(--sidebar-left); top: var(--sidebar-top); width: var(--sidebar-width); height: var(--sidebar-height); z-index: 1; }
 .sidebar-layout.is-folding > .sidebar-layout-in > .sidebar.is-leaving { opacity: 0; transform: translateX(-24px); }
 .sidebar-main { min-width: 0; }
-/* Moving to another of its pages, the sidebar stays where it is and only the page changes (the site's view transition). A page has one
-   sidebar (the gallery's copies are still ones, with nothing to remember), so the name is unique. */
-.sidebar-layout-in > .sidebar[data-sidebar-remember] { view-transition-name: sidebar; }
 .sidebar-layout.is-collapsed > .sidebar-layout-in { grid-template-columns: minmax(0, 1fr); }
 .sidebar-layout.is-collapsed > .sidebar-layout-in > .sidebar { display: none; }
 /* A reading page: the page a reading column beside it, the pair in the middle of the wide frame; folded, the column alone in the middle. */
@@ -1497,18 +1530,18 @@ component({
 `,
   render: loadMore,
   examples: [
-    { label: "Under a list: try it, to the last page", isWide: true, markup: glassPane({ paneWidth: "full", body: html`${listRows({ whenEmpty: html`<p>No older versions yet.</p>`, id: "example-load-more-list", rows: LOADED_ROWS })}${loadMore({ href: "/design/examples/older-versions?page=2", label: "Show older versions", listId: "example-load-more-list" })}` }) },
+    { label: "Under a list: try it, to the last page", isWide: true, markup: glassPane({ paneWidth: "full", body: stack({ items: [{ kind: "block", markup: listRows({ whenEmpty: html`<p>No older versions yet.</p>`, id: "example-load-more-list", rows: LOADED_ROWS }) }, { kind: "block", markup: loadMore({ href: "/design/examples/older-versions?page=2", label: "Show older versions", listId: "example-load-more-list" }) }] }) }) },
     { label: "Busy", markup: html`<div style="width:min(340px,100%)">${secondaryButton("Show older versions", { href: "#load-more", isFullWidth: true, isBusy: true })}</div>`, isStill: true },
     {
       label: "After a failed load: press it again",
       isWide: true,
       isStill: true,
-      markup: glassPane({ paneWidth: "full", body: html`${listRows({ whenEmpty: html`<p>No older versions yet.</p>`, id: "example-load-failed-list", rows: LOADED_ROWS })}${loadMore({ href: "#load-more", label: "Show older versions", listId: "example-load-failed-list", isFailed: true })}` }),
+      markup: glassPane({ paneWidth: "full", body: stack({ items: [{ kind: "block", markup: listRows({ whenEmpty: html`<p>No older versions yet.</p>`, id: "example-load-failed-list", rows: LOADED_ROWS }) }, { kind: "block", markup: loadMore({ href: "#load-more", label: "Show older versions", listId: "example-load-failed-list", isFailed: true }) }] }) }),
     },
     {
       label: "At the end of the list",
       isWide: true,
-      markup: glassPane({ paneWidth: "full", body: html`${listRows({ whenEmpty: html`<p>No older versions yet.</p>`, id: "example-load-end-list", rows: LOADED_ROWS })}${loadMore({ label: "Show older versions", listId: "example-load-end-list", endText: "That's every version." })}` }),
+      markup: glassPane({ paneWidth: "full", body: stack({ items: [{ kind: "block", markup: listRows({ whenEmpty: html`<p>No older versions yet.</p>`, id: "example-load-end-list", rows: LOADED_ROWS }) }, { kind: "block", markup: loadMore({ label: "Show older versions", listId: "example-load-end-list", endText: "That's every version." }) }] }) }),
     },
   ],
 });
@@ -1518,6 +1551,8 @@ export interface FilterGroup {
   /** Its key in the menu, lowercase: "genre". */
   groupName: string;
   label: string;
+  /** What it narrows by, at a glance, before its label: every way has one, so their words line up with Clear filters'. */
+  icon: IconName;
   /** What's picked now, said beside its label: "Adventure", or "Any". */
   pickedLabel: string;
   choices: { label: string; href: string; isCurrent: boolean }[];
@@ -1527,8 +1562,8 @@ export interface FilterMenuOptions {
   /** The menu's id, which its button controls. */
   id: string;
   groups: FilterGroup[];
-  /** The list with nothing filtered, for Clear filters; null when nothing is. */
-  clearHref: string | null;
+  /** The list with nothing filtered, for Clear filters, which shows only while something is (filterCount above 0). */
+  clearHref: string;
   /** How many filters are in use, on the button; 0 for none. */
   filterCount: number;
   /** The gallery's fixed states: open, and on one group's choices. */
@@ -1542,28 +1577,43 @@ export interface FilterMenuOptions {
  */
 export function filterMenu(options: FilterMenuOptions): ControlMarkup {
   // A choice is a Dropdown's (its classes and look), a link to the list with it picked.
-  const choice = (label: string, href: string, isCurrent: boolean, choiceIcon?: IconName) =>
-    html`<a href="${href}" class="dropdown-choice" role="menuitem" tabindex="-1" data-cut-line="8"${isCurrent ? raw(' aria-current="page"') : ""}>${CUT_LINE}${choiceIcon ? icon(choiceIcon) : ""}<span>${label}</span></a>`;
+  const choice = (label: string, href: string, isCurrent: boolean, choiceIcon?: IconName, isHidden = false) =>
+    html`<a href="${href}" class="${DROPDOWN_CHOICE_CLASS}" role="menuitem" tabindex="-1" data-lights data-keeps-open data-cut-line="8"${isCurrent ? raw(' aria-current="page"') : ""}${isHidden ? raw(" hidden") : ""}>${CUT_LINE}${choiceIcon ? icon(choiceIcon) : ""}<span>${label}</span>${isCurrent ? DROPDOWN_TICK : ""}</a>`;
   const button = secondaryButton("Filter", { type: "button", icon: "filter", controls: options.id, isExpanded: Boolean(options.isOpen), reactionCount: options.filterCount || undefined });
   const opener = (groupName: string, inside: Raw, className: string) =>
-    html`<button type="button" class="dropdown-choice ${className}" role="menuitem" tabindex="-1" aria-haspopup="menu" data-cut-line="8" data-filter-opens="${groupName}">${CUT_LINE}${inside}</button>`;
+    html`<button type="button" class="${DROPDOWN_CHOICE_CLASS} ${className}" role="menuitem" tabindex="-1" aria-haspopup="menu" data-lights data-cut-line="8" data-filter-opens="${groupName}">${CUT_LINE}${inside}</button>`;
   const main = html`<div class="dropdown-in filter-panel" data-filter-panel=""${options.openGroupName ? raw(" hidden") : ""}>${options.groups.map((group) =>
-    opener(group.groupName, html`<span>${group.label}</span><span class="filter-picked">${group.pickedLabel}</span>${icon("chevron-right")}`, "filter-group"),
-  )}${options.clearHref ? html`<hr role="separator">${choice("Clear filters", options.clearHref, false, "close")}` : ""}</div>`;
+    opener(group.groupName, html`${icon(group.icon)}<span>${group.label}</span><span class="filter-picked">${group.pickedLabel}</span>${icon("chevron-right")}`, "filter-group"),
+  )}${options.filterCount ? divider() : raw('<hr class="divider hairline" role="separator" hidden>')}${choice("Clear filters", options.clearHref, false, "close", !options.filterCount)}</div>`;
   const panels = options.groups.map(
     (group) =>
-      html`<div class="dropdown-in filter-panel" data-filter-panel="${group.groupName}"${options.openGroupName === group.groupName ? "" : raw(" hidden")}>${opener("", html`${icon("arrow-back")}<span>${group.label}</span>`, "filter-back")}<hr role="separator">${group.choices.map((each) => choice(each.label, each.href, each.isCurrent))}</div>`,
+      html`<div class="dropdown-in filter-panel" data-filter-panel="${group.groupName}"${options.openGroupName === group.groupName ? "" : raw(" hidden")}>${opener("", html`${icon("arrow-back")}<span>${group.label}</span>`, "filter-back")}<hr class="hairline" role="separator">${group.choices.map((each) => choice(each.label, each.href, each.isCurrent))}</div>`,
   );
-  const menu = floatingPane({ id: options.id, placement: "under", kind: `dropdown filter-menu${options.isOpen ? " is-open-on-load" : ""}`, role: "menu", label: "Filter", body: html`${main}${panels}` });
+  const menu = floatingPane({ id: options.id, placement: "under", kind: "dropdown filter-menu", role: "menu", label: "Filter", edgeLight: "left", isShownInPlace: options.isOpen, body: html`${main}${panels}` });
   return controlMarkup(html`${button}${menu}`, "regular");
 }
 
 /** A Filter menu turns to a group's choices and back in place, and starts again from its groups each time it opens. */
 export const FILTER_MENU_SCRIPT = `/* filter menus */(function () {
+  var isStill = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  // The ways in use (picked other than their first choice, Any): counted on the Filter button, and Clear filters shown while there are any.
+  function recount(menu) {
+    var inUse = 0;
+    menu.querySelectorAll('[data-filter-panel]:not([data-filter-panel=""])').forEach(function (panel) { var first = panel.querySelector('a[role="menuitem"]'); if (first && first.getAttribute("aria-current") !== "page") inUse++; });
+    var button = document.querySelector('[aria-controls="' + menu.id + '"]'), slab = button && button.querySelector(".slab"), count = button && button.querySelector(".cut-count");
+    if (inUse && !count && slab) { count = document.createElement("span"); count.className = "cut-count"; slab.appendChild(count); }
+    if (count) { if (inUse) count.textContent = String(inUse); else count.remove(); }
+    var clear = menu.querySelector('[data-filter-panel=""] a[role="menuitem"][data-keeps-open]'), rule = clear && clear.previousElementSibling;
+    if (clear) clear.hidden = !inUse;
+    if (rule && rule.matches("hr")) rule.hidden = !inUse;
+    if (menu.zaismaPlace) menu.zaismaPlace();
+  }
   function show(menu, groupName, isFocused) {
-    var shown = null;
+    var shown = null, was = menu.querySelector("[data-filter-panel]:not([hidden])");
     menu.querySelectorAll("[data-filter-panel]").forEach(function (panel) { panel.hidden = panel.getAttribute("data-filter-panel") !== groupName; if (!panel.hidden) shown = panel; });
     if (menu.zaismaPlace) menu.zaismaPlace();
+    // Into a way's choices it slides in from the end, back to the ways from the start: a short step sideways, never a pop.
+    if (shown && was && shown !== was && !isStill && shown.animate) shown.animate([{ transform: "translateX(" + (groupName ? 12 : -12) + "px)", opacity: 0 }, { transform: "none", opacity: 1 }], { duration: 180, easing: "cubic-bezier(0.2, 0.8, 0.2, 1)" });
     if (isFocused && shown) {
       // Back from a group, its row in the groups is focused again; into one, its picked choice, or else its first.
       var back = groupName === "" && menu.lastGroupName ? menu.querySelector('[data-filter-opens="' + menu.lastGroupName + '"]') : null;
@@ -1573,6 +1623,40 @@ export const FILTER_MENU_SCRIPT = `/* filter menus */(function () {
   }
   window.zaismaWatch.each(".filter-menu", function (menu) {
     menu.addEventListener("click", function (event) {
+      // A way's choice picked: it's marked picked there and named on its way's row, and the menu goes back to its ways, that row in focus.
+      // Its page applies it (Browse draws its list again, the menu open on its ways).
+      // Clear filters: every way back to its first choice (Any), the count gone from the Filter button, and Clear filters with it.
+      var clear = event.target.closest('[data-filter-panel=""] a[role="menuitem"][data-keeps-open]');
+      if (clear) {
+        menu.querySelectorAll('[data-filter-panel]:not([data-filter-panel=""])').forEach(function (panel) {
+          var first = panel.querySelector('a[role="menuitem"]'), tick = menu.querySelector(".dropdown-tick");
+          if (!first || first.getAttribute("aria-current") === "page") return;
+          tick = tick && tick.cloneNode(true);
+          panel.querySelectorAll('[aria-current="page"]').forEach(function (each) { each.removeAttribute("aria-current"); var own = each.querySelector(".dropdown-tick"); if (own) own.remove(); });
+          first.setAttribute("aria-current", "page"); if (tick) first.appendChild(tick);
+          var row = menu.querySelector('[data-filter-opens="' + panel.getAttribute("data-filter-panel") + '"] .filter-picked'), label = first.querySelector("span");
+          if (row && label) row.textContent = label.textContent;
+        });
+        recount(menu);
+        var firstWay = menu.querySelector(".filter-group");
+        if (firstWay) firstWay.focus({ preventScroll: true });
+        if (menu.zaismaPlace) menu.zaismaPlace();
+        return;
+      }
+      var picked = event.target.closest('[data-filter-panel]:not([data-filter-panel=""]) [role="menuitem"][data-keeps-open]');
+      if (picked) {
+        var panel = picked.closest("[data-filter-panel]"), groupName = panel.getAttribute("data-filter-panel"), tick = menu.querySelector(".dropdown-tick");
+        tick = tick && tick.cloneNode(true);
+        panel.querySelectorAll('[aria-current="page"]').forEach(function (each) { each.removeAttribute("aria-current"); var own = each.querySelector(".dropdown-tick"); if (own) own.remove(); });
+        picked.setAttribute("aria-current", "page");
+        if (tick) picked.appendChild(tick);
+        var row = menu.querySelector('[data-filter-opens="' + groupName + '"]'), label = picked.querySelector("span");
+        if (row && label && row.querySelector(".filter-picked")) row.querySelector(".filter-picked").textContent = label.textContent;
+        menu.lastGroupName = groupName;
+        recount(menu);
+        show(menu, "", true);
+        return;
+      }
       var opener = event.target.closest("[data-filter-opens]");
       if (!opener) return;
       var groupName = opener.getAttribute("data-filter-opens");
@@ -1584,17 +1668,17 @@ export const FILTER_MENU_SCRIPT = `/* filter menus */(function () {
       if (event.key === "ArrowRight" && item && item.matches(".filter-group")) { event.preventDefault(); menu.lastGroupName = item.getAttribute("data-filter-opens"); show(menu, menu.lastGroupName, true); }
       if (event.key === "ArrowLeft" && item && item.closest('[data-filter-panel]:not([data-filter-panel=""])')) { event.preventDefault(); show(menu, "", true); }
     });
-    // Shut, it goes back to its groups for the next time it opens.
-    new MutationObserver(function () { if (menu.getAttribute("aria-hidden") === "true") show(menu, "", false); }).observe(menu, { attributes: true, attributeFilter: ["aria-hidden"] });
+    // Opened, it always starts on its ways, whichever it was on when it shut.
+    menu.addEventListener("beforetoggle", function (event) { if (event.newState === "open") show(menu, "", false); });
   });
 })();
 `;
 
 const filterMenuFrame = (options: FilterMenuOptions) => html`<div class="dropdown-frame">${filterMenu(options)}</div>`;
 const EXAMPLE_FILTER_GROUPS: FilterGroup[] = [
-  { groupName: "genre", label: "Genre", pickedLabel: "Adventure", choices: ["Any", "Action", "Adventure", "Role-playing", "Strategy"].map((label) => ({ label, href: "#filter-menu", isCurrent: label === "Adventure" })) },
-  { groupName: "players", label: "Players", pickedLabel: "Any", choices: ["Any", "Single-player", "Multiplayer"].map((label) => ({ label, href: "#filter-menu", isCurrent: label === "Any" })) },
-  { groupName: "price", label: "Price", pickedLabel: "$15 to $30", choices: ["Any price", "Free", "Under $5", "$5 to $15", "$15 to $30", "$30 and up"].map((label) => ({ label, href: "#filter-menu", isCurrent: label === "$15 to $30" })) },
+  { groupName: "genre", label: "Genre", icon: "games", pickedLabel: "Adventure", choices: ["Any", "Action", "Adventure", "Role-playing", "Strategy"].map((label) => ({ label, href: "#filter-menu", isCurrent: label === "Adventure" })) },
+  { groupName: "players", label: "Players", icon: "people", pickedLabel: "Any", choices: ["Any", "Single-player", "Multiplayer"].map((label) => ({ label, href: "#filter-menu", isCurrent: label === "Any" })) },
+  { groupName: "price", label: "Price", icon: "price-tag", pickedLabel: "$15 to $30", choices: ["Any price", "Free", "Under $5", "$5 to $15", "$15 to $30", "$30 and up"].map((label) => ({ label, href: "#filter-menu", isCurrent: label === "$15 to $30" })) },
 ];
 
 component({
@@ -1602,21 +1686,21 @@ component({
   slug: "filter-menu",
   group: "panes",
   subgroup: "menus",
-  summary: "The ways to narrow a list, in one menu from a Filter button that counts the ones in use: each way says what's picked, and opens its choices in the same pane, with a way back.",
+  summary: "The ways to narrow a list, in one menu from a Filter button that counts the ones in use: each way says what's picked, and opens its choices in the same pane, with a way back. Not for one order to sort by: a Dropdown.",
   styles: `
 /* A Filter menu: a Dropdown whose rows each open a group's choices in its place (a group's row ends in what's picked and a chevron),
    and whose group's choices start with the way back. It's at least wide enough for its longest group and what's picked in it. */
-.floating-pane.filter-menu { min-width: min(15rem, calc(100vw - 2 * var(--pad-frame))); }
+.floating-pane.filter-menu { min-width: min(15rem, 100%, calc(100vw - 2 * var(--pad-frame))); }
 .filter-panel[hidden] { display: none; }
 .filter-group > .filter-picked { margin-left: auto; color: var(--muted); font: var(--type-facts); }
-.filter-group > .ico, .filter-back > .ico { flex: none; width: 12px; height: 12px; }
+.filter-group > .ico:last-child, .filter-back > .ico { flex: none; width: 12px; height: 12px; }
 .filter-back { font: var(--type-name); color: var(--ink); }
 `,
   render: filterMenu,
   examples: [
-    { label: "Closed, two filters in use", markup: html`<div style="display:flex;justify-content:flex-end">${filterMenu({ id: "example-filter-closed", groups: EXAMPLE_FILTER_GROUPS, clearHref: "#filter-menu", filterCount: 2 })}</div>` },
+    { label: "Closed, two filters in use", markup: row({ widths: "fit", alignment: "end", items: [{ kind: "control", markup: filterMenu({ id: "example-filter-closed", groups: EXAMPLE_FILTER_GROUPS, clearHref: "#filter-menu", filterCount: 2 }) }] }) },
     { label: "Open: the ways to filter, each with what's picked", markup: filterMenuFrame({ id: "example-filter-open", groups: EXAMPLE_FILTER_GROUPS, clearHref: "#filter-menu", filterCount: 2, isOpen: true }) },
     { label: "On one way's choices, the picked one marked", markup: filterMenuFrame({ id: "example-filter-price", groups: EXAMPLE_FILTER_GROUPS, clearHref: "#filter-menu", filterCount: 2, isOpen: true, openGroupName: "price" }), isStill: true },
-    { label: "Nothing filtered yet: no count, no Clear filters", markup: filterMenuFrame({ id: "example-filter-none", groups: EXAMPLE_FILTER_GROUPS.map((group) => ({ ...group, pickedLabel: group.groupName === "price" ? "Any price" : "Any" })), clearHref: null, filterCount: 0, isOpen: true }) },
+    { label: "Nothing filtered yet: no count, no Clear filters", markup: filterMenuFrame({ id: "example-filter-none", groups: EXAMPLE_FILTER_GROUPS.map((group) => ({ ...group, pickedLabel: group.groupName === "price" ? "Any price" : "Any" })), clearHref: "#filter-menu", filterCount: 0, isOpen: true }) },
   ],
 });

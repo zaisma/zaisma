@@ -9,7 +9,7 @@ import { secondaryButton, primaryButton } from "./components/actions.ts";
 import { listRows, type ListRow, emptyState } from "./components/data.ts";
 import { icon } from "./components/foundations.ts";
 import { checkField, copyField } from "./components/inputs.ts";
-import { stack } from "./components/layout.ts";
+import { stack, stackOfOne } from "./components/layout.ts";
 import { sheet } from "./components/panes.ts";
 
 /**
@@ -111,7 +111,7 @@ export function leavingCard(gameTitle: string): Raw {
     title: "This link can't be opened here.",
     closeLabel: "Close",
     placement: "foot",
-    body: html``,
+    body: stackOfOne(html``),
     buttons: [secondaryButton("Back to the game", { id: "link-back", type: "submit", formMethod: "dialog" })],
   })}`;
 }

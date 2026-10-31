@@ -35,6 +35,7 @@ export const COMPONENT_SUBGROUPS: { group: ComponentGroup; subgroup: string; nam
   { group: "navigation", subgroup: "bars", name: "Bars" },
   { group: "navigation", subgroup: "scrolling", name: "Scrolling" },
   { group: "navigation", subgroup: "places", name: "Places" },
+  { group: "panes", subgroup: "materials", name: "Materials" },
   { group: "panes", subgroup: "glass", name: "Glass" },
   { group: "panes", subgroup: "menus", name: "Menus" },
   { group: "panes", subgroup: "cards", name: "Cards" },

@@ -2,10 +2,12 @@ import { describe, expect, it } from "vitest";
 import { secondaryButton } from "../../apps/site/src/components/actions.ts";
 import { glassPane } from "../../apps/site/src/components/foundations.ts";
 import { html, raw } from "../../apps/site/src/markup.ts";
-import { grid, paneParts, row, stack } from "../../apps/site/src/components/layout.ts";
+import { grid, paneParts, stack, type LayoutMarkup } from "../../apps/site/src/components/layout.ts";
+
+/** A pane's body built by hand past the types, as a page could still forge one: these fixtures are pages the check must catch. */
+const forged = (markup: { html: string }) => raw(markup.html) as unknown as LayoutMarkup;
 import { table } from "../../apps/site/src/components/data.ts";
-import { gameCard, playingCard } from "../../apps/site/src/components/playing.ts";
-import { dropdown, sheet } from "../../apps/site/src/components/panes.ts";
+import { dropdown, gameCard, notice, sheet } from "../../apps/site/src/components/panes.ts";
 import { LAYOUT_RULE_TIERS } from "../../apps/site/src/components/layout-measure.ts";
 import layoutMeasureSource from "../../apps/site/src/components/layout-measure.ts?raw";
 import layoutCheckSource from "../../scripts/layout-check.mjs?raw";
@@ -62,31 +64,27 @@ describe.skipIf(!sites)("the layout check", () => {
     expect(failures.map((failure) => `${failure.page} ${failure.size} ${failure.theme}: ${failure.check}: ${failure.element}: ${failure.said}`)).toEqual([]);
   }, 900_000);
 
-  it.skipIf(!isFirstShare)("catches a short control beside a taller one, and a corner control off its corner, naming both", async () => {
-    // The real components, then broken the way a hand-made page would be: the row without its one height, the corner control pushed down.
-    const unevenRow = row({ widths: "fit", alignment: "end", items: [{ kind: "control", markup: secondaryButton("Dismiss", { type: "button", isSmall: true }) }, { kind: "control", markup: secondaryButton("Read more", { type: "button" }) }] }).html.replace(/ data-control-height="[a-z]+"/, "");
+  it.skipIf(!isFirstShare)("catches a corner control off its corner, naming it", async () => {
+    // The real components, then broken the way a hand-made page would be: the corner control pushed down.
     const offCorner = paneParts({ head: { words: html`<h2>Rooms</h2>`, end: secondaryButton("Refresh", { type: "button" }) }, body: html`<p>Rooms here</p>` }).html.replace('<div class="pane-head-end">', '<div class="pane-head-end" style="margin-top:30px">');
-    const markup = glassPane({ paneWidth: "full", body: stack({ items: [{ kind: "block", markup: raw(offCorner) }] }) }).html.replace("</div></section>", `${unevenRow}</div></section>`);
+    const markup = glassPane({ paneWidth: "full", body: stack({ items: [{ kind: "block", markup: raw(offCorner) }] }) }).html;
     const page = { name: "Broken on purpose", path: "/design/example", mainActionShows: "nowhere", markup };
     const { failures } = (await checkPages({ ...sites!, pages: [page], sizes: LAPTOP, themes: ["light"], chromePath: await chromeToRun() })) as { failures: Failure[] };
     const said = failures.map((failure) => `${failure.check}: ${failure.element}`);
-    expect(said.some((line) => /different heights/.test(line) && /Dismiss/.test(line)), said.join("\n")).toBe(true);
     expect(said.some((line) => /corner/.test(line) && /Refresh/.test(line)), said.join("\n")).toBe(true);
   }, 300_000);
 
-  it.skipIf(!isFirstShare)("catches words inset twice, words off a control's center line, a control off its size class, and two controls side by side outside a row", async () => {
+  it.skipIf(!isFirstShare)("catches words inset twice, words off a control's center line, and two controls side by side outside a row", async () => {
     // The real components, then broken the way a hand-made page would be.
     const insetTwice = stack({ items: [{ kind: "words", markup: html`<p>Inset twice</p>` }] }).html.replace("<p>Inset twice</p>", '<p style="padding-left:12px">Inset twice</p>');
     const offCenter = paneParts({ head: { words: html`<h2>Versions</h2>`, end: secondaryButton("New version", { type: "button" }) }, body: html`<p>Every version</p>` }).html.replace("<h2>Versions</h2>", '<h2 style="padding-top:30px">Versions</h2>');
-    const offSize = secondaryButton("Too short", { type: "button" }).html.replace('<span class="face cut-raised"', '<span style="height:40px" class="face cut-raised"');
     const sideBySide = `<div style="display:flex;gap:8px">${secondaryButton("Keep", { type: "button" }).html}${secondaryButton("Drop", { type: "button" }).html}</div>`;
-    const markup = glassPane({ paneWidth: "full", body: stack({ items: [{ kind: "block", markup: raw(offCenter) }, { kind: "block", markup: raw(insetTwice) }, { kind: "block", markup: raw(offSize) }, { kind: "block", markup: raw(sideBySide) }] }) }).html;
+    const markup = glassPane({ paneWidth: "full", body: stack({ items: [{ kind: "block", markup: raw(offCenter) }, { kind: "block", markup: raw(insetTwice) }, { kind: "block", markup: raw(sideBySide) }] }) }).html;
     const page = { name: "Broken on purpose", path: "/design/example", mainActionShows: "nowhere", markup };
     const { failures } = (await checkPages({ ...sites!, pages: [page], sizes: LAPTOP, themes: ["light"], chromePath: await chromeToRun() })) as { failures: Failure[] };
     const said = failures.map((failure) => `${failure.check}: ${failure.element}`);
     expect(said.some((line) => /off the pane's margin/.test(line) && /Inset twice/.test(line)), said.join("\n")).toBe(true);
     expect(said.some((line) => /off its center line/.test(line) && /Versions/.test(line)), said.join("\n")).toBe(true);
-    expect(said.some((line) => /size class/.test(line) && /Too short/.test(line)), said.join("\n")).toBe(true);
     expect(said.some((line) => /side by side outside a row/.test(line) && /Drop|Keep/.test(line)), said.join("\n")).toBe(true);
   }, 300_000);
 
@@ -116,7 +114,7 @@ describe.skipIf(!sites)("the layout check", () => {
 
   it.skipIf(!isFirstShare)("catches words closer to a card's edge than the words margin, and passes the same card as it is", async () => {
     // A playing card in place, once as the components make it and once with its inner padding forced down to 12px, as a page might style it.
-    const card = (id: string) => playingCard({ id, title: "Keep your progress", body: raw("<p>Sign in to keep what you've done.</p>"), isShown: true, isInPlace: true }).html;
+    const card = (id: string) => notice({ placement: "over-game", id, title: "Keep your progress", body: forged(raw("<p>Sign in to keep what you've done.</p>")), isShown: true, isInPlace: true }).html;
     const markup = card("fine-card") + card("close-card").replace('class="playing-card-in"', 'class="playing-card-in" style="padding:12px;--pad-words:0px"');
     const page = { name: "Broken on purpose", path: "/design/example", mainActionShows: "nowhere", markup };
     const { failures } = (await checkPages({ ...sites!, pages: [page], sizes: LAPTOP, themes: ["light"], chromePath: await chromeToRun() })) as { failures: Failure[] };
@@ -132,7 +130,7 @@ describe.skipIf(!sites)("the layout check", () => {
     const { failures } = (await checkPages({ ...sites!, pages: [page], sizes: LAPTOP, themes: ["light"], chromePath: await chromeToRun() })) as { failures: Failure[] };
     return failures.map((failure) => `${failure.check}: ${failure.element}: ${failure.said}`);
   };
-  const fullPane = (body: string) => glassPane({ paneWidth: "full", body: raw(body) }).html;
+  const fullPane = (body: string) => glassPane({ paneWidth: "full", body: forged(raw(body)) }).html;
   const choices = (count: number) => Array.from({ length: count }, (_, index) => ({ label: `Choice ${index + 1}`, href: "#menu" }));
 
   it.skipIf(!isFirstShare)("catches a pane wider than its page's shape, two panes touching, and panes over the page past their kind's size, past the screen or overflowing unscrolled", async () => {
@@ -140,7 +138,7 @@ describe.skipIf(!sites)("the layout check", () => {
     const tooWide = `<div style="width:1100px">${fullPane("<p>Wider than its shape</p>")}</div>`;
     const menu = dropdown({ id: "fixture-menu", label: "Fine menu", items: choices(30), isOpen: true }).html.replace('class="floating-pane placed-under dropdown glass in-place"', 'style="position:fixed;top:8px;left:8px" class="floating-pane placed-under dropdown glass in-place"');
     const spilling = dropdown({ id: "fixture-spill", label: "Spilling menu", items: choices(30), isOpen: true }).html.replace('class="floating-pane placed-under dropdown glass in-place"', 'style="position:fixed;top:8px;left:400px;max-height:none" class="floating-pane placed-under dropdown glass in-place"').replace('class="floating-body"', 'style="overflow:visible" class="floating-body"');
-    const wideSheet = sheet({ id: "fixture-sheet", title: "Too wide", body: html`<p>A sheet</p>`, closeLabel: "Close", isShown: true }).html.replace('class="sheet', 'style="width:900px;max-width:none" class="sheet');
+    const wideSheet = sheet({ id: "fixture-sheet", title: "Too wide", body: forged(html`<p>A sheet</p>`), closeLabel: "Close", isShown: true }).html.replace('class="sheet', 'style="width:900px;max-width:none" class="sheet');
     // Two panes set down one after the other by hand, with no layout component to put a block's gap between them.
     const touching = fullPane("<p>Touching above</p>") + fullPane("<p>Touching below</p>");
     const said = await brokenOnLaptop(tooWide + menu + spilling + wideSheet + touching);
@@ -154,11 +152,11 @@ describe.skipIf(!sites)("the layout check", () => {
   }, 300_000);
 
   it.skipIf(!isFirstShare)("measures a gallery rule on the gallery's pages and skips it on a page in a pull request's run", async () => {
-    // A control off its size class's height (a gallery rule), in place of a gallery page's own and of the example page's.
-    const offSize = fullPane(secondaryButton("Too short", { type: "button" }).html.replace('<span class="face cut-raised"', '<span style="height:40px" class="face cut-raised"'));
+    // Words inset twice (a gallery rule), in place of a gallery page's own and of the example page's.
+    const insetTwice = fullPane(stack({ items: [{ kind: "words", markup: html`<p>Inset twice</p>` }] }).html.replace("<p>Inset twice</p>", '<p style="padding-left:12px">Inset twice</p>'));
     const measuredOn = async (page: Record<string, unknown>) => {
-      const { failures } = (await checkPages({ ...sites!, pages: [{ ...page, markup: offSize }], sizes: LAPTOP, themes: ["light"], tiersOf: RUNS.pull_request.tiersOf, chromePath: await chromeToRun() })) as { failures: Failure[] };
-      return failures.filter((failure) => /size class/.test(failure.check) && /Too short/.test(failure.element)).length;
+      const { failures } = (await checkPages({ ...sites!, pages: [{ ...page, markup: insetTwice }], sizes: LAPTOP, themes: ["light"], tiersOf: RUNS.pull_request.tiersOf, chromePath: await chromeToRun() })) as { failures: Failure[] };
+      return failures.filter((failure) => /off the pane's margin/.test(failure.check) && /Inset twice/.test(failure.element)).length;
     };
     expect(await measuredOn({ name: "Gallery: layout", path: "/design/layout", mainActionShows: "nowhere", isGallery: true })).toBeGreaterThan(0);
     expect(await measuredOn({ name: "Broken on purpose", path: "/design/example", mainActionShows: "nowhere" })).toBe(0);
@@ -167,7 +165,7 @@ describe.skipIf(!sites)("the layout check", () => {
   it.skipIf(!isFirstShare)("catches the Laws of UX it can measure: proximity, common region, similarity and an answer within 400 ms", async () => {
     const hugging = fullPane(stack({ items: [{ kind: "block", markup: raw(table({ caption: "Rooms", columns: [{ label: "Room" }], rows: [["North"]], whenEmpty: html`<p>No rooms.</p>` }).html) }, { kind: "words", markup: html`<h2>Hugging the table</h2>` }, { kind: "words", markup: html`<p>What it names</p>` }] }).html.replace("<h2>Hugging the table</h2>", '<h2 style="margin-top:-20px;margin-bottom:30px">Hugging the table</h2>'));
     const splitGroup = fullPane(html`<p>Before</p><h2>Left alone</h2>`.html) + fullPane("<p>Its group, on another pane</p>");
-    const mixedGrid = fullPane(grid({ itemSize: "card", whenEmpty: html`<p>None.</p>`, items: ["One", "Two"].map((title) => ({ kind: "block" as const, markup: glassPane({ paneWidth: "full", body: html`<p>${title}</p>` }) })) }).html.replace('<div class="grid-cell is-block">', '<div class="grid-cell is-block" style="max-width:120px">'));
+    const mixedGrid = fullPane(grid({ itemSize: "card", whenEmpty: html`<p>None.</p>`, items: ["One", "Two"].map((title) => ({ kind: "block" as const, markup: glassPane({ paneWidth: "full", body: forged(html`<p>${title}</p>`) }) })) }).html.replace('<div class="grid-cell is-block">', '<div class="grid-cell is-block" style="max-width:120px">'));
     const deaf = fullPane('<button type="button" aria-controls="nothing-at-all">Answers nothing</button>');
     const said = await brokenOnLaptop(hugging + splitGroup + mixedGrid + deaf);
     for (const [check, named] of [

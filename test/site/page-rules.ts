@@ -15,13 +15,12 @@ export const UNSTYLED_HOOKS = new Set<string>([
   // Hooks a component's script finds its parts by: a Color field's None, a wheel field's kind of wheels, a search's icon and its typed
   // finish's row, a file drop's templates for a new row and its zoom mark, a filter menu open as its page loads, and a Progress whose end
   // isn't known yet (its Groove runs; the class says so to a script).
-  "color-none", "birthday-wheels", "find-icon", "find-finish-row", "file-drop-zoom-template", "file-drop-row-template", "is-open-on-load", "is-unknown",
+  "color-none", "birthday-wheels", "find-icon", "find-finish-row", "file-drop-zoom-template", "file-drop-row-template", "is-unknown",
+  // A tertiary button's words, which a page's script changes (the buy sheet's Keep your saved card); a sheet that stays in the middle,
+  // which the layers' script reads; a way in's mark, named for its way (only Google's has a look of its own); and the way a well scrolls.
+  "tertiary-label", "placement-middle", "way-passkey", "way-discord", "way-apple_pay", "scrolls-across", "scrolls-down",
 ]);
 
-/** A component's own insides, styled for it but never for a page to place things with: a page lays out with layout.ts instead. */
-export const NOT_FOR_PAGES = new Set<string>([
-  "control-row", // Row's own: a page's things side by side are row().
-]);
 
 /** The only style attributes a page carries, each a value a component offers and sets itself, with why. */
 export const STYLE_ATTRIBUTE: { pattern: RegExp; why: string }[] = [
@@ -31,7 +30,7 @@ export const STYLE_ATTRIBUTE: { pattern: RegExp; why: string }[] = [
   { pattern: /^--fill:[0-9.]+$/, why: "a slider's fill, the share picked" },
   { pattern: /^width:[0-9.]+%$/, why: "a usage meter's fill, the share used; a chart's bar" },
   { pattern: /^z-index:\d+$/, why: "a picture row's pictures, each over the next" },
-  { pattern: /^--choice-count:\d+$/, why: "choice cards: how many share a row" },
+  { pattern: /^--card-count:\d+$/, why: "a row of cards: how many share it" },
   { pattern: /^--point-count:\d+$/, why: "a chart's points, for the room each takes" },
   { pattern: /^(left|right|top):-?[0-9.]+%$/, why: "a chart's point, bar or label, where its number puts it" },
   { pattern: /^--point-(left|top):-?[0-9.]+%$/, why: "a chart's number where you point, where its point is" },
@@ -39,6 +38,7 @@ export const STYLE_ATTRIBUTE: { pattern: RegExp; why: string }[] = [
   { pattern: /^--sent:[0-9.]+$/, why: "a file drop's upload, the share sent" },
   { pattern: /^--done-pct:[0-9.]+%$/, why: "Progress, the share done" },
   { pattern: /^--groove-filled:[0-9.]+$/, why: "a Groove's light, the share filled (a Progress, an upload, a usage meter)" },
+  { pattern: /^--mark-index: ?\d$/, why: "a PIN's mark, its place in the row, for the wave of light across them while it's on its way" },
 ];
 
 /** The page sheets pages may link: the site's and the gallery's, each every component's styles with the shell's or the gallery's. */
@@ -63,8 +63,7 @@ export function pageProblems(markup: string): string[] {
   }
   for (const [, list = ""] of body.matchAll(/\sclass="([^"]*)"/g)) {
     for (const name of list.split(/\s+/).filter(Boolean)) {
-      if (NOT_FOR_PAGES.has(name)) problems.push(`.${name} is a component's inside, not for a page`);
-      else if (!styledBy(componentCss, name) && !UNSTYLED_HOOKS.has(name)) problems.push(`.${name} comes from no component`);
+      if (!styledBy(componentCss, name) && !UNSTYLED_HOOKS.has(name)) problems.push(`.${name} comes from no component`);
     }
   }
   return [...new Set(problems)];

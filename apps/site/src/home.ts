@@ -4,10 +4,10 @@ import { currentSession } from "./auth.ts";
 import type { Env } from "./env.ts";
 import { backgroundsOfGames, type ShownBackground } from "./backgrounds.ts";
 import { tertiaryButton } from "./components/actions.ts";
-import { glassPane, icon, tag } from "./components/foundations.ts";
-import { row, stack, type LayoutItem } from "./components/layout.ts";
+import { CUT_LINE, glassPane, icon, tag } from "./components/foundations.ts";
+import { row, stack, type LayoutItem, stackOfOne } from "./components/layout.ts";
 import { shelf } from "./components/navigation.ts";
-import { banner, gameCover, type GameCoverOptions } from "./components/panes.ts";
+import { banner, gameCard, type GameCardOptions } from "./components/panes.ts";
 import { currentAnnouncement } from "./announcements.ts";
 import { shownAddress } from "./markup.ts";
 import { esc, html, layout, pageData, playerLine, raw, scriptTags, type Raw } from "./html.ts";
@@ -255,8 +255,8 @@ function card(game: Pick<ShowGame, "slug" | "title" | "cover" | "square"> & { pl
 const shownPlayerCount = (game: ShowGame): number | undefined => (game.playing_now_player_count >= MINIMUM_PLAYING_NOW_PLAYER_COUNT ? game.playing_now_player_count : undefined);
 
 /** A game in one of the home's rows (the home's script builds the same in the browser for Continue playing). */
-const coverOf = (game: ShowGame, ownedGameIds: ReadonlySet<string>, loading: Pick<GameCoverOptions, "isEager" | "hasHighPriority"> = {}): Raw =>
-  gameCover({ title: game.title, imageUrl: game.cover ?? null, href: `/g/${game.slug}`, facts: { playerCount: shownPlayerCount(game), priceText: coverPriceText(game, ownedGameIds) }, ...loading });
+const coverOf = (game: ShowGame, ownedGameIds: ReadonlySet<string>, loading: Pick<GameCardOptions, "isEager" | "hasHighPriority"> = {}): Raw =>
+  gameCard({ title: game.title, imageUrl: game.cover ?? null, href: `/g/${game.slug}`, tintColor: game.glass_tint_color, facts: { playerCount: shownPlayerCount(game), priceText: coverPriceText(game, ownedGameIds) }, ...loading });
 
 /** The first shelf's covers the page opens with in view, about a phone's or a wide screen's first row: they load with the page. */
 const FIRST_VIEW_COVER_COUNT = 4;
@@ -316,7 +316,7 @@ export async function home(env: Env, request: Request): Promise<Response> {
     ? html`<div id="home-games">${glassPane({
         paneWidth: "full",
         label: "Games",
-        body: html`<h1 class="sr">Games on Zaisma</h1>${stack({
+        body: stackOfOne(html`<h1 class="sr">Games on Zaisma</h1>${stack({
           items: [
             ...newsBanner,
             ...guestBanner,
@@ -326,7 +326,7 @@ export async function home(env: Env, request: Request): Promise<Response> {
             ...(fresh.length ? [homeShelf("new", "New", "new", fresh, !popular.length && !trending.length, ownedGameIds)] : []),
             { kind: "block", markup: row({ widths: "fit", alignment: "center", items: [{ kind: "control", markup: tertiaryButton("All games", { href: "/games" }) }] }) },
           ],
-        })}`,
+        })}`),
       })}</div>`
     : glassPane({ paneWidth: "fit", body: stack({ items: [{ kind: "words", markup: html`<h1>Every kind of game. One link away.</h1>` }, { kind: "words", markup: html`<p>The first games are on their way.</p>` }] }) });
   const response = layout(env, {
@@ -342,8 +342,8 @@ ${isProtectionOffered ? protectAccountWindow() : ""}
 ${pageData("home-data", {
       games: browserGames,
       minimum_playing_now_player_count: MINIMUM_PLAYING_NOW_PLAYER_COUNT,
-      icons: { people: icon("people").html, clock: icon("clock").html },
-      parts: { updated_tag: tag("Updated", "new").html },
+      icons: { people: icon("people").html },
+      parts: { updated_tag: tag("Updated", "new-on-glass").html, cut_line: CUT_LINE.html },
     })}${scriptTags(HOME_SCRIPT)}`,
   });
   for (const cookie of viewer.cookies) response.headers.append("Set-Cookie", cookie);

@@ -1,6 +1,7 @@
+import { LOADER_FRAMES } from "../generated/loader-frames.generated.ts";
 import { html, raw, shownColor, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
-import { ICONS, MARK, WORDMARK, icon, type IconName } from "./icons.ts";
+import { ICONS, MARK, WORDMARK, icon, largeIcon, type IconName } from "./icons.ts";
 import { CLOUDS_SHADER, DUSK_SHADER, STAND_IN_BACKGROUNDS } from "./shaders.ts";
 import { pageScript, type PageScript } from "../page-scripts.ts";
 
@@ -10,10 +11,10 @@ import { pageScript, type PageScript } from "../page-scripts.ts";
  * From the drafts Julius approved (ops docs/drafts/look-and-voice/). "Zaisma is the glass, and the game is not"; orange
  * only on what you act on. Everything the other component files import from here is re-exported below.
  */
-export { ICONS, MARK, WORDMARK, icon, type IconName } from "./icons.ts";
+export { ICONS, MARK, WORDMARK, icon, largeIcon, type IconName } from "./icons.ts";
 export { TOKEN_STYLES, cutPolygon } from "./tokens.ts";
 import { cutPolygon } from "./tokens.ts";
-import { paneParts, row, type ControlMarkup } from "./layout.ts";
+import { paneParts, row, type ControlMarkup, type LayoutMarkup, stackOfOne } from "./layout.ts";
 export { GLASS_SCRIPT, WATCH_SCRIPT } from "./glass-script.ts";
 
 /** The backdrop's still: soft light in the theme's colors, shown until a shader draws, wherever WebGL is missing, and while it's lost. */
@@ -38,13 +39,18 @@ export interface GlassPaneOptions {
    * most. A pane never takes a width of its own: one that should take half the screen is a column of a full-width columns layout.
    */
   paneWidth: "full" | "fit";
-  body: Raw;
+  body: LayoutMarkup;
   label?: string;
   /**
    * On a phone the pane starts lower on the screen, so the art behind it shows above it, as a console game hub lets it fill the screen
    * with the title and Play below (the game's page). It never starts so low that the pane's first part, Play included, runs off the screen.
    */
   isStartedLow?: boolean;
+  /**
+   * A fit pane placed straight in a page's column sits at the column's start, not its middle: the game's page, whose pane stands at the
+   * left with the game's world beside it. Left out, a fit pane sits in the column's middle, under the header's.
+   */
+  isAtStart?: boolean;
 }
 
 /**
@@ -52,7 +58,7 @@ export interface GlassPaneOptions {
  * scrolls inside it, so nothing in it shrinks. It pads at the frame gap, and its words keep its margin (--pad-words).
  */
 export function glassPane(options: GlassPaneOptions): Raw {
-  return html`<section class="glass glass-pane ${options.paneWidth}${options.isStartedLow ? " is-started-low" : ""}" data-glass data-glass-corners="pane"${options.label ? html` aria-label="${options.label}"` : ""}>${EDGE}<div class="pane-in">${options.body}</div></section>`;
+  return html`<section class="glass glass-pane ${options.paneWidth}${options.isStartedLow ? " is-started-low" : ""}${options.isAtStart ? " is-at-start" : ""}" data-glass data-glass-corners="pane"${options.label ? html` aria-label="${options.label}"` : ""}>${EDGE}<div class="pane-in scrolls">${options.body}</div></section>`;
 }
 
 export interface FloatingPaneOptions {
@@ -69,8 +75,12 @@ export interface FloatingPaneOptions {
   placement: "under" | "over";
   /** Its owner's own classes, for the owner's styles and script: "select-list". */
   kind?: string;
+  /** It holds edged parts beside words (a color picker, wheels), not a list of rows: they sit at the regular frame gap, not a menu's compact one. */
+  hasParts?: boolean;
   /** Its role and what a screen reader calls it, when it isn't a list the owner names (a menu, a group of wheels). */
   role?: "menu" | "group";
+  /** Its rim lights beside the part you point at (Edge light), along its left side: a menu's choices, which carry data-lights. */
+  edgeLight?: "left";
   label?: string;
   /** Shown open where it is, in the page's flow: the gallery's still open states. Over, it lies on its anchor by lineFromTop (a CSS length). */
   isShownInPlace?: boolean;
@@ -84,10 +94,10 @@ export interface FloatingPaneOptions {
  * no taller than a menu or the room in the window, and its body scrolls inside it past that, with the rail and scroll fades.
  */
 export function floatingPane(options: FloatingPaneOptions): Raw {
-  const className = [`placed-${options.placement}`, options.kind ?? "", "glass", options.isShownInPlace ? "in-place" : ""].filter(Boolean).join(" ");
-  return html`<div class="floating-pane ${className}" id="${options.id}"${options.role ? html` role="${options.role}"` : ""}${options.label ? html` aria-label="${options.label}"` : ""} data-glass data-glass-corners="menu"${
+  const className = [`placed-${options.placement}`, options.kind ?? "", options.hasParts ? "regular" : "", "glass", options.isShownInPlace ? "in-place" : ""].filter(Boolean).join(" ");
+  return html`<div class="floating-pane ${className}" id="${options.id}"${options.role ? html` role="${options.role}"` : ""}${options.label ? html` aria-label="${options.label}"` : ""} data-glass data-glass-corners="menu"${options.edgeLight ? html` data-edge-light="${options.edgeLight}"` : ""}${
     options.isShownInPlace ? (options.lineFromTop ? html` style="--line-from-top: ${options.lineFromTop}"` : "") : raw(' popover="manual"')
-  }>${EDGE}${options.head ? html`<div class="floating-head">${options.head}</div>` : ""}<div class="floating-body">${options.body}</div></div>`;
+  }>${EDGE}${options.edgeLight ? EDGE_LIGHT : ""}${options.head ? html`<div class="floating-head">${options.head}</div>` : ""}<div class="floating-body scrolls">${options.body}</div></div>`;
 }
 
 export interface WellOptions {
@@ -102,6 +112,8 @@ export interface WellOptions {
   kind?: string;
   /** The gallery's fixed keyboard focus on what's in it. */
   state?: "is-focused";
+  /** You press it as a whole (a field you copy from by pressing it anywhere): a field's height, with the carving's pointed and pressed states. */
+  isUsed?: boolean;
   /** What's in it is longer than it can show: it scrolls inside the well, which stays still, fading at its ends, on Zaisma's rail; down (a
    * list of choices, a stacked switch's places, the rail beside them) or across (a switch's tabs, the rail under the well). */
   scrollDirection?: "down" | "across";
@@ -119,23 +131,24 @@ export interface WellOptions {
  */
 export function well(options: WellOptions): Raw {
   const isAcross = options.scrollDirection === "across";
-  const className = ["well", "cut-carved", options.kind ?? "", options.scrollDirection ? `scrolls-${options.scrollDirection}` : "", options.state ?? ""].filter(Boolean).join(" ");
-  return html`<div class="${className}" data-cut-line="${options.cornerCutPx ?? 10}"${isAcross ? raw(" data-side-rail") : ""}${options.edgeLight ? html` data-edge-light="${options.edgeLight}"` : ""}>${CUT_LINE}${options.edgeLight ? EDGE_LIGHT : ""}<div class="well-body"${isAcross ? raw(" data-fades-sideways data-rail-scroller") : ""}>${options.body}</div>${
-    options.end ? html`<div class="well-end">${options.end}${options.endNote ? html`<span class="well-end-note" aria-hidden="true">${options.endNote}</span>` : ""}</div>` : ""
+  const className = ["well", "carving", options.isUsed ? "is-used sized" : "", options.kind ?? "", options.scrollDirection ? `scrolls-${options.scrollDirection}` : "", options.state ?? ""].filter(Boolean).join(" ");
+  const bodyClass = ["well-body", "carving-words", options.scrollDirection ? "scrolls" : "", isAcross ? "across" : ""].filter(Boolean).join(" ");
+  return html`<div class="${className}" data-cut-line="${options.cornerCutPx ?? 10}"${isAcross ? raw(" data-side-rail") : ""}${options.edgeLight ? html` data-edge-light="${options.edgeLight}"` : ""}>${CUT_LINE}${options.edgeLight ? EDGE_LIGHT : ""}<div class="${bodyClass}"${isAcross ? raw(" data-fades-sideways data-rail-scroller") : ""}>${options.body}</div>${
+    options.end ? html`<div class="well-end carving-end">${options.end}${options.endNote ? html`<span class="well-end-note" aria-hidden="true">${options.endNote}</span>` : ""}</div>` : ""
   }</div>`;
 }
 
 /**
- * A tray: a thinner, clearer sheet of glass that a pane extends into, holding a whole area under it, so what's in the area reads as one
- * with its head (the gallery's sections: a head of words, then every example on the tray). The head's bottom corners and the tray's top
- * ones are square where they meet, and the tray has no rim along its top: it runs straight on from the pane (data-glass-open). It's the
- * same glass, light or smoked, only thinner: a clearer tint and a fainter rim, its bevel as wide. What sits on a tray fits it like
- * anything on a pane: square under its square top, cut at an even gap into its cut foot.
+ * A tray: one sheet of glass holding a whole area under its head, so what's in the area reads as one with it (the gallery's sections: a
+ * head of words, then every example on the tray). The sheet is the thinnest glass, light or smoked, with one rim round all of it at a
+ * pane's cuts; its head is a step of thicker glass across its top, under the same rim, with none of its own: the step's lip catches the
+ * light and shades the thin glass below it (materials.ts). What sits on a tray fits it like anything on a pane: square under the head,
+ * cut at an even gap into its cut foot.
  * What has an edge sits on it at the frame gap, like a pane's; its words are closer than a pane's (--pad-tray), and its foot's cuts
  * smaller (16 and 12), still a bevel at what sits in its corners.
  */
-export function tray(options: { head: Raw; body: Raw; label?: string; paneWidth?: "full" | "fit" }): Raw {
-  return html`<section class="tray-group ${options.paneWidth ?? "full"}"${options.label ? html` aria-label="${options.label}"` : ""}><div class="glass tray-head" data-glass data-glass-corners="pane-large pane-small 0 0">${EDGE}${options.head}</div><div class="glass tray" data-glass data-glass-open="top" data-glass-corners="0 0 16 12">${EDGE}${options.body}</div></section>`;
+export function tray(options: { head: Raw; body: LayoutMarkup; label?: string; paneWidth?: "full" | "fit" }): Raw {
+  return html`<section class="glass tray-group ${options.paneWidth ?? "full"}" data-glass data-glass-corners="pane-large pane-small 16 12"${options.label ? html` aria-label="${options.label}"` : ""}>${EDGE}<div class="glass tray-head">${options.head}</div><div class="tray">${options.body}</div></section>`;
 }
 
 /** Zaisma's logo, a link home: the wordmark (the header, the gallery's bar) or the mark alone (the footer). --logo-height sets its size. */
@@ -146,20 +159,37 @@ export const logo = (kind: "wordmark" | "mark"): Raw =>
 const logoOn = (glassKind: "light" | "smoked", markup: Raw): Raw =>
   html`<div ${glassKind === "light" ? raw('data-theme-choice="light"') : raw('class="smoke"')} style="display:flex;padding:var(--pad-pane);background:${glassKind === "light" ? "#E7E4DF" : "#121110"}">${markup}</div>`;
 
-/** The loader: the Z building itself, one loop a second (brand/loader/zaisma-loader.svg), in the words' color. Shown only once something was pressed. */
-export const loader = (): Raw => raw('<span class="loader" aria-hidden="true"></span>');
+/**
+ * A divider (reading.ts's Divider): a hairline across a pane between two parts of it (a menu's head and its choices, a group of choices
+ * and Clear filters), or, with words in its middle, between two ways to do one thing (or). isDecorative: it only sets parts apart, and a
+ * screen reader passes over it.
+ */
+export function divider(options: { words?: string; isDecorative?: boolean } = {}): Raw {
+  if (options.words) return html`<p class="divider has-words words-margin"><span class="hairline"></span><span>${options.words}</span><span class="hairline"></span></p>`;
+  return options.isDecorative ? raw('<hr class="divider hairline" aria-hidden="true">') : raw('<hr class="divider hairline" role="separator">');
+}
 
+/** The loader: the Z building itself, one loop a second (brand/loader/zaisma-loader.svg), in the words' color. Shown only once something was pressed. Its four pieces are cut from the file's
+ * frames (LOADER_FRAMES), so it plays smoothly in every browser: Safari plays the file's own animation neither in a mask nor in a <use>. */
+export const loader = (): Raw => raw('<span class="loader" aria-hidden="true"><i></i><i></i><i></i><i></i></span>');
+
+/** A rail's parts: its channel, carved with slanted ends, and inside it the groove the thumb slides in. */
+export const RAIL_PARTS = '<div class="rail-line carving deep"><div class="rail-groove"><div class="rail-thumb"></div></div></div>';
 /** Zaisma's own scrollbar (navigation.ts's rail, RAIL_SCRIPT): "box" for a box that scrolls (it goes just after it), "page" for the page. */
-export const railMarkup = (scrollKind: "box" | "page" | "side"): Raw => raw(`<div class="rail${scrollKind === "side" ? " sideways" : ""}" data-rail="${scrollKind}" aria-hidden="true"><div class="rail-line"></div><div class="rail-thumb glass"></div></div>`);
+export const railMarkup = (scrollKind: "box" | "page" | "side"): Raw => raw(`<div class="rail${scrollKind === "side" ? " sideways" : ""}" data-rail="${scrollKind}" aria-hidden="true">${RAIL_PARTS}</div>`);
 
 /**
  * A tag: a few words or a number, slanted at both ends, on what it labels. "new" is green (Updated, Live), "count" a number in the buttons'
  * face (unread topics), "plain" words in the same face (Replaced, Developer), "warning" amber (Held, Over the limit), "glass" a sliver of the
- * menus' glass (the rail's labels). An icon before its words says what kind it is at a glance. data.ts's Tag shows it.
+ * menus' glass (the rail's labels), "new-on-glass" that glass with the new words' green (Updated over a game card's art). An icon before its
+ * words says what kind it is at a glance. With removeHref it takes itself away: a
+ * link to the page without it, its words then a close mark (a filter in use). data.ts's Tag shows it.
  */
-export type TagTone = "new" | "count" | "plain" | "warning" | "glass";
-export const tag = (words: string | number, tone: TagTone, options: { icon?: IconName } = {}): Raw =>
-  html`<span class="tag ${tone}">${options.icon ? html`${icon(options.icon)}<span>${String(words)}</span>` : String(words)}</span>`;
+export type TagTone = "new" | "count" | "plain" | "warning" | "glass" | "new-on-glass";
+export const tag = (words: string | number, tone: TagTone, options: { icon?: IconName; removeHref?: string } = {}): Raw =>
+  options.removeHref !== undefined
+    ? html`<a class="tag ${tone} is-removable" href="${options.removeHref}" aria-label="Remove ${String(words)}"><span>${String(words)}</span>${icon("close")}</a>`
+    : html`<span class="tag ${tone === "new-on-glass" ? "glass is-new" : tone}">${options.icon ? html`${icon(options.icon)}<span>${String(words)}</span>` : String(words)}</span>`;
 
 export interface ColorChoice {
   /** What it's called, said by a screen reader and shown in its field when it's picked (a Color field's named colors). */
@@ -185,8 +215,10 @@ export interface SheetMarkupOptions {
   action?: string;
   /** Controls pinned at its foot in place of buttons (a stack of them), in view while the body scrolls: a store panel's card row and Buy. */
   foot?: Raw;
-  /** "center" over the dimmed page; "foot" risen from the screen's foot over a running game, not dimming it; "side" a tall panel at the screen's right edge over the game (a store panel); "middle" in the middle of the screen on a wide screen whatever opened it, never hung from a button (Confirm it's you); "start" a tall panel sliding in from the screen's start edge over the page (a sidebar on a phone). */
-  placement?: "center" | "foot" | "side" | "middle" | "start";
+  /** "center" over the dimmed page; "foot" risen from the screen's foot over a running game, not dimming it; "corner" at the screen's bottom right over a running game, as tall as what's in it, not dimming it (a store panel over a game); "middle" in the middle of the screen on a wide screen whatever opened it, never hung from a button (Confirm it's you); "start" a tall panel sliding in from the screen's start edge over the page (a sidebar on a phone). */
+  placement?: "center" | "foot" | "corner" | "middle" | "start";
+  /** A store panel (panes.ts): a store panel's own width, in either placement. */
+  isStorePanel?: boolean;
   /** Shown in place, not over the page: the gallery's still copies. */
   isShown?: boolean;
   /** On a wide screen, a narrow sheet with its gaps closed up, so it reads as a dropdown (the share sheet's QR code and link); on a phone it's like any sheet. */
@@ -210,12 +242,12 @@ export function sheetMarkup(options: SheetMarkupOptions): Raw {
   const buttons = options.buttons ?? [];
   const parts = paneParts({
     head: { words: html`<h2 class="sheet-title" id="${options.id}-title">${options.title}</h2>`, end: options.closeButton },
-    body: html`<div class="sheet-scroll"><div class="sheet-body">${options.body}</div></div>`,
+    body: html`<div class="sheet-scroll"><div class="sheet-body scrolls to-edge">${options.body}</div></div>`,
     foot: options.foot ? { start: { kind: "block", markup: options.foot } } : buttons.length ? { start: { kind: "block", markup: row({ widths: "equal", items: buttons.map((button) => ({ kind: "control" as const, markup: button })) }) } } : undefined,
   });
   const inside = options.parts ?? parts;
-  const form = options.action === undefined ? html`<form class="sheet-in" method="dialog">${inside}</form>` : html`<form class="sheet-in" method="post" action="${options.action}">${inside}</form>`;
-  return html`<dialog class="sheet glass${options.placement === "foot" ? " placement-foot" : options.placement === "side" ? " placement-side" : options.placement === "middle" ? " placement-middle" : options.placement === "start" ? " placement-start" : ""}${options.isCompact ? " is-compact" : ""}${options.isPicture ? " is-picture" : ""}${options.isShown ? " in-place" : ""}" id="${options.id}" aria-labelledby="${options.titleId ?? `${options.id}-title`}"${options.isConfirm ? raw(" data-sheet-confirm") : ""} data-glass data-glass-corners="pane"${options.isShown ? raw(" open") : ""}>${EDGE}${form}</dialog>`;
+  const form = options.action === undefined ? html`<form class="sheet-in scrolls" method="dialog">${inside}</form>` : html`<form class="sheet-in scrolls" method="post" action="${options.action}">${inside}</form>`;
+  return html`<dialog class="sheet glass${options.placement === "foot" ? " placement-foot" : options.placement === "corner" ? " placement-corner" : options.placement === "middle" ? " placement-middle" : options.placement === "start" ? " placement-start" : ""}${options.isStorePanel ? " store-panel" : ""}${options.isCompact ? " is-compact" : ""}${options.isPicture ? " is-picture" : ""}${options.isShown ? " in-place" : ""}" id="${options.id}" aria-labelledby="${options.titleId ?? `${options.id}-title`}"${options.isConfirm ? raw(" data-sheet-confirm") : ""} data-glass data-glass-corners="pane"${options.isShown ? raw(" open") : ""}>${EDGE}${form}</dialog>`;
 }
 
 /** An outline for a cut field or button (GLASS_SCRIPT draws it), and a slab's drawn rim. */
@@ -246,7 +278,7 @@ export interface GrooveOptions {
 export function groove(options: GrooveOptions = {}): Raw {
   const isRunning = options.filledPct === undefined;
   const shownPct = isRunning ? 0 : Math.max(0, Math.min(100, options.filledPct ?? 0));
-  return html`<span class="groove${options.kind ? ` ${options.kind}` : ""}${isRunning ? " is-running" : ""}${options.isWorking ? " is-working" : ""}" data-cut-line="3" aria-hidden="true" style="--groove-filled:${(shownPct / 100).toFixed(4)}">${CUT_LINE}<span class="groove-fill"><span class="groove-light" data-cut-line="3" data-cut-bar>${CUT_LINE}${options.lightMarkup ?? ""}</span></span></span>`;
+  return html`<span class="groove carving deep line${options.kind ? ` ${options.kind}` : ""}${isRunning ? " is-running" : ""}" data-cut-line="3" aria-hidden="true" style="--groove-filled:${(shownPct / 100).toFixed(4)}">${CUT_LINE}<span class="groove-fill light-glow"><span class="groove-light light-fill${options.isWorking ? " light-glint loops" : ""}" data-cut-line="3" data-cut-bar>${CUT_LINE}${options.lightMarkup ?? ""}</span></span></span>`;
 }
 
 /**
@@ -281,6 +313,9 @@ export const EDGE_LIGHT_SCRIPT = `/* edge light */(function () {
       if (part && holder.contains(part) && canLight(part)) lightUp(part); else dimSoon();
     });
     holder.addEventListener("pointerleave", function () { dim(); holder.classList.remove("is-awake"); });
+    // The keyboard's focus lights it too, where there's no ring of its own (a menu's choices, moved between with the arrow keys).
+    holder.addEventListener("focusin", function (event) { var part = event.target.closest("[data-lights]"); if (part && holder.contains(part) && canLight(part) && part.matches(":focus-visible")) { holder.classList.add("is-awake"); lightUp(part); } });
+    holder.addEventListener("focusout", function (event) { if (!holder.contains(event.relatedTarget)) { dim(); holder.classList.remove("is-awake"); } });
     // A part picked (the one you're on now) no longer lights; one that scrolls inside the holder keeps its light beside it.
     holder.addEventListener("click", function () { setTimeout(function () { if (lit && !canLight(lit)) dim(); }, 0); });
     holder.addEventListener("scroll", function () { if (lit) place(lit, false); }, true);
@@ -309,7 +344,7 @@ const SWATCHES: { token: string; note: string }[] = [
 ];
 
 const swatches = () =>
-  glassPane({ paneWidth: "full", body: html`<ul class="swatches">${SWATCHES.map(({ token, note }) => html`<li><span class="chip-swatch" data-cut-line="10" style="background:var(${token})">${CUT_LINE}</span><code>${token}</code><span>${note}</span></li>`)}</ul>` });
+  glassPane({ paneWidth: "full", body: stackOfOne(html`<ul class="swatches words-margin round">${SWATCHES.map(({ token, note }) => html`<li><span class="chip-swatch" data-cut-line="10" style="background:var(${token})">${CUT_LINE}</span><code class="words-margin at-end">${token}</code><span class="words-margin at-end">${note}</span></li>`)}</ul>`) });
 
 component({
   name: "Color",
@@ -319,28 +354,20 @@ component({
   summary: "Every color comes from these tokens, so light, dark and smoked glass follow by themselves. Orange is only for what you act on, and it is always shown in full: never faded or at half opacity.",
   styles: `
 /* Color: the gallery's swatches. */
-/* The swatches have edges, so they sit at the frame gap (the first takes the pane's corner); each one's name and use are words beside it, its
-   name on the swatch's top line. */
-.swatches { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--size-figure), 1fr)); gap: var(--gap-block-block); }
+/* Each swatch leads its name and use as a mark leads words, so the list keeps the words margin all round, as words do; its name on the
+   swatch's top line. */
+.swatches { list-style: none; margin: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--size-figure), 1fr)); gap: var(--gap-block-block); }
 .swatches li { display: grid; grid-template-columns: 2.25rem 1fr; grid-template-rows: auto auto; column-gap: var(--gap-words-words); align-items: start; font: var(--type-facts); }
-.swatches li > :not(.chip-swatch) { padding-inline-end: var(--pad-words); }
-/* A swatch is cut by the edge rule like everything else: square in the pane's middle, following its corner where it sits in one. */
+/* A swatch is cut by the edge rule like everything else: square, in from the pane's corners. */
 .swatches .chip-swatch { position: relative; grid-row: span 2; align-self: stretch; width: 2.25rem; min-height: 2.25rem; clip-path: var(--cut-shape); }
 .swatches .chip-swatch > .cut-line polygon { stroke: var(--line); }
 .swatches code { font: var(--type-code); }
-.divider-sample { display: grid; padding: var(--pad-words); }
-.divider-sample > * { --pad-words: 0px; }
-.divider-sample strong { font: var(--type-name); }
-.divider-sample span { font: var(--type-facts); color: var(--muted); }
-.divider-sample p { margin: var(--gap-words-control) 0 0; padding-top: var(--gap-words-control); border-top: var(--divider); font: var(--type-words); color: var(--ink-2); }
+/* A swatch's name and value wrap inside their own column, never over the swatch beside, however large the text. */
+.swatches li > :not(.chip-swatch) { min-width: 0; overflow-wrap: anywhere; }
 .swatches span:last-child { color: var(--muted); }
 `,
   examples: [
     { label: "Every token", markup: swatches(), isWide: true },
-    {
-      label: "The divider: a line between two parts of one pane",
-      markup: glassPane({ paneWidth: "fit", body: html`<div class="divider-sample"><strong>emma_r</strong><span>Online</span><p>Your profile · Friends · Settings</p></div>` }),
-    },
   ],
 });
 
@@ -369,7 +396,7 @@ component({
 /* Type: each token, set in itself. */
 .type-sample { width: 100%; list-style: none; margin: 0; padding: 0; display: grid; gap: var(--gap-block-block); color: var(--ink); }
 .type-sample li { display: grid; gap: var(--gap-words-words); }
-.type-sample code { font: var(--type-code); color: var(--muted); padding-inline: var(--pad-words); }
+.type-sample code { font: var(--type-code); color: var(--muted); }
 .type-sample .is-muted { color: var(--muted); }
 .type-sample p { margin: 0; max-width: 60ch; }
 `,
@@ -377,7 +404,7 @@ component({
     {
       label: "Every token",
       isWide: true,
-      markup: html`<ul class="type-sample">${TYPE_TOKENS.map(({ token, use, sample, isMuted }) => html`<li><code>${token}: ${use}</code><p${isMuted ? raw(' class="is-muted"') : ""} style="font:var(${token})">${sample}</p></li>`)}</ul>`,
+      markup: html`<ul class="type-sample">${TYPE_TOKENS.map(({ token, use, sample, isMuted }) => html`<li><code class="words-margin">${token}: ${use}</code><p${isMuted ? raw(' class="is-muted"') : ""} style="font:var(${token})">${sample}</p></li>`)}</ul>`,
     },
   ],
 });
@@ -422,8 +449,8 @@ component({
 .glass-strip > i:nth-child(1) { left: 6%; top: 8%; background: #F7931A; }
 .glass-strip > i:nth-child(2) { left: 38%; top: 40%; width: 220px; height: 90px; border-radius: 0; transform: rotate(-12deg); background: #3B6FD0; }
 .glass-strip > i:nth-child(3) { right: 8%; top: 62%; background: #1E9C8E; }
-.glass-strip .glass { flex: 1 1 180px; min-height: 110px; padding: var(--pad-pane); font: var(--type-words); }
-.glass-strip .glass strong { display: block; font: var(--type-name); }
+.glass-strip > .glass:not(.glass-pane) { flex: 1 1 180px; min-height: 110px; padding: var(--pad-pane); font: var(--type-words); }
+.glass-strip > .glass:not(.glass-pane) strong { display: block; font: var(--type-name); }
 .glass-strip .glass-kind::after { content: var(--glass-kind); }
 /* Any size: one glass window over drifting shapes, to drag about and pull to any size (the gallery's script moves it).
    What's in it gives way as it shrinks, through a container query, so the glass itself never changes. */
@@ -546,7 +573,7 @@ component({
 :has(> .backdrop) { isolation: isolate; }
 .backdrop-frame { position: relative; width: 100%; height: 220px; display: flex; align-items: center; justify-content: center; overflow: hidden;
   clip-path: ${cutPolygon("pane")}; }
-.backdrop-frame .glass { width: min(260px, 80%); padding: var(--pad-pane); display: flex; flex-direction: column; gap: var(--gap-words-words); font: var(--type-note); color: var(--ink-2); }
+.backdrop-frame > .glass { width: min(260px, 80%); padding: var(--pad-pane); display: flex; flex-direction: column; gap: var(--gap-words-words); font: var(--type-note); color: var(--ink-2); }
 /* Taller, holding a row of glass: the Glass foundation's light examples. */
 .backdrop-frame.is-tall { height: 260px; gap: var(--gap-block-block); padding: var(--pad-pane); }
 .backdrop-frame.is-tall .glass { flex: 1 1 0; width: auto; max-width: 320px; }
@@ -609,9 +636,15 @@ component({
 .icon-set li span { min-width: 0; overflow-wrap: anywhere; }
 .icon-set .ico { width: 20px; height: 20px; color: var(--ink); }
 .icon-set .play { width: 20px; height: 20px; color: var(--ink); }
+/* Large, a pane's key icon: twice and more a line icon's size, with room above and below it, so it reads as the pane's mark. */
+.large-icon { display: flex; justify-content: center; padding-block: var(--gap-block-block); color: var(--ink-2); }
+.large-icon > .ico { width: 48px; height: 48px; stroke-width: 1.3; }
 `,
   render: icon,
-  examples: [{ label: "Every icon", isWide: true, markup: html`<ul class="icon-set">${Object.keys(ICONS).map((name) => html`<li>${icon(name as IconName)}<span>${name}</span></li>`)}</ul>` }],
+  examples: [
+    { label: "Every icon", isWide: true, markup: html`<ul class="icon-set">${Object.keys(ICONS).map((name) => html`<li>${icon(name as IconName)}<span>${name}</span></li>`)}</ul>` },
+    { label: "Large: a pane's key icon, standing for what it is, above its title (Confirm it's you)", markup: html`${largeIcon("key")}` },
+  ],
 });
 
 component({
@@ -628,7 +661,7 @@ component({
 .logo .on-smoked { display: var(--on-smoked); }
 .logo.wordmark { --logo-height: 26px; --logo-file-share: 1.1608; }
 .logo.mark { --logo-height: 17px; --logo-file-share: 1.2047; padding: 0; }
-.logo img { height: calc(var(--logo-height) * var(--logo-file-share)); width: auto; margin-block: calc(var(--logo-height) * (1 - var(--logo-file-share)) / 2); transition: height 0.45s cubic-bezier(.2,.8,.2,1), margin 0.45s cubic-bezier(.2,.8,.2,1); }
+.logo img { height: calc(var(--logo-height) * var(--logo-file-share)); width: auto; margin-block: calc(var(--logo-height) * (1 - var(--logo-file-share)) / 2); transition: height var(--motion-glide) var(--ease-glide), margin var(--motion-glide) var(--ease-glide); }
 .logo:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 /* On a touch screen it's a control's height to press, whatever its size. */
 @media (pointer: coarse) { .logo { position: relative; } .logo::before { content: ""; position: absolute; inset: min(0px, calc((var(--touch-target) - 100%) / -2)) 0; } }
@@ -651,10 +684,11 @@ component({
   summary: "The Z building itself: what a button shows once it's pressed and waiting, a form sent or a page opening. Only ever after you press something.",
   styles: `
 /* The loader: the brand's Z, masked so it takes the words' color, --loader-width wide (19px). Under reduced motion, the still mark breathing slowly instead. */
-.loader { display: inline-block; width: var(--loader-width, 19px); height: calc(var(--loader-width, 19px) * 0.737); flex: none; background: currentColor;
-  -webkit-mask: url(/loader/zaisma-loader.svg) center / contain no-repeat; mask: url(/loader/zaisma-loader.svg) center / contain no-repeat; }
+.loader { position: relative; display: inline-block; width: var(--loader-width, 19px); height: calc(var(--loader-width, 19px) * 0.737); flex: none; }
+.loader > i { position: absolute; inset: 0; background: currentColor; animation: 1s linear infinite; }
+${LOADER_FRAMES}
 @keyframes loader-calm { 50% { opacity: 0.4; } }
-@media (prefers-reduced-motion: reduce) { .loader { -webkit-mask-image: url(/zaisma-mark-small-white.svg); mask-image: url(/zaisma-mark-small-white.svg); animation: loader-calm 2.4s ease-in-out infinite; } }
+@media (prefers-reduced-motion: reduce) { .loader { background: currentColor; -webkit-mask: url(/zaisma-mark-small-white.svg) center / contain no-repeat; mask: url(/zaisma-mark-small-white.svg) center / contain no-repeat; animation: loader-calm var(--motion-loop-slow) ease-in-out infinite; } .loader > i { display: none; } }
 `,
   render: loader,
   examples: [

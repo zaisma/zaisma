@@ -59,7 +59,9 @@ export const WATCH_SCRIPT = `/* watch */(function () {
     try { matched = root.querySelectorAll(selector); } catch (error) { try { matched = root.querySelectorAll(selector.replace(/::[a-z-]+(\\([^)]*\\))?/g, "")); } catch (again) { return []; } }
     return Array.from(matched);
   }
-  function isScrolling(box) { return box !== document.body && document.body.contains(box) && /^(auto|scroll)$/.test(getComputedStyle(box).overflowY); }
+  // A material's part that scrolls is one even while what's in it fits for now (MATERIAL_SCRIPT's fits, overflow visible): in a closed
+  // sheet it measures nothing, and it scrolls once the sheet opens.
+  function isScrolling(box) { return box !== document.body && document.body.contains(box) && ((box.classList.contains("scrolls") && !box.classList.contains("across")) || /^(auto|scroll)$/.test(getComputedStyle(box).overflowY)); }
   window.zaismaWatch = {
     page: function (callback) { pageCallbacks.push(callback); },
     size: function (element, callback, batch) {
@@ -138,7 +140,7 @@ export const WATCH_SCRIPT = `/* watch */(function () {
  * glass(el, corners) and cutLine(el), from the header draft, as window.zaismaGlass and window.zaismaCutLine.
  * On load, and for elements added later, they're applied to every [data-glass] (corners from data-glass-corners) and every
  * [data-cut-line] (a control: its slant, where it has one, in its value).
- * data-glass-corners names a slab's four cuts, top left, top right, bottom right, bottom left: "pane", "header" or "menu" for that
+ * data-glass-corners names a slab's four cuts, top left, top right, bottom right, bottom left: "pane", "header", "menu" or "strip" for that
  * kind's large and small cuts round it (the tokens --pane-cut-large and the rest), or four of a kind's "pane-large", "pane-small"
  * and so on, or numbers ("pane-large pane-small 0 0": a tray's head). window.zaismaCorners(el) reads them as numbers.
  */
@@ -151,7 +153,7 @@ export const GLASS_SCRIPT = `/* glass */(function () {
     if (!(name in cutTokens)) cutTokens[name] = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--" + name.replace(/-(large|small)$/, "-cut-$1"))) || 0;
     return cutTokens[name];
   }
-  ["pane", "header", "menu"].forEach(function (kind) { cutToken(kind + "-large"); cutToken(kind + "-small"); });
+  ["pane", "header", "menu", "strip"].forEach(function (kind) { cutToken(kind + "-large"); cutToken(kind + "-small"); });
   function corners(el, fallback) {
     var words = (el.getAttribute("data-glass-corners") || fallback).trim().split(/\\s+/);
     if (words.length === 1 && /^[a-z]+$/.test(words[0])) words = [words[0] + "-large", words[0] + "-small", words[0] + "-large", words[0] + "-small"];
@@ -295,16 +297,17 @@ export const GLASS_SCRIPT = `/* glass */(function () {
         var c = cornersOf().map(function (cut) { return Math.min(cut, Math.round(short * 0.3)); }), cornerKey = c.join(",");
         if (cornerKey !== lastCorners) {
           lastCorners = cornerKey;
-          el.style.clipPath = "polygon(0 " + c[0] + "px, " + c[0] + "px 0, calc(100% - " + c[1] + "px) 0, 100% " + c[1] + "px, 100% calc(100% - " + c[2] + "px), calc(100% - " + c[2] + "px) 100%, " + c[3] + "px 100%, 0 calc(100% - " + c[3] + "px))";
+          // The cut is the glass's own (its body and rim, --glass-clip), not the pane's: what stands on it can cast its shadow or glow past its edge.
+          el.style.setProperty("--glass-clip", "polygon(0 " + c[0] + "px, " + c[0] + "px 0, calc(100% - " + c[1] + "px) 0, 100% " + c[1] + "px, 100% calc(100% - " + c[2] + "px), calc(100% - " + c[2] + "px) 100%, " + c[3] + "px 100%, 0 calc(100% - " + c[3] + "px))");
+          // An open floating pane's shadow is cast in this cut (zaismaCast), so it's cast again once the cut is known.
+          if (window.zaismaCast && el.classList.contains("floating-pane") && el.matches(":popover-open")) window.zaismaCast(el);
         }
-        // An open side (data-glass-open="top", a tray under its pane) draws its rim past the slab, where the clip hides it, so the glass runs straight on into what's above.
-        var reach = el.getAttribute("data-glass-open") === "top" ? Math.ceil(band * 1.6) + 2 : 0;
         // A pane whose glass in front isn't its whole box (a sheet whose chosen tab rises from it, el.zaismaEdgeShape) draws its rim along that
         // outline instead, with the same layers and light; what lies outside it in the box is behind (the clip stays the box's).
         var outlined = el.zaismaEdgeShape ? el.zaismaEdgeShape(w, h, c) : null;
         if (outlined) outlined = distinct(outlined);
         // A rim drawn at this size, with these cuts, is already there: nothing is written again.
-        var paneKey = w + "x" + h + ":" + band + ":" + reach + ":" + cornerKey + (outlined ? ":" + pointList(outlined) : "");
+        var paneKey = w + "x" + h + ":" + band + ":" + cornerKey + (outlined ? ":" + pointList(outlined) : "");
         if (paneKey === lastPane) return;
         if (lastPane) paneResized(el);
         lastPane = paneKey;
@@ -312,7 +315,7 @@ export const GLASS_SCRIPT = `/* glass */(function () {
           at = function (inset) { return insetShape(outlined, inset); };
           lights = outlined.map(function (p, i) { return FACING_LIGHT[facing(p, outlined[(i + 1) % outlined.length])]; });
         } else {
-          at = function (inset) { return cutPoints(w, h + reach, c, inset).map(function (p) { return [p[0], p[1] - reach]; }); };
+          at = function (inset) { return cutPoints(w, h, c, inset); };
           lights = SIDE_LIGHT;
         }
       }
@@ -368,6 +371,7 @@ export const GLASS_SCRIPT = `/* glass */(function () {
   var rootCss = getComputedStyle(document.documentElement), token = function (name, fallback) { return parseFloat(rootCss.getPropertyValue(name)) || fallback; };
   var SLANT_PX = token("--control-slant", 10), ROW_GAP_PX = token("--gap-control-row", 4), STACK_GAP_PX = token("--gap-control-stack", 8);
   // Neighbors side by side overlap their boxes by the slant less the row's gap (half a pixel either way, for gaps a layout rounds).
+  var LEAST_BEVEL_PX = 4;
   var BESIDE_MIN_PX = ROW_GAP_PX - SLANT_PX - 0.5, BESIDE_MAX_PX = ROW_GAP_PX - SLANT_PX + 0.5, LONE_CORNERS = [16, 8, 16, 8];
   // A corner's cut shorter than this is square: what's left of a pane's cut just past its reach can't be seen, and an outline or band drawn
   // inside a cut that small turns it inside out, which a wide line (keyboard focus) draws as a spike.
@@ -420,7 +424,9 @@ export const GLASS_SCRIPT = `/* glass */(function () {
     var most = Math.max(w, h) < 3 * Math.min(w, h) ? Math.min(w, h) * 0.5 : Infinity;
     return [[left, top], [right, top], [right, bottom], [left, bottom]].map(function (gaps, i) {
       var sum = Math.max(0, gaps[0]) + Math.max(0, gaps[1]);
-      return Math.min(most, Math.max(0, (c[i] || 0) - sum + Math.SQRT2 * sum / 2));
+      // A corner it does take is never under the least bevel that reads as cut (4px), however small its holder's own cut (a notice's strip).
+      var cut = Math.max(0, (c[i] || 0) - sum + Math.SQRT2 * sum / 2);
+      return Math.min(most, cut > 0 ? Math.max(LEAST_BEVEL_PX, cut) : 0);
     });
   }
   // Which ends have another control right beside them. data-cut-beside="start", "end", "start end" or "" says so instead (a switch's
@@ -477,7 +483,17 @@ export const GLASS_SCRIPT = `/* glass */(function () {
     return points;
   }
   function controlOutline(el, w, h, as) {
+    // A mark cut on all four corners to its middles (data-cut-diamond: a PIN's marks, and the light in them): a diamond, on its own, with
+    // no pane's corner to follow.
+    if (el.hasAttribute("data-cut-diamond")) { el.cutCorners = [w / 2, w / 2, w / 2, w / 2]; return [[w / 2, 0], [w, h / 2], [w / 2, h], [0, h / 2]]; }
     var beside = besides(el, as), cuts = fitCuts(el, w, h, as);
+    // A control's own part at its end (a switch's slab on its first or last tab) slants there too where the control itself slants, beside
+    // another control (a header's switch toward its search).
+    if (el.hasAttribute("data-cut-beside")) {
+      var holder = holderOf(el), holderSlanted = holder ? holder.getAttribute("data-slanted") || "" : "", ends = as ? as.ends : el.getAttribute("data-cut-ends") || "";
+      if (/start/.test(ends) && /start/.test(holderSlanted)) beside.start = true;
+      if (/end/.test(ends) && /end/.test(holderSlanted)) beside.end = true;
+    }
     var corners = [beside.start ? 0 : cuts[0], beside.end ? 0 : cuts[1], beside.end ? 0 : cuts[2], beside.start ? 0 : cuts[3]].map(function (cut) { return Math.min(cut, h); });
     [[0, 3], [1, 2]].forEach(function (pair) { var sum = corners[pair[0]] + corners[pair[1]]; if (sum > h) { corners[pair[0]] *= h / sum; corners[pair[1]] *= h / sum; } });
     el.cutCorners = corners;
@@ -538,6 +554,9 @@ export const GLASS_SCRIPT = `/* glass */(function () {
       last = key;
       el.style.setProperty("--cut-shape", cssPolygon(shape));
       svg.setAttribute("viewBox", "0 0 " + w + " " + h);
+      // Stretched to its box exactly: measured in whole pixels, a box a fraction of a pixel off would otherwise shrink the whole line to keep
+      // its proportions, and the edge would stop short of the face it lines.
+      svg.setAttribute("preserveAspectRatio", "none");
       // Kept a moment past its last frame, so the light it lands with doesn't fade in either.
       if (glide) { svg.classList.add("is-gliding"); clearTimeout(svg.glideEnd); svg.glideEnd = setTimeout(function () { svg.classList.remove("is-gliding"); }, glide.ms + 200); }
       // Its line and light are drawn round the outline with no side under a pixel: a side shrinking away as it glides (a slant becoming a

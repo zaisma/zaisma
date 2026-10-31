@@ -2,7 +2,7 @@ import { html, type Raw } from "./html.ts";
 import { pageScript } from "./page-scripts.ts";
 import { primaryButton } from "./components/actions.ts";
 import { stack } from "./components/layout.ts";
-import { playingCard } from "./components/playing.ts";
+import { notice } from "./components/panes.ts";
 
 /*
  * "Still there?" beside the game on its page. After a while without input the game's SDK asks the page
@@ -16,7 +16,7 @@ import { playingCard } from "./components/playing.ts";
 
 /** The card, hidden until the game asks. */
 export function stillThereCard(): Raw {
-  return playingCard({
+  return notice({ placement: "over-game",
     id: "still-there",
     title: "Still there?",
     body: stack({

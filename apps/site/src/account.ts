@@ -117,7 +117,7 @@ import { confirmItsYouSheet } from "./components/confirm-its-you.ts";
 import { html, layout, message, pageData, raw, scriptTags, type Raw } from "./html.ts";
 import { cityPane, cityStage, CITY_PANE_SCRIPT, CITY_SCRIPT } from "./components/city.ts";
 import type { CheckedPageName } from "./components/checked-pages.ts";
-import { row } from "./components/layout.ts";
+import { row, stack, type LayoutItem } from "./components/layout.ts";
 import { type IconName } from "./components/foundations.ts";
 import { secondaryButton, primaryButton, tertiaryButton, textLink } from "./components/actions.ts";
 import { choiceCards, wheelField, cutField, tabSwitch } from "./components/inputs.ts";
@@ -917,13 +917,15 @@ interface SignInPageOptions {
   httpStatus?: number;
   /** Who is looking, once they're signed in (You're in). */
   account?: Account | null;
+  /** The step's own scripts, after the pane. */
+  scripts?: Raw;
 }
 
 /**
  * Signing in and making an account, and every step between: one glass pane over the city (docs/DECISIONS.md, "Signing in happens
  * in the city, on every device"), with only the logo above it.
  */
-function signInPage(env: Env, title: string, body: Raw, options: SignInPageOptions): Response {
+function signInPage(env: Env, title: string, items: LayoutItem[], options: SignInPageOptions): Response {
   // Every step allows the bot check, since each can swap in the next one's in place (CITY_PANE_SCRIPT).
   const hasTurnstileCheck = Boolean(env.TURNSTILE_SITE_KEY);
   const response = layout(env, {
@@ -935,10 +937,16 @@ function signInPage(env: Env, title: string, body: Raw, options: SignInPageOptio
     isPrivate: true,
     hasTurnstileCheck,
     viewer: options.account === undefined ? undefined : { account: options.account },
-    body: cityPane({ header: header({ current: null, isOnDeveloperPage: false, isOnSignInPage: true }), label: title, body, after: scriptTags(CITY_SCRIPT, CITY_PANE_SCRIPT, BACK_TO_GAME_SCRIPT, ...(hasTurnstileCheck ? [BOT_CHECK_SCRIPT] : [])) }),
+    body: cityPane({ header: header({ current: null, isOnDeveloperPage: false, isOnSignInPage: true }), label: title, body: stack({ items }), after: html`${options.scripts ?? ""}${scriptTags(CITY_SCRIPT, CITY_PANE_SCRIPT, BACK_TO_GAME_SCRIPT, ...(hasTurnstileCheck ? [BOT_CHECK_SCRIPT] : []))}` }),
   });
   return new Response(response.body, { status: options.httpStatus ?? 200, headers: response.headers });
 }
+
+/** A step's heading, and when a game asked, the line that says so, as the pane's first items. */
+const headingItems = (title: string, game: Game | null | undefined): LayoutItem[] => [
+  { kind: "words", markup: html`<h1>${title}</h1>` },
+  ...(game ? [{ kind: "words" as const, markup: html`<p>${game.title} asked you to sign in.</p>` }] : []),
+];
 
 /** A pane's heading, and when a game asked, the line that says so. */
 const paneHeading = (title: string, game: Game | null | undefined) => html`<h1>${title}</h1>${game ? html`<p>${game.title} asked you to sign in.</p>` : ""}`;
@@ -959,9 +967,11 @@ const signInSwitch = (current: "signin" | "join", next: string | null) =>
  * The guest way, at the pane's foot: Continue as guest, home; or, when a game asked, back to it as a guest, closing this tab
  * (BACK_TO_GAME_SCRIPT) so the game carries on in its own. After an "or" of its own unless the ways in above already had one.
  */
-function guestWay(game: Game | null | undefined, hasOr = true): Raw {
-  const button = game ? html`<div data-back>${tertiaryButton(`Back to ${game.title} as a guest`, { href: `/g/${game.slug}?play`, hasArrow: true, isFullWidth: true })}</div>` : tertiaryButton("Continue as guest", { href: "/", hasArrow: true, isFullWidth: true });
-  return html`${hasOr ? html`<p class="or">or</p>` : ""}${button}`;
+function guestItems(game: Game | null | undefined, hasOr = true): LayoutItem[] {
+  const button: LayoutItem = game
+    ? { kind: "block", markup: html`<div data-back>${tertiaryButton(`Back to ${game.title} as a guest`, { href: `/g/${game.slug}?play`, hasArrow: true, isFullWidth: true })}</div>` }
+    : { kind: "control", markup: tertiaryButton("Continue as guest", { href: "/", hasArrow: true, isFullWidth: true }) };
+  return [...(hasOr ? [{ kind: "words" as const, markup: html`<p class="or">or</p>` }] : []), button];
 }
 
 /** A problem with the whole form rather than one field (the invisible check, too many tries). */
@@ -1021,13 +1031,14 @@ ${primaryButton("Next", { isFullWidth: true, isBig: true, busyLabel: "One moment
   return signInPage(
     env,
     current === "signin" ? "Sign in" : "Make an account",
-    html`${signInSwitch(current, next)}
-${signin}
-${join}
-<p class="or" data-entry-or="join"${current === "join" ? "" : raw(" hidden")}>or</p>
-${guestWay(game, false)}
-${scriptTags(PASSKEY_SCRIPT, PASSKEY_SIGN_IN_SCRIPT, ENTRY_SWITCH_SCRIPT, JOIN_TODAY_SCRIPT)}`,
-    { checkedPage: current === "signin" ? (given.signinError ? "Sign in, wrong password" : "Sign in") : given.ageError ? "New account, no birthday" : "Make an account", game, httpStatus: given.httpStatus },
+    [
+      { kind: "control", markup: signInSwitch(current, next) },
+      { kind: "block", markup: signin },
+      { kind: "block", markup: join },
+      { kind: "words", markup: html`<p class="or" data-entry-or="join"${current === "join" ? "" : raw(" hidden")}>or</p>` },
+      ...guestItems(game, false),
+    ],
+    { scripts: scriptTags(PASSKEY_SCRIPT, PASSKEY_SIGN_IN_SCRIPT, ENTRY_SWITCH_SCRIPT, JOIN_TODAY_SCRIPT), checkedPage: current === "signin" ? (given.signinError ? "Sign in, wrong password" : "Sign in") : given.ageError ? "New account, no birthday" : "Make an account", game, httpStatus: given.httpStatus },
   );
 }
 
@@ -1083,23 +1094,24 @@ async function emailSigninPage(env: Env, next: string | null, error?: string, gi
   return signInPage(
     env,
     "Forgot your password?",
-    html`${paneHeading("Forgot your password?", game)}
-<p>Get back in with the email or a passkey on your account, then set a new password.</p>
-<form method="post" action="/signin/email" id="code-form">
+    [
+      ...headingItems("Forgot your password?", game),
+      { kind: "words", markup: html`<p>Get back in with the email or a passkey on your account, then set a new password.</p>` },
+      { kind: "block", markup: html`<form method="post" action="/signin/email" id="code-form">
 ${nextField(back)}
 ${cutField({ id: "signin-email", name: "email", label: "Email", type: "email", icon: "mail", text: given, autocomplete: "email", isRequired: true, error })}
 ${botCheck(env, "email_code")}
 ${primaryButton("Email me a code", { isFullWidth: true, isBig: true, busyLabel: "Sending" })}
-</form>
-<div class="pane-stack" id="ways" hidden>
+</form>` },
+      { kind: "block", markup: html`<div class="pane-stack" id="ways" hidden>
 <p class="or">or</p>
 <div class="ways">${passkeyWay(back, false)}</div>
 <p class="field-error" role="alert" id="passkey-error" hidden></p>
-</div>
-<p class="note">Added neither? Then the account can't be recovered, but you can always ${textLink("make a new one", `/join${nextQuery(next)}`)}.</p>
-${guestWay(game)}
-${scriptTags(PASSKEY_SCRIPT, PASSKEY_SIGN_IN_SCRIPT)}`,
-    { checkedPage: error ? "Forgot your password, no email" : "Forgot your password", game, httpStatus: error ? 400 : 200 },
+</div>` },
+      { kind: "words", markup: html`<p class="note">Added neither? Then the account can't be recovered, but you can always ${textLink("make a new one", `/join${nextQuery(next)}`)}.</p>` },
+      ...guestItems(game),
+    ],
+    { scripts: scriptTags(PASSKEY_SCRIPT, PASSKEY_SIGN_IN_SCRIPT), checkedPage: error ? "Forgot your password, no email" : "Forgot your password", game, httpStatus: error ? 400 : 200 },
   );
 }
 
@@ -1118,16 +1130,18 @@ async function codePage(env: Env, email: string, next: string | null, error?: st
     return signInPage(
       env,
       "Check your email",
-      html`${paneHeading("Check your email", game)}
-<p>${lead}</p>
-<form method="post" action="/signin/code">
+      [
+      ...headingItems("Check your email", game),
+      { kind: "words", markup: html`<p>${lead}</p>` },
+      { kind: "block", markup: html`<form method="post" action="/signin/code">
 ${nextField(next)}
 <input type="hidden" name="email" value="${email}">
 ${cutField({ id: "signin-code", name: "code", label: "Code", type: "text", icon: "lock", autocomplete: "one-time-code", inputMode: "numeric", isRequired: true, error })}
 ${primaryButton("Continue", { isFullWidth: true, isBig: true })}
-</form>
-<p class="note">No email after a minute? Check spam, or ${textLink("try again", `/signin/email${nextQuery(next)}`)}.</p>
-${guestWay(game)}`,
+</form>` },
+      { kind: "words", markup: html`<p class="note">No email after a minute? Check spam, or ${textLink("try again", `/signin/email${nextQuery(next)}`)}.</p>` },
+      ...guestItems(game),
+    ],
       { checkedPage: error ? "Check email, wrong code" : "Check your email", game, httpStatus: error ? 400 : 200 },
     );
   }
@@ -1201,14 +1215,16 @@ async function joinPlayPage(env: Env, next: string | null, account: Account, err
   return signInPage(
     env,
     "How do you play?",
-    html`${paneHeading("How do you play?", game)}
-<form method="post" action="/join/play" class="is-play-step">
+    [
+      ...headingItems("How do you play?", game),
+      { kind: "block", markup: html`<form method="post" action="/join/play" class="is-play-step">
 ${nextField(next)}
 ${choiceCards({ id: "join-play", name: "social_mode", label: "How do you play?", isLabelHidden: true, pickedValue: current === "custom" ? defaultSocialMode(account.age_band) : current, choices: socialModesFor(account.age_band).map((socialMode) => ({ label: SOCIAL_MODE_LABELS[socialMode], choiceValue: socialMode, text: JOIN_SOCIAL_MODE_LINES[socialMode], icon: JOIN_SOCIAL_MODE_ICONS[socialMode] })) })}
 ${paneProblem(error)}
 <p class="note">You can change this any time in Settings.</p>
 ${primaryButton("Make my account", { isFullWidth: true, isBig: true, busyLabel: "One moment" })}
-</form>`,
+</form>` },
+    ],
     { checkedPage: "How do you play", game, httpStatus: error ? 400 : 200, account },
   );
 }
@@ -1307,20 +1323,21 @@ async function joinAccountPage(env: Env, next: string | null, error?: string, gi
   return signInPage(
     env,
     title,
-    html`${paneHeading(title, game)}
-${providers.length ? html`<div class="ways">${providerButtons(providers, next)}</div><p class="or">or a username and password</p>` : ""}
-<form method="post" action="/join/account" id="join-form">
+    [
+      ...headingItems(title, game),
+      ...(providers.length ? [{ kind: "block", markup: html`<div class="ways">${providerButtons(providers, next)}</div>` }, { kind: "words", markup: html`<p class="or">or a username and password</p>` }] as LayoutItem[] : []),
+      { kind: "block", markup: html`<form method="post" action="/join/account" id="join-form">
 ${nextField(next)}
 ${usernameCutField(given)}
 ${cutField({ id: "join-password", name: "password", label: "Password", type: "password", icon: "lock", autocomplete: "new-password", isRequired: true, hint: PASSWORD_HINT, error: given.passwordError })}
 ${botCheck(env, "join")}
 ${paneProblem(error)}
 ${primaryButton("Next", { isFullWidth: true, isBig: true, busyLabel: "One moment" })}
-</form>
-${TERMS_LINE}
-${guestWay(game)}
-${scriptTags(USERNAME_SCRIPT)}`,
-    { checkedPage: "How will you sign in", game, httpStatus: error || given.usernameError || given.passwordError ? 400 : 200 },
+</form>` },
+      { kind: "words", markup: TERMS_LINE },
+      ...guestItems(game),
+    ],
+    { scripts: scriptTags(USERNAME_SCRIPT), checkedPage: "How will you sign in", game, httpStatus: error || given.usernameError || given.passwordError ? 400 : 200 },
   );
 }
 
@@ -1330,17 +1347,18 @@ async function joinUsernamePage(env: Env, next: string | null, error?: string, g
   return signInPage(
     env,
     "Pick a username",
-    html`${paneHeading("Pick a username", game)}
-<form method="post" action="/join/username" id="join-form">
+    [
+      ...headingItems("Pick a username", game),
+      { kind: "block", markup: html`<form method="post" action="/join/username" id="join-form">
 ${nextField(next)}
 ${usernameCutField(given)}
 ${botCheck(env, "join")}
 ${paneProblem(error)}
 ${primaryButton("Next", { isFullWidth: true, isBig: true, busyLabel: "One moment" })}
-</form>
-${TERMS_LINE}
-${scriptTags(USERNAME_SCRIPT)}`,
-    { checkedPage: "Pick a username", game, httpStatus: error || given.usernameError ? 400 : 200 },
+</form>` },
+      { kind: "words", markup: TERMS_LINE },
+    ],
+    { scripts: scriptTags(USERNAME_SCRIPT), checkedPage: "Pick a username", game, httpStatus: error || given.usernameError ? 400 : 200 },
   );
 }
 
@@ -1356,12 +1374,14 @@ function closedAccountPage(env: Env, account: Account): Response {
   return signInPage(
     env,
     "This account is closed",
-    html`<h1>This account is closed</h1>
-<p>Zaisma closed ${account.username} for breaking ${broke}${why ? html`: ${why}` : ""}.</p>
-<p class="note">It can't sign in, and any games it made are down.</p>
-<p><strong>Think this is a mistake?</strong> Write to ${APPEAL_EMAIL} with the username. A person reads every appeal and answers.</p>
-<div class="ways">${secondaryButton(`Email ${APPEAL_EMAIL}`, { href: `mailto:${APPEAL_EMAIL}?subject=${encodeURIComponent(`Appeal: ${account.username}`)}`, isFullWidth: true })}
-${tertiaryButton("Sign out", { href: "/signin", isFullWidth: true })}</div>`,
+    [
+      { kind: "words", markup: html`<h1>This account is closed</h1>` },
+      { kind: "words", markup: html`<p>Zaisma closed ${account.username} for breaking ${broke}${why ? html`: ${why}` : ""}.</p>` },
+      { kind: "words", markup: html`<p class="note">It can't sign in, and any games it made are down.</p>` },
+      { kind: "words", markup: html`<p><strong>Think this is a mistake?</strong> Write to ${APPEAL_EMAIL} with the username. A person reads every appeal and answers.</p>` },
+      { kind: "control", markup: secondaryButton(`Email ${APPEAL_EMAIL}`, { href: `mailto:${APPEAL_EMAIL}?subject=${encodeURIComponent(`Appeal: ${account.username}`)}`, isFullWidth: true }) },
+      { kind: "control", markup: tertiaryButton("Sign out", { href: "/signin", isFullWidth: true }) },
+    ],
     { checkedPage: "Account closed", httpStatus: 403 },
   );
 }
@@ -1370,9 +1390,11 @@ function tooYoungPage(env: Env): Response {
   return signInPage(
     env,
     "You can't make an account",
-    html`<h1>You can't make an account</h1>
-<p>You can still play as a guest in any game that doesn't need one.</p>
-${tertiaryButton("Find a game", { href: "/", hasArrow: true, isFullWidth: true })}`,
+    [
+      { kind: "words", markup: html`<h1>You can't make an account</h1>` },
+      { kind: "words", markup: html`<p>You can still play as a guest in any game that doesn't need one.</p>` },
+      { kind: "control", markup: tertiaryButton("Find a game", { href: "/", hasArrow: true, isFullWidth: true }) },
+    ],
     { checkedPage: "Make an account, too young" },
   );
 }
@@ -1405,11 +1427,12 @@ async function keptPage(env: Env, account: Account, slug: string | null): Promis
   return signInPage(
     env,
     "You're in",
-    html`<h1>You're in, ${account.username}</h1>
-<p>${game ? `Go back to ${game.title} to keep playing.${game.cloud_saves_enabled ? " From now on, your progress saves to your account, so it's safe and follows you to any device." : ""}` : "From now on, games you play save your progress to your account."}</p>
-<div data-back>${primaryButton(game ? `Back to ${game.title}` : "Find a game", { href: back, isFullWidth: true, isBig: true })}</div>
-${scriptTags(JOINED_SCRIPT)}`,
-    { checkedPage: "You're in", account },
+    [
+      { kind: "words", markup: html`<h1>You're in, ${account.username}</h1>` },
+      { kind: "words", markup: html`<p>${game ? `Go back to ${game.title} to keep playing.${game.cloud_saves_enabled ? " From now on, your progress saves to your account, so it's safe and follows you to any device." : ""}` : "From now on, games you play save your progress to your account."}</p>` },
+      { kind: "block", markup: html`<div data-back>${primaryButton(game ? `Back to ${game.title}` : "Find a game", { href: back, isFullWidth: true, isBig: true })}</div>` },
+    ],
+    { scripts: scriptTags(JOINED_SCRIPT), checkedPage: "You're in", account },
   );
 }
 

@@ -53,12 +53,12 @@ export function tabSwitch(options: {
   const kind = `${options.switchSize}${options.isVertical ? " vertical" : ""}`;
   const classNames = (tab: SwitchTab) => [tab.isFoldable ? "foldable" : "", tab.isFoldable && tab.isFolded ? "folded" : "", tab.state ?? ""].filter(Boolean).join(" ");
   const folding = (tab: SwitchTab) =>
-    html`${classNames(tab) ? html` class="${classNames(tab)}"` : ""}${tab.isFoldable && tab.isFolded ? raw(' tabindex="-1" aria-hidden="true"') : ""}`;
-  const tabSwitch = html`<div class="tab-switch ${kind}" role="group" aria-label="${options.label}"><span class="slab cut-raised" aria-hidden="true" data-cut-line="${isSmall ? 7 : 8}">${CUT_LINE}</span><span class="focus-ring" aria-hidden="true" data-cut-line="${isSmall ? 9 : 10}">${CUT_LINE}</span>${options.tabs.map((tab) =>
+    html`${tab.isFoldable && tab.isFolded ? raw(' tabindex="-1" aria-hidden="true"') : ""}`;
+  const tabSwitch = html`<div class="tab-switch carving-parts ${kind}" role="group" aria-label="${options.label}"><span class="switch-slab slab-layer cut-raised" aria-hidden="true" data-cut-line="${isSmall ? 7 : 8}">${CUT_LINE}</span><span class="focus-ring" aria-hidden="true" data-cut-line="${isSmall ? 9 : 10}">${CUT_LINE}</span>${options.tabs.map((tab) =>
     tab.href
       ? // A link that can't be followed now has no address, so nothing reaches it; it still says what it is.
-        html`<a data-lights${tab.isDisabled ? raw(' aria-disabled="true"') : html` href="${tab.href}"`}${folding(tab)}${tab.extra ?? ""}${tab.isCurrent ? raw(' aria-current="page"') : ""}>${inside(tab)}</a>`
-      : html`<button type="button" data-lights${folding(tab)}${tab.extra ?? ""}${tab.tabValue !== undefined ? html` value="${tab.tabValue}"` : ""} aria-pressed="${tab.isCurrent ? "true" : "false"}"${tab.isDisabled ? raw(" disabled") : ""}>${inside(tab)}</button>`,
+        html`<a class="flush-row quiet${classNames(tab) ? ` ${classNames(tab)}` : ""}" data-lights${tab.isDisabled ? raw(' aria-disabled="true"') : html` href="${tab.href}"`}${folding(tab)}${tab.extra ?? ""}${tab.isCurrent ? raw(' aria-current="page"') : ""}>${inside(tab)}</a>`
+      : html`<button type="button" class="flush-row quiet${classNames(tab) ? ` ${classNames(tab)}` : ""}" data-lights${folding(tab)}${tab.extra ?? ""}${tab.tabValue !== undefined ? html` value="${tab.tabValue}"` : ""} aria-pressed="${tab.isCurrent ? "true" : "false"}"${tab.isDisabled ? raw(" disabled") : ""}>${inside(tab)}</button>`,
   )}</div>`;
   // Its tabs sit in a Well, which stays put while they scroll inside it, fading at its ends: across, with the rail under the well;
   // stacked, with the rail beside its places.
@@ -77,7 +77,7 @@ export function tabSwitch(options: {
 /** The switch's slab sits under the one you're on, sliding on the spring; a tab you point at only lights its words (CSS). */
 export const SWITCH_SCRIPT = `/* switches */(function () {
   window.zaismaWatch.each(".tab-switch", function (sw) {
-    var slab = sw.querySelector(".slab"), tabs = sw.querySelectorAll(":scope > a, :scope > button"), isVertical = sw.classList.contains("vertical");
+    var slab = sw.querySelector(".switch-slab"), tabs = sw.querySelectorAll(":scope > a, :scope > button"), isVertical = sw.classList.contains("vertical");
     function current() { return sw.querySelector('[aria-current="page"], [aria-pressed="true"]'); }
     // How far a part reaches past a tab's box on a side where another tab is beside it: its slant, less the gap a row of controls keeps.
     var rowGapPx = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--gap-control-row")) || 4;
@@ -141,6 +141,17 @@ export const SWITCH_SCRIPT = `/* switches */(function () {
       }
       // Beside another tab, it reaches into the slant between them, so only the row's gap is left between its place and the next one's.
       var reach = besideReach(el), start = isFirst ? 0 : reach, end = isLast ? 0 : reach;
+      // Where the switch's own end slants (beside another control, as a header's switch toward its search), the slab on that end slants
+      // with it (the edge rule), set back so its gap to the slant is the gap it keeps from the switch's top and bottom.
+      var well = sw.closest("[data-cut-line]"), wellSlanted = well ? well.getAttribute("data-slanted") || "" : "";
+      if (!el.classList.contains("focus-ring") && ((isFirst && /start/.test(wellSlanted)) || (isLast && /end/.test(wellSlanted)))) {
+        var gapPx = tab.offsetTop, heightPx = sw.offsetHeight, wellSlantPx = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--control-slant")) || 10;
+        var slabSlantPx = Math.min(Number(el.getAttribute("data-cut-line")) || 0, (tab.offsetWidth + start + end) / 3);
+        // The two slants meet the middle of the slab's height that far apart across, which is the gap along the slant.
+        var setBack = wellSlantPx / 2 - slabSlantPx / 2 + gapPx * Math.sqrt(1 + (wellSlantPx / heightPx) * (wellSlantPx / heightPx)) - gapPx;
+        if (isFirst && /start/.test(wellSlanted)) start = -setBack;
+        if (isLast && /end/.test(wellSlanted)) end = -setBack;
+      }
       var to = { pos: onPixel(tab.offsetLeft - start), size: tab.offsetWidth + start + end }, ms = isGliding && !reduce ? slideMs(el) : 0;
       // The focus line runs along the well's own edge: on the first or last tab, out to the well's end.
       // Its size is whole pixels (place), so on the last tab it's set back from the well's end by what rounding adds, never past it, where the
@@ -174,31 +185,28 @@ export const SWITCH_SCRIPT = `/* switches */(function () {
     if (came && came.url && slab.animate && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
       // The tab whose page it came from: by its whole address, or by its path where only one tab has it (Browse's sorts are all /games, so
       // coming from a Browse address no tab has, none of them is the last page's and nothing slides).
-      var cameFrom = new URL(came.url), lastPath = cameFrom.pathname;
+      // A reload comes from this page itself, so nothing slides (a tab that links within it would otherwise count as the last page's).
+      var cameFrom = new URL(came.url), lastPath = cameFrom.pathname, isReload = lastPath === location.pathname && cameFrom.search === location.search;
       var samePath = Array.prototype.filter.call(tabs, function (tab) { return tab.href && new URL(tab.href).pathname === lastPath; });
       var last = samePath.find(function (tab) { return new URL(tab.href).search === cameFrom.search; }) || (samePath.length === 1 ? samePath[0] : undefined);
       var on = current();
-      if (last && on && last !== on) {
+      if (last && on && last !== on && !isReload) {
         // Measured once the fonts are in (from the cache, on a page of the same site), when the tabs have their widths, so it lands where the slab is.
         var slideFromLastPage = function () {
           var from = isVertical ? "translateY(" + last.offsetTop + "px)" : "translateX(" + last.offsetLeft + "px) scaleX(" + (last.offsetWidth / Math.max(1, on.offsetWidth)).toFixed(4) + ")";
           var to = isVertical ? "translateY(" + on.offsetTop + "px)" : "translateX(" + on.offsetLeft + "px) scaleX(1)";
           return slab.animate([{ transform: from, transformOrigin: "0 0" }, { transform: to, transformOrigin: "0 0" }], { duration: slideMs(slab), easing: "cubic-bezier(.3, 1.2, .4, 1)" });
         };
-        // Until then it waits on the last page's tab; it starts with the page, as the view transition fades it in.
+        // Until then it waits on the last page's tab.
         slab.style.transition = "none"; put(slab, last); slab.offsetWidth; slab.style.transition = "";
         isWaitingToSlide = true;
         // It starts once the page shows, not before (a slow phone draws the new page late, and a slide started earlier would show up already
-        // halfway there), and once the page's crossfade from the last one (its view transition) is over, so the slab moves on the page
-        // itself and not inside the crossfade's picture of it. Once it lands, the slab settles where its tab is by then.
+        // halfway there). Once it lands, the slab settles where its tab is by then.
         var start = function () {
           requestAnimationFrame(function () {
-            var fades = document.getAnimations ? document.getAnimations().filter(function (each) { return each.effect && /^::view-transition/.test(each.effect.pseudoElement || ""); }) : [];
-            Promise.all(fades.map(function (each) { return each.finished.catch(function () {}); })).then(function () {
-              isWaitingToSlide = false; settle(); isWaitingToSlide = true;
-              var land = function () { isWaitingToSlide = false; settle(); };
-              slideFromLastPage().finished.then(land, land);
-            });
+            isWaitingToSlide = false; settle(); isWaitingToSlide = true;
+            var land = function () { isWaitingToSlide = false; settle(); };
+            slideFromLastPage().finished.then(land, land);
           });
         };
         if (document.fonts && document.fonts.ready) document.fonts.ready.then(start); else start();
@@ -242,19 +250,6 @@ export const SWITCH_SCRIPT = `/* switches */(function () {
     });
     sw.addEventListener("focusout", function () { sw.classList.remove("is-focus-shown"); });
   });
-  // A page left with a view transition fades out as the next fades in. A switch with a tab for the next page leaves its slab out of this
-  // page's last picture, so only the next page's slab shows, sliding over from this tab, and not a second one fading where it was.
-  window.addEventListener("pageswap", function (event) {
-    if (!event.viewTransition || !event.activation || !event.activation.entry || !event.activation.entry.url) return;
-    var to = new URL(event.activation.entry.url);
-    document.querySelectorAll(".tab-switch").forEach(function (sw) {
-      var slab = sw.querySelector(":scope > .slab");
-      var isGoing = Array.prototype.some.call(sw.querySelectorAll(":scope > a[href]"), function (tab) { return new URL(tab.href).pathname === to.pathname && tab.getAttribute("aria-current") !== "page"; });
-      if (slab && isGoing) slab.style.visibility = "hidden";
-    });
-  });
-  // A page kept to go back to gets its slabs back.
-  window.addEventListener("pageshow", function () { document.querySelectorAll(".tab-switch > .slab").forEach(function (slab) { slab.style.visibility = ""; }); });
 })();
 `;
 
@@ -270,18 +265,16 @@ component({
    It's as big as what's in it: its size is its words' (a small switch's are 14px, a big one's 16px) and the room round them, all round
    (--tab-room across, --tab-room-y up and down), never a height of its own. Past its room across it scrolls sideways (in its Well, with the
    rail under it), and stacked, past a menu's height it scrolls down (with the rail beside it). */
-.tab-switch { --control-height: var(--control-height-regular); --tab-room: 20px; --tab-room-y: 9px; position: relative; display: flex; min-width: 0; padding: 4px; background: var(--well); box-shadow: var(--well-shade);
-  clip-path: var(--cut-shape); }
+.tab-switch { --control-height: var(--control-height-regular); --tab-room: 20px; --tab-room-y: 9px; position: relative; display: flex; min-width: 0; }
 /* It slides for --slide-ms (SWITCH_SCRIPT moves it frame by frame, its shape with it), never by a CSS transition, on a layer of its own so a
    frame that only moves it isn't painted again. */
-.tab-switch .slab { --slide-ms: 450; position: absolute; top: 4px; bottom: 4px; left: 0; width: 0; pointer-events: none; clip-path: var(--cut-shape); transition: opacity 0.3s; will-change: transform; }
-/* The slab is a raised piece of glass with the face and bevel of a raised button (--btn, the raise bands), so its edges catch the light, and it
-   casts a soft shadow into the well under it (--slab-cast), which the well's cut keeps inside it. Its face is cut to its shape below its
-   bevel, so the slab itself isn't clipped and its shadow shows. */
-.tab-switch .slab { clip-path: none; filter: var(--slab-cast); }
-.tab-switch .slab::before { content: ""; position: absolute; inset: 0; background: var(--btn); clip-path: var(--cut-shape); }
-.tab-switch > a, .tab-switch > button { position: relative; z-index: 2; display: grid; place-content: center; min-height: calc(var(--control-height) - 2 * var(--switch-inset, 4px)); padding: var(--tab-room-y) var(--tab-room); border: 0; background: none; cursor: pointer;
-  font: 500 1rem/1.1 var(--display); color: var(--ink-2); text-decoration: none; white-space: nowrap; }
+.tab-switch .switch-slab { --slide-ms: 450; position: absolute; top: var(--pad-frame-compact); bottom: var(--pad-frame-compact); left: 0; width: 0; pointer-events: none; clip-path: var(--cut-shape); transition: opacity var(--motion-arrive); will-change: transform; }
+/* The slab is a slab layer (materials.ts): a raised piece of glass with a raised button's face and bevel, so its edges catch the light, and
+   it casts a soft shadow into the well under it, which the well's cut keeps inside it. */
+.tab-switch .switch-slab { clip-path: none; }
+/* Each tab is a quiet flush row, its words its room in from its sides (--tab-room across, --tab-room-y up and down). */
+.tab-switch > a, .tab-switch > button { position: relative; z-index: 2; display: grid; place-content: center; --row-height: calc(var(--control-height) - 2 * var(--pad-frame-compact)); --row-block: var(--tab-room-y); --row-start: var(--tab-room); --row-end: var(--tab-room); cursor: pointer;
+  clip-path: none; font: 500 1rem/1.1 var(--display); color: var(--ink-2); text-decoration: none; white-space: nowrap; }
 /* Its tabs are at least its size's control height, less its inset, so it lines up with the controls beside it at any text size. */
 /* Across, it's as wide as its tabs, one line each, and its tabs are all one width, the widest's, so the slab is one size on every tab and
    only slides: glass doesn't change size as it moves. Past the room it has, its Well stays put, a carving can't move or
@@ -300,15 +293,16 @@ component({
 .tab-switch > .is-pointed { color: var(--ink); }
 /* One that can't be chosen now: faded, and it answers nothing (pointing at it lights nothing). */
 .tab-switch > [aria-disabled="true"], .tab-switch > :disabled { cursor: default; opacity: 0.4; }
-/* Before the script has measured, the one you're on carries its own slab. */
-.tab-switch:not(.is-ready) [aria-current="page"], .tab-switch:not(.is-ready) [aria-pressed="true"] { background: var(--btn); box-shadow: var(--slab-shade); }
+/* Before the script has measured, the one you're on carries its own slab (a flush row's, when it's the one you're on); once it has, the
+   sliding slab is the only one. */
+.tab-switch.is-ready > :is([aria-current="page"], [aria-pressed="true"]) { background: none; box-shadow: none; }
 /* A tab that folds away into the end of the tabs and opens out of it again. */
-.tab-switch > .foldable { max-width: 10rem; overflow: hidden; transition: max-width 0.45s cubic-bezier(.2,.8,.2,1), padding 0.45s cubic-bezier(.2,.8,.2,1), opacity 0.3s 0.08s; }
+.tab-switch > .foldable { max-width: 10rem; overflow: hidden; transition: max-width var(--motion-glide) var(--ease-glide), padding var(--motion-glide) var(--ease-glide), opacity var(--motion-arrive) var(--motion-press); }
 /* Its tabs share one width, so a folded tab takes no column at all: it goes, and comes back, at once. */
 .tab-switch:not(.vertical) > .foldable.folded { display: none; }
 /* Across, an open foldable tab keeps its words' width (its clip for folding would let it shrink), so a narrow row scrolls rather than cut it. */
 .tab-switch:not(.vertical) > .foldable:not(.folded) { min-width: max-content; }
-.tab-switch > .foldable.folded { max-width: 0; padding-left: 0; padding-right: 0; opacity: 0; pointer-events: none; transition: max-width 0.4s cubic-bezier(.4,0,.2,1), padding 0.4s cubic-bezier(.4,0,.2,1), opacity 0.16s; }
+.tab-switch > .foldable.folded { max-width: 0; padding-left: 0; padding-right: 0; opacity: 0; pointer-events: none; transition: max-width var(--motion-arrive) var(--ease-standard), padding var(--motion-arrive) var(--ease-standard), opacity var(--motion-state); }
 /* Keyboard focus: a line round the focused tab that follows its cut, like the slab's (the focus ring, set by SWITCH_SCRIPT). */
 .tab-switch > :focus-visible { outline: none; }
 /* It runs along the well's own edge, the switch's full height (its full width stacked), with the well's cuts at the switch's ends, so
@@ -320,28 +314,25 @@ component({
 /* Only its line: no bevel, so a focused tab never looks carved in or raised. */
 .tab-switch .focus-ring > .cut-line { --band-top: transparent; --band-left: transparent; --band-right: transparent; --band-bottom: transparent; }
 /* Small: a sort under a heading, the header's switch. */
-.tab-switch.small { --control-height: var(--control-height-small); --switch-inset: 3px; --tab-room: 14px; --tab-room-y: 7px; padding: 3px; clip-path: var(--cut-shape); }
-.tab-switch.small .slab { --slide-ms: 380; top: 3px; bottom: 3px; }
+.tab-switch.small { --control-height: var(--control-height-small); --tab-room: 14px; --tab-room-y: 6px; }
+.tab-switch.small .switch-slab { --slide-ms: 380; }
 .tab-switch.small > a, .tab-switch.small > button { font-size: 0.875rem; }
-/* Across, the well is its room's, so the tabs' box in its track has none of its own (after .small, which would cut it to the well's shape). */
-.switch-well > .well-body > .tab-switch { background: none; box-shadow: none; clip-path: none; }
 .well.switch-well.small { --control-height: var(--control-height-small); }
 /* The tabs take their well's height, which a row sets to its tallest control's (layout.ts): a small sort beside a regular Filter is the Filter's height. */
 .switch-well > .well-body > .tab-switch { --control-height: inherit; }
 /* A tab's words sit in the middle of its slab as it's seen. A slab between two tabs slants on both sides, so its words are in the middle
    of the tab; on the first or last tab it slants only on its inner side, which pulls its seen middle a quarter of a slant toward the
    switch's end, so the words move that far with it (a fifth of a slant more room on the inner side). The room round the words clears the switch's corners. */
-.tab-switch:not(.vertical) > :nth-child(1 of :not(.folded):not([aria-hidden])) { padding-inline-end: calc(var(--tab-room) + var(--control-slant) / 5); }
-.tab-switch:not(.vertical) > :nth-last-child(1 of :not(.folded):not([aria-hidden])) { padding-inline-start: calc(var(--tab-room) + var(--control-slant) / 5); }
+.tab-switch:not(.vertical) > :nth-child(1 of :not(.folded):not([aria-hidden])) { --row-end: calc(var(--tab-room) + var(--control-slant) / 5); }
+.tab-switch:not(.vertical) > :nth-last-child(1 of :not(.folded):not([aria-hidden])) { --row-start: calc(var(--tab-room) + var(--control-slant) / 5); }
 /* Vertical: the same switch stacked, its places down a carved well (a page's own places, the gallery's groups). Each place is a row of
    its icon, its words and a count at its end; the slab spans the well and moves down it, and a place you point at lights its words. */
 .tab-switch.vertical { flex-direction: column; }
 /* Stacked, the well is no taller than a menu; past that its places scroll inside it, the rail beside them. */
 .well.switch-well.vertical { flex-direction: column; width: auto; }
-.well.switch-well.vertical > .well-body { flex: 0 1 auto; min-height: 0; overflow-x: hidden; }
-.tab-switch.vertical .slab { top: 0; bottom: auto; left: 4px; right: 4px; width: auto; height: 0; }
-.tab-switch.vertical.small .slab { left: 3px; right: 3px; }
-.tab-switch.vertical > a, .tab-switch.vertical > button { flex: none; display: flex; align-items: center; justify-content: flex-start; gap: 10px; padding: var(--tab-room-y) 14px; text-align: left; }
+.well.switch-well.vertical > .well-body { flex: 0 1 auto; min-height: 0; }
+.tab-switch.vertical .switch-slab { top: 0; bottom: auto; left: var(--pad-frame-compact); right: var(--pad-frame-compact); width: auto; height: 0; }
+.tab-switch.vertical > a, .tab-switch.vertical > button { flex: none; display: flex; align-items: center; justify-content: flex-start; gap: 10px; --row-start: 14px; --row-end: 14px; text-align: left; }
 .tab-switch.vertical > a > .tag, .tab-switch.vertical > button > .tag { margin-left: auto; }
 .tab-switch.vertical .ico { width: 18px; height: 18px; }
 /* A count in a tab across sits just after its words. */
@@ -349,10 +340,10 @@ component({
 /* On a touch screen a switch is at least a regular control tall, and each tab's hit area takes in the well's inset above and below it, so a
    finger always has a regular control's height to land on (the clip round the well would cut off anything reaching further). */
 @media (pointer: coarse) {
-  .tab-switch:not(.vertical) { min-height: var(--control-height-regular); }
+  .tab-switch:not(.vertical) { --control-height: var(--control-height-regular); }
   .tab-switch > :not([aria-hidden])::before { content: ""; position: absolute; left: 0; right: 0; top: min(0px, calc((100% - var(--touch-target)) / 2)); bottom: min(0px, calc((100% - var(--touch-target)) / 2)); }
 }
-@media (prefers-reduced-motion: reduce) { .tab-switch .slab, .tab-switch > .foldable { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .tab-switch .switch-slab, .tab-switch > .foldable { transition: none; } }
 `,
   render: tabSwitch,
   examples: [

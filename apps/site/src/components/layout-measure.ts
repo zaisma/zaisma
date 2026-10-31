@@ -6,7 +6,9 @@ export const LAYOUT_TIERS: readonly LayoutRuleTier[] = ["gallery", "page", "swee
 
 /**
  * Every rule the measuring check still measures, by the name it fails with (a report() below, or a check: in scripts/layout-check.mjs), and
- * its tier. A rule made impossible in code (a type, or a scan of the rendered page in test/site/design.test.ts) isn't measured at all.
+ * its tier. A rule made impossible in code (a type, or a scan of the rendered page in test/site/design.test.ts) isn't measured at all:
+ * a control is its size class's height (test/node/materials.test.ts refuses any other height, in styles or markup), and the controls in
+ * a row are one height (row() sets each to its tallest's size class).
  *   - gallery: how one component is built (its sizes, margins, cuts), proven once on the gallery's pages, on every screen and at 200% text;
  *   - page: how a page arranges its pieces, on every page and state on each pull request, on a phone and a laptop;
  *   - sweep: what's too slow to measure on every pull request, and every rule on every page on the other screens, in dark, at 200% text
@@ -15,11 +17,9 @@ export const LAYOUT_TIERS: readonly LayoutRuleTier[] = ["gallery", "page", "swee
  */
 export const LAYOUT_RULE_TIERS: Readonly<Record<string, LayoutRuleTier>> = {
   "a touch target under 44px": "gallery",
-  "a control off its size class's height": "gallery",
   "bevel under 4px": "gallery",
   "square in a cut corner": "gallery",
   "a corner control without its corner's bevel": "gallery",
-  "controls in one row of different heights": "gallery",
   "a corner control not in its corner": "gallery",
   "an equal row's cells of different widths": "gallery",
   "words beside a control off its center line": "gallery",
@@ -85,12 +85,21 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
   var root = getComputedStyle(document.documentElement);
   var slantOverlapPx = Math.abs(parseFloat(root.getPropertyValue("--control-slant")) - parseFloat(root.getPropertyValue("--gap-control-row"))) || 6;
   // A person is framed by their picture, and code in reading text by its well.
-  var FRAMED = "[data-cut-line], [data-glass], .cover, .list-rows, .person, .reading pre, .slider-track";
+  // A PIN's row of marks is one control, measured as a whole: its marks are its inside.
+  var FRAMED = "[data-cut-line], [data-glass], .cover, .list-rows, .person, .reading pre, .slider-track, .pin-marks";
   // Pieces made to lie over each other: a row of pictures, each over the next.
   var OVERLAPPING = ".picture-row";
   var SKIPPED = "script, style, template, .sr, [aria-hidden='true'], .loader, .rail, .edge, .cut-line";
+  // Words people see are measured even where a screen reader skips them (a chart's drawn scale and axis, read as a table instead).
+  var WORDS_SKIPPED = "script, style, template, .sr, .loader, .rail, .edge, .cut-line";
   var COMPONENTS = ["run-wrap", "cut-btn", "tertiary-btn", "cut-field", "field", "find", "switch-well", "tab-switch", "steps", "cover", "banner", "glass-pane", "tray", "tray-head", "sheet", "dropdown", "notice", "table", "list-rows", "choice-card", "toggle", "check", "top", "foot", "layout-row", "layout-stack", "layout-grid", "layout-track", "pane-head", "pane-foot"];
+  // Asked of the same element again and again, and nothing measuring changes what shows: worked out once each.
+  var shownByElement = new Map();
   function isShown(el) {
+    if (!shownByElement.has(el)) shownByElement.set(el, isShownNow(el));
+    return shownByElement.get(el);
+  }
+  function isShownNow(el) {
     var r = el.getBoundingClientRect();
     if (r.width < 1 || r.height < 1) return false;
     var css = getComputedStyle(el);
@@ -132,8 +141,8 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
       // A light box fills the window by design: what it holds keeps its own size.
       if (pane.matches(".light-box")) return null;
       if (pane.matches(".sheet")) {
-        var token = pane.matches(".is-compact") ? "--size-sheet-compact" : pane.matches(".placement-side") ? "--size-sheet-side" : pane.matches(".is-picture") ? "--size-sheet-picture" : "--size-sheet";
-        return { name: { "--size-sheet": "a sheet", "--size-sheet-side": "a store panel", "--size-sheet-picture": "a picture's sheet", "--size-sheet-compact": "a compact sheet" }[token], widthPx: isPhoneWide && !pane.matches(".in-place") ? innerWidth : lengthPx("var(" + token + ")"), heightPx: Infinity };
+        var token = pane.matches(".is-compact") ? "--size-sheet-compact" : pane.matches(".store-panel") ? "--size-store-panel" : pane.matches(".is-picture") ? "--size-sheet-picture" : "--size-sheet";
+        return { name: { "--size-sheet": "a sheet", "--size-store-panel": "a store panel", "--size-sheet-picture": "a picture's sheet", "--size-sheet-compact": "a compact sheet" }[token], widthPx: isPhoneWide && !pane.matches(".in-place") ? innerWidth : lengthPx("var(" + token + ")"), heightPx: Infinity };
       }
       return null;
     }
@@ -239,21 +248,26 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
     var words = parseFloat(css.getPropertyValue("--pad-words")) || 0;
     // The words margin, one rule for every surface of glass (tokens.ts): words are never closer to its edge than --pad-pane (a tray's, --pad-tray),
     // whatever the surface pads itself. Only what has an edge of its own may sit closer, at the frame gap.
-    var marginPx = parseFloat(root.getPropertyValue(pane.matches(".tray") ? "--pad-tray" : "--pad-pane")) || 0;
+    // A compact material (a tray, a floating pane, a compact pane) keeps the compact margin, --pad-tray.
+    var marginPx = parseFloat(root.getPropertyValue(pane.matches(".tray, .tray-group, .floating-pane, .compact") ? "--pad-tray" : "--pad-pane")) || 0;
     // A pane that scrolls inside itself: its top and bottom are its content's, wherever it's scrolled to.
     var isScrolling = holder.scrollHeight > holder.clientHeight + 1, contentTop = holder.getBoundingClientRect().top - holder.scrollTop;
     var box = { left: p.left, right: p.right, top: isScrolling ? contentTop : p.top, bottom: isScrolling ? contentTop + holder.scrollHeight : p.bottom };
     var distances = function (r) { return { left: r.left - box.left, right: box.right - r.right, top: r.top - box.top, bottom: box.bottom - r.bottom }; };
     // A floating pane the gallery shows open in place (a select's list over its field, a wheel field's wheels) is laid over the pane, not
     // set in it: it's measured as a pane of its own, never at the frame gap of the pane under it.
-    var framed = Array.prototype.filter.call(pane.querySelectorAll(FRAMED), function (el) { return el !== pane && !el.matches(".floating-pane.in-place") && !framedIn(el, pane) && isShown(el); });
+    var framed = Array.prototype.filter.call(pane.querySelectorAll(FRAMED), function (el) { return el !== pane && !el.matches(".floating-pane.in-place") && !el.closest(".rail") && !framedIn(el, pane) && isShown(el); });
     var paneCuts = window.zaismaCorners ? window.zaismaCorners(pane, "pane") : [1, 1, 1, 1];
     framed.forEach(function (el) {
       if (isScrolledAway(el, pane)) return;
       var r = el.getBoundingClientRect(), d = distances(r);
       // Inside what scrolls with its rail showing, the rail's room at the right is part of the gap there.
-      var railed = el.closest(".shows-rail"), railPx = railed && pane.contains(railed) ? Math.max(0, parseFloat(getComputedStyle(railed).paddingRight) - gap.right) : 0;
+      // What scrolls pads nothing of its own but the rail's room, unless it's what holds the pane's content, which pads the frame gap too.
+      var railed = el.closest(".shows-rail"), railPx = railed && pane.contains(railed) ? Math.max(0, parseFloat(getComputedStyle(railed).paddingRight) - (railed === holder ? gap.right : 0)) : 0;
       if (railPx) d = { left: d.left, right: Math.max(gap.right, d.right - railPx), top: d.top, bottom: d.bottom };
+      // In a task sheet's dropped head (--head-drop), its Close sits that much further in from the top and the end, at the words margin's line.
+      var droppedHead = el.closest(".pane-head"), headEnd = el.closest(".pane-head-end");
+      if (droppedHead && pane.contains(droppedHead)) d = { left: d.left, right: d.right - (headEnd ? parseFloat(getComputedStyle(headEnd).marginInlineEnd) || 0 : 0), top: d.top - (parseFloat(getComputedStyle(droppedHead).marginTop) || 0), bottom: d.bottom };
       // In a list that scrolls up and down inside the pane (a long menu's choices), what shows sits wherever it's scrolled to: only its sides are measured.
       var holdingScroller = scrollerIn(el, pane), isInScrolledList = holdingScroller && !holdingScroller.matches(".pane-in, .sheet-in") && holdingScroller.scrollHeight > holdingScroller.clientHeight + 1;
       (isInScrolledList ? ["left", "right"] : ["left", "right", "top", "bottom"]).forEach(function (side) {
@@ -317,7 +331,7 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
     var walker = document.createTreeWalker(pane, NodeFilter.SHOW_TEXT), text, flagged = new Set(), lines = [];
     while ((text = walker.nextNode())) {
       var el = text.parentElement;
-      if (!text.textContent.trim() || !el || el.closest(SKIPPED) || el.matches(FRAMED) || framedIn(el, pane) || !isShown(el) || flagged.has(el)) continue;
+      if (!text.textContent.trim() || !el || el.closest(WORDS_SKIPPED) || el.matches(FRAMED) || framedIn(el, pane) || !isShown(el) || flagged.has(el)) continue;
       var range = document.createRange(); range.selectNodeContents(text);
       if (isScrolledAway(el, pane)) continue;
       Array.prototype.some.call(range.getClientRects(), function (glyphs) {
@@ -330,10 +344,13 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
         var d = distances(r), wordsAt = { left: Math.max(gap.left + words, marginPx), right: Math.max(gap.right + words, marginPx), top: Math.max(gap.top + words, marginPx), bottom: Math.max(gap.bottom + words, marginPx) };
         // Words beside a control sit on its center line rather than at the margin above or below them (checked below), and words beside
         // anything else with an edge (a swatch, a box) line up with it the same way.
-        var isBesideFramed = framed.some(function (f) { var o = f.getBoundingClientRect(); return (o.right <= r.left + TOLERANCE_PX || o.left >= r.right - TOLERANCE_PX) && Math.min(o.bottom, r.bottom) - Math.max(o.top, r.top) > TOLERANCE_PX; });
+        // Only while the line sits inside that thing's height with room to spare: a line that reaches its top or foot, or runs past it (a note
+        // beside a swatch that stretches to it), keeps the margin there too.
+        var besideFramed = framed.find(function (f) { var o = f.getBoundingClientRect(); return (o.right <= r.left + TOLERANCE_PX || o.left >= r.right - TOLERANCE_PX) && Math.min(o.bottom, r.bottom) - Math.max(o.top, r.top) > TOLERANCE_PX; });
+        var besideBox = besideFramed && besideFramed.getBoundingClientRect(), isBesideFramed = Boolean(besideBox) && r.top > besideBox.top + TOLERANCE_PX && r.bottom < besideBox.bottom - TOLERANCE_PX;
         // A notice is one centered line, as tall as a small control and its room: its words keep the margin at the sides only. Words in what
         // scrolls sideways run under its fading edge, so only their top and bottom are measured there.
-        var sides = el.closest(BESIDE_CONTROLS_WORDS) || isBesideFramed || pane.matches(".notice") ? ["left", "right"] : scroller && scroller.scrollWidth > scroller.clientWidth + 1 ? ["top", "bottom"] : ["left", "right", "top", "bottom"];
+        var sides = el.closest(BESIDE_CONTROLS_WORDS) || el.closest(".words-margin.beside-controls") || isBesideFramed || pane.matches(".notice") ? ["left", "right"] : scroller && scroller.scrollWidth > scroller.clientWidth + 1 ? ["top", "bottom"] : ["left", "right", "top", "bottom"];
         var side = sides.find(function (each) { return d[each] < wordsAt[each] - TOLERANCE_PX; });
         if (side) { flagged.add(el); report("words closer to the pane's edge than its margin", el, round(d[side]) + "px from the " + side + " edge of " + describe(pane) + ", the words margin is " + round(wordsAt[side]) + "px"); return true; }
         // What's scrolled out of its box (the buy sheet's body, scrolled to its confirm step) isn't under the words: it isn't shown there.
@@ -344,7 +361,8 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
       });
     }
     // A line of words at the pane's start with nothing before it starts at the margin, never a little further in (words inset twice).
-    var marks = framed.concat(Array.prototype.filter.call(pane.querySelectorAll("svg.ico, img, canvas, .loader"), isShown));
+    // A key's color swatch leads its words as an icon does.
+    var marks = framed.concat(Array.prototype.filter.call(pane.querySelectorAll("svg.ico, img, canvas, .loader, .usage-swatch, .ring-swatch"), isShown));
     // Something on the line before it (a box, an icon, other words), or words lined up with words that have (a check's hint under its label).
     var hasBefore = function (line) {
       var isBefore = function (o) { return o.right <= line.r.left + TOLERANCE_PX && o.right > box.left + gap.left && Math.min(o.bottom, line.r.bottom) - Math.max(o.top, line.r.top) > TOLERANCE_PX; };
@@ -381,20 +399,19 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
       }
     });
   });
-  // Rows: every control one height, on one line.
+  // Rows: every control on one line (row() gives them one height). Where the row puts it is its cell's place: a control's own state may
+  // move its face (an on toggle button lifts), which isn't where it sits.
   document.querySelectorAll(".layout-row").forEach(function (row) {
     if (!isShown(row)) return;
-    var boxes = Array.prototype.flatMap.call(row.querySelectorAll(":scope > .row-cell.is-control"), function (cell) {
-      var control = [cell].concat(Array.prototype.slice.call(cell.querySelectorAll("[data-cut-line]"))).find(function (each) { return each.hasAttribute("data-cut-line") && isShown(each); });
-      return control ? [control] : [];
-    });
-    boxes.forEach(function (control, i) {
-      var a = control.getBoundingClientRect();
-      boxes.slice(i + 1).forEach(function (other) {
-        var b = other.getBoundingClientRect(), isSameLine = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 0;
+    var cells = Array.prototype.filter.call(row.querySelectorAll(":scope > .row-cell.is-control"), function (cell) { return isShown(cell) && cell.querySelector("[data-cut-line]"); });
+    // A field's place is its box: its label stands above it, and a row on field boxes lines the boxes up (layout.ts).
+    var placeOf = function (cell) { return (cell.querySelector(":scope > .cut-field > .field") || cell).getBoundingClientRect(); };
+    cells.forEach(function (cell, i) {
+      var a = placeOf(cell), control = cell.querySelector("[data-cut-line]");
+      cells.slice(i + 1).forEach(function (other) {
+        var b = placeOf(other), isSameLine = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 0;
         if (!isSameLine) return;
-        if (Math.abs(a.height - b.height) > 1) report("controls in one row of different heights", control, round(a.height) + "px beside " + describe(other) + " at " + round(b.height) + "px");
-        else if (Math.abs(a.top - b.top) > 1) report("controls in one row not on one line", control, round(a.top - b.top) + "px off " + describe(other));
+        if (Math.abs(a.top - b.top) > 1) report("controls in one row not on one line", control, round(a.top - b.top) + "px off " + describe(other.querySelector("[data-cut-line]")));
       });
     });
   });
@@ -404,9 +421,11 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
       var control = end.querySelector("[data-cut-line]"), pane = end.closest("[data-glass]:not([data-cut-line])");
       // A tertiary button in a corner is words: it keeps the pane's margin, which the words' check measures.
       if (!control || !pane || !isShown(control) || end.classList.contains("is-words")) return;
-      var holder = pane.querySelector(":scope > .pane-in, :scope > .sheet-in") || pane, css = getComputedStyle(holder), r = control.getBoundingClientRect(), p = pane.getBoundingClientRect();
+      var holder = pane.querySelector(":scope > .pane-in, :scope > .sheet-in, :scope > .playing-card-in, :scope > .sidebar-scroll") || pane, css = getComputedStyle(holder), r = control.getBoundingClientRect(), p = pane.getBoundingClientRect();
       var away = place[1] === "top" ? r.top - p.top : p.bottom - r.bottom, side = p.right - r.right;
       var expected = { top: parseFloat(css.paddingTop), bottom: parseFloat(css.paddingBottom), right: parseFloat(css.paddingRight) };
+      // A task sheet's head drops its title and Close to the pane's words margin (--head-drop): its corner is that far further in.
+      if (place[1] === "top") { expected.top += parseFloat(getComputedStyle(end.parentElement).marginTop) || 0; expected.right += parseFloat(getComputedStyle(end).marginInlineEnd) || 0; }
       if (Math.abs(away - expected[place[1]]) > TOLERANCE_PX || Math.abs(side - expected.right) > TOLERANCE_PX) report("a corner control not in its corner", control, round(away) + "px from the " + place[1] + " and " + round(side) + "px from the end, expected " + round(expected[place[1]]) + "px and " + round(expected.right) + "px");
       var cut = (control.cutCorners || [])[place[2]] || 0;
       if (cut < LEAST_BEVEL_PX - 0.01) report("a corner control without its corner's bevel", control, "its bevel is " + round(cut) + "px, at least " + LEAST_BEVEL_PX + "px");
@@ -441,12 +460,6 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
       if (cells.length > 1 && line.length === 1 && cell.classList.contains("is-control") && a.width + reachPx < rowBox.width - TOLERANCE_PX) report("a control alone on a row's line, short of its end", cell, round(a.width) + "px on a line " + round(rowBox.width) + "px wide");
     });
   });
-  // Every control is its size class's height (--control-height: small, regular, field or big), never a number of its own.
-  document.querySelectorAll(".run-wrap > .run, .cut-btn:not(.in-well) > .face, .danger, .cut-field > .field:not(.long, .code), .pin-box, .find, .wheel-button").forEach(function (el) {
-    if (!isShown(el)) return;
-    var expectedPx = getComputedStyle(el).getPropertyValue("--control-height").trim() ? lengthPx("var(--control-height)", el) : 0, foundPx = el.getBoundingClientRect().height;
-    if (expectedPx && Math.abs(foundPx - expectedPx) > 1) report("a control off its size class's height", el, round(foundPx) + "px tall, its size class " + round(expectedPx) + "px");
-  });
   // Words are never cut off. (Capitals, orange words and a token's name are scanned on the rendered page: test/site/design.test.ts.)
   var wordsWalker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT), wordsNode, seen = new Set();
   while ((wordsNode = wordsWalker.nextNode())) {
@@ -480,9 +493,18 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
   });
   // A box that scrolls up and down scrolls by more than a few pixels: one that scrolls by a sliver (a row of covers made a little taller by
   // what lifts in it) only bounces under a finger.
-  if (isMeasured("a box that scrolls up and down by a sliver")) document.querySelectorAll("body *").forEach(function (box) {
-    var css = getComputedStyle(box), extraPx = box.scrollHeight - box.clientHeight;
-    if (/^(auto|scroll)$/.test(css.overflowY) && extraPx > 1 && extraPx < ${LEAST_SCROLL_PX} && isShown(box)) report("a box that scrolls up and down by a sliver", box, round(extraPx) + "px to scroll");
+  // Only what the page's styles let scroll can (the materials' .scrolls, and the few a component names in test/node/materials.test.ts):
+  // the rules that say so, found in its stylesheets, what sets it in its own style, and a text box.
+  if (isMeasured("a box that scrolls up and down by a sliver")) (function () {
+    var boxes = new Set(), selectors = ["textarea", "select", "[style*='overflow']"];
+    (function walk(rules) {
+      Array.prototype.forEach.call(rules, function (rule) { if (rule.cssRules) walk(rule.cssRules); if (rule.selectorText && rule.style && /auto|scroll/.test(rule.style.overflowY)) selectors.push(rule.selectorText); });
+    })(Array.prototype.flatMap.call(document.styleSheets, function (sheet) { try { return Array.prototype.slice.call(sheet.cssRules); } catch (error) { return []; } }));
+    selectors.forEach(function (selector) { try { document.body.querySelectorAll(selector).forEach(function (box) { boxes.add(box); }); } catch (error) { /* a selector only a stylesheet takes (a scrollbar's) */ } });
+    return Array.from(boxes);
+  })().forEach(function (box) {
+    var extraPx = box.scrollHeight - box.clientHeight;
+    if (extraPx > 1 && extraPx < ${LEAST_SCROLL_PX} && /^(auto|scroll)$/.test(getComputedStyle(box).overflowY) && isShown(box)) report("a box that scrolls up and down by a sliver", box, round(extraPx) + "px to scroll");
   });
   // Nothing empty takes a place in a stack: a thing with no height still gets a gap on each side.
   document.querySelectorAll(".pane-in, .sheet-in, .tray, form, .layout-stack, .pane-stack, .stack-cell").forEach(function (holder) {
@@ -490,7 +512,8 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
     if (!isShown(holder) || !/flex|grid/.test(css.display) || !(parseFloat(css.rowGap) > 0) || (css.display.indexOf("flex") >= 0 && css.flexDirection.indexOf("column") < 0)) return;
     Array.prototype.forEach.call(holder.children, function (child) {
       var childCss = getComputedStyle(child);
-      if (childCss.display === "none" || /absolute|fixed/.test(childCss.position) || child.matches("script, style, template, .edge, .rail")) return;
+      // What has no box of its own (display: contents) is no thing in the stack: its children are.
+      if (childCss.display === "none" || childCss.display === "contents" || /absolute|fixed/.test(childCss.position) || child.matches("script, style, template, .edge, .rail")) return;
       // One that gives back the gaps round it (a bot check until it's needed) takes no room.
       var givenBackPx = -(parseFloat(childCss.marginTop) + parseFloat(childCss.marginBottom));
       if (child.getBoundingClientRect().height < 0.5 && givenBackPx < parseFloat(css.rowGap) - 0.5) report("an empty thing taking a gap", child, "0px tall in a stack whose gap is " + css.rowGap);
