@@ -256,7 +256,7 @@ export function pinField(options: PinFieldOptions): ControlMarkup {
   const nextIndex = Math.min(digits.length, PIN_DIGIT_COUNT - 1);
   const marks = Array.from({ length: PIN_DIGIT_COUNT }, (_, markIndex) => {
     const className = ["pin-mark", "carving", "deep", markIndex < digits.length ? "is-filled" : "", markIndex === nextIndex ? "is-next" : "", options.error ? "is-marked" : ""].filter(Boolean).join(" ");
-    return html`<span class="${className}" data-cut-line="4" data-cut-diamond aria-hidden="true">${CUT_LINE}<span class="pin-fill light-fill" data-cut-line="3" data-cut-diamond></span></span>`;
+    return html`<span class="${className}" style="--mark-index: ${markIndex}" data-cut-line="4" data-cut-diamond aria-hidden="true">${CUT_LINE}<span class="pin-fill light-fill" data-cut-line="3" data-cut-diamond></span></span>`;
   });
   const input = html`<input class="pin-input" id="${id}-input" name="${options.name}" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="${PIN_DIGIT_COUNT}" autocomplete="off" autocapitalize="off" spellcheck="false" aria-describedby="${errorId}"${digits ? html` value="${digits}"` : ""}${options.error ? raw(' aria-invalid="true"') : ""}${options.isDisabled ? raw(" disabled") : ""}>`;
   return controlMarkup(html`<div class="pin-field${options.state === "is-focused" ? " is-focused" : ""}" id="${id}" data-pin${options.isDisabled ? raw(' aria-busy="true"') : ""}>
@@ -292,6 +292,9 @@ export const PIN_FIELD_SCRIPT = String.raw`/* pin fields */(function () {
     var line = root.querySelector(".field-error");
     line.textContent = words || ""; line.hidden = !words;
     Array.prototype.forEach.call(root.querySelectorAll(".pin-mark"), function (mark) { mark.classList.toggle("is-marked", !!words); });
+    // A wrong PIN shakes the marks once, as a lock that won't turn.
+    var marks = root.querySelector(".pin-marks");
+    if (words && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) { marks.classList.remove("is-shaking"); void marks.offsetWidth; marks.classList.add("is-shaking"); }
     if (words) inputOf(root).setAttribute("aria-invalid", "true"); else inputOf(root).removeAttribute("aria-invalid");
   }
   window.zaismaPinField = {
@@ -303,6 +306,7 @@ export const PIN_FIELD_SCRIPT = String.raw`/* pin fields */(function () {
   };
   window.zaismaWatch.each("[data-pin]", function (root) {
     var input = inputOf(root);
+    root.querySelector(".pin-marks").addEventListener("animationend", function (event) { if (event.animationName === "pin-shake") event.currentTarget.classList.remove("is-shaking"); });
     // Digits only, at most the PIN's length, whatever was typed, pasted or filled in; something entered or taken out means what's wrong
     // no longer describes it, and a full PIN goes out.
     input.addEventListener("input", function () {
@@ -839,19 +843,23 @@ component({
 /* The next mark outlined in the focus color while the field has the keyboard; a wrong PIN outlines them all amber. */
 .pin-marks:has(> .pin-input:focus-visible) > .pin-mark.is-next > .cut-line polygon, .pin-field.is-focused .pin-mark.is-next > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 .pin-mark.is-marked > .cut-line polygon { stroke: var(--marked); stroke-width: 2; }
-/* Sent, waiting: the marks stay filled, quieter. */
-.pin-field[aria-busy="true"] .pin-fill { opacity: 0.45; }
+/* Sent, waiting: the marks stay filled, a wave of light running along them, one after another, until the answer comes. */
+.pin-field[aria-busy="true"] .pin-mark.is-filled > .pin-fill { animation: pin-wave var(--motion-loop) var(--ease-standard) infinite; animation-delay: calc(var(--mark-index) * var(--motion-loop) / 12); }
+@keyframes pin-wave { 0%, 60%, 100% { opacity: 0.4; } 25% { opacity: 1; } }
+/* Wrong: the marks shake once, side to side, as a lock that won't turn. */
+.pin-marks.is-shaking { animation: pin-shake var(--motion-glide) var(--ease-standard); }
+@keyframes pin-shake { 0%, 100% { transform: none; } 20% { transform: translateX(-6px); } 40% { transform: translateX(5px); } 60% { transform: translateX(-3px); } 80% { transform: translateX(2px); } }
 /* The field itself: over the whole row, unseen, its own text and cursor too, at a size a phone doesn't zoom in to. */
 .pin-input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; padding: 0; border: 0; opacity: 0; font-size: 16px; cursor: text; }
-@media (prefers-reduced-motion: reduce) { .pin-fill { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .pin-fill { transition: none; } .pin-field[aria-busy="true"] .pin-mark.is-filled > .pin-fill { animation: none; opacity: 0.45; } .pin-marks.is-shaking { animation: none; } }
 `,
   render: pinField,
   examples: [
     { label: "Empty", markup: examplePane(pinField({ id: "example-pin-empty", name: "purchase_pin", label: "Purchase PIN" })) },
     { label: "Part way in", markup: examplePane(pinField({ id: "example-pin-partly", name: "purchase_pin", label: "Purchase PIN", digits: "482" })) },
     { label: "Keyboard focus: the next mark outlined", markup: examplePane(pinField({ id: "example-pin-focused", name: "purchase_pin", label: "Purchase PIN", digits: "482", state: "is-focused" })), isStill: true },
-    { label: "Marked wrong, with its error under it", markup: examplePane(pinField({ id: "example-pin-wrong", name: "purchase_pin", label: "Purchase PIN", error: "That PIN isn't right. 4 tries left." })), isStill: true },
-    { label: "Sent, waiting", markup: examplePane(pinField({ id: "example-pin-busy", name: "purchase_pin", label: "Purchase PIN", digits: "482913", isDisabled: true })), isStill: true },
+    { label: "Marked wrong: they shake once, and say why under them", markup: examplePane(pinField({ id: "example-pin-wrong", name: "purchase_pin", label: "Purchase PIN", error: "That PIN isn't right. 4 tries left." })), isStill: true },
+    { label: "Sent, waiting: a wave of light along the marks", markup: examplePane(pinField({ id: "example-pin-busy", name: "purchase_pin", label: "Purchase PIN", digits: "482913", isDisabled: true })), isStill: true },
   ],
 });
 

@@ -54,7 +54,7 @@ export function confirmItsYouSheet(options: ConfirmItsYouOptions): Raw {
       { kind: "control", id: `${id}-pin`, isHidden: method !== "purchase_pin", markup: pinField({ name: "purchase_pin", id: `${id}-pin-field`, label: "Your purchase PIN", digits: options.isBusy ? "246810" : undefined, isDisabled: options.isBusy, error: method === "purchase_pin" ? options.errorText : undefined }) },
       // A password form names its account for password managers and screen readers; the field stays hidden.
       { kind: "words", id: `${id}-username`, isHidden: true, markup: html`<input type="text" name="username" autocomplete="username" tabindex="-1" aria-hidden="true">` },
-      { kind: "control", id: `${id}-password`, isHidden: method !== "password", markup: cutField({ name: "password", id: `${id}-password-field`, label: "Password", type: "password", icon: "lock", autocomplete: "current-password" }) },
+      { kind: "control", id: `${id}-password`, isHidden: method !== "password", markup: cutField({ name: "password", id: `${id}-password-field`, label: "Password: its lock, the field and Confirm under it, the passkey at its foot", type: "password", icon: "lock", autocomplete: "current-password" }) },
       { kind: "words", id: `${id}-problem`, isHidden: !options.errorText || method === "purchase_pin", markup: html`<p class="confirm-problem" role="alert">${options.errorText ?? ""}</p>` },
       // A purchase PIN needs no press: its sixth digit sends it.
       { kind: "control", id: `${id}-go-cell`, isHidden: method === "purchase_pin", markup: primaryButton(method === "passkey" ? "Use your passkey" : "Confirm", { id: `${id}-go`, type: "button", busyLabel: "Confirming", isBusy: options.isBusy && method !== "purchase_pin", isFullWidth: true }) },
@@ -248,10 +248,10 @@ component({
       markup: html`${secondaryButton("Buy Revive", { type: "button", dataAttributes: { "confirm-example": "example-confirm-its-you-try" } })}${confirmItsYouSheet({ id: "example-confirm-its-you-try" })}`,
     },
     { label: "Purchase PIN: six marks, sent by the sixth digit, and the other ways at its foot", isStill: true, markup: confirmItsYouSheet({ id: "example-confirm-its-you-pin", method: "purchase_pin", otherMethods: ["password", "passkey"], reasonText: PIN_REASON, isShown: true }) },
-    { label: "Password", isStill: true, markup: confirmItsYouSheet({ id: "example-confirm-its-you-password", method: "password", otherMethods: ["passkey"], reasonText: "It's been a while since you signed in here.", isShown: true }) },
+    { label: "Password: its lock, the field and Confirm under it, the passkey at its foot", isStill: true, markup: confirmItsYouSheet({ id: "example-confirm-its-you-password", method: "password", otherMethods: ["passkey"], reasonText: "It's been a while since you signed in here.", isShown: true }) },
     { label: "Passkey: one button, and the browser asks at once", isStill: true, markup: confirmItsYouSheet({ id: "example-confirm-its-you-passkey", method: "passkey", otherMethods: ["password"], reasonText: "That's a lot for one day.", isShown: true }) },
-    { label: "A wrong PIN: the tries left", isStill: true, markup: confirmItsYouSheet({ id: "example-confirm-its-you-wrong", method: "purchase_pin", otherMethods: ["password"], reasonText: PIN_REASON, errorText: "That PIN isn't right. 3 tries left.", isShown: true }) },
-    { label: "Purchase PIN sent, waiting", isStill: true, markup: confirmItsYouSheet({ id: "example-confirm-its-you-busy", method: "purchase_pin", otherMethods: ["password"], reasonText: PIN_REASON, isBusy: true, isShown: true }) },
+    { label: "A wrong PIN: the marks shake, empty, outlined amber, and say the tries left", isStill: true, markup: confirmItsYouSheet({ id: "example-confirm-its-you-wrong", method: "purchase_pin", otherMethods: ["password"], reasonText: PIN_REASON, errorText: "That PIN isn't right. 3 tries left.", isShown: true }) },
+    { label: "Purchase PIN sent: a wave of light along the marks until the answer comes", isStill: true, markup: confirmItsYouSheet({ id: "example-confirm-its-you-busy", method: "purchase_pin", otherMethods: ["password"], reasonText: PIN_REASON, isBusy: true, isShown: true }) },
     { label: "Password sent, waiting", isStill: true, markup: confirmItsYouSheet({ id: "example-confirm-its-you-password-busy", method: "password", otherMethods: ["passkey"], reasonText: "It's been a while since you signed in here.", isBusy: true, isShown: true }) },
   ],
 });
