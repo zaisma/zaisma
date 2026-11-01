@@ -5,6 +5,7 @@ import { Raw, esc, html, raw } from "./markup.ts";
 import { PRESENCE_CHECK_IN_MS, describePlayModes, type PlayMode } from "@zaisma/core";
 import { gameFrameSource, type Env } from "./env.ts";
 import { pageScript, pageScriptPath, type PageScript } from "./page-scripts.ts";
+import { PREPARE_SCRIPT, SPECULATION_RULES_PATH } from "./prepared-pages.ts";
 import { pageStyle, pageStylePath, type PageStyle } from "./page-styles.ts";
 import { createHash } from "node:crypto";
 import { COMPONENT_SCRIPT, COMPONENT_STYLES, FIRST_PAINT_PIECES, HEADER_SCRIPT, LOOK_SCRIPT, firstPaintPieceText } from "./components/index.ts";
@@ -38,7 +39,9 @@ export const headScriptTags = (...scripts: PageScript[]): Raw =>
  * ahead of a stylesheet still loading: every cut then read as 0. So the gallery ends its body with this one, which does nothing but wait:
  * deferred scripts run only after the page's last script has.
  */
-const STYLES_APPLIED_SCRIPT = pageScript("styles-applied", "/* The page's stylesheets have applied: the head scripts run after this one and read their tokens (html.ts). */");
+const STYLES_APPLIED_SCRIPT = pageScript("styles-applied", "/* The page's stylesheets have applied: the head scripts run after this one and read their tokens (html.ts). */", {
+  runsWhilePreparedBecause: "It does nothing: the head scripts that draw the page wait for it.",
+});
 export const stylesAppliedTag = (): Raw => raw(`<script src="${pageScriptPath(STYLES_APPLIED_SCRIPT)}"></script>`);
 
 /** The site's stylesheets, named at a page's body's end for the first-paint script to put on the page once the page is read. */
@@ -487,7 +490,7 @@ addEventListener("submit",e=>{if(!e.defaultPrevented&&e.target.method!=="dialog"
 addEventListener("click",e=>{const a=e.target.closest&&e.target.closest("a.btn,a.metal");if(!a||e.defaultPrevented||e.button||e.metaKey||e.ctrlKey||e.shiftKey||e.altKey||a.target==="_blank")return;const u=new URL(a.href,location.href);if(u.origin!==location.origin||(u.pathname===location.pathname&&u.search===location.search))return;if(a.hasAttribute("data-download"))download(a);else busy(a)});
 addEventListener("pageshow",e=>{if(e.persisted)document.querySelectorAll("[aria-busy=true]").forEach(idle)})})();`;
 
-const SITE_SCRIPT = pageScript("site", METAL_SCRIPT + BUSY_SCRIPT);
+const SITE_SCRIPT = pageScript("site", METAL_SCRIPT + BUSY_SCRIPT + PREPARE_SCRIPT);
 
 const PLAY_ICON = '<svg viewBox="0 0 14 16" aria-hidden="true"><path d="M1 1v14l12-7z" fill="currentColor"/></svg>';
 
@@ -646,6 +649,8 @@ interface LayoutBaseOptions {
   stage?: Raw;
   /** The stage's own color ("#rrggbb", a game's measured background), behind it from the first paint (--backdrop-edge, which BACKDROP_SCRIPT keeps). */
   stageColor?: string | null;
+  /** The glass's tint ("#rrggbb", --glass-hue): a game's own on its page, from the first paint, so a page prepared ahead opens in it. */
+  glassHue?: string | null;
   /** A Steel page's own stylesheets (page-styles.ts), until its page is rebuilt: linked right after the site's, so they win over it as before. */
   steelStyles?: PageStyle[];
 }
@@ -662,6 +667,13 @@ export type LayoutOptions =
       /** What the page is, which sets how wide it runs: a rebuilt page can't be made without one (the layout check fails a page without it too). */
       pageShape: PageShape;
     });
+
+/** The page's own values on <html>: its stage's color and its glass's tint, each only as "#rrggbb". */
+function rootStyle(options: LayoutOptions): Raw {
+  const isColor = (color: string | null | undefined): color is string => Boolean(color && /^#[0-9a-fA-F]{6}$/.test(color));
+  const parts = [isColor(options.stageColor) ? `--backdrop-edge: ${options.stageColor}` : "", isColor(options.glassHue) ? `--glass-hue: ${options.glassHue}` : ""].filter(Boolean);
+  return parts.length ? html` style="${parts.join("; ")}"` : raw("");
+}
 
 export function layout(env: Env, options: LayoutOptions): Response {
   const isRebuilt = options.checkedPage !== undefined;
@@ -684,7 +696,7 @@ ${env.SUPABASE_URL && !options.isAdmin ? scriptTags(SITE_SCRIPT, PRESENCE_SCRIPT
   // What shows, leaving out what starts closed: the first-paint pieces it needs.
   const shown = shownMarkup(body.html);
   const page = html`<!doctype html>
-<html lang="en" data-theme-choice="${colorTheme}"${options.pageShape ? html` data-page-shape="${options.pageShape}"` : ""}${options.stageColor && /^#[0-9a-fA-F]{6}$/.test(options.stageColor) ? html` style="--backdrop-edge: ${options.stageColor}"` : ""}>
+<html lang="en" data-theme-choice="${colorTheme}"${options.pageShape ? html` data-page-shape="${options.pageShape}"` : ""}${rootStyle(options)}>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
@@ -705,7 +717,7 @@ ${followingStyleTags(...sheets)}
 </body>
 </html>`;
   const isPrivate = options.isAdmin || options.isPrivate || Boolean(options.viewer?.account);
-  // A link to a game's page is fetched ahead as the pointer rests on it or presses it (SPECULATION_RULES), from the header, so no script is on the page.
+  // Links are prepared ahead as the pointer rests on them or presses them (SPECULATION_RULES, prepared-pages.ts), from the header, so no script is on the page.
   const extra: Record<string, string> = { "Speculation-Rules": `"${SPECULATION_RULES_PATH}"`, ...(isPrivate ? { "Cache-Control": "no-store" } : {}) };
   return new Response(page.html, { headers: securityHeaders(env, extra, options.hasTurnstileCheck, options.frames, options.formTargets, options.isFramedBySelf ? "'self'" : "'none'", options.hasStripePayments, options.hasStripeFrame) });
 }
@@ -713,22 +725,6 @@ ${followingStyleTags(...sheets)}
 /** Which state on the checks' list a page is (LayoutOptions.checkedPage), for the layout check to read and a swapped-in sign-in step to carry over. */
 export const checkedPageTag = (name: CheckedPageName): Raw => html`<meta name="checked-page" content="${name}">`;
 
-/** Where pages' speculation rules are served (index.ts). */
-export const SPECULATION_RULES_PATH = "/speculation-rules.json";
-
-/**
- * Every page's speculation rules: a link to a game's page (/g/<slug>, not its report or rooms), or to one of a sidebar's places, is fetched ahead once the pointer rests
- * on it or presses it ("moderate"), so the page is there when the click lands; browsers without them just follow the link. Fetched only,
- * never prerendered: a prerendered game page would run its scripts (checking in, the play count, the game's site warming up) for a page
- * the player may never open. A same-origin file, so the page's Content-Security-Policy allows it as it is.
- */
-export const SPECULATION_RULES = {
-  prefetch: [
-    { source: "document", where: { and: [{ href_matches: "/g/*" }, { not: { href_matches: "/g/*/*" } }] }, eagerness: "moderate" },
-    // A sidebar's places (the gallery's pages), so moving through them never waits on the page.
-    { source: "document", where: { selector_matches: "a.sidebar-place" }, eagerness: "moderate" },
-  ],
-};
 
 /**
  * The site's header (components/navigation.ts), also used on its own by pages that lay themselves out (the game page): Home, the

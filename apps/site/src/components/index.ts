@@ -3,7 +3,7 @@ import { pageScript, type PageScript } from "../page-scripts.ts";
 import { MINIFIED_COMPONENT_SCRIPT, MINIFIED_FIRST_PAINT_PIECES, MINIFIED_FIRST_PAINT_SCRIPT, MINIFIED_LOOK_SCRIPT } from "../generated/components-script.generated.ts";
 import { ACCOUNT_LINK_SCRIPT, FOLLOWING_FILES_SCRIPT, HIDDEN_AMOUNTS_SCRIPT, MEASURED_GLASS_SCRIPT, SHOWN_ONCE_DRAWN_SCRIPT, THEME_SCRIPT } from "./first-paint-script.ts";
 import { COMPONENTS } from "./component.ts";
-import { BACKDROP_SCRIPT, EDGE_LIGHT_SCRIPT, GLASS_SCRIPT, PICTURE_SCRIPT, TOKEN_STYLES, WATCH_SCRIPT } from "./foundations.ts";
+import { BACKDROP_SCRIPT, EDGE_LIGHT_SCRIPT, GLASS_SCRIPT, PAGE_SWITCH_SCRIPT, PICTURE_SCRIPT, TOKEN_STYLES, WATCH_SCRIPT } from "./foundations.ts";
 import { BUSY_SCRIPT, RUNNER_SCRIPT, TOGGLE_SCRIPT } from "./actions.ts";
 import { CHECK_SCRIPT, CHOICE_CARDS_SCRIPT, COLOR_FIELD_SCRIPT, COPY_SCRIPT, FIELD_SCRIPT, FILE_DROP_SCRIPT, LONG_FIELD_SCRIPT, PIN_FIELD_SCRIPT, SEARCH_SCRIPT, SELECT_SCRIPT, SLIDER_SCRIPT, SWITCH_SCRIPT, WHEEL_SCRIPT } from "./inputs.ts";
 import { COMPACT_SCRIPT, FILTER_MENU_SCRIPT, LOAD_MORE_SCRIPT, RAIL_SCRIPT, ROW_SCRIPT, SCROLL_FADE_SCRIPT, SIDEBAR_SCRIPT } from "./navigation.ts";
@@ -115,6 +115,8 @@ export const FIRST_PAINT_PIECES: readonly FirstPaintPiece[] = [
   firstPaintPiece("theme", THEME_SCRIPT, null),
   firstPaintPiece("following-files", FOLLOWING_FILES_SCRIPT, null),
   firstPaintPiece("watch", WATCH_SCRIPT, null),
+  // A page reached from another of Zaisma's has its panes fade in, and a game opened from its cover its world settle in first.
+  firstPaintPiece("page-switch", PAGE_SWITCH_SCRIPT, null),
   firstPaintPiece("pictures", PICTURE_SCRIPT, null),
   firstPaintPiece("glass", GLASS_SCRIPT, null),
   firstPaintPiece("materials", MATERIAL_SCRIPT, null),

@@ -1,5 +1,6 @@
 import type { Env } from "./env.ts";
-import { SPECULATION_RULES_PATH, checkedPageTag, headScriptTags, html, isLocalSite, pageData, raw, scriptTags, securityHeaders, styleTags, stylesAppliedTag, type Raw } from "./html.ts";
+import { SPECULATION_RULES_PATH } from "./prepared-pages.ts";
+import { checkedPageTag, headScriptTags, html, isLocalSite, pageData, raw, scriptTags, securityHeaders, styleTags, stylesAppliedTag, type Raw } from "./html.ts";
 import { CITY_SCRIPT } from "./components/city.ts";
 import { pageStyle } from "./page-styles.ts";
 import { examplePage } from "./example-page.ts";

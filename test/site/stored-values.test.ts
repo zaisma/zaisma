@@ -216,7 +216,7 @@ const DOORS: Record<string, Door> = {
   "forum_posts.text_markdown api:POST /forum": (value, mark) => api("/forum", { body: { is_public: true, kind: "question", category: "pages", title: `Question ${mark}`, text_markdown: value, author_kind: "developer" } }),
   "forum_posts.text_markdown api:POST /forum/:topic_id/posts": (value) => api(`/forum/${topicId}/posts`, { body: { text_markdown: value, author_kind: "developer" } }),
   "forum_posts.text_markdown page:GET /forum/new": (value, mark) => form("/forum/new", { kind: "question", category: "pages", title: `Question ${mark}`, text_markdown: value }, cookie),
-  "forum_posts.text_markdown page:/forum/(topic_[a-z0-9]{1,40})(?:/(reply|vote|follow|answer|misplaced|still-happening|rate|bookmark|report))?": (value) => form(`/forum/${topicId}/reply`, { text_markdown: value }, cookie),
+  "forum_posts.text_markdown page:/forum/(topic_[a-z0-9]{1,40})(?:/(reply|vote|follow|answer|misplaced|still-happening|rate|bookmark|report|seen))?": (value) => form(`/forum/${topicId}/reply`, { text_markdown: value }, cookie),
   "forum_posts.text_markdown page:/forum/messages/new": (value, mark) => form("/forum/messages/new", { kind: "question", title: `Message ${mark}`, text_markdown: value }, cookie),
 };
 
@@ -332,7 +332,7 @@ async function pagesToOpen(): Promise<{ doorId: string; url: string; cookie?: st
     { doorId: "page:/@([A-Za-z0-9_]{1,40})(/edit|/report)?", url: `${SITE}/@${await usernameOf(DEVELOPER)}?edit`, cookie },
     { doorId: "page:/forum", url: `${SITE}/forum` },
     { doorId: "page:/forum", url: `${SITE}/forum?search_text=Sky`, cookie },
-    { doorId: "page:/forum/(topic_[a-z0-9]{1,40})(?:/(reply|vote|follow|answer|misplaced|still-happening|rate|bookmark|report))?", url: `${SITE}/forum/${topicId}`, cookie },
+    { doorId: "page:/forum/(topic_[a-z0-9]{1,40})(?:/(reply|vote|follow|answer|misplaced|still-happening|rate|bookmark|report|seen))?", url: `${SITE}/forum/${topicId}`, cookie },
     { doorId: "page:/forum/messages", url: `${SITE}/forum/messages`, cookie },
     { doorId: "page:GET /forum/people", url: `${SITE}/forum/people` },
     { doorId: "page:/dashboard/feedback", url: `${SITE}/dashboard/feedback`, cookie },

@@ -38,11 +38,11 @@ export const FOLLOWING_FILES_SCRIPT = `/* following files */(function () {
   function runFiles() {
     if (isRun || !isStyled || !isRead) return;
     isRun = true;
-    document.querySelectorAll("link[rel=preload][data-page-script]").forEach(function (named) {
-      var script = document.createElement("script");
-      script.src = named.href; script.async = false;
-      document.body.appendChild(script);
-    });
+    // A page prepared ahead of a tap (prepared-pages.ts) holds the files it marks until it's opened: nothing counts or wakes before then.
+    var held = [];
+    function run(named) { var script = document.createElement("script"); script.src = named.href; script.async = false; document.body.appendChild(script); }
+    document.querySelectorAll("link[rel=preload][data-page-script]").forEach(function (named) { if (document.prerendering && named.hasAttribute("data-when-opened")) held.push(named); else run(named); });
+    if (held.length) document.addEventListener("prerenderingchange", function () { held.forEach(run); }, { once: true });
   }
   function styled() { isStyled = true; runFiles(); }
   function putSheets() {

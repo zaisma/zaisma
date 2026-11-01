@@ -37,6 +37,7 @@ import {
   ROOM_ORDERS,
   SHOWN_IN_LISTS_SQL,
   testerLinkByToken,
+  PERFORMANCE_CHECK_LIMITS,
   testerLinkOpened,
   testerLinkVersion,
   versionById,
@@ -524,6 +525,8 @@ export function gamePageResponse(env: Env, view: GamePageView): Response {
     // The game's own world behind the glass, the same the home shows while its cover is pointed at.
     stage: backgroundMarkup(background),
     stageColor: background.source === "zaisma" ? null : background.tone?.averageColor,
+    // The glass takes the game's tint, as on the home while its cover is pointed at.
+    glassHue: background.glassTintColor,
     isFramedBySelf: view.isFramedBySelf,
     viewer,
     // Cloudflare's invisible check from when the page opens, for play counts and multiplayer (tester links: only for multiplayer).
@@ -574,8 +577,6 @@ ${pageData("game-page-data", {
       turnstile_site_key: env.TURNSTILE_SITE_KEY ?? "",
       account_requirement: accountRequirement,
       sign_in_url: `/signin?next=${accountNext}`,
-      // The glass takes the game's tint, as on the home while its cover is pointed at.
-      glass_tint_color: background.glassTintColor,
       // A room link is an invitation into a match already underway, and ?play comes from a Play button elsewhere: both skip the details.
       autoplay: autoplay ? (accountRequirement === "whole_game" || (accountRequirement === "multiplayer" && inRoom) ? "when_signed_in" : "always") : "never",
     })}
@@ -1024,8 +1025,6 @@ let frame = null;
 const share = document.getElementById("share");
 const full = document.getElementById("full");
 const dialog = document.getElementById("menu-dialog");
-// The glass takes the game's tint, as on the home while its cover is pointed at.
-if (/^#[0-9a-fA-F]{6}$/.test(gamePage.glass_tint_color || "")) document.documentElement.style.setProperty("--glass-hue", gamePage.glass_tint_color);
 // iPhones can't put a frame in full screen, so don't offer it there.
 if (!document.fullscreenEnabled) full.hidden = true;
 full.onclick = () => frame && frame.requestFullscreen();
@@ -1080,15 +1079,18 @@ const playStart = document.getElementById("play");
 if (playStart) playStart.onclick = play;
 // Game files start before Play: while the player reads the page, the files the game needs first download, up to
 // 100 MB, in a hidden frame on the game's own address (the browser keeps each site's cache apart). On computers, and
-// on Android phones and tablets that say they're on Wi-Fi; never on other phones and tablets, or with Data Saver.
+// on Android phones and tablets that say they're on Wi-Fi; on iPhones, which never say, only a game whose start files
+// come to ${PERFORMANCE_CHECK_LIMITS.maximumPhoneWarmUpSizeBytes / 1000 ** 2} MB or less, all or none; never on other phones and tablets, or with Data Saver.
+// On a page prepared ahead, this script waits until the page is opened (prepared-pages.ts), so nothing warms for a page never opened.
 let warming = null;
 function warmUp() {
   const connection = navigator.connection;
   const isComputer = !matchMedia("(pointer: coarse)").matches;
   const isAndroidOnWifi = /Android/.test(navigator.userAgent) && connection && (connection.type === "wifi" || connection.type === "ethernet");
-  if (frame || !gamePage.warm_url || (connection && connection.saveData === true) || !(isComputer || isAndroidOnWifi)) return;
+  const isIPhone = /iPhone/.test(navigator.userAgent);
+  if (frame || !gamePage.warm_url || (connection && connection.saveData === true) || !(isComputer || isAndroidOnWifi || isIPhone)) return;
   warming = document.createElement("iframe");
-  warming.src = gamePage.warm_url;
+  warming.src = gamePage.warm_url + (isComputer || isAndroidOnWifi ? "" : "?maximum_start_size_bytes=${PERFORMANCE_CHECK_LIMITS.maximumPhoneWarmUpSizeBytes}");
   warming.setAttribute("sandbox", "allow-scripts allow-same-origin");
   warming.hidden = true;
   warming.setAttribute("aria-hidden", "true");

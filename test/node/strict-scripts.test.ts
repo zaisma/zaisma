@@ -18,10 +18,11 @@ const sources = [...readdirSync(SITE), ...readdirSync(join(SITE, "components")).
 
 /**
  * The only <script tags the site writes: html.ts's script files (the gallery's, in its head and at its end), the first-paint pieces a page
- * carries, its data blocks, and example game files in the MCP's help (a game's own page, on the game
- * domain). The shader check's page, drawn in a headless browser, is written by packages/cli/shader-check.mjs, which the site shares.
+ * carries, its data blocks, and example game files in the MCP's help (a game's own page, on the game domain), and the one a page
+ * prepared ahead ends with to run its held scripts once it's opened (prepared-pages.ts). The shader check's page, drawn in a headless
+ * browser, is written by packages/cli/shader-check.mjs, which the site shares.
  */
-const ALLOWED_SCRIPT_TAGS: Record<string, number> = { "html.ts": 6, "mcp.ts": 2, "page-scripts.ts": 1 };
+const ALLOWED_SCRIPT_TAGS: Record<string, number> = { "html.ts": 6, "mcp.ts": 2, "page-scripts.ts": 1, "prepared-pages.ts": 1 };
 
 describe("the site's code", () => {
   it("writes <script> tags only through html.ts", () => {

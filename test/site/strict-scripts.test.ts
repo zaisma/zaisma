@@ -129,8 +129,10 @@ describe("the site's script files", () => {
     const signedInOnly = ["developer-settings", "access-choices", "connect-app", "keys-check", "new-password", "passkey-add", "account-confirm", "social-settings", "local-times", "upload", "friends", "joined", "back-to-app", "show-password", "username-check", "protect-account", "qr-png", "background-preview"];
     // Screens (components/screens.ts) puts these in each page it shows, rather than a page linking them.
     const putInByScreens = ["layout-measure", "layout-inspect"];
+    // Only a page prepared ahead gets this one, put in as it's sent (prepared-pages.ts, heldUntilOpened).
+    const putInWhenPrepared = ["when-opened"];
     const names = new Set([...loaded].map((path) => path.slice("/js/".length).replace(/\.[0-9a-f]{16}\.js$/, "")));
-    expect(pageScripts().map((script) => script.name).filter((name) => !names.has(name) && !signedInOnly.includes(name) && !putInByScreens.includes(name))).toEqual([]);
+    expect(pageScripts().map((script) => script.name).filter((name) => !names.has(name) && !signedInOnly.includes(name) && !putInByScreens.includes(name) && !putInWhenPrepared.includes(name))).toEqual([]);
   });
 });
 

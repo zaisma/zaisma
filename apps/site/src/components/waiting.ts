@@ -11,7 +11,7 @@ import { WAITING_HEADER_EXAMPLE } from "./navigation.ts";
  * Waiting: how anything pressed shows it's waiting on its answer, owned here and nowhere else. A control waiting on this page (aria-busy,
  * set by window.zaismaWait) stays pressed and a glint runs across its pressed face, the Light's glint, one after another so one is always
  * in view; the glass script lays the glint in it only while it waits (glass-script.ts, drawWaiting). A press that opens another page
- * fills the header's bottom groove with orange light instead (HEADER_SCRIPT). Neither changes a control's size, so nothing moves.
+ * stays pressed and, after half a second, fills the header's bottom groove with orange light instead (HEADER_SCRIPT). Neither changes a control's size, so nothing moves.
  */
 component({
   name: "Waiting",
@@ -19,7 +19,7 @@ component({
   group: "panes",
   subgroup: "materials",
   after: "light",
-  summary: "What anything pressed shows while it waits on its answer: it stays pressed and a glint runs across its face, one after another, until the answer comes; a press that opens another page fills the header's bottom edge with light instead. It lights at once and never changes the size of what waits, so nothing moves. Every control that can wait takes it from here; none draws its own.",
+  summary: "What anything pressed shows while it waits on its answer: it stays pressed and a glint runs across its face, one after another, until the answer comes; a press that opens another page stays pressed and, if the page takes more than half a second, fills the header's bottom edge with light instead. A control lights at once and never changes the size of what waits, so nothing moves. Every control that can wait takes it from here; none draws its own.",
   styles: `
 /* The glint: a stream of the Light's glint, softened (--glint, warm on an orange piece) crossing the pressed face over everything on it, its
    words and marks too, as light on the glass would, cut to the control's own shape. Its glints are spaced closer than the face is wide, so
