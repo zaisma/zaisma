@@ -39,10 +39,13 @@ export const FOLLOWING_FILES_SCRIPT = `/* following files */(function () {
     if (isRun || !isStyled || !isRead) return;
     isRun = true;
     // A page prepared ahead of a tap (prepared-pages.ts) holds the files it marks until it's opened: nothing counts or wakes before then.
-    var held = [];
-    function run(named) { var script = document.createElement("script"); script.src = named.href; script.async = false; document.body.appendChild(script); }
-    document.querySelectorAll("link[rel=preload][data-page-script]").forEach(function (named) { if (document.prerendering && named.hasAttribute("data-when-opened")) held.push(named); else run(named); });
+    var held = [], last = null;
+    function run(named) { var script = document.createElement("script"); script.src = named.href; script.async = false; document.body.appendChild(script); return script; }
+    document.querySelectorAll("link[rel=preload][data-page-script]").forEach(function (named) { if (document.prerendering && named.hasAttribute("data-when-opened")) held.push(named); else last = run(named); });
     if (held.length) document.addEventListener("prerenderingchange", function () { held.forEach(run); }, { once: true });
+    // In order, so the last one's load comes once every file has run: the page's own work is done (afterSettling).
+    function settled() { if (window.zaismaWatch) window.zaismaWatch.settled(); }
+    if (last) { last.addEventListener("load", settled); last.addEventListener("error", settled); } else settled();
   }
   function styled() { isStyled = true; runFiles(); }
   function putSheets() {
@@ -110,8 +113,9 @@ export const FRAME_SAYS_LIMIT_MS = 4000;
  */
 export const SHOWN_ONCE_DRAWN_SCRIPT = `/* shown once drawn */(function () {
   var FRAMES = "iframe[data-shows-once-drawn]";
-  // Once the page's panes have faded in, as a picture does (PICTURE_SCRIPT): the glass over it would blur a changing world every frame.
-  function show(frame) { window.zaismaWatch.afterArrival(function () { frame.classList.add("is-shown"); }); }
+  // Once the page's panes have faded in and its own work is done, as a picture does (PICTURE_SCRIPT): the glass over it would blur a
+  // changing world every frame, and the fade would drop frames under the page's styles being worked out again.
+  function show(frame) { window.zaismaWatch.afterSettling(function () { frame.classList.add("is-shown"); }); }
   window.addEventListener("message", function (event) {
     if (!event.data || !event.data.zaismaBackground) return;
     document.querySelectorAll(FRAMES).forEach(function (frame) { if (event.source === frame.contentWindow) { frame.hasSaid = true; show(frame); } });

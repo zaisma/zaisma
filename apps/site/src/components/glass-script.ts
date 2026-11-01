@@ -15,15 +15,19 @@
  * - each(selector, callback): callback(element) once for every element matching the selector, those on the page now and any added later
  *   (a pane whose content is swapped in place), so a component's wiring reaches new content as a page load's would.
  * - afterArrival(callback): once the page's panes have faded in, for work that would drop the fade's frames.
+ * - afterSettling(callback): once the page's own work after its arrival is done too (the full stylesheet on, its script files run) and
+ *   painted, for a fade that would stutter under that work (a game's world). settled() says the work is done (FOLLOWING_FILES_SCRIPT).
  * - scrollBoxes(): the boxes on the page that scroll up and down (overflow-y auto or scroll), in the page's order, found once. Only what the
  *   page's stylesheets, the browser's own or an element's own style make scroll is asked for its style, never every element.
  * Where the browser has no ResizeObserver, size falls back to the window's resize.
  */
 /** The longest the work a page doesn't need to look whole waits for its arrival to play (afterArrival). */
 export const ARRIVAL_WAIT_LIMIT_MS = 1000;
+/** The longest a fade waits, once the page has arrived, for the page's own work to be done (afterSettling). */
+export const SETTLING_WAIT_LIMIT_MS = 1500;
 
 export const WATCH_SCRIPT = `/* watch */(function () {
-  var pageCallbacks = [], sizeCallbacks = new Map(), resizeCallbacks = [], scrollCallbacks = [], sizes = null, hasResizeListener = false, hasScrollListener = false, scrollBoxes = null;
+  var settlingCallbacks = [], settlingState = "working", pageCallbacks = [], sizeCallbacks = new Map(), resizeCallbacks = [], scrollCallbacks = [], sizes = null, hasResizeListener = false, hasScrollListener = false, scrollBoxes = null;
   function runPlain(work) { work(); }
   // Callbacks that share a batch (a function taking the work to do) run together inside it, each once: the edge rule measures a whole batch of controls before drawing any.
   function runBatched(entries) {
@@ -81,6 +85,23 @@ export const WATCH_SCRIPT = `/* watch */(function () {
       function done() { if (isDone) return; isDone = true; callback(); }
       Promise.all(running.map(function (each) { return each.finished.catch(function () {}); })).then(done);
       setTimeout(done, ${ARRIVAL_WAIT_LIMIT_MS});
+    },
+    // Once the page's own work is done as well and has been painted (two frames on), or at most SETTLING_WAIT_LIMIT_MS after it arrived:
+    // the stylesheet works the page's styles out again and its files draw what they wire, so a fade started under them drops frames.
+    afterSettling: function (callback) {
+      window.zaismaWatch.afterArrival(function () {
+        if (settlingState === "settled") { callback(); return; }
+        settlingCallbacks.push(callback);
+        setTimeout(window.zaismaWatch.settled, ${SETTLING_WAIT_LIMIT_MS});
+      });
+    },
+    settled: function () {
+      if (settlingState !== "working") return;
+      settlingState = "painting";
+      requestAnimationFrame(function () { requestAnimationFrame(function () {
+        settlingState = "settled";
+        settlingCallbacks.splice(0).forEach(function (callback) { callback(); });
+      }); });
     },
     // Now, or once the page is read: for what one part finds of another that may come later in the page (a row's arrows and its track).
     whenRead: function (callback) { if (document.readyState !== "loading") callback(); else readCallbacks.push(callback); },

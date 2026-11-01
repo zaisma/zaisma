@@ -594,7 +594,8 @@ component({
    header and the backdrop, the same on both pages, stand still. Each pane's body (its ::before, which blurs) and what's on it fade, never
    the pane, as a floating pane arrives: a pane fading as a whole blurs nothing behind it until it's in. Never a cross-document view
    transition (tokens.ts says why), so the page takes every press from its first frame. Opening a game from its cover moves on its own
-   (Game background). Under reduced motion, and arriving from another site or a reload, the page simply shows. */
+   (Game background). However the page is reached (a link, a reload, another site), so its panes come in with its world; going back
+   or forward, and under reduced motion, it simply shows. */
 html.is-page-arriving main .glass:not(.glass .glass)::before, html.is-page-arriving main .glass:not(.glass .glass) > * { animation: page-arrives var(--motion-page-switch) var(--ease-standard) both; }
 @keyframes page-arrives { from { opacity: 0; } }
 `,
@@ -650,8 +651,8 @@ html.is-page-held .backdrop, html.is-page-held main .glass:not(.glass .glass)::b
 });
 
 /**
- * Moving from one of Zaisma's pages to the next (Backdrop's and Game background's motion): a page reached from another of Zaisma's by a
- * link (not a reload, not back or forward) has its panes fade in (is-page-arriving); one reached by a tap on a game's cover, the tap
+ * Moving from one of Zaisma's pages to the next (Backdrop's and Game background's motion): a page reached by a link, a reload or from
+ * another site (not back or forward) has its panes fade in (is-page-arriving), as its world does behind them; one reached by a tap on a game's cover, the tap
  * remembered for the tab, has its world settle in first (is-opening-game). A page prepared ahead holds both from its first frame until
  * it's opened (is-page-held), and only then reads the tap, which came after it was prepared. In the first-paint script, so the classes
  * are there before the page shows.
@@ -667,9 +668,8 @@ export const PAGE_SWITCH_SCRIPT = `/* page switch */(function () {
     if (!slug || !link.querySelector(".picture, img") || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || (link.target && link.target !== "_self") || slug === gameSlugOf(location.href)) return;
     try { sessionStorage.setItem(KEY, JSON.stringify({ slug: slug, pressed_at_ms: Date.now() })); } catch (error) {}
   });
-  var entry = performance.getEntriesByType && performance.getEntriesByType("navigation")[0], isFromHere = false;
-  try { isFromHere = new URL(document.referrer).origin === location.origin; } catch (error) {}
-  if (!isFromHere || !entry || entry.type !== "navigate" || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  var entry = performance.getEntriesByType && performance.getEntriesByType("navigation")[0];
+  if (!entry || entry.type === "back_forward" || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
   function arrive() {
     var opening = null;
     try { opening = JSON.parse(sessionStorage.getItem(KEY) || "null"); sessionStorage.removeItem(KEY); } catch (error) {}
@@ -761,9 +761,10 @@ export const PICTURE_SCRIPT = `/* pictures */(function () {
   function show(img, isAtOnce) {
     if (isAtOnce) { img.classList.add("at-once"); img.classList.add("is-shown"); return; }
     img.addEventListener("animationend", function () { img.classList.add("at-once"); }, { once: true });
-    // A game's world fades in once the page's panes have (window.zaismaWatch.afterArrival): the glass blurs what's behind it, so both
-    // fading at once has every frame blur every pane over a changing world, which a fast connection, where they'd meet, shows as stutter.
-    if (img.classList.contains("backdrop") && window.zaismaWatch && window.zaismaWatch.afterArrival) window.zaismaWatch.afterArrival(function () { img.classList.add("is-shown"); });
+    // A game's world fades in once the page's panes have and the page's own work is done (window.zaismaWatch.afterSettling): the glass
+    // blurs what's behind it, so both fading at once has every frame blur every pane over a changing world, and the whole stylesheet
+    // going on under the fade drops its frames, which a fast connection, where they'd all meet, shows as stutter.
+    if (img.classList.contains("backdrop") && window.zaismaWatch && window.zaismaWatch.afterSettling) window.zaismaWatch.afterSettling(function () { img.classList.add("is-shown"); });
     else img.classList.add("is-shown");
   }
   window.zaismaWatch.each("img.reveals", function (img) {
