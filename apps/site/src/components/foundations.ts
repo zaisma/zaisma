@@ -637,7 +637,7 @@ html:active-view-transition-type(opening-game)::view-transition-old(root), html:
 html.is-opening-game main { translate: 0 8px; }
 html.is-opening-game main .glass:not(.glass .glass) { opacity: 0; }
 html.is-rising main { transition: translate calc(var(--motion-page-switch) * 0.4) var(--ease-glide); }
-html.is-rising main .glass:not(.glass .glass) { transition: opacity calc(var(--motion-page-switch) * 0.4) var(--ease-glide); }
+html.is-rising main .glass:not(.glass .glass) { transition: var(--glass-transition), opacity calc(var(--motion-page-switch) * 0.4) var(--ease-glide); }
 `,
   render: gameBackgroundFrame,
   examples: STAND_IN_BACKGROUNDS.map((background) => ({
