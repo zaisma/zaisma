@@ -82,7 +82,16 @@ export const MEASURED_GLASS_SCRIPT = `/* measured glass */(function () {
     if (pick.isSmoked) el.removeAttribute("data-theme-choice"); else if (!el.hasAttribute("data-theme-choice")) el.setAttribute("data-theme-choice", "light");
     if (pick.tint) el.style.setProperty("--glass-tint", pick.tint);
   }
-  window.zaismaWatch.eachArriving("[data-adapts-glass][data-glass-kind]", function () {
+  // What holds the world takes its glass too (BACKDROP_SCRIPT's showPick does the same once it measures): what's laid straight on the
+  // page outside a pane, the page's rail, is smoked or light with the glass round it from the first paint.
+  function setHost(host, pick) {
+    if (host.ownThemeChoice === undefined) host.ownThemeChoice = host.getAttribute("data-theme-choice");
+    host.classList.toggle("smoke", pick.isSmoked);
+    if (pick.isSmoked) host.removeAttribute("data-theme-choice"); else host.setAttribute("data-theme-choice", host.ownThemeChoice || "light");
+  }
+  window.zaismaWatch.eachArriving("[data-adapts-glass][data-glass-kind]", function (backdrop) {
+    var host = backdrop.parentElement, hostPick = pickOf(host);
+    if (host && hostPick) setHost(host, hostPick);
     document.querySelectorAll("[data-glass]:not([data-cut-line])").forEach(function (el) { var host = hostOf(el), pick = pickOf(host); if (pick) setGlass(el, pick); });
   });
   window.zaismaWatch.eachArriving("[data-glass]:not([data-cut-line])", function (el) { var host = hostOf(el), pick = pickOf(host); if (pick) setGlass(el, pick); });
