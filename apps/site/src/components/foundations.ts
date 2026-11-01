@@ -686,8 +686,12 @@ export const PAGE_SWITCH_SCRIPT = `/* page switch */(function () {
   function arrive() {
     if (isArrived || !isShown || document.prerendering) return;
     isArrived = true;
-    root.classList.remove("is-page-held");
-    setTimeout(function () { root.classList.remove("is-page-arriving", "is-opening-game"); }, 1500);
+    // On the next frame drawn, not now: the page is often still finishing being read when the paint is heard, and a fade let go under
+    // that work starts its first frame already part way in. A page opened in a tab behind starts it once it's looked at.
+    requestAnimationFrame(function () {
+      root.classList.remove("is-page-held");
+      setTimeout(function () { root.classList.remove("is-page-arriving", "is-opening-game"); }, 1500);
+    });
   }
   function shown() { isShown = true; arrive(); }
   root.classList.add("is-page-arriving", "is-page-held");
