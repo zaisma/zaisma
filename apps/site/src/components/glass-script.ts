@@ -79,7 +79,7 @@ export const WATCH_SCRIPT = `/* watch */(function () {
     // the panes' fade and would drop its frames on a fast connection, where it would all land at once. A picture fading in is the
     // compositor's alone, so nothing waits for it, and the page's buttons work no later than that.
     afterArrival: function (callback) {
-      var running = document.getAnimations ? document.getAnimations().filter(function (each) { return each.playState === "running" && /^(page-arrives|opening-game-settles)$/.test(each.animationName || ""); }) : [];
+      var running = document.getAnimations ? document.getAnimations().filter(function (each) { return (each.playState === "running" || each.playState === "paused") && /^(page-arrives|opening-game-settles)$/.test(each.animationName || ""); }) : [];
       if (!running.length) { callback(); return; }
       var isDone = false;
       function done() { if (isDone) return; isDone = true; callback(); }

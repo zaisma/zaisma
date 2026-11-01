@@ -640,7 +640,7 @@ html.is-opening-game .backdrop { animation: opening-game-settles calc(var(--moti
 @keyframes opening-game-settles { from { scale: 1.06; } }
 html.is-opening-game main .glass:not(.glass .glass)::before, html.is-opening-game main .glass:not(.glass .glass) > * {
   animation-duration: calc(var(--motion-page-switch) * 0.8); animation-delay: var(--motion-page-switch); animation-timing-function: var(--ease-glide); }
-/* A page prepared ahead holds its arrival, from its first frame, until it's opened (is-page-held). */
+/* A page holds its arrival at its start (is-page-held) until the browser has shown it, and a page prepared ahead until it's opened. */
 html.is-page-held .backdrop, html.is-page-held main .glass:not(.glass .glass)::before, html.is-page-held main .glass:not(.glass .glass) > * { animation-play-state: paused; }
 `,
   render: gameBackgroundFrame,
@@ -654,9 +654,13 @@ html.is-page-held .backdrop, html.is-page-held main .glass:not(.glass .glass)::b
  * Moving from one of Zaisma's pages to the next (Backdrop's and Game background's motion): a page reached by a link, a reload or from
  * another site (not back or forward) has its panes fade in (is-page-arriving), as its world does behind them; one reached by a tap on a game's cover, the tap
  * remembered for the tab, has its world settle in first (is-opening-game). A page prepared ahead holds both from its first frame until
- * it's opened (is-page-held), and only then reads the tap, which came after it was prepared. In the first-paint script, so the classes
+ * it's opened (is-page-held), and only then reads the tap, which came after it was prepared; every other page holds them until the
+ * browser has painted it. In the first-paint script, so the classes
  * are there before the page shows.
  */
+/** The longest a page's arrival is held for the browser to say it has shown the page (PAGE_SWITCH_SCRIPT). */
+export const FIRST_PAINT_WAIT_LIMIT_MS = 1000;
+
 export const PAGE_SWITCH_SCRIPT = `/* page switch */(function () {
   var KEY = "zaisma:opening-game", root = document.documentElement;
   function gameSlugOf(address) {
@@ -670,16 +674,27 @@ export const PAGE_SWITCH_SCRIPT = `/* page switch */(function () {
   });
   var entry = performance.getEntriesByType && performance.getEntriesByType("navigation")[0];
   if (!entry || entry.type === "back_forward" || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-  function arrive() {
+  // The tap that opened this page: read now, or, on a page prepared ahead of it, once it's opened.
+  function readTap() {
     var opening = null;
     try { opening = JSON.parse(sessionStorage.getItem(KEY) || "null"); sessionStorage.removeItem(KEY); } catch (error) {}
     if (opening && opening.slug === gameSlugOf(location.href) && Date.now() - opening.pressed_at_ms < 10000) root.classList.add("is-opening-game");
+  }
+  // Held at its start until the browser has shown the page: Safari starts an animation when it works the page's styles out, often well
+  // before it paints, so a fade let run from then is mostly over, or over, by the page's first frame.
+  var isShown = false, isArrived = false;
+  function arrive() {
+    if (isArrived || !isShown || document.prerendering) return;
+    isArrived = true;
     root.classList.remove("is-page-held");
     setTimeout(function () { root.classList.remove("is-page-arriving", "is-opening-game"); }, 1500);
   }
-  root.classList.add("is-page-arriving");
-  if (document.prerendering) { root.classList.add("is-page-held"); document.addEventListener("prerenderingchange", arrive, { once: true }); }
-  else arrive();
+  function shown() { isShown = true; arrive(); }
+  root.classList.add("is-page-arriving", "is-page-held");
+  if (document.prerendering) document.addEventListener("prerenderingchange", function () { readTap(); shown(); }, { once: true });
+  else readTap();
+  try { new PerformanceObserver(function (list) { if (list.getEntriesByName("first-contentful-paint").length) shown(); }).observe({ type: "paint", buffered: true }); } catch (error) { shown(); }
+  setTimeout(shown, ${FIRST_PAINT_WAIT_LIMIT_MS});
 })();
 `;
 
