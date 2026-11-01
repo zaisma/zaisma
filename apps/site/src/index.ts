@@ -10,7 +10,8 @@ import { handleDashboard } from "./dashboard.ts";
 import { handleDeveloperSettings } from "./developer-settings.ts";
 import { handleDeveloper } from "./developer.ts";
 import type { Env } from "./env.ts";
-import { SPECULATION_RULES, SPECULATION_RULES_PATH, message } from "./html.ts";
+import { message } from "./html.ts";
+import { heldUntilOpened, isPreparedRequest, speculationRulesResponse } from "./prepared-pages.ts";
 import { handleMcp } from "./mcp.ts";
 import { handleGithubSecretScanning } from "./leaked-keys.ts";
 import { recordBlockedScripts } from "./security-alerts.ts";
@@ -80,11 +81,8 @@ async function route(request: Request, env: Env, ctx: ExecutionContext): Promise
   // Pages' script files (page-scripts.ts): every module that makes one is imported above, so all are known.
   if (path.startsWith("/js/")) return method === "GET" || method === "HEAD" ? pageScriptResponse(path) : new Response("Method not allowed", { status: 405 });
   if (path.startsWith("/css/")) return method === "GET" || method === "HEAD" ? pageStyleResponse(path) : new Response("Method not allowed", { status: 405 });
-  // The speculation rules every page's Speculation-Rules header names (html.ts), the same for everyone.
-  if (path === SPECULATION_RULES_PATH) {
-    if (method !== "GET" && method !== "HEAD") return new Response("Method not allowed", { status: 405 });
-    return new Response(JSON.stringify(SPECULATION_RULES), { headers: { "Content-Type": "application/speculationrules+json", "Cache-Control": "public, max-age=86400", "X-Content-Type-Options": "nosniff" } });
-  }
+  // The speculation rules every page's Speculation-Rules header names (prepared-pages.ts), the same for everyone.
+  if (/^\/speculation-rules(\.[0-9a-f]{16})?\.json$/.test(path)) return method === "GET" || method === "HEAD" ? speculationRulesResponse(path) : new Response("Method not allowed", { status: 405 });
   if (path === "/admin" || path.startsWith("/admin/")) return handleAdmin(request, env, path);
   if (path === "/mcp") return handleMcp(request, env, ctx);
   if (path === "/github/secret-scanning") return handleGithubSecretScanning(request, env);
@@ -209,7 +207,9 @@ export default {
     const url = new URL(request.url);
     // Only on the production address: tests and the local preview run over plain http.
     if (url.protocol === "http:" && env.SITE_ORIGIN.startsWith("https://") && url.hostname === new URL(env.SITE_ORIGIN).hostname) return upgradeToHttps(url);
-    return withTransportSecurity(url, await route(request, env, ctx));
+    const response = await route(request, env, ctx);
+    // A page prepared ahead of a tap holds its scripts until it's opened (prepared-pages.ts).
+    return withTransportSecurity(url, request.method === "GET" && isPreparedRequest(request) && !url.pathname.startsWith("/admin") ? heldUntilOpened(response) : response);
   },
 
   async queue(batch, env): Promise<void> {

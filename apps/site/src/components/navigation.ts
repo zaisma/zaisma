@@ -251,16 +251,28 @@ export const HEADER_SCRIPT = pageScript(
     }
     window.addEventListener("pagehide", function () { try { sessionStorage.setItem("zaisma-nav", JSON.stringify({ isDeveloperOpen: isOpenHere })); } catch (error) {} });
   }
-  /* A tap or click that opens another page of this site fills the header's bottom edge with light (is-waiting, at once) until the page
-     goes: a link in this tab, not a new tab, a download or a place on this same page. Back from the browser's history, it's dark again. */
-  function setWaiting(isWaiting) { headers.forEach(function (top) { if (!top.hasAttribute("data-stays-waiting")) top.classList.toggle("is-waiting", isWaiting); }); }
+  /* A tap or click that opens another page of this site holds what was pressed pressed (is-pressed) until the page goes, and after half a
+     second, a page that wasn't prepared ahead, the header's bottom edge fills with light (is-waiting): a link in this tab, not a new tab, a
+     download or a place on this same page. A prepared page comes before the light would. Back from the browser's history, it's dark again. */
+  var waitingTimer = 0, pressedLink = null;
+  function setWaiting(isWaiting) {
+    clearTimeout(waitingTimer);
+    if (!isWaiting && pressedLink) { pressedLink.classList.remove("is-pressed"); pressedLink = null; }
+    headers.forEach(function (top) { if (!top.hasAttribute("data-stays-waiting")) top.classList.toggle("is-waiting", isWaiting); });
+  }
   document.addEventListener("click", function (event) {
     var link = event.target.closest && event.target.closest("a[href]");
     if (!link || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || (link.target && link.target !== "_self") || link.hasAttribute("download")) return;
     var to = new URL(link.href, location.href);
     if (to.origin !== location.origin || (to.pathname === location.pathname && to.search === location.search)) return;
     // Checked once every handler has run: a link a page script handles itself (Load more) waits on its own edge instead.
-    setTimeout(function () { if (!event.defaultPrevented) setWaiting(true); }, 0);
+    setTimeout(function () {
+      if (event.defaultPrevented) return;
+      setWaiting(false);
+      pressedLink = link;
+      link.classList.add("is-pressed");
+      waitingTimer = setTimeout(function () { setWaiting(true); }, 500);
+    }, 0);
   });
   window.addEventListener("pageshow", function () { setWaiting(false); });
   window.addEventListener("pagehide", function () { setWaiting(false); });

@@ -294,7 +294,7 @@ export function preloadLinkHeader(page: string, base: string, startFiles: StartF
 }
 
 /** The warm-up page: nothing to show, just its script, on the game's own address so it fills this game's cache. */
-const WARM_PAGE = `<!doctype html><meta charset="utf-8"><title>Loading</title><script src="warm.js?v=1"></script>`;
+const WARM_PAGE = `<!doctype html><meta charset="utf-8"><title>Loading</title><script src="warm.js?v=2"></script>`;
 
 /** The host names of a game's own servers, where its own relay may be. */
 const ownHostnames = (ownServerUrls: string[]): string[] => ownServerUrls.map((origin) => new URL(origin).hostname);
@@ -612,7 +612,11 @@ async function serve(request: Request, env: Env, ctx: ExecutionContext): Promise
       }
       const urls: string[] = [];
       let warmSizeBytes = 0;
-      for (const file of await startFilesOf(env, version.id)) {
+      const startFiles = await startFilesOf(env, version.id);
+      // A page that asks for at most so much (an iPhone's game page: maximum_start_size_bytes) gets all the start files or none.
+      const askedSizeBytes = Number(url.searchParams.get("maximum_start_size_bytes"));
+      const isWithinAsked = !url.searchParams.has("maximum_start_size_bytes") || (Number.isSafeInteger(askedSizeBytes) && startFiles.reduce((sumBytes, file) => sumBytes + file.downloaded_size_bytes, 0) <= askedSizeBytes);
+      for (const file of isWithinAsked ? startFiles : []) {
         warmSizeBytes += file.downloaded_size_bytes;
         if (warmSizeBytes > PERFORMANCE_CHECK_LIMITS.maximumWarmUpSizeBytes) break;
         urls.push(startFileUrl(versionBase, file));

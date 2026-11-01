@@ -641,10 +641,15 @@ describe("game server", () => {
     expect(await (await SELF.fetch(`${G}/live-one/_zaisma/warm.json`)).json()).toEqual([]);
     await env.DB.prepare("INSERT INTO performance_checks (version_id, owner_id, check_status, start_files, queued_at_ms) VALUES ('vgliveone', 'owner', 'checked', ?, 0)").bind(JSON.stringify(startFiles)).run();
     expect(await (await SELF.fetch(`${G}/live-one/_zaisma/warm.json`)).json()).toEqual(["/live-one/_zaisma/versions/vgliveone/Build/framework.js", "/live-one/_zaisma/versions/vgliveone/Build/game.data"]);
+    // An iPhone's page asks for a small game's files only: all of them or none.
+    expect(await (await SELF.fetch(`${G}/live-one/_zaisma/warm.json?maximum_start_size_bytes=10000000`)).json()).toEqual([]);
+    expect(await (await SELF.fetch(`${G}/live-one/_zaisma/warm.json?maximum_start_size_bytes=a-lot`)).json()).toEqual([]);
+    await env.DB.prepare("UPDATE performance_checks SET start_files = ? WHERE version_id = 'vgliveone'").bind(JSON.stringify(startFiles.slice(0, 1))).run();
+    expect(await (await SELF.fetch(`${G}/live-one/_zaisma/warm.json?maximum_start_size_bytes=10000000`)).json()).toEqual(["/live-one/_zaisma/versions/vgliveone/Build/framework.js"]);
     const page = await SELF.fetch(`${G}/live-one/_zaisma/warm`);
     expect(page.headers.get("content-type")).toContain("text/html");
-    expect(await page.text()).toContain('src="warm.js?v=1"');
-    expect(await (await SELF.fetch(`${G}/live-one/_zaisma/warm.js`)).text()).toContain('fetch("warm.json"');
+    expect(await page.text()).toContain('src="warm.js?v=2"');
+    expect(await (await SELF.fetch(`${G}/live-one/_zaisma/warm.js`)).text()).toContain('fetch("warm.json" + location.search');
     // Tester and preview addresses, and accounts-only games, need a cookie before Play: no warm-up.
     expect((await SELF.fetch(`${G}/live-one--tester/_zaisma/warm.json`)).status).toBe(404);
     await env.DB.prepare("UPDATE games SET account_requirement = 'whole_game' WHERE id = ?").bind(id).run();

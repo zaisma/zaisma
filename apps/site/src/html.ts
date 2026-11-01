@@ -5,6 +5,7 @@ import { Raw, esc, html, raw } from "./markup.ts";
 import { PRESENCE_CHECK_IN_MS, describePlayModes, type PlayMode } from "@zaisma/core";
 import { gameFrameSource, type Env } from "./env.ts";
 import { pageScript, pageScriptPath, type PageScript } from "./page-scripts.ts";
+import { PREPARE_SCRIPT, SPECULATION_RULES_PATH } from "./prepared-pages.ts";
 import { pageStyle, pageStylePath, type PageStyle } from "./page-styles.ts";
 import { COMPONENT_SCRIPT, COMPONENT_STYLES, FIRST_PAINT_SCRIPT, HEADER_SCRIPT } from "./components/index.ts";
 import { HEADER_TWO_ROWS_MEDIA, footer, header, rail, type HeaderTab } from "./components/navigation.ts";
@@ -35,7 +36,9 @@ export const headScriptTags = (...scripts: PageScript[]): Raw =>
  * page with headScriptTags ends its body with this one, which does nothing but wait: deferred scripts run only after the page's last
  * script has. At the body's end, not in the head, so the browser reads the whole page while the stylesheet loads.
  */
-const STYLES_APPLIED_SCRIPT = pageScript("styles-applied", "/* The page's stylesheets have applied: the head scripts run after this one and read their tokens (html.ts). */");
+const STYLES_APPLIED_SCRIPT = pageScript("styles-applied", "/* The page's stylesheets have applied: the head scripts run after this one and read their tokens (html.ts). */", {
+  runsWhilePreparedBecause: "It does nothing: the head scripts that draw the page wait for it.",
+});
 export const stylesAppliedTag = (): Raw => raw(`<script src="${pageScriptPath(STYLES_APPLIED_SCRIPT)}"></script>`);
 
 /**
@@ -487,7 +490,7 @@ addEventListener("submit",e=>{if(!e.defaultPrevented&&e.target.method!=="dialog"
 addEventListener("click",e=>{const a=e.target.closest&&e.target.closest("a.btn,a.metal");if(!a||e.defaultPrevented||e.button||e.metaKey||e.ctrlKey||e.shiftKey||e.altKey||a.target==="_blank")return;const u=new URL(a.href,location.href);if(u.origin!==location.origin||(u.pathname===location.pathname&&u.search===location.search))return;if(a.hasAttribute("data-download"))download(a);else busy(a)});
 addEventListener("pageshow",e=>{if(e.persisted)document.querySelectorAll("[aria-busy=true]").forEach(idle)})})();`;
 
-const SITE_SCRIPT = pageScript("site", METAL_SCRIPT + BUSY_SCRIPT);
+const SITE_SCRIPT = pageScript("site", METAL_SCRIPT + BUSY_SCRIPT + PREPARE_SCRIPT);
 
 const PLAY_ICON = '<svg viewBox="0 0 14 16" aria-hidden="true"><path d="M1 1v14l12-7z" fill="currentColor"/></svg>';
 
@@ -572,7 +575,9 @@ addEventListener("pagehide",()=>{const g=b.dataset.presenceGame;if(g&&!off)navig
 
 // Right after the header, before the page shows, so a signed-in player never sees Sign in flash on a page that doesn't know who's
 // looking (message and legal pages, cached for everyone): the Sign in runner becomes a way to the account.
-const ACCOUNT_LINK_SCRIPT = pageScript("account-link", `(()=>{if(/(^|; )(__Host-)?zaisma_in=1/.test(document.cookie)){const a=document.querySelector("header.top .end > a:is(.run-wrap,.cut-btn)");if(a){a.href="/account";a.querySelector(".face > span:not([class])").textContent="Account"}}})();`);
+const ACCOUNT_LINK_SCRIPT = pageScript("account-link", `(()=>{if(/(^|; )(__Host-)?zaisma_in=1/.test(document.cookie)){const a=document.querySelector("header.top .end > a:is(.run-wrap,.cut-btn)");if(a){a.href="/account";a.querySelector(".face > span:not([class])").textContent="Account"}}})();`, {
+  runsWhilePreparedBecause: "It only reads the signed-in cookie, so a prepared page shows Account, not Sign in, when it opens.",
+});
 
 /**
  * Light or dark: the page carries the player's choice (data-theme-choice on <html>, "system" for guests), and CSS follows it with no script.
@@ -653,6 +658,8 @@ interface LayoutBaseOptions {
   stage?: Raw;
   /** The stage's own color ("#rrggbb", a game's measured background), behind it from the first paint (--backdrop-edge, which BACKDROP_SCRIPT keeps). */
   stageColor?: string | null;
+  /** The glass's tint ("#rrggbb", --glass-hue): a game's own on its page, from the first paint, so a page prepared ahead opens in it. */
+  glassHue?: string | null;
   /** A Steel page's own stylesheets (page-styles.ts), until its page is rebuilt: linked right after the site's, so they win over it as before. */
   steelStyles?: PageStyle[];
 }
@@ -670,6 +677,13 @@ export type LayoutOptions =
       pageShape: PageShape;
     });
 
+/** The page's own values on <html>: its stage's color and its glass's tint, each only as "#rrggbb". */
+function rootStyle(options: LayoutOptions): Raw {
+  const isColor = (color: string | null | undefined): color is string => Boolean(color && /^#[0-9a-fA-F]{6}$/.test(color));
+  const parts = [isColor(options.stageColor) ? `--backdrop-edge: ${options.stageColor}` : "", isColor(options.glassHue) ? `--glass-hue: ${options.glassHue}` : ""].filter(Boolean);
+  return parts.length ? html` style="${parts.join("; ")}"` : raw("");
+}
+
 export function layout(env: Env, options: LayoutOptions): Response {
   const isRebuilt = options.checkedPage !== undefined;
   const sheet = isRebuilt && !hasSteel(options.body.html) && !hasSteel(options.stage?.html ?? "") ? SITE_STYLE : STEEL_SITE_STYLE;
@@ -677,7 +691,7 @@ export function layout(env: Env, options: LayoutOptions): Response {
   const themeColors = colorTheme === "system" ? html`<meta name="theme-color" content="#E7E4DF" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#121110" media="(prefers-color-scheme: dark)">` : html`<meta name="theme-color" content="${colorTheme === "dark" ? "#121110" : "#E7E4DF"}">`;
   const page = html`<!doctype html>
-<html lang="en" data-theme-choice="${colorTheme}"${options.pageShape ? html` data-page-shape="${options.pageShape}"` : ""}${options.stageColor && /^#[0-9a-fA-F]{6}$/.test(options.stageColor) ? html` style="--backdrop-edge: ${options.stageColor}"` : ""}>
+<html lang="en" data-theme-choice="${colorTheme}"${options.pageShape ? html` data-page-shape="${options.pageShape}"` : ""}${rootStyle(options)}>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
@@ -710,7 +724,7 @@ ${stylesAppliedTag()}
   // What the first paint waits for, named in a header too: Cloudflare's Early Hints sends it ahead while the page is still being made. The
   // styles-applied script holds the head scripts until it's here, so it comes with the stylesheet, not a trip after it.
   const firstPaintFiles = `<${pageStylePath(sheet)}>; rel=preload; as=style, <${pageScriptPath(STYLES_APPLIED_SCRIPT)}>; rel=preload; as=script, <${pageScriptPath(FIRST_PAINT_SCRIPT)}>; rel=preload; as=script, <${FONT_PATH}>; rel=preload; as=font; type="font/woff2"; crossorigin`;
-  // A link to a game's page is fetched ahead as the pointer rests on it or presses it (SPECULATION_RULES), from the header, so no script is on the page.
+  // Links are prepared ahead as the pointer rests on them or presses them (SPECULATION_RULES, prepared-pages.ts), from the header, so no script is on the page.
   const extra: Record<string, string> = { Link: firstPaintFiles, "Speculation-Rules": `"${SPECULATION_RULES_PATH}"`, ...(isPrivate ? { "Cache-Control": "no-store" } : {}) };
   return new Response(page.html, { headers: securityHeaders(env, extra, options.hasTurnstileCheck, options.frames, options.formTargets, options.isFramedBySelf ? "'self'" : "'none'", options.hasStripePayments, options.hasStripeFrame) });
 }
@@ -720,23 +734,6 @@ export const checkedPageTag = (name: CheckedPageName): Raw => html`<meta name="c
 
 /** Jost, named for its contents (brand/fonts), so it's cached for good: the same path tokens.ts's @font-face loads. */
 const FONT_PATH = "/fonts/jost.7726a5cd.woff2";
-
-/** Where pages' speculation rules are served (index.ts). */
-export const SPECULATION_RULES_PATH = "/speculation-rules.json";
-
-/**
- * Every page's speculation rules: a link to a game's page (/g/<slug>, not its report or rooms), or to one of a sidebar's places, is fetched ahead once the pointer rests
- * on it or presses it ("moderate"), so the page is there when the click lands; browsers without them just follow the link. Fetched only,
- * never prerendered: a prerendered game page would run its scripts (checking in, the play count, the game's site warming up) for a page
- * the player may never open. A same-origin file, so the page's Content-Security-Policy allows it as it is.
- */
-export const SPECULATION_RULES = {
-  prefetch: [
-    { source: "document", where: { and: [{ href_matches: "/g/*" }, { not: { href_matches: "/g/*/*" } }] }, eagerness: "moderate" },
-    // A sidebar's places (the gallery's pages), so moving through them never waits on the page.
-    { source: "document", where: { selector_matches: "a.sidebar-place" }, eagerness: "moderate" },
-  ],
-};
 
 /**
  * The site's header (components/navigation.ts), also used on its own by pages that lay themselves out (the game page): Home, the

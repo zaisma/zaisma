@@ -587,7 +587,22 @@ export function debugContextOf(stored: string | null): DebugContext | null {
 }
 
 /** A topic with its posts. Opening it counts as having seen what's in it. */
-export async function getTopic(env: Env, viewer: Viewer, topicId: string, options: { postSelection?: PostSelection } = {}) {
+/** The caller has read the topic up to now: its news for them is gone, as a following reader's and its own author's. */
+async function markSeen(env: Env, viewer: Viewer, topic: ForumTopic, isFollowing: boolean): Promise<void> {
+  if (!viewer) return;
+  const nowMs = Date.now();
+  if (isFollowing) await env.DB.prepare("UPDATE forum_follows SET seen_at_ms = ? WHERE topic_id = ? AND account_id = ?").bind(nowMs, topic.id, viewer.accountId).run();
+  if (topic.account_id === viewer.accountId && hasNews(topic)) await env.DB.prepare("UPDATE forum_topics SET seen_at_ms = ? WHERE id = ?").bind(nowMs, topic.id).run();
+}
+
+/** A topic page that was prepared ahead, now opened: the topic is seen, as reading it would have marked it. */
+export async function markTopicSeen(env: Env, viewer: Viewer, topicId: string): Promise<void> {
+  const topic = await readableTopic(env, viewer, topicId);
+  const following = viewer ? await env.DB.prepare("SELECT 1 AS is_following FROM forum_follows WHERE topic_id = ? AND account_id = ?").bind(topic.id, viewer.accountId).first() : null;
+  await markSeen(env, viewer, topic, Boolean(following));
+}
+
+export async function getTopic(env: Env, viewer: Viewer, topicId: string, options: { postSelection?: PostSelection; isMarkingSeen?: boolean } = {}) {
   const topic = await readableTopic(env, viewer, topicId);
   const { results: all } = await env.DB.prepare("SELECT * FROM forum_posts WHERE topic_id = ? ORDER BY created_at_ms, rowid LIMIT 1000").bind(topic.id).all<ForumPost>();
   const visible = all.filter((post) => canSeePost(topic, post, viewer));
@@ -621,11 +636,8 @@ export async function getTopic(env: Env, viewer: Viewer, topicId: string, option
         env.DB.prepare("SELECT post_id FROM forum_reports WHERE account_id = ? AND post_id IN (SELECT id FROM forum_posts WHERE topic_id = ?)").bind(viewer.accountId, topic.id).all<{ post_id: string }>(),
       ]).then(([ratingRows, bookmarkRows, reportRows]) => [new Map(ratingRows.results.map((rated) => [rated.post_id, rated.rating])), new Set(bookmarkRows.results.map((bookmark) => bookmark.post_id)), new Set(reportRows.results.map((report) => report.post_id))] as [Map<string, PostRating>, Set<string>, Set<string>])
     : [new Map<string, PostRating>(), new Set<string>(), new Set<string>()];
-  if (viewer) {
-    const nowMs = Date.now();
-    if (following) await env.DB.prepare("UPDATE forum_follows SET seen_at_ms = ? WHERE topic_id = ? AND account_id = ?").bind(nowMs, topic.id, viewer.accountId).run();
-    if (isOwn && hasNews(topic)) await env.DB.prepare("UPDATE forum_topics SET seen_at_ms = ? WHERE id = ?").bind(nowMs, topic.id).run();
-  }
+  // A topic page prepared ahead of a tap leaves it unseen; the page marks it seen once it's opened (markTopicSeen).
+  if (options.isMarkingSeen !== false) await markSeen(env, viewer, topic, Boolean(following));
   return {
     topic: {
       ...row!,
