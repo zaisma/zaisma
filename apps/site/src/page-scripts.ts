@@ -15,15 +15,20 @@ export interface PageScript {
   /** Lowercase words joined by dashes, the first part of its address. */
   readonly name: string;
   readonly sourceText: string;
+  /**
+   * Why it may run on a page prepared ahead before it's opened (prepared-pages.ts): it fetches, counts and wakes nothing. Left out, the
+   * script waits until the page is opened, which is what every script does unless it's reviewed for this.
+   */
+  readonly runsWhilePreparedBecause?: string;
 }
 
 const scriptsByName = new Map<string, PageScript>();
 const pathsByName = new Map<string, string>();
 
-export function pageScript(name: string, sourceText: string): PageScript {
+export function pageScript(name: string, sourceText: string, options: { runsWhilePreparedBecause?: string } = {}): PageScript {
   if (!/^[a-z]+(-[a-z]+)*$/.test(name)) throw new Error(`A page script's name is lowercase words joined by dashes, not ${name}`);
   if (scriptsByName.has(name)) throw new Error(`Two page scripts are called ${name}`);
-  const script = { name, sourceText };
+  const script = { name, sourceText, ...(options.runsWhilePreparedBecause ? { runsWhilePreparedBecause: options.runsWhilePreparedBecause } : {}) };
   scriptsByName.set(name, script);
   return script;
 }
@@ -37,6 +42,9 @@ export function pageScriptPath(script: PageScript): string {
   }
   return path;
 }
+
+/** The addresses of the scripts that run on a page prepared ahead before it's opened (runsWhilePreparedBecause). */
+export const scriptPathsRunningWhilePrepared = (): Set<string> => new Set([...scriptsByName.values()].filter((script) => script.runsWhilePreparedBecause).map(pageScriptPath));
 
 /** Every page script the site has made, for the tests. */
 export const pageScripts = (): PageScript[] => [...scriptsByName.values()];
