@@ -581,14 +581,13 @@ component({
 .backdrop-frame.is-tall .glass { flex: 1 1 0; width: auto; max-width: 320px; }
 
 .backdrop-frame .glass strong { font: var(--type-name); color: var(--ink); }
-/* Moving from one of Zaisma's pages to the next, where the browser can (cross-document view transitions): the new page fades in over the
-   old in --motion-page-switch. The header and the backdrop are the same on both, so they stand still while only the content changes, and
-   the new page takes taps from its first frame. Opening a game from its cover moves on its own (Game background). Under reduced motion,
-   and in browsers without them, the page simply changes. */
-@view-transition { navigation: auto; }
-@media (prefers-reduced-motion: reduce) { @view-transition { navigation: none; } }
-::view-transition { pointer-events: none; }
-::view-transition-old(root), ::view-transition-new(root) { animation-duration: var(--motion-page-switch); animation-timing-function: var(--ease-standard); }
+/* Moving from one of Zaisma's pages to the next (PAGE_SWITCH_SCRIPT): the new page's panes fade in over --motion-page-switch while the
+   header and the backdrop, the same on both pages, stand still. Each pane's body (its ::before, which blurs) and what's on it fade, never
+   the pane, as a floating pane arrives: a pane fading as a whole blurs nothing behind it until it's in. Never a cross-document view
+   transition (tokens.ts says why), so the page takes every press from its first frame. Opening a game from its cover moves on its own
+   (Game background). Under reduced motion, and arriving from another site or a reload, the page simply shows. */
+html.is-page-arriving main .glass:not(.glass .glass)::before, html.is-page-arriving main .glass:not(.glass .glass) > * { animation: page-arrives var(--motion-page-switch) var(--ease-standard) both; }
+@keyframes page-arrives { from { opacity: 0; } }
 `,
   render: backdrop,
   examples: [
@@ -625,15 +624,14 @@ component({
   subgroup: "backgrounds",
   summary: "A game's own world behind the glass, on its page and behind it on the home: a picture or a shader its developer sends, for wide screens and phones. It's the game's art, never restyled to Zaisma's look, and the glass over it turns light or smoked to keep the words clear. Until real games bring theirs, the stand-in games have these.",
   styles: `
-/* Opening a game from its cover (PAGE_SWITCH_SCRIPT): the cover sinks under the press, the page fades over as every switch does, and the
-   game's world settles in from a touch larger; once the switch is done, the page's panes fade in over it. The panes wait in the page
-   itself (is-opening-game), not in the browser's picture of it, so their glass is real glass over the world as they come. Each pane's
-   body (its ::before, which blurs) and what's on it fade, never the pane: a pane fading as a whole blurs nothing behind it until it's in. */
+/* Opening a game from its cover (PAGE_SWITCH_SCRIPT): the cover sinks under the press, the game's world settles in from a touch larger,
+   and once it has, the page's panes fade in over it as every page's do (page-arrives, Backdrop), only later and slower. */
 html.is-opening-game .backdrop { animation: opening-game-settles calc(var(--motion-page-switch) * 1.8) var(--ease-glide) both; }
 @keyframes opening-game-settles { from { scale: 1.06; } }
-html.is-opening-game:not(.is-rising) main .glass:not(.glass .glass)::before, html.is-opening-game:not(.is-rising) main .glass:not(.glass .glass) > * { opacity: 0; }
-html.is-rising main .glass:not(.glass .glass)::before, html.is-rising main .glass:not(.glass .glass) > * { animation: opening-game-panes-come calc(var(--motion-page-switch) * 0.8) var(--ease-glide) both; }
-@keyframes opening-game-panes-come { from { opacity: 0; } }
+html.is-opening-game main .glass:not(.glass .glass)::before, html.is-opening-game main .glass:not(.glass .glass) > * {
+  animation-duration: calc(var(--motion-page-switch) * 0.8); animation-delay: var(--motion-page-switch); animation-timing-function: var(--ease-glide); }
+/* A page prepared ahead holds its arrival, from its first frame, until it's opened (is-page-held). */
+html.is-page-held .backdrop, html.is-page-held main .glass:not(.glass .glass)::before, html.is-page-held main .glass:not(.glass .glass) > * { animation-play-state: paused; }
 `,
   render: gameBackgroundFrame,
   examples: STAND_IN_BACKGROUNDS.map((background) => ({
@@ -643,13 +641,14 @@ html.is-rising main .glass:not(.glass .glass)::before, html.is-rising main .glas
 });
 
 /**
- * Opening a game from its cover (Game background's motion): a tap on a link to a game's page that holds a picture remembers which game for
- * the tab; as the game's page comes (pagereveal), its world settles in and it holds its panes until the switch is done (is-opening-game),
- * then fades them in (is-rising). Only a tap that goes to that same game, within ten seconds, and never going back or forward through the
- * history. In the first-paint script, so the game's page is listening before it shows.
+ * Moving from one of Zaisma's pages to the next (Backdrop's and Game background's motion): a page reached from another of Zaisma's by a
+ * link (not a reload, not back or forward) has its panes fade in (is-page-arriving); one reached by a tap on a game's cover, the tap
+ * remembered for the tab, has its world settle in first (is-opening-game). A page prepared ahead holds both from its first frame until
+ * it's opened (is-page-held), and only then reads the tap, which came after it was prepared. In the first-paint script, so the classes
+ * are there before the page shows.
  */
 export const PAGE_SWITCH_SCRIPT = `/* page switch */(function () {
-  var KEY = "zaisma:opening-game";
+  var KEY = "zaisma:opening-game", root = document.documentElement;
   function gameSlugOf(address) {
     try { var to = new URL(address, location.href), found = to.origin === location.origin && to.pathname.match(/^\\/g\\/([^/]+)$/); return found ? found[1] : null; } catch (error) { return null; }
   }
@@ -659,21 +658,19 @@ export const PAGE_SWITCH_SCRIPT = `/* page switch */(function () {
     if (!slug || !link.querySelector(".picture, img") || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || (link.target && link.target !== "_self") || slug === gameSlugOf(location.href)) return;
     try { sessionStorage.setItem(KEY, JSON.stringify({ slug: slug, pressed_at_ms: Date.now() })); } catch (error) {}
   });
-  // A switch the browser skips (a hidden tab, a page too slow) is no error: it just changes page.
-  function quiet(event) { if (event.viewTransition) event.viewTransition.ready.catch(function () {}); }
-  addEventListener("pageswap", quiet);
-  addEventListener("pagereveal", function (event) {
-    var opening = null, root = document.documentElement;
-    quiet(event);
+  var entry = performance.getEntriesByType && performance.getEntriesByType("navigation")[0], isFromHere = false;
+  try { isFromHere = new URL(document.referrer).origin === location.origin; } catch (error) {}
+  if (!isFromHere || !entry || entry.type !== "navigate" || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  function arrive() {
+    var opening = null;
     try { opening = JSON.parse(sessionStorage.getItem(KEY) || "null"); sessionStorage.removeItem(KEY); } catch (error) {}
-    if (!event.viewTransition || !opening || opening.slug !== gameSlugOf(location.href) || !(Date.now() - opening.pressed_at_ms < 10000)) return;
-    if (window.navigation && navigation.activation && navigation.activation.navigationType === "traverse") return;
-    root.classList.add("is-opening-game");
-    event.viewTransition.finished.finally(function () {
-      root.classList.add("is-rising");
-      setTimeout(function () { root.classList.remove("is-opening-game", "is-rising"); }, 1000);
-    });
-  });
+    if (opening && opening.slug === gameSlugOf(location.href) && Date.now() - opening.pressed_at_ms < 10000) root.classList.add("is-opening-game");
+    root.classList.remove("is-page-held");
+    setTimeout(function () { root.classList.remove("is-page-arriving", "is-opening-game"); }, 1500);
+  }
+  root.classList.add("is-page-arriving");
+  if (document.prerendering) { root.classList.add("is-page-held"); document.addEventListener("prerenderingchange", arrive, { once: true }); }
+  else arrive();
 })();
 `;
 

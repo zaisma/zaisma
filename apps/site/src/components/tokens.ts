@@ -211,7 +211,8 @@ html { -webkit-tap-highlight-color: transparent; }
 .eases-settings { transition: --glass-hue var(--motion-glide) ease; }
 @media (prefers-reduced-motion: reduce) { .eases-settings { transition: none; } }
 /* Moving between Zaisma's pages never crossfades (a cross-document view transition): in Brave, the first press on a page that arrived by
-   one was lost, and Safari snapshots a page of glass this rich in a few uneven frames. The new page simply shows. */
+   one was lost, and Safari snapshots a page of glass this rich in a few uneven frames. The new page's panes fade in on the page itself
+   instead (PAGE_SWITCH_SCRIPT). */
 :root {
   color-scheme: light dark;
   /* A thumb: the white slab you flip or drag (a toggle's, a slider's), solid and lit from above on either glass, casting its shadow onto
