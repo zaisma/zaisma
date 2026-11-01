@@ -5,7 +5,8 @@ import type { Env } from "./env.ts";
 import { cardRow, secondaryButton, primaryButton, tertiaryButton } from "./components/actions.ts";
 import { cutField } from "./components/fields.ts";
 import { stripeFrame } from "./components/stripe-frame.ts";
-import { doneState, loadingState, problemState } from "./components/data.ts";
+import { stateNote } from "./components/data.ts";
+import { progress } from "./components/reading.ts";
 import { confirmItsYouSheet } from "./components/confirm-its-you.ts";
 import { row, stack, type LayoutItem } from "./components/layout.ts";
 import { notice, storePanel } from "./components/panes.ts";
@@ -24,7 +25,7 @@ import { isLocalPreview } from "./stripe.ts";
  */
 export function buySheet(options: { joinHref: string; signInHref: string; cover?: ShownPicture | null }): Raw {
   const momentItems: LayoutItem[] = [
-      { kind: "block", id: "buy-loading", markup: loadingState({ label: "Getting the price" }) },
+      { kind: "block", id: "buy-loading", markup: progress({ label: "Getting the price" }) },
       {
         kind: "block",
         id: "buy-card",
@@ -51,8 +52,8 @@ export function buySheet(options: { joinHref: string; signInHref: string; cover?
         }),
       },
       { kind: "words", id: "buy-message", isHidden: true, markup: html`<p></p>` },
-      { kind: "block", id: "buy-problem", isHidden: true, markup: problemState({ title: "", text: "" }) },
-      { kind: "block", id: "buy-done", isHidden: true, markup: doneState({ title: "Bought", text: "" }) },
+      { kind: "block", id: "buy-problem", isHidden: true, markup: stateNote({ stateKind: "problem", title: "", text: "" }) },
+      { kind: "block", id: "buy-done", isHidden: true, markup: stateNote({ stateKind: "done", title: "Bought", text: "" }) },
   ];
   // The foot stays in view while the body scrolls: Apple Pay or Google Pay when offered, the saved card, the line the EU's law asks for, and Buy.
   const footItems: LayoutItem[] = [
@@ -417,7 +418,9 @@ async function paid(answer) {
 
 function waiting(words) {
   moment = "waiting";
-  byId("buy-loading").querySelector(".loading-label").textContent = words;
+  const shown = byId("buy-loading").querySelector(".progress");
+  shown.querySelector(".progress-label").textContent = words;
+  shown.setAttribute("aria-label", words);
   showCells(["buy-loading"], true);
   showButtons(["go"]);
   busy(true);

@@ -10,7 +10,7 @@ import { doneByText, eventTitle, whereText } from "./security-log.ts";
 import { pageScript } from "./page-scripts.ts";
 import { pageStyle } from "./page-styles.ts";
 import { SHADER_HELPERS, ZAISMA_SHADER } from "./components/shaders.ts";
-import { usageTrack } from "./components/data.ts";
+import { usageMeter } from "./components/data.ts";
 import { hostingMeter } from "./hosting-meter.ts";
 import { EDGE, icon } from "./components/foundations.ts";
 import { outsideLinksWaitWords } from "./standing.ts";
@@ -758,7 +758,7 @@ function hostingPanel(game: GameJson, stats: Stats, own: boolean): Raw | "" {
     ? html`<div class="hosting-paused" role="status"><strong>Hosting is paused</strong><p>New matches can't start, and running ones end within the hour.</p><small>${pausedWhy}</small></div>`
     : "";
   // The meter and its key are Zaisma's own (the gallery's usage meter), in this page's older plate, which is always dark: what used it in a color each, with its share.
-  const meter = html`<div class="not-steel" data-theme-choice="dark">${usageTrack(hostingMeter(`${game.title}'s hosting this month`, use))}</div>`;
+  const meter = html`<div class="not-steel" data-theme-choice="dark">${usageMeter({ ...hostingMeter(`${game.title}'s hosting this month`, use), isTrackOnly: true })}</div>`;
   const budgetCents = use.monthly_budget_cents;
   if (budgetCents === null) {
     return html`<h2 class="rule-h" id="hosting">Hosting <span class="muted">This month</span></h2>

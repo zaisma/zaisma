@@ -14,7 +14,7 @@ import { SPEED_SCRIPT } from "./speed-reports.ts";
 import { HEADER_TWO_ROWS_MEDIA, footer, header, rail, type HeaderTab } from "./components/navigation.ts";
 import type { ControlMarkup } from "./components/control-markup.ts";
 import { secondaryButton, primaryButton } from "./components/actions.ts";
-import { problemState } from "./components/data.ts";
+import { stateNote } from "./components/data.ts";
 import { backdrop, glassPane } from "./components/foundations.ts";
 import type { SwitchTab } from "./components/inputs.ts";
 import type { Viewer } from "./viewer.ts";
@@ -762,7 +762,7 @@ export function message(env: Env, title: string, text: string, httpStatus = 200)
 /** The same, in Zaisma's look: a pane of glass on the page, for a page already rebuilt in it (the connect and Sign in with Zaisma pages). */
 export function glassMessage(env: Env, title: string, text: string, httpStatus = 200): Response {
   // The gallery's problem state says it; the page's heading is for screen readers, since the state's title is its words.
-  const body = glassPane({ paneWidth: "fit", body: stackOfOne(html`<h1 class="sr">${title}</h1>${problemState({ title, text, action: primaryButton("Back to games", { href: "/", isFullWidth: true }) })}`) });
+  const body = glassPane({ paneWidth: "fit", body: stackOfOne(html`<h1 class="sr">${title}</h1>${stateNote({ stateKind: "problem", title, text, action: primaryButton("Back to games", { href: "/", isFullWidth: true }) })}`) });
   const response = layout(env, { title, body, checkedPage: "A message", pageShape: "reading" });
   return new Response(response.body, { status: httpStatus, headers: response.headers });
 }

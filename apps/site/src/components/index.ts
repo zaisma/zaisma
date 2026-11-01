@@ -11,9 +11,12 @@ import { ROW_LAYOUT_SCRIPT } from "./layout.ts";
 import { DROPDOWN_SCRIPT, PLACE_SCRIPT, STARTED_LOW_SCRIPT, STEP_FLOW_SCRIPT } from "./panes.ts";
 import { LAYERS_SCRIPT } from "./layers.ts";
 import { MATERIAL_SCRIPT, MATERIAL_STYLES } from "./materials.ts";
-import { CHART_SCRIPT, LIST_ROW_FOLD_SCRIPT } from "./data.ts";
+import { CHART_SCRIPT, LIST_ROW_FIT_SCRIPT, LIST_ROW_FOLD_SCRIPT, TABLE_SCRIPT } from "./data.ts";
 import { QR_CODE_SCRIPT } from "./qr-code.ts";
+import { CODE_BLOCK_SCRIPT } from "./reading.ts";
 import { PLAYING_CARD_SCRIPT } from "./playing.ts";
+import { GAME_MEDIA_SCRIPT } from "./game-media.ts";
+import { VIDEO_PLAYER_SCRIPT } from "./video-player.ts";
 import { CONFIRM_ITS_YOU_SCRIPT } from "./confirm-its-you.ts";
 import "./stripe-frame.ts";
 // The layout components register in layout-gallery.ts, whose examples use every other group.
@@ -69,7 +72,15 @@ export function hoverOnlyWherePointing(css: string): string {
     if (/^@(media|supports|container|layer)\b/.test(selector)) out += `${head}{${hoverOnlyWherePointing(body)}}`;
     else if (selector.startsWith("@") || !selector.includes(":hover")) out += `${head}{${body}}`;
     else {
-      const parts = selector.split(/,(?![^(]*\))/).map((part) => part.trim());
+      // Split at the list's own commas only, never inside :is(), :not() or :has(), however deep they nest.
+      const parts: string[] = [];
+      let nestingLevel = 0, partStartIndex = 0;
+      for (let i = 0; i < selector.length; i++) {
+        if (selector[i] === "(") nestingLevel++;
+        else if (selector[i] === ")") nestingLevel--;
+        else if (selector[i] === "," && nestingLevel === 0) { parts.push(selector.slice(partStartIndex, i).trim()); partStartIndex = i + 1; }
+      }
+      parts.push(selector.slice(partStartIndex).trim());
       const pointing = parts.filter((part) => part.includes(":hover")), resting = parts.filter((part) => !part.includes(":hover"));
       out += `${head.slice(0, head.length - head.trimStart().length)}${resting.length ? `${resting.join(", ")} {${body}}\n` : ""}@media (hover: hover) { ${pointing.join(", ")} {${body}} }`;
     }
@@ -87,7 +98,7 @@ export const COMPONENT_STYLES = (): string => (shownStyles ||= hoverOnlyWherePoi
  * at the end of its <body> (html.ts), in the pieces the page needs, so nothing the page downloads holds its first paint ("A page shows
  * whole while it loads", docs/DESIGN.md): the theme, the files that follow it, the page watcher, pictures arriving, the glass and its edge
  * rule (and glass over a measured background), the materials, and every script that sizes or places the layout or sets words (a switch's
- * slab, rows, the sidebar, compacting, rails and scroll fades, a pane started low, the sign-in's pane, a long field's height, a chart's
+ * slab, rows, a list row's buttons narrowed to their icons, a table's slabs, the sidebar, compacting, rails and scroll fades, a pane started low, the sign-in's pane, a long field's height, a chart's
  * scroll, a slider's and a colour's thumb, a date's words in the viewer's time), and Zaisma's own shader behind the glass. It runs once the
  * page is read, before its first paint. The look script follows with what only adds light and motion: a game's world behind the glass, edge
  * lights, and panes hung from a button (menus, select lists). The loading check (layout-check.mjs) holds back everything but the page and
@@ -124,6 +135,9 @@ export const FIRST_PAINT_PIECES: readonly FirstPaintPiece[] = [
   firstPaintPiece("materials", MATERIAL_SCRIPT, null),
   firstPaintPiece("rows", ROW_LAYOUT_SCRIPT, null),
   firstPaintPiece("compacting", COMPACT_SCRIPT, null),
+  // A list row narrows its buttons to their icons, and a table sizes its slabs and fades, before the page shows.
+  firstPaintPiece("list-row-fit", LIST_ROW_FIT_SCRIPT, /\blist-row-action\b/),
+  firstPaintPiece("tables", TABLE_SCRIPT, /\btable-scroll\b/),
   // A rail takes its room beside what scrolls (a table, a track), and every page has the page's own.
   firstPaintPiece("rails", RAIL_SCRIPT, null),
   // A row that scrolls sideways starts where the one you're on shows whole.
@@ -152,7 +166,7 @@ export const FIRST_PAINT_PIECES: readonly FirstPaintPiece[] = [
 export const FIRST_PAINT_SCRIPT_SOURCE = FIRST_PAINT_PIECES.map((piece) => piece.source).join("");
 const SOME_PAGES_PIECES_SOURCE = FIRST_PAINT_PIECES.filter((piece) => piece.marker).map((piece) => piece.source).join("");
 export const LOOK_SCRIPT_SOURCE = SOME_PAGES_PIECES_SOURCE + EDGE_LIGHT_SCRIPT + DROPDOWN_SCRIPT + SELECT_SCRIPT;
-export const COMPONENT_SCRIPT_SOURCE = FIELD_SCRIPT + PIN_FIELD_SCRIPT + RUNNER_SCRIPT + BUSY_SCRIPT + TOGGLE_SCRIPT + CHECK_SCRIPT + CHOICE_CARDS_SCRIPT + FILE_DROP_SCRIPT + COPY_SCRIPT + QR_CODE_SCRIPT + SEARCH_SCRIPT + FILTER_MENU_SCRIPT + LAYERS_SCRIPT + STEP_FLOW_SCRIPT + CONFIRM_ITS_YOU_SCRIPT + LOAD_MORE_SCRIPT + PLAYING_CARD_SCRIPT + LIST_ROW_FOLD_SCRIPT;
+export const COMPONENT_SCRIPT_SOURCE = FIELD_SCRIPT + PIN_FIELD_SCRIPT + RUNNER_SCRIPT + BUSY_SCRIPT + TOGGLE_SCRIPT + CHECK_SCRIPT + CHOICE_CARDS_SCRIPT + FILE_DROP_SCRIPT + COPY_SCRIPT + CODE_BLOCK_SCRIPT + QR_CODE_SCRIPT + GAME_MEDIA_SCRIPT + VIDEO_PLAYER_SCRIPT + SEARCH_SCRIPT + FILTER_MENU_SCRIPT + LAYERS_SCRIPT + STEP_FLOW_SCRIPT + CONFIRM_ITS_YOU_SCRIPT + LOAD_MORE_SCRIPT + PLAYING_CARD_SCRIPT + LIST_ROW_FOLD_SCRIPT;
 
 /**
  * The scripts pages load: the minified ones, unless one was made from an older source (a script changed and npm run components:minify wasn't

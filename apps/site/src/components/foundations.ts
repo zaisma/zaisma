@@ -183,11 +183,17 @@ export const railMarkup = (scrollKind: "box" | "page" | "side"): Raw => raw(`<di
  * words says what kind it is at a glance. With removeHref it takes itself away: a
  * link to the page without it, its words then a close mark (a filter in use). data.ts's Tag shows it.
  */
-export type TagTone = "new" | "count" | "plain" | "warning" | "glass" | "new-on-glass";
-export const tag = (words: string | number, tone: TagTone, options: { icon?: IconName; removeHref?: string } = {}): Raw =>
-  options.removeHref !== undefined
-    ? html`<a class="tag ${tone} is-removable" href="${options.removeHref}" aria-label="Remove ${String(words)}"><span>${String(words)}</span>${icon("close")}</a>`
-    : html`<span class="tag ${tone === "new-on-glass" ? "glass is-new" : tone}">${options.icon ? html`${icon(options.icon)}<span>${String(words)}</span>` : String(words)}</span>`;
+export type TagTone = "new" | "count" | "plain" | "warning" | "problem" | "glass" | "new-on-glass";
+/**
+ * A tag: square, its corners cut only by the edge rule (data-cut-line), so it fits a pane's corner like anything with an edge. A problem
+ * (red: a hold, a takedown) always leads with its mark, so it never says so by its color alone.
+ */
+export const tag = (words: string | number, tone: TagTone, options: { icon?: IconName; removeHref?: string } = {}): Raw => {
+  const shownIcon = options.icon ?? (tone === "problem" ? "warning" : undefined);
+  return options.removeHref !== undefined
+    ? html`<a class="tag-remove" href="${options.removeHref}" aria-label="Remove ${String(words)}"><span class="tag ${tone} is-removable" data-cut-line="0" data-cut-square>${CUT_LINE}<span>${String(words)}</span>${icon("close")}</span></a>`
+    : html`<span class="tag ${tone === "new-on-glass" ? "glass is-new" : tone}" data-cut-line="0" data-cut-square>${CUT_LINE}${shownIcon ? html`${icon(shownIcon)}<span>${String(words)}</span>` : String(words)}</span>`;
+};
 
 export interface ColorChoice {
   /** What it's called, said by a screen reader and shown in its field when it's picked (a Color field's named colors). */

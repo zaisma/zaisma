@@ -1,5 +1,5 @@
 import { stackOfOne } from "./layout.ts";
-import { html, raw, type Raw } from "../markup.ts";
+import { html, raw, type Raw, NO_EMPTY_NOTE } from "../markup.ts";
 import { component } from "./component.ts";
 import { controlMarkup, type ControlMarkup } from "./control-markup.ts";
 import { CUT_LINE, EDGE, EDGE_LIGHT, floatingPane, glassPane, icon, well, type IconName } from "./foundations.ts";
@@ -632,7 +632,7 @@ component({
 const TOGGLE_COLUMN = "width:min(340px,100%)";
 /** One setting in List rows, ending in its switch. */
 const settingRow = (title: string, rowSwitch: RowSwitch, more: { detail?: string; state?: PressState; rowsWhileOn?: ListRow[] } = {}): Raw =>
-  listRows({ whenEmpty: html``, rows: [{ title, detail: more.detail, state: more.state, switch: rowSwitch, rowsWhileOn: more.rowsWhileOn }] });
+  listRows({ whenEmpty: NO_EMPTY_NOTE, rows: [{ title, detail: more.detail, state: more.state, switch: rowSwitch, rowsWhileOn: more.rowsWhileOn }] });
 
 component({
   name: "Toggle",
@@ -674,7 +674,7 @@ component({
     { label: "Long words, in a pane", markup: examplePane(settingRow("Let friends join my matches without an invite, even in a ranked queue", { id: "example-toggle-long", name: "party_invites", isOn: false }, { detail: "They join your party's next match; a full match keeps them waiting." })) },
     {
       label: "Several settings, one list, in a pane",
-      markup: examplePane(listRows({ whenEmpty: html``, rows: [
+      markup: examplePane(listRows({ whenEmpty: NO_EMPTY_NOTE, rows: [
         { title: "Show it to players", detail: "Only people with the link can play it while this is off.", switch: { id: "example-toggle-list-shown", name: "is_listed", isOn: true } },
         { title: "Let players rate it", switch: { id: "example-toggle-list-rated", name: "is_rated", isOn: true } },
         { title: "Show players now", switch: { id: "example-toggle-list-now", name: "is_player_count_shown", isOn: false } },

@@ -238,7 +238,7 @@ describe("the developer's links on the game page", () => {
   ];
   const linksOnPage = async (cookie?: string) => {
     const page = await (await SELF.fetch(`${SITE}/g/sky-hopper`, { headers: cookie ? { cookie: `${cookie}; __Host-zaisma_in=1` } : {} })).text();
-    return [...developerLinksOf(page).matchAll(/<a class="list-row flush-row is-link[^"]*" href="([^"]+)" target="_blank" rel="noopener noreferrer"[^>]*>.*?<span class="list-row-lead">(.*?)<\/span><span class="list-row-words"><span class="list-row-title">([^<]+)<\/span>/g)].map((match) => [brandOf(match[2]!), match[1], match[3]]);
+    return [...developerLinksOf(page).matchAll(/<a class="list-row flush-row is-link[^"]*"(?: data-lights)? href="([^"]+)" target="_blank" rel="noopener noreferrer"[^>]*>.*?<span class="list-row-lead">(.*?)<\/span><span class="list-row-words"><span class="list-row-title">([^<]+)<\/span>/g)].map((match) => [brandOf(match[2]!), match[1], match[3]]);
   };
   /** The developer's links list on a page, or "" when it has none. */
   const developerLinksOf = (page: string) => /<ul class="list-rows[^"]*" aria-label="The developer&#39;s links">[\s\S]*?<\/ul>/.exec(page)?.[0] ?? "";

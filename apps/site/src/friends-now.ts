@@ -3,9 +3,7 @@ import { currentSession } from "./auth.ts";
 import type { Env } from "./env.ts";
 import { tile } from "./home.ts";
 import { accountPicture, html, raw, securityHeaders, type Raw } from "./html.ts";
-import { secondaryButton } from "./components/actions.ts";
-import { glanceFacts } from "./components/data.ts";
-import { row, type LayoutItem } from "./components/layout.ts";
+import { gameKeyDetails } from "./components/data.ts";
 
 /**
  * What friends see of each other right now (docs/DECISIONS.md, "What friends see of each other"):
@@ -37,7 +35,7 @@ export async function handleFriendsNow(request: Request, env: Env, path: string)
     const game = await gameBySlug(env.DB, playingMatch[1]!);
     const account = game ? await accountById(env.DB, session.userId) : null;
     const here = game && account ? (await friendsNowOf(env.DB, account.id, AGE_BAND_FLOOR_YEARS[account.age_band])).playing.find((playing) => playing.game_id === game.id) : undefined;
-    return done(new Response(here ? friendsHere(game!.slug, here).html : "", { headers: securityHeaders(env) }));
+    return done(new Response(here ? friendsHere(here).html : "", { headers: securityHeaders(env) }));
   }
 
   const text = await request.text();
@@ -89,25 +87,11 @@ export function joinAndWatch(slug: string, doors: Pick<FriendsInGame, "join" | "
 }
 
 /**
- * On a game's page (into #friends-here): the friends playing it, their pictures and "Liam and Sofia are playing", with Join, and Watch for a
- * game that takes spectators; a door that won't work says why in its place (Room full).
+ * On a game's page (into #friends-here): the friends playing it, their pictures and their names. Joining or watching them is the rooms
+ * pane's, under the game's, so the game's pane stays its name, its Key details and Play.
  */
-export function friendsHere(slug: string, here: FriendsInGame): Raw {
-  const doors: LayoutItem[] = [];
-  const refusals = new Set<string>();
-  for (const [door, words, query] of [[here.join, "Join", ""], [here.watch, "Watch", "&watch=1"]] as const) {
-    if (!door) continue;
-    if (door.refusal) refusals.add(joinRefusalText(door));
-    // Watch is its eye alone, so it stays on the friends' line on a phone.
-    else doors.push({ kind: "control", markup: secondaryButton(words, { href: `${joinPath(slug, door)}${query}`, isSmall: true, ...(words === "Watch" ? { icon: "eye", isLabelHidden: true } : {}) }) });
-  }
-  return row({
-    widths: "lead-fills",
-    items: [
-      { kind: "block", markup: glanceFacts({ friends: here.friends.map((friend) => ({ username: friend.name })), friendsRefusalNotes: [...refusals] }) },
-      ...doors,
-    ],
-  });
+export function friendsHere(here: FriendsInGame): Raw {
+  return gameKeyDetails({ friends: here.friends.map((friend) => ({ username: friend.name })) });
 }
 
 /** The top of /friends: who's online, what they're playing, and Appear offline. */

@@ -7,8 +7,10 @@ import { cutPolygon } from "./tokens.ts";
 import { secondaryButton, tertiaryButton, rowArrows, primaryButton, textLink } from "./actions.ts";
 import { SEARCH_STAND_IN, searchField, tabSwitch, type SearchFieldOptions, type SwitchTab } from "./inputs.ts";
 import { DROPDOWN_CHOICE_CLASS, DROPDOWN_TICK, STAND_IN_COVERS, dropdown, type DropdownItem } from "./panes.ts";
-import { listRows } from "./data.ts";
+import { listRows, stateNote } from "./data.ts";
+import { LOAD_FAILED_TEXT, loadMore, type LoadMoreOptions } from "./load-more.ts";
 import { BAR_TWO_ROWS_MEDIA, row, stack, track, type LayoutItem, stackOfOne } from "./layout.ts";
+export { loadMore, type LoadMoreOptions };
 
 /*
  * Navigation: the header (a floating slab of glass with the tabs, search and you), the footer, Zaisma's own
@@ -346,11 +348,17 @@ export const RAIL_SCRIPT = `/* rail */(function () {
   // hides its scrollbar on purpose (scrollbar-width: none) keeps it hidden. A text box or list box gets one too, laid over its own edge.
   // Every box's style is read before any rail goes in: a rail put in between would make the next read work out the whole page's styles
   // again, once a box (a page of fields has over a hundred).
+  // A box's rails follow it, one of each kind at most: a table that scrolls both ways has its up-down one and its sideways one.
+  function railAfter(box, kind) {
+    for (var next = box.nextElementSibling; next && next.hasAttribute("data-rail"); next = next.nextElementSibling) if (next.getAttribute("data-rail") === kind) return true;
+    return false;
+  }
   function addRails(scrollBoxes, within) {
     var railedBoxes = scrollBoxes.map(function (box) {
       var isControl = box.tagName === "TEXTAREA" || (box.tagName === "SELECT" && (box.multiple || box.size > 1));
-      if ((/^(SELECT|INPUT)$/.test(box.tagName) && !isControl) || (box.nextElementSibling && box.nextElementSibling.hasAttribute("data-rail"))) return null;
-      if (getComputedStyle(box).scrollbarWidth === "none" || box.classList.contains("rail-thumb")) return null;
+      if ((/^(SELECT|INPUT)$/.test(box.tagName) && !isControl) || railAfter(box, "box")) return null;
+      // A box with Zaisma's sideways rail (data-side-rail) hides the browser's bars for its own, so it takes its own up-down one too.
+      if ((getComputedStyle(box).scrollbarWidth === "none" && !box.hasAttribute("data-side-rail")) || box.classList.contains("rail-thumb")) return null;
       var parent = box.parentElement; if (!parent || parent === document.body) return null;
       return { box: box, isControl: isControl, isParentStatic: getComputedStyle(parent).position === "static" };
     });
@@ -362,7 +370,7 @@ export const RAIL_SCRIPT = `/* rail */(function () {
     // A box that scrolls sideways and asks for it (data-side-rail: a table, a chart) gets the same rail laid on its side, under it: shown on
     // phones too, whose own sideways scrollbars hide.
     within.querySelectorAll("[data-side-rail]").forEach(function (box) {
-      if (box.nextElementSibling && box.nextElementSibling.hasAttribute("data-rail")) return;
+      if (railAfter(box, "side")) return;
       box.insertAdjacentHTML("afterend", '<div class="rail sideways" data-rail="side" aria-hidden="true">${RAIL_PARTS}</div>');
     });
   }
@@ -376,6 +384,7 @@ export const RAIL_SCRIPT = `/* rail */(function () {
     if (bar.getAttribute("data-rail") === "page" && document.readyState === "loading") { document.documentElement.classList.add("own-scroll"); if (!isPageRailWaiting) { isPageRailWaiting = true; window.zaismaWatch.whenRead(wireRails); } return; }
     wiredBars.add(bar);
     var isPage = bar.getAttribute("data-rail") === "page", isSide = bar.getAttribute("data-rail") === "side", scroller = isPage ? null : bar.previousElementSibling;
+    while (scroller && scroller.hasAttribute("data-rail")) scroller = scroller.previousElementSibling;
     // A box laid out round what scrolls (a switch's well round its tabs) names it: the rail goes under the box, and follows what's in it.
     // Only its own: a box that scrolls itself and holds such a box further in (a pane with a switch in it) keeps its own rail.
     if (scroller && !scroller.matches("[data-rail-scroller]")) scroller = scroller.querySelector(":scope > [data-rail-scroller]") || scroller;
@@ -387,7 +396,8 @@ export const RAIL_SCRIPT = `/* rail */(function () {
     // slant flush against the groove's end.
     var SLANT_IN_PX = 2 * Math.SQRT2;
     // Which of its ends meet a square corner of the glass, and so are square themselves (is-square-start, is-square-end), the thumb's with them.
-    var NO_SQUARE_ENDS = { start: false, end: false }, squareEnds = NO_SQUARE_ENDS;
+    // Only the page's rail carves its own ends; one in a box is square unless the edge rule cuts it, where it reaches a cut corner.
+    var NO_SQUARE_ENDS = { start: false, end: false }, SQUARE_ENDS = { start: true, end: true }, squareEnds = NO_SQUARE_ENDS;
     // The page's thumb follows the page's scroll in the browser itself where it can (a scroll-driven animation): in step with a swipe and
     // with the browser's bar showing and hiding, which a script a frame behind can't be. Only its length is set here (--thumb-share).
     var followsScroll = isPage && window.CSS && CSS.supports("animation-timeline: scroll()");
@@ -448,6 +458,16 @@ export const RAIL_SCRIPT = `/* rail */(function () {
     function to(y) { if (isPage) window.scrollTo(0, y); else if (isSide) scroller.scrollLeft = y; else scroller.scrollTop = y; }
     function along(event) { return isSide ? event.clientX : event.clientY; }
     var size = { track: 0, thumb: 0, max: 1, start: 0, startIn: SLANT_IN_PX };
+    // A slanted end's bevel (null: the whole width, as along the page): the thumb nests into it at the groove's 2px, so its own end is the
+    // groove's cut (the bevel less what the 2px gaps take off it, by the edge rule), and where that's deeper than the thumb is thick, the
+    // thumb starts in by the rest, as at a whole slant.
+    var slants = null;
+    function slantInFor(isStart) {
+      if (isStart ? squareEnds.start : squareEnds.end) return 0;
+      if (!slants) return SLANT_IN_PX;
+      var thick = isSide ? groove.clientHeight : groove.clientWidth;
+      return Math.max(0, (isStart ? slants.start : slants.end) - (4 - 2 * Math.SQRT2) - thick);
+    }
     // The page's rail starts the gutter's width below the page's floating bar (data-rail-starts-below), following it as it tightens.
     var above = isPage ? document.querySelector("[data-rail-starts-below]") : null, GUTTER_PX = 10;
     var rail = {
@@ -457,9 +477,9 @@ export const RAIL_SCRIPT = `/* rail */(function () {
         placed.max = placed.whole - placed.view;
         if (above) placed.top = Math.round(above.getBoundingClientRect().bottom + GUTTER_PX) + "px";
         // Down a box, it runs the box's height at the right, keeping --rail-inset (the frame gap) from the edges of the glass or carving round
-        // it, and never past the box itself: so it's as clear of a pane's edge as anything with an edge. Its channel's ends are always
-        // slanted, longest on the side toward what scrolls; where the box reaches a cut corner, the end stops where its slant keeps that same
-        // gap from the corner's cut. Sideways, along a pane's foot, its ends keep the gap from the foot's corners the same way.
+        // it, and never past the box itself: so it's as clear of a pane's edge as anything with an edge. Its channel's ends are square, as
+        // anything in a box is by the edge rule; where the box reaches a cut corner, that end is cut, stopping where its slant keeps that
+        // same gap from the corner's cut. Sideways, along a pane's foot, its ends keep the gap from the foot's corners the same way.
         if (!isPage) {
           var holder = scroller.closest("[data-glass], .carving"), parent = bar.offsetParent;
           if (holder && parent) {
@@ -470,17 +490,32 @@ export const RAIL_SCRIPT = `/* rail */(function () {
             if (isSide) {
               var own = bar.getBoundingClientRect(), shownLeft = own.left - (parseFloat(bar.style.marginLeft) || 0), shownRight = own.right + (parseFloat(bar.style.marginRight) || 0);
               var isAtFoot = edge.bottom - own.bottom <= inset + 2;
-              placed.side = isAtFoot ? { left: Math.max(0, edge.left + fromCut(cuts[3]) - shownLeft), right: Math.max(0, shownRight - (edge.right - fromCut(cuts[2]))) } : { left: 0, right: 0 };
-              placed.squareEnds = isAtFoot ? { start: cuts[3] < 0.5, end: cuts[2] < 0.5 } : NO_SQUARE_ENDS;
+              // A box whose start never moves (a table's row heads) starts its rail past it.
+              var rowHead = scroller.querySelector(":scope > table.has-row-heads > tbody > tr > th"), sideStart = rowHead ? rowHead.offsetWidth : 0, sideBox = scroller.getBoundingClientRect();
+              placed.side = isAtFoot ? { left: Math.max(0, edge.left + fromCut(cuts[3]) - shownLeft, sideStart ? sideBox.left + sideStart + inset - shownLeft : 0), right: Math.max(0, shownRight - (edge.right - fromCut(cuts[2]))) } : { left: 0, right: 0 };
+              // Square, but where it runs into a cut corner of the foot it's along: there it's cut along the corner's line, moved in by the
+              // frame gap as the edge rule moves it for anything in a corner, so its end lies the frame gap from the corner's cut all along it: a
+              // small corner bevels only the end's tip, a big one slants it across its whole width. Exactly that line, never the least bevel,
+              // so the channel, the groove in it and the thumb nest one inside the other at their own gaps.
+              var footGap = edge.bottom - own.bottom;
+              var slantFor = function (cut, alongPx) { var sum = Math.max(0, alongPx) + footGap, slantPx = cut - sum + Math.SQRT2 * Math.min(sum / 2, inset); return slantPx > 0.5 ? Math.min(widthPx, slantPx) : 0; };
+              var startSlant = isAtFoot && !sideStart ? slantFor(cuts[3], shownLeft + placed.side.left - edge.left) : 0, endSlant = isAtFoot ? slantFor(cuts[2], edge.right - (shownRight - placed.side.right)) : 0;
+              placed.slants = { start: startSlant, end: endSlant };
+              placed.squareEnds = { start: startSlant < 0.5, end: endSlant < 0.5 };
             } else {
               // Measured on screen, where a sheet still growing in as it opens is drawn smaller than it lays out: the gaps are drawn at
               // that size too, and what's measured is put back at the size it lays out at, so the rail lands where it will be once it's in.
               var from = parent.getBoundingClientRect(), box = scroller.getBoundingClientRect(), drawn = holder.offsetWidth ? edge.width / holder.offsetWidth : 1;
-              var topIn = fromCut(cuts[1]), bottomIn = fromCut(cuts[2]);
-              var top = Math.max(box.top, edge.top + topIn * drawn), bottom = Math.min(box.bottom, edge.bottom - bottomIn * drawn), right = Math.min(box.right, edge.right - inset * drawn);
+              // A box whose top never scrolls (a table's header row, as the scroll fades read it) starts its rail under it, a frame gap down.
+              var head = scroller.querySelector(":scope > table > thead"), topIn = fromCut(cuts[1]), bottomIn = fromCut(cuts[2]), startsAt = head ? head.offsetHeight : 0;
+              // A box with its sideways rail along its foot (a table) keeps that lane for it: this one stops a frame gap above its channel,
+              // which keeps the frame gap from the foot.
+              var footLane = scroller.classList.contains("shows-side-rail") && scroller.nextElementSibling && scroller.nextElementSibling.matches(".rail.sideways") ? (widthPx + 2 * inset) * drawn : 0;
+              var boxTop = box.top + (startsAt ? (startsAt + inset) * drawn : 0), boxBottom = box.bottom - footLane;
+              var top = Math.max(boxTop, edge.top + topIn * drawn), bottom = Math.min(boxBottom, edge.bottom - bottomIn * drawn), right = Math.min(box.right, edge.right - inset * drawn);
               placed.box = { top: (top - from.top) / drawn - parent.clientTop, height: Math.max(0, bottom - top) / drawn, left: (right - from.left) / drawn - parent.clientLeft - (reachPx + widthPx) / 2 };
-              // An end that runs to a square corner (a menu hanging from its button) is square, as the corner is; one stopped short by its box, slanted.
-              placed.squareEnds = { start: cuts[1] < 0.5 && edge.top + topIn * drawn >= box.top - 0.5, end: cuts[2] < 0.5 && edge.bottom - bottomIn * drawn <= box.bottom + 0.5 };
+              // Square, as anything in a box is by the edge rule; only an end that runs into a cut corner of what holds it is cut along it.
+              placed.squareEnds = { start: !(cuts[1] >= 0.5 && edge.top + topIn * drawn >= boxTop - 0.5), end: !(cuts[2] >= 0.5 && edge.bottom - bottomIn * drawn <= boxBottom + 0.5) };
             }
           }
         }
@@ -489,12 +524,14 @@ export const RAIL_SCRIPT = `/* rail */(function () {
       putPlace: function (placed) {
         if (placed.top) bar.style.top = placed.top;
         if (placed.side) { bar.style.marginLeft = placed.side.left.toFixed(1) + "px"; bar.style.marginRight = placed.side.right.toFixed(1) + "px"; }
+        slants = placed.slants || null;
+        if (slants) { bar.style.setProperty("--rail-start-slant", slants.start.toFixed(1) + "px"); bar.style.setProperty("--rail-end-slant", slants.end.toFixed(1) + "px"); }
         if (placed.box) { bar.style.top = placed.box.top.toFixed(1) + "px"; bar.style.height = placed.box.height.toFixed(1) + "px"; bar.style.left = placed.box.left.toFixed(1) + "px"; }
         if (isShown !== placed.max > 4) { isShown = placed.max > 4; bar.classList.toggle("is-on", isShown); }
-        var ends = placed.squareEnds || NO_SQUARE_ENDS;
+        var ends = placed.squareEnds || (isPage ? NO_SQUARE_ENDS : SQUARE_ENDS);
         if (ends.start !== squareEnds.start || ends.end !== squareEnds.end) { squareEnds = ends; bar.classList.toggle("is-square-start", ends.start); bar.classList.toggle("is-square-end", ends.end); }
         // The box makes room for its rail by this class, never by a :has() on the rail beside it, for the same reason.
-        if (!isPage) scroller.classList.toggle("shows-rail", isShown);
+        if (!isPage) scroller.classList.toggle(isSide ? "shows-side-rail" : "shows-rail", isShown);
       },
       // Shown, in a box, but given no place: it was measured hidden.
       isUnplaced: function (placed) { return !isPage && isShown && !placed.box && !placed.side; },
@@ -504,9 +541,9 @@ export const RAIL_SCRIPT = `/* rail */(function () {
         var scrollPadding = isPage && marks.length ? offset() : 0;
         return {
           // The thumb runs the groove between its ends: short of a slanted one by the slant, to a square one's very end.
-          track: (isSide ? groove.clientWidth : groove.clientHeight) - (squareEnds.start ? 0 : SLANT_IN_PX) - (squareEnds.end ? 0 : SLANT_IN_PX),
-          start: (isSide ? groove.offsetLeft + groove.parentElement.offsetLeft : groove.offsetTop + groove.parentElement.offsetTop) + (squareEnds.start ? 0 : SLANT_IN_PX),
-          startIn: squareEnds.start ? 0 : SLANT_IN_PX,
+          track: (isSide ? groove.clientWidth : groove.clientHeight) - slantInFor(true) - slantInFor(false),
+          start: (isSide ? groove.offsetLeft + groove.parentElement.offsetLeft : groove.offsetTop + groove.parentElement.offsetTop) + slantInFor(true),
+          startIn: slantInFor(true),
           at: at(),
           marks: marks.map(function (m) {
             var shown = Boolean(m.part.offsetParent);
@@ -821,6 +858,8 @@ export const SCROLL_FADE_SCRIPT = `/* scroll fades */(function () {
     // Words that narrow once their font arrives can leave a row that ran past its box fitting it again, its own size unchanged.
     window.zaismaWatch.fontArrived(ends);
     ends();
+    // Its fades show at once where the page starts, and only ease in and out from the next frame on, so nothing grows in after the first paint.
+    requestAnimationFrame(function () { requestAnimationFrame(function () { row.classList.add("fades-ease"); }); });
   });
 })();
 `;
@@ -986,8 +1025,10 @@ component({
 /* Its channel runs its whole length down the middle of its reach, both its ends slanted, longest on the side toward what scrolls; the thumb's
    ends slant the same way, so at either end it slides flush into the channel's end, as a switch's slab into its well. */
 .rail > .rail-line { position: absolute; top: 0; bottom: 0; left: calc((var(--rail-reach) - var(--rail-width)) / 2); width: var(--rail-width); cursor: pointer;
-  --start-slant: var(--rail-width); --end-slant: var(--rail-width); --cut-shape: polygon(0 0, 100% var(--start-slant), 100% calc(100% - var(--end-slant)), 0 100%); }
-.rail-thumb { --thumb-slant: calc(var(--rail-width) - 4px); --thumb-start-slant: var(--thumb-slant); --thumb-end-slant: var(--thumb-slant);
+  --start-slant: var(--rail-start-slant, var(--rail-width)); --end-slant: var(--rail-end-slant, var(--rail-width)); --cut-shape: polygon(0 0, 100% var(--start-slant), 100% calc(100% - var(--end-slant)), 0 100%); }
+/* A sideways rail along a cut corner of what holds it slants its end only as far as the corner's line reaches into it (--rail-start-slant,
+   --rail-end-slant, from RAIL_SCRIPT), the thumb's end with it. */
+.rail-thumb { --thumb-slant: calc(var(--rail-width) - 4px); --thumb-start-slant: clamp(0px, calc(var(--rail-start-slant, var(--rail-width)) - 1.17px), var(--thumb-slant)); --thumb-end-slant: clamp(0px, calc(var(--rail-end-slant, var(--rail-width)) - 1.17px), var(--thumb-slant));
   clip-path: polygon(0 0, 100% var(--thumb-start-slant), 100% calc(100% - var(--thumb-end-slant)), 0 100%); }
 /* An end that meets a square corner of the glass (RAIL_SCRIPT says which) is square, and the thumb's end with it, so it still slides flush. */
 .rail.is-square-start > .rail-line { --start-slant: 0px; }
@@ -1152,8 +1193,8 @@ export function shelf(options: ShelfOptions): Raw {
           }
         : { kind: "words", markup: title },
       isEmpty
-        ? { kind: "words", markup: html`<p class="shelf-note">${options.emptyText}</p>` }
-        : { kind: "block", markup: track({ whenEmpty: html`<p class="shelf-note">${options.emptyText}</p>`, id: options.trackId, itemSize: "cover", items: options.items }) },
+        ? { kind: "block", markup: stateNote({ stateKind: "empty", text: options.emptyText! }) }
+        : { kind: "block", markup: track({ whenEmpty: stateNote({ stateKind: "empty", text: options.emptyText ?? "" }), id: options.trackId, itemSize: "cover", items: options.items }) },
     ],
   })}</section>`;
 }
@@ -1176,7 +1217,6 @@ component({
 .shelf > .layout-stack > .stack-cell > .layout-row.is-wrapped > .row-cell.is-block > .layout-row { flex: 1 1 auto; }
 .shelf > .layout-stack > .stack-cell > .layout-row.is-wrapped > .row-cell.is-block > .layout-row > .row-cell.fills { min-width: 0; }
 /* With no games yet, a line in their place. */
-.shelf .shelf-note { margin: 0; font: var(--type-words); color: var(--ink-2); }
 `,
   render: shelf,
   examples: [
@@ -1503,37 +1543,6 @@ html[data-page-shape="reading"] .sidebar-layout.is-collapsed > .sidebar-layout-i
   ],
 });
 
-export interface LoadMoreOptions {
-  /** The next page's address: the same page with the next cursor. Left out, the list has ended, and its end words (endText) show instead. */
-  href?: string;
-  label: string;
-  /** The id of the list it adds to; the next page has a list of the same id, and its own Load more for the page after, or its end words. */
-  listId: string;
-  /**
-   * Lists further down it adds to as well, from the next page's lists of the same ids (Browse's games for other devices, after the games
-   * for yours). One that is hidden, with what leads it, shows once something is added to it.
-   */
-  moreListIds?: string[];
-  /** It loads the next page by itself as it nears the screen, so a long grid of covers just keeps going as you scroll; it stays a button to press. */
-  isLoadedOnScroll?: boolean;
-  /** What it says once the list has ended: "That's every version." */
-  endText?: string;
-  /** The last press didn't load, so it says so under the button: the gallery's fixed state (LOAD_MORE_SCRIPT says it as it happens). */
-  isFailed?: boolean;
-}
-
-/** What Load more says under itself when the next page didn't come. */
-const LOAD_FAILED_TEXT = "That didn't load. Check your connection, then try again.";
-
-/**
- * Load more: a secondary button under a long list that adds the next page to it in place. Without scripts it's a link to that page. Once the list
- * has ended, a line saying so takes its place.
- */
-export function loadMore(options: LoadMoreOptions): Raw {
-  const listIds = [options.listId, ...(options.moreListIds ?? [])].join(" ");
-  if (!options.href) return html`<div class="load-more" data-load-more="${listIds}"><p class="load-more-words">${options.endText ?? ""}</p></div>`;
-  return html`<div class="load-more${options.isFailed ? " is-failed" : ""}" data-load-more="${listIds}"${options.isLoadedOnScroll ? raw(" data-loads-on-scroll") : ""}>${secondaryButton(options.label, { href: options.href, isFullWidth: true })}<p class="load-more-words" role="status"${options.isFailed ? "" : raw(" hidden")}>${options.isFailed ? LOAD_FAILED_TEXT : ""}</p></div>`;
-}
 
 /**
  * Load more: pressing it fetches its page, adds what's in that page's list of the same id to this one, and puts that page's own
@@ -1602,18 +1611,18 @@ component({
 `,
   render: loadMore,
   examples: [
-    { label: "Under a list: try it, to the last page", isWide: true, markup: glassPane({ paneWidth: "full", body: stack({ items: [{ kind: "block", markup: listRows({ whenEmpty: html`<p>No older versions yet.</p>`, id: "example-load-more-list", rows: LOADED_ROWS }) }, { kind: "block", markup: loadMore({ href: "/design/examples/older-versions?page=2", label: "Show older versions", listId: "example-load-more-list" }) }] }) }) },
+    { label: "Under a list: try it, to the last page", isWide: true, markup: glassPane({ paneWidth: "full", body: stack({ items: [{ kind: "block", markup: listRows({ whenEmpty: stateNote({ stateKind: "empty", title: "No older versions yet", text: "Each version you publish shows here." }), id: "example-load-more-list", rows: LOADED_ROWS }) }, { kind: "block", markup: loadMore({ href: "/design/examples/older-versions?page=2", label: "Show older versions", listId: "example-load-more-list" }) }] }) }) },
     { label: "Busy", markup: html`<div style="width:min(340px,100%)">${secondaryButton("Show older versions", { href: "#load-more", isFullWidth: true, isBusy: true })}</div>`, isStill: true },
     {
       label: "After a failed load: press it again",
       isWide: true,
       isStill: true,
-      markup: glassPane({ paneWidth: "full", body: stack({ items: [{ kind: "block", markup: listRows({ whenEmpty: html`<p>No older versions yet.</p>`, id: "example-load-failed-list", rows: LOADED_ROWS }) }, { kind: "block", markup: loadMore({ href: "#load-more", label: "Show older versions", listId: "example-load-failed-list", isFailed: true }) }] }) }),
+      markup: glassPane({ paneWidth: "full", body: stack({ items: [{ kind: "block", markup: listRows({ whenEmpty: stateNote({ stateKind: "empty", title: "No older versions yet", text: "Each version you publish shows here." }), id: "example-load-failed-list", rows: LOADED_ROWS }) }, { kind: "block", markup: loadMore({ href: "#load-more", label: "Show older versions", listId: "example-load-failed-list", isFailed: true }) }] }) }),
     },
     {
       label: "At the end of the list",
       isWide: true,
-      markup: glassPane({ paneWidth: "full", body: stack({ items: [{ kind: "block", markup: listRows({ whenEmpty: html`<p>No older versions yet.</p>`, id: "example-load-end-list", rows: LOADED_ROWS }) }, { kind: "block", markup: loadMore({ label: "Show older versions", listId: "example-load-end-list", endText: "That's every version." }) }] }) }),
+      markup: glassPane({ paneWidth: "full", body: stack({ items: [{ kind: "block", markup: listRows({ whenEmpty: stateNote({ stateKind: "empty", title: "No older versions yet", text: "Each version you publish shows here." }), id: "example-load-end-list", rows: LOADED_ROWS }) }, { kind: "block", markup: loadMore({ label: "Show older versions", listId: "example-load-end-list", endText: "That's every version." }) }] }) }),
     },
   ],
 });

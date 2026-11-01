@@ -1,3 +1,4 @@
+import { NO_EMPTY_NOTE } from "./markup.ts";
 import { ApiError, ERROR_CODES, CREDIT_LIMITS, PRO_PRICE_CENTS_PER_MONTH, PRO_REFUND_LIMITS, accountById, gameBySlug, hostingUseThisMonth, gameHostingMonth, apiKeysFor, createApiKey, checkKeyScope, revokeApiKey, passkeysFor, liveApiKeyCount, MAXIMUM_API_KEY_COUNT, ACCESS_AREAS, ACCESS_LEVELS, AREA_ACCESS_CHOICES, WEBHOOK_EVENT_KINDS, type Account, type ApiKey, type Game } from "@zaisma/core";
 import { currentSession } from "./auth.ts";
 import { AREA_LABELS, CHOICE_LABELS, LEVEL_LABELS, keyMakingState, keyScopeFromForm, keyScopeText, keyStandingText, passkeyTapFromForm } from "./account.ts";
@@ -21,7 +22,7 @@ import { sidebar, sidebarButton, sidebarLayout } from "./components/navigation.t
 import { confirmItsYouSheet } from "./components/confirm-its-you.ts";
 import { confirmSheet, dropdown, notice, sheet } from "./components/panes.ts";
 import { checkField, choiceCards, copyField, cutField, longField, selectField } from "./components/inputs.ts";
-import { emptyState, listRows, numbers, table, type ListRow } from "./components/data.ts";
+import { keyDetails, listRows, table, type ListRow, stateNote } from "./components/data.ts";
 import { hostingMeter } from "./hosting-meter.ts";
 
 /**
@@ -255,10 +256,10 @@ function hostingPane(settings: Settings): LayoutItem {
   const spentCents = gameHostings.reduce((totalCents, each) => totalCents + each.hosting.spent_from_credit_cents, 0);
   const items: LayoutItem[] = [
     block(
-      numbers({
-        items: [
-          { label: "Hosting credit", figure: dollars(credit.balance_cents) },
-          { label: "Spent from credit this month", figure: dollars(spentCents) },
+      keyDetails({
+        details: [
+          { label: "Hosting credit", detailValue: dollars(credit.balance_cents) },
+          { label: "Spent from credit this month", detailValue: dollars(spentCents) },
         ],
       }),
     ),
@@ -286,7 +287,7 @@ function hostingPane(settings: Settings): LayoutItem {
   // Only games with something to say: they play online, used some of their free hosting, have a budget, are paused, or ran past free last month.
   const hostingGames = gameHostings.filter((game) => game.game.multiplayer_mode !== "none" || game.hosting.free_used_pct > 0 || game.hosting.monthly_budget_cents !== null || game.hosting.is_paused || game.lastMonthBeyondFreeCents > 0);
   if (hostingGames.length) {
-    items.push(heading("Your games this month"), block(listRows({ whenEmpty: emptyState({ title: "No games online yet", text: "Games that play online, or use their free hosting, show here." }), label: "Your games this month", rows: hostingGames.map(gameRow) })), ...hostingGames.flatMap(gameSheets));
+    items.push(heading("Your games this month"), block(listRows({ whenEmpty: stateNote({ stateKind: "empty", title: "No games online yet", text: "Games that play online, or use their free hosting, show here." }), label: "Your games this month", rows: hostingGames.map(gameRow) })), ...hostingGames.flatMap(gameSheets));
   }
 
   // The last 90 days, each top-up that still refunds with its Refund in its row.
@@ -294,10 +295,10 @@ function hostingPane(settings: Settings): LayoutItem {
   if (credit.entries.length) {
     items.push(
       block(
-        listRows({ whenEmpty: html``, rows: [{
+        listRows({ whenEmpty: NO_EMPTY_NOTE, rows: [{
           title: "The last 90 days",
           end: tag(String(credit.entries.length), "count"),
-          fold: { body: table({ whenEmpty: emptyState({ title: "No credit entries", text: "Nothing was added to or spent from your credit in the last 90 days." }),
+          fold: { body: table({ whenEmpty: stateNote({ stateKind: "empty", title: "No credit entries", text: "Nothing was added to or spent from your credit in the last 90 days." }),
             caption: "Credit entries",
             isCompact: true,
             shownRowCount: 8,
@@ -328,7 +329,7 @@ function creditPlanItems(credit: CreditJson): LayoutItem[] {
   const refundWords = words(html`<p>Each payment is credit like a top-up: unused, it refunds to your card for ${CREDIT_LIMITS.refundableDurationDays} days. ${textLink("Terms", "/legal/terms")}</p>`);
   if (!plan) {
     return [
-      block(listRows({ whenEmpty: emptyState({ title: "No plan", text: "A monthly plan shows here." }), label: "Monthly credit plan", rows: [{ title: "Monthly credit plan", detail: "Credit goes back to a level you pick on the 1st of every month. You pay only what your games spent.", action: opens("Start a monthly plan", "plan-start") }] })),
+      block(listRows({ whenEmpty: stateNote({ stateKind: "empty", title: "No plan", text: "A monthly plan shows here." }), label: "Monthly credit plan", rows: [{ title: "Monthly credit plan", detail: "Credit goes back to a level you pick on the 1st of every month. You pay only what your games spent.", action: opens("Start a monthly plan", "plan-start") }] })),
       layer(
         sheet({
           id: "plan-start",
@@ -353,7 +354,7 @@ function creditPlanItems(credit: CreditJson): LayoutItem[] {
   return [
     block(
       listRows({
-        whenEmpty: emptyState({ title: "No plan", text: "A monthly plan shows here." }),
+        whenEmpty: stateNote({ stateKind: "empty", title: "No plan", text: "A monthly plan shows here." }),
         label: "Monthly credit plan",
         rows: [
           {
@@ -448,11 +449,11 @@ function proPane(settings: Settings): LayoutItem {
   const isPro = pro.plan === "pro";
   const limitRow = (label: string, key: string, usedKey: string | null): string[] => [label, String(pro.limits.free[key]), String(pro.limits.pro[key]), usedKey ? String(pro.used_today[usedKey]) : ""];
   const items: LayoutItem[] = [
-    block(numbers({ items: [{ label: isPro ? (pro.is_pro_cancelled ? `Your plan, until ${shownDate(pro.pro_ends_at)}` : `Your plan, renews ${shownDate(pro.pro_ends_at)}`) : "Your plan", figure: isPro ? "Pro" : "Free" }] })),
+    block(keyDetails({ details: [{ label: isPro ? (pro.is_pro_cancelled ? `Your plan, until ${shownDate(pro.pro_ends_at)}` : `Your plan, renews ${shownDate(pro.pro_ends_at)}`) : "Your plan", detailValue: isPro ? "Pro" : "Free" }] })),
     words(isPro ? (pro.is_pro_cancelled ? `You have Zaisma Pro until ${shownDate(pro.pro_ends_at)}. It won't renew.` : `You have Zaisma Pro. It renews ${shownDate(pro.pro_ends_at)}.`) : `Zaisma Pro raises your daily limits for ${dollars(PRO_PRICE_CENTS_PER_MONTH)} a month on your card. It's separate from hosting credit.`),
     ...(isPro ? [] : [words(`Cancel any time. Your first payment refunds within ${PRO_REFUND_LIMITS.refundableDurationDays} days.`)]),
     block(
-      table({ whenEmpty: emptyState({ title: "No limits", text: "Your daily limits show here." }),
+      table({ whenEmpty: stateNote({ stateKind: "empty", title: "No limits", text: "Your daily limits show here." }),
         caption: "Daily limits",
         isCompact: true,
         columns: [{ label: "Limit" }, { label: "Free", isNumeric: true }, { label: "Pro", isNumeric: true }, { label: "Used today", isNumeric: true }],
@@ -519,10 +520,10 @@ function paymentsPane(settings: Settings): LayoutItem {
     const code = balance.currency_code;
     items.push(
       block(
-        numbers({
-          items: [
-            { label: "In your Stripe account", figure: money(balance.available_minor_units + balance.pending_minor_units, code) },
-            ...(balance.next_payout ? [{ label: `Next payout, ${shownDate(balance.next_payout.arrives_at)}`, figure: money(balance.next_payout.amount_minor_units, balance.next_payout.currency_code) }] : []),
+        keyDetails({
+          details: [
+            { label: "In your Stripe account", detailValue: money(balance.available_minor_units + balance.pending_minor_units, code) },
+            ...(balance.next_payout ? [{ label: `Next payout, ${shownDate(balance.next_payout.arrives_at)}`, detailValue: money(balance.next_payout.amount_minor_units, balance.next_payout.currency_code) }] : []),
           ],
         }),
       ),
@@ -545,14 +546,14 @@ function paymentsPane(settings: Settings): LayoutItem {
     { title: "Disconnect Stripe", detail: "Players can't buy in your games until you connect again · past sales stay", action: opens("Disconnect", "payments-disconnect") },
   );
   items.push(
-    block(listRows({ whenEmpty: emptyState({ title: "Nothing to change", text: "Stripe's settings show here once it's connected." }), label: "Payments settings", rows })),
+    block(listRows({ whenEmpty: stateNote({ stateKind: "empty", title: "Nothing to change", text: "Stripe's settings show here once it's connected." }), label: "Payments settings", rows })),
     layer(
       sheet({
         id: "payments-tax",
         title: "Stripe Tax",
         closeLabel: "Close",
         action: `${PAGE}/payments/tax`,
-        body: stackOfOne(listRows({ whenEmpty: html``, rows: [{ title: "Stripe Tax", detail: "Stripe calculates and records the tax inside each price. Prices never change.", switch: { id: "stripe-tax", name: "is_stripe_tax_used", isOn: stripe.is_stripe_tax_used } }] })),
+        body: stackOfOne(listRows({ whenEmpty: NO_EMPTY_NOTE, rows: [{ title: "Stripe Tax", detail: "Stripe calculates and records the tax inside each price. Prices never change.", switch: { id: "stripe-tax", name: "is_stripe_tax_used", isOn: stripe.is_stripe_tax_used } }] })),
         buttons: [secondaryButton("Cancel", { type: "submit", formMethod: "dialog" }), primaryButton("Save", { type: "submit" })],
       }),
     ),
@@ -576,11 +577,11 @@ function webhooksPane(settings: Settings, state: PageState, deliveries: Delivery
       : [];
   const whereOf = (webhook: WebhookJson) => (webhook.destination_kind === "game_server" ? `${webhook.game_slugs?.map((slug) => games.find((game) => game.slug === slug)?.title ?? slug).join(", ") ?? ""}'s game server` : webhook.endpoint_url ?? "");
 
-  if (!webhooks.length) items.push(block(emptyState({ title: "No webhooks yet", text: "A webhook sends your server a signed event when something happens in your games." })));
+  if (!webhooks.length) items.push(block(stateNote({ stateKind: "empty", title: "No webhooks yet", text: "A webhook sends your server a signed event when something happens in your games." })));
   else {
     items.push(
       block(
-        listRows({ whenEmpty: emptyState({ title: "No webhooks yet", text: "A webhook sends your server a signed event when something happens in your games." }),
+        listRows({ whenEmpty: stateNote({ stateKind: "empty", title: "No webhooks yet", text: "A webhook sends your server a signed event when something happens in your games." }),
           label: "Webhooks",
           rows: webhooks.map((webhook): ListRow => {
             const where = whereOf(webhook);
@@ -670,13 +671,13 @@ function webhooksPane(settings: Settings, state: PageState, deliveries: Delivery
 }
 
 function deliveriesTable(webhookId: string, deliveries: DeliveryJson[], nextCursor: string | null): Raw {
-  return html`${table({ whenEmpty: emptyState({ title: "No deliveries yet", text: "Each event sent to this webhook shows here, with what your server answered." }),
+  return html`${table({ whenEmpty: stateNote({ stateKind: "empty", title: "No deliveries yet", text: "Each event sent to this webhook shows here, with what your server answered." }),
     caption: "Deliveries",
     isCompact: true,
     shownRowCount: 8,
     columns: [{ label: "When" }, { label: "Event" }, { label: "Result" }, { label: "Tries", isNumeric: true }],
     rows: deliveries.map((delivery) => [shownDate(delivery.created_at), String(delivery.webhook_event.kind ?? ""), delivery.delivery_status === "delivered" ? "Delivered" : delivery.delivery_status === "pending" ? `Retrying${delivery.failure_message ? `: ${delivery.failure_message}` : ""}` : `Failed${delivery.failure_message ? `: ${delivery.failure_message}` : ""}`, String(delivery.attempt_count)]),
-    rowsPlaceholder: deliveries.length ? undefined : emptyState({ title: "Nothing sent yet", text: "Events appear here as they're sent." }),
+    rowsPlaceholder: deliveries.length ? undefined : stateNote({ stateKind: "empty", title: "Nothing sent yet", text: "Events appear here as they're sent." }),
   })}${nextCursor ? html`<p>${textLink("Older deliveries", `${PAGE}?deliveries=${webhookId}&cursor=${encodeURIComponent(nextCursor)}#webhook-deliveries`)}</p>` : ""}`;
 }
 
@@ -689,12 +690,12 @@ function signInAppsPane(settings: Settings): LayoutItem {
     { kind: "control", markup: cutField({ id: `${idBase}-name`, name: "name", label: "Name", type: "text", icon: "pencil", text: given?.name ?? "", isRequired: true, hint: "Players see it when they're asked to sign in." }) },
     { kind: "block", markup: longField({ id: `${idBase}-urls`, name: "redirect_urls", label: "Redirect addresses, one a line", rowCount: 3, text: (given?.redirect_urls ?? []).join("\n"), isRequired: true }) },
   ];
-  if (!signInApps.length) items.push(block(emptyState({ title: "No sign-in apps yet", text: "Sign in with Zaisma lets players use their Zaisma account on your own site." })));
+  if (!signInApps.length) items.push(block(stateNote({ stateKind: "empty", title: "No sign-in apps yet", text: "Sign in with Zaisma lets players use their Zaisma account on your own site." })));
   else {
     items.push(
       words(`Issuer: ${signInApps[0]!.issuer_url}`),
       block(
-        listRows({ whenEmpty: emptyState({ title: "No sign-in apps yet", text: "Sign in with Zaisma lets players use their Zaisma account on your own site." }),
+        listRows({ whenEmpty: stateNote({ stateKind: "empty", title: "No sign-in apps yet", text: "Sign in with Zaisma lets players use their Zaisma account on your own site." }),
           label: "Sign-in apps",
           rows: signInApps.map((app): ListRow => ({
             title: app.name,
@@ -752,11 +753,11 @@ function keysPane(keys: ApiKey[], games: { slug: string; title: string }[], maki
   const items: LayoutItem[] = [
     words("A key lets your AI tool or the upload command work on your games. Treat it like a password: anyone with it can change what it reaches."),
   ];
-  if (!keys.length) items.push(block(emptyState({ title: "No keys yet", text: "Make one for your AI tool, or connect an AI app by signing in." })));
+  if (!keys.length) items.push(block(stateNote({ stateKind: "empty", title: "No keys yet", text: "Make one for your AI tool, or connect an AI app by signing in." })));
   else {
     items.push(
       block(
-        listRows({ whenEmpty: emptyState({ title: "No keys yet", text: "Make one for your AI tool, or connect an AI app by signing in." }),
+        listRows({ whenEmpty: stateNote({ stateKind: "empty", title: "No keys yet", text: "Make one for your AI tool, or connect an AI app by signing in." }),
           label: "Keys",
           rows: keys.map((key): ListRow => ({
             lead: icon("key"),

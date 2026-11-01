@@ -104,10 +104,10 @@ describe("counted plays", () => {
     for (let i = 0; i < 2; i++) await issueTicket(env.DB, "g-play", NEW);
     const page = async () => (await SELF.fetch(`${SITE}/g/play-game`)).text();
     const home = async () => (await SELF.fetch(`${SITE}/`)).text();
-    expect(await page()).toMatch(/id="playing-now" hidden>[\s\S]*?<b>2<\/b> playing now/);
+    expect(await page()).toMatch(/id="playing-now" hidden>[\s\S]*?<dt>Playing now<\/dt><dd class="key-detail-value">2<\/dd>/);
     expect(await home()).not.toContain("<b>2</b> playing now");
     await issueTicket(env.DB, "g-play", NEW);
-    expect(await page()).toMatch(/id="playing-now">[\s\S]*?<b>3<\/b> playing now/);
+    expect(await page()).toMatch(/id="playing-now">[\s\S]*?<dt>Playing now<\/dt><dd class="key-detail-value">3<\/dd>/);
     // The home's covers show it from the same count (its script builds Continue playing's from this).
     expect(await home()).toContain('"slug":"play-game"');
     expect(await home()).toMatch(/"slug":"play-game"[^}]*"playing_now_player_count":3/);

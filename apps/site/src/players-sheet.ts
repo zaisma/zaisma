@@ -1,10 +1,11 @@
+import { NO_EMPTY_NOTE } from "./markup.ts";
 import { MAXIMUM_OTHER_PLAYER_COUNT, friendsInGameOf, gameBySlug, joinRefusalText } from "@zaisma/core";
 import { currentSession } from "./auth.ts";
 import type { Env } from "./env.ts";
 import { secondaryButton, primaryButton, textLink, toggleButton } from "./components/actions.ts";
 import { cutField } from "./components/fields.ts";
 import type { ControlMarkup } from "./components/control-markup.ts";
-import { listRows, pictureFrame, emptyState } from "./components/data.ts";
+import { listRows, pictureFrame, stateNote } from "./components/data.ts";
 import { stack, type LayoutItem } from "./components/layout.ts";
 import { sheet, type SheetStep } from "./components/panes.ts";
 import { icon } from "./components/foundations.ts";
@@ -74,7 +75,7 @@ const ROOM_CODE = /^[A-Z0-9]{6}$/;
  */
 export function friendRows(slug: string, friends: Awaited<ReturnType<typeof friendsInGameOf>>): Raw {
   if (!friends.length) return html`<p class="sheet-text">None of your friends are playing this right now.</p>`;
-  return listRows({ whenEmpty: emptyState({ title: "No friends playing", text: "None of your friends are playing this right now." }),
+  return listRows({ whenEmpty: stateNote({ stateKind: "empty", title: "No friends playing", text: "None of your friends are playing this right now." }),
     isCompact: true,
     label: "Friends playing",
     rows: friends.map((friend) => {
@@ -105,14 +106,14 @@ export function playersSheet(options: { gameOrigin: string; slug: string; title:
         kind: "block",
         id: "players-requests",
         isHidden: true,
-        markup: stack({ items: [words(html`<h3>Friend requests</h3>`), { kind: "block", markup: listRows({ whenEmpty: html`<p hidden></p>`, rows: [], id: "players-requests-list", label: "Friend requests" }) }] }),
+        markup: stack({ items: [words(html`<h3>Friend requests</h3>`), { kind: "block", markup: listRows({ whenEmpty: NO_EMPTY_NOTE, rows: [], id: "players-requests-list", label: "Friend requests" }) }] }),
       },
       // The room's own heading shows only under friend requests, to part the two lists.
       words(html`<h3 id="players-room-title" hidden>In this room</h3>`),
       // A long room's find field: it narrows the list to the names that hold what's typed.
       { kind: "control", id: "players-find", isHidden: true, markup: cutField({ id: "players-find-field", name: "player_name", label: "Find a player", type: "search", icon: "search", placeholder: "Find a player", autocomplete: "off" }) },
       // While nobody's listed, the note says why (the page's script writes it): the list's empty state.
-      { kind: "block", markup: listRows({ whenEmpty: html`<p id="players-note" hidden></p>`, isCompact: true, rows: [], id: "players-list", label: "In this room" }) },
+      { kind: "block", markup: listRows({ whenEmpty: stateNote({ stateKind: "empty", text: "", textId: "players-note" }), isCompact: true, rows: [], id: "players-list", label: "In this room" }) },
       words(html`<p id="players-watching" hidden></p>`),
       {
         kind: "block",
@@ -129,7 +130,7 @@ export function playersSheet(options: { gameOrigin: string; slug: string; title:
       {
         kind: "block",
         markup: listRows({
-          whenEmpty: html``,
+          whenEmpty: NO_EMPTY_NOTE,
           isCompact: true,
           label: "Their choices",
           rows: [
@@ -148,7 +149,7 @@ export function playersSheet(options: { gameOrigin: string; slug: string; title:
   const rowButton = { type: "button", isSmall: true } as const;
   // A row's toggle, the script showing one: Mute (a speaker), pressed once muted (the speaker crossed out, rising in place), or pressed with the block mark for a block made here (Unblock).
   const rowTemplate = listRows({
-    whenEmpty: emptyState({ title: "Nobody here yet", text: "Players show here as they join your room." }),
+    whenEmpty: stateNote({ stateKind: "empty", title: "Nobody here yet", text: "Players show here as they join your room." }),
     isCompact: true,
     rows: [{
       lead: pictureFrame("?", "sm"),
@@ -169,8 +170,8 @@ export function playersSheet(options: { gameOrigin: string; slug: string; title:
     steps: [{ stepName: "players", title: "Players", body, isCompact: true }, { stepName: "player", title: "Player", body: playerBody, isCompact: true }, options.reportStep],
   })}
 <template id="players-row">${rowTemplate}</template>
-<template id="players-self-row">${listRows({ whenEmpty: html`<p hidden></p>`, isCompact: true, rows: [{ lead: pictureFrame("?", "sm"), title: "?", detail: "You" }] })}</template>
-<template id="players-request-row">${listRows({ whenEmpty: html`<p hidden></p>`, rows: [{ lead: pictureFrame("?", "md"), title: "?", action: [primaryButton("Accept", { ...rowButton, dataAttributes: { "request-action": "accept" } }), secondaryButton("Turn down", { ...rowButton, dataAttributes: { "request-action": "turn-down" } })] }] })}</template>
+<template id="players-self-row">${listRows({ whenEmpty: NO_EMPTY_NOTE, isCompact: true, rows: [{ lead: pictureFrame("?", "sm"), title: "?", detail: "You" }] })}</template>
+<template id="players-request-row">${listRows({ whenEmpty: NO_EMPTY_NOTE, rows: [{ lead: pictureFrame("?", "md"), title: "?", action: [primaryButton("Accept", { ...rowButton, dataAttributes: { "request-action": "accept" } }), secondaryButton("Turn down", { ...rowButton, dataAttributes: { "request-action": "turn-down" } })] }] })}</template>
 ${pageData("players-data", { gameOrigin: options.gameOrigin, slug: options.slug, hasZaismaRooms: options.hasZaismaRooms, canSignIn: options.canSignIn, maximumPlayerCount: MAXIMUM_PLAYER_COUNT, findShownAfterCount: FIND_SHOWN_AFTER_COUNT })}
 ${scriptTags(PLAYERS_SHEET_SCRIPT)}`;
 }

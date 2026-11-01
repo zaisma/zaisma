@@ -38,7 +38,7 @@ import { coverGuidePage } from "./cover-guide.ts";
 import { BACKGROUND_GUIDE_PATH, backgroundGuidePage, backgroundSourceResponse } from "./background-guide.ts";
 // Every component of the look (components/), defined before the first request, and the gallery that shows them.
 import "./components/index.ts";
-import { designPage } from "./design-page.ts";
+import { assetInRanges, designPage } from "./design-page.ts";
 import { testWaitingReviewPrecedents } from "./review-precedent-tests.ts";
 import { triageReports } from "./triage.ts";
 import { sortMisplaced, sortTopics } from "./forum-sort.ts";
@@ -189,6 +189,7 @@ async function route(request: Request, env: Env, ctx: ExecutionContext): Promise
   }
   // The developer front door: the dashboard until the developer page is built.
   if (path === "/developers" && method === "GET") return Response.redirect(new URL("/dashboard", request.url).toString(), 302);
+  if (path.startsWith("/design/videos/") && method === "GET") return assetInRanges(request, env);
   if ((path === "/design" || path.startsWith("/design/")) && method === "GET") {
     const gallery = designPage(env, url);
     if (gallery) return gallery;

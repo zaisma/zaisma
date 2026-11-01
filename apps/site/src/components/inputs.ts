@@ -99,8 +99,7 @@ component({
 .slider.is-disabled .groove { --face-color: var(--off-face); box-shadow: none; }
 /* Its thumb stays the slab it always is, as a toggle's does: the grey line and quiet number say it can't be moved. */
 .slider.is-disabled .slider-slab > .cut-line polygon { stroke: var(--line); }
-.slider-input:focus-visible + .slider-thumb > .slider-slab > .cut-line polygon, .slider.is-focused .slider-slab > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
-`,
+.slider-input:focus-visible + .slider-thumb > .slider-slab > .cut-line polygon, .slider.is-focused .slider-slab > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }`,
   render: slider,
   examples: [
     { label: "Rest", markup: examplePane(slider({ id: "example-slider-rest", name: "room_player_count", label: "Players in a room", minimumNumber: 2, maximumNumber: 100, stepNumber: 1, pickedNumber: 16, unit: "players" })) },

@@ -2,7 +2,7 @@ import { accountById, areFriends, blockPlayer, hasBlocked, unblockPlayer, type B
 import { authConfigured, currentSession } from "./auth.ts";
 import type { Env } from "./env.ts";
 import { secondaryButton, primaryButton, textLink } from "./components/actions.ts";
-import { listRows, pictureFrame, emptyState } from "./components/data.ts";
+import { listRows, pictureFrame, stateNote } from "./components/data.ts";
 import { stack } from "./components/layout.ts";
 import { banner, sheet } from "./components/panes.ts";
 import { accountPicture, html, pageData, scriptTags, type Raw } from "./html.ts";
@@ -76,7 +76,7 @@ export function blockSheet(options: { gameOrigin: string }): Raw {
   const body = stack({
     items: [
       // Who's blocked: the picture and name the script fills in, as the page draws an account's.
-      { kind: "block", markup: listRows({ whenEmpty: emptyState({ title: "Nobody picked", text: "Who you're blocking shows here." }), rows: [{ lead: pictureFrame("?", "md"), title: "?" }], id: "block-who" }) },
+      { kind: "block", markup: listRows({ whenEmpty: stateNote({ stateKind: "empty", title: "Nobody picked", text: "Who you're blocking shows here." }), rows: [{ lead: pictureFrame("?", "md"), title: "?" }], id: "block-who" }) },
       { kind: "words", markup: html`<p>Nothing either of you sends in a game reaches the other: messages, emotes or voice. Neither of you shows up in the other's friends or profile.</p>` },
       { kind: "words", markup: html`<p id="block-friend" hidden>You're friends, so this ends that too.</p>` },
       { kind: "words", markup: html`<p><span id="block-told"></span> Unblock any time on your ${textLink("friends page", "/friends#blocked", { isNewTab: true })}.</p>` },

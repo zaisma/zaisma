@@ -1,4 +1,4 @@
-import { Raw, html, raw } from "../markup.ts";
+import { Raw, html, raw, type EmptyNoteMarkup } from "../markup.ts";
 import { CONTROL_HEIGHTS, ControlMarkup, type ControlHeight } from "./control-markup.ts";
 import { BARE_GROUPS, WORDS_HOLDERS } from "./tokens.ts";
 
@@ -226,7 +226,7 @@ export type GridOptions = {
   id?: string;
 } & (
   /** What a cell holds, which names its least width: a cover, a card, a figure. Cells share the width equally, as many as fit. */
-  | { itemSize: "cover" | "card"; whenEmpty: Raw }
+  | { itemSize: "cover" | "card"; whenEmpty: EmptyNoteMarkup }
   /** Pictures or fields that are always there: no empty state. */
   | { itemSize: "figure"; whenEmpty?: never }
 );
@@ -248,7 +248,7 @@ export interface TrackOptions {
   itemSize: "cover";
   label?: string;
   /** What shows in its place while it has no covers (an Empty state), a page script's included. */
-  whenEmpty: Raw;
+  whenEmpty: EmptyNoteMarkup;
 }
 
 /** A row of cells of one size that scrolls sideways, fading at an edge with more past it: a row of covers, with Row arrows for a mouse. */
@@ -320,8 +320,8 @@ const SHOWN = ':not([hidden], .holds-only-hidden, .edge, script, template, input
  * track holding units (which tokens.ts insets at its sides). The unit is padded, never its words.
  */
 const BARE_UNITS: [string, string][] = [...BARE_GROUPS.map((group): [string, string] => [group, ""]), [`:is(.layout-grid, .layout-track):has(> :is(${BARE_GROUPS.join(", ")}), > .grid-cell > :is(${BARE_GROUPS.join(", ")}))`, ""]];
-const WORDS_AT_TOP: [string, string][] = [[":is(.cut-field, .link-field, .pin-field, .wheel-field, .choices, .slider, .table, .usage, .chart, .glance)", ":first-child"], [".toggle", ".toggle-words"], [".check", ""], [".progress", ".progress-words"], [".folded", ".folded-head"], [".numbers", ""], [".reading", ":is(ul, ol):first-child"], ...BARE_UNITS];
-const WORDS_AT_FOOT: [string, string][] = [[":is(.cut-field, .pin-field)", "p:last-child"], [".qr-code", ".qr-caption"], [".file-drop-wrap", ".field-error"], [":is(.chart, .glance)", ":last-child"], [".toggle", ".toggle-words"], [".check", ""], [".folded:not([open])", ".folded-head"], [".numbers", ""], [".reading", ":is(ul, ol):last-child"], ...BARE_UNITS];
+const WORDS_AT_TOP: [string, string][] = [[":is(.cut-field, .link-field, .pin-field, .wheel-field, .choices, .slider, .table, .usage, .chart)", ":first-child"], [".toggle", ".toggle-words"], [".check", ""], [".progress", ".progress-words"], [".folded", ".folded-head"], [".key-details", ""], [".reading", ":is(ul, ol):first-child"], ...BARE_UNITS];
+const WORDS_AT_FOOT: [string, string][] = [[":is(.cut-field, .pin-field)", "p:last-child"], [".qr-code", ".qr-caption"], [".file-drop-wrap", ".field-error"], [".toggle", ".toggle-words"], [".check", ""], [".folded:not([open])", ".folded-head"], [".key-details", ""], [".reading", ":is(ul, ol):last-child"], ...BARE_UNITS];
 
 /**
  * The words at a pane's or a tray's top and bottom edge keep its margin there too: the first and last words it holds, however deep in
@@ -515,6 +515,10 @@ export const WHEN_EMPTY_STYLES = `
 :is(.list-rows:not(:has(> li:not([hidden]))), .layout-grid:not(:has(> .grid-cell:not([hidden]))), .layout-track:not(:has(> :not([hidden])))) { display: none; }
 :is(.list-rows:has(> li:not([hidden])), .layout-grid:has(> .grid-cell:not([hidden])), .layout-track:has(> :not([hidden]))) + .when-empty { display: none; }
 :is(.list-rows:not(:has(> li:not([hidden]))), .layout-grid:not(:has(> .grid-cell:not([hidden]))), .layout-track:not(:has(> :not([hidden])))) + .when-empty[hidden] { display: flex !important; }
+/* A list in its well (List rows) goes with its well: the well leaves while the list is empty, and the empty state follows the well. */
+.list-well:not(:has(.list-rows > li:not([hidden]))) { display: none; }
+.list-well:has(.list-rows > li:not([hidden])) + .when-empty { display: none; }
+.list-well:not(:has(.list-rows > li:not([hidden]))) + .when-empty[hidden] { display: flex !important; }
 .when-empty { display: flex; flex-direction: column; min-width: 0; }
 `;
 
@@ -537,12 +541,15 @@ export const TRACK_STYLES = `
   padding: var(--edge-room) 0; margin: calc(-1 * var(--edge-room)) 0; }
 /* Its rail (data-side-rail, Rail in Navigation) runs under it, past the room kept for what lifts in it, never into it. A track that fits
    keeps the rail's reach there all the same, so its covers keep the words margin at a pane's end and nothing moves as the rail comes and goes. */
-.layout-track.shows-rail { margin-bottom: 0; }
-.layout-track:not(.shows-rail) { margin-bottom: var(--rail-reach); }
+.layout-track.shows-side-rail { margin-bottom: 0; }
+.layout-track:not(.shows-side-rail) { margin-bottom: var(--rail-reach); }
 /* A cover snaps where the track's start inset ends, so the first one is a snapping point at the track's very start, not past it. */
 .layout-track { scroll-padding-inline: var(--pad-words); }
 /* Screenshots lie closer than game cards do: pictures with an edge of their own, side by side. */
-.layout-track:has(> .screenshot) { gap: var(--gap-control-stack); }
+.layout-track:has(> .media-well) { gap: var(--gap-control-stack); }
+/* A row of wells with no words under them (a game's media) keeps no rail's room while it fits: nothing under them needs the words margin,
+   so they sit at the frame gap from the pane's foot as any block does, and the rail takes its room only once there's something to scroll. */
+.layout-track:not(.shows-side-rail):has(> .media-well) { margin-bottom: calc(-1 * var(--edge-room)); }
 .layout-track.item-cover > * { flex: 0 0 clamp(200px, 20cqi, 260px); scroll-snap-align: start; }
 `;
 

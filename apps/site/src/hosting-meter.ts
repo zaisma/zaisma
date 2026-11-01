@@ -14,15 +14,15 @@ export interface HostingMonthJson {
 
 /**
  * A game's free allowance and budget on one usage meter: the free part a third of the track and the budget after it when it has one,
- * amber only near the end of the budget. Its fill is split by what used it, each kind in its own color wherever it shows.
+ * amber only near the end of the budget. Its fill is split by what used it, biggest first, each a shade of the meter's light.
  */
 export function hostingMeter(label: string, hosting: HostingMonthJson): UsageMeterOptions {
   const budgetCents = hosting.monthly_budget_cents;
   const freePct = hosting.free_used_pct;
   const budgetPct = budgetCents === null ? 0 : Math.min(100, Math.round((hosting.spent_from_credit_cents / Math.max(budgetCents, 1)) * 100));
-  const parts = HOSTING_KINDS.flatMap((kind, kindIndex) => {
+  const parts = HOSTING_KINDS.flatMap((kind) => {
     const share = hosting.shares.find((each) => each.kind === kind);
-    return share ? [{ label: HOSTING_KIND_LABELS[kind], sharePct: share.share_pct, partColorIndex: kindIndex }] : [];
+    return share ? [{ label: HOSTING_KIND_LABELS[kind], sharePct: share.share_pct }] : [];
   }).sort((first, second) => second.sharePct - first.sharePct);
   return budgetCents === null
     ? { label, usedNumber: freePct, limitNumber: 100, unit: "%", parts }
