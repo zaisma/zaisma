@@ -49,7 +49,7 @@ Each rule says what holds it. A rule a check can measure has one, so it holds on
 - **The home shows a whole game without scrolling.** Its first cover is whole above the fold on every screen. *Held by* `npm run layout:check` (`isCoverAboveFold` in `CHECKED_PAGES`).
 - **A token's name is code.** Jost draws two hyphens as one dash, so `--spring` in words is set in code. *Held by* `test/site/design.test.ts` ("page structure", "a token's name outside code").
 
-A remark in a preview becomes one of three things: a token's value, a component's option, or a check. It's written here with what holds it, so it holds on every page from then on, built or not.
+A remark in a preview about every use of a piece becomes one of three things: a token's value, a component's option, or a check. It's written here with what holds it, so it holds on every page from then on, built or not. A remark about one page changes that page.
 
 ### Laws of UX
 
