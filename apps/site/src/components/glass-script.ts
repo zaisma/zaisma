@@ -167,6 +167,38 @@ export const GLASS_SCRIPT = `/* glass */(function () {
     return [[i, d[0]], [d[0], i], [w - d[1], i], [w - i, d[1]], [w - i, h - d[2]], [w - d[2], h - i], [d[3], h - i], [i, h - d[3]]];
   }
   function pointList(points) { return points.map(function (p) { return p[0].toFixed(1) + "," + p[1].toFixed(1); }).join(" "); }
+  /*
+   * Waiting (components/waiting.ts): a control waiting on its press holds a glint layer (.waiting-glint, first in it, under what it holds,
+   * cut to its own shape), and only while it waits, so a page of controls carries nothing extra; the Waiting component's styles run it.
+   */
+  function isWaitingNow(el) {
+    var parent = el.parentElement;
+    return el.getAttribute("aria-busy") === "true" || Boolean(el.querySelector(':scope > input[aria-busy="true"]')) || Boolean(parent && parent.getAttribute("aria-busy") === "true") || (el.hasAttribute("data-waits-here") && Boolean(el.closest('[aria-busy="true"]')));
+  }
+  function drawWaiting(el) {
+    var glint = el.querySelector(":scope > .waiting-glint");
+    // Done waiting, its glints rush out (is-leaving) and it goes; waiting again before they have, it carries on. Under reduced motion,
+    // nothing slides, so it goes at once.
+    if (!isWaitingNow(el)) {
+      if (glint && !glint.classList.contains("is-leaving")) {
+        if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) { glint.remove(); return; }
+        glint.classList.add("is-leaving");
+        glint.addEventListener("animationend", function gone(event) { if (event.animationName === "waiting-glint-leaves" && glint.classList.contains("is-leaving")) glint.remove(); });
+      }
+      return;
+    }
+    if (glint && glint.classList.contains("is-leaving")) glint.classList.remove("is-leaving");
+    if (!glint) { glint = document.createElement("span"); glint.className = "waiting-glint"; glint.setAttribute("aria-hidden", "true"); el.insertBefore(glint, el.firstChild); }
+  }
+  // What starts or ends something waiting (window.zaismaWait) puts the glint in or takes it out: the control pressed, the control its
+  // input sits in, and the parts inside it.
+  window.zaismaWaiting = {
+    redraw: function (element) {
+      [element, element.parentElement].concat(Array.prototype.slice.call(element.querySelectorAll("[data-cut-line]"))).forEach(function (el) {
+        if (el && el.hasAttribute("data-cut-line")) drawWaiting(el);
+      });
+    }
+  };
   // How lit each side of the cut is, from the top left corner's cut round to the left side. Neighbors always differ, so every turn of the edge shows as a step in brightness, like a cut facet.
   var SIDE_LIGHT = [80, 100, 70, 28, 12, 0, 40, 62];
   // A control made of glass takes its sides' light from the way each faces (the same steps, round the same way).
@@ -565,7 +597,10 @@ export const GLASS_SCRIPT = `/* glass */(function () {
       // Its line and light are drawn round the outline with no side under a pixel: a side shrinking away as it glides (a slant becoming a
       // corner) would turn its neighbors' light every which way in its last frames, then snap as it went.
       shape = distinct(shape, 1);
-      poly.setAttribute("points", list(insetShape(shape, 1)));
+      var outline = insetShape(shape, 1);
+      poly.setAttribute("points", list(outline));
+      // While it waits, it holds the waiting glint (components/waiting.ts).
+      drawWaiting(el);
       // data-cut-ring: a second outline set out around the shape by that many pixels, for a ring that mustn't touch what's inside (a check field's
       // keyboard focus, clear of its orange piece). It's drawn in the control's own shape, whatever its corners.
       var ringPx = Number(el.getAttribute("data-cut-ring")) || 0;

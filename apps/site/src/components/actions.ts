@@ -1,6 +1,6 @@
 import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
-import { CUT_LINE, EDGE, ICONS, backdrop, glassPane, icon, loader, type ColorChoice, type IconName } from "./foundations.ts";
+import { CUT_LINE, EDGE, ICONS, backdrop, glassPane, icon, type ColorChoice, type IconName } from "./foundations.ts";
 import { TOKEN_STYLES } from "./tokens.ts";
 import { controlMarkup, type ControlMarkup } from "./control-markup.ts";
 import { paneParts, row, stack, stackOfOne } from "./layout.ts";
@@ -53,7 +53,7 @@ export interface PrimaryButtonOptions extends ButtonTarget {
   /** 56px (48 on a phone), for a pane's one main action: the home's Play, the sign-in page's Sign in. */
   isBig?: boolean;
   isFullWidth?: boolean;
-  /** Pressed and waiting: the loader takes the arrow's (or icon's) place, and busyLabel (if any) the label's. */
+  /** Pressed and waiting: it stays sunk and its edge lights (the materials' waiting state), its words as they were; busyLabel (if any) is what a screen reader hears then. */
   isBusy?: boolean;
   busyLabel?: string;
   /** An icon before the label in place of the arrow after it, like Play's. */
@@ -73,11 +73,11 @@ export interface PrimaryButtonOptions extends ButtonTarget {
 /** The primary button: a raised orange slab, the same height as the other buttons, lit along its edges. It lifts and catches the light; pressing sinks it into the glass. */
 export function primaryButton(label: string, options: PrimaryButtonOptions = {}): ControlMarkup {
   // The label's span has no class of its own: html.ts's account link finds it as the header's runner's span without one.
-  const words = options.busyLabel ? html`<span class="label-idle">${label}</span><span class="label-busy">${options.busyLabel}</span>` : html`<span>${label}</span>`;
+  const words = options.busyLabel ? html`<span class="label-idle">${label}</span><span class="sr when-waiting">, ${options.busyLabel}</span>` : html`<span>${label}</span>`;
   const shell = classes("run-wrap", options.isFullWidth && "is-full", options.state);
   const hasTrailing = options.trailingText !== undefined;
   const ending = hasTrailing ? html`<span class="run-trailing">${options.trailingText}</span>` : options.icon ? "" : ARROW;
-  return controlMarkup(html`${opening(shell, options, options.isBusy, html`${disabledAttribute(options)}${options.isHidden ? raw(" hidden") : ""}`)}<span class="${options.isBig ? "face run slab lit big" : "face run slab lit"}${hasTrailing ? " has-trailing" : ""}" data-cut-line="${options.isBig ? 14 : 12}">${CUT_LINE}${loader()}${options.icon ? icon(options.icon) : ""}${words}${ending}</span>${closing(options)}`, options.isBig ? "big" : "regular");
+  return controlMarkup(html`${opening(shell, options, options.isBusy, html`${disabledAttribute(options)}${options.isHidden ? raw(" hidden") : ""}`)}<span class="${options.isBig ? "face run slab lit big" : "face run slab lit"}${hasTrailing ? " has-trailing" : ""}" data-cut-line="${options.isBig ? 14 : 12}">${CUT_LINE}${options.icon ? icon(options.icon) : ""}${words}${ending}</span>${closing(options)}`, options.isBig ? "big" : "regular");
 }
 
 export interface SecondaryButtonOptions extends ButtonTarget {
@@ -186,7 +186,7 @@ function secondaryButtonMarkup(label: string, options: SecondaryButtonOptions, i
   const reactionMarkup = hasCount ? html`<span class="cut-count">${countWords}</span>` : "";
   const cutLineNumber = options.isBig ? 13 : 10;
   const front = isToggle ? html`<span class="toggle-front slab-front" aria-hidden="true"></span>` : "";
-  return controlMarkup(html`${opening(className, options, options.isBusy, extra)}${front}<span class="face slab${options.isBig ? " big" : options.isSmall ? " compact" : ""}" data-cut-line="${cutLineNumber}">${CUT_LINE}${loader()}${options.wayIn ? html`<span class="way-mark way-${options.wayIn}">${WAY_MARKS[options.wayIn]}</span>` : options.icon && pressedIcon ? html`${raw(String(icon(options.icon)).replace("<svg ", '<svg data-shown-when="off" '))}${raw(String(icon(pressedIcon)).replace("<svg ", '<svg data-shown-when="on" '))}` : options.icon ? icon(options.icon) : ""}${words}${reactionMarkup}</span>${closing(options)}`, options.isBig ? "big" : options.isSmall || options.isInWell ? "small" : "regular");
+  return controlMarkup(html`${opening(className, options, options.isBusy, extra)}${front}<span class="face slab${options.isBig ? " big" : options.isSmall ? " compact" : ""}" data-cut-line="${cutLineNumber}">${CUT_LINE}${options.wayIn ? html`<span class="way-mark way-${options.wayIn}">${WAY_MARKS[options.wayIn]}</span>` : options.icon && pressedIcon ? html`${raw(String(icon(options.icon)).replace("<svg ", '<svg data-shown-when="off" '))}${raw(String(icon(pressedIcon)).replace("<svg ", '<svg data-shown-when="on" '))}` : options.icon ? icon(options.icon) : ""}${words}${reactionMarkup}</span>${closing(options)}`, options.isBig ? "big" : options.isSmall || options.isInWell ? "small" : "regular");
 }
 
 const GOOGLE = raw(
@@ -216,13 +216,16 @@ const WAY_TINTS: Record<WayIn, ButtonTint> = { google: "plain", discord: "indigo
  * the lift is set there for its face, which moves inside it.
  */
 /**
- * Busy: a button that sends a form, or a link-button that opens another page (never a mailto: or tel: one), shows the loader once it's pressed (aria-busy) and
- * can't be pressed twice. Coming back to the page from the browser's history puts it back as it was.
+ * Busy: a button that sends a form waits on its press (the materials' waiting state, window.zaismaWait): it stays sunk, its edge lights
+ * after a moment, and it can't be pressed twice. A link-button that opens another page doesn't wait: the header's light says the page is
+ * coming (HEADER_SCRIPT). Coming back to the page from the browser's history puts every button back as it was.
  */
 export const BUSY_SCRIPT = `/* busy */(function () {
+  var leaving = [];
   function busy(button) {
     if (!button || button.getAttribute("aria-busy") === "true") return;
-    button.setAttribute("aria-busy", "true");
+    // It waits until the page goes, or until the browser's history brings it back.
+    window.zaismaWait(button, new Promise(function (done) { leaving.push(done); }));
     if (button.tagName === "BUTTON") setTimeout(function () { button.disabled = true; }, 0);
   }
   // Checked once every handler has run, so a page script that handles the press itself (and prevents it) keeps it idle.
@@ -233,42 +236,45 @@ export const BUSY_SCRIPT = `/* busy */(function () {
     var button = (event.submitter && event.submitter.closest(".shell")) || event.target.querySelector('.shell[type="submit"]');
     afterHandlers(event, function () { busy(button); });
   });
-  document.addEventListener("click", function (event) {
-    var link = event.target.closest && event.target.closest("a.shell[href]");
-    if (!link || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || link.target === "_blank") return;
-    var to = new URL(link.href, location.href);
-    // A mailto: or tel: link opens another app and leaves the page where it is, so nothing waits.
-    if (to.protocol !== "http:" && to.protocol !== "https:") return;
-    if (to.origin === location.origin && to.pathname === location.pathname && to.search === location.search) return;
-    afterHandlers(event, function () { busy(link); });
-  });
   window.addEventListener("pageshow", function (event) {
     if (!event.persisted) return;
-    document.querySelectorAll('.shell[aria-busy="true"]').forEach(function (button) { button.removeAttribute("aria-busy"); button.disabled = false; });
+    leaving.splice(0).forEach(function (done) { done(); });
+    document.querySelectorAll('.shell[aria-busy="true"]').forEach(function (button) { button.disabled = false; });
   });
 })();
 `;
 
 export const RUNNER_SCRIPT = `/* runner */(function () {
   if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-  // Clicked, its light flares and settles (is-flaring), with a finger too; the click itself goes on at once.
+  var canHover = window.matchMedia("(hover: hover)").matches;
+  function flare(shell) { shell.classList.remove("is-flaring"); void shell.offsetWidth; shell.classList.add("is-flaring"); }
+  function isWaiting(shell) { return shell.getAttribute("aria-busy") === "true"; }
+  // Clicked, its light flares and settles (is-flaring), with a finger too; the click itself goes on at once. A press that waits on its
+  // answer (the Waiting component) flares only once the answer has come.
   document.addEventListener("click", function (event) {
     var shell = event.target.closest && event.target.closest(".run-wrap");
-    if (!shell || shell.disabled || shell.getAttribute("aria-busy") === "true") return;
-    shell.classList.remove("is-flaring"); void shell.offsetWidth; shell.classList.add("is-flaring");
+    if (!shell || shell.disabled || isWaiting(shell)) return;
+    setTimeout(function () { if (isWaiting(shell)) shell.flaresWhenDone = true; else flare(shell); }, 0);
   });
   document.addEventListener("animationend", function (event) { if (event.animationName === "run-flare" && event.target.classList) event.target.classList.remove("is-flaring"); });
-  if (!window.matchMedia("(hover: hover)").matches) return;
   function rise(shell) {
     if (shell.dataset.rise) return; shell.dataset.rise = "1";
     var face = shell.querySelector(".run"); if (!face) return;
-    shell.addEventListener("pointerenter", function () {
-      shell.classList.add("over"); shell.style.setProperty("--lift", "-1.5px");
-      if (!face.classList.contains("glint")) face.classList.add("glint");
-    });
+    function lift() { shell.classList.add("over"); shell.style.setProperty("--lift", "-1.5px"); if (!face.classList.contains("glint")) face.classList.add("glint"); }
+    function settle() { shell.classList.remove("over"); shell.style.removeProperty("--lift"); face.style.removeProperty("--refl"); face.classList.remove("glint"); }
+    // Waiting, it stays pressed and pointing at it does nothing; done, it flares if its press is what it waited on, and lifts again if the
+    // pointer is still on it.
+    new MutationObserver(function () {
+      if (isWaiting(shell)) { settle(); return; }
+      if (shell.flaresWhenDone) { shell.flaresWhenDone = false; flare(shell); }
+      if (canHover && shell.matches(":hover")) lift();
+    }).observe(shell, { attributes: true, attributeFilter: ["aria-busy"] });
+    if (!canHover) return;
+    shell.addEventListener("pointerenter", function () { if (!isWaiting(shell)) lift(); });
     face.addEventListener("animationend", function (event) { if (event.animationName === "slab-glint") face.classList.remove("glint"); });
-    shell.addEventListener("pointerleave", function () { shell.classList.remove("over"); shell.style.removeProperty("--lift"); face.style.removeProperty("--refl"); });
+    shell.addEventListener("pointerleave", settle);
     shell.addEventListener("pointermove", function (event) {
+      if (isWaiting(shell)) return;
       var r = shell.getBoundingClientRect(), px = (event.clientX - r.left) / r.width - 0.5;
       face.style.setProperty("--refl", (50 - px * 70).toFixed(1) + "%");
     });
@@ -313,7 +319,7 @@ const RUN_STYLES = `
 .is-full > .run { width: 100%; justify-content: center; }
 /* With words at its far end (a price): the label leads from the start and the words close it at the end, nothing between but the room. */
 .is-full > .run.has-trailing { justify-content: flex-start; }
-.run.has-trailing > :is(span:not([class]), .label-idle, .label-busy) { flex: 1 1 auto; text-align: start; }
+.run.has-trailing > :is(span:not([class]), .label-idle) { flex: 1 1 auto; text-align: start; }
 .run-trailing { flex: none; font-variant-numeric: tabular-nums; }
 .run-trailing:empty { display: none; }
 .run.big { --control-height: var(--control-height-big); justify-content: center; font-size: 1.1875rem; gap: 12px; }
@@ -328,11 +334,6 @@ const RUN_STYLES = `
 /* Keyboard focus: the focus line inside its cut, in the deeper orange, since it's orange itself. */
 .run-wrap:focus-visible > .run > .cut-line polygon, .run-wrap.is-focused > .run > .cut-line polygon { stroke: var(--focus-on-run); stroke-width: var(--focus-stroke); }
 /* Busy: pressed and waiting. The arrow drifts on; the label says what's happening when the page gave one. */
-.run-wrap[aria-busy="true"] { cursor: progress; }
-.run-wrap[aria-busy="true"] .label-idle, .run-wrap:not([aria-busy="true"]) .label-busy { display: none; }
-/* Waiting: the loader takes the arrow's or the icon's place. */
-.run-wrap:not([aria-busy="true"]) .loader, .run-wrap[aria-busy="true"] .arrow, .run-wrap[aria-busy="true"] .face > .ico, .run-wrap[aria-busy="true"] .face > .play { display: none; }
-.run .loader { position: relative; z-index: 2; }
 @keyframes run-drift { 0%, 100% { transform: translateX(0); opacity: 0.55; } 50% { transform: translateX(7px); opacity: 1; } }
 /* Can't press yet: orange is only what you can act on, so it isn't orange. It's carved flat into the glass, as a disabled secondary button is,
    its cut and edge kept, its words quieter, and it answers no pointer: no glow, no lift, no glint. */
@@ -445,9 +446,6 @@ component({
 /* Can't press: it answers no pointer (the slab lies carved flat). In a well of its own (a row's arrow at its end) it fades. */
 .cut-btn:disabled:not([aria-busy="true"]) { cursor: default; pointer-events: none; }
 .cut-btn.in-well:disabled:not([aria-busy="true"]) > .face { opacity: 0.35; }
-.cut-btn[aria-busy="true"] { cursor: progress; }
-/* Waiting: the loader before its words, in the icon's place. */
-.cut-btn:not([aria-busy="true"]) .loader, .cut-btn[aria-busy="true"] .face > .ico { display: none; }
 /* On a touch screen a small one (36px) still takes a finger: its hit area reaches out to a regular control's 44px, its look unchanged. */
 @media (pointer: coarse) { .cut-btn.small::after { content: ""; position: absolute; inset: calc((var(--control-height) - var(--touch-target)) / 2); } }
 @media (max-width: 760px) { .cut-btn.big { --slab-words: 20px; } }
@@ -474,9 +472,8 @@ component({
 /* Google's G on smoked glass sits on a white disc, as Google asks for a dark surface, so its blue and red never sink into the dark glass. */
 .way-mark.way-google { border-radius: 50%; padding: 2px; margin: -2px; background: var(--brand-mark-backing); }
 /* A mark that may be one color (Discord's) is white over smoked glass and its own blue over light (the fallback, since light glass leaves
-   --clear-glass-mark unset). Google's G stays in its colors. Waiting, the loader takes the mark's place; can't press, the mark fades. */
+   --clear-glass-mark unset). Google's G stays in its colors. Can't press, the mark fades. */
 .way-mark .one-color path { fill: var(--clear-glass-mark, #5865F2); transition: fill var(--motion-arrive); }
-.cut-btn[aria-busy="true"] .way-mark { display: none; }
 .cut-btn:disabled:not([aria-busy="true"]) .way-mark { opacity: 0.45; }
 .cut-btn:disabled:not([aria-busy="true"]) .way-mark .one-color path { fill: currentColor; }
 `,
@@ -544,7 +541,7 @@ const TERTIARY_ARROW = html`<span class="tertiary-arrow" aria-hidden="true">${ic
 export function tertiaryButton(label: string, options: TertiaryButtonOptions = {}): ControlMarkup {
   const isIconOnly = Boolean(options.isLabelHidden && options.icon);
   const extra = html`${disabledAttribute(options)}${isIconOnly ? html` aria-label="${label}"` : ""}${options.controls ? html` aria-controls="${options.controls}"` : ""}`;
-  return controlMarkup(html`${opening(classes("tertiary-btn", isIconOnly && "icon-only", options.isSmall && "small", options.isFullWidth && "is-full", options.state), options, options.isBusy, extra)}<span class="face flush-row" data-cut-line="${options.isSmall ? 9 : 10}">${CUT_LINE}<span class="tertiary-words">${loader()}${options.icon ? icon(options.icon) : ""}${isIconOnly ? "" : html`<span class="tertiary-label one-line">${label}</span>`}${options.hasArrow ? TERTIARY_ARROW : ""}</span>${isIconOnly || options.hasArrow ? "" : raw('<span class="tertiary-line light-fill across light-line light-glint" aria-hidden="true"></span>')}</span>${closing(options)}`, options.isSmall ? "small" : "regular");
+  return controlMarkup(html`${opening(classes("tertiary-btn", isIconOnly && "icon-only", options.isSmall && "small", options.isFullWidth && "is-full", options.state), options, options.isBusy, extra)}<span class="face flush-row" data-cut-line="${options.isSmall ? 9 : 10}">${CUT_LINE}<span class="tertiary-words">${options.icon ? icon(options.icon) : ""}${isIconOnly ? "" : html`<span class="tertiary-label one-line">${label}</span>`}${options.hasArrow ? TERTIARY_ARROW : ""}</span>${isIconOnly || options.hasArrow ? "" : raw('<span class="tertiary-line light-fill across light-line light-glint" aria-hidden="true"></span>')}</span>${closing(options)}`, options.isSmall ? "small" : "regular");
 }
 
 component({
@@ -582,13 +579,9 @@ component({
 .tertiary-arrow > .ico { width: 8px; height: 12px; stroke-width: 2.4; }
 .tertiary-btn:hover .tertiary-arrow, .tertiary-btn.is-pointed .tertiary-arrow { transform: translateX(4px); }
 .tertiary-btn:active .tertiary-arrow, .tertiary-btn.is-pressed .tertiary-arrow { transform: translateX(7px); transition-duration: var(--motion-state); }
-.tertiary-btn[aria-busy="true"] .tertiary-arrow { visibility: hidden; }
 /* Can't press: its words fade further than at rest, and it answers no pointer. */
 .tertiary-btn:disabled:not([aria-busy="true"]) { cursor: default; pointer-events: none; }
 .tertiary-btn:disabled:not([aria-busy="true"]) > .face { color: var(--muted); opacity: 0.6; }
-/* Waiting: the loader before its words, in the icon's place. */
-.tertiary-btn:not([aria-busy="true"]) .loader, .tertiary-btn[aria-busy="true"] .tertiary-words > .ico { display: none; }
-.tertiary-btn[aria-busy="true"] { cursor: progress; }
 @media (prefers-reduced-motion: reduce) { .tertiary-btn > .face, .tertiary-line, .tertiary-arrow { transition: --face-color var(--motion-state), color var(--motion-state); } .tertiary-line::after { animation: none !important; } }
 `,
   render: tertiaryButton,
@@ -597,7 +590,7 @@ component({
     { label: "Busy", markup: tertiaryButton("Undo", { type: "button", isBusy: true }), isStill: true },
     { label: "Can't press", markup: tertiaryButton("Undo", { type: "button", isDisabled: true }), isStill: true },
     { label: "With an arrow: a way on, under the ways in", markup: controlsStacked([...waysIn(), tertiaryButton("Continue as guest", { href: "#", hasArrow: true, isFullWidth: true })]) },
-    { label: "With an arrow, busy: the loader before its words", markup: html`<div style="${COLUMN}">${tertiaryButton("Continue as guest", { type: "button", hasArrow: true, isFullWidth: true, isBusy: true })}</div>`, isStill: true },
+    { label: "With an arrow, busy: sunk, its edge lit", markup: html`<div style="${COLUMN}">${tertiaryButton("Continue as guest", { type: "button", hasArrow: true, isFullWidth: true, isBusy: true })}</div>`, isStill: true },
     { label: "With an icon", markup: tertiaryButton("Show all 1,284 replies", { type: "button", icon: "chevron-down" }) },
     { label: "Beside a secondary button: the way out", markup: controlsBeside(secondaryButton("Save", { type: "button" }), tertiaryButton("Cancel", { type: "button" })) },
     { label: "Long words: one line, ending in an ellipsis", markup: html`<div style="${COLUMN}">${tertiaryButton("Skip the tutorial and go straight to the first match", { type: "button" })}</div>` },

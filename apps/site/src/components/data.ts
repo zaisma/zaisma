@@ -2,7 +2,7 @@ import { accountPicture, html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
 import { secondaryButton, primaryButton, textLink } from "./actions.ts";
 import { ControlMarkup } from "./control-markup.ts";
-import { CUT_LINE, MINUTE_MS, ago, glassPane, groove, icon, loader, tag, type IconName, type TagTone } from "./foundations.ts";
+import { CUT_LINE, MINUTE_MS, ago, glassPane, groove, icon, tag, type IconName, type TagTone } from "./foundations.ts";
 import { WHEN_EMPTY_STYLES, row, stack, stackOfOne } from "./layout.ts";
 
 /*
@@ -318,7 +318,7 @@ export interface RowSwitch {
   isOn: boolean;
   /** Unique on the page. Defaults to switch-<name>. */
   id?: string;
-  /** Its change is being saved: its slab shows the loader, and it can't be flipped again until it's saved. A page script sets it. */
+  /** Its change is being saved: it waits (the materials' waiting state), and it can't be flipped again until it's saved. A page script sets it. */
   isBusy?: boolean;
   /** It can't be changed now: it shows on or off, and its form sends nothing for it. */
   isDisabled?: boolean;
@@ -351,7 +351,7 @@ export type ListRow = ListRowParts & (
 
 /** A switch's carved slot and its slab: the checkbox (role switch) lies over the slot, unseen, and the row round it is its label. */
 function switchSlot(id: string, rowSwitch: RowSwitch): Raw {
-  return html`<span class="toggle-slot carving slot" data-cut-line="8">${CUT_LINE}<input class="toggle-input" type="checkbox" role="switch" id="${id}" name="${rowSwitch.name}" value="on"${rowSwitch.isOn ? raw(" checked") : ""}${rowSwitch.isBusy ? raw(' aria-busy="true"') : ""}${rowSwitch.isBusy || rowSwitch.isDisabled ? raw(" disabled") : ""}><span class="toggle-thumb thumb" aria-hidden="true"><span class="toggle-slab thumb-slab cut-raised" data-cut-line="6" data-cut-ends="start end">${CUT_LINE}${loader()}</span></span></span>`;
+  return html`<span class="toggle-slot carving slot" data-cut-line="8">${CUT_LINE}<input class="toggle-input" type="checkbox" role="switch" id="${id}" name="${rowSwitch.name}" value="on"${rowSwitch.isOn ? raw(" checked") : ""}${rowSwitch.isBusy ? raw(' aria-busy="true"') : ""}${rowSwitch.isBusy || rowSwitch.isDisabled ? raw(" disabled") : ""}><span class="toggle-thumb thumb" aria-hidden="true"><span class="thumb-slab cut-raised" data-cut-line="6" data-cut-ends="start end">${CUT_LINE}</span></span></span>`;
 }
 
 /** A row's buttons side by side, slanting toward each other. */
@@ -658,13 +658,13 @@ component({
   slug: "loading-state",
   group: "data",
   subgroup: "states",
-  summary: "Where content is on its way: a hairline with a light running along it, and what's coming. Never a spinner over content; a button that's waiting shows the loader instead.",
+  summary: "Where content is on its way: a hairline with a light running along it, and what's coming. Never a spinner over content; something pressed that's waiting lights its own edge instead.",
   styles: `
 /* Loading: a hairline across where the content will be, a light running along it the way it runs along a cover's line, and its words
    under it. Under reduced motion the light rests in the middle. */
 .loading-state { display: grid; gap: var(--gap-words-control); justify-items: center; }
-.loading-line { position: relative; display: block; width: min(240px, 100%); height: 2px; overflow: hidden; background: var(--line); }
-.loading-line::after { content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 40%; background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--ink) 70%, transparent), transparent); animation: loading-run var(--motion-loop) var(--ease-standard) infinite; }
+.loading-line { position: relative; display: block; width: min(240px, 100%); height: var(--waiting-light-width); overflow: hidden; background: var(--line); }
+.loading-line::after { content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 40%; background: linear-gradient(90deg, transparent, var(--waiting-glow), var(--waiting-light), var(--waiting-glow), transparent); animation: loading-run var(--motion-loop) linear infinite; }
 @keyframes loading-run { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
 .loading-label { font: var(--type-facts); color: var(--muted); }
 @media (prefers-reduced-motion: reduce) { .loading-line::after { animation: none; transform: translateX(75%); } }

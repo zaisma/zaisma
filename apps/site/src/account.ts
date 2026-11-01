@@ -977,9 +977,9 @@ function guestItems(game: Game | null | undefined, hasOr = true): LayoutItem[] {
 /** A problem with the whole form rather than one field (the invisible check, too many tries). */
 const paneProblem = (text?: string) => (text ? notice({ text, tone: "problem", isInPlace: true }) : "");
 
-/** The passkey's way in: shown by PASSKEY_SIGN_IN_SCRIPT where the browser has passkeys, with the ways in round it. */
+/** The passkey's way in, from the first paint (every browser players bring has passkeys): PASSKEY_SIGN_IN_SCRIPT hides it in one that hasn't. */
 const passkeyWay = (next: string, isAutofill: boolean) =>
-  html`<div id="passkey-go" data-next="${next}"${isAutofill ? raw(" data-autofill") : ""} hidden>${secondaryButton("Sign in with a passkey", { type: "button", wayIn: "passkey", isFullWidth: true })}</div>`;
+  html`<div id="passkey-go" data-next="${next}"${isAutofill ? raw(" data-autofill") : ""}>${secondaryButton("Sign in with a passkey", { type: "button", wayIn: "passkey", isFullWidth: true })}</div>`;
 
 const providerButtons = (providers: Provider[], next: string | null) =>
   html`${providers.map((provider) => secondaryButton(`Continue with ${PROVIDERS[provider]}`, { href: `/signin/with/${provider}${nextQuery(next)}`, wayIn: provider, isFullWidth: true }))}`;
@@ -1008,7 +1008,7 @@ ${botCheck(env, "sign_in")}
 ${primaryButton("Sign in", { isFullWidth: true, isBig: true, busyLabel: "Signing in" })}
 <p>${textLink("Forgot your password?", `/signin/email${nextQuery(next)}`)}</p>
 </form>
-<div class="pane-stack" id="ways"${providers.length ? "" : raw(" hidden")}>
+<div class="pane-stack" id="ways">
 <p class="or">or</p>
 <div class="ways">${passkeyWay(next ?? "/", true)}${providerButtons(providers, next)}</div>
 <p class="field-error" role="alert" id="passkey-error" hidden></p>
@@ -1103,7 +1103,7 @@ ${cutField({ id: "signin-email", name: "email", label: "Email", type: "email", i
 ${botCheck(env, "email_code")}
 ${primaryButton("Email me a code", { isFullWidth: true, isBig: true, busyLabel: "Sending" })}
 </form>` },
-      { kind: "block", markup: html`<div class="pane-stack" id="ways" hidden>
+      { kind: "block", markup: html`<div class="pane-stack" id="ways">
 <p class="or">or</p>
 <div class="ways">${passkeyWay(back, false)}</div>
 <p class="field-error" role="alert" id="passkey-error" hidden></p>

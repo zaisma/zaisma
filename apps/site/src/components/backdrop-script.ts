@@ -26,6 +26,9 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
   // Until the first frame, which runs before the page's first paint, a layer set up draws in that frame rather than at once, so its shader
   // builds while the page does its other work; one set up later (the home's game backgrounds) draws at once, never showing empty.
   var isFirstPaintDue = true;
+  // True while the frame before the first paint draws: a program still compiling in the background is waited for then, so the page's
+  // first paint shows the shader, never the gradient under it for a frame or two (the home switched to it a beat late, Oct 31, 2026).
+  var isBuildWaited = false;
   /*
    * Frames are asked for only while something will be drawn: a shader or scene moving in view, a fade, or glass that moved over it. Otherwise
    * the loop rests and asks the browser for nothing, so a page holding still costs nothing, until one of those starts again and wakes it.
@@ -213,7 +216,7 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
   function settle(built) {
     if (built.status !== "compiling") return built.status === "ready";
     var gl = shared.gl, pending = built.pending;
-    if (shared.parallel && !gl.getProgramParameter(pending.program, shared.parallel.COMPLETION_STATUS_KHR)) return false;
+    if (shared.parallel && !isBuildWaited && !gl.getProgramParameter(pending.program, shared.parallel.COMPLETION_STATUS_KHR)) return false;
     if (gl.getProgramParameter(pending.program, gl.LINK_STATUS)) {
       built.program = pending.program; built.status = "ready"; built.at = {};
       built.names.forEach(function (name) { built.at[name] = gl.getUniformLocation(pending.program, name); });
@@ -359,7 +362,7 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
     var gapGoalMs = isIdle ? IDLE_FRAME_GAP_MS : FRAME_GAP_MS;
     if (nowMs - lastMs < gapGoalMs && !isPlaceStale) { running = true; requestAnimationFrame(frame); return; }
     // The first frame after a rest isn't a slow one: nothing was drawn while it rested.
-    var gapMs = isWaking ? FRAME_GAP_MS : nowMs - lastMs; lastMs = nowMs; isWaking = false; isFirstPaintDue = false;
+    var gapMs = isWaking ? FRAME_GAP_MS : nowMs - lastMs; lastMs = nowMs; isWaking = false; isBuildWaited = isFirstPaintDue; isFirstPaintDue = false;
     tickClock(nowMs);
     if (isListStale) readList();
     var isMoved = isPlaceStale; isPlaceStale = false;
@@ -381,6 +384,7 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
       }
       draw(layer, nowMs);
     });
+    isBuildWaited = false;
     if (isPlaceStale || isListStale || layers.some(isMoving)) { running = true; requestAnimationFrame(frame); }
   }
   // The colors are read again whenever the theme might have changed; the fade starts at once, from what's showing, and only when they did change.

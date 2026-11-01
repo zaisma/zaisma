@@ -1026,6 +1026,8 @@ export interface GameImage {
   average_color: string | null;
   is_glass_smoked: number | null;
   glass_tint_pct: number | null;
+  /** The picture as a tiny blurred copy, a data: URL of a WebP PICTURE_PLACEHOLDER.widthPx wide, that pages show until it loads (0193); NULL until made. */
+  placeholder_data_url: string | null;
   created_at_ms: number;
 }
 
@@ -1084,6 +1086,12 @@ export const cardImageKey = (image: Pick<GameImage, "game_id" | "id">) => `image
  * downloads the size it shows: a cover on a phone, a wide screen's background. Never wider than the picture itself.
  */
 export const SIZED_IMAGE_WIDTHS_PX = [320, 480, 640, 960, 1440, 1920] as const;
+/**
+ * The tiny copy of a picture every page shows in its place until it loads ("Pages show whole while loading" in docs/DESIGN.md): this wide,
+ * in this format and quality, sent inside the page as a data: URL. One longer than maximumLength characters isn't kept. A background's is
+ * blurred by backgroundBlurPx, the same on Zaisma's page and in the shader runner's frame over it, so one hands over to the other unseen.
+ */
+export const PICTURE_PLACEHOLDER = { widthPx: 24, format: "image/webp", quality: 40, maximumLength: 2000, backgroundBlurPx: 32 } as const;
 export const sizedImageKey = (image: Pick<GameImage, "game_id" | "id">, widthPx: number) => `images/${image.game_id}/${image.id}.w${widthPx}.webp`;
 /** Every copy kept of a picture besides itself: its share card and its sizes, deleted with it. */
 export const imageCopyKeys = (image: Pick<GameImage, "game_id" | "id">): string[] => [cardImageKey(image), ...SIZED_IMAGE_WIDTHS_PX.map((widthPx) => sizedImageKey(image, widthPx))];
@@ -1135,8 +1143,8 @@ export function sniffImage(bytes: Uint8Array): { type: "image/png" | "image/jpeg
   return null;
 }
 
-export async function addImage(database: D1Database, image: Omit<GameImage, "review_status" | "review_reason" | "listing_reason" | "cleared_at_ms" | "created_at_ms" | keyof BackgroundTone>): Promise<GameImage> {
-  const row: GameImage = { ...image, review_status: "pending", review_reason: null, listing_reason: null, cleared_at_ms: null, average_color: null, is_glass_smoked: null, glass_tint_pct: null, created_at_ms: now() };
+export async function addImage(database: D1Database, image: Omit<GameImage, "review_status" | "review_reason" | "listing_reason" | "cleared_at_ms" | "created_at_ms" | "placeholder_data_url" | keyof BackgroundTone>): Promise<GameImage> {
+  const row: GameImage = { ...image, review_status: "pending", review_reason: null, listing_reason: null, cleared_at_ms: null, average_color: null, is_glass_smoked: null, glass_tint_pct: null, placeholder_data_url: null, created_at_ms: now() };
   await database
     .prepare("INSERT INTO game_images (id, game_id, kind, content_type, width_px, height_px, size_bytes, review_status, created_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
     .bind(row.id, row.game_id, row.kind, row.content_type, row.width_px, row.height_px, row.size_bytes, row.review_status, row.created_at_ms)
@@ -1231,6 +1239,8 @@ export interface GameShader {
   average_color: string | null;
   is_glass_smoked: number | null;
   glass_tint_pct: number | null;
+  /** Its still as a tiny blurred copy (PICTURE_PLACEHOLDER), shown until its first frame draws (0193); NULL until made. */
+  placeholder_data_url: string | null;
   created_at_ms: number;
 }
 
@@ -1492,7 +1502,7 @@ void main() {
 }`;
 
 export async function addShader(database: D1Database, shader: Pick<GameShader, "id" | "game_id" | "screen" | "size_bytes" | "buffer_count" | "texture_count">): Promise<GameShader> {
-  const row: GameShader = { ...shader, review_status: "pending", review_reason: null, quality_checks: null, flash_count: null, checked_at_ms: null, average_color: null, is_glass_smoked: null, glass_tint_pct: null, created_at_ms: now() };
+  const row: GameShader = { ...shader, review_status: "pending", review_reason: null, quality_checks: null, flash_count: null, checked_at_ms: null, average_color: null, is_glass_smoked: null, glass_tint_pct: null, placeholder_data_url: null, created_at_ms: now() };
   await database
     .prepare("INSERT INTO game_shaders (id, game_id, screen, size_bytes, buffer_count, texture_count, review_status, created_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
     .bind(row.id, row.game_id, row.screen, row.size_bytes, row.buffer_count, row.texture_count, row.review_status, row.created_at_ms)

@@ -1,5 +1,6 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { STAND_IN_COVER_PICTURES } from "../../apps/site/src/generated/stand-in-placeholders.generated.ts";
 import { describe, expect, it } from "vitest";
 import { secondaryButton } from "../../apps/site/src/components/actions.ts";
 import { glassPane } from "../../apps/site/src/components/foundations.ts";
@@ -52,7 +53,7 @@ const onlyPassed = (measured: Record<string, string>) => Object.fromEntries(Obje
 
 describe("the measured rules", () => {
   it("each have a tier, so a new rule can't land without one, and every tier names a rule that's measured", () => {
-    const names = [...layoutMeasureSource.matchAll(/report\("([^"]+)"/g), ...layoutCheckSource.matchAll(/check: "([^"$]+)"/g)].map((match) => match[1]!);
+    const names = [...layoutMeasureSource.matchAll(/report\("([^"]+)"|check: "([^"$]+)"/g), ...layoutCheckSource.matchAll(/check: "([^"$]+)"/g)].map((match) => (match[1] ?? match[2])!);
     expect(names.filter((name) => !(name in LAYOUT_RULE_TIERS))).toEqual([]);
     expect(Object.keys(LAYOUT_RULE_TIERS).filter((name) => !names.includes(name))).toEqual([]);
   });
@@ -68,12 +69,12 @@ describe("the measured rules", () => {
     expect((RUNS.sweep.sizes as { name: string }[]).map((size) => size.name)).toEqual([...MEASURED_SCREEN_NAMES, ...TEXT_SCREEN_NAMES.map((name) => `${name} at 200% text`)]);
   });
 
-  it("judge only what a player would notice: see, read, reach and press, with style held by the components", () => {
+  it("judge only what a player would notice: see, read, reach, load and press, with style held by the components", () => {
     const playerRules = Object.keys(LAYOUT_RULE_TIERS).filter((name) => !/^the (check|page) /.test(name) || /^the page scrolls/.test(name));
     expect(playerRules.sort()).toEqual([
       "a control the keyboard doesn't reach", "a focused control with no visible focus", "a pane past the screen", "a pane that overflows without scrolling",
-      "a touch target under 44px", "no answer within 400 ms", "overlaps another thing", "spills out of its pane", "the first cover below the fold",
-      "the page scrolls sideways", "the runner below the fold", "two panes overlapping", "words cut off", "words over something with an edge",
+      "a picture without its placeholder", "a touch target under 44px", "moved after the first paint", "no answer within 400 ms", "overlaps another thing", "spills out of its pane", "the first cover below the fold",
+      "the page scrolls sideways", "the runner below the fold", "two panes overlapping", "words changed after the first paint", "words cut off", "words over something with an edge",
     ]);
     expect(LAYOUT_RULE_TIERS["no answer within 400 ms"]).toBe("sweep");
   });

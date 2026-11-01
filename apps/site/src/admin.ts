@@ -1,3 +1,4 @@
+import { keepImagePlaceholder } from "./placeholders.ts";
 import {
   BUILT_IN_GAME_SERVERS,
   KNOWN_IMAGE_CODE,
@@ -318,6 +319,7 @@ export async function adminForm(env: Env, path: string, form: FormData, actor: s
     const rejectedReason = match[2] === "reject" ? decidedReason("image_rejected", pickedRule(form), reason) : null;
     const replaced = await settleImage(env.DB, image, rejectedReason);
     if (rejectedReason) await recordRestoreEvent(env, { event_kind: "image_rejected", at_ms: Date.now(), image_id: image.id, review_reason: rejectedReason });
+    else await keepImagePlaceholder(env, image);
     await Promise.all(replaced.map((replacedImage) => env.GAMES.delete([imageKey(replacedImage), ...imageCopyKeys(replacedImage)])));
     await audit(env.DB, image.game_id, rejectedReason ? "image-rejected" : "image-approved", reason || `${image.kind} ${image.id}`, actor, rejectedReason);
     return redirect(String(form.get("back") ?? "") === "game" ? `/admin/games/${image.game_id}` : "/admin");

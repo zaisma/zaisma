@@ -6,7 +6,7 @@ import { PRESENCE_CHECK_IN_MS, describePlayModes, type PlayMode } from "@zaisma/
 import { gameFrameSource, type Env } from "./env.ts";
 import { pageScript, pageScriptPath, type PageScript } from "./page-scripts.ts";
 import { pageStyle, pageStylePath, type PageStyle } from "./page-styles.ts";
-import { COMPONENT_SCRIPT, COMPONENT_STYLES, HEADER_SCRIPT } from "./components/index.ts";
+import { COMPONENT_SCRIPT, COMPONENT_STYLES, FIRST_PAINT_SCRIPT, HEADER_SCRIPT } from "./components/index.ts";
 import { HEADER_TWO_ROWS_MEDIA, footer, header, rail, type HeaderTab } from "./components/navigation.ts";
 import type { ControlMarkup } from "./components/control-markup.ts";
 import { secondaryButton, primaryButton } from "./components/actions.ts";
@@ -20,9 +20,10 @@ import type { CheckedPageName } from "./components/checked-pages.ts";
 export const scriptTags = (...scripts: PageScript[]): Raw => raw(scripts.map((script) => `<script src="${pageScriptPath(script)}" defer></script>`).join(""));
 
 /**
- * The same, for the page's <head>, holding its first paint until they've run: a page whose look the scripts finish (the
- * components' cuts, their light and the backdrop) then never shows half-drawn for a frame as it loads. The browser fetches them
- * first, ahead of the page's other scripts, which would otherwise share the line with them as the first paint waits.
+ * The same, for the page's <head>: FIRST_PAINT_SCRIPT (components/index.ts), which draws the components' cuts, edges and rails and places
+ * the layout. Render-blocking, so the first paint waits for it: without that, Chrome painted a page it had read before its deferred scripts
+ * ran, square and flat with the browser's own scroll bar, and drew the glass a moment later, even on a fast connection. Small and asked
+ * for first (Early Hints, high priority), it costs a first visit on Slow 3G little (page:probe --slow).
  */
 export const headScriptTags = (...scripts: PageScript[]): Raw =>
   raw(scripts.map((script) => `<script src="${pageScriptPath(script)}" defer blocking="render" fetchpriority="high"></script>`).join(""));
@@ -650,6 +651,8 @@ interface LayoutBaseOptions {
   viewer?: Pick<Viewer, "account"> | null;
   /** A scene of the page's own in place of Zaisma's backdrop, like the sign-in's city (components/city.ts). */
   stage?: Raw;
+  /** The stage's own color ("#rrggbb", a game's measured background), behind it from the first paint (--backdrop-edge, which BACKDROP_SCRIPT keeps). */
+  stageColor?: string | null;
   /** A Steel page's own stylesheets (page-styles.ts), until its page is rebuilt: linked right after the site's, so they win over it as before. */
   steelStyles?: PageStyle[];
 }
@@ -674,7 +677,7 @@ export function layout(env: Env, options: LayoutOptions): Response {
   const themeColors = colorTheme === "system" ? html`<meta name="theme-color" content="#E7E4DF" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#121110" media="(prefers-color-scheme: dark)">` : html`<meta name="theme-color" content="${colorTheme === "dark" ? "#121110" : "#E7E4DF"}">`;
   const page = html`<!doctype html>
-<html lang="en" data-theme-choice="${colorTheme}"${options.pageShape ? html` data-page-shape="${options.pageShape}"` : ""}>
+<html lang="en" data-theme-choice="${colorTheme}"${options.pageShape ? html` data-page-shape="${options.pageShape}"` : ""}${options.stageColor && /^#[0-9a-fA-F]{6}$/.test(options.stageColor) ? html` style="--backdrop-edge: ${options.stageColor}"` : ""}>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
@@ -689,7 +692,7 @@ ${themeColors}
 ${options.head ?? ""}
 <script src="${pageScriptPath(THEME_SCRIPT)}"></script>
 ${styleTags(sheet, ...(options.steelStyles ?? []))}
-${headScriptTags(COMPONENT_SCRIPT, HEADER_SCRIPT)}
+${headScriptTags(FIRST_PAINT_SCRIPT)}
 </head>
 <body>
 ${options.stage ?? backdrop()}
@@ -698,6 +701,7 @@ ${options.isBare
     : html`${siteHeader(env, { ...options, hasPageRunner: /class="[^"]*\brun-wrap\b/.test(options.body.html) })}
 <main${isRebuilt ? "" : raw(' class="steel" data-covers-backdrop')}>${options.action && !isRebuilt ? html`<div class="page-action">${options.action}</div>` : ""}${options.body}</main>
 ${siteFooter()}`}
+${scriptTags(COMPONENT_SCRIPT, HEADER_SCRIPT)}
 ${env.SUPABASE_URL && !options.isAdmin ? scriptTags(SITE_SCRIPT, PRESENCE_SCRIPT) : scriptTags(SITE_SCRIPT)}
 ${stylesAppliedTag()}
 </body>
@@ -705,7 +709,7 @@ ${stylesAppliedTag()}
   const isPrivate = options.isAdmin || options.isPrivate || Boolean(options.viewer?.account);
   // What the first paint waits for, named in a header too: Cloudflare's Early Hints sends it ahead while the page is still being made. The
   // styles-applied script holds the head scripts until it's here, so it comes with the stylesheet, not a trip after it.
-  const firstPaintFiles = `<${pageStylePath(sheet)}>; rel=preload; as=style, <${pageScriptPath(STYLES_APPLIED_SCRIPT)}>; rel=preload; as=script, <${pageScriptPath(COMPONENT_SCRIPT)}>; rel=preload; as=script, <${pageScriptPath(HEADER_SCRIPT)}>; rel=preload; as=script, <${FONT_PATH}>; rel=preload; as=font; type="font/woff2"; crossorigin`;
+  const firstPaintFiles = `<${pageStylePath(sheet)}>; rel=preload; as=style, <${pageScriptPath(STYLES_APPLIED_SCRIPT)}>; rel=preload; as=script, <${pageScriptPath(FIRST_PAINT_SCRIPT)}>; rel=preload; as=script, <${FONT_PATH}>; rel=preload; as=font; type="font/woff2"; crossorigin`;
   // A link to a game's page is fetched ahead as the pointer rests on it or presses it (SPECULATION_RULES), from the header, so no script is on the page.
   const extra: Record<string, string> = { Link: firstPaintFiles, "Speculation-Rules": `"${SPECULATION_RULES_PATH}"`, ...(isPrivate ? { "Cache-Control": "no-store" } : {}) };
   return new Response(page.html, { headers: securityHeaders(env, extra, options.hasTurnstileCheck, options.frames, options.formTargets, options.isFramedBySelf ? "'self'" : "'none'", options.hasStripePayments, options.hasStripeFrame) });

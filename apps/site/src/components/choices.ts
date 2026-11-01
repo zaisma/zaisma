@@ -2,7 +2,7 @@ import { stackOfOne } from "./layout.ts";
 import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
 import { controlMarkup, type ControlMarkup } from "./control-markup.ts";
-import { CUT_LINE, EDGE, EDGE_LIGHT, floatingPane, glassPane, icon, loader, well, type IconName } from "./foundations.ts";
+import { CUT_LINE, EDGE, EDGE_LIGHT, floatingPane, glassPane, icon, well, type IconName } from "./foundations.ts";
 import { examplePane } from "./example-pane.ts";
 import { listRows, type ListRow, type RowSwitch } from "./data.ts";
 import { LEAST_SCROLL_PX } from "./tokens.ts";
@@ -646,10 +646,6 @@ component({
 .toggle-slot:has(.toggle-input:checked) > .cut-line polygon { stroke: transparent; }
 .toggle-input { position: absolute; inset: 0; z-index: 4; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
 .toggle-thumb { position: absolute; z-index: 2; left: 4px; top: 4px; transition: transform var(--motion-arrive) var(--spring), filter var(--motion-state); }
-/* Saving: the loader on the slab, in the slab's own dark words (it's white on either glass), until the change is saved. */
-.toggle-slab > .loader { --loader-width: 14px; position: relative; z-index: 2; color: var(--thumb-ink); }
-.toggle:not(:has(.toggle-input[aria-busy="true"])) .toggle-slab > .loader { display: none; }
-.toggle:has(.toggle-input[aria-busy="true"]), .toggle:has(.toggle-input[aria-busy="true"]) .toggle-input { cursor: progress; }
 .toggle-slot:has(.toggle-input:checked) { --face-color: var(--run); }
 .toggle-slot:has(.toggle-input:checked) > .toggle-thumb { transform: translateX(24px); }
 .toggle:not(.is-disabled):hover .toggle-thumb, .toggle.is-pointed .toggle-thumb { filter: var(--thumb-cast-pointed); }

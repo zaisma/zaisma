@@ -1,3 +1,4 @@
+import { GLASS_LOGO_SVGS } from "../generated/logo-svgs.generated.ts";
 import { raw, type Raw } from "../markup.ts";
 
 const stroke = (viewBox: string, paths: string, extra = "") => `<svg class="ico" viewBox="${viewBox}" aria-hidden="true"${extra}>${paths}</svg>`;
@@ -121,10 +122,20 @@ export const largeIcon = (name: IconName): Raw => raw(`<span class="large-icon">
 const MARK_PATHS = '<path d="M1884.08,3033.91c767.645,0 1535.29,0 2302.930,0c33.233,248.238 66.466,496.475 99.699,744.712l-4286.71,-0c627.367,-243.599 1255.990,-491.890 1884.080,-744.712Z"/><path d="M415.598,3484.54c777.297,-719.363 1475.76,-1400.24 2108.05,-2044.32c404.715,-158.588 821.55,-323.759 1248.51,-495.17c-547.607,610.584 -1151.51,1254.04 -1823.08,1932.14c-520.17,209.105 -1032.22,411.7 -1533.48,607.345Z"/><path d="M2575.7,1305.06l-1740.58,0c21.608,-194.559 43.215,-389.119 64.823,-583.678l3147.9,0c-485.752,195.366 -976.426,389.899 -1472.14,583.678Z"/>';
 export const MARK_FLAT = raw(`<svg viewBox="-120 600 4527 3300" aria-hidden="true"><g fill="currentColor">${MARK_PATHS}</g></svg>`);
 /**
- * Zaisma's wordmark and mark in glass (brand/README.md, made by scripts/brand.mjs), from the brand files, which browsers keep: black glass
- * on light glass, white on smoked, by --on-light and --on-smoked. The link round it names it.
+ * Zaisma's wordmark and mark in glass (brand/README.md, made by scripts/brand.mjs): black glass on light glass, white on smoked, by
+ * --on-light and --on-smoked. The drawings are the brand files' text as images in the stylesheet (LOGO_STYLES), so the first paint shows
+ * them without waiting on a file of their own, and no page carries them: the stylesheet is cached. The link round them names them.
  */
-const glassLogo = (fileName: "wordmark" | "mark"): Raw =>
-  raw(`<img class="on-light" src="/zaisma-${fileName}-glass-black.svg" alt=""><img class="on-smoked" src="/zaisma-${fileName}-glass-white.svg" alt="">`);
-export const WORDMARK = glassLogo("wordmark");
-export const MARK = glassLogo("mark");
+const LOGO_ART = '<span class="logo-art on-light"></span><span class="logo-art on-smoked"></span>';
+export const WORDMARK = raw(LOGO_ART);
+export const MARK = raw(LOGO_ART);
+/** A brand file as a CSS image: its text in a data: URL, with what a URL can't hold escaped. */
+const logoImage = (svg: string) => `url("data:image/svg+xml,${svg.replace(/"/g, "'").replace(/[#%<>\n]/g, encodeURIComponent)}")`;
+/** Each drawing's shape, from its viewBox, so it keeps it at the height the logo sets. */
+const logoShape = (svg: string) => (/viewBox="[^ ]+ [^ ]+ ([^ ]+) ([^"]+)"/.exec(svg)?.slice(1, 3) ?? ["1", "1"]).join(" / ");
+/** The Logo component's drawings (foundations.ts), for its styles. */
+export const LOGO_STYLES = (["wordmark", "mark"] as const)
+  .map((fileName) => `.logo.${fileName} > .logo-art { aspect-ratio: ${logoShape(GLASS_LOGO_SVGS[fileName].black)}; }
+.logo.${fileName} > .logo-art.on-light { background-image: ${logoImage(GLASS_LOGO_SVGS[fileName].black)}; }
+.logo.${fileName} > .logo-art.on-smoked { background-image: ${logoImage(GLASS_LOGO_SVGS[fileName].white)}; }`)
+  .join("\n");

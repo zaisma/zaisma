@@ -147,10 +147,8 @@ const BLOCK_SHEET_SCRIPT = pageScript("block-sheet", `(() => {
   }
   yes.addEventListener("click", async () => {
     if (!asking || yes.getAttribute("aria-busy") === "true") return;
-    yes.setAttribute("aria-busy", "true");
     $("block-error").hidden = true;
-    const res = await fetch("/friends/blocks/" + asking.id, { method: "POST" }).catch(() => null);
-    yes.removeAttribute("aria-busy");
+    const res = await window.zaismaWait(yes, fetch("/friends/blocks/" + asking.id, { method: "POST" }).catch(() => null));
     if (!res || !res.ok) {
       $("block-error").hidden = false;
       return;

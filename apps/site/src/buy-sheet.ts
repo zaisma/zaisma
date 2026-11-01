@@ -1,4 +1,5 @@
 import { html, pageData, type Raw } from "./html.ts";
+import type { ShownPicture } from "./components/foundations.ts";
 import { pageScript } from "./page-scripts.ts";
 import type { Env } from "./env.ts";
 import { cardRow, secondaryButton, primaryButton, tertiaryButton } from "./components/actions.ts";
@@ -21,7 +22,7 @@ import { isLocalPreview } from "./stripe.ts";
  * entering a card, Apple Pay or Google Pay, a guest's way to an account, and how it ended. Nothing in it is about one player, so the page around it stays cacheable: everything personal comes from /api/buy (buy.ts) once the
  * sheet opens.
  */
-export function buySheet(options: { joinHref: string; signInHref: string; coverUrl?: string | null }): Raw {
+export function buySheet(options: { joinHref: string; signInHref: string; cover?: ShownPicture | null }): Raw {
   const momentItems: LayoutItem[] = [
       { kind: "block", id: "buy-loading", markup: loadingState({ label: "Getting the price" }) },
       {
@@ -68,7 +69,7 @@ export function buySheet(options: { joinHref: string; signInHref: string; coverU
   // you close under it; a connection lost while paying keeps the sheet, which says what it knows.
   const signedOut = notice({ placement: "over-everything", id: "buy-signed-out", title: "You've been signed out", text: "Nothing was charged. Sign in again to buy.", buttons: [primaryButton("Sign in", { href: options.signInHref })], sheetsToClose: ["buy-sheet", "buy-confirm-you"] });
   const unreachable = notice({ placement: "over-everything", id: "buy-unreachable", title: "Couldn't reach Zaisma", text: "If you were charged, the item arrives when you're back." });
-  return html`${storePanel({ id: "buy-sheet", closeLabel: "Close", isOverGame: true, soldItem: { imageUrl: options.coverUrl ?? null, name: "Buy", priceText: "" }, momentItems, footItems })}${confirmItsYouSheet({ id: "buy-confirm-you" })}${stripeFrame({ id: "buy-check-frame", title: "Your bank's check" })}${signedOut}${unreachable}`;
+  return html`${storePanel({ id: "buy-sheet", closeLabel: "Close", isOverGame: true, soldItem: { picture: options.cover ?? null, name: "Buy", priceText: "" }, momentItems, footItems })}${confirmItsYouSheet({ id: "buy-confirm-you" })}${stripeFrame({ id: "buy-check-frame", title: "Your bank's check" })}${signedOut}${unreachable}`;
 }
 
 /** What the sheet's script needs from the page that holds it (pageData "buy-sheet-data"). */

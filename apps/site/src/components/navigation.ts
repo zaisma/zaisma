@@ -36,6 +36,8 @@ export interface HeaderOptions {
   hasPageRunner?: boolean;
   /** Fixed slim, as after scrolling: the gallery's state. */
   isCompact?: boolean;
+  /** Waiting on the next page, its bottom edge filling with light: the gallery's state (HEADER_SCRIPT sets it on a page). */
+  isWaiting?: boolean;
   /** The account menu starts open: the gallery's state. */
   isMenuOpen?: boolean;
   /** On a phone, the search starts open in place of the tabs: the gallery's state. */
@@ -67,9 +69,9 @@ export function header(options: HeaderOptions): Raw {
     tab("Forum", "/forum", options.current === "forum", true, isOpen),
   ];
   const hasTabRow = !options.isOnSignInPage && tabs.filter((each) => !each.isFolded).length >= 2;
-  const states = [hasTabRow ? "has-tab-row" : "", options.isCompact ? "is-compact" : "", options.isSearchOpen ? "searching" : ""].filter(Boolean).map((name) => ` ${name}`).join("");
+  const states = [hasTabRow ? "has-tab-row" : "", options.isCompact ? "is-compact" : "", options.isSearchOpen ? "searching" : "", options.isWaiting ? "is-waiting" : ""].filter(Boolean).map((name) => ` ${name}`).join("");
   const signIn = options.hasPageRunner ? secondaryButton("Sign in", { href: "/signin" }) : primaryButton("Sign in", { href: "/signin" });
-  return html`<header class="top bar-layout glass glass-bar pinned${states}" id="${id}" data-compacts data-glass data-glass-corners="header"${options.isCompact ? raw(" data-stays-compact") : ""}>${EDGE}
+  return html`<header class="top bar-layout glass glass-bar pinned${states}" id="${id}" data-compacts data-glass data-glass-corners="header"${options.isCompact ? raw(" data-stays-compact") : ""}${options.isWaiting ? raw(" data-stays-waiting") : ""}>${EDGE}
   ${options.sidebarButton ?? ""}${wordmark}
   ${options.isOnSignInPage ? "" : html`<nav class="nav" aria-label="Main"${hasTabRow ? "" : raw(" hidden")}>${tabSwitch({ label: "Where you are", switchSize: "regular", isFull: true, tabs })}</nav>`}
   ${options.search ? html`${searchField({ ...options.search, id: options.search.id ?? `${id}-find` })}${secondaryButton(options.search.label, { type: "button", icon: "search", isLabelHidden: true, isSmall: true, isExpanded: Boolean(options.isSearchOpen) })}` : ""}
@@ -163,7 +165,7 @@ const HEADER_STYLES = `
   .top { top: calc(var(--pad-pane) + env(safe-area-inset-top, 0px)); width: calc(100% - 2 * var(--pad-pane)); height: auto; display: grid; grid-template-columns: minmax(0, auto) minmax(0, 1fr) auto auto; align-items: center; gap: var(--gap-control-stack) 0; }
   /* Where the first row is tight (Sign in on a 320px phone), the logo gives way: it draws smaller in the room left, never pushing the row wider. */
   .top > .logo { grid-area: 1 / 1; min-width: 0; }
-  .top > .logo img { max-width: 100%; }
+  .top > .logo > .logo-art { max-width: 100%; }
   .top > .find + .cut-btn { grid-area: 1 / 3; }
   .top > .end { grid-area: 1 / 4; }
   /* With a sidebar's button it's first in the first row, the logo beside it. */
@@ -249,6 +251,19 @@ export const HEADER_SCRIPT = pageScript(
     }
     window.addEventListener("pagehide", function () { try { sessionStorage.setItem("zaisma-nav", JSON.stringify({ isDeveloperOpen: isOpenHere })); } catch (error) {} });
   }
+  /* A tap or click that opens another page of this site fills the header's bottom edge with light (is-waiting, at once) until the page
+     goes: a link in this tab, not a new tab, a download or a place on this same page. Back from the browser's history, it's dark again. */
+  function setWaiting(isWaiting) { headers.forEach(function (top) { if (!top.hasAttribute("data-stays-waiting")) top.classList.toggle("is-waiting", isWaiting); }); }
+  document.addEventListener("click", function (event) {
+    var link = event.target.closest && event.target.closest("a[href]");
+    if (!link || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || (link.target && link.target !== "_self") || link.hasAttribute("download")) return;
+    var to = new URL(link.href, location.href);
+    if (to.origin !== location.origin || (to.pathname === location.pathname && to.search === location.search)) return;
+    // Checked once every handler has run: a link a page script handles itself (Load more) waits on its own edge instead.
+    setTimeout(function () { if (!event.defaultPrevented) setWaiting(true); }, 0);
+  });
+  window.addEventListener("pageshow", function () { setWaiting(false); });
+  window.addEventListener("pagehide", function () { setWaiting(false); });
   /* "/" anywhere jumps to the header's search; Escape puts the phone's tabs back. */
   document.addEventListener("keydown", function (event) {
     var top = headers.filter(function (each) { return each.querySelector(".find") && each.offsetParent !== null; })[0];
@@ -1498,8 +1513,7 @@ export const LOAD_MORE_SCRIPT = `/* load more */(function () {
     if (!list) return;
     event.preventDefault();
     if (link.getAttribute("aria-busy") === "true") return;
-    link.setAttribute("aria-busy", "true");
-    fetch(link.href, { headers: { accept: "text/html" }, credentials: "same-origin" }).then(function (response) {
+    window.zaismaWait(link, fetch(link.href, { headers: { accept: "text/html" }, credentials: "same-origin" }).then(function (response) {
       if (!response.ok) throw new Error(String(response.status));
       return response.text();
     }).then(function (text) {
@@ -1517,9 +1531,9 @@ export const LOAD_MORE_SCRIPT = `/* load more */(function () {
       var after = next.querySelector("[data-load-more]");
       if (after) { var placed = document.importNode(after, true); holder.replaceWith(placed); watch(placed); } else holder.remove();
     }).catch(function () {
-      link.removeAttribute("aria-busy"); holder.classList.add("is-failed");
+      holder.classList.add("is-failed");
       if (words) { words.textContent = ${JSON.stringify(LOAD_FAILED_TEXT)}; words.hidden = false; }
-    });
+    }));
   });
   // One that loads on scroll is pressed once it's within a screen of view; a failed one waits to be pressed again.
   var nearScreen = "IntersectionObserver" in window ? new IntersectionObserver(function (entries) {
@@ -1727,3 +1741,6 @@ component({
     { label: "Nothing filtered yet: no count, no Clear filters", markup: filterMenuFrame({ id: "example-filter-none", groups: EXAMPLE_FILTER_GROUPS.map((group) => ({ ...group, pickedLabel: group.groupName === "price" ? "Any price" : "Any" })), clearHref: "#filter-menu", filterCount: 0, isOpen: true }) },
   ],
 });
+
+/** The header waiting on a new page, in its frame, for the Waiting component's examples (waiting.ts), which show every use. */
+export const WAITING_HEADER_EXAMPLE: Raw = headerFrame(header({ id: "example-waiting-header", current: "home", account: null, isOnDeveloperPage: false, isWaiting: true }));

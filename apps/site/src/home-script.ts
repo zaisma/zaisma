@@ -2,6 +2,17 @@ import { SIZED_IMAGE_WIDTHS_PX } from "@zaisma/core";
 import { DEVICE_KIND_SOURCE } from "./device-kind.ts";
 import { pageScript } from "./page-scripts.ts";
 
+/** The news a device closed, by their ids, newest first (the home's script keeps it): the home shows them closed from its first paint. */
+export const CLOSED_NEWS_COOKIE = "zaisma_closed_news";
+
+/** The games this device played, by their slugs, newest first (the game page and the home's script keep it): a guest's Continue playing shows from the home's first paint. */
+export const PLAYED_COOKIE = "zaisma_played";
+
+/** The script that keeps PLAYED_COOKIE from a list of { slug } newest first, for the game page's and the home's scripts. */
+export const KEEP_PLAYED_COOKIE_SOURCE = `function keepPlayedCookie(list) {
+  document.cookie = (location.protocol === "https:" ? "__Host-" : "") + ${JSON.stringify(PLAYED_COOKIE)} + "=" + list.slice(0, 20).map((entry) => entry.slug).join(",") + "; Max-Age=31536000; Path=/; SameSite=Lax" + (location.protocol === "https:" ? "; Secure" : "");
+}`;
+
 /**
  * The home's script. The page is the same for everyone (so it caches); this puts the player's own part on it (the guest note, Continue
  * playing, whether Zaisma's news was closed here) and puts the background of the cover pointed at behind the glass.
@@ -192,6 +203,9 @@ function fillContinue() {
   row.hidden = !list.length;
   if (!list.length) return;
   if (sort === "updated") list.sort((a, b) => (bySlug[b.slug].published_at_ms || 0) - (bySlug[a.slug].published_at_ms || 0));
+  // What the page already shows (an account's, from the server) stays as it is.
+  const shown = Array.from($("track-continue").querySelectorAll(".cover")).map((cover) => cover.dataset.slug || (cover.querySelector(".cover-art") || { getAttribute: () => "" }).getAttribute("href").slice(3));
+  if (shown.join(" ") === list.map((entry) => entry.slug).join(" ")) return;
   $("track-continue").replaceChildren(...list.map((entry) => coverFor(bySlug[entry.slug], "continue", entry.played_at_ms)));
   document.querySelectorAll("#home-continue [data-slug]").forEach((cover) => cover.dataset.slug === focusSlug && cover.setAttribute("aria-current", "true"));
 }
@@ -243,26 +257,29 @@ document.addEventListener("keydown", (event) => {
 });
 
 /* ---- Starting up ---- */
-// One banner at a time, so the games show first even on a phone: Zaisma's news while it's open, then the guest's.
+// One banner at a time, so the games show first even on a phone: Zaisma's news while it's open, then the guest's. The page shows them as
+// they are from its first paint (home.ts, by CLOSED_NEWS_COOKIE); closing the news keeps it closed on this device, in the cookie and here.
 const guest = $("home-guest");
 const showGuest = () => { if (guest && !isSignedIn) guest.hidden = false; };
 fillContinue();
-// Zaisma's news shows until this device closes it; closing remembers it, so it never comes back here.
+// Played on this device before the cookie kept it: kept there from now on, so the next visit's first paint shows it.
+${KEEP_PLAYED_COOKIE_SOURCE}
+keepPlayedCookie([...played].sort((a, b) => b.played_at_ms - a.played_at_ms));
 const news = $("home-news");
-let isNewsShown = false;
 if (news) {
   const id = news.querySelector("[data-announcement-id]").dataset.announcementId;
   let closed = [];
   try { closed = JSON.parse(localStorage.getItem(NEWS_KEY) || "[]"); } catch {}
-  if (!closed.includes(id)) { news.hidden = false; isNewsShown = true; }
+  const remember = () => {
+    closed = [id, ...closed.filter((each) => each !== id)].slice(0, 20);
+    try { localStorage.setItem(NEWS_KEY, JSON.stringify(closed)); } catch {}
+    document.cookie = (location.protocol === "https:" ? "__Host-" : "") + ${JSON.stringify(CLOSED_NEWS_COOKIE)} + "=" + closed.join(",") + "; Max-Age=31536000; Path=/; SameSite=Lax" + (location.protocol === "https:" ? "; Secure" : "");
+  };
+  // Closed on this device before the cookie kept it: closed again, and kept there from now on.
+  if (!news.hidden && closed.includes(id)) { news.hidden = true; remember(); showGuest(); }
   const close = news.querySelector('button[name="banner_close"]');
-  if (close) close.addEventListener("click", () => {
-    news.hidden = true;
-    showGuest();
-    try { localStorage.setItem(NEWS_KEY, JSON.stringify([id, ...closed.filter((each) => each !== id)].slice(0, 20))); } catch {}
-  });
+  if (close) close.addEventListener("click", () => { news.hidden = true; showGuest(); remember(); });
 }
-if (!isNewsShown) showGuest();
 if (isSignedIn) {
   fetch("/api/me/played").then((response) => (response.ok ? response.json() : null)).then((answer) => {
     if (!answer) return;

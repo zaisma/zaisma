@@ -1,3 +1,4 @@
+import { keepShaderPlaceholder } from "./placeholders.ts";
 import puppeteer from "@cloudflare/puppeteer";
 import {
   KNOWN_IMAGE_CODE,
@@ -174,6 +175,8 @@ export async function runShaderCheck(env: Env, shaderId: string, deps: ShaderChe
   ]);
   const judged = await judgeShaderPictures(env, game, pictures, deps.judge);
   if (judged.outcome === "rejected" || judged.outcome === "off_lists") return reject(judged.reason, qualityChecks, flashCount);
+  // Its placeholder, from the still pages show it as, once nothing rejected it.
+  await keepShaderPlaceholder(env, shader, drawn.stillPng);
   const waitsForPerson = judged.outcome !== "fine";
   await settleShader(env.DB, shader, null, qualityChecks, flashCount, waitsForPerson);
   const timings = qualityChecks.map((qualityCheck) => `${qualityCheck.check_frame_ms} ms`).join(", ");

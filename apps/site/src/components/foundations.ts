@@ -1,9 +1,10 @@
-import { LOADER_FRAMES } from "../generated/loader-frames.generated.ts";
+import { SIZED_IMAGE_WIDTHS_PX } from "@zaisma/core";
 import { html, raw, shownColor, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
-import { ICONS, MARK, WORDMARK, icon, largeIcon, type IconName } from "./icons.ts";
+import { ICONS, LOGO_STYLES, MARK, WORDMARK, icon, largeIcon, type IconName } from "./icons.ts";
 import { CLOUDS_SHADER, DUSK_SHADER, STAND_IN_BACKGROUNDS } from "./shaders.ts";
 import { pageScript, type PageScript } from "../page-scripts.ts";
+import { STAND_IN_COVER_PICTURES } from "../generated/stand-in-placeholders.generated.ts";
 
 /*
  * The foundations of Zaisma's look: the tokens every component takes its colors from (tokens.ts), the glass and its
@@ -169,9 +170,6 @@ export function divider(options: { words?: string; isDecorative?: boolean } = {}
   return options.isDecorative ? raw('<hr class="divider hairline" aria-hidden="true">') : raw('<hr class="divider hairline" role="separator">');
 }
 
-/** The loader: the Z building itself, one loop a second (brand/loader/zaisma-loader.svg), in the words' color. Shown only once something was pressed. Its four pieces are cut from the file's
- * frames (LOADER_FRAMES), so it plays smoothly in every browser: Safari plays the file's own animation neither in a mask nor in a <use>. */
-export const loader = (): Raw => raw('<span class="loader" aria-hidden="true"><i></i><i></i><i></i><i></i></span>');
 
 /** A rail's parts: its channel, carved with slanted ends, and inside it the groove the thumb slides in. */
 export const RAIL_PARTS = '<div class="rail-line carving deep"><div class="rail-groove"><div class="rail-thumb"></div></div></div>';
@@ -519,6 +517,10 @@ export function backdrop(options: BackdropOptions = {}): Raw {
   return html`<canvas class="backdrop${options.isFramed ? " is-framed" : ""}" data-backdrop="${options.isScene ? "scene" : "shader"}"${options.fragmentShader ? html` data-backdrop-shader="${options.fragmentShader}"` : ""}${options.standInSlug ? html` data-backdrop-stand-in="${options.standInSlug}"` : ""}${options.isGlassAdaptive ? raw(" data-adapts-glass") : ""} aria-hidden="true"></canvas>`;
 }
 
+/** A game's world as its placeholder, under its picture or shader frame until they arrive; nothing without one. */
+export const backdropPlaceholder = (placeholderDataUrl: string | null): Raw =>
+  placeholderDataUrl ? html`<div class="backdrop backdrop-placeholder" aria-hidden="true"${placeholderStyle(placeholderDataUrl)}></div>` : raw("");
+
 /**
  * The stand-in games' backgrounds for a page that shows them (backdrop's standInSlug): each one's shader written onto its canvas, which
  * the backdrop then draws. It may run before or after the backdrop script, which leaves a stand-in canvas alone until it has its shader.
@@ -622,6 +624,105 @@ component({
   })),
 });
 
+/**
+ * A picture a page shows: a game's cover, screenshot or background, never a bare address. Every picture comes with its size and its
+ * placeholder, the tiny copy Zaisma made of it (placeholders.ts), so the page holds its place and shows it blurred from the first paint,
+ * before a byte of the picture arrives ("A page shows whole while it loads", docs/DESIGN.md).
+ */
+export interface ShownPicture {
+  /** Where it's served: /img/<id> (then its kept sizes are offered too, SIZED_IMAGE_WIDTHS_PX), or any other address as it is. */
+  imageUrl: string;
+  widthPx: number;
+  heightPx: number;
+  /** The tiny copy as a data: URL (placeholder_data_url), or null where none was made: the picture's place then shows what's under it. */
+  placeholderDataUrl: string | null;
+}
+
+export interface PictureOptions {
+  /** What a screen reader says for it; left out, it's decoration (alt=""), as a card's cover is beside its title. */
+  label?: string;
+  /** The widths it's shown at, for the browser to pick a kept size (an img's sizes): "(max-width: 760px) 200px, 260px". */
+  shownSizes?: string;
+  /** The largest kept size to offer: a cover's 260px at three times its pixels by default. */
+  largestPx?: number;
+  /** Loads with the page, not once it nears the screen: for the pictures a page opens with in view. */
+  isEager?: boolean;
+  /** Fetched before the page's other pictures: for the one likely the largest thing in the first view. */
+  hasHighPriority?: boolean;
+  /** Holds its own box at the picture's shape (a screenshot shown large), instead of filling the well it's set in. */
+  hasOwnShape?: boolean;
+  /** More classes for its box: the piece it's part of ("screenshot-large"). */
+  className?: string;
+}
+
+/** The largest width a picture is offered at by default: a 260px cover at three times its pixels, rounded up to a kept size. */
+const PICTURE_LARGEST_PX = 960;
+
+/** A picture Zaisma serves (/img/<id>) at the sizes it keeps of it, for the browser to pick the one it shows; any other address as it is. */
+function keptSizes(imageUrl: string, shownSizes: string, largestPx: number): Raw {
+  if (!/^(https?:\/\/[^/]+)?\/img\/[A-Za-z0-9_-]+$/.test(imageUrl)) return raw("");
+  const widths = SIZED_IMAGE_WIDTHS_PX.filter((widthPx) => widthPx <= largestPx);
+  return html` srcset="${widths.map((widthPx) => `${imageUrl}/w${widthPx}.webp ${widthPx}w`).join(", ")}" sizes="${shownSizes}"`;
+}
+
+/** The style that carries a picture's placeholder (and its shape) to its box. Only a data: URL of an image is ever written into it. */
+export function placeholderStyle(placeholderDataUrl: string | null, shape?: { widthPx: number; heightPx: number }): Raw {
+  const parts = [
+    placeholderDataUrl && /^data:image\/(webp|png|jpeg);base64,[A-Za-z0-9+/=]+$/.test(placeholderDataUrl) ? `--placeholder: url(${placeholderDataUrl})` : "",
+    shape ? `--picture-shape: ${Math.round(shape.widthPx)} / ${Math.round(shape.heightPx)}` : "",
+  ].filter(Boolean);
+  return parts.length ? html` style="${parts.join("; ")}"` : raw("");
+}
+
+/**
+ * A picture: its placeholder, blurred, in its place from the first paint, and the picture itself fading in over it once it has wholly
+ * arrived and decoded (PICTURE_SCRIPT), never half-drawn. In a carving's well it fills the well; hasOwnShape keeps a box of its own at the
+ * picture's shape. Every component that shows a picture shows it with this.
+ */
+export function picture(shown: ShownPicture, options: PictureOptions = {}): Raw {
+  const className = ["picture", options.hasOwnShape ? "has-own-shape" : "", options.className ?? ""].filter(Boolean).join(" ");
+  const sizes = keptSizes(shown.imageUrl, options.shownSizes ?? "(max-width: 760px) 200px, 260px", options.largestPx ?? PICTURE_LARGEST_PX);
+  return html`<span class="${className}"${placeholderStyle(shown.placeholderDataUrl, options.hasOwnShape ? shown : undefined)}><img class="reveals" src="${shown.imageUrl}"${sizes} width="${Math.round(shown.widthPx)}" height="${Math.round(shown.heightPx)}" alt="${options.label ?? ""}" loading="${options.isEager ? "eager" : "lazy"}"${options.hasHighPriority ? raw(' fetchpriority="high"') : ""} decoding="async"></span>`;
+}
+
+/**
+ * Pictures arriving: each img.reveals shows once it has wholly arrived and decoded, fading in over its placeholder; one already there when
+ * this runs (from the browser's cache) shows at once. One that fails stays its placeholder. Part of the first paint's script (html.ts), so
+ * a picture never waits on the rest of the page's scripts.
+ */
+export const PICTURE_SCRIPT = `/* pictures */(function () {
+  function show(img, isAtOnce) { if (isAtOnce) img.classList.add("at-once"); img.classList.add("is-shown"); }
+  window.zaismaWatch.each("img.reveals", function (img) {
+    if (img.complete && img.naturalWidth) { show(img, true); return; }
+    img.addEventListener("load", function () { (img.decode ? img.decode() : Promise.resolve()).then(function () { show(img, false); }, function () { show(img, false); }); });
+  });
+})();
+`;
+
+const pictureSample = (cover: ShownPicture, isArrived: boolean) =>
+  html`<div class="carving holds-art picture-sample" data-cut-line="0">${CUT_LINE}<span class="carving-art" data-cut-line="0">${isArrived ? picture(cover) : html`<span class="picture"${placeholderStyle(cover.placeholderDataUrl)}></span>`}</span></div>`;
+
+component({
+  name: "Picture",
+  slug: "picture",
+  group: "foundations",
+  subgroup: "pictures",
+  summary: "Every picture a page shows, a cover, a screenshot or a game's background: in its place from the first moment as a tiny blurred copy of itself, sharpening in as it arrives. Nothing on a page is ever an empty box waiting for a picture.",
+  styles: `
+/* A picture (its box and the placeholder under it are a material: materials.ts, Pictures): in a carving's well it fills the well;
+   .has-own-shape keeps the picture's own shape (--picture-shape). */
+.carving-art > .picture { position: absolute; inset: 0; }
+.picture.has-own-shape { aspect-ratio: var(--picture-shape); }
+.picture-sample { display: block; position: relative; width: 260px; aspect-ratio: 16 / 9; }
+`,
+  render: picture,
+  examples: [
+    { label: "Before it arrives: its placeholder, blurred, in its place", isStill: true, markup: pictureSample(STAND_IN_COVER_PICTURES["neon-drift"]!, false) },
+    { label: "Arrived: the picture over it", markup: pictureSample(STAND_IN_COVER_PICTURES["neon-drift"]!, true) },
+    { label: "Another before it arrives", isStill: true, markup: pictureSample(STAND_IN_COVER_PICTURES["hollow-tide"]!, false) },
+  ],
+});
+
 component({
   name: "Icons",
   slug: "icons",
@@ -654,18 +755,19 @@ component({
   subgroup: "pictures",
   summary: "Zaisma's logo, always a link home: the wordmark at the top of a page, the mark alone in the footer. Julius's Z in glass, black on light glass and white on smoked, never orange and never restyled.",
   styles: `
-/* The logo: the glass file for the glass it's on, its glass --logo-height tall (a bar sets it as it slims). Each file has room round the
+/* The logo: the glass drawing for the glass it's on, its glass --logo-height tall (a bar sets it as it slims). Each file has room round the
    glass for its shadow (--logo-file-share: the file's height over the glass's, from scripts/brand.mjs), which falls outside the logo's box. */
 .logo { display: flex; align-items: center; flex: none; padding: 6px 2px; }
 .logo .on-light { display: var(--on-light); }
 .logo .on-smoked { display: var(--on-smoked); }
 .logo.wordmark { --logo-height: 26px; --logo-file-share: 1.1608; }
 .logo.mark { --logo-height: 17px; --logo-file-share: 1.2047; padding: 0; }
-.logo img { height: calc(var(--logo-height) * var(--logo-file-share)); width: auto; margin-block: calc(var(--logo-height) * (1 - var(--logo-file-share)) / 2); transition: height var(--motion-glide) var(--ease-glide), margin var(--motion-glide) var(--ease-glide); }
+.logo > .logo-art { height: calc(var(--logo-height) * var(--logo-file-share)); width: auto; background: center / contain no-repeat; margin-block: calc(var(--logo-height) * (1 - var(--logo-file-share)) / 2); transition: height var(--motion-glide) var(--ease-glide), margin var(--motion-glide) var(--ease-glide); }
 .logo:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 /* On a touch screen it's a control's height to press, whatever its size. */
 @media (pointer: coarse) { .logo { position: relative; } .logo::before { content: ""; position: absolute; inset: min(0px, calc((var(--touch-target) - 100%) / -2)) 0; } }
-@media (prefers-reduced-motion: reduce) { .logo img { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .logo > .logo-art { transition: none; } }
+${LOGO_STYLES}
 `,
   render: logo,
   examples: [
@@ -676,24 +778,3 @@ component({
   ],
 });
 
-component({
-  name: "Loader",
-  slug: "loader",
-  group: "foundations",
-  subgroup: "pictures",
-  summary: "The Z building itself: what a button shows once it's pressed and waiting, a form sent or a page opening. Only ever after you press something.",
-  styles: `
-/* The loader: the brand's Z, masked so it takes the words' color, --loader-width wide (19px). Under reduced motion, the still mark breathing slowly instead. */
-.loader { position: relative; display: inline-block; width: var(--loader-width, 19px); height: calc(var(--loader-width, 19px) * 0.737); flex: none; }
-.loader > i { position: absolute; inset: 0; background: currentColor; animation: 1s linear infinite; }
-${LOADER_FRAMES}
-@keyframes loader-calm { 50% { opacity: 0.4; } }
-@media (prefers-reduced-motion: reduce) { .loader { background: currentColor; -webkit-mask: url(/zaisma-mark-small-white.svg) center / contain no-repeat; mask: url(/zaisma-mark-small-white.svg) center / contain no-repeat; animation: loader-calm var(--motion-loop-slow) ease-in-out infinite; } .loader > i { display: none; } }
-`,
-  render: loader,
-  examples: [
-    { label: "On its own", markup: loader() },
-    // A page that's loading shows the Loading state (Data), never a bigger loader over it: the loader is only what a pressed thing shows,
-    // as every button's Busy example does.
-  ],
-});

@@ -299,10 +299,13 @@ async function zaismaPasskeyTap(purpose) {
  * browser can.
  */
 export const PASSKEY_SIGN_IN_SCRIPT = pageScript("passkey-sign-in", `(() => {
-  if (!window.PublicKeyCredential) return;
   const go = document.getElementById("passkey-go");
-  document.getElementById("ways").hidden = false;
-  go.hidden = false;
+  // Shown from the first paint; a browser without passkeys (rare now) loses the way in, and its "or" with it when nothing else is there.
+  if (!window.PublicKeyCredential) {
+    go.hidden = true;
+    if (!go.parentElement.querySelector(":scope > :not([hidden])")) document.getElementById("ways").hidden = true;
+    return;
+  }
   const next = go.dataset.next || "/";
   const show = (e) => { const p = document.getElementById("passkey-error"); p.textContent = e || ""; p.hidden = !e; };
   go.onclick = async () => show(await zaismaPasskeySignIn(next, false));

@@ -1,9 +1,9 @@
-import { SIZED_IMAGE_WIDTHS_PX } from "@zaisma/core";
 import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
 // The materials register first: the Materials page starts with them.
 import "./materials.ts";
-import { CUT_LINE, EDGE, EDGE_LIGHT, backdrop, divider, floatingPane, glassPane, groove, icon, sheetMarkup, tag, tray, well, type IconName } from "./foundations.ts";
+import { CUT_LINE, EDGE, EDGE_LIGHT, backdrop, divider, floatingPane, glassPane, groove, icon, picture, sheetMarkup, tag, tray, well, type IconName, type ShownPicture } from "./foundations.ts";
+import { STAND_IN_COVER_PICTURES } from "../generated/stand-in-placeholders.generated.ts";
 import { doneState, emptyState, glanceFacts, problemState, listRows, pictureFrame, pictureRow } from "./data.ts";
 import { cardRow, secondaryButton, tertiaryButton, primaryButton, textLink, toggleButton } from "./actions.ts";
 import { REPORT_REASONS, choiceCards, copyField, cutField, longField, tabSwitch, wheelField } from "./inputs.ts";
@@ -113,8 +113,8 @@ export interface GameCardFacts {
 
 export interface GameCardOptions {
   title: string;
-  /** The studio's cover, or null for a game with none yet: Zaisma's mark in the well stands in, as it does while a cover loads. */
-  imageUrl: string | null;
+  /** The studio's cover, or null for a game with none yet: Zaisma's mark in the well stands in. While it loads, its placeholder does. */
+  picture: ShownPicture | null;
   href: string;
   facts: GameCardFacts;
   /** The game's own glass tint (#rrggbb), which its lit edge takes; left out, the edge lights white. */
@@ -144,17 +144,6 @@ const cardLabel = (options: GameCardOptions): string =>
     options.facts.deviceNote ?? "",
   ].filter(Boolean).join(", ");
 
-/**
- * A picture Zaisma serves (/img/<id>) at the sizes it keeps of it, for the browser to pick the one it shows (srcset): up to a cover's
- * width at three times its pixels. Any other address (a stand-in cover, a picture elsewhere) is shown as it is.
- */
-function coverSizes(imageUrl: string, shownSizes = "(max-width: 760px) 200px, 260px", largestPx = COVER_LARGEST_PX): Raw {
-  if (!/^\/img\/[A-Za-z0-9_-]+$/.test(imageUrl)) return raw("");
-  const widths = SIZED_IMAGE_WIDTHS_PX.filter((widthPx) => widthPx <= largestPx);
-  return html` srcset="${widths.map((widthPx) => `${imageUrl}/w${widthPx}.webp ${widthPx}w`).join(", ")}" sizes="${shownSizes}"`;
-}
-/** The largest width a cover's picture is offered at: a 260px cover at three times its pixels, rounded up to a kept size. */
-const COVER_LARGEST_PX = 960;
 
 /**
  * A game card: a game in a list, the studio's art in a carved well with its title and players now on one line under it. What else
@@ -164,14 +153,14 @@ const COVER_LARGEST_PX = 960;
  * list, it stays lit.
  */
 export function gameCard(options: GameCardOptions): Raw {
-  const facts = options.facts, isPlaceholder = options.imageUrl === null;
+  const facts = options.facts, isPlaceholder = options.picture === null;
   const hasTint = Boolean(options.tintColor && /^#[0-9a-fA-F]{6}$/.test(options.tintColor));
   const tint = hasTint ? html` style="--card-tint: ${options.tintColor}"` : "";
   const className = ["cover", isPlaceholder ? "is-placeholder" : "", facts.deviceNote ? "is-other-device" : "", hasTint ? "has-tint" : "", options.state ?? ""].filter(Boolean).join(" ");
   const marks = html`${facts.isUpdated ? html`<span class="cover-mark at-news">${tag("Updated", "new-on-glass")}</span>` : ""}${facts.priceText ? html`<span class="cover-mark at-price">${tag(facts.priceText, "glass")}</span>` : ""}${facts.friends?.length ? html`<span class="cover-mark at-friends">${pictureRow(facts.friends.map((friend) => friend.username), "xs")}</span>` : ""}${facts.deviceNote ? html`<span class="cover-mark at-device">${tag(facts.deviceNote, "glass", { icon: deviceIcon(facts.deviceNote) })}</span>` : ""}`;
-  const picture = isPlaceholder ? "" : html`<span class="cover-picture carving-art" data-cut-line="0"><img src="${options.imageUrl}"${coverSizes(options.imageUrl!)} alt="" loading="${options.isEager ? "eager" : "lazy"}"${options.hasHighPriority ? raw(' fetchpriority="high"') : ""} decoding="async"></span>`;
+  const art = isPlaceholder ? "" : html`<span class="cover-picture carving-art" data-cut-line="0">${picture(options.picture!, { isEager: options.isEager, hasHighPriority: options.hasHighPriority })}</span>`;
   const playerCountMarkup = facts.playerCount !== undefined ? html`<span class="count">${icon("people")}<span>${facts.playerCount.toLocaleString("en-US")}<span class="sr"> playing now</span></span></span>` : "";
-  return html`<div class="${className}"${tint}${options.isCurrent ? raw(' aria-current="true"') : ""}><a class="cover-art carving holds-art${options.state ? ` ${options.state}` : ""}" data-cut-line="0" data-edge-light="bottom" data-lights href="${options.href}" aria-label="${cardLabel(options)}">${CUT_LINE}${picture}${EDGE_LIGHT}${marks}</a><div class="cover-meta"><span class="cover-name one-line">${options.title}</span>${playerCountMarkup}</div></div>`;
+  return html`<div class="${className}"${tint}${options.isCurrent ? raw(' aria-current="true"') : ""}><a class="cover-art carving holds-art${options.state ? ` ${options.state}` : ""}" data-cut-line="0" data-edge-light="bottom" data-lights href="${options.href}" aria-label="${cardLabel(options)}">${CUT_LINE}${art}${EDGE_LIGHT}${marks}</a><div class="cover-meta"><span class="cover-name one-line">${options.title}</span>${playerCountMarkup}</div></div>`;
 }
 
 /**
@@ -632,7 +621,7 @@ export const STAND_IN_COVERS: Record<string, Raw> = Object.fromEntries(
     // Updated since it was played: it changed more recently than the viewer last played it.
     const isUpdated = game.updatedAgoDurationMs !== undefined && game.playedAgoDurationMs !== undefined && game.updatedAgoDurationMs < game.playedAgoDurationMs;
     const facts: GameCardFacts = { playerCount: game.playerCount, friends: game.friends, isUpdated };
-    return [game.slug, gameCard({ title: game.title, imageUrl: `/design/covers/${game.slug}.webp`, href: `#${game.slug}`, facts })];
+    return [game.slug, gameCard({ title: game.title, picture: STAND_IN_COVER_PICTURES[game.slug] ?? null, href: `#${game.slug}`, facts })];
   }),
 );
 const standInCovers = (slugs: string[]) => html`${slugs.map((slug) => STAND_IN_COVERS[slug])}`;
@@ -999,29 +988,29 @@ component({
       label: "In a list: every card the same shape, its facts in their corners",
       isWide: true,
       markup: grid({ whenEmpty: html`<p>No games here yet.</p>`, itemSize: "cover", items: [
-        { kind: "block", markup: gameCard({ title: "Kestrel", imageUrl: "/design/covers/kestrel.webp", href: "#kestrel", facts: { playerCount: 12480, isUpdated: true } }) },
-        { kind: "block", markup: gameCard({ title: "Hollow Tide", imageUrl: "/design/covers/hollow-tide.webp", href: "#hollow-tide", facts: { playerCount: 412, priceText: "$24.99" } }) },
-        { kind: "block", markup: gameCard({ title: "Neon Drift", imageUrl: "/design/covers/neon-drift.webp", href: "#neon-drift", facts: { playerCount: 3870, friends: [{ username: "Liam" }, { username: "Sofia" }] } }) },
-        { kind: "block", markup: gameCard({ title: "Verdant", imageUrl: "/design/covers/verdant.webp", href: "#verdant", facts: {} }) },
+        { kind: "block", markup: gameCard({ title: "Kestrel", picture: STAND_IN_COVER_PICTURES["kestrel"]!, href: "#kestrel", facts: { playerCount: 12480, isUpdated: true } }) },
+        { kind: "block", markup: gameCard({ title: "Hollow Tide", picture: STAND_IN_COVER_PICTURES["hollow-tide"]!, href: "#hollow-tide", facts: { playerCount: 412, priceText: "$24.99" } }) },
+        { kind: "block", markup: gameCard({ title: "Neon Drift", picture: STAND_IN_COVER_PICTURES["neon-drift"]!, href: "#neon-drift", facts: { playerCount: 3870, friends: [{ username: "Liam" }, { username: "Sofia" }] } }) },
+        { kind: "block", markup: gameCard({ title: "Verdant", picture: STAND_IN_COVER_PICTURES["verdant"]!, href: "#verdant", facts: {} }) },
       ] }),
     },
-    { label: "Plain: its title and players now", markup: cardSample({ title: "Hollow Tide", imageUrl: "/design/covers/hollow-tide.webp", href: "#hollow-tide", facts: { playerCount: 412 } }) },
-    { label: "Free: nothing more, since most games are", markup: cardSample({ title: "Verdant", imageUrl: "/design/covers/verdant.webp", href: "#verdant", facts: { playerCount: 96 } }) },
-    { label: "Paid, not owned: its price, top right", markup: cardSample({ title: "Hollow Tide", imageUrl: "/design/covers/hollow-tide.webp", href: "#hollow-tide", facts: { playerCount: 412, priceText: "$24.99" } }) },
+    { label: "Plain: its title and players now", markup: cardSample({ title: "Hollow Tide", picture: STAND_IN_COVER_PICTURES["hollow-tide"]!, href: "#hollow-tide", facts: { playerCount: 412 } }) },
+    { label: "Free: nothing more, since most games are", markup: cardSample({ title: "Verdant", picture: STAND_IN_COVER_PICTURES["verdant"]!, href: "#verdant", facts: { playerCount: 96 } }) },
+    { label: "Paid, not owned: its price, top right", markup: cardSample({ title: "Hollow Tide", picture: STAND_IN_COVER_PICTURES["hollow-tide"]!, href: "#hollow-tide", facts: { playerCount: 412, priceText: "$24.99" } }) },
     { label: "Updated since you played: top left", markup: html`<div class="cover-sample">${standInCovers(["ashen-crown"])}</div>` },
     { label: "Friends playing: bottom left", markup: html`<div class="cover-sample">${standInCovers(["neon-drift"])}</div>` },
-    { label: "Five friends playing: three, and how many more", markup: cardSample({ title: "Kestrel", imageUrl: "/design/covers/kestrel.webp", href: "#kestrel", facts: { playerCount: 12480, friends: [{ username: "Sofia" }, { username: "Liam" }, { username: "Emma" }, { username: "Noah" }, { username: "Charlotte" }] } }) },
-    { label: "Needs a keyboard, on a phone: bottom right, the art dimmed", markup: cardSample({ title: "Verdant", imageUrl: "/design/covers/verdant.webp", href: "#verdant", facts: { playerCount: 96, deviceNote: "Needs a keyboard" } }) },
-    { label: "Made for another device", markup: cardSample({ title: "Iron Vigil", imageUrl: "/design/covers/iron-vigil.webp", href: "#iron-vigil", facts: { playerCount: 8214, deviceNote: "Made for computers" } }) },
-    { label: "No cover yet: Zaisma's mark", markup: cardSample({ title: "The Last Lighthouse Keeper", imageUrl: null, href: "#game-card", facts: { playerCount: 38 } }) },
-    { label: "Nobody playing now: its title alone", markup: cardSample({ title: "Kestrel", imageUrl: "/design/covers/kestrel.webp", href: "#kestrel", facts: {} }) },
-    { label: "A long title: cut to one line", markup: cardSample({ title: "Ashen Crown: The Long Night of the Iron Vigil", imageUrl: "/design/covers/ashen-crown.webp", href: "#ashen-crown", facts: { playerCount: 7 } }) },
-    { label: "Everything at once: one in each corner", markup: cardSample({ title: "Hollow Tide", imageUrl: "/design/covers/hollow-tide.webp", href: "#hollow-tide", facts: { playerCount: 412, isUpdated: true, priceText: "$24.99", friends: [{ username: "Liam" }, { username: "Sofia" }], deviceNote: "Needs a keyboard" } }) },
-    { label: "Pointed at: its foot lit in the game's tint", markup: cardSample({ title: "Neon Drift", imageUrl: "/design/covers/neon-drift.webp", href: "#neon-drift", facts: { playerCount: 3870 }, tintColor: "#C454E8", state: "is-pointed" }), isStill: true },
-    { label: "Pressed: the art sinks into its well", markup: cardSample({ title: "Neon Drift", imageUrl: "/design/covers/neon-drift.webp", href: "#neon-drift", facts: { playerCount: 3870 }, tintColor: "#C454E8", state: "is-pressed" }), isStill: true },
-    { label: "In focus beside the list: its foot stays lit", markup: cardSample({ title: "Verdant", imageUrl: "/design/covers/verdant.webp", href: "#verdant", facts: { playerCount: 96 }, isCurrent: true }), isStill: true },
+    { label: "Five friends playing: three, and how many more", markup: cardSample({ title: "Kestrel", picture: STAND_IN_COVER_PICTURES["kestrel"]!, href: "#kestrel", facts: { playerCount: 12480, friends: [{ username: "Sofia" }, { username: "Liam" }, { username: "Emma" }, { username: "Noah" }, { username: "Charlotte" }] } }) },
+    { label: "Needs a keyboard, on a phone: bottom right, the art dimmed", markup: cardSample({ title: "Verdant", picture: STAND_IN_COVER_PICTURES["verdant"]!, href: "#verdant", facts: { playerCount: 96, deviceNote: "Needs a keyboard" } }) },
+    { label: "Made for another device", markup: cardSample({ title: "Iron Vigil", picture: STAND_IN_COVER_PICTURES["iron-vigil"]!, href: "#iron-vigil", facts: { playerCount: 8214, deviceNote: "Made for computers" } }) },
+    { label: "No cover yet: Zaisma's mark", markup: cardSample({ title: "The Last Lighthouse Keeper", picture: null, href: "#game-card", facts: { playerCount: 38 } }) },
+    { label: "Nobody playing now: its title alone", markup: cardSample({ title: "Kestrel", picture: STAND_IN_COVER_PICTURES["kestrel"]!, href: "#kestrel", facts: {} }) },
+    { label: "A long title: cut to one line", markup: cardSample({ title: "Ashen Crown: The Long Night of the Iron Vigil", picture: STAND_IN_COVER_PICTURES["ashen-crown"]!, href: "#ashen-crown", facts: { playerCount: 7 } }) },
+    { label: "Everything at once: one in each corner", markup: cardSample({ title: "Hollow Tide", picture: STAND_IN_COVER_PICTURES["hollow-tide"]!, href: "#hollow-tide", facts: { playerCount: 412, isUpdated: true, priceText: "$24.99", friends: [{ username: "Liam" }, { username: "Sofia" }], deviceNote: "Needs a keyboard" } }) },
+    { label: "Pointed at: its foot lit in the game's tint", markup: cardSample({ title: "Neon Drift", picture: STAND_IN_COVER_PICTURES["neon-drift"]!, href: "#neon-drift", facts: { playerCount: 3870 }, tintColor: "#C454E8", state: "is-pointed" }), isStill: true },
+    { label: "Pressed: the art sinks into its well", markup: cardSample({ title: "Neon Drift", picture: STAND_IN_COVER_PICTURES["neon-drift"]!, href: "#neon-drift", facts: { playerCount: 3870 }, tintColor: "#C454E8", state: "is-pressed" }), isStill: true },
+    { label: "In focus beside the list: its foot stays lit", markup: cardSample({ title: "Verdant", picture: STAND_IN_COVER_PICTURES["verdant"]!, href: "#verdant", facts: { playerCount: 96 }, isCurrent: true }), isStill: true },
     { label: "On a loop", markup: html`<div class="cover-sample" data-state-loop="cover">${standInCovers(["iron-vigil"])}</div>`, isStill: true },
-    { label: "Small: the art alone, in a row that says the rest (a search's games)", markup: row({ widths: "fit", items: [{ kind: "block", markup: smallGameCard({ imageUrl: "/design/covers/kestrel.webp" }) }, { kind: "block", markup: smallGameCard({ imageUrl: null }) }] }) },
+    { label: "Small: the art alone, in a row that says the rest (a search's games)", markup: row({ widths: "fit", items: [{ kind: "block", markup: smallGameCard({ imageUrl: "/design/covers/kestrel.webp", placeholderDataUrl: STAND_IN_COVER_PICTURES["kestrel"]!.placeholderDataUrl }) }, { kind: "block", markup: smallGameCard({ imageUrl: null }) }] }) },
   ],
 });
 
@@ -1396,7 +1385,7 @@ component({
 /** What a store panel sells. A page's script fills the parts by their ids ("{panel id}-title", "-item-blurb", "-item-price", "-item-description", "-item-seller", "-item-refunds"). */
 export interface StorePanelItem {
   /** The game's own cover, the developer's image with nothing drawn on it (items have no pictures of their own); null shows Zaisma's mark in its place. */
-  imageUrl: string | null;
+  picture: ShownPicture | null;
   /** The item's name: "Revive". It's the panel's title. */
   name: string;
   /** Its price as the player pays it: "$1.99". */
@@ -1430,10 +1419,10 @@ export interface StorePanelOptions {
   isShown?: boolean;
 }
 
-const storeCover = (imageUrl: string | null, coverSize: "small" | "large") =>
-  imageUrl === null
+const storeCover = (cover: ShownPicture | null, coverSize: "small" | "large") =>
+  cover === null
     ? html`<div class="store-cover is-${coverSize} carving holds-art" data-cut-line="0">${CUT_LINE}</div>`
-    : html`<div class="store-cover is-${coverSize} carving holds-art" data-cut-line="0">${CUT_LINE}<span class="carving-art" data-cut-line="0"><img src="${imageUrl}"${coverSizes(imageUrl, coverSize === "small" ? "4rem" : "(max-width: 760px) 100vw, 400px", 1440)} alt="" loading="lazy" decoding="async"></span></div>`;
+    : html`<div class="store-cover is-${coverSize} carving holds-art" data-cut-line="0">${CUT_LINE}<span class="carving-art" data-cut-line="0">${picture(cover, { shownSizes: coverSize === "small" ? "4rem" : "(max-width: 760px) 100vw, 400px", largestPx: 1440 })}</span></div>`;
 
 /**
  * A store panel: where a player buys. Over a running game (isOverGame) it's short, at the screen's bottom right: the game's cover small
@@ -1443,8 +1432,8 @@ const storeCover = (imageUrl: string | null, coverSize: "small" | "large") =>
  */
 export function storePanel(options: StorePanelOptions): Raw {
   const { id, soldItem } = options;
-  const words = html`<div class="store-head">${storeCover(soldItem.imageUrl, "small")}<div class="store-head-words"><h2 class="sheet-title" id="${id}-title">${soldItem.name}</h2><p class="store-subline is-blurb" id="${id}-item-blurb">${soldItem.description ?? ""}</p><p class="store-subline is-price" id="${id}-item-price">${soldItem.priceText}</p></div></div>`;
-  const itemWords: LayoutItem = { kind: "block", id: `${id}-item-words`, isHidden: options.isOverGame, markup: html`<div class="store-item-words">${storeCover(soldItem.imageUrl, "large")}<p class="store-description" id="${id}-item-description">${soldItem.description ?? ""}</p></div>` };
+  const words = html`<div class="store-head">${storeCover(soldItem.picture, "small")}<div class="store-head-words"><h2 class="sheet-title" id="${id}-title">${soldItem.name}</h2><p class="store-subline is-blurb" id="${id}-item-blurb">${soldItem.description ?? ""}</p><p class="store-subline is-price" id="${id}-item-price">${soldItem.priceText}</p></div></div>`;
+  const itemWords: LayoutItem = { kind: "block", id: `${id}-item-words`, isHidden: options.isOverGame, markup: html`<div class="store-item-words">${storeCover(soldItem.picture, "large")}<p class="store-description" id="${id}-item-description">${soldItem.description ?? ""}</p></div>` };
   const terms = html`<p class="store-terms"><span id="${id}-item-seller">${soldItem.sellerName ? `Sold by ${soldItem.sellerName}.` : ""}</span><span class="store-refunds" id="${id}-item-refunds">${soldItem.refundsText ? ` ${soldItem.refundsText}` : ""}</span></p>`;
   const closeButton = sheetClose(options.closeLabel);
   const parts = paneParts({
@@ -1455,8 +1444,8 @@ export function storePanel(options: StorePanelOptions): Raw {
   return sheetMarkup({ id, title: soldItem.name, body: html``, parts, closeButton, action: options.action, placement: options.isOverGame ? "corner" : "center", isStorePanel: true, isShown: options.isShown });
 }
 
-const STORE_ITEM: StorePanelItem = { imageUrl: "/design/covers/hollow-tide.webp", name: "Revive", priceText: "$1.99", description: "Back with half your health.", sellerName: "Preview Studio", refundsText: "Refunds for items you haven't used yet, within 14 days." };
-const STORE_GAME: StorePanelItem = { imageUrl: "/design/covers/hollow-tide.webp", name: "Hollow Tide", priceText: "$24.99", description: "A drowned city, a lighthouse that won't stay lit, and twelve hours of tide to read.", sellerName: "Preview Studio", refundsText: "Refunds within 14 days if you've played under 2 hours." };
+const STORE_ITEM: StorePanelItem = { picture: STAND_IN_COVER_PICTURES["hollow-tide"]!, name: "Revive", priceText: "$1.99", description: "Back with half your health.", sellerName: "Preview Studio", refundsText: "Refunds for items you haven't used yet, within 14 days." };
+const STORE_GAME: StorePanelItem = { picture: STAND_IN_COVER_PICTURES["hollow-tide"]!, name: "Hollow Tide", priceText: "$24.99", description: "A drowned city, a lighthouse that won't stay lit, and twelve hours of tide to read.", sellerName: "Preview Studio", refundsText: "Refunds within 14 days if you've played under 2 hours." };
 const storeExampleBuy = (id: string, priceText: string, label = "Buy", isBusy = false): LayoutItem => ({ kind: "control", markup: primaryButton(label, { id, type: "button", busyLabel: "Buying", isFullWidth: true, trailingText: priceText, isBusy }) });
 const storeExampleCard: LayoutItem = { kind: "control", markup: cardRow("Visa ending 4242", { type: "button", hiddenText: "Use another card", changeText: "Change" }) };
 
@@ -1554,7 +1543,7 @@ component({
     {
       label: "On a page, no cover yet and a long name",
       isStill: true,
-      markup: storePanel({ id: "example-store-panel-none", closeLabel: "Close", isShown: true, soldItem: { ...STORE_GAME, imageUrl: null, name: "The Complete Collector's Edition of the Northern Reach", priceText: "$149.99", description: "Every expansion and the soundtrack." }, footItems: [storeExampleCard, storeExampleBuy("example-store-panel-none-buy", "$149.99")] }),
+      markup: storePanel({ id: "example-store-panel-none", closeLabel: "Close", isShown: true, soldItem: { ...STORE_GAME, picture: null, name: "The Complete Collector's Edition of the Northern Reach", priceText: "$149.99", description: "Every expansion and the soundtrack." }, footItems: [storeExampleCard, storeExampleBuy("example-store-panel-none-buy", "$149.99")] }),
     },
   ],
 });

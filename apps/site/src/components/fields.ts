@@ -2,7 +2,8 @@ import { PURCHASE_PIN_LIMITS } from "@zaisma/core";
 import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
 import { controlMarkup, type ControlMarkup } from "./control-markup.ts";
-import { CUT_LINE, EDGE, floatingPane, glassPane, icon, type IconName } from "./foundations.ts";
+import { CUT_LINE, EDGE, floatingPane, glassPane, icon, picture, type IconName } from "./foundations.ts";
+import { STAND_IN_COVER_PICTURES } from "../generated/stand-in-placeholders.generated.ts";
 import { tertiaryButton, toggleButton } from "./actions.ts";
 import { examplePane } from "./example-pane.ts";
 import { smallGameCard } from "./game-cover.ts";
@@ -86,7 +87,8 @@ export interface SearchFieldOptions {
 /** What a search's suggestionsUrl answers, as JSON: up to three ways to finish what's typed, most likely first, and up to three games it finds. */
 export interface SearchSuggestions {
   finishes: string[];
-  games: { title: string; page_url: string; cover_url: string; fact: string }[];
+  /** Each game's cover, with its placeholder (placeholder_data_url) where the answer has one, so its picture holds its place as it arrives. */
+  games: { title: string; page_url: string; cover_url: string; cover_placeholder_data_url?: string | null; fact: string }[];
 }
 
 /** What's typed in words, the part that matches it in bold. */
@@ -101,7 +103,7 @@ const suggestionRows = (id: string, typed: string, suggestions: SearchSuggestion
   const active = (rowIndex: number) => (rowIndex === activeIndex ? " is-active" : "");
   return html`${finishes.map((finish, rowIndex) => html`<div class="select-option flush-row compact find-finish-row${active(rowIndex)}" role="option" id="${id}-row-${rowIndex}" data-finish="${finish}" data-cut-line="8">${CUT_LINE}<span class="find-row-icon">${icon("search")}</span>${matchWords(finish, typed)}</div>`)}${
     games.length ? html`<div class="find-head words-margin" role="presentation">Games</div>` : ""
-  }${games.map((game, gameIndex) => html`<a class="select-option flush-row compact find-game${active(finishes.length + gameIndex)}" role="option" id="${id}-row-${finishes.length + gameIndex}" href="${game.page_url}" tabindex="-1" data-cut-line="8">${CUT_LINE}${smallGameCard({ imageUrl: game.cover_url || null })}<span class="find-game-words">${matchWords(game.title, typed)}<span class="find-game-fact">${game.fact}</span></span></a>`)}`;
+  }${games.map((game, gameIndex) => html`<a class="select-option flush-row compact find-game${active(finishes.length + gameIndex)}" role="option" id="${id}-row-${finishes.length + gameIndex}" href="${game.page_url}" tabindex="-1" data-cut-line="8">${CUT_LINE}${smallGameCard({ imageUrl: game.cover_url || null, placeholderDataUrl: game.cover_placeholder_data_url ?? null })}<span class="find-game-words">${matchWords(game.title, typed)}<span class="find-game-fact">${game.fact}</span></span></a>`)}`;
 };
 
 /**
@@ -257,7 +259,7 @@ export function pinField(options: PinFieldOptions): ControlMarkup {
   const nextIndex = Math.min(digits.length, PIN_DIGIT_COUNT - 1);
   const marks = Array.from({ length: PIN_DIGIT_COUNT }, (_, markIndex) => {
     const className = ["pin-mark", "carving", "deep", markIndex < digits.length ? "is-filled" : "", markIndex === nextIndex ? "is-next" : "", options.error ? "is-marked" : ""].filter(Boolean).join(" ");
-    return html`<span class="${className}" style="--mark-index: ${markIndex}" data-cut-line="4" data-cut-diamond aria-hidden="true">${CUT_LINE}<span class="pin-fill light-fill" data-cut-line="3" data-cut-diamond></span></span>`;
+    return html`<span class="${className}" data-cut-line="4" data-cut-diamond data-waits-here aria-hidden="true">${CUT_LINE}<span class="pin-fill light-fill" data-cut-line="3" data-cut-diamond></span></span>`;
   });
   const input = html`<input class="pin-input" id="${id}-input" name="${options.name}" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="${PIN_DIGIT_COUNT}" autocomplete="off" autocapitalize="off" spellcheck="false" aria-describedby="${errorId}"${digits ? html` value="${digits}"` : ""}${options.error ? raw(' aria-invalid="true"') : ""}${options.isDisabled ? raw(" disabled") : ""}>`;
   return controlMarkup(html`<div class="pin-field${options.state === "is-focused" ? " is-focused" : ""}" id="${id}" data-pin${options.isDisabled ? raw(' aria-busy="true"') : ""}>
@@ -463,7 +465,9 @@ export const SEARCH_SCRIPT = `/* search finishes */(function () {
       // Its cover is the Game card's small one (smallGameCard, in the template), with Zaisma's mark where the game has none.
       var cover = coverTemplate.content.firstElementChild.cloneNode(true), picture = cover.querySelector(".cover-picture");
       // A picture Zaisma serves is offered at its kept sizes up to three times the card's widest (smallGameCard's srcset), so it's sharp.
-      if (game.cover_url) { var img = picture.querySelector("img"); if (/^\\/img\\/[A-Za-z0-9_-]+$/.test(game.cover_url)) { img.srcset = [320, 480].map(function (widthPx) { return game.cover_url + "/w" + widthPx + ".webp " + widthPx + "w"; }).join(", "); img.sizes = "160px"; } img.src = game.cover_url; }
+      // Its cover is a Picture (foundations.ts): its placeholder, where it has one, in its place until it arrives (PICTURE_SCRIPT).
+      if (game.cover_url) { var img = picture.querySelector("img"); if (/^\\/img\\/[A-Za-z0-9_-]+$/.test(game.cover_url)) img.srcset = [320, 480].map(function (widthPx) { return game.cover_url + "/w" + widthPx + ".webp " + widthPx + "w"; }).join(", "); else img.removeAttribute("srcset"); img.src = game.cover_url;
+        if (game.cover_placeholder_data_url && /^data:image\\/(webp|png|jpeg);base64,[A-Za-z0-9+\\/=]+$/.test(game.cover_placeholder_data_url)) img.parentElement.style.setProperty("--placeholder", "url(" + game.cover_placeholder_data_url + ")"); }
       else { picture.remove(); cover.classList.add("is-placeholder"); }
       var gameWords = document.createElement("span"), fact = document.createElement("span");
       gameWords.className = "find-game-words"; fact.className = "find-game-fact"; fact.textContent = game.fact;
@@ -699,10 +703,12 @@ export const WHEEL_SCRIPT = String.raw`/* wheel fields */(function () {
       if (form.at[part] > w.count - 1) form.at[part] = w.count - 1;
       mark(part);
     }
-    function place(isGliding) { form.parts.forEach(function (part) { wheels[part].el.scrollTo({ top: form.at[part] * ROW, behavior: isGliding && !reduce ? "smooth" : "auto" }); }); }
+    // A row's height as it's drawn (its words grow with the browser's text size), so a scroll lands on the row it stops at.
+    function rowPx(part) { var first = wheels[part].el.firstElementChild; return (first && first.offsetHeight) || ROW; }
+    function place(isGliding) { form.parts.forEach(function (part) { wheels[part].el.scrollTo({ top: form.at[part] * rowPx(part), behavior: isGliding && !reduce ? "smooth" : "auto" }); }); }
     function pickRow(part, i, isGliding) {
       i = Math.max(0, Math.min(wheels[part].count - 1, i));
-      wheels[part].el.scrollTo({ top: i * ROW, behavior: isGliding && !reduce ? "smooth" : "auto" });
+      wheels[part].el.scrollTo({ top: i * rowPx(part), behavior: isGliding && !reduce ? "smooth" : "auto" });
       setRow(part, i);
     }
     var isPicked = form.isComplete();
@@ -713,7 +719,7 @@ export const WHEEL_SCRIPT = String.raw`/* wheel fields */(function () {
       // A pick takes away what was wrong.
       if (field.classList.contains("is-marked") && form.isComplete()) { field.classList.remove("is-marked"); error.hidden = true; if (hint) hint.hidden = false; }
       if (changed === "all") { form.parts.forEach(mark); place(true); }
-      else { mark(part); changed.forEach(function (other) { fill(other); wheels[other].el.scrollTop = form.at[other] * ROW; }); }
+      else { mark(part); changed.forEach(function (other) { fill(other); wheels[other].el.scrollTop = form.at[other] * rowPx(other); }); }
       show();
     }
     function show() {
@@ -730,7 +736,7 @@ export const WHEEL_SCRIPT = String.raw`/* wheel fields */(function () {
       // When a scroll comes to rest, the row in the middle is the one picked.
       w.el.addEventListener("scroll", function () {
         clearTimeout(timer);
-        timer = setTimeout(function () { if (isOpen()) setRow(part, Math.round(w.el.scrollTop / ROW)); }, 110);
+        timer = setTimeout(function () { if (isOpen()) setRow(part, Math.round(w.el.scrollTop / rowPx(part))); }, 110);
       }, { passive: true });
       w.el.addEventListener("keydown", function (event) {
         var i = form.at[part], key = event.key, stepCount = { ArrowDown: 1, ArrowUp: -1, PageDown: 5, PageUp: -5 }[key];
@@ -867,15 +873,13 @@ component({
 /* The next mark outlined in the focus color while the field has the keyboard; a wrong PIN outlines them all amber. */
 .pin-marks:has(> .pin-input:focus-visible) > .pin-mark.is-next > .cut-line polygon, .pin-field.is-focused .pin-mark.is-next > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 .pin-mark.is-marked > .cut-line polygon { stroke: var(--marked); stroke-width: 2; }
-/* Sent, waiting: the marks stay filled, a wave of light running along them, one after another, until the answer comes. */
-.pin-field[aria-busy="true"] .pin-mark.is-filled > .pin-fill { animation: pin-wave var(--motion-loop) var(--ease-standard) infinite; animation-delay: calc(var(--mark-index) * var(--motion-loop) / 12); }
-@keyframes pin-wave { 0%, 60%, 100% { opacity: 0.4; } 25% { opacity: 1; } }
+/* Sent, waiting: the marks stay filled, and each one's edge runs the waiting light (the materials' waiting state, data-waits-here). */
 /* Wrong: the marks shake once, side to side, as a lock that won't turn. */
 .pin-marks.is-shaking { animation: pin-shake var(--motion-glide) var(--ease-standard); }
 @keyframes pin-shake { 0%, 100% { transform: none; } 20% { transform: translateX(-6px); } 40% { transform: translateX(5px); } 60% { transform: translateX(-3px); } 80% { transform: translateX(2px); } }
 /* The field itself: over the whole row, unseen, its own text and cursor too, at a size a phone doesn't zoom in to. */
 .pin-input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; padding: 0; border: 0; opacity: 0; font-size: 16px; cursor: text; }
-@media (prefers-reduced-motion: reduce) { .pin-fill { transition: none; } .pin-field[aria-busy="true"] .pin-mark.is-filled > .pin-fill { animation: none; opacity: 0.45; } .pin-marks.is-shaking { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .pin-fill { transition: none; } .pin-marks.is-shaking { animation: none; } }
 `,
   render: pinField,
   examples: [
@@ -908,7 +912,7 @@ const suggestionsFor = (typed: string): SearchSuggestions => {
     finishes: STAND_IN_FINISHES.filter((finish) => finish.startsWith(search) && finish !== search).slice(0, 3),
     games: SEARCH_STAND_IN_GAMES.filter((game) => game.title.toLowerCase().includes(search))
       .slice(0, 3)
-      .map((game) => ({ title: game.title, page_url: "#search-field", cover_url: `/design/covers/${game.slug}.webp`, fact: `${game.playerCount.toLocaleString("en-US")} playing` })),
+      .map((game) => ({ title: game.title, page_url: "#search-field", cover_url: `/design/covers/${game.slug}.webp`, cover_placeholder_data_url: STAND_IN_COVER_PICTURES[game.slug]?.placeholderDataUrl ?? null, fact: `${game.playerCount.toLocaleString("en-US")} playing` })),
   };
 };
 export const SEARCH_STAND_IN = { suggestionsFor };

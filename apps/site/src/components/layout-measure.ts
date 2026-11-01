@@ -44,6 +44,11 @@ export const LAYOUT_RULE_TIERS: Readonly<Record<string, LayoutRuleTier>> = {
   "the page isn't the state it's listed as": "page",
   "the page didn't settle in time": "page",
   "the check couldn't open the gallery's panes": "page",
+  // The loading check (FIRST_PAINT_SNAPSHOT_SOURCE): a page shows whole while it loads ("A page shows whole while it loads", docs/DESIGN.md):
+  // nothing moves or changes its words after the first paint, and every picture sits in a Picture's box, where its placeholder shows.
+  "a picture without its placeholder": "page",
+  "moved after the first paint": "page",
+  "words changed after the first paint": "page",
   "the check couldn't press the page's buttons": "sweep",
 };
 
@@ -255,5 +260,87 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
   }
   var pageWidthPx = document.scrollingElement.scrollWidth;
   if (pageWidthPx > innerWidth + 1) report("the page scrolls sideways", document.body, pageWidthPx + "px wide in a " + innerWidth + "px window");
+  return failures;
+}`;
+
+/**
+ * The loading check, run in a page in two steps (scripts/layout-check.mjs): FIRST_PAINT_SNAPSHOT_SOURCE as the page first paints with only
+ * its first-paint script run (the rest held back, and its pictures never loaded), then, once the page has loaded and settled,
+ * (FIRST_PAINT_COMPARE_SOURCE)({ tiers }): what moved more than a pixel or changed its words since, and, at the first paint, any picture
+ * shown without its placeholder. Each failure names the outermost thing that moved, not everything inside it.
+ */
+// What's behind the glass (a backdrop, the city) is a scene, not the page: it settles behind it as it likes.
+const FIRST_PAINT_SKIPPED = "script, style, template, svg, svg *, .sr, .rail, .rail *, .edge, .cut-line, .backdrop, .city-stage, .city-stage *, dialog:not([open]), dialog:not([open]) *, [hidden], [hidden] *";
+export const FIRST_PAINT_SNAPSHOT_SOURCE = String.raw`(function () {
+  var shown = [], scrollX = window.scrollX, scrollY = window.scrollY;
+  document.body.querySelectorAll("*").forEach(function (el) {
+    if (el.matches(${JSON.stringify(FIRST_PAINT_SKIPPED)})) return;
+    var r = el.getBoundingClientRect();
+    if (r.width < 1 && r.height < 1) return;
+    var words = Array.prototype.filter.call(el.childNodes, function (node) { return node.nodeType === 3; }).map(function (node) { return node.textContent; }).join("").replace(/\s+/g, " ").trim();
+    shown.push({ el: el, left: r.left + scrollX, top: r.top + scrollY, width: r.width, height: r.height, words: words });
+  });
+  // Pictures: each img in a Picture's box, or a backdrop with its placeholder layer under it. The box shows its placeholder where the picture
+  // has one; one made before placeholders were (the daily job fills those in) shows what's under it, which is the data's, not the page's. A
+  // QR code and the icon drawn in it are a drawn code, not a picture, and a file being chosen is the player's own.
+  var bare = Array.prototype.filter.call(document.body.querySelectorAll("img"), function (img) {
+    if (img.matches(".qr-picture, .qr-icon, .file-drop-view") || img.closest("[hidden], dialog:not([open])")) return false;
+    var box = img.parentElement;
+    if (box && box.classList.contains("picture")) return false;
+    if (img.matches(".backdrop") && img.previousElementSibling && img.previousElementSibling.matches(".backdrop-placeholder")) return false;
+    return img.getBoundingClientRect().width >= 1;
+  });
+  window.__zaismaFirstPaint = { shown: shown, bare: bare };
+  return shown.length;
+})()`;
+export const FIRST_PAINT_COMPARE_SOURCE = String.raw`function compareFirstPaint(options) {
+  var TIERS = ${JSON.stringify(LAYOUT_RULE_TIERS)};
+  var tiers = options.tiers || ${JSON.stringify(LAYOUT_TIERS)};
+  function isMeasured(check) { return !TIERS[check] || tiers.indexOf(TIERS[check]) >= 0; }
+  var first = window.__zaismaFirstPaint, failures = [], moved = [], MOST_FAILURES = 8;
+  if (!first) return [{ check: "moved after the first paint", element: "", said: "the check didn't see the page's first paint" }];
+  function describe(el) {
+    var classes = (el.getAttribute("class") || "").split(/\s+/).filter(Boolean).slice(0, 2).join(".");
+    var words = (el.textContent || "").replace(/\s+/g, " ").trim().slice(0, 30);
+    return el.tagName.toLowerCase() + (el.id ? "#" + el.id : "") + (classes ? "." + classes : "") + (words ? " " + JSON.stringify(words) : "");
+  }
+  var px = function (n) { return Math.round(n) + "px"; };
+  // What changed size is named where the change starts: the innermost that grew or shrank (its holders only follow it). What only moved
+  // is named where the move starts: the outermost (what's inside moves with it).
+  var changes = [];
+  first.shown.forEach(function (was) {
+    var el = was.el;
+    if (!el.isConnected) return;
+    var r = el.getBoundingClientRect(), now = { left: r.left + window.scrollX, top: r.top + window.scrollY, width: r.width, height: r.height };
+    var off = ["left", "top", "width", "height"].filter(function (side) { return Math.abs(now[side] - was[side]) > 1; });
+    if (off.length) changes.push({ el: el, was: was, now: now, off: off, isResized: off.indexOf("width") >= 0 || off.indexOf("height") >= 0 });
+    var words = Array.prototype.filter.call(el.childNodes, function (node) { return node.nodeType === 3; }).map(function (node) { return node.textContent; }).join("").replace(/\s+/g, " ").trim();
+    if (words !== was.words && isMeasured("words changed after the first paint") && failures.length < MOST_FAILURES) {
+      failures.push({ check: "words changed after the first paint", element: describe(el), said: JSON.stringify(was.words.slice(0, 60)) + " then " + JSON.stringify(words.slice(0, 60)) });
+    }
+  });
+  var resized = changes.filter(function (change) { return change.isResized; });
+  changes.forEach(function (change) {
+    if (!isMeasured("moved after the first paint") || failures.length >= MOST_FAILURES) return;
+    var isNamed = change.isResized
+      ? !resized.some(function (other) { return other !== change && change.el.contains(other.el); })
+      : !changes.some(function (other) { return other !== change && other.el.contains(change.el); });
+    if (!isNamed) return;
+    moved.push(change.el);
+    failures.push({ check: "moved after the first paint", element: describe(change.el), said: change.off.map(function (side) { return side + " " + px(change.was[side]) + " then " + px(change.now[side]); }).join(", ") });
+  });
+  // What wasn't there at the first paint and now takes room in the page's flow pushes what's after it: the outermost of it is named.
+  var wasShown = new Set(first.shown.map(function (was) { return was.el; })), appeared = new Set();
+  if (isMeasured("moved after the first paint")) document.body.querySelectorAll("*").forEach(function (el) {
+    if (failures.length >= MOST_FAILURES || wasShown.has(el) || !el.parentElement || Array.from(appeared).some(function (outer) { return outer.contains(el); }) || el.closest("svg, .rail, .edge") || el.matches(${JSON.stringify(FIRST_PAINT_SKIPPED)})) return;
+    var r = el.getBoundingClientRect(), position = getComputedStyle(el).position;
+    if (r.width < 1 || r.height < 1) return;
+    appeared.add(el);
+    if (position === "absolute" || position === "fixed") return;
+    failures.push({ check: "moved after the first paint", element: describe(el), said: "it appeared after the first paint, " + px(r.width) + " by " + px(r.height) + ", in the page's flow" });
+  });
+  if (isMeasured("a picture without its placeholder")) first.bare.slice(0, MOST_FAILURES).forEach(function (img) {
+    failures.push({ check: "a picture without its placeholder", element: describe(img) + " " + (img.getAttribute("src") || "").slice(0, 60), said: "an img outside a Picture's box (foundations.ts, picture), so its place is empty until it loads" });
+  });
   return failures;
 }`;

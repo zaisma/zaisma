@@ -2,6 +2,7 @@ import { row, stack, stackOfOne } from "./layout.ts";
 import { primaryButton, secondaryButton } from "./actions.ts";
 import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
+import { PICTURE_PLACEHOLDER } from "@zaisma/core";
 import { CUT_LINE, glassPane } from "./foundations.ts";
 
 /*
@@ -102,10 +103,10 @@ export const MATERIAL_STYLES = `
 .shell > .flush-row { --row-height: var(--control-height); padding: 0 var(--pad-inside-words); }
 :is(.shell:hover, .shell.is-pointed, .shell:focus-visible, .shell.is-focused) > .flush-row:not(.quiet) { --face-color: var(--wash); color: var(--ink); }
 /* Pressed outranks pointed: a press is always under the pointer too. */
-:is(.shell:active, .shell.is-pressed) > .flush-row:not(.quiet), .flush-row:not(.quiet):is(:active, .is-pressed) { --face-color: var(--wash-press); color: var(--ink); box-shadow: var(--press-shade); transition-duration: var(--motion-press); }
+:is(.shell:active, .shell.is-pressed, .shell[aria-busy="true"]) > .flush-row:not(.quiet), .flush-row:not(.quiet):is(:active, .is-pressed, [aria-busy="true"]) { --face-color: var(--wash-press); color: var(--ink); box-shadow: var(--press-shade); transition-duration: var(--motion-press); }
 /* Press spring-back, as on a slab: what's on it sinks a hair as it's pressed and springs back when let go. */
 .flush-row > :where(:not(.cut-line)) { transition: transform var(--motion-glide) var(--ease-spring); }
-:is(.shell:active, .shell.is-pressed) > .flush-row > :where(:not(.cut-line)), .flush-row:not(.quiet):is(:active, .is-pressed) > :where(:not(.cut-line)) { transform: translateY(1px); transition-duration: var(--motion-press); }
+:is(.shell:active, .shell.is-pressed, .shell[aria-busy="true"]) > .flush-row > :where(:not(.cut-line)), .flush-row:not(.quiet):is(:active, .is-pressed, [aria-busy="true"]) > :where(:not(.cut-line)) { transform: translateY(1px); transition-duration: var(--motion-press); }
 :is(.shell:focus-visible, .shell.is-focused) > .flush-row > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 /* What's in it sits over its face; zero specificity, so a part placed by its owner (a tertiary button's line) keeps its place. */
 .flush-row > :where(:not(.cut-line)) { position: relative; z-index: 2; }
@@ -227,7 +228,7 @@ span.hairline { flex: 1; border-top: var(--divider); }
 .carving > textarea { --text-block: 14px; }
 .carving > textarea.is-scrolling { padding-inline-end: calc(var(--pad-words) + var(--rail-room)); }
 .carving.is-used:is(:focus-visible, :has(:focus-visible), .is-focused) { --face-color: var(--carving-face-focus); }
-.carving.is-used:is(:active, .is-pressed):not(:has(input, textarea)) { box-shadow: var(--press-shade); transition-duration: var(--motion-press); }
+.carving.is-used:is(:active, .is-pressed, [aria-busy="true"]):not(:has(input, textarea)) { box-shadow: var(--press-shade); transition-duration: var(--motion-press); }
 /* A socket: a small carving a piece seats in (a check field's box), 24px across. Its face is a layer of its own (.socket-face) cut to its
    shape, and its shade lies over whatever is in it, so a piece below the face sits in its shadow. The piece (.socket-piece) is orange, a
    glint ready on it; seated (a checked input in the socket), the shade lifts off it and its edges take the lit slab's light. Pressed, the
@@ -238,7 +239,7 @@ span.hairline { flex: 1; border-top: var(--divider); }
 .socket-piece { position: absolute; inset: 0; display: grid; place-items: center; background: var(--piece-color, var(--run)); color: var(--on-run); overflow: hidden; }
 .socket-piece::before { content: ""; position: absolute; inset: 0; background: linear-gradient(115deg, transparent 30%, var(--glint) 50%, transparent 70%); pointer-events: none; }
 .carving.socket:has(:checked) > .cut-line { --band-top: rgba(255,240,214,0.85); --band-left: rgba(255,226,180,0.55); --band-right: rgba(150,72,0,0.32); --band-bottom: rgba(130,60,0,0.55); }
-:is(label:not(.is-disabled):active, .is-pressed) > .carving.socket > .socket-face::after { box-shadow: var(--press-shade); }
+:is(label:not(.is-disabled):active, .is-pressed, :has(input[aria-busy="true"])) > .carving.socket > .socket-face::after { box-shadow: var(--press-shade); }
 /* A pick: a carving a slab rises in once it's picked (a choice card). Not picked, it's carved; picked (a checked input in it), the slab's
    face comes up over the carving (::before), with orange light inside the glass along the edge that leads (::after, its foot; its owner
    turns it to run down its start). Pressed, it sinks deep, picked or not, quickly, and eases back. Compact, it's flat in the carving that
@@ -254,8 +255,8 @@ span.hairline { flex: 1; border-top: var(--divider); }
 .carving.pick:has(:checked) { box-shadow: none; }
 .carving.pick:has(:checked)::before, .carving.pick:has(:checked)::after { opacity: 1; }
 .carving.pick:has(:checked) > .cut-line { --band-top: var(--raise-top); --band-left: var(--raise-left); --band-right: var(--raise-right); --band-bottom: var(--raise-bottom); }
-.carving.pick:not(:has(:disabled)):is(:active, .is-pressed) { box-shadow: var(--press-deep); transition-duration: var(--motion-press); }
-.carving.pick:not(:has(:disabled)):has(:checked):is(:active, .is-pressed)::before { box-shadow: var(--press-deep); transition-duration: var(--motion-press); }
+.carving.pick:not(:has(:disabled)):is(:active, .is-pressed, [aria-busy="true"]) { box-shadow: var(--press-deep); transition-duration: var(--motion-press); }
+.carving.pick:not(:has(:disabled)):has(:checked):is(:active, .is-pressed, [aria-busy="true"])::before { box-shadow: var(--press-deep); transition-duration: var(--motion-press); }
 /* A carving that holds parts close (a compact list of picks, a switch's tabs) keeps them the compact frame gap from its edge: on what's in
    it (holds-parts) or on the box of parts itself (carving-parts). */
 .carving.holds-parts > .carving-words, .carving-parts { padding: var(--pad-frame-compact); --scroll-inset: var(--pad-frame-compact); }
@@ -276,9 +277,9 @@ span.hairline { flex: 1; border-top: var(--divider); }
 .thumb { width: var(--thumb, 24px); height: var(--thumb, 24px); filter: var(--thumb-cast); }
 .thumb-slab { position: relative; display: grid; place-items: center; width: 100%; height: 100%; color: var(--ink-2); background: var(--thumb-face); clip-path: var(--cut-shape); transition: box-shadow var(--motion-state); }
 .thumb-slab::after { content: ""; position: absolute; inset: 0; background: var(--thumb-press-face); opacity: 0; transition: opacity var(--motion-state); }
-:is(label:not(.is-disabled):active, .is-pressed, .is-held) .thumb, input:active ~ .thumb { filter: var(--thumb-cast-pressed); transition-duration: var(--motion-press); }
-:is(label:not(.is-disabled):active, .is-pressed, .is-held) .thumb > .thumb-slab, input:active ~ .thumb > .thumb-slab { box-shadow: var(--thumb-press-shade); }
-:is(label:not(.is-disabled):active, .is-pressed, .is-held) .thumb > .thumb-slab::after, input:active ~ .thumb > .thumb-slab::after { opacity: 1; transition-duration: var(--motion-press); }
+:is(label:not(.is-disabled):active, .is-pressed, :has(input[aria-busy="true"]), .is-held) .thumb, input:active ~ .thumb { filter: var(--thumb-cast-pressed); transition-duration: var(--motion-press); }
+:is(label:not(.is-disabled):active, .is-pressed, :has(input[aria-busy="true"]), .is-held) .thumb > .thumb-slab, input:active ~ .thumb > .thumb-slab { box-shadow: var(--thumb-press-shade); }
+:is(label:not(.is-disabled):active, .is-pressed, :has(input[aria-busy="true"]), .is-held) .thumb > .thumb-slab::after, input:active ~ .thumb > .thumb-slab::after { opacity: 1; transition-duration: var(--motion-press); }
 /* Layered: its face is a layer of its own under what's typed in it, so the words can fade at an end with more past it while the face stays
    whole (a field, a search, a long field). */
 .carving.layered { background: none; box-shadow: none; }
@@ -302,7 +303,6 @@ span.hairline { flex: 1; border-top: var(--divider); }
 .slab.compact { --slab-words: 14px; }
 .slab-holder:has(> .slab.compact) { --control-height: var(--control-height-small); }
 .slab-holder:has(> .slab.big) { --control-height: var(--control-height-big); }
-.slab .loader { position: relative; z-index: 2; }
 .slab.big { --slab-words: 28px; font-size: 1.0625rem; }
 /* A deep tint (a delete's red) gives its own edge colors, a lighter and a darker shade of itself (--slab-edge-lit, -lit-soft, -shade-soft,
    -shade) and a deeper press (--slab-press-shade): the light glass's faint grey shading would vanish on it. */
@@ -315,7 +315,7 @@ span.hairline { flex: 1; border-top: var(--divider); }
   --band-bottom: var(--slab-edge-shade, color-mix(in srgb, var(--way, transparent) calc(var(--way-mix, 0%) * 0.4), var(--raise-bottom))); }
 .slab > :where(:not(.cut-line)) { position: relative; z-index: 2; }
 /* Its words end in an ellipsis on one line, never spilling out of it or growing it past its height. */
-.slab > :is(span:not([class]), .label-idle, .label-busy) { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.slab > :is(span:not([class]), .label-idle) { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .slab-holder { display: inline-flex; max-width: 100%; }
 /* Holds art: a slab whose face is a picture (your picture as the account button), square at its control height. Its bevel and focus line are
    drawn over the picture's edge; pointed, the picture catches the light; pressed, it takes the press shade and the slab sinks in place as
@@ -324,21 +324,21 @@ span.hairline { flex: 1; border-top: var(--divider); }
 .slab.holds-art > .cut-line { z-index: 3; }
 .slab.holds-art > :where(:not(.cut-line)) { transition: filter var(--motion-state); }
 :is(.shell:hover, .shell.is-pointed, .shell[aria-expanded="true"]) > .slab.holds-art > :where(:not(.cut-line)) { filter: brightness(1.14); }
-:is(.shell:active, .shell.is-pressed) > .slab.holds-art > :where(:not(.cut-line)) { filter: brightness(0.9); transform: none; transition-duration: var(--motion-press); }
-:is(.shell:active, .shell.is-pressed) > .slab.holds-art { transform: translateY(1px); transition: transform var(--motion-press); }
+:is(.shell:active, .shell.is-pressed, .shell[aria-busy="true"]) > .slab.holds-art > :where(:not(.cut-line)) { filter: brightness(0.9); transform: none; transition-duration: var(--motion-press); }
+:is(.shell:active, .shell.is-pressed, .shell[aria-busy="true"]) > .slab.holds-art { transform: translateY(1px); transition: transform var(--motion-press); }
 /* A cast (a drop shadow) is never animated: Safari leaves an animated one stuck where it began, so it never shows. */
 :where(.shell, .slab-holder):has(> .slab) { filter: var(--slab-cast); }
 :is(.shell:hover, .shell.is-pointed, .shell:focus-visible, .shell.is-focused) > .slab, .slab.is-pointed, .slab.is-focused { --face-color: var(--slab-face-pointed); }
-:is(.shell:active, .shell.is-pressed) > .slab, .slab.is-pressed { --face-color: var(--slab-face-pressed); box-shadow: var(--slab-press-shade, var(--press-shade)); transition-duration: var(--motion-press); }
+:is(.shell:active, .shell.is-pressed, .shell[aria-busy="true"]) > .slab, .slab.is-pressed { --face-color: var(--slab-face-pressed); box-shadow: var(--slab-press-shade, var(--press-shade)); transition-duration: var(--motion-press); }
 /* Pressed, it sinks onto the glass: its shadow drawn in close, never gone, and back at once as it's let go. */
-:is(.shell:active, .shell.is-pressed):has(> .slab), .slab-holder:has(> .slab.is-pressed) { filter: var(--slab-cast-pressed); }
+:is(.shell:active, .shell.is-pressed, .shell[aria-busy="true"]):has(> .slab), .slab-holder:has(> .slab.is-pressed) { filter: var(--slab-cast-pressed); }
 /* Pressed, its edge light turns round as fast as its face sinks, so a bright edge never lingers on a face that's already gone dark. */
-:is(.shell:active, .shell.is-pressed) > .slab > .cut-line .cut-band, .slab.is-pressed > .cut-line .cut-band { transition-duration: var(--motion-press); }
+:is(.shell:active, .shell.is-pressed, .shell[aria-busy="true"]) > .slab > .cut-line .cut-band, .slab.is-pressed > .cut-line .cut-band { transition-duration: var(--motion-press); }
 /* Press spring-back: what's on a slab goes down with it, a hair, quickly, and springs back up when it's let go. The slab itself never
    moves out of its place. A lit slab floats, so it moves as a whole instead (its button lifts and lands it). */
 .slab:not(.lit) > :where(:not(.cut-line)) { transition: transform var(--motion-glide) var(--ease-spring); }
-:is(.shell:active, .shell.is-pressed) > .slab:not(.lit) > :where(:not(.cut-line)), .slab.is-pressed:not(.lit) > :where(:not(.cut-line)) { transform: translateY(1px); transition-duration: var(--motion-press); }
-:is(.shell:active, .shell.is-pressed) > .slab > .cut-line, .slab.is-pressed > .cut-line { --band-top: var(--slab-edge-shade, color-mix(in srgb, var(--way, transparent) var(--way-mix, 0%), var(--carve-top)));
+:is(.shell:active, .shell.is-pressed, .shell[aria-busy="true"]) > .slab:not(.lit) > :where(:not(.cut-line)), .slab.is-pressed:not(.lit) > :where(:not(.cut-line)) { transform: translateY(1px); transition-duration: var(--motion-press); }
+:is(.shell:active, .shell.is-pressed, .shell[aria-busy="true"]) > .slab > .cut-line, .slab.is-pressed > .cut-line { --band-top: var(--slab-edge-shade, color-mix(in srgb, var(--way, transparent) var(--way-mix, 0%), var(--carve-top)));
   --band-left: var(--slab-edge-shade-soft, color-mix(in srgb, var(--way, transparent) var(--way-mix, 0%), var(--carve-left)));
   --band-right: var(--slab-edge-lit-soft, color-mix(in srgb, var(--way, transparent) var(--way-mix, 0%), var(--carve-right)));
   --band-bottom: var(--slab-edge-lit, color-mix(in srgb, var(--way, transparent) var(--way-mix, 0%), var(--carve-bottom))); }
@@ -353,12 +353,12 @@ span.hairline { flex: 1; border-top: var(--divider); }
 .slab.lit { overflow: clip; }
 .slab.lit { --face-color: var(--run); background: radial-gradient(130% 110% at 50% -35%, rgba(255,255,255,0.3), rgba(255,255,255,0) 62%), linear-gradient(180deg, var(--run-hi), var(--run) 52%, #E57F0C);
   color: var(--on-run); text-shadow: 0 1px 0 rgba(255,226,180,0.45); font-size: 1rem; letter-spacing: 0.01em; }
-.slab.lit > .cut-line, :is(.shell:active, .shell.is-pressed) > .slab.lit > .cut-line, .slab.lit.is-pressed > .cut-line { --band-top: rgba(255,240,214,0.85); --band-left: rgba(255,226,180,0.55); --band-right: rgba(150,72,0,0.32); --band-bottom: rgba(130,60,0,0.55); }
+.slab.lit > .cut-line, :is(.shell:active, .shell.is-pressed, .shell[aria-busy="true"]) > .slab.lit > .cut-line, .slab.lit.is-pressed > .cut-line { --band-top: rgba(255,240,214,0.85); --band-left: rgba(255,226,180,0.55); --band-right: rgba(150,72,0,0.32); --band-bottom: rgba(130,60,0,0.55); }
 /* A lit slab floats: pressed, it lands flush on the glass, its light kept, never carved in (its button brings it down, RUNNER_SCRIPT). */
-:is(.shell:active, .shell.is-pressed) > .slab.lit, .slab.lit.is-pressed { box-shadow: none; }
+:is(.shell:active, .shell.is-pressed, .shell[aria-busy="true"]) > .slab.lit, .slab.lit.is-pressed { box-shadow: none; }
 :where(.shell, .slab-holder):has(> .slab.lit) { filter: var(--run-cast); }
 :is(.shell:hover, .shell.is-pointed):has(> .slab.lit), .slab-holder:has(> .slab.lit.is-pointed) { filter: var(--run-cast-up); }
-:is(.shell:active, .shell.is-pressed):has(> .slab.lit), .slab-holder:has(> .slab.lit.is-pressed) { filter: var(--run-cast-down); }
+:is(.shell:active, .shell.is-pressed, .shell[aria-busy="true"]):has(> .slab.lit), .slab-holder:has(> .slab.lit.is-pressed) { filter: var(--run-cast-down); }
 /* A lit slab's light: the reflection of the one light, a soft band sliding the opposite way to the pointer (--refl, RUNNER_SCRIPT), and one
    glint sweeping it as the pointer arrives (glint). It can't be pressed: no light at all. */
 .slab.lit::before { content: ""; position: absolute; inset: 0; background: linear-gradient(105deg, transparent calc(var(--refl, 50%) - 22%), rgba(255,255,255,0.2) var(--refl, 50%), transparent calc(var(--refl, 50%) + 22%)); opacity: 0; transition: opacity var(--motion-settle); }
@@ -371,10 +371,32 @@ span.hairline { flex: 1; border-top: var(--divider); }
 /* A lit slab's front: the orange face it shows below its top as it rises (a toggle on). */
 .slab-front { background: linear-gradient(180deg, var(--run-hi), var(--run) 40%, var(--run-lo)); }
 @media (prefers-reduced-motion: reduce) { .carving, .slab, .slab > *, .flush-row > * { transition: none; } .slab.lit.glint::after { animation: none; } }
+/* Waiting: a state of the glass, never of a component (the Waiting component, components/waiting.ts, owns its look and shows every use).
+   Whatever was pressed and waits on this page (aria-busy="true" on it, set by window.zaismaWait, or on the input of a switch or a check)
+   keeps its pressed look, sunk; a screen reader hears what it's doing (.when-waiting, a busy label), and its words on screen stay as they
+   were. */
+[aria-busy="true"] { cursor: progress; }
+.when-waiting:not([aria-busy="true"] .when-waiting) { display: none; }
+/* Pictures (foundations.ts, picture): a picture's box holds its placeholder, the tiny copy in the page itself (--placeholder), blurred and
+   run past the box's edges so no edge fades, and the picture over it, hidden until it has wholly arrived and decoded, then fading in
+   (img.reveals, PICTURE_SCRIPT). A game's world on its page starts the same way, blurred more (backdropPlaceholder), under its picture or
+   its shader's frame, which shows the same placeholder until its shader draws. A picture with no placeholder shows what's under it. */
+.picture { --placeholder-blur: 10px; position: relative; display: block; overflow: hidden; }
+.backdrop.backdrop-placeholder { --placeholder-blur: ${PICTURE_PLACEHOLDER.backgroundBlurPx}px; overflow: hidden; background: none; }
+/* Its box reaches past the picture's on every side, so the blur has room, but the copy itself covers exactly the picture's own box
+   (background-origin: content-box), so it sits where the picture will and the picture fades in over it in place, never larger. */
+:is(.picture, .backdrop-placeholder)::before { content: ""; position: absolute; inset: calc(-2 * var(--placeholder-blur)); box-sizing: border-box; padding: calc(2 * var(--placeholder-blur)); background: var(--placeholder, none) center / cover no-repeat content-box; filter: blur(var(--placeholder-blur)); }
+.picture > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+img.reveals:not(.is-shown) { opacity: 0; }
+img.reveals.is-shown:not(.at-once) { animation: picture-arrives var(--motion-settle) var(--ease-standard); }
+/* A game's world behind the glass fills the screen, so it eases in slower over its blur (--motion-world), as the runner's shader does. */
+img.backdrop.reveals.is-shown:not(.at-once) { animation: picture-arrives var(--motion-world) ease-out; }
+@keyframes picture-arrives { from { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { img.reveals.is-shown { animation: none; } }
 `;
 
 /**
- * Caps and scrolls: a material's part that scrolls is cut at its edge only while what's in it is longer than its cap. Otherwise it fits
+ * Waiting (window.zaismaWait), and caps and scrolls: a material's part that scrolls is cut at its edge only while what's in it is longer than its cap. Otherwise it fits
  * (fits), clips nothing, and lets the wheel through; it's measured again whenever it or what's in it changes size.
  */
 export const MATERIAL_SCRIPT = `/* materials */(function () {
@@ -385,6 +407,23 @@ export const MATERIAL_SCRIPT = `/* materials */(function () {
   if (window.MutationObserver) new MutationObserver(function (changes) {
     changes.forEach(function (change) { if (change.target.open) change.target.querySelectorAll(".scrolls").forEach(fit); });
   }).observe(document.documentElement, { subtree: true, attributes: true, attributeFilter: ["open"] });
+  /*
+   * Waiting: window.zaismaWait(element, promise) marks what was pressed as waiting (aria-busy="true", the materials' waiting state) until
+   * the promise settles, and answers with it. While it waits, a second press on it does nothing. Everything that waits on the same page
+   * goes through it: a form sent (BUSY_SCRIPT), a switch that saves, Load more, a vote. A link that opens another page doesn't: the
+   * header's light says so (HEADER_SCRIPT).
+   */
+  window.zaismaWait = function (element, promise) {
+    if (!element) return Promise.resolve(promise);
+    element.setAttribute("aria-busy", "true");
+    window.zaismaWaiting.redraw(element);
+    function done() { element.removeAttribute("aria-busy"); window.zaismaWaiting.redraw(element); }
+    return Promise.resolve(promise).then(function (answer) { done(); return answer; }, function (error) { done(); throw error; });
+  };
+  document.addEventListener("click", function (event) {
+    var waiting = event.target.closest && event.target.closest('[aria-busy="true"]');
+    if (waiting && waiting !== document.body) { event.preventDefault(); event.stopImmediatePropagation(); }
+  }, true);
   window.zaismaWatch.each(".scrolls", function (box) {
     fit(box);
     window.zaismaWatch.size(box, function () { fit(box); });
@@ -423,12 +462,14 @@ export interface SlabOptions {
   slabSize?: "compact" | "regular" | "big";
   /** The gallery's still states; a real slab takes them from the button it's the face of. */
   state?: "is-pointed" | "is-pressed" | "is-focused" | "is-disabled";
+  /** Pressed and waiting: the gallery's still copy of the waiting state, which a real slab takes from its button's aria-busy. */
+  isWaiting?: boolean;
 }
 
 /** A slab, on its own: the gallery's look at the material. A button's face is one (actions.ts), its states from the button. */
 export function slab(options: SlabOptions): Raw {
-  const className = ["slab", options.isLit ? "lit" : "", options.slabSize && options.slabSize !== "regular" ? options.slabSize : "", options.state ?? ""].filter(Boolean).join(" ");
-  return html`<span class="slab-holder"><span class="${className}" data-cut-line="12">${CUT_LINE}<span>${options.body}</span></span></span>`;
+  const className = ["slab", options.isLit ? "lit" : "", options.slabSize && options.slabSize !== "regular" ? options.slabSize : "", options.isWaiting ? "is-pressed" : options.state ?? ""].filter(Boolean).join(" ");
+  return html`<span class="slab-holder"${options.isWaiting ? raw(' aria-busy="true"') : ""}><span class="${className}" data-cut-line="12">${CUT_LINE}<span>${options.body}</span></span></span>`;
 }
 
 /** The four thicknesses side by side over shapes, so what shows through each tells them apart. */
@@ -504,6 +545,7 @@ component({
     { label: "Pointed at", isStill: true, markup: carvingSample(slab({ body: html`Details`, state: "is-pointed" })) },
     { label: "Pressed", isStill: true, markup: carvingSample(slab({ body: html`Details`, state: "is-pressed" })) },
     { label: "Keyboard focus", isStill: true, markup: carvingSample(slab({ body: html`Details`, state: "is-focused" })) },
+    { label: "Waiting on its press: sunk, and its edge runs the waiting light", isStill: true, markup: carvingSample(slab({ body: html`Details`, isWaiting: true })) },
     { label: "Can't be pressed", isStill: true, markup: carvingSample(slab({ body: html`Details`, state: "is-disabled" })) },
     { label: "Compact", markup: carvingSample(slab({ body: html`Details`, slabSize: "compact" })) },
     {
@@ -514,6 +556,7 @@ component({
     { label: "Lit: the orange one", markup: carvingSample(slab({ body: html`Play`, isLit: true })) },
     { label: "Lit, pointed at", isStill: true, markup: carvingSample(slab({ body: html`Play`, isLit: true, state: "is-pointed" })) },
     { label: "Lit, pressed", isStill: true, markup: carvingSample(slab({ body: html`Play`, isLit: true, state: "is-pressed" })) },
+    { label: "Lit, waiting", isStill: true, markup: carvingSample(slab({ body: html`Save`, isLit: true, isWaiting: true })) },
   ],
 });
 

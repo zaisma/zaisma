@@ -1,3 +1,5 @@
+import { PICTURE_COLUMNS_SQL, shownPictureOf, type PictureRow } from "./placeholders.ts";
+import { viewerDeviceKind } from "./device-kind.ts";
 import {
   ALLOWED_CONTENT,
   CREDIT_LIMITS,
@@ -39,6 +41,7 @@ import {
   testerLinkVersion,
   versionById,
   type ContentRule,
+  type DeviceKind,
   type Game,
   type GameItem,
   type RoomPage,
@@ -60,6 +63,7 @@ import { backgroundMarkup, backgroundOf, type ShownBackground } from "./backgrou
 import { glassMessage, html, layout, pageData, raw, scriptTags, type Raw } from "./html.ts";
 import { pageScript } from "./page-scripts.ts";
 import { coverPriceText, paidGamesOwnedBy, showcase, type ShowGame } from "./home.ts";
+import { KEEP_PLAYED_COOKIE_SOURCE } from "./home-script.ts";
 import { viewerOf, type Viewer } from "./viewer.ts";
 import { SAVES_SCRIPT } from "./saves-client.ts";
 import { reportScript, reportSheet, reportStep } from "./report.ts";
@@ -125,7 +129,7 @@ export interface GamePageView {
   testerVersionId: string | null;
   viewer: Viewer;
   developer: { name: string; game_count: number } | null;
-  pictures: { id: string; kind: string }[];
+  pictures: (PictureRow & { kind: string })[];
   updates: { id: string; patch_notes: string; published_at_ms: number }[];
   /** The showcase's games, for More from the developer. */
   otherGames: ShowGame[];
@@ -135,6 +139,10 @@ export interface GamePageView {
   checkedPlayerCount: number;
   /** Whether the version this page plays needs threads (ScanReport.has_threads). */
   hasThreads: boolean;
+  /** The viewer's kind of device as the server guesses it (device-kind.ts), and whether the browser's name says it's Chromium 137 or later
+   * off an iPhone or iPad (a game with threads plays only there): the device note's first guess, which the page's script corrects. */
+  deviceKind: DeviceKind;
+  canIsolateFrame: boolean;
   purchaseLabel: PurchaseLabel;
   background: ShownBackground;
   /** What chat apps, social sites and search engines read; none for tester links, which are secret. */
@@ -202,7 +210,7 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
       ? env.DB.prepare("SELECT accounts.username AS name, (SELECT COUNT(*) FROM games WHERE owner_id = ? AND review_status = 'live' AND visibility = 'listed') AS game_count FROM owners JOIN accounts ON accounts.id = owners.account_id WHERE owners.id = ?").bind(game.owner_id, game.owner_id).first<{ name: string; game_count: number }>()
       : null,
     // The square cover is only for phones' game cards, not one of the game's pictures.
-    env.DB.prepare("SELECT id, kind FROM game_images WHERE game_id = ? AND review_status = 'approved' AND kind IN ('cover', 'screenshot') ORDER BY kind = 'cover' DESC, created_at_ms").bind(game.id).all<{ id: string; kind: string }>(),
+    env.DB.prepare(`SELECT ${PICTURE_COLUMNS_SQL}, kind FROM game_images WHERE game_id = ? AND review_status = 'approved' AND kind IN ('cover', 'screenshot') ORDER BY kind = 'cover' DESC, created_at_ms`).bind(game.id).all<PictureRow & { kind: string }>(),
     env.DB.prepare("SELECT id, patch_notes, published_at_ms FROM versions WHERE game_id = ? AND published_at_ms IS NOT NULL AND patch_notes != '' ORDER BY published_at_ms DESC LIMIT 10").bind(game.id).all<{ id: string; patch_notes: string; published_at_ms: number }>(),
     // The viewer's age picks More games.
     showcase(env, viewer.ageFloorYears, 60, countryCode),
@@ -243,6 +251,8 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
     liveRooms,
     checkedPlayerCount: playingNow.get(game.id) ?? 0,
     hasThreads: playedVersion?.has_threads === 1,
+    deviceKind: viewerDeviceKind(request),
+    canIsolateFrame: Number(/Chrome\/(\d+)/.exec(request.headers.get("user-agent") ?? "")?.[1] ?? 0) >= 137 && !/iPhone|iPad/.test(request.headers.get("user-agent") ?? ""),
     purchaseLabel,
     background,
     head: tester ? undefined : await gamePageHead(env, game, { roomCode: code || null, developerName: developer?.name ?? null }),
@@ -306,15 +316,16 @@ export function gamePageResponse(env: Env, view: GamePageView): Response {
   const rooms = live && roomsOnPage(game) ? live : null;
   // Checked browsers with the game on screen, and everyone in its rooms (who may have come in another way): the larger.
   const playingNowPlayerCount = Math.max(view.checkedPlayerCount, live ? live.playing.playerCount : 0);
-  const shots = view.pictures.map((picture) => `/img/${picture.id}`);
+  const shots = view.pictures.map((picture) => shownPictureOf(picture));
   // The game's own cover, across the top of the buy sheet (items have no pictures of their own); null where the developer has none yet.
   const coverPicture = view.pictures.find((picture) => picture.kind === "cover");
-  const coverUrl = coverPicture ? `/img/${coverPicture.id}` : null;
+  const cover = coverPicture ? shownPictureOf(coverPicture) : null;
   const more = [...view.otherGames.filter((otherGame) => otherGame.slug !== game.slug && otherGame.owner_id && otherGame.owner_id === game.owner_id), ...view.otherGames.filter((otherGame) => otherGame.slug !== game.slug && (!otherGame.owner_id || otherGame.owner_id !== game.owner_id))].slice(0, 4);
   const { developer, purchaseLabel, background } = view;
   const refundWords = refundPolicyWords(purchaseSettingsOf(game));
   const devices = game.devices ? game.devices.split(",") : [];
   const controls = game.controls ? game.controls.split(",") : [];
+  const deviceNote = deviceNoteFor({ deviceKind: view.deviceKind, canIsolateFrame: view.canIsolateFrame, hasThreads: view.hasThreads, devices, controls, screenOrientation: game.screen_orientation || null });
   const playModes = readPlayModes(game.play_modes);
   const describedModes = playModes ? describePlayModes(playModes) : game.multiplayer_mode !== "none" ? [{ mode: "online" as const, label: "Online multiplayer", playerCount: null }] : [];
   const gameFacts = [
@@ -340,10 +351,14 @@ export function gamePageResponse(env: Env, view: GamePageView): Response {
   const addOns = view.items.filter((gameItem) => gameItem.is_on_game_page && gameItem.item_name !== game.full_game_item_name && (gameItem.price_minor_units !== null || isOwned(gameItem)));
   // The pane's actions: Play (the page's one orange), or Buy for a paid game the viewer doesn't own; Details down to About, a paid
   // game's demo or a demo's full game, Share and Report.
+  // A guest is asked to sign in from the first paint, never by a script after it: the note says how, and where the game (or the room a link
+  // opens) needs an account, Play says so (ACCOUNT_GATE_SCRIPT only sends the press to sign in).
+  const asksGuestToSignIn = !view.viewer.account && accountRequirement !== "none" && !isForSale;
+  const playsAfterSignIn = asksGuestToSignIn && (accountRequirement === "whole_game" || inRoom);
   const mainAction = isClosed
     ? []
     : !isForSale
-      ? [{ kind: "control" as const, markup: primaryButton("Play", { id: "play", type: "button", isBig: true, isFullWidth: true, icon: "play" }) }]
+      ? [{ kind: "control" as const, markup: primaryButton(playsAfterSignIn ? "Sign in to play" : deviceNote.isPlayedAnyway ? "Play anyway" : "Play", { id: "play", type: "button", isBig: true, isFullWidth: true, icon: "play" }) }]
       : fullGamePrice
         ? [{ kind: "control" as const, markup: primaryButton("Buy", { id: "buy-game", type: "button", isBig: true, isFullWidth: true, icon: "cart", trailingText: priceText(fullGamePrice.currencyCode, fullGamePrice.priceMinorUnits), dataAttributes: { "buy-item": game.full_game_item_name! } }) }]
         : [{ kind: "control" as const, markup: primaryButton("Not on sale right now", { id: "buy-game", type: "button", isBig: true, isFullWidth: true, isDisabled: true }) }];
@@ -369,7 +384,7 @@ export function gamePageResponse(env: Env, view: GamePageView): Response {
   });
   // A paid game's Buy says what's needed, and the buy sheet makes the account.
   const accountNote = accountRequirement !== "none" && !isClosed && game.full_game_item_name === null
-    ? html`<p id="account-note">${accountRequirement === "whole_game" ? "Needs a Zaisma account" : "Playing online needs a Zaisma account"}<span id="account-ask" hidden>. ${textLink("Make one free", `/join?next=${accountNext}`)} or ${textLink("sign in", `/signin?next=${accountNext}`)}${accountRequirement === "whole_game" ? " to play" : " to play with others"}</span>.</p>`
+    ? html`<p id="account-note">${accountRequirement === "whole_game" ? "Needs a Zaisma account" : "Playing online needs a Zaisma account"}<span id="account-ask"${asksGuestToSignIn ? "" : raw(" hidden")}>. ${textLink("Make one free", `/join?next=${accountNext}`)} or ${textLink("sign in", `/signin?next=${accountNext}`)}${accountRequirement === "whole_game" ? " to play" : " to play with others"}</span>.</p>`
     : null;
   const gamePane = glassPane({
     paneWidth: "fit",
@@ -386,7 +401,7 @@ export function gamePageResponse(env: Env, view: GamePageView): Response {
         ...(isClosed ? [{ kind: "words" as const, id: "closed", markup: html`<p>This game isn't open to your account. ${textLink("Find other games", "/")}</p>` }] : []),
         { kind: "block", markup: paneActions },
         ...(accountNote ? [{ kind: "words" as const, markup: accountNote }] : []),
-        { kind: "block", id: "device-note", isHidden: true, markup: banner({ text: "", icon: "warning" }) },
+        { kind: "block", id: "device-note", isHidden: !deviceNote.notes.length, markup: banner({ text: deviceNote.notes.join(" "), icon: "warning", ...(deviceNote.isOtherBrowserNeeded ? { tone: "warning" as const } : {}) }) },
         ...(gameFacts.length ? [{ kind: "words" as const, markup: facts({ facts: gameFacts, arrangement: "across", label: "About playing it" }) }] : []),
       ],
     }),
@@ -401,7 +416,7 @@ export function gamePageResponse(env: Env, view: GamePageView): Response {
   const sections: LayoutItem[] = [
     ...(rooms ? [section("rooms", "Rooms", [{ kind: "block", markup: codeBox(game.slug) }, { kind: "block", id: "rooms-list", markup: roomsPanel(game, rooms) }])] : []),
     ...(shots.length
-      ? [section("screenshots", "Screenshots", [{ kind: "block", markup: track({ whenEmpty: emptyState({ title: "No screenshots yet", text: "The developer hasn't added any screenshots." }), id: "screenshots-track", itemSize: "cover", label: "Screenshots", items: shots.map((shot, shotIndex) => ({ kind: "block" as const, markup: screenshot({ imageUrl: shot, label: `Screenshot ${shotIndex + 1} of ${shots.length}`, sheetId: `screenshot-${shotIndex + 1}` }) })) }) }])]
+      ? [section("screenshots", "Screenshots", [{ kind: "block", markup: track({ whenEmpty: emptyState({ title: "No screenshots yet", text: "The developer hasn't added any screenshots." }), id: "screenshots-track", itemSize: "cover", label: "Screenshots", items: shots.map((shot, shotIndex) => ({ kind: "block" as const, markup: screenshot({ picture: shot, label: `Screenshot ${shotIndex + 1} of ${shots.length}`, sheetId: `screenshot-${shotIndex + 1}` }) })) }) }])]
       : []),
     ...(addOns.length
       ? [section("add-ons", "Add-ons", [{
@@ -430,7 +445,7 @@ export function gamePageResponse(env: Env, view: GamePageView): Response {
       ? [section("updates", "Updates", [{ kind: "block", markup: readingText({ markup: html`${view.updates.map((update) => html`<h3>${day(update.published_at_ms)}</h3>${paragraphs(update.patch_notes)}`)}` }) }])]
       : []),
     ...(developerGames.length && developer
-      ? [section("more", `More from ${developer.name}`, [{ kind: "block", markup: grid({ whenEmpty: emptyState({ title: "No other games yet", text: "This is the developer's only game so far." }), itemSize: "cover", items: developerGames.map((otherGame) => ({ kind: "block" as const, markup: gameCard({ title: otherGame.title, imageUrl: otherGame.cover ?? null, href: `/g/${otherGame.slug}`, tintColor: otherGame.glass_tint_color, facts: { playerCount: otherGame.playing_now_player_count >= MINIMUM_PLAYING_NOW_PLAYER_COUNT ? otherGame.playing_now_player_count : undefined, priceText: coverPriceText(otherGame, view.ownedPaidGameIds) } }) })) }) }])]
+      ? [section("more", `More from ${developer.name}`, [{ kind: "block", markup: grid({ whenEmpty: emptyState({ title: "No other games yet", text: "This is the developer's only game so far." }), itemSize: "cover", items: developerGames.map((otherGame) => ({ kind: "block" as const, markup: gameCard({ title: otherGame.title, picture: otherGame.cover_picture, href: `/g/${otherGame.slug}`, tintColor: otherGame.glass_tint_color, facts: { playerCount: otherGame.playing_now_player_count >= MINIMUM_PLAYING_NOW_PLAYER_COUNT ? otherGame.playing_now_player_count : undefined, priceText: coverPriceText(otherGame, view.ownedPaidGameIds) } }) })) }) }])]
       : []),
   ];
   const screenshotSheets = shots.map((shot, shotIndex) => sheet({ id: `screenshot-${shotIndex + 1}`, title: `${game.title}, screenshot ${shotIndex + 1} of ${shots.length}`, body: stackOfOne(screenshotLarge(shot, `${game.title}, screenshot ${shotIndex + 1}`)), closeLabel: "Close", isPicture: true }));
@@ -508,6 +523,7 @@ export function gamePageResponse(env: Env, view: GamePageView): Response {
     pageShape: "full",
     // The game's own world behind the glass, the same the home shows while its cover is pointed at.
     stage: backgroundMarkup(background),
+    stageColor: background.source === "zaisma" ? null : background.tone?.averageColor,
     isFramedBySelf: view.isFramedBySelf,
     viewer,
     // Cloudflare's invisible check from when the page opens, for play counts and multiplayer (tester links: only for multiplayer).
@@ -533,7 +549,7 @@ ${signInCard}
 ${isClosed || !authConfigured(env) ? "" : friendRequestParts({ gameOrigin, slug: game.slug })}
 ${multiplayer ? stillThereCard() : ""}
 ${leavingCard(game.title)}
-${isClosed ? "" : buySheet({ joinHref: joinHere, signInHref: signinHere, coverUrl })}
+${isClosed ? "" : buySheet({ joinHref: joinHere, signInHref: signinHere, cover })}
 ${shareDialog(game.title, !tester)}
 ${tester && !multiplayer ? "" : playingCheck("play-check")}
 ${pageData("game-page-data", {
@@ -1082,12 +1098,14 @@ function warmUp() {
 if (document.readyState === "complete") setTimeout(warmUp, 1000);
 else addEventListener("load", () => setTimeout(warmUp, 1000));
 document.getElementById("share-page").onclick = (e) => shareFrom(e.currentTarget);
-// Remember the game for Continue playing: on this device, and with the account when signed in.
+// Remember the game for Continue playing: on this device (and in PLAYED_COOKIE, so the home shows it from its first paint), and with the account when signed in.
+${KEEP_PLAYED_COOKIE_SOURCE}
 function remember() {
   try {
     const list = JSON.parse(localStorage.getItem("zaisma:played") || "[]").filter((p) => p.slug !== gamePage.slug);
     list.unshift({ slug: gamePage.slug, played_at_ms: Date.now() });
     localStorage.setItem("zaisma:played", JSON.stringify(list.slice(0, 20)));
+    keepPlayedCookie(list);
   } catch {}
   if (/(^|; )(__Host-)?zaisma_in=1/.test(document.cookie)) fetch("/api/me/played/" + gamePage.slug, { method: "POST", keepalive: true }).catch(() => {});
 }
@@ -1235,14 +1253,16 @@ if (CONTROLS.length) {
 }
 const SCREEN = gamePage.screen_orientation;
 if (coarse && (SCREEN === "landscape" || SCREEN === "portrait")) deviceNotes.push(SCREEN === "landscape" ? "Best in landscape." : "Best in portrait.");
-if (deviceNotes.length) {
-  const note = document.getElementById("device-note");
-  note.querySelector(".banner-text").textContent = deviceNotes.join(" ");
+// The page says it from the first paint for the device the server guessed (deviceNoteFor); measured here, it changes only where the guess
+// was wrong (a tablet whose browser calls itself a computer's).
+{
+  const note = document.getElementById("device-note"), words = deviceNotes.join(" ");
+  if (note.querySelector(".banner-text").textContent !== words) note.querySelector(".banner-text").textContent = words;
   // Amber only when this browser can't start the game at all.
   note.querySelector(".banner-in").classList.toggle("tone-warning", needsOtherBrowser);
-  note.hidden = false;
-  const playLabel = document.querySelector("#play .face > span:not([class])");
-  if (playLabel && (needsOtherBrowser || (DEVICES.length && !DEVICES.includes(mine)))) playLabel.textContent = "Play anyway";
+  note.hidden = !deviceNotes.length;
+  const playLabel = document.querySelector("#play .face > span:not([class])"), playWords = needsOtherBrowser || (DEVICES.length && !DEVICES.includes(mine)) ? "Play anyway" : "Play";
+  if (playLabel && playLabel.textContent !== playWords && /^Play( anyway)?$/.test(playLabel.textContent)) playLabel.textContent = playWords;
 }
 // The ⋯ menu is a dropdown, which opens and closes itself; closed, the game gets the keys back.
 const menuButton = document.getElementById("menu");
@@ -1418,22 +1438,36 @@ addEventListener("pagehide", () => {
 });`);
 
 /**
+ * What the game page says about this device under Play, from the first paint: the same notes its script works out in the browser (the
+ * game page's script, deviceNotes), here from the server's guess at the device (device-kind.ts) and the browser's name. isPlayedAnyway: Play
+ * says "Play anyway", for a game made for other devices or one this browser can't start.
+ */
+export function deviceNoteFor(options: { deviceKind: DeviceKind; canIsolateFrame: boolean; hasThreads: boolean; devices: string[]; controls: string[]; screenOrientation: string | null }): { notes: string[]; isOtherBrowserNeeded: boolean; isPlayedAnyway: boolean } {
+  const isCoarse = options.deviceKind !== "computer";
+  const isOtherBrowserNeeded = options.hasThreads && !options.canIsolateFrame;
+  const isOtherDevice = options.devices.length > 0 && !options.devices.includes(options.deviceKind);
+  const notes = [
+    ...(isOtherBrowserNeeded ? ["This game needs Chrome or Edge on a computer or Android."] : []),
+    ...(isOtherDevice ? [`Made for ${options.devices.map((device) => `${device}s`).join(" and ")}. It may not work well on this ${options.deviceKind}.`] : []),
+    ...(options.controls.length && isCoarse && !options.controls.includes("touch") ? [options.controls.includes("keyboard_mouse") ? "Needs a keyboard." : "Needs a gamepad."] : []),
+    ...(options.controls.length && !isCoarse && !options.controls.includes("keyboard_mouse") && !options.controls.includes("touch") ? ["Needs a gamepad."] : []),
+    ...(isCoarse && (options.screenOrientation === "landscape" || options.screenOrientation === "portrait") ? [options.screenOrientation === "landscape" ? "Best in landscape." : "Best in portrait."] : []),
+  ];
+  return { notes, isOtherBrowserNeeded, isPlayedAnyway: isOtherBrowserNeeded || isOtherDevice };
+}
+
+/**
  * The game page's script for a game that needs an account: a guest (no zaisma_in cookie) sees how to
- * sign in, and for a whole game, or a room link, Play becomes "Sign in to play". Sets needsSignIn for
+ * sign in (the page says so from its first paint), and for a whole game, or a room link, Play goes to sign in. Sets needsSignIn for
  * autoplay. Rooms refuse guests' passes either way; this is only so honest players never start a game
  * that turns them away.
  */
 const ACCOUNT_GATE_SCRIPT = pageScript("account-gate", `// Guests are asked to sign in first, and come back to the same page or match.
 const needsSignIn = !/(^|; )(__Host-)?zaisma_in=1/.test(document.cookie);
-if (needsSignIn) {
-  // A paid game says no "Needs a Zaisma account" (its Buy makes one), so a tester link to it has no ask to show.
-  const accountAsk = document.getElementById("account-ask");
-  if (accountAsk) accountAsk.hidden = false;
-  if (gamePage.account_requirement === "whole_game" || gamePage.room_code) {
-    const playButton = document.getElementById("play");
-    playButton.querySelector(".face > span:not([class])").textContent = "Sign in to play";
-    playButton.onclick = () => { location.href = gamePage.sign_in_url; };
-  }
+// The page already says so (gamePage in pages.ts): Play reads "Sign in to play" and the note says how. A press goes to sign in.
+if (needsSignIn && (gamePage.account_requirement === "whole_game" || gamePage.room_code)) {
+  const playButton = document.getElementById("play");
+  if (playButton) playButton.onclick = () => { location.href = gamePage.sign_in_url; };
 }`);
 
 /**

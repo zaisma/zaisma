@@ -2892,6 +2892,7 @@ function imageJson(env: Env, image: GameImage) {
     height_px: image.height_px,
     size_bytes: image.size_bytes,
     image_url: `${env.SITE_ORIGIN}/img/${image.id}`,
+    placeholder_data_url: image.placeholder_data_url,
     created_at: iso(image.created_at_ms),
   };
 }

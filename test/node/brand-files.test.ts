@@ -76,7 +76,8 @@ describe("brand files", () => {
       const made = readdirSync(out);
       expect(made).toContain("zaisma-wordmark-glass-black.svg");
       for (const name of made) {
-        expect(readFileSync(join(out, name), "utf8"), `${name} differs from what npm run brand makes: run it, never edit the file`).toBe(readFileSync(join(BRAND, name), "utf8"));
+        const folder = name.endsWith(".generated.ts") ? join(ROOT, "apps/site/src/generated") : BRAND;
+        expect(readFileSync(join(out, name), "utf8"), `${name} differs from what npm run brand makes: run it, never edit the file`).toBe(readFileSync(join(folder, name), "utf8"));
       }
     } finally {
       rmSync(out, { recursive: true, force: true });

@@ -14,6 +14,8 @@
 //   - read: no words cut off or over something with an edge, nothing lost at 200% text (the sweep's screens), the page not scrolling sideways;
 //   - reach: on a touch screen everything pressed at least 44px tall, and on one without touch every control reached by Tab, its focus
 //     showing (checkKeyboardReach);
+//   - load: nothing moving or changing its words after the first paint (its first-paint script alone run, the rest held back), and
+//     every picture in a Picture's box, its placeholder in its place (docs/DESIGN.md, "A page shows whole while it loads");
 //   - press: every press answers within 400 ms (the Doherty threshold), on a laptop, in the sweep.
 // Style isn't measured: the components hold it, and test/site/design.test.ts and test/node/materials.test.ts check them.
 // Each failure says the page, the size, the theme, the thing (its component and label) and what was measured against what's expected.
@@ -48,7 +50,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { fetchChrome, findChrome, openChrome } from "./chrome.mjs";
 import { mergeMeasured, readMeasured } from "./merge-measured.mjs";
 import { PASSWORD } from "./preview/sign-ins.mjs";
-import { FOCUSABLE_SELECTOR, LAYOUT_TIERS, MEASURE_LAYOUT_SOURCE } from "../apps/site/src/components/layout-measure.ts";
+import { FIRST_PAINT_COMPARE_SOURCE, FIRST_PAINT_SNAPSHOT_SOURCE, FOCUSABLE_SELECTOR, LAYOUT_TIERS, MEASURE_LAYOUT_SOURCE } from "../apps/site/src/components/layout-measure.ts";
 import { BLOCKED_PICTURE_PATTERNS, CHECKED_PAGES, LOCAL_SCREEN_NAMES, MEASURED_SCREEN_NAMES, SCREEN_SIZES, SCREEN_THEMES, STRESS_ACCOUNTS, TEXT_SCREEN_NAMES, UNIQUE_WORD } from "../apps/site/src/components/checked-pages.ts";
 import { mkdirSync, writeFileSync } from "node:fs";
 
@@ -141,7 +143,7 @@ export function pageFingerprint(html, page, looks, tiers) {
     .replace(/<input\b[^>]*\btype="hidden"[^>]*>/g, (input) => input.replace(/\svalue="[^"]*"/, ' value=""'))
     .replace(/\s([\w-]+-ms)="[^"]*"/g, ' $1=""');
   const hash = createHash("sha256");
-  for (const part of [steady, JSON.stringify(page), JSON.stringify(looks.map((look) => [look.size.name, look.theme])), JSON.stringify(tiers), MEASURE_LAYOUT_SOURCE, CHECK_SOURCE]) hash.update(part).update("\0");
+  for (const part of [steady, JSON.stringify(page), JSON.stringify(looks.map((look) => [look.size.name, look.theme])), JSON.stringify(tiers), MEASURE_LAYOUT_SOURCE, FIRST_PAINT_SNAPSHOT_SOURCE, FIRST_PAINT_COMPARE_SOURCE, CHECK_SOURCE]) hash.update(part).update("\0");
   return hash.digest("hex");
 }
 
@@ -218,6 +220,25 @@ const SETTLE = `(async () => {
   // Freshly loaded, a page's own timers (a sheet shown as it loads) get 400 ms; a screen switched in place, 50.
   await new Promise((done) => setTimeout(done, window.__zaismaLayoutSettled ? 50 : 400));
   window.__zaismaLayoutSettled = true;
+  return true;
+})()`;
+
+/** What a phone's and a tablet's browser call themselves (their user agent), for a page that guesses the device from it. */
+const PHONE_BROWSER_NAME = "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36";
+const TABLET_BROWSER_NAME = "Mozilla/5.0 (Linux; Android 14; Pixel Tablet) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36";
+
+/**
+ * Waits for the page's first paint as a slow connection shows it: the page read, its stylesheet in and its first-paint script run (the
+ * rest of its scripts held back), and what that script draws drawn.
+ */
+const FIRST_PAINT_READY = `(async () => {
+  const turn = () => new Promise((done) => setTimeout(done, 0));
+  for (let waitedMs = 0; waitedMs < 15000 && (document.readyState === "loading" || (document.querySelector('script[src*="/js/first-paint."]') && !window.zaismaWatch)); waitedMs += 50) await new Promise((done) => setTimeout(done, 50));
+  // Its fonts in, as they are when it's compared: Jost's fallback takes its room, so their arrival is no part of what's measured.
+  if (document.fonts) await Promise.race([document.fonts.ready, new Promise((done) => setTimeout(done, 5000))]);
+  if (window.zaismaWatch?.drawAll) for (let pass = 0; pass < 3; pass++) { await turn(); window.zaismaWatch.drawAll(); }
+  // The frames a browser takes to its first paint, its ResizeObservers' answers in them.
+  for (let frame = 0; frame < 2; frame++) await new Promise((done) => requestAnimationFrame(done));
   return true;
 })()`;
 
@@ -430,8 +451,11 @@ async function checkPage(chrome, contextId, url, looks, options) {
   const { targetId } = await chrome.send("Target.createTarget", { url: "about:blank", browserContextId: contextId, newWindow: true });
   const { sessionId } = await chrome.send("Target.attachToTarget", { targetId, flatten: true });
   const send = (method, params = {}) => chrome.send(method, params, sessionId);
+  // A phone and a tablet send their kind of browser's name, which a first visit's page is laid out for (device-kind.ts), as a real one would.
   const look = async ({ size, theme }) => {
     await send("Emulation.setDeviceMetricsOverride", { width: size.widthPx, height: size.heightPx, deviceScaleFactor: size.isPhone ? 2 : 1, mobile: size.isPhone });
+    // Sent with its requests only (the page's scripts see Chrome as it is, as the check has always measured them).
+    await send("Network.setExtraHTTPHeaders", { headers: size.isPhone || size.hasTouch ? { "User-Agent": size.isPhone ? PHONE_BROWSER_NAME : TABLET_BROWSER_NAME } : {} });
     await send("Emulation.setTouchEmulationEnabled", size.hasTouch ? { enabled: true, maxTouchPoints: 5 } : { enabled: false });
     // The browser's text size (its default font size, which rem follows): 16px is 100%.
     const textPx = Math.round((16 * (size.textPercent ?? 100)) / 100);
@@ -456,7 +480,33 @@ async function checkPage(chrome, contextId, url, looks, options) {
       const off = chrome.listen(sessionId, (method) => method === "Page.loadEventFired" && (off(), done()));
     });
     let next = loaded();
+    // The loading check (layout-measure.ts, FIRST_PAINT_SNAPSHOT_SOURCE): the page as it first paints, with its first-paint script (and the
+    // ones the parse waits on) run and every other script held back, as a slow connection shows it, kept to be compared once it has loaded. Fonts aren't
+    // held, and it waits for them: Jost's fallback is Arial set to take its room, and a runner without Arial would measure a fallback no
+    // player sees.
+    const isFirstPaintChecked = !options.pictureOf && !options.stepsToTake?.length && !options.markup && !options.setUp;
+    const held = [];
+    const offPaused = isFirstPaintChecked ? chrome.listen(sessionId, (method, params) => {
+      if (method !== "Fetch.requestPaused") return;
+      // What the first paint itself runs: the first-paint script, every script the parse waits on (a script that isn't deferred, which Chrome
+      // asks for at a high priority: the theme, styles-applied at the body's end, an old page's own), and the preview's own tools, which no
+      // player gets. Deferred and async scripts, asked for at a low priority, are held.
+      const isParseWaiting = !/^(Low|VeryLow)$/.test(params.request.initialPriority ?? "");
+      if (isParseWaiting || /\/js\/(first-paint|layout-inspect)\.|\/__preview\//.test(params.request.url)) send("Fetch.continueRequest", { requestId: params.requestId }).catch(() => {});
+      else held.push(params.requestId);
+    }) : null;
+    if (isFirstPaintChecked) await send("Fetch.enable", { patterns: [{ urlPattern: "*", resourceType: "Script", requestStage: "Request" }] });
+    // A device's kind kept from another screen's page in this run (device-kind.ts's cookie) would lay this one out for that screen: the page
+    // guesses it from the browser's name, as on a first visit.
+    await send("Network.deleteCookies", { name: "zaisma_device_kind", url }).catch(() => {});
     await send("Page.navigate", { url });
+    if (isFirstPaintChecked) {
+      await send("Runtime.evaluate", { expression: FIRST_PAINT_READY, awaitPromise: true, returnByValue: true });
+      await send("Runtime.evaluate", { expression: FIRST_PAINT_SNAPSHOT_SOURCE, returnByValue: true });
+      offPaused();
+      for (const requestId of held) await send("Fetch.continueRequest", { requestId }).catch(() => {});
+      await send("Fetch.disable");
+    }
     await Promise.race([next, wait(30_000)]);
     // A state only forms and links reach: each step is taken once, and its answer is the page that takes the next. It's taken once for
     // every size and theme, so the sign-in's limits on tries aren't reached.
@@ -486,6 +536,14 @@ async function checkPage(chrome, contextId, url, looks, options) {
       const measured = { isMainActionChecked, isCoverAboveFold: Boolean(options.isCoverAboveFold) && size.isRunnerChecked !== false, isTouch: Boolean(size.hasTouch), tiers: options.tiers };
       const { result, exceptionDetails } = await send("Runtime.evaluate", { expression: `(${MEASURE_LAYOUT_SOURCE})(${JSON.stringify(measured)})`, returnByValue: true });
       const found = exceptionDetails ? [{ check: "the check couldn't measure the page", element: "", said: exceptionDetails.exception?.description ?? exceptionDetails.text }] : result.value;
+      // What moved or changed its words since the first paint, measured once, on the screen the page first painted on.
+      if (isFirstPaintChecked && lookIndex === 0) {
+        // The gallery is a tool, not a page players see: its first paint waits for all its scripts (design-page.ts), so on it only its
+        // pictures are measured (each with its placeholder); what its examples' harness does after (a loop, a frame fitted to its menu) isn't a load.
+        const firstPaintTiers = options.isGallery ? options.tiers.filter((tier) => tier !== "page") : options.tiers;
+        const compared = await send("Runtime.evaluate", { expression: `(${FIRST_PAINT_COMPARE_SOURCE})(${JSON.stringify({ tiers: firstPaintTiers })})`, returnByValue: true });
+        found.push(...(compared.exceptionDetails ? [{ check: "moved after the first paint", element: "", said: compared.exceptionDetails.exception?.description ?? compared.exceptionDetails.text }] : compared.result.value));
+      }
       // The entry's address must show the state it's named for (checked-pages.ts), so a list that drifts from the pages fails here.
       const state = await said();
       if (!options.markup && state !== (options.stateBeforeSetUp ?? options.shownStateName ?? options.name)) {
