@@ -627,11 +627,13 @@ component({
   styles: `
 /* Opening a game from its cover (PAGE_SWITCH_SCRIPT): the cover sinks under the press, the page fades over as every switch does, and the
    game's world settles in from a touch larger; once the switch is done, the page's panes fade in over it. The panes wait in the page
-   itself (is-opening-game), not in the browser's picture of it, so their glass is real glass over the world as they come. */
+   itself (is-opening-game), not in the browser's picture of it, so their glass is real glass over the world as they come. Each pane's
+   body (its ::before, which blurs) and what's on it fade, never the pane: a pane fading as a whole blurs nothing behind it until it's in. */
 html.is-opening-game .backdrop { animation: opening-game-settles calc(var(--motion-page-switch) * 1.8) var(--ease-glide) both; }
 @keyframes opening-game-settles { from { scale: 1.06; } }
-html.is-opening-game:not(.is-rising) main .glass:not(.glass .glass) { opacity: 0; }
-html.is-rising main .glass:not(.glass .glass) { transition: var(--glass-transition), opacity calc(var(--motion-page-switch) * 0.8) var(--ease-glide); }
+html.is-opening-game:not(.is-rising) main .glass:not(.glass .glass)::before, html.is-opening-game:not(.is-rising) main .glass:not(.glass .glass) > * { opacity: 0; }
+html.is-rising main .glass:not(.glass .glass)::before, html.is-rising main .glass:not(.glass .glass) > * { animation: opening-game-panes-come calc(var(--motion-page-switch) * 0.8) var(--ease-glide) both; }
+@keyframes opening-game-panes-come { from { opacity: 0; } }
 `,
   render: gameBackgroundFrame,
   examples: STAND_IN_BACKGROUNDS.map((background) => ({
