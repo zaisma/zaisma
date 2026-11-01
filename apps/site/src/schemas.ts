@@ -1997,6 +1997,21 @@ export const SECURITY_SPIKE_LIST = object({
 });
 
 /** zaisma.com's script policy violation reports (security-alerts.ts). */
+export const PAGE_SPEED = object({
+  pages: list(
+    object({
+      page_name: text("The page's name on the checks' list (checked-pages.ts), or other."),
+      visit_kind: choice({ opened: "opened from outside Zaisma, or typed in", switched: "reached from another of Zaisma's pages" }),
+      device_kind: nullable(choice(["phone", "tablet", "computer"], "The kind of device, when is_split_by_device_kind was asked; null otherwise.")),
+      report_count: countOf("Visits that reported, counting what Analytics Engine sampled away."),
+      median_first_paint_delay_ms: countOf("Half the visits showed the page sooner than this, in ms from the press that opened it."),
+      p75_first_paint_delay_ms: countOf("Three visits in four showed it sooner than this."),
+      p95_first_paint_delay_ms: countOf("Nineteen in twenty showed it sooner than this."),
+    }),
+    "Most reported first, up to 500.",
+  ),
+});
+
 export const BLOCKED_SCRIPT_LIST = object({
   blocked_scripts: list(
     object({

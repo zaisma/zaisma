@@ -57,7 +57,8 @@ const styledBy = (css: string, name: string) => new RegExp(`\\.${name.replace(/[
 export function pageProblems(markup: string): string[] {
   const problems: string[] = [];
   const componentCss = COMPONENT_STYLES();
-  if (/<style[\s>]/.test(markup)) problems.push("writes a <style> of its own");
+  // The rules a page carries from the site's stylesheet for its first paint are the stylesheet's (html.ts's layout), not its own.
+  if (/<style[\s>]/.test(markup.replace(/<style data-first-paint>[\s\S]*?<\/style>/, ""))) problems.push("writes a <style> of its own");
   for (const [, name = ""] of markup.matchAll(/<link rel="stylesheet" href="\/css\/([a-z-]+)\.[0-9a-f]{16}\.css">/g)) if (!PAGE_SHEETS.includes(name)) problems.push(`links a stylesheet of its own: ${name}`);
   const body = markup.replace(/<script[\s\S]*?<\/script>|<template[\s\S]*?<\/template>/g, "");
   for (const [, style = ""] of body.matchAll(/\sstyle="([^"]*)"/g)) {

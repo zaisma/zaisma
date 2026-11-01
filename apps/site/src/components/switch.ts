@@ -206,7 +206,9 @@ export const SWITCH_SCRIPT = `/* switches */(function () {
       var focused = sw.querySelector(":scope > .is-focused"), ring = sw.querySelector(".focus-ring");
       if (focused && ring) { put(ring, focused); sw.classList.add("is-focus-shown"); }
     }
-    function settle() { if (isWaitingToSlide) return; var on = current(), focused = sw.querySelector(":scope > :focus-visible"), ring = sw.querySelector(".focus-ring"); slab.style.transition = "none"; put(slab, on); if (ring && focused) put(ring, focused); fixedStates(); slab.offsetWidth; slab.style.transition = ""; sw.classList.add("is-ready"); }
+    // Not shown (a row a script hides for a moment), it keeps its place: measured then, its tabs have no width, and shown again before the
+    // next frame, its size never changes for the size watcher to set it again.
+    function settle() { if (isWaitingToSlide || !sw.getClientRects().length) return; var on = current(), focused = sw.querySelector(":scope > :focus-visible"), ring = sw.querySelector(".focus-ring"); slab.style.transition = "none"; put(slab, on); if (ring && focused) put(ring, focused); fixedStates(); slab.offsetWidth; slab.style.transition = ""; sw.classList.add("is-ready"); }
     settle();
     // A switch of links that was on the last page too (the gallery's groups): once this page shows, its slab slides from the last page's tab
     // to this one's. Only its position moves (and, sideways, its width as a stretch), as a compositor animation, like the old sidebar's glide:
@@ -239,10 +241,10 @@ export const SWITCH_SCRIPT = `/* switches */(function () {
             slideFromLastPage().finished.then(land, land);
           });
         };
-        if (document.fonts && document.fonts.ready) document.fonts.ready.then(start); else start();
+        window.zaismaWatch.fontsIn(start);
       }
     }
-    if (document.fonts && document.fonts.ready) document.fonts.ready.then(settle);
+    window.zaismaWatch.fontsIn(settle);
     window.zaismaWatch.size(sw, settle);
     // A switch as wide as its tabs doesn't change size when its room grows, so the room it has is watched too, to give its tabs back their room.
     if (!isVertical && sw.parentElement) window.zaismaWatch.size(sw.parentElement, settle);

@@ -21,7 +21,7 @@ describe("the background guide", () => {
     expect(page).toContain(`<title>${BACKGROUND_GUIDE.title} · Zaisma</title>`);
     expect(page).toContain('<a class="flush-row quiet foldable" data-lights href="/developers" aria-current="page">Developer</a>');
     expect(page).not.toContain('<main class="steel">');
-    expect(page).toContain(`<script src="${pageScriptPath(STAND_IN_BACKGROUNDS_SCRIPT)}" defer></script>`);
+    expect(page).toContain(`<link rel="preload" as="script" href="${pageScriptPath(STAND_IN_BACKGROUNDS_SCRIPT)}" fetchpriority="low" data-page-script>`);
     for (const { slug } of STAND_IN_BACKGROUNDS) expect(page).toContain(`href="/developers/backgrounds/${slug}.glsl"`);
     expect(page).toContain('href="/developers/covers"');
     // The cover guide links here.

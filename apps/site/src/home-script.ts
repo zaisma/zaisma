@@ -217,8 +217,9 @@ document.querySelectorAll("#home-games .cover").forEach((cover) => { const art =
   const track = $(id);
   if (!track) return;
   const fits = (item) => { const cover = item.matches("[data-slug]") ? item : item.querySelector("[data-slug]"); const game = cover && bySlug[cover.dataset.slug]; return !game || !game.devices.length || game.devices.includes(DEVICE_KIND); };
-  const items = Array.from(track.children);
-  track.replaceChildren(...items.filter(fits), ...items.filter((item) => !fits(item)));
+  const items = Array.from(track.children), ordered = [...items.filter(fits), ...items.filter((item) => !fits(item))];
+  // The server puts them in this device's order already; moving a cover anyway would play its picture's arrival again.
+  if (ordered.some((item, index) => item !== items[index])) track.replaceChildren(...ordered);
 });
 
 /* Pointing rests for a moment before the background follows, so sweeping across a row doesn't flash through games. */

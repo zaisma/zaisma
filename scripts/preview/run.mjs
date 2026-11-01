@@ -195,6 +195,32 @@ function openPreviewDatabase() {
   return new DatabaseSync(databasePath, { timeout: 15_000 });
 }
 
+/** A file's bytes from the preview, or null when it has none. */
+async function fetchBytes(url) {
+  const answer = await fetch(url).catch(() => null);
+  return answer && answer.ok ? new Uint8Array(await answer.arrayBuffer()) : null;
+}
+
+/**
+ * Placeholders, the 24px copy a page shows blurred until a picture or shader arrives: production makes them with Cloudflare's Images
+ * (placeholders.ts), which the preview doesn't have, so the Mac's own sips makes them here at the same width, as JPEG.
+ */
+function fillPlaceholders(pictures) {
+  const folder = join(STATE, "placeholders");
+  mkdirSync(folder, { recursive: true });
+  let madeCount = 0;
+  for (const { table, id, bytes } of pictures) {
+    if (!bytes) continue;
+    const from = join(folder, `${id}.source`), to = join(folder, `${id}.jpg`);
+    writeFileSync(from, bytes);
+    if (spawnSync("sips", ["-Z", "24", "-s", "format", "jpeg", "-s", "formatOptions", "60", from, "--out", to], { stdio: "ignore" }).status !== 0 || !existsSync(to)) continue;
+    const dataUrl = `data:image/jpeg;base64,${readFileSync(to).toString("base64")}`;
+    if (dataUrl.length <= 2000 && runSql(`UPDATE ${table} SET placeholder_data_url = '${dataUrl}' WHERE id = '${id.replace(/'/g, "")}'`)) madeCount++;
+  }
+  rmSync(folder, { recursive: true, force: true });
+  console.log(`  Placeholders made for ${madeCount} of ${pictures.length} pictures and shaders.`);
+}
+
 /** Runs SQL, one statement or several split by semicolons, on the preview's database: true when it all ran. */
 function runSql(sql) {
   const database = openPreviewDatabase();
@@ -642,14 +668,14 @@ console.log(`
 Zaisma preview is running. Nothing here touches the live site.
 
   Payments        ${STRIPE_TEST_VARS ? "Stripe test mode: try top-ups and Pro as Empty_Handed, whose payments are all Stripe's (add an email first)" : "stand-in Stripe"}
-  Home            ${SITE}/  (the game in focus fills the screen with its background: point at covers to move between Shard Dodge's picture,
+  Home            ${SITE}/  (the game in focus fills the screen with its background: point at covers to move between Shard Dodge's Neon Drift shader,
                   Four in a Row's picture, Cave Crew's Emberfall shader, Tiny Farm's Verdant shader and Zaisma's own for the rest;
                   Play starts the game in place and Back returns)
   Playing now     ${SITE}/  (Shard Dodge 5, Cave Crew 12 and Four in a Row 3 show the people icon and their number; Tiny Farm has 2, under the minimum,
                   so shows none; ${SITE}/g/shard-dodge says "5 playing now"; the preview renews them every 2 minutes)
   A game page     ${SITE}/g/shard-dodge
   Cover guide     ${SITE}/developers/covers  (the lines covers, screenshots and titles keep to show in lists, with Fine and Not fine pictures)
-  Backgrounds     ${SITE}/dashboard/shard-dodge/details#background  (as Preview_Studio: wide shows its picture, phones the Neon Drift
+  Backgrounds     ${SITE}/dashboard/shard-dodge/details#background  (as Preview_Studio: wide and phones the Neon Drift
                   shader the check drew, with its still, frames and ms a frame; click one to preview it live behind the sample glass,
                   or choose a .glsl file to preview it before sending; the purple glass tint)
                   ${SITE}/dashboard/arena/details#background  (wide: a shader the check refused: "It flashes more than 3 times a second…";
@@ -972,12 +998,8 @@ async function seed() {
     }
     stepDone(`game: ${g.title}`);
   }
-  // Backgrounds: Shard Dodge's wide one is a picture of its world, its phone one the stand-in Neon Drift's shader, drawn by
-  // the real shader check (Browser Rendering's local Chrome), and its glass is tinted. Arena sent a shader that strobes, which
-  // the check refuses for flashing.
-  const { image: world } = await api("POST", "/games/shard-dodge/images?kind=background", new Uint8Array(readFileSync(join(ROOT, "review-set/listing-cases/background-world/background.webp"))));
-  await go(`/admin/images/${world.id}/approve`, form({ reason: "" }));
-  await api("PUT", "/games/shard-dodge/backgrounds/wide", { source: "image", image_id: world.id });
+  // Backgrounds: Shard Dodge's, on every screen, the stand-in Neon Drift's shader, drawn by the real shader check (Browser Rendering's
+  // local Chrome), and its glass is tinted. Arena sent a shader that strobes, which the check refuses for flashing.
   // The stand-in games' shaders come from the site's own (shaders.ts), sent as a game sends one: the helpers they call written in.
   const shaders = await import(`data:text/javascript;base64,${Buffer.from(buildSync({ entryPoints: [join(ROOT, "apps/site/src/components/shaders.ts")], bundle: true, format: "esm", platform: "neutral", mainFields: ["module", "main"], write: false, logLevel: "error" }).outputFiles[0].text).toString("base64")}`);
   const standInShader = (slug) => {
@@ -987,6 +1009,7 @@ async function seed() {
   // A one-pass shader: its source is the image pass.
   const sendShader = (slug, screen, source) => api("POST", `/games/${slug}/shaders`, { screen, image: { source } });
   const { shader: neonDrift } = await sendShader("shard-dodge", "phone", standInShader("neon-drift"));
+  const { shader: neonDriftWide } = await sendShader("shard-dodge", "wide", standInShader("neon-drift"));
   await sendShader("arena", "wide", readFileSync(join(ROOT, "scripts/preview/shaders/strobe.glsl"), "utf8"));
   // A test game's shader once its check has run. Without a local browser a person approves it, as on /admin (it then has no still or
   // frames); one the check refused on a slower or busier machine is approved the same way, saying why, so the test data is always whole.
@@ -999,7 +1022,9 @@ async function seed() {
     await go(`/admin/shaders/${shaderId}/approve`, form({ reason: "Preview test data" }));
   };
   await settleTestShader("shard-dodge", neonDrift.id);
+  await settleTestShader("shard-dodge", neonDriftWide.id);
   await api("PUT", "/games/shard-dodge/backgrounds/phone", { source: "shader", shader_id: neonDrift.id });
+  await api("PUT", "/games/shard-dodge/backgrounds/wide", { source: "shader", shader_id: neonDriftWide.id });
   await api("PATCH", "/games/shard-dodge", { glass_tint_color: "#6b3fa0" });
   // More backgrounds for the home to move between: Four in a Row has a picture of its own, Cave Crew the stand-in Emberfall's shader and
   // Tiny Farm Verdant's (each on wide; phones follow). Arena and Night Drive keep Zaisma's own on wide screens.
@@ -1026,6 +1051,10 @@ async function seed() {
     await api("PUT", `/games/${slug}/backgrounds/${screen}`, { source: "shader", shader_id: shader.id });
   }
   stepDone("backgrounds and shaders");
+  fillPlaceholders(await Promise.all([
+    ...querySql("SELECT id FROM game_images WHERE placeholder_data_url IS NULL AND review_status = 'approved' AND kind IN ('cover', 'square', 'share', 'screenshot', 'background', 'phone_background')").map(async ({ id }) => ({ table: "game_images", id, bytes: await fetchBytes(`${LOCAL_SITE}/img/${id}`) })),
+    ...querySql("SELECT id FROM game_shaders WHERE placeholder_data_url IS NULL AND review_status = 'approved'").map(async ({ id }) => ({ table: "game_shaders", id, bytes: await fetchBytes(`${LOCAL_SITE}/shaders/${id}/still.png`) })),
+  ]));
 
   // Tiny Farm's registered links, which its buttons open: two on trusted sites (everyone), Discord
   // (signed-in adults) and one on a site the stand-in for Cloudflare's filter lists (nobody).

@@ -102,7 +102,15 @@ export interface CheckedPage {
   stepsToTake?: readonly StepToTake[];
   /** Left off Screens' list, since showing it there leaves a mark on whoever looks (too young sets a cookie that keeps them from joining for a day). */
   isOffScreens?: boolean;
+  /**
+   * A page that carries more than FIRST_PAINT_SIZE_LIMIT_BYTES on purpose, and its own limit (layout-measure.ts): Developer settings holds a
+   * sheet for each of a developer's games and webhooks, and is a developer's page on a computer more than a player's on a phone.
+   */
+  firstPaintSizeLimitBytes?: number;
 }
+
+/** Developer settings' own first-paint limit (CheckedPage.firstPaintSizeLimitBytes). */
+const DEVELOPER_SETTINGS_SIZE_LIMIT_BYTES = 96_000;
 
 const CITY = { mainActionShows: "desktop" } as const;
 
@@ -224,8 +232,8 @@ const CHECKED_PAGE_LIST = [
   { name: "Pick a username", area: "Signing in", path: "/join", ...CITY, stepsToTake: [{ formAction: "/join/age", fieldValues: ADULT_BIRTHDAY }, { path: "/signin/with/google" }] },
   { name: "How do you play", area: "Signing in", path: "/join/play", account: "Moss_Runner", ...CITY },
   { name: "You're in", area: "Signing in", path: "/account/kept", account: "Moss_Runner", ...CITY },
-  { name: "Developer settings", area: "Developers", path: "/dashboard/settings", account: "Preview_Studio", mainActionShows: "nowhere" },
-  ...STRESS_ACCOUNTS.map(({ account, nameEnding }) => ({ name: `Developer settings, ${nameEnding}` as const, area: "Developers" as const, path: "/dashboard/settings", account, shownStateName: "Developer settings", mainActionShows: "nowhere" as const })),
+  { name: "Developer settings", area: "Developers", path: "/dashboard/settings", account: "Preview_Studio", mainActionShows: "nowhere", firstPaintSizeLimitBytes: DEVELOPER_SETTINGS_SIZE_LIMIT_BYTES },
+  ...STRESS_ACCOUNTS.map(({ account, nameEnding }) => ({ name: `Developer settings, ${nameEnding}` as const, area: "Developers" as const, path: "/dashboard/settings", account, shownStateName: "Developer settings", firstPaintSizeLimitBytes: DEVELOPER_SETTINGS_SIZE_LIMIT_BYTES, mainActionShows: "nowhere" as const })),
   { name: "Developer settings, a spending request", area: "Developers", path: "/dashboard/settings?spending_request=spending_request_preview0waiting", account: "Preview_Studio", mainActionShows: "nowhere", stateBeforeSetUp: "Developer settings", setUp: `(async () => { await new Promise((done) => setTimeout(done, 600)); return Boolean(document.getElementById("spending-request")?.open); })()` },
   { name: "Background guide", area: "Developers", path: "/developers/backgrounds", mainActionShows: "nowhere" },
   { name: "Content rules", area: "Developers", path: "/legal/content-rules", mainActionShows: "nowhere" },

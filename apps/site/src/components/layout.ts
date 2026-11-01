@@ -176,7 +176,9 @@ export const ROW_LAYOUT_SCRIPT = `/* row layout */(function () {
     var cells = Array.prototype.slice.call(row.children);
     row.classList.add("is-measuring");
     var widestPx = 0;
-    if (row.classList.contains("widths-equal")) cells.forEach(function (cell) { if (cell.classList.contains("fills")) widestPx = Math.max(widestPx, cell.getBoundingClientRect().width); });
+    // Measured as it's laid out, not as it's drawn: in a sheet still growing in as it opens, it's drawn smaller than it lays out.
+    var drawnScale = row.offsetWidth ? row.getBoundingClientRect().width / row.offsetWidth : 1;
+    if (row.classList.contains("widths-equal")) cells.forEach(function (cell) { if (cell.classList.contains("fills")) widestPx = Math.max(widestPx, cell.getBoundingClientRect().width / (drawnScale || 1)); });
     row.classList.remove("is-measuring");
     var equalWidth = widestPx ? Math.ceil(widestPx) + "px" : "";
     if (row.style.getPropertyValue("--equal-cell-width") !== equalWidth) row.style.setProperty("--equal-cell-width", equalWidth);
@@ -196,7 +198,7 @@ export const ROW_LAYOUT_SCRIPT = `/* row layout */(function () {
     lay(row);
     window.zaismaWatch.size(row, function () { lay(row); });
   });
-  if (document.fonts) document.fonts.ready.then(function () { document.querySelectorAll(".layout-row").forEach(lay); });
+  window.zaismaWatch.fontArrived(function () { document.querySelectorAll(".layout-row").forEach(lay); });
   // A cell whose only thing is hidden is marked so (holds-only-hidden), for SHOWN to pass it over by its class: a :has() inside
   // :nth-child(1 of …) makes WebKit check the whole page again on every hidden that changes anywhere, 75 ms each on a page of fields.
   var CELLS = ".stack-cell, .row-cell";
@@ -408,6 +410,11 @@ export const ROW_STYLES = `
 /* Fields that show their labels, wrapped onto lines of their own, are blocks one under another. */
 .layout-row.is-on-field-boxes { align-items: flex-end; row-gap: var(--gap-block-block); }
 .row-cell { display: flex; align-items: center; }
+/* A box in a cell that scrolls sideways has its rail laid under it (navigation.ts), hanging in the gap below the row: beside it, the rail
+   would have no width, its thumb past the row's end, and past a phone's screen, widening the page. Out of the cell's flow, so it never
+   changes what the row measures to decide whether it stacks. */
+.row-cell:has(> .rail.sideways) { position: relative; }
+.row-cell > .rail.sideways { position: absolute; left: 0; right: 0; top: 100%; }
 /* Words beside controls sit on the controls' center line: half the tallest control's height less a line's is above their first line and below
    their last, so held up with the controls (a row, and one at a pane's top edge, where the controls take the corner's cut) their first line
    lines up, and held down (on a field's boxes, at a pane's bottom edge) their last. A heading beside a button lines up with it however many
@@ -484,7 +491,9 @@ ${rulesOf(edgeRows("bottom"), "align-items: flex-end;")}
   .bar-layout .find, .bar-layout .find:has(~ .end > .shell), .bar-layout .find:has(~ .end > .me) { margin: 0; }
   .bar-layout > .find + .cut-btn { margin-left: auto; margin-right: var(--gap-words-control); }
   .bar-layout .nav:has(~ .find) { margin-inline-end: 0; }
-  .bar-layout > .find + .cut-btn:has(~ .end > .shell) { margin-right: var(--gap-control-row-boxes); }
+  /* Beside a control (Sign in), its slant runs under that control's (a row's negative gap), so it reaches past its own column: a
+     control's max-width of 100% would hold it to the column, narrowing its face until its icon met the slant. */
+  .bar-layout > .find + .cut-btn:has(~ .end > .shell) { margin-right: var(--gap-control-row-boxes); max-width: none; }
   .bar-layout > .find + .cut-btn:has(~ .end > .me) { margin-right: var(--gap-control-stack); }
 }
 

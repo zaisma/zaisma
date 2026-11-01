@@ -127,6 +127,7 @@ describe("admin MCP", () => {
       "decide_ban_match",
       "list_security_spikes",
       "list_blocked_scripts",
+      "get_page_speed",
       "get_game",
       "list_announcements",
       "post_announcement",

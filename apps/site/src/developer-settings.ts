@@ -5,7 +5,7 @@ import { AREA_LABELS, CHOICE_LABELS, LEVEL_LABELS, keyMakingState, keyScopeFromF
 import { apiCall, callerFor, hostingUseJson, type Caller } from "./developer.ts";
 import { withSpendingConfirmation } from "./credit-api.ts";
 import type { Env } from "./env.ts";
-import { html, layout, openingScriptTags, raw, scriptTags, type Raw } from "./html.ts";
+import { html, layout, raw, scriptTags, type Raw } from "./html.ts";
 import { pageScript } from "./page-scripts.ts";
 import { PASSKEY_SCRIPT, checkPasskeyTap, keyRefusal, usedChallengeCookie } from "./passkeys.ts";
 import { logAccountChange, seedKeyPlace } from "./security-log.ts";
@@ -221,7 +221,7 @@ const heading = (text: string, id?: string): LayoutItem => ({ kind: "words", mar
  */
 function settingsPane(id: string, title: string, items: LayoutItem[], corner?: { end?: ControlMarkup; foot?: ControlMarkup }): LayoutItem {
   const pane = block(
-    html`<section id="${id}" data-settings-pane>${glassPane({ paneWidth: "full", label: title, body: paneParts({ head: { words: html`<h2>${title}</h2>`, end: corner?.end }, body: stack({ items: items.filter((paneItem) => !LAYERS.has(paneItem)) }), foot: corner?.foot ? { end: corner.foot } : undefined }) })}</section>${id === "payments" ? openingScriptTags(AMOUNTS_SCRIPT) : ""}`,
+    html`<section id="${id}" data-settings-pane>${glassPane({ paneWidth: "full", label: title, body: paneParts({ head: { words: html`<h2>${title}</h2>`, end: corner?.end }, body: stack({ items: items.filter((paneItem) => !LAYERS.has(paneItem)) }), foot: corner?.foot ? { end: corner.foot } : undefined }) })}</section>`,
   );
   PANE_LAYERS.set(pane, html`${items.filter((paneItem) => LAYERS.has(paneItem)).map((paneItem) => paneItem.markup)}`);
   return pane;
@@ -806,38 +806,6 @@ function keysPane(keys: ApiKey[], games: { slug: string; title: string }[], maki
 }
 
 /* ---- The page ---- */
-
-/**
- * Payments' amounts: hidden on this device when the eye is pressed, and kept so. It runs as the page is read, right after the Payments pane
- * (not deferred), so a device that hid them never paints the figures first.
- */
-const AMOUNTS_SCRIPT = pageScript(
-  "payments-amounts",
-  String.raw`(function () {
-  var KEY = "zaisma.payments_amounts_hidden";
-  var hidden = false;
-  try { hidden = localStorage.getItem(KEY) === "yes"; } catch (e) {}
-  function draw() {
-    document.querySelectorAll("#payments .number-amount, [data-amount]").forEach(function (each) {
-      if (!each.hasAttribute("data-amount")) each.setAttribute("data-amount", each.textContent);
-      each.textContent = hidden ? "•••" : each.getAttribute("data-amount");
-    });
-    document.querySelectorAll("[data-amounts-toggle]").forEach(function (button) {
-      button.setAttribute("aria-pressed", String(hidden));
-      var label = button.querySelector("span:not([class])");
-      if (label) label.textContent = hidden ? "Show amounts" : "Hide amounts";
-    });
-  }
-  draw();
-  document.addEventListener("click", function (event) {
-    var button = event.target.closest && event.target.closest("[data-amounts-toggle]");
-    if (!button) return;
-    hidden = !hidden;
-    try { localStorage.setItem(KEY, hidden ? "yes" : "no"); } catch (e) {}
-    draw();
-  });
-})();`,
-);
 
 const SETTINGS_SCRIPT = pageScript(
   "developer-settings",

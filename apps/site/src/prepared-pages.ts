@@ -48,6 +48,9 @@ export function isPreparedRequest(request: Request): boolean {
   return /\bprefetch\b/.test(`${request.headers.get("Sec-Purpose") ?? ""} ${request.headers.get("Purpose") ?? ""}`);
 }
 
+/** What marks a script file a prepared page holds until it's opened (FOLLOWING_FILES_SCRIPT runs it then). */
+export const HELD_FILE_ATTRIBUTE = "data-when-opened";
+
 /** A held script's type: no browser fetches or runs a script of a type it doesn't know. */
 const WAITING_SCRIPT_TYPE = "zaisma/when-opened";
 
@@ -88,6 +91,14 @@ export function heldUntilOpened(response: Response): Response {
   headers.append("Vary", "Cookie");
   return new HTMLRewriter()
     .on("html", { element: (root) => void root.setAttribute("data-prepared-ahead", "") })
+    // A page's script files are named at its body's end and run by its first-paint script once it's styled (html.ts, FOLLOWING_FILES_SCRIPT):
+    // each held one is marked, and that script runs it once the page is opened.
+    .on("body link[rel=preload][data-page-script]", {
+      element: (named) => {
+        const source = named.getAttribute("href") ?? "";
+        if (source.startsWith("/js/") && !running.has(source)) named.setAttribute(HELD_FILE_ATTRIBUTE, "");
+      },
+    })
     .on("body script[src]", {
       element: (script) => {
         const source = script.getAttribute("src") ?? "";

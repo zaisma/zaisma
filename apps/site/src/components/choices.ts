@@ -69,9 +69,11 @@ export const LONG_FIELD_SCRIPT = `/* long fields */(function () {
     count.hidden = area.value.length < limit * 0.8;
     count.textContent = area.value.length.toLocaleString("en-US") + " of " + limit.toLocaleString("en-US");
   }
-  document.querySelectorAll("textarea[data-long-field]").forEach(fit);
+  window.zaismaWatch.each("textarea[data-long-field]", fit);
+  // Its count may come after it in the page.
+  window.zaismaWatch.whenRead(function () { document.querySelectorAll("textarea[data-long-field]").forEach(fit); });
   document.addEventListener("input", function (event) { if (event.target.matches && event.target.matches("textarea[data-long-field]")) fit(event.target); });
-  if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { document.querySelectorAll("textarea[data-long-field]").forEach(fit); });
+  window.zaismaWatch.fontsIn(function () { document.querySelectorAll("textarea[data-long-field]").forEach(fit); });
 })();
 `;
 

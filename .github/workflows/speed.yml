@@ -1,0 +1,43 @@
+# The nightly Slow 3G run: the live site's main pages and its first listed game's page, each opened 3 times with nothing cached, in Chrome
+# and Safari on a slow line, and a push to Julius's phone (Pushover) when a page shows slower than its last week (scripts/speed-night.mjs).
+# Real visits' own times are the admin MCP's get_page_speed. The nights between runs live in an Actions cache entry, as watch.yml keeps
+# its state, and the run fails only when the push itself fails. Repository secrets: PUSHOVER_USER_KEY, PUSHOVER_APP_TOKEN.
+name: Speed
+
+on:
+  schedule:
+    # 03:30 UTC, after the night's layout sweep.
+    - cron: "30 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: speed
+  cancel-in-progress: false
+
+jobs:
+  speed:
+    name: Slow 3G on zaisma.com
+    # macOS, for Safari; free for a public repository.
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+      - run: npm ci --no-audit --no-fund
+      # Safari takes WebDriver only once it's allowed to.
+      - run: sudo safaridriver --enable
+      - uses: actions/cache@v4
+        with:
+          path: .speed-state
+          key: speed-state-${{ github.run_id }}
+          restore-keys: speed-state-
+      - name: Measure
+        env:
+          PUSHOVER_USER_KEY: ${{ secrets.PUSHOVER_USER_KEY }}
+          PUSHOVER_APP_TOKEN: ${{ secrets.PUSHOVER_APP_TOKEN }}
+        run: node scripts/speed-night.mjs --system-proxy

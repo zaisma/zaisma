@@ -48,18 +48,16 @@ describe("a page prepared ahead", () => {
       expect(prepared.headers.get("vary")).toContain("Cookie");
       const page = await prepared.text();
       expect(page).toMatch(/<html [^>]*data-prepared-ahead/);
-      const scripts = bodyScripts(page);
-      const held = scripts.filter((tag) => tag.includes('type="zaisma/when-opened"'));
-      const running = scripts.filter((tag) => tag.includes('src="/js/') && !tag.includes('type="zaisma/when-opened"'));
+      // The page's script files are named at its body's end and run by its first-paint script (html.ts): the held ones are marked.
+      const files = [...page.matchAll(/<link rel="preload" as="script" href="(\/js\/[^"]+)"[^>]*data-page-script[^>]*>/g)];
+      const held = files.filter((file) => file[0].includes("data-when-opened")).map((file) => file[1]!);
       expect(held.length).toBeGreaterThan(2);
-      expect(held.join("")).toContain('src="/js/site.');
-      expect(held.join("")).toContain('src="/js/presence.');
-      expect(running.map((tag) => tag.match(/\/js\/([a-z-]+)\./)![1])).toEqual(["account-link", "styles-applied", "when-opened"]);
-      expect(scripts.at(-1)).toContain('src="/js/when-opened.');
-      // Each held script is fetched ahead, so it runs the moment the page is opened.
-      for (const tag of held) expect(page).toContain(`<link rel="preload" as="script" href="${tag.match(/src="([^"]+)"/)![1]}">`);
-      // The head's first-paint script draws the page while it's prepared.
-      expect(page.slice(0, page.indexOf("<body"))).toMatch(/<script src="\/js\/first-paint\.[0-9a-f]{16}\.js" defer blocking="render"/);
+      expect(held.join("")).toContain("/js/site.");
+      expect(held.join("")).toContain("/js/presence.");
+      expect(files.filter((file) => !file[0].includes("data-when-opened")).map((file) => file[1])).toEqual([]);
+      expect(bodyScripts(page).at(-1)).toContain('src="/js/when-opened.');
+      // The first-paint pieces the page carries draw it while it's prepared: first in its body, before anything it shows.
+      expect(page.slice(page.indexOf("<body>"))).toMatch(/^<body>\n<script>/);
     }
   });
 
@@ -73,14 +71,14 @@ describe("a page prepared ahead", () => {
   it("runs only scripts reviewed to fetch, count and wake nothing", () => {
     const reviewed = pageScripts().filter((script) => script.runsWhilePreparedBecause).map((script) => script.name);
     // A script added here is one more that runs on a page the player may never open: review it first.
-    expect(reviewed.sort()).toEqual(["account-link", "styles-applied", "when-opened"]);
+    expect(reviewed.sort()).toEqual(["styles-applied", "when-opened"]);
     for (const name of reviewed) expect(pageScripts().find((script) => script.name === name)!.sourceText).not.toMatch(/fetch\(|sendBeacon|WebSocket|EventSource|setInterval/);
   });
 
   it("opens in its game's glass tint, from the server", async () => {
     const page = await layout(env, { title: "Worlds on Zaisma", body: html`<p>Worlds</p>`, glassHue: "#12abef", stageColor: "#203040" }).text();
     expect(page).toMatch(/<html [^>]*style="--backdrop-edge: #203040; --glass-hue: #12abef"/);
-    expect(await layout(env, { title: "Worlds", body: html`<p>Worlds</p>`, glassHue: "red" }).text()).not.toContain("--glass-hue");
+    expect((await layout(env, { title: "Worlds", body: html`<p>Worlds</p>`, glassHue: "red" }).text()).match(/<html[^>]*>/)![0]).not.toContain("--glass-hue");
   });
 });
 

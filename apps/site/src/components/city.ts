@@ -74,18 +74,21 @@ export const CITY_PANE_PLACE_SCRIPT = `/* city pane */(function () {
     pane.style.marginTop = Math.round(Math.max(below, window.innerHeight - peek)) + "px";
   }
   window.zaismaPlaceCityPane = place;
-  place();
+  // Placed as it arrives, and again whenever what's in it settles to another height (a rail coming on), before the frame is painted.
+  window.zaismaWatch.each("[data-city-pane]", function (pane) { place(true); window.zaismaWatch.size(pane, function () { place(true); }); });
+  window.zaismaWatch.whenRead(function () { place(true); });
   window.addEventListener("resize", function () { place(); });
-  if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { place(true); });
+  window.zaismaWatch.fontsIn(function () { place(true); });
 })();
 `;
 
 /**
  * The page over the city's stage (cityStage goes in the page's stage): the header, the one pane in front of the city, placed as the city
- * places it (on the right under the header on a wide screen, low and full width on a phone), and the page's rail.
+ * places it (on the right under the header on a wide screen, low and full width on a phone), and the page's rail, first.
  */
 export function cityPane(options: CityPaneOptions): Raw {
-  return html`<div class="city-page">${options.header}<div class="city-pane" data-city-pane>${glassPane({ paneWidth: "full", label: options.label, body: options.body })}</div>${rail("page")}
+  // The page's rail first, so the browser's own scrollbar never shows while the page arrives (RAIL_SCRIPT).
+  return html`<div class="city-page">${rail("page")}${options.header}<div class="city-pane" data-city-pane>${glassPane({ paneWidth: "full", label: options.label, body: options.body })}</div>
 ${options.after ?? ""}</div>`;
 }
 
@@ -144,7 +147,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
   }
   function settle() { place(); frameStill(); }
   settle();
-  if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { settle(); });
+  window.zaismaWatch.fontsIn(function () { settle(); });
   window.addEventListener("resize", settle);
 
   // Under reduced motion nothing moves: the still stays, with everything already in place.

@@ -64,6 +64,8 @@ import { watchAccounts } from "./account-watch.ts";
 import { watchHealth } from "./health-alerts.ts";
 import { SECURITY_TEXT_FILE_PATH, securityTextFile } from "./security-policy.ts";
 import { viewerOf } from "./viewer.ts";
+import { withGuestPageCache } from "./guest-page-cache.ts";
+import { handleSpeedReports } from "./speed-reports.ts";
 import { buyWindowPage, failStaleSales, handleBuy, stripeFramePage } from "./buy.ts";
 import { handleConnectReturn } from "./stripe-account-api.ts";
 
@@ -89,6 +91,8 @@ async function route(request: Request, env: Env, ctx: ExecutionContext): Promise
   if (path === "/stripe/events") return handleStripeEvents(request, env);
   if (path === "/stripe/connect-events") return handleStripeConnectEvents(request, env);
   if (path === "/csp-reports") return method === "POST" ? recordBlockedScripts(request, env) : new Response("Method not allowed", { status: 405 });
+  const speedReport = await handleSpeedReports(request, env, path);
+  if (speedReport) return speedReport;
   const developer = await handleDeveloper(request, env, path, ctx);
   if (developer) return developer;
   // Sign in with Zaisma, before the method check: other sites' pages ask first (OPTIONS).
@@ -208,8 +212,8 @@ export default {
     const url = new URL(request.url);
     // Only on the production address: tests and the local preview run over plain http.
     if (url.protocol === "http:" && env.SITE_ORIGIN.startsWith("https://") && url.hostname === new URL(env.SITE_ORIGIN).hostname) return upgradeToHttps(url);
-    const response = await route(request, env, ctx);
-    // A page prepared ahead of a tap holds its scripts until it's opened (prepared-pages.ts).
+    // A page prepared ahead of a tap holds its scripts until it's opened (prepared-pages.ts); a guest's copy is kept as it's opened.
+    const response = await withGuestPageCache(request, env, ctx, () => route(request, env, ctx));
     return withTransportSecurity(url, request.method === "GET" && isPreparedRequest(request) && !url.pathname.startsWith("/admin") ? heldUntilOpened(response) : response);
   },
 
