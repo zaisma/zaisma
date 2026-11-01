@@ -406,11 +406,16 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
     if (color) document.documentElement.style.setProperty("--backdrop-edge", color); else document.documentElement.style.removeProperty("--backdrop-edge");
   }
   // A game's own frame or picture: nothing to draw here, only the frame to tell and the glass over it to measure.
+  var FRAME_SAYS_LIMIT_MS = 4000;
+  function showDrawn(el) { if (el.hasAttribute("data-shows-once-drawn")) el.classList.add("is-shown"); }
   function setUpOuter(el, kind) {
     var layer = { canvas: el, kind: kind, isOuter: true, isInView: true, isTold: false, isGlassAdapted: false, target: readColors(el), from: null };
     el.backdropLayer = layer; layers.push(layer);
     // The frame says when it's running (and after it reloads): it's told where the glass is again.
-    if (kind === "frame") { layer.onMessage = function (event) { if (event.source === el.contentWindow && event.data && event.data.zaismaBackground) { layer.isTold = false; markPlaceStale(); } }; window.addEventListener("message", layer.onMessage); }
+    if (kind === "frame") { layer.onMessage = function (event) { if (event.source === el.contentWindow && event.data && event.data.zaismaBackground) { layer.isTold = false; markPlaceStale(); el.hasSaid = true; showDrawn(el); } }; window.addEventListener("message", layer.onMessage); }
+    // A frame that waits to be drawn (data-shows-once-drawn) fades in once its runner first says something: it has drawn, or it failed and
+    // shows its still instead. One that never says shows once it has loaded and had time to.
+    if (kind === "frame" && el.hasAttribute("data-shows-once-drawn")) el.addEventListener("load", function () { setTimeout(function () { if (!el.hasSaid) showDrawn(el); }, FRAME_SAYS_LIMIT_MS); });
     // The still the glass is measured from: read again whenever the page points it at another (the dashboard's preview does).
     function loadStill() {
       // A background whose tone was measured when it was added says its glass (background-tone.ts): nothing to measure here.

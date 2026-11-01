@@ -571,6 +571,8 @@ component({
 /* A game's world: its background picture or shader as a layer over Zaisma's own, fading in once it's ready (the home's, home-script.ts). */
 .backdrop.world { opacity: 0; object-fit: cover; border: 0; transition-property: opacity; transition-timing-function: ease; }
 .backdrop.world.is-shown { opacity: 1; }
+/* A game's shader on its page fades in over its placeholder as slowly as its picture would (--motion-world). */
+.backdrop.world[data-shows-once-drawn] { transition-duration: var(--motion-world); }
 @media (prefers-reduced-motion: reduce) { .backdrop.world { transition: none !important; } }
 :has(> .backdrop) { isolation: isolate; }
 .backdrop-frame { position: relative; width: 100%; height: 220px; display: flex; align-items: center; justify-content: center; overflow: hidden;

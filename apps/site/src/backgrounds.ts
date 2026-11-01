@@ -47,9 +47,10 @@ export async function backgroundOf(env: Env, game: Game, screen: BackgroundScree
 export function backgroundMarkup(background: ShownBackground): Raw {
   if (background.source === "zaisma") return html`<canvas class="backdrop" data-backdrop="shader" aria-hidden="true"></canvas>`;
   const tone = background.tone ? html` data-glass-kind="${background.tone.isGlassSmoked ? "smoked" : "light"}" data-glass-tint="${background.tone.glassTint}" data-backdrop-color="${background.tone.averageColor}"` : "";
-  // Its placeholder lies under it until it arrives (backdropPlaceholder): a picture fades in over it once decoded, a shader's frame shows the same until it draws.
+  // Its placeholder lies under it until it arrives (backdropPlaceholder): a picture fades in over it once decoded, a shader's frame once
+  // its runner says it has drawn (data-shows-once-drawn), never a blank frame or a first frame popping in.
   if (background.source === "image") return html`${backdropPlaceholder(background.placeholderDataUrl)}<img class="backdrop reveals" data-backdrop="picture" data-adapts-glass${tone} src="${background.imageUrl}" alt="" decoding="async" fetchpriority="high">`;
-  return html`${backdropPlaceholder(background.placeholderDataUrl)}<iframe class="backdrop" data-backdrop="frame" data-adapts-glass${tone} data-backdrop-still="${background.stillUrl}" src="${background.frameUrl}" sandbox="allow-scripts allow-same-origin" allow="" loading="eager" tabindex="-1" aria-hidden="true" title="Background"></iframe>`;
+  return html`${backdropPlaceholder(background.placeholderDataUrl)}<iframe class="backdrop world" data-backdrop="frame" data-shows-once-drawn data-adapts-glass${tone} data-backdrop-still="${background.stillUrl}" src="${background.frameUrl}" sandbox="allow-scripts allow-same-origin" allow="" loading="eager" tabindex="-1" aria-hidden="true" title="Background"></iframe>`;
 }
 
 /**

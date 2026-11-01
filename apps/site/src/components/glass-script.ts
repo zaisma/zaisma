@@ -121,6 +121,22 @@ export const WATCH_SCRIPT = `/* watch */(function () {
       });
       return Array.from(found);
     },
+    // Like each, but handed each one the moment it's on the page, whole or not: for what reads only the element itself (a piece of glass
+    // taking its background's glass), so a pane still arriving is never painted in the wrong glass.
+    eachArriving: function (selector, callback) {
+      var wired = new WeakSet();
+      function wire(element) { if (wired.has(element)) return; wired.add(element); callback(element); }
+      document.querySelectorAll(selector).forEach(wire);
+      arrivingCallbacks.push(function (changes) {
+        changes.forEach(function (change) {
+          change.addedNodes.forEach(function (node) {
+            if (node.nodeType !== 1 || !node.isConnected) return;
+            if (node.matches(selector)) wire(node);
+            node.querySelectorAll(selector).forEach(wire);
+          });
+        });
+      });
+    },
     each: function (selector, callback) {
       var wired = new WeakSet();
       // One already on the page but not yet whole waits for the next change or for the page to be read.
@@ -160,8 +176,10 @@ export const WATCH_SCRIPT = `/* watch */(function () {
    * is drawn again together (drawAll), as the whole page now places them.
    */
   var heldChanges = [], arrivingCallbacks = [], readCallbacks = [];
+  // What's inside a picture, a frame or a canvas never shows, so each is whole as soon as it's there.
+  var WHOLE_AT_ONCE = /^(IMG|INPUT|IFRAME|CANVAS|VIDEO|AUDIO|SOURCE|BR|HR|LINK|META)$/;
   function isWhole(node) {
-    if (document.readyState !== "loading") return true;
+    if (document.readyState !== "loading" || WHOLE_AT_ONCE.test(node.nodeName)) return true;
     for (var each = node; each && each !== document.body; each = each.parentNode) if (each.nextSibling) return true;
     return false;
   }

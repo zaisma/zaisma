@@ -82,10 +82,10 @@ export const MEASURED_GLASS_SCRIPT = `/* measured glass */(function () {
     if (pick.isSmoked) el.removeAttribute("data-theme-choice"); else if (!el.hasAttribute("data-theme-choice")) el.setAttribute("data-theme-choice", "light");
     if (pick.tint) el.style.setProperty("--glass-tint", pick.tint);
   }
-  window.zaismaWatch.each("[data-adapts-glass][data-glass-kind]", function () {
+  window.zaismaWatch.eachArriving("[data-adapts-glass][data-glass-kind]", function () {
     document.querySelectorAll("[data-glass]:not([data-cut-line])").forEach(function (el) { var host = hostOf(el), pick = pickOf(host); if (pick) setGlass(el, pick); });
   });
-  window.zaismaWatch.each("[data-glass]:not([data-cut-line])", function (el) { var host = hostOf(el), pick = pickOf(host); if (pick) setGlass(el, pick); });
+  window.zaismaWatch.eachArriving("[data-glass]:not([data-cut-line])", function (el) { var host = hostOf(el), pick = pickOf(host); if (pick) setGlass(el, pick); });
 })();
 `;
 
