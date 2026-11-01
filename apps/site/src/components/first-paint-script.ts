@@ -110,7 +110,8 @@ export const FRAME_SAYS_LIMIT_MS = 4000;
  */
 export const SHOWN_ONCE_DRAWN_SCRIPT = `/* shown once drawn */(function () {
   var FRAMES = "iframe[data-shows-once-drawn]";
-  function show(frame) { frame.classList.add("is-shown"); }
+  // Once the page's panes have faded in, as a picture does (PICTURE_SCRIPT): the glass over it would blur a changing world every frame.
+  function show(frame) { window.zaismaWatch.afterArrival(function () { frame.classList.add("is-shown"); }); }
   window.addEventListener("message", function (event) {
     if (!event.data || !event.data.zaismaBackground) return;
     document.querySelectorAll(FRAMES).forEach(function (frame) { if (event.source === frame.contentWindow) { frame.hasSaid = true; show(frame); } });

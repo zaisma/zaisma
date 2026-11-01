@@ -15,7 +15,7 @@ import { backdropPlaceholder } from "./components/foundations.ts";
 
 export type ShownBackground =
   | { source: "zaisma"; glassTintColor: string | null }
-  | { source: "image"; imageUrl: string; stillUrl: string; placeholderDataUrl: string | null; tone: ShownTone | null; glassTintColor: string | null }
+  | { source: "image"; imageUrl: string; stillUrl: string; placeholderDataUrl: string | null; widthPx: number; heightPx: number; tone: ShownTone | null; glassTintColor: string | null }
   | { source: "shader"; frameUrl: string; stillUrl: string; placeholderDataUrl: string | null; tone: ShownTone | null; glassTintColor: string | null };
 
 /** What a screen shows for a game, phone following wide resolved; anything not approved shows Zaisma's own. */
@@ -27,7 +27,7 @@ export async function backgroundOf(env: Env, game: Game, screen: BackgroundScree
     const image = await imageById(env.DB, background.image_id);
     if (image?.review_status === "approved" && image.game_id === game.id) {
       const imageUrl = `${env.SITE_ORIGIN}/img/${image.id}`;
-      return { source: "image", imageUrl, stillUrl: imageUrl, placeholderDataUrl: image.placeholder_data_url, tone: shownTone(image), glassTintColor };
+      return { source: "image", imageUrl, stillUrl: imageUrl, placeholderDataUrl: image.placeholder_data_url, widthPx: image.width_px, heightPx: image.height_px, tone: shownTone(image), glassTintColor };
     }
   }
   if (background.source === "shader" && background.shader_id) {
@@ -49,7 +49,7 @@ export function backgroundMarkup(background: ShownBackground): Raw {
   const tone = background.tone ? html` data-glass-kind="${background.tone.isGlassSmoked ? "smoked" : "light"}" data-glass-tint="${background.tone.glassTint}" data-backdrop-color="${background.tone.averageColor}"` : "";
   // Its placeholder lies under it until it arrives (backdropPlaceholder): a picture fades in over it once decoded, a shader's frame once
   // its runner says it has drawn (data-shows-once-drawn), never a blank frame or a first frame popping in.
-  if (background.source === "image") return html`${backdropPlaceholder(background.placeholderDataUrl)}<img class="backdrop reveals" data-backdrop="picture" data-adapts-glass${tone} src="${background.imageUrl}" alt="" decoding="async" fetchpriority="high">`;
+  if (background.source === "image") return html`${backdropPlaceholder(background.placeholderDataUrl, background)}<img class="backdrop reveals" data-backdrop="picture" data-adapts-glass${tone} src="${background.imageUrl}" alt="" decoding="async" fetchpriority="high">`;
   return html`${backdropPlaceholder(background.placeholderDataUrl)}<iframe class="backdrop world" data-backdrop="frame" data-shows-once-drawn data-adapts-glass${tone} data-backdrop-still="${background.stillUrl}" src="${background.frameUrl}" sandbox="allow-scripts allow-same-origin" allow="" loading="eager" tabindex="-1" aria-hidden="true" title="Background"></iframe>`;
 }
 
@@ -66,13 +66,13 @@ export async function backgroundsOfGames(env: Env, games: Pick<Game, "id" | "slu
          COALESCE(game_images.average_color, game_shaders.average_color) AS average_color,
          COALESCE(game_images.is_glass_smoked, game_shaders.is_glass_smoked) AS is_glass_smoked,
          COALESCE(game_images.glass_tint_pct, game_shaders.glass_tint_pct) AS glass_tint_pct,
-         COALESCE(game_images.placeholder_data_url, game_shaders.placeholder_data_url) AS placeholder_data_url
+         COALESCE(game_images.placeholder_data_url, game_shaders.placeholder_data_url) AS placeholder_data_url, game_images.width_px, game_images.height_px
        FROM game_backgrounds JOIN games ON games.id = game_backgrounds.game_id
        LEFT JOIN game_images ON game_images.id = game_backgrounds.image_id AND game_images.game_id = game_backgrounds.game_id AND game_images.review_status = 'approved'
        LEFT JOIN game_shaders ON game_shaders.id = game_backgrounds.shader_id AND game_shaders.game_id = game_backgrounds.game_id AND game_shaders.review_status = 'approved'
        WHERE games.review_status = 'live' AND games.visibility = 'listed'`,
     )
-    .all<{ game_id: string; screen: BackgroundScreen; source: BackgroundSource; image_id: string | null; shader_id: string | null; is_image_approved: number; is_shader_approved: number; placeholder_data_url: string | null } & { [Name in keyof BackgroundTone]: BackgroundTone[Name] | null }>(), games]);
+    .all<{ game_id: string; screen: BackgroundScreen; source: BackgroundSource; image_id: string | null; shader_id: string | null; is_image_approved: number; is_shader_approved: number; placeholder_data_url: string | null; width_px: number | null; height_px: number | null } & { [Name in keyof BackgroundTone]: BackgroundTone[Name] | null }>(), games]);
   const slugById = new Map(listedGames.map((game) => [game.id, game.slug]));
   const chosen = new Map<string, Partial<Record<BackgroundScreen, ShownBackground>>>();
   for (const row of results) {
@@ -80,7 +80,7 @@ export async function backgroundsOfGames(env: Env, games: Pick<Game, "id" | "slu
     if (!slug) continue;
     const shown: ShownBackground | null =
       row.source === "image" && row.image_id && row.is_image_approved
-        ? { source: "image", imageUrl: `${env.SITE_ORIGIN}/img/${row.image_id}`, stillUrl: `${env.SITE_ORIGIN}/img/${row.image_id}`, placeholderDataUrl: row.placeholder_data_url, tone: shownTone(row), glassTintColor: null }
+        ? { source: "image", imageUrl: `${env.SITE_ORIGIN}/img/${row.image_id}`, stillUrl: `${env.SITE_ORIGIN}/img/${row.image_id}`, placeholderDataUrl: row.placeholder_data_url, widthPx: row.width_px ?? 16, heightPx: row.height_px ?? 9, tone: shownTone(row), glassTintColor: null }
         : row.source === "shader" && row.shader_id && row.is_shader_approved
           ? { source: "shader", frameUrl: `${gameUrl(env, slug)}_zaisma/background?screen=${row.screen}&shader=${row.shader_id}`, stillUrl: `${env.SITE_ORIGIN}/shaders/${row.shader_id}/still.png`, placeholderDataUrl: row.placeholder_data_url, tone: shownTone(row), glassTintColor: null }
           : row.source === "zaisma"

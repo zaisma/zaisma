@@ -382,10 +382,12 @@ span.hairline { flex: 1; border-top: var(--divider); }
    (img.reveals, PICTURE_SCRIPT). A game's world on its page starts the same way, blurred more (backdropPlaceholder), under its picture or
    its shader's frame, which shows the same placeholder until its shader draws. A picture with no placeholder shows what's under it. */
 .picture { --placeholder-blur: 10px; position: relative; display: block; overflow: hidden; }
-.backdrop.backdrop-placeholder { --placeholder-blur: ${PICTURE_PLACEHOLDER.backgroundBlurPx}px; overflow: hidden; background: none; }
+/* A size container (its box is the screen's, set from outside), so a placeholder that knows its picture's shape covers at that shape
+   (--placeholder-size, placeholderStyle) rather than at its own, which its few pixels round. */
+.backdrop.backdrop-placeholder { --placeholder-blur: ${PICTURE_PLACEHOLDER.backgroundBlurPx}px; overflow: hidden; background: none; container-type: size; }
 /* Its box reaches past the picture's on every side, so the blur has room, but the copy itself covers exactly the picture's own box
    (background-origin: content-box), so it sits where the picture will and the picture fades in over it in place, never larger. */
-:is(.picture, .backdrop-placeholder)::before { content: ""; position: absolute; inset: calc(-2 * var(--placeholder-blur)); box-sizing: border-box; padding: calc(2 * var(--placeholder-blur)); background: var(--placeholder, none) center / cover no-repeat content-box; filter: blur(var(--placeholder-blur)); }
+:is(.picture, .backdrop-placeholder)::before { content: ""; position: absolute; inset: calc(-2 * var(--placeholder-blur)); box-sizing: border-box; padding: calc(2 * var(--placeholder-blur)); background: var(--placeholder, none) center / cover no-repeat content-box; background-size: var(--placeholder-size, cover); filter: blur(var(--placeholder-blur)); }
 .picture > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
 img.reveals:not(.is-shown) { opacity: 0; }
 img.reveals.is-shown:not(.at-once) { animation: picture-arrives var(--motion-settle) var(--ease-standard); }

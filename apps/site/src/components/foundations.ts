@@ -517,9 +517,16 @@ export function backdrop(options: BackdropOptions = {}): Raw {
   return html`<canvas class="backdrop${options.isFramed ? " is-framed" : ""}" data-backdrop="${options.isScene ? "scene" : "shader"}"${options.fragmentShader ? html` data-backdrop-shader="${options.fragmentShader}"` : ""}${options.standInSlug ? html` data-backdrop-stand-in="${options.standInSlug}"` : ""}${options.isGlassAdaptive ? raw(" data-adapts-glass") : ""} aria-hidden="true"></canvas>`;
 }
 
-/** A game's world as its placeholder, under its picture or shader frame until they arrive; nothing without one. */
-export const backdropPlaceholder = (placeholderDataUrl: string | null): Raw =>
-  placeholderDataUrl ? html`<div class="backdrop backdrop-placeholder" aria-hidden="true"${placeholderStyle(placeholderDataUrl)}></div>` : raw("");
+/**
+ * A game's world as its placeholder, under its picture or shader frame until they arrive; nothing without one. Under a picture it's drawn
+ * at the picture's own shape (--placeholder-ratio), as the picture covers the screen: the placeholder, a few pixels wide, rounds its shape,
+ * and covering at that one it would be drawn a few percent larger, so the world would seem to shrink as the picture fades in.
+ */
+export const backdropPlaceholder = (placeholderDataUrl: string | null, shape?: { widthPx: number; heightPx: number }): Raw => {
+  if (!placeholderDataUrl) return raw("");
+  const ratio = shape && shape.widthPx > 0 && shape.heightPx > 0 ? shape.widthPx / shape.heightPx : undefined;
+  return html`<div class="backdrop backdrop-placeholder" aria-hidden="true"${placeholderStyle(placeholderDataUrl, undefined, ratio)}></div>`;
+};
 
 /**
  * The stand-in games' backgrounds for a page that shows them (backdrop's standInSlug): each one's shader written onto its canvas, which
@@ -717,11 +724,17 @@ function keptSizes(imageUrl: string, shownSizes: string, largestPx: number): Raw
   return html` srcset="${widths.map((widthPx) => `${imageUrl}/w${widthPx}.webp ${widthPx}w`).join(", ")}" sizes="${shownSizes}"`;
 }
 
-/** The style that carries a picture's placeholder (and its shape) to its box. Only a data: URL of an image is ever written into it. */
-export function placeholderStyle(placeholderDataUrl: string | null, shape?: { widthPx: number; heightPx: number }): Raw {
+/**
+ * The style that carries a picture's placeholder (and its shape) to its box. Only a data: URL of an image is ever written into it.
+ * coverRatio, the picture's width over its height, has the placeholder cover its box at that shape rather than its own rounded one
+ * (--placeholder-size, in the box's own size: it's a size container).
+ */
+export function placeholderStyle(placeholderDataUrl: string | null, shape?: { widthPx: number; heightPx: number }, coverRatio?: number): Raw {
+  const ratio = coverRatio && Number.isFinite(coverRatio) && coverRatio > 0 ? coverRatio.toFixed(4) : null;
   const parts = [
     placeholderDataUrl && /^data:image\/(webp|png|jpeg);base64,[A-Za-z0-9+/=]+$/.test(placeholderDataUrl) ? `--placeholder: url(${placeholderDataUrl})` : "",
     shape ? `--picture-shape: ${Math.round(shape.widthPx)} / ${Math.round(shape.heightPx)}` : "",
+    ratio ? `--placeholder-size: max(100cqw, 100cqh * ${ratio}) max(100cqw / ${ratio}, 100cqh)` : "",
   ].filter(Boolean);
   return parts.length ? html` style="${parts.join("; ")}"` : raw("");
 }
@@ -746,9 +759,12 @@ export function picture(shown: ShownPicture, options: PictureOptions = {}): Raw 
  */
 export const PICTURE_SCRIPT = `/* pictures */(function () {
   function show(img, isAtOnce) {
-    if (isAtOnce) img.classList.add("at-once");
-    else img.addEventListener("animationend", function () { img.classList.add("at-once"); }, { once: true });
-    img.classList.add("is-shown");
+    if (isAtOnce) { img.classList.add("at-once"); img.classList.add("is-shown"); return; }
+    img.addEventListener("animationend", function () { img.classList.add("at-once"); }, { once: true });
+    // A game's world fades in once the page's panes have (window.zaismaWatch.afterArrival): the glass blurs what's behind it, so both
+    // fading at once has every frame blur every pane over a changing world, which a fast connection, where they'd meet, shows as stutter.
+    if (img.classList.contains("backdrop") && window.zaismaWatch && window.zaismaWatch.afterArrival) window.zaismaWatch.afterArrival(function () { img.classList.add("is-shown"); });
+    else img.classList.add("is-shown");
   }
   window.zaismaWatch.each("img.reveals", function (img) {
     var hasPainted = Boolean(window.performance && performance.getEntriesByType && performance.getEntriesByType("paint").length);
