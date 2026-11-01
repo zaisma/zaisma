@@ -597,6 +597,9 @@ component({
    (Game background). However the page is reached (a link, a reload, another site), so its panes come in with its world; going back
    or forward, and under reduced motion, it simply shows. */
 html.is-page-arriving main .glass:not(.glass .glass)::before, html.is-page-arriving main .glass:not(.glass .glass) > * { animation: page-arrives var(--motion-page-switch) var(--ease-standard) both; }
+/* Opened fresh (a reload, another site), nothing was on screen to move from: the panes come in at a calmer pace, beside a world that takes
+   longer still, where a page switch's quick fade would read as a pop. */
+html.is-page-arriving-fresh main .glass:not(.glass .glass)::before, html.is-page-arriving-fresh main .glass:not(.glass .glass) > * { animation-duration: var(--motion-settle); }
 @keyframes page-arrives { from { opacity: 0; } }
 `,
   render: backdrop,
@@ -672,8 +675,9 @@ export const PAGE_SWITCH_SCRIPT = `/* page switch */(function () {
     if (!slug || !link.querySelector(".picture, img") || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || (link.target && link.target !== "_self") || slug === gameSlugOf(location.href)) return;
     try { sessionStorage.setItem(KEY, JSON.stringify({ slug: slug, pressed_at_ms: Date.now() })); } catch (error) {}
   });
-  var entry = performance.getEntriesByType && performance.getEntriesByType("navigation")[0];
+  var entry = performance.getEntriesByType && performance.getEntriesByType("navigation")[0], isFromHere = false;
   if (!entry || entry.type === "back_forward" || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  try { isFromHere = new URL(document.referrer).origin === location.origin; } catch (error) {}
   // The tap that opened this page: read now, or, on a page prepared ahead of it, once it's opened.
   function readTap() {
     var opening = null;
@@ -690,11 +694,12 @@ export const PAGE_SWITCH_SCRIPT = `/* page switch */(function () {
     // that work starts its first frame already part way in. A page opened in a tab behind starts it once it's looked at.
     requestAnimationFrame(function () {
       root.classList.remove("is-page-held");
-      setTimeout(function () { root.classList.remove("is-page-arriving", "is-opening-game"); }, 1500);
+      setTimeout(function () { root.classList.remove("is-page-arriving", "is-page-arriving-fresh", "is-opening-game"); }, 1500);
     });
   }
   function shown() { isShown = true; arrive(); }
   root.classList.add("is-page-arriving", "is-page-held");
+  if (!isFromHere || entry.type !== "navigate") root.classList.add("is-page-arriving-fresh");
   if (document.prerendering) document.addEventListener("prerenderingchange", function () { readTap(); shown(); }, { once: true });
   else readTap();
   try { new PerformanceObserver(function (list) { if (list.getEntriesByName("first-contentful-paint").length) shown(); }).observe({ type: "paint", buffered: true }); } catch (error) { shown(); }
