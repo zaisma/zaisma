@@ -543,8 +543,12 @@ export const RAIL_SCRIPT = `/* rail */(function () {
     function wake() { if (!bar.classList.contains("awake")) bar.classList.add("awake"); clearTimeout(sleep); sleep = setTimeout(function () { bar.classList.remove("awake"); }, 1100); }
     (isPage ? window : scroller).addEventListener("scroll", function () { wake(); if (queued) return; queued = true; requestAnimationFrame(function () { queued = false; move(); }); }, { passive: true });
     window.zaismaWatch.resize(layout);
-    window.zaismaWatch.size(isPage ? document.body : scroller.firstElementChild || scroller, layout); if (above) window.zaismaWatch.size(above, layout);
-    // A box's content can change without its first child changing size (a pane's views taking turns, a step showing): measured again then.
+    // What it scrolls, never a drawing laid over it (a carving's cut line comes first in a switch's well, and keeps its size as the tabs
+    // in it narrow): a rail measured on while its tabs overflowed for a moment would stay on, its thumb out past the page's edge.
+    var content = isPage ? document.body : Array.prototype.filter.call(scroller.children, function (child) { return !child.matches("svg, .edge, .cut-line, .rail"); });
+    if (isPage) window.zaismaWatch.size(content, layout); else (content.length ? content : [scroller]).forEach(function (child) { window.zaismaWatch.size(child, layout); });
+    if (above) window.zaismaWatch.size(above, layout);
+    // A box's content can change without its children changing size (a pane's views taking turns, a step showing): measured again then.
     if (!isPage) window.zaismaWatch.page(function (changes) { if (changes.some(function (change) { return scroller.contains(change.target); })) layout(); });
     var drag = null;
     // On a long page a pixel of the thumb is dozens of the page's, so a finger held still, which always trembles a little, would shake the
@@ -661,15 +665,18 @@ export const RAIL_SCRIPT = `/* rail */(function () {
   wireRails();
   // A list the page swaps in later (the rooms on a game's page) gets its rail the same way, never the browser's own scrollbar.
   window.zaismaWatch.page(function (changes) {
-    var scrollBoxes = [], hasSideBox = false;
+    // The page's own rail arrives this way too: this script runs first in the body, before the rail is read.
+    var scrollBoxes = [], hasSideBox = false, hasRail = false;
     changes.forEach(function (change) {
       Array.prototype.forEach.call(change.addedNodes || [], function (node) {
-        if (node.nodeType !== 1 || !node.isConnected || node.closest(".rail, svg, .edge, .cut-line")) return;
+        if (node.nodeType !== 1 || !node.isConnected) return;
+        if (node.matches("[data-rail]") && !wiredBars.has(node)) hasRail = true;
+        if (node.closest(".rail, svg, .edge, .cut-line")) return;
         window.zaismaWatch.scrollBoxesIn(node).forEach(function (box) { if (scrollBoxes.indexOf(box) < 0) scrollBoxes.push(box); });
         if (node.matches("[data-side-rail]") || node.querySelector("[data-side-rail]")) hasSideBox = true;
       });
     });
-    if (!scrollBoxes.length && !hasSideBox) return;
+    if (!scrollBoxes.length && !hasSideBox && !hasRail) return;
     addRails(scrollBoxes, document);
     wireRails();
   });
