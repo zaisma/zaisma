@@ -1189,7 +1189,7 @@ export const ADMIN_TOOLS: AdminTool[] = [
       day_count: { type: "integer", minimum: 1, maximum: MAXIMUM_PAGE_SPEED_DAY_COUNT, description: `How many days back, 1 to ${MAXIMUM_PAGE_SPEED_DAY_COUNT}; 7 when left out.`, examples: [7] },
       is_split_by_device_kind: { type: "boolean", description: "Split each page by the kind of device (phone, tablet, computer)." },
     }),
-    outputSchema: answerOrError(PAGE_SPEED),
+    outputSchema: PAGE_SPEED,
     annotations: read,
     run: async (toolArguments, { env }) => pageSpeedAnswer(env, { dayCount: typeof toolArguments.day_count === "number" ? toolArguments.day_count : 7, isByDeviceKind: toolArguments.is_split_by_device_kind === true }),
   },

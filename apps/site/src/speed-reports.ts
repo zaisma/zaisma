@@ -127,9 +127,10 @@ FROM zaisma_page_speed WHERE timestamp > NOW() - INTERVAL '${Math.round(options.
 GROUP BY blob1, blob2${byDevice} ORDER BY report_count DESC LIMIT 500 FORMAT JSON`;
   const answer = await fetch(sqlApiUrl(env), { method: "POST", headers: { Authorization: `Bearer ${env.ANALYTICS_API_TOKEN}` }, body: sql });
   if (!answer.ok) throw new ApiError("speed_unreadable", { message: `Analytics Engine answered ${answer.status}.`, fix: "Try again in a minute; the dataset is made by the first report a page sends." });
-  const answered = (await answer.json()) as { data: Record<string, string | number>[] };
+  // Analytics Engine's answer: its rows under "data".
+  const answered = (await answer.json()) as Record<string, Record<string, string | number>[]>;
   return {
-    pages: answered.data.map((row) => ({
+    pages: (answered["data"] ?? []).map((row) => ({
       page_name: String(row.page_name),
       visit_kind: String(row.visit_kind),
       device_kind: options.isByDeviceKind ? String(row.device_kind) : null,
