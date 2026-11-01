@@ -25,7 +25,7 @@ const RESET = /^(none|0|0px|auto|visible|transparent|inherit|unset|initial|100%)
 const RAW_COLOR = /#[0-9a-fA-F]{3,8}\b|\brgba?\(|\bhsla?\(/;
 const OWN_TIMING = /(?<![\w.-])(?!0s\b)\d*\.?\d+m?s\b|cubic-bezier\(|steps\(/;
 /** Pictures, icons and Zaisma's logo are sized, not built: their own height is their size. */
-const PICTURE_OR_ICON = /(^|[\s>+~(])(img|svg|video|canvas|iframe|picture|\.picture|\.ico|\.logo)(\.[\w-]+|:[\w-]+(\([^)]*\))?)*\)?$/;
+const PICTURE_OR_ICON = /(^|[\s>+~(])(img|svg|video|canvas|iframe|picture|\.picture|\.ico|\.logo|\.logo-art)(\.[\w-]+|:[\w-]+(\([^)]*\))?)*\)?$/;
 
 /**
  * The few that aren't made of the materials, each with its reason: "selector | property", or "selector | *" for a mark drawn whole (a
@@ -169,6 +169,7 @@ const NOT_MADE_OF_MATERIALS = new Map<string, string>([
   [".spacing-mark | *", "the hatched mark that shows a gap"],
   [".icon-set .play | height", "the play mark is drawn shorter than it's wide"],
   [".logo | padding", "the logo's room round its glass, as its file draws it"],
+  [".logo > .logo-art | background", "the logo's drawing: its brand file, as an image in the stylesheet, filling its box"],
   [".backdrop | *", "the backdrop: the window's height and its colored light"],
   [".backdrop-frame | *", "a frame showing the backdrop"],
   [".backdrop-frame > .glass | padding", "a pane in the backdrop's frame"],

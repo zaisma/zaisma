@@ -351,7 +351,7 @@ export type ListRow = ListRowParts & (
 
 /** A switch's carved slot and its slab: the checkbox (role switch) lies over the slot, unseen, and the row round it is its label. */
 function switchSlot(id: string, rowSwitch: RowSwitch): Raw {
-  return html`<span class="toggle-slot carving slot" data-cut-line="8">${CUT_LINE}<input class="toggle-input" type="checkbox" role="switch" id="${id}" name="${rowSwitch.name}" value="on"${rowSwitch.isOn ? raw(" checked") : ""}${rowSwitch.isBusy ? raw(' aria-busy="true"') : ""}${rowSwitch.isBusy || rowSwitch.isDisabled ? raw(" disabled") : ""}><span class="toggle-thumb thumb" aria-hidden="true"><span class="toggle-slab thumb-slab cut-raised" data-cut-line="6" data-cut-ends="start end">${CUT_LINE}</span></span></span>`;
+  return html`<span class="toggle-slot carving slot" data-cut-line="8">${CUT_LINE}<input class="toggle-input" type="checkbox" role="switch" id="${id}" name="${rowSwitch.name}" value="on"${rowSwitch.isOn ? raw(" checked") : ""}${rowSwitch.isBusy ? raw(' aria-busy="true"') : ""}${rowSwitch.isBusy || rowSwitch.isDisabled ? raw(" disabled") : ""}><span class="toggle-thumb thumb" aria-hidden="true"><span class="thumb-slab cut-raised" data-cut-line="6" data-cut-ends="start end">${CUT_LINE}</span></span></span>`;
 }
 
 /** A row's buttons side by side, slanting toward each other. */

@@ -1,11 +1,11 @@
 import { html } from "../markup.ts";
 import { component } from "./component.ts";
-import { primaryButton, secondaryButton, tertiaryButton, wayButton } from "./actions.ts";
-import { settingRow } from "./choices.ts";
+import { primaryButton, secondaryButton, tertiaryButton } from "./actions.ts";
+import { listRows } from "./data.ts";
 import { pinField } from "./fields.ts";
 import { row } from "./layout.ts";
 import { slab } from "./materials.ts";
-import { header, headerFrame } from "./navigation.ts";
+import { WAITING_HEADER_EXAMPLE } from "./navigation.ts";
 
 /**
  * Waiting: how anything pressed shows it's waiting on its answer, owned here and nowhere else. A control waiting on this page (aria-busy,
@@ -25,7 +25,7 @@ component({
    words and marks too, as light on the glass would, cut to the control's own shape. Its glints are spaced closer than the face is wide, so
    a new one comes in as the last leaves, narrow and at one steady pace, one pass in --waiting-glint-time. Under reduced motion one glint
    rests across the middle. */
-.waiting-glint { --waiting-glint: color-mix(in srgb, var(--glint) 70%, transparent); position: absolute; inset: 0; z-index: 6; overflow: hidden; pointer-events: none; clip-path: var(--cut-shape, none); container-type: size; }
+.waiting-glint { --waiting-glint: color-mix(in srgb, var(--glint) 70%, transparent); position: absolute; inset: 0; z-index: 6; overflow: hidden; pointer-events: none; clip-path: var(--cut-shape); container-type: size; }
 .lit > .waiting-glint, .lit .waiting-glint { --waiting-glint: color-mix(in srgb, var(--glint-warm) 55%, transparent); }
 /* It sweeps in quicker than the glints run: as the wait starts, the glints rush in from the left behind an edge crossing the face, and slow
    into their steady pace, in --waiting-glint-sweep. As it ends, the stream stops, the glints on the face rush out to the right and an edge
@@ -70,11 +70,11 @@ component({
     { label: "The primary button, saying what's happening", markup: primaryButton("Sign in", { type: "button", isBusy: true, busyLabel: "Signing in" }), isStill: true },
     { label: "A secondary button", markup: secondaryButton("Save", { type: "button", isBusy: true }), isStill: true },
     { label: "A small button", markup: tertiaryButton("Undo", { type: "button", isBusy: true }), isStill: true },
-    { label: "A way in", markup: html`<div style="width:min(320px,100%)">${wayButton("Sign in with a passkey", "passkey", { isBusy: true })}</div>`, isStill: true },
+    { label: "A way in", markup: html`<div style="width:min(320px,100%)">${secondaryButton("Sign in with a passkey", { wayIn: "passkey", isBusy: true })}</div>`, isStill: true },
     { label: "An orange slab: the glint warm", markup: slab({ body: html`Save`, isLit: true, isWaiting: true }), isStill: true },
     { label: "A plain slab", markup: slab({ body: html`Details`, isWaiting: true }), isStill: true },
-    { label: "A switch saving", markup: html`<div style="width:min(340px,100%)">${settingRow("Cloud saves", { id: "example-waiting-switch", name: "cloud_saves", isOn: true, isBusy: true })}</div>`, isStill: true },
+    { label: "A switch saving", markup: html`<div style="width:min(340px,100%)">${listRows({ whenEmpty: html``, rows: [{ title: "Cloud saves", switch: { id: "example-waiting-switch", name: "cloud_saves", isOn: true, isBusy: true } }] })}</div>`, isStill: true },
     { label: "A PIN sent: every mark glints", markup: html`<div aria-busy="true">${pinField({ name: "purchase_pin", label: "Purchase PIN", id: "example-waiting-pin", digits: "246810" })}</div>`, isStill: true },
-    { label: "The header on its way to another page: its bottom edge fills with light", isWide: true, markup: headerFrame(header({ id: "example-waiting-header", current: "home", account: null, isOnDeveloperPage: false, isWaiting: true })) },
+    { label: "The header on its way to another page: its bottom edge fills with light", isWide: true, markup: WAITING_HEADER_EXAMPLE },
   ],
 });

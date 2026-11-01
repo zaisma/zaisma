@@ -165,7 +165,7 @@ const HEADER_STYLES = `
   .top { top: calc(var(--pad-pane) + env(safe-area-inset-top, 0px)); width: calc(100% - 2 * var(--pad-pane)); height: auto; display: grid; grid-template-columns: minmax(0, auto) minmax(0, 1fr) auto auto; align-items: center; gap: var(--gap-control-stack) 0; }
   /* Where the first row is tight (Sign in on a 320px phone), the logo gives way: it draws smaller in the room left, never pushing the row wider. */
   .top > .logo { grid-area: 1 / 1; min-width: 0; }
-  .top > .logo > svg { max-width: 100%; }
+  .top > .logo > .logo-art { max-width: 100%; }
   .top > .find + .cut-btn { grid-area: 1 / 3; }
   .top > .end { grid-area: 1 / 4; }
   /* With a sidebar's button it's first in the first row, the logo beside it. */
@@ -845,7 +845,7 @@ export const ROW_SCRIPT = `/* rows */(function () {
 
 const standInPage = html`<div class="stand-in-page">${["Continue playing", "Popular", "New"].map((rowName, rowIndex) => html`<section><h3>${rowName}</h3><div class="stand-in-row">${Object.values(STAND_IN_COVERS).slice(rowIndex * 2, rowIndex * 2 + 4)}</div></section>`)}</div>`;
 /** A header example: a small page of its own, cut like a pane, with the backdrop behind it and a stand-in page scrolling under the header (fixed things stay in the frame). */
-export const headerFrame = (markup: Raw, isTall = false) => html`<div class="header-frame${isTall ? " tall" : ""}"><div class="backdrop is-framed" aria-hidden="true"></div>${markup}<div class="header-scroll" data-scroll-box>${standInPage}</div></div>`;
+const headerFrame = (markup: Raw, isTall = false) => html`<div class="header-frame${isTall ? " tall" : ""}"><div class="backdrop is-framed" aria-hidden="true"></div>${markup}<div class="header-scroll" data-scroll-box>${standInPage}</div></div>`;
 /** A footer example: a small page of its own, cut like a pane, with the backdrop behind it, as the header's are. */
 const pageFrame = (markup: Raw) => html`<div class="header-frame"><div class="backdrop is-framed" aria-hidden="true"></div><div class="header-scroll" data-scroll-box>${markup}</div></div>`;
 const STAND_IN_ACCOUNT = { username: "emma_r" };
@@ -1741,3 +1741,6 @@ component({
     { label: "Nothing filtered yet: no count, no Clear filters", markup: filterMenuFrame({ id: "example-filter-none", groups: EXAMPLE_FILTER_GROUPS.map((group) => ({ ...group, pickedLabel: group.groupName === "price" ? "Any price" : "Any" })), clearHref: "#filter-menu", filterCount: 0, isOpen: true }) },
   ],
 });
+
+/** The header waiting on a new page, in its frame, for the Waiting component's examples (waiting.ts), which show every use. */
+export const WAITING_HEADER_EXAMPLE: Raw = headerFrame(header({ id: "example-waiting-header", current: "home", account: null, isOnDeveloperPage: false, isWaiting: true }));

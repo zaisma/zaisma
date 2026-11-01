@@ -1,7 +1,7 @@
 import { SIZED_IMAGE_WIDTHS_PX } from "@zaisma/core";
 import { html, raw, shownColor, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
-import { ICONS, MARK, WORDMARK, icon, largeIcon, type IconName } from "./icons.ts";
+import { ICONS, LOGO_STYLES, MARK, WORDMARK, icon, largeIcon, type IconName } from "./icons.ts";
 import { CLOUDS_SHADER, DUSK_SHADER, STAND_IN_BACKGROUNDS } from "./shaders.ts";
 import { pageScript, type PageScript } from "../page-scripts.ts";
 import { STAND_IN_COVER_PICTURES } from "../generated/stand-in-placeholders.generated.ts";
@@ -762,11 +762,12 @@ component({
 .logo .on-smoked { display: var(--on-smoked); }
 .logo.wordmark { --logo-height: 26px; --logo-file-share: 1.1608; }
 .logo.mark { --logo-height: 17px; --logo-file-share: 1.2047; padding: 0; }
-.logo > svg { height: calc(var(--logo-height) * var(--logo-file-share)); width: auto; margin-block: calc(var(--logo-height) * (1 - var(--logo-file-share)) / 2); transition: height var(--motion-glide) var(--ease-glide), margin var(--motion-glide) var(--ease-glide); }
+.logo > .logo-art { height: calc(var(--logo-height) * var(--logo-file-share)); width: auto; background: center / contain no-repeat; margin-block: calc(var(--logo-height) * (1 - var(--logo-file-share)) / 2); transition: height var(--motion-glide) var(--ease-glide), margin var(--motion-glide) var(--ease-glide); }
 .logo:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 /* On a touch screen it's a control's height to press, whatever its size. */
 @media (pointer: coarse) { .logo { position: relative; } .logo::before { content: ""; position: absolute; inset: min(0px, calc((var(--touch-target) - 100%) / -2)) 0; } }
-@media (prefers-reduced-motion: reduce) { .logo > svg { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .logo > .logo-art { transition: none; } }
+${LOGO_STYLES}
 `,
   render: logo,
   examples: [
