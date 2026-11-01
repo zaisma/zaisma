@@ -1,29 +1,24 @@
 #!/usr/bin/env node
 // The measuring check (docs/DESIGN.md, Layout): opens every page and state in LAYOUT_CHECK_PAGES in headless Chrome on the screens players
-// bring (checked-pages.ts's SCREEN_SIZES), and measures it the way a person would look at it, failing on what's out of line. Each rule has
-// a tier (layout-measure.ts, LAYOUT_RULE_TIERS), and a run measures the tiers it's for (LAYOUT_CHECK_RUNS):
-//   - a pull request's run (the default): every page and state on a phone and a laptop, in light, for how it arranges its pieces (page),
-//     and the gallery's pages for their components too (gallery), skipping each page that passed before as it is (the test's own file);
-//   - --gallery: the gallery's pages on the measured screens (MEASURED_SCREEN_NAMES), in light, at 200% text, for their components (gallery
-//     and page), when a change touches the components;
+// bring (checked-pages.ts's SCREEN_SIZES), and measures it the way a player would meet it, failing only on what they'd notice. Each rule
+// has a tier (layout-measure.ts, LAYOUT_RULE_TIERS), and a run measures the tiers it's for (LAYOUT_CHECK_RUNS):
+//   - a pull request's run (the default): every page and state on a phone and a laptop, in light (page), skipping each page that passed
+//     before as it is (the test's own file);
 //   - --sweep: every page and state, the stress accounts too, on the measured screens, in light, at 200% text, every tier, each night, and
 //     in the merge queue on the pages its change reaches (--measured with --changed-only).
 // No run measures dark: it changes only colours, which design.test.ts holds ("changes only colours in dark"). Pictures aren't loaded and
 // Chrome draws on the CPU, since the check measures boxes, not pixels, and every picture's box is sized before it loads (design.test.ts).
-// The rules:
-//   - controls in one row not on one line;
-//   - anything overlapping another thing with an edge, or spilling out of its pane;
-//   - words closer to a pane's edge than its margin (--pad-pane, its tray's --pad-tray), and things with an edge of their own at other
-//     than the frame gap (--pad-frame) from an edge they sit against;
-//   - a control in a pane's corner (Pane parts) not in its corner, or anything cut to a bevel under 4px;
-//   - the page's runner (its main action) below the fold, and the page scrolling sideways;
-//   - anything wider than its page's shape; a pane over the page past its kind's size or the screen, or overflowing unscrolled;
-//   - the Laws of UX a check can measure (proximity, common region, similarity), and a press that answers nothing within 400 ms (the
-//     Doherty threshold), on a laptop, in the sweep.
+// The rules, as a player meets the page:
+//   - see: nothing past the screen, overlapping another thing with an edge or spilling out of its pane, a pane over the page that keeps
+//     what's in it inside it, and the page's runner (its main action) and Home's first cover without scrolling;
+//   - read: no words cut off or over something with an edge, nothing lost at 200% text (the sweep's screens), the page not scrolling sideways;
+//   - reach: on a touch screen everything pressed at least 44px tall, and on one without touch every control reached by Tab, its focus
+//     showing (checkKeyboardReach);
+//   - press: every press answers within 400 ms (the Doherty threshold), on a laptop, in the sweep.
+// Style isn't measured: the components hold it, and test/site/design.test.ts and test/node/materials.test.ts check them.
 // Each failure says the page, the size, the theme, the thing (its component and label) and what was measured against what's expected.
 //
 //   npm run layout:check                     against this checkout's preview (started first when it isn't running: a few minutes)
-//   npm run layout:check -- --gallery        the gallery's pages on the measured screens, in light, at 200% text
 //   npm run layout:check -- --sweep          every page and state on the measured screens, in light, at 200% text, every rule (as each night)
 //   npm run layout:check -- --json           the same, as JSON
 //   npm run layout:check -- --only /signin   only the pages whose path has that in it
@@ -53,7 +48,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { fetchChrome, findChrome, openChrome } from "./chrome.mjs";
 import { mergeMeasured, readMeasured } from "./merge-measured.mjs";
 import { PASSWORD } from "./preview/sign-ins.mjs";
-import { LAYOUT_TIERS, MEASURE_LAYOUT_SOURCE } from "../apps/site/src/components/layout-measure.ts";
+import { FOCUSABLE_SELECTOR, LAYOUT_TIERS, MEASURE_LAYOUT_SOURCE } from "../apps/site/src/components/layout-measure.ts";
 import { BLOCKED_PICTURE_PATTERNS, CHECKED_PAGES, LOCAL_SCREEN_NAMES, MEASURED_SCREEN_NAMES, SCREEN_SIZES, SCREEN_THEMES, STRESS_ACCOUNTS, TEXT_SCREEN_NAMES, UNIQUE_WORD } from "../apps/site/src/components/checked-pages.ts";
 import { mkdirSync, writeFileSync } from "node:fs";
 
@@ -83,12 +78,11 @@ const isStressPage = (page) => STRESS_ACCOUNTS.some((stress) => stress.account =
 
 /**
  * What each run measures: its pages, screens and themes, and the tiers it measures on each page (layout-measure.ts, LAYOUT_RULE_TIERS).
- * pull_request is npm run layout:check with neither flag, as each pull request's Layout check runs it; gallery is --gallery, when a change
- * touches the components; sweep is --sweep, each night. Only light: dark changes only colours (design.test.ts holds it).
+ * pull_request is npm run layout:check without --sweep, as each pull request's Layout check runs it; sweep is --sweep, each night and in
+ * the merge queue. Only light: dark changes only colours (design.test.ts holds it).
  */
 export const LAYOUT_CHECK_RUNS = {
-  pull_request: { pages: CHECKED_PAGES.filter((page) => !isStressPage(page)), sizes: LAYOUT_CHECK_SIZES, themes: ["light"], tiersOf: (page) => (page.isGallery ? ["gallery", "page"] : ["page"]) },
-  gallery: { pages: CHECKED_PAGES.filter((page) => page.isGallery), sizes: layoutCheckScreens("all"), themes: ["light"], tiersOf: () => ["gallery", "page"] },
+  pull_request: { pages: CHECKED_PAGES.filter((page) => !isStressPage(page)), sizes: LAYOUT_CHECK_SIZES, themes: ["light"], tiersOf: () => ["page"] },
   sweep: { pages: CHECKED_PAGES, sizes: layoutCheckScreens("all"), themes: ["light"], tiersOf: () => [...LAYOUT_TIERS] },
 };
 /** Pages open at once, each in its own window (tabs that share one aren't drawn): one fewer than the cores, so the preview keeps one. */
@@ -115,8 +109,7 @@ const PAGE_COSTS_SEC = {
   "Buying, one press": 11.1,
   "Buying, a first card": 10.2,
   "Playing a game, asked to sign in": 10,
-  // The gallery's pages, on every screen (npm run layout:check -- --gallery, measured Oct 29, 2026 on a Mac, scaled to two runs): its
-  // runners are dealt them by these too.
+  // The gallery's pages, on every screen (measured Oct 29, 2026 on a Mac, scaled to two runs).
   "Gallery: the sidebar over the page": 33.0,
   "Gallery: inputs fields": 27.0,
   "Gallery: panes menus": 24.1,
@@ -285,10 +278,6 @@ const PRESS_EVERY_ANSWER = `(async () => {
       const group = el.closest(".tab-switch");
       if (group) observer.observe(group, { attributes: true, subtree: true });
       timer = setInterval(() => { if (layered() !== layeredBefore) answer(); }, 20);
-      // A switch's room changes size while its slab slides (a page swapping what's under it, a resize): the slab must still land cut for
-      // where it rests (below).
-      const room = group?.parentElement;
-      if (room) { setTimeout(() => { room.style.maxWidth = room.offsetWidth - 2 + "px"; }, 100); setTimeout(() => { room.style.maxWidth = ""; }, 250); }
       el.click();
       setTimeout(() => { observer.disconnect(); clearInterval(timer); done(null); }, ${MAXIMUM_ANSWER_MS});
     });
@@ -297,17 +286,111 @@ const PRESS_EVERY_ANSWER = `(async () => {
     document.querySelectorAll(":popover-open").forEach((popover) => popover.hidePopover());
     document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
     await new Promise((done) => setTimeout(done, 450));
-    // A switch's slab, once it comes to rest on the tab pressed, is cut for where it rests: drawing it again there changes nothing.
-    const slab = el.closest(".tab-switch")?.querySelector(".switch-slab");
-    if (slab?.redrawCut) {
-      for (let waitedMs = 0; slab.slideTarget && waitedMs < 1000; waitedMs += 50) await new Promise((done) => setTimeout(done, 50));
-      const restingShape = slab.style.getPropertyValue("--cut-shape");
-      slab.redrawCut();
-      if (restingShape !== slab.style.getPropertyValue("--cut-shape")) failures.push({ check: "switch slab not recut where it rests", element: describe(el), said: "its shape " + restingShape + ", the edge rule's there " + slab.style.getPropertyValue("--cut-shape") });
-    }
   }
   return failures;
 })()`;
+
+/**
+ * The keyboard check (layout-measure.ts, reach), on a screen without touch: Tab, round the whole page from wherever focus is, reaches every
+ * control (FOCUSABLE_SELECTOR) and shows where it is. Glass shows focus on a control's component, not always on the focused element (a cut
+ * button's face and cut line, a field's box round its input), so what's compared is the component, as at rest and as focused: the element
+ * and up to three levels round it, inside the cell or pane it sits in, with everything in it. Frames are made inert for it, so Tab never
+ * walks a game's pages or Screens', and the page is left as it was for the next screen: its scrolling, what was open, nothing focused.
+ */
+const KEYBOARD_START = `(() => {
+  const OUTSIDE = "[data-glass], .pane-in, .sheet-in, .stack-cell, .row-cell, .grid-cell, .example-stage, main, body";
+  const LOOKS = ["outline-style", "outline-width", "outline-color", "border-top-color", "border-right-color", "border-bottom-color", "border-left-color", "box-shadow", "background-color", "background-image", "color", "filter", "stroke", "stroke-width", "fill", "opacity", "text-decoration-line"];
+  const componentOf = (el) => {
+    let around = el;
+    for (let level = 0; level < 3 && around.parentElement && !around.parentElement.matches(OUTSIDE); level++) around = around.parentElement;
+    return around;
+  };
+  const lookOf = (el) => {
+    const around = componentOf(el), lookOfPart = (css) => LOOKS.map((name) => css.getPropertyValue(name)).join("|");
+    const parts = [around, ...around.querySelectorAll("*")].map((part) => lookOfPart(getComputedStyle(part)));
+    for (const each of new Set([el, around])) for (const pseudo of ["::before", "::after"]) { const css = getComputedStyle(each, pseudo); parts.push(css.content === "none" ? "" : lookOfPart(css)); }
+    return parts.join("\\n");
+  };
+  // A focus look that eases in reads as it ends, never as it starts: the page's styles worked out first, so its transitions have begun.
+  const settle = () => {
+    document.documentElement.getBoundingClientRect();
+    document.getAnimations().forEach((animation) => { if (animation instanceof CSSTransition) animation.finish(); });
+  };
+  // The browser Tabs to one radio of a group: reaching it reaches the group.
+  const groupOf = (el) => (el.matches("input[type=radio][name]") ? [...document.forms].indexOf(el.form) + ":" + el.name : null);
+  const frames = [...document.querySelectorAll("iframe:not([inert])")];
+  frames.forEach((frame) => frame.setAttribute("inert", ""));
+  document.activeElement?.blur?.();
+  const scrollers = [document.scrollingElement, ...document.querySelectorAll("body *")].filter((el) => el === document.scrollingElement || ((el.scrollHeight > el.clientHeight + 1 || el.scrollWidth > el.clientWidth + 1) && /auto|scroll/.test(getComputedStyle(el).overflow)));
+  // While a sheet is open over the page (a modal dialog), the page under it is out of Tab's reach by design: only the top one's controls count.
+  const modal = [...document.querySelectorAll(":modal")].pop();
+  const controls = [...(modal ?? document).querySelectorAll(${JSON.stringify(FOCUSABLE_SELECTOR)})].filter((el) => !el.matches(":disabled") && el.checkVisibility({ visibilityProperty: true }) && !el.closest("[inert], [hidden], template, dialog:not([open]), details:not([open]) > :not(summary), .dropdown.shut"));
+  settle();
+  // One shown open (a picker in place) already wears its focus look as it rests: being open marks it.
+  const opened = new Set(controls.filter((el) => el.getAttribute("aria-expanded") === "true"));
+  window.zaismaKeyboard = { controls, rest: controls.map(lookOf), reached: new Set(), reachedGroups: new Set(), unseen: new Set(), shownOpen: opened, first: null, frames, scrollerPlaces: scrollers.map((el) => [el, el.scrollTop, el.scrollLeft]), opened: new Set(document.querySelectorAll("dialog[open], :popover-open")), lookOf, settle, groupOf };
+  return { controlCount: controls.length, scrollerCount: scrollers.length };
+})()`;
+
+/** After a Tab: whether focus is back on the first control it reached (round the page, or held where it is), so the presses stop. */
+const KEYBOARD_STEP = `(() => {
+  const state = window.zaismaKeyboard;
+  let el = document.activeElement;
+  while (el?.shadowRoot?.activeElement) el = el.shadowRoot.activeElement;
+  const index = state.controls.indexOf(el);
+  if (index < 0) return false;
+  if (state.first === el) return true;
+  state.first ??= el;
+  state.reached.add(el);
+  if (state.groupOf(el)) state.reachedGroups.add(state.groupOf(el));
+  state.settle();
+  if (!state.shownOpen.has(el) && state.lookOf(el) === state.rest[index]) state.unseen.add(el);
+  return false;
+})()`;
+
+/** What Tab never reached or reached unseen, after pressCount presses, with the page put back as it was. */
+const keyboardEnd = (pressCount) => `(() => {
+  const state = window.zaismaKeyboard;
+  delete window.zaismaKeyboard;
+  const describe = (el) => el.tagName.toLowerCase() + ' "' + (el.getAttribute("aria-label") || el.textContent || el.getAttribute("name") || el.className || "").trim().replace(/\\s+/g, " ").slice(0, 48) + '"';
+  const failures = [];
+  for (const el of state.controls) {
+    if (!state.reached.has(el) && !state.reachedGroups.has(state.groupOf(el))) failures.push({ check: "a control the keyboard doesn't reach", element: describe(el), said: "Tab never focused it in ${pressCount} presses" });
+    else if (state.unseen.has(el)) failures.push({ check: "a focused control with no visible focus", element: describe(el), said: "focused, nothing about it changed: outline, border, shadow and background as at rest" });
+  }
+  document.activeElement?.blur?.();
+  document.querySelectorAll("dialog[open], :popover-open").forEach((layer) => { if (!state.opened.has(layer)) { if (layer.matches("dialog")) layer.close(); else layer.hidePopover(); } });
+  state.frames.forEach((frame) => frame.removeAttribute("inert"));
+  state.scrollerPlaces.forEach(([el, top, left]) => { el.scrollTop = top; el.scrollLeft = left; });
+  state.settle();
+  return failures;
+})()`;
+
+/**
+ * Presses past one for each control and each box that scrolls (Chrome lets Tab focus a box that scrolls with no control in it): the page's
+ * end and its start again.
+ */
+const EXTRA_TAB_PRESS_COUNT = 5;
+const TAB_KEY = { key: "Tab", code: "Tab", windowsVirtualKeyCode: 9, nativeVirtualKeyCode: 9 };
+
+/** Tabs round the page (KEYBOARD_START, KEYBOARD_STEP, keyboardEnd): its failures. */
+async function checkKeyboardReach(send) {
+  const failed = (details) => [{ check: "the check couldn't measure the page", element: "", said: details.exception?.description ?? details.text }];
+  const started = await send("Runtime.evaluate", { expression: KEYBOARD_START, returnByValue: true });
+  if (started.exceptionDetails) return failed(started.exceptionDetails);
+  const maximumPressCount = started.result.value.controlCount + started.result.value.scrollerCount + EXTRA_TAB_PRESS_COUNT;
+  let pressCount = 0;
+  while (pressCount < maximumPressCount) {
+    await send("Input.dispatchKeyEvent", { type: "rawKeyDown", ...TAB_KEY });
+    await send("Input.dispatchKeyEvent", { type: "keyUp", ...TAB_KEY });
+    pressCount++;
+    const step = await send("Runtime.evaluate", { expression: KEYBOARD_STEP, returnByValue: true });
+    if (step.exceptionDetails) return failed(step.exceptionDetails);
+    if (step.result.value) break;
+  }
+  const ended = await send("Runtime.evaluate", { expression: keyboardEnd(pressCount), returnByValue: true });
+  return ended.exceptionDetails ? failed(ended.exceptionDetails) : ended.result.value;
+}
 
 /** Opens each pane a button in the gallery opens (a dropdown, a sheet, a popover), measures its size alone, and closes it: its failures, each naming the button. */
 const openEveryPane = () => `(async () => {
@@ -358,6 +441,8 @@ async function checkPage(chrome, contextId, url, looks, options) {
   const said = async () => (await send("Runtime.evaluate", { expression: SAID_STATE, returnByValue: true }).catch(() => null))?.result?.value ?? null;
   try {
     await send("Page.enable");
+    // Each tab is its own window, and only one has the system's focus: every one acts focused, so Tab moves focus in each (checkKeyboardReach).
+    await send("Emulation.setFocusEmulationEnabled", { enabled: true });
     // Measuring needs no WebGL drawing: a page asks for a context and is told there's none (as on a machine without it), which skips the
     // seconds a first context and its shaders take with no graphics card. A run that takes pictures draws everything.
     if (!options.pictureOf) await send("Page.addScriptToEvaluateOnNewDocument", { source: MEASURE_ONLY });
@@ -407,8 +492,10 @@ async function checkPage(chrome, contextId, url, looks, options) {
         const address = (await send("Runtime.evaluate", { expression: "location.pathname + location.search", returnByValue: true })).result?.value;
         found.push({ check: "the page isn't the state it's listed as", element: "", said: `${state === null ? "it names no state (a page built in Zaisma's look names one: html.ts, checkedPage)" : `it says it's "${state}"`}, at ${address}` });
       }
-      // The gallery's panes, each opened from its button, measured for their size, and closed (docs/DESIGN.md, Pane sizes).
-      if (options.isGallery && options.tiers.includes("gallery")) {
+      // Tab round the page, on a screen without touch: before the gallery's panes and the presses, which move focus.
+      if (!size.hasTouch) found.push(...(await checkKeyboardReach(send)));
+      // The gallery's panes, each opened from its button, measured on their own, and closed (docs/DESIGN.md, Pane sizes).
+      if (options.isGallery) {
         const panes = await send("Runtime.evaluate", { expression: openEveryPane(), awaitPromise: true, returnByValue: true });
         found.push(...(panes.exceptionDetails ? [{ check: "the check couldn't open the gallery's panes", element: "", said: panes.exceptionDetails.exception?.description ?? panes.exceptionDetails.text }] : panes.result.value));
       }
@@ -599,14 +686,13 @@ async function main() {
   const VALUED = ["--only", "--tabs", "--screens", "--text", "--shard", "--pictures", "--pages", "--measured"];
   const valueOf = (flag) => (args.includes(flag) ? args[args.indexOf(flag) + 1] : null);
   const isJson = args.includes("--json");
-  const runName = args.includes("--sweep") ? "sweep" : args.includes("--gallery") ? "gallery" : "pull_request";
+  const runName = args.includes("--sweep") ? "sweep" : "pull_request";
   const layoutRun = LAYOUT_CHECK_RUNS[runName];
   const only = valueOf("--only");
   const tabCount = args.includes("--tabs") ? Number(valueOf("--tabs")) : DEFAULT_TAB_COUNT;
-  const unknown = args.filter((arg, i) => !["--json", "--sweep", "--gallery", "--changed-only", ...VALUED].includes(arg) && !VALUED.includes(args[i - 1]));
-  const OPTIONS_WORDS = "The options are --sweep or --gallery, --json, --only <part of a page's path>, --pages <JSON list of page names>, --tabs <pages at once>, --screens all, every or <name>,<name>, --text 200, --shard <n>/<count>, --pictures <folder>, and --measured <file> with --changed-only.";
+  const unknown = args.filter((arg, i) => !["--json", "--sweep", "--changed-only", ...VALUED].includes(arg) && !VALUED.includes(args[i - 1]));
+  const OPTIONS_WORDS = "The options are --sweep, --json, --only <part of a page's path>, --pages <JSON list of page names>, --tabs <pages at once>, --screens all, every or <name>,<name>, --text 200, --shard <n>/<count>, --pictures <folder>, and --measured <file> with --changed-only.";
   if (unknown.length) stop(`Unknown option ${unknown.join(" ")}. ${OPTIONS_WORDS}`, isJson);
-  if (args.includes("--sweep") && args.includes("--gallery")) stop("--sweep already measures the gallery's pages on every screen: give one of --sweep and --gallery.", isJson);
   if (!Number.isInteger(tabCount) || tabCount < 1 || tabCount > 16) stop("--tabs takes a whole number from 1 to 16, like --tabs 2.", isJson);
   const screensAsked = valueOf("--screens"), textAsked = valueOf("--text"), shard = valueOf("--shard"), picturesFolder = valueOf("--pictures"), pagesAsked = valueOf("--pages"), measuredPath = valueOf("--measured");
   const isChangedOnly = args.includes("--changed-only");

@@ -106,11 +106,15 @@ export function stackOfOne(markup: Raw, itemKind: "words" | "block" = "block"): 
   return stack({ items: [markup instanceof ControlMarkup ? { kind: "control", markup } : { kind: itemKind, markup: markup as NotControlMarkup }] });
 }
 
-/** Things one under another, each gap picked from what's on each side of it. In a pane, controls fill its width. */
+/**
+ * Things one under another, each gap picked from what's on each side of it. In a pane, controls fill its width. Nothing empty takes a gap:
+ * a part with no markup is left out (one with an id stays, for a page script to fill), and an empty cell takes no room (STACK_STYLES).
+ */
 export function stack(options: StackOptions): LayoutMarkup {
   const dataMarkup = options.dataAttributes ? html`${Object.entries(options.dataAttributes).map(([name, text]) => html` data-${name}="${text}"`)}` : "";
-  return asLayout(html`<div class="layout-stack"${groupLabel(options.label)}${dataMarkup}>${options.items.map((layoutItem, itemIndex) => {
-    const above = options.items[itemIndex - 1];
+  const items = options.items.filter((layoutItem) => layoutItem.id || layoutItem.markup.html.trim());
+  return asLayout(html`<div class="layout-stack"${groupLabel(options.label)}${dataMarkup}>${items.map((layoutItem, itemIndex) => {
+    const above = items[itemIndex - 1];
     return html`<div class="stack-cell is-${placedKind(layoutItem)}${above ? ` gap-top-${stackGap(above, layoutItem)}` : ""}"${placeAttributes(layoutItem)}>${layoutItem.markup}</div>`;
   })}</div>`);
 }
@@ -210,8 +214,11 @@ export const ROW_LAYOUT_SCRIPT = `/* row layout */(function () {
 })();
 `;
 
+/** A grid's cell: a block or words, never a bare control, since controls side by side are a row (row()). */
+export type GridItem = Exclude<LayoutItem, { kind: "control" }>;
+
 export type GridOptions = {
-  items: LayoutItem[];
+  items: GridItem[];
   label?: string;
   /** Unique on the page, for Load more to add the next page's cells to it (navigation.ts, loadMore's listIds). */
   id?: string;
@@ -248,8 +255,8 @@ export function track(options: TrackOptions): LayoutMarkup {
 }
 
 export interface ColumnsOptions {
-  /** Start to end: what each half holds (a pane, or a stack of them). */
-  columns: [Raw, Raw];
+  /** Start to end: what each half holds (a pane, or a stack of them), never a bare control: controls side by side are a row (row()). */
+  columns: [NotControlMarkup, NotControlMarkup];
   /** The column that stays in view under the header while the other scrolls: a game's details. */
   stickyColumn?: "first" | "second";
 }
@@ -375,9 +382,9 @@ export const STACK_STYLES = `
 /* In a compact sheet (or a confirm over a sheet) everything is a control's stack gap apart, whatever the spacing table says. */
 .sheet:is(.is-compact, [data-sheet-confirm].is-over-sheet) .layout-stack > .stack-cell[class*="gap-top-"] { margin-top: var(--gap-control-stack); }
 ${GAP_TOKENS.filter((gap) => gap !== "control-row-boxes").map((gap) => `.layout-stack > .stack-cell.gap-top-${gap} { margin-top: var(--gap-${gap}); }`).join("\n")}
-.layout-stack > .stack-cell:nth-child(1 of :not([hidden], .holds-only-hidden)) { margin-top: 0; }
-/* A cell whose only thing is hidden (a page script shows it: a step, an error) takes no room. */
-.stack-cell:has(> [hidden]:only-child) { display: none; }
+.layout-stack > .stack-cell:nth-child(1 of :not([hidden], .holds-only-hidden, :empty)) { margin-top: 0; }
+/* A cell with nothing in it yet, or whose only thing is hidden (a page script shows it: a step, an error), takes no room. */
+.stack-cell:is(:empty, :has(> [hidden]:only-child)) { display: none; }
 /* Words keep the pane's margin: in from the frame gap by --pad-words (a pane sets it), at its sides, and at its top and bottom edges. */
 .stack-cell.is-words { padding-inline: var(--pad-words); }
 /* Inside words that already keep the margin, nothing takes it again. */

@@ -1,7 +1,7 @@
 import { GENRE_LABELS, GENRES, PRICE_RANGES, currencyForCountry, priceRangeOf, requestCountryCode, type DeviceKind, type Genre, type PriceRange } from "@zaisma/core";
 import { tertiaryButton } from "./components/actions.ts";
 import { divider, glassPane } from "./components/foundations.ts";
-import { grid, row, stack, type LayoutItem } from "./components/layout.ts";
+import { grid, row, stack, type GridItem, type LayoutItem } from "./components/layout.ts";
 import { tagsInUse, type TagInUse } from "./components/data.ts";
 import { filterMenu, type FilterGroup } from "./components/navigation.ts";
 import { loadMore } from "./components/navigation.ts";
@@ -168,7 +168,7 @@ export function browseHref(query: Partial<BrowseQuery>): string {
   return `/games${search ? `?${search}` : ""}`;
 }
 
-const coverOf = (game: BrowseGame, coverIndex: number, ownedGameIds: ReadonlySet<string>): LayoutItem => ({
+const coverOf = (game: BrowseGame, coverIndex: number, ownedGameIds: ReadonlySet<string>): GridItem => ({
   kind: "block",
   markup: gameCard({
     title: game.title,
@@ -241,7 +241,7 @@ function filterGroups(query: BrowseQuery, priceLabels: Record<BrowsePriceRange, 
 }
 
 /** The results: this page's covers for the viewer's device, then those for others after their divider, then Load more or nothing. */
-function results(query: BrowseQuery, games: BrowseGame[], ownedGameIds: ReadonlySet<string>): LayoutItem[] {
+function results(query: BrowseQuery, games: BrowseGame[], ownedGameIds: ReadonlySet<string>): GridItem[] {
   if (!games.length) {
     const filterCount = filtersInUse(query).length;
     // One filter alone says which; more than one, that they don't meet.
