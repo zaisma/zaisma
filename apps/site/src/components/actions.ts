@@ -436,7 +436,9 @@ component({
 /* Only its icon: as wide as a little more than it's tall, and never narrower, even sharing a row's width. */
 .cut-btn.icon-only > .face { width: 52px; --slab-words: 0px; }
 .cut-btn.small.icon-only > .face { width: 42px; }
-/* An icon alone centers in what shows of the button: a slanted end gives up half its slant. */
+/* An icon alone centers in what shows of the button: a slanted end gives up half its slant. The shift moves it through the face's padding
+   (--slab-words less or plus --slab-shift), so the face keeps a quarter slant each side to move by: none, and only half the shift happened. */
+.cut-btn.icon-only > .face[data-slanted] { --slab-words: calc(var(--control-slant) / 4); }
 .cut-btn.icon-only > .face[data-slanted~="start"] { --slab-shift: calc(var(--control-slant) / 4); }
 .cut-btn.icon-only > .face[data-slanted~="end"] { --slab-shift: calc(var(--control-slant) / -4); }
 .cut-btn.in-well { --control-height: calc(var(--control-height-small) - 2 * var(--pad-frame-compact)); }

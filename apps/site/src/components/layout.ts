@@ -486,7 +486,9 @@ ${rulesOf(edgeRows("bottom"), "align-items: flex-end;")}
   .bar-layout .find, .bar-layout .find:has(~ .end > .shell), .bar-layout .find:has(~ .end > .me) { margin: 0; }
   .bar-layout > .find + .cut-btn { margin-left: auto; margin-right: var(--gap-words-control); }
   .bar-layout .nav:has(~ .find) { margin-inline-end: 0; }
-  .bar-layout > .find + .cut-btn:has(~ .end > .shell) { margin-right: var(--gap-control-row-boxes); }
+  /* Beside a control (Sign in), its slant runs under that control's (a row's negative gap), so it reaches past its own column: a
+     control's max-width of 100% would hold it to the column, narrowing its face until its icon met the slant. */
+  .bar-layout > .find + .cut-btn:has(~ .end > .shell) { margin-right: var(--gap-control-row-boxes); max-width: none; }
   .bar-layout > .find + .cut-btn:has(~ .end > .me) { margin-right: var(--gap-control-stack); }
 }
 
