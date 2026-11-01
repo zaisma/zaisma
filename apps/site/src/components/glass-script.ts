@@ -14,10 +14,14 @@
  *   settles a page with it instead of waiting on frames).
  * - each(selector, callback): callback(element) once for every element matching the selector, those on the page now and any added later
  *   (a pane whose content is swapped in place), so a component's wiring reaches new content as a page load's would.
+ * - afterArrival(callback): once the page's panes have faded in, for work that would drop the fade's frames.
  * - scrollBoxes(): the boxes on the page that scroll up and down (overflow-y auto or scroll), in the page's order, found once. Only what the
  *   page's stylesheets, the browser's own or an element's own style make scroll is asked for its style, never every element.
  * Where the browser has no ResizeObserver, size falls back to the window's resize.
  */
+/** The longest the work a page doesn't need to look whole waits for its arrival to play (afterArrival). */
+export const ARRIVAL_WAIT_LIMIT_MS = 1000;
+
 export const WATCH_SCRIPT = `/* watch */(function () {
   var pageCallbacks = [], sizeCallbacks = new Map(), resizeCallbacks = [], scrollCallbacks = [], sizes = null, hasResizeListener = false, hasScrollListener = false, scrollBoxes = null;
   function runPlain(work) { work(); }
@@ -66,6 +70,18 @@ export const WATCH_SCRIPT = `/* watch */(function () {
     page: function (callback) { pageCallbacks.push(callback); },
     // Every change the moment it's made, even to what's still arriving: for the glass, which draws a pane as it fills and again as it grows.
     arriving: function (callback) { arrivingCallbacks.push(callback); },
+    // Once the page's arrival has played (its panes fading in, a game's world settling in), or at most ARRIVAL_WAIT_LIMIT_MS: for work the
+    // page doesn't need to look whole (the full stylesheet, its script files, drawing every edge again), which runs on the same thread as
+    // the panes' fade and would drop its frames on a fast connection, where it would all land at once. A picture fading in is the
+    // compositor's alone, so nothing waits for it, and the page's buttons work no later than that.
+    afterArrival: function (callback) {
+      var running = document.getAnimations ? document.getAnimations().filter(function (each) { return each.playState === "running" && /^(page-arrives|opening-game-settles)$/.test(each.animationName || ""); }) : [];
+      if (!running.length) { callback(); return; }
+      var isDone = false;
+      function done() { if (isDone) return; isDone = true; callback(); }
+      Promise.all(running.map(function (each) { return each.finished.catch(function () {}); })).then(done);
+      setTimeout(done, ${ARRIVAL_WAIT_LIMIT_MS});
+    },
     // Now, or once the page is read: for what one part finds of another that may come later in the page (a row's arrows and its track).
     whenRead: function (callback) { if (document.readyState !== "loading") callback(); else readCallbacks.push(callback); },
     // Once the fonts the page shows have arrived. Asked at the start of the page, the browser's fonts.ready is already settled, as nothing
@@ -202,7 +218,7 @@ export const WATCH_SCRIPT = `/* watch */(function () {
     document.removeEventListener("readystatechange", read);
     handOver([]);
     readCallbacks.splice(0).forEach(function (callback) { callback(); });
-    window.zaismaWatch.drawAll();
+    window.zaismaWatch.afterArrival(window.zaismaWatch.drawAll);
   });
 })();
 `;

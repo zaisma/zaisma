@@ -55,7 +55,9 @@ export const FOLLOWING_FILES_SCRIPT = `/* following files */(function () {
       // that doesn't apply to the screen.
       var sheet = document.createElement("link");
       sheet.rel = "stylesheet"; sheet.href = preload.href; sheet.media = "print";
-      sheet.addEventListener("load", function () { sheet.media = "all"; arrived(); }); sheet.addEventListener("error", arrived);
+      // Put on, and the files after it run, once the page's arrival has played (window.zaismaWatch.afterArrival): applying the whole sheet
+      // works the page's styles out again, which would drop the frames of a fade in progress.
+      sheet.addEventListener("load", function () { function apply() { sheet.media = "all"; arrived(); } if (window.zaismaWatch) window.zaismaWatch.afterArrival(apply); else apply(); }); sheet.addEventListener("error", arrived);
       preload.after(sheet);
     });
     setTimeout(styled, ${STYLES_WAIT_LIMIT_MS});
