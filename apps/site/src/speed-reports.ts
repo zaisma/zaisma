@@ -100,7 +100,7 @@ export const SPEED_SCRIPT = pageScript("speed-reports", `(function () {
 })();`);
 
 /** get_page_speed's inputs (admin-mcp.ts). */
-export const PAGE_SPEED_DAYS_LIMIT = 30;
+export const MAXIMUM_PAGE_SPEED_DAY_COUNT = 30;
 
 export interface PageSpeedRow {
   page_name: string;
@@ -127,9 +127,9 @@ FROM zaisma_page_speed WHERE timestamp > NOW() - INTERVAL '${Math.round(options.
 GROUP BY blob1, blob2${byDevice} ORDER BY report_count DESC LIMIT 500 FORMAT JSON`;
   const answer = await fetch(sqlApiUrl(env), { method: "POST", headers: { Authorization: `Bearer ${env.ANALYTICS_API_TOKEN}` }, body: sql });
   if (!answer.ok) throw new ApiError("speed_unreadable", { message: `Analytics Engine answered ${answer.status}.`, fix: "Try again in a minute; the dataset is made by the first report a page sends." });
-  const { data } = (await answer.json()) as { data: Record<string, string | number>[] };
+  const answered = (await answer.json()) as { data: Record<string, string | number>[] };
   return {
-    pages: data.map((row) => ({
+    pages: answered.data.map((row) => ({
       page_name: String(row.page_name),
       visit_kind: String(row.visit_kind),
       device_kind: options.isByDeviceKind ? String(row.device_kind) : null,

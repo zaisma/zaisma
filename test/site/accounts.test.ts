@@ -522,7 +522,7 @@ describe("making an account", () => {
     const page = await res.text();
     expect(page).toContain("You can't make an account");
     // Its words, not its styles (where ::placeholder says "older").
-    expect(page.replace(/<style>[\s\S]*?<\/style>/g, "")).not.toMatch(/13 and up|under 13|older/);
+    expect(page.replace(/<style[^>]*>[\s\S]*?<\/style>/g, "")).not.toMatch(/13 and up|under 13|older/);
     expect(b.jar.get("__Host-zaisma_age")).toBe("no");
     expect(await (await b.go("/join/age", BIRTH_ADULT)).text()).toContain("You can't make an account");
     expect(await (await b.go("/join/account", { turnstile_token: "test-token", username: "Little_Fox", password: PASSWORD })).text()).toContain("You can't make an account");
@@ -1925,7 +1925,10 @@ describe("pages", () => {
     expect(home).toContain('href="/signin"');
     expect(home).toContain('href="/legal/privacy"');
     // A page that doesn't know who's looking swaps Sign in for the account from the signed-in cookie.
-    expect(await (await SELF.fetch(`${SITE}/legal/privacy`)).text()).toMatch(/<script src="\/js\/account-link\.[0-9a-f]{16}\.js"><\/script>/);
+    // The first-paint script's account link swaps Sign in for the account once it sees the signed-in cookie, before the page shows.
+    const privacy = await (await SELF.fetch(`${SITE}/legal/privacy`)).text();
+    expect(privacy).toContain("<header data-account-from-cookie ");
+    expect(privacy).toMatch(/<script>(?:(?!<\/script>)[\s\S])*zaisma_in=1/);
     expect(await (await SELF.fetch(`${SITE}/legal/privacy`)).text()).toContain("it is deleted when you turn 18");
     const terms = await SELF.fetch(`${SITE}/legal/terms`);
     expect(terms.status).toBe(200);
@@ -2525,7 +2528,7 @@ describe("cloud saves", () => {
     expect(plain).toContain('<div class="city-pane" data-city-pane>');
     expect(plain).toContain('<canvas class="city"></canvas>');
     // Every step swaps into the pane in place, so the city never starts over; the passkey script can run again for it.
-    expect(plain).toMatch(/<script src="\/js\/city-pane\.[0-9a-f]+\.js" defer><\/script>/);
+    expect(plain).toMatch(/<link rel="preload" as="script" href="\/js\/city-pane\.[0-9a-f]+\.js" fetchpriority="low" data-page-script>/);
     expect(plain).toContain('<div class="city-still is-day"></div><div class="city-still is-night"></div><canvas class="city"></canvas>');
     expect(plain).toMatch(/<header class="top bar-layout glass[^"]*"[^>]*>[\s\S]*?<\/header>/);
     expect(plain.match(/<header class="top bar-layout glass[^"]*"[\s\S]*?<\/header>/)![0]).not.toMatch(/class="end"|class="nav"|href="\/signin"/);

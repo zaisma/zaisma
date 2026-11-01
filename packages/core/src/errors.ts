@@ -367,7 +367,7 @@ export const ADMIN_ERROR_CODES = {
 
   // Page speed
   speed_not_set_up: { httpStatus: 503, meaning: "The site has no CLOUDFLARE_ACCOUNT_ID and ANALYTICS_API_TOKEN to read real visits' speed with.", messageForPeople: "Page speed isn't set up." },
-  speed_unreadable: { httpStatus: 502, meaning: "Analytics Engine didn't answer the speed query.", messageForPeople: "Page speed couldn't be read just now." },
+  speed_unreadable: { httpStatus: 502, meaning: "Analytics Engine didn't answer the speed query.", messageForPeople: "Page speed couldn't be read. Try again in a minute." },
 } as const satisfies Record<string, ErrorCodeEntry>;
 
 export type ErrorCode = keyof typeof ERROR_CODES | keyof typeof ADMIN_ERROR_CODES;
