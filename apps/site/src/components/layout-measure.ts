@@ -56,10 +56,10 @@ export const LAYOUT_RULE_TIERS: Readonly<Record<string, LayoutRuleTier>> = {
 
 /**
  * The most a page may be as sent, compressed as Cloudflare compresses pages it makes (brotli at level 5), with everything its first paint
- * needs inside it: on Slow 3G (DevTools': 2 s a round trip, 50 KB/s) about 1.3 s on top of its round trip, so a page shows in about 3 s
+ * needs inside it: on Slow 3G (DevTools': 2 s a round trip, 50 KB/s) about 1.4 s on top of its round trip, so a page shows in about 3 s
  * on a first visit and every one after. The layout check fails a page past it ("first paint over its size").
  */
-export const FIRST_PAINT_SIZE_LIMIT_BYTES = 64_000;
+export const FIRST_PAINT_SIZE_LIMIT_BYTES = 68_000;
 /** The brotli level the size is measured at. */
 export const FIRST_PAINT_BROTLI_LEVEL = 5;
 

@@ -738,8 +738,9 @@ export function picture(shown: ShownPicture, options: PictureOptions = {}): Raw 
 }
 
 /**
- * Pictures arriving: each img.reveals shows once it has wholly arrived and decoded, fading in over its placeholder; one already there when
- * this runs (from the browser's cache) shows at once, and so does one that has faded in, so a script moving it never plays it again.
+ * Pictures arriving: each img.reveals shows once it has wholly arrived and decoded, fading in over its placeholder; one there before the
+ * page's first paint (from the browser's cache) shows at once, as its placeholder was never seen, and so does one that has faded in, so
+ * a script moving it never plays it again. One that arrives quickly but after the first paint still fades: its placeholder showed.
  * One that fails stays its placeholder. Part of the first paint's script (html.ts), so
  * a picture never waits on the rest of the page's scripts.
  */
@@ -750,7 +751,9 @@ export const PICTURE_SCRIPT = `/* pictures */(function () {
     img.classList.add("is-shown");
   }
   window.zaismaWatch.each("img.reveals", function (img) {
-    if (img.complete && img.naturalWidth) { show(img, true); return; }
+    var hasPainted = Boolean(window.performance && performance.getEntriesByType && performance.getEntriesByType("paint").length);
+    if (img.complete && img.naturalWidth && !hasPainted) { show(img, true); return; }
+    if (img.complete && img.naturalWidth) { (img.decode ? img.decode() : Promise.resolve()).then(function () { show(img, false); }, function () { show(img, false); }); return; }
     img.addEventListener("load", function () { (img.decode ? img.decode() : Promise.resolve()).then(function () { show(img, false); }, function () { show(img, false); }); });
   });
 })();

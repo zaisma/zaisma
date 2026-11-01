@@ -117,6 +117,8 @@ export const FIRST_PAINT_PIECES: readonly FirstPaintPiece[] = [
   firstPaintPiece("watch", WATCH_SCRIPT, null),
   // A page reached from another of Zaisma's has its panes fade in, and a game opened from its cover its world settle in first.
   firstPaintPiece("page-switch", PAGE_SWITCH_SCRIPT, null),
+  // Glass over a game's world takes its glass before anything draws or measures it, so a pane is styled smoked from the first, never light then smoked.
+  firstPaintPiece("measured-glass", MEASURED_GLASS_SCRIPT, /data-glass-kind=/),
   firstPaintPiece("pictures", PICTURE_SCRIPT, null),
   firstPaintPiece("glass", GLASS_SCRIPT, null),
   firstPaintPiece("materials", MATERIAL_SCRIPT, null),
@@ -129,7 +131,6 @@ export const FIRST_PAINT_PIECES: readonly FirstPaintPiece[] = [
   // Zaisma's own shader is drawn in the first frame, so its stand-in never flashes; a game's world starts as its blurred placeholder and
   // follows with the look script.
   firstPaintPiece("backdrop", BACKDROP_SCRIPT, /data-backdrop="shader"/),
-  firstPaintPiece("measured-glass", MEASURED_GLASS_SCRIPT, /data-glass-kind=/),
   // A game's shader frame fades in once it has drawn: listening from the start, as its runner can say so before the page's files run.
   firstPaintPiece("shown-once-drawn", SHOWN_ONCE_DRAWN_SCRIPT, /data-shows-once-drawn/),
   firstPaintPiece("switches", SWITCH_SCRIPT, /\btab-switch\b/),

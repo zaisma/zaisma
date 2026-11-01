@@ -392,7 +392,9 @@ export const RAIL_SCRIPT = `/* rail */(function () {
     if (isPage) document.documentElement.classList.add("own-scroll"); else scroller.classList.add("own-scroll");
     // Shown or not by its class, never by hidden: WebKit checks the page's :has() rules on [hidden] again over the whole page each time any
     // element's hidden changes, seconds on a page of a hundred boxes.
-    var isShown = true; bar.classList.add("is-on");
+    // It starts off and comes on once it's measured as having something to scroll, in the frame before the first paint: started on, it
+    // would take its room for a moment and give it back, moving what's below it (isUnplaced places one that has just come on).
+    var isShown = false;
     // The page's marks: one per marked part, sitting where the thumb's middle will be once that part is at the top.
     var offset = function () { return parseFloat(getComputedStyle(document.documentElement).scrollPaddingTop) || 90; };
     // A box's rail marks the parts inside the box, down it or along it; the page's, those in no box of their own.

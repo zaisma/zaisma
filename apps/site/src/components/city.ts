@@ -74,7 +74,8 @@ export const CITY_PANE_PLACE_SCRIPT = `/* city pane */(function () {
     pane.style.marginTop = Math.round(Math.max(below, window.innerHeight - peek)) + "px";
   }
   window.zaismaPlaceCityPane = place;
-  window.zaismaWatch.each("[data-city-pane]", function () { place(true); });
+  // Placed as it arrives, and again whenever what's in it settles to another height (a rail coming on), before the frame is painted.
+  window.zaismaWatch.each("[data-city-pane]", function (pane) { place(true); window.zaismaWatch.size(pane, function () { place(true); }); });
   window.zaismaWatch.whenRead(function () { place(true); });
   window.addEventListener("resize", function () { place(); });
   window.zaismaWatch.fontsIn(function () { place(true); });
