@@ -2002,7 +2002,7 @@ export const PAGE_SPEED = object({
     object({
       page_name: text("The page's name on the checks' list (checked-pages.ts), or other."),
       visit_kind: choice({ opened: "opened from outside Zaisma, or typed in", switched: "reached from another of Zaisma's pages" }),
-      device_kind: nullable(choice(["phone", "tablet", "computer"], "The kind of device, when by_device_kind was asked; null otherwise.")),
+      device_kind: nullable(choice(["phone", "tablet", "computer"], "The kind of device, when split_by_device_kind was asked; null otherwise.")),
       report_count: countOf("Visits that reported, counting what Analytics Engine sampled away."),
       median_first_paint_delay_ms: countOf("Half the visits showed the page sooner than this, in ms from the press that opened it."),
       p75_first_paint_delay_ms: countOf("Three visits in four showed it sooner than this."),

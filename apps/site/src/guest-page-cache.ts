@@ -27,7 +27,7 @@ const GUEST_CACHED_PAGES: readonly RegExp[] = [
 ];
 
 /** The longest address kept, query included: a longer one is answered without the cache. */
-const ADDRESS_LENGTH_LIMIT = 512;
+const MAXIMUM_ADDRESS_CHARACTER_COUNT = 512;
 
 /** Whether the answer came from the cache, for the tests and the ship check. */
 export const PAGE_CACHE_HEADER = "Zaisma-Page-Cache";
@@ -36,7 +36,7 @@ function cacheKey(request: Request, url: URL): Request | null {
   if (request.method !== "GET" && request.method !== "HEAD") return null;
   const path = url.pathname.replace(/\/+$/, "") || "/";
   if (!GUEST_CACHED_PAGES.some((page) => page.test(path))) return null;
-  if (url.pathname.length + url.search.length > ADDRESS_LENGTH_LIMIT) return null;
+  if (url.pathname.length + url.search.length > MAXIMUM_ADDRESS_CHARACTER_COUNT) return null;
   // The key is an address of its own on the site: the page, its query, the device kind it was laid out for and the country it was made
   // for (a game a developer blocked there answers 451).
   const key = new URL(`/__guest-page${path}`, url.origin);

@@ -553,7 +553,8 @@ async function checkPage(chrome, contextId, url, looks, options) {
         const sent = documentRequestId === null ? null : await send("Network.getResponseBody", { requestId: documentRequestId }).catch(() => null);
         if (sent) {
           const sizeBytes = brotliCompressSync(Buffer.from(sent.body, sent.base64Encoded ? "base64" : "utf8"), { params: { [zlibConstants.BROTLI_PARAM_QUALITY]: FIRST_PAINT_BROTLI_LEVEL } }).length;
-          if (sizeBytes > FIRST_PAINT_SIZE_LIMIT_BYTES) found.push({ check: "first paint over its size", element: "", said: `the page is ${(sizeBytes / 1000).toFixed(1)} KB compressed, past ${FIRST_PAINT_SIZE_LIMIT_BYTES / 1000} KB: what's in it, and the styles and first-paint script it carries for that, come to more than a first paint on a slow connection can take` });
+          const limitBytes = options.firstPaintSizeLimitBytes ?? FIRST_PAINT_SIZE_LIMIT_BYTES;
+          if (sizeBytes > limitBytes) found.push({ check: "first paint over its size", element: "", said: `the page is ${(sizeBytes / 1000).toFixed(1)} KB compressed, past ${limitBytes / 1000} KB: what's in it, and the styles and first-paint script it carries for that, come to more than a first paint on a slow connection can take` });
         }
       }
       // The entry's address must show the state it's named for (checked-pages.ts), so a list that drifts from the pages fails here.

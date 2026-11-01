@@ -533,7 +533,7 @@ export function securityHeaders(env: Env, extra: Record<string, string> = {}, ha
       "img-src 'self' data:",
       "style-src 'self' 'unsafe-inline'",
       // Only the site's own script files (page-scripts.ts) and the one first-paint script pages carry, by its hash: Strict scripts on zaisma.com.
-      `script-src 'self' ${FIRST_PAINT_SCRIPT_HASHES}${hasTurnstileCheck ? ` ${CHECK_ORIGIN}` : ""}${hasStripePayments ? ` ${STRIPE_SCRIPT_ORIGIN}` : ""}`,
+      `script-src 'self'${hasTurnstileCheck ? ` ${CHECK_ORIGIN}` : ""}${hasStripePayments ? ` ${STRIPE_SCRIPT_ORIGIN}` : ""} ${FIRST_PAINT_SCRIPT_HASHES}`,
       `frame-src ${gameFrameSource(env)}${hasTurnstileCheck ? ` ${CHECK_ORIGIN}` : ""}${hasStripePayments ? ` ${STRIPE_FRAME_ORIGINS.join(" ")}` : ""}${hasStripeFrame ? " 'self'" : ""}${frames.map((frame) => ` ${frame}`).join("")}`,
       ...(hasStripePayments ? [`connect-src 'self' ${STRIPE_API_ORIGIN}`] : []),
       `form-action 'self'${formTargets.map((target) => ` ${target}`).join("")}`,
@@ -692,7 +692,7 @@ ${options.checkedPage ? checkedPageTag(options.checkedPage) : ""}
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="manifest" href="/manifest.webmanifest">
 ${themeColors}
-<style>${raw(firstPaintStyles(sheets, body.html + (options.head?.html ?? "")))}</style>
+<style data-first-paint>${raw(firstPaintStyles(sheets, body.html + (options.head?.html ?? "")))}</style>
 ${options.head ?? ""}
 </head>
 <body>

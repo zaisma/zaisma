@@ -40,13 +40,13 @@ const READ_PROPERTY = /var\(\s*(--[A-Za-z0-9_-]+)/g;
 
 /** Where a block opened at "{" ends: the index of its "}", past quoted strings and comments. */
 function blockEnd(css: string, openIndex: number): number {
-  let depth = 0;
+  let nestingLevel = 0;
   for (let i = openIndex; i < css.length; i++) {
     const character = css[i];
     if (character === "/" && css[i + 1] === "*") { i = css.indexOf("*/", i + 2) + 1; if (i === 0) return css.length - 1; continue; }
-    if (character === '"' || character === "'") { const close = css.indexOf(character, i + 1); if (close < 0) return css.length - 1; i = close; continue; }
-    if (character === "{") depth++;
-    else if (character === "}" && --depth === 0) return i;
+    if (character === '"' || character === "'") { const closeIndex = css.indexOf(character, i + 1); if (closeIndex < 0) return css.length - 1; i = closeIndex; continue; }
+    if (character === "{") nestingLevel++;
+    else if (character === "}" && --nestingLevel === 0) return i;
   }
   return css.length - 1;
 }
@@ -54,27 +54,27 @@ function blockEnd(css: string, openIndex: number): number {
 /** Splits at a character outside brackets, parentheses and quotes. */
 function splitTopLevel(text: string, separator: string): string[] {
   const parts: string[] = [];
-  let depth = 0, start = 0, quote = "";
+  let nestingLevel = 0, startIndex = 0, quote = "";
   for (let i = 0; i < text.length; i++) {
     const character = text[i]!;
     if (quote) { if (character === quote && text[i - 1] !== "\\") quote = ""; continue; }
     if (character === '"' || character === "'") quote = character;
-    else if (character === "(" || character === "[") depth++;
-    else if (character === ")" || character === "]") depth--;
-    else if (character === separator && depth === 0) { parts.push(text.slice(start, i)); start = i + 1; }
+    else if (character === "(" || character === "[") nestingLevel++;
+    else if (character === ")" || character === "]") nestingLevel--;
+    else if (character === separator && nestingLevel === 0) { parts.push(text.slice(startIndex, i)); startIndex = i + 1; }
   }
-  parts.push(text.slice(start));
+  parts.push(text.slice(startIndex));
   return parts;
 }
 
 /** The classes a selector asks for outright: those outside any functional pseudo-class and outside attribute brackets. */
 function neededClasses(selector: string): string[] {
-  let outside = "", depth = 0;
+  let outside = "", nestingLevel = 0;
   for (let i = 0; i < selector.length; i++) {
     const character = selector[i]!;
-    if (character === "(" || character === "[") depth++;
-    else if (character === ")" || character === "]") depth--;
-    else if (depth === 0) outside += character;
+    if (character === "(" || character === "[") nestingLevel++;
+    else if (character === ")" || character === "]") nestingLevel--;
+    else if (nestingLevel === 0) outside += character;
   }
   return [...outside.matchAll(/\.(-?[_a-zA-Z][_a-zA-Z0-9-]*)/g)].map((found) => found[1]!);
 }
@@ -82,12 +82,12 @@ function neededClasses(selector: string): string[] {
 /** Splits a selector at its combinators outside brackets: its compounds, and whether every combinator is a child one (>). */
 function reachOf(selector: string): Selector["reach"] {
   const compounds: string[] = [];
-  let depth = 0, current = "", isChildOnly = true;
+  let nestingLevel = 0, current = "", isChildOnly = true;
   for (let i = 0; i < selector.length; i++) {
     const character = selector[i]!;
-    if (character === "(" || character === "[") depth++;
-    else if (character === ")" || character === "]") depth--;
-    if (depth === 0 && (character === ">" || character === " " || character === "+" || character === "~")) {
+    if (character === "(" || character === "[") nestingLevel++;
+    else if (character === ")" || character === "]") nestingLevel--;
+    if (nestingLevel === 0 && (character === ">" || character === " " || character === "+" || character === "~")) {
       if (character === ">") { if (current.trim()) compounds.push(current.trim()); current = ""; }
       else if (character === "+" || character === "~") isChildOnly = false;
       else if (current.trim() && !/^\s*>/.test(selector.slice(i))) { compounds.push(current.trim()); current = ""; isChildOnly = false; }
@@ -115,7 +115,7 @@ function parse(css: string): CssNode[] {
   const nodes: CssNode[] = [];
   let index = 0;
   while (index < css.length) {
-    if (css.startsWith("/*", index)) { const close = css.indexOf("*/", index + 2); index = close < 0 ? css.length : close + 2; continue; }
+    if (css.startsWith("/*", index)) { const closeIndex = css.indexOf("*/", index + 2); index = closeIndex < 0 ? css.length : closeIndex + 2; continue; }
     const openIndex = css.indexOf("{", index), semicolonIndex = css.indexOf(";", index);
     // A statement with no block (@import, @charset, a layer's order) stays as it is.
     if (semicolonIndex >= 0 && (openIndex < 0 || semicolonIndex < openIndex) && css.slice(index, semicolonIndex).trim().startsWith("@")) {
@@ -164,17 +164,17 @@ const TAG = /<(\/?)([a-zA-Z][a-zA-Z0-9-]*)((?:[^>"']|"[^"]*"|'[^']*')*)>/g;
 
 /** A page's markup without what starts closed in it (isClosedElement), for the first-paint pieces it carries (html.ts). */
 export function shownMarkup(markup: string): string {
-  let shown = "", readIndex = 0, closedTag: string | null = null, closedDepth = 0;
+  let shown = "", readIndex = 0, closedTag: string | null = null, closedNestingLevel = 0;
   for (const found of markup.matchAll(TAG)) {
     const [whole, isClosing, tagName, attributes] = found as unknown as [string, string, string, string];
     const tag = tagName.toLowerCase(), index = found.index!;
     if (closedTag === null) {
-      if (!isClosing && !VOID_ELEMENTS.has(tag) && !attributes.endsWith("/") && isClosedElement(tag, attributes)) { shown += markup.slice(readIndex, index); closedTag = tag; closedDepth = 1; }
+      if (!isClosing && !VOID_ELEMENTS.has(tag) && !attributes.endsWith("/") && isClosedElement(tag, attributes)) { shown += markup.slice(readIndex, index); closedTag = tag; closedNestingLevel = 1; }
       continue;
     }
     if (tag !== closedTag) continue;
-    if (!isClosing && !attributes.endsWith("/")) closedDepth++;
-    else if (isClosing && --closedDepth === 0) { closedTag = null; readIndex = index + whole.length; }
+    if (!isClosing && !attributes.endsWith("/")) closedNestingLevel++;
+    else if (isClosing && --closedNestingLevel === 0) { closedTag = null; readIndex = index + whole.length; }
   }
   return closedTag === null ? shown + markup.slice(readIndex) : shown;
 }
@@ -199,9 +199,9 @@ export function classesOf(markup: string): { classes: Set<string>; levelCountsBy
     const [, isClosing, tagName, attributes] = found as unknown as [string, string, string, string];
     const tag = tagName.toLowerCase();
     if (isClosing) {
-      const at = open.map((element) => element.tag).lastIndexOf(tag);
-      if (at < 0) continue;
-      while (open.length > at) closed(open.pop()!);
+      const openIndex = open.map((element) => element.tag).lastIndexOf(tag);
+      if (openIndex < 0) continue;
+      while (open.length > openIndex) closed(open.pop()!);
       continue;
     }
     const isClosed = Boolean(open[open.length - 1]?.isClosed) || isClosedElement(tag, attributes);

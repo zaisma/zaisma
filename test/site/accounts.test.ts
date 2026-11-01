@@ -438,7 +438,7 @@ describe("making an account", () => {
     // The bot-check script runs Cloudflare's check in the form's box, which the page's policy lets it load.
     expect(page).toContain('<div data-bot-check="join" data-site-key="test-site-key"></div>');
     expect(pageScriptNames(page)).toContain("bot-check");
-    expect(asked.headers.get("content-security-policy")).toContain("script-src 'self' https://challenges.cloudflare.com;");
+    expect(asked.headers.get("content-security-policy")).toMatch(/script-src 'self' https:\/\/challenges\.cloudflare\.com(?: 'sha256-[A-Za-z0-9+/=]+')*;/);
     for (const token of ["bad", ""]) {
       const refused = await b.go("/join/account", { turnstile_token: token, username: "Night_Owl", password: PASSWORD });
       expect(await refused.text()).toContain("couldn&#39;t check that you&#39;re using a real browser");
@@ -891,7 +891,7 @@ describe("Google and Discord", () => {
     expect((await viaProvider(b, "/signin/with/discord", "new@example.com")).headers.get("location")).toBe("/join/username");
     const usernamePage = await (await b.go("/join/username")).text();
     expect(usernamePage).toContain("Pick a username");
-    expect(usernamePage).not.toContain('type="password"');
+    expect(usernamePage).not.toMatch(/<input[^>]*type="password"/);
     // Made with the band's default; 16 and over go on to how they play.
     expect((await b.go("/join/username", { turnstile_token: "test-token", username: "Lucky_Star" })).headers.get("location")).toBe("/join/play");
     expect(await accountById(env.DB, users.get("new@example.com")!)).toMatchObject({ username: "Lucky_Star", age_band: "18+", password_changed_at_ms: null });
@@ -4066,7 +4066,7 @@ describe("protect your account", () => {
     expect(home).toContain('href="/account#passkeys">Add a passkey</a>');
     expect(home).toContain('href="/account#email">Add an email</a>');
     expect(home).toContain("data-close>Later</button>");
-    expect(home).not.toContain('type="password"');
+    expect(home).not.toMatch(/<input[^>]*type="password"/);
     expect(pageScriptNames(home)).toContain("protect-account");
     expect(await offeredAtMs(id)).toEqual(expect.any(Number));
     expect(await (await b.go("/")).text()).not.toContain('id="protect-account"');

@@ -52,6 +52,7 @@ import readingSource from "../../apps/site/src/components/reading.ts?raw";
 import peopleSource from "../../apps/site/src/components/people.ts?raw";
 import gameCoverSource from "../../apps/site/src/components/game-cover.ts?raw";
 import waitingSource from "../../apps/site/src/components/waiting.ts?raw";
+import firstPaintScriptSource from "../../apps/site/src/components/first-paint-script.ts?raw";
 import galleryPageSource from "../../apps/site/src/design-page.ts?raw";
 
 /** The gallery's own source, to check it draws nothing by hand. */
@@ -59,7 +60,7 @@ const SOURCES: Record<string, string> = {
   "components/foundations.ts": foundationsSource, "components/materials.ts": materialsSource, "components/tokens.ts": tokensSource, "components/icons.ts": iconsSource, "components/glass-script.ts": glassScriptSource, 
   "components/backdrop-script.ts": backdropScriptSource, "components/actions.ts": actionsSource, "components/fields.ts": fieldsSource, "components/switch.ts": switchSource, "components/light-box.ts": lightBoxSource, "components/qr-code.ts": qrCodeSource, "components/choices.ts": choicesSource, "components/example-pane.ts": examplePaneSource, "components/inputs.ts": inputsSource, "components/navigation.ts": navigationSource, "components/panes.ts": panesSource, "components/confirm-its-you.ts": confirmItsYouSource, "components/stripe-frame.ts": stripeFrameSource, "components/data.ts": dataSource,
   "components/layout.ts": layoutSource, "components/layout-gallery.ts": layoutGallerySource, "components/control-markup.ts": controlMarkupSource, "components/city.ts": citySource, "components/screens.ts": screensSource, "components/playing.ts": playingSource, "components/layers.ts": layersSource,
-  "components/reading.ts": readingSource, "components/people.ts": peopleSource, "components/game-cover.ts": gameCoverSource, "components/waiting.ts": waitingSource,
+  "components/reading.ts": readingSource, "components/people.ts": peopleSource, "components/game-cover.ts": gameCoverSource, "components/waiting.ts": waitingSource, "components/first-paint-script.ts": firstPaintScriptSource,
   "design-page.ts": galleryPageSource,
 };
 
@@ -876,16 +877,21 @@ describe("pages", () => {
     for (const path of PUBLIC_PAGES) expect(pageProblems((await page(path)).text), path).toEqual([]);
   });
 
-  it("are linked to the cached stylesheet and the components' script, never written into the page", async () => {
-    for (const path of ["/", "/design/example", "/design", "/design/actions/buttons"]) {
+  it("carry the rules their first paint needs, and name the cached stylesheet and the components' script for after it", async () => {
+    for (const path of ["/", "/design/example"]) {
       const { response, text } = await page(path);
       expect(response.status, path).toBe(200);
-      const sheet = path.startsWith("/design") && path !== "/design/example" ? "design" : "site";
-      expect(text, path).toMatch(new RegExp(`<link rel="stylesheet" href="/css/${sheet}\\.[0-9a-f]{16}\\.css">`));
+      expect(text, path).toMatch(/<style data-first-paint>[\s\S]{1000,}<\/style>/);
+      expect(text, path).toMatch(/<link rel="preload" as="style" href="\/css\/site\.[0-9a-f]{16}\.css" fetchpriority="low" data-site-style>/);
+      expect(text, path).toMatch(/<link rel="preload" as="script" href="\/js\/components\.[0-9a-f]{16}\.js" fetchpriority="low" data-page-script>/);
+      // Only the rules its markup can match: never the whole sheet, nor the gallery's own.
+      expect(text, path).not.toContain(".gallery-main");
+    }
+    // The gallery is a tool, and links its files, holding its first paint for them.
+    for (const path of ["/design", "/design/actions/buttons"]) {
+      const { text } = await page(path);
+      expect(text, path).toMatch(/<link rel="stylesheet" href="\/css\/design\.[0-9a-f]{16}\.css">/);
       expect(text, path).toMatch(/<script src="\/js\/components\.[0-9a-f]{16}\.js"/);
-      // The components' own CSS (200 KB) is in the file; what a page writes itself is small.
-      expect(text.length, path).toBeLessThan(120_000);
-      expect(text, path).not.toContain(".cut-btn {");
     }
   });
 

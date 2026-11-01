@@ -36,12 +36,12 @@ export function readSpeedReport(given: unknown): SpeedReport | null {
   if (!given || typeof given !== "object" || Array.isArray(given)) return null;
   const report = given as Record<string, unknown>;
   if (Object.keys(report).some((name) => !(REPORT_FIELDS as readonly string[]).includes(name))) return null;
-  const { page_name, visit_kind, first_paint_delay_ms, device_kind, connection_kind } = report;
-  if (typeof page_name !== "string" || !PAGE_NAMES.has(page_name)) return null;
-  if (!(VISIT_KINDS as readonly unknown[]).includes(visit_kind)) return null;
-  if (typeof first_paint_delay_ms !== "number" || !Number.isInteger(first_paint_delay_ms) || first_paint_delay_ms < 0 || first_paint_delay_ms > FIRST_PAINT_DELAY_LIMIT_MS) return null;
-  if (!(DEVICE_KINDS as readonly unknown[]).includes(device_kind)) return null;
-  if (!(CONNECTION_KINDS as readonly unknown[]).includes(connection_kind)) return null;
+  const delayMs = report.first_paint_delay_ms;
+  if (typeof report.page_name !== "string" || !PAGE_NAMES.has(report.page_name)) return null;
+  if (!(VISIT_KINDS as readonly unknown[]).includes(report.visit_kind)) return null;
+  if (typeof delayMs !== "number" || !Number.isInteger(delayMs) || delayMs < 0 || delayMs > FIRST_PAINT_DELAY_LIMIT_MS) return null;
+  if (!(DEVICE_KINDS as readonly unknown[]).includes(report.device_kind)) return null;
+  if (!(CONNECTION_KINDS as readonly unknown[]).includes(report.connection_kind)) return null;
   return report as unknown as SpeedReport;
 }
 

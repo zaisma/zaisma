@@ -38,8 +38,9 @@ describe("a page's first paint", () => {
       const page = await response.text();
       expect(response.status, path).toBe(200);
       const head = page.slice(0, page.indexOf("</head>"));
-      expect(head, path).not.toMatch(/<script\b|<link[^>]*rel="(stylesheet|preload)"/);
-      expect(head.match(/<style>([\s\S]*?)<\/style>/)?.[1]?.length ?? 0, path).toBeGreaterThan(1000);
+      // Structured data for search engines is a data block, never run.
+      expect(head.replace(/<script type="application\/ld\+json">[\s\S]*?<\/script>/g, ""), path).not.toMatch(/<script\b|<link[^>]*rel="(stylesheet|preload)"/);
+      expect(head.match(/<style data-first-paint>([\s\S]*?)<\/style>/)?.[1]?.length ?? 0, path).toBeGreaterThan(1000);
       const policy = response.headers.get("content-security-policy") ?? "";
       const pieces = [...page.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((found) => found[1]!);
       expect(pieces.length, path).toBeGreaterThan(3);
@@ -65,7 +66,8 @@ describe("a page's first paint", () => {
 
 describe("guest pages from the cache near the player", () => {
   const cachedEnv = { ...env, GUEST_PAGE_CACHE_SECONDS: "60" } as unknown as Env;
-  const ctx = { waitUntil: (work: Promise<unknown>) => work, passThroughOnException: () => {} } as unknown as ExecutionContext;
+  const keeping: Promise<unknown>[] = [];
+  const ctx = { waitUntil: (work: Promise<unknown>) => keeping.push(work), passThroughOnException: () => {} } as unknown as ExecutionContext;
   let renderCount = 0;
   const render = (headers: Record<string, string> = {}) => async () => {
     renderCount++;
@@ -73,7 +75,7 @@ describe("guest pages from the cache near the player", () => {
   };
   const open = async (path: string, init: RequestInit = {}, headers: Record<string, string> = {}) => {
     const response = await withGuestPageCache(new Request(`${SITE}${path}`, init), cachedEnv, ctx, render(headers));
-    await new Promise((done) => setTimeout(done, 10));
+    await Promise.all(keeping.splice(0));
     return { cacheState: response.headers.get(PAGE_CACHE_HEADER), text: await response.text() };
   };
 
@@ -88,8 +90,8 @@ describe("guest pages from the cache near the player", () => {
 
   it("never keeps a signed-in viewer's page, one that sets a cookie or says no-store, or a page off the list", async () => {
     renderCount = 0;
-    expect((await open("/g/cache-two", { headers: { Cookie: "zaisma_in=1" } })).cacheState).toBeNull();
-    expect((await open("/g/cache-two", { headers: { Cookie: "zaisma_in=1" } })).cacheState).toBeNull();
+    expect((await open("/g/cache-two", { headers: { Cookie: "__Host-zaisma_in=1" } })).cacheState).toBeNull();
+    expect((await open("/g/cache-two", { headers: { Cookie: "__Host-zaisma_in=1" } })).cacheState).toBeNull();
     await open("/g/cache-three", {}, { "Set-Cookie": "zaisma_guest=1" });
     expect((await open("/g/cache-three")).cacheState).toBe("miss");
     await open("/g/cache-four", {}, { "Cache-Control": "no-store" });

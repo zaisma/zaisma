@@ -839,7 +839,7 @@ describe("the sheet's pages", () => {
     const policy = gamePage.headers.get("content-security-policy")!;
     // The game page itself runs no script but its own: Stripe's parts are in /buy/stripe-frame, which it may frame.
     expect(policy).not.toContain("stripe.com");
-    expect(policy).toMatch(/script-src 'self'(?: https:\/\/challenges\.cloudflare\.com)?;/);
+    expect(policy).toMatch(/script-src 'self'(?: https:\/\/challenges\.cloudflare\.com)?(?: 'sha256-[A-Za-z0-9+/=]+')*;/);
     expect(policy).toMatch(/frame-src [^;]*'self'/);
     expect(gamePage.headers.get("permissions-policy")).toContain("payment=(self)");
     const frame = await page("/buy/stripe-frame");

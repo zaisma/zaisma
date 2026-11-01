@@ -95,8 +95,8 @@ describe("the site's code", () => {
  * puts there, then change the count.
  */
 const REVIEWED_SINK_COUNTS: Record<string, number> = {
-  "access-choices": 3, "account-gate": 1, "account-link": 1, "back-to-app": 1, "back-to-game": 1, "background-preview": 4, "block-sheet": 1, "bot-check": 2, "friend-requests": 1, browse: 2, "buy-sheet": 3, city: 3, "city-pane": 5,
-  components: 23, "design-loops": 1, "first-paint": 36, forum: 2, "forum-posts": 8, gallery: 3, "game-embedded": 1, "game-links": 2, "game-page": 9, "game-updates": 2, home: 9, "layout-inspect": 1,
+  "access-choices": 3, "account-gate": 1, "back-to-app": 1, "back-to-game": 1, "background-preview": 4, "block-sheet": 1, "bot-check": 2, "friend-requests": 1, browse: 2, "buy-sheet": 3, city: 3, "city-pane": 5,
+  components: 23, "design-loops": 1, "first-paint": 37, forum: 2, "forum-posts": 8, gallery: 3, "game-embedded": 1, "game-links": 2, "game-page": 9, "game-updates": 2, home: 9, "layout-inspect": 1, look: 22,
   "passkey-add": 4, passkeys: 1, "play-counter": 1, "players-sheet": 3, profile: 1, "qr-png": 1, "report-sheet": 1, saves: 2, screens: 3, "sign-in-while-playing": 1, site: 4, upload: 1,
 };
 
