@@ -78,7 +78,19 @@ function nosniffProblems(headers) {
   return asHeaders(headers).get("x-content-type-options")?.toLowerCase() === "nosniff" ? [] : ["X-Content-Type-Options isn't nosniff"];
 }
 
-export function siteHeaderProblems(headers) {
+/**
+ * The hashes a page's script-src may also name: exactly those of the first-paint pieces the shipped code puts inline at the start of
+ * a page's body (FIRST_PAINT_SCRIPT_TEXTS, apps/site/src/html.ts), worked out from this checkout, so any other inline script, or a
+ * piece changed without its code, still fails. html.ts is TypeScript, so it's bundled with esbuild and imported from memory.
+ */
+export async function firstPaintHashSources() {
+  const [{ build }, { createHash }, { join }] = await Promise.all([import("esbuild"), import("node:crypto"), import("node:path")]);
+  const bundled = await build({ entryPoints: [join(import.meta.dirname, "../apps/site/src/html.ts")], bundle: true, write: false, format: "esm", platform: "node", target: "node22", logLevel: "error", external: ["cloudflare:*"] });
+  const { FIRST_PAINT_SCRIPT_TEXTS } = await import(`data:text/javascript;base64,${Buffer.from(bundled.outputFiles[0].text).toString("base64")}`);
+  return FIRST_PAINT_SCRIPT_TEXTS.map((text) => `'sha256-${createHash("sha256").update(text).digest("base64")}'`);
+}
+
+export function siteHeaderProblems(headers, allowedHashSources = []) {
   const problems = transportSecurityProblems(headers);
   const policyText = asHeaders(headers).get("content-security-policy");
   if (!policyText) return [...problems, "no Content-Security-Policy", ...nosniffProblems(headers)];
@@ -87,7 +99,7 @@ export function siteHeaderProblems(headers) {
   if (!scriptSources) problems.push("no script-src");
   else {
     if (!scriptSources.includes("'self'")) problems.push("script-src lacks 'self'");
-    for (const source of scriptSources) if (!ALLOWED_SITE_SCRIPT_SOURCES.includes(source)) problems.push(`script-src allows ${source}`);
+    for (const source of scriptSources) if (!ALLOWED_SITE_SCRIPT_SOURCES.includes(source) && !allowedHashSources.includes(source)) problems.push(`script-src allows ${source}`);
   }
   problems.push(...exactDirectiveProblem(policy, "frame-ancestors", "'none'"), ...exactDirectiveProblem(policy, "object-src", "'none'"), ...exactDirectiveProblem(policy, "base-uri", "'none'"), ...nosniffProblems(headers));
   return problems;
@@ -277,13 +289,14 @@ async function checkPrivateCheckGame({ zaismaKey, ...retryOptions }) {
   return passed(name, true, zaismaKey ? `${name} closed (5 addresses, confirmed private)` : `${name} closed (5 addresses; not confirmed private: no ZAISMA_KEY)`);
 }
 
-export async function checkSecurityAddresses({ zaismaKey, attemptCount = ATTEMPT_COUNT, retryWaitMs = RETRY_WAIT_MS } = {}) {
+export async function checkSecurityAddresses({ zaismaKey, attemptCount = ATTEMPT_COUNT, retryWaitMs = RETRY_WAIT_MS, hashSources } = {}) {
   const retryOptions = { attemptCount, retryWaitMs };
+  const allowedHashSources = hashSources ?? (await firstPaintHashSources());
   const security = { isSecurity: true, ...retryOptions };
   const headerCheck = (findHeaderProblems) => (response) => (response.status === 200 ? findHeaderProblems(response.headers) : [`answered ${response.status}`]);
   return Promise.all([
-    checkUrl("zaisma.com headers", `${SITE_URL}/`, {}, headerCheck(siteHeaderProblems), security),
-    checkUrl("game page headers", `${SITE_URL}/g/${CHECK_GAME_SLUG}`, {}, headerCheck(siteHeaderProblems), security),
+    checkUrl("zaisma.com headers", `${SITE_URL}/`, {}, headerCheck((headers) => siteHeaderProblems(headers, allowedHashSources)), security),
+    checkUrl("game page headers", `${SITE_URL}/g/${CHECK_GAME_SLUG}`, {}, headerCheck((headers) => siteHeaderProblems(headers, allowedHashSources)), security),
     // The game's page, at its version's own address.
     checkUrl("game domain headers", CHECK_GAME_URL, {}, headerCheck(gameHeaderProblems), { ...security, isSameOriginRedirectFollowed: true }),
     checkUrl("zaisma.com over http", `http://zaisma.com/g/${CHECK_GAME_SLUG}?from=ship`, {}, (response) => httpsRedirectProblems(response, `${SITE_URL}/g/${CHECK_GAME_SLUG}?from=ship`), security),

@@ -13,6 +13,7 @@ import {
   checkPackageOnNpm,
   checkSecurityAddresses,
   checkUrl,
+  firstPaintHashSources,
   gameHeaderProblems,
   httpsRedirectProblems,
   privateAddressProblems,
@@ -53,6 +54,16 @@ describe("siteHeaderProblems", () => {
     noSniff.delete("x-content-type-options");
     expect(siteHeaderProblems(noSniff)).toContain("X-Content-Type-Options isn't nosniff");
   });
+  it("allows exactly the hashes of the first-paint pieces this checkout ships, and no other", async () => {
+    const hashSources: string[] = await firstPaintHashSources();
+    expect(hashSources.length).toBeGreaterThan(10);
+    for (const source of hashSources) expect(source).toMatch(/^'sha256-[A-Za-z0-9+/]{43}='$/);
+    const policy = SITE_POLICY.replace("script-src 'self'", `script-src 'self' ${hashSources.join(" ")}`);
+    expect(siteHeaderProblems(siteHeaders({ "content-security-policy": policy }), hashSources)).toEqual([]);
+    expect(siteHeaderProblems(siteHeaders({ "content-security-policy": policy }))).toContain(`script-src allows ${hashSources[0]}`);
+    const other = `'sha256-${"A".repeat(43)}='`;
+    expect(siteHeaderProblems(siteHeaders({ "content-security-policy": `${policy.replace("script-src 'self'", `script-src 'self' ${other}`)}` }), hashSources)).toEqual([`script-src allows ${other}`]);
+  }, 60_000);
 });
 
 describe("gameHeaderProblems", () => {
@@ -240,7 +251,7 @@ describe("checkSecurityAddresses", () => {
       return new Response("page", { headers: siteHeaders({ "content-security-policy": url.includes("/g/") ? GAME_PAGE_POLICY : SITE_POLICY }) });
     });
   }
-  const options = { retryWaitMs: 0, attemptCount: 2 };
+  const options = { retryWaitMs: 0, attemptCount: 2, hashSources: [] };
   it("passes when everything answers as live does after this slice", async () => {
     vi.stubGlobal("fetch", liveStub());
     const results = await checkSecurityAddresses({ ...options, zaismaKey: "key" });
