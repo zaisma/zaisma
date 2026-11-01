@@ -137,6 +137,8 @@ export const KEY_DETAILS_STYLES = `
 .key-detail { flex: none; min-width: var(--size-number); max-width: 100%; display: grid; align-content: start; gap: 2px; }
 .key-detail > dt { font: var(--type-facts); color: var(--ink-2); }
 .key-detail > dd { margin: 0; min-width: 0; }
+/* A game's pane title grows with its key details, in a game's title's type. */
+.glass-pane:has(.key-details) :is(h1, h2) { font: var(--type-title); }
 /* A pane holding Key details sets its title a size up, in a title's size, so it stays over figures set in a heading's. */
 /* The value in a heading's size, well over its label and what's under it, so a strip reads as figures, not a paragraph. */
 .key-detail-value { font: var(--type-heading); color: var(--ink); font-variant-numeric: tabular-nums; }

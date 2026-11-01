@@ -1088,7 +1088,8 @@ describe("page structure", () => {
 
   it("set no words in capitals and no words in the title's type: a page's one title is its h1", () => {
     expect(rulesOf(STYLES()).filter((rule) => /text-transform:\s*uppercase|font-variant(-caps)?:\s*(all-)?small-caps/.test(rule.declarations)).map((rule) => rule.selectors)).toEqual([]);
-    expect(rulesOf(STYLES()).filter((rule) => /font:\s*var\(--type-title\)/.test(rule.declarations)).map((rule) => rule.selectors)).toEqual([]);
+    // Only a game's own title takes the title's type: its pane's, over its key details.
+    expect(rulesOf(STYLES()).filter((rule) => /font:\s*var\(--type-title\)/.test(rule.declarations)).map((rule) => rule.selectors.trim()).filter((selectors) => selectors !== ".glass-pane:has(.key-details) :is(h1, h2)")).toEqual([]);
   });
 
   it("set words orange only on what you act on: a link or a button", () => {

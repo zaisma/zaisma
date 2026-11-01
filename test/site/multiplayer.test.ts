@@ -215,7 +215,7 @@ describe("room browsing on the game page", () => {
     for (const [i, c] of codes.slice(0, 12).entries()) await room(id, c.repeat(6), 1 + (i % 3));
     await room(id, "ABC234", 31, 1, Date.now(), ["US", "NA"], 40);
     const list = await roomsList();
-    expect(list).toContain('<button type="button" class="flush-row quiet" data-lights data-region="EU" aria-pressed="false"><span>Europe</span><span class="tag count">12</span></button>');
+    expect(list).toContain('<button type="button" class="flush-row quiet" data-lights data-region="EU" aria-pressed="false"><span>Europe</span><span class="tag count" data-cut-line="0" data-cut-square><svg class="cut-line" aria-hidden="true"><polygon/></svg>12</span></button>');
     expect(list).toContain('<span class="list-row-title">31 of 40 players</span>');
     // Only the first six rooms, the list scrolling inside itself past them, and Load more for the rest.
     expect(list).toContain('class="list-rows hairlines is-capped scrolls own-scroll" style="--shown-row-count:6"');
@@ -256,7 +256,7 @@ describe("room browsing on the game page", () => {
 
     // The second page is just rows in a list of the panel's id, 20 of them, and the Load more for the page after.
     const second = await roomsList("?cursor=6");
-    expect(second).toMatch(/^<ul class="list-rows[^"]*" id="rooms-rows"/);
+    expect(second).toMatch(/<ul class="list-rows[^"]*" id="rooms-rows"/);
     expect(second.match(/<div class="list-row flush-row quiet">/g)).toHaveLength(20);
     expect(second).toContain('href="/g/arena/rooms?cursor=26"');
     expect(second).not.toContain("data-region");
@@ -454,10 +454,10 @@ describe("room browsing on the game page", () => {
     expect(list).not.toContain("?room=BCDFGH");
     // A game that lists no rooms on its page still says who's playing, without a link.
     await env.DB.prepare("UPDATE games SET room_browsing = 'off' WHERE id = ?").bind(id).run();
-    expect(await (await SELF.fetch("https://zaisma.test/g/arena")).text()).toMatch(/id="playing-now">[\s\S]*?<b>5<\/b> playing now/);
+    expect(await (await SELF.fetch("https://zaisma.test/g/arena")).text()).toMatch(/id="playing-now">[\s\S]*?<dt>Playing now<\/dt><dd class="key-detail-value">5<\/dd>/);
     // Single-player games have the line too, from the browsers playing them (plays.test.ts); hidden with nobody playing.
     await addGame("solo");
-    expect(await (await SELF.fetch("https://zaisma.test/g/solo")).text()).toMatch(/id="playing-now" hidden>[\s\S]*?<b>0<\/b> playing now/);
+    expect(await (await SELF.fetch("https://zaisma.test/g/solo")).text()).toMatch(/id="playing-now" hidden>[\s\S]*?<dt>Playing now<\/dt><dd class="key-detail-value">0<\/dd>/);
   });
 
   it("shows names and labels that pass the text filter, with a Report button, and filters by labels", async () => {

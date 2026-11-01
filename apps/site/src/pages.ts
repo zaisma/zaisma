@@ -1180,7 +1180,7 @@ async function refreshRooms(force) {
     if (fresh && scrolledTo) fresh.scrollTop = scrolledTo;
     const playing = Number(list.firstElementChild?.dataset.playing || 0);
     const line = document.getElementById("playing-now");
-    if (line) { line.hidden = playing < ${MINIMUM_PLAYING_NOW_PLAYER_COUNT}; line.querySelector("b").textContent = playing.toLocaleString("en-US"); }
+    if (line) { line.hidden = playing < ${MINIMUM_PLAYING_NOW_PLAYER_COUNT}; line.querySelector(".key-detail-value").textContent = playing.toLocaleString("en-US"); }
   } catch {} finally {
     hideStale(false);
   }
