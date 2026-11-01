@@ -37,6 +37,7 @@ import {
   getTopic,
   listTopics,
   markAnswer,
+  markTopicSeen,
   replyTo,
   similarTopics,
   unreadCount,
@@ -46,6 +47,7 @@ import {
   type TopicRow,
   type Viewer,
 } from "./forum.ts";
+import { isPreparedRequest } from "./prepared-pages.ts";
 
 /**
  * The developer forum's pages (docs/DECISIONS.md): the topic list with its section rail, a topic,
@@ -142,7 +144,7 @@ export async function handleForum(request: Request, env: Env, path: string): Pro
   // A banned developer reads the forum but posts nothing, as through the API (bans.ts); Your games says why.
   if (isPost && caller?.banScope) return done(redirect("/dashboard"));
   const account = caller ? await accountById(env.DB, caller.accountId) : null;
-  const ctx: Ctx = { env, viewer: caller, me: caller ? mePerson(account) : null, account, url };
+  const ctx: Ctx = { env, viewer: caller, me: caller ? mePerson(account) : null, account, url, isPrepared: isPreparedRequest(request) };
 
   try {
     if (path === "/forum/similar") return done(await similarFragment(ctx, url.searchParams.get("search_text") ?? ""));
@@ -212,13 +214,18 @@ export async function handleForum(request: Request, env: Env, path: string): Pro
       }
     }
 
-    const topicPath = path.match(/^\/forum\/(topic_[a-z0-9]{1,40})(?:\/(reply|vote|follow|answer|misplaced|still-happening|rate|bookmark|report))?$/);
+    const topicPath = path.match(/^\/forum\/(topic_[a-z0-9]{1,40})(?:\/(reply|vote|follow|answer|misplaced|still-happening|rate|bookmark|report|seen))?$/);
     if (!topicPath) return null;
     const [, id, action] = topicPath as unknown as [string, string, string | undefined];
     if (!action && !isPost) return done(await topicPage(ctx, id, { done: url.searchParams.get("done") ?? undefined, replyToPostId: url.searchParams.get("reply_to_post_id") ?? undefined }));
     if (!caller) return signIn();
     if (action === "report" && !isPost) return done(await reportPage(ctx, id, url.searchParams.get("post_id") ?? ""));
     if (!isPost) return done(redirect(`/forum/${id}`));
+    // A topic page prepared ahead, now opened (POSTS_SCRIPT).
+    if (action === "seen") {
+      await markTopicSeen(env, caller, id);
+      return done(new Response(null, { status: 204 }));
+    }
     const form = await request.formData();
     const field = (name: string) => String(form.get(name) ?? "").trim();
     // A toggle's form says undo when it takes back what's on.
@@ -287,6 +294,8 @@ interface Ctx {
   /** The signed-in account, for the header. */
   account: Account | null;
   url: URL;
+  /** The page is being prepared ahead of a tap (prepared-pages.ts): it marks nothing seen until it's opened. */
+  isPrepared: boolean;
 }
 
 /** What a forum page's address asks for. search_text is the site header's search box. */
@@ -615,7 +624,7 @@ async function similarFragment(ctx: Ctx, searchText: string): Promise<Response> 
 // --- A topic ---
 
 async function topicPage(ctx: Ctx, id: string, options: { done?: string; error?: string; textMarkdown?: string; replyToPostId?: string }, httpStatus = 200): Promise<Response> {
-  const thread = await getTopic(ctx.env, ctx.viewer, id);
+  const thread = await getTopic(ctx.env, ctx.viewer, id, { isMarkingSeen: !ctx.isPrepared });
   const topic = thread.topic;
   const place = placeOf(topic.category);
   const first = thread.posts[0];
@@ -1320,6 +1329,8 @@ const FORUM_STYLE = pageStyle("forum", () => FORUM_STYLES);
 // Posts: images to add (choose, drop, paste), Copy and Wrap on code, links out that say where they go (unless the site is trusted in this
 // browser), and @ suggestions while writing.
 const POSTS_SCRIPT = pageScript("forum-posts", String.raw`(()=>{
+// A topic page prepared ahead marked nothing seen (forum.ts, getTopic): opened now, it is.
+const seenTopic=location.pathname.match(/^\/forum\/(topic_[a-z0-9]{1,40})$/);if(seenTopic&&document.documentElement.hasAttribute("data-prepared-ahead")&&/(^|; )(__Host-)?zaisma_in=1/.test(document.cookie))fetch(location.pathname+"/seen",{method:"POST"}).catch(()=>{});
 const TRUST="zaisma-trusted-sites",trusted=()=>{try{return JSON.parse(localStorage.getItem(TRUST)||"[]")}catch{return[]}};
 document.addEventListener("click",e=>{
 const out=e.target.closest("a.out");if(out&&!e.metaKey&&!e.ctrlKey&&trusted().includes(out.dataset.host)){e.preventDefault();window.open(out.dataset.out,"_blank","noopener,noreferrer");return}

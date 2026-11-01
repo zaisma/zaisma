@@ -37,6 +37,8 @@ const NOT_MADE_OF_MATERIALS = new Map<string, string>([
   // A sheet's tabs are cut from the sheet's own glass, their row drawn as one outline that runs on into the sheet.
   // A banner narrower than its button and Close side by side: its words take the whole width, Close beside their first line.
   [".banner-icon | height", "the icon sits on the words' first line"],
+  // Opening a game, its cover grows to the whole window (Game background's opening-game-grows), the one keyframe with a height.
+  ["to | height", "the opening game's cover grows to the window's height"],
   [".banner-in:not(.has-close) > .banner-words | padding-block-start", "narrow, with no Close, its words keep the margin at its top"],
   [".banner-in.has-close .banner-text::before | height", "narrow, its words make room for Close beside their first line"],
   // A way in's own color, its brand's, mixed into its slab; and a mark that may be one color.

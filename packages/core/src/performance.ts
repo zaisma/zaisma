@@ -23,6 +23,8 @@ export const PERFORMANCE_CHECK_LIMITS = {
   maximumPreloadFileCount: 20,
   /** How much a game page downloads before Play (Game files start before Play). */
   maximumWarmUpSizeBytes: 100 * 1024 ** 2,
+  /** On an iPhone, a game page downloads before Play only a game whose start files come to this or less, all of them or none. */
+  maximumPhoneWarmUpSizeBytes: 10 * 1000 ** 2,
 };
 
 /** Notes only a run in Chrome gives. */

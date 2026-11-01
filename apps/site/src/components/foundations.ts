@@ -581,6 +581,14 @@ component({
 .backdrop-frame.is-tall .glass { flex: 1 1 0; width: auto; max-width: 320px; }
 
 .backdrop-frame .glass strong { font: var(--type-name); color: var(--ink); }
+/* Moving from one of Zaisma's pages to the next, where the browser can (cross-document view transitions): the new page fades in over the
+   old in --motion-page-switch. The header and the backdrop are the same on both, so they stand still while only the content changes, and
+   the new page takes taps from its first frame. Opening a game from its cover moves on its own (Game background). Under reduced motion,
+   and in browsers without them, the page simply changes. */
+@view-transition { navigation: auto; }
+@media (prefers-reduced-motion: reduce) { @view-transition { navigation: none; } }
+::view-transition { pointer-events: none; }
+::view-transition-old(root), ::view-transition-new(root) { animation-duration: var(--motion-page-switch); animation-timing-function: var(--ease-standard); }
 `,
   render: backdrop,
   examples: [
@@ -616,13 +624,72 @@ component({
   group: "foundations",
   subgroup: "backgrounds",
   summary: "A game's own world behind the glass, on its page and behind it on the home: a picture or a shader its developer sends, for wide screens and phones. It's the game's art, never restyled to Zaisma's look, and the glass over it turns light or smoked to keep the words clear. Until real games bring theirs, the stand-in games have these.",
-  styles: "",
+  styles: `
+/* Opening a game from its cover (PAGE_SWITCH_SCRIPT): the cover grows from where it was to the whole window while the game's page, its
+   world first, comes in under it, the cover dissolving into the world as it grows, so one picture never replaces the other; once it has
+   grown, the page's panes rise out of the glass. --motion-page-switch in all: the grow its first 60%, the rise the rest. The panes wait
+   in the page itself (is-opening-game), not in the browser's picture of it, so their glass is real glass over the world as they rise. */
+::view-transition-group(opening-game) { animation: opening-game-grows calc(var(--motion-page-switch) * 0.6) var(--ease-glide) both; }
+@keyframes opening-game-grows { to { transform: none; width: 100vw; height: 100vh; } }
+::view-transition-old(opening-game) { inline-size: 100%; block-size: 100%; object-fit: cover; animation: opening-game-dissolves calc(var(--motion-page-switch) * 0.6) ease-in both; }
+@keyframes opening-game-dissolves { to { opacity: 0; } }
+html:active-view-transition-type(opening-game)::view-transition-old(root), html:active-view-transition-type(opening-game)::view-transition-new(root) { animation-duration: calc(var(--motion-page-switch) * 0.6); }
+html.is-opening-game main { translate: 0 8px; }
+html.is-opening-game main .glass:not(.glass .glass) { opacity: 0; }
+html.is-rising main { transition: translate calc(var(--motion-page-switch) * 0.4) var(--ease-glide); }
+html.is-rising main .glass:not(.glass .glass) { transition: opacity calc(var(--motion-page-switch) * 0.4) var(--ease-glide); }
+`,
   render: gameBackgroundFrame,
   examples: STAND_IN_BACKGROUNDS.map((background) => ({
     label: `${background.genre}: ${background.summary}`,
     markup: gameBackgroundFrame({ standInSlug: background.slug, title: background.title, note: background.genre }),
   })),
 });
+
+/**
+ * Opening a game from its cover (Game background's motion): a tap on a link to a game's page that holds a picture remembers which game for
+ * the tab; as this page goes (pageswap), that picture is what grows; as the game's page comes (pagereveal), it asks for the grow and holds
+ * its panes until the grow is done (is-opening-game), then lets them rise (is-rising). Only a tap that goes to that same game, within ten
+ * seconds, and never going back or forward through the history. In the first-paint script, so the game's page is listening before it shows.
+ */
+export const PAGE_SWITCH_SCRIPT = `/* page switch */(function () {
+  var KEY = "zaisma:opening-game", pressed = null;
+  function gameSlugOf(address) {
+    try { var to = new URL(address, location.href), found = to.origin === location.origin && to.pathname.match(/^\\/g\\/([^/]+)$/); return found ? found[1] : null; } catch (error) { return null; }
+  }
+  document.addEventListener("click", function (event) {
+    var link = event.target.closest && event.target.closest("a[href]"), slug = link && gameSlugOf(link.href), picture = slug && link.querySelector(".picture, img");
+    pressed = null;
+    try { sessionStorage.removeItem(KEY); } catch (error) {}
+    if (!picture || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || (link.target && link.target !== "_self") || slug === gameSlugOf(location.href)) return;
+    pressed = { slug: slug, picture: picture };
+    try { sessionStorage.setItem(KEY, JSON.stringify({ slug: slug, pressed_at_ms: Date.now() })); } catch (error) {}
+  });
+  // A switch the browser skips (a hidden tab, a page too slow) is no error: it just changes page.
+  function quiet(event) { if (event.viewTransition) event.viewTransition.ready.catch(function () {}); }
+  addEventListener("pageswap", function (event) {
+    quiet(event);
+    var to = event.activation && event.activation.entry && event.activation.entry.url;
+    if (!event.viewTransition || !pressed || (to && gameSlugOf(to) !== pressed.slug)) return;
+    pressed.picture.style.viewTransitionName = "opening-game";
+  });
+  addEventListener("pageshow", function () { if (pressed) { pressed.picture.style.viewTransitionName = ""; pressed = null; } });
+  addEventListener("pagereveal", function (event) {
+    var opening = null, root = document.documentElement;
+    quiet(event);
+    try { opening = JSON.parse(sessionStorage.getItem(KEY) || "null"); sessionStorage.removeItem(KEY); } catch (error) {}
+    if (!event.viewTransition || !opening || opening.slug !== gameSlugOf(location.href) || !(Date.now() - opening.pressed_at_ms < 10000)) return;
+    if (window.navigation && navigation.activation && navigation.activation.navigationType === "traverse") return;
+    if (event.viewTransition.types) event.viewTransition.types.add("opening-game");
+    root.classList.add("is-opening-game");
+    event.viewTransition.finished.finally(function () {
+      root.classList.add("is-rising");
+      root.classList.remove("is-opening-game");
+      setTimeout(function () { root.classList.remove("is-rising"); }, 1000);
+    });
+  });
+})();
+`;
 
 /**
  * A picture a page shows: a game's cover, screenshot or background, never a bare address. Every picture comes with its size and its
