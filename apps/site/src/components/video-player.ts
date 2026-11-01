@@ -212,7 +212,9 @@ component({
 /* Narrow (a phone's width): its time says only where it's at, and Sound only mutes, its groove never opening, so everything fits on one
    line and the timeline keeps what's left. A touch screen's own buttons set the sound, so there it only mutes too. */
 .video-seek { min-width: 0; }
-@container (max-width: 400px) { .video-time-length, .video-level { display: none; } }
+@container (max-width: 25rem) { .video-time-length, .video-level { display: none; } }
+/* Narrower still for its words (a phone at 200% text): Play, the timeline and full screen alone, so the timeline keeps room to seek. */
+@container (max-width: 16rem) { .video-time, .video-sound { display: none; } }
 @media (pointer: coarse) { .video-level { display: none; } }
 /* Full screen: no pane to be carved into, so no carving: the video fills the screen edge to edge on black, and only its bar is glass. */
 .video-player:fullscreen { width: 100%; height: 100%; aspect-ratio: auto; background: #000; box-shadow: none; clip-path: none; }
