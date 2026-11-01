@@ -247,8 +247,8 @@ describe("play-locally", () => {
     const stylesheet = /href="(\/css\/site\.[a-z0-9]+\.css)"/.exec(page)?.[1];
     expect(stylesheet).toBeTruthy();
     expect((await fetch(`${play.benchUrl}${stylesheet}`)).status).toBe(200);
-    for (const script of page.matchAll(/src="(\/js\/[a-z-]+\.[a-z0-9]+\.js)"/g)) expect((await fetch(`${play.benchUrl}${script[1]}`)).status).toBe(200);
-    const font = /href="(\/fonts\/[a-z0-9.]+\.woff2)"/.exec(page)?.[1];
+    for (const script of page.matchAll(/(?:src|href)="(\/js\/[a-z-]+\.[a-z0-9]+\.js)"/g)) expect((await fetch(`${play.benchUrl}${script[1]}`)).status).toBe(200);
+    const font = /url\((\/fonts\/[a-z0-9.]+\.woff2)\)/.exec(page)?.[1];
     expect((await fetch(`${play.benchUrl}${font}`)).headers.get("content-type")).toBe("font/woff2");
     expect((await fetch(`${play.benchUrl}/zaisma-mark-glass-black.svg`)).status).toBe(200);
     expect((await fetch(`${play.benchUrl}/README.md`)).status).toBe(404);

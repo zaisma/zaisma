@@ -366,11 +366,14 @@ export const RAIL_SCRIPT = `/* rail */(function () {
       box.insertAdjacentHTML("afterend", '<div class="rail sideways" data-rail="side" aria-hidden="true">${RAIL_PARTS}</div>');
     });
   }
-  var wiredBars = new WeakSet();
+  var wiredBars = new WeakSet(), isPageRailWaiting = false;
   // Each rail is wired once: the page's, those of the boxes found at the start and those of boxes added later.
   function wireRails() {
   document.querySelectorAll("[data-rail]").forEach(function (bar) {
     if (wiredBars.has(bar)) return;
+    // The page's rail comes first in its body: the browser's own scrollbar goes at once, so it never takes its room for a moment, and the
+    // rail is wired once the page is read, when the parts it marks and the header it starts below are there.
+    if (bar.getAttribute("data-rail") === "page" && document.readyState === "loading") { document.documentElement.classList.add("own-scroll"); if (!isPageRailWaiting) { isPageRailWaiting = true; window.zaismaWatch.whenRead(wireRails); } return; }
     wiredBars.add(bar);
     var isPage = bar.getAttribute("data-rail") === "page", isSide = bar.getAttribute("data-rail") === "side", scroller = isPage ? null : bar.previousElementSibling;
     // A box laid out round what scrolls (a switch's well round its tabs) names it: the rail goes under the box, and follows what's in it.
@@ -392,7 +395,9 @@ export const RAIL_SCRIPT = `/* rail */(function () {
     if (isPage) document.documentElement.classList.add("own-scroll"); else scroller.classList.add("own-scroll");
     // Shown or not by its class, never by hidden: WebKit checks the page's :has() rules on [hidden] again over the whole page each time any
     // element's hidden changes, seconds on a page of a hundred boxes.
-    var isShown = true; bar.classList.add("is-on");
+    // It starts off and comes on once it's measured as having something to scroll, in the frame before the first paint: started on, it
+    // would take its room for a moment and give it back, moving what's below it (isUnplaced places one that has just come on).
+    var isShown = false;
     // The page's marks: one per marked part, sitting where the thumb's middle will be once that part is at the top.
     var offset = function () { return parseFloat(getComputedStyle(document.documentElement).scrollPaddingTop) || 90; };
     // A box's rail marks the parts inside the box, down it or along it; the page's, those in no box of their own.
@@ -538,8 +543,12 @@ export const RAIL_SCRIPT = `/* rail */(function () {
     function wake() { if (!bar.classList.contains("awake")) bar.classList.add("awake"); clearTimeout(sleep); sleep = setTimeout(function () { bar.classList.remove("awake"); }, 1100); }
     (isPage ? window : scroller).addEventListener("scroll", function () { wake(); if (queued) return; queued = true; requestAnimationFrame(function () { queued = false; move(); }); }, { passive: true });
     window.zaismaWatch.resize(layout);
-    window.zaismaWatch.size(isPage ? document.body : scroller.firstElementChild || scroller, layout); if (above) window.zaismaWatch.size(above, layout);
-    // A box's content can change without its first child changing size (a pane's views taking turns, a step showing): measured again then.
+    // What it scrolls, never a drawing laid over it (a carving's cut line comes first in a switch's well, and keeps its size as the tabs
+    // in it narrow): a rail measured on while its tabs overflowed for a moment would stay on, its thumb out past the page's edge.
+    var content = isPage ? document.body : Array.prototype.filter.call(scroller.children, function (child) { return !child.matches("svg, .edge, .cut-line, .rail"); });
+    if (isPage) window.zaismaWatch.size(content, layout); else (content.length ? content : [scroller]).forEach(function (child) { window.zaismaWatch.size(child, layout); });
+    if (above) window.zaismaWatch.size(above, layout);
+    // A box's content can change without its children changing size (a pane's views taking turns, a step showing): measured again then.
     if (!isPage) window.zaismaWatch.page(function (changes) { if (changes.some(function (change) { return scroller.contains(change.target); })) layout(); });
     var drag = null;
     // On a long page a pixel of the thumb is dozens of the page's, so a finger held still, which always trembles a little, would shake the
@@ -656,15 +665,18 @@ export const RAIL_SCRIPT = `/* rail */(function () {
   wireRails();
   // A list the page swaps in later (the rooms on a game's page) gets its rail the same way, never the browser's own scrollbar.
   window.zaismaWatch.page(function (changes) {
-    var scrollBoxes = [], hasSideBox = false;
+    // The page's own rail arrives this way too: this script runs first in the body, before the rail is read.
+    var scrollBoxes = [], hasSideBox = false, hasRail = false;
     changes.forEach(function (change) {
       Array.prototype.forEach.call(change.addedNodes || [], function (node) {
-        if (node.nodeType !== 1 || !node.isConnected || node.closest(".rail, svg, .edge, .cut-line")) return;
+        if (node.nodeType !== 1 || !node.isConnected) return;
+        if (node.matches("[data-rail]") && !wiredBars.has(node)) hasRail = true;
+        if (node.closest(".rail, svg, .edge, .cut-line")) return;
         window.zaismaWatch.scrollBoxesIn(node).forEach(function (box) { if (scrollBoxes.indexOf(box) < 0) scrollBoxes.push(box); });
         if (node.matches("[data-side-rail]") || node.querySelector("[data-side-rail]")) hasSideBox = true;
       });
     });
-    if (!scrollBoxes.length && !hasSideBox) return;
+    if (!scrollBoxes.length && !hasSideBox && !hasRail) return;
     addRails(scrollBoxes, document);
     wireRails();
   });
@@ -712,9 +724,8 @@ export const SCROLL_FADE_SCRIPT = `/* scroll fades */(function () {
   function held(box) { box.classList.toggle("is-scrollable", box.scrollHeight > box.clientHeight + 1); }
   function find() {
     // Boxes that scroll with no fade of their own (a header example's stand-in page, a table) still hold a swipe only while they can scroll.
-    var heldBoxes = Array.from(document.querySelectorAll("[data-scroll-box]")), canScroll = heldBoxes.map(function (box) { return box.scrollHeight > box.clientHeight + 1; });
-    heldBoxes.forEach(function (box, i) {
-      box.classList.toggle("is-scrollable", canScroll[i]);
+    window.zaismaWatch.each("[data-scroll-box]", function (box) {
+      held(box);
       window.zaismaWatch.size(box.firstElementChild || box, function () { held(box); });
     });
     fadeBoxes(window.zaismaWatch.scrollBoxes());
@@ -747,7 +758,7 @@ export const SCROLL_FADE_SCRIPT = `/* scroll fades */(function () {
   window.zaismaWatch.resize(function () { syncAll(boxes); });
   // Rows that scroll sideways fade over a side with more past it, and start where the one you're on shows whole.
   var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  document.querySelectorAll("[data-fades-sideways]").forEach(function (row) {
+  window.zaismaWatch.each("[data-fades-sideways]", function (row) {
     // What's shown in it: a tab, a cover. A folded tab, or a switch's slab, ghost and ring, never counts, so a row whose box only rounds a
     // few pixels wider than what it shows (a phone's emulator) never fades.
     function shown() {
@@ -803,10 +814,12 @@ export const SCROLL_FADE_SCRIPT = `/* scroll fades */(function () {
       row.scrollTo({ left: goal, behavior: "smooth" });
       clearTimeout(row.settleTimer); row.settleTimer = setTimeout(function () { if (Math.abs(row.scrollLeft - goal) > 1) row.scrollTo({ left: goal, behavior: "smooth" }); }, 450);
     };
-    if (here && document.fonts && document.fonts.ready) document.fonts.ready.then(function () { if (isStarted) row.showWhole(here, false); });
+    if (here) window.zaismaWatch.fontsIn(function () { if (isStarted) row.showWhole(here, false); });
     var isFadeQueued = false;
     row.addEventListener("scroll", function () { if (isFadeQueued) return; isFadeQueued = true; requestAnimationFrame(function () { isFadeQueued = false; fades(); }); }, { passive: true });
     window.zaismaWatch.size(row, ends); if (row.firstElementChild) window.zaismaWatch.size(row.firstElementChild, ends);
+    // Words that narrow once their font arrives can leave a row that ran past its box fitting it again, its own size unchanged.
+    window.zaismaWatch.fontArrived(ends);
     ends();
   });
 })();
@@ -820,7 +833,7 @@ export const SCROLL_FADE_SCRIPT = `/* scroll fades */(function () {
  */
 export const COMPACT_SCRIPT = `/* compact bars */(function () {
   var COMPACT_AT_PX = 24;
-  document.querySelectorAll("[data-compacts]").forEach(function (bar) {
+  window.zaismaWatch.each("[data-compacts]", function (bar) {
     if (bar.hasAttribute("data-stays-compact")) { bar.classList.add("is-compact"); return; }
     // A bar follows the box that scrolls right beside it (a header example's stand-in page), or else the page: never a box deeper in, like a table.
     var box = bar.parentElement && bar.parentElement.querySelector(":scope > [data-scroll-box]"), scroller = box || window;
@@ -835,7 +848,12 @@ export const COMPACT_SCRIPT = `/* compact bars */(function () {
 /** A row's arrows scroll it by most of its width, lie flat at its ends, and hide when there's nothing to scroll; the row fades on a side with more (data-fades-sideways). */
 export const ROW_SCRIPT = `/* rows */(function () {
   var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  document.querySelectorAll("[data-row-arrows]").forEach(function (steps) {
+  // A row's arrows may come before the row they scroll: they're wired once it's there too.
+  window.zaismaWatch.each("[data-row-arrows]", function (steps) {
+    var back = steps.querySelectorAll(".cut-btn")[0];
+    if (document.getElementById(back.getAttribute("aria-controls"))) wire(steps); else window.zaismaWatch.whenRead(function () { wire(steps); });
+  });
+  function wire(steps) {
     var arrows = steps.querySelectorAll(".cut-btn"), back = arrows[0], on = arrows[1], track = document.getElementById(back.getAttribute("aria-controls"));
     if (!track) return;
     // The gallery's fixed states: the row starts scrolled to its middle or its end, once it's laid out (a section off screen isn't yet).
@@ -851,7 +869,7 @@ export const ROW_SCRIPT = `/* rows */(function () {
     track.addEventListener("scroll", ends, { passive: true });
     window.zaismaWatch.size(track, ends);
     ends();
-  });
+  }
 })();
 `;
 
@@ -1317,6 +1335,11 @@ export const SIDEBAR_SCRIPT = `/* sidebars */(function () {
   }
   window.zaismaWatch.each("nav.sidebar[data-sidebar-remember]", function (nav) {
     try { var kept = localStorage.getItem(keyOf(nav)); if (kept === "shown" || kept === "hidden") fold(nav, kept === "hidden", false); } catch (error) {}
+    // Its sheet may come later in the page than the sidebar.
+    window.zaismaWatch.whenRead(function () { listenToSheet(nav); });
+    say(nav);
+  });
+  function listenToSheet(nav) {
     var sheet = document.getElementById(nav.id + "-sheet");
     if (sheet) {
       sheet.addEventListener("close", function () { say(nav); var button = buttonsOf(nav)[0]; if (button && (!document.activeElement || document.activeElement === document.body || sheet.contains(document.activeElement))) button.focus({ preventScroll: true }); });
@@ -1324,7 +1347,7 @@ export const SIDEBAR_SCRIPT = `/* sidebars */(function () {
       sheet.addEventListener("click", function (event) { if (event.target.closest && event.target.closest("a[href]")) sheet.close(); });
     }
     say(nav);
-  });
+  }
   document.addEventListener("click", function (event) {
     // A group opens and shuts in place.
     var group = event.target.closest && event.target.closest(".sidebar-group");

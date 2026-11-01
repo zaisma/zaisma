@@ -14,12 +14,20 @@
  *   settles a page with it instead of waiting on frames).
  * - each(selector, callback): callback(element) once for every element matching the selector, those on the page now and any added later
  *   (a pane whose content is swapped in place), so a component's wiring reaches new content as a page load's would.
+ * - afterArrival(callback): once the page's panes have faded in, for work that would drop the fade's frames.
+ * - afterSettling(callback): once the page's own work after its arrival is done too (the full stylesheet on, its script files run) and
+ *   painted, for a fade that would stutter under that work (a game's world). settled() says the work is done (FOLLOWING_FILES_SCRIPT).
  * - scrollBoxes(): the boxes on the page that scroll up and down (overflow-y auto or scroll), in the page's order, found once. Only what the
  *   page's stylesheets, the browser's own or an element's own style make scroll is asked for its style, never every element.
  * Where the browser has no ResizeObserver, size falls back to the window's resize.
  */
+/** The longest the work a page doesn't need to look whole waits for its arrival to play (afterArrival). */
+export const ARRIVAL_WAIT_LIMIT_MS = 1000;
+/** The longest a fade waits, once the page has arrived, for the page's own work to be done (afterSettling). */
+export const SETTLING_WAIT_LIMIT_MS = 1500;
+
 export const WATCH_SCRIPT = `/* watch */(function () {
-  var pageCallbacks = [], sizeCallbacks = new Map(), resizeCallbacks = [], scrollCallbacks = [], sizes = null, hasResizeListener = false, hasScrollListener = false, scrollBoxes = null;
+  var settlingCallbacks = [], settlingState = "working", pageCallbacks = [], sizeCallbacks = new Map(), resizeCallbacks = [], scrollCallbacks = [], sizes = null, hasResizeListener = false, hasScrollListener = false, scrollBoxes = null;
   function runPlain(work) { work(); }
   // Callbacks that share a batch (a function taking the work to do) run together inside it, each once: the edge rule measures a whole batch of controls before drawing any.
   function runBatched(entries) {
@@ -64,6 +72,52 @@ export const WATCH_SCRIPT = `/* watch */(function () {
   function isScrolling(box) { return box !== document.body && document.body.contains(box) && ((box.classList.contains("scrolls") && !box.classList.contains("across")) || /^(auto|scroll)$/.test(getComputedStyle(box).overflowY)); }
   window.zaismaWatch = {
     page: function (callback) { pageCallbacks.push(callback); },
+    // Every change the moment it's made, even to what's still arriving: for the glass, which draws a pane as it fills and again as it grows.
+    arriving: function (callback) { arrivingCallbacks.push(callback); },
+    // Once the page's arrival has played (its panes fading in, a game's world settling in), or at most ARRIVAL_WAIT_LIMIT_MS: for work the
+    // page doesn't need to look whole (the full stylesheet, its script files, drawing every edge again), which runs on the same thread as
+    // the panes' fade and would drop its frames on a fast connection, where it would all land at once. A picture fading in is the
+    // compositor's alone, so nothing waits for it, and the page's buttons work no later than that.
+    afterArrival: function (callback) {
+      var running = document.getAnimations ? document.getAnimations().filter(function (each) { return (each.playState === "running" || each.playState === "paused") && /^(page-arrives|opening-game-settles)$/.test(each.animationName || ""); }) : [];
+      if (!running.length) { callback(); return; }
+      var isDone = false;
+      function done() { if (isDone) return; isDone = true; callback(); }
+      Promise.all(running.map(function (each) { return each.finished.catch(function () {}); })).then(done);
+      setTimeout(done, ${ARRIVAL_WAIT_LIMIT_MS});
+    },
+    // Once the page's own work is done as well and has been painted (two frames on), or at most SETTLING_WAIT_LIMIT_MS after it arrived:
+    // the stylesheet works the page's styles out again and its files draw what they wire, so a fade started under them drops frames.
+    afterSettling: function (callback) {
+      window.zaismaWatch.afterArrival(function () {
+        if (settlingState === "settled") { callback(); return; }
+        settlingCallbacks.push(callback);
+        setTimeout(window.zaismaWatch.settled, ${SETTLING_WAIT_LIMIT_MS});
+      });
+    },
+    settled: function () {
+      if (settlingState !== "working") return;
+      settlingState = "painting";
+      requestAnimationFrame(function () { requestAnimationFrame(function () {
+        settlingState = "settled";
+        settlingCallbacks.splice(0).forEach(function (callback) { callback(); });
+      }); });
+    },
+    // Now, or once the page is read: for what one part finds of another that may come later in the page (a row's arrows and its track).
+    whenRead: function (callback) { if (document.readyState !== "loading") callback(); else readCallbacks.push(callback); },
+    // Once the fonts the page shows have arrived. Asked at the start of the page, the browser's fonts.ready is already settled, as nothing
+    // has asked for a font yet: so it's asked once the page is read and laid out, when every font it shows has been asked for.
+    // Each time a font arrives, for what measures words again: a font a sheet opened later asks for arrives after fontsIn.
+    fontArrived: function (callback) {
+      window.zaismaWatch.fontsIn(callback);
+      if (document.fonts && document.fonts.addEventListener) document.fonts.addEventListener("loadingdone", function () { callback(); });
+    },
+    fontsIn: function (callback) {
+      window.zaismaWatch.whenRead(function () {
+        void document.body.offsetHeight;
+        if (document.fonts && document.fonts.ready) document.fonts.ready.then(callback); else callback();
+      });
+    },
     size: function (element, callback, batch) {
       if (!window.ResizeObserver) { watchWindow("resize", resizeCallbacks, callback, batch); return; }
       if (!sizes) {
@@ -85,12 +139,14 @@ export const WATCH_SCRIPT = `/* watch */(function () {
       runBatched(due);
     },
     scroll: function (callback) { watchWindow("scroll", scrollCallbacks, callback); },
+    // Kept once the page is read; while it's read, what's there so far, and what follows is handed over as it arrives (scrollBoxesIn).
     scrollBoxes: function () {
       if (scrollBoxes) return scrollBoxes;
       var found = new Set();
       scrollSelectors().forEach(function (selector) { matching(document, selector).forEach(function (box) { if (isScrolling(box)) found.add(box); }); });
-      scrollBoxes = Array.from(found).sort(function (one, other) { return one.compareDocumentPosition(other) & 4 ? -1 : 1; });
-      return scrollBoxes;
+      var boxes = Array.from(found).sort(function (one, other) { return one.compareDocumentPosition(other) & 4 ? -1 : 1; });
+      if (document.readyState !== "loading") scrollBoxes = boxes;
+      return boxes;
     },
     // The same for what was added to the page later (a list the page swaps in): the element and what's inside it that scrolls.
     scrollBoxesIn: function (root) {
@@ -102,11 +158,32 @@ export const WATCH_SCRIPT = `/* watch */(function () {
       });
       return Array.from(found);
     },
-    each: function (selector, callback) {
+    // Like each, but handed each one the moment it's on the page, whole or not: for what reads only the element itself (a piece of glass
+    // taking its background's glass), so a pane still arriving is never painted in the wrong glass.
+    eachArriving: function (selector, callback) {
       var wired = new WeakSet();
       function wire(element) { if (wired.has(element)) return; wired.add(element); callback(element); }
       document.querySelectorAll(selector).forEach(wire);
+      arrivingCallbacks.push(function (changes) {
+        changes.forEach(function (change) {
+          change.addedNodes.forEach(function (node) {
+            if (node.nodeType !== 1 || !node.isConnected) return;
+            if (node.matches(selector)) wire(node);
+            node.querySelectorAll(selector).forEach(wire);
+          });
+        });
+      });
+    },
+    each: function (selector, callback) {
+      var wired = new WeakSet();
+      // One already on the page but not yet whole waits for the next change or for the page to be read.
+      var waiting = [];
+      function wire(element) { if (wired.has(element)) return; if (!isWhole(element)) { waiting.push(element); return; } wired.add(element); callback(element); }
+      function wireWaiting() { var due = waiting; waiting = []; due.forEach(wire); }
+      document.querySelectorAll(selector).forEach(wire);
+      if (waiting.length) document.addEventListener("readystatechange", wireWaiting);
       pageCallbacks.push(function (changes) {
+        wireWaiting();
         changes.forEach(function (change) {
           change.addedNodes.forEach(function (node) {
             if (node.nodeType !== 1 || !node.isConnected) return;
@@ -129,10 +206,41 @@ export const WATCH_SCRIPT = `/* watch */(function () {
       return change.oldValue !== change.target.getAttribute(change.attributeName);
     });
   }
+  /*
+   * The page is watched from the start of its body, so while it's read an element arrives before what's in it and what follows it. What
+   * the page adds is handed over only once it's whole (something follows it, or the page is read), so nothing is wired or measured half
+   * there: a switch with half its tabs, a rail beside a pane whose corners aren't known. Once the page is read, every edge, rail and size
+   * is drawn again together (drawAll), as the whole page now places them.
+   */
+  var heldChanges = [], arrivingCallbacks = [], readCallbacks = [];
+  // What's inside a picture, a frame or a canvas never shows, so each is whole as soon as it's there.
+  var WHOLE_AT_ONCE = /^(IMG|INPUT|IFRAME|CANVAS|VIDEO|AUDIO|SOURCE|BR|HR|LINK|META)$/;
+  function isWhole(node) {
+    if (document.readyState !== "loading" || WHOLE_AT_ONCE.test(node.nodeName)) return true;
+    for (var each = node; each && each !== document.body; each = each.parentNode) if (each.nextSibling) return true;
+    return false;
+  }
+  function isChangeWhole(change) {
+    return change.type !== "childList" || Array.prototype.every.call(change.addedNodes, function (node) { return node.nodeType !== 1 || isWhole(node); });
+  }
+  function handOver(changes) {
+    var due = heldChanges.concat(changes);
+    heldChanges = [];
+    var whole = due.filter(function (change) { if (isChangeWhole(change)) return true; heldChanges.push(change); return false; });
+    if (whole.length) pageCallbacks.slice().forEach(function (callback) { callback(whole); });
+  }
   new MutationObserver(function (changes) {
     var due = heard(changes);
-    if (due.length) pageCallbacks.slice().forEach(function (callback) { callback(due); });
+    if (due.length) arrivingCallbacks.slice().forEach(function (callback) { callback(due); });
+    if (due.length || heldChanges.length) handOver(due);
   }).observe(document.body, { subtree: true, childList: true, attributes: true, attributeOldValue: true, attributeFilter: ["class", "open", "hidden"] });
+  if (document.readyState === "loading") document.addEventListener("readystatechange", function read() {
+    if (document.readyState === "loading") return;
+    document.removeEventListener("readystatechange", read);
+    handOver([]);
+    readCallbacks.splice(0).forEach(function (callback) { callback(); });
+    window.zaismaWatch.afterArrival(window.zaismaWatch.drawAll);
+  });
 })();
 `;
 
@@ -760,7 +868,7 @@ export const GLASS_SCRIPT = `/* glass */(function () {
     });
   }
   runBatch(function () { apply(document); });
-  window.zaismaWatch.page(function (changes) { runBatch(function () { changes.forEach(function (change) { change.addedNodes.forEach(apply); }); }); });
+  window.zaismaWatch.arriving(function (changes) { runBatch(function () { changes.forEach(function (change) { change.addedNodes.forEach(apply); }); }); });
   // Edged things are found once the page has laid out, and again whenever something may have moved them into a corner: in the panes round
   // a change and in it, in a pane that changed size, and in every pane once the window's width changes or a font arrives.
   var edgedTimer = 0, edgedPanes = new Set(), isEveryPaneDue = false;

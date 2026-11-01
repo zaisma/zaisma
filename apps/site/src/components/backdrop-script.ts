@@ -476,10 +476,12 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
   }
   // Every canvas's place is read before any is set up: setting one up sizes it, and the next read would lay the page out again (a gallery
   // page has a canvas for each stand-in background).
+  // Each is set up as it arrives, in the frame it first shows in; one the page adds and sets up itself (zaismaBackdrop.add) is set up once.
   var startingLayers = document.querySelectorAll("canvas[data-backdrop], iframe[data-backdrop='frame'], img[data-backdrop='picture']"), inViewAtStart = new Map();
   startingLayers.forEach(function (el) { if (el.tagName === "CANVAS") inViewAtStart.set(el, isInViewNow(el)); });
   startingLayers.forEach(setUp);
   inViewAtStart.clear();
+  window.zaismaWatch.each("canvas[data-backdrop], iframe[data-backdrop='frame'], img[data-backdrop='picture']", setUp);
   /*
    * A page that changes its backdrop (the home, as the game in focus changes) adds and removes layers itself: add(el) sets a new frame or
    * picture up (its glass is measured once its still has loaded), remove(el) forgets one the page took out, and forgetGlass() lets every piece of

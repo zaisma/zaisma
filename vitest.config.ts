@@ -212,6 +212,8 @@ export default defineConfig({
         // Room lists answer from the database every time, so tests see each change at once.
         ROOM_LIST_CACHE_SECONDS: "0",
         PLAYING_NOW_CACHE_SECONDS: "0",
+        // Guest pages answer from the router every time, so tests see each change at once (test/site/first-paint.test.ts turns it on).
+        GUEST_PAGE_CACHE_SECONDS: "0",
         // Cloudflare's check on Play: tests answer it themselves (test/site/plays.test.ts).
         TURNSTILE_SITE_KEY: "test-site-key",
         TURNSTILE_SECRET: "test-secret",

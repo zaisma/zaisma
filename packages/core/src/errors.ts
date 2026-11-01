@@ -364,6 +364,10 @@ export const ADMIN_ERROR_CODES = {
   bad_text: { httpStatus: 400, meaning: "text isn't 1 to 200 characters of one or two plain sentences: no markup, links or line breaks.", messageForPeople: "An announcement is 1 to 200 characters of one or two plain sentences, with no links or line breaks." },
   bad_link_url: { httpStatus: 400, meaning: "link_url isn't an https address or a path on zaisma.com starting with /.", messageForPeople: "A link is an https address or a zaisma.com path starting with /." },
   bad_link_label: { httpStatus: 400, meaning: "link_label isn't 1 to 30 characters, or was given without link_url.", messageForPeople: "A link's words are 1 to 30 characters, and come with a link." },
+
+  // Page speed
+  speed_not_set_up: { httpStatus: 503, meaning: "The site has no CLOUDFLARE_ACCOUNT_ID and ANALYTICS_API_TOKEN to read real visits' speed with.", messageForPeople: "Page speed isn't set up." },
+  speed_unreadable: { httpStatus: 502, meaning: "Analytics Engine didn't answer the speed query.", messageForPeople: "Page speed couldn't be read. Try again in a minute." },
 } as const satisfies Record<string, ErrorCodeEntry>;
 
 export type ErrorCode = keyof typeof ERROR_CODES | keyof typeof ADMIN_ERROR_CODES;

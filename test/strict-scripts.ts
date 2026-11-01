@@ -1,16 +1,22 @@
+import { createHash } from "node:crypto";
+import { FIRST_PAINT_SCRIPT_TEXTS } from "../apps/site/src/html.ts";
+
 /**
  * Strict scripts on zaisma.com (docs/DECISIONS.md): what's wrong with a page the site served, one line
- * per problem, [] when nothing is. A page runs only the site's own script files, so it fails on:
+ * per problem, [] when nothing is. A page runs only the site's own script files and the first-paint script's pieces it carries, so it
+ * fails on:
  *
- * - a Content-Security-Policy whose script-src allows more than 'self' (and Cloudflare's check, and Stripe.js on the buy sheet's pages),
- *   like 'unsafe-inline', 'unsafe-eval', a nonce, a hash or another site,
- * - a <script> that isn't one of the site's files under /js/ (with nothing inside) or a
- *   <script type="application/json"> block (with valid JSON and no src),
+ * - a Content-Security-Policy whose script-src allows more than 'self' and the first-paint pieces' hashes (and Cloudflare's check, and
+ *   Stripe.js on the buy sheet's pages), like 'unsafe-inline', 'unsafe-eval', a nonce, any other hash or another site,
+ * - a <script> that isn't one of the site's files under /js/ (with nothing inside), a first-paint piece exactly as the site writes it, or
+ *   a <script type="application/json"> block (with valid JSON and no src),
  * - an on… attribute on any tag,
  * - a javascript: address in any attribute.
  */
 
 const CHECK_ORIGIN = "https://challenges.cloudflare.com";
+const FIRST_PAINT_HASHES = new Set(FIRST_PAINT_SCRIPT_TEXTS.map((text) => `'sha256-${createHash("sha256").update(text).digest("base64")}'`));
+const FIRST_PAINT_TEXTS = new Set(FIRST_PAINT_SCRIPT_TEXTS);
 const STRIPE_SCRIPT_ORIGIN = "https://js.stripe.com";
 
 /** A start tag: its name and its attributes as written, quoted values included. */
@@ -42,12 +48,15 @@ export function scriptPolicyProblems(contentSecurityPolicy: string | null): stri
     .find(([name]) => name === "script-src")
     ?.slice(1);
   if (!scriptSources) return ["the Content-Security-Policy has no script-src"];
-  return scriptSources.filter((source) => source !== "'self'" && source !== CHECK_ORIGIN && source !== STRIPE_SCRIPT_ORIGIN).map((source) => `script-src allows ${source}`);
+  return scriptSources.filter((source) => source !== "'self'" && source !== CHECK_ORIGIN && source !== STRIPE_SCRIPT_ORIGIN && !FIRST_PAINT_HASHES.has(source)).map((source) => `script-src allows ${source}`);
 }
 
-/** The /js/ files a page loads, to fetch and check they're served. */
+/** The /js/ files a page loads, in order, to fetch and check they're served: its script tags, and the files it names for its first-paint script to run (html.ts's scriptTags). */
 export function pageScriptPaths(page: string): string[] {
-  return [...page.matchAll(START_TAG)].filter(([, name]) => name!.toLowerCase() === "script").map(([, , written]) => attributesOf(written!).get("src") ?? "").filter((path) => path.startsWith("/js/"));
+  return [...page.matchAll(START_TAG)]
+    .map(([, name, written]) => ({ tagName: name!.toLowerCase(), attributes: attributesOf(written!) }))
+    .map(({ tagName, attributes }) => (tagName === "script" ? (attributes.get("src") ?? "") : tagName === "link" && attributes.has("data-page-script") ? (attributes.get("href") ?? "") : ""))
+    .filter((path) => path.startsWith("/js/"));
 }
 
 export function strictScriptProblems(page: string, contentSecurityPolicy: string | null): string[] {
@@ -78,6 +87,8 @@ export function strictScriptProblems(page: string, contentSecurityPolicy: string
     }
     // Stripe.js, from Stripe's own origin as Stripe requires: only the buy sheet's Stripe frame loads it (html.ts's STRIPE_SCRIPT_TAG).
     if (src === `${STRIPE_SCRIPT_ORIGIN}/v3/` && !content.trim()) continue;
+    // A first-paint piece, as html.ts writes it: the policy allows exactly its text by its hash.
+    if (src === undefined && attributes.size === 0 && FIRST_PAINT_TEXTS.has(content)) continue;
     if (src === undefined || !/^\/js\/[a-z]+(-[a-z]+)*\.[0-9a-f]{16}\.js$/.test(src)) problems.push(`a script that isn't one of the site's files: ${whole}${content.slice(0, 120)}`);
     else if (content.trim()) problems.push(`a script file with text inside its tag: ${whole}${content.slice(0, 120)}`);
   }

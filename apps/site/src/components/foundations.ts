@@ -517,9 +517,16 @@ export function backdrop(options: BackdropOptions = {}): Raw {
   return html`<canvas class="backdrop${options.isFramed ? " is-framed" : ""}" data-backdrop="${options.isScene ? "scene" : "shader"}"${options.fragmentShader ? html` data-backdrop-shader="${options.fragmentShader}"` : ""}${options.standInSlug ? html` data-backdrop-stand-in="${options.standInSlug}"` : ""}${options.isGlassAdaptive ? raw(" data-adapts-glass") : ""} aria-hidden="true"></canvas>`;
 }
 
-/** A game's world as its placeholder, under its picture or shader frame until they arrive; nothing without one. */
-export const backdropPlaceholder = (placeholderDataUrl: string | null): Raw =>
-  placeholderDataUrl ? html`<div class="backdrop backdrop-placeholder" aria-hidden="true"${placeholderStyle(placeholderDataUrl)}></div>` : raw("");
+/**
+ * A game's world as its placeholder, under its picture or shader frame until they arrive; nothing without one. Under a picture it's drawn
+ * at the picture's own shape (--placeholder-ratio), as the picture covers the screen: the placeholder, a few pixels wide, rounds its shape,
+ * and covering at that one it would be drawn a few percent larger, so the world would seem to shrink as the picture fades in.
+ */
+export const backdropPlaceholder = (placeholderDataUrl: string | null, shape?: { widthPx: number; heightPx: number }): Raw => {
+  if (!placeholderDataUrl) return raw("");
+  const shapeNumber = shape && shape.widthPx > 0 && shape.heightPx > 0 ? shape.widthPx / shape.heightPx : undefined;
+  return html`<div class="backdrop backdrop-placeholder" aria-hidden="true"${placeholderStyle(placeholderDataUrl, undefined, shapeNumber)}></div>`;
+};
 
 /**
  * The stand-in games' backgrounds for a page that shows them (backdrop's standInSlug): each one's shader written onto its canvas, which
@@ -571,6 +578,8 @@ component({
 /* A game's world: its background picture or shader as a layer over Zaisma's own, fading in once it's ready (the home's, home-script.ts). */
 .backdrop.world { opacity: 0; object-fit: cover; border: 0; transition-property: opacity; transition-timing-function: ease; }
 .backdrop.world.is-shown { opacity: 1; }
+/* A game's shader on its page fades in over its placeholder as slowly as its picture would (--motion-world). */
+.backdrop.world[data-shows-once-drawn] { transition-duration: var(--motion-world); }
 @media (prefers-reduced-motion: reduce) { .backdrop.world { transition: none !important; } }
 :has(> .backdrop) { isolation: isolate; }
 .backdrop-frame { position: relative; width: 100%; height: 220px; display: flex; align-items: center; justify-content: center; overflow: hidden;
@@ -585,8 +594,12 @@ component({
    header and the backdrop, the same on both pages, stand still. Each pane's body (its ::before, which blurs) and what's on it fade, never
    the pane, as a floating pane arrives: a pane fading as a whole blurs nothing behind it until it's in. Never a cross-document view
    transition (tokens.ts says why), so the page takes every press from its first frame. Opening a game from its cover moves on its own
-   (Game background). Under reduced motion, and arriving from another site or a reload, the page simply shows. */
+   (Game background). However the page is reached (a link, a reload, another site), so its panes come in with its world; going back
+   or forward, and under reduced motion, it simply shows. */
 html.is-page-arriving main .glass:not(.glass .glass)::before, html.is-page-arriving main .glass:not(.glass .glass) > * { animation: page-arrives var(--motion-page-switch) var(--ease-standard) both; }
+/* Opened fresh (a reload, another site), nothing was on screen to move from: the panes come in at a calmer pace, beside a world that takes
+   longer still, where a page switch's quick fade would read as a pop. */
+html.is-page-arriving-fresh main .glass:not(.glass .glass)::before, html.is-page-arriving-fresh main .glass:not(.glass .glass) > * { animation-duration: var(--motion-settle); }
 @keyframes page-arrives { from { opacity: 0; } }
 `,
   render: backdrop,
@@ -625,12 +638,12 @@ component({
   summary: "A game's own world behind the glass, on its page and behind it on the home: a picture or a shader its developer sends, for wide screens and phones. It's the game's art, never restyled to Zaisma's look, and the glass over it turns light or smoked to keep the words clear. Until real games bring theirs, the stand-in games have these.",
   styles: `
 /* Opening a game from its cover (PAGE_SWITCH_SCRIPT): the cover sinks under the press, the game's world settles in from a touch larger,
-   and once it has, the page's panes fade in over it as every page's do (page-arrives, Backdrop), only later and slower. */
+   and once it has, the page's panes fade in over it as every page's do (page-arrives, Backdrop), only later: the same gentle
+   start, never a glide whose first frame is half in, which Safari, with a frame or two to spare while the game's world starts, shows as a pop. */
 html.is-opening-game .backdrop { animation: opening-game-settles calc(var(--motion-page-switch) * 1.8) var(--ease-glide) both; }
 @keyframes opening-game-settles { from { scale: 1.06; } }
-html.is-opening-game main .glass:not(.glass .glass)::before, html.is-opening-game main .glass:not(.glass .glass) > * {
-  animation-duration: calc(var(--motion-page-switch) * 0.8); animation-delay: var(--motion-page-switch); animation-timing-function: var(--ease-glide); }
-/* A page prepared ahead holds its arrival, from its first frame, until it's opened (is-page-held). */
+html.is-opening-game main .glass:not(.glass .glass)::before, html.is-opening-game main .glass:not(.glass .glass) > * { animation-delay: var(--motion-page-switch); }
+/* A page holds its arrival at its start (is-page-held) until the browser has shown it, and a page prepared ahead until it's opened. */
 html.is-page-held .backdrop, html.is-page-held main .glass:not(.glass .glass)::before, html.is-page-held main .glass:not(.glass .glass) > * { animation-play-state: paused; }
 `,
   render: gameBackgroundFrame,
@@ -641,12 +654,16 @@ html.is-page-held .backdrop, html.is-page-held main .glass:not(.glass .glass)::b
 });
 
 /**
- * Moving from one of Zaisma's pages to the next (Backdrop's and Game background's motion): a page reached from another of Zaisma's by a
- * link (not a reload, not back or forward) has its panes fade in (is-page-arriving); one reached by a tap on a game's cover, the tap
+ * Moving from one of Zaisma's pages to the next (Backdrop's and Game background's motion): a page reached by a link, a reload or from
+ * another site (not back or forward) has its panes fade in (is-page-arriving), as its world does behind them; one reached by a tap on a game's cover, the tap
  * remembered for the tab, has its world settle in first (is-opening-game). A page prepared ahead holds both from its first frame until
- * it's opened (is-page-held), and only then reads the tap, which came after it was prepared. In the first-paint script, so the classes
+ * it's opened (is-page-held), and only then reads the tap, which came after it was prepared; every other page holds them until the
+ * browser has painted it. In the first-paint script, so the classes
  * are there before the page shows.
  */
+/** The longest a page's arrival is held for the browser to say it has shown the page (PAGE_SWITCH_SCRIPT). */
+export const FIRST_PAINT_WAIT_LIMIT_MS = 1000;
+
 export const PAGE_SWITCH_SCRIPT = `/* page switch */(function () {
   var KEY = "zaisma:opening-game", root = document.documentElement;
   function gameSlugOf(address) {
@@ -659,18 +676,34 @@ export const PAGE_SWITCH_SCRIPT = `/* page switch */(function () {
     try { sessionStorage.setItem(KEY, JSON.stringify({ slug: slug, pressed_at_ms: Date.now() })); } catch (error) {}
   });
   var entry = performance.getEntriesByType && performance.getEntriesByType("navigation")[0], isFromHere = false;
+  if (!entry || entry.type === "back_forward" || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
   try { isFromHere = new URL(document.referrer).origin === location.origin; } catch (error) {}
-  if (!isFromHere || !entry || entry.type !== "navigate" || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-  function arrive() {
+  // The tap that opened this page: read now, or, on a page prepared ahead of it, once it's opened.
+  function readTap() {
     var opening = null;
     try { opening = JSON.parse(sessionStorage.getItem(KEY) || "null"); sessionStorage.removeItem(KEY); } catch (error) {}
     if (opening && opening.slug === gameSlugOf(location.href) && Date.now() - opening.pressed_at_ms < 10000) root.classList.add("is-opening-game");
-    root.classList.remove("is-page-held");
-    setTimeout(function () { root.classList.remove("is-page-arriving", "is-opening-game"); }, 1500);
   }
-  root.classList.add("is-page-arriving");
-  if (document.prerendering) { root.classList.add("is-page-held"); document.addEventListener("prerenderingchange", arrive, { once: true }); }
-  else arrive();
+  // Held at its start until the browser has shown the page: Safari starts an animation when it works the page's styles out, often well
+  // before it paints, so a fade let run from then is mostly over, or over, by the page's first frame.
+  var isShown = false, isArrived = false;
+  function arrive() {
+    if (isArrived || !isShown || document.prerendering) return;
+    isArrived = true;
+    // On the next frame drawn, not now: the page is often still finishing being read when the paint is heard, and a fade let go under
+    // that work starts its first frame already part way in. A page opened in a tab behind starts it once it's looked at.
+    requestAnimationFrame(function () {
+      root.classList.remove("is-page-held");
+      setTimeout(function () { root.classList.remove("is-page-arriving", "is-page-arriving-fresh", "is-opening-game"); }, 1500);
+    });
+  }
+  function shown() { isShown = true; arrive(); }
+  root.classList.add("is-page-arriving", "is-page-held");
+  if (!isFromHere || entry.type !== "navigate") root.classList.add("is-page-arriving-fresh");
+  if (document.prerendering) document.addEventListener("prerenderingchange", function () { readTap(); shown(); }, { once: true });
+  else readTap();
+  try { new PerformanceObserver(function (list) { if (list.getEntriesByName("first-contentful-paint").length) shown(); }).observe({ type: "paint", buffered: true }); } catch (error) { shown(); }
+  setTimeout(shown, ${FIRST_PAINT_WAIT_LIMIT_MS});
 })();
 `;
 
@@ -715,11 +748,17 @@ function keptSizes(imageUrl: string, shownSizes: string, largestPx: number): Raw
   return html` srcset="${widths.map((widthPx) => `${imageUrl}/w${widthPx}.webp ${widthPx}w`).join(", ")}" sizes="${shownSizes}"`;
 }
 
-/** The style that carries a picture's placeholder (and its shape) to its box. Only a data: URL of an image is ever written into it. */
-export function placeholderStyle(placeholderDataUrl: string | null, shape?: { widthPx: number; heightPx: number }): Raw {
+/**
+ * The style that carries a picture's placeholder (and its shape) to its box. Only a data: URL of an image is ever written into it.
+ * coverShapeNumber, the picture's width over its height, has the placeholder cover its box at that shape rather than its own rounded one
+ * (--placeholder-size, in the box's own size: it's a size container).
+ */
+export function placeholderStyle(placeholderDataUrl: string | null, shape?: { widthPx: number; heightPx: number }, coverShapeNumber?: number): Raw {
+  const shapeText = coverShapeNumber && Number.isFinite(coverShapeNumber) && coverShapeNumber > 0 ? coverShapeNumber.toFixed(4) : null;
   const parts = [
     placeholderDataUrl && /^data:image\/(webp|png|jpeg);base64,[A-Za-z0-9+/=]+$/.test(placeholderDataUrl) ? `--placeholder: url(${placeholderDataUrl})` : "",
     shape ? `--picture-shape: ${Math.round(shape.widthPx)} / ${Math.round(shape.heightPx)}` : "",
+    shapeText ? `--placeholder-size: max(100cqw, 100cqh * ${shapeText}) max(100cqw / ${shapeText}, 100cqh)` : "",
   ].filter(Boolean);
   return parts.length ? html` style="${parts.join("; ")}"` : raw("");
 }
@@ -736,14 +775,26 @@ export function picture(shown: ShownPicture, options: PictureOptions = {}): Raw 
 }
 
 /**
- * Pictures arriving: each img.reveals shows once it has wholly arrived and decoded, fading in over its placeholder; one already there when
- * this runs (from the browser's cache) shows at once. One that fails stays its placeholder. Part of the first paint's script (html.ts), so
+ * Pictures arriving: each img.reveals shows once it has wholly arrived and decoded, fading in over its placeholder; one there before the
+ * page's first paint (from the browser's cache) shows at once, as its placeholder was never seen, and so does one that has faded in, so
+ * a script moving it never plays it again. One that arrives quickly but after the first paint still fades: its placeholder showed.
+ * One that fails stays its placeholder. Part of the first paint's script (html.ts), so
  * a picture never waits on the rest of the page's scripts.
  */
 export const PICTURE_SCRIPT = `/* pictures */(function () {
-  function show(img, isAtOnce) { if (isAtOnce) img.classList.add("at-once"); img.classList.add("is-shown"); }
+  function show(img, isAtOnce) {
+    if (isAtOnce) { img.classList.add("at-once"); img.classList.add("is-shown"); return; }
+    img.addEventListener("animationend", function () { img.classList.add("at-once"); }, { once: true });
+    // A game's world fades in once the page's panes have and the page's own work is done (window.zaismaWatch.afterSettling): the glass
+    // blurs what's behind it, so both fading at once has every frame blur every pane over a changing world, and the whole stylesheet
+    // going on under the fade drops its frames, which a fast connection, where they'd all meet, shows as stutter.
+    if (img.classList.contains("backdrop") && window.zaismaWatch && window.zaismaWatch.afterSettling) window.zaismaWatch.afterSettling(function () { img.classList.add("is-shown"); });
+    else img.classList.add("is-shown");
+  }
   window.zaismaWatch.each("img.reveals", function (img) {
-    if (img.complete && img.naturalWidth) { show(img, true); return; }
+    var hasPainted = Boolean(window.performance && performance.getEntriesByType && performance.getEntriesByType("paint").length);
+    if (img.complete && img.naturalWidth && !hasPainted) { show(img, true); return; }
+    if (img.complete && img.naturalWidth) { (img.decode ? img.decode() : Promise.resolve()).then(function () { show(img, false); }, function () { show(img, false); }); return; }
     img.addEventListener("load", function () { (img.decode ? img.decode() : Promise.resolve()).then(function () { show(img, false); }, function () { show(img, false); }); });
   });
 })();

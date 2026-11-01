@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { pageScript, type PageScript } from "../page-scripts.ts";
-import { MINIFIED_COMPONENT_SCRIPT, MINIFIED_FIRST_PAINT_SCRIPT } from "../generated/components-script.generated.ts";
+import { MINIFIED_COMPONENT_SCRIPT, MINIFIED_FIRST_PAINT_PIECES, MINIFIED_FIRST_PAINT_SCRIPT, MINIFIED_LOOK_SCRIPT } from "../generated/components-script.generated.ts";
+import { ACCOUNT_LINK_SCRIPT, FOLLOWING_FILES_SCRIPT, HIDDEN_AMOUNTS_SCRIPT, MEASURED_GLASS_SCRIPT, SHOWN_ONCE_DRAWN_SCRIPT, THEME_SCRIPT } from "./first-paint-script.ts";
 import { COMPONENTS } from "./component.ts";
 import { BACKDROP_SCRIPT, EDGE_LIGHT_SCRIPT, GLASS_SCRIPT, PAGE_SWITCH_SCRIPT, PICTURE_SCRIPT, TOKEN_STYLES, WATCH_SCRIPT } from "./foundations.ts";
 import { BUSY_SCRIPT, RUNNER_SCRIPT, TOGGLE_SCRIPT } from "./actions.ts";
@@ -82,15 +83,75 @@ let shownStyles = "";
 export const COMPONENT_STYLES = (): string => (shownStyles ||= hoverOnlyWherePointing(TOKEN_STYLES + MATERIAL_STYLES + COMPONENTS().map((each) => each.styles).join("")));
 
 /**
- * The components' scripts, readable, in two (what scripts/minify-components.mjs minifies). The first-paint script draws and places what the
- * page's first paint shows: the page watcher, pictures arriving, the glass and its edge rule, the materials, where panes hang, and every
- * script that sizes or places the layout (a switch's slab, rails, rows, fades, the sidebar, compacting, a pane started low, the sign-in's pane, a long field's height, a
- * chart's scroll, a slider's and a colour's thumb, a date's words in the viewer's time, a menu shown in place), and the backdrop, first, so Zaisma's shader starts with the page, never after its stand-in, and a game's world picks its glass before anything
- * reads the page (read light first, the glass would fade to smoked as the page showed). The page holds its first paint for
- * it alone, in its head ("A page shows whole while it loads", docs/DESIGN.md), so it's kept to that; the loading check (layout-check.mjs)
- * fails a page that changes when the rest is held back, which is how a script is found to belong here. The rest runs after, holding nothing.
+ * The components' scripts, readable, in three (what scripts/minify-components.mjs minifies). The first-paint script comes inside every page,
+ * at the end of its <body> (html.ts), in the pieces the page needs, so nothing the page downloads holds its first paint ("A page shows
+ * whole while it loads", docs/DESIGN.md): the theme, the files that follow it, the page watcher, pictures arriving, the glass and its edge
+ * rule (and glass over a measured background), the materials, and every script that sizes or places the layout or sets words (a switch's
+ * slab, rows, the sidebar, compacting, rails and scroll fades, a pane started low, the sign-in's pane, a long field's height, a chart's
+ * scroll, a slider's and a colour's thumb, a date's words in the viewer's time), and Zaisma's own shader behind the glass. It runs once the
+ * page is read, before its first paint. The look script follows with what only adds light and motion: a game's world behind the glass, edge
+ * lights, and panes hung from a button (menus, select lists). The loading check (layout-check.mjs) holds back everything but the page and
+ * fails one that changes when the rest arrives, which is how a script is found to belong in the first. The rest runs after, holding nothing.
  */
-export const FIRST_PAINT_SCRIPT_SOURCE = WATCH_SCRIPT + BACKDROP_SCRIPT + PAGE_SWITCH_SCRIPT + PICTURE_SCRIPT + GLASS_SCRIPT + MATERIAL_SCRIPT + PLACE_SCRIPT + EDGE_LIGHT_SCRIPT + SWITCH_SCRIPT + RAIL_SCRIPT + ROW_SCRIPT + ROW_LAYOUT_SCRIPT + SCROLL_FADE_SCRIPT + SIDEBAR_SCRIPT + COMPACT_SCRIPT + STARTED_LOW_SCRIPT + WHEEL_SCRIPT + CHART_SCRIPT + LONG_FIELD_SCRIPT + SLIDER_SCRIPT + COLOR_FIELD_SCRIPT + DROPDOWN_SCRIPT + SELECT_SCRIPT + CITY_PANE_PLACE_SCRIPT;
+export interface FirstPaintPiece {
+  /** Lowercase words joined by dashes. */
+  readonly name: string;
+  readonly source: string;
+  /** What in a page's markup needs it; null for every page. */
+  readonly marker: RegExp | null;
+}
+
+/**
+ * Each piece runs once in a page, whether the page carried it or a file brought it for something added later (a sheet fetched in with a
+ * wheel in it): the look script carries every piece that only some pages carry.
+ */
+const firstPaintPiece = (name: string, source: string, marker: RegExp | null): FirstPaintPiece => ({
+  name, marker,
+  source: `(function () { var pieces = window.zaismaPieces = window.zaismaPieces || {}; if (pieces[${JSON.stringify(name)}]) return; pieces[${JSON.stringify(name)}] = true;\n${source}})();\n`,
+});
+
+/** The first-paint script's pieces, in the order they run: a page carries the ones its markup needs (html.ts, firstPaintScriptTags). */
+export const FIRST_PAINT_PIECES: readonly FirstPaintPiece[] = [
+  firstPaintPiece("theme", THEME_SCRIPT, null),
+  firstPaintPiece("following-files", FOLLOWING_FILES_SCRIPT, null),
+  firstPaintPiece("watch", WATCH_SCRIPT, null),
+  // A page reached from another of Zaisma's has its panes fade in, and a game opened from its cover its world settle in first.
+  firstPaintPiece("page-switch", PAGE_SWITCH_SCRIPT, null),
+  // Glass over a game's world takes its glass before anything draws or measures it, so a pane is styled smoked from the first, never light then smoked.
+  firstPaintPiece("measured-glass", MEASURED_GLASS_SCRIPT, /data-glass-kind=/),
+  firstPaintPiece("pictures", PICTURE_SCRIPT, null),
+  firstPaintPiece("glass", GLASS_SCRIPT, null),
+  firstPaintPiece("materials", MATERIAL_SCRIPT, null),
+  firstPaintPiece("rows", ROW_LAYOUT_SCRIPT, null),
+  firstPaintPiece("compacting", COMPACT_SCRIPT, null),
+  // A rail takes its room beside what scrolls (a table, a track), and every page has the page's own.
+  firstPaintPiece("rails", RAIL_SCRIPT, null),
+  // A row that scrolls sideways starts where the one you're on shows whole.
+  firstPaintPiece("scroll-fades", SCROLL_FADE_SCRIPT, null),
+  // Zaisma's own shader is drawn in the first frame, so its stand-in never flashes; a game's world starts as its blurred placeholder and
+  // follows with the look script.
+  firstPaintPiece("backdrop", BACKDROP_SCRIPT, /data-backdrop="shader"/),
+  // A game's shader frame fades in once it has drawn: listening from the start, as its runner can say so before the page's files run.
+  firstPaintPiece("shown-once-drawn", SHOWN_ONCE_DRAWN_SCRIPT, /data-shows-once-drawn/),
+  firstPaintPiece("switches", SWITCH_SCRIPT, /\btab-switch\b/),
+  firstPaintPiece("row-arrows", ROW_SCRIPT, /data-row-arrows/),
+  firstPaintPiece("sidebar", SIDEBAR_SCRIPT, /\bsidebar-main\b|data-sidebar-remember/),
+  firstPaintPiece("started-low", STARTED_LOW_SCRIPT, /\bis-started-low\b/),
+  // Where a pane hangs from its button: a wheel or a colour field makes its floating pane as it's wired.
+  firstPaintPiece("placing", PLACE_SCRIPT, /data-wheels|data-color-field/),
+  firstPaintPiece("wheels", WHEEL_SCRIPT, /data-wheels/),
+  firstPaintPiece("charts", CHART_SCRIPT, /data-chart-scroll/),
+  firstPaintPiece("long-fields", LONG_FIELD_SCRIPT, /data-long-field/),
+  firstPaintPiece("sliders", SLIDER_SCRIPT, /data-slider/),
+  firstPaintPiece("color-fields", COLOR_FIELD_SCRIPT, /data-color-field/),
+  firstPaintPiece("city-pane", CITY_PANE_PLACE_SCRIPT, /data-city-pane|\bcity-stage\b/),
+  firstPaintPiece("account-link", ACCOUNT_LINK_SCRIPT, /data-account-from-cookie/),
+  firstPaintPiece("hidden-amounts", HIDDEN_AMOUNTS_SCRIPT, /data-amount/),
+];
+/** Every piece, as the gallery's first-paint file carries it. */
+export const FIRST_PAINT_SCRIPT_SOURCE = FIRST_PAINT_PIECES.map((piece) => piece.source).join("");
+const SOME_PAGES_PIECES_SOURCE = FIRST_PAINT_PIECES.filter((piece) => piece.marker).map((piece) => piece.source).join("");
+export const LOOK_SCRIPT_SOURCE = SOME_PAGES_PIECES_SOURCE + EDGE_LIGHT_SCRIPT + DROPDOWN_SCRIPT + SELECT_SCRIPT;
 export const COMPONENT_SCRIPT_SOURCE = FIELD_SCRIPT + PIN_FIELD_SCRIPT + RUNNER_SCRIPT + BUSY_SCRIPT + TOGGLE_SCRIPT + CHECK_SCRIPT + CHOICE_CARDS_SCRIPT + FILE_DROP_SCRIPT + COPY_SCRIPT + QR_CODE_SCRIPT + SEARCH_SCRIPT + FILTER_MENU_SCRIPT + LAYERS_SCRIPT + STEP_FLOW_SCRIPT + CONFIRM_ITS_YOU_SCRIPT + LOAD_MORE_SCRIPT + PLAYING_CARD_SCRIPT + LIST_ROW_FOLD_SCRIPT;
 
 /**
@@ -99,5 +160,12 @@ export const COMPONENT_SCRIPT_SOURCE = FIELD_SCRIPT + PIN_FIELD_SCRIPT + RUNNER_
  */
 const minifiedOr = (minified: { sourceSha256: string; minifiedText: string }, source: string) =>
   minified.sourceSha256 === createHash("sha256").update(source).digest("hex") ? minified.minifiedText : source;
+/** The first-paint script, inside every page (html.ts), and a file of its own for the gallery, which holds its first paint for its files. */
 export const FIRST_PAINT_SCRIPT: PageScript = pageScript("first-paint", minifiedOr(MINIFIED_FIRST_PAINT_SCRIPT, FIRST_PAINT_SCRIPT_SOURCE));
+export const LOOK_SCRIPT: PageScript = pageScript("look", minifiedOr(MINIFIED_LOOK_SCRIPT, LOOK_SCRIPT_SOURCE));
+/** Each piece's text as a page carries it, minified. */
+export const firstPaintPieceText = (piece: FirstPaintPiece): string => {
+  const minified = (MINIFIED_FIRST_PAINT_PIECES as Record<string, { sourceSha256: string; minifiedText: string } | undefined>)[piece.name];
+  return minified ? minifiedOr(minified, piece.source) : piece.source;
+};
 export const COMPONENT_SCRIPT: PageScript = pageScript("components", minifiedOr(MINIFIED_COMPONENT_SCRIPT, COMPONENT_SCRIPT_SOURCE));

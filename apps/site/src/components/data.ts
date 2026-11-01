@@ -1057,7 +1057,7 @@ function ringChart(options: ChartOptions): Raw {
  * shows its number, and the arrow keys, Home and End step along its points, scrolling each into view. Screen readers read its table instead.
  */
 export const CHART_SCRIPT = `/* charts */(function () {
-  document.querySelectorAll("[data-chart-scroll]").forEach(function (scroll) { scroll.scrollLeft = scroll.scrollWidth; });
+  window.zaismaWatch.each("[data-chart-scroll]", function (scroll) { scroll.scrollLeft = scroll.scrollWidth; });
   function focusPoint(chart, hits, to) {
     hits.forEach(function (hit, hitIndex) { hit.classList.toggle("is-focused", hitIndex === to); });
     var scroll = chart.querySelector("[data-chart-scroll]"), hit = hits[to];
